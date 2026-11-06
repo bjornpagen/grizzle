@@ -1,7 +1,7 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { array, boolean, element, type Gen, int, map, weighted } from "@grizzle/testing/gen"
+import { array, boolean, element, filter, type Gen, int, map, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -53,7 +53,7 @@ import { families, jsAccepts, patternOver, stringsOver } from "#test/unit/text/g
  *    the pattern's parse) and, for a match, ECMAScript's own test, the development oracle the text differential holds
  *    the ARE translation to.
  * 2. Installed CHECKs: the real installer's DDL, one CHECK whose pattern is a closed relation's dictionary,
- *    `Pattern.at("pattern", domain)`, and one of a literal, each probe row inserted under a savepoint; the server
+ *    `Pattern.at("pattern", domain)`, and one of a drawn literal, each probe row inserted under a savepoint; the server
  *    admits a row exactly when ECMAScript's test of its pattern holds, and refuses every other with 23514 naming that
  *    CHECK.
  */
@@ -321,10 +321,11 @@ layer(Substrate.layer)("Compute's text terms on PostgreSQL", (it) => {
 			)
 	)
 
-	/** The dictionary a case installs: each domain's pattern, and the probe texts. */
+	/** The dictionary a case installs: each domain's pattern, the literal pattern of its Tagged rows, and the probe texts. */
 	interface Dictionary {
 		readonly family: number
 		readonly patterns: Arr.NonEmptyReadonlyArray<string>
+		readonly literal: string
 		readonly probes: ReadonlyArray<{ readonly domain: number; readonly lexical: string }>
 	}
 
@@ -334,20 +335,22 @@ layer(Substrate.layer)("Compute's text terms on PostgreSQL", (it) => {
 		| "literal admits"
 		| "literal refuses"
 
-	/** Patterns the case's family admits, each checked as Compute.matches admits it. */
+	/** Patterns over the case's family that Compute.matches admits, the dictionary's and the literal's. */
 	const dictionary: Gen<Dictionary> = (source) => {
 		const fi = source.draw(int(0, families.length - 1))
 		const family = defined(families[fi], "a family")
-		const admitted = (p: string): boolean => matchPattern(p, SourceLoc("pattern", [])).ok
-		const one: Gen<string> = (s) => {
-			const drawnPattern = s.draw(patternOver(family.alphabet))
-			return admitted(drawnPattern) ? drawnPattern : "^$"
-		}
-		const patterns = source.draw(array(one, { min: 1, max: 4 }))
+		const admitted = filter(
+			patternOver(family.alphabet),
+			(p) => matchPattern(p, SourceLoc("pattern", [])).ok,
+			16
+		)
+		const first = source.draw(admitted)
+		const more = source.draw(array(admitted, { min: 0, max: 3 }))
 		const strings = stringsOver(family.alphabet, 6)
 		return {
 			family: fi,
-			patterns: Arr.isReadonlyArrayNonEmpty(patterns) ? patterns : ["^$"],
+			patterns: [first, ...more],
+			literal: source.draw(admitted),
 			probes: source.draw(
 				array((p) => ({ domain: p.draw(int(0, 3)), lexical: p.draw(strings) }), {
 					min: 1,
@@ -356,9 +359,6 @@ layer(Substrate.layer)("Compute's text terms on PostgreSQL", (it) => {
 			)
 		}
 	}
-
-	/** The literal pattern every case's Tagged rows are checked by. */
-	const literalSource = "^[ab]+$"
 
 	const dictionarySchema = (d: Dictionary) => {
 		const handles = Arr.map(d.patterns, (_, i) => `D${i}`)
@@ -378,7 +378,7 @@ layer(Substrate.layer)("Compute's text terms on PostgreSQL", (it) => {
 		const lexical = check("Lexical", Value, (v) =>
 			Compute.matches(v.lexical, Pattern.at("pattern", v.domain))
 		)
-		const literal = check("Literal", Tagged, (t) => Compute.matches(t.code, literalSource))
+		const literal = check("Literal", Tagged, (t) => Compute.matches(t.code, d.literal))
 		const value = schema("Dictionary", { Domain, Pattern, Value, Tagged }, [lexical, literal])
 		return { value, Value, Tagged, lexical, literal }
 	}
@@ -448,7 +448,7 @@ layer(Substrate.layer)("Compute's text terms on PostgreSQL", (it) => {
 					)
 				)
 				reached.add(holds ? "dictionary admits" : "dictionary refuses")
-				const tagged = jsAccepts(literalSource, "u", p.lexical)
+				const tagged = jsAccepts(d.literal, "u", p.lexical)
 				const literalVerdict = yield* probe(
 					pinned,
 					`INSERT INTO ${names.table(s.Tagged)} (${names.column(s.Tagged, "id")}, ${names.column(s.Tagged, "code")}) VALUES ($1, $2)`,
@@ -457,7 +457,7 @@ layer(Substrate.layer)("Compute's text terms on PostgreSQL", (it) => {
 				appendAll(
 					problems,
 					judged(
-						`Tagged /${literalSource}/u over ${Formatter.format(p.lexical)}`,
+						`Tagged /${d.literal}/u over ${Formatter.format(p.lexical)}`,
 						tagged,
 						literalVerdict,
 						literalCheck

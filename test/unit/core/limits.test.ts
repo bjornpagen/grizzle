@@ -3,10 +3,11 @@
  * another route than its own `compute`, against a second implementation where Node holds one:
  *
  * - smallint, integer and bigint are the two's-complement integers Int16Array, Int32Array and BigInt64Array hold, so
- *   their published ranges and typlens and rosterMaxCodes are read off Node's typed arrays;
+ *   their published ranges and typlens are read off Node's typed arrays, and rosterMaxCodes counts the non-negative
+ *   integers Int16Array holds, at every code within eight of its first and of its last;
  * - constantMaxBits is the longest bit length whose rounding up to whole bytes still fits an Int32Array slot;
- * - heapTupleMaxBytes is the largest tuple PageAddItem's fit test admits on an empty heap page, found by search, and
- *   alignUp is TYPEALIGN's bit arithmetic.
+ * - heapTupleMaxBytes is the largest tuple PageAddItem's fit test admits on an empty heap page, at every size within
+ *   sixteen bytes of it, and alignUp is TYPEALIGN's bit arithmetic.
  *
  * NAMEDATALEN, MaxAttrSize and BITS_PER_BYTE have no counterpart in Node: handleMaxBytes, bitColumnMaxBits and
  * maxIdentifierBytes are their sources' arithmetic alone, and a test of them could only restate it, so none is written.
@@ -14,7 +15,7 @@
 import { describe, it } from "@effect/vitest"
 import { type Case, exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
-import { element, type Gen, int } from "@grizzle/testing/gen"
+import { element, type Gen, int, oneOf } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Effect, Formatter } from "effect"
 import {
@@ -107,14 +108,55 @@ describe("PostgreSQL's integers", () => {
 		)
 	)
 
-	it("number a roster's codes by every non-negative smallint, once each", () => {
-		const holds = integerTypes.smallint.holds
-		let codes = 0
-		for (let code = 0n; holds(code); code += 1n) {
-			codes += 1
-		}
-		assert.equal(rosterMaxCodes.value, codes, "the non-negative smallints, counted")
-	})
+	/** Where a code falls among a roster's: below its first, among them, its last, or past it. */
+	type Code = "below the codes" | "a code" | "the last code" | "past the codes"
+
+	/**
+	 * A roster's codes are 0 to rosterMaxCodes − 1: a code numbers a member exactly when it is not negative and a smallint
+	 * holds it. Oracle: Node's Int16Array, holding C's int16.
+	 */
+	const numbers = (code: number, c: Case<Code>) =>
+		Effect.sync(() => {
+			const isCode = code >= 0 && code < rosterMaxCodes.value
+			assert.equal(
+				isCode,
+				code >= 0 && integerTypes.smallint.holds(BigInt(code)),
+				`the code ${code}`
+			)
+			c.note(
+				code < 0
+					? "below the codes"
+					: code === rosterMaxCodes.value - 1
+						? "the last code"
+						: isCode
+							? "a code"
+							: "past the codes"
+			)
+		})
+
+	it.effect("number a roster's codes by every non-negative smallint, once each", (ctx) =>
+		searched(
+			ctx,
+			exhaust(
+				{
+					suite: "unit/core/limits-roster",
+					generator: oneOf([int(-8, 8), int(rosterMaxCodes.value - 8, rosterMaxCodes.value + 8)]),
+					literal: Formatter.format,
+					limit: 34,
+					box: "every code within eight of the first code and of rosterMaxCodes",
+					oracle: { kind: "second-implementation", name: "Node's Int16Array" },
+					coverage: requiredInSpace<Code>([
+						"below the codes",
+						"a code",
+						"the last code",
+						"past the codes"
+					]),
+					caseHang
+				},
+				numbers
+			)
+		)
+	)
 })
 
 describe("a constant's length", () => {
@@ -200,13 +242,47 @@ describe("a heap page", () => {
 		)
 	)
 
-	it("holds as its largest heap tuple the largest one PageAddItem fits on an empty page beside its line pointer", () => {
-		const fits = (size: number): boolean =>
-			pageHeaderBytes.value + itemIdBytes.value <= blockSize.value - typeAlign(maxAlign.value, size)
-		let largest = blockSize.value
-		while (!fits(largest)) {
-			largest -= 1
-		}
-		assert.equal(heapTupleMaxBytes.value, largest, "the largest size PageAddItem's fit test admits")
-	})
+	type Tuple = "below the bound" | "at the bound" | "past the bound"
+
+	/**
+	 * A tuple of a size fits an empty heap page beside its line pointer, by PageAddItem's fit test over the page header,
+	 * exactly when the size is at most heapTupleMaxBytes. Oracle: PageAddItem's fit test.
+	 */
+	const fitsPage = (size: number, c: Case<Tuple>) =>
+		Effect.sync(() => {
+			assert.equal(
+				pageHeaderBytes.value + itemIdBytes.value <=
+					blockSize.value - typeAlign(maxAlign.value, size),
+				size <= heapTupleMaxBytes.value,
+				`a tuple of ${size} bytes`
+			)
+			c.note(
+				size === heapTupleMaxBytes.value
+					? "at the bound"
+					: size < heapTupleMaxBytes.value
+						? "below the bound"
+						: "past the bound"
+			)
+		})
+
+	it.effect(
+		"holds as its largest heap tuple the largest one PageAddItem fits on an empty page beside its line pointer",
+		(ctx) =>
+			searched(
+				ctx,
+				exhaust(
+					{
+						suite: "unit/core/limits-heap-tuple",
+						generator: int(heapTupleMaxBytes.value - 16, heapTupleMaxBytes.value + 16),
+						literal: Formatter.format,
+						limit: 33,
+						box: "every tuple size within sixteen bytes of heapTupleMaxBytes",
+						oracle: { kind: "specification", name: "PageAddItem's fit test on an empty heap page" },
+						coverage: requiredInSpace<Tuple>(["below the bound", "at the bound", "past the bound"]),
+						caseHang
+					},
+					fitsPage
+				)
+			)
+	)
 })

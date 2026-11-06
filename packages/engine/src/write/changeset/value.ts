@@ -1,6 +1,6 @@
 import type { Stream } from "effect"
 import { indices } from "#compiler/core/array.ts"
-import { canonicalEquals, everyProperty } from "#compiler/core/canonical.ts"
+import { encode, everyProperty } from "#compiler/core/canonical.ts"
 import { attachment, merge, type RecordField, type RowDecoder } from "#compiler/core/decoder.ts"
 import type { ValueFault } from "#compiler/core/errors.ts"
 import { hostRead } from "#compiler/core/host.ts"
@@ -81,13 +81,6 @@ type MemberState =
 			readonly query: QueryDesc
 			/** The canonical identity text of the query, which orders and deduplicates query members. */
 			readonly text: string
-			/**
-			 * Its text with every private parameter read as the name it was bound under, which orders the members that
-			 * name the private parameters (canonicalBindings). It is the text the member was made with: a member is made
-			 * with free parameters only, a bound parameter's origin is the free name it closed, and every later rename
-			 * moves a private name alone.
-			 */
-			readonly origin: string
 			readonly params: ReadonlySet<string>
 			readonly desc: MemberDesc
 	  }
@@ -101,11 +94,34 @@ interface ReadBackState {
 	readonly desc: ReadBackDesc
 }
 
-/** A parameter bind closed: the name it had when bound, and its value. */
+/**
+ * What tells two values bound under one name apart: the value's canonical text, read once when bind takes it, or
+ * opaque for a value that has none, a Stream, which is equal to no other value and has no canonical order.
+ */
+type BoundKey = { readonly kind: "text"; readonly text: string } | { readonly kind: "opaque" }
+
+/** A parameter bind closed: the name it had when bound, its value, and the value's key. */
 interface BoundParam {
 	readonly origin: string
 	readonly value: ParamValue
+	readonly key: BoundKey
 }
+
+/** The key of a bound value (`BoundKey`). */
+const boundKey = (value: ParamValue): BoundKey => {
+	const text = encode(value, everyProperty)
+	return text.ok ? { kind: "text", text: text.value } : { kind: "opaque" }
+}
+
+/** Private parameters by origin, then by key: every text in code-unit order, then the opaque ones as the sort found
+ * them. */
+const boundOrder: Order.Comparator<BoundParam> = Order.combineAll([
+	Order.mapInput(Order.compareStrings, (p: BoundParam) => p.origin),
+	(a: BoundParam, b: BoundParam) =>
+		a.key.kind === "text" && b.key.kind === "text"
+			? Order.compareStrings(a.key.text, b.key.text)
+			: Order.compareNumbers(a.key.kind === "text" ? 0 : 1, b.key.kind === "text" ? 0 : 1)
+])
 
 interface ChangeSetState {
 	readonly schema: unknown
@@ -166,16 +182,19 @@ export type ReadBackInput = (delta: DeltaValue) => unknown
  *   value carries `reads`, the decoder of the outcome's record of read-backs: under each name an attachment of the
  *   read-back query's immediate decoder delivering every row (`record` over named parts), merged with
  *   the decoders of the read-backs before it, and of the ChangeSets union and sequence combine.
- * - Parameters. A ChangeSet's free parameters are one namespace, the union of its members' and read-backs' parameters
- *  . bind closes every one of them with a value, hygienically, as Query.bind closes an import's:
+ * - Parameters. A ChangeSet's free parameters are one namespace, the union of its members' and read-backs'
+ *   parameters. bind closes every one of them with a value, hygienically, as Query.bind closes an import's:
  *   a bound parameter leaves the namespace. Its uses keep a name of their own, private to
  *   the ChangeSet, which the Description lists under `bindings` and by which its value travels beside the
  *   Description. A member or read-back added later, or a ChangeSet combined with this one, whose parameter has the
  *   bound name needs a separate, free parameter, so the private names are renamed out of its way first (release), and
- *   two ChangeSets that bind one name to different values combine into two private parameters. A private name is
- *   canonical (canonicalBindings): its parameter's own name when no free parameter and no other private name has it,
- *   otherwise that name, `#` and the least index that is free, assigned in canonical member order; private parameters
- *   of one name bound to equal values are one parameter.
+ *   two ChangeSets that bind one name to different values combine into two private parameters. Private parameters of
+ *   one name bound to equal values are one parameter, and a private name is canonical (canonicalBindings): named in
+ *   the order of the names they were bound under and then of their values' canonical texts, each its own name when no
+ *   free parameter and no private one named before it has it, otherwise that name, `#` and the least index that is
+ *   free. So the names, and with them the Description, follow from the values and never from the order the members
+ *   were built or combined in, but for values bound under one name that have no canonical text, Streams, which are
+ *   named in the order the ChangeSet holds them.
  *
  * A malformed argument from a JavaScript caller, one the TypeScript signatures already forbid, throws CompileError
  * MalformedDescription; every semantic diagnostic, a member head that is not the
@@ -566,88 +585,50 @@ const combine = (
 	return { a: left, b: right, bound: new Map([...left.bound, ...right.bound]) }
 }
 
-/** The canonical private names of a scope (see `ChangeSetValue`): private parameters of one origin and equal values merged,
- * then each named, walking the members of each stratum in their canonical order with private names read as their
- * origins, and then the read-backs by name, so that the build order of the members does not show in the names. */
+/**
+ * The canonical private names of a scope (see `ChangeSetValue`): private parameters of one origin and one key merged
+ * (`BoundKey`), then each named in turn in the order of their origins and keys (`boundOrder`), its origin when no free
+ * parameter and no private one named before it has that name, otherwise the origin, `#` and the least index that is
+ * free. The names follow from the free parameters and the bound values alone, never from the order the members were
+ * built or combined in; only private parameters of one origin bound to opaque values keep the order the scope holds
+ * them in.
+ */
 const canonicalBindings = (scope: Scope): Scope => {
 	if (scope.bound.size === 0) {
 		return scope
 	}
-	/** One private parameter per origin and value. */
 	const merges = new Map<string, string>()
-	const kept: Array<[string, BoundParam]> = []
+	const kept = new Map<string, BoundParam>()
+	/** The kept private parameter of each origin and key text, by name. */
+	const keyed = new Map<string, Map<string, string>>()
 	for (const [name, param] of scope.bound) {
-		const same = kept.find(
-			([, k]) => k.origin === param.origin && canonicalEquals(k.value, param.value, everyProperty)
-		)
+		if (param.key.kind === "opaque") {
+			kept.set(name, param)
+			continue
+		}
+		const texts = keyed.get(param.origin) ?? new Map<string, string>()
+		keyed.set(param.origin, texts)
+		const same = texts.get(param.key.text)
 		if (same === undefined) {
-			kept.push([name, param])
+			texts.set(param.key.text, name)
+			kept.set(name, param)
 		} else {
-			merges.set(name, same[0])
+			merges.set(name, same)
 		}
 	}
-	const merged = renameScope(
-		{ strata: scope.strata, reads: scope.reads, bound: new Map(kept) },
-		merges
-	)
-	const mergedBound = merged.bound
-	const order: Array<ReadonlySet<string>> = []
-	for (const stratum of merged.strata) {
-		const ordered = stratum
-			.filter((m): m is Extract<MemberState, { kind: "query" }> => m.kind === "query")
-			.toSorted(
-				Order.combineAll([
-					Order.mapInput(
-						Order.compareStrings,
-						(q: Extract<MemberState, { kind: "query" }>) => q.relation
-					),
-					Order.mapInput(
-						Order.compareStrings,
-						(q: Extract<MemberState, { kind: "query" }>) => q.op
-					),
-					Order.mapInput(
-						Order.compareStrings,
-						(q: Extract<MemberState, { kind: "query" }>) => q.origin
-					),
-					Order.mapInput(
-						Order.compareStrings,
-						(q: Extract<MemberState, { kind: "query" }>) => q.text
-					)
-				])
-			)
-		for (const q of ordered) {
-			order.push(q.params)
-		}
-	}
-	for (const r of [...merged.reads].toSorted(
-		Order.mapInput(Order.compareStrings, (x: (typeof merged.reads)[number]) => x.name)
-	)) {
-		order.push(r.params)
-	}
-	const free = freeParams({ ...merged, bound: mergedBound })
-	const taken = new Set(free)
+	const merged = renameScope({ strata: scope.strata, reads: scope.reads, bound: kept }, merges)
+	const taken = new Set(freeParams(merged))
 	const canonical = new Map<string, string>()
-	const assign = (name: string): void => {
-		const param = mergedBound.get(name)
-		if (param === undefined || canonical.has(name)) {
-			return
-		}
+	for (const [name, param] of [...merged.bound].toSorted(
+		Order.mapInput(boundOrder, ([, p]: readonly [string, BoundParam]) => p)
+	)) {
 		const image = freshName(param.origin, taken)
 		taken.add(image)
-		canonical.set(name, image)
-	}
-	for (const params of order) {
-		for (const p of params) {
-			assign(p)
+		if (image !== name) {
+			canonical.set(name, image)
 		}
 	}
-	for (const name of [...mergedBound.keys()].toSorted(Order.compareStrings)) {
-		assign(name)
-	}
-	return renameScope(
-		{ ...merged, bound: mergedBound },
-		new Map([...canonical].filter(([name, image]) => name !== image))
-	)
+	return renameScope(merged, canonical)
 }
 
 const distinctReads = (
@@ -788,7 +769,6 @@ const memberState = (
 			relation: name,
 			query,
 			text,
-			origin: text,
 			params: queryParamNames(query),
 			desc: queryMemberDesc(op, name, query, keptLoc(loc))
 		}
@@ -913,7 +893,7 @@ const bindParams = <S, W extends string, Rd>(
 		if (absent(value)) {
 			throw malformed(label, `a value for ${name}: grizzle has no NULL`)
 		}
-		bound.set(name, { origin: name, value })
+		bound.set(name, { origin: name, value, key: boundKey(value) })
 	}
 	for (const name of free) {
 		if (!bound.has(name)) {

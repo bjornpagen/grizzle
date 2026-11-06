@@ -640,6 +640,7 @@ const justified = (precondition: PreconditionKind, read: ReadonlyArray<Operand>)
 			return Arr.some(read, (o) => isSpecial(o.value))
 		case "fits":
 		case "contract":
+		case "language":
 		case "powerDomain":
 		case "bucketDomain":
 		case "lexical":

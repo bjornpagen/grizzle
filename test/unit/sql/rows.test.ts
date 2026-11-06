@@ -1,7 +1,7 @@
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { noCoverage } from "@grizzle/testing/features"
-import { element } from "@grizzle/testing/gen"
+import { noCoverage, requiredInSpace } from "@grizzle/testing/features"
+import { element, int } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
 import type {
@@ -140,6 +140,32 @@ const bounded = (q: OperandSelect, b: Bound): OperandSelect => {
 
 const oneRowCores = ["no FROM", "an aggregate", "a column"] as const
 
+/** The two columns a grouped core may read and group by. */
+const groupColumns = ["c1", "c2"] as const
+type GroupColumn = (typeof groupColumns)[number]
+
+/** A column of the table under r1. */
+const groupColumn = (column: GroupColumn): Expr => col("r1", column)
+
+/** A target a grouped core may select: one of the two columns, or a count of the group's rows. */
+type GroupTarget =
+	| { readonly kind: "column"; readonly column: GroupColumn }
+	| { readonly kind: "count" }
+
+const groupTargets: ReadonlyArray<GroupTarget> = [
+	...Arr.map(groupColumns, (column): GroupTarget => ({ kind: "column", column })),
+	{ kind: "count" }
+]
+
+const targetExpr = (t: GroupTarget): Expr =>
+	t.kind === "column" ? groupColumn(t.column) : countStar()
+
+/** The members of `items` a bit mask selects, bit i for the i-th. */
+const chosen = <A>(items: ReadonlyArray<A>, mask: number): ReadonlyArray<A> =>
+	Arr.filter(items, (_, i) => (mask & (1 << i)) !== 0)
+
+type GroupsFeature = "every GROUP BY expression a target" | "a GROUP BY expression no target"
+
 describe("the rows audit (oracle/verify/rows.ts)", () => {
 	it.effect(
 		"refuses exactly the derived tables and CTEs whose rows may repeat under a reader they change",
@@ -255,16 +281,52 @@ describe("the rows audit (oracle/verify/rows.ts)", () => {
 		)
 	)
 
-	it("holds a groups claim to each GROUP BY expression being a target", () => {
-		const from = [table("w", "t", "r1")]
-		const byTarget = select({ ...proved("grouped", plainRead("r1")), groupBy: [read("r1")] })
-		const byOther = select({
-			...proved("grouped", core([targetAs(countStar(), "c1")], from, undefined)),
-			groupBy: [read("r1")]
-		})
-		assert.deepEqual(rowsViolations(byTarget), [])
-		assert.deepEqual(rowsViolations(byOther), [
-			"a core claims its groups, and a GROUP BY expression is none of its targets"
-		])
-	})
+	it.effect("holds a groups claim to each GROUP BY expression being a target", (ctx) =>
+		searched(
+			ctx,
+			exhaust(
+				{
+					suite: "unit/sql/rows-groups",
+					box: "a core claiming its groups, its targets every nonempty set of two columns and a count, grouped by every nonempty set of the two columns",
+					oracle: {
+						kind: "specification",
+						name: "each group one row: every GROUP BY expression is among the core's targets"
+					},
+					generator: (s) => ({
+						targets: s.draw(int(1, 2 ** groupTargets.length - 1)),
+						groupBy: s.draw(int(1, 2 ** groupColumns.length - 1))
+					}),
+					literal: Formatter.format,
+					limit: (2 ** groupTargets.length - 1) * (2 ** groupColumns.length - 1),
+					coverage: requiredInSpace<GroupsFeature>([
+						"every GROUP BY expression a target",
+						"a GROUP BY expression no target"
+					]),
+					caseHang
+				},
+				({ targets, groupBy }, c) =>
+					Effect.sync(() => {
+						const shown = chosen(groupTargets, targets)
+						const by = chosen(groupColumns, groupBy)
+						const statement = select(
+							grouped(
+								core(
+									Arr.map(shown, (t, i) => targetAs(targetExpr(t), `c${i + 1}`)),
+									[table("w", "t", "r1")],
+									undefined
+								),
+								Arr.map(by, (column) => groupColumn(column))
+							)
+						)
+						const targeted = Arr.every(by, (column) =>
+							Arr.some(shown, (t) => t.kind === "column" && t.column === column)
+						)
+						c.note(
+							targeted ? "every GROUP BY expression a target" : "a GROUP BY expression no target"
+						)
+						assert.equal(rowsViolations(statement).length, targeted ? 0 : 1, Formatter.format(by))
+					})
+			)
+		)
+	)
 })

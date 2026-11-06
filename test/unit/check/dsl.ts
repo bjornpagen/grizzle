@@ -31,8 +31,12 @@ export { ge, le, ne } from "#test/support/fixtures/ir/desc.ts"
  * checker's entry point included, locates every node by its path in the whole description, as it locates a JavaScript
  * author's.
  */
-export const vars = (relation: string, ...fields: ReadonlyArray<string>): ReadonlyArray<VarDesc> =>
+/** The variables of a relation's `fields`, each named by its relation and field and carrying its origin. */
+export const varsAt = (relation: string, fields: ReadonlyArray<string>): ReadonlyArray<VarDesc> =>
 	Arr.map(fields, (field) => ({ id: `${relation}.${field}`, origin: { relation, field } }))
+
+export const vars = (relation: string, ...fields: ReadonlyArray<string>): ReadonlyArray<VarDesc> =>
+	varsAt(relation, fields)
 
 export const plainVar = (id: string): VarDesc => ({ id, origin: undefined })
 
@@ -58,12 +62,6 @@ export const imported = (query: QueryDesc, bind: BindingsDesc): SourceDesc => ({
 	kind: "query",
 	query,
 	bind
-})
-
-export const delta = (side: "added" | "removed", relation: string): SourceDesc => ({
-	kind: "delta",
-	side,
-	relation
 })
 
 export const match = (source: SourceDesc, bindings: BindingsDesc): MatchDesc => ({

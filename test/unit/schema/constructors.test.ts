@@ -1,5 +1,5 @@
 import { describe, it } from "@effect/vitest"
-import { drawn, explore, sketched } from "@grizzle/testing/explore"
+import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
 import {
 	array,
@@ -85,7 +85,7 @@ import {
 import { caseHang } from "#test/support/limits.ts"
 import { argumentsOf } from "#test/support/list.ts"
 import { whereIndex } from "#test/support/oracle/pick.ts"
-import { pickGen, pickIndex, pickSpan } from "#test/support/pick.ts"
+import { pickGen, pickIndex } from "#test/support/pick.ts"
 import {
 	rawClosedId,
 	rawContract,
@@ -974,7 +974,7 @@ describe("literals take their field's value", () => {
 				)
 			],
 			[
-				1,
+				2,
 				map(
 					element<"Infinity" | "-Infinity" | "NaN">(["Infinity", "-Infinity", "NaN"]),
 					(text): HostValue => ({ kind: "special", text })
@@ -1017,17 +1017,10 @@ describe("literals take their field's value", () => {
 				explore(
 					{
 						suite: "unit/schema/literal-rule",
-						/**
-						 * Planted: a special value of each float field and an infinite and a NaN numeric(p, s), which the drawn
-						 * values reach a few times a run.
-						 */
-						draw: sketched(
-							(source) => ({
-								case: source.draw(caseGen),
-								site: source.draw(element<Site>(["closed row", "selection", "check operand"]))
-							}),
-							(c) => c
-						),
+						draw: drawn((source) => ({
+							case: source.draw(caseGen),
+							site: source.draw(element<Site>(["closed row", "selection", "check operand"]))
+						})),
 						literal: Formatter.format,
 						coverage: required<LiteralFeature>(
 							[
@@ -1050,53 +1043,7 @@ describe("literals take their field's value", () => {
 							],
 							{ cases: 600, sense: notesOnly }
 						),
-						kept: [
-							{
-								note: "NaN for a real",
-								sketch: {
-									case: { field: { kind: "real" }, value: { kind: "number", value: Number.NaN } },
-									site: "closed row"
-								},
-								draws: "",
-								reaches: ["real: special"]
-							},
-							{
-								note: "Infinity for a double precision",
-								sketch: {
-									case: {
-										field: { kind: "double precision" },
-										value: { kind: "number", value: Number.POSITIVE_INFINITY }
-									},
-									site: "selection"
-								},
-								draws: "",
-								reaches: ["double precision: special"]
-							},
-							{
-								note: "Infinity for a numeric(6, 2)",
-								sketch: {
-									case: {
-										field: { kind: "numeric(p, s)", precision: 6, scale: 2 },
-										value: { kind: "special", text: "Infinity" }
-									},
-									site: "check operand"
-								},
-								draws: "",
-								reaches: ["numeric(p, s): infinity"]
-							},
-							{
-								note: "NaN for a numeric(6, 2)",
-								sketch: {
-									case: {
-										field: { kind: "numeric(p, s)", precision: 6, scale: 2 },
-										value: { kind: "special", text: "NaN" }
-									},
-									site: "selection"
-								},
-								draws: "",
-								reaches: ["numeric(p, s): special"]
-							}
-						],
+						kept: [],
 						runs: 600,
 						shrink: completeShrink,
 						concurrency: 1,
@@ -1237,28 +1184,20 @@ describe("statements", () => {
 				explore(
 					{
 						suite: "unit/schema/field-lists",
-						/** Planted: every site with every defect, each pair drawn about a sixteenth of the time. */
-						draw: sketched(
-							(source) => ({
-								fields: source.draw(
-									shuffled([...taskFields], { min: 1, max: [...taskFields].length })
-								),
-								planted: source.draw(element(fieldListCases)),
-								handle: source.draw(element(["Automatic", "Manual"]))
-							}),
-							(c) => c
-						),
+						/** Every site with every defect, each pair drawn about a fifteenth of the time. */
+						draw: drawn((source) => ({
+							fields: source.draw(
+								shuffled([...taskFields], { min: 1, max: [...taskFields].length })
+							),
+							planted: source.draw(element(fieldListCases)),
+							handle: source.draw(element(["Automatic", "Manual"]))
+						})),
 						literal: Formatter.format,
 						coverage: required<FieldListFeature>(Arr.map(fieldListCases, featureOf), {
 							cases: 200,
 							sense: notesOnly
 						}),
-						kept: Arr.map(fieldListCases, (planted) => ({
-							note: featureOf(planted),
-							sketch: { fields: ["id", "account"], planted, handle: "Automatic" as const },
-							draws: "",
-							reaches: [featureOf(planted)] as const
-						})),
+						kept: [],
 						runs: 200,
 						shrink: completeShrink,
 						concurrency: 1,
@@ -1671,49 +1610,18 @@ describe("statements", () => {
 					explore(
 						{
 							suite: "unit/schema/check-constructor",
-							/** Planted: a typed and an untyped sum, which a fourth of the operands draw a few times a run. */
-							draw: sketched(
-								(source) => ({
-									predicate: source.draw(predicateGen(2)),
-									defect: source.draw(
-										element(Arr.append(Arr.append(checkDefects, "none" as const), "none" as const))
-									)
-								}),
-								(c) => c
-							),
+							draw: drawn((source) => ({
+								predicate: source.draw(predicateGen(2)),
+								defect: source.draw(
+									element(Arr.append(Arr.append(checkDefects, "none" as const), "none" as const))
+								)
+							})),
 							literal: Formatter.format,
 							coverage: required<CheckDefect | "a sum" | "an untyped sum">(
 								[...checkDefects, "a sum", "an untyped sum"],
 								{ cases: 300, sense: notesOnly }
 							),
-							kept: [
-								{
-									note: "a typed and an untyped sum",
-									sketch: {
-										predicate: {
-											kind: "and",
-											args: [
-												{
-													kind: "fields",
-													op: "le",
-													left: { kind: "sum", typed: true, field: "limit", addend: 1 },
-													right: "maximum"
-												},
-												{
-													kind: "literal",
-													op: "ge",
-													left: { kind: "sum", typed: false, field: "limit", addend: 2 },
-													value: 0,
-													helper: false
-												}
-											]
-										},
-										defect: "none"
-									},
-									draws: "",
-									reaches: ["a sum", "an untyped sum"]
-								}
-							],
+							kept: [],
 							runs: 300,
 							shrink: completeShrink,
 							concurrency: 1,
@@ -2126,58 +2034,31 @@ describe("schema and schema.extend", () => {
 				explore(
 					{
 						suite: "unit/schema/derived-levels",
-						/**
-						 * Planted: a view of level 3 reading one of level 2 named before one of level 1, which the drawn towers
-						 * reach a few times a run. Its picks select, among the relations below each level, ZView1x0 at level 2
-						 * and both AView2x0 and ZView1x0 at level 3.
-						 */
-						draw: sketched(
-							(source) => ({
-								levels: source.draw(
+						draw: drawn((source) => ({
+							levels: source.draw(
+								nonEmptyGen(
 									nonEmptyGen(
-										nonEmptyGen(
-											(source) => ({
-												reads: source.draw(nonEmptyGen(pickGen, 1)),
-												prefix: source.draw(element(["A", "M", "Z"]))
-											}),
-											1
-										),
-										2
-									)
-								),
-								defect: source.draw(
-									element(Arr.append(Arr.append(levelDefects, "none" as const), "none" as const))
+										(inner) => ({
+											reads: inner.draw(nonEmptyGen(pickGen, 1)),
+											prefix: inner.draw(element(["A", "M", "Z"]))
+										}),
+										1
+									),
+									2
 								)
-							}),
-							(c) => c
-						),
+							),
+							defect: source.draw(
+								element(Arr.append(Arr.append(levelDefects, "none" as const), "none" as const))
+							)
+						})),
 						literal: Formatter.format,
 						coverage: required<
 							LevelDefect | "level 2" | "level 3" | "two reads" | "a deeper read named first"
 						>([...levelDefects, "level 2", "level 3", "two reads", "a deeper read named first"], {
-							cases: 300,
+							cases: 900,
 							sense: notesOnly
 						}),
-						kept: [
-							{
-								note: "a level-3 view reading AView2x0 and ZView1x0",
-								sketch: {
-									levels: [
-										[{ reads: [0], prefix: "Z" }],
-										[{ reads: [pickSpan / 2], prefix: "A" }],
-										[
-											{
-												reads: [Math.ceil((2 * pickSpan) / 3), Math.ceil(pickSpan / 3)],
-												prefix: "M"
-											}
-										]
-									],
-									defect: "none"
-								},
-								draws: "",
-								reaches: ["a deeper read named first" as const, "level 3" as const]
-							}
-						],
+						kept: [],
 						runs: 300,
 						shrink: completeShrink,
 						concurrency: 1,

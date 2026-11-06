@@ -62,6 +62,7 @@ const checkProof = (
 			)
 		case "fits":
 		case "contract":
+		case "language":
 		case "powerDomain":
 		case "bucketDomain":
 		case "lexical":
@@ -99,23 +100,28 @@ const proofHolds = (
 					p !== undefined && range !== undefined && insideRange(p.low, p.high, range[0], range[1])
 				)
 			}
+			case "language": {
+				const refinement = textOf(node.type)?.regex
+				if (
+					contractOf(node.type) !== undefined ||
+					refinement === undefined ||
+					refinement === "wildcard"
+				) {
+					return false
+				}
+				return Arr.some(
+					premises,
+					(m: OperandPremise) =>
+						(m.kind === "checked" && m.operand === 0) ||
+						(m.kind === "language" &&
+							m.operand === 0 &&
+							patternIncludes({ source: m.pattern, flags: m.flags }, refinement).kind ===
+								"included")
+				)
+			}
 			case "contract": {
 				if (Arr.some(premises, (p) => p.kind === "checked")) {
 					return true
-				}
-				const refinement = textOf(node.type)?.regex
-				if (
-					contractOf(node.type) === undefined &&
-					refinement !== undefined &&
-					refinement !== "wildcard"
-				) {
-					return Arr.some(
-						premises,
-						(m: OperandPremise) =>
-							m.kind === "language" &&
-							m.operand === 0 &&
-							patternIncludes({ source: m.pattern, flags: m.flags }, refinement).kind === "included"
-					)
 				}
 				const p = finite(0)
 				return (

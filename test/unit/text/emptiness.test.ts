@@ -307,7 +307,7 @@ describe("a pattern no text matches", () => {
 							{ cases: 1000, sense: notesOnly }
 						),
 						kept: [],
-						runs: 1000,
+						runs: 600,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,

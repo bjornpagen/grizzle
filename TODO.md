@@ -31,53 +31,14 @@ How the work runs:
 	- wave 2 is the test areas of 3.3, at most four lanes at a time;
 	- wave 3 is the release (section 4).
 
-### 0. Housekeeping
-- ~/Documents/grizzle-proposals: issues #1–#8 are closed and #9's design (fallible operations total) has landed.
-  Look at each file once more, then delete the folder.
-- ~/Documents/postgres-upstream-submissions predates upstream/. Move anything newer into upstream/, then delete it.
-  Its recursive-union and btree_gist folders are upstream already.
-
-### 1. The PostgreSQL build keeps only what is required
-- **Delete plpgsql_check.**
-	- Why: its one use is the coverage cluster's profiler, a measurement no gate reads. Its 2.10.15 profiler also PANICs
-	  a COMMIT once 20,000 functions are profiled (profiler.c:102, :1335).
-	- What goes:
-		- pin.env's five PLPGSQL_CHECK_* lines;
-		- build.sh's fetch, build and stamp;
-		- lib.sh's stamp and the coverage cluster (use_cluster, PG_CLUSTERS);
-		- init.sh's --coverage block;
-		- doctor.sh's --coverage checks and its profiler probe;
-		- ctl.sh's --coverage;
-		- scripts/dev/plpgsql-coverage.ts;
-		- package.json's `pg:coverage` and `plpgsql-coverage`;
-		- test/support/env.ts's PgCluster and GRIZZLE_PG_CLUSTER;
-		- pg-global-setup.ts's coverage report;
-		- CONTRIBUTING's coverage-cluster paragraph, its `pnpm plpgsql-coverage` row and every --coverage mention;
-		- ~/.cache/grizzle/src/plpgsql_check-*.
-	- The superuser connection every pg test uses (test/support/substrate/substrate.ts) stays. Rename its
-	  coverageAdminUrl to adminUrl.
-	- grizzle keeps one copy of PostgreSQL. The coverage copy (5435) is already deleted, so its scripts go with
-	  plpgsql_check: there is no second cluster in pin.env, lib.sh, init.sh, ctl.sh, doctor.sh or build.sh.
-- **Delete 19rc1-btree-gist-multibyte-penalty.patch.**
-	- It is performance only, and already upstream (master b82d69abf6), so grizzle has nothing to submit. No test reads
-	  it.
-	- README's known issue stays, stated for stock PostgreSQL, without the patch sentence.
-- **Keep 19rc1-relcache-planned-check-and-generation.patch.**
-	- It is grizzle's own, valuable and upstreamable: every CHECK and generated field that reads a closed relation's
-	  constant pays for it on every statement without it.
-	- Rename it for RC2 and apply it with no fuzz.
-	- Write its submission into upstream/relcache-planned-check-and-generation/ in the shape of the other two: the patch
-	  on master, a repro, evidence, an email and a checklist. The owner files it.
+### 1. The PostgreSQL build
 - **Repin to 19rc2 on 2026-11-12, if the beta isn't out by then:** pin.env, rebuild, re-init, then delete the 19rc1
   build, source and cluster.
 	- RC2 includes the recursive-UNION hash_mem fix, so that patch goes.
 	- After the repin, confirm the two RC2 fixes that touch grizzle:
 		- DROP DATABASE … WITH (FORCE) beside parallel autovacuum workers (the sweep runs it);
 		- the RI fast path with a cast (grizzle pairs FK columns of identical types).
-- **Rebuild 19rc1 now** (owner 2026-11-06: recompile is fine), once GG's run on 5433 has ended: `pnpm pg:build`
-  stops the cluster, swaps in the build without plpgsql_check and the btree_gist patch, and starts it again.
-- README's PostgreSQL statement names the patches the build applies. Update CONTRIBUTING's pg:build and pg:init lines
-  to match.
+	- Tell the downstream session first: its database lives in the cluster.
 
 ### 2. No known bug
 - **A pattern whose anchors leave no match is admitted.** `^$a` is lowered to `\A\Za`.
@@ -105,45 +66,15 @@ How the work runs:
 		- matchPattern and analyzeText refuse exactly those patterns, each with its reason.
 	- Planted bug: the constructors go back to class-only emptiness, and the property fails on every seed.
 	- CHANGELOG: such a pattern is refused at compile time, in `Compute.matches` and `str.regex` alike.
-- **Issue #9: `ChangeSet.empty(role)` and `query(role)` fail with TS2589** once base laws × role entries pass about
-  1.2 million.
-	- Root cause: types/schema/world.ts KeptStatement checks each base law's relations against the union of every whole
-	  entry (`[NamedBy<St>] extends [Whole]`). So a role's `statements` costs laws × entries, and `S extends AnySchema`
-	  reads it.
-	- FullBaseOf has the same shape: an Exclude of every base relation against the union of the entries.
-	- Fix by representation: a role's relations are its index by name, as a schema's are.
-		- A law is kept when each relation it names is the role's entry under that name: one lookup per relation.
-		- The full base is a mapped check over the base's record.
-	- Close #9 with a comment naming the commit.
-- **A tree insert whose member type is recursive can't typecheck** (since 46b2fc3; blocking, reported 2026-11-06).
-	- `NestedUnfit` (types/changeset/changeset.ts) unfolds a nested member array with no guard, so `children: readonly
-	  Member[]` maps one pair forever: TS2615, then `MemberCheck` refuses the member. NestedWrites already stops with
-	  `Seen`.
-	- Fix: carry the checked (member, field) pairs, so a repeated pair is checked once. An excess field at any depth is
-	  still refused.
-	- Type tests:
-		- recursive member types, written as interfaces and as aliases, are admitted;
-		- an excess field at depth 2 or deeper is refused;
-		- mutual recursion is admitted, and so is a tree whose members nest an ordered family or a second relation;
-		- the fixed-depth cases are unchanged.
-	- Two planted bugs: the guard removed, and the excess-field check removed.
-	- Send the landing commit's full hash to the downstream session that reported it.
-- **The type layer's cost grows linearly in every schema dimension.**
-	- Owner 2026-11-06: efficient, typechecker-safe types. No `as`, no `any`, no ts directive, no widened fallback, no
-	  dropped refusal and no raised limit. Precision is kept.
-	- Scaling programs, one per dimension, each checked at n, 2n and 4n:
-		- relations, laws per relation, role entries, roles per schema and fields per relation;
-		- query rules and attachments, ChangeSet members and contexts;
-		- they extend test/types/schema/budget and test/types/query/budget.
-	- Gate:
-		- every program typechecks with no diagnostic at sizes past #9's cliff;
-		- Types and Instantiations grow linearly: an increment ratio under 3, read as families.test.ts reads it.
-	- Check time is not gated: tsgo reports no relation-cache counter, and time under load is noise. But the families
-	  suite's check time triples per doubling while its instantiations only double. Profile tsgo's check at the largest
-	  size and fix every superlinear site, union-against-union relations first.
-	- Audit every distributive conditional over a schema-sized union, and every mapped type evaluated again per element.
-	  By file: query.ts 10, evidence.ts 7, changeset.ts 5, schema.ts 3, world.ts 2, terms.ts 2, and one each in rule,
-	  regex, derived, workload and phantom.
+- **A generic call re-instantiates the whole schema type.** Every generic call on a Rule, Query or ChangeSet walks S's
+  statement tuple, about 7 instantiations per statement, because S's object-literal field records hide that S has no
+  type variable. A query therefore costs time linear in the schema's statements, not in what it reads: the query
+  budget grows 3.77× per doubling of schema and programs together.
+	- Fix by representation: the schema type stops carrying the statement tuple as a type argument the checker walks.
+	  It keeps its statements by name, with literal relation names, and StatementsOf<S> rebuilds each one's full type.
+	- Owner's rule: no loss of public precision. `typeof S.statements` must stay as precise as it is. If no
+	  representation keeps it, record that and leave the tuple.
+	- Gate: the query budget's increment ratio under 3 in each dimension.
 - **One meaning, two laws.** The reported selection collision does not reproduce: every law kind over two selections of
   one relation gets distinct ids and names (lane L, 2026-11-06). The converse is a defect: own.ts canonicalPredicate
   keeps a comparison's operand order, so `eq(a, b)` and `eq(b, a)`, or `lt(a, b)` and `gt(b, a)`, are two laws with
@@ -151,21 +82,65 @@ How the work runs:
 	- Fix: a symmetric comparison orders its operands canonically, and gt and ge become lt and le, swapped.
 	- A generated arm requires "two laws over selections of one relation" and "a comparison stated in both
 	  orientations".
-- **`role(...)` took 2.0 s and 271 MB over 137 relations** (measured 2026-11-06, at load 27).
-	- Measure the description's construction at n and 2n relations. If it grows faster than linearly, it is a bug of
-	  #9's family, fixed by the same index.
-- **GG's whole-suite run at 99b6217** (TEST_SEED=20261106, --maxWorkers=3). Seven files failed again when rerun alone.
-  Each is fixed at its root, and the generator that missed it gains the arm:
-	- pg/oracle/union-take: the delivered, consumed and narrowed results disagree with the conservative lowering, by
-	  kind (deep-equal);
-	- pg/program/templates: a SqlError (test/support/pg.ts:324) in "inside a write transaction neither the transaction
-	  template nor a snapshot template delivers an orphan";
-	- pg/bench/gates and pg/bench/query-gates: a SqlError under a gate's verdict at quick scale;
-	- pg/oracle/optimized/generated-1: the Node process ran out of memory;
-	- pg/oracle/optimized/generated-2: PropertyFailed, `"10" is no output text of its type (numericBound)`;
-	- pg/recursion/oracle/fixed-length: failed after 41 minutes alone, now confirmed red.
-	- pg/compute/catalogue: its rerun was still running at the last report.
-	- Root-cause each from its log (copied into ~/.cache/grizzle-release/gg/) before reproducing it on 5433.
+- **Startup cost is a hard blocker** (owner's ruling, relayed by the downstream session 2026-11-06: "clean and cull
+  away, hard delete all the code that is now dead or pointless … hard blocker for next beta").
+	- A downstream login's DbLayer build takes 194 s, where it took 7.35 s before the cutover, and `grizzle check`
+	  takes 320 s on its schema.
+	- The fix is deleting work, not tuning it, and no hidden memo.
+	- **The DFA byte bound, rebuilt for every key datum** (41%): textByteBound → patternByteBound → analyzeText →
+	  minimalDfa runs at every key and axis a text column rides (keyDatums, plannedDatum, #refuseWideRows). A field's
+	  refinement is analyzed once, when its description is admitted, and the analyzed refinement (its bounds and key)
+	  travels with the descriptor, so every later reader reads it.
+	- **migrate and drift compile everything they discard:** resolveConfig (cli/run.ts) compiles every schema, login
+	  and workload for every command. A command that applies committed SQL reads the configuration's names,
+	  identifiers and directories, and compiles nothing.
+	- **The schema's canonical encoding, more than once** (20%: levelSchema, levelOf, sameDesc, descText); see the
+	  next item.
+	- Then profile a large schema's DbLayer.make, role() and check, and delete every whole-schema pass that runs twice
+	  or whose result nothing reads.
+	- Acceptance: a generated large-schema bench of DbLayer.make, check and migrate, at n and 2n. The downstream
+	  session measures its own layer build against 7.35 s, with migrate compiling nothing before it connects. Send it
+	  each landing commit's hash.
+- **Every login re-encodes the whole schema twice,** closed-relation rows included. login() spends about 450 ms
+  re-encoding a schema with one 20,000-handle closed relation, and a downstream import spends 41% of its time there.
+	- Sites: login's `sameDesc(desc.base, baseDesc)` (two full encodes per role), role's
+	  `identity: descText(roleDesc)` (which re-encodes the base), and levels.ts isLevelOf's identity shortcut with an
+	  encode fallback.
+	- Fix: each schema value carries a content digest (SHA-256 of its encoding without level names), computed once in
+	  schema() and extend(). A role's identity is its own part plus the base's digest. login and isLevelOf compare
+	  digests, and the shortcut and its fallback are deleted.
+	- Measured at n and 2n relations, with a large closed relation, before and after.
+- **GG's whole-suite run at 99b6217** (TEST_SEED=20261106, --maxWorkers=3, load 20–30). pnpm check and the unit and
+  type tiers pass. 8 pg files failed, and failed again alone. Classified by the downstream session:
+	- **Engine defects:**
+		- lcm over numerics with fraction digits: scalar/compute/lower.ts bounds its integer digits as `da + db`.
+		  The bound must count the fraction digits (`da + db + max(sa, sb)`), derived and proved, not patched. The
+		  strict reader refuses the value (pg/compute/catalogue, 40 disagreements). The catalogue's generator must
+		  draw fractional lcm operands on its floor stream.
+		- An attached `orderBy(...).take(k)` arrives ordered by the parent key then the id, not by its order
+		  (R20, bench/query/take.bench.ts). A take stage returns `order: undefined` (check/checker.ts), attachIn
+		  substitutes the empty order, and completion adds only the child's key. This contradicts README's attached
+		  take. A generated attach suite asserts the delivered order of every attached take.
+	- **Stale since closed ids became smallint codes,** in tests and benches:
+		- pg/oracle/union-take's expected rows spell handles;
+		- pg/program/templates' raw INSERT writes handle text;
+		- bench/query/access's and union's handwritten SQL selects handles (R21 compares digests).
+		- Each reads codes through the naming door, or is restated as a property.
+	- **Bench and test support:**
+		- claim.bench.ts seeds the alternatives' native deferred FK in autocommit statements; seed in one transaction;
+		- events.bench.ts fills the Member/Grp cycle in two autocommits;
+		- families.bench.ts records no timed phase;
+		- laws.bench.ts schema-qualifies a multi-argument unnest (test/support/sql.ts), which PostgreSQL rewrites into
+		  ROWS FROM only when unqualified.
+	- **Generator:** pg/oracle/optimized/generated-2: gen/query.ts's literal fallback types 10 at a numeric bounded
+	  to one digit, and gen/domain.ts valueClasses ignores the bound.
+	- **To settle on 5433:**
+		- pg/recursion/oracle/fixed-length hits a 57014 statement timeout on a tiny case under forced parallel plans.
+		  The 30 s guard (test/support/oracle/runner.ts) is a bare constant, not a Limit. Replay
+		  `recursion/fixed-length:-:0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.1.0.1.1.0.0.0.0.4.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.2.0.0`
+		  alone, reading parallel_workers_launched and EXPLAIN ANALYZE.
+		- pg/oracle/optimized/generated-1 runs out of the JavaScript heap (about 3.9 GB). Whole results are buffered
+		  across every lowering. Rule out a dropped DISTINCT first.
 
 ### 3. No example-based test
 Owner 2026-11-06: example-based tests are banned. A test is an example when a person chose its inputs and wrote its
@@ -190,12 +165,6 @@ What stays:
 		  refusal 2, fills, unstated-key, changeset/scaling);
 		- test/pg/write/refusal;
 		- test/unit/history/check's 8 hand verdicts.
-	- **W-check:**
-		- check/semantics (66 hand verdicts), check/reasons (27), check/approximate (22), check/union-order,
-		  check/refinement, check/head-literals;
-		- compute/total (21);
-		- schema/constructors;
-		- oracle-gen/domain.
 	- **W-lower:**
 		- lower/dedup/verify (24), lower/shapes/relparam, lower/rewrite/closed;
 		- ir/shape, ir/dag, ir/desc;

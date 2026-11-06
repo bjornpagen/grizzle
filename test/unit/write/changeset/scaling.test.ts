@@ -1,21 +1,20 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
 import { noCoverage } from "@grizzle/testing/features"
-import { array, element, int } from "@grizzle/testing/gen"
+import { array, element, int, map } from "@grizzle/testing/gen"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Record as Rec, Stream } from "effect"
 import { isRecord } from "#compiler/core/record.ts"
-import { type ChangeSetDesc, decodeDesc, descText, renameQueryParams } from "#compiler/ir/desc.ts"
+import { type ChangeSetDesc, decodeDesc, descText } from "#compiler/ir/desc.ts"
 import { queryOver as query, queryValueDesc, varsOver as v } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
-import { role } from "#compiler/schema/world.ts"
 import {
 	changeSetOver as ChangeSet,
 	type ChangeSetValue,
 	changeSetState
 } from "#compiler/write/changeset/value.ts"
-import { assert, defined, throwsRefused } from "#test/support/assert.ts"
+import { assert, defined } from "#test/support/assert.ts"
 import { Task, TaskNote, Work } from "#test/support/fixtures/api/work.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { descOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
@@ -254,8 +253,7 @@ const textOf = (desc: unknown): string => {
 
 /**
  * The old path's checks: the assembled Description equals the whole decode's, its keys in the same order, frozen
- * throughout; and each query member's origin is the text of its query with every private parameter read as its
- * origin, which the old path encoded again at every step.
+ * throughout; and each query member's text is its query's, which the old path encoded again at every step.
  */
 const asTheOldPath = (value: ChangeSetValue): void => {
 	const desc = descOf(value)
@@ -266,13 +264,9 @@ const asTheOldPath = (value: ChangeSetValue): void => {
 		Arr.every([...containersOf(desc, new Set())], (c) => Object.isFrozen(c)),
 		"the Description is frozen throughout"
 	)
-	const state = defined(changeSetState(value), "a ChangeSet's state")
-	const masked = new Map(
-		Arr.map([...state.bound], ([name, param]) => [name, param.origin] as const)
-	)
-	for (const m of state.strata.flat()) {
+	for (const m of defined(changeSetState(value), "a ChangeSet's state").strata.flat()) {
 		if (m.kind === "query") {
-			assert.equal(m.origin, textOf(renameQueryParams(m.query, masked)))
+			assert.equal(m.text, textOf(m.query), "a query member's text is its query's")
 		}
 	}
 }
@@ -286,11 +280,11 @@ describe("a ChangeSet builder step reads only what it adds", () => {
 				exhaust(
 					{
 						suite: "unit/write/changeset/step-reads",
-						generator: element(
-							Arr.flatMap(growthNames, (name) =>
-								Arr.map([50, 100, 200, 400] as const, (n) => [name, n] as const)
-							)
-						),
+						generator: (source) =>
+							[
+								source.draw(element(growthNames)),
+								source.draw(map(int(0, 3), (doublings) => 50 * 2 ** doublings))
+							] as const,
 						literal: Formatter.format,
 						limit: 12,
 						coverage: noCoverage,
@@ -338,22 +332,4 @@ describe("a ChangeSet builder step reads only what it adds", () => {
 			)
 		)
 	)
-})
-
-describe("a role is one level by its identity, read once when role(...) built it", () => {
-	const Writer = (name: string) => role(Work, name, { Task, TaskNote })
-	const onTask = (r: unknown) =>
-		query(r).rule((x: RuleValue) => {
-			const { id, account, kind } = v(Task, "task")
-			return x.match(Task, { id, account, kind }).find({ id, account, kind })
-		})
-
-	it("admits a read-back over another role value of one content, and refuses one over a role of another", () => {
-		const one = Writer("Writer")
-		ChangeSet.empty(one).read("t", () => onTask(Writer("Writer")))
-		throwsRefused(
-			() => ChangeSet.empty(one).read("t", () => onTask(Writer("Other"))),
-			"MalformedDescription"
-		)
-	})
 })

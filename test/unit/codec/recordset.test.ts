@@ -4,6 +4,7 @@ import { noCoverage, required } from "@grizzle/testing/features"
 import {
 	array,
 	codePoint,
+	constant,
 	element,
 	type Gen,
 	int,
@@ -35,7 +36,7 @@ import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
 import { readArrayLiteral } from "#test/support/arrays.ts"
-import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
+import { assert, defined, failed, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { f } from "#test/support/fixtures/ir/desc.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -107,6 +108,35 @@ const readingFact: Gen<Reading> = (source) => ({
 	value: source.draw(map(int(-99999, 99999), (n) => Decimal.of(`${n}e-2`))),
 	raw: source.draw(anyDouble)
 })
+
+/** Every character array_in reads as syntax, blanks, and NULL's letters among plain ones. */
+const arrayCell = string(
+	weighted([
+		[3, element(['"', "\\", ",", "{", "}", " ", "\t", "\n", "N", "U", "L", "l"])],
+		[2, codePoint(0x20, 0x7e)],
+		[1, codePoint(0xa0, 0x10_ffff)]
+	]),
+	{ min: 0, max: 8 }
+)
+
+/** Up to six rows of `width` texts each. */
+const cellRows = (width: number): Gen<ReadonlyArray<ReadonlyArray<string>>> =>
+	array(array(arrayCell, { min: width, max: width }), { min: 0, max: 6 })
+
+/** Where a bound falls against the longest literal: the situations its count of the literal's length must get right. */
+type LiteralFeature =
+	| "far within the bound"
+	| "at the bound"
+	| "one past the bound"
+	| "far past the bound"
+
+/** How far the bound sits from the longest literal's length. */
+const boundOffset: Gen<number> = weighted([
+	[2, int(2, 40)],
+	[3, constant(0)],
+	[3, constant(-1)],
+	[2, int(-40, -2)]
+])
 
 describe("relation normalization", () => {
 	it.effect(
@@ -479,19 +509,7 @@ describe("relation normalization", () => {
 						suite: "unit/codec/arrays-literal",
 						draw: drawn((source) => {
 							const width = source.draw(int(0, 4))
-							/** Every character array_in reads as syntax, blanks, and NULL's letters among plain ones. */
-							const cell = string(
-								weighted([
-									[3, element(['"', "\\", ",", "{", "}", " ", "\t", "\n", "N", "U", "L", "l"])],
-									[2, codePoint(0x20, 0x7e)],
-									[1, codePoint(0xa0, 0x10_ffff)]
-								]),
-								{ min: 0, max: 8 }
-							)
-							return [
-								width,
-								source.draw(array(array(cell, { min: width, max: width }), { min: 0, max: 6 }))
-							] as const
+							return [width, source.draw(cellRows(width))] as const
 						}),
 						literal: Formatter.format,
 						coverage: noCoverage,
@@ -523,21 +541,69 @@ describe("relation normalization", () => {
 			)
 	)
 
-	it("refuses a column whose literal would pass the string bound, naming it, before building it", () => {
-		const rows = [["ab"], ["c\\"]]
-		/** {"ab","c\\"}: two braces, two elements of two quotes each, a comma, and the texts, one escape added. */
-		const length = 2 + (2 + 2) + 1 + (2 + 3)
-		assert.deepEqual(succeeded(arrayTexts("Input", ["x"], rows, length)), ['{"ab","c\\\\"}'])
-		assert.deepEqual(
-			arrayTexts("Input", ["x"], rows, length - 1),
-			Result.err({
-				_tag: "LiteralBound",
-				input: "Input",
-				column: "x",
-				limit: length - 1
-			})
-		)
-	})
+	it.effect(
+		"refuses a column whose literal would pass the string bound, naming it, and writes every literal within it",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/codec/arrays-literal-bound",
+						draw: drawn((source) => {
+							const width = source.draw(int(1, 4))
+							return { width, rows: source.draw(cellRows(width)), by: source.draw(boundOffset) }
+						}),
+						literal: Formatter.format,
+						oracle: {
+							kind: "specification",
+							name: "each column's literal written with no bound, against the bound: refused exactly when one is longer, naming one that is"
+						},
+						coverage: required<LiteralFeature>(
+							["far within the bound", "at the bound", "one past the bound", "far past the bound"],
+							{ cases: 300, sense: notesOnly }
+						),
+						kept: [],
+						runs: 300,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang
+					},
+					({ width, rows, by }, c) =>
+						Effect.sync(() => {
+							const columns = Array.from({ length: width }, (_, i) => `f${i}`)
+							const whole = succeeded(arrayTexts("Input", columns, rows, 2 ** 20))
+							const longest = Arr.reduce(whole, 0, (n, literal) => Math.max(n, literal.length))
+							const limit = Math.max(longest + by, 0)
+							c.note(
+								limit === longest
+									? "at the bound"
+									: limit === longest - 1
+										? "one past the bound"
+										: limit > longest
+											? "far within the bound"
+											: "far past the bound"
+							)
+							const bounded = arrayTexts("Input", columns, rows, limit)
+							if (longest <= limit) {
+								assert.deepEqual(succeeded(bounded), whole)
+								return
+							}
+							const bound = failed(bounded)
+							assert.deepEqual(
+								{ _tag: bound._tag, input: bound.input, limit: bound.limit },
+								{ _tag: "LiteralBound", input: "Input", limit }
+							)
+							const at = Arr.findFirstIndex(columns, (column) => column === bound.column)
+							assert.ok(Option.isSome(at), `the refusal names a column: ${bound.column}`)
+							assert.ok(
+								defined(whole[at.value]).length > limit,
+								`${bound.column}'s literal passes the bound`
+							)
+						})
+				)
+			)
+	)
 })
 
 /** One column of every carrier, and the contract and refinement forms, each with a generator of its host values. */

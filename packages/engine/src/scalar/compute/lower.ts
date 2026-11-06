@@ -893,6 +893,8 @@ const guardText = (precondition: PreconditionKind, operand: string, operation: s
 		case "powerDomain":
 		case "bucketDomain":
 			return `Compute.when(Compute.within(${operand}, <low>, <high>), (${operand}) => ${operation}, <your value>), its bounds within which the operation is defined`
+		case "language":
+			return `a text whose type's pattern lies inside the target's, or Compute.when(Compute.matches(${operand}, <the target's pattern>), (${operand}) => ${operation}, <your value>)`
 		case "lexical":
 			return `a text whose type proves the target's lexical form, str.regex(lexicalForm(<target>)) or a refinement of it, or Compute.when(Compute.matches(${operand}, lexicalForm(<target>)), (${operand}) => ${operation}, <your value>)`
 	}
@@ -1223,18 +1225,22 @@ class Lowering<R extends Refs> {
 				}
 				return { precondition, premises: [interval] }
 			}
-			case "contract": {
+			case "language": {
 				const a = args[0]
 				const refinement = refinementOf(target)
-				if (a !== undefined && refinement !== undefined) {
-					const premise = languagePremise(
-						a,
-						`/${refinement.source}/${refinement.flags}`,
-						(regex) => patternIncludes(regex, refinement),
-						at
-					)
-					return premise === undefined ? refuse(0) : { precondition, premises: [premise] }
-				}
+				const premise =
+					a === undefined || refinement === undefined
+						? undefined
+						: languagePremise(
+								a,
+								`/${refinement.source}/${refinement.flags}`,
+								(regex) => patternIncludes(regex, refinement),
+								at
+							)
+				return premise === undefined ? refuse(0) : { precondition, premises: [premise] }
+			}
+			case "contract": {
+				const a = args[0]
 				const interval = a?.bounds === undefined ? undefined : finitePremise(0, a.bounds)
 				if (
 					a?.bounds === undefined ||
@@ -1361,17 +1367,19 @@ class Lowering<R extends Refs> {
 		if (this.env.mode === "build") {
 			return this.typedOnly(to, value.bounds)
 		}
+		const precondition: Precondition =
+			refinementOf(to) === undefined ? { kind: "contract" } : { kind: "language" }
 		const proof: OperationProof = [
 			checked === undefined || !this.checkedAgainst(value, to, checked, at)
 				? this.prove(
-						{ kind: "contract" },
+						precondition,
 						[value],
 						to,
 						at,
 						`Compute.cast(${exprText(value.expr)}, ${typeLabel(to)})`
 					)
 				: {
-						precondition: { kind: "contract" },
+						precondition,
 						premises: [{ kind: "checked", operand: 0, by: checked }]
 					}
 		]
@@ -3879,6 +3887,7 @@ export const intervalCastProof = (
 					: undefined
 			}
 			case "contract":
+			case "language":
 			case "powerDomain":
 			case "bucketDomain":
 			case "lexical":

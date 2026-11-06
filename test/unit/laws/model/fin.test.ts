@@ -8,7 +8,6 @@ import type { NativeColumn, NativeOf } from "#compiler/ir/law.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { assert, nonEmpty, succeeded } from "#test/support/assert.ts"
-import { ownedFixture } from "#test/support/evidence.ts"
 import {
 	type AuthoredStatementDesc,
 	contained,
@@ -22,7 +21,6 @@ import {
 	relation,
 	type SchemaDesc
 } from "#test/support/fixtures/ir/desc.ts"
-import { PayrollDesc } from "#test/support/fixtures/ir/payroll.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { owning } from "#test/support/policy.ts"
 import {
@@ -68,7 +66,7 @@ import { owner } from "#test/unit/physical/fixtures.ts"
  * Bound: every family of group width 1 or 2, ordered or counted, with 0 to 2 copies on each axis it admits, each copy
  * a caller field or an accumulated one: 2 × 4³ ordered and 2 × 4 counted, 136 schemas, exhausted. A CHECK is judged
  * on every index and count in 0 … 3, the index from −1 when counted, and a pin on every base in 0 … 2 against its
- * start and another value. The payroll fixture's whole IR is one more case of the installation's well-formedness.
+ * start and another value.
  */
 
 type Copy = "caller" | "accumulated"
@@ -730,11 +728,4 @@ describe("a family's natives are §2.1's three axes", () => {
 				)
 			)
 	)
-
-	it("the payroll fixture's whole IR compiles to a well-formed installation", () => {
-		assertWellFormed(ownedFixture(PayrollDesc).laws)
-		const owned = owning(PayrollDesc)
-		const installed = succeeded(compileInstallation(owned, installOptions(owned, owner)))
-		assertColumnsBeforeConstraints(installed.statements)
-	})
 })

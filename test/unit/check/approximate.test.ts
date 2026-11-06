@@ -1,45 +1,30 @@
 import { describe, it } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { noCoverage, requiredInSpace } from "@grizzle/testing/features"
-import { element } from "@grizzle/testing/gen"
+import { drawn, explore } from "@grizzle/testing/explore"
+import { required } from "@grizzle/testing/features"
+import { notesOnly } from "@grizzle/testing/sense"
+import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { hnswPolicy } from "#compiler/check/approximate/policy.ts"
 import { approximateMisuse, approximatePageMisuse } from "#compiler/check/approximate/provenance.ts"
 import { checkQuery } from "#compiler/check/index.ts"
-import type { CompileError, CompileReasonTag } from "#compiler/core/errors.ts"
-import * as Result from "#compiler/core/result.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
-import type { LogicalQuery } from "#compiler/ir/products.ts"
 import type { NodeOf, RelDag } from "#compiler/ir/rel.ts"
-import { queryInput } from "#compiler/program/compile.ts"
-import { Compute } from "#compiler/public/compute.ts"
-import { pg, uuid } from "#compiler/public/fields.ts"
-import { query, v } from "#compiler/public/query.ts"
-import { relation, schema } from "#compiler/public/schema.ts"
-import { isQueryValue, type QueryValue, queryValueDesc } from "#compiler/query/build/query.ts"
 import { assert, defined, matchesObject, refused, succeeded } from "#test/support/assert.ts"
-import { queryFromDesc } from "#test/support/describe.ts"
-import {
-	byDistance,
-	candidates,
-	Document,
-	DocumentCurrent,
-	DocumentEmbedding,
-	Search,
-	scoredDocuments,
-	titles
-} from "#test/support/fixtures/api/search.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { checking, checkOptions } from "#test/support/policy.ts"
-
-const check = (s: unknown, q: unknown): Result.Result<LogicalQuery, CompileError> =>
-	Result.flatMap(queryInput(q), (input) =>
-		checkQuery(checking(s), input.desc, checkOptions("query"))
-	)
-
-const checked = (s: unknown, q: unknown): LogicalQuery =>
-	succeeded(check(s, q), "the search checks")
+import {
+	approximate,
+	type Composition,
+	type Reading,
+	provenanceDesc,
+	provenanceGen,
+	type SearchRule,
+	searchCaseDesc,
+	searchCaseGen,
+	searchSchema,
+	searchVerdict
+} from "#test/unit/check/approximate.ts"
 
 const searches = (dag: RelDag): ReadonlyArray<NodeOf<"ApproximateNearest">> =>
 	Arr.filter(
@@ -47,393 +32,158 @@ const searches = (dag: RelDag): ReadonlyArray<NodeOf<"ApproximateNearest">> =>
 		(n): n is NodeOf<"ApproximateNearest"> => n.kind === "ApproximateNearest"
 	)
 
-/**
- * A query over Search rebuilt from its Description, untyped: how a JavaScript caller reaches what the typed signatures
- * refuse.
- */
-const untypedOf = (q: unknown): QueryValue => {
-	const untyped = succeeded(queryFromDesc(queryValueDesc(q), Search), "the rebuild")
-	assert.ok(isQueryValue(untyped), "an unordered query value")
-	return untyped
-}
+/** The readings of a search inside an attachment's child. */
+type AttachedReading = Extract<
+	Reading,
+	"an attachment filtering by its parent" | "an attachment binding its parent"
+>
 
-/** The approximate retrieval of the five nearest by distance. */
-const scored = <R>(source: {
-	readonly approximateNearest: (spec: { readonly by: "distance"; readonly take: number }) => R
-}): R => source.approximateNearest({ by: "distance", take: 5 })
+type EligibilityFeature =
+	| SearchRule
+	| `refused, ${AttachedReading}`
+	| `admitted, ${Extract<Reading, "the query" | "an import bound to a parameter">}`
+	| "admitted at HNSW's bound"
 
-/**
- * A schema with an unrelated double precision field beside a second embedding, and vectors at HNSW's dimension bound
- * and one above it.
- */
-const Ranked = relation("Ranked", { id: uuid, weight: pg.float8, value: pg.vector(4) }, ["id"])
-const AtBound = relation(
-	"AtBound",
-	{ id: uuid, value: pg.vector(hnswPolicy.maxDimensions.value) },
-	["id"]
-)
-
-const PastBound = relation(
-	"PastBound",
-	{ id: uuid, value: pg.vector(hnswPolicy.maxDimensions.value + 1) },
-	["id"]
-)
-
-const Lab = schema(
-	"Lab",
-	{ Document, DocumentCurrent, DocumentEmbedding, Ranked, AtBound, PastBound },
-	[]
-)
-
-/** The five nearest of each vector relation's rows to a parameter. */
-const nearestAtBound = () =>
-	scored(
-		query(Lab).rule((r) => {
-			const { id, value } = v(AtBound, "atBound")
-			return r
-				.match(AtBound, { id, value })
-				.find({ id, distance: Compute.cosineDistance(value, r.param("q", AtBound.fields.value)) })
-		})
-	)
-
-const nearestPastBound = () =>
-	scored(
-		query(Lab).rule((r) => {
-			const { id, value } = v(PastBound, "pastBound")
-			return r
-				.match(PastBound, { id, value })
-				.find({ id, distance: Compute.cosineDistance(value, r.param("q", PastBound.fields.value)) })
-		})
-	)
-
-/** The distance of each embedding to a parameter. */
-const distances = (vector: string) =>
-	query(Search).rule((r) => {
-		const { document, revision, value } = v(DocumentEmbedding, "documentEmbedding")
-		return r.match(DocumentEmbedding, { document, revision, value }).find({
-			document,
-			distance: Compute.cosineDistance(value, r.param(vector, DocumentEmbedding.fields.value))
-		})
-	})
-
-/** A search the eligibility check refuses with its reason, or admits; and why. */
-interface Planted {
-	readonly what: string
-	readonly schema: unknown
-	readonly search: () => unknown
-	readonly outcome: CompileReasonTag | "admitted"
-}
-
-const planted: Arr.NonEmptyReadonlyArray<Planted> = [
-	{
-		what: "an arbitrary score named distance, even a double precision column",
-		schema: Lab,
-		search: () =>
-			scored(
-				query(Lab).rule((r) => {
-					const { id, weight } = v(Ranked, "ranked")
-					return r.match(Ranked, { id, weight }).find({ id, distance: weight })
-				})
-			),
-		outcome: "UnsupportedOperation"
-	},
-	{
-		/**
-		 * The typed approximateNearest takes a number column only (test/types/skeleton/fixtures/vector.ts), so a
-		 * JavaScript caller's by on a uuid column reaches the builder runtime of the same query, rebuilt from its
-		 * Description.
-		 */
-		what: "a by on a uuid column",
-		schema: Search,
-		search: () => untypedOf(scoredDocuments).approximateNearest({ by: "document", take: 3 }),
-		outcome: "UnsupportedOperation"
-	},
-	{
-		what: "a nonlinear aggregate of distances",
-		schema: Search,
-		search: () =>
-			scored(
-				query(Search).rule((r) => {
-					const { document, revision, value } = v(DocumentEmbedding, "documentEmbedding")
-					const { account } = v(Document, "document")
-					return r
-						.match(DocumentEmbedding, { document, revision, value })
-						.match(Document, { id: document, account })
-						.find({
-							account,
-							distance: r.min(
-								Compute.cosineDistance(value, r.param("vector", DocumentEmbedding.fields.value))
-							)
-						})
-				})
-			),
-		outcome: "UnsupportedOperation"
-	},
-	{
-		/**
-		 * The typed approximateNearest refuses a union of rules (SearchSource), so a JavaScript caller's reaches the
-		 * checker through the union rebuilt from its Description.
-		 */
-		what: "a union of rules, which no single index orders",
-		schema: Search,
-		search: () => {
-			const twice = query(Search)
-				.rule((r) => {
-					const { document, revision, value } = v(DocumentEmbedding, "documentEmbedding")
-					return r.match(DocumentEmbedding, { document, revision, value }).find({
-						document,
-						distance: Compute.cosineDistance(
-							value,
-							r.param("vector", DocumentEmbedding.fields.value)
-						)
-					})
-				})
-				.rule((r) => {
-					const { document, revision, value } = v(DocumentEmbedding, "documentEmbedding")
-					return r.match(DocumentEmbedding, { document, revision, value }).find({
-						document,
-						distance: Compute.cosineDistance(
-							value,
-							r.param("other", DocumentEmbedding.fields.value)
-						)
-					})
-				})
-			return scored(untypedOf(twice))
-		},
-		outcome: "UnsupportedOperation"
-	},
-	{
-		what: "a distance between two stored vectors",
-		schema: Lab,
-		search: () =>
-			scored(
-				query(Lab).rule((r) => {
-					const { document, revision, value } = v(DocumentEmbedding, "documentEmbedding")
-					const other = v(Ranked, "ranked")
-					return r
-						.match(DocumentEmbedding, { document, revision, value })
-						.match(Ranked, { id: other.id, value: other.value })
-						.find({
-							document,
-							revision,
-							id: other.id,
-							distance: Compute.cosineDistance(value, other.value)
-						})
-				})
-			),
-		outcome: "UnsupportedOperation"
-	},
-	{
-		what: "an indexed vector at HNSW's dimension bound",
-		schema: Lab,
-		search: nearestAtBound,
-		outcome: "admitted"
-	},
-	{
-		what: "an indexed vector above HNSW's dimension bound, never truncated or quantized",
-		schema: Lab,
-		search: nearestPastBound,
-		outcome: "UnsupportedOperation"
-	},
-	{
-		what: "a source read once per outer row: an attachment child correlated to its parent",
-		schema: Search,
-		search: () =>
-			query(Search)
-				.rule((r) => {
-					const { id } = v(Document, "document")
-					return r.match(Document, { id }).find({ id })
-				})
-				.attach(
-					"near",
-					(parent) =>
-						scored(
-							query(Search).rule((r) => {
-								const { document, revision, value } = v(DocumentEmbedding, "documentEmbedding")
-								return r
-									.match(DocumentEmbedding, { document, revision, value })
-									.where(r.eq(document, parent.id))
-									.find({
-										revision,
-										distance: Compute.cosineDistance(
-											value,
-											r.param("vector", DocumentEmbedding.fields.value)
-										)
-									})
-							})
-						),
-					"array"
-				),
-		outcome: "UnsupportedOperation"
-	},
-	{
-		what: "a source whose match binds the parent variable: one global search filtered per parent is no substitute",
-		schema: Search,
-		search: () =>
-			query(Search)
-				.rule((r) => {
-					const { id } = v(Document, "document")
-					return r.match(Document, { id }).find({ id })
-				})
-				.attach(
-					"near",
-					(parent) =>
-						scored(
-							query(Search).rule((r) => {
-								const { revision, value } = v(DocumentEmbedding, "documentEmbedding")
-								return r.match(DocumentEmbedding, { document: parent.id, revision, value }).find({
-									revision,
-									distance: Compute.cosineDistance(
-										value,
-										r.param("vector", DocumentEmbedding.fields.value)
-									)
-								})
-							})
-						),
-					"array"
-				),
-		outcome: "UnsupportedOperation"
-	},
-	{
-		/**
-		 * The import's own subgraph reads the enclosing rule's region, reserved and not yet built when the import is
-		 * checked: its search would run once per row of that region.
-		 */
-		what: "an import bound to an outer variable, which would search once per outer row",
-		schema: Search,
-		search: () =>
-			query(Search).rule((r) => {
-				const { id, account } = v(Document, "document")
-				const near = candidates.bind({
-					account,
-					vector: r.param("vector", DocumentEmbedding.fields.value)
-				})
-				const { document } = v(near, "near")
-				return r.match(Document, { id, account }).match(near, { document }).find({ id, document })
-			}),
-		outcome: "UnsupportedOperation"
-	},
-	{
-		what: "the distances of one rule, five nearest",
-		schema: Search,
-		search: () => scored(distances("vector")),
-		outcome: "admitted"
-	}
+const rules: Arr.NonEmptyReadonlyArray<SearchRule> = [
+	"by naming no column",
+	"a bound that is no positive integer",
+	"a source read per parent row",
+	"a source read per outer row",
+	"a score that is no query distance",
+	"a union",
+	"an aggregate",
+	"an indexed vector past HNSW's bound",
+	"by naming another column"
 ]
 
-describe("approximateNearest's eligibility", () => {
+describe("approximateNearest", () => {
 	it.effect(
-		"refuses each shape no index serves as it asks, and admits the eligible ones",
-		(ctx) => {
-			type Outcome = "refused" | "admitted"
-			return searched(
+		"admits exactly a search whose one rule, read once per execution, ranks by a query vector's cosine distance to an indexable stored vector, refusing every other with its reason",
+		(ctx) =>
+			searched(
 				ctx,
-				exhaust(
+				explore(
 					{
 						suite: "unit/check/approximate-eligibility",
-						generator: element(planted),
+						draw: drawn(searchCaseGen),
 						literal: Formatter.format,
-						limit: planted.length,
-						coverage: requiredInSpace<Outcome>(["refused", "admitted"]),
+						oracle: {
+							kind: "specification",
+							name: "the eligibility rule restated over the drawn search (test/unit/check/approximate.ts)"
+						},
+						coverage: required<EligibilityFeature>(
+							[
+								...rules,
+								"refused, an attachment filtering by its parent",
+								"refused, an attachment binding its parent",
+								"admitted, the query",
+								"admitted, an import bound to a parameter",
+								"admitted at HNSW's bound"
+							],
+							{ cases: 600, sense: notesOnly }
+						),
+						kept: [],
+						runs: 300,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
 						caseHang
 					},
-					(p, c) =>
+					(c, k) =>
 						Effect.sync(() => {
-							const r = check(p.schema, p.search())
-							if (p.outcome === "admitted") {
-								assert.equal(searches(succeeded(r, p.what).dag).length, 1, p.what)
-								c.note("admitted")
-							} else {
-								refused(r, p.outcome, p.what)
-								c.note("refused")
+							const v = searchVerdict(c)
+							const result = checkQuery(
+								checking(searchSchema(c.dimensions)),
+								searchCaseDesc(c),
+								checkOptions("search")
+							)
+							if (v.kind === "refused") {
+								k.noteAll(v.rules)
+								if (
+									c.reading === "an attachment filtering by its parent" ||
+									c.reading === "an attachment binding its parent"
+								) {
+									k.note(`refused, ${c.reading}`)
+								}
+								refused(result, v.reason, Arr.join(v.rules, ", "))
+								return
 							}
+							if (c.reading === "the query" || c.reading === "an import bound to a parameter") {
+								k.note(`admitted, ${c.reading}`)
+							}
+							if (c.dimensions === hnswPolicy.maxDimensions.value) {
+								k.note("admitted at HNSW's bound")
+							}
+							const q = succeeded(result, "the eligible search")
+							assert.equal(searches(q.dag).length, 1, "one sealed search")
 						})
 				)
 			)
-		}
 	)
 
-	it.effect("refuses a by naming no column as MalformedDescription", (ctx) => {
-		const desc = succeeded(queryInput(candidates), "the candidates query").desc
-		return searched(
-			ctx,
-			exhaust(
-				{
-					suite: "unit/check/approximate-by",
-					generator: element(["nope", "", "distance ", "Distance"]),
-					literal: Formatter.format,
-					limit: 4,
-					coverage: noCoverage,
-					caseHang
-				},
-				(by) =>
-					Effect.sync(() => {
-						refused(
-							checkQuery(
-								checking(Search),
-								{ ...desc, stage: { ...desc.stage, by } },
-								checkOptions("query")
-							),
-							"MalformedDescription",
-							`by ${by}`
-						)
-					})
-			)
-		)
-	})
-})
-
-/** A program over the search fixtures and whether its result is computed from approximate candidates. */
-const programs: Arr.NonEmptyReadonlyArray<{
-	readonly name: string
-	readonly program: unknown
-	readonly approximate: boolean
-}> = [
-	{ name: "titles", program: titles, approximate: true },
-	{ name: "candidates", program: candidates, approximate: true },
-	{ name: "byDistance", program: byDistance, approximate: false },
-	{ name: "scoredDocuments", program: scoredDocuments, approximate: false }
-]
-
-describe("approximate provenance", () => {
 	it.effect(
-		"bans a page over, and a derived definition of, exactly the results computed from candidates",
-		(ctx) => {
-			type Provenance = "approximate" | "exact"
-			return searched(
+		"bans a page over, and a derived definition of, exactly the results computed from a search",
+		(ctx) =>
+			searched(
 				ctx,
-				exhaust(
+				explore(
 					{
 						suite: "unit/check/approximate-provenance",
-						generator: element(programs),
+						draw: drawn(provenanceGen),
 						literal: Formatter.format,
-						limit: programs.length,
-						coverage: requiredInSpace<Provenance>(["approximate", "exact"]),
+						oracle: {
+							kind: "specification",
+							name: "a result is approximate exactly when a search lies among what it is computed from"
+						},
+						coverage: required<Composition>(
+							[
+								"the search",
+								"an import of the search",
+								"a count over the search",
+								"the source ordered by distance",
+								"the source"
+							],
+							{ cases: 100, sense: notesOnly }
+						),
+						kept: [],
+						runs: 60,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
 						caseHang
 					},
-					(p, c) =>
+					(p, k) =>
 						Effect.sync(() => {
-							const q = checked(Search, p.program)
-							const page = approximatePageMisuse(q.dag.roots[0])
+							k.note(p.composition)
+							const q = succeeded(
+								checkQuery(
+									checking(searchSchema(p.search.dimensions)),
+									provenanceDesc(p),
+									checkOptions("provenance")
+								),
+								p.composition
+							)
+							const root = q.dag.roots[0]
+							const page = approximatePageMisuse(root)
 							const derived = approximateMisuse(q.dag, { derivedDefinition: true })
-							if (p.approximate) {
-								const ann = defined(searches(q.dag)[0], "the search")
-								const misuse = defined(page, `${p.name}: a page over candidates`)
-								assert.equal(misuse.use, "page")
-								assert.equal(misuse.consumer, q.dag.roots[0])
-								assert.equal(misuse.approximate, ann)
-								matchesObject(defined(derived, `${p.name}: a derived definition over candidates`), {
-									use: "derived"
-								})
-								c.note("approximate")
-							} else {
-								assert.equal(page, undefined, p.name)
-								assert.equal(derived, undefined, p.name)
-								c.note("exact")
+							if (!approximate(p.composition)) {
+								assert.equal(page, undefined, `${p.composition}: no page misuse`)
+								assert.equal(derived, undefined, `${p.composition}: no derived misuse`)
+								return
 							}
+							const search = defined(searches(q.dag)[0], "the search")
+							const misuse = defined(page, `${p.composition}: a page over candidates`)
+							assert.equal(misuse.use, "page")
+							assert.equal(misuse.consumer, root)
+							assert.equal(misuse.approximate, search)
+							matchesObject(
+								defined(derived, `${p.composition}: a derived definition over candidates`),
+								{
+									use: "derived"
+								}
+							)
 						})
 				)
 			)
-		}
 	)
 })

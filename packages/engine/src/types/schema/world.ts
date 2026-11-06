@@ -22,9 +22,9 @@ import type {
 	IsLevelOf,
 	IsRelationOf,
 	NamedBy,
-	RelationOf,
 	RelationsOf,
-	StatementsOf
+	StatementsOf,
+	UnderName
 } from "#compiler/types/schema/schema.ts"
 
 /**
@@ -125,7 +125,7 @@ export type WorldSerialFields<W> = W extends {
 
 type SerialOrigin<S, T> =
 	T extends Phantom<{ readonly origin: Origin<infer N, infer F> }>
-		? Extract<RelationOf<S>, { readonly name: N }> extends { readonly fields: infer Fs }
+		? UnderName<RelationsOf<S>, N> extends { readonly fields: infer Fs }
 			? F extends keyof Fs
 				? Fs[F] extends Pick<SerialField<unknown, never>, "writing">
 					? true
@@ -147,7 +147,7 @@ export type WorldUnwrittenFields<W> = W extends {
 
 type UnwrittenOrigin<S, T> =
 	T extends Phantom<{ readonly origin: Origin<infer N, infer F> }>
-		? Extract<RelationOf<S>, { readonly name: N }> extends { readonly fields: infer Fs }
+		? UnderName<RelationsOf<S>, N> extends { readonly fields: infer Fs }
 			? F extends keyof Fs
 				? Fs[F] extends UnwrittenField
 					? true
@@ -210,13 +210,6 @@ export type EntryContexts<Rs> = {
 }[keyof Rs]
 
 /**
- * The role's entry under the name N, none where the role has no entry of that name. A role's relations are its index by
- * name, as a schema's are: a whole entry sits under its own name (EntriesCheck), so "R is a whole entry" is "R is the
- * entry under R's name", one lookup, never a pass over the entries.
- */
-type EntryNamed<Relations, N> = N extends keyof Relations ? Relations[N] : never
-
-/**
  * Whether a role holds every relation of its base whole, under its own name: then the base is among its levels. A
  * closed relation is no entry (its rows are constants every role reads, D3), so a role holds every relation but those.
  * The base's record holds each relation under its own name too (UnderOwnNames), so each is read against the role's
@@ -229,15 +222,18 @@ type FullBaseOf<Base, Relations> = [UnheldOf<RelationsOf<Base>, Relations>] exte
 /** The keys of a base's record whose relation the role does not hold whole under that key, closed relations aside. */
 type UnheldOf<BaseRelations, Relations> = {
 	[K in keyof BaseRelations]-?: [BaseRelations[K]] extends [
-		AnyClosedRelation | EntryNamed<Relations, K>
+		AnyClosedRelation | UnderName<Relations, K>
 	]
 		? never
 		: K
 }[keyof BaseRelations]
 
-/** The relations among Named that are not the role's entry under their own names. */
+/**
+ * The relations among Named that are not the role's entry under their own names. A whole entry sits under its own name
+ * (EntriesCheck), so "R is a whole entry" is "R is the entry under R's name", one lookup, never a pass over the entries.
+ */
 type NotWhole<Relations, Named> = Named extends unknown
-	? [Named] extends [EntryNamed<Relations, NameOf<Named>>]
+	? [Named] extends [UnderName<Relations, NameOf<Named>>]
 		? never
 		: Named
 	: never
@@ -321,7 +317,7 @@ export type RefreshListOf<R> = R extends {
 	readonly refresh: ReadonlyArray<infer F extends string>
 	readonly relations: infer Rs
 }
-	? Rs[F & keyof Rs]
+	? UnderName<Rs, F>
 	: never
 
 /** Any login: the members every one has. Its roles are reached by name, each through the login (LoginRole). */

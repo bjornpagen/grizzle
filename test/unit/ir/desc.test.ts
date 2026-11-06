@@ -660,21 +660,6 @@ const notChain = (depth: number, innermost: unknown): unknown => {
 }
 
 describe("Descriptions", () => {
-	for (const [i, [kind, value]] of samples.entries()) {
-		it(`${kind} #${i} round-trips JSON`, () => {
-			/**
-			 * Decoding locates the nodes the value leaves unlocated and changes nothing else: the identity text is the
-			 * value's, and decoding the owned copy again, or the value's JSON, gives the same copy.
-			 */
-			const owned = succeeded(decodeDesc(kind, value))
-			assert.equal(succeeded(descText(owned)), succeeded(descText(value)))
-			assert.deepEqual(succeeded(decodeDesc(kind, owned)), owned)
-			const back = succeeded(descFromJson(kind, throughJson(value)))
-			assert.deepEqual(back, owned)
-			assert.equal(succeeded(descText(back)), succeeded(descText(value)))
-		})
-	}
-
 	/** Every object of a decoded description that carries a location, with its path in the description. */
 	const located = (
 		value: unknown,

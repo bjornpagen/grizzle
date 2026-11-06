@@ -1,12 +1,23 @@
 import { describe, it } from "@effect/vitest"
-import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { required, requiredInSpace } from "@grizzle/testing/features"
-import { array, boolean, element, type Gen, int, map, weighted } from "@grizzle/testing/gen"
+import { drawn, explore } from "@grizzle/testing/explore"
+import { required } from "@grizzle/testing/features"
+import {
+	array,
+	boolean,
+	element,
+	filter,
+	type Gen,
+	int,
+	map,
+	shuffled,
+	weighted
+} from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
+import { regexDfaMaxStates, regexDfaMaxWork } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Engine from "#compiler/core/result.ts"
 import { codePoints, codePointsText } from "#compiler/core/text.ts"
@@ -14,17 +25,22 @@ import type { ExprDesc, FieldDesc } from "#compiler/ir/desc.ts"
 import { predicateTable, type ScalarExpr } from "#compiler/ir/expr.ts"
 import type { OpenExpr } from "#compiler/ir/open.ts"
 import { textOf } from "#compiler/ir/scalar.ts"
-import { defaultOps } from "#compiler/lower/conservative/expr/ops.ts"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
 import { evaluateTable } from "#compiler/scalar/compute/evaluate.ts"
 import type { CarrierValue } from "#compiler/scalar/compute/literal.ts"
 import { regexMember } from "#compiler/scalar/regex/nfa.ts"
 import { charMapOf, imageOf } from "#compiler/scalar/regex/translate.ts"
 import { collapsed, collapseSources } from "#compiler/scalar/regex/whitespace.ts"
-import type { Expr } from "#compiler/sql/ast.ts"
-import { call, col, lit, types } from "#compiler/sql/build.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"
-import { assert, defined, refused, succeeded, throwsRefused } from "#test/support/assert.ts"
+import {
+	assert,
+	assertVariant,
+	defined,
+	refusalLoc,
+	refused,
+	succeeded,
+	throwsRefused
+} from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { evaluate } from "#test/support/oracle/evaluate/catalog.ts"
 import { patternMember } from "#test/support/oracle/reference/evaluate.ts"
@@ -37,7 +53,9 @@ import {
 	v
 } from "#test/unit/compute/support.ts"
 import {
+	type FiniteLanguage,
 	families,
+	finiteLanguageOver,
 	type Flags,
 	jsAccepts,
 	patternOver,
@@ -55,7 +73,15 @@ import {
  *   image of the operand's language: a text is a member of the image type exactly when one of its preimages under the
  *   map is a member of the operand's, which ECMAScript's own test of both patterns decides; and an operand whose
  *   pattern bounds its length keeps the bound.
- * - the refusals, a box of named invalid inputs, each by its reason.
+ * - the refusals: a fault planted in a valid translation or collapse, one for each refusal (a map of two lengths, a
+ *   repeated character of from, a character no text holds, a term as from or to, a subject that is no text or unbounded
+ *   in a query, each at the builder too), each by its reason and the place it states, and the term without its fault
+ *   compiles.
+ * - casts by inclusion: a translated finite language, its image exactly its members mapped, cast into a drawn text
+ *   type compiles exactly when ECMAScript's test of the target holds of every image member; a contract's predicate,
+ *   which no language proves, refuses the cast; a collapse is cast into the collapsed texts; any text is no refined
+ *   text's; and a language whose own automaton passes the analysis bounds is refused naming them, as text and as a
+ *   numeric's lexical form.
  * - collapse and replaceWhitespace: over texts dense in XML's four white space characters beside ones XML does not
  *   count (no-break space, line separator), both evaluators agree with XML Schema's definition, pieces cut at every run
  *   and joined by one space; the term's type holds every collapse of a value of the operand's, exactly the image where
@@ -425,35 +451,78 @@ describe("Compute's translate and lowerAscii", () => {
 		)
 	)
 
-	/** A named invalid input, and the reason its refusal states. */
-	type Invalid =
-		| "from and to of two lengths"
+	/** A fault planted in a valid translation or collapse, one for each refusal of the two. */
+	type Fault =
+		| "a to shorter than from"
+		| "a to longer than from"
 		| "a repeated character of from"
-		| "a column as from"
+		| "a character no text holds"
+		| "a term as from"
+		| "a term as to"
 		| "a subject that is no text"
-		| "translate in a query over an unbounded text"
-		| "a query's translate spelled as pg_catalog's"
+		| "an unbounded subject in a query"
 		| "a map of two lengths at the builder"
+		| "a repeated character at the builder"
 		| "a term as from at the builder"
-		| "collapse in a query over an unbounded text"
-		| "a query's collapse spelled as btrim over regexp_replace"
-		| "a collapse of no text"
-		| "matches in a query over an unbounded text"
+		| "a subject that is no text at the builder"
 
-	const invalid: Arr.NonEmptyReadonlyArray<Invalid> = [
-		"from and to of two lengths",
+	const faults: Arr.NonEmptyReadonlyArray<Fault> = [
+		"a to shorter than from",
+		"a to longer than from",
 		"a repeated character of from",
-		"a column as from",
+		"a character no text holds",
+		"a term as from",
+		"a term as to",
 		"a subject that is no text",
-		"translate in a query over an unbounded text",
-		"a query's translate spelled as pg_catalog's",
+		"an unbounded subject in a query",
 		"a map of two lengths at the builder",
+		"a repeated character at the builder",
 		"a term as from at the builder",
-		"collapse in a query over an unbounded text",
-		"a query's collapse spelled as btrim over regexp_replace",
-		"a collapse of no text",
-		"matches in a query over an unbounded text"
+		"a subject that is no text at the builder"
 	]
+
+	/** The faults of a map, which only a translation states. */
+	const mapFaults: ReadonlySet<Fault> = new Set<Fault>([
+		"a to shorter than from",
+		"a to longer than from",
+		"a repeated character of from",
+		"a character no text holds",
+		"a term as from",
+		"a term as to",
+		"a map of two lengths at the builder",
+		"a repeated character at the builder",
+		"a term as from at the builder"
+	])
+
+	/**
+	 * A valid term and the fault planted in it: a translation by a map Compute.translate admits, or a collapse, lowered as
+	 * a check or a query, and two code points a fault is built from beside a code point no text holds, NUL or a lone
+	 * surrogate.
+	 */
+	interface Planted {
+		readonly fault: Fault
+		readonly term: "translate" | "collapse"
+		readonly mode: "check" | "query"
+		readonly map: MapCase
+		readonly point: number
+		readonly other: number
+		readonly unheld: number
+	}
+
+	const plantedGen: Gen<Planted> = (source) => {
+		const fault = source.draw(element(faults))
+		return {
+			fault,
+			term: mapFaults.has(fault)
+				? "translate"
+				: source.draw(element(["translate", "collapse"] as const)),
+			mode: source.draw(element(["check", "query"] as const)),
+			map: source.draw(mapOver(translationAlphabet)),
+			point: source.draw(element(translationAlphabet)),
+			other: source.draw(element(translationAlphabet)),
+			unheld: source.draw(element([0x0, 0xd800, 0xdfff]))
+		}
+	}
 
 	const vars: Readonly<Record<string, LeafBinding>> = {
 		v: textColumn,
@@ -465,311 +534,491 @@ describe("Compute's translate and lowerAscii", () => {
 		n: { kind: "column", type: testPg.integer.scalar }
 	}
 
-	it.effect("refuses each invalid input by its reason", (ctx) =>
-		searched(
-			ctx,
-			exhaust(
-				{
-					suite: "unit/compute/translate-refusals",
-					generator: element(invalid),
-					literal: Formatter.format,
-					limit: invalid.length,
-					box: "every named invalid input of translate and lowerAscii",
-					oracle: { kind: "specification", name: "translate's map and its modes" },
-					coverage: requiredInSpace<Invalid>(invalid),
-					caseHang
-				},
-				(name, k) =>
-					Effect.sync(() => {
-						k.note(name)
-						const lowered = (desc: ExprDesc, mode: "check" | "query") =>
-							lowerWith(mode, desc, vars, false, baseParams)
-						switch (name) {
-							case "from and to of two lengths":
-								refused(
-									lowered(translation(variable("v"), text("ab"), text("c")), "check"),
-									"MalformedDescription",
-									"a shorter to would delete a character"
-								)
-								refused(
-									lowered(translation(variable("v"), text("a"), text("bc")), "check"),
-									"MalformedDescription",
-									"a longer to states characters nothing maps to"
-								)
-								return
-							case "a repeated character of from":
-								refused(
-									lowered(translation(variable("v"), text("aa"), text("bc")), "check"),
-									"MalformedDescription"
-								)
-								succeeded(
-									lowered(translation(variable("v"), text("ab"), text("cc")), "check"),
-									"a repeated character of to"
-								)
-								return
-							case "a column as from":
-								refused(
-									lowered(translation(variable("v"), variable("w"), text("a")), "check"),
-									"MalformedDescription"
-								)
-								return
-							case "a subject that is no text":
-								refused(
-									lowered(translation(variable("n"), text("1"), text("2")), "check"),
-									"MalformedDescription"
-								)
-								return
-							case "translate in a query over an unbounded text":
-								refused(
-									lowered(translation(variable("v"), text("A"), text("a")), "query"),
-									"UnsupportedOperation"
-								)
-								succeeded(
-									lowered(translation(variable("b"), text("A"), text("a")), "query"),
-									"a query over a bounded text"
-								)
-								return
-							case "a query's translate spelled as pg_catalog's": {
-								/** A query over a bounded text holds the node, which SQL spells as translate over its map's literals. */
-								const node = succeeded(
-									lowered(translation(variable("b"), text("A"), text("a")), "query")
-								).root.expr
-								if (node.kind !== "op") {
-									return assert.fail(`an op node, not ${node.kind}`)
-								}
-								const operands: ReadonlyArray<Expr> = [
-									col("r0", "b"),
-									lit.text("A", types.text),
-									lit.text("a", types.text)
-								]
-								const sql = defined(defaultOps(node, operands), "the node's SQL")
-								if (sql.kind !== "call" || sql.star) {
-									return assert.fail(`a call, not ${sql.kind}`)
-								}
+	it.effect(
+		"refuses each fault planted in a valid translation or collapse by its reason and place, and compiles the term without it",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/compute/translate-refusals",
+						draw: drawn(plantedGen),
+						literal: Formatter.format,
+						oracle: {
+							kind: "specification",
+							name: "translate's map, collapse's operand and their modes"
+						},
+						coverage: required<Fault>(faults, { cases: 400, sense: notesOnly }),
+						kept: [],
+						runs: 300,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang
+					},
+					(p, k) =>
+						Effect.sync(() => {
+							k.note(p.fault)
+							const label = Formatter.format(p)
+							const subject = p.mode === "query" ? "b" : "v"
+							const lowered = (desc: ExprDesc, mode: "check" | "query") =>
+								lowerWith(mode, desc, vars, false, baseParams)
+							const compiles = (desc: ExprDesc, mode: "check" | "query"): void => {
+								succeeded(lowered(desc, mode), `${label} without its fault`)
+							}
+							/** The refusal of a term for `tag`, stated at `path`. */
+							const refusedWith = (
+								desc: ExprDesc,
+								mode: "check" | "query",
+								tag: CompileError["reason"]["_tag"],
+								path: ReadonlyArray<string | number>
+							): void => {
 								assert.deepEqual(
-									sql.fn,
-									{ kind: "builtin", name: "translate" },
-									"pg_catalog's translate"
+									refusalLoc(refused(lowered(desc, mode), tag, label)).path,
+									path,
+									label
 								)
-								assert.deepEqual(sql.args, operands, "over the subject and the map")
-								return
 							}
-							case "a map of two lengths at the builder":
-								throwsRefused(
-									() => Compute.translate(v("v", testPg.text), "ab", "c"),
-									"MalformedDescription"
-								)
-								return
-							case "a term as from at the builder":
-								throwsRefused(
-									() => Compute.translate(v("v", testPg.text), v("w", testPg.text), "c"),
-									"MalformedDescription"
-								)
-								return
-							case "collapse in a query over an unbounded text":
-								refused(lowered(collapsing(variable("v")), "query"), "UnsupportedOperation")
-								succeeded(
-									lowered(collapsing(variable("b")), "query"),
-									"a query over a bounded text"
-								)
-								return
-							case "a query's collapse spelled as btrim over regexp_replace": {
-								const node = succeeded(lowered(collapsing(variable("b")), "query")).root.expr
-								if (node.kind !== "op") {
-									return assert.fail(`an op node, not ${node.kind}`)
+							const { from, to } = p.map
+							const termOver = (over: string): ExprDesc =>
+								p.term === "translate"
+									? translation(
+											variable(over),
+											text(codePointsText(from)),
+											text(codePointsText(to))
+										)
+									: collapsing(variable(over))
+							const valid = termOver(subject)
+							/** A translation by `f` to `t`, each a list of code points, as translate's two text literals. */
+							const mapOf = (f: ReadonlyArray<number>, t: ReadonlyArray<number>): ExprDesc =>
+								translation(variable(subject), text(codePointsText(f)), text(codePointsText(t)))
+							const head = from[0] ?? p.point
+							switch (p.fault) {
+								case "a to shorter than from":
+									refusedWith(
+										from.length > 0 ? mapOf(from, to.slice(0, -1)) : mapOf([p.point], []),
+										p.mode,
+										"MalformedDescription",
+										["translate"]
+									)
+									break
+								case "a to longer than from":
+									refusedWith(mapOf(from, [...to, p.point]), p.mode, "MalformedDescription", [
+										"translate"
+									])
+									break
+								case "a repeated character of from":
+									refusedWith(
+										mapOf([...from, head, head], [...to, p.point, p.other]),
+										p.mode,
+										"MalformedDescription",
+										["translate"]
+									)
+									break
+								case "a character no text holds":
+									refusedWith(
+										mapOf([...from, p.unheld], [...to, p.point]),
+										p.mode,
+										"MalformedDescription",
+										["translate"]
+									)
+									break
+								case "a term as from":
+								case "a term as to": {
+									const literal = text(codePointsText(p.fault === "a term as from" ? to : from))
+									refusedWith(
+										p.fault === "a term as from"
+											? translation(variable(subject), variable("w"), literal)
+											: translation(variable(subject), literal, variable("w")),
+										p.mode,
+										"MalformedDescription",
+										["translate", p.fault === "a term as from" ? 1 : 2]
+									)
+									break
 								}
-								const subject = col("r0", "b")
-								assert.deepEqual(
-									defaultOps(node, [subject]),
-									call("btrim", [
-										call("regexp_replace", [
-											subject,
-											lit.text("[\\u0009\\u000A\\u000D ]+", types.text),
-											lit.text(" ", types.text),
-											lit.text("g", types.text)
-										])
-									]),
-									"each run one space, then the ends trimmed"
-								)
-								return
+								case "a subject that is no text":
+									refusedWith(termOver("n"), p.mode, "MalformedDescription", [p.term])
+									break
+								case "an unbounded subject in a query":
+									refusedWith(termOver("v"), "query", "UnsupportedOperation", [p.term])
+									compiles(termOver("v"), "check")
+									break
+								case "a map of two lengths at the builder":
+								case "a repeated character at the builder":
+								case "a term as from at the builder": {
+									const [f, t]: readonly [ReadonlyArray<number>, ReadonlyArray<number>] =
+										p.fault === "a repeated character at the builder"
+											? [
+													[...from, head, head],
+													[...to, p.point, p.other]
+												]
+											: [from, [...to, p.point]]
+									const error = throwsRefused(
+										() =>
+											p.fault === "a term as from at the builder"
+												? Compute.translate(
+														v("v", testPg.text),
+														v("w", testPg.text),
+														codePointsText(to)
+													)
+												: Compute.translate(
+														v("v", testPg.text),
+														codePointsText(f),
+														codePointsText(t)
+													),
+										"MalformedDescription",
+										label
+									)
+									assert.deepEqual(
+										refusalLoc(error).path,
+										p.fault === "a term as from at the builder" ? [] : ["translate"],
+										label
+									)
+									break
+								}
+								case "a subject that is no text at the builder":
+									assert.deepEqual(
+										refusalLoc(
+											throwsRefused(
+												() =>
+													p.term === "translate"
+														? Compute.translate(
+																v("n", testPg.integer),
+																codePointsText(from),
+																codePointsText(to)
+															)
+														: Compute.collapse(v("n", testPg.integer)),
+												"MalformedDescription",
+												label
+											)
+										).path,
+										[p.term],
+										label
+									)
+									break
 							}
-							case "matches in a query over an unbounded text": {
-								/** `~` widens its subject as regexp_replace does, so a query's match needs the same bound. */
-								const match = (subject: string): ExprDesc => ({
-									kind: "compute",
-									fn: "matches",
-									args: [variable(subject), text("^a")]
-								})
-								refused(lowered(match("v"), "query"), "UnsupportedOperation")
-								refused(
-									lowered(
-										{
-											kind: "when",
-											guard: { kind: "matches", pattern: "^a" },
-											subject: variable("v"),
-											proved: variable("v"),
-											otherwise: text("a")
-										},
-										"query"
-									),
-									"UnsupportedOperation",
-									"a match guard reads `~` too"
-								)
-								succeeded(lowered(match("b"), "query"), "a query's match over a bounded text")
-								succeeded(lowered(match("v"), "check"), "a check's match over any text")
-								return
-							}
-							case "a collapse of no text":
-								refused(lowered(collapsing(variable("n")), "check"), "MalformedDescription")
-								throwsRefused(
-									() => Compute.collapse(v("n", testPg.integer)),
-									"MalformedDescription"
-								)
-								return
-						}
-					})
+							compiles(valid, p.mode)
+						})
+				)
 			)
-		)
 	)
 
-	/** A cast whose proof rests on one language's inclusion in another, and what compiling it gives. */
+	/**
+	 * The operand of a cast: the image of a finite language under a drawn map (its members mapped, which its exact image
+	 * type holds and nothing else), a collapse of a finite language or of any text, any text, or a language whose own
+	 * automaton passes the analysis bounds, `^[xy]*x[xy]{n}$`, x and y two code points.
+	 */
+	type Operand =
+		| {
+				readonly kind: "a translated language"
+				readonly language: FiniteLanguage
+				readonly map: MapCase
+		  }
+		| { readonly kind: "a collapsed language"; readonly language: FiniteLanguage }
+		| { readonly kind: "a collapse of any text" }
+		| { readonly kind: "any text" }
+		| {
+				readonly kind: "a language past the bounds"
+				readonly x: number
+				readonly y: number
+				readonly count: number
+		  }
+
+	/**
+	 * What it is cast to: a text type, a contract over one whose predicate bounds the length below the image's longest
+	 * member, so nothing proves it, the collapsed texts, every text with no tab, LF or CR and a space only between two
+	 * other characters, or a numeric, whose lexical form the operand is parsed into.
+	 */
+	type Target =
+		| { readonly kind: "a text type"; readonly source: string }
+		| {
+				readonly kind: "a contract over a text type"
+				readonly source: string
+				readonly below: number
+		  }
+		| { readonly kind: "the collapsed texts" }
+		| { readonly kind: "a numeric"; readonly precision: number; readonly scale: number }
+
+	/** The members of an operand's image, where a finite language's image has them. */
+	const imageMembers = (operand: Operand): ReadonlyArray<string> | undefined => {
+		switch (operand.kind) {
+			case "a translated language":
+				return Arr.map(operand.language.members, (m) => mapped(m, operand.map.from, operand.map.to))
+			case "a collapsed language":
+				return Arr.map(operand.language.members, collapsed)
+			case "a collapse of any text":
+			case "any text":
+			case "a language past the bounds":
+				return undefined
+		}
+	}
+
+	/** A code point as its braced escape, which means itself inside a class and out. */
+	const escapedPoint = (c: number): string => `\\u{${c.toString(16)}}`
+
+	/** A text as the alternation arm that spells it, each code point its braced escape. */
+	const spelled = (value: string): string => Arr.join(Arr.map(codePoints(value), escapedPoint), "")
+
+	/**
+	 * A text type a drawn image is or is not inside: every text over its code points, or exactly its members, each with
+	 * one of them dropped half the time and more of the alphabet's added.
+	 */
+	const textTarget =
+		(image: ReadonlyArray<string>): Gen<string> =>
+		(source) => {
+			const drop = source.draw(boolean)
+			if (source.draw(boolean)) {
+				const points = Arr.dedupe(Arr.flatMap(image, codePoints))
+				const kept = drop ? points.slice(1) : points
+				const more = source.draw(array(element(translationAlphabet), { min: 0, max: 3 }))
+				return `^[${Arr.join(Arr.map([...kept, ...more], escapedPoint), "")}]*$`
+			}
+			const members = Arr.dedupe(image)
+			const kept = drop ? members.slice(1) : members
+			const more = source.draw(array(stringsOver(translationAlphabet, 3), { min: 0, max: 3 }))
+			return `^(?:${Arr.join(Arr.map([...kept, ...more], spelled), "|")})$`
+		}
+
+	/**
+	 * The collapsed texts, every text with no tab, LF or CR and a space only between two other characters, the collapse of
+	 * any text a member; within `length` characters where a bound is given, which the collapse of a text that long keeps.
+	 */
+	const collapsedTexts = (length: number | undefined): string =>
+		length === undefined
+			? "^(?:[^ \\t\\n\\r]+(?: [^ \\t\\n\\r]+)*)?$"
+			: length === 0
+				? "^$"
+				: length === 1
+					? "^[^ \\t\\n\\r]?$"
+					: `^(?:[^ \\t\\n\\r](?:[^\\t\\n\\r]{0,${length - 2}}[^ \\t\\n\\r])?)?$`
+
+	/** The longest member of a finite language, in code points. */
+	const longestOf = (members: ReadonlyArray<string>): number =>
+		Arr.reduce(members, 0, (most, m) => Math.max(most, codePoints(m).length))
+
+	const castGen: Gen<readonly [Operand, Target]> = (source) => {
+		const language = source.draw(
+			filter(finiteLanguageOver(translationAlphabet), (l) => l.members.length <= 64, 8)
+		)
+		const operand = source.draw(
+			weighted<Operand>([
+				[
+					4,
+					(s) => ({
+						kind: "a translated language",
+						language,
+						map: s.draw(mapOver(translationAlphabet))
+					})
+				],
+				[2, () => ({ kind: "a collapsed language", language })],
+				[1, () => ({ kind: "a collapse of any text" })],
+				[1, () => ({ kind: "any text" })],
+				[
+					1,
+					(s) => {
+						const [x, y] = s.draw(shuffled(translationAlphabet, { min: 2, max: 2 }))
+						return {
+							kind: "a language past the bounds",
+							x: defined(x, "a first code point"),
+							y: defined(y, "a second code point"),
+							count: s.draw(int(11, 13))
+						}
+					}
+				]
+			])
+		)
+		const image = imageMembers(operand) ?? language.members
+		const longest = longestOf(image)
+		const target = source.draw(
+			weighted<Target>([
+				[4, (s) => ({ kind: "a text type", source: s.draw(textTarget(image)) })],
+				[
+					1,
+					(s) => ({
+						kind: "a contract over a text type",
+						source: s.draw(textTarget(image)),
+						below: longest - 1
+					})
+				],
+				[1, () => ({ kind: "the collapsed texts" })],
+				[
+					1,
+					(s) => ({ kind: "a numeric", precision: s.draw(int(20, 60)), scale: s.draw(int(0, 10)) })
+				]
+			])
+		)
+		return [operand, target] as const
+	}
+
 	type Inclusion =
 		| "an image inside the target"
 		| "an image outside the target"
-		| "an unrefined text"
-		| "a contract over the target's text"
+		| "a contract's predicate unproved"
+		| "any text outside the target"
 		| "a collapse inside the collapsed texts"
 		| "a refinement past the analysis bounds"
 		| "a parse past the analysis bounds"
 
-	const inclusions: Arr.NonEmptyReadonlyArray<Inclusion> = [
-		"an image inside the target",
-		"an image outside the target",
-		"an unrefined text",
-		"a contract over the target's text",
-		"a collapse inside the collapsed texts",
-		"a refinement past the analysis bounds",
-		"a parse past the analysis bounds"
-	]
-
-	/** xs:normalizedString's value space: no tab, LF or CR, at most 200 characters. */
-	const normalized: FieldDesc = { kind: "text", source: "^[^\\t\\n\\r]{0,200}$", flags: "su" }
-	/** Two counted runs of up to 255 letters, whose own automaton passes the DFA's 2,048 states. */
-	const wideWords = "^(?:[a-z]{0,255}x){2}$"
-	/** Two runs of up to 200 digits, whose product with numeric(500, 250)'s form passes the DFA's 2,048 states. */
-	const longDecimal = "^[0-9]{1,200}(?:\\.[0-9]{1,200})?$"
-
-	const castVars: Readonly<Record<string, LeafBinding>> = {
-		t: { kind: "column", type: testPg.regex("^.{0,200}$", "su").scalar },
-		v: textColumn,
-		e: { kind: "column", type: testPg.regex(wideWords, "u").scalar },
-		d: { kind: "column", type: testPg.regex(longDecimal, "u").scalar }
-	}
-
-	const cast = (arg: ExprDesc, to: FieldDesc) =>
-		lowerWith("check", { kind: "cast", arg, to }, castVars, false, baseParams)
-
-	/** The patterns an undecided inclusion names, inner then outer: a ResourceBound naming any other fails. */
-	const undecided = (refusal: CompileError): readonly [string, string] => {
-		const reason = refusal.reason
-		return reason._tag === "ResourceBound" && reason.bound.kind === "regexInclusion"
-			? [reason.bound.inner, reason.bound.outer]
-			: assert.fail(`an undecided inclusion, not ${refusal.message}`)
-	}
-
 	it.effect(
-		"proves a cast into a refined text by language inclusion, and names the analysis bounds it cannot pass",
+		"proves a cast into a refined text exactly by the image's inclusion, and names the analysis bounds it cannot pass",
 		(ctx) =>
 			searched(
 				ctx,
-				exhaust(
+				explore(
 					{
 						suite: "unit/compute/translate-inclusion",
-						generator: element(inclusions),
+						draw: drawn(castGen),
 						literal: Formatter.format,
-						limit: inclusions.length,
-						box: "a cast of a translation, of plain text and of patterns past the analysis bounds",
-						oracle: { kind: "specification", name: "the contract and lexical preconditions" },
-						coverage: requiredInSpace<Inclusion>(inclusions),
+						oracle: {
+							kind: "second-implementation",
+							name: "a finite language's members mapped, judged by ECMAScript's own test of the target"
+						},
+						coverage: required<Inclusion>(
+							[
+								"an image inside the target",
+								"an image outside the target",
+								"a contract's predicate unproved",
+								"any text outside the target",
+								"a collapse inside the collapsed texts",
+								"a refinement past the analysis bounds",
+								"a parse past the analysis bounds"
+							],
+							{ cases: 400, sense: notesOnly }
+						),
+						kept: [],
+						runs: 200,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
 						caseHang
 					},
-					(name, k) =>
+					([operand, target], k) =>
 						Effect.sync(() => {
-							k.note(name)
-							switch (name) {
-								case "an image inside the target":
-									succeeded(
-										cast(translation(variable("t"), text("\t\n\r"), text("   ")), normalized),
-										"every tab, LF and CR becomes a space"
-									)
+							const label = Formatter.format([operand, target])
+							const past =
+								operand.kind === "a language past the bounds"
+									? `^[${escapedPoint(operand.x)}${escapedPoint(operand.y)}]*${escapedPoint(operand.x)}[${escapedPoint(operand.x)}${escapedPoint(operand.y)}]{${operand.count}}$`
+									: "^.*$"
+							const finite =
+								operand.kind === "a translated language" || operand.kind === "a collapsed language"
+									? operand.language
+									: undefined
+							const castVars: Readonly<Record<string, LeafBinding>> = {
+								t: { kind: "column", type: testPg.regex(finite?.source ?? past, "u").scalar },
+								v: textColumn
+							}
+							const arg: ExprDesc =
+								operand.kind === "a translated language"
+									? translation(
+											variable("t"),
+											text(codePointsText(operand.map.from)),
+											text(codePointsText(operand.map.to))
+										)
+									: operand.kind === "a collapsed language"
+										? collapsing(variable("t"))
+										: operand.kind === "a collapse of any text"
+											? collapsing(variable("v"))
+											: operand.kind === "any text"
+												? variable("v")
+												: variable("t")
+							/** The text type a target states, the collapsed texts within a collapsed language's longest member. */
+							const textTypeOf = (source: string, flags: "u" | "su"): FieldDesc => ({
+								kind: "text",
+								source,
+								flags
+							})
+							const collapsedTarget = collapsedTexts(
+								operand.kind === "a collapsed language"
+									? longestOf(operand.language.members)
+									: undefined
+							)
+							const to: FieldDesc =
+								target.kind === "a text type"
+									? textTypeOf(target.source, "u")
+									: target.kind === "a contract over a text type"
+										? {
+												kind: "contract",
+												name: "Short",
+												base: textTypeOf(target.source, "u"),
+												predicate: {
+													kind: "compare",
+													op: "le",
+													left: { kind: "compute", fn: "charLength", args: [{ kind: "value" }] },
+													right: { kind: "literal", value: target.below, type: undefined }
+												},
+												facts: []
+											}
+										: target.kind === "the collapsed texts"
+											? textTypeOf(collapsedTarget, "su")
+											: { kind: "numeric", precision: target.precision, scale: target.scale }
+							const cast = lowerWith(
+								"check",
+								{ kind: "cast", arg, to },
+								castVars,
+								false,
+								baseParams
+							)
+							if (target.kind === "a contract over a text type") {
+								refused(cast, "PartialOperation", label)
+								k.note("a contract's predicate unproved")
+								return
+							}
+							if (operand.kind === "a language past the bounds") {
+								const { reason } = refused(cast, "ResourceBound", label)
+								assertVariant(reason, "_tag", "ResourceBound", label)
+								assertVariant(reason.bound, "kind", "regexInclusion", label)
+								assert.deepEqual(
+									[reason.bound.inner, reason.bound.states, reason.bound.work],
+									[`/${past}/u`, regexDfaMaxStates.value, regexDfaMaxWork.value],
+									label
+								)
+								if (target.kind === "a numeric") {
+									k.note("a parse past the analysis bounds")
 									return
-								case "an image outside the target":
-									refused(
-										cast(translation(variable("t"), text("\t"), text(" ")), normalized),
-										"PartialOperation"
-									)
-									return
-								case "an unrefined text":
-									refused(cast(variable("v"), normalized), "PartialOperation")
-									return
-								case "a contract over the target's text":
-									refused(
-										cast(translation(variable("t"), text("\t\n\r"), text("   ")), {
-											kind: "contract",
-											name: "Short",
-											base: normalized,
-											predicate: {
-												kind: "compare",
-												op: "le",
-												left: { kind: "compute", fn: "charLength", args: [{ kind: "value" }] },
-												right: { kind: "literal", value: 10, type: undefined }
-											},
-											facts: []
-										}),
-										"PartialOperation",
-										"the image lies in the contract's base, but nothing proves its predicate"
-									)
-									return
-								case "a collapse inside the collapsed texts":
-									succeeded(
-										cast(collapsing(variable("v")), {
-											kind: "text",
-											source: "^(?:[^ \\t\\n\\r]+(?: [^ \\t\\n\\r]+)*)?$",
-											flags: "su"
-										}),
-										"any text collapses to runs of other characters, a space apart"
-									)
-									succeeded(
-										cast(collapsing(variable("t")), {
-											kind: "text",
-											source: "^(?:[^ \\t\\n\\r](?:[^\\t\\n\\r]{0,198}[^ \\t\\n\\r])?)?$",
-											flags: "su"
-										}),
-										"a title of at most 200 characters collapses within them, a space at neither end"
-									)
-									return
-								case "a refinement past the analysis bounds":
-									assert.deepEqual(
-										undecided(
-											refused(
-												cast(variable("e"), { kind: "text", source: "^[a-x]*$", flags: "u" }),
-												"ResourceBound"
-											)
-										),
-										[`/${wideWords}/u`, "/^[a-x]*$/u"]
-									)
-									return
-								case "a parse past the analysis bounds":
-									assert.equal(
-										undecided(
-											refused(
-												cast(variable("d"), { kind: "numeric", precision: 500, scale: 250 }),
-												"ResourceBound"
-											)
-										)[0],
-										`/${longDecimal}/u`
-									)
-									return
+								}
+								k.note("a refinement past the analysis bounds")
+								assert.equal(
+									reason.bound.outer,
+									target.kind === "a text type" ? `/${target.source}/u` : `/${collapsedTarget}/su`,
+									label
+								)
+								return
+							}
+							if (target.kind === "the collapsed texts") {
+								if (
+									operand.kind === "a collapsed language" ||
+									operand.kind === "a collapse of any text"
+								) {
+									succeeded(cast, label)
+									k.note("a collapse inside the collapsed texts")
+								}
+								return
+							}
+							if (target.kind === "a numeric") {
+								return
+							}
+							if (operand.kind === "any text") {
+								refused(cast, "PartialOperation", label)
+								k.note("any text outside the target")
+								return
+							}
+							const image = imageMembers(operand)
+							if (image === undefined) {
+								return
+							}
+							const inside = Arr.every(image, (m) => jsAccepts(target.source, "u", m))
+							if (operand.kind === "a collapsed language") {
+								if (cast.ok) {
+									assert.equal(inside, true, `${label}: a proved collapse lies in its target`)
+								}
+								return
+							}
+							if (inside) {
+								succeeded(cast, label)
+								k.note("an image inside the target")
+							} else {
+								refused(cast, "PartialOperation", label)
+								k.note("an image outside the target")
 							}
 						})
 				)

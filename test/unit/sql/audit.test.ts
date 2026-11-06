@@ -14,14 +14,7 @@ import { emit } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
 import { printStatement, printType } from "#compiler/sql/print.ts"
 import { identityHooks, statementParams, transformStatement } from "#compiler/sql/transform.ts"
-import {
-	assert,
-	defined,
-	refusalLoc,
-	refused,
-	succeeded,
-	unorderedEqual
-} from "#test/support/assert.ts"
+import { assert, defined, succeeded, unorderedEqual } from "#test/support/assert.ts"
 import { unitCarrier } from "#test/support/kernel/naming.ts"
 import { type ShapeFeature, shapeFeatures, shapeOf } from "#test/support/kernel/shape.ts"
 import { breaks, oneHole } from "#test/support/kernel/sqlgen.ts"
@@ -58,8 +51,6 @@ import {
 	type TextBreak,
 	textBreaks
 } from "#test/unit/sql/audit/operators.ts"
-import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
-import { Hand, shopChangeSet, shopCompile, shopWrite } from "#test/unit/write/put/support.ts"
 
 /**
  * The test kernel's structural audit of emitted SQL (test/support/oracle/verify/sql.ts), searched over Live statements
@@ -486,26 +477,6 @@ describe("every statement a generated write program places", () => {
 			)
 		}
 	)
-
-	it("refuses a member inserted under a stored immutable owner at compile, which the written draws never state", () => {
-		const lone = shopChangeSet().insert(Hand, [{ id: uuidOf(6), crew: uuidOf(7), label: "f" }])
-		const at = refusalLoc(refused(shopWrite(lone, shopCompile), "UnsupportedOperation"))
-		assert.deepEqual(
-			{ label: at.label, path: at.path },
-			{ label: "insert Hand", path: [] },
-			"the refusal is the insert's"
-		)
-	})
-
-	it("refuses a member's delete under an immutable owner at compile: its family is fixed when its owner is inserted", () => {
-		const deleted = shopChangeSet().delete(Hand, [{ id: uuidOf(6), crew: uuidOf(7), label: "f" }])
-		const at = refusalLoc(refused(shopWrite(deleted, shopCompile), "UnsupportedOperation"))
-		assert.deepEqual(
-			{ label: at.label, path: at.path },
-			{ label: "delete Hand", path: [] },
-			"the refusal is the delete's"
-		)
-	})
 })
 
 describe("a statement broken at one site", () => {

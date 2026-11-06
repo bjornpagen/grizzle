@@ -27,6 +27,7 @@ import { checking, checkOptions } from "#test/support/policy.ts"
 import {
 	attach,
 	count,
+	lit,
 	match,
 	max,
 	min,
@@ -45,9 +46,9 @@ import {
  * The box is every rule over Post(id, org, views) and Comment(id, post, author), both keyed by id, of these shapes:
  * one match of either relation binding each nonempty subset of its fields; a join of Post bound by (id, org) with
  * Comment bound by its post, with or without Comment's id; and an attached child of Comment under each post, with or
- * without Comment's id. Each folds by each aggregate, grouped by a bound variable or not, over each of three
- * databases: equal values on distinct facts (two posts of one org with equal views, two comments of one author on one
- * post), all values distinct, and no facts.
+ * without Comment's id. Each folds by each aggregate, grouped by a bound variable or not, with a constant beside the
+ * fold or not, over each of three databases: equal values on distinct facts (two posts of one org with equal views, two
+ * comments of one author on one post), all values distinct, and no facts.
  *
  * Two oracles judge it:
  *
@@ -58,7 +59,8 @@ import {
  *   five views each sum to ten, and two comments on one post count two: equal values on distinct facts both
  *   contribute.
  *
- * Bound: the box is exhausted, 540 cases (18 rule shapes, 5 aggregates, grouped or not, 3 databases).
+ * Bound: the box is exhausted, 1,080 cases (18 rule shapes, 5 aggregates, grouped or not, a constant beside the fold or
+ * not, 3 databases).
  */
 
 const Blog: SchemaDesc = {
@@ -156,6 +158,8 @@ interface FoldCase {
 	readonly shape: Shape
 	readonly fn: Fn
 	readonly grouped: boolean
+	/** A constant head term beside the fold, which is no group key: one value delivered in every group's row. */
+	readonly constant: boolean
 	readonly database: Database
 }
 
@@ -186,10 +190,19 @@ const groupings: Arr.NonEmptyReadonlyArray<boolean> = [false, true]
 const cases: Arr.NonEmptyReadonlyArray<FoldCase> = Arr.flatMap(shapes, (shape) =>
 	Arr.flatMap(fns, (fn) =>
 		Arr.flatMap(groupings, (grouped) =>
-			Arr.map(databaseNames, (database): FoldCase => ({ shape, fn, grouped, database }))
+			Arr.flatMap(groupings, (constant) =>
+				Arr.map(databaseNames, (database): FoldCase => ({ shape, fn, grouped, constant, database }))
+			)
 		)
 	)
 )
+
+/** The constant a case's head delivers beside its fold, where it states one. */
+const constantValue = 7
+
+/** The constant head term of a case, under `k`, or none. */
+const constantTerm = (c: FoldCase): Record<string, HeadTermDesc> =>
+	c.constant ? { k: lit(constantValue) } : {}
 
 /** The variables a rule declares at a relation's fields, each named by its relation and field (dsl.ts vars). */
 const varsOf = (relation: RelationName, fields: ReadonlyArray<Field>) =>
@@ -256,7 +269,8 @@ const built = (c: FoldCase): Built => {
 			const group = groupField === undefined ? undefined : { relation, field: groupField }
 			const head: Record<string, HeadTermDesc> = {
 				...(groupField === undefined ? {} : { g: v(relation, groupField) }),
-				x: aggregate(c.fn, v(relation, argField))
+				x: aggregate(c.fn, v(relation, argField)),
+				...constantTerm(c)
 			}
 			return {
 				query: queryDesc(
@@ -278,7 +292,8 @@ const built = (c: FoldCase): Built => {
 			const commentBound: ReadonlyArray<Field> = c.shape.commentId ? ["id", "author"] : ["author"]
 			const head: Record<string, HeadTermDesc> = {
 				...(c.grouped ? { g: v("Post", "org") } : {}),
-				x: aggregate(c.fn, v("Comment", "author"))
+				x: aggregate(c.fn, v("Comment", "author")),
+				...constantTerm(c)
 			}
 			return {
 				query: queryDesc(
@@ -320,7 +335,8 @@ const built = (c: FoldCase): Built => {
 					where: [],
 					head: {
 						...(c.grouped ? { g: v("Comment", "author") } : {}),
-						x: aggregate(c.fn, v("Comment", "author"))
+						x: aggregate(c.fn, v("Comment", "author")),
+						...constantTerm(c)
 					},
 					interiors: [],
 					attach: []
@@ -406,8 +422,13 @@ const hostAnswer = (c: FoldCase, b: Built): ReadonlyArray<string> => {
 				const fact = t(b.arg.relation)
 				return fact === undefined ? [] : [at(b.arg.relation, fact, b.arg.field)]
 			})
+			const constant = c.constant ? `|${constantValue}` : ""
 			return Arr.isReadonlyArrayNonEmpty(values)
-				? [b.group === undefined ? folded(c.fn, values) : `${g}|${folded(c.fn, values)}`]
+				? [
+						b.group === undefined
+							? `${folded(c.fn, values)}${constant}`
+							: `${g}|${folded(c.fn, values)}${constant}`
+					]
 				: []
 		}),
 		Order.String
@@ -449,15 +470,19 @@ const referenceAnswer = (
 	const index = (name: string) => Arr.findFirstIndex(relation.heading, (h) => h.name === name)
 	const x = index("x")
 	const g = index("g")
+	const k = index("k")
 	return Arr.sort(
 		Arr.map(relation.rows, (row) => {
 			const fold = Option.match(x, {
 				onNone: () => "no x",
 				onSome: (i) => valueText(row[i] ?? Number.NaN)
 			})
+			const constant = c.constant
+				? `|${Option.match(k, { onNone: () => "no k", onSome: (i) => valueText(row[i] ?? Number.NaN) })}`
+				: ""
 			return b.group === undefined
-				? fold
-				: `${Option.match(g, { onNone: () => "no g", onSome: (i) => valueText(row[i] ?? Number.NaN) })}|${fold}`
+				? `${fold}${constant}`
+				: `${Option.match(g, { onNone: () => "no g", onSome: (i) => valueText(row[i] ?? Number.NaN) })}|${fold}${constant}`
 		}),
 		Order.String
 	)
@@ -470,6 +495,7 @@ type Feature =
 	| `refused ${Shape["kind"]}`
 	| `admitted ${Shape["kind"]}`
 	| "equal values summed twice"
+	| "a constant beside the fold"
 
 const required: Arr.NonEmptyReadonlyArray<Feature> = [
 	"refused one",
@@ -479,6 +505,7 @@ const required: Arr.NonEmptyReadonlyArray<Feature> = [
 	"refused attached",
 	"admitted attached",
 	"equal values summed twice",
+	"a constant beside the fold",
 	...Arr.flatMap(fns, (fn): ReadonlyArray<Feature> => [`refused ${fn}`, `admitted ${fn}`])
 ]
 
@@ -527,6 +554,9 @@ describe("a fold reads each fact it matches once, by a key", () => {
 							}
 							k.note(`admitted ${c.fn}`)
 							k.note(`admitted ${c.shape.kind}`)
+							if (c.constant) {
+								k.note("a constant beside the fold")
+							}
 							if (c.shape.kind === "attached") {
 								return
 							}

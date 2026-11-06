@@ -280,7 +280,7 @@ type WitnessedAt<H, K extends keyof H, Os extends ReadonlyArray<unknown>> =
 				? O extends Origin<infer R, infer F, infer N>
 					? [HoldingMatches<Os, O>] extends [never]
 						? never
-						: OnlyAt<HeadFieldsOfOrigin<H, ScopedKey<R, F, N>>, K> extends true
+						: OnlyAt<HeadFieldsByOrigin<H>[ScopedKey<R, F, N>], K> extends true
 							? O
 							: never
 					: never
@@ -294,33 +294,41 @@ type OneFactScopes<W, Os extends ReadonlyArray<unknown>> = {
 
 /** The matches that hold every witnessed head variable of origin O's scope. */
 type SharedMatches<W, O, Os extends ReadonlyArray<unknown>> =
-	O extends Origin<infer R, string, infer N>
-		? {
-				[I in keyof Os & `${number}`]-?: false extends {
-					[K in keyof W]-?: W[K] extends Origin<R, string, N>
-						? I extends HoldingMatches<Os, W[K]>
-							? true
-							: false
-						: true
-				}[keyof W]
-					? never
-					: I
-			}[keyof Os & `${number}`]
-		: never
+	O extends Origin<infer R, string, infer N> ? ScopeMatches<W, R, N, Os> : never
+
+/**
+ * The matches that hold every witnessed head variable of scope N of R: read once per scope, which every head field of
+ * the scope shares, never once per field.
+ */
+type ScopeMatches<W, R extends string, N extends string, Os extends ReadonlyArray<unknown>> = {
+	[I in keyof Os & `${number}`]-?: false extends {
+		[K in keyof W]-?: W[K] extends Origin<R, string, N>
+			? I extends HoldingMatches<Os, W[K]>
+				? true
+				: false
+			: true
+	}[keyof W]
+		? never
+		: I
+}[keyof Os & `${number}`]
 type OnlyAt<U, X> = [U] extends [X] ? ([X] extends [U] ? true : false) : false
-type HeadFieldsOfOrigin<H, Key> = {
-	[K in keyof H]-?: HasOrigin<H[K]> extends true
-		? [OriginOfTerm<H[K]>] extends [InputOrigin]
+
+/**
+ * The head fields by the origin key of each variable they hold, an input aside: each field under the key of each of its
+ * origins and none under any other key, built in one pass over the head, so a field's fellows of one origin are one
+ * property read, never a pass over the head per field.
+ */
+type HeadFieldsByOrigin<H> = {
+	readonly [K in keyof H as HeadOriginKeys<H[K]>]: K
+} & { readonly [key: string]: never }
+
+type HeadOriginKeys<X> =
+	HasOrigin<X> extends true
+		? [OriginOfTerm<X>] extends [InputOrigin]
 			? never
-			: OriginOfTerm<H[K]> extends infer O
-				? O extends Origin<infer R, infer F, infer N>
-					? ScopedKey<R, F, N> extends Key
-						? K
-						: never
-					: never
-				: never
+			: OriginKeys<OriginOfTerm<X>>
 		: never
-}[keyof H]
+type OriginKeys<O> = O extends Origin<infer R, infer F, infer N> ? ScopedKey<R, F, N> : never
 
 /** A JavaScript value a head may hold, typed by what it meets or by its own default. */
 export type HeadValue = Literal | Decimal | Money

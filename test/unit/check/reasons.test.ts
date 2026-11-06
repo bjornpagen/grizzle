@@ -1,7 +1,8 @@
 import { describe, it } from "@effect/vitest"
-import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { required, requiredInSpace } from "@grizzle/testing/features"
+import { drawn, explore } from "@grizzle/testing/explore"
+import { required } from "@grizzle/testing/features"
 import { codePoint, element, type Gen, int, oneOf, string } from "@grizzle/testing/gen"
+import { corrupted, corruptedFeature, type CorruptedFeature } from "@grizzle/testing/lsw"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint as bigintGen, double } from "@grizzle/testing/values"
@@ -11,34 +12,46 @@ import { checkQuery } from "#compiler/check/index.ts"
 import type { CompileError, CompileReasonTag } from "#compiler/core/errors.ts"
 import { childLoc, formatLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import type * as Result from "#compiler/core/result.ts"
+import type { QueryDesc as LocatedQuery } from "#compiler/ir/desc.ts"
+import { queryInput } from "#compiler/program/compile.ts"
 import { assert, defined, refusalLoc, refused, succeeded } from "#test/support/assert.ts"
 import {
 	type AuthoredExprDesc,
-	decodedMember,
 	decodedQuery,
-	type MemberDesc,
 	type QueryDesc
 } from "#test/support/fixtures/ir/desc.ts"
 import { WorkDesc } from "#test/support/fixtures/ir/work.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { checking, checkMemberOf, checkOptions } from "#test/support/policy.ts"
+import { buildRoot, buildSchema } from "#test/support/oracle/public/build.ts"
+import { caseSketchGen, resolveCase } from "#test/support/oracle/public/generate.ts"
+import { checking, checkOptions, checkReadBackOf } from "#test/support/policy.ts"
 import {
-	attach,
-	cast,
+	type ContractFeature,
+	contractCaseGen,
+	contractFeatures,
+	contractQuery,
+	contractSchema,
+	conflicting
+} from "#test/unit/check/contracts.ts"
+import {
 	eq,
 	imported,
 	lit,
 	match,
 	param,
-	parent,
 	queryDesc,
 	ref,
 	relationSource,
 	rule,
-	sum,
-	typedLit,
 	vars
 } from "#test/unit/check/dsl.ts"
+import {
+	type Boundary,
+	type FaultRule,
+	faults,
+	liveOf,
+	type Planted
+} from "#test/unit/check/faults.ts"
 import { Lab, Qty } from "#test/unit/check/schemas.ts"
 
 import { regex } from "arkregex"
@@ -92,20 +105,6 @@ const matchLoc = (
 	assert.ok(stage.kind === "rules", "the planted stage is a rules stage")
 	return defined(defined(stage.arms[arm]).matches[m]).loc
 }
-
-const tasks = (head: Parameters<typeof rule>[0]["head"]): QueryDesc =>
-	queryDesc(
-		rule({
-			vars: vars("Task", "id", "account", "kind"),
-			matches: [
-				match(relationSource("Task"), { id: ref("Task", "id"), account: ref("Task", "account") })
-			],
-			head,
-			where: [],
-			interiors: [],
-			attach: []
-		})
-	)
 
 /** Item ids whose qty is the parameter q: Qty is a contract over integer (test/unit/check/schemas.ts). */
 const itemsOfQty = queryDesc(
@@ -370,359 +369,152 @@ describe("a literal at a typed slot", () => {
 	)
 })
 
-/** A ChangeSet insert of TaskNote whose member query over Task delivers `head`. */
-const noteMember = (head: Parameters<typeof rule>[0]["head"]): MemberDesc => ({
-	op: "insert",
-	relation: "TaskNote",
-	member: {
-		kind: "query",
-		query: queryDesc(
-			rule({
-				vars: vars("Task", "id"),
-				matches: [match(relationSource("Task"), { id: ref("Task", "id") })],
-				head,
-				where: [],
-				interiors: [],
-				attach: []
-			})
-		)
-	}
-})
-
-/** The manual task's operator, attached to a task. */
-const operatorChild = queryDesc(
-	rule({
-		vars: vars("ManualTask", "operator"),
-		matches: [
-			match(relationSource("ManualTask"), {
-				task: parent("task"),
-				operator: ref("ManualTask", "operator")
-			})
-		],
-		head: { operator: ref("ManualTask", "operator") },
-		where: [],
-		interiors: [],
-		attach: []
-	})
-)
-
-/** Notes of tasks with `attachments` on the arm. */
-const notes = (attachments: ReadonlyArray<{ readonly name: string; readonly child: QueryDesc }>) =>
-	queryDesc(
-		rule({
-			vars: vars("Task", "id"),
-			matches: [match(relationSource("Task"), { id: ref("Task", "id") })],
-			head: { task: ref("Task", "id"), note: lit("n") },
-			attach: attachments,
-			where: [],
-			interiors: []
-		})
-	)
-
-const insertNote = (q: QueryDesc): MemberDesc => ({
-	op: "insert",
-	relation: "TaskNote",
-	member: { kind: "query", query: q }
-})
-
-const integer = { kind: "pg", type: "integer" } as const
-const bigint = { kind: "pg", type: "bigint" } as const
-
-/** A check of a planted description (the generator emits only well-formed programs), with what it must answer. */
-interface Planted {
-	readonly what: string
-	readonly check: () => Result.Result<unknown, CompileError>
-	readonly expected: () => Expected
-}
-
-const arm = (extra: boolean) =>
-	rule({
-		vars: vars("Task", "id", "account"),
-		matches: [
-			match(relationSource("Task"), {
-				id: ref("Task", "id"),
-				account: ref("Task", "account"),
-				kind: lit("Manual")
-			})
-		],
-		head: extra
-			? { id: ref("Task", "id"), kind: lit("Manual"), account: ref("Task", "account") }
-			: { id: ref("Task", "id"), kind: lit("Manual") },
-		where: [],
-		interiors: [],
-		attach: []
-	})
-
-const planted: Arr.NonEmptyReadonlyArray<Planted> = [
-	{
-		what: "MissingDiscriminant: arms of different headings whose literals coincide",
-		check: () =>
-			checkQuery(checking(WorkDesc), queryDesc(arm(false), arm(true)), checkOptions("query")),
-		expected: () => refusedFor("MissingDiscriminant")
-	},
-	...(() => {
-		const q = attach(
-			tasks({ id: ref("Task", "id") }),
-			"notes",
-			queryDesc(
-				rule({
-					vars: vars("TaskNote", "task", "note"),
-					matches: [
-						match(relationSource("TaskNote"), {
-							task: ref("TaskNote", "task"),
-							note: ref("TaskNote", "note")
-						})
-					],
-					head: { note: ref("TaskNote", "note") },
-					where: [],
-					interiors: [],
-					attach: []
-				})
-			)
-		)
-		return [
-			{
-				what: "AttachedParentUnbound: a child that binds no parent variable, at the attachment",
-				check: () => checkQuery(checking(WorkDesc), q, checkOptions("query")),
-				expected: () => {
-					const decoded = decodedQuery(q.stage).stage
-					assert.ok(decoded.kind === "attach", "the planted stage is an attachment")
-					return refusedAt("AttachedParentUnbound", decoded.attach.loc)
-				}
-			}
-		]
-	})(),
-	...Arr.map(
-		[
-			noteMember({ task: ref("Task", "id") }),
-			noteMember({ task: ref("Task", "id"), note: lit("n"), extra: lit(1) })
-		],
-		(member, i) => ({
-			what: `DescribedHeadingMismatch: a member head ${i === 0 ? "narrower" : "wider"} than its relation's heading, at the member`,
-			check: () => checkMemberOf(checking(WorkDesc), member, {}),
-			expected: () => refusedAt("DescribedHeadingMismatch", decodedMember(member).loc)
-		})
-	),
-	{
-		what: "a member head of its relation's heading",
-		check: () =>
-			checkMemberOf(
-				checking(WorkDesc),
-				noteMember({ task: ref("Task", "id"), note: lit("n") }),
-				{}
-			),
-		expected: () => admitted
-	},
-	(() => {
-		/** A sum is numeric: re-entering the Cents contract of AutomaticTask.budget needs Compute.cast. */
-		const budgets: MemberDesc = {
-			op: "put",
-			relation: "AutomaticTask",
-			member: {
-				kind: "query",
-				query: queryDesc(
-					rule({
-						vars: vars("AutomaticTask", "task", "budget"),
-						matches: [
-							match(relationSource("AutomaticTask"), {
-								task: ref("AutomaticTask", "task"),
-								budget: ref("AutomaticTask", "budget")
-							})
-						],
-						head: {
-							task: ref("AutomaticTask", "task"),
-							budget: sum(ref("AutomaticTask", "budget"))
-						},
-						where: [],
-						interiors: [],
-						attach: []
-					})
-				)
-			}
-		}
-		return {
-			what: "DescribedHeadingMismatch: a sum into a contract field, at the member",
-			check: () => checkMemberOf(checking(WorkDesc), budgets, {}),
-			expected: () => refusedAt("DescribedHeadingMismatch", decodedMember(budgets).loc)
-		}
-	})(),
-	(() => {
-		/** An attachment adds a field to the result: refused where it is attached, a stage of the member query. */
-		const staged = insertNote(attach(notes([]), "extra", operatorChild))
-		return {
-			what: "DescribedHeadingMismatch: a member query's attach stage, at the attachment",
-			check: () => checkMemberOf(checking(WorkDesc), staged, {}),
-			expected: () => {
-				const m = decodedMember(staged).member
-				assert.ok(
-					m.kind === "query" && m.query.stage.kind === "attach",
-					"the planted member reads an attachment"
-				)
-				return refusedAt("DescribedHeadingMismatch", m.query.stage.attach.loc)
-			}
-		}
-	})(),
-	(() => {
-		const armed = insertNote(notes([{ name: "extra", child: operatorChild }]))
-		return {
-			what: "DescribedHeadingMismatch: a member arm's attachment, at the attachment",
-			check: () => checkMemberOf(checking(WorkDesc), armed, {}),
-			expected: () => {
-				const m = decodedMember(armed).member
-				assert.ok(
-					m.kind === "query" && m.query.stage.kind === "rules",
-					"the planted member reads a rules stage"
-				)
-				return refusedAt(
-					"DescribedHeadingMismatch",
-					defined(defined(m.query.stage.arms[0]).attach[0]).loc
-				)
-			}
-		}
-	})(),
-	{
-		what: "the same attachment read on its own",
-		check: () =>
-			checkQuery(
-				checking(WorkDesc),
-				attach(notes([]), "extra", operatorChild),
-				checkOptions("query")
-			),
-		expected: () => admitted
-	},
-	(() => {
-		/**
-		 * A variable no rule declares, read by a match binding: the structural pass refuses it before the checker runs,
-		 * at the location the checker reports for its own refusal of the same entry.
-		 */
-		const binding = queryDesc(
-			rule({
-				vars: vars("Item", "id"),
-				matches: [
-					match(relationSource("Item"), { id: ref("Item", "id"), qty: ref("Other", "qty") })
-				],
-				head: { id: ref("Item", "id") },
-				where: [],
-				interiors: [],
-				attach: []
-			})
-		)
-		return {
-			what: "an undeclared variable in a match binding, at the binding",
-			check: () => checkQuery(checking(Lab), binding, checkOptions("query")),
-			expected: () =>
-				refusedAt(
-					"MalformedDescription",
-					childLoc(childLoc(matchLoc(decodedQuery(binding.stage).stage, 0, 0), "bindings"), "qty")
-				)
-		}
-	})(),
-	(() => {
-		const stray = qtyImport(ref("Other", "id"))
-		return {
-			what: "an undeclared variable in an import's bind map, at the bind entry",
-			check: () => checkQuery(checking(Lab), stray, checkOptions("query")),
-			expected: () =>
-				refusedAt(
-					"MalformedDescription",
-					childLoc(childLoc(matchLoc(decodedQuery(stray.stage).stage, 0, 0), "bind"), "q")
-				)
-		}
-	})(),
-	{
-		what: "DuplicateIdentity: a query declaring the schema's contract name with another descriptor",
-		check: () =>
-			checkQuery(
-				checking(WorkDesc),
-				tasks({
-					id: ref("Task", "id"),
-					n: cast(typedLit(1, integer), {
-						kind: "contract",
-						name: "Cents",
-						base: integer,
-						predicate: undefined,
-						facts: []
-					})
-				}),
-				checkOptions("query")
-			),
-		expected: () => refusedFor("DuplicateIdentity")
-	},
-	{
-		what: "DuplicateIdentity: one contract name declared with two descriptors",
-		check: () =>
-			checkQuery(
-				checking(WorkDesc),
-				tasks({
-					a: cast(typedLit(1, integer), {
-						kind: "contract",
-						name: "Fresh",
-						base: integer,
-						predicate: undefined,
-						facts: []
-					}),
-					b: cast(typedLit(1n, bigint), {
-						kind: "contract",
-						name: "Fresh",
-						base: bigint,
-						predicate: undefined,
-						facts: []
-					})
-				}),
-				checkOptions("query")
-			),
-		expected: () => refusedFor("DuplicateIdentity")
-	},
-	{
-		/** The schema's own descriptor of Cents is the contract, not a second declaration of it. */
-		what: "the schema's own contract descriptor",
-		check: () =>
-			checkQuery(
-				checking(WorkDesc),
-				tasks({
-					n: cast(typedLit(1n, bigint), {
-						kind: "contract",
-						name: "Cents",
-						base: bigint,
-						predicate: {
-							kind: "compare",
-							op: "ge",
-							left: { kind: "value" },
-							right: { kind: "literal", value: 0n, type: undefined }
-						},
-						facts: []
-					})
-				}),
-				checkOptions("query")
-			),
-		expected: () => admitted
-	}
-]
-
-describe("checker diagnostics", () => {
+describe("a query's contracts", () => {
 	it.effect(
-		"refuse each planted description with its reason, a declaration at its decoded location, and admit its counterpart",
-		(ctx) => {
-			type Answer = Expected["kind"]
-			return searched(
+		"are one descriptor per name across the query and its schema, a name declared with two refused with that name",
+		(ctx) =>
+			searched(
 				ctx,
-				exhaust(
+				explore(
 					{
-						suite: "unit/check/reasons-planted",
-						generator: element(planted),
+						suite: "unit/check/reasons-contracts",
+						draw: drawn(contractCaseGen),
 						literal: Formatter.format,
-						limit: planted.length,
-						coverage: requiredInSpace<Answer>(["refused at", "refused", "admitted"]),
+						oracle: {
+							kind: "specification",
+							name: "one name, one descriptor, restated over the drawn declarations (test/unit/check/contracts.ts)"
+						},
+						coverage: required<ContractFeature>(
+							[
+								"one name declared with two descriptors",
+								"the schema's contract declared otherwise",
+								"the schema's own descriptor declared again",
+								"one descriptor declared twice",
+								"admitted"
+							],
+							{ cases: 200, sense: notesOnly }
+						),
+						kept: [],
+						runs: 100,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
 						caseHang
 					},
-					(p, c) =>
+					(c, k) =>
 						Effect.sync(() => {
-							const expected = p.expected()
-							answers(p.check(), expected, p.what)
-							c.note(expected.kind)
+							k.noteAll(contractFeatures(c))
+							const result = checkQuery(
+								checking(contractSchema(c)),
+								contractQuery(c),
+								checkOptions("contracts")
+							)
+							const clash = conflicting(c)
+							if (clash.length === 0) {
+								succeeded(result, "one descriptor per name")
+								return
+							}
+							const reason = refused(result, "DuplicateIdentity").reason
+							const duplicate = reason._tag === "DuplicateIdentity" ? reason.duplicate : undefined
+							const named = duplicate?.kind === "contract" ? duplicate.name : undefined
+							assert.ok(
+								named !== undefined && Arr.some(clash, (name) => name === named),
+								`a contract of the names ${Arr.join(clash, ", ")}, not ${Formatter.format(duplicate)}`
+							)
 						})
 				)
 			)
-		}
+	)
+})
+
+/** What a planted fault's case reached: the live Description, a fault by its rule, and the reasons refused. */
+type FaultFeature = CorruptedFeature<FaultRule> | "admitted as a read-back"
+
+/** A planted Description read at a boundary, against the case's schema. */
+const readAt = (
+	schema: unknown,
+	desc: LocatedQuery,
+	boundary: Boundary
+): Result.Result<unknown, CompileError> => {
+	const checked = checking(schema)
+	switch (boundary) {
+		case "query":
+			return checkQuery(checked, desc, checkOptions("faults"))
+		case "read-back":
+			return checkReadBackOf(checked, { name: "planted", query: desc }, {})
+	}
+}
+
+describe("a fault planted in a generated query", () => {
+	it.effect(
+		"is refused with its reason at the location it determines, and the query without it is admitted",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/check/reasons-faults",
+						draw: drawn(caseSketchGen),
+						literal: Formatter.format,
+						oracle: {
+							kind: "specification",
+							name: "the reason and location each planted fault determines (test/unit/check/faults.ts)"
+						},
+						coverage: required<FaultFeature>(
+							[
+								"live",
+								"wild an attachment binding no parent column",
+								"stale an undeclared variable in a binding",
+								"stale an undeclared variable in a bind map",
+								"stale a delta outside a read-back",
+								"wild a delta of the roster",
+								"admitted as a read-back"
+							],
+							{ cases: 400, sense: notesOnly }
+						),
+						kept: [],
+						runs: 200,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang
+					},
+					(sketch, k) =>
+						Effect.sync(() => {
+							const c = k.draw(resolveCase(sketch))
+							const built = buildSchema(c.schema)
+							for (const read of c.reads) {
+								if (read.kind !== "query") {
+									continue
+								}
+								const desc = succeeded(
+									queryInput(buildRoot(built, built.schema, read.query)),
+									"the builder admits a generated read"
+								).desc
+								succeeded(readAt(built.schema, desc, "query"), "the live read is admitted")
+								const drawnFault = k.draw(corrupted(liveOf(c, desc), faults))
+								k.note(corruptedFeature(drawnFault))
+								if (drawnFault.kind === "live") {
+									continue
+								}
+								const planted: Planted = drawnFault.refusal
+								const label = `${drawnFault.rule} at ${drawnFault.at}`
+								const e = refused(
+									readAt(built.schema, planted.desc, planted.boundary),
+									planted.reason,
+									label
+								)
+								assert.equal(formatLoc(refusalLoc(e)), formatLoc(planted.at), `${label}: located`)
+								if (planted.admittedAs !== "none") {
+									succeeded(
+										readAt(built.schema, planted.desc, planted.admittedAs),
+										`${label}, read as a ${planted.admittedAs}`
+									)
+									k.note("admitted as a read-back")
+								}
+							}
+						})
+				)
+			)
 	)
 })

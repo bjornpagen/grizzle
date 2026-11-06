@@ -17,7 +17,8 @@ export type OperandIndex = 0 | 1 | 2 | 3
  *   width_bucket's operands);
  * - `fits`: a cast's value other than NaN fits its target, a narrower carrier or a numeric typmod, once the cast
  *   rounds it; NaN passes a typmod, and a cast that NaN would fail into an integer or money also requires `finite`;
- * - `contract`: the value satisfies the contract or regex refinement a domain cast enters;
+ * - `contract`: the value satisfies the contract a domain cast enters;
+ * - `language`: the text a domain cast enters a regex-refined text with lies in the refinement's language;
  * - `powerDomain`: power's result stays inside its carrier's range;
  * - `bucketDomain`: width_bucket's bounds differ and its count lies in 1..2147483646;
  * - `lexical`: a text a parse reads is a member of its target's lexical form (scalar/lexical.ts), so the target's input
@@ -25,8 +26,8 @@ export type OperandIndex = 0 | 1 | 2 | 3
  *
  * nonzero, nonnegative and finite are facts a term's TypeScript type states (Facts), exactly; fits, contract,
  * powerDomain and bucketDomain rest on numeric bounds no TypeScript type can state, which the lowering's bound domain
- * proves (scalar/compute/bounds.ts); lexical rests on the operand's text refinement, whose language the lowering
- * proves included in the form (scalar/regex/inclusion.ts).
+ * proves (scalar/compute/bounds.ts); language and lexical rest on the operand's text refinement, whose language the
+ * lowering proves included in the target's pattern or form (scalar/regex/inclusion.ts).
  */
 export type Precondition =
 	| { readonly kind: "nonzero"; readonly operand: OperandIndex }
@@ -34,6 +35,7 @@ export type Precondition =
 	| { readonly kind: "finite"; readonly operand: OperandIndex }
 	| { readonly kind: "fits" }
 	| { readonly kind: "contract" }
+	| { readonly kind: "language" }
 	| { readonly kind: "powerDomain" }
 	| { readonly kind: "bucketDomain" }
 	| { readonly kind: "lexical" }

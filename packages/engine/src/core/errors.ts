@@ -162,7 +162,7 @@ const boundText = (bound: CompileBound): string => {
 /**
  * What a partial operation needs of its operands beyond their types (scalar/compute/registry.ts Precondition, by
  * kind): a nonzero divisor, a nonnegative radicand, a finite operand, a value that fits its target, a contract that
- * holds, power's domain, width_bucket's domain, a parse's lexical form.
+ * holds, a text inside a refinement's language, power's domain, width_bucket's domain, a parse's lexical form.
  */
 export type PreconditionKind =
 	| "nonzero"
@@ -170,6 +170,7 @@ export type PreconditionKind =
 	| "finite"
 	| "fits"
 	| "contract"
+	| "language"
 	| "powerDomain"
 	| "bucketDomain"
 	| "lexical"
@@ -186,6 +187,8 @@ const preconditionText = (kind: PreconditionKind, operand: string): string => {
 			return `${operand} fits its target`
 		case "contract":
 			return `${operand} satisfies its target's contract`
+		case "language":
+			return `${operand}'s language lies inside its target's pattern`
 		case "powerDomain":
 			return `${operand} lies where power is defined and in range`
 		case "bucketDomain":

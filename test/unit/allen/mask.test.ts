@@ -19,37 +19,91 @@ import { type AllenRelation, allenRelations } from "#compiler/core/allen.ts"
 import { catchCompileError } from "#compiler/core/canonical.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { queryValueDesc } from "#compiler/query/build/query.ts"
-import { assert } from "#test/support/assert.ts"
+import { assert, nonEmpty } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { classify, type HalfOpen, spanText, windowSpans } from "#test/support/oracle/allen.ts"
 import { Booking, Schedule } from "#test/unit/query/fixtures.ts"
 
 /** The relations a mask holds, in bit order: the relation of each set bit, by the declared order. */
 const relationsOf = (mask: number): ReadonlyArray<AllenRelation> =>
 	Arr.filter(allenRelations, (r) => (mask & (1 << allenRelations.indexOf(r))) !== 0)
 
+/** The named masks beyond the thirteen basic relations, and the complement of one. */
+type Named = "intersects" | "covers" | "within" | "precedes" | "disjoint"
+
+/**
+ * What each named mask means of two half-open spans A = [a0, a1) and B = [b0, b1), stated over their points: A and B
+ * share a point; every point of B is A's; every point of A is B's; every point of A is before every point of B; and no
+ * point is both's, the complement of intersects.
+ */
+const meanings: { readonly [N in Named]: (a: HalfOpen, b: HalfOpen) => boolean } = {
+	intersects: (a, b) => a.lo < b.hi && b.lo < a.hi,
+	covers: (a, b) => a.lo <= b.lo && b.hi <= a.hi,
+	within: (a, b) => b.lo <= a.lo && a.hi <= b.hi,
+	precedes: (a, b) => a.hi <= b.lo,
+	disjoint: (a, b) => a.hi <= b.lo || b.hi <= a.lo
+}
+
+/** Each named mask: ALLEN's own, and the complement of intersects. */
+const named: { readonly [N in Named]: AllenMask } = {
+	intersects: ALLEN.intersects,
+	covers: ALLEN.covers,
+	within: ALLEN.within,
+	precedes: ALLEN.precedes,
+	disjoint: ALLEN.complement(ALLEN.intersects)
+}
+
+const namedMasks: Arr.NonEmptyReadonlyArray<Named> = [
+	"intersects",
+	"covers",
+	"within",
+	"precedes",
+	"disjoint"
+]
+
+type NamedFeature = `${Named} ${"held" | "failed"}`
+
 describe("the named Allen masks", () => {
-	it("defines the named masks as unions of basic relations", () => {
-		assert.deepEqual(relationsOf(ALLEN.intersects), [
-			"overlaps",
-			"starts",
-			"during",
-			"finishes",
-			"equals",
-			"overlappedBy",
-			"startedBy",
-			"contains",
-			"finishedBy"
-		])
-		assert.deepEqual(relationsOf(ALLEN.covers), ["equals", "startedBy", "contains", "finishedBy"])
-		assert.deepEqual(relationsOf(ALLEN.within), ["starts", "during", "finishes", "equals"])
-		assert.deepEqual(relationsOf(ALLEN.precedes), ["before", "meets"])
-		assert.notEqual(ALLEN.overlaps, ALLEN.intersects)
-		assert.deepEqual(relationsOf(ALLEN.complement(ALLEN.intersects)), [
-			"before",
-			"meets",
-			"after",
-			"metBy"
-		])
+	it.effect("hold of two spans exactly when what each names holds of their points", (ctx) => {
+		const spans = nonEmpty(windowSpans(), "the window's spans")
+		return searched(
+			ctx,
+			exhaust(
+				{
+					suite: "unit/allen/named-masks",
+					generator: (source) =>
+						[source.draw(element(spans)), source.draw(element(spans))] as const,
+					literal: Formatter.format,
+					/** The window's 66 spans, paired: 4,356 pairs; the limit guards only against their growth. */
+					limit: 5_000,
+					box: "every ordered pair of spans [a, b) with -3 <= a < b <= 8",
+					oracle: {
+						kind: "specification",
+						name: "each named mask's meaning over the spans' points, against the pair's one basic relation by its endpoint conditions"
+					},
+					coverage: requiredInSpace<NamedFeature>(
+						Arr.flatMap(namedMasks, (n): Arr.NonEmptyReadonlyArray<NamedFeature> => [
+							`${n} held`,
+							`${n} failed`
+						])
+					),
+					caseHang
+				},
+				([a, b], c) =>
+					Effect.sync(() => {
+						const relation = classify(a, b)
+						for (const n of namedMasks) {
+							const holds = meanings[n](a, b)
+							assert.equal(
+								Arr.contains(relationsOf(named[n]), relation),
+								holds,
+								`${n} of ${spanText(a)} and ${spanText(b)}, which are ${relation}`
+							)
+							c.note(`${n} ${holds ? "held" : "failed"}`)
+						}
+					})
+			)
+		)
 	})
 })
 

@@ -176,19 +176,19 @@ export type RelationsOf<S> = S extends { readonly relations: infer Rs } ? Rs : n
 export type RelationOf<S> = RelationsOf<S>[keyof RelationsOf<S>]
 
 /**
+ * What a record of relations holds under the name N, none where it holds nothing of that name. A schema's record and
+ * a role's hold each relation under its own name (UnderOwnNames, EntriesCheck), so a relation is found by its name in
+ * one property read, never in a pass over the record's values.
+ */
+export type UnderName<Rs, N> = N extends keyof Rs ? Rs[N] : never
+
+/**
  * Whether R is a relation, closed relation or derived relation of S; any schema admits every relation. S's record
  * holds each relation under its own name (UnderOwnNames), so R is S's relation of its name exactly when it is one of
  * RelationOf<S>, the union the checker builds once per schema.
  */
 export type IsRelationOf<S, R> = 0 extends 1 & S ? true : [R] extends [RelationOf<S>] ? true : false
 
-/**
- * One entry of an index by a single name. An index here is keyed by its own domain (KeyIndexOf by the names its key
- * statements declare), never by a key remapped with `as`, so `keyof Index` is the index's own key set, which the
- * checker holds once. The keys of a remapped index are recomputed at every `keyof`, one instantiation of the remapping
- * per key, so a lookup into one costs the size of the whole index.
- */
-type Lookup<Index, N> = N extends keyof Index ? Index[N] : never
 export type StatementsOf<S> = S extends {
 	readonly statements: infer St extends ReadonlyArray<Statement>
 }
@@ -213,19 +213,18 @@ export type KeysOf<S, R> = R extends { readonly kind: "context" }
 							: R extends { readonly kind: "derived" | "world"; readonly definition: infer Q }
 								? DefinitionKeysOf<Q>
 								: never)
-			| Lookup<KeyIndexOf<S>, NameOf<R>>
+			| KeyIndexOf<S>[NameOf<R>]
 
 /**
- * The candidate keys of every relation of S, keyed by its own domain, the names S's key statements declare. It is
- * built once per schema and each relation's entry is computed once, on its first read, so reading one relation's keys
- * is a property read rather than a pass over the statement tuple for every match. Relation names are unique within a
- * schema, so the name identifies the relation.
+ * The candidate keys of every relation of S, each relation's under its name and none under any other name. Relation
+ * names are unique within a schema, so the name identifies the relation. The index is built once per schema, in one
+ * pass over its key sides, each placed under its relation's name, so reading one relation's keys is a property read: no
+ * read passes over the statement tuple, and no read takes the index's keys (`keyof`), which a remapped index computes
+ * again at every read.
  */
 type KeyIndexOf<S> = {
-	readonly [N in NameOf<SourceOf<KeySideOf<StatementOf<S>>>>]: TermsOf<
-		Extract<KeySideOf<StatementOf<S>>, { readonly source: { readonly name: N } }>
-	>
-}
+	readonly [K in KeySideOf<StatementOf<S>> as NameOf<SourceOf<K>>]: TermsOf<K>
+} & { readonly [name: string]: never }
 
 type SourceOf<X> = X extends Side<infer R> ? R : never
 type TermsOf<X> = X extends Side<unknown, infer T> ? T : never

@@ -8,6 +8,7 @@ import {
 	constant,
 	element,
 	filter,
+	type Gen,
 	int,
 	string,
 	weighted
@@ -208,6 +209,24 @@ const changedLiteral = (e: ScalarExpr): Option.Option<ScalarExpr> => {
 	return Option.none()
 }
 
+/**
+ * The levels a recursion of one frame per node holds on the small stack: at 160 KB, a recursion over a list of 1,000
+ * elements overflows (the testing library's SMALL_STACK).
+ */
+const smallStackRecursion = 1_000
+
+/**
+ * A chain's depth: within the levels a recursion holds on the small stack, or past them up to 60,000 levels; a deeper
+ * chain costs its depth at every entry point, so the deepest are drawn the least.
+ */
+const chainDepth: Gen<number> = weighted([
+	[3, int(0, smallStackRecursion)],
+	[2, int(smallStackRecursion + 1, 20_000)],
+	[1, int(20_001, 60_000)]
+])
+
+type ChainFeature = "a chain a recursion holds" | "a chain past a small stack's recursion"
+
 describe("traversals of generated DAGs", () => {
 	it.effect(
 		"order every reachable node after its inputs, and close expressions over their arguments",
@@ -273,56 +292,92 @@ describe("traversals of generated DAGs", () => {
 			)
 	)
 
-	it("handle a chain far deeper than the call stack, at every entry point", () => {
-		const b = new DagBuilder(makeIdSupply())
-		const pred = b.expr({
-			kind: "literal",
-			value: { kind: "bool", value: true },
-			args: [],
-			type: scalarTypes.bool,
-			nonNull: "literal"
-		})
-		let last = b.node({
-			kind: "InputSet",
-			input: { kind: "declared", param: ParamId("p") },
-			heading: heading(["a", scalarTypes.int8]),
-			loc: undefined,
-			meta: conservativeMeta
-		})
-		for (let i = 0; i < 50_000; i++) {
-			last = b.node({
-				kind: "Filter",
-				input: last,
-				pred,
-				heading: heading(["a", scalarTypes.int8]),
-				loc: undefined,
-				meta: conservativeMeta
-			})
-		}
-		const built = b.build([last])
-		assert.equal(topoOrder(built).length, 50_001)
-		assert.deepEqual(last.meta.paramDeps, [ParamId("p")])
-		validateDag(built)
-		const normal = succeeded(normalizeDag(built))
-		assert.equal(Rec.size(normal.nodes), 50_001)
-		succeeded(dagDigest(built, "dag"))
-		const depth = new Fold<RelNode, number>(function* (node) {
-			let deepest = 0
-			for (const input of inputsOf(node)) {
-				const below: number = yield input
-				deepest = Math.max(deepest, below + 1)
-			}
-			return deepest
-		})
-		assert.equal(depth.of(last), 50_000)
-		assert.equal(nodeScopes(built).of(last).outer.size, 0)
-		const cells: Array<Cell> = []
-		const cellOf = cellFold((cell) => cells.push(cell))
-		const finished = succeeded(finishCells(built.roots, (root) => cellOf.of(root)))
-		assert.equal(cells.length, 50_001)
-		assert.equal(succeeded(dagDigest(finished.dag, "dag")), succeeded(dagDigest(built, "dag")))
-		assert.equal(topoOrder(mergeDags(built, built).dag).length, 100_002)
-	}, 120_000)
+	it.effect(
+		"handle a chain of any depth, past what the call stack holds, at every entry point",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/ir/deep-chain",
+						literal: Formatter.format,
+						draw: drawn(chainDepth),
+						runs: 6,
+						shrink: completeShrink,
+						coverage: required<ChainFeature>(
+							["a chain a recursion holds", "a chain past a small stack's recursion"],
+							{ cases: 12, sense: notesOnly }
+						),
+						kept: [],
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang,
+						oracle: {
+							kind: "specification",
+							name: "the chain's own construction: its depth, its one parameter and its one root"
+						}
+					},
+					(depth, c) =>
+						Effect.sync(() => {
+							c.note(
+								depth > smallStackRecursion
+									? "a chain past a small stack's recursion"
+									: "a chain a recursion holds"
+							)
+							const b = new DagBuilder(makeIdSupply())
+							const pred = b.expr({
+								kind: "literal",
+								value: { kind: "bool", value: true },
+								args: [],
+								type: scalarTypes.bool,
+								nonNull: "literal"
+							})
+							let last = b.node({
+								kind: "InputSet",
+								input: { kind: "declared", param: ParamId("p") },
+								heading: heading(["a", scalarTypes.int8]),
+								loc: undefined,
+								meta: conservativeMeta
+							})
+							for (let i = 0; i < depth; i++) {
+								last = b.node({
+									kind: "Filter",
+									input: last,
+									pred,
+									heading: heading(["a", scalarTypes.int8]),
+									loc: undefined,
+									meta: conservativeMeta
+								})
+							}
+							const built = b.build([last])
+							assert.equal(topoOrder(built).length, depth + 1)
+							assert.deepEqual(last.meta.paramDeps, [ParamId("p")])
+							validateDag(built)
+							const normal = succeeded(normalizeDag(built))
+							assert.equal(Rec.size(normal.nodes), depth + 1)
+							const below = new Fold<RelNode, number>(function* (node) {
+								let deepest = 0
+								for (const input of inputsOf(node)) {
+									const under: number = yield input
+									deepest = Math.max(deepest, under + 1)
+								}
+								return deepest
+							})
+							assert.equal(below.of(last), depth)
+							assert.equal(nodeScopes(built).of(last).outer.size, 0)
+							const cells: Array<Cell> = []
+							const cellOf = cellFold((cell) => cells.push(cell))
+							const finished = succeeded(finishCells(built.roots, (root) => cellOf.of(root)))
+							assert.equal(cells.length, depth + 1)
+							assert.equal(
+								succeeded(dagDigest(finished.dag, "dag")),
+								succeeded(dagDigest(built, "dag"))
+							)
+							assert.equal(topoOrder(mergeDags(built, built).dag).length, 2 * (depth + 1))
+						})
+				)
+			)
+	)
 })
 
 /**

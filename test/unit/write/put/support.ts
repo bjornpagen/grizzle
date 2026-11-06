@@ -129,7 +129,7 @@ const shopWriter = (s: typeof Shop | typeof MutableCrewShop) => {
 }
 
 /** A write of the Shop compiled, or the compiler's refusal of it. */
-export const shopWrite = shopWriter(Shop)
+const shopWrite = shopWriter(Shop)
 const mutableCrewWrite = shopWriter(MutableCrewShop)
 
 export const shopCompiled = (value: unknown, options: ShopCompile): CompiledWrite =>

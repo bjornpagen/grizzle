@@ -1,7 +1,7 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { array, boolean, element } from "@grizzle/testing/gen"
+import { array, boolean, element, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -25,8 +25,8 @@ import { compiledModel, modelOf } from "#test/unit/laws/model/natives.ts"
  * The limit is drawn small (rule 10): each case's limit is its own row's size, so the refusal is judged at the exact
  * boundary, accepted at it and refused one byte under it. Bound: rows of 0 to 12 columns drawn from int2, int4, int8,
  * bool, uuid, a closed id and an unbounded text, each NULL-able or not, 300 runs. The law model applies it at the
- * real MaxHeapTupleSize: a relation of a uuid key and k bigint fields compiles at the largest k that fits and is refused
- * at the next.
+ * real MaxHeapTupleSize, drawn on both sides of it: a relation of a uuid key, up to six drawn fields and k bigint fields
+ * compiles at the largest k whose row fits and the one before it, and is refused at the next.
  */
 
 /** A column kind with its pg_type storage: typlen and typalign in bytes, or a varlena held as a TOAST pointer. */
@@ -36,14 +36,22 @@ interface Kind {
 	readonly storage: { readonly typlen: number; readonly typalign: number } | "varlena"
 }
 
-const kinds: Arr.NonEmptyReadonlyArray<Kind> = [
+const int8: Kind = { name: "int8", desc: f.bigint, storage: { typlen: 8, typalign: 8 } }
+const uuidKind: Kind = { name: "uuid", desc: f.uuid, storage: { typlen: 16, typalign: 1 } }
+
+/** The kinds a stored relation's field may have here: every kind but the closed id, whose roster no schema here holds. */
+const storedKinds: Arr.NonEmptyReadonlyArray<Kind> = [
 	{ name: "int2", desc: f.smallint, storage: { typlen: 2, typalign: 2 } },
 	{ name: "int4", desc: f.integer, storage: { typlen: 4, typalign: 4 } },
-	{ name: "int8", desc: f.bigint, storage: { typlen: 8, typalign: 8 } },
+	int8,
 	{ name: "bool", desc: f.boolean, storage: { typlen: 1, typalign: 1 } },
-	{ name: "uuid", desc: f.uuid, storage: { typlen: 16, typalign: 1 } },
-	{ name: "closed id", desc: f.closedId("R"), storage: { typlen: 2, typalign: 2 } },
+	uuidKind,
 	{ name: "text", desc: f.wildcard, storage: "varlena" }
+]
+
+const kinds: Arr.NonEmptyReadonlyArray<Kind> = [
+	...storedKinds,
+	{ name: "closed id", desc: f.closedId("R"), storage: { typlen: 2, typalign: 2 } }
 ]
 
 interface Column {
@@ -79,6 +87,14 @@ const features: Arr.NonEmptyReadonlyArray<Feature> = [
 	"mixed alignments",
 	"no column"
 ]
+
+/** Where a relation's row falls against MaxHeapTupleSize, and what its other fields hold. */
+type BoundFeature =
+	| "within the bound"
+	| "at the bound"
+	| "past the bound"
+	| "a varlena"
+	| "mixed alignments"
 
 describe("a relation's rows fit one heap tuple", () => {
 	it.effect("a row is refused exactly when it takes more than the limit, at the boundary", (ctx) =>
@@ -125,22 +141,90 @@ describe("a relation's rows fit one heap tuple", () => {
 		)
 	)
 
-	it("the law model refuses a relation one bigint past MaxHeapTupleSize, and admits the one before it", () => {
-		/** The most bigint fields beside a uuid key one heap tuple holds: 24 header bytes, 16 of the key, 8 a field. */
-		const fits = Math.floor((heapTupleMaxBytes.value - 24 - 16) / 8)
-		const schemaWith = (k: number) => ({
-			name: "Wide",
-			relations: [
-				relation(
-					"Wide",
-					{ id: f.uuid, ...Rec.fromEntries(Arr.makeBy(k, (i) => [`c${i}`, f.bigint] as const)) },
-					["id"]
+	it.effect(
+		"the law model admits a relation whose row reaches MaxHeapTupleSize, and refuses one a bigint past it",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/laws/model/rows-heap-tuple",
+						draw: drawn(
+							(source) =>
+								[
+									source.draw(array(element(storedKinds), { min: 0, max: 6 })),
+									source.draw(int(-1, 1))
+								] as const
+						),
+						literal: Formatter.format,
+						kept: [],
+						runs: 40,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang,
+						coverage: required<BoundFeature>(
+							[
+								"within the bound",
+								"at the bound",
+								"past the bound",
+								"a varlena",
+								"mixed alignments"
+							],
+							{ cases: 100, sense: notesOnly }
+						),
+						oracle: {
+							kind: "specification",
+							name: "heaptuple.c's row layout by pg_type's catalog, against MaxHeapTupleSize"
+						}
+					},
+					([prefix, offset], c) =>
+						Effect.sync(() => {
+							const columns = (k: number): ReadonlyArray<Column> => [
+								{ kind: uuidKind, nullable: false },
+								...Arr.map(prefix, (kind): Column => ({ kind, nullable: false })),
+								...Arr.makeBy(k, (): Column => ({ kind: int8, nullable: false }))
+							]
+							let fits = 0
+							while (specified(columns(fits + 1)) <= heapTupleMaxBytes.value) {
+								fits += 1
+							}
+							const k = fits + offset
+							const bytes = specified(columns(k))
+							c.note(
+								offset < 0 ? "within the bound" : offset === 0 ? "at the bound" : "past the bound"
+							)
+							if (Arr.some(prefix, (kind) => kind.storage === "varlena")) {
+								c.note("a varlena")
+							}
+							if (new Set(Arr.map(prefix, (kind) => kind.name)).size > 1) {
+								c.note("mixed alignments")
+							}
+							const desc = {
+								name: "Wide",
+								relations: [
+									relation(
+										"Wide",
+										{
+											id: f.uuid,
+											...Rec.fromEntries(
+												Arr.map(prefix, (kind, i) => [`p${i}`, kind.desc] as const)
+											),
+											...Rec.fromEntries(Arr.makeBy(k, (i) => [`c${i}`, f.bigint] as const))
+										},
+										["id"]
+									)
+								],
+								statements: [],
+								extends: undefined
+							}
+							if (bytes <= heapTupleMaxBytes.value) {
+								modelOf(desc)
+								return
+							}
+							refused(compiledModel(desc), "UnsupportedLawFamily")
+						})
 				)
-			],
-			statements: [],
-			extends: undefined
-		})
-		modelOf(schemaWith(fits))
-		refused(compiledModel(schemaWith(fits + 1)), "UnsupportedLawFamily")
-	})
+			)
+	)
 })

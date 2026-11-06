@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { noCoverage, required, requiredInSpace } from "@grizzle/testing/features"
+import { required, requiredInSpace } from "@grizzle/testing/features"
 import {
 	array,
 	codePoint,
@@ -37,9 +37,20 @@ import { pickFrom, pickGen, pickOf } from "#test/support/pick.ts"
 
 const point = S.structWith({ x: S.integer }, { label: S.nonEmptyString })
 const points = S.array(point)
-const shape = S.tagged("kind", { point, list: S.struct({ items: points }) })
+/**
+ * A case whose own optional field is named like the discriminator, of a text no tag of the case is: the decode reads
+ * that member as the discriminator, so a field read in its place would refuse it.
+ */
+const mark = S.structWith(
+	{},
+	{ kind: S.refine(S.string, (text) => text !== "mark", "a text other than the case's tag") }
+)
+const shape = S.tagged("kind", { point, list: S.struct({ items: points }), mark })
 
-/** A live value of `shape`: a point, its label stated or not, or a list of them. */
+/**
+ * A live value of `shape`: a point, its label stated or not, a list of them, or the case that names a field like the
+ * discriminator.
+ */
 const integer = int(-(2 ** 31), 2 ** 31 - 1)
 
 const pointGen: Gen<{ readonly x: number; readonly label?: string }> = oneOf<{
@@ -55,7 +66,8 @@ const pointGen: Gen<{ readonly x: number; readonly label?: string }> = oneOf<{
 
 const liveGen: Gen<unknown> = oneOf<unknown>([
 	map(pointGen, (p) => ({ kind: "point", ...p })),
-	map(array(pointGen, { min: 0, max: 4 }), (items) => ({ kind: "list", items }))
+	map(array(pointGen, { min: 0, max: 4 }), (items) => ({ kind: "list", items })),
+	constant({ kind: "mark" })
 ])
 
 type Path = ReadonlyArray<string | number>
@@ -203,6 +215,9 @@ const breaksOf = (live: unknown): ReadonlyArray<Arr.NonEmptyReadonlyArray<Broken
 	]
 	return Arr.filter(kinds, Arr.isReadonlyArrayNonEmpty)
 }
+
+/** The case a decoded live value is. */
+type Decoded = "a list of points" | "a point" | "a mark"
 
 type UnreadableFeature =
 	| "proxy at the root"
@@ -436,12 +451,17 @@ describe("shapes", () => {
 								const stated =
 									decoded.kind === "point"
 										? { ...decoded, label: undefined }
-										: {
-												...decoded,
-												items: Arr.map(decoded.items, (p) => ({ ...p, label: undefined }))
-											}
+										: decoded.kind === "list"
+											? {
+													...decoded,
+													items: Arr.map(decoded.items, (p) => ({ ...p, label: undefined }))
+												}
+											: { ...decoded }
 								const copy = succeeded(S.decodeWith(shape, stated, "v"))
-								if (stated.kind === "list" && stated.items.length === 0) {
+								if (
+									stated.kind === "mark" ||
+									(stated.kind === "list" && stated.items.length === 0)
+								) {
 									assert.deepEqual(conformed(stated), { kind: "kept", out: stated })
 									return
 								}
@@ -476,7 +496,7 @@ describe("shapes", () => {
 					draw: drawn(liveGen),
 					runs: 100,
 					shrink: completeShrink,
-					coverage: required<"a list of points" | "a point">(["a list of points", "a point"], {
+					coverage: required<Decoded>(["a list of points", "a point", "a mark"], {
 						cases: 100,
 						sense: notesOnly
 					}),
@@ -488,7 +508,9 @@ describe("shapes", () => {
 				(live, c) =>
 					Effect.sync(() => {
 						const out = succeeded(S.decodeWith(shape, live, "v"))
-						c.note(out.kind === "point" ? "a point" : "a list of points")
+						c.note(
+							out.kind === "point" ? "a point" : out.kind === "list" ? "a list of points" : "a mark"
+						)
 						const again = succeeded(S.decodeWith(shape, out, "v"))
 						assert.notEqual(again, out)
 						assert.deepEqual(again, out)
@@ -541,32 +563,6 @@ describe("shapes", () => {
 						)
 						unorderedEqual(Rec.toEntries(out), Rec.toEntries(input))
 						assert.equal(Object.getPrototypeOf(out), Object.prototype)
-					})
-			)
-		)
-	})
-
-	it.effect("read a case field named like the discriminator as the discriminator", (ctx) => {
-		const clash = S.tagged("kind", {
-			a: S.structWith({}, { kind: S.integer }),
-			b: S.structWith({}, { kind: S.integer })
-		})
-		return searched(
-			ctx,
-			exhaust(
-				{
-					suite: "unit/ir/shape-discriminator-field",
-					literal: Formatter.format,
-					generator: element<"a" | "b">(["a", "b"]),
-					limit: 2,
-					coverage: noCoverage,
-					caseHang
-				},
-				(tag) =>
-					Effect.sync(() => {
-						assert.deepEqual<unknown>(succeeded(S.decodeWith(clash, { kind: tag }, "v")), {
-							kind: tag
-						})
 					})
 			)
 		)
@@ -832,29 +828,92 @@ const cyclic = (form: Form, length: number, back: number): unknown => {
 
 type Reader = "decodeWith" | "conformWith"
 
+/**
+ * The levels a recursion of one frame per container holds on the small stack: at 160 KB, a recursion over a list of
+ * 1,000 elements overflows (the testing library's SMALL_STACK).
+ */
+const smallStackRecursion = 1_000
+
+/**
+ * A count of containers: within the levels a recursion holds on the small stack, or past them up to 100,000; a deeper
+ * value costs its depth to build and read, so the deepest are drawn the least.
+ */
+const containers: Gen<number> = weighted([
+	[3, int(1, smallStackRecursion)],
+	[2, int(smallStackRecursion + 1, 10_000)],
+	[1, int(10_001, 100_000)]
+])
+
+const formGen = element<Form>(["chain", "nested array"])
+const readerGen = element<Reader>(["decodeWith", "conformWith"])
+
+/** What a nested or cyclic value's case reached: its reader and form, and its containers against the small stack. */
+type NestingFeature =
+	| `${Reader} ${Form}`
+	| "no container"
+	| "within a small stack's recursion"
+	| "past a small stack's recursion"
+	| "a cycle back to its root"
+	| "a cycle back to its last container"
+	| "a cycle back to a container between"
+
+const depthFeature = (n: number): NestingFeature =>
+	n === 0
+		? "no container"
+		: n > smallStackRecursion
+			? "past a small stack's recursion"
+			: "within a small stack's recursion"
+
 describe("a value nested through a recursive shape", () => {
 	it.effect(
 		"decode and conform at any depth, the call stack no deeper for it: a fresh copy decoded, a built value kept",
 		(ctx) =>
 			searched(
 				ctx,
-				exhaust(
+				explore(
 					{
 						suite: "unit/ir/shape-depth",
 						literal: Formatter.format,
-						/** No container, one, and a nesting a recursion would overflow the small stack at. */
-						generator: (source) =>
+						draw: drawn(
+							(source) =>
+								[
+									source.draw(
+										weighted([
+											[1, constant(0)],
+											[6, containers]
+										])
+									),
+									source.draw(formGen),
+									source.draw(readerGen)
+								] as const
+						),
+						runs: 12,
+						shrink: completeShrink,
+						coverage: required<NestingFeature>(
 							[
-								source.draw(element([0, 1, 100_000])),
-								source.draw(element<Form>(["chain", "nested array"])),
-								source.draw(element<Reader>(["decodeWith", "conformWith"]))
-							] as const,
-						limit: 12,
-						coverage: noCoverage,
-						caseHang
+								"decodeWith chain",
+								"decodeWith nested array",
+								"conformWith chain",
+								"conformWith nested array",
+								"no container",
+								"within a small stack's recursion",
+								"past a small stack's recursion"
+							],
+							{ cases: 40, sense: notesOnly }
+						),
+						kept: [],
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang,
+						oracle: {
+							kind: "specification",
+							name: "the value's own construction: its form and its depth"
+						}
 					},
-					([depth, form, reader]) =>
+					([depth, form, reader], c) =>
 						Effect.sync(() => {
+							c.note(`${reader} ${form}`)
+							c.note(depthFeature(depth))
 							const value = built(form, depth)
 							const shape = formShape(form)
 							if (reader === "decodeWith") {
@@ -879,26 +938,62 @@ describe("a value nested through a recursive shape", () => {
 		(ctx) =>
 			searched(
 				ctx,
-				exhaust(
+				explore(
 					{
 						suite: "unit/ir/shape-cycle",
 						literal: Formatter.format,
-						/** A cycle through one container, two, and one a recursion would overflow the small stack on, back to its first or last. */
-						generator: (source) => {
-							const length = source.draw(element([1, 2, 100_000]))
+						/** A cycle through drawn containers, back to its root, its last or one between. */
+						draw: drawn((source) => {
+							const length = source.draw(containers)
 							return [
 								length,
-								source.draw(element([0, length - 1])),
-								source.draw(element<Form>(["chain", "nested array"])),
-								source.draw(element<Reader>(["decodeWith", "conformWith"]))
+								source.draw(
+									weighted([
+										[1, constant(0)],
+										[1, constant(length - 1)],
+										[1, int(0, length - 1)]
+									])
+								),
+								source.draw(formGen),
+								source.draw(readerGen)
 							] as const
-						},
-						limit: 24,
-						coverage: noCoverage,
-						caseHang
+						}),
+						runs: 12,
+						shrink: completeShrink,
+						coverage: required<NestingFeature>(
+							[
+								"decodeWith chain",
+								"decodeWith nested array",
+								"conformWith chain",
+								"conformWith nested array",
+								"within a small stack's recursion",
+								"past a small stack's recursion",
+								"a cycle back to its root",
+								"a cycle back to its last container",
+								"a cycle back to a container between"
+							],
+							{ cases: 60, sense: notesOnly }
+						),
+						kept: [],
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang,
+						oracle: {
+							kind: "specification",
+							name: "the cycle's own construction: the path from its root back to itself"
+						}
 					},
-					([length, back, form, reader]) =>
+					([length, back, form, reader], c) =>
 						Effect.sync(() => {
+							c.note(`${reader} ${form}`)
+							c.note(depthFeature(length))
+							c.note(
+								back === 0
+									? "a cycle back to its root"
+									: back === length - 1
+										? "a cycle back to its last container"
+										: "a cycle back to a container between"
+							)
 							const value = cyclic(form, length, back)
 							const shape = formShape(form)
 							const refusal = refused(S.decodeWith(shape, value, "v"), "MalformedDescription")

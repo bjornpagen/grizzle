@@ -1,12 +1,12 @@
 /**
  * The text bound (core/lines.ts): every text grizzle builds as one string is measured before it is built, and refused as
  * ResourceBound (stringLength) past the limit. The limit is V8's longest string, which a Node upgrade can move, so it is
- * checked against the running V8; the measure is checked against the text itself, at limits drawn around its length.
+ * checked against the running V8, which builds a string of every length within eight of it up to it and refuses one
+ * past it; the measure is checked against the text itself, at limits drawn around its length.
  */
-import { constants } from "node:buffer"
 import { describe, it } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
+import { drawn, exhaust, explore } from "@grizzle/testing/explore"
+import { required, requiredInSpace } from "@grizzle/testing/features"
 import {
 	array,
 	characterOf,
@@ -22,19 +22,61 @@ import {
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Result, String as Str } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { maxStringLength } from "#compiler/core/limits.ts"
 import { enclosedWithin, type Lines, textOf } from "#compiler/core/lines.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import type * as Result from "#compiler/core/result.ts"
+import type * as Engine from "#compiler/core/result.ts"
 import { assert, refused, succeeded } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 
 describe("the text bound", () => {
-	it("is V8's longest string on the running Node", () => {
-		assert.equal(maxStringLength.value, constants.MAX_STRING_LENGTH)
-	})
+	type Longest = "within V8's longest string" | "V8's longest string" | "past V8's longest string"
+
+	it.effect("is V8's longest string on the running Node", (ctx) =>
+		searched(
+			ctx,
+			exhaust(
+				{
+					suite: "unit/core/lines-v8-longest",
+					generator: int(maxStringLength.value - 8, maxStringLength.value + 8),
+					literal: Formatter.format,
+					limit: 17,
+					box: "every string length within eight code units of maxStringLength",
+					oracle: {
+						kind: "second-implementation",
+						name: "the running V8, building a string of that many code units or throwing a RangeError"
+					},
+					coverage: requiredInSpace<Longest>([
+						"within V8's longest string",
+						"V8's longest string",
+						"past V8's longest string"
+					]),
+					caseHang
+				},
+				(length, c) =>
+					Effect.sync(() => {
+						const built = Result.try(() => Str.repeat(length)("x").length)
+						assert.equal(
+							Result.isSuccess(built),
+							length <= maxStringLength.value,
+							`a string of ${length} code units`
+						)
+						if (Result.isFailure(built)) {
+							assert.ok(built.failure instanceof RangeError, "V8 refuses the length")
+						}
+						c.note(
+							length === maxStringLength.value
+								? "V8's longest string"
+								: length < maxStringLength.value
+									? "within V8's longest string"
+									: "past V8's longest string"
+						)
+					})
+			)
+		)
+	)
 
 	/** Where a drawn limit falls against the text's length: the situations the measure's arithmetic must get right. */
 	type Bound = "far within" | "at the limit" | "one past" | "far past"
@@ -79,7 +121,7 @@ describe("the text bound", () => {
 	 * as `needed`: the oracle is the text joined by hand.
 	 */
 	const agrees = (
-		actual: Result.Result<string, CompileError>,
+		actual: Engine.Result<string, CompileError>,
 		expected: string,
 		limit: number
 	): void => {

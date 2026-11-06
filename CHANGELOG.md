@@ -23,9 +23,20 @@ How to upgrade:
   were empty was refused, and `Compute.matches(x, "^$a")` compiled to a test that never holds, and a `str.regex` field
   of such a pattern past the DFA bounds installed a CHECK no value passes. Now each is `UnsupportedOperation` naming the
   pattern, in `Compute.matches` and `str.regex` alike, decided exactly for the admitted grammar. No codemod.
+- **A cast into a regex-refined text that isn't proved is `PartialOperation` with the new precondition `language`**,
+  where it was `contract`, and its message suggests a `Compute.matches` guard by the target's pattern rather than
+  `Compute.within`, which can't prove a text. A contract keeps `contract`. Code that reads a refusal's precondition kind
+  reads `language` for such a cast.
+- **Format and state:** a `str.regex` pattern past the DFA bounds whose IR held an arm no text matches, such as
+  `(?:x[xy]{11})(?:b|$c)`, drops that arm, so its `ir:` key and its domain's digest change and its migration rebuilds
+  the domain once. Keys of patterns within the DFA bounds don't change.
 - **`ChangeSet.empty(role)` and `query(role)` typecheck over a role of any size.** A role's kept laws and its full base
   are read by name, one lookup a relation, where they compared every law with every entry and failed with TS2589 past
   about 1.2 million pairs (1,107 relations with a law each). No codemod.
+- **A rule's types cost time linear in what it reads.** Its evidence reads a schema's keys, containments,
+  alternatives laws and sequences, and a head's and a match's fields by origin, through indexes built once. Before, it
+  passed over every containment, key or sequence of the schema, and over its own fields once per field, so a head's
+  cost grew with the square of its fields. No codemod.
 - **A tree insert typed by a member type of any depth typechecks**: a member type that nests itself,
   `children: ReadonlyArray<Member>`, directly or through others, is checked once for each pair of member type and
   nesting, where it unfolded forever (TS2615) and refused the member. A field its nesting does not take is still

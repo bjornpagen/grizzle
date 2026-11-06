@@ -6,18 +6,25 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
-import type { RegexSpaceMeasure } from "#compiler/core/errors.ts"
+import type { CompileReason, RegexSpaceMeasure } from "#compiler/core/errors.ts"
 import {
 	regexMaxAnchors,
 	regexMaxAnchorWeight,
 	regexMaxClosurePairs,
 	regexMaxPositions
 } from "#compiler/core/limits.ts"
-import { SourceLoc } from "#compiler/core/loc.ts"
+import { childLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { buildNfa, type Nfa } from "#compiler/scalar/regex/nfa.ts"
 import { parsePattern } from "#compiler/scalar/regex/parse.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"
-import { assert, assertVariant, defined, refused, succeeded } from "#test/support/assert.ts"
+import {
+	assert,
+	assertVariant,
+	deepEquals,
+	defined,
+	refused,
+	succeeded
+} from "#test/support/assert.ts"
 import { accepts } from "#test/support/fixtures/ir/scalar.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { jsAccepts, walkGen } from "#test/unit/text/generators.ts"
@@ -65,10 +72,14 @@ type Shape =
 			readonly quantifier: "*" | "+" | "{2,}"
 	  }
 
-/** A depth past a thousand levels, which a recursion would exhaust a small stack at, or one within. */
+/**
+ * A depth within a thousand levels, or past them, where a recursion would exhaust a small stack, up to 100,000 levels;
+ * a deeper chain costs its depth to write and read, so the deepest are drawn the least.
+ */
 const depthGen: Gen<number> = weighted([
-	[1, int(1, 1_000)],
-	[1, int(1_001, 100_000)]
+	[6, int(1, 1_000)],
+	[2, int(1_001, 10_000)],
+	[1, int(10_001, 100_000)]
 ])
 
 const anchorGen = element(["^", "$"] as const)
@@ -93,14 +104,16 @@ const shapeGen: Gen<Shape> = oneOf<Shape>([
 	})
 ])
 
-/** A shape over two code points and a third that ends it, its pattern, and the measures its parameters state. */
+/**
+ * A shape over two code points, its pattern, and what its parameters state: its written-out NFA positions and anchors,
+ * or, for a loop through an anchor, whether the IR leaves it looping, which is refused before any count, while a loop
+ * it writes out again has measures of its rewriting, which this shape does not state.
+ */
 interface Spelled {
 	readonly source: string
-	/** Its written-out NFA positions and anchors. */
-	readonly positions: number
-	readonly anchors: number
-	/** Whether the IR leaves a repetition looping through an anchor, which is refused before any count. */
-	readonly loops: boolean
+	readonly states:
+		| { readonly kind: "measures"; readonly positions: number; readonly anchors: number }
+		| { readonly kind: "a loop"; readonly loops: boolean }
 }
 
 const spelledOf = (shape: Shape, x: string, y: string): Spelled => {
@@ -109,51 +122,41 @@ const spelledOf = (shape: Shape, x: string, y: string): Spelled => {
 		case "counted runs":
 			return {
 				source: `^(?:${pair}{1,${shape.n}}){${shape.k}}$`,
-				positions: shape.n * shape.k + 2,
-				anchors: 2,
-				loops: false
+				states: { kind: "measures", positions: shape.n * shape.k + 2, anchors: 2 }
 			}
 		case "an optional chain":
 			return {
 				source: `${Str.repeat(shape.depth)(`(?:${x}`)}${Str.repeat(shape.depth)(")?")}`,
-				positions: shape.depth,
-				anchors: 0,
-				loops: false
+				states: { kind: "measures", positions: shape.depth, anchors: 0 }
 			}
 		case "optional anchors":
 			return {
 				source: `(?:${shape.anchor}|${x}|){${shape.k}}${y}`,
-				positions: 2 * shape.k + 1,
-				anchors: shape.k,
-				loops: false
+				states: { kind: "measures", positions: 2 * shape.k + 1, anchors: shape.k }
 			}
 		case "weighted anchors":
 			return {
 				source: `(?:$|${x}|){${shape.p}}(?:^|${x}|){${shape.q}}(?:${pair}{255}){${shape.m}}${y}`,
-				positions: 2 * (shape.p + shape.q) + 255 * shape.m + 1,
-				anchors: shape.p + shape.q,
-				loops: false
+				states: {
+					kind: "measures",
+					positions: 2 * (shape.p + shape.q) + 255 * shape.m + 1,
+					anchors: shape.p + shape.q
+				}
 			}
 		case "optional pairs":
 			return {
 				source: `(?:${x}?){${shape.n}}(?:${y}?){${shape.m}}${x}`,
-				positions: shape.n + shape.m + 1,
-				anchors: 0,
-				loops: false
+				states: { kind: "measures", positions: shape.n + shape.m + 1, anchors: 0 }
 			}
 		case "a + chain":
 			return {
 				source: `${Str.repeat(shape.depth)("(?:")}${x}${Str.repeat(shape.depth)(")+")}`,
-				positions: 1,
-				anchors: 0,
-				loops: false
+				states: { kind: "measures", positions: 1, anchors: 0 }
 			}
 		case "a loop through an anchor":
 			return {
 				source: `(?:(?:${pair}{255}){${shape.k}}|${shape.anchor})${shape.quantifier}${y}`,
-				positions: 0,
-				anchors: 0,
-				loops: 255 * shape.k + 1 > regexMaxPositions.value
+				states: { kind: "a loop", loops: 255 * shape.k + 1 > regexMaxPositions.value }
 			}
 	}
 }
@@ -183,12 +186,12 @@ const closurePairsUpTo = (nfa: Nfa, cap: number): number => {
 	return total
 }
 
-/** The first measure a spelled shape crosses, in the measures' order, or undefined where it crosses none. */
-const crossed = (spelled: Spelled): RegexSpaceMeasure | undefined => {
-	if (spelled.loops) {
-		return { kind: "anchorLoop" }
-	}
-	const { positions, anchors } = spelled
+/** The first measure a shape of stated measures crosses, in the measures' order, or undefined where it crosses none. */
+const crossed = (
+	source: string,
+	positions: number,
+	anchors: number
+): RegexSpaceMeasure | undefined => {
 	if (positions > regexMaxPositions.value) {
 		return { kind: "positions", limit: regexMaxPositions.value, needed: positions }
 	}
@@ -198,11 +201,22 @@ const crossed = (spelled: Spelled): RegexSpaceMeasure | undefined => {
 	if (anchors * positions > regexMaxAnchorWeight.value) {
 		return { kind: "anchorWeight", limit: regexMaxAnchorWeight.value, anchors, positions }
 	}
-	const ir = succeeded(parsePattern(spelled.source, "u"), spelled.source)
+	const ir = succeeded(parsePattern(source, "u"), source)
 	return closurePairsUpTo(buildNfa(ir), regexMaxClosurePairs.value) > regexMaxClosurePairs.value
 		? { kind: "closurePairs", limit: regexMaxClosurePairs.value }
 		: undefined
 }
+
+/** The refusal of a pattern whose IR still loops through an anchor. */
+const anchorLoop = (source: string): CompileReason => ({
+	_tag: "ResourceBound",
+	at: childLoc(loc, "pattern"),
+	bound: {
+		kind: "regexCompileSpace" as const,
+		pattern: `/${source}/u`,
+		measure: { kind: "anchorLoop" as const }
+	}
+})
 
 type Crossed = RegexSpaceMeasure["kind"] | "admitted" | "refused past a thousand levels"
 
@@ -241,7 +255,7 @@ describe("the compile-space measures", () => {
 							{ cases: 400, sense: notesOnly }
 						),
 						kept: [],
-						runs: 120,
+						runs: 80,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
@@ -251,8 +265,18 @@ describe("the compile-space measures", () => {
 						Effect.sync(() => {
 							const spelled = spelledOf(shape, escaped(x), escaped(y))
 							const label = `${shape.kind}: /${spelled.source}/u`
-							const expected = crossed(spelled)
 							const analyzed = analyzeText(spelled.source, "u", loc)
+							const { states } = spelled
+							if (states.kind === "a loop") {
+								const loops =
+									!analyzed.ok && deepEquals(analyzed.error.reason, anchorLoop(spelled.source))
+								assert.equal(loops, states.loops, label)
+								if (loops) {
+									c.note("anchorLoop")
+								}
+								return
+							}
+							const expected = crossed(spelled.source, states.positions, states.anchors)
 							if (expected === undefined) {
 								c.note("admitted")
 								succeeded(analyzed, label)

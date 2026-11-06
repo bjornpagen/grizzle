@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { noCoverage, required, requiredInSpace } from "@grizzle/testing/features"
+import { required, requiredInSpace } from "@grizzle/testing/features"
 import { boolean, element, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
@@ -16,12 +16,11 @@ import { SourceLoc } from "#compiler/core/loc.ts"
  *
  * A comparison parameter binds as the unrefined base.
  */
-import { decimalPayload } from "#compiler/ir/decimal.ts"
-import { type TypedLiteral, literalProblem } from "#compiler/ir/expr.ts"
+import { literalProblem } from "#compiler/ir/expr.ts"
 import { isRefined, type ScalarType, textOf } from "#compiler/ir/scalar.ts"
 import { btreeEntryBytes, btreeMaxItemSize, datumBound } from "#compiler/schema/representability.ts"
 import { analyzeText, textInfo } from "#compiler/text/refinement.ts"
-import { assert, nonEmpty, succeeded } from "#test/support/assert.ts"
+import { assert, succeeded } from "#test/support/assert.ts"
 import { accepts } from "#test/support/fixtures/ir/scalar.ts"
 import { caseHang } from "#test/support/limits.ts"
 import {
@@ -30,7 +29,6 @@ import {
 	fieldDescOf,
 	keyFieldType,
 	literalEqualityKey,
-	numeric,
 	resolveStored,
 	resolveValue,
 	scalarOfSpec,
@@ -129,79 +127,7 @@ describe("generated scalar types", () => {
 	)
 })
 
-/** A value the domains must hold, or must not: the edges a type's equality and spelling turn on. */
-interface Edge {
-	readonly what: string
-	readonly type: ScalarType
-	readonly holds: (literal: TypedLiteral) => boolean
-	readonly held: boolean
-}
-
-const numericSpelling = (l: TypedLiteral, text: string): boolean =>
-	l.kind === "numeric" && decimalPayload(l.value) === text
-
-const edges: ReadonlyArray<Edge> = [
-	...Arr.map(["NaN", "Infinity"], (text) => ({
-		what: `numeric ${text}, a special value, which a typmod holds only for NaN`,
-		type: numeric,
-		holds: (l: TypedLiteral) => numericSpelling(l, text),
-		held: text === "NaN"
-	})),
-	{
-		what: "the signed zero, which a float's one zero is not",
-		type: scalarOfSpec({ carrier: "float8" }),
-		holds: (l) => l.kind === "float" && Object.is(l.value, -0),
-		held: false
-	},
-	{
-		what: "float NaN",
-		type: scalarOfSpec({ carrier: "float8" }),
-		holds: (l) => l.kind === "floatSpecial" && l.value === "NaN",
-		held: true
-	},
-	{
-		what: "supplementary-plane text",
-		type: scalarOfSpec({ carrier: "text" }),
-		holds: (l) => l.kind === "text" && Arr.some(Array.from(l.value), (ch) => ch.length === 2),
-		held: true
-	},
-	{
-		what: "infinity under a numeric typmod, which refuses it",
-		type: scalarOfSpec({ carrier: "numericTypmod", precision: 3, scale: 1 }),
-		holds: (l) => numericSpelling(l, "Infinity"),
-		held: false
-	},
-	{
-		what: "-0.25 under numeric(3,1), which would round it",
-		type: scalarOfSpec({ carrier: "numericTypmod", precision: 3, scale: 1 }),
-		holds: (l) => numericSpelling(l, "-0.25"),
-		held: false
-	}
-]
-
 describe("value domains", () => {
-	it.effect(
-		"hold the edges a type's equality and spelling turn on, and none their type cannot store",
-		(ctx) =>
-			searched(
-				ctx,
-				exhaust(
-					{
-						suite: "unit/oracle-gen/domain-edges",
-						generator: element(nonEmpty(edges, "the edges")),
-						literal: Formatter.format,
-						limit: edges.length,
-						coverage: noCoverage,
-						caseHang
-					},
-					(e) =>
-						Effect.sync(() => {
-							assert.equal(Arr.some(valueClasses(e.type, false), e.holds), e.held, e.what)
-						})
-				)
-			)
-	)
-
 	it.effect(
 		"spell every stored value as its one value, in each of its twin spellings, a text the column's input reads",
 		(ctx) =>

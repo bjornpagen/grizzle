@@ -239,13 +239,19 @@ type SequenceOf<S> = Extract<StatementsOf<S>[number], Ordered<unknown, unknown> 
 type AnyTree = Tree<unknown, unknown, string>
 
 /**
- * The sequences of S whose owner is R: one pass over S's sequences per owner, whose few sequences the owner's addition
- * then maps by their count fields.
+ * S's sequences by owner, each under the name of the relation its slots count over and none under any other name:
+ * built once per schema, in one pass over its sequences, so an owner's addition reads its own few sequences by name,
+ * which it then maps by their count fields.
  */
-type SequencesOwnedBy<S, R> = Extract<
-	SequenceOf<S>,
-	{ readonly slots: Fin<{ readonly name: NameOf<R> }, string> }
->
+type SequenceIndexOf<S> = {
+	readonly [Fa in SequenceOf<S> as OwnerNameOf<Fa>]: Fa
+} & { readonly [owner: string]: never }
+
+/** The name of the relation a sequence's slots count over: its owner's. */
+type OwnerNameOf<Fa> = Fa extends { readonly slots: Fin<infer O, string> } ? NameOf<O> : never
+
+/** The sequences of S whose owner is R. */
+type SequencesOwnedBy<S, R> = SequenceIndexOf<S>[NameOf<R>]
 
 /** A family's member relation. */
 type MemberRelationOf<Fa> = Fa extends { readonly family: Side<infer F> } ? F : never
@@ -265,10 +271,11 @@ type NestedOf<Fa> =
 			? P | Root
 			: never
 
-/** The parent field of R where R is a tree's: grizzle sets it, the root's to itself and a member's by its nesting. */
-type TreeParentOf<S, R> = TreeParent<
-	Extract<SequenceOf<S>, Tree<Side<{ readonly name: NameOf<R> }>, unknown, string>>
->
+/**
+ * The parent field of R where R is a tree's: grizzle sets it, the root's to itself and a member's by its nesting. A
+ * tree is a family of its relation over itself, so R's tree is among the sequences R owns.
+ */
+type TreeParentOf<S, R> = TreeParent<SequencesOwnedBy<S, R>>
 
 /** A tree's parent field; of no tree, none. Distributive, so a relation that is no tree's omits nothing. */
 type TreeParent<T> =

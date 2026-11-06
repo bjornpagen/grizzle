@@ -1,858 +1,422 @@
 import { describe, it } from "@effect/vitest"
-import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { required, requiredInSpace } from "@grizzle/testing/features"
+import { drawn, explore } from "@grizzle/testing/explore"
+import { required } from "@grizzle/testing/features"
 import { codePoint, element, int, oneOf, string } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { double } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
+import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
-import type { CompileError, CompileReasonTag } from "#compiler/core/errors.ts"
-import { SourceLoc } from "#compiler/core/loc.ts"
-import type * as Result from "#compiler/core/result.ts"
+import { formatLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import { exprClosure } from "#compiler/ir/expr.ts"
-import { type PhysicalNames } from "#compiler/ir/physical.ts"
-import { type LogicalQuery, paramColumns } from "#compiler/ir/products.ts"
+import type { LogicalQuery } from "#compiler/ir/products.ts"
 import { exprsOf } from "#compiler/ir/rel.ts"
-import { type ScalarType, sameScalarType, typeLabel } from "#compiler/ir/scalar.ts"
+import { type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { conservativeInput } from "#compiler/lower/conservative/types.ts"
-import { plainType } from "#compiler/scalar/compute/types.ts"
-import { bareEnv, scalarTypeOf } from "#compiler/scalar/registry.ts"
-import { assert, defined, refused, succeeded } from "#test/support/assert.ts"
-import {
-	f,
-	type MemberDesc,
-	type QueryDesc,
-	type RuleDesc
-} from "#test/support/fixtures/ir/desc.ts"
-import { WorkDesc } from "#test/support/fixtures/ir/work.ts"
+import { queryInput } from "#compiler/program/compile.ts"
+import { assert, defined, failed, refusalLoc, refused, succeeded } from "#test/support/assert.ts"
+import { decodedMember } from "#test/support/fixtures/ir/desc.ts"
 import { installationOf, localVectorSchema, productionNames } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { numeric } from "#test/support/oracle/gen/domain.ts"
+import { buildRoot, buildSchema } from "#test/support/oracle/public/build.ts"
+import { caseSketchGen, resolveCase } from "#test/support/oracle/public/generate.ts"
+import type { Param, ProgramRead, Rule } from "#test/support/oracle/public/program.ts"
+import { checking, checkMemberOf, checkOptions } from "#test/support/policy.ts"
+import { kindOfType, schemaDescOf } from "#test/unit/check/drawn.ts"
 import {
-	checking,
-	checkMemberOf,
-	checkOptions,
-	checkReadBackOf,
-	owning
-} from "#test/support/policy.ts"
-import {
-	compute,
-	count,
-	delta,
-	eq,
-	gt,
 	imported,
 	lit,
 	match,
-	not,
 	orderBy,
-	param,
-	parent,
 	plainVar,
 	queryDesc,
 	ref,
 	relationSource,
 	rule,
 	take,
-	typedLit,
 	varRef,
 	vars
 } from "#test/unit/check/dsl.ts"
-import { Code, Lab, Lower, Qty } from "#test/unit/check/schemas.ts"
-import { taskPayloads } from "#test/unit/check/work-queries.ts"
+import {
+	type MemberCase,
+	type MemberFeature,
+	memberCaseGen,
+	memberDesc,
+	memberFeatures,
+	memberVerdict
+} from "#test/unit/check/members.ts"
+import {
+	type ParamFeature,
+	paramCaseDesc,
+	paramCaseGen,
+	paramFeatures,
+	paramVerdict
+} from "#test/unit/check/params.ts"
+import { Lab } from "#test/unit/check/schemas.ts"
+
+type QueryRead = Extract<ProgramRead, { readonly kind: "query" }>
 
 /**
- * The names a checked query of Lab or Work lowers under: production's stand-ins for their relations, the codes of a
- * fresh installation of each, which a Color or a Kind literal lowers to, and each contract's domain as its schema's
- * installation names it, by its definition's digest, which only an installation holds.
+ * The type a generated parameter is declared at: its field's own for a field declaration; for a base declaration, the
+ * descriptor of its type's carrier the program builds it with, the wide numeric for a numeric (build.ts
+ * paramDescriptor), and its type for every other.
  */
-const labNames = installationOf(Lab, { kind: "declared" }).names
-const workNames = installationOf(WorkDesc, { kind: "declared" }).names
-const labContracts = new Set<string>(Rec.keys(owning(Lab).contracts))
-const checkedNames: PhysicalNames = {
-	...productionNames("lab", { kind: "declared" }, localVectorSchema, {
-		rosters: new Map([...labNames.codes.rosters, ...workNames.codes.rosters])
-	}),
-	contractDomain: (contract) =>
-		(labContracts.has(contract) ? labNames : workNames).contractDomain(contract)
-}
+const declaredType = (p: Param): ScalarType =>
+	p.declaration.kind === "field"
+		? p.declaration.field.type
+		: p.type.carrier === "numeric"
+			? numeric
+			: p.type
 
-/** The conservative program of a checked query, which must lower. */
-const lowers = (q: LogicalQuery): void => {
-	succeeded(
-		lowerConservative(conservativeInput(q), {
-			names: checkedNames,
-			params: q.params,
-			subject: { kind: "query" }
-		}),
-		"the admitted query lowers"
-	)
-}
-
-/** Lab's items, with `parts` of the rule beside its Item match. */
-const items = (parts: Pick<RuleDesc, "where" | "head">): QueryDesc =>
-	queryDesc(
-		rule({
-			vars: vars("Item", "id", "label", "qty", "price", "during", "color"),
-			matches: [
-				match(relationSource("Item"), {
-					id: ref("Item", "id"),
-					label: ref("Item", "label"),
-					qty: ref("Item", "qty")
-				})
-			],
-			where: parts.where,
-			head: parts.head,
-			interiors: [],
-			attach: []
-		})
-	)
-
-/** A parameter of the checked result: its name and its type. */
-interface Param {
-	readonly name: string
-	readonly type: ScalarType
-}
-
-const paramsOf = (q: LogicalQuery): ReadonlyArray<Param> =>
-	Arr.map(q.params, (p) => ({
-		name: p.name,
-		type: defined(paramColumns(p)[0], `the type of ${p.name}`).type
-	}))
-
-/** Whether two parameter sets declare the same names, each at the same type. */
-const sameParams = (actual: ReadonlyArray<Param>, expected: ReadonlyArray<Param>): boolean =>
-	actual.length === expected.length &&
-	Arr.every(expected, (want) =>
-		Arr.some(actual, (got) => got.name === want.name && sameScalarType(got.type, want.type))
-	)
-
-const paramsText = (params: ReadonlyArray<Param>): string =>
-	Arr.join(
-		Arr.map(params, (p) => `${p.name}: ${typeLabel(p.type)}`),
-		", "
-	)
-
-/** A field's type in the checked Lab schema. */
-const labField = (relation: string, field: string): ScalarType =>
-	Option.getOrThrowWith(
-		Arr.findFirst(
-			defined(checking(Lab).relations.get(relation), `the relation ${relation}`).heading,
-			(h) => h.name === field
-		),
-		() => new Error(`no field ${relation}.${field}`)
-	).type
-
-/** What a planted check must answer: a refusal for a reason, or the checked result with exactly these parameters. */
-type Expected =
-	| { readonly kind: "refused"; readonly reason: CompileReasonTag }
-	| {
-			readonly kind: "admitted"
-			readonly params: ReadonlyArray<Param>
-			readonly also: ReadonlyArray<(q: LogicalQuery) => void>
-	  }
-	| { readonly kind: "a read-back admitted" }
-
-const refusedFor = (reason: CompileReasonTag): Expected => ({ kind: "refused", reason })
-const admittedWith = (
-	params: ReadonlyArray<Param>,
-	...also: ReadonlyArray<(q: LogicalQuery) => void>
-): Expected => ({
-	kind: "admitted",
-	params,
-	also
-})
-
-const lab = (q: QueryDesc) => () => checkQuery(checking(Lab), q, checkOptions("query"))
-const work = (q: QueryDesc) => () => checkQuery(checking(WorkDesc), q, checkOptions("query"))
-
-const byColor = queryDesc(
-	rule({
-		vars: vars("Item", "id"),
-		matches: [
-			match(relationSource("Item"), {
-				id: ref("Item", "id"),
-				color: param("c", f.closedId("Color"))
-			})
-		],
-		where: [],
-		head: { id: ref("Item", "id") },
-		interiors: [],
-		attach: []
-	})
-)
-
-/** Both arms carry k = "z": the discriminant is (k, tag), and tag alone tells the arms apart. */
-const tagged = queryDesc(
-	rule({
-		vars: vars("Task", "id", "account"),
-		matches: [
-			match(relationSource("Task"), {
-				id: ref("Task", "id"),
-				account: ref("Task", "account"),
-				kind: lit("Automatic")
-			})
-		],
-		where: [],
-		head: { id: ref("Task", "id"), tag: lit("a"), k: lit("z"), account: ref("Task", "account") },
-		interiors: [],
-		attach: []
-	}),
-	rule({
-		vars: [...vars("Task", "id"), ...vars("ManualTask", "operator")],
-		matches: [
-			match(relationSource("Task"), { id: ref("Task", "id"), kind: lit("Manual") }),
-			match(relationSource("ManualTask"), {
-				task: ref("Task", "id"),
-				operator: ref("ManualTask", "operator")
-			})
-		],
-		where: [],
-		head: {
-			id: ref("Task", "id"),
-			tag: lit("b"),
-			k: lit("z"),
-			operator: ref("ManualTask", "operator")
-		},
-		interiors: [],
-		attach: []
-	})
-)
-
-/** A match of `tagged` binding `bindings` and finding `head`. */
-const pick = (bindings: Parameters<typeof match>[1], head: RuleDesc["head"]) =>
-	queryDesc(
-		rule({
-			vars: [plainVar("i"), plainVar("x")],
-			matches: [match(imported(tagged, {}), bindings)],
-			where: [],
-			head,
-			interiors: [],
-			attach: []
-		})
-	)
-
-/** A Task arm of kind `kind`, delivering account when `extra`, with the notes attached when `attached`. */
-const taskArm = (kind: string, extra: boolean, attached: boolean) =>
-	rule({
-		vars: vars("Task", "id", "account"),
-		matches: [
-			match(relationSource("Task"), {
-				id: ref("Task", "id"),
-				account: ref("Task", "account"),
-				kind: lit(kind)
-			})
-		],
-		where: [],
-		head: extra
-			? { id: ref("Task", "id"), kind: lit(kind), account: ref("Task", "account") }
-			: { id: ref("Task", "id"), kind: lit(kind) },
-		interiors: [],
-		attach: attached
-			? [
-					{
-						name: "notes",
-						child: queryDesc(
-							rule({
-								vars: vars("TaskNote", "note"),
-								matches: [
-									match(relationSource("TaskNote"), {
-										task: parent("id"),
-										note: ref("TaskNote", "note")
-									})
-								],
-								where: [],
-								head: { note: ref("TaskNote", "note") },
-								interiors: [],
-								attach: []
-							})
-						)
-					}
-				]
-			: []
-	})
-
-/**
- * Items not in `source` whose column is fixed to the parameter p (Wide's numeric typmod price, or Tag's regex label).
- */
-const negatedFixed = (source: "Wide" | "Tag", column: "price" | "label") =>
-	items({
-		where: [
-			not(relationSource(source), {
-				[source === "Wide" ? "id" : "item"]: ref("Item", "id"),
-				[column]: param("p", source === "Wide" ? f.numeric(20, 6) : Code)
-			})
-		],
-		head: { id: ref("Item", "id") }
-	})
-
-/** Items not counted under a computed amount: the bigint 1 plus p, which an import binds. */
-const computedNegation = queryDesc(
-	rule({
-		vars: vars("Item", "id"),
-		matches: [match(relationSource("Item"), { id: ref("Item", "id") })],
-		where: [
-			not(relationSource("Entry"), {
-				amount: compute("add", typedLit(1n, f.bigint), param("p", f.bigint))
-			})
-		],
-		head: { id: ref("Item", "id") },
-		interiors: [],
-		attach: []
-	})
-)
-
-/** The noted tasks of an account, and the tasks of a rule not among them, the import bound by `acct`. */
-const notedOf = queryDesc(
-	rule({
-		vars: vars("Task", "id"),
-		matches: [
-			match(relationSource("Task"), { id: ref("Task", "id"), account: param("acct", f.uuid) }),
-			match(relationSource("TaskNote"), { task: ref("Task", "id") })
-		],
-		where: [],
-		head: { task: ref("Task", "id") },
-		interiors: [],
-		attach: []
-	})
-)
-
-const unnoted = (acct: Parameters<typeof imported>[1]) =>
-	queryDesc(
-		rule({
-			vars: vars("Task", "id", "account"),
-			matches: [
-				match(relationSource("Task"), { id: ref("Task", "id"), account: ref("Task", "account") })
-			],
-			where: [not(imported(notedOf, acct), { task: ref("Task", "id") })],
-			head: { id: ref("Task", "id") },
-			interiors: [],
-			attach: []
-		})
-	)
-
-/** An insert of Entry rows from Lab's items, each arm an amount literal. */
-const entryArm = (amount: bigint): RuleDesc =>
-	rule({
-		vars: vars("Item", "id"),
-		matches: [match(relationSource("Item"), { id: ref("Item", "id") })],
-		where: [],
-		head: { item: ref("Item", "id"), amount: lit(amount) },
-		interiors: [],
-		attach: []
-	})
-
-const entryMember = (q: QueryDesc, op: MemberDesc["op"]): MemberDesc => ({
-	op,
-	relation: "Entry",
-	member: { kind: "query", query: q }
-})
-
-const addedEntries = queryDesc(
-	rule({
-		vars: vars("Entry", "entry"),
-		matches: [match(delta("added", "Entry"), { entry: ref("Entry", "entry") })],
-		where: [],
-		head: { entry: ref("Entry", "entry") },
-		interiors: [],
-		attach: []
-	})
-)
-
-interface Planted {
-	readonly what: string
-	readonly check: () => Result.Result<LogicalQuery | undefined, CompileError>
-	readonly expected: Expected
-}
-
-const planted: Arr.NonEmptyReadonlyArray<Planted> = [
-	{
-		/**
-		 * A parameter bound to regex text is filtered as plain text; the program's parameter keeps the column's language.
-		 */
-		what: "a parameter bound to regex text keeps its column's language",
-		check: lab(
-			queryDesc(
-				rule({
-					vars: vars("Item", "id"),
-					matches: [
-						match(relationSource("Item"), { id: ref("Item", "id"), label: param("label", Lower) })
-					],
-					where: [],
-					head: { id: ref("Item", "id") },
-					interiors: [],
-					attach: []
-				})
-			)
-		),
-		expected: admittedWith([{ name: "label", type: labField("Item", "label") }])
-	},
-	{
-		what: "one parameter used twice is one parameter",
-		check: lab(
-			items({
-				where: [eq(ref("Item", "qty"), param("n", Qty)), gt(ref("Item", "qty"), param("n", Qty))],
-				head: { id: ref("Item", "id") }
-			})
-		),
-		expected: admittedWith([{ name: "n", type: labField("Item", "qty") }])
-	},
-	{
-		what: "one parameter declared at incompatible types",
-		check: lab(
-			items({
-				where: [eq(ref("Item", "qty"), param("x", Qty)), eq(ref("Item", "id"), param("x", f.uuid))],
-				head: { id: ref("Item", "id") }
-			})
-		),
-		expected: refusedFor("MalformedDescription")
-	},
-	{
-		what: "take's parameter joins as integer",
-		check: lab(
-			take(
-				orderBy(items({ where: [], head: { id: ref("Item", "id"), qty: ref("Item", "qty") } }), [
-					"qty",
-					"desc"
-				]),
-				"k"
-			)
-		),
-		expected: admittedWith([{ name: "k", type: plainType("int4") }])
-	},
-	{
-		what: "a head parameter of its declared type, in arms that also bind it",
-		check: lab(
-			queryDesc(
-				rule({
-					vars: vars("Item", "id"),
-					matches: [match(relationSource("Item"), { id: ref("Item", "id") })],
-					where: [],
-					head: { asked: param("who", f.uuid) },
-					interiors: [],
-					attach: []
-				}),
-				rule({
-					vars: vars("Item", "id"),
-					matches: [match(relationSource("Item"), { id: param("who", f.uuid) })],
-					where: [],
-					head: { asked: param("who", f.uuid) },
-					interiors: [],
-					attach: []
-				})
-			)
-		),
-		expected: admittedWith([{ name: "who", type: labField("Item", "id") }])
-	},
-	{
-		what: "a head parameter no other use types, of its declared type",
-		check: lab(items({ where: [], head: { asked: param("who", f.uuid) } })),
-		expected: admittedWith([{ name: "who", type: labField("Item", "id") }])
-	},
-	{
-		what: "two imports binding one parameter name differently, hygienically",
-		check: lab(
-			queryDesc(
-				rule({
-					vars: [plainVar("a"), plainVar("b")],
-					matches: [
-						match(imported(byColor, { c: lit("red") }), { id: varRef("a") }),
-						match(imported(byColor, { c: param("other", f.closedId("Color")) }), {
-							id: varRef("b")
-						})
-					],
-					where: [],
-					head: { a: varRef("a"), b: varRef("b") },
-					interiors: [],
-					attach: []
-				})
-			)
-		),
-		expected: admittedWith([{ name: "other", type: labField("Item", "color") }])
-	},
-	{
-		what: "a match of a union of different headings binding an arm's field without its discriminant",
-		check: work(
-			queryDesc(
-				rule({
-					vars: [plainVar("o")],
-					matches: [match(imported(taskPayloads, {}), { operator: varRef("o") })],
-					where: [],
-					head: { operator: varRef("o") },
-					interiors: [],
-					attach: []
-				})
-			)
-		),
-		expected: refusedFor("MalformedDescription")
-	},
-	{
-		what: "bound discriminant literals selecting an arm that lacks the field",
-		check: work(
-			pick(
-				{ id: varRef("i"), tag: lit("b"), account: varRef("x") },
-				{ id: varRef("i"), account: varRef("x") }
-			)
-		),
-		expected: refusedFor("MalformedDescription")
-	},
-	{
-		what: "bound discriminant literals selecting no arm",
-		check: work(
-			pick(
-				{ id: varRef("i"), k: lit("y"), account: varRef("x") },
-				{ id: varRef("i"), account: varRef("x") }
-			)
-		),
-		expected: refusedFor("MalformedDescription")
-	},
-	{
-		what: "a shared literal column alone, selecting both arms, which do not all deliver the field",
-		check: work(
-			pick(
-				{ id: varRef("i"), k: lit("z"), account: varRef("x") },
-				{ id: varRef("i"), account: varRef("x") }
-			)
-		),
-		expected: refusedFor("MalformedDescription")
-	},
-	{
-		what: "the arm a bound discriminant selects, its own fields read",
-		check: work(
-			pick(
-				{ id: varRef("i"), tag: lit("a"), account: varRef("x") },
-				{ id: varRef("i"), account: varRef("x") }
-			)
-		),
-		expected: admittedWith([])
-	},
-	{
-		what: "arms of one heading whose column types are incompatible",
-		check: lab(
-			queryDesc(
-				rule({
-					vars: vars("Item", "id"),
-					matches: [match(relationSource("Item"), { id: ref("Item", "id") })],
-					where: [],
-					head: { x: ref("Item", "id") },
-					interiors: [],
-					attach: []
-				}),
-				rule({
-					vars: vars("Item", "qty"),
-					matches: [match(relationSource("Item"), { qty: ref("Item", "qty") })],
-					where: [],
-					head: { x: ref("Item", "qty") },
-					interiors: [],
-					attach: []
-				})
-			)
-		),
-		expected: refusedFor("MalformedDescription")
-	},
-	{
-		what: "an arm attaching before it joins a union of different headings",
-		check: work(queryDesc(taskArm("Automatic", false, true), taskArm("Manual", true, false))),
-		expected: admittedWith([])
-	},
-	{
-		/** Two arms of one heading: a fact could come from either, so which attachment it carries is undetermined. */
-		what: "an attachment on one of several arms of one heading",
-		check: work(queryDesc(taskArm("Automatic", false, true), taskArm("Manual", false, false))),
-		expected: refusedFor("UnsupportedOperation")
-	},
-	{
-		/** A parameter of its own typmod: the column's typmod would round the value it is compared with. */
-		what: "a negated source's numeric typmod column fixed to a parameter of another typmod",
-		check: lab(negatedFixed("Wide", "price")),
-		expected: admittedWith([
-			{ name: "p", type: succeeded(scalarTypeOf(f.numeric(20, 6), bareEnv, SourceLoc("p", []))) }
-		])
-	},
-	{
-		what: "a negated source's regex column fixed to a parameter, which keeps the column's language",
-		check: lab(negatedFixed("Tag", "label")),
-		expected: admittedWith([{ name: "p", type: labField("Tag", "label") }])
-	},
-	{
-		what: "a computed negation binding over a parameter an import binds to an outer variable",
-		check: lab(
-			queryDesc(
-				rule({
-					vars: [...vars("Entry", "amount"), plainVar("x")],
-					matches: [
-						match(relationSource("Entry"), { amount: ref("Entry", "amount") }),
-						match(imported(computedNegation, { p: ref("Entry", "amount") }), { id: varRef("x") })
-					],
-					where: [],
-					head: { id: varRef("x") },
-					interiors: [],
-					attach: []
-				})
-			)
-		),
-		expected: refusedFor("UnsupportedOperation")
-	},
-	{
-		/** Bound to the importer's own parameter, the same computed binding is a constant of the negation. */
-		what: "the computed negation binding over the importer's own parameter",
-		check: lab(
-			queryDesc(
-				rule({
-					vars: [plainVar("x")],
-					matches: [
-						match(imported(computedNegation, { p: param("outer", f.bigint) }), { id: varRef("x") })
-					],
-					where: [],
-					head: { id: varRef("x") },
-					interiors: [],
-					attach: []
-				})
-			)
-		),
-		expected: admittedWith([{ name: "outer", type: plainType("int8") }])
-	},
-	{
-		what: "a negated import bound to the rule's account, which the head projects away",
-		check: work(unnoted({ acct: ref("Task", "account") })),
-		expected: admittedWith([])
-	},
-	{
-		what: "a negated import bound to a parameter",
-		check: work(unnoted({ acct: param("a", f.uuid) })),
-		expected: admittedWith([{ name: "a", type: labField("Item", "id") }])
-	},
-	{
-		what: "a negated import bound to a literal",
-		check: work(unnoted({ acct: lit("6f1c3a52-0c4e-4b1e-9a51-1c2f3e4d5a6b") })),
-		expected: admittedWith([])
-	},
-	{
-		what: "a negated import bound to a parameter an enclosing import binds to an outer variable",
-		check: work(
-			queryDesc(
-				rule({
-					vars: [...vars("Account", "id"), plainVar("t")],
-					matches: [
-						match(relationSource("Account"), { id: ref("Account", "id") }),
-						match(imported(unnoted({ acct: param("a", f.uuid) }), { a: ref("Account", "id") }), {
-							id: varRef("t")
-						})
-					],
-					where: [],
-					head: { account: ref("Account", "id"), task: varRef("t") },
-					interiors: [],
-					attach: []
-				})
-			)
-		),
-		expected: admittedWith([])
-	},
-	{
-		what: "one variable bound to columns of different numeric typmods",
-		check: lab(
-			queryDesc(
-				rule({
-					vars: [...vars("Item", "id", "price"), ...vars("Wide", "id")],
-					matches: [
-						match(relationSource("Item"), { id: ref("Item", "id"), price: ref("Item", "price") }),
-						match(relationSource("Wide"), { id: ref("Wide", "id"), price: ref("Item", "price") })
-					],
-					where: [],
-					head: { id: ref("Item", "id"), wide: ref("Wide", "id") },
-					interiors: [],
-					attach: []
-				})
-			)
-		),
-		expected: admittedWith([])
-	},
-	{
-		what: "an aggregate-only head with a constant beside it",
-		check: lab(items({ where: [], head: { n: count(), kind: lit("all") } })),
-		expected: admittedWith([])
-	},
-	{
-		what: "an insert member of one arm of its relation's heading",
-		check: () => checkMemberOf(checking(Lab), entryMember(queryDesc(entryArm(1n)), "insert"), {}),
-		expected: admittedWith([])
-	},
-	{
-		what: "an insert member of two arms of its relation's heading",
-		check: () =>
-			checkMemberOf(
-				checking(Lab),
-				entryMember(queryDesc(entryArm(1n), entryArm(2n)), "insert"),
-				{}
-			),
-		expected: admittedWith([])
-	},
-	{
-		/**
-		 * The arms' amounts discriminate them, so the checker admits the union, and the member refuses its two headings.
-		 */
-		what: "an insert member of two headings",
-		check: () => {
-			const second = entryArm(2n)
-			return checkMemberOf(
-				checking(Lab),
-				entryMember(
-					queryDesc(entryArm(1n), { ...second, head: { ...second.head, entry: lit(7n) } }),
-					"insert"
-				),
-				{}
-			)
-		},
-		expected: refusedFor("DescribedHeadingMismatch")
-	},
-	{
-		what: "an insert member's parameter, of its declared type and written as the domain",
-		check: () =>
-			checkMemberOf(
-				checking(Lab),
-				entryMember(
-					queryDesc(
-						rule({
-							vars: vars("Item", "id"),
-							matches: [match(relationSource("Item"), { id: ref("Item", "id") })],
-							where: [],
-							head: { item: ref("Item", "id"), amount: param("amount", f.bigint) },
-							interiors: [],
-							attach: []
-						})
-					),
-					"insert"
-				),
-				{}
-			),
-		expected: admittedWith([{ name: "amount", type: plainType("int8") }], (q) =>
-			assert.ok(
-				Arr.some(
-					exprClosure(Arr.flatMap(topoOrder(q.dag), (n) => exprsOf(n))),
-					(e) => e.kind === "param" && e.role === "write"
-				),
-				"a write parameter"
-			)
+/** Whether a rule of a read imports a query whose parameter its bind map binds to one of the read's own. */
+const bindsParam = <P>(rules: ReadonlyArray<Rule<P>>): boolean =>
+	Arr.some(rules, (r) =>
+		Arr.some(
+			r.matches,
+			(m) => m.source.kind === "import" && Arr.some(m.source.binds, (b) => b.to.kind === "param")
 		)
-	},
-	{
-		/** A put names every field: the serial field the insert omits is missing. */
-		what: "a put omitting its relation's serial field",
-		check: () =>
-			checkMemberOf(
-				checking(Lab),
-				entryMember(
-					queryDesc(
-						rule({
-							vars: vars("Item", "id"),
-							matches: [match(relationSource("Item"), { id: ref("Item", "id") })],
-							where: [],
-							head: { item: ref("Item", "id"), amount: param("amount", f.bigint) },
-							interiors: [],
-							attach: []
-						})
-					),
-					"put"
-				),
-				{}
-			),
-		expected: refusedFor("DescribedHeadingMismatch")
-	},
-	{
-		/**
-		 * The check does not depend on what the ChangeSet writes: over a relation it does not write, the delta is empty.
-		 */
-		what: "a read-back of an ordinary relation's delta",
-		check: () => checkReadBackOf(checking(Lab), { name: "added", query: addedEntries }, {}),
-		expected: { kind: "a read-back admitted" }
-	},
-	{
-		what: "a query reading a delta outside a read-back",
-		check: lab(addedEntries),
-		expected: refusedFor("MalformedDescription")
-	},
-	{
-		/** A closed relation is never written, so it has no delta. */
-		what: "a read-back of a closed relation's delta",
-		check: () =>
-			checkReadBackOf(
-				checking(Lab),
-				{
-					name: "colors",
-					query: queryDesc(
-						rule({
-							vars: vars("Color", "id"),
-							matches: [match(delta("removed", "Color"), { id: ref("Color", "id") })],
-							where: [],
-							head: { id: ref("Color", "id") },
-							interiors: [],
-							attach: []
-						})
-					)
-				},
-				{}
-			),
-		expected: refusedFor("MalformedDescription")
-	}
-]
+	)
 
-describe("the checker's binding, typing and scope rules", () => {
+type DeclaredFeature =
+	| "a parameter declared by its field"
+	| "a parameter declared by its base"
+	| "a relation parameter"
+	| "an import bound to the read's parameter"
+
+/**
+ * A generated read's checked parameters are exactly its own, scalar or relation, each of the type it is declared at
+ * (scalar) or of its relation's heading (relation).
+ */
+const judgeDeclared = (read: QueryRead, q: LogicalQuery): ReadonlyArray<DeclaredFeature> => {
+	const scalars = Arr.flatMap(q.params, (p) =>
+		p.kind === "scalar" ? [{ name: p.name, type: p.type }] : []
+	)
+	assert.deepEqual(
+		Arr.sort(
+			Arr.map(scalars, (p) => p.name),
+			(a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
+		),
+		Arr.sort(
+			Arr.map(read.params, (p) => p.name),
+			(a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
+		),
+		"the read's own scalar parameters"
+	)
+	for (const p of read.params) {
+		const checked = defined(
+			Arr.findFirst(scalars, (s) => s.name === p.name).pipe(Option.getOrUndefined)
+		)
+		assert.ok(sameScalarType(checked.type, declaredType(p)), `${p.name} of its declared type`)
+	}
+	for (const r of read.relations) {
+		const checked = Arr.findFirst(q.params, (p) => p.name === r.name).pipe(Option.getOrUndefined)
+		assert.ok(checked?.kind === "relation", `${r.name} a relation parameter`)
+		const heading = checked.heading
+		assert.equal(heading.length, r.relation.fields.length, `${r.name}'s heading`)
+		for (const f of r.relation.fields) {
+			const column = Arr.findFirst(heading, (h) => h.name === f.name).pipe(Option.getOrUndefined)
+			assert.ok(
+				column !== undefined && sameScalarType(column.type, f.type),
+				`${r.name}.${f.name} of its field's type`
+			)
+		}
+	}
+	return [
+		...(Arr.some(read.params, (p) => p.declaration.kind === "field")
+			? ["a parameter declared by its field" as const]
+			: []),
+		...(Arr.some(read.params, (p) => p.declaration.kind === "base")
+			? ["a parameter declared by its base" as const]
+			: []),
+		...(read.relations.length > 0 ? ["a relation parameter" as const] : []),
+		...(bindsParam(read.query.arms) ? ["an import bound to the read's parameter" as const] : [])
+	]
+}
+
+/** Where a member refusal must be located, in the member as the write frontend decodes it. */
+const memberLocOf = (
+	c: MemberCase,
+	at: "member" | "arm attachment" | "stage attachment"
+): SourceLoc => {
+	const decoded = decodedMember(memberDesc(c))
+	if (at === "member") {
+		return decoded.loc
+	}
+	const source = decoded.member
+	if (source.kind !== "query") {
+		return assert.fail("a member described by a query")
+	}
+	const stage = source.query.stage
+	if (at === "stage attachment") {
+		return stage.kind === "attach" ? stage.attach.loc : assert.fail("an attach stage")
+	}
+	const rules = stage.kind === "attach" ? stage.input : stage
+	if (rules.kind !== "rules") {
+		return assert.fail("a member of rules")
+	}
+	const attached = Arr.findFirst(rules.arms, (a) => a.attach.length > 0)
+	return Option.match(attached, {
+		onNone: () => assert.fail("an attached arm"),
+		onSome: (arm) => defined(arm.attach[0], "the arm's attachment").loc
+	})
+}
+
+/** The names a checked query of Lab lowers under: production's stand-ins for its relations and its codes. */
+const labNames = installationOf(Lab, { kind: "declared" }).names
+const checkedNames = {
+	...productionNames("lab", { kind: "declared" }, localVectorSchema, labNames.codes),
+	contractDomain: labNames.contractDomain
+}
+
+describe("the checker's parameter, member and bound rules", () => {
 	it.effect(
-		"refuse each planted description with its reason, and type and lower each admitted one",
-		(ctx) => {
-			type Answer = Expected["kind"]
-			return searched(
+		"give every generated read's checked query exactly the read's own parameters, each of the type it is declared at",
+		(ctx) =>
+			searched(
 				ctx,
-				exhaust(
+				explore(
 					{
-						suite: "unit/check/semantics-planted",
-						generator: element(planted),
+						suite: "unit/check/semantics-declared",
+						draw: drawn(caseSketchGen),
 						literal: Formatter.format,
-						limit: planted.length,
-						coverage: requiredInSpace<Answer>(["refused", "admitted", "a read-back admitted"]),
+						oracle: {
+							kind: "specification",
+							name: "the generated program's parameters and the descriptors it declares them with"
+						},
+						coverage: required<DeclaredFeature>(
+							[
+								"a parameter declared by its field",
+								"a parameter declared by its base",
+								"a relation parameter",
+								"an import bound to the read's parameter"
+							],
+							{ cases: 400, sense: notesOnly }
+						),
+						kept: [],
+						runs: 200,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
 						caseHang
 					},
-					(p, c) =>
+					(sketch, k) =>
 						Effect.sync(() => {
-							const r = p.check()
-							switch (p.expected.kind) {
-								case "refused":
-									refused(r, p.expected.reason, p.what)
-									break
-								case "a read-back admitted":
-									defined(succeeded(r, p.what), `${p.what}: a checked read-back`)
-									break
-								case "admitted": {
-									const q = defined(succeeded(r, p.what), `${p.what}: a checked query`)
-									assert.ok(
-										sameParams(paramsOf(q), p.expected.params),
-										`${p.what}: ${paramsText(paramsOf(q))}, not ${paramsText(p.expected.params)}`
-									)
-									for (const also of p.expected.also) {
-										also(q)
-									}
-									lowers(q)
-									break
+							const c = k.draw(resolveCase(sketch))
+							const built = buildSchema(c.schema)
+							for (const read of c.reads) {
+								if (read.kind !== "query") {
+									continue
 								}
+								const input = succeeded(
+									queryInput(buildRoot(built, built.schema, read.query)),
+									"the builder admits a generated read"
+								)
+								const q = succeeded(
+									checkQuery(checking(built.schema), input.desc, checkOptions("declared")),
+									"the checker admits a generated read"
+								)
+								k.noteAll(judgeDeclared(read, q))
 							}
-							c.note(p.expected.kind)
 						})
 				)
 			)
-		}
+	)
+
+	it.effect(
+		"type each query's own parameters by the declarations their uses share, never an import's own, join a variable's fields within one family, and refuse what those rules refuse",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/check/semantics-params",
+						draw: drawn(paramCaseGen),
+						literal: Formatter.format,
+						oracle: {
+							kind: "specification",
+							name: "the parameter rule restated over the drawn query (test/unit/check/params.ts)"
+						},
+						coverage: required<ParamFeature>(
+							[
+								"declarations of two families",
+								"a bound variable of another family",
+								"a computed negation over an outer variable",
+								"a variable bound to fields of two families",
+								"a variable joined across typmods or refinements",
+								"a parameter widened",
+								...Arr.map(
+									[
+										"a parameter a match binds",
+										"a parameter a comparison reads",
+										"a head parameter",
+										"a negated source's parameter",
+										"a computed negation over its own parameter",
+										"a take's parameter",
+										"an import bound to a parameter",
+										"an import bound to a literal",
+										"an import bound to a variable",
+										"a negated import",
+										"one name in two scopes"
+									] as const,
+									(f): readonly [ParamFeature, ParamFeature] => [f, "admitted"]
+								)
+							],
+							{ cases: 600, sense: notesOnly }
+						),
+						kept: [],
+						runs: 300,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang
+					},
+					(c, k) =>
+						Effect.sync(() => {
+							const v = paramVerdict(c)
+							const features = paramFeatures(c, v)
+							k.noteAll(features)
+							for (const f of features) {
+								if (f !== "admitted" && v.kind === "admitted") {
+									k.pair(f, "admitted")
+								}
+							}
+							const result = checkQuery(
+								checking(schemaDescOf(c.schema)),
+								paramCaseDesc(c),
+								checkOptions("params")
+							)
+							if (v.kind === "refused") {
+								const e = failed(result, `refused under ${Arr.join(v.rules, ", ")}`)
+								assert.ok(
+									Arr.contains(v.reasons, e.reason._tag),
+									`one of the reasons ${Arr.join(v.reasons, ", ")} (${Arr.join(v.rules, ", ")}), not ${e.reason._tag}`
+								)
+								return
+							}
+							const q = succeeded(result, "the query the parameter rule admits")
+							assert.deepEqual(
+								new Map(
+									Arr.flatMap(q.params, (p) =>
+										p.kind === "scalar" ? [[p.name, kindOfType(p.type)] as const] : []
+									)
+								),
+								new Map(v.params),
+								"each own parameter of its declarations' common type"
+							)
+						})
+				)
+			)
+	)
+
+	it.effect(
+		"hold a member's head to its relation's heading for its op, every column of its field's family, one heading and no attachment, refused at the member or the attachment",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/check/semantics-members",
+						draw: drawn(memberCaseGen),
+						literal: Formatter.format,
+						oracle: {
+							kind: "specification",
+							name: "the member rule restated over the drawn member (test/unit/check/members.ts)"
+						},
+						coverage: required<MemberFeature>(
+							[
+								"insert",
+								"put",
+								"delete",
+								"admitted",
+								"an attachment on an arm",
+								"an attach stage",
+								"no discriminant",
+								"several headings",
+								"a missing field",
+								"an extra column",
+								"a column of another type",
+								"incompatible arms",
+								"an insert leaving its serial field to its sequence",
+								"an insert writing its serial field",
+								"a put or delete without its serial field",
+								"a parameter written as its field",
+								"a sum written into a field",
+								"two arms of one heading"
+							],
+							{ cases: 600, sense: notesOnly }
+						),
+						kept: [],
+						runs: 300,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang
+					},
+					(c, k) =>
+						Effect.sync(() => {
+							const v = memberVerdict(c)
+							k.noteAll(memberFeatures(c, v))
+							const result = checkMemberOf(checking(schemaDescOf(c.schema)), memberDesc(c), {})
+							if (v.kind === "refused") {
+								const e = refused(result, v.reason, v.rule)
+								if (v.at !== "the union") {
+									assert.equal(
+										formatLoc(refusalLoc(e)),
+										formatLoc(memberLocOf(c, v.at)),
+										`${v.rule}, located at ${v.at}`
+									)
+								}
+								return
+							}
+							const q = succeeded(result, "the member the rule admits")
+							assert.deepEqual(
+								new Map(
+									Arr.flatMap(q.params, (p) =>
+										p.kind === "scalar" ? [[p.name, kindOfType(p.type)] as const] : []
+									)
+								),
+								new Map(v.params),
+								"each parameter of its field's kind"
+							)
+							const written = new Set(
+								Arr.flatMap(exprClosure(Arr.flatMap(topoOrder(q.dag), (n) => exprsOf(n))), (e) =>
+									e.kind === "param" && e.role === "write" ? [e.param] : []
+								)
+							)
+							for (const name of v.params.keys()) {
+								assert.ok(
+									Arr.some(q.params, (p) => p.name === name && written.has(p.id)),
+									`${name} is written as its field`
+								)
+							}
+						})
+				)
+			)
 	)
 
 	it.effect(
 		"bound take's parameter, which an import binds to a literal, by int4's positive range",
 		(ctx) => {
 			const top = take(
-				orderBy(items({ where: [], head: { id: ref("Item", "id"), qty: ref("Item", "qty") } }), [
-					"qty",
-					"desc"
-				]),
+				orderBy(
+					queryDesc(
+						rule({
+							vars: vars("Item", "id", "qty"),
+							matches: [
+								match(relationSource("Item"), { id: ref("Item", "id"), qty: ref("Item", "qty") })
+							],
+							where: [],
+							head: { id: ref("Item", "id"), qty: ref("Item", "qty") },
+							interiors: [],
+							attach: []
+						})
+					),
+					["qty", "desc"]
+				),
 				"k"
 			)
 			type Bound = "within" | "outside"
@@ -899,7 +463,15 @@ describe("the checker's binding, typing and scope rules", () => {
 								bound >= 1 &&
 								bound <= 2 ** 31 - 1
 							if (within) {
-								lowers(defined(succeeded(r, String(bound)), "a checked query"))
+								const q = defined(succeeded(r, String(bound)), "a checked query")
+								succeeded(
+									lowerConservative(conservativeInput(q), {
+										names: checkedNames,
+										params: q.params,
+										subject: { kind: "query" }
+									}),
+									"the admitted query lowers"
+								)
 							} else {
 								refused(r, "MalformedDescription", String(bound))
 							}

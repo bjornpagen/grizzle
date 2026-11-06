@@ -1,96 +1,34 @@
 import { describe, it } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { element } from "@grizzle/testing/gen"
+import { explore, sketched } from "@grizzle/testing/explore"
+import { required } from "@grizzle/testing/features"
+import { int, weighted } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
+import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
-import { flight } from "#compiler/lower/conservative/types.ts"
 import { pg } from "#compiler/public/fields.ts"
-import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
-import type { FromSource } from "#compiler/sql/ast.ts"
-import {
-	arrays,
-	col,
-	columnDefinition,
-	namedType,
-	numericType,
-	positionalValue,
-	provedCore,
-	select,
-	target,
-	types
-} from "#compiler/sql/build.ts"
-import { printStatement } from "#compiler/sql/print.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { inForce } from "#compiler/write/family/order.ts"
 import { bindWrite } from "#compiler/write/program/bind.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
 import { readArrayLiteral } from "#test/support/arrays.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
-import { compileTemplate, realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
+import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { largeStatements } from "#test/support/oracle/forms.ts"
 import { checking } from "#test/support/policy.ts"
-import { testTypeSchema } from "#test/support/sql.ts"
 import { descOf, parsedOf } from "#test/unit/write/changeset/fixtures.ts"
 
 /**
- * Relation inputs travel as arrays, one placeholder per column, whatever their size (lower/shapes/relparam): the
- * printed select-list form, the read and write lowerings that emit no jsonb recordset, and a ChangeSet input of
- * 250,000 facts bound with no refusal.
+ * A ChangeSet's enumerated members travel as arrays, one placeholder per column, whatever their count
+ * (lower/shapes/relparam): an input drawn up to a quarter of a million facts binds every statement with no refusal,
+ * each member array carrying every fact. No bound smaller than PostgreSQL's longest message and V8's longest string
+ * (core/limits.ts) refuses an input, and those two are met by inputs far past what a unit test builds.
  */
-
-/** Whether a statement text reads an input the way the arrays replaced. */
-const readsJsonb = (sql: string): boolean =>
-	Str.includes("jsonb_to_recordset")(sql) || Str.includes("jsonb_array_elements")(sql)
-
-describe("a relation input's arrays", () => {
-	it("print in the select-list form: a qualified unnest per column, text collated, typmods cast back", () => {
-		const vectors = testTypeSchema("vector_ext")
-		const kinds = testTypeSchema("work")
-		const source: FromSource = arrays(
-			{
-				kind: "columns",
-				columns: [
-					{ definition: columnDefinition("c1", types.uuid), array: positionalValue(1) },
-					{ definition: columnDefinition("c2", types.text), array: positionalValue(2) },
-					{ definition: columnDefinition("c3", numericType(10, 2)), array: positionalValue(3) },
-					{
-						definition: columnDefinition("c4", namedType(vectors, "vector", [3])),
-						array: positionalValue(4)
-					},
-					{
-						definition: columnDefinition("c5", namedType(kinds, "kind", [])),
-						array: positionalValue(5)
-					}
-				]
-			},
-			"r1"
-		)
-		assert.equal(
-			printStatement(select(provedCore("input", [target(col("r1", "c1"))], [source], undefined))),
-			'SELECT "r1"."c1"\n' +
-				'FROM (SELECT "pg_catalog"."unnest"($1::"pg_catalog"."uuid"[]) AS "c1", ' +
-				'"pg_catalog"."unnest"($2::"pg_catalog"."text"[] COLLATE "pg_catalog"."pg_c_utf8") AS "c2", ' +
-				'"pg_catalog"."unnest"($3::numeric(10, 2)[])::numeric(10, 2) AS "c3", ' +
-				'"pg_catalog"."unnest"($4::"vector_ext"."vector"(3)[])::"vector_ext"."vector"(3) AS "c4", ' +
-				'"pg_catalog"."unnest"($5::"work"."kind"[]) AS "c5") AS "r1"'
-		)
-	})
-
-	it("print an input of no column as the generated series of its count", () => {
-		const source = arrays({ kind: "count", count: positionalValue(1) }, "r2")
-		assert.equal(
-			printStatement(select(provedCore("input", [target(col("r2", "r2"))], [source], undefined))),
-			'SELECT "r2"."r2"\nFROM "pg_catalog"."generate_series"(1::bigint, $1::bigint) AS "r2"'
-		)
-	})
-})
 
 const Item = relation(
 	"Item",
@@ -99,129 +37,90 @@ const Item = relation(
 )
 const Shop = schema("Shop", { Item }, [])
 
-/** Reads of a relation parameter over Item, each carrying other columns: one, a text and a numeric(p, s) among two. */
-const reads = {
-	ids: query(Shop).rule((r) => {
-		const asked = r.relation("asked", { id: pg.bigint })
-		const { id } = v(Item, "item")
-		return r.match(asked, { id }).match(Item, { id }).find({ id })
-	}),
-	labelled: query(Shop).rule((r) => {
-		const asked = r.relation("asked", { id: pg.bigint, label: str.regex("^.*$", "su") })
-		const { id, label } = v(Item, "item")
-		return r.match(asked, { id, label }).match(Item, { id, label }).find({ id })
-	}),
-	priced: query(Shop).rule((r) => {
-		const asked = r.relation("asked", {
-			id: pg.bigint,
-			label: str.regex("^.*$", "su"),
-			price: pg.numeric(10, 2),
-			live: pg.boolean
-		})
-		const { id, label, price, live } = v(Item, "item")
-		return r
-			.match(asked, { id, label, price, live })
-			.match(Item, { id, label, price, live })
-			.find({ id })
-	})
-} as const
-const readWidths: Readonly<Record<keyof typeof reads, number>> = { ids: 1, labelled: 2, priced: 4 }
-
-describe("a read's relation parameters", () => {
-	it.effect(
-		"lower to one array placeholder per column in both artifacts, and to no jsonb recordset",
-		(ctx) =>
-			searched(
-				ctx,
-				exhaust(
-					{
-						suite: "unit/lower/relparam-arrays",
-						literal: Formatter.format,
-						generator: element(["ids", "labelled", "priced"] as const),
-						limit: 3,
-						coverage: requiredInSpace<keyof typeof reads>(["ids", "labelled", "priced"]),
-						caseHang
-					},
-					(read, c) =>
-						Effect.sync(() => {
-							const width = readWidths[read]
-							const template = succeeded(compileTemplate(reads[read], Shop, testCompile))
-							const optimized = flight(template.programs.optimized.roots)
-							const statements = [
-								...optimized,
-								...largeStatements(optimized, (l) => l.statement),
-								...flight(template.programs.conservative.roots)
-							]
-							const reading = Arr.filter(statements, (s) =>
-								Arr.some(s.params, (slot) => slot.kind === "relation")
-							)
-							assert.ok(reading.length > 0, "a statement reads the relation parameter")
-							for (const s of statements) {
-								assert.ok(!readsJsonb(s.sql.text), s.sql.text)
-								const slots = Arr.filter(s.params, (slot) => slot.kind === "relation")
-								assert.equal(slots.length % width, 0, s.sql.text)
-								for (const slot of slots) {
-									assert.equal(slot.columns.length, width)
-									assert.ok(
-										Str.includes(`"pg_catalog"."unnest"($${slot.number}::`)(s.sql.text),
-										`placeholder ${slot.number} is an unnest of an array: ${s.sql.text}`
-									)
-								}
-							}
-							c.note(read)
-						})
-				)
-			)
-	)
+/** The i-th fact: a label holding a quote, a backslash and braces, which an array literal escapes. */
+const fact = (i: number) => ({
+	id: BigInt(i),
+	label: `item "${i}", {a\\b}`,
+	price: Decimal.of(`${i % 1000}.25`),
+	live: i % 2 === 0
 })
+
+/** A count of facts: a few, or a hundred thousand and more, where only a bound below the evidence would refuse it. */
+const factCount = weighted([
+	[2, int(1, 1_000)],
+	[1, int(100_000, 250_000)]
+])
+
+type CountFeature = "a few facts" | "a hundred thousand facts or more"
 
 describe("a write's enumerated members", () => {
 	const artifacts = succeeded(testArtifacts(Shop, testCompile))
 	const program = (changes: unknown) =>
 		succeeded(compileWrite(checking(Shop), descOf(changes), realityWrite(artifacts)))
-	const fact = (i: number) => ({
-		id: BigInt(i),
-		label: `item "${i}", {a\\b}`,
-		price: Decimal.of(`${i % 1000}.25`),
-		live: i % 2 === 0
-	})
 
 	it.effect(
-		"lower to arrays, never a jsonb recordset, and an input of 250,000 facts binds every statement with no refusal",
-		() =>
-			Effect.gen(function* () {
-				const rows = Array.from({ length: 250_000 }, (_, i) => fact(i))
-				const changes = ChangeSet.empty(Shop).insert(Item, rows)
-				const compiled = program(changes)
-				const members = yield* collectInputs(compiled.frontend, parsedOf(changes).inputs)
-				const bound = succeeded(
-					bindWrite(compiled, { members, params: {}, transport: inForce(bindFrame) })
+		"lower to arrays, and an input of any count binds every statement with no refusal, each array carrying every fact",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/lower/relparam-members",
+						draw: sketched(factCount, (count) => Arr.makeBy(count, fact)),
+						literal: Formatter.format,
+						oracle: {
+							kind: "specification",
+							name: "an input is bounded by messageMaxBytes and maxStringLength alone, and its arrays carry every fact"
+						},
+						coverage: required<CountFeature>(["a few facts", "a hundred thousand facts or more"], {
+							cases: 6,
+							sense: notesOnly
+						}),
+						kept: [],
+						runs: 2,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang
+					},
+					(rows, c) =>
+						Effect.gen(function* () {
+							c.note(rows.length >= 100_000 ? "a hundred thousand facts or more" : "a few facts")
+							const changes = ChangeSet.empty(Shop).insert(Item, rows)
+							const compiled = program(changes)
+							const members = yield* collectInputs(compiled.frontend, parsedOf(changes).inputs)
+							const bound = succeeded(
+								bindWrite(compiled, { members, params: {}, transport: inForce(bindFrame) })
+							)
+							if (bound.kind !== "bound") {
+								return assert.fail(`the input binds, not ${bound.kind}`)
+							}
+							const artifact = compiled.artifacts.optimized
+							const skip = bound.skip(artifact)
+							let arraysSent = 0
+							for (const s of artifact.statements) {
+								if (s.step.kind === "readBack" || skip.has(s.index)) {
+									continue
+								}
+								const form = bound.form(s)
+								const texts = succeeded(bound.values(s))
+								assert.equal(texts.length, form.paramSlots.length)
+								for (const [i, slot] of form.paramSlots.entries()) {
+									if (slot.kind !== "member") {
+										continue
+									}
+									arraysSent += 1
+									const elements = readArrayLiteral(Option.getOrThrow(Arr.get(texts, i)))
+									assert.equal(
+										elements.length,
+										rows.length,
+										`placeholder ${i + 1} carries every fact`
+									)
+								}
+							}
+							assert.ok(arraysSent >= 4, `${arraysSent} member arrays sent, one per column`)
+						})
 				)
-				assert.equal(bound.kind, "bound")
-				if (bound.kind !== "bound") {
-					return
-				}
-				const artifact = compiled.artifacts.optimized
-				const skip = bound.skip(artifact)
-				let arraysSent = 0
-				for (const s of artifact.statements) {
-					if (s.step.kind === "readBack" || skip.has(s.index)) {
-						continue
-					}
-					const form = bound.form(s)
-					assert.ok(!readsJsonb(form.sql), form.sql)
-					const texts = succeeded(bound.values(s))
-					assert.equal(texts.length, form.paramSlots.length)
-					for (const [i, slot] of form.paramSlots.entries()) {
-						if (slot.kind !== "member") {
-							continue
-						}
-						arraysSent += 1
-						const elements = readArrayLiteral(Option.getOrThrow(Arr.get(texts, i)))
-						assert.equal(elements.length, 250_000, `placeholder ${i + 1} carries every fact`)
-					}
-				}
-				assert.ok(arraysSent >= 4, `${arraysSent} member arrays sent`)
-			})
+			)
 	)
 })

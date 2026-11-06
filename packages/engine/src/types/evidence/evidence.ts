@@ -880,9 +880,37 @@ type KeyedByParent<S, R, B, H> = R extends AnyRelation | AnyClosed
 export type ContainmentProof<S, Sole, H> =
 	Sole extends SoleMatch<infer R, infer B>
 		? KeyedByParent<S, R, B, H> extends true
-			? ContainmentsInto<ContainmentsOf<S>, NameOf<R>, B>
+			? ContainmentsInto<ContainmentsBetween<S, ParentRelations<B>, NameOf<R>>, NameOf<R>, B>
 			: never
 		: never
+
+/**
+ * S's containments between two ordinary or closed relations, each under the pair of names `${source} ${target}`, the
+ * relation its left side reads and the one its right side reads, and none under any other pair. It is built once per
+ * schema, so a proof reads the containments from the parent's relations into the matched relation by name, never in a
+ * pass over every containment S declares: the checker reads a proof's every branch while it infers a rule's head, so a
+ * pass would cost every rule the size of the schema.
+ */
+type ContainmentIndexOf<S> = {
+	readonly [C in ContainmentsOf<S> as ContainmentPair<C>]: C
+} & { readonly [pair: string]: never }
+
+type ContainmentPair<C> =
+	C extends Containment<
+		Side<infer PRel extends AnyRelation | AnyClosed>,
+		Side<infer RRel extends AnyRelation | AnyClosed>
+	>
+		? `${NameOf<PRel>} ${NameOf<RRel>}`
+		: never
+
+/** The containments S declares from one of the relations named PN into the relation named RN. */
+type ContainmentsBetween<S, PN, RN extends string> = PN extends string
+	? ContainmentIndexOf<S>[`${PN} ${RN}`]
+	: never
+
+/** The relations whose fields the parent variables bound in B were matched at. */
+type ParentRelations<B> = RelationOfOrigin<ParentOriginOf<B[keyof B]>>
+type RelationOfOrigin<O> = O extends Origin<infer R> ? R : never
 
 type ContainmentsInto<C, RN, B> =
 	C extends Containment<
@@ -933,9 +961,28 @@ type HeadingFieldOf<R, G> = R extends { readonly heading: infer C }
 export type ArmProofOf<S, Sole, H> =
 	Sole extends SoleMatch<infer R, infer B>
 		? KeyedByParent<S, R, B, H> extends true
-			? ArmsOf<Extract<StatementsOf<S>[number], AlternativesBase>, NameOf<R>, B>
+			? ArmsOf<AlternativesBetween<S, ParentRelations<B>, NameOf<R>>, NameOf<R>, B>
 			: never
 		: never
+
+/**
+ * S's alternatives laws, each under the pair of names `${parent} ${arm}` for every arm relation it names, and none under
+ * any other pair: built once per schema, so a proof reads the laws that make the matched relation an arm of the
+ * parent's relation by name, as ContainmentIndexOf reads containments.
+ */
+type AlternativesIndexOf<S> = {
+	readonly [A in Extract<StatementsOf<S>[number], AlternativesBase> as AlternativesPairs<A>]: A
+} & { readonly [pair: string]: never }
+
+type AlternativesPairs<A> =
+	A extends Alternatives<infer PK, string, unknown, infer Arms>
+		? `${NameOf<RelationOfKey<PK>>} ${NameOf<RelationOfKey<Exclude<Arms[keyof Arms], undefined>>>}`
+		: never
+
+/** The alternatives laws S declares over one of the relations named PN with an arm the relation named RN. */
+type AlternativesBetween<S, PN, RN extends string> = PN extends string
+	? AlternativesIndexOf<S>[`${PN} ${RN}`]
+	: never
 
 type ArmsOf<A, RN, B> =
 	A extends Alternatives<infer PK, infer D, unknown, infer Arms>
@@ -1023,13 +1070,24 @@ type ReflexiveBindings<B, RN> = false extends {
 	? false
 	: true
 
-type SharedOriginFields<B, Key> = {
-	[K in keyof B]-?: [OriginKey<B[K]>] extends [never]
-		? never
-		: OriginKey<B[K]> extends Key
-			? K
-			: never
-}[keyof B]
+/** The bindings of B whose variable's origin keys all lie among Key. */
+type SharedOriginFields<B, Key> = WithinKeys<B, BindingsByOrigin<B>[Key & string], Key>
+
+/**
+ * The bindings of B by the origin key of the variable each binds: each binding under each of its origin keys and none
+ * under any other key, built in one pass over B, so the bindings that share a variable's origin are one property read,
+ * never a pass over the bindings per binding.
+ */
+type BindingsByOrigin<B> = {
+	readonly [K in keyof B as OriginKey<B[K]>]: K
+} & { readonly [key: string]: never }
+
+/** The bindings among Ks whose every origin key lies among Key. */
+type WithinKeys<B, Ks, Key> = Ks extends keyof B
+	? [OriginKey<B[Ks]>] extends [Key]
+		? Ks
+		: never
+	: never
 
 /** The head is an aggregate whose every other term is a parent variable of origin in R. */
 type GroupTermsAreParents<H, RN> = [AggregateFields<H>] extends [never]
