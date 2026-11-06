@@ -80,7 +80,7 @@ export type ClaimsCheck = Expect<
 export const atLeastOne = check("AtLeastOneClaim", Pool, (p) => p.claims.ge(1n))
 // @ts-expect-error -- TS2345: fin's count is a drawn natural of its owner
 export const seatSlots = fin(Pool, "seats")
-// @ts-expect-error -- TS2345: a counted family's member side is a relation's
+// @ts-expect-error -- TS2345 refusal: a counted family's side is its owner's key
 export const unslotted = counted(on(Claim, "pool"), on(Pool, "id"))
 /** capacity, its bound and its weight are no part of the public API. */
 // @ts-expect-error -- TS2339: capacity is gone, a counted family and a row check in its place

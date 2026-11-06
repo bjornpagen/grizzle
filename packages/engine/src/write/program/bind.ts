@@ -25,11 +25,14 @@ import { textsKey } from "#compiler/write/family/draw.ts"
 import {
 	decodeRead,
 	type EditedTarget,
+	type EditTarget,
 	type Fact,
 	type FillContext,
 	fixedRefusal,
 	foldRecounts,
 	groupKey,
+	ownerText,
+	recountValues,
 	ownersOf,
 	planEdits,
 	readKeys,
@@ -41,6 +44,7 @@ import { familyKey } from "#compiler/write/family/fold.ts"
 import type { NestedRow } from "#compiler/write/family/nesting.ts"
 import {
 	type FamilyStatement,
+	type OwnerWrite,
 	type Phase,
 	type Plan,
 	planOwners,
@@ -50,13 +54,14 @@ import {
 	type Transport,
 	type Unsendable
 } from "#compiler/write/family/order.ts"
-import type { ReadShape } from "#compiler/write/family/statements.ts"
+import { endColumns, type ReadShape } from "#compiler/write/family/statements.ts"
 import type { EnumeratedInput } from "#compiler/write/frontend/compile.ts"
 import {
 	type MemberFacts,
 	type Normalized,
 	type NormalizedSlot,
-	normalizeChangeSet
+	normalizeChangeSet,
+	refilledSlot
 } from "#compiler/write/normalize/normalize.ts"
 import {
 	type ArtifactStatement,
@@ -243,7 +248,8 @@ export const bindWrite = (
 	 */
 	const encodeSlot = (
 		slot: WriteSlot,
-		arrays: Map<unknown, ArrayTexts>
+		arrays: Map<unknown, ArrayTexts>,
+		slotFacts: (slot: ParamId) => NormalizedSlot
 	): Result.Result<string, EncodingFailure | LiteralBound> => {
 		switch (slot.kind) {
 			case "scalar":
@@ -260,7 +266,7 @@ export const bindWrite = (
 										`the normalized input of relation parameter ${slot.param}`
 									)
 								)
-							: slot.encode(factsOf(slot.slot))
+							: slot.encode(slotFacts(slot.slot))
 						: Result.ok(known)
 				if (!written.ok) {
 					return written
@@ -277,20 +283,24 @@ export const bindWrite = (
 	const runsLarge = (choice: RelationChoice): boolean =>
 		counted.some((p) => p.param === choice.source.param && runsLargeForm(choice, p.count))
 	const form = (statement: ArtifactStatement): SentForm => sentForm(statement, runsLarge)
-	const values = (
-		statement: ArtifactStatement
-	): Result.Result<ReadonlyArray<string>, EncodingFailure | LiteralBound> => {
-		const out: Array<string> = []
-		const arrays = new Map<unknown, ArrayTexts>()
-		for (const slot of form(statement).paramSlots) {
-			const encoded = encodeSlot(slot, arrays)
-			if (!encoded.ok) {
-				return Result.err(encoded.error)
+	/** A statement's placeholder texts over `slotFacts`, each member slot's normal facts. */
+	const valuesOver =
+		(slotFacts: (slot: ParamId) => NormalizedSlot) =>
+		(
+			statement: ArtifactStatement
+		): Result.Result<ReadonlyArray<string>, EncodingFailure | LiteralBound> => {
+			const out: Array<string> = []
+			const arrays = new Map<unknown, ArrayTexts>()
+			for (const slot of form(statement).paramSlots) {
+				const encoded = encodeSlot(slot, arrays, slotFacts)
+				if (!encoded.ok) {
+					return Result.err(encoded.error)
+				}
+				out.push(encoded.value)
 			}
-			out.push(encoded.value)
+			return Result.ok(out)
 		}
-		return Result.ok(out)
-	}
+	const values = valuesOver(factsOf)
 	const noRows: ReadonlyMap<string, ReadonlyMap<string, NestedRow>> = new Map()
 	/** Each relation's depth among the families, which orders a stratum's relations' statements. */
 	const depthOf = relationDepths(frontend.laws.families)
@@ -426,11 +436,73 @@ export const bindWrite = (
 		}
 		edits.push({ program: editProgram, changes, owners, reads: familyReads })
 	}
+	/**
+	 * A stratum's owner writes with every count of an owner the stratum inserts carried by the owner's own insert row
+	 * instead of a count statement (rows-first.md §2.1): a fresh owner's stored suffix is empty, so the filler knows its
+	 * every member, and its insert row then states its final count and ends, which an immediate CHECK over them judges
+	 * and every member's axes reference. `refilled` gathers each such owner's insert slot with its facts' counts and
+	 * ends replaced (normalize.ts refilledSlot); an owner whose insert slot carries no counts keeps its count statement.
+	 */
+	const carried = (
+		stratum: number,
+		target: EditTarget,
+		owners: ReadonlyArray<OwnerWrite>,
+		refilled: Map<ParamId, NormalizedSlot>
+	): ReadonlyArray<OwnerWrite> =>
+		owners.flatMap((write) => {
+			const family = defined(
+				target.families.find((f) => familyKey(f.family.id) === familyKey(write.family)),
+				"an edited relation's family"
+			).family
+			/** A refill keeps the slot's key check true only while no key reads the fields it draws: a count or an end a
+			 * key holds keeps its count statement, which the key law judges at the statement. */
+			const drawnFields = [family.count.name, ...endColumns(family).map((f) => f.name)]
+			const keyed = family.owner.keyNames.some((k) =>
+				k.fields.some((f) => drawnFields.includes(f.name))
+			)
+			const slots = keyed ? [] : ownerSlots(stratum, family.owner.name)
+			const kept = new Map(write.recounts)
+			for (const slot of slots) {
+				const current = refilled.get(slot) ?? factsOf(slot)
+				const byGroup = new Map<string, ReadonlyMap<string, unknown>>()
+				for (const [text, recount] of write.recounts) {
+					if (ownersOf(ctx, family, current.facts).has(text)) {
+						byGroup.set(text, recountValues(ctx, family, recount))
+						kept.delete(text)
+					}
+				}
+				if (byGroup.size > 0) {
+					refilled.set(
+						slot,
+						refilledSlot(current, (fact) => {
+							const drawnValues = byGroup.get(ownerText(ctx, family, fact))
+							return drawnValues === undefined
+								? fact
+								: Object.fromEntries([...Object.entries(fact), ...drawnValues])
+						})
+					)
+				}
+			}
+			return kept.size > 0 ? [{ family: write.family, recounts: kept }] : []
+		})
+	/** The insert slots of an owner relation in a stratum that carry its counts and ends: a plain insert's that starts
+	 * them (frontend/compile.ts EnumeratedInput "single"), and a nested insert's. */
+	const ownerSlots = (stratum: number, relation: string): ReadonlyArray<ParamId> =>
+		frontend.slots
+			.filter((g) => g.stratum === stratum && g.relation.name === relation)
+			.flatMap((g) =>
+				g.inputs.flatMap((input) =>
+					(input.kind === "single" && input.act.op === "insert" && input.starts.length > 0) ||
+					input.kind === "nested"
+						? [input.slot.slot]
+						: []
+				)
+			)
 	/** Each stratum's plan from the reads' rows, one array of rows per read in order: its nested rows and its edits'
 	 * rows by relation, composed by depth with its edits' counts. */
 	const planned = (
 		rows: ReadonlyArray<Raw>
-	): Result.Result<ReadonlyMap<number, Plan>, EncodingFailure | FamilyRowBound | CompileError> => {
+	): Result.Result<Planned, EncodingFailure | FamilyRowBound | CompileError> => {
 		const strata = [
 			...new Set([
 				...frontend.nested.map((n) => n.stratum),
@@ -438,6 +510,7 @@ export const bindWrite = (
 			])
 		]
 		const out = new Map<number, Plan>()
+		const refilled = new Map<ParamId, NormalizedSlot>()
 		for (const stratum of strata) {
 			const relations = nestedPlans(stratum)
 			if (!relations.ok) {
@@ -475,7 +548,7 @@ export const bindWrite = (
 					return Result.err(rowBound(target.relation.name, rowsPlan.error))
 				}
 				all.push({ depth: depthOf(target.relation.name), plan: rowsPlan.value })
-				for (const owner of edited.owners) {
+				for (const owner of carried(stratum, target, edited.owners, refilled)) {
 					const phase = planOwners(owner, inputs.transport)
 					if (!phase.ok) {
 						return Result.err(rowBound(target.relation.name, phase.error))
@@ -485,7 +558,7 @@ export const bindWrite = (
 			}
 			out.set(stratum, compose(all, counts))
 		}
-		return Result.ok(out)
+		return Result.ok({ plans: out, slots: refilled })
 	}
 	/** A planned statement's arrays: its rows' texts, column by column, each array within the longest string. */
 	const arraysOf = (
@@ -503,23 +576,22 @@ export const bindWrite = (
 	}
 	/** The chunks of the artifact's statements under the strata's plans: a family step's, one execution per planned
 	 * statement of its kind and target; any other's, its one execution. */
-	const chunksOf =
-		(
-			plans: Result.Result<
-				ReadonlyMap<number, Plan>,
-				EncodingFailure | FamilyRowBound | CompileError
-			>
-		): Chunks =>
-		(statement) => {
+	const chunksOf = (
+		plans: Result.Result<Planned, EncodingFailure | FamilyRowBound | CompileError>
+	): Chunks => {
+		const own = valuesOver((slot) =>
+			plans.ok ? (plans.value.slots.get(slot) ?? factsOf(slot)) : factsOf(slot)
+		)
+		return (statement) => {
 			const step = statement.step
 			if (step.kind !== "family") {
-				return Result.map(values(statement), (one) => [one])
+				return Result.map(own(statement), (one) => [one])
 			}
 			if (!plans.ok) {
 				return plans
 			}
 			const target = step.target
-			const sent: ReadonlyArray<FamilyStatement> = (plans.value.get(step.stratum) ?? noPlan)
+			const sent: ReadonlyArray<FamilyStatement> = (plans.value.plans.get(step.stratum) ?? noPlan)
 				.flat()
 				.filter(
 					(s) =>
@@ -538,6 +610,7 @@ export const bindWrite = (
 			}
 			return Result.ok(out)
 		}
+	}
 	const flights: Flights =
 		unreadable !== undefined
 			? { kind: "write", chunks: chunksOf(Result.err(unreadable)) }
@@ -594,3 +667,9 @@ const insertSlots = (input: EnumeratedInput): ReadonlyArray<ParamId> => {
 }
 
 const noPlan: Plan = [[], [], [], []]
+
+/** Each stratum's plan, and each owner insert slot whose facts carry the counts and ends its members' appends draw. */
+interface Planned {
+	readonly plans: ReadonlyMap<number, Plan>
+	readonly slots: ReadonlyMap<ParamId, NormalizedSlot>
+}

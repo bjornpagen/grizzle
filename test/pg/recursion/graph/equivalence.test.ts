@@ -52,7 +52,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * Seeded graph-shaped recursive queries (test/support/oracle/gen/recursive.ts: chains, trees, diamonds, self-loops,
  * dense cycles, random graphs, parallel edges, multiple roots carrying origin) are lowered by the full optimized
  * pipeline, graph pass and R37 seeding included, and by the conservative lowering, run on PostgreSQL, and compared
- * statement by statement as raw text multisets, with no repeated row on the optimized side.
+ * statement by statement as raw text sets, with no repeated row on the optimized side.
  *
  * - The general population covers every consumer and recursion family; every recursion, bounded or not, is the
  *   recursive CTE (its kernel feature registry).

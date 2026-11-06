@@ -627,7 +627,9 @@ const executorsOf = (j: Judging, name: string): ReadonlySet<string> =>
  * EXECUTE on a constant goes exactly to the world roles that call it as invokers (§3.12, "Role views"): a live
  * constant's to the holders of USAGE on its bits domain, whose CHECK calls it; a names constant's to the holders of
  * USAGE on its roster domain, the roles whose views decode a closed id through it, and the executors of the live
- * constant derived from it, whose body calls it; a closed relation's constant's to the roles whose views call it.
+ * constant derived from it, whose body calls it; a closed relation's constant's to every world role, since a role holds
+ * every closed relation of its base but a roster (analysis/schema.ts CheckedSchema) and its queries' closed reads call
+ * the relation's constants as the invoker, besides the roles whose views call it.
  */
 const constantExecutorProblems = (
 	j: Judging,
@@ -654,6 +656,9 @@ const constantExecutorProblems = (
 			}
 			break
 		case "closedConstant":
+			for (const r of j.worldRoles) {
+				required.add(r)
+			}
 			break
 	}
 	const held = executorsOf(j, f.name)

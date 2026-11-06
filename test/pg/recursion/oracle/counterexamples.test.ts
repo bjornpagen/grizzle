@@ -46,7 +46,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * the diamond case.
  *
  * Each invalid rewrite is the conservative lowering post-processed the way an unsound optimizer would rewrite it, run
- * on PostgreSQL beside the conservative lowering and compared as raw text multisets:
+ * on PostgreSQL beside the conservative lowering and compared as raw text sets:
  *
  * - feedback UNION ALL on a diamond. Recursive UNION is not replaced with UNION ALL merely because each edge table is
  *   unique, the graph is acyclic, the traversal is depth-bounded, or each transition individually looks unique: two

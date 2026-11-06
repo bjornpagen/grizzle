@@ -4,7 +4,7 @@
  *
  * Each runs on the generated population rooted at the construct its rule is about (test/support/oracle/mutants
  * cases.ts, the valid-mutant populations, dense facts) through the optimized differential, so every case also agrees
- * with the conservative lowering in raw multisets with no repeated row. On some cases, which the suite's feature
+ * with the conservative lowering in raw sets with no repeated row. On some cases, which the suite's feature
  * registry requires, the optimized artifact performs the transformation, and wherever its certificate is recorded the
  * emitted SQL shows it, read from the statements' ASTs, never from the text:
  *

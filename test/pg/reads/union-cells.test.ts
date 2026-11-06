@@ -22,15 +22,16 @@ import { ReadFailure } from "#adapter/errors/execution.ts"
 import { Db } from "#adapter/public/db.ts"
 import type { CompileReasonTag } from "#compiler/core/errors.ts"
 import { isRecord } from "#compiler/core/record.ts"
+import { codeOf } from "#compiler/ir/codes.ts"
 import { closedId, pg } from "#compiler/public/fields.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { type QueryValue, queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { FinishedValue, RuleValue } from "#compiler/query/build/rule.ts"
 import { installed } from "#test/pg/reads/support.ts"
-import { assert } from "#test/support/assert.ts"
+import { assert, defined } from "#test/support/assert.ts"
 import type { GrizzleErrorTag } from "#test/support/error-tags.ts"
-import { namesOf } from "#test/support/kernel/naming.ts"
+import { namesOf, parsedName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { dbReader } from "#test/support/runtime-db.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
@@ -515,6 +516,10 @@ layer(Substrate.layer)("union cells", (it) => {
 					const s = yield* Substrate
 					const opened = yield* installed(Cells, {}, { label: "real", extensions: [] })
 					const names = namesOf(opened.installed)
+					const kinds = defined(
+						opened.installed.names.codes.rosters.get(parsedName("Kind")),
+						"the codes of Kind"
+					)
 					const table = names.table(Cell)
 					const columns = ["id", "n", "b", "t", "s", "h", "x", "f"] as const
 					const insert = `INSERT INTO ${table} (${Arr.join(
@@ -553,7 +558,7 @@ layer(Substrate.layer)("union cells", (it) => {
 												String(fact.int8),
 												String(fact.bool),
 												fact.text,
-												fact.handle,
+												String(codeOf(kinds, fact.handle)),
 												fact.x,
 												Object.is(fact.f, -0) ? "-0" : String(fact.f)
 											]

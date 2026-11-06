@@ -33,6 +33,7 @@ import { Db } from "#adapter/public/db.ts"
 import { makeReader, poolExecutor } from "#adapter/reader/reader.ts"
 import { indices } from "#compiler/core/array.ts"
 import { isRecord } from "#compiler/core/record.ts"
+import { codeOf } from "#compiler/ir/codes.ts"
 import type { Uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { installed } from "#test/pg/reads/support.ts"
@@ -41,7 +42,7 @@ import { exactValue } from "#test/support/equivalence.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { workFacts } from "#test/support/fixtures/golden/work.ts"
 import { replaceMigrated as replace } from "#test/support/install-migrate.ts"
-import { namesOf } from "#test/support/kernel/naming.ts"
+import { namesOf, parsedName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { isList } from "#test/support/list.ts"
 import { pickGen, pickIndex } from "#test/support/pick.ts"
@@ -524,6 +525,11 @@ export const readSuite = () => {
 						const s = yield* Substrate
 						const opened = yield* installed(W.Work, workFacts, { label: "real", extensions: [] })
 						const names = namesOf(opened.installed)
+						/** Kind's codes: a closed id is stored as its handle's code. */
+						const kinds = defined(
+							opened.installed.names.codes.rosters.get(parsedName("Kind")),
+							"the codes of Kind"
+						)
 						/**
 						 * The Db's sessions log in as the login's role, which pg_stat_activity reports whatever role a
 						 * transaction enters.
@@ -588,8 +594,14 @@ export const readSuite = () => {
 											[account, `committed ${g}`]
 										)
 										yield* holder.query(
-											`INSERT INTO ${n(W.Task)} (${names.column(W.Task, "id")}, ${names.column(W.Task, "account")}, ${names.column(W.Task, "kind")}) VALUES ($1::uuid, $3::uuid, 'Automatic'), ($2::uuid, $3::uuid, 'Manual')`,
-											[automatic, manual, account]
+											`INSERT INTO ${n(W.Task)} (${names.column(W.Task, "id")}, ${names.column(W.Task, "account")}, ${names.column(W.Task, "kind")}) VALUES ($1::uuid, $3::uuid, $4::smallint), ($2::uuid, $3::uuid, $5::smallint)`,
+											[
+												automatic,
+												manual,
+												account,
+												String(codeOf(kinds, "Automatic")),
+												String(codeOf(kinds, "Manual"))
+											]
 										)
 										yield* holder.query(
 											`INSERT INTO ${n(W.AutomaticTask)} (${names.column(W.AutomaticTask, "task")}, ${names.column(W.AutomaticTask, "budget")}) VALUES ($1::uuid, 100)`,

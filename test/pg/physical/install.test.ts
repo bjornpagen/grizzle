@@ -84,7 +84,8 @@ const oneText = (rows: unknown): Arr.NonEmptyReadonlyArray<readonly [string]> =>
  *
  * Every fixture installs with its worlds (support.ts fixtureWorlds: a full writer and a reader in one login), and its
  * installed catalog equals the manifest's promise, the logins, roles, their defaults, memberships, views and grants
- * included; every column is NOT NULL and the columns of text or of a domain with a collation are pg_c_utf8, domains
+ * included; every column is NOT NULL but a law column generated under a guard, NULL outside its selection, and the
+ * columns of text or of a domain with a collation are pg_c_utf8, domains
  * carry no NOT NULL and CHECKs named by their domain, enums are in roster order, identities have named sequences,
  * PUBLIC holds no grant, every constraint is validated and every index valid, and the erasure verifier finds no UPDATE
  * on an immutable relation and no TRUNCATE; test/pg/physical/verify.test.ts shows it finds each drift. A role's grants
@@ -116,9 +117,27 @@ const checkInvariants = (
 ) => {
 	assert.deepEqual(projectCatalog(catalog), expectedCatalog(installation))
 	assert.deepEqual(verifyErasure(catalog, worldsExpectation(desc, installation, worlds)), [])
+	/** The law columns generated under a guard, each NULL outside its selection (ir/law.ts LawColumnValue), by their
+	 * installed table and column: every other column is NOT NULL. */
+	const guarded = new Set(
+		Arr.flatMap(installation.laws.natives, (n) =>
+			n.object.kind === "LawColumn" &&
+			n.object.value.kind === "generated" &&
+			n.object.value.guard.length > 0
+				? [`${installation.names.relation(n.object.relation.name).name}.${n.object.column}`]
+				: []
+		)
+	)
 	for (const t of catalog.tables) {
 		for (const c of t.columns) {
-			assert.equal(c.notNull, true, `${t.name}.${c.name} is NOT NULL`)
+			const nullable = guarded.has(`${t.name}.${c.name}`)
+			assert.equal(
+				c.notNull,
+				!nullable,
+				nullable
+					? `${t.name}.${c.name}, a guarded law column, is NULL outside its selection`
+					: `${t.name}.${c.name} is NOT NULL`
+			)
 			if (
 				c.type.name === "text" ||
 				Arr.some(catalog.domains, (d) => d.name === c.type.name && Option.isSome(d.collation))

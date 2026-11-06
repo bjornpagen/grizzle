@@ -213,7 +213,7 @@ export const oracleCase = (label: string, desc: QueryDesc, f: Facts): LabelledCa
  * checker, so the recognizers meet the IR the frontend produces. The oracle runner (test/support/oracle/runner.ts)
  * installs the fixture in a rolled-back transaction, runs the composed lowering (the conservative lowering of the
  * checked DAG) and the catalog's lowering (the rewritten DAG, its Window and OrderedSetAggregate nodes lowered to their
- * native targets by native.ts), and compares the raw text multisets statement by statement. The catalog side also
+ * native targets by native.ts), and compares the raw text sets statement by statement. The catalog side also
  * returns the certificates, so each case asserts that its entry was actually applied: an agreement that never exercised
  * the target would prove nothing.
  *

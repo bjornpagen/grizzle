@@ -358,8 +358,8 @@ export const open = (
 	})
 
 /**
- * `SELECT 't'` when the view holds exactly its definition's rows (its conservative lowering), 'f'
- * otherwise, as multisets.
+ * `SELECT 't'` when the view holds exactly its definition's rows (its conservative lowering), 'f' otherwise: the
+ * definition holds each row once, so a view holding a row twice, or missing one, or holding another, differs from it.
  */
 export const freshSql = (o: Fixture, name: DerivedName): string => {
 	const { sql, columns } = o.opened.definition(name)

@@ -47,8 +47,9 @@ const keyNormalized = nominal<NormalFacts, KeyNormalized>()
 
 /**
  * A slot's normal facts with each fact replaced by `facts`, their identities kept, as normalization would hold them:
- * the facts of an owner the stratum inserts with its counts and ends its members' appends draw (write/program/bind.ts),
- * which no key reads, so the same-key checks still hold of them.
+ * the facts of an owner the stratum inserts with its counts and ends its members' appends draw (write/program/bind.ts).
+ * The brand's claim, that no two facts share a key, still holds: bind refills only fields no key of the owner reads,
+ * so every key value is the one the same-key checks judged.
  */
 export const refilledSlot = (
 	slot: NormalizedSlot,

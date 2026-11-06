@@ -86,7 +86,7 @@ type Delivers = "rows" | "maybe none"
  * Each entry's composition is written as an author writes it, checked, and lowered twice: composed (the conservative
  * lowering of the checked DAG) and native (the catalog's rewrite, its targets lowered by native.ts). Over drawn lab
  * facts (support.ts factsGen: small domains, so ties on a group's day and score, groups of one row and empty relations
- * come up), the two runs agree as raw text multisets, the native run repeats no row, and the rewrite applies exactly
+ * come up), the two runs agree as raw text sets, the native run repeats no row, and the rewrite applies exactly
  * the entry's rules: a shape a recognizer must refuse applies none, so a dropped condition shows as a wrong answer. R42
  * is run in both forms: the LATERAL probe the composition already is, for an attachment's bound parent set, and the
  * ordered pass over whole inputs. Each entry's restrictions are run where they sit: Q's own predicates before the as-of

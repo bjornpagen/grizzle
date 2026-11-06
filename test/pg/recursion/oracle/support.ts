@@ -46,7 +46,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * Shared pieces of the recursion oracle suites.
  *
  * - recursiveEquivalence runs a left and a right side over seeded graph-shaped recursive cases (gen/recursive.ts) and
- *   requires every statement's raw text multiset to agree and the left side to repeat no row. The equivalence suite
+ *   requires every statement's raw text set to agree and the left side to repeat no row. The equivalence suite
  *   runs it with the conservative lowering against the reference evaluator, and the graph suite runs it with the
  *   optimized lowering on the left and the conservative lowering on the right, over the same seeds and population.
  * - atRoot lowers another root of a case's DAG: a fixed-length case carries its connected match through joins as the
@@ -67,7 +67,7 @@ const deliveredRows = (o: OracleOutcome): boolean =>
 	Arr.some(o.left.run.statements, (st) => st.rows.length > 0)
 
 /**
- * Every case of `generator` agrees between `left` and `right`, as raw text multisets, and `left` repeats no row: every
+ * Every case of `generator` agrees between `left` and `right`, as raw text sets, and `left` repeats no row: every
  * statement delivers a set, and recursive UNION collapses repeated complete states. Each case notes its generator's
  * features, and "nonempty" when a statement delivered a row.
  */
@@ -275,7 +275,7 @@ export const movedInside =
 		}
 	})
 
-/** Whether the right run tells a mutant apart from the left: a differing multiset. */
+/** Whether the right run tells a mutant apart from the left: a differing set. */
 export const told = (o: OracleOutcome): boolean => !o.comparison.equal
 
 /**

@@ -5,7 +5,7 @@
  * done tasks with their memo, a task having at most one memo, discriminated by kind, so (id, kind) is a key of every
  * arm and the take over the union completes on it (a union over notes, of which a task may have several, is refused at
  * check time, test/unit/check/union-order.test.ts). For each query, every statement of the optimized artifact returns
- * the raw text multiset of the same statement of the conservative artifact, with no repeated row, and both are the
+ * the raw text set of the same statement of the conservative artifact, with no repeated row, and both are the
  * bounded subset computed here by definition:
  *
  * - the take delivered to the host: one statement per heading group, each that group's first k in the common order

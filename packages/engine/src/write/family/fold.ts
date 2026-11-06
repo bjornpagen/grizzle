@@ -743,7 +743,10 @@ const maxHost = (spec: CarrierSpec, a: unknown, b: unknown): unknown => {
 interface Row {
 	readonly layout: Layout
 	readonly values: Map<ColumnKey, unknown>
-	readonly path: ReadonlyArray<string | number>
+	/** Where it stands in its owner's family, the count field and the member position its path ends with; none for the
+	 * nesting's root. A row holds this one step, never the whole path, which `pathOf` walks only for a refusal, so a
+	 * chain of any depth fills in linear time and space. */
+	readonly step: { readonly count: string; readonly at: number } | undefined
 	/** Its owner: a member's owner row, a tree node's parent; none for a row the ChangeSet writes itself. */
 	readonly owner: Row | undefined
 	/** The member before it in its family, none at its first slot. */
@@ -782,6 +785,15 @@ const valueOf = (
 }
 
 /** A refusal at a row's column. */
+/** A row's path from the nesting's root: each owner's count field and member position, root first. */
+const pathOf = (row: Row): ReadonlyArray<string | number> => {
+	const steps: Array<string | number> = []
+	for (let at: Row | undefined = row; at?.step !== undefined; at = at.owner) {
+		steps.push(at.step.at, at.step.count)
+	}
+	return steps.toReversed()
+}
+
 const refusalAt = (
 	row: Row,
 	column: Column,
@@ -789,7 +801,7 @@ const refusalAt = (
 		| { readonly kind: "evaluation"; readonly stop: EvalStop }
 		| { readonly kind: "range"; readonly family: FamilyId }
 ): FillRefusal => ({
-	path: row.path,
+	path: pathOf(row),
 	relation: row.layout.relation.name,
 	column: column.name,
 	...refusal
@@ -1070,7 +1082,7 @@ export const filler = (
 		node: HostNode,
 		position: Position,
 		at: {
-			readonly path: ReadonlyArray<string | number>
+			readonly step: Row["step"]
 			readonly owner: Row | undefined
 			readonly predecessor: Row | undefined
 			readonly at: number
@@ -1079,7 +1091,7 @@ export const filler = (
 	): Row => ({
 		layout: laidOut(node.relation, position),
 		values: new Map(node.values),
-		path: at.path,
+		step: at.step,
 		owner: at.owner,
 		predecessor: at.predecessor,
 		at: at.at,
@@ -1092,7 +1104,7 @@ export const filler = (
 		const tree = families.find((f) => isTreeOf(f, root.relation))
 		const position: Position = tree === undefined ? { kind: "top" } : { kind: "root", family: tree }
 		const first = rowOf(root, position, {
-			path: [],
+			step: undefined,
 			owner: undefined,
 			predecessor: undefined,
 			at: 0,
@@ -1142,7 +1154,7 @@ export const filler = (
 					node,
 					{ kind: "member", family: current.family },
 					{
-						path: [...frame.row.path, current.family.count.name, at],
+						step: { count: current.family.count.name, at },
 						owner: frame.row,
 						predecessor: frame.previous,
 						at,

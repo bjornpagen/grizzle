@@ -5,7 +5,7 @@
  *
  * Each runs on generated cases rooted at the construct its flawed rule rewrites (mutants/cases.ts); I3 runs on the
  * hand-built noninjective-key cases, with generated facts. The harness
- * must find, among those witnesses, one on which some statement's raw text multiset differs from the conservative
+ * must find, among those witnesses, one on which some statement's raw text set differs from the conservative
  * lowering's, or, where the two agree, from the mutant's own first reading on its second (its facts stored otherwise,
  * under the complement plan), and that difference must be the counterexample listed below for the mutant, judged on
  * the shrunk case's comparison (the conservative run or the mutant's first reading on the left, the mutant's run on
@@ -151,8 +151,8 @@ const expectLostWitness = (j: Judged, c: Comparison): void => {
 }
 
 /**
- * One mutant's kill: its population's search finds a case on which some multiset differs, against the conservative run
- * or against the mutant's own first reading (runner.ts KillVerdict), and the shrunk kill is a multiset difference of the
+ * One mutant's kill: its population's search finds a case on which some set differs, against the conservative run
+ * or against the mutant's own first reading (runner.ts KillVerdict), and the shrunk kill is a difference of the sets of the
  * listed shape, with no structural change.
  */
 const killed = ({ id, gen, shape }: Population) =>

@@ -171,9 +171,14 @@ export const readKeys = (
 	changes: RelationChanges,
 	inserted: ReadonlySet<string>
 ): ReadKeys | undefined => {
+	/** Every key the changes name, an insert's into a stored group too: a stored row at its key is its exact repeat, no
+	 * change, or the key law's refusal. An insert into a group whose owner the changeset inserts reads nothing: no
+	 * stored row can equal it, and one at its key in another group is the key law's refusal at the insert. */
 	const keys = new Map<string, MemberKey>()
-	/** An insert's key too: a stored row at it is the insert's exact repeat, no change, or the key law's refusal. */
-	for (const fact of [...changes.deletes, ...changes.puts, ...changes.inserts]) {
+	const intoStored = changes.inserts.filter(
+		(fact) => !inserted.has(textsKey(groupOf(ctx, family, valuesOfFact(fact))))
+	)
+	for (const fact of [...changes.deletes, ...changes.puts, ...intoStored]) {
 		const key = keyOf(ctx, target.layout, valuesOfFact(fact))
 		keys.set(textsKey(key), key)
 	}
@@ -193,6 +198,28 @@ export const readKeys = (
 /** A member fact's group key texts in `family`, its group fields' in the family's order. */
 export const groupKey = (ctx: FillContext, family: Family, fact: Fact): Owner =>
 	groupOf(ctx, family, valuesOfFact(fact))
+
+/** An owner fact's group key text in `family`, its key fields paired with the family's group in order. */
+export const ownerText = (ctx: FillContext, family: Family, fact: Fact): string =>
+	textsKey(groupOfOwner(ctx, family, valuesOfFact(fact)))
+
+/** A recount's values as an owner's fields hold them: its count, and each end read from its text by its codec. */
+export const recountValues = (
+	ctx: FillContext,
+	family: Family,
+	recount: Recount
+): ReadonlyMap<string, unknown> =>
+	new Map<string, unknown>([
+		[family.count.name, BigInt(recount.count)],
+		...endColumns(family).map((f, i): readonly [string, unknown] => {
+			const text = defined(recount.ends[i], `the end ${f.name} of a recount`)
+			const admitted = admitValue(specOf(ctx, f.type), scalarCodec(f.type, ctx.codes).convert(text))
+			if (!admitted.ok) {
+				throw defect(`a recount's end ${f.name}, a text its own fill wrote`)
+			}
+			return [f.name, admitted.value]
+		})
+	])
 
 /** The owners of `family` among an owner relation's inserted facts, by group key text, with their values. */
 export const ownersOf = (
@@ -834,7 +861,10 @@ export const planEdits = (
 				merged.set(k, v)
 			}
 		}
-		if (!storedRows.has(text)) {
+		/** An insert at a stored key that is no exact repeat stays an insert beside the stored row, which its key law then
+		 * refuses at the statement: never a silent replacement of the stored row. */
+		const inserted = !storedRows.has(text) || op?.op === "insert"
+		if (inserted) {
 			for (const c of target.layout.columns) {
 				const start = c.column.kind === "field" ? startHost(ctx, c.column.field) : undefined
 				if (start !== undefined && !merged.has(c.key)) {

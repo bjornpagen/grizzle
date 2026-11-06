@@ -998,11 +998,12 @@ class StatementAuditor {
 	 * A constant's RETURN (sql/ast.ts CreateConstant). Rule constantSubquery: its body may be one scalar subquery and
 	 * nothing around it, a query of no outer scope, as a roster's `live()` is `RETURN (SELECT string_agg(...) FROM
 	 * unnest(names()) WITH ORDINALITY ...)`: an IMMUTABLE SQL-body function of no argument, which PostgreSQL evaluates at
-	 * plan time. Every other body is DDL's expression, where a subquery is refused.
+	 * plan time. Every other body is DDL's expression, where a subquery is refused. A LANGUAGE sql body is no PL/pgSQL
+	 * scope, so TG_TABLE_NAME, NEW and OLD are undefined in it.
 	 */
 	constantBody(body: Expr): void {
 		if (body.kind !== "subquery") {
-			this.expr(body, context("ddl", undefined, undefined, new Set()))
+			this.expr(body, context("ddl", undefined, undefined, undefined))
 			return
 		}
 		this.at("query", () => {

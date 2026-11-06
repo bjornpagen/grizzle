@@ -24,7 +24,7 @@
  *   by the parameter's row count.
  *
  * Every case runs through the differential (support.ts): the default program, each per-execution variant statement, and
- * the VALUES transport of a small relation parameter, each compared with the conservative run as raw text multisets
+ * the VALUES transport of a small relation parameter, each compared with the conservative run as raw text sets
  * with no repeated row.
  */
 import { layer } from "@effect/vitest"

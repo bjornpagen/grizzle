@@ -16,6 +16,8 @@ import { executableQuery } from "#compiler/lower/template.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
 import { parseSchemaInput, schemaArtifacts, schemaCatalog } from "#compiler/program/schema.ts"
+import { pg } from "#compiler/public/fields.ts"
+import { check, relation, schema } from "#compiler/public/schema.ts"
 import { ownLogin, rostersOf } from "#compiler/schema/own.ts"
 import type { Expr, Select, SqlStatement } from "#compiler/sql/ast.ts"
 import { and, eq, lit, types } from "#compiler/sql/build.ts"
@@ -340,6 +342,21 @@ const loweredLive = ({ c, twin, context }: Extract<LiveSketch, { kind: "lowered"
 }
 
 /** The fixture schemas whose installations the dictionary holds, the law suites' among them. */
+/**
+ * A gauge whose reading is a real number: its row check compares a double with NaN and both infinities, so the
+ * installed DDL holds the float literals the persisted forms once lost, which no other fixture states.
+ */
+const Gauge = relation("Gauge", { id: pg.integer, reading: pg.float8 }, ["id"])
+const gauges = schema("Gauges", { Gauge }, [
+	check("RealReading", Gauge, (g) =>
+		g.and(
+			g.reading.ne(Number.NaN),
+			g.reading.lt(Number.POSITIVE_INFINITY),
+			g.reading.gt(Number.NEGATIVE_INFINITY)
+		)
+	)
+])
+
 const fixtureSchemas: Arr.NonEmptyReadonlyArray<readonly [string, unknown]> = [
 	["shop v1", shopV1],
 	["shop v2", shopV2],
@@ -360,7 +377,8 @@ const fixtureSchemas: Arr.NonEmptyReadonlyArray<readonly [string, unknown]> = [
 		[`reasons, mutable ${mutable}`, reasons({ mutable })],
 		[`signals, mutable ${mutable}`, signals({ mutable })]
 	]),
-	["batches", batches()]
+	["batches", batches()],
+	["gauges", gauges]
 ]
 
 /** One step of a chain: the schema drafted, and the renames and drops it declares against the step before it. */

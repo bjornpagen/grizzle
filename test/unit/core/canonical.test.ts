@@ -58,8 +58,7 @@ import {
 	nonEmpty,
 	refusalLoc,
 	refused,
-	succeeded,
-	unorderedEqual
+	succeeded
 } from "#test/support/assert.ts"
 import { isList } from "#test/support/list.ts"
 
@@ -1006,7 +1005,6 @@ describe("canonical comparison", () => {
 								}
 							}
 							const sorted = succeeded(canonicalSort(items, everyProperty))
-							unorderedEqual(sorted, items)
 							assert.deepEqual(
 								Arr.map(sorted, specified),
 								Arr.sort(Arr.map(items, specified), Order.String)

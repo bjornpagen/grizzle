@@ -88,7 +88,8 @@ import { caseHang } from "#test/support/limits.ts"
  *   accesses with their conditions and residual filters.
  * - The harness's caller-side retry retries exactly what grizzle classifies as a TransientFailure (40001, 40P01, a
  *   unique violation the statement names), up to its policy.
- * - Rows are read once as text cells, and two row lists agree when they are equal multisets.
+ * - Rows are read once as text cells, and two row lists agree when they are one set: the same rows, neither list
+ *   repeating one.
  * - A verdict is judged by its tagged checks; a record names each gap it has; a run's record keeps its cases when only
  *   the release fails.
  * - Every gate of the catalog has exactly one bench file, in its owner's directory.
@@ -747,7 +748,7 @@ describe("outcomes, retries and loads", () => {
 })
 
 describe("result rows", () => {
-	it("reads rows as text cells, and agrees on equal multisets of rows only", () => {
+	it("reads rows as text cells, and agrees on one set of rows only, a repeated row on neither side", () => {
 		const read = textRows(
 			[
 				["1", null],
@@ -758,6 +759,24 @@ describe("result rows", () => {
 		assertVariant(read, "_tag", "Failure")
 		assert.ok(read.failure instanceof MalformedRows)
 		assert.deepEqual([read.failure.statement, read.failure.row, read.failure.column], [0, 1, 1])
+		const distinct = [
+			["1", "x"],
+			["2", null]
+		]
+		assert.deepEqual(
+			rowsAgree(distinct, [
+				["2", null],
+				["1", "x"]
+			]),
+			Option.none()
+		)
+		assert.notDeepEqual(
+			rowsAgree(distinct, [
+				["1", "x"],
+				["2", "y"]
+			]),
+			Option.none()
+		)
 		const rows = [
 			["1", "x"],
 			["2", null],
@@ -768,15 +787,8 @@ describe("result rows", () => {
 			["1", "x"],
 			["2", null]
 		]
-		assert.deepEqual(rowsAgree(rows, permuted), Option.none())
-		assert.notDeepEqual(
-			rowsAgree(rows, [
-				["1", "x"],
-				["2", "y"],
-				["2", null]
-			]),
-			Option.none()
-		)
+		assert.notDeepEqual(rowsAgree(rows, permuted), Option.none())
+		assert.notDeepEqual(rowsAgree(distinct, rows), Option.none())
 		const a = resultSet(rows)
 		assert.deepEqual(
 			{ rows: a.rows, distinct: a.distinct, repeated: a.repeated },

@@ -31,8 +31,8 @@ const within = 500
  *
  * A case on which the mutant makes no rewrite runs an identical program, so it cannot tell the mutant from the
  * conservative lowering and is not run; every drawn case counts toward the kill population, the stricter reading.
- * Every run executes both programs on PostgreSQL and compares their raw text multisets. An invalid mutant is killed by
- * the first case on which some multiset differs, or on which the two agree but the mutant's own second reading
+ * Every run executes both programs on PostgreSQL and compares their raw text sets. An invalid mutant is killed by
+ * the first case on which some set differs, or on which the two agree but the mutant's own second reading
  * delivers otherwise than its first (runner.ts InvarianceFailed of the right side), and the kill search keeps the
  * shrunk case's verdict so the suite can judge the kill's shape. A harness failure (a lowering refused, a rewrite that
  * does not emit, a statement that does not run, the conservative lowering's own second reading delivering otherwise)

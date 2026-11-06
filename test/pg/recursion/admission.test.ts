@@ -31,7 +31,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * Admitted recursions run on PostgreSQL 19.
  *
  * Each query below is built with the query builder, admitted by the checker (packages/engine/src/check/recursion), lowered
- * by the conservative lowering and run on PostgreSQL, and its rows are compared as raw text multisets with the
+ * by the conservative lowering and run on PostgreSQL, and its rows are compared as raw text sets with the
  * reference evaluator's rows over the same facts (test/support/oracle/runner.ts), with no repeated row on either side.
  * The graph has a diamond, a cycle, a self-loop and a dead end, so equal states arrive along several routes and in
  * several iterations. The queries are the Walks example, a closure walking both
@@ -381,40 +381,38 @@ const cases: Arr.NonEmptyReadonlyArray<LabelledCase> = [
 type AgreedFeature = `agreed: ${string}`
 
 layer(Substrate.layer)("admitted recursions on PostgreSQL 19", (it) => {
-	it.effect(
-		"agree with the reference evaluator as raw text multisets, with no repeated row",
-		(ctx) =>
-			searched(
-				ctx,
-				Effect.gen(function* () {
-					const s = yield* Substrate
-					const name = yield* s.schema({ create: false, label: "admission" })
-					return yield* exhaust(
-						{
-							suite: "recursion/admission",
-							generator: element(cases),
-							literal: (c: LabelledCase) => c.label,
-							limit: cases.length,
-							coverage: requiredInSpace<AgreedFeature>(
-								Arr.map(cases, (c): AgreedFeature => `agreed: ${c.label}`)
-							),
-							caseHang
-						},
-						(c, k) =>
-							Effect.gen(function* () {
-								const outcome = yield* runLabelledOracle(c, conservative, reference, {
-									...defaultRunOptions,
-									schema: { kind: "named", name: name }
-								})
-								assert.equal(outcome.comparison.equal, true, printOutcome(outcome))
-								assert.ok(
-									Arr.some(outcome.left.run.statements, (st) => st.rows.length > 0),
-									printOutcome(outcome)
-								)
-								k.note(`agreed: ${c.label}`)
+	it.effect("agree with the reference evaluator as raw text sets, with no repeated row", (ctx) =>
+		searched(
+			ctx,
+			Effect.gen(function* () {
+				const s = yield* Substrate
+				const name = yield* s.schema({ create: false, label: "admission" })
+				return yield* exhaust(
+					{
+						suite: "recursion/admission",
+						generator: element(cases),
+						literal: (c: LabelledCase) => c.label,
+						limit: cases.length,
+						coverage: requiredInSpace<AgreedFeature>(
+							Arr.map(cases, (c): AgreedFeature => `agreed: ${c.label}`)
+						),
+						caseHang
+					},
+					(c, k) =>
+						Effect.gen(function* () {
+							const outcome = yield* runLabelledOracle(c, conservative, reference, {
+								...defaultRunOptions,
+								schema: { kind: "named", name: name }
 							})
-					)
-				})
-			)
+							assert.equal(outcome.comparison.equal, true, printOutcome(outcome))
+							assert.ok(
+								Arr.some(outcome.left.run.statements, (st) => st.rows.length > 0),
+								printOutcome(outcome)
+							)
+							k.note(`agreed: ${c.label}`)
+						})
+				)
+			})
+		)
 	)
 })

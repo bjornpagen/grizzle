@@ -1,7 +1,7 @@
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
-import { array, type Gen, int, parents } from "@grizzle/testing/gen"
+import { array, element, type Gen, int, parents } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Stream, String as Str } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
@@ -344,6 +344,12 @@ const docFact = (f: StatedFact) => ({
 const statedIdentity = (f: StatedFact): string =>
 	`${f.doc}:${Arr.join(Arr.map(f.lines, String), ",")}`
 
+/** The program of the depth box's one ChangeSet shape, one insert of a tree's roots. */
+let treeShaped: CompiledWrite | undefined
+
+/** The schema's law names, which the set box's refusals name: compiled once, since compiling the laws is costly. */
+const lawNames = lawNamesOf(Nested)
+
 /** The program of the set box's one ChangeSet shape, an array member and a Stream member of one insert of Doc. */
 let setShaped: CompiledWrite | undefined
 
@@ -403,7 +409,6 @@ describe("a nested write's facts are a set by identity (rule 0, ruling 1)", () =
 							const lineIds = Arr.flatMap(distinct, (f) => f.lines)
 							const docConflict = Arr.dedupe(docs).length < docs.length
 							const lineConflict = Arr.dedupe(lineIds).length < lineIds.length
-							const names = lawNamesOf(Nested)
 							if (repeated) {
 								const ids = Arr.map(box.facts, statedIdentity)
 								const front = Arr.take(ids, box.inArray)
@@ -417,7 +422,7 @@ describe("a nested write's facts are a set by identity (rule 0, ruling 1)", () =
 							if (docConflict) {
 								c.note("a conflict at the owner's key")
 								assertVariant(bound, "kind", "invariant-rejected", "two Docs at one key")
-								assert.equal(bound.law, names.primaryKeyLaw(Doc), "refused by Doc's key law")
+								assert.equal(bound.law, lawNames.primaryKeyLaw(Doc), "refused by Doc's key law")
 								return
 							}
 							if (lineConflict) {
@@ -427,7 +432,7 @@ describe("a nested write's facts are a set by identity (rule 0, ruling 1)", () =
 										: "a member under two owners"
 								)
 								assertVariant(bound, "kind", "invariant-rejected", "two Lines at one key")
-								assert.equal(bound.law, names.primaryKeyLaw(Line), "refused by Line's key law")
+								assert.equal(bound.law, lawNames.primaryKeyLaw(Line), "refused by Line's key law")
 								return
 							}
 							assertVariant(bound, "kind", "bound", "a set with one fact at each key binds")
@@ -461,6 +466,108 @@ describe("a nested write's facts are a set by identity (rule 0, ruling 1)", () =
 							)
 							if (lineIds.length > 0) {
 								c.note("accepted with members")
+							}
+						})
+				)
+			)
+	)
+})
+
+/** A chain of `n` nodes, each the one child of the one before, ids from `base`, built from its leaf up. */
+const chainOf = (
+	n: number,
+	base: number
+): { readonly id: string; readonly children: ReadonlyArray<unknown> } => {
+	let node: { readonly id: string; readonly children: ReadonlyArray<unknown> } = {
+		id: uuidOf(base + n - 1),
+		children: []
+	}
+	for (let k = n - 2; k >= 0; k -= 1) {
+		node = { id: uuidOf(base + k), children: [node] }
+	}
+	return node
+}
+
+/** A star of `n` nodes: a root and its n − 1 leaves. */
+const starOf = (
+	n: number,
+	base: number
+): { readonly id: string; readonly children: ReadonlyArray<unknown> } => ({
+	id: uuidOf(base),
+	children: Array.from({ length: n - 1 }, (_, i) => ({ id: uuidOf(base + 1 + i), children: [] }))
+})
+
+type ShapeFeature = "a chain" | "a star" | "ten thousand nodes"
+
+describe("a nested tree at depth and width", () => {
+	it.effect(
+		"numbers a chain's and a star's nodes in pre-order at sizes up to ten thousand, with no recursion",
+		(ctx) =>
+			searched(
+				ctx,
+				exhaust(
+					{
+						suite: "unit/write/nested/depth",
+						generator: (source) => ({
+							shape: source.draw(element(["chain", "star"] as const)),
+							n: source.draw(element([1, 2, 3, 9999, 10_000] as const))
+						}),
+						literal: Formatter.format,
+						limit: 20,
+						coverage: requiredInSpace<ShapeFeature>(["a chain", "a star", "ten thousand nodes"]),
+						caseHang,
+						box: "a chain and a star of 1, 2, 3, 9,999 and 10,000 nodes",
+						oracle: {
+							kind: "specification",
+							name: "a chain's and a star's pre-order numbering in closed form"
+						}
+					},
+					(box, c) =>
+						Effect.gen(function* () {
+							const root = box.shape === "chain" ? chainOf(box.n, 1000) : starOf(box.n, 1000)
+							const value = ChangeSet.empty(Nested).insert(Node, [{ ...root, root: uuidOf(999) }])
+							treeShaped ??= compiled(value)
+							const members = yield* collectInputs(treeShaped.frontend, parsedOf(value).inputs)
+							const bound = succeeded(
+								bindWrite(treeShaped, { members, params: {}, transport: inForce(bindFrame) })
+							)
+							assertVariant(bound, "kind", "bound", "a tree binds")
+							assertVariant(bound.flights, "kind", "write", "a fresh tree reads nothing first")
+							const { chunks } = bound.flights
+							const step = defined(
+								Option.getOrUndefined(
+									Arr.findFirst(
+										treeShaped.artifacts.optimized.statements,
+										(s) => s.step.kind === "family" && s.step.relation === "Node"
+									)
+								),
+								"the tree's insert step"
+							)
+							const executed = succeeded(chunks(step))
+							const starts = Arr.flatMap(executed, (chunk) =>
+								arrayItems(defined(chunk[4], "the starts' array"))
+							)
+							const ends = Arr.flatMap(executed, (chunk) =>
+								arrayItems(defined(chunk[5], "the ends' array"))
+							)
+							assert.equal(starts.length, box.n, "every node is written once")
+							for (let k = 0; k < box.n; k += 1) {
+								const [start, end] =
+									box.shape === "chain" ? [k, box.n] : k === 0 ? [0, box.n] : [k, k + 1]
+								assert.equal(
+									Number(defined(starts[k], "a start")),
+									start,
+									"a node's start is its pre-order position"
+								)
+								assert.equal(
+									Number(defined(ends[k], "an end")),
+									end,
+									"a node's end is past its subtree"
+								)
+							}
+							c.note(box.shape === "chain" ? "a chain" : "a star")
+							if (box.n === 10_000) {
+								c.note("ten thousand nodes")
 							}
 						})
 				)

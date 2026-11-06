@@ -669,7 +669,8 @@ const optimizedPlacement = (
 		withDeltaFills(
 			buildWriteOp(context, step),
 			plan.deltas.carriers.get(step.relation.name),
-			earlier
+			earlier,
+			context.names.vectorSchema
 		)
 	/** A planned write's step, of its statement `filled`. */
 	const writeStep = (

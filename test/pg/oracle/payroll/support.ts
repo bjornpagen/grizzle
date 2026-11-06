@@ -292,7 +292,7 @@ const printFacts = (facts: PayrollFacts): string =>
  *    so an unlawful state fails as such, RunTotal's view is refreshed, and the tables are analyzed;
  * 2. under the case's planner settings, each program's conservative statements run, then its optimized statements and
  *    each per-execution variant, an attachment's parent keys read from its parent statement's delivered rows;
- * 3. every optimized run equals the conservative run statement by statement as raw output-function text multisets,
+ * 3. every optimized run equals the conservative run statement by statement as raw output-function text sets,
  *    repeats no row, and keeps every ordered delivery's order; a fused attachment is unfused first.
  *
  * Runs every program on one case in one rolled-back transaction; fails with the printable case on a disagreement.

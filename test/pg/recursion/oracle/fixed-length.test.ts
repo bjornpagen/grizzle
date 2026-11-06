@@ -31,7 +31,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * end, each optionally matched in V, the start a parameter or every vertex (then carried as origin), the direction
  * forward or reversed. Its second root is the same set through a recursive relation whose state counts hops, seeded
  * with one step and bounded at k, filtered to hops = k and projected (the upper bound belongs to the transition, the
- * exact length to a result predicate). Both lowerings run on PostgreSQL and agree as raw text multisets with no
+ * exact length to a result predicate). Both lowerings run on PostgreSQL and agree as raw text sets with no
  * repeated row on either side: distinct middles and repeated walks collapse at the projection, and walks may revisit
  * vertices, through self-loops and cycles, in both forms alike. The recursive form also agrees with the joins
  * evaluated by definition.

@@ -34,6 +34,7 @@ import { identity } from "#compiler/core/identity.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { Family } from "#compiler/ir/family.ts"
 import type { LawField, RelationInfo } from "#compiler/ir/law.ts"
+import type { WriteSlot } from "#compiler/ir/products.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { accumulated, drawn, natural, pg, uuid } from "#compiler/public/fields.ts"
 import {
@@ -57,6 +58,7 @@ import {
 	type RowLayout,
 	rowLayout
 } from "#compiler/write/family/statements.ts"
+import { inputSlots } from "#compiler/write/frontend/compile.ts"
 import type { WriteNames } from "#compiler/write/insert/statement.ts"
 import { bindWrite, type Chunks } from "#compiler/write/program/bind.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
@@ -238,6 +240,8 @@ interface Params {
 		readonly member: ModelMember
 	}
 	readonly withOwner: { readonly id: number; readonly owner: number; readonly x: number }
+	readonly exactRepeat: { readonly relation: MemberName; readonly id: number }
+	readonly storedConflict: { readonly relation: MemberName; readonly id: number }
 }
 
 const ids = (n: number): ReadonlyArray<number> => Array.from({ length: n }, (_, i) => i)
@@ -417,6 +421,24 @@ const machine: Machine<Model, Params, "key"> = {
 			},
 			judge: () => refusedVerdict("key")
 		},
+		exactRepeat: {
+			weight: 1,
+			applies: (m) => stored(m).length > 0,
+			parameters: (m) => (source) => {
+				const relation = source.draw(pick(stored(m)))
+				return { relation, id: source.draw(storedId(m, relation)) }
+			},
+			judge: (m) => accepted(m)
+		},
+		storedConflict: {
+			weight: 1,
+			applies: (m) => stored(m).length > 0,
+			parameters: (m) => (source) => {
+				const relation = source.draw(pick(stored(m)))
+				return { relation, id: source.draw(storedId(m, relation)) }
+			},
+			judge: () => refusedVerdict("key")
+		},
 		withOwner: {
 			weight: 1,
 			applies: (m) => m.owners.O1.size < OWNER_IDS && m.members.A.size < MEMBER_IDS,
@@ -471,6 +493,8 @@ interface Stated<P> {
 	readonly member: (p: P) => MemberName | undefined
 	/** What else its ChangeSet's shape depends on beside its command and member relation: the owner it inserts. */
 	readonly variant: (p: P) => string
+	/** The check of the owners it inserts, right after their own insert and before any family statement. */
+	readonly inserted: (db: Db, p: P) => void
 }
 
 const noVariant = (): string => ""
@@ -485,6 +509,7 @@ const storedMember = (model: Model, relation: MemberName, id: number): ModelMemb
 
 const stated: { readonly [K in keyof Params]: Stated<Params[K]> } = {
 	insertOwners: {
+		inserted: none,
 		member: noMember,
 		variant: (q) => q.owner,
 		change: (q) =>
@@ -492,13 +517,10 @@ const stated: { readonly [K in keyof Params]: Stated<Params[K]> } = {
 				ownerRelations[q.owner],
 				Arr.map(q.ids, (id) => ownerFact(q.owner, id, 0))
 			),
-		own: (db, q) => {
-			for (const id of q.ids) {
-				insertOwner(db, q.owner, id)
-			}
-		}
+		own: none
 	},
 	append: {
+		inserted: none,
 		member: ofRelation,
 		variant: noVariant,
 		change: (q) =>
@@ -508,6 +530,7 @@ const stated: { readonly [K in keyof Params]: Stated<Params[K]> } = {
 		own: none
 	},
 	remove: {
+		inserted: none,
 		member: ofRelation,
 		variant: noVariant,
 		change: (q, m) =>
@@ -517,6 +540,7 @@ const stated: { readonly [K in keyof Params]: Stated<Params[K]> } = {
 		own: none
 	},
 	step: {
+		inserted: none,
 		member: ofRelation,
 		variant: noVariant,
 		change: (q, m) =>
@@ -526,6 +550,7 @@ const stated: { readonly [K in keyof Params]: Stated<Params[K]> } = {
 		own: none
 	},
 	selection: {
+		inserted: none,
 		member: ofRelation,
 		variant: noVariant,
 		change: (q, m) => {
@@ -537,6 +562,7 @@ const stated: { readonly [K in keyof Params]: Stated<Params[K]> } = {
 		own: none
 	},
 	move: {
+		inserted: none,
 		member: ofRelation,
 		variant: noVariant,
 		change: (q, m) => {
@@ -549,6 +575,7 @@ const stated: { readonly [K in keyof Params]: Stated<Params[K]> } = {
 		own: none
 	},
 	ownerPut: {
+		inserted: none,
 		member: noMember,
 		variant: noVariant,
 		change: (q) => ChangeSet.empty(Algebra).put(O1, [ownerFact("O1", q.id, q.cap)]),
@@ -558,6 +585,7 @@ const stated: { readonly [K in keyof Params]: Stated<Params[K]> } = {
 		}
 	},
 	repeat: {
+		inserted: none,
 		member: ofRelation,
 		variant: noVariant,
 		change: (q) => {
@@ -569,6 +597,7 @@ const stated: { readonly [K in keyof Params]: Stated<Params[K]> } = {
 		own: none
 	},
 	conflict: {
+		inserted: none,
 		member: ofRelation,
 		variant: noVariant,
 		change: (q) => {
@@ -580,14 +609,49 @@ const stated: { readonly [K in keyof Params]: Stated<Params[K]> } = {
 		},
 		own: none
 	},
+	exactRepeat: {
+		inserted: none,
+		member: ofRelation,
+		variant: noVariant,
+		change: (q, m) =>
+			ChangeSet.empty(Algebra).insert(memberRelations[q.relation], [
+				memberFact(q.relation, q.id, storedMember(m, q.relation, q.id))
+			]),
+		own: none
+	},
+	storedConflict: {
+		inserted: none,
+		member: ofRelation,
+		variant: noVariant,
+		change: (q, m) => {
+			const was = storedMember(m, q.relation, q.id)
+			return ChangeSet.empty(Algebra).insert(memberRelations[q.relation], [
+				memberFact(q.relation, q.id, { ...was, x: was.x + 1 })
+			])
+		},
+		own: none
+	},
 	withOwner: {
+		inserted: (db, q) => {
+			/** The CHECK `ta = x`, of an end against a written field, holds of the owner's insert row itself. */
+			const owner = defined(
+				tableOf(db, "O1").get(keyText([ownerUuid("O1", q.owner)])),
+				"the inserted owner"
+			)
+			assert.equal(num(owner.get(fieldKey("na"))), 1n, "the owner's insert row carries its count")
+			assert.equal(
+				num(owner.get(fieldKey("ta"))),
+				BigInt(q.x),
+				"the owner's insert row carries its end"
+			)
+		},
 		member: () => "A",
 		variant: noVariant,
 		change: (q) =>
 			ChangeSet.empty(Algebra)
 				.insert(O1, [ownerFact("O1", q.owner, 0)])
 				.insert(A, [memberFact("A", q.id, { groups: [q.owner], x: q.x, on: true })]),
-		own: (db, q) => insertOwner(db, "O1", q.owner)
+		own: none
 	}
 }
 
@@ -599,6 +663,8 @@ const names: WriteNames = succeeded(
 	})
 ).names
 const artifacts = succeeded(testArtifacts(Algebra, testCompile))
+/** The schema's law names, compiled once: a refusal names its key law by them. */
+const algebraLaws = lawNamesOf(Algebra)
 const families = artifacts.laws.families
 const programs = new Map<string, CompiledWrite>()
 /** The program of a step's ChangeSet shape, compiled once per command and relation. */
@@ -684,14 +750,53 @@ const keyText = (texts: ReadonlyArray<string>): string => Arr.join(texts, "\u000
 const ownerKeyOf = (family: Family, row: ReadonlyMap<ColumnKey, string>): string =>
 	keyText(Arr.map(family.group, (g) => defined(row.get(fieldKey(g.member.name)), "a group field")))
 
-/** An owner inserted at its starts, as the stratum's own insert writes it: its key, and every other field at 0, its
- * cap, its counts and its ends' starts. */
-const insertOwner = (db: Db, owner: OwnerName, id: number): void => {
-	const row = new Map<ColumnKey, string>()
-	for (const f of relationInfo(owner).fields) {
-		row.set(fieldKey(f.name), textOf(db, f.type, f.name === "id" ? ownerUuid(owner, id) : 0n))
+/**
+ * An owner's insert statement's rows, as its encoded arrays carry them, inserted into the host table: each member
+ * placeholder's array is its slot's column at its part, the slot carrying the owner's counts and ends, which its
+ * stratum's appends drew (write/program/bind.ts), so the owner's row is judged as its insert writes it.
+ */
+const insertEncoded = (
+	db: Db,
+	compiled: CompiledWrite,
+	slots: ReadonlyArray<WriteSlot>,
+	relation: string,
+	executions: ReadonlyArray<ReadonlyArray<string>>
+): void => {
+	for (const params of executions) {
+		const columns = new Map<string, ReadonlyArray<string>>()
+		for (const [i, p] of slots.entries()) {
+			if (p.kind !== "member") {
+				continue
+			}
+			const heading = defined(
+				Option.getOrUndefined(
+					Arr.findFirst(
+						Arr.flatMap(compiled.frontend.slots, (g) => Arr.flatMap(g.inputs, inputSlots)),
+						(m) => m.slot === p.slot
+					)
+				),
+				"an owner insert's member slot"
+			).heading
+			/** The insert reads its input's columns key first, in its relation's field order (insert/statement.ts
+			 * writtenFields), and each placeholder's part is its column's position there. */
+			const info = relationInfo(relation)
+			const keyFirst = [
+				...info.primaryFields,
+				...Arr.filter(info.heading, (f) => !info.primaryFields.includes(f))
+			]
+			const read = Arr.filter(keyFirst, (f) => Arr.some(heading, (c) => c.name === f.name))
+			const name = defined(read[p.part], "a member slot's column").name
+			columns.set(name, arrayItems(defined(params[i], "a placeholder's array")))
+		}
+		const ids = defined(columns.get("id"), "an owner's key column")
+		for (const [at, id] of ids.entries()) {
+			const row = new Map<ColumnKey, string>()
+			for (const [name, texts] of columns) {
+				row.set(fieldKey(name), defined(texts[at], "a column's element"))
+			}
+			tableOf(db, relation).set(keyText([id]), row)
+		}
 	}
-	tableOf(db, owner).set(keyText([ownerUuid(owner, id)]), row)
 }
 
 /** Every stored row of a family, as its read returns them (statements.ts suffixReadSql): its owners, then its members. */
@@ -720,7 +825,7 @@ const applyFamily = (
 	relation: string,
 	family: Family | undefined,
 	rows: ReadonlyArray<ReadonlyArray<string>>
-): void => {
+): "key" | undefined => {
 	if (step.statement === "count") {
 		const f = defined(family, "a count statement's family")
 		const owners = tableOf(db, f.owner.name)
@@ -741,7 +846,7 @@ const applyFamily = (
 				}
 			}
 		}
-		return
+		return undefined
 	}
 	const layout = layoutOf(relation)
 	const table = tableOf(db, relation)
@@ -753,7 +858,11 @@ const applyFamily = (
 				assert.ok(table.delete(key), "a delete removes a stored row")
 				break
 			case "insert": {
-				assert.ok(!table.has(key), "an insert adds a row its key does not hold")
+				/** A stored row at the key: PostgreSQL's 23505 on the primary key, which the outcome reads as its key law. */
+				const occupied = table.has(key)
+				if (occupied) {
+					return "key"
+				}
 				table.set(
 					key,
 					new Map(Arr.map(all, (c, i) => [c.key, defined(row[i], "a column")] as const))
@@ -773,6 +882,7 @@ const applyFamily = (
 				assert.fail(`a family statement ${step.statement}`)
 		}
 	}
+	return undefined
 }
 
 const num = (text: string | undefined): bigint => BigInt(defined(text, "a natural's text"))
@@ -890,7 +1000,7 @@ const runStep =
 			if (bound.kind === "invariant-rejected") {
 				assert.equal(
 					bound.law,
-					lawNamesOf(Algebra).primaryKeyLaw(
+					algebraLaws.primaryKeyLaw(
 						memberRelations[defined(member, "a refused member write's relation")]
 					),
 					"two facts at one key are refused by the member's key law"
@@ -898,8 +1008,16 @@ const runStep =
 				const answer: Answer<"key"> = refusedVerdict("key")
 				return answer
 			}
-			stated[command].own(db, p)
+			/** The tables before the step, which a statement's refusal rolls back to. */
+			const before_ = new Map(
+				Arr.map(
+					[...db.tables],
+					([name, table]) =>
+						[name, new Map(Arr.map([...table], ([k, row]) => [k, new Map(row)] as const))] as const
+				)
+			)
 			const flights = bound.flights
+			/** The read flight runs first, before the stratum's own statements: it sees the state before the step. */
 			const chunks: Chunks =
 				flights.kind === "write"
 					? flights.chunks
@@ -910,6 +1028,22 @@ const runStep =
 								)
 							)
 						)
+			stated[command].own(db, p)
+			if (command === "insertOwners" || command === "withOwner") {
+				for (const statement of compiled.artifacts.optimized.statements) {
+					const s = statement.step
+					if (s.kind === "write" && s.result.kind === "insert" && s.relation in ownerRelations) {
+						insertEncoded(
+							db,
+							compiled,
+							bound.form(statement).paramSlots,
+							s.relation,
+							succeeded(chunks(statement))
+						)
+					}
+				}
+				stated[command].inserted(db, p)
+			}
 			for (const statement of compiled.artifacts.optimized.statements) {
 				const step = statement.step
 				if (step.kind !== "family") {
@@ -930,7 +1064,16 @@ const runStep =
 					)
 				}
 				for (const chunk of succeeded(chunks(statement))) {
-					applyFamily(db, step, step.relation, family, rowsOfChunk(chunk))
+					if (applyFamily(db, step, step.relation, family, rowsOfChunk(chunk)) === "key") {
+						/** The statement's refusal aborts the transaction: the tables are as before the step. */
+						const restored = [...before_]
+						db.tables.clear()
+						for (const [name, table] of restored) {
+							db.tables.set(name, table)
+						}
+						const answer: Answer<"key"> = refusedVerdict("key")
+						return answer
+					}
 					immediateHold(db, `after ${command}'s ${step.statement} of ${step.relation}`)
 				}
 			}
@@ -961,7 +1104,9 @@ const caseGen: Gen<MachineCase> = (source) => ({
 				"ownerPut",
 				"repeat",
 				"conflict",
-				"withOwner"
+				"withOwner",
+				"exactRepeat",
+				"storedConflict"
 			])
 		)
 	),
@@ -990,6 +1135,8 @@ describe("the write algebra's commands (rows-first.md §8)", () => {
 								"repeat accepted",
 								"conflict refused key",
 								"withOwner accepted",
+								"exactRepeat accepted",
+								"storedConflict refused key",
 								"a statement per row"
 							],
 							{ cases: 300, sense: notesOnly }
@@ -1026,7 +1173,9 @@ describe("the write algebra's commands (rows-first.md §8)", () => {
 								ownerPut: step("ownerPut"),
 								repeat: step("repeat"),
 								conflict: step("conflict"),
-								withOwner: step("withOwner")
+								withOwner: step("withOwner"),
+								exactRepeat: step("exactRepeat"),
+								storedConflict: step("storedConflict")
 							}
 							const ran = yield* runProgram(machine, real, c.steps)
 							for (const verdict of ran.verdicts) {

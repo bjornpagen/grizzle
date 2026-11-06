@@ -23,7 +23,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  *
  * 3,200 seeded graph-shaped recursive queries over chains, trees, diamonds, self-loops, dense cycles, random graphs,
  * parallel edges and multiple roots carrying origin, each run on PostgreSQL 19 through the conservative lowering and
- * computed by definition through the reference evaluator, compared statement by statement as raw text multisets with
+ * computed by definition through the reference evaluator, compared statement by statement as raw text sets with
  * no repeated row on the lowering's side (every statement delivers a set). The population covers every
  * recursion family (endpoint closure, bounded computed walks, left- and right-linear pair closure), every root binding
  * (a parameter, a literal, a relation parameter of roots that may repeat or name no vertex, every vertex, two base

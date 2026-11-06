@@ -7,7 +7,7 @@
  * containments, small-domain facts including NaN, -0, numeric display scales and supplementary-plane text in their
  * stored spellings, and queries over match, filter, project, semi- and anti-join, union, intersection, difference,
  * group, take, attach and recursion, at the root as a plain set, with attachments, or as a heterogeneous union. For
- * every case, every statement the conservative lowering emits returns exactly the canonical cell multiset the
+ * every case, every statement the conservative lowering emits returns exactly the canonical cell set the
  * reference evaluator computes by definition: the same rows, each once, since every statement delivers a set. And the
  * runner judges the case against itself (runner.ts runOracle, its second reading): its facts stored otherwise, another
  * storage order and one value in another spelling, under another plan, must deliver exactly the same rows, with no
@@ -140,7 +140,7 @@ const agreeOn = (ctx: TestContext, gen: Gen<QueryCase>, suite: string) =>
 	)
 
 layer(Substrate.layer)("the conservative lowering against the reference evaluator", (it) => {
-	it.effect(`agrees on ${cases} generated cases, raw text multisets, with no repeated row`, (ctx) =>
+	it.effect(`agrees on ${cases} generated cases, raw text sets, with no repeated row`, (ctx) =>
 		agreeOn(ctx, queryCaseGen(defaultGenConfig), "conservative/generated")
 	)
 

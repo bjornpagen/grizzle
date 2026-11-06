@@ -46,9 +46,10 @@ import { caseHang } from "#test/support/limits.ts"
  * bigint and a text, each the leading key of one ordered query (ascending and descending for the double, the id
  * completing every order). Each case stores drawn facts, every field drawn from its type's value classes with their
  * edge classes and every spelling (test/support/oracle/gen/domain.ts valueClasses): -0 beside 0, NaN, the infinities, a
- * subnormal and the largest finite double; numeric NaN (a numeric field holds no infinity), more digits than a binary64
- * holds and the smallest scale; the bigint extremes and 2^53 + 1, which a binary64 cannot hold, either sign; the empty text, text
- * beyond the BMP, U+10FFFF and combining marks. Through Db, for a drawn query at a drawn page size per direction:
+ * subnormal and the largest finite double; numeric NaN (the fixture's numeric(161, 40) holds no infinity, which only an
+ * unbounded numeric does), more digits than a binary64 holds and the smallest scale; the bigint extremes and 2^53 + 1,
+ * which a binary64 cannot hold, either sign; the empty text, text beyond the BMP, U+10FFFF and combining marks. Through
+ * Db, for a drawn query at a drawn page size per direction:
  *
  * - the forward and backward pages concatenate to D exactly, with exact flags: every boundary value round-trips, the
  *   seek comparing it in PostgreSQL's own order (NaN greatest, -0 = 0, code points);
@@ -162,7 +163,6 @@ type ValuesFeature =
 	| "float infinity"
 	| "float subnormal"
 	| "numeric NaN"
-	| "numeric infinity"
 	| "numeric of more than 17 digits"
 	| "bigint extreme"
 	| "bigint beyond 2^53"
@@ -194,9 +194,6 @@ const reached = (stored: ReadonlyArray<StoredFact>): ReadonlyArray<ValuesFeature
 		}
 		if (f.amount === "NaN") {
 			out.add("numeric NaN")
-		}
-		if (f.amount === "Infinity" || f.amount === "-Infinity") {
-			out.add("numeric infinity")
 		}
 		if (Str.replace(regex("[-.]", "g"), "")(f.amount).length > 17) {
 			out.add("numeric of more than 17 digits")
@@ -252,7 +249,6 @@ layer(Substrate.layer)("boundary values through the page runtime", (it) => {
 										"float infinity",
 										"float subnormal",
 										"numeric NaN",
-										"numeric infinity",
 										"numeric of more than 17 digits",
 										"bigint extreme",
 										"bigint beyond 2^53",

@@ -73,7 +73,7 @@ import {
  * The lowering shapes on PostgreSQL 19 (packages/engine/src/lower/shapes), where no generator reaches them yet.
  *
  * The ledger fixture installs under a fresh schema, and each shape is checked against the conservative lowering, the
- * oracle baseline that deduplicates at every set boundary, by raw text row multisets and with no repeated row:
+ * oracle baseline that deduplicates at every set boundary, by raw text row sets and with no repeated row:
  *
  * - an unsound fact in each shape (uniqueness, contribution exactness, uniqueness per parent) reproduces a
  *   counterexample the sound facts do not;

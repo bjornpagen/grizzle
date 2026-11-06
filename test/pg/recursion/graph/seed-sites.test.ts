@@ -35,7 +35,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * recursion whose origin differs from the vertex it advances, consumed through one of the other two sites, with an
  * equality and a non-equality on the origin, a parameter and a literal, an integer and a text origin, and a conjunct
  * on the endpoint beside the origin's, which must stay where it was. Each optimized artifact is compared with the
- * reference evaluator and with the conservative lowering, raw text multisets with no repeated row, and must carry the
+ * reference evaluator and with the conservative lowering, raw text sets with no repeated row, and must carry the
  * site's certificate: a wrong column mapping in the region site, or a wrong equality in the constant's seed
  * predicate, changes the answer here.
  */

@@ -4,6 +4,7 @@ import type { Heading, HeadingColumn } from "#compiler/ir/rel.ts"
 import { isRefined, type ScalarType } from "#compiler/ir/scalar.ts"
 import { type LowerContext, refuse } from "#compiler/lower/conservative/context.ts"
 import type { ScalarParamSlot } from "#compiler/lower/conservative/types.ts"
+import { regexMember } from "#compiler/scalar/regex/nfa.ts"
 import type {
 	Cte,
 	Expr,
@@ -76,6 +77,29 @@ const storedKey = (table: ObjectName, column: string): string =>
 const isDomain = (type: TypeRef, claim: Claim): boolean =>
 	claim.domain !== undefined && sameTypeRef(type, claim.domain)
 
+/** Whether `e` is FALSE, alone or as a conjunct of an AND. */
+const isFalse = (e: Expr): boolean =>
+	(e.kind === "literal" && e.value.kind === "bool" && !e.value.value) ||
+	(e.kind === "and" && e.args.some(isFalse))
+
+/**
+ * Whether a text literal is a member of the claim's text pattern, decided on the host: a literal's value is fixed, so
+ * PostgreSQL delivers exactly that value, and the pattern's automaton (scalar/regex/nfa.ts regexMember) decides its
+ * language as the pattern's domain CHECK does. This is the proof for a literal whose pattern the installation names
+ * no domain for, which a Closed node's query-local payload may carry. Only a text pattern is decided here: a
+ * contract's predicate is the database's to evaluate, through its domain, which the installation always names.
+ */
+const admittedLiteral = (e: Extract<Expr, { readonly kind: "literal" }>, claim: Claim): boolean => {
+	const t = claim.type
+	return (
+		e.value.kind === "text" &&
+		t.carrier === "text" &&
+		t.contract === undefined &&
+		t.text.regex !== "wildcard" &&
+		regexMember(t.text.regex, e.value.value)
+	)
+}
+
 /** What one refined delivered column is traced against. */
 interface Claim {
 	readonly type: ScalarType
@@ -96,9 +120,13 @@ export class Tracer {
 		return this.body(select.body, position, withScope(select, scope), claim)
 	}
 
+	/** A core whose WHERE is false delivers no row, so it defines no value: an empty Closed source's placeholder rows. */
 	body(body: SelectBody, position: number, scope: Scope, claim: Claim): ReadonlyArray<Verdict> {
 		switch (body.kind) {
 			case "core": {
+				if (body.where !== undefined && isFalse(body.where)) {
+					return []
+				}
 				const t = body.targets[position]
 				return t === undefined ? ["unproved"] : this.expr(t.expr, coreScope(body, scope), claim)
 			}
@@ -115,7 +143,7 @@ export class Tracer {
 			case "param":
 				return [isDomain(e.type, claim) ? "proved" : "unproved"]
 			case "literal":
-				return [isDomain(e.type, claim) ? "proved" : "unproved"]
+				return [isDomain(e.type, claim) || admittedLiteral(e, claim) ? "proved" : "unproved"]
 			case "cast":
 				if (isDomain(e.type, claim)) {
 					return ["proved"]
@@ -374,8 +402,9 @@ export const castDomain = (
  * column, followed back through derived tables, CTEs, VALUES lists and set operation arms:
  *
  * - proved: a stored column of a non-derived relation whose declared type guarantees the refinement (the domain's
- *   validated CHECK is immediate evidence), a placeholder or literal typed by the domain, or a cast into
- *   it. min, max, LEAST, GREATEST and CASE deliver one of their operands' values, and a cast to the base type relabels
+ *   validated CHECK is immediate evidence), a placeholder or literal typed by the domain, a text literal the
+ *   pattern's automaton admits on the host, or a cast into it. A core whose WHERE is false delivers nothing and
+ *   defines no value. min, max, LEAST, GREATEST and CASE deliver one of their operands' values, and a cast to the base type relabels
  *   without changing the value, so each is proved when its operands are;
  * - unproved: anything else, an array column of a relation parameter, a base-typed placeholder or literal, a
  *   base-typed recursive state column, a derived relation's column, or a definition the trace does not follow.

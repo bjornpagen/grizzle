@@ -38,7 +38,7 @@ import { regex } from "arkregex"
  * A verdict judges a gate by checks, each tagged by what it judges:
  * - mechanism checks: what the plan or the catalog must show (an Index Cond on the seek, one aggregate node, no Unique
  *   node, a law function removed);
- * - equivalence checks: semantic agreement (the generated and handwritten answers are equal multisets, the two
+ * - equivalence checks: semantic agreement (the generated and handwritten answers are one set, the two
  *   lowerings agree, no repeated row).
  * Measurements are what the cases record: information on this machine, never a verdict (the local machine's timings
  * are treated as noisy). A verdict holds at least one check. It is `fail` when any check fails and `pass` otherwise; the

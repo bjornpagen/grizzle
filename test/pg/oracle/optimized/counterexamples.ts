@@ -58,7 +58,7 @@ export const populations: ReadonlyArray<Population> = [
  * statements exactly where the flaw matters (test/support/oracle/mutants). The mutant suite proves the harness
  * kills each within 500 cases of its population. Here the same populations, each explored as a suite of its own, run
  * through the optimized differential with the mutant beside it on the same installation and facts: on every case the
- * optimized artifact must deliver the conservative multisets with no repeated row, while the mutant, on the cases it
+ * optimized artifact must deliver the conservative sets with no repeated row, while the mutant, on the cases it
  * rewrites, is killed at least once (required features), so the population demonstrably holds the counterexample the
  * optimized lowering does not reproduce.
  *

@@ -1,4 +1,4 @@
-import { sameOrder } from "#compiler/core/array.ts"
+import { appendAll, sameOrder } from "#compiler/core/array.ts"
 import { identifierOf } from "#compiler/core/identity.ts"
 import type { ColumnIdent, ConstraintName, LawId, NodeId } from "#compiler/core/ids.ts"
 import { defect } from "#compiler/core/invariant.ts"
@@ -143,7 +143,7 @@ const compared = (
 				guards.set(g, { predicate: g, reads: readsOf(relation, g) })
 			}
 		}
-		equal.push(...fields)
+		appendAll(equal, fields)
 	}
 	const [first, ...rest] = equal
 	return first === undefined

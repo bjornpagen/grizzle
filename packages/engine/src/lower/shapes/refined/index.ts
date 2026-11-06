@@ -1,5 +1,10 @@
 import { hasConstraint, type RefinedConstant } from "#compiler/check/refinement/index.ts"
-import { canonicalTextOf, catchRefusal } from "#compiler/core/canonical.ts"
+import {
+	canonicalEquals,
+	canonicalTextOf,
+	catchRefusal,
+	everyProperty
+} from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -630,6 +635,24 @@ const refineFused = (cx: LowerContext, tracer: Tracer, t: Target, outer: Scope):
  *
  * The fused attachment columns follow the heading in the outermost core.
  */
+/**
+ * `query` with the outputs at `casts` cast to their domains, and each ORDER BY item that is one of those outputs cast
+ * alike: SELECT DISTINCT orders only by expressions of its output list, and the cast output is the one there.
+ */
+const castOutputs = (query: Select, casts: ReadonlyMap<number, TypeRef>): Select => {
+	const body = castBody(query.body, casts)
+	const before = query.body.kind === "core" ? query.body.targets : []
+	const after = body.kind === "core" ? body.targets : []
+	const orderBy = query.orderBy.map((item) => {
+		const at = before.findIndex((t) => canonicalEquals(t.expr, item.expr, everyProperty))
+		const now = after[at]
+		return at < 0 || now === undefined || now.expr === item.expr
+			? item
+			: { ...item, expr: now.expr }
+	})
+	return { ...query, body, orderBy }
+}
+
 export const refineDelivered = (cx: LowerContext, query: Select, heading: Heading): Select => {
 	const relabeled = relabelRefinedPlaceholders(cx, query)
 	const agreement =
@@ -651,7 +674,7 @@ export const refineDelivered = (cx: LowerContext, query: Select, heading: Headin
 			casts.set(position, domain)
 		}
 	}
-	let out = casts.size === 0 ? agreed : { ...agreed, body: castBody(agreed.body, casts) }
+	let out = casts.size === 0 ? agreed : castOutputs(agreed, casts)
 	if (out.body.kind === "core" && out.body.targets.length > heading.length) {
 		const body = out.body
 		const outer = coreScope(body, withScope(out, emptyScope))

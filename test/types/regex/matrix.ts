@@ -1,4 +1,5 @@
 import { Array as Arr, Formatter, String as Str } from "effect"
+import { regexMaxPositions } from "#compiler/core/limits.ts"
 
 /**
  * The ArkRegex inference matrix.
@@ -68,16 +69,13 @@ export interface Row {
 
 /** A long literal alternation: finite, but longer than the typed-authoring scan budget (source.ts, Budget = 40). */
 const greek = "^(?:alpha|beta|gamma|delta|epsilon|zeta|eta)$"
-/**
- * A 510-code-point literal: at the compiler's fixed regex node budget (512), far past
- * the scan.
- */
+/** A 510-code-point literal, far past the scan, and well inside PostgreSQL's regex compile space. */
 const longLiteral = `^${Str.repeat(254)("ab")}$`
 /**
- * Past the node budget: the compiler refuses it with ResourceBound, and the type still widens
- * to string without exhausting the checker.
+ * Past PostgreSQL's regex compile space: one NFA position more than regexMaxPositions (core/limits.ts), so the compiler
+ * refuses it with ResourceBound, and the type still widens to string without exhausting the checker.
  */
-const overBudget = `^${Str.repeat(256)("ab")}$`
+const overBudget = `^${Str.repeat(regexMaxPositions.value / 2 + 1)("ab")}$`
 /** A long malformed source: the scan does not reach ArkRegex, and the compiler alone refuses it. */
 const longMalformed = `^(${Str.repeat(60)("a")}$`
 
@@ -535,7 +533,7 @@ export const rows: ReadonlyArray<Row> = [
 		outside: []
 	},
 	{
-		name: "a source over the node budget",
+		name: "a source past PostgreSQL's regex compile space",
 		category: "length",
 		source: overBudget,
 		flags: "u",

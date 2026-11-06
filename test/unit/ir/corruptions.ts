@@ -12,6 +12,7 @@ import {
 	type HeadingColumn,
 	type Identified,
 	inputsOf,
+	headingOrder,
 	type KeySet,
 	keptRowsOf,
 	type KindOver,
@@ -2067,17 +2068,22 @@ export const dagCorruptions: Arr.NonEmptyReadonlyArray<DagCorruption> = [
 
 /**
  * The valid DAGs a valid one gives when a claim is widened, a key's superset claimed, or a union arm read through a
- * node that keeps its rows (an ordered result, a take of one).
+ * node that keeps its rows (an ordered result, a take of one). A delivery widened to an array carries its completed
+ * order (AttachDelivery): its child's heading, which keys the child's rows.
  */
 export const liveVariants = (dag: DagTable): ReadonlyArray<LiveVariant> => [
 	...Arr.flatMap(ofKind(dag, "Attach"), (a) => {
-		const { order: _order, ...unordered } = a
-		return a.delivered === "array"
+		const child = nodeAt(dag, a.child)
+		return a.delivered === "array" || child === undefined
 			? []
 			: [
 					{
 						at: "a delivery widened to an array",
-						value: withNode(dag, a.id, { ...unordered, delivered: "array" })
+						value: withNode(dag, a.id, {
+							...a,
+							delivered: "array",
+							order: headingOrder(child.heading)
+						})
 					}
 				]
 	}),

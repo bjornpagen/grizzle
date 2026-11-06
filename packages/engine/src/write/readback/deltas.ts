@@ -1,14 +1,13 @@
-import { extendNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
+import { extendNonEmpty } from "#compiler/core/nonempty.ts"
 import type { WriteIR } from "#compiler/ir/write.ts"
 import { columnIn } from "#compiler/lower/conservative/context.ts"
-import { rowOrSingle } from "#compiler/lower/conservative/vector/equality.ts"
+import { rowEq } from "#compiler/lower/conservative/vector/equality.ts"
 import type { Cte, Delete, Expr, Insert } from "#compiler/sql/ast.ts"
 import {
 	and,
 	col,
 	conjunction,
 	cteRef,
-	eq,
 	lit,
 	notExists,
 	simpleSelect,
@@ -180,7 +179,8 @@ export const withDeltaFills = <
 >(
 	statement: S,
 	carriers: DeltaCarriers | undefined,
-	earlier: boolean
+	earlier: boolean,
+	vectorSchema: string
 ): S => {
 	if (carriers === undefined) {
 		return statement
@@ -201,16 +201,23 @@ export const withDeltaFills = <
 	const valuesOf = (carrier: Carrier, columns: FieldColumns<string>): ReadonlyArray<Expr> =>
 		carrier.heading.map(returnedAt(columns))
 	/** Whether the row of `carrier` under `alias` is the fact one side of the RETURNING holds: its columns equal
-	 * position by position, and always for the unit row, the unit relation's one fact. */
+	 * position by position, each at its type, a vector through the extension's qualified operator, which no role's
+	 * search_path resolves (lower/conservative/vector/equality.ts); and always for the unit row, the unit relation's one
+	 * fact. */
 	const sameFact = (carrier: Carrier, alias: string, columns: FieldColumns<string>): Expr => {
 		const row = carrierRow(carrier)
 		switch (row.kind) {
 			case "unit":
 				return lit.bool(true)
 			case "columns":
-				return eq(
-					rowOrSingle(mapNonEmpty(row.columns, (c) => col(alias, c.column))),
-					rowOrSingle(mapNonEmpty(row.columns, returnedAt(columns)))
+				return rowEq(
+					{
+						fields: row.columns,
+						typeOf: (c) => c.type,
+						left: (c) => col(alias, c.column),
+						right: returnedAt(columns)
+					},
+					vectorSchema
 				)
 		}
 	}

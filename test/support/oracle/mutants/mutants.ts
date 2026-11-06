@@ -363,9 +363,9 @@ const isJoin = (n: RelNode): n is NodeOf<"MatchRegion"> =>
  *
  * Each mutant is an optimizer rule applied to the conservative lowering's statements as an AST post-processor: it
  * removes a DISTINCT, moves a witness into EXISTS, or turns a UNION into UNION ALL wherever its rule claims the result
- * is already a set. A valid mutant's claim rests on evidence that holds (keys.ts); it must leave every raw multiset
+ * is already a set. A valid mutant's claim rests on evidence that holds (keys.ts); it must leave every raw set
  * unchanged on every case. An invalid mutant is the same kind of rule with a named flaw, applied exactly
- * where the flaw matters; the harness must find a case where it changes a multiset.
+ * where the flaw matters; the harness must find a case where it changes a set.
  *
  * | Id | Check | Rewrite |
  * | V1 | Retain base key | DISTINCT removed from a scan, filter, projection or single-source region whose rows keep a key |

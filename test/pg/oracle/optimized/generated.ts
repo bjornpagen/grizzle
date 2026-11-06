@@ -254,7 +254,7 @@ export const generatedSuite = (part: number): void => {
 		`the optimized lowering against the conservative lowering, generated part ${part}`,
 		(it) => {
 			it.effect(
-				`agrees on ${casesPerPopulation} cases of the optimizer's population, raw text multisets, with no repeated row`,
+				`agrees on ${casesPerPopulation} cases of the optimizer's population, raw text sets, with no repeated row`,
 				(ctx) =>
 					searched(
 						ctx,

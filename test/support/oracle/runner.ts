@@ -602,7 +602,7 @@ const inRolledBackTransaction = <A, E>(
  * 3. do the same with the right side: another Lowering, or the reference evaluator, which derives the statements the
  *    query's delivery defines from the IR alone (one per heading group and per attachment), computes their rows on the
  *    host by definition and spells them by PostgreSQL's output functions at the query's own column types (reference/);
- * 4. compare the two runs statement by statement as raw text multisets, and count the rows the right side repeats
+ * 4. compare the two runs statement by statement as raw text sets, and count the rows the right side repeats
  *    (compare.ts);
  * 5. read the case a second time against itself, with no reference in the judgment: the first reading's facts and
  *    settings rolled back to a savepoint, the facts stored otherwise through a fresh load (CurrentRestorage: another

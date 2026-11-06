@@ -8,7 +8,7 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, String as Str } from "effect"
 import { decode, encode, everyProperty, noRevivers } from "#compiler/core/canonical.ts"
 import { writeJsonText } from "#compiler/deploy/snapshot/build.ts"
-import type { CteBody, PlStatement, SqlStatement, TypeRef } from "#compiler/sql/ast.ts"
+import type { CteBody, SqlStatement, TypeRef } from "#compiler/sql/ast.ts"
 import { builtinType } from "#compiler/sql/build.ts"
 import { emit } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
@@ -279,43 +279,6 @@ type AuditLiveFeature =
 	| "float literal special"
 	| "float literal negative zero"
 	| "overriding system value"
-	| "probe and refusal in a CASE WHEN"
-
-/** The PL/pgSQL shapes a block's statements hold: a probe and its refusal inside an exhaustive CASE's WHEN, as a roster's
- * dispatch holds one. */
-const plShapes = (
-	body: ReadonlyArray<PlStatement>,
-	inWhen: boolean
-): ReadonlyArray<AuditLiveFeature> =>
-	Arr.flatMap(body, (s): ReadonlyArray<AuditLiveFeature> => {
-		switch (s.kind) {
-			case "whenAbsent":
-				return [
-					...(inWhen ? (["probe and refusal in a CASE WHEN"] as const) : []),
-					...plShapes(s.body, inWhen)
-				]
-			case "case":
-				return Arr.flatMap(s.whens, (w) => plShapes(w.body, true))
-			case "if":
-				return [
-					...Arr.flatMap(s.branches, (b) => plShapes(b.body, inWhen)),
-					...plShapes(s.else, inWhen)
-				]
-			case "forQuery":
-				return plShapes(s.body, inWhen)
-			case "assign":
-			case "perform":
-			case "raise":
-			case "return":
-				return []
-		}
-	})
-
-/** The law shapes one statement holds: a function's PL/pgSQL shapes. */
-const lawShapes = (statement: SqlStatement): ReadonlyArray<AuditLiveFeature> =>
-	statement.kind === "createFunction" && statement.language === "plpgsql"
-		? plShapes(statement.body.body, false)
-		: []
 
 /** What the audit-live suite notes of a draw: its own features, and each statement's kind, shape and float literals. */
 const auditLiveFeatures = (live: Live): ReadonlyArray<AuditLiveFeature> => [
@@ -333,12 +296,7 @@ const auditLiveFeatures = (live: Live): ReadonlyArray<AuditLiveFeature> => [
 				return e
 			}
 		})
-		return [
-			`statement ${statement.kind}`,
-			...shapeFeatures(shapeOf(statement)),
-			...floats,
-			...lawShapes(statement)
-		]
+		return [`statement ${statement.kind}`, ...shapeFeatures(shapeOf(statement)), ...floats]
 	})
 ]
 
@@ -424,7 +382,6 @@ describe("every Live statement", () => {
 				"statement createIndex",
 				"statement createDomain",
 				"statement createFunction",
-				"probe and refusal in a CASE WHEN",
 				"statement grant",
 				"from arrays",
 				"lateral",

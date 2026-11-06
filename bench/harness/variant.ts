@@ -1,5 +1,5 @@
-import { by, type Equivalence, exact, ordered } from "@grizzle/testing/oracle"
-import { Array as Arr, Data, Effect, type Ordering, Result } from "effect"
+import { type Equivalence, exact, ordered } from "@grizzle/testing/oracle"
+import { Array as Arr, Data, Effect, Formatter, Option, type Ordering, Result } from "effect"
 import { type Summary, summarizePhases } from "#bench/cold/stats.ts"
 import {
 	type Explained,
@@ -31,14 +31,14 @@ import { beginSerializable } from "#test/support/substrate/session.ts"
  *   SERIALIZABLE READ ONLY, as the runtime reads them), and decodeMs when it has a decoder;
  * - `explainSamples` EXPLAIN ANALYZE captures of each statement (explain.ts), and its generic and custom plans as a server statement
  *   as asked;
- * - the result of the first execution as a multiset of rows, digested, with its repeated rows counted, since set
+ * - the result of the first execution as its sorted rows, digested, with its repeated rows counted, since set
  *   semantics forbid a repeated row in a delivered answer.
  * A variant is a read: it is executed repeatedly and explained, and EXPLAIN ANALYZE executes what it explains, so a
  * write is timed as a transaction (transaction.ts), whose COMMIT is timed apart from its statements.
  *
  * Every statement casts its output columns to text, so a row is read once, where the session delivers it, as text
  * cells (`textRows`): a cell that is neither text nor NULL is MalformedRows. Two variants compute the same answer when
- * their row multisets are equal (`rowsAgree`), cell by cell as text.
+ * they deliver one set of rows (`rowsAgree`), cell by cell as text, neither repeating a row.
  */
 export type VariantRole =
 	| "generated"
@@ -136,13 +136,26 @@ const compareTextRows = (a: TextRow, b: TextRow): Ordering.Ordering => {
 }
 
 /**
- * Two row lists agree when they are equal multisets of rows: sorted, then compared in order. Sorting keeps it linear
- * after the sort where the library's multiset is quadratic, and result sets here reach about 90 000 rows.
+ * Two row lists agree when they are one set of rows: neither repeats a row, since a delivered answer is a set and a
+ * repeat is a difference on either side, and sorted, they are equal in order. Sorting keeps it linear after the sort,
+ * and result sets here reach about 90 000 rows, so a repeat is two equal neighbours.
  */
-export const rowsAgree: Equivalence<ReadonlyArray<TextRow>> = by(
-	(rows: ReadonlyArray<TextRow>) => Arr.sort(rows, compareTextRows),
-	ordered(ordered(exact))
-)
+export const rowsAgree: Equivalence<ReadonlyArray<TextRow>> = (left, right) => {
+	const sorted = (rows: ReadonlyArray<TextRow>) => Arr.sort(rows, compareTextRows)
+	const repeatIn = (rows: ReadonlyArray<TextRow>) =>
+		Arr.findFirst(rows, (row, i) => {
+			const previous = rows[i - 1]
+			return previous !== undefined && compareTextRows(previous, row) === 0
+		})
+	const l = sorted(left)
+	const r = sorted(right)
+	const repeated = Option.orElse(repeatIn(l), () => repeatIn(r))
+	return Option.isSome(repeated)
+		? Option.some(
+				`a delivered answer repeats ${Formatter.format(repeated.value)}, and an answer is a set`
+			)
+		: ordered(ordered(exact))(l, r)
+}
 
 export interface ResultSet {
 	readonly rows: number
@@ -151,7 +164,7 @@ export interface ResultSet {
 	readonly repeated: number
 	/**
 	 * SHA-256 over the sorted rows, duplicates kept, each row as its cell count and a colon, then each cell as N (NULL) or
-	 * S<length>:<text>: an encoding no two row lists share, so equal digests are equal multisets.
+	 * S<length>:<text>: an encoding no two row lists share, so equal digests are equal sorted row lists.
 	 */
 	readonly digest: string
 }
@@ -301,7 +314,7 @@ export const measureVariant = Effect.fn("measureVariant")(function* (
 export interface VariantComparison {
 	readonly left: string
 	readonly right: string
-	/** Equal row multisets: the two variants compute the same answer. */
+	/** One set of rows, neither repeating one: the two variants compute the same answer. */
 	readonly sameResult: boolean
 	/** Ratios left / right of the p50s: information, never a verdict (this machine's timings are noisy). */
 	readonly executeP50Ratio: number

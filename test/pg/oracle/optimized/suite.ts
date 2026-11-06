@@ -212,10 +212,10 @@ export const optimizedShrink: ShrinkBudget = { kind: "bounded", candidates: 240 
 
 /**
  * The differential property every optimized suite runs, and the features it notes: at least 10,000 seeded cases per
- * CI run, optimized and conservative raw multisets equal, and no repeated row in the optimized output.
+ * CI run, optimized and conservative raw sets equal, and no repeated row in the optimized output.
  *
  * A case passes when every optimized form (the program, each per-execution variant, the VALUES transport) delivers
- * exactly the conservative run's raw text multiset in every statement, repeats no row, and keeps the order of every
+ * exactly the conservative run's raw text set in every statement, repeats no row, and keeps the order of every
  * ordered delivery, and when db.explain's EXPLAIN plans every statement those forms sent; the conservative baseline
  * itself must repeat no row. A failing case shrinks and is reported in printable form with both programs' SQL and the
  * optimized certificates.

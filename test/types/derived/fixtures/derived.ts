@@ -300,8 +300,10 @@ export const members = () => [
 
 export const deltaOfDerived = () =>
 	ChangeSet.empty(Reports).read("removed", (delta) =>
-		// @ts-expect-error -- TS2345 refusal: a ChangeSet writes only the ordinary relations of its schema and the world relations its role writes
-		query(Reports).rule((r) => r.match(delta.removed(AccountBudget), {}).find({ n: r.count() }))
+		query(Reports).rule((r) =>
+			// @ts-expect-error -- TS2345 refusal: a ChangeSet writes only the ordinary relations of its schema and the world relations its role writes
+			r.match(delta.removed(AccountBudget), {}).find({ one: Compute.literal(pg.integer, 1) })
+		)
 	)
 
 /** 8. db.refresh names only the derived relations the role lists under refresh. */
