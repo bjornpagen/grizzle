@@ -64,7 +64,7 @@ import { power as numericPower } from "#test/support/oracle/evaluate/power.ts"
  *
  * A set's algebra over a roster's handles (union, intersection, difference, cardinality, subset, disjoint) is exact: a
  * bits value is the set of its handles, and bit(n)'s &, | and bit_count compute exactly the Set operations over them.
- * A text's concatenation, prefix and suffix tests are exact over its code points, and its regex match is grizzle's own
+ * A text's concatenation, prefix and suffix tests and translation are exact over its code points, and its regex match is grizzle's own
  * automaton over the pattern's parse (src's scalar/regex/nfa.ts), which PostgreSQL's `~` over the pattern's ARE agrees
  * with (test/pg/compute/text.test.ts).
  * There is no complement (OPEN-4), which PostgreSQL alone would compute over the roster's live codes.
@@ -114,6 +114,7 @@ export const evaluationOf = (op: NativeOp): Evaluation => {
 		case "endsWith":
 		case "right":
 		case "matches":
+		case "translate":
 		case "eq":
 		case "ne":
 		case "lt":
@@ -263,6 +264,24 @@ const lastCharacters = (text: string, n: bigint): string => {
 	const cs = characters(text)
 	const drop = n >= 0n ? Math.max(cs.length - Number(n), 0) : Number(-n)
 	return Arr.join(cs.slice(drop), "")
+}
+
+/**
+ * PostgreSQL's translate(text, from, to) as oracle_compat.c reads it, character by character: each character of text
+ * is looked up in from from its start, and replaced by the character of to at the first position it holds there,
+ * deleted where to ends before that position, and copied where from does not hold it.
+ */
+const characterMap = (text: string, from: string, to: string): string => {
+	const f = characters(from)
+	const t = characters(to)
+	return Arr.join(
+		Arr.flatMap(characters(text), (c) => {
+			const at = f.indexOf(c)
+			const target = at < 0 ? c : t[at]
+			return target === undefined ? [] : [target]
+		}),
+		""
+	)
 }
 
 /** A text's match of a pattern, read under the flags of every Compute.matches pattern, by its parse's automaton. */
@@ -551,6 +570,12 @@ const catalogApply = (
 			return isString(a) && isBigint(b) ? Result.succeed(lastCharacters(a, b)) : mismatch(op)
 		case "matches":
 			return isString(a) && isString(b) ? patternMatch(a, b) : mismatch(op)
+		case "translate": {
+			const to = args[2]
+			return isString(a) && isString(b) && isString(to)
+				? Result.succeed(characterMap(a, b, to))
+				: mismatch(op)
+		}
 		case "eq":
 			return compared(op, a, b, t, (cmp) => cmp === 0)
 		case "ne":

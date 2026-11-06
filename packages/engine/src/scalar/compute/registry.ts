@@ -189,6 +189,7 @@ export type NativeFn =
 	| "endsWith"
 	| "right"
 	| "matches"
+	| "translate"
 	| "cosineDistance"
 	| "eq"
 	| "ne"
@@ -674,7 +675,7 @@ const endpoint = (fn: "lower" | "upper", range: SpanCarrier, point: IntCarrier):
  *
  * What the registry admits is the catalogue, not the catalog: same-type operands only, because Compute's operations
  * take two terms of one type, but right(text, integer), which only the suffix test reads; of text's functions only
- * its length, concatenation, prefix and suffix tests and regex match, no array function, and of bit's only the set
+ * its length, concatenation, prefix and suffix tests, regex match and translate, no array function, and of bit's only the set
  * algebra over a roster; no money * money,
  * money unary minus, abs(money) or float %, which PostgreSQL does not define; and no money / integer, which the public
  * signatures cannot spell. The gaps where PostgreSQL has no same-type overload are compositions of entries here,
@@ -703,6 +704,10 @@ const endpoint = (fn: "lower" | "upper", range: SpanCarrier, point: IntCarrier):
  *   allocates its result, which past PostgreSQL's MaxAllocSize raises "invalid memory alloc request size": no query
  *   holds it, an equation with a concatenation lowering without it (compute/lower.ts concatEquation), and a check or
  *   generated column holding it fails a write whose texts would pass 1 GB;
+ * - translate(text, text, text), whose map lowering admits of from and to literals of one length, each character of
+ *   from once (scalar/regex/translate.ts charMapOf): it allocates four bytes per byte of its operand, and past
+ *   MaxAllocSize raises "requested length too large", so a query holds it only over an operand whose pattern bounds its
+ *   bytes within translateMaxBytes, and a check or generated column holding it fails a write whose operand is longer;
  * - pgvector's cosine distance, the one score an approximate search ranks by, never the <=> operator;
  * - readings: numeric_div, power(numeric,numeric) and sqrt(numeric) take their result scale from their operands'
  *   display scales (numeric.c select_div_scale, sqrt's and power_var's rscale, the exponent's included), so they are
@@ -843,6 +848,14 @@ const catalogOverloads = {
 	"right(text,integer)": fnCall("right", "right", ["text", "int4"], "text", total, "value"),
 	"endsWith:text": textSuffix,
 	textregexeq: infix("matches", "~", "text", "bool", total, "value"),
+	"translate(text,text,text)": fnCall(
+		"translate",
+		"translate",
+		["text", "text", "text"],
+		"text",
+		total,
+		"value"
+	),
 	"vector:cosine_distance(vector,vector)": vectorCall(
 		"cosineDistance",
 		"cosine_distance",

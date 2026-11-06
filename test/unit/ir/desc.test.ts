@@ -1033,6 +1033,7 @@ describe("Descriptions", () => {
 				startsWith: 2,
 				endsWith: 2,
 				matches: 2,
+				translate: 3,
 				cosineDistance: 2
 			}
 			const origin = { alternatives: "A" }

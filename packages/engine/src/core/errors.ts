@@ -92,7 +92,10 @@ const regexSpaceText = (measure: RegexSpaceMeasure): string => {
  *   `needed` bits, past PostgreSQL's longest bit string, `limit` (core/limits.ts constantMaxBits), refused before it is
  *   packed;
  * - `cellCodes`: the constant of the closed relation or side `constant`, whose payload space holds `needed` codes, past
- *   the `limit` a cell read as an integer holds (core/limits.ts cellMaxCodes), refused before it is packed.
+ *   the `limit` a cell read as an integer holds (core/limits.ts cellMaxCodes), refused before it is packed;
+ * - `regexInclusion`: whether every value of the language `inner` is a member of the language `outer`, which a cast's
+ *   precondition rests on, undecided because comparing their automata passes the text analysis's bounds, `states` DFA
+ *   states or `work` NFA-state visits (core/limits.ts regexDfaMaxStates, regexDfaMaxWork).
  */
 export type CompileBound =
 	| {
@@ -123,6 +126,13 @@ export type CompileBound =
 			readonly limit: number
 			readonly needed: bigint
 	  }
+	| {
+			readonly kind: "regexInclusion"
+			readonly inner: string
+			readonly outer: string
+			readonly states: number
+			readonly work: number
+	  }
 
 const boundText = (bound: CompileBound): string => {
 	switch (bound.kind) {
@@ -144,6 +154,8 @@ const boundText = (bound: CompileBound): string => {
 			return `the constant of ${bound.constant} in at most ${bound.limit} bits, PostgreSQL's longest bit string, VARBITMAXLEN (needed ${bound.needed})`
 		case "cellCodes":
 			return `the payload of ${bound.constant} in at most ${bound.limit} codes, what one cell read as an integer holds (needed ${bound.needed}); split its payload fields into closed relations of their own`
+		case "regexInclusion":
+			return `a decision whether every value of ${bound.inner} is a member of ${bound.outer}, which comparing their automata cannot reach within grizzle's text analysis bounds of ${bound.states} DFA states and ${bound.work} NFA-state visits; write the operand's pattern with fewer counted repetitions, or guard the cast with Compute.when(Compute.matches(x, <the target's pattern>), (x) => Compute.cast(x, <target>), <your value>)`
 	}
 }
 
@@ -429,7 +441,7 @@ export const foldOverProjectionText = (source: string, key: ReadonlyArray<string
  * ChangeSet states; a query's facts are the statement's alone, so its owner would be inserted at its starts: name the
  * two ways to state the owner first.
  */
-export const queriedOwnerAppendText = (
+const queriedOwnerAppendText = (
 	owner: string,
 	family: { readonly owner: string; readonly count: string },
 	member: string

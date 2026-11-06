@@ -343,6 +343,37 @@ export type CharLengthType = Expect<
 // @ts-expect-error -- TS2345: char_length takes a text term
 export const lengthOfInt = Compute.charLength(int)
 
+/** concat is text of no pattern, the prefix and suffix tests are boolean, and a match guards its subject. */
+export const concatenated = Compute.concat(text, " ")
+export type ConcatType = Expect<Equals<TypeOfTerm<typeof concatenated>, string>>
+export const prefixed = Compute.startsWith(text, "a")
+export type StartsWithType = Expect<Equals<TypeOfTerm<typeof prefixed>, boolean>>
+export const suffixed = Compute.endsWith(text, "z")
+export type EndsWithType = Expect<Equals<TypeOfTerm<typeof suffixed>, boolean>>
+export const matched = Compute.when(
+	Compute.matches(text, "^[0-9]+$"),
+	(t) => Compute.concat(t, "!"),
+	""
+)
+export type MatchesType = Expect<Equals<TypeOfTerm<typeof matched>, string>>
+// @ts-expect-error -- TS2345: concat takes text terms
+export const concatOfInt = Compute.concat(int, " ")
+
+/** translate and lowerAscii are text of a text term, translate's map two strings. */
+export const translatedText = Compute.translate(text, "\t\n\r", "   ")
+export type TranslateType = Expect<Equals<TypeOfTerm<typeof translatedText>, string>>
+export type TranslateSql = Expect<Equals<SqlOfTerm<typeof translatedText>, "text">>
+export const foldedText = Compute.lowerAscii(text)
+export type LowerAsciiType = Expect<Equals<TypeOfTerm<typeof foldedText>, string>>
+// @ts-expect-error -- TS2345: translate takes a text term
+export const translateOfInt = Compute.translate(int, "a", "b")
+// @ts-expect-error -- TS2345: translate's from is a string the schema holds, never a term
+export const translateByTerm = Compute.translate(text, text, "b")
+// @ts-expect-error -- TS2345 refusal: a term first: a literal takes its place opposite a term, never first
+export const translateOfLiteral = Compute.translate("abc", "a", "b")
+// @ts-expect-error -- TS2345: lowerAscii takes a text term
+export const lowerAsciiOfInt = Compute.lowerAscii(int)
+
 /** cosine distance is double precision and is defined over two vectors of one dimension count. */
 export const distance = Compute.cosineDistance(docs, docs)
 export type DistanceType = Expect<Equals<TypeOfTerm<typeof distance>, number>>
@@ -458,6 +489,12 @@ export const computeCovered: { readonly [K in keyof typeof Compute]: true } = {
 	upper: true,
 	width: true,
 	charLength: true,
+	concat: true,
+	startsWith: true,
+	endsWith: true,
+	matches: true,
+	translate: true,
+	lowerAscii: true,
 	cosineDistance: true,
 	union: true,
 	intersection: true,

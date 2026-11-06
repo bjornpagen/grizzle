@@ -38,6 +38,7 @@ import {
 import { matchFlags } from "#compiler/scalar/regex/admit.ts"
 import { buildNfa, matches } from "#compiler/scalar/regex/nfa.ts"
 import { parsePattern } from "#compiler/scalar/regex/parse.ts"
+import { translated } from "#compiler/scalar/regex/translate.ts"
 import { compareDecimal, Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 import { canonicalZero, compareFloat } from "#compiler/scalar/values/float.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
@@ -302,7 +303,8 @@ const gcdOf = (a: bigint, b: bigint): bigint => {
  * The native operations a check admits (lower.ts checkMembers) applied to their evaluated operands, each defined on
  * every value or where its proved precondition holds: integer and money arithmetic exactly (an exact integer, exact
  * money), numeric as numeric.c computes it, floats as IEEE 754, comparisons, BETWEEN, IN, NOT, char_length, a text's
- * concatenation, prefix and suffix tests and regex match (by the pattern's automaton), span endpoints, LEAST and
+ * concatenation, prefix and suffix tests, regex match (by the pattern's automaton) and translation (by code points,
+ * as PostgreSQL's translate reads them), span endpoints, LEAST and
  * GREATEST by the type's order, and a set's union, intersection, difference, cardinality, subset and disjointness,
  * over its handles. Each case checks its operands' host kinds; the IR's typing guarantees them, so a mismatch is
  * `unsupported`. `and`, `or` and casts are evaluated by their nodes, never applied.
@@ -414,6 +416,12 @@ const apply = (
 			return isString(a) && isBigint(b) ? Result.ok(rightOf(a, b)) : mismatch(op)
 		case "matches":
 			return isString(a) && isString(b) ? patternMatch(a, b) : mismatch(op)
+		case "translate": {
+			const to = args[2]
+			return isString(a) && isString(b) && isString(to)
+				? Result.ok(translated(a, b, to))
+				: mismatch(op)
+		}
 		case "eq":
 		case "ne":
 		case "lt":
@@ -741,7 +749,8 @@ interface LiteralRefusal {
  * every operation is total or proved where it stands, so its evaluation never meets an undefined operation, and this
  * evaluator covers exactly that: comparisons, BETWEEN, IN, boolean composition, integer arithmetic exactly (bigint),
  * money exactly, numeric as numeric.c computes it, floats as IEEE 754, abs, sign and neg, gcd and lcm of integers,
- * char_length, a text's concatenation, prefix and suffix tests and regex match, span endpoints, a set's algebra,
+ * char_length, a text's concatenation, prefix and suffix tests, regex match and translation, span endpoints, a set's
+ * algebra,
  * conditionals, guards and the casts between them, and the closed reads its
  * leaves answer (EvalLeaves closed). Any other operation, and any read its leaves do not hold, is `unsupported`, never
  * an approximation. The host never substitutes JavaScript arithmetic for a SQL

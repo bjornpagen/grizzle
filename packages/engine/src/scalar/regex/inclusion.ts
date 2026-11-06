@@ -1,8 +1,10 @@
+import { defect } from "#compiler/core/invariant.ts"
 import { regexDfaMaxStates, regexDfaMaxWork } from "#compiler/core/limits.ts"
 import { codePointsText } from "#compiler/core/text.ts"
 import { type CharSet, complement, isEmpty, union } from "#compiler/scalar/regex/charset.ts"
 import { type CanonicalDfa, type DfaLimits, minimalDfa } from "#compiler/scalar/regex/dfa.ts"
-import type { Nfa } from "#compiler/scalar/regex/nfa.ts"
+import { buildNfa, type Nfa } from "#compiler/scalar/regex/nfa.ts"
+import { parsePattern, type RegexFlags } from "#compiler/scalar/regex/parse.ts"
 import { entry } from "#compiler/scalar/regex/table.ts"
 
 /**
@@ -115,3 +117,25 @@ export const inclusion = (inner: Nfa, outer: Nfa): Inclusion => {
 	const b = minimalDfa(outer, limits)
 	return a.kind === "minimal" && b.kind === "minimal" ? included(a.dfa, b.dfa) : { kind: "bounded" }
 }
+
+/** A pattern of the admitted grammar under its flags: a RegexRef's, which its text analysis admitted. */
+interface Pattern {
+	readonly source: string
+	readonly flags: RegexFlags
+}
+
+/** The automaton of an admitted pattern, which parses: a RegexRef's or a form's. */
+const nfaOf = (pattern: Pattern): Nfa => {
+	const parsed = parsePattern(pattern.source, pattern.flags)
+	if (!parsed.ok) {
+		throw defect(`a pattern the admitted grammar reads: /${pattern.source}/${pattern.flags}`)
+	}
+	return buildNfa(parsed.value)
+}
+
+/**
+ * Whether every value one admitted pattern's language holds the other's holds too (inclusion): what makes a cast of a
+ * text of the first language into a text type of the second total.
+ */
+export const patternIncludes = (inner: Pattern, outer: Pattern): Inclusion =>
+	inclusion(nfaOf(inner), nfaOf(outer))

@@ -13,6 +13,7 @@ import {
 	decodeDesc,
 	type ExprDesc,
 	type FieldDecl,
+	type AdmittedClosedRelation,
 	type ClosedPack,
 	closedPacks,
 	type FieldDesc,
@@ -21,6 +22,7 @@ import {
 	type LiteralDesc,
 	type QueryDesc,
 	type RelationDesc,
+	recordAdmitted,
 	type SlotsDesc,
 	type Writing
 } from "#compiler/ir/desc.ts"
@@ -739,6 +741,9 @@ const packOption = (rest: ReadonlyArray<unknown>, label: string): ClosedPack => 
 	return named
 }
 
+/** The AdmittedClosedRelation brand's one mint: a description admitClosedRelation proved, rows and all. */
+const admittedOf = nominal<ClosedRelationDesc, AdmittedClosedRelation>()
+
 /** The admission core of closed.relation(...): a JavaScript caller's arguments checked and described. */
 export const admitClosedRelation = (
 	name: unknown,
@@ -767,6 +772,11 @@ export const admitClosedRelation = (
 	const described = describedFields(descriptors, label)
 	const fieldDescs = fieldMap(described)
 	const facts = closedRows(rows, fieldDescs, descriptors, key, label)
+	/**
+	 * The description decoded without its rows, which closedRows proved, each a value of exactly the relation's fields
+	 * as literalFor reads it, one per key: decoding them again would prove it twice, and is most of a large relation's
+	 * cost. The description shape's own row check holds of the rows trivially, and the schema's decode reads them again.
+	 */
 	const desc = orThrow(
 		decodeDesc("relation", {
 			kind: "closedRelation",
@@ -774,7 +784,7 @@ export const admitClosedRelation = (
 			fields: fieldDescs,
 			key,
 			slots: keySlots(descriptors, key, label),
-			rows: facts.rows,
+			rows: [],
 			pack,
 			loc: builderLoc(label, [relationName])
 		})
@@ -782,7 +792,8 @@ export const admitClosedRelation = (
 	if (desc.kind !== "closedRelation") {
 		throw malformed(label, "a relation description of a closed relation")
 	}
-	return { desc, described, kept: facts.kept }
+	const admitted = recordAdmitted(admittedOf({ ...desc, rows: facts.rows }))
+	return { desc: admitted, described, kept: facts.kept }
 }
 
 /**

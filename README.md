@@ -2456,7 +2456,10 @@ workflows, whose rules are worth declaring and whose users see different slices 
   counted from each column's type, so a text column needs a bounded pattern or a `charLength` contract. A key past
   either is refused with `UnrepresentableKey` when the schema is compiled, where PostgreSQL would refuse the first
   write that outgrew it (54000). A `Monoid.concat` fold's accumulators ride its family's axes, so they are text of a
-  bounded pattern, such as `str.regex("^.{0,64}$", "su")`.
+  bounded pattern, such as `str.regex("^.{0,64}$", "su")`. A set an axis carries, an `or` or `twos` fold's, is its
+  roster's `bit(n)`, `n` every code the roster has minted, removed handles' included, so it is sized by the
+  installation's codes when `generate`, `check` or `migrate` compiles it: a roster grown and pruned past about 21,000
+  codes refuses the UNIQUE there.
 - **A concatenation is at most 1 GB.** `Compute.concat` builds its result, and PostgreSQL refuses one past
   `MaxAllocSize` ("invalid memory alloc request size"), so a write whose check or generated field concatenates more
   fails with that error. No query concatenates, and a fold's or an equation's concatenation is never built.

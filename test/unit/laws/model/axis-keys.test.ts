@@ -5,12 +5,24 @@ import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import { alignUp, maxAlign, typlens } from "#compiler/core/limits.ts"
+import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
-import { accumulated, drawn, natural, uuid } from "#compiler/public/fields.ts"
-import { fin, fold, Monoid, on, ordered, relation, schema } from "#compiler/public/schema.ts"
+import { accumulated, Bits, bits, drawn, natural, uuid } from "#compiler/public/fields.ts"
+import {
+	closed,
+	fin,
+	fold,
+	Monoid,
+	on,
+	ordered,
+	relation,
+	schema
+} from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { btreeMaxItemSize } from "#compiler/schema/representability.ts"
 import { assert, refused, succeeded } from "#test/support/assert.ts"
+import { codebookOfStates } from "#test/support/closed/generate.ts"
+import { parsedName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { ownedInput } from "#test/support/policy.ts"
 
@@ -148,5 +160,113 @@ describe("a family axis's key", () => {
 						})
 				)
 			)
+	)
+})
+
+describe("a carried set's key", () => {
+	/**
+	 * A set an axis carries is its roster's bit(n), n every code the roster has minted, holes included: the law model
+	 * counts it at its two live handles, and the installation's codes size it exactly (physical/ddl/tables.ts
+	 * setUniqueBound), so a roster pruned of many handles refuses the UNIQUE when it is compiled rather than at an insert
+	 * (54000). The box: Tag's codes its two live handles, then 0, 21,230 or 21,231 holes, the entry exactly at
+	 * BTMaxItemSize at 21,230 and one MAXALIGN past it at 21,231. The oracle: the entry counted by hand, a bit(n)'s varlena
+	 * header, its 4-byte bit count and a byte per eight codes after Line's (order, at).
+	 */
+	const Tag = closed("Tag", ["red", "blue"])
+	const none = Bits.of(Tag, [])
+	const Order = relation(
+		"Order",
+		{ id: uuid, n: drawn(natural), seen: accumulated(bits(Tag), none) },
+		["id"]
+	)
+	const Line = relation(
+		"Line",
+		{
+			order: uuid,
+			at: drawn(natural),
+			flags: bits(Tag),
+			before: accumulated(bits(Tag), none),
+			after: accumulated(bits(Tag), none)
+		},
+		["order", "at"]
+	)
+	const lines = ordered(on(Line, "order", "at"), fin(Order, "n"))
+	const seen = fold(
+		lines,
+		Monoid.or,
+		on(Line, "order", "flags", "before", "after"),
+		on(Order, "id", "seen")
+	)
+	const owned = succeeded(ownedInput(schema("Holes", { Tag, Order, Line }, [lines, seen])))
+
+	/** Tag's codes: its two live handles, then `holes` removed ones. */
+	const codesWith = (holes: number) =>
+		codebookOfStates([
+			{
+				closed: parsedName("Tag"),
+				slots: [
+					{ kind: "live", handle: "red" },
+					{ kind: "live", handle: "blue" },
+					...Array.from({ length: holes }, (_, i) => ({ kind: "hole" as const, was: `gone${i}` }))
+				],
+				spellings: { plain: 1 }
+			}
+		])
+
+	/** Line's (order, at, after) entry: its header, a uuid, a bigint, a bit(n) of `codes` codes, MAXALIGNed. */
+	const entryOf = (codes: number): number => {
+		const at = 8 + typlens.uuid.value + (typlens.int8.value - 1) + typlens.int8.value
+		return alignUp(at + (4 - 1) + 4 + typlens.int4.value + Math.ceil(codes / 8), maxAlign.value)
+	}
+
+	type SetFeature = "no hole" | "an entry at the bound" | "an entry past it"
+
+	it.effect("is sized by its roster's codes, holes included, and refused past the bound", (ctx) =>
+		searched(
+			ctx,
+			exhaust(
+				{
+					suite: "unit/laws/model/axis-set-keys",
+					oracle: {
+						kind: "specification",
+						name: "VARBITTOTALLEN and nbtree.h's BTMaxItemSize, counted by hand"
+					},
+					box: "Tag's two live handles and 0, 21,230 or 21,231 holes",
+					generator: element([0, 21_230, 21_231] as const),
+					literal: Formatter.format,
+					limit: 3,
+					coverage: requiredInSpace<SetFeature>([
+						"no hole",
+						"an entry at the bound",
+						"an entry past it"
+					]),
+					caseHang
+				},
+				(holes: number, c: Case<SetFeature>) =>
+					Effect.sync(() => {
+						const codes = codesWith(holes)
+						const compiled = compileInstallation(owned, {
+							...completeInstallOptions(owned, owned.installation, [], [], codes),
+							owner: "owner"
+						})
+						const bytes = entryOf(2 + holes)
+						if (bytes <= btreeMaxItemSize.value) {
+							succeeded(compiled, `${holes} holes: an entry of ${bytes} bytes fits`)
+							c.note(holes === 0 ? "no hole" : "an entry at the bound")
+							return
+						}
+						const reason = refused(compiled, "UnrepresentableKey").reason
+						if (reason._tag !== "UnrepresentableKey") {
+							return assert.fail("an UnrepresentableKey reason")
+						}
+						assert.deepEqual(reason.fault, {
+							kind: "btreeEntry",
+							bytes,
+							limit: btreeMaxItemSize.value
+						})
+						c.note("an entry past it")
+					})
+			)
+		)
 	)
 })

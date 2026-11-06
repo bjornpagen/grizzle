@@ -66,6 +66,7 @@ import {
 } from "#compiler/scalar/compute/term.ts"
 import { compatible, plainType } from "#compiler/scalar/compute/types.ts"
 import { matchPattern } from "#compiler/scalar/regex/admit.ts"
+import { charMapOf } from "#compiler/scalar/regex/translate.ts"
 import {
 	carrierSql,
 	describeField,
@@ -641,7 +642,7 @@ const guardNames = {
  */
 interface GuardParts {
 	readonly expr: OpenExpr
-	readonly test: GuardTest
+	readonly guardTest: GuardTest
 	readonly subject: object
 	readonly real: OpenExpr
 	readonly type: ScalarType
@@ -698,7 +699,7 @@ const factGuard =
 		call.finishPredicate(realTest, phTest)
 		return {
 			expr: realTest,
-			test: { kind: "refines", guard: { kind } },
+			guardTest: { kind: "refines", guard: { kind } },
 			subject,
 			real: s.real,
 			type: s.type,
@@ -722,7 +723,7 @@ const within = (subject: unknown, low: unknown, high: unknown): GuardParts => {
 	call.finishPredicate(real, ph)
 	return {
 		expr: real,
-		test: { kind: "refines", guard: { kind: "within", low: lo, high: hi } },
+		guardTest: { kind: "refines", guard: { kind: "within", low: lo, high: hi } },
 		subject,
 		real: s.real,
 		type: s.type,
@@ -755,7 +756,7 @@ const matches = (subject: unknown, pattern: unknown): GuardParts => {
 	}
 	return {
 		expr: real,
-		test:
+		guardTest:
 			typeof pattern === "string"
 				? { kind: "refines", guard: { kind: "matches", pattern } }
 				: { kind: "tests" },
@@ -764,6 +765,69 @@ const matches = (subject: unknown, pattern: unknown): GuardParts => {
 		type: s.type,
 		carrier: s.carrier
 	}
+}
+
+/**
+ * A translation of the text term `x` by the map from and to state (scalar/regex/translate.ts charMapOf), refused where
+ * the call is written: from and to stand in the description as literals, so its compilation sees the map.
+ */
+const translation = (
+	call: Call,
+	what: string,
+	x: unknown,
+	from: string,
+	to: string
+): PlainChecked => {
+	const s = call.term(x, what)
+	const map = charMapOf(from, to)
+	if (!map.ok) {
+		return malformed(call.loc, map.error)
+	}
+	const f: LiteralExpr = { kind: "literal", value: from, type: undefined }
+	const t: LiteralExpr = { kind: "literal", value: to, type: undefined }
+	return call.finishPlain(
+		{ kind: "compute", fn: "translate", args: [s.real, f, t] },
+		{ kind: "compute", fn: "translate", args: [s.ph, f, t] }
+	)
+}
+
+/**
+ * Compute.translate(x, from, to): a text term with each character of from replaced by the character of to at its
+ * position, from and to strings of one length, from holding each character once.
+ */
+const translate = (
+	x: unknown,
+	from: unknown,
+	to: unknown,
+	extra: ReadonlyArray<unknown>
+): PlainChecked => {
+	const call = new Call("Compute.translate")
+	if (extra.length > 0) {
+		return malformed(call.loc, "three operands for translate: a text term, from and to")
+	}
+	if (typeof from !== "string" || typeof to !== "string") {
+		return malformed(
+			call.loc,
+			"strings as translate's from and to, which state its map where the call is written"
+		)
+	}
+	return translation(call, "translate's subject", x, from, to)
+}
+
+/** The ASCII capital letters and their small letters, position for position: lowerAscii's map. */
+const asciiCapitals = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+const asciiSmalls = "abcdefghijklmnopqrstuvwxyz"
+
+/**
+ * Compute.lowerAscii(x): translate over the ASCII capitals and their small letters, so every other character, a
+ * non-ASCII letter included, stays as it is.
+ */
+const lowerAscii = (x: unknown, extra: ReadonlyArray<unknown>): PlainChecked => {
+	const call = new Call("Compute.lowerAscii")
+	if (extra.length > 0) {
+		return malformed(call.loc, "one operand for lowerAscii: a text term")
+	}
+	return translation(call, "lowerAscii's subject", x, asciiCapitals, asciiSmalls)
 }
 
 /**
@@ -782,7 +846,7 @@ const guardValue = <T, S extends SqlTag>(
 			[guarded]: scalarTerm(parts.real, parts.type, carrier)
 		}),
 		parts.expr,
-		parts.test,
+		parts.guardTest,
 		parts.subject
 	)
 
@@ -800,15 +864,15 @@ const when = (guard: unknown, branch: unknown, otherwise: unknown): CarriedCheck
 	if (g === undefined) {
 		return malformed(call.loc, guardRequired)
 	}
-	if (g.test.kind === "tests") {
+	if (g.guardTest.kind === "tests") {
 		return cond(guard, branch, otherwise)
 	}
 	const s = call.term(g.subject, "when's subject")
 	const t = call.term(branch, "when's branch, which types the conditional")
 	const e = call.operand(otherwise, t.type, "literal")
 	const checked = call.finish(
-		{ kind: "when", guard: g.test.guard, subject: s.real, proved: t.real, otherwise: e.real },
-		{ kind: "when", guard: g.test.guard, subject: s.ph, proved: t.ph, otherwise: e.ph }
+		{ kind: "when", guard: g.guardTest.guard, subject: s.real, proved: t.real, otherwise: e.real },
+		{ kind: "when", guard: g.guardTest.guard, subject: s.ph, proved: t.ph, otherwise: e.ph }
 	)
 	return { ...checked, carrier: t.carrier }
 }
@@ -957,6 +1021,8 @@ const checks = Object.freeze({
 	startsWith: binary("startsWith", "literal"),
 	endsWith: binary("endsWith", "literal"),
 	matches,
+	translate,
+	lowerAscii,
 	cosineDistance: binary("cosineDistance", "literal"),
 	union: setOperation("union"),
 	intersection: setOperation("intersection"),
@@ -1096,6 +1162,9 @@ export const compute = Object.freeze({
 	concat: (a: unknown, b: unknown) => plain(checks.concat(a, b), "text"),
 	startsWith: (a: unknown, b: unknown) => plain(checks.startsWith(a, b), "boolean"),
 	endsWith: (a: unknown, b: unknown) => plain(checks.endsWith(a, b), "boolean"),
+	translate: (x: unknown, from: unknown, to: unknown) =>
+		plain(checks.translate(x, from, to, []), "text"),
+	lowerAscii: (x: unknown) => plain(checks.lowerAscii(x, []), "text"),
 	matches: <T, S extends SqlTag>(subject: TermCarrier<T, S>, pattern: unknown) =>
 		guardValue(checks.matches(subject, pattern), subject),
 	cosineDistance: (a: unknown, b: unknown) =>
@@ -1212,6 +1281,9 @@ export const computeCore = Object.freeze({
 	concat: (a: unknown, b: unknown) => plainBy(checks.concat(a, b)),
 	startsWith: (a: unknown, b: unknown) => plainBy(checks.startsWith(a, b)),
 	endsWith: (a: unknown, b: unknown) => plainBy(checks.endsWith(a, b)),
+	translate: (x: unknown, from: unknown, to: unknown, ...extra: ReadonlyArray<unknown>) =>
+		plainBy(checks.translate(x, from, to, extra)),
+	lowerAscii: (x: unknown, ...extra: ReadonlyArray<unknown>) => plainBy(checks.lowerAscii(x, extra)),
 	matches: (subject: unknown, pattern: unknown) => guardBy(checks.matches(subject, pattern)),
 	cosineDistance: (a: unknown, b: unknown) => plainBy(checks.cosineDistance(a, b)),
 	union: (a: unknown, b: unknown, ...extra: ReadonlyArray<unknown>): ScalarTerm => {

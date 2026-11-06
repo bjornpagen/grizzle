@@ -222,6 +222,7 @@ const exactIn = (
 		case "endsWith":
 		case "right":
 		case "matches":
+		case "translate":
 		case "lower":
 		case "upper":
 		case "cosineDistance":

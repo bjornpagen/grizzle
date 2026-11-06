@@ -1,10 +1,10 @@
 import { describe, it } from "@effect/vitest"
 import { Array as Arr } from "effect"
 import { claimOf, queueSchema } from "#bench/queue/support/queue.ts"
-import { isSetQuery } from "#compiler/sql/ast.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
+import { isSetQuery } from "#compiler/sql/ast.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
@@ -37,7 +37,10 @@ const givenAt = (type: ReturnType<typeof pg.numeric>) =>
 /** The stored fact of R a parameter keys, removed beside the addition, so the given rows travel in a carrier. */
 const storedOne = query(Narrow).rule((r) => {
 	const { id, a } = v(R, "r")
-	return r.match(R, { id, a }).where(r.eq(id, r.param("id", uuid))).find({ id, a })
+	return r
+		.match(R, { id, a })
+		.where(r.eq(id, r.param("id", uuid)))
+		.find({ id, a })
 })
 
 /** How each carrier a program fills is filled, in program order: keyed, or bounded by SELECT DISTINCT. */

@@ -38,7 +38,7 @@ import {
 	literalOf,
 	type Tuple
 } from "#compiler/ir/cells.ts"
-import type { ClosedPack } from "#compiler/ir/desc.ts"
+import { type ClosedPack, decodeDesc } from "#compiler/ir/desc.ts"
 import { packFormOf } from "#compiler/physical/ddl/constants.ts"
 import { literalPackFault } from "#compiler/physical/ddl/literal.ts"
 import {
@@ -48,6 +48,7 @@ import {
 } from "#compiler/physical/install/compile.ts"
 import { closedId, natural, slot, uuid } from "#compiler/public/fields.ts"
 import { closed, contained, fin, on, relation, schema } from "#compiler/public/schema.ts"
+import { relationDescOf } from "#compiler/schema/relation.ts"
 import type { ObjectName, PackConstant, PackRow } from "#compiler/sql/ast.ts"
 import {
 	executedPackBytes,
@@ -63,6 +64,7 @@ import {
 	defined,
 	failed,
 	nonEmpty,
+	refused,
 	succeeded,
 	throwsRefused
 } from "#test/support/assert.ts"
@@ -800,6 +802,29 @@ describe("a row written twice", () => {
 			)
 		)
 	)
+
+	it("passes an admitted description through a decode unchanged, and decodes an edited copy in full", () => {
+		const R = closed.relation(
+			"R",
+			{ k: closedId(Key), mark: closedId(Mark) },
+			["k"],
+			[
+				{ k: "a", mark: "low" },
+				{ k: "b", mark: "high" }
+			]
+		)
+		const desc = relationDescOf(R, "R")
+		if (desc.kind !== "closedRelation") {
+			return assert.fail("a closed relation's description")
+		}
+		assert.ok(
+			Object.is(succeeded(decodeDesc("relation", desc)), desc),
+			"the admitted description itself"
+		)
+		assert.ok(Object.isFrozen(desc) && Object.isFrozen(desc.rows), "frozen, so no edit reaches it")
+		const edited = { ...desc, rows: [...desc.rows, ...desc.rows] }
+		refused(decodeDesc("relation", edited), "MalformedDescription")
+	})
 
 	it("refuses two rows of one key with other payloads, which its type refuses too, and accepts rows of two keys", () => {
 		const fields = { k: closedId(Key), mark: closedId(Mark) }

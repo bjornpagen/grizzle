@@ -398,7 +398,7 @@ const commonEnv = (
 		})
 	},
 	params,
-	fieldType: (desc) => Result.ok(scalarOfDesc(desc)),
+	fieldType: (desc, loc) => scalarTypeOf(desc, testEnv, loc),
 	closed: noClosedRelations("the compute suites read no closed relation")
 })
 

@@ -136,6 +136,7 @@ export const computeFns = [
 	"startsWith",
 	"endsWith",
 	"matches",
+	"translate",
 	"cosineDistance",
 	"union",
 	"intersection",
@@ -1339,6 +1340,7 @@ const computeCases: {
 	startsWith: unscaledCompute,
 	endsWith: unscaledCompute,
 	matches: unscaledCompute,
+	translate: unscaledCompute,
 	cosineDistance: unscaledCompute,
 	union: unscaledCompute,
 	intersection: unscaledCompute,
@@ -1787,77 +1789,117 @@ const rowKeyText = (
 	return values.every((v): v is string => typeof v === "string") ? values.join("\u0000") : undefined
 }
 
-const relationDescShape: S.Shape<RelationDesc> = S.tagged("kind", {
-	relation: S.located(
-		S.refine(
-			S.structWith(
-				{
-					name,
-					fields: S.refine(
-						S.recordShape(fieldDeclShape, name),
-						(f) => Object.keys(f).length > 0,
-						"a relation with at least one field"
-					),
-					primaryKey: S.nonEmptyUniqueStrings("primary key fields")
-				},
-				loc
-			),
-			(r) => r.primaryKey.every((f) => keyWriting(r.fields[f])),
-			"a primary key over the relation's own fields, each one its caller writes, its sequence draws or its family draws"
-		)
-	),
-	closed: S.located(S.structWith({ name, handles: S.nonEmptyUniqueStrings("handles") }, loc)),
-	closedRelation: S.located(
-		S.refine(
-			S.structWith(
-				{
-					name,
-					fields: S.refine(
-						fieldMapShape,
-						(f) => Object.keys(f).length > 0 && Object.values(f).every(closedFieldAdmits),
-						"a closed relation of at least one field, each a closed id or an open type that is no serial, span, set or vector"
-					),
-					key: S.nonEmptyUniqueStrings("key fields"),
-					slots: S.uniqueArray(
-						S.struct({ field: name, fin: slotsDescShape }),
-						(slot) => slot.field,
-						"slot fields"
-					),
-					rows: S.array(S.recordShape(literalDescShape, name)),
-					pack: S.literalsShape(closedPacks)
-				},
-				loc
-			),
-			(c) => {
-				const fields = Object.keys(c.fields).toSorted(compareStrings)
-				if (!c.key.every((f) => c.fields[f]?.kind === "closedId")) {
-					return false
-				}
-				const slotted = c.slots.map((slot) => c.key.indexOf(slot.field))
-				if (!slotted.every((at, i) => at >= 0 && at > (slotted[i - 1] ?? -1))) {
-					return false
-				}
-				const keys = new Set<string>()
-				for (const row of c.rows) {
-					const own = Object.keys(row).toSorted(compareStrings)
-					if (own.length !== fields.length || !own.every((f, i) => f === fields[i])) {
+declare const admittedBrand: unique symbol
+
+/**
+ * A closed relation's description as its admission made it (schema/relation.ts admitClosedRelation), the brand's one
+ * door: its rows proved there, one per key, each a value of exactly the relation's fields, and the rest decoded.
+ */
+export type AdmittedClosedRelation = Extract<RelationDesc, { readonly kind: "closedRelation" }> & {
+	readonly [admittedBrand]: true
+}
+
+/**
+ * Each admitted closed relation's description, by its identity: a handle registry, which a decode of a schema reads to
+ * pass it through unchanged rather than decode its rows again, the most of a large relation's cost. Only the brand's
+ * door registers one, frozen, so a description a caller built or edited is decoded in full.
+ */
+const admittedDescs = new WeakMap<object, AdmittedClosedRelation>()
+
+/** Registers an admitted description, frozen with its rows, and returns it. */
+export const recordAdmitted = (desc: AdmittedClosedRelation): AdmittedClosedRelation => {
+	for (const row of desc.rows) {
+		Object.freeze(row)
+	}
+	Object.freeze(desc.rows)
+	admittedDescs.set(Object.freeze(desc), desc)
+	return desc
+}
+
+/** A relation description's shape, an admitted closed relation's description passed through as it stands. */
+const admittedOr = (shape: S.Shape<RelationDesc>): S.Shape<RelationDesc> =>
+	S.plain({
+		expected: shape.expected,
+		parse: function* (value, path) {
+			const admitted =
+				typeof value === "object" && value !== null ? admittedDescs.get(value) : undefined
+			return admitted ?? (yield* shape.parse(value, path))
+		}
+	})
+
+const relationDescShape: S.Shape<RelationDesc> = admittedOr(
+	S.tagged("kind", {
+		relation: S.located(
+			S.refine(
+				S.structWith(
+					{
+						name,
+						fields: S.refine(
+							S.recordShape(fieldDeclShape, name),
+							(f) => Object.keys(f).length > 0,
+							"a relation with at least one field"
+						),
+						primaryKey: S.nonEmptyUniqueStrings("primary key fields")
+					},
+					loc
+				),
+				(r) => r.primaryKey.every((f) => keyWriting(r.fields[f])),
+				"a primary key over the relation's own fields, each one its caller writes, its sequence draws or its family draws"
+			)
+		),
+		closed: S.located(S.structWith({ name, handles: S.nonEmptyUniqueStrings("handles") }, loc)),
+		closedRelation: S.located(
+			S.refine(
+				S.structWith(
+					{
+						name,
+						fields: S.refine(
+							fieldMapShape,
+							(f) => Object.keys(f).length > 0 && Object.values(f).every(closedFieldAdmits),
+							"a closed relation of at least one field, each a closed id or an open type that is no serial, span, set or vector"
+						),
+						key: S.nonEmptyUniqueStrings("key fields"),
+						slots: S.uniqueArray(
+							S.struct({ field: name, fin: slotsDescShape }),
+							(slot) => slot.field,
+							"slot fields"
+						),
+						rows: S.array(S.recordShape(literalDescShape, name)),
+						pack: S.literalsShape(closedPacks)
+					},
+					loc
+				),
+				(c) => {
+					const fields = Object.keys(c.fields).toSorted(compareStrings)
+					if (!c.key.every((f) => c.fields[f]?.kind === "closedId")) {
 						return false
 					}
-					const text = rowKeyText(c.key, row)
-					if (text === undefined || keys.has(text)) {
+					const slotted = c.slots.map((slot) => c.key.indexOf(slot.field))
+					if (!slotted.every((at, i) => at >= 0 && at > (slotted[i - 1] ?? -1))) {
 						return false
 					}
-					keys.add(text)
-				}
-				return true
-			},
-			"a key of the relation's own closed-id fields, its slots key fields in key order, each row a value of exactly its fields, its key values handles, and no two rows of one key"
+					const keys = new Set<string>()
+					for (const row of c.rows) {
+						const own = Object.keys(row).toSorted(compareStrings)
+						if (own.length !== fields.length || !own.every((f, i) => f === fields[i])) {
+							return false
+						}
+						const text = rowKeyText(c.key, row)
+						if (text === undefined || keys.has(text)) {
+							return false
+						}
+						keys.add(text)
+					}
+					return true
+				},
+				"a key of the relation's own closed-id fields, its slots key fields in key order, each row a value of exactly its fields, its key values handles, and no two rows of one key"
+			)
+		),
+		derived: S.located(
+			S.structWith({ name, query: unorderedQueryShape, level: S.positiveInteger }, loc)
 		)
-	),
-	derived: S.located(
-		S.structWith({ name, query: unorderedQueryShape, level: S.positiveInteger }, loc)
-	)
-})
+	})
+)
 
 const schemaDescShape: S.Shape<SchemaDesc> = S.lazy("a schema description", () =>
 	S.located(

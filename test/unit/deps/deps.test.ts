@@ -296,7 +296,8 @@ layer(NodeServices.layer, { excludeTestServices: true })(
 				assert.deepEqual(runtime, [])
 				assert.ok(typeOnly >= 1)
 				const fs = yield* FileSystem.FileSystem
-				const text = yield* fs.readFileString(`${root}packages/engine/src/text/field.ts`)
+				/** The type-level reading str.regex and Compute.matches share, ArkRegex's grammar check among it. */
+				const text = yield* fs.readFileString(`${root}packages/engine/src/types/fields/regex.ts`)
 				containsText(text, 'import type { regex } from "arkregex"')
 			})
 		)

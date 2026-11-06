@@ -15,7 +15,10 @@ import {
 	int8Min,
 	type Limit,
 	maxAllocSize,
-	regexMaxRepeat
+	regexDfaMaxStates,
+	regexDfaMaxWork,
+	regexMaxRepeat,
+	translateMaxBytes
 } from "#compiler/core/limits.ts"
 import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
@@ -78,6 +81,8 @@ import {
 	rosterOf,
 	type ScalarType,
 	spanOf,
+	type RegexRef,
+	type TextInfo,
 	textOf,
 	typeLabel
 } from "#compiler/ir/scalar.ts"
@@ -162,8 +167,10 @@ import {
 	wildcardText,
 	withoutSpanWidth
 } from "#compiler/scalar/compute/types.ts"
-import { formIncludes, lexicalTargetOf } from "#compiler/scalar/lexical.ts"
+import { formIncludes, formSource, lexicalTargetOf } from "#compiler/scalar/lexical.ts"
 import { matchFlags, matchPattern } from "#compiler/scalar/regex/admit.ts"
+import { type Inclusion, patternIncludes } from "#compiler/scalar/regex/inclusion.ts"
+import { type CharMap, charMapOf, imageFlags, imageOf } from "#compiler/scalar/regex/translate.ts"
 import { capabilitiesOf, numericValue } from "#compiler/scalar/registry.ts"
 import { Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
@@ -367,6 +374,7 @@ const checkMembers: ReadonlySet<string> = new Set([
 	"startsWith",
 	"endsWith",
 	"matches",
+	"translate",
 	"lower",
 	"upper",
 	"width",
@@ -778,12 +786,52 @@ const signBoundsOver = (
 }
 
 /**
- * What proves a parse's operand a member of its target's lexical form: a text literal by its own value, checked as
- * the host parses it; any other text by its refinement, its type's or a Compute.matches guard's (the nominal type),
- * whose language is included in the form (scalar/lexical.ts formIncludes). Undefined where neither proves it: a text of
- * no refinement, or one whose language holds a value the form does not.
+ * The premise that every value of `a` is a member of a language, the one `includes` compares a pattern's with: a's
+ * refinement, its type's, a Compute.matches guard's or a translation's image (the nominal type), whose language is
+ * included in it (scalar/regex/inclusion.ts). Undefined where a has no refinement or its language holds a value the
+ * other does not. Where comparing the two automata passes the text analysis's bounds nothing is decided, which is
+ * ResourceBound naming them, since no guard is missing: a smaller pattern or a match guard decides it.
  */
-const lexicalPremise = (a: Lowered, target: ScalarType): OperandPremise | undefined => {
+const languagePremise = (
+	a: Lowered,
+	outer: string,
+	includes: (inner: RegexRef) => Inclusion,
+	at: SourceLoc
+): OperandPremise | undefined => {
+	const regex = textOf(a.nominal)?.regex
+	if (regex === undefined || regex === "wildcard") {
+		return undefined
+	}
+	const verdict = includes(regex)
+	switch (verdict.kind) {
+		case "included":
+			return { kind: "language", operand: 0, pattern: regex.source, flags: regex.flags }
+		case "refuted":
+			return undefined
+		case "bounded":
+			throw new Refusal(
+				CompileError.make({
+					_tag: "ResourceBound",
+					at,
+					bound: {
+						kind: "regexInclusion",
+						inner: `/${regex.source}/${regex.flags}`,
+						outer,
+						states: regexDfaMaxStates.value,
+						work: regexDfaMaxWork.value
+					}
+				})
+			)
+	}
+}
+
+/**
+ * What proves a parse's operand a member of its target's lexical form: a text literal by its own value, checked as
+ * the host parses it; any other text by its refinement whose language is included in the form (languagePremise,
+ * scalar/lexical.ts formIncludes). Undefined where neither proves it: a text of no refinement, or one whose language
+ * holds a value the form does not.
+ */
+const lexicalPremise = (a: Lowered, target: ScalarType, at: SourceLoc): OperandPremise | undefined => {
 	const form = lexicalTargetOf(target)
 	if (form === undefined) {
 		return undefined
@@ -793,13 +841,41 @@ const lexicalPremise = (a: Lowered, target: ScalarType): OperandPremise | undefi
 			? { kind: "checked", operand: 0, by: "literal" }
 			: undefined
 	}
-	const regex = textOf(a.nominal)?.regex
-	return regex === undefined ||
-		regex === "wildcard" ||
-		formIncludes(regex, form).kind !== "included"
-		? undefined
-		: { kind: "language", operand: 0, pattern: regex.source, flags: regex.flags }
+	return languagePremise(
+		a,
+		`/${formSource(form)}/u`,
+		(regex) => formIncludes(regex, form),
+		at
+	)
 }
+
+/**
+ * The refinement of a regex-refined text type with no contract, whose cast a language included in it proves: undefined
+ * for any other type, whose contract's predicate the operand's bounds decide.
+ */
+const refinementOf = (target: ScalarType): RegexRef | undefined => {
+	const regex = textOf(target)?.regex
+	return contractOf(target) !== undefined || regex === undefined || regex === "wildcard"
+		? undefined
+		: regex
+}
+
+/**
+ * The text of a translate map's `from` or `to`: a text literal, which the schema holds, so the map is seen when it
+ * compiles; any other operand can be any text, so no map is known.
+ */
+const mapText = <R extends Refs>(
+	which: "from" | "to",
+	desc: ExprDesc<Located, R>,
+	at: SourceLoc
+): string =>
+	desc.kind === "literal" && desc.type === undefined && typeof desc.value === "string"
+		? desc.value
+		: stop(
+				"MalformedDescription",
+				at,
+				`a text literal as translate's ${which}, which states its map when the schema compiles, not a ${desc.kind}`
+			)
 
 /** The guard a refusal names, for the precondition it lacks. */
 const guardText = (precondition: PreconditionKind, operand: string, operation: string): string => {
@@ -1147,6 +1223,16 @@ class Lowering<R extends Refs> {
 			}
 			case "contract": {
 				const a = args[0]
+				const refinement = refinementOf(target)
+				if (a !== undefined && refinement !== undefined) {
+					const premise = languagePremise(
+						a,
+						`/${refinement.source}/${refinement.flags}`,
+						(regex) => patternIncludes(regex, refinement),
+						at
+					)
+					return premise === undefined ? refuse(0) : { precondition, premises: [premise] }
+				}
 				const interval = a?.bounds === undefined ? undefined : finitePremise(0, a.bounds)
 				if (
 					a?.bounds === undefined ||
@@ -1175,7 +1261,7 @@ class Lowering<R extends Refs> {
 			}
 			case "lexical": {
 				const a = args[0]
-				const premise = a === undefined ? undefined : lexicalPremise(a, target)
+				const premise = a === undefined ? undefined : lexicalPremise(a, target, at)
 				return premise === undefined ? refuse(0) : { precondition, premises: [premise] }
 			}
 		}
@@ -1794,6 +1880,67 @@ class Lowering<R extends Refs> {
 		}
 	}
 
+	/**
+	 * Compute.translate(x, from, to), PostgreSQL's translate: x with each character of from replaced by the character of
+	 * to at its position. from and to are text literals the schema holds, of one length, from holding each character
+	 * once (scalar/regex/translate.ts charMapOf), so the map is seen here and replaces each character by one. The node
+	 * computes text; the term is text of the image of x's language under the map (image), which a bounded language keeps
+	 * bounded. PostgreSQL allocates the result for four bytes of every byte of x and refuses one past MaxAllocSize, and
+	 * a read never fails on a value, so a query translates only an x whose pattern bounds its bytes within
+	 * translateMaxBytes; a check or generated field translates any text, and its write fails on a longer one. A builder
+	 * types the term as text of no pattern: it sees no type's language.
+	 */
+	translate(
+		subjectDesc: ExprDesc<Located, R>,
+		fromDesc: ExprDesc<Located, R>,
+		toDesc: ExprDesc<Located, R>,
+		at: SourceLoc
+	): Lowered {
+		const x = this.term(subjectDesc, childLoc(at, 0))
+		if (baseOf(x.actual).carrier !== "text") {
+			return stop(
+				"MalformedDescription",
+				at,
+				`a text term for translate, not ${typeLabel(x.nominal)}`
+			)
+		}
+		const from = mapText("from", fromDesc, childLoc(at, 1))
+		const to = mapText("to", toDesc, childLoc(at, 2))
+		const map = charMapOf(from, to)
+		if (!map.ok) {
+			return stop("MalformedDescription", at, map.error)
+		}
+		const text = textOf(x.nominal)
+		const bytes = text?.byteBound
+		if (this.env.mode === "query" && (bytes === undefined || bytes > translateMaxBytes.value)) {
+			return stop(
+				"UnsupportedOperation",
+				at,
+				`translate in a query over a text whose pattern bounds it within ${translateMaxBytes.value} bytes: PostgreSQL's translate allocates four bytes for every byte of its operand and refuses past 1 GB, and a read never fails on a value; ${bytes === undefined ? "the operand's pattern bounds no length" : `the operand's pattern bounds it at ${bytes} bytes`}, so bound it, or translate in a contract predicate, row check or generated field`
+			)
+		}
+		const f = this.literal(from, wildcardText, childLoc(at, 1))
+		const t = this.literal(to, wildcardText, childLoc(at, 2))
+		const op = this.overload("translate", [x.actual, f.actual, t.actual], at)
+		const node = this.native(op, [x, f, t], wildcardText, undefined, at, "Compute.translate")
+		return this.env.mode === "build" || text === undefined
+			? node
+			: { ...node, nominal: this.image(text.regex, map.value, at) }
+	}
+
+	/**
+	 * Text of the image of a language under a map (scalar/regex/translate.ts imageOf), typed as a str.regex of its source
+	 * is: the exact image, or, where the exact source passes a measure of PostgreSQL's regex compile space that the
+	 * language's own pattern fits, the image of that pattern alone, which holds every value of the image.
+	 */
+	image(regex: TextInfo["regex"], map: CharMap, at: SourceLoc): ScalarType {
+		const sources = imageOf(regex, map)
+		const typed = (source: string) =>
+			this.env.fieldType({ kind: "text", source, flags: imageFlags }, at)
+		const exact = typed(sources.exact)
+		return exact.ok ? exact.value : unwrap(typed(sources.within))
+	}
+
 	/** A set over a roster, and the roster, or the refusal of a term of another type: it has no set algebra. */
 	set(
 		fn: string,
@@ -2388,6 +2535,7 @@ class Lowering<R extends Refs> {
 			startsWith: 2,
 			endsWith: 2,
 			matches: 2,
+			translate: 3,
 			add: 2,
 			sub: 2,
 			mul: 2,
@@ -2678,6 +2826,8 @@ class Lowering<R extends Refs> {
 			}
 			case "matches":
 				return this.matches(arg(0), arg(1), here)
+			case "translate":
+				return this.translate(arg(0), arg(1), arg(2), here)
 			case "cosineDistance": {
 				const a = this.term(arg(0), here)
 				const b = this.operand(arg(1), a, "compare", here)

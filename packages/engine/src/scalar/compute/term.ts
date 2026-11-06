@@ -97,7 +97,7 @@ type Registered =
 	| {
 			readonly kind: "guard"
 			readonly expr: OpenExpr
-			readonly test: GuardTest
+			readonly guardTest: GuardTest
 			readonly subject: object
 	  }
 	| { readonly kind: "head"; readonly desc: OpenHead; readonly typing: Typing }
@@ -191,19 +191,21 @@ export type GuardTest =
 export const registerGuard = <V extends Built>(
 	value: V,
 	expr: OpenExpr,
-	test: GuardTest,
+	guardTest: GuardTest,
 	subject: object
 ): V => {
-	registered.set(value, { kind: "guard", expr, test, subject })
+	registered.set(value, { kind: "guard", expr, guardTest, subject })
 	return value
 }
 
 /** A guard's test and its subject, where `value` is a guard a builder made. */
 export const guardOf = (
 	value: unknown
-): { readonly test: GuardTest; readonly subject: object } | undefined => {
+): { readonly guardTest: GuardTest; readonly subject: object } | undefined => {
 	const entry = registeredOf(value)
-	return entry?.kind === "guard" ? { test: entry.test, subject: entry.subject } : undefined
+	return entry?.kind === "guard"
+		? { guardTest: entry.guardTest, subject: entry.subject }
+		: undefined
 }
 
 /**

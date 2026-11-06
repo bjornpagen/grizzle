@@ -672,7 +672,11 @@ layer(Substrate.layer)("the lowering shapes on PostgreSQL 19", (it) => {
 																			String(amount)
 																		],
 																		(value, j) =>
-																			literalOf(schema, defined(Task.heading[j], "a Task column"), value)
+																			literalOf(
+																				schema,
+																				defined(Task.heading[j], "a Task column"),
+																				value
+																			)
 																	),
 																	", "
 																)})`

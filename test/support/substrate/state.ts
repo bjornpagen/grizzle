@@ -1,10 +1,10 @@
 import { Array as Arr, Effect, Record as Rec, Result } from "effect"
 import { resultTextCasts } from "#compiler/codec/scalar.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { hasProperties } from "#compiler/core/record.ts"
 import type { Carrier, ScalarType } from "#compiler/ir/scalar.ts"
 import { describeField } from "#compiler/scalar/registry.ts"
 import type { CarrierHost } from "#compiler/scalar/values/identity.ts"
+import { namedRelation } from "#compiler/schema/relation.ts"
 import { printObjectName, quoteIdent } from "#compiler/sql/print.ts"
 import type { AnyRelation } from "#compiler/types/schema/relation.ts"
 import type { Installed } from "#test/support/install-migrate.ts"
@@ -22,18 +22,19 @@ interface Column {
 	readonly select: string
 }
 
-/** The relation's fields, each with its column type and its select-list item. */
+/** The relation's fields, each with its column type and its select-list item: a drawn, accumulated or generated
+ * field read by the descriptor of its declared type, as the relation's own reading types it. */
 const columnsOf = (
 	installed: Installed,
 	relation: AnyRelation
 ): Effect.Effect<ReadonlyArray<Column>> =>
 	Effect.gen(function* () {
-		const fields = relation.fields
-		if (!hasProperties(fields)) {
-			return yield* Effect.die(new Error(`the relation ${relation.name} has no record of fields`))
+		const named = namedRelation(relation, relation.name)
+		if (named.kind !== "relation") {
+			return yield* Effect.die(new Error(`${relation.name} is no stored relation of fields`))
 		}
 		const columns: Array<Column> = []
-		for (const [field, descriptor] of Rec.toEntries(fields)) {
+		for (const [field, descriptor] of Rec.toEntries(named.descriptors)) {
 			const described = describeField(descriptor, SourceLoc(`${relation.name}.${field}`, []))
 			if (!described.ok) {
 				return yield* Effect.die(described.error)

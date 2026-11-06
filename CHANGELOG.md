@@ -124,7 +124,10 @@ How to upgrade:
   bounded as a declared key is: its B-tree entry counted from each column's type within BTMaxItemSize, beside the
   INDEX_MAX_KEYS bound it already met. An axis past it is refused with `UnrepresentableKey` when the schema is
   compiled, naming the UNIQUE, the family and the fold whose accumulator it carries, where a `Monoid.concat` fold over
-  unbounded text used to compile and fail its first long write with 54000 (ExecutionFailure).
+  unbounded text used to compile and fail its first long write with 54000 (ExecutionFailure). A set it carries is
+  counted by the law model at its roster's live handles and by the installation at its roster's codes, removed
+  handles' included, which only the installation's codebook holds, so a roster pruned past the entry refuses the UNIQUE
+  when the installation is compiled.
   - Codemod: none; type a concat fold's step and accumulators by a bounded pattern, such as
     `str.regex("^.{0,64}$", "su")`, or a `charLength` contract.
 - **A closed relation declares how its migration packs it: `closed.relation(name, fields, key, rows, { pack: "hex" })`.**

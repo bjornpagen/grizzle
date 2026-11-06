@@ -702,6 +702,26 @@ export interface ComputeApi {
 		b: B
 	): Term<boolean, PA & P<B>, ComputedOrigin<OA | O<B>>, "boolean">
 	/**
+	 * PostgreSQL's translate, by characters: x with each character of from replaced by the character of to at its
+	 * position. from and to are strings of one length, from holding each character once, so no character is deleted;
+	 * compilation reads the result as text of the image of x's language under the map, so a bounded pattern stays
+	 * bounded. Admitted in contract predicates, row checks and generated fields; in a query only over a text whose
+	 * pattern bounds it within 268,435,454 bytes, since PostgreSQL's translate allocates four bytes for every byte of
+	 * its operand and refuses past 1 GB.
+	 */
+	translate<A extends TermBase | FirstValue, X, PA, OA>(
+		x: A & FirstTerm<A> & InputTerm<X, PA, OA, "text">,
+		from: string,
+		to: string
+	): Term<string, PA, ComputedOrigin<OA>, "text">
+	/**
+	 * ASCII's case fold, translate(x, "A…Z", "a…z"): only the 26 capitals lower, every other character, a non-ASCII
+	 * letter included, stays, so the fold is one map whatever the collation, as an IMMUTABLE expression needs.
+	 */
+	lowerAscii<A extends TermBase | FirstValue, X, PA, OA>(
+		x: A & FirstTerm<A> & InputTerm<X, PA, OA, "text">
+	): Term<string, PA, ComputedOrigin<OA>, "text">
+	/**
 	 * Whether the text holds a match of the pattern, PostgreSQL's `~` (textregexeq), as a str.regex refinement holds
 	 * one: the pattern is in grizzle's grammar under the flags "u", and `^` and `$` anchor it. The pattern is a string,
 	 * which the grammar check reads at the type level as str.regex's does, or a text term whose every value the schema

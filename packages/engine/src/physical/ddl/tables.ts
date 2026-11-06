@@ -1,4 +1,6 @@
 import { appendAll } from "#compiler/core/array.ts"
+import { Refusal } from "#compiler/core/canonical.ts"
+import { CompileError } from "#compiler/core/errors.ts"
 import { type Identity, identifierOf } from "#compiler/core/identity.ts"
 import type { ConstraintName, IdentityKind, LawId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -17,10 +19,10 @@ import type {
 	NativeOf,
 	TableRelation
 } from "#compiler/ir/law.ts"
-import { type ScalarType, spanOf } from "#compiler/ir/scalar.ts"
+import { baseOf, type ScalarType, spanOf } from "#compiler/ir/scalar.ts"
 import type { NamedPrimaryKey } from "#compiler/laws/model/model.ts"
 import { closedMembership } from "#compiler/physical/ddl/constants.ts"
-import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
+import type { InstallBuilder, TargetField } from "#compiler/physical/ddl/context.ts"
 import { lowerPersistent, persistentLiteral } from "#compiler/physical/ddl/expr.ts"
 import { addIsolationTrigger } from "#compiler/physical/ddl/isolation.ts"
 import { type ColumnType, columnType, lawColumnType } from "#compiler/physical/ddl/names.ts"
@@ -31,6 +33,12 @@ import {
 	type NodeIdent
 } from "#compiler/physical/obligations/graph.ts"
 import { addVectorNorms, isVectorType, vectorNorms } from "#compiler/physical/vector/storage.ts"
+import {
+	btreeEntry,
+	type DatumBound,
+	datumBound,
+	setDatumBound
+} from "#compiler/schema/representability.ts"
 import type {
 	ColumnDef,
 	ColumnGeneration,
@@ -177,6 +185,63 @@ const periodKeyColumns = (
  * identifier. */
 const nativeColumn = (b: InstallBuilder, relation: string, c: NativeColumn): string =>
 	c.kind === "field" ? b.names.column(relation, c.field.name) : c.column
+
+/**
+ * A UNIQUE's B-tree entry over a set, sized by the installation's codes, or the refusal of one past BTMaxItemSize. A set
+ * is its roster's bit(n), n every code the roster has minted, holes included, which the law model counts at its live
+ * handles alone (laws/model/plan.ts plannedDatum) and the installation's codebook holds exactly: a roster grown and
+ * pruned may hold codes enough that the entry outgrows the limit, where PostgreSQL would refuse an insert with 54000.
+ * A UNIQUE over no set was bounded by the law model already, so only one over a set is counted again.
+ */
+const setUniqueBound = (
+	b: InstallBuilder,
+	relation: string,
+	columns: NonEmptyReadonlyArray<NativeColumn>
+): void => {
+	/** A law column's field, the one whose values it holds, from the law model's natives: no table exists yet. */
+	const lawField = (column: string): TargetField | undefined => {
+		for (const n of b.model.natives) {
+			if (
+				n.namespace === "column" &&
+				n.object.relation.name === relation &&
+				n.object.column === column
+			) {
+				return n.object.field
+			}
+		}
+		return undefined
+	}
+	const fields = columns.flatMap((c): ReadonlyArray<TargetField> => {
+		const field = c.kind === "field" ? c.field : lawField(c.column)
+		return field === undefined ? [] : [field]
+	})
+	if (!fields.some((f) => baseOf(f.type).carrier === "bits")) {
+		return
+	}
+	const datums = fields.flatMap((field): ReadonlyArray<DatumBound> => {
+		const base = baseOf(field.type)
+		if (base.carrier === "bits") {
+			const codec = [...b.names.codes.rosters].find(([name]) => name === base.roster.closed)?.[1]
+			return [setDatumBound(codec?.size ?? base.roster.handles.length)]
+		}
+		/** Text of no bound was refused by the law model, which bounded every other datum of the UNIQUE. */
+		const bound = datumBound(field.desc)
+		return bound === undefined ? [] : [bound]
+	})
+	const entry = btreeEntry(datums)
+	if (!entry.ok) {
+		const key = columns.map((c) => (c.kind === "field" ? c.field.name : c.column))
+		throw new Refusal(
+			CompileError.make({
+				_tag: "UnrepresentableKey",
+				at: SourceLoc(relation, []),
+				subject: `the UNIQUE (${key.join(", ")}) of ${relation}, over a set its roster's codes size`,
+				key,
+				fault: entry.error
+			})
+		)
+	}
+}
 
 /** Whether two native columns are one column: one field, or one law column. */
 const sameNativeColumn = (a: NativeColumn, b: NativeColumn): boolean =>
@@ -561,6 +626,7 @@ const planNatives = (b: InstallBuilder, inline: Inline): ReadonlyArray<NativePla
 				)
 				continue
 			case "Unique": {
+				setUniqueBound(b, o.relation.name, o.columns)
 				const columns = mapNonEmpty(o.columns, (c) => nativeColumn(b, o.relation.name, c))
 				const lawColumns = lawColumnsAmong(o.columns)
 				if (isNonEmpty(lawColumns)) {

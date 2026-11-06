@@ -386,6 +386,49 @@ export const maxAllocSize = published({
 })
 
 /**
+ * The most bytes a character of a UTF-8 database takes, pg_database_encoding_max_length() there: the widest UTF-8
+ * sequence PostgreSQL reads, which translate allocates for each byte of its operand.
+ */
+export const utf8EncodingMaxBytes = published({
+	value: 4,
+	owner: "PostgreSQL 19rc1",
+	unit: "bytes",
+	scope: "one character of a UTF-8 database, the maxmblen pg_wchar_table holds for PG_UTF8",
+	constraint: "compile-time constant",
+	source: `${postgresSource}/src/common/wchar.c#L1872`,
+	quote:
+		"[PG_UTF8] = {pg_utf2wchar_with_len, pg_wchar2utf_with_len, pg_utf_mblen, pg_utf_dsplen, pg_utf8_verifychar, pg_utf8_verifystr, 4},",
+	verified: "2026-11-06"
+})
+
+/** A varlena's header, VARHDRSZ, which translate's result allocation counts beside its characters. */
+export const varlenaHeaderBytes = published({
+	value: 4,
+	owner: "PostgreSQL 19rc1",
+	unit: "bytes",
+	scope: "the header of one variable-length datum, uncompressed and in line: a text among them",
+	constraint: "compile-time constant",
+	source: `${postgresSource}/src/include/c.h#L787`,
+	quote: "#define VARHDRSZ\t\t((int32) sizeof(int32))",
+	verified: "2026-11-06"
+})
+
+/**
+ * The longest text, in UTF-8 bytes, PostgreSQL's translate reads: it allocates its result for the worst case, a widest
+ * character for every byte of its operand, with its header, and refuses an allocation past MaxAllocSize with 54000,
+ * "requested length too large". So a query translates only an operand whose pattern bounds its bytes within this, and a
+ * check or generated column that translates a longer text fails its write.
+ */
+export const translateMaxBytes = derived({
+	owner: "PostgreSQL 19rc1",
+	unit: "bytes",
+	scope: "the operand of one translate(text, text, text) call",
+	from: [maxAllocSize, utf8EncodingMaxBytes, varlenaHeaderBytes],
+	derivation: `translate refuses "if (unlikely(pg_mul_s32_overflow(pg_database_encoding_max_length(), m, &bytelen)) || unlikely(pg_add_s32_overflow(bytelen, VARHDRSZ, &bytelen)) || unlikely(!AllocSizeIsValid(bytelen)))" over its operand's m bytes (${postgresSource}/src/backend/utils/adt/oracle_compat.c#L854-L864, verified 2026-11-06), and "#define AllocSizeIsValid(size) ((Size) (size) <= MaxAllocSize)" (${postgresSource}/src/include/utils/memutils.h#L42), so m is at most (MaxAllocSize - VARHDRSZ) / maxmblen, rounded down`,
+	compute: ([alloc, width, header]) => Math.floor((alloc.value - header.value) / width.value)
+})
+
+/**
  * The most bytes one StringInfo, PostgreSQL's growable string buffer, holds: enlargeStringInfo refuses to grow a buffer
  * past one byte short of MaxAllocSize, keeping a byte for its terminator. Every text PostgreSQL builds piecewise lives
  * in one, string_agg's result and format's among them, so a closed relation's pack of rows, whose DO block builds its
