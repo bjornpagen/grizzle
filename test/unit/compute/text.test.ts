@@ -45,6 +45,8 @@ import { families, jsAccepts, patternOver, stringsOver } from "#test/unit/text/g
  */
 
 const textColumn: LeafBinding = { kind: "column", type: testPg.text.scalar }
+/** A text whose pattern bounds its bytes, which a query's `~` reads (lower.ts regexReadable). */
+const boundedColumn: LeafBinding = { kind: "column", type: testPg.regex("^.{0,64}$", "su").scalar }
 const boolColumn: LeafBinding = { kind: "column", type: testPg.boolean.scalar }
 
 /** A case's text values and its condition, by the column each binds. */
@@ -566,7 +568,7 @@ describe("Compute's text terms", () => {
 								lowerWith(
 									"query",
 									compute("matches", variable("v"), pattern),
-									{ v: textColumn, p: boolColumn },
+									{ v: boundedColumn, p: boolColumn },
 									true,
 									baseParams
 								)

@@ -1034,6 +1034,7 @@ describe("Descriptions", () => {
 				endsWith: 2,
 				matches: 2,
 				translate: 3,
+				collapse: 1,
 				cosineDistance: 2
 			}
 			const origin = { alternatives: "A" }

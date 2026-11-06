@@ -424,30 +424,38 @@ const refuse = (tag: ProseTag, loc: SourceLoc, capability: string): never => {
 }
 
 /**
- * A put or a delete of `relation`, `member`, refused (UnstatedKey) where its primary key holds a field no fact carries
- * (isCarried): a put names each row by its primary key, and a family's edit names each member by it, so a key holding a
- * field grizzle writes, such as a sequence's index, names no row a caller can state. An insert names no row by its key:
- * a sequence's members are inserted nested under their owner, whose nesting draws their index.
+ * A put or a delete of `relation`, `member`, refused (UnstatedKey) where a key it reads off its facts holds a field no
+ * fact carries (isCarried): its primary key, by which a put names each row and a family's edit each member, and, for a
+ * put, every key its same-key check compares, in that check's order, the primary key's first. A key holding a field
+ * grizzle writes, such as a sequence's index, is stated by no fact. A delete compares no key before it is sent, so only
+ * its primary key is read; an insert names no row by its key, a sequence's members being inserted nested under their
+ * owner, whose nesting draws their index.
  */
-const refuseUnstatedKey = (member: MemberDesc, relation: RelationInfo): void => {
+const refuseUnstatedKey = (member: MemberDesc, relation: WrittenRelation): void => {
 	const op = member.op
 	if (op === "insert") {
 		return
 	}
-	const unstated = relation.primaryFields.filter((f) => !isCarried(f))
-	if (!isNonEmpty(unstated)) {
-		return
+	const [primary, ...declared] = relation.keyLaws
+	const read: ReadonlyArray<{ readonly kind: "primary" | "declared"; readonly law: KeyLaw }> = [
+		{ kind: "primary", law: primary },
+		...(op === "put" ? declared.map((law) => ({ kind: "declared" as const, law })) : [])
+	]
+	for (const { kind, law } of read) {
+		const unstated = law.fields.filter((f) => !isCarried(f))
+		if (isNonEmpty(unstated)) {
+			throw new Refusal(
+				CompileError.make({
+					_tag: "UnstatedKey",
+					at: member.loc,
+					op,
+					relation: relation.name,
+					key: { kind, fields: law.fields.map((f) => f.name) },
+					unstated: unstated.map((f) => f.name)
+				})
+			)
+		}
 	}
-	throw new Refusal(
-		CompileError.make({
-			_tag: "UnstatedKey",
-			at: member.loc,
-			op,
-			relation: relation.name,
-			key: relation.primaryFields.map((f) => f.name),
-			unstated: unstated.map((f) => f.name)
-		})
-	)
 }
 
 const unwrap = <A>(r: Result.Result<A, CompileError>): A => {

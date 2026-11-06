@@ -23,6 +23,7 @@ import {
 	textCast
 } from "#compiler/scalar/compute/cast.ts"
 import type { ResultCarrier } from "#compiler/scalar/compute/types.ts"
+import { whitespaceRun } from "#compiler/scalar/regex/whitespace.ts"
 
 /**
  * Why a host computation has no value: the precondition of the operation its operands fail, or a numeric result past
@@ -120,6 +121,11 @@ type SqlForm =
 				| "disjoint"
 				| "endsWith"
 	  }
+	| {
+			/** whiteSpace collapse, `btrim(regexp_replace(x, run, ' ', 'g'))`, `run` the ARE of a run of white space. */
+			readonly kind: "collapse"
+			readonly run: string
+	  }
 
 /**
  * The catalog object that implements the node, as PostgreSQL's catalog names it. Every type it names is a carrier's
@@ -192,6 +198,9 @@ export type NativeFn =
 	| "right"
 	| "matches"
 	| "translate"
+	| "collapse"
+	| "regexpReplace"
+	| "btrim"
 	| "cosineDistance"
 	| "eq"
 	| "ne"
@@ -611,6 +620,25 @@ const textSuffix: FixedOverload = frozen({
 	reads: "value"
 })
 
+/**
+ * whiteSpace collapse, `btrim(regexp_replace(x, '[ \t\n\r]+', ' ', 'g'))`: each run of white space one space, then the
+ * spaces at either end trimmed. Both functions are IMMUTABLE, and a bracket of four literal characters reads no
+ * collation, so it is one value wherever it stands, a generated column among them.
+ */
+const textCollapse: FixedOverload = frozen({
+	fn: "collapse",
+	operands: positional(["text"]),
+	result: "text",
+	sql: { kind: "collapse", run: whitespaceRun },
+	catalog: {
+		kind: "construct",
+		uses: Object.freeze([opId("regexp_replace(text,text,text,text)"), opId("btrim(text)")])
+	},
+	volatility: "immutable",
+	totality: total,
+	reads: "value"
+})
+
 /** A boolean connective over any number of boolean operands. */
 const connective = (fn: "and" | "or"): FixedOverload =>
 	frozen({
@@ -850,6 +878,16 @@ const catalogOverloads = {
 	"right(text,integer)": fnCall("right", "right", ["text", "int4"], "text", total, "value"),
 	"endsWith:text": textSuffix,
 	textregexeq: infix("matches", "~", "text", "bool", total, "value"),
+	"regexp_replace(text,text,text,text)": fnCall(
+		"regexpReplace",
+		"regexp_replace",
+		["text", "text", "text", "text"],
+		"text",
+		total,
+		"value"
+	),
+	"btrim(text)": fnCall("btrim", "btrim", ["text"], "text", total, "value"),
+	"collapse:text": textCollapse,
 	"translate(text,text,text)": fnCall(
 		"translate",
 		"translate",

@@ -374,6 +374,19 @@ export const translateOfLiteral = Compute.translate("abc", "a", "b")
 // @ts-expect-error -- TS2345: lowerAscii takes a text term
 export const lowerAsciiOfInt = Compute.lowerAscii(int)
 
+/** XML Schema's whiteSpace replace and collapse are text of a text term. */
+export const replacedText = Compute.replaceWhitespace(text)
+export type ReplaceWhitespaceType = Expect<Equals<TypeOfTerm<typeof replacedText>, string>>
+export const collapsedText = Compute.collapse(text)
+export type CollapseType = Expect<Equals<TypeOfTerm<typeof collapsedText>, string>>
+export type CollapseSql = Expect<Equals<SqlOfTerm<typeof collapsedText>, "text">>
+// @ts-expect-error -- TS2345: collapse takes a text term
+export const collapseOfInt = Compute.collapse(int)
+// @ts-expect-error -- TS2345 refusal: a term first: a literal takes its place opposite a term, never first
+export const collapseOfLiteral = Compute.collapse(" a ")
+// @ts-expect-error -- TS2345: replaceWhitespace takes a text term
+export const replaceOfInt = Compute.replaceWhitespace(int)
+
 /** cosine distance is double precision and is defined over two vectors of one dimension count. */
 export const distance = Compute.cosineDistance(docs, docs)
 export type DistanceType = Expect<Equals<TypeOfTerm<typeof distance>, number>>
@@ -495,6 +508,8 @@ export const computeCovered: { readonly [K in keyof typeof Compute]: true } = {
 	matches: true,
 	translate: true,
 	lowerAscii: true,
+	replaceWhitespace: true,
+	collapse: true,
 	cosineDistance: true,
 	union: true,
 	intersection: true,

@@ -429,6 +429,37 @@ export const translateMaxBytes = derived({
 })
 
 /**
+ * The bytes of one pg_wchar, the wide character PostgreSQL's regex engine reads a text as: an unsigned int, 32 bits on
+ * every platform PostgreSQL 19 builds on.
+ */
+export const pgWcharBytes = published({
+	value: 4,
+	owner: "PostgreSQL 19rc1",
+	unit: "bytes",
+	scope:
+		"one pg_wchar, an unsigned int of the platform's C ABI, 32 bits on every platform PostgreSQL builds on",
+	constraint: "compile-time constant",
+	source: `${postgresSource}/src/include/mb/pg_wchar.h#L28`,
+	quote: "typedef unsigned int pg_wchar;",
+	verified: "2026-11-06"
+})
+
+/**
+ * The longest text, in UTF-8 bytes, PostgreSQL's regex engine reads: before it matches, it widens the text into one
+ * pg_wchar per byte and one more, and refuses an allocation past MaxAllocSize ("invalid memory alloc request size"). So
+ * a query runs regexp_replace, which Compute.collapse is, only over an operand whose pattern bounds its bytes within
+ * this, and a check or generated column that collapses a longer text fails its write.
+ */
+export const regexTextMaxBytes = derived({
+	owner: "PostgreSQL 19rc1",
+	unit: "bytes",
+	scope: "the subject text of one regexp_replace call, or of one match by ~",
+	from: [maxAllocSize, pgWcharBytes],
+	derivation: `replace_text_regexp allocates "data = (pg_wchar *) palloc((src_text_len + 1) * sizeof(pg_wchar));" over its subject's src_text_len bytes (${postgresSource}/src/backend/utils/adt/varlena.c#L3368, verified 2026-11-06), as RE_execute does for ~, "data = palloc_array(pg_wchar, dat_len + 1);" (${postgresSource}/src/backend/utils/adt/regexp.c#L332), and palloc refuses a size past MaxAllocSize, so the length plus one is at most MaxAllocSize / sizeof(pg_wchar), rounded down`,
+	compute: ([alloc, wide]) => Math.floor(alloc.value / wide.value) - 1
+})
+
+/**
  * The most bytes one StringInfo, PostgreSQL's growable string buffer, holds: enlargeStringInfo refuses to grow a buffer
  * past one byte short of MaxAllocSize, keeping a byte for its terminator. Every text PostgreSQL builds piecewise lives
  * in one, string_agg's result and format's among them, so a closed relation's pack of rows, whose DO block builds its

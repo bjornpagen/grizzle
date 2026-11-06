@@ -78,6 +78,8 @@ export const evaluationOf = (op: NativeOp): Evaluation => {
 			return firstOperand(op.operands) === "numeric" ? "estimated" : "database"
 		case "cosineDistance":
 		case "complement":
+		case "regexpReplace":
+		case "btrim":
 			return "database"
 		case "union":
 		case "intersection":
@@ -115,6 +117,7 @@ export const evaluationOf = (op: NativeOp): Evaluation => {
 		case "right":
 		case "matches":
 		case "translate":
+		case "collapse":
 		case "eq":
 		case "ne":
 		case "lt":
@@ -281,6 +284,28 @@ const characterMap = (text: string, from: string, to: string): string => {
 			return target === undefined ? [] : [target]
 		}),
 		""
+	)
+}
+
+/** XML's white space characters: space, tab, LF and CR. */
+const xmlSpace: ReadonlySet<string> = new Set([" ", "\t", "\n", "\r"])
+
+/**
+ * XML Schema's whiteSpace collapse as its definition reads: the text cut at every run of white space, the empty pieces
+ * dropped, and the rest joined by one space each.
+ */
+const collapsedText = (text: string): string => {
+	const pieces: Array<string> = [""]
+	for (const c of characters(text)) {
+		if (xmlSpace.has(c)) {
+			pieces.push("")
+		} else {
+			pieces[pieces.length - 1] = `${pieces.at(-1) ?? ""}${c}`
+		}
+	}
+	return Arr.join(
+		Arr.filter(pieces, (p) => p.length > 0),
+		" "
 	)
 }
 
@@ -613,7 +638,11 @@ const catalogApply = (
 			return typeof a === "boolean" ? Result.succeed(!a) : mismatch(op)
 		case "cosineDistance":
 		case "complement":
+		case "regexpReplace":
+		case "btrim":
 			return declined(op, "database", "PostgreSQL alone evaluates it")
+		case "collapse":
+			return isString(a) ? Result.succeed(collapsedText(a)) : mismatch(op)
 		case "union":
 		case "intersection":
 		case "difference":

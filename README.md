@@ -1773,7 +1773,7 @@ Six things work differently from SQL:
   plain integer or money column, but a ChangeSet member stores one into a field only through that cast: a head that
   writes `Compute.add(balance, amount)` into a `pg.bigint` field is a type error.
 
-Text has six terms. `Compute.matches(x, pattern)` is PostgreSQL's `~`: whether `x` holds a match of a pattern in
+Text has eight terms. `Compute.matches(x, pattern)` is PostgreSQL's `~`: whether `x` holds a match of a pattern in
 `str.regex`'s grammar under the flags `"u"`, which `^` and `$` anchor. The pattern is a string, which the type checker
 reads as `str.regex` reads its own, or a text term whose every value the schema holds: a closed relation's text
 payload, as in `Compute.matches(lexical, ValueDomain.at("pattern", domain))`, or a `Compute.cond` of such terms. Each
@@ -1781,7 +1781,9 @@ value is admitted when the schema compiles, inside PostgreSQL's regex compile sp
 ([Limits](#limits)), and written into the SQL as the pattern PostgreSQL reads, so `~` never sees a pattern grizzle has
 not measured; a field, a parameter or a computed text can be any pattern, and as a pattern it is refused. A match is
 a guard too: `Compute.when(Compute.matches(code, "^[0-9]+$"), (code) => …, otherwise)` hands its branch the subject,
-which compilation reads as text of the pattern's language, and over a pattern term it is a conditional.
+which compilation reads as text of the pattern's language, and over a pattern term it is a conditional. PostgreSQL's
+regex engine widens its subject to four bytes for every byte before it matches, so a query matches only a text whose
+pattern bounds it within 268,435,454 bytes; a check, a law's selection or a generated field matches any text.
 `Compute.startsWith(a, b)` and `Compute.endsWith(a, b)` test a prefix and a suffix, by characters.
 
 A text parses into a typed value: `Compute.cast(lexical, T)` is PostgreSQL's own cast from text into an integer type,
@@ -1824,6 +1826,21 @@ the image lies in: `generated(Normalized, Compute.cast(Compute.translate(row.tit
 `Normalized` being `str.regex("^[^\\t\\n\\r]*$", "su")`. PostgreSQL's translate allocates four bytes for every byte
 of `x`, so a query translates only a text whose pattern bounds it within 268,435,454 bytes, and a check or generated
 field translates any text.
+
+XML Schema's other two whiteSpace facets are terms too. `Compute.replaceWhitespace(x)` is its replace,
+`Compute.translate(x, "\t\n\r", "   ")`. `Compute.collapse(x)` is its collapse: each run of tab, LF, CR and space one
+space, and none at either end, `btrim(regexp_replace(x, '[ \t\n\r]+', ' ', 'g'))`, both functions IMMUTABLE and the
+bracket reading no collation, so it stands in a generated field. No other character is white space to it, a no-break
+space and a line separator among them. Collapse never lengthens a text, so compilation reads the result as text within
+`x`'s length bound, of runs of `x`'s other characters a space apart. That is exactly the image of `x`'s language where
+it is cheap to state: a pattern with no white space, which collapse leaves as it is, and a class repeated freely,
+`^[...]*$`, the wildcard among them, whose image is every collapsed text over its other characters,
+`^(?:[^ \t\n\r]+(?: [^ \t\n\r]+)*)?$` for `Prose`. Any other pattern's is more than its image: a bounded one of
+at most n characters, n up to 257, is every text of at most n characters beginning and ending with another character,
+`^(?:[^ \t\n\r](?:[^\t\n\r]{0,n-2}[^ \t\n\r])?)?$` for `^.{0,n}$`, two spaces together included; and any other
+the collapsed texts over its characters, unbounded. Store one as a translation is stored,
+`generated(T, Compute.cast(Compute.collapse(row.title), T))` for a `T` the result lies in. A query collapses only a text
+whose pattern bounds it within 268,435,454 bytes, since collapse is a regex read.
 
 There are no outer joins. Where SQL would LEFT JOIN and fill the gaps with NULL, a second rule covers the rows that
 have no match:
@@ -2207,8 +2224,9 @@ its `fault`; `RecursionRefused` and `DerivedRefused`, their `cause`; `RoleRefuse
 generated `field` of a `relation` and the `rule` it breaks; `FoldOverProjection`, the match's `source` and the `key` it
 must bind for an aggregate to read each row once; `QueriedOwnerAppend`, an insert or a put (`op`) of the `owner` from
 a query beside an append of `member` to its `family` (`{ owner, count }`), the write being `at`; `UnstatedKey`, a put
-or a delete (`op`) of a `relation` whose primary `key` holds fields grizzle writes (`unstated`); `UndeclaredDrop`, the
-name a migration would drop, which no `--drop` or `--rename` declares; and the remaining rules, a `capability` sentence.
+or a delete (`op`) of a `relation` whose `key` (`{ kind, fields }`, its primary key or a declared one a put compares)
+holds fields grizzle writes (`unstated`); `UndeclaredDrop`, the name a migration would drop, which no `--drop` or
+`--rename` declares; and the remaining rules, a `capability` sentence.
 
 **`EncodingFailure`**'s reason is its codec's fault word, never the value, and its `place` the `Slot` the value fills,
 by `name`, or a whole `Fact`. **`CursorError`**'s reason is its cursor fault word.
@@ -2485,6 +2503,11 @@ workflows, whose rules are worth declaring and whose users see different slices 
 - **A translation reads at most 268,435,454 bytes.** PostgreSQL's `translate` allocates four bytes for each byte of its
   operand, past `MaxAllocSize` "requested length too large" (54000), so a write whose check or generated field
   translates a longer text fails with that error, and a query translates only a text whose pattern bounds it within.
+- **A regex reads at most 268,435,454 bytes.** PostgreSQL's regex engine widens its subject to a four-byte character
+  for each byte before `~` or `regexp_replace` reads it, past `MaxAllocSize` "invalid memory alloc request size", so a
+  write whose check, selection or generated field matches or collapses a longer text fails with that error, a
+  `str.regex` field's domain CHECK among them, and a query matches or collapses only a text whose pattern bounds it
+  within.
 - **Tables are immutable by default.** `mutable(T)` opts one in to in-place updates.
 - **A relation is a member of at most one ordered family or tree**, which orders it, and of any number of counted
   families. A tree is written whole, by inserting its root with the whole tree nested. A ChangeSet's write of a
@@ -2500,8 +2523,10 @@ workflows, whose rules are worth declaring and whose users see different slices 
   no owner, and compiles.
 - **A put or a delete names its rows by their primary key**, so a relation whose primary key holds a field grizzle
   writes, such as a sequence's member keyed by its owner and its drawn index, is put and deleted by no ChangeSet: its
-  facts cannot state the key. Such a write is refused with `UnstatedKey` when the ChangeSet is compiled; key the member
-  by fields its caller writes, such as an id, to put or delete it, and insert a sequence nested under its owner.
+  facts cannot state the key. A put also compares its facts at every declared key before it is sent, so a declared key
+  holding such a field refuses the put too, though not a delete, which compares none. Such a write is refused with
+  `UnstatedKey` when the ChangeSet is compiled, naming the key: key the member by fields its caller writes, such as an
+  id, to put or delete it, declare no key over a field grizzle writes, and insert a sequence nested under its owner.
 - **A closed relation is as large as its key's code space.** Its constant holds one cell per combination of its key
   fields' codes, so a sparse relation over a large product of rosters is costly in proportion to the product: choose
   coordinates that make it dense, such as slots, whose space is each owner's counts rather than the product

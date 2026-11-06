@@ -5,13 +5,14 @@ import { array, boolean, element, type Gen, int, map, weighted } from "@grizzle/
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter } from "effect"
+import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Engine from "#compiler/core/result.ts"
 import { codePoints, codePointsText } from "#compiler/core/text.ts"
 import type { ExprDesc, FieldDesc } from "#compiler/ir/desc.ts"
 import { predicateTable, type ScalarExpr } from "#compiler/ir/expr.ts"
+import type { OpenExpr } from "#compiler/ir/open.ts"
 import { textOf } from "#compiler/ir/scalar.ts"
 import { defaultOps } from "#compiler/lower/conservative/expr/ops.ts"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
@@ -19,8 +20,9 @@ import { evaluateTable } from "#compiler/scalar/compute/evaluate.ts"
 import type { CarrierValue } from "#compiler/scalar/compute/literal.ts"
 import { regexMember } from "#compiler/scalar/regex/nfa.ts"
 import { charMapOf, imageOf } from "#compiler/scalar/regex/translate.ts"
+import { collapsed, collapseSources } from "#compiler/scalar/regex/whitespace.ts"
 import type { Expr } from "#compiler/sql/ast.ts"
-import { col, lit, types } from "#compiler/sql/build.ts"
+import { call, col, lit, types } from "#compiler/sql/build.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"
 import { assert, defined, refused, succeeded, throwsRefused } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -54,12 +56,21 @@ import {
  *   map is a member of the operand's, which ECMAScript's own test of both patterns decides; and an operand whose
  *   pattern bounds its length keeps the bound.
  * - the refusals, a box of named invalid inputs, each by its reason.
+ * - collapse and replaceWhitespace: over texts dense in XML's four white space characters beside ones XML does not
+ *   count (no-break space, line separator), both evaluators agree with XML Schema's definition, pieces cut at every run
+ *   and joined by one space; the term's type holds every collapse of a value of the operand's, exactly the image where
+ *   collapseSources says it is, within the operand's length bound; its refusals and its SQL by structure.
  */
 
 const textColumn: LeafBinding = { kind: "column", type: testPg.text.scalar }
 
 const variable = (name: string): ExprDesc => ({ kind: "var", var: name })
 const text = (value: string): ExprDesc => ({ kind: "literal", value, type: undefined })
+const collapsing = (subject: ExprDesc): ExprDesc => ({
+	kind: "compute",
+	fn: "collapse",
+	args: [subject]
+})
 const translation = (subject: ExprDesc, from: ExprDesc, to: ExprDesc): ExprDesc => ({
 	kind: "compute",
 	fn: "translate",
@@ -424,6 +435,10 @@ describe("Compute's translate and lowerAscii", () => {
 		| "a query's translate spelled as pg_catalog's"
 		| "a map of two lengths at the builder"
 		| "a term as from at the builder"
+		| "collapse in a query over an unbounded text"
+		| "a query's collapse spelled as btrim over regexp_replace"
+		| "a collapse of no text"
+		| "matches in a query over an unbounded text"
 
 	const invalid: Arr.NonEmptyReadonlyArray<Invalid> = [
 		"from and to of two lengths",
@@ -433,7 +448,11 @@ describe("Compute's translate and lowerAscii", () => {
 		"translate in a query over an unbounded text",
 		"a query's translate spelled as pg_catalog's",
 		"a map of two lengths at the builder",
-		"a term as from at the builder"
+		"a term as from at the builder",
+		"collapse in a query over an unbounded text",
+		"a query's collapse spelled as btrim over regexp_replace",
+		"a collapse of no text",
+		"matches in a query over an unbounded text"
 	]
 
 	const vars: Readonly<Record<string, LeafBinding>> = {
@@ -547,6 +566,66 @@ describe("Compute's translate and lowerAscii", () => {
 									"MalformedDescription"
 								)
 								return
+							case "collapse in a query over an unbounded text":
+								refused(lowered(collapsing(variable("v")), "query"), "UnsupportedOperation")
+								succeeded(
+									lowered(collapsing(variable("b")), "query"),
+									"a query over a bounded text"
+								)
+								return
+							case "a query's collapse spelled as btrim over regexp_replace": {
+								const node = succeeded(lowered(collapsing(variable("b")), "query")).root.expr
+								if (node.kind !== "op") {
+									return assert.fail(`an op node, not ${node.kind}`)
+								}
+								const subject = col("r0", "b")
+								assert.deepEqual(
+									defaultOps(node, [subject]),
+									call("btrim", [
+										call("regexp_replace", [
+											subject,
+											lit.text("[\\u0009\\u000A\\u000D ]+", types.text),
+											lit.text(" ", types.text),
+											lit.text("g", types.text)
+										])
+									]),
+									"each run one space, then the ends trimmed"
+								)
+								return
+							}
+							case "matches in a query over an unbounded text": {
+								/** `~` widens its subject as regexp_replace does, so a query's match needs the same bound. */
+								const match = (subject: string): ExprDesc => ({
+									kind: "compute",
+									fn: "matches",
+									args: [variable(subject), text("^a")]
+								})
+								refused(lowered(match("v"), "query"), "UnsupportedOperation")
+								refused(
+									lowered(
+										{
+											kind: "when",
+											guard: { kind: "matches", pattern: "^a" },
+											subject: variable("v"),
+											proved: variable("v"),
+											otherwise: text("a")
+										},
+										"query"
+									),
+									"UnsupportedOperation",
+									"a match guard reads `~` too"
+								)
+								succeeded(lowered(match("b"), "query"), "a query's match over a bounded text")
+								succeeded(lowered(match("v"), "check"), "a check's match over any text")
+								return
+							}
+							case "a collapse of no text":
+								refused(lowered(collapsing(variable("n")), "check"), "MalformedDescription")
+								throwsRefused(
+									() => Compute.collapse(v("n", testPg.integer)),
+									"MalformedDescription"
+								)
+								return
 						}
 					})
 			)
@@ -559,6 +638,7 @@ describe("Compute's translate and lowerAscii", () => {
 		| "an image outside the target"
 		| "an unrefined text"
 		| "a contract over the target's text"
+		| "a collapse inside the collapsed texts"
 		| "a refinement past the analysis bounds"
 		| "a parse past the analysis bounds"
 
@@ -567,6 +647,7 @@ describe("Compute's translate and lowerAscii", () => {
 		"an image outside the target",
 		"an unrefined text",
 		"a contract over the target's text",
+		"a collapse inside the collapsed texts",
 		"a refinement past the analysis bounds",
 		"a parse past the analysis bounds"
 	]
@@ -649,6 +730,24 @@ describe("Compute's translate and lowerAscii", () => {
 										"the image lies in the contract's base, but nothing proves its predicate"
 									)
 									return
+								case "a collapse inside the collapsed texts":
+									succeeded(
+										cast(collapsing(variable("v")), {
+											kind: "text",
+											source: "^(?:[^ \\t\\n\\r]+(?: [^ \\t\\n\\r]+)*)?$",
+											flags: "su"
+										}),
+										"any text collapses to runs of other characters, a space apart"
+									)
+									succeeded(
+										cast(collapsing(variable("t")), {
+											kind: "text",
+											source: "^(?:[^ \\t\\n\\r](?:[^\\t\\n\\r]{0,198}[^ \\t\\n\\r])?)?$",
+											flags: "su"
+										}),
+										"a title of at most 200 characters collapses within them, a space at neither end"
+									)
+									return
 								case "a refinement past the analysis bounds":
 									assert.deepEqual(
 										undecided(
@@ -675,5 +774,248 @@ describe("Compute's translate and lowerAscii", () => {
 						})
 				)
 			)
+	)
+
+	/** XML's four white space characters beside no-break space and line separator, which XML does not count, and letters. */
+	const spaceAlphabet: Arr.NonEmptyReadonlyArray<number> = [
+		0x09, 0x0a, 0x0d, 0x20, 0x20, 0x61, 0x62, 0xa0, 0x2028, 0xe9, 0x1f600
+	]
+
+	/** XML Schema's collapse as its definition reads: pieces cut at every run of white space, the empty ones dropped. */
+	const byDefinition = (value: string): string =>
+		Arr.join(
+			Arr.filter(
+				Arr.reduce(codePoints(value), [""], (pieces: ReadonlyArray<string>, c) =>
+					isXmlSpace(c)
+						? [...pieces, ""]
+						: [...pieces.slice(0, -1), `${pieces.at(-1) ?? ""}${String.fromCodePoint(c)}`]
+				),
+				(piece) => piece.length > 0
+			),
+			" "
+		)
+
+	const isXmlSpace = (c: number): boolean => c === 0x09 || c === 0x0a || c === 0x0d || c === 0x20
+
+	type CollapseFeature =
+		| "a run folded"
+		| "an end trimmed"
+		| "a no-break space kept"
+		| "a character replaced"
+
+	it.effect("collapse and replaceWhitespace agree with XML Schema's definition", (ctx) =>
+		searched(
+			ctx,
+			explore(
+				{
+					suite: "unit/compute/collapse-values",
+					draw: drawn(array(stringsOver(spaceAlphabet, 10), { min: 1, max: 24 })),
+					literal: Formatter.format,
+					oracle: {
+						kind: "second-implementation",
+						name: "XML Schema's definition by pieces, and the reference evaluator"
+					},
+					coverage: required<CollapseFeature>(
+						["a run folded", "an end trimmed", "a no-break space kept", "a character replaced"],
+						{ cases: 200, sense: notesOnly }
+					),
+					kept: [],
+					runs: 200,
+					shrink: completeShrink,
+					concurrency: 1,
+					steerEvery: 16,
+					caseHang
+				},
+				(texts, k) =>
+					Effect.sync(() => {
+						const lowered = (term: { readonly expr: OpenExpr }) =>
+							succeeded(
+								lowerWith("check", spelledExpr(term.expr), { v: textColumn }, false, baseParams)
+							).root.expr
+						const collapse = lowered(Compute.collapse(v("v", testPg.text)))
+						const replace = lowered(Compute.replaceWhitespace(v("v", testPg.text)))
+						for (const s of texts) {
+							const row = new Map<string, CarrierValue>([["v", s]])
+							const expected = byDefinition(s)
+							const got = values(collapse, row)
+							assert.equal(got.host, expected, `collapse on the host over ${Formatter.format(s)}`)
+							assert.equal(
+								got.reference,
+								expected,
+								`collapse in the reference over ${Formatter.format(s)}`
+							)
+							const replaced = codePointsText(
+								Arr.map(codePoints(s), (c) => (isXmlSpace(c) ? 0x20 : c))
+							)
+							const r = values(replace, row)
+							assert.equal(r.host, replaced, `replace on the host over ${Formatter.format(s)}`)
+							assert.equal(
+								r.reference,
+								replaced,
+								`replace in the reference over ${Formatter.format(s)}`
+							)
+							const points = codePoints(s)
+							if (
+								Arr.some(points, (c, i) => isXmlSpace(c) && i > 0 && isXmlSpace(points[i - 1] ?? 0))
+							) {
+								k.note("a run folded")
+							}
+							if (
+								points.length > 0 &&
+								(isXmlSpace(points[0] ?? 0) || isXmlSpace(points.at(-1) ?? 0))
+							) {
+								k.note("an end trimmed")
+							}
+							if (Arr.contains(codePoints(expected), 0xa0)) {
+								k.note("a no-break space kept")
+							}
+							if (replaced !== s) {
+								k.note("a character replaced")
+							}
+						}
+					})
+			)
+		)
+	)
+
+	/** One case of the collapse image: a pattern over an alphabet dense in white space, and the texts probed. */
+	interface CollapseCase {
+		readonly source: string
+		readonly flags: Flags
+		readonly texts: ReadonlyArray<string>
+	}
+
+	type CollapseImageFeature =
+		| "an image member"
+		| "an image non-member"
+		| "an exact image"
+		| "a bounded image"
+		| "an image with no white space"
+
+	const collapseCase: Gen<CollapseCase> = (source) => {
+		const declared: Gen<readonly [string, Flags]> = weighted([
+			[4, map(patternOver(spaceAlphabet), (p): readonly [string, Flags] => [p, "u"])],
+			[1, (s): readonly [string, Flags] => ["^.*$", s.draw(boolean) ? "su" : "u"]],
+			[1, (s): readonly [string, Flags] => [`^.{0,${s.draw(int(0, 12))}}$`, "su"]],
+			[
+				1,
+				element([
+					["^[ab]{1,6}$", "u"],
+					["^[ \\ta]*$", "u"],
+					["^ *$", "u"]
+				] as const)
+			]
+		])
+		const [pattern, flags] = source.draw(declared)
+		return {
+			source: pattern,
+			flags,
+			texts: source.draw(array(stringsOver(spaceAlphabet, 8), { min: 1, max: 16 }))
+		}
+	}
+
+	it.effect("types a collapse as text holding its image within the operand's length bound", (ctx) =>
+		searched(
+			ctx,
+			explore(
+				{
+					suite: "unit/compute/collapse-image",
+					draw: drawn(collapseCase),
+					literal: Formatter.format,
+					oracle: {
+						kind: "second-implementation",
+						name: "ECMAScript's own test of the operand's pattern and of the image's"
+					},
+					coverage: required<CollapseImageFeature>(
+						[
+							"an image member",
+							"an image non-member",
+							"an exact image",
+							"a bounded image",
+							"an image with no white space"
+						],
+						{ cases: 400, sense: notesOnly }
+					),
+					kept: [],
+					runs: 400,
+					shrink: completeShrink,
+					concurrency: 1,
+					steerEvery: 16,
+					caseHang
+				},
+				(c, k) =>
+					Effect.sync(() => {
+						if (!analyzeText(c.source, c.flags, SourceLoc("str.regex", [])).ok) {
+							return
+						}
+						const operand = testPg.regex(c.source, c.flags)
+						const term = succeeded(
+							lowerWith(
+								"check",
+								{ kind: "compute", fn: "collapse", args: [variable("v")] },
+								{ v: { kind: "column", type: operand.scalar } },
+								false,
+								baseParams
+							),
+							`a collapse of /${c.source}/${c.flags}`
+						).root
+						const image = defined(textOf(term.nominal), "the image is text")
+						const operandText = defined(textOf(operand.scalar))
+						const chosen = defined(
+							Arr.findFirst(
+								collapseSources(operandText.regex, operandText.lengthBound),
+								(s) => analyzeText(s.source, s.flags, SourceLoc("image", [])).ok
+							).pipe(Option.getOrUndefined),
+							"an admitted image"
+						)
+						if (operandText.lengthBound !== undefined && operandText.lengthBound <= 257) {
+							k.note("a bounded image")
+							assert.ok(
+								image.lengthBound !== undefined && image.lengthBound <= operandText.lengthBound,
+								"collapse never lengthens, so the operand's bound holds"
+							)
+						}
+						const accepts = (value: string): boolean =>
+							image.regex === "wildcard" || jsAccepts(image.regex.source, image.regex.flags, value)
+						const members = Arr.filter(c.texts, (t) => jsAccepts(c.source, c.flags, t))
+						for (const m of members) {
+							assert.ok(
+								accepts(collapsed(m)),
+								`the collapse of ${Formatter.format(m)} under /${c.source}/${c.flags}`
+							)
+						}
+						if (!chosen.exact) {
+							return
+						}
+						k.note("an exact image")
+						/**
+						 * Whether some value of the operand's language collapses to `t`, where the image is exact: the empty
+						 * text alone for a language of white space only, and otherwise a text that is its own collapse and has
+						 * a preimage among itself and itself with every space one white space character, which is every
+						 * preimage the exact cases need (a language with no white space, and every text over an alphabet).
+						 */
+						const preimaged = (t: string): boolean =>
+							chosen.source === "^$"
+								? t === ""
+								: collapsed(t) === t &&
+									Arr.some(
+										[t, ...Arr.map(["\t", "\n", "\r"], (w) => Str.replaceAll(" ", w)(t))],
+										(p) => jsAccepts(c.source, c.flags, p)
+									)
+						for (const t of [...c.texts, ...Arr.map(members, collapsed)]) {
+							const held = accepts(t)
+							assert.equal(
+								held,
+								preimaged(t),
+								`${Formatter.format(t)} under /${c.source}/${c.flags}`
+							)
+							k.note(held ? "an image member" : "an image non-member")
+							if (held && !Arr.some(codePoints(t), isXmlSpace)) {
+								k.note("an image with no white space")
+							}
+						}
+					})
+			)
+		)
 	)
 })

@@ -39,6 +39,7 @@ import { matchFlags } from "#compiler/scalar/regex/admit.ts"
 import { buildNfa, matches } from "#compiler/scalar/regex/nfa.ts"
 import { parsePattern } from "#compiler/scalar/regex/parse.ts"
 import { translated } from "#compiler/scalar/regex/translate.ts"
+import { collapsed } from "#compiler/scalar/regex/whitespace.ts"
 import { compareDecimal, Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 import { canonicalZero, compareFloat } from "#compiler/scalar/values/float.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
@@ -416,6 +417,11 @@ const apply = (
 			return isString(a) && isBigint(b) ? Result.ok(rightOf(a, b)) : mismatch(op)
 		case "matches":
 			return isString(a) && isString(b) ? patternMatch(a, b) : mismatch(op)
+		case "collapse":
+			return isString(a) ? Result.ok(collapsed(a)) : mismatch(op)
+		case "regexpReplace":
+		case "btrim":
+			return unsupported(`${op.fn} alone, which only collapse's SQL reads`)
 		case "translate": {
 			const to = args[2]
 			return isString(a) && isString(b) && isString(to)

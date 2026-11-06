@@ -6,6 +6,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
+import type { CompileReasonTag } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { dayNumber, toCalendarDate } from "#compiler/ir/date.ts"
 import { Compute } from "#compiler/public/compute.ts"
@@ -358,13 +359,19 @@ describe("a parse's lexical precondition", () => {
 							if (!analyzeText(pattern, "u", SourceLoc("str.regex", [])).ok) {
 								return
 							}
-							const included =
-								inclusion(nfaOf(pattern), nfaOf(formSource(target))).kind === "included"
+							const verdict = inclusion(nfaOf(pattern), nfaOf(formSource(target))).kind
 							const checked = checkedIn(schema("Lexical", { R: build(pattern, route) }, []))
 							run.note(`${route} ${checked.ok ? "admitted" : "refused"}`)
-							assert.equal(checked.ok, included, `/${pattern}/ as ${Formatter.format(target)}`)
+							assert.equal(
+								checked.ok,
+								verdict === "included",
+								`/${pattern}/ as ${Formatter.format(target)}`
+							)
 							if (!checked.ok) {
-								assert.equal(checked.error.reason._tag, "PartialOperation", pattern)
+								/** A comparison past the analysis bounds decides nothing, which names them, not a missing guard. */
+								const expected: CompileReasonTag =
+									verdict === "bounded" ? "ResourceBound" : "PartialOperation"
+								assert.equal(checked.error.reason._tag, expected, pattern)
 							}
 						})
 				)

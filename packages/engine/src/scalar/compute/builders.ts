@@ -66,6 +66,7 @@ import {
 } from "#compiler/scalar/compute/term.ts"
 import { compatible, plainType } from "#compiler/scalar/compute/types.ts"
 import { matchPattern } from "#compiler/scalar/regex/admit.ts"
+import { replaceMap } from "#compiler/scalar/regex/whitespace.ts"
 import {
 	carrierSql,
 	describeField,
@@ -827,6 +828,18 @@ const lowerAscii = (x: unknown, extra: ReadonlyArray<unknown>): PlainChecked => 
 }
 
 /**
+ * Compute.replaceWhitespace(x): XML Schema's whiteSpace replace, translate of tab, LF and CR each to a space
+ * (scalar/regex/whitespace.ts replaceMap).
+ */
+const replaceWhitespace = (x: unknown, extra: ReadonlyArray<unknown>): PlainChecked => {
+	const call = new Call("Compute.replaceWhitespace")
+	if (extra.length > 0) {
+		return malformed(call.loc, "one operand for replaceWhitespace: a text term")
+	}
+	return translation(call, "replaceWhitespace's subject", x, replaceMap.from, replaceMap.to)
+}
+
+/**
  * A guard's predicate value, registered with its guard and its subject term, holding under `guarded` the term its
  * Compute.when branch receives: the subject's expression, carried by `carrier`, which a guard refines inside the branch.
  */
@@ -1019,6 +1032,8 @@ const checks = Object.freeze({
 	matches,
 	translate,
 	lowerAscii,
+	replaceWhitespace,
+	collapse: unary("collapse"),
 	cosineDistance: binary("cosineDistance", "literal"),
 	union: setOperation("union"),
 	intersection: setOperation("intersection"),
@@ -1161,6 +1176,8 @@ export const compute = Object.freeze({
 	translate: (x: unknown, from: unknown, to: unknown) =>
 		plain(checks.translate(x, from, to, []), "text"),
 	lowerAscii: (x: unknown) => plain(checks.lowerAscii(x, []), "text"),
+	replaceWhitespace: (x: unknown) => plain(checks.replaceWhitespace(x, []), "text"),
+	collapse: (x: unknown) => plain(checks.collapse(x, []), "text"),
 	matches: <T, S extends SqlTag>(subject: TermCarrier<T, S>, pattern: unknown) =>
 		guardValue(checks.matches(subject, pattern), subject),
 	cosineDistance: (a: unknown, b: unknown) =>
@@ -1281,6 +1298,9 @@ export const computeCore = Object.freeze({
 		plainBy(checks.translate(x, from, to, extra)),
 	lowerAscii: (x: unknown, ...extra: ReadonlyArray<unknown>) =>
 		plainBy(checks.lowerAscii(x, extra)),
+	replaceWhitespace: (x: unknown, ...extra: ReadonlyArray<unknown>) =>
+		plainBy(checks.replaceWhitespace(x, extra)),
+	collapse: (x: unknown, ...extra: ReadonlyArray<unknown>) => plainBy(checks.collapse(x, extra)),
 	matches: (subject: unknown, pattern: unknown) => guardBy(checks.matches(subject, pattern)),
 	cosineDistance: (a: unknown, b: unknown) => plainBy(checks.cosineDistance(a, b)),
 	union: (a: unknown, b: unknown, ...extra: ReadonlyArray<unknown>): ScalarTerm => {

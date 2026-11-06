@@ -18,6 +18,7 @@ import {
 	regexDfaMaxStates,
 	regexDfaMaxWork,
 	regexMaxRepeat,
+	regexTextMaxBytes,
 	translateMaxBytes
 } from "#compiler/core/limits.ts"
 import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
@@ -171,6 +172,7 @@ import { formIncludes, formSource, lexicalTargetOf } from "#compiler/scalar/lexi
 import { matchFlags, matchPattern } from "#compiler/scalar/regex/admit.ts"
 import { type Inclusion, patternIncludes } from "#compiler/scalar/regex/inclusion.ts"
 import { type CharMap, charMapOf, imageFlags, imageOf } from "#compiler/scalar/regex/translate.ts"
+import { collapseSources } from "#compiler/scalar/regex/whitespace.ts"
 import { capabilitiesOf, numericValue } from "#compiler/scalar/registry.ts"
 import { Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
@@ -375,6 +377,7 @@ const checkMembers: ReadonlySet<string> = new Set([
 	"endsWith",
 	"matches",
 	"translate",
+	"collapse",
 	"lower",
 	"upper",
 	"width",
@@ -1783,6 +1786,8 @@ class Lowering<R extends Refs> {
 		if (this.env.mode === "build" || op.partial) {
 			return this.typedOnly(plainType("bool"), undefined)
 		}
+		const patterns = this.patternTable(patternDesc, childLoc(at, "pattern"))
+		this.regexReadable("Compute.matches", subject, at)
 		return this.emitAt(
 			{
 				kind: "op",
@@ -1791,11 +1796,28 @@ class Lowering<R extends Refs> {
 				type: plainType("bool"),
 				nonNull: "strict",
 				volatility: op.volatility,
-				patterns: this.patternTable(patternDesc, childLoc(at, "pattern"))
+				patterns
 			},
 			undefined,
 			noFacts
 		)
+	}
+
+	/**
+	 * In a query, the refusal of a regex read, `~` or regexp_replace, over a text whose pattern does not bound its bytes
+	 * within regexTextMaxBytes: PostgreSQL's regex engine widens its subject to four bytes for every byte before it
+	 * matches and refuses an allocation past 1 GB, and a read never fails on a value. A check or a generated field reads
+	 * any text, and its write fails on a longer one.
+	 */
+	regexReadable(what: string, subject: Lowered, at: SourceLoc): void {
+		const bytes = textOf(subject.nominal)?.byteBound
+		if (this.env.mode === "query" && (bytes === undefined || bytes > regexTextMaxBytes.value)) {
+			stop(
+				"UnsupportedOperation",
+				at,
+				`${what} in a query over a text whose pattern bounds it within ${regexTextMaxBytes.value} bytes: PostgreSQL's regex engine widens its subject to four bytes for every byte and refuses past 1 GB, and a read never fails on a value; ${bytes === undefined ? "the subject's pattern bounds no length" : `the subject's pattern bounds it at ${bytes} bytes`}, so bound it, or read it in a contract predicate, row check or generated field`
+			)
+		}
 	}
 
 	/**
@@ -1938,6 +1960,46 @@ class Lowering<R extends Refs> {
 			this.env.fieldType({ kind: "text", source, flags: imageFlags }, at)
 		const exact = typed(sources.exact)
 		return exact.ok ? exact.value : unwrap(typed(sources.within))
+	}
+
+	/**
+	 * Compute.collapse(x), XML Schema's whiteSpace collapse: each run of tab, LF, CR and space one space, and none at
+	 * either end, `btrim(regexp_replace(x, '[ \t\n\r]+', ' ', 'g'))`. The node computes text; the term is text of a
+	 * language holding the image of x's (collapseType), exactly where it is cheap to state. PostgreSQL's regex engine
+	 * widens x to four bytes a byte before it matches, and refuses past 1 GB, and a read never fails on a value, so a
+	 * query collapses only an x whose pattern bounds its bytes within regexTextMaxBytes; a check or generated field
+	 * collapses any text, and its write fails on a longer one. A builder types the term as text of no pattern.
+	 */
+	collapse(subjectDesc: ExprDesc<Located, R>, at: SourceLoc): Lowered {
+		const x = this.term(subjectDesc, childLoc(at, 0))
+		if (baseOf(x.actual).carrier !== "text") {
+			return stop(
+				"MalformedDescription",
+				at,
+				`a text term for collapse, not ${typeLabel(x.nominal)}`
+			)
+		}
+		const text = textOf(x.nominal)
+		this.regexReadable("Compute.collapse", x, at)
+		const op = this.overload("collapse", [x.actual], at)
+		const node = this.native(op, [x], wildcardText, undefined, at, "Compute.collapse")
+		return this.env.mode === "build" || text === undefined
+			? node
+			: { ...node, nominal: this.collapseType(text, at) }
+	}
+
+	/**
+	 * Text of a language holding the image of `text`'s under collapse (scalar/regex/whitespace.ts collapseSources), the
+	 * first of its patterns the text analysis admits, each held to its measures as a str.regex is.
+	 */
+	collapseType(text: TextInfo, at: SourceLoc): ScalarType {
+		for (const c of collapseSources(text.regex, text.lengthBound)) {
+			const typed = this.env.fieldType({ kind: "text", source: c.source, flags: c.flags }, at)
+			if (typed.ok) {
+				return typed.value
+			}
+		}
+		return wildcardText
 	}
 
 	/** A set over a roster, and the roster, or the refusal of a term of another type: it has no set algebra. */
@@ -2539,6 +2601,7 @@ class Lowering<R extends Refs> {
 			endsWith: 2,
 			matches: 2,
 			translate: 3,
+			collapse: 1,
 			add: 2,
 			sub: 2,
 			mul: 2,
@@ -2831,6 +2894,8 @@ class Lowering<R extends Refs> {
 				return this.matches(arg(0), arg(1), here)
 			case "translate":
 				return this.translate(arg(0), arg(1), arg(2), here)
+			case "collapse":
+				return this.collapse(arg(0), here)
 			case "cosineDistance": {
 				const a = this.term(arg(0), here)
 				const b = this.operand(arg(1), a, "compare", here)

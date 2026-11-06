@@ -722,6 +722,23 @@ export interface ComputeApi {
 		x: A & FirstTerm<A> & InputTerm<X, PA, OA, "text">
 	): Term<string, PA, ComputedOrigin<OA>, "text">
 	/**
+	 * XML Schema's whiteSpace replace: translate(x, "\t\n\r", "   "), tab, LF and CR each a space, as Compute.translate
+	 * is admitted.
+	 */
+	replaceWhitespace<A extends TermBase | FirstValue, X, PA, OA>(
+		x: A & FirstTerm<A> & InputTerm<X, PA, OA, "text">
+	): Term<string, PA, ComputedOrigin<OA>, "text">
+	/**
+	 * XML Schema's whiteSpace collapse: each run of tab, LF, CR and space one space, and none at either end,
+	 * `btrim(regexp_replace(x, '[ \t\n\r]+', ' ', 'g'))`, IMMUTABLE. Compilation reads the result as text of a language
+	 * holding its values within x's length bound: exactly the image of x's where it is cheap to state, and otherwise
+	 * more. Admitted in contract predicates, row checks and generated fields; in a query only over a text whose pattern
+	 * bounds it within 268,435,454 bytes, since PostgreSQL's regex engine widens its operand to four bytes a byte.
+	 */
+	collapse<A extends TermBase | FirstValue, X, PA, OA>(
+		x: A & FirstTerm<A> & InputTerm<X, PA, OA, "text">
+	): Term<string, PA, ComputedOrigin<OA>, "text">
+	/**
 	 * Whether the text holds a match of the pattern, PostgreSQL's `~` (textregexeq), as a str.regex refinement holds
 	 * one: the pattern is in grizzle's grammar under the flags "u", and `^` and `$` anchor it. The pattern is a string,
 	 * which the grammar check reads at the type level as str.regex's does, or a text term whose every value the schema

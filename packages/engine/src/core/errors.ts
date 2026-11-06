@@ -267,8 +267,8 @@ const duplicateText = (duplicate: Duplicate): string => {
  *   fold would read a projection of its facts; `key` is the key to bind.
  * - `QueriedOwnerAppend`: a write at `at` of `owner` from a query, its `op` an insert or a put, which may insert an
  *   owner of `family`, in a ChangeSet that appends `member` to that family.
- * - `UnstatedKey`: a put or a delete, `op`, of `relation`, whose primary key `key` holds the fields `unstated`, which
- *   grizzle writes and no fact states, so it names no row.
+ * - `UnstatedKey`: a put or a delete, `op`, of `relation`, whose `key` holds the fields `unstated`, which grizzle writes
+ *   and no fact states: its primary key, which names no row then, or a declared key a put's same-key check compares.
  * - `MissingDiscriminant`, `AttachedParentUnbound`, `AttachedPage`, `DescribedHeadingMismatch`, `ContractLiteral`:
  *   the rule `capability` names, a sentence nothing reads the parts of.
  * - `DuplicateIdentity`: a name declared twice differently (Duplicate), with the earlier declaration's location.
@@ -322,7 +322,7 @@ export type CompileReason =
 			readonly at: SourceLoc
 			readonly op: "put" | "delete"
 			readonly relation: string
-			readonly key: ReadonlyArray<string>
+			readonly key: UnstatedKeyOf
 			readonly unstated: ReadonlyArray<string>
 	  }
 	| {
@@ -460,17 +460,32 @@ const queriedOwnerAppendText = (
 ): string =>
 	`${op === "put" ? "a put of" : "an insert into"} ${owner} from a query, which may insert an owner of the family ${family.owner}.${family.count}, in a ChangeSet that appends ${member} to that family: an inserted owner holds its final count and ends in its own row, which grizzle fills only from the facts a ChangeSet states, so state ${owner}'s facts in this ChangeSet from an array or a Stream, or ${op} ${owner} in a ChangeSet that ChangeSet.sequence runs before the one that appends`
 
+/** The key an UnstatedKey names, by its fields: the relation's primary key, or a key a `key` statement declares. */
+interface UnstatedKeyOf {
+	readonly kind: "primary" | "declared"
+	readonly fields: ReadonlyArray<string>
+}
+
 /**
- * A put names each row by its primary key, and a family's edit names each member by it, so a key holding a field grizzle
- * writes, which no fact states (a sequence's index), names no row: name the key to declare instead.
+ * A put names each row by its primary key, and a family's edit names each member by it, so a primary key holding a field
+ * grizzle writes, which no fact states (a sequence's index), names no row: name the key to declare instead. A put's
+ * same-key check compares its facts at every declared key too, so a declared key holding one is compared by no fact.
  */
 const unstatedKeyText = (
 	op: "put" | "delete",
 	relation: string,
-	key: ReadonlyArray<string>,
+	key: UnstatedKeyOf,
 	unstated: ReadonlyArray<string>
-): string =>
-	`a ${op} of ${relation} names each row by its primary key (${key.join(", ")}), and no fact of ${relation} states ${unstated.join(" or ")}, which grizzle writes itself: give ${relation} a primary key of fields its caller writes, such as an id, to ${op} a row by it`
+): string => {
+	const fields = `(${key.fields.join(", ")})`
+	const missing = `no fact of ${relation} states ${unstated.join(" or ")}, which grizzle writes itself`
+	switch (key.kind) {
+		case "primary":
+			return `a ${op} of ${relation} names each row by its primary key ${fields}, and ${missing}: give ${relation} a primary key of fields its caller writes, such as an id, to ${op} a row by it`
+		case "declared":
+			return `a ${op} of ${relation} checks its facts at its key ${fields} before it is sent, and ${missing}: declare that key over fields ${relation}'s caller writes, or drop it where a family's own key already holds it`
+	}
+}
 
 /** A reason whose one fact is the sentence `text`, at `at`. */
 export const prose = (tag: ProseTag, at: SourceLoc, text: string): CompileReason =>

@@ -58,7 +58,8 @@ import { families, jsAccepts, patternOver, stringsOver } from "#test/unit/text/g
  *    CHECK.
  */
 
-const textColumn: LeafBinding = { kind: "column", type: testPg.text.scalar }
+/** A text whose pattern bounds its bytes, which a query's `~` reads (lower.ts regexReadable); every drawn row is short. */
+const textColumn: LeafBinding = { kind: "column", type: testPg.regex("^.{0,64}$", "su").scalar }
 const boolColumn: LeafBinding = { kind: "column", type: testPg.boolean.scalar }
 
 const variable = (name: string): ExprDesc => ({ kind: "var", var: name })

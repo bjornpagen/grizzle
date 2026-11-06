@@ -11,17 +11,15 @@ import {
 	isAdmittedCodePoint,
 	union
 } from "#compiler/scalar/regex/charset.ts"
+import { end, type LiveNode, type RegexNode, seq, start } from "#compiler/scalar/regex/ir.ts"
+import type { RegexFlags } from "#compiler/scalar/regex/parse.ts"
 import {
-	end,
-	folded,
-	type LiveNode,
-	RegexBuilder,
-	type RegexNode,
-	seq,
-	set,
-	start
-} from "#compiler/scalar/regex/ir.ts"
-import { parsePattern, type RegexFlags } from "#compiler/scalar/regex/parse.ts"
+	anchoredAt,
+	anyText,
+	patternNode,
+	printSource,
+	sourceFlags
+} from "#compiler/scalar/regex/source.ts"
 import { entry } from "#compiler/scalar/regex/table.ts"
 
 /**
@@ -110,12 +108,6 @@ const sameSet = (a: CharSet, b: CharSet): boolean =>
 		return blo === lo && bhi === hi
 	})
 
-/** Whether every member of a language a node matches starts at the value's start, and ends at its end. */
-const anchoredAt = (node: LiveNode, side: "start" | "end"): boolean => {
-	const edge = node.kind === "seq" ? (side === "start" ? node.items[0] : node.items.at(-1)) : node
-	return edge?.kind === side
-}
-
 /**
  * The language of a pattern as a whole-value match: a match anywhere is a match after any prefix and before any
  * suffix, so a side the pattern does not anchor reads `^.*` or `.*$` there, with dot every admitted code point. The two
@@ -130,98 +122,8 @@ const whole = (node: LiveNode): RegexNode => {
 	])
 }
 
-/** Any run of admitted code points, `.*` under the flags "su". */
-const anyText = (): RegexNode => new RegexBuilder().repeat(set(domain), 0, "unbounded")
-
-/** ECMAScript's ASCII letters and digits, which a pattern spells as themselves inside a class and out. */
-const isAsciiAlnum = (c: number): boolean =>
-	(c >= 0x30 && c <= 0x39) || (c >= 0x41 && c <= 0x5a) || (c >= 0x61 && c <= 0x7a)
-
-/**
- * One code point in grizzle's pattern grammar, meaning itself inside a class and out: an ASCII letter or digit as
- * itself, any other as the braced escape `\u{...}`, which no following character extends.
- */
-const sourceChar = (c: number): string =>
-	isAsciiAlnum(c) ? String.fromCodePoint(c) : `\\u{${c.toString(16).toUpperCase()}}`
-
-/** A set as one code point, or a class of its intervals, each a code point, a pair or a range. */
-const sourceSet = (s: CharSet): string => {
-	const only = s[0]
-	if (s.length === 1 && only !== undefined && only[0] === only[1]) {
-		return sourceChar(only[0])
-	}
-	const items = s.map(([lo, hi]) =>
-		lo === hi
-			? sourceChar(lo)
-			: hi === lo + 1
-				? `${sourceChar(lo)}${sourceChar(hi)}`
-				: `${sourceChar(lo)}-${sourceChar(hi)}`
-	)
-	return `[${items.join("")}]`
-}
-
-const quantifier = (min: number, max: number | "unbounded"): string => {
-	if (max === "unbounded") {
-		return min === 0 ? "*" : min === 1 ? "+" : `{${min},}`
-	}
-	return min === max ? `{${min}}` : `{${min},${max}}`
-}
-
-/** The grammar's precedence levels, loosest binding first; a quantifier applies to an atom alone. */
-const levels = ["alt", "seq", "quantified", "atom"] as const
-
-interface Printed {
-	readonly text: string
-	readonly level: (typeof levels)[number]
-}
-
-/** A node's text, grouped unless it binds at least as tightly as `level`. */
-const group = (p: Printed, level: Printed["level"]): string =>
-	levels.indexOf(p.level) < levels.indexOf(level) ? `(?:${p.text})` : p.text
-
-/**
- * A node's source under the map and its precedence, from its children's (`of`): each set printed as its image, every
- * other construct as itself. An assertion prints at sequence precedence, so it is grouped before a quantifier applies
- * to it; an alternation with the empty string as an arm is its other arms made optional, since a printed empty arm
- * would be read as one again.
- */
-const printed =
-	(map: CharMap) =>
-	(node: LiveNode, of: (child: LiveNode) => Printed): Printed => {
-		switch (node.kind) {
-			case "empty":
-				return { text: "", level: "seq" }
-			case "set":
-				return { text: sourceSet(imageOfSet(node.set, map)), level: "atom" }
-			case "start":
-				return { text: "^", level: "seq" }
-			case "end":
-				return { text: "$", level: "seq" }
-			case "seq":
-				return { text: node.items.map((item) => group(of(item), "seq")).join(""), level: "seq" }
-			case "alt": {
-				const arms = node.arms.filter((arm) => arm.kind !== "empty")
-				const alternation = (): Printed => ({
-					text: arms.map((arm) => group(of(arm), "alt")).join("|"),
-					level: "alt"
-				})
-				if (arms.length === node.arms.length) {
-					return alternation()
-				}
-				const [only] = arms
-				const rest = arms.length === 1 && only !== undefined ? of(only) : alternation()
-				return { text: `${group(rest, "atom")}?`, level: "quantified" }
-			}
-			case "repeat":
-				return {
-					text: `${group(of(node.body), "atom")}${quantifier(node.min, node.max)}`,
-					level: "quantified"
-				}
-		}
-	}
-
 /** The flags every image is read under: its sets are explicit classes, so no dot is left for a flag to read. */
-export const imageFlags: RegexFlags = "u"
+export const imageFlags: RegexFlags = sourceFlags
 
 /**
  * The image of a pattern's language under a map, as two sources in grizzle's grammar under imageFlags, the exact one
@@ -242,7 +144,7 @@ const imageSources = (
 		if (n.kind === "never") {
 			throw defect("the whole-value form of a language with a member, which has one too")
 		}
-		return folded(new Map<RegexNode, Printed>(), n, printed(map)).text
+		return printSource(n, (set) => imageOfSet(set, map))
 	}
 	const within = print(node)
 	return {
@@ -251,20 +153,8 @@ const imageSources = (
 	}
 }
 
-/**
- * The image of a text type's language under a map (imageSources): of its pattern's parse, or, for the wildcard, of
- * every admitted value, `^.*$` under the flags "su". A type's pattern is one its text analysis admitted, so it parses.
- */
+/** The image of a text type's language under a map (imageSources), its pattern's or the wildcard's (patternNode). */
 export const imageOf = (
 	regex: TextInfo["regex"],
 	map: CharMap
-): { readonly exact: string; readonly within: string } => {
-	const parsed =
-		regex === "wildcard"
-			? Result.ok(seq([start, anyText(), end]))
-			: parsePattern(regex.source, regex.flags)
-	if (!parsed.ok || parsed.value.kind === "never") {
-		throw defect("the pattern of a text type, which its text analysis admitted with a member")
-	}
-	return imageSources(parsed.value, map)
-}
+): { readonly exact: string; readonly within: string } => imageSources(patternNode(regex), map)

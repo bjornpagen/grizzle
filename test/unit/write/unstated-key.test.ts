@@ -7,7 +7,7 @@ import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import { drawn, natural, pg, uuid } from "#compiler/public/fields.ts"
-import { fin, mutable, on, ordered, relation, schema } from "#compiler/public/schema.ts"
+import { fin, key, mutable, on, ordered, relation, schema } from "#compiler/public/schema.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { inForce } from "#compiler/write/family/order.ts"
 import { bindWrite } from "#compiler/write/program/bind.ts"
@@ -25,6 +25,11 @@ import { descOf, parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts
  * facts used to reach the host's same-key check and the family's edit without the index, an internal invariant. The
  * control: the same family over a member keyed by an id its caller writes, whose put and delete compile and bind; and
  * the sequence's own insert, nested under its owner, which draws the index.
+ *
+ * A put's same-key check compares its facts at every declared key too, the primary key's first, so a key declared over
+ * the member's owner and index beside its id is compared by no fact: such a put is refused the same way, naming the
+ * declared key, where it reached the check without the index. A delete compares no key before it is sent, so the same
+ * member's delete, named by its id, binds.
  */
 
 const Owner = relation("Owner", { id: uuid, n: drawn(natural) }, ["id"])
@@ -39,6 +44,22 @@ const Indexed = schema("Indexed", { Owner, Slot }, [
 const Line = relation("Line", { id: uuid, owner: uuid, at: drawn(natural), x: pg.bigint }, ["id"])
 const Identified = schema("Identified", { Owner, Line }, [
 	ordered(on(Line, "owner", "at"), fin(Owner, "n")),
+	mutable(Owner),
+	mutable(Line)
+])
+
+/** The sequence keyed by its index, with a second key over the index declared beside it: the primary key is read first. */
+const Both = schema("Both", { Owner, Slot }, [
+	ordered(on(Slot, "owner", "at"), fin(Owner, "n")),
+	key(on(Slot, "x", "at")),
+	mutable(Owner),
+	mutable(Slot)
+])
+
+/** The same sequence with a key declared over the member's owner and index, beside its id. */
+const Declared = schema("Declared", { Owner, Line }, [
+	ordered(on(Line, "owner", "at"), fin(Owner, "n")),
+	key(on(Line, "owner", "at")),
 	mutable(Owner),
 	mutable(Line)
 ])
@@ -102,7 +123,12 @@ describe("a write that names rows by a primary key", () => {
 									key: reason.key,
 									unstated: reason.unstated
 								},
-								{ op, relation: "Slot", key: ["owner", "at"], unstated: ["at"] },
+								{
+									op,
+									relation: "Slot",
+									key: { kind: "primary", fields: ["owner", "at"] },
+									unstated: ["at"]
+								},
 								"the refusal names the write, the relation, its key and the field no fact states"
 							)
 							const write = Arr.findFirst(
@@ -130,6 +156,79 @@ describe("a write that names rows by a primary key", () => {
 								"a member named by an id its caller writes binds"
 							)
 							c.note(`${op} of a member keyed by an id: bound`)
+						})
+				)
+			)
+	)
+
+	it.effect(
+		"refuses a put whose same-key check would compare a declared key holding a field grizzle writes, naming that key, and binds the same member's delete, which compares no key",
+		(ctx) =>
+			searched(
+				ctx,
+				exhaust(
+					{
+						suite: "unit/write/unstated-declared-key",
+						generator: element(ops),
+						literal: Formatter.format,
+						limit: ops.length,
+						coverage: requiredInSpace<`${Op} beside a declared key over the index`>(
+							Arr.map(
+								ops,
+								(op): `${Op} beside a declared key over the index` =>
+									`${op} beside a declared key over the index`
+							)
+						),
+						caseHang
+					},
+					(op, c) =>
+						Effect.gen(function* () {
+							const value = writing(op, Declared, Line, [
+								{ id: uuidOf(2), owner: uuidOf(1), x: 1n }
+							])
+							c.note(`${op} beside a declared key over the index`)
+							if (op === "delete") {
+								const program = succeeded(compileOver(Declared, value))
+								const members = yield* collectInputs(program.frontend, parsedOf(value).inputs)
+								const bound = succeeded(
+									bindWrite(program, { members, params: {}, transport: inForce(bindFrame) })
+								)
+								assertVariant(bound, "kind", "bound", "a delete named by its id binds")
+								return
+							}
+							const reason = refused(
+								compileOver(Declared, value),
+								"UnstatedKey",
+								"the put's same-key check would compare the index no fact states"
+							).reason
+							if (reason._tag !== "UnstatedKey") {
+								return assert.fail("an UnstatedKey")
+							}
+							assert.deepEqual(
+								{
+									op: reason.op,
+									relation: reason.relation,
+									key: reason.key,
+									unstated: reason.unstated
+								},
+								{
+									op,
+									relation: "Line",
+									key: { kind: "declared", fields: ["owner", "at"] },
+									unstated: ["at"]
+								},
+								"the refusal names the declared key and the field no fact states"
+							)
+							const first = refused(
+								compileOver(Both, writing(op, Both, Slot, [{ owner: uuidOf(1), x: 1n }])),
+								"UnstatedKey",
+								"both keys hold the index"
+							).reason
+							assert.deepEqual(
+								first._tag === "UnstatedKey" && first.key,
+								{ kind: "primary", fields: ["owner", "at"] },
+								"the primary key is read first, before any declared key"
+							)
 						})
 				)
 			)

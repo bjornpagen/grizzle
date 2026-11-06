@@ -444,8 +444,13 @@ The command line's own refusals, by stage:
   `Compute.literal(Prose, "item-")`. Normalize text with `Compute.translate(x, from, to)`, strings of one length with
   each character of `from` once (`Compute.translate(title, "\t\n\r", "   ")` for `xs:normalizedString`), and fold
   ASCII case with `Compute.lowerAscii(x)`, never a locale's `lower`. A translation is text of the image of `x`'s
-  pattern, so store it as `generated(T, Compute.cast(Compute.translate(…), T))` for any refined text `T` the image lies
-  in, which compilation proves; translate in a query only over a pattern that bounds its length. Fold an ordered family's texts with `Monoid.concat`, naming its
+  pattern, so store it as `generated(T, Compute.cast(Compute.translate(…), T))` for any refined text `T` the image
+  lies in, which compilation proves; translate in a query only over a pattern that bounds its length. For XML
+  Schema's whiteSpace facets use `Compute.replaceWhitespace(x)` (tab, LF and CR to spaces) and `Compute.collapse(x)`
+  (runs to one space, none at either end), never a regex of your own; cast a collapse into a refined text the same
+  way, such as `str.regex("^(?:[^ \\t\\n\\r]+(?: [^ \\t\\n\\r]+)*)?$", "su")` for any text. A query's
+  `Compute.matches` and `Compute.collapse`, like its translate, need a pattern that bounds the subject's length:
+  PostgreSQL's regex engine widens its subject fourfold. Fold an ordered family's texts with `Monoid.concat`, naming its
   `(before, after)` pair, and write each member's separator into its own step value; type the step and the
   accumulators by a bounded pattern, `str.regex("^.{0,64}$", "su")`, since the family's axes key each running text
   and an unbounded one is UnrepresentableKey.

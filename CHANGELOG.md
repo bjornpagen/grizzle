@@ -16,7 +16,7 @@ How to upgrade:
 
 ### Breaking changes
 
-#### Text translates: `Compute.translate` and `Compute.lowerAscii`, casts into a refined text by language inclusion
+#### Text translates and collapses: `Compute.translate`, `.lowerAscii`, `.replaceWhitespace` and `.collapse`, casts into a refined text by language inclusion
 
 - **`Compute.translate(x, from, to)`** is PostgreSQL's `translate` (IMMUTABLE), by characters: each character of `x`
   that `from` holds becomes the character of `to` at its position. `from` and `to` are strings of one length, `from`
@@ -39,8 +39,23 @@ How to upgrade:
 - **A key or containment over a selected side whose term or selection reads a generated field** installs: each law
   column reads such a field as the field's own generation, since PostgreSQL refuses a generation expression that reads
   a generated column (42P17); before, the installation's `ALTER TABLE ... ADD COLUMN` failed. No codemod.
-- **Format and state:** a snapshot names the compute function `translate` where a schema uses one; the law column of a
-  selected side over a generated field prints its generation in place of the field. No other change.
+- **`Compute.collapse(x)`** is XML Schema's whiteSpace collapse, `btrim(regexp_replace(x, '[ \t\n\r]+', ' ', 'g'))`,
+  both IMMUTABLE (pg_proc), the bracket of four literal characters reading no collation: each run of tab, LF, CR and
+  space one space, none at either end, and every other character, a no-break space included, as it is. The host
+  collapses by code points and agrees with PostgreSQL exactly. The term is text within `x`'s length bound: exactly the
+  image of `x`'s language for a pattern with no white space (its own) and for a class repeated freely, `^[...]*$`
+  (every collapsed text over its other characters); and more than the image otherwise, every text of at most n
+  characters beginning and ending with another character for a pattern bounded within n ≤ 257, and every collapsed
+  text over its characters for any other. **`Compute.replaceWhitespace(x)`** is whiteSpace replace,
+  `Compute.translate(x, "\t\n\r", "   ")`. No codemod.
+- **A query matches or collapses only a text whose pattern bounds it within 268,435,454 bytes** (the new limit
+  `regexTextMaxBytes`): PostgreSQL's regex engine widens its subject to four bytes a byte before `~` or `regexp_replace`
+  reads it and raises "invalid memory alloc request size" past `MaxAllocSize`. A `Compute.matches` in a query, a match
+  guard's included, over a text of no such bound is now `UnsupportedOperation`; before, the read raised on such a value.
+  A check, a law's selection and a generated field match any text, and a write of a longer one fails. Bound the
+  subject's pattern, such as `str.regex("^.{0,255}$", "su")`. No codemod.
+- **Format and state:** a snapshot names the compute functions `translate` and `collapse` where a schema uses them; the
+  law column of a selected side over a generated field prints its generation in place of the field. No other change.
 
 #### Text parses into a typed value: `Compute.cast` from text, `lexical(T)` and `lexicalForm(T)`, and a `date` type
 
@@ -246,11 +261,13 @@ How to upgrade:
 - **A put or a delete of a relation whose primary key holds a field grizzle writes is refused: `UnstatedKey`.** A put
   names each row by its primary key, and a family's edit names each member by it, so a sequence's member keyed by its
   owner and its drawn index, `["owner", "at"]`, names no row its caller can state; its put or delete reached the host's
-  same-key check and the family's edit without the index and failed as an internal invariant. It is now a
-  `CompileError` when the ChangeSet is compiled, whose reason `UnstatedKey` names the write (`at`, `op`), the
-  `relation`, its primary `key` and the fields no fact states (`unstated`).
-  - Codemod: none; key such a member by fields its caller writes, such as an id, to put or delete it, and insert a
-    sequence nested under its owner.
+  same-key check and the family's edit without the index and failed as an internal invariant. A put's same-key check
+  compares its facts at every declared key too, the primary key's first, so a key declared over the index beside an id
+  failed there the same way. Each is now a `CompileError` when the ChangeSet is compiled, whose reason `UnstatedKey`
+  names the write (`at`, `op`), the `relation`, the `key` (`{ kind: "primary" | "declared", fields }`) and the fields no
+  fact states (`unstated`). A delete compares no declared key, so only its primary key is read.
+  - Codemod: none; key such a member by fields its caller writes, such as an id, to put or delete it, declare no key
+    over a field grizzle writes, and insert a sequence nested under its owner.
 - **No residual law remains.** grizzle installs no law function and no constraint trigger, and the residual-law
   engine, the `lawFunction` and `lawTrigger` snapshot objects and the law trigger names are deleted. `alternatives` is
   its containments: one from each arm into its parent at its handle, and one from each handle's parent rows into its

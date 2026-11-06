@@ -22,6 +22,7 @@ import { key, on, relation, schema, select } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { translated } from "#compiler/scalar/regex/translate.ts"
+import { collapsed } from "#compiler/scalar/regex/whitespace.ts"
 import { probe } from "#test/pg/physical/checks.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { installationSql } from "#test/support/compile.ts"
@@ -63,12 +64,13 @@ const variable = (name: string): ExprDesc => ({ kind: "var", var: name })
 const text = (value: string): ExprDesc => ({ kind: "literal", value, type: undefined })
 
 /**
- * Tab, LF and CR beside the space they become, the ASCII letters and their neighbours, Latin-1's capital and small E
+ * Tab, LF and CR beside the space they become, twice, so runs of them are common, the ASCII letters and their
+ * neighbours, no-break space and line separator, which XML does not count as white space, Latin-1's capital and small E
  * acute, and BMP's last and a supplementary code point.
  */
 const alphabet: Arr.NonEmptyReadonlyArray<number> = [
-	0x09, 0x0a, 0x0d, 0x20, 0x40, 0x41, 0x5a, 0x5b, 0x60, 0x61, 0x7a, 0x7b, 0xc9, 0xe9, 0xffff,
-	0x1f600
+	0x09, 0x0a, 0x0d, 0x20, 0x09, 0x0a, 0x0d, 0x20, 0x40, 0x41, 0x5a, 0x5b, 0x60, 0x61, 0x7a, 0x7b,
+	0xa0, 0x2028, 0xc9, 0xe9, 0xffff, 0x1f600
 ]
 
 /**
@@ -89,6 +91,8 @@ type SqlFeature =
 	| "a non-ASCII character kept"
 	| "a repeated character read by its first"
 	| "a character deleted"
+	| "a run of white space folded"
+	| "white space trimmed at an end"
 
 const sqlCase: Gen<SqlCase> = (source) => {
 	const from = Arr.dedupe(source.draw(array(element(alphabet), { min: 0, max: 4 })))
@@ -100,6 +104,9 @@ const sqlCase: Gen<SqlCase> = (source) => {
 		texts: source.draw(array(stringsOver(alphabet, 10), { min: 1, max: 48 }))
 	}
 }
+
+/** Whether a code point is one of XML's four white space characters. */
+const isXmlSpace = (c: number): boolean => c === 0x09 || c === 0x0a || c === 0x0d || c === 0x20
 
 /** The text PostgreSQL prints a host value as. */
 const printed = (value: unknown): string => String(value)
@@ -130,7 +137,9 @@ layer(Substrate.layer)("Compute's translate and lowerAscii on PostgreSQL", (it) 
 								"a capital lowered",
 								"a non-ASCII character kept",
 								"a repeated character read by its first",
-								"a character deleted"
+								"a character deleted",
+								"a run of white space folded",
+								"white space trimmed at an end"
 							],
 							{ cases: 40, sense: notesOnly }
 						),
@@ -157,7 +166,11 @@ layer(Substrate.layer)("Compute's translate and lowerAscii on PostgreSQL", (it) 
 								args: [variable("v"), text(codePointsText(c.from)), text(codePointsText(c.to))]
 							})
 							const folded = lower(spelledExpr(computeCore.lowerAscii(v("v", testPg.text)).expr))
-							const probes = [translation, folded]
+							const collapse = lower(spelledExpr(computeCore.collapse(v("v", testPg.text)).expr))
+							const replace = lower(
+								spelledExpr(computeCore.replaceWhitespace(v("v", testPg.text)).expr)
+							)
+							const probes = [translation, folded, collapse, replace]
 							const select = Arr.join(
 								Arr.map(probes, (p) => `(${renderSql(p, plainRender)})::text`),
 								", "
@@ -188,7 +201,7 @@ layer(Substrate.layer)("Compute's translate and lowerAscii on PostgreSQL", (it) 
 									assert.equal(
 										row[j],
 										printed(host.success),
-										`${j === 0 ? Formatter.format(c) : "lowerAscii"} over ${Formatter.format(input)}: PostgreSQL against the host`
+										`${defined(["translate", "lowerAscii", "collapse", "replaceWhitespace"][j])} over ${Formatter.format(input)}: PostgreSQL against the host`
 									)
 								}
 								assert.equal(
@@ -205,8 +218,16 @@ layer(Substrate.layer)("Compute's translate and lowerAscii on PostgreSQL", (it) 
 								if (Arr.some(codePoints(input), (c) => c > 0x7f)) {
 									k.note("a non-ASCII character kept")
 								}
+								assert.equal(row[2], collapsed(input), `collapse over ${Formatter.format(input)}`)
+								const points = codePoints(input)
+								if (Arr.some(points, (cp, i) => isXmlSpace(cp) && isXmlSpace(points[i + 1] ?? 0))) {
+									k.note("a run of white space folded")
+								}
+								if (isXmlSpace(points[0] ?? 0) || isXmlSpace(points.at(-1) ?? 0)) {
+									k.note("white space trimmed at an end")
+								}
 								assert.equal(
-									row[2],
+									row[4],
 									translated(input, c.rawFrom, c.rawTo),
 									`translate(${Formatter.format(input)}, ${Formatter.format(c.rawFrom)}, ${Formatter.format(c.rawTo)}): PostgreSQL against the host`
 								)
@@ -237,6 +258,7 @@ layer(Substrate.layer)("Compute's translate and lowerAscii on PostgreSQL", (it) 
 
 	type InstalledFeature =
 		| "a title normalized"
+		| "a title collapsed"
 		| "a tag folded"
 		| "a tag refused by its folded key"
 		| "a selected row refused by its generated key"
@@ -258,6 +280,8 @@ layer(Substrate.layer)("Compute's translate and lowerAscii on PostgreSQL", (it) 
 
 	const Title = str.regex("^.{0,40}$", "su")
 	const Normalized = str.regex("^[^\\t\\n\\r]{0,40}$", "su")
+	/** A collapsed title of at most 40 characters: no tab, LF or CR, and a space at neither end. */
+	const Collapsed = str.regex("^(?:[^ \\t\\n\\r](?:[^\\t\\n\\r]{0,38}[^ \\t\\n\\r])?)?$", "su")
 	const Tag = str.regex("^[A-Za-z]{1,8}$", "u")
 	const FoldedTag = str.regex("^[a-z]{1,8}$", "u")
 	const Numeral = str.regex("^[0-9]{1,6}$", "u")
@@ -271,7 +295,8 @@ layer(Substrate.layer)("Compute's translate and lowerAscii on PostgreSQL", (it) 
 				Normalized,
 				Compute.cast(Compute.translate(r.title, "\t\n\r", "   "), Normalized)
 			),
-			folded: generated(FoldedTag, Compute.cast(Compute.lowerAscii(r.tag), FoldedTag))
+			folded: generated(FoldedTag, Compute.cast(Compute.lowerAscii(r.tag), FoldedTag)),
+			collapsed: generated(Collapsed, Compute.cast(Compute.collapse(r.title), Collapsed))
 		})
 	)
 	const Counted = relation.generated(
@@ -414,11 +439,11 @@ layer(Substrate.layer)("Compute's translate and lowerAscii on PostgreSQL", (it) 
 				}
 			}
 			const stored = yield* pinned.queryValues(
-				`SELECT ${names.column(Named, "title")}, ${names.column(Named, "normalized")}, ${names.column(Named, "tag")}, ${names.column(Named, "folded")} FROM ${names.table(Named)} ORDER BY ${names.column(Named, "id")}`,
+				`SELECT ${names.column(Named, "title")}, ${names.column(Named, "normalized")}, ${names.column(Named, "tag")}, ${names.column(Named, "folded")}, ${names.column(Named, "collapsed")} FROM ${names.table(Named)} ORDER BY ${names.column(Named, "id")}`,
 				[]
 			)
 			for (const row of stored) {
-				const [t, n, g, f] = Arr.map(row, String)
+				const [t, n, g, f, cl] = Arr.map(row, String)
 				const storedTitle = defined(t)
 				const storedTag = defined(g)
 				if (n !== normalizedOf(storedTitle)) {
@@ -432,6 +457,12 @@ layer(Substrate.layer)("Compute's translate and lowerAscii on PostgreSQL", (it) 
 				}
 				if (f !== storedTag) {
 					reached.add("a tag folded")
+				}
+				if (cl !== collapsed(storedTitle)) {
+					problems.push(`collapsed ${Formatter.format(cl)} of ${Formatter.format(storedTitle)}`)
+				}
+				if (cl !== n) {
+					reached.add("a title collapsed")
 				}
 			}
 			return { problems, reached }
@@ -456,6 +487,7 @@ layer(Substrate.layer)("Compute's translate and lowerAscii on PostgreSQL", (it) 
 							coverage: required<InstalledFeature>(
 								[
 									"a title normalized",
+									"a title collapsed",
 									"a tag folded",
 									"a tag refused by its folded key",
 									"a selected row refused by its generated key",

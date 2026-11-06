@@ -154,6 +154,24 @@ const textSuffix = (args: ReadonlyArray<Expr>): Expr | undefined => {
 }
 
 /**
+ * whiteSpace collapse (scalar/compute/registry.ts textCollapse): every run of white space one space, `run` its ARE,
+ * then the spaces at either end trimmed, `btrim(regexp_replace(x, run, ' ', 'g'))`.
+ */
+const collapseText = (args: ReadonlyArray<Expr>, run: string): Expr | undefined => {
+	const [x] = args
+	return args.length === 1 && x !== undefined
+		? call("btrim", [
+				call("regexp_replace", [
+					x,
+					lit.text(run, types.text),
+					lit.text(" ", types.text),
+					lit.text("g", types.text)
+				])
+			])
+		: undefined
+}
+
+/**
  * The pattern operand `~` reads in a Compute.matches node's place (ir/expr.ts PatternTable): the ARE of each value
  * the node's pattern can take, never its source, which only grizzle's own automaton reads. A literal pattern is its
  * ARE's literal; any other is `CASE p WHEN '<source>' THEN '<ARE>' ... ELSE p END`, which reads the pattern once,
@@ -262,6 +280,8 @@ const registryForm = (id: OpId, args: ReadonlyArray<Expr>): Expr | undefined => 
 			return setConstruct(sql.kind, args)
 		case "endsWith":
 			return textSuffix(args)
+		case "collapse":
+			return collapseText(args, sql.run)
 	}
 }
 
