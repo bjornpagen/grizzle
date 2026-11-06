@@ -436,9 +436,9 @@ const fillGroup = (
 			)
 		})
 	const removedSlots = stored.filter((m) => edit.removals.has(m.key)).map((m) => m.slot)
-	/** A fixed group of an immutable owner takes no append, no removal and no change of what its family values read:
-	 * every one would change a value fixed when the owner was inserted. An update of anything else is in place. */
 	if (fixed !== undefined) {
+		/** A fixed group of an immutable owner takes no append, no removal and no change of what its family values read:
+		 * every one would change a value fixed when the owner was inserted. An update of anything else is in place. */
 		const at = `the owner ${family.owner.name} with key (${fixed.owner.join(", ")}), ${fixed.standing === "stored" ? "which is already stored" : "which this stratum does not insert"}`
 		const changed = [...edit.updates].some(([key, values]) => {
 			const m = stored.find((x) => x.key === key)

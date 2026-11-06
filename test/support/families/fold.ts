@@ -24,9 +24,13 @@ import type { MonoidName } from "#compiler/ir/desc.ts"
 import type { Moment, Timing } from "#test/support/families/mutate.ts"
 import type { Shape } from "#test/support/families/theorem.ts"
 
-/** A fold's monoid on one carrier: its name, and its identity's least value where it is max's. */
+/**
+ * A fold's monoid on one carrier: its name, and its identity's least value where it is max's. The reference computes
+ * over exact integers, so it folds every monoid but concat, whose texts test/unit/write/concat-fill.test.ts and
+ * test/unit/analysis/theory/concat.test.ts fold by their own naive concatenation.
+ */
 export interface FoldMonoid {
-	readonly name: MonoidName
+	readonly name: Exclude<MonoidName, "concat">
 	/** max's identity, its carrier's least value (natural's 0, an integer's minimum, a roster's first code); 0 otherwise. */
 	readonly least: bigint
 }

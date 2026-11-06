@@ -1411,6 +1411,13 @@ class Owner {
 				"field",
 				labeledChildLoc(entry.desc.loc, declared, `field ${name}.${declared}`)
 			)
+			if (decl.type.kind === "pg" && decl.type.type === "date") {
+				fail(
+					"UnsupportedOperation",
+					labeledChildLoc(entry.desc.loc, declared, `field ${name}.${declared}`),
+					"a date field is `date`, the builtin contract over PostgreSQL's date, whose domain holds only the days a CalendarDate spells; PostgreSQL's date bare holds infinities and years past 9999"
+				)
+			}
 			const named = identity.column(field)
 			const sequence = decl.writing.kind === "serial" ? identity.sequence(name, field) : undefined
 			fields[field] = {

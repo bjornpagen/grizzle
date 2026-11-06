@@ -41,6 +41,7 @@ import {
 	type PreconditionProof
 } from "#compiler/ir/proof.ts"
 
+import { type CalendarDate, toCalendarDate } from "#compiler/ir/date.ts"
 import {
 	type Capability,
 	type CapabilitySet,
@@ -72,7 +73,6 @@ import {
 	type VectorTypmod,
 	vectorTypmodOf
 } from "#compiler/ir/scalar.ts"
-import { type CalendarDate, toCalendarDate } from "#compiler/ir/date.ts"
 import * as S from "#compiler/ir/shape.ts"
 
 /**

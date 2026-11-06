@@ -1,5 +1,4 @@
 import { describe, it } from "@effect/vitest"
-import { toCalendarDate } from "#compiler/ir/date.ts"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
 import { noCoverage, required, requiredInSpace } from "@grizzle/testing/features"
 import {
@@ -39,6 +38,7 @@ import {
 	MoneyText,
 	VectorText
 } from "#compiler/ir/carriers.ts"
+import { toCalendarDate } from "#compiler/ir/date.ts"
 import { DecimalText, isDecimalLike, isDecimalPayload } from "#compiler/ir/decimal.ts"
 import {
 	type ExprTable,

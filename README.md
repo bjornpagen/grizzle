@@ -1306,7 +1306,7 @@ becomes one PostgreSQL schema.
   a `put` is carried out, never what it means. A family's owner whose family changes after it is inserted is mutable
   too ([Families](#families)).
 - **No timestamp type.** An instant is a `bigint` contract, such as milliseconds since the epoch, and the current time
-  is a parameter you pass in.
+  is a parameter you pass in. A calendar day is a `date`.
 
 | Field                                              | PostgreSQL                                    | TypeScript                                                          |
 | -------------------------------------------------- | --------------------------------------------- | ------------------------------------------------------------------- |
@@ -1314,6 +1314,7 @@ becomes one PostgreSQL schema.
 | `pg.smallint`, `pg.integer`                        | smallint, integer                             | `number`                                                            |
 | `pg.bigint`                                        | bigint                                        | `bigint`                                                            |
 | `natural`                                          | bigint, behind a domain that checks `>= 0`    | `bigint`                                                            |
+| `date`                                             | date, behind a domain that checks 0001-01-01 … 9999-12-31 | `CalendarDate`, its ISO 8601 text `"YYYY-MM-DD"`        |
 | `pg.numeric(p, s)`                                 | numeric(p, s)                                 | `Decimal`, exact, no display scale                                  |
 | `pg.real`, `pg["double precision"]`, `pg.float(p)` | real, double precision                        | `number`                                                            |
 | `pg.money`                                         | money                                         | `Money`                                                             |
@@ -1330,7 +1331,11 @@ Text always carries a pattern, with flags `"u"` (the default) or `"su"`. A contr
 constructor, `Cents(500n)`, which brands it without checking it: the database checks it on every write. `natural` is a
 count: the builtin contract `natural` over `pg.bigint`, unbranded, and the one type a rule's `pred` reads
 ([Rules](#rules)). Its domain refuses a negative value, an outcome on the law
-`{ kind: "contract", contract: "natural" }`, and another contract under its name is refused.
+`{ kind: "contract", contract: "natural" }`, and another contract under its name is refused. `date` is a calendar day
+of the proleptic Gregorian calendar: the builtin contract `date` over PostgreSQL's date, whose domain admits the days
+from 0001-01-01 to 9999-12-31, so no column holds an infinity or a year its text could not spell. Its value is its ISO
+8601 text, `"2024-02-29"`, one text per day, ordered as the calendar is; every login pins `DateStyle` to ISO, so
+PostgreSQL writes it the same way. Dates compare, and `min` and `max` them, and a key or index may hold one.
 
 A roster, `closed("Status", ["Draft", "Published"])`, is a fixed list of handles, and a `closedId(Status)` column holds
 a handle's code: 0 … n − 1 in declared order, which is also their comparison order. The API reads and writes names; the
@@ -1494,9 +1499,13 @@ A family is a rule over rows the caller writes: each owner's members, counted by
 - **`fold(family, Monoid.m, step, end)`**: the members' step values, `step` a side of the member, combined by the
   monoid into the owner's `end` fields, each `accumulated`. The monoids are `Monoid.count`; `Monoid.sum`, exact, over an
   integer type or a numeric, never a float or money; `Monoid.or` and `Monoid.twos` over sets, `twos` with two planes,
-  the handles seen once and those seen twice; and `Monoid.max`. Each starts at its identity, which an empty family's
-  end holds. A fold over an ordered family may name each member's running `before` and `after` too; one over a
-  counted family names only its step value and its end, since a running value would show the hidden order.
+  the handles seen once and those seen twice; `Monoid.max`; and `Monoid.concat` over text, its free monoid, each step
+  after the running text. Each starts at its identity, which an empty family's end holds. A fold over an ordered
+  family may name each member's running `before` and `after` too; one over a counted family names only its step value
+  and its end, since a running value would show the hidden order. concat depends on that order, so it folds only an
+  ordered family or a tree, by its named pair. A separator belongs to the step, never to the monoid, which would have
+  no identity: write each member's token with the separator before it, but at index 0, and the end is the tokens
+  joined by it.
 
 A relation is a member of at most one ordered family or tree, which orders it, and of any number of counted families,
 each with its own hidden columns and foreign keys; one count counts one family.
@@ -1670,6 +1679,7 @@ parameter `{ org: string }`.
 | recurse          | `query(S).recursive(...)`                                                                                              |
 | compare spans    | `r.allen` with `ALLEN` masks, `r.pointIn`, and `r.intersection`, `r.difference`, `r.pack`                              |
 | compute          | `Compute.add`, `Compute.mul`, `Compute.round`, `Compute.cond`, `Compute.when` and the rest of `Compute`                |
+| match text       | `Compute.matches(x, pattern)`, `Compute.startsWith`, `Compute.endsWith`, and `Compute.concat` in checks               |
 | search vectors   | `.approximateNearest(...)`, with pgvector                                                                              |
 
 Six things work differently from SQL:
@@ -1739,6 +1749,40 @@ Six things work differently from SQL:
   `Compute.when(Compute.within(x, 0n, 1000000n), (x) => Compute.cast(x, pg.integer), 0)`. An exact value binds at a
   plain integer or money column, but a ChangeSet member stores one into a field only through that cast: a head that
   writes `Compute.add(balance, amount)` into a `pg.bigint` field is a type error.
+
+Text has four terms. `Compute.matches(x, pattern)` is PostgreSQL's `~`: whether `x` holds a match of a pattern in
+`str.regex`'s grammar under the flags `"u"`, which `^` and `$` anchor. The pattern is a string, which the type checker
+reads as `str.regex` reads its own, or a text term whose every value the schema holds: a closed relation's text
+payload, as in `Compute.matches(lexical, ValueDomain.at("pattern", domain))`, or a `Compute.cond` of such terms. Each
+value is admitted when the schema compiles, inside PostgreSQL's regex compile space as a `str.regex` pattern is
+([Limits](#limits)), and written into the SQL as the pattern PostgreSQL reads, so `~` never sees a pattern grizzle has
+not measured; a field, a parameter or a computed text can be any pattern, and as a pattern it is refused. A match is
+a guard too: `Compute.when(Compute.matches(code, "^[0-9]+$"), (code) => …, otherwise)` hands its branch the subject,
+which compilation reads as text of the pattern's language, and over a pattern term it is a conditional.
+`Compute.startsWith(a, b)` and `Compute.endsWith(a, b)` test a prefix and a suffix, by characters.
+
+A text parses into a typed value: `Compute.cast(lexical, T)` is PostgreSQL's own cast from text into an integer type,
+`pg.numeric(p, s)`, `pg["double precision"]`, `pg.boolean` or `date`, read as XML Schema reads `xs:integer`,
+`xs:decimal`, `xs:double`, `xs:boolean` and `xs:date`. Each type has one lexical form, `lexicalForm(T)`: XML Schema's
+lexical space cut to the values `T` holds exactly, so the cast never raises and never rounds. An integer is
+`[+-]?[0-9]+` within its type's range, the 19th digit of a bigint included; numeric(p, s) holds at most `p - s`
+integer and `s` fraction digits besides leading and trailing zeros; a double is a mantissa of at most 15 significant
+digits either side of its point with an exponent of at most 293, or `INF`, `-INF` or `NaN`; a boolean is `true`,
+`false`, `1` or `0`; a date is `YYYY-MM-DD` from 0001 to 9999, leap days by the Gregorian rule, with no timezone. The
+cast is total, and compiles, exactly when its operand's every value is a member of the form: a field typed
+`lexical(T)`, `str.regex(lexicalForm(T))`, or any pattern whose language lies inside the form, which compilation
+proves by comparing the two languages' automata, or a subject under `Compute.when(Compute.matches(x,
+lexicalForm(T)), (x) => Compute.cast(x, T), otherwise)`. Anything else is `PartialOperation` with the precondition
+`lexical`. So a typed value derived from its lexical form is a generated field,
+`generated(pg.bigint, Compute.cast(row.count, pg.bigint))`, NOT NULL and computed by PostgreSQL from the text it
+agrees with, and a law reads it as it reads any field. A numeric's cast is `::numeric(p, s)`, which the form keeps
+from rounding; a date's is `make_date` over the text's year, month and day, since `text::date` reads `DateStyle` and is
+STABLE, which a generated column refuses. The host reads each form by a scan of its own and agrees with PostgreSQL to
+the bit, a double's rounding included.
+ `Compute.concat(a,
+b)` is `a || b`, text of no pattern. A concatenation allocates its result, so it stands in checks, contract
+predicates, generated fields and folds, and in a query only as a side of `Compute.eq` or `Compute.ne`, which is
+decided without building it: by the lengths, a prefix and a suffix.
 
 There are no outer joins. Where SQL would LEFT JOIN and fill the gaps with NULL, a second rule covers the rows that
 have no match:
@@ -2165,7 +2209,8 @@ yields:
 - no migration is running or stopped part-way, and the latest complete one reached the snapshot's fingerprint;
 - the login's and the role's settings and privileges are exactly what the snapshot installs. Every login's own
   defaults pin its sessions, each a setting a grizzle guarantee rests on: `search_path = pg_catalog, pg_temp`,
-  `extra_float_digits = 1`, and `lc_monetary`, `lc_numeric` and `lc_time` at `C.UTF-8`. A role's own default
+  `extra_float_digits = 1`, `DateStyle = 'ISO, YMD'`, and `lc_monetary`, `lc_numeric` and `lc_time` at `C.UTF-8`.
+  A role's own default
   outranks the database's and the server's, so neither reaches a `Db`'s sessions, and a login with one of them
   missing, changed, or set for it in this database alone is refused. Every session of the login's pool also sends
   them as its startup options, so the environment's `PGOPTIONS` never reaches it, and `DbLayer.make` refuses a process
@@ -2351,7 +2396,13 @@ workflows, whose rules are worth declaring and whose users see different slices 
 - **grizzle owns the database.** Existing schemas, and tables created outside its migrations, are not supported.
 - **No nullable columns, outer joins, window functions, SKIP LOCKED or raw SQL at run time.** A query is written in
   grizzle's query language or not at all.
-- **No timestamp type.** An instant is a bigint contract.
+- **No timestamp type.** An instant is a bigint contract. A `date` holds 0001-01-01 to 9999-12-31, and a lexical
+  form has no timezone: a timezoned `xs:date` has no typed value.
+- **A parse reads the forms of integers, numeric(p, s), double precision, booleans and dates.** A numeric's form
+  holds at most 255 digits either side of its point, PostgreSQL's limit on a counted repetition; a double's, 15
+  significant digits either side and an exponent of at most 293, inside which float8in neither overflows nor
+  underflows. An `xs:duration` has no typed value: its value is a count of months and of seconds, which PostgreSQL's
+  interval, ordering 1 month as 30 days, is not.
 - **Every numeric field declares its precision and scale**, `pg.numeric(p, s)`: PostgreSQL's numeric(p, s), its
   precision at most 1,000 and its scale within ±1,000, which holds NaN and no infinity. A computed numeric, a sum, a
   mean, an operation's result or a derived relation's field, carries the integer and fraction digits its computation
@@ -2366,7 +2417,17 @@ workflows, whose rules are worth declaring and whose users see different slices 
   "regular expression is too complex", and compilation refuses with `ResourceBound` a pattern past grizzle's measures
   of that space: 4,096 positions once counted repetitions are written out, 65,536 pairs of positions joined by empty
   paths, 8 anchors, and 8,192 for anchors times positions. The measures sit inside PostgreSQL's limit, so a pattern
-  past one may still compile there. A counted repetition's bound is at most 255, PostgreSQL's limit.
+  past one may still compile there. A counted repetition's bound is at most 255, PostgreSQL's limit. Every pattern a
+  `Compute.matches` term can take is bounded the same way, each value of a closed relation's dictionary included.
+- **PostgreSQL keeps the last 32 regular expressions a backend compiled** (`MAX_CACHED_RES`). A match over a
+  dictionary of more patterns, over rows that cycle through them, compiles a pattern per row. Measured on 19rc1 (an
+  Apple M-series laptop under load), 200,000 rows matched over dictionaries of 1 to 178 value-domain patterns, median
+  of three runs: rows grouped by pattern, or cycling through 32 patterns or fewer, cost 1.4 to 4.9 µs a row; rows
+  cycling through 33, 64 or 178 cost 80 to 102 µs a row. The CASE that reads each source's translation adds about
+  1 µs a row at 178 patterns. Order a bulk read or write by pattern where it can be.
+- **A concatenation is at most 1 GB.** `Compute.concat` builds its result, and PostgreSQL refuses one past
+  `MaxAllocSize` ("invalid memory alloc request size"), so a write whose check or generated field concatenates more
+  fails with that error. No query concatenates, and a fold's or an equation's concatenation is never built.
 - **Tables are immutable by default.** `mutable(T)` opts one in to in-place updates.
 - **A relation is a member of at most one ordered family or tree**, which orders it, and of any number of counted
   families. A tree is written whole, by inserting its root with the whole tree nested. A ChangeSet's write of a

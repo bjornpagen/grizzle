@@ -105,7 +105,7 @@ const digitClass = (low: number, high: number): string =>
  * member has one path through it, so a run of the automaton holds one state per alternative, and `0*` before it admits
  * every numeral of value at most `n`.
  */
-export const numeralAtMost = (n: bigint): string => {
+const numeralAtMost = (n: bigint): string => {
 	const digits = n.toString()
 	const width = digits.length
 	const shorter = width > 1 ? [`[1-9]${repeat("[0-9]", 0, width - 2)}`] : []

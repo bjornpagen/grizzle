@@ -16,9 +16,9 @@ import type { Json } from "#compiler/core/canonical.ts"
 import { regexDfaMaxStates, regexDfaMaxWork } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { jsonDocument, trusted } from "#compiler/core/trusted.ts"
+import { type DfaLimits, type DfaOutcome, minimalDfa } from "#compiler/scalar/regex/dfa.ts"
 import { buildNfa, type Nfa } from "#compiler/scalar/regex/nfa.ts"
 import { parsePattern, type RegexFlags } from "#compiler/scalar/regex/parse.ts"
-import { type DfaLimits, type DfaOutcome, minimalDfa } from "#compiler/scalar/regex/dfa.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"
 
 /**

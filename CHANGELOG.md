@@ -16,6 +16,57 @@ How to upgrade:
 
 ### Breaking changes
 
+#### Text parses into a typed value: `Compute.cast` from text, `lexical(T)` and `lexicalForm(T)`, and a `date` type
+
+- **`Compute.cast(x, T)` over a text `x`** is a parse: PostgreSQL's cast from text into an integer type,
+  `pg.numeric(p, s)`, `pg["double precision"]`, `pg.boolean` or `date`, read as XML Schema reads `xs:integer`,
+  `xs:decimal`, `xs:double`, `xs:boolean` and `xs:date`. Each type has one lexical form, `lexicalForm(T)`, a pattern
+  under `"u"`, and `lexical(T)` is the text field of it: XML Schema's lexical space cut to the values `T` holds
+  exactly, so the cast never raises and never rounds (a bigint's 19th digit, numeric(p, s)'s digits either side of its
+  point, a double's 15 significant digits and an exponent of at most 293, the Gregorian leap days, no timezone). The
+  cast compiles exactly when every value of its operand is a member: the operand's pattern's language inside the
+  form, which compilation proves on the two languages' minimal automata, or a `Compute.matches` guard by the form.
+  Otherwise it is `PartialOperation` with the new precondition `lexical`. It prints as `::T`, numeric's typmod
+  included, and a date's as `make_date` over the text's parts, since `text::date` is STABLE; every part is IMMUTABLE,
+  so a typed value derived from its lexical form is an ordinary generated field. A type with no form, uuid and money
+  among them, has no cast from text, by type and at compile time. No codemod.
+- **`date`** is a new field type: PostgreSQL's date under the builtin contract `date`, whose domain admits
+  0001-01-01 to 9999-12-31, its host value `CalendarDate`, the ISO 8601 text, its one form. It compares, takes `min`
+  and `max`, and keys and indexes. No codemod.
+- **Every login pins `DateStyle = 'ISO, YMD'`** beside `extra_float_digits = 1`, stored as its default and sent in its
+  startup options, so PostgreSQL writes a date as its host text. A login of an existing database lacks the default
+  and `Db.open`'s admission refuses it until a migration stores it: regenerate and re-create as every entry here asks.
+- **Format and state:** a snapshot names the carrier `date` and the literal kind `date` where a schema declares one;
+  no other installation, snapshot.json or meta.json changes, but each login's stored defaults, which gain `DateStyle`.
+
+#### Text has terms: `Compute.matches` over a pattern term, `.concat`, `.startsWith` and `.endsWith`, and `Monoid.concat` folds a sequence
+
+- **`Compute.matches(x, pattern)`** is PostgreSQL's `~` (textregexeq) over text, in a check, a selection, a generated
+  field, a law column and a query's `where`. Its pattern is in `str.regex`'s grammar under the flags `"u"`: a string,
+  checked at the type level as `str.regex` checks its own and admitted where the call is written, or a text term whose
+  every value the schema holds, a closed relation's text payload (`ValueDomain.at("pattern", domain)`) or a
+  `Compute.cond` of such terms. Every value is admitted when the schema compiles, by the one admission a `str.regex`
+  pattern passes, its grammar and grizzle's measures of PostgreSQL's regex compile space, and refused with its reason
+  naming it (`ResourceBound` `regexCompileSpace` with `pattern: "/<source>/u"`); a field, a parameter or a computed
+  pattern is `UnsupportedOperation`. The SQL holds each value's ARE in its place: a literal's as a literal, a
+  dictionary's as `CASE <pattern> WHEN '<source>' THEN '<ARE>' … ELSE <pattern> END`, whose ELSE keeps an absent
+  key's NULL. The host evaluates it by the pattern's own automaton. A match is a guard too: `Compute.when`'s branch
+  reads its subject as text of a literal pattern's language. No codemod.
+- **`Compute.concat(a, b)`** is `a || b`, text of no pattern, in checks, contract predicates, generated fields and
+  folds; a query holds one only as a side of `Compute.eq` or `Compute.ne`, which lowers to
+  `char_length(t) = char_length(a) + char_length(b) AND starts_with(t, a) AND right(t, char_length(b)) = b` and never
+  builds it. **`Compute.startsWith(a, b)`** is `starts_with`, and **`Compute.endsWith(a, b)`** is
+  `right(a, char_length(b)) = b`, since PostgreSQL has no `ends_with`. No codemod.
+- **`Monoid.concat`** is text's free monoid: the empty text, then each step after the running text. It folds an
+  ordered family or a tree by its named `(before, after)` pair, its combine the CHECK `(after = before || x) IS TRUE`,
+  decided as the equation above; a counted family, whose order is hidden, and a hidden pair are refused, by type and at
+  compile time. A separator belongs to the step: a member's token with the separator before it, but at index 0. A
+  migration that adds one backfills its running text as `string_agg(x, '')` over the family's window in slot order,
+  ROWS from the first slot.
+  - Codemod: a type test naming the refusal "the monoid admits the step value's type: …, max an ordered value with a
+    least one" → "…, max an ordered value with a least one, concat a text".
+- **Format and state:** none. No existing schema's installation, snapshot.json or meta.json changes.
+
 #### Closed relations are erased into constants, a family is a law over the rows you write, a tree is an interval tiling, and every rename and drop is declared
 
 - **A roster's handles are smallint codes.** `closed(name, handles)` installs no enum. A closed id is a `smallint`

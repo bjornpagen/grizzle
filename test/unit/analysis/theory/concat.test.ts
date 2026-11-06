@@ -4,7 +4,7 @@ import { requiredInSpace } from "@grizzle/testing/features"
 import { array, element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
-import { assert } from "#test/support/assert.ts"
+import { assert, refused } from "#test/support/assert.ts"
 import { f, on, relation, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import { caseHang } from "#test/support/limits.ts"
 import {
@@ -221,10 +221,7 @@ describe("a concat fold", () => {
 							k.note("an ordered family's named pair admitted")
 							return
 						}
-						assert.ok(!built.ok, `${Formatter.format(d)} is refused`)
-						if (!built.ok) {
-							assert.equal(built.error.reason._tag, "MalformedDescription")
-						}
+						refused(built, "MalformedDescription", `${Formatter.format(d)} is refused`)
 						k.note("refused")
 					})
 			)

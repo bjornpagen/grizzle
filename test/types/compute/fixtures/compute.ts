@@ -1,9 +1,9 @@
 import type { Brand } from "effect"
 import type { Phantom } from "#compiler/core/phantom.ts"
 import { Compute } from "#compiler/public/compute.ts"
-import { contract, pg, type Uuid, uuid } from "#compiler/public/fields.ts"
+import { type CalendarDate, contract, date, pg, type Uuid, uuid } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
-import { str } from "#compiler/public/text.ts"
+import { lexical, lexicalForm, str } from "#compiler/public/text.ts"
 import type { Decimal } from "#compiler/scalar/values/decimal.ts"
 import type { Money } from "#compiler/scalar/values/money.ts"
 import type { Span } from "#compiler/scalar/values/span.ts"
@@ -250,8 +250,27 @@ export const intToNumeric = Compute.cast(int, pg.numeric(10, 0))
 export const scaleOfInt = Compute.minScale(intToNumeric)
 export const moneyAmount = Compute.cast(money, pg.numeric(19, 2))
 export type MoneyAmount = Expect<Equals<TypeOfTerm<typeof moneyAmount>, Decimal>>
-// @ts-expect-error -- TS2345 refusal: PostgreSQL has no cast between these types that Compute admits
+/**
+ * A text parses into a type with a lexical form, its value the target's: whether the text's refinement proves the form
+ * is compilation's (a PartialOperation), since no type holds a pattern's language. A type with no form is refused.
+ */
 export const textToInteger = Compute.cast(text, pg.integer)
+export type TextToInteger = Expect<Equals<TypeOfTerm<typeof textToInteger>, number>>
+export const textToNumeric = Compute.cast(text, pg.numeric(6, 2))
+export type TextToNumeric = Expect<Equals<TypeOfTerm<typeof textToNumeric>, Decimal>>
+export const textToBoolean = Compute.cast(text, pg.boolean)
+export type TextToBoolean = Expect<Equals<TypeOfTerm<typeof textToBoolean>, boolean>>
+export const textToDate = Compute.cast(text, date)
+export type TextToDate = Expect<Equals<TypeOfTerm<typeof textToDate>, CalendarDate>>
+export const lexicalBigint = lexical(pg.bigint)
+export const parsedBigint = Compute.cast(Compute.literal(lexicalBigint, "-12"), pg.bigint)
+export type ParsedBigint = Expect<Equals<TypeOfTerm<typeof parsedBigint>, bigint>>
+// @ts-expect-error -- TS2345 refusal: PostgreSQL has no cast between these types that Compute admits
+export const textToUuid = Compute.cast(text, uuid)
+// @ts-expect-error -- TS2345 refusal: PostgreSQL has no cast between these types that Compute admits
+export const textToMoney = Compute.cast(text, pg.money)
+// @ts-expect-error -- TS2345: lexicalForm takes a type with a lexical form, never uuid's
+export const uuidForm = lexicalForm(uuid)
 // @ts-expect-error -- TS2345 refusal: PostgreSQL has no cast between these types that Compute admits
 export const moneyToInteger = Compute.cast(money, pg.integer)
 // @ts-expect-error -- TS2345 refusal: PostgreSQL has no cast between these types that Compute admits

@@ -644,6 +644,9 @@ const closedRows = (
 		throw malformed(label, "rows: a list of the relation's facts")
 	}
 	const names = Object.keys(fields)
+	const typed = Object.entries(fields).map(
+		([field, desc]) => ({ field, desc, roster: rosterHandlesOf(descriptors[field]) }) as const
+	)
 	return rows.map((row, i) => {
 		if (!isPlainRecord(row)) {
 			throw malformed(label, `row ${i}: a fact, a record of a value per field`)
@@ -653,13 +656,8 @@ const closedRows = (
 			throw malformed(label, `row ${i} with exactly the fields ${names.join(", ")}`)
 		}
 		const literals: Record<string, LiteralDesc> = {}
-		for (const [field, desc] of Object.entries(fields)) {
-			literals[field] = literalFor(
-				desc,
-				row[field],
-				`${label} row ${i} field ${field}`,
-				rosterHandlesOf(descriptors[field])
-			)
+		for (const { field, desc, roster } of typed) {
+			literals[field] = literalFor(desc, row[field], `${label} row ${i} field ${field}`, roster)
 		}
 		return literals
 	})

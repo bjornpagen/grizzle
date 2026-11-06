@@ -350,6 +350,7 @@ describe("Compute's text terms", () => {
 		| "a subject that is no text"
 		| "concat in a query"
 		| "a literal past the compile space at the builder"
+		| "a literal outside a match guard's language"
 
 	const invalid: Arr.NonEmptyReadonlyArray<Invalid> = [
 		"a pattern past the compile space",
@@ -360,7 +361,8 @@ describe("Compute's text terms", () => {
 		"a computed pattern",
 		"a subject that is no text",
 		"concat in a query",
-		"a literal past the compile space at the builder"
+		"a literal past the compile space at the builder",
+		"a literal outside a match guard's language"
 	]
 
 	/** Past regexMaxClosurePairs: 255 optional a then 255 optional b, PostgreSQL's "too complex" at its budget's double. */
@@ -479,6 +481,42 @@ describe("Compute's text terms", () => {
 									!thrown.ok && thrown.error.reason._tag === "ResourceBound",
 									"the builder refuses the literal where the call is written"
 								)
+								return
+							}
+							case "a literal outside a match guard's language": {
+								/**
+								 * Inside Compute.when's branch a match of a literal retypes its subject as text of the
+								 * pattern's language, so a literal compared with it there is judged by that language; outside
+								 * it the subject is text of any pattern.
+								 */
+								const guarded = (literal: string, where: "inside" | "outside"): ExprDesc => {
+									const comparison: ExprDesc = {
+										kind: "compare",
+										op: "eq",
+										left: variable("v"),
+										right: text(literal)
+									}
+									return where === "inside"
+										? {
+												kind: "when",
+												guard: { kind: "matches", pattern: "^[0-9]+$" },
+												subject: variable("v"),
+												proved: {
+													kind: "cond",
+													pred: comparison,
+													onTrue: variable("v"),
+													onFalse: text("0")
+												},
+												otherwise: text("0")
+											}
+										: comparison
+								}
+								refused(
+									lowerWith("check", guarded("abc", "inside"), vars, false, baseParams),
+									"ContractLiteral"
+								)
+								succeeded(lowerWith("check", guarded("12", "inside"), vars, false, baseParams))
+								succeeded(lowerWith("check", guarded("abc", "outside"), vars, true, baseParams))
 								return
 							}
 						}

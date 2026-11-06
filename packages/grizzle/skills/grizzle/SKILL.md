@@ -430,6 +430,14 @@ The command line's own refusals, by stage:
   divisor is a type error naming the guard; an unproved narrowing or power is `CompileError` reason
   `PartialOperation`, whose `guard` is the code to write. Narrow an exact integer into an integer field with
   `Compute.cast` under `Compute.within`.
+- Test text with `Compute.matches(x, pattern)`, `Compute.startsWith` and `Compute.endsWith`, never a regex in your
+  code. A pattern is `str.regex`'s grammar under `"u"`, anchored by `^` and `$`: a string literal, or a closed
+  relation's text payload, `Compute.matches(lexical, ValueDomain.at("pattern", domain))`, every value of which the
+  compiler measures; a pattern held in an ordinary field or a parameter is refused. A literal pattern's match is a
+  guard: `Compute.when(Compute.matches(x, "^[0-9]+$"), (x) => …, otherwise)`. `Compute.concat` builds text in checks,
+  generated fields and folds; in a query, compare a text with a concatenation (`Compute.eq(t, Compute.concat(a, b))`)
+  and it is decided without building it. Fold an ordered family's texts with `Monoid.concat`, naming its
+  `(before, after)` pair, and write each member's separator into its own step value.
 - Every numeric field declares its precision and scale, `pg.numeric(p, s)`; there is no bare `pg.numeric`. A sum,
   a mean or an operation's numeric result carries the digits its computation proves, and one past 131,072 integer
   digits is `ResourceBound`. Convert an integer, money or a float to numeric with `Compute.numeric(x)`, never a cast to

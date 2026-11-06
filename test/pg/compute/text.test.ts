@@ -46,14 +46,15 @@ import { families, jsAccepts, patternOver, stringsOver } from "#test/unit/text/g
  *
  * 1. The SQL a query or a check holds (lower/conservative/expr/ops.ts, the one spelling of every operation): a match
  *    of a literal pattern, `~` over its ARE, and of a dictionary, `~` over a CASE from each source to its ARE; a
- *    prefix test, a suffix test, a concatenation and an equation with one, which no lowering builds. Each runs over a
- *    batch of rows in one round trip, and PostgreSQL's answer must be the reference evaluator's
- *    (test/support/oracle/evaluate/catalog.ts, grizzle's own automaton over the pattern's parse) and, for a match,
- *    ECMAScript's own test, the development oracle the text differential holds the ARE translation to.
- * 2. An installed CHECK over a closed relation's dictionary of patterns: the real installer's DDL, a CHECK whose
- *    pattern is `Pattern.at("pattern", domain)`, a match of a literal and the prefix and suffix tests, each probe row
- *    inserted under a savepoint; the server admits a row exactly when ECMAScript's test of its domain's pattern holds,
- *    and refuses every other with 23514 naming that CHECK.
+ *    prefix test, a suffix test, a concatenation, lowered as a check lowers it since no query builds one, and an
+ *    equation with one, which no lowering builds. Each runs over a batch of rows in one round trip, and PostgreSQL's
+ *    answer must be the reference evaluator's (test/support/oracle/evaluate/catalog.ts, grizzle's own automaton over
+ *    the pattern's parse) and, for a match, ECMAScript's own test, the development oracle the text differential holds
+ *    the ARE translation to.
+ * 2. Installed CHECKs: the real installer's DDL, one CHECK whose pattern is a closed relation's dictionary,
+ *    `Pattern.at("pattern", domain)`, and one of a literal, each probe row inserted under a savepoint; the server
+ *    admits a row exactly when ECMAScript's test of its pattern holds, and refuses every other with 23514 naming that
+ *    CHECK.
  */
 
 const textColumn: LeafBinding = { kind: "column", type: testPg.text.scalar }
@@ -242,7 +243,6 @@ layer(Substrate.layer)("Compute's text terms on PostgreSQL", (it) => {
 											"query"
 										)
 									),
-									/** A concatenation's value stands in a check, never a query: it allocates its result. */
 									defined(
 										lowered(
 											"concat",

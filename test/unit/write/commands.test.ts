@@ -30,7 +30,9 @@ import {
 import { collectInputs } from "#adapter/apply/collect.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import { carrierSpecOf } from "#compiler/codec/scalar.ts"
+import { isCompileError } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
+import * as Result from "#compiler/core/result.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { Family } from "#compiler/ir/family.ts"
 import type { LawField, RelationInfo } from "#compiler/ir/law.ts"
@@ -76,10 +78,14 @@ import { descOf, parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts
  * tables, statement by statement.
  *
  * The schema: three member relations, A in one counted family, B in two and C in three, over the owners O1 (a sum fold
- * per family), O2 (a sum fold over the members whose `on` holds) and O3 (a count only). The commands: insert owners;
+ * per family), O2 (a sum fold over the members whose `on` holds) and O3 (a count only); and D, in the counted family
+ * of the immutable owner F with a sum fold, whose family is fixed when F is inserted. The commands: insert owners;
  * append a member; remove one; change a step value; change a selection; move a member to another group; put an owner;
  * an identical repeat of an appended member (one fact); a conflicting repeat at one new key (refused by the member's key
- * law, before any SQL); and an append with its owner inserted in the same ChangeSet.
+ * law, before any SQL); an append with its owner inserted in the same ChangeSet; an F inserted with its members; the
+ * exact repeat of a stored owner with its stored members, O1 with its A members or F with its D members, which changes
+ * nothing; and that repeat with one new member, an append to O1, and to F the immutable owner's refusal (rows-first.md
+ * §2: the owner's key is read, and an owner stored at it makes the group a stored one).
  *
  * The oracles:
  * - the specification of each law, as a checker over the host tables: after every statement every immediate law holds
@@ -88,7 +94,9 @@ import { descOf, parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts
  *   precede the count that shrinks the group (write/family/order.ts);
  * - a second implementation of every fold: NP's reference fold (test/support/families/fold.ts `folded`) over each
  *   group's members in slot order, which every hidden accumulator and every owner's end must equal;
- * - the model's own state: each member's group, value and selection, each owner's fields.
+ * - the model's own state: each member's group, value and selection, each owner's fields;
+ * - PostgreSQL's privileges, which a whole writer holds: an immutable owner's row is never updated, so no count
+ *   statement names one.
  *
  * The read flight is answered with every stored row of each family it reads, a superset of the stored suffix
  * (statements.ts suffixReadSql, whose SQL the pg suites run): the planner must plan from any set of stored rows that
@@ -132,14 +140,20 @@ const fb2 = counted(on(B, "o2"), fin(O2, "nb"))
 const fc1 = counted(on(C, "o1"), fin(O1, "nc"))
 const fc2 = counted(on(C, "o2"), fin(O2, "nc"))
 const fc3 = counted(on(C, "o3"), fin(O3, "nc"))
-const Algebra = schema("Algebra", { O1, O2, O3, A, B, C }, [
+/** An immutable owner and its member: F's family is fixed when F is inserted. */
+const F = relation("F", { id: uuid, n: drawn(natural), t: accumulated(pg.bigint, 0n) }, ["id"])
+const D = relation("D", { id: uuid, f: uuid, x: pg.bigint }, ["id"])
+const fd = counted(on(D, "f"), fin(F, "n"))
+const Algebra = schema("Algebra", { O1, O2, O3, A, B, C, F, D }, [
 	fa1,
 	fb1,
 	fb2,
 	fc1,
 	fc2,
 	fc3,
+	fd,
 	fold(fa1, Monoid.sum, on(A, "o1", "x"), on(O1, "id", "ta")),
+	fold(fd, Monoid.sum, on(D, "f", "x"), on(F, "id", "t")),
 	fold(fb1, Monoid.sum, on(B, "o1", "x"), on(O1, "id", "tb")),
 	fold(fc1, Monoid.sum, on(C, "o1", "x"), on(O1, "id", "tc")),
 	fold(
@@ -202,14 +216,25 @@ interface ModelMember {
 	readonly on: boolean
 }
 
+/** A member of the immutable F: its owner and its value. */
+interface FixedMember {
+	readonly owner: number
+	readonly x: number
+}
+
 interface Model {
 	readonly owners: Readonly<Record<OwnerName, ReadonlyMap<number, number>>>
 	readonly members: Readonly<Record<MemberName, ReadonlyMap<number, ModelMember>>>
+	/** The stored F owners, and their D members by id. */
+	readonly fixedOwners: ReadonlySet<number>
+	readonly fixedMembers: ReadonlyMap<number, FixedMember>
 }
 
 const initial: Model = {
 	owners: { O1: new Map(), O2: new Map(), O3: new Map() },
-	members: { A: new Map(), B: new Map(), C: new Map() }
+	members: { A: new Map(), B: new Map(), C: new Map() },
+	fixedOwners: new Set(),
+	fixedMembers: new Map()
 }
 
 interface Params {
@@ -242,6 +267,14 @@ interface Params {
 	readonly withOwner: { readonly id: number; readonly owner: number; readonly x: number }
 	readonly exactRepeat: { readonly relation: MemberName; readonly id: number }
 	readonly storedConflict: { readonly relation: MemberName; readonly id: number }
+	readonly fixedWithMembers: {
+		readonly owner: number
+		readonly members: ReadonlyArray<{ readonly id: number; readonly x: number }>
+	}
+	readonly mutableRepeat: { readonly owner: number }
+	readonly fixedRepeat: { readonly owner: number }
+	readonly mutableRepeatAppend: { readonly owner: number; readonly id: number; readonly x: number }
+	readonly fixedRepeatAppend: { readonly owner: number; readonly id: number; readonly x: number }
 }
 
 const ids = (n: number): ReadonlyArray<number> => Array.from({ length: n }, (_, i) => i)
@@ -295,7 +328,21 @@ const appendable = (m: Model): ReadonlyArray<MemberName> =>
 const stored = (m: Model): ReadonlyArray<MemberName> =>
 	Arr.filter(MEMBERS, (r) => m.members[r].size > 0)
 
-const machine: Machine<Model, Params, "key"> = {
+/** The verdicts a step's refusal states: a member's key law, or an immutable owner's fixed family. */
+type Refusal = "key" | "fixed"
+
+const freeFixedIds = (m: Model): ReadonlyArray<number> =>
+	Arr.filter(ids(MEMBER_IDS), (i) => !m.fixedMembers.has(i))
+
+/** A fixed owner's stored members, by id. */
+const fixedMembersOf = (m: Model, owner: number): ReadonlyArray<readonly [number, FixedMember]> =>
+	Arr.filter([...m.fixedMembers], ([, member]) => member.owner === owner)
+
+/** An O1 owner's stored A members, by id. */
+const aMembersOf = (m: Model, owner: number): ReadonlyArray<readonly [number, ModelMember]> =>
+	Arr.filter([...m.members.A], ([, member]) => member.groups[0] === owner)
+
+const machine: Machine<Model, Params, Refusal> = {
 	initial,
 	commands: {
 		insertOwners: {
@@ -458,6 +505,61 @@ const machine: Machine<Model, Params, "key"> = {
 					})
 				)
 			}
+		},
+		fixedWithMembers: {
+			weight: 2,
+			applies: (m) => m.fixedOwners.size < OWNER_IDS && freeFixedIds(m).length >= 2,
+			parameters: (m) => (source) => {
+				const free = freeFixedIds(m)
+				const n = source.draw(int(0, 2))
+				return {
+					owner: source.draw(pick(Arr.filter(ids(OWNER_IDS), (i) => !m.fixedOwners.has(i)))),
+					members: Arr.map(Arr.take(free, n), (id) => ({ id, x: source.draw(int(0, 3)) }))
+				}
+			},
+			judge: (m, p) => {
+				const members = new Map(m.fixedMembers)
+				for (const d of p.members) {
+					members.set(d.id, { owner: p.owner, x: d.x })
+				}
+				return accepted({
+					...m,
+					fixedOwners: new Set([...m.fixedOwners, p.owner]),
+					fixedMembers: members
+				})
+			}
+		},
+		mutableRepeat: {
+			weight: 1,
+			applies: (m) => m.owners.O1.size > 0,
+			parameters: (m) => (source) => ({ owner: source.draw(pick([...m.owners.O1.keys()])) }),
+			judge: (m) => accepted(m)
+		},
+		fixedRepeat: {
+			weight: 1,
+			applies: (m) => m.fixedOwners.size > 0,
+			parameters: (m) => (source) => ({ owner: source.draw(pick([...m.fixedOwners])) }),
+			judge: (m) => accepted(m)
+		},
+		mutableRepeatAppend: {
+			weight: 1,
+			applies: (m) => m.owners.O1.size > 0 && m.members.A.size < MEMBER_IDS,
+			parameters: (m) => (source) => ({
+				owner: source.draw(pick([...m.owners.O1.keys()])),
+				id: source.draw(freshId(m, "A")),
+				x: source.draw(int(0, 3))
+			}),
+			judge: (m, p) => accepted(withMember(m, "A", p.id, { groups: [p.owner], x: p.x, on: true }))
+		},
+		fixedRepeatAppend: {
+			weight: 1,
+			applies: (m) => m.fixedOwners.size > 0 && freeFixedIds(m).length > 0,
+			parameters: (m) => (source) => ({
+				owner: source.draw(pick([...m.fixedOwners])),
+				id: source.draw(pick(freeFixedIds(m))),
+				x: source.draw(int(0, 3))
+			}),
+			judge: () => refusedVerdict("fixed")
 		}
 	}
 }
@@ -483,6 +585,33 @@ const memberFact = (relation: MemberName, id: number, member: ModelMember) => ({
 
 const ownerFact = (owner: OwnerName, id: number, cap: number) =>
 	owner === "O1" ? { id: ownerUuid(owner, id), cap: BigInt(cap) } : { id: ownerUuid(owner, id) }
+
+/** The immutable F's owners and D's members as uuids, apart from every other relation's. */
+const fixedUuid = (id: number): string => uuidOf(4000 + id)
+const dUuid = (id: number): string => uuidOf(40_000 + id)
+const dFact = (id: number, owner: number, x: number) => ({
+	id: dUuid(id),
+	f: fixedUuid(owner),
+	x: BigInt(x)
+})
+
+/** An O1 owner's exact repeat, with every A member stored under it. */
+const mutableRepeatOf = (owner: number, m: Model) =>
+	ChangeSet.empty(Algebra)
+		.insert(O1, [ownerFact("O1", owner, defined(m.owners.O1.get(owner), "a stored O1"))])
+		.insert(
+			A,
+			Arr.map(aMembersOf(m, owner), ([id, member]) => memberFact("A", id, member))
+		)
+
+/** An F owner's exact repeat, with every D member stored under it. */
+const fixedRepeatOf = (owner: number, m: Model) =>
+	ChangeSet.empty(Algebra)
+		.insert(F, [{ id: fixedUuid(owner) }])
+		.insert(
+			D,
+			Arr.map(fixedMembersOf(m, owner), ([id, member]) => dFact(id, owner, member.x))
+		)
 
 /** What a step states, by command: its ChangeSet over the model's state before it, and the stratum's own statements it
  * makes the host tables take, an owner inserted at its starts or an owner's put. */
@@ -652,6 +781,50 @@ const stated: { readonly [K in keyof Params]: Stated<Params[K]> } = {
 				.insert(O1, [ownerFact("O1", q.owner, 0)])
 				.insert(A, [memberFact("A", q.id, { groups: [q.owner], x: q.x, on: true })]),
 		own: none
+	},
+	fixedWithMembers: {
+		inserted: none,
+		member: noMember,
+		variant: noVariant,
+		change: (q) =>
+			ChangeSet.empty(Algebra)
+				.insert(F, [{ id: fixedUuid(q.owner) }])
+				.insert(
+					D,
+					Arr.map(q.members, (d) => dFact(d.id, q.owner, d.x))
+				),
+		own: none
+	},
+	mutableRepeat: {
+		inserted: none,
+		member: () => "A",
+		variant: noVariant,
+		change: (q, m) => mutableRepeatOf(q.owner, m),
+		own: none
+	},
+	fixedRepeat: {
+		inserted: none,
+		member: noMember,
+		variant: noVariant,
+		change: (q, m) => fixedRepeatOf(q.owner, m),
+		own: none
+	},
+	mutableRepeatAppend: {
+		inserted: none,
+		member: () => "A",
+		variant: noVariant,
+		change: (q, m) =>
+			mutableRepeatOf(q.owner, m).insert(A, [
+				memberFact("A", q.id, { groups: [q.owner], x: q.x, on: true })
+			]),
+		own: none
+	},
+	fixedRepeatAppend: {
+		inserted: none,
+		member: noMember,
+		variant: noVariant,
+		change: (q, m) => fixedRepeatOf(q.owner, m).insert(D, [dFact(q.id, q.owner, q.x)]),
+		own: none
 	}
 }
 
@@ -761,7 +934,7 @@ const insertEncoded = (
 	slots: ReadonlyArray<WriteSlot>,
 	relation: string,
 	executions: ReadonlyArray<ReadonlyArray<string>>
-): void => {
+): "key" | undefined => {
 	for (const params of executions) {
 		const columns = new Map<string, ReadonlyArray<string>>()
 		for (const [i, p] of slots.entries()) {
@@ -789,14 +962,28 @@ const insertEncoded = (
 			columns.set(name, arrayItems(defined(params[i], "a placeholder's array")))
 		}
 		const ids = defined(columns.get("id"), "an owner's key column")
+		const carried = Arr.filter(
+			relationInfo(relation).fields,
+			(f) => f.writing.kind === "caller" && f.name !== "id"
+		)
 		for (const [at, id] of ids.entries()) {
 			const row = new Map<ColumnKey, string>()
 			for (const [name, texts] of columns) {
 				row.set(fieldKey(name), defined(texts[at], "a column's element"))
 			}
-			tableOf(db, relation).set(keyText([id]), row)
+			/** The insert protocol: a stored row at the key that agrees at every field its facts carry is the insert's
+			 * exact repeat, no change; one that disagrees is the key law's refusal. */
+			const stored = tableOf(db, relation).get(keyText([id]))
+			if (stored === undefined) {
+				tableOf(db, relation).set(keyText([id]), row)
+			} else if (
+				!Arr.every(carried, (f) => stored.get(fieldKey(f.name)) === row.get(fieldKey(f.name)))
+			) {
+				return "key"
+			}
 		}
 	}
+	return undefined
 }
 
 /** Every stored row of a family, as its read returns them (statements.ts suffixReadSql): its owners, then its members. */
@@ -828,6 +1015,10 @@ const applyFamily = (
 ): "key" | undefined => {
 	if (step.statement === "count") {
 		const f = defined(family, "a count statement's family")
+		assert.ok(
+			rows.length === 0 || relationInfo(f.owner.name).mutable,
+			"no count statement updates an immutable owner's row, which a whole writer holds no UPDATE on"
+		)
 		const owners = tableOf(db, f.owner.name)
 		const ends = endColumns(f)
 		for (const row of rows) {
@@ -957,6 +1148,25 @@ const commitHolds = (db: Db, model: Model): void => {
 			}
 		}
 	}
+	assert.deepEqual(
+		Arr.sort([...tableOf(db, "F").keys()], Order.String),
+		Arr.sort(
+			Arr.map([...model.fixedOwners], (id) => keyText([fixedUuid(id)])),
+			Order.String
+		),
+		"the immutable owners are the model's"
+	)
+	const dTable = tableOf(db, "D")
+	assert.equal(
+		dTable.size,
+		model.fixedMembers.size,
+		"the immutable owners' members are the model's"
+	)
+	for (const [id, member] of model.fixedMembers) {
+		const row = defined(dTable.get(keyText([dUuid(id)])), "a modelled D is stored")
+		assert.equal(row.get(fieldKey("f")), fixedUuid(member.owner), "a D's owner is the model's")
+		assert.equal(num(row.get(fieldKey("x"))), BigInt(member.x), "a D's value is the model's")
+	}
 	for (const relation of MEMBERS) {
 		const table = tableOf(db, relation)
 		assert.equal(table.size, model.members[relation].size, "the members are the model's")
@@ -1005,7 +1215,7 @@ const runStep =
 					),
 					"two facts at one key are refused by the member's key law"
 				)
-				const answer: Answer<"key"> = refusedVerdict("key")
+				const answer: Answer<Refusal> = refusedVerdict("key")
 				return answer
 			}
 			/** The tables before the step, which a statement's refusal rolls back to. */
@@ -1018,32 +1228,43 @@ const runStep =
 			)
 			const flights = bound.flights
 			/** The read flight runs first, before the stratum's own statements: it sees the state before the step. */
-			const chunks: Chunks =
+			const planned =
 				flights.kind === "write"
-					? flights.chunks
-					: succeeded(
-							flights.writes(
-								Arr.map(flights.reads, (r) =>
-									readRows(db, defined(familyOfStep(r.family), "a read's family"))
-								)
+					? Result.ok(flights.chunks)
+					: flights.writes(
+							Arr.map(flights.reads, (r) =>
+								readRows(db, defined(familyOfStep(r.family), "a read's family"))
 							)
 						)
-			stated[command].own(db, p)
-			if (command === "insertOwners" || command === "withOwner") {
-				for (const statement of compiled.artifacts.optimized.statements) {
-					const s = statement.step
-					if (s.kind === "write" && s.result.kind === "insert" && s.relation in ownerRelations) {
-						insertEncoded(
-							db,
-							compiled,
-							bound.form(statement).paramSlots,
-							s.relation,
-							succeeded(chunks(statement))
-						)
-					}
-				}
-				stated[command].inserted(db, p)
+			if (!planned.ok) {
+				assert.ok(
+					isCompileError(planned.error) && planned.error.reason._tag === "UnsupportedOperation",
+					"a write the planner refuses is an immutable owner's fixed family"
+				)
+				/** An immutable owner's stored family refuses the change once the read has found it, before any write. */
+				const answer: Answer<Refusal> = refusedVerdict("fixed")
+				return answer
 			}
+			const chunks: Chunks = planned.value
+			stated[command].own(db, p)
+			for (const statement of compiled.artifacts.optimized.statements) {
+				const s = statement.step
+				if (
+					s.kind === "write" &&
+					s.result.kind === "insert" &&
+					(s.relation in ownerRelations || s.relation === "F")
+				) {
+					const verdict = insertEncoded(
+						db,
+						compiled,
+						bound.form(statement).paramSlots,
+						s.relation,
+						succeeded(chunks(statement))
+					)
+					assert.equal(verdict, undefined, "an owner's insert is new or its exact repeat")
+				}
+			}
+			stated[command].inserted(db, p)
 			for (const statement of compiled.artifacts.optimized.statements) {
 				const step = statement.step
 				if (step.kind !== "family") {
@@ -1071,7 +1292,7 @@ const runStep =
 						for (const [name, table] of restored) {
 							db.tables.set(name, table)
 						}
-						const answer: Answer<"key"> = refusedVerdict("key")
+						const answer: Answer<Refusal> = refusedVerdict("key")
 						return answer
 					}
 					immediateHold(db, `after ${command}'s ${step.statement} of ${step.relation}`)
@@ -1083,11 +1304,11 @@ const runStep =
 		})
 
 interface MachineCase {
-	readonly steps: ReturnType<ReturnType<typeof program<Model, Params, "key">>>
+	readonly steps: ReturnType<ReturnType<typeof program<Model, Params, Refusal>>>
 	readonly oneRowEach: boolean
 }
 
-type MachineFeature = StepFeature<Params, "key"> | "a statement per row"
+type MachineFeature = StepFeature<Params, Refusal> | "a statement per row"
 
 const caseGen: Gen<MachineCase> = (source) => ({
 	steps: source.draw(
@@ -1106,7 +1327,12 @@ const caseGen: Gen<MachineCase> = (source) => ({
 				"conflict",
 				"withOwner",
 				"exactRepeat",
-				"storedConflict"
+				"storedConflict",
+				"fixedWithMembers",
+				"mutableRepeat",
+				"fixedRepeat",
+				"mutableRepeatAppend",
+				"fixedRepeatAppend"
 			])
 		)
 	),
@@ -1137,6 +1363,11 @@ describe("the write algebra's commands (rows-first.md §8)", () => {
 								"withOwner accepted",
 								"exactRepeat accepted",
 								"storedConflict refused key",
+								"fixedWithMembers accepted",
+								"mutableRepeat accepted",
+								"fixedRepeat accepted",
+								"mutableRepeatAppend accepted",
+								"fixedRepeatAppend refused fixed",
 								"a statement per row"
 							],
 							{ cases: 300, sense: notesOnly }
@@ -1163,7 +1394,7 @@ describe("the write algebra's commands (rows-first.md §8)", () => {
 							}
 							const model = { current: initial }
 							const step = runStep(db, transport, model)
-							const real: Real<Model, Params, "key", never, never> = {
+							const real: Real<Model, Params, Refusal, never, never> = {
 								insertOwners: step("insertOwners"),
 								append: step("append"),
 								remove: step("remove"),
@@ -1175,7 +1406,12 @@ describe("the write algebra's commands (rows-first.md §8)", () => {
 								conflict: step("conflict"),
 								withOwner: step("withOwner"),
 								exactRepeat: step("exactRepeat"),
-								storedConflict: step("storedConflict")
+								storedConflict: step("storedConflict"),
+								fixedWithMembers: step("fixedWithMembers"),
+								mutableRepeat: step("mutableRepeat"),
+								fixedRepeat: step("fixedRepeat"),
+								mutableRepeatAppend: step("mutableRepeatAppend"),
+								fixedRepeatAppend: step("fixedRepeatAppend")
 							}
 							const ran = yield* runProgram(machine, real, c.steps)
 							for (const verdict of ran.verdicts) {

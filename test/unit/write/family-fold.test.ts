@@ -63,14 +63,15 @@ type Carrier = "int2" | "int4" | "int8" | "natural" | "numeric" | "money" | "set
 type Accumulators = "named" | "hidden"
 
 interface Shape {
-	readonly monoid: MonoidName
+	readonly monoid: FoldMonoid["name"]
 	readonly carrier: Carrier
 	readonly order: "ordered" | "counted"
 	readonly accumulators: Accumulators
 	readonly selected: boolean
 }
 
-const carriersOf: { readonly [M in MonoidName]: Arr.NonEmptyReadonlyArray<Carrier> } = {
+/** Each monoid the reference folds, over exact integers: concat's texts are test/unit/write/concat-fill.test.ts's. */
+const carriersOf: { readonly [M in FoldMonoid["name"]]: Arr.NonEmptyReadonlyArray<Carrier> } = {
 	count: ["natural"],
 	sum: ["int2", "int4", "int8", "natural", "numeric"],
 	or: ["set"],

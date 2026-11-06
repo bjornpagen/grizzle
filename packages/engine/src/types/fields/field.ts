@@ -8,6 +8,7 @@ import type {
 	language,
 	Proving
 } from "#compiler/core/phantom.ts"
+import type { CalendarDate } from "#compiler/ir/date.ts"
 import type { SqlTag } from "#compiler/scalar/registry.ts"
 import type { Decimal } from "#compiler/scalar/values/decimal.ts"
 import type { Span } from "#compiler/scalar/values/span.ts"
@@ -48,6 +49,12 @@ export interface FieldBase extends Built, Domained<unknown>, Languaged<unknown> 
  * closed reference's roster brand), the facts F its values are proved to have, and its language, every value of its
  * type, which is its host type: a descriptor's column delivers all of them.
  */
+/** A calendar date host value, the date field's: its ISO 8601 text (ir/date.ts). */
+export type { CalendarDate } from "#compiler/ir/date.ts"
+
+/** date: a calendar day, its host value and language its ISO 8601 text (scalar/date.ts). */
+export type DateField = Field<CalendarDate, "date">
+
 export interface Field<out Host, out Sql extends SqlTag, out D = Host, out F extends Facts = Facts>
 	extends FieldBase, Proving<F> {
 	readonly [domain]?: D | undefined

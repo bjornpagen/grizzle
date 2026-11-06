@@ -22,6 +22,9 @@
  * - **A second implementation:** NP's reference fold (test/support/families/fold.ts) of each owner's members in key
  *   order, and NP's pre-order numbering of each tree (test/support/families/tree.ts) with each node's children in key
  *   order, state every drawn value; what the migration leaves must be exactly that.
+ * - **Concat:** a concat fold over an ordered family, its running text string_agg(x, '') over the family's window in slot
+ *   order, ROWS from the first slot to the current one; each member's before its predecessor's after, the empty text
+ *   at slot 0, and the owner's end its last member's after, the empty text for an empty family.
  * - **The box:** owners with 0, 1 and 3 existing members, so the backfill meets an empty family (its owner keeps the
  *   placeholder, which is the empty family's value), a family of one (its first slot its last), and one whose
  *   predecessor chain the running sum must close; every order the member rows are stored in, since the backfill orders
@@ -53,6 +56,7 @@ import {
 	tree
 } from "#compiler/public/schema.ts"
 import type { AnySchema } from "#compiler/public/schema.ts"
+import { str } from "#compiler/public/text.ts"
 import type { FunctionCall, OperandSelect, SqlStatement } from "#compiler/sql/ast.ts"
 import { identityHooks, transformOperand } from "#compiler/sql/transform.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
@@ -1202,6 +1206,150 @@ describe("backfilling a family added to populated relations", () => {
 						default:
 							assert.equal(c.over?.frame, undefined, `${nameOf(c)} reads no frame`)
 					}
+				}
+			})
+	)
+
+	/** Owner 0 with no token, owner 1 with one, owner 2 with three keyed out of their order, pieces beyond ASCII. */
+	const tokens: ReadonlyArray<{
+		readonly token: number
+		readonly attr: number
+		readonly piece: string
+	}> = [
+		{ token: 10, attr: 1, piece: "\u{1F600}" },
+		{ token: 22, attr: 2, piece: " c" },
+		{ token: 20, attr: 2, piece: "a" },
+		{ token: 21, attr: 2, piece: "" }
+	]
+
+	it.effect(
+		"a concat fold over an ordered family draws each member's running text in key order, however its rows are stored",
+		() =>
+			Effect.sync(() => {
+				const name = "Joining"
+				const text = str.regex("^.*$", "su")
+				const Attr = relation(
+					"Attr",
+					{ id: pg.int4, n: drawn(natural), joined: accumulated(text, "") },
+					["id"]
+				)
+				const Token = relation(
+					"Token",
+					{
+						token: pg.int4,
+						attr: pg.int4,
+						at: drawn(natural),
+						piece: text,
+						before: accumulated(text, ""),
+						after: accumulated(text, "")
+					},
+					["token"]
+				)
+				const family = ordered(on(Token, "attr", "at"), fin(Attr, "n"))
+				const m = migrationOf(
+					schema(
+						name,
+						{
+							Attr: relation("Attr", { id: pg.int4 }, ["id"]),
+							Token: relation("Token", { token: pg.int4, attr: pg.int4, piece: text }, ["token"])
+						},
+						[]
+					),
+					schema(name, { Attr, Token }, [
+						family,
+						fold(
+							family,
+							Monoid.concat,
+							on(Token, "attr", "piece", "before", "after"),
+							on(Attr, "id", "joined")
+						)
+					])
+				)
+				/** The naive left fold of each owner's pieces in key order, from the empty text. */
+				const expectedTokens: Array<string> = []
+				const expectedAttrs: Array<string> = []
+				for (const attr of OWNERS) {
+					const mine = Arr.sort(
+						Arr.filter(tokens, (t) => t.attr === attr),
+						Order.mapInput(Order.Number, (t: { readonly token: number }) => t.token)
+					)
+					let running = ""
+					for (const [at, t] of mine.entries()) {
+						expectedTokens.push(`${t.token}@${at} ${running}→${running}${t.piece}`)
+						running = `${running}${t.piece}`
+					}
+					expectedAttrs.push(`${attr}: ${mine.length} ${running}`)
+				}
+				const textOf = (value: string): TypedLiteral => ({ kind: "text", value })
+				for (const stored of permutations(tokens)) {
+					const schemaName = m.second.names.schema
+					const owners = load(
+						freshState(schemaName, m.firstDraft),
+						tableOf(m.first, "Attr"),
+						Arr.map(OWNERS, (id) => new Map([[fieldColumn(m.first, "Attr", "id"), int(id)]]))
+					)
+					const loaded = load(
+						owners,
+						tableOf(m.first, "Token"),
+						Arr.map(
+							stored,
+							(t) =>
+								new Map([
+									[fieldColumn(m.first, "Token", "token"), int(t.token)],
+									[fieldColumn(m.first, "Token", "attr"), int(t.attr)],
+									[fieldColumn(m.first, "Token", "piece"), textOf(t.piece)]
+								])
+						)
+					)
+					const run = interpret(schemaName, loaded, plainPlan(m.secondDraft), (p) => {
+						throw new Error(`the backfill leaves no placeholder, but drafted a ${p.kind}`)
+					})
+					if (Result.isFailure(run)) {
+						throw new Error(`the migration fails on the model: ${run.failure.reason}`)
+					}
+					const second = m.second
+					const cellText = (row: ReadonlyMap<string, Cell>, column: string): string => {
+						const cell = row.get(column)
+						if (cell?.kind !== "value") {
+							return assert.fail(`${column} holds a value`)
+						}
+						const v = cell.value
+						return v.kind === "text" || v.kind === "int"
+							? String(v.value)
+							: assert.fail(`${column} holds ${v.kind}`)
+					}
+					const fam: Family = defined(second.laws.families[0])
+					const plane = defined(defined(fam.folds[0]).planes[0])
+					const observedTokens = Arr.sort(
+						Arr.map(
+							defined(run.success.tables.get(tableOf(second, "Token"))).rows,
+							(row) =>
+								`${cellText(row, fieldColumn(second, "Token", "token"))}@${cellText(row, columnOf(fam.index))} ${cellText(row, columnOf(plane.before))}→${cellText(row, columnOf(plane.after))}`
+						),
+						Order.String
+					)
+					const observedAttrs = Arr.sort(
+						Arr.map(
+							defined(run.success.tables.get(tableOf(second, "Attr"))).rows,
+							(row) =>
+								`${cellText(row, fieldColumn(second, "Attr", "id"))}: ${cellText(row, fam.count.column)} ${cellText(row, plane.end.column)}`
+						),
+						Order.String
+					)
+					const order = Arr.join(
+						Arr.map(stored, (t) => `${t.token}`),
+						","
+					)
+					assert.deepEqual(
+						observedTokens,
+						Arr.sort(expectedTokens, Order.String),
+						`stored as ${order}`
+					)
+					assert.deepEqual(
+						observedAttrs,
+						Arr.sort(expectedAttrs, Order.String),
+						`stored as ${order}`
+					)
 				}
 			})
 	)

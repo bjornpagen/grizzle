@@ -77,7 +77,8 @@ const plainCarriers: ReadonlySet<string> = new Set<PlainCarrier>([
 	"float4",
 	"float8",
 	"money",
-	"bool"
+	"bool",
+	"date"
 ])
 
 /** Whether a carrier is a plain one (scalar/compute/types.ts PlainCarrier), an operation result with no metadata. */

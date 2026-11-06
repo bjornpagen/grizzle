@@ -132,8 +132,8 @@ export interface ReadStatement {
 
 /**
  * How one application's statements reach the server, in its one transaction (rows-first.md §2):
- * - `write`: one flight of the artifact's statements, every family write planned already, since every group it touches
- *   is an owner's the changeset inserts, empty before;
+ * - `write`: one flight of the artifact's statements, when the changeset names no member of any family, so no family
+ *   write needs a stored row;
  * - `read`: first a flight of the family reads, one batched SELECT per family of the stored suffixes and the owners'
  *   counts and ends of every touched group, then the artifact's statements, whose family writes `writes` plans from the
  *   reads' rows, one array of rows per read in order. Under SERIALIZABLE a concurrent writer to a group the reads read

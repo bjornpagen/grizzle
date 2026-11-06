@@ -51,11 +51,11 @@ const leapDay = { month: 2, days: 29 } as const
 const leapCycle = { year: 4, century: 100, era: 400 } as const
 
 /** Whether a year of the proleptic Gregorian calendar is a leap year. */
-export const isLeapYear = (year: number): boolean =>
+const isLeapYear = (year: number): boolean =>
 	year % leapCycle.year === 0 && (year % leapCycle.century !== 0 || year % leapCycle.era === 0)
 
 /** The days of a month of a year, January as 1; undefined for a number that is no month. */
-export const daysInMonth = (year: number, month: number): number | undefined => {
+const daysInMonth = (year: number, month: number): number | undefined => {
 	const common: number | undefined = monthDays[month - 1]
 	return common === undefined
 		? undefined
@@ -113,7 +113,7 @@ export const convertDate = (text: string): CalendarDate =>
 	`${text.slice(0, dateLayout.monthHyphen)}-${text.slice(dateLayout.monthHyphen + 1, dateLayout.dayHyphen)}-${text.slice(dateLayout.dayHyphen + 1)}`
 
 /** The year, month and day a calendar date names. */
-export const dateParts = (
+const dateParts = (
 	date: CalendarDate
 ): { readonly year: number; readonly month: number; readonly day: number } => ({
 	year: Number(date.slice(0, dateLayout.monthHyphen)),

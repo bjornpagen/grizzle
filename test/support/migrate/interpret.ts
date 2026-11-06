@@ -86,9 +86,9 @@ import { testTypeSchema } from "#test/support/sql.ts"
  *   row joined to the FROM rows its WHERE keeps, all rows assigned at once, each value stored as its column's type
  *   stores it (NOT NULL, 23502; a domain's CHECKs, 23514; an integer's range, 22003; a bit string's length, 22026) and
  *   every CHECK of the table, NOT VALID ones too, judging each new row. Its queries' windows (row_number, lag, lead,
- *   count, sum, max, min, bit_or over PARTITION BY, ORDER BY and a ROWS or the default RANGE frame), GROUP BY
- *   aggregates, joins, UNION and WITH RECURSIVE are the SQL standard's; where PostgreSQL's own choice decides the
- *   result (a window function whose value hangs on the order of peers, a target row joined to two FROM rows) the
+ *   count, sum, max, min, bit_or and string_agg over PARTITION BY, ORDER BY and a ROWS or the default RANGE frame),
+ *   GROUP BY aggregates, joins, UNION and WITH RECURSIVE are the SQL standard's; where PostgreSQL's own choice decides
+ *   the result (a window function whose value hangs on the order of peers, a target row joined to two FROM rows) the
  *   model throws, a defect of the statement, never a guess. Keys and foreign keys are judged by their build and their
  *   VALIDATE, which the model does not run over rows.
  * - One rule of the draft, not of PostgreSQL: a migration converts each column at most once, by its one fate (a field's
@@ -539,6 +539,7 @@ const valueOf = (value: string, type: TypeRef): SqlValue => {
 		case "real":
 		case "record":
 		case "uuid":
+		case "date":
 			return unevaluable(`a ${type.name} literal`)
 	}
 }
@@ -1222,6 +1223,21 @@ const frameOf = (
 	return [Math.max(0, bound(spec.frame.start)), Math.min(length - 1, bound(spec.frame.end))]
 }
 
+/**
+ * string_agg over a frame: its non-NULL texts in the frame's order, the delimiter between each two, NULL over none, as
+ * a concat fold's running value is backfilled (deploy/diff/backfill.ts runningOf).
+ */
+const textsJoined = (values: ReadonlyArray<SqlValue>, delimiter: SqlValue): SqlValue => {
+	if (delimiter?.kind !== "text") {
+		return unevaluable("string_agg's delimiter, a text")
+	}
+	const texts = Arr.map(
+		Arr.filter(values, (v): v is NonNullable<SqlValue> => v !== undefined),
+		(v) => (v.kind === "text" ? v.value : unevaluable(`string_agg of ${v.kind}`))
+	)
+	return texts.length === 0 ? undefined : { kind: "text", value: Arr.join(texts, delimiter.value) }
+}
+
 /** The aggregate of a frame's non-NULL values, NULL over none: sum, max, min or bit_or. */
 const aggregated = (name: string, values: ReadonlyArray<SqlValue>): SqlValue => {
 	const present = Arr.filter(values, (v): v is NonNullable<SqlValue> => v !== undefined)
@@ -1350,6 +1366,20 @@ const windowColumn = (
 						Arr.filter(frame, (r) => filter === undefined || truthOf(at(filter, r)) === true).length
 					)
 				})
+				continue
+			}
+			if (name === "string_agg") {
+				const [value, delimiter] = args
+				if (value === undefined || delimiter === undefined || args.length !== 2) {
+					return unevaluable(`string_agg of ${args.length} arguments`)
+				}
+				out.set(
+					row,
+					textsJoined(
+						Arr.map(frame, (r) => at(value, r)),
+						at(delimiter, row)
+					)
+				)
 				continue
 			}
 			const [arg] = args
@@ -2171,6 +2201,7 @@ class Model {
 					: { kind: "text", value: v.value }
 			}
 			case "uuid":
+			case "date":
 				return { kind: "text", value: v.value }
 			case "float":
 			case "floatSpecial":

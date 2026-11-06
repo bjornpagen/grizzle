@@ -735,7 +735,7 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 	 */
 	#slot(slot: KeySlotDesc, key: NonEmptyReadonlyArray<LawField>, loc: SourceLoc): ClosedSlot {
 		const declared = this.owned.relations[slot.fin.owner]
-		if (declared?.kind !== "closedRelation" || declared.desc.kind !== "closedRelation") {
+		if (declared?.kind !== "closedRelation") {
 			return fail(
 				"MalformedDescription",
 				loc,

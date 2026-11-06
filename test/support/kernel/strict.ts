@@ -1,5 +1,4 @@
 import { Array as Arr, Option, Result, String as Str } from "effect"
-import { toCalendarDate } from "#compiler/ir/date.ts"
 import { toResult } from "#adapter/engine.ts"
 import { carrierSpecOf } from "#compiler/codec/scalar.ts"
 import type { ValueFault } from "#compiler/core/errors.ts"
@@ -7,6 +6,7 @@ import { int2Max, int2Min, int4Max, int4Min, int8Max, int8Min } from "#compiler/
 import { validateText } from "#compiler/core/text.ts"
 import { moneyFractionDigits } from "#compiler/ir/carriers.ts"
 import { type Codebook, emptyCodebook, type RosterCodec } from "#compiler/ir/codes.ts"
+import { toCalendarDate } from "#compiler/ir/date.ts"
 import {
 	type Carrier,
 	type NumericBound,

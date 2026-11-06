@@ -1027,6 +1027,10 @@ describe("Descriptions", () => {
 				upper: 1,
 				width: 1,
 				charLength: 1,
+				concat: 2,
+				startsWith: 2,
+				endsWith: 2,
+				matches: 2,
 				cosineDistance: 2
 			}
 			const origin = { alternatives: "A" }

@@ -1,5 +1,5 @@
 import { compareText, everyProperty, Refusal } from "#compiler/core/canonical.ts"
-import { malformedDescription, resourceBound } from "#compiler/core/errors.ts"
+import { type CompileError, malformedDescription, resourceBound } from "#compiler/core/errors.ts"
 import { constantDigest } from "#compiler/core/fingerprint.ts"
 import {
 	type DeclaredName,
@@ -215,15 +215,9 @@ const plannedCells = (
 ): PlannedCells => {
 	const loc = SourceLoc(what, [])
 	const codes = spaceSize(layout.payload)
-	if (codes > BigInt(cellMaxCodes.value)) {
-		throw new Refusal(
-			resourceBound(loc, {
-				kind: "cellCodes",
-				constant: what,
-				limit: cellMaxCodes.value,
-				needed: codes
-			})
-		)
+	const tooWide = cellCodesBound(codes, what)
+	if (tooWide !== undefined) {
+		throw new Refusal(tooWide)
 	}
 	const bits = keyCells(layout.key) * BigInt(cellWidth(codes))
 	if (bits > BigInt(constantMaxBits.value)) {
@@ -259,6 +253,20 @@ const plannedCells = (
 		rows: [...packed].toSorted(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([, row]) => row)
 	}
 }
+
+/**
+ * The refusal of a constant whose payload space holds `codes` codes, `what` naming it, when its greatest cell, 1 +
+ * (codes - 1), is past the greatest integer a cell is read as (core/limits.ts cellMaxCodes); none when it fits.
+ */
+export const cellCodesBound = (codes: bigint, what: string): CompileError | undefined =>
+	codes > BigInt(cellMaxCodes.value)
+		? resourceBound(SourceLoc(what, []), {
+				kind: "cellCodes",
+				constant: what,
+				limit: cellMaxCodes.value,
+				needed: codes
+			})
+		: undefined
 
 /** A dictionary of `space`'s values, named by the digest of its element type and its values in code order. */
 const plannedDictionary = (

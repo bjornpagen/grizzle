@@ -2,7 +2,9 @@ import { describe, it } from "@effect/vitest"
 import { Array as Arr, Effect, String as Str } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
+import { isCompileError } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
+import * as Result from "#compiler/core/result.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { accumulated, drawn, natural, pg, span, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -22,7 +24,7 @@ import { inForce } from "#compiler/write/family/order.ts"
 import type { WriteNames } from "#compiler/write/insert/statement.ts"
 import { bindWrite } from "#compiler/write/program/bind.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
-import { assert, assertVariant, refused, succeeded } from "#test/support/assert.ts"
+import { assert, assertVariant, failed, refused, succeeded } from "#test/support/assert.ts"
 import { testArtifacts, testCompile } from "#test/support/compile.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { checking, owning } from "#test/support/policy.ts"
@@ -200,24 +202,42 @@ describe("an owner of counted families, rows first", () => {
 		})
 	)
 
-	it.effect("inserts an owner of counted families alone on the plain path, at its starts", () =>
-		Effect.gen(function* () {
-			const value = ChangeSet.empty(S1)
-				.insert(O, [{ id: uuidOf(1), cap: 2n }])
-				.insert(M, [{ o: uuidOf(1), id: uuidOf(2), x: 5n }])
-			const program = s1(value)
-			const members = yield* collectInputs(program.frontend, parsedOf(value).inputs)
-			const bound = succeeded(
-				bindWrite(program, { members, params: {}, transport: inForce(bindFrame) })
-			)
-			assertVariant(bound, "kind", "bound", "an owner and its member bind")
-			assertVariant(
-				bound.flights,
-				"kind",
-				"write",
-				"an append to an owner the changeset inserts reads nothing first"
-			)
-		})
+	it.effect(
+		"inserts an owner of counted families on the plain path, its count carried by its insert row once its read finds no owner stored",
+		() =>
+			Effect.gen(function* () {
+				const value = ChangeSet.empty(S1)
+					.insert(O, [{ id: uuidOf(1), cap: 2n }])
+					.insert(M, [{ o: uuidOf(1), id: uuidOf(2), x: 5n }])
+				const program = s1(value)
+				const members = yield* collectInputs(program.frontend, parsedOf(value).inputs)
+				const bound = succeeded(
+					bindWrite(program, { members, params: {}, transport: inForce(bindFrame) })
+				)
+				assertVariant(bound, "kind", "bound", "an owner and its member bind")
+				assertVariant(
+					bound.flights,
+					"kind",
+					"read",
+					"the owner's key is read first: an owner stored there would make its insert an exact repeat"
+				)
+				assert.ok(
+					Arr.every(bound.flights.reads, (r) => r.family.owner === "O" && r.family.count === "n"),
+					"the family's own read carries the owner's key beside the member's, in the one read flight"
+				)
+				const chunks = succeeded(bound.flights.writes(Arr.map(bound.flights.reads, () => [])))
+				const counts = Arr.filter(
+					program.artifacts.optimized.statements,
+					(s) => s.step.kind === "family" && s.step.statement === "count"
+				)
+				for (const s of counts) {
+					assert.deepEqual(
+						succeeded(chunks(s)),
+						[],
+						"a fresh owner's count is carried by its insert row, never a count statement"
+					)
+				}
+			})
 	)
 
 	it.effect(
@@ -338,8 +358,12 @@ describe("an owner of counted families, rows first", () => {
 					"the owner the member names is read first: an insert at a stored member is no change"
 				)
 				/** The read finds neither the owner the member names nor the one the stratum inserts stored. */
+				const failure = failed(bound.flights.writes(Arr.map(bound.flights.reads, () => [])))
+				if (!isCompileError(failure)) {
+					return assert.fail("an append to an immutable owner is refused as a CompileError")
+				}
 				const atRun = refused(
-					bound.flights.writes(Arr.map(bound.flights.reads, () => [])),
+					Result.err(failure),
 					"UnsupportedOperation",
 					"an append to an owner the stratum does not insert is refused before any write"
 				)
