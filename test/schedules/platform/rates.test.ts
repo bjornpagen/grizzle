@@ -27,7 +27,7 @@ import {
 	beforeOf,
 	committedOf,
 	commonRequired,
-	type Explained,
+	type ExplainedRun,
 	type Race,
 	type RaceFeature,
 	raceSuite,
@@ -170,7 +170,7 @@ const resolveRates =
 	}
 
 const judgeRates = (
-	e: Explained,
+	e: ExplainedRun,
 	changes: ReadonlyArray<Change>,
 	requests: ReadonlyArray<Priced>
 ): { readonly departure: string | undefined; readonly reached: ReadonlyArray<RaceFeature> } => {

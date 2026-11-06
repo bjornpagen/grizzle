@@ -30,7 +30,16 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint, double, float, uuid } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Option, pipe, Record, String as Str } from "effect"
+import {
+	Array as Arr,
+	DateTime,
+	Effect,
+	Formatter,
+	Option,
+	pipe,
+	Record,
+	String as Str
+} from "effect"
 import { isCodecFault } from "#compiler/codec/fault.ts"
 import { tupleConverter } from "#compiler/codec/row.ts"
 import { carrierSpecOf, paramEncoder, scalarCodec } from "#compiler/codec/scalar.ts"
@@ -120,13 +129,14 @@ const spans = <E extends number | bigint>(endpoint: Gen<E>): Gen<unknown> =>
 		([a, b]) => (a < b ? { start: a, end: b } : { start: b, end: a })
 	)
 
-/** A calendar date's ISO 8601 text: a day from 0001-01-01 to 9999-12-31, as ECMAScript's Date counts them. */
-const calendarDates: Gen<unknown> = (source) => {
-	const d = new Date(0)
-	d.setUTCFullYear(1, 0, 1 + source.draw(int(0, 3_652_058)))
-	const two = (n: number): string => String(n).padStart(2, "0")
-	return `${String(d.getUTCFullYear()).padStart(4, "0")}-${two(d.getUTCMonth() + 1)}-${two(d.getUTCDate())}`
-}
+/**
+ * A calendar date's ISO 8601 text: a day from 0001-01-01 to 9999-12-31, drawn as a count of days past the first, which
+ * Effect's DateTime carries over its months and years by the proleptic Gregorian calendar and formats at its UTC date.
+ */
+const calendarDates: Gen<unknown> = (source) =>
+	DateTime.formatIsoDateUtc(
+		DateTime.makeUnsafe({ year: 1, month: 1, day: 1 + source.draw(int(0, 3_652_058)) })
+	)
 
 const handles = ["Manual", "Automatic", "Ünïcode"] as const
 

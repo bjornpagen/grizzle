@@ -1816,13 +1816,14 @@ PostgreSQL deletes a character `to` has no counterpart for and maps a repeated o
 is refused where the call is written. `Compute.lowerAscii(x)` is `translate` from `A` to `Z` onto `a` to `z`: it lowers
 no other letter, so it is one IMMUTABLE map whatever the collation, as a case-insensitive BCP 47 language tag needs.
 Compilation reads a translation as text of the image of `x`'s language, every class and character of its pattern
-rewritten by the map, so a bounded pattern stays bounded and a literal opposite it is judged by the image. A cast of a
-text into a refined text is total where the text's language lies inside the target's, which compilation proves by
-comparing their automata as it proves a parse, so a translation is stored in a field of a type the image lies in:
-`generated(Normalized, Compute.cast(Compute.translate(row.title, "\t\n\r", "   "), Normalized))`, `Normalized` being
-`str.regex("^[^\\t\\n\\r]*$", "su")`. PostgreSQL's translate allocates four bytes for every byte of `x`, so a query
-translates only a text whose pattern bounds it within 268,435,454 bytes, and a check or generated field translates any
-text.
+rewritten by the map, so a bounded pattern stays bounded and a literal opposite it is judged by the image; a query's
+head delivers one cast into a text type some field declares, or into `Prose`, since no domain is installed for the image
+itself. A cast of a text into a refined text is total where the text's language lies inside the target's, which
+compilation proves by comparing their automata as it proves a parse, so a translation is stored in a field of a type
+the image lies in: `generated(Normalized, Compute.cast(Compute.translate(row.title, "\t\n\r", "   "), Normalized))`,
+`Normalized` being `str.regex("^[^\\t\\n\\r]*$", "su")`. PostgreSQL's translate allocates four bytes for every byte
+of `x`, so a query translates only a text whose pattern bounds it within 268,435,454 bytes, and a check or generated
+field translates any text.
 
 There are no outer joins. Where SQL would LEFT JOIN and fill the gaps with NULL, a second rule covers the rows that
 have no match:

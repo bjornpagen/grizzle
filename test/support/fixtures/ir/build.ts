@@ -23,6 +23,7 @@ import { makeIdSupply, type NodeId, ParamId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type * as Result from "#compiler/core/result.ts"
 import { DagBuilder, type ReservedNode } from "#compiler/ir/builder.ts"
+import { toCalendarDate } from "#compiler/ir/date.ts"
 import { DecimalText, decimalPayload, isDecimalLike } from "#compiler/ir/decimal.ts"
 import type { FieldDesc, LiteralDesc } from "#compiler/ir/desc.ts"
 import {
@@ -167,6 +168,14 @@ const literalOf = (value: LiteralDesc, type: ScalarType): TypedLiteral => {
 				return { kind: "handles", handles: value.handles }
 			}
 			break
+		case "date": {
+			/** A date's description is its ISO 8601 text, the one form of its day (ir/date.ts). */
+			const day = toCalendarDate(value)
+			if (day.ok) {
+				return { kind: "date", value: day.value }
+			}
+			break
+		}
 		case "float4":
 		case "float8":
 		case "money":

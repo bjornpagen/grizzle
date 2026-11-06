@@ -469,7 +469,13 @@ describe("Compute's translate and lowerAscii", () => {
 							case "from and to of two lengths":
 								refused(
 									lowered(translation(variable("v"), text("ab"), text("c")), "check"),
-									"MalformedDescription"
+									"MalformedDescription",
+									"a shorter to would delete a character"
+								)
+								refused(
+									lowered(translation(variable("v"), text("a"), text("bc")), "check"),
+									"MalformedDescription",
+									"a longer to states characters nothing maps to"
 								)
 								return
 							case "a repeated character of from":
@@ -552,6 +558,7 @@ describe("Compute's translate and lowerAscii", () => {
 		| "an image inside the target"
 		| "an image outside the target"
 		| "an unrefined text"
+		| "a contract over the target's text"
 		| "a refinement past the analysis bounds"
 		| "a parse past the analysis bounds"
 
@@ -559,6 +566,7 @@ describe("Compute's translate and lowerAscii", () => {
 		"an image inside the target",
 		"an image outside the target",
 		"an unrefined text",
+		"a contract over the target's text",
 		"a refinement past the analysis bounds",
 		"a parse past the analysis bounds"
 	]
@@ -622,6 +630,24 @@ describe("Compute's translate and lowerAscii", () => {
 									return
 								case "an unrefined text":
 									refused(cast(variable("v"), normalized), "PartialOperation")
+									return
+								case "a contract over the target's text":
+									refused(
+										cast(translation(variable("t"), text("\t\n\r"), text("   ")), {
+											kind: "contract",
+											name: "Short",
+											base: normalized,
+											predicate: {
+												kind: "compare",
+												op: "le",
+												left: { kind: "compute", fn: "charLength", args: [{ kind: "value" }] },
+												right: { kind: "literal", value: 10, type: undefined }
+											},
+											facts: []
+										}),
+										"PartialOperation",
+										"the image lies in the contract's base, but nothing proves its predicate"
+									)
 									return
 								case "a refinement past the analysis bounds":
 									assert.deepEqual(

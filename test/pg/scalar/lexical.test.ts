@@ -5,7 +5,7 @@ import { array } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter } from "effect"
+import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { dayNumber, datePartSlices, toCalendarDate } from "#compiler/ir/date.ts"
 import { toFloat } from "#compiler/scalar/compute/cast.ts"
@@ -139,7 +139,7 @@ layer(Substrate.layer)("lexical parse: the host and PostgreSQL 19 agree", (it) =
 						(batch, c) =>
 							Effect.gen(function* () {
 								const groups = Arr.groupBy(batch, (x) => targetKey(x.target))
-								for (const group of Object.values(groups)) {
+								for (const group of Rec.values(groups)) {
 									const target = defined(group[0], "a group's first candidate").target
 									const rows = yield* db.values(
 										`SELECT (u.t COLLATE pg_catalog.pg_c_utf8 ~ $2::text)::text,

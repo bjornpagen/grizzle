@@ -30,14 +30,17 @@ const sameCarriers = Arr.makeEquivalence(Equivalence.strictEqual<string>())
 const sameOperands = (a: Operands, b: Operands): boolean =>
 	a.kind === b.kind && sameCarriers(operandCarriers(a), operandCarriers(b))
 
-/** The namespaces of the exact carriers' own overloads, whose OpIds prefix the numeric code that implements them. */
-const exactNamespaces: ReadonlyArray<string> = ["exact:", "exactMoney:"]
+/**
+ * The namespaces of carriers' own overloads, whose OpIds prefix the code that implements them: the exact carriers'
+ * over numeric's code, and a closed id's over smallint's (scalar/compute/registry.ts, "code:int2eq").
+ */
+const overloadNamespaces: ReadonlyArray<string> = ["exact:", "exactMoney:", "code:"]
 
-/** The operator's code an entry's OpId lists: the id itself, or, for an exact carrier's overload, the code it prefixes. */
+/** The operator's code an entry's OpId lists: the id itself, or, for a carrier's own overload, the code it prefixes. */
 const listedCode = (id: NativeOp["id"]): string => {
 	const text = typeof id === "string" ? id : id.code
 	return Option.match(
-		Arr.findFirst(exactNamespaces, (n) => Str.startsWith(n)(text)),
+		Arr.findFirst(overloadNamespaces, (n) => Str.startsWith(n)(text)),
 		{ onNone: () => text, onSome: (n) => Str.slice(n.length)(text) }
 	)
 }
@@ -133,6 +136,43 @@ const castProblems = (
 			: [`${describeOp(op.id)}: volatility ${textCell(row, 0)}`]
 	})
 
+/** A volatility code's rank, immutable below stable below volatile. */
+const volatilityRank = (code: string): number => (code === "i" ? 0 : code === "s" ? 1 : 2)
+
+/**
+ * What pg_type and pg_proc say against a parse's entry: an I/O conversion from text, which pg_cast lists for no type,
+ * calls textout and then the target's input function, pg_type.typinput, so its volatility is the more volatile of the
+ * two (nodeFuncs.c check_functions_in_node, CoerceViaIO).
+ */
+const inputProblems = (
+	db: RawSession,
+	op: NativeOp,
+	c: Extract<Catalog, { readonly kind: "input" }>
+) =>
+	Effect.gen(function* () {
+		const [row] = yield* db.values(
+			`SELECT i.provolatile::text, o.provolatile::text,
+				EXISTS (SELECT FROM pg_catalog.pg_cast k
+					WHERE k.castsource = 'pg_catalog.text'::regtype AND k.casttarget = t.oid)::text
+			FROM pg_catalog.pg_type t
+			JOIN pg_catalog.pg_proc i ON i.oid = t.typinput
+			JOIN pg_catalog.pg_proc o ON o.oid = 'pg_catalog.textout'::regproc
+			WHERE t.oid = $1::text::regtype::oid`,
+			[c.target]
+		)
+		if (row === undefined) {
+			return [`${describeOp(op.id)}: no input function of ${c.target}`]
+		}
+		const [input, output] = [textCell(row, 0), textCell(row, 1)]
+		const code = volatilityRank(input) >= volatilityRank(output) ? input : output
+		return [
+			...(textCell(row, 2) === "false"
+				? []
+				: [`${describeOp(op.id)}: pg_cast lists text -> ${c.target}, so it is no I/O conversion`]),
+			...(volatilityOf(code) === op.volatility ? [] : [`${describeOp(op.id)}: volatility ${code}`])
+		]
+	})
+
 /** What the catalog says against one entry: the object it names, its result type and its volatility. */
 const entryProblems = (
 	db: RawSession,
@@ -146,6 +186,8 @@ const entryProblems = (
 			return functionProblems(db, op, c)
 		case "cast":
 			return castProblems(db, op, c)
+		case "input":
+			return inputProblems(db, op, c)
 		case "construct": {
 			const missing = Arr.filter(c.uses, (use) => !Arr.some(nativeOps, (o) => o.id === use))
 			return Effect.succeed(

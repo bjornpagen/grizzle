@@ -24,7 +24,7 @@ import {
 	beforeOf,
 	committedOf,
 	commonRequired,
-	type Explained,
+	type ExplainedRun,
 	explainedIds,
 	type Race,
 	type RaceFeature,
@@ -153,7 +153,7 @@ const resolveCap =
 
 /** What the explained order reached; every outcome the laws decide, the oracle has explained. */
 const judgeCap = (
-	e: Explained,
+	e: ExplainedRun,
 	requestAt: (id: number) => { readonly charge: bigint } | undefined,
 	changes: number
 ): { readonly departure: string | undefined; readonly reached: ReadonlyArray<RaceFeature> } => {

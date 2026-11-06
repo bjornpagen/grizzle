@@ -66,7 +66,6 @@ import {
 } from "#compiler/scalar/compute/term.ts"
 import { compatible, plainType } from "#compiler/scalar/compute/types.ts"
 import { matchPattern } from "#compiler/scalar/regex/admit.ts"
-import { charMapOf } from "#compiler/scalar/regex/translate.ts"
 import {
 	carrierSql,
 	describeField,
@@ -768,8 +767,9 @@ const matches = (subject: unknown, pattern: unknown): GuardParts => {
 }
 
 /**
- * A translation of the text term `x` by the map from and to state (scalar/regex/translate.ts charMapOf), refused where
- * the call is written: from and to stand in the description as literals, so its compilation sees the map.
+ * A translation of the text term `x` by the map from and to state: both stand in the description as literals, so the
+ * builder's own typing of the term (compute/lower.ts translate) sees the map and refuses one it does not admit
+ * (scalar/regex/translate.ts charMapOf) where the call is written, as compilation does again.
  */
 const translation = (
 	call: Call,
@@ -779,10 +779,6 @@ const translation = (
 	to: string
 ): PlainChecked => {
 	const s = call.term(x, what)
-	const map = charMapOf(from, to)
-	if (!map.ok) {
-		return malformed(call.loc, map.error)
-	}
 	const f: LiteralExpr = { kind: "literal", value: from, type: undefined }
 	const t: LiteralExpr = { kind: "literal", value: to, type: undefined }
 	return call.finishPlain(

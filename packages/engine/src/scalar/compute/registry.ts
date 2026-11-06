@@ -125,7 +125,8 @@ type SqlForm =
  * The catalog object that implements the node, as PostgreSQL's catalog names it. Every type it names is a carrier's
  * regtype spelling (catalogTypeName), never a carrier's own name; a range-polymorphic function returns its range's
  * element, anyelement. An operator's implementing function, pg_operator.oprcode, is its OpId: the catalog identity, or a
- * range overload's code.
+ * range overload's code. A parse from text is an I/O conversion, which pg_cast lists for no type (CoerceViaIO): the
+ * target's input function, pg_type.typinput, over textout's text (`input`).
  */
 type CatalogRef =
 	| {
@@ -150,6 +151,7 @@ type CatalogRef =
 			readonly owner: Owner
 	  }
 	| { readonly kind: "cast"; readonly source: CatalogTypeName; readonly target: CatalogTypeName }
+	| { readonly kind: "input"; readonly target: CatalogTypeName }
 	| { readonly kind: "construct"; readonly uses: ReadonlyArray<OpId> }
 
 /**
@@ -1212,7 +1214,26 @@ const fromMoney = <S extends "money" | "exactMoney", T extends "numeric" | "mone
  */
 const fromText = <T extends "int2" | "int4" | "int8" | "numeric" | "float8" | "bool" | "date">(
 	target: T
-): CastOpOf<"text", T> => castOp("text", target, requires([lexical]), "immutable", textCast)
+): CastOpOf<"text", T> =>
+	Object.freeze({
+		...castOp("text", target, requires([lexical]), "immutable", textCast),
+		catalog:
+			target === "date"
+				? dateOfTextCatalog
+				: { kind: "input" as const, target: catalogTypeName[target] }
+	})
+
+/**
+ * What a date's parse calls: make_date over the text's year, month and day, each an integer's parse (sql/lexical.ts
+ * dateOfText), IMMUTABLE where date_in, the I/O conversion's, is STABLE.
+ */
+const dateOfTextCatalog: CatalogRef = {
+	kind: "function",
+	name: "make_date",
+	args: [catalogTypeName.int4, catalogTypeName.int4, catalogTypeName.int4],
+	result: catalogTypeName.date,
+	owner: "catalog"
+}
 
 /**
  * Each cast by its source and target carriers, which its OpId "cast:<source>-><target>" spells, so no two casts share

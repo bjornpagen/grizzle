@@ -931,7 +931,7 @@ const filler = (type: ScalarType, i: number): TypedLiteral => {
 		case "uuid":
 			return { kind: "uuid", value: vertexId(i) }
 		case "date":
-			return { kind: "date", value: `${String(1 + i).padStart(4, "0")}-01-01` }
+			return { kind: "date", value: `${Str.padStart(4, "0")(String(1 + i))}-01-01` }
 		case "text":
 			return { kind: "text", value: `v${i}` }
 		case "bool":

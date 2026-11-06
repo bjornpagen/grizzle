@@ -5,7 +5,7 @@ import { array, element, type Gen, int, oneOf } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter } from "effect"
+import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { dayNumber, toCalendarDate } from "#compiler/ir/date.ts"
 import { Compute } from "#compiler/public/compute.ts"
@@ -96,7 +96,7 @@ describe("lexical forms", () => {
 								)
 							}
 							if (c.target.kind === "date" && c.member) {
-								const [y, m, d] = Arr.map(c.text.split("-"), Number)
+								const [y, m, d] = Arr.map(Str.split("-")(c.text), Number)
 								assert.equal(
 									dayNumber(succeeded(toCalendarDate(c.text))),
 									dateDays(defined(y, "year"), defined(m, "month"), defined(d, "day")),

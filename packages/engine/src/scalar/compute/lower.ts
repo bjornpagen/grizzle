@@ -831,7 +831,11 @@ const languagePremise = (
  * scalar/lexical.ts formIncludes). Undefined where neither proves it: a text of no refinement, or one whose language
  * holds a value the form does not.
  */
-const lexicalPremise = (a: Lowered, target: ScalarType, at: SourceLoc): OperandPremise | undefined => {
+const lexicalPremise = (
+	a: Lowered,
+	target: ScalarType,
+	at: SourceLoc
+): OperandPremise | undefined => {
 	const form = lexicalTargetOf(target)
 	if (form === undefined) {
 		return undefined
@@ -841,12 +845,7 @@ const lexicalPremise = (a: Lowered, target: ScalarType, at: SourceLoc): OperandP
 			? { kind: "checked", operand: 0, by: "literal" }
 			: undefined
 	}
-	return languagePremise(
-		a,
-		`/${formSource(form)}/u`,
-		(regex) => formIncludes(regex, form),
-		at
-	)
+	return languagePremise(a, `/${formSource(form)}/u`, (regex) => formIncludes(regex, form), at)
 }
 
 /**

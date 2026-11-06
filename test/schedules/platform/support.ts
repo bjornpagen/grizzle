@@ -357,7 +357,7 @@ export interface Ran {
  * A run the model explained: its transactions, the serial order of the committed ones with the state before each place
  * and after the last, and each refusal with the state its own serial order refuses it at.
  */
-export interface Explained {
+export interface ExplainedRun {
 	readonly ran: ReadonlyArray<Ran>
 	readonly order: ReadonlyArray<number>
 	/** states[k] is the state before the k-th of the order; the last is the committed state. */
@@ -365,19 +365,19 @@ export interface Explained {
 	readonly refusals: ReadonlyMap<number, State>
 }
 
-export const committedOf = (e: Explained): State =>
+export const committedOf = (e: ExplainedRun): State =>
 	defined(e.states[e.states.length - 1], "the committed state")
 
-const stateBefore = (e: Explained, place: number): State =>
+const stateBefore = (e: ExplainedRun, place: number): State =>
 	defined(e.states[place], `the state before ${place}`)
 
-export const ranOf = (e: Explained, id: number): Ran => defined(e.ran[id], `transaction #${id}`)
+export const ranOf = (e: ExplainedRun, id: number): Ran => defined(e.ran[id], `transaction #${id}`)
 
 /**
  * The state a transaction that did not abort was explained at: a committed one's place in the order, a refusal's in its
  * own order.
  */
-export const beforeOf = (e: Explained, id: number): State => {
+export const beforeOf = (e: ExplainedRun, id: number): State => {
 	const refusedJudgment = e.refusals.get(id)
 	if (refusedJudgment !== undefined) {
 		return refusedJudgment
@@ -390,7 +390,7 @@ export const beforeOf = (e: Explained, id: number): State => {
 }
 
 /** The transactions that did not abort, by id. */
-export const explainedIds = (e: Explained): ReadonlyArray<number> =>
+export const explainedIds = (e: ExplainedRun): ReadonlyArray<number> =>
 	Arr.map(
 		Arr.filter(e.ran, (r) => r.observed.kind !== "aborted"),
 		(r) => r.id
@@ -403,7 +403,7 @@ export const explainedIds = (e: Explained): ReadonlyArray<number> =>
 export interface Race {
 	readonly initial: PlatformFacts
 	readonly txns: ReadonlyArray<RaceTxn>
-	readonly judge: (e: Explained) => {
+	readonly judge: (e: ExplainedRun) => {
 		readonly departure: string | undefined
 		readonly reached: ReadonlyArray<RaceFeature>
 	}
@@ -1409,7 +1409,7 @@ const explain = (
 	return { order: Arr.map(explained.order, (r) => r.id), states: explained.states, refusals }
 }
 
-const noteRun = (e: Explained, run: Interleaving, note: (f: RaceFeature) => void): void => {
+const noteRun = (e: ExplainedRun, run: Interleaving, note: (f: RaceFeature) => void): void => {
 	if (run.waits.length > 0) {
 		note("blocked")
 	}
@@ -1439,7 +1439,7 @@ const noteRun = (e: Explained, run: Interleaving, note: (f: RaceFeature) => void
 const exactRepeats = (
 	i: RaceInstall,
 	c: Connected,
-	e: Explained,
+	e: ExplainedRun,
 	callOf: (id: number) => Call | undefined,
 	written: ReadonlySet<RelationName>
 ): Effect.Effect<string | undefined, SqlError> =>
@@ -1590,7 +1590,7 @@ const runRace = (i: RaceInstall, race: Race, c: Case<RaceFeature>) =>
 						if (typeof explained === "string") {
 							return refusedJudgment(explained)
 						}
-						const e: Explained = { ran, ...explained }
+						const e: ExplainedRun = { ran, ...explained }
 						const differs = yield* committedDifference(i, i.rig.env, written, committedOf(e))
 						if (differs !== undefined) {
 							return refusedJudgment(

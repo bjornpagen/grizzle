@@ -93,7 +93,7 @@ export const translated = (text: string, from: string, to: string): string => {
 }
 
 /** The image of a set of code points under a map: its code points the map leaves, and the image of each it moves. */
-export const imageOfSet = (s: CharSet, map: CharMap): CharSet => {
+const imageOfSet = (s: CharSet, map: CharMap): CharSet => {
 	const moved = charSet([...map.keys()].map((c) => [c, c] as const))
 	const kept = complement(union([complement(s), moved]))
 	const images = [...map].flatMap(([source, target]) =>
@@ -234,7 +234,7 @@ export const imageFlags: RegexFlags = "u"
  * pattern leaves unanchored; its structure is the pattern's own, so it fits every measure the pattern fits, which the
  * exact one, longer by its prefix and suffix, may not.
  */
-export const imageSources = (
+const imageSources = (
 	node: LiveNode,
 	map: CharMap
 ): { readonly exact: string; readonly within: string } => {

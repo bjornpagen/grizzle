@@ -27,7 +27,7 @@ import {
 	beforeOf,
 	committedOf,
 	commonRequired,
-	type Explained,
+	type ExplainedRun,
 	explainedIds,
 	type Race,
 	type RaceFeature,
@@ -215,7 +215,7 @@ const resolveCredits =
 
 /** First in, first out at its place, and what the explained order reached. */
 const judgeCredits = (
-	e: Explained,
+	e: ExplainedRun,
 	requestAt: (id: number) => Priced | undefined
 ): { readonly departure: string | undefined; readonly reached: ReadonlyArray<RaceFeature> } => {
 	const reached: Array<RaceFeature> = []

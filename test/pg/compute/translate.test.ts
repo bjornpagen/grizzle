@@ -21,6 +21,7 @@ import { generated, pg } from "#compiler/public/fields.ts"
 import { key, on, relation, schema, select } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
+import { translated } from "#compiler/scalar/regex/translate.ts"
 import { probe } from "#test/pg/physical/checks.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { installationSql } from "#test/support/compile.ts"
@@ -70,19 +71,32 @@ const alphabet: Arr.NonEmptyReadonlyArray<number> = [
 	0x1f600
 ]
 
+/**
+ * A case: a map Compute.translate admits, a raw pair PostgreSQL's translate takes whatever its characters, a
+ * repeated one or a shorter `to` among them, which the host's translation is held to as well, and the texts.
+ */
 interface SqlCase {
 	readonly from: ReadonlyArray<number>
 	readonly to: ReadonlyArray<number>
+	readonly rawFrom: string
+	readonly rawTo: string
 	readonly texts: ReadonlyArray<string>
 }
 
-type SqlFeature = "a character replaced" | "a capital lowered" | "a non-ASCII character kept"
+type SqlFeature =
+	| "a character replaced"
+	| "a capital lowered"
+	| "a non-ASCII character kept"
+	| "a repeated character read by its first"
+	| "a character deleted"
 
 const sqlCase: Gen<SqlCase> = (source) => {
 	const from = Arr.dedupe(source.draw(array(element(alphabet), { min: 0, max: 4 })))
 	return {
 		from,
 		to: Arr.map(from, () => source.draw(element(alphabet))),
+		rawFrom: codePointsText(source.draw(array(element(alphabet), { min: 0, max: 5 }))),
+		rawTo: codePointsText(source.draw(array(element(alphabet), { min: 0, max: 5 }))),
 		texts: source.draw(array(stringsOver(alphabet, 10), { min: 1, max: 48 }))
 	}
 }
@@ -111,7 +125,13 @@ layer(Substrate.layer)("Compute's translate and lowerAscii on PostgreSQL", (it) 
 						literal: Formatter.format,
 						oracle: { kind: "second-implementation", name: "the reference evaluator" },
 						coverage: required<SqlFeature>(
-							["a character replaced", "a capital lowered", "a non-ASCII character kept"],
+							[
+								"a character replaced",
+								"a capital lowered",
+								"a non-ASCII character kept",
+								"a repeated character read by its first",
+								"a character deleted"
+							],
 							{ cases: 40, sense: notesOnly }
 						),
 						kept: [],
@@ -131,21 +151,27 @@ layer(Substrate.layer)("Compute's translate and lowerAscii on PostgreSQL", (it) 
 								}
 								return lowered.value.root.expr
 							}
-							const translated = lower({
+							const translation = lower({
 								kind: "compute",
 								fn: "translate",
 								args: [variable("v"), text(codePointsText(c.from)), text(codePointsText(c.to))]
 							})
 							const folded = lower(spelledExpr(computeCore.lowerAscii(v("v", testPg.text)).expr))
-							const probes = [translated, folded]
+							const probes = [translation, folded]
 							const select = Arr.join(
 								Arr.map(probes, (p) => `(${renderSql(p, plainRender)})::text`),
 								", "
 							)
 							const rows = yield* db.values(
-								`SELECT ${select} FROM jsonb_to_recordset($1::text::jsonb) AS r0(ord int4, v text) ORDER BY r0.ord`,
-								[jsonText(Arr.map(c.texts, (value, ord) => ({ ord, v: value })))]
+								`SELECT ${select}, pg_catalog.translate(r0.v, $2::text, $3::text) FROM jsonb_to_recordset($1::text::jsonb) AS r0(ord int4, v text) ORDER BY r0.ord`,
+								[
+									jsonText(Arr.map(c.texts, (value, ord) => ({ ord, v: value }))),
+									c.rawFrom,
+									c.rawTo
+								]
 							)
+							const rawSources = codePoints(c.rawFrom)
+							const rawTargets = codePoints(c.rawTo)
 							assert.equal(rows.length, c.texts.length, "a row per input")
 							for (const [i, row] of rows.entries()) {
 								const input = defined(c.texts[i])
@@ -178,6 +204,20 @@ layer(Substrate.layer)("Compute's translate and lowerAscii on PostgreSQL", (it) 
 								}
 								if (Arr.some(codePoints(input), (c) => c > 0x7f)) {
 									k.note("a non-ASCII character kept")
+								}
+								assert.equal(
+									row[2],
+									translated(input, c.rawFrom, c.rawTo),
+									`translate(${Formatter.format(input)}, ${Formatter.format(c.rawFrom)}, ${Formatter.format(c.rawTo)}): PostgreSQL against the host`
+								)
+								for (const cp of codePoints(input)) {
+									const first = rawSources.indexOf(cp)
+									if (first >= 0 && rawSources.lastIndexOf(cp) !== first) {
+										k.note("a repeated character read by its first")
+									}
+									if (first >= rawTargets.length) {
+										k.note("a character deleted")
+									}
 								}
 							}
 						})

@@ -270,7 +270,7 @@ const castTargets: ReadonlyMap<Carrier, ReadonlyArray<Carrier>> = (() => {
 		if (
 			op.fn !== "cast" ||
 			(op.totality.kind === "requires" &&
-				op.totality.preconditions.some((p) => p.kind === "lexical"))
+				Arr.some(op.totality.preconditions, (p) => p.kind === "lexical"))
 		) {
 			continue
 		}

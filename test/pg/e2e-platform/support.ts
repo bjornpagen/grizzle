@@ -599,6 +599,7 @@ const carrier = (type: ScalarType, host: unknown, what: string): Value => {
 		case "uuid":
 		case "text":
 		case "code":
+		case "date":
 			if (typeof host === "string") {
 				return host
 			}

@@ -22,7 +22,7 @@ import {
 	beforeOf,
 	committedOf,
 	commonRequired,
-	type Explained,
+	type ExplainedRun,
 	explainedIds,
 	type Race,
 	type RaceFeature,
@@ -117,7 +117,7 @@ const resolveRefunds =
 
 /** What the explained order reached; every outcome the laws decide, the oracle has explained. */
 const judgeRefunds = (
-	e: Explained,
+	e: ExplainedRun,
 	refundAt: (id: number) => bigint | undefined
 ): { readonly departure: string | undefined; readonly reached: ReadonlyArray<RaceFeature> } => {
 	const reached: Array<RaceFeature> = []

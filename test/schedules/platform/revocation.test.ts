@@ -18,7 +18,7 @@ import {
 	beforeOf,
 	committedOf,
 	commonRequired,
-	type Explained,
+	type ExplainedRun,
 	explainedIds,
 	type Race,
 	type RaceFeature,
@@ -99,7 +99,7 @@ const resolveRevoke =
 
 /** What the explained order reached; every outcome the laws decide, the oracle has explained. */
 const judgeRevoke = (
-	e: Explained,
+	e: ExplainedRun,
 	requestAt: (id: number) => { readonly where: Placement } | undefined
 ): { readonly departure: string | undefined; readonly reached: ReadonlyArray<RaceFeature> } => {
 	const reached: Array<RaceFeature> = []

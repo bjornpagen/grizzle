@@ -1,5 +1,5 @@
 import { characterOf, element, type Gen, int, map, oneOf, string } from "@grizzle/testing/gen"
-import type { Array as Arr } from "effect"
+import { type Array as Arr, DateTime, String as Str } from "effect"
 import { integerRanges } from "#compiler/ir/carriers.ts"
 import type { LexicalTarget } from "#compiler/scalar/lexical.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
@@ -89,7 +89,7 @@ const integerGen =
 		const end = source.draw(element([lo, hi, 0n]))
 		const offset = BigInt(source.draw(int(-2, 2)))
 		const value = source.draw(element([end + offset, BigInt(source.draw(int(-999, 999)))]))
-		const zeros = "0".repeat(source.draw(int(0, 3)))
+		const zeros = Str.repeat(source.draw(int(0, 3)))("0")
 		const plus = value >= 0n && source.draw(element([false, true]))
 		const text = `${value < 0n ? "-" : plus ? "+" : ""}${zeros}${value < 0n ? -value : value}`
 		const member = value >= lo && value <= hi
@@ -177,27 +177,33 @@ const booleanGen: Gen<Candidate> = map(
 	})
 )
 
-/** Whether a year, month and day are a date of ECMAScript's proleptic Gregorian calendar, and within the form. */
+/**
+ * The UTC midnight a year, month and day name in Effect's DateTime, whose parts are ECMAScript's proleptic Gregorian
+ * calendar (setUTCFullYear): a year of any number, a month or day out of its range carried into the next, so a day the
+ * calendar lacks names another. It shares nothing with the engine's own day arithmetic (ir/date.ts), which the oracle
+ * judges.
+ */
+const midnight = (year: number, month: number, day: number): DateTime.Utc =>
+	DateTime.makeUnsafe({ year, month, day, hour: 0, minute: 0, second: 0, millisecond: 0 })
+
+/** Whether a year, month and day are a date of the proleptic Gregorian calendar, and within the form. */
 const calendarDate = (year: number, month: number, day: number): boolean => {
-	const d = new Date(0)
-	d.setUTCFullYear(year, month - 1, day)
+	const parts = DateTime.toPartsUtc(midnight(year, month, day))
 	return (
-		year >= 1 &&
-		year <= 9999 &&
-		d.getUTCFullYear() === year &&
-		d.getUTCMonth() === month - 1 &&
-		d.getUTCDate() === day
+		year >= 1 && year <= 9999 && parts.year === year && parts.month === month && parts.day === day
 	)
 }
 
-/** A date's days after 0001-01-01, as ECMAScript's Date counts them. */
-export const dateDays = (year: number, month: number, day: number): number => {
-	const d = new Date(0)
-	d.setUTCFullYear(year, month - 1, day)
-	const first = new Date(0)
-	first.setUTCFullYear(1, 0, 1)
-	return Math.round((d.getTime() - first.getTime()) / 86_400_000)
-}
+/** The milliseconds of a calendar day, which UTC counts without leap seconds. */
+const dayMillis = 86_400_000
+
+/** A date's days after 0001-01-01, as the proleptic Gregorian calendar counts them. */
+export const dateDays = (year: number, month: number, day: number): number =>
+	Math.round(
+		(DateTime.toEpochMillis(midnight(year, month, day)) -
+			DateTime.toEpochMillis(midnight(1, 1, 1))) /
+			dayMillis
+	)
 
 /** A date near the calendar's corners: leap days, month ends, years 0000, 0001, 9999 and 10000. */
 const dateGen: Gen<Candidate> = (source) => {
@@ -206,7 +212,7 @@ const dateGen: Gen<Candidate> = (source) => {
 	)
 	const month = source.draw(element([2, 2, 1, 4, 12, 13, 0, source.draw(int(1, 12))]))
 	const day = source.draw(element([28, 29, 30, 31, 1, 0, 32, source.draw(int(1, 31))]))
-	const text = `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`
+	const text = `${Str.padStart(4, "0")(String(year))}-${Str.padStart(2, "0")(String(month))}-${Str.padStart(2, "0")(String(day))}`
 	const member = calendarDate(year, month, day)
 	return {
 		target: { kind: "date" },
