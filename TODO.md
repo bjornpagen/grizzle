@@ -2,186 +2,287 @@
 
 The one plan: only work still to do. A finished item is deleted, not ticked.
 
-## Now, in order
-1. **Issues #1–#8, plus #9 (fallible operations total): hard cutovers, from first principles.** Designs in ~/Documents/grizzle-proposals/issue-N-*.md, which are deleted once their issue's change lands. Each design's §11 is its never-again plan: what the types make unrepresentable, the search fix, and the original bug planted at landing, which its suites must kill on every seed. No compatibility path anywhere: no old reader, alias, shim, flag or transition. Byte-identical output is never a constraint. Every snapshot, meta.json, golden and fixture is regenerated, and every database installed before the cutover is re-created. Owner 2026-11-03: swarm, one lane per bug (1–9), all at once in the main checkout, with no branches or worktrees. Lanes code only, with no typecheck, tests or git writes. The waves below are the sequencing inside the swarm. Main typechecks the integrated tree and commits it; then every test runs together, once all fixes are in, never one suite at a time. Push when green. No beta release.
-	- **W0, alone (#6): one text representation.** Nothing else runs, because it touches every area.
-		- every multi-line text goes into one append-only `Lines` sink (core/lines.ts): statements, migration files, snapshot.json, meta.json;
-		- PERFORM's query is a core, and `and`/`or`/`row` take NonEmpty;
-		- every non-tuple spread argument goes (codemod, about 230 files). The two in packages/testing (mutants.ts, pattern.ts) land in superstarter first and are copied, as every library change is;
-		- superlint `no-spread-argument`, extended to `.apply` and `Reflect.apply` with non-tuple arrays, with `eslint/prefer-spread` in REJECTED, lands in superstarter and grizzle. edullm's copy and the shared lint SPEC wait for item 2;
-		- `Installation.sql` is deleted;
-		- the JavaScript string cap becomes a `ResourceBound` refusal, with a README Limits line.
-	- **Main, beside W1 and W2 (#5 §11.6):** profile PL/pgSQL's quadratic CASE compile (pl_scanner.c location_lineno_init rescans) on the pinned cluster. Write the patch or bug report, the repro and the evidence into ~/Documents/postgres-upstream-submissions/plpgsql-lineno-rescan/. The owner files it upstream by hand.
-	- **W1, four lanes:**
-		- **S, SQL AST** (owns ast.ts, build.ts, print.ts, form.ts and transform.ts, plus verify/sql.ts, audit/operators.ts, kernel sqlgen/shape and mutants/ast.ts):
-			- #4: absolute names. Builtins print `"pg_catalog".…`, carriers `"pg_temp".…`, one spelling for a qualified name (`printObjectName`), structural `sameTypeRef` in place of every `printType` comparison, and a `TypeSchema` brand so no `named` type sits in pg_catalog. Plus the catalog-read AST (sql/catalog.ts), and PL/pgSQL select-into, execute and DO nodes;
-			- #2: PostgreSQL's empty spellings at the boundary: SelectCore is a union over distinctness, VALUES and DISTINCT ON take NonEmpty, empty alias lists and recordsets;
-			- #5: `whenAbsent`;
-			- a placeholder node replaces render/sql.ts's `text.replace(printed, placeholderToken)`, and `ColumnDef.default` is deleted (#4).
-		- **T, testing library (#1):** lands in superstarter packages/testing first, then is copied to grizzle. edullm's copy waits for item 2.
-			- witness phases (floor, a floor-seeded steered phase, exhaustion) are the only ones that decide requirements, stalls and kills;
-			- the rotating stream is the sample, and the sample alone feeds the residual;
-			- branded streams; steering is part of the requirement declaration;
-			- `Reach.miss`, the reach table and `reachMargin` are deleted.
-		- **R, renames (#8):** deploy/diff, deploy/render, the meta boundary and cli/check.
-			- the candidate tree, with path ids instead of counters;
-			- meta.json records every drafted statement under its owner, through `decisionRecord`'s proof;
-			- the text attribution, `witnessesOf` and the defect are deleted.
-		- **Q, query constants (#7):**
-			- a term carries its domain and its values; heads read values, bindings and joins read domains;
-			- `r.literal` is deleted, and `Compute.literal` refuses a roster, so `X.handle(m)` is the one roster constant.
-	- **W2, four lanes on W1's AST:**
-		- **N, names and drift (#4):**
-			- every SQL text grizzle sends is printed by the engine. The adapter's catalog reads (roles, drift, expectation, admit, apply, ledger) become catalog-read ASTs (sql/catalog.ts, built by S), and the DO blocks become PL/pgSQL ASTs;
-			- the wire takes only `EmittedText` or `MigrationText`;
-			- regclass becomes an expression node;
-			- one constant search_path;
-			- drift gets an `unchecked` stage with true fix lines;
-			- the lint rules `brands-sole-mint` and `no-raw-sql`.
-			- N owns adapter/boundary/sql.ts and drift.ts; L messages N for its decoder changes.
-		- **L, laws (#5):**
-			- one deferred trigger and one function per (table, event), with the change test and row guards in its `WHEN`;
-			- an exhaustive roster CASE, where each handle is armed or unarmed;
-			- an UPDATE is checked as delete-old plus insert-new;
-			- the law digest covers the family's details;
-			- evidence and physical objects per unit;
-			- snapshot.json holds DDL trees, one statement per line.
-		- **W, writes (#2):**
-			- the readers and the checker are total over headings, and the relation-parameter rule moves to the builder, decoder and types;
-			- a serial class is a per-target variant, and each fact is classed once;
-			- the `defaults` path and the described-member refusal are deleted.
-		- **V, values (#3):**
-			- Decimal is value-only, and scale-reading catalogue entries take operands through `trim_scale`;
-			- float aggregates are order-independent;
-			- every text-identity gate (`printsAlike`, `spelledAlike`, the spelling restrictions) is deleted.
-			- then **F, fallible operations total (#9)**, in the same lane after V lands (both own scalar/compute):
-				- `Failure`/`canFail` deleted;
-				- every overload declares a `Totality`: exact integer and money arithmetic (`bigint`, `Money`), IEEE 754 floats, preconditions proven by bounds or a `Compute.cond` guard, else `PartialOperation`;
-				- bare numeric bounded at 1,000 integer digits;
-				- the role-entry restriction and the oracle's error frontier deleted.
-	- **W3, tests, by area:**
-		- #1's codemod over test/: every requirement declares its steering;
-		- each proposal's generator arms, properties, mutation operators and deletions (§7), and its never-again additions (§11):
-			- #1: replay fidelity and the clock bans;
-			- #2: the entry exhaust box and empty-list weights;
-			- #3: invariance relations, named reference declines and `world-reads-flip`;
-			- #4: the ambient-session arm and a catalog-built dictionary;
-			- #5: the class-wide scaling relation, digest injectivity and the pl_scanner upstream patch;
-			- #6: the small-stack project, the recursion inventory and the limits arm;
-			- #7: admission agreement and order invariance;
-			- #8: the migration exhaust box and rename histories as commands;
-			- #9: the boundary arm, refusal agreement and `world-precondition-drop`;
-		- test/pg/migrate/renames.test.ts's FeaturesUnreached: #8's relations-box arm, under #1's witness verdict.
-	- **Gate:**
-		- typecheck once, fix, then typecheck once more;
-		- regenerate fixtures and re-create the dev databases;
-		- `pnpm check`, `pnpm test`, `pnpm test:network`, each once;
-		- every requirement the witness verdict now exposes gets an arm or steering, never more runs;
-		- each design's planted-bug check (§11.5) moves to the mutation gate (item 5), since the owner allows only combined runs here;
-		- rerun each issue's acceptance check.
-		- close GitHub issues #1–#8, each with a one-line comment naming the commit that fixes its root cause.
-		- owner 2026-11-04: push and send Sterling his file at the first clean `pnpm check` ("one typecheck. run tests later"); `pnpm test` and `pnpm test:network` run together after the push, looping fix and re-run until green, and Sterling gets a follow-up when they are.
-		- then send Sterling a single self-contained migration markdown, built from CHANGELOG.md and pinned to the pushed commit, that his agent can execute end to end: dependency update, every codemod, typecheck to clean, regenerate migrations, re-create databases, verify. Send it as a Superbuilders Slack DM (D0C7QFQ3691) through the owner's logged-in Chrome tab.
-	- **Types and engine agree everywhere, by the one Meets:** ChangeSet query members (types/changeset/changeset.ts MemberCheck) still compare decoded heads, `[Ha] extends [F]`, so a member delivering an exact integer into an integer field is refused by the types while the engine admits it (write/frontend/dag.ts writtenCast: proof, or PartialOperation). Rebuild MemberCheck over the member's carriers and the relation's field descriptors through Meets, as the recursive arms' ArmsDeliver now does; then sweep every other head-against-declared-field check for the same split.
-	- **Cut, after the gate, in Elon's order.** Question every mechanism this item added: lint rules, test projects, arms, oracles, carriers, preconditions. Delete what another one subsumes, then simplify representation-first, then run the gate once more.
-	- **Pacing:**
-		- runs main launches use half the machine (5 of 10 cores);
-		- PostgreSQL 19 RC2 (2026-11-12) is repinned between waves, never inside one;
-		- each wave ends with one typecheck, then commit and push.
-2. **edullm catch-up, outside school hours** (owner 2026-11-03: superstarter and grizzle first). An edullm push deploys, so open tabs get version skew in school hours. Copy into edullm: item 1's testing-library change (#1, and #6's two packages/testing spread fixes), byte-identical with the package name substituted; the `no-spread-argument` rule and its REJECTED entry; and the shared lint SPEC (edullm/out/lint-standard/SPEC.md). Coordinate with any open edullm session.
-3. **Representation-first cull: follow-ups.** When these are done, scripts/dev/golden/* is deleted (with its .fallowrc.json entry and the capture.ts line in oxlint.config.ts's no-dynamic-imports block).
-	- **Assert roots still scheduled:**
-		- regex membership without the one named site: DAG headings and expression types carry resolved types IR-wide;
-		- analysis.ts attachNode: an analysis field on the IR's Attach node, kept apart from the lowering's claim and projected out of the digest the way Delta keys are, so the lowerings read the analyzed facts instead of matching three DAGs by Attach id;
-		- variant-typed page slots and a total size encoder (pageBinding), threaded through the page compile, the kits, Delivery<Own> and the shell;
-		- install/comments.ts mintedName: SQL AST names carry identities;
-		- `sameOptional` in ir/scalar-shape.ts compares by canonical text until ExprTable has structural equality;
-		- scalar/values/identity.ts builds row-identity strings as Map keys;
-	- **Upstream report for fallow:** unused-class-member doesn't follow union narrowing, so check/params.ts ParamCell.use/useRelation (called on a narrowed BindValue) needs a usedClassMembers entry. Report it, then drop the entry once fallow is fixed.
-	- **For a later pass:**
-		- gen/query.ts's `#canFail` and `#stable` side tables fold into typed generator terms that carry their own failure and volatility;
-		- the oracle's value-identity string keys (valueKey, rowKey, …) become structural identity, if a native structural map ever beats them.
-4. **Test improvement on the library:**
-	- **Baseline:** the mutation score per area, the residual per suite and the wall time.
-	- **Oracles:** every rewrite, demand, prune and law rule notes a reach-then-reveal pair, `c.pair(rule, "reveal")`, defined on the node's own input; agree equivalences; kept cases from real reports; and test/pg/page/generated.ts's conservative population capped by a request count computed from the sketch, with no milliseconds-per-request derivation.
-	- **Worlds and schedules:** commands programs for ledgers, sessions and pools; drawn schedules for races too large for `every`; shared.ts's lease-slot wait (it blocks while other slots are free, and the build guard doesn't count it); and every pg or schedules suite that sits on an unadjusted TestClock moved to the live clock.
-	- **Education leads:** test/support/worlds/generate/enumerate.ts's candidate box varies one claim field at a time from the first values, so a school administrator's account and school rarely appear together and the administrator's accepted write stays rare (1.5% per case). Make the box draw claim fields jointly. The leads' `whilePending` gate recognises only worlds features, so education requirements always look pending. Give it the suite's own requirement set.
-	- test/support/pg.ts takes SQL parameters as ReadonlyArray<unknown>, which let an Identity object reach a query; type the parameters.
-	- test/pg/physical/serving.test.ts's first workload kept case (about 780 lines) shrinks to its minimal sketch, and the floor helpers it and the second one use (zeros, floorValue, floorCompare, match, read) move into one shared module with test/pg/oracle/public/suite.ts's kept-sketch helpers. The library's shrinker can't start from a kept value; give it a way to (a kept case's draws as its tape).
-	- While logical/props.ts held a type error (Closure<undefined> against Closure<never>), the type batch's tsc hung at 0% CPU with every thread waiting instead of reporting it. Reproduce and report it upstream (typescript-go), and make the batch fail closed on a stall (test/types/batch).
-	- **Library limit:** the case hang guard races a timer on the case's own thread, so a synchronous runaway (a backtracking RegExp, a pure loop) blocks it and vitest's timeout alike; only a worker thread can stop one (worker.terminate interrupts a running RegExp). Decide whether property cases run in a terminable worker, or document that synchronous code under test must bound its own work, as the engine's rewrite step bound (core/budget.ts checkBound) does.
-	- The oracle perturbation never draws `enable_nestloop = off`. PostgreSQL 19 gates the nested loop's materialize and memoize on it, so a join no other enabled method runs re-reads its inner side per outer row. As a result, perturbations can't force a hash or merge join where the planner picks a nested loop. Restore that from the sketch: draw `enable_nestloop = off` only for a sketch whose every join some enabled method can run (no cross product, no vector equality, never with hash and merge joins both off).
-	- The 40001 retry covers only expectation steps (test/support/substrate/expect.ts). A plain setup statement in a pg suite can still meet SSI's load-induced 40001. Find every suite that sets up through raw autocommit statements, and route their setup through one attempt-and-observe helper.
-	- **Engine units:** exhaust small boxes, and agree.
-	- **Then adequacy:** every surviving mutant and fuzz find becomes a generator arm or a required situation.
-	- **Done means:** the mutation score is up in every area, no residual is worse, and total wall time is no worse at four cores.
-5. **The mutation gate:** prune triage.json, then run the operators on the final code. Every surviving mutant becomes a test or a written equivalence.
-6. **Tests move into packages/*/test**, with their mutate and fallow paths and the docs.
-7. **Narrow the engine's internal exports** to compiled outputs: read plan, change plan, migration plan, expected catalog.
-8. **Keys follow-ups:**
+## Now: the second beta, 1.0.0-beta.1
+
+Owner 2026-11-06: everything in this section lands before the beta, in this order. The PostgreSQL build keeps only
+what grizzle needs, no bug is known, no test is an example, and the type checker's cost grows linearly in every schema
+dimension.
+
+How the work runs:
+- Owner 2026-11-06: approved; work autonomously to the end, deciding along the way, and hand the owner the one-line
+  publish command. The test inventory (3.2) is written into this file, and wave 2 starts from it.
+- Main reads the code and the tests itself and integrates. At most four coding lanes run at once, in the main checkout,
+  on main, with no branches. Lanes write code only: no repository typecheck, no test runs, no git. A lane may check a
+  standalone program of its own under ~/.cache/grizzle-release/, such as a type-cost probe.
+- Main typechecks the integrated tree once, fixes what it reports, and typechecks once more. Then it commits and pushes.
+  A push needs only a clean typecheck.
+- Every tier runs together once all the coding is in, using half the machine. `pnpm test` runs first, then
+  `pnpm test:network --maxWorkers=3` on server A once A is ours.
+- Mutation runs use a scratch copy under ~/.cache/grizzle-release/ with its own `pnpm install`.
+- This work is grizzle only.
+- One copy of PostgreSQL (owner 2026-11-06): the cluster on 5433. The second copy, on 5435, was stopped and deleted on
+  2026-11-06. Use 5433 once GG's run there has ended. Never run `pnpm pg reset`: another project's database lives in
+  the cluster too.
+- Waves:
+	- wave 1 is lanes P (section 1), R (the regex fix) and T (the type layer), with main taking the test inventory;
+	- wave 2 is the test areas of 3.3, at most four lanes at a time;
+	- wave 3 is the release (section 4).
+
+### 0. Housekeeping
+- ~/Documents/grizzle-proposals: issues #1–#8 are closed and #9's design (fallible operations total) has landed.
+  Look at each file once more, then delete the folder.
+- ~/Documents/postgres-upstream-submissions predates upstream/. Move anything newer into upstream/, then delete it.
+  Its recursive-union and btree_gist folders are upstream already.
+
+### 1. The PostgreSQL build keeps only what is required
+- **Delete plpgsql_check.**
+	- Why: its one use is the coverage cluster's profiler, a measurement no gate reads. Its 2.10.15 profiler also PANICs
+	  a COMMIT once 20,000 functions are profiled (profiler.c:102, :1335).
+	- What goes:
+		- pin.env's five PLPGSQL_CHECK_* lines;
+		- build.sh's fetch, build and stamp;
+		- lib.sh's stamp and the coverage cluster (use_cluster, PG_CLUSTERS);
+		- init.sh's --coverage block;
+		- doctor.sh's --coverage checks and its profiler probe;
+		- ctl.sh's --coverage;
+		- scripts/dev/plpgsql-coverage.ts;
+		- package.json's `pg:coverage` and `plpgsql-coverage`;
+		- test/support/env.ts's PgCluster and GRIZZLE_PG_CLUSTER;
+		- pg-global-setup.ts's coverage report;
+		- CONTRIBUTING's coverage-cluster paragraph, its `pnpm plpgsql-coverage` row and every --coverage mention;
+		- ~/.cache/grizzle/src/plpgsql_check-*.
+	- The superuser connection every pg test uses (test/support/substrate/substrate.ts) stays. Rename its
+	  coverageAdminUrl to adminUrl.
+	- grizzle keeps one copy of PostgreSQL. The coverage copy (5435) is already deleted, so its scripts go with
+	  plpgsql_check: there is no second cluster in pin.env, lib.sh, init.sh, ctl.sh, doctor.sh or build.sh.
+- **Delete 19rc1-btree-gist-multibyte-penalty.patch.**
+	- It is performance only, and already upstream (master b82d69abf6), so grizzle has nothing to submit. No test reads
+	  it.
+	- README's known issue stays, stated for stock PostgreSQL, without the patch sentence.
+- **Keep 19rc1-relcache-planned-check-and-generation.patch.**
+	- It is grizzle's own, valuable and upstreamable: every CHECK and generated field that reads a closed relation's
+	  constant pays for it on every statement without it.
+	- Rename it for RC2 and apply it with no fuzz.
+	- Write its submission into upstream/relcache-planned-check-and-generation/ in the shape of the other two: the patch
+	  on master, a repro, evidence, an email and a checklist. The owner files it.
+- **Repin to 19rc2 on 2026-11-12, if the beta isn't out by then:** pin.env, rebuild, re-init, then delete the 19rc1
+  build, source and cluster.
+	- RC2 includes the recursive-UNION hash_mem fix, so that patch goes.
+	- After the repin, confirm the two RC2 fixes that touch grizzle:
+		- DROP DATABASE … WITH (FORCE) beside parallel autovacuum workers (the sweep runs it);
+		- the RI fast path with a cast (grizzle pairs FK columns of identical types).
+- **Rebuild 19rc1 now** (owner 2026-11-06: recompile is fine), once GG's run on 5433 has ended: `pnpm pg:build`
+  stops the cluster, swaps in the build without plpgsql_check and the btree_gist patch, and starts it again.
+- README's PostgreSQL statement names the patches the build applies. Update CONTRIBUTING's pg:build and pg:init lines
+  to match.
+
+### 2. No known bug
+- **A pattern whose anchors leave no match is admitted.** `^$a` is lowered to `\A\Za`.
+	- Root cause: `LiveNode` (scalar/regex/ir.ts) claims a member, but the constructors make only an empty class
+	  `never`, never contradictory anchors.
+	- The same hole admits a `str.regex` past the DFA bounds whose language is empty, because text/refinement.ts
+	  languageOf trusts the IR there.
+	- Fix in the IR:
+		- each node carries the set of its paths' profiles, in one byte;
+		- a profile is three bits: it consumes a character, it passes `^`, it passes `$`;
+		- a sequence keeps a pair of profiles unless a character comes before a `^` or after a `$`;
+		- an alternation takes the union of its arms' profiles, and a repetition closes over copies of its body;
+		- a node with no profile left is `never`.
+	- This is exact for the admitted grammar, and linear. The flags are only u and su, so `^` and `$` anchor the string;
+	  there is no lookaround; and every class is non-empty over admitted text.
+	- After the fix:
+		- admit.ts matchPattern and refinement.ts are exact as written;
+		- languageOf's DFA-empty branch can't be reached and is deleted, with isEmptyLanguage if nothing else reads it;
+		- the `never` tests in translate.ts, whitespace.ts and source.ts become exact too.
+	- Test: the escaped bug is the generator's, since test/unit/compute/text.test.ts draws one empty pattern, `[]`.
+		- A property over patternOver, whose anchors fall anywhere: the IR is `never` exactly when a search of its NFA
+		  finds no accepting path. The search follows walk's rules: a `^` only before the first code point, nothing after
+		  a `$`.
+		- The situation "empty through an anchor" is required, so the witnesses reach it on every seed.
+		- matchPattern and analyzeText refuse exactly those patterns, each with its reason.
+	- Planted bug: the constructors go back to class-only emptiness, and the property fails on every seed.
+	- CHANGELOG: such a pattern is refused at compile time, in `Compute.matches` and `str.regex` alike.
+- **Issue #9: `ChangeSet.empty(role)` and `query(role)` fail with TS2589** once base laws × role entries pass about
+  1.2 million.
+	- Root cause: types/schema/world.ts KeptStatement checks each base law's relations against the union of every whole
+	  entry (`[NamedBy<St>] extends [Whole]`). So a role's `statements` costs laws × entries, and `S extends AnySchema`
+	  reads it.
+	- FullBaseOf has the same shape: an Exclude of every base relation against the union of the entries.
+	- Fix by representation: a role's relations are its index by name, as a schema's are.
+		- A law is kept when each relation it names is the role's entry under that name: one lookup per relation.
+		- The full base is a mapped check over the base's record.
+	- Close #9 with a comment naming the commit.
+- **The type layer's cost grows linearly in every schema dimension.**
+	- Owner 2026-11-06: efficient, typechecker-safe types. No `as`, no `any`, no ts directive, no widened fallback, no
+	  dropped refusal and no raised limit. Precision is kept.
+	- Scaling programs, one per dimension, each checked at n, 2n and 4n:
+		- relations, laws per relation, role entries, roles per schema and fields per relation;
+		- query rules and attachments, ChangeSet members and contexts;
+		- they extend test/types/schema/budget and test/types/query/budget.
+	- Gate:
+		- every program typechecks with no diagnostic at sizes past #9's cliff;
+		- Types and Instantiations grow linearly: an increment ratio under 3, read as families.test.ts reads it.
+	- Check time is not gated: tsgo reports no relation-cache counter, and time under load is noise. But the families
+	  suite's check time triples per doubling while its instantiations only double. Profile tsgo's check at the largest
+	  size and fix every superlinear site, union-against-union relations first.
+	- Audit every distributive conditional over a schema-sized union, and every mapped type evaluated again per element.
+	  By file: query.ts 10, evidence.ts 7, changeset.ts 5, schema.ts 3, world.ts 2, terms.ts 2, and one each in rule,
+	  regex, derived, workload and phantom.
+- **A law's identity drops a side's selection,** so two laws over selections of one relation can share a name.
+	- Verify with a generated pair of such laws. If they share an installed name, it is a naming-door bug: the identity
+	  takes the selection, and the pair installs under distinct names.
+- **`role(...)` took 2.0 s and 271 MB over 137 relations** (measured 2026-11-06, at load 27).
+	- Measure the description's construction at n and 2n relations. If it grows faster than linearly, it is a bug of
+	  #9's family, fixed by the same index.
+- **GG's whole-suite run at 99b6217.**
+	- Every real failure in it is fixed at its root.
+	- It also settles the four suspects: the unit tests lower/conservative/parameter-refined, analysis/logical/evidence
+	  and compute/text, and the pg test recursion/oracle/fixed-length.
+
+### 3. No example-based test
+Owner 2026-11-06: example-based tests are banned. A test is an example when a person chose its inputs and wrote its
+verdict. A hand list run through `exhaust` or `element` counts.
+
+What stays:
+- a property against an oracle, over generated inputs;
+- an exhaustion of a box its bounds define;
+- kept cases: shrunk counterexamples, replayed through their suite's own property;
+- dictionaries a generator draws from: values the code branches on, never verdicts;
+- the README's and SKILL.md's mirrors, which hold the docs to compiling code.
+
+- **3.1 The rule.**
+	- CONTRIBUTING's doctrine 2 drops its exemption ("Keep an example only for…") and states the ban.
+	- The testing library's oxlint plugin refuses a test case that is not a search (explore, exhaust, commands,
+	  interleave), and an `exhaust` over an array literal. The rule lands in superstarter's packages/testing first and is
+	  copied, as every library change is.
+- **3.2 Inventory, by main, written into this file.** Every test file is classed keep, convert or delete, with the class
+  of bug that only it catches. Found so far, across 565 test files:
+	- 34 files run no search (101 cases);
+	- 19 files carry hand tables of inputs and verdicts: check/semantics 33, lower/dedup/verify 24, check/reasons 15,
+	  sql/lexer 6, and others;
+	- 95 files draw `element` or `exhaust` over 219 literal lists, each of which is a dictionary or a case list;
+	- some files have more cases than searches: write/changeset/value, cli/cli, physical/fin, deps, catalog/agreement,
+	  bench/harness, adapter/reader;
+	- the type tier has 46 fixture files: 12,836 lines with 775 `@ts-expect-error`.
+- **3.3 Replacement suites, by area, each named by its oracle.**
+	- Refusals (check/semantics, check/reasons, check/head-literals, compute/text's invalid list):
+		- a planted-fault generator draws a valid program from the query and write generators;
+		- it applies one fault per CompileReasonTag, and every reason must be reached;
+		- the checker refuses with exactly that reason and its fields, and admits the program without the fault.
+	- Lowering (lower/dedup/verify and kin): arms of the differential oracle, each rewrite rule a required situation.
+	  The examples go.
+	- SQL text (sql/lexer): over generated ASTs, lexing what the printer printed gives back its tokens; plus an
+	  exhaustive box of token boundaries.
+	- Writes and families (write/changeset/value, physical/fin): arms of the write oracle and of the families model.
+	- The command line (cli/*): a commands program over a generated project.
+		- Its steps are: change the schema, generate, check, migrate.
+		- A model of each command judges what it writes, its exit status and its refusal's tag.
+	- Adapter reads (adapter/reader): the flight fuzzer's scripted session.
+	- Catalog agreement: generated schemas, checked against the catalog verifier.
+	- Tooling (bench/harness, deps, dev/mutate, dev/package, substrate, program/limits, workload, migrate/renames,
+	  schedules/derived/refreshers): a test stays only for a class of bugs nothing else catches, and then becomes a
+	  search. The rest are deleted.
+	- Types: a generated type population replaces the fixtures.
+		- Programs drawn from the schema, query and ChangeSet generators are printed as TypeScript and checked as one
+		  batch.
+		- The engine is the oracle: a program typechecks exactly when the engine compiles it, a refusal's
+		  `Refusal<"…">` names the engine's reason, and an inferred row type equals the engine's decoded heading.
+		- The negative fixtures go. The README and SKILL mirrors stay.
+	- Test infrastructure, in the areas the lanes touch:
+		- test/support/pg.ts types its parameters: ReadonlyArray<unknown> let an Identity reach a query;
+		- every pg suite's raw setup goes through one attempt-and-observe helper, against 40001 under load;
+		- education's candidate box draws claim fields jointly, and its whilePending gate reads its own requirements;
+		- serving's 780-line kept case shrinks to its sketch, and the library learns to shrink from a kept case's draws.
+- **3.4 Behaviour the README states that no test holds.** These are the old "Tests owed": claims, roles, logins,
+  reading and writing through a world, read-backs, refusals, installation, drift, packaging, index use under roles, and
+  the README clauses.
+	- The inventory checks each one against the suite.
+	- What is still owed becomes an arm or a required situation of the suites above, never an example.
+- **3.5 Adequacy, which is also the deletion rule.**
+	- A baseline `pnpm mutate` runs over each area's files before the area's lane starts, and again after it lands.
+	- An example test is deleted in the commit whose new suite kills every mutant the example killed.
+	- Every surviving mutant becomes a generator arm or a written equivalence, and triage.json is pruned to the final
+	  code.
+
+### 4. The release
+- **The gate.** The whole gate runs on the release commit, on the pinned build:
+	- `pnpm check`, then the unit and type tiers, then the pg tier at --maxWorkers=3 with a pinned TEST_SEED;
+	- against a `git archive` of the commit, with its own install and an empty git repository;
+	- each failure is rerun once, alone, and only a pure load timeout that then passes counts as a flake;
+	- a real failure is fixed, and then the whole gate runs again.
+- **Versions** go to 1.0.0-beta.1 in packages/engine and packages/grizzle.
+- **CHANGELOG:** Unreleased becomes 1.0.0-beta.1 with its date and keeps its upgrade guide. It gains entries for #9 and
+  for the empty-language refusal.
+- **README and SKILL.md match the release:**
+	- the pinned PostgreSQL and its patches;
+	- the limits the README doesn't state yet: a pattern whose language is empty is refused, a family's
+	  member side can't be a selection, a side's terms must be distinct, a generated NOT NULL's 23502 names no law, and
+	  `db.explain` drops index names;
+	- the install line, for a first publish under the `beta` tag;
+	- every changed ts block's mirror changes with it.
+- **Tarballs:** `git archive` the release commit into ~/.cache/grizzle-release/, `pnpm install --frozen-lockfile
+  --ignore-scripts`, then `pnpm pack` packages/engine, packages/grizzle and packages/testing (the last with
+  `npm pkg set version=0.0.0` first). Pack twice and compare byte for byte. The release commit's full hash goes to the
+  owner.
+- **The owner publishes.** Main hands over one line that tags the release commit, pushes the tag and runs
+  `pnpm -r publish` (grizzle's first publish: neither name is on npm). Main closes #9 with the fixing commit; no other
+  announcement.
+- **TODO:** this section is deleted, and the beta's follow-ups are listed below.
+
+## After the beta
+- **Representation-first follow-ups.** Once they are done, scripts/dev/golden/* goes, with its .fallowrc.json entry and
+  capture.ts's line in oxlint.config.ts's no-dynamic-imports block.
+	- Regex membership without the one named site: DAG headings and expression types carry resolved types IR-wide.
+	- An analysis field on the IR's Attach node, projected out of the digest as Delta keys are. The lowerings then read
+	  the analyzed facts instead of matching three DAGs by Attach id.
+	- Variant-typed page slots and a total size encoder (pageBinding), carried through the page compile, the kits,
+	  Delivery<Own> and the shell.
+	- install/comments.ts mintedName: SQL AST names carry identities.
+	- ir/scalar-shape.ts sameOptional compares by canonical text, until ExprTable has structural equality.
+	- scalar/values/identity.ts builds row-identity strings as Map keys.
+	- gen/query.ts's #canFail and #stable side tables fold into typed generator terms.
+	- The oracle's value-identity string keys become structural identity, if a native structural map ever beats them.
+- **fallow:** unused-class-member doesn't follow union narrowing, so check/params.ts ParamCell.use and useRelation need
+  a usedClassMembers entry. Report it upstream, then drop the entry once fallow is fixed.
+- **Test layout:** tests move into packages/*/test, with their mutate and fallow paths and the docs.
+- **Engine exports:** narrow the engine's internal exports to compiled outputs: the read plan, the change plan, the
+  migration plan and the expected catalog.
+- **Keys:**
 	- lowering rewrites' key claims rest on certificates, not KeyProofs;
 	- a projection drops a dependency whose determinants include a column it drops;
 	- a lateral source column fixed to a region column gives only one direction;
 	- k joined relations with two declared keys each still give 2^k minimal keys;
 	- a closed relation's identical-valued columns aren't detected as one class.
-9. **Terms, typed:** a `CheckedExpr` brand with per-level constructors (about 40 builder sites), so each builder's level check is mechanical.
-10. **Sweeps under conflicting key orders, the residues no plan avoids.** The created-index key order serves every request of the relation one order can (packages/engine/src/physical/indexes/engine.ts), and the serving judge holds the engine to that. What remains is requests needing conflicting key orders, where PostgreSQL sweeps another planned index for the one request no order serves. The judge excuses exactly those sweeps, through an index no order of whose keys serves the probe beside the requests it serves (test/pg/physical/serving.ts residueOf); the request's own index alone must still serve the probe.
-	- **GiST:** gistcostestimate is blind to column position. It costs a GiST scan by the selectivity of all its conditions (genericcostestimate), and charges its descent ceil(ln N) comparisons where btcostestimate charges ceil(log2 N). So at the one leaf a selective result needs, PostgreSQL prefers a GiST index that holds a probe's fields outside its lead to a B-tree those fields lead (6.50 against 6.51 at the serving suite's volume), and sweeps it. Two GiST indexes tie exactly once both round to one leaf page and share (int)log100(pages) (347 and 655 pages tie), and the newest index wins. The margin over a B-tree is ln against log2 plus the height term, log100(pages) against the B-tree's real height (0.125 more at 1M rows), so a log2 change alone would not close it. A span predicate on (fixed, span), another on (span) and an equality lookup on (fixed): whichever column leads, one single-column probe is exposed. Closing it needs gistcostestimate to see column position, an upstream change: drafted as a pgsql-hackers reply to BUG #15408 (Tom Lane, 2018: "someone would have to ... design/write/test a better cost model") in upstream/gist-costestimate-column-position, for 20, not filed.
-	- **Partial B-tree:** a law probe of a selection whose own index holds every row (law probes of the held bookings on (room, id) and (id), beside one on (room) the span key's GiST index serves). btcostestimate's skip-scan costing gives up skipping when the skipped columns' distinct values outnumber the index's pages and costs a sweep; an index-only sweep of the partial (id, room) WHERE held fetches no heap page, so PostgreSQL sweeps it (74 buffers) rather than read the GiST index of every row (117). PostgreSQL is right here; avoiding it would take leading the partial index with room for the probe an index already serves, and a second partial index for (id), which the engine's draft, ordered for the requests no index serves, never makes.
-11. **A guarded float form costs a SubPlan per row.** Since the operand binding that made float forms plan in linear time (lower/conservative/expr/total.ts bindOperands, `(SELECT … FROM (SELECT a, b OFFSET 0) AS __operands(…))`), a compound summand of a float `sum` (`sum(price * qty)` over `double precision`) runs one correlated SubPlan for every row it reads: correct and linear, but slower per row than an inline expression. Bind the operands once per row by a mechanism PostgreSQL neither inlines nor re-plans (a LATERAL in the reading core's FROM where the expression sits in one), keeping the linear text and planning that `ieee-linear` holds. Measure it with a float-sum gate first. Correctness over performance (K21/K22): this waits for the perf pass.
+- **Typed terms:** a CheckedExpr brand with per-level constructors, at about 40 builder sites.
+- **Performance:**
+	- A guarded float form costs a SubPlan per row (lower/conservative/expr/total.ts bindOperands). Bind the operands
+	  once per row with a LATERAL, behind a float-sum gate written first.
+	- Performance under roles: the 1M-row plan suites read through world views and row security, every read
+	  index-served.
+	- `bench:full` on a quiet machine.
+- **Sweeps under conflicting key orders,** the residues no plan avoids, which the serving judge excuses
+  (test/pg/physical/serving.ts residueOf).
+	- GiST's cost model is blind to column position: upstream/gist-costestimate-column-position, for PostgreSQL 20.
+	- The partial B-tree sweep is PostgreSQL being right.
+- **The beta's open items:**
+	- `date` has no span carrier;
+	- a relation parameter whose pattern no stored column carries can't be delivered;
+	- witness a CHECK refusal on the host;
+	- order a family statement's rows by their pattern input, for PostgreSQL's 32-regex cache;
+	- make Written and AdditionIn public;
+	- run RDS IAM against RDS.
+- **The testing library:**
+	- A synchronous runaway (a backtracking RegExp, a pure loop) blocks the case's hang guard and Vitest's timeout
+	  alike. Decide whether property cases run in a terminable worker, or document that the code under test bounds its
+	  own work.
+	- The type batch's tsc stalled at 0% CPU on a type error. Reproduce it, report it upstream, and make the batch fail
+	  closed on a stall.
+- **Cross-repo, outside school hours for edullm:** grizzle's packages/testing differs from superstarter's in 43 files,
+  though each repository's copy is meant to be byte-identical. Reconcile them. Then copy the library into edullm, with
+  the no-spread-argument rule and the shared lint standard.
+- **PostgreSQL 19 GA (2026-11-19):** repin. The relcache patch is rebased and kept until a release includes it.
 
-## Tests owed (behaviour README states that no test holds)
-- **Claims:**
-	- a context field of every admitted type, contract and closed handle included, in one drawn context, with a pattern needing PostgreSQL's regex semantics;
-	- a direct writer's hand-set claim its field refuses, of every admitted type, meets README's codes at the read: 22P02 (no JSON, a non-uuid, non-integer, non-boolean, unknown closed handle), 22003 (an integer out of range), 23514 (a contract or pattern);
-	- a refined claim whose domain the installed snapshot lacks is OpenError at admission;
-	- admission stays one round trip with N refined claims.
-- **Roles:** the exhaustive small space, meaning every entry over a two-relation base with at most two arms and one context, with classification and admission agreeing.
-- **Logins:**
-	- two logins of one schema and two schemas in one process, each login its own pool, Db.open never crossing layers, pools released on scope close;
-	- a Db per request at volume on one pool, alternating roles.
-- **Reading a world:**
-	- page through a world view with a proven key and with a derived key, every row exactly once;
-	- attach deliveries in roles;
-	- recursion and spans read through world views.
-- **Writing through a world:**
-	- entries over a mutable relation with a span key, and over a pure set;
-	- every law family meeting an entry write;
-	- 100,000 facts through one entry, index-served.
-- **Read-backs:** a drawn version over generated ChangeSets and entries, each read-back classified against a host restatement of the rule.
-- **Refusals:** every law family's refusal raised by a partial role, with the withheld or shown rule judged by the law function's role check.
-- **Installation:** a second generate drafts no change to login defaults.
-- **Drift:** a drawn change to each world object kind is reported by `grizzle drift` with the object named, and nothing on a fresh install.
-- **Packaging:** the package test's consumer opens a role against the dev cluster (built package, real Db.open, one read).
-- **Performance under roles:**
-	- every workload program over a role reads through its indexes;
-	- the prologue adds no round trip.
-- **README clauses:**
-	- A JavaScript program over a context its role's relations don't read is refused before any SQL.
-	- No law takes a context, and no ChangeSet writes it.
-	- USAGE on every domain down a contract's base chain.
-	- A non-19 server is refused at stage `version`, and a verdict-less admission at stage `admission`.
-	- SET ROLE or SET SESSION AUTHORIZATION to a missing role gives 22023.
-	- A plain foreign key on a cycle is refused at COMMIT.
-	- A failing password Effect fails a read with ReadFailure at stage acquire, and a write with TransportFailure.
-	- A throwing verify gives TokenError at stage token, and a refined claim PostgreSQL refuses gives ClaimRefused at stage token.
-- **Planted defects:** each new suite is shown failing on a planted defect in its feature.
-
-## Before the beta
-- Performance under roles: the 1M-row plan suites read through world views and row security, every read index-served, measured against the full role.
-- Keep, or verify on real RDS, the README's `rds_iam` grant (`WITH INHERIT TRUE, SET FALSE`).
-- Re-read the README's PostgreSQL 19rc1 and recursive-UNION patch statement.
-- `bench:full` and `mutate` once, before tagging.
-
-## Effect 4.1
-- scripts/dev/profile/compile.ts digests through `effect/crypto`: `yield* Digest.Digest`, then `digestHex(Digest.sha256, bytes)` in place of `Crypto.Crypto`'s digest and `Hex.encode`, with `Digest.layerWebCrypto` provided to `main`. 4.1 drops `Crypto` from `effect` and NodeServices no longer carries one; this is the only site 4.1's typecheck refuses.
-- The catalog's effect, @effect/platform-node and @effect/vitest move to 4.1 together (@effect/vitest 4.1 requires effect ^4.1.0), with `pnpm test` and `pnpm test:network` green on it.
-- packages/grizzle's and packages/engine's `effect` peer rises to ^4.1.0 in the same commit: the gate then typechecks against 4.1 alone, so a 4.1-only API would otherwise slip in under a 4.0 floor.
-
-## PostgreSQL calendar
-- PG19 RC2 (2026-11-12) and GA (2026-11-19): repin (pin.env, rebuild, re-init, delete the old build). Drop each pin patch once a release includes its fix.
-- **Fixed for RC2 that touch us:**
-	- DROP DATABASE … WITH (FORCE) failing on parallel autovacuum workers (1ff3180ca01, fix a39e53a70). test/support/substrate/shared.ts's sweep runs exactly that, so a sweep can fail intermittently on rc1.
-	- The RI fast path diverging when an FK value needs a cast (2da86c1ef9b). grizzle pairs FK columns of identical types, so it shouldn't trigger. Confirm after the repin.
-	- Executor hash tables sized from an unclamped planner estimate since 8f29467c (BUG #19759, fix 747dbf30d1): a recursive UNION zeroed up to 64 GB at executor start, plain EXPLAIN included. scripts/pg/patches/19rc1-recursive-union-hash-mem.patch is that fix, backported unchanged, so the repin drops it.
-- scripts/pg/patches/19rc1-btree-gist-multibyte-penalty.patch is master's b82d69abf6, which no 19 release includes: the RC2 and GA repins keep it (REL_19_STABLE's btree_gist is unchanged since RC1, so it applies as is), and the PostgreSQL 20 repin drops it.
+## Upstream, for the owner to file
+- upstream/plpgsql-lineno-rescan: PL/pgSQL rescans the source on every location-to-line lookup.
+- upstream/gist-costestimate-column-position: a pgsql-hackers reply to BUG #15408, for PostgreSQL 20.
+- upstream/relcache-planned-check-and-generation, written in section 1.
