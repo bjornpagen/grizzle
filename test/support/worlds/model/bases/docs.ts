@@ -2,6 +2,7 @@ import { Array as Arr } from "effect"
 import { textDomain } from "#test/support/worlds/model/text.ts"
 import type {
 	BaseSpec,
+	ContextSpec,
 	EntrySpec,
 	FieldDomain,
 	InstallSpec,
@@ -160,6 +161,43 @@ const docsLevelBase: BaseSpec = {
 			fields: [{ name: "plan", domain: planContract }]
 		}
 	]
+}
+
+/**
+ * A badge: a pattern whose reading needs PostgreSQL to agree with ECMAScript's, a word class ECMAScript holds to ASCII
+ * and a dot no line terminator matches, both of which PostgreSQL's own classes would widen.
+ */
+const badge: FieldDomain = textDomain("^[a-z]\\w{0,3}.$", "u")
+
+/**
+ * The context Profile, read from the token's `p` claim object: a field of every type a context field takes (README
+ * "Permissions"), a uuid, a text of a pattern, an integer of each width, a boolean, a closed id of the roster Tier and
+ * the contract Plan.
+ */
+const profileContext: ContextSpec = {
+	name: "Profile",
+	claim: { kind: "object", key: "p" },
+	fields: [
+		{ name: "ref", domain: uuid },
+		{ name: "badge", domain: badge },
+		{ name: "small", domain: { kind: "integer", bits: 16 } },
+		{ name: "seats", domain: integer },
+		{ name: "big", domain: { kind: "integer", bits: 64 } },
+		{ name: "active", domain: { kind: "boolean" } },
+		{ name: "tier", domain: { kind: "handle", closed: "Tier", members: ["Free", "Pro"] } },
+		{ name: "plan", domain: planContract }
+	]
+}
+
+/**
+ * The documents base with the context Profile, whose claims of every type a Db decodes from its token and Db.open's
+ * admission judges where refined, and a direct writer hand-sets, each cast to its field's type where a statement reads
+ * it.
+ */
+const docsProfileBase: BaseSpec = {
+	...docsBase,
+	name: "DocsProfile",
+	contexts: [...docsBase.contexts, profileContext]
 }
 
 /** Every documents base a generated installation is drawn over. */
@@ -332,6 +370,61 @@ export const docsLevelInstall: InstallSpec = {
 						...r.entries,
 						PlanOrgs: query(
 							rule([of("Org", { id: org, plan: claim("Level", "plan") })], { org }, none)
+						)
+					}
+				}
+			: r
+	),
+	logins: docsInstall.logins
+}
+
+/** A variable of a Profile field, as the member's Profile entry binds it. */
+const profiled = (field: string): Term => variable(`p_${field}`)
+
+/**
+ * The documents base's README-shaped worlds over its Profile variant (docsProfileBase), the member reading Profile
+ * beside its entries: each organization on the plan its token's Profile claims, with every one of the Profile's claims,
+ * so a read of it meets a claim of every type a context field takes.
+ */
+export const docsProfileInstall: InstallSpec = {
+	base: docsProfileBase,
+	roles: Arr.map(docsInstall.roles, (r) =>
+		r.name === "member"
+			? {
+					...r,
+					entries: {
+						...r.entries,
+						Profile: query(
+							rule(
+								[
+									of("Org", { id: org, plan }),
+									{
+										source: { kind: "context", name: "Profile" },
+										fields: {
+											ref: profiled("ref"),
+											badge: profiled("badge"),
+											small: profiled("small"),
+											seats: profiled("seats"),
+											big: profiled("big"),
+											active: profiled("active"),
+											tier: profiled("tier"),
+											plan
+										}
+									}
+								],
+								{
+									org,
+									ref: profiled("ref"),
+									badge: profiled("badge"),
+									small: profiled("small"),
+									seats: profiled("seats"),
+									big: profiled("big"),
+									active: profiled("active"),
+									tier: profiled("tier"),
+									plan
+								},
+								none
+							)
 						)
 					}
 				}

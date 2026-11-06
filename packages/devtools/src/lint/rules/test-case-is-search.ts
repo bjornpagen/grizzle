@@ -22,10 +22,11 @@ const present = <A>(value: A | undefined): Result.Result<A, void> =>
 type Edges = Readonly<{ search: boolean; next: ReadonlyArray<NativeSymbol> }>
 
 /** The searches the options name, as the program holds them: their symbols, the modules that declare them, by their
- * paths in lower case, and the reports for those the program does not hold. */
+ * paths in lower case, the scaffolds' symbols, and the reports for what the program does not hold. */
 type Searches = Readonly<{
 	ids: ReadonlySet<number>
 	modules: ReadonlySet<string>
+	scaffolds: ReadonlySet<number>
 	misconfigured: ReadonlyArray<string>
 }>
 
@@ -289,7 +290,13 @@ const reachOf = (checker: Checker) => {
 		const next = [...usedIn(Arr.flatMap(declarations, codeOf)), ...Arr.map(shorthands, aliasTarget)]
 		const found: Edges = {
 			search: Arr.some(next, (reached) => searches.ids.has(reached.id)),
-			next: Arr.filter(next, (reached) => !searches.ids.has(reached.id) && reached.id !== symbol.id)
+			next: Arr.filter(
+				next,
+				(reached) =>
+					!searches.ids.has(reached.id) &&
+					!searches.scaffolds.has(reached.id) &&
+					reached.id !== symbol.id
+			)
 		}
 		edges.set(symbol.id, found)
 		return found
@@ -300,11 +307,12 @@ const reachOf = (checker: Checker) => {
 			settled.set(at, true)
 		}
 	}
-	/** Whether code whose names are `start` reaches a search. */
-	const reaches = (start: ReadonlyArray<NativeSymbol>, searches: Searches): boolean => {
-		if (Arr.some(start, (symbol) => searches.ids.has(symbol.id))) {
+	/** Whether code whose names are `named` reaches a search, never through a scaffold. */
+	const reaches = (named: ReadonlyArray<NativeSymbol>, searches: Searches): boolean => {
+		if (Arr.some(named, (symbol) => searches.ids.has(symbol.id))) {
 			return true
 		}
+		const start = Arr.filter(named, (symbol) => !searches.scaffolds.has(symbol.id))
 		const parents = new Map<number, number | undefined>()
 		const queue: Array<NativeSymbol> = []
 		for (const symbol of start) {
@@ -347,7 +355,9 @@ const reachOf = (checker: Checker) => {
  * its verdict, and examples are banned: a case's body must run one of the searches the options name (`explore`,
  * `exhaust`, `interleave`, whose kept cases, floor and streams, or enumeration, choose the inputs and whose oracle gives
  * the verdict), directly or through any function, in any module of the program's own source, whose code does,
- * transitively.
+ * transitively. A scaffold the options name, with its reason, is no way to one: it runs a search around a scenario a
+ * person wrote, over draws that are not the case's inputs (planted schedules draw the keys a hand-written race runs
+ * on), so a case that reaches a search only through a scaffold is an example.
  *
  * A test case is a call the checker resolves to a signature of an installed package's declaration the options name as
  * a registrar (`@effect/vitest`'s `Test`, the signature `it.effect`, `it.live` and a layer's `it.effect` share;
@@ -363,7 +373,7 @@ export const testCaseIsSearch: Start = ({ checker }) => {
 	let searches = Option.none<Searches>()
 	const searchesOf = (
 		fileName: string,
-		declared: SuperlintOptions["testCaseIsSearch"]["searches"]
+		declared: SuperlintOptions["testCaseIsSearch"]
 	): Searches => {
 		if (Option.isSome(searches)) {
 			return searches.value
@@ -371,7 +381,14 @@ export const testCaseIsSearch: Start = ({ checker }) => {
 		const values = declaredValuesOf({
 			checker,
 			fileName,
-			declared: Arr.flatMap(declared, ({ module, names }) =>
+			declared: Arr.flatMap(declared.searches, ({ module, names }) =>
+				Arr.map(names, (name) => ({ module, name }))
+			)
+		})
+		const scaffolds = declaredValuesOf({
+			checker,
+			fileName,
+			declared: Arr.flatMap(declared.scaffolds, ({ module, names }) =>
 				Arr.map(names, (name) => ({ module, name }))
 			)
 		})
@@ -382,9 +399,15 @@ export const testCaseIsSearch: Start = ({ checker }) => {
 					Arr.map(symbol.declarations, (declaration) => Str.toLowerCase(declaration.path))
 				)
 			),
-			misconfigured: Arr.map(values.missing, (missing) =>
-				missingValueMessage("testCaseIsSearch.searches", missing)
-			)
+			scaffolds: new Set(Arr.map(scaffolds.found, ({ symbol }) => symbol.id)),
+			misconfigured: [
+				...Arr.map(values.missing, (missing) =>
+					missingValueMessage("testCaseIsSearch.searches", missing)
+				),
+				...Arr.map(scaffolds.missing, (missing) =>
+					missingValueMessage("testCaseIsSearch.scaffolds", missing)
+				)
+			]
 		}
 		searches = Option.some(resolved)
 		return resolved
@@ -448,7 +471,7 @@ export const testCaseIsSearch: Start = ({ checker }) => {
 			if (!ts.isCallExpression(node) || !isCase(node)) {
 				return []
 			}
-			const found = searchesOf(fileName, options.testCaseIsSearch.searches)
+			const found = searchesOf(fileName, options.testCaseIsSearch)
 			const { misconfigured } = found
 			const misconfiguration = reported
 				? []

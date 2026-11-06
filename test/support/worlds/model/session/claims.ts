@@ -8,6 +8,7 @@ import type {
 	FieldDomain,
 	HostFact,
 	RoleSpec,
+	HandleCodes,
 	Token,
 	TokenRefuser,
 	HostValue
@@ -233,20 +234,52 @@ const byKey = <A>(record: Readonly<Record<string, A>>): ReadonlyArray<readonly [
 		Order.mapInput(Order.String, ([key]: readonly [string, A]) => key)
 	)
 
+/**
+ * A claim's text as the setting holds it: a closed id's, its handle's code in the installation's codes; any other
+ * value's, its own text.
+ */
+export const claimText = (domain: FieldDomain, codes: HandleCodes, value: HostValue): string => {
+	if (domain.kind !== "handle") {
+		return valueText(value)
+	}
+	const handles = codes[domain.closed]
+	const code = handles === undefined ? -1 : handles.indexOf(valueText(value))
+	if (code < 0) {
+		throw new Error(`the handle ${valueText(value)} holds no code of roster ${domain.closed}`)
+	}
+	return String(code)
+}
+
 /** One context's fact as the claims setting spells it: a JSON object of its fields' texts as JSON strings. */
-const memberText = (fact: HostFact): string =>
+const memberText = (context: ContextSpec, codes: HandleCodes, fact: HostFact): string =>
 	`{${Arr.join(
-		Arr.map(byKey(fact), ([field, value]) => `${jsonText(field)}:${jsonText(valueText(value))}`),
+		Arr.map(byKey(fact), ([field, value]) => {
+			const spec = Option.getOrThrowWith(
+				Arr.findFirst(context.fields, (f) => f.name === field),
+				() => new Error(`the context ${context.name} has no field ${field}`)
+			)
+			return `${jsonText(field)}:${jsonText(claimText(spec.domain, codes, value))}`
+		}),
 		","
 	)}}`
 
 /**
  * The text of the `grizzle.claims` setting for a session's facts: a JSON object with one member per context that has a
- * fact, each a JSON object of its fields' texts as JSON strings, contexts and fields in code-unit order. The one text a
- * Db sets for its facts and a direct writer sets for a `facts` setting.
+ * fact, each a JSON object of its fields' texts as JSON strings (a closed id's its handle's code in `codes`), contexts
+ * and fields in code-unit order. The one text a Db sets for its facts and a direct writer sets for a `facts` setting.
  */
-export const claimsText = (facts: ContextFacts): string =>
+export const claimsText = (
+	contexts: ReadonlyArray<ContextSpec>,
+	codes: HandleCodes,
+	facts: ContextFacts
+): string =>
 	`{${Arr.join(
-		Arr.map(byKey(facts), ([context, fact]) => `${jsonText(context)}:${memberText(fact)}`),
+		Arr.map(byKey(facts), ([name, fact]) => {
+			const context = Option.getOrThrowWith(
+				Arr.findFirst(contexts, (c) => c.name === name),
+				() => new Error(`no context ${name} holds the fact`)
+			)
+			return `${jsonText(name)}:${memberText(context, codes, fact)}`
+		}),
 		","
 	)}}`

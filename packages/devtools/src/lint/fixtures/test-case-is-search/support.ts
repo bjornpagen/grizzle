@@ -30,3 +30,8 @@ export const checkOne = (value: number): Effect.Effect<void> =>
 export const caseOf = (check: () => Effect.Effect<void>): Effect.Effect<void> => check()
 
 export const suites = { searched: () => searchedSuite("registry"), example: () => checkOne(3) }
+
+export const scripted = (scenario: () => Effect.Effect<void>): Effect.Effect<void> =>
+	exhaust({ suite: "scripted", generator: integer(0, 3) }, () => scenario())
+
+export const relayedScript = (): Effect.Effect<void> => scripted(() => checkOne(7))

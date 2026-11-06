@@ -71,6 +71,7 @@ import type {
 	ModelState,
 	RoleRef,
 	RoleSpec,
+	HandleCodes,
 	Rule,
 	Source,
 	SqlState,
@@ -206,29 +207,138 @@ const claimsDocumentOf = (
 	return document === undefined || at !== text.length ? Option.none() : Option.some(document)
 }
 
-/**
- * A hand-set claim's value, which its field's base type admits: a text field's text. The generators hand-set an
- * admitted claim of no other type (invalid/claims.ts malformedTexts), so another is a defect of the run, never read as
- * some other value.
- */
-const handSetValue = (domain: FieldDomain, text: string): HostValue => {
-	if (domain.kind === "text") {
-		return text
-	}
-	throw new Error(
-		`a hand-set claim ${text} of a ${domain.kind} field, which the model does not read`
+/** What PostgreSQL makes of one hand-set claim as a context source casts it to its field's type. */
+type ClaimCast =
+	| { readonly kind: "value"; readonly value: HostValue }
+	| { readonly kind: "refused"; readonly sqlstate: SqlState }
+
+/** The spellings PostgreSQL's boolean input reads as true; every other spelling it admits is false. */
+const TRUE_SPELLINGS: ReadonlyArray<string> = [
+	"t",
+	"tr",
+	"tru",
+	"true",
+	"y",
+	"ye",
+	"yes",
+	"on",
+	"1"
+]
+
+/** A uuid's text as PostgreSQL prints it: lower case, its 32 digits in groups of 8, 4, 4, 4 and 12. */
+const canonicalUuid = (text: string): string => {
+	const digits = Str.toLowerCase(
+		Arr.join(
+			Arr.filter(Arr.fromIterable(Str.trim(text)), (ch) => ch !== "{" && ch !== "}" && ch !== "-"),
+			""
+		)
 	)
+	const at = (from: number, to: number): string => Str.slice(from, to)(digits)
+	return `${at(0, 8)}-${at(8, 12)}-${at(12, 16)}-${at(16, 20)}-${at(20, 32)}`
 }
+
+/** An integer's text as the model holds it: a number, or past the safe integers its decimal text. */
+const integerValue = (text: string): HostValue => {
+	const exact = BigInt(Str.trim(text))
+	return exact >= BigInt(Number.MIN_SAFE_INTEGER) && exact <= BigInt(Number.MAX_SAFE_INTEGER)
+		? Number(exact)
+		: exact.toString()
+}
+
+/**
+ * A hand-set claim cast to its field's type (README "Direct SQL access"): its base type's input first, 22P02 for a
+ * text that is no value of it (not a uuid, not an integer, not a boolean) and 22003 for an integer past its range;
+ * then its refinement, 23514 for a value its contract or pattern refuses. A closed id's claim is its handle's code, a
+ * smallint its roster's domain admits only where `codes` holds a live handle (23514 otherwise).
+ */
+const claimCast = (domain: FieldDomain, codes: HandleCodes, text: string): ClaimCast => {
+	const refused = (sqlstate: SqlState): ClaimCast => ({ kind: "refused", sqlstate })
+	switch (domain.kind) {
+		case "text":
+			return domain.matcher.test(text) ? { kind: "value", value: text } : refused("23514")
+		case "uuid": {
+			const fault = literalFault(domain, text)
+			return fault === undefined ? { kind: "value", value: canonicalUuid(text) } : refused(fault)
+		}
+		case "integer": {
+			const fault = literalFault(domain, text)
+			return fault === undefined ? { kind: "value", value: integerValue(text) } : refused(fault)
+		}
+		case "contract": {
+			const fault = literalFault(domain, text)
+			if (fault !== undefined) {
+				return refused(fault)
+			}
+			const n = BigInt(Str.trim(text))
+			return n < BigInt(domain.min) || n > BigInt(domain.max)
+				? refused("23514")
+				: { kind: "value", value: integerValue(text) }
+		}
+		case "boolean": {
+			const fault = literalFault(domain, text)
+			return fault === undefined
+				? { kind: "value", value: Arr.contains(TRUE_SPELLINGS, caseFolded(Str.trim(text))) }
+				: refused(fault)
+		}
+		case "handle": {
+			const fault = literalFault({ kind: "integer", bits: 16 }, text)
+			if (fault !== undefined) {
+				return refused(fault)
+			}
+			const handle = codes[domain.closed]?.[Number(Str.trim(text))]
+			return handle === undefined || handle === ""
+				? refused("23514")
+				: { kind: "value", value: handle }
+		}
+		case "serial":
+		case "span":
+			throw new Error(`a context field of a ${domain.kind}, which no context declares`)
+	}
+}
+
+/** One hand-set claim's fault: the domain of its field and the SQLSTATE its cast meets. */
+interface ClaimFault {
+	readonly domain: FieldDomain
+	readonly sqlstate: SqlState
+}
+
+/**
+ * Every fault of the claims a hand-set setting's text holds, of the contexts the base declares whose member holds
+ * exactly their fields: none for a text that is no claims document.
+ */
+export const handSetFaults = (
+	base: BaseSpec,
+	codes: HandleCodes,
+	text: string
+): ReadonlyArray<ClaimFault> =>
+	Option.match(claimsDocumentOf(text), {
+		onNone: () => [],
+		onSome: (document) =>
+			Arr.flatMap(base.contexts, (context) => {
+				const member = document.get(context.name)
+				if (member === undefined || member.size !== context.fields.length) {
+					return []
+				}
+				return Arr.flatMap(context.fields, (field): ReadonlyArray<ClaimFault> => {
+					const claim = member.get(field.name)
+					if (claim === undefined) {
+						return []
+					}
+					const cast = claimCast(field.domain, codes, claim)
+					return cast.kind === "refused" ? [{ domain: field.domain, sqlstate: cast.sqlstate }] : []
+				})
+			})
+	})
 
 /**
  * The claims PostgreSQL reads from a setting's text: the empty text holds none (claimsDocument's first branch); a text
  * that is no claims document is malformed; a claims document holds, for each context of the installation it has a
- * member for, the context's fact where the member holds exactly the context's fields and its type admits each value
- * (literalFault), or else the SQLSTATEs a read of the context refuses with: 22P02 for other keys (contextClaims), a
- * value's own fault otherwise, any of which the read may meet first. A member of no context of the installation is
- * never read.
+ * member for, the context's fact where the member holds exactly the context's fields and each value casts to its
+ * field's type (claimCast), or else the SQLSTATEs a read of the context refuses with: 22P02 for other keys
+ * (contextClaims), a value's own fault otherwise, any of which the read may meet first. A member of no context of the
+ * installation is never read.
  */
-const textRead = (base: BaseSpec, text: string): ClaimsRead => {
+const textRead = (base: BaseSpec, codes: HandleCodes, text: string): ClaimsRead => {
 	if (text === "") {
 		return noClaims
 	}
@@ -251,11 +361,12 @@ const textRead = (base: BaseSpec, text: string): ClaimsRead => {
 			refused.set(context.name, ["22P02"])
 			continue
 		}
+		const casts = Arr.map(cells, ({ field, claim }) => ({
+			field,
+			cast: claimCast(field.domain, codes, claim)
+		}))
 		const [fault, ...faults] = Arr.dedupe(
-			Arr.flatMap(cells, ({ field, claim }) => {
-				const f = literalFault(field.domain, claim)
-				return f === undefined ? [] : [f]
-			})
+			Arr.flatMap(casts, ({ cast }) => (cast.kind === "refused" ? [cast.sqlstate] : []))
 		)
 		if (fault !== undefined) {
 			refused.set(context.name, [fault, ...faults])
@@ -264,9 +375,8 @@ const textRead = (base: BaseSpec, text: string): ClaimsRead => {
 		facts.push([
 			context.name,
 			Record.fromEntries(
-				Arr.map(
-					cells,
-					({ field, claim }) => [field.name, handSetValue(field.domain, claim)] as const
+				Arr.flatMap(casts, ({ field, cast }) =>
+					cast.kind === "value" ? [[field.name, cast.value] as const] : []
 				)
 			)
 		])
@@ -274,14 +384,18 @@ const textRead = (base: BaseSpec, text: string): ClaimsRead => {
 	return { kind: "document", facts: Record.fromEntries(facts), refused }
 }
 
-const claimsRead = (base: BaseSpec, session: DirectSessionState): ClaimsRead => {
+const claimsRead = (
+	base: BaseSpec,
+	codes: HandleCodes,
+	session: DirectSessionState
+): ClaimsRead => {
 	if (session.claims.kind === "none") {
 		return noClaims
 	}
 	const setting = session.claims.setting
 	return setting.kind === "facts"
 		? { kind: "document", facts: setting.facts, refused: new Map() }
-		: textRead(base, setting.text)
+		: textRead(base, codes, setting.text)
 }
 
 /** The role a direct writer has taken on, or undefined while it acts as its login. */
@@ -501,7 +615,7 @@ export const directBranches = (
 		return [{ observation: { kind: "refused", sqlstate: "other" }, next: state }]
 	}
 	const role = currentRole(state, session)
-	const claims = claimsRead(base, session)
+	const claims = claimsRead(base, state.names.codes, session)
 	const facts = claims.kind === "document" ? claims.facts : {}
 	/** Whether a read of a context refuses: every one under a setting that is no claims document, else a refused one. */
 	const faulty = (context: string): boolean =>

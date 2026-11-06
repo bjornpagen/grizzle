@@ -693,7 +693,7 @@ export const expectedProbe = (state: ModelState, session: number): Probe => {
 			setting === undefined
 				? ""
 				: setting.kind === "facts"
-					? claimsText(setting.facts)
+					? claimsText(state.install.base.contexts, state.names.codes, setting.facts)
 					: setting.text
 	}
 }

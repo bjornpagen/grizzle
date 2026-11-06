@@ -31,8 +31,10 @@ import { valueText } from "#test/support/laws/model.ts"
 import { literalFor } from "#test/support/oracle/install/literal.ts"
 import type { OracleTable } from "#test/support/oracle/install/model.ts"
 import { carrierOf, sendable } from "#test/support/worlds/execute/host.ts"
+import { rosterCodesOf } from "#test/support/worlds/execute/names.ts"
 import { claimsText } from "#test/support/worlds/model/session/claims.ts"
 import type {
+	ContextSpec,
 	DirectStatement,
 	FieldDomain,
 	HostFact,
@@ -72,6 +74,8 @@ export interface DirectNames {
 	readonly function: (fn: WorldFunction) => Effect.Effect<string>
 	/** The installation's codebook: the code each closed id's column holds for its handle (ir/codes.ts). */
 	readonly codes: Codebook
+	/** The base's contexts, whose fields' types a facts setting's claims are spelled by. */
+	readonly contexts: ReadonlyArray<ContextSpec>
 }
 
 /** What a statement reads back: nothing, or rows of the fields named, each read by its domain. */
@@ -473,7 +477,10 @@ export const directSql = (
 			}
 			case "set-claims": {
 				const setting = statement.setting
-				const text = setting.kind === "facts" ? claimsText(setting.facts) : setting.text
+				const text =
+					setting.kind === "facts"
+						? claimsText(names.contexts, rosterCodesOf(names.codes), setting.facts)
+						: setting.text
 				const sql = yield* emitted(
 					provedSelect(
 						"oneRow",

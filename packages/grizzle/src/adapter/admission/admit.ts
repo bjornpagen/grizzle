@@ -76,7 +76,7 @@ import type { RoleDesc } from "#compiler/ir/desc.ts"
 import { contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { structuralRegex } from "#compiler/physical/ddl/domains.ts"
 import { ledgerTableName } from "#compiler/physical/ddl/ledger.ts"
-import { type InstallNames, loginIdentity } from "#compiler/physical/ddl/names.ts"
+import { type InstallNames, loginIdentity, missing } from "#compiler/physical/ddl/names.ts"
 import type { SchemaArtifacts } from "#compiler/program/schema.ts"
 import type { OwnedLogin } from "#compiler/schema/own.ts"
 import type { ObjectName } from "#compiler/sql/ast.ts"
@@ -129,7 +129,9 @@ const claimValidQuery: CatalogQueryOf<boolean> = {
 /**
  * The domain a claim of type `t` is validated against (see the header): its contract's, or its structural pattern's,
  * each as the installation names it, by its definition, so contracts and patterns of one definition share it; none for
- * an unrefined type.
+ * an unrefined type. A refined type whose domain the installation does not name is no claim admission can judge: it
+ * throws the CompileError the naming raises, which admission reports as a verdict it did not reach, so a refined claim
+ * is never admitted unjudged.
  */
 const claimDomain = (t: ScalarType, names: InstallNames): Option.Option<ObjectName> => {
 	const contract = contractOf(t)
@@ -137,7 +139,13 @@ const claimDomain = (t: ScalarType, names: InstallNames): Option.Option<ObjectNa
 		return Option.some(names.contractDomain(contract.name))
 	}
 	const regex = structuralRegex(t)
-	return regex === undefined ? Option.none() : Option.fromUndefinedOr(names.textDomain(regex))
+	if (regex === undefined) {
+		return Option.none()
+	}
+	return Option.some(
+		names.textDomain(regex) ??
+			missing(`admission: no domain for the claim pattern /${regex.source}/${regex.flags}`)
+	)
 }
 
 /** Why admission could not run to a verdict. */
@@ -422,7 +430,8 @@ type AdmissionRead = (typeof admissionReads)[number]
  *    contract's name, or a structural pattern's, as the snapshot names it. PostgreSQL judges each, one
  *    `pg_input_is_valid` per claim in the same flight, since the host encoder checks a claim's base type alone: a claim
  *    outside its refinement would otherwise reach every view and write that reads it. An unrefined claim was validated
- *    whole by its encoder.
+ *    whole by its encoder. A refined claim whose domain the installation does not name has no judgment to ask for:
+ *    admission fails with AdmissionFailed, at stage admission, before it sends anything, and never admits it unjudged.
  *
  * A refusal is OpenError whose reason, AdmissionRefused, holds every mismatch, at the stage of the first in admission's
  * order. A database that fails
@@ -465,7 +474,9 @@ export const admit = Effect.fn("admit")(function* (
 	/** The refined claims, each with its domain. */
 	const judged: Array<{ readonly claim: ClaimValue; readonly domain: ObjectName }> = []
 	for (const claim of input.claims) {
-		const domain = claimDomain(claim.type, artifacts.names)
+		const domain = yield* fromResult(
+			toResult(catchCompileError(() => claimDomain(claim.type, artifacts.names)))
+		)
 		if (Option.isSome(domain)) {
 			judged.push({ claim, domain: domain.value })
 		}

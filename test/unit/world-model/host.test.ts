@@ -738,6 +738,7 @@ const stateOf = (
 		laws: [],
 		domains: {},
 		rosterConstants: {},
+		codes: {},
 		roles: {},
 		logins: {}
 	},

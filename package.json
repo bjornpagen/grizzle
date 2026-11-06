@@ -542,6 +542,22 @@
 					]
 				}
 			],
+			"scaffolds": [
+				{
+					"module": "test/support/schedules/planted.ts",
+					"names": [
+						"planted"
+					],
+					"reason": "A planted property runs a schedule a person wrote over drawn keys, payloads and values: the draws are only what the schedule runs on, while the case's inputs are its hand-written window, so the search it runs searches nothing the case chose."
+				},
+				{
+					"module": "test/support/schedules/runner.ts",
+					"names": [
+						"runSchedule"
+					],
+					"reason": "It compiles a hand-written schedule into the concurrency driver's script strategy, so every hand schedule reaches the library's interleave without searching an order; a case that runs one is a search only when it calls explore, exhaust or interleave over the schedules itself."
+				}
+			],
 			"exempt": [
 				{
 					"files": [
@@ -582,7 +598,12 @@
 				"test/"
 			],
 			"dictionaries": [
-				"test/support/kernel/dict.ts"
+				{
+					"files": [
+						"test/support/kernel/dict.ts"
+					],
+					"reason": "The identifier, literal and parameter-name dictionaries: the tricky values the code branches on, each admitted or refused by the production validator itself, never by a verdict the test writes."
+				}
 			],
 			"searches": [
 				{

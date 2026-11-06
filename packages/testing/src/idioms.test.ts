@@ -53,7 +53,14 @@ import { matching, PatternRefused } from "#pattern.ts"
 import { wordsOf } from "#random.ts"
 import { notesOnly } from "#sense.ts"
 import { completeShrink, shrink } from "#shrink.ts"
-import { type Generated, generate, prefixChooser, randomChooser, simplestChooser } from "#source.ts"
+import {
+	forcedChooser,
+	type Generated,
+	generate,
+	prefixChooser,
+	randomChooser,
+	simplestChooser
+} from "#source.ts"
 import { keep, type Swarm, type SwarmWeight, swarm, swarmChoice, weightOf } from "#swarm.ts"
 import { bigint, double, doubleOrSpecial, float, uuid } from "#values.ts"
 import { searched } from "#vitest/searched.ts"
@@ -1012,8 +1019,55 @@ const PATTERNS = [
 	regex("^\\d\\.\\d$"),
 	regex("^[a-zé]{28,36}$"),
 	regex("^[^a-z]{2}$"),
-	regex("^a?b{0,2}c$")
+	regex("^a?b{0,2}c$"),
+	regex("^[\t\n\r -\uD7FF\uE000-\uFFFD\u{10000}-\u{10FFFF}]{0,8}$", "u"),
+	regex.as("^\\x41\\u0042[\\u{1F600}-\\u{1F64F}]{1,2}$", "u")
 ] as const
+
+/** A class as written: whether it is negated, and its items, each a character or a range from its low end to its high,
+ * drawn from one window of letters or one of astral characters, so no item writes `]`, `\`, `^` or `-`. */
+type WrittenClass = Readonly<{
+	negated: boolean
+	items: ReadonlyArray<readonly [low: number, high: number]>
+}>
+
+const classItem: Gen<readonly [low: number, high: number]> = (source) => {
+	const [lo, hi] = source.draw(
+		element([
+			[0x61, 0x66],
+			[0x1f600, 0x1f605]
+		] as const)
+	)
+	const first = source.draw(int(lo, hi))
+	const second = source.draw(int(lo, hi))
+	return first <= second ? [first, second] : [second, first]
+}
+
+const writtenClass: Gen<WrittenClass> = (source) => ({
+	negated: source.draw(element([false, true])),
+	items: source.draw(array(classItem, { min: 1, max: 4 }))
+})
+
+/** The source of a class's one-character pattern. */
+const classSource = (written: WrittenClass): string =>
+	`^[${written.negated ? "^" : ""}${Arr.join(
+		Arr.map(written.items, ([low, high]) =>
+			low === high
+				? String.fromCodePoint(low)
+				: `${String.fromCodePoint(low)}-${String.fromCodePoint(high)}`
+		),
+		""
+	)}]$`
+
+/** The class written out: each member at the place it is first written, or, negated, the printable characters it
+ * leaves, in order. */
+const writtenOut = (written: WrittenClass): ReadonlyArray<string> => {
+	const members = Arr.dedupe(Arr.flatMap(written.items, ([low, high]) => Arr.range(low, high)))
+	const points = written.negated
+		? Arr.filter(Arr.range(0x20, 0x7e), (point) => !Arr.contains(members, point))
+		: members
+	return Arr.map(points, (point) => String.fromCodePoint(point))
+}
 
 describe("a pattern", () => {
 	it.effect("generates only strings it matches", (ctx) =>
@@ -1036,6 +1090,41 @@ describe("a pattern", () => {
 		)
 	)
 
+	it.effect(
+		"draws each member of a class by its index, where the class written out holds it",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					searchOf(
+						"pattern classes",
+						{
+							kind: "second-implementation",
+							name: "the class written out, each member at the place it is first written"
+						},
+						writtenClass,
+						noCoverage,
+						200
+					),
+					(written) =>
+						Effect.sync(() => {
+							const pattern = regex.as(classSource(written), "u")
+							const expected = writtenOut(written)
+							const byIndex = Arr.map(
+								Arr.range(0, expected.length - 1),
+								(index) =>
+									generate(matching(pattern), forcedChooser(Float64Array.of(index), 1)).value
+							)
+							deepStrictEqual(byIndex, expected)
+							assertTrue(
+								Arr.every(byIndex, (text) => pattern.test(text)),
+								classSource(written)
+							)
+						})
+				)
+			)
+	)
+
 	it("shrinks to its shortest string, each class at its first character", () => {
 		strictEqual(generate(matching(regex("^[A-Z][a-z]{1,8}$")), simplestChooser).value, "Aa")
 	})
@@ -1043,7 +1132,13 @@ describe("a pattern", () => {
 	it.effect("refuses a repetition without a bound, and what generation cannot honour", () =>
 		Effect.gen(function* () {
 			const refusals = yield* Effect.forEach(
-				[regex("^a+$"), regex("^(a)\\1$"), regex("^\\bx$")],
+				[
+					regex("^a+$"),
+					regex("^(a)\\1$"),
+					regex("^\\bx$"),
+					regex("^[\t\n\r -\uD7FF\uE000-\uFFFD\u{10000}-\u{10FFFF}]*$", "u"),
+					regex("^\\p{L}{1,2}$", "u")
+				],
 				(pattern) =>
 					Effect.flip(
 						Effect.try({
@@ -1052,7 +1147,7 @@ describe("a pattern", () => {
 						})
 					)
 			)
-			deepStrictEqual(Arr.map(refusals, Option.isSome), [true, true, true])
+			deepStrictEqual(Arr.map(refusals, Option.isSome), [true, true, true, true, true])
 		})
 	)
 })

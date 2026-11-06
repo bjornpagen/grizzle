@@ -16,6 +16,18 @@ How to upgrade:
 
 ### Breaking changes
 
+#### A concurrent change outside the installation, and a refined claim admission can't judge, fail closed
+
+- **A 40Z01 whose DETAIL names a relation the installation doesn't store is an `ExecutionFailure`.** The witness
+  classifier read a write statement's concurrent change as a `TransientFailure` at whatever relation its DETAIL named;
+  now only one of the installation's stored relations is a concurrent change, and any other (a closed relation,
+  another installation's relation, a name of none) is the operational failure carrying the server's report, as every
+  other DETAIL the installation's encoding does not read is. No codemod.
+- **`Db.open` refuses a refined claim whose domain the installation doesn't name with an `OpenError` at stage
+  `admission`.** Admission skipped such a claim of a pattern, admitting it unjudged, and died with a defect on such a
+  claim of a contract; now both are `AdmissionFailed`, before admission sends anything. A Db's own claims always have
+  their domains, so a correct installation never meets it. No codemod.
+
 #### A pattern whose anchors leave no match is refused, and a role's types cost linear time
 
 - **A pattern no text matches is refused wherever it is written**, through its anchors as well as its classes: a
@@ -68,6 +80,12 @@ How to upgrade:
   ("declare it:") rather than a guard. Codemod: add the fact to the contract's `proves`, as `contract("Rate",
   pg.numeric(7, 6), (x) => x.between(0n, 1n), { proves: ["finite"] })`.
 - **`width_bucket` requires its operand and both bounds finite**, besides its domain. No codemod.
+- **A conditional (`Compute.cond`, `Compute.when`), LEAST, GREATEST and every operation's result have only their SQL
+  type's facts**, as their types state: a conditional of two nonzero branches is no proved divisor. An integer, money
+  or exact result stays finite, through `Compute.numeric` too. A refusal names the `proves` entry to add only where the
+  operand is a column, a parameter, a literal or a cast, whose facts are its type's; over a conditional or an
+  operation's result it names the guard. No codemod: a refused divisor or radicand over a conditional takes the guard
+  its refusal names.
 
 #### A query's types no longer cost the size of its schema
 
@@ -101,12 +119,16 @@ How to upgrade:
   node or a sequence member inserted in the same ChangeSet.
 - A put or delete of a family's member that owns a sequence is still refused at the write.
 - **A ChangeSet that would leave a family's derived value stale is `StaleDerivedRead`** (new reason) when it
-  compiles: a put that changes an owner's column, or an edit of a family that changes an owner's count or a column its
-  last axis carries, where a fold step or filter, a predecessor or last copy, or a tree's copy of its parent reads that
-  column, directly or through a cascade of copies, in a family the write doesn't redraw. It used to fail at execution
-  when the per-row check or key fired before the value was refilled. The reason names the changed column and how it
-  changed, the copies it travels through and the reader. The refusal is decided from the schema, so it holds whether or
-  not the owner has members yet. No codemod.
+  compiles: a put that changes a stored row's column, or an edit of a family that changes its owner's count or a
+  column its last axis carries, or draws its members' index and copies again, where a fold step or filter, a
+  predecessor or last copy, or a tree's copy of its parent reads that column, directly or through a cascade of copies,
+  in a family the write doesn't redraw: a value of a family the owner is itself a member of, or one drawn from a copy
+  the change reaches by cascade. It used to fail at execution when the per-row check or key fired before the value was
+  refilled. The reason names the changed column and how it changed (`put`, `owner`, `member`), the copies it travels
+  through and the reader. The refusal is decided from the schema, so it holds whether or not the owner has members
+  yet. No codemod: derive the value from a column that is fixed once its row is written, such as the member's own
+  caller field rather than its copy of the owner's, or a column of an immutable owner, which no put changes in place
+  and whose families are fixed when it is inserted.
 - **A ChangeSet that puts an owner, or edits one of its families, and appends members to another family whose copies
   read that owner's columns writes the owner's new values into the new members**, where it used to fail at execution.
   A copy that reads its owner's column through that owner's own copies is refused when the ChangeSet compiles
@@ -125,14 +147,17 @@ How to upgrade:
   fixed-width prefix, so a key refused just past the limit may now be accepted, and an entry that may hold a NULL
   counts its null bitmap. `UnrepresentableKey`'s `btreeEntry` fault gains `datums`. `keyTextBytes` leaves room for
   the null bitmap, 8 bytes, so a text at its result fits every index planned over those fields, a key over a
-  selection, whose hidden columns may be NULL, and a family's axis included. No codemod.
+  selection, whose hidden columns may be NULL, and a family's axis included; for an axis, `fields` are its group
+  fields, its natural index, the other values it carries and a tree's `end`. No codemod.
 - **Every index the law model plans is bounded**: a containment's UNIQUE into a superkey, keys over selections,
   family UNIQUEs, WITHOUT OVERLAPS. Before, a containment into a superkey over an unbounded text installed a UNIQUE
   that failed at insert with 54000; now it is `UnrepresentableKey` when the schema compiles. A containment's reverse
-  index never refuses it: it is a B-tree over the longest leading run of its referencing columns whose entry fits,
-  PostgreSQL rechecking the rest, else a hash index on one column (`USING hash`), so free text among the referencing
-  columns compiles as it did; a PERIOD reference's GiST holds the leading scalars that fit a GiST page, then its span,
-  bounded by the GiST page where it was held to the B-tree limit. No codemod.
+  index never refuses free text: it is a B-tree over the longest leading run of its bounded referencing columns whose
+  entry fits, PostgreSQL rechecking the rest, else a hash index on one column (`USING hash`), so free text among the
+  referencing columns compiles as it did; referencing columns that leave no run that fits, each money, a set's
+  `bit(n)` or a vector, which no hash index takes, are `UnrepresentableKey`. A PERIOD reference's GiST holds the
+  leading bounded scalars that fit a GiST page, then its span, bounded by the GiST page where it was held to the
+  B-tree limit. No codemod.
 - **`grizzle migrate`, `drift` and `names` compile nothing.** Before connecting, migrate runs only `grizzle check`'s
   committed-file checks (names, meta.json and the chain, markers, losses, transaction control, literal packs against
   their digest). `grizzle check` and DbLayer.make still refuse a schema or login that does not compile. No codemod.

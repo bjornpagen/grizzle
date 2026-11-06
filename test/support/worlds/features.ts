@@ -15,6 +15,7 @@ import {
 } from "#test/support/worlds/model/host.ts"
 import { reachedPairs, steppedPairs } from "#test/support/worlds/model/reads.ts"
 import { compileRefused, readBackClasses } from "#test/support/worlds/model/session/apply.ts"
+import { handSetFaults } from "#test/support/worlds/model/session/direct.ts"
 import { reorderedRoster } from "#test/support/worlds/model/session/migrate.ts"
 import {
 	dbSessionAt,
@@ -40,6 +41,7 @@ import type {
 	ActionKind,
 	AdditionFeature,
 	BaseSpec,
+	ClaimRefusal,
 	ClaimState,
 	ContextFacts,
 	DbSessionState,
@@ -1428,6 +1430,57 @@ const readsOf = (
 	)
 }
 
+/**
+ * The SQLSTATE a direct writer's statement met reading a hand-set claim its field's type refuses (README "Direct SQL
+ * access"), by the field's domain: each fault of the session's hand-set claims (model/session/direct.ts handSetFaults)
+ * whose SQLSTATE the statement was refused with; none for any other action or answer.
+ */
+const claimRefusalsOf = (
+	state: ModelState,
+	action: Action,
+	observation: Observation
+): ReadonlyArray<WorldFeature> => {
+	if (action.kind !== "direct" || observation.kind !== "refused") {
+		return []
+	}
+	const session = state.sessions[action.session]
+	if (
+		session?.kind !== "direct" ||
+		session.claims.kind !== "set" ||
+		session.claims.setting.kind !== "malformed"
+	) {
+		return []
+	}
+	const sqlstate = observation.sqlstate
+	const refusal: ClaimRefusal | undefined =
+		sqlstate === "22P02" || sqlstate === "22003" || sqlstate === "23514" ? sqlstate : undefined
+	return refusal === undefined
+		? []
+		: Arr.flatMap(
+				handSetFaults(state.install.base, state.names.codes, session.claims.setting.text),
+				(fault) => (fault.sqlstate === refusal ? claimRefusalFeature(fault.domain, refusal) : [])
+			)
+}
+
+/** A refused hand-set claim's feature, by its field's domain; none for a domain no context field takes. */
+const claimRefusalFeature = (
+	domain: FieldDomain,
+	refusal: ClaimRefusal
+): ReadonlyArray<WorldFeature> => {
+	switch (domain.kind) {
+		case "uuid":
+		case "text":
+		case "integer":
+		case "boolean":
+		case "handle":
+		case "contract":
+			return [`claim-refused:${domain.kind}:${refusal}`]
+		case "serial":
+		case "span":
+			return []
+	}
+}
+
 /** The feature of a context field's domain decoded from a token; none for a domain no context field takes. */
 const claimFeature = (domain: FieldDomain): Option.Option<WorldFeature> => {
 	switch (domain.kind) {
@@ -1896,6 +1949,7 @@ export const featuresOf = (
 		...pathsOf(state, action, observation),
 		...lawsOf(state, action, actor, observation),
 		...writesOf(state, action, actor, observation),
+		...claimRefusalsOf(state, action, observation),
 		...(action.kind === "migrate"
 			? [`migration:${migrationKindOf(state, action.to)}:${observation.kind}` as const]
 			: [])

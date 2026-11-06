@@ -28,6 +28,7 @@ import { applicable, namesOffered } from "#test/support/worlds/generate/offered.
 import { attachments, entryKey, reaches } from "#test/support/worlds/generate/reads.ts"
 import { actionKinds } from "#test/support/worlds/generate/weights.ts"
 import { enumeratePerturbations, worldFunctionsOf } from "#test/support/worlds/invalid/catalog.ts"
+import { refusedClaimSettings } from "#test/support/worlds/invalid/claims.ts"
 import { opKinds, type FactWriter } from "#test/support/worlds/invalid/facts.ts"
 import { jsonObject, jsonText } from "#test/support/worlds/invalid/json.ts"
 import { rosterMigrations, violatingLaws } from "#test/support/worlds/invalid/migrations.ts"
@@ -989,7 +990,8 @@ interface ClaimSite {
 /**
  * The claims settings a direct writer tries in the box, each once: each choice of its role's claims (another user's
  * among them) for the transaction, each other context its role reads alone, the first also for the session, malformed
- * claims at each scope, and a context its role does not read; as its login, empty claims besides.
+ * claims at each scope, a claims document one of whose claims its field refuses (refusedClaimSettings), and a context
+ * its role does not read; as its login, empty claims besides.
  */
 const directClaims = (
 	state: ModelState,
@@ -1067,6 +1069,7 @@ const directClaims = (
 			: [{ kind: "facts" as const, facts: first, scope: "session" as const }]),
 		{ kind: "malformed", text: "{", scope: "transaction" },
 		{ kind: "malformed", text: "{", scope: "session" },
+		...refusedClaimSettings(contexts, state.names.codes),
 		...Arr.map(unread, (c): ClaimsSetting => ({
 			kind: "facts",
 			facts: {

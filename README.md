@@ -1339,9 +1339,13 @@ PostgreSQL writes it the same way. Dates compare, and `min` and `max` them, and 
 
 A text in a key, or in any index grizzle installs, needs a byte bound: its pattern's, a contract's
 `Compute.charLength(v)` bound, four bytes a code point, or a contract's `Compute.octetLength(v)` bound, its UTF-8 bytes
-exactly. `keyTextBytes(fields)` is the most bytes a text holds beside a key's other fields, whatever their order: so
+exactly. `keyTextBytes(fields)` is the most bytes a text holds beside `fields` in every index grizzle plans over them,
+whatever their order and whichever is a hidden column that may be NULL; `fields` are the index's other columns, a
+key's other fields or, for a family axis that carries the text, its group fields, its natural index, the other values
+it carries and a tree's `end`. So
 `contract("KeyText", str.regex("^.*$", "su"), (v) => Compute.octetLength(v).le(keyTextBytes([uuid, natural])))` sits
-in a key with a uuid and a natural, and a pattern needs no counted repetition to be a key's. A key's entry is laid out
+in a key with a uuid and a natural, declared or over a selection, and rides an ordered family's axis grouped by a
+uuid, and a pattern needs no counted repetition to be a key's. A key's entry is laid out
 as PostgreSQL lays it out: exactly through its fixed-width fields in key order, then each datum at its widest padding
 from the first text, numeric, set, range or vector on.
 
@@ -1589,6 +1593,13 @@ never narrowed into its column's type unproved.
   ordered family, an insertion or a removal rewrites the later siblings. So a change near the start of a long family
   costs the members after it, and an edit of an owner already stored reads its stored values first
   ([Transactions and concurrency](#transactions-and-concurrency)).
+- **A changed owner column reaches its copies, never what is drawn from them.** A put of an owner updates its row in
+  place, and an edit of one of its families its count and ends; a member's copy of a changed column follows by
+  cascade, and a member appended in the same ChangeSet takes the new value. A fold's step or selection, a predecessor
+  or last copy, or a tree's copy of its parent's is drawn only when its row is written, so a write that changes a
+  column one of them reads on a stored row, through such a copy, or as the count or end of an owner that is itself a
+  member, is refused when the ChangeSet compiles (`StaleDerivedRead`): derive such a value from a column fixed once
+  its row is written.
 - **An immutable owner's family is fixed when the owner is inserted.** Declare `mutable(Owner)` for a family that
   changes later; a delete of a member of an immutable owner's family is refused before any SQL.
 
@@ -2267,7 +2278,14 @@ its `fault`; `RecursionRefused` and `DerivedRefused`, their `cause`; `RoleRefuse
 `ContextRefused`, the `rule` broken; `RoleNameTooLong`, the PostgreSQL `role` and its `limit`; `GeneratedRefused`, the
 generated `field` of a `relation` and the `rule` it breaks; `FoldOverProjection`, the match's `source` and the `key` it
 must bind for an aggregate to read each row once; `QueriedOwnerAppend`, an insert or a put (`op`) of the `owner` from
-a query beside an append of `member` to its `family` (`{ owner, count }`), the write being `at`; `UnstatedKey`, a put
+a query beside an append of `member` to its `family` (`{ owner, count }`), the write being `at`; `CascadedCopyAppend`,
+an insert or a put (`op`) of `member` appending to its `family` whose `copy` reads its `owner`'s `through`, which the
+owner copies from `changed`, a relation the same stratum changes `by` a put or a family's edit; `StaleDerivedRead`, a
+write (`op`) of `member` that changes a stored row's column (`changed`: its `relation`, `column`, and `by`: `put`,
+`owner` or `member`), which the cascade carries into `copies`, read by `reader` (`{ kind, family, relation, column }`,
+a fold, a predecessor, a last or a tree's copy) drawn only when its row is written; `UnfillableField`, the `relation`'s
+`field`, the `law` that fills it, the `source` column it reads along `axis` of its `family`, and why that column is
+filled `later`; `UnwritableRelation`, the `relation` no write fills and its `cause`; `UnstatedKey`, a put
 or a delete (`op`) of a `relation` whose `key` (`{ kind, fields }`, its primary key or a declared one a put compares)
 holds fields grizzle writes (`unstated`); `UndeclaredDrop`, the name a migration would drop, which no `--drop` or
 `--rename` declares; and the remaining rules, a `capability` sentence.
@@ -2556,13 +2574,16 @@ workflows, whose rules are worth declaring and whose users see different slices 
   roster's `bit(n)`, `n` every code the roster has minted, removed handles' included, rounded up to whole hex digits, so it is sized by the
   installation's codes when `generate`, `check` or `migrate` compiles it: a roster grown and pruned past about 21,000
   codes refuses the UNIQUE there.
-- **A containment's reverse index never refuses it.** When a target row goes, PostgreSQL's foreign key looks up the
-  source rows that reference it, binding every referencing column by equality. grizzle indexes that lookup with a
-  B-tree over the longest leading run of the referencing columns whose entry fits, in their order, and PostgreSQL
-  rechecks the rest on the rows it finds; where no such run exists, as when the first referencing column is free text,
-  with a hash index on one column, whose entry is a 4-byte hash code. A PERIOD reference's GiST index holds the longest
-  leading run of its scalars that fits a GiST page, then its span. So free text among the referencing columns never
-  refuses a containment; only the UNIQUE it references must be bounded.
+- **A containment's reverse index never refuses free text.** When a target row goes, PostgreSQL's foreign key looks
+  up the source rows that reference it, binding every referencing column by equality. grizzle indexes that lookup with
+  a B-tree over the longest leading run of the referencing columns of a bounded type, in their order, whose entry
+  fits, and PostgreSQL rechecks the rest on the rows it finds; where no such run exists, as when every referencing
+  column is free text or the first bounded one alone outgrows an entry, with a hash index on one referencing column, a
+  field before a hidden one, whose entry is a 4-byte hash code. A PERIOD reference's GiST index holds the longest
+  leading run of its bounded scalars that fits a GiST page, then its span. So free text among the referencing columns
+  never refuses a containment; only the UNIQUE it references must be bounded. A containment whose referencing columns
+  leave no run that fits, each of a type no hash index takes (money, a set's `bit(n)`, a vector), is refused with
+  `UnrepresentableKey` when the schema is compiled.
 - **A concatenation is at most 1 GB.** `Compute.concat` builds its result, and PostgreSQL refuses one past
   `MaxAllocSize` ("invalid memory alloc request size"), so a write whose check or generated field concatenates more
   fails with that error. No query concatenates, and a fold's or an equation's concatenation is never built.

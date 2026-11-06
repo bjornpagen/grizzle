@@ -432,7 +432,8 @@ export const insideRange = (low: Exact, high: Exact, min: Exact, max: Exact): bo
 /**
  * The facts a value is known to have, each with where it comes from (ir/proof.ts FactSource): exactly the facts its
  * TypeScript type states (types/core/phantom.ts Facts), a literal's from its value, a contract's from its declaration,
- * a guarded subject's from its guard, and an integer's finiteness from its type. No operation's result has one.
+ * a guarded subject's from its guard, and an integer's, money's and an exact value's finiteness from its type. An
+ * operation's result has its type's finiteness alone, a conditional's, LEAST's and GREATEST's whatever their operands'.
  */
 export type FactSet = { readonly [F in Fact]?: FactSource }
 

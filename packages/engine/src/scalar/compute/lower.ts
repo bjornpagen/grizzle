@@ -475,22 +475,29 @@ export const boundsOfType = (t: ScalarType): Bounds | undefined => {
 }
 
 /**
- * The facts every value of `t` has: an integer's, an exact value's and money's finiteness by their types, and each
- * contract level's declared facts, which its build proved from its predicate (scalar/contract.ts).
+ * The facts every value of `t`'s SQL type has, whatever made it: an integer's, an exact value's and money's finiteness,
+ * which their types state, as the TypeScript types read finiteness off an operand's SQL type.
  */
-const factsOfType = (t: ScalarType): FactSet => {
-	const facts: { [F in Fact]?: FactSet[F] } = {}
+const carrierFacts = (t: ScalarType): FactSet => {
 	const carrier = baseOf(t).carrier
-	if (
-		carrier === "int2" ||
+	return carrier === "int2" ||
 		carrier === "int4" ||
 		carrier === "int8" ||
 		carrier === "money" ||
 		carrier === "exactInteger" ||
 		carrier === "exactMoney"
-	) {
-		facts.finite = { kind: "type" }
-	}
+		? finiteByType
+		: noFacts
+}
+
+const finiteByType: FactSet = Object.freeze({ finite: { kind: "type" } })
+
+/**
+ * The facts every value of `t` has: its SQL type's (carrierFacts), and each contract level's declared facts, which its
+ * build proved from its predicate (scalar/contract.ts).
+ */
+const factsOfType = (t: ScalarType): FactSet => {
+	const facts: { [F in Fact]?: FactSet[F] } = { ...carrierFacts(t) }
 	for (const c of contractLevels(t)) {
 		for (const f of c.facts) {
 			facts[f] = facts[f] ?? { kind: "contract", name: c.name }
@@ -905,15 +912,19 @@ const withinGuards = (carrier: Carrier): boolean => {
  * The test a guard of `precondition` puts over an operand of type `operand`: a fact's own test, Compute.within for a
  * magnitude, Compute.matches for a text's language or lexical form. A contract proves its predicate of an operand by
  * its bounds, which Compute.within narrows over a number and no Compute test over a text, a boolean, a uuid or a date,
- * so over those only a value of the contract's type proves it. A fact an operand's contract implies without declaring
- * it is remedied by the declaration (undeclaredBy), since a contract's facts are exactly the ones it declares.
+ * so over those only a value of the contract's type proves it. A fact the contract of an operand that has its type's
+ * facts implies without declaring it is remedied by the declaration (undeclaredBy), since a contract's facts are
+ * exactly the ones it declares; an operation's result has none of them, so no declaration remedies it.
  */
-const guardTest = (precondition: PreconditionKind, operand: ScalarType | undefined): GuardTest => {
+const guardTest = (precondition: PreconditionKind, operand: Lowered | undefined): GuardTest => {
 	switch (precondition) {
 		case "nonzero":
 		case "nonnegative":
 		case "finite": {
-			const contract = operand === undefined ? undefined : undeclaredBy(operand, precondition)
+			const contract =
+				operand === undefined || !hasTypeFacts(operand.expr)
+					? undefined
+					: undeclaredBy(operand.nominal, precondition)
 			return contract === undefined
 				? factTests[precondition]
 				: { kind: "proves", contract: contract.name }
@@ -923,7 +934,7 @@ const guardTest = (precondition: PreconditionKind, operand: ScalarType | undefin
 		case "bucketDomain":
 			return { kind: "within" }
 		case "contract":
-			return operand !== undefined && withinGuards(valueType(operand).carrier)
+			return operand !== undefined && withinGuards(valueType(operand.nominal).carrier)
 				? { kind: "within" }
 				: { kind: "typed" }
 		case "language":
@@ -938,6 +949,29 @@ const factTests: { readonly [F in Fact]: GuardTest } = {
 	nonzero: { kind: "nonzero" },
 	nonnegative: { kind: "nonnegative" },
 	finite: { kind: "isFinite" }
+}
+
+/**
+ * Whether a node's values have every fact its type states (factsOfType): a column, a parameter, the contract's VALUE, a
+ * literal and a cast into the type do; an operation's result, a conditional's and a closed read's have their SQL type's
+ * alone (settle).
+ */
+const hasTypeFacts = (e: ScalarExpr): boolean => {
+	switch (e.kind) {
+		case "column":
+		case "param":
+		case "value":
+		case "literal":
+		case "cast":
+		case "domainCast":
+			return true
+		case "op":
+		case "cond":
+		case "closedAt":
+		case "closedRow":
+		case "closedHas":
+			return false
+	}
 }
 
 /**
@@ -1084,7 +1118,8 @@ class Lowering<R extends Refs> {
 
 	/**
 	 * A lowered node with what is proved of it: the bounds and facts its type gives every value unless the caller states
-	 * what its computation proves, then refined by each enclosing Compute.when guard whose subject this node is, a match
+	 * what its computation proves, beside which it keeps its SQL type's own facts (carrierFacts), then refined by each
+	 * enclosing Compute.when guard whose subject this node is, a match
 	 * retyping it as text of its pattern's language. A numeric bound past numeric's numericMaxIntegerDigits is
 	 * ResourceBound: every numeric expression's is known. A builder types its term and refuses only what is malformed;
 	 * the bound is compilation's, a typed refusal of the compile.
@@ -1096,7 +1131,10 @@ class Lowering<R extends Refs> {
 	): Lowered {
 		let nominal = stated
 		let bounds = proved === undefined ? boundsOfType(nominal) : proved.bounds
-		let facts: FactSet = proved === undefined ? factsOfType(nominal) : proved.facts
+		let facts: FactSet =
+			proved === undefined
+				? factsOfType(nominal)
+				: Object.freeze({ ...carrierFacts(nominal), ...proved.facts })
 		for (const g of this.#guards) {
 			if (!sameExpr(g.subject, entry)) {
 				continue
@@ -1321,12 +1359,7 @@ class Lowering<R extends Refs> {
 					operation,
 					precondition: precondition.kind,
 					operand: text,
-					guard: guardOf(
-						precondition.kind,
-						guardTest(precondition.kind, named?.nominal),
-						text,
-						operation
-					)
+					guard: guardOf(precondition.kind, guardTest(precondition.kind, named), text, operation)
 				})
 			)
 		}
@@ -2427,7 +2460,8 @@ class Lowering<R extends Refs> {
 	/**
 	 * The CASE over `p` of two typed branches, each converted into their common type (types.ts commonType): unchanged, by
 	 * a registered widening, by the binary coercion, or into the common contract with its proof (convert). Its values
-	 * are its branches' hull, and its facts the ones both branches have.
+	 * are its branches' hull, and its facts its SQL type's alone (settle), as every operation's result: the TypeScript
+	 * type of Compute.cond and Compute.when states none of its branches'.
 	 */
 	conditional(p: Lowered, onTrue: Lowered, onFalse: Lowered, at: SourceLoc): Lowered {
 		const type = commonType(onTrue.nominal, onFalse.nominal)
@@ -2435,17 +2469,10 @@ class Lowering<R extends Refs> {
 		const e = this.convert(onFalse, type, at)
 		const bounds =
 			t.bounds !== undefined && e.bounds !== undefined ? hullBounds(t.bounds, e.bounds) : undefined
-		const both: { [F in Fact]?: FactSet[F] } = {}
-		for (const f of ["nonzero", "nonnegative", "finite"] as const) {
-			const source = t.facts[f]
-			if (source !== undefined && e.facts[f] !== undefined) {
-				both[f] = source
-			}
-		}
 		return this.emitAt(
 			{ kind: "cond", args: [p.expr, t.expr, e.expr], type, nonNull: "cond" },
 			bounds,
-			Object.freeze(both)
+			noFacts
 		)
 	}
 

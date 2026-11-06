@@ -1,8 +1,9 @@
-# One check-only gate: the hook never formats or stages files, it only refuses a failing commit.
+# One check-only gate over what the commit holds (scripts/dev/check-commit.sh): the hook never formats or stages
+# files, it only refuses a failing commit.
 pre-commit:
   skip:
     - merge
     - rebase
   jobs:
     - name: check
-      run: pnpm check
+      run: sh scripts/dev/check-commit.sh

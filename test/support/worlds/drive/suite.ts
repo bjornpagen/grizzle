@@ -59,7 +59,8 @@ import {
 	docsInstall,
 	docsLevelInstall,
 	docsOneShareEditorInstall,
-	docsOneShareInstall
+	docsOneShareInstall,
+	docsProfileInstall
 } from "#test/support/worlds/model/bases/docs.ts"
 import { hostSchemaOf } from "#test/support/worlds/model/host.ts"
 import { writtenOf } from "#test/support/worlds/model/session/writes.ts"
@@ -1431,8 +1432,9 @@ export const generatedDocsInstalls: Gen<InstallSpec> = dictionaryNamed((source) 
  * The documents base's installations a suite draws: half the time its README-shaped worlds, whose roles hold every
  * shape the README names (writable query entries filled from a claim, a claim-fixed head field, a negation reading a
  * claim, refresh lists, two logins), over the base (docsInstall), its one-share variant (docsOneShareInstall), where
- * the member's own shares meet a hidden share at that key, or its Level variant (docsLevelInstall), where the member
- * reads a context field of a contract, and the first two with an editor beside (docsEditorInstall,
+ * the member's own shares meet a hidden share at that key, its Level variant (docsLevelInstall), where the member
+ * reads a context field of a contract, or its Profile variant (docsProfileInstall), where the member reads a claim of
+ * every type a context field takes, and the first two with an editor beside (docsEditorInstall,
  * docsOneShareEditorInstall), whose every fact outside an entry it writes is one it sees through a relation it holds
  * whole, or one hidden from it, under its claims or under none; and otherwise a generated one (generatedDocsInstalls),
  * which combines the shapes anew.
@@ -1442,6 +1444,7 @@ export const docsInstalls: Gen<InstallSpec> = oneOf([
 		docsInstall,
 		docsOneShareInstall,
 		docsLevelInstall,
+		docsProfileInstall,
 		docsEditorInstall,
 		docsOneShareEditorInstall
 	]),

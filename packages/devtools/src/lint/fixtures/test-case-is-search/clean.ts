@@ -6,6 +6,7 @@ import {
 	heldSearch,
 	relayed,
 	searchedSuite,
+	scripted,
 	suites
 } from "#lint/fixtures/test-case-is-search/support.ts"
 import * as Testing from "#lint/fixtures/test-case-is-search/testing.ts"
@@ -37,6 +38,13 @@ describe("searches", () => {
 	it.effect("hands a helper its search", () => caseOf(() => searchedSuite("handed")))
 
 	it.effect("reads the registry's search", () => suites.searched())
+
+	it.effect("searches itself, a scaffold beside it", () =>
+		Effect.andThen(
+			scripted(() => Effect.void),
+			explore({ suite: "beside", draw: integer(0, 9) }, () => Effect.void)
+		)
+	)
 
 	it("a plain case searches too", () => {
 		Effect.runSync(searchedSuite("plain"))

@@ -9,10 +9,12 @@
  * at its `proves` otherwise. A partial operation over a term of a contract that compiles, a column or a parameter, is
  * admitted exactly when the contract declares the fact it needs or its base has it, and refused naming that fact
  * otherwise: by the declaration to add (GuardTest proves) where the predicate implies the fact and the operation reads
- * the contract's own term, an exact widening of it included, else by the Compute guard of the fact.
+ * the contract's own term, an exact widening of it included, else by the Compute guard of the fact. A conditional of
+ * the contract's terms is an operation's result, as its TypeScript type states: it has its SQL type's facts alone (an
+ * integer is finite), whatever its branches declare, and no declaration remedies its refusal.
  *
  * Planted bugs: a fact the predicate implies admitted where the contract does not declare it (the bounds deriving it
- * again); a declaration the predicate does not imply admitted.
+ * again); a declaration the predicate does not imply admitted; a conditional keeping its branches' facts.
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -148,8 +150,11 @@ const predicateOf =
 			: comparison(x, first, base)
 	}
 
-/** Where the operation's operand is: a column of the contract, or a parameter of it, bound as its base. */
-type Form = "column" | "parameter"
+/**
+ * Where the operation's operand is: a column of the contract, a parameter of it, bound as its base, or a conditional
+ * between two readings of the column.
+ */
+type Form = "column" | "parameter" | "conditional"
 
 /** One case: a contract's base, predicate and declaration, and the fact an operation over a term of it needs. */
 interface FactCase {
@@ -172,7 +177,7 @@ const caseGen: Gen<FactCase> = (source) => {
 		atoms,
 		declared: Arr.filter(factNames, (_, i) => flags[i] === true),
 		needs: source.draw(element(factNames)),
-		form: source.draw(element<Form>(["column", "parameter"]))
+		form: source.draw(element<Form>(["column", "parameter", "conditional"]))
 	}
 }
 
@@ -208,6 +213,7 @@ type Feature =
 	| `over ${Base["name"]}`
 	| `over a ${Form}`
 	| `${Fact} admitted by its declaration`
+	| "a declared fact a conditional drops"
 	| "finite by its type"
 	| `${Fact} refused, its declaration named`
 	| `${Fact} refused, its guard named`
@@ -220,6 +226,8 @@ const situations: Arr.NonEmptyReadonlyArray<Feature> = [
 	"over numeric",
 	"over a column",
 	"over a parameter",
+	"over a conditional",
+	"a declared fact a conditional drops",
 	...Arr.flatMap(factNames, (f): ReadonlyArray<Feature> => [
 		`${f} admitted by its declaration`,
 		`${f} refused, its declaration named`,
@@ -291,29 +299,39 @@ describe("a contract's facts", () => {
 							c.note("a declaration its predicate implies, compiled")
 							c.note(`over a ${form}`)
 							const contract = testDeclaringContract(name, base.field, predicate, declared)
-							const x = form === "column" ? v("x", contract) : param("x", contract)
+							const column = v("x", contract)
+							const x =
+								form === "column"
+									? column
+									: form === "parameter"
+										? param("x", contract)
+										: Compute.cond(Compute.eq(column, column), column, column)
 							const vars: Readonly<Record<string, LeafBinding>> = {
 								x: { kind: "column", type: contract.scalar }
 							}
 							const op = operation(needs, base, x)
 							const lowered = lowerWith("query", spelledExpr(op.term.expr), vars, false, baseParams)
 							const byType = base.finite && needs === "finite"
-							if (declared.includes(needs) || byType) {
+							const declares = declared.includes(needs)
+							if (byType || (declares && form !== "conditional")) {
 								c.note(byType ? "finite by its type" : `${needs} admitted by its declaration`)
 								assert.ok(lowered.ok, `${needs} over contract ${name}, which has it, is admitted`)
 								return
 							}
 							if (lowered.ok) {
 								return assert.fail(
-									`${needs} over contract ${name}, which declares only ${Arr.join(declared, ", ")}, is refused`
+									`${needs} over a ${form} of contract ${name}, which declares ${Arr.join(declared, ", ")}, is refused`
 								)
+							}
+							if (declares) {
+								c.note("a declared fact a conditional drops")
 							}
 							const reason = lowered.error.reason
 							if (reason._tag !== "PartialOperation") {
 								return assert.fail(`a PartialOperation for ${needs}, not ${reason._tag}`)
 							}
 							assert.equal(reason.precondition, needs)
-							if (op.direct && implied.includes(needs)) {
+							if (form !== "conditional" && op.direct && implied.includes(needs)) {
 								c.note(`${needs} refused, its declaration named`)
 								assert.deepEqual(reason.guard.remedy, { kind: "proves", contract: name })
 								return

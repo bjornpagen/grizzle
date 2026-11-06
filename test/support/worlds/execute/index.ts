@@ -818,7 +818,8 @@ const realizeWith = (
 					}
 				},
 				function: (fn) => functionOf(v, fn),
-				codes: v.installation.names.codes
+				codes: v.installation.names.codes,
+				contexts: v.spec.base.contexts
 			}
 		}
 

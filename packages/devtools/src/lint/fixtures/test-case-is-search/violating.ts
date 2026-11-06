@@ -1,7 +1,14 @@
 import { describe, it, layer } from "@effect/vitest"
 import { Effect, Layer } from "effect"
 import { test } from "vitest"
-import { caseOf, checkOne, ping, suites } from "#lint/fixtures/test-case-is-search/support.ts"
+import {
+	caseOf,
+	checkOne,
+	ping,
+	relayedScript,
+	scripted,
+	suites
+} from "#lint/fixtures/test-case-is-search/support.ts"
 import { element } from "#lint/fixtures/test-case-is-search/testing.ts"
 
 describe("examples", () => {
@@ -28,6 +35,10 @@ describe("examples", () => {
 	test("vitest's own test", () => { // violation
 		Effect.runSync(checkOne(5))
 	})
+
+	it.effect("runs a hand scenario in a scaffold's search", () => scripted(() => checkOne(6))) // violation
+
+	it.effect("reaches a scaffold through a helper", () => relayedScript()) // violation
 })
 
 layer(Layer.empty)("a layer's cases", (it) => {

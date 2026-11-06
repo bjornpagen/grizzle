@@ -123,7 +123,11 @@ const visitOf = (
 	namedOf: (fileName: string, options: NoCaseList) => Named
 ): ((node: ts.Node) => ReadonlyArray<Report>) => {
 	const { sourceFile, checker, semantics, options, root } = context
-	const { files, dictionaries } = options.noCaseList
+	const { files } = options.noCaseList
+	const dictionaries = Arr.flatMap(
+		options.noCaseList.dictionaries,
+		(dictionary) => dictionary.files
+	)
 	if (!isAtAny(root, files, sourceFile.fileName)) {
 		return () => []
 	}

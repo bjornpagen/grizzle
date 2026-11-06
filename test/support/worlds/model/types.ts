@@ -255,7 +255,12 @@ export interface InstalledNames {
 	 * holds USAGE on the roster's domain, or reads a view that decodes through it, holds EXECUTE on it.
 	 */
 	readonly rosterConstants: Readonly<Record<string, string>>
+	/** Each roster's handles by code, as the installation holds them: what a closed id's claim and column hold. */
+	readonly codes: HandleCodes
 }
+
+/** Each roster's handles by code, by the roster's name: a removed handle's code a hole, "". */
+export type HandleCodes = Readonly<Record<string, ReadonlyArray<string>>>
 
 /**
  * Why a query entry cannot be written, restating the writable-entry rule of README "Writing through a role" clause by clause: a field of the
@@ -974,8 +979,9 @@ export type ObjectKind =
  * supplies, one its filter reads or its fill fixes, which the driver holds to the model's committed state; how a read
  * went (its path, the key a page's order is completed by and where it starts, an attachment that nested rows, a
  * recursive read that chained past one step, a span read through a world, a context field of a domain decoded from
- * the token and read); how each read-back stood to the change; the law family a refused write met, the path it took
- * and what its witness showed; and the shape of relation an accepted write through a world changed.
+ * the token and read); the SQLSTATE a direct writer's read met for a hand-set claim its field's type refuses, by the
+ * field's domain; how each read-back stood to the change; the law family a refused write met, the path it took and
+ * what its witness showed; and the shape of relation an accepted write through a world changed.
  */
 export type WorldFeature =
 	| AmbientFeature
@@ -992,6 +998,7 @@ export type WorldFeature =
 	| "reach:chained"
 	| "read:span"
 	| `claim:${ClaimDomain}`
+	| `claim-refused:${ClaimDomain}:${ClaimRefusal}`
 	| `readback:${ReadBackClass}`
 	| `law:${LawFamily}:${LawPath}:${Witness["kind"]}`
 	| `write:${WriteShape}:${RelationSpec["mutability"]}:${"entry" | "whole"}:${EntryOp["kind"]}`
@@ -1045,6 +1052,12 @@ export type WriteShape = "span-key" | "pure-set"
 
 /** The domain kinds a context field takes (README "Permissions"): never a serial or a span. */
 type ClaimDomain = Exclude<FieldDomain["kind"], "serial" | "span">
+
+/**
+ * The SQLSTATEs a hand-set claim its field refuses meets where a statement reads it (README "Direct SQL access"): no
+ * value of its type, an integer past its range, a value its contract, pattern or roster refuses.
+ */
+export type ClaimRefusal = Extract<SqlState, "22P02" | "22003" | "23514">
 
 /**
  * An applied insertion, by its facts' serial class (complete, or generated: leaving out every classed serial field),

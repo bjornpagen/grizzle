@@ -26,8 +26,13 @@ import type {
 	InstalledNames,
 	LawIds,
 	LawSpec,
-	RelationSpec
+	RelationSpec,
+	HandleCodes
 } from "#test/support/worlds/model/types.ts"
+
+/** An installation's codes as the model reads them: each roster's handles by code, a hole's "". */
+export const rosterCodesOf = (codes: Codebook): HandleCodes =>
+	Rec.fromEntries(Arr.map([...codes.rosters], ([roster, codec]) => [roster, codec.names] as const))
 
 /**
  * The names the compiler gives an installation, read from its compilation through the kernel's naming door
@@ -185,6 +190,7 @@ export const namesOfBuiltAt = (
 						] as const
 				)
 			),
+			codes: rosterCodesOf(installation.names.codes),
 			roles: Rec.fromEntries(Arr.map(spec.roles, (r) => [r.name, roleOf(r.name)] as const)),
 			logins: Rec.fromEntries(
 				Arr.map(

@@ -1,5 +1,6 @@
 import { layer } from "@effect/vitest"
 import type { Situations } from "@grizzle/testing/features"
+import { constant, oneOf } from "@grizzle/testing/gen"
 import { Array as Arr, String as Str } from "effect"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { reachingPastRefused } from "#test/support/worlds/drive/acting.ts"
@@ -20,6 +21,7 @@ import {
 	startingWith
 } from "#test/support/worlds/drive/suite.ts"
 import { invalidKinds } from "#test/support/worlds/invalid/kinds.ts"
+import { docsProfileInstall } from "#test/support/worlds/model/bases/docs.ts"
 import type { InvalidKind, WorldFeature } from "#test/support/worlds/model/types.ts"
 
 /**
@@ -33,9 +35,13 @@ import type { InvalidKind, WorldFeature } from "#test/support/worlds/model/types
  * read-back rule, untouched, written, beside its written entry or undetermined and refused; as a direct INSERT, ON
  * CONFLICT or MERGE) lands inside its world or is refused as the README says; nothing a role of
  * another login holds is reachable from a session of this login (a SET ROLE to it, another role's filter and key-probe
- * functions, another tenant's claims set by hand); and a Db's contexts hold exactly the facts its verified token
- * decodes to, a uuid's, a text's and a contract's read through a rule, a contract's claim at its bounds or past them
- * judged by PostgreSQL (invalid:token:refinement-edge). Realities hold facts outside every world (the owner loads them), so the model's answers over them are
+ * functions, another tenant's claims set by hand); a Db's contexts hold exactly the facts its verified token decodes
+ * to, a claim of every type a context field takes read through a rule (the Profile context of docsProfileInstall: a
+ * uuid, a text whose pattern needs PostgreSQL to read it as ECMAScript does, an integer of each width, a boolean, a
+ * closed id and a contract), a refined claim at its bounds or past them judged by PostgreSQL
+ * (invalid:token:refinement-edge); and a direct writer's hand-set claim its field's type refuses, of every type, meets
+ * README's SQLSTATE where a statement reads it: 22P02 for no uuid, no integer, no boolean or a handle's name where its
+ * code belongs, 22003 for an integer past its range, 23514 for a value its contract, pattern or roster refuses. Realities hold facts outside every world (the owner loads them), so the model's answers over them are
  * README "Security model"'s promise: a role reads exactly its own view, whatever lies outside it. Beside the model, one rule is held directly: a
  * direct writer's statement that reaches past its login (another login's role or views, another identity, another
  * role's filter or key probe) is refused (drive/acting.ts reachingPastRefused).
@@ -150,7 +156,28 @@ const claimsRequired: Situations<WorldFeature> = [
 	...invalidFeatures(ofKinds("token:")),
 	"claim:uuid",
 	"claim:text",
+	"claim:integer",
+	"claim:boolean",
+	"claim:handle",
 	"claim:contract"
+]
+
+/**
+ * What the hand-set claims suite must reach: each way a hand-set claim's cast refuses it, of every type a context field
+ * takes, met where a direct writer's statement reads the context.
+ */
+const handSetRequired: Situations<WorldFeature> = [
+	"claim-refused:uuid:22P02",
+	"claim-refused:text:23514",
+	"claim-refused:integer:22P02",
+	"claim-refused:integer:22003",
+	"claim-refused:boolean:22P02",
+	"claim-refused:handle:22P02",
+	"claim-refused:handle:22003",
+	"claim-refused:handle:23514",
+	"claim-refused:contract:22P02",
+	"claim-refused:contract:22003",
+	"claim-refused:contract:23514"
 ]
 
 layer(Substrate.layer, { excludeTestServices: true })("the worlds model: isolation", (it) => {
@@ -183,7 +210,7 @@ layer(Substrate.layer, { excludeTestServices: true })("the worlds model: isolati
 	programTests(it, {
 		suite: "pg/world-model/isolation/claims",
 		name: "a Db's contexts hold exactly the facts its verified claims decode to",
-		installs: docsInstalls,
+		installs: oneOf([docsInstalls, constant(docsProfileInstall)]),
 		realize: fresh,
 		focus: ["open-db", "read", "close", "wild"],
 		steps: 8,
@@ -191,6 +218,19 @@ layer(Substrate.layer, { excludeTestServices: true })("the worlds model: isolati
 		required: claimsRequired,
 		realities: docsTenantRealities,
 		lead: dbSession(claimsRequired),
+		check: noCheck
+	})
+	programTests(it, {
+		suite: "pg/world-model/isolation/hand-set-claims",
+		name: "a direct writer's hand-set claim its field refuses meets README's SQLSTATE where a statement reads it",
+		installs: constant(docsProfileInstall),
+		realize: fresh,
+		focus: ["direct-begin", "direct", "direct-end"],
+		steps: 8,
+		cases: 16,
+		required: handSetRequired,
+		realities: docsTenantRealities,
+		lead: directTransaction(handSetRequired),
 		check: noCheck
 	})
 })

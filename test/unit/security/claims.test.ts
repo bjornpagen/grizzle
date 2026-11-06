@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
-import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { required, requiredInSpace } from "@grizzle/testing/features"
+import { drawn, explore } from "@grizzle/testing/explore"
+import { required } from "@grizzle/testing/features"
 import { boolean, constant, element, type Gen, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
@@ -14,6 +14,7 @@ import {
 	String as Str
 } from "effect"
 import { type Claims, claimsOf, type TypedContext, typedContext } from "#adapter/db/claims.ts"
+import { ClaimRefused } from "#adapter/errors/failures.ts"
 import { checkedSchema } from "#compiler/analysis/schema.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
@@ -30,10 +31,11 @@ import type { ContextSpec, FieldSpec, RoleSpec } from "#test/support/worlds/mode
 /**
  * The host claims decoder (packages/grizzle/src/adapter/db/claims.ts claimsOf) decodes a verified payload exactly as
  * README "Permissions" and "Security model" say, over the shapes a `verify` can return that JSON cannot: a claim or a
- * field on the payload's prototype chain rather than its own, a getter, a non-object claim. The worlds model's host
- * decoder (test/support/worlds/model/session/claims.ts payloadFacts) is the specification, written apart from the
- * implementation; a payload whose reading does not throw must decode through grizzle to exactly the facts the model
- * reads, and refuse exactly when the model does.
+ * field on the payload's prototype chain rather than its own, a getter, a getter whose read throws, a non-object claim.
+ * The worlds model's host decoder (test/support/worlds/model/session/claims.ts payloadFacts) is the specification,
+ * written apart from the implementation; a payload whose reading does not throw must decode through grizzle to exactly
+ * the facts the model reads, and refuse exactly when the model does, and one whose reading by the model throws, at a
+ * claim field or at the claim object itself, must be refused as a ClaimRefused, never escaping as a defect.
  *
  * The attacker never holds a token's signature (the login is the boundary), so the hostile input here is the object
  * `verify` returns, not a signed claim: the suite's value over the worlds errors suite, which drives only JSON-text
@@ -46,17 +48,6 @@ import type { ContextSpec, FieldSpec, RoleSpec } from "#test/support/worlds/mode
  * PostgreSQL's to judge after admission, so the host decoder admits it; the model marks it and the suite compares the
  * decoded facts, which are the same whether or not PostgreSQL will later refuse the pattern.
  */
-
-/** Installs an own enumerable property on `object` whose read throws, as a misbehaving verify's object does. */
-const defineThrowing = (object: object, key: string): void => {
-	Object.defineProperty(object, key, {
-		get: () => {
-			throw new Error("the claim property's read throws on purpose")
-		},
-		enumerable: true,
-		configurable: true
-	})
-}
 
 /** The member role's spec, whose contexts the model decodes through. */
 const memberSpec: RoleSpec = Option.getOrThrowWith(
@@ -118,7 +109,10 @@ const tenantSpec = Option.getOrThrowWith(
 type Placement = "own" | "inherited" | "absent"
 const placements: Arr.NonEmptyReadonlyArray<Placement> = ["own", "inherited", "absent"]
 
-/** A value for a field, and whether its read throws: the shapes a verify's object can carry at a claim field. */
+/**
+ * A value for a field, or a read of it that throws: the shapes a verify's object can carry at a claim field, a throwing
+ * read the one a JSON payload cannot.
+ */
 type ValueKind =
 	| "valid"
 	| "wrong-type"
@@ -130,6 +124,7 @@ type ValueKind =
 	| "int8-out-of-range"
 	| "huge"
 	| "getter"
+	| "throws"
 
 /** A text value of each kind, or none when the kind does not apply to a text field. */
 const textValue = (kind: ValueKind): Option.Option<unknown> => {
@@ -151,6 +146,7 @@ const textValue = (kind: ValueKind): Option.Option<unknown> => {
 		case "unsafe-int":
 		case "int8-string":
 		case "int8-out-of-range":
+		case "throws":
 			return Option.none()
 	}
 }
@@ -172,6 +168,7 @@ const uuidValue = (kind: ValueKind): Option.Option<unknown> => {
 		case "unsafe-int":
 		case "int8-string":
 		case "int8-out-of-range":
+		case "throws":
 			return Option.none()
 	}
 }
@@ -195,6 +192,7 @@ const integerValue = (kind: ValueKind): Option.Option<unknown> => {
 		case "surrogate":
 		case "pattern-miss":
 		case "huge":
+		case "throws":
 			return Option.none()
 	}
 }
@@ -227,18 +225,42 @@ const valueOf = (domain: FieldSpec["domain"], kind: ValueKind): Option.Option<un
 	}
 }
 
-/** A member of an object: a plain value, or a stable getter that returns it (a shape JSON cannot carry). */
-type Member = { readonly key: string; readonly value: unknown; readonly getter: boolean }
+/**
+ * How a member is read: a plain value, a stable getter that returns it, or a getter whose read throws (shapes JSON
+ * cannot carry).
+ */
+type Read =
+	| { readonly kind: "value"; readonly value: unknown }
+	| { readonly kind: "getter"; readonly value: unknown }
+	| { readonly kind: "throws" }
+
+/** A member of an object: its key and how it is read. */
+type Member = { readonly key: string; readonly read: Read }
 
 /** A fresh object with no prototype, the sanctioned null-prototype literal, never the __proto__ accessor. */
 const nullObject = (): Record<string, unknown> => ({ __proto__: null })
 
-/** Defines `m` on `object`, as a value or a getter that returns its value, as an own enumerable property. */
+/** The descriptor of a member read as `read`. */
+const descriptorOf = (read: Read): PropertyDescriptor => {
+	switch (read.kind) {
+		case "value":
+			return { value: read.value, enumerable: true, writable: true, configurable: true }
+		case "getter":
+			return { get: () => read.value, enumerable: true, configurable: true }
+		case "throws":
+			return {
+				get: () => {
+					throw new Error("the claim property's read throws on purpose")
+				},
+				enumerable: true,
+				configurable: true
+			}
+	}
+}
+
+/** Defines `m` on `object` as an own enumerable property, read as its Read says. */
 const defineMember = (object: object, m: Member): void => {
-	const descriptor: PropertyDescriptor = m.getter
-		? { get: () => m.value, enumerable: true, configurable: true }
-		: { value: m.value, enumerable: true, writable: true, configurable: true }
-	Object.defineProperty(object, m.key, descriptor)
+	Object.defineProperty(object, m.key, descriptorOf(m.read))
 }
 
 /** The object with `members` as own properties and `inherited` on a null-prototype prototype, never through __proto__. */
@@ -258,15 +280,19 @@ const objectWith = (
 	return object
 }
 
-/** How a context's claim object sits in the payload (meaningful only for an object claim like Tenant). */
-type ObjectPlacement = "own" | "inherited" | "absent" | "null" | "array" | "non-object"
+/**
+ * How a context's claim object sits in the payload (meaningful only for an object claim like Tenant): its own key, one
+ * whose read throws among them.
+ */
+type ObjectPlacement = "own" | "inherited" | "absent" | "null" | "array" | "non-object" | "throws"
 const objectPlacements: Arr.NonEmptyReadonlyArray<ObjectPlacement> = [
 	"own",
 	"inherited",
 	"absent",
 	"null",
 	"array",
-	"non-object"
+	"non-object",
+	"throws"
 ]
 
 /** One context's members, placed by field, as own and inherited lists of the object that holds them. */
@@ -291,11 +317,16 @@ const placeFields = (
 		if (placement === "absent") {
 			continue
 		}
-		const value = valueOf(field.domain, kind)
-		if (Option.isNone(value)) {
+		const read: Option.Option<Read> =
+			kind === "throws"
+				? Option.some({ kind: "throws" })
+				: Option.map(valueOf(field.domain, kind), (value): Read =>
+						getter ? { kind: "getter", value } : { kind: "value", value }
+					)
+		if (Option.isNone(read)) {
 			continue
 		}
-		const member: Member = { key: field.name, value: value.value, getter }
+		const member: Member = { key: field.name, read: read.value }
 		if (placement === "own") {
 			own.push(member)
 		} else {
@@ -323,7 +354,8 @@ const fieldDraw: Gen<{
 			"int8-string",
 			"int8-out-of-range",
 			"huge",
-			"getter"
+			"getter",
+			"throws"
 		])
 	),
 	getter: source.draw(boolean)
@@ -434,21 +466,24 @@ const payloadOf = (draw: Draw): unknown => {
 	const topOwn: Array<Member> = [...session.own]
 	switch (draw.tenantPlacement) {
 		case "own":
-			topOwn.push({ key: "t", value: tenantObject, getter: false })
+			topOwn.push({ key: "t", read: { kind: "value", value: tenantObject } })
 			break
 		case "inherited":
-			topInherited.push({ key: "t", value: tenantObject, getter: false })
+			topInherited.push({ key: "t", read: { kind: "value", value: tenantObject } })
 			break
 		case "absent":
 			break
 		case "null":
-			topOwn.push({ key: "t", value: null, getter: false })
+			topOwn.push({ key: "t", read: { kind: "value", value: null } })
 			break
 		case "array":
-			topOwn.push({ key: "t", value: [], getter: false })
+			topOwn.push({ key: "t", read: { kind: "value", value: [] } })
 			break
 		case "non-object":
-			topOwn.push({ key: "t", value: 42, getter: false })
+			topOwn.push({ key: "t", read: { kind: "value", value: 42 } })
+			break
+		case "throws":
+			topOwn.push({ key: "t", read: { kind: "throws" } })
 			break
 	}
 	return objectWith(topOwn, topInherited)
@@ -460,6 +495,7 @@ type Feature =
 	| `field:${Placement}`
 	| `value:${ValueKind}`
 	| "verdict:refused"
+	| "verdict:read-throws"
 	| "verdict:session-only"
 	| "verdict:both-contexts"
 
@@ -478,7 +514,9 @@ const situations: Arr.NonEmptyReadonlyArray<Feature> = [
 	"value:int8-out-of-range",
 	"value:huge",
 	"value:getter",
+	"value:throws",
 	"verdict:refused",
+	"verdict:read-throws",
 	"verdict:session-only",
 	"verdict:both-contexts"
 ]
@@ -511,8 +549,17 @@ describe("the host claims decoder", () => {
 								c.note(`value:${s.kind}`)
 							}
 							const payload = payloadOf(draw)
-							const model = payloadFacts(docsBase, memberSpec, payload)
-							const grizzle: Result.Result<Claims, unknown> = claimsOf(memberContexts, payload)
+							const grizzle: Result.Result<Claims, ClaimRefused> = claimsOf(memberContexts, payload)
+							const read = Option.liftThrowable(() => payloadFacts(docsBase, memberSpec, payload))()
+							if (Option.isNone(read)) {
+								c.note("verdict:read-throws")
+								assert.ok(
+									Result.isFailure(grizzle) && grizzle.failure instanceof ClaimRefused,
+									"a payload whose read the model meets throwing is refused as a ClaimRefused"
+								)
+								return
+							}
+							const model = read.value
 							if (model.kind === "refused") {
 								c.note("verdict:refused")
 								assert.ok(
@@ -530,45 +577,8 @@ describe("the host claims decoder", () => {
 							)
 							assert.equal(
 								grizzle.success.text,
-								claimsText(model.facts),
+								claimsText(docsBase.contexts, {}, model.facts),
 								"grizzle's claims setting is the model's facts in the setting's order"
-							)
-						})
-				)
-			)
-	)
-
-	it.effect(
-		"refuses a payload whose property read throws, as a ClaimRefused, never escaping as a defect",
-		(ctx) =>
-			searched(
-				ctx,
-				exhaust(
-					{
-						suite: "unit/security/claims-throws",
-						generator: element(["session", "tenant"] as const),
-						literal: (at: "session" | "tenant") => Formatter.format(at),
-						limit: 2,
-						coverage: requiredInSpace<"at:session" | "at:tenant">(["at:session", "at:tenant"]),
-						caseHang
-					},
-					(at, c) =>
-						Effect.sync(() => {
-							c.note(`at:${at}`)
-							const top = nullObject()
-							if (at === "session") {
-								defineThrowing(top, "sub")
-							} else {
-								const tenant = nullObject()
-								defineThrowing(tenant, "org")
-								defineMember(tenant, { key: "seats", value: 1, getter: false })
-								defineMember(top, { key: "t", value: tenant, getter: false })
-								defineMember(top, { key: "sub", value: "u_x", getter: false })
-							}
-							const grizzle: Result.Result<Claims, unknown> = claimsOf(memberContexts, top)
-							assert.ok(
-								Result.isFailure(grizzle),
-								"a payload whose read throws is refused, never a defect"
 							)
 						})
 				)

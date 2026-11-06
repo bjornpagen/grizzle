@@ -73,6 +73,13 @@ const PackageDeclarations = Schema.Struct({ package: Schema.String, declarations
 /** Files a rule does not read, and the reason it leaves them, which the repository states beside them. */
 const Exemption = Schema.Struct({ files: Paths, reason: Schema.NonEmptyString })
 
+/** Values of a repository module a rule does not count, and the reason, which the repository states beside them. */
+const Scaffolds = Schema.Struct({
+	module: Schema.String,
+	names: Names,
+	reason: Schema.NonEmptyString
+})
+
 /** A search of a repository module, by its module and name, and the property of its spec that holds its space
  * (`exhaust`'s `generator`, `explore`'s `draw`). */
 const SearchSpace = Schema.Struct({
@@ -157,20 +164,23 @@ export const SuperlintOptions = Schema.Struct({
 		entryReads: Names
 	}),
 	/** Where every test case runs a search: the files whose cases are read, the declarations of the installed packages
-	 * whose signatures register a test case (`it`, `it.effect`, `test`), the searches a case's body must reach, and the
-	 * files exempt, each set with its reason. */
+	 * whose signatures register a test case (`it`, `it.effect`, `test`), the searches a case's body must reach, the
+	 * scaffolds that run a search around a scenario a person wrote and so are no way to one, and the files exempt, each
+	 * scaffold and each set of files with its reason. */
 	testCaseIsSearch: Schema.Struct({
 		files: Paths,
 		registrars: Schema.Array(PackageDeclarations),
 		searches: Schema.Array(DeclaredValues),
+		scaffolds: Schema.Array(Scaffolds),
 		exempt: Schema.Array(Exemption)
 	}),
 	/** Where a search's space is never a list of cases: the files read, where a list written is a list of cases; the
-	 * dictionaries among them, whose lists are the values the code branches on; the searches, with the property of
-	 * their spec that holds the space; and the generators, each with what it draws. */
+	 * dictionaries among them, whose lists are the values the code branches on, never verdicts, each set with its
+	 * reason; the searches, with the property of their spec that holds the space; and the generators, each with what it
+	 * draws. */
 	noCaseList: Schema.Struct({
 		files: Paths,
-		dictionaries: Paths,
+		dictionaries: Schema.Array(Exemption),
 		searches: Schema.Array(SearchSpace),
 		generators: Schema.Array(Schema.Struct({ module: Schema.String, names: Names, draws: Draws }))
 	})
@@ -387,6 +397,13 @@ export const FIXTURE_OPTIONS: SuperlintOptions = {
 		searches: [
 			{ module: "test-case-is-search/testing.ts", names: ["explore", "exhaust", "interleave"] }
 		],
+		scaffolds: [
+			{
+				module: "test-case-is-search/support.ts",
+				names: ["scripted"],
+				reason: "A scaffold's fixture: it searches a box around a scenario its caller writes."
+			}
+		],
 		exempt: [
 			{
 				files: ["test-case-is-search/exempt/clean.ts"],
@@ -402,7 +419,13 @@ export const FIXTURE_OPTIONS: SuperlintOptions = {
 			"no-case-list/cases.ts",
 			"no-case-list/dictionary.ts"
 		],
-		dictionaries: ["no-case-list/dictionary.ts"],
+		dictionaries: [
+			{
+				files: ["no-case-list/dictionary.ts"],
+				reason:
+					"A dictionary's fixture: the values a generator draws, which no case's verdict rides on."
+			}
+		],
 		searches: [
 			{ module: "no-case-list/testing.ts", name: "exhaust", space: "generator" },
 			{ module: "no-case-list/testing.ts", name: "explore", space: "draw" }
