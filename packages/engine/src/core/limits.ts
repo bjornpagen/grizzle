@@ -212,7 +212,7 @@ export const regexMaxPositions = measured({
 	decision:
 		"kept where the first measurement set it, at which the slowest planted chain of optional copies, `(?:a?){255}(?:b?){100}c`, compiled in tens of milliseconds on a cold backend",
 	revalidate:
-		"a PostgreSQL repin; a change to the ARE printer (text/are.ts) or to the IR's normalization (scalar/regex/ir.ts); a planted or drawn pattern refused as too complex"
+		"a PostgreSQL repin; a change to the ARE printer (scalar/regex/are.ts) or to the IR's normalization (scalar/regex/ir.ts); a planted or drawn pattern refused as too complex"
 })
 
 /**
@@ -275,18 +275,18 @@ export const regexMaxAnchorWeight = measured({
  */
 const subsetConstructionRun = {
 	evidence:
-		"bench/results/dfa/dfa-2026-11-05T080355.json, the uncommitted record of `pnpm bench dfa` (bench/dfa/main.ts) at grizzle 48256f8d6148 with a dirty tree: text/dfa.ts minimalDfa under both limits, seven runs a pattern in one process, the first cold, then one run under 16 times each limit, on 29 patterns analyzeText admits: `^(?:a|b)*a(?:a|b){k}$` for k from 6 to 12, 14 and 16 (minimal DFAs of 2^(k+1) states), wide classes over chains of up to 255 copies, chains of 255 copies, and chains of up to 4,096 distinct sets",
+		"bench/results/dfa/dfa-2026-11-05T080355.json, the uncommitted record of `pnpm bench dfa` (bench/dfa/main.ts) at grizzle 48256f8d6148 with a dirty tree: scalar/regex/dfa.ts minimalDfa under both limits, seven runs a pattern in one process, the first cold, then one run under 16 times each limit, on 29 patterns analyzeText admits: `^(?:a|b)*a(?:a|b){k}$` for k from 6 to 12, 14 and 16 (minimal DFAs of 2^(k+1) states), wide classes over chains of up to 255 copies, chains of 255 copies, and chains of up to 4,096 distinct sets",
 	observed: "2026-11-05 02:03:54 to 02:04:11 CST (UTC-6)",
 	environment:
 		"macOS 27.0.1 (Darwin 27.0.0) on a VirtualMac2,1, Apple M2 Max (Virtual) with 10 cores (sysctl hw.ncpu) and 64 GiB; Node 26.13.0 (V8 14.6.202.34-node.40), one single-threaded process; load average 9.9 to 11.3 over the 10 cores from other sessions throughout, so the times are a loaded machine's",
 	workload:
 		"one pattern's construction at a time, the process's only work, over NFAs of 15 to 4,117 states, parsing and the NFA build untimed; `^(?:.{0,255}){16}$`, the slowest pattern of the unverifiable run this one replaces, is refused by regexMaxClosurePairs and never reaches the construction",
 	revalidate:
-		"a change to the subset construction, its alphabet, the minimization or the canonical form (text/dfa.ts), or to the NFA builder (scalar/regex/nfa.ts); a Node or V8 upgrade; a pattern whose construction under the limits takes longer than the slowest here"
+		"a change to the subset construction, its alphabet, the minimization or the canonical form (scalar/regex/dfa.ts), or to the NFA builder (scalar/regex/nfa.ts); a Node or V8 upgrade; a pattern whose construction under the limits takes longer than the slowest here"
 } as const
 
 /**
- * The DFA states a pattern's subset construction may create (text/dfa.ts minimalDfa), a bound on the compiling
+ * The DFA states a pattern's subset construction may create (scalar/regex/dfa.ts minimalDfa), a bound on the compiling
  * process's own work. Past it, or past regexDfaMaxWork, the analysis knows the language by its IR alone: the pattern
  * is enforced by its ARE with structural bounds and keyed by its IR ("ir:", text/refinement.ts keyOf). It refuses
  * nothing, but a change of either bound changes the key, and so the domain digest a snapshot records, of every pattern
@@ -294,7 +294,7 @@ const subsetConstructionRun = {
  */
 export const regexDfaMaxStates = measured({
 	value: 2_048,
-	owner: "grizzle's text analysis (text/dfa.ts minimalDfa)",
+	owner: "grizzle's text analysis (scalar/regex/dfa.ts minimalDfa)",
 	unit: "DFA states",
 	scope: "the subset construction of one pattern's automaton, in the compiling process",
 	...subsetConstructionRun,
@@ -305,7 +305,7 @@ export const regexDfaMaxStates = measured({
 })
 
 /**
- * The NFA-state visits a pattern's subset construction is charged (text/dfa.ts minimalDfa): the initial closure's
+ * The NFA-state visits a pattern's subset construction is charged (scalar/regex/dfa.ts minimalDfa): the initial closure's
  * states, then for every transition the states of its source subset and of its target, whether the target is computed
  * or is the restart closure computed once; the other bound on the compiling process's own work, with
  * regexDfaMaxStates. It leaves out the alphabet's partition, which grows with the segments the pattern's sets hold, and
@@ -313,7 +313,7 @@ export const regexDfaMaxStates = measured({
  */
 export const regexDfaMaxWork = measured({
 	value: 2_097_152,
-	owner: "grizzle's text analysis (text/dfa.ts minimalDfa)",
+	owner: "grizzle's text analysis (scalar/regex/dfa.ts minimalDfa)",
 	unit: "NFA-state visits",
 	scope: "the subset construction of one pattern's automaton, in the compiling process",
 	...subsetConstructionRun,
@@ -554,7 +554,8 @@ export const typlens = {
 	money: typlen("money", 8, 239, "typname => 'money', typlen => '8', typbyval => 't'"),
 	bool: typlen("boolean", 1, 36, "typname => 'bool', typlen => '1', typbyval => 't'"),
 	oid: typlen("oid", 4, 89, "typname => 'oid', typlen => '4', typbyval => 't'"),
-	uuid: typlen("uuid", 16, 409, "typname => 'uuid', typlen => '16', typbyval => 'f'")
+	uuid: typlen("uuid", 16, 409, "typname => 'uuid', typlen => '16', typbyval => 'f'"),
+	date: typlen("date", 4, 288, "typname => 'date', typlen => '4', typbyval => 't'")
 } as const
 
 /**

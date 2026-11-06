@@ -67,6 +67,7 @@ const spaceOf = (t: ScalarType): Space | undefined => {
 		case "money":
 		case "bool":
 		case "uuid":
+		case "date":
 		case "text":
 		case "code":
 		case "bits":
@@ -216,6 +217,11 @@ const exactIn = (
 		case "rem":
 		case "widthBucket":
 		case "charLength":
+		case "concat":
+		case "startsWith":
+		case "endsWith":
+		case "right":
+		case "matches":
 		case "lower":
 		case "upper":
 		case "cosineDistance":

@@ -90,7 +90,7 @@ describe("a program's carriers", () => {
 								const types = typesOf(h)
 								const digest = digestOf.get(types) ?? standIn(0)
 								const known = held.get(digest)
-								const carrier = catchRefusal(() => supply.next(h))
+								const carrier = catchRefusal(() => supply.next(h, undefined))
 								if (known !== undefined && known.types !== types) {
 									c.note("refused")
 									refused(carrier, "UnsupportedOperation")
@@ -135,7 +135,7 @@ describe("a program's carriers", () => {
 					(h) =>
 						Effect.sync(() => {
 							const supply = new CarrierSupply(typesDigest)
-							const names = new Set(Arr.map(Arr.range(1, 70_000), () => supply.next(h).name))
+							const names = new Set(Arr.map(Arr.range(1, 70_000), () => supply.next(h, undefined).name))
 							assert.equal(names.size, 70_000)
 							for (const name of names) {
 								assert.ok(isCarrierName(name), name)

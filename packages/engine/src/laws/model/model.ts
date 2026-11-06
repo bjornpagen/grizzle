@@ -1253,9 +1253,7 @@ class Specializer {
 					deferrable: deferred({
 						relation: n.relation,
 						target: n.target,
-						targetFields: [...n.targetColumns, n.targetSpan].flatMap((c) =>
-							c.kind === "field" ? [c.field] : []
-						)
+						targetFields: n.targetColumns.flatMap((c) => (c.kind === "field" ? [c.field] : []))
 					}),
 					lawIds
 				}
@@ -1490,7 +1488,10 @@ const specialize = (
  *   PERIOD one included, is deferred exactly when a lawful final-state ChangeSet could break it in passing: when its
  *   target can be replaced at the referenced key, because the target has a field it does not reference as a plain
  *   column, so a put or a deletion and an addition at that key deletes the referenced row before inserting its
- *   replacement; or when it lies on a cycle of those foreign keys, where neither side can be inserted first. Any role
+ *   replacement; or when it lies on a cycle of those foreign keys, where neither side can be inserted first. A PERIOD
+ *   foreign key references its target's span as a period, never as a plain column, so it is always deferred: the
+ *   facts covering a referenced span can be replaced by others that still cover it, a span cut or split, and the
+ *   target's WITHOUT OVERLAPS key admits the replacements only once the facts they overlap are deleted. Any role
  *   over the schema may write any ordinary relation, and roles are defined beside the schema, never in it, so the
  *   schema's own laws are the same whoever writes. Otherwise it is immediate, and so is the evidence it gives, which
  *   the theory is rebuilt with.

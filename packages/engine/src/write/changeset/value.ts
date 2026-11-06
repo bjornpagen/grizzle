@@ -1107,72 +1107,103 @@ interface Split {
 	}>
 }
 
-/** The fields of `relation` grizzle writes itself, drawn or accumulated, as its families' relations state them. */
-const unwrittenFields = (relation: string, families: ReadonlyArray<Family>): ReadonlySet<string> =>
-	new Set(
-		families.flatMap((f) =>
-			[f.owner, f.member]
-				.filter((r) => r.name === relation)
-				.flatMap((r) =>
-					r.fields.flatMap((field) =>
-						field.writing.kind === "drawn" || field.writing.kind === "accumulated"
-							? [field.name]
-							: []
-					)
-				)
-		)
-	)
+/**
+ * A position in an addition: the step from its parent's position, a count field or a member's position, and that
+ * parent; the addition itself has none. Each position is one cell over its parent's, so the walk allocates nothing per
+ * level of depth, and only a refusal spells its path out (`pathOf`).
+ */
+interface PathStep {
+	readonly parent: PathStep | undefined
+	readonly step: string | number
+}
 
-/** A caller's fact read once as a plain record, or the refusal of anything else, a throwing getter among them. */
+/** The count fields and member positions from the addition down to `at`. */
+const pathOf = (at: PathStep | undefined): ReadonlyArray<string | number> => {
+	const steps: Array<string | number> = []
+	for (let p = at; p !== undefined; p = p.parent) {
+		steps.push(p.step)
+	}
+	return steps.reverse()
+}
+
+/** What splitting a fact of one relation reads off `families`: the families it owns, their count fields, and the
+ * fields grizzle draws or accumulates, which the fact's own fields leave out. */
+interface RelationSplit {
+	readonly owned: ReadonlyArray<Family>
+	readonly omitted: ReadonlySet<string>
+}
+
+/** How a fact of `relation` splits along `families`. */
+const relationSplit = (relation: string, families: ReadonlyArray<Family>): RelationSplit => {
+	const owned = families.filter((f) => f.owner.name === relation)
+	const unwritten = families.flatMap((f) =>
+		[f.owner, f.member]
+			.filter((r) => r.name === relation)
+			.flatMap((r) =>
+				r.fields.flatMap((field) =>
+					field.writing.kind === "drawn" || field.writing.kind === "accumulated"
+						? [field.name]
+						: []
+				)
+			)
+	)
+	return { owned, omitted: new Set([...owned.map((f) => f.count.name), ...unwritten]) }
+}
+
+/** A caller's fact read once as a plain record, or factShape for anything else, a throwing getter among them. */
 const factRecord = (
-	value: unknown,
-	path: ReadonlyArray<string | number>
-): Result.Result<Readonly<Record<string, unknown>>, ChangeSetRefusal> =>
-	hostRead<Readonly<Record<string, unknown>>, ChangeSetRefusal>({ fault: "factShape", path }, () =>
-		isPlainRecord(value)
-			? Result.ok(Object.freeze({ ...value }))
-			: Result.err({ fault: "factShape", path })
+	value: unknown
+): Result.Result<Readonly<Record<string, unknown>>, ChangeSetRefusal["fault"]> =>
+	hostRead<Readonly<Record<string, unknown>>, ChangeSetRefusal["fault"]>("factShape", () =>
+		isPlainRecord(value) ? Result.ok(Object.freeze({ ...value })) : Result.err("factShape")
 	)
 
 /**
  * The addition `fact` of `relation` split along `families`: each family whose owner is the fact's relation holds its
  * members as an array at the owner's count field, each member a fact of the family's member relation, split alike, so
- * a tree's nodes nest to any depth. The walk is iterative, with no limit on the depth. A fact that is no plain record,
- * or a count field that holds no array, is refused as factShape at its path. Each fact keeps its own fields, less its
- * count fields and the fields grizzle draws or accumulates; encoding them is the program's, with the installation's
- * codes.
+ * a tree's nodes nest to any depth. The walk is iterative, with no limit on the depth, and linear in the facts it
+ * reads: each fact is read once, its position is one cell over its owner's, and each relation's split is computed once.
+ * A fact that is no plain record, or a count field that holds no array, is refused as factShape at its path. Each fact
+ * keeps its own fields, less its count fields and the fields grizzle draws or accumulates; encoding them is the
+ * program's, with the installation's codes.
  */
 export const encodeAddition = (
 	relation: string,
 	fact: unknown,
 	families: ReadonlyArray<Family>
 ): Result.Result<NestedAddition, ChangeSetRefusal> => {
+	const relationSplits = new Map<string, RelationSplit>()
+	const splitOf = (name: string): RelationSplit => {
+		const known = relationSplits.get(name)
+		if (known !== undefined) {
+			return known
+		}
+		const split = relationSplit(name, families)
+		relationSplits.set(name, split)
+		return split
+	}
 	const splits: Array<Split | undefined> = [undefined]
 	const pending: Array<{
 		readonly relation: string
 		readonly value: unknown
-		readonly path: ReadonlyArray<string | number>
+		readonly at: PathStep | undefined
 		readonly slot: number
-	}> = [{ relation, value: fact, path: [], slot: 0 }]
+	}> = [{ relation, value: fact, at: undefined, slot: 0 }]
 	for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
-		const read = factRecord(next.value, next.path)
+		const read = factRecord(next.value)
 		if (!read.ok) {
-			return read
+			return Result.err({ fault: read.error, path: pathOf(next.at) })
 		}
-		const owned = families.filter((f) => f.owner.name === next.relation)
-		const counts = new Set(owned.map((f) => f.count.name))
-		const unwritten = unwrittenFields(next.relation, families)
+		const { owned, omitted } = splitOf(next.relation)
 		const own = Object.freeze(
-			Object.fromEntries(
-				Object.entries(read.value).filter(([name]) => !counts.has(name) && !unwritten.has(name))
-			)
+			Object.fromEntries(Object.entries(read.value).filter(([name]) => !omitted.has(name)))
 		)
 		const groups: Array<{ readonly family: FamilyId; readonly members: ReadonlyArray<number> }> = []
 		for (const family of owned) {
-			const at = [...next.path, family.count.name]
+			const at: PathStep = { parent: next.at, step: family.count.name }
 			const members = read.value[family.count.name]
 			if (!isList(members)) {
-				return Result.err({ fault: "factShape", path: at })
+				return Result.err({ fault: "factShape", path: pathOf(at) })
 			}
 			const list: ReadonlyArray<unknown> = members
 			const slots = list.map((member, position) => {
@@ -1181,7 +1212,7 @@ export const encodeAddition = (
 				pending.push({
 					relation: family.member.name,
 					value: member,
-					path: [...at, position],
+					at: { parent: at, step: position },
 					slot
 				})
 				return slot

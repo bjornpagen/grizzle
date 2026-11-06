@@ -51,6 +51,8 @@ const valueFaults: { readonly [F in ValueFault]: string } = {
 		"a real within binary32 range: the nonzero value underflows to zero in single precision",
 	boolType: "a boolean",
 	uuidSyntax: "a uuid in the hyphenated 8-4-4-4-12 hexadecimal form",
+	dateSyntax:
+		"a calendar date in ISO 8601's extended form YYYY-MM-DD, a day from 0001-01-01 to 9999-12-31",
 	textType: "a string",
 	textNul: "text without NUL: PostgreSQL text cannot store U+0000",
 	textSurrogate: "well-formed text: an unpaired UTF-16 surrogate is not a Unicode scalar",

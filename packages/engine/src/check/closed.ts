@@ -4,15 +4,26 @@ import type { ClosedHeading, ClosedRelations } from "#compiler/scalar/compute/lo
 
 /**
  * A closed relation as C.at and C.row read it: its key fields, its primary fields in key order, which an application's
- * terms meet one by one, and its payload, every other field of its heading, one of which C.at reads.
+ * terms meet one by one, and its payload, every other field of its heading, one of which C.at reads, with each row's
+ * value there, which a Compute.matches pattern reading it can be.
  */
 const closedHeading = (closed: ClosedRelation): ClosedHeading => {
 	const key = closed.relation.primaryFields
-	const payload = closed.heading.filter((c) => !key.some((k) => k.name === c.name))
-	return {
-		key: mapNonEmpty(key, (f) => ({ name: f.name, type: f.type })),
-		payload: payload.map((c) => ({ name: c.name, type: c.type }))
-	}
+	const payload = closed.heading.flatMap((c, position) =>
+		key.some((k) => k.name === c.name)
+			? []
+			: [
+					{
+						name: c.name,
+						type: c.type,
+						values: closed.rows.flatMap((row) => {
+							const value = row[position]
+							return value === undefined ? [] : [value]
+						})
+					}
+				]
+	)
+	return { key: mapNonEmpty(key, (f) => ({ name: f.name, type: f.type })), payload }
 }
 
 /**

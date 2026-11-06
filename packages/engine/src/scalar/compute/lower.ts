@@ -16,8 +16,9 @@ import {
 	maxAllocSize
 } from "#compiler/core/limits.ts"
 import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
-import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
+import { compareCodePoints } from "#compiler/core/text.ts"
 import {
 	binary32Digits,
 	binary32FractionDigits,
@@ -44,8 +45,11 @@ import {
 	type Effects,
 	type ExprSpec,
 	type ExprTable,
+	type PatternEntry,
+	type PatternTable,
 	type ScalarExpr,
-	type TableExpr
+	type TableExpr,
+	type TypedLiteral
 } from "#compiler/ir/expr.ts"
 import type {
 	Exact,
@@ -155,6 +159,7 @@ import {
 	wildcardText,
 	withoutSpanWidth
 } from "#compiler/scalar/compute/types.ts"
+import { matchFlags, matchPattern } from "#compiler/scalar/regex/admit.ts"
 import { capabilitiesOf, numericValue } from "#compiler/scalar/registry.ts"
 import { Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
@@ -231,12 +236,20 @@ export interface ClosedField {
 }
 
 /**
+ * A payload field of a closed relation, as C.at reads it, with the value each of the relation's rows holds there, in
+ * row order: what a Compute.matches pattern that reads it can be (Lowering.patternSources).
+ */
+export interface ClosedPayloadField extends ClosedField {
+	readonly values: ReadonlyArray<TypedLiteral>
+}
+
+/**
  * A closed relation as C.at and C.row read it: its key fields in key order, which an application's terms meet one by
  * one, and its payload fields, one of which C.at reads.
  */
 export interface ClosedHeading {
 	readonly key: NonEmptyReadonlyArray<ClosedField>
-	readonly payload: ReadonlyArray<ClosedField>
+	readonly payload: ReadonlyArray<ClosedPayloadField>
 }
 
 /**
@@ -346,6 +359,10 @@ const checkMembers: ReadonlySet<string> = new Set([
 	"abs",
 	"sign",
 	"charLength",
+	"concat",
+	"startsWith",
+	"endsWith",
+	"matches",
 	"lower",
 	"upper",
 	"width",
@@ -401,6 +418,7 @@ const carrierBounds = (t: ScalarType): Bounds | undefined => {
 			return ofDigits(t.digits, moneyFractionDigits.value, { infinite: false, nan: false })
 		case "bool":
 		case "uuid":
+		case "date":
 		case "text":
 		case "code":
 		case "bits":
@@ -650,9 +668,12 @@ const predicateAtoms = (table: ExprTable): ReadonlyArray<Refinement> => {
 	return atoms
 }
 
+/** A guard that states facts of a numeric subject: every guard but a match, which states a language. */
+type FactGuard = Exclude<GuardDesc, { readonly kind: "matches" }>
+
 /** What a Compute.when guard establishes of its subject inside the guarded branch (bounds.ts Refinement). */
 const guardRefinement = (
-	guard: GuardDesc,
+	guard: FactGuard,
 	within: readonly [Exact, Exact] | undefined
 ): Refinement => {
 	switch (guard.kind) {
@@ -676,7 +697,7 @@ const guardRefinement = (
  * bounds is finite, nonnegative from a bound at or above zero, and nonzero from bounds on one side of zero.
  */
 const guardFacts = (
-	guard: GuardDesc,
+	guard: FactGuard,
 	within: readonly [Exact, Exact] | undefined
 ): ReadonlyArray<Fact> => {
 	switch (guard.kind) {
@@ -790,12 +811,19 @@ const numericOf = (bounds: Bounds | undefined): ScalarType =>
 /** How a cast converts: a registered cast, or the binary coercion that drops a refinement or widens a bound. */
 type CastHow = { readonly kind: "registered"; readonly op: CastOp } | { readonly kind: "coercion" }
 
-/** A Compute.when guard the lowering stands in the branch of: its subject, and what it establishes of it there. */
-interface WhenGuard {
-	readonly subject: ScalarExpr
-	readonly refinement: Refinement
-	readonly facts: ReadonlyArray<Fact>
-}
+/**
+ * A Compute.when guard the lowering stands in the branch of: its subject, and what it establishes of it there, the
+ * refined interval and the facts a numeric guard states, or the language a match states, which retypes a text subject
+ * as text of the pattern's language.
+ */
+type WhenGuard =
+	| {
+			readonly kind: "facts"
+			readonly subject: ScalarExpr
+			readonly refinement: Refinement
+			readonly facts: ReadonlyArray<Fact>
+	  }
+	| { readonly kind: "language"; readonly subject: ScalarExpr; readonly type: ScalarType }
 
 class Lowering<R extends Refs> {
 	readonly env: LowerEnv<R>
@@ -818,19 +846,25 @@ class Lowering<R extends Refs> {
 
 	/**
 	 * A lowered node with what is proved of it: the bounds and facts its type gives every value unless the caller states
-	 * what its computation proves, then refined by each enclosing Compute.when guard whose subject this node is. A
-	 * numeric bound past numeric's numericMaxIntegerDigits is ResourceBound: every numeric expression's is known. A builder
-	 * types its term and refuses only what is malformed; the bound is compilation's, a typed refusal of the compile.
+	 * what its computation proves, then refined by each enclosing Compute.when guard whose subject this node is, a match
+	 * retyping it as text of its pattern's language. A numeric bound past numeric's numericMaxIntegerDigits is
+	 * ResourceBound: every numeric expression's is known. A builder types its term and refuses only what is malformed;
+	 * the bound is compilation's, a typed refusal of the compile.
 	 */
 	settle(
 		entry: ScalarExpr,
-		nominal: ScalarType,
+		stated: ScalarType,
 		proved: { readonly bounds: Bounds | undefined; readonly facts: FactSet } | undefined
 	): Lowered {
+		let nominal = stated
 		let bounds = proved === undefined ? boundsOfType(nominal) : proved.bounds
 		let facts: FactSet = proved === undefined ? factsOfType(nominal) : proved.facts
 		for (const g of this.#guards) {
 			if (!sameExpr(g.subject, entry)) {
+				continue
+			}
+			if (g.kind === "language") {
+				nominal = g.type
 				continue
 			}
 			bounds = bounds === undefined ? undefined : refine(bounds, g.refinement)
@@ -1390,8 +1424,8 @@ class Lowering<R extends Refs> {
 
 	/**
 	 * The result type of a fixed-result operation: an exact overload's exact type, or an exact carrier's own, bounded by
-	 * its result's digits; a numeric result a computed numeric of its result's bounds; any other overload's registered
-	 * result.
+	 * its result's digits; a numeric result a computed numeric of its result's bounds; a text result text of no pattern,
+	 * which every text meets; any other overload's registered result.
 	 */
 	resultType(op: FixedOp, bounds: Bounds | undefined): ScalarType {
 		const digits = bounds?.digits ?? 0
@@ -1403,7 +1437,9 @@ class Lowering<R extends Refs> {
 			? exactType(r, digits)
 			: r === "numeric"
 				? numericOf(bounds)
-				: plainType(r)
+				: r === "text"
+					? wildcardText
+					: plainType(r)
 	}
 
 	lower(desc: ExprDesc<Located, R>, at: SourceLoc): Lowered {
@@ -1482,6 +1518,151 @@ class Lowering<R extends Refs> {
 					)
 				)
 			}
+		}
+	}
+
+	/**
+	 * Two texts for a text operation: a text term, then a text term or a bare literal, which adopts text of no pattern.
+	 * Texts of any two patterns meet, as PostgreSQL compares them.
+	 */
+	texts(
+		fn: string,
+		first: ExprDesc<Located, R>,
+		second: ExprDesc<Located, R>,
+		at: SourceLoc
+	): readonly [Lowered, Lowered] {
+		const a = this.term(first, childLoc(at, 0))
+		return [a, this.textOperand(fn, a, second, at)]
+	}
+
+	/** The second operand of a text operation over the text term `a`: a text term, or a bare literal of text. */
+	textOperand(fn: string, a: Lowered, second: ExprDesc<Located, R>, at: SourceLoc): Lowered {
+		if (baseOf(a.actual).carrier !== "text") {
+			return stop("MalformedDescription", at, `a text term for ${fn}, not ${typeLabel(a.nominal)}`)
+		}
+		const b = this.operand(second, a, "operand", childLoc(at, 1))
+		if (baseOf(b.actual).carrier !== "text") {
+			return stop("MalformedDescription", at, `a text operand for ${fn}, not ${typeLabel(b.nominal)}`)
+		}
+		return b
+	}
+
+	/**
+	 * Compute.matches(subject, pattern), PostgreSQL's textregexeq: whether the subject holds a match of the pattern,
+	 * which is a text term or a literal read under the flags "u", in grizzle's pattern grammar. Every value the pattern
+	 * can take is seen here (patternSources) and admitted as a str.regex pattern is, its grammar and PostgreSQL's regex
+	 * compile space (scalar/regex/admit.ts matchPattern), and the node carries each one's ARE, which the lowering spells
+	 * for `~` in its place (PatternTable). A builder types the predicate alone: it sees no operand's value, and admits a
+	 * literal pattern where it builds the call.
+	 */
+	matches(
+		subjectDesc: ExprDesc<Located, R>,
+		patternDesc: ExprDesc<Located, R>,
+		at: SourceLoc
+	): Lowered {
+		return this.matchesOver(this.term(subjectDesc, childLoc(at, 0)), patternDesc, at)
+	}
+
+	/** Compute.matches over a subject already lowered: a guard's (whenGuard), or a call's (matches). */
+	matchesOver(subject: Lowered, patternDesc: ExprDesc<Located, R>, at: SourceLoc): Lowered {
+		const pattern = this.textOperand("matches", subject, patternDesc, at)
+		const op = this.overload("matches", [subject.actual, pattern.actual], at)
+		if (this.env.mode === "build" || op.partial) {
+			return this.typedOnly(plainType("bool"), undefined)
+		}
+		return this.emitAt(
+			{
+				kind: "op",
+				op: op.id,
+				args: [subject.expr, pattern.expr],
+				type: plainType("bool"),
+				nonNull: "strict",
+				volatility: op.volatility,
+				patterns: this.patternTable(patternDesc, childLoc(at, "pattern"))
+			},
+			undefined,
+			noFacts
+		)
+	}
+
+	/**
+	 * Each value a matches pattern can take, admitted and translated (matchPattern), distinct, in code point order of
+	 * their sources: one set of patterns has one table.
+	 */
+	patternTable(desc: ExprDesc<Located, R>, at: SourceLoc): PatternTable {
+		const sources = [...new Set(this.patternSources(desc, at))].toSorted(compareCodePoints)
+		const entries = sources.map((source): PatternEntry => unwrap(matchPattern(source, at)))
+		if (!isNonEmpty(entries)) {
+			return stop(
+				"UnsupportedOperation",
+				at,
+				"a pattern of at least one value: the closed relation it reads holds no row, so the match could never be stated"
+			)
+		}
+		return Object.freeze(entries)
+	}
+
+	/**
+	 * The values a matches pattern can take, each a source text: a text literal's own; each row's value of a closed
+	 * relation's text payload field that C.at reads, whatever its key; or either branch's of a conditional. Any other
+	 * pattern, a field, a parameter or a computed text, can be any text, so no measure bounds it, and it is refused,
+	 * naming what it is.
+	 */
+	patternSources(desc: ExprDesc<Located, R>, at: SourceLoc): ReadonlyArray<string> {
+		switch (desc.kind) {
+			case "literal":
+				return typeof desc.value === "string"
+					? [desc.value]
+					: stop("MalformedDescription", at, "a text literal as matches's pattern")
+			case "closedAt": {
+				const heading = this.closedHeading("C.at", desc.relation, at)
+				const payload = heading.payload.find((f) => f.name === desc.field)
+				if (payload === undefined) {
+					return stop(
+						"MalformedDescription",
+						at,
+						`a payload field of ${desc.relation} named ${JSON.stringify(desc.field)}`
+					)
+				}
+				return payload.values.map((v) =>
+					v.kind === "text"
+						? v.value
+						: stop(
+								"MalformedDescription",
+								at,
+								`a text payload as matches's pattern: ${desc.relation}.${desc.field} is ${typeLabel(payload.type)}`
+							)
+				)
+			}
+			case "cond":
+				return [
+					...this.patternSources(desc.onTrue, childLoc(at, "onTrue")),
+					...this.patternSources(desc.onFalse, childLoc(at, "onFalse"))
+				]
+			case "var":
+			case "field":
+			case "value":
+			case "parent":
+			case "param":
+			case "compute":
+			case "cast":
+			case "base":
+			case "when":
+			case "compare":
+			case "between":
+			case "in":
+			case "and":
+			case "or":
+			case "not":
+			case "closedRow":
+			case "allen":
+			case "pointIn":
+			case "absent":
+				return stop(
+					"UnsupportedOperation",
+					at,
+					`a pattern whose every value is seen when the schema compiles: matches's pattern is a text literal, a closed relation's text payload (C.at) or a Compute.cond of them, each value admitted inside PostgreSQL's regex compile space; a ${desc.kind} can be any text, so no measure bounds it`
+				)
 		}
 	}
 
@@ -1813,11 +1994,7 @@ class Lowering<R extends Refs> {
 		const guard = this.guardPredicate(desc.guard, subject, here)
 		const guarded = new Lowering(this.env, [
 			...this.#guards,
-			{
-				subject: subject.expr,
-				refinement: guardRefinement(desc.guard, guard.within),
-				facts: guardFacts(desc.guard, guard.within)
-			}
+			...this.whenGuard(desc.guard, subject, guard.within, here)
 		])
 		const onTrue = guarded.term(desc.proved, childLoc(here, "proved"))
 		const onFalse = this.operand(desc.otherwise, onTrue, "compare", childLoc(here, "otherwise"))
@@ -1825,8 +2002,41 @@ class Lowering<R extends Refs> {
 	}
 
 	/**
+	 * What a guard gives its subject inside its branch: a numeric guard its facts and refined interval; a match the
+	 * language of its pattern, the type str.regex(pattern) declares, which compilation reads off the descriptor. A
+	 * builder proves nothing, so in its branch the subject keeps its type.
+	 */
+	whenGuard(
+		guard: GuardDesc,
+		subject: Lowered,
+		within: readonly [Exact, Exact] | undefined,
+		at: SourceLoc
+	): ReadonlyArray<WhenGuard> {
+		if (guard.kind !== "matches") {
+			return [
+				{
+					kind: "facts",
+					subject: subject.expr,
+					refinement: guardRefinement(guard, within),
+					facts: guardFacts(guard, within)
+				}
+			]
+		}
+		if (this.env.mode === "build") {
+			return []
+		}
+		const type = unwrap(
+			this.env.fieldType(
+				{ kind: "text", source: guard.pattern, flags: matchFlags },
+				childLoc(at, "pattern")
+			)
+		)
+		return [{ kind: "language", subject: subject.expr, type }]
+	}
+
+	/**
 	 * The predicate a guard tests over its subject, and the interval it states where it states one: `<> 0`, `>= 0`,
-	 * `> 0`, `> '-Infinity' AND < 'Infinity'`, or BETWEEN two literals of the subject's type.
+	 * `> 0`, `> '-Infinity' AND < 'Infinity'`, BETWEEN two literals of the subject's type, or a match of its pattern.
 	 */
 	guardPredicate(
 		guard: GuardDesc,
@@ -1878,6 +2088,15 @@ class Lowering<R extends Refs> {
 				}
 				return { predicate: this.comparison("between", [subject, lo, hi], at), within: [low, high] }
 			}
+			case "matches":
+				return {
+					predicate: this.matchesOver(
+						subject,
+						{ kind: "literal", value: guard.pattern, type: undefined },
+						at
+					),
+					within: undefined
+				}
 		}
 	}
 
@@ -1987,6 +2206,10 @@ class Lowering<R extends Refs> {
 			upper: 1,
 			width: 1,
 			charLength: 1,
+			concat: 2,
+			startsWith: 2,
+			endsWith: 2,
+			matches: 2,
 			add: 2,
 			sub: 2,
 			mul: 2,
@@ -2257,6 +2480,26 @@ class Lowering<R extends Refs> {
 				const bounds = ofRange(0n, BigInt(maxAllocSize.value), String(maxAllocSize.value).length)
 				return this.native(op, [a], this.resultType(op, bounds), bounds, here, "charLength")
 			}
+			case "concat": {
+				if (this.env.mode === "query") {
+					return stop(
+						"UnsupportedOperation",
+						here,
+						"concat in a query: it exists only in contract predicates, row checks, generated fields and folds, because a concatenation allocates its result, and a read never fails on a value"
+					)
+				}
+				const [a, b] = this.texts("concat", arg(0), arg(1), here)
+				const op = this.overload("concat", [a.actual, b.actual], here)
+				return this.native(op, [a, b], wildcardText, undefined, here, "Compute.concat")
+			}
+			case "startsWith":
+			case "endsWith": {
+				const [a, b] = this.texts(desc.fn, arg(0), arg(1), here)
+				const op = this.overload(desc.fn, [a.actual, b.actual], here)
+				return this.native(op, [a, b], plainType("bool"), undefined, here, `Compute.${desc.fn}`)
+			}
+			case "matches":
+				return this.matches(arg(0), arg(1), here)
 			case "cosineDistance": {
 				const a = this.term(arg(0), here)
 				const b = this.operand(arg(1), a, "compare", here)
@@ -2405,6 +2648,7 @@ class Lowering<R extends Refs> {
 			case "exactMoney":
 			case "bool":
 			case "uuid":
+			case "date":
 			case "text":
 			case "code":
 			case "bits":
@@ -2636,6 +2880,7 @@ const roundingScale = (target: ScalarType): number => {
 		case "float8":
 		case "bool":
 		case "uuid":
+		case "date":
 		case "text":
 		case "code":
 		case "bits":
@@ -2673,6 +2918,7 @@ const conversionOf = (from: ScalarType, to: ScalarType, how: CastHow): Conversio
 		case "exactMoney":
 		case "bool":
 		case "uuid":
+		case "date":
 		case "text":
 		case "code":
 		case "bits":
@@ -2765,6 +3011,7 @@ export const fitRange = (target: ScalarType): readonly [Exact, Exact] | undefine
 		case "float8":
 		case "bool":
 		case "uuid":
+		case "date":
 		case "text":
 		case "code":
 		case "bits":
@@ -3035,6 +3282,7 @@ const zeroLiteral = (v: ScalarType): LiteralDesc => {
 		case "float8":
 		case "bool":
 		case "uuid":
+		case "date":
 		case "text":
 		case "code":
 		case "bits":

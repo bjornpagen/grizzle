@@ -10,6 +10,7 @@ import type { Carrier } from "#compiler/ir/scalar.ts"
 import { Decimal, type NumericTypmod, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 import { compareFloat, floatText, toDouble, toReal } from "#compiler/scalar/values/float.ts"
 import { toInt2, toInt4, toInt8 } from "#compiler/scalar/values/integer.ts"
+import { type CalendarDate, toCalendarDate } from "#compiler/ir/date.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { admitSpan, compareSpan, type Span, spanText } from "#compiler/scalar/values/span.ts"
 import { toUuid } from "#compiler/scalar/values/uuid.ts"
@@ -60,6 +61,8 @@ export interface CarrierHost {
 	readonly money: Money
 	readonly bool: boolean
 	readonly uuid: string
+	/** A date's host value is its ISO 8601 text, its one form (values/date.ts). */
+	readonly date: CalendarDate
 	readonly text: string
 	/** A closed id's host value is its handle. */
 	readonly code: string
@@ -85,6 +88,7 @@ interface SpecExtras {
 	readonly money: unknown
 	readonly bool: unknown
 	readonly uuid: unknown
+	readonly date: unknown
 	readonly text: unknown
 	readonly code: { readonly roster: RosterCodec }
 	readonly bits: { readonly roster: RosterCodec }
@@ -193,6 +197,7 @@ const admitters: Admitters = {
 	money: (value) => admitMoney(value),
 	bool: (value) => (typeof value === "boolean" ? Result.ok(value) : Result.err("boolType")),
 	uuid: (value) => toUuid(value),
+	date: (value) => toCalendarDate(value),
 	text: (value) => validateText(value),
 	code: (value, spec) => admitHandle(value, spec.roster),
 	bits: (value, spec) => admitHandles(value, spec.roster),
@@ -219,6 +224,7 @@ export const unreadableFault: { readonly [C in Carrier]: ValueFault } = {
 	money: "moneyType",
 	bool: "boolType",
 	uuid: "uuidSyntax",
+	date: "dateSyntax",
 	text: "textType",
 	code: "codeHandle",
 	bits: "bitsType",
@@ -266,6 +272,7 @@ const hostChecks: { readonly [C in Carrier]: (value: unknown) => value is Carrie
 	money: (value) => value instanceof Money,
 	bool: (value) => typeof value === "boolean",
 	uuid: isString,
+	date: (value): value is CalendarDate => toCalendarDate(value).ok,
 	text: isString,
 	code: isString,
 	bits: isStringSet,
@@ -295,6 +302,7 @@ const canonicalTexts: CanonicalTexts = {
 	float8: (v) => floatText(v),
 	money: (v) => v.toString(),
 	uuid: (v) => v,
+	date: (v) => v,
 	text: (v) => v,
 	code: (v, spec) => String(codeOf(spec.roster, v)),
 	bits: (v, spec) => handlesText(spec.roster, v),
@@ -353,6 +361,7 @@ const comparators: Comparators = {
 	money: (x, y) => x.compare(y),
 	bool: (x, y) => (x === y ? 0 : x ? 1 : -1),
 	uuid: (x, y) => compareOrdered(x, y),
+	date: (x, y) => compareOrdered(x, y),
 	text: (x, y) => compareCodePoints(x, y),
 	code: (x, y, spec) => sign(codeOf(spec.roster, x) - codeOf(spec.roster, y)),
 	bits: (x, y, spec) => compareOrdered(handlesText(spec.roster, x), handlesText(spec.roster, y)),

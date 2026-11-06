@@ -120,6 +120,7 @@ const candidates: { readonly [C in Carrier]: (spec: SpecOf<C>) => (text: string)
 	money: () => moneyOf,
 	bool: () => (text) => text === "true",
 	uuid: () => itself,
+	date: () => itself,
 	text: () => itself,
 	code: (spec) => handleOf(spec.roster),
 	bits: (spec) => handlesOf(spec.roster),

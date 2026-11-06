@@ -17,7 +17,13 @@ import type {
 	HandleOf,
 	WritingTag
 } from "#compiler/types/fields/field.ts"
-import type { AnyRelation, AnyRoster, Fact, NameOf } from "#compiler/types/schema/relation.ts"
+import type {
+	AnyClosedRelation,
+	AnyRelation,
+	AnyRoster,
+	Fact,
+	NameOf
+} from "#compiler/types/schema/relation.ts"
 
 /**
  * pred(field), a law side's term over a natural field: the field's value less one, defined only where the value is
@@ -105,8 +111,9 @@ export interface Mirrors<L = Side<unknown>, R = Side<unknown>> {
 }
 
 /**
- * fin(O, n): the slots of O's drawn count n, the facts (key(o), i) for 0 ≤ i < o.n: a family's second argument, never a
- * law side and never a schema member.
+ * fin(O, n): the slots of O's count n, the facts (key(o), i) for 0 ≤ i < o.n: over an ordinary O, whose drawn count a
+ * family draws, a family's second argument; over a closed O, whose natural field counts them, the slots a closed
+ * relation's key field holds (Slot). Never a law side and never a schema member.
  */
 export interface Fin<O, N extends string> {
 	readonly kind: "fin"
@@ -114,6 +121,17 @@ export interface Fin<O, N extends string> {
 	readonly count: N
 }
 export type AnyFin = Fin<unknown, string>
+
+/**
+ * slot(field, fin(O, n)): a closed relation's key field holding one of fin(O, n)'s slots, O a closed relation whose key
+ * pairs with the key's first fields: an entry of closed.relation's key, which reads the field's codes as slots, each
+ * owner's from 0 below its count.
+ */
+export interface Slot<F extends string, Fi> {
+	readonly kind: "slot"
+	readonly field: F
+	readonly slots: Fi
+}
 
 /** ordered(on(F, g…, i), fin(O, n)): each owner's members indexed by their drawn index i, exactly 0 … n − 1. */
 export interface Ordered<F, Fi> {
@@ -185,6 +203,12 @@ export type DrawnFieldOf<R> =
 	R extends Headed<infer C>
 		? { [K in keyof C]-?: C[K] extends DrawnField ? K : never }[keyof C] & string
 		: never
+
+/**
+ * The fields of O that may count fin(O, n)'s slots: an ordinary relation's drawn naturals, which a family draws, and a
+ * closed relation's naturals, which its declaration states.
+ */
+export type CountFieldOf<O> = O extends AnyClosedRelation ? NaturalFieldOf<O> : DrawnFieldOf<O>
 
 /** The fields of R its caller writes: those whose descriptor states no writing of its own. */
 type CallerFieldOf<R> =

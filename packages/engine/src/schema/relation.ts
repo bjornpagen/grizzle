@@ -13,9 +13,11 @@ import {
 	type FieldDecl,
 	type FieldDesc,
 	fieldTypes,
+	type KeySlotDesc,
 	type LiteralDesc,
 	type QueryDesc,
 	type RelationDesc,
+	type SlotsDesc,
 	type Writing
 } from "#compiler/ir/desc.ts"
 import { handleTerm } from "#compiler/scalar/compute/builders.ts"
@@ -74,6 +76,7 @@ import type {
 	Relation,
 	Roster
 } from "#compiler/types/schema/relation.ts"
+import type { Slot } from "#compiler/types/schema/statements.ts"
 
 export type OrdinaryRelationDesc = Extract<RelationDesc, { readonly kind: "relation" }>
 export type RosterDesc = Extract<RelationDesc, { readonly kind: "closed" }>
@@ -579,6 +582,32 @@ const closedRows = (
 	})
 }
 
+/**
+ * A closed relation's key as its declaration lists it: each entry a closed-id field's name, or slot(field, fin(O, n)),
+ * a field holding fin(O, n)'s slots. The fields in key order, and the slot fields, each with its fin, in key order. A
+ * list that is no list leaves its decoding to the Description's shape, which refuses it.
+ */
+const keyEntries = (
+	key: unknown,
+	label: string
+): { readonly fields: unknown; readonly slots: ReadonlyArray<KeySlotDesc> } => {
+	if (!isList(key)) {
+		return { fields: key, slots: [] }
+	}
+	const fields: Array<unknown> = []
+	const slots: Array<KeySlotDesc> = []
+	for (const entry of key) {
+		if (hasProperties(entry) && entry["kind"] === "slot") {
+			const slot = slotOf(entry, `${label} key`)
+			fields.push(slot.field)
+			slots.push(slot)
+		} else {
+			fields.push(entry)
+		}
+	}
+	return { fields, slots }
+}
+
 /** The admission core of closed.relation(...): a JavaScript caller's arguments checked and described. */
 export const admitClosedRelation = (
 	name: unknown,
@@ -606,12 +635,14 @@ export const admitClosedRelation = (
 	}
 	const described = describedFields(descriptors, label)
 	const fieldDescs = fieldMap(described)
+	const entries = keyEntries(key, label)
 	const desc = orThrow(
 		decodeDesc("relation", {
 			kind: "closedRelation",
 			name: relationName,
 			fields: fieldDescs,
-			key,
+			key: entries.fields,
+			slots: entries.slots,
 			rows: closedRows(rows, fieldDescs, descriptors, label),
 			loc: builderLoc(label, [relationName])
 		})
@@ -828,6 +859,61 @@ export const relationDescOf = (
 		label,
 		"a relation, roster or closed relation, built by relation(...), closed(...) or closed.relation(...)"
 	)
+}
+
+/**
+ * What a fin value names: its owner, an ordinary or a closed relation, and its count, a field of the owner. An
+ * ordinary owner's count is a drawn natural, which a family draws; a closed owner's is a natural field, which numbers
+ * the slots of a closed relation's key; each reader judges its own.
+ */
+export const finOf = (
+	value: unknown,
+	label: string
+): {
+	readonly owner: Extract<NamedRelation, { readonly kind: "relation" | "closedRelation" }>
+	readonly slots: SlotsDesc
+} => {
+	if (!hasProperties(value) || value["kind"] !== "fin") {
+		throw malformed(label, "the slots of a count, built by fin(owner, count)")
+	}
+	const owner = namedRelation(value["owner"], `${label} owner`)
+	if (owner.kind !== "relation" && owner.kind !== "closedRelation") {
+		throw malformed(label, `an ordinary or a closed relation's count; ${owner.name} is neither`)
+	}
+	const count = requireName(value["count"], label, "a count field of the owner")
+	if (!Object.hasOwn(owner.fields, count)) {
+		throw malformed(
+			label,
+			`fields of ${owner.name}; ${JSON.stringify(count)} is not one of its fields`
+		)
+	}
+	return { owner, slots: { owner: owner.name, count } }
+}
+
+/** A slot value's field and fin, its fin's owner a closed relation: the slots of a closed relation's key field. */
+const slotOf = (value: unknown, label: string): KeySlotDesc => {
+	if (!hasProperties(value) || value["kind"] !== "slot") {
+		throw malformed(label, "a key field holding a fin's slots, built by slot(field, fin(owner, count))")
+	}
+	const field = requireName(value["field"], label, "the key field that holds the slots")
+	const fin = finOf(value["slots"], `${label} slot ${field}`)
+	if (fin.owner.kind !== "closedRelation") {
+		throw malformed(
+			`${label} slot ${field}`,
+			`a closed relation's count; ${fin.owner.name} is an ordinary relation, whose count a family draws`
+		)
+	}
+	return { field, fin: fin.slots }
+}
+
+/**
+ * slot(field, fin(O, n)): a closed relation's key entry, the field `field` holding fin(O, n)'s slots, O a closed
+ * relation. The value holds its two inputs.
+ */
+export const slotBuilder = <const F extends string, Fi>(field: F, slots: Fi): Slot<F, Fi> => {
+	const value: Slot<F, Fi> = Object.freeze({ kind: "slot", field, slots })
+	slotOf(value, "slot")
+	return value
 }
 
 export const derivedDraftOf = (value: unknown): DerivedDraft | undefined =>

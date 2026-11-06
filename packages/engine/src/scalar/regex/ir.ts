@@ -27,7 +27,7 @@ import { type CharSet, isEmpty, union } from "#compiler/scalar/regex/charset.ts"
  *
  * The IR may nest to any depth: every walk of it keeps its frames on the heap, never the call stack. Its analyses fold
  * children first (folded), its canonical text and order read pieces off a stack (canonicalText, compareCanonical), and
- * so do the NFA builder (nfa.ts), the ARE printer (text/are.ts) and the length bounds (text/bounds.ts).
+ * so do the NFA builder (nfa.ts), the ARE printer (are.ts) and the length bounds (text/bounds.ts).
  */
 export type RegexNode = { readonly kind: "never" } | LiveNode
 

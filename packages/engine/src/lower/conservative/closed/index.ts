@@ -13,6 +13,7 @@ import {
 } from "#compiler/lower/conservative/context.ts"
 import { lowerLiteral } from "#compiler/lower/conservative/expr/index.ts"
 import type { Expr, FromItem } from "#compiler/sql/ast.ts"
+import { firstCalendarDate } from "#compiler/ir/date.ts"
 import { lit } from "#compiler/sql/build.ts"
 
 /** A value of every admitted type, for the one row an empty VALUES source stands on; WHERE false discards it. */
@@ -36,6 +37,8 @@ const placeholderValue = (cx: LowerContext, type: ScalarType): Expr => {
 			return lit.bool(false)
 		case "uuid":
 			return lit.text("00000000-0000-0000-0000-000000000000", cx.baseTypeRef(base))
+		case "date":
+			return lowerLiteral(cx.names, { kind: "date", value: firstCalendarDate }, base)
 		case "text":
 			return lit.text("", cx.baseTypeRef(base))
 		case "code":

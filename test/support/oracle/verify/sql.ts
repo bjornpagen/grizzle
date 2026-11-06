@@ -1915,8 +1915,16 @@ class StatementAuditor {
 		return names
 	}
 
+	/** A carrier's columns, and its key's, each a column of the carrier listed once. */
 	createCarrier(carrier: CreateCarrier): void {
-		this.tableColumns(carrier.columns)
+		const columns = this.tableColumns(carrier.columns)
+		if (carrier.primaryKey !== undefined) {
+			this.keyColumns(
+				Arr.map(carrier.primaryKey, (column) => ({ column, span: false })),
+				columns,
+				"primaryKey"
+			)
+		}
 	}
 
 	createTable(table: CreateTable): void {

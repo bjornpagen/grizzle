@@ -700,6 +700,7 @@ const programStatement = (step: ProgramStep): SqlStatement =>
 		? {
 				kind: "createCarrier",
 				name: unitCarrier(step.carrier),
+				primaryKey: undefined,
 				columns: [
 					{
 						name: "c1",

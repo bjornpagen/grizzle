@@ -70,6 +70,24 @@ const divisor: Totality = requires([nonzero(1)])
 const narrowing: Totality = requires([fits])
 const finiteNarrowing: Totality = requires([finite(0), fits])
 
+/** The infix operators an overload is spelled with: arithmetic, comparisons, bit's set algebra, and text's || and ~. */
+type Infix =
+	| "+"
+	| "-"
+	| "*"
+	| "/"
+	| "%"
+	| "="
+	| "<>"
+	| "<"
+	| "<="
+	| ">"
+	| ">="
+	| "&"
+	| "|"
+	| "||"
+	| "~"
+
 /**
  * The catalogue that owns an operator or function: PostgreSQL's own, in pg_catalog, or the pgvector extension's, which
  * SQL qualifies by the installation's extension schema.
@@ -78,14 +96,11 @@ type Owner = "catalog" | "vector"
 
 /**
  * How the node is spelled in SQL. A set's difference, subset and disjointness are constructs of bit's own operators:
- * `a & ~b`, `bit_count(a & ~b) = 0` and `bit_count(a & b) = 0`.
+ * `a & ~b`, `bit_count(a & ~b) = 0` and `bit_count(a & b) = 0`; a text's suffix test is one of right, char_length and
+ * text's =, `right(a, char_length(b)) = b`, since PostgreSQL has no ends_with.
  */
 type SqlForm =
-	| {
-			readonly kind: "infix"
-			readonly op: "+" | "-" | "*" | "/" | "%" | "=" | "<>" | "<" | "<=" | ">" | ">=" | "&" | "|"
-			readonly owner: Owner
-	  }
+	| { readonly kind: "infix"; readonly op: Infix; readonly owner: Owner }
 	| { readonly kind: "prefix"; readonly op: "-" | "~" }
 	| { readonly kind: "function"; readonly name: string; readonly owner: Owner }
 	| { readonly kind: "cast"; readonly target: Carrier }
@@ -101,6 +116,7 @@ type SqlForm =
 				| "difference"
 				| "subset"
 				| "disjoint"
+				| "endsWith"
 	  }
 
 /**
@@ -136,8 +152,9 @@ type CatalogRef =
 
 /**
  * The Compute operation a native node serves, the comparisons, the boolean constructs, the set algebra over a roster,
- * and the casts; cond has no entry, it is the IR's cond node. The complement serves only the difference and the subset
- * test: it sets a set's hole and padding bits, so no Compute operation yields it.
+ * the text operations and the casts; cond has no entry, it is the IR's cond node. The complement serves only the
+ * difference and the subset test: it sets a set's hole and padding bits, so no Compute operation yields it; right serves
+ * only the suffix test, endsWith.
  */
 export type NativeFn =
 	| "add"
@@ -165,6 +182,11 @@ export type NativeFn =
 	| "lower"
 	| "upper"
 	| "charLength"
+	| "concat"
+	| "startsWith"
+	| "endsWith"
+	| "right"
+	| "matches"
 	| "cosineDistance"
 	| "eq"
 	| "ne"
@@ -223,13 +245,17 @@ interface OverloadBase {
 }
 
 /**
- * A function, operator, cast or construct with a fixed result type: a plain carrier, or an exact one whose digit bound
- * the lowering derives; an `exact` overload's result is its PostgreSQL identity's, the Compute result its Totality's.
+ * A function, operator, cast or construct with a fixed result type: a plain carrier, an exact one whose digit bound
+ * the lowering derives, or text, any text, of no pattern; an `exact` overload's result is its PostgreSQL identity's,
+ * the Compute result its Totality's.
  */
 interface FixedOverload extends OverloadBase {
 	readonly fn: FixedFn
-	readonly result: ResultCarrier
+	readonly result: OverloadResult
 }
+
+/** A fixed result: a registered result carrier, or text, which the lowering types as text of no pattern. */
+type OverloadResult = ResultCarrier | "text"
 
 /**
  * An operation PostgreSQL types by its operands' common type, a value of its operand carrier: LEAST and GREATEST over
@@ -303,6 +329,7 @@ export const catalogTypeName = {
 	money: "money",
 	bool: "boolean",
 	uuid: "uuid",
+	date: "date",
 	text: "text",
 	code: "smallint",
 	bits: "bit",
@@ -330,14 +357,13 @@ const variadic = (element: Carrier): VariadicOperands => {
 /** An overload, frozen. */
 const frozen = <O extends Overload>(overload: O): O => Object.freeze(overload)
 
-type Infix = "+" | "-" | "*" | "/" | "%" | "=" | "<>" | "<" | "<=" | ">" | ">=" | "&" | "|"
 
 /** A pg_catalog infix operator over two operands of one carrier. */
 const infix = (
 	fn: FixedFn,
 	op: Infix,
 	carrier: Carrier,
-	result: ResultCarrier,
+	result: OverloadResult,
 	totality: Totality,
 	reads: OperandReading
 ): FixedOverload => {
@@ -384,7 +410,7 @@ const fnCall = (
 	fn: FixedFn,
 	name: string,
 	args: NonEmptyReadonlyArray<Carrier>,
-	result: ResultCarrier,
+	result: OverloadResult,
 	totality: Totality,
 	reads: OperandReading
 ): FixedOverload =>
@@ -563,6 +589,24 @@ const setTest = (fn: "subset" | "disjoint", uses: ReadonlyArray<OpId>): FixedOve
 		reads: "value"
 	})
 
+/**
+ * A text's suffix test, `right(a, char_length(b)) = b`: right of more characters than a holds is a itself, which
+ * equals b only where the two are one text, so the test is defined on every pair of texts.
+ */
+const textSuffix: FixedOverload = frozen({
+	fn: "endsWith",
+	operands: positional(["text", "text"]),
+	result: "bool",
+	sql: { kind: "endsWith" },
+	catalog: {
+		kind: "construct",
+		uses: Object.freeze([opId("right(text,integer)"), opId("char_length(text)"), opId("texteq")])
+	},
+	volatility: "immutable",
+	totality: total,
+	reads: "value"
+})
+
 /** A boolean connective over any number of boolean operands. */
 const connective = (fn: "and" | "or"): FixedOverload =>
 	frozen({
@@ -621,14 +665,16 @@ const endpoint = (fn: "lower" | "upper", range: SpanCarrier, point: IntCarrier):
  * - a function: its regprocedure signature, such as "abs(bigint)" or "round(numeric,integer)"; pgvector's one function
  *   is prefixed with its extension, "vector:cosine_distance(vector,vector)", because its schema is the installation's;
  * - a closed id's operator: smallint's, its code's, prefixed "code:", as "code:int2eq";
- * - a construct: "between:<type>", "in:<type>", "least:<type>", "greatest:<type>", "and", "or", "not", and a set's
- *   "difference:bits", "subset:bits" and "disjoint:bits";
+ * - a construct: "between:<type>", "in:<type>", "least:<type>", "greatest:<type>", "and", "or", "not", a set's
+ *   "difference:bits", "subset:bits" and "disjoint:bits", and a text's "endsWith:text";
  * - a range-polymorphic operator or function, one catalog object for both range carriers: its code and the carrier
  *   (ir/expr.ts rangeOp), listed by both in spanOverloads;
  * - a cast: "cast:<source>-><target>" over its carriers, as castOverloads lists it.
  *
  * What the registry admits is the catalogue, not the catalog: same-type operands only, because Compute's operations
- * take two terms of one type; no string or array function, and of bit's only the set algebra over a roster; no money * money,
+ * take two terms of one type, but right(text, integer), which only the suffix test reads; of text's functions only
+ * its length, concatenation, prefix and suffix tests and regex match, no array function, and of bit's only the set
+ * algebra over a roster; no money * money,
  * money unary minus, abs(money) or float %, which PostgreSQL does not define; and no money / integer, which the public
  * signatures cannot spell. The gaps where PostgreSQL has no same-type overload are compositions of entries here,
  * resolved in lower.ts: sign over an integer type is sign(numeric) cast back, sign over real is sign(double precision)
@@ -650,7 +696,11 @@ const endpoint = (fn: "lower" | "upper", range: SpanCarrier, point: IntCarrier):
  * - comparisons: every carrier with equality has = and <>, every ordered carrier the four orderings;
  * - a set over a roster's union (bitor), intersection (bitand) and cardinality (bit_count(bit)), its difference, subset
  *   and disjointness composed of them, all total; bitnot only inside those, since it sets the hole and padding bits;
- * - text length, for contract predicates and row checks only;
+ * - text length, concatenation (textcat), and the prefix and suffix tests (starts_with, and right, char_length and =
+ *   composed), each for checks only; and the regex match (textregexeq), whose pattern operand's every value was
+ *   admitted inside PostgreSQL's regex compile space where the node was typed (compute/lower.ts), everywhere. textcat
+ *   allocates its result, which past PostgreSQL's MaxAllocSize raises "invalid memory alloc request size": no query
+ *   holds it, and a check or generated column holding it fails a write whose texts would pass 1 GB;
  * - pgvector's cosine distance, the one score an approximate search ranks by, never the <=> operator;
  * - readings: numeric_div, power(numeric,numeric) and sqrt(numeric) take their result scale from their operands'
  *   display scales (numeric.c select_div_scale, sqrt's and power_var's rscale, the exponent's included), so they are
@@ -779,6 +829,18 @@ const catalogOverloads = {
 		"value"
 	),
 	"char_length(text)": fnCall("charLength", "char_length", ["text"], "int4", total, "value"),
+	textcat: infix("concat", "||", "text", "text", total, "value"),
+	"starts_with(text,text)": fnCall(
+		"startsWith",
+		"starts_with",
+		["text", "text"],
+		"bool",
+		total,
+		"value"
+	),
+	"right(text,integer)": fnCall("right", "right", ["text", "int4"], "text", total, "value"),
+	"endsWith:text": textSuffix,
+	textregexeq: infix("matches", "~", "text", "bool", total, "value"),
 	"vector:cosine_distance(vector,vector)": vectorCall(
 		"cosineDistance",
 		"cosine_distance",
@@ -875,6 +937,16 @@ const catalogOverloads = {
 	"in:uuid": membership("uuid", opId("uuid_eq")),
 	"least:uuid": extreme("least", "uuid", opId("uuid_lt")),
 	"greatest:uuid": extreme("greatest", "uuid", opId("uuid_gt")),
+	date_eq: comparison("eq", "date"),
+	date_ne: comparison("ne", "date"),
+	date_lt: comparison("lt", "date"),
+	date_le: comparison("le", "date"),
+	date_gt: comparison("gt", "date"),
+	date_ge: comparison("ge", "date"),
+	"between:date": between("date", opId("date_ge"), opId("date_le")),
+	"in:date": membership("date", opId("date_eq")),
+	"least:date": extreme("least", "date", opId("date_lt")),
+	"greatest:date": extreme("greatest", "date", opId("date_gt")),
 	texteq: comparison("eq", "text"),
 	textne: comparison("ne", "text"),
 	text_lt: comparison("lt", "text"),

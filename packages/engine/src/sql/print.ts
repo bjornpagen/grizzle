@@ -1476,10 +1476,17 @@ export const writeStatement = (out: Lines, statement: SqlStatement): void => {
 				...tableConstraints(statement).map(printConstraint)
 			])
 			return out.line(")")
-		case "createCarrier":
+		case "createCarrier": {
+			const key =
+				statement.primaryKey === undefined
+					? []
+					: [
+							`PRIMARY KEY (${statement.primaryKey.map((c) => quoteIdent(c)).join(", ")}) DEFERRABLE INITIALLY IMMEDIATE`
+						]
 			return out.line(
-				`CREATE TEMPORARY TABLE ${printTableName(statement.name)} (${statement.columns.map(printColumnDef).join(", ")}) ON COMMIT DROP`
+				`CREATE TEMPORARY TABLE ${printTableName(statement.name)} (${[...statement.columns.map(printColumnDef), ...key].join(", ")}) ON COMMIT DROP`
 			)
+		}
 		case "alterTable": {
 			const head = `ALTER TABLE ${printObjectName(statement.table)}`
 			if (statement.actions.length === 1) {

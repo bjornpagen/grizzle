@@ -92,6 +92,7 @@ describe("the relations a statement reads and writes (sql/access.ts)", () => {
 									const a = relationAccess({
 										kind: "createCarrier",
 										name: unitCarrier(sketch.n),
+										primaryKey: ["c1"],
 										columns: [
 											{
 												name: "c1",

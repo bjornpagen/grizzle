@@ -39,6 +39,7 @@ import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { describeFault } from "#compiler/scalar/values/fault.ts"
 import { unreadableFault } from "#compiler/scalar/values/identity.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
+import { toCalendarDate } from "#compiler/ir/date.ts"
 import { toUuid } from "#compiler/scalar/values/uuid.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
 
@@ -118,6 +119,8 @@ export const nativeCapabilities = {
 	bool: ["boolAgg", "equality", "expressionIndex", "gist", "hashing", "ordering", "storage"],
 	/** PostgreSQL 19 has no min(uuid) or max(uuid). */
 	uuid: ["equality", "expressionIndex", "gist", "hashing", "ordering", "storage"],
+	/** date_ops for B-tree and hash, btree_gist's gist_date_ops, and min and max (date_smaller, date_larger). */
+	date: ["equality", "expressionIndex", "gist", "hashing", "minMax", "ordering", "storage"],
 	text: ["equality", "expressionIndex", "gist", "hashing", "minMax", "ordering", "storage"],
 	/** A closed id is its code, a smallint under its roster's domain, ordered by code: int2's classes and order. */
 	code: ["equality", "expressionIndex", "gist", "hashing", "minMax", "ordering", "storage"],
@@ -174,6 +177,7 @@ export const carrierSql = {
 	money: "money",
 	bool: "boolean",
 	uuid: "uuid",
+	date: "date",
 	text: "text",
 	code: "code",
 	bits: "bits",
@@ -519,7 +523,8 @@ const pgCarriers = {
 	real: "float4",
 	"double precision": "float8",
 	money: "money",
-	boolean: "bool"
+	boolean: "bool",
+	date: "date"
 } as const
 
 /** A regex reference as the environment holds it, deeply frozen as a decoded descriptor holds it: one already frozen is
@@ -824,6 +829,8 @@ const hostLiteral = (base: ScalarType, value: unknown): Result.Result<LiteralDes
 			return typeof value === "boolean" ? Result.ok(value) : Result.err("boolType")
 		case "uuid":
 			return toUuid(value)
+		case "date":
+			return toCalendarDate(value)
 		case "text":
 			return validateText(value)
 		case "code":

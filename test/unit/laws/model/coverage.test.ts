@@ -35,8 +35,10 @@ import { owner } from "#test/unit/physical/fixtures.ts"
  * A coverage law, a containment pairing a span field of each side, lowers natively (fin.md §7, w4-w7 §2.5): each
  * selected side's terms are law columns; the target is keyed WITHOUT OVERLAPS over exactly its terms, by its declared
  * span key or by a key over its projected side; and the law is `FOREIGN KEY (f…, PERIOD s) REFERENCES B (g…, PERIOD t)`
- * with the index over its referencing columns, deferred only by the schema-wide rule (on a cycle, or into a target
- * with a field it does not reference as a plain column). A target whose spans may overlap within a key, one keyed
+ * with the index over its referencing columns, and always deferred: it references the target's span as a period, so
+ * one ChangeSet may replace the facts covering a source's span by others that still cover it, a span cut or split,
+ * which the target's WITHOUT OVERLAPS key admits only once the facts they overlap are deleted, after the reference is
+ * checked if it were immediate. A target whose spans may overlap within a key, one keyed
  * WITHOUT OVERLAPS over no such terms, is refused with fin.md §7's sentence.
  *
  * Every installation holds a span key's law columns before the key names them, so a key over a selected side is its own
@@ -174,7 +176,7 @@ const checkShape = (s: Shape): void => {
 			span: sourceSpan,
 			targetColumns: [targetScalar],
 			targetSpan,
-			deferrable: s.target === "selected" || s.payload
+			deferrable: true
 		}
 	)
 	const keys = Arr.filter(

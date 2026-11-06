@@ -6,8 +6,9 @@
  * - every field has a code space: a closed id's is its roster's codes, holes included, and an open-typed field's is its
  *   active domain in the relation, in sorted order;
  * - the key's codes index the string in mixed radix, row-major in the key's declared order, so the string holds one
- *   cell per point of the key's space, and a `fin(O, n)` coordinate over a closed O numbers its slots owner by owner
- *   from a prefix offset, so a dependent coordinate stays dense;
+ *   cell per point of the key's space; a key whose fields after an owner prefix hold slots of `fin(O, n)`, O a closed
+ *   relation over that prefix, is a dependent sum instead, each owner's block of the mixed radix at its own counts
+ *   after every earlier owner's (KeySpace), so a dependent coordinate stays dense;
  * - a cell is 0 where the relation holds no row and 1 + c where it does, c the payload's mixed-radix code, and its width
  *   is ⌈log₂(1 + |payload space|)⌉, so a relation with no payload, a set, has cells of one bit.
  *
@@ -16,7 +17,7 @@
 import { everyProperty } from "#compiler/core/canonical.ts"
 import { type ConstantDigest, constantDigest } from "#compiler/core/fingerprint.ts"
 import { defined } from "#compiler/core/invariant.ts"
-import { lastNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { type Comparator, compareStrings } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
 
@@ -152,44 +153,50 @@ export const dictionaryOf = <V>(column: ReadonlyArray<V>, order: Comparator<V>):
 	}
 }
 
-/**
- * A `fin(O, n)` coordinate over a closed O, the dependent sum of each owner's slots: owner o's slots take the codes from
- * `bounds[o]` up to `bounds[o + 1]`, so owners hold consecutive runs in code order, an owner whose count is 0 holds
- * none, and the last bound is the coordinate's size.
- */
-export interface FinSpace {
-	readonly bounds: NonEmptyReadonlyArray<number>
+/** One owner's run of a fin coordinate: the code of its first slot, and how many slots it holds. */
+export interface FinRun {
+	readonly start: bigint
+	readonly count: bigint
 }
 
-/** The fin coordinate whose owner o, by its code, holds `counts[o]` slots. */
-export const finSpace = (counts: ReadonlyArray<number>): FinSpace => {
-	const ends: Array<number> = []
-	let total = 0
-	for (const count of counts) {
-		total += count
-		ends.push(total)
+/**
+ * A `fin(O, n)` coordinate, the dependent sum Σ o. Fin(n o) of each owner's slots: the owners that hold a slot, each by
+ * its index, with its run. Owners hold consecutive runs in index order, the first from code 0, and an owner of no slot
+ * holds no run, so the codes are exactly 0 to `size` - 1, each one owner's slot.
+ */
+export interface FinSpace {
+	readonly runs: ReadonlyMap<bigint, FinRun>
+	readonly size: bigint
+}
+
+/** The fin coordinate whose owners hold the counts `counts`, each owner by its index, in any order. */
+export const finSpace = (counts: ReadonlyMap<bigint, bigint>): FinSpace => {
+	const runs = new Map<bigint, FinRun>()
+	let size = 0n
+	for (const [owner, count] of [...counts].toSorted(([a], [b]) => compareBigints(a, b))) {
+		if (count > 0n) {
+			runs.set(owner, { start: size, count })
+			size += count
+		}
 	}
-	return { bounds: [0, ...ends] }
+	return { runs, size }
 }
 
 /** The number of codes a fin coordinate holds: every owner's slots. */
-export const finSize = (space: FinSpace): number => lastNonEmpty(space.bounds)
+export const finSize = (space: FinSpace): bigint => space.size
 
 /**
  * The code of slot `at` of `owner` in a fin coordinate, its owner's prefix offset plus `at`, or undefined when the owner
- * has no such slot.
+ * holds no such slot: a slot at or past its owner's count would be the next owner's first, the alias the coordinate's
+ * reader refuses.
  */
-export const finDigit = (space: FinSpace, owner: number, at: number): number | undefined => {
-	const start = space.bounds[owner]
-	const end = space.bounds[owner + 1]
-	return start !== undefined &&
-		end !== undefined &&
-		Number.isInteger(at) &&
-		at >= 0 &&
-		start + at < end
-		? start + at
-		: undefined
+export const finDigit = (space: FinSpace, owner: bigint, at: bigint): bigint | undefined => {
+	const run = space.runs.get(owner)
+	return run !== undefined && at >= 0n && at < run.count ? run.start + at : undefined
 }
+
+/** Bigint order. */
+const compareBigints: Comparator<bigint> = (a, b) => (a === b ? 0 : a < b ? -1 : 1)
 
 /** The points of a space whose coordinates hold `sizes` codes each: their product, 1 for a space of no coordinate. */
 export const spaceSize = (sizes: ReadonlyArray<number>): bigint =>
@@ -230,9 +237,100 @@ export const cellWidth = (points: bigint): number => {
 	return width
 }
 
-/** A closed relation's coordinates: the codes each key coordinate and each payload coordinate holds, in their order. */
+/**
+ * A coordinate of a dependent key's block, after its owner prefix: a closed id's codes, `size` of them, or the slots of
+ * a fin coordinate, as many as count `count` of the key's owner states.
+ */
+export type BlockCoordinate =
+	| { readonly kind: "codes"; readonly size: number }
+	| { readonly kind: "slots"; readonly count: number }
+
+/**
+ * A closed relation's key space, which its key's codes index:
+ *
+ * - a product of closed ids, `sizes` codes each, indexed in mixed radix, row-major with the first coordinate most
+ *   significant;
+ * - a dependent sum over an owner prefix of closed ids: each owner, by the mixed-radix index of its codes, holds a
+ *   block, the mixed radix of the block's coordinates at the radices the owner gives them (a closed id's size, or one
+ *   of its counts for a slot), and the blocks lie end to end in owner order (`fin`, the fin coordinate of the block
+ *   sizes). An owner `counts` holds no counts for holds no slot.
+ */
+export type KeySpace =
+	| { readonly kind: "product"; readonly sizes: NonEmptyReadonlyArray<number> }
+	| {
+			readonly kind: "dependent"
+			readonly owner: NonEmptyReadonlyArray<number>
+			readonly block: NonEmptyReadonlyArray<BlockCoordinate>
+			readonly counts: ReadonlyMap<bigint, NonEmptyReadonlyArray<number>>
+			readonly fin: FinSpace
+	  }
+
+/**
+ * The radices of the block `block` at the owner of index `owner`: each slot coordinate's count there, 0 for an owner
+ * `counts` holds none for, and each closed id's size.
+ */
+export const blockRadices = (
+	block: NonEmptyReadonlyArray<BlockCoordinate>,
+	counts: ReadonlyMap<bigint, NonEmptyReadonlyArray<number>>,
+	owner: bigint
+): NonEmptyReadonlyArray<number> => {
+	const held = counts.get(owner)
+	return mapNonEmpty(block, (c) => (c.kind === "codes" ? c.size : (held?.[c.count] ?? 0)))
+}
+
+/**
+ * The dependent key space of the owner prefix `owner`, the block `block`, and each owner's counts by its index, the
+ * counts its slot coordinates read; an owner absent from `counts` holds no slot.
+ */
+export const dependentSpace = (
+	owner: NonEmptyReadonlyArray<number>,
+	block: NonEmptyReadonlyArray<BlockCoordinate>,
+	counts: ReadonlyMap<bigint, NonEmptyReadonlyArray<number>>
+): KeySpace => ({
+	kind: "dependent",
+	owner,
+	block,
+	counts,
+	fin: finSpace(
+		new Map(Array.from(counts.keys(), (o) => [o, spaceSize(blockRadices(block, counts, o))] as const))
+	)
+})
+
+/** The cells a key space holds: every point of a product, every owner's block of a dependent sum. */
+export const keyCells = (space: KeySpace): bigint =>
+	space.kind === "product" ? spaceSize(space.sizes) : finSize(space.fin)
+
+/** The fields a key space reads, one digit each: a product's coordinates, or a dependent sum's owner, then its block. */
+export const keyArity = (space: KeySpace): number =>
+	space.kind === "product" ? space.sizes.length : space.owner.length + space.block.length
+
+/**
+ * The cell of `digits`, one per coordinate of the key space in key order, or undefined unless they name a point of it:
+ * each digit a whole number below its coordinate's size, and each slot digit below its owner's count. A slot digit at
+ * or past its owner's count would carry into the owner's next slot or the next owner's block, the alias the range
+ * check refuses.
+ */
+export const keyIndex = (space: KeySpace, digits: ReadonlyArray<number>): bigint | undefined => {
+	if (space.kind === "product") {
+		return rowMajorIndex(space.sizes, digits)
+	}
+	if (digits.length !== keyArity(space)) {
+		return undefined
+	}
+	const owner = rowMajorIndex(space.owner, digits.slice(0, space.owner.length))
+	if (owner === undefined) {
+		return undefined
+	}
+	const local = rowMajorIndex(
+		blockRadices(space.block, space.counts, owner),
+		digits.slice(space.owner.length)
+	)
+	return local === undefined ? undefined : finDigit(space.fin, owner, local)
+}
+
+/** A closed relation's coordinates: its key's space, and the codes each payload coordinate holds, in their order. */
 export interface CellLayout {
-	readonly key: NonEmptyReadonlyArray<number>
+	readonly key: KeySpace
 	readonly payload: ReadonlyArray<number>
 }
 
@@ -284,8 +382,8 @@ export const constantOf = (
 	const held = new Map<bigint, { readonly row: number; readonly payload: bigint }>()
 	for (const [row, tuple] of tuples.entries()) {
 		const index = defined(
-			rowMajorIndex(layout.key, tuple.key),
-			"a tuple's key codes lie in its relation's key coordinates"
+			keyIndex(layout.key, tuple.key),
+			"a tuple's key codes name a point of its relation's key space"
 		)
 		const payload = defined(
 			rowMajorIndex(layout.payload, tuple.payload),
@@ -299,7 +397,7 @@ export const constantOf = (
 		}
 	}
 	return Result.ok({
-		cells: spaceSize(layout.key),
+		cells: keyCells(layout.key),
 		width: cellWidth(spaceSize(layout.payload)),
 		entries: Array.from(held, ([index, { payload }]): Entry => ({ index, payload })).toSorted(
 			compareIndexes

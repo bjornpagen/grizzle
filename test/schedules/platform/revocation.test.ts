@@ -128,7 +128,17 @@ raceSuite<RevokeSketch>({
 	label: "revocation racing usage",
 	sketch: revokeSketchGen,
 	resolve: resolveRevoke,
-	kept: [],
+	kept: [
+		{
+			note: "the revocation after a request recorded before its cut: the key's active span is replaced by the cut span, which still covers the request, so the PERIOD reference into it is checked at COMMIT, not between the deletion and the insertion",
+			sketch: {
+				requests: [{ where: "before", charge: 1 }],
+				writers: Arr.makeBy(6, () => ({ kind: "grizzle", checked: "at COMMIT" }) as const)
+			},
+			draws: "",
+			reaches: ["write: revoke", "write: usage", "every interleaving"]
+		}
+	],
 	required: [
 		...commonRequired,
 		"law family hit: coverage",

@@ -182,7 +182,7 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 					info.heading.some((c) => c.name === f.name)
 				)
 				const heading = action.op === "delete" ? compareHeading(fields) : factHeading(fields)
-				const carrier = supply.next(heading)
+				const carrier = supply.next(heading, undefined)
 				carry(carrier, { kind: "member", node: reads.node }, s)
 				const input: RereadInput = { kind: "carrier", carrier, proof: unproved }
 				return { action, input }
@@ -271,7 +271,7 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 			continue
 		}
 		const create = (): Carrier => {
-			const carrier = supply.next(named.heading)
+			const carrier = supply.next(named.heading, undefined)
 			steps.push(
 				Object.freeze({
 					kind: "carrier",

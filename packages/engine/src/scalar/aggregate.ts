@@ -201,6 +201,8 @@ const catalogName = (t: ScalarType): string => {
 			return "boolean"
 		case "uuid":
 			return "uuid"
+		case "date":
+			return "date"
 		case "text":
 			return "text"
 		case "code":

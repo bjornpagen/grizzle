@@ -1,5 +1,6 @@
 import type { ValueFault } from "#compiler/core/errors.ts"
 import * as Result from "#compiler/core/result.ts"
+import { toCalendarDate } from "#compiler/ir/date.ts"
 import { validateText } from "#compiler/core/text.ts"
 import type { FieldDesc, LiteralDesc } from "#compiler/ir/desc.ts"
 import { Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
@@ -143,6 +144,8 @@ const pgLiteral = (
 			return value instanceof Money ? Result.ok(value) : Result.err("moneyType")
 		case "boolean":
 			return typeof value === "boolean" ? Result.ok(value) : Result.err("boolType")
+		case "date":
+			return toCalendarDate(value)
 	}
 }
 

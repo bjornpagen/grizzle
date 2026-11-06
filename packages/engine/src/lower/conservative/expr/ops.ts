@@ -1,5 +1,6 @@
-import { isNonEmpty } from "#compiler/core/nonempty.ts"
-import type { OpId, ScalarExpr } from "#compiler/ir/expr.ts"
+import { defect } from "#compiler/core/invariant.ts"
+import { isNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
+import type { OpId, PatternTable, ScalarExpr } from "#compiler/ir/expr.ts"
 import { baseOf } from "#compiler/ir/scalar.ts"
 import { exactForm, ieeeForm } from "#compiler/lower/conservative/expr/total.ts"
 import {
@@ -141,6 +142,44 @@ const setConstruct = (name: SetConstruct, args: ReadonlyArray<Expr>): Expr | und
 	}
 }
 
+/**
+ * A text's suffix test, `right(a, char_length(b)) = b` (scalar/compute/registry.ts textSuffix): PostgreSQL 19 has no
+ * ends_with.
+ */
+const textSuffix = (args: ReadonlyArray<Expr>): Expr | undefined => {
+	const [a, b] = args
+	return args.length === 2 && a !== undefined && b !== undefined
+		? binary("=", call("right", [a, call("char_length", [b])]), b)
+		: undefined
+}
+
+/**
+ * The pattern operand `~` reads in a Compute.matches node's place (ir/expr.ts PatternTable): the ARE of each value
+ * the node's pattern can take, never its source, which only grizzle's own automaton reads. A literal pattern is its
+ * ARE's literal; any other is `CASE p WHEN '<source>' THEN '<ARE>' ... ELSE p END`, which reads the pattern once,
+ * whatever SQL computes it, and whose ELSE keeps an absent C.at's NULL, which the match's reader refuses: every value
+ * the pattern takes has its arm.
+ */
+const patternOperand = (pattern: ScalarExpr | undefined, sql: Expr, table: PatternTable): Expr => {
+	if (pattern?.kind === "literal" && pattern.value.kind === "text") {
+		const source = pattern.value.value
+		const entry = table.find((e) => e.source === source)
+		if (entry === undefined) {
+			throw defect(`a literal pattern's entry in its node's pattern table: /${source}/`)
+		}
+		return lit.text(entry.are, types.text)
+	}
+	return {
+		kind: "case",
+		operand: sql,
+		whens: mapNonEmpty(table, (e) => ({
+			when: lit.text(e.source, types.text),
+			result: lit.text(e.are, types.text)
+		})),
+		else: sql
+	}
+}
+
 /** A construct's SQL form: a connective by its bare identity, or a registry construct by its keyword. */
 const keyword = (name: Construct, args: ReadonlyArray<Expr>): Expr | undefined => {
 	const [first, second, third] = args
@@ -221,6 +260,8 @@ const registryForm = (id: OpId, args: ReadonlyArray<Expr>): Expr | undefined => 
 		case "subset":
 		case "disjoint":
 			return setConstruct(sql.kind, args)
+		case "endsWith":
+			return textSuffix(args)
 	}
 }
 
@@ -302,13 +343,20 @@ const totalForm = (
  *
  * Every form takes its operands as its overload reads them (operandsAsRead): queries, the DDL of CHECKs and
  * expression indexes, and span fallbacks all lower their scalar expressions here, so no display-scale reading reaches
- * PostgreSQL with an operand it could see a display scale of.
+ * PostgreSQL with an operand it could see a display scale of, and a Compute.matches node's pattern reaches `~` as its
+ * ARE (patternOperand).
  */
 export const defaultOps = (
 	expr: ScalarExpr & { readonly kind: "op" },
 	operands: ReadonlyArray<Expr>
 ): Expr | undefined => {
-	const args = readOperands(expr.op, operands)
+	const [subject, pattern] = operands
+	const args = readOperands(
+		expr.op,
+		"patterns" in expr && subject !== undefined && pattern !== undefined
+			? [subject, patternOperand(expr.args[1], pattern, expr.patterns)]
+			: operands
+	)
 	const native = nativeOp(expr.op)
 	if (native !== undefined) {
 		const total = totalForm(expr, native, args)

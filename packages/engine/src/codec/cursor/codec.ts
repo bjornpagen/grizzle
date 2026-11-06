@@ -38,6 +38,7 @@ import {
 } from "#compiler/ir/carriers.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { IntegerCarrier, ScalarType } from "#compiler/ir/scalar.ts"
+import { dateTextLength } from "#compiler/ir/date.ts"
 import { type CarrierHost, isHostValue } from "#compiler/scalar/values/identity.ts"
 
 /** The host value of one comparator's type. */
@@ -174,6 +175,8 @@ export const cursorValueMaxBytes = (type: ScalarType): number | "unbounded" => {
 			return "false".length
 		case "uuid":
 			return uuidTextLength
+		case "date":
+			return dateTextLength
 		case "text":
 			return type.text.byteBound ?? "unbounded"
 		case "code":
@@ -213,6 +216,8 @@ export const cursorValueMinBytes = (type: ScalarType): number => {
 			return "true".length
 		case "uuid":
 			return uuidTextLength
+		case "date":
+			return dateTextLength
 		case "text":
 			return 0
 		case "code":

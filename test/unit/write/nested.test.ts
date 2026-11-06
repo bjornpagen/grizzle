@@ -497,11 +497,11 @@ const starOf = (
 	children: Array.from({ length: n - 1 }, (_, i) => ({ id: uuidOf(base + 1 + i), children: [] }))
 })
 
-type ShapeFeature = "a chain" | "a star" | "ten thousand nodes"
+type ShapeFeature = "a chain" | "a star" | "a hundred thousand nodes"
 
 describe("a nested tree at depth and width", () => {
 	it.effect(
-		"numbers a chain's and a star's nodes in pre-order at sizes up to ten thousand, with no recursion",
+		"numbers a chain's and a star's nodes in pre-order at sizes up to a hundred thousand, with no recursion",
 		(ctx) =>
 			searched(
 				ctx,
@@ -510,13 +510,17 @@ describe("a nested tree at depth and width", () => {
 						suite: "unit/write/nested/depth",
 						generator: (source) => ({
 							shape: source.draw(element(["chain", "star"] as const)),
-							n: source.draw(element([1, 2, 3, 9999, 10_000] as const))
+							n: source.draw(element([1, 2, 3, 99_999, 100_000] as const))
 						}),
 						literal: Formatter.format,
 						limit: 20,
-						coverage: requiredInSpace<ShapeFeature>(["a chain", "a star", "ten thousand nodes"]),
+						coverage: requiredInSpace<ShapeFeature>([
+							"a chain",
+							"a star",
+							"a hundred thousand nodes"
+						]),
 						caseHang,
-						box: "a chain and a star of 1, 2, 3, 9,999 and 10,000 nodes",
+						box: "a chain and a star of 1, 2, 3, 99,999 and 100,000 nodes",
 						oracle: {
 							kind: "specification",
 							name: "a chain's and a star's pre-order numbering in closed form"
@@ -566,8 +570,8 @@ describe("a nested tree at depth and width", () => {
 								)
 							}
 							c.note(box.shape === "chain" ? "a chain" : "a star")
-							if (box.n === 10_000) {
-								c.note("ten thousand nodes")
+							if (box.n === 100_000) {
+								c.note("a hundred thousand nodes")
 							}
 						})
 				)

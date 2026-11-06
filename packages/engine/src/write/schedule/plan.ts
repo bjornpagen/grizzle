@@ -524,7 +524,10 @@ const sequentialSteps = (
 ): ReadonlyArray<PlanStep> => {
 	const steps: Array<PlanStep> = []
 	for (const share of shares) {
-		const carrier = supply.next(share.node.heading.map((c) => ({ name: c.name, type: c.type })))
+		const carrier = supply.next(
+			share.node.heading.map((c) => ({ name: c.name, type: c.type })),
+			undefined
+		)
 		steps.push({ kind: "createCarrier", carrier, stratum })
 		steps.push({ kind: "fillShare", carrier, share, stratum })
 	}
@@ -551,7 +554,7 @@ const sequentialSteps = (
 			action.info.heading.some((c) => c.name === f.name)
 		)
 		const heading = action.op === "delete" ? compareHeading(fields) : factHeading(fields)
-		const carrier = supply.next(heading)
+		const carrier = supply.next(heading, undefined)
 		steps.push({ kind: "createCarrier", carrier, stratum })
 		steps.push({ kind: "fillMember", carrier, node: reads.node, stratum })
 		return { kind: "reread", draft, input: { kind: "carrier", carrier, proof } }

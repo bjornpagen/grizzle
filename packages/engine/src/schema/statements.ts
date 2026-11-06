@@ -37,6 +37,7 @@ import {
 
 import {
 	fieldRoster,
+	finOf,
 	type NamedRelation,
 	namedRelation,
 	relationDescOf
@@ -514,26 +515,28 @@ export const alternativesBuilder = <P, const D extends string, C, Arms extends o
 }
 
 /**
- * fin(O, n): the slots of O's count n, data a family's former reads: O an ordinary relation and n one of its fields.
- * Whether n is drawn is the theory's to judge, which reads the whole schema.
+ * fin(O, n): the slots of O's count n, data a family's former or a closed relation's key reads: O an ordinary or a
+ * closed relation, and n one of its fields (finOf). Whether n is a count of the right kind is for what reads it to
+ * judge: a family's theory, which reads the whole schema, or a closed relation's ownership.
  */
 export const finBuilder = <O, const N extends string>(owner: O, count: N): Fin<O, N> => {
-	slotsOf({ kind: "fin", owner, count }, "fin")
+	finOf({ kind: "fin", owner, count }, "fin")
 	return Object.freeze({ kind: "fin", owner, count })
 }
 
-/** The slots a fin value names, its owner an ordinary relation and its count a field of it. */
+/**
+ * A family's slots: a fin value whose owner is an ordinary relation, whose drawn count the family draws. A closed
+ * relation's count numbers the slots of a closed relation's key instead.
+ */
 const slotsOf = (value: unknown, label: string): SlotsDesc => {
-	if (!hasProperties(value) || value["kind"] !== "fin") {
-		throw malformed(label, "the slots of a count, built by fin(owner, count)")
+	const fin = finOf(value, label)
+	if (fin.owner.kind !== "relation") {
+		throw malformed(
+			label,
+			`an ordinary relation's count; ${fin.owner.name} is a closed relation, whose count numbers the slots of a closed relation's key`
+		)
 	}
-	const owner = namedRelation(value["owner"], `${label} owner`)
-	if (owner.kind !== "relation") {
-		throw malformed(label, `an ordinary relation's count; ${owner.name} is none`)
-	}
-	const count = requireName(value["count"], label, "a count field of the owner")
-	fieldOf(owner, count, label)
-	return { owner: owner.name, count }
+	return fin.slots
 }
 
 /** A family's or a tree's member side: a side of an ordinary relation, over every fact. */

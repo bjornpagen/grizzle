@@ -12,10 +12,9 @@
  *   commits and refuse the rest at the statement the model names, by the installed native of the model's SQLSTATE.
  * - **The named non-empty CHECK:** an empty span is refused by the span field's own shape CHECK, 23514 naming that
  *   CHECK on the row's table, before WITHOUT OVERLAPS's unattributed 23514 could, selected or not.
- * - **Deferral:** by #deferral's rule (laws/model/model.ts), which a PERIOD foreign key keeps (w4-w7 §3.8), a foreign key
- *   is deferred on a cycle or into a replaceable target, one whose fields its target columns do not cover. Target holds
- *   fields beyond (k, during), so the PERIOD foreign key is deferrable, and a gap is refused at COMMIT; the empty span
- *   and the overlap are refused at their statements.
+ * - **Deferral:** a PERIOD foreign key is always deferred (laws/model/model.ts #deferral), since it references its
+ *   target's span as a period, never as a plain column, and the facts covering a span can be replaced by others that
+ *   cover it; so a gap is refused at COMMIT, and the empty span and the overlap are refused at their statements.
  *
  * The box is G2's (doctrine rule 9): keys 0 and 1, points 0 to 3, each span one of the six non-empty intervals over
  * them, the empty one, or outside the selection; at most two target rows in one INSERT, then one source row.

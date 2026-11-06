@@ -39,6 +39,7 @@ export const builtinTypeNames = [
 	"boolean",
 	"text",
 	"uuid",
+	"date",
 	"jsonb",
 	"money",
 	"int4range",
@@ -87,6 +88,7 @@ export const catalogSpelling: { readonly [T in CatalogTypeName]: CatalogSpelling
 	boolean: "keyword",
 	text: "qualified",
 	uuid: "qualified",
+	date: "qualified",
 	jsonb: "qualified",
 	jsonpath: "qualified",
 	money: "qualified",
@@ -262,6 +264,8 @@ export const builtinFunctionNames = [
 	"div",
 	"mod",
 	"char_length",
+	"starts_with",
+	"right",
 	"lower",
 	"upper",
 	"isempty",
@@ -1047,13 +1051,21 @@ export const tableConstraints = (t: CreateTable): NonEmptyReadonlyArray<TableCon
 
 /**
  * A write program's transaction-scoped carrier: CREATE TEMPORARY TABLE ... ON COMMIT DROP. It lives in pg_temp, the
- * session's own temporary schema, by which it prints qualified, and it declares no constraint.
+ * session's own temporary schema, by which it prints qualified, and its one constraint is its primary key, if it has
+ * one.
  */
 export interface CreateCarrier {
 	readonly kind: "createCarrier"
 	readonly name: CarrierName
 	/** Of any width: PostgreSQL holds a table of no column, the carrier of the unit relation. */
 	readonly columns: ReadonlyArray<ColumnDef>
+	/**
+	 * Its key's columns, in key order, or none. Printed `PRIMARY KEY (...) DEFERRABLE INITIALLY IMMEDIATE`, which
+	 * PostgreSQL checks at the end of each statement rather than at each row: one statement's sibling data-modifying
+	 * CTEs may delete a carrier's fact and insert another at its key, in an order PostgreSQL leaves unspecified, and the
+	 * carrier must be a set by its key wherever a later statement reads it.
+	 */
+	readonly primaryKey: NonEmptyReadonlyArray<string> | undefined
 }
 
 export type AlterTableAction =

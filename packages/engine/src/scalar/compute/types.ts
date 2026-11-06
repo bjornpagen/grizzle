@@ -41,7 +41,7 @@ const carrierCapabilities: { readonly [C in Carrier]: ReadonlyArray<Capability> 
  * The plain carriers an operation result can have without further metadata. numeric is none: a computed numeric
  * carries its bound (numericValue).
  */
-export type PlainCarrier = "int2" | "int4" | "int8" | "float4" | "float8" | "money" | "bool"
+export type PlainCarrier = "int2" | "int4" | "int8" | "float4" | "float8" | "money" | "bool" | "date"
 
 /** A registered result: a plain carrier, numeric, or an exact one, whose bound the lowering derives. */
 export type ResultCarrier = PlainCarrier | "numeric" | ExactValueCarrier
@@ -107,6 +107,7 @@ export const exactNumericBound = (t: ScalarType): NumericBound | undefined => {
 		case "float8":
 		case "bool":
 		case "uuid":
+		case "date":
 		case "text":
 		case "code":
 		case "bits":
@@ -143,6 +144,7 @@ export const familyDigits = (t: ScalarType): number | undefined => {
 		case "float8":
 		case "bool":
 		case "uuid":
+		case "date":
 		case "text":
 		case "code":
 		case "bits":
@@ -312,6 +314,7 @@ export const exactFamily = (t: ScalarType): "exactInteger" | "exactMoney" | unde
 		case "float8":
 		case "bool":
 		case "uuid":
+		case "date":
 		case "text":
 		case "code":
 		case "bits":

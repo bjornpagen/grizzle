@@ -582,6 +582,7 @@ const domainSize = (type: StateType): bigint | undefined => {
 		case "float8":
 		case "money":
 		case "uuid":
+		case "date":
 		case "text":
 		case "range4":
 		case "range8":

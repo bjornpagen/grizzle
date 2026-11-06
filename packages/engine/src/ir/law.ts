@@ -132,6 +132,23 @@ export interface RelationInfo extends StoredRelationOf<"relation">, TableRelatio
 }
 
 /**
+ * A key field of a closed relation that holds one of the slots of `fin(O, n)`: O, `fin.relation`, a closed relation
+ * whose key pairs with the relation's first key fields, `owner`, in order and roster for roster, and n, `fin.count`, a
+ * natural field of O. Slot `at` of an owner is the code `at` of the field's roster, and an owner holds as many slots as
+ * its count, each owner O holds a row for listed in `counts` by its key's values in key order; an owner O holds no row
+ * for holds no slot.
+ */
+export interface ClosedSlot {
+	readonly field: string
+	readonly fin: { readonly relation: string; readonly count: string }
+	readonly owner: NonEmptyReadonlyArray<string>
+	readonly counts: ReadonlyArray<{
+		readonly owner: NonEmptyReadonlyArray<TypedLiteral>
+		readonly count: bigint
+	}>
+}
+
+/**
  * A closed relation with its facts: a roster, whose one field `id` is a closed id of itself, or a relation keyed by
  * closed ids. Its heading is its key fields in key order, then its payload fields; its primary key (`primaryKey`,
  * `primaryFields`) is its declared key, in key order.
@@ -139,6 +156,8 @@ export interface RelationInfo extends StoredRelationOf<"relation">, TableRelatio
 export interface ClosedTheoryRelation extends StoredRelationOf<"closed"> {
 	/** The facts as typed rows in declared field order (`fields`): none for a relation that holds no fact. */
 	readonly rows: ReadonlyArray<ReadonlyArray<TypedLiteral>>
+	/** The key fields that are slots of a fin coordinate, in key order: none for a key that is a product of closed ids. */
+	readonly slots: ReadonlyArray<ClosedSlot>
 }
 
 /** A stored relation the theory's laws read: an ordinary relation, or a closed relation with its facts. */

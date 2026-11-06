@@ -224,6 +224,7 @@ type Family =
 	| "money"
 	| "bool"
 	| "uuid"
+	| "date"
 	| "code"
 	| "bit"
 	| "numeric"
@@ -424,6 +425,8 @@ const pgDatumBound = (type: Extract<FieldDesc, { readonly kind: "pg" }>["type"])
 			return fixed(typlens.money.value, 8, "money")
 		case "boolean":
 			return fixed(typlens.bool.value, 1, "bool")
+		case "date":
+			return fixed(typlens.date.value, 4, "date")
 	}
 }
 
@@ -503,6 +506,7 @@ const gistKeyBytes = (d: GistDatum): number => {
 		case "money":
 		case "bool":
 		case "uuid":
+		case "date":
 			return bounds.length * d.bytes
 		case "numeric":
 		case "text":

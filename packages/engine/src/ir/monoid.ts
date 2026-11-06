@@ -2,8 +2,9 @@ import { defect } from "#compiler/core/invariant.ts"
 import { int8Min } from "#compiler/core/limits.ts"
 /**
  * The closed monoids a fold accumulates in, each over the carriers it admits: its planes, its identity on each, and how
- * each plane's after is combined from the befores and the step. Every one is commutative, so a fold over a counted
- * family, whose order is hidden, has one value whatever order its members are in.
+ * each plane's after is combined from the befores and the step. Every one but concat is commutative, so a fold over a
+ * counted family, whose order is hidden, has one value whatever order its members are in; concat, text's free monoid,
+ * is not, so only a sequence, an ordered family or a tree, folds by it (check/fold.ts foldRule).
  */
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { integerRanges, MoneyText } from "#compiler/ir/carriers.ts"
@@ -13,7 +14,7 @@ import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { baseOf, contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
 
 /** The Compute operations a combine applies: each total over the carriers its monoid admits. */
-export type CombineFn = "add" | "union" | "intersection" | "greatest"
+export type CombineFn = "add" | "union" | "intersection" | "greatest" | "concat"
 
 /** What a fold's step reads of its member: nothing, the count's step of one, or a value. */
 export type CombineStep<E> = { readonly kind: "one" } | { readonly kind: "value"; readonly expr: E }
@@ -31,15 +32,18 @@ export interface CombineBuild<E> {
 export interface MonoidSpec {
 	readonly name: MonoidName
 	readonly planes: 1 | 2
-	/** Every one of the five is, so a counted family admits each, and refuses only a visible accumulator. */
-	readonly commutative: true
+	/**
+	 * Whether its combine's order is invisible: count, sum, or, twos and max are, so a counted family admits each and
+	 * refuses only a visible accumulator; concat is not, so a counted family refuses it.
+	 */
+	readonly commutative: boolean
 	/** count takes no step value; the others one of a carrier `admits` accepts. */
 	readonly step: "none" | "value"
 	readonly admits: (carrier: ScalarType) => boolean
 	/**
-	 * The identity of each plane on an admitted carrier: 0, the empty set, or the carrier's least value, a closed id's
-	 * its roster's first live handle, which the lowering writes as its code. A carrier the monoid does not admit is a
-	 * defect: the checker admits the fold's carriers first.
+	 * The identity of each plane on an admitted carrier: 0, the empty set, the carrier's least value (a closed id's its
+	 * roster's first live handle, which the lowering writes as its code), or the empty text. A carrier the monoid does
+	 * not admit is a defect: the checker admits the fold's carriers first.
 	 */
 	readonly identity: (carrier: ScalarType) => NonEmptyReadonlyArray<TypedLiteral>
 	/**
@@ -79,6 +83,7 @@ const summable = (t: ScalarType): boolean => {
 		case "float8":
 		case "bool":
 		case "uuid":
+		case "date":
 		case "text":
 		case "code":
 		case "bits":
@@ -108,6 +113,7 @@ const bounded = (t: ScalarType): boolean => {
 		case "float8":
 		case "bool":
 		case "uuid":
+		case "date":
 		case "text":
 		case "bits":
 		case "range4":
@@ -121,8 +127,12 @@ const bounded = (t: ScalarType): boolean => {
 
 const isSet = (t: ScalarType): boolean => baseOf(t).carrier === "bits"
 
+/** The carriers concat admits: text, refined or not; an accumulator's start, the empty text, is of its language. */
+const isText = (t: ScalarType): boolean => baseOf(t).carrier === "text"
+
 const zeroInteger: TypedLiteral = Object.freeze({ kind: "int", value: 0n })
 const emptySet: TypedLiteral = Object.freeze({ kind: "handles", handles: Object.freeze([]) })
+const emptyText: TypedLiteral = Object.freeze({ kind: "text", value: "" })
 
 /** A literal of a parsed payload: a payload the module spells itself always parses, so a miss is a defect. */
 const parsed = <A>(value: A | undefined, what: string): A => {
@@ -147,6 +157,7 @@ const zeroOf = (t: ScalarType): TypedLiteral => {
 		case "float8":
 		case "bool":
 		case "uuid":
+		case "date":
 		case "text":
 		case "code":
 		case "bits":
@@ -179,6 +190,7 @@ const leastOf = (t: ScalarType): TypedLiteral => {
 		case "float8":
 		case "bool":
 		case "uuid":
+		case "date":
 		case "text":
 		case "bits":
 		case "range4":
@@ -258,11 +270,28 @@ const max: MonoidSpec = {
 	combine: ([before], step, build) => [build.apply("greatest", before, stepValue(step, build))]
 }
 
+/**
+ * Text's free monoid: the empty text, and `before || x`. A separator is no part of it: a separated join has no identity
+ * on text, since the empty text joined to x would be the separator and x. A sequence's member, which knows its index,
+ * states the separator in its own step value instead: its token with the separator before it, but at index 0, so the
+ * fold's end is the tokens joined by the separator.
+ */
+const concat: MonoidSpec = {
+	name: "concat",
+	planes: 1,
+	commutative: false,
+	step: "value",
+	admits: isText,
+	identity: () => [emptyText],
+	combine: ([before], step, build) => [build.apply("concat", before, stepValue(step, build))]
+}
+
 /** The admitted monoids, by name. */
 export const monoids: { readonly [M in MonoidName]: MonoidSpec } = Object.freeze({
 	count: Object.freeze(count),
 	sum: Object.freeze(sum),
 	or: Object.freeze(or),
 	twos: Object.freeze(twos),
-	max: Object.freeze(max)
+	max: Object.freeze(max),
+	concat: Object.freeze(concat)
 })

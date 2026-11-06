@@ -9,7 +9,7 @@ import type { Fact } from "#compiler/ir/proof.ts"
 
 /**
  * The native carriers grizzle admits. range4 and range8 are int4range and int8range,
- * the only span carriers; there is no timestamp, date, interval, bytea, JSON or array carrier. exactInteger and
+ * the only span carriers; date is a calendar day; there is no timestamp, interval, bytea, JSON or array carrier. exactInteger and
  * exactMoney are the exact arithmetic carriers (ExactType), never a field's.
  */
 export const carriers = [
@@ -22,6 +22,7 @@ export const carriers = [
 	"money",
 	"bool",
 	"uuid",
+	"date",
 	"text",
 	"code",
 	"bits",
@@ -54,6 +55,7 @@ export const fewValued: Readonly<Record<Carrier, boolean>> = {
 	money: false,
 	bool: true,
 	uuid: false,
+	date: false,
 	text: false,
 	code: true,
 	bits: false,
@@ -304,7 +306,7 @@ export interface Roster {
 export type IntegerCarrier = "int2" | "int4" | "int8"
 export type SpanCarrier = "range4" | "range8"
 /** The carriers whose descriptor holds nothing beside its carrier, its capabilities and its contract. */
-type BareCarrier = "float4" | "float8" | "money" | "bool" | "uuid"
+type BareCarrier = "float4" | "float8" | "money" | "bool" | "uuid" | "date"
 
 /**
  * A bounded, half-open span over an integer endpoint of its carrier's width (range4 over int4, range8 over int8),
@@ -475,6 +477,7 @@ export const contractOf = (t: ScalarType): ContractInfo | undefined => {
 		case "money":
 		case "bool":
 		case "uuid":
+		case "date":
 		case "text":
 		case "code":
 		case "range4":
@@ -502,6 +505,7 @@ export const textOf = (t: ScalarType): TextInfo | undefined => {
 		case "money":
 		case "bool":
 		case "uuid":
+		case "date":
 		case "code":
 		case "bits":
 		case "range4":
@@ -528,6 +532,7 @@ export const rosterOf = (t: ScalarType): Roster | undefined => {
 		case "money":
 		case "bool":
 		case "uuid":
+		case "date":
 		case "text":
 		case "range4":
 		case "range8":
@@ -557,6 +562,7 @@ export const spanOf = (t: ScalarType): SpanInfo | undefined => {
 		case "money":
 		case "bool":
 		case "uuid":
+		case "date":
 		case "text":
 		case "code":
 		case "bits":
@@ -580,6 +586,7 @@ export const numericTypmodOf = (t: ScalarType): NumericTypmod | undefined => {
 		case "money":
 		case "bool":
 		case "uuid":
+		case "date":
 		case "text":
 		case "code":
 		case "bits":
@@ -606,6 +613,7 @@ export const vectorTypmodOf = (t: ScalarType): VectorTypmod | undefined => {
 		case "money":
 		case "bool":
 		case "uuid":
+		case "date":
 		case "text":
 		case "code":
 		case "bits":
@@ -701,6 +709,7 @@ const nativeNames: Readonly<Record<Carrier, string>> = {
 	money: "money",
 	bool: "boolean",
 	uuid: "uuid",
+	date: "date",
 	text: "text",
 	code: "smallint",
 	bits: "bit",
@@ -744,6 +753,7 @@ export const typeLabel = (t: ScalarType): string => {
 		case "money":
 		case "bool":
 		case "uuid":
+		case "date":
 		case "range4":
 		case "range8":
 			return nativeNames[t.carrier]

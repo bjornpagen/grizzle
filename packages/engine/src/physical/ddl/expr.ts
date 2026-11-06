@@ -77,6 +77,7 @@ export const persistentLiteral = (
 			return lit.bool(literal.value)
 		case "text":
 		case "uuid":
+		case "date":
 			return lit.text(literal.value, sqlType)
 		case "handle":
 			return lit.int(codeOf(codecOf(names.codes, rosterAt(type)), literal.handle), sqlType)

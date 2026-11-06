@@ -121,6 +121,7 @@ export const types = {
 	boolean: builtinType("boolean"),
 	text: builtinType("text"),
 	uuid: builtinType("uuid"),
+	date: builtinType("date"),
 	jsonb: builtinType("jsonb"),
 	money: builtinType("money"),
 	int4range: builtinType("int4range"),

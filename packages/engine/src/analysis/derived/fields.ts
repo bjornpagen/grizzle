@@ -64,6 +64,8 @@ export const declaredDescOf = (
 			return Result.ok({ kind: "pg", type: "boolean" })
 		case "uuid":
 			return Result.ok({ kind: "uuid" })
+		case "date":
+			return Result.ok({ kind: "pg", type: "date" })
 		case "numeric":
 			return Result.ok({
 				kind: "numeric",

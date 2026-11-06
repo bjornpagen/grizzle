@@ -970,6 +970,13 @@ const closedProps = (node: NodeOf<"Closed">, cx: RuleContext): PhysicalProps => 
 	})
 }
 
+/**
+ * A Delta: one side of a relation's change, read in its write's transaction from the carrier the write filled. Each of
+ * the relation's keys is a key of it, since delta.added(R) lies in R after the change and delta.removed(R) in R before
+ * it. The carrier holds the primary key as its own constraint (write/carriers relationCarrier), checked at each
+ * statement's end, so a carrier that came to hold one fact twice, or two facts at one key, refuses the write with
+ * 23505 before anything reads it.
+ */
 const deltaProps = (node: NodeOf<"Delta">, cx: RuleContext): PhysicalProps => {
 	const columns = node.heading.map((c) => c.name)
 	const fds = new DependencyDraft(columns)

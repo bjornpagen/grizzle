@@ -573,6 +573,7 @@ export const valueFaultWords = [
 	"realUnderflow",
 	"boolType",
 	"uuidSyntax",
+	"dateSyntax",
 	"textType",
 	"textNul",
 	"textSurrogate",

@@ -28,6 +28,9 @@ import {
 	type CarriedLiteral
 } from "#compiler/scalar/compute/literal.ts"
 import * as N from "#compiler/scalar/compute/numeric.ts"
+import { matchFlags } from "#compiler/scalar/regex/admit.ts"
+import { buildNfa, matches } from "#compiler/scalar/regex/nfa.ts"
+import { parsePattern } from "#compiler/scalar/regex/parse.ts"
 import {
 	castOf,
 	firstOperand,
@@ -256,6 +259,28 @@ const intDiv = (a: bigint, b: bigint): EvalResult =>
 const intMod = (a: bigint, b: bigint): EvalResult =>
 	b === 0n ? undefinedAt("nonzero") : Result.ok(a % b)
 
+/**
+ * PostgreSQL's right(text, n): the last n characters, every one where n passes the text's length, and for a negative n
+ * all but the first -n. A text's characters are its code points, as char_length counts them.
+ */
+const rightOf = (text: string, n: bigint): string => {
+	const characters = Array.from(text)
+	const kept = n >= 0n ? BigInt(characters.length) - n : -n
+	return characters.slice(Number(kept < 0n ? 0n : kept)).join("")
+}
+
+/**
+ * Whether `text` holds a match of the pattern `source`, read under the flags of every Compute.matches pattern: the NFA
+ * of its parse (scalar/regex/nfa.ts), the automaton a str.regex refinement's membership reads, which agrees with
+ * PostgreSQL's `~` over the pattern's ARE. A source outside the grammar is no pattern any admitted node holds.
+ */
+const patternMatch = (text: string, source: string): EvalResult => {
+	const parsed = parsePattern(source, matchFlags)
+	return parsed.ok
+		? Result.ok(matches(buildNfa(parsed.value), text))
+		: unsupported(`the pattern /${source}/${matchFlags}, outside the admitted grammar`)
+}
+
 const gcdOf = (a: bigint, b: bigint): bigint => {
 	let x = a < 0n ? -a : a
 	let y = b < 0n ? -b : b
@@ -270,9 +295,10 @@ const gcdOf = (a: bigint, b: bigint): bigint => {
 /**
  * The native operations a check admits (lower.ts checkMembers) applied to their evaluated operands, each defined on
  * every value or where its proved precondition holds: integer and money arithmetic exactly (an exact integer, exact
- * money), numeric as numeric.c computes it, floats as IEEE 754, comparisons, BETWEEN, IN, NOT, char_length, span
- * endpoints, LEAST and GREATEST by the type's order, and a set's union, intersection, difference, cardinality, subset
- * and disjointness, over its handles. Each case checks its operands' host kinds; the IR's typing guarantees them, so a mismatch is
+ * money), numeric as numeric.c computes it, floats as IEEE 754, comparisons, BETWEEN, IN, NOT, char_length, a text's
+ * concatenation, prefix and suffix tests and regex match (by the pattern's automaton), span endpoints, LEAST and
+ * GREATEST by the type's order, and a set's union, intersection, difference, cardinality, subset and disjointness,
+ * over its handles. Each case checks its operands' host kinds; the IR's typing guarantees them, so a mismatch is
  * `unsupported`. `and`, `or` and casts are evaluated by their nodes, never applied.
  */
 const apply = (
@@ -372,6 +398,16 @@ const apply = (
 			return isSpanValue(a) ? Result.ok(a.end) : mismatch(op)
 		case "charLength":
 			return isString(a) ? Result.ok(BigInt(Array.from(a).length)) : mismatch(op)
+		case "concat":
+			return isString(a) && isString(b) ? Result.ok(a + b) : mismatch(op)
+		case "startsWith":
+			return isString(a) && isString(b) ? Result.ok(a.startsWith(b)) : mismatch(op)
+		case "endsWith":
+			return isString(a) && isString(b) ? Result.ok(a.endsWith(b)) : mismatch(op)
+		case "right":
+			return isString(a) && isBigint(b) ? Result.ok(rightOf(a, b)) : mismatch(op)
+		case "matches":
+			return isString(a) && isString(b) ? patternMatch(a, b) : mismatch(op)
 		case "eq":
 		case "ne":
 		case "lt":
@@ -695,7 +731,8 @@ interface LiteralRefusal {
  * every operation is total or proved where it stands, so its evaluation never meets an undefined operation, and this
  * evaluator covers exactly that: comparisons, BETWEEN, IN, boolean composition, integer arithmetic exactly (bigint),
  * money exactly, numeric as numeric.c computes it, floats as IEEE 754, abs, sign and neg, gcd and lcm of integers,
- * char_length, span endpoints, a set's algebra, conditionals, guards and the casts between them, and the closed reads its
+ * char_length, a text's concatenation, prefix and suffix tests and regex match, span endpoints, a set's algebra,
+ * conditionals, guards and the casts between them, and the closed reads its
  * leaves answer (EvalLeaves closed). Any other operation, and any read its leaves do not hold, is `unsupported`, never
  * an approximation. The host never substitutes JavaScript arithmetic for a SQL
  * expression in a query.

@@ -149,7 +149,7 @@ export const planDeltas = (
 						name: delta.relation.name,
 						carrier: () => relationCarrier(supply, delta.relation)
 					}
-				: { name: delta.name, carrier: () => supply.next(delta.heading) }
+				: { name: delta.name, carrier: () => supply.next(delta.heading, undefined) }
 		if (delta.kind === "relation" && netted(name)) {
 			const added = carrier()
 			carriers.set(name, { kind: "netted", added, removed: carrier() })

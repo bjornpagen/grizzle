@@ -229,6 +229,7 @@ const evalValue = (spec: CarrierSpec, value: unknown): CarrierValue | undefined 
 		case "money":
 		case "bool":
 		case "uuid":
+		case "date":
 		case "text":
 		case "code":
 		case "bits":
@@ -269,6 +270,7 @@ const hostValue = (spec: CarrierSpec, value: CarrierValue): unknown => {
 		case "money":
 		case "bool":
 		case "uuid":
+		case "date":
 		case "text":
 		case "code":
 		case "bits":

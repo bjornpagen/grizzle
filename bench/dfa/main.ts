@@ -18,11 +18,11 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import { jsonDocument, trusted } from "#compiler/core/trusted.ts"
 import { buildNfa, type Nfa } from "#compiler/scalar/regex/nfa.ts"
 import { parsePattern, type RegexFlags } from "#compiler/scalar/regex/parse.ts"
-import { type DfaLimits, type DfaOutcome, minimalDfa } from "#compiler/text/dfa.ts"
+import { type DfaLimits, type DfaOutcome, minimalDfa } from "#compiler/scalar/regex/dfa.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"
 
 /**
- * The subset-construction benchmark, `pnpm bench dfa`: text/dfa.ts minimalDfa under the two limits that bound it
+ * The subset-construction benchmark, `pnpm bench dfa`: scalar/regex/dfa.ts minimalDfa under the two limits that bound it
  * (core/limits.ts regexDfaMaxStates and regexDfaMaxWork), on patterns text/refinement.ts analyzeText admits, the
  * evidence those limits cite. It needs no database.
  *
@@ -249,7 +249,7 @@ const runCase = Effect.fn("runCase")(function* (pattern: Pattern) {
 })
 
 const scope =
-	"text/dfa.ts minimalDfa alone: the subset construction (atom partition, determinization), Hopcroft minimization and canonical numbering of one pattern's NFA, timed by performance.now around one call; parsing, the NFA build, the compile-space measures and the key's digest are outside it, and memory is not measured"
+	"scalar/regex/dfa.ts minimalDfa alone: the subset construction (atom partition, determinization), Hopcroft minimization and canonical numbering of one pattern's NFA, timed by performance.now around one call; parsing, the NFA build, the compile-space measures and the key's digest are outside it, and memory is not measured"
 
 const spendText = (spend: Spend): string => {
 	switch (spend.kind) {

@@ -148,11 +148,12 @@ const printed = (node: LiveNode, of: (child: LiveNode) => Printed): Printed => {
  *   in an ARE means the character itself, inside or outside brackets; everything else prints as the fixed-width
  *   character-entry escape \uXXXX or \UXXXXXXXX, so no escape can absorb a following literal digit.
  *
- * The output is a pattern string; refinement.ts places it in a typed text literal, `VALUE ~ '<pattern>'::text`. The
+ * The output is a pattern string; text/refinement.ts places it in a typed text literal, `VALUE ~ '<pattern>'::text`. The
  * printer folds the IR children first (scalar/regex/ir.ts folded), so a pattern of any depth prints without recursing.
  *
  * The ARE spelling of a pattern's IR. The empty language has none: the language analysis that refuses it hands over the
- * IR of a language with a member (refinement.ts languageOf).
+ * IR of a language with a member (text/refinement.ts languageOf), and a Compute.matches pattern whose IR is never is
+ * refused before it is printed (admit.ts).
  */
 export const toAre = (node: LiveNode): string =>
 	folded(new Map<RegexNode, Printed>(), node, printed).text

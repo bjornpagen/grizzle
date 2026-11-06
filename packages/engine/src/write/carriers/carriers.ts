@@ -3,7 +3,7 @@ import { resourceBound, unsupported } from "#compiler/core/errors.ts"
 import { defined } from "#compiler/core/invariant.ts"
 import { tableMaxColumns } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { sha256Hex } from "#compiler/core/sha256.ts"
 import type { RelationInfo } from "#compiler/ir/law.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
@@ -51,11 +51,14 @@ export interface CarrierColumn extends HeadingColumn {
  * and NOT NULL shape, filled by INSERT ... SELECT, when sequential statements consume it: a same-key deletion and
  * addition on an immutable relation, the sequence advance after explicit serial values (serial/), or a read-back of
  * post-change state. A carrier is a temporary relation, so it lives in pg_temp and is never
- * schema-qualified, it drops at COMMIT, and every column is NOT NULL:
+ * schema-qualified, it drops at COMMIT, and every column is NOT NULL; a carrier of a relation's facts is keyed by the
+ * relation's primary key (`relationCarrier`):
  *
  *   CREATE TEMPORARY TABLE "__carrier_<d>_<k>" ("c1" uuid NOT NULL, "c2" uuid NOT NULL, "c3" "work"."kind" NOT NULL)
  *     ON COMMIT DROP
  *   INSERT INTO "__carrier_<d>_<k>" ("c1", "c2", "c3") SELECT ... FROM (<member query>) AS "r0"(...)
+ *   CREATE TEMPORARY TABLE "__carrier_<d>_<k>" ("c1" uuid NOT NULL, "c2" text COLLATE pg_catalog.pg_c_utf8 NOT NULL,
+ *     PRIMARY KEY ("c1") DEFERRABLE INITIALLY IMMEDIATE) ON COMMIT DROP
  *
  * Carriers are named `__carrier_<d>_<k>` and their columns c1 to cn. The name is a pair: d, a digest of its heading's
  * column types (typesDigest), and k, the carrier's ordinal among the program's carriers of those types, so a program
@@ -64,8 +67,8 @@ export interface CarrierColumn extends HeadingColumn {
  * wherever it is sent: two programs that read or write "__carrier_<d>_<k>" by equal text read carriers of equal column
  * types. A count per program alone would let one text address carriers of different types, which a session meets as a
  * stale statement on a correct write. A column is
- * typed as the value it carries is written: a contract's domain, a refinement's `__text_` domain, an
- * enum, or the builtin with its typmod, a builtin text column naming pg_catalog.pg_c_utf8 like every stored column,
+ * typed as the value it carries is written: a contract's domain, a refinement's `__text_` domain, a
+ * roster's domain, or the builtin with its typmod, a builtin text column naming pg_catalog.pg_c_utf8 like every stored column,
  * so a statement reading the carrier sees the types a stored column of the relation has. A deletion's
  * member writes nothing, so its carrier is typed as the deletion compares it instead: each field's base type with its
  * typmod, no contract or refinement domain (`compareHeading`, `CastInto` "compare").
@@ -77,6 +80,12 @@ export interface CarrierColumn extends HeadingColumn {
  * the unit marker. */
 export interface Carrier extends CarrierDecl {
 	readonly heading: ReadonlyArray<CarrierColumn>
+	/**
+	 * The columns of its primary key, in key order: a carrier of a relation's facts (`relationCarrier`) holds a set of
+	 * them, keyed as the relation is, so the key a reader of it relies on is the carrier's own constraint; a member's or
+	 * a share's rows, which may repeat, and a world relation's empty delta have none.
+	 */
+	readonly primaryKey: NonEmptyReadonlyArray<string> | undefined
 }
 
 /** A carrier's columns, in heading order. */
@@ -132,8 +141,8 @@ export class CarrierSupply {
 		this.#digest = digest
 	}
 
-	/** A carrier of `heading`, of any width. */
-	next(heading: Heading): Carrier {
+	/** A carrier of `heading`, of any width, keyed by the fields `key` names, or by none. */
+	next(heading: Heading, key: NonEmptyReadonlyArray<string> | undefined): Carrier {
 		const types = typesText(heading)
 		const digest = this.#digest(types)
 		const known = this.#classes.get(digest)
@@ -147,14 +156,29 @@ export class CarrierSupply {
 		}
 		const ordinal = (known?.count ?? 0) + 1
 		this.#classes.set(digest, { types, count: ordinal })
+		const name = carrierName(digest, ordinal)
+		const columns = Object.freeze(
+			heading.map((c, i): CarrierColumn =>
+				Object.freeze({ name: c.name, type: c.type, column: `c${i + 1}` })
+			)
+		)
 		const carrier: Carrier = Object.freeze({
-			name: carrierName(digest, ordinal),
-			heading: Object.freeze(
-				heading.map((c, i): CarrierColumn =>
-					Object.freeze({ name: c.name, type: c.type, column: `c${i + 1}` })
-				)
-			),
-			fill: "insertSelect" as const
+			name,
+			heading: columns,
+			fill: "insertSelect" as const,
+			primaryKey:
+				key === undefined
+					? undefined
+					: Object.freeze(
+							mapNonEmpty(
+								key,
+								(field) =>
+									defined(
+										columns.find((c) => c.name === field),
+										`the key field ${field} in carrier ${name}`
+									).column
+							)
+						)
 		})
 		this.#all.push(carrier)
 		return carrier
@@ -199,6 +223,7 @@ const createAst = (w: WriteContext, carrier: Carrier): CreateCarrier => {
 	return {
 		kind: "createCarrier",
 		name: carrier.name,
+		primaryKey: carrier.primaryKey,
 		columns: carrier.heading.map((c): ColumnDef => {
 			const type = w.cx.typeRef(c.type, at)
 			return type.kind === "builtin" && type.name === "text"
@@ -356,7 +381,11 @@ export const buildFillCarrier = (
 	})
 }
 
-/** A carrier for the facts of a relation, its fields in heading order, the order a
- * read-back's Delta node reads position by position. */
+/** A carrier for the facts of a relation, its fields in heading order, the order a read-back's Delta node reads
+ * position by position, keyed by the relation's primary key: what it holds is some of the relation's facts as they
+ * stand before or after a change, a set by that key. */
 export const relationCarrier = (supply: CarrierSupply, relation: RelationInfo): Carrier =>
-	supply.next(relation.heading.map((f) => ({ name: f.name, type: f.type })))
+	supply.next(
+		relation.heading.map((f) => ({ name: f.name, type: f.type })),
+		mapNonEmpty(relation.primaryFields, (f) => f.name)
+	)

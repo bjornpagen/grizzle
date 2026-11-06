@@ -18,6 +18,7 @@ import {
 	uuidTextLength,
 	type VectorText
 } from "#compiler/ir/carriers.ts"
+import { type CalendarDate, toCalendarDate } from "#compiler/ir/date.ts"
 import { type DecimalValue, decimalPayload } from "#compiler/ir/decimal.ts"
 import { drive, Fold } from "#compiler/ir/fold.ts"
 import type { NativeProof, OperationProof } from "#compiler/ir/proof.ts"
@@ -172,6 +173,22 @@ const exprKinds = [
 ] as const
 type ExprKind = (typeof exprKinds)[number]
 
+/**
+ * One value a Compute.matches pattern operand can take: its source, in grizzle's pattern grammar under the flags "u",
+ * which the host's automaton reads, and its translation into a PostgreSQL ARE (scalar/regex/are.ts), which `~` reads.
+ */
+export interface PatternEntry {
+	readonly source: string
+	readonly are: string
+}
+
+/**
+ * Every value a Compute.matches pattern operand can take, each admitted when the node was typed
+ * (scalar/regex/admit.ts matchPattern): at least one, distinct by source, in code point order of their sources, so one
+ * set of patterns has one table.
+ */
+export type PatternTable = NonEmptyReadonlyArray<PatternEntry>
+
 /** How a parameter's placeholder is cast: compare binds the base type; write and emit cast to the domain. */
 export type ParamRole = "compare" | "write" | "emit"
 
@@ -197,6 +214,7 @@ export type TypedLiteral =
 	| { readonly kind: "bool"; readonly value: boolean }
 	| { readonly kind: "text"; readonly value: string }
 	| { readonly kind: "uuid"; readonly value: string }
+	| { readonly kind: "date"; readonly value: CalendarDate }
 	| {
 			readonly kind: "handle"
 			/** One of the closed id's roster's live handles, which lowers to its code under the installation's codebook. */
@@ -238,6 +256,7 @@ export const identityValueOf = (value: TypedLiteral): IdentityValue => {
 		case "floatSpecial":
 		case "money":
 		case "uuid":
+		case "date":
 		case "handles":
 		case "span":
 		case "vector":
@@ -327,6 +346,18 @@ export type ExprSpecOver<R extends ArgKinds> = { readonly type: ScalarType } & (
 			readonly nonNull: "strict"
 			readonly volatility: Volatility
 			readonly proof: OperationProof
+	  }
+	| {
+			/**
+			 * Compute.matches(text, pattern), PostgreSQL's textregexeq: its pattern operand's every value with the ARE
+			 * PostgreSQL reads in its place (PatternTable), which the lowering spells for `~`.
+			 */
+			readonly kind: "op"
+			readonly op: DefinedOp
+			readonly args: ReadonlyArray<R["expr"]>
+			readonly nonNull: "strict"
+			readonly volatility: Volatility
+			readonly patterns: PatternTable
 	  }
 	| {
 			readonly kind: "cast"
@@ -756,6 +787,7 @@ export const integerLiteral = (literal: TypedLiteral): bigint | undefined => {
 		case "bool":
 		case "text":
 		case "uuid":
+		case "date":
 		case "handle":
 		case "handles":
 		case "span":
@@ -820,6 +852,13 @@ export const literalProblem = (literal: TypedLiteral, outer: ScalarType): string
 				return `a uuid literal is not a ${carrier} value`
 			}
 			return isUuidText(literal.value) ? undefined : "a uuid literal is lowercase 8-4-4-4-12 hex"
+		case "date":
+			if (carrier !== "date") {
+				return `a date literal is not a ${carrier} value`
+			}
+			return toCalendarDate(literal.value).ok
+				? undefined
+				: "a date literal is a day from 0001-01-01 to 9999-12-31, written YYYY-MM-DD"
 		case "handle":
 			if (carrier !== "code") {
 				return `a handle literal is not a ${carrier} value`

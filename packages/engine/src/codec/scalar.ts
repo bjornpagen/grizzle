@@ -45,6 +45,7 @@ import {
  * | money | the amount as numeric text at scale 2, cast ($n::numeric)::money | money::numeric text |
  * | bool | true, false | true, false (bool::text), t, f (boolout) |
  * | uuid | lowercase hyphenated | uuid_out text |
+ * | date | YYYY-MM-DD, 0001-01-01 to 9999-12-31 | date_out text under DateStyle ISO |
  * | text | the string | the same |
  * | code | the handle's code, decimal digits | int2out text, read as the handle the code names |
  * | bits | bit(n)'s text, n characters of 0 and 1, position i code i, a hole 0 | bit_out text, read as the set of handles |
@@ -111,6 +112,7 @@ export const carrierSpecOf = (type: ScalarType, codes: Codebook): CarrierSpec =>
 		case "money":
 		case "bool":
 		case "uuid":
+		case "date":
 		case "text":
 		case "exactInteger":
 		case "exactMoney":
@@ -175,6 +177,7 @@ const cellTextByCarrier: { readonly [C in Carrier]: (cell: string) => string } =
 	money: itself,
 	bool: boolCellText,
 	uuid: itself,
+	date: itself,
 	text: itself,
 	code: itself,
 	bits: itself,

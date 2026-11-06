@@ -1,5 +1,6 @@
 import { handleAt, type RosterCodec } from "#compiler/ir/codes.ts"
 import type { Carrier } from "#compiler/ir/scalar.ts"
+import { convertDate } from "#compiler/ir/date.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { convertComponent, convertDouble, convertReal } from "#compiler/scalar/values/float.ts"
 import type { CarrierHost, SpecOf } from "#compiler/scalar/values/identity.ts"
@@ -73,7 +74,7 @@ const convertBits =
  * -0 and 0) convert to one host value: decode is conversion only, into the canonical form.
  *
  * A conversion trusts its text. Every text it meets is PostgreSQL's own output of a value of the column's type in the
- * fixed execution context Db.open verifies (extra_float_digits = 1, the C.UTF-8 monetary context), written by grizzle's
+ * fixed execution context Db.open verifies (extra_float_digits = 1, DateStyle ISO, the C.UTF-8 monetary context), written by grizzle's
  * own SQL, whose outermost SELECT casts every column to text: so a conversion checks no syntax, range, typmod, roster or
  * dimension, returns no Result and never refuses. Each one is a straight-line closure built once per descriptor.
  *
@@ -87,6 +88,7 @@ const convertBits =
  * | money | money::numeric | Money.fromOutput, the minor-unit count |
  * | bool | `true`/`false` (bool::text), `t`/`f` (boolout) | the first letter is t |
  * | uuid, text | uuid_out, the string | the text itself |
+ * | date | date_out under DateStyle ISO, YYYY-MM-DD | the text itself, a CalendarDate |
  * | code | int2out of the code | the live handle the code names |
  * | bits | bit_out, n characters of 0 and 1 | a fresh Set of the handles of its 1 bits, position i code i |
  * | range4, range8 | range_out of a bounded half-open range, [start,end) | a frozen { start, end } |
@@ -108,6 +110,7 @@ export const convertByCarrier: { readonly [C in Carrier]: (spec: SpecOf<C>) => C
 	/** bool::text writes true and false, boolout t and f: one letter tells them apart. */
 	bool: () => (text) => text.startsWith("t"),
 	uuid: () => identity,
+	date: () => convertDate,
 	text: () => identity,
 	code: (spec) => convertCode(spec.roster),
 	bits: (spec) => convertBits(spec.roster),

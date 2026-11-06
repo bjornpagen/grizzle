@@ -384,6 +384,7 @@ const narrow = (t: WireScalarType): ScalarType | string => {
 		case "money":
 		case "bool":
 		case "uuid":
+		case "date":
 			return Object.freeze({ carrier, caps, contract })
 		case "text":
 			if (t.text === undefined) {
@@ -580,6 +581,14 @@ export const tableExprShape: S.Shape<TableExpr> = S.tagged("kind", {
 		),
 		S.normalized(
 			S.struct({ ...common(S.array(exprIdShape), strict), op: opIdShape, native: nativeShape }),
+			(e): CaseFields<TableExprOf<"op">> => ({ ...e, op: definedOp(e.op) })
+		),
+		S.normalized(
+			S.struct({
+				...common(S.array(exprIdShape), strict),
+				op: opIdShape,
+				patterns: S.nonEmptyArray(S.struct({ source: S.string, are: S.string }))
+			}),
 			(e): CaseFields<TableExprOf<"op">> => ({ ...e, op: definedOp(e.op) })
 		)
 	),

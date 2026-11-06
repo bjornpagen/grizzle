@@ -64,7 +64,8 @@ const pgScalarNames = [
 	"real",
 	"double precision",
 	"money",
-	"boolean"
+	"boolean",
+	"date"
 ] as const
 export type PgScalarName = (typeof pgScalarNames)[number]
 
@@ -131,6 +132,10 @@ export const computeFns = [
 	"upper",
 	"width",
 	"charLength",
+	"concat",
+	"startsWith",
+	"endsWith",
+	"matches",
 	"cosineDistance",
 	"union",
 	"intersection",
@@ -220,8 +225,10 @@ export type Spelled = ParamsAs<{ readonly name: string }>
 
 /**
  * What a Compute.when guard tests of its subject and so establishes inside its then branch: never zero, never below
- * zero, above zero (both), never NaN or an infinity, or within two literal bounds (and so finite). The first four are
- * facts a term's TypeScript type states; within states an interval, which no type does (scalar/compute/bounds.ts).
+ * zero, above zero (both), never NaN or an infinity, within two literal bounds (and so finite), or a match of a
+ * literal pattern. The first four are facts a term's TypeScript type states; within states an interval, which no type
+ * does (scalar/compute/bounds.ts); matches retypes a text subject as text of the pattern's language, the type
+ * str.regex(pattern) declares, the pattern read under the flags "u" (scalar/regex/admit.ts matchFlags).
  */
 export type GuardDesc =
 	| { readonly kind: "nonzero" }
@@ -229,6 +236,7 @@ export type GuardDesc =
 	| { readonly kind: "positive" }
 	| { readonly kind: "finite" }
 	| { readonly kind: "within"; readonly low: LiteralDesc; readonly high: LiteralDesc }
+	| { readonly kind: "matches"; readonly pattern: string }
 
 /**
  * Terms and predicates in one vocabulary: one builder serves contract predicates, row checks,
@@ -667,13 +675,22 @@ export const candidateKeyFields = (side: SideDesc): NonEmptyReadonlyArray<string
 }
 
 /** The closed set of monoids a fold combines by: one vocabulary, which the fold's description and the IR read. */
-export const monoidNames = ["count", "sum", "or", "twos", "max"] as const
+export const monoidNames = ["count", "sum", "or", "twos", "max", "concat"] as const
 export type MonoidName = (typeof monoidNames)[number]
 
 /** fin(O, n): the slots of O's drawn count n, a family's second argument and never a side. */
 export interface SlotsDesc {
 	readonly owner: string
 	readonly count: string
+}
+
+/**
+ * A closed relation's key field that holds one of the slots of `fin`, fin(O, n): O a closed relation whose key pairs
+ * with the relation's first key fields, and n a natural field of O that counts each owner's slots.
+ */
+export interface KeySlotDesc {
+	readonly field: string
+	readonly fin: SlotsDesc
 }
 
 /** An alternatives arm: a roster handle and its arm relation's key side. */
@@ -864,6 +881,11 @@ export type RelationDesc<L = Located> = L &
 				readonly fields: Readonly<Record<string, FieldDesc>>
 				/** The key fields, closed ids, in the order the key's mixed radix reads them. */
 				readonly key: NonEmptyReadonlyArray<string>
+				/**
+				 * The key fields that hold slots of a fin coordinate, in key order, each with its fin: none for a key that is a
+				 * product of closed ids.
+				 */
+				readonly slots: ReadonlyArray<KeySlotDesc>
 				/** Each row a value of every field, its key fields' values handles of their rosters. */
 				readonly rows: ReadonlyArray<Readonly<Record<string, LiteralDesc>>>
 		  }
@@ -1300,6 +1322,10 @@ const computeCases: {
 	upper: unscaledCompute,
 	width: unscaledCompute,
 	charLength: unscaledCompute,
+	concat: unscaledCompute,
+	startsWith: unscaledCompute,
+	endsWith: unscaledCompute,
+	matches: unscaledCompute,
 	cosineDistance: unscaledCompute,
 	union: unscaledCompute,
 	intersection: unscaledCompute,
@@ -1337,7 +1363,8 @@ const exprCases = {
 			nonnegative: S.struct({}),
 			positive: S.struct({}),
 			finite: S.struct({}),
-			within: S.struct({ low: literalDescShape, high: literalDescShape })
+			within: S.struct({ low: literalDescShape, high: literalDescShape }),
+			matches: S.struct({ pattern: S.string })
 		}),
 		subject: S.lazy("an expression", () => exprDescShape),
 		proved: S.lazy("an expression", () => exprDescShape),
@@ -1778,6 +1805,11 @@ const relationDescShape: S.Shape<RelationDesc> = S.tagged("kind", {
 						"a closed relation of at least one field, each a closed id or an open type that is no serial, span, set or vector"
 					),
 					key: S.nonEmptyUniqueStrings("key fields"),
+					slots: S.uniqueArray(
+						S.struct({ field: name, fin: slotsDescShape }),
+						(slot) => slot.field,
+						"slot fields"
+					),
 					rows: S.array(S.recordShape(literalDescShape, name))
 				},
 				loc
@@ -1785,6 +1817,10 @@ const relationDescShape: S.Shape<RelationDesc> = S.tagged("kind", {
 			(c) => {
 				const fields = Object.keys(c.fields).toSorted(compareStrings)
 				if (!c.key.every((f) => c.fields[f]?.kind === "closedId")) {
+					return false
+				}
+				const slotted = c.slots.map((slot) => c.key.indexOf(slot.field))
+				if (!slotted.every((at, i) => at >= 0 && at > (slotted[i - 1] ?? -1))) {
 					return false
 				}
 				const keys = new Set<string>()
@@ -1801,7 +1837,7 @@ const relationDescShape: S.Shape<RelationDesc> = S.tagged("kind", {
 				}
 				return true
 			},
-			"a key of the relation's own closed-id fields, each row a value of exactly its fields, its key values handles, and no two rows of one key"
+			"a key of the relation's own closed-id fields, its slots key fields in key order, each row a value of exactly its fields, its key values handles, and no two rows of one key"
 		)
 	),
 	derived: S.located(
