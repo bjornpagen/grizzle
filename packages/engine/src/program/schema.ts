@@ -12,7 +12,7 @@ import type { LawId, SchemaFingerprint } from "#compiler/core/ids.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
-import { decodeDesc, descText, type RoleDesc, type SchemaDesc } from "#compiler/ir/desc.ts"
+import { decodeDesc, type RoleDesc, type SchemaDesc } from "#compiler/ir/desc.ts"
 import type { EvidenceCatalog } from "#compiler/ir/evidence.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { ConstraintLaws } from "#compiler/ir/products.ts"
@@ -33,15 +33,17 @@ import {
 	worldTextDomainUses
 } from "#compiler/physical/ddl/roles.ts"
 import {
-	compileInstallation,
 	type Installation,
+	type InstallBasis,
+	installationOver,
+	installBasis,
 	installOptions
 } from "#compiler/physical/install/compile.ts"
 import { hostArguments } from "#compiler/query/build/host.ts"
-import { isLevelOf } from "#compiler/schema/levels.ts"
+import { contentOfDesc, isLevelOf, type SchemaContent } from "#compiler/schema/levels.ts"
 import { type Owned, type OwnedRole, own, ownedOf, ownRole } from "#compiler/schema/own.ts"
-import { schemaDescOf } from "#compiler/schema/schema.ts"
-import { roleDescOf } from "#compiler/schema/world.ts"
+import { ownedEntry } from "#compiler/schema/protocol.ts"
+import type { RoleLevel } from "#compiler/schema/world.ts"
 import type { Law } from "#compiler/types/changeset/changeset.ts"
 
 /**
@@ -114,15 +116,31 @@ interface SchemaArtifactOptions {
 }
 
 /**
- * The schema a compilation is given, parsed once: a value schema(...) or schema.extend built, with the description its
- * builder recorded; an Owned own() returned, with its description; a SchemaDesc decoded from any other value; or a role
- * role(...) built, with its description.
+ * The schema a compilation is given, parsed once: a value schema(...) or schema.extend built, with the description and
+ * the content its builder recorded; an Owned own() returned, with its description; a SchemaDesc decoded from any other
+ * value; or a role role(...) built, with its description and its level. An Owned's and a decoded description's content
+ * is read where it is parsed, the one place such a value enters (levels.ts contentOfDesc).
  */
 export type SchemaInput =
-	| { readonly kind: "built"; readonly value: object; readonly desc: SchemaDesc }
-	| { readonly kind: "owned"; readonly owned: Owned; readonly desc: SchemaDesc }
-	| { readonly kind: "desc"; readonly desc: SchemaDesc }
-	| { readonly kind: "role"; readonly value: object; readonly desc: RoleDesc }
+	| {
+			readonly kind: "built"
+			readonly value: object
+			readonly desc: SchemaDesc
+			readonly content: SchemaContent
+	  }
+	| {
+			readonly kind: "owned"
+			readonly owned: Owned
+			readonly desc: SchemaDesc
+			readonly content: SchemaContent
+	  }
+	| { readonly kind: "desc"; readonly desc: SchemaDesc; readonly content: SchemaContent }
+	| {
+			readonly kind: "role"
+			readonly value: object
+			readonly desc: RoleDesc
+			readonly level: RoleLevel
+	  }
 
 /** Every SchemaInput parseSchemaInput produced, so parsing one again is the input itself. */
 const parsedInputs = new WeakSet<object>()
@@ -146,19 +164,28 @@ export const parseSchemaInput = (value: unknown): Result.Result<SchemaInput, Com
 	}
 	const owned = ownedOf(value)
 	if (owned !== undefined) {
-		return Result.ok(parsed({ kind: "owned", owned, desc: owned.desc }))
+		return Result.ok(
+			parsed({ kind: "owned", owned, desc: owned.desc, content: contentOfDesc(owned.desc) })
+		)
 	}
-	const role = roleDescOf(value)
-	if (role !== undefined && typeof value === "object" && value !== null) {
-		return Result.ok(parsed({ kind: "role", value, desc: role }))
+	const role = ownedEntry(value, "role")
+	if (role !== undefined) {
+		return Result.ok(
+			parsed({ kind: "role", value: role.value, desc: role.desc, level: role.content })
+		)
 	}
-	const built = schemaDescOf(value)
-	if (built !== undefined && typeof value === "object" && value !== null) {
-		return Result.ok(parsed({ kind: "built", value, desc: built }))
+	const built = ownedEntry(value, "schema")
+	if (built !== undefined) {
+		return Result.ok(
+			parsed({ kind: "built", value: built.value, desc: built.desc, content: built.content })
+		)
 	}
 	return Result.flatMap(
 		catchCompileError(() => hostArguments("schema", [value])),
-		() => Result.map(decodeDesc("schema", value), (desc) => parsed({ kind: "desc", desc }))
+		() =>
+			Result.map(decodeDesc("schema", value), (desc) =>
+				parsed({ kind: "desc", desc, content: contentOfDesc(desc) })
+			)
 	)
 }
 
@@ -173,13 +200,18 @@ export const parseBuiltSchema = (
 	value: unknown,
 	loc: SourceLoc
 ): Result.Result<BuiltSchema, CompileError> => {
-	const desc = schemaDescOf(value)
-	if (desc === undefined || typeof value !== "object" || value === null) {
+	const entry = ownedEntry(value, "schema")
+	if (entry === undefined) {
 		return Result.err(
 			malformedDescription(loc, "a schema built by schema(...) or schema.extend(...)")
 		)
 	}
-	const built: BuiltSchema = { kind: "built", value, desc }
+	const built: BuiltSchema = {
+		kind: "built",
+		value: entry.value,
+		desc: entry.desc,
+		content: entry.content
+	}
 	parsedInputs.add(built)
 	return Result.ok(Object.freeze(built))
 }
@@ -200,28 +232,20 @@ type Level =
 
 const level: Level = { kind: "level" }
 const none: Level = { kind: "none" }
-const levelIf = (r: Result.Result<boolean, CompileError>): Result.Result<Level, CompileError> =>
-	Result.map(r, (is) => (is ? level : none))
 
-const levelOf = (carried: SchemaInput, named: SchemaInput): Result.Result<Level, CompileError> => {
+const levelOf = (carried: SchemaInput, named: SchemaInput): Level => {
 	if (named.kind !== "role") {
-		return carried.kind === "role" ? Result.ok(none) : levelIf(isLevelOf(carried.desc, named.desc))
+		return carried.kind !== "role" && isLevelOf(carried.content, named.content) ? level : none
 	}
 	if (carried.kind === "role") {
-		return levelIf(
-			Result.flatMap(descText(carried.desc), (a) =>
-				Result.map(descText(named.desc), (b) => a === b)
-			)
-		)
+		return carried.level.identity === named.level.identity ? level : none
 	}
-	return Result.flatMap(ownRole(named.desc), (role) =>
-		Result.map(isLevelOf(carried.desc, role.base.desc), (is): Level => {
-			if (!is) {
-				return none
-			}
-			return role.full ? level : { kind: "outsideRole", role: role.name, base: role.base.name }
-		})
-	)
+	if (!isLevelOf(carried.content, named.level.base)) {
+		return none
+	}
+	return named.level.full
+		? level
+		: { kind: "outsideRole", role: named.desc.name, base: named.desc.base.name }
 }
 
 /**
@@ -234,29 +258,29 @@ export const levelSchema = (
 	carried: SchemaInput,
 	named: SchemaInput,
 	loc: SourceLoc
-): Result.Result<SchemaInput, CompileError> =>
-	Result.flatMap(levelOf(carried, named), (l) => {
-		switch (l.kind) {
-			case "level":
-				return Result.ok(named)
-			case "outsideRole":
-				return Result.err(
-					CompileError.make({
-						_tag: "OutsideRole",
-						at: loc,
-						role: l.role,
-						access: { kind: "wholeBase", base: l.base }
-					})
+): Result.Result<SchemaInput, CompileError> => {
+	const l = levelOf(carried, named)
+	switch (l.kind) {
+		case "level":
+			return Result.ok(named)
+		case "outsideRole":
+			return Result.err(
+				CompileError.make({
+					_tag: "OutsideRole",
+					at: loc,
+					role: l.role,
+					access: { kind: "wholeBase", base: l.base }
+				})
+			)
+		case "none":
+			return Result.err(
+				malformedDescription(
+					loc,
+					"a value built over a level of the schema it is compiled against (the schema itself or one its extends chain reaches, or the base of a role that holds every relation of it whole); its schema is none of them"
 				)
-			case "none":
-				return Result.err(
-					malformedDescription(
-						loc,
-						"a value built over a level of the schema it is compiled against (the schema itself or one its extends chain reaches, or the base of a role that holds every relation of it whole); its schema is none of them"
-					)
-				)
-		}
-	})
+			)
+	}
+}
 
 /**
  * The artifacts of a schema under the target identifiers: those of the Owned the schema owns to, and for a role its
@@ -266,29 +290,32 @@ export const levelSchema = (
 export const schemaArtifacts = (
 	schema: SchemaInput,
 	options: SchemaArtifactOptions
-): Result.Result<SchemaArtifacts, CompileError> =>
-	schema.kind === "role"
-		? Result.flatMap(ownRole(schema.desc), (role) => roleArtifactsOf(role, options))
-		: realityArtifacts(schema.desc, options)
+): Result.Result<SchemaArtifacts, CompileError> => {
+	const over = (owned: Owned) =>
+		Result.flatMap(installBasis(owned, options.codes), (basis) => baseArtifacts(basis, options))
+	return schema.kind === "role"
+		? Result.flatMap(ownRole(schema.desc), (role) =>
+				Result.flatMap(over(role.base), (base) => roleArtifacts(role, base))
+			)
+		: Result.flatMap(own(schema.desc), over)
+}
 
-const realityArtifacts = (
-	desc: SchemaDesc,
-	options: SchemaArtifactOptions
-): Result.Result<SchemaArtifacts, CompileError> =>
-	Result.flatMap(own(desc), (owned) => artifactsOf(owned, options))
-
-/** The artifacts of an owned schema under the target identifiers: computed once by their holder (the layer, generate),
- * which every compilation over the schema is given. */
-const artifactsOf = (
-	owned: Owned,
-	options: SchemaArtifactOptions
+/**
+ * The artifacts of an owned schema under the target identifiers, its installation compiled over its basis (the law model
+ * and the closed constants under the installation's codes, physical/install/compile.ts installBasis): what the
+ * artifacts of every role over it read through their views (roleArtifacts). Their holder (the layer, generate) computes
+ * them once for a schema and hands them to every role and every compilation over the schema; generate installs its
+ * draft over the same basis.
+ */
+export const baseArtifacts = (
+	basis: InstallBasis,
+	options: Omit<SchemaArtifactOptions, "codes">
 ): Result.Result<SchemaArtifacts, CompileError> =>
 	Result.map(
-		compileInstallation(owned, {
-			...installOptions(owned, namingOwner),
+		installationOver(basis, {
+			...installOptions(basis.owned, namingOwner),
 			...(options.installation === undefined ? {} : { installation: options.installation }),
-			...(options.vectorSchema === undefined ? {} : { vectorSchema: options.vectorSchema }),
-			codes: options.codes
+			...(options.vectorSchema === undefined ? {} : { vectorSchema: options.vectorSchema })
 		}),
 		(installation): SchemaArtifacts => {
 			const derived = derivedAnalysis(installation.checked)
@@ -337,24 +364,23 @@ const worldTextNames = (
 		}
 	)
 
-/** A role's artifacts: its base's, read through the role's views, its world relations keyed by their definitions. */
-const roleArtifactsOf = (
+/**
+ * A role's artifacts: its base's (baseArtifacts), which compile nothing again, read through the role's views, its world
+ * relations keyed by their definitions.
+ */
+export const roleArtifacts = (
 	role: OwnedRole,
-	options: SchemaArtifactOptions
+	base: SchemaArtifacts
 ): Result.Result<SchemaArtifacts, CompileError> => {
-	const base = artifactsOf(role.base, options)
-	if (!base.ok) {
-		return base
-	}
-	const read = checkedRole(base.value.derived.schema, base.value.names.installation, role)
+	const read = checkedRole(base.derived.schema, base.names.installation, role)
 	if (!read.ok) {
 		return read
 	}
-	const names = catchCompileError(() => worldNames(role, base.value.names.installation))
+	const names = catchCompileError(() => worldNames(role, base.names.installation))
 	if (!names.ok) {
 		return names
 	}
-	const installed = worldTextNames(base.value.names, read.value)
+	const installed = worldTextNames(base.names, read.value)
 	if (!installed.ok) {
 		return installed
 	}
@@ -363,7 +389,7 @@ const roleArtifactsOf = (
 		return reads
 	}
 	const artifacts: SchemaArtifacts = {
-		...base.value,
+		...base,
 		names: installed.value,
 		reads: reads.value,
 		world: { kind: "role", role, checked: read.value.checked, names: names.value }

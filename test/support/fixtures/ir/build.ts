@@ -66,7 +66,6 @@ import {
 	wildcardText
 } from "#compiler/scalar/compute/types.ts"
 import { scalarTypeOf } from "#compiler/scalar/registry.ts"
-import { textLookup } from "#compiler/text/refinement.ts"
 import { defined } from "#test/support/assert.ts"
 import type { OwnedFixture } from "#test/support/evidence.ts"
 import type { SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
@@ -290,11 +289,7 @@ export class SchemaModel {
 
 	fieldType(desc: FieldDesc, loc: SourceLoc): ScalarType {
 		return ok(
-			scalarTypeOf(
-				desc,
-				{ kind: "builder", roster: (name) => this.#rosters.get(name), text: textLookup },
-				loc
-			)
+			scalarTypeOf(desc, { kind: "builder", roster: (name) => this.#rosters.get(name) }, loc)
 		)
 	}
 

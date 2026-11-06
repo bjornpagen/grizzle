@@ -14,7 +14,7 @@
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { noCoverage } from "@grizzle/testing/features"
+import { noCoverage, requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -23,7 +23,7 @@ import type { RelDag } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
-import { assert } from "#test/support/assert.ts"
+import { assert, nonEmpty } from "#test/support/assert.ts"
 import {
 	defaultGenConfig,
 	optimizerGenConfig,
@@ -255,46 +255,76 @@ describe("indexKey", () => {
 		[handles, ["red", "green"]]
 	]
 
-	it.effect("is one identity exactly for the values comparison finds equal", (ctx) =>
-		searched(
-			ctx,
-			exhaust(
-				{
-					suite: "unit/oracle-runner/index-key",
-					/** Each sampled type, and every ordered pair of its values. */
-					generator: (source) => {
-						const [type, values] = source.draw(element(samples))
-						return [type, source.draw(element(values)), source.draw(element(values))] as const
-					},
-					literal: Formatter.format,
-					/** The squares of the samples' counts: 4, 3, 3, 11, 5, 7, 3, 2, 6, 2 and 2 values. */
-					limit: 286,
-					coverage: noCoverage,
-					caseHang
-				},
-				([type, a, b]) =>
-					Effect.sync(() => {
-						const ka = indexKey(a, type)
-						const kb = indexKey(b, type)
-						assert.notEqual(ka, undefined)
-						assert.equal(
-							ka === kb,
-							equal(a, b, type),
-							`${Formatter.format(a)} and ${Formatter.format(b)} as ${type.carrier}`
-						)
-					})
-			)
-		)
+	/**
+	 * Every sampled value of every type, so each type meets every other carrier's values, and the handles type meets
+	 * strings outside its roster, which comparison finds equal to one another.
+	 */
+	const everyValue = nonEmpty(
+		Arr.flatMap(samples, ([, values]) => values),
+		"the sampled values"
 	)
 
-	it("gives none where comparison alone decides", () => {
-		assert.equal(indexKey("blue", handles), undefined)
-		assert.equal(indexKey(1, int4), undefined)
-		assert.equal(indexKey(1n, numeric), undefined)
-		assert.equal(indexKey("1", float8), undefined)
-		assert.equal(indexKey(1n, money), undefined)
-		assert.equal(indexKey("t", bool), undefined)
-		assert.equal(indexKey(1n, text), undefined)
-		assert.equal(indexKey(1n, handles), undefined)
-	})
+	type KeyFeature =
+		| "one identity"
+		| "two identities"
+		| "none for another carrier"
+		| "none outside the roster"
+
+	it.effect(
+		"is one identity exactly for the values comparison finds equal, and none where comparison alone decides",
+		(ctx) =>
+			searched(
+				ctx,
+				exhaust(
+					{
+						suite: "unit/oracle-runner/index-key",
+						/** Each sampled type, and every ordered pair of every type's values. */
+						generator: (source) => {
+							const [type, own] = source.draw(element(samples))
+							return [
+								type,
+								own,
+								source.draw(element(everyValue)),
+								source.draw(element(everyValue))
+							] as const
+						},
+						literal: Formatter.format,
+						limit: samples.length * everyValue.length * everyValue.length,
+						coverage: requiredInSpace<KeyFeature>([
+							"one identity",
+							"two identities",
+							"none for another carrier",
+							"none outside the roster"
+						]),
+						box: "every sampled type, and every ordered pair of every type's sampled values",
+						oracle: {
+							kind: "second-implementation",
+							name: "the reference's comparison: two keyed values share a key exactly when it finds them equal, and it never meets a keyed value of another carrier"
+						},
+						caseHang
+					},
+					([type, own, a, b], c) =>
+						Effect.sync(() => {
+							const ka = indexKey(a, type)
+							const kb = indexKey(b, type)
+							const label = `${Formatter.format(a)} and ${Formatter.format(b)} as ${type.carrier}`
+							if (Arr.some(own, (v) => v === a)) {
+								assert.notEqual(ka, undefined, `${Formatter.format(a)} as ${type.carrier}`)
+							}
+							if (ka === undefined) {
+								c.note(
+									type === handles && typeof a === "string"
+										? "none outside the roster"
+										: "none for another carrier"
+								)
+								return
+							}
+							if (kb !== undefined) {
+								assert.equal(ka === kb, equal(a, b, type), label)
+								c.note(ka === kb ? "one identity" : "two identities")
+							}
+						})
+				)
+			)
+	)
 })

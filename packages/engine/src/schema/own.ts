@@ -23,8 +23,7 @@ import {
 	type ConstraintName,
 	FieldId,
 	type IdentityKind,
-	type RelationIdent,
-	type SchemaFingerprint
+	type RelationIdent
 } from "#compiler/core/ids.ts"
 import { handleMaxBytes } from "#compiler/core/limits.ts"
 import { labeledChildLoc, type SourceLoc } from "#compiler/core/loc.ts"
@@ -558,6 +557,12 @@ const canonicalStatement = (s: StatementDesc): StatementDesc => {
 	}
 }
 
+/**
+ * The canonical text of a statement, its canonical form's: equal statements, however written, have one, and a schema
+ * keeps one statement of each (Owner's collectStatements, schema/levels.ts levelContent).
+ */
+export const canonicalStatementText = (s: StatementDesc): string => textOf(canonicalStatement(s))
+
 /** The row's fields an expression references, added to `out`; a variable, value, parameter or literal holds none. */
 const fieldRefs = (expr: ExprDesc, out: Set<string>): Set<string> => {
 	switch (expr.kind) {
@@ -667,6 +672,26 @@ const ownKey = (
 	return { fields: keyFields, primary, named, constraint: identifierOf(named), loc }
 }
 
+/**
+ * The identity at the naming door of a schema's installation under its declared name `name`, declared at `loc`: refused
+ * as MalformedDescription when the name breaks a schema name's rule (core/identity.ts parseSchemaName). A command that
+ * only places a schema's migrations reads it without owning the schema.
+ */
+export const schemaInstallation = (
+	name: string,
+	loc: SourceLoc
+): Result.Result<Identity<"schema">, CompileError> => {
+	const schemaName = parseSchemaName(name)
+	return schemaName.ok
+		? Result.ok(identity.schema(schemaName.value))
+		: Result.err(
+				malformedDescription(
+					loc,
+					`the declared schema name ${JSON.stringify(name)} as ${schemaName.error}`
+				)
+			)
+}
+
 class Owner {
 	readonly #schemaName: string
 	/** The location of the schema the levels end in, the outermost. */
@@ -710,16 +735,7 @@ class Owner {
 			text: s.text,
 			statement: this.#checkStatement(s)
 		}))
-		const schemaLoc = this.#loc
-		const schemaName = parseSchemaName(this.#schemaName)
-		if (!schemaName.ok) {
-			fail(
-				"MalformedDescription",
-				schemaLoc,
-				`the declared schema name ${JSON.stringify(this.#schemaName)} as ${schemaName.error}`
-			)
-		}
-		const installation = identity.schema(schemaName.value)
+		const installation = unwrap(schemaInstallation(this.#schemaName, this.#loc))
 		const relations = this.#ownRelations(statements.map((s) => s.statement))
 		const contracts = this.#ownContracts()
 		const canonical = this.#canonicalDesc()
@@ -995,9 +1011,10 @@ class Owner {
 			if (roster === undefined) {
 				continue
 			}
+			const handles: ReadonlySet<LiteralDesc> = new Set(roster.handles)
 			for (const [i, row] of r.rows.entries()) {
 				const value = row[field]
-				if (value !== undefined && !isHandle(roster, value)) {
+				if (value !== undefined && !handles.has(value)) {
 					fail(
 						"MalformedDescription",
 						labeledChildLoc(entry.desc.loc, field, `row ${i} of ${r.name}, field ${field}`),
@@ -1635,13 +1652,12 @@ export type OwnedWrite =
 	  }
 
 /**
- * The owned role: its canonical description and fingerprint, its base's Owned, its relations by name, its write list
+ * The owned role: its canonical description, its base's Owned, its relations by name, its write list
  * as admitted entries by name in name order, its refresh list in name order, whether it holds every relation of its
  * base whole (a full role, whose base is among its levels), and the contexts its relations read, by name.
  */
 export interface OwnedRole {
 	readonly desc: RoleDesc
-	readonly fingerprint: SchemaFingerprint
 	readonly name: DeclaredName
 	readonly loc: SourceLoc
 	readonly base: Owned
@@ -1801,7 +1817,6 @@ const ownRoleOf = (desc: RoleDesc, base: Owned): OwnedRole => {
 	}
 	return {
 		desc: canonical,
-		fingerprint: unwrap(schemaFingerprint({ content: canonical })),
 		name: roleName,
 		loc: desc.loc,
 		base,
@@ -1832,22 +1847,21 @@ const ownRoleOf = (desc: RoleDesc, base: Owned): OwnedRole => {
 export const ownRole = (desc: RoleDesc): Result.Result<OwnedRole, CompileError> =>
 	Result.flatMap(own(desc.base), (base) => catchRefusal(() => ownRoleOf(desc, base)))
 
-const ownLoginOf = (desc: LoginDesc, base: Owned): OwnedLogin => {
+/**
+ * A login over its owned base and its roles, each owned over that base: the login's name and its roles' are one
+ * namespace of declared names, since each is the PostgreSQL role `<schema>__<name>`, each role's own name kept to the
+ * rule by its ownership.
+ */
+const ownLoginOf = (
+	desc: LoginDesc,
+	base: Owned,
+	ownRoles: () => ReadonlyArray<OwnedRole>
+): OwnedLogin => {
 	const label = `login ${desc.name}`
-	/** The login's and its roles' PostgreSQL roles are `<schema>__<name>`: their names are one namespace of declared
-	 * names, each role's own name kept to the rule by its ownership. */
 	const names = new DeclaredNamespace(`${label}'s and its roles'`)
 	const loginName = declareName(names, desc.name, "login", desc.loc)
-	const roles = desc.roles.map((r) => unwrap(ownRole(r)))
+	const roles = ownRoles()
 	for (const r of roles) {
-		if (r.base.fingerprint !== base.fingerprint || r.base.name !== base.name) {
-			failWith({
-				_tag: "LoginRefused",
-				at: r.loc,
-				login: desc.name,
-				rule: { kind: "roleBase", role: r.name, base: base.name }
-			})
-		}
 		declareName(names, r.name, "role", r.loc)
 	}
 	const sorted = roles.toSorted((a, b) => compareText(a.name, b.name))
@@ -1862,9 +1876,45 @@ const ownLoginOf = (desc: LoginDesc, base: Owned): OwnedLogin => {
 	return { desc: canonical, name: loginName, loc: desc.loc, base, roles: sorted }
 }
 
-/** Owns a login description: its base, then each role. */
+/**
+ * Owns a login description: its base, then each role over its own base, which must be the login's (LoginRefused): a
+ * description from outside the builders, whose roles nothing has held to its base.
+ */
 export const ownLogin = (desc: LoginDesc): Result.Result<OwnedLogin, CompileError> =>
-	Result.flatMap(own(desc.base), (base) => catchRefusal(() => ownLoginOf(desc, base)))
+	Result.flatMap(own(desc.base), (base) =>
+		catchRefusal(() =>
+			ownLoginOf(desc, base, () =>
+				desc.roles.map((d) => {
+					const r = unwrap(ownRole(d))
+					if (r.base.fingerprint !== base.fingerprint || r.base.name !== base.name) {
+						failWith({
+							_tag: "LoginRefused",
+							at: r.loc,
+							login: desc.name,
+							rule: { kind: "roleBase", role: r.name, base: base.name }
+						})
+					}
+					return r
+				})
+			)
+		)
+	)
+
+/**
+ * Owns the description of a login login(...) built over `base`, its base owned: login(...) held each of its roles to
+ * that base, so each role is owned over it, and the base is owned once for the login and all its roles.
+ */
+export const ownBuiltLogin = (
+	desc: LoginDesc,
+	base: Owned
+): Result.Result<OwnedLogin, CompileError> =>
+	catchRefusal(() => ownLoginOf(desc, base, () => desc.roles.map((r) => ownRoleOf(r, base))))
+
+/**
+ * Owns the description of a role role(...) built over `base`, its base owned: role(...) built it over that base.
+ */
+export const ownBuiltRole = (desc: RoleDesc, base: Owned): Result.Result<OwnedRole, CompileError> =>
+	catchRefusal(() => ownRoleOf(desc, base))
 
 /**
  * The description of the full role `name` over a schema description: every relation of every level whole, writing its

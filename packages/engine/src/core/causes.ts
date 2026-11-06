@@ -1,3 +1,5 @@
+import type { LawId } from "#compiler/core/ids.ts"
+
 /** The list of a recursive definition an arm belongs to. */
 export type RecursionArm = "base" | "rec"
 
@@ -113,7 +115,8 @@ export type RecursionRefusal =
  *
  * - `columns`: more fields than PostgreSQL admits in one index, `limit` (INDEX_MAX_KEYS).
  * - `unboundedText`: a text field whose pattern proves no byte bound, the one datum with no bound.
- * - `btreeEntry`: an entry that can reach `bytes`, above the B-tree limit `limit` (BTMaxItemSize).
+ * - `btreeEntry`: an entry that can reach `bytes`, above the B-tree limit `limit` (BTMaxItemSize), and the bytes each of
+ *   its columns' datums is counted at, in index order: a text's is the byte bound its pattern and contract prove.
  * - `spans`: more than one span field, which no native lowering serves.
  * - `gistEntry`: a span key's GiST entry that can reach `bytes`, above the limit `limit` of a GiST page.
  * - `gistOperatorClass`: a span key's scalar field with no btree_gist operator class.
@@ -123,7 +126,12 @@ export type RecursionRefusal =
 export type KeyFault =
 	| { readonly kind: "columns"; readonly limit: number }
 	| { readonly kind: "unboundedText"; readonly field: string }
-	| { readonly kind: "btreeEntry"; readonly bytes: number; readonly limit: number }
+	| {
+			readonly kind: "btreeEntry"
+			readonly bytes: number
+			readonly limit: number
+			readonly datums: ReadonlyArray<{ readonly field: string; readonly bytes: number }>
+	  }
 	| { readonly kind: "spans"; readonly fields: Names }
 	| { readonly kind: "gistEntry"; readonly bytes: number; readonly limit: number }
 	| { readonly kind: "gistOperatorClass"; readonly field: string }
@@ -327,9 +335,9 @@ export const keyFaultText = (name: string, key: ReadonlyArray<string>, fault: Ke
 		case "columns":
 			return `${name}: it has ${key.length} fields, above PostgreSQL's limit of ${fault.limit} columns in one index (INDEX_MAX_KEYS)`
 		case "unboundedText":
-			return `${name}: field ${fault.field} is text whose pattern proves no byte bound; a bounded anchored pattern or a charLength contract does`
+			return `${name}: field ${fault.field} is text whose pattern proves no byte bound; a bounded anchored pattern, or a contract bounding its charLength or octetLength, does`
 		case "btreeEntry":
-			return `${name}: its B-tree entry can reach ${fault.bytes} bytes, above PostgreSQL's ${fault.limit}-byte limit`
+			return `${name}: its B-tree entry can reach ${fault.bytes} bytes, above PostgreSQL's ${fault.limit}-byte limit (${fault.datums.map((d) => `${d.field} ${d.bytes} bytes`).join(", ")})`
 		case "spans":
 			return `${name}: a key with more than one span field (${fault.fields.join(", ")}) has no native lowering`
 		case "gistEntry":
@@ -498,3 +506,94 @@ export const generatedRuleText = (rule: GeneratedRule): string => {
 /** A claim rule's sentence. */
 export const claimRuleText = (rule: ClaimRule): string =>
 	`a claim of text, uuid, boolean, an integer type, a contract over one, or a closed handle; field ${rule.field} is none`
+
+/** A family as a refusal names it: its owner and its count, fin(owner, count). */
+export interface FamilyName {
+	readonly owner: string
+	readonly count: string
+}
+
+/** fin(O, n), as a refusal spells a family. */
+const familyNameText = (f: FamilyName): string => `${f.owner}.${f.count}`
+
+/**
+ * Where an UnfillableField's column reads its source: along a family's owner axis (its owner's column), its predecessor
+ * axis (the member before it), its last axis (its owner's last member's), or its own row (a fold's step value or
+ * selection, or a tree root's copy of itself).
+ */
+export type FillAxis = "owner" | "predecessor" | "last" | "row"
+
+/**
+ * Why a column's source is filled only after the column, so no write can fill the column (ir/fill.ts):
+ * - `afterMembers`: its owner fills the source only after its members: a fold's end, a copy along a last axis, or a
+ *   column read from one;
+ * - `countedFill`: the counted family `family` fills the source on its own, after the nested write that writes the row
+ *   and apart from every other family, so only that family's own members and ends may read it;
+ * - `cycle`: the source reads the column back through its row's own columns, so no order fills either;
+ * - `unreached`: no fill that writes the column writes the source: a column of another family the row belongs to.
+ */
+export type FilledLater =
+	| { readonly kind: "afterMembers" }
+	| { readonly kind: "countedFill"; readonly family: FamilyName }
+	| { readonly kind: "cycle" }
+	| { readonly kind: "unreached" }
+
+/** Why a column's source is filled after it, as its refusal's clause. */
+const filledLaterText = (later: FilledLater): string => {
+	switch (later.kind) {
+		case "afterMembers":
+			return "a column its owner fills only after its members, a fold's end, a copy along a last axis or one read from them: copy a column the owner fills before its members"
+		case "countedFill":
+			return `a column the counted family ${familyNameText(later.family)} fills on its own, after the nested write and apart from every other family's fill: read it only from that family's own members and ends`
+		case "cycle":
+			return "a column that reads it back through the row's own columns, so no order fills either"
+		case "unreached":
+			return "a column no fill that writes it reaches, another family's: read a column of this family or of the row's caller"
+	}
+}
+
+/** An UnfillableField's sentence: the column, the source it reads along its axis of its family, and why it is later. */
+export const unfillableText = (fill: {
+	readonly relation: string
+	readonly field: string
+	readonly law: LawId
+	readonly axis: FillAxis
+	readonly family: FamilyName
+	readonly source: { readonly relation: string; readonly column: string }
+	readonly later: FilledLater
+}): string =>
+	`${fill.relation}.${fill.field}, filled by law ${fill.law}, reads ${fill.source.relation}'s ${fill.source.column} ${fill.axis === "row" ? "on its own row" : `along the ${fill.axis} axis`} of ${familyNameText(fill.family)}, ${filledLaterText(fill.later)}`
+
+/**
+ * Why no write fills a relation's rows (ir/fill.ts):
+ * - `countedAndSequence`: it is a member of the counted family `counted` and, by `role`, a member of the sequence
+ *   `sequence` (a member's tree included) or its owner: a sequence's members are written nested under their owner, and
+ *   a counted family's are rows of their own, so neither write fills the other's columns;
+ * - `nestingCycle`: the sequences `families` nest each other in a cycle, an ordered family over its own relation among
+ *   them, so every row of the cycle is nested under another and none is written first;
+ * - `generatedKey`: a unique object of the law `law` reads `field`, which PostgreSQL generates and no fact carries, so
+ *   no addition's same-key check or probe can meet it.
+ */
+export type UnwritableCause =
+	| {
+			readonly kind: "countedAndSequence"
+			readonly counted: FamilyName
+			readonly sequence: FamilyName
+			readonly role: "member" | "owner"
+	  }
+	| { readonly kind: "nestingCycle"; readonly families: ReadonlyArray<FamilyName> }
+	| { readonly kind: "generatedKey"; readonly law: LawId; readonly field: string }
+
+/** An UnwritableRelation's sentence. */
+export const unwritableRelationText = (relation: string, cause: UnwritableCause): string => {
+	switch (cause.kind) {
+		case "countedAndSequence":
+			return cause.role === "member"
+				? `no write fills ${relation}: a member of the counted family ${familyNameText(cause.counted)} is a member of no sequence or tree, and it is one of ${familyNameText(cause.sequence)}, whose members are written nested under their owner, where no counted family's fill reaches`
+				: `no write fills ${relation}: a member of the counted family ${familyNameText(cause.counted)} owns no sequence, and it owns ${familyNameText(cause.sequence)}, whose members are written nested under its rows, which a counted member's fill does not reach`
+		case "nestingCycle":
+			return `no write fills ${relation}: the sequences ${cause.families.map(familyNameText).join(", ")} nest each other in a cycle, so every row of them is nested under another and none is written first`
+		case "generatedKey":
+			return `no addition to ${relation} compiles: the unique object of law ${cause.law} reads ${cause.field}, which PostgreSQL generates and no fact carries, so no same-key check or probe meets it; key fields its caller writes`
+	}
+}

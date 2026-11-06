@@ -5,6 +5,7 @@ import { hasProperties, isList } from "#compiler/core/record.ts"
 import type * as Result from "#compiler/core/result.ts"
 import { isValidText } from "#compiler/core/text.ts"
 import {
+	type ContentDigest,
 	type ContextDesc,
 	decodeDesc,
 	type FieldDesc,
@@ -18,6 +19,7 @@ import {
 import type { OpenExpr } from "#compiler/ir/open.ts"
 import { registerPredicate } from "#compiler/scalar/compute/term.ts"
 import { type Described, describeField } from "#compiler/scalar/registry.ts"
+import type { SchemaContent } from "#compiler/schema/levels.ts"
 import type {
 	ClosedRelationDesc,
 	DerivedDraft,
@@ -25,7 +27,7 @@ import type {
 	RosterDesc
 } from "#compiler/schema/relation.ts"
 import type { ExpansionDesc, SelectedDesc } from "#compiler/schema/statements.ts"
-import type { WorldDraft } from "#compiler/schema/world.ts"
+import type { RoleLevel, WorldDraft } from "#compiler/schema/world.ts"
 import type { AnyDerived } from "#compiler/types/derived/derived.ts"
 import type { AnyClosedRelation, AnyRelation, AnyRoster } from "#compiler/types/schema/relation.ts"
 import type { AnySchema } from "#compiler/types/schema/schema.ts"
@@ -189,30 +191,69 @@ export const querySchemaOf = (value: unknown): object | undefined =>
 	hasProperties(value) ? querySchemas.get(value) : undefined
 
 /**
- * Each kind of owned value: the value a builder returns, at the widest of its public type, and the Description it
- * carries. A mirrors is sugar, owned as an expansion, the two containments it states, never as a
- * statement.
+ * Each kind of owned value: the value a builder returns, at the widest of its public type, the Description it carries,
+ * and the content it was built with, read once at its build: a relation's content digest, a schema's content
+ * (levels.ts SchemaContent), a role's level (world.ts RoleLevel), and nothing for any other kind. A mirrors is sugar,
+ * owned as an expansion, the two containments it states, never as a statement.
  */
 interface OwnedKinds {
-	readonly relation: { readonly value: AnyRelation; readonly desc: OrdinaryRelationDesc }
-	readonly closed: { readonly value: AnyRoster; readonly desc: RosterDesc }
-	readonly closedRelation: { readonly value: AnyClosedRelation; readonly desc: ClosedRelationDesc }
-	readonly derived: { readonly value: AnyDerived; readonly desc: DerivedDraft }
+	readonly relation: {
+		readonly value: AnyRelation
+		readonly desc: OrdinaryRelationDesc
+		readonly content: ContentDigest
+	}
+	readonly closed: {
+		readonly value: AnyRoster
+		readonly desc: RosterDesc
+		readonly content: ContentDigest
+	}
+	readonly closedRelation: {
+		readonly value: AnyClosedRelation
+		readonly desc: ClosedRelationDesc
+		readonly content: ContentDigest
+	}
+	readonly derived: {
+		readonly value: AnyDerived
+		readonly desc: DerivedDraft
+		readonly content: ContentDigest
+	}
 	readonly statement: {
 		readonly value: Exclude<Statement, MirrorsBase>
 		readonly desc: StatementDesc
+		readonly content: undefined
 	}
 	readonly expansion: {
 		readonly value: MirrorsBase
 		readonly desc: ExpansionDesc
+		readonly content: undefined
 	}
-	readonly side: { readonly value: AnySide; readonly desc: SideDesc }
-	readonly selection: { readonly value: Selection<unknown>; readonly desc: SelectedDesc }
-	readonly schema: { readonly value: AnySchema; readonly desc: SchemaDesc }
-	readonly context: { readonly value: AnyContext; readonly desc: ContextDesc }
-	readonly world: { readonly value: AnyWorld; readonly desc: WorldDraft }
-	readonly role: { readonly value: AnyRole; readonly desc: RoleDesc }
-	readonly login: { readonly value: AnyLogin; readonly desc: LoginDesc }
+	readonly side: { readonly value: AnySide; readonly desc: SideDesc; readonly content: undefined }
+	readonly selection: {
+		readonly value: Selection<unknown>
+		readonly desc: SelectedDesc
+		readonly content: undefined
+	}
+	readonly schema: {
+		readonly value: AnySchema
+		readonly desc: SchemaDesc
+		readonly content: SchemaContent
+	}
+	readonly context: {
+		readonly value: AnyContext
+		readonly desc: ContextDesc
+		readonly content: undefined
+	}
+	readonly world: {
+		readonly value: AnyWorld
+		readonly desc: WorldDraft
+		readonly content: undefined
+	}
+	readonly role: { readonly value: AnyRole; readonly desc: RoleDesc; readonly content: RoleLevel }
+	readonly login: {
+		readonly value: AnyLogin
+		readonly desc: LoginDesc
+		readonly content: undefined
+	}
 }
 
 export type OwnedKind = keyof OwnedKinds
@@ -236,6 +277,7 @@ const ownedKinds: ReadonlyArray<OwnedKind> = [
 interface OwnedEntry<K extends OwnedKind> {
 	readonly value: OwnedKinds[K]["value"]
 	readonly desc: OwnedKinds[K]["desc"]
+	readonly content: OwnedKinds[K]["content"]
 }
 
 /**
@@ -259,13 +301,14 @@ const owned: { readonly [K in OwnedKind]: WeakMap<object, OwnedEntry<K>> } = {
 }
 
 /**
- * Defines `value`'s Description as a non-enumerable `desc`, freezes it, registers it as an owned value of `kind`, and
- * returns it. Freezing leaves every member non-writable and non-configurable.
+ * Defines `value`'s Description as a non-enumerable `desc`, freezes it, registers it as an owned value of `kind` with
+ * the content it was built with, and returns it. Freezing leaves every member non-writable and non-configurable.
  */
 export const ownValue = <K extends OwnedKind, V extends OwnedKinds[K]["value"]>(
 	value: V,
 	kind: K,
-	desc: OwnedKinds[K]["desc"]
+	desc: OwnedKinds[K]["desc"],
+	content: OwnedKinds[K]["content"]
 ): V => {
 	Object.defineProperty(value, "desc", {
 		value: desc,
@@ -274,7 +317,7 @@ export const ownValue = <K extends OwnedKind, V extends OwnedKinds[K]["value"]>(
 		configurable: false
 	})
 	Object.freeze(value)
-	const entry: OwnedEntry<K> = { value, desc }
+	const entry: OwnedEntry<K> = { value, desc, content }
 	owned[kind].set(value, entry)
 	return value
 }

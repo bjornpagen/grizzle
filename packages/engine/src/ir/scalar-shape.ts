@@ -60,6 +60,7 @@ import {
 	numericMinScale,
 	type NumericTypmod,
 	numericTypmodOf,
+	type RegexCheck,
 	type RegexRef,
 	RegexKey,
 	type Roster,
@@ -68,7 +69,9 @@ import {
 	type SpanCarrier,
 	type SpanInfo,
 	spanOf,
+	type TextBounds,
 	type TextInfo,
+	type TextLanguage,
 	textOf,
 	type VectorTypmod,
 	vectorTypmodOf
@@ -142,10 +145,30 @@ const typmodShape: S.Shape<WireTypmod> = S.structStated(
 	{}
 )
 
+const textBoundsShape: S.Shape<TextBounds> = S.struct({
+	length: S.nonNegativeInteger,
+	bytes: S.nonNegativeInteger
+})
+
+/** A language's enforcement as the text analysis chose it (ir/scalar.ts RegexCheck). */
+const regexCheckShape: S.Shape<RegexCheck> = S.tagged("kind", {
+	finite: S.struct({ members: S.nonEmptyArray(S.string), bounds: textBoundsShape }),
+	regex: S.structStated({ pattern: S.string }, { bounds: textBoundsShape }, {})
+})
+
+const regexKeyShape = S.branded(RegexKey, S.nonEmptyString)
+
 const regexRefShape: S.Shape<RegexRef> = S.struct({
 	source: S.string,
 	flags: S.literalsShape(["u", "su"]),
-	key: S.branded(RegexKey, S.nonEmptyString)
+	key: regexKeyShape,
+	check: regexCheckShape
+})
+
+/** A text descriptor's analyzed language (ir/scalar.ts TextLanguage), as the text analysis minted it. */
+export const textLanguageShape: S.Shape<TextLanguage> = S.tagged("kind", {
+	every: S.struct({}),
+	refined: S.struct({ key: regexKeyShape, check: regexCheckShape })
 })
 
 const regexShape = S.unionShape(S.literalsShape(["wildcard"]), regexRefShape)

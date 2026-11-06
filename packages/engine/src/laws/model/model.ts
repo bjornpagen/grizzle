@@ -73,7 +73,12 @@ import {
 	Recognizer
 } from "#compiler/laws/model/plan.ts"
 import { rowColumn, wideRow } from "#compiler/laws/model/rows.ts"
-import { type RelationLaws, relationLaws } from "#compiler/laws/model/uniques.ts"
+import {
+	beyondPrimary,
+	readFields,
+	type RelationLaws,
+	relationLaws
+} from "#compiler/laws/model/uniques.ts"
 import {
 	type ClosedRelations,
 	type LeafDesc,
@@ -880,9 +885,35 @@ class Specializer {
 			identities: [...this.theory.laws.map((law) => law.named), ...this.#minted],
 			immediate,
 			migrationLaws: plans.flatMap((plan) => (plan.discharge === "migration" ? [plan.law.id] : [])),
-			relations: relationLaws(keyed, natives),
+			relations: this.#refuseGeneratedKeys(relationLaws(keyed, natives)),
 			checked: this.checked
 		}
+	}
+
+	/**
+	 * Refuses a relation no addition to compiles: one whose primary key, or a unique object an addition meets beyond it
+	 * (uniques.ts beyondPrimary), reads a field PostgreSQL generates, which no fact carries, so neither the host's
+	 * same-key check nor a statement's probe can meet the object.
+	 */
+	#refuseGeneratedKeys(
+		relations: ReadonlyMap<string, RelationLaws>
+	): ReadonlyMap<string, RelationLaws> {
+		for (const laws of relations.values()) {
+			for (const u of [laws.uniques.primary, ...beyondPrimary(laws)]) {
+				const generated = readFields(u).find((f) => f.writing.kind === "generated")
+				if (generated !== undefined) {
+					throw new Refusal(
+						CompileError.make({
+							_tag: "UnwritableRelation",
+							at: this.#lawOf(u.law).loc,
+							relation: laws.relation.name,
+							cause: { kind: "generatedKey", law: u.law, field: generated.name }
+						})
+					)
+				}
+			}
+		}
+		return relations
 	}
 
 	/**

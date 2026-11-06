@@ -1155,6 +1155,7 @@ const workloadKept: ReadonlyArray<Kept<CaseSketch, ServingFeature | WorkloadFeat
 							link: 19768,
 							handle: 1885,
 							delivery: 65514,
+							take: { rotate: 0, dirs: [0, 0, 0], size: 0 },
 							rule: {
 								matches: [
 									{
@@ -1261,6 +1262,7 @@ const workloadKept: ReadonlyArray<Kept<CaseSketch, ServingFeature | WorkloadFeat
 								link: 65487,
 								handle: 1,
 								delivery: 54551,
+								take: { rotate: 0, dirs: [0, 0, 0], size: 0 },
 								rule: {
 									matches: [
 										{

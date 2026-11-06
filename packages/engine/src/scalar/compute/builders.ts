@@ -1026,6 +1026,7 @@ const checks = Object.freeze({
 	upper: spanPart("upper"),
 	width: spanPart("width"),
 	charLength: unary("charLength"),
+	octetLength: unary("octetLength"),
 	concat: binary("concat", "literal"),
 	startsWith: binary("startsWith", "literal"),
 	endsWith: binary("endsWith", "literal"),
@@ -1084,7 +1085,7 @@ interface OfSql<S extends SqlTag> {
  * mistake the TypeScript signatures already forbid, such as a contract meeting its bare base or a JavaScript number as
  * a numeric literal, throws CompileError MalformedDescription from a JavaScript caller; an operation PostgreSQL does
  * not define over the operand types, such as % over double precision, throws UnsupportedOperation with the missing
- * capability. The ContractLiteral check, and the refusal of charLength in a query, are compilation's.
+ * capability. The ContractLiteral check, and the refusal of charLength and octetLength in a query, are compilation's.
  *
  * Literal operands are recorded as the host value of the base of the term they meet (scalar/registry.ts literalDescFor), so a
  * JavaScript number is refused where a numeric literal is required and an exact decimal string is parsed
@@ -1170,6 +1171,7 @@ export const compute = Object.freeze({
 	width: <S extends EndpointSql>(s: unknown, endpoint: OfSql<S>) =>
 		plain(checks.width(s, endpoint, []), "exact integer"),
 	charLength: (s: unknown) => plain(checks.charLength(s, []), "integer"),
+	octetLength: (s: unknown) => plain(checks.octetLength(s, []), "integer"),
 	concat: (a: unknown, b: unknown) => plain(checks.concat(a, b), "text"),
 	startsWith: (a: unknown, b: unknown) => plain(checks.startsWith(a, b), "boolean"),
 	endsWith: (a: unknown, b: unknown) => plain(checks.endsWith(a, b), "boolean"),
@@ -1291,6 +1293,8 @@ export const computeCore = Object.freeze({
 		plainBy(checks.width(s, endpoint, extra)),
 	charLength: (s: unknown, ...extra: ReadonlyArray<unknown>) =>
 		plainBy(checks.charLength(s, extra)),
+	octetLength: (s: unknown, ...extra: ReadonlyArray<unknown>) =>
+		plainBy(checks.octetLength(s, extra)),
 	concat: (a: unknown, b: unknown) => plainBy(checks.concat(a, b)),
 	startsWith: (a: unknown, b: unknown) => plainBy(checks.startsWith(a, b)),
 	endsWith: (a: unknown, b: unknown) => plainBy(checks.endsWith(a, b)),

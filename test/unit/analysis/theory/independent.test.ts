@@ -23,13 +23,14 @@ import {
 } from "#test/unit/analysis/theory/support.ts"
 
 /**
- * Families stay independent (rows-first §1, §5): a relation is a member of any number of counted families and of at
- * most one sequence, and each family the theory resolves is its own Family, with its own axes and its own law columns,
- * named by its own identity (owner and count, and fold and plane). Two counted families on one member, under one owner
- * or two, by one group field or two, with or without a fold each and a sequence beside them, resolve to disjoint
- * families; and each family's law is violated exactly when its own family is, whatever the other's state. The oracle
- * is the statements read as the specification of the families they state, and for the laws each family's theorem
- * checked on its own.
+ * Families stay independent (rows-first §1, §5): a relation is a member of any number of counted families, and each
+ * family the theory resolves is its own Family, with its own axes and its own law columns, named by its own identity
+ * (owner and count, and fold and plane). Two counted families on one member, under one owner or two, by one group
+ * field or two, with or without a fold each and a sequence of another relation beside them, resolve to disjoint
+ * families; and each family's law is violated exactly when its own family is, whatever the other's state. A counted
+ * family's member is no sequence's member (analysis/theory/fill.ts), so the sequence beside them orders L, not G. The
+ * oracle is the statements read as the specification of the families they state, and for the laws each family's
+ * theorem checked on its own.
  */
 
 /** A box configuration: the owners the two counted families have, their group fields, a fold each, a sequence. */
@@ -57,7 +58,7 @@ const groupsOf = (s: Shape): readonly [string, string] =>
 
 /**
  * G counted twice, as counted(on(G, g1), fin(A, n)) and counted(on(G, g2), fin(B, m)), each with a sum fold of G's x
- * into its owner's t1 or t2 when the shape folds, and beside them ordered(on(G, s, at), fin(S, k)) when it has a
+ * into its owner's t1 or t2 when the shape folds, and beside them ordered(on(L, s, at), fin(S, k)) when it has a
  * sequence.
  */
 const schemaFor = (s: Shape): SchemaDesc => {
@@ -85,19 +86,13 @@ const schemaFor = (s: Shape): SchemaDesc => {
 	return schemaOf(
 		[
 			...owners,
-			...(s.sequence ? [relation("S", { id: f.uuid, k: drawnNatural }, ["id"])] : []),
-			relation(
-				"G",
-				{
-					gid: f.uuid,
-					o1: f.uuid,
-					o2: f.uuid,
-					s: f.uuid,
-					x: natural,
-					...(s.sequence ? { at: drawnNatural } : {})
-				},
-				["gid"]
-			)
+			...(s.sequence
+				? [
+						relation("S", { id: f.uuid, k: drawnNatural }, ["id"]),
+						relation("L", { id: f.uuid, s: f.uuid, at: drawnNatural }, ["id"])
+					]
+				: []),
+			relation("G", { gid: f.uuid, o1: f.uuid, o2: f.uuid, x: natural }, ["gid"])
 		],
 		[
 			{ kind: "family", order: "counted", member: on("G", [g1]), slots: { owner: a, count: "n" } },
@@ -125,7 +120,7 @@ const schemaFor = (s: Shape): SchemaDesc => {
 						{
 							kind: "family" as const,
 							order: "ordered" as const,
-							member: on("G", ["s", "at"]),
+							member: on("L", ["s", "at"]),
 							slots: { owner: "S", count: "k" }
 						}
 					]
@@ -190,7 +185,7 @@ describe("independent families (rows-first §5)", () => {
 						generator: shape,
 						literal: Formatter.format,
 						limit: 16,
-						box: "two counted families on G under one owner or two, by one group field or two, with a sum fold each or none, and an ordered family of G beside them or none",
+						box: "two counted families on G under one owner or two, by one group field or two, with a sum fold each or none, and an ordered family of L beside them or none",
 						oracle: {
 							kind: "specification",
 							name: "rows-first §1 and §5: each family its own, by its identity"
@@ -357,8 +352,11 @@ describe("independent families (rows-first §5)", () => {
 									gid: uuidOf(100 + i),
 									o1: m.first ? owner : orphan,
 									o2: m.second ? owner : orphan,
+									x: 0n
+								})),
+								L: Arr.map(s.members, (_, i) => ({
+									id: uuidOf(200 + i),
 									s: uuidOf(2),
-									x: 0n,
 									at: BigInt(i)
 								}))
 							}

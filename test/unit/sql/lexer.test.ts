@@ -343,52 +343,100 @@ const commentText = string(element(["a", " ", "'", '"', "$$", "NULL", "-", "é"]
 	max: 4
 })
 
+/** What a separator is: whitespace, a line comment and what ends it, or a block comment, nested or not. */
+type SeparatorKind =
+	| "whitespace"
+	| "a line comment ended by a line feed"
+	| "a line comment ended by a lone carriage return"
+	| "a block comment"
+	| "a nested block comment"
+
+interface Separator {
+	readonly text: string
+	readonly kind: SeparatorKind
+}
+
 /**
  * What separates two tokens: whitespace, or a comment between whitespace, so no two tokens run together. A line
  * comment ends at a line feed or at a lone carriage return (scan.l), and the token after it is read; a block comment
  * nests up to two deep.
  */
-const separator: Gen<string> = oneOf([
-	string(element([" ", "\t", "\n", "\r", "\f", "\v"] as const), { min: 1, max: 3 }),
+const separator: Gen<Separator> = oneOf<Separator>([
 	map(
-		(s) => [s.draw(commentText), s.draw(element(["\n", "\r", "\r\n"] as const))] as const,
-		([text, end]) => ` --${text}${end}`
+		string(element([" ", "\t", "\n", "\r", "\f", "\v"] as const), { min: 1, max: 3 }),
+		(text): Separator => ({ text, kind: "whitespace" })
+	),
+	map(
+		(s) => [s.draw(commentText), s.draw(element(["\n", "\r\n", "\r"] as const))] as const,
+		([text, end]): Separator => ({
+			text: ` --${text}${end}`,
+			kind:
+				end === "\r"
+					? "a line comment ended by a lone carriage return"
+					: "a line comment ended by a line feed"
+		})
 	),
 	map(
 		(s) => [s.draw(commentText), s.draw(commentText), s.draw(int(0, 2))] as const,
-		([outer, inner, depth]) =>
-			` /*${outer}${Str.repeat(depth)("/*")}${inner}${Str.repeat(depth)("*/")}${outer}*/ `
+		([outer, inner, depth]): Separator => ({
+			text: ` /*${outer}${Str.repeat(depth)("/*")}${inner}${Str.repeat(depth)("*/")}${outer}*/ `,
+			kind: depth === 0 ? "a block comment" : "a nested block comment"
+		})
 	)
 ])
 
+/** A token sequence: its first token, then each further token after the separator before it. */
 interface Sequence {
-	readonly tokens: Arr.NonEmptyReadonlyArray<Rendered>
-	readonly separators: ReadonlyArray<string>
+	readonly first: Rendered
+	readonly rest: ReadonlyArray<{ readonly separator: Separator; readonly token: Rendered }>
 }
 
 const sequenceGen: Gen<Sequence> = (source) => ({
-	tokens: [source.draw(tokenGen), ...source.draw(array(tokenGen, { min: 0, max: 12 }))],
-	separators: source.draw(array(separator, { min: 13, max: 13 }))
+	first: source.draw(tokenGen),
+	rest: source.draw(
+		array((step) => ({ separator: step.draw(separator), token: step.draw(tokenGen) }), {
+			min: 0,
+			max: 12
+		})
+	)
 })
 
-const isString = (t: Rendered | undefined): boolean =>
-	t?.kind === "string" || t?.kind === "prefixed string" || t?.kind === "escape string"
+const tokensOf = (s: Sequence): Arr.NonEmptyReadonlyArray<Rendered> => [
+	s.first,
+	...Arr.map(s.rest, (step) => step.token)
+]
+
+const isString = (t: Rendered): boolean =>
+	t.kind === "string" || t.kind === "prefixed string" || t.kind === "escape string"
 
 /**
- * The text of a sequence and the offset each token starts at. Two strings are separated by a space alone: whitespace
- * holding a newline between two string constants continues the first (scan.l), which the boundary box holds.
+ * The text of a sequence, the offset each token starts at, and the kinds of the separators written. Two strings are
+ * separated by a space alone: whitespace holding a newline between two string constants continues the first (scan.l),
+ * which the boundary box holds.
  */
-const render = (s: Sequence): { readonly text: string; readonly starts: ReadonlyArray<number> } => {
-	let text = ""
-	const starts: Array<number> = []
-	for (const [i, t] of s.tokens.entries()) {
-		if (i > 0) {
-			text += isString(s.tokens[i - 1]) && isString(t) ? " " : (s.separators[i - 1] ?? " ")
+const render = (
+	s: Sequence
+): {
+	readonly text: string
+	readonly starts: ReadonlyArray<number>
+	readonly separators: ReadonlyArray<SeparatorKind>
+} => {
+	let text = s.first.text
+	let previous = s.first
+	const starts: Array<number> = [0]
+	const separators: Array<SeparatorKind> = []
+	for (const { separator: between, token } of s.rest) {
+		if (isString(previous) && isString(token)) {
+			text += " "
+		} else {
+			text += between.text
+			separators.push(between.kind)
 		}
 		starts.push(text.length)
-		text += t.text
+		text += token.text
+		previous = token
 	}
-	return { text, starts }
+	return { text, starts, separators }
 }
 
 /**
@@ -467,20 +515,18 @@ const boundaryAtoms: Arr.NonEmptyReadonlyArray<string> = [
 
 type BoundaryFeature = "a token" | "two tokens" | "an error" | "a continued string"
 
-/** What a text the boxes lex reached: how many tokens the scanner reads, its error, and a string continued across lines. */
+/**
+ * What a text the boxes lex reached: how many tokens the scanner reads, its error, and two quoted segments across a
+ * newline read as one string constant.
+ */
 const boundaryFeatures = (text: string): ReadonlyArray<BoundaryFeature> => {
 	const read = scan(text)
+	const [only, ...others] = read.tokens
 	return [
 		...(read.tokens.length === 1 ? ["a token" as const] : []),
 		...(read.tokens.length > 1 ? ["two tokens" as const] : []),
 		...(read.error === undefined ? [] : ["an error" as const]),
-		...(Arr.some(
-			read.tokens,
-			(t) =>
-				t.kind === "string" &&
-				Str.includes("\n")(Str.slice(t.start)(text)) &&
-				read.tokens.length === 1
-		)
+		...(only?.kind === "string" && others.length === 0 && Str.includes("'\n'")(text)
 			? ["a continued string" as const]
 			: [])
 	]
@@ -564,7 +610,7 @@ describe("lex", () => {
 							kind: "second-implementation",
 							name: "scan.l's rules, transcribed apart, and the tokens the sequence was rendered from"
 						},
-						coverage: required<RenderedKind | "a line comment ended by a lone carriage return">(
+						coverage: required<RenderedKind | SeparatorKind>(
 							[
 								"word",
 								"quotedIdent",
@@ -577,7 +623,11 @@ describe("lex", () => {
 								"non-decimal number",
 								"operator",
 								"punct",
-								"a line comment ended by a lone carriage return"
+								"whitespace",
+								"a line comment ended by a line feed",
+								"a line comment ended by a lone carriage return",
+								"a block comment",
+								"a nested block comment"
 							],
 							{ cases: 400, sense: notesOnly }
 						),
@@ -590,21 +640,20 @@ describe("lex", () => {
 					},
 					(s, c) =>
 						Effect.sync(() => {
-							const { text, starts } = render(s)
-							if (Str.includes("\r")(text) && !Str.includes("\r\n")(text)) {
-								c.note("a line comment ended by a lone carriage return")
-							}
+							const { text, starts, separators } = render(s)
+							c.noteAll(separators)
 							asScanned(text)
 							const lexed = lex(text)
 							assert.equal(lexed.error, undefined, text)
+							const tokens = tokensOf(s)
 							assert.deepEqual(
 								Arr.map(lexed.tokens, shape),
-								Arr.flatMap(s.tokens, (token) => token.expected),
+								Arr.flatMap(tokens, (token) => token.expected),
 								text
 							)
 							/** Each rendered token begins where its first lexed token starts. */
 							let at = 0
-							for (const [i, token] of s.tokens.entries()) {
+							for (const [i, token] of tokens.entries()) {
 								assert.equal(lexed.tokens[at]?.start, starts[i], `${token.kind} in ${text}`)
 								at += token.expected.length
 								c.note(token.kind)

@@ -667,7 +667,7 @@ layer(NodeServices.layer, { excludeTestServices: true })(
 							x.declared,
 							x.ident,
 							x.directory,
-							Arr.some(x.workloads, (w) => w.workloads.length > 0)
+							Arr.some(x.logins, (l) => l.login.workload.length > 0)
 						]),
 						[
 							[

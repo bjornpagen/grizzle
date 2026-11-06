@@ -1,4 +1,5 @@
 import type { CheckedSchema } from "#compiler/analysis/schema.ts"
+import { appendAll } from "#compiler/core/array.ts"
 import { Refusal } from "#compiler/core/canonical.ts"
 import { resourceBound } from "#compiler/core/errors.ts"
 import {
@@ -29,9 +30,14 @@ import {
 } from "#compiler/physical/obligations/graph.ts"
 import { vectorExtension } from "#compiler/physical/vector/storage.ts"
 import type { Owned, OwnedLogin } from "#compiler/schema/own.ts"
-import type { FunctionName, ObjectName, SqlStatement, TypeRef } from "#compiler/sql/ast.ts"
+import type { Expr, FunctionName, ObjectName, SqlStatement, TypeRef } from "#compiler/sql/ast.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
-import { type AstHooks, identityHooks, transformStatement } from "#compiler/sql/transform.ts"
+import {
+	type AstHooks,
+	identityHooks,
+	transformExpr,
+	transformStatement
+} from "#compiler/sql/transform.ts"
 import { refusalFunctionDdl } from "#compiler/write/refusal.ts"
 
 export interface InstallSettings {
@@ -117,6 +123,38 @@ const lawColumnFields = (
 	return out
 }
 
+/**
+ * An object of the installation that evaluating a statement can run: a constant, a function of no argument whose body
+ * runs where it is called, or a domain, whose base type and CHECKs run wherever a value is written or cast into it.
+ */
+type Evaluated =
+	| { readonly kind: "constant"; readonly identifier: string }
+	| { readonly kind: "domain"; readonly identifier: string }
+
+/**
+ * What a role's statements evaluate of the installation, before any reachability: the statements of the objects they
+ * run (the tables it writes, its views), the predicates its policies hold, the domains it names in its own statements
+ * and the constants it calls in them.
+ */
+export interface EvaluationRoots {
+	readonly statements: ReadonlyArray<SqlStatement>
+	readonly predicates: ReadonlyArray<Expr>
+	readonly domains: ReadonlyArray<string>
+	readonly constants: ReadonlyArray<string>
+}
+
+/**
+ * The installed table a statement creates or changes the rows' evaluation of: a CREATE TABLE's columns, defaults,
+ * generated columns and constraints, an ALTER TABLE's added columns and constraints, and a CREATE INDEX's expressions
+ * and predicate, which every write of the table evaluates. Any other statement's evaluation is no write's.
+ */
+const evaluatedTable = (statement: SqlStatement): ObjectName | undefined =>
+	statement.kind === "createTable" ||
+	statement.kind === "alterTable" ||
+	statement.kind === "createIndex"
+		? statement.table
+		: undefined
+
 /** An extension an object needs the operator classes or the type of: btree_gist's for the scalar components of a GiST
  * key, pgvector's vector type. */
 export type Capability = "btree_gist" | "vector"
@@ -181,10 +219,11 @@ export class InstallBuilder {
 		{
 			readonly named: Identity<IdentityKind>
 			readonly node: Node<"setup">
-			readonly calls: ReadonlySet<string>
 		}
 	>()
 	readonly #tables = new Map<string, Node<"structure">>()
+	/** Each installed table's statements a write of it evaluates (`evaluatedTable`), by the table's identifier. */
+	readonly #evaluatedOn = new Map<string, Array<SqlStatement>>()
 	readonly #views = new Map<string, IndexedView>()
 	readonly #qualified = new Map<QualifiedKind, Map<string, Map<string, Node<DeployPhase>>>>()
 	/** The law columns of each stored relation an index may name (`lawColumnFields`). */
@@ -280,6 +319,15 @@ export class InstallBuilder {
 	): Node<P> {
 		for (const statement of spec.ddl) {
 			this.#countColumns(statement)
+			const table = evaluatedTable(statement)
+			if (table !== undefined && table.schema === this.schema) {
+				const known = this.#evaluatedOn.get(table.name)
+				if (known === undefined) {
+					this.#evaluatedOn.set(table.name, [statement])
+				} else {
+					known.push(statement)
+				}
+			}
 		}
 		const node = this.graph.add(spec, after)
 		const ident = spec.ident
@@ -383,11 +431,7 @@ export class InstallBuilder {
 			},
 			after
 		)
-		this.#constants.set(name.identifier, {
-			named: name,
-			node,
-			calls: this.#constantCalls(spec.ddl)
-		})
+		this.#constants.set(name.identifier, { named: name, node })
 		return node
 	}
 
@@ -409,34 +453,74 @@ export class InstallBuilder {
 		return called
 	}
 
-	/** The installation's constants `statements` call directly, by identifier. */
-	callsOf(statements: ReadonlyArray<SqlStatement>): ReadonlySet<string> {
-		return this.#constantCalls(statements)
+	/** The statements of the installed table of `relation` that a write of it evaluates (`evaluatedTable`). */
+	evaluatedOn(relation: string): ReadonlyArray<SqlStatement> {
+		const statements = this.#evaluatedOn.get(this.names.relation(relation).name)
+		if (statements === undefined) {
+			missing(`physical: no stored relation ${relation}`)
+		}
+		return statements
 	}
 
 	/**
-	 * Every constant of the installation `called` names, by identifier, with each constant its body calls, directly or
-	 * through another's, ordered by the identities they were named by, each with its object: what a role that runs a
-	 * statement calling them is granted EXECUTE on, since PostgreSQL checks EXECUTE on each function a plan calls against
-	 * the invoker, a view's and a domain CHECK's included, and a function body's calls as that body runs.
+	 * Every constant of the installation that evaluating `roots` runs, ordered by the identities they were named by, each
+	 * with its object: one reachability over the installation's constants and domains alike (`Evaluated`). A statement
+	 * or a predicate runs each constant it calls and each domain it names, as a column's type or a cast's, a typed
+	 * literal's or a parameter's target, since writing or coercing a value into a domain runs its CHECKs; a constant
+	 * runs what its body does, and a domain what its base type, a contract's base chain among them, and its CHECKs do.
+	 * These are what a role whose statements evaluate `roots` is granted EXECUTE on, and nothing else: PostgreSQL checks
+	 * EXECUTE against the invoker on every function a plan runs, a view's, a policy's, a table CHECK's, a generated
+	 * column's, a default's and a domain CHECK's included, and on a function body's calls as that body runs.
 	 */
-	reached(
-		called: Iterable<string>
+	evaluated(
+		roots: EvaluationRoots
 	): ReadonlyArray<{ readonly name: FunctionName; readonly node: Node<"setup"> }> {
-		const reached = new Set<string>()
-		const reach = (identifier: string): void => {
-			if (reached.has(identifier)) {
+		const constants = new Set<string>()
+		const domains = new Set<string>()
+		const pending: Array<SqlStatement> = [...roots.statements]
+		const reach = (object: Evaluated): void => {
+			const seen = object.kind === "constant" ? constants : domains
+			if (seen.has(object.identifier)) {
 				return
 			}
-			reached.add(identifier)
-			for (const next of this.#constants.get(identifier)?.calls ?? []) {
-				reach(next)
+			const node =
+				object.kind === "constant"
+					? this.#constants.get(object.identifier)?.node
+					: this.#types.get(object.identifier)
+			if (node === undefined) {
+				return
+			}
+			seen.add(object.identifier)
+			appendAll(pending, node.ddl)
+		}
+		const hooks: AstHooks = {
+			...identityHooks,
+			functionRef: (fn) => {
+				if (fn.schema === this.schema) {
+					reach({ kind: "constant", identifier: fn.name })
+				}
+				return fn
+			},
+			typeRef: (type) => {
+				if (type.kind === "named" && type.schema === this.schema) {
+					reach({ kind: "domain", identifier: type.name })
+				}
+				return type
 			}
 		}
-		for (const identifier of called) {
-			reach(identifier)
+		for (const identifier of roots.constants) {
+			reach({ kind: "constant", identifier })
 		}
-		return [...reached]
+		for (const identifier of roots.domains) {
+			reach({ kind: "domain", identifier })
+		}
+		for (const predicate of roots.predicates) {
+			transformExpr(predicate, hooks)
+		}
+		for (let statement = pending.pop(); statement !== undefined; statement = pending.pop()) {
+			transformStatement(statement, hooks)
+		}
+		return [...constants]
 			.flatMap((identifier) => {
 				const known = this.#constants.get(identifier)
 				return known === undefined ? [] : [known]

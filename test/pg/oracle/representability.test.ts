@@ -11,9 +11,11 @@
  * compression shortens, numerics of every digit their typmod admits at each base-10000 alignment, the largest uuid
  * and integers. PostgreSQL must accept every such fact into the key's unique index.
  *
- * Text is bounded in either spelling the compiler accepts: its pattern ^.{0,n}$, n within PostgreSQL's repetition limit
- * (core/limits.ts regexMaxRepeat), or a contract's charLength(value) <= n over the wildcard pattern, the spelling that
- * reaches the item limit.
+ * Text is bounded in each spelling the compiler accepts: its pattern ^.{0,n}$, n within PostgreSQL's repetition limit
+ * (core/limits.ts regexMaxRepeat), a contract's charLength(value) <= n over the wildcard pattern, or a contract's
+ * octetLength(value) <= n over it, which bounds the text's bytes exactly and reaches the item limit at the byte. A key's
+ * entry is counted at exact offsets through its fixed-width prefix, so a key whose bounded text comes after fixed-width
+ * fields alone is sized to the byte PostgreSQL lays out.
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -25,18 +27,19 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { regexMaxRepeat } from "#compiler/core/limits.ts"
-import type { ExprDesc, FieldDesc } from "#compiler/ir/desc.ts"
+import type { FieldDesc } from "#compiler/ir/desc.ts"
 import { btreeMaxItemSize, keyLayout } from "#compiler/schema/representability.ts"
 import { wildcardFlags, wildcardSource } from "#compiler/text/refinement.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { textDesc } from "#test/support/fixtures/ir/desc.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /** What a case of the population reached: a key the compiler accepts, and one sized within a word of the item limit. */
 type ReprFeature = "accepted key" | "key at the computed maximum"
 
-/** How a text field's length is bounded: by its pattern, or by a contract's charLength predicate. */
-type TextBound = "pattern" | "charLength"
+/** How a text field's length is bounded: by its pattern, or by a contract's charLength or octetLength predicate. */
+type TextBound = "pattern" | "charLength" | "octetLength"
 
 type FieldSketch =
 	| { readonly kind: "text"; readonly bound: TextBound; readonly length: number }
@@ -64,7 +67,8 @@ const fieldGen: Gen<FieldSketch> = weighted<FieldSketch>([
 				bound: "pattern",
 				length: source.draw(int(0, regexMaxRepeat.value))
 			}),
-			(source) => ({ kind: "text", bound: "charLength", length: source.draw(int(0, 700)) })
+			(source) => ({ kind: "text", bound: "charLength", length: source.draw(int(0, 700)) }),
+			(source) => ({ kind: "text", bound: "octetLength", length: source.draw(int(0, 2800)) })
 		])
 	],
 	[
@@ -90,32 +94,34 @@ const keyGen: Gen<KeySketch> = (source) => ({
 	salt: source.draw(int(0, 0xffff))
 })
 
-const charLengthOfValue: ExprDesc = { kind: "compute", fn: "charLength", args: [{ kind: "value" }] }
+/** A contract over the wildcard pattern bounding its value's `measure` at `length`. */
+const lengthContract = (measure: "charLength" | "octetLength", length: number): FieldDesc => ({
+	kind: "contract",
+	name: "Bounded",
+	base: textDesc(wildcardSource, wildcardFlags),
+	predicate: {
+		kind: "compare",
+		op: "le",
+		left: { kind: "compute", fn: measure, args: [{ kind: "value" }] },
+		right: { kind: "literal", value: length, type: undefined }
+	},
+	facts: []
+})
 
-const textDesc = (bound: TextBound, length: number): FieldDesc => {
+const boundedText = (bound: TextBound, length: number): FieldDesc => {
 	switch (bound) {
 		case "pattern":
-			return { kind: "text", source: `^.{0,${length}}$`, flags: "su" }
+			return textDesc(`^.{0,${length}}$`, "su")
 		case "charLength":
-			return {
-				kind: "contract",
-				name: "Bounded",
-				base: { kind: "text", source: wildcardSource, flags: wildcardFlags },
-				predicate: {
-					kind: "compare",
-					op: "le",
-					left: charLengthOfValue,
-					right: { kind: "literal", value: length, type: undefined }
-				},
-				facts: []
-			}
+		case "octetLength":
+			return lengthContract(bound, length)
 	}
 }
 
 const descOf = (f: FieldSketch): FieldDesc => {
 	switch (f.kind) {
 		case "text":
-			return textDesc(f.bound, f.length)
+			return boundedText(f.bound, f.length)
 		case "numeric":
 			return { kind: "numeric", precision: f.precision, scale: f.scale }
 		case "uuid":
@@ -162,6 +168,13 @@ const filled = (s: KeySketch): ReadonlyArray<FieldSketch> => {
 	return at(lo)
 }
 
+/**
+ * A text of exactly `bytes` UTF-8 bytes no compression shortens: distinct supplementary-plane code points (wideText)
+ * for every four, then ASCII letters for the rest.
+ */
+const wideOctets = (bytes: number, salt: number): string =>
+	`${wideText(Math.floor(bytes / 4), salt)}${Str.repeat(bytes % 4)("z")}`
+
 /** Distinct supplementary-plane code points, four UTF-8 bytes each, spread so that pglz finds no repeat. */
 const wideText = (length: number, salt: number): string => {
 	let out = ""
@@ -205,7 +218,7 @@ const columnSql = (f: FieldSketch): string => {
 const widestValue = (f: FieldSketch, salt: number): string => {
 	switch (f.kind) {
 		case "text":
-			return wideText(f.length, salt)
+			return f.bound === "octetLength" ? wideOctets(f.length, salt) : wideText(f.length, salt)
 		case "numeric":
 			return wideNumeric(f.precision, f.scale, f.align)
 		case "uuid":

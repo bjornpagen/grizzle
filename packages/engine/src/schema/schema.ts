@@ -1,12 +1,13 @@
 import { builtMark } from "#compiler/core/phantom.ts"
 import { isList } from "#compiler/core/record.ts"
 import {
+	contentDigest,
 	decodeDesc,
 	type RelationDesc,
 	type SchemaDesc,
 	type StatementDesc
 } from "#compiler/ir/desc.ts"
-
+import { type LevelRelation, levelContent, type SchemaContent } from "#compiler/schema/levels.ts"
 import {
 	builderLoc,
 	frozenCopy,
@@ -15,10 +16,11 @@ import {
 	malformed,
 	orThrow,
 	ownedDesc,
+	ownedEntry,
 	ownValue,
 	requireName
 } from "#compiler/schema/protocol.ts"
-import { derivedDraftOf, relationDescOf } from "#compiler/schema/relation.ts"
+import { derivedDraftOf, relationContentOf } from "#compiler/schema/relation.ts"
 import { expansionDescOf, statementDescOf } from "#compiler/schema/statements.ts"
 import type { AnyDerived } from "#compiler/types/derived/derived.ts"
 import type { AnyClosed, AnyRelation } from "#compiler/types/schema/relation.ts"
@@ -26,6 +28,12 @@ import type { AnySchema, Schema } from "#compiler/types/schema/schema.ts"
 import type { Statement } from "#compiler/types/schema/statements.ts"
 
 export const schemaDescOf = (value: unknown): SchemaDesc | undefined => ownedDesc(value, "schema")
+
+/** What a schema builder's admission core reads of its arguments: the level's Description and its content. */
+interface AdmittedLevel {
+	readonly desc: SchemaDesc
+	readonly content: SchemaContent
+}
 
 /**
  * A level's record is its index by name: each relation sits under its own name, as a role's whole entries do. The
@@ -89,7 +97,7 @@ export const admitSchema = (
 	relations: unknown,
 	statements: unknown,
 	extra: ReadonlyArray<unknown>
-): SchemaDesc => {
+): AdmittedLevel => {
 	const label = `schema ${typeof name === "string" ? name : "?"}`
 	const schemaName = requireName(name, label, "a schema name")
 	if (extra.length > 0) {
@@ -99,6 +107,7 @@ export const admitSchema = (
 		throw malformed(label, "a record of relations and closed relations")
 	}
 	const descs: Array<RelationDesc> = []
+	const digests: Array<LevelRelation> = []
 	for (const [key, value] of Object.entries(relations)) {
 		if (derivedDraftOf(value) !== undefined) {
 			throw malformed(
@@ -106,10 +115,12 @@ export const admitSchema = (
 				"a relation or closed relation: a derived relation is declared in schema.extend"
 			)
 		}
-		descs.push(underOwnName(label, key, relationDescOf(value, `${label} relation ${key}`)))
+		const relation = relationContentOf(value, `${label} relation ${key}`)
+		descs.push(underOwnName(label, key, relation.desc))
+		digests.push({ name: key, digest: relation.digest })
 	}
 	const stmts = statementList(statementValues(statements, label), label)
-	return orThrow(
+	const desc = orThrow(
 		decodeDesc("schema", {
 			name: schemaName,
 			relations: descs,
@@ -117,6 +128,7 @@ export const admitSchema = (
 			loc: builderLoc(label, [schemaName])
 		})
 	)
+	return { desc, content: levelContent(digests, desc.statements, undefined) }
 }
 
 /**
@@ -133,7 +145,7 @@ const rootSchema = <
 	statements: Statements,
 	extra: ReadonlyArray<unknown>
 ): Schema<Name, Relations, readonly [...Statements]> => {
-	const desc = admitSchema(name, relations, statements, extra)
+	const admitted = admitSchema(name, relations, statements, extra)
 	return ownValue(
 		{
 			...builtMark,
@@ -143,7 +155,8 @@ const rootSchema = <
 			extends: undefined
 		},
 		"schema",
-		desc
+		admitted.desc,
+		admitted.content
 	)
 }
 
@@ -164,11 +177,12 @@ const admitExtend = (
 	relations: unknown,
 	statements: unknown,
 	extra: ReadonlyArray<unknown>
-): SchemaDesc => {
-	const baseDesc = schemaDescOf(base)
-	if (baseDesc === undefined) {
+): AdmittedLevel => {
+	const baseEntry = ownedEntry(base, "schema")
+	if (baseEntry === undefined) {
 		throw malformed("schema.extend", "a base schema built by schema(...) or schema.extend")
 	}
+	const baseDesc = baseEntry.desc
 	const label = `schema.extend ${baseDesc.name}`
 	if (extra.length > 0) {
 		throw malformed(label, "schema.extend(base, relations, statements): three arguments")
@@ -178,10 +192,13 @@ const admitExtend = (
 	}
 	const below = levelRelations(baseDesc)
 	const descs: Array<RelationDesc> = []
+	const digests: Array<LevelRelation> = []
 	for (const [key, value] of Object.entries(relations)) {
 		const draft = derivedDraftOf(value)
 		if (draft === undefined) {
-			descs.push(underOwnName(label, key, relationDescOf(value, `${label} relation ${key}`)))
+			const relation = relationContentOf(value, `${label} relation ${key}`)
+			descs.push(underOwnName(label, key, relation.desc))
+			digests.push({ name: key, digest: relation.digest })
 			continue
 		}
 		let level = 1
@@ -208,7 +225,7 @@ const admitExtend = (
 		)
 	}
 	const stmts = statementList(statementValues(statements, label), label)
-	return orThrow(
+	const desc = orThrow(
 		decodeDesc("schema", {
 			name: baseDesc.name,
 			relations: descs,
@@ -217,6 +234,14 @@ const admitExtend = (
 			loc: builderLoc(label, [baseDesc.name, "extend"])
 		})
 	)
+	/** A derived relation's description is the level's own, digested as the decode holds it. */
+	const derived = desc.relations.flatMap((r) =>
+		r.kind === "derived" ? [{ name: r.name, digest: contentDigest("relation", r) }] : []
+	)
+	return {
+		desc,
+		content: levelContent([...digests, ...derived], desc.statements, baseEntry.content)
+	}
 }
 
 /**
@@ -238,7 +263,7 @@ const extend = <
 	readonly [...Base["statements"], ...Statements],
 	Base
 > => {
-	const desc = admitExtend(base, relations, statements, extra)
+	const admitted = admitExtend(base, relations, statements, extra)
 	const below: Base["statements"] = base.statements
 	const added: Statements = statements
 	const all: readonly [...Base["statements"], ...Statements] = [...below, ...added]
@@ -252,7 +277,8 @@ const extend = <
 			extends: base
 		},
 		"schema",
-		desc
+		admitted.desc,
+		admitted.content
 	)
 }
 

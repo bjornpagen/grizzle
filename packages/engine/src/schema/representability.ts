@@ -1,6 +1,8 @@
+import { nominal } from "#compiler/core/brand.ts"
 import type { KeyFault } from "#compiler/core/causes.ts"
 import {
 	alignUp,
+	bitsPerByte as bitsPerByteLimit,
 	blockSize,
 	derived,
 	itemIdBytes,
@@ -12,11 +14,10 @@ import {
 	rosterMaxCodes,
 	typlens
 } from "#compiler/core/limits.ts"
-import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { ExprDesc, FieldDesc, InferredFieldDesc } from "#compiler/ir/desc.ts"
+import type { TextLanguage } from "#compiler/ir/scalar.ts"
 import { decDigits } from "#compiler/scalar/compute/numeric.ts"
-import { analyzeText, refinementBounds } from "#compiler/text/refinement.ts"
 
 /** A tuple identifier, ItemPointerData. */
 const itemPointerBytes: Limit = published({
@@ -206,6 +207,26 @@ export const indexMaxKeys: Limit = published({
 	verified: "2026-11-05"
 })
 
+/**
+ * An index tuple's null bitmap, IndexAttributeBitMapData: a bit for each of INDEX_MAX_KEYS columns, whatever the index's
+ * own count, which follows the header exactly when the tuple holds a null.
+ */
+const indexNullBitmapBytes: Limit = derived({
+	owner: "PostgreSQL 19rc1",
+	unit: "bytes",
+	scope: "the null bitmap of one index tuple that holds a null",
+	from: [indexMaxKeys, bitsPerByteLimit],
+	derivation: `"typedef struct IndexAttributeBitMapData { uint8 bits[(INDEX_MAX_KEYS + 8 - 1) / 8]; }" (${postgresSource}/src/include/access/itup.h#L55-L58, verified 2026-11-06): a byte per eight of INDEX_MAX_KEYS bits, C's integer division`,
+	compute: ([keys, bits]) => Math.floor((keys.value + bits.value - 1) / bits.value)
+})
+
+/**
+ * Where an index tuple's first datum starts, IndexInfoFindDataOffset: its header, and its null bitmap where the tuple
+ * holds a null, MAXALIGNed; index_form_tuple lays the datums out from there.
+ */
+const indexDataOffset = (nulls: boolean): number =>
+	alignUp(indexTupleHeader.value + (nulls ? indexNullBitmapBytes.value : 0), maxAlign.value)
+
 export interface DatumBound {
 	/** The most bytes the datum occupies in an index tuple, its header included. */
 	readonly bytes: number
@@ -213,6 +234,33 @@ export interface DatumBound {
 	readonly align: number
 	/** The B-tree carrier family, which btree_gist's support and key representation depend on. */
 	readonly family: Family
+}
+
+/**
+ * Whether a datum's type is fixed-width (pg_type's typlen above 0): its bytes are exactly its typlen, at its
+ * alignment, in an index tuple and a row alike. Every other family is a varlena, whose header and length vary with its
+ * value.
+ */
+export const isFixedWidth = (bound: DatumBound): boolean => {
+	switch (bound.family) {
+		case "int2":
+		case "int4":
+		case "int8":
+		case "float4":
+		case "float8":
+		case "money":
+		case "bool":
+		case "uuid":
+		case "date":
+		case "code":
+			return true
+		case "bit":
+		case "numeric":
+		case "text":
+		case "range":
+		case "vector":
+			return false
+	}
 }
 
 type Family =
@@ -252,7 +300,7 @@ const fixed = (bytes: number, align: number, family: Family): DatumBound => ({
 export const setDatumBound = (codes: number): DatumBound =>
 	fixed(varlenaHeaderBytes.value + typlens.int4.value + Math.ceil(codes / bitsPerByte), 4, "bit")
 
-/** The literal value of a charLength bound operand. */
+/** The literal value of a length bound's operand. */
 const literalCount = (e: ExprDesc): number | undefined => {
 	if (e.kind !== "literal") {
 		return undefined
@@ -271,34 +319,38 @@ const literalCount = (e: ExprDesc): number | undefined => {
 	return undefined
 }
 
-const isCharLengthOfValue = (e: ExprDesc): boolean =>
-	e.kind === "compute" &&
-	e.fn === "charLength" &&
-	e.args.length === 1 &&
-	e.args[0]?.kind === "value"
+/**
+ * A length a contract predicate bounds its value by: char_length, its code points (Compute.charLength), or
+ * octet_length, its UTF-8 bytes (Compute.octetLength).
+ */
+export type LengthMeasure = "charLength" | "octetLength"
+
+const isLengthOfValue = (measure: LengthMeasure, e: ExprDesc): boolean =>
+	e.kind === "compute" && e.fn === measure && e.args.length === 1 && e.args[0]?.kind === "value"
 
 /**
- * The upper bound in code points that a contract predicate puts on its value's char_length:
- * charLength(v) <= n, < n, = n, between(charLength(v), lo, hi), in [...], their mirror images, and conjunctions.
- * Infinity, the top of the bounds' min order, when the predicate bounds no length.
+ * The upper bound a contract predicate puts on its value's `measure`, its char_length in code points or its
+ * octet_length in bytes: measure(v) <= n, < n, = n, between(measure(v), lo, hi), in [...], their mirror images, and
+ * conjunctions. Infinity, the top of the bounds' min order, when the predicate bounds no such length.
  */
-export const charLengthBound = (predicate: ExprDesc): number => {
+export const lengthBound = (measure: LengthMeasure, predicate: ExprDesc): number => {
+	const isMeasured = (e: ExprDesc): boolean => isLengthOfValue(measure, e)
 	switch (predicate.kind) {
 		case "and":
 			return predicate.args.reduce(
-				(bound, arg) => Math.min(bound, charLengthBound(arg)),
+				(bound, arg) => Math.min(bound, lengthBound(measure, arg)),
 				Number.POSITIVE_INFINITY
 			)
 		case "compare": {
 			const { op, left, right } = predicate
-			if (isCharLengthOfValue(left)) {
+			if (isMeasured(left)) {
 				const n = literalCount(right)
 				if (n === undefined) {
 					return Number.POSITIVE_INFINITY
 				}
 				return op === "le" || op === "eq" ? n : op === "lt" ? n - 1 : Number.POSITIVE_INFINITY
 			}
-			if (isCharLengthOfValue(right)) {
+			if (isMeasured(right)) {
 				const n = literalCount(left)
 				if (n === undefined) {
 					return Number.POSITIVE_INFINITY
@@ -308,13 +360,13 @@ export const charLengthBound = (predicate: ExprDesc): number => {
 			return Number.POSITIVE_INFINITY
 		}
 		case "between": {
-			if (!isCharLengthOfValue(predicate.arg)) {
+			if (!isMeasured(predicate.arg)) {
 				return Number.POSITIVE_INFINITY
 			}
 			return literalCount(predicate.high) ?? Number.POSITIVE_INFINITY
 		}
 		case "in": {
-			if (!isCharLengthOfValue(predicate.arg)) {
+			if (!isMeasured(predicate.arg)) {
 				return Number.POSITIVE_INFINITY
 			}
 			let max = -1
@@ -352,17 +404,14 @@ export const charLengthBound = (predicate: ExprDesc): number => {
 }
 
 /**
- * A pattern's byte bound, the text analysis's (text/refinement.ts), which reads the pattern's language through its
- * normalized IR, never its spelling: exact from the minimal DFA, structural above its bound. A pattern the analysis
- * refuses bounds nothing here; the refusal itself is the analysis's to report at compilation.
+ * The most UTF-8 bytes a pattern's language admits, as the text analysis proved it where its descriptor was admitted
+ * (ir/scalar.ts TextLanguage): exact from the minimal DFA, structural above its bound; Infinity for a tautology or a
+ * language the analysis bounds nowhere.
  */
-const patternLoc = SourceLoc("key representability", [])
-const patternByteBound = (source: string, flags: "u" | "su"): number => {
-	const analyzed = analyzeText(source, flags, patternLoc)
-	return (
-		(analyzed.ok ? refinementBounds(analyzed.value)?.bytes : undefined) ?? Number.POSITIVE_INFINITY
-	)
-}
+const languageByteBound = (language: TextLanguage): number =>
+	language.kind === "every"
+		? Number.POSITIVE_INFINITY
+		: (language.check.bounds?.bytes ?? Number.POSITIVE_INFINITY)
 
 /** The most bytes UTF-8 encodes one code point in: UTF8 is the server encoding admission requires of a database. */
 const utf8MaxBytes: Limit = published({
@@ -378,19 +427,27 @@ const utf8MaxBytes: Limit = published({
 })
 
 /**
- * The most UTF-8 bytes a text-valued descriptor admits, declared or inferred: the pattern's bound, tightened by every
- * contract's charLength bound on the way down, utf8MaxBytes a code point; Infinity when nothing bounds it.
+ * The most UTF-8 bytes a contract predicate admits of its text value: its octet_length bound, exact, and its
+ * char_length bound, utf8MaxBytes a code point, whichever is less; Infinity when it bounds neither.
+ */
+const predicateByteBound = (predicate: ExprDesc): number =>
+	Math.min(
+		Math.max(0, lengthBound("charLength", predicate)) * utf8MaxBytes.value,
+		Math.max(0, lengthBound("octetLength", predicate))
+	)
+
+/**
+ * The most UTF-8 bytes a text-valued descriptor admits, declared or inferred: its pattern's bound, tightened by every
+ * contract's predicate bound on the way down (predicateByteBound); Infinity when nothing bounds it.
  */
 export const textByteBound = (desc: InferredFieldDesc): number => {
 	if (desc.kind === "text") {
-		return patternByteBound(desc.source, desc.flags)
+		return languageByteBound(desc.language)
 	}
 	if (desc.kind === "contract") {
 		return Math.min(
 			textByteBound(desc.base),
-			desc.predicate === undefined
-				? Number.POSITIVE_INFINITY
-				: Math.max(0, charLengthBound(desc.predicate)) * utf8MaxBytes.value
+			desc.predicate === undefined ? Number.POSITIVE_INFINITY : predicateByteBound(desc.predicate)
 		)
 	}
 	return Number.POSITIVE_INFINITY
@@ -489,14 +546,52 @@ export const datumBound = (desc: InferredFieldDesc): DatumBound | undefined => {
 	return Number.isFinite(bytes) ? fixed(varlenaHeaderBytes.value + bytes, 4, "text") : undefined
 }
 
-/** The most bytes a B-tree tuple over these datums can reach. */
-export const btreeEntryBytes = (datums: ReadonlyArray<DatumBound>): number => {
-	let size = indexTupleHeader.value
-	for (const d of datums) {
-		size += d.align - 1 + d.bytes
-	}
-	return alignUp(size, maxAlign.value)
+/**
+ * A column of an index entry: its name, the datum it holds at most, and whether it may hold NULL, as a law column
+ * generated outside its guard may; a declared field is NOT NULL.
+ */
+export interface EntryColumn {
+	readonly name: string
+	readonly datum: DatumBound
+	readonly nullable: boolean
 }
+
+/**
+ * The most bytes a B-tree tuple over these columns, in the index's column order, can reach, as index_form_tuple lays it
+ * out (src/backend/access/common/indextuple.c, and heaptuple.c fill_val for each datum):
+ * - its datums start at IndexInfoFindDataOffset (indexDataOffset), past its header and, where any column may be NULL,
+ *   its null bitmap;
+ * - a fixed-width datum sits at its type's alignment, so through a prefix of fixed-width columns that are never NULL
+ *   every offset is exact;
+ * - a varlena's length, and its one-byte or four-byte header, vary with its value, and a NULL takes no space, so from the
+ *   first varlena or NULL-able column on, every later offset depends on the values: each datum from there is counted
+ *   with its worst alignment padding, align - 1, which bounds the padding at any offset, and a varlena at its longest,
+ *   its four-byte header aligned, since a one-byte header is never aligned and never longer;
+ * - the whole is MAXALIGNed.
+ */
+export const btreeEntryBytes = (columns: ReadonlyArray<EntryColumn>): number => {
+	let offset = indexDataOffset(columns.some((c) => c.nullable))
+	let exact = true
+	for (const { datum, nullable } of columns) {
+		offset = exact ? alignUp(offset, datum.align) + datum.bytes : afterAtWorst(offset, datum)
+		exact = exact && isFixedWidth(datum) && !nullable
+	}
+	return alignUp(offset, maxAlign.value)
+}
+
+/** The offset past `datum` laid out at `offset` or after, at its worst alignment padding and its longest. */
+const afterAtWorst = (offset: number, datum: DatumBound): number =>
+	offset + datum.align - 1 + datum.bytes
+
+declare const btreeEntryBrand: unique symbol
+
+/**
+ * The most bytes a B-tree entry over some columns can reach, proved within BTMaxItemSize: minted by btreeEntry alone, so
+ * a value of it is that check's result.
+ */
+export type BtreeEntryBytes = number & { readonly [btreeEntryBrand]: true }
+
+const provedEntry = nominal<number, BtreeEntryBytes>()
 
 /**
  * btree_gist's key representation of a scalar datum (contrib/btree_gist): a fixed type stores its lower and upper
@@ -555,24 +650,52 @@ export const gistEntryBytes = (
 const spanKeyGist = (
 	datums: ReadonlyArray<{ readonly field: string; readonly datum: DatumBound }>,
 	span: { readonly field: string; readonly datum: DatumBound }
-): Result.Result<{ readonly span: string; readonly bytes: number }, KeyFault> => {
-	const bytes = gistEntryBytes([...datums.filter((d) => d.field !== span.field), span])
+): Result.Result<{ readonly span: string; readonly bytes: GistEntryBytes }, KeyFault> =>
+	Result.map(
+		gistEntry(
+			datums.filter((d) => d.field !== span.field),
+			span
+		),
+		(bytes) => ({ span: span.field, bytes })
+	)
+
+declare const gistEntryBrand: unique symbol
+
+/**
+ * The most bytes a span key's GiST entry can reach, proved within a GiST page: minted by gistEntry alone, so a value of
+ * it is that check's result.
+ */
+export type GistEntryBytes = number & { readonly [gistEntryBrand]: true }
+
+const provedGist = nominal<number, GistEntryBytes>()
+
+/**
+ * A span key's GiST entry, its scalar columns through btree_gist and then its span, its bytes proved within a GiST
+ * page, or the fault of a scalar column btree_gist has no operator class for, or of an entry past the page. The one
+ * check every WITHOUT OVERLAPS grizzle installs passes: a declared span key's and a span key over a projected side.
+ * A column that may be NULL needs no more: a NULL drops its key, which takes more than the null bitmap adds.
+ */
+export const gistEntry = (
+	scalars: ReadonlyArray<{ readonly field: string; readonly datum: DatumBound }>,
+	span: { readonly field: string; readonly datum: DatumBound }
+): Result.Result<GistEntryBytes, KeyFault> => {
+	const bytes = gistEntryBytes([...scalars, span])
 	if (!bytes.ok) {
 		return Result.err({ kind: "gistOperatorClass", field: bytes.error })
 	}
 	return bytes.value > gistMaxItemSize.value
 		? Result.err({ kind: "gistEntry", bytes: bytes.value, limit: gistMaxItemSize.value })
-		: Result.ok({ span: span.field, bytes: bytes.value })
+		: Result.ok(provedGist(bytes.value))
 }
 
 export interface KeyLayout {
 	readonly fields: ReadonlyArray<string>
-	readonly btreeBytes: number
+	readonly btreeBytes: BtreeEntryBytes
 	/**
 	 * A span key's GiST layout: its span field, placed last in its WITHOUT OVERLAPS constraint, and the most bytes its
 	 * GiST entry can reach. A key without a span field has none.
 	 */
-	readonly gist: { readonly span: string; readonly bytes: number } | undefined
+	readonly gist: { readonly span: string; readonly bytes: GistEntryBytes } | undefined
 }
 
 const isSpanDesc = (desc: InferredFieldDesc): boolean =>
@@ -620,12 +743,59 @@ export const keyDatums = (
 	return Result.ok(out)
 }
 
-/** A B-tree entry over `datums`, or the fault of one above PostgreSQL's limit. */
-export const btreeEntry = (datums: ReadonlyArray<DatumBound>): Result.Result<number, KeyFault> => {
-	const bytes = btreeEntryBytes(datums)
+/** A key's bounded datums as its index's columns, in key order: a key's fields are NOT NULL. */
+export const keyColumns = (
+	datums: ReadonlyArray<{ readonly field: string; readonly datum: DatumBound }>
+): ReadonlyArray<EntryColumn> =>
+	datums.map((d) => ({ name: d.field, datum: d.datum, nullable: false }))
+
+/**
+ * A B-tree entry over `columns`, its bytes proved within BTMaxItemSize, or the fault of one that can exceed it, naming
+ * its bytes and the bytes each column's datum is counted at. The one check every B-tree index grizzle installs passes: a
+ * declared or inherited key's, and each UNIQUE and index the law model plans; PostgreSQL refuses a write whose entry
+ * outgrows it (54000).
+ */
+export const btreeEntry = (
+	columns: ReadonlyArray<EntryColumn>
+): Result.Result<BtreeEntryBytes, KeyFault> => {
+	const bytes = btreeEntryBytes(columns)
 	return bytes > btreeMaxItemSize.value
-		? Result.err({ kind: "btreeEntry", bytes, limit: btreeMaxItemSize.value })
-		: Result.ok(bytes)
+		? Result.err({
+				kind: "btreeEntry",
+				bytes,
+				limit: btreeMaxItemSize.value,
+				datums: columns.map((c) => ({ field: c.name, bytes: c.datum.bytes }))
+			})
+		: Result.ok(provedEntry(bytes))
+}
+
+/**
+ * The most UTF-8 bytes a text can hold beside `others`, a key's other fields, in its one B-tree entry, whatever the
+ * key's field order and with none of them NULL: BTMaxItemSize less the entry over `others` and the text's own varlena at
+ * no bytes, each datum at its worst alignment padding, which no order's layout exceeds (btreeEntryBytes). Its fault is
+ * the key's: more columns than an index holds with the text, a field of no byte bound, or fields that leave the text no
+ * byte.
+ */
+export const textBytesBeside = (others: KeyFields): Result.Result<number, KeyFault> => {
+	if (others.length + 1 > indexMaxKeys.value) {
+		return Result.err({ kind: "columns", limit: indexMaxKeys.value })
+	}
+	const bounded = keyDatums(others)
+	if (!bounded.ok) {
+		return bounded
+	}
+	const text = { field: "the text", datum: fixed(varlenaHeaderBytes.value, 4, "text") }
+	const datums = [...bounded.value, text]
+	const extent = datums.reduce((offset, d) => afterAtWorst(offset, d.datum), indexDataOffset(false))
+	const room = alignDown(btreeMaxItemSize.value, maxAlign.value) - extent
+	return room < 0
+		? Result.err({
+				kind: "btreeEntry",
+				bytes: alignUp(extent, maxAlign.value),
+				limit: btreeMaxItemSize.value,
+				datums: datums.map((d) => ({ field: d.field, bytes: d.datum.bytes }))
+			})
+		: Result.ok(room)
 }
 
 /**
@@ -636,12 +806,13 @@ export const btreeEntry = (datums: ReadonlyArray<DatumBound>): Result.Result<num
  * block):
  *
  * - A B-tree entry is the IndexTupleData header (indexTupleHeader) plus each key datum, each aligned to its type's
- *   alignment, the whole MAXALIGNed (maxAlign); PostgreSQL refuses one above BTMaxItemSize (btreeMaxItemSize).
- *   Fixed-width types have exact sizes, their typlens (typlens). A varlena datum is counted with its longest header
- *   (varlenaHeaderBytes), uncompressed: index_form_tuple may compress a large value, but no compression ratio is
- *   guaranteed. numeric(p, s) is at most numeric_maximum_size (numericMaximumSize), and a computed numeric, a derived
- *   relation's inferred field, the same over its integer and fraction digits. Text is bounded by its pattern's
- *   language (the text analysis's bound) and by a contract's charLength predicate, utf8MaxBytes per code point; the
+ *   alignment, the whole MAXALIGNed (maxAlign); PostgreSQL refuses one above BTMaxItemSize (btreeMaxItemSize), and
+ *   btreeEntryBytes lays it out as index_form_tuple does. Fixed-width types have exact sizes, their typlens (typlens).
+ *   A varlena datum is counted with its longest header (varlenaHeaderBytes), uncompressed: index_form_tuple may
+ *   compress a large value, but no compression ratio is guaranteed. numeric(p, s) is at most numeric_maximum_size
+ *   (numericMaximumSize), and a computed numeric, a derived relation's inferred field, the same over its integer and
+ *   fraction digits. Text is bounded by its pattern's language (the text analysis's bound), by a contract's
+ *   charLength predicate, utf8MaxBytes per code point, and by a contract's octetLength predicate, exactly; the
  *   wildcard pattern has none. A vector(n) is its header and n reals (vectorHeaderBytes, pgvector's Vector struct), a
  *   key field like any other: every vector has one form, its components finite (pgvector refuses NaN and infinity)
  *   and its zero 0, so pgvector's equality is identity. A range is its header, its two bounds and its flags byte
@@ -658,8 +829,9 @@ export const btreeEntry = (datums: ReadonlyArray<DatumBound>): Result.Result<num
  *   UNIQUE index, and a span key's GiST constraint, has one column per key field, so a key of more fields has no
  *   index, whatever its entry size.
  *
- * The worst-case alignment padding before each datum is counted, so the bound holds whatever the preceding values'
- * actual sizes. A key that fails is UnrepresentableKey, naming the key and the bound that failed.
+ * Offsets are exact through the key's prefix of fixed-width fields; from its first varlena on, the worst-case alignment
+ * padding before each datum is counted, so the bound holds whatever the preceding values' actual sizes. A key that
+ * fails is UnrepresentableKey, naming the key and the bound that failed.
  *
  * The representability of one declared key, or its fault: its datums bounded, at most one span field, a span key's
  * scalar fields each of a family btree_gist indexes (no vector) and its GiST entry within a GiST page, and its B-tree
@@ -680,7 +852,7 @@ export const keyLayout = (fields: KeyFields): Result.Result<KeyLayout, KeyFault>
 	if (!gist.ok) {
 		return gist
 	}
-	const btreeBytes = btreeEntry(datums.map((x) => x.datum))
+	const btreeBytes = btreeEntry(keyColumns(datums))
 	if (!btreeBytes.ok) {
 		return btreeBytes
 	}

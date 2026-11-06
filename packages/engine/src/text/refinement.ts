@@ -1,14 +1,20 @@
 import { everyProperty } from "#compiler/core/canonical.ts"
 import { type CompileError, unsupported } from "#compiler/core/errors.ts"
 import { ownedDigest } from "#compiler/core/fingerprint.ts"
-import { defect } from "#compiler/core/invariant.ts"
 import { regexDfaMaxStates, regexDfaMaxWork } from "#compiler/core/limits.ts"
 import { childLoc, SourceLoc } from "#compiler/core/loc.ts"
-import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { isNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
 import { codePoints } from "#compiler/core/text.ts"
-import { RegexKey, type RegexRef, type TextInfo } from "#compiler/ir/scalar.ts"
+import {
+	type RegexCheck,
+	RegexKey,
+	type TextBounds,
+	type TextInfo,
+	type TextLanguage,
+	textInfoOf
+} from "#compiler/ir/scalar.ts"
 import { admitPattern } from "#compiler/scalar/regex/admit.ts"
 import { toAre } from "#compiler/scalar/regex/are.ts"
 import { utf8Width } from "#compiler/scalar/regex/charset.ts"
@@ -39,28 +45,11 @@ const dfaLimits: DfaLimits = Object.freeze({
 	maxWork: regexDfaMaxWork.value
 })
 
-/** Proved bounds on every member of a language, in code points and UTF-8 bytes. */
-interface TextBounds {
-	readonly length: number
-	readonly bytes: number
-}
-
-/** How PostgreSQL enforces the refinement, with the bounds each enforcement proves on every member. */
-type TextCheck =
-	| { readonly kind: "tautology" }
-	| {
-			readonly kind: "finite"
-			/** At least one: `VALUE IN (...)` has no empty list, and an analyzed language has a member. */
-			readonly members: NonEmptyReadonlyArray<string>
-			readonly bounds: TextBounds
-	  }
-	| { readonly kind: "regex"; readonly pattern: string; readonly bounds: TextBounds | undefined }
-
-/** The enforcement of a language that some admitted value is not a member of: a membership test. */
-export type NontrivialCheck = Exclude<TextCheck, { readonly kind: "tautology" }>
-
-/** A refinement some admitted value is no member of: what the pattern of a RegexRef analyzes to. */
-export type NontrivialRefinement = TextRefinement & { readonly check: NontrivialCheck }
+/**
+ * How PostgreSQL enforces the refinement: no check for a tautology over admitted text, else its language's enforcement
+ * (ir/scalar.ts RegexCheck), with the bounds it proves on every member.
+ */
+type TextCheck = { readonly kind: "tautology" } | RegexCheck
 
 export interface TextRefinement {
 	readonly source: string
@@ -110,11 +99,11 @@ type Known =
 
 /** A nontrivial check with the UTF-8 bytes its predicate prints in (predicateBytes). */
 interface Measured {
-	readonly check: NontrivialCheck
+	readonly check: RegexCheck
 	readonly bytes: number
 }
 
-const measured = (check: NontrivialCheck): Measured => ({ check, bytes: predicateBytes(check) })
+const measured = (check: RegexCheck): Measured => ({ check, bytes: predicateBytes(check) })
 
 /**
  * The enforcement of a finite language whose predicate prints in fewer bytes, the IN list where the two print alike.
@@ -252,72 +241,31 @@ export const wildcardSource = "^.*$"
 export const wildcardFlags: RegexFlags = "su"
 
 /**
- * The analysis of a RegexRef's pattern: its automaton and its membership check. The one site of the fact that the
- * analysis succeeds and proves no tautology. textInfo mints a RegexRef only from such an analysis of its source and
- * flags, and a snapshot records only one it minted. The analysis is a pure function of the source and flags, but the
- * ScalarType keeps the pattern, which its digest reads, never the analysis, so no type carries the admission.
+ * What a text descriptor carries of its analyzed pattern (ir/scalar.ts TextLanguage): a proved tautology admits every
+ * value; any other pattern carries its language's key and its enforcement, with the bounds that proves.
  */
-export const refinementOf = (regex: RegexRef): NontrivialRefinement => {
-	const pattern = `/${regex.source}/${regex.flags}`
-	const analyzed = analyzeText(regex.source, regex.flags, SourceLoc(pattern, []))
-	if (analyzed.ok && analyzed.value.check.kind !== "tautology") {
-		return { ...analyzed.value, check: analyzed.value.check }
-	}
-	throw defect(
-		`the pattern of a RegexRef, which its text analysis admitted as no tautology: ${pattern}`
-	)
-}
-
-/**
- * The text metadata of the refinement's ScalarType (ir/scalar.ts): a proved tautology is the canonical wildcard, which
- * is unbounded; any other pattern keeps its source and flags as the declaration wrote them, with its language's key
- * and its proved bounds.
- */
-export const textInfo = (refinement: TextRefinement): TextInfo => {
+const textLanguage = (refinement: TextRefinement): TextLanguage => {
 	const check = refinement.check
-	if (check.kind === "tautology") {
-		return Object.freeze({ regex: "wildcard", lengthBound: undefined, byteBound: undefined })
-	}
-	const regex = Object.freeze({
-		source: refinement.source,
-		flags: refinement.flags,
-		key: RegexKey(refinement.digest)
-	})
-	const bounds = check.bounds
-	return Object.freeze(
-		bounds === undefined
-			? { regex, lengthBound: undefined, byteBound: undefined }
-			: { regex, lengthBound: bounds.length, byteBound: bounds.bytes }
-	)
+	return check.kind === "tautology"
+		? Object.freeze({ kind: "every" })
+		: Object.freeze({ kind: "refined", key: RegexKey(refinement.digest), check })
 }
 
 /**
- * The text metadata of a pattern, a refusal located at the pattern: what every ScalarEnv resolves a text descriptor by
- * (scalar/registry.ts TextLookup), a builder's outside any compilation (a str.regex descriptor, a query's headings)
- * included.
+ * The text metadata of the refinement's ScalarType (ir/scalar.ts textInfoOf): a proved tautology is the canonical
+ * wildcard, which is unbounded; any other pattern keeps its source and flags as the declaration wrote them, with its
+ * language's key, its enforcement and its proved bounds.
+ */
+export const textInfo = (refinement: TextRefinement): TextInfo =>
+	textInfoOf(refinement.source, refinement.flags, textLanguage(refinement))
+
+/**
+ * The analyzed language of a pattern, a refusal located at the pattern: what a str.regex descriptor is admitted with
+ * (text/field.ts), and what a lowering types a pattern it computes by (scalar/registry.ts TextLookup). Each call
+ * analyzes: a descriptor carries its language from its admission on, so no later pass calls it for a declared pattern.
  */
 export const textLookup: TextLookup = (source, flags) =>
-	Result.map(analyzeText(source, flags, SourceLoc(`/${source}/${flags}`, [])), textInfo)
-
-/**
- * A text lookup (`textLookup`) that analyzes each distinct pattern once over its own lifetime, so an environment that
- * types many fields of one pattern parses it and builds its automaton once. The analysis is a pure function of the
- * source and flags; its record lives with the environment that holds the lookup, never in this module.
- */
-export const textLookupOnce = (): TextLookup => {
-	const analyzed = new Map<string, Map<string, Result.Result<TextInfo, CompileError>>>()
-	return (source, flags) => {
-		const own = analyzed.get(flags) ?? new Map<string, Result.Result<TextInfo, CompileError>>()
-		analyzed.set(flags, own)
-		const known = own.get(source)
-		if (known !== undefined) {
-			return known
-		}
-		const info = textLookup(source, flags)
-		own.set(source, info)
-		return info
-	}
-}
+	Result.map(analyzeText(source, flags, SourceLoc(`/${source}/${flags}`, [])), textLanguage)
 
 /** A domain CHECK's VALUE. */
 export const domainValue: Expr = Object.freeze({ kind: "domainValue" })
@@ -335,7 +283,7 @@ const memberBytes = utf8Length(printExpr(memberLiteral("")))
  * The membership predicate over `value` (domainValue inside a domain CHECK), without the IS TRUE wrapper, which the
  * printer adds to every CHECK.
  */
-export const membership = (check: NontrivialCheck, value: Expr): Expr => {
+export const membership = (check: RegexCheck, value: Expr): Expr => {
 	switch (check.kind) {
 		case "finite":
 			return {
@@ -354,7 +302,7 @@ export const membership = (check: NontrivialCheck, value: Expr): Expr => {
  * prints its predicate in one place whatever its form, alone inside `CHECK ((...) IS TRUE)` or as a term of a
  * contract's conjunction, so the predicates' bytes order the statements as the statements' own bytes do.
  */
-const predicateBytes = (check: NontrivialCheck): number =>
+const predicateBytes = (check: RegexCheck): number =>
 	utf8Length(printExpr(membership(check, domainValue)))
 
 /**
@@ -363,7 +311,7 @@ const predicateBytes = (check: NontrivialCheck): number =>
  * CHECK ((...) IS TRUE)`, with no NOT NULL.
  */
 export const textDomainDdl = (
-	check: NontrivialCheck,
+	check: RegexCheck,
 	target: { readonly schema: string; readonly name: string; readonly constraint: string }
 ): CreateDomain => ({
 	kind: "createDomain",

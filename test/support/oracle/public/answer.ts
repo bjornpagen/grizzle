@@ -17,13 +17,17 @@ import type {
 } from "#test/support/oracle/public/program.ts"
 import { Declined, type Value, valueKey } from "#test/support/oracle/reference/values.ts"
 
-/** The columns and attachments a delivered row carries, each attachment in its stated delivery. */
+/**
+ * The columns and attachments a delivered row carries, each attachment in its stated delivery, and delivered in order
+ * when its child ends in `.orderBy(...).take(k)`: the take's order is its delivery's.
+ */
 export interface Shape {
 	readonly columns: ReadonlyArray<Column>
 	readonly attachments: ReadonlyArray<{
 		readonly name: string
 		readonly shape: Shape
 		readonly delivery: StatedDelivery
+		readonly inOrder: boolean
 	}>
 }
 
@@ -32,7 +36,8 @@ export const shapeOf = (q: Query<ParentColumn>): Shape => ({
 	attachments: Arr.map(q.attachments, (a) => ({
 		name: a.name,
 		shape: shapeOf(a.child),
-		delivery: a.delivery
+		delivery: a.delivery,
+		inOrder: a.child.bound.kind === "take"
 	}))
 })
 
@@ -50,7 +55,8 @@ export const readBackShape = (shape: Shape): Shape => ({
 	attachments: Arr.map(shape.attachments, (a) => ({
 		name: a.name,
 		shape: readBackShape(a.shape),
-		delivery: a.delivery.kind === "array" ? a.delivery : { kind: "option" }
+		delivery: a.delivery.kind === "array" ? a.delivery : { kind: "option" },
+		inOrder: a.inOrder
 	}))
 })
 
@@ -73,7 +79,8 @@ export interface Nested {
  * - a column's values are compared exactly: equal values are identical (1.0 and 1.00 are one Decimal, NaN is NaN, a
  *   float's zero is 0), so a delivered value that is equal but not identical, a -0 among them, is a difference;
  * - an attachment's children are a set per parent, compared as a set: a child missing from one parent, repeated, or
- *   given to another parent is a difference;
+ *   given to another parent is a difference; a child that ends in `.orderBy(...).take(k)` is delivered in that order,
+ *   and compared in order;
  * - get's Option is the set of its one row or none.
  *
  * A public record is read into this form strictly: a missing or extra key, a value of another host type, or an
@@ -211,15 +218,19 @@ const unstated = (left: Declines, right: Declines): Declines => ({
 
 /**
  * Two rows of one shape, exactly: every column's value one value (sameValue), but for the columns `skip` holds, and
- * every attachment's children as a set. Every side delivers each value in its one form, so equal is identical,
- * and anything a plan, a storage order or a stored spelling could change is a difference.
+ * every attachment's children as a set, or in order for a child that ends in a take. Every side delivers each value in
+ * its one form, so equal is identical, and anything a plan, a storage order or a stored spelling could change is a
+ * difference.
  */
 const nestedEquivalence = (shape: Shape, skip: Declines): Equivalence<Nested> => {
 	const columns = Arr.map(shape.columns, value)
-	const children = Arr.map(shape.attachments, (a, i) => ({
-		name: a.name,
-		rows: set(nestedEquivalence(a.shape, defined(skip.attachments[i], `the declines of ${a.name}`)))
-	}))
+	const children = Arr.map(shape.attachments, (a, i) => {
+		const child = nestedEquivalence(
+			a.shape,
+			defined(skip.attachments[i], `the declines of ${a.name}`)
+		)
+		return { name: a.name, rows: a.inOrder ? ordered(child) : set(child) }
+	})
 	return (a, b) => {
 		for (const [i, equal] of columns.entries()) {
 			const x = a.values[i]

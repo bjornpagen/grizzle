@@ -65,16 +65,23 @@ const textOf = (t: TextType) => {
 }
 
 /**
- * The B-tree entry of Line's (doc, at, after) as representability counts one: the IndexTupleData header, then each
- * datum after its alignment's worst-case padding, since a varlena before it may be any length (a uuid, aligned to 1; a
- * bigint, to 8; a text's 4-byte varlena header and its longest value, to 4), the whole MAXALIGNed.
+ * The B-tree entry of Line's (doc, at, after) as index_form_tuple lays it out: the IndexTupleData header, a uuid aligned
+ * to 1, a bigint aligned to 8, both at exact offsets since no varlena or NULL comes before them, then the text's 4-byte
+ * varlena header and its longest value aligned to 4, the whole MAXALIGNed.
  */
 const entryBytes = (textBytes: number): number => {
 	const header = 8
 	const doc = header + typlens.uuid.value
-	const at = doc + (typlens.int8.value - 1) + typlens.int8.value
-	return alignUp(at + (4 - 1) + 4 + textBytes, maxAlign.value)
+	const at = alignUp(doc, typlens.int8.value) + typlens.int8.value
+	return alignUp(alignUp(at, 4) + 4 + textBytes, maxAlign.value)
 }
+
+/** The bytes the refusal counts each of Line's (doc, at, after) at, a text's with its 4-byte varlena header. */
+const datumsOf = (textBytes: number) => [
+	{ field: "doc", bytes: typlens.uuid.value },
+	{ field: "at", bytes: typlens.int8.value },
+	{ field: "after", bytes: 4 + textBytes }
+]
 
 /** Doc's lines in order, and the concat fold of their pieces into Doc.text, every text of `t`. */
 const docSchema = (t: TextType) => {
@@ -152,9 +159,14 @@ describe("a family axis's key", () => {
 							)
 							assert.deepEqual(
 								reason.fault,
-								bytes === undefined
+								bytes === undefined || t.bytes === undefined
 									? { kind: "unboundedText", field: "after" }
-									: { kind: "btreeEntry", bytes, limit: btreeMaxItemSize.value }
+									: {
+											kind: "btreeEntry",
+											bytes,
+											limit: btreeMaxItemSize.value,
+											datums: datumsOf(t.bytes)
+										}
 							)
 							c.note(bytes === undefined ? "an unbounded accumulator" : "an entry past the bound")
 						})
@@ -168,9 +180,9 @@ describe("a carried set's key", () => {
 	 * A set an axis carries is its roster's bit(n), n every code the roster has minted, holes included: the law model
 	 * counts it at its two live handles, and the installation's codes size it exactly (physical/ddl/tables.ts
 	 * setUniqueBound), so a roster pruned of many handles refuses the UNIQUE when it is compiled rather than at an insert
-	 * (54000). The box: Tag's codes its two live handles, then 0, 21,230 or 21,231 holes, the entry exactly at
-	 * BTMaxItemSize at 21,230 and one MAXALIGN past it at 21,231. The oracle: the entry counted by hand, a bit(n)'s varlena
-	 * header, its 4-byte bit count and a byte per eight codes after Line's (order, at).
+	 * (54000). The box: Tag's codes its two live handles, then 0, 21,310 or 21,311 holes, the entry exactly at
+	 * BTMaxItemSize at 21,310 and one MAXALIGN past it at 21,311. The oracle: the entry counted by hand, a bit(n)'s varlena
+	 * header, its 4-byte bit count and a byte per eight codes after Line's (order, at) at their exact offsets.
 	 */
 	const Tag = closed("Tag", ["red", "blue"])
 	const none = Bits.of(Tag, [])
@@ -213,10 +225,13 @@ describe("a carried set's key", () => {
 			}
 		])
 
-	/** Line's (order, at, after) entry: its header, a uuid, a bigint, a bit(n) of `codes` codes, MAXALIGNed. */
+	/** A bit(n) of `codes` codes: its varlena header, its 4-byte bit count and a byte per eight codes. */
+	const setBytes = (codes: number): number => 4 + typlens.int4.value + Math.ceil(codes / 8)
+
+	/** Line's (order, at, after) entry: its header, a uuid, a bigint aligned to 8, a bit(n) aligned to 4, MAXALIGNed. */
 	const entryOf = (codes: number): number => {
-		const at = 8 + typlens.uuid.value + (typlens.int8.value - 1) + typlens.int8.value
-		return alignUp(at + (4 - 1) + 4 + typlens.int4.value + Math.ceil(codes / 8), maxAlign.value)
+		const at = alignUp(8 + typlens.uuid.value, typlens.int8.value) + typlens.int8.value
+		return alignUp(alignUp(at, 4) + setBytes(codes), maxAlign.value)
 	}
 
 	type SetFeature = "no hole" | "an entry at the bound" | "an entry past it"
@@ -231,8 +246,8 @@ describe("a carried set's key", () => {
 						kind: "specification",
 						name: "VARBITTOTALLEN and nbtree.h's BTMaxItemSize, counted by hand"
 					},
-					box: "Tag's two live handles and 0, 21,230 or 21,231 holes",
-					generator: element([0, 21_230, 21_231] as const),
+					box: "Tag's two live handles and 0, 21,310 or 21,311 holes",
+					generator: element([0, 21_310, 21_311] as const),
 					literal: Formatter.format,
 					limit: 3,
 					coverage: requiredInSpace<SetFeature>([
@@ -262,7 +277,12 @@ describe("a carried set's key", () => {
 						assert.deepEqual(reason.fault, {
 							kind: "btreeEntry",
 							bytes,
-							limit: btreeMaxItemSize.value
+							limit: btreeMaxItemSize.value,
+							datums: [
+								{ field: "order", bytes: typlens.uuid.value },
+								{ field: "at", bytes: typlens.int8.value },
+								{ field: "after", bytes: setBytes(2 + holes) }
+							]
 						})
 						c.note("an entry past it")
 					})

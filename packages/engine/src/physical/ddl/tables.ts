@@ -3,6 +3,7 @@ import { Refusal } from "#compiler/core/canonical.ts"
 import { CompileError } from "#compiler/core/errors.ts"
 import { type Identity, identifierOf } from "#compiler/core/identity.ts"
 import type { ConstraintName, IdentityKind, LawId } from "#compiler/core/ids.ts"
+import { defect } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import {
 	appendNonEmpty,
@@ -35,8 +36,8 @@ import {
 import { addVectorNorms, isVectorType, vectorNorms } from "#compiler/physical/vector/storage.ts"
 import {
 	btreeEntry,
-	type DatumBound,
 	datumBound,
+	type EntryColumn,
 	setDatumBound
 } from "#compiler/schema/representability.ts"
 import type {
@@ -187,11 +188,12 @@ const nativeColumn = (b: InstallBuilder, relation: string, c: NativeColumn): str
 	c.kind === "field" ? b.names.column(relation, c.field.name) : c.column
 
 /**
- * A UNIQUE's B-tree entry over a set, sized by the installation's codes, or the refusal of one past BTMaxItemSize. A set
- * is its roster's bit(n), n every code the roster has minted, holes included, which the law model counts at its live
- * handles alone (laws/model/plan.ts plannedDatum) and the installation's codebook holds exactly: a roster grown and
- * pruned may hold codes enough that the entry outgrows the limit, where PostgreSQL would refuse an insert with 54000.
- * A UNIQUE over no set was bounded by the law model already, so only one over a set is counted again.
+ * A UNIQUE's B-tree entry over a set, sized by the installation's codes, or the refusal of one past BTMaxItemSize. The
+ * law model planned every UNIQUE with its entry proved within the limit, each column's datum bounded (laws/model/plan.ts
+ * plannedEntry), a set's counted at its roster's live handles alone: a set is its roster's bit(n), n every code the
+ * roster has minted, holes included, which only the installation's codebook holds, and a roster grown and pruned may
+ * hold codes enough that the entry outgrows the limit, where PostgreSQL would refuse an insert with 54000. So only a
+ * UNIQUE over a set is counted again, every column as the law model counted it but a set at its codes.
  */
 const setUniqueBound = (
 	b: InstallBuilder,
@@ -211,24 +213,34 @@ const setUniqueBound = (
 		}
 		return undefined
 	}
-	const fields = columns.flatMap((c): ReadonlyArray<TargetField> => {
+	const fields = columns.map((c) => {
 		const field = c.kind === "field" ? c.field : lawField(c.column)
-		return field === undefined ? [] : [field]
+		if (field === undefined) {
+			throw defect(
+				`the law column ${nativeColumn(b, relation, c)} a UNIQUE of ${relation} reads, which the law model plans`
+			)
+		}
+		return { column: c, field }
 	})
-	if (!fields.some((f) => baseOf(f.type).carrier === "bits")) {
+	if (!fields.some((f) => baseOf(f.field.type).carrier === "bits")) {
 		return
 	}
-	const datums = fields.flatMap((field): ReadonlyArray<DatumBound> => {
+	const entryColumns = fields.map(({ column, field }): EntryColumn => {
 		const base = baseOf(field.type)
-		if (base.carrier === "bits") {
-			const codec = [...b.names.codes.rosters].find(([name]) => name === base.roster.closed)?.[1]
-			return [setDatumBound(codec?.size ?? base.roster.handles.length)]
+		const datum =
+			base.carrier === "bits"
+				? setDatumBound(
+						[...b.names.codes.rosters].find(([name]) => name === base.roster.closed)?.[1]?.size ??
+							base.roster.handles.length
+					)
+				: datumBound(field.desc)
+		const name = column.kind === "field" ? column.field.name : column.column
+		if (datum === undefined) {
+			throw defect(`a bounded datum of ${name}, which the law model's UNIQUE of ${relation} proved`)
 		}
-		/** Text of no bound was refused by the law model, which bounded every other datum of the UNIQUE. */
-		const bound = datumBound(field.desc)
-		return bound === undefined ? [] : [bound]
+		return { name, datum, nullable: column.kind === "law" }
 	})
-	const entry = btreeEntry(datums)
+	const entry = btreeEntry(entryColumns)
 	if (!entry.ok) {
 		const key = columns.map((c) => (c.kind === "field" ? c.field.name : c.column))
 		throw new Refusal(

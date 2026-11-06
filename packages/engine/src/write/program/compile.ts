@@ -8,7 +8,7 @@ import type { Certificate } from "#compiler/ir/certificate.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { ChangeSetDesc } from "#compiler/ir/desc.ts"
-import type { Family } from "#compiler/ir/family.ts"
+import { type Family, isTreeOf } from "#compiler/ir/family.ts"
 import type { RelationInfo } from "#compiler/ir/law.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type {
@@ -75,7 +75,6 @@ import {
 
 import { relationDepths } from "#compiler/write/family/compose.ts"
 import type { EditTarget } from "#compiler/write/family/edit.ts"
-import { isTreeOf } from "#compiler/write/family/nesting.ts"
 import {
 	countStatement,
 	type FamilySql,

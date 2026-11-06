@@ -3,6 +3,9 @@ import {
 	claimRuleText,
 	type DerivedRefusal,
 	derivedRefusalText,
+	type FamilyName,
+	type FillAxis,
+	type FilledLater,
 	type GeneratedRule,
 	generatedRuleText,
 	type KeyFault,
@@ -12,10 +15,13 @@ import {
 	type RecursionRefusal,
 	type RoleRule,
 	recursionRefusalText,
-	roleRuleText
+	roleRuleText,
+	unfillableText,
+	type UnwritableCause,
+	unwritableRelationText
 } from "#compiler/core/causes.ts"
 import type { DeclaredName } from "#compiler/core/identity.ts"
-import type { ConstraintName } from "#compiler/core/ids.ts"
+import type { ConstraintName, LawId } from "#compiler/core/ids.ts"
 import { formatLoc, formatPath, prefixedLoc, type SourceLoc } from "#compiler/core/loc.ts"
 
 /** A path inside a value: object keys and array indices. */
@@ -137,7 +143,7 @@ export type CompileBound =
 const boundText = (bound: CompileBound): string => {
 	switch (bound.kind) {
 		case "regexCompileSpace":
-			return `${bound.pattern} ${regexSpaceText(bound.measure)}: past grizzle's measure of PostgreSQL's regex compile space (REG_MAX_COMPILE_SPACE), beyond which PostgreSQL refuses a pattern as "regular expression is too complex"; write a smaller pattern, or bound the text's length with Compute.charLength in a contract predicate`
+			return `${bound.pattern} ${regexSpaceText(bound.measure)}: past grizzle's measure of PostgreSQL's regex compile space (REG_MAX_COMPILE_SPACE), beyond which PostgreSQL refuses a pattern as "regular expression is too complex"; write a smaller pattern, or bound the text's length with Compute.charLength or Compute.octetLength in a contract predicate`
 		case "stringLength":
 			return `a text of at most ${bound.limit} UTF-16 code units, V8's longest string (needed ${bound.needed})`
 		case "tableColumns":
@@ -174,6 +180,27 @@ export type PreconditionKind =
 	| "powerDomain"
 	| "bucketDomain"
 	| "lexical"
+
+/**
+ * The test a PartialOperation's guard puts in Compute.when over its operand, which fits the operand's type: over a
+ * number, Compute.nonzero, Compute.nonnegative, Compute.isFinite, or Compute.within between the bounds the operation is
+ * defined within; over a text, Compute.matches against the target's pattern or its lexical form; and, where no Compute
+ * test proves the precondition of the operand's type (a contract's predicate over a text, a boolean, a uuid or a
+ * date), none: a value of the target's own type, a parameter its binding checks or a literal its admission judges.
+ */
+export type GuardTest =
+	| { readonly kind: "nonzero" }
+	| { readonly kind: "nonnegative" }
+	| { readonly kind: "isFinite" }
+	| { readonly kind: "within" }
+	| { readonly kind: "matches"; readonly pattern: "target" | "lexicalForm" }
+	| { readonly kind: "typed" }
+
+/** The guard a PartialOperation names: its test over the operand, and the guard to write, spelled from that test. */
+export interface Guard {
+	readonly test: GuardTest
+	readonly text: string
+}
 
 const preconditionText = (kind: PreconditionKind, operand: string): string => {
 	switch (kind) {
@@ -285,13 +312,18 @@ const duplicateText = (duplicate: Duplicate): string => {
  * - `ResourceBound`: a bound crossed (CompileBound).
  * - `PartialOperation`: an operation defined only where its precondition holds, which neither the operands' bounds nor
  *   a Compute.cond around it proves: `operation` names it, `operand` the operand the precondition reads, and `guard`
- *   the Compute.cond to write, whose other branch is the caller's value for the undefined case.
+ *   the Compute.when to write, its test over the operand by the operand's type (GuardTest), whose other branch is the
+ *   caller's value for the undefined case.
  * - `RecursionRefused`: recursion admission refused (check/recursion), for `cause`.
  * - `DerivedRefused`: derived analysis refused a derived relation (analysis/derived), for `cause`.
  * - `RoleRefused`, `LoginRefused`, `ContextRefused`: a role, a login or a context breaks the rule `rule`.
  * - `RoleNameTooLong`: a login's or a role's PostgreSQL role, `role` (`<schema>__<name>`), is longer than PostgreSQL's
  *   `limit` bytes.
  * - `GeneratedRefused`: generated field `field` of `relation` breaks the rule `rule`.
+ * - `UnfillableField`: the column `field` of `relation`, which grizzle fills by the law `law`, reads the column
+ *   `source` along the `axis` of `family`, which its row fills only after it, for `later` (FilledLater), so no write
+ *   fills it.
+ * - `UnwritableRelation`: no write fills `relation`'s rows, for `cause` (UnwritableCause).
  * - `UndeclaredDrop`: a migration drops `dropped`, which the previous installation holds and the schema no longer
  *   declares, and no declaration of the draft (`--rename`, `--drop`) names it.
  */
@@ -375,7 +407,7 @@ export type CompileReason =
 			readonly operation: string
 			readonly precondition: PreconditionKind
 			readonly operand: string
-			readonly guard: string
+			readonly guard: Guard
 	  }
 	| { readonly _tag: "RecursionRefused"; readonly at: SourceLoc; readonly cause: RecursionRefusal }
 	| { readonly _tag: "DerivedRefused"; readonly at: SourceLoc; readonly cause: DerivedRefusal }
@@ -410,6 +442,23 @@ export type CompileReason =
 			readonly of: "login" | "role"
 			readonly role: string
 			readonly limit: number
+	  }
+	| {
+			readonly _tag: "UnfillableField"
+			readonly at: SourceLoc
+			readonly relation: string
+			readonly field: string
+			readonly law: LawId
+			readonly axis: FillAxis
+			readonly family: FamilyName
+			readonly source: { readonly relation: string; readonly column: string }
+			readonly later: FilledLater
+	  }
+	| {
+			readonly _tag: "UnwritableRelation"
+			readonly at: SourceLoc
+			readonly relation: string
+			readonly cause: UnwritableCause
 	  }
 export type CompileReasonTag = CompileReason["_tag"]
 
@@ -531,7 +580,7 @@ export const compileReasonText = (reason: CompileReason): string => {
 		case "ResourceBound":
 			return boundText(reason.bound)
 		case "PartialOperation":
-			return `${reason.operation} is defined only where ${preconditionText(reason.precondition, reason.operand)}, which nothing here proves; guard it: ${reason.guard}`
+			return `${reason.operation} is defined only where ${preconditionText(reason.precondition, reason.operand)}, which nothing here proves; guard it: ${reason.guard.text}`
 		case "RecursionRefused":
 			return recursionRefusalText(reason.cause)
 		case "DerivedRefused":
@@ -546,6 +595,10 @@ export const compileReasonText = (reason: CompileReason): string => {
 			return `context ${reason.context}: ${claimRuleText(reason.rule)}`
 		case "RoleNameTooLong":
 			return `a ${reason.of} name whose role ${reason.role} fits ${reason.limit} bytes with its schema's name`
+		case "UnfillableField":
+			return unfillableText(reason)
+		case "UnwritableRelation":
+			return unwritableRelationText(reason.relation, reason.cause)
 		case "UndeclaredDrop": {
 			const spelled = droppedText(reason.dropped)
 			return `${spelled} is dropped but not declared: declare it with --drop ${spelled}, or --rename it`

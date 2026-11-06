@@ -3,7 +3,7 @@ import {
 	type DerivedRelationAnalysis
 } from "#compiler/analysis/derived/analyze.ts"
 import { analyzeWorld, type WorldAnalysis } from "#compiler/analysis/derived/world.ts"
-import { closedReads } from "#compiler/check/closed.ts"
+import { closedReads, closedReadsAmong } from "#compiler/check/closed.ts"
 import { fail, failWith, unwrap } from "#compiler/check/fail.ts"
 import {
 	closedReadNames,
@@ -69,7 +69,7 @@ import type {
 	OwnedWorldEntry,
 	OwnedWrite
 } from "#compiler/schema/own.ts"
-import { textLookupOnce } from "#compiler/text/refinement.ts"
+import { textLookup } from "#compiler/text/refinement.ts"
 
 /** The refusal of a declared key whose index entry is unrepresentable, for `fault`, as ownership words it. */
 const unrepresentableKey = (
@@ -528,7 +528,7 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 					? undefined
 					: this.fieldType(field.desc, childLoc(loc, "fields", f))
 			},
-			closed: closedReads(below),
+			closed: closedReadsAmong(this.closedReads, below),
 			above: (c) => readable.some((x) => x.name === c) && !below.some((x) => x.name === c)
 		}
 		const declared = this.#lawFields(r, (f, type, at) => this.#writing(r, f, type, at, row))
@@ -659,7 +659,8 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 				params: noParams,
 				fieldType: (d, l) => catchRefusal(() => this.queryFieldType(d, l, seen)),
 				closed: row.closed,
-				regexMember
+				regexMember,
+				patternLanguage: textLookup
 			})
 		)
 		const mismatch = generatedTypeRule(declared, term.nominal)
@@ -801,18 +802,15 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 		)
 	}
 
-	/** Each text pattern's analysis, read once for every field and contract of the pattern. */
-	readonly #texts = textLookupOnce()
-
 	readonly #env: ScalarEnv = {
 		kind: "schema",
 		roster: (name) => this.#rosters.get(name),
-		text: this.#texts,
 		contractPredicate: (predicate, base, contract, facts): Result.Result<ExprTable, CompileError> =>
 			contractPredicateTable(predicate, base, contract, facts, {
 				loc: SourceLoc(`contract ${contract}`, []),
 				fieldType: (d, at) => scalarTypeOf(d, this.#env, at),
-				regexMember
+				regexMember,
+				patternLanguage: textLookup
 			})
 	}
 

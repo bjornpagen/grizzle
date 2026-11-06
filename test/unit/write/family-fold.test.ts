@@ -289,9 +289,10 @@ const fillOf = (s: Shape): Compiled | undefined => {
 	}
 	const codes = firstCodebook(rostersOf(succeeded(own(decodedSchema(desc)))))
 	const family = defined(model.value.families[0], "the fold's family")
-	const fill = succeeded(
-		filler(model.value.families, codes, hostEvaluator(codes, closedLeaf(new Map()), regexMember)),
-		"a fold's filler builds"
+	const fill = filler(
+		model.value.theory.fill,
+		codes,
+		hostEvaluator(codes, closedLeaf(new Map()), regexMember)
 	)
 	const built = { family, fill }
 	compiledFills.set(key, built)

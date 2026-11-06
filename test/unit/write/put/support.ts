@@ -88,7 +88,7 @@ const shopLaws = [
 	check("OneOrTwoHands", Crew, (r) => r.hands.between(1n, 2n))
 ] as const
 
-export const Shop = schema("Shop", shopRelations, shopLaws)
+const Shop = schema("Shop", shopRelations, shopLaws)
 
 /**
  * The Shop with Crew mutable: a Hand's delete then shrinks a stored Crew's family, which the Shop's immutable Crew keeps

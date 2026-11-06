@@ -42,7 +42,8 @@ export type IeeeOp = "add" | "sub" | "mul" | "div" | "sqrt" | "round"
  * How an overload is defined on every value its operand types admit. Every overload states one, so none can be added
  * partial without deciding, and the lowering and the SQL rendering dispatch on it exhaustively:
  * - `total`: defined everywhere as PostgreSQL computes it: comparisons, boolean composition, numeric arithmetic within
- *   the digit bounds every numeric expression has (lower.ts), sign, char_length, span endpoints, widening casts;
+ *   the digit bounds every numeric expression has (lower.ts), sign, char_length, octet_length, span endpoints, widening
+ *   casts;
  * - `exact`: integer or money arithmetic computed exactly (T1): its value is an exact integer or exact money
  *   (ir/scalar.ts ExactType), never the overflowing native result, so the overload's catalog result is its PostgreSQL
  *   identity only, and SQL rendering computes it over its operands widened into the exact space
@@ -192,6 +193,7 @@ export type NativeFn =
 	| "lower"
 	| "upper"
 	| "charLength"
+	| "octetLength"
 	| "concat"
 	| "startsWith"
 	| "endsWith"
@@ -728,8 +730,8 @@ const endpoint = (fn: "lower" | "upper", range: SpanCarrier, point: IntCarrier):
  * - comparisons: every carrier with equality has = and <>, every ordered carrier the four orderings;
  * - a set over a roster's union (bitor), intersection (bitand) and cardinality (bit_count(bit)), its difference, subset
  *   and disjointness composed of them, all total; bitnot only inside those, since it sets the hole and padding bits;
- * - text length, concatenation (textcat), and the prefix and suffix tests (starts_with, and right, char_length and =
- *   composed), each for checks only; and the regex match (textregexeq), whose pattern operand's every value was
+ * - text length in code points (char_length) and in UTF-8 bytes (octet_length), concatenation (textcat), and the
+ *   prefix and suffix tests (starts_with, and right, char_length and = composed), each for checks only; and the regex match (textregexeq), whose pattern operand's every value was
  *   admitted inside PostgreSQL's regex compile space where the node was typed (compute/lower.ts), everywhere. textcat
  *   allocates its result, which past PostgreSQL's MaxAllocSize raises "invalid memory alloc request size": no query
  *   holds it, an equation with a concatenation lowering without it (compute/lower.ts concatEquation), and a check or
@@ -866,6 +868,7 @@ const catalogOverloads = {
 		"value"
 	),
 	"char_length(text)": fnCall("charLength", "char_length", ["text"], "int4", total, "value"),
+	"octet_length(text)": fnCall("octetLength", "octet_length", ["text"], "int4", total, "value"),
 	textcat: infix("concat", "||", "text", "text", total, "value"),
 	"starts_with(text,text)": fnCall(
 		"startsWith",

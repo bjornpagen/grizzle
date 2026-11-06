@@ -3,7 +3,7 @@ import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty
 import * as Result from "#compiler/core/result.ts"
 import type { InferredFieldDesc } from "#compiler/ir/desc.ts"
 import type { DeclaredKey } from "#compiler/ir/rel.ts"
-import { btreeEntry, keyDatums } from "#compiler/schema/representability.ts"
+import { btreeEntry, keyColumns, keyDatums } from "#compiler/schema/representability.ts"
 
 export interface DerivedKeyLayout {
 	readonly fields: DeclaredKey
@@ -27,7 +27,8 @@ interface KeyColumn {
  * is one more ordered datum of an int4range or int8range B-tree, never a WITHOUT OVERLAPS constraint, since uniqueness
  * of a derived relation's facts is equality, not nonoverlap. So a key passes exactly the B-tree half of the check every
  * declared key passes (schema/representability.ts): at most INDEX_MAX_KEYS columns, and a possible entry, the 8-byte
- * tuple header plus each datum with its worst-case alignment padding, the whole MAXALIGNed, within BTMaxItemSize.
+ * tuple header plus each datum at its exact offset through the key's fixed-width prefix and with its worst-case
+ * alignment padding from its first varlena on, the whole MAXALIGNed, within BTMaxItemSize (btreeEntryBytes).
  *
  * A definition proved to hold at most one fact, an aggregate over no group key, proves a key narrower than any heading:
  * every single column. Its one unique index is on its first column in heading order whose entry is representable, so a
@@ -50,7 +51,7 @@ export const derivedKeyLayout = (
 	if (!datums.ok) {
 		return datums
 	}
-	const btreeBytes = btreeEntry(datums.value.map((d) => d.datum))
+	const btreeBytes = btreeEntry(keyColumns(datums.value))
 	if (!btreeBytes.ok) {
 		return btreeBytes
 	}

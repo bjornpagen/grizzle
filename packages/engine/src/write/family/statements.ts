@@ -22,7 +22,7 @@ import { defined } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
-import type { Family } from "#compiler/ir/family.ts"
+import { type Family, familyColumnType } from "#compiler/ir/family.ts"
 import {
 	type FamilyId,
 	fieldNames,
@@ -74,7 +74,7 @@ import {
 } from "#compiler/sql/build.ts"
 import { emitText } from "#compiler/sql/emit.ts"
 import { NameSupply } from "#compiler/sql/naming.ts"
-import { type ColumnKey, columnKey, familyColumnType } from "#compiler/write/family/fold.ts"
+import { type ColumnKey, columnKey } from "#compiler/write/family/fold.ts"
 import {
 	type DeleteResult,
 	type InsertResult,

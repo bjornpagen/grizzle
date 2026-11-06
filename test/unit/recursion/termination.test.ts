@@ -9,7 +9,7 @@ import type { FieldDesc } from "#compiler/ir/desc.ts"
 import { uuid } from "#compiler/public/fields.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
-import type { HeadTermDesc } from "#test/support/fixtures/ir/desc.ts"
+import { type HeadTermDesc, textDesc } from "#test/support/fixtures/ir/desc.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { checking, checkOptions } from "#test/support/policy.ts"
 import {
@@ -47,7 +47,7 @@ const copied: Arr.NonEmptyReadonlyArray<readonly [string, FieldDesc]> = [
 	["active", { kind: "pg", type: "boolean" }],
 	["level", { kind: "closedId", roster: "Level" }],
 	["rank", { kind: "pg", type: "smallint" }],
-	["label", { kind: "text", source: "^v[0-9]+$", flags: "u" }]
+	["label", textDesc("^v[0-9]+$", "u")]
 ]
 
 /**

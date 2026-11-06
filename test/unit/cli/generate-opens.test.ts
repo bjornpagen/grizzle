@@ -1,10 +1,11 @@
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
 import { Array as Arr, Effect, Exit, Layer, Record as Rec, Result } from "effect"
-import { loginRoles } from "#adapter/pool/registry.ts"
+import { fromEngine } from "#adapter/engine.ts"
+import { artifactsUnder, loginRoles } from "#adapter/pool/registry.ts"
 import { DbLayer } from "#adapter/public/layer.ts"
 import type { GrizzleConfig } from "#adapter/types/config.ts"
-import { resolveConfig } from "#cli/config.ts"
+import { compileSchema, resolveConfig } from "#cli/config.ts"
 import { draftSchema } from "#cli/generate.ts"
 import { selectMaxEntries } from "#compiler/core/limits.ts"
 import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
@@ -96,18 +97,23 @@ const draftAndCompile = (given: Pick<GrizzleConfig, "schemas" | "logins">) =>
 			file
 		)
 		const configured = defined(config.schemas[0], "the configured schema")
-		const login = defined(configured.workloads[0], "the login's workloads")
+		const schema = yield* Effect.fromResult(compileSchema(configured))
+		const login = defined(schema.logins[0], "the login")
 		const draft = yield* Effect.result(
 			draftSchema(
-				configured,
+				schema,
 				emptySnapshot({ schemaName: configured.declared, schema: configured.ident }),
 				[],
 				noDeclarations
 			)
 		)
 		/** The login's programs, compiled under a fresh installation's codes, which the first draft holds. */
-		const codes = firstCodebook(rostersOf(configured.owned))
-		const compiled = yield* Effect.result(loginRoles(login.roles, login.workloads, codes))
+		const codes = firstCodebook(rostersOf(schema.owned))
+		const compiled = yield* Effect.result(
+			Effect.flatMap(fromEngine(artifactsUnder(schema.owned, codes)), (artifacts) =>
+				loginRoles(login.login, login.owned, artifacts)
+			)
+		)
 		return { compiled, draft }
 	})
 

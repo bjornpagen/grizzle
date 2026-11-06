@@ -42,6 +42,46 @@ How to upgrade:
   nesting, where it unfolded forever (TS2615) and refused the member. A field its nesting does not take is still
   refused at every depth. No codemod.
 
+#### A schema compiles once, a pattern is analyzed once, and key text is bounded by bytes
+
+- **A text pattern is analyzed once, where `str.regex` admits it**, and every later reader uses the language the
+  descriptor carries: a schema with one long pattern in 300 keys compiles in under a second, where it took 131 s.
+  ScalarType digests change; regenerate. No codemod.
+- **`Compute.octetLength(text)`** bounds a contract's text in UTF-8 bytes (`octet_length`, IMMUTABLE). A key text is
+  bounded by its pattern, its charLength (4 bytes a code point) or its octetLength, exactly, so a contract
+  `(v) => Compute.octetLength(v).le(N)` makes any pattern a key. **`keyTextBytes(fields)`** gives the most bytes a text
+  holds beside a key's other fields in one B-tree entry. A key's entry is counted at exact offsets through its
+  fixed-width prefix, so a key refused just past the limit may now be accepted, and an entry that may hold a NULL
+  counts its null bitmap. `UnrepresentableKey`'s `btreeEntry` fault gains `datums`. No codemod.
+- **Every index the law model plans is bounded**: a containment's UNIQUE into a superkey, its reverse index, keys
+  over selections, family UNIQUEs, WITHOUT OVERLAPS. Before, a containment into a superkey over an unbounded text
+  installed a UNIQUE that failed at insert with 54000; now it is `UnrepresentableKey` when the schema compiles.
+- **`grizzle migrate`, `drift` and `names` compile nothing.** Before connecting, migrate runs only `grizzle check`'s
+  committed-file checks (names, meta.json and the chain, markers, losses, transaction control, literal packs against
+  their digest). `grizzle check` and DbLayer.make still refuse a schema or login that does not compile. No codemod.
+- **A schema compiles once per command**: DbLayer.make compiles the base's installation once for all roles, generate
+  and check compile the law model and closed constants once, and `role()`, `workload()` and `login()` never encode a
+  schema. At 150 relations with 20,000- and 200,000-row closed relations, check takes 11.8 s of CPU where it took
+  81.3 s, DbLayer.make 8.0 s where 43.7 s, and workload() 30 ms where 13 s. No codemod.
+- **Schema identity is a content digest taken at build**, used by every level check. Equal contents compare equal.
+- **Fix:** a role holding every relation of a base that has closed relations is full for ChangeSets.
+- **Generate:** a schema whose laws or closed constants don't compile is refused at step `schema` (it was `workload`
+  when the schema had logins).
+
+#### lcm's bound, an attached take's order, a role's EXECUTE, and a guard fit for its operand
+
+- **`Compute.lcm` over numerics with fraction digits declares the integer digits it can reach**, `da + db + max(sa,
+  sb)` where it was `da + db`: lcm(999.99, 999.98) is 99997000.02. A narrowing of such an lcm that compiled before may
+  now be `PartialOperation` (fits). No codemod.
+- **An attachment that ends in `.orderBy(...).take(k)` arrives in that order**, ties broken by the child query's key;
+  before, its children came in the child key's order. A take is still a set to whatever composes with it. No codemod.
+- **A role holds EXECUTE on every constant its writes evaluate**, including a roster's or a set's domain constant
+  reached only through a cast in a CHECK or a generated column. Before, such a role's plain insert failed with 42501.
+  Regenerate migrations.
+- **`PartialOperation.guard` is `{ test, text }`.** Its test is one Compute can write over the operand's type: a
+  contract cast over a text, boolean, uuid or date names `typed` rather than `Compute.within`. Codemod:
+  `reason.guard` → `reason.guard.text`.
+
 #### One canonical form for a comparison and an IN list
 
 - **A check's predicate and a selection state each comparison in one orientation**: a bare literal second, `gt` and

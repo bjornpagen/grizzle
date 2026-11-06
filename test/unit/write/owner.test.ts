@@ -1,132 +1,61 @@
 import { describe, it } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { element } from "@grizzle/testing/gen"
+import { drawn, explore } from "@grizzle/testing/explore"
+import { required } from "@grizzle/testing/features"
+import { array, element, type Gen, int, option } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
+import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
-import { collectInputs } from "#adapter/apply/collect.ts"
-import { bindFrame } from "#adapter/wire/batch.ts"
-import { isCompileError } from "#compiler/core/errors.ts"
+import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { identity } from "#compiler/core/identity.ts"
-import * as Result from "#compiler/core/result.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
-import { accumulated, drawn, natural, pg, span, uuid } from "#compiler/public/fields.ts"
+import { accumulated, drawn as drawnField, natural, pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	check,
 	counted,
 	fin,
 	fold,
-	key,
 	Monoid,
 	mutable,
 	on,
 	relation,
 	schema
 } from "#compiler/public/schema.ts"
-import { changeSetOver as ChangeSet, type MemberInput } from "#compiler/write/changeset/value.ts"
-import { inForce } from "#compiler/write/family/order.ts"
+import {
+	changeSetOver as ChangeSet,
+	type ChangeSetValue,
+	type MemberOp
+} from "#compiler/write/changeset/value.ts"
 import type { WriteNames } from "#compiler/write/insert/statement.ts"
-import { bindWrite } from "#compiler/write/program/bind.ts"
-import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
-import { assert, assertVariant, failed, refused, succeeded } from "#test/support/assert.ts"
+import { compileWrite } from "#compiler/write/program/compile.ts"
+import { assert, defined, refused, succeeded } from "#test/support/assert.ts"
 import { testArtifacts, testCompile } from "#test/support/compile.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { checking, owning } from "#test/support/policy.ts"
-import { descOf, parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
+import { descOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 
 /**
- * An owner of counted families as rows-first writes it (rows-first.md §1, §3), through the whole program: an owner of
- * counted families alone is inserted on the plain path, its counts at 0 and its ends at their starts, since no
- * sequence of its nests; a relation that is both a counted family's member and a counted family's owner is inserted as
- * a member, its own family empty; and a put of an owner updates the fields its facts carry in place and inserts the
- * rest at their starts, its families left as they are, never a deletion and a re-insert.
+ * An owner of counted families read from a query may be inserted at its starts, its count 0 and its ends at their
+ * starts, which a row check reading an end against a written field refuses; so a ChangeSet that inserts or puts owners
+ * read from a query that may insert one, and in the same stratum inserts or puts a member of its family, is refused
+ * when it compiles (QueriedOwnerAppend), naming the write, the owner, the family and the member, at the owner's write.
+ * Every other write of owners from a query compiles: one whose facts carry a stored owner's key alone, which inserts no
+ * owner; one beside no member write, or beside a member's removal; one sequenced before the append; and a deletion of
+ * owners a query reads, which inserts none. An owner stated
+ * by facts is inserted at its final count and end with its members, which the write algebra's commands machine
+ * (test/unit/write/commands.test.ts) runs.
  *
- * The oracle is the specification, read off each statement's text: which columns an UPDATE sets and which an INSERT
- * writes at its starts. A WITHOUT OVERLAPS owner and the commands machine of the whole write algebra are the §8
- * machine's (test/unit/write/commands.test.ts).
- */
-
-const O = relation(
-	"O",
-	{ id: uuid, cap: pg.bigint, n: drawn(natural), total: accumulated(pg.bigint, 0n) },
-	["id"]
-)
-const M = relation("M", { o: uuid, id: uuid, x: pg.bigint }, ["o", "id"])
-const fam = counted(on(M, "o"), fin(O, "n"))
-const S1 = schema("S1", { O, M }, [
-	fam,
-	fold(fam, Monoid.sum, on(M, "o", "x"), on(O, "id", "total")),
-	mutable(O)
-])
-
-/** S1 with a candidate key beside its primary key, which every insert's probe judges. */
-const Coded = relation(
-	"Coded",
-	{ id: uuid, code: pg.bigint, n: drawn(natural), t: accumulated(pg.bigint, 0n) },
-	["id"]
-)
-const CodedM = relation("CodedM", { o: uuid, id: uuid, x: pg.bigint }, ["o", "id"])
-const codedFam = counted(on(CodedM, "o"), fin(Coded, "n"))
-const S2 = schema("S2", { Coded, CodedM }, [
-	codedFam,
-	fold(codedFam, Monoid.sum, on(CodedM, "o", "x"), on(Coded, "id", "t")),
-	key(on(Coded, "code")),
-	mutable(Coded)
-])
-
-/** An owner keyed WITHOUT OVERLAPS, with a counted family and a sum fold. */
-const Inv = relation(
-	"Inv",
-	{
-		org: uuid,
-		period: span(pg.integer),
-		cap: pg.bigint,
-		n: drawn(natural),
-		total: accumulated(pg.bigint, 0n)
-	},
-	["org", "period"]
-)
-const InvLine = relation(
-	"InvLine",
-	{ org: uuid, period: span(pg.integer), id: uuid, x: pg.bigint },
-	["id"]
-)
-const invLines = counted(on(InvLine, "org", "period"), fin(Inv, "n"))
-const S3 = schema("S3", { Inv, InvLine }, [
-	invLines,
-	fold(invLines, Monoid.sum, on(InvLine, "org", "period", "x"), on(Inv, "org", "period", "total")),
-	mutable(Inv)
-])
-
-/** S1 with its owner immutable: its family is fixed when the owner is inserted. */
-const Fixed = relation(
-	"Fixed",
-	{ id: uuid, n: drawn(natural), total: accumulated(pg.bigint, 0n) },
-	["id"]
-)
-const FixedM = relation("FixedM", { o: uuid, id: uuid, x: pg.bigint }, ["o", "id"])
-const fixedFam = counted(on(FixedM, "o"), fin(Fixed, "n"))
-const S4 = schema("S4", { Fixed, FixedM }, [
-	fixedFam,
-	fold(fixedFam, Monoid.sum, on(FixedM, "o", "x"), on(Fixed, "id", "total")),
-	mutable(FixedM)
-])
-
-/**
- * A mutable owner whose row check reads its end against a field its facts carry, as an invoice's lines sum to its
- * amount: an owner inserted at its starts holds 0 against its total, so one inserted with its members must hold their
- * sum in its own row.
+ * The oracle is that rule over generated ChangeSets of one or two strata over a ledger whose entries sum to its total.
  */
 const Ledger = relation(
 	"Ledger",
-	{ id: uuid, total: pg.bigint, n: drawn(natural), t: accumulated(pg.bigint, 0n) },
+	{ id: uuid, total: pg.bigint, n: drawnField(natural), t: accumulated(pg.bigint, 0n) },
 	["id"]
 )
 const Entry = relation("Entry", { id: uuid, ledger: uuid, x: pg.bigint }, ["id"])
 const entries = counted(on(Entry, "ledger"), fin(Ledger, "n"))
-const S5 = schema("S5", { Ledger, Entry }, [
+const Books = schema("Books", { Ledger, Entry }, [
 	entries,
 	fold(entries, Monoid.sum, on(Entry, "ledger", "x"), on(Ledger, "id", "t")),
 	check("Balanced", Ledger, (l) => l.eq(l.t, l.total)),
@@ -134,15 +63,15 @@ const S5 = schema("S5", { Ledger, Entry }, [
 	mutable(Entry)
 ])
 
-/** Ledgers read from the relation parameter `given`: facts no row need hold, so the put may insert each. */
-const givenLedgers = query(S5).rule((r) => {
+/** Ledgers read from the relation parameter `given`: facts no row need hold, so a write of them may insert each. */
+const givenLedgers = query(Books).rule((r) => {
 	const given = r.relation("given", { id: uuid, total: pg.bigint })
 	const { id, total } = v(Ledger, "ledger")
 	return r.match(given, { id, total }).find({ id, total })
 })
 
-/** A stored ledger's total restated by a parameter: every fact carries a stored ledger's key, so the put inserts none. */
-const restatedLedger = query(S5).rule((r) => {
+/** A stored ledger's total restated by a parameter: every fact carries a stored ledger's key, so it inserts none. */
+const restatedLedger = query(Books).rule((r) => {
 	const { id, total } = v(Ledger, "ledger")
 	return r
 		.match(Ledger, { id, total })
@@ -150,483 +79,213 @@ const restatedLedger = query(S5).rule((r) => {
 		.find({ id, total: r.param("total", pg.bigint) })
 })
 
-/** Ledger 1's one entry, of step value `x`. */
-const entryOf = (x: bigint) => ({ id: uuidOf(2), ledger: uuidOf(1), x })
+/** Where a write's ledgers come from: a query that may insert one, a query of stored ledgers alone, or stated facts. */
+type OwnerSource = "given" | "restated" | "stated"
 
-/** How a ChangeSet writes ledgers from a query: either may insert a ledger no row holds. */
-const ownerWrites = ["insert", "put"] as const
-type OwnerWrite = (typeof ownerWrites)[number]
-
-/** How a ChangeSet writes a member of the ledger's family beside a write of ledgers from a query. */
-const appends = ["an insert of Entry", "a put of Entry"] as const
-type Append = (typeof appends)[number]
-
-/** Each write of ledgers from a query beside each write of a member. */
-const appendCases = Arr.flatMap(ownerWrites, (op) => Arr.map(appends, (append) => ({ op, append })))
-
-/** The writes of ledgers from a query that insert no owner a member is appended to, each beside the family's members. */
-const others = [
-	"of stored ledgers only beside an append",
-	"beside no write of a member",
-	"beside a member's removal",
-	"sequenced before the append"
-] as const
-type Other = (typeof others)[number]
-
-/** Each such write, an insert's and a put's. */
-const otherCases = Arr.flatMap(ownerWrites, (op) => Arr.map(others, (other) => ({ op, other })))
-
-/** A ChangeSet over S5 that writes `ledgers` as `op` says. */
-const ledgersBy = (op: OwnerWrite, ledgers: MemberInput) =>
-	op === "insert"
-		? ChangeSet.empty(S5).insert(Ledger, ledgers)
-		: ChangeSet.empty(S5).put(Ledger, ledgers)
-
-const A = relation("A", { id: uuid, bs: drawn(natural) }, ["id"])
-const B = relation("B", { a: uuid, id: uuid, cs: drawn(natural) }, ["id"])
-const C = relation("C", { b: uuid, id: uuid }, ["id"])
-const Chain = schema("Chain", { A, B, C }, [
-	counted(on(B, "a"), fin(A, "bs")),
-	counted(on(C, "b"), fin(B, "cs")),
-	mutable(A),
-	mutable(B)
-])
-
-/** A write over `schemaValue` compiled as the platform capture compiles it, or its refusal. */
-const compileFor = (schemaValue: unknown, name: string) => {
-	const owned = owning(schemaValue)
-	const names: WriteNames = succeeded(
-		compileInstallation(owned, {
-			...installOptions(owned, "owner"),
-			installation: identity.schema(parsedSchemaName(name))
-		})
-	).names
-	const artifacts = succeeded(testArtifacts(schemaValue, testCompile))
-	return (value: unknown) =>
-		compileWrite(checking(schemaValue), descOf(value), {
-			names,
-			reads: names,
-			claims: { kind: "facts", present: new Set<string>() },
-			world: { kind: "reality" },
-			laws: artifacts.laws,
-			derived: artifacts.derived
-		})
+interface Stratum {
+	readonly owner: Option.Option<{ readonly op: MemberOp; readonly source: OwnerSource }>
+	readonly member: Option.Option<MemberOp>
 }
 
-/** A compiled write over `schemaValue`, as the platform capture compiles it. */
-const compiledFor = (schemaValue: unknown, name: string) => {
-	const compile = compileFor(schemaValue, name)
-	return (value: unknown): CompiledWrite => succeeded(compile(value))
+/**
+ * One or two strata, each with a write of ledgers or none, and an entry's write in at most one of them: a ChangeSet
+ * writes a family's members in one stratum, since each stratum's edits are planned from what one read finds.
+ */
+const strataGen: Gen<ReadonlyArray<Stratum>> = (source) => {
+	const owners = source.draw(
+		array(
+			option((s) => ({
+				op: s.draw(element(["insert", "put", "delete"] as const)),
+				source: s.draw(element(["given", "restated", "stated"] as const))
+			})),
+			{ min: 1, max: 2 }
+		)
+	)
+	const member = source.draw(
+		option((s) => ({
+			at: s.draw(int(0, owners.length - 1)),
+			op: s.draw(element(["insert", "put", "delete"] as const))
+		}))
+	)
+	return Arr.map(owners, (owner, i) => ({
+		owner,
+		member: Option.flatMap(member, (m) => (m.at === i ? Option.some(m.op) : Option.none()))
+	}))
 }
 
-const s1 = compiledFor(S1, "s1")
-const s2 = compiledFor(S2, "s2")
-const s3 = compiledFor(S3, "s3")
-const s5 = compileFor(S5, "s5")
-const chain = compiledFor(Chain, "chain")
+const ownersOf = (source: OwnerSource) => {
+	switch (source) {
+		case "given":
+			return givenLedgers
+		case "restated":
+			return restatedLedger
+		case "stated":
+			return [{ id: uuidOf(1), total: 5n }]
+	}
+}
 
-/** Every statement text of a program's optimized artifact. */
-const texts = (program: CompiledWrite): ReadonlyArray<string> =>
-	Arr.map(program.artifacts.optimized.statements, (s) => s.spec.sql)
+/** One stratum's ChangeSet: its ledgers' write, then its entry's. */
+const stratumOf = (s: Stratum): ChangeSetValue => {
+	const owners = Option.match(s.owner, {
+		onNone: () => ChangeSet.empty(Books),
+		onSome: (o) => ChangeSet.empty(Books)[o.op](Ledger, ownersOf(o.source))
+	})
+	return Option.match(s.member, {
+		onNone: () => owners,
+		onSome: (op) => owners[op](Entry, [{ id: uuidOf(2), ledger: uuidOf(1), x: 5n }])
+	})
+}
 
-/** Binds an S2 write and checks that it binds. */
-const bindsS2 = (value: unknown) =>
-	Effect.gen(function* () {
-		const program = s2(value)
-		const members = yield* collectInputs(program.frontend, parsedOf(value).inputs)
-		const bound = succeeded(
-			bindWrite(program, { members, params: {}, transport: inForce(bindFrame) })
-		)
-		assertVariant(bound, "kind", "bound", "the owner's facts bind")
+const owned = owning(Books)
+const names: WriteNames = succeeded(
+	compileInstallation(owned, {
+		...installOptions(owned, "owner"),
+		installation: identity.schema(parsedSchemaName("books"))
+	})
+).names
+const artifacts = succeeded(testArtifacts(Books, testCompile))
+
+/** A write over Books compiled as the platform capture compiles it, or its refusal. */
+const compile = (value: unknown) =>
+	compileWrite(checking(Books), descOf(value), {
+		names,
+		reads: names,
+		claims: { kind: "facts", present: new Set<string>() },
+		world: { kind: "reality" },
+		laws: artifacts.laws,
+		derived: artifacts.derived
 	})
 
-describe("an owner of counted families, rows first", () => {
-	it.effect("puts an owner by updating the fields its facts carry, its families untouched", () =>
-		Effect.gen(function* () {
-			const value = ChangeSet.empty(S1).put(O, [{ id: uuidOf(1), cap: 2n }])
-			const program = s1(value)
-			const all = texts(program)
-			const updates = Arr.filter(all, (t) => Str.includes('UPDATE "')(t))
-			assert.equal(updates.length, 1, "the put updates the owner in place, once")
-			for (const t of updates) {
-				assert.ok(Str.includes('SET "cap" =')(t), "the update sets the field its facts carry")
-				assert.ok(!Str.includes('"n" =')(t), "the update sets no count")
-				assert.ok(!Str.includes('"total" =')(t), "the update sets no end")
-			}
-			const inserts = Arr.filter(all, (t) => Str.includes('INSERT INTO "')(t))
-			assert.equal(inserts.length, 1, "the put inserts the facts no row holds")
-			for (const t of inserts) {
-				assert.ok(
-					Str.includes('("id", "cap", "n", "total")')(t),
-					"the insert writes the count and the end"
-				)
-			}
-			assert.ok(
-				Arr.every(all, (t) => !Str.includes("DELETE FROM")(t)),
-				"the put deletes no owner"
-			)
-			const members = yield* collectInputs(program.frontend, parsedOf(value).inputs)
-			const bound = succeeded(
-				bindWrite(program, { members, params: {}, transport: inForce(bindFrame) })
-			)
-			assertVariant(bound, "kind", "bound", "the owner's facts bind")
-			assertVariant(
-				bound.flights,
-				"kind",
-				"write",
-				"a put that names no member reads nothing first"
-			)
-			/** The put's slot carries the owner's count and end, at their starts where no member draws them: the insert half
-			 * reads its columns key first, the count and the end last. */
-			const halves = Arr.filter(
-				program.artifacts.optimized.statements,
-				(s) => s.step.kind === "write" && s.step.result.kind === "insert"
-			)
-			assert.equal(halves.length, 1, "the put has one insert half")
-			for (const s of halves) {
-				for (const params of succeeded(bound.flights.chunks(s))) {
-					assert.deepEqual(
-						Arr.takeRight(params, 2),
-						['{"0"}', '{"0"}'],
-						"a fresh owner's count is 0 and its end its start"
-					)
-				}
-			}
-		})
+/** The first stratum whose owners a query may insert beside an insert or put of their members: the refusal's place,
+ * the owners' write and the members'. */
+const refusalOf = (strata: ReadonlyArray<Stratum>) =>
+	Arr.findFirst(strata, (s, at) =>
+		Option.isSome(s.owner) &&
+		s.owner.value.source === "given" &&
+		s.owner.value.op !== "delete" &&
+		Option.isSome(s.member) &&
+		s.member.value !== "delete"
+			? Option.some({ at, op: s.owner.value.op, member: s.member.value })
+			: Option.none()
 	)
 
-	it.effect(
-		"inserts an owner of counted families on the plain path, its count carried by its insert row once its read finds no owner stored",
-		() =>
-			Effect.gen(function* () {
-				const value = ChangeSet.empty(S1)
-					.insert(O, [{ id: uuidOf(1), cap: 2n }])
-					.insert(M, [{ o: uuidOf(1), id: uuidOf(2), x: 5n }])
-				const program = s1(value)
-				const members = yield* collectInputs(program.frontend, parsedOf(value).inputs)
-				const bound = succeeded(
-					bindWrite(program, { members, params: {}, transport: inForce(bindFrame) })
-				)
-				assertVariant(bound, "kind", "bound", "an owner and its member bind")
-				assertVariant(
-					bound.flights,
-					"kind",
-					"read",
-					"the owner's key is read first: an owner stored there would make its insert an exact repeat"
-				)
-				assert.ok(
-					Arr.every(bound.flights.reads, (r) => r.family.owner === "O" && r.family.count === "n"),
-					"the family's own read carries the owner's key beside the member's, in the one read flight"
-				)
-				const chunks = succeeded(bound.flights.writes(Arr.map(bound.flights.reads, () => [])))
-				const counts = Arr.filter(
-					program.artifacts.optimized.statements,
-					(s) => s.step.kind === "family" && s.step.statement === "count"
-				)
-				for (const s of counts) {
-					assert.deepEqual(
-						succeeded(chunks(s)),
-						[],
-						"a fresh owner's count is carried by its insert row, never a count statement"
-					)
-				}
-			})
-	)
+type OwnerFeature =
+	| `${"insert" | "put"} of given ledgers beside ${"insert" | "put"} of an entry: refused`
+	| "given ledgers beside an entry's removal: compiled"
+	| "given ledgers beside no entry: compiled"
+	| "restated ledgers beside an append: compiled"
+	| "stated ledgers beside an append: compiled"
+	| "given ledgers sequenced before an append: compiled"
+	| "a deletion of given ledgers beside an append: compiled"
 
-	it.effect(
-		"inserts a counted member that owns a counted family as a member, its family empty",
-		() =>
-			Effect.gen(function* () {
-				const value = ChangeSet.empty(Chain)
-					.insert(A, [{ id: uuidOf(1) }])
-					.insert(B, [{ a: uuidOf(1), id: uuidOf(2) }])
-					.insert(C, [{ b: uuidOf(2), id: uuidOf(3) }])
-				const program = chain(value)
-				const members = yield* collectInputs(program.frontend, parsedOf(value).inputs)
-				const bound = succeeded(
-					bindWrite(program, { members, params: {}, transport: inForce(bindFrame) })
-				)
-				assertVariant(bound, "kind", "bound", "a chain of counted families binds")
-			})
-	)
-
-	it.effect("puts every owner of a chain of counted families in place", () =>
-		Effect.gen(function* () {
-			const value = ChangeSet.empty(Chain)
-				.put(A, [{ id: uuidOf(1) }])
-				.put(B, [{ a: uuidOf(1), id: uuidOf(2) }])
-			const program = chain(value)
-			const members = yield* collectInputs(program.frontend, parsedOf(value).inputs)
-			const bound = succeeded(
-				bindWrite(program, { members, params: {}, transport: inForce(bindFrame) })
-			)
-			assertVariant(bound, "kind", "bound", "puts of a chain's owners bind")
-		})
-	)
-
-	it.effect("inserts an owner with a candidate key, its probe naming carried fields only", () =>
-		bindsS2(ChangeSet.empty(S2).insert(Coded, [{ id: uuidOf(1), code: 7n }]))
-	)
-
-	it.effect("puts an owner with a candidate key, its probe naming carried fields only", () =>
-		bindsS2(ChangeSet.empty(S2).put(Coded, [{ id: uuidOf(1), code: 7n }]))
-	)
-
-	it("puts and deletes owners read from one relation parameter, matching on the fields facts carry", () => {
-		const value = ChangeSet.empty(S1)
-			.put(
-				O,
-				query(S1).rule((r) => {
-					const caps = r.relation("caps", { id: uuid, cap: pg.bigint })
-					const { id, cap } = v(O, "o")
-					return r.match(caps, { id, cap }).find({ id, cap })
-				})
-			)
-			.delete(
-				O,
-				query(S1).rule((r) => {
-					const caps = r.relation("caps", { id: uuid, cap: pg.bigint })
-					const { id, cap } = v(O, "o")
-					return r.match(O, { id, cap }).where(r.not(caps, { id })).find({ id, cap })
-				})
-			)
-		const program = s1(value)
-		assert.ok(texts(program).length > 0, "the put and the delete compile")
+/** The features of a ChangeSet that compiled, by what each stratum's write of ledgers stands beside. */
+const compiledFeatures = (strata: ReadonlyArray<Stratum>): ReadonlyArray<OwnerFeature> =>
+	Arr.flatMap(strata, (s, i): ReadonlyArray<OwnerFeature> => {
+		if (Option.isNone(s.owner)) {
+			return []
+		}
+		const appends = Option.isSome(s.member) && s.member.value !== "delete"
+		const later = Arr.some(
+			strata.slice(i + 1),
+			(t) => Option.isSome(t.member) && t.member.value !== "delete"
+		)
+		if (s.owner.value.op === "delete") {
+			return s.owner.value.source === "given" && appends
+				? ["a deletion of given ledgers beside an append: compiled"]
+				: []
+		}
+		switch (s.owner.value.source) {
+			case "given":
+				return [
+					...(Option.isSome(s.member)
+						? (["given ledgers beside an entry's removal: compiled"] as const)
+						: (["given ledgers beside no entry: compiled"] as const)),
+					...(later ? (["given ledgers sequenced before an append: compiled"] as const) : [])
+				]
+			case "restated":
+				return appends ? ["restated ledgers beside an append: compiled"] : []
+			case "stated":
+				return appends ? ["stated ledgers beside an append: compiled"] : []
+		}
 	})
 
-	it.effect("refuses a deleted owner fact that carries a drawn field, never reading it", () =>
-		Effect.gen(function* () {
-			const value = ChangeSet.empty(S1).delete(O, [{ id: uuidOf(1), cap: 2n, n: 0n, total: 0n }])
-			const program = s1(value)
-			const members = yield* collectInputs(program.frontend, parsedOf(value).inputs)
-			refused(
-				bindWrite(program, { members, params: {}, transport: inForce(bindFrame) }),
-				"factShape",
-				"a deletion's facts carry the written fields only"
-			)
-		})
-	)
-
-	it("puts an owner keyed WITHOUT OVERLAPS in place, never deleting and re-inserting it", () => {
-		const value = ChangeSet.empty(S3).put(Inv, [
-			{ org: uuidOf(1), period: { start: 0, end: 10 }, cap: 3n }
-		])
-		const all = texts(s3(value))
-		assert.equal(
-			Arr.filter(all, (t) => Str.includes('UPDATE "')(t)).length,
-			1,
-			"the put updates the owner in place"
-		)
-		assert.ok(
-			Arr.every(all, (t) => !Str.includes("DELETE FROM")(t)),
-			"the put deletes no owner, whose deletion would trip its members' owner axis"
-		)
-	})
-
+describe("an owner of counted families read from a query", () => {
 	it.effect(
-		"refuses an append to an immutable owner the stratum does not insert, statically and once its read finds no owner, by one sentence",
-		() =>
-			Effect.gen(function* () {
-				const statically = ChangeSet.empty(S4).insert(FixedM, [
-					{ o: uuidOf(1), id: uuidOf(2), x: 1n }
-				])
-				const thrown = refused(
-					compileFor(S4, "s4")(statically),
-					"UnsupportedOperation",
-					"an append to an owner no insert of the stratum names is refused at compile"
-				).message
-				const atBind = ChangeSet.empty(S4)
-					.insert(Fixed, [{ id: uuidOf(3) }])
-					.insert(FixedM, [{ o: uuidOf(1), id: uuidOf(2), x: 1n }])
-				const program = compiledFor(S4, "s4")(atBind)
-				const members = yield* collectInputs(program.frontend, parsedOf(atBind).inputs)
-				const bound = succeeded(
-					bindWrite(program, { members, params: {}, transport: inForce(bindFrame) })
-				)
-				assertVariant(bound, "kind", "bound", "the facts bind")
-				assertVariant(
-					bound.flights,
-					"kind",
-					"read",
-					"the owner the member names is read first: an insert at a stored member is no change"
-				)
-				/** The read finds neither the owner the member names nor the one the stratum inserts stored. */
-				const failure = failed(bound.flights.writes(Arr.map(bound.flights.reads, () => [])))
-				if (!isCompileError(failure)) {
-					return assert.fail("an append to an immutable owner is refused as a CompileError")
-				}
-				const atRun = refused(
-					Result.err(failure),
-					"UnsupportedOperation",
-					"an append to an owner the stratum does not insert is refused before any write"
-				)
-				const rule =
-					"an immutable owner's family is fixed when its owner is inserted; declare mutable(Fixed) to change it"
-				const head =
-					"an insert into FixedM, a member of the family Fixed.n of the immutable Fixed, appending to"
-				assert.ok(Str.includes(rule)(thrown), "the static refusal states the rule")
-				assert.ok(Str.includes(head)(thrown), "the static refusal names the write")
-				assert.ok(Str.includes(rule)(atRun.message), "the run time's refusal states the same rule")
-				assert.ok(Str.includes(head)(atRun.message), "the run time's refusal names the same write")
-				assert.ok(
-					Str.includes(
-						`the owner Fixed with key (${uuidOf(1)}), which this stratum does not insert`
-					)(atRun.message),
-					"the run time's refusal names the owner it found"
-				)
-			})
-	)
-	it.effect(
-		"refuses an insert or a put of an owner read from a query in a ChangeSet that inserts or puts a member of its family, naming the write, the owner, the family and the member",
+		"is refused beside an insert or put of its members in its stratum exactly when the query may insert it",
 		(ctx) =>
 			searched(
 				ctx,
-				exhaust(
+				explore(
 					{
-						suite: "unit/write/queried-owner-append",
-						generator: element(appendCases),
+						suite: "unit/write/queried-owner",
+						draw: drawn(strataGen),
 						literal: Formatter.format,
-						limit: appendCases.length,
-						coverage: requiredInSpace<`${OwnerWrite} beside ${Append}: refused`>(
-							Arr.map(
-								appendCases,
-								(k): `${OwnerWrite} beside ${Append}: refused` =>
-									`${k.op} beside ${k.append}: refused`
-							)
+						coverage: required<OwnerFeature>(
+							[
+								"insert of given ledgers beside insert of an entry: refused",
+								"insert of given ledgers beside put of an entry: refused",
+								"put of given ledgers beside insert of an entry: refused",
+								"put of given ledgers beside put of an entry: refused",
+								"given ledgers beside an entry's removal: compiled",
+								"given ledgers beside no entry: compiled",
+								"restated ledgers beside an append: compiled",
+								"stated ledgers beside an append: compiled",
+								"given ledgers sequenced before an append: compiled",
+								"a deletion of given ledgers beside an append: compiled"
+							],
+							{ cases: 300, sense: notesOnly }
 						),
-						caseHang
+						kept: [],
+						runs: 300,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang,
+						oracle: { kind: "specification", name: "the queried owner's append rule" }
 					},
-					({ op, append }, c) =>
+					(strata, c) =>
 						Effect.sync(() => {
-							const owners = ledgersBy(op, givenLedgers)
-							const value =
-								append === "an insert of Entry"
-									? owners.insert(Entry, [entryOf(5n)])
-									: owners.put(Entry, [entryOf(5n)])
+							const [first, ...rest] = Arr.map(strata, stratumOf)
+							const value = Arr.reduce(rest, defined(first, "a first stratum"), (a, b) =>
+								ChangeSet.sequence(a, b)
+							)
+							const refusal = refusalOf(strata)
+							if (Option.isNone(refusal)) {
+								succeeded(compile(value), "a write that inserts no owner it appends to compiles")
+								c.noteAll(compiledFeatures(strata))
+								return
+							}
+							const { at, op, member } = refusal.value
+							c.note(`${op} of given ledgers beside ${member} of an entry: refused`)
 							const reason = refused(
-								s5(value),
+								compile(value),
 								"QueriedOwnerAppend",
 								"an owner a query states may be inserted at its starts, which the check refuses"
 							).reason
 							if (reason._tag !== "QueriedOwnerAppend") {
 								return assert.fail("a QueriedOwnerAppend")
 							}
+							const write = Arr.findFirst(
+								defined(descOf(value).strata[at], "the refused stratum").members,
+								(m) => m.op === op && m.relation === "Ledger"
+							)
 							assert.deepEqual(
 								{
 									op: reason.op,
 									owner: reason.owner,
 									family: reason.family,
-									member: reason.member
+									member: reason.member,
+									at: reason.at
 								},
-								{ op, owner: "Ledger", family: { owner: "Ledger", count: "n" }, member: "Entry" },
-								"the refusal names the write, the owner, its family and the member written to it"
+								{
+									op,
+									owner: "Ledger",
+									family: { owner: "Ledger", count: "n" },
+									member: "Entry",
+									at: defined(Option.getOrUndefined(write), "the owners' write").loc
+								},
+								"the refusal names the write, the owner, its family and the member, at the owner's write"
 							)
-							const write = Arr.findFirst(
-								Arr.getUnsafe(descOf(value).strata, 0).members,
-								(m) => m.op === op && m.relation === "Ledger"
-							)
-							if (Option.isNone(write)) {
-								return assert.fail("the ChangeSet writes Ledger")
-							}
-							assert.deepEqual(reason.at, write.value.loc, "the refusal is at the owner's write")
-							c.note(`${op} beside ${append}: refused`)
-						})
-				)
-			)
-	)
-
-	it.effect(
-		"compiles and runs the same insert or put with the owner's facts stated, inserting the owner at its final count and end",
-		(ctx) =>
-			searched(
-				ctx,
-				exhaust(
-					{
-						suite: "unit/write/queried-owner-stated",
-						generator: element(ownerWrites),
-						literal: Formatter.format,
-						limit: ownerWrites.length,
-						coverage: requiredInSpace<`${OwnerWrite} stated: ran`>(
-							Arr.map(ownerWrites, (op): `${OwnerWrite} stated: ran` => `${op} stated: ran`)
-						),
-						caseHang
-					},
-					(op, c) =>
-						Effect.gen(function* () {
-							const stated = ledgersBy(op, [{ id: uuidOf(1), total: 5n }]).insert(Entry, [
-								entryOf(5n)
-							])
-							const program = succeeded(s5(stated))
-							const members = yield* collectInputs(program.frontend, parsedOf(stated).inputs)
-							const bound = succeeded(
-								bindWrite(program, { members, params: {}, transport: inForce(bindFrame) })
-							)
-							assertVariant(bound, "kind", "bound", "the owner stated with its member binds")
-							assertVariant(
-								bound.flights,
-								"kind",
-								"read",
-								"the owner's key is read first: only an owner no row holds is inserted"
-							)
-							const chunks = succeeded(bound.flights.writes(Arr.map(bound.flights.reads, () => [])))
-							const inserts = Arr.filter(
-								program.artifacts.optimized.statements,
-								(s) =>
-									s.step.kind === "write" &&
-									s.step.relation === "Ledger" &&
-									s.step.result.kind === "insert"
-							)
-							assert.ok(inserts.length > 0, "the write inserts the ledger no row holds")
-							for (const s of inserts) {
-								for (const params of succeeded(chunks(s))) {
-									assert.deepEqual(
-										Arr.takeRight(params, 3),
-										['{"1"}', '{"5"}', '{"5"}'],
-										"the stated owner is inserted at its final count n and end t, which the check holds to its total, its columns read key first and then n, t and total"
-									)
-								}
-							}
-							c.note(`${op} stated: ran`)
-						})
-				)
-			)
-	)
-
-	it.effect(
-		"compiles every other insert or put of an owner from a query beside its family's members",
-		(ctx) =>
-			searched(
-				ctx,
-				exhaust(
-					{
-						suite: "unit/write/queried-owner-other",
-						generator: element(otherCases),
-						literal: Formatter.format,
-						limit: otherCases.length,
-						coverage: requiredInSpace<`${OwnerWrite} ${Other}: compiled`>(
-							Arr.map(
-								otherCases,
-								(k): `${OwnerWrite} ${Other}: compiled` => `${k.op} ${k.other}: compiled`
-							)
-						),
-						caseHang
-					},
-					({ op, other }, c) =>
-						Effect.sync(() => {
-							const given = ledgersBy(op, givenLedgers)
-							const value =
-								other === "of stored ledgers only beside an append"
-									? ledgersBy(op, restatedLedger).insert(Entry, [entryOf(5n)])
-									: other === "beside no write of a member"
-										? given
-										: other === "beside a member's removal"
-											? given.delete(Entry, [entryOf(5n)])
-											: ChangeSet.sequence(given, ChangeSet.empty(S5).insert(Entry, [entryOf(5n)]))
-							succeeded(
-								s5(value),
-								"a write that inserts no owner the ChangeSet appends to compiles"
-							)
-							c.note(`${op} ${other}: compiled`)
 						})
 				)
 			)

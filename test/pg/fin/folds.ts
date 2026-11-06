@@ -949,21 +949,18 @@ export const judgedFold = (
 	})
 
 /**
- * The host's fill of one owner's family on a fold seat (write/family/fold.ts filler over the installation's families and
- * codes), read back as the reference's state: the second implementation the reference fold is judged beside. A filler
- * that will not build, or a family it will not fill, is the disagreement it reports.
+ * The host's fill of one owner's family on a fold seat (write/family/fold.ts filler over the installation's fill order
+ * and codes), read back as the reference's state: the second implementation the reference fold is judged beside. A
+ * family it will not fill is the disagreement it reports.
  */
 export const hostFilled = (f: FoldSeat, family: FoldFamily): Result.Result<FoldStored, string> => {
 	const { spec } = f
 	const codes = f.seat.installed.names.codes
 	const built = filler(
-		f.seat.model.families,
+		f.seat.model.theory.fill,
 		codes,
 		hostEvaluator(codes, closedLeaf(new Map()), regexMember)
 	)
-	if (!built.ok) {
-		return Result.fail(`the filler does not build: ${built.error.message}`)
-	}
 	const node: HostNode = {
 		relation: "Owner",
 		values: new Map<ColumnKey, unknown>([
@@ -994,7 +991,7 @@ export const hostFilled = (f: FoldSeat, family: FoldFamily): Result.Result<FoldS
 			}
 		]
 	}
-	const filled = built.value(node)
+	const filled = built(node)
 	if (!filled.ok) {
 		return Result.fail(`the filler refuses the family: ${Formatter.format(filled.error)}`)
 	}

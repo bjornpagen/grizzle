@@ -54,16 +54,17 @@ import {
 } from "#test/support/assert.ts"
 
 import { descFromJson } from "#test/support/describe.ts"
-import type {
-	ChangeSetDesc,
-	WorkloadDesc,
-	AuthoredExprDesc as ExprDesc,
-	QueryDesc,
-	QueryStageDesc,
-	AuthoredRelationDesc as RelationDesc,
-	RuleDesc,
-	SchemaDesc,
-	AuthoredStatementDesc as StatementDesc
+import {
+	type ChangeSetDesc,
+	type WorkloadDesc,
+	type AuthoredExprDesc as ExprDesc,
+	type QueryDesc,
+	type QueryStageDesc,
+	type AuthoredRelationDesc as RelationDesc,
+	type RuleDesc,
+	type SchemaDesc,
+	type AuthoredStatementDesc as StatementDesc,
+	textDesc
 } from "#test/support/fixtures/ir/desc.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { fail } from "#test/unit/ir/fixture.ts"
@@ -94,7 +95,7 @@ const fields: Readonly<Record<string, FieldDecl<object>>> = {
 	kind: caller({ kind: "closedId", roster: "Kind" }),
 	kinds: caller({ kind: "bits", roster: "Kind" }),
 	budget: caller(budget),
-	title: caller({ kind: "text", source: "^[A-Za-z ]{1,80}$", flags: "u" }),
+	title: caller(textDesc("^[A-Za-z ]{1,80}$", "u")),
 	priority: caller({ kind: "pg", type: "integer" }),
 	seq: { type: { kind: "pg", type: "bigint" }, writing: { kind: "serial" } },
 	twice: {
@@ -1014,6 +1015,7 @@ describe("Descriptions", () => {
 				upper: 1,
 				width: 1,
 				charLength: 1,
+				octetLength: 1,
 				concat: 2,
 				startsWith: 2,
 				endsWith: 2,

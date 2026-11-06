@@ -13,6 +13,7 @@ import {
 	type Scope
 } from "effect"
 import { type ReferenceObserver, unobserved } from "#test/support/oracle/reference/evaluate.ts"
+import { valueKey } from "#test/support/oracle/reference/values.ts"
 
 import {
 	type ApplyError,
@@ -676,6 +677,38 @@ const noteRowArms = (shape: Shape, row: Nested, note: Note): void => {
 	}
 }
 
+/**
+ * Notes each attached take whose order decides what a parent receives, by the expected delivery: two children or more
+ * under one parent, and among them two the take's first key, descending, orders apart.
+ */
+const noteTakes = (q: Query<ParentColumn>, rows: ReadonlyArray<Nested>, note: Note): void => {
+	for (const row of rows) {
+		for (const [i, a] of q.attachments.entries()) {
+			const children = row.attachments[i] ?? []
+			const bound = a.child.bound
+			if (bound.kind === "take" && children.length > 1) {
+				note("an attached take of two children or more")
+				const [first] = bound.order
+				const at = Arr.findFirstIndex(a.child.heading, (c) => c.name === first.column.name)
+				const keyAt = (child: Nested): string | undefined => {
+					const v = Option.isSome(at) ? child.values[at.value] : undefined
+					return v === undefined ? undefined : valueKey(v, first.column.type)
+				}
+				if (
+					first.dir === "desc" &&
+					Arr.some(children, (child, k) => {
+						const before = children[k - 1]
+						return before !== undefined && keyAt(before) !== keyAt(child)
+					})
+				) {
+					note("an attached take delivered descending")
+				}
+			}
+			noteTakes(a.child, children, note)
+		}
+	}
+}
+
 /** The host values of a read's parameters: each scalar one's value, each relation parameter's rows as records. */
 const hostParams = (
 	read: Extract<ProgramRead, { readonly kind: "query" }>
@@ -924,6 +957,7 @@ const queryRead = (
 				})
 			}
 			noteArms(shape, expected.success, note)
+			noteTakes(read.query, expected.success, note)
 		}
 		const probe = read.probe
 		switch (probe.kind) {

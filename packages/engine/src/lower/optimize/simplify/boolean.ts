@@ -246,6 +246,7 @@ export const foldBoolean = (editor: DagEditor, expr: ScalarExpr, column: ColumnV
 		case "lower":
 		case "upper":
 		case "charLength":
+		case "octetLength":
 		case "concat":
 		case "startsWith":
 		case "endsWith":
@@ -328,6 +329,7 @@ export const folds = (expr: ScalarExpr, column: ColumnValue): boolean => {
 		case "lower":
 		case "upper":
 		case "charLength":
+		case "octetLength":
 		case "concat":
 		case "startsWith":
 		case "endsWith":

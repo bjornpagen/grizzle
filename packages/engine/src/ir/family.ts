@@ -13,6 +13,7 @@ import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { MonoidName } from "#compiler/ir/desc.ts"
 import type { ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
 import type { FamilyId, LawField, LawRelation, NativeColumn } from "#compiler/ir/law.ts"
+import type { ScalarType } from "#compiler/ir/scalar.ts"
 
 /** One family: each owner's members indexed by exactly 0 … n − 1. */
 export interface Family {
@@ -78,3 +79,72 @@ export interface FoldPlane {
 /** Whether a family is ordered, its index a field, or counted, its index a drawn law column that hides the order. */
 export const orderOf = (f: Family): "ordered" | "counted" =>
 	f.index.kind === "field" ? "ordered" : "counted"
+
+/** Whether a family is a sequence, ordered or a tree, whose members a write nests in order under their owner. */
+export const isSequence = (f: Family): boolean =>
+	f.members.kind === "tree" || f.index.kind === "field"
+
+/** Whether a family is the tree of the relation `relation`: its family over itself whose members are a tree's. */
+export const isTreeOf = (f: Family, relation: string): boolean =>
+	f.members.kind === "tree" && f.member.name === relation && f.owner.name === relation
+
+/** Whether `column` is a before or an after of a plane of one of `family`'s folds, a law column when hidden. */
+const accumulatorOf = (family: Family, column: NativeColumn): FoldPlane | undefined => {
+	for (const fold of family.folds) {
+		for (const plane of fold.planes) {
+			if (sameColumn(plane.before, column) || sameColumn(plane.after, column)) {
+				return plane
+			}
+		}
+	}
+	return undefined
+}
+
+/** Whether two native columns are one: a field by its name, a law column by its identifier. */
+const sameColumn = (a: NativeColumn, b: NativeColumn): boolean =>
+	a.kind === "field"
+		? b.kind === "field" && a.field.name === b.field.name
+		: b.kind === "law" && a.column === b.column
+
+/**
+ * The type of a column of a family's member or owner the family fills: a field's own; ‹n› and ‹i› the count's
+ * natural, ‹ps› the tree's start's, a hidden accumulator its plane's end's; none for a law column the family does not
+ * draw.
+ */
+export const familyColumnType = (family: Family, column: NativeColumn): ScalarType | undefined => {
+	if (column.kind === "field") {
+		return column.field.type
+	}
+	if (column.column === family.copy) {
+		return family.count.type
+	}
+	if (family.index.kind === "law" && family.index.column === column.column) {
+		return family.count.type
+	}
+	if (family.members.kind === "tree" && family.members.parentStart === column.column) {
+		return family.members.start.type
+	}
+	return accumulatorOf(family, column)?.end.type
+}
+
+/**
+ * Whether the host fills a column carried along an axis of `family` as a copy of its target: an accumulated field, or
+ * a fold's hidden accumulator. The drawn columns an axis carries (‹n› → n, a tree's ‹ps› → start, its interval) are
+ * drawn where the row stands, and a caller's column its row supplies.
+ */
+export const isCopy = (family: Family, column: NativeColumn): boolean =>
+	column.kind === "field"
+		? column.field.writing.kind === "accumulated"
+		: accumulatorOf(family, column) !== undefined
+
+/**
+ * The base of a copy carried along an axis of `family`: an accumulated field's start, a hidden before's plane
+ * identity; none for a column that is neither.
+ */
+export const baseLiteral = (family: Family, column: NativeColumn): TypedLiteral | undefined => {
+	if (column.kind === "field") {
+		return column.field.writing.kind === "accumulated" ? column.field.writing.start : undefined
+	}
+	const plane = accumulatorOf(family, column)
+	return plane !== undefined && sameColumn(plane.before, column) ? plane.identity : undefined
+}

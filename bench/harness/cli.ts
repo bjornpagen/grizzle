@@ -24,16 +24,20 @@ class UsageError extends Data.TaggedError("UsageError")<{ readonly reason: strin
 const usage = (reason: string): Effect.Effect<never, UsageError> =>
 	Effect.fail(new UsageError({ reason }))
 
-/** The benchmarks with an entry point of their own: the cold starts, and the subset construction (no database). */
-type Suite = "cold" | "dfa"
+/**
+ * The benchmarks with an entry point of their own: the cold starts, and, with no database, the subset construction and
+ * a large schema's build and compile.
+ */
+type Suite = "cold" | "dfa" | "compile"
 
 const suiteEntries: Readonly<Record<Suite, string>> = {
 	cold: `${repoRoot}/bench/cold/main.ts`,
-	dfa: `${repoRoot}/bench/dfa/main.ts`
+	dfa: `${repoRoot}/bench/dfa/main.ts`,
+	compile: `${repoRoot}/bench/compile/main.ts`
 }
 
 const suiteOf = (command: string | undefined): Option.Option<Suite> =>
-	Arr.findFirst(["cold", "dfa"] as const, (s) => s === command)
+	Arr.findFirst(["cold", "dfa", "compile"] as const, (s) => s === command)
 
 type Listed = "gates" | "list" | "all"
 

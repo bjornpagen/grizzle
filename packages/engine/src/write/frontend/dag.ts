@@ -298,8 +298,10 @@ const writtenCast = (
 				operation: `the written ${typeLabel(from)}, narrowed into ${typeLabel(to)}`,
 				precondition: "fits",
 				operand: "the written value",
-				guard:
-					"Compute.when(Compute.within(x, <low>, <high>), (x) => Compute.cast(x, <the field>), <your value>) in the described head"
+				guard: {
+					test: { kind: "within" },
+					text: "Compute.when(Compute.within(x, <low>, <high>), (x) => Compute.cast(x, <the field>), <your value>) in the described head"
+				}
 			})
 		)
 	}

@@ -10,6 +10,7 @@ import { everyProperty } from "#compiler/core/canonical.ts"
 import { domainDigest } from "#compiler/core/fingerprint.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
+import type { RegexCheck } from "#compiler/ir/scalar.ts"
 import { toAre } from "#compiler/scalar/regex/are.ts"
 import * as RegexIr from "#compiler/scalar/regex/ir.ts"
 import { parsePattern } from "#compiler/scalar/regex/parse.ts"
@@ -17,7 +18,6 @@ import { emit } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
 import {
 	analyzeText,
-	type NontrivialCheck,
 	refinementBounds,
 	type TextRefinement,
 	textDomainDdl
@@ -347,7 +347,7 @@ const utf8Bytes = (text: string): number => new TextEncoder().encode(text).lengt
 const formDomain = identity.textDomain(domainDigest({ form: "finite" }, everyProperty))
 
 /** The UTF-8 bytes of the CREATE DOMAIN the compiler installs a check by, as it prints it. */
-const domainBytes = (check: NontrivialCheck): number =>
+const domainBytes = (check: RegexCheck): number =>
 	utf8Bytes(
 		succeeded(
 			emit(
@@ -364,8 +364,8 @@ const domainBytes = (check: NontrivialCheck): number =>
 
 /** The two forms that enforce a finite language: the IN list of its members, and the regex of its pattern. */
 interface Forms {
-	readonly inList: NontrivialCheck
-	readonly regex: NontrivialCheck
+	readonly inList: RegexCheck
+	readonly regex: RegexCheck
 }
 
 const formsOf = (language: FiniteLanguage, refinement: TextRefinement): Forms => {

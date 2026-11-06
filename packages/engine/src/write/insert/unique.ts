@@ -10,6 +10,7 @@ import {
 import * as Order from "#compiler/core/order.ts"
 import { fieldNames, type LawField, type RelationInfo } from "#compiler/ir/law.ts"
 import {
+	beyondPrimary,
 	columnReads,
 	keyWitness,
 	type PrimaryKeyObject,
@@ -216,15 +217,9 @@ export const generatedChecks = (
  * the objects besides it; a generated addition's insert has no arbiter, its draws making every object that reads a field
  * it draws one it meets only through a stored value the sequence has not passed, so it probes every other object
  * (`generatedChecks`). */
-export const relationUniques = ({ uniques, relation }: RelationLaws): RelationUniques => {
-	const { primary, keys } = uniques
-	/** An object comparing every field of a scalar primary key for equality holds no two facts apart that the arbiter
-	 * does not, so no insert meets it beyond its arbiter: a family's superkeys on its owner, `UNIQUE (k…, n, …)`, the
-	 * targets of its axes, are such objects, and a family key needs no probe. */
-	const others =
-		primary.kind === "key"
-			? uniques.others.filter((u) => !relation.primaryFields.every((f) => u.equal.includes(f)))
-			: uniques.others
+export const relationUniques = (laws: RelationLaws): RelationUniques => {
+	const { primary, keys } = laws.uniques
+	const others = beyondPrimary(laws)
 	const complete = probeOrder(others, [primary])
 	return Object.freeze({
 		arbiter: primary,
@@ -233,7 +228,7 @@ export const relationUniques = ({ uniques, relation }: RelationLaws): RelationUn
 		checks: probedAt(complete, complete),
 		probes: Object.freeze([
 			...keys.map((object): OutsideProbe => Object.freeze({ kind: "key", object })),
-			...beyondKeys(uniques).map((object): OutsideProbe =>
+			...beyondKeys(laws.uniques).map((object): OutsideProbe =>
 				Object.freeze({ kind: "unique", object })
 			)
 		])

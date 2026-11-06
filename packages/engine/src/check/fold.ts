@@ -14,6 +14,7 @@ import {
 	noParams
 } from "#compiler/scalar/compute/lower.ts"
 import { regexMember } from "#compiler/scalar/regex/nfa.ts"
+import { textLookup } from "#compiler/text/refinement.ts"
 
 /**
  * A fold's typing (fin.md §4.3, w4-w7 §2.3): what `fold(family, Monoid.m, step, end)` names, resolved to its fields.
@@ -143,7 +144,8 @@ export const combineRule = (monoid: MonoidSpec, plane: ScalarType): string | und
 				fieldType: () =>
 					Result.err(malformedDescription(loc, "no descriptor: a combine reads its planes alone")),
 				closed: noClosedRelations("a fold's combine reads its planes and its step alone"),
-				regexMember
+				regexMember,
+				patternLanguage: textLookup
 			}
 		)
 		if (!typed.ok) {

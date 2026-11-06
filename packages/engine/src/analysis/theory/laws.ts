@@ -90,6 +90,7 @@ import {
 	noParams
 } from "#compiler/scalar/compute/lower.ts"
 import { guardedTerm } from "#compiler/scalar/natural.ts"
+import type { TextLookup } from "#compiler/scalar/registry.ts"
 import type {
 	OwnedContract,
 	OwnedKey,
@@ -455,6 +456,7 @@ interface NormalizeEnv {
 	readonly lowerEnv: {
 		readonly fieldType: LowerEnv["fieldType"]
 		readonly regexMember: RegexMember
+		readonly patternLanguage: TextLookup
 		readonly closed: LowerEnv["closed"]
 	}
 }

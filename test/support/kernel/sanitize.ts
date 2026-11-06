@@ -89,26 +89,42 @@ export interface ClientBackend {
 	readonly started: string
 }
 
-/** Backend `pid` of a client whose connection is open, as pg_stat_activity lists it; a die when it is not listed once. */
+/**
+ * Backend `pid` of a client whose connection is open, as pg_stat_activity lists it, once it is listed. A backend sends
+ * its BackendKeyData before its entry in pg_stat_activity is complete, so a session that has just opened may not be
+ * listed yet, or be listed without its start: the read waits for the fact, polling until the backend is listed with its
+ * start, with no deadline, and the case's hang guard reports a backend that never is. Two rows for one pid is no state
+ * PostgreSQL holds, and dies.
+ */
 export const listedBackend = (
 	admin: PgConnection,
 	pid: number
 ): Effect.Effect<ClientBackend, SqlError> =>
 	Effect.gen(function* () {
-		const rows = yield* admin.queryValues(
-			"SELECT a.backend_start::text FROM pg_catalog.pg_stat_activity AS a WHERE a.pid = $1::int4",
-			[pid]
-		)
-		const [only, ...more] = rows
-		const started = only?.[0]
-		if (more.length > 0 || !Predicate.isString(started)) {
-			return yield* Effect.die(
-				new Error(
-					`backend ${pid} is not listed once, with its start, in pg_stat_activity: ${Formatter.format(rows)}`
-				)
+		for (let polls = 1; ; polls++) {
+			const rows = yield* admin.queryValues(
+				"SELECT a.backend_start::text FROM pg_catalog.pg_stat_activity AS a WHERE a.pid = $1::int4",
+				[pid]
 			)
+			const [only, ...more] = rows
+			if (more.length > 0) {
+				return yield* Effect.die(
+					new Error(`backend ${pid} is listed twice in pg_stat_activity: ${Formatter.format(rows)}`)
+				)
+			}
+			const started = only?.[0]
+			if (Predicate.isString(started)) {
+				return { pid, started }
+			}
+			if (polls === quietPolls) {
+				yield* Effect.sync(() =>
+					process.stderr.write(
+						`waiting for backend ${pid} to be listed with its start in pg_stat_activity: ${Formatter.format(rows)}\n`
+					)
+				)
+			}
+			yield* Effect.yieldNow
 		}
-		return { pid, started }
 	})
 
 /** The backend's row of pg_stat_activity, while it is listed. */

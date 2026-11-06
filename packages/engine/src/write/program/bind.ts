@@ -5,7 +5,7 @@ import {
 	parameterNormalizer,
 	positionalColumns
 } from "#compiler/codec/recordset.ts"
-import { paramEncoder } from "#compiler/codec/scalar.ts"
+import { carrierSpecOf, paramEncoder } from "#compiler/codec/scalar.ts"
 import type { CompileError, EncodingFailure } from "#compiler/core/errors.ts"
 import type { LawId, ParamId } from "#compiler/core/ids.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
@@ -17,10 +17,12 @@ import type { FamilyId } from "#compiler/ir/law.ts"
 import type { ArrayTexts, LiteralBound, WriteSlot } from "#compiler/ir/products.ts"
 import type { RelationChoice } from "#compiler/lower/shapes/index.ts"
 import { runsLargeForm } from "#compiler/lower/shapes/take/index.ts"
+import { admittedText } from "#compiler/scalar/values/identity.ts"
 import type { EmittedText } from "#compiler/sql/ast.ts"
 import type { Law, Witness } from "#compiler/types/changeset/changeset.ts"
 import { isIterable } from "#compiler/write/defined.ts"
 import { compose, type RelationPlanAt, relationDepths } from "#compiler/write/family/compose.ts"
+import { type Recount, textsKey } from "#compiler/write/family/draw.ts"
 import {
 	decodeRead,
 	type EditedTarget,
@@ -37,7 +39,7 @@ import {
 	type StoredFamily,
 	type Values
 } from "#compiler/write/family/edit.ts"
-import { familyKey } from "#compiler/write/family/fold.ts"
+import { familyKey, fieldKey } from "#compiler/write/family/fold.ts"
 import type { NestedRow } from "#compiler/write/family/nesting.ts"
 import {
 	type FamilyStatement,
@@ -51,7 +53,7 @@ import {
 	type Transport,
 	type Unsendable
 } from "#compiler/write/family/order.ts"
-import { endColumns, type ReadShape } from "#compiler/write/family/statements.ts"
+import { endColumns, type ReadShape, type RowLayout } from "#compiler/write/family/statements.ts"
 import type { EnumeratedInput } from "#compiler/write/frontend/compile.ts"
 import {
 	type MemberFacts,
@@ -310,12 +312,13 @@ export const bindWrite = (
 		),
 		row
 	})
-	/** Each stratum's nested rows planned, by relation: the rows its nested writes insert. */
+	/** A stratum's nested rows planned, by relation: the rows its nested writes insert, each owner's counts and ends
+	 * as its counted families' appends in the stratum left them. */
 	const nestedPlans = (
-		stratum: number
+		nested: ReadonlyMap<string, ReadonlyMap<string, NestedRow>>
 	): Result.Result<ReadonlyArray<RelationPlanAt>, FamilyRowBound> => {
 		const relations: Array<RelationPlanAt> = []
-		for (const [relation, rows] of normalized.nested.get(stratum) ?? noRows) {
+		for (const [relation, rows] of nested) {
 			const planned = planRelation(
 				{
 					relation,
@@ -337,13 +340,16 @@ export const bindWrite = (
 	const factsAt = (slot: ParamId | undefined): ReadonlyArray<Fact> =>
 		slot === undefined ? [] : factsOf(slot).facts
 	/** The facts a stratum may insert of `relation`, by every slot of its that inserts (`insertSlots`) but a generated
-	 * addition's, whose key does not exist yet, so no member names it. An owner among them is fresh only where the
-	 * read finds none stored at its key (write/family/edit.ts planEdits). */
-	const insertedOf = (stratum: number, relation: string): ReadonlyArray<Fact> =>
-		frontend.slots
+	 * addition's, whose key does not exist yet, so no member names it, and every row of it a nested write of the
+	 * stratum fills, a tree's nodes and a sequence's members, with every column the walk drew. An owner among them is
+	 * fresh only where the read finds none stored at its key (write/family/edit.ts planEdits). */
+	const insertedOf = (stratum: number, relation: string): ReadonlyArray<Fact> => [
+		...frontend.slots
 			.filter((g) => g.stratum === stratum && g.relation.name === relation)
 			.flatMap((g) => g.inputs.flatMap(insertSlots))
-			.flatMap((slot) => factsOf(slot).facts)
+			.flatMap((slot) => factsOf(slot).facts),
+		...[...(normalized.nested.get(stratum)?.get(relation)?.values() ?? [])].map((r) => r.fact)
+	]
 	/** An edit as one application binds it: its changes, its families' inserted owners, and each family's reads, by
 	 * their positions in the read flight. */
 	interface BoundEdit {
@@ -414,13 +420,16 @@ export const bindWrite = (
 	 * instead of a count statement (rows-first.md §2.1): a fresh owner's stored suffix is empty, so the filler knows its
 	 * every member, and its insert row then states its final count and ends, which an immediate CHECK over them judges
 	 * and every member's axes reference. `refilled` gathers each such owner's insert slot with its facts' counts and
-	 * ends replaced (normalize.ts refilledSlot); an owner whose insert slot carries no counts keeps its count statement.
+	 * ends replaced (normalize.ts refilledSlot), and `nested` each such owner a nested write of the stratum fills, a
+	 * tree's node or a sequence's member, its row's counts and ends replaced; an owner whose insert slot carries no
+	 * counts keeps its count statement.
 	 */
 	const carried = (
 		stratum: number,
 		target: EditTarget,
 		owners: ReadonlyArray<OwnerWrite>,
-		refilled: Map<ParamId, NormalizedSlot>
+		refilled: Map<ParamId, NormalizedSlot>,
+		nested: Map<string, Map<string, NestedRow>>
 	): ReadonlyArray<OwnerWrite> =>
 		owners.flatMap((write) => {
 			const family = defined(
@@ -456,8 +465,65 @@ export const bindWrite = (
 					)
 				}
 			}
+			const rows = keyed ? undefined : nested.get(family.owner.name)
+			if (rows !== undefined) {
+				const layout = nestedLayout(stratum, family.owner.name)
+				for (const [key, row] of rows) {
+					const text = ownerText(ctx, family, row.fact)
+					const recount = kept.get(text)
+					if (recount !== undefined && !write.stored.has(text)) {
+						rows.set(key, recountedRow(layout, family, row, recount))
+						kept.delete(text)
+					}
+				}
+			}
 			return kept.size > 0 ? [{ family: write.family, recounts: kept, stored: write.stored }] : []
 		})
+	/** The row layout of `relation`, whose rows a nested write of the stratum fills. */
+	const nestedLayout = (stratum: number, relation: string): RowLayout => {
+		for (const n of frontend.nested) {
+			const layout = n.stratum === stratum ? n.nesting.layouts.get(relation) : undefined
+			if (layout !== undefined) {
+				return layout
+			}
+		}
+		throw defect(`the row layout of ${relation}, a relation a nested write of the stratum fills`)
+	}
+	/** A nested owner's row with its count and ends of `family` replaced by its recount's, in texts and in values. */
+	const recountedRow = (
+		layout: RowLayout,
+		family: Family,
+		row: NestedRow,
+		recount: Recount
+	): NestedRow => {
+		const recounted = recountValues(ctx, family, recount)
+		const texts = new Map<string, string>([
+			[
+				fieldKey(family.count.name),
+				admittedText(carrierSpecOf(family.count.type, ctx.codes), BigInt(recount.count))
+			],
+			...endColumns(family).map((f, i): readonly [string, string] => [
+				fieldKey(f.name),
+				defined(recount.ends[i], `the end ${f.name} of a recount`)
+			])
+		])
+		const columns = layout.columns.map((c, i) =>
+			defined(texts.get(c.key) ?? row.row.columns[i], `the column ${c.key} of a nested row`)
+		)
+		const fact = Object.freeze(
+			Object.fromEntries(
+				Object.entries(row.fact).map(([name, v]) => [
+					name,
+					recounted.has(name) ? recounted.get(name) : v
+				])
+			)
+		)
+		return {
+			identity: textsKey([...row.row.key, ...columns]),
+			row: { key: row.row.key, columns },
+			fact
+		}
+	}
 	/** The slots of an owner relation in a stratum that carry its counts and ends: a plain insert's or an enumerated
 	 * put's that starts them (frontend/compile.ts EnumeratedInput "single"), and a nested insert's. */
 	const ownerSlots = (stratum: number, relation: string): ReadonlyArray<ParamId> =>
@@ -485,11 +551,12 @@ export const bindWrite = (
 		const out = new Map<number, Plan>()
 		const refilled = new Map<ParamId, NormalizedSlot>()
 		for (const stratum of strata) {
-			const relations = nestedPlans(stratum)
-			if (!relations.ok) {
-				return relations
-			}
-			const all: Array<RelationPlanAt> = [...relations.value]
+			const nested = new Map(
+				[...(normalized.nested.get(stratum) ?? noRows)].map(
+					([relation, relationRows]) => [relation, new Map(relationRows)] as const
+				)
+			)
+			const editedPlans: Array<RelationPlanAt> = []
 			const counts: Array<Phase<"count">> = []
 			const editsPlanned: Array<EditedTarget> = []
 			for (const bound of edits.filter((e) => e.program.edit.stratum === stratum)) {
@@ -520,8 +587,8 @@ export const bindWrite = (
 				if (!rowsPlan.ok) {
 					return Result.err(rowBound(target.relation.name, rowsPlan.error))
 				}
-				all.push({ depth: depthOf(target.relation.name), plan: rowsPlan.value })
-				for (const owner of carried(stratum, target, edited.owners, refilled)) {
+				editedPlans.push({ depth: depthOf(target.relation.name), plan: rowsPlan.value })
+				for (const owner of carried(stratum, target, edited.owners, refilled, nested)) {
 					const phase = planOwners(owner, inputs.transport)
 					if (!phase.ok) {
 						return Result.err(rowBound(target.relation.name, phase.error))
@@ -529,7 +596,11 @@ export const bindWrite = (
 					counts.push(phase.value)
 				}
 			}
-			out.set(stratum, compose(all, counts))
+			const relations = nestedPlans(nested)
+			if (!relations.ok) {
+				return relations
+			}
+			out.set(stratum, compose([...relations.value, ...editedPlans], counts))
 		}
 		return Result.ok({ plans: out, slots: refilled })
 	}

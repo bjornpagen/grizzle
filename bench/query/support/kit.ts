@@ -68,6 +68,7 @@ import {
 import { ledgerPrologue } from "#test/support/flight/model.ts"
 import { type Installed, installMigrated as install } from "#test/support/install-migrate.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { transaction } from "#test/support/oracle/install/transaction.ts"
 import { clusterConnection, parsedConnection, SqlError } from "#test/support/pg.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
@@ -226,6 +227,20 @@ export const installFixture = Effect.fn("installFixture")(function* <
 })
 
 /** Stores `rows` generated facts of `relation`: each column's SQL expression over the row number `g`, 1 to `rows`. */
+/** One relation's fill: `rows` rows, each column the SQL expression `columns` gives it over g, the row's number from 1. */
+interface Fill {
+	readonly relation: string
+	readonly rows: number
+	readonly columns: Readonly<Record<string, string>>
+}
+
+/** The INSERT of one fill. */
+const fillStatement = <S>(fixture: Fixture<S>, f: Fill): string =>
+	`INSERT INTO ${fixture.table(f.relation)} (${Arr.join(
+		Arr.map(Rec.keys(f.columns), (c) => fixture.column(f.relation, c)),
+		", "
+	)}) SELECT ${Arr.join(Rec.values(f.columns), ", ")} FROM pg_catalog.generate_series(1, ${f.rows}) AS g`
+
 export const fill = Effect.fn("fill")(function* <S>(
 	fixture: Fixture<S>,
 	relation: string,
@@ -233,13 +248,21 @@ export const fill = Effect.fn("fill")(function* <S>(
 	columns: Readonly<Record<string, string>>
 ): Effect.fn.Return<void, SqlError, Substrate> {
 	const s = yield* Substrate
-	const fields = Rec.keys(columns)
-	yield* s.admin.query(
-		`INSERT INTO ${fixture.table(relation)} (${Arr.join(
-			Arr.map(fields, (f) => fixture.column(relation, f)),
-			", "
-		)}) SELECT ${Arr.join(Rec.values(columns), ", ")} FROM pg_catalog.generate_series(1, ${rows}) AS g`,
-		[]
+	yield* s.admin.query(fillStatement(fixture, { relation, rows, columns }), [])
+})
+
+/**
+ * Several fills in one transaction: the relations of a cycle of deferred foreign keys, whose rows hold their laws only
+ * together, so each relation's fill alone would commit a violation.
+ */
+export const fillTogether = Effect.fn("fillTogether")(function* <S>(
+	fixture: Fixture<S>,
+	fills: ReadonlyArray<Fill>
+): Effect.fn.Return<void, SqlError | TransactionRolledBack, Substrate> {
+	const s = yield* Substrate
+	yield* transaction(
+		s.admin,
+		Arr.map(fills, (f) => fillStatement(fixture, f))
 	)
 })
 

@@ -8,7 +8,6 @@ import { describeField, type ScalarEnv, scalarTypeOf } from "#compiler/scalar/re
 import { malformed } from "#compiler/schema/protocol.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
 import { roleDescOf } from "#compiler/schema/world.ts"
-import { textLookup } from "#compiler/text/refinement.ts"
 
 /**
  * Headings as the builder knows them.
@@ -101,8 +100,7 @@ export const schemaInfo = (value: unknown): SchemaInfo => {
 		value,
 		env: Object.freeze({
 			kind: "builder",
-			roster: (name: string) => rosters.get(name),
-			text: textLookup
+			roster: (name: string) => rosters.get(name)
 		})
 	})
 }

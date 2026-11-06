@@ -26,26 +26,14 @@ import {
 } from "#compiler/scalar/compute/types.ts"
 import type { RegexNode } from "#compiler/scalar/regex/ir.ts"
 import { buildNfa, matches } from "#compiler/scalar/regex/nfa.ts"
-import { type ScalarEnv, scalarTypeOf, type TextLookup } from "#compiler/scalar/registry.ts"
-import {
-	analyzeText,
-	languageOf,
-	type TextRefinement,
-	textInfo
-} from "#compiler/text/refinement.ts"
+import { type ScalarEnv, scalarTypeOf } from "#compiler/scalar/registry.ts"
+import { languageOf, type TextRefinement } from "#compiler/text/refinement.ts"
 
 export { anyNumeric, plainType, wildcardText } from "#compiler/scalar/compute/types.ts"
 
 /**
- * The text metadata the schema reading gives a pattern (analysis/schema.ts): the text package's canonical analysis under
- * the policy in force, so a fixture's regex carries the bounds production proves.
- */
-const canonicalText: TextLookup = (source, flags) =>
-	Result.map(analyzeText(source, flags, SourceLoc("a test fixture's pattern", [])), textInfo)
-
-/**
  * The declared type of `desc`, a closed id's or a set's roster read from `rosters` (roster name to its handles in
- * declared order). A FieldDesc the registry refuses fails the test.
+ * declared order), a text's language the one its Description carries. A FieldDesc the registry refuses fails the test.
  */
 export const scalarOf = (
 	desc: FieldDesc,
@@ -53,8 +41,7 @@ export const scalarOf = (
 ): DeclaredType => {
 	const env: ScalarEnv = {
 		kind: "builder",
-		roster: (closed) => rosters[closed],
-		text: canonicalText
+		roster: (closed) => rosters[closed]
 	}
 	const t = scalarTypeOf(desc, env, SourceLoc("a test fixture's scalar type", []))
 	if (!t.ok) {

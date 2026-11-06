@@ -1,0 +1,628 @@
+import { describe, it } from "@effect/vitest"
+import { drawn, exhaust, explore } from "@grizzle/testing/explore"
+import { required, requiredInSpace } from "@grizzle/testing/features"
+import { element, type Gen } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
+import { boundedShrink } from "@grizzle/testing/shrink"
+import { searched } from "@grizzle/testing/vitest"
+import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
+import { collectInputs } from "#adapter/apply/collect.ts"
+import { bindFrame } from "#adapter/wire/batch.ts"
+import type { CompileError } from "#compiler/core/errors.ts"
+import { identity } from "#compiler/core/identity.ts"
+import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
+import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
+import { inForce } from "#compiler/write/family/order.ts"
+import { bindWrite } from "#compiler/write/program/bind.ts"
+import { compileWrite } from "#compiler/write/program/compile.ts"
+import { assert, deepEquals, defined } from "#test/support/assert.ts"
+import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
+import {
+	type Axis,
+	buildFill,
+	copyNamed,
+	countedFilled,
+	type FamilyKind,
+	type FillSpec,
+	fillSpecGen,
+	fullInstance,
+	type InstanceRow,
+	insertedRelations,
+	instanceFacts,
+	instanceGen,
+	relationName,
+	type Source,
+	type SourceClass,
+	sourceClassOf,
+	sourcesFor,
+	uuidOfRow,
+	verdictOf,
+	writtenRows
+} from "#test/support/families/fill.ts"
+import { parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
+import { checking, owning } from "#test/support/policy.ts"
+import { descOf, parsedOf } from "#test/unit/write/changeset/fixtures.ts"
+
+/**
+ * A schema `grizzle generate` accepts is one every write of fills, and one it refuses is one no write could: the fill
+ * order (analysis/theory/fill.ts) is decided when the schema compiles, and the host's filler (write/family/fold.ts)
+ * fills by it.
+ *
+ * Over drawn schemas of relations, trees, ordered and counted families nested in each other, folds over them, copies
+ * riding their owner, predecessor and last axes and reading entering columns, leaving columns, fold ends, counts and
+ * other copies, and keys over generated fields (test/support/families/fill.ts):
+ *
+ * - **The schema compiles exactly where the reference model admits it** (fill.ts `verdictOf`, a second implementation of
+ *   the fill order over the specification's own names), and a refusal is the one the model names: UnwritableRelation
+ *   for a counted family's member that is a sequence's member or owner, for sequences nesting each other, or for a
+ *   unique object over a generated field; UnfillableField for a copy whose source its row fills after it, naming the
+ *   copy's relation, field, family, axis and source as the specification states them, for a cause the model gives.
+ *   The schema compiles as `grizzle generate` compiles it: its artifacts and its installation.
+ * - **Every write program of its full role compiles over an admitted schema**: one ChangeSet inserting an instance of
+ *   every relation a caller inserts (a sequence's members nested under their owners, a counted family's members by
+ *   their group keys), which also binds, its family reads finding nothing stored; and each relation's own insert, put
+ *   and delete wherever the README's rules admit them (an immutable owner's family fixed when it is inserted, a tree
+ *   written whole, a sequence's members nested, and a family's member that owns a sequence written only nested).
+ * - **The nested write fills what the reference writer fills** (fill.ts `writtenRows`): every field of every nested row
+ *   the insert writes, a tree's to any depth, its interval, index, counts, fold ends and copies among them, but the
+ *   counts and ends a counted family's own fill writes later.
+ *
+ * The planted bug: a copy's source read with no regard to when its row fills it (analysis/theory/fill.ts `ownerLater`
+ * and `readLater` admitting every source) admits schemas the model refuses, which the witnesses reach on every seed.
+ */
+
+type FillSituation =
+	| "admitted"
+	| "refused: a counted member that is a sequence's"
+	| "refused: sequences nesting each other"
+	| "refused: a key over a generated field"
+	| "refused: a copy of a column filled after its members"
+	| "refused: a copy of a column a counted family fills"
+	| "refused: copies at a tree's root in a cycle"
+	| "admitted: a tree owning an ordered family"
+	| "admitted: a tree owning a counted family"
+	| "admitted: a counted family of nested owners"
+	| "admitted: a copy along a counted family of a leaving column"
+	| "admitted: a copy of a tree's end"
+	| "admitted: a nesting three deep"
+
+/** A compilation's refusal; none when it compiled. */
+const refusalOf = (
+	result:
+		| { readonly ok: true; readonly value: unknown }
+		| {
+				readonly ok: false
+				readonly error: CompileError
+		  }
+): CompileError | undefined => (result.ok ? undefined : result.error)
+
+/** The relation value of relation `r` of a built specification. */
+const relationOf = (built: ReturnType<typeof buildFill>, r: number) =>
+	defined(built.relations[relationName(r)], `the relation ${relationName(r)}`)
+
+/** A ChangeSet over `value` inserting each relation of `facts`, in the specification's relation order. */
+const insertAll = (
+	value: unknown,
+	built: ReturnType<typeof buildFill>,
+	facts: ReadonlyMap<number, ReadonlyArray<unknown>>,
+	inserted: ReadonlyArray<number>
+): ChangeSetValue =>
+	Arr.reduce(inserted, ChangeSet.empty(value), (cs, r) =>
+		cs.insert(relationOf(built, r), facts.get(r) ?? [])
+	)
+
+/** Whether the README's rules admit a write of relation `r` by `op`, which then must compile. */
+const ruleAdmits = (spec: FillSpec, r: number, op: "insert" | "put" | "delete"): boolean => {
+	const families = spec.families
+	const tree = Arr.some(families, (f) => f.kind === "tree" && f.member === r)
+	const ordered = Arr.some(families, (f) => f.kind === "ordered" && f.member === r)
+	const immutableOwner = Arr.some(
+		families,
+		(f) => f.member === r && f.kind !== "tree" && !defined(spec.relations[f.owner]).mutable
+	)
+	const owns = Arr.some(families, (f) => f.owner === r)
+	const nestsUnderMember =
+		Arr.some(families, (f) => f.member === r) &&
+		Arr.some(families, (f) => f.owner === r && f.kind !== "counted")
+	switch (op) {
+		case "insert":
+			return !ordered && !immutableOwner
+		case "put":
+			return !tree && !nestsUnderMember && (!owns || defined(spec.relations[r]).mutable)
+		case "delete":
+			return !tree && !nestsUnderMember && !immutableOwner
+	}
+}
+
+/**
+ * The property over one specification and one instance of it: see the module's header. It notes the verdict and the
+ * shapes an admitted specification holds.
+ */
+const property = (
+	spec: FillSpec,
+	rows: ReadonlyArray<InstanceRow>,
+	note: (situation: FillSituation) => void
+): Effect.Effect<void> =>
+	Effect.gen(function* () {
+		const built = buildFill(spec)
+		const value = built.rename("Fill")
+		const verdict = verdictOf(spec)
+		const artifacts = testArtifacts(value, testCompile)
+		const installation = artifacts.ok
+			? refusalOf(
+					compileInstallation(owning(value), {
+						...installOptions(owning(value), "owner"),
+						installation: identity.schema(parsedSchemaName("fill"))
+					})
+				)
+			: undefined
+		const refusal = artifacts.ok ? installation : artifacts.error
+		switch (verdict.kind) {
+			case "unwritable": {
+				const reason = defined(refusal, "a schema no write fills is refused").reason
+				assert.equal(reason._tag, "UnwritableRelation", Formatter.format(spec))
+				if (reason._tag === "UnwritableRelation") {
+					const kind = reason.cause.kind
+					assert.ok(
+						kind !== "generatedKey" && verdict.causes.includes(kind),
+						`a cause the model gives, not ${kind}`
+					)
+					note(
+						kind === "nestingCycle"
+							? "refused: sequences nesting each other"
+							: "refused: a counted member that is a sequence's"
+					)
+				}
+				return
+			}
+			case "unfillable": {
+				const reason = defined(refusal, "a schema with a copy no write fills is refused").reason
+				assert.equal(reason._tag, "UnfillableField", Formatter.format(spec))
+				if (reason._tag !== "UnfillableField") {
+					return
+				}
+				const refused = Arr.findFirst(
+					verdict.copies,
+					(c) => copyNamed(spec, c.copy).field === reason.field
+				)
+				assert.ok(Option.isSome(refused), `a copy the model refuses, not ${reason.field}`)
+				if (Option.isNone(refused)) {
+					return
+				}
+				const named = copyNamed(spec, refused.value.copy)
+				assert.equal(reason.relation, named.relation, "the copy's relation")
+				assert.deepEqual(reason.family, named.family, "the copy's family")
+				assert.ok(
+					refused.value.later.includes(reason.later.kind),
+					`a cause the model gives copy ${named.field}: ${Arr.join(refused.value.later, ", ")}, not ${reason.later.kind}`
+				)
+				if (reason.axis !== "row") {
+					assert.equal(reason.axis, named.axis, "the copy's axis")
+					assert.deepEqual(reason.source, named.source, "the column the copy reads")
+				}
+				note(
+					reason.later.kind === "afterMembers"
+						? "refused: a copy of a column filled after its members"
+						: reason.later.kind === "cycle"
+							? "refused: copies at a tree's root in a cycle"
+							: "refused: a copy of a column a counted family fills"
+				)
+				return
+			}
+			case "generatedKey": {
+				const reason = defined(refusal, "a key over a generated field is refused").reason
+				assert.equal(reason._tag, "UnwritableRelation", Formatter.format(spec))
+				if (reason._tag === "UnwritableRelation") {
+					assert.equal(reason.cause.kind, "generatedKey", "a key over a generated field")
+					assert.ok(
+						Arr.some(verdict.relations, (r) => relationName(r) === reason.relation),
+						`a relation the model refuses, not ${reason.relation}`
+					)
+				}
+				note("refused: a key over a generated field")
+				return
+			}
+			case "admitted":
+				break
+		}
+		assert.equal(
+			refusal?.reason,
+			undefined,
+			`a schema the model admits compiles: ${Formatter.format(spec)}`
+		)
+		if (!artifacts.ok) {
+			return
+		}
+		note("admitted")
+		const options = realityWrite(artifacts.value)
+		const checked = checking(value)
+		const inserted = insertedRelations(spec)
+		const facts = instanceFacts(spec, rows)
+		const all = insertAll(value, built, facts, inserted)
+		const program = compileWrite(checked, descOf(all), options)
+		assert.equal(refusalOf(program)?.reason, undefined, "the instance's insert compiles")
+		if (!program.ok) {
+			return
+		}
+		const members = yield* collectInputs(program.value.frontend, parsedOf(all).inputs)
+		const bound = bindWrite(program.value, { members, params: {}, transport: inForce(bindFrame) })
+		if (!bound.ok || bound.value.kind !== "bound") {
+			return assert.fail(
+				`the instance binds to statements, not ${bound.ok ? bound.value.kind : Formatter.format(bound.error)}`
+			)
+		}
+		const flights = bound.value.flights
+		const writes =
+			flights.kind === "write"
+				? { ok: true as const, value: flights.chunks }
+				: flights.writes(Arr.map(flights.reads, () => []))
+		if (!writes.ok) {
+			return assert.fail(
+				`the instance's family writes plan from reads that find nothing stored, not ${Formatter.format(writes.error)}`
+			)
+		}
+		const chunks = writes.value
+		for (const statement of program.value.artifacts.optimized.statements) {
+			const sent = chunks(statement)
+			if (!sent.ok) {
+				return assert.fail(`every statement's rows, not ${Formatter.format(sent.error)}`)
+			}
+		}
+		const expected = writtenRows(spec, rows)
+		const byUuid = new Map(Arr.map(rows, (row) => [uuidOfRow(row.id), row] as const))
+		for (const byRelation of bound.value.normalized.nested.values()) {
+			for (const [name, nested] of byRelation) {
+				for (const row of nested.values()) {
+					const id = row.fact["id"]
+					const instanceRow = typeof id === "string" ? byUuid.get(id) : undefined
+					const want = defined(
+						instanceRow === undefined ? undefined : expected.get(instanceRow.id),
+						`a nested row of ${name} the instance holds`
+					)
+					for (const [field, wanted] of Rec.toEntries(want)) {
+						if (field === "g" || countedFilled(spec, defined(instanceRow).relation, field)) {
+							continue
+						}
+						assert.equal(
+							row.fact[field],
+							wanted,
+							`${name}.${field} of ${String(id)}, as the reference writer fills it`
+						)
+					}
+				}
+			}
+		}
+		for (const [r] of spec.relations.entries()) {
+			const one = (cs: ChangeSetValue, op: string): void => {
+				const compiled = compileWrite(checked, descOf(cs), options)
+				assert.equal(
+					refusalOf(compiled)?.reason,
+					undefined,
+					`a ${op} of ${relationName(r)} the rules admit compiles`
+				)
+			}
+			const relation = relationOf(built, r)
+			const own = facts.get(r) ?? []
+			if (ruleAdmits(spec, r, "insert") && inserted.includes(r)) {
+				one(ChangeSet.empty(value).insert(relation, own), "insert")
+			}
+			if (ruleAdmits(spec, r, "put")) {
+				one(ChangeSet.empty(value).put(relation, []), "put")
+			}
+			if (ruleAdmits(spec, r, "delete")) {
+				one(ChangeSet.empty(value).delete(relation, []), "delete")
+			}
+		}
+		const kindsOf = (r: number): ReadonlyArray<FamilyKind> =>
+			Arr.flatMap(spec.families, (f) => (f.owner === r ? [f.kind] : []))
+		for (const [r] of spec.relations.entries()) {
+			const owned = kindsOf(r)
+			if (owned.includes("tree") && owned.includes("ordered")) {
+				note("admitted: a tree owning an ordered family")
+			}
+			if (owned.includes("tree") && owned.includes("counted")) {
+				note("admitted: a tree owning a counted family")
+			}
+		}
+		if (
+			Arr.some(
+				spec.families,
+				(f) =>
+					f.kind === "counted" &&
+					Arr.some(spec.families, (s) => s.kind !== "counted" && s.member === f.owner)
+			)
+		) {
+			note("admitted: a counted family of nested owners")
+		}
+		for (const [j, copy] of spec.copies.entries()) {
+			const family = defined(spec.families[copy.family])
+			if (family.kind === "counted" && sourceClassOf(spec, j) === "leaving") {
+				note("admitted: a copy along a counted family of a leaving column")
+			}
+			if (copy.source.kind === "end") {
+				note("admitted: a copy of a tree's end")
+			}
+		}
+		const depth = (r: number, seen: ReadonlySet<number>): number =>
+			Arr.reduce(
+				Arr.filter(
+					spec.families,
+					(f) => f.kind === "ordered" && f.owner === r && !seen.has(f.member)
+				),
+				1,
+				(d, f) => Math.max(d, 1 + depth(f.member, new Set([...seen, f.member])))
+			)
+		if (Arr.some(spec.relations, (_, r) => depth(r, new Set([r])) >= 3)) {
+			note("admitted: a nesting three deep")
+		}
+	})
+
+const fillSituations: Arr.NonEmptyReadonlyArray<FillSituation> = [
+	"admitted",
+	"refused: a counted member that is a sequence's",
+	"refused: sequences nesting each other",
+	"refused: a key over a generated field",
+	"refused: a copy of a column filled after its members",
+	"refused: a copy of a column a counted family fills",
+	"refused: copies at a tree's root in a cycle",
+	"admitted: a tree owning an ordered family",
+	"admitted: a tree owning a counted family",
+	"admitted: a counted family of nested owners",
+	"admitted: a copy along a counted family of a leaving column",
+	"admitted: a copy of a tree's end",
+	"admitted: a nesting three deep"
+]
+
+/** A drawn specification and an instance of it. */
+const caseGen: Gen<{ readonly spec: FillSpec; readonly rows: ReadonlyArray<InstanceRow> }> = (
+	source
+) => {
+	const spec = source.draw(fillSpecGen({ relations: 4, families: 4, copies: 3 }))
+	return { spec, rows: source.draw(instanceGen(spec)) }
+}
+
+/**
+ * The exhausted box: one family of each kind, its owner a top relation, a nested one (an ordered member of a parent)
+ * or a tree's node, and one copy along each of its axes reading each kind of column its target row holds, every other
+ * relation and family there only to hold the copied column: another sequence's count or fold, a counted family's
+ * count or fold, the family's own fold, an index, a tree's interval, or another copy.
+ */
+type SourceKind =
+	| "caller"
+	| "generated"
+	| "sequence count"
+	| "counted count"
+	| "index"
+	| "start"
+	| "end"
+	| "sequence fold"
+	| "counted fold"
+	| "own fold"
+	| "copy"
+
+interface Shape {
+	readonly family: FamilyKind
+	readonly owner: "top" | "nested" | "tree node"
+	readonly axis: Axis
+	readonly source: SourceKind
+}
+
+const shapeGen: Gen<Shape> = (source) => ({
+	family: source.draw(element(["ordered", "counted", "tree"] as const)),
+	owner: source.draw(element(["top", "nested", "tree node"] as const)),
+	axis: source.draw(element(["owner", "predecessor", "last"] as const)),
+	source: source.draw(
+		element([
+			"caller",
+			"generated",
+			"sequence count",
+			"counted count",
+			"index",
+			"start",
+			"end",
+			"sequence fold",
+			"counted fold",
+			"own fold",
+			"copy"
+		] as const)
+	)
+})
+
+/**
+ * The specification of a shape, or none where it holds no such copy: relation 0 the parent of a nested owner, 1 the
+ * owner (a tree's relation for a tree or a tree node), 2 the member, 3 the relation of the source row's other
+ * sequence, 4 that of its counted family. The copy is the last; a copy of a copy reads the first, which copies the
+ * source row's owner's `v` along the source row's own family's owner axis.
+ */
+const shapeSpec = (shape: Shape): FillSpec | undefined => {
+	if (shape.family === "tree" && shape.owner !== "tree node") {
+		return undefined
+	}
+	if (shape.family === "counted" && shape.axis !== "owner") {
+		return undefined
+	}
+	const relations = Arr.makeBy(5, (r) => ({
+		generated: r === 1 || r === 2,
+		mutable: false,
+		key: false
+	}))
+	const families: Array<FillSpec["families"][number]> = []
+	if (shape.owner === "nested") {
+		families.push({ kind: "ordered", owner: 0, member: 1, fold: "none" })
+	}
+	if (shape.owner === "tree node" && shape.family !== "tree") {
+		families.push({ kind: "tree", owner: 1, member: 1, fold: "none" })
+	}
+	const f = families.length
+	const tree = shape.family === "tree"
+	families.push({
+		kind: shape.family,
+		owner: 1,
+		member: tree ? 1 : 2,
+		fold: shape.source === "own fold" ? "sum" : "none"
+	})
+	const row = shape.axis === "owner" ? 1 : tree ? 1 : 2
+	if (shape.source === "sequence count" || shape.source === "sequence fold") {
+		families.push({
+			kind: "ordered",
+			owner: row,
+			member: 3,
+			fold: shape.source === "sequence fold" ? "sum" : "none"
+		})
+	}
+	if (shape.source === "counted count" || shape.source === "counted fold") {
+		families.push({
+			kind: "counted",
+			owner: row,
+			member: 4,
+			fold: shape.source === "counted fold" ? "sum" : "none"
+		})
+	}
+	const other = families.length - 1
+	const holder = Option.getOrUndefined(
+		Arr.findFirst(families, (x) => x.member === row && x.kind !== "counted")
+	)
+	const firstCopy =
+		shape.source === "copy" && holder !== undefined
+			? [
+					{
+						family: families.indexOf(holder),
+						axis: "owner" as const,
+						source: { kind: "caller" } as const
+					}
+				]
+			: []
+	const wanted: Source | undefined = (() => {
+		switch (shape.source) {
+			case "caller":
+				return { kind: "caller" }
+			case "generated":
+				return { kind: "generated" }
+			case "sequence count":
+			case "counted count":
+				return { kind: "count", family: other }
+			case "sequence fold":
+			case "counted fold":
+				return { kind: "fold", family: other }
+			case "own fold":
+				return { kind: "fold", family: f }
+			case "index":
+				return Option.match(
+					Arr.findFirstIndex(families, (x) => x.member === row && x.kind !== "counted"),
+					{
+						onNone: () => undefined,
+						onSome: (sequence): Source => ({ kind: "index", family: sequence })
+					}
+				)
+			case "start":
+				return { kind: "start" }
+			case "end":
+				return { kind: "end" }
+			case "copy":
+				return firstCopy.length === 0 ? undefined : { kind: "copy", copy: 0 }
+		}
+	})()
+	if (wanted === undefined) {
+		return undefined
+	}
+	const spec: FillSpec = {
+		relations: [defined(relations[0]), ...Arr.drop(relations, 1)],
+		families,
+		copies: [...firstCopy, { family: f, axis: shape.axis, source: wanted }]
+	}
+	const offered = sourcesFor(spec, f, shape.axis, firstCopy.length)
+	return Arr.some(offered, (s) => deepEquals(s, wanted)) ? spec : undefined
+}
+
+/** A copy's situation in the box: its axis, its family's kind, its source's class, and whether a write fills it. */
+type BoxSituation = `${Axis} copy along ${"a sequence" | "a counted family"} of ${SourceClass}: ${
+	| "filled"
+	| "refused"}`
+
+const boxSituations: Arr.NonEmptyReadonlyArray<BoxSituation> = [
+	"owner copy along a sequence of entering: filled",
+	"owner copy along a sequence of leaving: refused",
+	"owner copy along a sequence of counted count: refused",
+	"owner copy along a sequence of counted end: refused",
+	"owner copy along a counted family of entering: filled",
+	"owner copy along a counted family of leaving: filled",
+	"owner copy along a counted family of counted count: refused",
+	"owner copy along a counted family of counted end: refused",
+	"predecessor copy along a sequence of entering: filled",
+	"predecessor copy along a sequence of leaving: filled",
+	"predecessor copy along a sequence of counted count: refused",
+	"predecessor copy along a sequence of counted end: refused",
+	"last copy along a sequence of entering: filled",
+	"last copy along a sequence of leaving: filled",
+	"last copy along a sequence of counted count: refused",
+	"last copy along a sequence of counted end: refused"
+]
+
+describe("the fill order: a schema generate accepts is one every write of fills", () => {
+	it.effect(
+		"drawn schemas compile exactly where the reference model admits them, and then write",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/write/fill-order",
+						draw: drawn(caseGen),
+						literal: Formatter.format,
+						coverage: required<FillSituation>(fillSituations, { cases: 400, sense: notesOnly }),
+						kept: [],
+						runs: 200,
+						shrink: boundedShrink(400),
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang,
+						oracle: {
+							kind: "second-implementation",
+							name: "the reference model of the fill order and the reference writer (families/fill.ts)"
+						}
+					},
+					({ spec, rows }, c) => property(spec, rows, (s) => c.note(s))
+				)
+			)
+	)
+
+	it.effect(
+		"every copy kind along every axis, under owners of every standing, compiles exactly where the model admits it",
+		(ctx) =>
+			searched(
+				ctx,
+				exhaust(
+					{
+						suite: "unit/write/fill-order-box",
+						generator: shapeGen,
+						literal: Formatter.format,
+						limit: 400,
+						box: "one family of each kind under a top, a nested or a tree-node owner, one copy along each axis of each column kind its target row holds, and the instance of every count at its most",
+						oracle: {
+							kind: "second-implementation",
+							name: "the reference model of the fill order and the reference writer (families/fill.ts)"
+						},
+						coverage: requiredInSpace<BoxSituation>(boxSituations),
+						caseHang
+					},
+					(shape, c) =>
+						Effect.gen(function* () {
+							const spec = shapeSpec(shape)
+							if (spec === undefined) {
+								return
+							}
+							const j = spec.copies.length - 1
+							const copy = defined(spec.copies[j])
+							const verdict = verdictOf(spec)
+							const refused =
+								verdict.kind === "unfillable" && Arr.some(verdict.copies, (x) => x.copy === j)
+							const counted = defined(spec.families[copy.family]).kind === "counted"
+							const situation: BoxSituation = `${copy.axis} copy along ${counted ? "a counted family" : "a sequence"} of ${sourceClassOf(spec, j)}: ${refused ? "refused" : "filled"}`
+							c.note(situation)
+							yield* property(spec, fullInstance(spec), () => undefined)
+						})
+				)
+			)
+	)
+})

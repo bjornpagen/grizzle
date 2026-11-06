@@ -42,6 +42,7 @@ import {
 	type TermDesc,
 	type VarDesc as VarOf
 } from "#compiler/ir/desc.ts"
+import { textLookup } from "#compiler/text/refinement.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
 
 /** The authored form of each Description type with located nodes. */
@@ -112,6 +113,21 @@ export const decodedReadBack = (readBack: ReadBackDesc): ReadBackOf => {
 
 const fieldDesc = (desc: FieldDesc): FieldDesc => desc
 
+/**
+ * str.regex(source, flags)'s Description: the pattern with its language as the text analysis proves it where a
+ * descriptor is admitted (text/refinement.ts textLookup). A pattern the analysis refuses fails the test.
+ */
+export const textDesc = (
+	source: string,
+	flags: "u" | "su"
+): Extract<FieldDesc, { readonly kind: "text" }> => {
+	const language = textLookup(source, flags)
+	if (!language.ok) {
+		throw language.error
+	}
+	return { kind: "text", source, flags, language: language.value }
+}
+
 /** natural: the builtin contract over bigint, never below zero, that pred reads (scalar/natural.ts). */
 const naturalDesc: FieldDesc = {
 	kind: "contract",
@@ -153,9 +169,9 @@ export const f = {
 		writing: { kind: "serial" }
 	} satisfies FieldDecl<object>,
 	uuid: fieldDesc({ kind: "uuid" }),
-	regex: (source: string, flags: "u" | "su"): FieldDesc => ({ kind: "text", source, flags }),
+	regex: (source: string, flags: "u" | "su"): FieldDesc => textDesc(source, flags),
 	/** str.regex("^.*$", "su"): the explicit wildcard. */
-	wildcard: fieldDesc({ kind: "text", source: "^.*$", flags: "su" }),
+	wildcard: fieldDesc(textDesc("^.*$", "su")),
 	/** A contract that declares no fact its predicate proves, as contract(name, base, predicate) without `proves`. */
 	contract: (name: string, base: FieldDesc, predicate: ExprDesc | undefined): FieldDesc => ({
 		kind: "contract",

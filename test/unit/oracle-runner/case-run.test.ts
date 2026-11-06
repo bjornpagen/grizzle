@@ -1,78 +1,123 @@
 /**
  * How a generated suite runs a case that never finishes (the library's explore, which every Effect suite runs on): when
- * the test itself is interrupted, the case is interrupted, so its finalizers release what it holds (a leased session's
- * open transaction, in the database suites). That a hung case its hang guard stops releases what it holds too, before
- * the hang is reported, is the library's own suite's (packages/testing/src/explore.test.ts).
+ * the test itself is interrupted, every case it started is interrupted or has ended, so the finalizers of each release
+ * what it holds (a leased session's open transaction, in the database suites). That a hung case its hang guard stops
+ * releases what it holds too, before the hang is reported, is the library's own suite's
+ * (packages/testing/src/explore.test.ts).
  *
- * The case runs as a fiber of its own; its release follows the interruption of the check. A case left running
- * never releases, and the test's own timeout, the hang guard, names it: no clock decides the verdict.
+ * The property draws a search: how many cases it runs, how many at once, and which case in start order hangs. Every
+ * case holds a resource, counting its acquisition and its release; the hanging case never finishes. The search runs as
+ * a fiber of its own, which is interrupted once the hanging case has started; the oracle is the count itself: every
+ * acquisition the search made has its release by the time the interruption returns. A case left holding never
+ * releases, and the test's own timeout, the hang guard, names it: no clock decides the verdict.
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { noCoverage } from "@grizzle/testing/features"
+import { noCoverage, required } from "@grizzle/testing/features"
 import { int } from "@grizzle/testing/gen"
-import type { ShrinkBudget } from "@grizzle/testing/shrink"
+import { notesOnly } from "@grizzle/testing/sense"
+import { completeShrink, type ShrinkBudget } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Deferred, Effect, Fiber, Formatter } from "effect"
 import { assert } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 
-/** A case that holds a resource and never finishes: it counts its start and its release. */
-const holdForever = (counts: { started: number; released: number }) =>
-	Effect.scoped(
-		Effect.gen(function* () {
-			yield* Effect.acquireRelease(
-				Effect.sync(() => {
-					counts.started++
-				}),
-				() =>
-					Effect.sync(() => {
-						counts.released++
-					})
-			)
-			return yield* Effect.never
-		})
-	)
+/** A drawn search: its rotating cases, how many run at once, and the case, in start order, that never finishes. */
+interface Interrupted {
+	readonly runs: number
+	readonly concurrency: number
+	readonly hangs: number
+}
 
-/** One case suffices: it hangs. No shrink candidate runs, since a hung case is reported as drawn. */
+/** What the interrupted search held when it was interrupted: the hanging case alone, finished cases, running ones. */
+type Held = "the first case hangs" | "after finished cases" | "beside running cases"
+
+/** No candidate of a hung inner case runs: it is interrupted, never reported. */
 const neverShrunk: ShrinkBudget = { kind: "bounded", candidates: 0 }
 
-describe("a generated suite's case that never finishes", () => {
+describe("a generated suite's cases", () => {
 	it.live(
-		"is interrupted, and releases what it holds, when the check itself is interrupted",
+		"are interrupted, or have ended, and release what they hold, when the check itself is interrupted",
 		(ctx) =>
-			Effect.gen(function* () {
-				const counts = { started: 0, released: 0 }
-				const started = yield* Deferred.make<void>()
-				const released = yield* Deferred.make<void>()
-				const check = yield* Effect.forkChild(
-					searched(
-						ctx,
-						explore(
-							{
-								suite: "unit/oracle-runner/case-interrupted",
-								draw: drawn(int(0, 2 ** 31 - 1)),
-								literal: Formatter.format,
-								coverage: noCoverage,
-								kept: [],
-								runs: 1,
-								shrink: neverShrunk,
-								concurrency: 1,
-								steerEvery: 16,
-								caseHang
-							},
-							() =>
-								Effect.andThen(
-									Deferred.succeed(started, undefined),
-									holdForever(counts).pipe(Effect.ensuring(Deferred.succeed(released, undefined)))
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/oracle-runner/case-interrupted",
+						draw: drawn((source): Interrupted => {
+							const runs = source.draw(int(1, 6))
+							return {
+								runs,
+								concurrency: source.draw(int(1, 3)),
+								hangs: source.draw(int(0, runs - 1))
+							}
+						}),
+						literal: Formatter.format,
+						oracle: {
+							kind: "specification",
+							name: "every acquisition of an interrupted search has its release"
+						},
+						coverage: required<Held>(
+							["the first case hangs", "after finished cases", "beside running cases"],
+							{ cases: 60, sense: notesOnly }
+						),
+						kept: [],
+						runs: 40,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang
+					},
+					(drawnSearch, c) =>
+						Effect.gen(function* () {
+							const counts = { started: 0, finished: 0, released: 0 }
+							const hung = yield* Deferred.make<void>()
+							const holding = (index: number) =>
+								Effect.scoped(
+									Effect.gen(function* () {
+										yield* Effect.acquireRelease(Effect.void, () =>
+											Effect.sync(() => {
+												counts.released++
+											})
+										)
+										if (index === drawnSearch.hangs) {
+											yield* Deferred.succeed(hung, undefined)
+											return yield* Effect.never
+										}
+										yield* Effect.yieldNow
+										counts.finished++
+									})
 								)
-						)
-					)
+							const check = yield* Effect.forkChild(
+								explore(
+									{
+										suite: "unit/oracle-runner/case-interrupted-inner",
+										draw: drawn(int(0, 2 ** 31 - 1)),
+										literal: Formatter.format,
+										coverage: noCoverage,
+										kept: [],
+										runs: drawnSearch.runs,
+										shrink: neverShrunk,
+										concurrency: drawnSearch.concurrency,
+										steerEvery: 16,
+										caseHang
+									},
+									() => Effect.suspend(() => holding(counts.started++))
+								)
+							)
+							yield* Deferred.await(hung)
+							const running = counts.started - counts.finished - 1
+							yield* Fiber.interrupt(check)
+							assert.equal(counts.released, counts.started)
+							c.note(
+								running > 0
+									? "beside running cases"
+									: counts.finished > 0
+										? "after finished cases"
+										: "the first case hangs"
+							)
+						})
 				)
-				yield* Deferred.await(started)
-				yield* Fiber.interrupt(check)
-				yield* Deferred.await(released)
-				assert.deepEqual(counts, { started: 1, released: 1 })
-			})
+			)
 	)
 })

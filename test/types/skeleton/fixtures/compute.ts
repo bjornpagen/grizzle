@@ -343,6 +343,14 @@ export type CharLengthType = Expect<
 // @ts-expect-error -- TS2345: char_length takes a text term
 export const lengthOfInt = Compute.charLength(int)
 
+/** octet_length is a scalar for contract predicates and row checks, the text's UTF-8 bytes. */
+export const octets = Compute.octetLength(text)
+export type OctetLengthType = Expect<
+	Equals<typeof octets, Scalar<number, unknown, ComputedOrigin<unknown>, "integer">>
+>
+// @ts-expect-error -- TS2345: octet_length takes a text term
+export const octetsOfInt = Compute.octetLength(int)
+
 /** concat is text of no pattern, the prefix and suffix tests are boolean, and a match guards its subject. */
 export const concatenated = Compute.concat(text, " ")
 export type ConcatType = Expect<Equals<TypeOfTerm<typeof concatenated>, string>>
@@ -502,6 +510,7 @@ export const computeCovered: { readonly [K in keyof typeof Compute]: true } = {
 	upper: true,
 	width: true,
 	charLength: true,
+	octetLength: true,
 	concat: true,
 	startsWith: true,
 	endsWith: true,

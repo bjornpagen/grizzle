@@ -783,6 +783,7 @@ const restatedKept: ReadonlyArray<Kept<[CaseSketch, Plant], RestatedFeature>> = 
 								link: 0,
 								handle: 0,
 								delivery: 0,
+								take: { rotate: 0, dirs: [0, 0, 0], size: 0 },
 								rule: {
 									matches: [
 										{
@@ -844,6 +845,7 @@ const restatedKept: ReadonlyArray<Kept<[CaseSketch, Plant], RestatedFeature>> = 
 									link: 0,
 									handle: 0,
 									delivery: 0,
+									take: { rotate: 0, dirs: [0, 0, 0], size: 0 },
 									rule: {
 										matches: [
 											{
@@ -907,6 +909,7 @@ const restatedKept: ReadonlyArray<Kept<[CaseSketch, Plant], RestatedFeature>> = 
 								link: 0,
 								handle: 0,
 								delivery: 0,
+								take: { rotate: 0, dirs: [0, 0, 0], size: 0 },
 								rule: {
 									matches: [
 										{
@@ -971,6 +974,7 @@ const restatedKept: ReadonlyArray<Kept<[CaseSketch, Plant], RestatedFeature>> = 
 									link: 0,
 									handle: 0,
 									delivery: 0,
+									take: { rotate: 0, dirs: [0, 0, 0], size: 0 },
 									rule: {
 										matches: [
 											{

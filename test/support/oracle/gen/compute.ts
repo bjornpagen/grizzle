@@ -39,6 +39,7 @@ import { regexMember } from "#compiler/scalar/regex/nfa.ts"
 import { bareEnv, scalarTypeOf } from "#compiler/scalar/registry.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
+import { textLookup } from "#compiler/text/refinement.ts"
 import {
 	fieldDescOf,
 	floatSpecialSketches,
@@ -770,6 +771,7 @@ const lowerEnv = (heading: Heading, hooks: LowerHooks): LowerEnv => ({
 			: Result.ok(t)
 	},
 	regexMember,
+	patternLanguage: textLookup,
 	extension: noExtension,
 	closed: noClosedRelations("a generated term reads no closed relation")
 })

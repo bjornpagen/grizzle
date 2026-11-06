@@ -16,6 +16,7 @@ import { Money } from "#compiler/scalar/values/money.ts"
 import { makeSpan } from "#compiler/scalar/values/span.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
+import { textDesc } from "#test/support/fixtures/ir/desc.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { decimalGen, decimalText } from "#test/unit/values/support.ts"
@@ -185,7 +186,7 @@ const fieldDescs: Arr.NonEmptyReadonlyArray<FieldDesc> = [
 	{ kind: "pg", type: "integer" },
 	{ kind: "numeric", precision: 10, scale: 2 },
 	{ kind: "uuid" },
-	{ kind: "text", source: "^[a-z]{1,8}$", flags: "u" },
+	textDesc("^[a-z]{1,8}$", "u"),
 	{ kind: "span", endpoint: { kind: "pg", type: "bigint" }, width: 10n },
 	{ kind: "vector", dimensions: 3 }
 ]

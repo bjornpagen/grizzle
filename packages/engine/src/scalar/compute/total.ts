@@ -17,6 +17,7 @@ import {
 	noParams,
 	unprovedFact
 } from "#compiler/scalar/compute/lower.ts"
+import type { TextLookup } from "#compiler/scalar/registry.ts"
 
 interface TotalOptions {
 	/** Where the declaration is: every diagnostic is located inside it. */
@@ -25,6 +26,8 @@ interface TotalOptions {
 	readonly fieldType: (desc: FieldDesc, loc: SourceLoc) => Result.Result<ScalarType, CompileError>
 	/** A literal's membership in a regex refinement: the text package's NFA. */
 	readonly regexMember: RegexMember
+	/** The text analysis of a pattern the predicate computes (a translate's or collapse's image, a guard's match). */
+	readonly patternLanguage: TextLookup
 }
 
 /** A predicate conjunct that proves each fact, as a refused declaration names it. */
@@ -75,7 +78,8 @@ export const contractPredicateTable = (
 		params: noParams,
 		fieldType: options.fieldType,
 		closed: noClosedRelations("a contract predicate reads no closed relation of the schema"),
-		regexMember: options.regexMember
+		regexMember: options.regexMember,
+		patternLanguage: options.patternLanguage
 	}
 	return Result.flatMap(lowerPredicate(predicate, env), (root) => {
 		const table = predicateTable(root.expr)

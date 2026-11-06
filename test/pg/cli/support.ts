@@ -19,7 +19,7 @@ import type { GrizzleConfig, MigrationConnectionConfig } from "#adapter/types/co
 import type { DbConnection } from "#adapter/types/layer.ts"
 import { type ConfigFile, type ResolvedConfig, resolveConfig } from "#cli/config.ts"
 import { type CliError, ConfigMissing, cliError } from "#cli/errors.ts"
-import { type ConfigLoader, runCli } from "#cli/run.ts"
+import { type CliReport, type ConfigLoader, runCli } from "#cli/run.ts"
 import { jsonText, trustedJson } from "#compiler/core/trusted.ts"
 import { ledger, shop } from "#test/pg/cli/fixture.ts"
 import { type InitializedClusterShape, readCluster } from "#test/support/cluster.ts"
@@ -267,10 +267,15 @@ export const writeConfig = (
 		yield* writeConfigText(dir, configText)
 	})
 
+/**
+ * A command line's run in process: its exit status and its output as the bin writes it, and its report itself, whose
+ * refused arm carries the refusal.
+ */
 export interface CliRun {
 	readonly code: number
 	readonly stdout: string
 	readonly stderr: string
+	readonly report: CliReport
 }
 
 /**
@@ -356,7 +361,8 @@ const runIn = (
 		Effect.map((report) => ({
 			code: report.code,
 			stdout: text(report.stdout),
-			stderr: text(report.stderr)
+			stderr: text(report.stderr),
+			report
 		}))
 	)
 

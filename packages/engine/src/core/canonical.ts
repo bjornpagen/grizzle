@@ -50,8 +50,15 @@ export interface EncodeOptions {
 	readonly omit: OmitRule
 }
 
-/** SourceLocs are excluded from semantic identity. By convention they travel under the property "loc". */
-export const omitSourceLocs: OmitRule = (key, value) => key === "loc" && isSourceLoc(value)
+/**
+ * SourceLocs are excluded from semantic identity, and so is a text descriptor's analyzed language, a function of the
+ * pattern beside it (ir/scalar.ts TextLanguage). By convention they travel under the properties "loc" and "language".
+ */
+export const omitSourceLocs: OmitRule = (key, value) =>
+	(key === "loc" && isSourceLoc(value)) ||
+	(key === "language" &&
+		isRecord(value) &&
+		(value["kind"] === "every" || value["kind"] === "refined"))
 
 /** Every property in the canonical form: the text of the value as it is. */
 export const everyProperty: EncodeOptions = { omit: () => false }

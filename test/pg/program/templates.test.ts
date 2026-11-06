@@ -2,8 +2,10 @@ import { layer } from "@effect/vitest"
 import { Array as Arr, Effect, pipe, String as Str } from "effect"
 import { identity } from "#compiler/core/identity.ts"
 import { trusted } from "#compiler/core/trusted.ts"
+import { codeOf } from "#compiler/ir/codes.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { StatementSpec } from "#compiler/ir/products.ts"
+import type { InstallNames } from "#compiler/physical/ddl/names.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import type { QueryTemplate } from "#compiler/program/compile.ts"
 import { selectArtifact } from "#compiler/program/context.ts"
@@ -23,12 +25,13 @@ import type { Uuid } from "#compiler/public/fields.ts"
 import {
 	Account,
 	AutomaticTask,
+	Kind,
 	ManualTask,
 	Task,
 	TaskNote,
 	Work
 } from "#test/support/fixtures/api/work.ts"
-import { parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import { owning } from "#test/support/policy.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
@@ -63,7 +66,11 @@ const insertInto = (
 		", "
 	)}) VALUES ${rows}`
 
-const facts = (names: PhysicalNames): ReadonlyArray<string> => [
+/** The code a closed id of Kind stores for `handle`, under the installation's codes, never the handle's text. */
+const kindCode = (names: InstallNames, handle: string): number =>
+	codeOf(defined(names.codes.rosters.get(parsedName(Kind.name)), "the codes of Kind"), handle)
+
+const facts = (names: InstallNames): ReadonlyArray<string> => [
 	insertInto(
 		names,
 		Account.name,
@@ -74,7 +81,19 @@ const facts = (names: PhysicalNames): ReadonlyArray<string> => [
 		names,
 		Task.name,
 		["id", "account", "kind"],
-		`('${t(1)}', '${A}', 'Automatic'), ('${t(2)}', '${A}', 'Manual'), ('${t(3)}', '${B}', 'Automatic'), ('${t(4)}', '${C}', 'Manual'), ('${t(5)}', '${A}', 'Automatic')`
+		Arr.join(
+			Arr.map(
+				[
+					[t(1), A, "Automatic"],
+					[t(2), A, "Manual"],
+					[t(3), B, "Automatic"],
+					[t(4), C, "Manual"],
+					[t(5), A, "Automatic"]
+				] as const,
+				([task, account, kind]) => `('${task}', '${account}', ${kindCode(names, kind)})`
+			),
+			", "
+		)
 	),
 	insertInto(
 		names,

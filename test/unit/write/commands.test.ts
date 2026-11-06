@@ -30,7 +30,7 @@ import {
 import { collectInputs } from "#adapter/apply/collect.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import { carrierSpecOf } from "#compiler/codec/scalar.ts"
-import { isCompileError } from "#compiler/core/errors.ts"
+import { type CompileError, isCompileError } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
@@ -44,6 +44,7 @@ import {
 	counted,
 	fin,
 	fold,
+	key,
 	Monoid,
 	mutable,
 	on,
@@ -65,7 +66,7 @@ import { inputSlots } from "#compiler/write/frontend/compile.ts"
 import type { InsertResult, WriteNames } from "#compiler/write/insert/statement.ts"
 import { bindWrite, type Chunks } from "#compiler/write/program/bind.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { assert, defined, refusalLoc, succeeded } from "#test/support/assert.ts"
 import { testArtifacts, testCompile } from "#test/support/compile.ts"
 import { type FoldMonoid, folded } from "#test/support/families/fold.ts"
 import { lawNamesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
@@ -79,14 +80,21 @@ import { descOf, parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts
  * tables, statement by statement.
  *
  * The schema: three member relations, A in one counted family, B in two and C in three, over the owners O1 (a sum fold
- * per family), O2 (a sum fold over the members whose `on` holds) and O3 (a count only); and D, in the counted family
+ * per family, and a candidate key every insert and put of it probes), O2 (a sum fold over the members whose `on` holds)
+ * and O3 (a count only); and D, in the counted family
  * of the immutable owner F with a sum fold, whose family is fixed when F is inserted. The commands: insert owners;
  * append a member; remove one; change a step value; change a selection; move a member to another group; put an owner;
  * an identical repeat of an appended member (one fact); a conflicting repeat at one new key (refused by the member's key
  * law, before any SQL); an append with its owner inserted in the same ChangeSet; an F inserted with its members; the
  * exact repeat of a stored owner with its stored members, O1 with its A members or F with its D members, which changes
  * nothing; and that repeat with one new member, an append to O1, and to F the immutable owner's refusal (rows-first.md
- * §2: the owner's key is read, and an owner stored at it makes the group a stored one).
+ * §2: the owner's key is read, and an owner stored at it makes the group a stored one); a D appended to a stored F the
+ * ChangeSet does not insert, and a stored D removed, both refused when they compile, at the member's write; and an
+ * insert, put or delete of an O1 fact that states its drawn count or its accumulated end, refused at bind by its shape.
+ *
+ * And the chain of H, K and L, K a member of H's counted family and the owner of L's: an L appended under a K and that K
+ * under an H, each inserted in the same ChangeSet or already stored, a K inserted as a member with its own family empty;
+ * and a put of an H and of a K under it, each stored or not, an owner put in place and inserted only where no row is.
  *
  * And G, a mutable owner whose row check reads its end against a written field, as an invoice's lines sum to its
  * amount: its members E sum to its `total` (`t = total`). The commands: a G stated with its members, its total their
@@ -121,6 +129,7 @@ const O1 = relation(
 	{
 		id: uuid,
 		cap: pg.bigint,
+		code: pg.bigint,
 		na: drawn(natural),
 		nb: drawn(natural),
 		nc: drawn(natural),
@@ -165,7 +174,18 @@ const G = relation(
 )
 const E = relation("E", { id: uuid, g: uuid, x: pg.bigint }, ["id"])
 const fe = counted(on(E, "g"), fin(G, "n"))
-const Algebra = schema("Algebra", { O1, O2, O3, A, B, C, F, D, G, E }, [
+/** A chain of counted families: K is a member of H's family and the owner of L's, so it is inserted as a member, its
+ * own family empty, and put in place as an owner is. */
+const H = relation("H", { id: uuid, nk: drawn(natural) }, ["id"])
+const K = relation("K", { id: uuid, h: uuid, nl: drawn(natural) }, ["id"])
+const L = relation("L", { id: uuid, k: uuid }, ["id"])
+const fk = counted(on(K, "h"), fin(H, "nk"))
+const fl = counted(on(L, "k"), fin(K, "nl"))
+const Algebra = schema("Algebra", { O1, O2, O3, A, B, C, F, D, G, E, H, K, L }, [
+	fk,
+	fl,
+	mutable(H),
+	mutable(K),
 	fa1,
 	fb1,
 	fb2,
@@ -178,6 +198,7 @@ const Algebra = schema("Algebra", { O1, O2, O3, A, B, C, F, D, G, E }, [
 	fold(fd, Monoid.sum, on(D, "f", "x"), on(F, "id", "t")),
 	fold(fe, Monoid.sum, on(E, "g", "x"), on(G, "id", "t")),
 	check("GExact", G, (g) => g.eq(g.t, g.total)),
+	key(on(O1, "code")),
 	fold(fb1, Monoid.sum, on(B, "o1", "x"), on(O1, "id", "tb")),
 	fold(fc1, Monoid.sum, on(C, "o1", "x"), on(O1, "id", "tc")),
 	fold(
@@ -256,6 +277,10 @@ interface Model {
 	/** The stored G owners by id, each with its total, and their E members by id, each with its owner and value. */
 	readonly exactOwners: ReadonlyMap<number, number>
 	readonly exactMembers: ReadonlyMap<number, FixedMember>
+	/** The stored H owners, the stored K members by id with their H, and the stored L members by id with their K. */
+	readonly chainOwners: ReadonlySet<number>
+	readonly chainMembers: ReadonlyMap<number, number>
+	readonly chainLeaves: ReadonlyMap<number, number>
 }
 
 const initial: Model = {
@@ -264,7 +289,10 @@ const initial: Model = {
 	fixedOwners: new Set(),
 	fixedMembers: new Map(),
 	exactOwners: new Map(),
-	exactMembers: new Map()
+	exactMembers: new Map(),
+	chainOwners: new Set(),
+	chainMembers: new Map(),
+	chainLeaves: new Map()
 }
 
 interface Params {
@@ -305,6 +333,16 @@ interface Params {
 	readonly fixedRepeat: { readonly owner: number }
 	readonly mutableRepeatAppend: { readonly owner: number; readonly id: number; readonly x: number }
 	readonly fixedRepeatAppend: { readonly owner: number; readonly id: number; readonly x: number }
+	/** A D appended to a stored F the ChangeSet does not insert: refused when it compiles. */
+	readonly fixedAppend: { readonly owner: number; readonly id: number; readonly x: number }
+	/** A stored D removed: its immutable owner's family is fixed, so refused when it compiles. */
+	readonly fixedRemove: { readonly id: number }
+	/** A write of a stored O1's fact stating a field grizzle writes, its drawn count or its accumulated end. */
+	readonly drawnFact: {
+		readonly id: number
+		readonly op: "insert" | "put" | "delete"
+		readonly field: "na" | "ta"
+	}
 	readonly gWithMembers: {
 		readonly owner: number
 		readonly members: Arr.NonEmptyReadonlyArray<{ readonly id: number; readonly x: number }>
@@ -314,6 +352,16 @@ interface Params {
 	readonly gPut: { readonly owner: number; readonly total: number }
 	readonly gFreshPut: { readonly owner: number; readonly total: number }
 	readonly gRepeat: { readonly owner: number }
+	/** An L inserted under a K, and that K under an H, each inserted in the same ChangeSet or already stored. */
+	readonly chainAppend: {
+		readonly h: number
+		readonly k: number
+		readonly l: number
+		readonly insertH: boolean
+		readonly insertK: boolean
+	}
+	/** A put of an H and of a K under it, each stored or not. */
+	readonly chainPut: { readonly h: number; readonly k: number }
 }
 
 const ids = (n: number): ReadonlyArray<number> => Array.from({ length: n }, (_, i) => i)
@@ -367,8 +415,9 @@ const appendable = (m: Model): ReadonlyArray<MemberName> =>
 const stored = (m: Model): ReadonlyArray<MemberName> =>
 	Arr.filter(MEMBERS, (r) => m.members[r].size > 0)
 
-/** The verdicts a step's refusal states: a member's key law, an immutable owner's fixed family, or G's check. */
-type Refusal = "key" | "fixed" | "check"
+/** The verdicts a step's refusal states: a member's key law, an immutable owner's fixed family, G's check, or a fact
+ * stating a field grizzle writes. */
+type Refusal = "key" | "fixed" | "check" | "shape"
 
 const freeFixedIds = (m: Model): ReadonlyArray<number> =>
 	Arr.filter(ids(MEMBER_IDS), (i) => !m.fixedMembers.has(i))
@@ -383,6 +432,12 @@ const freeExactIds = (m: Model): ReadonlyArray<number> =>
 /** A G owner's stored E members, by id. */
 const exactMembersOf = (m: Model, owner: number): ReadonlyArray<readonly [number, FixedMember]> =>
 	Arr.filter([...m.exactMembers], ([, member]) => member.owner === owner)
+
+/** The ids of `n` that `stored` does not hold. */
+const freeChainIds = (
+	stored: { readonly has: (k: number) => boolean },
+	n: number
+): ReadonlyArray<number> => Arr.filter(ids(n), (i) => !stored.has(i))
 
 /** An O1 owner's stored A members, by id. */
 const aMembersOf = (m: Model, owner: number): ReadonlyArray<readonly [number, ModelMember]> =>
@@ -607,6 +662,32 @@ const machine: Machine<Model, Params, Refusal> = {
 			}),
 			judge: () => refusedVerdict("fixed")
 		},
+		fixedAppend: {
+			weight: 1,
+			applies: (m) => m.fixedOwners.size > 0 && freeFixedIds(m).length > 0,
+			parameters: (m) => (source) => ({
+				owner: source.draw(pick([...m.fixedOwners])),
+				id: source.draw(pick(freeFixedIds(m))),
+				x: source.draw(int(0, 3))
+			}),
+			judge: () => refusedVerdict("fixed")
+		},
+		fixedRemove: {
+			weight: 1,
+			applies: (m) => m.fixedMembers.size > 0,
+			parameters: (m) => (source) => ({ id: source.draw(pick([...m.fixedMembers.keys()])) }),
+			judge: () => refusedVerdict("fixed")
+		},
+		drawnFact: {
+			weight: 1,
+			applies: (m) => m.owners.O1.size > 0,
+			parameters: (m) => (source) => ({
+				id: source.draw(pick([...m.owners.O1.keys()])),
+				op: source.draw(element(["insert", "put", "delete"] as const)),
+				field: source.draw(element(["na", "ta"] as const))
+			}),
+			judge: () => refusedVerdict("shape")
+		},
 		gWithMembers: {
 			weight: 2,
 			applies: (m) => m.exactOwners.size < OWNER_IDS && freeExactIds(m).length >= 2,
@@ -670,6 +751,65 @@ const machine: Machine<Model, Params, Refusal> = {
 			applies: (m) => m.exactOwners.size > 0,
 			parameters: (m) => (source) => ({ owner: source.draw(pick([...m.exactOwners.keys()])) }),
 			judge: (m) => accepted(m)
+		},
+		chainAppend: {
+			weight: 2,
+			applies: (m) =>
+				freeChainIds(m.chainLeaves, MEMBER_IDS).length > 0 &&
+				(m.chainMembers.size > 0 ||
+					(freeChainIds(m.chainMembers, MEMBER_IDS).length > 0 &&
+						(m.chainOwners.size > 0 || freeChainIds(m.chainOwners, OWNER_IDS).length > 0))),
+			parameters: (m) => (source) => {
+				const l = source.draw(pick(freeChainIds(m.chainLeaves, MEMBER_IDS)))
+				const freeK = freeChainIds(m.chainMembers, MEMBER_IDS)
+				const insertK =
+					m.chainMembers.size === 0 || (freeK.length > 0 && source.draw(int(0, 1)) === 1)
+				if (!insertK) {
+					const k = source.draw(pick([...m.chainMembers.keys()]))
+					return {
+						h: defined(m.chainMembers.get(k), "a stored K's H"),
+						k,
+						l,
+						insertH: false,
+						insertK
+					}
+				}
+				const freeH = freeChainIds(m.chainOwners, OWNER_IDS)
+				const insertH =
+					m.chainOwners.size === 0 || (freeH.length > 0 && source.draw(int(0, 1)) === 1)
+				return {
+					h: source.draw(pick(insertH ? freeH : [...m.chainOwners])),
+					k: source.draw(pick(freeK)),
+					l,
+					insertH,
+					insertK
+				}
+			},
+			judge: (m, p) =>
+				accepted({
+					...m,
+					chainOwners: new Set([...m.chainOwners, p.h]),
+					chainMembers: new Map([...m.chainMembers, [p.k, p.h]]),
+					chainLeaves: new Map([...m.chainLeaves, [p.l, p.k]])
+				})
+		},
+		chainPut: {
+			weight: 1,
+			applies: (m) =>
+				m.chainMembers.size > 0 || freeChainIds(m.chainMembers, MEMBER_IDS).length > 0,
+			parameters: (m) => (source) => {
+				const k = source.draw(
+					pick([...freeChainIds(m.chainMembers, MEMBER_IDS), ...m.chainMembers.keys()])
+				)
+				const stored = m.chainMembers.get(k)
+				return { h: stored ?? source.draw(int(0, OWNER_IDS - 1)), k }
+			},
+			judge: (m, p) =>
+				accepted({
+					...m,
+					chainOwners: new Set([...m.chainOwners, p.h]),
+					chainMembers: new Map([...m.chainMembers, [p.k, p.h]])
+				})
 		}
 	}
 }
@@ -693,8 +833,11 @@ const memberFact = (relation: MemberName, id: number, member: ModelMember) => ({
 	on: member.on
 })
 
+/** An owner's fact as a ChangeSet states it: O1's with its cap and its code, a candidate key every insert probes. */
 const ownerFact = (owner: OwnerName, id: number, cap: number) =>
-	owner === "O1" ? { id: ownerUuid(owner, id), cap: BigInt(cap) } : { id: ownerUuid(owner, id) }
+	owner === "O1"
+		? { id: ownerUuid(owner, id), cap: BigInt(cap), code: BigInt(id) }
+		: { id: ownerUuid(owner, id) }
 
 /** The immutable F's owners and D's members as uuids, apart from every other relation's. */
 const fixedUuid = (id: number): string => uuidOf(4000 + id)
@@ -704,6 +847,11 @@ const dFact = (id: number, owner: number, x: number) => ({
 	f: fixedUuid(owner),
 	x: BigInt(x)
 })
+
+/** The chain's H, K and L as uuids, apart from every other relation's. */
+const hUuid = (id: number): string => uuidOf(6000 + id)
+const kUuid = (id: number): string => uuidOf(60_000 + id)
+const lUuid = (id: number): string => uuidOf(70_000 + id)
 
 /** G's owners and E's members as uuids, apart from every other relation's. */
 const gUuid = (id: number): string => uuidOf(5000 + id)
@@ -969,6 +1117,36 @@ const stated: { readonly [K in keyof Params]: Stated<Params[K]> } = {
 		change: (q, m) => fixedRepeatOf(q.owner, m).insert(D, [dFact(q.id, q.owner, q.x)]),
 		own: none
 	},
+	fixedAppend: {
+		inserted: none,
+		member: noMember,
+		variant: noVariant,
+		change: (q) => ChangeSet.empty(Algebra).insert(D, [dFact(q.id, q.owner, q.x)]),
+		own: none
+	},
+	fixedRemove: {
+		inserted: none,
+		member: noMember,
+		variant: noVariant,
+		change: (q, m) => {
+			const d = defined(m.fixedMembers.get(q.id), "a stored D")
+			return ChangeSet.empty(Algebra).delete(D, [dFact(q.id, d.owner, d.x)])
+		},
+		own: none
+	},
+	drawnFact: {
+		inserted: none,
+		member: noMember,
+		variant: (q) => `${q.op}:${q.field}`,
+		change: (q, m) =>
+			ChangeSet.empty(Algebra)[q.op](O1, [
+				{
+					...ownerFact("O1", q.id, defined(m.owners.O1.get(q.id), "a stored O1")),
+					[q.field]: 0n
+				}
+			]),
+		own: none
+	},
 	gWithMembers: {
 		inserted: none,
 		member: noMember,
@@ -989,6 +1167,29 @@ const stated: { readonly [K in keyof Params]: Stated<Params[K]> } = {
 		variant: noVariant,
 		change: (q, m) => gWith(q.owner, exactMembersOf(m, q.owner), "insert"),
 		own: none
+	},
+	chainAppend: {
+		inserted: none,
+		member: noMember,
+		variant: (q) => `${q.insertH}:${q.insertK}`,
+		change: (q) => {
+			const withH = q.insertH
+				? ChangeSet.empty(Algebra).insert(H, [{ id: hUuid(q.h) }])
+				: ChangeSet.empty(Algebra)
+			const withK = q.insertK ? withH.insert(K, [{ id: kUuid(q.k), h: hUuid(q.h) }]) : withH
+			return withK.insert(L, [{ id: lUuid(q.l), k: kUuid(q.k) }])
+		},
+		own: none
+	},
+	chainPut: {
+		inserted: none,
+		member: noMember,
+		variant: noVariant,
+		change: (q) =>
+			ChangeSet.empty(Algebra)
+				.put(H, [{ id: hUuid(q.h) }])
+				.put(K, [{ id: kUuid(q.k), h: hUuid(q.h) }]),
+		own: none
 	}
 }
 
@@ -1003,23 +1204,21 @@ const artifacts = succeeded(testArtifacts(Algebra, testCompile))
 /** The schema's law names, compiled once: a refusal names its key law by them. */
 const algebraLaws = lawNamesOf(Algebra)
 const families = artifacts.laws.families
-const programs = new Map<string, CompiledWrite>()
-/** The program of a step's ChangeSet shape, compiled once per command and relation. */
-const programOf = (shape: string, value: unknown): CompiledWrite => {
+const programs = new Map<string, Result.Result<CompiledWrite, CompileError>>()
+/** The program of a step's ChangeSet shape, or the compiler's refusal of it, compiled once per command and relation. */
+const programOf = (shape: string, value: unknown): Result.Result<CompiledWrite, CompileError> => {
 	const known = programs.get(shape)
 	if (known !== undefined) {
 		return known
 	}
-	const built = succeeded(
-		compileWrite(checking(Algebra), descOf(value), {
-			names,
-			reads: names,
-			claims: { kind: "every" },
-			world: { kind: "reality" },
-			laws: artifacts.laws,
-			derived: artifacts.derived
-		})
-	)
+	const built = compileWrite(checking(Algebra), descOf(value), {
+		names,
+		reads: names,
+		claims: { kind: "every" },
+		world: { kind: "reality" },
+		laws: artifacts.laws,
+		derived: artifacts.derived
+	})
 	programs.set(shape, built)
 	return built
 }
@@ -1386,6 +1585,29 @@ const commitHolds = (db: Db, model: Model): void => {
 		),
 		"the immutable owners are the model's"
 	)
+	assert.deepEqual(
+		Arr.sort([...tableOf(db, "H").keys()], Order.String),
+		Arr.sort(
+			Arr.map([...model.chainOwners], (id) => keyText([hUuid(id)])),
+			Order.String
+		),
+		"the chain's owners are the model's"
+	)
+	for (const [relation, stored, uuidFor, ownerUuidFor, field] of [
+		["K", model.chainMembers, kUuid, hUuid, "h"],
+		["L", model.chainLeaves, lUuid, kUuid, "k"]
+	] as const) {
+		const table = tableOf(db, relation)
+		assert.equal(table.size, stored.size, "the chain's members are the model's")
+		for (const [id, owner] of stored) {
+			const row = defined(table.get(keyText([uuidFor(id)])), "a modelled chain member is stored")
+			assert.equal(
+				row.get(fieldKey(field)),
+				ownerUuidFor(owner),
+				"a chain member's owner is the model's"
+			)
+		}
+	}
 	const dTable = tableOf(db, "D")
 	assert.equal(
 		dTable.size,
@@ -1434,9 +1656,46 @@ const runStep =
 			const value = stated[command].change(p, before)
 			const member = stated[command].member(p)
 			const shape = `${command}:${member ?? ""}:${stated[command].variant(p)}`
-			const compiled = programOf(shape, value)
+			const program = programOf(shape, value)
+			if (!program.ok) {
+				assert.equal(
+					program.error.reason._tag,
+					"UnsupportedOperation",
+					"a write the compiler refuses"
+				)
+				const at = refusalLoc(program.error)
+				const written = defined(
+					Option.getOrUndefined(
+						Arr.findFirst(
+							Arr.flatMap(descOf(value).strata, (s) => s.members),
+							(m) => m.relation === "D"
+						)
+					),
+					"the immutable owner's member write"
+				).loc
+				assert.deepEqual(
+					{ label: at.label, path: at.path },
+					{ label: written.label, path: written.path },
+					"the refusal is the member write's"
+				)
+				/** An immutable owner's family changed without its owner's insert is refused when it compiles, at the
+				 * member's write. */
+				const answer: Answer<Refusal> = refusedVerdict("fixed")
+				return answer
+			}
+			const compiled = program.value
 			const members = yield* collectInputs(compiled.frontend, parsedOf(value).inputs)
-			const bound = succeeded(bindWrite(compiled, { members, params: {}, transport }))
+			const binding = bindWrite(compiled, { members, params: {}, transport })
+			if (!binding.ok) {
+				assert.ok(
+					binding.error._tag === "EncodingFailure" && binding.error.reason._tag === "factShape",
+					"a fact stating a field grizzle writes is refused by its shape"
+				)
+				/** A fact stating a field grizzle writes is refused at bind, before any SQL. */
+				const answer: Answer<Refusal> = refusedVerdict("shape")
+				return answer
+			}
+			const bound = binding.value
 			if (bound.kind === "invariant-rejected") {
 				assert.equal(
 					bound.law,
@@ -1499,7 +1758,10 @@ const runStep =
 				if (
 					s.kind === "write" &&
 					s.result.kind === "insert" &&
-					(s.relation in ownerRelations || s.relation === "F" || s.relation === "G")
+					(s.relation in ownerRelations ||
+						s.relation === "F" ||
+						s.relation === "G" ||
+						s.relation === "H")
 				) {
 					const verdict = insertEncoded(
 						db,
@@ -1579,10 +1841,15 @@ const caseGen: Gen<MachineCase> = (source) => ({
 				"fixedRepeat",
 				"mutableRepeatAppend",
 				"fixedRepeatAppend",
+				"fixedAppend",
+				"fixedRemove",
+				"drawnFact",
 				"gWithMembers",
 				"gPut",
 				"gFreshPut",
-				"gRepeat"
+				"gRepeat",
+				"chainAppend",
+				"chainPut"
 			])
 		)
 	),
@@ -1618,12 +1885,17 @@ describe("the write algebra's commands (rows-first.md §8)", () => {
 								"fixedRepeat accepted",
 								"mutableRepeatAppend accepted",
 								"fixedRepeatAppend refused fixed",
+								"fixedAppend refused fixed",
+								"fixedRemove refused fixed",
+								"drawnFact refused shape",
 								"gWithMembers accepted",
 								"gPut accepted",
 								"gPut refused check",
 								"gFreshPut accepted",
 								"gFreshPut refused check",
 								"gRepeat accepted",
+								"chainAppend accepted",
+								"chainPut accepted",
 								"a statement per row"
 							],
 							{ cases: 300, sense: notesOnly }
@@ -1668,10 +1940,15 @@ describe("the write algebra's commands (rows-first.md §8)", () => {
 								fixedRepeat: step("fixedRepeat"),
 								mutableRepeatAppend: step("mutableRepeatAppend"),
 								fixedRepeatAppend: step("fixedRepeatAppend"),
+								fixedAppend: step("fixedAppend"),
+								fixedRemove: step("fixedRemove"),
+								drawnFact: step("drawnFact"),
 								gWithMembers: step("gWithMembers"),
 								gPut: step("gPut"),
 								gFreshPut: step("gFreshPut"),
-								gRepeat: step("gRepeat")
+								gRepeat: step("gRepeat"),
+								chainAppend: step("chainAppend"),
+								chainPut: step("chainPut")
 							}
 							const ran = yield* runProgram(machine, real, c.steps)
 							for (const verdict of ran.verdicts) {

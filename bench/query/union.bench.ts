@@ -316,8 +316,8 @@ export default defineGate({
 			const tc = (f: string) => fx.column("Task", f)
 			const mc = (f: string) => fx.column("Memo", f)
 			const ac = (f: string) => fx.column("Account", f)
-			const openSql = `SELECT t.${tc("id")} AS id, 'Open'::text AS kind, t.${tc("title")} AS title FROM ${T} AS t WHERE t.${tc("account")} = $1::bigint AND t.${tc("kind")} = ${kind("Open")}`
-			const doneSql = `SELECT t.${tc("id")} AS id, 'Done'::text AS kind, m.${mc("text")} AS text FROM ${T} AS t JOIN ${M} AS m ON m.${mc("task")} = t.${tc("id")} WHERE t.${tc("account")} = $1::bigint AND t.${tc("kind")} = ${kind("Done")}`
+			const openSql = `SELECT t.${tc("id")} AS id, ${kind("Open")} AS kind, t.${tc("title")} AS title FROM ${T} AS t WHERE t.${tc("account")} = $1::bigint AND t.${tc("kind")} = ${kind("Open")}`
+			const doneSql = `SELECT t.${tc("id")} AS id, ${kind("Done")} AS kind, m.${mc("text")} AS text FROM ${T} AS t JOIN ${M} AS m ON m.${mc("task")} = t.${tc("id")} WHERE t.${tc("account")} = $1::bigint AND t.${tc("kind")} = ${kind("Done")}`
 
 			/** R21, delivered. */
 			const union = compile(fx, activity, reading)

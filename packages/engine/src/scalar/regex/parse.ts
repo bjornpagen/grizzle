@@ -401,7 +401,7 @@ class Parser {
 			this.#unsupported(
 				at,
 				construct,
-				`a repetition bound above ${regexMaxRepeat.value}, PostgreSQL's limit; bound the length with Compute.charLength in a contract predicate`
+				`a repetition bound above ${regexMaxRepeat.value}, PostgreSQL's limit; bound the length with Compute.charLength or Compute.octetLength in a contract predicate`
 			)
 		}
 		return { min: min.value, max }

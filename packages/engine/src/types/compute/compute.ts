@@ -682,6 +682,13 @@ export interface ComputeApi {
 		s: A & FirstTerm<A> & InputTerm<X, PA, OA, "text">
 	): Scalar<number, PA, ComputedOrigin<OA>, "integer">
 	/**
+	 * octet_length, the text's UTF-8 bytes; admitted only in contract predicates and row checks, never in a query. A
+	 * contract's octetLength bound bounds the text's bytes in a key exactly.
+	 */
+	octetLength<A extends TermBase | FirstValue, X, PA, OA>(
+		s: A & FirstTerm<A> & InputTerm<X, PA, OA, "text">
+	): Scalar<number, PA, ComputedOrigin<OA>, "integer">
+	/**
 	 * a || b, PostgreSQL's textcat: text of no pattern. The second operand is a text term the first meets, a parameter
 	 * among them, or a string. Admitted in contract predicates, row checks, generated fields and folds; in a query only
 	 * as a side of Compute.eq or Compute.ne, which is decided without building the concatenation, since it allocates its
@@ -823,5 +830,17 @@ export interface ComputeApi {
 /** The comparison and boolean helpers a row check sees beside its fields. */
 export type ScalarHelpers = Pick<
 	ComputeApi,
-	"eq" | "ne" | "lt" | "le" | "gt" | "ge" | "between" | "in" | "and" | "or" | "not" | "charLength"
+	| "eq"
+	| "ne"
+	| "lt"
+	| "le"
+	| "gt"
+	| "ge"
+	| "between"
+	| "in"
+	| "and"
+	| "or"
+	| "not"
+	| "charLength"
+	| "octetLength"
 >

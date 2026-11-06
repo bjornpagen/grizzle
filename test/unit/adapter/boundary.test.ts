@@ -57,7 +57,8 @@ const requestFault = (failure: ReadFailure): RequestFault | undefined =>
  *
  * Values are drawn live and wild (lsw): a live request is valid by construction, its size up to the largest safe
  * integer; a wild one is any value JavaScript can pass, in place of the whole request or of one of its fields. A page
- * request has no earlier state, so none is stale.
+ * request has no earlier state, so none is stale. A valid request whose size or anchor is an accessor returning its
+ * valid value is refused for its shape, its getter never called: a reader that called it would admit the request.
  */
 type Direction = "first" | "last"
 
@@ -143,20 +144,68 @@ const requestGen: Gen<Request> = (source) => ({
 /** Where a wild value goes: the whole request, its size, or its anchor. */
 type WildSite = "whole" | "size" | "anchor"
 
-interface PageCase {
-	readonly site: WildSite
-	readonly base: Request
-	readonly drawn: Drawn<Request, never>
+/** The field of a valid request an accessor stands in for, returning the field's valid value when it is called. */
+type AccessorField = "size" | "anchor"
+
+/**
+ * A case: a live or wild value at a site of a request; or a valid request one of whose fields is an accessor, which a
+ * reader that judged it by calling it would admit.
+ */
+type PageCase =
+	| {
+			readonly kind: "drawn"
+			readonly site: WildSite
+			readonly base: Request
+			readonly drawn: Drawn<Request, never>
+	  }
+	| { readonly kind: "accessor"; readonly base: Request; readonly field: AccessorField }
+
+const pageCaseGen: Gen<PageCase> = weighted<PageCase>([
+	[
+		8,
+		(source) => ({
+			kind: "drawn",
+			site: source.draw(element<WildSite>(["whole", "size", "anchor"])),
+			base: source.draw(requestGen),
+			drawn: source.draw(
+				lsw<Request>({ live: requestGen, stale: Option.none(), wild: pageWildKinds })
+			)
+		})
+	],
+	[
+		1,
+		(source) => ({
+			kind: "accessor",
+			base: source.draw(requestGen),
+			field: source.draw(element<AccessorField>(["size", "anchor"]))
+		})
+	]
+])
+
+/**
+ * The request a case's accessor stands in: the valid request with `field` an enumerable getter returning its value,
+ * counting its calls.
+ */
+const withAccessor = (
+	base: Request,
+	field: AccessorField
+): { readonly request: object; readonly calls: () => number } => {
+	let calls = 0
+	const key = field === "size" ? base.direction : anchorKey(base.direction)
+	const value = field === "size" ? base.size : base.anchor.kind === "token" ? base.anchor.token : ""
+	const request = { ...requestValue(base) }
+	Object.defineProperty(request, key, {
+		enumerable: true,
+		get: () => {
+			calls++
+			return value
+		}
+	})
+	return { request, calls: () => calls }
 }
 
-const pageCaseGen: Gen<PageCase> = (source) => ({
-	site: source.draw(element<WildSite>(["whole", "size", "anchor"])),
-	base: source.draw(requestGen),
-	drawn: source.draw(lsw<Request>({ live: requestGen, stale: Option.none(), wild: pageWildKinds }))
-})
-
-/** The value a case hands pageRequest. */
-const pageInput = (c: PageCase): unknown => {
+/** The value a drawn case hands pageRequest. */
+const pageInput = (c: Extract<PageCase, { readonly kind: "drawn" }>): unknown => {
 	const d = c.drawn
 	if (d.kind !== "wild") {
 		return requestValue(d.value)
@@ -177,6 +226,7 @@ type PageFeature =
 	| `site ${WildSite}`
 	| "refused request"
 	| "refused cursorType"
+	| `an accessor at the ${AccessorField}, refused uncalled`
 
 const pageFeatures: Arr.NonEmptyReadonlyArray<PageFeature> = [
 	"live",
@@ -185,7 +235,9 @@ const pageFeatures: Arr.NonEmptyReadonlyArray<PageFeature> = [
 	"site size",
 	"site anchor",
 	"refused request",
-	"refused cursorType"
+	"refused cursorType",
+	"an accessor at the size, refused uncalled",
+	"an accessor at the anchor, refused uncalled"
 ]
 
 /** A built schema, the one value a schema door admits. */
@@ -213,6 +265,15 @@ describe("the public boundary", () => {
 					},
 					(c, k) =>
 						Effect.sync(() => {
+							if (c.kind === "accessor") {
+								const { request, calls } = withAccessor(c.base, c.field)
+								const refusal = failed(pageRequest(request))
+								assert.ok(refusal instanceof ReadFailure, String(refusal))
+								assert.equal(requestFault(refusal), "requestShape")
+								assert.equal(calls(), 0, "the caller's getter never runs")
+								k.note(`an accessor at the ${c.field}, refused uncalled`)
+								return
+							}
 							k.note(drawnFeature(c.drawn))
 							if (c.drawn.kind === "wild") {
 								k.note(`site ${c.site}`)
@@ -250,22 +311,6 @@ describe("the public boundary", () => {
 				)
 			)
 	)
-
-	it("refuses an accessor without calling it", () => {
-		let calls = 0
-		const request = {}
-		Object.defineProperty(request, "first", {
-			enumerable: true,
-			get: () => {
-				calls++
-				return 1
-			}
-		})
-		const refusal = failed(pageRequest(request))
-		assert.ok(refusal instanceof ReadFailure)
-		assert.equal(requestFault(refusal), "requestShape")
-		assert.equal(calls, 0, "the caller's getter never runs")
-	})
 
 	it.effect(
 		"admits a built schema at the schema door, and refuses every other value as a MalformedDescription",

@@ -29,11 +29,11 @@ import {
 	type DeclaredType,
 	type NumericBound,
 	type NumericTypmod,
-	type RegexRef,
 	type Roster,
 	type ScalarType,
 	type SpanCarrier,
-	type TextInfo,
+	type TextLanguage,
+	textInfoOf,
 	typeLabel
 } from "#compiler/ir/scalar.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
@@ -337,30 +337,31 @@ export const isOwnedDescriptor = (value: unknown): value is Described =>
 
 /** What a str.regex descriptor is read from: its pattern and its column. */
 interface TextDescriptor extends Built, Columned<unknown> {
-	readonly pattern: { readonly source: string; readonly flags: string }
+	readonly pattern: { readonly source: string; readonly flags: "u" | "su" }
 }
 
 /**
- * The str.regex descriptors text/field.ts made, each with what describeField answers for it: its Description, its
- * ScalarType, its pattern analyzed once, when its builder registered it, and its column, or the refusal of its
- * pattern. A WeakMap holds nothing alive and is never enumerated.
+ * The str.regex descriptors text/field.ts made, each with what describeField answers for it: its Description, which
+ * carries its pattern's language as the text analysis proved it once, when its builder registered it, its ScalarType
+ * and its column, or the refusal of its pattern. A WeakMap holds nothing alive and is never enumerated.
  */
 const ownedText = new WeakMap<object, Result.Result<Described, CompileError>>()
 
 /**
  * Registers `value`, a frozen str.regex descriptor its builder made, with its pattern analyzed by `text`, and returns
- * it. A text type's analysis reads its pattern alone, so the descriptor is described once whatever position it is
- * passed in.
+ * it. The analysis is the descriptor's admission: its Description carries the language it proved, so every pass that
+ * reads the descriptor reads the language and none analyzes the pattern again, whatever position it is passed in.
  */
 export const registerTextDescriptor = <T extends TextDescriptor>(value: T, text: TextLookup): T => {
 	const { source, flags } = value.pattern
-	const env: ScalarEnv = { kind: "builder", roster: noRosters, text }
 	ownedText.set(
 		value,
 		Result.flatMap(
-			decodeDesc("field", { kind: "text", source, flags }),
+			Result.flatMap(text(source, flags), (language) =>
+				decodeDesc("field", { kind: "text", source, flags, language })
+			),
 			(desc): Result.Result<Described, CompileError> =>
-				Result.map(scalarTypeOf(desc, env, SourceLoc(`/${source}/${flags}`, [])), (scalar) => ({
+				Result.map(scalarTypeOf(desc, bareEnv, SourceLoc(`/${source}/${flags}`, [])), (scalar) => ({
 					sql: "text",
 					desc,
 					scalar,
@@ -463,28 +464,29 @@ export const serialNameOf = (described: Described): string | undefined => {
 type RosterLookup = (name: DeclaredName) => NonEmptyReadonlyArray<string> | undefined
 
 /**
- * The regex metadata of a text pattern: the text analysis's (text/refinement.ts textLookup), which computes its
- * language's key.
+ * The analyzed language of a text pattern: the text analysis's (text/refinement.ts textLookup), which a str.regex
+ * descriptor is admitted with and a lowering types a pattern it computes by. The scalar layer reads it through this
+ * type alone, since the analysis is the text package's.
  */
 export type TextLookup = (
 	source: string,
 	flags: "u" | "su"
-) => Result.Result<TextInfo, CompileError>
+) => Result.Result<TextLanguage, CompileError>
 
 /**
- * What a FieldDesc does not say by itself, supplied by whoever resolves it:
- * - a builder's (a descriptor's own reading, a query's headings, a row check's typing): the rosters and text metadata
- *   it holds. A contract is identity-only, which is all type identity needs: identity ignores the predicate.
- * - a schema's (the checker's and the law theory's reading of an owned schema): its rosters, the text analysis's
- *   canonical metadata, and each contract predicate's expression table (the checker's lowering of the ExprDesc,
- *   contractPredicateTable: checked and owned as the decoder writes it, which the built descriptor holds as it is).
+ * What a FieldDesc does not say by itself, supplied by whoever resolves it (a text descriptor carries its pattern's
+ * language, so none resolves a pattern):
+ * - a builder's (a descriptor's own reading, a query's headings, a row check's typing): the rosters it holds. A
+ *   contract is identity-only, which is all type identity needs: identity ignores the predicate.
+ * - a schema's (the checker's and the law theory's reading of an owned schema): its rosters, and each contract
+ *   predicate's expression table (the checker's lowering of the ExprDesc, contractPredicateTable: checked and owned as
+ *   the decoder writes it, which the built descriptor holds as it is).
  */
 export type ScalarEnv =
-	| { readonly kind: "builder"; readonly roster: RosterLookup; readonly text: TextLookup }
+	| { readonly kind: "builder"; readonly roster: RosterLookup }
 	| {
 			readonly kind: "schema"
 			readonly roster: RosterLookup
-			readonly text: TextLookup
 			readonly contractPredicate: (
 				predicate: ExprDesc,
 				base: ScalarType,
@@ -496,25 +498,8 @@ export type ScalarEnv =
 /** No closed relation: what a field outside any schema resolves rosters by. */
 export const noRosters: RosterLookup = () => undefined
 
-/**
- * No pattern: what a descriptor that holds no text field resolves patterns by. A str.regex descriptor carries the text
- * analysis it is read by, and a schema or a query resolves patterns by the text analysis, so only a field read under
- * the wrong environment meets this.
- */
-export const noText: TextLookup = (source, flags) =>
-	Result.err(
-		malformedDescription(
-			SourceLoc(`/${source}/${flags}`, []),
-			"a pattern the text analysis reads: a str.regex descriptor's own"
-		)
-	)
-
-/** The builder environment of a descriptor outside any schema that holds no text field: no rosters and no pattern. */
-export const bareEnv: ScalarEnv = Object.freeze({
-	kind: "builder",
-	roster: noRosters,
-	text: noText
-})
+/** The builder environment of a descriptor outside any schema: no rosters. */
+export const bareEnv: ScalarEnv = Object.freeze({ kind: "builder", roster: noRosters })
 
 const pgCarriers = {
 	smallint: "int2",
@@ -526,32 +511,6 @@ const pgCarriers = {
 	boolean: "bool",
 	date: "date"
 } as const
-
-/** A regex reference as the environment holds it, deeply frozen as a decoded descriptor holds it: one already frozen is
- * shared. */
-const ownedRegex = (regex: RegexRef): RegexRef =>
-	Object.isFrozen(regex)
-		? regex
-		: Object.freeze({ source: regex.source, flags: regex.flags, key: regex.key })
-
-const ownedTextInfo = (text: TextInfo): TextInfo => {
-	const { regex } = text
-	if (Object.isFrozen(text) && (regex === "wildcard" || Object.isFrozen(regex))) {
-		return text
-	}
-	if (text.lengthBound !== undefined) {
-		return Object.freeze({
-			regex: ownedRegex(text.regex),
-			lengthBound: text.lengthBound,
-			byteBound: text.byteBound
-		})
-	}
-	return Object.freeze({
-		regex: regex === "wildcard" ? regex : ownedRegex(regex),
-		lengthBound: undefined,
-		byteBound: undefined
-	})
-}
 
 /**
  * The descriptors are built here, frozen, from a decoded FieldDesc and the environment's resolved metadata, so each
@@ -573,12 +532,12 @@ const scalarAt = (
 		case "uuid":
 			return Result.ok(plainType("uuid"))
 		case "text":
-			return Result.map(env.text(desc.source, desc.flags), (info) =>
+			return Result.ok(
 				Object.freeze({
 					carrier: "text",
 					caps: capabilitiesOf("text"),
 					contract: undefined,
-					text: ownedTextInfo(info)
+					text: textInfoOf(desc.source, desc.flags, desc.language)
 				})
 			)
 		case "closedId":

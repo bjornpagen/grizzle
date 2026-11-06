@@ -5,12 +5,12 @@ import type { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { builtMark } from "#compiler/core/phantom.ts"
 import { hasProperties, isList } from "#compiler/core/record.ts"
-import type * as Result from "#compiler/core/result.ts"
 import {
+	type ContentDigest,
 	type ContextDesc,
+	contentDigest,
 	contextFieldAdmits,
 	decodeDesc,
-	descText,
 	type FieldDesc,
 	type LoginDesc,
 	type QueryDesc,
@@ -20,7 +20,7 @@ import {
 	type StatementDesc
 } from "#compiler/ir/desc.ts"
 import { writableEntry } from "#compiler/schema/entry.ts"
-import { isLevelOf, levelRelations } from "#compiler/schema/levels.ts"
+import { isLevelOf, levelRelations, type SchemaContent } from "#compiler/schema/levels.ts"
 import {
 	builderLoc,
 	describedField,
@@ -30,6 +30,7 @@ import {
 	malformed,
 	orThrow,
 	ownedDesc,
+	ownedEntry,
 	ownedKind,
 	ownValue,
 	queryDescOf,
@@ -37,8 +38,7 @@ import {
 	requireName
 } from "#compiler/schema/protocol.ts"
 import { record, roleRelations } from "#compiler/schema/record.ts"
-import { derivedDraftOf, relationDescOf, writingOf } from "#compiler/schema/relation.ts"
-import { schemaDescOf } from "#compiler/schema/schema.ts"
+import { derivedDraftOf, relationContentOf, writingOf } from "#compiler/schema/relation.ts"
 import { expansionDescOf, statementDescOf } from "#compiler/schema/statements.ts"
 import { approximates, attachesHeading, queryUses } from "#compiler/schema/walk.ts"
 import type { AnyWorkload } from "#compiler/types/db/workload.ts"
@@ -68,25 +68,25 @@ export const contextDescOf = (value: unknown): ContextDesc | undefined =>
 export const roleDescOf = (value: unknown): RoleDesc | undefined => ownedDesc(value, "role")
 
 /**
- * A role as a level (write/changeset/levels.ts): its Description; its identity, the canonical text of that Description
- * with source locations left out, so two roles are one level exactly when their identities are equal; whether it is
- * full, holding every relation of every level of its base whole under its own name; every relation of every level of
- * its base by name (levelRelations); and its entries by name. Each is read once, when role(...) builds the role.
+ * A role as a level (write/changeset/levels.ts), read once, when role(...) builds the role: its Description; its
+ * identity, the content digest of that Description beside its base's name and content (levels.ts SchemaContent), so
+ * two roles are one level exactly when their identities are equal; its base's content; whether it is full, holding
+ * every relation of every level of its base whole under its own name but the closed relations, which no role holds and
+ * every role reads, as ownership reads it (own.ts OwnedRole); every relation of every level of its base by name
+ * (levelRelations); and its entries by name.
  */
 export interface RoleLevel {
 	readonly desc: RoleDesc
-	readonly identity: Result.Result<string, CompileError>
+	readonly identity: ContentDigest
+	readonly base: SchemaContent
 	readonly full: boolean
 	readonly relations: ReadonlyMap<string, RelationDesc>
 	readonly entries: ReadonlyMap<string, RoleEntryDesc>
 }
 
-/** The level of each role role(...) built. A WeakMap holds nothing alive and is never enumerated. */
-const roleLevels = new WeakMap<object, RoleLevel>()
-
 /** The level of a role value role(...) built, none for any other value. */
 export const roleLevelOf = (value: unknown): RoleLevel | undefined =>
-	hasProperties(value) ? roleLevels.get(value) : undefined
+	ownedEntry(value, "role")?.content
 export const loginDescOf = (value: unknown): LoginDesc | undefined => ownedDesc(value, "login")
 
 /** What a world relation value records: its name and definition, as its role's query entry. */
@@ -161,11 +161,10 @@ export const context = <
 			fact: record<[Fields]>(copied)
 		},
 		"context",
-		desc
+		desc,
+		undefined
 	)
 }
-
-const sameDesc = (a: unknown, b: unknown): boolean => orThrow(descText(a)) === orThrow(descText(b))
 
 /**
  * What admission read of a role's relation record: each entry's Description, and for a query entry its definition
@@ -175,6 +174,7 @@ interface AdmittedRole {
 	readonly desc: RoleDesc
 	/** The names of the whole entries, which the kept statements name only. */
 	readonly whole: ReadonlySet<string>
+	readonly level: RoleLevel
 }
 
 /** The names a statement's Descriptions name. */
@@ -218,6 +218,22 @@ const nameList = (value: unknown, label: string, what: string): ReadonlyArray<st
 }
 
 /**
+ * What a whole entry, or the base's relation it names, is: its name and its content digest, which it carries from its
+ * build, a derived relation's its definition's.
+ */
+const wholeOf = (
+	value: unknown,
+	label: string
+): { readonly name: string; readonly digest: ContentDigest } => {
+	const derived = ownedEntry(value, "derived")
+	if (derived !== undefined) {
+		return { name: derived.desc.name, digest: derived.content }
+	}
+	const relation = relationContentOf(value, label)
+	return { name: relation.desc.name, digest: relation.digest }
+}
+
+/**
  * The admission core of role(...): a JavaScript caller's arguments checked and described, the one path a role's
  * Description is built by.
  */
@@ -228,10 +244,11 @@ export const admitRole = (
 	options: unknown,
 	extra: ReadonlyArray<unknown>
 ): AdmittedRole => {
-	const baseDesc = schemaDescOf(base)
-	if (baseDesc === undefined) {
+	const baseEntry = ownedEntry(base, "schema")
+	if (baseEntry === undefined) {
 		throw malformed("role", "a base schema built by schema(...) or schema.extend(...)")
 	}
+	const baseDesc = baseEntry.desc
 	const label = `role ${baseDesc.name}.${typeof name === "string" ? name : "?"}`
 	const roleName = requireName(name, label, "a role name")
 	if (extra.length > 0) {
@@ -252,18 +269,15 @@ export const admitRole = (
 		const draft = derivedDraftOf(value)
 		const kind = ownedKind(value)
 		if (draft !== undefined || kind === "relation" || kind === "closed") {
-			const own = draft === undefined ? relationDescOf(value, at) : undefined
+			const own = wholeOf(value, at)
 			const declared = below.get(key)
-			const ownName = draft === undefined ? own?.name : draft.name
-			if (ownName !== key) {
-				throw roleRefused(at, { kind: "wholeEntryName", entry: key, relation: String(ownName) })
+			if (own.name !== key) {
+				throw roleRefused(at, { kind: "wholeEntryName", entry: key, relation: own.name })
 			}
-			const same =
-				declared !== undefined &&
-				(draft === undefined
-					? sameDesc(declared, own)
-					: declared.kind === "derived" && sameDesc(declared.query, draft.query))
-			if (declared === undefined || !same) {
+			const held = Object.hasOwn(baseEntry.value.relations, key)
+				? baseEntry.value.relations[key]
+				: undefined
+			if (declared === undefined || held === undefined || wholeOf(held, at).digest !== own.digest) {
 				throw roleRefused(at, { kind: "wholeEntryUndeclared", entry: key, base: baseDesc.name })
 			}
 			entries.push({ kind: "whole", name: key, loc })
@@ -277,16 +291,16 @@ export const admitRole = (
 		 */
 		const carried = querySchemaOf(value)
 		if (carried !== undefined) {
-			const carriedDesc = schemaDescOf(carried)
-			if (carriedDesc === undefined || !orThrow(isLevelOf(carriedDesc, baseDesc))) {
+			const carriedEntry = ownedEntry(carried, "schema")
+			if (carriedEntry === undefined || !isLevelOf(carriedEntry.content, baseEntry.content)) {
 				throw roleRefused(at, {
 					kind: "entryOverAnother",
 					entry: key,
 					base: baseDesc.name,
 					over:
-						carriedDesc === undefined
+						carriedEntry === undefined
 							? { kind: "role" }
-							: { kind: "schema", schema: carriedDesc.name }
+							: { kind: "schema", schema: carriedEntry.desc.name }
 				})
 			}
 		}
@@ -389,10 +403,19 @@ export const admitRole = (
 			loc: builderLoc(label, [baseDesc.name, roleName])
 		})
 	)
-	return {
+	const whole = new Set(entries.flatMap((e) => (e.kind === "whole" ? [e.name] : [])))
+	const level: RoleLevel = Object.freeze({
 		desc,
-		whole: new Set(entries.flatMap((e) => (e.kind === "whole" ? [e.name] : [])))
-	}
+		identity: contentDigest("role", {
+			role: { ...desc, base: undefined },
+			base: [baseDesc.name, baseEntry.content.digest]
+		}),
+		base: baseEntry.content,
+		full: [...below].every(([n, r]) => r.kind === "closedRelation" || whole.has(n)),
+		relations: below,
+		entries: new Map(desc.relations.map((e) => [e.name, e]))
+	})
+	return { desc, whole, level }
 }
 
 /**
@@ -408,7 +431,8 @@ const world = <const K extends string, Q extends DefinitionQuery>(
 	return ownValue(
 		{ ...builtMark, kind: "world", name: key, definition, heading, fact: record(heading) },
 		"world",
-		draft
+		draft,
+		undefined
 	)
 }
 
@@ -493,18 +517,8 @@ export const role = <
 			refresh: options?.refresh === undefined ? noNames : frozenTuple(options.refresh)
 		},
 		"role",
-		admitted.desc
-	)
-	const levels = levelRelations(admitted.desc.base)
-	roleLevels.set(
-		value,
-		Object.freeze({
-			desc: admitted.desc,
-			identity: descText(admitted.desc),
-			full: [...levels.keys()].every((n) => admitted.whole.has(n)),
-			relations: levels,
-			entries: new Map(admitted.desc.relations.map((e) => [e.name, e]))
-		})
+		admitted.desc,
+		admitted.level
 	)
 	return value
 }
@@ -530,20 +544,22 @@ export const loginRoleOf = (value: unknown): AnyLoginRole | undefined =>
 
 /** The admission core of login(...): a JavaScript caller's base, name and roles checked and described. */
 const admitLogin = (base: unknown, name: unknown, roles: unknown): LoginDesc => {
-	const baseDesc = schemaDescOf(base)
-	if (baseDesc === undefined) {
+	const baseEntry = ownedEntry(base, "schema")
+	if (baseEntry === undefined) {
 		throw malformed("login", "a base schema built by schema(...) or schema.extend(...)")
 	}
+	const baseDesc = baseEntry.desc
 	const label = `login ${baseDesc.name}.${typeof name === "string" ? name : "?"}`
 	const loginName = requireName(name, label, "a login name")
 	if (!isList(roles) || roles.length === 0) {
 		throw malformed(label, "a nonempty list of roles built by role(...)")
 	}
 	const descs = roles.map((r, i) => {
-		const desc = roleDescOf(r)
-		if (desc === undefined) {
+		const entry = ownedEntry(r, "role")
+		if (entry === undefined) {
 			throw malformed(`${label} role ${i}`, "a role built by role(...)")
 		}
+		const desc = entry.desc
 		const refused = (rule: LoginRule): CompileError =>
 			CompileError.make({
 				_tag: "LoginRefused",
@@ -551,7 +567,10 @@ const admitLogin = (base: unknown, name: unknown, roles: unknown): LoginDesc => 
 				login: loginName,
 				rule
 			})
-		if (!sameDesc(desc.base, baseDesc)) {
+		if (
+			desc.base.name !== baseDesc.name ||
+			entry.content.base.digest !== baseEntry.content.digest
+		) {
 			throw refused({ kind: "roleBase", role: desc.name, base: baseDesc.name })
 		}
 		if (desc.name === loginName) {
@@ -627,7 +646,8 @@ export const login = <
 	const value = ownValue(
 		{ ...builtMark, kind: "login", name, base, roles: reached, workload },
 		"login",
-		desc
+		desc,
+		undefined
 	)
 	for (const r of roles) {
 		const loginRole: AnyLoginRole = Object.freeze({

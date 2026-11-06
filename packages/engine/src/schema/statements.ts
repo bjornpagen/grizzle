@@ -146,7 +146,7 @@ const admitKey = (side: unknown): StatementDesc => {
 
 /** key(side): UNIQUE NULLS DISTINCT over the side's terms. The value holds the side it was given. */
 export const keyBuilder = <S>(side: S): Key<S> =>
-	ownValue({ kind: "key", side }, "statement", admitKey(side))
+	ownValue({ kind: "key", side }, "statement", admitKey(side), undefined)
 
 /**
  * A Key value that is a candidate key, over a side of a whole relation whose terms are all fields
@@ -219,7 +219,7 @@ const admitMutable = (relation: unknown): StatementDesc => {
  * default is pinned.
  */
 export const mutableBuilder = <R>(relation: R): Mutable<R> =>
-	ownValue({ kind: "mutable", relation }, "statement", admitMutable(relation))
+	ownValue({ kind: "mutable", relation }, "statement", admitMutable(relation), undefined)
 
 /**
  * The predicate a row callback returns over `rel`'s row, which `label` refuses when the relation is derived, whose
@@ -265,7 +265,7 @@ export const checkBuilder = <const Name extends string, R>(
 	predicate: unknown
 ): Check<Name, R> => {
 	const desc = admitCheck(name, relation, predicate)
-	return ownValue({ kind: "check", name, relation }, "statement", desc)
+	return ownValue({ kind: "check", name, relation }, "statement", desc, undefined)
 }
 
 /** What a selection value is owned with: the relation it selects from and the row predicate that selects. */
@@ -276,7 +276,7 @@ export interface SelectedDesc {
 
 /** The selection value of `relation`'s facts `predicate` holds of, owned with its Description. */
 const selectionOf = <R>(relation: R, desc: SelectedDesc): Selection<R> =>
-	ownValue({ relation }, "selection", desc)
+	ownValue({ relation }, "selection", desc, undefined)
 
 /**
  * select(R, (row) => predicate): the facts of R the predicate holds of, in the row-check language a check is written
@@ -361,7 +361,7 @@ export const onBuilder = <R, const T extends ReadonlyArray<AnyTerm>>(
 	terms: T
 ): Side<R, readonly [...T]> => {
 	const desc = admitOn(source, terms)
-	return ownValue({ source, terms: frozenTuple<T>(terms) }, "side", desc)
+	return ownValue({ source, terms: frozenTuple<T>(terms) }, "side", desc, undefined)
 }
 
 const sidePair = (left: unknown, right: unknown, label: string): readonly [SideDesc, SideDesc] => {
@@ -396,7 +396,7 @@ const admitContained = (left: unknown, right: unknown): ContainedDesc => {
 }
 
 export const containedBuilder = <L, R>(left: L, right: R): Containment<L, R> =>
-	ownValue({ kind: "contained", left, right }, "statement", admitContained(left, right))
+	ownValue({ kind: "contained", left, right }, "statement", admitContained(left, right), undefined)
 
 /** The statements mirrors states, which the schema holds in its place: its two containments. */
 export interface ExpansionDesc {
@@ -420,7 +420,7 @@ const admitMirrors = (left: unknown, right: unknown): ExpansionDesc => {
 
 /** mirrors(left, right): sugar for contained(left, right) and contained(right, left), which the schema states. */
 export const mirrorsBuilder = <L, R>(left: L, right: R): Mirrors<L, R> =>
-	ownValue({ kind: "mirrors", left, right }, "expansion", admitMirrors(left, right))
+	ownValue({ kind: "mirrors", left, right }, "expansion", admitMirrors(left, right), undefined)
 
 /**
  * The admission core of alternatives(...): the arguments checked and the statement described.
@@ -510,7 +510,8 @@ export const alternativesBuilder = <P, const D extends string, C, Arms extends o
 	return ownValue(
 		{ kind: "alternatives", parent, discriminator, roster, arms: frozenCopy(arms) },
 		"statement",
-		desc
+		desc,
+		undefined
 	)
 }
 
@@ -569,11 +570,21 @@ const admitFamily = (
 
 /** ordered(on(F, g…, i), fin(O, n)): the value holds its two inputs. */
 export const orderedBuilder = <F, Fi>(family: F, slots: Fi): Ordered<F, Fi> =>
-	ownValue({ kind: "ordered", family, slots }, "statement", admitFamily("ordered", family, slots))
+	ownValue(
+		{ kind: "ordered", family, slots },
+		"statement",
+		admitFamily("ordered", family, slots),
+		undefined
+	)
 
 /** counted(on(F, g…), fin(O, n)): the value holds its two inputs. */
 export const countedBuilder = <F, Fi>(family: F, slots: Fi): Counted<F, Fi> =>
-	ownValue({ kind: "counted", family, slots }, "statement", admitFamily("counted", family, slots))
+	ownValue(
+		{ kind: "counted", family, slots },
+		"statement",
+		admitFamily("counted", family, slots),
+		undefined
+	)
 
 /** tree(on(T, "parent", "at"), fin(T, n), { root }): the value holds its inputs, `root` the root field's name. */
 export const treeBuilder = <F, Fi, const Root extends string>(
@@ -594,7 +605,7 @@ export const treeBuilder = <F, Fi, const Root extends string>(
 		root: rootField,
 		loc: builderLoc(`tree ${member.relation}`, [member.relation, "tree"])
 	})
-	return ownValue({ kind: "tree", family, slots, root: root.root }, "statement", desc)
+	return ownValue({ kind: "tree", family, slots, root: root.root }, "statement", desc, undefined)
 }
 
 /** The closed set of monoids, each a frozen value its fold names. */
@@ -645,5 +656,5 @@ export const foldBuilder = <Fa, M, S, E>(
 		end: endSide,
 		loc: builderLoc(`fold ${stepSide.relation}`, [stepSide.relation, "fold", name])
 	})
-	return ownValue({ kind: "fold", family, monoid, step, end }, "statement", desc)
+	return ownValue({ kind: "fold", family, monoid, step, end }, "statement", desc, undefined)
 }

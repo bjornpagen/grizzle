@@ -1,6 +1,6 @@
 import type { Array as Arr } from "effect"
 import type { Codebook, RosterCodec } from "#compiler/ir/codes.ts"
-import type { Family } from "#compiler/ir/family.ts"
+import type { FillOrder } from "#compiler/ir/fill.ts"
 import type { Ddl, ObjectName, TypeRef } from "#compiler/sql/ast.ts"
 import type { ClosedRows } from "#compiler/write/family/fold.ts"
 
@@ -114,12 +114,13 @@ export interface OracleDomain {
 
 /**
  * What the loader fills a family's drawn values from, as grizzle's own host fill does (write/family/fold.ts filler): the
- * law model's families, and the rows of the closed relations a fill's generated fields and fold selections may read.
+ * law model's fill order of its families, and the rows of the closed relations a fill's generated fields and fold
+ * selections may read.
  * A fact never states a drawn value: each member's index, its copy of its owner's count and each fold's running values,
  * and the owner's count and ends.
  */
 interface FamilyFill {
-	readonly families: ReadonlyArray<Family>
+	readonly order: FillOrder
 	readonly closed: ReadonlyMap<string, ClosedRows>
 }
 

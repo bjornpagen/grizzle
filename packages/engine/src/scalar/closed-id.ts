@@ -7,7 +7,7 @@ import { isList } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
 import { isValidText } from "#compiler/core/text.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
-import { carrierSql, defineField, noText, type ScalarEnv } from "#compiler/scalar/registry.ts"
+import { carrierSql, defineField, type ScalarEnv } from "#compiler/scalar/registry.ts"
 
 const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
 	typeof value === "object" && value !== null && !isList(value)
@@ -107,8 +107,7 @@ export const closedIdParts = (closed: unknown): ClosedIdParts => {
 		loc: SourceLoc(`closedId(${roster.closed})`, []),
 		env: {
 			kind: "builder",
-			roster: (name) => (name === roster.closed ? roster.handles : undefined),
-			text: noText
+			roster: (name) => (name === roster.closed ? roster.handles : undefined)
 		}
 	}
 }

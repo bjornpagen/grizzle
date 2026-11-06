@@ -103,10 +103,7 @@ export const programDescOf = (program: unknown): ProgramFound | undefined => {
 	if (change === undefined || !isChangeSetValue(program)) {
 		return undefined
 	}
-	const over: SchemaInput =
-		change.over.kind === "role"
-			? { kind: "role", value: change.over.desc, desc: change.over.desc }
-			: { kind: "desc", desc: change.over.desc }
+	const over = orThrow(parseSchemaInput(change.schema))
 	return {
 		program: {
 			kind: "changeSet",

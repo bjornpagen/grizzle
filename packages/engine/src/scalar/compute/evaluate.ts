@@ -1,5 +1,6 @@
 import type { ExprId } from "#compiler/core/ids.ts"
 import * as Result from "#compiler/core/result.ts"
+import { utf8Length } from "#compiler/core/sha256.ts"
 import { compareCodePoints } from "#compiler/core/text.ts"
 import type { LiteralDesc } from "#compiler/ir/desc.ts"
 import {
@@ -407,6 +408,8 @@ const apply = (
 			return isSpanValue(a) ? Result.ok(a.end) : mismatch(op)
 		case "charLength":
 			return isString(a) ? Result.ok(BigInt(Array.from(a).length)) : mismatch(op)
+		case "octetLength":
+			return isString(a) ? Result.ok(BigInt(utf8Length(a))) : mismatch(op)
 		case "concat":
 			return isString(a) && isString(b) ? Result.ok(a + b) : mismatch(op)
 		case "startsWith":

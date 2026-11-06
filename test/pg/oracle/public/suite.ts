@@ -81,6 +81,8 @@ const situations = [
 	"refused page size",
 	"refused cursor",
 	"key get closed some",
+	"an attached take of two children or more",
+	"an attached take delivered descending",
 	...programForms,
 	...mixedForms
 ] as const
@@ -231,6 +233,8 @@ const planted: ReadonlyArray<Kept<CaseSketch, PublicFeature>> = [
  * - db.get answering some and none over a query proved at most one row, and refusing one it cannot prove so; db.get
  *   over a primary or candidate key, some and none;
  * - an ordered root paged forward and backward;
+ * - an attached take whose order decides what a parent receives, two children or more, two of them ordered apart by
+ *   a descending first key: its children arrive in the take's order (answer.ts), never the child key's;
  * - each refusal class a read can meet at the public boundary: a parameter of another host type (encode), a page size
  *   that is no safe integer of at least 1 (request), and a cursor its codec cannot read;
  * - every program form the generator draws (generate.ts programForms): imports bound to variables and to parameters,

@@ -2,15 +2,25 @@ import { Buffer } from "node:buffer"
 import { Duplex } from "node:stream"
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { noCoverage } from "@grizzle/testing/features"
-import { array, codePoint, element, string, weighted } from "@grizzle/testing/gen"
+import { required } from "@grizzle/testing/features"
+import {
+	array,
+	boolean,
+	codePoint,
+	element,
+	type Gen,
+	int,
+	string,
+	weighted
+} from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Effect, Formatter, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { Connection } from "pg"
 import { bindLength, bindOverrun, type FlightStatement } from "#adapter/wire/batch.ts"
 import { serverStatement } from "#adapter/wire/session.ts"
-import { assert } from "#test/support/assert.ts"
+import { assert, defined } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { testSql } from "#test/support/sql.ts"
 
@@ -18,6 +28,11 @@ import { testSql } from "#test/support/sql.ts"
  * The one bound a flight's parameters meet before they are sent (wire/batch.ts bindOverrun): each statement's Bind
  * message as pg writes it, its length word counted as PostgreSQL counts it, against the longest message the server
  * reads. A row count bounds nothing.
+ *
+ * The oracle is pg itself: each statement's Bind message is written by pg's own Connection, and its length word is what
+ * bindLength must say. Against a limit drawn about those lengths, the flight is refused exactly when some message is
+ * longer than the limit, with InputTooLarge naming the first such statement by its position, its length and the limit;
+ * a message exactly as long as the limit passes.
  */
 
 /** The Bind message pg writes for one execution of `statement`, as the bytes it sends. */
@@ -49,62 +64,122 @@ const text = string(
 	{ min: 0, max: 40 }
 )
 
+/** A statement of a flight: run under a server statement's name or unnamed, with its parameters' texts. */
+const statementGen: Gen<FlightStatement> = (source) => {
+	const sql = testSql("SELECT $1::text")
+	const params = source.draw(array(text, { min: 0, max: 6 }))
+	return source.draw(boolean) ? { server: serverStatement(sql), params } : { sql, params }
+}
+
+/**
+ * Where the limit falls: one byte short of a drawn statement's message, exactly at it, or a drawn distance past it, so
+ * the refusal lands on every position and the limit is met exactly.
+ */
+type LimitAt = "short of" | "at" | "past"
+
+interface BindCase {
+	readonly statements: Arr.NonEmptyReadonlyArray<FlightStatement>
+	readonly at: number
+	readonly limit: LimitAt
+	readonly past: number
+}
+
+const caseGen: Gen<BindCase> = (source) => {
+	const first = source.draw(statementGen)
+	return {
+		statements: [first, ...source.draw(array(statementGen, { min: 0, max: 3 }))],
+		at: source.draw(int(0, 3)),
+		limit: source.draw(element<LimitAt>(["short of", "at", "past"])),
+		past: source.draw(int(1, 64))
+	}
+}
+
+type BindFeature =
+	| "an unnamed statement"
+	| "a named statement"
+	| "refused at the first statement"
+	| "refused at a later statement"
+	| "admitted at exactly the limit"
+	| "admitted below the limit"
+
 describe("a statement's Bind message", () => {
 	it.effect(
-		"is as long as bindLength says: the length word pg writes, for unnamed and named statements",
+		"is as long as pg writes it, and a flight is refused before it is sent exactly at its first message past the limit",
 		(ctx) =>
 			searched(
 				ctx,
 				explore(
 					{
 						suite: "unit/adapter/bind-length",
-						draw: drawn(
-							(source) =>
-								[
-									source.draw(element([false, true])),
-									source.draw(array(text, { min: 0, max: 6 }))
-								] as const
-						),
+						draw: drawn(caseGen),
 						literal: Formatter.format,
-						coverage: noCoverage,
+						oracle: {
+							kind: "second-implementation",
+							name: "pg's own Connection writing each Bind message, its length word the length"
+						},
+						coverage: required<BindFeature>(
+							[
+								"an unnamed statement",
+								"a named statement",
+								"refused at the first statement",
+								"refused at a later statement",
+								"admitted at exactly the limit",
+								"admitted below the limit"
+							],
+							{ cases: 300, sense: notesOnly }
+						),
 						kept: [],
-						runs: 200,
+						runs: 300,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
-					([named, params]) =>
+					(c, k) =>
 						Effect.sync(() => {
-							const sql = testSql("SELECT $1::text")
-							const statement: FlightStatement = named
-								? { server: serverStatement(sql), params }
-								: { sql, params }
-							const sent = pgBind(statement)
-							assert.equal(sent[0], 0x42, "a Bind message")
-							assert.equal(sent.readInt32BE(1), bindLength(statement))
-							assert.equal(sent.length, 1 + bindLength(statement))
+							const lengths = Arr.map(c.statements, (statement) => {
+								const sent = pgBind(statement)
+								assert.equal(sent[0], 0x42, "a Bind message")
+								const declared = sent.readInt32BE(1)
+								assert.equal(
+									sent.length,
+									1 + declared,
+									"its length word counts all but its type byte"
+								)
+								assert.equal(bindLength(statement), declared)
+								k.note("server" in statement ? "a named statement" : "an unnamed statement")
+								return declared
+							})
+							const chosen = defined(
+								lengths[c.at % lengths.length],
+								"the statement the limit falls by"
+							)
+							const limit =
+								c.limit === "short of" ? chosen - 1 : c.limit === "at" ? chosen : chosen + c.past
+							const first = Arr.findFirstIndex(lengths, (bytes) => bytes > limit)
+							const refused = bindOverrun(c.statements, limit)
+							if (Option.isNone(first)) {
+								assert.equal(refused, undefined, `no message is longer than ${limit}`)
+								k.note(
+									Arr.contains(lengths, limit)
+										? "admitted at exactly the limit"
+										: "admitted below the limit"
+								)
+								return
+							}
+							assert.deepEqual(refused?.bound, {
+								kind: "message",
+								statement: first.value,
+								bytes: defined(lengths[first.value]),
+								limit
+							})
+							k.note(
+								first.value === 0
+									? "refused at the first statement"
+									: "refused at a later statement"
+							)
 						})
 				)
 			)
 	)
-
-	it("past the limit fails the call with InputTooLarge naming its statement and length, at the limit passes", () => {
-		const fits: FlightStatement = { sql: testSql("SELECT $1::text"), params: ["short"] }
-		const large: FlightStatement = {
-			sql: testSql("SELECT $1::text"),
-			params: [Str.repeat(1_000)("x")]
-		}
-		const length = bindLength(large)
-		assert.equal(bindOverrun([fits, large], length), undefined)
-		const refused = bindOverrun([fits, large], length - 1)
-		assert.ok(refused !== undefined, "a Bind message one byte past the limit is refused")
-		assert.equal(refused._tag, "InputTooLarge")
-		assert.deepEqual(refused.bound, {
-			kind: "message",
-			statement: 1,
-			bytes: length,
-			limit: length - 1
-		})
-	})
 })

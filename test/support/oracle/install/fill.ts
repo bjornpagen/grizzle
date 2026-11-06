@@ -127,7 +127,8 @@ export const familyRows = (
 	plan: InstallPlan,
 	facts: Readonly<Record<string, ReadonlyArray<Readonly<Record<string, unknown>>>>>
 ): Result.Result<ReadonlyMap<string, FilledRelation>, CompileError> => {
-	const { families, closed } = plan.fill
+	const { order, closed } = plan.fill
+	const families = order.families
 	const codes = plan.codes
 	const relations = new Map<string, LawRelation>()
 	const memberOf = new Map<string, Family>()
@@ -223,10 +224,7 @@ export const familyRows = (
 			}))
 		}
 	}
-	const fill = filler(families, codes, hostEvaluator(codes, closedLeaf(closed), regexMember))
-	if (!fill.ok) {
-		return Result.err(fill.error)
-	}
+	const fill = filler(order, codes, hostEvaluator(codes, closedLeaf(closed), regexMember))
 	const rows = new Map<string, Array<ReadonlyMap<ColumnKey, unknown>>>()
 	const collect = (node: FilledNode): void => {
 		rows.set(node.relation, [...(rows.get(node.relation) ?? []), node.values])
@@ -241,7 +239,7 @@ export const familyRows = (
 			continue
 		}
 		for (const fact of factsOf(name)) {
-			const filled = fill.value(nodeOf(relation, undefined, fact))
+			const filled = fill(nodeOf(relation, undefined, fact))
 			if (!filled.ok) {
 				return refuse(
 					fact.location,

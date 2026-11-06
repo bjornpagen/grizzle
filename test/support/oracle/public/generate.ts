@@ -19,15 +19,14 @@ import {
 	parseDeclaredName
 } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import * as Result from "#compiler/core/result.ts"
 import { nativeEqualityKey, type TypedLiteral } from "#compiler/ir/expr.ts"
 import { baseOf, numericTypmodOf, type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
 import { plainType, wildcardText } from "#compiler/scalar/compute/types.ts"
 import { noRosters, scalarTypeOf } from "#compiler/scalar/registry.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
-import { analyzeText, textInfo } from "#compiler/text/refinement.ts"
 import { type AmbientSession, ambientSessionGen } from "#test/support/ambient.ts"
 import { fileText, joinPath } from "#test/support/files.ts"
+import { textDesc } from "#test/support/fixtures/ir/desc.ts"
 import { admittedNames, literalDictionary, readmeStrings } from "#test/support/kernel/dict.ts"
 import {
 	canonicallySpelled,
@@ -167,6 +166,7 @@ const swarmFeatures = [
 	"unit head",
 	"union",
 	"take",
+	"attached take",
 	"ordered",
 	"attach",
 	"nested",
@@ -266,7 +266,8 @@ export const programForms = [
 	"compare a numeric typmod field with a param",
 	"an Allen relation",
 	"a point in a span",
-	"arms differing in a literal head key"
+	"arms differing in a literal head key",
+	"an attached take"
 ] as const
 export type ProgramForm = (typeof programForms)[number]
 
@@ -450,6 +451,7 @@ const queryFeatures = <P extends ParentColumn>(
 	...(q.arms.length > 1 ? ["arms" as const] : []),
 	...(literalDistinct(q.arms) ? ["arms differing in a literal head key" as const] : []),
 	...(q.bound.kind === "take" ? ["take" as const] : []),
+	...(depth > 0 && q.bound.kind === "take" ? ["an attached take" as const] : []),
 	...(q.stage.kind === "named" ? ["a named stage" as const] : []),
 	...(depth > 0 ? ["attachment" as const] : []),
 	...(depth > 1 ? ["nested attachment" as const] : []),
@@ -730,6 +732,8 @@ interface ChildSketch {
 	readonly handle: number
 	readonly delivery: number
 	readonly rule: RuleSketch
+	/** The child's `.orderBy(...).take(k)`, where the swarm keeps an attached take. */
+	readonly take: OrderSketch
 }
 
 interface AttachSketch extends ChildSketch {
@@ -966,7 +970,8 @@ const childGen: Gen<ChildSketch> = (decisions) => ({
 	link: decisions.draw(pickGen),
 	handle: decisions.draw(pickGen),
 	delivery: decisions.draw(pickGen),
-	rule: decisions.draw(ruleGen)
+	rule: decisions.draw(ruleGen),
+	take: decisions.draw(orderGen)
 })
 
 const attachGen: Gen<AttachSketch> = (decisions) => ({
@@ -1326,13 +1331,8 @@ const typeOf = (kind: FieldKind, roster: { readonly name: string }): ScalarType 
 /** Unbounded prose, str.regex("^.*$", "su"), as the schema compiler types it. */
 const proseType: ScalarType = (() => {
 	const typed = scalarTypeOf(
-		{ kind: "text", source: "^.*$", flags: "su" },
-		{
-			kind: "builder",
-			roster: noRosters,
-			text: (source, flags) =>
-				Result.map(analyzeText(source, flags, SourceLoc("prose", [])), textInfo)
-		},
+		textDesc("^.*$", "su"),
+		{ kind: "builder", roster: noRosters },
 		SourceLoc("prose", [])
 	)
 	if (!typed.ok) {
@@ -3068,10 +3068,18 @@ const resolveChild = <P extends ParentColumn>(
 		nested !== undefined && scope.keep("nested")
 			? resolveChild(scope, { heading, arms: [rule] }, nested, childNames, undefined)
 			: undefined
+	const columns = nonEmpty(heading)
 	const child: Query<ParentColumn> = {
 		heading,
 		arms: [rule],
-		bound: { kind: "set" },
+		bound:
+			columns !== undefined && scope.keep("attached take")
+				? {
+						kind: "take",
+						order: orderOf(columns, sketch.take),
+						k: 1 + pickIndex(sketch.take.size, 3)
+					}
+				: { kind: "set" },
 		stage: { kind: "unnamed" },
 		attachments: grandchild === undefined ? [] : [grandchild]
 	}

@@ -33,23 +33,27 @@ import { vectorMaxDimensions } from "#compiler/ir/carriers.ts"
 import type { ExprDesc, FieldDesc } from "#compiler/ir/desc.ts"
 import { fieldTypes } from "#compiler/ir/desc.ts"
 import { uuid } from "#compiler/public/fields.ts"
+import { keyTextBytes } from "#compiler/public/text.ts"
 import { closed, relation, relationDescOf } from "#compiler/schema/relation.ts"
 import {
 	btreeEntryBytes,
 	btreeMaxItemSize,
-	charLengthBound,
 	type DatumBound,
 	datumBound,
 	gistEntryBytes,
 	keyLayout,
+	type LengthMeasure,
+	lengthBound,
 	textByteBound
 } from "#compiler/schema/representability.ts"
 import { schema } from "#compiler/schema/schema.ts"
 import { keyBuilder, onBuilder } from "#compiler/schema/statements.ts"
+import { textLookup } from "#compiler/text/refinement.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { AnyClosed, AnyRelation } from "#compiler/types/schema/relation.ts"
 import type { Statement } from "#compiler/types/schema/statements.ts"
 import { assert, defined, refused, succeeded } from "#test/support/assert.ts"
+import { textDesc } from "#test/support/fixtures/ir/desc.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { pickGen, pickIndex, pickSpan } from "#test/support/pick.ts"
 import { ownedInput } from "#test/support/policy.ts"
@@ -59,6 +63,7 @@ import {
 	rawClosedId,
 	rawContract,
 	descOf,
+	octetLengthAtMost,
 	rawPg,
 	rawSpan,
 	regex,
@@ -523,7 +528,11 @@ describe("pattern byte bounds", () => {
 						Effect.sync(() => {
 							const alternatives = plantedAlternatives(s)
 							const source = patternSource(alternatives)
-							const bound = textByteBound({ kind: "text", source, flags: s.flags })
+							const language = textLookup(source, s.flags)
+							/** A pattern the analysis refuses has no descriptor, so nothing it bounds is a key's. */
+							const bound = language.ok
+								? textByteBound({ kind: "text", source, flags: s.flags, language: language.value })
+								: Number.POSITIVE_INFINITY
 							const anchored = Arr.every(alternatives, (a) => a.start && a.end)
 							const longest = maxOf(
 								Arr.map(alternatives, (a) => sequenceBytes(a.items)),
@@ -581,11 +590,12 @@ describe("pattern byte bounds", () => {
 })
 
 /**
- * A conjunct of a contract predicate over char_length(VALUE) =: L, as drawn: a comparison with a literal on either
- * side (a number or a bigint), between (low <= high), in (a nonempty list), a disjunction of two upper bounds, which
- * bounds L but is no form the reader recognizes, or a test of the value that leaves L free.
+ * A conjunct of a contract predicate over one length of VALUE, `measure`, its char_length or its octet_length =: L, as
+ * drawn: a comparison with a literal on either side (a number or a bigint), between (low <= high), in (a nonempty
+ * list), a disjunction of two upper bounds, which bounds L but is no form the reader recognizes, or a test of the value
+ * that leaves L free.
  */
-type LengthConjunct =
+type LengthForm =
 	| {
 			readonly kind: "compare"
 			readonly op: "le" | "lt" | "eq" | "ge" | "gt" | "ne"
@@ -598,7 +608,16 @@ type LengthConjunct =
 	| { readonly kind: "or"; readonly left: number; readonly right: number }
 	| { readonly kind: "other" }
 
-const charLengthOfValue: ExprDesc = { kind: "compute", fn: "charLength", args: [{ kind: "value" }] }
+interface LengthConjunct {
+	readonly measure: LengthMeasure
+	readonly form: LengthForm
+}
+
+const lengthOfValue = (measure: LengthMeasure): ExprDesc => ({
+	kind: "compute",
+	fn: measure,
+	args: [{ kind: "value" }]
+})
 
 const lengthLiteral = (n: number, bigint: boolean): ExprDesc => ({
 	kind: "literal",
@@ -606,47 +625,28 @@ const lengthLiteral = (n: number, bigint: boolean): ExprDesc => ({
 	type: undefined
 })
 
-const conjunctExpr = (c: LengthConjunct): ExprDesc => {
+const conjunctExpr = ({ measure, form: c }: LengthConjunct): ExprDesc => {
+	const measured = lengthOfValue(measure)
 	switch (c.kind) {
 		case "compare":
 			return c.mirrored
-				? {
-						kind: "compare",
-						op: c.op,
-						left: lengthLiteral(c.n, c.bigint),
-						right: charLengthOfValue
-					}
-				: {
-						kind: "compare",
-						op: c.op,
-						left: charLengthOfValue,
-						right: lengthLiteral(c.n, c.bigint)
-					}
+				? { kind: "compare", op: c.op, left: lengthLiteral(c.n, c.bigint), right: measured }
+				: { kind: "compare", op: c.op, left: measured, right: lengthLiteral(c.n, c.bigint) }
 		case "between":
 			return {
 				kind: "between",
-				arg: charLengthOfValue,
+				arg: measured,
 				low: lengthLiteral(c.low, false),
 				high: lengthLiteral(c.high, false)
 			}
 		case "in":
-			return { kind: "in", arg: charLengthOfValue, values: c.values }
+			return { kind: "in", arg: measured, values: c.values }
 		case "or":
 			return {
 				kind: "or",
 				args: [
-					{
-						kind: "compare",
-						op: "le",
-						left: charLengthOfValue,
-						right: lengthLiteral(c.left, false)
-					},
-					{
-						kind: "compare",
-						op: "le",
-						left: charLengthOfValue,
-						right: lengthLiteral(c.right, false)
-					}
+					{ kind: "compare", op: "le", left: measured, right: lengthLiteral(c.left, false) },
+					{ kind: "compare", op: "le", left: measured, right: lengthLiteral(c.right, false) }
 				]
 			}
 		case "other":
@@ -672,8 +672,8 @@ const compares = (op: "le" | "lt" | "eq" | "ge" | "gt" | "ne", a: number, b: num
 						? a > b
 						: a !== b
 
-/** Whether a conjunct holds of a value of char_length L. */
-const holdsAt = (c: LengthConjunct, length: number): boolean => {
+/** Whether a conjunct's form holds of a value whose measured length is L. */
+const holdsAt = (c: LengthForm, length: number): boolean => {
 	switch (c.kind) {
 		case "compare":
 			return c.mirrored ? compares(c.op, c.n, length) : compares(c.op, length, c.n)
@@ -692,7 +692,7 @@ const holdsAt = (c: LengthConjunct, length: number): boolean => {
  * The forms the reader documents as bounding L above: <=, < and = with L on the left, their mirror images, between
  * and in.
  */
-const boundsAbove = (c: LengthConjunct): boolean =>
+const boundsAbove = (c: LengthForm): boolean =>
 	c.kind === "between" ||
 	c.kind === "in" ||
 	(c.kind === "compare" &&
@@ -703,14 +703,23 @@ const boundsAbove = (c: LengthConjunct): boolean =>
 /** Lengths past every drawn literal, and below zero, where an upper bound's arithmetic may land. */
 const lengthsScanned = Arr.map(indices(141), (i) => 100 - i)
 
-/** The lengths of the scanned range, from least up, the conjuncts all hold of, largest first. */
-const holdingLengths = (
-	conjuncts: ReadonlyArray<LengthConjunct>,
-	least: number
-): ReadonlyArray<number> =>
-	Arr.filter(
-		lengthsScanned,
-		(length) => length >= least && Arr.every(conjuncts, (c) => holdsAt(c, length))
+/**
+ * The bound the model reads on `measure` from the conjuncts: each documented upper-bounding conjunct of that measure
+ * alone bounds L at the largest scanned length it holds of, and the conjunction at the least of those; Infinity, the top
+ * of the bounds' min order, when no conjunct of the measure bounds L.
+ */
+const modelBound = (conjuncts: ReadonlyArray<LengthConjunct>, measure: LengthMeasure): number =>
+	Arr.reduce(
+		Arr.filter(conjuncts, (c) => c.measure === measure && boundsAbove(c.form)),
+		Number.POSITIVE_INFINITY,
+		(bound, c) =>
+			Math.min(
+				bound,
+				defined(
+					Option.getOrUndefined(Arr.findFirst(lengthsScanned, (length) => holdsAt(c.form, length))),
+					"a scanned length the conjunct holds of"
+				)
+			)
 	)
 
 interface LengthSketch {
@@ -721,62 +730,55 @@ interface LengthSketch {
 	readonly base: { readonly kind: "wildcard" } | { readonly kind: "letters"; readonly k: number }
 }
 
-const lengthConjunctGen: Gen<LengthConjunct> = weighted([
+const lengthFormGen: Gen<LengthForm> = weighted<LengthForm>([
 	[
 		4,
-		map(
-			(source) => ({
-				op: source.draw(
-					element<"le" | "lt" | "eq" | "ge" | "gt" | "ne">(["le", "lt", "eq", "ge", "gt", "ne"])
-				),
-				n: source.draw(int(-3, 60)),
-				mirrored: source.draw(boolean),
-				bigint: source.draw(boolean)
-			}),
-			(r): LengthConjunct => ({ kind: "compare", ...r })
-		)
+		(source) => ({
+			kind: "compare",
+			op: source.draw(
+				element<"le" | "lt" | "eq" | "ge" | "gt" | "ne">(["le", "lt", "eq", "ge", "gt", "ne"])
+			),
+			n: source.draw(int(-3, 60)),
+			mirrored: source.draw(boolean),
+			bigint: source.draw(boolean)
+		})
 	],
 	[
 		1,
-		map(
-			(source) => ({ low: source.draw(int(0, 40)), more: source.draw(int(0, 20)) }),
-			({ low, more }): LengthConjunct => ({ kind: "between", low, high: low + more })
-		)
+		(source) => {
+			const low = source.draw(int(0, 40))
+			return { kind: "between", low, high: low + source.draw(int(0, 20)) }
+		}
 	],
-	[
-		1,
-		map(nonEmpty(int(0, 60), 3), (values): LengthConjunct => ({
-			kind: "in",
-			values
-		}))
-	],
-	[
-		1,
-		map(
-			(source) => ({ left: source.draw(int(0, 60)), right: source.draw(int(0, 60)) }),
-			(r): LengthConjunct => ({ kind: "or", ...r })
-		)
-	],
-	[1, constant<LengthConjunct>({ kind: "other" })]
+	[1, (source) => ({ kind: "in", values: source.draw(nonEmpty(int(0, 60), 3)) })],
+	[1, (source) => ({ kind: "or", left: source.draw(int(0, 60)), right: source.draw(int(0, 60)) })],
+	[1, constant<LengthForm>({ kind: "other" })]
 ])
 
+const lengthConjunctGen: Gen<LengthConjunct> = (source) => ({
+	measure: source.draw(element<LengthMeasure>(["charLength", "octetLength"])),
+	form: source.draw(lengthFormGen)
+})
+
 type LengthFeature =
-	| "bounded"
+	| "charLength bounded"
+	| "octetLength bounded"
 	| "unbounded"
-	| "satisfiable"
+	| "both measures"
 	| "base tighter"
-	| "length tighter"
+	| "charLength tighter"
+	| "octetLength tighter"
 	| "mirrored"
 
-describe("charLength bounds", () => {
+describe("length bounds", () => {
 	it.effect(
-		"reads a charLength bound from a contract predicate, four bytes per code point",
+		"reads a charLength bound, four bytes a code point, and an octetLength bound, exact bytes, from a contract predicate",
 		(ctx) =>
 			searched(
 				ctx,
 				explore(
 					{
-						suite: "unit/schema/charlength-bound",
+						suite: "unit/schema/length-bound",
 						draw: drawn((source) => ({
 							conjuncts: source.draw(nonEmpty(lengthConjunctGen, 3)),
 							nested: source.draw(boolean),
@@ -789,7 +791,16 @@ describe("charLength bounds", () => {
 						})),
 						literal: Formatter.format,
 						coverage: required<LengthFeature>(
-							["bounded", "unbounded", "satisfiable", "base tighter", "length tighter", "mirrored"],
+							[
+								"charLength bounded",
+								"octetLength bounded",
+								"unbounded",
+								"both measures",
+								"base tighter",
+								"charLength tighter",
+								"octetLength tighter",
+								"mirrored"
+							],
 							{ cases: 400, sense: notesOnly }
 						),
 						kept: [],
@@ -808,40 +819,43 @@ describe("charLength bounds", () => {
 								: s.nested
 									? { kind: "and", args: [conjunctExpr(first), { kind: "and", args: tail }] }
 									: { kind: "and", args: [conjunctExpr(first), ...tail] }
-							const bound = charLengthBound(predicate)
 							if (
-								Arr.some(s.conjuncts, (x) => x.kind === "compare" && x.mirrored && boundsAbove(x))
+								Arr.some(
+									s.conjuncts,
+									({ form }) => form.kind === "compare" && form.mirrored && boundsAbove(form)
+								)
 							) {
 								c.note("mirrored")
 							}
-							const upper = Arr.filter(s.conjuncts, boundsAbove)
-							if (upper.length === 0) {
-								c.note("unbounded")
-								assert.equal(bound, Number.POSITIVE_INFINITY)
-							} else {
-								c.note("bounded")
-								assert.ok(Number.isFinite(bound), "a bound from an upper-bounding conjunct")
-								for (const u of upper) {
-									assert.ok(
-										bound <= defined(holdingLengths([u], -40)[0]),
-										`no looser than ${u.kind}`
-									)
-								}
-								const [reached] = holdingLengths(s.conjuncts, 0)
-								if (reached !== undefined) {
-									c.note("satisfiable")
-									assert.ok(reached <= bound, `sound: the length ${reached} holds, above ${bound}`)
-								}
+							const chars = modelBound(s.conjuncts, "charLength")
+							const octets = modelBound(s.conjuncts, "octetLength")
+							assert.equal(lengthBound("charLength", predicate), chars, "the charLength bound")
+							assert.equal(lengthBound("octetLength", predicate), octets, "the octetLength bound")
+							if (Number.isFinite(chars)) {
+								c.note("charLength bounded")
 							}
-							const base: FieldDesc =
+							if (Number.isFinite(octets)) {
+								c.note("octetLength bounded")
+							}
+							if (Number.isFinite(chars) && Number.isFinite(octets)) {
+								c.note("both measures")
+							}
+							const base =
 								s.base.kind === "wildcard"
-									? { kind: "text", source: "^.*$", flags: "su" }
-									: { kind: "text", source: `^[A-Z]{${s.base.k}}$`, flags: "u" }
-							const lengthBytes = 4 * Math.max(0, bound)
+									? textDesc("^.*$", "su")
+									: textDesc(`^[A-Z]{${s.base.k}}$`, "u")
+							const charBytes = 4 * Math.max(0, chars)
+							const octetBytes = Math.max(0, octets)
 							const baseBytes = s.base.kind === "wildcard" ? Number.POSITIVE_INFINITY : s.base.k
-							const expected = Math.min(lengthBytes, baseBytes)
-							if (Number.isFinite(lengthBytes) && Number.isFinite(baseBytes)) {
-								c.note(baseBytes < lengthBytes ? "base tighter" : "length tighter")
+							const expected = Math.min(charBytes, octetBytes, baseBytes)
+							if (!Number.isFinite(expected)) {
+								c.note("unbounded")
+							} else if (expected === baseBytes && baseBytes < Math.min(charBytes, octetBytes)) {
+								c.note("base tighter")
+							} else if (expected === charBytes && charBytes < octetBytes) {
+								c.note("charLength tighter")
+							} else if (expected === octetBytes && octetBytes < charBytes) {
+								c.note("octetLength tighter")
 							}
 							assert.equal(
 								textByteBound({ kind: "contract", name: "Memo", base, predicate, facts: [] }),
@@ -855,8 +869,8 @@ describe("charLength bounds", () => {
 
 /**
  * A key field as drawn, over pg_type's sizes and alignments: a fixed-width type, numeric(p, s), text of a bounded
- * pattern (ASCII, or any code point), the wildcard, or a contract over the wildcard bounding
- * char_length.
+ * pattern (ASCII, or any code point), the wildcard, or a contract over the wildcard bounding char_length or
+ * octet_length.
  */
 type FixedType =
 	| "smallint"
@@ -878,29 +892,32 @@ type KeyFieldSketch =
 	| { readonly kind: "any text"; readonly length: number }
 	| { readonly kind: "wildcard" }
 	| { readonly kind: "bounded contract"; readonly length: number }
+	| { readonly kind: "octet contract"; readonly bytes: number }
 
+/** A datum's longest bytes and its type's alignment, and whether its type is fixed-width (typlen > 0) or a varlena. */
 interface Datum {
 	readonly bytes: number
 	readonly align: number
+	readonly fixed: boolean
 }
 
 /** pg_type's typlen and typalign of each fixed key type: a closed id is its code, a smallint, a serial its integer type. */
 const fixedDatum: Readonly<Record<FixedType, Datum>> = {
-	smallint: { bytes: 2, align: 2 },
-	integer: { bytes: 4, align: 4 },
-	bigint: { bytes: 8, align: 8 },
-	real: { bytes: 4, align: 4 },
-	"double precision": { bytes: 8, align: 8 },
-	money: { bytes: 8, align: 8 },
-	boolean: { bytes: 1, align: 1 },
-	uuid: { bytes: 16, align: 1 },
-	bigserial: { bytes: 8, align: 8 },
-	serial: { bytes: 4, align: 4 },
-	closedId: { bytes: 2, align: 2 }
+	smallint: { bytes: 2, align: 2, fixed: true },
+	integer: { bytes: 4, align: 4, fixed: true },
+	bigint: { bytes: 8, align: 8, fixed: true },
+	real: { bytes: 4, align: 4, fixed: true },
+	"double precision": { bytes: 8, align: 8, fixed: true },
+	money: { bytes: 8, align: 8, fixed: true },
+	boolean: { bytes: 1, align: 1, fixed: true },
+	uuid: { bytes: 16, align: 1, fixed: true },
+	bigserial: { bytes: 8, align: 8, fixed: true },
+	serial: { bytes: 4, align: 4, fixed: true },
+	closedId: { bytes: 2, align: 2, fixed: true }
 }
 
 /** A varlena datum with its 4-byte header, int-aligned. */
-const varlena = (bytes: number): Datum => ({ bytes: 4 + bytes, align: 4 })
+const varlena = (bytes: number): Datum => ({ bytes: 4 + bytes, align: 4, fixed: false })
 
 /**
  * The widest datum a key field admits, or that nothing bounds it: numeric(p, s) is at most
@@ -918,13 +935,15 @@ const datumOf = (f: KeyFieldSketch): DatumBoundOf => {
 		case "numeric":
 			return {
 				kind: "bounded",
-				datum: { bytes: 8 + 2 * Math.floor((f.precision + 6) / 4), align: 4 }
+				datum: { bytes: 8 + 2 * Math.floor((f.precision + 6) / 4), align: 4, fixed: false }
 			}
 		case "ascii text":
 			return { kind: "bounded", datum: varlena(f.length) }
 		case "any text":
 		case "bounded contract":
 			return { kind: "bounded", datum: varlena(4 * f.length) }
+		case "octet contract":
+			return { kind: "bounded", datum: varlena(f.bytes) }
 		case "wildcard":
 			return { kind: "unbounded" }
 	}
@@ -937,12 +956,28 @@ const boundedDatums = (fields: ReadonlyArray<KeyFieldSketch>): ReadonlyArray<Dat
 		return d.kind === "bounded" ? [d.datum] : []
 	})
 
+/** Where the datums laid out so far end, and whether every offset so far is exact. */
+interface Laid {
+	readonly end: number
+	readonly exact: boolean
+}
+
 /**
- * The most bytes a B-tree tuple over the datums reaches: the header, each datum after its worst-case alignment padding,
- * the whole MAXALIGNed.
+ * Where a B-tree tuple's datums end, before MAXALIGN, as index_form_tuple lays them out (heaptuple.c fill_val): after
+ * the header, each fixed-width datum at its alignment while every datum before it is fixed-width, every offset then
+ * known; from the first varlena on, whose header and length vary with its value, each datum after its worst alignment
+ * padding, align - 1, and a varlena at its longest under its aligned 4-byte header.
  */
-const btreeTupleBytes = (datums: ReadonlyArray<Datum>): number =>
-	maxalign(Arr.reduce(datums, indexTupleHeader, (size, d) => size + d.align - 1 + d.bytes))
+const datumsEnd = (datums: ReadonlyArray<Datum>): Laid => {
+	const start: Laid = { end: indexTupleHeader, exact: true }
+	return Arr.reduce(datums, start, ({ end, exact }, d): Laid => ({
+		end: exact ? Math.ceil(end / d.align) * d.align + d.bytes : end + d.align - 1 + d.bytes,
+		exact: exact && d.fixed
+	}))
+}
+
+/** The most bytes a B-tree tuple over the datums reaches (datumsEnd), the whole MAXALIGNed. */
+const btreeTupleBytes = (datums: ReadonlyArray<Datum>): number => maxalign(datumsEnd(datums).end)
 
 const Kind = closed("Kind", ["A", "B"], [])
 
@@ -988,6 +1023,8 @@ const keyFieldDescriptor = (f: KeyFieldSketch, i: number): FieldBase => {
 			return wildcard
 		case "bounded contract":
 			return rawContract(`Line${i}`, wildcard, charLengthAtMost(f.length))
+		case "octet contract":
+			return rawContract(`Octets${i}`, wildcard, octetLengthAtMost(f.bytes))
 	}
 }
 
@@ -1024,7 +1061,8 @@ const keyFieldGen: Gen<KeyFieldSketch> = weighted([
 	[2, map(int(0, 40), (length): KeyFieldSketch => ({ kind: "ascii text", length }))],
 	[1, map(int(0, 40), (length): KeyFieldSketch => ({ kind: "any text", length }))],
 	[1, constant<KeyFieldSketch>({ kind: "wildcard" })],
-	[2, map(int(0, 700), (length): KeyFieldSketch => ({ kind: "bounded contract", length }))]
+	[2, map(int(0, 700), (length): KeyFieldSketch => ({ kind: "bounded contract", length }))],
+	[2, map(int(0, 2800), (bytes): KeyFieldSketch => ({ kind: "octet contract", bytes }))]
 ])
 
 interface KeySizeSketch {
@@ -1032,9 +1070,11 @@ interface KeySizeSketch {
 	readonly primary: boolean
 	/**
 	 * A last field planted to bring the entry to the item limit plus `delta` bytes, when the rest is bounded and leaves
-	 * room for it.
+	 * room for it: a text bounded by its octet_length, at the byte, or by its char_length, four bytes at a time.
 	 */
-	readonly boundary: { readonly kind: "none" } | { readonly kind: "at"; readonly delta: number }
+	readonly boundary:
+		| { readonly kind: "none" }
+		| { readonly kind: "at"; readonly delta: number; readonly octets: boolean }
 }
 
 /** The drawn fields, with the boundary field appended where one is planted. */
@@ -1046,9 +1086,18 @@ const sizedFields = (s: KeySizeSketch): ReadonlyArray<KeyFieldSketch> => {
 	if (datums.length < s.fields.length) {
 		return s.fields
 	}
-	const before = Arr.reduce(datums, indexTupleHeader, (size, d) => size + d.align - 1 + d.bytes)
-	const length = Math.floor((postgresBtreeMaxItem + s.boundary.delta - before - 3 - 4) / 4)
-	return length < 0 ? s.fields : [...s.fields, { kind: "bounded contract", length }]
+	const { end, exact } = datumsEnd(datums)
+	const start = (exact ? Math.ceil(end / 4) * 4 : end + 3) + 4
+	const room = postgresBtreeMaxItem + s.boundary.delta - start
+	if (room < 0) {
+		return s.fields
+	}
+	return [
+		...s.fields,
+		s.boundary.octets
+			? { kind: "octet contract", bytes: room }
+			: { kind: "bounded contract", length: Math.floor(room / 4) }
+	]
 }
 
 type KeySizeFeature =
@@ -1180,6 +1229,130 @@ const scalars = (n: number): Record<string, FieldBase> =>
 		Arr.map(indices(n), (i) => [`f${pipe(String(i), Str.padStart(2, "0"))}`, rawPg.boolean])
 	)
 
+/** A key's other field beside its text, for keyTextBytes: a fixed-width type, or a text an octet_length contract bounds. */
+type Companion =
+	| { readonly kind: "fixed"; readonly type: FixedType }
+	| { readonly kind: "octets"; readonly bytes: number }
+
+const companionDatum = (c: Companion): Datum =>
+	c.kind === "fixed" ? fixedDatum[c.type] : varlena(c.bytes)
+
+const companionDescriptor = (c: Companion, i: number): FieldBase =>
+	c.kind === "fixed"
+		? fixedDescriptor(c.type)
+		: rawContract(`Beside${i}`, wildcard, octetLengthAtMost(c.bytes))
+
+const companionGen: Gen<Companion> = weighted<Companion>([
+	[4, map(element(fixedTypes), (type): Companion => ({ kind: "fixed", type }))],
+	[1, map(int(0, 300), (bytes): Companion => ({ kind: "octets", bytes }))]
+])
+
+/**
+ * The budget restated: BTMaxItemSize less the header and every datum beside the text at its worst padding, align - 1,
+ * and the text's own 4-byte header after its worst padding of 3, which bounds the entry whatever the key's order.
+ */
+const budgetOf = (companions: ReadonlyArray<Companion>): number =>
+	postgresBtreeMaxItem -
+	Arr.reduce(companions, indexTupleHeader, (end, c) => {
+		const d = companionDatum(c)
+		return end + d.align - 1 + d.bytes
+	}) -
+	3 -
+	4
+
+type BudgetFeature =
+	| "tight"
+	| "slack"
+	| "text first"
+	| "text last"
+	| "text between"
+	| "a text beside it"
+
+describe("keyTextBytes", () => {
+	it.effect(
+		"is the most bytes a text holds beside its companions in any key order, and a key one byte past it is refused where the order meets the bound",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/schema/key-text-bytes",
+						draw: drawn((source) => {
+							const companions = source.draw(nonEmpty(companionGen, 4))
+							return {
+								companions,
+								position: source.draw(int(0, companions.length))
+							}
+						}),
+						literal: Formatter.format,
+						coverage: required<BudgetFeature>(
+							["tight", "slack", "text first", "text last", "text between", "a text beside it"],
+							{ cases: 200, sense: notesOnly }
+						),
+						kept: [],
+						runs: 200,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang
+					},
+					(s, c) =>
+						Effect.sync(() => {
+							const descriptors = Arr.map(s.companions, companionDescriptor)
+							const budget = keyTextBytes(descriptors)
+							assert.equal(budget, budgetOf(s.companions), "the budget")
+							c.note(
+								s.position === 0
+									? "text first"
+									: s.position === s.companions.length
+										? "text last"
+										: "text between"
+							)
+							if (Arr.some(s.companions, (x) => x.kind === "octets")) {
+								c.note("a text beside it")
+							}
+							/** The key at a text bound of `bytes`, the text at its drawn position among the companions. */
+							const keyAt = (bytes: number) => {
+								const named = Arr.map(descriptors, (d, i): readonly [string, FieldBase] => [
+									`c${i}`,
+									d
+								])
+								const text: readonly [string, FieldBase] = [
+									"t",
+									rawContract("KeyText", wildcard, octetLengthAtMost(bytes))
+								]
+								const fields = [
+									...Arr.take(named, s.position),
+									text,
+									...Arr.drop(named, s.position)
+								]
+								const R = relation(
+									"R",
+									Rec.fromEntries(fields),
+									Arr.map(fields, ([n]) => n),
+									[]
+								)
+								return ownValue(schema("Budget", { Kind, R }, [], []))
+							}
+							succeeded(keyAt(budget), `a text of ${budget} bytes beside its companions`)
+							const datums = [
+								...Arr.map(Arr.take(s.companions, s.position), companionDatum),
+								varlena(budget + 1),
+								...Arr.map(Arr.drop(s.companions, s.position), companionDatum)
+							]
+							const past = btreeTupleBytes(datums) > postgresBtreeMaxItem
+							c.note(past ? "tight" : "slack")
+							if (past) {
+								refused(keyAt(budget + 1), "UnrepresentableKey")
+							} else {
+								succeeded(keyAt(budget + 1), "an order with room past the budget")
+							}
+						})
+				)
+			)
+	)
+})
+
 describe("B-tree entries (nbtree.h BTMaxItemSize)", () => {
 	it.effect(
 		"refuses a key with an unbounded field or a worst-case entry above the item limit, and admits every other",
@@ -1195,7 +1368,14 @@ describe("B-tree entries (nbtree.h BTMaxItemSize)", () => {
 							boundary: source.draw(
 								oneOf([
 									constant<KeySizeSketch["boundary"]>({ kind: "none" }),
-									map(int(-8, 8), (delta): KeySizeSketch["boundary"] => ({ kind: "at", delta }))
+									map(
+										(inner) => ({ delta: inner.draw(int(-8, 8)), octets: inner.draw(boolean) }),
+										({ delta, octets }): KeySizeSketch["boundary"] => ({
+											kind: "at",
+											delta,
+											octets
+										})
+									)
 								])
 							)
 						})),
@@ -1429,7 +1609,9 @@ describe("GiST entries for span keys (gist.c gistSplit)", () => {
 									? gistKeyBytes("text", 4 + f.length)
 									: gistKeyBytes(spanScalarFamily(f), fixedTyplens[spanScalarFamily(f)])
 							)
-							assert.deepEqual(layout.value.gist, {
+							const gist = defined(layout.value.gist, "a span key's GiST layout")
+							const counted: { readonly span: string; readonly bytes: number } = gist
+							assert.deepEqual(counted, {
 								span: "during",
 								bytes: gistTupleBytes([...scalarKeys, rangeBytes])
 							})
@@ -1656,9 +1838,12 @@ describe("a vector field is a key field like any other: every vector has one for
 							const layout = keyLayout(
 								Arr.map(keyFields, ([field, descriptor]) => ({ field, desc: descOf(descriptor) }))
 							)
-							const bytes = btreeEntryBytes(
-								Arr.map(keyFields, ([, descriptor]) => boundOf(descriptor))
-							)
+							const columns = Arr.map(keyFields, ([name, descriptor]) => ({
+								name,
+								datum: boundOf(descriptor),
+								nullable: false
+							}))
+							const bytes = btreeEntryBytes(columns)
 							c.note(s.primary ? "vector in the primary key" : "vector in a candidate key")
 							if (s.contract) {
 								c.note("contract over a vector")
@@ -1673,7 +1858,12 @@ describe("a vector field is a key field like any other: every vector has one for
 							} else if (bytes > btreeMaxItemSize.value) {
 								assert.deepEqual(
 									layout,
-									Result.err<KeyFault>({ kind: "btreeEntry", bytes, limit: btreeMaxItemSize.value })
+									Result.err<KeyFault>({
+										kind: "btreeEntry",
+										bytes,
+										limit: btreeMaxItemSize.value,
+										datums: Arr.map(columns, (col) => ({ field: col.name, bytes: col.datum.bytes }))
+									})
 								)
 								refused(owned, "UnrepresentableKey")
 								c.note("a vector key above the B-tree limit")

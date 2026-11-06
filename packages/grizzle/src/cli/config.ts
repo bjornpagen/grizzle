@@ -1,7 +1,7 @@
 import { Array as Arr, Effect, Option, Path, Record as Rec, Result } from "effect"
 import { definedConfig } from "#adapter/config/define.ts"
 import { toResult } from "#adapter/engine.ts"
-import { loginRoleValues } from "#adapter/pool/registry.ts"
+import { type BuiltLogin, builtLogin, ownLoginOver } from "#adapter/pool/registry.ts"
 import type { MigrationConnectionConfig } from "#adapter/types/config.ts"
 import {
 	type CliError,
@@ -12,14 +12,12 @@ import {
 	SchemaEntryRefused,
 	SettingRefused
 } from "#cli/errors.ts"
-import { declaredAlike, identifierOf } from "#compiler/core/identity.ts"
+import type { CompileError } from "#compiler/core/errors.ts"
+import { declaredAlike, identifierOf, parseDeclaredName } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { isList } from "#compiler/core/record.ts"
 import { type BuiltSchema, parseBuiltSchema } from "#compiler/program/schema.ts"
-import type { LoginWorkloads } from "#compiler/program/workload/compile.ts"
-import { type Owned, type OwnedLogin, own, ownLogin } from "#compiler/schema/own.ts"
-import { ownedEntry } from "#compiler/schema/protocol.ts"
-import type { AnyWorkload } from "#compiler/types/db/workload.ts"
+import { type Owned, type OwnedLogin, own, schemaInstallation } from "#compiler/schema/own.ts"
 
 /**
  * The configuration file: what the command line manages, a lean config.
@@ -39,7 +37,7 @@ import type { AnyWorkload } from "#compiler/types/db/workload.ts"
  *   holding its snapshot.json and its folders; two declared schemas of
  *   one PostgreSQL schema are refused.
  * - `logins`: the login(...) values whose roles the migrations install, each over a configured schema (its base's
- *   owned fingerprint is the configured schema's), every login and role of one schema under a name of its own, a login
+ *   content digest is the configured schema's), every login and role of one schema under a name of its own, a login
  *   over a schema the configuration does not list refused. A role is installed exactly with its login. Each login's
  *   workloads (login(..., { workload })), which login(...) admitted, plan the schema's access paths; a schema whose
  *   logins own none drafts no access path.
@@ -50,30 +48,43 @@ import type { AnyWorkload } from "#compiler/types/db/workload.ts"
  * A plain object is refused with the fix, to wrap it in defineConfig: an Effect password's requirements and error
  * channel exist only in its type, which defineConfig's signature checks. Every setting is required and nothing else is
  * configurable: an unknown key is refused, so a misspelt one is never ignored. The default export is checked here
- * before any command runs.
+ * before any command runs, and nothing of it is compiled: the configuration's names, identifiers and directories are
+ * read from the values as built, and only generate and check compile a schema and its logins (compileSchema).
  */
-/**
- * One login's workloads as the configuration gives them, and its role values: what DbLayer.make compiles for the
- * login (adapter/pool/registry.ts loginRoles), which generate compiles too.
- */
-export interface ConfiguredWorkloads extends LoginWorkloads {
-	readonly workloads: ReadonlyArray<AnyWorkload>
-	readonly roles: ReadonlyArray<unknown>
+/** A login of the configuration: its index in `logins`, which a refusal names, and the login value, read. */
+export interface ConfiguredLogin {
+	readonly index: number
+	readonly login: BuiltLogin
 }
 
+/**
+ * A configured schema as every command reads it, nothing compiled: its index in `schemas`, the schema value, its
+ * declared name, the identifier of its PostgreSQL schema, `<migrations>/<ident>`, and the logins over it, in configured
+ * order. A command that applies committed SQL (migrate, drift, names) reads only this.
+ */
 export interface ConfiguredSchema {
-	/** The schema value as configured. */
-	readonly value: unknown
-	readonly owned: Owned
-	/** The declared name and the PostgreSQL schema identifier. */
+	readonly index: number
+	readonly built: BuiltSchema
 	readonly declared: string
 	readonly ident: string
-	/** The logins over the schema, in configured order. */
-	readonly logins: ReadonlyArray<OwnedLogin>
-	/** Each login's workloads, in configured order, with the role values its Dbs open. */
-	readonly workloads: ReadonlyArray<ConfiguredWorkloads>
-	/** `<migrations>/<ident>`. */
 	readonly directory: string
+	readonly logins: ReadonlyArray<ConfiguredLogin>
+}
+
+/** A login of a compiled schema: the login value, and the login owned over the schema's Owned. */
+export interface CompiledLogin {
+	readonly login: BuiltLogin
+	readonly owned: OwnedLogin
+}
+
+/**
+ * A configured schema compiled, as generate and check draft it: the schema owned once, and each of its logins owned
+ * over that Owned, in configured order (compileSchema).
+ */
+export interface CompiledSchema {
+	readonly configured: ConfiguredSchema
+	readonly owned: Owned
+	readonly logins: ReadonlyArray<CompiledLogin>
 }
 
 /** The configuration file as the bin imported it: its path, and its default export, which resolveConfig checks. */
@@ -116,6 +127,17 @@ const malformedSetting = (
 
 const nonempty = (v: unknown): v is string => typeof v === "string" && v.length > 0
 
+/**
+ * Whether two names logins and roles take are one PostgreSQL role, `<schema>__<name>`: both declared names whose
+ * conversions agree (core/identity.ts declaredAlike). A name that is no declared name installs as no role, and the
+ * compilation of its login refuses it.
+ */
+const takenAlike = (a: string, b: string): boolean => {
+	const x = parseDeclaredName(a)
+	const y = parseDeclaredName(b)
+	return x.ok && y.ok && declaredAlike(x.value, y.value)
+}
+
 /** `schemas[index]` of the configuration file `file` parsed as a built schema, read once where it names it. */
 const builtSchema = (
 	value: unknown,
@@ -126,10 +148,36 @@ const builtSchema = (
 		cliError(new SchemaEntryRefused({ index, fault: { kind: "notBuilt" } }))
 	)
 
-/** `schemas[index]`, a built schema, owned, or the configuration's refusal of a schema that does not compile. */
-const ownSchema = (schema: BuiltSchema, index: number): Result.Result<Owned, CliError> =>
-	Result.mapError(toResult(own(schema.desc)), (error) =>
-		cliError(new SchemaEntryRefused({ index, fault: { kind: "uncompiled", error } }))
+/** The configuration's refusal of `schemas[index]`, which does not compile, for `error`. */
+const uncompiledSchema = (index: number) => (error: CompileError) =>
+	cliError(new SchemaEntryRefused({ index, fault: { kind: "uncompiled", error } }))
+
+/**
+ * A configured schema compiled, for generate and check: the schema owned, once, and each of its logins owned over that
+ * Owned, which login(...) held each login's roles to; a schema or login that does not compile is its configuration
+ * entry's refusal.
+ */
+export const compileSchema = (schema: ConfiguredSchema): Result.Result<CompiledSchema, CliError> =>
+	Result.flatMap(
+		Result.mapError(toResult(own(schema.built.desc)), uncompiledSchema(schema.index)),
+		(owned) =>
+			Result.map(
+				Result.all(
+					Arr.map(schema.logins, (l) =>
+						Result.mapError(
+							Result.map(toResult(ownLoginOver(l.login, owned)), (o) => ({
+								login: l.login,
+								owned: o
+							})),
+							(error) =>
+								cliError(
+									new LoginEntryRefused({ index: l.index, fault: { kind: "uncompiled", error } })
+								)
+						)
+					)
+				),
+				(logins): CompiledSchema => ({ configured: schema, owned, logins })
+			)
 	)
 
 /** Checks a configuration value, the default export of `file`, whose directories `path` resolves. */
@@ -166,42 +214,39 @@ const resolveConfigWith = (
 	if (!isList(schemaValues) || schemaValues.length === 0) {
 		return malformedSetting("schemas")
 	}
-	/** Each configured schema as it is read; its logins and their workloads are attached once the list is read. */
-	const schemas: Array<
-		Omit<ConfiguredSchema, "workloads" | "logins"> & {
-			logins: Array<OwnedLogin>
-			workloads: Array<ConfiguredWorkloads>
-		}
-	> = []
+	/** Each configured schema as it is read; its logins are attached once the list is read. */
+	const schemas: Array<Omit<ConfiguredSchema, "logins"> & { logins: Array<ConfiguredLogin> }> = []
 	for (const [i, s] of schemaValues.entries()) {
 		const built = builtSchema(s, i, file)
 		if (Result.isFailure(built)) {
 			return Result.fail(built.failure)
 		}
-		const owned = ownSchema(built.success, i)
-		if (Result.isFailure(owned)) {
-			return Result.fail(owned.failure)
+		const desc = built.success.desc
+		const installation = Result.mapError(
+			toResult(schemaInstallation(desc.name, desc.loc)),
+			uncompiledSchema(i)
+		)
+		if (Result.isFailure(installation)) {
+			return Result.fail(installation.failure)
 		}
-		const o = owned.success
-		const ident = identifierOf(o.installation)
+		const ident = identifierOf(installation.success)
 		const clash = Arr.findFirst(schemas, (c) => c.ident === ident)
 		if (Option.isSome(clash)) {
 			return Result.fail(
 				cliError(
 					new SchemaEntryRefused({
 						index: i,
-						fault: { kind: "shared", name: o.name, other: clash.value.declared, ident }
+						fault: { kind: "shared", name: desc.name, other: clash.value.declared, ident }
 					})
 				)
 			)
 		}
 		schemas.push({
-			value: s,
-			owned: o,
-			declared: o.name,
+			index: i,
+			built: built.success,
+			declared: desc.name,
 			ident,
 			logins: [],
-			workloads: [],
 			directory: path.join(migrations, ident)
 		})
 	}
@@ -211,17 +256,11 @@ const resolveConfigWith = (
 	for (const [i, l] of loginValues.entries()) {
 		const refuseLogin = (fault: LoginEntryRefused["fault"]): CliError =>
 			cliError(new LoginEntryRefused({ index: i, fault }))
-		const built = ownedEntry(l, "login")
-		if (built === undefined) {
+		const read = builtLogin(l)
+		if (read === undefined) {
 			return Result.fail(refuseLogin({ kind: "notBuilt" }))
 		}
-		const owned = Result.mapError(toResult(ownLogin(built.desc)), (error) =>
-			refuseLogin({ kind: "uncompiled", error })
-		)
-		if (Result.isFailure(owned)) {
-			return Result.fail(owned.failure)
-		}
-		const login = owned.success
+		const login = read.desc
 		const listed = Arr.findFirst(schemas, (c) => c.declared === login.base.name)
 		if (Option.isNone(listed)) {
 			return Result.fail(
@@ -229,24 +268,24 @@ const resolveConfigWith = (
 			)
 		}
 		const entry = listed.value
-		if (login.base.fingerprint !== entry.owned.fingerprint) {
+		if (read.base.content.digest !== entry.built.content.digest) {
 			return Result.fail(
 				refuseLogin({ kind: "otherVersion", login: login.name, schema: entry.declared })
 			)
 		}
 		/** Logins and roles are PostgreSQL roles of one namespace per schema (`<schema>__<name>`): no two names alike
 		 * (core/identity.ts declaredAlike). */
-		const taken = Arr.flatMap(entry.logins, (other) => [
-			{ name: other.name, holder: { kind: "login", name: other.name } as const },
-			...Arr.map(other.roles, (r) => ({
+		const taken = Arr.flatMap(entry.logins, ({ login: other }) => [
+			{ name: other.desc.name, holder: { kind: "login", name: other.desc.name } as const },
+			...Arr.map(other.desc.roles, (r) => ({
 				name: r.name,
-				holder: { kind: "role", name: r.name, login: other.name } as const
+				holder: { kind: "role", name: r.name, login: other.desc.name } as const
 			}))
 		])
 		/** The first of the login's names alike to one another login or role holds, with what holds it. */
 		const clash = Arr.findFirst([login.name, ...Arr.map(login.roles, (r) => r.name)], (name) =>
 			Option.map(
-				Arr.findFirst(taken, (t) => declaredAlike(t.name, name)),
+				Arr.findFirst(taken, (t) => takenAlike(t.name, name)),
 				(t) => ({ name, holder: t.holder })
 			)
 		)
@@ -261,12 +300,7 @@ const resolveConfigWith = (
 				})
 			)
 		}
-		entry.logins.push(login)
-		entry.workloads.push({
-			login: login.name,
-			workloads: built.value.workload,
-			roles: loginRoleValues(built.value)
-		})
+		entry.logins.push({ index: i, login: read })
 	}
 	return Result.succeed({
 		file,

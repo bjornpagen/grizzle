@@ -5,7 +5,7 @@ import { boolean, element, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter } from "effect"
+import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
 /**
  * The generators' scalar types, value domains and spelling rule (test/support/oracle/gen/domain.ts): every generated
@@ -16,8 +16,15 @@ import { SourceLoc } from "#compiler/core/loc.ts"
  *
  * A comparison parameter binds as the unrefined base.
  */
-import { literalProblem } from "#compiler/ir/expr.ts"
-import { isRefined, type ScalarType, textOf } from "#compiler/ir/scalar.ts"
+import { literalProblem, type TypedLiteral } from "#compiler/ir/expr.ts"
+import {
+	isRefined,
+	type NumericBound,
+	numericBoundOf,
+	type ScalarType,
+	textOf
+} from "#compiler/ir/scalar.ts"
+import { numericValue } from "#compiler/scalar/registry.ts"
 import { btreeEntryBytes, btreeMaxItemSize, datumBound } from "#compiler/schema/representability.ts"
 import { analyzeText, textInfo } from "#compiler/text/refinement.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
@@ -40,10 +47,29 @@ const roster = scalarOfSpec({
 	carrier: "code",
 	roster: { closed: "K0", handles: ["H0", "H1", "H2"] }
 })
-const types: Arr.NonEmptyReadonlyArray<ScalarType> = Arr.append(
-	Arr.map(allTypeSpecs, scalarOfSpec),
-	roster
+/**
+ * The computed numerics a generated query's columns are typed at (an operation's or an aggregate's result, with the
+ * bound its making proved), over a box of bounds around the raw classes' widths: no, one, two and twenty integer digits,
+ * and no, one and two fraction digits.
+ */
+const computed: ReadonlyArray<ScalarType> = Arr.flatMap([0, 1, 2, 20], (digits) =>
+	Arr.map([0, 1, 2], (scale) => numericValue({ digits, scale }))
 )
+
+const types: Arr.NonEmptyReadonlyArray<ScalarType> = Arr.appendAll(
+	Arr.append(Arr.map(allTypeSpecs, scalarOfSpec), roster),
+	computed
+)
+
+/** Whether a numeric class lies within a computed numeric's bound: below 10^digits, at most `scale` fraction digits. */
+const withinBound = (literal: TypedLiteral, bound: NumericBound): boolean => {
+	if (literal.kind !== "numeric" || literal.value.parts.kind !== "finite") {
+		return true
+	}
+	const p = literal.value.parts
+	const whole = p.coefficient / 10n ** BigInt(p.minScale)
+	return p.minScale <= bound.scale && (whole === 0n || Str.length(whole.toString()) <= bound.digits)
+}
 
 /**
  * Whether a type passes the key representability check as a one-field key (schema/representability.ts): its datum
@@ -51,7 +77,10 @@ const types: Arr.NonEmptyReadonlyArray<ScalarType> = Arr.append(
  */
 const representableKey = (type: ScalarType): boolean => {
 	const bound = datumBound(fieldDescOf(type))
-	return bound !== undefined && btreeEntryBytes([bound]) <= btreeMaxItemSize.value
+	return (
+		bound !== undefined &&
+		btreeEntryBytes([{ name: "k", datum: bound, nullable: false }]) <= btreeMaxItemSize.value
+	)
 }
 
 describe("generated scalar types", () => {
@@ -63,12 +92,16 @@ describe("generated scalar types", () => {
 					| ScalarType["carrier"]
 					| "edge classes"
 					| "a type that is its own key type"
+					| "a computed numeric"
 				yield* searched(
 					ctx,
 					exhaust(
 						{
 							suite: "unit/oracle-gen/domain-types",
-							/** Every type, with and without its edge classes, each key kept as a span or as a scalar. */
+							/**
+							 * Every type, computed numerics included, with and without its edge classes, each key kept as a span or
+							 * as a scalar.
+							 */
 							generator: (source) =>
 								[
 									source.draw(element(types)),
@@ -84,7 +117,8 @@ describe("generated scalar types", () => {
 								"range4",
 								"vector",
 								"edge classes",
-								"a type that is its own key type"
+								"a type that is its own key type",
+								"a computed numeric"
 							]),
 							caseHang
 						},
@@ -98,6 +132,17 @@ describe("generated scalar types", () => {
 								const keys = Arr.map(classes, literalEqualityKey)
 								assert.equal(new Set(keys).size, classes.length, "distinct classes")
 								assert.equal(isRefined(compareParamType(t)), false)
+								const bound = numericBoundOf(t)
+								if (bound !== undefined) {
+									for (const literal of classes) {
+										assert.ok(
+											withinBound(literal, bound),
+											`a class within the bound (${bound.digits}, ${bound.scale})`
+										)
+									}
+									c.note("a computed numeric")
+									return
+								}
 								const desc = fieldDescOf(t)
 								if (desc.kind === "text") {
 									const refinement = succeeded(

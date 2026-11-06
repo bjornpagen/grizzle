@@ -1,11 +1,14 @@
 import { allenMaskMax } from "#compiler/core/allen.ts"
+import { nominal } from "#compiler/core/brand.ts"
 import {
 	type Canonicalizable,
+	canonicalFormat,
 	type EncodeOptions,
 	encode,
 	everyProperty,
 	type Json,
 	omitSourceLocs,
+	ownedText,
 	toJson
 } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
@@ -19,6 +22,7 @@ import {
 } from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
+import { sha256Hex } from "#compiler/core/sha256.ts"
 import { isValidText } from "#compiler/core/text.ts"
 import {
 	isMoneyPayload,
@@ -29,11 +33,13 @@ import {
 } from "#compiler/ir/carriers.ts"
 import { decimalTag, isDecimalPayload } from "#compiler/ir/decimal.ts"
 import { type Fact, factNames, factsSorted } from "#compiler/ir/proof.ts"
+import { textLanguageShape } from "#compiler/ir/scalar-shape.ts"
 import {
 	type NumericBound,
 	numericMaxPrecision,
 	numericMaxScale,
-	numericMinScale
+	numericMinScale,
+	type TextLanguage
 } from "#compiler/ir/scalar.ts"
 import * as S from "#compiler/ir/shape.ts"
 import { reservedSlots } from "#compiler/ir/slots.ts"
@@ -79,7 +85,13 @@ export type FieldDesc =
 	| { readonly kind: "pg"; readonly type: PgScalarName }
 	| { readonly kind: "numeric"; readonly precision: number; readonly scale: number }
 	| { readonly kind: "uuid" }
-	| { readonly kind: "text"; readonly source: string; readonly flags: "u" | "su" }
+	| {
+			readonly kind: "text"
+			readonly source: string
+			readonly flags: "u" | "su"
+			/** The pattern's language as the text analysis proved it where the descriptor was admitted. */
+			readonly language: TextLanguage
+	  }
 	| {
 			readonly kind: "contract"
 			readonly name: string
@@ -132,6 +144,7 @@ export const computeFns = [
 	"upper",
 	"width",
 	"charLength",
+	"octetLength",
 	"concat",
 	"startsWith",
 	"endsWith",
@@ -1253,7 +1266,7 @@ const fieldDescShape: S.Shape<FieldDesc> = S.lazy("a field descriptor", () =>
 			`numeric(p, s), both declared, p in 1..${numericMaxPrecision.value} and s in ${numericMinScale.value}..${numericMaxScale.value}`
 		),
 		uuid: S.struct({}),
-		text: S.struct({ source: S.string, flags: regexFlags }),
+		text: S.struct({ source: S.string, flags: regexFlags, language: textLanguageShape }),
 		contract: S.structStated(
 			{
 				name,
@@ -1337,6 +1350,7 @@ const computeCases: {
 	upper: unscaledCompute,
 	width: unscaledCompute,
 	charLength: unscaledCompute,
+	octetLength: unscaledCompute,
 	concat: unscaledCompute,
 	startsWith: unscaledCompute,
 	endsWith: unscaledCompute,
@@ -2115,3 +2129,29 @@ const identityOptions: EncodeOptions = { omit: omitSourceLocs }
 /** The canonical identity text: the canonical serialization without source locations. */
 export const descText = (desc: unknown): Result.Result<string, CompileError> =>
 	encode(desc, identityOptions)
+
+declare const contentDigestBrand: unique symbol
+
+/**
+ * The digest of a description's content, minted only by contentDigest: SHA-256 over its canonical text without source
+ * locations, under the domain of what it digests, so two values of one content and domain share it and no others do.
+ */
+export type ContentDigest = string & { readonly [contentDigestBrand]: true }
+
+/**
+ * What a content digest digests: a relation's description, one level of a schema over the level below it
+ * (schema/levels.ts SchemaContent), or a role over its base.
+ */
+type ContentDomain = "relation" | "schema-level" | "role"
+
+const mintContentDigest = nominal<string, ContentDigest>()
+
+/**
+ * The content digest of a value the builders made, which encodes by construction: the bytes hashed are
+ * "<canonical format>\n<domain>\n<canonical text>", the text without source locations. Each value's is computed once,
+ * when it is built, and every identity comparison of built values compares these digests.
+ */
+export const contentDigest = (domain: ContentDomain, value: unknown): ContentDigest =>
+	mintContentDigest(
+		sha256Hex(`${canonicalFormat}\n${domain}\n${ownedText(value, identityOptions)}`)
+	)

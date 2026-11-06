@@ -41,7 +41,7 @@ import {
 import { workloadState } from "#compiler/program/workload/value.ts"
 import { inlineWorlds } from "#compiler/program/workload/world.ts"
 import { hostArguments } from "#compiler/query/build/host.ts"
-import { type OwnedRole, ownRole } from "#compiler/schema/own.ts"
+import { ownBuiltRole, type OwnedRole } from "#compiler/schema/own.ts"
 import type { WriteWorld } from "#compiler/write/entry/precheck.ts"
 import { compileChangeSet } from "#compiler/write/frontend/compile.ts"
 import { primaryKeyShape } from "#compiler/write/frontend/targets.ts"
@@ -122,7 +122,7 @@ const workloadReads = (
 	artifacts: SchemaArtifacts
 ): Result.Result<WorkloadReads, CompileError> =>
 	schema.kind === "role"
-		? Result.flatMap(ownRole(schema.desc), (role) =>
+		? Result.flatMap(ownBuiltRole(schema.desc, artifacts.owned), (role) =>
 				Result.map(checkedRoleOver(role, artifacts.derived.schema), (checked): WorkloadReads => ({
 					world: { kind: "role", role, checked },
 					artifacts

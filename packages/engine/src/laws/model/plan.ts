@@ -21,7 +21,6 @@ import {
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
 } from "#compiler/core/nonempty.ts"
-import * as Result from "#compiler/core/result.ts"
 import { descText, type ExprDesc, fieldTermsOf, termText } from "#compiler/ir/desc.ts"
 import type { ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
 import type { AxisKind, AxisPair, Family, FamilyFold } from "#compiler/ir/family.ts"
@@ -46,9 +45,13 @@ import { baseOf, rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { literalKey } from "#compiler/laws/model/names.ts"
 import type { OwnedContract } from "#compiler/schema/own.ts"
 import {
+	type BtreeEntryBytes,
 	btreeEntry,
 	type DatumBound,
 	datumBound,
+	type EntryColumn,
+	type GistEntryBytes,
+	gistEntry,
 	indexMaxKeys,
 	setDatumBound
 } from "#compiler/schema/representability.ts"
@@ -170,6 +173,65 @@ const plannedDatum = (c: PlannedColumn): DatumBound | undefined => {
 const plannedText = (c: PlannedColumn): string =>
 	c.kind === "field" ? c.field.name : lawColumnText(c.column)
 
+/**
+ * The B-tree entry of an index the law model plans over `columns`, a UNIQUE or a reverse index, proved within
+ * BTMaxItemSize for every value its columns admit (schema/representability.ts btreeEntry), or its refusal: past
+ * INDEX_MAX_KEYS columns, over a text of no byte bound, or over an entry that can outgrow the limit, it is
+ * UnrepresentableKey, `subject` naming the index and the law that plans it, since PostgreSQL would refuse the write
+ * whose entry outgrows it (54000). A field is NOT NULL; a law column may hold NULL, which gives the entry its null
+ * bitmap. A planned Unique and ReverseIndex hold this entry, so none is planned past it.
+ */
+const plannedEntry = (
+	columns: NonEmptyReadonlyArray<PlannedColumn>,
+	subject: string,
+	loc: SourceLoc
+): BtreeEntryBytes => {
+	const key = columns.map(plannedText)
+	if (columns.length > indexMaxKeys.value) {
+		return unrepresentable(loc, subject, key, { kind: "columns", limit: indexMaxKeys.value })
+	}
+	const entry: Array<EntryColumn> = []
+	for (const c of columns) {
+		const datum = plannedDatum(c)
+		if (datum === undefined) {
+			return unrepresentable(loc, subject, key, { kind: "unboundedText", field: plannedText(c) })
+		}
+		entry.push({ name: plannedText(c), datum, nullable: c.kind === "law" })
+	}
+	const proved = btreeEntry(entry)
+	return proved.ok ? proved.value : unrepresentable(loc, subject, key, proved.error)
+}
+
+/**
+ * The GiST entry of a span key the law model plans, its scalar columns and then its span, proved within a GiST page for
+ * every value its columns admit (schema/representability.ts gistEntry), or its refusal, UnrepresentableKey with
+ * `subject`: past INDEX_MAX_KEYS columns, over a text of no byte bound, over a column btree_gist has no operator class
+ * for, or over an entry past the page. A planned WithoutOverlaps holds this entry, so none is planned past it.
+ */
+const plannedGist = (
+	scalars: ReadonlyArray<PlannedColumn>,
+	span: PlannedColumn,
+	subject: string,
+	loc: SourceLoc
+): GistEntryBytes => {
+	const key = [...scalars.map(plannedText), plannedText(span)]
+	if (key.length > indexMaxKeys.value) {
+		return unrepresentable(loc, subject, key, { kind: "columns", limit: indexMaxKeys.value })
+	}
+	const bounded = (c: PlannedColumn): { readonly field: string; readonly datum: DatumBound } => {
+		const datum = plannedDatum(c)
+		return datum === undefined
+			? unrepresentable(loc, subject, key, { kind: "unboundedText", field: plannedText(c) })
+			: { field: plannedText(c), datum }
+	}
+	const proved = gistEntry(scalars.map(bounded), bounded(span))
+	return proved.ok ? proved.value : unrepresentable(loc, subject, key, proved.error)
+}
+
+/** A side as a refusal names it: its terms over its relation, selected or whole. */
+const sideText = (side: ResolvedSide): string =>
+	`${side.selection.conjuncts.length === 0 ? "" : "selected "}${side.relation}(${side.terms.map(termText).join(", ")})`
+
 /** A law column as a planned native reads it. */
 const lawColumn = (column: LawColumnPlan): PlannedColumn => ({ kind: "law", column })
 
@@ -209,6 +271,8 @@ export type NativePlan =
 			readonly kind: "Unique"
 			readonly relation: RelationInfo
 			readonly columns: NonEmptyReadonlyArray<PlannedColumn>
+			/** Its B-tree entry, proved within BTMaxItemSize where it was planned (`plannedEntry`). */
+			readonly entry: BtreeEntryBytes
 	  }
 	| { readonly kind: "Domain"; readonly contract: OwnedContract }
 	| {
@@ -261,6 +325,8 @@ export type NativePlan =
 			/** The identity ownership named a declared span key's constraint by; undefined for a key over a projected side,
 			 * which the naming door names by its columns. */
 			readonly named: Identity<"primaryKey" | "key"> | undefined
+			/** Its GiST entry, proved within a GiST page where it was planned (`plannedGist`). */
+			readonly entry: GistEntryBytes
 	  }
 	| {
 			readonly kind: "PeriodForeignKey"
@@ -275,6 +341,8 @@ export type NativePlan =
 			readonly kind: "ReverseIndex"
 			readonly relation: RelationInfo
 			readonly columns: NonEmptyReadonlyArray<PlannedColumn>
+			/** Its B-tree entry, proved within BTMaxItemSize where it was planned (`plannedEntry`). */
+			readonly entry: BtreeEntryBytes
 	  }
 
 /** A span key's scalar columns as planned (ir/law.ts SpanKeyScalars). */
@@ -351,12 +419,14 @@ export const primaryKeyPlan = (r: RelationInfo, key: KeyName, loc: SourceLoc): P
 			field: span.name
 		})
 	}
+	const scalarColumns = mapNonEmpty(scalars, fieldColumn)
 	return {
 		kind: "WithoutOverlaps",
 		relation: r,
 		span: fieldColumn(span),
-		key: { kind: "primary", scalars: mapNonEmpty(scalars, fieldColumn) },
-		named
+		key: { kind: "primary", scalars: scalarColumns },
+		named,
+		entry: plannedGist(scalarColumns, fieldColumn(span), `the primary key of ${r.name}`, loc)
 	}
 }
 
@@ -753,15 +823,30 @@ export class Recognizer {
 			return [primaryKeyPlan(rel, d.key, loc)]
 		}
 		if (span === undefined) {
-			return [{ kind: "Unique", relation: rel, columns: mapNonEmpty(fields, fieldColumn) }]
+			const columns = mapNonEmpty(fields, fieldColumn)
+			return [
+				{
+					kind: "Unique",
+					relation: rel,
+					columns,
+					entry: plannedEntry(columns, `key (${fieldNames(fields).join(", ")}) of ${rel.name}`, loc)
+				}
+			]
 		}
+		const scalars = fields.filter((f) => f !== span).map(fieldColumn)
 		return [
 			{
 				kind: "WithoutOverlaps",
 				relation: rel,
 				span: fieldColumn(span),
-				key: { kind: "unique", scalars: fields.filter((f) => f !== span).map(fieldColumn) },
-				named
+				key: { kind: "unique", scalars },
+				named,
+				entry: plannedGist(
+					scalars,
+					fieldColumn(span),
+					`key (${fieldNames(fields).join(", ")}) of ${rel.name}`,
+					loc
+				)
 			}
 		]
 	}
@@ -773,18 +858,28 @@ export class Recognizer {
 		const columns = sideColumns(side)
 		const span = spanTermOf(side, loc)
 		if (span === undefined) {
-			return [...lawColumns(columns), { kind: "Unique", relation, columns }]
+			return [
+				...lawColumns(columns),
+				{
+					kind: "Unique",
+					relation,
+					columns,
+					entry: plannedEntry(columns, `key ${sideText(side)}`, loc)
+				}
+			]
 		}
 		const at = side.terms.indexOf(span)
 		const spanColumn = columns[at] ?? missing(`the column of the span term of ${side.relation}`)
+		const scalars = columns.filter((_, i) => i !== at)
 		return [
 			...lawColumns(columns),
 			{
 				kind: "WithoutOverlaps",
 				relation,
 				span: spanColumn,
-				key: { kind: "unique", scalars: columns.filter((_, i) => i !== at) },
-				named: undefined
+				key: { kind: "unique", scalars },
+				named: undefined,
+				entry: plannedGist(scalars, spanColumn, `key ${sideText(side)}`, loc)
 			}
 		]
 	}
@@ -950,10 +1045,11 @@ export class Recognizer {
 				`a containment into a side that contains a key of ${toRel.name}; ${to.relation}(${to.terms.map(termText).join(", ")}) contains no declared key among its fields and no key over its own selection, and a containment into an unkeyed side is not admitted`
 			)
 		}
+		const containment = `the containment of ${sideText(from)} in ${sideText(to)}`
 		return [
 			...lawColumns(columns),
 			...lawColumns(targetColumns),
-			...this.#targetUnique(toRel, targetColumns),
+			...this.#targetUnique(toRel, targetColumns, containment, loc),
 			{
 				kind: "ForeignKey",
 				relation: fromRel,
@@ -964,20 +1060,43 @@ export class Recognizer {
 				deferral: "rule",
 				laws: undefined
 			},
-			{ kind: "ReverseIndex", relation: fromRel, columns: sourceColumns }
+			{
+				kind: "ReverseIndex",
+				relation: fromRel,
+				columns: sourceColumns,
+				entry: plannedEntry(
+					sourceColumns,
+					`the index of ${fromRel.name} over the columns ${containment} references from`,
+					loc
+				)
+			}
 		]
 	}
 
-	/** The UNIQUE a reference into `columns` of `r` needs: none where they are exactly a declared scalar key's fields,
-	 * which its own key law installs, else a generated one. */
+	/**
+	 * The UNIQUE a reference into `columns` of `r` needs, `containment` the law that references it: none where they are
+	 * exactly a declared scalar key's fields, which its own key law installs, else a generated one, whose entry is
+	 * bounded as a key's is.
+	 */
 	#targetUnique(
 		r: RelationInfo,
-		columns: NonEmptyReadonlyArray<PlannedColumn>
+		columns: NonEmptyReadonlyArray<PlannedColumn>,
+		containment: string,
+		loc: SourceLoc
 	): ReadonlyArray<NativePlan> {
 		const fields = columns.flatMap((c) => (c.kind === "field" ? [c.field] : []))
 		const declared =
 			fields.length === columns.length && scalarKeys(r).some((k) => sameSet<LawField>(k, fields))
-		return declared ? [] : [{ kind: "Unique", relation: r, columns }]
+		return declared
+			? []
+			: [
+					{
+						kind: "Unique",
+						relation: r,
+						columns,
+						entry: plannedEntry(columns, `the UNIQUE of ${r.name} ${containment} references`, loc)
+					}
+				]
 	}
 
 	/**
@@ -1085,6 +1204,7 @@ export class Recognizer {
 				`coverage grouped by at least one scalar field; ${from.relation} into ${to.relation} pairs only spans, an ungrouped span law`
 			)
 		}
+		const reverseColumns = appendNonEmpty(sourceScalars, sourceSpan)
 		const toFields = to.terms.map((t) => t.column)
 		const declared =
 			to.selection.conjuncts.length === 0 &&
@@ -1109,7 +1229,12 @@ export class Recognizer {
 			{
 				kind: "ReverseIndex",
 				relation: fromRel,
-				columns: appendNonEmpty(sourceScalars, sourceSpan)
+				columns: reverseColumns,
+				entry: plannedEntry(
+					reverseColumns,
+					`the index of ${fromRel.name} over the columns the coverage of ${sideText(from)} in ${sideText(to)} references from`,
+					loc
+				)
 			}
 		]
 	}
@@ -1434,17 +1559,33 @@ class FamilyPlanner {
 			this.#combine(fold, i)
 		}
 
+		const treeKey =
+			tree === undefined ? undefined : mapNonEmpty([tree.root, tree.start] as const, fieldColumn)
 		const natives: ReadonlyArray<NativePlan> = [
 			...lawColumns([copy, index, pred, ...group, lastPred]),
 			...(parentStart === undefined ? [] : lawColumns([parentStart])),
-			{ kind: "Unique", relation: member, columns: familyKeyColumns },
-			...(tree === undefined
+			{
+				kind: "Unique",
+				relation: member,
+				columns: familyKeyColumns,
+				entry: plannedEntry(
+					familyKeyColumns,
+					`the UNIQUE of ${member.name} that ${familyText(this.#shape())} numbers its members by`,
+					this.#loc
+				)
+			},
+			...(treeKey === undefined
 				? []
 				: [
 						{
 							kind: "Unique" as const,
 							relation: member,
-							columns: mapNonEmpty([tree.root, tree.start] as const, fieldColumn)
+							columns: treeKey,
+							entry: plannedEntry(
+								treeKey,
+								`the UNIQUE of ${member.name} over the root and start of ${familyText(this.#shape())}`,
+								this.#loc
+							)
 						}
 					]),
 			...(["owner", "predecessor", "last"] as const).flatMap((a) => [
@@ -1623,8 +1764,8 @@ class FamilyPlanner {
 	/**
 	 * One axis's foreign key, its law columns and the UNIQUE over its target columns, which the foreign key references:
 	 * a key like any declared one, so INDEX_MAX_KEYS bounds its columns and its B-tree entry must be representable for
-	 * every value they admit (schema/representability.ts keyDatums, btreeEntry), or the axis is UnrepresentableKey,
-	 * naming the fold whose accumulator it carries; PostgreSQL would refuse the write that outgrows it (54000).
+	 * every value they admit (`plannedEntry`), or the axis is UnrepresentableKey, naming the fold whose accumulator it
+	 * carries; PostgreSQL would refuse the write that outgrows it (54000).
 	 */
 	#axis(
 		kind: AxisKind,
@@ -1663,20 +1804,12 @@ class FamilyPlanner {
 				`a family axis of at most ${indexMaxKeys.value} columns, which one UNIQUE holds (INDEX_MAX_KEYS); the ${kind} axis of ${familyText(this.#shape())} carries ${targetColumns.length}: carry fewer copies on it`
 			)
 		}
-		const unbounded = targetColumns.find((c) => plannedDatum(c) === undefined)
-		const entry =
-			unbounded === undefined
-				? btreeEntry(targetColumns.flatMap((c) => plannedDatum(c) ?? []))
-				: Result.err<KeyFault>({ kind: "unboundedText", field: plannedText(unbounded) })
-		if (!entry.ok) {
-			const fold = this.#foldCarried(targetColumns)
-			return unrepresentable(
-				this.#loc,
-				`the UNIQUE of ${target.relation.name} the ${kind} axis of ${familyText(this.#shape())} references${fold === undefined ? "" : `, which carries ${fold}`}`,
-				targetColumns.map(plannedText),
-				entry.error
-			)
-		}
+		const fold = this.#foldCarried(targetColumns)
+		const entry = plannedEntry(
+			targetColumns,
+			`the UNIQUE of ${target.relation.name} the ${kind} axis of ${familyText(this.#shape())} references${fold === undefined ? "" : `, which carries ${fold}`}`,
+			this.#loc
+		)
 		const own = this.#law.id
 		const laws = [...new Set(pairs.flatMap((p) => p.laws))].filter((l) => l !== own)
 		return {
@@ -1693,7 +1826,7 @@ class FamilyPlanner {
 			natives: [
 				...lawColumns(columns),
 				...lawColumns(targetColumns),
-				{ kind: "Unique", relation: target.relation, columns: targetColumns }
+				{ kind: "Unique", relation: target.relation, columns: targetColumns, entry }
 			]
 		}
 	}

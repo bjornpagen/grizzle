@@ -10,6 +10,8 @@ import { builtMark } from "#compiler/core/phantom.ts"
 import { hasProperties, isList, isRecord } from "#compiler/core/record.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
 import {
+	type ContentDigest,
+	contentDigest,
 	decodeDesc,
 	type ExprDesc,
 	type FieldDecl,
@@ -38,7 +40,6 @@ import { isNaturalDesc } from "#compiler/scalar/natural.ts"
 import {
 	carrierSql,
 	type Described,
-	noText,
 	type ScalarEnv,
 	scalarTypeOf
 } from "#compiler/scalar/registry.ts"
@@ -52,6 +53,7 @@ import {
 	malformed,
 	orThrow,
 	ownedDesc,
+	ownedEntry,
 	ownedKind,
 	ownValue,
 	queryDescOf,
@@ -532,7 +534,8 @@ export const relation = <
 			heading: copied
 		},
 		"relation",
-		desc
+		desc,
+		contentDigest("relation", desc)
 	)
 }
 
@@ -565,7 +568,8 @@ export const generatedRelation = <
 			heading: copied
 		},
 		"relation",
-		admitted.desc
+		admitted.desc,
+		contentDigest("relation", admitted.desc)
 	)
 }
 
@@ -639,7 +643,8 @@ export const closed = <
 			handle: <const M extends Handles[number]>(member: M) => handleTerm(value, member)
 		},
 		"closed",
-		desc
+		desc,
+		contentDigest("relation", desc)
 	)
 	return value
 }
@@ -829,8 +834,7 @@ const closedReadTyping = (
 	const roster = lastDesc.roster
 	const env: ScalarEnv = {
 		kind: "builder",
-		roster: (n) => (n === roster ? handles : undefined),
-		text: noText
+		roster: (n) => (n === roster ? handles : undefined)
 	}
 	const set = orThrow(scalarTypeOf({ kind: "bits", roster }, env, SourceLoc(label, [])))
 	return {
@@ -884,7 +888,8 @@ export const closedRelation = <
 			row: (...args: ReadonlyArray<unknown>) => closedRowTerm(typing, args)
 		},
 		"closedRelation",
-		admitted.desc
+		admitted.desc,
+		contentDigest("relation", admitted.desc)
 	)
 }
 
@@ -975,7 +980,8 @@ export const derived = <const Name extends string, Q extends DefinitionQuery>(
 	return ownValue(
 		{ ...builtMark, kind: "derived", name, definition, heading, fact: record(heading) },
 		"derived",
-		draft
+		draft,
+		contentDigest("relation", draft)
 	)
 }
 
@@ -1047,6 +1053,28 @@ export const finOf = (
 
 export const derivedDraftOf = (value: unknown): DerivedDraft | undefined =>
 	ownedDesc(value, "derived")
+
+/**
+ * A relation, roster or closed relation of a schema's record, with its content digest: a built value's, which it carries
+ * from its build, or a JavaScript look-alike's, admitted here (relationDescOf) and digested once, where it enters.
+ */
+export const relationContentOf = (
+	value: unknown,
+	label: string
+): {
+	readonly desc: OrdinaryRelationDesc | RosterDesc | ClosedRelationDesc
+	readonly digest: ContentDigest
+} => {
+	const owned =
+		ownedEntry(value, "relation") ??
+		ownedEntry(value, "closed") ??
+		ownedEntry(value, "closedRelation")
+	if (owned !== undefined) {
+		return { desc: owned.desc, digest: owned.content }
+	}
+	const desc = relationDescOf(value, label)
+	return { desc, digest: contentDigest("relation", desc) }
+}
 
 /**
  * The name and kind of anything a statement may name. A relation, a roster or a closed relation has a known heading:

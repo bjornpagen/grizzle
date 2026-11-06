@@ -2,6 +2,7 @@ import type { CheckedSchema } from "#compiler/analysis/schema.ts"
 import { ViolationBuilder } from "#compiler/analysis/theory/build.ts"
 import { type FieldClass, FieldClasses } from "#compiler/analysis/theory/classes.ts"
 import { slotsText } from "#compiler/analysis/theory/families.ts"
+import { fillOrder } from "#compiler/analysis/theory/fill.ts"
 import {
 	type ContractUse,
 	fixedSelection,
@@ -31,6 +32,7 @@ import { type FieldDesc, fieldTermsOf, termText } from "#compiler/ir/desc.ts"
 import type { EvidenceContext } from "#compiler/ir/evidence.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { Family } from "#compiler/ir/family.ts"
+import type { FillOrder } from "#compiler/ir/fill.ts"
 import {
 	type EvidenceSide,
 	fieldNames,
@@ -51,9 +53,14 @@ import type { RegexMember } from "#compiler/scalar/compute/evaluate.ts"
 import type { ClosedRelations } from "#compiler/scalar/compute/lower.ts"
 import { contractPredicateTable } from "#compiler/scalar/compute/total.ts"
 import { regexMember } from "#compiler/scalar/regex/nfa.ts"
-import { contractInfoOf, type ScalarEnv, scalarTypeOf } from "#compiler/scalar/registry.ts"
+import {
+	contractInfoOf,
+	type ScalarEnv,
+	scalarTypeOf,
+	type TextLookup
+} from "#compiler/scalar/registry.ts"
 import type { Owned } from "#compiler/schema/own.ts"
-import { textLookupOnce } from "#compiler/text/refinement.ts"
+import { textLookup } from "#compiler/text/refinement.ts"
 
 export interface TheoryOptions {
 	/**
@@ -155,7 +162,8 @@ interface TheoryEvidence {
  * - the normalized laws, each with its source identity and its violation query as a Forbid node in one DAG
  *   (laws.ts): a key and a containment over partial projections, an alternatives statement's containments, a family,
  *   a tree and a fold;
- * - every family, a tree's included, resolved (families.ts): its axes' carried pairs and its folds;
+ * - every family, a tree's included, resolved (families.ts): its axes' carried pairs and its folds, and their fill
+ *   order (fill.ts), every column and relation no write fills refused;
  * - the relation dependency graph: each relation and the relations its laws read;
  * - the evidence each law gives queries, with its validity context: keys and row checks are validated immediate
  *   storage facts, and so is a containment into a closed relation; every other containment holds in lawful committed
@@ -189,6 +197,12 @@ export interface Theory extends CheckedTheory {
 	 * by.
 	 */
 	readonly families: ReadonlyArray<Family>
+	/**
+	 * The families' fill order (ir/fill.ts): when a write fills each column grizzle writes, which the analysis
+	 * (analysis/theory/fill.ts) built once, refusing every column and relation no write fills, and the host's filler
+	 * fills by.
+	 */
+	readonly fill: FillOrder
 	readonly evidence: TheoryEvidence
 }
 
@@ -334,9 +348,9 @@ const contractNames = (t: ScalarType): ReadonlyArray<string> => {
 }
 
 /**
- * The typing environment of an owned schema's laws: the descriptor registry's reading with the text package's
- * canonical refinements, its closed relations' rosters, each contract's predicate table, and the text package's regex
- * membership. Theory normalization types its laws in it, and law specialization its generated CHECK predicates.
+ * The typing environment of an owned schema's laws: the descriptor registry's reading, its closed relations' rosters,
+ * each contract's predicate table, the text package's regex membership, and its analysis of a pattern a predicate
+ * computes. Theory normalization types its laws in it, and law specialization its generated CHECK predicates.
  */
 export const typingEnv = (
 	owned: Owned
@@ -347,6 +361,7 @@ export const typingEnv = (
 		loc: SourceLoc
 	) => Result.Result<ContractInfo, CompileError>
 	readonly regexMember: RegexMember
+	readonly patternLanguage: TextLookup
 } => {
 	const rosters = new Map<string, NonEmptyReadonlyArray<string>>()
 	for (const r of Object.values(owned.relations)) {
@@ -356,20 +371,23 @@ export const typingEnv = (
 	}
 	const fieldType = (desc: FieldDesc, loc: SourceLoc): Result.Result<ScalarType, CompileError> =>
 		scalarTypeOf(desc, schemaEnv(loc), loc)
-	/** Each text pattern's analysis, read once for every field and contract of the pattern. */
-	const texts = textLookupOnce()
 	/** The registry's environment of the owned schema, its refusals at `loc`. */
 	const schemaEnv = (loc: SourceLoc): ScalarEnv => ({
 		kind: "schema",
 		roster: (name) => rosters.get(name),
-		text: texts,
 		contractPredicate: (predicate, base, contract, facts) =>
-			contractPredicateTable(predicate, base, contract, facts, { loc, fieldType, regexMember })
+			contractPredicateTable(predicate, base, contract, facts, {
+				loc,
+				fieldType,
+				regexMember,
+				patternLanguage: textLookup
+			})
 	})
 	return {
 		fieldType,
 		contractInfo: (desc, loc) => contractInfoOf(desc, schemaEnv(loc), loc),
-		regexMember
+		regexMember,
+		patternLanguage: textLookup
 	}
 }
 
@@ -410,7 +428,12 @@ class Builder {
 		const normalizer = new Normalizer({
 			relations: this.relations,
 			named: lawIdentityOf,
-			lowerEnv: { fieldType: this.fieldType, regexMember, closed: this.closed }
+			lowerEnv: {
+				fieldType: this.fieldType,
+				regexMember,
+				patternLanguage: textLookup,
+				closed: this.closed
+			}
 		})
 		for (const [index, r] of this.stored.entries()) {
 			if (r.kind === "relation") {
@@ -439,6 +462,10 @@ class Builder {
 		const kept = normalizer.laws
 		const classes = this.#classes(kept, normalizer.familyPairings())
 		const { laws, primaryKeys, dag, families } = this.#violations(normalizer, kept)
+		const fill = fillOrder(families, laws)
+		if (!fill.ok) {
+			throw new Refusal(fill.error)
+		}
 		return Object.freeze({
 			schema: this.owned.fingerprint,
 			name: this.owned.name,
@@ -451,6 +478,7 @@ class Builder {
 			dependencies: this.#dependencies(laws),
 			capabilities: this.#capabilities(laws),
 			families,
+			fill: fill.value,
 			evidence: this.#evidence(laws)
 		})
 	}

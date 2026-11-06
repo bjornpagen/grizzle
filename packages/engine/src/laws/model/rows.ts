@@ -6,7 +6,7 @@ import {
 	toastPointerBytes
 } from "#compiler/core/limits.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
-import { type DatumBound, datumBound } from "#compiler/schema/representability.ts"
+import { datumBound, isFixedWidth } from "#compiler/schema/representability.ts"
 
 /**
  * A heap row's size, as PostgreSQL stores it, for the one bound every relation's columns must fit: a row of its table
@@ -26,36 +26,13 @@ export interface RowColumn {
 	readonly nullable: boolean
 }
 
-/** Whether a datum's type is stored inline at a fixed width, never moved out of line. */
-const fixedWidth = (bound: DatumBound): boolean => {
-	switch (bound.family) {
-		case "int2":
-		case "int4":
-		case "int8":
-		case "float4":
-		case "float8":
-		case "money":
-		case "bool":
-		case "uuid":
-		case "date":
-		case "code":
-			return true
-		case "bit":
-		case "numeric":
-		case "text":
-		case "range":
-		case "vector":
-			return false
-	}
-}
-
 /** A column of the field descriptor `desc` as a row stores it at most (`RowColumn`). */
 export const rowColumn = (desc: FieldDesc, nullable: boolean): RowColumn => {
 	const bound = datumBound(desc)
 	if (bound === undefined) {
 		return { bytes: toastPointerBytes.value, align: 1, nullable }
 	}
-	return fixedWidth(bound)
+	return isFixedWidth(bound)
 		? { bytes: bound.bytes, align: bound.align, nullable }
 		: { bytes: Math.min(bound.bytes, toastPointerBytes.value), align: 1, nullable }
 }

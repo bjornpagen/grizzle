@@ -168,7 +168,10 @@ const counterNarrowing = (
 				operation: `the recursion's ${target.name}, narrowed into ${typeLabel(target.type)}`,
 				precondition: "fits",
 				operand: target.name,
-				guard: `Compute.when(Compute.within(${target.name}, <low>, <high>), (${target.name}) => Compute.cast(<the step>, <the state field>), <your value>), or a counter seeded by literals and bound by a literal the step's filter compares it with`
+				guard: {
+					test: { kind: "within" },
+					text: `Compute.when(Compute.within(${target.name}, <low>, <high>), (${target.name}) => Compute.cast(<the step>, <the state field>), <your value>), or a counter seeded by literals and bound by a literal the step's filter compares it with`
+				}
 			})
 		)
 	}

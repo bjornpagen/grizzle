@@ -260,7 +260,12 @@ const unstorable = (
 					kind: "wholeHeading",
 					relation: "T",
 					key: ["embedding"],
-					fault: { kind: "btreeEntry", bytes: 4024, limit: 2704 }
+					fault: {
+						kind: "btreeEntry",
+						bytes: 4016,
+						limit: 2704,
+						datums: [{ field: "embedding", bytes: 4008 }]
+					}
 				}
 			}
 		case "an empty head":
@@ -375,14 +380,19 @@ interface JoinRelation {
 	readonly keys: Arr.NonEmptyReadonlyArray<number>
 }
 
+/** A relation a join matches, and how the join binds each of its fields, in field order. */
+interface Matched {
+	readonly relation: JoinRelation
+	readonly bindings: ReadonlyArray<Binding>
+}
+
 /**
  * A definition joining each of one to three relations once, each field bound to one of four variables or left free,
  * and the variables its head finds, as a mask. No relation is matched twice, so no two of its facts meet under one key
  * and the closure of the head's variables under each relation's keys is every dependency the definition holds.
  */
 interface JoinSketch {
-	readonly relations: Arr.NonEmptyReadonlyArray<JoinRelation>
-	readonly bindings: ReadonlyArray<ReadonlyArray<Binding>>
+	readonly matched: Arr.NonEmptyReadonlyArray<Matched>
 	readonly head: number
 }
 
@@ -404,23 +414,25 @@ const bindingGen: Gen<Binding> = weighted([
 	[3, map(int(0, joinVariables - 1), (variable): Binding => ({ kind: "bound", variable }))]
 ])
 
-const joinSketchGen: Gen<JoinSketch> = (source) => {
-	const relations = nonEmpty(
-		source.draw(array(joinRelationGen, { min: 1, max: 3 })),
-		"the relations"
-	)
+const matchedGen: Gen<Matched> = (source) => {
+	const relation = source.draw(joinRelationGen)
 	return {
-		relations,
-		bindings: Arr.map(relations, (r) =>
-			source.draw(array(bindingGen, { min: r.width, max: r.width }))
-		),
-		head: source.draw(int(0, 2 ** joinVariables - 1))
+		relation,
+		bindings: source.draw(array(bindingGen, { min: relation.width, max: relation.width }))
 	}
 }
 
+const joinSketchGen: Gen<JoinSketch> = (source) => ({
+	matched: nonEmpty(source.draw(array(matchedGen, { min: 1, max: 3 })), "the relations"),
+	head: source.draw(int(0, 2 ** joinVariables - 1))
+})
+
+/** Whether position `at` is in `mask`. */
+const holds = (mask: number, at: number): boolean => (mask & (1 << at)) !== 0
+
 /** The positions of a mask's set bits below `width`, in increasing order. */
 const bitsOf = (mask: number, width: number): ReadonlyArray<number> =>
-	Arr.filter(indices(width), (i) => (mask & (1 << i)) !== 0)
+	Arr.filter(indices(width), (i) => holds(mask, i))
 
 const fieldName = (i: number): string => `f${i}`
 const headName = (variable: number): string => `v${variable}`
@@ -433,40 +445,38 @@ type JoinRelationValue = Relation<
 
 /** The base schema of a join's relations: R0, R1, ... of uuid fields, each keyed by its keys. */
 const joinBase = (relations: Arr.NonEmptyReadonlyArray<JoinRelation>) => {
-	const values = Arr.map(relations, (r, i): JoinRelationValue =>
-		relation(
+	const keyed = Arr.map(relations, (r, i) => {
+		const value: JoinRelationValue = relation(
 			`R${i}`,
 			Rec.fromEntries(Arr.map(indices(r.width), (f) => [fieldName(f), uuid] as const)),
 			nonEmpty(Arr.map(bitsOf(r.keys[0], r.width), fieldName), "a primary key")
 		)
-	)
-	const statements = Arr.flatMap(relations, (r, i) =>
-		Arr.map(r.keys.slice(1), (candidate) =>
+		const candidates = Arr.map(r.keys.slice(1), (candidate) =>
 			key(
 				on(
-					defined(values[i]),
+					value,
 					...nonEmptyArgumentsOf(
 						nonEmpty(Arr.map(bitsOf(candidate, r.width), fieldName), "a candidate key")
 					)
 				)
 			)
 		)
-	)
+		return { value, candidates }
+	})
+	const values = Arr.map(keyed, (k) => k.value)
 	return {
 		values,
 		schema: schema(
 			"Joined",
 			Rec.fromEntries(Arr.map(values, (value, i) => [`R${i}`, value] as const)),
-			statements
+			Arr.flatMap(keyed, (k) => k.candidates)
 		)
 	}
 }
 
-/** A join resolved: each relation's bindings, every relation binding a field, its head, and its values built. */
+/** A join resolved: each relation with its bindings, every relation binding a field, its head, and its values built. */
 interface Join {
-	readonly relations: Arr.NonEmptyReadonlyArray<JoinRelation>
-	/** Per relation, per field, how the definition binds it. */
-	readonly bound: ReadonlyArray<ReadonlyArray<Binding>>
+	readonly matched: Arr.NonEmptyReadonlyArray<Matched>
 	/** The variables the head finds, in increasing order, which is the heading's order. */
 	readonly head: Arr.NonEmptyReadonlyArray<number>
 	readonly base: ReturnType<typeof joinBase>
@@ -475,29 +485,30 @@ interface Join {
 
 /** A sketch resolved: a relation that binds no field binds its first to a variable of its own. */
 const joinOf = (sketch: JoinSketch): Join => {
-	const bound = Arr.map(sketch.relations, (r, i): ReadonlyArray<Binding> => {
-		const drawn = Arr.map(
-			indices(r.width),
-			(f): Binding => sketch.bindings[i]?.[f] ?? { kind: "free" }
-		)
-		return Arr.some(drawn, (b) => b.kind === "bound")
-			? drawn
-			: Arr.map(drawn, (b, f): Binding => (f === 0 ? { kind: "bound", variable: i } : b))
-	})
+	const matched = Arr.map(sketch.matched, (m, i): Matched =>
+		Arr.some(m.bindings, (b) => b.kind === "bound")
+			? m
+			: {
+					...m,
+					bindings: Arr.map(m.bindings, (b, f): Binding =>
+						f === 0 ? { kind: "bound", variable: i } : b
+					)
+				}
+	)
 	const used = Arr.sort(
-		Arr.dedupe(Arr.flatMap(bound, (row) => Arr.flatMap(row, variableOf))),
+		Arr.dedupe(Arr.flatMap(matched, (m) => Arr.flatMap(m.bindings, variableOf))),
 		Order.Number
 	)
-	const found = Arr.filter(used, (x) => (sketch.head & (1 << x)) !== 0)
+	const found = Arr.filter(used, (x) => holds(sketch.head, x))
 	const head = nonEmpty(found.length > 0 ? found : used.slice(0, 1), "the head")
-	const base = joinBase(sketch.relations)
+	const base = joinBase(Arr.map(matched, (m) => m.relation))
 	const definition = queryOver(base.schema).rule((r: RuleValue) => {
 		const terms = new Map<number, unknown>()
 		let ruled = r
-		for (const [i, value] of base.values.entries()) {
+		for (const [i, [value, m]] of Arr.zip(base.values, matched).entries()) {
 			const vars = varsOver(value, `m${i}`)
 			const bindings: Record<string, unknown> = {}
-			for (const [f, b] of defined(bound[i]).entries()) {
+			for (const [f, b] of m.bindings.entries()) {
 				for (const variable of variableOf(b)) {
 					if (!terms.has(variable)) {
 						terms.set(variable, vars[fieldName(f)])
@@ -509,7 +520,7 @@ const joinOf = (sketch: JoinSketch): Join => {
 		}
 		return ruled.find(Rec.fromEntries(Arr.map(head, (x) => [headName(x), terms.get(x)] as const)))
 	})
-	return { relations: sketch.relations, bound, head, base, definition }
+	return { matched, head, base, definition }
 }
 
 /**
@@ -521,13 +532,13 @@ const minimalKeys = (
 	j: Join,
 	keysOf: (r: JoinRelation) => ReadonlyArray<number>
 ): ReadonlyArray<ReadonlyArray<number>> => {
-	const dependencies = Arr.flatMap(j.relations, (r, i) => {
-		const row = defined(j.bound[i])
-		const to = Arr.flatMap(row, variableOf)
-		return Arr.flatMap(keysOf(r), (k) => {
-			const fields = bitsOf(k, r.width)
-			const from = Arr.flatMap(fields, (f) => variableOf(defined(row[f])))
-			return from.length === fields.length ? [{ from, to }] : []
+	const dependencies = Arr.flatMap(j.matched, (m) => {
+		const to = Arr.flatMap(m.bindings, variableOf)
+		return Arr.flatMap(keysOf(m.relation), (k) => {
+			const fields = Arr.filter(m.bindings, (_, f) => holds(k, f))
+			return Arr.every(fields, (b) => b.kind === "bound")
+				? [{ from: Arr.flatMap(fields, variableOf), to }]
+				: []
 		})
 	})
 	const closure = (set: ReadonlyArray<number>): ReadonlySet<number> => {
@@ -547,7 +558,7 @@ const minimalKeys = (
 		return known
 	}
 	const sets = Arr.map(Arr.range(1, 2 ** j.head.length - 1), (mask) =>
-		Arr.map(bitsOf(mask, j.head.length), (p) => defined(j.head[p]))
+		Arr.filter(j.head, (_, p) => holds(mask, p))
 	)
 	const keys = Arr.filter(sets, (set) => {
 		const known = closure(set)
@@ -585,7 +596,7 @@ const joinFeatures = (
 	)
 		? []
 		: ["a candidate key determines" as const]),
-	...(j.relations.length > 1 ? ["a join of several relations" as const] : [])
+	...(j.matched.length > 1 ? ["a join of several relations" as const] : [])
 ]
 
 describe("derived relation keys", () => {

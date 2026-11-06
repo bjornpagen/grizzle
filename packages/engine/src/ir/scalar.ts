@@ -267,16 +267,66 @@ export type RegexKey = string & { readonly [regexKeyBrand]: true }
 declare const regexKeyBrand: unique symbol
 export const RegexKey = nominal<string, RegexKey>()
 
+/** Proved bounds on every member of a language, in code points and UTF-8 bytes. */
+export interface TextBounds {
+	readonly length: number
+	readonly bytes: number
+}
+
 /**
- * A regex refinement: its source and flags as declared, and its language's key, which the text analysis computes where
- * it builds the reference. The text package owns the pattern IR; the scalar type needs only the pattern to analyze
- * again and the key to compare by.
+ * How PostgreSQL enforces a language some admitted text value is no member of, with the bounds the enforcement proves
+ * on every member: `VALUE IN (...)` of its members, at least one since an analyzed language has a member, or
+ * `VALUE ~ '<ARE>'` of the pattern's translation. The text analysis chooses it (text/refinement.ts).
+ */
+export type RegexCheck =
+	| {
+			readonly kind: "finite"
+			readonly members: NonEmptyReadonlyArray<string>
+			readonly bounds: TextBounds
+	  }
+	| { readonly kind: "regex"; readonly pattern: string; readonly bounds: TextBounds | undefined }
+
+/**
+ * A regex refinement: its source and flags as declared, its language's key and its enforcement, which the text
+ * analysis computes where it builds the reference. The text package owns the pattern IR; the scalar type carries what
+ * every later pass reads of it, so none analyzes the pattern again.
  */
 export interface RegexRef {
 	readonly source: string
 	readonly flags: "u" | "su"
 	readonly key: RegexKey
+	readonly check: RegexCheck
 }
+
+/**
+ * What the text analysis proved of a text descriptor's pattern, which the descriptor carries from where it is admitted
+ * (text/refinement.ts textLanguage): every admitted value, a tautology, or a language some admitted value is no member
+ * of, by its key and its enforcement. It is a function of the pattern beside it, so it is no part of the descriptor's
+ * semantic identity (core/canonical.ts omitSourceLocs).
+ */
+export type TextLanguage =
+	| { readonly kind: "every" }
+	| { readonly kind: "refined"; readonly key: RegexKey; readonly check: RegexCheck }
+
+/** The text metadata a ScalarType carries for a pattern of `language`: its regex reference and its proved bounds. */
+export const textInfoOf = (source: string, flags: "u" | "su", language: TextLanguage): TextInfo => {
+	if (language.kind === "every") {
+		return Object.freeze({ regex: "wildcard", lengthBound: undefined, byteBound: undefined })
+	}
+	const regex = Object.freeze({ source, flags, key: language.key, check: language.check })
+	const bounds = language.check.bounds
+	return Object.freeze(
+		bounds === undefined
+			? { regex, lengthBound: undefined, byteBound: undefined }
+			: { regex, lengthBound: bounds.length, byteBound: bounds.bytes }
+	)
+}
+
+/** The language a ScalarType's text metadata states: what a descriptor of that type carries. */
+export const languageOfText = (text: TextInfo): TextLanguage =>
+	text.regex === "wildcard"
+		? Object.freeze({ kind: "every" })
+		: Object.freeze({ kind: "refined", key: text.regex.key, check: text.regex.check })
 
 /**
  * Every text descriptor carries regex metadata: a specific pattern or the canonical wildcard, and the bounds a specific

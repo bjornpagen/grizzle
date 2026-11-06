@@ -29,6 +29,7 @@ import type * as Result from "#compiler/core/result.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import { rooted } from "#compiler/ir/dag.ts"
 import type { ChangeSetDesc, MemberDesc } from "#compiler/ir/desc.ts"
+import { isSequence, isTreeOf } from "#compiler/ir/family.ts"
 import type { LawField, RelationInfo } from "#compiler/ir/law.ts"
 import type { LogicalQuery, ParamDecl } from "#compiler/ir/products.ts"
 import type { Heading, HeadingColumn, RelNode, ValidDag } from "#compiler/ir/rel.ts"
@@ -47,7 +48,7 @@ import {
 } from "#compiler/ir/write.ts"
 import { derivedKeyConstraints } from "#compiler/laws/model/catalog.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
-import { keyWitness, readFields } from "#compiler/laws/model/uniques.ts"
+import { keyWitness } from "#compiler/laws/model/uniques.ts"
 import { analyzeLogical, type LogicalAnalysis } from "#compiler/logical/annotate.ts"
 import { everyParentTakes } from "#compiler/lower/shapes/take/decorrelate.ts"
 import { regexMember } from "#compiler/scalar/regex/nfa.ts"
@@ -75,7 +76,7 @@ import {
 	hostEvaluator,
 	literalHost
 } from "#compiler/write/family/fold.ts"
-import { isSequence, isTreeOf, type Nesting, nestingOf } from "#compiler/write/family/nesting.ts"
+import { type Nesting, nestingOf } from "#compiler/write/family/nesting.ts"
 import {
 	canonicalActionOrder,
 	type ImmediateReference,
@@ -505,29 +506,6 @@ const sameHeading = (a: Heading, b: Heading): boolean =>
 		return d !== undefined && sameScalarType(c.type, d.type)
 	})
 
-/**
- * Refuses an addition to a relation one of whose unique objects reads a field PostgreSQL generates: no addition's fact
- * carries that field's value, so neither the host's same-key check nor a statement's probe can meet the object, and a
- * conflict there would surface only as a 23505 the protocol does not attribute.
- */
-const refuseGeneratedUnique = (relation: WrittenRelation, loc: SourceLoc): void => {
-	const { arbiter, others } = relation.uniques
-	for (const u of [arbiter, ...others]) {
-		const generated = readFields(u).find((f) => f.writing.kind === "generated")
-		if (generated !== undefined) {
-			refuse(
-				"UnsupportedOperation",
-				loc,
-				`an addition to ${relation.name} whose unique objects read caller-written fields alone; one over (${readFields(
-					u
-				)
-					.map((f) => f.name)
-					.join(", ")}) reads ${generated.name}, which PostgreSQL generates and no fact carries`
-			)
-		}
-	}
-}
-
 /** A column as a member's facts carry it: its name and its type. */
 const carriedColumn = (c: MemberColumn): HeadingColumn => ({
 	name: c.name,
@@ -793,7 +771,7 @@ const compile = (
 		if (known !== undefined) {
 			return known
 		}
-		const built = nestingOf(relation, families, codes, evaluate)
+		const built = nestingOf(relation, laws.theory.fill, codes, evaluate)
 		if (!built.ok) {
 			return refuse("UnsupportedOperation", loc, built.error.message)
 		}
@@ -803,6 +781,18 @@ const compile = (
 	/** The sequence `name` is a member of, a tree's aside: its members are written only under their owner. */
 	const sequenceOf = (name: string) =>
 		families.find((f) => f.member.name === name && isSequence(f) && !isTreeOf(f, name))
+	/** The relations an insert into `name` writes rows of: its own, and every sequence's members its nesting reaches. */
+	const insertedBy = (name: string): ReadonlySet<string> => {
+		const written = new Set<string>([name])
+		for (const owner of written) {
+			for (const f of families) {
+				if (f.owner.name === owner && isSequence(f)) {
+					written.add(f.member.name)
+				}
+			}
+		}
+		return written
+	}
 	/** Whether `name` is a member of a family: its rows' drawn values are the family planner's (write/family/edit.ts). */
 	const managed = (name: string): boolean => families.some((f) => f.member.name === name)
 	/** Whether an insert into `name` nests families: it owns a sequence, ordered or a tree, or is a tree's relation
@@ -946,11 +936,14 @@ const compile = (
 				)
 			}
 			/** An insert appends to its owners' families, which only an owner the same stratum inserts may take when the
-			 * owner is immutable; with no insert of the owner in the stratum, every append is to a stored owner. */
+			 * owner is immutable, itself or nested in another's insert; with no insert of the owner in the stratum, every
+			 * append is to a stored owner. */
 			const appendsToStored =
 				fixed !== undefined &&
 				member.op === "insert" &&
-				!stratum.members.some((m) => m.relation === fixed.owner.name && m.op === "insert")
+				!stratum.members.some(
+					(m) => m.op === "insert" && insertedBy(m.relation).has(fixed.owner.name)
+				)
 			if (fixed !== undefined && appendsToStored) {
 				refuse(
 					"UnsupportedOperation",
@@ -978,11 +971,11 @@ const compile = (
 					`a ${member.op} of ${relation.name}, a member of a family, ${entry.kind !== "whole" ? "through a query entry" : "by a query"}: grizzle draws its family's values from its rows on the host, so write ${relation.name} whole from an array or a Stream`
 				)
 			}
-			if (edited && nests(relation.name)) {
+			if (edited && member.op !== "insert" && nests(relation.name)) {
 				refuse(
 					"UnsupportedOperation",
 					loc,
-					`a ${member.op} of ${relation.name}, both a counted family's member and a sequence's owner: its sequence's members are nested under its rows, which a member's edit does not reach`
+					`a ${member.op} of ${relation.name}, both a family's member and a sequence's owner: its sequence's members are nested under its rows, which a member's edit does not reach, so write ${relation.name} by inserting its owner with its rows nested`
 				)
 			}
 			const nested = member.op === "insert" && nests(relation.name)
@@ -1287,9 +1280,6 @@ const compile = (
 						reads,
 						entry: { kind: "entry", entry: target.entry, names: target.names, fill }
 					})
-				}
-				if (op !== "delete") {
-					refuseGeneratedUnique(relation, loc)
 				}
 				if (managed(relation.name) && !families.some((f) => isTreeOf(f, relation.name))) {
 					const heading = classes.complete

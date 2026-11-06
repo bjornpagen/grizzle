@@ -1,4 +1,5 @@
 import { Array as Arr, Effect, Result } from "effect"
+import { summarize } from "#bench/cold/stats.ts"
 import {
 	type CaseRecord,
 	defineGate,
@@ -15,6 +16,7 @@ import {
 	observedChange,
 	oneRow,
 	openFull,
+	timed,
 	writeConditions,
 	writePhases,
 	writesOf
@@ -94,6 +96,7 @@ export default defineGate({
 				readonly itemWrites: number
 				readonly itemUpdates: number
 				readonly applied: string
+				readonly ms: number
 			}> = []
 			for (const [i, length] of options.lengths.entries()) {
 				const run = yield* Effect.scoped(
@@ -105,8 +108,8 @@ export default defineGate({
 						if (Result.isFailure(change)) {
 							return yield* Effect.die(change.failure)
 						}
-						const applied = yield* change.success.apply({})
-						return { statements: change.success.statements, applied }
+						const applied = yield* timed(change.success.apply({}))
+						return { statements: change.success.statements, applied: applied.value, ms: applied.ms }
 					})
 				)
 				const owner = writesOf(run.statements, "Owner")
@@ -121,58 +124,71 @@ export default defineGate({
 					ownerUpdates: Arr.filter(owner, (w) => w.result.kind !== "insert").length + counts.length,
 					itemWrites: item.length,
 					itemUpdates: Arr.filter(item, (f) => f.statement !== "insert").length,
-					applied: run.applied.value.kind
+					applied: run.applied.value.kind,
+					ms: run.ms
 				})
 			}
 			yield* settle(fx)
-			/** One owner's count raised by one, by the owner, its cascade's member updates read before the rollback. */
+			/**
+			 * One owner's count raised by one, by the owner, timed, its cascade's member updates read before the rollback.
+			 */
 			const cascaded = (id: number) =>
 				Effect.gen(function* () {
 					yield* s.admin.query("BEGIN", [])
 					return yield* Effect.gen(function* () {
-						yield* s.admin.query(
-							`UPDATE ${O} SET ${c("Owner", "members")} = ${c("Owner", "members")} + 1 WHERE ${c("Owner", "id")} = $1::int4`,
-							[String(id)]
+						const update = yield* timed(
+							s.admin.query(
+								`UPDATE ${O} SET ${c("Owner", "members")} = ${c("Owner", "members")} + 1 WHERE ${c("Owner", "id")} = $1::int4`,
+								[String(id)]
+							)
 						)
 						const rows = yield* s.admin.queryValues(
 							"SELECT n_tup_upd::text FROM pg_catalog.pg_stat_xact_user_tables WHERE relid = $1::regclass",
 							[I]
 						)
-						return Number(trusted<readonly [string]>(oneRow(rows))[0])
+						return { updated: Number(trusted<readonly [string]>(oneRow(rows))[0]), ms: update.ms }
 					}).pipe(Effect.ensuring(Effect.orDie(s.admin.query("ROLLBACK", []))))
 				})
-			const growth: Array<{ readonly length: number; readonly updated: number }> = []
+			const growth: Array<{
+				readonly length: number
+				readonly updated: number
+				readonly ms: number
+			}> = []
 			for (const [i, length] of options.lengths.entries()) {
-				const updated = yield* cascaded(i + 1)
-				growth.push({ length, updated })
+				const update = yield* cascaded(i + 1)
+				growth.push({ length, ...update })
 			}
-			const cases: Array<CaseRecord<"families">> = Arr.map(options.lengths, (length, i) => ({
-				name: `a family of ${length} members`,
+			if (fresh.length !== options.lengths.length || growth.length !== options.lengths.length) {
+				throw new GateSetupError({ what: "a family length was not measured" })
+			}
+			/**
+			 * Each length's figures, and its two timings: the fresh family's apply through the Db, its operation, and the
+			 * count's UPDATE by the owner, the cascade's execution.
+			 */
+			const cases: Array<CaseRecord<"families">> = Arr.map(Arr.zip(fresh, growth), ([f, g]) => ({
+				name: `a family of ${f.length} members`,
 				gates: ["families"],
 				conditions: writeConditions({
-					workload: `one owner with ${length} nested members written through a Db; then one UPDATE of its count by the owner, rolled back`,
+					workload: `one owner with ${f.length} nested members written through a Db; then one UPDATE of its count by the owner, rolled back`,
 					schemaState: loadedByOwner,
 					data: `${options.lengths.length} owners, one family each`,
-					parameters: { length },
+					parameters: { length: f.length },
 					semantics:
 						"the fresh family is lawful and commits; the count's UPDATE is rolled back unchecked",
 					cache: "a fresh Db per family; the UPDATE on the owner's warm session"
 				}),
-				phases: {},
+				phases: { operationMs: summarize([f.ms]), executeMs: summarize([g.ms]) },
 				variants: [],
 				comparisons: [],
 				transactions: {},
 				loads: {},
 				measures: {
-					ownerInserts: fresh[i]?.ownerInserts ?? -1,
-					ownerUpdates: fresh[i]?.ownerUpdates ?? -1,
-					itemWrites: fresh[i]?.itemWrites ?? -1,
-					cascadedMemberUpdates: growth[i]?.updated ?? -1
+					ownerInserts: f.ownerInserts,
+					ownerUpdates: f.ownerUpdates,
+					itemWrites: f.itemWrites,
+					cascadedMemberUpdates: g.updated
 				}
 			}))
-			if (fresh.length !== options.lengths.length || growth.length !== options.lengths.length) {
-				throw new GateSetupError({ what: "a family length was not measured" })
-			}
 			const families: VerdictInput = {
 				checks: [
 					mechanism(

@@ -7,7 +7,7 @@ import * as Result from "#compiler/core/result.ts"
 import { type CompareOp, decodeDesc, type ExprDesc, type FieldDesc } from "#compiler/ir/desc.ts"
 import type { OpenExpr } from "#compiler/ir/open.ts"
 import { type Fact, factNames } from "#compiler/ir/proof.ts"
-import { rosterOf, type ScalarType, textOf } from "#compiler/ir/scalar.ts"
+import { rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import {
 	type PredicateValue,
 	predicateExpr,
@@ -22,7 +22,6 @@ import {
 	type Described,
 	describeFieldOrThrow,
 	literalDescOrThrow,
-	noText,
 	type ScalarEnv,
 	type SqlTag,
 	serialNameOf
@@ -92,17 +91,12 @@ const scalarTerm = (expr: OpenExpr, t: ScalarType, carrier: TermCarrier): Scalar
 	return registerTerm(term, expr, t)
 }
 
-/**
- * The ScalarEnv that re-reads a base's own resolved metadata: its roster and canonical text refinement, which a
- * FieldDesc names but does not hold.
- */
+/** The ScalarEnv that re-reads a base's own resolved roster, which a FieldDesc names but does not hold. */
 const baseEnv = (base: ScalarType): ScalarEnv => {
-	const text = textOf(base)
 	const roster = rosterOf(base)
 	return {
 		kind: "builder",
-		roster: (name) => (roster?.closed === name ? roster.handles : undefined),
-		text: text === undefined ? noText : () => Result.ok(text)
+		roster: (name) => (roster?.closed === name ? roster.handles : undefined)
 	}
 }
 

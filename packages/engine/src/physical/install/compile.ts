@@ -21,7 +21,7 @@ import * as Result from "#compiler/core/result.ts"
 import { type Codebook, firstCodebook } from "#compiler/ir/codes.ts"
 import type { ClosedTheoryRelation, TableRelation } from "#compiler/ir/law.ts"
 import type { ConstraintLaws, IndexRequest, InstallationManifest } from "#compiler/ir/products.ts"
-import { contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
+import { contractOf, type RegexRef, type ScalarType } from "#compiler/ir/scalar.ts"
 
 import {
 	type ConstraintLaw,
@@ -33,6 +33,7 @@ import { addAdvanceFunctions } from "#compiler/physical/ddl/advance.ts"
 import {
 	addClosedRelations,
 	addRosters,
+	type ClosedPlan,
 	closedConstants,
 	planClosed
 } from "#compiler/physical/ddl/constants.ts"
@@ -75,7 +76,6 @@ import { spanStorage } from "#compiler/physical/span/storage.ts"
 import { planStatistics, type StatisticsRequest } from "#compiler/physical/statistics/statistics.ts"
 import { type Owned, ownedIdentities, rostersOf } from "#compiler/schema/own.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
-import type { TextRefinement } from "#compiler/text/refinement.ts"
 import type { Law } from "#compiler/types/changeset/changeset.ts"
 
 /** The settings the installation runs under (`InstallSettings`: the owner a fresh-install script names, undefined for
@@ -192,7 +192,40 @@ export const compileInstallation = (
 	owned: Owned,
 	options: InstallOptions
 ): Result.Result<Installation, CompileError> =>
-	Result.flatMap(compileLaws(owned), (model) => build(owned, model, options))
+	Result.flatMap(installBasis(owned, options.codes), (basis) => installationOver(basis, options))
+
+/**
+ * What every installation of an owned schema under one installation's codes is compiled over, whatever its settings and
+ * extensions: the schema's law model (compileLaws), which reads the schema alone, and its closed relations' constants
+ * planned under the codes (physical/ddl/constants.ts planClosed). A caller that installs one schema under several
+ * settings, generate's artifacts and then its draft, compiles the basis once and installs over it each time.
+ */
+export interface InstallBasis {
+	readonly owned: Owned
+	readonly model: LawModel
+	readonly codes: Codebook
+	readonly closed: ClosedPlan
+}
+
+/** The basis of every installation of `owned` under the installation's codes `codes`. */
+export const installBasis = (
+	owned: Owned,
+	codes: Codebook
+): Result.Result<InstallBasis, CompileError> =>
+	Result.flatMap(compileLaws(owned), (model) =>
+		catchRefusal((): InstallBasis => ({
+			owned,
+			model,
+			codes,
+			closed: planClosed(
+				owned,
+				Object.values(model.theory.relations).filter(
+					(r): r is ClosedTheoryRelation => r.kind === "closed"
+				),
+				codes
+			)
+		}))
+	)
 
 /** The settings of `options`, refused unless every schema identifier it names is one the installation may create, the
  * installed schema's being the naming door's, the extension schema lies outside the installed schema, which it outlives,
@@ -200,7 +233,7 @@ export const compileInstallation = (
  * PostgreSQL role is `<schema>__<name>`, so they are one namespace of declared names (IdentifierCollision). */
 const admittedSettings = (
 	owned: Owned,
-	options: InstallOptions
+	options: InstallSettings
 ): Result.Result<InstallSettings, CompileError> => {
 	const at = SourceLoc(`installation of schema ${owned.name}`, [])
 	const settings: InstallSettings = {
@@ -259,11 +292,11 @@ const admittedSettings = (
  * the law model plans no text domain, so the installation that names them lists them, a domain patterns of one
  * definition share once, with the first pattern's description. */
 const textDomainConstraintLaws = (
-	plans: ReadonlyArray<{ readonly domain: TextDomain; readonly refinement: TextRefinement }>
+	plans: ReadonlyArray<{ readonly domain: TextDomain; readonly regex: RegexRef }>
 ): ReadonlyArray<ConstraintLaw> =>
 	plans
 		.filter(({ domain }, i) => plans.findIndex((p) => p.domain.name === domain.name) === i)
-		.map(({ domain, refinement }) => ({
+		.map(({ domain, regex }) => ({
 			kind: "domainConstraint",
 			name: domain.constraint,
 			owner: domain.name,
@@ -272,8 +305,8 @@ const textDomainConstraintLaws = (
 					law: identifierOf(identity.patternLaw(domain.named)),
 					described: Object.freeze({
 						kind: "pattern",
-						source: refinement.source,
-						flags: refinement.flags
+						source: regex.source,
+						flags: regex.flags
 					})
 				}
 			],
@@ -362,12 +395,16 @@ const contractSources = (
 		...context.map((c) => [c.name, { base: c.contract.base, check: c.check }] as const)
 	])
 
-const build = (
-	owned: Owned,
-	model: LawModel,
-	options: InstallOptions
-): Result.Result<Installation, CompileError> =>
-	Result.flatMap(admittedSettings(owned, options), (settings) =>
+/**
+ * The installation over a basis (installBasis) under the settings and extensions of `options`, whose codes are the
+ * basis's (compileInstallation).
+ */
+export const installationOver = (
+	basis: InstallBasis,
+	options: Omit<InstallOptions, "codes">
+): Result.Result<Installation, CompileError> => {
+	const { owned, model, codes, closed } = basis
+	return Result.flatMap(admittedSettings(owned, options), (settings) =>
 		catchRefusal(() => {
 			/** The built-in span CHECKs and closed facts' validation, then each extension in the caller's order, each
 			 * once: a caller that lists a built-in extension again adds nothing twice. */
@@ -415,13 +452,6 @@ const build = (
 				throw new Refusal(claimContracts.error)
 			}
 			const textDomains = textPlans.map((p) => p.domain)
-			const closed = planClosed(
-				owned,
-				Object.values(model.theory.relations).filter(
-					(r): r is ClosedTheoryRelation => r.kind === "closed"
-				),
-				options.codes
-			)
 			const contracts = contractSources(model, claimContracts.value)
 			const names = installNames({
 				owned,
@@ -430,7 +460,7 @@ const build = (
 				textDomains: new Map(textPlans.map((p) => [p.key, p.domain.digest] as const)),
 				contracts,
 				define: contractDigest,
-				codes: options.codes,
+				codes,
 				closed: closedConstants(identifierOf(settings.installation), closed),
 				selectionKeys: selectionKeysOf(model.natives)
 			})
@@ -534,3 +564,4 @@ const build = (
 			}
 		})
 	)
+}

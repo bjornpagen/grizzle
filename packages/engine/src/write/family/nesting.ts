@@ -18,14 +18,14 @@ import {
 	relationNormalizer
 } from "#compiler/codec/recordset.ts"
 import { carrierSpecOf } from "#compiler/codec/scalar.ts"
-import { type CompileError, type EncodingFailure, unsupported } from "#compiler/core/errors.ts"
+import type { CompileError, EncodingFailure } from "#compiler/core/errors.ts"
 import { defect, defined, invariant } from "#compiler/core/invariant.ts"
-import { SourceLoc } from "#compiler/core/loc.ts"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import { compareCodePoints } from "#compiler/core/text.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
-import type { Family } from "#compiler/ir/family.ts"
+import { type Family, isSequence, isTreeOf } from "#compiler/ir/family.ts"
+import type { FillOrder } from "#compiler/ir/fill.ts"
 import type { LawField, LawRelation } from "#compiler/ir/law.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import { admittedText } from "#compiler/scalar/values/identity.ts"
@@ -80,24 +80,11 @@ export interface Nesting {
 	readonly top: Heading
 }
 
-/** Whether a family is a sequence, ordered or a tree, whose order the caller states by nesting; else counted. */
-export const isSequence = (family: Family): boolean =>
-	family.members.kind === "tree" || family.index.kind === "field"
-
-/** Whether a family is the tree of `relation`: its family over itself whose members are a tree's. */
-export const isTreeOf = (family: Family, relation: string): boolean =>
-	family.members.kind === "tree" &&
-	family.member.name === relation &&
-	family.owner.name === relation
-
 /** A level's key in a nesting's normalizers. */
 const levelKey = (relation: string, at: LevelOf): string =>
 	at.kind === "top"
 		? `${relation}\u0000top`
 		: `${relation}\u0000${at.kind}\u0000${familyKey(at.family.id)}`
-
-const refusal = (detail: string): CompileError =>
-	unsupported(SourceLoc("ChangeSet.insert", []), detail)
 
 /** The fields of a level a fact supplies: its caller's and its serial ones, but those its nesting supplies: a member's
  * group, a tree node's root field, and a tree root's parent, which is itself. */
@@ -120,19 +107,20 @@ const ownHeading = (relation: LawRelation, at: LevelOf): Heading => {
 }
 
 /**
- * The nesting of an insert into `relation` over the law model's `families`: every family it reaches, each at its depth,
- * its levels' headings, and its filler. Refused when its rows can't be ordered by depth: a relation that is the member
- * of two families, or families that reach each other in a cycle other than a tree's own.
+ * The nesting of an insert into `relation` by the schema's fill order: every family it reaches, each at its depth, its
+ * levels' headings, and its filler. The fill order admits no sequences that nest each other in a cycle and no counted
+ * family's member a nesting reaches, so each sequence is reached once, a tree's own members by its recursion, and every
+ * reached row is filled by the walk.
  */
 export const nestingOf = (
 	relation: LawRelation,
-	families: ReadonlyArray<Family>,
+	fill: FillOrder,
 	codes: Codebook,
 	evaluate: HostEvaluator
 ): Result.Result<Nesting, CompileError> => {
+	const families = fill.families
 	const tree = families.find((f) => isTreeOf(f, relation.name))
 	const reached: Array<Reached> = []
-	const seen = new Map<string, number>()
 	let frontier: ReadonlyArray<{ readonly relation: string; readonly depth: number }> = [
 		{ relation: relation.name, depth: 1 }
 	]
@@ -140,53 +128,15 @@ export const nestingOf = (
 		const next: Array<{ readonly relation: string; readonly depth: number }> = []
 		for (const { relation: owner, depth } of frontier) {
 			for (const f of families.filter((g) => g.owner.name === owner && isSequence(g))) {
-				const key = familyKey(f.id)
-				const known = seen.get(key)
-				if (known !== undefined) {
-					if (isTreeOf(f, owner)) {
-						continue
-					}
-					return Result.err(
-						refusal(
-							`a nested write reaches the family ${f.id.owner}.${f.id.count} twice, at depths ${known} and ${depth}: families that nest each other have no order to write their rows in`
-						)
-					)
-				}
-				const sequences = families.filter(
-					(g) => g.member.name === f.member.name && isSequence(g) && !isTreeOf(g, g.member.name)
-				)
-				if (sequences.length > 1) {
-					return Result.err(
-						refusal(
-							`${f.member.name} is the member of ${sequences.length} sequences, so no one order writes it: a relation is a member of at most one ordered family or tree`
-						)
-					)
-				}
-				seen.set(key, depth)
 				reached.push({ family: f, depth })
 				if (!isTreeOf(f, owner)) {
 					next.push({ relation: f.member.name, depth: depth + 1 })
-				} else {
-					next.push({ relation: owner, depth: depth + 1 })
 				}
 			}
 		}
 		frontier = next
 	}
-	const counted = [relation.name, ...reached.map((r) => r.family.member.name)].find((name) =>
-		families.some((g) => g.member.name === name && !isSequence(g))
-	)
-	if (counted !== undefined) {
-		return Result.err(
-			refusal(
-				`a nested write of ${counted}, a member of a counted family: its counted slots are drawn by the rows-first planner, which this nesting does not reach`
-			)
-		)
-	}
-	const built = fillerOf(families, codes, evaluate)
-	if (!built.ok) {
-		return built
-	}
+	const built = fillerOf(fill, codes, evaluate)
 	const layouts = new Map<string, RowLayout>()
 	for (const name of new Set(reached.map((r) => r.family.member.name))) {
 		const member = defined(
@@ -214,7 +164,7 @@ export const nestingOf = (
 			families,
 			reached: Object.freeze(reached.toSorted((a, b) => a.depth - b.depth)),
 			codes,
-			filler: built.value,
+			filler: built,
 			levels: Object.freeze(levels),
 			layouts,
 			top: relation.fields

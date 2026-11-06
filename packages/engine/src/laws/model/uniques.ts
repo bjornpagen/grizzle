@@ -1,4 +1,5 @@
 import { appendAll, sameOrder } from "#compiler/core/array.ts"
+import { canonicalEquals, everyProperty } from "#compiler/core/canonical.ts"
 import { identifierOf } from "#compiler/core/identity.ts"
 import type { ColumnIdent, ConstraintName, LawId, NodeId } from "#compiler/core/ids.ts"
 import { defect } from "#compiler/core/invariant.ts"
@@ -293,6 +294,35 @@ export interface RelationLaws {
 	readonly primaryKey: NamedPrimaryKey
 	readonly uniques: UniqueObjects
 }
+
+/**
+ * Whether the object `w` holds apart every two facts `u` holds apart: neither is a span object, `u` compares every
+ * field `w` compares, and holds every fact `w` holds, its guards among `u`'s. Two facts `u` holds equal are then equal
+ * where `w` compares, and both meet `w`'s guards, so `u` holds no two facts apart that `w` does not.
+ */
+const subsumes = (w: UniqueObject | PrimaryKeyObject, u: UniqueObject): boolean =>
+	w.kind !== "span" &&
+	u.kind !== "span" &&
+	w.equal.every((f) => u.equal.includes(f)) &&
+	(w.kind === "key" ||
+		w.within.every((g) =>
+			u.kind === "guarded"
+				? u.within.some((h) => canonicalEquals(g.predicate, h.predicate, everyProperty))
+				: false
+		))
+
+/**
+ * The unique objects of a relation an addition meets beyond its primary key: every other object, but one another
+ * object subsumes (`subsumes`), the primary key or one before it, which holds no two facts apart that the other does
+ * not: a family's superkeys on its owner, which compare its primary key, and the targets of its predecessor and last
+ * axes on its members, which compare its family key.
+ */
+export const beyondPrimary = ({ uniques }: RelationLaws): ReadonlyArray<UniqueObject> =>
+	uniques.others.filter(
+		(u, i) =>
+			!subsumes(uniques.primary, u) &&
+			!uniques.others.some((w, j) => j !== i && subsumes(w, u) && (j < i || !subsumes(u, w)))
+	)
 
 /** A primary key as a unique object: a PRIMARY KEY's fields, or a primary key WITHOUT OVERLAPS's scalar fields and
  * span, with the law its violation reports. */

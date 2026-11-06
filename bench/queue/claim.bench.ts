@@ -72,6 +72,7 @@ import {
 	oneRow,
 	openDb,
 	owner,
+	ownerTransaction,
 	readBackRows,
 	type RoleSamples,
 	sampleRole,
@@ -382,7 +383,9 @@ export default defineGate({
 
 			/**
 			 * The lane: `pending` wanted render items in slot 0, `seats` gpu seats; `dead` transcode items and cpu seats for the
-			 * reclaim case. The law's triggers are off while the owner loads the lawful state.
+			 * reclaim case. The law's triggers are off while the owner loads the lawful state, in one transaction: the
+			 * alternatives' foreign key is native and deferred, which no DISABLE TRIGGER USER turns off, and holds only
+			 * once each item's Wanted row is in beside it.
 			 */
 			const seed = <F>(fx: Fixture<F>) =>
 				Effect.gen(function* () {
@@ -408,12 +411,12 @@ export default defineGate({
 					for (const t of governed) {
 						yield* owner(`ALTER TABLE ${fx.table(t)} DISABLE TRIGGER USER`)
 					}
-					yield* owner(
+					yield* ownerTransaction([
 						work(1, options.pending, "render"),
 						wanted(1, options.pending),
 						work(options.pending + 1, options.dead, "transcode"),
 						wanted(options.pending + 1, options.dead)
-					)
+					])
 					for (const t of governed) {
 						yield* owner(`ALTER TABLE ${fx.table(t)} ENABLE TRIGGER USER`)
 					}

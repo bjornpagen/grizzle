@@ -23,8 +23,8 @@ import { descOf, parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts
  * primary key holding a field grizzle writes names no row a caller can state: a sequence's member keyed by its owner
  * and its drawn index is refused, by the write and the key (UnstatedKey), when the ChangeSet is compiled, where its
  * facts used to reach the host's same-key check and the family's edit without the index, an internal invariant. The
- * control: the same family over a member keyed by an id its caller writes, whose put and delete compile and bind; and
- * the sequence's own insert, nested under its owner, which draws the index.
+ * control: the same family over a member keyed by an id its caller writes, whose put and delete compile and bind. The
+ * sequence's own insert, nested under its owner, which draws the index, is the nested writes' (test/unit/write/nested).
  *
  * A put's same-key check compares its facts at every declared key too, the primary key's first, so a key declared over
  * the member's owner and index beside its id is compared by no fact: such a put is refused the same way, naming the
@@ -232,21 +232,5 @@ describe("a write that names rows by a primary key", () => {
 						})
 				)
 			)
-	)
-
-	it.effect(
-		"compiles and binds the sequence's insert nested under its owner, which draws the index",
-		() =>
-			Effect.gen(function* () {
-				const nested = ChangeSet.empty(Indexed).insert(Owner, [
-					{ id: uuidOf(1), n: [{ x: 1n }, { x: 2n }] }
-				])
-				const program = succeeded(compileOver(Indexed, nested))
-				const members = yield* collectInputs(program.frontend, parsedOf(nested).inputs)
-				const bound = succeeded(
-					bindWrite(program, { members, params: {}, transport: inForce(bindFrame) })
-				)
-				assertVariant(bound, "kind", "bound", "the nested sequence binds")
-			})
 	)
 })

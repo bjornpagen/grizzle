@@ -1,11 +1,12 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { noCoverage } from "@grizzle/testing/features"
+import { required } from "@grizzle/testing/features"
 import { codePoint, element, type Gen, oneOf, string, weighted } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint, uuid } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import { Effect, Formatter, Option } from "effect"
+import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { int8Max, int8Min } from "#compiler/core/limits.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { plainType, wildcardText } from "#compiler/scalar/compute/types.ts"
@@ -24,24 +25,8 @@ import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { wild } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { auditTextViolations } from "#test/support/oracle/verify/sql.ts"
-import { expectSqlstate, inTransaction } from "#test/support/substrate/expect.ts"
-import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
-
-/** The write refusal channel on PostgreSQL 19.
- *
- * - The DETAIL expression PostgreSQL evaluates parses back to the key texts, uuid, bigint and any storable text alike,
- *   for a law's refusal and a concurrent change.
- * - The installed refusal function raises exactly its arguments: the SQLSTATE, the constraint name and the DETAIL
- *   arrive intact as the error fields the adapter classifies, for both refusal SQLSTATEs.
- * - A statement that refuses raises before it returns a row, wherever the plan evaluates its guard, so nothing after
- *   it in the transaction runs: the transaction is aborted (25P02), and a COMMIT sent after it without waiting answers
- *   ROLLBACK and leaves nothing committed. */
-const textOf = (value: unknown): string => {
-	if (typeof value !== "string") {
-		throw new Error("a text DETAIL")
-	}
-	return value
-}
+import { expectSqlstate } from "#test/support/substrate/expect.ts"
+import { freshSchema, Substrate } from "#test/support/substrate/substrate.ts"
 
 /** An error's DETAIL; an error without one fails. */
 const detailOf = (detail: Option.Option<string>): string =>
@@ -50,6 +35,10 @@ const detailOf = (detail: Option.Option<string>): string =>
 		onSome: (text) => text
 	})
 
+/** The write refusal channel on PostgreSQL 19: the installed refusal function raises exactly its arguments, the
+ * SQLSTATE, the constraint name and the DETAIL PostgreSQL evaluates, which arrive intact as the error fields the adapter
+ * classifies, for both refusal SQLSTATEs, and the DETAIL parses back to the key texts, uuid, bigint and any storable
+ * text alike, for a law's refusal and a concurrent change. The key's three fields: a uuid, a bigint and a text. */
 const key = [
 	{ field: "employee", expr: param(1, types.uuid), type: scalarOf({ kind: "uuid" }, {}) },
 	{ field: "week", expr: param(2, types.bigint), type: plainType("int8") },
@@ -118,108 +107,95 @@ const note: Gen<string> = weighted([
 	[1, element(grammarEdges)]
 ])
 
-layer(Substrate.layer)("the write refusal channel on PostgreSQL 19", (it) => {
-	it.effect("the DETAIL PostgreSQL evaluates parses back to the key texts", (ctx) =>
-		searched(
-			ctx,
-			Effect.gen(function* () {
-				const { admin } = yield* Substrate
-				const sql = `SELECT ${printExpr(refusalDetailExpr(law))}, ${printExpr(refusalDetailExpr(change))}`
-				assert.deepEqual(auditTextViolations(sql), [])
-				/** Both DETAILs of one key, evaluated by PostgreSQL, parse back to the key's texts. */
-				const roundTrip = ({ employee, week, note }: KeyTexts) =>
-					Effect.gen(function* () {
-						const rows = yield* admin.queryValues(sql, [employee, week, note])
-						assert.deepEqual(readLawDetail(textOf(rows[0]?.[0])), {
-							kind: "law",
-							relation: "Timesheet",
-							key: [
-								{ field: "employee", text: employee },
-								{ field: "week", text: week },
-								{ field: "note", text: note }
-							]
-						})
-						assert.deepEqual(readChangeDetail(textOf(rows[0]?.[1])), {
-							reason: "PutTargetConflict",
-							relation: "Timesheet"
-						})
-					})
-				return yield* explore(
-					{
-						suite: "pg/write/refusal-detail",
-						draw: drawn((source): KeyTexts => ({
-							employee: source.draw(uuid(7)),
-							week: source.draw(bigint(int8Min.value, int8Max.value)).toString(),
-							note: source.draw(note)
-						})),
-						literal: Formatter.format,
-						coverage: noCoverage,
-						kept: [],
-						runs: 300,
-						shrink: completeShrink,
-						concurrency: 1,
-						steerEvery: 16,
-						caseHang
-					},
-					roundTrip
-				)
-			})
-		)
-	)
+/** A refusal the installed function raises: its SQLSTATE and the DETAIL a law's refusal or a concurrent change makes. */
+type Raised = "a law's refusal" | "a concurrent change"
 
+const raisedFeatures: Arr.NonEmptyReadonlyArray<Raised> = ["a law's refusal", "a concurrent change"]
+
+layer(Substrate.layer)("the write refusal channel on PostgreSQL 19", (it) => {
 	it.effect(
-		"the installed function raises its SQLSTATE, constraint and DETAIL, and the transaction commits nothing",
-		() =>
-			Effect.gen(function* () {
-				const s = yield* Substrate
-				const schema = yield* s.schema(freshSchema)
-				for (const statement of refusalFunctionDdl(schema)) {
-					yield* s.admin.query(printStatement(statement), [])
-				}
-				yield* s.admin.query(`CREATE TABLE "${schema}"."t" ("id" integer PRIMARY KEY)`, [])
-				const call = (state: string, detail: ArmRefusal) =>
-					`SELECT "${schema}"."${refusalFunctionName}"('${state}'::text, '${constraint}'::text, ${printExpr(refusalDetailExpr(detail))})`
-				const values = [
-					"00000000-0000-4000-8000-000000000001",
-					"2911",
-					'a "quoted", \\escaped\\ [note]'
-				]
-				const raised = (state: string, detail: ArmRefusal) =>
-					Effect.gen(function* () {
-						const error = yield* expectSqlstate(s.admin.query(call(state, detail), values), state)
-						assert.equal(error.constraint, constraint)
-						return detailOf(error.detail)
-					})
-				const lawRaised = yield* raised(sqlstates.integrityConstraintViolation, law)
-				assert.equal(readLawDetail(lawRaised).kind, "law")
-				const changeRaised = yield* raised(sqlstates.grizzleConcurrentChange, change)
-				assert.deepEqual(readChangeDetail(changeRaised), {
-					reason: change.reason,
-					relation: change.relation
+		"the installed function raises its SQLSTATE and constraint, and a DETAIL PostgreSQL evaluates that parses back to the key texts",
+		(ctx) =>
+			searched(
+				ctx,
+				Effect.gen(function* () {
+					const s = yield* Substrate
+					const schema = yield* s.schema(freshSchema)
+					for (const statement of refusalFunctionDdl(schema)) {
+						yield* s.admin.query(printStatement(statement), [])
+					}
+					const sql = (refusal: ArmRefusal) =>
+						`SELECT "${schema}"."${refusalFunctionName}"($4::text, $5::text, ${printExpr(refusalDetailExpr(refusal))})`
+					assert.deepEqual(auditTextViolations(sql(law)), [])
+					assert.deepEqual(auditTextViolations(sql(change)), [])
+					/** One key's refusal raised through the installed function: the error PostgreSQL reports carries its SQLSTATE,
+					 * its constraint and its DETAIL, which parses back to the key's texts. */
+					const raised = ({ employee, week, note }: KeyTexts, kind: Raised) =>
+						Effect.gen(function* () {
+							const state =
+								kind === "a law's refusal"
+									? sqlstates.integrityConstraintViolation
+									: sqlstates.grizzleConcurrentChange
+							const error = yield* expectSqlstate(
+								s.admin.query(sql(kind === "a law's refusal" ? law : change), [
+									employee,
+									week,
+									note,
+									state,
+									constraint
+								]),
+								state
+							)
+							assert.equal(error.constraint, constraint)
+							const detail = detailOf(error.detail)
+							if (kind === "a law's refusal") {
+								assert.deepEqual(readLawDetail(detail), {
+									kind: "law",
+									relation: "Timesheet",
+									key: [
+										{ field: "employee", text: employee },
+										{ field: "week", text: week },
+										{ field: "note", text: note }
+									]
+								})
+							} else {
+								assert.deepEqual(readChangeDetail(detail), {
+									reason: "PutTargetConflict",
+									relation: "Timesheet"
+								})
+							}
+						})
+					return yield* explore(
+						{
+							suite: "pg/write/refusal-detail",
+							draw: drawn(
+								(source) =>
+									[
+										{
+											employee: source.draw(uuid(7)),
+											week: source.draw(bigint(int8Min.value, int8Max.value)).toString(),
+											note: source.draw(note)
+										},
+										source.draw(element(raisedFeatures))
+									] as const
+							),
+							literal: Formatter.format,
+							coverage: required<Raised>(raisedFeatures, { cases: 40, sense: notesOnly }),
+							kept: [],
+							runs: 300,
+							shrink: completeShrink,
+							concurrency: 1,
+							steerEvery: 16,
+							caseHang,
+							oracle: { kind: "universal", name: "read ∘ raise = id" }
+						},
+						([texts, kind], c) =>
+							Effect.gen(function* () {
+								c.note(kind)
+								yield* raised(texts, kind)
+							})
+					)
 				})
-				/** Everything sent after a refusal without waiting: the transaction is aborted, COMMIT answers ROLLBACK. */
-				const session = yield* s.session({ ...ownerSession(), label: "direct" })
-				yield* expectSqlstate(
-					inTransaction(
-						session,
-						Effect.andThen(
-							session.query(`INSERT INTO "${schema}"."t" VALUES (1::int4)`, []),
-							session.query(call(sqlstates.integrityConstraintViolation, law), values)
-						)
-					),
-					sqlstates.integrityConstraintViolation
-				)
-				yield* expectSqlstate(
-					session.query(`INSERT INTO "${schema}"."t" VALUES (2::int4)`, []),
-					"25P02"
-				)
-				const committed = yield* Effect.flip(session.commit)
-				if (committed._tag !== "TransactionRolledBack") {
-					return assert.fail(`COMMIT after a refusal failed with ${committed._tag}`)
-				}
-				assert.equal(committed.command, "ROLLBACK")
-				const rows = yield* s.admin.queryValues(`SELECT count(*)::text FROM "${schema}"."t"`, [])
-				assert.deepEqual(rows, [["0"]])
-			})
+			)
 	)
 })

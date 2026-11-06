@@ -34,7 +34,6 @@ import { scalarTypeOf } from "#compiler/scalar/registry.ts"
 import type { Expr } from "#compiler/sql/ast.ts"
 import { types } from "#compiler/sql/build.ts"
 import { printExpr } from "#compiler/sql/print.ts"
-import { textLookup } from "#compiler/text/refinement.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import {
 	codeAt,
@@ -60,8 +59,7 @@ const typeOver = (state: RosterState, desc: FieldDesc): ScalarType =>
 			desc,
 			{
 				kind: "builder",
-				roster: (name) => (name === state.closed ? liveOf(state) : undefined),
-				text: textLookup
+				roster: (name) => (name === state.closed ? liveOf(state) : undefined)
 			},
 			SourceLoc("a closed literal's field", [])
 		)

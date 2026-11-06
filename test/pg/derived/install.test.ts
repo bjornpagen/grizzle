@@ -9,7 +9,7 @@ import * as Result from "#compiler/core/result.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { codeOf } from "#compiler/ir/codes.ts"
 import type { InferredFieldDesc } from "#compiler/ir/desc.ts"
-import { baseOf } from "#compiler/ir/scalar.ts"
+import { baseOf, textInfoOf } from "#compiler/ir/scalar.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { conservativeInput, flight } from "#compiler/lower/conservative/types.ts"
 import { columnType } from "#compiler/physical/ddl/names.ts"
@@ -223,7 +223,7 @@ layer(Substrate.layer)("derived relations on PostgreSQL 19", (it) => {
 				const { view } = viewOf(installed, "Literals")
 				/** Each pattern's domain as the installation names it, as regtype prints a plain identifier. */
 				const domainOf = (source: string): string => {
-					const info = succeeded(textLookup(source, "u"))
+					const info = textInfoOf(source, "u", succeeded(textLookup(source, "u")))
 					if (info.regex === "wildcard") {
 						return assert.fail(`${source} is no tautology`)
 					}

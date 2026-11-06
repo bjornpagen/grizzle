@@ -14,6 +14,7 @@ import type { CompareOp, ExprDesc, LiteralDesc } from "#compiler/ir/desc.ts"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
 import { contractPredicateTable } from "#compiler/scalar/compute/total.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
+import { textLookup } from "#compiler/text/refinement.ts"
 import { assert, refused, succeeded } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { patternMember } from "#test/support/oracle/reference/evaluate.ts"
@@ -41,7 +42,8 @@ import {
 const options = {
 	loc: SourceLoc("test", []),
 	fieldType: (d: Parameters<typeof scalarOfDesc>[0]) => Result.ok(scalarOfDesc(d)),
-	regexMember: patternMember
+	regexMember: patternMember,
+	patternLanguage: textLookup
 }
 
 /** The bases a contract's VALUE is drawn of: the integers, numeric at a typmod and at the widest, a float and money. */

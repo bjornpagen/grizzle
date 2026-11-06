@@ -1153,31 +1153,29 @@ const covers = (own: Membership, family: Membership): boolean =>
 	(family.kind === "narrowed" && printExpr(own.filter) === printExpr(family.filter))
 
 /**
- * The constants a role is granted EXECUTE on, with their objects (InstallBuilder.reached): every one a statement it runs
- * calls, directly or through another constant's body, since PostgreSQL checks EXECUTE against the invoker. Those are the
- * CHECKs of the domains its columns are typed by, which a write and a cast to the domain run; the table it writes, its
- * CHECKs and generated columns; its views' columns, a closed id's decoded name among them; and every closed relation's
- * constants, which its queries' closed reads call.
+ * The constants a role is granted EXECUTE on, with their objects: every one its statements evaluate, transitively
+ * through constants' bodies and domains' base types and CHECKs (InstallBuilder.evaluated), since PostgreSQL checks
+ * EXECUTE against the invoker. Its statements evaluate the domains its own statements name, those its columns are typed
+ * by, which a write's carriers and casts coerce into; every statement on a table it writes or updates an owner's count
+ * in, its columns' types and defaults, its CHECKs and generated columns, each cast to a domain in them included, and its
+ * indexes' expressions; its policies' predicates; its views' columns, a closed id's decoded name among them; and every
+ * closed relation's constants, which its queries' closed reads call.
  */
 const roleExecutes = (
 	b: InstallBuilder,
 	use: TypeUse,
 	written: ReadonlyArray<string>,
+	policies: ReadonlyArray<Membership>,
 	views: ReadonlyArray<SqlStatement>
-): ReadonlyArray<{ readonly name: FunctionName; readonly node: Node<"setup"> }> => {
-	const statements = [
-		...[...use.domains.values()].flatMap((t) => (t.node === undefined ? [] : t.node.ddl)),
-		...written.flatMap((relation) => b.table(relation).ddl),
-		...views
-	]
-	const closed = Object.values(b.owned.relations).flatMap((r) => {
-		if (r.kind !== "closedRelation") {
-			return []
-		}
-		return b.names.closed(r.name).functions.map((f) => f.name)
+): ReadonlyArray<{ readonly name: FunctionName; readonly node: Node<"setup"> }> =>
+	b.evaluated({
+		statements: [...written.flatMap((relation) => b.evaluatedOn(relation)), ...views],
+		predicates: policies.flatMap((m) => (m.kind === "narrowed" ? [m.filter] : [])),
+		domains: [...use.domains.keys()],
+		constants: Object.values(b.owned.relations).flatMap((r) =>
+			r.kind === "closedRelation" ? b.names.closed(r.name).functions.map((f) => f.name) : []
+		)
 	})
-	return b.reached([...b.callsOf(statements), ...closed])
-}
 
 /** One role's theory role, schema, views, filter functions, key and unique probes and grants, and its writable entries,
  * whose policies `addRowSecurity` adds. A roster whole entry has no view: its handles are read as codes, typed by its
@@ -1383,6 +1381,7 @@ const addRole = (
 			...written.map((w) => w.relation.name),
 			...holds.flatMap((h) => (isNonEmpty(h.update) ? [h.owner.name] : []))
 		],
+		writers.map((w) => w.membership),
 		viewStatements
 	)
 	if (isNonEmpty(executes)) {
@@ -1606,11 +1605,15 @@ const addRowSecurity = (b: InstallBuilder, writers: ReadonlyArray<Writer>): void
  *   sets, O's count and ends, none on an immutable O, whose family is fixed at insert; USAGE on those fields' domains.
  *   EXECUTE on the refusal function to a role that writes or reads a context: its
  *   context sources refuse an unreadable claims setting through it, and PostgreSQL checks EXECUTE on every function of
- *   a plan as the plan starts, a branch never taken included. EXECUTE on every constant a statement it runs calls,
- *   through constants' bodies (`roleExecutes`): the CHECKs of the domains it holds USAGE on, the CHECKs and generated
- *   columns of the tables it writes or updates an owner's count in, its views' decoded columns, and every closed relation's constants, which its
- *   queries' closed reads call. TRUNCATE is granted to no one, and no role holds a privilege on a base table it does
- *   not write or own a member of.
+ *   a plan as the plan starts, a branch never taken included. EXECUTE on every constant its statements evaluate,
+ *   through constants' bodies and domains' base types and CHECKs alike (`roleExecutes`): the domains it holds USAGE
+ *   on; every statement on a table it writes or updates an owner's count in, its column types, defaults, CHECKs,
+ *   generated columns and index expressions, each cast to a domain in them included; its policies' predicates; its
+ *   views' decoded columns; and every closed relation's constants, which its queries' closed reads call, and no other
+ *   constant. USAGE is checked only where a statement creates an object of the type, which a role does only for its
+ *   carriers, typed as its written fields are, so a domain a CHECK or a generated column alone casts into needs EXECUTE
+ *   on what its CHECKs call and no USAGE. TRUNCATE is granted to no one, and no role holds a privilege on a base table
+ *   it does not write or own a member of.
  *
  * Row security is enabled on exactly the tables some role writes through a query entry with a filter, once their
  * policies stand, `ALTER TABLE ... ENABLE ROW LEVEL SECURITY`; its owner, the migration identity, bypasses it, and FORCE

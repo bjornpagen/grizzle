@@ -8,8 +8,13 @@ import type { ResolvedConfig } from "#cli/config.ts"
 import type { CliError } from "#cli/errors.ts"
 import { readSchemaTree } from "#cli/files.ts"
 
-/** Every configured schema's migration target, read before connecting. */
-const readTargets = (
+/**
+ * Every configured schema's migration target, read before connecting: its committed snapshot and folders, compiling
+ * nothing.
+ *
+ * @internal
+ */
+export const readTargets = (
 	config: ResolvedConfig
 ): Effect.Effect<ReadonlyArray<MigrationTarget>, CliError, FileSystem.FileSystem | Path.Path> =>
 	Effect.forEach(config.schemas, (schema) =>
@@ -24,8 +29,9 @@ const readTargets = (
  * `grizzle migrate` and `grizzle drift`.
  *
  * The command takes no flags. Where to connect comes first (run.ts, connection.ts migrationConnection), so a connection
- * or a process environment it refuses is refused before any check runs or any directory is read; then every check
- * `grizzle check` runs (run.ts); then it reads every configured schema's directory, its snapshot.json and its folders
+ * or a process environment it refuses is refused before any check runs or any directory is read; then every check of
+ * the committed files `grizzle check` runs (run.ts, check.ts checkFiles), compiling nothing, since migrate applies the
+ * files as they are; then it reads every configured schema's directory, its snapshot.json and its folders
  * as text (files.ts, committed.ts), and hands them and the connection to the apply runner
  * (packages/grizzle/src/adapter/migrate), which connects as the migration identity and, for every schema in configured order, checks
  * before any statement of any folder runs that the role owns the schema, that the apply lock is free, that the ledger's

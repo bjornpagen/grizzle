@@ -1,6 +1,5 @@
 import { Array as Arr, Option, Record as Rec, String as Str } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import * as Result from "#compiler/core/result.ts"
 import { canonicalZero, VectorText } from "#compiler/ir/carriers.ts"
 import { decimalPayload } from "#compiler/ir/decimal.ts"
 import type { FieldDesc, LiteralDesc } from "#compiler/ir/desc.ts"
@@ -10,6 +9,9 @@ import {
 	type Capability,
 	type Carrier,
 	contractOf,
+	languageOfText,
+	type NumericBound,
+	numericBoundOf,
 	numericTypmodOf,
 	type Roster,
 	rosterOf,
@@ -19,11 +21,11 @@ import {
 	vectorTypmodOf
 } from "#compiler/ir/scalar.ts"
 import { wildcardText } from "#compiler/scalar/compute/types.ts"
-import { noRosters, scalarTypeOf, type TextLookup } from "#compiler/scalar/registry.ts"
+import { noRosters, scalarTypeOf } from "#compiler/scalar/registry.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
-import { analyzeText, textInfo } from "#compiler/text/refinement.ts"
 import { defined } from "#test/support/assert.ts"
+import { textDesc } from "#test/support/fixtures/ir/desc.ts"
 import { toastPair, toastText } from "#test/support/oracle/gen/toast.ts"
 import { elementAt } from "#test/support/oracle/pick.ts"
 
@@ -143,7 +145,7 @@ const specDesc = (spec: TypeSpec): FieldDesc => {
 		case "numericTypmod":
 			return { kind: "numeric", precision: spec.precision, scale: spec.scale }
 		case "text":
-			return { kind: "text", source: genTextSource, flags: genTextFlags }
+			return textDesc(genTextSource, genTextFlags)
 		case "code":
 			return { kind: "closedId", roster: spec.roster.closed }
 		case "contract":
@@ -158,12 +160,12 @@ const specDesc = (spec: TypeSpec): FieldDesc => {
 				: {
 						kind: "contract",
 						name: "Code",
-						base: { kind: "text", source: codeSource, flags: "u" },
+						base: textDesc(codeSource, "u"),
 						predicate: undefined,
 						facts: []
 					}
 		case "longText":
-			return { kind: "text", source: longTextSource, flags: "u" }
+			return textDesc(longTextSource, "u")
 		case "vector":
 			return { kind: "vector", dimensions: vectorDimensions }
 		case "range4":
@@ -182,13 +184,6 @@ export const wideNumericTypmod = { precision: 161, scale: 40 } as const
 const wideNumericSpec: TypeSpec = { carrier: "numericTypmod", ...wideNumericTypmod }
 
 /**
- * The text package's reading of a generated pattern: the canonical metadata the schema compiler gives a str.regex
- * field.
- */
-const analyzedText: TextLookup = (source, flags) =>
-	Result.map(analyzeText(source, flags, SourceLoc("a generated text field", [])), textInfo)
-
-/**
  * The ScalarType of a spec: the descriptor registry's reading of its field descriptor (scalarTypeOf) under the text
  * package's canonical metadata and the spec's roster, so a generated type is the one the schema compiler and the
  * checker give its field, and the checker's own result types (plainType, commonType) are sameScalarType with the
@@ -200,8 +195,7 @@ export const scalarOfSpec = (spec: TypeSpec): ScalarType => {
 		specDesc(spec),
 		{
 			kind: "builder",
-			roster: (name) => (roster?.closed === name ? roster.handles : noRosters(name)),
-			text: analyzedText
+			roster: (name) => (roster?.closed === name ? roster.handles : noRosters(name))
 		},
 		SourceLoc("a generated field", [])
 	)
@@ -389,13 +383,14 @@ export const fieldDescOf = (type: ScalarType): FieldDesc => {
 		case "uuid":
 			return { kind: "uuid" }
 		case "text": {
-			const regex = textOf(type)?.regex
-			if (regex === "wildcard") {
-				return { kind: "text", source: "^.*$", flags: "su" }
+			const text = textOf(type)
+			if (text === undefined) {
+				return textDesc(genTextSource, genTextFlags)
 			}
-			return regex === undefined
-				? { kind: "text", source: genTextSource, flags: genTextFlags }
-				: { kind: "text", source: regex.source, flags: regex.flags }
+			const language = languageOfText(text)
+			return text.regex === "wildcard"
+				? { kind: "text", source: "^.*$", flags: "su", language }
+				: { kind: "text", source: text.regex.source, flags: text.regex.flags, language }
 		}
 		case "code":
 			return { kind: "closedId", roster: codeRoster(type).closed }
@@ -693,9 +688,36 @@ const typmodText = (type: ScalarType): string => {
 }
 
 /**
- * The value classes of a type: the raw classes whose value the type holds exactly (a numeric typmod's rounding or
- * overflow and infinity under a typmod refused; literalProblem). A closed id has one class per live handle, in roster
- * order.
+ * A numeric class inside a computed numeric's bound, by construction: its fraction cut to the bound's scale and its
+ * integer part to the bound's integer digits, the sign kept, so the value is one the type proves (kernel/strict.ts
+ * withinBound); NaN and the infinities, which a computed numeric holds, as they are, and every other literal itself.
+ */
+const withinNumericBound = (literal: TypedLiteral, bound: NumericBound): TypedLiteral => {
+	if (literal.kind !== "numeric" || literal.value.parts.kind !== "finite") {
+		return literal
+	}
+	const p = literal.value.parts
+	const scale = Math.min(p.minScale, bound.scale)
+	const units = p.coefficient / 10n ** BigInt(p.minScale - scale)
+	const whole = units / 10n ** BigInt(scale)
+	const kept =
+		whole === 0n || Str.length(whole.toString()) <= bound.digits
+			? units
+			: units % 10n ** BigInt(bound.digits + scale)
+	const value = Decimal.fromParts(p.negative, kept, scale)
+	if (!value.ok) {
+		throw new Error(
+			`a numeric class within the bound (${bound.digits}, ${bound.scale}) is a Decimal`
+		)
+	}
+	return { kind: "numeric", value: value.value }
+}
+
+/**
+ * The value classes of a type: a computed numeric's raw classes each brought within the bound its type proves
+ * (withinNumericBound), one class per value; then the classes whose value the type holds exactly (a numeric typmod's
+ * rounding or overflow and infinity under a typmod refused; literalProblem). A closed id has one class per live
+ * handle, in roster order.
  */
 export const valueClasses = (type: ScalarType, edge: boolean): Classes => {
 	const carrier = genCarrierOf(type)
@@ -703,12 +725,20 @@ export const valueClasses = (type: ScalarType, edge: boolean): Classes => {
 		return Arr.map(codeRoster(type).handles, (handle): TypedLiteral => ({ kind: "handle", handle }))
 	}
 	const flavor = carrier === "text" ? textFlavor(type) : "plain"
-	const drawn =
+	const raw =
 		flavor === "code"
 			? codeClasses
 			: flavor === "long"
 				? longTextClasses
 				: [...rawClasses[carrier], ...(edge ? (edgeClasses[carrier] ?? []) : [])]
+	const bound = numericBoundOf(type)
+	const drawn =
+		bound === undefined
+			? raw
+			: Arr.dedupeWith(
+					Arr.map(raw, (literal) => withinNumericBound(literal, bound)),
+					(a: TypedLiteral, b: TypedLiteral) => nativeEqualityKey(a) === nativeEqualityKey(b)
+				)
 	const classes = Arr.filter(drawn, (literal) => literalProblem(literal, type) === undefined)
 	if (classes.length === 0) {
 		throw new Error(

@@ -1,15 +1,14 @@
-import type { CompileError } from "#compiler/core/errors.ts"
-import * as Result from "#compiler/core/result.ts"
 import type { RelationDesc, SchemaDesc } from "#compiler/ir/desc.ts"
-import { isLevelOf, levelRelations } from "#compiler/schema/levels.ts"
-import { schemaDescOf } from "#compiler/schema/schema.ts"
+import { isLevelOf, levelRelations, type SchemaContent } from "#compiler/schema/levels.ts"
+import { ownedEntry } from "#compiler/schema/protocol.ts"
 import { type RoleLevel, roleLevelOf } from "#compiler/schema/world.ts"
 
-/** What a query or a ChangeSet is written over, as a level: a schema with its levels, or a role over its base, with
- * its level as role(...) read it once (`RoleLevel`). A role's levels are itself and, for a full role, which holds every
- * relation of its base whole under its own name, every level of its base: programs over the base run on it unchanged. */
+/** What a query or a ChangeSet is written over, as a level: a schema with its levels and its content, or a role over
+ * its base, with its level as role(...) read it once (`RoleLevel`). A role's levels are itself and, for a full role,
+ * which holds every relation of its base whole under its own name, every level of its base: programs over the base run
+ * on it unchanged. */
 export type Level =
-	| { readonly kind: "schema"; readonly desc: SchemaDesc }
+	| { readonly kind: "schema"; readonly desc: SchemaDesc; readonly content: SchemaContent }
 	| ({ readonly kind: "role" } & RoleLevel)
 
 /** What a ChangeSet is built over: a level, with every relation of every level of its schema, or of its role's base, by
@@ -18,6 +17,7 @@ export type BuiltOver =
 	| {
 			readonly kind: "schema"
 			readonly desc: SchemaDesc
+			readonly content: SchemaContent
 			readonly relations: ReadonlyMap<string, RelationDesc>
 	  }
 	| ({ readonly kind: "role" } & RoleLevel)
@@ -28,26 +28,19 @@ export type BuiltOver =
  * highest of their arguments' schemas; schemas of which neither is a level of the other do not combine. The relations a
  * ChangeSet may write are the ordinary relations of every level (`WritableOf`). A level is its content, not its name,
  * by the one level check every entry point shares, `isLevelOf`; two roles are one level when their identities are. */
-export const isLevelOver = (lower: Level, higher: Level): Result.Result<boolean, CompileError> => {
+export const isLevelOver = (lower: Level, higher: Level): boolean => {
 	if (higher.kind === "schema") {
-		return lower.kind === "schema" ? isLevelOf(lower.desc, higher.desc) : Result.ok(false)
+		return lower.kind === "schema" && isLevelOf(lower.content, higher.content)
 	}
 	if (lower.kind === "role") {
-		return Result.flatMap(lower.identity, (a) => Result.map(higher.identity, (b) => a === b))
+		return lower.identity === higher.identity
 	}
-	return higher.full ? isLevelOf(lower.desc, higher.desc.base) : Result.ok(false)
+	return higher.full && isLevelOf(lower.content, higher.base)
 }
 
 /** The higher of two built-overs when one is a level of the other, or neither. */
-export const higherOver = (
-	a: BuiltOver,
-	b: BuiltOver
-): Result.Result<"a" | "b" | "neither", CompileError> =>
-	Result.flatMap(isLevelOver(a, b), (aBelowB) =>
-		aBelowB
-			? Result.ok("b" as const)
-			: Result.map(isLevelOver(b, a), (bBelowA) => (bBelowA ? "a" : "neither"))
-	)
+export const higherOver = (a: BuiltOver, b: BuiltOver): "a" | "b" | "neither" =>
+	isLevelOver(a, b) ? "b" : isLevelOver(b, a) ? "a" : "neither"
 
 /** The level of a built value: a schema built by schema(...) or schema.extend(...), or a role built by role(...);
  * undefined for any other value. */
@@ -56,8 +49,10 @@ export const levelOf = (value: unknown): Level | undefined => {
 	if (role !== undefined) {
 		return { kind: "role", ...role }
 	}
-	const schema = schemaDescOf(value)
-	return schema === undefined ? undefined : { kind: "schema", desc: schema }
+	const schema = ownedEntry(value, "schema")
+	return schema === undefined
+		? undefined
+		: { kind: "schema", desc: schema.desc, content: schema.content }
 }
 
 /** What a ChangeSet begun over a built value is built over (`levelOf`), its relations read; undefined for a value no

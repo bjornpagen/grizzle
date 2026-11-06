@@ -1,6 +1,8 @@
 import { canonicalTextOf, catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import {
 	CompileError,
+	type Guard,
+	type GuardTest,
 	type PreconditionKind,
 	prose,
 	type ProseTag,
@@ -70,6 +72,7 @@ import type {
 } from "#compiler/ir/proof.ts"
 import {
 	baseOf,
+	type Carrier,
 	contractOf,
 	type ContractInfo,
 	isRefined,
@@ -173,7 +176,7 @@ import { matchFlags, matchPattern } from "#compiler/scalar/regex/admit.ts"
 import { type Inclusion, patternIncludes } from "#compiler/scalar/regex/inclusion.ts"
 import { type CharMap, charMapOf, imageFlags, imageOf } from "#compiler/scalar/regex/translate.ts"
 import { collapseSources } from "#compiler/scalar/regex/whitespace.ts"
-import { capabilitiesOf, numericValue } from "#compiler/scalar/registry.ts"
+import { capabilitiesOf, numericValue, type TextLookup } from "#compiler/scalar/registry.ts"
 import { Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 
@@ -306,9 +309,14 @@ export type LowerEnv<R extends Refs = Spelled> =
 	| (LowerCommon<R> & {
 			readonly mode: "query"
 			readonly regexMember: RegexMember
+			readonly patternLanguage: TextLookup
 			readonly extension: LowerExtension<R>
 	  })
-	| (LowerCommon<R> & { readonly mode: "check"; readonly regexMember: RegexMember })
+	| (LowerCommon<R> & {
+			readonly mode: "check"
+			readonly regexMember: RegexMember
+			readonly patternLanguage: TextLookup
+	  })
 	| (LowerCommon<R> & { readonly mode: "build" })
 
 /**
@@ -372,6 +380,7 @@ const checkMembers: ReadonlySet<string> = new Set([
 	"abs",
 	"sign",
 	"charLength",
+	"octetLength",
 	"concat",
 	"startsWith",
 	"endsWith",
@@ -880,23 +889,92 @@ const mapText = <R extends Refs>(
 			)
 
 /** The guard a refusal names, for the precondition it lacks. */
-const guardText = (precondition: PreconditionKind, operand: string, operation: string): string => {
+/** Whether Compute.within guards a value of `carrier`: a number's, the numeric family (scalar/compute/tables.ts). */
+const withinGuards = (carrier: Carrier): boolean => {
+	switch (carrier) {
+		case "int2":
+		case "int4":
+		case "int8":
+		case "numeric":
+		case "float4":
+		case "float8":
+		case "money":
+		case "exactInteger":
+		case "exactMoney":
+			return true
+		case "bool":
+		case "uuid":
+		case "date":
+		case "text":
+		case "code":
+		case "bits":
+		case "range4":
+		case "range8":
+		case "vector":
+			return false
+	}
+}
+
+/**
+ * The test a guard of `precondition` puts over an operand of type `operand`: a fact's own test, Compute.within for a
+ * magnitude, Compute.matches for a text's language or lexical form. A contract proves its predicate of an operand by
+ * its bounds, which Compute.within narrows over a number and no Compute test over a text, a boolean, a uuid or a date,
+ * so over those only a value of the contract's type proves it.
+ */
+const guardTest = (precondition: PreconditionKind, operand: ScalarType | undefined): GuardTest => {
 	switch (precondition) {
 		case "nonzero":
-			return `Compute.when(Compute.nonzero(${operand}), (${operand}) => ${operation}, <your value>)`
+			return { kind: "nonzero" }
 		case "nonnegative":
-			return `Compute.when(Compute.nonnegative(${operand}), (${operand}) => ${operation}, <your value>)`
+			return { kind: "nonnegative" }
 		case "finite":
-			return `Compute.when(Compute.isFinite(${operand}), (${operand}) => ${operation}, <your value>)`
+			return { kind: "isFinite" }
 		case "fits":
-		case "contract":
 		case "powerDomain":
 		case "bucketDomain":
-			return `Compute.when(Compute.within(${operand}, <low>, <high>), (${operand}) => ${operation}, <your value>), its bounds within which the operation is defined`
+			return { kind: "within" }
+		case "contract":
+			return operand !== undefined && withinGuards(valueType(operand).carrier)
+				? { kind: "within" }
+				: { kind: "typed" }
 		case "language":
-			return `a text whose type's pattern lies inside the target's, or Compute.when(Compute.matches(${operand}, <the target's pattern>), (${operand}) => ${operation}, <your value>)`
+			return { kind: "matches", pattern: "target" }
 		case "lexical":
-			return `a text whose type proves the target's lexical form, str.regex(lexicalForm(<target>)) or a refinement of it, or Compute.when(Compute.matches(${operand}, lexicalForm(<target>)), (${operand}) => ${operation}, <your value>)`
+			return { kind: "matches", pattern: "lexicalForm" }
+	}
+}
+
+/** The guard a refusal names: its test, and the Compute.when to write over `operand` around `operation`. */
+const guardOf = (test: GuardTest, operand: string, operation: string): Guard => {
+	const when = (check: string): string =>
+		`Compute.when(${check}, (${operand}) => ${operation}, <your value>)`
+	switch (test.kind) {
+		case "nonzero":
+			return { test, text: when(`Compute.nonzero(${operand})`) }
+		case "nonnegative":
+			return { test, text: when(`Compute.nonnegative(${operand})`) }
+		case "isFinite":
+			return { test, text: when(`Compute.isFinite(${operand})`) }
+		case "within":
+			return {
+				test,
+				text: `${when(`Compute.within(${operand}, <low>, <high>)`)}, its bounds within which the operation is defined`
+			}
+		case "matches":
+			return test.pattern === "target"
+				? {
+						test,
+						text: `a text whose type's pattern lies inside the target's, or ${when(`Compute.matches(${operand}, <the target's pattern>)`)}`
+					}
+				: {
+						test,
+						text: `a text whose type proves the target's lexical form, str.regex(lexicalForm(<target>)) or a refinement of it, or ${when(`Compute.matches(${operand}, lexicalForm(<target>))`)}`
+					}
+		case "typed":
+			return {
+				test,
+				text: `a value of the target's type, a parameter its binding checks or a literal its admission judges: no Compute test over ${operand}'s type proves the target's contract`
+			}
 	}
 }
 
@@ -1196,7 +1274,7 @@ class Lowering<R extends Refs> {
 					operation,
 					precondition: precondition.kind,
 					operand: text,
-					guard: guardText(precondition.kind, text, operation)
+					guard: guardOf(guardTest(precondition.kind, named?.nominal), text, operation)
 				})
 			)
 		}
@@ -1954,7 +2032,22 @@ class Lowering<R extends Refs> {
 		const node = this.native(op, [x, f, t], wildcardText, undefined, at, "Compute.translate")
 		return this.env.mode === "build" || text === undefined
 			? node
-			: { ...node, nominal: this.image(text.regex, map.value, at) }
+			: { ...node, nominal: this.image(text.regex, map.value, this.env.patternLanguage, at) }
+	}
+
+	/**
+	 * Text of a pattern this lowering computes, typed as a str.regex of it is: its language analyzed by `analyze`, the
+	 * text analysis, where the pattern is computed, which the descriptor then carries as a declared one does.
+	 */
+	computedText(
+		source: string,
+		flags: "u" | "su",
+		analyze: TextLookup,
+		at: SourceLoc
+	): Result.Result<ScalarType, CompileError> {
+		return Result.flatMap(analyze(source, flags), (language) =>
+			this.env.fieldType({ kind: "text", source, flags, language }, at)
+		)
 	}
 
 	/**
@@ -1962,10 +2055,9 @@ class Lowering<R extends Refs> {
 	 * is: the exact image, or, where the exact source passes a measure of PostgreSQL's regex compile space that the
 	 * language's own pattern fits, the image of that pattern alone, which holds every value of the image.
 	 */
-	image(regex: TextInfo["regex"], map: CharMap, at: SourceLoc): ScalarType {
+	image(regex: TextInfo["regex"], map: CharMap, analyze: TextLookup, at: SourceLoc): ScalarType {
 		const sources = imageOf(regex, map)
-		const typed = (source: string) =>
-			this.env.fieldType({ kind: "text", source, flags: imageFlags }, at)
+		const typed = (source: string) => this.computedText(source, imageFlags, analyze, at)
 		const exact = typed(sources.exact)
 		return exact.ok ? exact.value : unwrap(typed(sources.within))
 	}
@@ -1993,16 +2085,16 @@ class Lowering<R extends Refs> {
 		const node = this.native(op, [x], wildcardText, undefined, at, "Compute.collapse")
 		return this.env.mode === "build" || text === undefined
 			? node
-			: { ...node, nominal: this.collapseType(text, at) }
+			: { ...node, nominal: this.collapseType(text, this.env.patternLanguage, at) }
 	}
 
 	/**
 	 * Text of a language holding the image of `text`'s under collapse (scalar/regex/whitespace.ts collapseSources), the
 	 * first of its patterns the text analysis admits, each held to its measures as a str.regex is.
 	 */
-	collapseType(text: TextInfo, at: SourceLoc): ScalarType {
+	collapseType(text: TextInfo, analyze: TextLookup, at: SourceLoc): ScalarType {
 		for (const c of collapseSources(text.regex, text.lengthBound)) {
-			const typed = this.env.fieldType({ kind: "text", source: c.source, flags: c.flags }, at)
+			const typed = this.computedText(c.source, c.flags, analyze, at)
 			if (typed.ok) {
 				return typed.value
 			}
@@ -2374,8 +2466,10 @@ class Lowering<R extends Refs> {
 			return []
 		}
 		const type = unwrap(
-			this.env.fieldType(
-				{ kind: "text", source: guard.pattern, flags: matchFlags },
+			this.computedText(
+				guard.pattern,
+				matchFlags,
+				this.env.patternLanguage,
 				childLoc(at, "pattern")
 			)
 		)
@@ -2586,7 +2680,7 @@ class Lowering<R extends Refs> {
 			return stop(
 				"UnsupportedOperation",
 				here,
-				`${fn} in a contract predicate or row check: a check admits the operations the host evaluates for the ContractLiteral check, which are comparisons, between, in, boolean composition, abs, sign, arithmetic, Compute.cond, Compute.when, casts, charLength, span endpoints, greatest and the set algebra`
+				`${fn} in a contract predicate or row check: a check admits the operations the host evaluates for the ContractLiteral check, which are comparisons, between, in, boolean composition, abs, sign, arithmetic, Compute.cond, Compute.when, casts, charLength, octetLength, span endpoints, greatest and the set algebra`
 			)
 		}
 		const arity: Readonly<Record<string, number | undefined>> = {
@@ -2604,6 +2698,7 @@ class Lowering<R extends Refs> {
 			upper: 1,
 			width: 1,
 			charLength: 1,
+			octetLength: 1,
 			concat: 2,
 			startsWith: 2,
 			endsWith: 2,
@@ -2860,12 +2955,13 @@ class Lowering<R extends Refs> {
 			}
 			case "width":
 				return this.width(arg(0), here)
-			case "charLength": {
+			case "charLength":
+			case "octetLength": {
 				if (this.env.mode === "query") {
 					return stop(
 						"UnsupportedOperation",
 						here,
-						"charLength in a query: it exists only in contract predicates and row checks, because queries have no text functions"
+						`${desc.fn} in a query: it exists only in contract predicates and row checks, because queries have no text functions`
 					)
 				}
 				const a = this.term(arg(0), here)
@@ -2873,12 +2969,12 @@ class Lowering<R extends Refs> {
 					return stop(
 						"MalformedDescription",
 						here,
-						`a text term for charLength, not ${typeLabel(a.nominal)}`
+						`a text term for ${desc.fn}, not ${typeLabel(a.nominal)}`
 					)
 				}
-				const op = this.overload("charLength", [a.actual], here)
+				const op = this.overload(desc.fn, [a.actual], here)
 				const bounds = ofRange(0n, BigInt(maxAllocSize.value), String(maxAllocSize.value).length)
-				return this.native(op, [a], this.resultType(op, bounds), bounds, here, "charLength")
+				return this.native(op, [a], this.resultType(op, bounds), bounds, here, desc.fn)
 			}
 			case "concat": {
 				if (this.env.mode === "query") {
@@ -3096,7 +3192,11 @@ class Lowering<R extends Refs> {
 
 	/**
 	 * gcd and lcm: over integer and bigint exact (gcd(-2^63, 0) is 2^63), over smallint and exact integers the exact
-	 * integers' over the widened operands, over numeric numeric's.
+	 * integers' over the widened operands, over numeric numeric's, at the larger of the operands' scales S. Their integer
+	 * digits, for operands below 10^da and 10^db: x·10^S and y·10^S are integers X and Y, gcd(x, y) is gcd(X, Y)/10^S, at
+	 * most the larger of |x| and |y|, so below 10^max(da, db); lcm(x, y) is lcm(X, Y)/10^S, at most |X·Y|/10^S, so below
+	 * 10^(da + S + db + S)/10^S = 10^(da + db + S). The lcm bound is reached: lcm(999.99, 999.98) is 99997000.02, eight
+	 * integer digits from two of three.
 	 */
 	gcdLcm(
 		fn: "gcd" | "lcm",
@@ -3118,14 +3218,11 @@ class Lowering<R extends Refs> {
 		const op = this.overload(fn, [valueType(a.nominal), valueType(b.nominal)], at)
 		const da = a.bounds?.digits ?? 0
 		const db = b.bounds?.digits ?? 0
-		const bounds = ofDigits(
-			fn === "gcd" ? Math.max(da, db) : da + db,
-			Math.max(a.bounds?.scale ?? 0, b.bounds?.scale ?? 0),
-			{
-				infinite: false,
-				nan: valueType(a.nominal).carrier === "numeric"
-			}
-		)
+		const scale = Math.max(a.bounds?.scale ?? 0, b.bounds?.scale ?? 0)
+		const bounds = ofDigits(fn === "gcd" ? Math.max(da, db) : da + db + scale, scale, {
+			infinite: false,
+			nan: valueType(a.nominal).carrier === "numeric"
+		})
 		return this.native(op, [a, b], this.resultType(op, bounds), bounds, at, `Compute.${fn}`)
 	}
 

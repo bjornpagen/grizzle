@@ -1,6 +1,8 @@
-import { carrierSpecOf } from "#compiler/codec/scalar.ts"
+import { layoutKey } from "#compiler/analysis/theory/fill.ts"
 /**
- * The host's fills of a nested write (W3.P2): every column of every row a nesting writes that grizzle writes itself.
+ * The host's fills of a nested write (W3.P2): every column of every row a nesting writes that grizzle writes itself, by
+ * the schema's fill order (ir/fill.ts), which the analysis built and checked when the schema compiled
+ * (analysis/theory/fill.ts).
  *
  * A caller writes an owner with its families' members nested at its count fields, to any depth, a tree's nodes
  * included (write/changeset/value.ts encodeAddition). Each row's caller fields are the caller's; every other column the
@@ -8,7 +10,8 @@ import { carrierSpecOf } from "#compiler/codec/scalar.ts"
  *
  * - a member's group, its owner's key, and a tree node's root field, its parent's;
  * - the drawn columns: an ordered family's index, a counted one's ‹i›, each family's count and ‹n›, and a tree's
- *   `children`, `start`, `end` and ‹ps›, drawn in one iterative pre-order pass;
+ *   `children`, `start`, `end` and ‹ps›, its end its start plus its subtree's size, drawn in one iterative pre-order
+ *   pass;
  * - the accumulated columns, each the copy the one axis pair that carries it gives it (ir/family.ts AxisPair): along the
  *   owner axis from its owner, along the predecessor axis from its predecessor, along the last axis from its owner's
  *   last member, and at the axis's base (a family's first slot, an empty family, a tree's root) its writing's `start`;
@@ -23,23 +26,27 @@ import { carrierSpecOf } from "#compiler/codec/scalar.ts"
  * Generated fields a copy, a step or a selection reads are evaluated on the host (`HostEvaluator`), by the expressions
  * PostgreSQL generates them by, so the host's copies agree with PostgreSQL's columns.
  *
- * The fill is one iterative depth-first walk over the nesting, so any depth walks. Each row's columns fall in two
- * phases: on entering the row, every column that reads its owner, its predecessor, its position or its own entering
- * columns; on leaving it, after its families' members, every column that reads a family's last member (a last-axis copy,
- * a tree's `end`) or another leaving column. An owner-axis copy of an owner's leaving column would read a value the walk
- * has not drawn when it reads it, and a cycle among one row's columns has no value: the filler refuses both when it is
- * built.
+ * The fill is one iterative depth-first walk over the nesting, so any depth walks, in each row's stages: on entering it,
+ * its entering columns; then the members of each sequence it owns; on leaving it, its leaving columns; then the members
+ * of each counted family it owns nested under it; on settling it, its settling columns. The fill order states each
+ * column's stage and admits no column whose source a later stage fills, so every column a rule reads is filled when it
+ * is read.
  */
-import { type CompileError, unsupported } from "#compiler/core/errors.ts"
+import { carrierSpecOf } from "#compiler/codec/scalar.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import { maxStringLength } from "#compiler/core/limits.ts"
-import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import { predicateTable, type ScalarExpr, type TypedLiteral } from "#compiler/ir/expr.ts"
-import type { Family, FamilyFold } from "#compiler/ir/family.ts"
-import type { FamilyId, LawField, LawRelation, NativeColumn } from "#compiler/ir/law.ts"
-import type { ScalarType } from "#compiler/ir/scalar.ts"
+import {
+	baseLiteral,
+	type Family,
+	type FamilyFold,
+	isSequence,
+	isTreeOf
+} from "#compiler/ir/family.ts"
+import type { FillLayout, FillOrder, FillPosition, FillRule, FillStage } from "#compiler/ir/fill.ts"
+import type { FamilyId, LawRelation, NativeColumn } from "#compiler/ir/law.ts"
 import {
 	type EvalLeaves,
 	type EvalStop,
@@ -122,28 +129,14 @@ export type Filler = (root: HostNode) => Result.Result<FilledNode, FillRefusal>
 export const familyKey = (id: FamilyId): string => `${id.owner}\u0000${id.count}`
 
 /**
- * Where a row stands in a nesting: written by the ChangeSet itself (`top`), a family's member, or a tree's root, which
- * is its own family's owner and outside its members.
- */
-type Position =
-	| { readonly kind: "top" }
-	| { readonly kind: "member"; readonly family: Family }
-	| { readonly kind: "root"; readonly family: Family }
-
-const positionKey = (p: Position): string =>
-	p.kind === "top" ? "top" : `${p.kind}\u0000${familyKey(p.family.id)}`
-
-/**
- * How the host fills one column of a row at one position:
+ * How the host fills one column of a row at its position (ir/fill.ts FillRule), its targets by column key and its bases
+ * as host values:
  * - given: the caller's, the row's own value;
- * - owner: a member's group field, or a tree node's root field below its root: its owner's column `to`;
- * - own: a tree root's group field, its parent, and every copy its owner axis carries: its own column `to`, since the
- *   root references itself along the owner axis;
- * - index, copy, count, start, end, parentStart: a drawn natural, from where the row stands: its slot, its owner's
- *   count of the family it stands in, the count of a family it owns, a tree node's start, its end, its parent's start;
- * - ownerCopy, predecessor, last: an accumulated or hidden column carried along an axis, the target row's column `to`,
- *   and `base` at the axis's base;
- * - after: a fold plane's after, `combine(befores, x)` where the step side's selection holds and its before elsewhere;
+ * - owner: its owner's column `to`; own: its own column `to`, a tree root's parent and copies of itself;
+ * - index, copy, count, start, end, parentStart: a drawn natural, from where the row stands;
+ * - ownerCopy, predecessor, last: a column carried along an axis, the target row's column `to`, and `base` at the
+ *   predecessor and last axes' base;
+ * - after: a fold plane's after;
  * - generated: a generated field, PostgreSQL's, evaluated where another column reads it and never written.
  */
 type Rule =
@@ -156,7 +149,7 @@ type Rule =
 	| { readonly kind: "start" }
 	| { readonly kind: "end" }
 	| { readonly kind: "parentStart" }
-	| { readonly kind: "ownerCopy"; readonly to: ColumnKey; readonly base: unknown }
+	| { readonly kind: "ownerCopy"; readonly to: ColumnKey }
 	| { readonly kind: "predecessor"; readonly to: ColumnKey; readonly base: unknown }
 	| {
 			readonly kind: "last"
@@ -174,41 +167,104 @@ type Rule =
 	  }
 	| { readonly kind: "generated"; readonly expr: ScalarExpr }
 
-/** A column the host knows of a relation: its key, its name as a refusal names it, its carrier's spec, and its rule. */
+/** A column the host fills of a relation: its key, its name as a refusal names it, its carrier's spec, and its rule. */
 interface Column {
 	readonly key: ColumnKey
 	readonly name: string
 	readonly spec: CarrierSpec
 	readonly rule: Rule
-	/** The row's own columns it reads, which are filled before it. */
-	readonly reads: ReadonlyArray<ColumnKey>
-	/** Whether it is filled on leaving its row, after its families' members. */
-	readonly leaving: boolean
 	/** Whether the host writes it: every column but a generated one. */
 	readonly written: boolean
 }
 
-/** A relation's columns at one position, by key, in the order the walk fills each phase. */
+/** A relation's columns at one position, by key and by the stage that fills each, and the families its rows own. */
 interface Layout {
 	readonly relation: LawRelation
 	readonly columns: ReadonlyMap<ColumnKey, Column>
-	readonly entering: ReadonlyArray<Column>
-	readonly leaving: ReadonlyArray<Column>
-	/** The families its rows own, by key. */
+	readonly stages: { readonly [S in FillStage]: ReadonlyArray<Column> }
+	/** The families its rows own, sequences first: the order the walk fills their members in. */
 	readonly owns: ReadonlyArray<Family>
 }
 
-/** A field's column key. */
-const keyOf = (f: LawField): ColumnKey => fieldKey(f.name)
+/** A carried column's base as a host value, of the column's carrier. */
+const baseHost = (spec: CarrierSpec, base: TypedLiteral): unknown => literalHost(spec, base)
 
-/** The field names an expression reads of its row. */
-export const readsOf = (expr: ScalarExpr): ReadonlyArray<string> => {
-	const table = predicateTable(expr)
-	return [
-		...new Set(
-			Object.values(table.exprs).flatMap((e) => (e.kind === "column" ? [e.column.name] : []))
-		)
-	]
+/** A fill rule as the host fills it, under the installation's codes. */
+const hostRule = (rule: FillRule, spec: CarrierSpec): Rule => {
+	switch (rule.kind) {
+		case "given":
+		case "index":
+		case "copy":
+		case "start":
+		case "end":
+		case "parentStart":
+			return { kind: rule.kind }
+		case "owner":
+			return { kind: "owner", to: columnKey(rule.to) }
+		case "self":
+		case "own":
+			return { kind: "own", to: columnKey(rule.to) }
+		case "count":
+			return { kind: "count", family: familyKey(rule.family.id) }
+		case "ownerCopy":
+			return { kind: "ownerCopy", to: columnKey(rule.to) }
+		case "predecessor":
+			return { kind: "predecessor", to: columnKey(rule.to), base: baseHost(spec, rule.base) }
+		case "last":
+			return {
+				kind: "last",
+				family: familyKey(rule.family.id),
+				to: columnKey(rule.to),
+				base: baseHost(spec, rule.base)
+			}
+		case "after":
+			return {
+				kind: "after",
+				family: rule.family.id,
+				fold: rule.fold,
+				plane: rule.plane,
+				befores: rule.befores.map(columnKey),
+				x: rule.x === undefined ? undefined : columnKey(rule.x)
+			}
+		case "generated":
+			return { kind: "generated", expr: rule.expr }
+	}
+}
+
+/** A fill order's layout as the host fills it, under the installation's codes. */
+const hostLayout = (layout: FillLayout, codes: Codebook): Layout => {
+	const columns = new Map<ColumnKey, Column>()
+	const stages: { readonly [S in FillStage]: Array<Column> } = {
+		entering: [],
+		leaving: [],
+		settling: []
+	}
+	for (const c of layout.columns) {
+		const spec = carrierSpecOf(c.type, codes)
+		const column: Column = {
+			key: columnKey(c.column),
+			name: c.name,
+			spec,
+			rule: hostRule(c.rule, spec),
+			written: c.rule.kind !== "generated"
+		}
+		columns.set(column.key, column)
+		stages[c.stage].push(column)
+	}
+	return { relation: layout.relation, columns, stages, owns: layout.owns }
+}
+
+/**
+ * The base of a copy carried along an axis of `family` as a host value of `spec`'s carrier: an accumulated field's
+ * start, a hidden before's plane identity; none for a column that is neither.
+ */
+export const baseOf = (
+	family: Family,
+	column: NativeColumn,
+	spec: CarrierSpec
+): { readonly kind: "base"; readonly value: unknown } | { readonly kind: "none" } => {
+	const base = baseLiteral(family, column)
+	return base === undefined ? { kind: "none" } : { kind: "base", value: literalHost(spec, base) }
 }
 
 /** A carrier value as the evaluator holds it, from a codec's host value: integers as bigint, spans of bigints. */
@@ -379,304 +435,6 @@ export const closedLeaf = (closed: ReadonlyMap<string, ClosedRows>): EvalLeaves[
 	}
 }
 
-/** The type of a column of a family's member: a field's own; ‹n› and ‹i› the count's natural, ‹ps› the tree's start's,
- * a hidden accumulator its plane's end's; none for a law column the family does not draw. */
-export const familyColumnType = (family: Family, column: NativeColumn): ScalarType | undefined => {
-	if (column.kind === "field") {
-		return column.field.type
-	}
-	if (column.column === family.copy) {
-		return family.count.type
-	}
-	if (family.index.kind === "law" && family.index.column === column.column) {
-		return family.count.type
-	}
-	if (family.members.kind === "tree" && family.members.parentStart === column.column) {
-		return family.members.start.type
-	}
-	for (const fold of family.folds) {
-		for (const plane of fold.planes) {
-			if (
-				(plane.before.kind === "law" && plane.before.column === column.column) ||
-				(plane.after.kind === "law" && plane.after.column === column.column)
-			) {
-				return plane.end.type
-			}
-		}
-	}
-	return undefined
-}
-
-/** The refusal of a filler that cannot be built. */
-const unfillable = (detail: string): CompileError =>
-	unsupported(SourceLoc("ChangeSet.insert", []), detail)
-
-/**
- * The base of an accumulated column: an accumulated field's start, a hidden before's plane identity; none for a column
- * carried with no base (a caller's column the axis also carries, which its row supplies).
- */
-export const baseOf = (
-	family: Family,
-	column: NativeColumn,
-	spec: CarrierSpec
-): { readonly kind: "base"; readonly value: unknown } | { readonly kind: "none" } => {
-	if (column.kind === "field") {
-		return column.field.writing.kind === "accumulated"
-			? { kind: "base", value: literalHost(spec, column.field.writing.start) }
-			: { kind: "none" }
-	}
-	for (const fold of family.folds) {
-		for (const plane of fold.planes) {
-			if (plane.before.kind === "law" && plane.before.column === column.column) {
-				return { kind: "base", value: literalHost(spec, plane.identity) }
-			}
-		}
-	}
-	return { kind: "none" }
-}
-
-/**
- * Whether the host fills a column carried along an axis of `family` as a copy: an accumulated field, or a fold's
- * hidden accumulator. The drawn columns an axis carries (‹n› → n, a tree's ‹ps› → start) are drawn where the walk
- * stands, and a caller's column its row supplies.
- */
-const carried = (family: Family, column: NativeColumn): boolean =>
-	column.kind === "field"
-		? column.field.writing.kind === "accumulated"
-		: family.folds.some((fold) =>
-				fold.planes.some(
-					(plane) =>
-						(plane.before.kind === "law" && plane.before.column === column.column) ||
-						(plane.after.kind === "law" && plane.after.column === column.column)
-				)
-			)
-
-/** Builds one relation's layout at one position. */
-const layoutOf = (
-	relation: LawRelation,
-	position: Position,
-	families: ReadonlyArray<Family>,
-	codes: Codebook
-): Result.Result<Layout, CompileError> => {
-	const rules = new Map<
-		ColumnKey,
-		{ readonly name: string; readonly type: ScalarType; rule: Rule }
-	>()
-	const set = (key: ColumnKey, name: string, type: ScalarType, rule: Rule): void => {
-		rules.set(key, { name, type, rule })
-	}
-	for (const field of relation.fields) {
-		switch (field.writing.kind) {
-			case "caller":
-			case "serial":
-				set(keyOf(field), field.name, field.type, { kind: "given" })
-				break
-			case "generated":
-				set(keyOf(field), field.name, field.type, { kind: "generated", expr: field.writing.expr })
-				break
-			case "drawn":
-			case "accumulated":
-				break
-		}
-	}
-	const owns = families.filter((f) => f.owner.name === relation.name)
-	for (const f of owns) {
-		set(keyOf(f.count), f.count.name, f.count.type, { kind: "count", family: familyKey(f.id) })
-		for (const pair of f.axes.last) {
-			if (pair.from.kind !== "field" || !carried(f, pair.from)) {
-				continue
-			}
-			const spec = carrierSpecOf(pair.from.field.type, codes)
-			const base = baseOf(f, pair.from, spec)
-			if (base.kind === "none") {
-				return Result.err(unfillable(`the last-slot copy ${pair.from.field.name} has no start`))
-			}
-			set(keyOf(pair.from.field), pair.from.field.name, pair.from.field.type, {
-				kind: "last",
-				family: familyKey(f.id),
-				to: columnKey(pair.to),
-				base: base.value
-			})
-		}
-	}
-	if (position.kind !== "top") {
-		const f = position.family
-		const root = position.kind === "root"
-		const group = f.group
-		for (const g of group) {
-			set(
-				keyOf(g.member),
-				g.member.name,
-				g.member.type,
-				root ? { kind: "own", to: keyOf(g.owner) } : { kind: "owner", to: keyOf(g.owner) }
-			)
-		}
-		if (f.index.kind === "field") {
-			set(keyOf(f.index.field), f.index.field.name, f.index.field.type, { kind: "index" })
-		} else {
-			set(columnKey(f.index), f.index.column, f.count.type, { kind: "index" })
-		}
-		set(`law:${f.copy}`, f.copy, f.count.type, { kind: "copy" })
-		if (f.members.kind === "tree") {
-			const t = f.members
-			set(keyOf(t.start), t.start.name, t.start.type, { kind: "start" })
-			set(keyOf(t.end), t.end.name, t.end.type, { kind: "end" })
-			set(`law:${t.parentStart}`, t.parentStart, t.start.type, { kind: "parentStart" })
-			if (!root) {
-				set(keyOf(t.root), t.root.name, t.root.type, { kind: "owner", to: keyOf(t.root) })
-			}
-		}
-		for (const pair of f.axes.owner) {
-			if (!carried(f, pair.from)) {
-				continue
-			}
-			const type = familyColumnType(f, pair.from)
-			if (type === undefined) {
-				return Result.err(
-					unfillable(`a column the owner axis of ${f.id.owner}.${f.id.count} carries`)
-				)
-			}
-			const spec = carrierSpecOf(type, codes)
-			const base = baseOf(f, pair.from, spec)
-			set(
-				columnKey(pair.from),
-				nameOf(pair.from),
-				type,
-				root
-					? { kind: "own", to: columnKey(pair.to) }
-					: {
-							kind: "ownerCopy",
-							to: columnKey(pair.to),
-							base: base.kind === "base" ? base.value : undefined
-						}
-			)
-		}
-		for (const pair of f.axes.predecessor) {
-			if (!carried(f, pair.from)) {
-				continue
-			}
-			const type = familyColumnType(f, pair.from)
-			if (type === undefined) {
-				return Result.err(
-					unfillable(`a column the predecessor axis of ${f.id.owner}.${f.id.count} carries`)
-				)
-			}
-			const spec = carrierSpecOf(type, codes)
-			const base = baseOf(f, pair.from, spec)
-			if (base.kind === "none") {
-				return Result.err(unfillable(`the predecessor copy ${nameOf(pair.from)} has no start`))
-			}
-			set(columnKey(pair.from), nameOf(pair.from), type, {
-				kind: "predecessor",
-				to: columnKey(pair.to),
-				base: base.value
-			})
-		}
-		for (const fold of f.folds) {
-			const befores = fold.planes.map((p) => columnKey(p.before))
-			for (const [p, plane] of fold.planes.entries()) {
-				const type = familyColumnType(f, plane.after) ?? plane.end.type
-				set(columnKey(plane.after), nameOf(plane.after), type, {
-					kind: "after",
-					family: f.id,
-					fold,
-					plane: p === 0 ? 0 : 1,
-					befores,
-					x: fold.step.kind === "value" ? keyOf(fold.step.field) : undefined
-				})
-			}
-		}
-	}
-	/** The row's own columns a rule reads. */
-	const readsOfRule = (rule: Rule): ReadonlyArray<ColumnKey> => {
-		switch (rule.kind) {
-			case "own":
-				return [rule.to]
-			case "after":
-				return [
-					...rule.befores,
-					...(rule.x === undefined ? [] : [rule.x]),
-					...rule.fold.where.flatMap((w) => readsOf(w).map(fieldKey))
-				]
-			case "generated":
-				return readsOf(rule.expr).map(fieldKey)
-			case "given":
-			case "owner":
-			case "index":
-			case "copy":
-			case "count":
-			case "start":
-			case "end":
-			case "parentStart":
-			case "ownerCopy":
-			case "predecessor":
-			case "last":
-				return []
-		}
-	}
-	/** Each column's phase, by a depth-first pass over its reads that refuses a cycle. */
-	const leaving = new Map<ColumnKey, boolean>()
-	const visiting = new Set<ColumnKey>()
-	const phaseOf = (key: ColumnKey): Result.Result<boolean, CompileError> => {
-		const known = leaving.get(key)
-		if (known !== undefined) {
-			return Result.ok(known)
-		}
-		const entry = rules.get(key)
-		if (entry === undefined) {
-			return Result.err(
-				unfillable(
-					`${relation.name} reads ${key.slice(key.indexOf(":") + 1)}, a column the host does not fill`
-				)
-			)
-		}
-		if (visiting.has(key)) {
-			return Result.err(
-				unfillable(`the columns of ${relation.name} read each other in a cycle at ${entry.name}`)
-			)
-		}
-		visiting.add(key)
-		let phase = entry.rule.kind === "end" || entry.rule.kind === "last"
-		for (const read of readsOfRule(entry.rule)) {
-			const p = phaseOf(read)
-			if (!p.ok) {
-				return p
-			}
-			phase = phase || p.value
-		}
-		visiting.delete(key)
-		leaving.set(key, phase)
-		return Result.ok(phase)
-	}
-	const columns = new Map<ColumnKey, Column>()
-	for (const [key, entry] of rules) {
-		const phase = phaseOf(key)
-		if (!phase.ok) {
-			return phase
-		}
-		columns.set(key, {
-			key,
-			name: entry.name,
-			spec: carrierSpecOf(entry.type, codes),
-			rule: entry.rule,
-			reads: readsOfRule(entry.rule),
-			leaving: phase.value,
-			written: entry.rule.kind !== "generated"
-		})
-	}
-	const all = [...columns.values()]
-	return Result.ok({
-		relation,
-		columns,
-		entering: all.filter((c) => !c.leaving),
-		leaving: all.filter((c) => c.leaving),
-		owns
-	})
-}
-
-const nameOf = (column: NativeColumn): string =>
-	column.kind === "field" ? column.field.name : column.column
-
 /** One step of a monoid's combine on host values, at the after's carrier, a set's a fresh Set; undefined when the result
  * leaves it. */
 export const combineHost = (
@@ -773,8 +531,10 @@ interface Row {
 	readonly counts: ReadonlyMap<string, number>
 	/** Each family it owns, by key, with its last member once filled; none for an empty family. */
 	readonly last: Map<string, Row>
-	/** A tree node's interval and its parent's start; its end is drawn on leaving it. */
-	readonly tree: { readonly start: number; end: number; readonly parentStart: number } | undefined
+	/** A tree node's interval, its end its start plus its subtree's size, and its parent's start. */
+	readonly tree:
+		| { readonly start: number; readonly end: number; readonly parentStart: number }
+		| undefined
 }
 
 /** The value of a column of a row, filling it and every column it reads first; a refusal when it has none. */
@@ -788,7 +548,7 @@ const valueOf = (
 	}
 	const column = row.layout.columns.get(key)
 	if (column === undefined) {
-		throw defect(`a column ${key} of ${row.layout.relation.name} the filler laid out`)
+		throw defect(`a column ${key} of ${row.layout.relation.name} the fill order laid out`)
 	}
 	const value = ruleValue(row, column, evaluate)
 	if (!value.ok) {
@@ -798,7 +558,6 @@ const valueOf = (
 	return value
 }
 
-/** A refusal at a row's column. */
 /** A row's path from the nesting's root: each owner's count field and member position, root first. */
 const pathOf = (row: Row): ReadonlyArray<string | number> => {
 	const steps: Array<string | number> = []
@@ -808,6 +567,7 @@ const pathOf = (row: Row): ReadonlyArray<string | number> => {
 	return steps.toReversed()
 }
 
+/** A refusal at a row's column. */
 const refusalAt = (
 	row: Row,
 	column: Column,
@@ -837,7 +597,7 @@ const admittedAt = (
 		: Result.err(refusalAt(row, column, { kind: "range", family }))
 }
 
-/** A column of a row the walk filled before the row it fills now reads it. */
+/** A column of a row the walk filled before the row it fills now reads it, which the fill order guarantees. */
 const filledBefore = (from: Row, key: ColumnKey, reader: Row): unknown => {
 	if (!from.values.has(key)) {
 		throw defect(`${key} of a row the walk filled before ${reader.layout.relation.name}'s`)
@@ -893,7 +653,10 @@ const ruleValue = (
 		case "parentStart":
 			return Result.ok(BigInt(treeOf(row).parentStart))
 		case "ownerCopy":
-			return Result.ok(row.owner === undefined ? rule.base : filledBefore(row.owner, rule.to, row))
+			if (row.owner === undefined) {
+				throw defect(`an owner of ${row.layout.relation.name}'s member`)
+			}
+			return Result.ok(filledBefore(row.owner, rule.to, row))
 		case "predecessor":
 			return Result.ok(
 				row.predecessor === undefined ? rule.base : filledBefore(row.predecessor, rule.to, row)
@@ -960,30 +723,38 @@ const readerOf =
 		return v.ok ? v.value : undefined
 	}
 
-/** A row met by the walk: its row, its node, the families it owns resolved, and where its walk over them stands. */
+/** A family a node owns, resolved, with its members, and its place among the node's families as the caller nested them. */
+interface Owned {
+	readonly family: Family
+	readonly members: ReadonlyArray<HostNode>
+	readonly place: number
+}
+
+/** A row met by the walk: its row, the families it owns in the order the walk fills them, and where it stands. */
 interface Frame {
 	readonly row: Row
-	readonly families: ReadonlyArray<{
-		readonly family: Family
-		readonly members: ReadonlyArray<HostNode>
-	}>
+	/** Its families, sequences first, each at its place among the node's families. */
+	readonly families: ReadonlyArray<Owned>
 	/** The family it is filling, and the next member of it. */
 	family: number
 	member: number
+	/** Whether its leaving stage is filled: after its sequences' members, before its counted families'. */
+	left: boolean
 	/** The last member of that family filled so far. */
 	previous: Row | undefined
-	readonly filled: Array<{ readonly family: Family; readonly members: Array<FilledNode> }>
+	/** Each of its families' filled members, at its place among the node's families. */
+	readonly filled: ReadonlyArray<{ readonly family: Family; readonly members: Array<FilledNode> }>
 	/** The counter of the tree it is a node of: the start of the next node the tree meets. */
 	readonly tree: { next: number } | undefined
 }
 
-/** Every column of a phase of a row filled, in any order: each fills what it reads first. */
-const fillPhase = (
+/** Every column of a stage of a row filled, in any order: each fills what it reads first. */
+const fillStage = (
 	row: Row,
-	columns: ReadonlyArray<Column>,
+	stage: FillStage,
 	evaluate: HostEvaluator
 ): Result.Result<void, FillRefusal> => {
-	for (const column of columns) {
+	for (const column of row.layout.stages[stage]) {
 		const v = valueOf(row, column.key, evaluate)
 		if (!v.ok) {
 			return Result.err(v.error)
@@ -992,109 +763,83 @@ const fillPhase = (
 	return Result.ok(undefined)
 }
 
-/** Whether a family is the tree of the relation `relation`: a family of it over itself whose members are a tree's. */
-const isTreeOf = (family: Family, relation: string): boolean =>
-	family.members.kind === "tree" &&
-	family.member.name === relation &&
-	family.owner.name === relation
-
 /**
- * The filler of nestings over `families`, the law model's (laws/model/model.ts LawModel.families): each relation's
- * columns laid out once per position it can stand at, with their phases. Refused when a copy reads a value its walk
- * has not drawn when it reads it: an owner-axis copy of an owner's leaving column, or a cycle among one row's columns.
+ * The size of each tree node's subtree in a nesting, itself included, by node: one pass over the nesting, members before
+ * their owners, so any depth sizes. Only the nodes of the tree `tree` is the family of are sized.
  */
-export const filler = (
-	families: ReadonlyArray<Family>,
-	codes: Codebook,
-	evaluate: HostEvaluator
-): Result.Result<Filler, CompileError> => {
-	const byKey = new Map(families.map((f) => [familyKey(f.id), f] as const))
-	const relations = new Map<string, LawRelation>()
-	for (const f of families) {
-		relations.set(f.owner.name, f.owner)
-		relations.set(f.member.name, f.member)
-	}
-	const layouts = new Map<string, Layout>()
-	const layout = (
-		relation: LawRelation,
-		position: Position
-	): Result.Result<Layout, CompileError> => {
-		const key = `${relation.name}\u0000${positionKey(position)}`
-		const known = layouts.get(key)
-		if (known !== undefined) {
-			return Result.ok(known)
-		}
-		const built = layoutOf(relation, position, families, codes)
-		if (built.ok) {
-			layouts.set(key, built.value)
-		}
-		return built
-	}
-	/** Every position a relation can stand at: a tree's root, a family's member, or written by the ChangeSet itself
-	 * when it is no family's member. */
-	const positionsOf = (relation: string): ReadonlyArray<Position> => {
-		const tree = families.find((f) => isTreeOf(f, relation))
-		const memberOf = families.filter((f) => f.member.name === relation)
-		return [
-			...(tree === undefined ? [] : [{ kind: "root", family: tree } as const]),
-			...memberOf.map((family) => ({ kind: "member", family }) as const),
-			...(memberOf.length === 0 ? [{ kind: "top" } as const] : [])
-		]
-	}
-	for (const [name, relation] of relations) {
-		for (const position of positionsOf(name)) {
-			const built = layout(relation, position)
-			if (!built.ok) {
-				return built
+const subtreeSizes = (root: HostNode, tree: Family): ReadonlyMap<HostNode, number> => {
+	const id = familyKey(tree.id)
+	const order: Array<HostNode> = []
+	const pending: Array<HostNode> = [root]
+	for (let node = pending.pop(); node !== undefined; node = pending.pop()) {
+		order.push(node)
+		for (const g of node.families) {
+			if (familyKey(g.family) === id) {
+				for (const m of g.members) {
+					pending.push(m)
+				}
 			}
 		}
 	}
-	for (const f of families) {
-		const member = layout(f.member, { kind: "member", family: f })
-		if (!member.ok) {
-			return member
-		}
-		for (const column of member.value.columns.values()) {
-			const rule = column.rule
-			if (rule.kind !== "owner" && rule.kind !== "ownerCopy") {
+	const sizes = new Map<HostNode, number>()
+	for (const node of order.toReversed()) {
+		let size = 1
+		for (const g of node.families) {
+			if (familyKey(g.family) !== id) {
 				continue
 			}
-			for (const position of positionsOf(f.owner.name)) {
-				const owner = layout(f.owner, position)
-				if (!owner.ok) {
-					return owner
+			for (const m of g.members) {
+				const sized = sizes.get(m)
+				if (sized === undefined) {
+					throw defect("a tree node sized after its children")
 				}
-				if (owner.value.columns.get(rule.to)?.leaving !== false) {
-					return Result.err(
-						unfillable(
-							`${f.member.name}.${column.name} copies ${f.owner.name}'s ${rule.to.slice(rule.to.indexOf(":") + 1)} along the owner axis of ${f.id.owner}.${f.id.count}, a column its owner fills only after its members`
-						)
-					)
-				}
+				size += sized
 			}
 		}
+		sizes.set(node, size)
 	}
-	/** A row's layout at a position, which the filler laid out when it was built. */
-	const laidOut = (relation: string, position: Position): Layout => {
-		const r = relations.get(relation)
-		const built = r === undefined ? undefined : layout(r, position)
-		if (built === undefined || !built.ok) {
-			throw defect(`the layout of ${relation} the filler built`)
+	return sizes
+}
+
+/**
+ * The filler of nestings by a schema's fill order (laws/model/model.ts LawModel.theory.fill): each relation's columns
+ * at each position it stands at, laid out under the installation's codes when the walk first meets them. The fill
+ * order admits no column whose source is filled after it, so every fill finds what it reads.
+ */
+export const filler = (fill: FillOrder, codes: Codebook, evaluate: HostEvaluator): Filler => {
+	const byKey = new Map(fill.families.map((f) => [familyKey(f.id), f] as const))
+	const layouts = new Map<string, Layout>()
+	/** A row's layout at a position, which the fill order laid out. */
+	const laidOut = (relation: string, position: FillPosition): Layout => {
+		const key = layoutKey(relation, position)
+		const known = layouts.get(key)
+		if (known !== undefined) {
+			return known
 		}
-		return built.value
+		const layout = fill.layouts.get(key)
+		if (layout === undefined) {
+			throw defect(`the layout of ${relation} at a position the fill order lays out`)
+		}
+		const built = hostLayout(layout, codes)
+		layouts.set(key, built)
+		return built
 	}
-	/** A node's families resolved, each family its relation owns in the node's order. */
-	const resolved = (node: HostNode): Frame["families"] =>
-		node.families.map((g) => {
+	/** A node's families resolved, sequences first, each in the order its relation owns them. */
+	const resolved = (node: HostNode, layout: Layout): ReadonlyArray<Owned> => {
+		const owned = node.families.map((g, place): Owned => {
 			const family = byKey.get(familyKey(g.family))
 			if (family === undefined) {
 				throw defect(`the family ${g.family.owner}.${g.family.count} of the law model`)
 			}
-			return { family, members: g.members }
+			return { family, members: g.members, place }
 		})
+		const rank = (o: Owned): number =>
+			layout.owns.findIndex((f) => familyKey(f.id) === familyKey(o.family.id))
+		return owned.toSorted((a, b) => rank(a) - rank(b))
+	}
 	const rowOf = (
 		node: HostNode,
-		position: Position,
+		position: FillPosition,
 		at: {
 			readonly step: Row["step"]
 			readonly owner: Row | undefined
@@ -1114,37 +859,57 @@ export const filler = (
 		last: new Map(),
 		tree: at.tree
 	})
-	return Result.ok((root: HostNode): Result.Result<FilledNode, FillRefusal> => {
-		const tree = families.find((f) => isTreeOf(f, root.relation))
-		const position: Position = tree === undefined ? { kind: "top" } : { kind: "root", family: tree }
+	const frameOf = (row: Row, node: HostNode, tree: Frame["tree"]): Frame => ({
+		row,
+		families: resolved(node, row.layout),
+		family: 0,
+		member: 0,
+		left: false,
+		previous: undefined,
+		filled: node.families.map((g) => {
+			const family = byKey.get(familyKey(g.family))
+			if (family === undefined) {
+				throw defect(`the family ${g.family.owner}.${g.family.count} of the law model`)
+			}
+			return { family, members: [] }
+		}),
+		tree
+	})
+	return (root: HostNode): Result.Result<FilledNode, FillRefusal> => {
+		const tree = fill.families.find((f) => isTreeOf(f, root.relation))
+		const sizes = tree === undefined ? new Map<HostNode, number>() : subtreeSizes(root, tree)
+		const intervalOf = (node: HostNode, start: number, parentStart: number): Row["tree"] => {
+			const size = sizes.get(node)
+			if (size === undefined) {
+				throw defect(`the subtree size of a node of ${node.relation}`)
+			}
+			return { start, end: start + size, parentStart }
+		}
+		const position: FillPosition =
+			tree === undefined ? { kind: "top" } : { kind: "root", family: tree }
 		const first = rowOf(root, position, {
 			step: undefined,
 			owner: undefined,
 			predecessor: undefined,
 			at: 0,
-			tree: tree === undefined ? undefined : { start: 0, end: 1, parentStart: 0 }
+			tree: tree === undefined ? undefined : intervalOf(root, 0, 0)
 		})
-		const entered = fillPhase(first, first.layout.entering, evaluate)
+		const entered = fillStage(first, "entering", evaluate)
 		if (!entered.ok) {
 			return Result.err(entered.error)
 		}
-		const stack: Array<Frame> = [
-			{
-				row: first,
-				families: resolved(root),
-				family: 0,
-				member: 0,
-				previous: undefined,
-				filled: [],
-				tree: tree === undefined ? undefined : { next: 1 }
-			}
-		]
+		const stack: Array<Frame> = [frameOf(first, root, tree === undefined ? undefined : { next: 1 })]
 		for (let frame = stack.at(-1); frame !== undefined; frame = stack.at(-1)) {
 			const current = frame.families[frame.family]
-			if (current !== undefined) {
-				if (frame.member === 0) {
-					frame.filled.push({ family: current.family, members: [] })
+			if (current !== undefined && !frame.left && !isSequence(current.family)) {
+				const left = fillStage(frame.row, "leaving", evaluate)
+				if (!left.ok) {
+					return Result.err(left.error)
 				}
+				frame.left = true
+				continue
+			}
+			if (current !== undefined) {
 				const node = current.members[frame.member]
 				if (node === undefined) {
 					if (frame.previous !== undefined) {
@@ -1157,8 +922,7 @@ export const filler = (
 				}
 				const at = frame.member
 				frame.member += 1
-				const inTree =
-					isTreeOf(current.family, frame.row.layout.relation.name) && frame.tree !== undefined
+				const inTree = isTreeOf(current.family, frame.row.layout.relation.name)
 				const counter = inTree ? frame.tree : undefined
 				const start = counter === undefined ? undefined : counter.next
 				if (counter !== undefined) {
@@ -1172,33 +936,26 @@ export const filler = (
 						owner: frame.row,
 						predecessor: frame.previous,
 						at,
-						tree:
-							start === undefined
-								? undefined
-								: { start, end: start + 1, parentStart: treeOf(frame.row).start }
+						tree: start === undefined ? undefined : intervalOf(node, start, treeOf(frame.row).start)
 					}
 				)
-				const filled = fillPhase(row, row.layout.entering, evaluate)
+				const filled = fillStage(row, "entering", evaluate)
 				if (!filled.ok) {
 					return Result.err(filled.error)
 				}
-				stack.push({
-					row,
-					families: resolved(node),
-					family: 0,
-					member: 0,
-					previous: undefined,
-					filled: [],
-					tree: counter
-				})
+				stack.push(frameOf(row, node, counter))
 				continue
 			}
-			if (frame.row.tree !== undefined && frame.tree !== undefined) {
-				frame.row.tree.end = frame.tree.next
+			if (!frame.left) {
+				const left = fillStage(frame.row, "leaving", evaluate)
+				if (!left.ok) {
+					return Result.err(left.error)
+				}
+				frame.left = true
 			}
-			const left = fillPhase(frame.row, frame.row.layout.leaving, evaluate)
-			if (!left.ok) {
-				return Result.err(left.error)
+			const settled = fillStage(frame.row, "settling", evaluate)
+			if (!settled.ok) {
+				return Result.err(settled.error)
 			}
 			const done: FilledNode = Object.freeze({
 				relation: frame.row.layout.relation.name,
@@ -1219,8 +976,16 @@ export const filler = (
 				return Result.ok(done)
 			}
 			parent.previous = frame.row
-			parent.filled.at(-1)?.members.push(done)
+			const owned = parent.families[parent.family]
+			if (owned === undefined) {
+				throw defect("a member's owner fills the family it walks")
+			}
+			const into = parent.filled[owned.place]
+			if (into === undefined) {
+				throw defect("a member's owner holds the family it walks")
+			}
+			into.members.push(done)
 		}
 		throw defect("the walk ends at its root")
-	})
+	}
 }

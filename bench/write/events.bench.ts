@@ -14,7 +14,7 @@ import {
 	type TransactionMeasure,
 	type TransactionSeries
 } from "#bench/harness/transaction.ts"
-import { fill, GateSetupError, settle } from "#bench/query/support/kit.ts"
+import { fillTogether, GateSetupError, settle } from "#bench/query/support/kit.ts"
 import {
 	installWrites,
 	loadedByOwner,
@@ -108,8 +108,10 @@ export default defineGate({
 			})
 			const M = fx.table("Member")
 			const c = (rel: string, f: string) => fx.column(rel, f)
-			yield* fill(fx, "Grp", options.groups, { id: "g::int4", lead: "g::int8" })
-			yield* fill(fx, "Member", options.groups, { id: "g::int8", grp: "g::int4" })
+			yield* fillTogether(fx, [
+				{ relation: "Grp", rows: options.groups, columns: { id: "g::int4", lead: "g::int8" } },
+				{ relation: "Member", rows: options.groups, columns: { id: "g::int8", grp: "g::int4" } }
+			])
 			yield* settle(fx)
 			yield* grantMemoryReading(s.admin, loginRoleOf(fx))
 			const writer = yield* writerSession(fx, fx.world.app, "m15c events writer")

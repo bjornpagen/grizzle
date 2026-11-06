@@ -41,6 +41,7 @@ import {
 	succeeded,
 	throwsRefused
 } from "#test/support/assert.ts"
+import { textDesc } from "#test/support/fixtures/ir/desc.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { evaluate } from "#test/support/oracle/evaluate/catalog.ts"
 import { patternMember } from "#test/support/oracle/reference/evaluate.ts"
@@ -922,11 +923,8 @@ describe("Compute's translate and lowerAscii", () => {
 												? variable("v")
 												: variable("t")
 							/** The text type a target states, the collapsed texts within a collapsed language's longest member. */
-							const textTypeOf = (source: string, flags: "u" | "su"): FieldDesc => ({
-								kind: "text",
-								source,
-								flags
-							})
+							const textTypeOf = (source: string, flags: "u" | "su"): FieldDesc =>
+								textDesc(source, flags)
 							const collapsedTarget = collapsedTexts(
 								operand.kind === "a collapsed language"
 									? longestOf(operand.language.members)

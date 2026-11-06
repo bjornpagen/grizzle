@@ -442,7 +442,7 @@ export default defineGate({
 							sql: handwrittenRows(
 								headingOf(range),
 								`SELECT e.${col("id")} AS id, e.${col("amount")} AS amount FROM ${E} AS e ` +
-									`WHERE e.${col("kind")} = 'Open' AND e.${col("amount")} >= $1::int8 AND e.${col("amount")} < $2::int8`
+									`WHERE e.${col("kind")} = ${fx.handle("Kind", "Open")} AND e.${col("amount")} >= $1::int8 AND e.${col("amount")} < $2::int8`
 							),
 							params: ["1000", "3000"]
 						}
@@ -458,7 +458,7 @@ export default defineGate({
 			 * index serves both predicates reads.
 			 */
 			const rows = yield* raw.values(
-				`SELECT pg_catalog.count(*)::text FROM ${E} WHERE ${col("kind")} = 'Open' AND ${col("amount")} >= ${rangeValues.lo} AND ${col("amount")} < ${rangeValues.hi}`,
+				`SELECT pg_catalog.count(*)::text FROM ${E} WHERE ${col("kind")} = ${fx.handle("Kind", "Open")} AND ${col("amount")} >= ${rangeValues.lo} AND ${col("amount")} < ${rangeValues.hi}`,
 				[]
 			)
 			const [countRow] = trusted<ReadonlyArray<TextRow>>(rows)

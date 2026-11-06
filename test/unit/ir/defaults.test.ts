@@ -7,8 +7,9 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { type Array as Arr, Effect, Formatter } from "effect"
 import type { Json } from "#compiler/core/canonical.ts"
-import { type DescKind, decodeDesc, descText } from "#compiler/ir/desc.ts"
-import { assert } from "#test/support/assert.ts"
+import { type DescKind, decodeDesc, descText, descToJson } from "#compiler/ir/desc.ts"
+import { assert, succeeded } from "#test/support/assert.ts"
+import { textDesc } from "#test/support/fixtures/ir/desc.ts"
 import { caseHang } from "#test/support/limits.ts"
 
 /**
@@ -28,7 +29,7 @@ const fields: Arr.NonEmptyReadonlyArray<Json> = [
 	{ kind: "uuid" },
 	{ kind: "numeric", precision: 10, scale: 2 },
 	{ kind: "numeric", precision: 1000, scale: 0 },
-	{ kind: "text", source: "^[a-z]+$", flags: "u" }
+	succeeded(descToJson(textDesc("^[a-z]+$", "u")))
 ]
 
 const fieldGen: Gen<Json> = element(fields)

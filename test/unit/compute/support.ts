@@ -49,12 +49,13 @@ import {
 import { printExpr } from "#compiler/sql/print.ts"
 import { textLookup } from "#compiler/text/refinement.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { textDesc } from "#test/support/fixtures/ir/desc.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { patternMember } from "#test/support/oracle/reference/evaluate.ts"
 import { testTypeSchema } from "#test/support/sql.ts"
 
 /** An operand as the Compute catalogue reads one: its SQL type, its column and its ScalarType. */
-interface TestOperand {
+export interface TestOperand {
 	readonly sql: SqlTag
 	readonly column: Column<unknown>
 	readonly scalar: ScalarType
@@ -77,18 +78,18 @@ const testCodes: Codebook = firstCodebook(
 )
 
 /**
- * A schema's environment over the declared rosters: every pattern as written, and each contract's predicate table as
- * the checker lowers it, with the reference evaluator's regex membership.
+ * A schema's environment over the declared rosters, and each contract's predicate table as the checker lowers it, with
+ * the reference evaluator's regex membership and the text analysis of a pattern a predicate computes.
  */
 const testEnv: ScalarEnv = {
 	kind: "schema",
 	roster: (name) => rosters.get(name),
-	text: textLookup,
 	contractPredicate: (predicate, base, name, facts) =>
 		contractPredicateTable(predicate, base, name, facts, {
 			loc: SourceLoc(`contract ${name}`, []),
 			fieldType: (d) => scalarTypeOf(d, testEnv, SourceLoc(`contract ${name}`, [])),
-			regexMember: patternMember
+			regexMember: patternMember,
+			patternLanguage: textLookup
 		})
 }
 
@@ -169,8 +170,8 @@ export const testPg = {
 	 */
 	computedNumeric: { sql: "numeric", column: plainColumns.numeric, scalar: anyNumeric },
 	uuid: field({ kind: "uuid" }, "uuid"),
-	text: field({ kind: "text", source: "^.*$", flags: "su" }, "text"),
-	regex: (source: string, flags: "u" | "su") => field({ kind: "text", source, flags }, "text")
+	text: field(textDesc("^.*$", "su"), "text"),
+	regex: (source: string, flags: "u" | "su") => field(textDesc(source, flags), "text")
 } as const
 
 /**
@@ -304,9 +305,15 @@ const env = (
 	const common = commonEnv(vars, emit, params)
 	switch (mode) {
 		case "query":
-			return { ...common, mode, regexMember: patternMember, extension: noExtension }
+			return {
+				...common,
+				mode,
+				regexMember: patternMember,
+				patternLanguage: textLookup,
+				extension: noExtension
+			}
 		case "check":
-			return { ...common, mode, regexMember: patternMember }
+			return { ...common, mode, regexMember: patternMember, patternLanguage: textLookup }
 		case "build":
 			return { ...common, mode }
 	}

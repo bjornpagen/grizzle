@@ -1,12 +1,14 @@
 /**
- * A bounded heterogeneous union on PostgreSQL 19: the optimized artifact against the conservative one.
+ * A bounded heterogeneous union on PostgreSQL 19: the optimized artifact against the conservative one, over generated
+ * tasks.
  *
- * The fixture is bench/query/union.bench.ts's fixed union, delivered per heading group: open tasks with their title and
+ * The schema is bench/query/union.bench.ts's fixed union, delivered per heading group: open tasks with their title and
  * done tasks with their memo, a task having at most one memo, discriminated by kind, so (id, kind) is a key of every
  * arm and the take over the union completes on it (a union over notes, of which a task may have several, is refused at
- * check time, test/unit/check/unions.test.ts). For each query, every statement of the optimized artifact returns
- * the raw text set of the same statement of the conservative artifact, with no repeated row, and both are the
- * bounded subset computed here by definition:
+ * check time, test/unit/check/unions.test.ts). A case draws the tasks, each of a kind of the roster, a done task with
+ * a memo or not, and the take's bound. For each query, every statement of the optimized artifact returns the raw text
+ * set of the same statement of the conservative artifact, with no repeated row, and both are the bounded subset the
+ * model computes by definition, each closed id the code the installation stores for its handle:
  *
  * - the take delivered to the host: one statement per heading group, each that group's first k in the common order
  *   (id, then kind in roster order), whose merge is the union's first k;
@@ -16,12 +18,12 @@
  *   back to the bounded union on every common field.
  */
 import { layer } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { element } from "@grizzle/testing/gen"
+import { drawn, explore } from "@grizzle/testing/explore"
+import { required } from "@grizzle/testing/features"
+import { array, boolean, element, type Gen, int } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Order, pipe, String as Str } from "effect"
-import { indices } from "#compiler/core/array.ts"
 import { identity } from "#compiler/core/identity.ts"
 import type { StatementSpec } from "#compiler/ir/products.ts"
 import type { QueryTemplate } from "#compiler/program/compile.ts"
@@ -32,10 +34,9 @@ import { str } from "#compiler/public/text.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
-import { installMigrated as install, loadMigrated as load } from "#test/support/install-migrate.ts"
-import { parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { installMigrated as install, replaceMigrated } from "#test/support/install-migrate.ts"
+import { namesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { at } from "#test/support/oracle/pick.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 const Kind = closed("Kind", ["Open", "Done", "Held"])
@@ -79,39 +80,61 @@ const memosOf = (k: number) =>
 const id = (n: number): Uuid =>
 	`00000000-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`
 
-/** Twelve tasks cycling Open, Done, Held; every other done task has a memo, so some done tasks are in no arm. */
-const kinds = ["Open", "Done", "Held"] as const
-const tasks = Arr.map(indices(12), (i) => ({
-	id: id(i + 1),
-	kind: at(kinds, i),
-	title: `t${i + 1}`
-}))
+type KindHandle = "Open" | "Done" | "Held"
 
-const memos = Arr.map(
-	Arr.filter(tasks, (t, i) => t.kind === "Done" && i % 2 === 1),
-	(t, i) => ({ id: id(100 + i), task: t.id, text: `memo of ${t.title}` })
-)
+const kinds: Arr.NonEmptyReadonlyArray<KindHandle> = ["Open", "Done", "Held"]
 
-/** A tuple of the union: its id and kind, the key it is ordered by. */
-interface UnionTuple {
-	readonly id: string
-	readonly kind: string
+/**
+ * One case: its tasks in id order, each a kind of the roster and whether, done, it has a memo (a done task without one
+ * is in no arm); and the take's bound, from one row to past every row the union can hold.
+ */
+interface UnionCase {
+	readonly tasks: ReadonlyArray<{ readonly kind: KindHandle; readonly memo: boolean }>
+	readonly k: number
 }
 
-/** The union's tuples in the completed order: id, then kind in roster order (Open before Done). */
-const union = Arr.sort(
-	[
-		...Arr.map(
-			Arr.filter(tasks, (t) => t.kind === "Open"),
-			(t) => ({ id: t.id, kind: "Open", own: t.title })
-		),
-		...Arr.map(memos, (m) => ({ id: m.task, kind: "Done", own: m.text }))
-	],
-	Order.combine(
-		Order.mapInput(Order.String, (u: UnionTuple) => u.id),
-		Order.mapInput(Order.Number, (u: UnionTuple) => (u.kind === "Open" ? 0 : 1))
+const maxTasks = 12
+
+const caseGen: Gen<UnionCase> = (source) => ({
+	tasks: source.draw(
+		array((s) => ({ kind: s.draw(element(kinds)), memo: s.draw(boolean) }), {
+			min: 0,
+			max: maxTasks
+		})
+	),
+	k: source.draw(int(1, maxTasks + 2))
+})
+
+/** A tuple of the union: its id and kind, the key it is ordered by, and its group's own field. */
+interface UnionTuple {
+	readonly id: string
+	readonly kind: KindHandle
+	readonly own: string
+}
+
+/**
+ * A case's facts, and the union's tuples in the completed order: id, then kind in code order, which is the roster's
+ * (Open before Done), each kind's code the one the installation stores for it.
+ */
+const modelOf = (c: UnionCase, code: (kind: KindHandle) => number) => {
+	const tasks = Arr.map(c.tasks, (t, i) => ({ id: id(i + 1), kind: t.kind, title: `t${i + 1}` }))
+	const memos = Arr.flatMap(c.tasks, (t, i) =>
+		t.kind === "Done" && t.memo ? [{ id: id(0x100 + i), task: id(i + 1), text: `m${i + 1}` }] : []
 	)
-)
+	const union: ReadonlyArray<UnionTuple> = Arr.sort(
+		[
+			...Arr.flatMap(tasks, (t): ReadonlyArray<UnionTuple> =>
+				t.kind === "Open" ? [{ id: t.id, kind: "Open", own: t.title }] : []
+			),
+			...Arr.map(memos, (m): UnionTuple => ({ id: m.task, kind: "Done", own: m.text }))
+		],
+		Order.combine(
+			Order.mapInput(Order.String, (u: UnionTuple) => u.id),
+			Order.mapInput(Order.Number, (u: UnionTuple) => code(u.kind))
+		)
+	)
+	return { facts: { Task: tasks, Memo: memos }, union }
+}
 
 const compiled = (q: unknown, schemaIdent: string): QueryTemplate => {
 	const r = compileTemplate(q, undefined, {
@@ -157,15 +180,13 @@ const agreed = (template: QueryTemplate) =>
 		return out
 	})
 
-const sorted = (rows: ReadonlyArray<string>): ReadonlyArray<string> =>
-	Arr.sort([...rows], Order.String)
+const sorted = (rows: ReadonlyArray<string>): ReadonlyArray<string> => Arr.sort(rows, Order.String)
 
-/** The take bounds each query is compiled at: one row, a few, and more than the union holds. */
-const bounds = [1, 2, 3, 5, 20] as const
-
-type Bound = (typeof bounds)[number]
-
-type BoundFeature = `take ${Bound}`
+type Feature =
+	| "a take below the union's size"
+	| "a take past the union's size"
+	| "a heading group the take cuts"
+	| "a done task without a memo"
 
 layer(Substrate.layer, { excludeTestServices: true })(
 	"a bounded heterogeneous union delivered per heading group",
@@ -182,35 +203,69 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							logins: [],
 							extensions: []
 						})
-						yield* load(installed, { Task: tasks, Memo: memos })
-						return yield* exhaust(
+						const names = namesOf(installed)
+						const code = (kind: KindHandle): number => names.code(Kind, kind)
+						return yield* explore(
 							{
 								suite: "oracle/union-take",
-								generator: element(bounds),
+								draw: drawn(caseGen),
 								literal: Formatter.format,
-								limit: bounds.length,
-								coverage: requiredInSpace<BoundFeature>(
-									Arr.map(bounds, (k): BoundFeature => `take ${k}`)
+								coverage: required<Feature>(
+									[
+										"a take below the union's size",
+										"a take past the union's size",
+										"a heading group the take cuts",
+										"a done task without a memo"
+									],
+									{ cases: 16, sense: notesOnly }
 								),
+								kept: [],
+								runs: 24,
+								shrink: { kind: "bounded", candidates: 60 },
+								concurrency: 1,
+								steerEvery: 8,
 								caseHang
 							},
-							(k, c) =>
+							(unionCase, c) =>
 								Effect.gen(function* () {
+									const { facts, union } = modelOf(unionCase, code)
+									yield* replaceMigrated(installed, facts)
+									const k = unionCase.k
 									const first = union.slice(0, k)
+									c.note(
+										k < union.length
+											? "a take below the union's size"
+											: "a take past the union's size"
+									)
+									if (Arr.some(unionCase.tasks, (t) => t.kind === "Done" && !t.memo)) {
+										c.note("a done task without a memo")
+									}
 									/** Delivered: each heading group's first k, whose merge is the union's first k. */
 									const [open, done, ...rest] = yield* agreed(
 										compiled(firstOf(k), installed.declared)
 									)
 									assert.deepEqual(rest, [])
-									const group = (kind: string) =>
-										Arr.filter(union, (u) => u.kind === kind).slice(0, k)
+									const group = (kind: KindHandle) => Arr.filter(union, (u) => u.kind === kind)
+									if (group("Open").length > k || group("Done").length > k) {
+										c.note("a heading group the take cuts")
+									}
 									assert.deepEqual(
 										open,
-										sorted(Arr.map(group("Open"), (u) => `(${u.id},Open,${u.own})`))
+										sorted(
+											Arr.map(
+												group("Open").slice(0, k),
+												(u) => `(${u.id},${code(u.kind)},${u.own})`
+											)
+										)
 									)
 									assert.deepEqual(
 										done,
-										sorted(Arr.map(group("Done"), (u) => `(${u.id},Done,"${u.own}")`))
+										sorted(
+											Arr.map(
+												group("Done").slice(0, k),
+												(u) => `(${u.id},${code(u.kind)},${u.own})`
+											)
+										)
 									)
 									/** Consumed: the ids of the first k. */
 									const [ids] = yield* agreed(compiled(idsOf(k), installed.declared))
@@ -222,11 +277,10 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										sorted(
 											Arr.map(
 												Arr.filter(first, (u) => u.kind === "Done"),
-												(u) => `(${u.id},"${u.own}")`
+												(u) => `(${u.id},${u.own})`
 											)
 										)
 									)
-									c.note(`take ${k}`)
 								})
 						)
 					}).pipe(Effect.scoped)

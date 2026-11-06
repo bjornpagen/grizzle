@@ -1337,6 +1337,14 @@ from 0001-01-01 to 9999-12-31, so no column holds an infinity or a year its text
 8601 text, `"2024-02-29"`, one text per day, ordered as the calendar is; every login pins `DateStyle` to ISO, so
 PostgreSQL writes it the same way. Dates compare, and `min` and `max` them, and a key or index may hold one.
 
+A text in a key, or in any index grizzle installs, needs a byte bound: its pattern's, a contract's
+`Compute.charLength(v)` bound, four bytes a code point, or a contract's `Compute.octetLength(v)` bound, its UTF-8 bytes
+exactly. `keyTextBytes(fields)` is the most bytes a text holds beside a key's other fields, whatever their order: so
+`contract("KeyText", str.regex("^.*$", "su"), (v) => Compute.octetLength(v).le(keyTextBytes([uuid, natural])))` sits
+in a key with a uuid and a natural, and a pattern needs no counted repetition to be a key's. A key's entry is laid out
+as PostgreSQL lays it out: exactly through its fixed-width fields in key order, then each datum at its widest padding
+from the first text, numeric, set, range or vector on.
+
 A roster, `closed("Status", ["Draft", "Published"])`, is a fixed list of handles, and a `closedId(Status)` column holds
 a handle's code: 0 … n − 1 in declared order, which is also their comparison order. The API reads and writes names; the
 table stores codes, under a smallint domain that admits only a live handle's code, and every role's view adds a
@@ -1719,7 +1727,10 @@ Six things work differently from SQL:
 - **grizzle knows each result's keys.** It works them out from primary keys, equalities and constants, and keeps a key
   through `find` whenever the chosen columns still determine the row. `db.get` takes only a query that returns at most
   one row, an `"option"` or `"one"` nested result needs the same proof, and a page is ordered by a key. A delivery the
-  schema does not prove is a type error. `.orderBy(...).take(k)` is a set again, and `take(1)` returns at most one row.
+  schema does not prove is a type error. `.orderBy(...).take(k)` is a set again to whatever composes with it, a match,
+  a further rule or a query's result, which only a final `orderBy` orders, and `take(1)` returns at most one row. Its
+  order is for delivery: a nested `"array"` that ends in a take arrives in the take's order, ties broken by the child
+  query's key.
 - **Variables belong to their columns.** In one rule, two variables made from the same column of a table the rule
   matches once are refused, and the error shows the rewrite: make the variable where it is bound, or match the table
   again.
@@ -2447,9 +2458,11 @@ app. Log in as a login, `SET ROLE` to one of its roles, set the claims in the tr
   unique probe per key over a selected side or a `pred` term whose collisions no other probe finds, for each writable
   query entry; on the entry's filter function exactly when its filter reads a table besides the written row; on the
   advance function of each serial column of a table it writes; on the refusal function when it writes or reads a
-  context, which only raises, in the caller's own statement; and on every constant a statement it runs calls, since
-  PostgreSQL checks EXECUTE as the invoker: each roster's names constant its domains and views read, and the closed
-  constants its tables' CHECKs and generated fields and its queries read.
+  context, which only raises, in the caller's own statement; and on every constant a statement it runs evaluates,
+  since PostgreSQL checks EXECUTE as the invoker: each constant reached through constants' bodies and through the
+  CHECKs of every domain a value is written or cast into (a roster's names constant, a set's live constant), from the
+  domains of its columns, from every CHECK, generated field, default and index of a table it writes, a cast into a
+  domain inside them included, and from its policies and its views; and the closed constants its queries read.
 - MAINTAIN on the materialized view of each derived table its `refresh` names.
 - Nothing else: no TRUNCATE, no sequence, and no other role's view or function.
 
@@ -2504,12 +2517,14 @@ workflows, whose rules are worth declaring and whose users see different slices 
   of three runs: rows grouped by pattern, or cycling through 32 patterns or fewer, cost 1.4 to 4.9 µs a row; rows
   cycling through 33, 64 or 178 cost 80 to 102 µs a row. The CASE that reads each source's translation adds about
   1 µs a row at 178 patterns. Order a bulk read or write by pattern where it can be.
-- **Every key fits its index entry for every value its fields admit.** A primary key, a declared key, and the UNIQUE
-  each family axis references, which holds the copies the axis carries, a fold's running values among them, are
-  bounded alike: at most 32 columns (`INDEX_MAX_KEYS`), and a B-tree entry of at most 2,704 bytes (`BTMaxItemSize`)
-  counted from each column's type, so a text column needs a bounded pattern or a `charLength` contract. A key past
-  either is refused with `UnrepresentableKey` when the schema is compiled, where PostgreSQL would refuse the first
-  write that outgrew it (54000). A `Monoid.concat` fold's accumulators ride its family's axes, so they are text of a
+- **Every key fits its index entry for every value its fields admit.** A primary key, a declared key, a key over a
+  selection, the UNIQUE a containment references where its target's columns are no declared key, the index over a
+  containment's referencing columns, a family's own UNIQUEs, and the UNIQUE each family axis references, which holds
+  the copies the axis carries, a fold's running values among them, are bounded alike: at most 32 columns
+  (`INDEX_MAX_KEYS`), and a B-tree entry of at most 2,704 bytes (`BTMaxItemSize`) counted from each column's type, so a
+  text column needs a bounded pattern, or a contract bounding its `charLength` or `octetLength`. A key past either is
+  refused with `UnrepresentableKey` when the schema is compiled, naming the bytes each column is counted at, where
+  PostgreSQL would refuse the first write that outgrew it (54000). A `Monoid.concat` fold's accumulators ride its family's axes, so they are text of a
   bounded pattern, such as `str.regex("^.{0,64}$", "su")`. A set an axis carries, an `or` or `twos` fold's, is its
   roster's `bit(n)`, `n` every code the roster has minted, removed handles' included, so it is sized by the
   installation's codes when `generate`, `check` or `migrate` compiles it: a roster grown and pruned past about 21,000

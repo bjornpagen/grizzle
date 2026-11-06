@@ -1043,7 +1043,14 @@ const createIndex = (b: InstallBuilder, planned: Planned, draft: Draft): Planned
 				return unrepresentable(datums.error)
 			}
 			if (method === "btree") {
-				const entry = btreeEntry(datums.value.map((d) => d.datum))
+				/** A law column may hold NULL, which gives the entry its null bitmap; a field is NOT NULL. */
+				const entry = btreeEntry(
+					datums.value.map((d, i) => ({
+						name: d.field,
+						datum: d.datum,
+						nullable: keys[i]?.column.kind === "law"
+					}))
+				)
 				if (!entry.ok) {
 					unrepresentable(entry.error)
 				}

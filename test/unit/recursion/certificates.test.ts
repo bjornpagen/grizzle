@@ -41,7 +41,8 @@ import {
 	decodedQuery,
 	type AuthoredExprDesc as ExprDesc,
 	type QueryDesc,
-	type RuleDesc
+	type RuleDesc,
+	textDesc
 } from "#test/support/fixtures/ir/desc.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { canonicalFacts, type GenFacts } from "#test/support/oracle/gen/facts.ts"
@@ -459,7 +460,7 @@ const typeOf = (carrier: Carrier): FieldDesc => ({
 	kind: "pg",
 	type: carrier satisfies PgScalarName
 })
-const markType: FieldDesc = { kind: "text", source: "^[a-c]$", flags: "u" }
+const markType: FieldDesc = textDesc("^[a-c]$", "u")
 
 /** The host value a literal of the carrier is spelled in: a bigint for bigint, a number otherwise. */
 const host = (carrier: Carrier, value: number): number | bigint =>

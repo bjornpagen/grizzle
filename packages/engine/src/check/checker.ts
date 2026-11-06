@@ -130,6 +130,7 @@ import {
 } from "#compiler/scalar/compute/types.ts"
 import { regexMember } from "#compiler/scalar/regex/nfa.ts"
 import { spanType } from "#compiler/scalar/registry.ts"
+import { textLookup } from "#compiler/text/refinement.ts"
 
 /**
  * How a query is read: as rows (execute, get, compile, attach, derived, a ChangeSet member), as a page, as a
@@ -249,12 +250,25 @@ const writtenTarget = (origin: ScopeOrigin): MemberTarget | undefined =>
 
 interface StageOut {
 	readonly node: RelNode
-	/**
-	 * An orderBy's keys, and where they are written for a refusal of one of them; undefined for a stage that orders
-	 * nothing.
-	 */
-	readonly order: StatedOrderDesc | undefined
+	readonly order: StageOrder
 }
+
+/**
+ * The order a stage's rows carry: none; an orderBy's, which a take or the query's result reads; or the one a take
+ * ranked by, whose rows are a set to whatever composes with them and which an attachment delivers them in. A name or an
+ * attachment keeps its input's rows, and so a take's delivery order; no stage but take reads an orderBy's
+ * (ir/desc.ts QueryStageDesc).
+ */
+type StageOrder =
+	| { readonly kind: "none" }
+	| { readonly kind: "ordered"; readonly stated: StatedOrderDesc }
+	| { readonly kind: "delivered"; readonly stated: StatedOrderDesc }
+
+const unordered: StageOrder = { kind: "none" }
+
+/** The order a stage that keeps its input's rows as they are carries: a take's delivery order, else none. */
+const keptOrder = (input: StageOrder): StageOrder =>
+	input.kind === "delivered" ? input : unordered
 
 interface StatedOrderDesc {
 	readonly keys: ReadonlyArray<OrderDesc>
@@ -879,7 +893,8 @@ export class Checker {
 			)
 		}
 		const out = this.stage(desc.stage, this.ownScope(role))
-		const root = out.order === undefined ? out.node : this.#orderedResult(out.node, out.order)
+		const root =
+			out.order.kind === "ordered" ? this.#orderedResult(out.node, out.order.stated) : out.node
 		return unwrap(completeStatedOrders(this.b.build([root]), this.#stated))
 	}
 
@@ -905,32 +920,47 @@ export class Checker {
 		const here = s.kind === "attach" ? s.attach.loc : s.loc
 		switch (s.kind) {
 			case "rules":
-				return { node: this.arms(s.arms, scope, childLoc(here, "arms")), order: undefined }
+				return { node: this.arms(s.arms, scope, childLoc(here, "arms")), order: unordered }
 			case "recursive":
-				return { node: recursion.check(s, scope, here, this.services()), order: undefined }
+				return { node: recursion.check(s, scope, here, this.services()), order: unordered }
 			case "union": {
 				const input = this.stage(s.input, scope)
 				const prior = this.#unions.get(input.node)?.arms ?? [input.node]
 				const added = s.arms.map((arm) => this.rule(arm, scope))
-				return { node: this.union([...prior, ...added], here), order: undefined }
+				return { node: this.union([...prior, ...added], here), order: unordered }
 			}
 			case "attach": {
 				const input = this.stage(s.input, scope)
-				return { node: this.attachIn(input.node, s.attach, scope, here), order: undefined }
+				return {
+					node: this.attachIn(input.node, s.attach, scope, here),
+					order: keptOrder(input.order)
+				}
 			}
-			case "named":
-				return { node: this.stage(s.input, scope).node, order: undefined }
+			case "named": {
+				const input = this.stage(s.input, scope)
+				return { node: input.node, order: keptOrder(input.order) }
+			}
 			case "order": {
 				const input = this.stage(s.input, scope)
-				return { node: input.node, order: { keys: s.order, at: childLoc(here, "order") } }
+				return {
+					node: input.node,
+					order: { kind: "ordered", stated: { keys: s.order, at: childLoc(here, "order") } }
+				}
 			}
 			case "take": {
 				const input = this.stage(s.input, scope)
-				return { node: this.take(input, s.take, scope, here), order: undefined }
+				if (input.order.kind !== "ordered") {
+					return fail("MalformedDescription", here, "take over an Ordered query")
+				}
+				const stated = input.order.stated
+				return {
+					node: this.take(input.node, stated, s.take, scope, here),
+					order: { kind: "delivered", stated }
+				}
 			}
 			case "approx": {
 				const input = this.stage(s.input, scope)
-				return { node: approximate.check(s, input.node, here, this.services()), order: undefined }
+				return { node: approximate.check(s, input.node, here, this.services()), order: unordered }
 			}
 		}
 	}
@@ -978,12 +1008,14 @@ export class Checker {
 		})
 	}
 
-	take(input: StageOut, take: ResolvedTake, scope: Scope, loc: SourceLoc): RelNode {
-		const stated = input.order
-		if (stated === undefined) {
-			return fail("MalformedDescription", loc, "take over an Ordered query")
-		}
-		const heading = input.node.heading
+	take(
+		input: RelNode,
+		stated: StatedOrderDesc,
+		take: ResolvedTake,
+		scope: Scope,
+		loc: SourceLoc
+	): RelNode {
+		const heading = input.heading
 		const origin = scope.origin
 		const correlation: ReadonlyArray<Correlation> =
 			origin.kind === "attachChild"
@@ -995,21 +1027,18 @@ export class Checker {
 		const fixed = new Set(correlation.map((c) => c.column))
 		const order = this.complete(stated, heading, fixed)
 		const bound = this.takeBound(take, scope, loc)
-		const node = this.node(
-			{ kind: "Take", input: input.node, order, bound, correlation, heading },
-			loc
-		)
+		const node = this.node({ kind: "Take", input, order, bound, correlation, heading }, loc)
 		this.#state(node, stated, {
-			input: input.node,
+			input,
 			fixed: correlation.map((c) => c.column),
 			withOrder: (completed) =>
 				this.#restated(
 					node,
-					{ kind: "Take", input: input.node, order: completed, bound, correlation, heading },
+					{ kind: "Take", input, order: completed, bound, correlation, heading },
 					loc
 				)
 		})
-		this.#inherit(node, input.node)
+		this.#inherit(node, input)
 		return node
 	}
 
@@ -1449,10 +1478,11 @@ export class Checker {
 		const fixed = new Set(columns.map((c) => c.name))
 		const correlation = columns.map((c) => ({ parent: c.parent, child: c.name }))
 		/**
-		 * An array's order is its stated one or, stating none, the empty order, which the completion (check/order.ts)
-		 * extends by the child's key: its positions are a function of its child's facts.
+		 * An array's order is the one its child states, an orderBy's or the take's it ends in, or, stating none, the empty
+		 * order, which the completion (check/order.ts) extends by the child's key: its positions are a function of its
+		 * child's facts, and ties under a stated order are broken by the child's key.
 		 */
-		const stated = child.order ?? { keys: [], at: loc }
+		const stated = child.order.kind === "none" ? { keys: [], at: loc } : child.order.stated
 		const node = this.node(
 			{
 				kind: "Attach",
@@ -1826,6 +1856,7 @@ export class Checker {
 			fieldType: (desc, at) =>
 				catchRefusal(() => this.schema.queryFieldType(desc, at, this.#contracts)),
 			regexMember,
+			patternLanguage: textLookup,
 			extension: (desc, at, lower) => catchRefusal(() => this.#extension(desc, lower, at))
 		}
 	}

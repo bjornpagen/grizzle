@@ -28,10 +28,13 @@ import { descText, type QueryDesc, type QueryStageDesc, type RuleDesc } from "#c
 import { toQueryDescription } from "#compiler/ir/describe.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import {
+	languageOfText,
 	numericTypmodOf,
 	rosterOf,
 	sameScalarType,
 	type ScalarType,
+	type TextBounds,
+	type TextLanguage,
 	textOf,
 	vectorTypmodOf
 } from "#compiler/ir/scalar.ts"
@@ -96,6 +99,29 @@ const normalized = (q: LogicalQuery) => ({
 })
 
 type JsonRecord = { readonly [key: string]: Json }
+
+const boundsJson = (bounds: TextBounds): JsonRecord => ({
+	length: bounds.length,
+	bytes: bounds.bytes
+})
+
+/** A text descriptor's analyzed language as its Description's JSON form spells it. */
+const languageJson = (language: TextLanguage): JsonRecord => {
+	if (language.kind === "every") {
+		return { kind: "every" }
+	}
+	const { check } = language
+	return {
+		kind: "refined",
+		key: language.key,
+		check:
+			check.kind === "finite"
+				? { kind: "finite", members: check.members, bounds: boundsJson(check.bounds) }
+				: check.bounds === undefined
+					? { kind: "regex", pattern: check.pattern }
+					: { kind: "regex", pattern: check.pattern, bounds: boundsJson(check.bounds) }
+	}
+}
 
 /** A position in a JSON tree: the keys and indices that lead to it from the root. */
 type Path = ReadonlyArray<string | number>
@@ -562,10 +588,11 @@ const keyFieldDesc = (key: KeyVar): JsonRecord => {
 			return { kind: "numeric", precision: typmod.precision, scale: typmod.scale }
 		}
 		case "text": {
-			const regex = defined(textOf(key.type), "a text field's refinement").regex
-			return regex === "wildcard"
-				? { kind: "text", source: "^.*$", flags: "su" }
-				: { kind: "text", source: regex.source, flags: regex.flags }
+			const text = defined(textOf(key.type), "a text field's refinement")
+			const language = languageJson(languageOfText(text))
+			return text.regex === "wildcard"
+				? { kind: "text", source: "^.*$", flags: "su", language }
+				: { kind: "text", source: text.regex.source, flags: text.regex.flags, language }
 		}
 		case "handle":
 			return { kind: "closedId", roster: defined(rosterOf(key.type), "a handle's roster").closed }

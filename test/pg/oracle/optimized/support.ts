@@ -672,12 +672,20 @@ const formLabel = (form: OptimizedForm): string =>
 	form.kind === "optimized variant" ? `optimized variant ${form.statement}` : form.kind
 
 /** One compared run of the optimized artifact: the default program, or a per-execution variant. */
-export interface OptimizedRun {
-	readonly form: OptimizedForm
-	readonly run: Run
-	readonly comparison: Comparison
-	readonly order: ReadonlyArray<string>
-}
+/**
+ * One optimized form's verdict against the conservative run: it agrees, and nothing of its rows is kept, or it differs,
+ * and its run is kept beside its comparison and order problems for the report. A case holds one form's rows at a time
+ * besides the baseline's, however many forms it runs.
+ */
+export type OptimizedRun =
+	| { readonly form: OptimizedForm; readonly verdict: "agrees" }
+	| {
+			readonly form: OptimizedForm
+			readonly verdict: "differs"
+			readonly run: Run
+			readonly comparison: Comparison
+			readonly order: ReadonlyArray<string>
+	  }
 
 export interface DifferentialOutcome {
 	readonly case: QueryCase
@@ -691,7 +699,6 @@ export interface DifferentialOutcome {
 	readonly plans: ReadonlyArray<PlanShape>
 	readonly others: ReadonlyArray<{
 		readonly name: string
-		readonly run: Run
 		readonly comparison: Comparison
 	}>
 	readonly fusedAttachments: number
@@ -699,7 +706,7 @@ export interface DifferentialOutcome {
 
 /** Whether every optimized run equals the conservative run, repeats no row, and keeps every delivery order. */
 export const agrees = (o: DifferentialOutcome): boolean =>
-	Arr.every(o.optimized, (r) => r.comparison.equal && r.order.length === 0)
+	Arr.every(o.optimized, (r) => r.verdict === "agrees")
 
 /** Whether the conservative run repeats no row: the baseline is a set at every statement. */
 export const baselineIsSet = (o: DifferentialOutcome): boolean =>
@@ -872,12 +879,13 @@ const runDifferential = (
 						const run = yield* execute(session, c, f.roots, label)
 						const d = yield* delivered(optimizedDag, run, label, optimizedOrdered, names.codes)
 						fusedAttachments = Math.max(fusedAttachments, d.fusedAttachments)
-						optimized.push({
-							form: f.form,
-							run: d.run,
-							comparison: compareRuns(baseline.run, d.run),
-							order: orderProblems(baseline, d)
-						})
+						const comparison = compareRuns(baseline.run, d.run)
+						const order = orderProblems(baseline, d)
+						optimized.push(
+							comparison.equal && order.length === 0
+								? { form: f.form, verdict: "agrees" }
+								: { form: f.form, verdict: "differs", run: d.run, comparison, order }
+						)
 					}
 					/**
 					 * Every statement a form sent, each text planned once: db.explain plans whichever form an
@@ -901,11 +909,7 @@ const runDifferential = (
 							o.lowering.name
 						)
 						const d = yield* delivered(query.dag, run, o.lowering.name, false, names.codes)
-						otherRuns.push({
-							name: o.lowering.name,
-							run: d.run,
-							comparison: compareRuns(baseline.run, d.run)
-						})
+						otherRuns.push({ name: o.lowering.name, comparison: compareRuns(baseline.run, d.run) })
 					}
 					return {
 						/** The case as generated; the perturbation's report says how its facts ran. */
@@ -983,7 +987,7 @@ export const printDifferential = (o: DifferentialOutcome): string => {
 	const lines: Array<string> = []
 	lines.push(printQueryCase(o.case))
 	for (const r of o.optimized) {
-		if (r.comparison.equal && r.order.length === 0) {
+		if (r.verdict === "agrees") {
 			continue
 		}
 		lines.push(printComparison(r.comparison, "conservative", formLabel(r.form)))

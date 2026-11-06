@@ -7,6 +7,7 @@ import type { HeadingColumn } from "#compiler/ir/rel.ts"
 import {
 	contractOf,
 	isNumericValue,
+	languageOfText,
 	type NumericValueType,
 	type ScalarType,
 	typeLabel
@@ -74,10 +75,11 @@ export const declaredDescOf = (
 			})
 		case "text": {
 			const { regex } = type.text
+			const language = languageOfText(type.text)
 			return Result.ok(
 				regex === "wildcard"
-					? { kind: "text", source: wildcardSource, flags: wildcardFlags }
-					: { kind: "text", source: regex.source, flags: regex.flags }
+					? { kind: "text", source: wildcardSource, flags: wildcardFlags, language }
+					: { kind: "text", source: regex.source, flags: regex.flags, language }
 			)
 		}
 		case "code":

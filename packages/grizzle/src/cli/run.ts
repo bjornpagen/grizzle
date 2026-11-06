@@ -19,7 +19,7 @@ import {
 	stageOutcome
 } from "#adapter/migrate/errors.ts"
 import { parseArgs, usageText } from "#cli/args.ts"
-import { check, findingText, type SchemaCheck } from "#cli/check.ts"
+import { check, checkFiles, findingText, type SchemaCheck } from "#cli/check.ts"
 import { type ConfigFile, resolveConfig } from "#cli/config.ts"
 import { migrationConnection } from "#cli/connection.ts"
 import type { CliError } from "#cli/errors.ts"
@@ -35,12 +35,33 @@ import { metaFileName } from "#compiler/deploy/render/folder.ts"
  */
 const exitCodes = { ok: 0, failed: 1, usage: 2 } as const
 
-/** What one command line came to, as the bin writes it: its exit status, and its lines for stdout and stderr. */
-export interface CliReport {
-	readonly code: (typeof exitCodes)[keyof typeof exitCodes]
+/** A report's lines for stdout and stderr, as the bin writes them. */
+interface ReportLines {
 	readonly stdout: ReadonlyArray<string>
 	readonly stderr: ReadonlyArray<string>
 }
+
+/** The command ran to its end: status 0 when it succeeded, 1 when it reported findings. */
+interface RanReport extends ReportLines {
+	readonly outcome: "ran"
+	readonly code: typeof exitCodes.ok | typeof exitCodes.failed
+}
+
+/** The command was refused, by `refusal`: status 2 for a usage error, 1 for any other refusal. */
+interface RefusedReport extends ReportLines {
+	readonly outcome: "refused"
+	readonly code: typeof exitCodes.failed | typeof exitCodes.usage
+	readonly refusal: CliError | CommandRefused
+}
+
+/** The command died, reported as an internal error: status 1. */
+interface DiedReport extends ReportLines {
+	readonly outcome: "died"
+	readonly code: typeof exitCodes.failed
+}
+
+/** What one command line came to, as the bin writes it, by how it ended: its exit status and its lines. */
+export type CliReport = RanReport | RefusedReport | DiedReport
 
 /** The line `grizzle generate` prints when no schema changed. */
 const noChanges = "no changes"
@@ -297,9 +318,12 @@ const program = Effect.fn("program")(function* (
 		)
 	}
 	if (command.kind === "migrate") {
-		/** Where to connect comes first, then every check grizzle check runs, before connecting. */
+		/**
+		 * Where to connect comes first, then every check of the committed files grizzle check runs, before connecting:
+		 * migrate applies those files as they are, so it compiles nothing.
+		 */
 		const connection = yield* migrationConnection(config)
-		const checks = yield* check(config, cwd)
+		const checks = yield* checkFiles(config, cwd)
 		if (findingsOf(checks) > 0) {
 			return ran(
 				exitCodes.failed,
@@ -337,15 +361,23 @@ const program = Effect.fn("program")(function* (
 })
 
 /** The report of a command line the runtime refused: a usage error, any other CLI refusal, or a migrate or drift. */
-const refusedReport = (e: CliError | CommandRefused): CliReport => {
+const refusedReport = (e: CliError | CommandRefused): RefusedReport => {
 	if (e._tag === "CliError") {
 		return {
+			outcome: "refused",
 			code: e.stage === "usage" ? exitCodes.usage : exitCodes.failed,
 			stdout: [],
-			stderr: renderCliError(e)
+			stderr: renderCliError(e),
+			refusal: e
 		}
 	}
-	return { code: exitCodes.failed, stdout: [], stderr: renderMigrateError(e.command, e.error) }
+	return {
+		outcome: "refused",
+		code: exitCodes.failed,
+		stdout: [],
+		stderr: renderMigrateError(e.command, e.error),
+		refusal: e
+	}
 }
 
 /**
@@ -368,7 +400,8 @@ export const runCli = Effect.fn("runCli")(function* (
 ): Effect.fn.Return<CliReport, never, FileSystem.FileSystem | Path.Path> {
 	const exit = yield* Effect.exit(program(argv, cwd, load))
 	if (Exit.isSuccess(exit)) {
-		const done: CliReport = {
+		const done: RanReport = {
+			outcome: "ran",
 			code: exit.value.code,
 			stdout: exit.value.out,
 			stderr: exit.value.err
@@ -382,7 +415,8 @@ export const runCli = Effect.fn("runCli")(function* (
 	if (Cause.hasInterruptsOnly(exit.cause)) {
 		return yield* Effect.interrupt
 	}
-	const died: CliReport = {
+	const died: DiedReport = {
+		outcome: "died",
 		code: exitCodes.failed,
 		stdout: [],
 		stderr: ["grizzle: internal error", Cause.pretty(exit.cause)]

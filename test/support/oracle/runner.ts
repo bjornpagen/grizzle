@@ -267,9 +267,6 @@ export interface RunOptions {
 /** A unique schema. */
 export const defaultRunOptions: RunOptions = { schema: { kind: "fresh" } }
 
-/** The harness's per-statement guard. */
-const statementTimeout = "30s"
-
 /** A stored value as the loader takes it: its authored value, or its twin spelling (install/literal.ts InputSpelling). */
 export const storedInput = (stored: SpelledValue, type: ScalarType): unknown => {
 	switch (stored.spelling.kind) {
@@ -567,10 +564,13 @@ const referenceRun = (
 		Effect.mapError((e) => failure("reference", reference.name, `rendering: ${sqlMessage(e)}`))
 	)
 
-/** Runs the body in one transaction on a pinned owner session and rolls it back. */
+/**
+ * Runs the body in one transaction on a pinned owner session and rolls it back. No statement of it has a deadline: a
+ * statement that never ends is a hang, which the case's hang guard (caseHang) reports, cancelling the statement it
+ * interrupts (pg.ts), and no verdict rests on how long a statement took.
+ */
 const inRolledBackTransaction = <A, E>(
-	body: (session: PgConnection) => Effect.Effect<A, E>,
-	timeout: string
+	body: (session: PgConnection) => Effect.Effect<A, E>
 ): Effect.Effect<A, E | OracleFailure, Substrate> =>
 	Effect.scoped(
 		Effect.gen(function* () {
@@ -581,10 +581,9 @@ const inRolledBackTransaction = <A, E>(
 					.query(sql, [])
 					.pipe(Effect.mapError((e) => failure("execute", "setup", sqlMessage(e))))
 			yield* begin("BEGIN")
-			return yield* Effect.gen(function* () {
-				yield* begin(`SET LOCAL statement_timeout = '${timeout}'`)
-				return yield* body(session)
-			}).pipe(Effect.ensuring(Effect.ignore(session.query("ROLLBACK", []))))
+			return yield* body(session).pipe(
+				Effect.ensuring(Effect.ignore(session.query("ROLLBACK", [])))
+			)
 		})
 	)
 
@@ -613,8 +612,8 @@ const inRolledBackTransaction = <A, E>(
  *    harness failure.
  *
  * Everything runs in one transaction on one pinned owner session and is rolled back, so a case leaves nothing behind
- * and the next case reuses the schema name. The transaction carries a statement_timeout as a test harness guard against a mutant
- * that does not terminate; it is the harness's, never a grizzle session's.
+ * and the next case reuses the schema name. No statement has a deadline: a mutant whose statement does not terminate is a
+ * hang, which the case's hang guard reports, and the mutation tester's own timeout counts.
  *
  * oracleCheck explores a property over a suite's draw with the library's exploration (@grizzle/testing/explore), so a
  * failing case shrinks and is reported in its printable form (the suite's literal) with the comparison that failed. A
@@ -713,118 +712,116 @@ const runNamed = (
 		const names = plan.installation.names
 		const leftProgram = yield* lowerSide(left, c, names)
 		const rightProgram = isReference(right) ? undefined : yield* lowerSide(right, c, names)
-		return yield* inRolledBackTransaction(
-			(session) =>
-				Effect.gen(function* () {
-					const exec = (sql: string, stage: string) =>
-						session
-							.query(sql, [])
-							.pipe(Effect.mapError((e) => failure("execute", stage, `${sqlMessage(e)}\n${sql}`)))
-					for (const sql of plan.sql) {
-						yield* exec(sql, "install")
-					}
-					/**
-					 * Tables created and filled in this transaction have no statistics, so the planner assumes some
-					 * thousand rows each and a few cross-joined scans estimate billions; the executor sizes its startup
-					 * of a recursive union or hash aggregate by that estimate, even for EXPLAIN and a handful of actual
-					 * rows. ANALYZE sees this transaction's own rows and is rolled back with it; results are unchanged.
-					 */
-					const tables = Arr.map(Rec.values(plan.tables), (t) => printObjectName(t.name))
-					/** Stores `statements`, analyzes the tables and sets `under`'s planner settings. */
-					const stored = (
-						statements: ReadonlyArray<string>,
-						under: Perturbation,
-						stage: string
-					): Effect.Effect<void, OracleFailure> =>
-						Effect.gen(function* () {
-							for (const sql of statements) {
-								yield* exec(sql, stage)
-							}
-							if (tables.length > 0) {
-								yield* exec(`ANALYZE ${Arr.join(tables, ", ")}`, stage)
-							}
-							for (const sql of plannerStatements(under)) {
-								yield* exec(sql, stage)
-							}
-						})
-					yield* exec("SAVEPOINT stored", "facts")
-					yield* stored(facts.value, perturbation, "facts")
-					const leftRun = yield* runProgram(session, c, leftProgram, left.name)
-					const rightRun =
-						rightProgram !== undefined
-							? yield* runProgram(session, c, rightProgram, right.name)
-							: yield* referenceRun(session, expected?.success.statements ?? [], plan)
-					const comparison = compareRuns(leftRun, rightRun)
-					yield* exec("ROLLBACK TO SAVEPOINT stored", "facts stored otherwise")
-					yield* stored(restoredStatements.value, secondPlan, "facts stored otherwise")
-					const lowered: ReadonlyArray<{
-						readonly role: SideRole
-						readonly name: string
-						readonly program: ConservativeProgram
-						readonly first: Run
-					}> = [
-						{ role: "left", name: left.name, program: leftProgram, first: leftRun },
-						...(rightProgram === undefined
-							? []
-							: [
-									{
-										role: "right" as const,
-										name: right.name,
-										program: rightProgram,
-										first: rightRun
-									}
-								])
-					]
-					const second: SecondReading = {
-						reordered: restoration.reordered,
-						respelled: restoration.respelled,
-						plan: secondPlan
-					}
-					const order = second.reordered ? "reordered" : "in their order"
-					const spelling = second.respelled ? "one value respelled" : "no value respelled"
-					for (const side of lowered) {
-						const again = yield* runProgram(session, restoration.case, side.program, side.name)
-						const itself = compareRuns(side.first, again)
-						if (comparison.equal && !itself.equal) {
-							return yield* new InvarianceFailed({
-								role: side.role,
-								side: side.name,
-								readings: new Readings({
-									case: input,
-									first: side.first,
-									again,
-									comparison: itself,
-									reading: second
-								}),
-								report: Arr.join(
-									[
-										`${side.name}: the facts stored otherwise (${order}, ${spelling}) under another plan deliver otherwise`,
-										printOracleCase(input),
-										printPerturbation(secondPlan),
-										printComparison(itself, "the first reading", "the second reading"),
-										printRun(side.first),
-										printRun(again)
-									],
-									"\n"
-								)
-							})
+		return yield* inRolledBackTransaction((session) =>
+			Effect.gen(function* () {
+				const exec = (sql: string, stage: string) =>
+					session
+						.query(sql, [])
+						.pipe(Effect.mapError((e) => failure("execute", stage, `${sqlMessage(e)}\n${sql}`)))
+				for (const sql of plan.sql) {
+					yield* exec(sql, "install")
+				}
+				/**
+				 * Tables created and filled in this transaction have no statistics, so the planner assumes some
+				 * thousand rows each and a few cross-joined scans estimate billions; the executor sizes its startup
+				 * of a recursive union or hash aggregate by that estimate, even for EXPLAIN and a handful of actual
+				 * rows. ANALYZE sees this transaction's own rows and is rolled back with it; results are unchanged.
+				 */
+				const tables = Arr.map(Rec.values(plan.tables), (t) => printObjectName(t.name))
+				/** Stores `statements`, analyzes the tables and sets `under`'s planner settings. */
+				const stored = (
+					statements: ReadonlyArray<string>,
+					under: Perturbation,
+					stage: string
+				): Effect.Effect<void, OracleFailure> =>
+					Effect.gen(function* () {
+						for (const sql of statements) {
+							yield* exec(sql, stage)
 						}
-					}
-					return new OracleOutcome({
-						case: input,
-						name,
-						perturbation: scaledPast ? { ...perturbation, multiplier: 1 } : perturbation,
-						plan,
-						left: { kind: "lowered", run: leftRun, program: leftProgram },
-						right:
-							rightProgram === undefined
-								? { kind: "reference", run: rightRun, declines: expected?.success.declines ?? [] }
-								: { kind: "lowered", run: rightRun, program: rightProgram },
-						comparison,
-						again: second
+						if (tables.length > 0) {
+							yield* exec(`ANALYZE ${Arr.join(tables, ", ")}`, stage)
+						}
+						for (const sql of plannerStatements(under)) {
+							yield* exec(sql, stage)
+						}
 					})
-				}),
-			statementTimeout
+				yield* exec("SAVEPOINT stored", "facts")
+				yield* stored(facts.value, perturbation, "facts")
+				const leftRun = yield* runProgram(session, c, leftProgram, left.name)
+				const rightRun =
+					rightProgram !== undefined
+						? yield* runProgram(session, c, rightProgram, right.name)
+						: yield* referenceRun(session, expected?.success.statements ?? [], plan)
+				const comparison = compareRuns(leftRun, rightRun)
+				yield* exec("ROLLBACK TO SAVEPOINT stored", "facts stored otherwise")
+				yield* stored(restoredStatements.value, secondPlan, "facts stored otherwise")
+				const lowered: ReadonlyArray<{
+					readonly role: SideRole
+					readonly name: string
+					readonly program: ConservativeProgram
+					readonly first: Run
+				}> = [
+					{ role: "left", name: left.name, program: leftProgram, first: leftRun },
+					...(rightProgram === undefined
+						? []
+						: [
+								{
+									role: "right" as const,
+									name: right.name,
+									program: rightProgram,
+									first: rightRun
+								}
+							])
+				]
+				const second: SecondReading = {
+					reordered: restoration.reordered,
+					respelled: restoration.respelled,
+					plan: secondPlan
+				}
+				const order = second.reordered ? "reordered" : "in their order"
+				const spelling = second.respelled ? "one value respelled" : "no value respelled"
+				for (const side of lowered) {
+					const again = yield* runProgram(session, restoration.case, side.program, side.name)
+					const itself = compareRuns(side.first, again)
+					if (comparison.equal && !itself.equal) {
+						return yield* new InvarianceFailed({
+							role: side.role,
+							side: side.name,
+							readings: new Readings({
+								case: input,
+								first: side.first,
+								again,
+								comparison: itself,
+								reading: second
+							}),
+							report: Arr.join(
+								[
+									`${side.name}: the facts stored otherwise (${order}, ${spelling}) under another plan deliver otherwise`,
+									printOracleCase(input),
+									printPerturbation(secondPlan),
+									printComparison(itself, "the first reading", "the second reading"),
+									printRun(side.first),
+									printRun(again)
+								],
+								"\n"
+							)
+						})
+					}
+				}
+				return new OracleOutcome({
+					case: input,
+					name,
+					perturbation: scaledPast ? { ...perturbation, multiplier: 1 } : perturbation,
+					plan,
+					left: { kind: "lowered", run: leftRun, program: leftProgram },
+					right:
+						rightProgram === undefined
+							? { kind: "reference", run: rightRun, declines: expected?.success.declines ?? [] }
+							: { kind: "lowered", run: rightRun, program: rightProgram },
+					comparison,
+					again: second
+				})
+			})
 		)
 	})
 

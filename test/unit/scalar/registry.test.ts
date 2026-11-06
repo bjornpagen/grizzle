@@ -40,7 +40,6 @@ import { canonicalEquals, everyProperty } from "#compiler/core/canonical.ts"
 import type { ValueFault } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { hasProperties } from "#compiler/core/record.ts"
-import * as Result from "#compiler/core/result.ts"
 import type { ExprDesc, FieldDesc, LiteralDesc, PgScalarName } from "#compiler/ir/desc.ts"
 import type { Fact } from "#compiler/ir/proof.ts"
 import { decodeScalarType } from "#compiler/ir/scalar-shape.ts"
@@ -57,7 +56,9 @@ import {
 	type ScalarType,
 	sameScalarType,
 	spanOf,
+	type TextBounds,
 	type TextInfo,
+	type TextLanguage,
 	textOf
 } from "#compiler/ir/scalar.ts"
 import { str } from "#compiler/public/text.ts"
@@ -71,11 +72,9 @@ import {
 	describeField,
 	literalDescFor,
 	noRosters,
-	noText,
 	numericValue,
 	type ScalarEnv,
-	scalarTypeOf,
-	type TextLookup
+	scalarTypeOf
 } from "#compiler/scalar/registry.ts"
 import { uuidDescriptor } from "#compiler/scalar/uuid.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
@@ -83,6 +82,7 @@ import { isValueFault } from "#compiler/scalar/values/fault.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
 import { closed } from "#compiler/schema/api.ts"
+import { textLookup } from "#compiler/text/refinement.ts"
 import {
 	assert,
 	contains,
@@ -205,7 +205,8 @@ const predicateTable = (
 	contractPredicateTable(predicate, base, name, facts, {
 		loc: SourceLoc(`contract ${name}`, []),
 		fieldType: (desc, location) => scalarTypeOf(desc, bareEnv, location),
-		regexMember: patternMember
+		regexMember: patternMember,
+		patternLanguage: textLookup
 	})
 
 /**
@@ -392,8 +393,7 @@ describe("scalarTypeOf: a FieldDesc to its ScalarType", () => {
 							const held = { closed: parsedName(name), handles: listed }
 							const env = {
 								kind: "builder",
-								roster: (n: string) => (n === name ? listed : undefined),
-								text: noText
+								roster: (n: string) => (n === name ? listed : undefined)
 							} as const
 							assert.deepEqual(
 								rosterOf(
@@ -415,7 +415,7 @@ describe("scalarTypeOf: a FieldDesc to its ScalarType", () => {
 	)
 
 	it.effect(
-		"takes a pattern's metadata from the environment's text analysis, and refuses one outside any",
+		"reads a pattern's metadata off the language its Description carries, under every environment",
 		(ctx) =>
 			searched(
 				ctx,
@@ -425,7 +425,8 @@ describe("scalarTypeOf: a FieldDesc to its ScalarType", () => {
 						draw: drawn((source) => ({
 							source: source.draw(element(["^.*$", "^[a-z]*$", "^.+$", ""])),
 							flags: source.draw(element(["u" as const, "su" as const])),
-							lengthBound: source.draw(int(1, 1000))
+							language: source.draw(languageGen),
+							env: source.draw(readingEnvGen)
 						})),
 						literal: Formatter.format,
 						coverage: noCoverage,
@@ -436,25 +437,12 @@ describe("scalarTypeOf: a FieldDesc to its ScalarType", () => {
 						steerEvery: 16,
 						caseHang
 					},
-					({ source, flags, lengthBound }) =>
+					({ source, flags, language, env }) =>
 						Effect.sync(() => {
-							refused(
-								scalarTypeOf({ kind: "text", source, flags }, bareEnv, SourceLoc("field", [])),
-								"MalformedDescription"
+							const typed = succeeded(
+								scalarTypeOf({ kind: "text", source, flags, language }, env, SourceLoc("field", []))
 							)
-							const info = {
-								regex: { source, flags, key: RegexKey(`${flags} ${source}`) },
-								lengthBound,
-								byteBound: 4 * lengthBound
-							}
-							const canonical = succeeded(
-								scalarTypeOf(
-									{ kind: "text", source, flags },
-									{ kind: "builder", roster: noRosters, text: () => Result.ok(info) },
-									SourceLoc("field", [])
-								)
-							)
-							assert.deepEqual(textOf(canonical), info)
+							assert.deepEqual(textOf(typed), carriedText(source, flags, language))
 						})
 				)
 			)
@@ -501,7 +489,6 @@ describe("scalarTypeOf: a FieldDesc to its ScalarType", () => {
 								{
 									kind: "schema",
 									roster: noRosters,
-									text: noText,
 									contractPredicate: predicateTable
 								},
 								SourceLoc("field", [])
@@ -550,7 +537,8 @@ const readingDescGen: Gen<FieldDesc> = oneOf([
 	(source) => ({
 		kind: "text" as const,
 		source: source.draw(element(["^.*$", "^[a-z]*$"])),
-		flags: source.draw(element(["u" as const, "su" as const]))
+		flags: source.draw(element(["u" as const, "su" as const])),
+		language: source.draw(languageGen)
 	}),
 	map(element(["Kind", "Mode"]), (roster): FieldDesc => ({ kind: "closedId", roster })),
 	map(element(["Kind", "Mode"]), (roster): FieldDesc => ({ kind: "bits", roster })),
@@ -577,37 +565,58 @@ const readingDescGen: Gen<FieldDesc> = oneOf([
 ])
 
 /**
- * An environment: a roster of one or two handles under every name, and every pattern but the explicit wildcard with
- * drawn proved bounds; a schema's builds a contract's predicate table, a builder's none.
+ * An environment: a roster of one or two handles under every name; a schema's builds a contract's predicate table, a
+ * builder's none. Neither resolves a pattern: a text Description carries its language.
  */
 const readingEnvGen: Gen<ScalarEnv> = map(
 	(source) => ({
 		schema: source.draw(boolean),
-		handles: source.draw(element<Arr.NonEmptyReadonlyArray<string>>([["a"], ["a", "b"]])),
-		bounds: source.draw(
-			element<
-				| { readonly lengthBound: undefined; readonly byteBound: undefined }
-				| { readonly lengthBound: number; readonly byteBound: number }
-			>([
-				{ lengthBound: undefined, byteBound: undefined },
-				{ lengthBound: 4, byteBound: 8 },
-				{ lengthBound: 8, byteBound: 8 }
-			])
-		)
+		handles: source.draw(element<Arr.NonEmptyReadonlyArray<string>>([["a"], ["a", "b"]]))
 	}),
-	({ schema, handles, bounds }): ScalarEnv => {
+	({ schema, handles }): ScalarEnv => {
 		const roster = () => handles
-		const text: TextLookup = (source, flags) =>
-			Result.ok(
-				source === "^.*$" && flags === "su"
-					? { regex: "wildcard", lengthBound: undefined, byteBound: undefined }
-					: { regex: { source, flags, key: RegexKey(`${flags} ${source}`) }, ...bounds }
-			)
 		return schema
-			? { kind: "schema", roster, text, contractPredicate: predicateTable }
-			: { kind: "builder", roster, text }
+			? { kind: "schema", roster, contractPredicate: predicateTable }
+			: { kind: "builder", roster }
 	}
 )
+
+/**
+ * A language a text Description may carry: every admitted value, or a refined one by a drawn key, enforced as a
+ * regex with drawn bounds or none, or as a finite list of members with their bounds.
+ */
+const languageGen: Gen<TextLanguage> = oneOf<TextLanguage>([
+	constant<TextLanguage>({ kind: "every" }),
+	(source) => {
+		const key = RegexKey(source.draw(element(["k1", "k2"])))
+		const bounds = source.draw(
+			element<TextBounds | undefined>([undefined, { length: 4, bytes: 8 }, { length: 8, bytes: 8 }])
+		)
+		return source.draw(boolean)
+			? { kind: "refined", key, check: { kind: "regex", pattern: "^x$", bounds } }
+			: {
+					kind: "refined",
+					key,
+					check: { kind: "finite", members: ["x", "yy"], bounds: { length: 2, bytes: 2 } }
+				}
+	}
+])
+
+/**
+ * The text metadata a Description of `source` and `flags` carrying `language` states, written out: the wildcard for
+ * every value, else the pattern as declared with the language's key and enforcement, and its bounds where the
+ * enforcement proves them.
+ */
+const carriedText = (source: string, flags: "u" | "su", language: TextLanguage): TextInfo => {
+	if (language.kind === "every") {
+		return { regex: "wildcard", lengthBound: undefined, byteBound: undefined }
+	}
+	const regex = { source, flags, key: language.key, check: language.check }
+	const bounds = language.check.bounds
+	return bounds === undefined
+		? { regex, lengthBound: undefined, byteBound: undefined }
+		: { regex, lengthBound: bounds.length, byteBound: bounds.bytes }
+}
 
 /** The carrier of each pg type. */
 const pgCarrier = {
@@ -649,7 +658,7 @@ const describes = (t: ScalarType, desc: FieldDesc, env: ScalarEnv, at: string): 
 			plain(t, "uuid", at)
 			return
 		case "text":
-			assert.deepEqual(textOf(t), succeeded(env.text(desc.source, desc.flags)), at)
+			assert.deepEqual(textOf(t), carriedText(desc.source, desc.flags, desc.language), at)
 			return
 		case "closedId":
 			assert.equal(t.carrier, "code", at)
@@ -711,7 +720,7 @@ const contentOf = (desc: FieldDesc, env: ScalarEnv): Content => {
 		case "uuid":
 			return { kind: "plain", carrier: "uuid" }
 		case "text":
-			return { kind: "text", text: succeeded(env.text(desc.source, desc.flags)) }
+			return { kind: "text", text: carriedText(desc.source, desc.flags, desc.language) }
 		case "closedId":
 			return { kind: "closedId", roster: envRoster(env, desc.roster) }
 		case "bits":

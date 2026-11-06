@@ -96,10 +96,7 @@ const fills = Arr.map([false, true] as const, (selected) => {
 	const codes = firstCodebook(rostersOf(succeeded(own(decodedSchema(desc)))))
 	return {
 		family: defined(model.families[0], "the fold's family"),
-		fill: succeeded(
-			filler(model.families, codes, hostEvaluator(codes, closedLeaf(new Map()), regexMember)),
-			"a concat fold's filler builds"
-		)
+		fill: filler(model.theory.fill, codes, hostEvaluator(codes, closedLeaf(new Map()), regexMember))
 	}
 })
 

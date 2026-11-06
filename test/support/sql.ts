@@ -196,7 +196,8 @@ const arrayOf = (type: TypeRef): TypeRef => {
 /**
  * A relation's members table, the seeded relation the erasure replaces and a foreign key's target, in two statements:
  * the engine's table of its key codes, its rank and its payload code, keyed by its key columns; then its members
- * (membersOf), one array parameter a column read in lockstep by unnest.
+ * (membersOf), one array parameter a column read in lockstep by ROWS FROM of one-argument unnests: PostgreSQL reads a
+ * multi-argument unnest as ROWS FROM only when its name is unqualified, and every name here is qualified.
  */
 export const membersTableSql = (
 	table: ObjectName,
@@ -231,8 +232,8 @@ export const membersTableSql = (
 			sql: `INSERT INTO ${printObjectName(table)} (${Arr.join(
 				Arr.map(columns, (c) => quoteIdent(c.name)),
 				", "
-			)}) SELECT * FROM pg_catalog.unnest(${Arr.join(
-				Arr.map(columns, (c, i) => `$${i + 1}::${printType(arrayOf(c.type))}`),
+			)}) SELECT * FROM ROWS FROM (${Arr.join(
+				Arr.map(columns, (c, i) => `pg_catalog.unnest($${i + 1}::${printType(arrayOf(c.type))})`),
 				", "
 			)})`,
 			params: arrays

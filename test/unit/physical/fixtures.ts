@@ -4,7 +4,7 @@ import type { IndexRequest } from "#compiler/ir/products.ts"
 import { noTextDomainUses } from "#compiler/physical/ddl/domains.ts"
 import { type InstallExtension, noContribution } from "#compiler/physical/install/extension.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
-import { eq, key, on, onWhere, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
+import { eq, key, on, onWhere, type SchemaDesc, textDesc } from "#test/support/fixtures/ir/desc.ts"
 import * as payroll from "#test/support/fixtures/ir/payroll.ts"
 import * as queue from "#test/support/fixtures/ir/queue.ts"
 import * as work from "#test/support/fixtures/ir/work.ts"
@@ -37,7 +37,7 @@ const F = {
 	money: { kind: "pg", type: "money" },
 	boolean: { kind: "pg", type: "boolean" },
 	numeric186: { kind: "numeric", precision: 18, scale: 6 },
-	prose: { kind: "text", source: "^.*$", flags: "su" },
+	prose: textDesc("^.*$", "su"),
 	vector3: { kind: "vector", dimensions: 3 }
 } as const satisfies Readonly<Record<string, FieldDesc>>
 
@@ -49,12 +49,12 @@ const serial = (type: FieldDesc): FieldDecl<object> => ({ type, writing: { kind:
 
 /** A finite-language pattern, a regex pattern, the wildcard, and a contract bounding
  * length with charLength over a pattern. */
-const State: FieldDesc = { kind: "text", source: "^(?:draft|published)$", flags: "u" }
-const Slug: FieldDesc = { kind: "text", source: "^[a-z][a-z0-9-]*$", flags: "u" }
+const State: FieldDesc = textDesc("^(?:draft|published)$", "u")
+const Slug: FieldDesc = textDesc("^[a-z][a-z0-9-]*$", "u")
 const Handle: FieldDesc = {
 	kind: "contract",
 	name: "Handle",
-	base: { kind: "text", source: "^[a-z][a-z0-9-]*$", flags: "u" },
+	base: textDesc("^[a-z][a-z0-9-]*$", "u"),
 	predicate: {
 		kind: "compare",
 		op: "le",
@@ -137,7 +137,7 @@ const EpochDay: FieldDesc = {
 	predicate: undefined,
 	facts: []
 }
-const Code: FieldDesc = { kind: "text", source: "^[A-Z]{3}$", flags: "u" }
+const Code: FieldDesc = textDesc("^[A-Z]{3}$", "u")
 
 /** Every native object kind the fresh-install compiler installs outside spans: two rosters' domains and a closed
  * relation over both, with a text and contract payload, structural and contract domains, serial identities, a

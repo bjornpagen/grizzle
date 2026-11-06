@@ -3,8 +3,7 @@ import { CompileError } from "#compiler/core/errors.ts"
 import { isList } from "#compiler/core/record.ts"
 import { workloadState } from "#compiler/program/workload/value.ts"
 import { isLevelOf } from "#compiler/schema/levels.ts"
-import { builderLoc, isPlainRecord, malformed } from "#compiler/schema/protocol.ts"
-import { schemaDescOf } from "#compiler/schema/schema.ts"
+import { builderLoc, isPlainRecord, malformed, ownedEntry } from "#compiler/schema/protocol.ts"
 import { login as loginBuilder } from "#compiler/schema/world.ts"
 import type { Refusal } from "#compiler/types/core/phantom.ts"
 import type { AnyWorkload } from "#compiler/types/db/workload.ts"
@@ -30,8 +29,8 @@ const admitWorkloads = (
 	roles: ReadonlyArray<unknown>,
 	rest: ReadonlyArray<unknown>
 ): void => {
-	const baseDesc = schemaDescOf(base)
-	const label = `login ${baseDesc === undefined ? "?" : baseDesc.name}.${typeof name === "string" ? name : "?"}`
+	const baseEntry = ownedEntry(base, "schema")
+	const label = `login ${baseEntry === undefined ? "?" : baseEntry.desc.name}.${typeof name === "string" ? name : "?"}`
 	const [options, ...extra] = rest
 	if (extra.length > 0) {
 		throw malformed(label, "login(base, name, roles, options?): at most four arguments")
@@ -60,17 +59,15 @@ const admitWorkloads = (
 			throw malformed(`${label} workload ${i}`, "a workload built by workload(...)")
 		}
 		const over = state.schema
-		const level =
-			over.kind === "role" || baseDesc === undefined ? undefined : isLevelOf(over.desc, baseDesc)
 		const admitted =
 			over.kind === "role"
 				? roles.includes(over.value)
-				: level !== undefined && level.ok && level.value
+				: baseEntry !== undefined && isLevelOf(over.content, baseEntry.content)
 		if (!admitted) {
 			throw refused({
 				kind: "workloadOver",
 				schema: over.desc.name,
-				base: baseDesc === undefined ? "?" : baseDesc.name
+				base: baseEntry === undefined ? "?" : baseEntry.desc.name
 			})
 		}
 		const twice = state.programs.find((program) => seen.has(program.name))

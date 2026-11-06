@@ -1197,7 +1197,7 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 		sql,
 		vectorSchema,
 		skipped,
-		fill: { families: [], closed: new Map() }
+		fill: { order: { families: [], layouts: new Map() }, closed: new Map() }
 	}
 }
 

@@ -699,11 +699,7 @@ const requireLevel = (query: unknown, over: BuiltOver, label: string): void => {
 	if (written === undefined) {
 		throw malformed(label, "a query built by query(S) over a schema or a role")
 	}
-	const level = isLevelOver(written, over)
-	if (!level.ok) {
-		throw level.error
-	}
-	if (!level.value) {
+	if (!isLevelOver(written, over)) {
 		throw malformed(
 			label,
 			`a query over a level of the ChangeSet's schema ${overName(over)}; it is written over a schema that is none of its levels`
@@ -931,16 +927,13 @@ const higher = (
 	b: Pick<ChangeSetState, "schema" | "over">
 ): Pick<ChangeSetState, "schema" | "over"> => {
 	const which = higherOver(a.over, b.over)
-	if (!which.ok) {
-		throw which.error
-	}
-	if (which.value === "neither") {
+	if (which === "neither") {
 		throw malformed(
 			label,
 			"ChangeSets over levels of one schema; neither schema is a level of the other"
 		)
 	}
-	return which.value === "a" ? a : b
+	return which === "a" ? a : b
 }
 
 /** ChangeSet.empty(S). */

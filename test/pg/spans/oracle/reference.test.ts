@@ -1,7 +1,7 @@
 import { describe, it, layer } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { noCoverage, required } from "@grizzle/testing/features"
-import { array, type Gen, int } from "@grizzle/testing/gen"
+import { drawn, exhaust, explore } from "@grizzle/testing/explore"
+import { noCoverage, required, requiredInSpace } from "@grizzle/testing/features"
+import { array, element, type Gen, int } from "@grizzle/testing/gen"
 import { exact, ordered, set } from "@grizzle/testing/oracle"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
@@ -15,7 +15,7 @@ import type { OwnedKey, OwnedRelation } from "#compiler/schema/own.ts"
 import { keyLayout } from "#compiler/schema/representability.ts"
 import { col } from "#compiler/sql/build.ts"
 import { printExpr } from "#compiler/sql/print.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { maskSql } from "#test/support/oracle/allen-sql.ts"
 import {
 	classify,
@@ -89,30 +89,59 @@ const smallSpanGen: Gen<HalfOpen> = (source) => {
 	return { lo: BigInt(lo), hi: BigInt(Math.min(8, lo + length)) }
 }
 
+/** How two spans of the window meet: apart, or sharing points with b inside a, b covering a, or neither. */
+type PairFeature = "apart" | "split by b" | "covered by b" | "cut at one end"
+
 describe("the span reference on the host", () => {
-	it("computes intersection and binary difference as point sets do, over every pair of the [-3, 8] window", () => {
-		const spans = windowSpans()
-		let pairs = 0
-		for (const a of spans) {
-			for (const b of spans) {
-				pairs++
-				const pa = new Set(points(a))
-				const pb = new Set(points(b))
-				assert.deepEqual(
-					texts(spanIntersection(a, b)),
-					texts(runs(new Set(Arr.filter([...pa], (p) => pb.has(p)))))
+	it.effect(
+		"computes intersection and binary difference as point sets do, over every pair of the [-3, 8] window",
+		(ctx) => {
+			const spans = nonEmpty(windowSpans(), "the window's spans")
+			return searched(
+				ctx,
+				exhaust(
+					{
+						suite: "spans/intersection-difference-host",
+						generator: (source) =>
+							[source.draw(element(spans)), source.draw(element(spans))] as const,
+						literal: Formatter.format,
+						limit: spans.length * spans.length,
+						coverage: requiredInSpace<PairFeature>([
+							"apart",
+							"split by b",
+							"covered by b",
+							"cut at one end"
+						]),
+						box: "every ordered pair of the nonempty half-open spans over [-3, 8]",
+						oracle: {
+							kind: "second-implementation",
+							name: "the maximal runs of the point sets a ∩ b and a ∖ b"
+						},
+						caseHang
+					},
+					([a, b], c) =>
+						Effect.sync(() => {
+							const pa = new Set(points(a))
+							const pb = new Set(points(b))
+							const meet = runs(new Set(Arr.filter([...pa], (p) => pb.has(p))))
+							const rest = runs(new Set(Arr.filter([...pa], (p) => !pb.has(p))))
+							assert.deepEqual(texts(spanIntersection(a, b)), texts(meet))
+							assert.deepEqual(texts(spanDifference(a, b)), texts(rest))
+							assert.equal(overlaps(a, b), meet.length > 0)
+							c.note(
+								meet.length === 0
+									? "apart"
+									: rest.length === 2
+										? "split by b"
+										: rest.length === 0
+											? "covered by b"
+											: "cut at one end"
+							)
+						})
 				)
-				assert.deepEqual(
-					texts(spanDifference(a, b)),
-					texts(runs(new Set(Arr.filter([...pa], (p) => !pb.has(p)))))
-				)
-				assert.ok(spanIntersection(a, b).length <= 1)
-				assert.ok(spanDifference(a, b).length <= 2)
-				assert.equal(spanIntersection(a, b).length === 1, overlaps(a, b))
-			}
+			)
 		}
-		assert.equal(pairs, 66 * 66)
-	})
+	)
 
 	it.effect("packs as point sets do", (ctx) =>
 		searched(

@@ -10,11 +10,16 @@ import {
 	Result
 } from "effect"
 import { fromEngine } from "#adapter/engine.ts"
-import { loginRoles } from "#adapter/pool/registry.ts"
+import { artifactsOver, loginRoles } from "#adapter/pool/registry.ts"
 import type { GenerateMode } from "#cli/args.ts"
 import { nextTimestamp } from "#cli/clock.ts"
 import { committedSnapshot, continuedChain } from "#cli/committed.ts"
-import type { ConfiguredSchema, ResolvedConfig } from "#cli/config.ts"
+import {
+	type CompiledSchema,
+	type ConfiguredSchema,
+	compileSchema,
+	type ResolvedConfig
+} from "#cli/config.ts"
 import {
 	type CliError,
 	DraftRefused,
@@ -47,8 +52,11 @@ import { type DeploySnapshot, snapshotFileName } from "#compiler/deploy/snapshot
 import { draftCodebook } from "#compiler/ir/codes.ts"
 import { workloadExtension } from "#compiler/physical/access/extension.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
-import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
-import { parseSchemaInput, schemaArtifacts } from "#compiler/program/schema.ts"
+import {
+	type Installation,
+	installationOver,
+	installBasis
+} from "#compiler/physical/install/compile.ts"
 import { compileWorkload } from "#compiler/program/workload/compile.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
 
@@ -183,14 +191,18 @@ type SchemaDraft = (
  * and a new one takes the next, and a roster declared out of its codes' order is RosterReordered.
  * Beside the access paths, every program of each login's workloads is compiled for every role of the login exactly as
  * DbLayer.make compiles it (adapter/pool/registry.ts loginRoles), so a program the layer would refuse refuses the draft.
+ * The schema's basis is compiled once: the artifacts the programs read and the installation the draft installs share
+ * one law model and one plan of the closed constants (physical/install/compile.ts installBasis), and every login and
+ * role reads the one artifacts.
  */
 const draftInput = Effect.fn("draftInput")(function* (
-	schema: ConfiguredSchema,
+	schema: CompiledSchema,
 	previous: DeploySnapshot,
 	abandoned: ReadonlyArray<AbandonedSchema>,
 	declared: Declarations
 ): Effect.fn.Return<DraftInput, CliError> {
-	const rosters = rostersOf(schema.owned)
+	const { configured, owned, logins } = schema
+	const rosters = rostersOf(owned)
 	const renames = yield* Effect.mapError(
 		Effect.fromResult(rosterRenames(declared, rosters)),
 		cliError
@@ -198,54 +210,61 @@ const draftInput = Effect.fn("draftInput")(function* (
 	const drafted = draftCodebook(codebookUnder(previous, declared), renames, rosters)
 	if (!drafted.ok) {
 		const { roster, earlier, later } = drafted.error
-		return yield* cliError(new RosterReordered({ schema: schema.declared, roster, earlier, later }))
+		return yield* cliError(
+			new RosterReordered({ schema: configured.declared, roster, earlier, later })
+		)
 	}
 	const codes = drafted.value
+	const refusedAt = (step: DraftRefused["step"]) => draftRefused(configured.declared, step)
+	const basis = yield* Effect.mapError(fromEngine(installBasis(owned, codes)), refusedAt("schema"))
 	/**
 	 * The logins' workloads and their roles' write filters, planned under the configured schema's artifacts and
 	 * the names the installation drafted below gives it, so the index requests name its vector schema. A schema
 	 * without a login plans nothing.
 	 */
-	const roles = Arr.flatMap(schema.logins, (l) => l.roles)
-	const plan =
-		schema.logins.length === 0
-			? undefined
-			: yield* Effect.mapError(
-					fromEngine(
-						Engine.flatMap(parseSchemaInput(schema.owned), (input) =>
-							Engine.flatMap(
-								schemaArtifacts(input, { installation: undefined, vectorSchema: undefined, codes }),
-								(artifacts) => compileWorkload(schema.workloads, input, { artifacts, roles })
-							)
+	const planned = Arr.isReadonlyArrayNonEmpty(logins)
+		? yield* Effect.mapError(
+				fromEngine(
+					Engine.flatMap(artifactsOver(basis), (artifacts) =>
+						Engine.map(
+							compileWorkload(
+								Arr.map(logins, (l) => ({ login: l.owned.name, workloads: l.login.workload })),
+								configured.built,
+								{ artifacts, roles: Arr.flatMap(logins, (l) => l.owned.roles) }
+							),
+							(plan) => ({ artifacts, plan })
 						)
-					),
-					draftRefused(schema.declared, "workload")
-				)
-	for (const login of schema.workloads) {
-		yield* Effect.mapError(
-			loginRoles(login.roles, login.workloads, codes),
-			draftRefused(schema.declared, "workload")
-		)
-	}
-	const installation = yield* Effect.mapError(
-		fromEngine(
-			compileInstallation(
-				schema.owned,
-				completeInstallOptions(
-					schema.owned,
-					schema.owned.installation,
-					schema.logins,
-					plan === undefined ? [] : [workloadExtension(plan)],
-					codes
-				)
+					)
+				),
+				refusedAt("workload")
 			)
-		),
-		draftRefused(schema.declared, "schema")
+		: undefined
+	if (planned !== undefined) {
+		for (const login of logins) {
+			yield* Effect.mapError(
+				loginRoles(login.login, login.owned, planned.artifacts),
+				refusedAt("workload")
+			)
+		}
+	}
+	const options = completeInstallOptions(
+		owned,
+		owned.installation,
+		Arr.map(logins, (l) => l.owned),
+		planned === undefined ? [] : [workloadExtension(planned.plan)],
+		codes
+	)
+	const installation = yield* Effect.mapError(
+		fromEngine(installationOver(basis, options)),
+		refusedAt("schema")
 	)
 	return {
 		previous,
 		installation,
-		workload: plan === undefined ? noWorkload : { access: plan.access, accessPaths: plan.requests },
+		workload:
+			planned === undefined
+				? noWorkload
+				: { access: planned.plan.access, accessPaths: planned.plan.requests },
 		abandoned,
 		declared
 	}
@@ -259,7 +278,7 @@ const draftInput = Effect.fn("draftInput")(function* (
  * @internal
  */
 export const draftSchema = Effect.fn("draftSchema")(function* (
-	schema: ConfiguredSchema,
+	schema: CompiledSchema,
 	previous: DeploySnapshot,
 	abandoned: ReadonlyArray<AbandonedSchema>,
 	declared: Declarations
@@ -267,7 +286,7 @@ export const draftSchema = Effect.fn("draftSchema")(function* (
 	const input = yield* draftInput(schema, previous, abandoned, declared)
 	const draft = yield* Effect.mapError(
 		fromEngine(draftMigration(input)),
-		draftRefused(schema.declared, "draft")
+		draftRefused(schema.configured.declared, "draft")
 	)
 	return { ...draft, installation: input.installation }
 })
@@ -279,7 +298,7 @@ export const draftSchema = Effect.fn("draftSchema")(function* (
  * @internal
  */
 export const generateSchema = Effect.fn("generateSchema")(function* (
-	schema: ConfiguredSchema,
+	schema: CompiledSchema,
 	previous: DeploySnapshot,
 	naming: FolderNaming,
 	timestamp: string,
@@ -289,7 +308,7 @@ export const generateSchema = Effect.fn("generateSchema")(function* (
 	const input = yield* draftInput(schema, previous, abandoned, declared)
 	return yield* Effect.mapError(
 		fromEngine(generateMigration({ ...input, naming, timestamp })),
-		draftRefused(schema.declared, "draft")
+		draftRefused(schema.configured.declared, "draft")
 	)
 })
 
@@ -311,8 +330,9 @@ const draftFor = Effect.fn("draftFor")(function* (
 		)
 		return { schema, folder, snapshot: previous, kind: "custom" } satisfies SchemaDraft
 	}
+	const compiled = yield* Effect.fromResult(compileSchema(schema))
 	const generated = yield* generateSchema(
-		schema,
+		compiled,
 		previous,
 		mode.naming,
 		timestamp,

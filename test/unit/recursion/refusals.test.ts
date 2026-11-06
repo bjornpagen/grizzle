@@ -17,13 +17,14 @@ import { type Rule, type SelfSource, v } from "#compiler/public/query.ts"
 import { schema, relation as table } from "#compiler/public/schema.ts"
 import { queryOver as untypedQuery } from "#compiler/query/build/query.ts"
 import { assert, containsEqual, containsText, defined, succeeded } from "#test/support/assert.ts"
-import type {
-	AuthoredExprDesc as ExprDesc,
-	HeadTermDesc,
-	MatchDesc,
-	QueryDesc,
-	RuleDesc,
-	VarDesc
+import {
+	type AuthoredExprDesc as ExprDesc,
+	type HeadTermDesc,
+	type MatchDesc,
+	type QueryDesc,
+	type RuleDesc,
+	textDesc,
+	type VarDesc
 } from "#test/support/fixtures/ir/desc.ts"
 
 import { caseHang } from "#test/support/limits.ts"
@@ -292,10 +293,10 @@ describe("the state heading", () => {
 		/** The typmod or refinement within the class; "none" for a carrier with neither, and the wildcard. */
 		readonly within: string
 	}
-	const wildcard: FieldDesc = { kind: "text", source: "^.*$", flags: "su" }
-	const label: FieldDesc = { kind: "text", source: "^v[0-9]+$", flags: "u" }
+	const wildcard: FieldDesc = textDesc("^.*$", "su")
+	const label: FieldDesc = textDesc("^v[0-9]+$", "u")
 	/** The label's language spelled otherwise. */
-	const respelledLabel: FieldDesc = { kind: "text", source: "^v[0-9][0-9]*$", flags: "u" }
+	const respelledLabel: FieldDesc = textDesc("^v[0-9][0-9]*$", "u")
 	/** Two text refinements of one language whose patterns are spelled apart: one type each. */
 	const respelled = (d: Typed, a: Typed): boolean =>
 		d.field.kind === "text" &&

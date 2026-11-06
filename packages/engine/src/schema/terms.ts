@@ -23,7 +23,7 @@ import {
 	termExpr
 } from "#compiler/scalar/compute/term.ts"
 import { plainType } from "#compiler/scalar/compute/types.ts"
-import { describeField, noText, scalarTypeOf } from "#compiler/scalar/registry.ts"
+import { describeField, scalarTypeOf } from "#compiler/scalar/registry.ts"
 import { literalFor, untypedLiteral } from "#compiler/schema/literal.ts"
 import {
 	isParam,
@@ -94,7 +94,7 @@ const typingOf = (
 	}
 	const scalar = scalarTypeOf(
 		desc,
-		{ kind: "builder", roster: () => roster, text: noText },
+		{ kind: "builder", roster: () => roster },
 		SourceLoc("check field", [])
 	)
 	return scalar.ok
@@ -267,6 +267,14 @@ export const rowHelpers = Object.freeze({
 			throw malformed("charLength", "a text term: charLength counts the code points of text")
 		}
 		return rowTerm({ kind: "compute", fn: "charLength", args: [arg.expr] }, integerType)
+	},
+	/** octet_length over text: admitted in contract predicates and row checks only, never in a query. */
+	octetLength: (s: unknown): RowTerm => {
+		const arg = termOperand(s, "octetLength")
+		if (arg.type !== undefined && !isTextDesc(arg.type.desc)) {
+			throw malformed("octetLength", "a text term: octetLength counts the UTF-8 bytes of text")
+		}
+		return rowTerm({ kind: "compute", fn: "octetLength", args: [arg.expr] }, integerType)
 	}
 })
 

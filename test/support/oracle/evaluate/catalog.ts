@@ -111,6 +111,7 @@ export const evaluationOf = (op: NativeOp): Evaluation => {
 		case "lower":
 		case "upper":
 		case "charLength":
+		case "octetLength":
 		case "concat":
 		case "startsWith":
 		case "endsWith":
@@ -180,6 +181,9 @@ export const constantEnv: EvalEnv = Object.freeze({ kind: "constant" })
 
 const undefinedAt = (what: string): CatalogResult => Result.fail({ kind: "undefined", what })
 const unsupported = (what: string): CatalogResult => Result.fail({ kind: "unsupported", what })
+
+/** UTF-8, the database's encoding, by the host's own encoder: what octet_length counts. */
+const utf8Encoder = new TextEncoder()
 
 /**
  * A node the oracle declines: PostgreSQL alone computes its value, which the host does not reproduce bit for bit,
@@ -583,6 +587,8 @@ const catalogApply = (
 			return isSpanValue(a) ? Result.succeed(a.end) : mismatch(op)
 		case "charLength":
 			return isString(a) ? Result.succeed(BigInt(Array.from(a).length)) : mismatch(op)
+		case "octetLength":
+			return isString(a) ? Result.succeed(BigInt(utf8Encoder.encode(a).length)) : mismatch(op)
 		case "concat":
 			return isString(a) && isString(b) ? Result.succeed(`${a}${b}`) : mismatch(op)
 		case "startsWith":

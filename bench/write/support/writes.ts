@@ -45,6 +45,7 @@ import type { AnyLogin, AnyLoginRole, AnyRole } from "#compiler/types/schema/wor
 import { isChangeSetValue } from "#compiler/write/changeset/value.ts"
 import type { ArtifactStatement, WriteStepResult } from "#compiler/write/program/artifact.ts"
 import { refusalFunctionName } from "#compiler/write/refusal.ts"
+import { transaction } from "#test/support/oracle/install/transaction.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { testSql } from "#test/support/sql.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
@@ -170,6 +171,17 @@ export const owner = Effect.fn("owner")(function* (
 	for (const statement of sql) {
 		yield* s.admin.query(statement, [])
 	}
+})
+
+/**
+ * Runs `sql` as the owner in one transaction: a seed whose rows hold a deferred law, a native foreign key that no
+ * DISABLE TRIGGER USER turns off, only together, which statements committed one by one would each break.
+ */
+export const ownerTransaction = Effect.fn("ownerTransaction")(function* (
+	sql: ReadonlyArray<string>
+): Effect.fn.Return<void, SqlError | TransactionRolledBack, Substrate> {
+	const s = yield* Substrate
+	yield* transaction(s.admin, sql)
 })
 
 /**

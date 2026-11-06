@@ -37,3 +37,22 @@ export const closedReads = (readable: ReadonlyArray<ClosedRelation>): ClosedRela
 	)
 	return Object.freeze({ kind: "schema", heading: (relation: string) => headings.get(relation) })
 }
+
+/**
+ * The closed relations of `reads`, a schema's, that an expression may apply when it may apply only `readable` of them:
+ * a generated field's, those of its own level or below. Each heading is the one `reads` read once for the schema, so
+ * no relation's heading is read again for each relation that reads it.
+ */
+export const closedReadsAmong = (
+	reads: ClosedRelations,
+	readable: ReadonlyArray<ClosedRelation>
+): ClosedRelations => {
+	if (reads.kind === "none") {
+		return reads
+	}
+	const names = new Set(readable.map((c) => c.name))
+	return Object.freeze({
+		kind: "schema",
+		heading: (relation: string) => (names.has(relation) ? reads.heading(relation) : undefined)
+	})
+}

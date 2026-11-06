@@ -1,7 +1,17 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { array, constant, element, type Gen, int, map, oneOf, weighted } from "@grizzle/testing/gen"
+import {
+	array,
+	constant,
+	element,
+	type Gen,
+	int,
+	map,
+	oneOf,
+	string,
+	weighted
+} from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint, double } from "@grizzle/testing/values"
@@ -15,7 +25,7 @@ import type { OpenExpr } from "#compiler/ir/open.ts"
 import { type Carrier, typeLabel } from "#compiler/ir/scalar.ts"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
 import type { ScalarTerm } from "#compiler/scalar/compute/term.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Decimal, type FiniteDecimal } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import {
 	caseChunk,
@@ -25,7 +35,7 @@ import {
 	type PgAnswer,
 	runCases
 } from "#test/pg/compute/support.ts"
-import { assert } from "#test/support/assert.ts"
+import { assert, succeeded } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { constantEnv, evaluate } from "#test/support/oracle/evaluate/catalog.ts"
 import { numericPaddings } from "#test/support/oracle/gen/domain.ts"
@@ -217,8 +227,8 @@ const realOperand = (o: Operand): ReadonlyArray<Operand> => {
 
 /**
  * The generated operands of one case, per type: a batch of up to 80 values (120 numerics, each with its drawn padding),
- * the padding of each numeric boundary class, and the drawn start of the pseudo-random walk over a type's operand
- * values (pick).
+ * the padding of each numeric boundary class, the pairs of fractional numerics lcm meets, and the drawn start of the
+ * pseudo-random walk over a type's operand values (pick).
  */
 interface Operands {
 	readonly int2: ReadonlyArray<bigint>
@@ -226,6 +236,7 @@ interface Operands {
 	readonly int8: ReadonlyArray<bigint>
 	readonly numeric: ReadonlyArray<readonly [string, number]>
 	readonly numericBoundaryPaddings: ReadonlyArray<number>
+	readonly fractionalPairs: ReadonlyArray<readonly [string, string]>
 	readonly float8: ReadonlyArray<FloatDraw>
 	readonly float4: ReadonlyArray<FloatDraw>
 	readonly money: ReadonlyArray<bigint>
@@ -250,6 +261,41 @@ const floatGen: Gen<FloatDraw> = weighted<FloatDraw>([
 /** The fraction digits a numeric operand is padded by past its least scale: none, or one of the paddings. */
 const paddingGen: Gen<number> = element<number>([0, ...numericPaddings])
 
+/** A digit, half the time a 9, which puts a scaled operand near the top of its digits. */
+const nineBiased: Gen<string> = weighted([
+	[1, constant("9")],
+	[1, element(["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"])]
+])
+
+/** A numeric's text whose least scale is one to six: integer digits, then fraction digits ending in a nonzero one. */
+const fractionalText: Gen<string> = (source) => {
+	const sign = source.draw(element(["", "-"]))
+	const whole = source.draw(string(nineBiased, { min: 0, max: 6 }))
+	const fraction = source.draw(string(nineBiased, { min: 0, max: 5 }))
+	const last = source.draw(element(["1", "2", "3", "4", "5", "6", "7", "8", "9"]))
+	return `${sign}0${whole}.${fraction}${last}`
+}
+
+/** A finite numeric's text one unit in its last place nearer zero. */
+const unitNearerZero = (text: string): string => {
+	const x = Decimal.of(text)
+	if (!x.isFinite()) {
+		throw new Error(`a fractional operand is finite, not ${text}`)
+	}
+	return succeeded(
+		Decimal.fromParts(x.parts.negative, x.parts.coefficient - 1n, x.parts.minScale)
+	).toString()
+}
+
+/**
+ * Two fractional operands of lcm: drawn apart, or a unit in the last place apart, whose operands scaled to integers are
+ * consecutive and so coprime: their lcm is their product, at the top of lcm's integer-digit bound.
+ */
+const fractionalPairGen: Gen<readonly [string, string]> = oneOf([
+	(source) => [source.draw(fractionalText), source.draw(fractionalText)] as const,
+	map(fractionalText, (x) => [x, unitNearerZero(x)] as const)
+])
+
 const operandsGen: Gen<Operands> = (source) => ({
 	int2: source.draw(batchOf(integerGen("int2"), 80)),
 	int4: source.draw(batchOf(integerGen("int4"), 80)),
@@ -258,6 +304,7 @@ const operandsGen: Gen<Operands> = (source) => ({
 	numericBoundaryPaddings: source.draw(
 		array(paddingGen, { min: boundaries.numeric.length, max: boundaries.numeric.length })
 	),
+	fractionalPairs: source.draw(array(fractionalPairGen, { min: 8, max: 40 })),
 	float8: source.draw(batchOf(floatGen, 80)),
 	float4: source.draw(batchOf(floatGen, 80)),
 	money: source.draw(batchOf(bigint(-(10n ** 12n), 10n ** 12n), 80)),
@@ -774,19 +821,62 @@ const buildCases = (operands: Operands): ReadonlyArray<ReadCase> => {
 		bucket(lo, k, hi, (i % 9) + 1)
 		bucket(lo, hi, k, (i % 9) + 1)
 	}
+	for (const [x, y] of operands.fractionalPairs) {
+		const a = plainOperand(Decimal.of(x), "drawn")
+		const b = plainOperand(Decimal.of(y), "drawn")
+		add(
+			"lcm/numeric",
+			Compute.lcm(v("a", numeric), v("b", numeric)).expr,
+			{ a: literalOf(numeric, a), b: literalOf(numeric, b) },
+			false,
+			[a, b]
+		)
+	}
 	return cases
+}
+
+/** The integer digits of a finite numeric: the least d with |x| < 10^d. */
+const integerDigits = (x: FiniteDecimal): number => {
+	const whole = x.parts.coefficient / 10n ** BigInt(x.parts.minScale)
+	return whole === 0n ? 0 : Str.length(whole.toString())
+}
+
+/** The finite numerics among a case's operands. */
+const finiteDecimals = (read: ReadonlyArray<Operand>): ReadonlyArray<FiniteDecimal> =>
+	Arr.flatMap(read, (o) => (o.value instanceof Decimal && o.value.isFinite() ? [o.value] : []))
+
+/**
+ * Whether a case is lcm over two finite numerics read plain, agreeing on a value with more integer digits than its
+ * operands have together: the share of lcm's integer-digit bound its operands' fraction digits make.
+ */
+const lcmPastOperandDigits = (k: ReadCase, agreed: boolean): boolean => {
+	if (!agreed || k.built.kind !== "case" || k.spelling !== "plain") {
+		return false
+	}
+	const { label, host } = k.built.evalCase
+	const read = finiteDecimals(k.read)
+	return (
+		label === "lcm/numeric" &&
+		read.length === 2 &&
+		host._tag === "Success" &&
+		host.success instanceof Decimal &&
+		host.success.isFinite() &&
+		integerDigits(host.success) > Arr.reduce(read, 0, (n, x) => n + integerDigits(x))
+	)
 }
 
 /**
  * What a case reached: each entry at each boundary class of its carrier, agreeing on a value or refused as the
  * operands' values justify; each entry over a padded numeric or a float -0, agreeing on a value; numeric power
- * agreeing on a value; and a node the host declined by design.
+ * agreeing on a value; a node the host declined by design; and lcm over fractional numerics agreeing on a value with
+ * more integer digits than its operands have together.
  */
 type CatalogueFeature =
 	| BoundarySituation
 	| SpelledSituation
 	| "power/numeric value"
 	| "declined by the host"
+	| "lcm/numeric past its operands' integer digits"
 
 layer(Substrate.layer)("the Compute catalogue against PostgreSQL 19", (it) => {
 	it.effect(
@@ -857,6 +947,7 @@ layer(Substrate.layer)("the Compute catalogue against PostgreSQL 19", (it) => {
 								[
 									"power/numeric value",
 									"declined by the host",
+									"lcm/numeric past its operands' integer digits",
 									...boundarySituations,
 									...spelledSituations
 								],
@@ -899,6 +990,9 @@ layer(Substrate.layer)("the Compute catalogue against PostgreSQL 19", (it) => {
 									c.note("declined by the host")
 								}
 								c.noteAll(reached(all, agreed))
+								if (Arr.some(ran, (k) => lcmPastOperandDigits(k, agreed.get(k) === true))) {
+									c.note("lcm/numeric past its operands' integer digits")
+								}
 								if (
 									Arr.some(
 										cases,

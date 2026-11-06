@@ -11,7 +11,13 @@ import {
 } from "effect"
 import { transactionControl } from "#adapter/migrate/input.ts"
 import { chainWhole, committedChain, committedSnapshot } from "#cli/committed.ts"
-import type { ConfiguredSchema, ResolvedConfig } from "#cli/config.ts"
+import {
+	type CompiledSchema,
+	type ConfiguredSchema,
+	compileSchema,
+	type ResolvedConfig
+} from "#cli/config.ts"
+import type { CliError } from "#cli/errors.ts"
 import { readSchemaTree, type SchemaTree } from "#cli/files.ts"
 import { draftSchema } from "#cli/generate.ts"
 import { refusalText } from "#cli/refusals.ts"
@@ -25,6 +31,7 @@ import {
 } from "#compiler/deploy/render/markers.ts"
 import { type DeploySnapshot, snapshotFileName } from "#compiler/deploy/snapshot/types.ts"
 import { literalPackFault, type PackFault } from "#compiler/physical/ddl/literal.ts"
+import type { Installation } from "#compiler/physical/install/compile.ts"
 import { accessDrift, accessDriftText } from "#compiler/program/workload/compile.ts"
 import { looksLikeLiteralPack } from "#compiler/sql/print.ts"
 
@@ -42,9 +49,11 @@ interface CheckFinding {
 /**
  * `grizzle check`: generated, resolved and untampered, without a database.
  *
- * The gate an AI runs before committing and CI runs on every push, and the first half of every `grizzle migrate`. For
- * each configured schema it reads the migrations directory as `migrate` would (files.ts) and reports every finding, one
- * per line with its fix, rather than stopping at the first:
+ * The gate an AI runs before committing and CI runs on every push. For each configured schema it reads the migrations
+ * directory as `migrate` would (files.ts), compiles the schema and every program of its logins' workloads as generate
+ * and DbLayer.make do, and reports every finding, one per line with its fix, rather than stopping at the first.
+ * `grizzle migrate` runs the findings about the committed files alone, which compile nothing (checkFiles), before it
+ * connects:
  *
  * - an illegal entry or file: a stray entry in the schema's directory, a folder not named `<YYYYMMDDHHMMSS>_<name>`, a
  *   file not named `NN-<words>.sql` or two files of one ordinal, a statement that controls the transaction, or a
@@ -84,29 +93,52 @@ export interface SchemaCheck {
 
 export const findingText = (f: CheckFinding): string => `${f.where}: ${f.problem}; ${f.fix}`
 
+/** A statement of a committed file that states a literal pack, where it is: what check holds to its content. */
+interface PackStatement {
+	readonly where: string
+	readonly statement: string
+	readonly ordinal: number
+}
+
 /**
- * One schema's findings.
- *
- * The folder's chain faults first: its name, then its meta.json or its link.
- *
- * A custom migration drafts nothing, so it records no decisions.
- *
- * The ungenerated change, against the committed snapshot.
+ * What a schema's committed files come to before anything is compiled: every finding about the files themselves, the
+ * committed snapshot, the number of folders, and each literal pack statement, which `packFindings` holds to its content.
  */
-const checkSchema = Effect.fn("checkSchema")(function* (
+interface CommittedCheck {
+	readonly findings: ReadonlyArray<CheckFinding>
+	readonly snapshot: Option.Option<DeploySnapshot>
+	readonly folders: number
+	readonly packs: ReadonlyArray<PackStatement>
+}
+
+/** A finding of `kind` about `schema` at `where`, with its fix. */
+const finding = (
+	schema: ConfiguredSchema,
+	kind: keyof typeof refusalText,
+	where: string,
+	problem: string
+): CheckFinding => ({ schema: schema.declared, kind, where, problem, fix: refusalText[kind].fix })
+
+/**
+ * One schema's committed files checked, compiling nothing: the folder's chain faults first, its name, then its
+ * meta.json or its link; each statement that controls the transaction, each misplaced no-transaction marker and each
+ * marker left to resolve; each loss left undecided; and a chain that does not end at snapshot.json. A custom migration
+ * drafts nothing, so it records no decisions.
+ */
+const checkCommitted = Effect.fn("checkCommitted")(function* (
 	schema: ConfiguredSchema,
 	cwd: string
-): Effect.fn.Return<SchemaCheck, never, FileSystem.FileSystem | Path.Path> {
+): Effect.fn.Return<CommittedCheck, never, FileSystem.FileSystem | Path.Path> {
 	const findings: Array<CheckFinding> = []
 	const at = (kind: keyof typeof refusalText, where: string, problem: string) =>
-		findings.push({ schema: schema.declared, kind, where, problem, fix: refusalText[kind].fix })
+		findings.push(finding(schema, kind, where, problem))
 	const paths = yield* Path.Path
 	const path = (...parts: ReadonlyArray<string>) =>
 		paths.relative(cwd, Arr.join([schema.directory, ...parts], "/"))
 	const read = yield* Effect.result(readSchemaTree(schema.declared, schema.directory))
 	if (Result.isFailure(read)) {
 		at("strayEntry", path(), read.failure.reason.message)
-		return { schema: schema.declared, findings, snapshot: Option.none(), folders: 0 }
+		return { findings, snapshot: Option.none(), folders: 0, packs: [] }
 	}
 	const tree: SchemaTree = read.success
 	const committed = yield* Effect.result(committedSnapshot(schema, tree))
@@ -117,11 +149,7 @@ const checkSchema = Effect.fn("checkSchema")(function* (
 
 	/** The chain, folder by folder, from the empty snapshot (committed.ts, the walk generate continues). */
 	const chain = committedChain(schema, tree)
-	const packs: Array<{
-		readonly where: string
-		readonly statement: string
-		readonly ordinal: number
-	}> = []
+	const packs: Array<PackStatement> = []
 	for (const folder of chain.folders) {
 		if (folder.place === "misnamed") {
 			at("folderName", path(folder.name), refusalText.folderName.problem)
@@ -190,22 +218,57 @@ const checkSchema = Effect.fn("checkSchema")(function* (
 	) {
 		at("chainEnd", path(snapshotFileName), refusalText.chainEnd.problem)
 	}
+	return { findings, snapshot, folders: tree.folders.length, packs }
+})
 
+/**
+ * Each literal pack held to its content (physical/ddl/literal.ts literalPackFault): against the installation the
+ * schema drafts, which names the relation and the cell where an edited literal parts from the declared rows, or against
+ * none, which holds the literal to the digest and the row count it states.
+ */
+const packFindings = (
+	schema: ConfiguredSchema,
+	packs: ReadonlyArray<PackStatement>,
+	installation: Installation | undefined
+): ReadonlyArray<CheckFinding> =>
+	Arr.flatMap(packs, (pack) => {
+		const fault = literalPackFault(installation, pack.statement)
+		return fault === undefined
+			? []
+			: [
+					finding(
+						schema,
+						"literalPack",
+						pack.where,
+						`statement ${pack.ordinal}: ${packFaultText(fault)}: ${refusalText.literalPack.problem}`
+					)
+				]
+	})
+
+/**
+ * One compiled schema's findings: its committed files' (checkCommitted), then the draft of its change from the committed
+ * snapshot, which compiles every program of every login's workloads for every role as DbLayer.make does (generate.ts
+ * draftSchema): each literal pack held to the drafted installation, a roster reordered, a program the compiler refuses,
+ * each workload program whose access moved, and an ungenerated change, against the committed snapshot.
+ */
+const checkSchema = Effect.fn("checkSchema")(function* (
+	compiled: CompiledSchema,
+	cwd: string
+): Effect.fn.Return<SchemaCheck, never, FileSystem.FileSystem | Path.Path> {
+	const schema = compiled.configured
+	const committed = yield* checkCommitted(schema, cwd)
+	const snapshot = committed.snapshot
 	const draft = Option.isSome(snapshot)
-		? yield* Effect.result(draftSchema(schema, snapshot.value, [], noDeclarations))
+		? yield* Effect.result(draftSchema(compiled, snapshot.value, [], noDeclarations))
 		: undefined
 	const installation =
 		draft !== undefined && Result.isSuccess(draft) ? draft.success.installation : undefined
-	for (const pack of packs) {
-		const fault = literalPackFault(installation, pack.statement)
-		if (fault !== undefined) {
-			at(
-				"literalPack",
-				pack.where,
-				`statement ${pack.ordinal}: ${packFaultText(fault)}: ${refusalText.literalPack.problem}`
-			)
-		}
-	}
+	const findings: Array<CheckFinding> = [
+		...committed.findings,
+		...packFindings(schema, committed.packs, installation)
+	]
+	const at = (kind: keyof typeof refusalText, where: string, problem: string) =>
+		findings.push(finding(schema, kind, where, problem))
 
 	if (Option.isSome(snapshot) && draft !== undefined) {
 		const committedWorkload = snapshot.value.workload
@@ -249,7 +312,7 @@ const checkSchema = Effect.fn("checkSchema")(function* (
 	return {
 		schema: schema.declared,
 		findings,
-		folders: tree.folders.length,
+		folders: committed.folders,
 		snapshot
 	}
 })
@@ -277,12 +340,37 @@ const packFaultText = (fault: PackFault): string => {
 }
 
 /**
- * Every configured schema's findings, in configured order.
+ * Every configured schema's findings, in configured order, each schema compiled first (config.ts compileSchema): a
+ * schema or login that does not compile is the configuration's refusal.
  *
  * @internal
  */
 export const check = (
 	config: ResolvedConfig,
 	cwd: string
+): Effect.Effect<ReadonlyArray<SchemaCheck>, CliError, FileSystem.FileSystem | Path.Path> =>
+	Effect.forEach(config.schemas, (schema) =>
+		Effect.flatMap(Effect.fromResult(compileSchema(schema)), (compiled) =>
+			checkSchema(compiled, cwd)
+		)
+	)
+
+/**
+ * Every configured schema's committed files checked, in configured order, compiling nothing (checkCommitted, each
+ * literal pack held to the digest and the rows it states): the checks `grizzle migrate` runs before it connects, since
+ * it applies the committed files as they are.
+ *
+ * @internal
+ */
+export const checkFiles = (
+	config: ResolvedConfig,
+	cwd: string
 ): Effect.Effect<ReadonlyArray<SchemaCheck>, never, FileSystem.FileSystem | Path.Path> =>
-	Effect.forEach(config.schemas, (schema) => checkSchema(schema, cwd))
+	Effect.forEach(config.schemas, (schema) =>
+		Effect.map(checkCommitted(schema, cwd), (committed): SchemaCheck => ({
+			schema: schema.declared,
+			findings: [...committed.findings, ...packFindings(schema, committed.packs, undefined)],
+			snapshot: committed.snapshot,
+			folders: committed.folders
+		}))
+	)

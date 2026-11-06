@@ -6,12 +6,14 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Effect, Formatter } from "effect"
+import { SourceLoc } from "#compiler/core/loc.ts"
 import { decodeDesc } from "#compiler/ir/desc.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
+import { describeField } from "#compiler/scalar/registry.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
 import { regexField } from "#compiler/text/field.ts"
 import { textLookup } from "#compiler/text/refinement.ts"
-import { assert, throwsRefused } from "#test/support/assert.ts"
+import { assert, succeeded, throwsRefused } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { families, flagsGen, patternOver } from "#test/unit/text/generators.ts"
 
@@ -51,11 +53,13 @@ describe("str.regex", () => {
 							assert.equal(Object.isFrozen(field.pattern), true)
 							assert.equal(Object.isFrozen(field.desc), true)
 							assert.deepEqual(field.pattern, { source, flags })
-							assert.equal(decodeDesc("field", field.desc).ok, true)
 							const content = () =>
 								schema("Content", { Article: relation("Article", { state: field }, ["state"]) }, [])
 							const analyzed = textLookup(source, flags)
 							if (analyzed.ok) {
+								const desc = succeeded(describeField(field, SourceLoc("field", []))).desc
+								assert.deepEqual(desc, { kind: "text", source, flags, language: analyzed.value })
+								assert.equal(decodeDesc("field", desc).ok, true)
 								assert.equal(decodeDesc("schema", schemaDescOf(content())).ok, true)
 								c.note("admitted")
 							} else {

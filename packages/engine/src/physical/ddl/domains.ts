@@ -34,13 +34,7 @@ import { enforcement, lawReasons } from "#compiler/physical/obligations/graph.ts
 import type { Owned } from "#compiler/schema/own.ts"
 import type { CreateDomain, Expr, ObjectName } from "#compiler/sql/ast.ts"
 import { and } from "#compiler/sql/build.ts"
-import {
-	domainValue,
-	membership,
-	type NontrivialRefinement,
-	refinementOf,
-	textDomainDdl
-} from "#compiler/text/refinement.ts"
+import { domainValue, membership, textDomainDdl } from "#compiler/text/refinement.ts"
 
 const unwrap = <A>(result: Result.Result<A, CompileError>): A => {
 	if (!result.ok) {
@@ -109,9 +103,7 @@ export const definitionDigest = (
  * pattern's membership, so every pattern that compiles to one membership shares one domain. */
 export const textDomainIdentity = (regex: RegexRef): Identity<"textDomain"> =>
 	identity.textDomain(
-		definitionDigest(
-			textDomainDdl(refinementOf(regex).check, { schema: "", name: "", constraint: "" })
-		)
+		definitionDigest(textDomainDdl(regex.check, { schema: "", name: "", constraint: "" }))
 	)
 
 /**
@@ -132,7 +124,8 @@ interface TextDomainPlan {
 	/** The canonical pattern key of the regex it types. */
 	readonly key: string
 	readonly domain: TextDomain
-	readonly refinement: NontrivialRefinement
+	/** The refinement of the domain's first use, whose enforcement its CHECK spells. */
+	readonly regex: RegexRef
 }
 
 /** Every structural text domain of the schema, each named at the naming door by its definition's digest
@@ -211,7 +204,7 @@ export const planTextDomains = (
 				key: regex.key,
 				domain: {
 					digest: definitionDigest(
-						textDomainDdl(refinementOf(regex).check, { schema: "", name: "", constraint: "" })
+						textDomainDdl(regex.check, { schema: "", name: "", constraint: "" })
 					),
 					named,
 					check,
@@ -219,7 +212,7 @@ export const planTextDomains = (
 					constraint: identifierOf(check),
 					uses
 				},
-				refinement: refinementOf(regex)
+				regex
 			}
 		})
 }
@@ -230,14 +223,14 @@ export const addTextDomains = (
 	b: InstallBuilder,
 	plans: ReadonlyArray<TextDomainPlan>
 ): ReadonlyArray<ObjectName> =>
-	plans.flatMap(({ domain, refinement }) => {
-		const reasons = [enforcement(`text refinement /${refinement.source}/${refinement.flags}`)]
+	plans.flatMap(({ domain, regex }) => {
+		const reasons = [enforcement(`text refinement /${regex.source}/${regex.flags}`)]
 		const known = b.typeNamed({ schema: b.schema, name: domain.name })
 		if (known !== undefined) {
 			b.graph.addReasons(known, reasons)
 			return []
 		}
-		const ddl = textDomainDdl(refinement.check, {
+		const ddl = textDomainDdl(regex.check, {
 			schema: b.schema,
 			name: b.name(domain.named),
 			constraint: b.name(domain.check)
@@ -260,7 +253,7 @@ export const contractDomainDdl = (
 	const term = (t: DomainCheckTerm): Expr => {
 		switch (t.kind) {
 			case "pattern":
-				return membership(refinementOf(t.regex).check, domainValue)
+				return membership(t.regex.check, domainValue)
 			case "predicate":
 				return lowerPersistent(names, unwrap(predicateTree(t.predicate)), {
 					reads: { kind: "domain" },

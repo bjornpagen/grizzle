@@ -395,7 +395,7 @@ const build = (input: unknown, options: RealPlanOptions): RealInstallPlan => {
 		vectorSchema: installation.names.vectorSchema,
 		skipped: [],
 		fill: {
-			families: installation.laws.families,
+			order: installation.laws.theory.fill,
 			closed: new Map(
 				Arr.map(
 					[...installation.checked.closed],

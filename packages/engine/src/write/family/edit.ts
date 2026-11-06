@@ -27,6 +27,7 @@
  * index is a coordinate, never a multiplicity. A member key a family's changes name twice is refused, never a second
  * member.
  */
+import { readsOf } from "#compiler/analysis/theory/fill.ts"
 import { encodeFailure, slotPlace } from "#compiler/codec/fault.ts"
 import { carrierSpecOf, scalarCodec } from "#compiler/codec/scalar.ts"
 import { type CompileError, type EncodingFailure, unsupported } from "#compiler/core/errors.ts"
@@ -35,7 +36,7 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
-import type { Family } from "#compiler/ir/family.ts"
+import { type Family, familyColumnType, isSequence } from "#compiler/ir/family.ts"
 import type { LawField, LawRelation, RelationInfo } from "#compiler/ir/law.ts"
 import { admittedText, admitValue } from "#compiler/scalar/values/identity.ts"
 import {
@@ -50,14 +51,11 @@ import {
 	type ColumnKey,
 	columnKey,
 	combineHost,
-	familyColumnType,
 	familyKey,
 	fieldKey,
 	type HostEvaluator,
-	literalHost,
-	readsOf
+	literalHost
 } from "#compiler/write/family/fold.ts"
-import { isSequence } from "#compiler/write/family/nesting.ts"
 import type { OwnerWrite, RelationWrite } from "#compiler/write/family/order.ts"
 import { endColumns, type ReadShape, type RowLayout } from "#compiler/write/family/statements.ts"
 

@@ -31,7 +31,9 @@ import type {
  * (types/fields/field.ts) whose column is a pattern-refined text column (core/decoder.ts textColumn): a cell's text is
  * its value, a member of the pattern's language, which PostgreSQL's CHECK enforces and the host type overapproximates.
  * The host type is the field's language, which a JavaScript value at it is one of; its domain is text, which a term of
- * any pattern meets. `desc` is the field's Description (ir/desc.ts FieldDesc), which schema compilation consumes.
+ * any pattern meets. `desc` states the pattern as written; schema compilation reads the field's Description from the
+ * descriptor registry (scalar/registry.ts registerTextDescriptor), which carries the pattern's language as the text
+ * analysis proved it once, when the descriptor was made.
  */
 export interface RegexText<
 	out Host extends string,

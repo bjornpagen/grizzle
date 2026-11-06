@@ -50,6 +50,7 @@ import { definedRangeOp } from "#compiler/scalar/compute/registry.ts"
 import { widening } from "#compiler/scalar/compute/types.ts"
 import { regexMember } from "#compiler/scalar/regex/nfa.ts"
 import { bareEnv, scalarTypeOf } from "#compiler/scalar/registry.ts"
+import { textLookup } from "#compiler/text/refinement.ts"
 import { defined } from "#test/support/assert.ts"
 import { foldInputOf } from "#test/support/fixtures/ir/fold.ts"
 import { bool, compareParamType } from "#test/support/oracle/gen/domain.ts"
@@ -175,6 +176,14 @@ type Substitute =
 type Substitution = ReadonlyMap<string, Substitute>
 
 const noSubstitution: Substitution = new Map()
+
+/**
+ * Where a query is evaluated: on its own, a root's or an import's, or as an attachment's child, once per row of its
+ * parent, whose take ranks only the rows correlated with that parent row.
+ */
+type Outer = { readonly kind: "own" } | { readonly kind: "attached"; readonly parent: Built }
+
+const ownQuery: Outer = { kind: "own" }
 
 const columnOf = (name: string, type: ScalarType): HeadingColumn => ({ name, type })
 
@@ -321,6 +330,7 @@ class Translation {
 			params: noParams,
 			fieldType: (desc, loc) => scalarTypeOf(desc, bareEnv, loc),
 			regexMember,
+			patternLanguage: textLookup,
 			extension: noExtension
 		}
 		const lowered = lowerTerm(termDesc(t, name), env)
@@ -527,6 +537,7 @@ class Translation {
 			case "import":
 				return this.query(
 					{ ...source.query, attachments: [] },
+					ownQuery,
 					new Map(
 						Arr.map(source.binds, (bind): readonly [string, Substitute] => [
 							bind.param.name,
@@ -976,8 +987,11 @@ class Translation {
 		}
 	}
 
-	/** A query's node: its arms' union, its take, then its attachments; a name is no node. */
-	query(q: Query<ParentColumn>, substitution: Substitution): BuiltRule {
+	/**
+	 * A query's node: its arms' union, its take, then its attachments; a name is no node. An attached child's take ranks
+	 * each parent row's children apart: its correlation fixes each correlation column to its parent column's value.
+	 */
+	query(q: Query<ParentColumn>, outer: Outer, substitution: Substitution): BuiltRule {
 		const arms = Arr.map(q.arms, (arm) => this.rule(arm, substitution))
 		const [first, ...rest] = arms
 		let current: Built =
@@ -1005,14 +1019,28 @@ class Translation {
 					input: current.node,
 					order: completed(q.bound.order),
 					bound: { kind: "literal", k: BigInt(q.bound.k) },
-					correlation: [],
+					correlation:
+						outer.kind === "own"
+							? []
+							: Arr.map(first.correlation, (c) => ({
+									column: c.child,
+									expr: this.col(
+										outer.parent.node,
+										defined(
+											Option.getOrUndefined(
+												Arr.findFirst(outer.parent.heading, (h) => h.name === c.parent)
+											),
+											`the parent column ${c.parent}`
+										)
+									)
+								})),
 					heading: current.heading
 				}),
 				heading: current.heading
 			}
 		}
 		for (const a of q.attachments) {
-			const child = this.query(a.child, noSubstitution)
+			const child = this.query(a.child, { kind: "attached", parent: current }, noSubstitution)
 			current = {
 				node: this.b.node({
 					loc: undefined,
@@ -1070,7 +1098,7 @@ class Translation {
 	}
 
 	root(root: Root): RelNode {
-		const body = this.query(root, noSubstitution)
+		const body = this.query(root, ownQuery, noSubstitution)
 		if (root.delivery.kind === "set") {
 			return body.node
 		}
@@ -1145,12 +1173,18 @@ const assemble = (
 			const key = statement.heading.slice(0, keyWidth)
 			const childHeading = statement.heading.slice(keyWidth)
 			const parentKey = Arr.map(key, (k) => valueAt(row, columnIndex(heading, k.name, label)))
-			return Arr.map(
+			const children = Arr.map(
 				Arr.filter(statement.rows, (r) =>
 					Arr.every(key, (k, i) => equal(valueAt(r, i), elementAt(parentKey, i), k.type))
 				),
-				(r) => nested(childLabel, a.child, childHeading, r.slice(keyWidth))
+				(r) => r.slice(keyWidth)
 			)
+			/** A child that ends in a take is delivered in its order, which is total over the child's head. */
+			const delivered =
+				a.child.bound.kind === "take"
+					? sortRows(childHeading, children, completed(a.child.bound.order))
+					: children
+			return Arr.map(delivered, (r) => nested(childLabel, a.child, childHeading, r))
 		})
 	})
 	const main = statements.get("main")

@@ -41,31 +41,40 @@ How the work runs:
 	- Tell the downstream session first: its database lives in the cluster.
 
 ### 2. No known bug
-- **A pattern whose anchors leave no match is admitted.** `^$a` is lowered to `\A\Za`.
-	- Root cause: `LiveNode` (scalar/regex/ir.ts) claims a member, but the constructors make only an empty class
-	  `never`, never contradictory anchors.
-	- The same hole admits a `str.regex` past the DFA bounds whose language is empty, because text/refinement.ts
-	  languageOf trusts the IR there.
-	- Fix in the IR:
-		- each node carries the set of its paths' profiles, in one byte;
-		- a profile is three bits: it consumes a character, it passes `^`, it passes `$`;
-		- a sequence keeps a pair of profiles unless a character comes before a `^` or after a `$`;
-		- an alternation takes the union of its arms' profiles, and a repetition closes over copies of its body;
-		- a node with no profile left is `never`.
-	- This is exact for the admitted grammar, and linear. The flags are only u and su, so `^` and `$` anchor the string;
-	  there is no lookaround; and every class is non-empty over admitted text.
-	- After the fix:
-		- admit.ts matchPattern and refinement.ts are exact as written;
-		- languageOf's DFA-empty branch can't be reached and is deleted, with isEmptyLanguage if nothing else reads it;
-		- the `never` tests in translate.ts, whitespace.ts and source.ts become exact too.
-	- Test: the escaped bug is the generator's, since test/unit/compute/text.test.ts draws one empty pattern, `[]`.
-		- A property over patternOver, whose anchors fall anywhere: the IR is `never` exactly when a search of its NFA
-		  finds no accepting path. The search follows walk's rules: a `^` only before the first code point, nothing after
-		  a `$`.
-		- The situation "empty through an anchor" is required, so the witnesses reach it on every seed.
-		- matchPattern and analyzeText refuse exactly those patterns, each with its reason.
-	- Planted bug: the constructors go back to class-only emptiness, and the property fails on every seed.
-	- CHANGELOG: such a pattern is refused at compile time, in `Compute.matches` and `str.regex` alike.
+- **Hex is the one way grizzle serializes bit data** (owner's ruling 2026-11-06, relayed: "the bit string arithmetic
+  is forbidden … the only way we serialize the bitset stuff is hex … never two ways of doing the same thing").
+	- Closed constants: the rows form (string_agg of 0/1 cells in a DO block) and the `{ pack }` option are deleted.
+	  Every constant is its hex literal under its comment of row count and content digest, which `grizzle check`
+	  decodes and holds to the digest. README :1403 and :2553-2559 change with it. Density is the user's lever (denser
+	  coordinates); no size escape hatch.
+	- Every bit(n) and varbit literal grizzle emits is hex, a set CHECK's empty set included. A width that isn't a
+	  multiple of 4 gets one defined form, decided by the lane. One form either way.
+	- Anything else that writes bits as text: bits parameters on the wire, meta.json and snapshot.json, diagnostics.
+	  One spelling wherever grizzle chooses one.
+	- Test: a generator of closed relations (every arity, density, payload width) and of bits fields and set literals.
+	  Oracles:
+		- every bit literal in every drafted file is hex, and the rows spelling never appears;
+		- decode(encode(rows)) = rows;
+		- `grizzle check` refuses any flipped digit.
+	- Planted bug: the rows form re-enabled for one relation.
+	- physical/ddl/constants.ts planClosed builds per-cell display names (a canonical encode per cell) that only the
+	  rows form's comments read, and DbLayer.make pays for them. They go with the rows form.
+- **Key text is bounded by bytes** (owner's ruling, relayed by the downstream session 2026-11-06; hard cutover, chosen
+  over digest keys). Lane K, goal 2.
+	- `Compute.octetLength(text)` lowers to `octet_length`, returns an integer, and stands in a contract's check as
+	  `charLength` does.
+	- textByteBound reads it as an exact byte bound: <=, <, =, between, in, their mirrors and conjunctions. With
+	  charLength too, the bound is the min of charLength × 4 and the octet bound.
+	- `UnrepresentableKey` names the byte bound it found.
+	- One public function in grizzle's terms gives the most bytes a text can hold beside given fields in one B-tree
+	  entry. No consumer re-spells PostgreSQL's page constants.
+	- Exact padding through a key's fixed-width prefix only if provably sound.
+	- Tests:
+		- the bound per predicate form, generated;
+		- on the cluster, an octet-bounded key at exactly N bytes inserts and N + 1 is refused by the domain CHECK;
+		- multibyte values at the boundary.
+	- Planted bugs: the octetLength reading dropped, and an off-by-one in the budget.
+	- Send the landing commit's full hash to the downstream session.
 - **A generic call re-instantiates the whole schema type.** Every generic call on a Rule, Query or ChangeSet walks S's
   statement tuple, about 7 instantiations per statement, because S's object-literal field records hide that S has no
   type variable. A query therefore costs time linear in the schema's statements, not in what it reads: the query
@@ -75,72 +84,81 @@ How the work runs:
 	- Owner's rule: no loss of public precision. `typeof S.statements` must stay as precise as it is. If no
 	  representation keeps it, record that and leave the tuple.
 	- Gate: the query budget's increment ratio under 3 in each dimension.
-- **One meaning, two laws.** The reported selection collision does not reproduce: every law kind over two selections of
-  one relation gets distinct ids and names (lane L, 2026-11-06). The converse is a defect: own.ts canonicalPredicate
-  keeps a comparison's operand order, so `eq(a, b)` and `eq(b, a)`, or `lt(a, b)` and `gt(b, a)`, are two laws with
-  two generated columns and two foreign keys.
-	- Fix: a symmetric comparison orders its operands canonically, and gt and ge become lt and le, swapped.
-	- A generated arm requires "two laws over selections of one relation" and "a comparison stated in both
-	  orientations".
-- **Startup cost is a hard blocker** (owner's ruling, relayed by the downstream session 2026-11-06: "clean and cull
-  away, hard delete all the code that is now dead or pointless … hard blocker for next beta").
-	- A downstream login's DbLayer build takes 194 s, where it took 7.35 s before the cutover, and `grizzle check`
-	  takes 320 s on its schema.
-	- The fix is deleting work, not tuning it, and no hidden memo.
-	- **The DFA byte bound, rebuilt for every key datum** (41%): textByteBound → patternByteBound → analyzeText →
-	  minimalDfa runs at every key and axis a text column rides (keyDatums, plannedDatum, #refuseWideRows). A field's
-	  refinement is analyzed once, when its description is admitted, and the analyzed refinement (its bounds and key)
-	  travels with the descriptor, so every later reader reads it.
-	- **migrate and drift compile everything they discard:** resolveConfig (cli/run.ts) compiles every schema, login
-	  and workload for every command. A command that applies committed SQL reads the configuration's names,
-	  identifiers and directories, and compiles nothing.
-	- **The schema's canonical encoding, more than once** (20%: levelSchema, levelOf, sameDesc, descText); see the
-	  next item.
-	- Then profile a large schema's DbLayer.make, role() and check, and delete every whole-schema pass that runs twice
-	  or whose result nothing reads.
-	- Acceptance: a generated large-schema bench of DbLayer.make, check and migrate, at n and 2n. The downstream
-	  session measures its own layer build against 7.35 s, with migrate compiling nothing before it connects. Send it
-	  each landing commit's hash.
-- **Every login re-encodes the whole schema twice,** closed-relation rows included. login() spends about 450 ms
-  re-encoding a schema with one 20,000-handle closed relation, and a downstream import spends 41% of its time there.
-	- Sites: login's `sameDesc(desc.base, baseDesc)` (two full encodes per role), role's
-	  `identity: descText(roleDesc)` (which re-encodes the base), and levels.ts isLevelOf's identity shortcut with an
-	  encode fallback.
-	- Fix: each schema value carries a content digest (SHA-256 of its encoding without level names), computed once in
-	  schema() and extend(). A role's identity is its own part plus the base's digest. login and isLevelOf compare
-	  digests, and the shortcut and its fallback are deleted.
-	- Measured at n and 2n relations, with a large closed relation, before and after.
-- **GG's whole-suite run at 99b6217** (TEST_SEED=20261106, --maxWorkers=3, load 20–30). pnpm check and the unit and
-  type tiers pass. 8 pg files failed, and failed again alone. Classified by the downstream session:
-	- **Engine defects:**
-		- lcm over numerics with fraction digits: scalar/compute/lower.ts bounds its integer digits as `da + db`.
-		  The bound must count the fraction digits (`da + db + max(sa, sb)`), derived and proved, not patched. The
-		  strict reader refuses the value (pg/compute/catalogue, 40 disagreements). The catalogue's generator must
-		  draw fractional lcm operands on its floor stream.
-		- An attached `orderBy(...).take(k)` arrives ordered by the parent key then the id, not by its order
-		  (R20, bench/query/take.bench.ts). A take stage returns `order: undefined` (check/checker.ts), attachIn
-		  substitutes the empty order, and completion adds only the child's key. This contradicts README's attached
-		  take. A generated attach suite asserts the delivered order of every attached take.
-	- **Stale since closed ids became smallint codes,** in tests and benches:
-		- pg/oracle/union-take's expected rows spell handles;
-		- pg/program/templates' raw INSERT writes handle text;
-		- bench/query/access's and union's handwritten SQL selects handles (R21 compares digests).
-		- Each reads codes through the naming door, or is restated as a property.
-	- **Bench and test support:**
-		- claim.bench.ts seeds the alternatives' native deferred FK in autocommit statements; seed in one transaction;
-		- events.bench.ts fills the Member/Grp cycle in two autocommits;
-		- families.bench.ts records no timed phase;
-		- laws.bench.ts schema-qualifies a multi-argument unnest (test/support/sql.ts), which PostgreSQL rewrites into
-		  ROWS FROM only when unqualified.
-	- **Generator:** pg/oracle/optimized/generated-2: gen/query.ts's literal fallback types 10 at a numeric bounded
-	  to one digit, and gen/domain.ts valueClasses ignores the bound.
-	- **To settle on 5433:**
-		- pg/recursion/oracle/fixed-length hits a 57014 statement timeout on a tiny case under forced parallel plans.
-		  The 30 s guard (test/support/oracle/runner.ts) is a bare constant, not a Limit. Replay
-		  `recursion/fixed-length:-:0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.1.0.1.1.0.0.0.0.4.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.2.0.0`
-		  alone, reading parallel_workers_launched and EXPLAIN ANALYZE.
-		- pg/oracle/optimized/generated-1 runs out of the JavaScript heap (about 3.9 GB). Whole results are buffered
-		  across every lowering. Rule out a dropped DISTINCT first.
+- **Startup cost is a hard blocker:** lane PERF's cut is in the tree, and lane K's (one analysis per pattern) is coming.
+  At 150 relations with 20k + 200k closed rows, in CPU time:
+	- check 81.3 → 11.8 s;
+	- DbLayer.make 43.7 → 8.0 s;
+	- migrate before connecting 70.3 → 0.93 s, compiling nothing;
+	- workload() 12,980 → 30 ms.
+	- Each grows linearly at 2×.
+	- The guard is test/unit/startup/work.test.ts, exact call counts through test/support/kernel/calls.ts, and the bench
+	  is `pnpm bench compile`.
+	- Left: closed admission (next item), and planClosed's per-cell names (the hex item).
+- **A closed relation's cells are re-validated at every compile** (lane PERF, after lane K's ir/desc.ts edit is
+  committed): SchemaDesc's closedRelation arm is a plain RelationDesc, so analysis/schema.ts #closedInfo re-admits
+  every cell, a roster handle by a linear scan (cells × handles).
+	- Fix: every decoded SchemaDesc's closedRelation arm is an AdmittedClosedRelation, minted only by
+	  closed.relation() and one schema-level audit in decodeDesc. #closedInfo converts admitted rows without
+	  validating, own.ts #checkClosedRows goes, and the fixture builders mint through admission.
+- **A role lacks EXECUTE on functions a write reaches through a cast** (blocking every downstream write, proven on the
+  cluster, 2026-11-06).
+	- A role's insert fails with 42501 on a roster's `_live_` function: the roster's bits domain appears only as a
+	  cast inside a CHECK.
+	- physical/ddl/roles.ts roleExecutes gathers the calls of the column-typing domains, the written tables and the
+	  views, and context.ts callsOf collects only functionRef nodes, so a cast to a domain never pulls in that domain's
+	  CHECK.
+	- Fix: one reachability over the DDL graph through functions and domains (column domains; casts in CHECKs,
+	  generated columns and defaults; domain CHECKs and contract base chains; constant bodies), granting exactly that.
+	  USAGE is checked for the same hole.
+	- Test: generated schemas with roles and drawn write lists.
+		- Oracle 1: granted = reachable, computed independently.
+		- Oracle 2, on the cluster: each written table's first generated insert raises no 42501, and
+		  has_function_privilege agrees.
+	- Planted bug: the cast traversal dropped.
+- **Generate accepts what the first write refuses: the class** (blocking; owner's ruling 2026-11-06: deep fix, brutal
+  test). Every write refusal that depends on the schema alone is decided when the schema compiles. Known instances:
+	- the unfillable copy (below);
+	- a tree that owns an ordered family: write/family/nesting.ts nestingOf refuses the family met again through the
+	  tree's own recursion, though depth-first order is defined;
+	- a unique key over a generated field: write/frontend/compile.ts refuseGeneratedUnique refuses every addition, and
+	  generate accepts the schema.
+	- The class guard is lane W-fill's bidirectional property over a generator that includes all three shapes.
+- **A schema that generates but whose writes can never compile** (blocking, owner's ruling 2026-11-06: deep fix,
+  brutal test).
+	- The downstream schema passes generate, check and migrate, but every ChangeSet.insert of its role is refused:
+	  `UnsupportedOperation … BranchResolution.instanceEnd copies Instance's end along the owner axis of
+	  Instance.rules, a column its owner fills only after its members` (write/family/fold.ts `unfillable`).
+	- The member is a counted family over a tree's owner, copying the owner's `end`, a leaving column, through a
+	  containment.
+	- Fix: the law model refuses an unfillable copy when the schema compiles, a named refusal on the field and the law,
+	  so generate and check never accept a schema no write compiles. README "How a field is written" states the rule.
+	- Test:
+		- a schema generator over relations, trees, counted and ordered families, folds, and containments copying
+		  entering columns, leaving columns and fold ends along owner and predecessor axes;
+		- swarm weights per run, and each shape exhausted to a small scope;
+		- oracle: generate accepts ⇔ every write program of every login compiles, and on the cluster a generated
+		  instance's first insert succeeds.
+	- Planted bug: the compile-time check removed.
+- **Census items from the downstream session** (2026-11-06), still open:
+	- the containment UNIQUE escaping the entry bound (lane K, goal 3);
+	- README states the str.regex grammar (no lookaround, no \p), and that a generated NOT NULL column's 23502 fails
+	  the write as ExecutionFailure naming no law.
+- **A query ending in `orderBy(...).take(k)` is delivered in that order, root or attached** (decided here, one rule).
+  The attached case is done (StageOrder `delivered`). A root query ending in a take is still delivered as a set, while
+  README :138 pairs it with Drizzle's ordered `.orderBy(...).limit(10)`. Make the root follow the same rule, with a
+  generated differential arm and the planted bug of the root dropping the order.
+- **Bare statement-timeout guards in tests** remain in test/pg/oracle/optimized/support.ts, page/generated.ts,
+  payroll, recursion/graph and text/differential. No verdict rests on the clock (doctrine 6), and the case hang guard
+  stops a hung case, so delete them, as test/support/oracle/runner.ts's was.
+- **To settle on 5433 at the gate** (W-gg's investigations):
+	- recursion/oracle/fixed-length's 57014: the hypothesis is a Gather on the inner side of a nested loop over the
+	  recursive term, under the perturbation's hash and merge joins off, relaunching workers per work-table row. Replay
+	  the token and read pg_stat_database parallel_workers_launched before and after, with EXPLAIN (ANALYZE, VERBOSE,
+	  SETTINGS). If confirmed, the perturbation stops drawing that combination.
+	- optimized/generated-1's heap: OptimizedRun now keeps a form's rows only when they differ. Measure each form's
+	  statements with count(*), count(DISTINCT t) and sum(octet_length(t::text)). compareRuns still re-reads the
+	  baseline's rows for every form.
+	- test/pg/program/templates is still an example test (W-physical).
 
 ### 3. No example-based test
 Owner 2026-11-06: example-based tests are banned. A test is an example when a person chose its inputs and wrote its
@@ -160,18 +178,10 @@ What stays:
 - **3.2 Inventory** (main, 2026-11-06). Each test case was traced through the helpers it calls. Of 1,463 cases, 357 run
   no search, in 135 files. Hand case tables also run inside searches in 16 more files. Wave 2's lanes, at most four at
   a time, each own their files' conversion:
-	- **W-write:**
-		- test/unit/write/** (changeset/value 21, owner 10, normalize 3, delta 2, insert/unique 2, put/program 2,
-		  refusal 2, fills, unstated-key, changeset/scaling);
-		- test/pg/write/refusal;
-		- test/unit/history/check's 8 hand verdicts.
-	- **W-lower:**
-		- lower/dedup/verify (24), lower/shapes/relparam, lower/rewrite/closed;
-		- ir/shape, ir/dag, ir/desc;
-		- sql/lexer, sql/audit, sql/rows;
-		- codec/recordset;
-		- core/limits, core/lines;
-		- derived/keys, allen/mask, program/limits, laws/model.
+	- **W-worlds** (W-write's remainder): in the worlds model (test/support/worlds), entries over a mutable relation
+	  with a span key and over a pure set, every law family meeting an entry write, drawn read-back versions
+	  classified against a host restatement, every law family's refusal raised by a partial role, and an owner keyed
+	  WITHOUT OVERLAPS put in place (the write commands machine can't parse spans yet).
 	- **W-adapter:**
 		- test/unit/adapter/** (reader 7, refresh 7, migrate 6, witness 5, transactions 3, bind, boundary);
 		- admission/target;
@@ -298,6 +308,9 @@ What stays:
 	- a lateral source column fixed to a region column gives only one direction;
 	- k joined relations with two declared keys each still give 2^k minimal keys;
 	- a closed relation's identical-valued columns aren't detected as one class.
+- **A counted family member that is also a sequence member, a tree or a sequence owner:** README promised it, but the
+  writer never supported it. From the beta on, the schema compile refuses it (UnwritableRelation countedAndSequence).
+  Writing it means one fill order that interleaves the counted edit and the sequence walk.
 - **Typed terms:** a CheckedExpr brand with per-level constructors, at about 40 builder sites.
 - **Performance:**
 	- A guarded float form costs a SubPlan per row (lower/conservative/expr/total.ts bindOperands). Bind the operands
