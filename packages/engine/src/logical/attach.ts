@@ -9,6 +9,7 @@ import {
 import { nativeEqualityKey, type ScalarExpr, type TypedLiteral } from "#compiler/ir/expr.ts"
 import type { EvidenceSide } from "#compiler/ir/law.ts"
 import {
+	closedCell,
 	edgesOf,
 	type KindOver,
 	type NodeOf,
@@ -129,10 +130,27 @@ const scanSelects = (
 }
 
 /**
+ * Whether `fields` are a key of a closed relation's facts: its facts are constants the node holds, so the fields are
+ * one where no two facts agree at all of them.
+ */
+const closedKey = (source: NodeOf<"Closed">, fields: ReadonlyArray<string>): boolean => {
+	const positions = fields.map((f) => source.heading.findIndex((c) => c.name === f))
+	if (positions.some((at) => at < 0)) {
+		return false
+	}
+	const tuples = new Set(
+		source.rows.map((row) =>
+			JSON.stringify(positions.map((at) => nativeEqualityKey(closedCell(row, at))))
+		)
+	)
+	return tuples.size === source.rows.length
+}
+
+/**
  * The child's plain scan: an optional projection over a region with one occurrence over a stored relation or the facts
- * of a closed relation, which is a relation with primary key id, no constant, correlation or equality.
- * Returns the relation, its declared keys (a stored relation's, which its Base carries, or a closed relation's handle
- * `id`), and the child root column to source column map.
+ * of a closed relation, with no constant, correlation or equality. Returns the relation, whether a set of its fields is
+ * a key (a stored relation's declared keys, which its Base carries, or for a closed relation, which holds its facts as
+ * constants, fields its facts never agree at), and the child root column to source column map.
  *
  * One variable bound to two columns of the scan is the predicate that they are equal: no plain scan.
  */
@@ -164,9 +182,16 @@ const plainScan = (child: RelNode) => {
 	const source = o.source
 	const scanned =
 		source.kind === "Base" && source.relationKind === "relation"
-			? { relation: source.relation, keys: [source.primaryKey, ...source.keys] }
+			? {
+					relation: source.relation,
+					isKey: (fields: ReadonlyArray<string>) =>
+						[source.primaryKey, ...source.keys].some((k) => sameMembers(k, fields))
+				}
 			: source.kind === "Closed"
-				? { relation: source.closed, keys: [["id"]] }
+				? {
+						relation: source.closed,
+						isKey: (fields: ReadonlyArray<string>) => closedKey(source, fields)
+					}
 				: undefined
 	if (scanned === undefined) {
 		return undefined
@@ -239,7 +264,6 @@ const containmentOne = (
 		}
 		parentOf.set(c, pair.parent)
 	}
-	const keys = scan.keys
 	for (const fact of env.containments) {
 		if (fact.statement !== "contained") {
 			continue
@@ -250,7 +274,7 @@ const containmentOne = (
 		if (!contextAdmits(env.context, fact.context)) {
 			continue
 		}
-		if (!keys.some((k) => sameMembers(k, fact.to.fields))) {
+		if (!scan.isKey(fact.to.fields)) {
 			continue
 		}
 		const correlated = mappedExactly(fact.to.fields, parentOf)
