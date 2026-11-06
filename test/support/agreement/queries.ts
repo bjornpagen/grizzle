@@ -579,14 +579,45 @@ const drawRule = (d: Drawing): DrawnRule => {
 		!pinned && d.keep("constantAtUnionSource")
 			? [{ rel: "Tones", copy: 0, bindings: [["tone", tonesConstant(d)]] }]
 			: []
+	const filters = [...anchorFilters(d, anchor), ...filtersOver(d, bound)]
+	const head = headOver(d, bound)
+	const all = Arr.appendAll(matches, atUnion)
 	return {
 		rule: {
-			matches: Arr.appendAll(matches, atUnion),
-			filters: [...anchorFilters(d, anchor), ...filtersOver(d, bound)],
-			head: headOver(d, bound)
+			matches: Arr.some(head, ([, h]) => h.kind === "count" || h.kind === "sum")
+				? Arr.map(all, keyedMatch)
+				: all,
+			filters,
+			head
 		},
 		pinned
 	}
+}
+
+/** Each key of a match's source, by its fields: Tones, a union keyed by its heading, by id and tone. */
+const sourceKeys = (source: MatchSource): Arr.NonEmptyReadonlyArray<ReadonlyArray<string>> =>
+	source === "Tones" ? [["id", "tone"]] : keysOf[source]
+
+/**
+ * A match a fold reads, which binds every field of one key of its source (a fold reads each fact it matches once, by a
+ * key): as drawn when it does, and otherwise with its source's first key's unbound fields bound to variables of its
+ * own scope; Tones' id, a field of Item's facts, to the first Item match's.
+ */
+const keyedMatch = (m: Match): Match => {
+	const named = new Set(Arr.map(m.bindings, ([f]) => f))
+	const keys = sourceKeys(m.rel)
+	if (Option.isSome(Arr.findFirst(keys, (k) => Arr.every(k, (f) => named.has(f))))) {
+		return m
+	}
+	const fields = m.rel === "Tones" ? fieldsOf.Item : fieldsOf[m.rel]
+	const [first] = keys
+	const added = Arr.flatMap(first, (name: string): ReadonlyArray<readonly [string, Term]> => {
+		const field = Arr.findFirst(fields, (f) => f.name === name)
+		return named.has(name) || Option.isNone(field)
+			? []
+			: [[name, varTerm({ field: field.value, copy: m.copy })]]
+	})
+	return { ...m, bindings: Arr.appendAll(m.bindings, added) }
 }
 
 /** A constant some arm of Tones holds at tone: low or mid, as a handle or as the member's JavaScript value. */
