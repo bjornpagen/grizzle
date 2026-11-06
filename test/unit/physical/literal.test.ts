@@ -63,7 +63,8 @@ import {
 	defined,
 	failed,
 	nonEmpty,
-	succeeded
+	succeeded,
+	throwsRefused
 } from "#test/support/assert.ts"
 import { bitText } from "#test/support/closed/bit-text.ts"
 import { literalInstallation, statedAsLiteral } from "#test/support/closed/literal.ts"
@@ -735,4 +736,88 @@ describe("a declared pack", () => {
 			)
 		)
 	)
+})
+
+describe("a row written twice", () => {
+	const Key = closed("Key", ["a", "b", "c"])
+	const Mark = closed("Mark", ["low", "high"])
+	const keys = ["a", "b", "c"] as const
+
+	/** Which handles hold a row, each row's mark its handle's position mod 2, and whether each is written twice. */
+	interface Written {
+		readonly held: ReadonlyArray<boolean>
+		readonly twice: ReadonlyArray<boolean>
+	}
+
+	const written: Gen<Written> = (s) => ({
+		held: Arr.map(keys, () => s.draw(element([false, true] as const))),
+		twice: Arr.map(keys, () => s.draw(element([false, true] as const)))
+	})
+
+	const installed = (w: Written, repeats: boolean) => {
+		const rows = Arr.flatMap(keys, (k, i) => {
+			const row = { k, mark: i % 2 === 0 ? ("low" as const) : ("high" as const) }
+			return w.held[i] === true ? (repeats && w.twice[i] === true ? [row, row] : [row]) : []
+		})
+		const R = closed.relation("R", { k: closedId(Key), mark: closedId(Mark) }, ["k"], rows)
+		const owned = succeeded(ownedInput(schema("Twice", { Key, Mark, R }, [])))
+		const installation = succeeded(compileInstallation(owned, installOptions(owned, "owner")))
+		return { R, installation }
+	}
+
+	type Feature = "a repeat" | "no repeat"
+
+	it.effect("states one fact, and installs exactly what the rows written once install", (ctx) =>
+		searched(
+			ctx,
+			exhaust(
+				{
+					suite: "unit/physical/closed-repeats",
+					oracle: {
+						kind: "specification",
+						name: "set semantics: a relation's facts are a set, so a row written twice is one row"
+					},
+					box: "each of 3 handles holding a row or none, each written once or twice",
+					generator: written,
+					literal: Formatter.format,
+					limit: 64,
+					coverage: requiredInSpace<Feature>(["a repeat", "no repeat"]),
+					caseHang
+				},
+				(w: Written, c: Case<Feature>) =>
+					Effect.sync(() => {
+						const once = installed(w, false)
+						const twice = installed(w, true)
+						assert.deepEqual(twice.R.rows, once.R.rows, "the value states each fact once")
+						assert.deepEqual(
+							twice.installation.statements,
+							once.installation.statements,
+							"the same constants, digests and row counts"
+						)
+						const repeats = Arr.some(keys, (_, i) => w.held[i] === true && w.twice[i] === true)
+						c.note(repeats ? "a repeat" : "no repeat")
+					})
+			)
+		)
+	)
+
+	it("refuses two rows of one key with other payloads, which its type refuses too, and accepts rows of two keys", () => {
+		const fields = { k: closedId(Key), mark: closedId(Mark) }
+		/** Rows widened past their literals, as a JavaScript caller's are, so admission alone judges them. */
+		const conflicting: ReadonlyArray<{ readonly k: "a" | "b"; readonly mark: "low" | "high" }> = [
+			{ k: "a", mark: "low" },
+			{ k: "a", mark: "high" }
+		]
+		throwsRefused(() => closed.relation("R", fields, ["k"], conflicting), "MalformedDescription")
+		const two = closed.relation(
+			"R",
+			fields,
+			["k"],
+			[
+				{ k: "a", mark: "low" },
+				{ k: "b", mark: "high" }
+			]
+		)
+		assert.equal(two.rows.length, 2)
+	})
 })

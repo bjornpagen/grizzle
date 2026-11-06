@@ -1,5 +1,7 @@
 import { nominal } from "#compiler/core/brand.ts"
+import { canonicalTextOf } from "#compiler/core/canonical.ts"
 import { bitsColumn, codeColumn } from "#compiler/core/decoder.ts"
+import { defined } from "#compiler/core/invariant.ts"
 import { handleMaxBytes } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
@@ -635,13 +637,23 @@ export const closed = <
 	return value
 }
 
-/** A closed relation's rows as literals of its fields: each row a plain record of exactly a value per field. */
+/**
+ * A closed relation's rows as a JavaScript caller wrote them, checked and described, as the set of facts they state: a
+ * row written twice is one row, its first, and two rows of one key but other payloads break the key law, refused naming
+ * the key and both payloads. `kept` is the index of each row of the set among those written, in their order. Rows are
+ * keyed by their key fields' handles (closed ids, which literalFor reads as their handles), and a pair's payloads are
+ * compared only where their keys meet, so the set costs a text per row.
+ */
 const closedRows = (
 	rows: unknown,
 	fields: Readonly<Record<string, FieldDesc>>,
 	descriptors: Readonly<Record<string, unknown>>,
+	key: unknown,
 	label: string
-): ReadonlyArray<Readonly<Record<string, LiteralDesc>>> => {
+): {
+	readonly rows: ReadonlyArray<Readonly<Record<string, LiteralDesc>>>
+	readonly kept: ReadonlyArray<number>
+} => {
 	if (!isList(rows)) {
 		throw malformed(label, "rows: a list of the relation's facts")
 	}
@@ -649,20 +661,51 @@ const closedRows = (
 	const typed = Object.entries(fields).map(
 		([field, desc]) => ({ field, desc, roster: rosterHandlesOf(descriptors[field]) }) as const
 	)
-	return rows.map((row, i) => {
+	const keyFields =
+		isList(key) && key.every((k): k is string => typeof k === "string" && names.includes(k))
+			? key
+			: names
+	const shown = (value: LiteralDesc | undefined): string =>
+		typeof value === "string" ? value : canonicalTextOf(value)
+	const payloadOf = (row: Readonly<Record<string, LiteralDesc>>): string =>
+		canonicalTextOf(
+			Object.fromEntries(names.filter((f) => !keyFields.includes(f)).map((f) => [f, row[f]]))
+		)
+	const byKey = new Map<string, number>()
+	const out: Array<Readonly<Record<string, LiteralDesc>>> = []
+	const kept: Array<number> = []
+	for (const [i, row] of rows.entries()) {
 		if (!isPlainRecord(row)) {
 			throw malformed(label, `row ${i}: a fact, a record of a value per field`)
 		}
-		const keys = Object.keys(row)
-		if (keys.length !== names.length || !names.every((f) => Object.hasOwn(row, f))) {
+		const own = Object.keys(row)
+		if (own.length !== names.length || !names.every((f) => Object.hasOwn(row, f))) {
 			throw malformed(label, `row ${i} with exactly the fields ${names.join(", ")}`)
 		}
 		const literals: Record<string, LiteralDesc> = {}
 		for (const { field, desc, roster } of typed) {
 			literals[field] = literalFor(desc, row[field], `${label} row ${i} field ${field}`, roster)
 		}
-		return literals
-	})
+		const handles = keyFields.map((f) => literals[f])
+		const keyText = handles.every((h): h is string => typeof h === "string")
+			? handles.join("\u0000")
+			: canonicalTextOf(handles)
+		const earlier = byKey.get(keyText)
+		if (earlier === undefined) {
+			byKey.set(keyText, out.length)
+			out.push(literals)
+			kept.push(i)
+			continue
+		}
+		const first = defined(out[earlier], "a row of a key seen")
+		if (payloadOf(first) !== payloadOf(literals)) {
+			throw malformed(
+				label,
+				`one fact per key; rows ${defined(kept[earlier], "the row's index")} and ${i} hold the key (${keyFields.map((f) => `${f} = ${shown(literals[f])}`).join(", ")}) with the payloads ${payloadOf(first)} and ${payloadOf(literals)}`
+			)
+		}
+	}
+	return { rows: out, kept }
 }
 
 /**
@@ -706,6 +749,8 @@ export const admitClosedRelation = (
 ): {
 	readonly desc: ClosedRelationDesc
 	readonly described: Readonly<Record<string, Described>>
+	/** The index of each row of the set among those written (closedRows). */
+	readonly kept: ReadonlyArray<number>
 } => {
 	const label = `closed.relation ${typeof name === "string" ? name : "?"}`
 	const relationName = requireName(name, label, "a closed relation name")
@@ -721,6 +766,7 @@ export const admitClosedRelation = (
 	}
 	const described = describedFields(descriptors, label)
 	const fieldDescs = fieldMap(described)
+	const facts = closedRows(rows, fieldDescs, descriptors, key, label)
 	const desc = orThrow(
 		decodeDesc("relation", {
 			kind: "closedRelation",
@@ -728,7 +774,7 @@ export const admitClosedRelation = (
 			fields: fieldDescs,
 			key,
 			slots: keySlots(descriptors, key, label),
-			rows: closedRows(rows, fieldDescs, descriptors, label),
+			rows: facts.rows,
 			pack,
 			loc: builderLoc(label, [relationName])
 		})
@@ -736,7 +782,7 @@ export const admitClosedRelation = (
 	if (desc.kind !== "closedRelation") {
 		throw malformed(label, "a relation description of a closed relation")
 	}
-	return { desc, described }
+	return { desc, described, kept: facts.kept }
 }
 
 /**
@@ -806,7 +852,7 @@ export const closedRelation = <
 			name,
 			fields: copied,
 			key: frozenTuple<Key>(key),
-			rows: Object.freeze(rows.map((r) => frozenCopy(r))),
+			rows: Object.freeze(admitted.kept.map((i) => frozenCopy(defined(rows[i], "a kept row")))),
 			pack: admitted.desc.pack,
 			fact: record<[Fields]>(copied),
 			heading: copied,

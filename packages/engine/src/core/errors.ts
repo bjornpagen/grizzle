@@ -253,6 +253,8 @@ const duplicateText = (duplicate: Duplicate): string => {
  * - `UnrepresentableKey`: a key or index, `subject`, over `key`, with no representable index entry, for `fault`.
  * - `FoldOverProjection`: a fold whose rule matches `source` without binding every field of one of its keys, so the
  *   fold would read a projection of its facts; `key` is the key to bind.
+ * - `QueriedOwnerAppend`: a put at `at` of `owner` from a query, which may insert an owner of `family`, in a ChangeSet
+ *   that appends `member` to that family.
  * - `MissingDiscriminant`, `AttachedParentUnbound`, `AttachedPage`, `DescribedHeadingMismatch`, `ContractLiteral`:
  *   the rule `capability` names, a sentence nothing reads the parts of.
  * - `DuplicateIdentity`: a name declared twice differently (Duplicate), with the earlier declaration's location.
@@ -300,6 +302,13 @@ export type CompileReason =
 			readonly at: SourceLoc
 			readonly source: string
 			readonly key: ReadonlyArray<string>
+	  }
+	| {
+			readonly _tag: "QueriedOwnerAppend"
+			readonly at: SourceLoc
+			readonly owner: string
+			readonly family: { readonly owner: string; readonly count: string }
+			readonly member: string
 	  }
 	| { readonly _tag: "MissingDiscriminant"; readonly at: SourceLoc; readonly capability: string }
 	| { readonly _tag: "AttachedParentUnbound"; readonly at: SourceLoc; readonly capability: string }
@@ -414,6 +423,19 @@ const droppedText = (d: Dropped): string => {
 export const foldOverProjectionText = (source: string, key: ReadonlyArray<string>): string =>
 	`a fold reads each fact it matches once, by its key, and this match of ${source} binds none of its keys: bind (${key.join(", ")}) in the match, or, to fold distinct values, match a query of them as the source`
 
+/**
+ * An owner inserted in the ChangeSet that appends to its family holds its final count and ends in its own row, since
+ * PostgreSQL checks a row's CHECKs as it inserts the row, and grizzle fills them on the host from the facts the
+ * ChangeSet states; a query's facts are the statement's alone, so its owner would be inserted at its starts: name the
+ * two ways to state the owner first.
+ */
+export const queriedOwnerAppendText = (
+	owner: string,
+	family: { readonly owner: string; readonly count: string },
+	member: string
+): string =>
+	`a put of ${owner} from a query, which may insert an owner of the family ${family.owner}.${family.count}, in a ChangeSet that appends ${member} to that family: an inserted owner holds its final count and ends in its own row, which grizzle fills only from the facts a ChangeSet states, so state ${owner}'s facts in this ChangeSet from an array or a Stream, or put ${owner} in a ChangeSet that ChangeSet.sequence runs before the one that appends`
+
 /** A reason whose one fact is the sentence `text`, at `at`. */
 export const prose = (tag: ProseTag, at: SourceLoc, text: string): CompileReason =>
 	tag === "MalformedDescription"
@@ -440,6 +462,8 @@ export const compileReasonText = (reason: CompileReason): string => {
 			return keyFaultText(reason.subject, reason.key, reason.fault)
 		case "FoldOverProjection":
 			return foldOverProjectionText(reason.source, reason.key)
+		case "QueriedOwnerAppend":
+			return queriedOwnerAppendText(reason.owner, reason.family, reason.member)
 		case "DuplicateIdentity":
 			return duplicateText(reason.duplicate)
 		case "OutsideRole":

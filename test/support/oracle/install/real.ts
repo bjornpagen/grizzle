@@ -239,7 +239,7 @@ const build = (input: unknown, options: RealPlanOptions): RealInstallPlan => {
 				column: f.column,
 				type: typeOf(heading.value.type, false),
 				sequence:
-					"serial" in heading.value.type
+					heading.value.writing.kind === "serial"
 						? { kind: "identity", name: names.sequence(r.name, field) }
 						: { kind: "none" },
 				location

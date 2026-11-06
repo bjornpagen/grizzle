@@ -1,5 +1,5 @@
 import { describe, it } from "@effect/vitest"
-import { Array as Arr, Effect, String as Str } from "effect"
+import { Array as Arr, Effect, Option, String as Str } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import { isCompileError } from "#compiler/core/errors.ts"
@@ -9,6 +9,7 @@ import { compileInstallation, installOptions } from "#compiler/physical/install/
 import { accumulated, drawn, natural, pg, span, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
+	check,
 	counted,
 	fin,
 	fold,
@@ -108,6 +109,42 @@ const S4 = schema("S4", { Fixed, FixedM }, [
 	mutable(FixedM)
 ])
 
+/**
+ * A mutable owner whose row check reads its end against a field its facts carry, as an invoice's lines sum to its
+ * amount: an owner inserted at its starts holds 0 against its total, so one inserted with its members must hold their
+ * sum in its own row.
+ */
+const Ledger = relation(
+	"Ledger",
+	{ id: uuid, total: pg.bigint, n: drawn(natural), t: accumulated(pg.bigint, 0n) },
+	["id"]
+)
+const Entry = relation("Entry", { id: uuid, ledger: uuid, x: pg.bigint }, ["id"])
+const entries = counted(on(Entry, "ledger"), fin(Ledger, "n"))
+const S5 = schema("S5", { Ledger, Entry }, [
+	entries,
+	fold(entries, Monoid.sum, on(Entry, "ledger", "x"), on(Ledger, "id", "t")),
+	check("Balanced", Ledger, (l) => l.eq(l.t, l.total)),
+	mutable(Ledger),
+	mutable(Entry)
+])
+
+/** Ledgers read from the relation parameter `given`: facts no row need hold, so the put may insert each. */
+const givenLedgers = query(S5).rule((r) => {
+	const given = r.relation("given", { id: uuid, total: pg.bigint })
+	const { id, total } = v(Ledger, "ledger")
+	return r.match(given, { id, total }).find({ id, total })
+})
+
+/** A stored ledger's total restated by a parameter: every fact carries a stored ledger's key, so the put inserts none. */
+const restatedLedger = query(S5).rule((r) => {
+	const { id, total } = v(Ledger, "ledger")
+	return r
+		.match(Ledger, { id, total })
+		.where(r.eq(id, r.param("ledger", uuid)))
+		.find({ id, total: r.param("total", pg.bigint) })
+})
+
 const A = relation("A", { id: uuid, bs: drawn(natural) }, ["id"])
 const B = relation("B", { a: uuid, id: uuid, cs: drawn(natural) }, ["id"])
 const C = relation("C", { b: uuid, id: uuid }, ["id"])
@@ -148,6 +185,7 @@ const compiledFor = (schemaValue: unknown, name: string) => {
 const s1 = compiledFor(S1, "s1")
 const s2 = compiledFor(S2, "s2")
 const s3 = compiledFor(S3, "s3")
+const s5 = compileFor(S5, "s5")
 const chain = compiledFor(Chain, "chain")
 
 /** Every statement text of a program's optimized artifact. */
@@ -401,4 +439,83 @@ describe("an owner of counted families, rows first", () => {
 				)
 			})
 	)
+	it.effect(
+		"refuses a put of an owner read from a query in a ChangeSet that appends to its family, naming the put, the owner and the family, and compiles and runs it with the owner's facts stated",
+		() =>
+			Effect.gen(function* () {
+				const entry = { id: uuidOf(2), ledger: uuidOf(1), x: 5n }
+				for (const appended of [
+					ChangeSet.empty(S5).put(Ledger, givenLedgers).insert(Entry, [entry]),
+					ChangeSet.empty(S5).put(Ledger, givenLedgers).put(Entry, [entry])
+				]) {
+					const reason = refused(
+						s5(appended),
+						"QueriedOwnerAppend",
+						"an owner a query states may be inserted at its starts, which the check refuses"
+					).reason
+					if (reason._tag !== "QueriedOwnerAppend") {
+						return assert.fail("a QueriedOwnerAppend")
+					}
+					assert.deepEqual(
+						{ owner: reason.owner, family: reason.family, member: reason.member },
+						{ owner: "Ledger", family: { owner: "Ledger", count: "n" }, member: "Entry" },
+						"the refusal names the owner, its family and the member appended to it"
+					)
+					const put = Arr.findFirst(
+						Arr.getUnsafe(descOf(appended).strata, 0).members,
+						(m) => m.op === "put" && m.relation === "Ledger"
+					)
+					if (Option.isNone(put)) {
+						return assert.fail("the ChangeSet puts Ledger")
+					}
+					assert.deepEqual(reason.at, put.value.loc, "the refusal is at the put")
+				}
+				const stated = ChangeSet.empty(S5)
+					.put(Ledger, [{ id: uuidOf(1), total: 5n }])
+					.insert(Entry, [entry])
+				const program = succeeded(s5(stated))
+				const members = yield* collectInputs(program.frontend, parsedOf(stated).inputs)
+				const bound = succeeded(
+					bindWrite(program, { members, params: {}, transport: inForce(bindFrame) })
+				)
+				assertVariant(bound, "kind", "bound", "the owner stated with its member binds")
+				assertVariant(
+					bound.flights,
+					"kind",
+					"read",
+					"the owner's key is read first: a stored owner is updated, and only one no row holds is inserted"
+				)
+				const chunks = succeeded(bound.flights.writes(Arr.map(bound.flights.reads, () => [])))
+				const halves = Arr.filter(
+					program.artifacts.optimized.statements,
+					(s) => s.step.kind === "write" && s.step.result.kind === "insert"
+				)
+				assert.ok(halves.length > 0, "the put has its insert half")
+				for (const s of halves) {
+					for (const params of succeeded(chunks(s))) {
+						/** The insert half reads its columns key first, then n, t and total. */
+						assert.deepEqual(
+							Arr.takeRight(params, 3),
+							['{"1"}', '{"5"}', '{"5"}'],
+							"the stated owner is inserted at its final count and end, which the check holds to its total"
+						)
+					}
+				}
+			})
+	)
+
+	it("compiles every other put of an owner from a query beside its family's members", () => {
+		const entry = { id: uuidOf(2), ledger: uuidOf(1), x: 5n }
+		for (const value of [
+			ChangeSet.empty(S5).put(Ledger, restatedLedger).insert(Entry, [entry]),
+			ChangeSet.empty(S5).put(Ledger, givenLedgers),
+			ChangeSet.empty(S5).put(Ledger, givenLedgers).delete(Entry, [entry]),
+			ChangeSet.sequence(
+				ChangeSet.empty(S5).put(Ledger, givenLedgers),
+				ChangeSet.empty(S5).insert(Entry, [entry])
+			)
+		]) {
+			succeeded(s5(value), "a put that inserts no owner the ChangeSet appends to compiles")
+		}
+	})
 })

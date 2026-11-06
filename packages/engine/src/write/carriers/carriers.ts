@@ -10,16 +10,26 @@ import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { CarrierDecl } from "#compiler/ir/products.ts"
 import type { Heading, HeadingColumn, RelNode } from "#compiler/ir/rel.ts"
 import { columnIn, columnType, emptyEnv } from "#compiler/lower/conservative/context.ts"
-import type {
-	Analyze,
-	ColumnDef,
-	CreateCarrier,
-	FromItem,
-	Insert,
-	Select,
-	SetCore
+import {
+	type Analyze,
+	type ColumnDef,
+	type CreateCarrier,
+	type FromItem,
+	type Insert,
+	isSetQuery,
+	type Select,
+	type SetCore
 } from "#compiler/sql/ast.ts"
-import { col, cUtf8Collation, keyedSet, provedCore, select, target } from "#compiler/sql/build.ts"
+import {
+	col,
+	cUtf8Collation,
+	distinctCore,
+	keyedSet,
+	provedCore,
+	select,
+	target,
+	unitTargets
+} from "#compiler/sql/build.ts"
 import { emitText } from "#compiler/sql/emit.ts"
 import {
 	carrierDigestHex,
@@ -35,6 +45,7 @@ import {
 	ownBuild,
 	type WriteContext,
 	type WriteStatement,
+	writeKeeps,
 	writeValue
 } from "#compiler/write/insert/statement.ts"
 
@@ -83,7 +94,8 @@ export interface WriteCarrier extends CarrierDecl {
 	/**
 	 * The columns of its primary key, in key order: a carrier of a relation's facts (`relationCarrier`) holds a set of
 	 * them, keyed as the relation is, so the key a reader of it relies on is the carrier's own constraint; a member's or
-	 * a share's rows, which may repeat, and a world relation's empty delta have none.
+	 * a share's rows, a set by their fill (`memberRows`) that no constraint keys, and a world relation's empty delta have
+	 * none.
 	 */
 	readonly primaryKey: NonEmptyReadonlyArray<string> | undefined
 }
@@ -309,8 +321,14 @@ const carrierBody = (w: WriteContext, carrier: WriteCarrier): SetCore => {
 	)
 }
 
-/** The rows of the described node `node` as a carrier of `heading`, the node's own fields, holds them: each column cast
- * into its type. */
+/**
+ * The rows of the described node `node` as a carrier of `heading`, the node's own fields, holds them: each column cast
+ * into its type, and a set, as every INSERT source is. The write's duplicate-elimination placement leaves a member's
+ * root plain for its consumer to bound (program/compile.ts writeFacts), so the rows are read keyed only where the
+ * member's lowering is a set and every cast keeps its value (writeKeeps); otherwise SELECT DISTINCT bounds them, since a
+ * plain root may repeat a row and a cast may round two values onto one. A member of no field is bounded under its unit
+ * marker: its rows are the unit relation's, one row of no column at most.
+ */
 export const memberRows = (
 	w: WriteContext,
 	heading: Heading,
@@ -318,19 +336,25 @@ export const memberRows = (
 	at: string
 ): Select => {
 	const lowered = w.cx.lower(node, emptyEnv)
-	const wrapped = w.cx.wrap(lowered, node.heading, { kind: "node", node: node.id })
-	return select(
-		keyedSet(
-			heading.map((c) => {
-				const value = columnIn(wrapped.map, c.name)
-				const type = columnType(node.heading, c.name)
-				return target(writeValue(w, value, { type, sqlType: undefined }, c.type, at))
-			}),
-			[wrapped.item],
-			undefined,
-			"a described member's rows"
-		)
-	)
+	const origin = { kind: "node", node: node.id } as const
+	const wrapped = w.cx.wrap(lowered, node.heading, origin)
+	const columns = heading.map((c) => {
+		const value = columnIn(wrapped.map, c.name)
+		const type = columnType(node.heading, c.name)
+		return {
+			target: target(writeValue(w, value, { type, sqlType: undefined }, c.type, at)),
+			keeps: writeKeeps(w, type, c.type)
+		}
+	})
+	const targets = columns.map((c) => c.target)
+	if (isSetQuery(lowered) && columns.every((c) => c.keeps)) {
+		return select(keyedSet(targets, [wrapped.item], undefined, "a described member's rows"))
+	}
+	if (isNonEmpty(targets)) {
+		return select(distinctCore(targets, [wrapped.item], undefined))
+	}
+	const unit = w.cx.wrap(select(distinctCore(unitTargets, [wrapped.item], undefined)), [], origin)
+	return select(keyedSet([], [unit.item], undefined, "a described member's row of no column"))
 }
 
 const fillQuery = (

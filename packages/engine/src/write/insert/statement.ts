@@ -489,9 +489,14 @@ export const writeValue = (
 	if (from.sqlType !== undefined) {
 		return sameTypeRef(from.sqlType, target) ? value : cast(value, target)
 	}
-	const sameBase = sameTypeRef(w.cx.baseTypeRef(from.type), w.cx.baseTypeRef(to))
-	return isDomain(to) || !sameBase ? cast(value, target) : value
+	return isDomain(to) || !writeKeeps(w, from.type, to) ? cast(value, target) : value
 }
+
+/** Whether writing a value of `from`, a type no SQL type fixes, into a column of `to` keeps it (writeValue): their base
+ * types and typmods agree, so the write casts it at most into a domain, which only checks a value, and two distinct
+ * values stay distinct. Otherwise the cast may round two values onto one, as numeric(12, 4) into numeric(10, 2). */
+export const writeKeeps = (w: WriteContext, from: ScalarType, to: ScalarType): boolean =>
+	sameTypeRef(w.cx.baseTypeRef(from), w.cx.baseTypeRef(to))
 
 const isDomain = (t: ScalarType): boolean =>
 	contractOf(t) !== undefined || (t.carrier === "text" && t.text.regex !== "wildcard")

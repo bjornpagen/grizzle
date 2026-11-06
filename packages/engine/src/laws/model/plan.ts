@@ -21,13 +21,8 @@ import {
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
 } from "#compiler/core/nonempty.ts"
-import {
-	descText,
-	type ExprDesc,
-	type FieldDesc,
-	fieldTermsOf,
-	termText
-} from "#compiler/ir/desc.ts"
+import * as Result from "#compiler/core/result.ts"
+import { descText, type ExprDesc, fieldTermsOf, termText } from "#compiler/ir/desc.ts"
 import type { ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
 import type { AxisKind, AxisPair, Family, FamilyFold } from "#compiler/ir/family.ts"
 import {
@@ -50,7 +45,13 @@ import { closedCell } from "#compiler/ir/rel.ts"
 import { baseOf, rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { literalKey } from "#compiler/laws/model/names.ts"
 import type { OwnedContract } from "#compiler/schema/own.ts"
-import { btreeEntry, indexMaxKeys, keyDatums } from "#compiler/schema/representability.ts"
+import {
+	btreeEntry,
+	type DatumBound,
+	datumBound,
+	indexMaxKeys,
+	setDatumBound
+} from "#compiler/schema/representability.ts"
 
 /** A refusal deep inside recognition is a core Refusal, which the model's boundary returns (`catchRefusal`). */
 const refuse = (tag: ProseTag, loc: SourceLoc, capability: string): never => {
@@ -133,22 +134,36 @@ export type PlannedColumn =
 const fieldColumn = (field: LawField): PlannedColumn => ({ kind: "field", field })
 
 /**
- * The descriptor a planned column's values are typed by, which sizes an index entry over it: a field's own, or the
- * field a law column holds the values of (a pred term's is its natural field's).
+ * The field a planned column's values are of, whose descriptor and type size an index entry over it: a field itself,
+ * or the field a law column holds the values of (a pred term's is its natural field).
  */
-const plannedDesc = (c: PlannedColumn): FieldDesc => {
+const plannedField = (c: PlannedColumn): LawField => {
 	if (c.kind === "field") {
-		return c.field.desc
+		return c.field
 	}
 	const column = c.column
 	switch (column.kind) {
 		case "term":
-			return column.term.column.desc
+			return column.term.column
 		case "constant":
 		case "drawn":
 		case "indexPred":
-			return column.field.desc
+			return column.field
 	}
+}
+
+/**
+ * The most bytes a planned column's datum takes in an index entry (schema/representability.ts datumBound), none for
+ * text of no bound. A set is its roster's bit(n), n the codes its installation has minted, which the law model does not
+ * hold: it is counted at its roster's handles, the fewest codes the roster can have, so the count refuses only an entry
+ * certainly past the bound.
+ */
+const plannedDatum = (c: PlannedColumn): DatumBound | undefined => {
+	const field = plannedField(c)
+	const base = baseOf(field.type)
+	return base.carrier === "bits"
+		? setDatumBound(base.roster.handles.length)
+		: datumBound(field.desc)
 }
 
 /** A planned column as a refusal names it: a field by its name, a law column by what it holds. */
@@ -1648,15 +1663,17 @@ class FamilyPlanner {
 				`a family axis of at most ${indexMaxKeys.value} columns, which one UNIQUE holds (INDEX_MAX_KEYS); the ${kind} axis of ${familyText(this.#shape())} carries ${targetColumns.length}: carry fewer copies on it`
 			)
 		}
-		const keyed = targetColumns.map((c) => ({ field: plannedText(c), desc: plannedDesc(c) }))
-		const datums = keyDatums(keyed)
-		const entry = datums.ok ? btreeEntry(datums.value.map((d) => d.datum)) : datums
+		const unbounded = targetColumns.find((c) => plannedDatum(c) === undefined)
+		const entry =
+			unbounded === undefined
+				? btreeEntry(targetColumns.flatMap((c) => plannedDatum(c) ?? []))
+				: Result.err<KeyFault>({ kind: "unboundedText", field: plannedText(unbounded) })
 		if (!entry.ok) {
 			const fold = this.#foldCarried(targetColumns)
 			return unrepresentable(
 				this.#loc,
 				`the UNIQUE of ${target.relation.name} the ${kind} axis of ${familyText(this.#shape())} references${fold === undefined ? "" : `, which carries ${fold}`}`,
-				keyed.map((k) => k.field),
+				targetColumns.map(plannedText),
 				entry.error
 			)
 		}

@@ -113,6 +113,12 @@ How to upgrade:
   refused when the schema is compiled, with `ResourceBound` (`cellCodes`), where its reads used to fail at run time with
   22003.
   - Codemod: none; regenerate the migrations.
+- **A closed relation's rows are a set: a row written twice is one row.** `closed.relation` refused an identical
+  repeated row as a second row of its key; it now states it once, in its value's `rows`, its description and its
+  constant, whose digest and row count are the set's, so a repeat installs nothing more. Two rows of one key with other
+  payloads are still refused (MalformedDescription), naming the key and both payloads, as the type checker refuses them
+  where the rows are literals.
+  - Codemod: none.
 - **A family axis's key is held to the key representability rule.** The UNIQUE a family's owner, predecessor or
   last axis references, over the family's key and the copies it carries (a fold's running values among them), is
   bounded as a declared key is: its B-tree entry counted from each column's type within BTMaxItemSize, beside the
@@ -195,6 +201,17 @@ How to upgrade:
   - Codemod: a capacity's target and source written as two inserts stay two inserts for a counted family; an ordered
     family's members move under their owner's insert, `insert(O, [{ …o, n: [m₁, m₂] }])`, each member without its
     group or index.
+- **A put of an owner from a query is refused beside an append to its family: `QueriedOwnerAppend`.** An owner the
+  ChangeSet inserts and appends members to holds its final count and ends in its own row, which grizzle draws on the
+  host from the facts the ChangeSet states, since PostgreSQL checks a row's CHECKs as it inserts the row. A put whose
+  facts come from a query states none, so its insert half inserted the owner at its starts, its count 0 and each end at
+  its monoid's identity, and a row check over an end, such as an invoice's lines summing to its amount, refused a lawful
+  final state as `invariant-rejected`. Such a put, in a ChangeSet that inserts or puts a member of a counted family the
+  owner owns, is now a `CompileError` when the ChangeSet is compiled, whose reason `QueriedOwnerAppend` names the put
+  (`at`), the `owner`, the `family` (`{ owner, count }`) and the appended `member`. A put whose every fact carries a
+  stored owner's key inserts no owner and compiles, as does every other put.
+  - Codemod: none; state the owner's facts from an array or a `Stream`, or put the owner in a ChangeSet that
+    `ChangeSet.sequence` runs before the one that appends.
 - **No residual law remains.** grizzle installs no law function and no constraint trigger, and the residual-law
   engine, the `lawFunction` and `lawTrigger` snapshot objects and the law trigger names are deleted. `alternatives` is
   its containments: one from each arm into its parent at its handle, and one from each handle's parent rows into its

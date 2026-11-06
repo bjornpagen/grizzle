@@ -85,6 +85,7 @@ import { type RelationInput, relationInput } from "#compiler/write/insert/input.
 import { isSerialField } from "#compiler/write/insert/statement.ts"
 import { type RelationUniques, relationUniques } from "#compiler/write/insert/unique.ts"
 import { type HostChecks, hostChecks } from "#compiler/write/normalize/normalize.ts"
+import { existingKeysProof } from "#compiler/write/put/proof.ts"
 
 export interface FrontendOptions {
 	/** Which contexts the Db holds a fact of: a query entry's addition fills its fixed fields from them. */
@@ -773,6 +774,42 @@ const compile = (
 	 * owner of counted families alone is inserted on the plain path, its counts at 0 and its ends at their starts. */
 	const nests = (name: string): boolean =>
 		families.some((f) => f.owner.name === name && isSequence(f))
+	/**
+	 * A put of `relation` from a query, `member`, refused (QueriedOwnerAppend) where its stratum, `members`, writes a
+	 * member of one of the counted families it owns, unless every fact it puts carries a stored owner's key
+	 * (existingKeysProof). An owner inserted in the stratum that appends to its family holds its final count and ends in
+	 * its own row, since PostgreSQL checks a row's CHECKs as it inserts the row, and grizzle draws them on the host from
+	 * the facts the ChangeSet states; a query's facts are the statement's alone, so the owner would be inserted at its
+	 * starts, which a CHECK over an end refuses. A put of stored owners only inserts none, and compiles.
+	 */
+	const refuseQueriedOwnerAppend = (
+		member: MemberDesc,
+		relation: RelationInfo,
+		query: LogicalQuery,
+		members: ReadonlyArray<MemberDesc>
+	): void => {
+		if (member.op !== "put") {
+			return
+		}
+		const appended = families.find(
+			(f) =>
+				f.owner.name === relation.name &&
+				!isSequence(f) &&
+				members.some((m) => m.relation === f.member.name && m.op !== "delete")
+		)
+		if (appended === undefined || existingKeysProof(query.dag.roots[0], relation)) {
+			return
+		}
+		throw new Refusal(
+			CompileError.make({
+				_tag: "QueriedOwnerAppend",
+				at: member.loc,
+				owner: relation.name,
+				family: { owner: appended.id.owner, count: appended.id.count },
+				member: appended.member.name
+			})
+		)
+	}
 	/** A relation written whole, its classes its own serial fields'. */
 	const wholeTarget = (name: string, loc: SourceLoc): CheckedTarget => {
 		const relation = writtenOf(name, loc)
@@ -939,6 +976,7 @@ const compile = (
 					{ label: `${member.op} ${member.relation}` }
 				)
 			)
+			refuseQueriedOwnerAppend(member, relation, query, stratum.members)
 			for (const p of query.params) {
 				merge(params, p, loc)
 			}

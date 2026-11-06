@@ -1369,7 +1369,8 @@ A fact and a query's row hold every field. A primary key holds no set, generated
 `closed.relation(name, fields, key, rows)` is a relation whose rows are fixed when the schema compiles, such as a
 grammar, a price list, or which states may follow which. Its key is required, a nonempty list of its closed-id fields,
 and one whose key lists every field is a set; its other fields are closed ids or values of an open type, never a
-serial, span, set or vector, and no two of its rows share a key.
+serial, span, set or vector. Its rows are a set of facts: a row written twice is one row, and two rows of one key with
+other payloads break its key and are refused, naming the key and both payloads.
 `closed.relation("Allowed", { kind: closedId(Kind), flag: closedId(Flag), weight: pg.integer }, ["kind", "flag"], rows)`
 says which flags each kind admits, and at what weight.
 
@@ -2186,8 +2187,9 @@ declaration and the `identifier` both convert to; `LawOnDerived`, its `relation`
 its `fault`; `RecursionRefused` and `DerivedRefused`, their `cause`; `RoleRefused`, `LoginRefused` and
 `ContextRefused`, the `rule` broken; `RoleNameTooLong`, the PostgreSQL `role` and its `limit`; `GeneratedRefused`, the
 generated `field` of a `relation` and the `rule` it breaks; `FoldOverProjection`, the match's `source` and the `key` it
-must bind for an aggregate to read each row once; `UndeclaredDrop`, the name a migration would drop, which no `--drop`
-or `--rename` declares; and the remaining rules, a `capability` sentence.
+must bind for an aggregate to read each row once; `QueriedOwnerAppend`, a put of the `owner` from a query beside an
+append of `member` to its `family` (`{ owner, count }`), the put being `at`; `UndeclaredDrop`, the name a migration
+would drop, which no `--drop` or `--rename` declares; and the remaining rules, a `capability` sentence.
 
 **`EncodingFailure`**'s reason is its codec's fault word, never the value, and its `place` the `Slot` the value fills,
 by `name`, or a whole `Fact`. **`CursorError`**'s reason is its cursor fault word.
@@ -2449,12 +2451,12 @@ workflows, whose rules are worth declaring and whose users see different slices 
   cycling through 33, 64 or 178 cost 80 to 102 µs a row. The CASE that reads each source's translation adds about
   1 µs a row at 178 patterns. Order a bulk read or write by pattern where it can be.
 - **Every key fits its index entry for every value its fields admit.** A primary key, a declared key, and the UNIQUE
-  each family axis references, which its predecessor and last axes carry the family's accumulators into, a fold's
-  running values among them, are bounded alike: at most 32 columns (`INDEX_MAX_KEYS`), and a B-tree entry of at most
-  2,704 bytes (`BTMaxItemSize`) counted from each field's type, so a text field needs a bounded pattern or a
-  `charLength` contract. A key past either is refused with `UnrepresentableKey` when the schema is compiled, where
-  PostgreSQL would refuse the first write that outgrew it (54000): a `Monoid.concat` fold's accumulators, which its
-  axes key, are text of a bounded pattern, such as `str.regex("^.{0,64}$", "su")`.
+  each family axis references, which holds the copies the axis carries, a fold's running values among them, are
+  bounded alike: at most 32 columns (`INDEX_MAX_KEYS`), and a B-tree entry of at most 2,704 bytes (`BTMaxItemSize`)
+  counted from each column's type, so a text column needs a bounded pattern or a `charLength` contract. A key past
+  either is refused with `UnrepresentableKey` when the schema is compiled, where PostgreSQL would refuse the first
+  write that outgrew it (54000). A `Monoid.concat` fold's accumulators ride its family's axes, so they are text of a
+  bounded pattern, such as `str.regex("^.{0,64}$", "su")`.
 - **A concatenation is at most 1 GB.** `Compute.concat` builds its result, and PostgreSQL refuses one past
   `MaxAllocSize` ("invalid memory alloc request size"), so a write whose check or generated field concatenates more
   fails with that error. No query concatenates, and a fold's or an equation's concatenation is never built.
@@ -2463,6 +2465,13 @@ workflows, whose rules are worth declaring and whose users see different slices 
   families. A tree is written whole, by inserting its root with the whole tree nested. A ChangeSet's write of a
   relation that is both a family's member, outside a tree, and an owner of a family is refused: a member's edit does
   not reach the families it owns, which only a nesting draws.
+- **A put of an owner from a query cannot share its ChangeSet with an append to the owner's family.** An owner the
+  ChangeSet inserts and appends members to holds its final count and ends in its own row, since PostgreSQL checks a
+  row's CHECKs as it inserts the row, and grizzle draws them on the host from the facts the ChangeSet states; a query's
+  facts are the statement's alone. So a put of an owner of a counted family from a query, in a ChangeSet that inserts
+  or puts that family's members, is refused with `QueriedOwnerAppend` when the ChangeSet is compiled: state the owner's
+  facts from an array or a `Stream`, or put the owner in a ChangeSet that `ChangeSet.sequence` runs before the one that
+  appends. A put whose every fact carries a stored owner's key inserts no owner, and compiles.
 - **A closed relation is as large as its key's code space.** Its constant holds one cell per combination of its key
   fields' codes, so a sparse relation over a large product of rosters is costly in proportion to the product: choose
   coordinates that make it dense, such as slots, whose space is each owner's counts rather than the product

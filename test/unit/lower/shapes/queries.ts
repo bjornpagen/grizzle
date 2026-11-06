@@ -7,6 +7,7 @@ import {
 	type TakeBound
 } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
+import { numericValue } from "#compiler/scalar/registry.ts"
 import { f } from "#test/support/fixtures/ir/desc.ts"
 import { foldInputOf } from "#test/support/fixtures/ir/fold.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
@@ -135,6 +136,13 @@ export type ConditionalForm = "int4" | "int8" | "numeric" | "numeric5.2" | "term
 const numeric5_2: ScalarType = scalarOf(f.numeric(5, 2), {})
 
 /**
+ * The numeric literals 1 and 0 as the checker types them, each a computed numeric its own value bounds: one integer
+ * digit and no fraction (scalar/compute/types.ts literalNumeric). An operand at numeric's own limits leaves a sum no
+ * room for the rows it adds, so the numeric form's literals carry their bound.
+ */
+const numericDigit: ScalarType = numericValue({ digits: 1, scale: 0 })
+
+/**
  * Per account, the sum of a conditional over its tasks' (id, account, amount) bindings: sum(cond(amount > threshold,
  * 1, 0)) over integer or bigint literals, the same over numeric or numeric(5,2) 1 and 0, or sum(cond(amount >
  * threshold, amount, 0)).
@@ -158,7 +166,7 @@ export const conditional = (
 			: form === "int8"
 				? [q.int(1, T.int8), q.int(0, T.int8), T.int8, T.numeric]
 				: form === "numeric"
-					? [q.decimal("1", T.numeric), q.decimal("0", T.numeric), T.numeric, T.numeric]
+					? [q.decimal("1", numericDigit), q.decimal("0", numericDigit), numericDigit, T.numeric]
 					: form === "numeric5.2"
 						? [q.decimal("1", numeric5_2), q.decimal("0", numeric5_2), numeric5_2, T.numeric]
 						: [q.col(m, "amount"), q.int(0, T.int8), T.int8, T.numeric]

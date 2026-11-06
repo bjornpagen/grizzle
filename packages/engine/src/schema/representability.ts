@@ -244,6 +244,14 @@ const fixed = (bytes: number, align: number, family: Family): DatumBound => ({
 	family
 })
 
+/**
+ * A set's datum over a roster of `codes` codes: its bit(n) varlena, VARBITTOTALLEN(n), aligned to 4, bitsBytes's
+ * count at n `codes`. A declared key counts it at the most codes a roster numbers (bitsBytes); a family axis, which
+ * carries a fold's set accumulators, at the codes it knows its roster has (laws/model/plan.ts #axis).
+ */
+export const setDatumBound = (codes: number): DatumBound =>
+	fixed(varlenaHeaderBytes.value + typlens.int4.value + Math.ceil(codes / bitsPerByte), 4, "bit")
+
 /** The literal value of a charLength bound operand. */
 const literalCount = (e: ExprDesc): number | undefined => {
 	if (e.kind !== "literal") {

@@ -663,7 +663,19 @@ layer(Substrate.layer)("the lowering shapes on PostgreSQL 19", (it) => {
 														Arr.map(
 															c.tasks,
 															([account, amount], i) =>
-																`('${uuidOf(0x2000 + i)}'::uuid, '${defined(accounts[account], "an account")}'::uuid, 'Automatic', ${amount}::bigint)`
+																`(${Arr.join(
+																	Arr.map(
+																		[
+																			uuidOf(0x2000 + i),
+																			defined(accounts[account], "an account"),
+																			"Automatic",
+																			String(amount)
+																		],
+																		(value, j) =>
+																			literalOf(schema, defined(Task.heading[j], "a Task column"), value)
+																	),
+																	", "
+																)})`
 														),
 														", "
 													)}`,

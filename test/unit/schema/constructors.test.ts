@@ -496,7 +496,7 @@ describe("closed", () => {
 		| "a missing field in a row"
 		| "a key off the roster"
 		| "a mistyped value"
-		| "two rows at one key"
+		| "two rows of one key, other payloads"
 		| "a key of an open field"
 		| "a field its sequence writes"
 		| "options of another property"
@@ -508,14 +508,20 @@ describe("closed", () => {
 		"a missing field in a row",
 		"a key off the roster",
 		"a mistyped value",
-		"two rows at one key",
+		"two rows of one key, other payloads",
 		"a key of an open field",
 		"a field its sequence writes",
 		"options of another property",
 		"a pack of no form",
 		"a sixth argument"
 	]
-	type ClosedFeature = ClosedDefect | "no payload" | "payload" | "no rows" | "a declared pack"
+	type ClosedFeature =
+		| ClosedDefect
+		| "no payload"
+		| "payload"
+		| "no rows"
+		| "a declared pack"
+		| "a row written twice"
 
 	const payloadFieldGen: Gen<{
 		readonly name: string
@@ -559,12 +565,21 @@ describe("closed", () => {
 								defect: source.draw(element(Arr.append(closedDefects, "none" as const))),
 								target: source.draw(element(handles)),
 								/** The pack its options declare, or no options. */
-								pack: source.draw(element(["no options", "rows", "hex"] as const))
+								pack: source.draw(element(["no options", "rows", "hex"] as const)),
+								/** Whether a lawful declaration writes its first row twice, which states one fact. */
+								repeat: source.draw(boolean)
 							}
 						}),
 						literal: Formatter.format,
 						coverage: required<ClosedFeature>(
-							[...closedDefects, "no payload", "payload", "no rows", "a declared pack"],
+							[
+								...closedDefects,
+								"no payload",
+								"payload",
+								"no rows",
+								"a declared pack",
+								"a row written twice"
+							],
 							{ cases: 300, sense: notesOnly }
 						),
 						kept: [],
@@ -582,7 +597,8 @@ describe("closed", () => {
 							const needsField =
 								s.defect === "a missing field in a row" ||
 								s.defect === "a mistyped value" ||
-								s.defect === "a key of an open field"
+								s.defect === "a key of an open field" ||
+								s.defect === "two rows of one key, other payloads"
 							const drawnPayload: ReadonlyArray<{
 								readonly name: string
 								readonly type: PayloadType
@@ -590,7 +606,16 @@ describe("closed", () => {
 							}> =
 								needsField && s.payload.length === 0
 									? [{ name: "planted", type: "flag" as const, values: [true, false, true, false] }]
-									: s.payload
+									: s.defect === "two rows of one key, other payloads"
+										? [
+												...s.payload,
+												{
+													name: "planted",
+													type: "flag" as const,
+													values: [true, false, true, false]
+												}
+											]
+										: s.payload
 							const fields: Record<string, unknown> = {
 								id: rawClosedId(Key),
 								...Rec.fromEntries(
@@ -619,6 +644,10 @@ describe("closed", () => {
 									if (rows.length === 0) {
 										c.note("no rows")
 									}
+									if (s.repeat && firstRow !== undefined) {
+										rows.push({ ...firstRow })
+										c.note("a row written twice")
+									}
 									break
 								case "an extra field in a row":
 									defined(firstRow)["extra"] = true
@@ -632,8 +661,11 @@ describe("closed", () => {
 								case "a mistyped value":
 									defined(firstRow)[defined(first).name] = mistypedValue(defined(first).type)
 									break
-								case "two rows at one key":
-									rows.push({ ...defined(firstRow) })
+								case "two rows of one key, other payloads":
+									rows.push({
+										...defined(firstRow),
+										planted: defined(firstRow)["planted"] !== true
+									})
 									break
 								case "a key of an open field":
 									key = [defined(first).name]
@@ -661,7 +693,8 @@ describe("closed", () => {
 								)
 								return
 							}
-							const desc = admitClosedRelation(s.name, fields, key, rows, options).desc
+							const admitted = admitClosedRelation(s.name, fields, key, rows, options)
+							const desc = admitted.desc
 							assert.equal(
 								desc.pack,
 								s.pack === "hex" ? "hex" : "rows",
@@ -672,7 +705,16 @@ describe("closed", () => {
 							}
 							assert.deepEqual(desc.key, ["id"])
 							assert.deepEqual(desc.fields["id"], descOf(rawClosedId(Key)))
-							assert.equal(desc.rows.length, rows.length)
+							assert.equal(
+								desc.rows.length,
+								rowHandles.length,
+								"one fact per row, a repeat one fact"
+							)
+							assert.deepEqual(
+								admitted.kept,
+								Arr.map(rowHandles, (_, r) => r),
+								"each written row of the set kept once, in order"
+							)
 							for (const [r, h] of rowHandles.entries()) {
 								const i = handles.indexOf(h)
 								const row = defined(desc.rows[r])

@@ -45,23 +45,26 @@ import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 
 const pieces = ["", "a", "\u{1F600}"] as const
 
+/** Text of at most 64 code points: bounded, so the family's axes, which carry each running text, key it. */
+const text = f.regex("^.{0,64}$", "su")
+
 /** The fold's schema: Owner(id, n, joined) and Member(id, owner, at, piece, flag, before, after). */
 const schemaOf = (selected: boolean): SchemaDesc => {
 	const step = ["owner", "piece", "before", "after"]
 	return {
 		name: "Joins",
 		relations: [
-			relation("Owner", { id: f.uuid, n: f.drawn, joined: f.accumulated(f.wildcard, "") }, ["id"]),
+			relation("Owner", { id: f.uuid, n: f.drawn, joined: f.accumulated(text, "") }, ["id"]),
 			relation(
 				"Member",
 				{
 					id: f.uuid,
 					owner: f.uuid,
 					at: f.drawn,
-					piece: f.wildcard,
+					piece: text,
 					flag: f.boolean,
-					before: f.accumulated(f.wildcard, ""),
-					after: f.accumulated(f.wildcard, "")
+					before: f.accumulated(text, ""),
+					after: f.accumulated(text, "")
 				},
 				["id"]
 			)
