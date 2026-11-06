@@ -64,11 +64,14 @@ import { queryInput } from "#compiler/program/compile.ts"
 import type { Uuid } from "#compiler/public/fields.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { loadPlatform, type OpenedPlatform, openPlatform } from "#test/pg/e2e-platform/support.ts"
+import { directSql, literal } from "#test/schedules/platform/support.ts"
 import { assert } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
 import * as P from "#test/support/fixtures/api/platform.ts"
+import { namesOf } from "#test/support/kernel/naming.ts"
 import { has, shapeOf } from "#test/support/kernel/shape.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { messageOf } from "#test/support/message.ts"
 import { pickGen, pickIndex } from "#test/support/pick.ts"
 import { plannedIndexes, recordingReader, relationRows, sentProblems } from "#test/support/plans.ts"
 import {
@@ -82,6 +85,7 @@ import {
 	viewOf,
 	volumePlatform
 } from "#test/support/platform/generate.ts"
+import type { DirectStatement, RelationName } from "#test/support/platform/laws.ts"
 import { platformSpan } from "#test/support/platform/model.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -293,46 +297,36 @@ const probes = (e: Entities, pick: number): ReadonlyArray<Probe> => {
 	]
 }
 
-/** A literal in SQL: a span as its range text, a string quoted, a number or bigint as is. */
-const sqlLiteral = (v: unknown): string => {
-	if (typeof v === "bigint" || typeof v === "number") {
-		return String(v)
-	}
-	if (typeof v === "string") {
-		return `'${Str.replaceAll("'", "''")(v)}'`
-	}
-	if (typeof v === "object" && v !== null && "start" in v && "end" in v) {
-		return `'[${String(v.start)},${String(v.end)})'`
-	}
-	throw new Error(`no SQL literal for ${String(v)}`)
-}
-
-/** INSERT statements of facts, through the installation's names. */
-const inserts = (
+/**
+ * A law write's statements as the platform's direct writer runs them (test/schedules/platform/support.ts directSql):
+ * each fact with every column grizzle's filler writes for it, a member its slot, its owner's count and each fold's
+ * accumulators, an owner its counts and ends, a closed id its code, and an owner put in place, its families kept. A
+ * statement of no facts states nothing and is no statement: a usage record that no grant paid for has no debits.
+ */
+const directStatements = (
 	o: OpenedPlatform,
-	relation: string,
-	rows: ReadonlyArray<Readonly<Record<string, unknown>>>
+	statements: ReadonlyArray<DirectStatement>
 ): ReadonlyArray<string> =>
-	Arr.map(rows, (row) => {
-		const fields = Rec.keys(row)
-		return `INSERT INTO ${o.table(relation)} (${Arr.join(
-			Arr.map(fields, (f) => quoteIdent(o.installed.names.column(relation, f))),
-			", "
-		)}) VALUES (${Arr.join(
-			Arr.map(fields, (f) => sqlLiteral(row[f])),
-			", "
-		)})`
-	})
+	directSql(
+		namesOf(o.installed),
+		Arr.filter(statements, (st) => st.facts.length > 0)
+	)
 
+/**
+ * A delete of the facts of `relation` at `where`, each value as its column spells it. A direct writer deletes no member
+ * of a family, which only grizzle's planner edits, so these deletes are statements of their own: each one a law
+ * refuses, which is what it is written for.
+ */
 const deletes = (
 	o: OpenedPlatform,
-	relation: string,
+	relation: RelationName,
 	where: Readonly<Record<string, unknown>>
 ): string =>
 	`DELETE FROM ${o.table(relation)} WHERE ${Arr.join(
 		Arr.map(
 			Rec.toEntries(where),
-			([f, v]) => `${quoteIdent(o.installed.names.column(relation, f))} = ${sqlLiteral(v)}`
+			([f, v]) =>
+				`${quoteIdent(o.installed.names.column(relation, f))} = ${literal(namesOf(o.installed), relation, f, v)}`
 		),
 		" AND "
 	)}`
@@ -346,7 +340,7 @@ interface LawWrite {
 }
 
 /** A relation, the key values of one of its facts, and the relations a delete of that fact makes its laws read. */
-type Referenced = readonly [string, Readonly<Record<string, unknown>>, ReadonlyArray<string>]
+type Referenced = readonly [RelationName, Readonly<Record<string, unknown>>, ReadonlyArray<string>]
 
 /**
  * The writes that fire the platform's laws on the entities a case drew: each lawful write the platform has a place for,
@@ -395,10 +389,15 @@ const lawWrites = (o: OpenedPlatform, p: Platform, e: Entities): ReadonlyArray<L
 			).records
 		)
 	)
-	const paid = Arr.findFirst(
-		p.facts.Invoice,
-		(i) => i.state === "paid" && Arr.some(p.facts.Refund, (r) => r.invoice === i.id)
-	)
+	/** A paid invoice refunded before, with a micro-dollar left to refund. */
+	const paid = Arr.findFirst(p.facts.Invoice, (i) => {
+		const refunds = Arr.filter(p.facts.Refund, (r) => r.invoice === i.id)
+		return (
+			i.state === "paid" &&
+			refunds.length > 0 &&
+			Arr.reduce(refunds, 0n, (sum, r) => sum + r.amount) < i.amount
+		)
+	})
 	const open = Arr.findFirst(p.facts.Invoice, (i) => i.state === "open")
 	const subscription = Arr.head(p.facts.Subscription)
 	const lastMonth = Arr.last(p.plan.months)
@@ -410,20 +409,32 @@ const lawWrites = (o: OpenedPlatform, p: Platform, e: Entities): ReadonlyArray<L
 	const span0 = Option.flatMap(key, (k) => Arr.findFirst(p.facts.ApiKeyActive, (a) => a.key === k))
 	const usage = Option.map(record, (r): LawWrite => ({
 		name: "a usage event with its charges and debits",
-		statements: [
-			...inserts(o, "UsageEvent", [r.event]),
-			...inserts(o, "EventCharge", [r.total]),
-			...inserts(o, "UsageCharge", r.charges),
-			...inserts(o, "ProviderCost", [r.cost]),
-			...inserts(o, "CreditDebit", r.debits)
-		],
+		statements: directStatements(o, [
+			{ kind: "insert", relation: "UsageEvent", facts: [r.event] },
+			{ kind: "insert", relation: "EventCharge", facts: [r.total] },
+			{ kind: "insert", relation: "UsageCharge", facts: r.charges },
+			{ kind: "insert", relation: "ProviderCost", facts: [r.cost] },
+			{ kind: "insert", relation: "CreditDebit", facts: r.debits }
+		]),
 		counted: ["UsageCharge", "EventCharge", "CreditDebit", "UsageEvent"],
 		accepted: true
 	}))
 	const refund = Option.map(Option.all({ paid, instant }), (at): LawWrite => ({
 		name: "a refund",
-		statements: inserts(o, "Refund", [
-			{ id: uid(0x7e57, 4), invoice: at.paid.id, amount: 1n, reason: "requested", at: at.instant }
+		statements: directStatements(o, [
+			{
+				kind: "insert",
+				relation: "Refund",
+				facts: [
+					{
+						id: uid(0x7e57, 4),
+						invoice: at.paid.id,
+						amount: 1n,
+						reason: "requested",
+						at: at.instant
+					}
+				]
+			}
 		]),
 		counted: ["Refund"],
 		accepted: true
@@ -434,35 +445,45 @@ const lawWrites = (o: OpenedPlatform, p: Platform, e: Entities): ReadonlyArray<L
 			{ onNone: () => at.lastMonth.during.start, onSome: (s) => s.during.start }
 		)
 		const amount = 1000n
+		/** The month after the platform's last, which no invoice of the organization's covers. */
+		const after = at.lastMonth.during.end
+		const period = { start: after, end: after + (after - at.lastMonth.during.start) }
 		return {
 			name: "a month closed with a plan line and its allocation",
-			statements: [
-				...inserts(o, "Invoice", [
-					{
-						id: invoice,
-						org: at.subscription.org,
-						period: at.lastMonth.during,
-						amount,
-						state: "open"
-					}
-				]),
-				...inserts(o, "InvoiceLine", [{ id: line, invoice, source: "plan", amount }]),
-				...inserts(o, "PlanLine", [{ line, subscription: at.subscription.id }]),
-				...inserts(o, "Allocation", [
-					{ line, subscription: at.subscription.id, during: { start, end: start + DAY }, amount }
-				])
-			],
+			statements: directStatements(o, [
+				{
+					kind: "insert",
+					relation: "Invoice",
+					facts: [{ id: invoice, org: at.subscription.org, period, amount, state: "open" }]
+				},
+				{
+					kind: "insert",
+					relation: "InvoiceLine",
+					facts: [{ id: line, invoice, source: "plan", amount }]
+				},
+				{
+					kind: "insert",
+					relation: "PlanLine",
+					facts: [{ line, subscription: at.subscription.id }]
+				},
+				{
+					kind: "insert",
+					relation: "Allocation",
+					facts: [
+						{ line, subscription: at.subscription.id, during: { start, end: start + DAY }, amount }
+					]
+				}
+			]),
 			counted: ["InvoiceLine", "Allocation", "PlanLine", "Segment"],
 			accepted: true
 		}
 	})
 	const paying = Option.map(open, (i): LawWrite => ({
 		name: "an invoice paid",
-		statements: [
-			deletes(o, "Invoice", { id: i.id }),
-			...inserts(o, "Invoice", [{ ...i, state: "paid" }]),
-			...inserts(o, "Payment", [{ invoice: i.id, charge: uid(0x7e57, 5) }])
-		],
+		statements: directStatements(o, [
+			{ kind: "put", relation: "Invoice", facts: [{ ...i, state: "paid" }] },
+			{ kind: "insert", relation: "Payment", facts: [{ invoice: i.id, charge: uid(0x7e57, 5) }] }
+		]),
 		counted: ["Payment", "Refund", "InvoiceLine"],
 		accepted: true
 	}))
@@ -472,15 +493,16 @@ const lawWrites = (o: OpenedPlatform, p: Platform, e: Entities): ReadonlyArray<L
 		const id = at.activeKey.id
 		return {
 			name: "a key revoked with its span cut",
-			statements: [
-				deletes(o, "ApiKey", { id }),
-				...inserts(o, "ApiKey", [{ ...at.activeKey, state: "revoked" }]),
-				...inserts(o, "Revocation", [{ key: id, at: cut }]),
-				deletes(o, "ApiKeyActive", { key: id, during: at.span0.during }),
-				...inserts(o, "ApiKeyActive", [
-					{ key: id, during: { start: at.span0.during.start, end: cut } }
-				])
-			],
+			statements: directStatements(o, [
+				{ kind: "put", relation: "ApiKey", facts: [{ ...at.activeKey, state: "revoked" }] },
+				{ kind: "insert", relation: "Revocation", facts: [{ key: id, at: cut }] },
+				{ kind: "delete", relation: "ApiKeyActive", facts: [{ key: id, during: at.span0.during }] },
+				{
+					kind: "insert",
+					relation: "ApiKeyActive",
+					facts: [{ key: id, during: { start: at.span0.during.start, end: cut } }]
+				}
+			]),
 			counted: ["UsageEvent", "Revocation"],
 			accepted: false
 		}
@@ -597,6 +619,8 @@ const runLawWrite = (o: OpenedPlatform, w: LawWrite) =>
 		yield* admin.query("ROLLBACK", [])
 		return {
 			accepted: Result.isSuccess(applied),
+			/** Why the laws refused it, read off PostgreSQL's error; none for an accepted write. */
+			refusal: Result.isFailure(applied) ? messageOf(applied.failure) : undefined,
 			seqScans: new Map(Arr.map(tables, ([t, seq]) => [t, Number(seq)])),
 			usedIndexes: Arr.map(
 				Arr.filter(indexes, ([, , n]) => Number(n) > 0),
@@ -797,7 +821,9 @@ const planSuite = (events: number, runs: number) => (ctx: TestContext) =>
 			for (const w of lawWrites(o, p, e)) {
 				const ran = yield* runLawWrite(o, w)
 				if (ran.accepted !== w.accepted) {
-					lawProblems.push(`${w.name}: ${ran.accepted ? "accepted" : "refused"}`)
+					lawProblems.push(
+						`${w.name}: ${ran.refusal === undefined ? "accepted" : `refused: ${ran.refusal}`}`
+					)
 				}
 				appendAll(
 					lawProblems,

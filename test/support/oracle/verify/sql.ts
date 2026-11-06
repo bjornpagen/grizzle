@@ -3239,8 +3239,9 @@ class TextAuditor {
 				}
 				break
 			case "string": {
-				/** A bit-string constant, hex or binary, cast: a literal pack's parts (sql/print.ts writeLiteralPack). */
-				const bitString = (t.prefix === "X" || t.prefix === "B") && isPunct(next, "::")
+				/** A bit-string constant, hex or binary, is a literal pack's part (sql/print.ts writeLiteralPack), held to its cast
+				 * as any string; every other prefix is refused. */
+				const bitString = t.prefix === "X" || t.prefix === "B"
 				if (t.prefix !== undefined && !bitString) {
 					this.report("untypedLiteral", t.start, `a ${t.prefix}'' string literal`)
 					break

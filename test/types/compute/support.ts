@@ -1,8 +1,5 @@
 /**
- * Type-level assertions for the Compute fixtures. The fixtures under ./fixtures are typechecked, never executed.
- *
- * Exact type equality, including readonly and optionality.
+ * Type-level assertions for the Compute fixtures, which are typechecked, never executed: exact type equality, including
+ * readonly and optionality, from the one home the schema fixtures' assertions have.
  */
-export type Equals<A, B> =
-	(<X>() => X extends A ? 1 : 2) extends <X>() => X extends B ? 1 : 2 ? true : false
-export type Expect<T extends true> = T
+export type { Equals, Expect } from "#test/types/schema/support.ts"

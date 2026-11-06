@@ -3,7 +3,7 @@ import {
 	type Bindings,
 	Reference,
 	type ReferenceInput,
-	type Relation
+	type RelationValue
 } from "#test/support/oracle/reference/evaluate.ts"
 
 /**
@@ -16,9 +16,9 @@ import {
  * would never see a lateral source, where a value fixed per outer row is mistaken for one fixed overall.
  */
 class Evaluations {
-	readonly #byNode = new Map<RelNode, Set<Relation>>()
+	readonly #byNode = new Map<RelNode, Set<RelationValue>>()
 
-	note(node: RelNode, relation: Relation): void {
+	note(node: RelNode, relation: RelationValue): void {
 		const known = this.#byNode.get(node)
 		if (known === undefined) {
 			this.#byNode.set(node, new Set([relation]))
@@ -28,7 +28,7 @@ class Evaluations {
 	}
 
 	/** The relations a node denoted, one per evaluation; a closed node's set once. */
-	of(node: RelNode): ReadonlyArray<Relation> {
+	of(node: RelNode): ReadonlyArray<RelationValue> {
 		return [...(this.#byNode.get(node) ?? [])]
 	}
 
@@ -47,7 +47,7 @@ export class RecordingReference extends Reference {
 		return new RecordingReference(dag, input).settle()
 	}
 
-	override eval(node: RelNode, scope: Bindings): Relation {
+	override eval(node: RelNode, scope: Bindings): RelationValue {
 		const relation = super.eval(node, scope)
 		this.evaluations.note(node, relation)
 		return relation

@@ -6,6 +6,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
+import { appendAll } from "#compiler/core/array.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
@@ -436,8 +437,9 @@ layer(Substrate.layer)("Compute's text terms on PostgreSQL", (it) => {
 					`INSERT INTO ${names.table(s.Value)} (${names.column(s.Value, "id")}, ${names.column(s.Value, "domain")}, ${names.column(s.Value, "lexical")}) VALUES ($1, $2, $3)`,
 					[id, domain, p.lexical]
 				)
-				problems.push(
-					...judged(
+				appendAll(
+					problems,
+					judged(
 						`Value /${pattern}/u over ${Formatter.format(p.lexical)}`,
 						holds,
 						verdict,
@@ -451,8 +453,9 @@ layer(Substrate.layer)("Compute's text terms on PostgreSQL", (it) => {
 					`INSERT INTO ${names.table(s.Tagged)} (${names.column(s.Tagged, "id")}, ${names.column(s.Tagged, "code")}) VALUES ($1, $2)`,
 					[id, p.lexical]
 				)
-				problems.push(
-					...judged(
+				appendAll(
+					problems,
+					judged(
 						`Tagged /${literalSource}/u over ${Formatter.format(p.lexical)}`,
 						tagged,
 						literalVerdict,

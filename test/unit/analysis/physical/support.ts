@@ -15,7 +15,7 @@ import type { Ir } from "#test/support/fixtures/ir/build.ts"
 import {
 	noBindings,
 	type ReferenceInput,
-	type Relation
+	type RelationValue
 } from "#test/support/oracle/reference/evaluate.ts"
 import { RecordingReference } from "#test/support/oracle/reference/evaluations.ts"
 import { type Row, rowKey } from "#test/support/oracle/reference/values.ts"
@@ -239,7 +239,7 @@ export const soundness = (
 		}
 	}
 	/** What one relation of a node breaks of the node's claims. */
-	const brokenIn = (node: RelNode, rel: Relation): ReadonlyArray<Violation> => {
+	const brokenIn = (node: RelNode, rel: RelationValue): ReadonlyArray<Violation> => {
 		const id = node.id
 		const p = propsOf(analysis, node)
 		const owed = owedOf(analysis, node)

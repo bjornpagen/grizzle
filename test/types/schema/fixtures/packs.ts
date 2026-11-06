@@ -12,7 +12,7 @@ import type { Equals, Expect } from "#test/types/schema/support.ts"
  */
 const Kind = closed("Kind", ["k0", "k1"])
 const Flag = closed("Flag", ["f0", "f1"])
-const fields = { kind: closedId(Kind), flag: closedId(Flag) }
+const fields = { kind: closedId(Kind), flag: closedId(Flag) } as const
 const rows = [{ kind: "k0", flag: "f1" }] as const
 
 const Machine = closed.relation("Machine", fields, ["kind", "flag"], rows, { pack: "hex" })
@@ -31,7 +31,7 @@ const hex = { pack: "hex" } as const
 // @ts-expect-error -- TS2345: a pack is "rows" or "hex", and "binary" is neither
 export const otherForm = closed.relation("Other", fields, ["kind", "flag"], rows, binary)
 
-// @ts-expect-error -- TS2559: the options hold pack alone, and order is none of them
+// @ts-expect-error -- TS2345: the options hold pack alone, and order is none of them
 export const otherOption = closed.relation("Other", fields, ["kind", "flag"], rows, ordered)
 
 // @ts-expect-error -- TS2345: a closed relation takes at most five arguments, a sixth typed never

@@ -441,7 +441,9 @@ The command line's own refusals, by stage:
   guard: `Compute.when(Compute.matches(x, "^[0-9]+$"), (x) => …, otherwise)`. `Compute.concat` builds text in checks,
   generated fields and folds; in a query, compare a text with a concatenation (`Compute.eq(t, Compute.concat(a, b))`)
   and it is decided without building it. Fold an ordered family's texts with `Monoid.concat`, naming its
-  `(before, after)` pair, and write each member's separator into its own step value.
+  `(before, after)` pair, and write each member's separator into its own step value; type the step and the
+  accumulators by a bounded pattern, `str.regex("^.{0,64}$", "su")`, since the family's axes key each running text
+  and an unbounded one is UnrepresentableKey.
 - Every numeric field declares its precision and scale, `pg.numeric(p, s)`; there is no bare `pg.numeric`. A sum,
   a mean or an operation's numeric result carries the digits its computation proves, and one past 131,072 integer
   digits is `ResourceBound`. Convert an integer, money or a float to numeric with `Compute.numeric(x)`, never a cast to

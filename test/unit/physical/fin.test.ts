@@ -358,7 +358,6 @@ describe("an invalid slotted declaration", () => {
 			{ version: closedId(Version), parent: closedId(Kind), size: pgDescriptors.integer },
 			["version", "parent"],
 			[],
-			undefined,
 			[]
 		)
 		const Last = closedRelationBuilder(
@@ -366,7 +365,6 @@ describe("an invalid slotted declaration", () => {
 			{ ...prefix, at: slotField(closedId(Position), finBuilder(Counts, "size"), []) },
 			["version", "parent", "at"],
 			[],
-			undefined,
 			[]
 		)
 		refused(

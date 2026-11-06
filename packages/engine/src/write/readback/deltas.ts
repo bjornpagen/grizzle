@@ -19,7 +19,7 @@ import {
 import { emitText } from "#compiler/sql/emit.ts"
 import { NameSupply } from "#compiler/sql/naming.ts"
 import {
-	type Carrier,
+	type WriteCarrier,
 	type CarrierColumn,
 	type CarrierSupply,
 	carrierColumns,
@@ -43,13 +43,13 @@ import type { PutStatement } from "#compiler/write/put/statement.ts"
  * read-back names, filled directly: added, removed or both. For one some statement adds to and some statement (or a put)
  * removes from, netted: both sides, whose statements after its first net against the pending sets. */
 type DeltaCarriers =
-	| { readonly kind: "added"; readonly added: Carrier }
-	| { readonly kind: "removed"; readonly removed: Carrier }
-	| { readonly kind: "both"; readonly added: Carrier; readonly removed: Carrier }
-	| { readonly kind: "netted"; readonly added: Carrier; readonly removed: Carrier }
+	| { readonly kind: "added"; readonly added: WriteCarrier }
+	| { readonly kind: "removed"; readonly removed: WriteCarrier }
+	| { readonly kind: "both"; readonly added: WriteCarrier; readonly removed: WriteCarrier }
+	| { readonly kind: "netted"; readonly added: WriteCarrier; readonly removed: WriteCarrier }
 
 /** The carriers of a relation's delta, the added side's first. */
-export const carriersOf = (carriers: DeltaCarriers): ReadonlyArray<Carrier> => {
+export const carriersOf = (carriers: DeltaCarriers): ReadonlyArray<WriteCarrier> => {
 	switch (carriers.kind) {
 		case "added":
 			return [carriers.added]
@@ -65,7 +65,7 @@ export const carriersOf = (carriers: DeltaCarriers): ReadonlyArray<Carrier> => {
 export const sideCarrier = (
 	carriers: DeltaCarriers,
 	side: "added" | "removed"
-): Carrier | undefined => {
+): WriteCarrier | undefined => {
 	switch (carriers.kind) {
 		case "added":
 			return side === "added" ? carriers.added : undefined
@@ -199,13 +199,13 @@ export const withDeltaFills = <
 		const byName = new Map(columns.pairs.map((p) => [p.field.name, p.column] as const))
 		return (c) => col(returned.cte, columnIn(byName, c.name))
 	}
-	const valuesOf = (carrier: Carrier, columns: FieldColumns<string>): ReadonlyArray<Expr> =>
+	const valuesOf = (carrier: WriteCarrier, columns: FieldColumns<string>): ReadonlyArray<Expr> =>
 		carrier.heading.map(returnedAt(columns))
 	/** Whether the row of `carrier` under `alias` is the fact one side of the RETURNING holds: its columns equal
 	 * position by position, each at its type, a vector through the extension's qualified operator, which no role's
 	 * search_path resolves (lower/conservative/vector/equality.ts); and always for the unit row, the unit relation's one
 	 * fact. */
-	const sameFact = (carrier: Carrier, alias: string, columns: FieldColumns<string>): Expr => {
+	const sameFact = (carrier: WriteCarrier, alias: string, columns: FieldColumns<string>): Expr => {
 		const row = carrierRow(carrier)
 		switch (row.kind) {
 			case "unit":
@@ -224,7 +224,7 @@ export const withDeltaFills = <
 	}
 	/** One column of a carrier's row under `alias`, a data-modifying CTE's RETURNING target: its first, or the unit
 	 * marker for the unit row. */
-	const anyColumn = (carrier: Carrier, alias: string): Expr => {
+	const anyColumn = (carrier: WriteCarrier, alias: string): Expr => {
 		const row = carrierRow(carrier)
 		switch (row.kind) {
 			case "unit":
@@ -234,7 +234,11 @@ export const withDeltaFills = <
 		}
 	}
 	/** Fills `into` from one side of the RETURNING, netting against `pending`, the opposite side's carrier, when given. */
-	const fill = (into: Carrier, pending: Carrier | undefined, side: ReturnedSide): void => {
+	const fill = (
+		into: WriteCarrier,
+		pending: WriteCarrier | undefined,
+		side: ReturnedSide
+	): void => {
 		const values = valuesOf(into, side.columns)
 		if (pending !== undefined) {
 			/** Cancel a pending opposite change of the same fact. */

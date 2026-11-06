@@ -16,7 +16,7 @@ import type { ConservativeProgram, DeltaSource } from "#compiler/lower/conservat
 import {
 	buildCreateCarrier,
 	buildFillCarrier,
-	type Carrier,
+	type WriteCarrier,
 	CarrierSupply,
 	relationCarrier,
 	typesDigest
@@ -81,14 +81,14 @@ type ConservativeStep =
 
 /** A delta's two sides: a relation's by state comparison, or a world relation's empty delta, created and never filled. */
 interface DeltaCarriers {
-	readonly added: Carrier
-	readonly removed: Carrier
+	readonly added: WriteCarrier
+	readonly removed: WriteCarrier
 }
 
 export interface ConservativeWrite {
 	/** Every step in execution order, all inside the write's one transaction. */
 	readonly steps: ReadonlyArray<ConservativeStep>
-	readonly carriers: ReadonlyArray<Carrier>
+	readonly carriers: ReadonlyArray<WriteCarrier>
 	readonly deltas: Readonly<Record<string, DeltaCarriers>>
 }
 
@@ -117,7 +117,7 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 	const supply = new CarrierSupply(typesDigest)
 	const steps: Array<ConservativeStep> = []
 	const carry = (
-		carrier: Carrier,
+		carrier: WriteCarrier,
 		source: Parameters<typeof buildFillCarrier>[2],
 		stratum: number | undefined
 	) => {
@@ -270,7 +270,7 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 		if (named.kind !== "empty") {
 			continue
 		}
-		const create = (): Carrier => {
+		const create = (): WriteCarrier => {
 			const carrier = supply.next(named.heading, undefined)
 			steps.push(
 				Object.freeze({

@@ -10,7 +10,7 @@ import { oneForm } from "#compiler/lower/shapes/index.ts"
 import { relationAccess } from "#compiler/sql/access.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
 import { type CarrierName, emptyNameMap } from "#compiler/sql/naming.ts"
-import { buildAnalyzeCarriers, type Carrier } from "#compiler/write/carriers/carriers.ts"
+import { buildAnalyzeCarriers, type WriteCarrier } from "#compiler/write/carriers/carriers.ts"
 import {
 	type PlacedStatement,
 	placedStep,
@@ -113,7 +113,7 @@ type Move = (position: number) => number
  * created. */
 export const withCarrierAnalysis = (
 	placed: ReadonlyArray<PlacedStatement>,
-	carriers: ReadonlyArray<Carrier>
+	carriers: ReadonlyArray<WriteCarrier>
 ): WriteArtifact => {
 	const names = new Set(carriers.map((c) => c.name))
 	const accessed = placed.map((p) => ({ placed: p, access: carrierAccess(p.ast, names) }))

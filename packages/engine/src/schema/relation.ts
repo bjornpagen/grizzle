@@ -74,7 +74,6 @@ import type {
 	AnyRoster,
 	ClosedId,
 	ClosedRelation,
-	ClosedRelationOptions,
 	FactOfFields,
 	PayloadFieldOf,
 	Relation,
@@ -667,20 +666,32 @@ const closedRows = (
 }
 
 /**
- * A closed relation's options as a JavaScript caller passed them: none, its pack listed as rows; or a record whose one
- * property, `pack`, is a ClosedPack.
+ * A closed relation's trailing arguments as a JavaScript caller passed them: none, which lists its rows; or one record
+ * whose one property, `pack`, is absent, which lists its rows too, or a ClosedPack. More arguments, or a record of
+ * another property or form, are refused.
  */
-const packOption = (options: unknown, label: string): ClosedPack => {
-	if (options === undefined) {
-		return "rows"
-	}
-	const pack = isRecord(options) ? options["pack"] : undefined
-	const named = closedPacks.find((p) => p === pack)
-	if (!isRecord(options) || Object.keys(options).some((k) => k !== "pack") || named === undefined) {
+const packOption = (rest: ReadonlyArray<unknown>, label: string): ClosedPack => {
+	const forms = closedPacks.map((p) => `"${p}"`).join(" or ")
+	if (rest.length > 1) {
 		throw malformed(
 			label,
-			`options of one property, pack: ${closedPacks.map((p) => `"${p}"`).join(" or ")}`
+			"closed.relation(name, fields, key, rows, options): at most five arguments"
 		)
+	}
+	const [options] = rest
+	if (rest.length === 0) {
+		return "rows"
+	}
+	if (!isRecord(options) || Object.keys(options).some((k) => k !== "pack")) {
+		throw malformed(label, `options of one property, pack: ${forms}`)
+	}
+	const pack = options["pack"]
+	if (pack === undefined) {
+		return "rows"
+	}
+	const named = closedPacks.find((p) => p === pack)
+	if (named === undefined) {
+		throw malformed(label, `a pack of ${forms}`)
 	}
 	return named
 }
@@ -691,20 +702,14 @@ export const admitClosedRelation = (
 	fields: unknown,
 	key: unknown,
 	rows: unknown,
-	options: unknown,
-	extra: ReadonlyArray<unknown>
+	options: ReadonlyArray<unknown>
 ): {
 	readonly desc: ClosedRelationDesc
 	readonly described: Readonly<Record<string, Described>>
 } => {
 	const label = `closed.relation ${typeof name === "string" ? name : "?"}`
 	const relationName = requireName(name, label, "a closed relation name")
-	if (extra.length > 0) {
-		throw malformed(
-			label,
-			"closed.relation(name, fields, key, rows, options): at most five arguments"
-		)
-	}
+	const pack = packOption(options, label)
 	const descriptors = descriptorRecord(fields, label)
 	for (const [field, value] of Object.entries(descriptors)) {
 		if (writingOf(value).kind !== "caller") {
@@ -724,7 +729,7 @@ export const admitClosedRelation = (
 			key,
 			slots: keySlots(descriptors, key, label),
 			rows: closedRows(rows, fieldDescs, descriptors, label),
-			pack: packOption(options, label),
+			pack,
 			loc: builderLoc(label, [relationName])
 		})
 	)
@@ -789,11 +794,10 @@ export const closedRelation = <
 	fields: Fields,
 	key: Key,
 	rows: ReadonlyArray<FactOfFields<Fields>>,
-	options: ClosedRelationOptions | undefined,
-	extra: ReadonlyArray<unknown>
+	options: ReadonlyArray<unknown>
 ): ClosedRelation<Name, Fields, readonly [...Key]> => {
 	const label = `closed.relation ${name}`
-	const admitted = admitClosedRelation(name, fields, key, rows, options, extra)
+	const admitted = admitClosedRelation(name, fields, key, rows, options)
 	const copied = frozenCopy(fields)
 	const typing = closedReadTyping(admitted.desc, admitted.described, copied, label)
 	return ownValue(
@@ -934,14 +938,13 @@ export const relationDescOf = (
 			return admitRoster(value["name"], value["handles"], [])
 		}
 		if (value["kind"] === "closedRelation") {
-			const options = value["pack"] === undefined ? undefined : { pack: value["pack"] }
+			const options = value["pack"] === undefined ? [] : [{ pack: value["pack"] }]
 			return admitClosedRelation(
 				value["name"],
 				value["fields"],
 				value["key"],
 				value["rows"],
-				options,
-				[]
+				options
 			).desc
 		}
 	}

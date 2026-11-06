@@ -78,7 +78,7 @@ export interface CarrierColumn extends HeadingColumn {
  * of no column, which PostgreSQL holds, is the unit relation's: filled by
  * `INSERT INTO "__carrier_<d>_<k>" SELECT FROM ...`, one row of no column per row its source reads, and read through
  * the unit marker. */
-export interface Carrier extends CarrierDecl {
+export interface WriteCarrier extends CarrierDecl {
 	readonly heading: ReadonlyArray<CarrierColumn>
 	/**
 	 * The columns of its primary key, in key order: a carrier of a relation's facts (`relationCarrier`) holds a set of
@@ -89,7 +89,7 @@ export interface Carrier extends CarrierDecl {
 }
 
 /** A carrier's columns, in heading order. */
-export const carrierColumns = (carrier: Carrier): ReadonlyArray<string> =>
+export const carrierColumns = (carrier: WriteCarrier): ReadonlyArray<string> =>
 	carrier.heading.map((c) => c.column)
 
 /**
@@ -100,7 +100,7 @@ export type CarrierRow =
 	| { readonly kind: "unit" }
 	| { readonly kind: "columns"; readonly columns: NonEmptyReadonlyArray<CarrierColumn> }
 
-export const carrierRow = (carrier: Carrier): CarrierRow =>
+export const carrierRow = (carrier: WriteCarrier): CarrierRow =>
 	isNonEmpty(carrier.heading) ? { kind: "columns", columns: carrier.heading } : { kind: "unit" }
 
 /** The canonical text of a heading's column types, what a carrier's digest stands for. Only the types count: a carrier's
@@ -129,12 +129,12 @@ interface TypesClass {
 }
 
 /** The carriers of one program, each named by its column types' digest and its ordinal among the program's carriers of
- * those types (see `Carrier`). A digest stands for one column-type class in the program: two classes that `digest`
+ * those types (see `WriteCarrier`). A digest stands for one column-type class in the program: two classes that `digest`
  * gives one digest are refused, so no name is shared between different column types. */
 export class CarrierSupply {
 	readonly #digest: (types: string) => string
 	readonly #classes = new Map<string, TypesClass>()
-	readonly #all: Array<Carrier> = []
+	readonly #all: Array<WriteCarrier> = []
 
 	/** A supply naming carriers by `digest`: typesDigest, or a test's stand-in. */
 	constructor(digest: (types: string) => string) {
@@ -142,7 +142,7 @@ export class CarrierSupply {
 	}
 
 	/** A carrier of `heading`, of any width, keyed by the fields `key` names, or by none. */
-	next(heading: Heading, key: NonEmptyReadonlyArray<string> | undefined): Carrier {
+	next(heading: Heading, key: NonEmptyReadonlyArray<string> | undefined): WriteCarrier {
 		const types = typesText(heading)
 		const digest = this.#digest(types)
 		const known = this.#classes.get(digest)
@@ -162,7 +162,7 @@ export class CarrierSupply {
 				Object.freeze({ name: c.name, type: c.type, column: `c${i + 1}` })
 			)
 		)
-		const carrier: Carrier = Object.freeze({
+		const carrier: WriteCarrier = Object.freeze({
 			name,
 			heading: columns,
 			fill: "insertSelect" as const,
@@ -184,7 +184,7 @@ export class CarrierSupply {
 		return carrier
 	}
 
-	all(): ReadonlyArray<Carrier> {
+	all(): ReadonlyArray<WriteCarrier> {
 		return [...this.#all]
 	}
 }
@@ -192,13 +192,13 @@ export class CarrierSupply {
 /** The carrier column of a field of its heading: the carrier was made over the fields its readers read. The one site of
  * the fact "a field a carrier's reader reads is a column of the carrier": readers name the fields of their relation by
  * name, and a carrier is made over a list of them. */
-export const carrierField = (carrier: Carrier, field: string): CarrierColumn =>
+export const carrierField = (carrier: WriteCarrier, field: string): CarrierColumn =>
 	defined(
 		carrier.heading.find((c) => c.name === field),
 		`the field ${field} in carrier ${carrier.name}`
 	)
 
-export const carrierScan = (carrier: Carrier, alias: string): FromItem => ({
+export const carrierScan = (carrier: WriteCarrier, alias: string): FromItem => ({
 	kind: "table",
 	table: carrier.name,
 	alias
@@ -208,7 +208,7 @@ export const carrierScan = (carrier: Carrier, alias: string): FromItem => ({
  * A carrier's CREATE TEMPORARY TABLE, refused as ResourceBound (tableColumns) for a heading wider than a table of
  * PostgreSQL holds, tableMaxColumns.
  */
-const createAst = (w: WriteContext, carrier: Carrier): CreateCarrier => {
+const createAst = (w: WriteContext, carrier: WriteCarrier): CreateCarrier => {
 	const at = `carrier ${carrier.name}`
 	if (carrier.heading.length > tableMaxColumns.value) {
 		throw new Refusal(
@@ -240,7 +240,7 @@ const createAst = (w: WriteContext, carrier: Carrier): CreateCarrier => {
 
 export const buildCreateCarrier = (
 	w: WriteContext,
-	carrier: Carrier
+	carrier: WriteCarrier
 ): WriteStatement<CarrierResult> =>
 	buildStatement(w, { kind: "shared", memo: w.share.creations, key: [carrier] }, () => ({
 		ast: createAst(w, carrier),
@@ -284,7 +284,7 @@ type CarrierSource =
 			readonly side: "added" | "removed"
 			readonly relation: RelationInfo
 			readonly names: PhysicalNames
-			readonly snapshot: Carrier
+			readonly snapshot: WriteCarrier
 	  }
 
 /** A relation's stored facts, its fields in heading order, read under `names`. */
@@ -299,7 +299,7 @@ const storedBody = (w: WriteContext, relation: RelationInfo, names: PhysicalName
 }
 
 /** A carrier's rows, its columns in heading order. */
-const carrierBody = (w: WriteContext, carrier: Carrier): SetCore => {
+const carrierBody = (w: WriteContext, carrier: WriteCarrier): SetCore => {
 	const alias = w.cx.supply.relation({ kind: "internal", purpose: "carrier operand" })
 	return provedCore(
 		"keyed",
@@ -335,7 +335,7 @@ export const memberRows = (
 
 const fillQuery = (
 	w: WriteContext,
-	carrier: Carrier,
+	carrier: WriteCarrier,
 	source: CarrierSource,
 	at: string
 ): Select => {
@@ -356,7 +356,7 @@ const fillQuery = (
 
 export const buildFillCarrier = (
 	w: WriteContext,
-	carrier: Carrier,
+	carrier: WriteCarrier,
 	source: CarrierSource
 ): WriteStatement<CarrierResult> => {
 	const at = `fill ${carrier.name}`
@@ -384,7 +384,7 @@ export const buildFillCarrier = (
 /** A carrier for the facts of a relation, its fields in heading order, the order a read-back's Delta node reads
  * position by position, keyed by the relation's primary key: what it holds is some of the relation's facts as they
  * stand before or after a change, a set by that key. */
-export const relationCarrier = (supply: CarrierSupply, relation: RelationInfo): Carrier =>
+export const relationCarrier = (supply: CarrierSupply, relation: RelationInfo): WriteCarrier =>
 	supply.next(
 		relation.heading.map((f) => ({ name: f.name, type: f.type })),
 		mapNonEmpty(relation.primaryFields, (f) => f.name)

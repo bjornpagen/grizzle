@@ -425,6 +425,14 @@ describe("a tampered literal pack", () => {
 			["untypedLiteral"],
 			"the structural audit admits a bit-string constant only cast"
 		)
+		assert.deepEqual(
+			Arr.map(
+				auditTextViolations(Str.replace(`X'${parts.hex}'::`, `E'${parts.hex}'::`)(printed)),
+				(v) => v.rule
+			),
+			["untypedLiteral"],
+			"and no other prefixed string, cast or not"
+		)
 		const bits = BigInt(parts.hex.length * 4 + parts.tail.length)
 		assert.notEqual(parts.tail, "", "Follow's 14 cells of one bit end in a binary tail")
 		assert.deepEqual(literalPackFault(installation, Str.replace("X'", "Y'")(printed)), {
@@ -610,6 +618,7 @@ describe("a declared pack", () => {
 	const compiled = (d: Declared) => {
 		const A = closed.relation("A", fields, ["kind", "flag"], rows, { pack: d.a })
 		const B = closed.relation("B", fields, ["kind", "flag"], rows, { pack: d.b })
+		assert.deepEqual([A.pack, B.pack], [d.a, d.b], "each value states its declared pack")
 		const Item = relation("Item", { id: uuid, kind: closedId(Kind) }, ["id"])
 		const owned = succeeded(
 			ownedInput(

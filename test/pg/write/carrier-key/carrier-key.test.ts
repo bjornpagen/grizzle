@@ -11,7 +11,7 @@ import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { mutable, relation, schema } from "#compiler/public/schema.ts"
 import { printTableName, quoteIdent } from "#compiler/sql/print.ts"
-import type { Carrier } from "#compiler/write/carriers/carriers.ts"
+import type { WriteCarrier } from "#compiler/write/carriers/carriers.ts"
 import { changeSetDesc } from "#compiler/write/changeset/value.ts"
 import type { WriteArtifact } from "#compiler/write/program/artifact.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
@@ -81,7 +81,7 @@ const program = succeeded(
 
 /** A keyed carrier of an artifact, with the statement that creates it and its columns by field. */
 interface KeyedCarrier {
-	readonly carrier: Carrier
+	readonly carrier: WriteCarrier
 	readonly create: string
 	readonly id: string
 	readonly v: string

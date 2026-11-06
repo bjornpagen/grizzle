@@ -7,7 +7,11 @@ import type { ReadBack } from "#compiler/ir/write.ts"
 import { type CatalogSchema, evidenceCatalog } from "#compiler/laws/model/catalog.ts"
 import type { DeltaSource } from "#compiler/lower/conservative/types.ts"
 import { lowerOptimized, type OptimizedProgram } from "#compiler/lower/optimize/pipeline.ts"
-import { type Carrier, carrierColumns, carrierField } from "#compiler/write/carriers/carriers.ts"
+import {
+	type WriteCarrier,
+	carrierColumns,
+	carrierField
+} from "#compiler/write/carriers/carriers.ts"
 import type { WriteNames } from "#compiler/write/insert/statement.ts"
 import { type DeltaPlan, sideCarrier } from "#compiler/write/readback/deltas.ts"
 import { breachGuard } from "#compiler/write/refusal.ts"
@@ -41,7 +45,7 @@ const deltaSourceOf =
 export const deltaSourceIn = (
 	relation: string,
 	entries: ReadonlyMap<string, CheckedEntry>,
-	carrierOf: (relation: string) => Carrier | undefined
+	carrierOf: (relation: string) => WriteCarrier | undefined
 ): DeltaSource | undefined => {
 	const entry = entries.get(relation)
 	const carrier = carrierOf(entry === undefined ? relation : entry.target.name)

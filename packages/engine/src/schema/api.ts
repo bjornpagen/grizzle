@@ -215,10 +215,9 @@ const closedRelation = <
 	fields: Fields & ClosedFieldsCheck<Fields>,
 	key: KeyFields & DistinctFields<KeyFields>,
 	rows: Rows & DistinctRows<Name, Rows, KeyFields>,
-	options?: ClosedRelationOptions,
-	...extra: ReadonlyArray<never>
+	...options: ClosedRelationOptions
 ): ClosedRelation<Name, Fields, readonly [...KeyFields]> =>
-	closedRelationBuilder<Name, Fields, KeyFields>(name, fields, key, rows, options, extra)
+	closedRelationBuilder<Name, Fields, KeyFields>(name, fields, key, rows, options)
 
 /**
  * A closed relation's rows are a set by identity: a row written twice is one row, and two written out with one key and

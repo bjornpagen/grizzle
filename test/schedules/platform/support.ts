@@ -615,7 +615,7 @@ const fieldText = (names: Names, relation: RelationName, field: string, v: unkno
 }
 
 /** A field's literal of unknown type, which PostgreSQL resolves to the column's type. */
-const literal = (names: Names, relation: RelationName, field: string, v: unknown): string =>
+export const literal = (names: Names, relation: RelationName, field: string, v: unknown): string =>
 	`'${pipe(fieldText(names, relation, field, v), Str.replaceAll("'", "''"))}'`
 
 export const tableOf = (names: Names, relation: RelationName): string =>
@@ -728,7 +728,7 @@ const stepOf = (row: PlatformRow, field: string): bigint => {
  * owner holds, which its owner axis refuses. An owner put takes its written fields in place and keeps its families. A
  * member is never deleted or put: that edits its family, which only the planner does.
  */
-const directSql = (
+export const directSql = (
 	names: Names,
 	statements: ReadonlyArray<DirectStatement>
 ): ReadonlyArray<string> => {

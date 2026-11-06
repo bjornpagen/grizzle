@@ -26,7 +26,7 @@ import {
 import { plainType, wildcardText } from "#compiler/scalar/compute/types.ts"
 import type { EmittedText, SqlStatement } from "#compiler/sql/ast.ts"
 import { type NameMap, renderNameMap } from "#compiler/sql/naming.ts"
-import type { Carrier } from "#compiler/write/carriers/carriers.ts"
+import type { WriteCarrier } from "#compiler/write/carriers/carriers.ts"
 import { groupBy } from "#compiler/write/defined.ts"
 import type { AddedTag, RemovedTag } from "#compiler/write/delta/net.ts"
 import type { FamilyStatement } from "#compiler/write/family/order.ts"
@@ -301,7 +301,7 @@ export interface WriteArtifact {
 	 * but a read-back's names its stratum or none. */
 	readonly strata: ReadonlyArray<ReadonlyArray<number>>
 	readonly readBacks: ReadonlyArray<ReadBackDelivery>
-	readonly carriers: ReadonlyArray<Carrier>
+	readonly carriers: ReadonlyArray<WriteCarrier>
 	/** Per written relation, the positions of the statements whose RETURNING forms delta.added and delta.removed: each
 	 * write step's rows, by its result's change tags (changeTags). */
 	readonly deltas: Readonly<
@@ -417,7 +417,7 @@ export const byStratum = <S extends { readonly step: WriteStep }>(
  * name map are the placed statements' (WriteArtifact), each read-back's statements those that name it, in order. */
 export const settledArtifact = (
 	placed: ReadonlyArray<PlacedStatement>,
-	carriers: ReadonlyArray<Carrier>
+	carriers: ReadonlyArray<WriteCarrier>
 ): WriteArtifact => {
 	const settled = placed.map((p, index) => {
 		const statement: ArtifactStatement = Object.freeze({

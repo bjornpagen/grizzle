@@ -274,7 +274,7 @@ export const laws = () => [
 	select(AccountBudget, (b) => b.and()),
 	// @ts-expect-error -- TS2345: alternatives takes no derived parent
 	alternatives(AccountBudget, "account", Kind, {}),
-	// @ts-expect-error -- TS2739: a family's slots are never a derived relation's
+	// @ts-expect-error -- TS2345: fin reads a relation's drawn count or a closed relation's natural field, never a derived relation's
 	fin(AccountBudget, "tasks")
 ]
 

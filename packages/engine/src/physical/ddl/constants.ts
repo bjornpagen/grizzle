@@ -585,7 +585,7 @@ const outsideFin = (
 
 /**
  * The constants of `rows`, a closed relation `relation`'s or its side's, over the key fields `key` and the payload fields
- * `payloadFields`, `what` naming them, its packs stated as `pack` declares. A row whose slot code is past its owner's
+ * `payloadFields`, `what` naming them, its packs stated as `declared` says. A row whose slot code is past its owner's
  * count is refused (outsideFin).
  */
 const plannedRelation = (
@@ -594,7 +594,7 @@ const plannedRelation = (
 	key: NonEmptyReadonlyArray<LawField>,
 	payloadFields: ReadonlyArray<LawField>,
 	rows: ReadonlyArray<Split<TypedLiteral>>,
-	pack: ClosedPack,
+	declared: ClosedPack,
 	what: string
 ): PlannedRelation => {
 	const planned = plannedKey(codes, relation, key, what)
@@ -638,7 +638,7 @@ const plannedRelation = (
 		dictionaries: payload.flatMap((space) =>
 			space.kind === "dictionary" ? [plannedDictionary(space)] : []
 		),
-		pack
+		pack: declared
 	}
 }
 

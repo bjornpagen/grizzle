@@ -13,7 +13,7 @@ import { expectedStatements } from "#test/support/oracle/reference/deliver.ts"
 import {
 	columnIndex,
 	Reference,
-	type Relation,
+	type RelationValue,
 	sortRows,
 	unobserved
 } from "#test/support/oracle/reference/evaluate.ts"
@@ -48,7 +48,7 @@ const cases = 300
  * Whether a source, as the reference evaluated it under the outer tuples then in scope, holds more than `take` tuples
  * whose `take`-th and next least scores are equal: the candidates at the cutoff are then chosen by the tie-break alone.
  */
-const tiesAtCutoff = (n: NodeOf<"ApproximateNearest">, source: Relation): boolean => {
+const tiesAtCutoff = (n: NodeOf<"ApproximateNearest">, source: RelationValue): boolean => {
 	const take = Number(n.take)
 	if (take < 1 || source.rows.length <= take) {
 		return false

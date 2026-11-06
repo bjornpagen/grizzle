@@ -97,7 +97,7 @@ export const layoutOf = (heading: Heading): Layout => ({
 })
 
 /** A relation: its heading's layout and its set of tuples, each a row of values in heading order. */
-export interface Relation extends Layout {
+export interface RelationValue extends Layout {
 	readonly rows: ReadonlyArray<Row>
 }
 
@@ -124,7 +124,7 @@ const truthOf = (v: Value): boolean => {
  * reads an outer tuple, so a test judging the candidates a search chose among (a tie at its cutoff) observes its
  * reference's and evaluates the root; every other caller ignores them.
  */
-type NearestObserver = (node: NodeOf<"ApproximateNearest">, source: Relation) => void
+type NearestObserver = (node: NodeOf<"ApproximateNearest">, source: RelationValue) => void
 
 /**
  * What a test observes of its reference's evaluation: every decline, by its reason (values.ts DeclineReason), so a
@@ -675,9 +675,9 @@ export class Reference {
 	/** Whether each node of the DAG is closed, by node. */
 	readonly #closed: ReadonlyMap<RelNode, boolean>
 	/** Each closed node's settled set, or what its evaluation threw, filled in topological order by settle. */
-	readonly #settled = new Map<RelNode, Result.Result<Relation, unknown>>()
+	readonly #settled = new Map<RelNode, Result.Result<RelationValue, unknown>>()
 	/** The current state of each Recursive node being iterated, as the relation its SelfRef denotes. */
-	readonly #state = new Map<NodeId, Relation>()
+	readonly #state = new Map<NodeId, RelationValue>()
 
 	protected constructor(dag: RelDag, input: ReferenceInput) {
 		this.dag = dag
@@ -717,16 +717,16 @@ export class Reference {
 	}
 
 	/** A closed node's settled set, or none when its evaluation threw. */
-	#settledSet(node: RelNode): Option.Option<Relation> {
+	#settledSet(node: RelNode): Option.Option<RelationValue> {
 		return Result.getSuccess(this.#settledOf(node))
 	}
 
-	#settledOf(node: RelNode): Result.Result<Relation, unknown> {
+	#settledOf(node: RelNode): Result.Result<RelationValue, unknown> {
 		return defined(this.#settled.get(node), `${node.id}, settled before the nodes that read it`)
 	}
 
 	/** The set a node denotes, with `scope` the outer tuples in scope. */
-	eval(node: RelNode, scope: Bindings): Relation {
+	eval(node: RelNode, scope: Bindings): RelationValue {
 		if (node.kind === "SelfRef") {
 			return this.state(node)
 		}
@@ -734,7 +734,7 @@ export class Reference {
 	}
 
 	/** The relation of a node computed from its rows under `scope`, the set of them where the node deduplicates. */
-	relation(node: RelNode, scope: Bindings): Relation {
+	relation(node: RelNode, scope: Bindings): RelationValue {
 		const rows = this.rows(node, scope)
 		return {
 			...layoutOf(node.heading),
@@ -750,7 +750,7 @@ export class Reference {
 	}
 
 	/** The current state of a SelfRef's recursion. */
-	state(node: NodeOf<"SelfRef">): Relation {
+	state(node: NodeOf<"SelfRef">): RelationValue {
 		const state = this.#state.get(node.recursive)
 		if (state === undefined) {
 			throw referenceUnsupported(`${node.id} outside its recursion`)
@@ -1700,7 +1700,7 @@ export class Reference {
 	}
 
 	recursive(node: NodeOf<"Recursive">, scope: Bindings): ReadonlyArray<Row> {
-		const cast = (r: Relation): ReadonlyArray<Row> => {
+		const cast = (r: RelationValue): ReadonlyArray<Row> => {
 			if (r.rows.length === 0) {
 				return []
 			}

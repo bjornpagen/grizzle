@@ -51,7 +51,7 @@ import { NameSupply } from "#compiler/sql/naming.ts"
 import {
 	buildCreateCarrier,
 	buildFillCarrier,
-	type Carrier,
+	type WriteCarrier,
 	carrierColumns,
 	memberRows
 } from "#compiler/write/carriers/carriers.ts"
@@ -556,7 +556,7 @@ const placeReadBack = (
 }
 
 /** The artifact, its carriers analyzed before the statements that join them against stored relations. */
-const finish = (b: ArtifactBuilder, carriers: ReadonlyArray<Carrier>): WriteArtifact =>
+const finish = (b: ArtifactBuilder, carriers: ReadonlyArray<WriteCarrier>): WriteArtifact =>
 	withCarrierAnalysis(b.statements, Object.freeze([...carriers]))
 
 /** How the optimized artifact's described members lower: its shape state, whose log holds the choices the statement

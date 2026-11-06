@@ -63,6 +63,7 @@ export type {
 	AnyRelation,
 	AnyRoster,
 	ClosedRelation,
+	ClosedRelationOptionRecord,
 	ClosedRelationOptions,
 	Fact,
 	HeadingOf,

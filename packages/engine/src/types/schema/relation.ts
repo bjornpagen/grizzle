@@ -364,9 +364,12 @@ type ClosedRead<D, Sql extends SqlTag, F extends Facts, L> = Term<
  * a machine builds and no person reviews. A pack whose rows do not fit one statement is hex whatever is declared, and a
  * change of form installs nothing: either form installs the same constant.
  */
-export interface ClosedRelationOptions {
+export interface ClosedRelationOptionRecord {
 	readonly pack?: "rows" | "hex"
 }
+
+/** closed.relation's trailing argument: none, its rows listed, or its options (ClosedRelationOptionRecord). */
+export type ClosedRelationOptions = readonly [] | readonly [options: ClosedRelationOptionRecord]
 
 export interface ClosedRelation<
 	Name extends string,

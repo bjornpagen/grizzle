@@ -1227,7 +1227,8 @@ describe("backfilling a family added to populated relations", () => {
 		() =>
 			Effect.sync(() => {
 				const name = "Joining"
-				const text = str.regex("^.*$", "su")
+				/** Bounded, so the family's axes, which carry each running text, key it within a B-tree entry. */
+				const text = str.regex("^.{0,64}$", "su")
 				const Attr = relation(
 					"Attr",
 					{ id: pg.int4, n: drawn(natural), joined: accumulated(text, "") },

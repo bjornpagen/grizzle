@@ -1526,7 +1526,8 @@ A family is a rule over rows the caller writes: each owner's members, counted by
   and its end, since a running value would show the hidden order. concat depends on that order, so it folds only an
   ordered family or a tree, by its named pair. A separator belongs to the step, never to the monoid, which would have
   no identity: write each member's token with the separator before it, but at index 0, and the end is the tokens
-  joined by it.
+  joined by it. The family's axes key each running text, so its pieces and accumulators are text of a bounded pattern
+  ([Limits](#limits)).
 
 A relation is a member of at most one ordered family or tree, which orders it, and of any number of counted families,
 each with its own hidden columns and foreign keys; one count counts one family.
@@ -2447,6 +2448,13 @@ workflows, whose rules are worth declaring and whose users see different slices 
   of three runs: rows grouped by pattern, or cycling through 32 patterns or fewer, cost 1.4 to 4.9 µs a row; rows
   cycling through 33, 64 or 178 cost 80 to 102 µs a row. The CASE that reads each source's translation adds about
   1 µs a row at 178 patterns. Order a bulk read or write by pattern where it can be.
+- **Every key fits its index entry for every value its fields admit.** A primary key, a declared key, and the UNIQUE
+  each family axis references, which its predecessor and last axes carry the family's accumulators into, a fold's
+  running values among them, are bounded alike: at most 32 columns (`INDEX_MAX_KEYS`), and a B-tree entry of at most
+  2,704 bytes (`BTMaxItemSize`) counted from each field's type, so a text field needs a bounded pattern or a
+  `charLength` contract. A key past either is refused with `UnrepresentableKey` when the schema is compiled, where
+  PostgreSQL would refuse the first write that outgrew it (54000): a `Monoid.concat` fold's accumulators, which its
+  axes key, are text of a bounded pattern, such as `str.regex("^.{0,64}$", "su")`.
 - **A concatenation is at most 1 GB.** `Compute.concat` builds its result, and PostgreSQL refuses one past
   `MaxAllocSize` ("invalid memory alloc request size"), so a write whose check or generated field concatenates more
   fails with that error. No query concatenates, and a fold's or an equation's concatenation is never built.

@@ -113,6 +113,14 @@ How to upgrade:
   refused when the schema is compiled, with `ResourceBound` (`cellCodes`), where its reads used to fail at run time with
   22003.
   - Codemod: none; regenerate the migrations.
+- **A family axis's key is held to the key representability rule.** The UNIQUE a family's owner, predecessor or
+  last axis references, over the family's key and the copies it carries (a fold's running values among them), is
+  bounded as a declared key is: its B-tree entry counted from each column's type within BTMaxItemSize, beside the
+  INDEX_MAX_KEYS bound it already met. An axis past it is refused with `UnrepresentableKey` when the schema is
+  compiled, naming the UNIQUE, the family and the fold whose accumulator it carries, where a `Monoid.concat` fold over
+  unbounded text used to compile and fail its first long write with 54000 (ExecutionFailure).
+  - Codemod: none; type a concat fold's step and accumulators by a bounded pattern, such as
+    `str.regex("^.{0,64}$", "su")`, or a `charLength` contract.
 - **A closed relation declares how its migration packs it: `closed.relation(name, fields, key, rows, { pack: "hex" })`.**
   `pack: "rows"`, the default, lists its rows, a line each with the handles it holds, for a person to review;
   `pack: "hex"`, for rows a machine builds, states each of its constants as one statement,

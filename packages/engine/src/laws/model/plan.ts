@@ -21,7 +21,13 @@ import {
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
 } from "#compiler/core/nonempty.ts"
-import { descText, type ExprDesc, fieldTermsOf, termText } from "#compiler/ir/desc.ts"
+import {
+	descText,
+	type ExprDesc,
+	type FieldDesc,
+	fieldTermsOf,
+	termText
+} from "#compiler/ir/desc.ts"
 import type { ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
 import type { AxisKind, AxisPair, Family, FamilyFold } from "#compiler/ir/family.ts"
 import {
@@ -44,7 +50,7 @@ import { closedCell } from "#compiler/ir/rel.ts"
 import { baseOf, rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { literalKey } from "#compiler/laws/model/names.ts"
 import type { OwnedContract } from "#compiler/schema/own.ts"
-import { indexMaxKeys } from "#compiler/schema/representability.ts"
+import { btreeEntry, indexMaxKeys, keyDatums } from "#compiler/schema/representability.ts"
 
 /** A refusal deep inside recognition is a core Refusal, which the model's boundary returns (`catchRefusal`). */
 const refuse = (tag: ProseTag, loc: SourceLoc, capability: string): never => {
@@ -125,6 +131,29 @@ export type PlannedColumn =
 
 /** A field as a planned native reads it. */
 const fieldColumn = (field: LawField): PlannedColumn => ({ kind: "field", field })
+
+/**
+ * The descriptor a planned column's values are typed by, which sizes an index entry over it: a field's own, or the
+ * field a law column holds the values of (a pred term's is its natural field's).
+ */
+const plannedDesc = (c: PlannedColumn): FieldDesc => {
+	if (c.kind === "field") {
+		return c.field.desc
+	}
+	const column = c.column
+	switch (column.kind) {
+		case "term":
+			return column.term.column.desc
+		case "constant":
+		case "drawn":
+		case "indexPred":
+			return column.field.desc
+	}
+}
+
+/** A planned column as a refusal names it: a field by its name, a law column by what it holds. */
+const plannedText = (c: PlannedColumn): string =>
+	c.kind === "field" ? c.field.name : lawColumnText(c.column)
 
 /** A law column as a planned native reads it. */
 const lawColumn = (column: LawColumnPlan): PlannedColumn => ({ kind: "law", column })
@@ -1507,6 +1536,32 @@ class FamilyPlanner {
 		return lawColumn(column)
 	}
 
+	/**
+	 * The fold whose accumulator one of `columns` is, as a refusal names it: its monoid and its end, and the accumulator;
+	 * none where the columns carry no fold's.
+	 */
+	#foldCarried(columns: ReadonlyArray<PlannedColumn>): string | undefined {
+		for (const [at, fold] of this.#family.folds.entries()) {
+			for (const plane of fold.planes) {
+				for (const side of ["before", "after"] as const) {
+					const native = plane[side]
+					const carried = columns.find((c) =>
+						native.kind === "field"
+							? c.kind === "field" && c.field.name === native.field.name
+							: c.kind === "law" &&
+								c.column.kind === "drawn" &&
+								c.column.draws.kind === side &&
+								c.column.draws.fold === at
+					)
+					if (carried !== undefined) {
+						return `the ${side} accumulator ${plannedText(carried)} of the ${fold.monoid} fold into ${this.#owner.name}.${plane.end.name}`
+					}
+				}
+			}
+		}
+		return undefined
+	}
+
 	/** The family as its refusals describe it. */
 	#shape() {
 		return { ...this.#family, owner: this.#owner, member: this.#member }
@@ -1524,8 +1579,7 @@ class FamilyPlanner {
 		base: NonEmptyReadonlyArray<PlannedColumn>,
 		targetBase: NonEmptyReadonlyArray<PlannedColumn>
 	): ReadonlyArray<CarriedPair> {
-		const textOf = (c: PlannedColumn): string =>
-			c.kind === "field" ? c.field.name : lawColumnText(c.column)
+		const textOf = plannedText
 		const keyOf = (c: PlannedColumn): string => `${c.kind === "field" ? "f" : "l"} ${textOf(c)}`
 		const baseKeys = base.map(keyOf)
 		const targetKeys = targetBase.map(keyOf)
@@ -1551,7 +1605,12 @@ class FamilyPlanner {
 		return out.toSorted((a, b) => (a.toKey < b.toKey ? -1 : a.toKey > b.toKey ? 1 : 0))
 	}
 
-	/** One axis's foreign key, its law columns and the UNIQUE over its target columns, which INDEX_MAX_KEYS bounds. */
+	/**
+	 * One axis's foreign key, its law columns and the UNIQUE over its target columns, which the foreign key references:
+	 * a key like any declared one, so INDEX_MAX_KEYS bounds its columns and its B-tree entry must be representable for
+	 * every value they admit (schema/representability.ts keyDatums, btreeEntry), or the axis is UnrepresentableKey,
+	 * naming the fold whose accumulator it carries; PostgreSQL would refuse the write that outgrows it (54000).
+	 */
 	#axis(
 		kind: AxisKind,
 		pairs: ReadonlyArray<CarriedPair>,
@@ -1587,6 +1646,18 @@ class FamilyPlanner {
 				"UnsupportedLawFamily",
 				this.#loc,
 				`a family axis of at most ${indexMaxKeys.value} columns, which one UNIQUE holds (INDEX_MAX_KEYS); the ${kind} axis of ${familyText(this.#shape())} carries ${targetColumns.length}: carry fewer copies on it`
+			)
+		}
+		const keyed = targetColumns.map((c) => ({ field: plannedText(c), desc: plannedDesc(c) }))
+		const datums = keyDatums(keyed)
+		const entry = datums.ok ? btreeEntry(datums.value.map((d) => d.datum)) : datums
+		if (!entry.ok) {
+			const fold = this.#foldCarried(targetColumns)
+			return unrepresentable(
+				this.#loc,
+				`the UNIQUE of ${target.relation.name} the ${kind} axis of ${familyText(this.#shape())} references${fold === undefined ? "" : `, which carries ${fold}`}`,
+				keyed.map((k) => k.field),
+				entry.error
 			)
 		}
 		const own = this.#law.id

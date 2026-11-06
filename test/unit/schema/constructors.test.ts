@@ -610,8 +610,8 @@ describe("closed", () => {
 							const [first] = drawnPayload
 							const firstRow = rows[0]
 							let key: ReadonlyArray<string> = ["id"]
-							let extra: ReadonlyArray<unknown> = []
-							let options: unknown = s.pack === "no options" ? undefined : { pack: s.pack }
+							let options: ReadonlyArray<unknown> =
+								s.pack === "no options" ? [] : [{ pack: s.pack }]
 							c.note(s.defect)
 							switch (s.defect) {
 								case "none":
@@ -645,23 +645,23 @@ describe("closed", () => {
 									}
 									break
 								case "options of another property":
-									options = { pack: "rows", order: "key" }
+									options = [{ pack: "rows", order: "key" }]
 									break
 								case "a pack of no form":
-									options = { pack: "binary" }
+									options = [{ pack: "binary" }]
 									break
 								case "a sixth argument":
-									extra = [{}]
+									options = [{ pack: "rows" }, {}]
 									break
 							}
 							if (s.defect !== "none") {
 								throwsRefused(
-									() => admitClosedRelation(s.name, fields, key, rows, options, extra),
+									() => admitClosedRelation(s.name, fields, key, rows, options),
 									"MalformedDescription"
 								)
 								return
 							}
-							const desc = admitClosedRelation(s.name, fields, key, rows, options, []).desc
+							const desc = admitClosedRelation(s.name, fields, key, rows, options).desc
 							assert.equal(
 								desc.pack,
 								s.pack === "hex" ? "hex" : "rows",
@@ -1084,7 +1084,6 @@ describe("literals take their field's value", () => {
 											{ id: rawClosedId(P), value: descriptor },
 											["id"],
 											[{ id: "H", value: host }],
-											undefined,
 											[]
 										)
 										return defined(desc.rows[0]?.["value"])

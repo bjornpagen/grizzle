@@ -10,7 +10,7 @@ import {
 	type SerialClass
 } from "#compiler/ir/write.ts"
 import type { CarriedShare } from "#compiler/lower/shapes/share/statements.ts"
-import { type Carrier, CarrierSupply, typesDigest } from "#compiler/write/carriers/carriers.ts"
+import { type WriteCarrier, CarrierSupply, typesDigest } from "#compiler/write/carriers/carriers.ts"
 import { type DeleteAnchor, deleteAnchor } from "#compiler/write/delete/anchor.ts"
 import type { CheckNames } from "#compiler/write/entry/precheck.ts"
 import type { WriteFrontend, WrittenRelation } from "#compiler/write/frontend/compile.ts"
@@ -116,18 +116,18 @@ export type PlannedWrite = {
 export type PlanStep =
 	| {
 			readonly kind: "createCarrier"
-			readonly carrier: Carrier
+			readonly carrier: WriteCarrier
 			readonly stratum: number | undefined
 	  }
 	| {
 			readonly kind: "fillMember"
-			readonly carrier: Carrier
+			readonly carrier: WriteCarrier
 			readonly node: RelNode
 			readonly stratum: number
 	  }
 	| {
 			readonly kind: "fillShare"
-			readonly carrier: Carrier
+			readonly carrier: WriteCarrier
 			readonly share: CarriedShare
 			readonly stratum: number
 	  }
@@ -165,7 +165,7 @@ export type PlanStep =
 
 export interface WritePlan {
 	readonly steps: ReadonlyArray<PlanStep>
-	readonly carriers: ReadonlyArray<Carrier>
+	readonly carriers: ReadonlyArray<WriteCarrier>
 	readonly deltas: DeltaPlan
 }
 

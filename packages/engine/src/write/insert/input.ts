@@ -29,7 +29,7 @@ import {
 	target,
 	unitTargets
 } from "#compiler/sql/build.ts"
-import { type Carrier, carrierField, carrierScan } from "#compiler/write/carriers/carriers.ts"
+import { type WriteCarrier, carrierField, carrierScan } from "#compiler/write/carriers/carriers.ts"
 import type { FieldColumns } from "#compiler/write/defined.ts"
 import {
 	type InputColumnType,
@@ -89,7 +89,7 @@ const normalized: InputProof = Object.freeze({
 
 export type WriteInput =
 	| RelationInput
-	| { readonly kind: "carrier"; readonly carrier: Carrier; readonly proof: InputProof }
+	| { readonly kind: "carrier"; readonly carrier: WriteCarrier; readonly proof: InputProof }
 	| { readonly kind: "described"; readonly node: RelNode; readonly proof: InputProof }
 
 /** An input a second statement reads again: a relation parameter or a carrier. A described member read inline is the
