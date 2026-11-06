@@ -4,8 +4,10 @@ import {
 	alternatives,
 	closed,
 	contained,
+	context,
 	derived,
 	login,
+	mutable,
 	on,
 	relation,
 	role,
@@ -209,4 +211,35 @@ export const ledger = (name: string) => {
 		customersByName,
 		frequentSpenders
 	}
+}
+
+/** A session's subject, as a document's owner and a note's author name it. */
+const subject = str.regex("^u_[a-z]{1,8}$")
+
+/**
+ * The worlds schema under `name`, for the drift suite: documents and the notes on them, and the session's subject;
+ * `editor` reads Doc and writes Mine, the notes of the documents the session's subject owns, under row security through
+ * a filter that reads Doc beside Note; `viewer` reads Doc; both in the login `desk`. Each call builds a schema of its
+ * own.
+ */
+export const worlds = (name: string) => {
+	const Doc = relation("Doc", { id: uuid, owner: subject, words: pg.integer }, ["id"])
+	const Note = relation("Note", { id: uuid, doc: uuid, author: subject }, ["id"])
+	const Session = context("Session", { sub: subject })
+	const base = schema(name, { Doc, Note }, [
+		mutable(Doc),
+		contained(on(Note, "doc"), on(Doc, "id"))
+	])
+	const mine = query(base).rule((r) => {
+		const { id, doc, author } = v(Note, "note")
+		const { owner } = v(Doc, "doc")
+		return r
+			.match(Note, { id, doc, author })
+			.match(Doc, { id: doc, owner })
+			.match(Session, { sub: owner })
+			.find({ id, doc, author })
+	})
+	const editor = role(base, "editor", { Doc, Mine: mine }, { write: ["Mine"] })
+	const viewer = role(base, "viewer", { Doc })
+	return { schema: base, editor, viewer, desk: login(base, "desk", [editor, viewer]) }
 }

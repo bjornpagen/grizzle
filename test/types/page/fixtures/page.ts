@@ -114,7 +114,7 @@ export const nullCursor = db.page(orderedTasks, { account: accountId }, { last: 
 export const plainString = db.page(orderedTasks, { account: accountId }, { first: 1, after: "abc" })
 // @ts-expect-error -- TS2345: no default page size
 export const noSize = db.page(orderedTasks, { account: accountId }, {})
-// @ts-expect-error -- TS2741: page takes an ordered query
+// @ts-expect-error -- TS2345 refusal: page needs an ordered query
 export const unordered = db.page(tasksForAccount, { account: accountId }, { first: 1 })
 // @ts-expect-error -- TS2322: the parameters are the query's
 export const wrongParams = db.page(orderedTasks, { account: 1 }, { first: 1 })

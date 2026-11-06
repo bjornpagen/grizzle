@@ -1,19 +1,20 @@
 import { layer } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { boolean, constant, element, type Gen, int, weighted } from "@grizzle/testing/gen"
+import { array, boolean, constant, element, type Gen, int, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, pipe, String as Str } from "effect"
 import { login } from "#compiler/program/workload/login.ts"
-import { pg, uuid } from "#compiler/public/fields.ts"
+import { Compute } from "#compiler/public/compute.ts"
+import { contract, pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { derived, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { role } from "#compiler/schema/world.ts"
 import type { EntryValue } from "#compiler/types/schema/world.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { assert, defined } from "#test/support/assert.ts"
+import { assert, defined, nonEmpty } from "#test/support/assert.ts"
 import { fixedDefaults, searchDefaults } from "#test/support/catalog/installed.ts"
 import { installMigrated as install } from "#test/support/install-migrate.ts"
 import { migrated, type Version, worldRoleOf } from "#test/support/installed.ts"
@@ -25,7 +26,8 @@ import { roleSession, Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * The vector library's search policy as login defaults, over drawn worlds on one schema: Doc (a text domain of its
- * own), Embedding (a vector column), Tag (another text domain) and Vectors, a derived relation over Embedding.
+ * own, and a contract over it, whose domain rests on the text's), Embedding (a vector column), Tag (another text domain)
+ * and Vectors, a derived relation over Embedding.
  *
  * A case draws three roles, each holding a nonempty set of the four relations whole, writing some of the stored ones it
  * holds and refreshing Vectors when it holds it, and puts each in the login `alpha` or `beta`. A role reaches the
@@ -33,17 +35,21 @@ import { roleSession, Substrate } from "#test/support/substrate/substrate.ts"
  * runs the installed-catalog checker (test/support/catalog/installed.ts), which judges what the catalog stores: each
  * login's defaults are the fixed ones plus, exactly when one of its roles reaches the vector type, the search policy's
  * session parameters; a role holds USAGE on the vector schema exactly when it reaches the type, and on a domain of the
- * schema at least when its views or its writes bind the type and at most when its privileges need it; MAINTAIN on the
+ * schema at least when its views or its writes bind the type and at most when its privileges need it, down a
+ * contract's base chain (Doc's handle names both its contract's domain and the text domain under it); MAINTAIN on the
  * materialized view goes to exactly its refreshers. Here:
  *
  * - a session of a login whose roles reach the vector type reads the policy's values, PostgreSQL applying them at
  *   login;
- * - a migration between versions whose worlds differ stores the policy for a login that gains it and resets it for one
- *   that loses it, and leaves alone a login whose reach does not change.
+ * - over drawn histories of two or three versions, each login's one role holding a drawn set of the relations, a
+ *   migration stores the policy for a login that gains it and resets it for one that loses it, and leaves alone a login
+ *   whose reach does not change.
  */
 const Slug = str.regex("^[a-z]{1,8}$")
 const State = str.regex("^(on|off)$")
-const Doc = relation("Doc", { id: uuid, slug: Slug }, ["id"])
+/** A contract over a refined text: its domain rests on the text's, a base chain of two domains of the schema. */
+const Handle = contract("Handle", Slug, (x) => Compute.charLength(x).le(6))
+const Doc = relation("Doc", { id: uuid, slug: Slug, handle: Handle }, ["id"])
 const Embedding = relation("Embedding", { doc: uuid, value: pg.vector(3) }, ["doc"])
 const Tag = relation("Tag", { doc: uuid, state: State }, ["doc"])
 
@@ -171,6 +177,8 @@ const storedQuery =
 	"ORDER BY x"
 
 type SearchFeature =
+	| "a role reading a contract over a refined text"
+	| "a role writing a contract over a refined text"
 	| "a role reaching the vector type through the derived relation alone"
 	| "a login none of whose roles reaches the vector type"
 	| "a login one of whose roles reaches the vector type"
@@ -185,6 +193,13 @@ const notesOf = (c: SearchCase, cx: Case<SearchFeature>): void => {
 				: "a login none of whose roles reaches the vector type"
 		)
 		for (const s of l.scopes) {
+			if (s.holds.includes("Doc")) {
+				cx.note(
+					s.writes.includes("Doc")
+						? "a role writing a contract over a refined text"
+						: "a role reading a contract over a refined text"
+				)
+			}
 			if (s.holds.includes("Vectors") && !s.holds.includes("Embedding")) {
 				cx.note("a role reaching the vector type through the derived relation alone")
 			}
@@ -206,6 +221,49 @@ const searchPairs: ReadonlyArray<readonly [string, string]> = Arr.map(searchDefa
 	return [Str.slice(0, at)(d), Str.slice(at + 1)(d)] as const
 })
 
+/** Each login's one role's holdings at a version, as a mask over the readable relations, none empty. */
+interface Holdings {
+	readonly alpha: number
+	readonly beta: number
+}
+
+/** A history of two or three versions. */
+const holdingsHistoryGen: Gen<Arr.NonEmptyReadonlyArray<Holdings>> = (source) =>
+	nonEmpty(
+		source.draw(
+			array((inner) => ({ alpha: inner.draw(int(1, 15)), beta: inner.draw(int(1, 15)) }), {
+				min: 2,
+				max: 3
+			})
+		),
+		"a history's versions"
+	)
+
+/** A role that holds the relations of `mask` whole, and writes and refreshes nothing. */
+const onlyHolding = (mask: number): Scope => ({
+	holds: whereIndex(readable, (i) => (mask & (1 << i)) !== 0),
+	writes: [],
+	refreshes: false
+})
+
+/** How a login's reach of the vector type moves from one version to the next. */
+type ReachChange = "gains the policy" | "loses the policy" | "keeps the policy" | "stays without it"
+
+const reachChanges = (history: Arr.NonEmptyReadonlyArray<Holdings>): ReadonlyArray<ReachChange> =>
+	Arr.flatMap(Arr.zip<Holdings, Holdings>(history, Arr.drop(history, 1)), ([was, now]) =>
+		Arr.map([was.alpha, was.beta] as const, (mask, i): ReachChange => {
+			const before = reaches(onlyHolding(mask))
+			const after = reaches(onlyHolding(i === 0 ? now.alpha : now.beta))
+			return before
+				? after
+					? "keeps the policy"
+					: "loses the policy"
+				: after
+					? "gains the policy"
+					: "stays without it"
+		})
+	)
+
 layer(Substrate.layer)("the search policy as login defaults", (it) => {
 	it.effect(
 		"a login's session holds the policy exactly when one of its roles reaches the vector type",
@@ -221,6 +279,8 @@ layer(Substrate.layer)("the search policy as login defaults", (it) => {
 							literal: Formatter.format,
 							coverage: required<SearchFeature>(
 								[
+									"a role reading a contract over a refined text",
+									"a role writing a contract over a refined text",
 									"a role reaching the vector type through the derived relation alone",
 									"a login none of whose roles reaches the vector type",
 									"a login one of whose roles reaches the vector type",
@@ -277,66 +337,78 @@ layer(Substrate.layer)("the search policy as login defaults", (it) => {
 
 	it.effect(
 		"a migration stores the policy for a login that gains it, resets it for one that loses it, and leaves the rest",
-		() =>
-			Effect.scoped(
-				Effect.gen(function* () {
-					/**
-					 * alpha's role holds Doc, then Doc and Vectors, then Doc again; beta's holds Embedding throughout.
-					 */
-					const alpha = (holds: ReadonlyArray<Readable>): Scope => ({
-						holds,
-						writes: [],
-						refreshes: false
-					})
-					const beta: Scope = { holds: ["Embedding"], writes: [], refreshes: false }
-					const steps: ReadonlyArray<ReadonlyArray<Readable>> = [
-						["Doc"],
-						["Doc", "Vectors"],
-						["Doc"]
-					]
-					const built: Array<ReturnType<typeof worldsOf>> = []
-					const version =
-						(holds: ReadonlyArray<Readable>) =>
-						(name: string): Version => {
-							const base = searchAt(name)
-							const worlds = worldsOf(base, [
-								{ name: "alpha", scopes: [alpha(holds)] },
-								{ name: "beta", scopes: [beta] }
-							])
-							built.push(worlds)
-							return { schema: base, logins: Arr.map(worlds, (w) => w.value) }
-						}
-					const observed: Array<ReadonlyArray<ReadonlyArray<string>>> = []
-					const [first, ...later] = Arr.map(steps, version)
-					yield* migrated({
-						label: "search_mig",
-						schemaName: { kind: "unique" },
-						first: defined(first, "the first version"),
-						later,
-						apply: { kind: "noPlaceholders" },
-						register: false,
-						declared: () => noDeclarations,
-						observe: Option.some((i: number, owner: RawSession) =>
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "pg/physical/search-policy-migrations",
+						draw: drawn(holdingsHistoryGen),
+						literal: Formatter.format,
+						oracle: {
+							kind: "specification",
+							name: "a login stores the policy exactly while one of its roles reaches the vector type"
+						},
+						coverage: required<ReachChange>(
+							["gains the policy", "loses the policy", "keeps the policy", "stays without it"],
+							{ cases: 8, sense: notesOnly }
+						),
+						kept: [],
+						runs: 4,
+						shrink: { kind: "bounded", candidates: 8 },
+						concurrency: 1,
+						steerEvery: 4,
+						caseHang
+					},
+					(history, k) =>
+						Effect.scoped(
 							Effect.gen(function* () {
-								const worlds = defined(built[i], `version ${i}`)
-								const stores: Array<ReadonlyArray<string>> = []
-								for (const w of worlds) {
-									const rows = yield* owner.values(storedQuery, [worldRoleOf(w.value)])
-									stores.push(Arr.map(rows, (row) => String(row[0])))
-								}
-								observed.push(stores)
+								k.noteAll(reachChanges(history))
+								const built: Array<ReturnType<typeof worldsOf>> = []
+								const version =
+									(holdings: Holdings) =>
+									(name: string): Version => {
+										const base = searchAt(name)
+										const worlds = worldsOf(base, [
+											{ name: "alpha", scopes: [onlyHolding(holdings.alpha)] },
+											{ name: "beta", scopes: [onlyHolding(holdings.beta)] }
+										])
+										built.push(worlds)
+										return { schema: base, logins: Arr.map(worlds, (w) => w.value) }
+									}
+								const observed: Array<ReadonlyArray<ReadonlyArray<string>>> = []
+								const [first, ...later] = Arr.map(history, version)
+								yield* migrated({
+									label: "search_mig",
+									schemaName: { kind: "unique" },
+									first,
+									later,
+									apply: { kind: "noPlaceholders" },
+									register: false,
+									declared: () => noDeclarations,
+									observe: Option.some((i: number, owner: RawSession) =>
+										Effect.gen(function* () {
+											const worlds = defined(built[i], `version ${i}`)
+											const stores: Array<ReadonlyArray<string>> = []
+											for (const w of worlds) {
+												const rows = yield* owner.values(storedQuery, [worldRoleOf(w.value)])
+												stores.push(Arr.map(rows, (row) => String(row[0])))
+											}
+											observed.push(stores)
+										})
+									)
+								})
+								assert.deepEqual(
+									observed,
+									Arr.map(history, (holdings) => [
+										defaultsOf(reaches(onlyHolding(holdings.alpha))),
+										defaultsOf(reaches(onlyHolding(holdings.beta)))
+									]),
+									"each login's defaults at each version"
+								)
 							})
 						)
-					})
-					assert.deepEqual(
-						observed,
-						Arr.map(steps, (holds) => [
-							defaultsOf(reaches(alpha(holds))),
-							defaultsOf(reaches(beta))
-						]),
-						"each login's defaults at each version"
-					)
-				})
+				)
 			)
 	)
 })

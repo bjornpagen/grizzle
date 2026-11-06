@@ -43,8 +43,9 @@ const maxExact = (a: Exact, b: Exact): Exact => (compareExact(a, b) >= 0 ? a : b
 /** x - y, exactly. */
 export const minus = (x: Exact, y: Exact): Exact => addExact(x, negExact(y))
 
-/** 10^digits. */
-export const tenTo = (digits: number): Exact => ({ units: pow10(digits), scale: 0 })
+/** 10^digits, exactly, a negative count of digits a fraction: 10^-3 is 1 at scale 3. */
+export const tenTo = (digits: number): Exact =>
+	digits >= 0 ? { units: pow10(digits), scale: 0 } : { units: 1n, scale: -digits }
 
 /**
  * `x` rounded to `digits` significant digits, to nearest, ties to even: what float4_numeric and float8_numeric do to a
@@ -65,7 +66,9 @@ export const significantRound = (x: Exact, digits: number): Exact => {
 	return exactOf(x.units < 0n ? -rounded : rounded, x.scale - dropped)
 }
 
-/** The integer digits of a finite exact value: the least d with |x| < 10^d. */
+/**
+ * The integer digits of a finite exact value: the least d of at least zero with |x| < 10^d, so a fraction's are none.
+ */
 export const digitsOfExact = (a: Exact): number => {
 	const whole = absExact(a).units / pow10(a.scale)
 	return whole === 0n ? 0 : whole.toString().length
@@ -116,7 +119,10 @@ const infinite: Edge = { kind: "infinite" }
  * magnitudes: that a numeric expression stays inside numeric's numericMaxIntegerDigits, that a narrowing cast's value fits, that
  * a domain cast's value satisfies a contract's atoms, power's range and width_bucket's bounds. A guard narrows it
  * inside Compute.when's branch. An interval whose low end lies above its high end, and that is not NaN, holds no
- * value: the branch of a guard that cannot hold.
+ * value: the branch of a guard that cannot hold. The integer digits are negative for a value below one by an order of
+ * magnitude or more, as numeric(p, s) with s above p holds: |x| < 10^(p - s). They are never fewer than
+ * -numericMaxFractionDigits, below which no numeric value but zero lies, nor more than one past
+ * numericMaxIntegerDigits, which a compilation refuses as ResourceBound.
  */
 export interface Bounds {
 	readonly low: Edge
@@ -131,7 +137,10 @@ const bounds = (low: Edge, high: Edge, nan: boolean, digits: number, scale: numb
 		low,
 		high,
 		nan,
-		digits: Math.min(digits, numericMaxIntegerDigits.value + 1),
+		digits: Math.max(
+			Math.min(digits, numericMaxIntegerDigits.value + 1),
+			-numericMaxFractionDigits.value
+		),
 		scale: Math.min(scale, numericMaxFractionDigits.value)
 	})
 
@@ -265,13 +274,26 @@ export const hullBounds = (a: Bounds, b: Bounds): Bounds =>
 		Math.max(a.scale, b.scale)
 	)
 
-/** The tighter of two low edges, the higher. */
+/** The tighter of two low edges, the higher; of two at one value, the open one, which admits less. */
 const tighterLow = (a: Edge, b: Edge): Edge =>
-	a.kind === "infinite" ? b : b.kind === "infinite" ? a : highest(a, b)
+	a.kind === "infinite" ? b : b.kind === "infinite" ? a : inner(a, b, 1)
 
-/** The tighter of two high edges, the lower. */
+/** The tighter of two high edges, the lower; of two at one value, the open one. */
 const tighterHigh = (a: Edge, b: Edge): Edge =>
-	a.kind === "infinite" ? b : b.kind === "infinite" ? a : lowest(a, b)
+	a.kind === "infinite" ? b : b.kind === "infinite" ? a : inner(a, b, -1)
+
+/**
+ * Of two finite edges, the one further inward, `inward` 1 for a low edge and -1 for a high one: an intersection's end,
+ * open where either edge at that value is.
+ */
+const inner = (
+	a: Edge & { readonly kind: "at" },
+	b: Edge & { readonly kind: "at" },
+	inward: 1 | -1
+): Edge => {
+	const c = compareExact(a.value, b.value) * inward
+	return c > 0 ? a : c < 0 ? b : at(a.value, a.open || b.open)
+}
 
 /**
  * What a Compute.when guard leaves its subject inside the guarded branch (Guard), or a contract predicate's comparison

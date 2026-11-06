@@ -1,40 +1,8 @@
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
-import {
-	Array as Arr,
-	Effect,
-	FileSystem,
-	Path,
-	Predicate,
-	Record,
-	Stream,
-	String as Str
-} from "effect"
-import { ChildProcess, ChildProcessSpawner } from "effect/process"
-import { trustedJson } from "#compiler/core/trusted.ts"
+import { Array as Arr, Effect, FileSystem, Path, String as Str } from "effect"
 import { assert } from "#test/support/assert.ts"
-
-/**
- * A package manifest's publishing fields, from a package.json the repository holds: its name, the files it publishes
- * besides its package.json, its entry points, the runtime dependencies a consumer's install brings beside it, and its
- * peers.
- */
-type Manifest = {
-	readonly name: string
-	readonly files: ReadonlyArray<string>
-	readonly exports: Record.ReadonlyRecord<string, string | Record.ReadonlyRecord<string, string>>
-	readonly dependencies: Record.ReadonlyRecord<string, string>
-	readonly peerDependencies: Record.ReadonlyRecord<string, string>
-}
-
-/** The shell's manifest: a package's fields and its bin. */
-type ShellManifest = Manifest & { readonly bin: Record.ReadonlyRecord<string, string> }
-
-/** The exit status of a child that succeeded. */
-const succeeded = ChildProcessSpawner.ExitCode(0)
-
-/** Vercel's package, for the consumer program's attachPool; the consumer installs it, not the package. */
-const consumerDependency = "@vercel/functions"
+import { exitedCleanly, publishedProject, run } from "#test/unit/dev/published.ts"
 
 const consumer = `import { attachDatabasePool } from "@vercel/functions/db-connections"
 import { Effect, Redacted } from "effect"
@@ -99,51 +67,8 @@ const consumerTsconfig = `{
 `
 
 /**
- * Runs `command` in `cwd` to completion, reading nothing, and returns its exit status and its whole standard output
- * and error; interrupting the test kills it.
- */
-const run = Effect.fnUntraced(function* (
-	command: string,
-	args: ReadonlyArray<string>,
-	cwd: string
-) {
-	const handle = yield* ChildProcess.make(command, args, { cwd, stdin: "ignore" })
-	const [stdout, stderr, exitCode] = yield* Effect.all(
-		[
-			Stream.mkString(Stream.decodeText(handle.stdout)),
-			Stream.mkString(Stream.decodeText(handle.stderr)),
-			handle.exitCode
-		],
-		{ concurrency: "unbounded" }
-	)
-	return { exitCode, stdout, stderr }
-}, Effect.scoped)
-
-/**
- * Every relative path an `exports` entry or a bin names. The engine's "./internal/<module>.ts" exports name the
- * modules the shell imports, one path per condition.
- */
-const entryPaths = (
-	manifest: Manifest,
-	bin: Record.ReadonlyRecord<string, string>
-): ReadonlyArray<string> => [
-	...Arr.flatMap(Record.values(manifest.exports), (entry) =>
-		Predicate.isString(entry) ? [entry] : Record.values(entry)
-	),
-	...Record.values(bin)
-]
-
-/** The engine publishes no bin. */
-const noBin: Record.ReadonlyRecord<string, string> = {}
-
-/**
- * The published packages, the shell and the engine it depends on, as a consumer installs them: built into a scratch
- * node_modules by the build `npm publish` runs (scripts/build.ts), each laid out with exactly the files its
- * package.json's "files" names, and with exactly their runtime dependencies and peers beside them, each from the
- * node_modules of the package that declares it.
+ * The published packages, installed as a consumer installs them (published.ts), used as a consumer uses them:
  *
- * - Each package.json's entry points, `exports` and `bin`, lie inside the files it publishes, and the build emitted
- *   them.
  * - Node loads the package from node_modules, where it strips no types, so every module resolves to dist without a
  *   `#…ts` specifier: its entry imports with only the declared dependencies installed, and exposes the API the README
  *   names.
@@ -152,74 +77,13 @@ const noBin: Record.ReadonlyRecord<string, string> = {}
  *   imports: a schema, a context, roles and their login, a query over a role, a layer over the pg the consumer installs
  *   beside it, whose attachPool is Vercel's own attachDatabasePool and whose verify fails with TokenError, Db.open of
  *   each role, and misuses the types refuse (so the declarations are not `any`).
+ *
+ * That the built package opens a role against the cluster and reads is test/pg/package/consumer.test.ts's.
  */
-const publishedPackage = Effect.gen(function* () {
+const usedAsPublished = Effect.gen(function* () {
 	const fs = yield* FileSystem.FileSystem
 	const path = yield* Path.Path
-	const root = path.join(import.meta.dirname, "..", "..", "..")
-	const manifestOf = (directory: string) =>
-		fs.readFileString(path.join(root, "packages", directory, "package.json"))
-	const engineText = yield* manifestOf("engine")
-	const engine = trustedJson<Manifest>(engineText)
-	const shellText = yield* manifestOf("grizzle")
-	const shell = trustedJson<ShellManifest>(shellText)
-	const published = [
-		{ directory: "engine", manifest: engine, bin: noBin },
-		{ directory: "grizzle", manifest: shell, bin: shell.bin }
-	]
-	const scratch = yield* fs.makeTempDirectoryScoped({ prefix: "grizzle-package-" })
-	const project = path.join(scratch, "project")
-	const modules = path.join(project, "node_modules")
-	const pkg = path.join(modules, shell.name)
-
-	const built = yield* run(
-		process.execPath,
-		[path.join(root, "scripts", "build.ts"), modules],
-		root
-	)
-	assert.equal(built.exitCode, succeeded, `the build: ${built.stderr}`)
-	for (const { directory, manifest, bin } of published) {
-		const installed = path.join(modules, manifest.name)
-		yield* Effect.forEach(
-			["package.json", ...Arr.filter(manifest.files, (file) => file !== "dist")],
-			(file) => fs.copy(path.join(root, "packages", directory, file), path.join(installed, file)),
-			{ discard: true }
-		)
-		for (const entry of entryPaths(manifest, bin)) {
-			assert.ok(
-				entry === "./package.json" ||
-					Arr.some(manifest.files, (file) => Str.startsWith(`./${file}/`)(entry)),
-				`${manifest.name}: ${entry} lies outside the published files`
-			)
-			const exists = yield* fs.exists(path.join(installed, entry))
-			assert.ok(exists, `${manifest.name}: ${entry} was not emitted`)
-		}
-	}
-	const workspace = new Set(Arr.map(published, ({ manifest }) => manifest.name))
-	const declared: ReadonlyArray<Readonly<{ name: string; from: string }>> = [
-		...Arr.flatMap(published, ({ directory, manifest }) =>
-			Arr.map(
-				Arr.filter(
-					[...Record.keys(manifest.dependencies), ...Record.keys(manifest.peerDependencies)],
-					(name) => !workspace.has(name)
-				),
-				(name) => ({ name, from: path.join(root, "packages", directory, "node_modules", name) })
-			)
-		),
-		{ name: consumerDependency, from: path.join(root, "node_modules", consumerDependency) }
-	]
-	const beside = Arr.dedupeWith(declared, (a, b) => a.name === b.name)
-	yield* Effect.forEach(
-		beside,
-		Effect.fnUntraced(function* ({ name, from }) {
-			const link = path.join(project, "node_modules", name)
-			yield* fs.makeDirectory(path.dirname(link), { recursive: true })
-			yield* fs.symlink(from, link)
-		}),
-		{ discard: true }
-	)
-	yield* fs.writeFileString(path.join(project, "package.json"), `{ "type": "module" }\n`)
-
+	const { root, project, shell } = yield* publishedProject
 	const loaded = yield* run(
 		process.execPath,
 		[
@@ -229,7 +93,7 @@ const publishedPackage = Effect.gen(function* () {
 		],
 		project
 	)
-	assert.equal(loaded.exitCode, succeeded, `the import: ${loaded.stderr}`)
+	assert.equal(loaded.exitCode, exitedCleanly, `the import: ${loaded.stderr}`)
 	const names = new Set(Str.split(Str.trim(loaded.stdout), " "))
 	assert.deepEqual(
 		Arr.filter(
@@ -242,10 +106,10 @@ const publishedPackage = Effect.gen(function* () {
 
 	const help = yield* run(
 		process.execPath,
-		[path.join(pkg, "dist", "cli", "main.js"), "--help"],
+		[path.join(shell, "dist", "cli", "main.js"), "--help"],
 		project
 	)
-	assert.equal(help.exitCode, succeeded, `grizzle --help: ${help.stderr}`)
+	assert.equal(help.exitCode, exitedCleanly, `grizzle --help: ${help.stderr}`)
 	assert.ok(Str.startsWith("Usage:")(help.stdout), help.stdout)
 
 	yield* fs.writeFileString(path.join(project, "consumer.ts"), consumer)
@@ -261,7 +125,7 @@ const publishedPackage = Effect.gen(function* () {
 	)
 	assert.equal(
 		checked.exitCode,
-		succeeded,
+		exitedCleanly,
 		`the consumer typecheck:\n${checked.stdout}${checked.stderr}`
 	)
 })
@@ -269,6 +133,6 @@ const publishedPackage = Effect.gen(function* () {
 layer(NodeServices.layer, { excludeTestServices: true })("the published package", (it) => {
 	it.effect(
 		"loads from node_modules, runs its bin, and typechecks a consumer against its declarations alone",
-		() => publishedPackage
+		() => usedAsPublished
 	)
 })

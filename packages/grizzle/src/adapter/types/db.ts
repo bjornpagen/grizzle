@@ -27,7 +27,6 @@ import type {
 	Ordered,
 	OrderedBase,
 	PageOf,
-	PageOverGroups,
 	ParamsOf,
 	Query,
 	QueryBase,
@@ -151,6 +150,17 @@ type AtLevelOf<S, X> = [ProgramSchema<X>] extends [LevelsOf<S>]
  */
 export type KeyTarget = AnyRelation | AnyClosed | CandidateKey<AnyRelation>
 
+/**
+ * What db.page reads: an ordered query Q over a level of S, whose rows decoder delivers A, matching only the contexts
+ * S's relations read, and no bounded union of several headings (PageOf). A page and its cursors are Q's own.
+ */
+export type PageTarget<S, Q, A> = Q & { readonly rows: RowDecoder<A> } & PageClaim<S, Q>
+
+/** What an ordered query claims of a page over S; a query no order closes is refused a page. */
+type PageClaim<S, Q> = Q extends OrderedBase
+	? AtLevelOf<S, Q> & WithinRoleContexts<S, ContextsOf<Q>> & PageOf<Q>
+	: Refusal<"page needs an ordered query">
+
 /** A query get reads is over a level of S and proved at most one row per parameter binding; a key always is. */
 export type AtMostOneRow<S, X> = X extends KeyTarget
 	? unknown
@@ -207,25 +217,15 @@ export interface QueryReader<S> {
 			WithinRoleContexts<S, Cx>,
 		params: NoInfer<ParamArg<P>>
 	): Effect.Effect<QueryResult<Head>, ReadError>
-	page<
-		L extends LevelsOf<S>,
-		Head,
-		Ev extends Evidence,
-		P,
-		IHead,
-		Hc extends Carriers,
-		Cx extends string,
-		Arms extends UnionArms
-	>(
-		query: Ordered<L, Head, Ev, P, IHead, Hc, Cx, Arms> &
-			WithinRoleContexts<S, Cx> &
-			PageOverGroups<Arms, Head, Hc>,
-		params: NoInfer<ParamArg<P>>,
+	/**
+	 * A page of an ordered query Q over a level of S, with its parameters: its records are Q's, and its cursors are
+	 * Q's own, typed by the very query passed in.
+	 */
+	page<Q, A>(
+		query: PageTarget<S, Q, A>,
+		params: NoInfer<ParamArg<ParamsOf<Q>>>,
 		request: PageRequest
-	): Effect.Effect<
-		Page<Head, Ordered<L, Head, Ev, P, IHead, Hc, Cx, Arms>>,
-		ReadError | CursorError
-	>
+	): Effect.Effect<Page<A, Q>, ReadError | CursorError>
 }
 
 /** What db.compile compiles: a query, an ordered query or a ChangeSet. */

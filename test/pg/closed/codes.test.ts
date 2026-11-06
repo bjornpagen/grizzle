@@ -1,7 +1,7 @@
 import { layer } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
 import { required, requiredInSpace } from "@grizzle/testing/features"
-import { element, type Gen, subset } from "@grizzle/testing/gen"
+import { element, type Gen, int, subset } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import {
@@ -560,6 +560,78 @@ const validateFeatures = (c: ValidateCase, named: number): ReadonlyArray<Validat
 		: [])
 ]
 
+/** The names a bits history's handles take, in the order a growth adds them, never one again. */
+const bitsNames = ["Open", "Done", "Held", "Gone", "Late", "Kept", "Lost"] as const
+
+/** A migration of a bits history: one handle added after the last code, or one live handle removed. */
+type BitsStep = { readonly kind: "grow" } | { readonly kind: "remove"; readonly handle: string }
+
+/** A roster's history: installed with one to four handles, then one or two migrations. */
+interface BitsHistory {
+	readonly installed: RosterState
+	readonly steps: ReadonlyArray<BitsStep>
+}
+
+/** The state a step leads to: a growth appends the next name live, a removal leaves its code a hole. */
+const stepped = (state: RosterState, step: BitsStep): RosterState => {
+	switch (step.kind) {
+		case "grow":
+			return {
+				...state,
+				slots: [
+					...state.slots,
+					{ kind: "live", handle: defined(bitsNames[state.slots.length], "a name to grow by") }
+				]
+			}
+		case "remove":
+			return {
+				...state,
+				slots: nonEmpty(
+					Arr.map(state.slots, (slot): ModelSlot =>
+						slot.kind === "live" && slot.handle === step.handle
+							? { kind: "hole", was: slot.handle }
+							: slot
+					),
+					"a roster's codes"
+				)
+			}
+	}
+}
+
+/** A history whose every state keeps a live handle: a removal is drawn only beside another live handle. */
+const bitsHistoryGen: Gen<BitsHistory> = (source) => {
+	const installed: RosterState = {
+		closed: parsedName("Flags"),
+		slots: nonEmpty(
+			Arr.map(Arr.take(bitsNames, source.draw(int(1, 4))), (handle): ModelSlot => ({
+				kind: "live",
+				handle
+			})),
+			"an installation's handles"
+		),
+		spellings: { plain: 3 }
+	}
+	const steps: Array<BitsStep> = []
+	const count = source.draw(int(1, 2))
+	let state = installed
+	for (let at = 0; at < count; at += 1) {
+		const live = liveOf(state)
+		const step: BitsStep =
+			live.length > 1 && source.draw(element(["grow", "remove"] as const)) === "remove"
+				? { kind: "remove", handle: source.draw(element(live)) }
+				: { kind: "grow" }
+		steps.push(step)
+		state = stepped(state, step)
+	}
+	return { installed, steps }
+}
+
+type BitsFeature =
+	| "a growth past a hex digit"
+	| "a growth within a hex digit"
+	| "a removal refused until the data step"
+	| "two migrations"
+
 layer(Substrate.layer)("closed ids as codes on PostgreSQL 19rc1", (it) => {
 	it.effect(
 		"a roster's domain admits exactly its live codes, in a fresh backend and in one that cached the CHECK a migration swapped",
@@ -978,188 +1050,205 @@ layer(Substrate.layer)("closed ids as codes on PostgreSQL 19rc1", (it) => {
 
 	it.effect(
 		"a set round-trips through its bit(n) column, decodes unchanged after its roster grows, and a removed handle's bit fails VALIDATE until the data step clears it",
-		() =>
-			Effect.scoped(
-				Effect.gen(function* () {
-					const installed: RosterState = {
-						closed: parsedName("Flags"),
-						slots: [
-							{ kind: "live", handle: "Open" },
-							{ kind: "live", handle: "Done" },
-							{ kind: "live", handle: "Held" }
-						],
-						spellings: { plain: 3 }
-					}
-					const grown: RosterState = {
-						...installed,
-						slots: [...installed.slots, { kind: "live", handle: "Gone" }]
-					}
-					const removed: RosterState = {
-						...grown,
-						slots: [
-							{ kind: "live", handle: "Open" },
-							{ kind: "hole", was: "Done" },
-							{ kind: "live", handle: "Held" },
-							{ kind: "live", handle: "Gone" }
-						]
-					}
-					const { m, first } = yield* installFirst("closed_codes_bits", (name) =>
-						setsOf(name, installed)
-					)
-					const writer = yield* sessionOf(m, first.writer, "writer")
-					const reader = yield* sessionOf(m, first.reader, "reader")
-					const view = roleNamesOf(m, first.reader)
-					const table = printObjectName(m.names.relation("Sets"))
-					const id = quoteIdent(m.names.column("Sets", "id"))
-					const members = quoteIdent(m.names.column("Sets", "members"))
-					/** Every stored set, by id, as PostgreSQL's text. */
-					const storedTexts = Effect.map(
-						m.owner.values(`SELECT ${members}::text FROM ${table} ORDER BY ${id}`, []),
-						Arr.map((r) => String(r[0]))
-					)
-					/** Writes every subset of `state`'s live handles, ids from `from`, sent as the host encodes them. */
-					const writeEvery = (state: RosterState, codes: Codebook, from: number) =>
-						Effect.gen(function* () {
-							const codec = scalarCodec(setType(state), codes)
-							const sets = subsetsOf(state)
-							yield* writer.begin
-							for (const [i, set] of sets.entries()) {
-								const text = succeeded(codec.encode(new Set(set)), "a set of live handles")
-								assert.equal(
-									text,
-									wireText(state, set),
-									`the wire text of ${Formatter.format(set)}`
-								)
-								yield* writer.query(
-									`INSERT INTO ${table} (${id}, ${members}) VALUES ($1::integer, $2::text::bit(${wholeDigits(sizeOf(state))}))`,
-									[from + i, text]
-								)
-							}
-							yield* writer.commit
-							return sets
-						})
-					const decodes = (state: RosterState, codes: Codebook, texts: ReadonlyArray<string>) =>
-						Arr.map(texts, (t) => membersOf(scalarCodec(setType(state), codes).convert(t)))
-					const firstCodes = codebookOf(m.snapshot)
-					const sets = yield* writeEvery(installed, firstCodes, 0)
-					const firstTexts = yield* storedTexts
-					assert.deepEqual(
-						firstTexts,
-						Arr.map(sets, (s) => modelText(installed, s)),
-						"PostgreSQL stores each set's positional text"
-					)
-					assert.deepEqual(
-						decodes(installed, firstCodes, firstTexts),
-						Arr.map(sets, sortedHandles),
-						"each set decodes to the set sent"
-					)
-					const viewed = yield* reader.values(
-						`SELECT v.${view.column("Sets", "members")}::text FROM ${view.view("Sets")} AS v ORDER BY v.${view.column("Sets", "id")}`,
-						[]
-					)
-					assert.deepEqual(
-						Arr.map(viewed, (r) => String(r[0])),
-						firstTexts,
-						"the view reads the stored sets"
-					)
-					const toGrown = yield* draftNext(
-						m,
-						m.snapshot,
-						setsOf(m.declared, grown).version,
-						2,
-						noDeclarations
-					)
-					yield* applyNext(m, [toGrown])
-					const grownType = yield* columnTypeOf(m.owner, table, m.names.column("Sets", "members"))
-					assert.deepEqual(
-						{ kind: grownType.kind, base: grownType.base },
-						{ kind: "d", base: `bit(${wholeDigits(sizeOf(grown))})` },
-						"after the roster grows, the column is a domain over bit(n′)"
-					)
-					const grownTexts = yield* storedTexts
-					assert.deepEqual(
-						grownTexts,
-						Arr.map(firstTexts, (t) => Str.padEnd(wholeDigits(sizeOf(grown)), "0")(t)),
-						"the widening pads every stored set with the new code absent"
-					)
-					assert.deepEqual(
-						decodes(grown, toGrown.codes, grownTexts),
-						Arr.map(sets, sortedHandles),
-						"every stored set decodes unchanged under the grown roster's codes"
-					)
-					const grownSets = yield* writeEvery(grown, toGrown.codes, sets.length)
-					const everyText = yield* storedTexts
-					assert.deepEqual(
-						decodes(grown, toGrown.codes, everyText),
-						Arr.map([...sets, ...grownSets], sortedHandles),
-						"every set of the grown roster round-trips"
-					)
-					const domain = grownType.domain
-					const toRemoved = yield* draftNext(
-						m,
-						toGrown.snapshot,
-						setsOf(m.declared, removed).version,
-						3,
-						holeDrops([removed])
-					)
-					const failure = yield* Effect.flip(applyNext(m, [toGrown, toRemoved]))
-					const server = serverOf(failure)
-					assert.deepEqual(
-						{
-							sqlstate: server.sqlstate,
-							table: server.table,
-							column: server.column
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "pg/closed/codes/bits",
+						draw: drawn(bitsHistoryGen),
+						literal: Formatter.format,
+						oracle: {
+							kind: "second-implementation",
+							name: "the history model's positional text of each set, and its live handles after each step"
 						},
-						{
-							sqlstate: sqlstates.checkViolation,
-							table: m.names.relation("Sets").name,
-							column: m.names.column("Sets", "members")
-						},
-						"VALIDATE names the column of the sets that still hold the removed handle"
-					)
-					yield* m.owner.query(
-						`UPDATE ${table} SET ${members} = ${members} & $1::text::bit(${wholeDigits(sizeOf(removed))})`,
-						[
-							setText(
-								sizeOf(removed),
-								Arr.flatMap(removed.slots, (slot, code) => (slot.kind === "live" ? [code] : []))
-							)
-						]
-					)
-					yield* applyNext(m, [toGrown, toRemoved])
-					const removedType = yield* columnTypeOf(m.owner, table, m.names.column("Sets", "members"))
-					const check = yield* domainCheckOf(m.owner, removedType.domain)
-					const without = (s: ReadonlyArray<string>) =>
-						sortedHandles(Arr.filter(s, (h) => h !== "Done"))
-					const removedTexts = yield* storedTexts
-					assert.deepEqual(
-						decodes(removed, toRemoved.codes, removedTexts),
-						Arr.map([...sets, ...grownSets], (s) => without(s)),
-						"after the data step every stored set decodes to its live handles"
-					)
-					const fields = yield* expectConstraint(
-						inTransaction(
-							writer,
-							writer.query(
-								`INSERT INTO ${table} (${id}, ${members}) VALUES ($1::integer, $2::text::bit(${wholeDigits(sizeOf(removed))}))`,
-								[-1, setText(sizeOf(removed), [defined(codeAt(grown, "Done"))])]
-							)
+						coverage: required<BitsFeature>(
+							[
+								"a growth past a hex digit",
+								"a growth within a hex digit",
+								"a removal refused until the data step",
+								"two migrations"
+							],
+							{ cases: 12, sense: notesOnly }
 						),
-						check,
-						"23514"
-					)
-					yield* writer.rollback
-					assert.deepEqual(
-						fields.dataType,
-						Option.some(removedType.domain.name),
-						"the bits domain refuses a set holding the removed handle"
-					)
-					assert.equal(
-						domain.schema,
-						removedType.domain.schema,
-						"the bits domain is the installation's"
-					)
-				})
+						kept: [],
+						runs: 4,
+						shrink: { kind: "bounded", candidates: 8 },
+						concurrency: 1,
+						steerEvery: 4,
+						caseHang
+					},
+					(history, k) =>
+						Effect.scoped(
+							Effect.gen(function* () {
+								const { m, first } = yield* installFirst("closed_codes_bits", (name) =>
+									setsOf(name, history.installed)
+								)
+								const writer = yield* sessionOf(m, first.writer, "writer")
+								const reader = yield* sessionOf(m, first.reader, "reader")
+								const view = roleNamesOf(m, first.reader)
+								const table = printObjectName(m.names.relation("Sets"))
+								const id = quoteIdent(m.names.column("Sets", "id"))
+								const members = quoteIdent(m.names.column("Sets", "members"))
+								/** Every stored set, by id, as PostgreSQL's text. */
+								const storedTexts = Effect.map(
+									m.owner.values(`SELECT ${members}::text FROM ${table} ORDER BY ${id}`, []),
+									Arr.map((r) => String(r[0]))
+								)
+								/** Every set written so far, by id, as the model holds it: its live handles. */
+								let stored: ReadonlyArray<ReadonlyArray<string>> = []
+								/** Writes every subset of `state`'s live handles after the stored ones, sent as the host encodes them. */
+								const writeEvery = (state: RosterState, codes: Codebook) =>
+									Effect.gen(function* () {
+										const codec = scalarCodec(setType(state), codes)
+										const sets = subsetsOf(state)
+										yield* writer.begin
+										for (const [i, set] of sets.entries()) {
+											const text = succeeded(codec.encode(new Set(set)), "a set of live handles")
+											assert.equal(
+												text,
+												wireText(state, set),
+												`the wire text of ${Formatter.format(set)}`
+											)
+											yield* writer.query(
+												`INSERT INTO ${table} (${id}, ${members}) VALUES ($1::integer, $2::text::bit(${wholeDigits(sizeOf(state))}))`,
+												[stored.length + i, text]
+											)
+										}
+										yield* writer.commit
+										stored = [...stored, ...Arr.map(sets, sortedHandles)]
+										const texts = yield* storedTexts
+										assert.deepEqual(
+											Arr.drop(texts, texts.length - sets.length),
+											Arr.map(sets, (set) => modelText(state, set)),
+											"PostgreSQL stores each set's positional text"
+										)
+										assert.deepEqual<ReadonlyArray<ReadonlyArray<string>>>(
+											decodes(state, codes, texts),
+											stored,
+											"every stored set decodes to its live handles"
+										)
+									})
+								const decodes = (
+									state: RosterState,
+									codes: Codebook,
+									texts: ReadonlyArray<string>
+								) => Arr.map(texts, (t) => membersOf(scalarCodec(setType(state), codes).convert(t)))
+								yield* writeEvery(history.installed, codebookOf(m.snapshot))
+								const viewed = yield* reader.values(
+									`SELECT v.${view.column("Sets", "members")}::text FROM ${view.view("Sets")} AS v ORDER BY v.${view.column("Sets", "id")}`,
+									[]
+								)
+								const installedTexts = yield* storedTexts
+								assert.deepEqual(
+									Arr.map(viewed, (r) => String(r[0])),
+									installedTexts,
+									"the view reads the stored sets"
+								)
+								let before = history.installed
+								let snapshot = m.snapshot
+								const drafted: Array<Drafted> = []
+								for (const [i, step] of history.steps.entries()) {
+									const after = stepped(before, step)
+									const next = yield* draftNext(
+										m,
+										snapshot,
+										setsOf(m.declared, after).version,
+										i + 2,
+										step.kind === "remove"
+											? {
+													renames: [],
+													drops: [{ kind: "handle", roster: after.closed, handle: step.handle }]
+												}
+											: noDeclarations
+									)
+									drafted.push(next)
+									const textsBefore = yield* storedTexts
+									if (step.kind === "remove") {
+										/** Every subset was written, so a stored set holds the removed handle. */
+										const failure = yield* Effect.flip(applyNext(m, drafted))
+										const server = serverOf(failure)
+										assert.deepEqual(
+											{ sqlstate: server.sqlstate, table: server.table, column: server.column },
+											{
+												sqlstate: sqlstates.checkViolation,
+												table: m.names.relation("Sets").name,
+												column: m.names.column("Sets", "members")
+											},
+											"VALIDATE names the column of the sets that still hold the removed handle"
+										)
+										yield* m.owner.query(
+											`UPDATE ${table} SET ${members} = ${members} & $1::text::bit(${wholeDigits(sizeOf(after))})`,
+											[
+												setText(
+													sizeOf(after),
+													Arr.flatMap(after.slots, (slot, code) =>
+														slot.kind === "live" ? [code] : []
+													)
+												)
+											]
+										)
+										k.note("a removal refused until the data step")
+									}
+									yield* applyNext(m, drafted)
+									const afterType = yield* columnTypeOf(
+										m.owner,
+										table,
+										m.names.column("Sets", "members")
+									)
+									assert.deepEqual(
+										{ kind: afterType.kind, base: afterType.base },
+										{ kind: "d", base: `bit(${wholeDigits(sizeOf(after))})` },
+										"the column is a domain over bit(n), n the roster's codes in whole hex digits"
+									)
+									const textsAfter = yield* storedTexts
+									if (step.kind === "grow") {
+										assert.deepEqual(
+											textsAfter,
+											Arr.map(textsBefore, (t) => Str.padEnd(wholeDigits(sizeOf(after)), "0")(t)),
+											"the widening pads every stored set with the new code absent"
+										)
+										k.note(
+											wholeDigits(sizeOf(after)) > wholeDigits(sizeOf(before))
+												? "a growth past a hex digit"
+												: "a growth within a hex digit"
+										)
+									} else {
+										stored = Arr.map(stored, (set) => Arr.filter(set, (h) => h !== step.handle))
+										const check = yield* domainCheckOf(m.owner, afterType.domain)
+										const fields = yield* expectConstraint(
+											inTransaction(
+												writer,
+												writer.query(
+													`INSERT INTO ${table} (${id}, ${members}) VALUES ($1::integer, $2::text::bit(${wholeDigits(sizeOf(after))}))`,
+													[-1, setText(sizeOf(after), [defined(codeAt(before, step.handle))])]
+												)
+											),
+											check,
+											"23514"
+										)
+										yield* writer.rollback
+										assert.deepEqual(
+											fields.dataType,
+											Option.some(afterType.domain.name),
+											"the bits domain refuses a set holding the removed handle"
+										)
+									}
+									assert.deepEqual<ReadonlyArray<ReadonlyArray<string>>>(
+										decodes(after, next.codes, textsAfter),
+										stored,
+										"every stored set decodes to its live handles under the step's codes"
+									)
+									yield* writeEvery(after, next.codes)
+									before = after
+									snapshot = next.snapshot
+								}
+								if (history.steps.length > 1) {
+									k.note("two migrations")
+								}
+							})
+						)
+				)
 			)
 	)
 })

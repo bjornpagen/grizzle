@@ -466,7 +466,7 @@ const statedOf = (source: Source, parent: Parent, child: Child, intent: Intent):
 				handle !== undefined && !coin(source, 4)
 					? handle
 					: source.draw(element(["Automatic", "Manual"] as const)),
-			spelling: coin(source, 6) ? "widened" : "literal"
+			spelling: coin(source, 4) ? "widened" : "literal"
 		}
 	}
 	return source.draw(element([{ kind: "array" }, { kind: "option" }, { kind: "one" }] as const))

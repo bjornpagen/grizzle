@@ -575,18 +575,30 @@ const endingOf = (ending: Ending): Effect.Effect<number, string | NotPostgres | 
 	}
 }
 
-/** What an expectation names: a SQLSTATE, and a constraint for expectConstraint. */
-interface Expectation {
-	readonly code: (typeof codes)[number]
-	readonly constraint: Option.Option<ConstraintName>
+/** What an expectation names: a SQLSTATE for expectSqlstate, and a constraint besides for expectConstraint. */
+type Expectation =
+	| { readonly form: "sqlstate"; readonly code: (typeof codes)[number] }
+	| {
+			readonly form: "constraint"
+			readonly code: (typeof codes)[number]
+			readonly constraint: ConstraintName
+	  }
+
+const expectationGen: Gen<Expectation> = (source) => {
+	const code = source.draw(element(codes))
+	return source.draw(element(["sqlstate", "constraint"] as const)) === "sqlstate"
+		? { form: "sqlstate", code }
+		: { form: "constraint", code, constraint: source.draw(element(constraints)) }
 }
 
-type ExpectFeature =
+type Judgment =
 	| "held"
 	| "failed: succeeded"
 	| "failed: not PostgreSQL's"
 	| "failed: another SQLSTATE"
 	| "failed: another constraint"
+
+type ExpectFeature = `${Expectation["form"]}, ${Judgment}`
 
 describe("expectations", () => {
 	it.effect(
@@ -599,10 +611,7 @@ describe("expectations", () => {
 						suite: "unit/substrate/expectations",
 						draw: drawn((source) => ({
 							ending: source.draw(endingGen),
-							expected: {
-								code: source.draw(element(codes)),
-								constraint: source.draw(option(element(constraints)))
-							} satisfies Expectation
+							expected: source.draw(expectationGen)
 						})),
 						literal: Formatter.format,
 						oracle: {
@@ -611,11 +620,15 @@ describe("expectations", () => {
 						},
 						coverage: required<ExpectFeature>(
 							[
-								"held",
-								"failed: succeeded",
-								"failed: not PostgreSQL's",
-								"failed: another SQLSTATE",
-								"failed: another constraint"
+								"sqlstate, held",
+								"sqlstate, failed: succeeded",
+								"sqlstate, failed: not PostgreSQL's",
+								"sqlstate, failed: another SQLSTATE",
+								"constraint, held",
+								"constraint, failed: succeeded",
+								"constraint, failed: not PostgreSQL's",
+								"constraint, failed: another SQLSTATE",
+								"constraint, failed: another constraint"
 							],
 							{ cases: 300, sense: notesOnly }
 						),
@@ -634,28 +647,25 @@ describe("expectations", () => {
 									Ref.update(runs, (n) => n + 1),
 									endingOf(ending)
 								)
-							const expectation: Effect.Effect<PgErrorFields, ExpectationFailed> = Option.match(
-								expected.constraint,
-								{
-									onNone: () => expectSqlstate(attempt, expected.code),
-									onSome: (constraint) => expectConstraint(attempt, constraint, expected.code)
-								}
-							)
+							const expectation: Effect.Effect<PgErrorFields, ExpectationFailed> =
+								expected.form === "sqlstate"
+									? expectSqlstate(attempt, expected.code)
+									: expectConstraint(attempt, expected.constraint, expected.code)
 							const judged = yield* Effect.result(expectation)
 							const ran = yield* Ref.get(runs)
 							assert.equal(ran, 1, "the attempt runs once")
-							const feature: ExpectFeature =
+							const feature: Judgment =
 								ending.kind === "succeeds"
 									? "failed: succeeded"
 									: ending.kind === "fails"
 										? "failed: not PostgreSQL's"
 										: ending.code !== expected.code
 											? "failed: another SQLSTATE"
-											: Option.isSome(expected.constraint) &&
-												  !Option.contains(ending.constraint, expected.constraint.value)
+											: expected.form === "constraint" &&
+												  !Option.contains(ending.constraint, expected.constraint)
 												? "failed: another constraint"
 												: "held"
-							c.note(feature)
+							c.note(`${expected.form}, ${feature}`)
 							if (feature !== "held") {
 								assertVariant(judged, "_tag", "Failure", feature)
 								assert.equal(judged.failure._tag, "ExpectationFailed")

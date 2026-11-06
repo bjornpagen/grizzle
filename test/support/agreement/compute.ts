@@ -199,7 +199,10 @@ const refusalNotes = {
 	"a power's base proved nonnegative, and nonzero or its exponent nonnegative: guard it with Compute.when(Compute.positive(x), (x) => …, otherwise)":
 		"refused: a power",
 	"PostgreSQL has no cast between these types that Compute admits": "refused: a cast",
-	"a term first: a literal takes its place opposite a term, never first": "refused: a literal first"
+	"a term first: a literal takes its place opposite a term, never first":
+		"refused: a literal first",
+	"the span's own endpoint descriptor: a descriptor of another type is no endpoint of the span":
+		"refused: an endpoint"
 } as const
 type ComputeRefusal = keyof typeof refusalNotes
 type RefusalNote = (typeof refusalNotes)[ComputeRefusal]
@@ -209,7 +212,8 @@ export const computeRefusals: Arr.NonEmptyReadonlyArray<RefusalNote> = [
 	"refused: a finite value",
 	"refused: a power",
 	"refused: a cast",
-	"refused: a literal first"
+	"refused: a literal first",
+	"refused: an endpoint"
 ]
 
 /** The inferences the program asserts of an admitted case, by what the engine typed it. */
@@ -391,7 +395,7 @@ const firstOperand = (
 	home: Arr.NonEmptyReadonlyArray<Family>,
 	depth: number
 ): Operand => {
-	if (d.keep("literal first") && d.from([0, 1, 2, 3]) === 0) {
+	if (depth > 0 && d.keep("literal first") && d.from([0, 1, 2, 3]) === 0) {
 		return { kind: "literal", lit: d.from(lits) }
 	}
 	switch (d.from(["field", "field", "field", "param", "computed"] as const)) {
@@ -474,7 +478,16 @@ const applyOver = (d: Drawing, fn: Fn, depth: number): TermSpec => {
 			args: [first, otherOperand(d, first, 0), otherOperand(d, first, 0), d.param("int")]
 		}
 	}
-	return { kind: "apply", fn, args: [first, otherOperand(d, first, depth)] }
+	return {
+		kind: "apply",
+		fn,
+		args: [
+			first,
+			first.kind === "literal"
+				? { kind: "field", field: homeField(d, homes[fn]) }
+				: otherOperand(d, first, depth)
+		]
+	}
 }
 
 /** A guard over a subject drawn from the numeric families, or a text's match. */
@@ -544,6 +557,10 @@ const guardedBody = (d: Drawing, subject: Operand): TermSpec => {
 	}
 }
 
+/** A list of one value, or of it twice, so a list is refused for one reason at most. */
+const inValues = (lit: Lit, count: number): Arr.NonEmptyReadonlyArray<Lit> =>
+	count === 1 ? [lit] : [lit, lit]
+
 /** A predicate: a comparison, a range, a list, or a guard used as one. */
 const predOver = (d: Drawing): PredSpec => {
 	const kind = d.choose([...compares, "between", "in", ...tests, "within", "matches"] as const)
@@ -556,7 +573,7 @@ const predOver = (d: Drawing): PredSpec => {
 			return {
 				kind: "in",
 				a: firstOperand(d, homes.least, 1),
-				values: [d.from(lits), ...(d.from([0, 1]) === 1 ? [d.from(lits)] : [])]
+				values: inValues(d.from(lits), d.from([1, 2]))
 			}
 		case "nonzero":
 		case "nonnegative":
@@ -915,7 +932,13 @@ const claimOf = (reason: CompileReason): Claim => {
 					kind: "refusal",
 					refusal: "a term first: a literal takes its place opposite a term, never first"
 				}
-			: { kind: "prose", why: `the engine: ${oneLine(reason.what)}` }
+			: Str.startsWith("the span's own endpoint descriptor")(reason.what)
+				? {
+						kind: "refusal",
+						refusal:
+							"the span's own endpoint descriptor: a descriptor of another type is no endpoint of the span"
+					}
+				: { kind: "prose", why: `the engine: ${oneLine(reason.what)}` }
 	}
 	if (reason._tag === "UnsupportedOperation") {
 		return Str.startsWith("cast:")(reason.capability)
@@ -1047,7 +1070,9 @@ const engineDecides = {
 	bucketDomain: "decided: a bucket's domain",
 	placement: "decided: a text function's place",
 	digits: "decided: a decimal's digits",
-	pattern: "decided: a pattern's values"
+	pattern: "decided: a pattern's values",
+	literal: "decided: a literal's value",
+	integral: "decided: a number's integrality"
 } as const
 type DecidedNote = (typeof engineDecides)[keyof typeof engineDecides]
 const computeDecided: Arr.NonEmptyReadonlyArray<DecidedNote> = [
@@ -1056,11 +1081,17 @@ const computeDecided: Arr.NonEmptyReadonlyArray<DecidedNote> = [
 	"decided: a lexical form",
 	"decided: a text function's place",
 	"decided: a decimal's digits",
-	"decided: a pattern's values"
+	"decided: a pattern's values",
+	"decided: a literal's value",
+	"decided: a number's integrality"
 ]
 
-/** Which of the engine's decisions no type states a refusal is, where it is one. */
-const decidedBy = (thrown: unknown): DecidedNote | undefined => {
+/**
+ * Which of the engine's decisions no type states a refusal is, where it is one: a precondition compilation alone
+ * proves, a literal's value against its contract or pattern, a JavaScript number's integrality where a case writes a
+ * fractional one, and, by the engine's words, a decimal's digits, a pattern term's values and a text function's place.
+ */
+const decidedBy = (thrown: unknown, fractional: boolean): DecidedNote | undefined => {
 	if (!(thrown instanceof CompileError)) {
 		return undefined
 	}
@@ -1074,19 +1105,27 @@ const decidedBy = (thrown: unknown): DecidedNote | undefined => {
 			? engineDecides[reason.precondition]
 			: undefined
 	}
-	if (reason._tag === "MalformedDescription") {
-		return Str.startsWith("an exact decimal literal")(reason.what)
-			? engineDecides.digits
-			: Str.startsWith("a pattern whose every value is seen")(reason.what)
-				? engineDecides.pattern
-				: Str.includes(" in a query")(reason.what)
-					? engineDecides.placement
+	if (reason._tag === "ContractLiteral") {
+		return engineDecides.literal
+	}
+	const text =
+		reason._tag === "MalformedDescription"
+			? reason.what
+			: reason._tag === "UnsupportedOperation"
+				? reason.capability
+				: undefined
+	if (text === undefined) {
+		return undefined
+	}
+	return Str.startsWith("an exact decimal literal")(text)
+		? engineDecides.digits
+		: Str.startsWith("a pattern whose every value is seen")(text)
+			? engineDecides.pattern
+			: Str.includes(" in a query")(text)
+				? engineDecides.placement
+				: fractional && Str.startsWith("an integer host value")(text)
+					? engineDecides.integral
 					: undefined
-	}
-	if (reason._tag === "UnsupportedOperation") {
-		return Str.includes(" in a query")(reason.capability) ? engineDecides.placement : undefined
-	}
-	return undefined
 }
 
 /**
@@ -1112,8 +1151,13 @@ const refusedBy = (thrown: unknown, code: string): Verdict => ({
 })
 
 /** The engine's refusal of a case: one of its decisions no type states, or a refusal the types share. */
-const decidedOr = (thrown: unknown, term: Admitted["term"], code: string): Verdict => {
-	const note = decidedBy(thrown)
+const decidedOr = (
+	thrown: unknown,
+	term: Admitted["term"],
+	code: string,
+	fractional: boolean
+): Verdict => {
+	const note = decidedBy(thrown, fractional)
 	return note === undefined ? refusedBy(thrown, code) : { kind: "decided", note, term }
 }
 
@@ -1142,7 +1186,7 @@ const outOf = (heading: Heading, uses: Set<Imported>): string | undefined =>
 
 /** The diagnostic a refused construct raises: an IN list's member is an element of an array, every other an argument. */
 const codeOf = (spec: CaseSpec): string =>
-	spec.kind === "predicate" && spec.pred.kind === "in"
+	spec.kind === "predicate" && spec.pred.kind === "in" && spec.pred.a.kind !== "literal"
 		? "TS2322"
 		: spec.kind === "member"
 			? "TS2339"
@@ -1159,7 +1203,9 @@ const engineQuery = (
 		const building = new Building(r, cell, undefined)
 		const matched = r.match(
 			Cell,
-			Rec.fromEntries(Arr.map(["id", ...fields], (f) => [f, cell[f]] as const))
+			Rec.fromEntries(
+				Arr.map(["id", ...Arr.filter([...fields], (f) => f !== "id")], (f) => [f, cell[f]] as const)
+			)
 		)
 		switch (spec.kind) {
 			case "term": {
@@ -1209,13 +1255,23 @@ const verdictOf = (
 	uses: Set<Imported>
 ): Verdict => {
 	const code = codeOf(spec)
+	const written = [
+		...Arr.flatMap(operandsOf(spec), (o) =>
+			o.kind === "literal" || o.kind === "typed" ? [o.lit] : []
+		),
+		...litsOf(spec)
+	]
+	const fractional = Arr.some(
+		written,
+		(l) => typeof l.value === "number" && !Number.isInteger(l.value)
+	)
 	switch (spec.kind) {
 		case "value": {
 			const made = Result.try(() =>
 				spec.ctor === "Decimal.of" ? hostDecimal.of(spec.lit.value) : hostMoney.of(spec.lit.value)
 			)
 			return Result.isFailure(made)
-				? decidedOr(made.failure, undefined, code)
+				? decidedOr(made.failure, undefined, code, fractional)
 				: { kind: "admitted", admitted: { term: undefined, out: undefined, params: [] } }
 		}
 		case "member":
@@ -1231,7 +1287,7 @@ const verdictOf = (
 		case "aggregate": {
 			const built = Result.try(() => engineQuery(spec, fields))
 			if (Result.isFailure(built)) {
-				return decidedOr(built.failure, undefined, code)
+				return decidedOr(built.failure, undefined, code, fractional)
 			}
 			const typed = spec.kind === "term" ? typedTermOf(built.success.term()) : undefined
 			const term =
@@ -1240,7 +1296,7 @@ const verdictOf = (
 					: { type: hostText(typed.type, uses, "term"), sql: typed.carrier.sql }
 			const template = compileTemplate(built.success.query, undefined, testCompile)
 			if (!template.ok) {
-				return decidedOr(template.error, term, code)
+				return decidedOr(template.error, term, code, fractional)
 			}
 			return {
 				kind: "admitted",
@@ -1275,6 +1331,30 @@ interface Drawn {
 const drawnGen: Gen<Drawn> = (source) => {
 	const d = new Drawing(source, source.draw(swarm(computeFeatures)))
 	return { spec: caseOver(d), reached: d.reached }
+}
+
+/** The JavaScript values a case writes outside its operands: a range guard's bounds, a list's members, a host value. */
+const litsOf = (spec: CaseSpec): ReadonlyArray<Lit> => {
+	const ofGuard = (g: GuardSpec): ReadonlyArray<Lit> => (g.kind === "within" ? [g.low, g.high] : [])
+	const ofPred = (p: PredSpec): ReadonlyArray<Lit> =>
+		p.kind === "in" ? p.values : p.kind === "guard" ? ofGuard(p.guard) : []
+	const ofTerm = (t: TermSpec): ReadonlyArray<Lit> =>
+		t.kind === "when"
+			? [...ofGuard(t.guard), ...ofTerm(t.body)]
+			: t.kind === "cond"
+				? ofPred(t.p)
+				: []
+	switch (spec.kind) {
+		case "term":
+			return ofTerm(spec.term)
+		case "predicate":
+			return ofPred(spec.pred)
+		case "value":
+			return [spec.lit]
+		case "aggregate":
+		case "member":
+			return []
+	}
 }
 
 /** The operands a case reads, at every depth. */
@@ -1561,7 +1641,7 @@ const blockOf = (c: ComputeCase, i: number): string => {
 			const signature = `(${c.usesRule ? "r" : "_r"}: R, ${c.usesCell ? "cell" : "_cell"}: CellVars)`
 			const used = `t${i}(r, cell)`
 			const bindings = Arr.join(
-				Arr.map(["id", ...c.fields], (f) => `${f}: cell.${f}`),
+				Arr.map(["id", ...Arr.filter([...c.fields], (f) => f !== "id")], (f) => `${f}: cell.${f}`),
 				", "
 			)
 			const query =

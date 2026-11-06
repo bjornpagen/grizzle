@@ -32,7 +32,7 @@ layer(Substrate.layer)(
 				"teacher open-db opened",
 				"teacher read rows",
 				"teacher saw rows of its world",
-				"teacher apply applied",
+				"teacher write accepted",
 				"teacher apply outside-world",
 				"teacher apply invariant-rejected"
 			],
@@ -51,7 +51,7 @@ layer(Substrate.layer)(
 				"school_admin open-db opened",
 				"school_admin read rows",
 				"school_admin saw rows of its world",
-				"school_admin apply applied",
+				"school_admin write accepted",
 				"school_admin apply outside-world",
 				"school_admin apply invariant-rejected"
 			],

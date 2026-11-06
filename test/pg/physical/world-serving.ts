@@ -24,6 +24,9 @@
  *   it: a call of the filter function, or a membership reading no other relation. PostgreSQL counts the buffers a
  *   function reads in the node that calls it, so the statement may touch no more than the bound of its own scans and,
  *   for each entry its scan of T matched, the bound of the filter function's body at that row;
+ * - a read through the entry's view: as the role, T's middle row asked for by its key through the role's view of the
+ *   entry, as a workload program over the role reads it, judged as the policy row: the view's filter is the entry's
+ *   membership, so a key's equality pushed past it reads T by its key, and the filter's call is bounded as above;
  * - a precheck: as the role, the statement grizzle's write compiler builds to judge an insert of one fact into a
  *   witness's entry (write/entry/precheck.ts buildEntryCheck), bound as db.apply binds it, reading no more than its
  *   own scans and the bound of each world function it calls at the fact's values: the filter function, then each key
@@ -79,6 +82,7 @@ import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { type Installed, installMigrated } from "#test/support/install-migrate.ts"
 import { workloadOf } from "#test/support/installed.ts"
+import { roleNamesOf } from "#test/support/kernel/naming.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { spread } from "#test/support/plans.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
@@ -164,6 +168,7 @@ export type WorldServingFeature =
 	| "a unique probe that finds none"
 	| "a policy row calling the filter function"
 	| "a policy row of a membership reading no other relation"
+	| "a read through a narrowed entry's view calling the filter function"
 	| "a precheck calling the filter function"
 	| "a drawn entry's filter function"
 
@@ -861,6 +866,38 @@ const policyRow = (cx: Judging, entry: WorldEntry, row: Row, call: Option.Option
 	)
 
 /**
+ * A read through the entry's view (see the header): T's middle row asked for by its key through the view of the role's
+ * world, as the role, as a workload program over the role reads the entry: the view's filter judges each entry its
+ * scan of T matched, so the statement's buffers are bound by its scans' and, per entry, the filter function's body at
+ * that row (`call`, none for a membership reading no other relation).
+ */
+const viewRow = (cx: Judging, entry: WorldEntry, row: Row, call: Option.Option<Reading>) =>
+	asRole(cx, entry, (run) =>
+		Effect.gen(function* () {
+			const target = entry.target
+			const label = `${entry.label}'s read through its view`
+			const names = roleNamesOf(cx.installed, entry.role)
+			const plan = yield* explained(
+				run,
+				label,
+				`SELECT 1 FROM ${names.view(entry.entry)} WHERE ${Arr.join(
+					Arr.map(target.key, (f, at) => `${names.column(entry.entry, f)} = $${at + 1}`),
+					" AND "
+				)}`,
+				Arr.map(target.key, (f) => defined(row[f], `${target.name}.${f}`))
+			)
+			const each = Option.match(call, { onNone: () => 0, onSome: (r) => r.bound })
+			return readingOf(
+				cx,
+				label,
+				plan,
+				noInputs,
+				Option.some(entriesOf(cx, target.name, plan) * each)
+			)
+		})
+	)
+
+/**
  * A precheck (see the header): the statement grizzle's write compiler builds to judge an insert of `fact` into the
  * entry, compiled for the role and the claims' contexts, bound as db.apply binds it, run as the role after the carriers
  * it reads, its buffers bound by its scans' and `calls`, the bounds of the world functions it calls at the fact.
@@ -1236,6 +1273,16 @@ export const judgeCase = (
 					? "a policy row calling the filter function"
 					: "a policy row of a membership reading no other relation"
 			)
+			const viewed = yield* viewRow(
+				cx,
+				entry,
+				args.row,
+				Option.map(filterAtRow, ([, reading]) => reading)
+			)
+			appendAll(problems, viewed.problems)
+			if (Option.isSome(entry.filter)) {
+				note("a read through a narrowed entry's view calling the filter function")
+			}
 			for (const fact of Option.toArray(args.fact)) {
 				const calls = Arr.reduce(
 					readingAt(entry, "fact"),

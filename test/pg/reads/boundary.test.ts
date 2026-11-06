@@ -55,8 +55,10 @@ import { withLayer } from "#test/support/with-layer.ts"
  * - execute, get and page of live queries with live parameters: an answer, sent on the wire;
  * - the same with a wild parameter value: an answer where the codec admits the value, ReadError{stage: "encode"} naming
  *   the parameter otherwise;
- * - a wild query, get target or page request: ReadError{stage: "compile"}, ReadError{stage: "request"} or a
- *   CursorError; a wild query's compile refusal carries the CompileError compile refuses the same value with;
+ * - a wild query or get target: always ReadError{stage: "compile"}, disposed or not, no wild value being a value the
+ *   builders made, a wild query's a MalformedDescription that db.compile refuses the same value with; a wild page
+ *   request: ReadError{stage: "request"} or a CursorError, or an answer for a value the request contract admits, whose
+ *   exact verdict is the unit boundary suite's (test/unit/adapter/boundary.test.ts);
  * - a stale query, built over a schema whose content is no level of the installed one the Db admitted (the worked
  *   example with one relation more): ReadError{stage: "compile"}; and a stale cursor, from a page of another query: a
  *   CursorError;
@@ -358,8 +360,9 @@ const wildParam = (
 	})
 
 /**
- * A wild query: an answer, or a compile refusal. db.compile refuses the same value too: no wild value is a value the
- * builders made, so it refuses it at its own boundary, by identity, before it reads the value, a MalformedDescription.
+ * A wild query: no wild value is a value the builders made, so the read refuses it at compile, before any SQL and
+ * whether or not the pool is disposed, a MalformedDescription; and db.compile refuses the same value at its own
+ * boundary, by identity, before it reads the value, a MalformedDescription too.
  */
 const wildQuery = (real: Subject, wildValue: Wild): Effect.Effect<void> =>
 	Effect.gen(function* () {
@@ -367,8 +370,13 @@ const wildQuery = (real: Subject, wildValue: Wild): Effect.Effect<void> =>
 			real.reader.execute(q, {})
 		)
 		if (!(error instanceof ReadFailure && error.reason._tag === "CompileError")) {
-			return
+			return assert.fail(`a wild query is read: ${Formatter.format(error)}`)
 		}
+		assert.equal(
+			error.reason.reason._tag,
+			"MalformedDescription",
+			"the read refuses it as no query"
+		)
 		const compiled = yield* Effect.exit(
 			real.reader.compile(value).pipe(Scope.provide(real.handleScope))
 		)
@@ -447,8 +455,16 @@ const stepsOf = (real: Subject): Real<Model, BoundaryParameters, never, never, n
 		),
 	"get target(wild)": (w) =>
 		Effect.as(
-			Effect.asVoid(
-				wildCall(real, "get target", w, ["compile"], (value) => real.reader.get(value, { id: t1 }))
+			Effect.flatMap(
+				wildCall(real, "get target", w, ["compile"], (value) => real.reader.get(value, { id: t1 })),
+				({ error }) =>
+					Effect.sync(() => {
+						assert.equal(
+							refusalOf(error),
+							"compile",
+							`no wild value is a relation to get: ${Formatter.format(error)}`
+						)
+					})
 			),
 			took
 		),

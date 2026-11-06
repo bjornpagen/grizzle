@@ -207,7 +207,7 @@ export const page = writer.page(ordered, { account: accountId }, { first: 10 })
 export type PageNode = Expect<
 	Equals<Effect.Success<typeof page>, Page<{ readonly id: Uuid }, typeof ordered>>
 >
-// @ts-expect-error -- TS2741: page takes an ordered query
+// @ts-expect-error -- TS2345 refusal: page needs an ordered query
 export const unorderedPage = writer.page(tasksForAccount, { account: accountId }, { first: 10 })
 
 /** The apply reader: only ChangeSets within the role's write list typecheck. */

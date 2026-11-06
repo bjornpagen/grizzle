@@ -49,8 +49,10 @@ import {
 } from "#compiler/deploy/render/folder.ts"
 import { generateMigration } from "#compiler/deploy/render/generate.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
-import { assert, assertVariant, defined, succeeded } from "#test/support/assert.ts"
-import * as work from "#test/support/fixtures/ir/work.ts"
+import { closedId } from "#compiler/public/fields.ts"
+import { closed, schema } from "#compiler/public/schema.ts"
+import { str } from "#compiler/public/text.ts"
+import { assert, assertVariant, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import {
@@ -61,7 +63,6 @@ import {
 	fromEmpty,
 	noDeclarations
 } from "#test/support/migrate/kit.ts"
-import { plansRepriced } from "#test/unit/deploy/schemas.ts"
 
 import { regex } from "arkregex"
 /** A migration folder's name, its files' names and its meta.json, generated: each reader accepts exactly what its
@@ -149,6 +150,49 @@ const fileOrdinalOracle = (name: string): number | undefined => {
 	}
 	const n = Number(digits)
 	return n > 0 ? n : undefined
+}
+
+/** The refined payloads a closed relation's rows draw. */
+const slugs = ["free", "pro-plan", "team", "x1"] as const
+type Slug = (typeof slugs)[number]
+
+/** Tier's handles, in their codes' order: a history appends, never reorders. */
+const tierHandles = ["Free", "Pro", "Team"] as const
+
+/** The labels of Tier's handles before and after a migration: a payload changed, a handle appended, or both. */
+interface Labels {
+	readonly before: ReadonlyArray<Slug>
+	readonly after: ReadonlyArray<Slug>
+}
+
+type LabelFeature = "a refined payload changed alone" | "a handle appended" | "both at once"
+
+const labelsGen: Gen<Labels> = (source) => {
+	const before = [source.draw(element(slugs)), source.draw(element(slugs))]
+	const relabeled = Arr.map(before, (label) =>
+		source.draw(boolean) ? source.draw(element(slugs)) : label
+	)
+	const grown = source.draw(boolean)
+	const after = grown ? [...relabeled, source.draw(element(slugs))] : relabeled
+	const same = !grown && Arr.every(Arr.zip(before, after), ([a, b]) => a === b)
+	return {
+		before,
+		after: same ? [...after, source.draw(element(slugs))] : after
+	}
+}
+
+/** A schema of Tier and TierLabel, a closed relation whose refined payload a slug is, each handle's label `labels`. */
+const labelSchema = (labels: ReadonlyArray<Slug>) => {
+	const Slug = str.regex("^[a-z][a-z0-9-]*$")
+	const handles = nonEmpty(Arr.take(tierHandles, labels.length), "Tier's handles")
+	const Tier = closed("Tier", handles)
+	const TierLabel = closed.relation(
+		"TierLabel",
+		{ tier: closedId(Tier), label: Slug },
+		["tier"],
+		Arr.map(handles, (tier, i) => ({ tier, label: defined(labels[i], "a handle's label") }))
+	)
+	return schema("Labels", { Tier, TierLabel }, [])
 }
 
 describe("migration folders, generated", () => {
@@ -276,27 +320,71 @@ describe("migration folders, generated", () => {
 			)
 	)
 
-	it("derives a folder name for a draft whose first change is the refined constants' validation", () => {
-		const first = defined(
-			draftChain(
-				[{ desc: work.PlansDesc, options: asDrafted, declared: noDeclarations }],
-				fromEmpty
-			)[0]
-		)
-		/** The name is generate's own: undefined asks it to derive one. */
-		const g = succeeded(
-			generateMigration({
-				previous: first.snapshot,
-				installation: compile(plansRepriced(), asDrafted),
-				workload: noWorkload,
-				declared: noDeclarations,
-				naming: { kind: "derived" },
-				timestamp: draftedAt(2),
-				abandoned: []
-			})
-		)
-		assert.ok(isFolderName(g.folder.name), g.folder.name)
-	})
+	it.effect(
+		"names a draft after its first change, a closed relation's refined payload changed or a handle appended, in a folder's name",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/deploy/folder-derived-names",
+						draw: drawn(labelsGen),
+						literal: Formatter.format,
+						oracle: {
+							kind: "specification",
+							name: "the derived name's rule: its change's verb and words, or update, in the folder grammar's words"
+						},
+						coverage: required<LabelFeature>(
+							["a refined payload changed alone", "a handle appended", "both at once"],
+							{ cases: 100, sense: notesOnly }
+						),
+						kept: [],
+						runs: 60,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang
+					},
+					(l, c) =>
+						Effect.sync(() => {
+							const changed = Arr.some(l.before, (label, i) => l.after[i] !== label)
+							const grown = l.after.length > l.before.length
+							c.note(
+								changed && grown
+									? "both at once"
+									: grown
+										? "a handle appended"
+										: "a refined payload changed alone"
+							)
+							const first = defined(
+								draftChain(
+									[{ desc: labelSchema(l.before), options: asDrafted, declared: noDeclarations }],
+									fromEmpty
+								)[0]
+							)
+							const g = succeeded(
+								generateMigration({
+									previous: first.snapshot,
+									installation: compile(labelSchema(l.after), asDrafted),
+									workload: noWorkload,
+									declared: noDeclarations,
+									naming: { kind: "derived" },
+									timestamp: draftedAt(2),
+									abandoned: []
+								})
+							)
+							assert.equal(g.change, "schema")
+							const name = Str.slice(15)(g.folder.name)
+							assert.ok(isFolderName(g.folder.name), g.folder.name)
+							assert.ok(Str.startsWith(`${draftedAt(2)}_`)(g.folder.name), g.folder.name)
+							assert.ok(
+								name === "update" || regex("^(add|drop|change)_[a-z0-9_-]+$").test(name),
+								`${name} leads with its change's verb`
+							)
+						})
+				)
+			)
+	)
 })
 
 /** What a meta.json value is short of.

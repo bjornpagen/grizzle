@@ -36,7 +36,7 @@ import { droppedNames, nonexistentNames } from "#test/support/worlds/invalid/rol
 import { nameableFacts } from "#test/support/worlds/model/draws.ts"
 import { classifyEntry, entryRows, factKey } from "#test/support/worlds/model/host.ts"
 import { parametersOf } from "#test/support/worlds/model/session/direct.ts"
-import { draftedFrom, samePlain } from "#test/support/worlds/model/session/state.ts"
+import { draftedFrom, factsIn, samePlain } from "#test/support/worlds/model/session/state.ts"
 import {
 	claimFixedFields,
 	serialHead,
@@ -229,7 +229,48 @@ const eachChoice = (
 	])
 }
 
-/** A role's claims in the box: each choice of its contexts' fields, and the payload stating a choice. */
+/**
+ * The claims stored facts state together: for each fact of the reality meeting at least two of the claim heading's
+ * fields, each field at a value the fact holds in its domain, each such value in turn, a field the fact holds none of
+ * at its value in `first`. A user's token claims values one row holds together, as an administrator's account beside
+ * the school it administers, which varying one field at a time from the first values (eachChoice) seldom meets.
+ */
+const jointChoices = (
+	state: ModelState,
+	heading: ReadonlyArray<FieldSpec>,
+	first: HostFact
+): ReadonlyArray<HostFact> =>
+	Arr.flatMap(state.install.base.relations, (relation) =>
+		Arr.flatMap(factsIn(state.reality, relation.name), (fact): ReadonlyArray<HostFact> => {
+			const held = Arr.map(heading, (claim) => ({
+				claim,
+				values: distinctValues(
+					Arr.flatMap(relation.fields, (f): ReadonlyArray<HostValue> => {
+						const value = fact[f.name]
+						return value !== undefined && sameDomain(f.domain, claim.domain) ? [value] : []
+					})
+				)
+			}))
+			const unclaimed: ReadonlyArray<HostFact> = [{}]
+			return Arr.filter(held, (h) => h.values.length > 0).length < 2
+				? []
+				: Arr.reduce(held, unclaimed, (partial, { claim, values }) =>
+						Arr.flatMap(partial, (p) =>
+							Arr.map(
+								values.length > 0
+									? values
+									: Arr.fromOption(Option.fromUndefinedOr(first[claim.name])),
+								(value): HostFact => ({ ...p, [claim.name]: value })
+							)
+						)
+					)
+		})
+	)
+
+/**
+ * A role's claims in the box: each choice of its contexts' fields, varied one at a time (eachChoice) and as stored
+ * facts state them together (jointChoices), and the payload stating a choice.
+ */
 interface ClaimsBox {
 	readonly contexts: ReadonlyArray<ContextSpec>
 	readonly facts: ReadonlyArray<HostFact>
@@ -243,7 +284,11 @@ const claimsBox = (state: ModelState, role: RoleSpec, scope: SmallScope): Claims
 	const contexts = contextsRead(state.install.base, role).slice(0, Math.max(1, scope.contexts))
 	const fields = Arr.flatMap(contexts, (c) => Arr.map(c.fields, (f) => ({ context: c, field: f })))
 	const heading = Arr.map(fields, (x, i): FieldSpec => ({ name: `${i}`, domain: x.field.domain }))
-	const facts = eachChoice(heading, (f) => valuesFor(state, f.domain, scope))
+	const choices = eachChoice(heading, (f) => valuesFor(state, f.domain, scope))
+	const facts = distinctFacts([
+		...choices,
+		...Arr.flatMap(Arr.take(choices, 1), (first) => jointChoices(state, heading, first))
+	])
 	const payloadOf = (
 		fact: HostFact,
 		absent: ReadonlySet<string>

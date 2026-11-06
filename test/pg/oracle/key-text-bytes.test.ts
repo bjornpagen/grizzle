@@ -234,7 +234,6 @@ layer(Substrate.layer)(
 							literal: Formatter.format,
 							coverage: required<BytesFeature>(
 								[
-									"tight budget",
 									"text first",
 									"text last",
 									"text between",

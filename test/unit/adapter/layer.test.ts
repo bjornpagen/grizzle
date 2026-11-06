@@ -16,6 +16,7 @@ import {
 } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
+import { uuid as uuidValue } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
 import {
 	Array as Arr,
@@ -32,7 +33,13 @@ import {
 import pgDriver from "pg"
 import { type StartupVariable, startupVariableNames } from "#adapter/connection/environment.ts"
 import { OpenError } from "#adapter/errors/execution.ts"
-import { ConnectionEnvironmentRefused, DbConfigRefused } from "#adapter/errors/failures.ts"
+import {
+	ClaimRefused,
+	ConnectionEnvironmentRefused,
+	DbConfigRefused,
+	TokenError
+} from "#adapter/errors/failures.ts"
+import { Db } from "#adapter/public/db.ts"
 import { DbLayer } from "#adapter/public/layer.ts"
 import type { DbConfigShape } from "#adapter/types/layer.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
@@ -42,6 +49,7 @@ import { context, login, relation, role, schema } from "#compiler/public/schema.
 import { assert, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { atDeclaredName, installationOf } from "#test/support/kernel/naming.ts"
 import { caseHang, nodeTimerMax, nodeTimerMin } from "#test/support/limits.ts"
+import { memoryEndpoint, memoryTransport, tlsMaterial } from "#test/support/memory-tls.ts"
 import { fromEmpty, generate, noDeclarations } from "#test/support/migrate/kit.ts"
 import {
 	processEnvironment,
@@ -51,6 +59,7 @@ import {
 	variableGen
 } from "#test/support/process-env.ts"
 import { snapshotJson } from "#test/support/snapshot-json.ts"
+import { withLayer } from "#test/support/with-layer.ts"
 
 /**
  * DbLayer.make parses its DbConfig once, where it is given (packages/grizzle/src/adapter/pool/registry.ts, connection/config.ts), and a
@@ -442,6 +451,163 @@ type EnvironmentFeature =
 	| "built with a variable empty"
 	| "built beside a variable grizzle sets"
 
+/**
+ * Db.open judges the token before it connects (adapter/db/open.ts): with a token, the layer's verify runs on it once,
+ * and its refusal, or anything it throws instead of returning its Effect, is OpenError{stage: "token"} whose reason is
+ * a TokenError, the throw its cause; the payload it returns is decoded through the contexts the role reads, Session's
+ * one uuid claim `sub` read from the payload's top level, and a payload that is no object, lacks the claim or holds a
+ * value its field refuses is ClaimRefused naming the fault. Every such refusal comes before any connection: the
+ * transport opens no socket. A Db opened with a token whose claims decode passes the token stage and meets the server: here a memory endpoint that ends every connection once TLS is up, so the open fails at a
+ * connection's stage, having opened a socket.
+ *
+ * The oracle is the README's order of Db.open's stages (role, schema, token, then the connection's) and its table of
+ * their reasons, restated over the drawn verify and payload.
+ */
+/** A memory endpoint that ends every connection as soon as its TLS is up, its sockets counted by the case. */
+const closingMaterial = tlsMaterial("closing.grizzle.test")
+
+type Thrown = "an Error" | "a TypeError" | "a RangeError" | "an Error with a cause"
+
+type Payload =
+	| { readonly kind: "a claim of sub"; readonly sub: string; readonly more: boolean }
+	| { readonly kind: "no sub" }
+	| {
+			readonly kind: "a sub its field refuses"
+			readonly value: "a text" | "a number" | "null" | "a boolean"
+	  }
+	| {
+			readonly kind: "no object"
+			readonly value: "a text" | "a number" | "a list" | "null" | "undefined"
+	  }
+
+type VerifyBehaviour =
+	| { readonly kind: "refuses" }
+	| { readonly kind: "throws"; readonly thrown: Thrown }
+	| { readonly kind: "returns"; readonly payload: Payload }
+
+interface TokenCase {
+	readonly token: string
+	readonly verify: VerifyBehaviour
+}
+
+const payloadGen: Gen<Payload> = oneOf<Payload>([
+	(source) => ({
+		kind: "a claim of sub",
+		sub: source.draw(uuidValue(4)),
+		more: source.draw(boolean)
+	}),
+	constant({ kind: "no sub" }),
+	(source) => ({
+		kind: "a sub its field refuses",
+		value: source.draw(element(["a text", "a number", "null", "a boolean"] as const))
+	}),
+	(source) => ({
+		kind: "no object",
+		value: source.draw(element(["a text", "a number", "a list", "null", "undefined"] as const))
+	})
+])
+
+const tokenCaseGen: Gen<TokenCase> = (source) => ({
+	token: source.draw(textGen),
+	verify: source.draw(
+		weighted<VerifyBehaviour>([
+			[1, constant({ kind: "refuses" })],
+			[
+				1,
+				(inner) => ({
+					kind: "throws",
+					thrown: inner.draw(
+						element<Thrown>(["an Error", "a TypeError", "a RangeError", "an Error with a cause"])
+					)
+				})
+			],
+			[4, (inner) => ({ kind: "returns", payload: inner.draw(payloadGen) })]
+		])
+	)
+})
+
+/** The error a verify that throws throws. */
+const thrownValue = (thrown: Thrown): Error => {
+	switch (thrown) {
+		case "an Error":
+			return new Error("the verifier's own failure")
+		case "a TypeError":
+			return new TypeError("the verifier read the token as something it is not")
+		case "a RangeError":
+			return new RangeError("the verifier's clock is out of range")
+		case "an Error with a cause":
+			return new Error("the verifier's key could not be fetched", { cause: { status: 503 } })
+	}
+}
+
+/** The payload a verify returns. */
+const payloadValue = (payload: Payload): unknown => {
+	switch (payload.kind) {
+		case "a claim of sub":
+			return payload.more ? { sub: payload.sub, exp: 1, other: "claim" } : { sub: payload.sub }
+		case "no sub":
+			return { subject: "user_1" }
+		case "a sub its field refuses":
+			switch (payload.value) {
+				case "a text":
+					return { sub: "user_1" }
+				case "a number":
+					return { sub: 7 }
+				case "null":
+					return { sub: null }
+				case "a boolean":
+					return { sub: true }
+			}
+		case "no object":
+			switch (payload.value) {
+				case "a text":
+					return "sub"
+				case "a number":
+					return 7
+				case "a list":
+					return [{ sub: "00000000-0000-4000-8000-000000000001" }]
+				case "null":
+					return null
+				case "undefined":
+					return undefined
+			}
+	}
+}
+
+/** What the README's stages say a case's Db.open meets. */
+type TokenVerdict =
+	| { readonly kind: "TokenError" }
+	| { readonly kind: "ClaimRefused"; readonly fault: ClaimRefused["fault"] }
+	| { readonly kind: "a connection's stage" }
+
+const tokenVerdict = (c: TokenCase): TokenVerdict => {
+	const verify = c.verify
+	switch (verify.kind) {
+		case "refuses":
+		case "throws":
+			return { kind: "TokenError" }
+		case "returns": {
+			const payload = verify.payload
+			switch (payload.kind) {
+				case "a claim of sub":
+					return { kind: "a connection's stage" }
+				case "no sub":
+					return { kind: "ClaimRefused", fault: { kind: "missing", field: "sub" } }
+				case "a sub its field refuses":
+					return { kind: "ClaimRefused", fault: { kind: "refused", field: "sub" } }
+				case "no object":
+					return { kind: "ClaimRefused", fault: { kind: "notAnObject" } }
+			}
+		}
+	}
+}
+
+type TokenFeature =
+	| "verify refuses"
+	| `verify throws ${Thrown}`
+	| `refused ${ClaimRefused["fault"]["kind"]}`
+	| "claims decoded"
+
 describe("DbLayer.make", () => {
 	it.live(
 		"builds every valid config, and refuses every fault injected into one at stage config, naming it",
@@ -599,6 +765,119 @@ describe("DbLayer.make", () => {
 							if (options.kind === "text") {
 								k.note("refused PGREPLICATION beside PGOPTIONS set")
 							}
+						})
+				)
+			)
+	)
+	it.live(
+		"judges a token at stage token before any connection: verify's refusal or throw a TokenError, a payload that does not decode a ClaimRefused",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/adapter/layer-token",
+						draw: drawn((source) => [source.draw(drawnGen), source.draw(tokenCaseGen)] as const),
+						literal: Formatter.format,
+						oracle: {
+							kind: "specification",
+							name: "the README's order of Db.open's stages and their reasons, over the drawn verify and payload"
+						},
+						coverage: required<TokenFeature>(
+							[
+								"verify refuses",
+								"verify throws an Error",
+								"verify throws a TypeError",
+								"verify throws a RangeError",
+								"verify throws an Error with a cause",
+								"refused notAnObject",
+								"refused missing",
+								"refused refused",
+								"claims decoded"
+							],
+							{ cases: 300, sense: notesOnly }
+						),
+						kept: [],
+						runs: 150,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang
+					},
+					([d, c], k) =>
+						Effect.gen(function* () {
+							let verified = 0
+							let opened = 0
+							const thrown: Array<Error> = []
+							const refusal = new TokenError({ cause: "the verifier refused the token" })
+							const verify = (): Effect.Effect<unknown, TokenError> => {
+								verified++
+								const behaviour = c.verify
+								switch (behaviour.kind) {
+									case "refuses":
+										return Effect.fail(refusal)
+									case "throws": {
+										const error = thrownValue(behaviour.thrown)
+										thrown.push(error)
+										throw error
+									}
+									case "returns":
+										return Effect.succeed(payloadValue(behaviour.payload))
+								}
+							}
+							const open = memoryEndpoint(closingMaterial, (secure) => {
+								secure.destroy()
+							})
+							const config: DbConfigShape<typeof Claiming> = {
+								...d.config,
+								login: Claiming,
+								verify,
+								transport: memoryTransport(closingMaterial, () => {
+									opened++
+									return open()
+								})
+							}
+							const exit = yield* Effect.exit(
+								Db.open(Claiming.roles.owner, { token: c.token }).pipe(
+									withLayer(DbLayer.make(config)),
+									Effect.scoped
+								)
+							)
+							assert.ok(Exit.isFailure(exit), "the endpoint ends every connection, so no Db opens")
+							const error = Cause.squash(exit.cause)
+							assert.ok(error instanceof OpenError, String(error))
+							assert.equal(verified, 1, "verify runs once on the token")
+							const verdict = tokenVerdict(c)
+							switch (verdict.kind) {
+								case "a connection's stage":
+									assert.ok(
+										Arr.contains(["credential", "tls", "authentication", "connect"], error.stage),
+										`past the token stage, at ${error.stage}`
+									)
+									assert.ok(opened > 0, "the open met the server")
+									k.note("claims decoded")
+									return
+								case "TokenError":
+									assert.equal(error.stage, "token")
+									assert.ok(error.reason instanceof TokenError, String(error.reason))
+									if (c.verify.kind === "throws") {
+										assert.deepEqual([error.reason.cause], thrown, "the throw is its cause")
+										k.note(`verify throws ${c.verify.thrown}`)
+									} else {
+										assert.ok(error.reason === refusal, "verify's own TokenError")
+										k.note("verify refuses")
+									}
+									break
+								case "ClaimRefused":
+									assert.equal(error.stage, "token")
+									assert.deepEqual(
+										error.reason,
+										new ClaimRefused({ context: "Session", fault: verdict.fault })
+									)
+									k.note(`refused ${verdict.fault.kind}`)
+									break
+							}
+							assert.equal(opened, 0, "a refused token opens no socket")
 						})
 				)
 			)

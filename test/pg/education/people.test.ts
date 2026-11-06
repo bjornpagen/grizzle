@@ -31,7 +31,7 @@ layer(Substrate.layer)(
 				"student open-db opened",
 				"student read rows",
 				"student saw rows of its world",
-				"student apply applied",
+				"student write accepted",
 				"student apply outside-world"
 			],
 			properties: [{ kind: "world", role: "student" }, { kind: "witnesses" }, { kind: "reach" }]

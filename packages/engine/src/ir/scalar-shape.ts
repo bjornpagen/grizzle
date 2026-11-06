@@ -134,9 +134,12 @@ const capabilitySetShape: S.Shape<CapabilitySet> = S.refine(
 )
 
 const numericBoundShape: S.Shape<NumericBound> = S.refine(
-	S.struct({ digits: S.nonNegativeInteger, scale: S.nonNegativeInteger }),
-	(b) => b.digits <= numericMaxIntegerDigits.value && b.scale <= numericMaxFractionDigits.value,
-	`a computed numeric's bound: at most ${numericMaxIntegerDigits.value} integer and ${numericMaxFractionDigits.value} fraction digits`
+	S.struct({ digits: S.integer, scale: S.nonNegativeInteger }),
+	(b) =>
+		b.digits >= -numericMaxFractionDigits.value &&
+		b.digits <= numericMaxIntegerDigits.value &&
+		b.scale <= numericMaxFractionDigits.value,
+	`a computed numeric's bound: from ${-numericMaxFractionDigits.value} to ${numericMaxIntegerDigits.value} integer digits and at most ${numericMaxFractionDigits.value} fraction digits`
 )
 
 const typmodShape: S.Shape<WireTypmod> = S.structStated(

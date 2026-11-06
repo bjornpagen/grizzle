@@ -93,7 +93,12 @@ import {
 	sameScalarType,
 	typeLabel
 } from "#compiler/ir/scalar.ts"
-import { type AggregateOverload, countOverload, unaryOverload } from "#compiler/scalar/aggregate.ts"
+import {
+	type AggregateOverload,
+	countOverload,
+	returnsInput,
+	unaryOverload
+} from "#compiler/scalar/aggregate.ts"
 import { bareLiteralKind } from "#compiler/scalar/compute/literal.ts"
 import {
 	type ClosedRelations,
@@ -103,6 +108,7 @@ import {
 	type LowerParams,
 	loweredOf,
 	lowerPredicate,
+	lowerReturned,
 	lowerTerm,
 	noClosedRelations,
 	type ParamRef
@@ -3637,7 +3643,10 @@ class RuleCheck {
 		if (head.fn === "count") {
 			return { overload: countOverload(), call: { fn: "count", args: [] } }
 		}
-		const arg = unwrap(lowerTerm(head.arg, this.env(groupInput.id, at, "value")))
+		const env = this.env(groupInput.id, at, "value")
+		const arg = unwrap(
+			returnsInput[head.fn] ? lowerReturned(head.arg, env) : lowerTerm(head.arg, env)
+		)
 		const overload = unwrap(unaryOverload(head.fn, arg.expr.type, at))
 		return { overload, call: { fn: overload.fn, args: [arg.expr] } }
 	}

@@ -115,9 +115,6 @@ const plansWith = (budget: FieldDesc, pro: bigint): SchemaDesc => ({
 	)
 })
 
-/** The worked example's Plans with Pro's budget changed and the handles unchanged. */
-export const plansRepriced = (): SchemaDesc => plansWith(work.CentsDesc, 2000n)
-
 /** The worked example's Plans with TierBudget's budget a plain bigint and Pro's budget `pro`: a payload no refinement
  * constrains, so a change to it has nothing to validate. */
 export const plainPlans = (pro: bigint): SchemaDesc => plansWith(f.bigint, pro)

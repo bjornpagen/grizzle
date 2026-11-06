@@ -114,7 +114,7 @@ layer(Substrate.isolatedLayer, { excludeTestServices: true })(
 									const world = yield* realize(pc.install, pc.ambient)
 									noteNaming(pc, c)
 									const staged = yield* stage(world, pc.install, c.draw, drawnRealities)
-									yield* driveProgram(staged, pc, c, noCheck)
+									yield* driveProgram(staged, pc, c, situations, noCheck)
 								})
 							)
 					)

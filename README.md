@@ -912,7 +912,7 @@ run `grizzle generate` again.
 | ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
 | `relation(...)`                             | a table, every column NOT NULL, with its primary key                                                                          |
 | `str.regex(...)`, `contract(...)`           | a domain whose CHECK every writer meets, one domain for each distinct definition                                             |
-| `closed(...)`                               | a smallint domain that admits each live handle's code, over the roster's names, an IMMUTABLE function returning them as `name[]`; where a `bits(...)` field is over the roster, a `bit(n)` domain that admits only live handles |
+| `closed(...)`                               | a smallint domain that admits each live handle's code, over the roster's names, an IMMUTABLE function returning them as `name[]`; where a `bits(...)` field is over the roster, a `bit(n)` domain, n its codes rounded up to whole hex digits, that admits only live handles |
 | `closed.relation(...)`                      | no table: one content-addressed IMMUTABLE constant for each closed relation or side a rule or query reads, with its owners' bases and counts where its key holds slots, and a table CHECK for each rule that reads one from an open row |
 | a rule: `contained`, `key`, `check`, ...    | a foreign key, unique key, no-overlap key or CHECK, over STORED generated columns where a side selects rows or reads `pred`, and never a trigger |
 | a family: `ordered`, `counted`, `tree`, `fold` | the drawn and accumulated fields grizzle fills on every write, hidden columns beside them, and the keys, CHECKs and foreign keys that prove each value it fills |
@@ -1322,7 +1322,7 @@ becomes one PostgreSQL schema.
 | `pg.smallserial`, `pg.serial`, `pg.bigserial`      | an identity column                            | `number`, `number`, `bigint`                                        |
 | `str.regex(pattern, flags?)`                       | text, behind a domain that checks the pattern | the pattern's language: `string`, or `"yes" \| "no"` for `^(yes\|no)$` |
 | `closedId(X)`, for `X = closed("X", [...])`        | smallint, behind the roster's domain           | the union of its names                                              |
-| `bits(X)`, a set of `X`'s handles                  | bit(n), behind a domain that holds only live handles | `Bits<typeof X>`, a `ReadonlySet` of its names, `Bits.of(X, [...])` |
+| `bits(X)`, a set of `X`'s handles                  | bit(n), n `X`'s codes rounded up to whole hex digits, behind a domain that holds only live handles | `Bits<typeof X>`, a `ReadonlySet` of its names, `Bits.of(X, [...])` |
 | `contract(name, base, check?)`                     | a domain with that CHECK                      | the base type, branded with the name                                |
 | `span(pg.integer)`, over integer or bigint         | a range                                       | `{ start, end }`, start included, end excluded                      |
 | `pg.vector(n)`                                     | pgvector's vector(n)                          | `Vector`, a Float32Array                                            |
@@ -1351,8 +1351,10 @@ table stores codes, under a smallint domain that admits only a live handle's cod
 decoded column beside each closed id, `status_name`, so psql shows names. A handle is at most 63 UTF-8 bytes, the most a
 PostgreSQL `name` holds. Codes are history: a new handle is appended, a removed one leaves its code unused, and a
 reorder is refused ([Migrations](#migrations)). `bits(Status)` is a set of handles, a `bit(n)` with one bit per code,
-whose domain holds only live handles' bits; `Compute.union`, `.intersection`, `.difference`, `.cardinality`, `.subset`
-and `.disjoint` are its algebra, and there is no complement. A key holds no set: a set's bit string is too wide for an
+n rounded up to a whole number of hex digits, whose domain holds only live handles' bits and every bit past the last
+code at 0. grizzle writes a set in hex alone: `X'…'` cast to its domain in SQL, `X` and its hex digits as a
+parameter's text. `Compute.union`, `.intersection`, `.difference`, `.cardinality`, `.subset` and `.disjoint` are its
+algebra, and there is no complement: the complement of a set within its roster is the full set less it. A key holds no set: a set's bit string is too wide for an
 index entry.
 
 ### How a field is written
@@ -1426,15 +1428,12 @@ row whose slot is at or past its owner's count is refused when the installation 
 in a rule, a generated field or a query, finds nothing there, never another key's row. The key's reads are the ones
 above, unchanged: `Follow.row(version, parent, from)` is the set of `to` positions that follow, over `Position`.
 
-The migration lists a closed relation's rows, a line per row with the handles it holds, for a person to review. A
-relation whose rows a machine builds, and no person reviews, declares so:
-`closed.relation("Follow", fields, key, rows, { pack: "hex" })` states each of its constants as one bit-string
-literal, four bits a hex digit, under a comment of its row count and content digest, which `grizzle check` decodes and
-holds to that digest and to its function's name. Follow over 1,217,966 rows drafts a 507,520-byte pack and installs it
-in 35 ms, where its rows draft 65,419,623 bytes and install in 7 s. Either form installs one string, so a change of form
-replaces no constant: its migration installs nothing and records the form in `snapshot.json`. A constant two relations
-share is listed as rows where either declares rows, and the side a containment reads is stated as its relation
-declares.
+The migration states each of a closed relation's constants as one hex literal, `X'…'`, four bits a digit, its cells'
+bits padded with 0s to a whole digit, under a comment of its row count and content digest, which `grizzle check`
+decodes and holds to that digest and to its function's name: a changed digit, a lowercase one or a 1 in the padding
+is refused, naming the relation, the first cell where the literal parts from the declared rows and that cell's key.
+A constant two relations share is one literal. Follow over 1,217,966 rows drafts a 507,520-byte literal and installs
+it in 35 ms.
 
 ## Rules
 
@@ -2551,7 +2550,7 @@ workflows, whose rules are worth declaring and whose users see different slices 
   refused with `UnrepresentableKey` when the schema is compiled, naming the bytes each column is counted at, where
   PostgreSQL would refuse the first write that outgrew it (54000). A `Monoid.concat` fold's accumulators ride its family's axes, so they are text of a
   bounded pattern, such as `str.regex("^.{0,64}$", "su")`. A set an axis carries, an `or` or `twos` fold's, is its
-  roster's `bit(n)`, `n` every code the roster has minted, removed handles' included, so it is sized by the
+  roster's `bit(n)`, `n` every code the roster has minted, removed handles' included, rounded up to whole hex digits, so it is sized by the
   installation's codes when `generate`, `check` or `migrate` compiles it: a roster grown and pruned past about 21,000
   codes refuses the UNIQUE there.
 - **A concatenation is at most 1 GB.** `Compute.concat` builds its result, and PostgreSQL refuses one past
@@ -2590,15 +2589,12 @@ workflows, whose rules are worth declaring and whose users see different slices 
   ([Closed relations](#closed-relations)). A constant holds at most 2,147,483,640 bits, PostgreSQL's longest bit
   string, and a longer one is refused with `ResourceBound` when the schema is compiled, as is one whose payload fields'
   codes multiply past 2,147,483,647, the most a cell read as an integer holds.
-- **A closed relation's migration lists its rows unless it declares `pack: "hex"`, or they cannot fit one statement.**
-  Its constant is packed in the migration from one line per row, its cell and payload code with the handles it holds as
-  a comment, so a relation of a million rows drafts a file of tens of megabytes whatever its key's space; declare
-  `{ pack: "hex" }` where no person reviews the rows ([Closed relations](#closed-relations)). A pack whose statement
-  would pass 536,870,888 bytes, the lesser of PostgreSQL's longest message and V8's longest string, which the migration
-  file is built as, or whose DO block would EXECUTE a statement past 1,073,741,822 bytes, one PostgreSQL string buffer,
-  is stated as its hex literal whatever its relation declares. `grizzle check` decodes every literal pack and refuses
-  one its comment or its function's name does not digest, naming the first cell where it parts from the declared rows
-  and that cell's key.
+- **A closed relation's constant is one hex literal in its migration,** a digit per four bits of its key's code space
+  times its cell's bits, whatever its rows, so a sparse relation over a large product of rosters drafts a long file:
+  choose dense coordinates. A literal of more than 536,870,888 digits, V8's longest string, is refused with
+  `ResourceBound` (`stringLength`) when the schema is compiled. `grizzle check` decodes every literal and refuses one
+  its comment or its function's name does not digest, naming the first cell where it parts from the declared rows and
+  that cell's key.
 - **No interactive transactions, and no retries.** A transaction is one call; you retry `TransientFailure` yourself.
 - **One statement's parameters are at most 1,073,741,822 bytes**, PostgreSQL's longest message
   (`PQ_LARGE_MESSAGE_LIMIT`), and one input column's array literal at most 536,870,888 UTF-16 code units, V8's

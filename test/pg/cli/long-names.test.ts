@@ -1,28 +1,31 @@
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
-import { type Case, exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { element } from "@grizzle/testing/gen"
+import { type Case, drawn, explore } from "@grizzle/testing/explore"
+import { required } from "@grizzle/testing/features"
+import { array, boolean, codePoint, type Gen, option, string } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, FileSystem, Formatter, Layer, Order, Record as Rec } from "effect"
+import {
+	Array as Arr,
+	DateTime,
+	Effect,
+	FileSystem,
+	Formatter,
+	Layer,
+	Option,
+	Order,
+	Record as Rec,
+	String as Str
+} from "effect"
 import { Db } from "#adapter/public/db.ts"
 import { DbLayer } from "#adapter/public/layer.ts"
-import { maxOf } from "#compiler/core/array.ts"
 import { conversionOf, identity, maxIdentifierBytes } from "#compiler/core/identity.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
 import { trusted } from "#compiler/core/trusted.ts"
-import type { AnyLogin } from "#compiler/public/schema.ts"
-import { ledger, shopV1 } from "#test/pg/cli/fixture.ts"
-import {
-	cli,
-	cliClock,
-	configName,
-	ownerOn,
-	type SchemaSpec,
-	unconnected,
-	workspace,
-	writeConfig
-} from "#test/pg/cli/support.ts"
+import { uuid } from "#compiler/public/fields.ts"
+import { login, relation, role, schema } from "#compiler/public/schema.ts"
+import { defineConfig } from "#index.ts"
+import { cliOver, configName, connectionOf, ownerOn, workspace } from "#test/pg/cli/support.ts"
 import { assert } from "#test/support/assert.ts"
 import { readCatalog } from "#test/support/catalog/read.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
@@ -33,168 +36,203 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 import { testVerify, tokenOf } from "#test/support/worlds.ts"
 
-/** The clock the in-process command lines of this file read. */
-const nextNow = cliClock()
-
 /**
- * On PostgreSQL 19: a login's and its roles' PostgreSQL roles at the identifier limit, through the command line.
+ * On PostgreSQL 19: a login's and its roles' PostgreSQL roles at the identifier limit, through the command line,
+ * generated.
  *
  * A login's or role's PostgreSQL role is `<schema>__<name>` (core/identity.ts), which must fit 63 bytes: PostgreSQL
- * would cut a longer one, and Db.open would look for a role no migration created. For the shop and the ledger
- * (test/pg/cli/fixture.ts), each declared with its login under an allocated schema name (substrate/names.ts
- * uniqueSchemaNameOfLength) whose longest login or role role fills exactly 63 bytes, the loop a user runs, as the bin
- * runs it:
+ * would cut a longer one, and Db.open would look for a role no migration created. A case draws a login and one to
+ * three roles over one relation, each name lowercase words or camel case, which the naming door converts, so the
+ * longest PostgreSQL role is the login's or a role's; and a schema name (substrate/names.ts uniqueSchemaNameOfLength)
+ * whose longest role fills exactly 63 bytes, or one byte more. The rule is the oracle:
  *
- * - `grizzle generate` drafts the first migration into migrations/<schema>;
- * - `grizzle check` passes, and `grizzle migrate`, with the configuration's connection, applies it;
- * - the login's role and every role exist exactly as named, and Db.open of every role of the login, over the same
- *   schema value, logs in as the login's role and is admitted, its layer given the committed snapshot.
- *
- * Under a schema name one byte longer, `grizzle generate` refuses and drafts nothing.
+ * - at 63 bytes, `grizzle generate` drafts, `grizzle check` passes and `grizzle migrate`, with the configuration's
+ *   connection, applies it; the login's role and every role exist exactly as named, and Db.open of every role logs in
+ *   as the login's role and is admitted, its layer given the committed snapshot;
+ * - one byte past, `grizzle generate` refuses the name as too long and drafts nothing.
  */
-interface Fixture {
-	readonly label: FixtureLabel
-	readonly spec: (name: string) => SchemaSpec
-	/** The fixture's login over the schema declared under a name. */
-	readonly login: (name: string) => AnyLogin
+interface Names {
+	readonly login: string
+	readonly roles: Arr.NonEmptyReadonlyArray<string>
+	readonly past: boolean
 }
 
-/** The fixtures by name: what each case notes it ran. */
-type FixtureLabel = "shop" | "ledger"
+/** A declared name: lowercase letters, then maybe a capitalized word, which the naming door converts with `_`. */
+const nameGen: Gen<string> = (source) => {
+	const head = source.draw(string(codePoint(0x61, 0x7a), { min: 1, max: 10 }))
+	const tail = source.draw(option(string(codePoint(0x61, 0x7a), { min: 1, max: 6 })))
+	return Option.match(tail, {
+		onNone: () => head,
+		onSome: (t) => `${head}${Str.capitalize(t)}`
+	})
+}
 
-const fixtures: Arr.NonEmptyReadonlyArray<Fixture> = [
-	{
-		label: "shop",
-		spec: (name) => ({ name, fixture: "shop", version: 1, workload: "none" }),
-		login: (name) => shopV1(name, "none").server
-	},
-	{
-		label: "ledger",
-		spec: (name) => ({ name, fixture: "ledger" }),
-		login: (name) => ledger(name).server
+/** A name's PostgreSQL conversion, as `<schema>__<conversion>` ends. */
+const converted = (name: string): string => conversionOf(parsedName(name))
+
+/** The login's name and its roles' names, every conversion apart from every other. */
+const namesGen: Gen<Names> = (source) => {
+	const loginName = source.draw(nameGen)
+	const drawnRoles = source.draw(array(nameGen, { min: 1, max: 3 }))
+	const roles = Arr.reduce(drawnRoles, Arr.empty<string>(), (kept, name) =>
+		Arr.some([loginName, ...kept], (other) => converted(other) === converted(name))
+			? kept
+			: [...kept, name]
+	)
+	return {
+		login: loginName,
+		roles: Arr.isReadonlyArrayNonEmpty(roles) ? roles : [`${loginName}x`],
+		past: source.draw(boolean)
 	}
+}
+
+type LimitFeature =
+	| "the login's role the longest"
+	| "a role's role the longest"
+	| "a converted camel-case name"
+	| "at the limit"
+	| "one byte past"
+
+/** The longest conversion among the login's name and its roles' names. */
+const longest = (n: Names): number =>
+	Arr.reduce([n.login, ...n.roles], 0, (most, name) => Math.max(most, utf8Length(converted(name))))
+
+/** The world a case's names declare: one relation, each role reading it whole, every role in the login. */
+const worldOf = (declared: string, n: Names) => {
+	const base = schema(declared, { Item: relation("Item", { id: uuid }, ["id"]) }, [])
+	const roles = Arr.map(n.roles, (name) => role(base, name, base.relations))
+	return { schema: base, login: login(base, n.login, roles) }
+}
+
+const at = DateTime.makeUnsafe({
+	year: 2026,
+	month: 10,
+	day: 12,
+	hour: 12,
+	minute: 0,
+	second: 0,
+	millisecond: 0
+})
+
+const notesOf = (n: Names): ReadonlyArray<LimitFeature> => [
+	n.past ? "one byte past" : "at the limit",
+	utf8Length(converted(n.login)) === longest(n)
+		? "the login's role the longest"
+		: "a role's role the longest",
+	...(Arr.some([n.login, ...n.roles], (name) => Str.includes("_")(converted(name)))
+		? (["a converted camel-case name"] as const)
+		: [])
 ]
 
-/** Every fixture, by name: each case notes the fixture it ran. */
-const everyFixture = <E, R>(
-	suite: string,
-	property: (fixture: Fixture) => Effect.Effect<void, E, R>
-) =>
-	exhaust(
-		{
-			suite,
-			generator: element(fixtures),
-			literal: (fixture: Fixture) => Formatter.format(fixture.label),
-			limit: fixtures.length,
-			coverage: requiredInSpace<FixtureLabel>(["shop", "ledger"]),
-			caseHang
-		},
-		(fixture: Fixture, c: Case<FixtureLabel>) =>
-			Effect.tap(property(fixture), () => Effect.sync(() => c.note(fixture.label)))
-	)
-
-/** The longest conversion among a login's name and its roles' names, which do not depend on the schema's. */
-const longestRoleName = (fixture: Fixture): number => {
-	const login = fixture.login("probe")
-	return maxOf(
-		Arr.map([login.name, ...Rec.keys(login.roles)], (name) =>
-			utf8Length(conversionOf(parsedName(name)))
-		),
-		Number.NEGATIVE_INFINITY
-	)
-}
-
-/** The length of a schema name whose longest login or role role, `<schema>__<name>`, fills exactly 63 bytes. */
-const limitOf = (fixture: Fixture): number =>
-	maxIdentifierBytes.value - 2 - longestRoleName(fixture)
-
-const run = (dir: string, argv: ReadonlyArray<string>) => cli(dir, argv, nextNow())
-
-const installs = (fixture: Fixture) =>
-	Effect.gen(function* () {
-		const substrate = yield* Substrate
-		const declared = yield* substrate.schemaOfLength("gzlimit", limitOf(fixture))
-		const installation = identity.schema(parsedSchemaName(declared))
-		const installed = installation.identifier
-		const fs = yield* FileSystem.FileSystem
-		const dir = yield* workspace(`limit-${fixture.label}`)
-		yield* writeConfig(dir, {
-			schemas: [fixture.spec(declared)],
-			connection: ownerOn(substrate.database)
+const limitCase = (n: Names, c: Case<LimitFeature>) =>
+	Effect.scoped(
+		Effect.gen(function* () {
+			c.noteAll(notesOf(n))
+			const substrate = yield* Substrate
+			const length = maxIdentifierBytes.value - 2 - longest(n) + (n.past ? 1 : 0)
+			const declared = yield* substrate.schemaOfLength("gzlimit", length)
+			const installation = identity.schema(parsedSchemaName(declared))
+			const installed = installation.identifier
+			const world = worldOf(declared, n)
+			const fs = yield* FileSystem.FileSystem
+			const dir = yield* workspace("limit")
+			const config = defineConfig({
+				schemas: [world.schema],
+				logins: [world.login],
+				migrations: "migrations",
+				connection: connectionOf(substrate.cluster, ownerOn(substrate.database))
+			})
+			const run = (command: string) => cliOver(dir, config, [command, configName], at)
+			if (n.past) {
+				const ran = yield* run("generate")
+				const report = ran.report
+				assert.ok(
+					report.outcome === "refused" &&
+						report.refusal._tag === "CliError" &&
+						report.refusal.reason._tag === "DraftRefused" &&
+						report.refusal.reason.error.reason._tag === "RoleNameTooLong",
+					`generate refuses a role past the limit: ${ran.stderr}`
+				)
+				const drafted = yield* fs.exists(`${dir}/migrations/${installed}`)
+				assert.ok(!drafted, "generate drafts nothing")
+				return
+			}
+			for (const command of ["generate", "check", "migrate"]) {
+				const ran = yield* run(command)
+				assert.equal(ran.code, 0, `grizzle ${command}: ${ran.stderr}`)
+			}
+			const text = yield* fs.readFileString(`${dir}/migrations/${installed}/snapshot.json`)
+			const catalog = yield* readCatalog(substrate.admin, installed)
+			assert.equal(catalog.kind, "present", `the schema is installed as ${installed}`)
+			const loginRole = identity.login(installation, parsedName(n.login)).identifier
+			const roles = Arr.map(
+				n.roles,
+				(name) => identity.role(installation, parsedName(name)).identifier
+			)
+			assert.ok(
+				Arr.some([loginRole, ...roles], (r) => utf8Length(r) === maxIdentifierBytes.value),
+				"a role fills the identifier"
+			)
+			const heldRows = yield* substrate.admin.queryValues(
+				"SELECT r.rolname::text FROM pg_catalog.pg_roles AS r WHERE r.rolname = ANY ($1::text[]) ORDER BY 1",
+				[[loginRole, ...roles]]
+			)
+			assert.deepEqual(
+				Arr.map(trusted<ReadonlyArray<readonly [string]>>(heldRows), ([held]) => held),
+				Arr.sort([loginRole, ...roles], Order.String),
+				"every role exists exactly as named"
+			)
+			const credentials = yield* substrate.login(loginRole)
+			const dbLayer = DbLayer.make({
+				...clusterConnection(substrate.cluster, substrate.database, credentials.password),
+				pool: clusterPool,
+				login: world.login,
+				snapshot: snapshotJson(text),
+				verify: testVerify
+			})
+			for (const r of Rec.values(world.login.roles)) {
+				yield* Effect.scoped(Db.open(r, { token: tokenOf({}) })).pipe(withLayer(dbLayer))
+			}
 		})
-		for (const argv of [
-			["generate", configName],
-			["check", configName],
-			["migrate", configName]
-		] as const) {
-			const ran = yield* run(dir, argv)
-			assert.equal(ran.code, 0, `grizzle ${Arr.join(argv, " ")}: ${ran.stderr}`)
-		}
-		const snapshotFile = `${dir}/migrations/${installed}/snapshot.json`
-		const exists = yield* fs.exists(snapshotFile)
-		assert.ok(exists, `the migrations directory is named by the installed schema ${installed}`)
-		const text = yield* fs.readFileString(snapshotFile)
-		const snapshot = snapshotJson(text)
-		const catalog = yield* readCatalog(substrate.admin, installed)
-		assert.equal(catalog.kind, "present", `the schema is installed as ${installed}`)
-		const login = fixture.login(declared)
-		const loginRole = identity.login(installation, parsedName(login.name)).identifier
-		const roles = Arr.map(
-			Rec.keys(login.roles),
-			(name) => identity.role(installation, parsedName(name)).identifier
-		)
-		assert.ok(
-			Arr.some([loginRole, ...roles], (role) => utf8Length(role) === maxIdentifierBytes.value),
-			"a role fills the identifier"
-		)
-		const heldRows = yield* substrate.admin.queryValues(
-			"SELECT r.rolname::text FROM pg_catalog.pg_roles AS r WHERE r.rolname = ANY ($1::text[]) ORDER BY 1",
-			[[loginRole, ...roles]]
-		)
-		const held = trusted<ReadonlyArray<readonly [string]>>(heldRows)
-		assert.deepEqual(
-			Arr.map(held, ([name]) => name),
-			Arr.sort([loginRole, ...roles], Order.String),
-			"every role exists exactly as named"
-		)
-		const credentials = yield* substrate.login(loginRole)
-		const dbLayer = DbLayer.make({
-			...clusterConnection(substrate.cluster, substrate.database, credentials.password),
-			pool: clusterPool,
-			login,
-			snapshot,
-			verify: testVerify
-		})
-		for (const role of Rec.values(login.roles)) {
-			yield* Effect.scoped(Db.open(role, { token: tokenOf({}) })).pipe(withLayer(dbLayer))
-		}
-	}).pipe(Effect.scoped)
-
-/** One byte past the limit: some login's or role's role would pass 63 bytes, so generate refuses and drafts nothing. */
-const refuses = (fixture: Fixture) =>
-	Effect.gen(function* () {
-		const substrate = yield* Substrate
-		const declared = yield* substrate.schemaOfLength("gzlimit", limitOf(fixture) + 1)
-		const fs = yield* FileSystem.FileSystem
-		const dir = yield* workspace(`past-${fixture.label}`)
-		yield* writeConfig(dir, { schemas: [fixture.spec(declared)], connection: unconnected })
-		const ran = yield* run(dir, ["generate", configName])
-		assert.notEqual(ran.code, 0, "generate refuses a role past the limit")
-		const drafted = yield* fs.exists(
-			`${dir}/migrations/${identity.schema(parsedSchemaName(declared)).identifier}`
-		)
-		assert.ok(!drafted, "generate drafts nothing")
-	}).pipe(Effect.scoped)
+	)
 
 layer(Layer.merge(Substrate.layer, NodeServices.layer))(
 	"logins and roles at the identifier limit, through the command line",
 	(it) => {
 		it.effect(
-			"generate, check and migrate install roles of 63 bytes, and Db.open admits every role of the login, for every fixture",
-			(ctx) => searched(ctx, everyFixture("pg/cli/long-names/installs", installs))
-		)
-		it.effect("generate refuses a schema name one byte longer, for every fixture", (ctx) =>
-			searched(ctx, everyFixture("pg/cli/long-names/refuses", refuses))
+			"install roles of exactly 63 bytes, each admitted by Db.open, and refuse a schema name one byte longer, for drawn logins and roles",
+			(ctx) =>
+				searched(
+					ctx,
+					explore(
+						{
+							suite: "pg/cli/long-names",
+							draw: drawn(namesGen),
+							literal: Formatter.format,
+							oracle: {
+								kind: "specification",
+								name: "the 63-byte rule for <schema>__<name>, and PostgreSQL's own roles"
+							},
+							coverage: required<LimitFeature>(
+								[
+									"the login's role the longest",
+									"a role's role the longest",
+									"a converted camel-case name",
+									"at the limit",
+									"one byte past"
+								],
+								{ cases: 16, sense: notesOnly }
+							),
+							kept: [],
+							runs: 4,
+							shrink: { kind: "bounded", candidates: 20 },
+							concurrency: 1,
+							steerEvery: 16,
+							caseHang
+						},
+						limitCase
+					)
+				)
 		)
 	}
 )

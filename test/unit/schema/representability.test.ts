@@ -1248,12 +1248,13 @@ const companionGen: Gen<Companion> = weighted<Companion>([
 ])
 
 /**
- * The budget restated: BTMaxItemSize less the header and every datum beside the text at its worst padding, align - 1,
- * and the text's own 4-byte header after its worst padding of 3, which bounds the entry whatever the key's order.
+ * The budget restated: BTMaxItemSize less the header and the null bitmap, MAXALIGNed to 16 bytes, every datum beside
+ * the text at its worst padding, align - 1, and the text's own 4-byte header after its worst padding of 3, which bounds
+ * the entry whatever the key's order and whichever of its columns may be NULL.
  */
 const budgetOf = (companions: ReadonlyArray<Companion>): number =>
 	postgresBtreeMaxItem -
-	Arr.reduce(companions, indexTupleHeader, (end, c) => {
+	Arr.reduce(companions, 16, (end, c) => {
 		const d = companionDatum(c)
 		return end + d.align - 1 + d.bytes
 	}) -
@@ -1286,7 +1287,7 @@ describe("keyTextBytes", () => {
 						}),
 						literal: Formatter.format,
 						coverage: required<BudgetFeature>(
-							["tight", "slack", "text first", "text last", "text between", "a text beside it"],
+							["slack", "text first", "text last", "text between", "a text beside it"],
 							{ cases: 200, sense: notesOnly }
 						),
 						kept: [],

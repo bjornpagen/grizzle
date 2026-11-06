@@ -65,7 +65,7 @@ layer(Substrate.layer)(
 				"importer open-db opened",
 				"importer read rows",
 				"importer saw rows of its world",
-				"importer apply applied",
+				"importer write accepted",
 				"importer apply invariant-rejected",
 				"the importer wrote under hand-set claims",
 				"the importer wrote under malformed claims"

@@ -222,7 +222,9 @@ export interface NumericTypmod {
 
 /**
  * What a computed numeric value is proved to be: every finite value below 10^digits in magnitude, with at most `scale`
- * fraction digits, within numeric's own limits, numericMaxIntegerDigits and numericMaxFractionDigits. It is set where
+ * fraction digits, within numeric's own limits, numericMaxIntegerDigits and numericMaxFractionDigits. Its digits are
+ * negative for values below one by an order of magnitude or more, as a numeric(p, s) with s above p converts into one,
+ * and never fewer than -numericMaxFractionDigits, below which no numeric value but zero lies. It is set where
  * the value is made, from what makes it: a sum's from its argument's and the rows' count, a mean's from its argument's
  * and PostgreSQL's display scale, an operation's from its operands' bounds. A making past numericMaxIntegerDigits is
  * ResourceBound there, so no bound passes it.

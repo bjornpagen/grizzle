@@ -84,10 +84,12 @@ const isEducationRole = (name: string): name is EducationRole =>
 
 /**
  * What an education suite notes of a case beside the worlds features: each action an education role performed with
- * its outcome, and the situations its properties are about.
+ * its outcome, an apply of the role's the database accepted (a write that changed its world), and the situations its
+ * properties are about.
  */
 type EducationFeature =
 	| `${EducationRole} ${ActionKind} ${Observation["kind"]}`
+	| `${EducationRole} write accepted`
 	| `${EducationRole} saw rows of its world`
 	| "a guardian read with a restricted child"
 	| "the importer wrote under hand-set claims"
@@ -739,6 +741,15 @@ const noteSeen = (c: Case<Feature>, seen: Seen, earlier: ReadonlyArray<Seen>): v
 	const { action, observation } = seen
 	c.noteAll(roleOutcome(seen.before, action, observation))
 	if (
+		action.kind === "apply" &&
+		observation.kind === "applied" &&
+		observation.outcome === "accepted"
+	) {
+		for (const role of Option.toArray(actingRole(seen.before, action))) {
+			c.note(`${role} write accepted`)
+		}
+	}
+	if (
 		(observation.kind === "invariant-rejected" || observation.kind === "law-refused") &&
 		observation.witness.kind === "shown"
 	) {
@@ -1167,17 +1178,17 @@ export const roleSeesItsWorld =
 	]
 
 /**
- * A writing role suite's lead, in a case that takes a targeted lead while the role's applied apply is pending
- * (drive/suite.ts whilePending, whose Pending holds a feature outside the worlds feature map pending wherever the case
- * may steer): an apply through a Db of the role that the model accepts (changing), so wherever the state holds a write
- * inside the role's world that breaks no law, the suite's role changes its world by construction; where it holds none, a
- * live apply of the role's. It follows roleSeesItsWorld, whose Db it writes through.
+ * A writing role suite's lead, in a case that takes a targeted lead while the role's accepted write, a requirement of
+ * the suite, is pending (drive/suite.ts whilePending, reading the suite's own requirements): an apply through a Db of
+ * the role that the model accepts (changing), so wherever the state holds a write inside the role's world that breaks
+ * no law, the suite's role changes its world by construction; where it holds none, a live apply of the role's. It
+ * follows roleSeesItsWorld, whose Db it writes through.
  */
 export const roleChangesItsWorld =
 	(role: EducationRole): Lead =>
 	(weights, _install, at) => {
-		const applied: EducationFeature = `${role} apply applied`
-		return whilePending([applied], at, () => [changing(weights, role)])
+		const accepted: EducationFeature = `${role} write accepted`
+		return whilePending([accepted], at, () => [changing(weights, role)])
 	}
 
 /** An action kind that leaves the catalog as it found it: any but a migration and a catalog change. */
@@ -1309,7 +1320,7 @@ const register = (it: Vitest.MethodsNonLive<Substrate>, spec: EducationSuite): v
 								const world = Option.isSome(once) ? once.value : yield* realizedUnder(pc, c)
 								const staged = yield* stage(world, pc.install, c.draw, drawnRealities)
 								const checks = Arr.map(spec.properties, checkOf)
-								yield* driveProgram(staged, pc, c, ({ seen, earlier }) => {
+								yield* driveProgram(staged, pc, c, spec.required, ({ seen, earlier }) => {
 									noteSeen(c, seen, earlier)
 									for (const check of checks) {
 										check({ seen, earlier })

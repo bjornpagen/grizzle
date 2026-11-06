@@ -10,9 +10,10 @@
  * LinkWitness), so every situation below is reached by construction: a witness's filter function, called at its linked
  * source's middle row, probes the source at values it holds, and at values no row holds probes it in vain; its key
  * probes read T at a key it holds and at one it does not; its policy row calls the filter function under row security;
- * and its precheck calls the filter function and every probe. The witness's arm chooses what its link reads: an
- * ordinary relation, the derived relation, or an ordinary relation a declared key reads, such as Share under the
- * base's one-share variant, `key(on(Share, "doc"))`, whose probe is that key's key probe: UniqueObjects.keys holds
+ * its read by key through the role's view of the entry, as a workload program over the role reads it, calls the
+ * filter function at the row it finds; and its precheck calls the filter function and every probe. The witness's arm
+ * chooses what its link reads: an ordinary relation, the derived relation, or an ordinary relation a declared key
+ * reads, such as Share under the base's one-share variant, `key(on(Share, "doc"))`, whose probe is that key's key probe: UniqueObjects.keys holds
  * every declared key beside the primary key (laws/model/uniques.ts uniqueOf, "A UNIQUE over a declared candidate key's
  * fields in its order is that key's", so since 65203c4), and a unique probe is only an object's beyond the keys, which
  * no documents base holds: pg/write/entry-occupants covers it, at its key over a selected side,
@@ -172,6 +173,7 @@ const requiredSituations: Arr.NonEmptyReadonlyArray<WorldServingFeature> = [
 	"a declared key's probe that reads its key's fact",
 	"a declared key's probe that finds no fact at its key",
 	"a policy row calling the filter function",
+	"a read through a narrowed entry's view calling the filter function",
 	"a precheck calling the filter function"
 ]
 

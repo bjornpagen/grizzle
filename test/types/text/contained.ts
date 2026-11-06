@@ -37,7 +37,10 @@ const kept: ReadonlyArray<{
 }> = [
 	{ source: "(.|)a|b", flags: "su", members: ["a", "a\u{1659b}"] },
 	{ source: "^a+", flags: "u", members: ["a"] },
-	{ source: "\\D?\\.", flags: "u", members: ["."] }
+	{ source: "\\D?\\.", flags: "u", members: ["."] },
+	{ source: "\\W{0,2}x", flags: "u", members: ["x"] },
+	{ source: "^(?:\\d?){2}$", flags: "u", members: [""] },
+	{ source: "^(?:a|\\d)+$", flags: "u", members: ["1a"] }
 ]
 
 /** `count` values of `generator` from the floor stream of `label`: the same values on every run. */

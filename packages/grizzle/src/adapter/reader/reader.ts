@@ -32,6 +32,7 @@ import type {
 	GetArg,
 	GetTarget,
 	KeyTarget,
+	PageTarget,
 	QueryReader,
 	QueryResult
 } from "#adapter/types/db.ts"
@@ -51,9 +52,9 @@ import type { CompiledTemplate } from "#compiler/program/template.ts"
 import { isOrderedValue, isQueryValue } from "#compiler/query/build/index.ts"
 import { keyLookup } from "#compiler/query/build/key.ts"
 import type { EmittedText } from "#compiler/sql/ast.ts"
-import type { ParamMap } from "#compiler/types/core/phantom.ts"
-import type { Page } from "#compiler/types/page/page.ts"
-import type { QueryBase } from "#compiler/types/query/query.ts"
+import type { ParamArg, ParamMap } from "#compiler/types/core/phantom.ts"
+import type { Page, PageRequest } from "#compiler/types/page/page.ts"
+import type { ParamsOf, QueryBase } from "#compiler/types/query/query.ts"
 
 /**
  * QueryReader, and the compiled reads of db.compile.
@@ -563,8 +564,12 @@ export const makeReader = <S>(ctx: DbContext, executor: ReadExecutor): Reader<S>
 				executeQuery(query, () => query.rows, params),
 				collected
 			),
-		page: (query, params, request) =>
-			pageRuntime({
+		page: <Q, A>(
+			query: PageTarget<S, Q, A>,
+			params: NoInfer<ParamArg<ParamsOf<Q>>>,
+			request: PageRequest
+		): Effect.Effect<Page<A, Q>, ReadError | CursorError> =>
+			pageRuntime<A, Q>({
 				ctx,
 				executor,
 				query,

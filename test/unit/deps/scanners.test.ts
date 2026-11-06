@@ -85,30 +85,34 @@ describe("scanners that replace a RegExp under src", () => {
 	)
 
 	it.effect(
-		"isTlsCode recognizes the certificate codes and exactly the /^ERR_(?:TLS|SSL)_/ prefixes",
+		"isTlsCode recognizes exactly Node's certificate codes and the /^ERR_(?:TLS|SSL)_/ prefixes, of a string",
 		(ctx) =>
 			Effect.gen(function* () {
 				const reference = regex("^ERR_(?:TLS|SSL)_")
-				const texts = oneOf([
+				/** Certificate verification codes Node reports, which carry no ERR_ prefix. */
+				const certificate = [
+					"CERT_HAS_EXPIRED",
+					"DEPTH_ZERO_SELF_SIGNED_CERT",
+					"HOSTNAME_MISMATCH"
+				] as const
+				const values = oneOf<unknown>([
 					textOf("ERR_TLSX", 10),
 					element([
 						"ERR_TLS_CERT_ALTNAME_INVALID",
 						"ERR_SSL_WRONG_VERSION_NUMBER",
 						"ERR_TLS",
-						"ECONNREFUSED"
-					])
-				])
-				const certificate = new Set([
-					"CERT_HAS_EXPIRED",
-					"DEPTH_ZERO_SELF_SIGNED_CERT",
-					"HOSTNAME_MISMATCH"
+						"ECONNREFUSED",
+						"CERT_HAS",
+						...certificate
+					]),
+					element([42, true, null, undefined] as const)
 				])
 				yield* searched(
 					ctx,
 					explore(
 						{
 							suite: "unit/deps/scanners-3",
-							draw: drawn(texts),
+							draw: drawn(values),
 							literal: Formatter.format,
 							coverage: noCoverage,
 							kept: [],
@@ -118,18 +122,16 @@ describe("scanners that replace a RegExp under src", () => {
 							steerEvery: 16,
 							caseHang
 						},
-						(text) =>
+						(value) =>
 							Effect.sync(() => {
-								if (!certificate.has(text)) {
-									assert.equal(isTlsCode(text), reference.test(text))
-								}
+								assert.equal(
+									isTlsCode(value),
+									typeof value === "string" &&
+										(Arr.some(certificate, (code) => code === value) || reference.test(value))
+								)
 							})
 					)
 				)
-				for (const code of certificate) {
-					assert.equal(isTlsCode(code), true)
-				}
-				assert.equal(isTlsCode(42), false)
 			})
 	)
 })

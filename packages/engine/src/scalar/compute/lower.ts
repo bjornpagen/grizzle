@@ -3379,11 +3379,14 @@ const arithmeticBounds = (
 	}
 }
 
-/** A rounding's result: the operand's digits and one more where it may carry, at `scale` fractional digits. */
+/**
+ * A rounding's result at `scale` fractional digits: the operand's digits, and one more where it may carry. A value below
+ * one unit at that scale rounds to zero or to the unit itself, so its digits count from the unit's.
+ */
 const roundedBounds = (a: Bounds | undefined, carry: number, scale: number): Bounds | undefined =>
 	a === undefined
 		? undefined
-		: ofDigits(a.digits + carry, scale, {
+		: ofDigits(Math.max(a.digits, -scale) + carry, scale, {
 				infinite: a.low.kind === "infinite" || a.high.kind === "infinite",
 				nan: a.nan
 			})
@@ -3980,6 +3983,23 @@ export const lowerTerm = <R extends Refs>(
 	desc: ExprDesc<Located, R>,
 	env: LowerEnv<R>
 ): Result.Result<Lowered, CompileError> => run(env, (l) => l.term(desc, env.loc))
+
+/**
+ * Lowers a term a function returns unchanged, the argument of min or max: delivered with the contract the term has.
+ * Where its node computes it without that contract, a parameter bound as its base or a Compute.base whose node still
+ * carries the contract it drops, the node is converted into the term's own type, as LEAST and GREATEST convert their
+ * operands (Lowering.convert).
+ */
+export const lowerReturned = <R extends Refs>(
+	desc: ExprDesc<Located, R>,
+	env: LowerEnv<R>
+): Result.Result<Lowered, CompileError> =>
+	run(env, (l) => {
+		const t = l.term(desc, env.loc)
+		return contractOf(t.actual)?.name === contractOf(t.nominal)?.name
+			? t
+			: l.convert(t, t.nominal, env.loc)
+	})
 
 /**
  * The proof that every value of `from` fits `to` once cast, from `from`'s own bounds (an exact integer's digits, a

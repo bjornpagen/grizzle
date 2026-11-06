@@ -219,7 +219,6 @@ export const typeGroups: ReadonlyArray<Group> = [
 	{
 		owner: "test/types/text/regex.test.ts",
 		units: {
-			...fixtureUnits("text", ["support.ts"]),
 			"text/contained": {
 				kind: "program",
 				dir: "test/types/text",

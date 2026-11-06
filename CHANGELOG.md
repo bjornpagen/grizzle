@@ -81,6 +81,8 @@ How to upgrade:
   statements back to `schema(...)` states them as `St & StatementsWithin<St, R> & StatementsReadBack<St, R>`, and one
   that passes a base to `schema.extend` states `Base & { readonly statements: StatementsBelow<Base> }`; all three types
   are exported.
+- **`db.page` is typed by the query passed**: `page<Q, A>(query, params, request)` returns `Page<A, Q>`, the cursors
+  typed by that very query, and an unordered query is refused as "page needs an ordered query". No codemod.
 
 #### A schema no write can fill is refused when it compiles
 
@@ -114,7 +116,9 @@ How to upgrade:
   `(v) => Compute.octetLength(v).le(N)` makes any pattern a key. **`keyTextBytes(fields)`** gives the most bytes a text
   holds beside a key's other fields in one B-tree entry. A key's entry is counted at exact offsets through its
   fixed-width prefix, so a key refused just past the limit may now be accepted, and an entry that may hold a NULL
-  counts its null bitmap. `UnrepresentableKey`'s `btreeEntry` fault gains `datums`. No codemod.
+  counts its null bitmap. `UnrepresentableKey`'s `btreeEntry` fault gains `datums`. `keyTextBytes` leaves room for
+  the null bitmap, 8 bytes, so a text at its result fits every index planned over those fields, a key over a
+  selection, whose hidden columns may be NULL, and a family's axis included. No codemod.
 - **Every index the law model plans is bounded**: a containment's UNIQUE into a superkey, its reverse index, keys
   over selections, family UNIQUEs, WITHOUT OVERLAPS. Before, a containment into a superkey over an unbounded text
   installed a UNIQUE that failed at insert with 54000; now it is `UnrepresentableKey` when the schema compiles.
@@ -146,9 +150,16 @@ How to upgrade:
 - **A role holds EXECUTE on every constant its writes evaluate**, including a roster's or a set's domain constant
   reached only through a cast in a CHECK or a generated column. Before, such a role's plain insert failed with 42501.
   Regenerate migrations.
-- **`PartialOperation.guard` is `{ test, text }`.** Its test is one Compute can write over the operand's type: a
-  contract cast over a text, boolean, uuid or date names `typed` rather than `Compute.within`. Codemod:
+- **`PartialOperation.guard` is `{ remedy, text }`.** Its remedy is one Compute can write over the operand's type:
+  a contract cast over a text, boolean, uuid or date names `typed` rather than `Compute.within`. Codemod:
   `reason.guard` → `reason.guard.text`.
+- **A numeric whose scale exceeds its precision is bounded**: numeric(1, 1000) holds values below 10^-999, and
+  arithmetic, sums and means over it carry that bound, where compiling such a field threw RangeError. `ceil`, `floor`
+  and `round` of a value below one unit get a bound that holds, and a mean over an argument of more than 1000
+  fraction digits gets one more integer digit, since its rounding can carry. No codemod.
+- **Two bounds at one value meet at the open one**: `x.ge(0).and(x.gt(0))` proves `nonzero`. No codemod.
+- **`min`, `max`, `least` and `greatest` over a contract are that contract**, in the engine as in the types; before,
+  the engine typed the result as the contract's base type. No codemod.
 
 #### One canonical form for a comparison and an IN list
 

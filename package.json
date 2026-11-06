@@ -554,6 +554,25 @@
 						"test/pg/bench/"
 					],
 					"reason": "The performance gates: each measures a workload against its gate, a performance property, never a verdict a person wrote."
+				},
+				{
+					"files": [
+						"test/types/changeset/changeset.test.ts",
+						"test/types/compute/compute.test.ts",
+						"test/types/evidence/agreement.test.ts",
+						"test/types/evidence/attachments.test.ts",
+						"test/types/regex/schema.test.ts",
+						"test/types/schema/agreement.test.ts"
+					],
+					"reason": "The type batch's population runners: the population is drawn by the testing library's generators and printed as one program the batch typechecks at once, so no case can run a search per program; each case checks the drawn population against the engine as oracle, or that its floor's witnesses reach every requirement."
+				},
+				{
+					"files": [
+						"test/types/query/budget/scaling.test.ts",
+						"test/types/schema/budget/families.test.ts",
+						"test/types/schema/budget/scaling.test.ts"
+					],
+					"reason": "The type layer's cost gates: each typechecks programs generated at growing sizes in the batch and holds their types and instantiations linear in the size, a performance property, and the largest program's refusals to the directives it was generated with, never a verdict a person wrote."
 				}
 			]
 		},

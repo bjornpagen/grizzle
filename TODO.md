@@ -41,31 +41,51 @@ How the work runs:
 	- Tell the downstream session first: its database lives in the cluster.
 
 ### 2. No known bug
-- **Hex is the one way grizzle serializes bit data** (owner's ruling 2026-11-06, relayed: "the bit string arithmetic
-  is forbidden … the only way we serialize the bitset stuff is hex … never two ways of doing the same thing").
-	- Closed constants: the rows form (string_agg of 0/1 cells in a DO block) and the `{ pack }` option are deleted.
-	  Every constant is its hex literal under its comment of row count and content digest, which `grizzle check`
-	  decodes and holds to the digest. README :1403 and :2553-2559 change with it. Density is the user's lever (denser
-	  coordinates); no size escape hatch.
-	- Every bit(n) and varbit literal grizzle emits is hex, a set CHECK's empty set included. A width that isn't a
-	  multiple of 4 gets one defined form, decided by the lane. One form either way.
-	- Anything else that writes bits as text: bits parameters on the wire, meta.json and snapshot.json, diagnostics.
-	  One spelling wherever grizzle chooses one.
-	- Test: a generator of closed relations (every arity, density, payload width) and of bits fields and set literals.
-	  Oracles:
-		- every bit literal in every drafted file is hex, and the rows spelling never appears;
-		- decode(encode(rows)) = rows;
-		- `grizzle check` refuses any flipped digit.
-	- Planted bug: the rows form re-enabled for one relation.
-	- physical/ddl/constants.ts planClosed builds per-cell display names (a canonical encode per cell) that only the
-	  rows form's comments read, and DbLayer.make pays for them. They go with the rows form.
+- **A containment refused because a source column is unbounded text** (qti-pie, top priority, a regression from
+  "every planned index proved bounded"). `#scalarContainment` plans its reverse index over every source column, so
+  `Attribute(node, name, lexical) selected in Reference(...)` is refused for its free-text `lexical`. Lane K:
+	- the reverse index goes over the source columns whose entry is bounded, in order, and the index engine reuses a
+	  declared key or index that serves it;
+	- when no source column is bounded, it is a hash index on one column (the native's entry a variant, a proved
+	  B-tree entry or a hash), and PERIOD coverage gets the same rule for its scalars;
+	- the target's UNIQUE keeps its refusal;
+	- test: a search over containments with unbounded source columns at every position, with and without a covering
+	  key and a source selection. Oracle: the schema compiles, every index is bounded, and on 5433 the reverse probe's
+	  generic plan uses an index. Planted bug: today's behaviour.
+- **The key text budget leaves out the index tuple's null bitmap** (K): the fix is in, and a generated suite
+  follows: a declared key, a key over a selection, an ordered family's axis and a tree's predecessor axis, each
+  admitted at N and refused at N+1 where tight. `keyTextBytes`'s JSDoc and README say `fields` is every other column
+  of the index.
+- **A byte bound as a refinement, not a type** (K, qti-pie's 54 containments): `str.bytes(N, pattern)`, its CHECK
+  `octet_length(VALUE) <= N` beside the pattern's, read exactly by the bound analysis, meeting any text in a
+  containment as a pattern does. Test: texts at N-1, N and N+1 bytes in 1- to 4-byte scripts against the CHECK and the
+  analysis. Planted bug: the bound made part of the type.
+- **Compute's types and engine disagree** (W-agree, W-typesC):
+	- integer exact division's refusal names the `proves` to add; Compute.numeric refuses a text operand; a span's
+	  endpoint refusal and span casts between endpoint contracts in the types; README and SKILL state `proves`;
+	- a partial operation's types print its precondition's Refusal only for an operand of the type it takes, and the
+	  operand's type refusal otherwise, in the engine's order (`Compute.mod(cell.int, …)`, widthBucket over real, power
+	  over integer, casts, the literal-first Refusal);
+	- `Compute.cast(Compute.add(r.depth, 1), pg.integer)` in a generated field: the types accept it, the engine
+	  refuses PartialOperation;
+	- a containment into a side that is not a key is decided at compile (a key over a selection is a projection the
+	  types don't track): the schema population draws it as a declared class, not around it.
 - **Changing an owner's column that a family's derived value reads through a copy** (a fold step, a predecessor or last
   copy, a copy of a copy) fails at execution: the cascade updates the copy, but the per-row CHECK or NO ACTION key fires
   before the derived value is refilled. Lane W-fill: a typed refusal when the ChangeSet compiles, only where the
   ChangeSet changes such a column, plus a pg follow-up (owner puts and edits with appends, judged by the reference
   writer) and the span-keyed owner put.
+- **@grizzle/testing `matching()` refuses after expanding every class** (qti-pie, low): an unbounded `*`, `+` or
+  `{n,}` is refused only after the pattern's classes are built, 2.8-4.3 s for XML's Char class. Decide the refusal
+  from the repetition structure first. Test: a count of class expansions for refused patterns, 0. Planted bug:
+  expanding first.
 - **README limits the downstream census found:** the str.regex grammar (no lookaround, no \p), and that a generated
   NOT NULL column's 23502 fails the write as ExecutionFailure naming no law.
+- **Watch first at the gate** (lanes' own risk notes for suites that have never run on 5433):
+	- physical/oracle's new invariants on extended types, the money arm under ja_JP.UTF-8, the world-serving view-read
+	  bound, Account's take plan in plans, the wildcard literal's column type, and the bits migrations;
+	- the worlds rules suite (24 cases, the first to write coverage and alternatives laws through a Db);
+	- test/pg/fields/set-padding, test/pg/package/consumer and the CLI drift suite.
 - **To settle on 5433 at the gate** (W-gg's investigations):
 	- recursion/oracle/fixed-length's 57014: the hypothesis is a Gather on the inner side of a nested loop over the
 	  recursive term, under the perturbation's hash and merge joins off, relaunching workers per work-table row. Replay

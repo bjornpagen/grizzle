@@ -770,11 +770,15 @@ export const btreeEntry = (
 }
 
 /**
- * The most UTF-8 bytes a text can hold beside `others`, a key's other fields, in its one B-tree entry, whatever the
- * key's field order and with none of them NULL: BTMaxItemSize less the entry over `others` and the text's own varlena at
- * no bytes, each datum at its worst alignment padding, which no order's layout exceeds (btreeEntryBytes). Its fault is
- * the key's: more columns than an index holds with the text, a field of no byte bound, or fields that leave the text no
- * byte.
+ * The most UTF-8 bytes a text can hold beside `others` in one B-tree entry whose other columns are exactly theirs, in
+ * any order, any of them a law column that may be NULL: BTMaxItemSize less the entry over `others` and the text's own
+ * varlena at no bytes, its data after the header and the null bitmap and each datum at its worst alignment padding,
+ * which no order's or nullability's layout exceeds (btreeEntryBytes). So the text fits every index grizzle plans over
+ * those columns: a declared key, a key over a selection, a containment's UNIQUE and index, a family's, a tree's and an
+ * axis's UNIQUE, whose hidden law columns may hold NULL. A span key's GiST entry holds it too: each GiST key takes at
+ * most twice its B-tree datum and fourteen bytes, so the at most INDEX_MAX_KEYS keys over one B-tree entry's datums fit
+ * a GiST page. Its fault is the key's: more columns than an index holds with the text, a field of no byte bound, or
+ * fields that leave the text no byte.
  */
 export const textBytesBeside = (others: KeyFields): Result.Result<number, KeyFault> => {
 	if (others.length + 1 > indexMaxKeys.value) {
@@ -786,7 +790,7 @@ export const textBytesBeside = (others: KeyFields): Result.Result<number, KeyFau
 	}
 	const text = { field: "the text", datum: fixed(varlenaHeaderBytes.value, 4, "text") }
 	const datums = [...bounded.value, text]
-	const extent = datums.reduce((offset, d) => afterAtWorst(offset, d.datum), indexDataOffset(false))
+	const extent = datums.reduce((offset, d) => afterAtWorst(offset, d.datum), indexDataOffset(true))
 	const room = alignDown(btreeMaxItemSize.value, maxAlign.value) - extent
 	return room < 0
 		? Result.err({

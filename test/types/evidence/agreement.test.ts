@@ -29,6 +29,8 @@ import { typeRun } from "#test/types/batch/provided.ts"
  *    directives' refusals: a get the types refuse and the engine proves is a diagnostic no directive names, a get the
  *    types accept and the engine refuses is a directive whose refusal never comes, and a claimed key the engine does
  *    not prove, or a record or parameter the engine does not deliver, fails its assertion.
+ *    Each query no take closes, of one heading, is paged: its page is of that very ordered query, its unordered self
+ *    is refused a page, and a drawn page request is admitted exactly where the runtime's request reader admits it.
  * 2. Order invariance: the same queries in a second drawn order, as a second module, and every query's head and keys
  *    asserted equal across the two, so TypeScript's evidence never depends on unrelated statements' order.
  * 3. Admission (test/support/agreement/admission.ts): every position a constant stands in against every constant
@@ -52,6 +54,8 @@ const required: Situations<AgreementNote> = [
 	"a key below the heading",
 	"a variable two filters fix",
 	"a contract in the head",
+	"a page request admitted",
+	"a page request refused",
 	...agreementPairs
 ]
 

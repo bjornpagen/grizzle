@@ -896,8 +896,8 @@ export type CaseDraw = Case<WorldFeature>["draw"]
  * What a case's steering leaves pending, read of the library's steering (`Case.steering`): none where a case may not
  * steer (the rotating stream, a kept case), so it aims at nothing; otherwise, a replay of a steered case among them,
  * since its token carries the steering it was drawn under, whether an aim, any text, is still pending: a feature of
- * the worlds feature map that a required situation the run had not reached when the case's window began holds, or any
- * other text, a lead's own move among them, which no case notes.
+ * the worlds feature map or of the suite's own requirements that a required situation the run had not reached when the
+ * case's window began holds, or any other text, a lead's own move among them, which no case notes.
  */
 export type Pending = Option.Option<(aim: string) => boolean>
 
@@ -911,12 +911,29 @@ const requirable: ReadonlyMap<string, WorldFeature> = new Map<string, WorldFeatu
 	)
 )
 
-/** A case's pending aims (Pending). */
-const pendingOf = (steering: Case<WorldFeature>["steering"]): Pending =>
-	Option.map(steering, (pending) => (aim: string) => {
-		const feature = requirable.get(aim)
+/**
+ * A case's pending aims (Pending), each feature of the worlds feature map (requirable) and of the suite's own
+ * requirements `required` read of the case's steering, so a feature a suite of its own requires (an education role's
+ * write, say) is pending only while it is.
+ */
+const pendingOf = <F extends string>(
+	steering: Case<F | WorldFeature>["steering"],
+	required: ReadonlyArray<Reached<F | WorldFeature>>
+): Pending => {
+	const named = new Map<string, F | WorldFeature>([
+		...requirable,
+		...Arr.map(
+			Arr.flatMap(required, (r): ReadonlyArray<F | WorldFeature> =>
+				typeof r === "string" ? [r] : r
+			),
+			(feature) => [feature, feature] as const
+		)
+	])
+	return Option.map(steering, (pending) => (aim: string) => {
+		const feature = named.get(aim)
 		return feature === undefined || pending.names(feature)
 	})
+}
 
 /**
  * A program's lead: the weights of the draws it makes before its own steps, one per draw, from the case's weights, its
@@ -1165,7 +1182,7 @@ const nothingReached: ReadonlySet<string> = new Set<string>()
  * is reached, or where the case may not steer, the case's own weights, whose aims keep their kind.
  */
 export const steeredOnce = (weights: Weights, c: Pick<Case<WorldFeature>, "steering">): Weights => {
-	const pending = pendingOf(c.steering)
+	const pending = pendingOf(c.steering, requiredWorldFeatures)
 	const aimed = steered(weights, pending, nothingReached)
 	const aims = aimed.aims
 	return aims.kind === "half" &&
@@ -1271,7 +1288,7 @@ export const leadOf = (
 	weights: Weights,
 	c: Pick<Case<WorldFeature>, "steering" | "draw">
 ): Led => {
-	const pending = pendingOf(c.steering)
+	const pending = pendingOf(c.steering, required)
 	const pendingIn = (lead: InductiveLead): ReadonlyArray<WorldFeature> =>
 		Arr.filter(lead.targets, (f) => Option.exists(pending, (isPending) => isPending(f)))
 	const open = Arr.filter(leads, (lead) => Arr.isReadonlyArrayNonEmpty(pendingIn(lead)))
@@ -1325,16 +1342,18 @@ interface Progress {
 /**
  * Runs a case's program on its staged world: its lead's draws, each under its own weights, then `pc.steps` actions
  * under the case's; each drawn from the case's tape in the state the model is in after the one before (drawAction),
- * performed by the driver (runStep) and held to the suite's own rule. Returns the last state.
+ * performed by the driver (runStep) and held to the suite's own rule. Its lead and its aims read what the case's
+ * steering leaves pending of the suite's requirements `required` (pendingOf). Returns the last state.
  */
-export const driveProgram = (
+export const driveProgram = <F extends string>(
 	staged: Staged,
 	pc: ProgramCase,
-	c: Case<WorldFeature>,
+	c: Case<F | WorldFeature>,
+	required: ReadonlyArray<Reached<F | WorldFeature>>,
 	check: StepCheck
 ): Effect.Effect<ModelState, ModelMismatch> =>
 	Effect.suspend(() => {
-		const pending = pendingOf(c.steering)
+		const pending = pendingOf(c.steering, required)
 		const lead = pc.lead(pc.weights, pc.install, { led: pc.led, pending })
 		return Effect.map(
 			Effect.reduce(
@@ -1495,7 +1514,7 @@ export const programTests = (it: Vitest.MethodsNonLive<Substrate>, spec: Program
 							const world = yield* spec.realize(pc.install, pc.ambient)
 							noteNaming(pc, c)
 							const staged = yield* stage(world, pc.install, c.draw, spec.realities)
-							yield* driveProgram(staged, pc, c, spec.check)
+							yield* driveProgram(staged, pc, c, spec.required, spec.check)
 						})
 					)
 			)

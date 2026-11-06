@@ -60,9 +60,13 @@ import { checking } from "#test/support/policy.ts"
  * A case is a valid ChangeSet by construction with at most one planted fault, so the one line the case is written on
  * raises at most the one diagnostic its directive names: a read-back name repeated by read, union or sequence, a
  * closed relation written, a described member's head that is no fact of its relation or writes an exact value into a
- * plain field, a member fact that is no fact of its relation, a fold over a delta reading no key, ChangeSets over
- * schemas that are no levels of one another, a role that does not write the relation, a parameter left unbound. The
- * floor's witnesses (changeSetWitnesses), the same in every run, reach every fault and every construct.
+ * plain field, a member fact with a field its relation lacks or some of its serials, two facts of an array sharing a
+ * key with literal payloads that differ, a fold over a delta reading no key, ChangeSets over schemas that are no levels
+ * of one another, a role that does not write the relation, a parameter left unbound. The floor's witnesses
+ * (changeSetWitnesses), the same in every run, reach every fault and every construct.
+ *
+ * One equivalence, brands being type-only: a contract's value written as its bare base value (`cents: 5n`), which the
+ * engine checks by value and admits, the types refuse for its missing brand, as the head no fact of its relation.
  */
 
 type RelName = "Task" | "Budget" | "Ticket" | "Pair" | "Ledger"
@@ -117,12 +121,12 @@ const fieldsOf: { readonly [R in RelName]: Arr.NonEmptyReadonlyArray<FieldInfo> 
 	],
 	Budget: [
 		{ name: "task", serial: false, key: true, values: uuids, bad: plainNumber },
-		{ name: "cents", serial: false, key: false, values: cents, bad: { text: "5n", value: 5n } }
+		{ name: "cents", serial: false, key: false, values: cents, bad: plainNumber }
 	],
 	Ticket: [
 		{ name: "id", serial: true, key: true, values: bigints, bad: plainNumber },
 		{ name: "account", serial: false, key: false, values: uuids, bad: plainNumber },
-		{ name: "amount", serial: false, key: false, values: cents, bad: { text: "5n", value: 5n } }
+		{ name: "amount", serial: false, key: false, values: cents, bad: plainNumber }
 	],
 	Pair: [
 		{ name: "a", serial: true, key: true, values: bigints, bad: plainNumber },
@@ -165,10 +169,9 @@ const changeSetFaults = [
 	"a head literal outside its field",
 	"an exact value into a plain field",
 	"a fact with a field its relation lacks",
-	"a fact without a field",
 	"an addition with some of its serials",
-	"a fact literal outside its field",
 	"two facts sharing a key",
+	"a value missing its brand",
 	"a fold over a delta reading no key",
 	"ChangeSets over unrelated schemas",
 	"a role that does not write the relation",
@@ -389,16 +392,8 @@ const factOf = (
 	if (fault === "a fact with a field its relation lacks") {
 		return [...base, ["bogus", plainNumber]]
 	}
-	if (fault === "a fact without a field") {
-		const dropped = Arr.findFirst(written, (f) => !f.serial)
-		return Option.isNone(dropped) ? base : Arr.filter(base, ([name]) => name !== dropped.value.name)
-	}
 	if (fault === "an addition with some of its serials") {
 		return Arr.filter(base, ([name]) => name !== "b")
-	}
-	if (fault === "a fact literal outside its field") {
-		const [first, ...rest] = base
-		return first === undefined ? base : [[first[0], fieldInfo(relation, first[0]).bad], ...rest]
 	}
 	return base
 }
@@ -464,6 +459,16 @@ const describedOf = (
 				? head
 				: Arr.filter(head, ([name]) => name !== dropped.value.name)
 		}
+		if (fault === "a value missing its brand") {
+			const target = Arr.findFirst(written, (f) => f.name === "cents" || f.name === "amount")
+			return Option.isNone(target)
+				? head
+				: Arr.map(head, ([name, term]) =>
+						name === target.value.name
+							? ([name, { kind: "literal", lit: { text: "5n", value: 5n } }] as const)
+							: ([name, term] as const)
+					)
+		}
 		if (fault === "a head literal outside its field") {
 			const target = Arr.findFirst(written, (f) => !f.key && !f.serial)
 			return Option.isNone(target)
@@ -502,11 +507,10 @@ const describedOf = (
 const factFaults: ReadonlyArray<ChangeSetFault> = [
 	"two facts sharing a key",
 	"a fact with a field its relation lacks",
-	"a fact without a field",
-	"an addition with some of its serials",
-	"a fact literal outside its field"
+	"an addition with some of its serials"
 ]
 const headFaults: ReadonlyArray<ChangeSetFault> = [
+	"a value missing its brand",
 	"a head with a field its relation lacks",
 	"a head without a field",
 	"a head literal outside its field",
@@ -532,9 +536,11 @@ const memberOf = (d: Drawing, fault: ChangeSetFault | undefined): MemberSpec => 
 			? "Pair"
 			: fault === "two facts sharing a key"
 				? "Task"
-				: fault === "an exact value into a plain field"
-					? "Ledger"
-					: d.from(relNames)
+				: fault === "a value missing its brand"
+					? d.from(["Budget", "Ticket"] as const)
+					: fault === "an exact value into a plain field"
+						? "Ledger"
+						: d.from(relNames)
 	const described =
 		fault !== undefined && Arr.contains(headFaults, fault)
 			? true
@@ -1195,8 +1201,20 @@ const bound = (
 	return bindWrite(program, { members, params, transport: inForce(bindFrame) })
 }
 
+/**
+ * The diagnostic a planted fault raises: a fold's head field is a property of an object (TS2322), a Stream member's
+ * fact is an argument under exactOptionalPropertyTypes (TS2379), every other an argument (TS2345).
+ */
 const codeOf = (spec: CaseSpec): string =>
-	spec.fault === "a fold over a delta reading no key" ? "TS2322" : "TS2345"
+	spec.fault === "a fold over a delta reading no key"
+		? "TS2322"
+		: spec.fault !== undefined && Arr.contains(factFaults, spec.fault) && streamFirst(spec.change)
+			? "TS2379"
+			: "TS2345"
+
+/** Whether a case's first member, which carries a member's planted fault, is a Stream. */
+const streamFirst = (c: ChangeSpec): boolean =>
+	c.kind === "built" ? c.members[0]?.kind === "stream" : streamFirst(c.a)
 
 /** The engine's verdict on a case: built, compiled over reality, bound, then compiled for the applying role. */
 const verdictOf = (spec: CaseSpec): Verdict => {
@@ -1254,6 +1272,14 @@ const verdictOf = (spec: CaseSpec): Verdict => {
 		const applied = compileWrite(world.checked, desc, world.options)
 		if (!applied.ok) {
 			return refusedAt("apply", applied.error, spec, code)
+		}
+	}
+	if (spec.fault === "a value missing its brand") {
+		return {
+			kind: "refused",
+			at: "change",
+			claim: { kind: "refusal", refusal: "the query's head is not a fact of the relation" },
+			code
 		}
 	}
 	const free = new Set(Arr.map(freeParams(spec.change), ([n]) => n))

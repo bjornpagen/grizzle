@@ -529,15 +529,33 @@ describe("outcomes, retries and loads", () => {
 })
 
 /** A cell of a delivered row: text with the spellings a row's encoding must keep apart, or NULL. */
-const cellGen: Gen<string | null> = element(["", "a", "b", "ab", "N", "S1:a", "1:", null] as const)
+const cellGen: Gen<string | null> = element([
+	"",
+	"a",
+	"b",
+	"ab",
+	"N",
+	"S",
+	"aS",
+	"S1:a",
+	"1:",
+	null
+] as const)
 
 const rowGen: Gen<TextRow> = array(cellGen, { min: 0, max: 3 })
 
-/** A pair of row lists: the second an edit of the first (permuted, a row dropped, added or repeated) or drawn apart. */
+/**
+ * A pair of row lists: the second an edit of the first (permuted, a row dropped, added or repeated, its rows' cells
+ * re-split) or drawn apart.
+ */
 const rowPairGen: Gen<readonly [ReadonlyArray<TextRow>, ReadonlyArray<TextRow>]> = (source) => {
 	const left = source.draw(array(rowGen, { min: 0, max: 5 }))
-	const edit = source.draw(element(["permuted", "dropped", "added", "repeated", "apart"] as const))
+	const edit = source.draw(
+		element(["permuted", "dropped", "added", "repeated", "re-split", "apart"] as const)
+	)
 	switch (edit) {
+		case "re-split":
+			return [left, Arr.map(left, resplit)]
 		case "permuted":
 			return [left, Arr.reverse(left)]
 		case "dropped":
@@ -549,6 +567,17 @@ const rowPairGen: Gen<readonly [ReadonlyArray<TextRow>, ReadonlyArray<TextRow>]>
 		case "apart":
 			return [left, source.draw(array(rowGen, { min: 0, max: 5 }))]
 	}
+}
+
+/**
+ * A row with the boundary of its first two cells moved one character, where the first holds one: the same text in
+ * other cells, which an encoding that does not delimit its cells would not tell apart.
+ */
+const resplit = (row: TextRow): TextRow => {
+	const [first, second, ...rest] = row
+	return typeof first === "string" && first.length > 0 && typeof second === "string"
+		? [Str.slice(0, -1)(first), `${Str.slice(-1)(first)}${second}`, ...rest]
+		: row
 }
 
 const sameRow = (x: TextRow, y: TextRow): boolean =>

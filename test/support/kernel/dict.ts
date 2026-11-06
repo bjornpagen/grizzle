@@ -1,7 +1,13 @@
 import { element, type Gen, proportional } from "@grizzle/testing/gen"
 import { regex } from "arkregex"
 import { Array as Arr, Order, String as Str } from "effect"
-import { conversionOf, parseDeclaredName, parseSchemaName } from "#compiler/core/identity.ts"
+import {
+	conversionOf,
+	maxIdentifierBytes,
+	parseDeclaredName,
+	parseSchemaName
+} from "#compiler/core/identity.ts"
+import { utf8Length } from "#compiler/core/sha256.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
 import { canonicalZero } from "#compiler/ir/carriers.ts"
 import { type TypedLiteral, literalProblem } from "#compiler/ir/expr.ts"
@@ -62,10 +68,28 @@ const reservedWords = [
 	"Limit"
 ] as const
 
-/** A name of `segments` words `Segment` and a seven-letter `tail`: seven segments convert to exactly 63 bytes, eight to
- * 71. */
+/**
+ * A name of `segments` words `Segment` and a seven-letter `tail`: seven segments convert to the limit's bytes, eight past
+ * it, as the name's feature, computed from its conversion's bytes (longFeature), says.
+ */
 const longName = (segments: number, tail: string): string =>
 	`${Str.repeat(segments)("Segment")}${tail}`
+
+/** A candidate before its feature is known: a long name's is its conversion's byte count's (longFeature). */
+type Candidate = DeclaredName | { readonly declared: string; readonly feature: "long" }
+
+/**
+ * A long name's feature, read off its conversion's bytes: at the limit when they are maxIdentifierBytes, past it when
+ * they are more, and plain when they are fewer.
+ */
+const longFeature = (declared: string): IdentifierFeature => {
+	const bytes = utf8Length(conversionOf(declared))
+	return bytes === maxIdentifierBytes.value
+		? "long, at the limit"
+		: bytes > maxIdentifierBytes.value
+			? "long, past the limit"
+			: "plain"
+}
 
 /** A catalog name spelled as a declared name: each `_`-separated segment capitalized, `int4range` as `Int4range`. */
 const declaredSpelling = (name: string): string =>
@@ -92,7 +116,7 @@ const catalogCandidates: ReadonlyArray<DeclaredName> = Arr.flatMap(catalogAlphab
 })
 
 /** The candidate declared names, before the production conversion classifies them. */
-const candidates: ReadonlyArray<DeclaredName> = [
+const candidates: ReadonlyArray<Candidate> = [
 	...catalogCandidates,
 	...Arr.map(
 		["HTTPRoute", "HttpRoute", "Http_Route", "http_route", "HTTP_Route", "HttpRoute_"],
@@ -115,13 +139,13 @@ const candidates: ReadonlyArray<DeclaredName> = [
 		],
 		(declared): DeclaredName => ({ declared, feature: "digit boundary" })
 	),
-	...Arr.map(["Charlie", "Foxtrot", "Uniform", "Juliett"], (tail): DeclaredName => ({
+	...Arr.map(["Charlie", "Foxtrot", "Uniform", "Juliett"], (tail): Candidate => ({
 		declared: longName(7, tail),
-		feature: "long, at the limit"
+		feature: "long"
 	})),
-	...Arr.map(["Charlie", "Foxtrot"], (tail): DeclaredName => ({
+	...Arr.map(["Charlie", "Foxtrot"], (tail): Candidate => ({
 		declared: longName(8, tail),
-		feature: "long, past the limit"
+		feature: "long"
 	})),
 	...Arr.map(reservedWords, (declared): DeclaredName => ({ declared, feature: "reserved word" })),
 	...Arr.map(["Work", "Task", "Payroll", "LineItem", "A", "B1"], (declared): DeclaredName => ({
@@ -151,7 +175,7 @@ const classified: ReadonlyArray<{
 	readonly candidate: DeclaredName
 	readonly parsed: ReturnType<typeof parseDeclaredName>
 }> = Arr.map(candidates, (c) => ({
-	candidate: c,
+	candidate: c.feature === "long" ? { declared: c.declared, feature: longFeature(c.declared) } : c,
 	parsed: parseDeclaredName(c.declared)
 }))
 

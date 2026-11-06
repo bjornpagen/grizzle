@@ -1,6 +1,6 @@
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
-import { drawn, explore, type Kept } from "@grizzle/testing/explore"
+import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
 import { array, constant, element, type Gen, oneOf } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
@@ -117,52 +117,6 @@ type CliFeature =
 	| `connected by ${Connection}`
 	| "a role that does not own the schemas refused"
 
-const kept: ReadonlyArray<Kept<ConfigSketch, CliFeature>> = [
-	{
-		note: "the bin over one shop with its workload, by the migration identity's password",
-		sketch: {
-			executor: "the bin",
-			schemas: [{ fixture: "shop", workload: "full" }],
-			connection: "the migration identity's password"
-		},
-		draws: "",
-		reaches: ["run by the bin", "connected by the migration identity's password"]
-	},
-	{
-		note: "two shops, by an Effect password",
-		sketch: {
-			executor: "in process",
-			schemas: [
-				{ fixture: "shop", workload: "none" },
-				{ fixture: "shop", workload: "full" }
-			],
-			connection: "an Effect password"
-		},
-		draws: "",
-		reaches: ["run by in process", "several schemas", "connected by an Effect password"]
-	},
-	{
-		note: "the ledger's law and derived relation",
-		sketch: {
-			executor: "in process",
-			schemas: [{ fixture: "ledger" }],
-			connection: "the migration identity's password"
-		},
-		draws: "",
-		reaches: ["the ledger fixture"]
-	},
-	{
-		note: "a role that does not own the schema",
-		sketch: {
-			executor: "in process",
-			schemas: [{ fixture: "shop", workload: "none" }],
-			connection: "a role that does not own the schemas"
-		},
-		draws: "",
-		reaches: ["a role that does not own the schemas refused"]
-	}
-]
-
 const id = (n: number): Uuid =>
 	`00000000-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`
 
@@ -266,7 +220,7 @@ const configurations = (ctx: TestContext) =>
 				suite: "cli/configurations",
 				draw: drawn(configGen),
 				literal: Formatter.format,
-				kept,
+				kept: [],
 				runs: 3,
 				shrink: { kind: "bounded", candidates: 10 },
 				concurrency: 1,

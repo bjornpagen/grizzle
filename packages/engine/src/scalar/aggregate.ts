@@ -24,6 +24,17 @@ import { numericValue } from "#compiler/scalar/registry.ts"
 
 export type AggregateName = "count" | "sum" | "mean" | "min" | "max"
 
+/**
+ * Whether an aggregate of one argument returns one of its values unchanged, so its result is of the type its argument's
+ * term has, contract included: min and max do, over boolean as bool_and and bool_or; sum and mean compute a value.
+ */
+export const returnsInput: { readonly [N in Exclude<AggregateName, "count">]: boolean } = {
+	sum: false,
+	mean: false,
+	min: true,
+	max: true
+}
+
 /** An aggregate as a rule applies it: count to no argument, every other aggregate to one argument of the given type. */
 export type AggregateCall =
 	| { readonly name: "count" }
@@ -133,10 +144,18 @@ const numericSum: Entry = { kind: "numeric", bound: sumBound, lowering: native }
 /**
  * A numeric mean: within its argument's integer digits, a mean lying between the values it averages and rounding onto
  * a scale they lie on; its scale PostgreSQL's division's, at most numericMaxDisplayScale (numeric_avg is numeric_div).
+ * An argument of more fraction digits than that scale may round up past every value it averages, by one unit at that
+ * scale: one integer digit more than the larger of its own and the unit's.
  */
 const numericMean = (lowering: AggregateLowering): Entry => ({
 	kind: "numeric",
-	bound: (b) => ({ digits: b.digits, scale: numericMaxDisplayScale.value }),
+	bound: (b) => ({
+		digits:
+			b.scale <= numericMaxDisplayScale.value
+				? b.digits
+				: Math.max(b.digits, -numericMaxDisplayScale.value) + 1,
+		scale: numericMaxDisplayScale.value
+	}),
 	lowering
 })
 
