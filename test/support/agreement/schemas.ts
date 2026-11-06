@@ -10,6 +10,7 @@ import type {
 	CompileError,
 	CompileReason,
 	CompileReasonTag,
+	PreconditionKind,
 	ValueFault
 } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -92,18 +93,26 @@ import { messageOf } from "#test/support/message.ts"
  *   directive naming the diagnostic its fault raises, `Refusal<"…">` where the types name the refusal, and the batch
  *   checks the program disarmed, so a probe the types refuse and the engine admits is a diagnostic no directive names,
  *   and one they admit and the engine refuses a directive whose diagnostic never comes;
- * - every fact type, addition, nested addition, key, key lookup, serial set, write list and projection head the types
- *   infer equals what the engine describes: the host type of each field's scalar type, the fields its writing leaves
- *   to the caller, the families its statements nest, the candidate keys its key statements state.
+ * - every fact type, addition, nested addition, key, key lookup, serial set, write list, projection head, statement,
+ *   descriptor, literal, closed read and text language the types infer equals what the engine describes: the host type
+ *   of each field's scalar type, the fields its writing leaves to the caller, the families its statements nest, the
+ *   candidate keys its laws state, each statement's Description, each descriptor's Description and writing.
  *
  * A case is drawn as data (SchemaCase) and read twice: rendered as TypeScript, and built through the builders'
  * JavaScript cores (schema/relation.ts, schema/statements.ts, schema/world.ts, the descriptor cores of
  * test/support/fixtures/descriptors.ts) and compiled as the runtime compiles it (testArtifacts). Its base is valid by
  * construction: rosters, contracts, relations of drawn fields and keys, key, containment and mutable statements, a
- * family with its folds, an alternatives law, a derived extension and roles; the engine refusing it is a defect of the
- * generator, which fails the run. Its probes each state one declaration over the base, valid or with one planted fault
- * (SchemaFault): the engine's refusal of a probe must be the one its fault predicts (refusals), a reason key
- * (reasonKey), or the run fails.
+ * family with its folds, an alternatives law, a closed relation with a relation whose fields PostgreSQL generates from
+ * it, a derived extension and roles; the engine refusing it is a defect of the generator, which fails the run. Its
+ * probes each state one declaration or host value over the base, valid or with one planted fault (SchemaFault): the
+ * oracle's refusal of a probe (Verdict), the engine's CompileError, its admission of a host value or the identities it
+ * would build a contract's name into, must be the reason its fault predicts (refusals, Expected), or the run fails.
+ *
+ * The classes of declarations the types accept and the engine refuses are declared (declaredClasses), and drawn as
+ * any other probe with no directive, each refusal asserted by its reason: unkeyedTarget, a containment or a mirror into
+ * a side that holds no key of its relation, which compilation refuses (UnsupportedLawFamily) because the law needs a
+ * key over the side's projection; and castFits, a cast whose operand's bounds do not prove it fits its target, which
+ * compilation refuses (PartialOperation, its fits test). Neither key nor bound is tracked by the types.
  *
  * The draws are two populations of one generator: the floor's witnesses (floorPopulation), the same on every run, which
  * alone meet the required situations, and the run's own stream under the run's seed, new every run.
@@ -150,6 +159,7 @@ const schemaConstructs = [
 	"fieldProbe",
 	"closedRelationProbe",
 	"closedReadProbe",
+	"castProbe",
 	"valueProbe",
 	"contractNameProbe"
 ] as const
@@ -226,8 +236,33 @@ const schemaFaults = [
 ] as const
 type SchemaFault = (typeof schemaFaults)[number]
 
-/** What a case reached: its constructs, the faults the engine refused, and the refusals the types named for them. */
-type SchemaNote = SchemaConstruct | SchemaFault | TypeRefusal
+/**
+ * The declared classes: declarations the types accept and the engine refuses, each for the one reason it states,
+ * decided at compilation from what the types do not track. A containment, or a mirror, into a side that holds no key of
+ * its relation (unkeyedTarget): the law family needs a key over the side's projection. A cast its operand's bounds do
+ * not prove fits its target (castFits): the engine proves the value fits from the bounds its making gives it, which
+ * no type carries.
+ */
+const declaredClasses = ["unkeyedTarget", "castFits"] as const
+type DeclaredClass = (typeof declaredClasses)[number]
+
+/** What a probe plants: a fault the types refuse, or a declared class they accept. */
+type Planted = SchemaFault | DeclaredClass
+
+const isDeclared = (planted: Planted): planted is DeclaredClass =>
+	Arr.contains<Planted>(declaredClasses, planted)
+
+/** Each declared class's refusal by the engine. */
+const declared: { readonly [C in DeclaredClass]: Expected } = {
+	unkeyedTarget: { tag: "UnsupportedLawFamily" },
+	castFits: { tag: "PartialOperation", precondition: "fits" }
+}
+
+/**
+ * What a case reached: its constructs, the faults the engine refused, the declared classes it refused, and the
+ * refusals the types named.
+ */
+type SchemaNote = SchemaConstruct | SchemaFault | DeclaredClass | TypeRefusal
 
 /** A diagnostic's code. */
 type Code = "TS2322" | "TS2345" | "TS2554" | "TS2555" | "TS2739" | "TS2741"
@@ -596,8 +631,9 @@ const refusals: { readonly [F in SchemaFault]: Refusing } = {
  * contract name the engine would build contracts of several identities from.
  */
 type Expected =
-	| { readonly tag: Exclude<CompileReasonTag, "RoleRefused"> }
+	| { readonly tag: Exclude<CompileReasonTag, "RoleRefused" | "PartialOperation"> }
 	| { readonly tag: "RoleRefused"; readonly rule: RoleRule["kind"] }
+	| { readonly tag: "PartialOperation"; readonly precondition: PreconditionKind }
 	| { readonly value: ValueFault }
 	| { readonly identity: "several" }
 
@@ -609,7 +645,9 @@ const expectedKey = (reason: Expected): string =>
 			? `value:${reason.value}`
 			: reason.tag === "RoleRefused"
 				? `${reason.tag}:${reason.rule}`
-				: reason.tag
+				: reason.tag === "PartialOperation"
+					? `${reason.tag}:${reason.precondition}`
+					: reason.tag
 
 /**
  * A refusal's reason as the agreement compares it: its tag, and for a refusal of a world or a derivation the rule it
@@ -628,6 +666,8 @@ const reasonKey = (reason: CompileReason): string => {
 			return `${reason._tag}:${reason.access.kind}`
 		case "DuplicateIdentity":
 			return `${reason._tag}:${reason.duplicate.kind}`
+		case "PartialOperation":
+			return `${reason._tag}:${reason.precondition}`
 		case "MalformedDescription":
 		case "MalformedArtifact":
 		case "UnsupportedOperation":
@@ -639,6 +679,7 @@ const reasonKey = (reason: CompileReason): string => {
 		case "UnstatedKey":
 		case "QueriedOwnerAppend":
 		case "CascadedCopyAppend":
+		case "StaleDerivedRead":
 		case "MissingDiscriminant":
 		case "AttachedParentUnbound":
 		case "AttachedPage":
@@ -647,7 +688,6 @@ const reasonKey = (reason: CompileReason): string => {
 		case "IdentifierCollision":
 		case "DigestCollision":
 		case "ResourceBound":
-		case "PartialOperation":
 		case "GeneratedRefused":
 		case "RoleNameTooLong":
 		case "UnfillableField":
@@ -2228,7 +2268,7 @@ const oneLine = (line: string): ProbeText => ({ head: [], line, tail: [] })
  */
 interface Probe {
 	readonly construct: SchemaConstruct
-	readonly refused: SchemaFault | undefined
+	readonly refused: Planted | undefined
 	readonly text: (ids: Ids, own: string) => ProbeText
 	readonly judge: (env: Env) => Verdict
 }
@@ -2454,9 +2494,10 @@ const handleProbe = (d: Drawing, base: Base): Probe => {
 	}
 }
 /**
- * A containment or a mirror of a field of one relation of the base into the single-field primary key of another, its
- * field drawn of the key's type or not: the engine alone decides it, and a refusal of one over declared relations into
- * a key is its sides' types differing.
+ * A containment or a mirror of a field of one relation of the base into a field of another: into its single-field
+ * primary key, the field drawn of the key's type or not, where the engine alone decides it and a refusal is its sides'
+ * types differing; or into a field no key holds alone, of the field's type, the declared class unkeyedTarget, which the
+ * types accept and the engine refuses.
  */
 const containmentProbe = (d: Drawing, base: Base): Probe | undefined => {
 	const ordinary = ordinaryOf(base)
@@ -2465,21 +2506,33 @@ const containmentProbe = (d: Drawing, base: Base): Probe | undefined => {
 		return undefined
 	}
 	const target = d.from(targets)
-	const key = fieldOf(target, target.key[0])
 	const mirrored = d.upTo(2) === 0
 	const source = d.from(mirrored ? targets : ordinary)
 	const fields = mirrored
 		? [fieldOf(source, source.key[0])]
 		: Arr.filter(source.fields, (f) => f.writing.kind === "caller")
-	const alike = Arr.filter(fields, (f) => sameType(f.type, key.type))
+	const unkeyed = Arr.filter(
+		target.fields,
+		(f) =>
+			f.writing.kind === "caller" &&
+			!keyedAlone(base, target, f.name) &&
+			Arr.some(fields, (g) => sameType(g.type, f.type))
+	)
+	const into =
+		Arr.isReadonlyArrayNonEmpty(unkeyed) && d.upTo(2) === 0
+			? d.from(unkeyed)
+			: fieldOf(target, target.key[0])
+	const declaredClass = !keyedAlone(base, target, into.name)
+	const alike = Arr.filter(fields, (f) => sameType(f.type, into.type))
 	const field =
-		Arr.isReadonlyArrayNonEmpty(alike) && d.upTo(1) === 1
+		Arr.isReadonlyArrayNonEmpty(alike) && (declaredClass || d.upTo(1) === 1)
 			? d.from(alike)
 			: d.from(Arr.isReadonlyArrayNonEmpty(fields) ? fields : source.fields)
+	const key = into
 	const callee = mirrored ? "Sc.mirrors" : "Sc.contained"
 	return {
 		construct: "containmentProbe",
-		refused: "sidesDiffer",
+		refused: declaredClass ? "unkeyedTarget" : "sidesDiffer",
 		text: (ids) =>
 			oneLine(
 				`${callee}(Sc.on(${ids(source.name)}, ${jsonText(field.name)}), Sc.on(${ids(target.name)}, ${jsonText(key.name)}))`
@@ -2494,6 +2547,18 @@ const containmentProbe = (d: Drawing, base: Base): Probe | undefined => {
 			})
 	}
 }
+
+/** Whether a field alone is a key of its relation: its primary key, or a key statement's side over it alone. */
+const keyedAlone = (base: Base, r: RelationSpec, field: string): boolean =>
+	(r.key.length === 1 && r.key[0] === field) ||
+	Arr.some(
+		base.statements,
+		(s) =>
+			s.kind === "key" &&
+			s.side.relation === r.name &&
+			s.side.terms.length === 1 &&
+			s.side.terms[0] === field
+	)
 
 /** mutable over an ordinary relation, a roster, or the derived relation. */
 const mutableProbe = (d: Drawing, base: Base): Probe => {
@@ -4686,6 +4751,47 @@ const closedReadProbe = (d: Drawing, base: Base): Probe | undefined => {
 	}
 }
 
+/** The integer types a cast probe's operand and target are drawn from. */
+const castTypes = ["smallint", "integer", "bigint"] as const
+
+/**
+ * A generated field of an integer type whose value is its row's integer plus one, cast to the field's type: the engine
+ * admits the cast where its bounds prove the sum fits the target and refuses it otherwise, the declared class castFits,
+ * which the types accept.
+ */
+const castProbe = (d: Drawing): Probe => {
+	const from = d.from(castTypes)
+	const to = d.from(castTypes)
+	return {
+		construct: "castProbe",
+		refused: "castFits",
+		text: (_ids, own) =>
+			oneLine(
+				`export const ${own} = Sc.relation.generated("Cast", { id: Fi.uuid, depth: Fi.pg.${from} }, ["id"], (r) => ({ next: Fi.generated(Fi.pg.${to}, Cp.Compute.cast(Cp.Compute.add(r.depth, ${from === "bigint" ? "1n" : "1"}), Fi.pg.${to})) }))`
+			),
+		judge: () =>
+			compiling(() => {
+				const cast = generatedRelation(
+					"Cast",
+					{ id: uuidDescriptor, depth: pgDescriptors[from] },
+					["id"],
+					(row: Readonly<Record<string, unknown>>) => ({
+						next: generatedField(
+							pgDescriptors[to],
+							computeCore.cast(
+								computeCore.add(row["depth"], from === "bigint" ? 1n : 1),
+								pgDescriptors[to]
+							),
+							[]
+						)
+					}),
+					[]
+				)
+				return schema("P", { Cast: cast }, [], [])
+			})
+	}
+}
+
 /** The probes a case draws: for each probe construct its swarm keeps, one or two of it. */
 const probeMakers: ReadonlyArray<
 	readonly [SchemaConstruct, (d: Drawing, base: Base) => Probe | undefined]
@@ -4709,7 +4815,8 @@ const probeMakers: ReadonlyArray<
 	["valueProbe", (d) => uuidProbe(d)],
 	["valueProbe", bitsProbe],
 	["contractNameProbe", (d) => contractNameProbe(d)],
-	["closedReadProbe", closedReadProbe]
+	["closedReadProbe", closedReadProbe],
+	["castProbe", (d) => castProbe(d)]
 ]
 
 /** A drawn case: its base, its probes, and the constructs its drawing reached. */
@@ -4759,7 +4866,22 @@ const statedOf = (probe: Probe, env: Env): Stated => {
 			`the oracle refuses a ${probe.construct} with no fault, a defect of the generator: ${judged.message}`
 		)
 	}
-	const refusing = refusals[probe.refused]
+	const planted = probe.refused
+	if (isDeclared(planted)) {
+		if (judged.key !== expectedKey(declared[planted])) {
+			throw new Error(
+				`the engine refuses a declared ${planted} for ${judged.key}, not ${expectedKey(declared[planted])}: ${judged.message}`
+			)
+		}
+		return {
+			lines: (ids, own) => {
+				const text = probe.text(ids, own)
+				return [...text.head, text.line, ...text.tail]
+			},
+			notes: [planted]
+		}
+	}
+	const refusing = refusals[planted]
 	if (judged.key !== expectedKey(refusing.engine)) {
 		throw new Error(
 			`the oracle refuses a probe planting ${probe.refused} for ${judged.key}, not ${expectedKey(refusing.engine)}: ${judged.message}`
@@ -4775,7 +4897,7 @@ const statedOf = (probe: Probe, env: Env): Stated => {
 			const text = probe.text(ids, own)
 			return [...text.head, directive, text.line, ...text.tail]
 		},
-		notes: [probe.refused, ...(claim.kind === "refusal" ? [claim.message] : [])]
+		notes: [planted, ...(claim.kind === "refusal" ? [claim.message] : [])]
 	}
 }
 
@@ -4849,6 +4971,7 @@ const namedRefusals: ReadonlyArray<TypeRefusal> = Arr.dedupe(
 export const schemaRequired: Arr.NonEmptyReadonlyArray<SchemaNote> = [
 	...schemaConstructs,
 	...schemaFaults,
+	...declaredClasses,
 	...namedRefusals
 ]
 

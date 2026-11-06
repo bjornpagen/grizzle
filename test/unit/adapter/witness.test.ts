@@ -71,8 +71,10 @@ import { nothingReported, type Reported, serverError } from "#test/support/serve
  *
  * The oracle is the classification rules (outcomes/index.ts and witness/classify.ts) restated over the installation's
  * constraint list, its laws and its rosters: SERIALIZABLE's 40001 and 40P01, and a 23505 or 23P01 on a constraint the
- * statement lists as an abort, are TransientFailure; a 40Z01 whose DETAIL names a concurrent change is that change's
- * TransientFailure; a 42Z01 names the entry outside which a fact fell; a 23514 on one of the installation's roster domains
+ * statement lists as an abort, are TransientFailure; a 40Z01 whose DETAIL names a concurrent change at one of the
+ * installation's stored relations is that change's TransientFailure, and one at any other relation (a closed relation
+ * of the installation, another installation's relation, a name of none) is no outcome the installation reads; a 42Z01
+ * names the entry outside which a fact fell; a 23514 on one of the installation's roster domains
  * is grizzle's own defect; a 23000 on a law's identity with grizzle's DETAIL rejects that law at the refused key, decoded
  * through its columns (a uuid as its text, an integer as its number, a closed id's code as its handle, a text as itself);
  * any other class 23 violation reported in the installation's schema rejects the laws its constraint maps to under the
@@ -248,7 +250,18 @@ type DetailSketch =
 			readonly kind: "a concurrent change"
 			readonly reason: ConcurrentChangeTag
 			readonly relation: number
+			readonly at: ChangeAt
 	  }
+
+/**
+ * The relation a concurrent change's DETAIL names: a stored relation of the installation, which a write statement
+ * raises one at, or another, which none of the installation's statements does.
+ */
+type ChangeAt =
+	| "a stored relation"
+	| "a closed relation"
+	| "another installation's relation"
+	| "a name of no installation"
 
 /** The reported constraint. */
 type ConstraintSketch =
@@ -380,7 +393,15 @@ const refusalGen: Gen<DetailSketch> = (inner) => ({
 const changeGen: Gen<DetailSketch> = (inner) => ({
 	kind: "a concurrent change",
 	reason: inner.draw(element<ConcurrentChangeTag>(["PutTargetConflict", "SpanKeyChange"])),
-	relation: inner.draw(pick)
+	relation: inner.draw(pick),
+	at: inner.draw(
+		weighted<ChangeAt>([
+			[5, constant("a stored relation")],
+			[1, constant("a closed relation")],
+			[1, constant("another installation's relation")],
+			[1, constant("a name of no installation")]
+		])
+	)
 })
 
 const detailGen: Gen<DetailSketch> = oneOf<DetailSketch>([
@@ -628,6 +649,7 @@ type WitnessFeature =
 	| "execution: a refused key no relation holds"
 	| "execution: another class"
 	| "execution: a bits domain the installation lacks"
+	| `execution: a concurrent change at ${Exclude<ChangeAt, "a stored relation">}`
 
 describe("a server error at a write", () => {
 	it.effect(
@@ -686,7 +708,10 @@ describe("a server error at a write", () => {
 								"execution: a refusal without its DETAIL",
 								"execution: a refused key no relation holds",
 								"execution: another class",
-								"execution: a bits domain the installation lacks"
+								"execution: a bits domain the installation lacks",
+								"execution: a concurrent change at a closed relation",
+								"execution: a concurrent change at another installation's relation",
+								"execution: a concurrent change at a name of no installation"
 							],
 							{ cases: 3000, sense: notesOnly }
 						),
@@ -706,6 +731,36 @@ describe("a server error at a write", () => {
 							const relationNames = Arr.map(stored, (r) => r.name)
 							const relationAt = (n: number) =>
 								defined(relationNames[n % relationNames.length], "a relation")
+							/** The relation a concurrent change's DETAIL names, of the kind drawn. */
+							const changedAt = (at: ChangeAt, n: number): string => {
+								const among = (names: Arr.NonEmptyReadonlyArray<string>): string =>
+									defined(names[n % names.length], "a relation name")
+								switch (at) {
+									case "a stored relation":
+										return relationAt(n)
+									case "a closed relation":
+										return among(
+											nonEmpty(
+												[...artifacts.derived.schema.closed.keys()],
+												"the installation's closed relations"
+											)
+										)
+									case "another installation's relation":
+										return among(
+											nonEmpty(
+												Arr.filter(
+													Arr.flatMap(Rec.values(installations), (other) => [
+														...other.derived.schema.relations.keys()
+													]),
+													(name) => !Arr.contains(relationNames, name)
+												),
+												"another installation's stored relations"
+											)
+										)
+									case "a name of no installation":
+										return "NoSuchRelation"
+								}
+							}
 							const constraints = artifacts.constraintLaws
 							const rosters = [...names.codes.rosters.values()]
 							const tables = Arr.map(relationNames, (r) => names.relation(r).name)
@@ -836,7 +891,7 @@ describe("a server error at a write", () => {
 									}
 									case "a concurrent change":
 										return encodeRefusalDetail(
-											{ kind: "change", reason: d.reason, relation: relationAt(d.relation) },
+											{ kind: "change", reason: d.reason, relation: changedAt(d.at, d.relation) },
 											[]
 										)
 								}
@@ -913,7 +968,8 @@ describe("a server error at a write", () => {
 									}
 								}
 								if (state === sqlstates.grizzleConcurrentChange) {
-									return sketch.detail.kind === "a concurrent change"
+									return sketch.detail.kind === "a concurrent change" &&
+										sketch.detail.at === "a stored relation"
 										? {
 												kind: "transient",
 												reason: sketch.detail.reason,
@@ -1081,6 +1137,15 @@ describe("a server error at a write", () => {
 									assert.ok(error instanceof ExecutionFailure, String(error))
 									assert.ok(error.reason === failure, "it carries the server's report as given")
 									const state = reported.sqlstate
+									const detail = sketch.detail
+									if (
+										state === sqlstates.grizzleConcurrentChange &&
+										detail.kind === "a concurrent change" &&
+										detail.at !== "a stored relation"
+									) {
+										k.note(`execution: a concurrent change at ${detail.at}`)
+										return
+									}
 									k.note(
 										!Str.startsWith("23")(state)
 											? "execution: another class"

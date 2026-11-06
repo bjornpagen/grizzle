@@ -867,7 +867,7 @@ export const directBranches = (
 		case "reset-role":
 			return [go({ ...session, current: { kind: "login" } })]
 		case "set-session-authorization":
-			return [refused(exists(state, namedBy(statement.role)) ? "42501" : "other")]
+			return [refused(roleRefusal(state, namedBy(statement.role)))]
 		case "set-claims":
 			return [go({ ...session, claims: { kind: "set", setting: statement.setting } })]
 		case "select-view":
@@ -1158,8 +1158,24 @@ const exists = (state: ModelState, named: Named): boolean =>
 	loginOf(state.install, named.name) !== undefined
 
 /**
+ * Whether a statement's text reads a reference as an identifier: the owner's name, or a name that is neither empty
+ * nor holds a NUL, which no quoted identifier spells.
+ */
+const readsAsIdentifier = (named: Named): boolean =>
+	named.kind === "owner" || (named.name !== "" && !Str.includes("\u0000")(named.name))
+
+/**
+ * What SET ROLE or SET SESSION AUTHORIZATION meets naming a role it may not take on (README "Direct SQL access"): 42501
+ * for a role that exists; 22023 for a name no role holds; and an error of its own for a name no identifier spells,
+ * which the statement's text refuses before any role is looked up.
+ */
+const roleRefusal = (state: ModelState, named: Named): SqlState =>
+	exists(state, named) ? "42501" : readsAsIdentifier(named) ? "22023" : "other"
+
+/**
  * SET ROLE: a login may take on exactly its own roles, each granted to it WITH SET TRUE; any other role that exists,
- * another login's or the owner, is refused by privilege, and a role that does not exist is an error of its own.
+ * another login's or the owner, is refused by privilege, and a role that does not exist is refused as no such role
+ * (roleRefusal).
  */
 const roleAnswer = (
 	state: ModelState,
@@ -1176,7 +1192,7 @@ const roleAnswer = (
 	) {
 		return taken(named.name)
 	}
-	return refused(exists(state, named) ? "42501" : "other")
+	return refused(roleRefusal(state, named))
 }
 
 /** The integer types' ranges, by their bits. */

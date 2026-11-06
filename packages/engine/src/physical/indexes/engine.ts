@@ -30,7 +30,6 @@ import {
 	defaultOpclass,
 	type IndexOpclass,
 	type IndexRows,
-	isSpanField,
 	type NativeColumn,
 	type Selector
 } from "#compiler/ir/law.ts"
@@ -87,7 +86,7 @@ const sameColumn = (a: IndexColumn, b: IndexColumn): boolean =>
 		: b.kind === "law" && a.column === b.column
 
 /** An index's access method. */
-type Method = "btree" | "gist" | "hnsw"
+type Method = "btree" | "gist" | "hnsw" | "hash"
 
 /** What a column holds, by its field's type: a GiST index names btree_gist's class for a scalar, whose equality operator
  * serves a B-tree equality probe, and the range type's own for a span. */
@@ -145,26 +144,23 @@ const reasonOf = (r: IndexRequest): PhysicalReason =>
 
 /**
  * The reverse lookup of every containment the law model lowered to a referencing-side index: one request per law the
- * index serves, over its referencing columns, each a field or a law column by its arm. The law model leaves a constant
- * law column out of them: one value in every row narrows no lookup.
+ * index serves, over the columns and by the method the law model planned it (ir/law.ts ReverseIndexOn), each a field
+ * or a law column by its arm. The law model leaves a constant law column out of them: one value in every row narrows no
+ * lookup.
  */
 export const reverseRequests = (b: InstallBuilder): ReadonlyArray<IndexRequest> =>
 	b.natives.flatMap(({ object: n }) => {
 		if (n.kind !== "ReverseIndex") {
 			return []
 		}
-		const columns = n.columns
-		const spans = columns.some((c) => c.kind === "field" && isSpanField(c.field))
 		return n.lawIds.map((law: LawId): IndexRequest => ({
 			relation: n.relation.name,
-			keys: mapNonEmpty(columns, (column) => ({
+			keys: mapNonEmpty(n.columns, (column) => ({
 				column,
 				dir: "asc" as const,
 				opclass: defaultOpclass
 			})),
-			/** A PERIOD reference's reverse probe tests overlap on the span, which a GiST index serves with its scalar
-			 * prefix through btree_gist. */
-			method: spans ? "gist" : "btree",
+			method: n.method,
 			role: "lawMaintenance",
 			use: "reverse reference",
 			/** A reference's reverse probe reads every row that references the deleted key. */
@@ -331,6 +327,15 @@ const gistPlacements = (keys: Keys, columns: Columns): Placements => {
 	}
 }
 
+/**
+ * An equality probe on one column that no B-tree entry holds, which only a hash index on that column serves: no
+ * B-tree, GiST or HNSW request ever lands on a hash index, nor a hash request on another.
+ */
+const hashPlacements = (keys: Keys): Placements => ({
+	own: { kind: "blocks", methods: ["hash"], blocks: [keys], directed: undefined },
+	others: []
+})
+
 /** The nearest vectors, which only an HNSW index on the column under its class finds. */
 const nearestPlacements = (keys: Keys): Placements => ({
 	own: { kind: "blocks", methods: ["hnsw"], blocks: [keys], directed: undefined },
@@ -362,6 +367,8 @@ const placementsOf = (request: IndexRequest, keys: Keys, columns: Columns): Plac
 			return gistPlacements(keys, columns)
 		case "hnsw":
 			return nearestPlacements(keys)
+		case "hash":
+			return hashPlacements(keys)
 		case "btree":
 			return request.role === "lawMaintenance"
 				? equalityPlacements(keys, columns)
@@ -1068,6 +1075,9 @@ const createIndex = (b: InstallBuilder, planned: Planned, draft: Draft): Planned
 			if (keys.length > indexMaxKeys.value) {
 				unrepresentable({ kind: "columns", limit: indexMaxKeys.value })
 			}
+			break
+		case "hash":
+			break
 	}
 	const named = identity.accessIndex(
 		request.relation,

@@ -100,6 +100,13 @@ How to upgrade:
   an ordered family; a predecessor or last copy of a generated field; appends to an immutable owner that is a tree
   node or a sequence member inserted in the same ChangeSet.
 - A put or delete of a family's member that owns a sequence is still refused at the write.
+- **A ChangeSet that would leave a family's derived value stale is `StaleDerivedRead`** (new reason) when it
+  compiles: a put that changes an owner's column, or an edit of a family that changes an owner's count or a column its
+  last axis carries, where a fold step or filter, a predecessor or last copy, or a tree's copy of its parent reads that
+  column, directly or through a cascade of copies, in a family the write doesn't redraw. It used to fail at execution
+  when the per-row check or key fired before the value was refilled. The reason names the changed column and how it
+  changed, the copies it travels through and the reader. The refusal is decided from the schema, so it holds whether or
+  not the owner has members yet. No codemod.
 - **A ChangeSet that puts an owner, or edits one of its families, and appends members to another family whose copies
   read that owner's columns writes the owner's new values into the new members**, where it used to fail at execution.
   A copy that reads its owner's column through that owner's own copies is refused when the ChangeSet compiles
@@ -119,9 +126,13 @@ How to upgrade:
   counts its null bitmap. `UnrepresentableKey`'s `btreeEntry` fault gains `datums`. `keyTextBytes` leaves room for
   the null bitmap, 8 bytes, so a text at its result fits every index planned over those fields, a key over a
   selection, whose hidden columns may be NULL, and a family's axis included. No codemod.
-- **Every index the law model plans is bounded**: a containment's UNIQUE into a superkey, its reverse index, keys
-  over selections, family UNIQUEs, WITHOUT OVERLAPS. Before, a containment into a superkey over an unbounded text
-  installed a UNIQUE that failed at insert with 54000; now it is `UnrepresentableKey` when the schema compiles.
+- **Every index the law model plans is bounded**: a containment's UNIQUE into a superkey, keys over selections,
+  family UNIQUEs, WITHOUT OVERLAPS. Before, a containment into a superkey over an unbounded text installed a UNIQUE
+  that failed at insert with 54000; now it is `UnrepresentableKey` when the schema compiles. A containment's reverse
+  index never refuses it: it is a B-tree over the longest leading run of its referencing columns whose entry fits,
+  PostgreSQL rechecking the rest, else a hash index on one column (`USING hash`), so free text among the referencing
+  columns compiles as it did; a PERIOD reference's GiST holds the leading scalars that fit a GiST page, then its span,
+  bounded by the GiST page where it was held to the B-tree limit. No codemod.
 - **`grizzle migrate`, `drift` and `names` compile nothing.** Before connecting, migrate runs only `grizzle check`'s
   committed-file checks (names, meta.json and the chain, markers, losses, transaction control, literal packs against
   their digest). `grizzle check` and DbLayer.make still refuse a schema or login that does not compile. No codemod.
@@ -158,6 +169,12 @@ How to upgrade:
   and `round` of a value below one unit get a bound that holds, and a mean over an argument of more than 1000
   fraction digits gets one more integer digit, since its rounding can carry. No codemod.
 - **Two bounds at one value meet at the open one**: `x.ge(0).and(x.gt(0))` proves `nonzero`. No codemod.
+- **`Compute.numeric` refuses a text operand** (`UnsupportedOperation`, naming `Compute.cast` and the lexical form):
+  it used to compile in the engine where the types refused it. No codemod: cast the text through its lexical form.
+- **A span's `lower`, `upper` and `width` take the span's own endpoint descriptor**, and a cast between spans whose
+  endpoints are different types or contracts is refused, in the types as in the engine. No codemod.
+- **Fix:** a concurrent-change abort (40Z01) is classified only when its DETAIL names a stored relation of the
+  installation; any other relation is no witness of it.
 - **`min`, `max`, `least` and `greatest` over a contract are that contract**, in the engine as in the types; before,
   the engine typed the result as the contract's base type. No codemod.
 

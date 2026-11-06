@@ -1731,7 +1731,7 @@ parameter `{ org: string }`.
 | exclude          | `r.not(Table, { ... })`: no matching row exists                                                                        |
 | take a parameter | `r.param("name", type)`: a term of that type, which stands wherever such a term does                                  |
 | pass a row list  | `r.relation("name", fields)`: a parameter that is a list of rows, matched like a table                                 |
-| aggregate        | `r.count()`, `r.sum(x)`, `r.mean(x)`, `r.min(x)`, `r.max(x)`, grouped by the other columns of `find`, over matches that each bind a key; a sum of real or double precision values is their exact total rounded once, of money values exact money, a mean that total over the count |
+| aggregate        | `r.count()`, `r.sum(x)`, `r.mean(x)`, `r.min(x)`, `r.max(x)`, grouped by the other columns of `find`, over matches that each bind a key; a sum of real or double precision values is their exact total rounded once, of money values exact money, a mean that total over the count; a min or max is one of its values, at its type, contract included |
 | combine          | a second `.rule(...)`: the union of both rules' rows; rules of different columns need a constant that tells them apart, a rule with an attachment shares its columns with no other rule, and a take or an attachment over a union of several headings is no rule of a further union, takes once and is never paged |
 | nest             | `.attach(name, (parent) => child, delivery)`: `"array"`, `"option"`, `"one"`, or `arm(field, name)`                    |
 | order and limit  | `.orderBy(["title", "asc"])`, then `.take(10)` or `db.page`                                                            |
@@ -1803,9 +1803,12 @@ Six things work differently from SQL:
   predicate too. A guard's subject is any term, a parameter among them:
   `Compute.when(Compute.nonzero(d), (d) => Compute.div(x, d), 0n)` over `d = r.param("d", pg.bigint)` delivers `0n`
   where `d` is bound to zero, under every plan, since PostgreSQL computes a branch only where its condition holds. A
-  parameter of a contract has the facts it declares, its binding checking every value, so
-  `Compute.div(x, Compute.base(r.param("d", Divisor)))` needs no guard. An unproved divisor is a type error that names
-  the guard to write. A precondition that rests on
+  contract's facts are exactly the ones its `proves` declares: compilation proves each from the predicate and refuses
+  a declaration the predicate does not imply, and a fact the predicate implies but `proves` leaves out is no fact of
+  its values, so `Compute.minScale(rate)` over `contract("Rate", pg.numeric(7, 6), (x) => x.between(0n, 1n))` is
+  refused, naming `{ proves: ["finite"] }` to add. A parameter of a contract has the facts it declares, its binding
+  checking every value, so `Compute.div(x, Compute.base(r.param("d", Divisor)))` needs no guard. An unproved divisor is
+  a type error that names the guard to write. A precondition that rests on
   magnitudes, a narrowing's range or a power's, compilation proves from `Compute.within`'s bounds, or refuses as
   `PartialOperation`: narrow an exact integer into an integer field with
   `Compute.when(Compute.within(x, 0n, 1000000n), (x) => Compute.cast(x, pg.integer), 0)`. An exact value binds at a
@@ -2542,8 +2545,8 @@ workflows, whose rules are worth declaring and whose users see different slices 
   cycling through 33, 64 or 178 cost 80 to 102 µs a row. The CASE that reads each source's translation adds about
   1 µs a row at 178 patterns. Order a bulk read or write by pattern where it can be.
 - **Every key fits its index entry for every value its fields admit.** A primary key, a declared key, a key over a
-  selection, the UNIQUE a containment references where its target's columns are no declared key, the index over a
-  containment's referencing columns, a family's own UNIQUEs, and the UNIQUE each family axis references, which holds
+  selection, the UNIQUE a containment references where its target's columns are no declared key, a family's own
+  UNIQUEs, and the UNIQUE each family axis references, which holds
   the copies the axis carries, a fold's running values among them, are bounded alike: at most 32 columns
   (`INDEX_MAX_KEYS`), and a B-tree entry of at most 2,704 bytes (`BTMaxItemSize`) counted from each column's type, so a
   text column needs a bounded pattern, or a contract bounding its `charLength` or `octetLength`. A key past either is
@@ -2553,6 +2556,13 @@ workflows, whose rules are worth declaring and whose users see different slices 
   roster's `bit(n)`, `n` every code the roster has minted, removed handles' included, rounded up to whole hex digits, so it is sized by the
   installation's codes when `generate`, `check` or `migrate` compiles it: a roster grown and pruned past about 21,000
   codes refuses the UNIQUE there.
+- **A containment's reverse index never refuses it.** When a target row goes, PostgreSQL's foreign key looks up the
+  source rows that reference it, binding every referencing column by equality. grizzle indexes that lookup with a
+  B-tree over the longest leading run of the referencing columns whose entry fits, in their order, and PostgreSQL
+  rechecks the rest on the rows it finds; where no such run exists, as when the first referencing column is free text,
+  with a hash index on one column, whose entry is a 4-byte hash code. A PERIOD reference's GiST index holds the longest
+  leading run of its scalars that fits a GiST page, then its span. So free text among the referencing columns never
+  refuses a containment; only the UNIQUE it references must be bounded.
 - **A concatenation is at most 1 GB.** `Compute.concat` builds its result, and PostgreSQL refuses one past
   `MaxAllocSize` ("invalid memory alloc request size"), so a write whose check or generated field concatenates more
   fails with that error. No query concatenates, and a fold's or an equation's concatenation is never built.

@@ -42,7 +42,8 @@ type ViolationFields = Pick<
  *   its column's result codec. The constraint must be a law of this installation; each key text converts through its
  *   column's codec, so the `key` witness carries the key values as the host types them.
  * - SQLSTATE 40Z01 raised by a write statement that met a concurrent change: the DETAIL `a[...]` names the
- *   TransientFailure reason and the relation, one of this installation's, and the outcome is that TransientFailure.
+ *   TransientFailure reason and the relation, one of this installation's stored relations, and the outcome is that
+ *   TransientFailure.
  * - SQLSTATE 42Z01 raised by a query entry's precheck (write/entry/precheck.ts): the entry's name as the constraint name.
  *   The outcome is `outside-world` for that entry, which carries no value.
  * - SQLSTATE 23514 on one of the installation's roster domains, the data type PostgreSQL reports: a roster's code
@@ -159,12 +160,15 @@ const refusalRejection = (
 }
 
 /**
- * A concurrent change a write statement raised: its reason, at a relation of this installation; undefined for a DETAIL
- * that names no reason a write statement raises, or none.
+ * A concurrent change a write statement raised: its reason, at a stored relation of this installation; undefined for a
+ * DETAIL that names no reason a write statement raises, or a relation `stored` does not hold, or none.
  */
-const concurrentChange = (detail: string | undefined): Violation | undefined => {
+const concurrentChange = (
+	detail: string | undefined,
+	stored: ReadonlySet<string>
+): Violation | undefined => {
 	const read = detail === undefined ? undefined : readChangeDetail(detail)
-	return read === undefined
+	return read === undefined || !stored.has(read.relation)
 		? undefined
 		: { kind: "aborted", reason: { _tag: read.reason, relation: read.relation } }
 }
@@ -184,12 +188,15 @@ const nativeLaws = (
 	return Arr.map(Arr.isReadonlyArrayNonEmpty(broken) ? broken : native.laws, (l) => l.described)
 }
 
-/** The classifier of one installation's violations (see the header). */
+/**
+ * The classifier of one installation's violations (see the header), whose stored relations, by declared name, are
+ * `stored`.
+ */
 export const violationClassifier =
-	(laws: KeyLaws, decoder: KeyDecoder): ViolationClassifier =>
+	(laws: KeyLaws, decoder: KeyDecoder, stored: ReadonlySet<string>): ViolationClassifier =>
 	(failure, written) => {
 		if (failure.sqlstate === sqlstates.grizzleConcurrentChange) {
-			return concurrentChange(failure.detail)
+			return concurrentChange(failure.detail, stored)
 		}
 		if (failure.sqlstate === sqlstates.grizzleOutsideWorld) {
 			return failure.constraint === undefined

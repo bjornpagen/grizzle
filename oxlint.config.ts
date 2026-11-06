@@ -149,12 +149,6 @@ export default defineConfig(
 						guards: { kind: "exports", names: ["isDeepStrictEqual"] },
 						doors: ["test/support/assert.ts"],
 						message: "Use the typed deepEqual of #test/support/assert.ts."
-					},
-					{
-						module: "#test/support/kernel/naming.ts",
-						guards: { kind: "exports", names: ["spelled"] },
-						doors: ["test/unit/adapter/witness.test.ts"],
-						message: "Spelled names are for the naming rule's specification tests."
 					}
 				]
 			},
@@ -376,7 +370,7 @@ export default defineConfig(
 				})
 			},
 			{
-				files: ["test/support/kernel/naming.ts", "test/unit/adapter/witness.test.ts"],
+				files: ["test/support/kernel/naming.ts"],
 				rules: active({ "devtools/test-no-spelled-names": "off" })
 			},
 			{

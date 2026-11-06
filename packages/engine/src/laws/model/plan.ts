@@ -196,10 +196,138 @@ const plannedEntry = (
 		if (datum === undefined) {
 			return unrepresentable(loc, subject, key, { kind: "unboundedText", field: plannedText(c) })
 		}
-		entry.push({ name: plannedText(c), datum, nullable: c.kind === "law" })
+		entry.push(entryColumn(c, datum))
 	}
 	const proved = btreeEntry(entry)
 	return proved.ok ? proved.value : unrepresentable(loc, subject, key, proved.error)
+}
+
+/** A planned column as an index entry holds it: a field NOT NULL, a law column possibly NULL. */
+const entryColumn = (c: PlannedColumn, datum: DatumBound): EntryColumn => ({
+	name: plannedText(c),
+	datum,
+	nullable: c.kind === "law"
+})
+
+/** A planned column with its datum, where its datum is bounded. */
+interface BoundedColumn {
+	readonly column: PlannedColumn
+	readonly datum: DatumBound
+}
+
+/** The columns of `columns` whose datum is bounded, in their order. */
+const boundedColumns = (columns: ReadonlyArray<PlannedColumn>): ReadonlyArray<BoundedColumn> =>
+	columns.flatMap((column) => {
+		const datum = plannedDatum(column)
+		return datum === undefined ? [] : [{ column, datum }]
+	})
+
+/**
+ * Whether PostgreSQL has a hash operator class for a column's type, its domain's base: every scalar carrier but money,
+ * a set's bit string and a vector.
+ */
+const hashable = (c: PlannedColumn): boolean => {
+	switch (baseOf(plannedField(c).type).carrier) {
+		case "int2":
+		case "int4":
+		case "int8":
+		case "numeric":
+		case "float4":
+		case "float8":
+		case "bool":
+		case "uuid":
+		case "date":
+		case "text":
+		case "code":
+		case "range4":
+		case "range8":
+		case "exactInteger":
+			return true
+		case "money":
+		case "exactMoney":
+		case "bits":
+		case "vector":
+			return false
+	}
+}
+
+/**
+ * The index a containment's reverse probe reads over its referencing columns `columns`, which binds every one of them by
+ * equality: an index over a leading run of them serves it, PostgreSQL rechecking the rest on the rows it finds, so the
+ * width of a referencing column never refuses a containment. A B-tree over the longest leading run of the columns
+ * whose datum is bounded, in their order, whose entry btreeEntry proves within BTMaxItemSize; where that run is empty,
+ * a hash index on one hashable column, a field before a law column, whose entry is a 4-byte hash code (a text with no
+ * byte bound is hashable, texteq under pg_c_utf8 being deterministic). Only referencing columns none of which a B-tree
+ * entry holds and none of which hashes, wide sets and vectors and money, refuse, as UnrepresentableKey naming `subject`.
+ */
+const plannedReverse = (
+	columns: NonEmptyReadonlyArray<PlannedColumn>,
+	subject: string,
+	loc: SourceLoc
+): PlannedReverse => {
+	const bounded = boundedColumns(columns)
+	for (let n = Math.min(bounded.length, indexMaxKeys.value); n > 0; n--) {
+		const run = bounded.slice(0, n)
+		const [first, ...rest] = run
+		const proved = btreeEntry(run.map((b) => entryColumn(b.column, b.datum)))
+		if (first !== undefined && proved.ok) {
+			return {
+				method: "btree",
+				columns: [first.column, ...rest.map((b) => b.column)],
+				entry: proved.value
+			}
+		}
+	}
+	const hashed = [
+		...columns.filter((c) => c.kind === "field"),
+		...columns.filter((c) => c.kind === "law")
+	].find(hashable)
+	if (hashed !== undefined) {
+		return { method: "hash", columns: [hashed] }
+	}
+	const [widest] = bounded
+	const fault =
+		widest === undefined ? undefined : btreeEntry([entryColumn(widest.column, widest.datum)])
+	return fault === undefined || fault.ok
+		? missing(`a referencing column of ${subject} a B-tree entry holds or a hash index hashes`)
+		: unrepresentable(loc, subject, columns.map(plannedText), fault.error)
+}
+
+/**
+ * The GiST index a PERIOD reference's reverse probe reads over its referencing scalars and then its span: the longest
+ * leading run of the scalars whose datum is bounded, in their order, whose entry gistEntry proves with the span within a
+ * GiST page, else the span alone, which a GiST entry always holds.
+ */
+const plannedPeriodReverse = (
+	scalars: ReadonlyArray<PlannedColumn>,
+	span: PlannedColumn,
+	subject: string,
+	loc: SourceLoc
+): PlannedReverse => {
+	const spanDatum = plannedDatum(span) ?? missing(`the bounded datum of the span of ${subject}`)
+	const spanEntry = { field: plannedText(span), datum: spanDatum }
+	const bounded = boundedColumns(scalars)
+	for (let n = Math.min(bounded.length, indexMaxKeys.value - 1); n >= 0; n--) {
+		const run = bounded.slice(0, n)
+		const proved = gistEntry(
+			run.map((b) => ({ field: plannedText(b.column), datum: b.datum })),
+			spanEntry
+		)
+		if (proved.ok) {
+			return {
+				method: "gist",
+				columns: appendNonEmpty(
+					run.map((b) => b.column),
+					span
+				),
+				entry: proved.value
+			}
+		}
+	}
+	const alone = gistEntry([], spanEntry)
+	return alone.ok
+		? { method: "gist", columns: [span], entry: alone.value }
+		: unrepresentable(loc, subject, [plannedText(span)], alone.error)
 }
 
 /**
@@ -337,13 +465,24 @@ export type NativePlan =
 			readonly targetColumns: NonEmptyReadonlyArray<PlannedColumn>
 			readonly targetSpan: PlannedColumn
 	  }
+	| ({ readonly kind: "ReverseIndex"; readonly relation: RelationInfo } & PlannedReverse)
+
+/**
+ * The index of a reverse probe as planned (ir/law.ts ReverseIndexOn), with the proof of its entry: a B-tree's or a
+ * GiST's proved within its limit, or a hash index's, whose entry is a 4-byte hash code (`plannedReverse`).
+ */
+export type PlannedReverse =
 	| {
-			readonly kind: "ReverseIndex"
-			readonly relation: RelationInfo
+			readonly method: "btree"
 			readonly columns: NonEmptyReadonlyArray<PlannedColumn>
-			/** Its B-tree entry, proved within BTMaxItemSize where it was planned (`plannedEntry`). */
 			readonly entry: BtreeEntryBytes
 	  }
+	| {
+			readonly method: "gist"
+			readonly columns: NonEmptyReadonlyArray<PlannedColumn>
+			readonly entry: GistEntryBytes
+	  }
+	| { readonly method: "hash"; readonly columns: readonly [PlannedColumn] }
 
 /** A span key's scalar columns as planned (ir/law.ts SpanKeyScalars). */
 export type PlannedSpanKey =
@@ -1063,8 +1202,7 @@ export class Recognizer {
 			{
 				kind: "ReverseIndex",
 				relation: fromRel,
-				columns: sourceColumns,
-				entry: plannedEntry(
+				...plannedReverse(
 					sourceColumns,
 					`the index of ${fromRel.name} over the columns ${containment} references from`,
 					loc
@@ -1204,7 +1342,6 @@ export class Recognizer {
 				`coverage grouped by at least one scalar field; ${from.relation} into ${to.relation} pairs only spans, an ungrouped span law`
 			)
 		}
-		const reverseColumns = appendNonEmpty(sourceScalars, sourceSpan)
 		const toFields = to.terms.map((t) => t.column)
 		const declared =
 			to.selection.conjuncts.length === 0 &&
@@ -1229,9 +1366,9 @@ export class Recognizer {
 			{
 				kind: "ReverseIndex",
 				relation: fromRel,
-				columns: reverseColumns,
-				entry: plannedEntry(
-					reverseColumns,
+				...plannedPeriodReverse(
+					sourceScalars,
+					sourceSpan,
 					`the index of ${fromRel.name} over the columns the coverage of ${sideText(from)} in ${sideText(to)} references from`,
 					loc
 				)

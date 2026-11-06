@@ -23,6 +23,7 @@
 		"*.md",
 		"packages/devtools/src/*/fixtures/**",
 		"test/types/**/.*-??????/**",
-		"test/pg/cli/.ws-*/**"
+		"test/pg/cli/.ws-*/**",
+		".probe-*/**"
 	]
 }

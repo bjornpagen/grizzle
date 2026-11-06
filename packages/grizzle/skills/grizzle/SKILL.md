@@ -431,7 +431,9 @@ The command line's own refusals, by stage:
   `Compute.div(x, Compute.base(r.param("d", Divisor)))` needs no guard. A parameter is a term of its declared type
   everywhere, first operand included. An unproved
   divisor is a type error naming the guard; an unproved narrowing or power is `CompileError` reason
-  `PartialOperation`, whose `guard` is the code to write. Narrow an exact integer into an integer field with
+  `PartialOperation`, whose `guard` is the code to write. A contract's facts are exactly its `proves`: a fact its
+  predicate implies but `proves` leaves out is refused, and the refusal names the declaration to add. Narrow an exact
+  integer into an integer field with
   `Compute.cast` under `Compute.within`.
 - Test text with `Compute.matches(x, pattern)`, `Compute.startsWith` and `Compute.endsWith`, never a regex in your
   code. A pattern is `str.regex`'s grammar under `"u"`, anchored by `^` and `$`: a string literal, or a closed

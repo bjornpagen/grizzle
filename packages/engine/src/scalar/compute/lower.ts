@@ -1190,6 +1190,23 @@ class Lowering<R extends Refs> {
 		at: SourceLoc,
 		operation: string
 	): Lowered {
+		return this.nativeJudged(op, args, args, type, bounds, at, operation)
+	}
+
+	/**
+	 * A node of `op` over the operands it reads, `args`, its preconditions judged over the caller's terms they stand for,
+	 * `judged`, position by position: an exact widening the lowering puts between a term and the node keeps every fact
+	 * of the term, so the proof is the term's, and a refusal names the term and the remedy its own type has.
+	 */
+	nativeJudged(
+		op: NativeOp,
+		args: ReadonlyArray<Lowered>,
+		judged: ReadonlyArray<Lowered>,
+		type: ScalarType,
+		bounds: Bounds | undefined,
+		at: SourceLoc,
+		operation: string
+	): Lowered {
 		const operands = args.map((a) => a.expr)
 		if (!op.partial) {
 			return this.emitProved(
@@ -1201,7 +1218,7 @@ class Lowering<R extends Refs> {
 		if (this.env.mode === "build") {
 			return this.typedOnly(type, bounds)
 		}
-		const proof = this.proveAll(op.totality.preconditions, args, type, at, operation)
+		const proof = this.proveAll(op.totality.preconditions, judged, type, at, operation)
 		return this.emitProved(
 			{
 				kind: "op",
@@ -3062,10 +3079,11 @@ class Lowering<R extends Refs> {
 	}
 
 	/**
-	 * Compute.numeric: PostgreSQL's conversion of a value into numeric, `x::numeric`, a computed numeric typed by what
-	 * the conversion proves of it: a registered cast from an integer, money, an exact value or a float (castNode,
-	 * emitProved); the binary coercion from a numeric(p, s), its typmod dropped, into its value's proved bound
-	 * (numericOf); a computed numeric itself.
+	 * Compute.numeric: PostgreSQL's conversion of a number into numeric, `x::numeric`, a computed numeric typed by what
+	 * the conversion proves of it: a registered cast from an integer, money, an exact value or a float, defined on every
+	 * value (castNode, emitProved); the binary coercion from a numeric(p, s), its typmod dropped, into its value's proved
+	 * bound (numericOf); a computed numeric itself. A text is no number: its cast into numeric is a parse, defined only on
+	 * its lexical form, which Compute.cast states with its proof, so Compute.numeric refuses it whatever the operand.
 	 */
 	numeric(a: Lowered, at: SourceLoc): Lowered {
 		const from = valueType(a.actual)
@@ -3076,11 +3094,11 @@ class Lowering<R extends Refs> {
 			return this.castNode(a, numericOf(a.bounds), { kind: "coercion" }, at)
 		}
 		const op = castOf(from.carrier, "numeric")
-		return op === undefined
+		return op === undefined || op.partial
 			? stop(
 					"UnsupportedOperation",
 					at,
-					`Compute.numeric: PostgreSQL has no cast from ${typeLabel(from)} to numeric that Compute admits`
+					`Compute.numeric: a conversion of a number into numeric, and ${typeLabel(from)} is no number; a text becomes one by Compute.cast(x, T) into a type with a lexical form, under Compute.when(Compute.matches(x, lexicalForm(T)), …)`
 				)
 			: this.castNode(a, anyNumeric, { kind: "registered", op }, at)
 	}
@@ -3108,7 +3126,8 @@ class Lowering<R extends Refs> {
 	 * +, -, *, / and % over one numeric family: integers and money exactly (exact integers and exact money, bounded by
 	 * their operands' digits), integer division truncating over the exact integers, numeric as PostgreSQL computes it
 	 * within its digit bounds, floats as IEEE 754. A divisor is proved nonzero by its facts, except a float's, whose
-	 * quotient by zero IEEE 754 defines.
+	 * quotient by zero IEEE 754 defines; the caller's divisor is judged, the exact value it is widened into keeping its
+	 * facts (nativeJudged).
 	 */
 	arithmetic(
 		fn: "add" | "sub" | "mul" | "div" | "mod",
@@ -3128,12 +3147,28 @@ class Lowering<R extends Refs> {
 			const b = this.widenExact(b0, "exactInteger", at)
 			const op = this.overload("div", [a.actual, b.actual], at)
 			const bounds = ofDigits(a.bounds?.digits ?? 0, 0, { infinite: false, nan: false })
-			return this.native(op, [a, b], this.resultType(op, bounds), bounds, at, operation)
+			return this.nativeJudged(
+				op,
+				[a, b],
+				[a0, b0],
+				this.resultType(op, bounds),
+				bounds,
+				at,
+				operation
+			)
 		}
 		const [a, b] = this.exactPair(a0, b0, at)
 		const op = this.overload(fn, [valueType(a.nominal), valueType(b.nominal)], at)
 		const bounds = arithmeticBounds(fn, a.bounds, b.bounds)
-		return this.native(op, [a, b], this.resultType(op, bounds), bounds, at, operation)
+		return this.nativeJudged(
+			op,
+			[a, b],
+			[a0, b0],
+			this.resultType(op, bounds),
+			bounds,
+			at,
+			operation
+		)
 	}
 
 	/** neg and abs: an integer's exactly, a numeric's and a float's as PostgreSQL computes them, exactly. */

@@ -638,6 +638,7 @@ export type SqlState =
 	| "40P01"
 	| "22P02"
 	| "22003"
+	| "22023"
 	| "428C9"
 	| "other"
 

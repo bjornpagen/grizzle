@@ -56,11 +56,23 @@ const required: Situations<AgreementNote> = [
 	"a contract in the head",
 	"a page request admitted",
 	"a page request refused",
+	"an unordered page refused",
 	...agreementPairs
 ]
 
-/** The faults whose site may hold a value the engine admits: a valid name, a field of the source, a key, one type. */
-const admissible = ["scopeName", "stranger", "unkeyedFold", "unionTypes"] as const
+/**
+ * The faults whose site may hold a value the engine admits: a valid name, a field of the source, a key, one type, a
+ * cosine distance to a vector of the same dimensions, an order by a field of the heading.
+ */
+const admissible = [
+	"scopeName",
+	"stranger",
+	"unkeyedFold",
+	"unionTypes",
+	"cosineDims",
+	"cosineTerm",
+	"orderHidden"
+] as const
 
 const faultsRequired: Situations<FaultNote> = [
 	...Arr.map(agreementFaults, (fault): FaultNote => `${fault} refused`),

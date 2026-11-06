@@ -9,7 +9,7 @@ import {
 import * as EngineResult from "#compiler/core/result.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { allRows, defaultOpclass, type LawField } from "#compiler/ir/law.ts"
-import type { AccessUse, IndexRequest } from "#compiler/ir/products.ts"
+import type { AccessIndexRequest, AccessUse, IndexRequest } from "#compiler/ir/products.ts"
 import type { IndexColumn } from "#compiler/physical/ddl/context.ts"
 import { noTextDomainUses } from "#compiler/physical/ddl/domains.ts"
 import type { PlannedIndex } from "#compiler/physical/indexes/engine.ts"
@@ -45,11 +45,13 @@ const accessShape: Readonly<Record<AccessUse, Shape>> = {
 }
 
 /**
- * A law's probe by its access method: a B-tree probe looks every requested column up by equality, a GiST probe tests
- * equality on each scalar and overlap on each span (a PERIOD reference's, a coverage's).
+ * A law's probe by its access method: a B-tree probe looks every requested column up by equality, as a hash probe looks
+ * up its one column, and a GiST probe tests equality on each scalar and overlap on each span (a PERIOD reference's, a
+ * coverage's).
  */
 const lawShape: Readonly<Record<IndexRequest["method"], Shape>> = {
 	btree: "equality",
+	hash: "equality",
 	gist: "overlap",
 	hnsw: "nearest"
 }
@@ -87,11 +89,15 @@ const orderedShape: Readonly<Record<Shape, boolean>> = {
 /**
  * The pages a scan of an index of each access method reads beside its entries' leaves and the heap (see judgeServing):
  * the inner pages of its descent, the leaf its entries straddle into, and the visibility map page; twice a B-tree's for
- * a GiST index, whose sibling keys overlap, so its probe may follow two paths down. An HNSW scan reads a neighbourhood
- * of its graph whatever the result.
+ * a GiST index, whose sibling keys overlap, so its probe may follow two paths down. A hash scan reads the metapage and
+ * every page of its bucket's chain: the primary page, an overflow page of the entries the other values hashed to the
+ * bucket hold (a split keeps a bucket's average under a page), and the page its own entries straddle into; it never
+ * scans index-only, so reads no visibility map page. An HNSW scan reads a neighbourhood of its graph whatever the
+ * result.
  */
 const descentPages: Readonly<Record<PlannedIndex["method"], number>> = {
 	btree: 4,
+	hash: 4,
 	gist: 8,
 	hnsw: Number.POSITIVE_INFINITY
 }
@@ -146,7 +152,7 @@ export type RequestSpec =
 			readonly rows: ProbeRows
 	  }
 
-const methodOfUse: Readonly<Record<AccessUse, IndexRequest["method"]>> = {
+const methodOfUse: Readonly<Record<AccessUse, AccessIndexRequest["method"]>> = {
 	"key lookup": "btree",
 	"equality lookup": "btree",
 	"join key": "btree",
@@ -1066,7 +1072,8 @@ export const judgeServing = (
 		 * The residue behind PostgreSQL's sweep of `through`, another planned index than `host`, the request's own, when it
 		 * is one (see the header): with the key orders in conflict, a GiST index's, whose key order gistcostestimate is
 		 * blind to, or a partial B-tree's read in place of an index of every row, which btcostestimate's skip-scan costing
-		 * prices as a sweep below that index's heap fetches.
+		 * prices as a sweep below that index's heap fetches. A hash index holds one column, so has no key order to
+		 * conflict.
 		 */
 		const residueOf = (
 			through: PlannedIndex,
@@ -1087,6 +1094,7 @@ export const judgeServing = (
 								"swept through another partial B-tree, skip-scan costing it below the heap an index of every row fetches"
 							)
 						: Option.none()
+				case "hash":
 				case "hnsw":
 					return Option.none()
 			}

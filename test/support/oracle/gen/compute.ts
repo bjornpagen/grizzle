@@ -288,8 +288,9 @@ const castTargets: ReadonlyMap<Carrier, ReadonlyArray<Carrier>> = (() => {
 
 /**
  * The numeric cast targets: typmods that round, keep and overflow the generated values, wide and narrow
- * (numeric(1,0) overflows 10, numeric(38,10) holds every finite generated value). Compute.numeric, the numeric of a
- * value, is a conversion and no target: a cast term draws it beside them.
+ * (numeric(1,0) overflows 10, numeric(38,10) holds every finite generated value), and numeric(1,3), whose scale lies
+ * above its precision, so its values lie below 10^-2 and its integer digits are negative. Compute.numeric, the numeric
+ * of a value, is a conversion and no target: a cast term draws it beside them.
  */
 const numericTargets: ReadonlyArray<FieldDesc> = [
 	{ kind: "numeric", precision: 5, scale: 2 },
@@ -297,7 +298,8 @@ const numericTargets: ReadonlyArray<FieldDesc> = [
 	{ kind: "numeric", precision: 38, scale: 10 },
 	{ kind: "numeric", precision: 3, scale: 1 },
 	{ kind: "numeric", precision: 7, scale: 0 },
-	{ kind: "numeric", precision: 16, scale: 0 }
+	{ kind: "numeric", precision: 16, scale: 0 },
+	{ kind: "numeric", precision: 1, scale: 3 }
 ]
 
 /**
@@ -813,10 +815,14 @@ const provesNarrowing = (source: "float4" | "float8", to: FieldDesc, bound: numb
 }
 
 /**
- * The bound of a cast's within guard: 9, inside every target's range; or for a float narrowing into its edge target,
+ * The bound of a cast's within guard: 9, inside every target's range but one whose scale lies at or above its
+ * precision, whose values lie below one and which the bound 0 proves; or for a float narrowing into its edge target,
  * the drawn edge bound where the checker proves the narrowing under it, and 9 where it does not.
  */
 const guardBound = (source: Carrier, to: FieldDesc, pick: number): number => {
+	if (to.kind === "numeric" && to.scale >= to.precision) {
+		return 0
+	}
 	if ((source !== "float4" && source !== "float8") || to.kind !== "numeric") {
 		return 9
 	}

@@ -562,7 +562,8 @@
 						"test/types/evidence/agreement.test.ts",
 						"test/types/evidence/attachments.test.ts",
 						"test/types/regex/schema.test.ts",
-						"test/types/schema/agreement.test.ts"
+						"test/types/schema/agreement.test.ts",
+						"test/types/text/regex.test.ts"
 					],
 					"reason": "The type batch's population runners: the population is drawn by the testing library's generators and printed as one program the batch typechecks at once, so no case can run a search per program; each case checks the drawn population against the engine as oracle, or that its floor's witnesses reach every requirement."
 				},

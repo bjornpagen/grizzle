@@ -908,7 +908,7 @@ export const identity = Object.freeze({
 		),
 	accessIndex: (
 		relation: string,
-		method: "btree" | "gist" | "hnsw",
+		method: "btree" | "gist" | "hnsw" | "hash",
 		keys: ReadonlyArray<IndexKey>,
 		predicate: ReadonlyArray<Selector>
 	): Identity<"accessIndex"> =>

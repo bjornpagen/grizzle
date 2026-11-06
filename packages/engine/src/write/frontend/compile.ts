@@ -77,6 +77,7 @@ import {
 	literalHost
 } from "#compiler/write/family/fold.ts"
 import { type Nesting, nestingOf } from "#compiler/write/family/nesting.ts"
+import { staleRead } from "#compiler/write/family/redraw.ts"
 import {
 	canonicalActionOrder,
 	type ImmediateReference,
@@ -1129,6 +1130,20 @@ const compile = (
 		for (const m of members) {
 			refuseMovedFilter(m, writtenNames)
 			refuseCascadedCopy(m, members)
+			const stale = staleRead(families, m.relation, m.op)
+			if (stale !== undefined) {
+				throw new Refusal(
+					CompileError.make({
+						_tag: "StaleDerivedRead",
+						at: m.loc,
+						op: m.op,
+						member: m.relation.name,
+						changed: stale.changed,
+						copies: stale.copies,
+						reader: stale.reader
+					})
+				)
+			}
 		}
 	}
 	const readBacks = desc.reads.map((r) => {

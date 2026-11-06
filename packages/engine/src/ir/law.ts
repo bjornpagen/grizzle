@@ -297,7 +297,7 @@ export interface LawIndexRequest {
 		readonly dir: "asc" | "desc"
 		readonly opclass: IndexOpclass
 	}>
-	readonly method: "btree" | "gist" | "hnsw"
+	readonly method: "btree" | "gist" | "hnsw" | "hash"
 	readonly role: "lawMaintenance"
 	readonly use: string
 	readonly rows: IndexRows
@@ -463,12 +463,21 @@ type NativeBody =
 			readonly targetSpan: NativeColumn
 			readonly deferrable: boolean
 	  }
-	| {
-			/** The index over a foreign key's referencing columns, which its reverse probe reads. */
+	| ({
+			/** The index over a foreign key's referencing columns, which its reverse probe reads (ReverseIndexOn). */
 			readonly kind: "ReverseIndex"
 			readonly relation: TableRelation
-			readonly columns: NonEmptyReadonlyArray<NativeColumn>
-	  }
+	  } & ReverseIndexOn)
+
+/**
+ * The index a reverse probe reads by its method: a B-tree over a leading run of the referencing columns whose entry is
+ * bounded, or a GiST over such a run ending in a PERIOD reference's span, PostgreSQL rechecking the other columns on
+ * the rows it finds; or, where no run is bounded, a hash index on one column, whose entry is a 4-byte hash code and
+ * which serves the probe's equality on it, PostgreSQL's hash index holding one column.
+ */
+export type ReverseIndexOn =
+	| { readonly method: "btree" | "gist"; readonly columns: NonEmptyReadonlyArray<NativeColumn> }
+	| { readonly method: "hash"; readonly columns: readonly [NativeColumn] }
 
 /**
  * What a row CHECK enforces: a declared row check, its name and the identity ownership named its constraint by, or a

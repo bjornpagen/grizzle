@@ -42,6 +42,7 @@ const namedStates: ReadonlySet<string> = new Set([
 	"40P01",
 	"22P02",
 	"22003",
+	"22023",
 	"428C9"
 ])
 

@@ -41,17 +41,11 @@ How the work runs:
 	- Tell the downstream session first: its database lives in the cluster.
 
 ### 2. No known bug
-- **A containment refused because a source column is unbounded text** (qti-pie, top priority, a regression from
-  "every planned index proved bounded"). `#scalarContainment` plans its reverse index over every source column, so
-  `Attribute(node, name, lexical) selected in Reference(...)` is refused for its free-text `lexical`. Lane K:
-	- the reverse index goes over the source columns whose entry is bounded, in order, and the index engine reuses a
-	  declared key or index that serves it;
-	- when no source column is bounded, it is a hash index on one column (the native's entry a variant, a proved
-	  B-tree entry or a hash), and PERIOD coverage gets the same rule for its scalars;
-	- the target's UNIQUE keeps its refusal;
-	- test: a search over containments with unbounded source columns at every position, with and without a covering
-	  key and a source selection. Oracle: the schema compiles, every index is bounded, and on 5433 the reverse probe's
-	  generic plan uses an index. Planted bug: today's behaviour.
+- **A containment's reverse index never refuses it** (K, the fix is in): its tests follow. A search over
+  containments with unbounded source columns at every position, with and without a covering key and a source
+  selection, and a bounded run too wide for one entry. Oracle: the schema compiles and every planned index is a proved
+  B-tree, a proved GiST or a hash; on 5433 the reverse probe's generic plan uses an index, and a 10,000-byte text lands.
+  Planted bug: every source column planned.
 - **The key text budget leaves out the index tuple's null bitmap** (K): the fix is in, and a generated suite
   follows: a declared key, a key over a selection, an ordered family's axis and a tree's predecessor axis, each
   admitted at N and refused at N+1 where tight. `keyTextBytes`'s JSDoc and README say `fields` is every other column
@@ -68,8 +62,10 @@ How the work runs:
 	  over integer, casts, the literal-first Refusal);
 	- `Compute.cast(Compute.add(r.depth, 1), pg.integer)` in a generated field: the types accept it, the engine
 	  refuses PartialOperation;
-	- a containment into a side that is not a key is decided at compile (a key over a selection is a projection the
-	  types don't track): the schema population draws it as a declared class, not around it.
+	- a containment into a side that is not a key, and a narrowing whose fit rests on bounds, are decided at compile
+	  (the types track neither a key over a selection nor bounds): the populations draw them as declared classes;
+	- a delete listing two facts that share a key with different payloads: the types refuse it, the engine admits it.
+	  The engine refuses it too, as it does for an insert and a put (W-typesD).
 - **Changing an owner's column that a family's derived value reads through a copy** (a fold step, a predecessor or last
   copy, a copy of a copy) fails at execution: the cascade updates the copy, but the per-row CHECK or NO ACTION key fires
   before the derived value is refilled. Lane W-fill: a typed refusal when the ChangeSet compiles, only where the

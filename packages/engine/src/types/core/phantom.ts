@@ -808,6 +808,7 @@ export const typeRefusals = [
 	"the query's head is not a fact of the relation",
 	"the relation is not in this query's schema",
 	"the sides' field types differ",
+	"the span's own endpoint descriptor: a descriptor of another type is no endpoint of the span",
 	"two facts of one relation share a key with different values; a key names one fact",
 	"two programs of one name across a login's workloads"
 ] as const

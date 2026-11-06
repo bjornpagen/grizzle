@@ -24,7 +24,8 @@ import type { ParamDecl } from "#compiler/ir/products.ts"
 import type { Card } from "#compiler/ir/rel.ts"
 import { compilePage, statedOrderOf } from "#compiler/lower/shapes/page/compile.ts"
 import { type QueryTemplate, queryInput } from "#compiler/program/compile.ts"
-import { pg, uuid } from "#compiler/public/fields.ts"
+import { ALLEN } from "#compiler/public/allen.ts"
+import { pg, uuid, Vector } from "#compiler/public/fields.ts"
 import { queryOver, type QueryValue, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
@@ -39,6 +40,7 @@ import {
 import { groupFields, paramsType, recordType } from "#test/support/agreement/heading.ts"
 import {
 	Agree,
+	Cell,
 	Cents,
 	Item,
 	Note,
@@ -75,7 +77,9 @@ import { messageOf } from "#test/support/message.ts"
  * (Fault): a scope's name drawn from the declared-name dictionary, or left out, or spelled through a `string`; a
  * binding of a name drawn from every relation's fields and a stranger; a match of Stray, which Agree does not hold; a
  * fold whose match keeps the keys it binds as drawn; a second arm of another heading whose fields are named as the
- * first's; a relation parameter of no field; and Owned matched unbound. The engine decides each: where it refuses, the
+ * first's; a relation parameter of no field; Owned matched unbound; an Allen predicate over a term that is no span; a
+ * head's cosine distance from Cell's vector to a vector of other dimensions, or to an integer, beside the same vector;
+ * and a take ordered by a name drawn among the heading's and others. The engine decides each: where it refuses, the
  * program states the refusal its reason is, at the fault's site (refusalOf), under the directive the type-test batch
  * disarms; where it admits, the program states every verdict as for a clean query. A name spelled through a `string`
  * is the one fault no engine sees, since every value a `string` holds at run time is a literal: the types refuse the
@@ -171,7 +175,11 @@ export const agreementFaults = [
 	"unkeyedFold",
 	"unionTypes",
 	"emptyRelation",
-	"unboundImport"
+	"unboundImport",
+	"allenTerm",
+	"cosineDims",
+	"cosineTerm",
+	"orderHidden"
 ] as const
 export type Fault = (typeof agreementFaults)[number]
 
@@ -188,6 +196,7 @@ export type AgreementNote =
 	| "a contract in the head"
 	| "a page request admitted"
 	| "a page request refused"
+	| "an unordered page refused"
 
 /** What a faulted case reached: its fault, and whether its site's drawn value was refused or admitted. */
 export type FaultNote = `${Fault} refused` | `${Fault} admitted`
@@ -374,6 +383,13 @@ interface RuleSpec {
 	readonly owned: ReadonlyArray<OwnedBind>
 	/** A scope whose name is written otherwise than as its own literal (scopeOf), by its scope. */
 	readonly spellings: ReadonlyArray<readonly [string, Spelling]>
+	/** A bound variable an Allen predicate relates to itself, where a case plants allenTerm. */
+	readonly allen: Var | undefined
+	/**
+	 * What a head's cosine distance from Cell's vector is to, where a case plants a cosine fault: that very vector, a
+	 * vector of other dimensions, or an integer, which is no vector.
+	 */
+	readonly cosine: "vector" | "short" | "scalar" | undefined
 }
 
 /**
@@ -388,6 +404,8 @@ type PageRequestSpec = ReadonlyArray<readonly ["first" | "last" | "after" | "bef
 interface QuerySpec {
 	readonly arms: Arr.NonEmptyReadonlyArray<RuleSpec>
 	readonly take: 1 | 2 | "k" | undefined
+	/** A take's order field where a case plants orderHidden, drawn among names the heading may not hold. */
+	readonly hidden: string | undefined
 	readonly fault: Planted
 	/**
 	 * The request a page of the query states, where the query is no take's, which a page reads no further, and no union
@@ -854,7 +872,17 @@ const drawRule = (d: Drawing, prefix: "h" | "g", rowsName: string): DrawnRule =>
 		head,
 		rows: further.rows,
 		owned: further.owned,
-		spellings: []
+		spellings: [],
+		allen:
+			d.fault === "allenTerm" && Arr.isReadonlyArrayNonEmpty(further.bound)
+				? d.from(further.bound)
+				: undefined,
+		cosine:
+			d.fault === "cosineDims"
+				? d.from(["vector", "short"] as const)
+				: d.fault === "cosineTerm"
+					? d.from(["vector", "scalar"] as const)
+					: undefined
 	}
 	return {
 		rule: d.fault === "clean" || all.length === 0 ? rule : spelled(d, rule),
@@ -935,6 +963,10 @@ const spelled = (d: Drawing, rule: RuleSpec): RuleSpec => {
 			case "unionTypes":
 			case "emptyRelation":
 			case "unboundImport":
+			case "allenTerm":
+			case "cosineDims":
+			case "cosineTerm":
+			case "orderHidden":
 				return undefined
 		}
 	}
@@ -1110,7 +1142,8 @@ const headOver = (
 	prefix: "h" | "g"
 ): Arr.NonEmptyReadonlyArray<readonly [string, HeadTerm]> => {
 	const ints = Arr.filter(bound, (b) => b.field.kind === "int")
-	if (d.keep("aggregate")) {
+	const cosine = d.fault === "cosineDims" || d.fault === "cosineTerm"
+	if (!cosine && (d.fault === "unkeyedFold" || d.keep("aggregate"))) {
 		const groups = groupsOver(d, bound)
 		const terms: Arr.NonEmptyReadonlyArray<HeadTerm> = [
 			{ kind: "count" },
@@ -1263,8 +1296,10 @@ const drawQuery = (d: Drawing): QuerySpec => {
 			? [discriminated(first, tagged[0]), discriminated(second(), tagged[1])]
 			: [first, second()]
 		: [first]
-	const take =
-		!heterogeneous && d.keep("take")
+	const hiding = d.fault === "orderHidden"
+	const take = hiding
+		? 1
+		: !heterogeneous && d.keep("take")
 			? d.keep("namedTake")
 				? "k"
 				: d.from([1, 2] as const)
@@ -1272,6 +1307,7 @@ const drawQuery = (d: Drawing): QuerySpec => {
 	return {
 		arms,
 		take,
+		hidden: hiding ? d.from(["id", "owner", "nope", "h0"] as const) : undefined,
 		fault: d.fault,
 		request: take === undefined && !heterogeneous ? requestOf(d) : undefined
 	}
@@ -1442,15 +1478,27 @@ class Rendering {
 				: arm.flagged.kind === "either"
 					? [`flag ? ${this.pred(arm.flagged.ifTrue)} : ${this.pred(arm.flagged.ifFalse)}`]
 					: [`...Arr.filter([${this.pred(arm.flagged.p)}], () => flag)`]
-		const predicates = [...Arr.map(arm.filters, (p) => this.pred(p)), ...flagged]
+		const allen =
+			arm.allen === undefined
+				? []
+				: [
+						`r.allen(${this.term(varTerm(arm.allen))}, ALLEN.overlaps, ${this.term(varTerm(arm.allen))})`
+					]
+		const predicates = [...Arr.map(arm.filters, (p) => this.pred(p)), ...flagged, ...allen]
 		const filters = Arr.isReadonlyArrayNonEmpty(predicates)
 			? [`.where(${Arr.join(predicates, ", ")})`]
 			: []
+		const cosine =
+			arm.cosine === undefined
+				? []
+				: [`cos: Compute.cosineDistance(cell.vector, ${cosineText(arm.cosine)})`]
 		const head = `.find({ ${Arr.join(
-			Arr.map(arm.head, ([n, h]) => `${n}: ${this.head(h)}`),
+			[...Arr.map(arm.head, ([n, h]) => `${n}: ${this.head(h)}`), ...cosine],
 			", "
 		)} })`
-		const body = `r${Arr.join([...matches, ...filters, head], "")}`
+		const cells =
+			arm.cosine === undefined ? [] : [".match(Cell, { id: cell.id, vector: cell.vector })"]
+		const body = `r${Arr.join([...matches, ...cells, ...filters, head], "")}`
 		const variables = variablesOf(arm)
 		const rows: ReadonlyArray<Line> =
 			arm.rows === undefined
@@ -1483,6 +1531,9 @@ class Rendering {
 		return [
 			{ text: "\t.rule((r) => {", fault: second && this.#fault === "unionTypes" },
 			...rows,
+			...(arm.cosine === undefined
+				? []
+				: [{ text: '\t\tconst cell = v(Cell, "cell")', fault: false }]),
 			...declare(Arr.filter(variables, (v) => v.field.rel !== "Owned")),
 			...owned,
 			...declare(Arr.filter(variables, (v) => v.field.rel === "Owned")),
@@ -1513,7 +1564,10 @@ class Rendering {
 			spec.take === undefined
 				? []
 				: [
-						{ text: `\t.orderBy([${jsonText(orderedBy(spec))}, "asc"])`, fault: false },
+						{
+							text: `\t.orderBy([${jsonText(orderedBy(spec))}, "asc"])`,
+							fault: this.#fault === "orderHidden"
+						},
 						{ text: `\t.take(${jsonText(spec.take)})`, fault: false }
 					]
 		return [{ text: "query(Agree)", fault: false }, ...arms, ...take]
@@ -1541,19 +1595,49 @@ const sourceText = (rel: MatchSource, copy: number, arm: RuleSpec): string => {
 	}
 }
 
-/** The faults whose diagnostic is on the first arm's return line: a binding's, a match's or a fold's. */
+/** What a head's cosine distance is to, in the program. */
+const cosineText = (to: "vector" | "short" | "scalar"): string => {
+	switch (to) {
+		case "vector":
+			return "cell.vector"
+		case "short":
+			return "Vector.make(Float32Array.of(0.5, 1), 2)"
+		case "scalar":
+			return "Compute.literal(pg.integer, 1)"
+	}
+}
+
+/** What a head's cosine distance is to, through the JavaScript view, beside Cell's vector `vector`. */
+const cosineValue = (to: "vector" | "short" | "scalar", vector: unknown): unknown => {
+	switch (to) {
+		case "vector":
+			return vector
+		case "short":
+			return Vector.make(Float32Array.of(0.5, 1), 2)
+		case "scalar":
+			return computeCore.literal(pg.integer, 1)
+	}
+}
+
+/**
+ * The faults whose diagnostic is on the first arm's return line: a binding's, a match's, a fold's, an Allen
+ * predicate's or a cosine distance's.
+ */
 const returnFaults: ReadonlySet<Planted> = new Set<Planted>([
 	"stranger",
 	"stray",
 	"unkeyedFold",
-	"unboundImport"
+	"unboundImport",
+	"allenTerm",
+	"cosineDims",
+	"cosineTerm"
 ])
 
 /**
  * The field a take orders by: the first head field, which every arm of a union of one heading delivers, and whose
  * order the take completes by the rest of the heading, a key of each arm.
  */
-const orderedBy = (spec: QuerySpec): string => spec.arms[0].head[0][0]
+const orderedBy = (spec: QuerySpec): string => spec.hidden ?? spec.arms[0].head[0][0]
 
 /** The variables of each scope, one per scope, in their order. */
 const scopesOf = (vs: ReadonlyArray<Var>): ReadonlyArray<Var> => {
@@ -1625,6 +1709,9 @@ const variablesOf = (arm: RuleSpec): ReadonlyArray<Var> => {
 	}
 	for (const p of [...arm.filters, ...flaggedPreds(arm.flagged)]) {
 		pred(p)
+	}
+	if (arm.allen !== undefined) {
+		term(varTerm(arm.allen))
 	}
 	for (const [, h] of arm.head) {
 		if (h.kind === "term") {
@@ -1791,10 +1878,31 @@ const builtArm =
 				Rec.fromEntries(Arr.map(m.bindings, ([f, t]) => [f, term(t)] as const))
 			)
 		)
-		const filtered = Arr.isReadonlyArrayNonEmpty(arm.filters)
-			? matched.where(...argumentsOf(Arr.map(arm.filters, pred)))
-			: matched
-		return filtered.find(Rec.fromEntries(Arr.map(arm.head, ([n, h]) => [n, head(h)] as const)))
+		const cell = varsOver(Cell, "cell")
+		const celled =
+			arm.cosine === undefined
+				? matched
+				: matched.match(Cell, { id: cell["id"], vector: cell["vector"] })
+		const allen =
+			arm.allen === undefined
+				? []
+				: [r.allen(variable(arm.allen), ALLEN.overlaps, variable(arm.allen))]
+		const predicates = [...Arr.map(arm.filters, pred), ...allen]
+		const filtered = Arr.isReadonlyArrayNonEmpty(predicates)
+			? celled.where(...argumentsOf(predicates))
+			: celled
+		const cosine: ReadonlyArray<readonly [string, unknown]> =
+			arm.cosine === undefined
+				? []
+				: [
+						[
+							"cos",
+							computeCore.cosineDistance(cell["vector"], cosineValue(arm.cosine, cell["vector"]))
+						]
+					]
+		return filtered.find(
+			Rec.fromEntries([...Arr.map(arm.head, ([n, h]) => [n, head(h)] as const), ...cosine])
+		)
 	}
 
 /** The name a scope's v call passes: its spelling's literal, or the scope's own name, the value a `string` holds. */
@@ -1888,7 +1996,9 @@ const named = (code: Refused["code"], refusal: TypeRefusal): Refused => ({
  * site's (its tag, and the builder call or field it names), and the refusal is the one the types name for that site.
  * A reason at no site of the case's fault is the generator's defect: undefined.
  */
-const refusalOf = (fault: Planted, reason: CompileReason): Refused | undefined => {
+const refusalOf = (spec: QuerySpec, reason: CompileReason): Refused | undefined => {
+	const fault = spec.fault
+	const cosine = spec.arms[0].cosine
 	const label = "at" in reason && "label" in reason.at ? reason.at.label : ""
 	const malformed = reason._tag === "MalformedDescription"
 	switch (fault) {
@@ -1931,6 +2041,31 @@ const refusalOf = (fault: Planted, reason: CompileReason): Refused | undefined =
 		case "unboundImport":
 			return malformed && "path" in reason.at && reason.at.path[0] === "bindings"
 				? named("TS2345", "bind the query's parameters before matching it: Q.bind({ ... })")
+				: undefined
+		case "allenTerm":
+			return malformed && label === "r.allen"
+				? named("TS2345", "a span term is required")
+				: undefined
+		case "cosineDims":
+		case "cosineTerm":
+			return malformed && label === "Compute.cosineDistance"
+				? {
+						code: "TS2345",
+						claim: {
+							kind: "prose",
+							reason:
+								cosine === "short"
+									? "cosine distance needs one dimension count"
+									: "cosine distance needs a vector term"
+						}
+					}
+				: undefined
+		case "orderHidden":
+			return malformed && label === "Query.orderBy"
+				? {
+						code: "TS2322",
+						claim: { kind: "prose", reason: "the order names no field of the heading" }
+					}
 				: undefined
 		case "clean":
 		case "widenedName":
@@ -2062,7 +2197,7 @@ const verdictOf = (spec: QuerySpec, source: string): Verdict => {
 	const templates: Array<QueryTemplate> = []
 	for (const template of compiled) {
 		if (!template.ok) {
-			const refused = refusalOf(spec.fault, template.error.reason)
+			const refused = refusalOf(spec, template.error.reason)
 			return refused === undefined
 				? failed(messageOf(template.error))
 				: { kind: "refused", refused }
@@ -2150,6 +2285,9 @@ const caseOf = ({ spec, reached }: Drawn): AgreementCase => {
 		const page = verdict.proved.page
 		if (page !== undefined) {
 			notes.add(page.refused === undefined ? "a page request admitted" : "a page request refused")
+			if (page.unordered !== undefined) {
+				notes.add("an unordered page refused")
+			}
 		}
 	}
 	if (Arr.some(spec.arms, fixedTwice)) {
@@ -2223,7 +2361,7 @@ const verdictText = (v: Verdict): string => {
 export const agreementCount = 240
 
 /** The faulted queries the run's own stream draws, and the floor's witnesses of each fault. */
-export const faultCount = 72
+export const faultCount = 104
 
 /** The label both clean populations are drawn under. */
 const agreementLabel = "types/evidence agreement"
@@ -2293,6 +2431,7 @@ export interface AgreementEntries {
 	readonly errors: string
 	readonly phantom: string
 	readonly page: string
+	readonly allen: string
 	readonly declare: string
 	readonly schema: string
 }
@@ -2327,6 +2466,7 @@ export const agreementEntriesFrom = (entry: (path: string) => string): Agreement
 	errors: entry("packages/grizzle/src/adapter/errors/execution.ts"),
 	phantom: entry("packages/engine/src/types/core/phantom.ts"),
 	page: entry("packages/engine/src/types/page/page.ts"),
+	allen: entry("packages/engine/src/public/allen.ts"),
 	declare: entry("packages/engine/src/public/schema.ts"),
 	schema: entry("test/support/agreement/schema.ts")
 })
@@ -2591,8 +2731,9 @@ const programOf = (
 			...(named.has("Arr") ? ['import { Array as Arr } from "effect"'] : []),
 			...some(["Brand", "Effect", "Option", "Stream"], "effect", "import type"),
 			...some(["Compute"], entries.compute, "import"),
-			...some(["pg", "uuid"], entries.fields, "import"),
-			...some(["Decimal", "Money", "Span", "Uuid", "Vector"], entries.fields, "import type"),
+			...some(["ALLEN"], entries.allen, "import"),
+			...some(["pg", "uuid", "Vector"], entries.fields, "import"),
+			...some(["Decimal", "Money", "Span", "Uuid"], entries.fields, "import type"),
 			...some(["query", "v"], entries.query, "import"),
 			...some(["EvidenceOfQuery", "HeadOf", "ParamsOf", "ParamType"], entries.query, "import type"),
 			...some(["DbOf", "GetArg", "QueryResult"], entries.db, "import type"),
@@ -2601,7 +2742,7 @@ const programOf = (
 			...some(["Page", "PageCursor"], entries.page, "import type"),
 			...some(["role"], entries.declare, "import"),
 			...some(
-				["Agree", "Cents", "Item", "Note", "Owned", "Stray", "Tag", "Tone", "Tones"],
+				["Agree", "Cell", "Cents", "Item", "Note", "Owned", "Stray", "Tag", "Tone", "Tones"],
 				entries.schema,
 				"import"
 			),

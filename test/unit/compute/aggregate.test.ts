@@ -1,19 +1,31 @@
+/**
+ * Aggregates over generated inputs. min and max, LEAST and GREATEST return one of their inputs, so what a head delivers
+ * keeps the contract that input has, over a contract drawn over each type they are defined on: a column of the contract
+ * and a parameter of it, which a rule reads as its base, deliver the contract, and Compute.base of a column the plain
+ * value. The oracle is the compiled heading's type. Planted bug: max typed by its argument's node, which computes a
+ * parameter at its base and Compute.base at the contract it drops.
+ */
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element, map, oneOf } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Record } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Record } from "effect"
 import { type CompareOp, type ComputeFn, computeFns } from "#compiler/ir/desc.ts"
+import { contractOf } from "#compiler/ir/scalar.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
 import { Compute } from "#compiler/public/compute.ts"
-import { pg, uuid } from "#compiler/public/fields.ts"
+import { contract, pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
+import { str } from "#compiler/public/text.ts"
+import { queryOver, varsOver } from "#compiler/query/build/query.ts"
+import type { RuleValue } from "#compiler/query/build/rule.ts"
+import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { nativeOps } from "#compiler/scalar/compute/registry.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
 import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
-import { assert, nonEmpty, succeeded } from "#test/support/assert.ts"
+import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
 import { caseHang } from "#test/support/limits.ts"
 
@@ -226,5 +238,105 @@ describe("the overload registry", () => {
 				)
 			)
 		})
+	)
+})
+
+describe("min, max, LEAST and GREATEST", () => {
+	/** A contract over each type min, max, LEAST and GREATEST are defined on. */
+	const kept = [
+		contract("Kept_smallint", pg.smallint),
+		contract("Kept_integer", pg.integer),
+		contract("Kept_bigint", pg.bigint),
+		contract("Kept_numeric", pg.numeric(7, 2)),
+		contract("Kept_real", pg.real),
+		contract("Kept_double", pg["double precision"]),
+		contract("Kept_money", pg.money),
+		contract("Kept_boolean", pg.boolean),
+		contract("Kept_text", str.regex("^.*$", "su"))
+	] as const
+	type Kept = (typeof kept)[number]
+	/** What returns its input: an aggregate or a function of two operands. */
+	type Returning = "min" | "max" | "least" | "greatest"
+	/** How the head reads the contract's term: its column, a parameter of it, or the column's plain value. */
+	type Reading = "column" | "parameter" | "base"
+	const returnings: Arr.NonEmptyReadonlyArray<Returning> = ["min", "max", "least", "greatest"]
+	const readings: Arr.NonEmptyReadonlyArray<Reading> = ["column", "parameter", "base"]
+
+	/** The head over `x`, Held's variables, reading the contract's term as `reading` says. */
+	const headOf = (
+		r: RuleValue,
+		x: Readonly<Record<string, unknown>>,
+		k: Kept,
+		returning: Returning,
+		reading: Reading
+	): unknown => {
+		const first =
+			reading === "column"
+				? x["a"]
+				: reading === "parameter"
+					? r.param("p", k)
+					: computeCore.base(x["a"])
+		const second = reading === "base" ? computeCore.base(x["b"]) : x["b"]
+		switch (returning) {
+			case "min":
+				return r.min(first)
+			case "max":
+				return r.max(first)
+			case "least":
+				return computeCore.least(first, second)
+			case "greatest":
+				return computeCore.greatest(first, second)
+		}
+	}
+
+	it.effect("deliver the contract of the input they return", (ctx) =>
+		searched(
+			ctx,
+			exhaust(
+				{
+					suite: "unit/compute/returns-input",
+					generator: (source) =>
+						[
+							source.draw(element(kept)),
+							source.draw(element(returnings)),
+							source.draw(element(readings))
+						] as const,
+					literal: Formatter.format,
+					/** The space: every contract, under each of the four, read each way. */
+					limit: kept.length * returnings.length * readings.length,
+					coverage: requiredInSpace<`${Returning} over a ${Reading}`>(
+						nonEmpty(
+							Arr.flatMap(returnings, (f) => Arr.map(readings, (g) => `${f} over a ${g}` as const)),
+							"each function over each reading"
+						)
+					),
+					caseHang
+				},
+				([k, returning, reading], c) =>
+					Effect.sync(() => {
+						c.note(`${returning} over a ${reading}`)
+						const Held = relation("Held", { id: uuid, a: k, b: k }, ["id"])
+						const held = queryOver(schema("Held", { Held }, [])).rule((r: RuleValue) => {
+							const x = varsOver(Held, "held")
+							return r
+								.match(Held, { id: x["id"], a: x["a"], b: x["b"] })
+								.find({ out: headOf(r, x, k, returning, reading) })
+						})
+						const template = succeeded(compileTemplate(held, undefined, testCompile))
+						const out = defined(
+							Option.getOrUndefined(
+								Arr.findFirst(template.heading, (column) => column.name === "out")
+							),
+							"the head's column"
+						)
+						const delivered = contractOf(out.type)
+						assert.equal(
+							delivered === undefined ? undefined : String(delivered.name),
+							reading === "base" ? undefined : k.name,
+							`${returning} over a ${reading} of ${k.name}`
+						)
+					})
+			)
+		)
 	)
 })

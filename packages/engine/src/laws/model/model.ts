@@ -1165,12 +1165,21 @@ class Specializer {
 					lawIds
 				}
 			case "ReverseIndex":
-				return {
-					kind: "ReverseIndex",
-					relation: n.relation,
-					columns: mapNonEmpty(n.columns, (c) => this.#column(c)),
-					lawIds
-				}
+				return n.method === "hash"
+					? {
+							kind: "ReverseIndex",
+							relation: n.relation,
+							method: n.method,
+							columns: [this.#column(n.columns[0])],
+							lawIds
+						}
+					: {
+							kind: "ReverseIndex",
+							relation: n.relation,
+							method: n.method,
+							columns: mapNonEmpty(n.columns, (c) => this.#column(c)),
+							lawIds
+						}
 			case "Unique": {
 				/** A generated unique over the column set of a declared scalar key is that key; a span key is WITHOUT
 				 * OVERLAPS, not a B-tree uniqueness, so its exact-repeat arbiter stays its own object. */

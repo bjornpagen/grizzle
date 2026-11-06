@@ -60,10 +60,10 @@ import { checking } from "#test/support/policy.ts"
  * A case is a valid ChangeSet by construction with at most one planted fault, so the one line the case is written on
  * raises at most the one diagnostic its directive names: a read-back name repeated by read, union or sequence, a
  * closed relation written, a described member's head that is no fact of its relation or writes an exact value into a
- * plain field, a member fact with a field its relation lacks or some of its serials, two facts of an array sharing a
- * key with literal payloads that differ, a fold over a delta reading no key, ChangeSets over schemas that are no levels
- * of one another, a role that does not write the relation, a parameter left unbound. The floor's witnesses
- * (changeSetWitnesses), the same in every run, reach every fault and every construct.
+ * plain field, a member fact with a field its relation lacks or some of its serials, two facts an addition or a put
+ * lists sharing a key with literal payloads that differ, a fold over a delta reading no key, ChangeSets over schemas
+ * that are no levels of one another, a role that does not write the relation, a parameter left unbound. The floor's
+ * witnesses (changeSetWitnesses), the same in every run, reach every fault and every construct.
  *
  * One equivalence, brands being type-only: a contract's value written as its bare base value (`cents: 5n`), which the
  * engine checks by value and admits, the types refuse for its missing brand, as the head no fact of its relation.
@@ -530,7 +530,9 @@ const memberOf = (d: Drawing, fault: ChangeSetFault | undefined): MemberSpec => 
 	const op =
 		fault === "an addition with some of its serials"
 			? "insert"
-			: d.choose(["insert", "delete", "put"] as const)
+			: fault === "two facts sharing a key"
+				? d.choose(["insert", "put"] as const)
+				: d.choose(["insert", "delete", "put"] as const)
 	const relation: RelName =
 		fault === "an addition with some of its serials"
 			? "Pair"

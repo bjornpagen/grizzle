@@ -279,7 +279,8 @@ const carrierDraws: { readonly [C in StorageCarrier]: CarrierDraw } = {
 		base: [
 			wideNumericSpec,
 			{ carrier: "numericTypmod", precision: 5, scale: 2 },
-			{ carrier: "numericTypmod", precision: 3, scale: 1 }
+			{ carrier: "numericTypmod", precision: 3, scale: 1 },
+			{ carrier: "numericTypmod", precision: 2, scale: 4 }
 		],
 		extended: []
 	},
@@ -508,7 +509,9 @@ const rawClasses: Readonly<Record<Exclude<GenCarrier, "code">, Classes>> = {
 		num("0.1"),
 		num("-0.25"),
 		num("Infinity"),
-		num("-Infinity")
+		num("-Infinity"),
+		num("0.0025"),
+		num("-0.0001")
 	],
 	/**
 	 * Besides the small values, the edge of a narrowing into a typmod wider than a float's significant digits

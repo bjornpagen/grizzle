@@ -81,5 +81,5 @@ export const installationWitness = (
 			return entry === undefined ? found : keyWitness(entry.entry, entryKey(entry, found.values))
 		}
 	}
-	return { laws, classify: violationClassifier(laws, decoder) }
+	return { laws, classify: violationClassifier(laws, decoder, new Set(checked.relations.keys())) }
 }

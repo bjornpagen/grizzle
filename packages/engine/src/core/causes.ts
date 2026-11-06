@@ -597,3 +597,72 @@ export const unwritableRelationText = (relation: string, cause: UnwritableCause)
 			return `no addition to ${relation} compiles: the unique object of law ${cause.law} reads ${cause.field}, which PostgreSQL generates and no fact carries, so no same-key check or probe meets it; key fields its caller writes`
 	}
 }
+
+/** A column of a relation, as a refusal names it. */
+export interface ColumnName {
+	readonly relation: string
+	readonly column: string
+}
+
+/**
+ * A column a write changes on rows already stored: a field of a relation it puts, one its caller writes or one
+ * generated from them (`put`); a column an edit of a family the relation owns draws on the owner, the family's count or
+ * a column its last axis carries, a fold's end or a last copy (`owner`); or a column an edit of a family the relation is
+ * a member of draws again on its members, an index or a copy along the owner or the predecessor axis (`member`).
+ */
+export interface ChangedColumn extends ColumnName {
+	readonly by: "put" | "owner" | "member"
+}
+
+/**
+ * A value a family draws from a column of its member's row only when that row is written: a fold's step or selection
+ * (`fold`), a predecessor copy (`predecessor`), a last copy on its owner (`last`), or a tree node's copy of its
+ * parent's (`tree`). `column` is the column the value is drawn into, on `relation`.
+ */
+export interface DerivedReader extends ColumnName {
+	readonly kind: "fold" | "predecessor" | "last" | "tree"
+	readonly family: FamilyName
+}
+
+/** A derived value, as a refusal names it. */
+const derivedReaderText = (reader: DerivedReader): string => {
+	const at = `${reader.relation}.${reader.column}`
+	const family = familyNameText(reader.family)
+	switch (reader.kind) {
+		case "fold":
+			return `the fold over ${family}, whose end is ${at},`
+		case "predecessor":
+			return `the predecessor copy ${at} of ${family}`
+		case "last":
+			return `the last copy ${at} of ${family}`
+		case "tree":
+			return `the copy ${at} of each node's parent along the tree ${family}`
+	}
+}
+
+/** A StaleDerivedRead's sentence: the change, the cascade that carries it on, and the value that reads it. */
+export const staleDerivedReadText = (read: {
+	readonly op: "insert" | "put" | "delete"
+	readonly member: string
+	readonly changed: ChangedColumn
+	readonly copies: ReadonlyArray<ColumnName>
+	readonly reader: DerivedReader
+}): string => {
+	const write =
+		read.op === "insert"
+			? `an insert into ${read.member}`
+			: read.op === "put"
+				? `a put of ${read.member}`
+				: `a delete of ${read.member}`
+	const changed = `${read.changed.relation}.${read.changed.column}`
+	const how =
+		read.changed.by === "put"
+			? `${write} changes ${changed} on rows already stored`
+			: read.changed.by === "owner"
+				? `${write} edits a family ${read.changed.relation} owns, which changes ${changed} on rows already stored`
+				: `${write} edits a family ${read.changed.relation} is a member of, which draws ${changed} again on rows already stored`
+	const carried = read.copies
+		.map((c) => `, which ${c.relation}.${c.column} copies by cascade`)
+		.join("")
+	return `${how}${carried}; ${derivedReaderText(read.reader)} reads it, a value grizzle draws when its row is written and never again when a column it reads changes, so the change would leave it stale`
+}

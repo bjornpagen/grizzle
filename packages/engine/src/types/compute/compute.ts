@@ -55,6 +55,15 @@ import type { EqualityStates, StatesOf, Stating } from "#compiler/types/evidence
 import type { Field, LiteralOf, NotRoster } from "#compiler/types/fields/field.ts"
 import type { PatternValidate } from "#compiler/types/fields/regex.ts"
 
+/**
+ * A span's endpoint descriptor, as the engine requires it: the span's own, whose values H are exactly the span's
+ * endpoints E, so neither a contract over a span's plain endpoint type nor the plain type of a span over a contract.
+ */
+type SpanEndpoint<E, H> = Requires<
+	[E] extends [H] ? ([H] extends [E] ? true : false) : false,
+	"the span's own endpoint descriptor: a descriptor of another type is no endpoint of the span"
+>
+
 /** A divisor's requirement: proved nonzero, except a float's, whose quotient by zero IEEE 754 defines. */
 type Divisor<S extends SqlTag, B> = [S] extends ["real" | "double precision"]
 	? unknown
@@ -661,20 +670,21 @@ export interface ComputeApi {
 	/**
 	 * A span's endpoints, of its endpoint descriptor's type, contract included, and its width, the plain value of the
 	 * endpoint's SQL type: the endpoint descriptor states what a span term's type alone cannot carry, and must be the
-	 * span's own.
+	 * span's own exactly (SpanEndpoint), as the engine requires, so the endpoint's values H, which its column delivers,
+	 * are the span's endpoints.
 	 */
-	lower<A extends TermBase | FirstValue, E, PA, OA, ES extends EndpointSql>(
+	lower<A extends TermBase | FirstValue, E, PA, OA, ES extends EndpointSql, H>(
 		s: A & FirstTerm<A> & InputTerm<Span<E>, PA, OA, "range">,
-		endpoint: Field<E, ES>
-	): Term<E, PA, ComputedOrigin<OA>, ES>
-	upper<A extends TermBase | FirstValue, E, PA, OA, ES extends EndpointSql>(
+		endpoint: Field<H, ES> & SpanEndpoint<E, H>
+	): Term<H, PA, ComputedOrigin<OA>, ES>
+	upper<A extends TermBase | FirstValue, E, PA, OA, ES extends EndpointSql, H>(
 		s: A & FirstTerm<A> & InputTerm<Span<E>, PA, OA, "range">,
-		endpoint: Field<E, ES>
-	): Term<E, PA, ComputedOrigin<OA>, ES>
+		endpoint: Field<H, ES> & SpanEndpoint<E, H>
+	): Term<H, PA, ComputedOrigin<OA>, ES>
 	/** The exact difference of the endpoints, which never overflows. */
-	width<A extends TermBase | FirstValue, E, PA, OA, ES extends EndpointSql>(
+	width<A extends TermBase | FirstValue, E, PA, OA, ES extends EndpointSql, H>(
 		s: A & FirstTerm<A> & InputTerm<Span<E>, PA, OA, "range">,
-		endpoint: Field<E, ES>
+		endpoint: Field<H, ES> & SpanEndpoint<E, H>
 	): Term<bigint, PA, ComputedOrigin<OA>, "exact integer">
 
 	/** char_length; admitted only in contract predicates and row checks, never in a query. */

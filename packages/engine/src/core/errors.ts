@@ -1,6 +1,9 @@
 import {
+	type ChangedColumn,
 	type ClaimRule,
 	claimRuleText,
+	type ColumnName,
+	type DerivedReader,
 	type DerivedRefusal,
 	derivedRefusalText,
 	type FamilyName,
@@ -16,6 +19,7 @@ import {
 	type RoleRule,
 	recursionRefusalText,
 	roleRuleText,
+	staleDerivedReadText,
 	unfillableText,
 	type UnwritableCause,
 	unwritableRelationText
@@ -339,6 +343,10 @@ const duplicateText = (duplicate: Duplicate): string => {
  * - `CascadedCopyAppend`: a write at `at` of `member`, an `op`, appends to `family`, whose copy `copy` reads `owner`'s
  *   `through`, which `owner` copies from `changed`, a relation the same stratum also changes, by a put or by an edit of
  *   one of its families (`by`): the change reaches `owner` by cascade only after the family's rows are drawn.
+ * - `StaleDerivedRead`: a write at `at` of `member`, an `op`, changes `changed` on rows already stored, by a put of its
+ *   relation or by an edit of a family it owns or is a member of, and the cascade carries the change on into `copies`,
+ *   in order; the value `reader`, which a family draws from the last of them only when its row is written, reads it,
+ *   so the change would leave that value stale (write/family/redraw.ts).
  * - `UndeclaredDrop`: a migration drops `dropped`, which the previous installation holds and the schema no longer
  *   declares, and no declaration of the draft (`--rename`, `--drop`) names it.
  */
@@ -487,6 +495,15 @@ export type CompileReason =
 			readonly changed: string
 			readonly by: "put" | "family"
 	  }
+	| {
+			readonly _tag: "StaleDerivedRead"
+			readonly at: SourceLoc
+			readonly op: "insert" | "put" | "delete"
+			readonly member: string
+			readonly changed: ChangedColumn
+			readonly copies: ReadonlyArray<ColumnName>
+			readonly reader: DerivedReader
+	  }
 export type CompileReasonTag = CompileReason["_tag"]
 
 /** The reasons whose one fact is a sentence: built by prose (a check's or builder's refusal helper). */
@@ -628,6 +645,8 @@ export const compileReasonText = (reason: CompileReason): string => {
 			return unwritableRelationText(reason.relation, reason.cause)
 		case "CascadedCopyAppend":
 			return `${reason.op === "put" ? "a put of" : "an insert into"} ${reason.member} appends to the family ${reason.family.owner}.${reason.family.count}, whose copy ${reason.copy} reads ${reason.owner}'s ${reason.through}, which ${reason.owner} copies from ${reason.changed}; the same stratum ${reason.by === "put" ? "puts" : "edits a family of"} ${reason.changed}, whose change reaches ${reason.owner} by cascade only after the family's rows are drawn from ${reason.owner} as the read found it: change ${reason.changed} in a ChangeSet applied before this one`
+		case "StaleDerivedRead":
+			return staleDerivedReadText(reason)
 		case "UndeclaredDrop": {
 			const spelled = droppedText(reason.dropped)
 			return `${spelled} is dropped but not declared: declare it with --drop ${spelled}, or --rename it`

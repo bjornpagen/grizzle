@@ -1237,7 +1237,7 @@ export interface CreateIndex {
 	readonly unique: boolean
 	/** Outside a transaction block only. */
 	readonly concurrently: boolean
-	readonly method: "btree" | "gist" | "hnsw"
+	readonly method: "btree" | "gist" | "hnsw" | "hash"
 	readonly keys: NonEmptyReadonlyArray<IndexKey>
 	readonly include: ReadonlyArray<string>
 	readonly where: Expr | undefined
