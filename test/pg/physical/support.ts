@@ -24,6 +24,7 @@ import {
 	type ProjectedGrant,
 	projectedGrants
 } from "#test/support/catalog/expected.ts"
+import { closedConstantsOf } from "#test/support/catalog/installed.ts"
 import { type Catalog, readCatalog } from "#test/support/catalog/read.ts"
 import type { ErasureExpectation } from "#test/support/catalog/verify.ts"
 import { installationSql } from "#test/support/compile.ts"
@@ -167,8 +168,11 @@ export const worldsExpectation = (
 ): ErasureExpectation => {
 	const writer = installedRoleOf(installation, worlds.writer)
 	const reader = installedRoleOf(installation, worlds.reader)
+	const declared = declaredErasure(desc)
 	return {
-		...declaredErasure(desc),
+		...declared,
+		/** The description names no closed constant: the installation's, each as the verifier judges its executors. */
+		functions: new Map([...declared.functions, ...closedConstantsOf(installation)]),
 		logins: new Map([[writer.login, new Set([writer.role, reader.role])]]),
 		refreshes: new Map([
 			[

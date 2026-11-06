@@ -1,4 +1,4 @@
-import { Array as Arr, Effect, Option, Record as Rec } from "effect"
+import { Array as Arr, Effect, Option, Order, Record as Rec } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import type { PhysicalKind } from "#compiler/ir/products.ts"
@@ -6,7 +6,7 @@ import { roleIdentity, roleView } from "#compiler/physical/ddl/names.ts"
 import { searchPolicySettings } from "#compiler/physical/ddl/roles.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import type { CreateDomain, Expr, SqlStatement } from "#compiler/sql/ast.ts"
-import { identityHooks, transformExpr } from "#compiler/sql/transform.ts"
+import { identityHooks, transformExpr, transformStatement } from "#compiler/sql/transform.ts"
 import { assert } from "#test/support/assert.ts"
 import { type Catalog, type CatalogGrant, readCatalog } from "#test/support/catalog/read.ts"
 import {
@@ -84,14 +84,109 @@ const callsOf = (e: Expr): ReadonlyArray<string> => {
 	return out
 }
 
+/** The functions a statement's expressions call, by name: a CHECK's, a generated column's, a body's. */
+const statementCalls = (s: SqlStatement): ReadonlyArray<string> => {
+	const out: Array<string> = []
+	transformStatement(s, {
+		...identityHooks,
+		expr: (x) => {
+			if (x.kind === "call" && x.fn.kind === "qualified") {
+				out.push(x.fn.name)
+			}
+			return x
+		}
+	})
+	return out
+}
+
+/** The tables whose installed statements call each function, by its name: a table's CREATE TABLE and every ALTER TABLE
+ * of it a manifest holds, a CHECK's and a generated column's calls among them. */
+const tableCallers = (
+	manifest: Installation["manifest"]
+): ReadonlyMap<string, ReadonlySet<string>> => {
+	const out = new Map<string, Set<string>>()
+	for (const o of manifest.objects) {
+		for (const s of o.ddl) {
+			const table =
+				s.kind === "createTable" ? s.table.name : s.kind === "alterTable" ? s.table.name : undefined
+			if (table === undefined) {
+				continue
+			}
+			for (const fn of statementCalls(s)) {
+				const known = out.get(fn)
+				if (known === undefined) {
+					out.set(fn, new Set([table]))
+				} else {
+					known.add(table)
+				}
+			}
+		}
+	}
+	return out
+}
+
+/**
+ * Each closed constant of an installation as the verifier judges its executors: a declared closed relation's own
+ * (`declared`: its cells, its key set or a dictionary, which every world role's queries' closed reads call), or one a
+ * law's CHECK alone reads; either with the tables whose CHECKs and generated columns call it.
+ */
+const closedClassifier = (installation: Installation): ((name: string) => InstalledFunction) => {
+	const declared = new Set(
+		Arr.flatMap(Rec.values(installation.owned.relations), (r) => {
+			if (r.kind !== "closedRelation") {
+				return []
+			}
+			const c = installation.names.closed(r.name)
+			return [
+				c.function.name,
+				c.keys.name,
+				...Arr.flatMap(c.payload, (p) => (p.dictionary === undefined ? [] : [p.dictionary.name]))
+			]
+		})
+	)
+	const callers = tableCallers(installation.manifest)
+	return (name) => ({
+		kind: "closedConstant",
+		declared: declared.has(name),
+		tables: Arr.sort(callers.get(name) ?? [], Order.String)
+	})
+}
+
+/** Whether a constant's statement creates a names constant (it returns name[]) or a live-codes constant (bit varying
+ * from a subquery over a names constant): a roster's, which no closed relation owns. */
+const rosterConstant = (s: Extract<SqlStatement, { readonly kind: "createConstant" }>): boolean =>
+	(s.returns.kind === "builtin" && s.returns.name === "name" && s.returns.array) ||
+	(s.body.kind === "subquery" && callsOf(s.body).length > 0)
+
+/** Every closed constant an installation's manifest creates, a pack or a dictionary, as `closedClassifier` judges it:
+ * what a description-built expectation (catalog/declared.ts), which names no constant, holds of them. */
+export const closedConstantsOf = (
+	installation: Installation
+): ReadonlyArray<readonly [string, InstalledFunction]> => {
+	const judged = closedClassifier(installation)
+	return Arr.flatMap(installation.manifest.objects, (o) =>
+		o.kind === "constant"
+			? Arr.flatMap(o.ddl, (s): ReadonlyArray<readonly [string, InstalledFunction]> =>
+					s.kind === "packConstant"
+						? [[s.function.name, judged(s.function.name)]]
+						: s.kind === "createConstant" && !rosterConstant(s)
+							? [[s.name.name, judged(s.name.name)]]
+							: []
+				)
+			: []
+	)
+}
+
 /**
  * The constants the manifest's constant objects create, each as what it is: a names constant (it returns name[]) and a
  * live-codes constant (it returns bit varying from a subquery over a names constant), each with the domain whose CHECK
- * calls it among the manifest's domains; every other, a pack or a dictionary, a closed relation's constant.
+ * calls it among the manifest's domains; every other, a pack or a dictionary, a closed constant (`closedClassifier`).
  */
 const constantsOf = (
+	installation: Installation,
 	snapshot: DeploySnapshot
 ): ReadonlyArray<readonly [string, InstalledFunction]> => {
+	const closedConstant = closedClassifier(installation)
 	const domains = Arr.flatMap(snapshot.manifest.objects, (o) =>
 		o.kind === "domain"
 			? Arr.flatMap(o.ddl, (s): ReadonlyArray<CreateDomain> =>
@@ -110,7 +205,7 @@ const constantsOf = (
 		o.kind === "constant"
 			? Arr.flatMap(o.ddl, (s): ReadonlyArray<readonly [string, InstalledFunction]> => {
 					if (s.kind === "packConstant") {
-						return [[s.function.name, { kind: "closedConstant" }]]
+						return [[s.function.name, closedConstant(s.function.name)]]
 					}
 					if (s.kind !== "createConstant") {
 						return []
@@ -122,7 +217,7 @@ const constantsOf = (
 					const [names] = callsOf(s.body)
 					return s.body.kind === "subquery" && names !== undefined
 						? [[name, { kind: "live", names, domain: checking(name) }]]
-						: [[name, { kind: "closedConstant" }]]
+						: [[name, closedConstant(name)]]
 				})
 			: []
 	)
@@ -199,7 +294,7 @@ export const installedScope = (
 				...functionsOf("isolationFunction", { kind: "isolationGuard" }),
 				...functionsOf("snapshotGuard", { kind: "snapshotGuard" }),
 				...functionsOf("worldFunction", { kind: "world" }),
-				...constantsOf(snapshot),
+				...constantsOf(installation, snapshot),
 				...Arr.flatMap(Rec.toEntries(snapshot.theory.relations), ([name, r]) =>
 					r.kind === "relation"
 						? Arr.flatMap(r.fields, (f) =>

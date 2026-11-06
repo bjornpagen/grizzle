@@ -17,7 +17,13 @@ export type InstalledFunction =
 	| { readonly kind: "isolationGuard" }
 	| { readonly kind: "names"; readonly domain: string }
 	| { readonly kind: "live"; readonly names: string; readonly domain: string }
-	| { readonly kind: "closedConstant" }
+	| {
+			/** A closed relation's constant, the relation's own when `declared`, read by the CHECKs and generated columns
+			 * of `tables`. */
+			readonly kind: "closedConstant"
+			readonly declared: boolean
+			readonly tables: ReadonlyArray<string>
+	  }
 
 /** What a trigger of the installation is: the isolation guard every table carries, the one trigger grizzle installs. */
 const installedTriggers = ["isolation"] as const
@@ -523,7 +529,7 @@ const functionProblems = (j: Judging, f: Fn): ReadonlyArray<ErasureProblem> => {
 	const expected: InstalledFunction | undefined =
 		declared ??
 		(j.expect.closedConstants && Str.startsWith("__constant_")(f.name)
-			? { kind: "closedConstant" }
+			? { kind: "closedConstant", declared: false, tables: [] }
 			: undefined)
 	if (expected === undefined) {
 		return [
@@ -611,6 +617,20 @@ const viewCallers = (j: Judging, name: string): ReadonlySet<string> =>
 		)
 	)
 
+/** The world roles that insert into or update any of `tables`, whose CHECKs PostgreSQL evaluates as the invoker. */
+const tableWriters = (j: Judging, tables: ReadonlyArray<string>): ReadonlySet<string> =>
+	new Set(
+		Arr.flatMap(j.catalog.tables, (t) =>
+			t.kind === "r" && Arr.contains(tables, t.name)
+				? Arr.flatMap([...t.grants, ...t.columnGrants], (g) =>
+						(g.privilege === "INSERT" || g.privilege === "UPDATE") && j.worldRoles.has(g.grantee)
+							? [g.grantee]
+							: []
+					)
+				: []
+		)
+	)
+
 /** The world roles holding EXECUTE on the function `name`. */
 const executorsOf = (j: Judging, name: string): ReadonlySet<string> =>
 	new Set(
@@ -627,9 +647,11 @@ const executorsOf = (j: Judging, name: string): ReadonlySet<string> =>
  * EXECUTE on a constant goes exactly to the world roles that call it as invokers (§3.12, "Role views"): a live
  * constant's to the holders of USAGE on its bits domain, whose CHECK calls it; a names constant's to the holders of
  * USAGE on its roster domain, the roles whose views decode a closed id through it, and the executors of the live
- * constant derived from it, whose body calls it; a closed relation's constant's to every world role, since a role holds
- * every closed relation of its base but a roster (analysis/schema.ts CheckedSchema) and its queries' closed reads call
- * the relation's constants as the invoker, besides the roles whose views call it.
+ * constant derived from it, whose body calls it; a declared closed relation's own constant's to every world role, since
+ * a role holds every closed relation of its base but a roster (analysis/schema.ts CheckedSchema) and its queries' closed
+ * reads call the relation's constants as the invoker; and any closed constant's to the roles whose views call it and
+ * the roles that insert into or update a table whose CHECK or generated column calls it, a law's CHECK alone reading
+ * a constant of no declared relation.
  */
 const constantExecutorProblems = (
 	j: Judging,
@@ -656,7 +678,12 @@ const constantExecutorProblems = (
 			}
 			break
 		case "closedConstant":
-			for (const r of j.worldRoles) {
+			if (expected.declared) {
+				for (const r of j.worldRoles) {
+					required.add(r)
+				}
+			}
+			for (const r of tableWriters(j, expected.tables)) {
 				required.add(r)
 			}
 			break
