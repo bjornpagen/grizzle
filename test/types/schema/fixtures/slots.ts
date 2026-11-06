@@ -57,8 +57,8 @@ const Member = relation(
 	["version", "parent", "at"]
 )
 
+const memberSide = on(Member, "version", "parent", "at")
+const closedSlots = fin(Model, "positions")
+
 // @ts-expect-error -- TS2345 refusal: an ordered family's side is its owner's key, then its drawn index
-export const familyOverClosed = ordered(
-	on(Member, "version", "parent", "at"),
-	fin(Model, "positions")
-)
+export const familyOverClosed = ordered(memberSide, closedSlots)

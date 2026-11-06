@@ -19,7 +19,9 @@
  * - **C.row in a generated field:** each prefix's set in RowProbe is exactly the codes Slotted's rows complete it with,
  *   the empty set for a prefix past its owner's count;
  * - **R07's membership read:** a query matching Item against Slotted on every key field delivers exactly the items
- *   whose key Slotted holds, read through its key set with the rewrite's certificate.
+ *   whose key Slotted holds, read through its key set with the rewrite's certificate;
+ * - **a containment into a projection:** a row of ProjProbe holding an owner and a slot code is accepted exactly where
+ *   some row of Slotted holds both, the side (version, parent, last field) a dependent space of its own.
  *
  * No two distinct keys share a cell: an alias would read another key's presence, payload or completions. The box: 3
  * shapes and every assignment of no row, 1 or 2 slots to the 4 live owners, 243 installations.
@@ -278,6 +280,7 @@ const schemaOf = (name: string, c: FinCase) => {
 				["id"],
 				(r) => ({ next: generated(bits(Position), Slotted.row(r.version, r.kind, r.from)) })
 			)
+			const ProjProbe = relation("ProjProbe", { ...probe, last: closedId(Position) }, ["id"])
 			const Item = relation(
 				"Item",
 				{ ...probe, from: closedId(Position), to: closedId(Position) },
@@ -297,12 +300,17 @@ const schemaOf = (name: string, c: FinCase) => {
 					CheckProbe,
 					AtProbe,
 					RowProbe,
-					Item
+					Item,
+					ProjProbe
 				},
 				[
 					contained(
 						on(CheckProbe, "version", "kind", "from", "to"),
 						on(Slotted, "version", "parent", "from", "to")
+					),
+					contained(
+						on(ProjProbe, "version", "kind", "last"),
+						on(Slotted, "version", "parent", "to")
 					)
 				]
 			)
@@ -332,6 +340,7 @@ const schemaOf = (name: string, c: FinCase) => {
 			const RowProbe = relation.generated("RowProbe", { ...probe }, ["id"], (r) => ({
 				next: generated(bits(Position), Slotted.row(r.version, r.kind))
 			}))
+			const ProjProbe = relation("ProjProbe", { ...probe, last: closedId(Position) }, ["id"])
 			const Item = relation("Item", { ...probe, at: closedId(Position) }, ["id"])
 			const base = schema(
 				name,
@@ -347,9 +356,19 @@ const schemaOf = (name: string, c: FinCase) => {
 					CheckProbe,
 					AtProbe,
 					RowProbe,
-					Item
+					Item,
+					ProjProbe
 				},
-				[contained(on(CheckProbe, "version", "kind", "at"), on(Slotted, "version", "parent", "at"))]
+				[
+					contained(
+						on(CheckProbe, "version", "kind", "at"),
+						on(Slotted, "version", "parent", "at")
+					),
+					contained(
+						on(ProjProbe, "version", "kind", "last"),
+						on(Slotted, "version", "parent", "at")
+					)
+				]
 			)
 			const membership = query(base).rule((r) => {
 				const it = v(Item, "item")
@@ -391,6 +410,7 @@ const schemaOf = (name: string, c: FinCase) => {
 				["id"],
 				(r) => ({ next: generated(bits(Position), Slotted.row(r.version, r.kind, r.label)) })
 			)
+			const ProjProbe = relation("ProjProbe", { ...probe, last: closedId(Position) }, ["id"])
 			const Item = relation(
 				"Item",
 				{ ...probe, label: closedId(Label), position: closedId(Position) },
@@ -410,12 +430,17 @@ const schemaOf = (name: string, c: FinCase) => {
 					CheckProbe,
 					AtProbe,
 					RowProbe,
-					Item
+					Item,
+					ProjProbe
 				},
 				[
 					contained(
 						on(CheckProbe, "version", "kind", "label", "position"),
 						on(Slotted, "version", "parent", "label", "position")
+					),
+					contained(
+						on(ProjProbe, "version", "kind", "last"),
+						on(Slotted, "version", "parent", "position")
 					)
 				]
 			)
@@ -641,6 +666,30 @@ layer(Substrate.layer, { excludeTestServices: true })("dependent keys on Postgre
 							)
 							for (const [n, key] of probes.entries()) {
 								yield* s.admin.query(insertSql(names, "Item", fields, valuesOf(key, n)), [])
+							}
+							const projected = new Set(
+								Arr.map(held, (key) => `${key.owner}:${defined(key.block[key.block.length - 1])}`)
+							)
+							for (const owner of Arr.map(owners, (_, o) => o)) {
+								for (const last of [0, 1, 2]) {
+									const n = owner * 3 + last
+									const verdict = yield* outcomeOf(
+										s.admin.query(
+											insertSql(
+												names,
+												"ProjProbe",
+												["id", "version", "kind", "last"],
+												[idCode(n), ...defined(owners[owner]).codes, last]
+											),
+											[]
+										)
+									)
+									assert.deepEqual(
+										verdict,
+										projected.has(`${owner}:${last}`) ? Option.none() : Option.some("23514"),
+										`the containment into Slotted's projection at owner ${owner}, ${last}`
+									)
+								}
 							}
 							const template = succeeded(
 								compileTemplate(built.membership, built.base, {

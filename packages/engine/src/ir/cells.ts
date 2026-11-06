@@ -312,7 +312,7 @@ export const keyCells = (space: KeySpace): bigint =>
 	space.kind === "product" ? spaceSize(space.sizes) : finSize(space.fin)
 
 /** The fields a key space reads, one digit each: a product's coordinates, or a dependent sum's owner, then its block. */
-export const keyArity = (space: KeySpace): number =>
+const keyArity = (space: KeySpace): number =>
 	space.kind === "product" ? space.sizes.length : space.owner.length + space.block.length
 
 /**

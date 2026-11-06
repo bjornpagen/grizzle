@@ -22,7 +22,7 @@ import type {
 	TypeSchema
 } from "#compiler/sql/ast.ts"
 import { binary, col, lit, ne, tableCol, types } from "#compiler/sql/build.ts"
-import { applied, constantValue, inSet, keyIn, keyIndex, pack } from "#compiler/sql/constants.ts"
+import { applied, cellOfKey, constantValue, inSet, keyIn, pack } from "#compiler/sql/constants.ts"
 import {
 	printExpr,
 	printObjectName,
@@ -240,9 +240,9 @@ export const membersTableSql = (
 	]
 }
 
-/** A cell's index over the codes `digit` reads, row-major in key order (sql/constants.ts keyIndex over a product). */
+/** A cell's index over the codes `digit` reads, row-major in key order (sql/constants.ts cellOfKey over a product). */
 const indexOver = (relation: HandClosed<string>, digit: (key: CodeColumn<string>) => Expr): Expr =>
-	keyIndex(
+	cellOfKey(
 		{
 			kind: "product",
 			coordinates: Arr.map(relation.key, (k) => ({ field: k.column, radix: k.codes }))

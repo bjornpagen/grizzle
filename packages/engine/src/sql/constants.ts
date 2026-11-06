@@ -142,7 +142,7 @@ export const payloadCode = (
 
 /** The fields a closed key reads, one digit each, in key order: a product's coordinates, a dependent sum's owner prefix
  * then its block. */
-export const closedKeyFields = (key: ClosedKey): NonEmptyReadonlyArray<string> =>
+const closedKeyFields = (key: ClosedKey): NonEmptyReadonlyArray<string> =>
 	key.kind === "product"
 		? mapNonEmpty(key.coordinates, (c) => c.field)
 		: extendNonEmpty(
@@ -207,7 +207,7 @@ const guarded = (checks: ReadonlyArray<Expr>, index: Expr, cells: number): Expr 
  * reads the first cell past the string, which is absent: a set's membership is false there, an application NULL. The
  * block is computed only where its digits are in range, so its arithmetic never leaves the string's cells.
  */
-export const keyIndex = (key: ClosedKey, digits: NonEmptyReadonlyArray<Expr>): Expr => {
+export const cellOfKey = (key: ClosedKey, digits: NonEmptyReadonlyArray<Expr>): Expr => {
 	if (key.kind === "product") {
 		return mixedRadix(
 			mapNonEmpty(key.coordinates, (c, i) => ({
@@ -230,11 +230,7 @@ export const keyIndex = (key: ClosedKey, digits: NonEmptyReadonlyArray<Expr>): E
  * the last field's radix; over a dependent sum, its run at base + block * r, r a slot's count at the owner or a closed
  * id's size, read past the string, so empty, where a slot code of the prefix is past its owner's count.
  */
-export const completions = (
-	keys: ObjectName,
-	key: ClosedKey,
-	prefix: ReadonlyArray<Expr>
-): Expr => {
+const completions = (keys: ObjectName, key: ClosedKey, prefix: ReadonlyArray<Expr>): Expr => {
 	if (prefix.length !== closedKeyFields(key).length - 1) {
 		throw defect("a closed row's prefix is every key field but the last")
 	}
@@ -291,7 +287,7 @@ export const closedRead = (
 	if (!isNonEmpty(args) || args.length !== fields.length) {
 		return Result.err(`${relation}.${read.kind} over every key field of ${relation}, in key order`)
 	}
-	const index = keyIndex(constant.key, args)
+	const index = cellOfKey(constant.key, args)
 	if (read.kind === "has") {
 		return Result.ok(inSet(constant.keys, index))
 	}
@@ -324,7 +320,7 @@ const run = (constant: ObjectName, start: Expr, length: Expr): Expr =>
  * no '1'::bit(1) and reads as the integer 0, so an index out of range reads as absent and no range check is needed.
  * With `width` the size of a prefix's completions, the same read is that prefix's set of completions.
  */
-export const cellAt = (constant: ObjectName, index: Expr, width: number): Expr =>
+const cellAt = (constant: ObjectName, index: Expr, width: number): Expr =>
 	call("substring", [constantValue(constant), plus(times(index, width), int(1)), int(width)])
 
 /** A cell's value as an integer: 0 absent, 1 + c present with payload code c. */
@@ -382,7 +378,7 @@ export const nameOf = (names: ObjectName, code: Expr): Expr =>
  * The migration's pack of a relation into its constant: `cells` cells of `width` bits, each row at its cell's index,
  * which the host's encoder gives its key (ir/cells.ts keyIndex), with its payload's code below 2^w - 1. No two rows
  * share a cell: the caller checks the relation's key before it packs (ir/cells.ts constantOf). PostgreSQL places each
- * row, and every reader computes the index from the key's codes in SQL (keyIndex), so each read checks the host's
+ * row, and every reader computes the index from the key's codes in SQL (cellOfKey), so each read checks the host's
  * encoder against PostgreSQL's arithmetic.
  */
 export const pack = (

@@ -7,10 +7,11 @@ import { Array as Arr, Effect, Exit, Formatter, Option, Order, String as Str } f
 import { executionInputs, type InputRefusal, paramCodecs } from "#adapter/reader/relations.ts"
 import { checkedSchema } from "#compiler/analysis/schema.ts"
 import { refinedConstants } from "#compiler/check/refinement/index.ts"
-import { arraysEncoder, positionalColumns } from "#compiler/codec/recordset.ts"
+import { arrayTexts } from "#compiler/codec/recordset.ts"
 import { indices } from "#compiler/core/array.ts"
 import { identity } from "#compiler/core/identity.ts"
 import type { ConstraintName } from "#compiler/core/ids.ts"
+import { maxStringLength } from "#compiler/core/limits.ts"
 import type * as Result from "#compiler/core/result.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { isRefined } from "#compiler/ir/scalar.ts"
@@ -623,24 +624,31 @@ layer(Substrate.layer)("refinement validation sites on PostgreSQL 19", (it) => {
 				throw new Error("an insert step")
 			}
 			const step = found.value
-			/** The enumerated member's facts travel as the insert's member placeholders, one array of the facts per
-			 * column, each placeholder carrying the array of its part. */
-			const fact = { id: id(1), slug: "Not A Slug", title: "anything" }
+			/** The enumerated member's facts as the insert's member placeholders, one array of the facts per column, each
+			 * placeholder carrying the array of its part. The arrays are written straight from the facts' texts
+			 * (arrayTexts), past the host codec, whose admission refuses the slug before any SQL: what reaches PostgreSQL is a
+			 * value the slug's domain alone judges, as a writer that skipped the codec would send it. */
+			const fact: Readonly<Record<string, string>> = {
+				id: id(1),
+				slug: "Not A Slug",
+				title: "anything"
+			}
 			const arrays = Arr.map(step.statement.params, (slot) => {
 				if (slot.kind !== "member") {
 					throw new Error(`a member placeholder, not ${slot.kind}`)
 				}
-				const encoded = arraysEncoder({
-					relation: slot.relation,
-					codes: installation.names.codes,
-					slot: { kind: "slot", name: String(slot.slot) },
-					columns: positionalColumns(slot.columns)
-				})([fact])
-				if (!encoded.ok) {
-					throw new Error(`encode: ${encoded.error._tag}`)
+				const fields = Arr.map(slot.columns, (c) => c.name)
+				const written = arrayTexts(
+					slot.relation,
+					fields,
+					[Arr.map(fields, (f) => defined(fact[f], `the fact's ${f}`))],
+					maxStringLength.value
+				)
+				if (!written.ok) {
+					throw new Error(`arrays: ${written.error._tag}`)
 				}
 				return defined(
-					encoded.value.arrays[slot.part.kind === "column" ? slot.part.index : 0],
+					written.value[slot.part.kind === "column" ? slot.part.index : 0],
 					`the array of placeholder ${slot.number}`
 				)
 			})

@@ -79,7 +79,7 @@ import {
 	type ClosedKey,
 	constantValue,
 	inSet,
-	keyIndex as indexOf,
+	cellOfKey,
 	type OwnerFunction,
 	pack,
 	pairIn,
@@ -102,7 +102,7 @@ import {
  *   order. A relation of no payload is its own key set, one function. A key is the mixed radix of its closed ids, or,
  *   where its slots count over an owner prefix, a dependent sum, each owner's block after the blocks before it: such a
  *   key also installs two kinds of owner function over the prefix, each owner's block's first cell and each count its
- *   slots read, which its readers index by (sql/constants.ts keyIndex).
+ *   slots read, which its readers index by (sql/constants.ts cellOfKey).
  * - A containment into a closed relation's side installs the side's string of cells, as a closed relation of its own,
  *   which the table CHECK that holds the containment reads (`closedMembership`).
  *
@@ -1086,7 +1086,7 @@ const addBits = (
 /**
  * A containment into a closed relation's side as the table CHECK that holds it, after its constants, which it adds:
  * the side's string of cells as a closed relation of its own, with its key's owner functions where its key is a
- * dependent sum, read at the index its key gives the row's key columns (sql/constants.ts keyIndex), `NOT guard OR
+ * dependent sum, read at the index its key gives the row's key columns (sql/constants.ts cellOfKey), `NOT guard OR
  * member`, the guard the source side's selection, each conjunct lowered over the row by `lower`.
  *
  * The guard is C2's RowGuard, the one representation of a selection over a row. An installed CHECK lowers it by the
@@ -1129,7 +1129,7 @@ export const closedMembership = (
 				`a source column for the side's field ${field}`
 			).source
 		)
-	const index = indexOf(
+	const index = cellOfKey(
 		closedKeyOf(b.schema, plan.key),
 		mapNonEmpty(keyFieldsOf(plan.key), (f) => sourceOf(f.field.name))
 	)

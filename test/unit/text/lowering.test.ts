@@ -10,11 +10,11 @@ import { everyProperty } from "#compiler/core/canonical.ts"
 import { domainDigest } from "#compiler/core/fingerprint.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
+import { toAre } from "#compiler/scalar/regex/are.ts"
 import * as RegexIr from "#compiler/scalar/regex/ir.ts"
 import { parsePattern } from "#compiler/scalar/regex/parse.ts"
 import { emit } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
-import { toAre } from "#compiler/scalar/regex/are.ts"
 import {
 	analyzeText,
 	type NontrivialCheck,
