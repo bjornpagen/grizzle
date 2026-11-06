@@ -57,8 +57,8 @@ import {
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
-import { ownedInput } from "#test/support/policy.ts"
 import type { SqlError } from "#test/support/pg.ts"
+import { ownedInput } from "#test/support/policy.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /** A roster's model state from its slots, live handles and holes in code order. */
@@ -188,7 +188,9 @@ const countOf = (held: Held): number => (held === "none" ? 0 : held)
 const odometer = (sizes: ReadonlyArray<number>): ReadonlyArray<ReadonlyArray<number>> => {
 	const origin: ReadonlyArray<ReadonlyArray<number>> = [[]]
 	return Arr.reduce(sizes, origin, (prefixes, size) =>
-		Arr.flatMap(prefixes, (prefix) => Array.from({ length: size }, (_, digit) => [...prefix, digit]))
+		Arr.flatMap(prefixes, (prefix) =>
+			Array.from({ length: size }, (_, digit) => [...prefix, digit])
+		)
 	)
 }
 
@@ -199,7 +201,10 @@ const inSpace = (c: FinCase, key: Key): boolean => {
 }
 
 /** The codes a key holds, its owner's then its block's. */
-const keyCodes = (key: Key): ReadonlyArray<number> => [...defined(owners[key.owner]).codes, ...key.block]
+const keyCodes = (key: Key): ReadonlyArray<number> => [
+	...defined(owners[key.owner]).codes,
+	...key.block
+]
 
 /** Every key of the product of the key fields' live codes: every probe. */
 const probesOf = (shape: Shape): ReadonlyArray<Key> =>
@@ -225,7 +230,9 @@ const schemaOf = (name: string, c: FinCase) => {
 		["version", "parent"],
 		Arr.flatMap(c.held, (held, owner) => {
 			const o = defined(owners[owner])
-			return held === "none" ? [] : [{ version: o.version, parent: o.kind, positions: BigInt(held) }]
+			return held === "none"
+				? []
+				: [{ version: o.version, parent: o.kind, positions: BigInt(held) }]
 		})
 	)
 	const p = slot(closedId(Position), fin(Model, "positions"))
@@ -261,7 +268,9 @@ const schemaOf = (name: string, c: FinCase) => {
 				"AtProbe",
 				{ ...probe, from: closedId(Position), to: closedId(Position) },
 				["id"],
-				(r) => ({ w: generated(closedId(Payload), Slotted.at("w", r.version, r.kind, r.from, r.to)) })
+				(r) => ({
+					w: generated(closedId(Payload), Slotted.at("w", r.version, r.kind, r.from, r.to))
+				})
 			)
 			const RowProbe = relation.generated(
 				"RowProbe",
@@ -269,12 +278,27 @@ const schemaOf = (name: string, c: FinCase) => {
 				["id"],
 				(r) => ({ next: generated(bits(Position), Slotted.row(r.version, r.kind, r.from)) })
 			)
-			const Item = relation("Item", { ...probe, from: closedId(Position), to: closedId(Position) }, [
-				"id"
-			])
+			const Item = relation(
+				"Item",
+				{ ...probe, from: closedId(Position), to: closedId(Position) },
+				["id"]
+			)
 			const base = schema(
 				name,
-				{ Version, Kind, Position, Label, Payload, Id, Model, Slotted, CheckProbe, AtProbe, RowProbe, Item },
+				{
+					Version,
+					Kind,
+					Position,
+					Label,
+					Payload,
+					Id,
+					Model,
+					Slotted,
+					CheckProbe,
+					AtProbe,
+					RowProbe,
+					Item
+				},
 				[
 					contained(
 						on(CheckProbe, "version", "kind", "from", "to"),
@@ -311,7 +335,20 @@ const schemaOf = (name: string, c: FinCase) => {
 			const Item = relation("Item", { ...probe, at: closedId(Position) }, ["id"])
 			const base = schema(
 				name,
-				{ Version, Kind, Position, Label, Payload, Id, Model, Slotted, CheckProbe, AtProbe, RowProbe, Item },
+				{
+					Version,
+					Kind,
+					Position,
+					Label,
+					Payload,
+					Id,
+					Model,
+					Slotted,
+					CheckProbe,
+					AtProbe,
+					RowProbe,
+					Item
+				},
 				[contained(on(CheckProbe, "version", "kind", "at"), on(Slotted, "version", "parent", "at"))]
 			)
 			const membership = query(base).rule((r) => {
@@ -361,7 +398,20 @@ const schemaOf = (name: string, c: FinCase) => {
 			)
 			const base = schema(
 				name,
-				{ Version, Kind, Position, Label, Payload, Id, Model, Slotted, CheckProbe, AtProbe, RowProbe, Item },
+				{
+					Version,
+					Kind,
+					Position,
+					Label,
+					Payload,
+					Id,
+					Model,
+					Slotted,
+					CheckProbe,
+					AtProbe,
+					RowProbe,
+					Item
+				},
 				[
 					contained(
 						on(CheckProbe, "version", "kind", "label", "position"),
@@ -379,7 +429,12 @@ const schemaOf = (name: string, c: FinCase) => {
 						label: it.label,
 						position: it.position
 					})
-					.match(Slotted, { version: it.version, parent: it.kind, label: it.label, position: it.position })
+					.match(Slotted, {
+						version: it.version,
+						parent: it.kind,
+						label: it.label,
+						position: it.position
+					})
 					.find({ id: it.id })
 			})
 			return { base, membership }
@@ -410,7 +465,8 @@ const outcomeOf = (attempt: Effect.Effect<unknown, SqlError>) =>
 	Effect.map(Effect.result(attempt), (r) =>
 		Result.match(r, {
 			onSuccess: () => Option.none<string>(),
-			onFailure: (e) => Option.some(e.reason._tag === "ServerError" ? e.reason.fields.code : e.reason.message)
+			onFailure: (e) =>
+				Option.some(e.reason._tag === "ServerError" ? e.reason.fields.code : e.reason.message)
 		})
 	)
 
@@ -435,11 +491,21 @@ const cases: Gen<FinCase> = (s) => ({
  */
 const aliases = (c: FinCase, key: Key): boolean => {
 	const radices = (owner: number) =>
-		Arr.map(blockOf(c.shape), (b) => (b.field === "label" ? b.codes : countOf(defined(c.held[owner]))))
+		Arr.map(blockOf(c.shape), (b) =>
+			b.field === "label" ? b.codes : countOf(defined(c.held[owner]))
+		)
 	const blockSize = (owner: number) => Arr.reduce(radices(owner), 1, (a, b) => a * b)
-	const base = Arr.reduce(Array.from({ length: key.owner }, (_, o) => o), 0, (a, o) => a + blockSize(o))
+	const base = Arr.reduce(
+		Array.from({ length: key.owner }, (_, o) => o),
+		0,
+		(a, o) => a + blockSize(o)
+	)
 	const local = Arr.reduce(Arr.zip(key.block, radices(key.owner)), 0, (a, [d, r]) => a * r + d)
-	const cells = Arr.reduce(Array.from({ length: owners.length }, (_, o) => o), 0, (a, o) => a + blockSize(o))
+	const cells = Arr.reduce(
+		Array.from({ length: owners.length }, (_, o) => o),
+		0,
+		(a, o) => a + blockSize(o)
+	)
 	return !inSpace(c, key) && base + local < cells
 }
 
@@ -544,7 +610,10 @@ layer(Substrate.layer, { excludeTestServices: true })("dependent keys on Postgre
 								).values()
 							]
 							for (const [n, prefix] of prefixes.entries()) {
-								yield* s.admin.query(insertSql(names, "RowProbe", prefixFields, valuesOf(prefix, n)), [])
+								yield* s.admin.query(
+									insertSql(names, "RowProbe", prefixFields, valuesOf(prefix, n)),
+									[]
+								)
 							}
 							const rows = yield* s.admin.queryValues(
 								`SELECT ${quoteIdent(names.column("RowProbe", "id"))}, ${quoteIdent(names.column("RowProbe", "next"))}::text FROM ${printObjectName(names.relation("RowProbe"))}`,
@@ -614,7 +683,11 @@ layer(Substrate.layer, { excludeTestServices: true })("dependent keys on Postgre
 								notes.note("every live owner counting slots")
 							}
 							notes.note(
-								c.shape === "follow" ? "two slots" : c.shape === "last" ? "one slot" : "a closed id before a slot"
+								c.shape === "follow"
+									? "two slots"
+									: c.shape === "last"
+										? "one slot"
+										: "a closed id before a slot"
 							)
 						}).pipe(Effect.scoped)
 				)

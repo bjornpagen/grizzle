@@ -31,9 +31,10 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, String as Str } from "effect"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { maxStringLength } from "#compiler/core/limits.ts"
+import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { compareNumbers } from "#compiler/core/order.ts"
+import type * as EngineResult from "#compiler/core/result.ts"
 import {
 	type BlockCoordinate,
 	cellWidth,
@@ -57,7 +58,6 @@ import {
 	spaceSize,
 	type Tuple
 } from "#compiler/ir/cells.ts"
-import type * as EngineResult from "#compiler/core/result.ts"
 import { assert, defined, failed, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { bitText } from "#test/support/closed/bit-text.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -283,7 +283,11 @@ describe("a fin coordinate", () => {
 			)
 			assert.equal(finSize(space), BigInt(slots.length))
 			for (const [code, [owner, at]] of slots.entries()) {
-				assert.equal(finDigit(space, BigInt(owner), BigInt(at)), BigInt(code), `slot ${at} of owner ${owner}`)
+				assert.equal(
+					finDigit(space, BigInt(owner), BigInt(at)),
+					BigInt(code),
+					`slot ${at} of owner ${owner}`
+				)
 			}
 			for (let owner = -1; owner <= counts.length; owner += 1) {
 				const count = counts[owner] ?? 0
@@ -405,8 +409,9 @@ describe("a dependent key space", () => {
 	 * odometer's order at its owner's radices: the list the index must number. Oracle: Σ o. Π radices(o), written out.
 	 */
 	const pointsOf = (space: Space): ReadonlyArray<ReadonlyArray<number>> =>
-		Arr.flatMap(Array.from({ length: space.owners }, (_, owner) => owner), (owner) =>
-			Arr.map(odometer(radicesAt(space, owner)), (local) => [owner, ...local])
+		Arr.flatMap(
+			Array.from({ length: space.owners }, (_, owner) => owner),
+			(owner) => Arr.map(odometer(radicesAt(space, owner)), (local) => [owner, ...local])
 		)
 
 	/**
@@ -422,10 +427,14 @@ describe("a dependent key space", () => {
 			const points = pointsOf(space)
 			assert.equal(keyCells(keySpace), BigInt(points.length), "the space holds every owner's block")
 			const positions = new Map(Arr.map(points, (p, at) => [pointKey(p), at] as const))
-			const bases = Array.from({ length: space.owners }, (_, owner) =>
-				Arr.filter(points, (p) => (p[0] ?? 0) < owner).length
+			const bases = Array.from(
+				{ length: space.owners },
+				(_, owner) => Arr.filter(points, (p) => (p[0] ?? 0) < owner).length
 			)
-			const box = odometer([space.owners, ...Arr.map(space.block, (b) => (b.kind === "codes" ? b.size : 4))])
+			const box = odometer([
+				space.owners,
+				...Arr.map(space.block, (b) => (b.kind === "codes" ? b.size : 4))
+			])
 			for (const digits of box) {
 				const at = positions.get(pointKey(digits))
 				if (at !== undefined) {
@@ -446,7 +455,11 @@ describe("a dependent key space", () => {
 			}
 			const arity = 1 + space.block.length
 			const zeros = Array.from({ length: arity }, () => 0)
-			assert.equal(keyIndex(keySpace, [space.owners, ...zeros.slice(1)]), undefined, "an owner past the prefix")
+			assert.equal(
+				keyIndex(keySpace, [space.owners, ...zeros.slice(1)]),
+				undefined,
+				"an owner past the prefix"
+			)
 			assert.equal(keyIndex(keySpace, [-1, ...zeros.slice(1)]), undefined, "a negative owner")
 			assert.equal(keyIndex(keySpace, zeros.slice(1)), undefined, "one digit too few")
 			assert.equal(keyIndex(keySpace, [...zeros, 0]), undefined, "one digit too many")
@@ -477,10 +490,10 @@ describe("a dependent key space", () => {
 				c.note("two counts")
 			}
 			const [first, second] = space.block
-			if (first?.kind === "slots" && second?.kind === "codes") {
+			if (first.kind === "slots" && second?.kind === "codes") {
 				c.note("a closed id after a slot")
 			}
-			if (first?.kind === "codes" && second?.kind === "slots") {
+			if (first.kind === "codes" && second?.kind === "slots") {
 				c.note("a closed id before a slot")
 			}
 		})

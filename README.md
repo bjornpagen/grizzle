@@ -913,7 +913,7 @@ run `grizzle generate` again.
 | `relation(...)`                             | a table, every column NOT NULL, with its primary key                                                                          |
 | `str.regex(...)`, `contract(...)`           | a domain whose CHECK every writer meets, one domain for each distinct definition                                             |
 | `closed(...)`                               | a smallint domain that admits each live handle's code, over the roster's names, an IMMUTABLE function returning them as `name[]`; where a `bits(...)` field is over the roster, a `bit(n)` domain that admits only live handles |
-| `closed.relation(...)`                      | no table: one content-addressed IMMUTABLE constant for each closed relation or side a rule or query reads, and a table CHECK for each rule that reads one from an open row |
+| `closed.relation(...)`                      | no table: one content-addressed IMMUTABLE constant for each closed relation or side a rule or query reads, with its owners' bases and counts where its key holds slots, and a table CHECK for each rule that reads one from an open row |
 | a rule: `contained`, `key`, `check`, ...    | a foreign key, unique key, no-overlap key or CHECK, over STORED generated columns where a side selects rows or reads `pred`, and never a trigger |
 | a family: `ordered`, `counted`, `tree`, `fold` | the drawn and accumulated fields grizzle fills on every write, hidden columns beside them, and the keys, CHECKs and foreign keys that prove each value it fills |
 | `role(...)`                                 | a PostgreSQL role with its own schema of views and its grants; on each table some role writes through a query entry that leaves rows out, row-level security and a policy for every role that writes it |
@@ -1383,6 +1383,17 @@ field's handles that complete the prefix, for the set algebra above. A rule over
 once, by PostgreSQL, in the migration that installs them: a violating row refuses the migration, and nothing is left
 behind. A containment from a closed relation into an open one is refused: it would require rows of an open relation,
 which belong in a closed relation of their own.
+
+A key field may hold slots instead of every code of its roster. `slot(closedId(Position), fin(Model, "positions"))` is
+a closed id of `Position` whose codes, for each owner, run from 0 below that owner's count: `fin(O, "n")` over a closed
+relation `O` is its natural field `n` per row, the same former a family's count is. `O`'s key pairs with the key's
+first fields, roster for roster and in order, the owner prefix, and every slot follows it. So
+`closed.relation("Follow", { version: closedId(Version), parent: closedId(Kind), from: slotOf, to: slotOf }, ["version",
+"parent", "from", "to"], rows)`, with `slotOf` that slot, holds each model's positions squared, not the widest model's
+for every model: its constant is one block per owner, each after the blocks before it, at the owner's own counts. A
+row whose slot is at or past its owner's count is refused when the installation is planned, and a read of such a key,
+in a rule, a generated field or a query, finds nothing there, never another key's row. The key's reads are the ones
+above, unchanged: `Follow.row(version, parent, from)` is the set of `to` positions that follow, over `Position`.
 
 ## Rules
 
@@ -2001,7 +2012,8 @@ deploy. A migration's name, `--name` or derived from its change, is at most 240 
   expression (`SET EXPRESSION`), and drops the old ones `RESTRICT`: PostgreSQL itself refuses a migration that missed
   a reader. A rule over closed relations alone runs as its violation query at the start of the migration's first
   file, when it is new or its closed rows changed, so rows that break it refuse the migration before it changes
-  anything.
+  anything. A slotted key reads its owners' counts, never its slots' roster's size, so a changed count replaces every
+  constant of its space, and a grown or renamed slot roster replaces none.
 - **A family added to stored rows is backfilled.** grizzle draws every value a family holds, so a family new to
   relations that may hold rows takes its values from SQL over those rows, in the migration that adds it, never from
   you: each member's index in its member key's order, each count, each fold's running values in index order, and a
@@ -2435,8 +2447,13 @@ workflows, whose rules are worth declaring and whose users see different slices 
   not reach the families it owns, which only a nesting draws.
 - **A closed relation is as large as its key's code space.** Its constant holds one cell per combination of its key
   fields' codes, so a sparse relation over a large product of rosters is costly in proportion to the product: choose
-  coordinates that make it dense. A constant holds at most 2,147,483,640 bits, PostgreSQL's longest bit string, and a
-  longer one is refused with `ResourceBound` when the schema is compiled.
+  coordinates that make it dense, such as slots, whose space is each owner's counts rather than the product
+  ([Closed relations](#closed-relations)). A constant holds at most 2,147,483,640 bits, PostgreSQL's longest bit
+  string, and a longer one is refused with `ResourceBound` when the schema is compiled, as is one whose payload fields'
+  codes multiply past 2,147,483,647, the most a cell read as an integer holds.
+- **A closed relation's migration lists its rows.** Its constant is packed in the migration from one line per row, its
+  cell and payload code with the handles it holds as a comment, so a relation of a million rows drafts a file of tens of
+  megabytes whatever its key's space.
 - **No interactive transactions, and no retries.** A transaction is one call; you retry `TransientFailure` yourself.
 - **One statement's parameters are at most 1,073,741,822 bytes**, PostgreSQL's longest message
   (`PQ_LARGE_MESSAGE_LIMIT`), and one input column's array literal at most 536,870,888 UTF-16 code units, V8's

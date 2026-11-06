@@ -260,10 +260,18 @@ const binaryFns: Readonly<Partial<Record<Carrier, ReadonlyArray<UnscaledComputeF
 	vector: ["cosineDistance"]
 }
 
+/**
+ * The registry's casts by source carrier, but a parse: a cast from text stands only where the text's type proves its
+ * target's lexical form, which no generated text field's pattern does (test/unit/scalar/lexical.test.ts draws parses).
+ */
 const castTargets: ReadonlyMap<Carrier, ReadonlyArray<Carrier>> = (() => {
 	const out = new Map<Carrier, Array<Carrier>>()
 	for (const op of nativeOps) {
-		if (op.fn !== "cast") {
+		if (
+			op.fn !== "cast" ||
+			(op.totality.kind === "requires" &&
+				op.totality.preconditions.some((p) => p.kind === "lexical"))
+		) {
 			continue
 		}
 		const source = firstOperand(op.operands)

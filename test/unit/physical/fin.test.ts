@@ -35,7 +35,14 @@ import {
 } from "#compiler/schema/relation.ts"
 import { finBuilder, onBuilder, orderedBuilder } from "#compiler/schema/statements.ts"
 import type { PackConstant, SqlStatement } from "#compiler/sql/ast.ts"
-import { assert, defined, nonEmpty, refused, succeeded, throwsRefused } from "#test/support/assert.ts"
+import {
+	assert,
+	defined,
+	nonEmpty,
+	refused,
+	succeeded,
+	throwsRefused
+} from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { ownedInput } from "#test/support/policy.ts"
 
@@ -74,7 +81,9 @@ const radicesOf = (shape: Shape, count: number): ReadonlyArray<number> =>
 const odometer = (sizes: ReadonlyArray<number>): ReadonlyArray<ReadonlyArray<number>> => {
 	const origin: ReadonlyArray<ReadonlyArray<number>> = [[]]
 	return Arr.reduce(sizes, origin, (prefixes, size) =>
-		Arr.flatMap(prefixes, (prefix) => Array.from({ length: size }, (_, digit) => [...prefix, digit]))
+		Arr.flatMap(prefixes, (prefix) =>
+			Array.from({ length: size }, (_, digit) => [...prefix, digit])
+		)
 	)
 }
 
@@ -104,7 +113,8 @@ const modelOf = (held: ReadonlyArray<Held>) =>
 	)
 
 /** The handle of a Position code. */
-const positionAt = (code: number): "p0" | "p1" | "p2" => defined((["p0", "p1", "p2"] as const)[code])
+const positionAt = (code: number): "p0" | "p1" | "p2" =>
+	defined((["p0", "p1", "p2"] as const)[code])
 
 /** The handle of a Label code. */
 const labelAt = (code: number): "x0" | "x1" => defined((["x0", "x1"] as const)[code])
@@ -164,7 +174,9 @@ const schemaOf = (d: Declaration) => {
 /** The pack of the function named `name` among an installation's statements. */
 const packOf = (statements: ReadonlyArray<SqlStatement>, name: string): PackConstant =>
 	defined(
-		Arr.flatMap(statements, (s) => (s.kind === "packConstant" && s.function.name === name ? [s] : []))[0],
+		Arr.flatMap(statements, (s) =>
+			s.kind === "packConstant" && s.function.name === name ? [s] : []
+		)[0],
 		`the pack of ${name}`
 	)
 
@@ -196,13 +208,25 @@ describe("a slotted closed relation's planned constants", () => {
 			const installation = succeeded(compileInstallation(owned, installOptions(owned, "owner")))
 			const constant = installation.names.closed("Slotted")
 			const points = pointsOf(d)
-			assert.equal(constant.key.kind, "dependent", "a key over a count relation's prefix is a dependent sum")
+			assert.equal(
+				constant.key.kind,
+				"dependent",
+				"a key over a count relation's prefix is a dependent sum"
+			)
 			const cellsPack = packOf(installation.statements, constant.function.name)
-			assert.equal(cellsPack.cells, BigInt(points.length), "the string holds every owner's block and no more")
-			const position = new Map(Arr.map(points, (p, at) => [Arr.join(Arr.map(p, String), ","), at] as const))
+			assert.equal(
+				cellsPack.cells,
+				BigInt(points.length),
+				"the string holds every owner's block and no more"
+			)
+			const position = new Map(
+				Arr.map(points, (p, at) => [Arr.join(Arr.map(p, String), ","), at] as const)
+			)
 			assert.deepEqual(
 				Arr.map(cellsPack.rows, (r) => r.index),
-				Arr.map(heldPoints(d), (p) => BigInt(defined(position.get(Arr.join(Arr.map(p, String), ","))))),
+				Arr.map(heldPoints(d), (p) =>
+					BigInt(defined(position.get(Arr.join(Arr.map(p, String), ","))))
+				),
 				"each row lies at its key's position in the dependent sum"
 			)
 			if (constant.key.kind === "dependent") {
@@ -213,10 +237,14 @@ describe("a slotted closed relation's planned constants", () => {
 					"each owner's count, every owner listed"
 				)
 				const bases = packOf(installation.statements, constant.key.bases.function.name)
-				const blocks = Arr.map(d.held, (h) => Arr.reduce(radicesOf(d.shape, countOf(h)), 1, (a, b) => a * b))
+				const blocks = Arr.map(d.held, (h) =>
+					Arr.reduce(radicesOf(d.shape, countOf(h)), 1, (a, b) => a * b)
+				)
 				assert.deepEqual(
 					Arr.map(bases.rows, (r) => r.payload),
-					Arr.map(blocks, (_, owner) => BigInt(Arr.reduce(blocks.slice(0, owner), 0, (a, b) => a + b))),
+					Arr.map(blocks, (_, owner) =>
+						BigInt(Arr.reduce(blocks.slice(0, owner), 0, (a, b) => a + b))
+					),
 					"each owner's base is the cells of the blocks before it"
 				)
 			}
@@ -275,13 +303,21 @@ describe("an invalid slotted declaration", () => {
 	const positionSlot = slot(closedId(Position), fin(Model, "positions"))
 	const prefix = { version: closedId(Version), parent: closedId(Kind) }
 	const compiled = (base: unknown) =>
-		Result.flatMap(ownedInput(base), (owned) => compileInstallation(owned, installOptions(owned, "owner")))
+		Result.flatMap(ownedInput(base), (owned) =>
+			compileInstallation(owned, installOptions(owned, "owner"))
+		)
 
 	it("refuses a row whose slot is at or past its owner's count", () => {
-		const Last = closed.relation("Last", { ...prefix, at: positionSlot }, ["version", "parent", "at"], [
-			{ version: "v0", parent: "k0", at: "p2" }
-		])
-		refused(compiled(schema("Fin", { Version, Kind, Position, Model, Last }, [])), "MalformedDescription")
+		const Last = closed.relation(
+			"Last",
+			{ ...prefix, at: positionSlot },
+			["version", "parent", "at"],
+			[{ version: "v0", parent: "k0", at: "p2" }]
+		)
+		refused(
+			compiled(schema("Fin", { Version, Kind, Position, Model, Last }, [])),
+			"MalformedDescription"
+		)
 	})
 
 	it("refuses a count past the codes of the slot's roster", () => {
@@ -298,12 +334,18 @@ describe("an invalid slotted declaration", () => {
 			["version", "parent", "at"],
 			[]
 		)
-		refused(compiled(schema("Fin", { Version, Kind, Position, Model: Wide, Over, Last }, [])), "MalformedDescription")
+		refused(
+			compiled(schema("Fin", { Version, Kind, Position, Model: Wide, Over, Last }, [])),
+			"MalformedDescription"
+		)
 	})
 
 	it("refuses a fin over an ordinary relation", () => {
 		const Owner = relation("Owner", { id: uuid, n: drawn(natural) }, ["id"])
-		throwsRefused(() => slotField(closedId(Position), finBuilder(Owner, "n"), []), "MalformedDescription")
+		throwsRefused(
+			() => slotField(closedId(Position), finBuilder(Owner, "n"), []),
+			"MalformedDescription"
+		)
 	})
 
 	it("refuses a count that is not natural", () => {
@@ -321,7 +363,10 @@ describe("an invalid slotted declaration", () => {
 			[],
 			[]
 		)
-		refused(ownedInput(schema("Fin", { Version, Kind, Position, Counts, Last }, [])), "MalformedDescription")
+		refused(
+			ownedInput(schema("Fin", { Version, Kind, Position, Counts, Last }, [])),
+			"MalformedDescription"
+		)
 	})
 
 	it("refuses an owner key that does not pair with the key's first fields, roster for roster", () => {
@@ -331,12 +376,27 @@ describe("an invalid slotted declaration", () => {
 			["parent", "version", "at"],
 			[]
 		)
-		refused(ownedInput(schema("Fin", { Version, Kind, Position, Model, Last }, [])), "MalformedDescription")
+		refused(
+			ownedInput(schema("Fin", { Version, Kind, Position, Model, Last }, [])),
+			"MalformedDescription"
+		)
 	})
 
-	it("refuses a slot inside the owner prefix", () => {
-		const Last = closed.relation("Last", { ...prefix, at: positionSlot }, ["version", "at", "parent"], [])
-		refused(ownedInput(schema("Fin", { Version, Kind, Position, Model, Last }, [])), "MalformedDescription")
+	it("refuses a slot inside the owner prefix, though its roster pairs with the owner key's", () => {
+		const Last = closed.relation(
+			"Last",
+			{
+				version: closedId(Version),
+				at: slot(closedId(Kind), fin(Model, "positions")),
+				parent: closedId(Kind)
+			},
+			["version", "at", "parent"],
+			[]
+		)
+		refused(
+			ownedInput(schema("Fin", { Version, Kind, Position, Model, Last }, [])),
+			"MalformedDescription"
+		)
 	})
 
 	it("refuses two owner prefixes in one key", () => {
@@ -348,7 +408,11 @@ describe("an invalid slotted declaration", () => {
 		)
 		const Both = closed.relation(
 			"Both",
-			{ ...prefix, at: positionSlot, other: slot(closedId(Position), fin(PerVersion, "positions")) },
+			{
+				...prefix,
+				at: positionSlot,
+				other: slot(closedId(Position), fin(PerVersion, "positions"))
+			},
 			["version", "parent", "at", "other"],
 			[]
 		)
@@ -379,14 +443,26 @@ describe("an invalid slotted declaration", () => {
 			["version", "parent", "at"]
 		)
 		throwsRefused(
-			() => orderedBuilder(onBuilder(Member, ["version", "parent", "at"]), finBuilder(Model, "positions")),
+			() =>
+				orderedBuilder(
+					onBuilder(Member, ["version", "parent", "at"]),
+					finBuilder(Model, "positions")
+				),
 			"MalformedDescription"
 		)
 	})
 
 	it("refuses a count relation the schema does not declare", () => {
-		const Last = closed.relation("Last", { ...prefix, at: positionSlot }, ["version", "parent", "at"], [])
-		refused(ownedInput(schema("Fin", { Version, Kind, Position, Last }, [])), "MalformedDescription")
+		const Last = closed.relation(
+			"Last",
+			{ ...prefix, at: positionSlot },
+			["version", "parent", "at"],
+			[]
+		)
+		refused(
+			ownedInput(schema("Fin", { Version, Kind, Position, Last }, [])),
+			"MalformedDescription"
+		)
 	})
 })
 
@@ -405,11 +481,7 @@ describe("a cell read as an integer", () => {
 
 	/** A roster of `size` handles, h0 to h<size - 1>. */
 	const rosterOf = (name: string, size: number) =>
-		closedBuilder(
-			name,
-			nonEmpty(Array.from({ length: size }, (_, i) => `h${i}`)),
-			[]
-		)
+		closedBuilder(name, nonEmpty(Array.from({ length: size }, (_, i) => `h${i}`)), [])
 
 	it("refuses a declared payload of 2^31 codes and plans one of 2^31 - 2^16", () => {
 		const Key = closed("Key", ["k"])

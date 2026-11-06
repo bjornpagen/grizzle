@@ -52,7 +52,10 @@ interface Product {
 
 /** The host encoder's constant of a product layout's tuples (ir/cells.ts constantOf over the product key space). */
 const constantOf = (layout: Product, tuples: ReadonlyArray<Tuple>) =>
-	encodedOf({ key: { kind: "product", sizes: layout.key }, payload: layout.payload } satisfies CellLayout, tuples)
+	encodedOf(
+		{ key: { kind: "product", sizes: layout.key }, payload: layout.payload } satisfies CellLayout,
+		tuples
+	)
 
 /** PostgreSQL's disagreement with the host encoder or a model, with both sides spelt out. */
 class Disagreed extends Data.TaggedError("Disagreed")<{ readonly message: string }> {}

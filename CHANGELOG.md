@@ -95,6 +95,24 @@ How to upgrade:
   - Codemod: `closed("K", hs).with(payload, facts)` → the roster `closed("K", hs)` beside
     `closed.relation("KPayload", { k: closedId(K), ...payload }, ["k"], rows)`, one row per fact with its handle at
     `k`; a row check that read the payload reads `KPayload.at("<field>", r.k)`.
+- **A closed relation's key field may hold slots: `slot(closedId(R), fin(O, "n"))`.** `fin(O, "n")` takes a closed
+  relation `O` and a natural field `n` of it beside its key, as well as an ordinary relation's drawn count. A slot
+  field's codes, for each owner, run from 0 below the owner's count, `O`'s key pairing with the key's first fields,
+  roster for roster, and the relation's constant is a dependent sum: each owner's block, at its own counts, after the
+  blocks before it, so a key over each model's positions holds Σ n² cells instead of the product of the widest. The
+  installation adds two owner functions over the prefix, each owner's first cell and each count, and every read
+  computes the cell in SQL, a slot code at or past its owner's count reading absent. A row past its owner's count, a
+  count past the slot roster's codes, an owner key that does not pair, a slot inside the owner prefix, two owner
+  prefixes, a slot in a payload or in an ordinary relation, and a family over a closed relation's fin are refused. A
+  changed count replaces every constant of the space; a grown or renamed slot roster replaces none.
+  - Codemod: none needed; a key with no slot is the product it was.
+- **A closed relation's pack lists each row at its cell, and a cell holds at most 2,147,483,647 payload codes.** The
+  migration's DO block joins `(cell, payload code)` rows, the cell the host's encoder gives the key, where it joined the
+  key's codes in mixed radix, so every read's index, which PostgreSQL computes, is checked against the host's on every
+  read. A relation whose payload fields' codes multiply past 2,147,483,647, the most a cell read as an integer holds, is
+  refused when the schema is compiled, with `ResourceBound` (`cellCodes`), where its reads used to fail at run time with
+  22003.
+  - Codemod: none; regenerate the migrations.
 - **A set of handles is `bits(R)`.** A `bit(n)` column, one bit per code, under a bits domain whose CHECK,
   `((VALUE & live()) = VALUE) IS TRUE`, admits only live handles, `live()` derived from the names constant. Its host
   value is `Bits<typeof R>`, a frozen `ReadonlySet` of handles that `Bits.of(R, handles)` makes. `Compute.union`,
