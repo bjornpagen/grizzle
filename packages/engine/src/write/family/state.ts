@@ -89,6 +89,16 @@ export const copyState = (state: RowState): RowState =>
 	)
 
 /**
+ * A held row's group in `family`, where the row holds every one of the family's group fields; none where it does not: a
+ * row held as another family's owner holds that family's read columns alone (bind.ts holdFamily), so it is no member
+ * the host can place in `family`'s groups, and PostgreSQL's cascade alone carries `family`'s owner's changes into it.
+ */
+const heldGroup = (ctx: FillContext, family: Family, row: Values): Owner | undefined =>
+	family.group.every((g) => row.has(fieldKey(g.member.name)))
+		? groupOf(ctx, family, row)
+		: undefined
+
+/**
  * The cascades of `families`' owner axes over `current`, as PostgreSQL's ON UPDATE CASCADE carries them: each member
  * row the state holds of a family whose owner's row it holds takes every column the owner axis carries that its owner
  * holds another value at than `stored` does, and the owner's count, where that changed. A tree's owner axis carries
@@ -113,7 +123,10 @@ export const cascade = (
 		}
 		const byGroup = new TupleMap<Owner, Array<Map<ColumnKey, unknown>>>()
 		for (const row of members.values()) {
-			const group = groupOf(ctx, j, row)
+			const group = heldGroup(ctx, j, row)
+			if (group === undefined) {
+				continue
+			}
 			const list = byGroup.get(group) ?? []
 			list.push(row)
 			byGroup.set(group, list)
