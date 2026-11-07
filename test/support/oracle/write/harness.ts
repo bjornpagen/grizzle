@@ -72,9 +72,11 @@ import {
 
 import {
 	type AcceptableRefusal,
+	type AcceptableRefusals,
 	type Expected,
 	expectChangeSet,
-	type GeneratedDraws
+	type GeneratedDraws,
+	type Violations
 } from "#test/support/oracle/write/expect.ts"
 
 import {
@@ -91,6 +93,7 @@ import {
 	type Applied,
 	applyWith,
 	type GroupState,
+	type OutcomeWitness,
 	type WriteOutcome,
 	programOf,
 	readGroup,
@@ -442,29 +445,50 @@ const renamedIdentities = (
 	)
 }
 
-const witnessProblems = (
+/** The problems of a key witness of `law` against its violations: a key of its relation at its fields that violates it. */
+const keyProblems = (
 	group: WGroup,
-	refusal: AcceptableRefusal,
-	o: Extract<WriteOutcome, { readonly kind: "invariant-rejected" }>
+	law: LawId,
+	violations: Violations,
+	w: Extract<OutcomeWitness, { readonly kind: "key" }>
 ): ReadonlyArray<string> => {
-	const w = o.witness
-	if (w.kind !== "key") {
-		return refusal.keyless
-			? []
-			: [`the witness of ${Arr.headNonEmpty(o.laws)} is ${w.kind}, where it names a key`]
-	}
 	const fields = Arr.sort(Rec.keys(w.values), Order.String)
 	if (
-		w.relation !== refusal.relation ||
-		Arr.join(fields, ",") !== Arr.join(Arr.sort([...refusal.fields], Order.String), ",")
+		w.relation !== violations.relation ||
+		Arr.join(fields, ",") !== Arr.join(Arr.sort([...violations.fields], Order.String), ",")
 	) {
 		return [
-			`the witness key ${w.relation} ${printFact(w.values)} is not ${refusal.relation}(${Arr.join(refusal.fields, ", ")})`
+			`the witness key ${w.relation} ${printFact(w.values)} is not ${violations.relation}(${Arr.join(violations.fields, ", ")})`
 		]
 	}
-	return refusal.keys.has(keyOf(relationIn(group, refusal.relation), refusal.fields, w.values))
+	return violations.keys.has(
+		keyOf(relationIn(group, violations.relation), violations.fields, w.values)
+	)
 		? []
-		: [`the witness key ${printFact(w.values)} is no violating key of ${Arr.headNonEmpty(o.laws)}`]
+		: [`the witness key ${printFact(w.values)} is no violating key of ${law}`]
+}
+
+/** The problems of a refusal's witness against the one witness its law may carry. */
+const witnessProblems = (
+	group: WGroup,
+	law: LawId,
+	refusal: AcceptableRefusal,
+	w: OutcomeWitness
+): ReadonlyArray<string> => {
+	switch (refusal.kind) {
+		case "key":
+			return w.kind === "key"
+				? keyProblems(group, law, refusal.violations, w)
+				: [`the witness of ${law} is ${w.kind}, where it names a key`]
+		case "keyOrUnreported":
+			return w.kind === "key" ? keyProblems(group, law, refusal.violations, w) : []
+		case "unreported":
+			return w.kind === "key"
+				? [
+						`the witness of ${law} names ${w.relation} ${printFact(w.values)}, where its violation is native and names no key`
+					]
+				: []
+	}
 }
 
 /**
@@ -581,33 +605,24 @@ const judgedExpectation = (
 	}
 }
 
+/** The laws an expectation's refusals allow, for a failure report. */
+const lawsOf = (refusals: AcceptableRefusals): string => Arr.join([...refusals.keys()], ", ")
+
 /**
  * The problems of a refusal with `o`'s laws against the refusals an expectation allows: every law it names is one,
- * and its witness is a violating key of one of the allowed refusals of its first law. One law may be allowed more than
- * once, as two strata's clashes on one key are, each with keys of its own, and the witness may name any of them.
+ * and its witness is one its first law's refusal may carry.
  */
 const refusalProblems = (
 	group: WGroup,
-	refusals: ReadonlyArray<AcceptableRefusal>,
+	refusals: AcceptableRefusals,
 	o: Extract<WriteOutcome, { readonly kind: "invariant-rejected" }>
 ): ReadonlyArray<string> => {
-	const unexpected = Arr.filter(o.laws, (law) => !Arr.some(refusals, (r) => r.law === law))
-	if (Arr.isReadonlyArrayNonEmpty(unexpected)) {
-		return [
-			`refused with ${Arr.join(unexpected, ", ")}, expected one of ${Arr.join(
-				Arr.map(refusals, (r) => r.law),
-				", "
-			)}`
-		]
-	}
-	const verdicts = Arr.map(
-		Arr.filter(refusals, (r) => r.law === Arr.headNonEmpty(o.laws)),
-		(refusal) => witnessProblems(group, refusal, o)
-	)
-	return Arr.isReadonlyArrayNonEmpty(verdicts) &&
-		!Arr.some(verdicts, (problems) => !Arr.isReadonlyArrayNonEmpty(problems))
-		? Arr.headNonEmpty(verdicts)
-		: []
+	const [law] = o.laws
+	const first = refusals.get(law)
+	const unexpected = Arr.filter(o.laws, (l) => !refusals.has(l))
+	return first === undefined || Arr.isReadonlyArrayNonEmpty(unexpected)
+		? [`refused with ${Arr.join(unexpected, ", ")}, expected one of ${lawsOf(refusals)}`]
+		: witnessProblems(group, law, first, o.witness)
 }
 
 /** A relation's counts as an accepted outcome reports them. */
@@ -693,10 +708,7 @@ export const judgeWrite = (
 		return problems
 	}
 	if (expected.kind === "outsideDomain") {
-		const laws = Arr.join(
-			Arr.map(expected.refusals, (r) => r.law),
-			", "
-		)
+		const laws = lawsOf(expected.refusals)
 		if (Result.isFailure(outcome)) {
 			problems.push(`expected a domain's law or one of ${laws}, got ${printOutcome(outcome)}`)
 		} else if (outcome.success.kind !== "invariant-rejected") {
@@ -715,10 +727,7 @@ export const judgeWrite = (
 	if (expected.kind === "rejected") {
 		if (o.kind !== "invariant-rejected") {
 			problems.push(
-				`expected invariant-rejected with one of ${Arr.join(
-					Arr.map(expected.refusals, (r) => r.law),
-					", "
-				)}, got ${o.kind}`
+				`expected invariant-rejected with one of ${lawsOf(expected.refusals)}, got ${o.kind}`
 			)
 		} else {
 			appendAll(problems, refusalProblems(group, expected.refusals, o))
@@ -1078,15 +1087,9 @@ const printExpected = (expected: Expected): string => {
 		case "applied":
 			return expected.outcome.kind
 		case "rejected":
-			return `invariant-rejected by one of ${Arr.join(
-				Arr.map(expected.refusals, (r) => r.law),
-				", "
-			)}`
+			return `invariant-rejected by one of ${lawsOf(expected.refusals)}`
 		case "outsideDomain":
-			return `invariant-rejected by a domain's law or one of ${Arr.join(
-				Arr.map(expected.refusals, (r) => r.law),
-				", "
-			)}`
+			return `invariant-rejected by a domain's law or one of ${lawsOf(expected.refusals)}`
 		case "unbound":
 			return `refused at bind, EncodingFailure refinedValue at one of ${Arr.join([...expected.params], ", ")}`
 	}
@@ -1433,10 +1436,9 @@ export const runCase = (
 			}
 		}
 		if (expected.kind === "rejected" || expected.kind === "outsideDomain") {
-			const refused = new Set(Arr.map(expected.refusals, (x) => x.law))
 			if (
 				Arr.some(attached, ({ containment: x }) =>
-					refused.has(t.laws.foreignKey(x.from.relation, x.from.fields))
+					expected.refusals.has(t.laws.foreignKey(x.from.relation, x.from.fields))
 				)
 			) {
 				note("a stated-one read-back over a deferred containment that the write violates")

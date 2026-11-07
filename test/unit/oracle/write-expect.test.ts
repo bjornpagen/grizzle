@@ -39,16 +39,16 @@ import { assert, succeeded } from "#test/support/assert.ts"
 import { codebookFor, firstCodes, schemaInputOf } from "#test/support/compile.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
-import type { Fact } from "#test/support/oracle/addwins.ts"
 import { planRealInstall } from "#test/support/oracle/install/real.ts"
 import { changeSetSketchGen, resolveChangeSet } from "#test/support/oracle/write/changeset.ts"
 import { typeInfo } from "#test/support/oracle/write/domain.ts"
-import { type AcceptableRefusal, expectChangeSet } from "#test/support/oracle/write/expect.ts"
+import { expectChangeSet, type Violations } from "#test/support/oracle/write/expect.ts"
 import { factsSketchGen, keyOf, resolveFacts } from "#test/support/oracle/write/facts.ts"
 import { judgeWrite, plantedCase } from "#test/support/oracle/write/harness.ts"
 import type { GroupState, WriteOutcome, OutcomeWitness } from "#test/support/oracle/write/run.ts"
 import {
 	buildSchema,
+	columnOf,
 	lawNames,
 	relationIn,
 	resolveSchema,
@@ -97,41 +97,51 @@ const unreported: OutcomeWitness = { kind: "unreported" }
 const refused = (law: LawId, witness: OutcomeWitness): Result.Result<WriteOutcome, unknown> =>
 	Result.succeed({ kind: "invariant-rejected", laws: [law], witness })
 
-/** A violator's values at the refusal's fields: the key a faithful witness carries. */
-const keyAt = (refusal: AcceptableRefusal, fact: Fact): Fact =>
-	Record.fromEntries(Arr.map(refusal.fields, (f) => [f, fact[f]]))
+/** The first violator's values at the law's fields. */
+const firstKey = (violations: Violations) =>
+	Record.fromEntries(
+		Arr.map(violations.fields, (f) => [f, Arr.headNonEmpty(violations.violators)[f]])
+	)
+
+/** A violator's key at the law's fields: the key a faithful witness carries. */
+const violatingKey = (violations: Violations): OutcomeWitness => ({
+	kind: "key",
+	relation: violations.relation,
+	values: firstKey(violations)
+})
 
 /**
- * A key of the refusal's relation at its fields that is none of its violating keys: a violator's key with one field
- * redrawn from its domain, or, for a refusal without violators, the first value of each field's domain.
+ * A key of the law's relation at its fields that is none of its violating keys: a violator's key with one field
+ * redrawn from its domain.
  */
-const otherKey = (group: WGroup, refusal: AcceptableRefusal): Fact | undefined => {
-	const relation = relationIn(group, refusal.relation)
-	const kindOf = (field: string) =>
-		Option.getOrThrowWith(
-			Arr.findFirst(relation.columns, (c) => c.name === field),
-			() => new Error(`${field} is no column of ${relation.name}`)
-		).kind
-	const [violator] = refusal.violators
-	const base: Fact =
-		violator === undefined
-			? Record.fromEntries(Arr.map(refusal.fields, (f) => [f, typeInfo[kindOf(f)].values[0]]))
-			: keyAt(refusal, violator)
-	if (!refusal.keys.has(keyOf(relation, refusal.fields, base))) {
-		return base
-	}
-	for (const field of refusal.fields) {
-		const free = Arr.findFirst(typeInfo[kindOf(field)].values, (value) => {
+const otherKey = (group: WGroup, violations: Violations): OutcomeWitness | undefined => {
+	const relation = relationIn(group, violations.relation)
+	const { fields, keys } = violations
+	const base = firstKey(violations)
+	const free = Arr.findFirst(fields, (field) =>
+		Arr.findFirst(typeInfo[columnOf(relation, field).kind].values, (value) => {
 			const candidate = { ...base, [field]: value }
-			return refusal.keys.has(keyOf(relation, refusal.fields, candidate))
-				? Option.none()
-				: Option.some(candidate)
+			return keys.has(keyOf(relation, fields, candidate)) ? Option.none() : Option.some(candidate)
 		})
-		if (Option.isSome(free)) {
-			return free.value
-		}
+	)
+	return Option.isSome(free)
+		? { kind: "key", relation: relation.name, values: free.value }
+		: undefined
+}
+
+/** A key of the group's first relation, its primary key at the first value of each field's domain. */
+const someKey = (group: WGroup): OutcomeWitness => {
+	const relation = Option.getOrThrowWith(
+		Arr.head(group.relations),
+		() => new Error("a refused group declares no relation")
+	)
+	return {
+		kind: "key",
+		relation: relation.name,
+		values: Record.fromEntries(
+			Arr.map(relation.primaryKey, (f) => [f, typeInfo[columnOf(relation, f).kind].values[0]])
+		)
 	}
-	return undefined
 }
 
 const situations = [
@@ -243,13 +253,13 @@ describe("the write oracle's judgement", () => {
 								}
 								return
 							case "outsideDomain": {
-								/** The domain refusals lead the acceptable ones (expect.ts domainRefusals). */
-								const [domain] = expected.refusals
+								/** The domain refusals lead the acceptable ones (expect.ts domainLaws). */
+								const [domain] = [...expected.refusals.keys()]
 								if (domain === undefined) {
 									throw new Error("a domain refusal expectation names no law")
 								}
 								n.note("faithful domain refusal")
-								assert.deepEqual(verdict(refused(domain.law, unreported)), [])
+								assert.deepEqual(verdict(refused(domain, unreported)), [])
 								mutant(
 									"mutant: applied where domain-refused",
 									Result.succeed({ kind: "no-change", reads: {} })
@@ -284,42 +294,40 @@ describe("the write oracle's judgement", () => {
 								return
 							}
 							case "rejected": {
-								const [refusal] = expected.refusals
-								if (refusal === undefined) {
+								const [first] = [...expected.refusals]
+								if (first === undefined) {
 									return
 								}
-								const [violator] = refusal.violators
-								const faithful: OutcomeWitness =
-									refusal.keyless || violator === undefined
-										? unreported
-										: { kind: "key", relation: refusal.relation, values: keyAt(refusal, violator) }
-								n.note("faithful refusal")
-								assert.deepEqual(verdict(refused(refusal.law, faithful)), [])
-								const acceptable = new Set(Arr.map(expected.refusals, (r) => r.law))
-								const [other] = Arr.filter(groupLaws(group, laws), (l) => !acceptable.has(l))
+								const [law, refusal] = first
+								const [other] = Arr.filter(groupLaws(group, laws), (l) => !expected.refusals.has(l))
 								if (other !== undefined) {
 									mutant("mutant: an unacceptable law", refused(other, unreported))
 								}
-								const at = otherKey(group, refusal)
-								if (at !== undefined) {
-									mutant(
-										"mutant: a non-violating key",
-										refused(refusal.law, { kind: "key", relation: refusal.relation, values: at })
-									)
+								n.note("faithful refusal")
+								switch (refusal.kind) {
+									case "key": {
+										assert.deepEqual(verdict(refused(law, violatingKey(refusal.violations))), [])
+										const at = otherKey(group, refusal.violations)
+										if (at !== undefined) {
+											mutant("mutant: a non-violating key", refused(law, at))
+										}
+										mutant("mutant: a keyless witness of a keyed law", refused(law, unreported))
+										return
+									}
+									case "keyOrUnreported": {
+										assert.deepEqual(verdict(refused(law, violatingKey(refusal.violations))), [])
+										assert.deepEqual(verdict(refused(law, unreported)), [])
+										const at = otherKey(group, refusal.violations)
+										if (at !== undefined) {
+											mutant("mutant: a non-violating key", refused(law, at))
+										}
+										return
+									}
+									case "unreported":
+										assert.deepEqual(verdict(refused(law, unreported)), [])
+										mutant("mutant: a keyed witness of a native law", refused(law, someKey(group)))
+										return
 								}
-								if (!refusal.keyless) {
-									mutant(
-										"mutant: a keyless witness of a keyed law",
-										refused(refusal.law, unreported)
-									)
-								}
-								if (refusal.keyless && refusal.keys.size === 0 && at !== undefined) {
-									mutant(
-										"mutant: a keyed witness of a native law",
-										refused(refusal.law, { kind: "key", relation: refusal.relation, values: at })
-									)
-								}
-								return
 							}
 						}
 					})

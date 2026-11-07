@@ -38,21 +38,30 @@ import {
 	type WriteLawNames
 } from "#test/support/oracle/write/schema.ts"
 
-/**
- * One refusal the realization may report: a law and the key values a witness may carry for it (empty for a law whose
- * violation PostgreSQL reports only in prose).
- */
-export interface AcceptableRefusal {
-	readonly law: LawId
+/** A key law's violations: its relation and fields, the facts that violate it, and their keys at its fields. */
+export interface Violations {
 	readonly relation: string
 	readonly fields: ReadonlyArray<string>
 	/** Identities (keyOf over `fields`) of the key values that violate the law. */
 	readonly keys: ReadonlySet<string>
 	/** The violating facts those keys are taken from. */
-	readonly violators: ReadonlyArray<Fact>
-	/** Whether a witness may carry no key: a native violation outside the insert protocol's own rows. */
-	readonly keyless: boolean
+	readonly violators: Arr.NonEmptyReadonlyArray<Fact>
 }
+
+/**
+ * The witness a realization's refusal by one law may carry:
+ * - key: a violating key of the law, which host normalization and the insert protocol's own rows state;
+ * - keyOrUnreported: a violating key, or none, a native violation of a candidate or projected key outside the insert
+ *   protocol's own rows;
+ * - unreported: none, a foreign key's or a domain's, whose violation PostgreSQL reports only in prose.
+ */
+export type AcceptableRefusal =
+	| { readonly kind: "key"; readonly violations: Violations }
+	| { readonly kind: "keyOrUnreported"; readonly violations: Violations }
+	| { readonly kind: "unreported" }
+
+/** The refusals a realization may report, each law once with the one witness it may carry. */
+export type AcceptableRefusals = ReadonlyMap<LawId, AcceptableRefusal>
 
 /**
  * The TransientFailures a lone writer of a case may meet: a generated addition into a relation draws a serial value a
@@ -92,14 +101,14 @@ export type Expected =
 	  }
 	| {
 			readonly kind: "rejected"
-			readonly refusals: ReadonlyArray<AcceptableRefusal>
+			readonly refusals: AcceptableRefusals
 			readonly initial: OracleState
 			/** The draws a rejected change makes before its refusal may meet them too. */
 			readonly collisions: ReadonlyMap<string, Collisions>
 	  }
 	| {
 			readonly kind: "outsideDomain"
-			readonly refusals: ReadonlyArray<AcceptableRefusal>
+			readonly refusals: AcceptableRefusals
 			readonly initial: OracleState
 			readonly collisions: ReadonlyMap<string, Collisions>
 	  }
@@ -163,38 +172,57 @@ const keyFields = (
 }
 
 /**
- * Same-key pairs among the enumerated facts of each stratum, which host normalization refuses before any SQL: among its
- * additions, a generated one on the keys holding no serial field, or among its deletions, each a set of the relation's
- * facts that a key names one of. Two additions at one key break it in the add-wins state too; two deletions break
- * nothing there, so a ChangeSet that lists them is refused whatever its strata do.
+ * Same-key pairs among the enumerated facts of each stratum, which host normalization refuses before any SQL and before
+ * the bind encodes a parameter, with the key's law and a violating key: among its additions, a generated one on the
+ * keys holding no serial field, and among its deletions, each a set of the relation's facts that a key names one of.
+ * Each law once, its violations every stratum's.
  */
-const hostRefusals = (
-	ctx: ExpectContext,
-	c: WChangeSet,
-	deletions: boolean
-): ReadonlyArray<AcceptableRefusal> =>
-	Arr.flatMap(c.strata, (stratum) =>
-		Arr.flatMap(ctx.group.relations, (relation) => {
-			const listed = Arr.flatMap(stratum, (m) =>
-				m.relation === relation.name &&
-				(m.op === "delete") === deletions &&
-				m.source.kind === "array"
-					? m.source.facts
-					: []
-			)
-			const serial = new Set(Arr.map(serialColumns(relation), (col) => col.name))
-			return Arr.flatMap(keysOf(relation), (key) =>
-				sameKeyRefusals(
-					ctx,
-					relation,
-					key,
-					!deletions && Arr.some(key.fields, (f) => serial.has(f))
-						? Arr.filter(listed, (f) => !isGenerated(relation, f))
-						: listed
+const hostRefusals = (ctx: ExpectContext, c: WChangeSet): AcceptableRefusals => {
+	const clashes = Arr.flatMap([false, true], (deletions) =>
+		Arr.flatMap(c.strata, (stratum) =>
+			Arr.flatMap(ctx.group.relations, (relation) => {
+				const listed = Arr.flatMap(stratum, (m) =>
+					m.relation === relation.name &&
+					(m.op === "delete") === deletions &&
+					m.source.kind === "array"
+						? m.source.facts
+						: []
 				)
-			)
-		})
+				const serial = new Set(Arr.map(serialColumns(relation), (col) => col.name))
+				return Arr.flatMap(keysOf(relation), (key) =>
+					sameKeyViolations(
+						ctx,
+						relation,
+						key,
+						!deletions && Arr.some(key.fields, (f) => serial.has(f))
+							? Arr.filter(listed, (f) => !isGenerated(relation, f))
+							: listed
+					)
+				)
+			})
+		)
 	)
+	const byLaw = new Map<LawId, Violations>()
+	for (const [law, violations] of clashes) {
+		const held = byLaw.get(law)
+		byLaw.set(
+			law,
+			held === undefined
+				? violations
+				: {
+						...held,
+						keys: new Set([...held.keys, ...violations.keys]),
+						violators: Arr.appendAll(held.violators, violations.violators)
+					}
+		)
+	}
+	return new Map(
+		Arr.map([...byLaw], ([law, violations]): readonly [LawId, AcceptableRefusal] => [
+			law,
+			{ kind: "key", violations }
+		])
+	)
+}
 
 /** A key of a relation and which it is: its primary key, or one of its candidate keys. */
 type RelationKey = Readonly<{ kind: "primary" | "candidate"; fields: ReadonlyArray<string> }>
@@ -205,13 +233,13 @@ const keysOf = (relation: WRelation): ReadonlyArray<RelationKey> => [
 	...Arr.map(relation.keys, (fields): RelationKey => ({ kind: "candidate", fields }))
 ]
 
-/** The refusal of the distinct facts among `added` that share a value of the key, if any do. */
-const sameKeyRefusals = (
+/** The key's law and its violations by the distinct facts among `added` that share a value of it, if any do. */
+const sameKeyViolations = (
 	ctx: ExpectContext,
 	relation: WRelation,
 	key: RelationKey,
 	added: ReadonlyArray<Fact>
-): ReadonlyArray<AcceptableRefusal> => {
+): ReadonlyArray<readonly [LawId, Violations]> => {
 	const { fields } = key
 	const byKey = new Map<string, Map<string, Fact>>()
 	for (const f of added) {
@@ -228,8 +256,8 @@ const sameKeyRefusals = (
 		byKey.set(k, set)
 	}
 	const clashing = Arr.filter([...byKey], ([, facts]) => facts.size > 1)
-	const keys = new Set(Arr.map(clashing, ([k]) => k))
-	if (keys.size === 0) {
+	const violators = Arr.flatMap(clashing, ([, facts]) => [...facts.values()])
+	if (!Arr.isReadonlyArrayNonEmpty(violators)) {
 		return []
 	}
 	const law =
@@ -237,14 +265,15 @@ const sameKeyRefusals = (
 			? ctx.laws.primaryKey(relation.name)
 			: ctx.laws.key(relation.name, fields)
 	return [
-		{
+		[
 			law,
-			relation: relation.name,
-			fields,
-			keys,
-			violators: Arr.flatMap(clashing, ([, facts]) => [...facts.values()]),
-			keyless: false
-		}
+			{
+				relation: relation.name,
+				fields,
+				keys: new Set(Arr.map(clashing, ([k]) => k)),
+				violators
+			}
+		]
 	]
 }
 
@@ -314,43 +343,38 @@ const unboundParams = (ctx: ExpectContext, c: WChangeSet): ReadonlySet<string> =
  * A deletion never breaks one: its member is carried as the comparison reads it, so an outside value matches no fact,
  * which the add-wins calculator already predicts.
  */
-const domainRefusals = (
+const domainLaws = (
 	ctx: ExpectContext,
 	members: WChangeSet["strata"][number],
 	params: ParamMap,
 	state: OracleState
-): ReadonlyArray<AcceptableRefusal> =>
+): ReadonlyArray<LawId> =>
 	Arr.flatMap(members, (m) => {
 		if (m.op === "delete" || m.source.kind !== "project") {
 			return []
 		}
 		const target = relationIn(ctx.group, m.relation)
 		const facts = evaluateSource(ctx.group, target, m.source, params, state)
-		return Arr.flatMap(target.columns, (col): ReadonlyArray<AcceptableRefusal> => {
-			const outside = Arr.some(facts, (fact) => !fitsField(col.kind, fact[col.name]))
-			return outside
-				? [
-						{
-							law: ctx.laws.textDomain(target.name, col.name),
-							relation: target.name,
-							fields: [],
-							keys: new Set(),
-							violators: [],
-							keyless: true
-						}
-					]
+		return Arr.flatMap(target.columns, (col) =>
+			Arr.some(facts, (fact) => !fitsField(col.kind, fact[col.name]))
+				? [ctx.laws.textDomain(target.name, col.name)]
 				: []
-		})
+		)
 	})
 
-/** The foreign-key violations of `containments` in a state: a contained tuple naming no target fact. */
-const foreignKeyRefusals = (
+/** The refusals of laws whose violation PostgreSQL reports only in prose, each witnessed by no key. */
+const unreportedBy = (
+	laws: ReadonlyArray<LawId>
+): ReadonlyArray<readonly [LawId, AcceptableRefusal]> =>
+	Arr.map(laws, (law) => [law, { kind: "unreported" }])
+
+/** The laws of `containments` a state breaks: a contained tuple naming no target fact. */
+const brokenForeignKeys = (
 	ctx: ExpectContext,
 	containments: ReadonlyArray<WContainment>,
 	state: OracleState
-): ReadonlyArray<AcceptableRefusal> => {
-	const out: Array<AcceptableRefusal> = []
-	for (const c of containments) {
+): ReadonlyArray<LawId> =>
+	Arr.flatMap(containments, (c) => {
 		const source = relationIn(ctx.group, c.from.relation)
 		const target = relationIn(ctx.group, c.to.relation)
 		const present = new Set(
@@ -358,24 +382,13 @@ const foreignKeyRefusals = (
 				keyOf(target, c.to.fields, f)
 			)
 		)
-		const missing = Arr.filter(
+		return Arr.some(
 			[...entryOf(state.relations, source.name, "the state's relations").values()],
 			(f) => !present.has(keyOf(source, c.from.fields, f))
 		)
-		if (missing.length === 0) {
-			continue
-		}
-		out.push({
-			law: ctx.laws.foreignKey(source.name, c.from.fields),
-			relation: source.name,
-			fields: c.from.fields,
-			keys: new Set(),
-			violators: [],
-			keyless: true
-		})
-	}
-	return out
-}
+			? [ctx.laws.foreignKey(source.name, c.from.fields)]
+			: []
+	})
 
 /**
  * Per relation `c` generates into, the stored serial values its draws may meet (see Collisions): the initial facts'
@@ -446,16 +459,15 @@ const collisionsOf = (
  *
  * A foreign key's witness carries no key, because PostgreSQL reports the key only in its message. A refusal may name
  * any law the realization can meet first, because which statement fails first is a scheduling choice left to the
- * compiler: every key law and immediate foreign key the first refused stratum breaks, and every key law a same-key
- * pair among the enumerated additions or the enumerated deletions of any stratum breaks, which host normalization
- * refuses before any SQL. Laws are accepted exactly when every violation query evaluated by brute force is empty where
- * it is judged.
+ * compiler: every key law and immediate foreign key the first refused stratum breaks. Laws are accepted exactly when
+ * every violation query evaluated by brute force is empty where it is judged.
  *
  * Before any of these, the bind: host normalization refuses a same-key pair among the enumerated additions or the
- * enumerated deletions first, then a parameter passed outside the field it is declared at refuses the whole ChangeSet with EncodingFailure
- * refinedValue before any SQL (unboundParams). A stratum that adds a fact holding a stored value its field's domain
- * refuses, a described member reading a wider text into a narrower field, is refused there by the domain's law, or
- * meets a law of the stratum first. A refused change leaves the initial state.
+ * enumerated deletions of any stratum first, with that key's law and a violating key (hostRefusals), then a parameter
+ * passed outside the field it is declared at refuses the whole ChangeSet with EncodingFailure refinedValue before any
+ * SQL (unboundParams). A stratum that adds a fact holding a stored value its field's domain refuses, a described member
+ * reading a wider text into a narrower field, is refused there by the domain's law, or meets a law of the stratum
+ * first. A refused change leaves the initial state.
  *
  * The expected result of applying `c` to `facts`, each identity sequence where `sequences` states it, and every other
  * past the stored values, where a migration that loaded them leaves it: its generated additions drawn as the add-wins
@@ -484,56 +496,67 @@ const expectUnder = (
 	const schema = oracleSchemaOf(ctx.group, ctx.laws)
 	const initial = oracleState(schema, facts, sequences)
 	const collisions = collisionsOf(ctx, c, initial)
-	const deleted = hostRefusals(ctx, c, true)
-	const host = [...hostRefusals(ctx, c, false), ...deleted]
-	const immediate = Arr.filter(ctx.group.containments, (x) => isImmediate(ctx.group, x))
-	const rejected = (refusals: ReadonlyArray<AcceptableRefusal>): Expected => ({
-		kind: "rejected",
-		refusals: [...host, ...refusals],
-		initial,
-		collisions
-	})
+	const host = hostRefusals(ctx, c)
+	if (host.size > 0) {
+		return { kind: "rejected", refusals: host, initial, collisions }
+	}
 	const unbound = unboundParams(ctx, c)
 	if (unbound.size > 0) {
-		return host.length > 0
-			? rejected([])
-			: { kind: "unbound", params: unbound, initial, collisions }
+		return { kind: "unbound", params: unbound, initial, collisions }
 	}
-	if (deleted.length > 0) {
-		return rejected([])
-	}
-	/** The domains' refusals lead, then the host's and the stratum's. */
-	const outsideDomain = (
-		domains: ReadonlyArray<AcceptableRefusal>,
-		refusals: ReadonlyArray<AcceptableRefusal>
-	): Expected => ({
-		kind: "outsideDomain",
-		refusals: [...domains, ...host, ...refusals],
+	const immediate = Arr.filter(ctx.group.containments, (x) => isImmediate(ctx.group, x))
+	const rejected = (refusals: ReadonlyArray<readonly [LawId, AcceptableRefusal]>): Expected => ({
+		kind: "rejected",
+		refusals: new Map(refusals),
 		initial,
 		collisions
 	})
-	/** The key laws a refused stratum's transition breaks, each with the key values a witness may carry for it. */
+	/** The domains' laws lead, then the stratum's. */
+	const outsideDomain = (
+		domains: ReadonlyArray<LawId>,
+		refusals: ReadonlyArray<readonly [LawId, AcceptableRefusal]>
+	): Expected => ({
+		kind: "outsideDomain",
+		refusals: new Map([...unreportedBy(domains), ...refusals]),
+		initial,
+		collisions
+	})
+	/**
+	 * The key laws a refused stratum's transition breaks, each with its violations: a primary key's witness carries a
+	 * violating key, a candidate or projected key's one or none.
+	 */
 	const lawRefusals = (
 		outcome: Extract<AddWinsOutcome, { readonly kind: "invariant-rejected" }>
-	): ReadonlyArray<AcceptableRefusal> => {
-		const byLaw = new Map<LawId, { relation: string; keys: Set<string>; violators: Array<Fact> }>()
+	): ReadonlyArray<readonly [LawId, AcceptableRefusal]> => {
+		const byLaw = new Map<
+			LawId,
+			{ readonly relation: string; readonly violators: Arr.NonEmptyArray<Fact> }
+		>()
 		for (const v of outcome.violations) {
-			const entry = byLaw.get(v.law) ?? {
-				relation: v.relation,
-				keys: new Set<string>(),
-				violators: []
+			const held = byLaw.get(v.law)
+			if (held === undefined) {
+				byLaw.set(v.law, { relation: v.relation, violators: [v.values] })
+			} else {
+				held.violators.push(v.values)
 			}
-			const { fields } = keyFields(ctx.group, v.relation, v.law, ctx.laws)
-			entry.keys.add(keyOf(relationIn(ctx.group, v.relation), fields, v.values))
-			entry.violators.push(v.values)
-			byLaw.set(v.law, entry)
 		}
-		const refusals: Array<AcceptableRefusal> = []
-		for (const [law, { relation, keys, violators }] of byLaw) {
-			const { fields, primary } = keyFields(ctx.group, relation, law, ctx.laws)
-			refusals.push({ law, relation, fields, keys, violators, keyless: !primary })
-		}
-		return refusals
+		return Arr.map(
+			[...byLaw],
+			([law, { relation, violators }]): readonly [LawId, AcceptableRefusal] => {
+				const { fields, primary } = keyFields(ctx.group, relation, law, ctx.laws)
+				const r = relationIn(ctx.group, relation)
+				const violations: Violations = {
+					relation,
+					fields,
+					keys: new Set(Arr.map(violators, (f) => keyOf(r, fields, f))),
+					violators
+				}
+				return [
+					law,
+					primary ? { kind: "key", violations } : { kind: "keyOrUnreported", violations }
+				]
+			}
+		)
 	}
 	/**
 	 * The end of stratum `index`, from `state`, the last applied prefix's: the refusal it settles on, or the outcome of
@@ -549,18 +572,18 @@ const expectUnder = (
 			strata: [Arr.headNonEmpty(c.strata), ...c.strata.slice(1, index + 1)]
 		}
 		const outcome = applyAddWins(schema, initial, oracleChangeSet(ctx.group, prefix), draws)
-		const outside = domainRefusals(ctx, members, c.params, state)
+		const outside = domainLaws(ctx, members, c.params, state)
 		if (outcome.kind === "invariant-rejected") {
 			const refusals = [
 				...lawRefusals(outcome),
-				...foreignKeyRefusals(ctx, immediate, outcome.state)
+				...unreportedBy(brokenForeignKeys(ctx, immediate, outcome.state))
 			]
 			return {
 				kind: "settled",
 				expected: outside.length > 0 ? outsideDomain(outside, refusals) : rejected(refusals)
 			}
 		}
-		const broken = foreignKeyRefusals(ctx, immediate, outcome.state)
+		const broken = unreportedBy(brokenForeignKeys(ctx, immediate, outcome.state))
 		if (outside.length > 0) {
 			return { kind: "settled", expected: outsideDomain(outside, broken) }
 		}
@@ -579,9 +602,9 @@ const expectUnder = (
 		return walked.expected
 	}
 	const applied = walked.outcome
-	const deferred = foreignKeyRefusals(ctx, ctx.group.containments, applied.state)
+	const deferred = brokenForeignKeys(ctx, ctx.group.containments, applied.state)
 	if (deferred.length > 0) {
-		return rejected(deferred)
+		return rejected(unreportedBy(deferred))
 	}
 	const advanced = advancedSequences(ctx.group, c, initial, applied)
 	return {
