@@ -29,7 +29,7 @@
  */
 import { element, type Gen, int, shuffled } from "@grizzle/testing/gen"
 import { Array as Arr, Option, Order } from "effect"
-import { indices } from "#compiler/core/array.ts"
+import { indices, maxOf } from "#compiler/core/array.ts"
 import { defined, nonEmpty } from "#test/support/assert.ts"
 import type { Moment } from "#test/support/families/mutate.ts"
 import { qualified, tuple } from "#test/support/substrate.ts"
@@ -1384,5 +1384,28 @@ export const loadTree = (rows: number, fanout: number): Arr.NonEmptyReadonlyArra
 			})),
 			Order.mapInput(Order.Number, (r: Bare) => r.start)
 		)
+	)
+}
+
+/**
+ * The rows of one tree by depth, the root's alone first: each row one deeper than its parent, read in pre-order, which
+ * puts every parent before its children.
+ */
+export const rowsByDepth = (
+	rows: Arr.NonEmptyReadonlyArray<TreeRow>
+): Arr.NonEmptyReadonlyArray<Arr.NonEmptyReadonlyArray<TreeRow>> => {
+	const depths = new Map<number, number>()
+	for (const r of rows) {
+		depths.set(r.id, r.parent === r.id ? 0 : defined(depths.get(r.parent), "a parent's depth") + 1)
+	}
+	const deepest = maxOf(depths.values(), 0)
+	return nonEmpty(
+		Arr.map(Arr.range(0, deepest), (depth) =>
+			nonEmpty(
+				Arr.filter(rows, (r) => depths.get(r.id) === depth),
+				`a row at depth ${depth}`
+			)
+		),
+		"the root's depth"
 	)
 }

@@ -1,7 +1,7 @@
 import { guarantees } from "#compiler/check/refinement/index.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { Heading, HeadingColumn } from "#compiler/ir/rel.ts"
-import { isRefined, type ScalarType } from "#compiler/ir/scalar.ts"
+import { isRefined, refinementText, type ScalarType } from "#compiler/ir/scalar.ts"
 import { type LowerContext, refuse } from "#compiler/lower/conservative/context.ts"
 import type { ConservativeParamSlot, ScalarParamSlot } from "#compiler/lower/conservative/types.ts"
 import { regexMember } from "#compiler/scalar/regex/nfa.ts"
@@ -431,7 +431,7 @@ export const castDomain = (
 		const t = claim.type
 		const pattern =
 			t.carrier === "text" && t.text.regex !== "wildcard"
-				? `the pattern /${t.text.regex.source}/${t.text.regex.flags}`
+				? `the refinement ${refinementText(t.text.regex)}`
 				: "a refinement"
 		const parameters = [
 			...new Set(verdicts.flatMap((v) => (typeof v === "object" ? [v.name] : [])))

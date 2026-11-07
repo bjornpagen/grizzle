@@ -16,6 +16,47 @@ How to upgrade:
 
 ### Breaking changes
 
+#### A rule matches only a query over a level of its schema, and a query's types keep every parameter any branch needs
+
+- **A rule that matches a query, or a bound import of one, written over a schema that is none of the rule's levels is
+  `ForeignLevel` when it is built**, with the schema the query is written over (`written`) and the rule's (`over`).
+  The types already refused it ("the query is not over a level of this query's schema"); the engine admitted it where
+  the two schemas shared the relations the query reads. Write the query over a level of the rule's schema, or extend
+  that schema from the query's. No codemod.
+- **`Q.bind` binds a relation parameter only to a relation parameter of the importing rule, `r.relation(name,
+  heading)`**, the one binding a Description holds. The types admitted a query, a bound import or an interior stage
+  there, refused only over another schema; the engine refused every one with `UnsupportedOperation`. The type now
+  names it: "a relation parameter binds a relation parameter of the importing rule, r.relation(name, heading)". No
+  codemod.
+- **A query's parameters hold every parameter any branch of a conditional or an array literal may need.**
+  `flag ? r.eq(x, r.param("p", f)) : Compute.eq(x, "…")` left `p` out of `ParamsOf`, since TypeScript reduced the
+  union to the branch that needed less; a term's parameters are now contravariant in its type, so the branch that
+  needs more is the one kept. A call that omitted such a parameter is now a type error naming it. A position that takes
+  a term whatever parameters it needs is written `AnyParams` (`Predicate<AnyParams>`, `Aggregate<unknown,
+  AnyParams>`); `Predicate` alone is one that needs none. No codemod.
+- **A union's keys no longer count a field a flag fixes to a literal under one branch and to a parameter under the
+  other as telling its arms apart**, so `db.get` and a stated Option or one child refuse a query whose arms may both
+  deliver that value. No codemod.
+
+#### A delete that names two facts at one key is refused, a nested insert writes only members its role writes, and a family write the engine can't plan is a type error
+
+- **A delete listing two facts of one relation that share a key and differ elsewhere is `invariant-rejected` on that
+  key's law before any SQL is sent**, as an insert's and a put's already were. Its witness is the key values. The types
+  already refused such an array literal with literal keys. The engine judged deletions by identity alone, so it took
+  both facts as requests, though a key names one stored fact. Every declared key judges a stratum's deletions,
+  the primary key first, a span compared as a value, apart from its additions: a delete and an insert at one key are
+  still a replacement. No codemod.
+- **An insert of a sequence's owner, through a role whose write list leaves out a member relation its nesting reaches,
+  is `OutsideRole` on that member when it compiles.** The types already refused it at `db.apply`. The engine checked
+  only the owner, so the apply reached PostgreSQL and failed there, since a role holds nothing of a member relation it
+  does not write. List each nested member relation in `write`. No codemod.
+- **A put or a delete of a family's relation that the engine refuses when it compiles is a type error too.** These are
+  a put or delete of a tree's row; one of a row whose key holds a field grizzle writes, such as a sequence's member
+  keyed by its drawn index; a delete of a member of an immutable owner's family; and a put of an immutable family
+  owner. Each typechecked and failed at compile with `UnsupportedOperation` or `UnstatedKey`. Now the relation
+  argument names the engine's reason in a `Refusal`. An insert of a counted member of an immutable owner, in a stratum
+  that inserts no owner, stays the engine's alone, since the types see no strata. No codemod.
+
 #### A concurrent change outside the installation, and a refined claim admission can't judge, fail closed
 
 - **A 40Z01 whose DETAIL names a relation the installation doesn't store is an `ExecutionFailure`.** The witness
@@ -149,6 +190,14 @@ How to upgrade:
   the null bitmap, 8 bytes, so a text at its result fits every index planned over those fields, a key over a
   selection, whose hidden columns may be NULL, and a family's axis included; for an axis, `fields` are its group
   fields, its natural index, the other values it carries and a tree's `end`. No codemod.
+- **`str.bytes(n, pattern)`**: text of the pattern's language of at most `n` UTF-8 bytes. The bound is a refinement,
+  not a type, so the field has its pattern's host type and meets every text its pattern meets, where an
+  `octetLength` contract is a type of its own and refused a containment with an unbounded document text ("the sides'
+  field types differ"). Its domain checks `octet_length(VALUE) <= n` before the pattern; a key reads `n` as its bytes
+  exactly, so `str.bytes(keyTextBytes(fields), str.regex("^.*$", "su"))` is a key's text beside `fields`. A cast into
+  it is proved only by an operand whose own bound is within `n`. A text Description gains `bytes` where the bound
+  cuts the pattern's language; every existing schema's fingerprint and DDL is unchanged. The `language` premise of a
+  proof gains `bytes`. No codemod; the octet contract stays for a branded type.
 - **Every index the law model plans is bounded**: a containment's UNIQUE into a superkey, keys over selections,
   family UNIQUEs, WITHOUT OVERLAPS. Before, a containment into a superkey over an unbounded text installed a UNIQUE
   that failed at insert with 54000; now it is `UnrepresentableKey` when the schema compiles. A containment's reverse

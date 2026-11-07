@@ -455,16 +455,6 @@ export const treePredicted = (
 		: { kind: "committed", after: state }
 }
 
-/** A row's ancestors through its parent links, nearest first, itself excluded: none for a root. */
-export const ancestorsOf = (rows: ReadonlyArray<TreeRow>, id: number): ReadonlyArray<number> => {
-	const byId = new Map(Arr.map(rows, (r) => [r.id, r] as const))
-	const found: Array<number> = []
-	for (let at = byId.get(id); at !== undefined && at.parent !== at.id; at = byId.get(at.parent)) {
-		found.push(at.parent)
-	}
-	return found
-}
-
 /**
  * A row's descendants through the parent links, itself excluded: the rows a descendants read must return, judged
  * independently of the intervals the read filters by.

@@ -11,6 +11,7 @@ import {
 } from "#compiler/allen/atoms.ts"
 import { AllenMask } from "#compiler/allen/mask.ts"
 import { type AllenRelation, allenRelations } from "#compiler/core/allen.ts"
+import { type SpanCarrier, spanCarriers } from "#compiler/ir/scalar.ts"
 import { elementAt } from "#test/support/oracle/pick.ts"
 
 /** A stored span: the canonical half-open [lo, hi) with lo < hi. */
@@ -20,6 +21,18 @@ export interface HalfOpen {
 }
 
 export type RangeType = "int4range" | "int8range"
+
+/** The range type of each span carrier. */
+const rangeTypeOf: Readonly<Record<SpanCarrier, RangeType>> = {
+	range4: "int4range",
+	range8: "int8range"
+}
+
+/** The range type of every span carrier the engine declares, in its order. */
+export const rangeTypes: Arr.NonEmptyReadonlyArray<RangeType> = Arr.map(
+	spanCarriers,
+	(carrier) => rangeTypeOf[carrier]
+)
 
 export const rangeLimits: Readonly<
 	Record<RangeType, { readonly min: bigint; readonly max: bigint }>
@@ -495,51 +508,4 @@ export const verifyFormulas = (
 		}
 	}
 	return { checks, mismatchCount, mismatches }
-}
-
-/**
- * A hand-written formula, `A << B AND NOT A -|- B OR ...`, compiled to a predicate over a pair that
- * evaluates each operator as PostgreSQL does. Operands are A or B in either order; `<>` is the negated equality.
- * Used for the defining formulas of the thirteen relations and for a tempting hand derivation that is wrong.
- */
-const textFormula = (text: string): ((a: HalfOpen, b: HalfOpen) => boolean) => {
-	const disjuncts = Arr.map(Str.split(text, " OR "), (disjunct) =>
-		Arr.map(Str.split(disjunct, " AND "), (literal) => {
-			const words = Str.split(Str.trim(literal), " ")
-			const negated = words[0] === "NOT"
-			const [left, op, right, ...rest] = negated ? words.slice(1) : words
-			if (rest.length > 0 || op === undefined) {
-				throw new Error(`bad literal ${literal}`)
-			}
-			const operand = (name: string | undefined): "A" | "B" => {
-				if (name !== "A" && name !== "B") {
-					throw new Error(`bad operand in ${literal}`)
-				}
-				return name
-			}
-			const l = operand(left)
-			const r = operand(right)
-			const inequality = op === "<>"
-			const fn = pgOperator[inequality ? "=" : op]
-			if (fn === undefined) {
-				throw new Error(`unknown operator in ${literal}`)
-			}
-			return (a: HalfOpen, b: HalfOpen): boolean => {
-				const pick = (name: "A" | "B") => toRange(name === "A" ? a : b)
-				return fn(pick(l), pick(r)) !== (negated || inequality)
-			}
-		})
-	)
-	return (a, b) =>
-		Arr.some(disjuncts, (conjunction) => Arr.every(conjunction, (literal) => literal(a, b)))
-}
-
-/** The pairs on which a hand formula disagrees with the relations it is meant to denote. */
-export const textFormulaMismatches = (
-	text: string,
-	relations: ReadonlyArray<AllenRelation>,
-	pairs: ReadonlyArray<PairFacts>
-): ReadonlyArray<PairFacts> => {
-	const holds = textFormula(text)
-	return Arr.filter(pairs, (pair) => holds(pair.a, pair.b) !== relations.includes(pair.relation))
 }

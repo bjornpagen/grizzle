@@ -1,9 +1,10 @@
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
-import { element } from "@grizzle/testing/gen"
+import { array, element, type Gen, int, map } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
+import type { AxisKind } from "#compiler/ir/family.ts"
 import type { NativeOf } from "#compiler/ir/law.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
 import type { CarrierValue } from "#compiler/scalar/compute/literal.ts"
@@ -38,46 +39,93 @@ import {
  * terms are a key of its target side, so a source row meets at most one target row; the host model of the foreign key's
  * PostgreSQL semantics (natives.ts `breaks`, MATCH SIMPLE) is the judge.
  *
- * Bound: an owner's family of two members at slots 0 and 1, with two copies riding the predecessor axis (a₀ → b₀ and
- * a₁ → b₁ between neighbours) or the last axis (e₀ → l₀ and e₁ → l₁ from the owner to its last member), every carried
- * column over the three values 0, 1 and 2: 3⁸ and 3⁶ states, exhausted. Every state holds the family itself, so the
- * axis's key part holds and each verdict turns on the copies.
+ * Bound: an owner's family of two members at slots 0 and 1, with two copies riding one axis: the owner axis (o₀ → f₀
+ * and o₁ → f₁ from each member to its owner), the predecessor axis (a₀ → b₀ and a₁ → b₁ between neighbours) or the last
+ * axis (e₀ → l₀ and e₁ → l₁ from the owner to its last member), every carried column over the three values 0, 1 and 2:
+ * 3⁶, 3⁸ and 3⁶ states, exhausted. Every state holds the family itself, so the axis's key part holds and each verdict
+ * turns on the copies.
  */
 
-type Axis = "predecessor" | "last"
-const axes: readonly [Axis, Axis] = ["predecessor", "last"]
+/** The fields an axis's two copies carry on the owner and on each member, in the order the box draws their values: copy
+ * j's source and target among them. */
+const fieldsOf: {
+	readonly [A in AxisKind]: {
+		readonly owner: ReadonlyArray<string>
+		readonly member: ReadonlyArray<string>
+	}
+} = {
+	owner: { owner: ["f0", "f1"], member: ["o0", "o1"] },
+	predecessor: { owner: [], member: ["a0", "a1", "b0", "b1"] },
+	last: { owner: ["e0", "e1"], member: ["l0", "l1"] }
+}
 
-type Feature = "the axis holds" | "both copies break" | "one copy breaks" | `axis ${Axis}`
-const features: readonly [Feature, ...Array<Feature>] = [
+/** One state of the box: the axis its copies ride, the owner's carried values and each member's, in slot order. */
+interface Merge {
+	readonly axis: AxisKind
+	readonly owner: ReadonlyMap<string, bigint>
+	readonly members: ReadonlyArray<ReadonlyMap<string, bigint>>
+}
+
+/** Values of `fields`, each over 0 to 2. */
+const carriedGen = (fields: ReadonlyArray<string>): Gen<ReadonlyMap<string, bigint>> =>
+	map(
+		array(map(int(0, 2), BigInt), { min: fields.length, max: fields.length }),
+		(values) => new Map(Arr.zip(fields, values))
+	)
+
+/** The box: an axis, then every carried column of the owner and its two members over 0 to 2. */
+const mergeGen: Gen<Merge> = (source) => {
+	const axis = source.draw(element(["owner", "predecessor", "last"] as const))
+	const { owner, member } = fieldsOf[axis]
+	return {
+		axis,
+		owner: source.draw(carriedGen(owner)),
+		members: [source.draw(carriedGen(member)), source.draw(carriedGen(member))]
+	}
+}
+
+type Verdict = "the axis holds" | "both copies break" | "one copy breaks"
+type Feature = Verdict | `axis ${AxisKind}`
+
+const verdicts: Arr.NonEmptyReadonlyArray<Verdict> = [
 	"the axis holds",
 	"both copies break",
-	"one copy breaks",
-	"axis predecessor",
-	"axis last"
+	"one copy breaks"
 ]
 
-const schemaOf = (axis: Axis): SchemaDesc => {
-	const copies: ReadonlyArray<AuthoredStatementDesc> =
-		axis === "predecessor"
-			? Arr.map([0, 1], (j) =>
-					contained(
-						on("Member", ["owner", pred("at"), `a${j}`]),
-						on("Member", ["owner", "at", `b${j}`])
-					)
+const schemaOf = (axis: AxisKind): SchemaDesc => {
+	const copies: ReadonlyArray<AuthoredStatementDesc> = Arr.map([0, 1], (j) => {
+		switch (axis) {
+			case "owner":
+				return contained(on("Member", ["owner", `o${j}`]), on("Owner", ["id", `f${j}`]))
+			case "predecessor":
+				return contained(
+					on("Member", ["owner", pred("at"), `a${j}`]),
+					on("Member", ["owner", "at", `b${j}`])
 				)
-			: Arr.map([0, 1], (j) =>
-					contained(on("Owner", ["id", pred("n"), `e${j}`]), on("Member", ["owner", "at", `l${j}`]))
+			case "last":
+				return contained(
+					on("Owner", ["id", pred("n"), `e${j}`]),
+					on("Member", ["owner", "at", `l${j}`])
 				)
+		}
+	})
 	return {
 		name: "Merging",
 		relations: [
-			relation("Owner", { id: f.bigint, n: f.drawn, e0: f.bigint, e1: f.bigint }, ["id"]),
+			relation(
+				"Owner",
+				{ id: f.bigint, n: f.drawn, e0: f.bigint, e1: f.bigint, f0: f.bigint, f1: f.bigint },
+				["id"]
+			),
 			relation(
 				"Member",
 				{
 					id: f.bigint,
 					owner: f.bigint,
 					at: f.drawn,
+					o0: f.bigint,
+					o1: f.bigint,
 					a0: f.bigint,
 					a1: f.bigint,
 					b0: f.bigint,
@@ -93,68 +141,44 @@ const schemaOf = (axis: Axis): SchemaDesc => {
 	}
 }
 
-const values = [0n, 1n, 2n] as const
-
-/** Every assignment of `n` columns to the three values. */
-const assignments = (n: number): ReadonlyArray<ReadonlyArray<bigint>> =>
-	n === 0 ? [[]] : Arr.flatMap(assignments(n - 1), (t) => Arr.map(values, (v) => [...t, v]))
-
-/** A member's carried columns, by name. */
-interface Member {
-	readonly at: bigint
-	readonly a: readonly [bigint, bigint]
-	readonly b: readonly [bigint, bigint]
-	readonly l: readonly [bigint, bigint]
-}
+/** A carried field's value on a row of the box. */
+const valueAt = (row: ReadonlyMap<string, bigint> | undefined, name: string): bigint =>
+	defined(row?.get(name), `the carried ${name}`)
 
 /** Copy j's meaning, from the state: every defined source tuple is among the target's. */
-const copyHolds = (
-	axis: Axis,
-	j: 0 | 1,
-	e: readonly [bigint, bigint],
-	members: ReadonlyArray<Member>
-): boolean =>
-	axis === "predecessor"
-		? Arr.every(
-				members,
-				(m) => m.at === 0n || Arr.some(members, (t) => t.at === m.at - 1n && t.b[j] === m.a[j])
+const copyHolds = (m: Merge, j: 0 | 1): boolean => {
+	const member = (k: number, name: string) => valueAt(m.members[k], name)
+	switch (m.axis) {
+		case "owner":
+			return Arr.every(m.members, (_, k) => member(k, `o${j}`) === valueAt(m.owner, `f${j}`))
+		case "predecessor":
+			return Arr.every(
+				m.members,
+				(_, k) => k === 0 || member(k - 1, `b${j}`) === member(k, `a${j}`)
 			)
-		: Arr.some(members, (t) => t.at === BigInt(members.length) - 1n && t.l[j] === e[j])
+		case "last":
+			return member(m.members.length - 1, `l${j}`) === valueAt(m.owner, `e${j}`)
+	}
+}
 
-const stateOf = (
-	model: LawModel,
-	e: readonly [bigint, bigint],
-	members: ReadonlyArray<Member>
-): State => {
+/** The state of the box: the owner and its members in slot order, every family column at the family's own values and
+ * the carried columns the axis's foreign key reads at the box's. */
+const stateOf = (model: LawModel, m: Merge): State => {
 	const copy = drawnColumn(model, "Member", "copy")
+	const n = BigInt(m.members.length)
 	return new Map<string, ReadonlyArray<Row>>([
-		[
-			"Owner",
-			[
-				new Map<string, CarrierValue>([
-					["id", 1n],
-					["n", BigInt(members.length)],
-					["e0", e[0]],
-					["e1", e[1]]
-				])
-			]
-		],
+		["Owner", [new Map<string, CarrierValue>([["id", 1n], ["n", n], ...m.owner])]],
 		[
 			"Member",
 			Arr.map(
-				members,
-				(m, k) =>
+				m.members,
+				(values, k) =>
 					new Map<string, CarrierValue>([
 						["id", BigInt(10 + k)],
 						["owner", 1n],
-						["at", m.at],
-						[copy, BigInt(members.length)],
-						["a0", m.a[0]],
-						["a1", m.a[1]],
-						["b0", m.b[0]],
-						["b1", m.b[1]],
-						["l0", m.l[0]],
-						["l1", m.l[1]]
+						["at", BigInt(k)],
+						[copy, n],
+						...values
 					])
 			)
 		]
@@ -162,16 +186,21 @@ const stateOf = (
 }
 
 /** The axis's foreign key: the one each riding copy's lowering names. */
-const axisKey = (model: LawModel, axis: Axis): NativeOf<"ForeignKey"> => {
+const axisKey = (model: LawModel, axis: AxisKind): NativeOf<"ForeignKey"> => {
 	const fks = [
 		...onRelation(model, "ForeignKey", "Member"),
 		...onRelation(model, "ForeignKey", "Owner")
 	]
-	const [fk, ...more] = Arr.filter(fks, (k) =>
-		axis === "last"
-			? k.relation.name === "Owner"
-			: k.relation.name === "Member" && k.target.name === "Member"
-	)
+	const [fk, ...more] = Arr.filter(fks, (k) => {
+		switch (axis) {
+			case "owner":
+				return k.relation.name === "Member" && k.target.name === "Owner"
+			case "predecessor":
+				return k.relation.name === "Member" && k.target.name === "Member"
+			case "last":
+				return k.relation.name === "Owner"
+		}
+	})
 	assert.ok(fk !== undefined && more.length === 0, `one ${axis} axis foreign key`)
 	const riding = ridingLaws(model, axis)
 	assert.equal(riding.length, 2, `both copies ride the ${axis} axis`)
@@ -183,6 +212,13 @@ const axisKey = (model: LawModel, axis: Axis): NativeOf<"ForeignKey"> => {
 }
 
 describe("a merged family axis holds exactly when every containment merged into it holds", () => {
+	/** Each axis's schema, compiled once for every state of the box. */
+	const models: { readonly [A in AxisKind]: LawModel } = {
+		owner: modelOf(schemaOf("owner")),
+		predecessor: modelOf(schemaOf("predecessor")),
+		last: modelOf(schemaOf("last"))
+	}
+
 	it.effect(
 		"every state of a two-member family with two copies on one axis over three values",
 		(ctx) =>
@@ -191,58 +227,37 @@ describe("a merged family axis holds exactly when every containment merged into 
 				exhaust(
 					{
 						suite: "unit/laws/model/merge",
-						generator: element(axes),
+						generator: mergeGen,
 						literal: Formatter.format,
-						/** The space: the two axes a user's copy can ride by its own terms; each enumerates its states. */
-						limit: 2,
-						coverage: requiredInSpace<Feature>(features),
+						/** The space: 3⁶ states on the owner axis, 3⁸ on the predecessor and 3⁶ on the last. */
+						limit: 8019,
+						coverage: requiredInSpace<Feature>(
+							Arr.flatMap(["owner", "predecessor", "last"] as const, (axis) =>
+								Arr.map(verdicts, (v) => [`axis ${axis}`, v] as const)
+							)
+						),
 						caseHang,
-						box: "a two-member family with two copies on the predecessor or last axis, every carried column over 0 to 2",
+						box: "a two-member family with two copies on the owner, predecessor or last axis, every carried column over 0 to 2",
 						oracle: {
 							kind: "universal",
 							name: "metamorphic: the merged axis against each containment's own meaning"
 						}
 					},
-					(axis, c) =>
+					(m, c) =>
 						Effect.sync(() => {
-							c.note(`axis ${axis}`)
-							const model = modelOf(schemaOf(axis))
-							const fk = axisKey(model, axis)
-							const columns = axis === "predecessor" ? 8 : 6
-							for (const v of assignments(columns)) {
-								const at = (k: number): bigint => defined(v[k])
-								const e: readonly [bigint, bigint] = axis === "last" ? [at(0), at(1)] : [0n, 0n]
-								const offset = axis === "last" ? 2 : 0
-								const members: ReadonlyArray<Member> = Arr.map([0, 1], (k) =>
-									axis === "predecessor"
-										? {
-												at: BigInt(k),
-												a: [at(4 * k), at(4 * k + 1)],
-												b: [at(4 * k + 2), at(4 * k + 3)],
-												l: [0n, 0n]
-											}
-										: {
-												at: BigInt(k),
-												a: [0n, 0n],
-												b: [0n, 0n],
-												l: [at(offset + 2 * k), at(offset + 2 * k + 1)]
-											}
-								)
-								const each = [copyHolds(axis, 0, e, members), copyHolds(axis, 1, e, members)]
-								const merged = !breaks(model, fk, stateOf(model, e, members))
-								c.note(
-									Arr.every(each, (h) => h)
-										? "the axis holds"
-										: Arr.every(each, (h) => !h)
-											? "both copies break"
-											: "one copy breaks"
-								)
-								assert.equal(
-									merged,
-									Arr.every(each, (h) => h),
-									`${axis}: ${Arr.join(Arr.map(v, String), " ")}`
-								)
-							}
+							const model = models[m.axis]
+							const each = [copyHolds(m, 0), copyHolds(m, 1)]
+							const verdict: Verdict = Arr.every(each, (h) => h)
+								? "the axis holds"
+								: Arr.every(each, (h) => !h)
+									? "both copies break"
+									: "one copy breaks"
+							c.pair(`axis ${m.axis}`, verdict)
+							assert.equal(
+								!breaks(model, axisKey(model, m.axis), stateOf(model, m)),
+								Arr.every(each, (h) => h),
+								`${m.axis}: the merged axis holds exactly when both copies do`
+							)
 						})
 				)
 			)

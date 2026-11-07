@@ -122,8 +122,9 @@ export const anchoredAt = (node: LiveNode, side: "start" | "end"): boolean => {
 export const anyText = (): RegexNode => new RegexBuilder().repeat(set(domain), 0, "unbounded")
 
 /**
- * A text type's language as a node: its pattern's parse, or, for the wildcard, every admitted value, `^.*$` under the
- * flags "su". A type's pattern is one its text analysis admitted with a member, so it parses to a live node.
+ * A text type's pattern's language as a node: its pattern's parse, or, for the wildcard, every admitted value, `^.*$`
+ * under the flags "su". A type's pattern is one its text analysis admitted with a member, so it parses to a live node.
+ * A byte bound str.bytes cuts the type to is no part of the node, whose language holds every value of the type.
  */
 export const patternNode = (regex: TextInfo["regex"]): LiveNode => {
 	const parsed =

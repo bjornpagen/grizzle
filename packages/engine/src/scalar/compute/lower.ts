@@ -81,6 +81,7 @@ import {
 	numericMaxIntegerDigits,
 	numericMaxResultScale,
 	numericTypmodOf,
+	octetsOf,
 	rosterOf,
 	type ScalarType,
 	spanOf,
@@ -790,19 +791,23 @@ const signBoundsOver = (
 		: signs
 }
 
+/** The premise that every value of an operand is a member of a refinement's language. */
+type LanguagePremise = Extract<OperandPremise, { readonly kind: "language" }>
+
 /**
  * The premise that every value of `a` is a member of a language, the one `includes` compares a pattern's with: a's
  * refinement, its type's, a Compute.matches guard's or a translation's image (the nominal type), whose language is
- * included in it (scalar/regex/inclusion.ts). Undefined where a has no refinement or its language holds a value the
- * other does not. Where comparing the two automata passes the text analysis's bounds nothing is decided, which is
- * ResourceBound naming them, since no guard is missing: a smaller pattern or a match guard decides it.
+ * included in it (scalar/regex/inclusion.ts), with the most UTF-8 bytes the refinement proves of a value. Undefined
+ * where a has no refinement or its language holds a value the other does not. Where comparing the two automata passes
+ * the text analysis's bounds nothing is decided, which is ResourceBound naming them, since no guard is missing: a
+ * smaller pattern or a match guard decides it.
  */
 const languagePremise = (
 	a: Lowered,
 	outer: string,
 	includes: (inner: RegexRef) => Inclusion,
 	at: SourceLoc
-): OperandPremise | undefined => {
+): LanguagePremise | undefined => {
 	const regex = textOf(a.nominal)?.regex
 	if (regex === undefined || regex === "wildcard") {
 		return undefined
@@ -810,7 +815,13 @@ const languagePremise = (
 	const verdict = includes(regex)
 	switch (verdict.kind) {
 		case "included":
-			return { kind: "language", operand: 0, pattern: regex.source, flags: regex.flags }
+			return {
+				kind: "language",
+				operand: 0,
+				pattern: regex.source,
+				flags: regex.flags,
+				bytes: regex.check.bounds?.bytes
+			}
 		case "refuted":
 			return undefined
 		case "bounded":
@@ -916,7 +927,11 @@ const withinGuards = (carrier: Carrier): boolean => {
  * facts implies without declaring it is remedied by the declaration (undeclaredBy), since a contract's facts are
  * exactly the ones it declares; an operation's result has none of them, so no declaration remedies it.
  */
-const guardTest = (precondition: PreconditionKind, operand: Lowered | undefined): GuardTest => {
+const guardTest = (
+	precondition: PreconditionKind,
+	operand: Lowered | undefined,
+	target: ScalarType
+): GuardTest => {
 	switch (precondition) {
 		case "nonzero":
 		case "nonnegative":
@@ -937,8 +952,12 @@ const guardTest = (precondition: PreconditionKind, operand: Lowered | undefined)
 			return operand !== undefined && withinGuards(valueType(operand.nominal).carrier)
 				? { kind: "within" }
 				: { kind: "typed" }
-		case "language":
-			return { kind: "matches", pattern: "target" }
+		case "language": {
+			const refinement = refinementOf(target)
+			return refinement !== undefined && octetsOf(refinement.check) !== undefined
+				? { kind: "typed" }
+				: { kind: "matches", pattern: "target" }
+		}
 		case "lexical":
 			return { kind: "matches", pattern: "lexicalForm" }
 	}
@@ -1359,7 +1378,12 @@ class Lowering<R extends Refs> {
 					operation,
 					precondition: precondition.kind,
 					operand: text,
-					guard: guardOf(precondition.kind, guardTest(precondition.kind, named), text, operation)
+					guard: guardOf(
+						precondition.kind,
+						guardTest(precondition.kind, named, target),
+						text,
+						operation
+					)
 				})
 			)
 		}
@@ -1399,7 +1423,11 @@ class Lowering<R extends Refs> {
 								(regex) => patternIncludes(regex, refinement),
 								at
 							)
-				return premise === undefined ? refuse(0) : { precondition, premises: [premise] }
+				const octets = refinement === undefined ? undefined : octetsOf(refinement.check)
+				return premise === undefined ||
+					(octets !== undefined && (premise.bytes === undefined || premise.bytes > octets))
+					? refuse(0)
+					: { precondition, premises: [premise] }
 			}
 			case "contract": {
 				const a = args[0]
@@ -2133,7 +2161,7 @@ class Lowering<R extends Refs> {
 		at: SourceLoc
 	): Result.Result<ScalarType, CompileError> {
 		return Result.flatMap(analyze(source, flags), (language) =>
-			this.env.fieldType({ kind: "text", source, flags, language }, at)
+			this.env.fieldType({ kind: "text", source, flags, bytes: undefined, language }, at)
 		)
 	}
 

@@ -1,7 +1,7 @@
 import { describe, it } from "@effect/vitest"
-import { exhaust, explore, type Kept, sketched } from "@grizzle/testing/explore"
-import { required, requiredInSpace } from "@grizzle/testing/features"
-import { array, boolean, element, type Gen, map, oneOf } from "@grizzle/testing/gen"
+import { drawn, explore, sketched } from "@grizzle/testing/explore"
+import { required } from "@grizzle/testing/features"
+import { array, boolean, constant, element, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { float } from "@grizzle/testing/values"
@@ -17,10 +17,12 @@ import { Compute } from "#compiler/public/compute.ts"
 import { pg, uuid, Vector } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
+import { quoteIdent } from "#compiler/sql/print.ts"
 import { assert, faulted, succeeded } from "#test/support/assert.ts"
 import { compileTemplate, testArtifacts, testCompile } from "#test/support/compile.ts"
 import * as search from "#test/support/fixtures/api/search.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
+import { schemaNameGen } from "#test/support/kernel/dict.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { codecOf } from "#test/unit/codec/support.ts"
 
@@ -58,10 +60,23 @@ const componentGen = oneOf([
 ])
 
 /**
- * A buffer: of the field's dimensions or not, its components drawn one by one, all equal (four components of half the
- * least norm have the least norm exactly), small components inside the domain with -0 among them, which reach an admitted buffer
- * holding -0, or one component at a bound of the norm and the others zero, whose norm is that bound; and whether the
- * caller writes zeros into it after the check.
+ * `length` components: drawn one by one, all equal (four components of half the least norm have the least norm
+ * exactly), small components inside the domain with -0 among them, which reach an admitted buffer holding -0, or one
+ * component at a bound of the norm and the others zero, whose norm is that bound.
+ */
+const componentsGen = (length: number): Gen<ReadonlyArray<number>> =>
+	oneOf([
+		array(componentGen, { min: length, max: length }),
+		map(componentGen, (x) => Array.from({ length }, () => x)),
+		array(element([-0, 0, 1, quarterNorm]), { min: length, max: length }),
+		map(element([lowest, highest, -lowest, -highest]), (bound) =>
+			Array.from({ length }, (_, i) => (i === 0 ? bound : 0))
+		)
+	])
+
+/**
+ * A buffer: of the field's dimensions or not, its components drawn by componentsGen; and whether the caller writes
+ * zeros into it after the check.
  */
 interface BufferSketch {
 	readonly length: number
@@ -70,17 +85,8 @@ interface BufferSketch {
 }
 
 const bufferGen: Gen<BufferSketch> = (source) => ({
-	length: source.draw(element([dims, dims, dims, dims - 1, dims + 1])),
-	components: source.draw(
-		oneOf([
-			array(componentGen, { min: dims + 1, max: dims + 1 }),
-			map(componentGen, (x) => Array.from({ length: dims + 1 }, () => x)),
-			array(element([-0, 0, 1, quarterNorm]), { min: dims + 1, max: dims + 1 }),
-			map(element([lowest, highest, -lowest, -highest]), (bound) =>
-				Array.from({ length: dims + 1 }, (_, i) => (i === 0 ? bound : 0))
-			)
-		])
-	),
+	length: source.draw(oneOf([constant(dims), int(dims - 1, dims + 1)])),
+	components: source.draw(componentsGen(dims + 1)),
 	zeroedAfter: source.draw(boolean)
 })
 
@@ -107,28 +113,6 @@ type DomainFeature =
 	| "an underflowing component"
 	| "-0 written as 0"
 	| "a buffer zeroed after its check"
-
-/**
- * Planted: an admitted buffer holding -0, and each bound of the norm, which the drawn buffers reach a few times a run.
- */
-const domainKept: ReadonlyArray<Kept<BufferSketch, DomainFeature>> = [
-	{
-		note: "-0 among the components of a buffer of the greatest norm",
-		sketch: { length: dims, components: [-0, highest, 0, -0, 0], zeroedAfter: false },
-		draws: "",
-		reaches: ["-0 written as 0", "admitted at a bound"]
-	},
-	{
-		note: "four components of half the least norm, of the least norm, zeroed after the check",
-		sketch: {
-			length: dims,
-			components: Array.from({ length: dims + 1 }, () => quarterNorm),
-			zeroedAfter: true
-		},
-		draws: "",
-		reaches: ["admitted at a bound", "a buffer zeroed after its check"]
-	}
-]
 
 const literalQuery = (literal: Vector<4>) =>
 	query(search.Search).rule((r) => {
@@ -168,7 +152,7 @@ describe("the cosine domain", () => {
 								],
 								{ cases: 300, sense: notesOnly }
 							),
-							kept: domainKept,
+							kept: [],
 							runs: 300,
 							shrink: completeShrink,
 							concurrency: 1,
@@ -248,23 +232,25 @@ describe("the cosine domain", () => {
 		(ctx) =>
 			searched(
 				ctx,
-				exhaust(
+				explore(
 					{
 						suite: "unit/vector/literal-domain",
-						/** Inside the domain, a zero norm, and a norm below its least and above its greatest. */
-						generator: element<readonly [number, number, number, number]>([
-							[0, 0, 1, 0],
-							[0, 0, 0, 0],
-							[0, 0, lowest / 2, 0],
-							[0, 0, highest * 2, 0]
-						]),
+						draw: drawn(componentsGen(dims)),
 						literal: Formatter.format,
-						limit: 4,
-						coverage: requiredInSpace<"held as built" | "refused when built">([
-							"held as built",
-							"refused when built"
-						]),
-						caseHang
+						coverage: required<"held as built" | "refused when built">(
+							["held as built", "refused when built"],
+							{ cases: 60, sense: notesOnly }
+						),
+						kept: [],
+						runs: 60,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang,
+						oracle: {
+							kind: "specification",
+							name: "the cosine domain's verdict on the literal's float32 buffer"
+						}
 					},
 					(xs, c) =>
 						Effect.sync(() => {
@@ -272,17 +258,17 @@ describe("the cosine domain", () => {
 							if (verdictOf(buffer).verdict !== "admitted") {
 								c.note("refused when built")
 								assert.throws(
-									() => literalQuery(Vector.make(buffer, 4)),
+									() => literalQuery(Vector.make(buffer, dims)),
 									(e) => isCompileError(e) && e.reason._tag === "MalformedDescription"
 								)
 								return
 							}
 							c.note("held as built")
-							const built = literalQuery(Vector.make(buffer, 4))
+							const built = literalQuery(Vector.make(buffer, dims))
 							buffer.fill(1)
 							assert.deepEqual(
 								sqlOf(built),
-								sqlOf(literalQuery(Vector.make(Float32Array.from(xs), 4)))
+								sqlOf(literalQuery(Vector.make(Float32Array.from(xs), dims)))
 							)
 						})
 				)
@@ -303,32 +289,39 @@ describe("the vector schema in a template's premise", () => {
 		context: "snapshot"
 	} as const
 
+	/** What a case's template reads: the search fixture's vector search, or a relation with no vector. */
+	type Reads = "a vector search" | "no vector"
+
 	it.effect(
 		"records the extension schema of a template reading a vector, which its SQL follows",
 		(ctx) =>
 			searched(
 				ctx,
-				exhaust(
+				explore(
 					{
 						suite: "unit/vector/template-premise",
-						generator: (source) =>
-							[
-								source.draw(
-									element<"a vector search" | "no vector">(["a vector search", "no vector"])
-								),
-								source.draw(
-									element<"vector_ext" | "embeddings_ext">(["vector_ext", "embeddings_ext"])
-								)
-							] as const,
+						draw: drawn((source) => ({
+							reads: source.draw(boolean) ? ("a vector search" as const) : ("no vector" as const),
+							vectorSchema: source.draw(schemaNameGen).converted,
+							other: source.draw(schemaNameGen).converted
+						})),
 						literal: Formatter.format,
-						limit: 4,
-						coverage: requiredInSpace<"a vector search" | "no vector">([
-							"a vector search",
-							"no vector"
-						]),
-						caseHang
+						coverage: required<Reads>(["a vector search", "no vector"], {
+							cases: 16,
+							sense: notesOnly
+						}),
+						kept: [],
+						runs: 16,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 4,
+						caseHang,
+						oracle: {
+							kind: "specification",
+							name: "a template's premise names the vector schema exactly when it reads a vector, and its SQL no other"
+						}
 					},
-					([reads, vectorSchema], c) =>
+					({ reads, vectorSchema, other }, c) =>
 						Effect.sync(() => {
 							c.note(reads)
 							const [q, s] =
@@ -338,15 +331,20 @@ describe("the vector schema in a template's premise", () => {
 							const template = succeeded(
 								templateFor(succeeded(queryInput(q)), input, artifacts, reading)
 							).template
-							const other = vectorSchema === "vector_ext" ? "embeddings_ext" : "vector_ext"
 							if (reads === "no vector") {
 								assert.deepEqual(template.requirements.extensions, [])
 								assert.deepEqual(template.requirements.extensionSchemas, {})
 								return
 							}
 							assert.deepEqual(template.requirements.extensionSchemas, { vector: vectorSchema })
+							if (other === vectorSchema) {
+								return
+							}
 							for (const statement of Arr.appendAll(template.optimized, template.conservative)) {
-								assert.ok(!Str.includes(`"${other}"`)(statement.sql), `no statement names ${other}`)
+								assert.ok(
+									!Str.includes(quoteIdent(other))(statement.sql),
+									`no statement names ${other}`
+								)
 							}
 						})
 				)

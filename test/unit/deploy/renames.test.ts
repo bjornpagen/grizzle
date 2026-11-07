@@ -1,7 +1,9 @@
 import { describe, it } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { boolean, element, type Gen } from "@grizzle/testing/gen"
+import { drawn, exhaust, explore } from "@grizzle/testing/explore"
+import { required, requiredInSpace } from "@grizzle/testing/features"
+import { boolean, element, type Gen, int } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
+import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import {
 	Array as Arr,
@@ -32,8 +34,9 @@ import { login, relation as relationValue, role, schema } from "#compiler/public
 import { type OwnedLogin, ownLogin, rostersOf } from "#compiler/schema/own.ts"
 import { loginDescOf } from "#compiler/schema/world.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { closed, f, field, relation, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
+import { aliasGroups } from "#test/support/kernel/dict.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { owning } from "#test/support/policy.ts"
@@ -657,21 +660,48 @@ const judge = (box: Box, note: (feature: Feature) => void): void => {
 	}
 }
 
-/** A field the target no longer declares: one its caller writes, or one PostgreSQL generates from its row; and whether
- * its drop is declared. */
-/** What a case respells: a relation's name, a field's or a roster's. */
+/** What a case may respell: a relation's name, a field's or a roster's. */
 type Respelled = "relation" | "field" | "roster"
 
-/** The relation P with the field x, a closed id of the roster Kind, each respelled with a trailing underscore, a name
- * of the same conversion, where `respelled` names it and `after` holds. */
-const respelledDesc = (respelled: Respelled, after: boolean): SchemaDesc => {
-	const spell = (what: Respelled, name: string) => (after && respelled === what ? `${name}_` : name)
-	const kind = spell("roster", "Kind")
+/** One name's spellings, before and after, both of one alias group, so of one conversion. */
+interface Spelling {
+	readonly before: string
+	readonly after: string
+}
+
+/** A respelling of the relation, its field and the roster of the field's closed ids, each spelled again or kept. */
+type Respelling = { readonly [R in Respelled]: Spelling }
+
+/** The dictionary's alias groups: the admitted names grouped by their one conversion. */
+const groups = nonEmpty(aliasGroups, "an alias group")
+
+/** Two spellings of one alias group, each drawn from it, the same spelling when both draws agree. */
+const spellingOf =
+	(group: Arr.NonEmptyReadonlyArray<string>): Gen<Spelling> =>
+	(source) => ({ before: source.draw(element(group)), after: source.draw(element(group)) })
+
+/**
+ * A respelling: the relation's and the roster's names of two different alias groups, which one namespace holds apart,
+ * the field's of any, each spelled twice from its group.
+ */
+const respellingGen: Gen<Respelling> = (source) => {
+	const relationAt = source.draw(int(0, groups.length - 1))
+	const rosterAt = (relationAt + source.draw(int(1, groups.length - 1))) % groups.length
+	return {
+		relation: source.draw(spellingOf(defined(groups[relationAt], "the relation's group"))),
+		field: source.draw(spellingOf(source.draw(element(groups)))),
+		roster: source.draw(spellingOf(defined(groups[rosterAt], "the roster's group")))
+	}
+}
+
+/** The relation with its field, a closed id of the roster, each named as `respelling` spells it `at` one side. */
+const respelledDesc = (respelling: Respelling, at: keyof Spelling): SchemaDesc => {
+	const kind = respelling.roster[at]
 	return {
 		name: "Renames",
 		relations: [
 			closed(kind, ["Low", "High"]),
-			relation(spell("relation", "P"), { id: f.uuid, [spell("field", "x")]: f.closedId(kind) }, [
+			relation(respelling.relation[at], { id: f.uuid, [respelling.field[at]]: f.closedId(kind) }, [
 				"id"
 			])
 		],
@@ -680,6 +710,11 @@ const respelledDesc = (respelled: Respelled, after: boolean): SchemaDesc => {
 	}
 }
 
+/** What a respelling reached: each name it spelled again, and every one of them at once. */
+type RespelledFeature = Respelled | "every name respelled"
+
+/** A field the target no longer declares: one its caller writes, or one PostgreSQL generates from its row; and whether
+ * its drop is declared. */
 interface Gone {
 	readonly writing: "caller" | "generated"
 	readonly declared: boolean
@@ -785,26 +820,39 @@ describe("declared renames and drops", () => {
 		(ctx) =>
 			searched(
 				ctx,
-				exhaust(
+				explore(
 					{
 						suite: "unit/deploy/renames-respelled",
-						generator: element(["relation", "field", "roster"] as const),
+						draw: drawn(respellingGen),
 						literal: Formatter.format,
-						limit: 3,
-						box: "a relation, a field and a roster each respelled to a name of its conversion, declaring nothing",
+						coverage: required<RespelledFeature>(
+							["relation", "field", "roster", "every name respelled"],
+							{ cases: 64, sense: notesOnly }
+						),
+						kept: [],
+						runs: 64,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang,
 						oracle: {
 							kind: "specification",
 							name: "the naming door installs a declared name as its conversion, so two alike names name one table, column or roster domain"
-						},
-						coverage: requiredInSpace<Respelled>(["relation", "field", "roster"]),
-						caseHang
+						}
 					},
-					(respelled, c) =>
+					(respelling, c) =>
 						Effect.sync(() => {
-							c.note(respelled)
+							const respelled = Arr.filter(
+								["relation", "field", "roster"] as const,
+								(r) => respelling[r].before !== respelling[r].after
+							)
+							c.noteAll(respelled)
+							if (respelled.length === 3) {
+								c.note("every name respelled")
+							}
 							const previous = draft(
 								emptySnapshot({ schemaName: "Renames", schema: "renames" }),
-								{ desc: respelledDesc(respelled, false), logins: [] },
+								{ desc: respelledDesc(respelling, "before"), logins: [] },
 								{ renames: [], drops: [] },
 								new Map()
 							)
@@ -813,12 +861,12 @@ describe("declared renames and drops", () => {
 							}
 							const drafted = draft(
 								previous.success.snapshot,
-								{ desc: respelledDesc(respelled, true), logins: [] },
+								{ desc: respelledDesc(respelling, "after"), logins: [] },
 								{ renames: [], drops: [] },
 								new Map()
 							)
 							if (Result.isFailure(drafted)) {
-								return assert.fail(`the respelled ${respelled} drafts: ${drafted.failure.message}`)
+								return assert.fail(`the respelled names draft: ${drafted.failure.message}`)
 							}
 							const drops = Arr.filter(
 								statementsOf(drafted.success.plan.steps),
@@ -830,7 +878,7 @@ describe("declared renames and drops", () => {
 											(a) => a.kind === "dropColumn" || a.kind === "alterColumnType"
 										))
 							)
-							assert.deepEqual(drops, [], `the respelled ${respelled} drops nothing`)
+							assert.deepEqual(drops, [], "a respelling drops nothing")
 						})
 				)
 			)

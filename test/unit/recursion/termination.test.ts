@@ -1,7 +1,7 @@
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
-import { element } from "@grizzle/testing/gen"
+import { boolean, element, int } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
@@ -40,7 +40,7 @@ import { Graph, theRecursive } from "#test/unit/recursion/fixtures.ts"
 
 const integer: FieldDesc = { kind: "pg", type: "integer" }
 const s = (column: string) => varRef(`self.${column}`)
-const int = (n: number) => typedLit(n, integer)
+const lit = (n: number) => typedLit(n, integer)
 
 /** A Vertex column copied as data into the state, and its declared type. */
 const copied: Arr.NonEmptyReadonlyArray<readonly [string, FieldDesc]> = [
@@ -81,17 +81,8 @@ describe("the seen-state estimate", () => {
 						suite: "unit/recursion/estimate",
 						generator: (source) =>
 							[
-								source.draw(
-									(source) =>
-										[source.draw(element([1, 2, 3])), source.draw(element([1, 2, 3]))] as const
-								),
-								source.draw(
-									(source) =>
-										[
-											source.draw(element([false, true])),
-											source.draw(element([false, true]))
-										] as const
-								),
+								source.draw((source) => [source.draw(int(1, 3)), source.draw(int(1, 3))] as const),
+								source.draw((source) => [source.draw(boolean), source.draw(boolean)] as const),
 								source.draw(element(copied))
 							] as const,
 						literal: Formatter.format,
@@ -118,7 +109,7 @@ describe("the seen-state estimate", () => {
 							}
 							const sum: HeadTermDesc = summed
 								? narrowed(compute("add", s("x"), s("y")), "integer")
-								: int(0)
+								: lit(0)
 							const q = succeeded(
 								checkQuery(
 									checking(Graph),
@@ -147,11 +138,11 @@ describe("the seen-state estimate", () => {
 														where: [eq(ref("Vertex", "id"), param("start", { kind: "uuid" }))],
 														head: {
 															node: ref("Vertex", "id"),
-															x: int(0),
-															y: int(0),
-															sum: int(0),
+															x: lit(0),
+															y: lit(0),
+															sum: lit(0),
 															d: ref("Vertex", column),
-															tag: int(1)
+															tag: lit(1)
 														},
 														interiors: [],
 														attach: []
@@ -175,14 +166,14 @@ describe("the seen-state estimate", () => {
 																to: ref("Edge", "to")
 															})
 														],
-														where: [lt(s("x"), int(bx)), lt(s("y"), int(by))],
+														where: [lt(s("x"), lit(bx)), lt(s("y"), lit(by))],
 														head: {
 															node: ref("Edge", "to"),
-															x: compute("add", s("x"), int(1)),
-															y: compute("add", s("y"), int(1)),
+															x: compute("add", s("x"), lit(1)),
+															y: compute("add", s("y"), lit(1)),
 															sum,
 															d: s("d"),
-															tag: twoTags ? int(2) : s("tag")
+															tag: twoTags ? lit(2) : s("tag")
 														},
 														interiors: [],
 														attach: []
@@ -218,7 +209,7 @@ describe("the seen-state estimate", () => {
 				exhaust(
 					{
 						suite: "unit/recursion/estimate-sets",
-						generator: element([1, 2, 3]),
+						generator: int(1, 3),
 						literal: Formatter.format,
 						/** The space is a roster of one, two or three handles. */
 						limit: 3,

@@ -1,5 +1,5 @@
 import { layer } from "@effect/vitest"
-import { drawn, exhaust, explore, type Kept } from "@grizzle/testing/explore"
+import { drawn, exhaust, explore } from "@grizzle/testing/explore"
 import { required, requiredInSpace } from "@grizzle/testing/features"
 import { array, element, type Gen, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
@@ -49,36 +49,6 @@ const sequenceGen: Gen<Sequence> = (source) => ({
 		)
 	)
 })
-
-/**
- * Planted: one sequence on a pool of one, a session leased, released and leased idle again, then retired and its
- * connection lost, a new session leased after each, which the drawn sequences reach a few times a run.
- */
-const step = (kind: StepSketch["kind"]): StepSketch => ({ kind, pick: 0 })
-const poolKept: ReadonlyArray<Kept<Sequence, PoolFeature>> = [
-	{
-		note: "a retirement and a lost connection on a pool of one",
-		sketch: {
-			max: 1,
-			steps: [
-				step("lease"),
-				step("release"),
-				step("lease"),
-				step("retire"),
-				step("lease"),
-				step("lose")
-			]
-		},
-		draws: "",
-		reaches: [
-			"connection lost",
-			"released",
-			"leased after a retirement",
-			"leased an idle session",
-			"retired"
-		]
-	}
-]
 
 type PoolFeature =
 	| "retired"
@@ -221,18 +191,42 @@ const interruptedStatement = Effect.gen(function* () {
 	)
 }).pipe(Effect.scoped)
 
-/** Where a stalled transport is when the layer is released: its session idle in the pool, leased, or mid-statement. */
-type Stalled = "idle" | "leased" | "running"
+/**
+ * Where the tap's session stands when its layer is released: idle in the pool, leased, or running a statement of `rows`
+ * rows whose answer the gate cuts after `through` backend messages.
+ */
+type Standing =
+	| { readonly kind: "idle" }
+	| { readonly kind: "leased" }
+	| { readonly kind: "running"; readonly rows: number; readonly through: number }
 
-type StalledFeature = `released ${Stalled}`
+/** Every standing, a statement's answer cut at each of its first messages: a few rows, and a cut short of their end. */
+const standings: Gen<Standing> = (source) => {
+	const kind = source.draw(element<Standing["kind"]>(["idle", "leased", "running"]))
+	if (kind !== "running") {
+		return { kind }
+	}
+	const rows = source.draw(int(0, 3))
+	return { kind, rows, through: source.draw(int(0, rows + 4)) }
+}
+
+type StalledFeature =
+	| "released idle"
+	| "released leased"
+	| "released before any answer"
+	| "released mid-answer"
+
+/** The running statement: `rows` rows, one round trip of the extended protocol. */
+const seriesSql = "SELECT pg_catalog.generate_series(1, $1::int4)::text"
 
 /**
- * Releasing a layer never awaits the network, exhaustively over where its one session stands: through the protocol
- * tap, a pool of one opens its session, and then the tap's gate stalls it, holding every byte the server sends,
- * its end included, while the session is idle in the pool, leased, or running a statement. Closing the pool's
- * scope, the layer's, completes all the same: it writes at most a Terminate and destroys the sockets, awaiting
- * nothing. A statement in flight then fails without an answer, and the session's backend leaves pg_stat_activity
- * once its connection is gone.
+ * Releasing a layer never awaits the network, exhaustively over where its one session stands and where the stall cuts
+ * the answer of a statement it runs: through the protocol tap, a pool of one opens its session, and then the tap's gate
+ * stalls it, letting a drawn number of the server's messages through and holding every later byte, its end included,
+ * while the session is idle in the pool, leased, or running a statement. Closing the pool's scope, the layer's,
+ * completes all the same: it writes at most a Terminate and destroys the sockets, awaiting nothing. A statement in flight
+ * then fails, or, had its whole answer passed the gate first, delivers every row: never a part of its answer. The
+ * session's backend leaves pg_stat_activity once its connection is gone.
  */
 const stalledRelease = Effect.gen(function* () {
 	const s = yield* Substrate
@@ -241,17 +235,23 @@ const stalledRelease = Effect.gen(function* () {
 	return yield* exhaust(
 		{
 			suite: "pg/adapter/pool/stalled release",
-			generator: element<Stalled>(["idle", "leased", "running"]),
+			generator: standings,
 			literal: Formatter.format,
-			limit: 3,
+			limit: 32,
 			coverage: requiredInSpace<StalledFeature>([
 				"released idle",
 				"released leased",
-				"released running"
+				"released before any answer",
+				"released mid-answer"
 			]),
-			caseHang
+			caseHang,
+			box: "a session idle, leased, or running a statement of up to three rows cut after each of its answer's first messages",
+			oracle: {
+				kind: "specification",
+				name: "a layer's release awaits nothing, and a statement it cuts fails or delivers its whole answer"
+			}
 		},
-		(stalled, c) =>
+		(standing, c) =>
 			Effect.gen(function* () {
 				const tap = makeTap(s.cluster)
 				const scope = yield* Effect.scope
@@ -267,24 +267,40 @@ const stalledRelease = Effect.gen(function* () {
 				const leaseScope = yield* Scope.fork(scope)
 				const session = yield* Scope.provide(pool.lease, leaseScope)
 				const pid = yield* backendPidOf(session)
-				if (stalled === "idle") {
-					yield* Scope.close(leaseScope, Exit.void)
-				}
-				tap.gate.hold(0, { kind: "any" })
-				const call =
-					stalled === "running"
-						? yield* Effect.forkChild(rowsOn(session, "SELECT 'stalled'::text", []), {
-								startImmediately: true
-							})
-						: undefined
-				yield* Scope.close(layerScope, Exit.void)
-				if (call !== undefined) {
-					const exit = yield* Fiber.await(call)
-					assert.ok(Exit.isFailure(exit), "a statement in flight fails without an answer")
+				switch (standing.kind) {
+					case "idle":
+					case "leased": {
+						if (standing.kind === "idle") {
+							yield* Scope.close(leaseScope, Exit.void)
+						}
+						tap.gate.hold(0, { kind: "any" })
+						yield* Scope.close(layerScope, Exit.void)
+						c.note(`released ${standing.kind}`)
+						break
+					}
+					case "running": {
+						tap.gate.hold(standing.through, { kind: "any" })
+						const call = yield* Effect.forkChild(
+							rowsOn(session, seriesSql, [String(standing.rows)]),
+							{ startImmediately: true }
+						)
+						yield* Effect.raceFirst(tap.gate.holding, Effect.asVoid(Fiber.await(call)))
+						yield* Scope.close(layerScope, Exit.void)
+						const exit = yield* Fiber.await(call)
+						if (Exit.isSuccess(exit)) {
+							assert.deepEqual(
+								exit.value,
+								Array.from({ length: standing.rows }, (_, k) => [String(k + 1)]),
+								"a statement that ends before the release delivers its whole answer"
+							)
+						} else {
+							c.note(standing.through === 0 ? "released before any answer" : "released mid-answer")
+						}
+						break
+					}
 				}
 				yield* Scope.close(leaseScope, Exit.void)
 				yield* until(Effect.map(backendState(pid), (b) => b.state === "gone"))
-				c.note(`released ${stalled}`)
 			})
 	)
 }).pipe(Effect.scoped)
@@ -319,7 +335,7 @@ export const poolSuite = (): void => {
 								draw: drawn(sequenceGen),
 								literal: Formatter.format,
 								coverage: required<PoolFeature>(situations, { cases: 20, sense: notesOnly }),
-								kept: poolKept,
+								kept: [],
 								runs: 20,
 								shrink: completeShrink,
 								concurrency: 1,

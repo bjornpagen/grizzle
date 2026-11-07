@@ -85,7 +85,6 @@ import { closed } from "#compiler/schema/api.ts"
 import { textLookup } from "#compiler/text/refinement.ts"
 import {
 	assert,
-	contains,
 	defined,
 	faulted,
 	nonEmpty,
@@ -111,84 +110,81 @@ import {
 	E as conservativeEndpoints,
 	T as conservativeTypes
 } from "#test/unit/lower/conservative/fixtures.ts"
+import {
+	type DescriptorSketch,
+	descriptorGen,
+	descriptorOf,
+	isSerial
+} from "#test/unit/scalar/support.ts"
 import { decimalText, plantedStringGen } from "#test/unit/values/support.ts"
 
 import { regex } from "arkregex"
 const caps = (field: unknown) => succeeded(describeField(field, SourceLoc("test", []))).scalar.caps
 
+/** The roster lookup of the closed ids a sketch names: each one's handles under its name. */
+const rostersOfSketch = (
+	sketch: DescriptorSketch
+): ReadonlyMap<string, Arr.NonEmptyReadonlyArray<string>> => {
+	switch (sketch.kind) {
+		case "closedId":
+			return new Map([[sketch.name, sketch.handles]])
+		case "contract":
+			return rostersOfSketch(sketch.base)
+		case "span":
+			return rostersOfSketch(sketch.endpoint)
+		case "spelling":
+		case "float":
+		case "numeric":
+		case "vector":
+		case "uuid":
+			return new Map()
+	}
+}
+
 describe("the capability registry", () => {
-	it.effect("gives a serial and a contract their base's, and every vector its distance", (ctx) =>
-		Effect.gen(function* () {
-			type CapsCase =
-				| { readonly kind: "serial"; readonly field: unknown; readonly base: unknown }
-				| { readonly kind: "contract"; readonly field: unknown; readonly base: unknown }
-				| { readonly kind: "vector"; readonly field: unknown }
-			/** A serial field's type is its integer's: how a field is written changes none of what its type can do. */
-			const cases: Arr.NonEmptyReadonlyArray<CapsCase> = [
-				{ kind: "serial", field: pgDescriptors.smallserial, base: pgDescriptors.smallint },
-				{ kind: "serial", field: pgDescriptors.serial, base: pgDescriptors.integer },
-				{ kind: "serial", field: pgDescriptors.bigserial, base: pgDescriptors.bigint },
-				...Arr.map(
-					[
-						pgDescriptors.smallint,
-						pgDescriptors.integer,
-						pgDescriptors.bigint,
-						pgDescriptors.numeric(9, 2),
-						pgDescriptors.money,
-						pgDescriptors.boolean,
-						uuidDescriptor,
-						str.regex("^a$", "u")
-					],
-					(base): CapsCase => ({
-						kind: "contract",
-						field: contractDescriptor("Branded", base),
-						base
-					})
-				),
-				...Arr.map([1, 3, 16000], (d): CapsCase => ({
-					kind: "vector",
-					field: pgDescriptors.vector(d)
-				})),
-				{ kind: "vector", field: contractDescriptor("Unit", pgDescriptors.vector(3)) }
-			]
-			yield* searched(
+	it.effect(
+		"gives every descriptor its carrier's capabilities, a serial and a contract their base's",
+		(ctx) =>
+			searched(
 				ctx,
-				exhaust(
+				explore(
 					{
 						suite: "unit/scalar/capabilities",
-						generator: element(cases),
+						draw: drawn(descriptorGen(2)),
 						literal: Formatter.format,
-						limit: cases.length,
-						coverage: requiredInSpace<CapsCase["kind"]>(["serial", "contract", "vector"]),
+						oracle: {
+							kind: "specification",
+							name: "a type's capabilities are its carrier's, which the catalog suite holds to PostgreSQL's"
+						},
+						coverage: required<"a serial" | "a contract" | "a vector">(
+							["a serial", "a contract", "a vector"],
+							{ cases: 300, sense: notesOnly }
+						),
+						kept: [],
+						runs: 1000,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
 						caseHang
 					},
-					(cs, c) =>
+					(sketch, c) =>
 						Effect.sync(() => {
-							c.note(cs.kind)
-							switch (cs.kind) {
-								case "serial":
-								case "contract":
-									unorderedEqual(caps(cs.field), caps(cs.base))
-									return
-								case "vector":
-									contains(caps(cs.field), "vectorDistance")
-									assert.deepEqual(
-										Arr.intersection(caps(cs.field), [
-											"sum",
-											"avg",
-											"hashing",
-											"gist",
-											"expressionIndex"
-										]),
-										[],
-										"a vector sums, averages, hashes, indexes by GiST and by expression nowhere"
-									)
-									return
+							const field = descriptorOf(sketch)
+							const scalar = succeeded(describeField(field, SourceLoc("test", []))).scalar
+							unorderedEqual(caps(field), capabilitiesOf(scalar.carrier))
+							if (sketch.kind === "contract") {
+								c.note("a contract")
+								unorderedEqual(caps(field), caps(descriptorOf(sketch.base)))
+							}
+							if (sketch.kind === "spelling" && isSerial(sketch.name)) {
+								c.note("a serial")
+							}
+							if (scalar.carrier === "vector") {
+								c.note("a vector")
 							}
 						})
 				)
 			)
-		})
 	)
 })
 
@@ -239,7 +235,7 @@ const fixtureTypes = nonEmpty<readonly [string, ScalarType]>(
 			Arr.filter(carriers, isPlainCarrier),
 			(c) => [`plainType(${c})`, plainType(c)] as const
 		),
-		["wildcardText", wildcardText]
+		...Rec.toEntries({ wildcardText })
 	],
 	"the fixture types"
 )
@@ -323,39 +319,43 @@ describe("scalarTypeOf: a FieldDesc to its ScalarType", () => {
 	)
 
 	it.effect("reads every descriptor kind, and agrees with the descriptor's own ScalarType", (ctx) =>
-		Effect.gen(function* () {
-			const fields: Arr.NonEmptyReadonlyArray<unknown> = [
-				pgDescriptors.smallint,
-				pgDescriptors.numeric(9, 2),
-				pgDescriptors.serial,
-				uuidDescriptor,
-				pgDescriptors.vector(5),
-				spanDescriptor(pgDescriptors.bigint, 3n),
-				contractDescriptor("Cents", pgDescriptors.bigint, (v: ScalarTerm) => v.ge(0n))
-			]
-			yield* searched(
-				ctx,
-				exhaust(
-					{
-						suite: "unit/scalar/registry-kinds",
-						generator: element(fields),
-						literal: Formatter.format,
-						limit: fields.length,
-						coverage: requiredInSpace<"a descriptor">(["a descriptor"]),
-						caseHang
+		searched(
+			ctx,
+			explore(
+				{
+					suite: "unit/scalar/registry-kinds",
+					draw: drawn(descriptorGen(2)),
+					literal: Formatter.format,
+					oracle: {
+						kind: "second-implementation",
+						name: "the descriptor's own ScalarType, against scalarTypeOf of its Description"
 					},
-					(field, c) =>
-						Effect.sync(() => {
-							c.note("a descriptor")
-							const { desc, scalar } = succeeded(describeField(field, SourceLoc("f", [])))
-							assert.deepEqual(
-								succeeded(scalarTypeOf(desc, bareEnv, SourceLoc("field", []))),
-								scalar
-							)
-						})
-				)
+					coverage: required<DescriptorSketch["kind"]>(
+						["spelling", "float", "numeric", "vector", "uuid", "closedId", "span", "contract"],
+						{ cases: 300, sense: notesOnly }
+					),
+					kept: [],
+					runs: 1000,
+					shrink: completeShrink,
+					concurrency: 1,
+					steerEvery: 16,
+					caseHang
+				},
+				(sketch, c) =>
+					Effect.sync(() => {
+						c.note(sketch.kind)
+						const { desc, scalar } = succeeded(
+							describeField(descriptorOf(sketch), SourceLoc("f", []))
+						)
+						const rosters = rostersOfSketch(sketch)
+						const env: ScalarEnv = {
+							kind: "builder",
+							roster: (name) => rosters.get(name)
+						}
+						assert.deepEqual(succeeded(scalarTypeOf(desc, env, SourceLoc("field", []))), scalar)
+					})
 			)
-		})
+		)
 	)
 
 	it.effect(
@@ -440,7 +440,11 @@ describe("scalarTypeOf: a FieldDesc to its ScalarType", () => {
 					({ source, flags, language, env }) =>
 						Effect.sync(() => {
 							const typed = succeeded(
-								scalarTypeOf({ kind: "text", source, flags, language }, env, SourceLoc("field", []))
+								scalarTypeOf(
+									{ kind: "text", source, flags, bytes: undefined, language },
+									env,
+									SourceLoc("field", [])
+								)
 							)
 							assert.deepEqual(textOf(typed), carriedText(source, flags, language))
 						})
@@ -538,6 +542,7 @@ const readingDescGen: Gen<FieldDesc> = oneOf([
 		kind: "text" as const,
 		source: source.draw(element(["^.*$", "^[a-z]*$"])),
 		flags: source.draw(element(["u" as const, "su" as const])),
+		bytes: undefined,
 		language: source.draw(languageGen)
 	}),
 	map(element(["Kind", "Mode"]), (roster): FieldDesc => ({ kind: "closedId", roster })),

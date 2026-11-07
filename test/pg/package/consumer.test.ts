@@ -30,7 +30,7 @@ import { caseHang, testConnectTimeout, testIdleTimeout } from "#test/support/lim
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 import { fullWorld, loginLayer } from "#test/support/worlds.ts"
-import { exitedCleanly, publishedProject, run } from "#test/unit/dev/published.ts"
+import { exitedCleanly, publishedProject, runChild } from "#test/unit/dev/published.ts"
 
 /**
  * The published package against the dev cluster: a consumer's program, run by Node from a project whose node_modules
@@ -181,7 +181,11 @@ layer(Layer.merge(Substrate.layer, NodeServices.layer))(
 									for (const note of notes) {
 										written.push(note)
 									}
-									const read = yield* run(process.execPath, [program, config], published.project)
+									const read = yield* runChild(
+										process.execPath,
+										[program, config],
+										published.project
+									)
 									assert.equal(read.exitCode, exitedCleanly, `the consumer: ${read.stderr}`)
 									unorderedEqual(
 										trustedJson<ReadonlyArray<NoteRow>>(Str.trim(read.stdout)),

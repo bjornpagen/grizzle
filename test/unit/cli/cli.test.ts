@@ -1,19 +1,23 @@
 import { inspect } from "node:util"
 import { NodeServices } from "@effect/platform-node"
 import { describe, it, layer } from "@effect/vitest"
-import { type Case, drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { noCoverage, required, requiredInSpace } from "@grizzle/testing/features"
+import { type Case, drawn, explore } from "@grizzle/testing/explore"
+import { noCoverage, required } from "@grizzle/testing/features"
 import {
 	array,
 	boolean,
+	characterOf,
 	constant,
 	element,
+	filter,
 	type Gen,
 	int,
 	map,
 	oneOf,
 	option,
 	shuffled,
+	string,
+	type Weighted,
 	weighted
 } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
@@ -32,7 +36,13 @@ import type { MigrationConnectionConfig } from "#adapter/types/config.ts"
 import { type CommandLine, type GenerateMode, parseArgs } from "#cli/args.ts"
 import { formatTimestamp, nextTimestamp, parseTimestamp } from "#cli/clock.ts"
 import type { ResolvedConfig } from "#cli/config.ts"
-import type { ArgumentsRefused, CliError, MigrationNameRefused } from "#cli/errors.ts"
+import {
+	type ArgumentsRefused,
+	type CliError,
+	configSettings,
+	generateFlags,
+	type MigrationNameRefused
+} from "#cli/errors.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import {
 	type FolderNaming,
@@ -51,7 +61,7 @@ import {
 	workspace,
 	writeConfigText
 } from "#test/pg/cli/support.ts"
-import { assert, defined, lacksText, refusedAt, succeeded } from "#test/support/assert.ts"
+import { assert, defined, lacksText, nonEmpty, refusedAt, succeeded } from "#test/support/assert.ts"
 import { repoRoot } from "#test/support/files.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -74,9 +84,10 @@ import { noDeclarations, parsedMigrationName } from "#test/support/migrate/kit.t
  *   schemas and any of their logins resolves to exactly its schemas, each with its PostgreSQL schema, its directory and
  *   its logins, the migrations directory against the configuration file's, and the connection kept unread; one fault
  *   planted into it is refused at stage config by its own reason, and no refusal names the password.
- * - The bin's loading of the configuration file, exhausted: a command naming no file is a usage error; a file that is
- *   missing, throws, exports nothing by default or exports what defineConfig did not build is refused, writing
- *   nothing; a valid one runs.
+ * - The bin's loading of the configuration file, generated: a command naming no file is a usage error; a file that is
+ *   missing, whose import throws, fails to parse, imports what does not exist or awaits a rejection, that exports no
+ *   default, or whose default is any value but a configuration grizzle runs, built by defineConfig or not, is refused,
+ *   writing nothing.
  */
 /** The commands that take no flag. */
 type PlainCommand = "check" | "migrate" | "drift" | "names"
@@ -158,19 +169,25 @@ const nameGen: Gen<MigrationName> = map(
 )
 
 /**
- * Names of no folder name's shape, none starting with `-`: outside lowercase ASCII, a separator at an end or doubled,
- * or one byte past the longest.
+ * A name of no folder name's shape, none starting with `-`: a drawn name broken once, by a character outside lowercase
+ * ASCII, digits and the separators set into it, a separator leading or trailing it or doubled inside it, or a byte
+ * more than the longest.
  */
-const malformedNames = [
-	"Add Tier",
-	"é",
-	"a=b",
-	"_init",
-	"init_",
-	"add__tier",
-	"a.b",
-	`${longestName}a`
-] as const
+const malformedGen: Gen<string> = (source) => {
+	const name: string = source.draw(nameGen)
+	const at = source.draw(int(0, name.length))
+	const before = Str.slice(0, at)(name)
+	const after = Str.slice(at)(name)
+	return source.draw(
+		oneOf<string>([
+			map(characterOf(["A", "Z", " ", "é", "=", ".", "/"]), (ch) => `${before}${ch}${after}`),
+			constant(`_${name}`),
+			map(characterOf(["_", "-"]), (separator) => `${name}${separator}`),
+			map(characterOf(["_", "-"]), (separator) => `${before}_${separator}${after}`),
+			constant(`${longestName}a`)
+		])
+	)
+}
 
 const lineGen: Gen<GrammarLine> = oneOf<GrammarLine>([
 	(source) => ({ command: source.draw(element(plainCommands)), config: source.draw(configGen) }),
@@ -330,17 +347,83 @@ const insertedGen =
 		return [...units.slice(0, at), unit, ...units.slice(at)]
 	}
 
-/** Options no command takes. */
-const unknownOptions = [
-	"--force",
-	"-x",
-	"-",
-	"--names",
-	"--custom=yes",
-	"--Name",
-	"--config",
-	"---name"
-] as const
+/** The commands, generate's and the plain ones. */
+const commands: ReadonlyArray<string> = ["generate", ...plainCommands]
+
+/** The flags a command takes, by name: generate's switches, valued flags and repeated flags. */
+const flagNames: Arr.NonEmptyReadonlyArray<string> = [
+	...generateFlags.switches,
+	...generateFlags.valued,
+	...generateFlags.repeated
+]
+
+/** Whether `token` is an option some command takes: a flag, a valued or repeated flag with its value, or the help. */
+const knownOption = (token: string): boolean =>
+	token === "--help" ||
+	token === "-h" ||
+	Arr.some(
+		flagNames,
+		(f) =>
+			token === `--${f}` ||
+			(!Arr.contains(generateFlags.switches, f) && Str.startsWith(`--${f}=`)(token))
+	)
+
+/** A few letters, the ones the commands and flags are spelled in among them. */
+const lettersGen: Gen<string> = string(characterOf(["a", "e", "m", "n", "r", "s", "x", "y"]), {
+	min: 1,
+	max: 6
+})
+
+/**
+ * An option no command takes: a flag broken once (capitalized, a letter more or less, a dash more or less, a switch
+ * given a value), a word after two dashes, a letter after one but the help's, or a lone dash.
+ */
+const unknownOptionGen: Gen<string> = filter(
+	oneOf<string>([
+		(source) => {
+			const f = source.draw(element(flagNames))
+			return source.draw(
+				oneOf<string>([
+					constant(`--${Str.capitalize(f)}`),
+					map(characterOf(["s", "x"]), (ch) => `--${f}${ch}`),
+					constant(`--${Str.slice(0, -1)(f)}`),
+					constant(`---${f}`),
+					constant(`-${f}`),
+					map(lettersGen, (value) => `--${f}=${value}`)
+				])
+			)
+		},
+		map(lettersGen, (word) => `--${word}`),
+		map(characterOf(["x", "n", "s", "c"]), (letter) => `-${letter}`),
+		constant("-")
+	]),
+	(token) => !knownOption(token),
+	8
+)
+
+/**
+ * A word that is no command: a command broken once (capitalized, a letter more or less, two dashes before it), a word
+ * of letters, or the empty word.
+ */
+const unknownCommandGen: Gen<string> = filter(
+	oneOf<string>([
+		(source) => {
+			const command = source.draw(element(nonEmpty(commands, "a command")))
+			return source.draw(
+				oneOf<string>([
+					constant(Str.capitalize(command)),
+					map(characterOf(["s", "x"]), (ch) => `${command}${ch}`),
+					constant(Str.slice(0, -1)(command)),
+					constant(`--${command}`)
+				])
+			)
+		},
+		lettersGen,
+		constant("")
+	]),
+	(word) => !Arr.contains(commands, word),
+	8
+)
 
 const faultsOf = (s: Spelled): Gen<Fault> => {
 	const { line, units } = s
@@ -351,7 +434,7 @@ const faultsOf = (s: Spelled): Gen<Fault> => {
 	const without = (role: Unit["role"]): ReadonlyArray<Unit> =>
 		Arr.filter(units, (u) => u.role !== role)
 	const common: Arr.NonEmptyReadonlyArray<Gen<Fault>> = [
-		map(element(["skill", "push", "Generate", "init", "--version", ""]), (word): Fault => ({
+		map(unknownCommandGen, (word): Fault => ({
 			argv: argvOf(word, units),
 			kind: "unknownCommand"
 		})),
@@ -362,7 +445,7 @@ const faultsOf = (s: Spelled): Gen<Fault> => {
 			return fault("unexpectedArgument")(source.draw(insertedGen(units, second)))
 		},
 		(source) => {
-			const unknown: Unit = { role: "custom", tokens: [source.draw(element(unknownOptions))] }
+			const unknown: Unit = { role: "custom", tokens: [source.draw(unknownOptionGen)] }
 			return fault("unknownOption")(source.draw(insertedGen(units, unknown)))
 		}
 	]
@@ -426,7 +509,7 @@ const faultsOf = (s: Spelled): Gen<Fault> => {
 			)
 		},
 		(source) => {
-			const misnamed = source.draw(valuedGen("name", source.draw(element(malformedNames))))
+			const misnamed = source.draw(valuedGen("name", source.draw(malformedGen)))
 			return fault("MigrationNameRefused")(source.draw(insertedGen(without("name"), misnamed)))
 		}
 	])
@@ -644,18 +727,25 @@ const secondOfDigits = (text: string): Option.Option<number> => {
 	return digitsOf(secondAt(millis)) === text ? Option.some(millis) : Option.none()
 }
 
-/** Fourteen digits that name no second: a month, day, hour, minute or second out of range, or a leading zero. */
-const nonsenseGen: Gen<string> = element([
-	"20261301120000",
-	"20261032120000",
-	"20260229120000",
-	"20261012240000",
-	"20261012126000",
-	"20261012120060",
-	"20269999999999",
-	"09991231235959",
-	"99999999999999"
-])
+/**
+ * Fourteen digits that name no second: a drawn second with one field pushed out of its range, a month or a day of 0, a
+ * month past 12, a day past its month's last, an hour past 23, a minute or a second past 59, or a year below 1000,
+ * whose digits lead with a zero. The oracle reads every one (secondOfDigits).
+ */
+const nonsenseGen: Gen<string> = (source) => {
+	const s = source.draw(secondGen)
+	const broken = source.draw(
+		oneOf<Second>([
+			map(oneOf([constant(0), int(13, 99)]), (month) => ({ ...s, month })),
+			map(oneOf([constant(0), int(daysIn(s.year, s.month) + 1, 99)]), (day) => ({ ...s, day })),
+			map(int(24, 99), (hour) => ({ ...s, hour })),
+			map(int(60, 99), (minute) => ({ ...s, minute })),
+			map(int(60, 99), (second) => ({ ...s, second })),
+			map(int(0, 999), (year) => ({ ...s, year }))
+		])
+	)
+	return digitsOf(broken)
+}
 
 /** The digits of the second at `millis`, or of `fallback` past year 9999, which no folder's fourteen digits name. */
 const fourteenAt = (millis: number, fallback: number): string => {
@@ -1223,62 +1313,182 @@ layer(NodeServices.layer, { excludeTestServices: true })(
 	}
 )
 
+/** How importing a configuration file fails: a throw at its top, a syntax error, an import of a module that does
+ * not exist, or a rejected top-level await. */
+type ImportFailure = "a throw" | "a syntax error" | "a missing import" | "a rejected await"
+
+/** What a configuration module exports: values under names of their own, and a default value, if any. */
+interface Exports {
+	readonly named: ReadonlyArray<string>
+	readonly default: Option.Option<string>
+}
+
 /**
- * How the bin's loading of the configuration file a command line names fails, each with the exit status the bin ends
- * with; a valid file's run through the bin is the network tier's (test/pg/cli/cli.test.ts).
+ * A configuration file as the bin's loading meets it: none named by the command line, named but absent, one whose
+ * import fails before its exports, or one that loads. No drawn file is a configuration grizzle runs: none lists a
+ * schema value, so every one that loads is refused by its configuration; a valid file's run through the bin is the
+ * network tier's (test/pg/cli/cli.test.ts).
  */
 type Loading =
-	| "no configuration file named"
-	| "a file that does not exist"
-	| "a file whose import throws"
-	| "a file with no default export"
-	| "a default export defineConfig did not build"
-	| "a default export defineConfig built malformed"
+	| { readonly kind: "no file named" }
+	| { readonly kind: "a file that does not exist" }
+	| {
+			readonly kind: "a file whose import fails"
+			readonly failure: ImportFailure
+			readonly exports: Exports
+	  }
+	| { readonly kind: "a file that loads"; readonly exports: Exports }
 
-const loadings = [
-	"no configuration file named",
-	"a file that does not exist",
-	"a file whose import throws",
-	"a file with no default export",
-	"a default export defineConfig did not build",
-	"a default export defineConfig built malformed"
-] as const satisfies ReadonlyArray<Loading>
-
-/** The exit status of each: a usage error, or a refusal. */
-const statusOf = (loading: Loading): 1 | 2 => {
-	switch (loading) {
-		case "no configuration file named":
-			return 2
-		case "a file that does not exist":
-		case "a file whose import throws":
-		case "a file with no default export":
-		case "a default export defineConfig did not build":
-		case "a default export defineConfig built malformed":
-			return 1
+/** A value's text as a module writes it: a number, a text, null, undefined, a boolean, a function, or, `depth` deep, a
+ * list, an object of the configuration's settings and an unknown one, or defineConfig's call on one. */
+const valueTextGen = (depth: number): Gen<string> => {
+	const scalars: Arr.NonEmptyReadonlyArray<Weighted<string>> = [
+		[2, map(int(-2, 2), String)],
+		[1, map(string(characterOf(["a", "b"]), { min: 0, max: 2 }), (text) => `"${text}"`)],
+		[1, constant("null")],
+		[1, constant("undefined")],
+		[1, map(boolean, String)],
+		[1, constant("() => 0")]
+	]
+	if (depth === 0) {
+		return weighted(scalars)
 	}
+	const inner = valueTextGen(depth - 1)
+	const setting = weighted<string>([
+		[4, element(configSettings)],
+		[1, constant("poolSize")]
+	])
+	const entry: Gen<string> = (source) => `${source.draw(setting)}: ${source.draw(inner)}`
+	const objectText: Gen<string> = map(
+		array(entry, { min: 0, max: 3 }),
+		(entries) => `{ ${Arr.join(entries, ", ")} }`
+	)
+	return weighted([
+		...scalars,
+		[2, map(array(inner, { min: 0, max: 2 }), (items) => `[${Arr.join(items, ", ")}]`)],
+		[3, objectText],
+		[3, map(objectText, (o) => `defineConfig(${o})`)]
+	])
 }
+
+/** A module's exports: up to two named values, and a default one or none. */
+const exportsGen: Gen<Exports> = (source) => ({
+	named: source.draw(array(valueTextGen(2), { min: 0, max: 2 })),
+	default: source.draw(option(valueTextGen(2)))
+})
+
+const loadingGen: Gen<Loading> = weighted<Loading>([
+	[1, constant({ kind: "no file named" })],
+	[1, constant({ kind: "a file that does not exist" })],
+	[
+		2,
+		(source) => ({
+			kind: "a file whose import fails",
+			failure: source.draw(
+				weighted<ImportFailure>([
+					[1, constant("a throw")],
+					[1, constant("a syntax error")],
+					[1, constant("a missing import")],
+					[1, constant("a rejected await")]
+				])
+			),
+			exports: source.draw(exportsGen)
+		})
+	],
+	[4, (source) => ({ kind: "a file that loads", exports: source.draw(exportsGen) })]
+])
 
 const defineImport = `import { defineConfig } from "@bjornpagen/grizzle"\n`
 
-/** Writes the configuration file a loading names into `ws`, none where the file does not exist. */
-const loadingFile = (ws: string, loading: Loading) => {
-	switch (loading) {
-		case "no configuration file named":
-		case "a file that does not exist":
-			return Effect.void
-		case "a file whose import throws":
-			return writeConfigText(ws, `throw new Error("broken config")\n`)
-		case "a file with no default export":
-			return writeConfigText(ws, `${defineImport}export const config = defineConfig\n`)
-		case "a default export defineConfig did not build":
-			return writeConfigText(ws, `export default { schemas: [] }\n`)
-		case "a default export defineConfig built malformed":
-			return writeConfigText(
-				ws,
-				`${defineImport}export default defineConfig({ schemas: [{ name: "Shop" }] })\n`
-			)
+/** The statement that makes a module's import fail. */
+const failureText = (failure: ImportFailure): string => {
+	switch (failure) {
+		case "a throw":
+			return `throw new Error("broken config")\n`
+		case "a syntax error":
+			return "export const = 1\n"
+		case "a missing import":
+			return `import "./nowhere.ts"\n`
+		case "a rejected await":
+			return `await Promise.reject(new Error("broken config"))\n`
 	}
 }
+
+/** A module's text: its import of defineConfig, its exports, and the statement its import fails at, first. */
+const moduleText = (exports: Exports, failure: Option.Option<ImportFailure>): string =>
+	Arr.join(
+		[
+			defineImport,
+			...Option.match(failure, { onNone: () => [], onSome: (f) => [failureText(f)] }),
+			...Arr.map(exports.named, (value, at) => `export const named${at} = ${value}\n`),
+			...Option.match(exports.default, {
+				onNone: () => [],
+				onSome: (v) => [`export default ${v}\n`]
+			})
+		],
+		""
+	)
+
+/** Writes the configuration file a loading names into `ws`, none where the file does not exist. */
+const loadingFile = (ws: string, loading: Loading) => {
+	switch (loading.kind) {
+		case "no file named":
+		case "a file that does not exist":
+			return Effect.void
+		case "a file whose import fails":
+			return writeConfigText(ws, moduleText(loading.exports, Option.some(loading.failure)))
+		case "a file that loads":
+			return writeConfigText(ws, moduleText(loading.exports, Option.none()))
+	}
+}
+
+/** The exit status run.ts documents for a loading: 2 for a usage error, a command line naming no file; 1 for a refusal. */
+const statusOf = (loading: Loading): 1 | 2 => (loading.kind === "no file named" ? 2 : 1)
+
+type LoadingFeature =
+	| Loading["kind"]
+	| ImportFailure
+	| "no default export"
+	| "a default built by defineConfig"
+	| "a default defineConfig did not build"
+
+/** What a loading reached. */
+const loadingNotes = (loading: Loading): ReadonlyArray<LoadingFeature> => {
+	switch (loading.kind) {
+		case "no file named":
+		case "a file that does not exist":
+			return [loading.kind]
+		case "a file whose import fails":
+			return [loading.kind, loading.failure]
+		case "a file that loads":
+			return [
+				loading.kind,
+				Option.match(loading.exports.default, {
+					onNone: (): LoadingFeature => "no default export",
+					onSome: (v): LoadingFeature =>
+						Str.startsWith("defineConfig(")(v)
+							? "a default built by defineConfig"
+							: "a default defineConfig did not build"
+				})
+			]
+	}
+}
+
+/** How many draws a steered case makes for a loading that reaches a pending situation, before it gives up. */
+const aimAttempts = 32
+
+/**
+ * The loading a case runs: the drawn one, or, where steering names situations no case has reached, the first of up to
+ * `aimAttempts` draws that reaches one.
+ */
+const aimedLoading = (drawnLoading: Loading, c: Case<LoadingFeature>): Loading =>
+	Option.match(c.steering, {
+		onNone: () => drawnLoading,
+		onSome: (pending) => {
+			const reaches = (loading: Loading) => Arr.some(loadingNotes(loading), (f) => pending.has(f))
+			return reaches(drawnLoading) ? drawnLoading : c.draw(filter(loadingGen, reaches, aimAttempts))
+		}
+	})
 
 layer(NodeServices.layer, { excludeTestServices: true })("the bin's configuration file", (it) => {
 	it.effect(
@@ -1286,35 +1496,56 @@ layer(NodeServices.layer, { excludeTestServices: true })("the bin's configuratio
 		(ctx) =>
 			searched(
 				ctx,
-				exhaust(
+				explore(
 					{
 						suite: "unit/cli/bin-loading",
-						generator: element(loadings),
+						draw: drawn(loadingGen),
 						literal: Formatter.format,
-						limit: loadings.length,
-						coverage: requiredInSpace<Loading>(loadings),
+						coverage: required<LoadingFeature>(
+							[
+								"no file named",
+								"a file that does not exist",
+								"a file whose import fails",
+								"a file that loads",
+								"a throw",
+								"a syntax error",
+								"a missing import",
+								"a rejected await",
+								"no default export",
+								"a default built by defineConfig",
+								"a default defineConfig did not build"
+							],
+							{ cases: 24, sense: notesOnly }
+						),
+						kept: [],
+						runs: 8,
+						shrink: { kind: "bounded", candidates: 16 },
+						concurrency: 3,
+						steerEvery: 6,
 						caseHang,
-						box: "every way the bin's loading of the configuration file fails: unnamed, missing, throwing, without a default export, not built by defineConfig, or built malformed",
 						oracle: {
 							kind: "specification",
-							name: "the exit statuses run.ts documents: 1 for a refusal, 2 for a usage error"
+							name: "the exit statuses run.ts documents: 1 for a refusal, 2 for a usage error; and a refusal writes nothing"
 						}
 					},
-					(loading, c) =>
+					(drawnLoading, c) =>
 						Effect.scoped(
 							Effect.gen(function* () {
-								c.note(loading)
+								const loading = aimedLoading(drawnLoading, c)
+								c.noteAll(loadingNotes(loading))
 								const ws = yield* workspace("loading")
 								yield* loadingFile(ws, loading)
 								const argv =
-									loading === "no configuration file named"
-										? ["generate"]
-										: ["generate", configName]
+									loading.kind === "no file named" ? ["generate"] : ["generate", configName]
 								const ran = yield* bin(ws, argv, {})
-								assert.equal(ran.status, statusOf(loading), `${loading}: ${ran.stderr}`)
+								assert.equal(ran.status, statusOf(loading), `${loading.kind}: ${ran.stderr}`)
 								const fs = yield* FileSystem.FileSystem
-								const wrote = yield* fs.exists(`${ws}/migrations`)
-								assert.equal(wrote, false, "a refusal writes nothing")
+								const left = yield* fs.readDirectory(ws)
+								assert.deepEqual(
+									Arr.filter(left, (entry) => entry !== configName),
+									[],
+									"a refusal writes nothing"
+								)
 							})
 						)
 				)

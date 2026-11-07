@@ -19,12 +19,12 @@ import {
 	type HalfOpen,
 	type PairFacts,
 	type RangeType,
+	rangeTypes,
 	spanText,
 	universe,
 	universePairs
 } from "#test/support/oracle/allen.ts"
 
-const types = ["int4range", "int8range"] as const satisfies ReadonlyArray<RangeType>
 const ends: Arr.NonEmptyReadonlyArray<SpanEndpoint> = ["lower", "upper"]
 const comparisons: Arr.NonEmptyReadonlyArray<EndpointComparison> = [
 	"eq",
@@ -41,7 +41,7 @@ const predicates = Arr.flatMap(ends, (x) =>
 
 /** Every ordered pair of both universes, with its type. */
 const typedPairs: Gen<{ readonly type: RangeType; readonly pair: PairFacts }> = oneOf(
-	Arr.map(types, (type) =>
+	Arr.map(rangeTypes, (type) =>
 		map(element(nonEmpty(universePairs(universe(type)), `the ${type} pairs`)), (pair) => ({
 			type,
 			pair
@@ -89,7 +89,7 @@ describe("the relations' places", () => {
 						literal: Formatter.format,
 						limit: pairLimit,
 						coverage: requiredInSpace<PlaceFeature>(
-							Arr.flatMap(types, (type) =>
+							Arr.flatMap(rangeTypes, (type) =>
 								Arr.map(allenRelations, (r): PlaceFeature => `${type} ${r}`)
 							)
 						),

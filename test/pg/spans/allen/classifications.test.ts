@@ -6,7 +6,7 @@ import { exact, ordered, set } from "@grizzle/testing/oracle"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Order, Predicate, Record as Rec } from "effect"
 import { fullAllenMask } from "#compiler/allen/mask.ts"
 import { type AllenRelation, allenRelations } from "#compiler/core/allen.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
@@ -29,6 +29,7 @@ import {
 	type HalfOpen,
 	type RangeType,
 	rangeLimits,
+	rangeTypes,
 	relationBit,
 	spanText,
 	spellingText,
@@ -118,24 +119,16 @@ const contractWindowQuery = query(Universe).rule((r) => {
 		.find({ at })
 })
 
-const basic = Arr.map(allenRelations, (relation) => ALLEN[relation])
-/**
- * The masks every run checks: the basic relations, the named masks, the full mask, and each basic relation's
- * complement and converse.
- */
+/** Every mask ALLEN names: the basic relations and the named unions. */
+const named = Arr.filter(Rec.values({ ...ALLEN }), Predicate.isNumber)
+/** The masks every run checks: every mask ALLEN names, each one's complement and converse, and the full mask. */
 const fixedMasks: Arr.NonEmptyReadonlyArray<number> = nonEmpty(
-	[
-		...new Set([
-			...basic,
-			ALLEN.intersects,
-			ALLEN.covers,
-			ALLEN.within,
-			ALLEN.precedes,
-			fullAllenMask,
-			...Arr.map(basic, (m) => ALLEN.complement(m)),
-			...Arr.map(basic, (m) => ALLEN.converse(m))
-		])
-	],
+	Arr.dedupe([
+		...named,
+		...Arr.map(named, (m) => ALLEN.complement(m)),
+		...Arr.map(named, (m) => ALLEN.converse(m)),
+		fullAllenMask
+	]),
 	"the fixed masks"
 )
 
@@ -194,8 +187,8 @@ const pointsOf = (type: RangeType): ReadonlyArray<bigint> => {
 }
 
 /** A pointIn window's relation: P4's int4 points, P8's int8 points, or Moment's contract points over int8. */
-const windowTypes = ["int4range", "int8range", "contract"] as const
-type WindowType = (typeof windowTypes)[number]
+type WindowType = RangeType | "contract"
+const windowTypes: Arr.NonEmptyReadonlyArray<WindowType> = [...rangeTypes, "contract"]
 /** Where a window lies: from its type's lower limit, up to its upper limit, over one point, or inside both limits. */
 const windowEdges = ["from the lower limit", "to the upper limit", "one point", "inside"] as const
 type WindowEdge = (typeof windowEdges)[number]
@@ -253,9 +246,6 @@ const resolveWindow = (
 		}
 	}
 }
-
-/** The range types of the stored spans. */
-const rangeTypes: Arr.NonEmptyReadonlyArray<RangeType> = ["int4range", "int8range"]
 
 /** The two artifacts every query compiles to. */
 const artifacts = ["optimized", "conservative"] as const

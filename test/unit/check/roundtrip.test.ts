@@ -28,8 +28,11 @@ import { descText, type QueryDesc, type QueryStageDesc, type RuleDesc } from "#c
 import { toQueryDescription } from "#compiler/ir/describe.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import {
+	languageOctets,
 	languageOfText,
 	numericTypmodOf,
+	type PatternCheck,
+	type RegexCheck,
 	rosterOf,
 	sameScalarType,
 	type ScalarType,
@@ -105,23 +108,30 @@ const boundsJson = (bounds: TextBounds): JsonRecord => ({
 	bytes: bounds.bytes
 })
 
-/** A text descriptor's analyzed language as its Description's JSON form spells it. */
-const languageJson = (language: TextLanguage): JsonRecord => {
-	if (language.kind === "every") {
-		return { kind: "every" }
+/** A pattern's check as its Description's JSON form spells it. */
+const patternCheckJson = (check: PatternCheck): JsonRecord =>
+	check.kind === "finite"
+		? { kind: "finite", members: check.members, bounds: boundsJson(check.bounds) }
+		: check.bounds === undefined
+			? { kind: "regex", pattern: check.pattern }
+			: { kind: "regex", pattern: check.pattern, bounds: boundsJson(check.bounds) }
+
+/** A refinement's check as its Description's JSON form spells it: a pattern's, or a byte bound's beside one or alone. */
+const checkJson = (check: RegexCheck): JsonRecord => {
+	if (check.kind !== "octets") {
+		return patternCheckJson(check)
 	}
-	const { check } = language
-	return {
-		kind: "refined",
-		key: language.key,
-		check:
-			check.kind === "finite"
-				? { kind: "finite", members: check.members, bounds: boundsJson(check.bounds) }
-				: check.bounds === undefined
-					? { kind: "regex", pattern: check.pattern }
-					: { kind: "regex", pattern: check.pattern, bounds: boundsJson(check.bounds) }
-	}
+	const bounds = boundsJson(check.bounds)
+	return check.check === undefined
+		? { kind: "octets", octets: check.octets, bounds }
+		: { kind: "octets", octets: check.octets, check: patternCheckJson(check.check), bounds }
 }
+
+/** A text descriptor's analyzed language as its Description's JSON form spells it. */
+const languageJson = (language: TextLanguage): JsonRecord =>
+	language.kind === "every"
+		? { kind: "every" }
+		: { kind: "refined", key: language.key, check: checkJson(language.check) }
 
 /** A position in a JSON tree: the keys and indices that lead to it from the root. */
 type Path = ReadonlyArray<string | number>
@@ -589,10 +599,16 @@ const keyFieldDesc = (key: KeyVar): JsonRecord => {
 		}
 		case "text": {
 			const text = defined(textOf(key.type), "a text field's refinement")
-			const language = languageJson(languageOfText(text))
-			return text.regex === "wildcard"
-				? { kind: "text", source: "^.*$", flags: "su", language }
-				: { kind: "text", source: text.regex.source, flags: text.regex.flags, language }
+			const analyzed = languageOfText(text)
+			const language = languageJson(analyzed)
+			const bytes = languageOctets(analyzed)
+			if (text.regex === "wildcard") {
+				return { kind: "text", source: "^.*$", flags: "su", language }
+			}
+			const { source, flags } = text.regex
+			return bytes === undefined
+				? { kind: "text", source, flags, language }
+				: { kind: "text", source, flags, bytes, language }
 		}
 		case "handle":
 			return { kind: "closedId", roster: defined(rosterOf(key.type), "a handle's roster").closed }

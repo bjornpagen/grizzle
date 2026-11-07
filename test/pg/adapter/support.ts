@@ -1,4 +1,4 @@
-import { type Array as Arr, Effect, Redacted, type Scope } from "effect"
+import { type Array as Arr, Effect, type Redacted, type Scope } from "effect"
 import type { CredentialError } from "#adapter/errors/failures.ts"
 import type { BatchFailure } from "#adapter/errors/failures.ts"
 import type { ConnectionPool, PoolBounds, Transport } from "#adapter/types/layer.ts"
@@ -137,16 +137,6 @@ export const backendPidOf = (session: Session): Effect.Effect<number, BatchFailu
 	Effect.map(rowsOn(session, "SELECT pg_catalog.pg_backend_pid()::text", []), (rows) =>
 		Number(rows[0]?.[0])
 	)
-
-/** A password Effect over a mutable secret, counting its evaluations. */
-export const countingPassword = (initial: string) => {
-	const state = { secret: initial, evaluations: 0 }
-	const password = Effect.sync(() => {
-		state.evaluations += 1
-		return Redacted.make(state.secret)
-	})
-	return { state, password }
-}
 
 /**
  * Polls `check` until it holds, yielding between polls and never reading a clock: the verdict waits on the fact, and

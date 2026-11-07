@@ -31,14 +31,22 @@ type ShellManifest = Manifest & { readonly bin: Record.ReadonlyRecord<string, st
 /** The exit status of a child that succeeded. */
 export const exitedCleanly = ChildProcessSpawner.ExitCode(0)
 
-/** Vercel's package, for a consumer program's attachPool; the consumer installs it, not the package. */
-const consumerDependency = "@vercel/functions"
+/**
+ * The packages a consumer program installs beside grizzle, not the package: Vercel's, for its attachPool, the AWS signer
+ * and Clerk's backend the README's programs import, and Node's types.
+ */
+const consumerDependencies = [
+	"@vercel/functions",
+	"@aws-sdk/rds-signer",
+	"@clerk/backend",
+	"@types/node"
+] as const
 
 /**
  * Runs `command` in `cwd` to completion, reading nothing, and returns its exit status and its whole standard output
  * and error; interrupting the test kills it.
  */
-export const run = Effect.fnUntraced(function* (
+export const runChild = Effect.fnUntraced(function* (
 	command: string,
 	args: ReadonlyArray<string>,
 	cwd: string
@@ -73,7 +81,7 @@ const entryPaths = (
 const noBin: Record.ReadonlyRecord<string, string> = {}
 
 /** A scratch project whose node_modules holds the published packages as a consumer installs them. */
-interface PublishedProject {
+export interface PublishedProject {
 	/** The repository's root. */
 	readonly root: string
 	/** The consumer's project directory, with a package.json of `"type": "module"`. */
@@ -86,7 +94,7 @@ interface PublishedProject {
  * The published packages, the shell and the engine it depends on, as a consumer installs them: built into a scratch
  * node_modules by the build `npm publish` runs (scripts/build.ts), each laid out with exactly the files its
  * package.json's "files" names, and with exactly their runtime dependencies and peers beside them, each from the
- * node_modules of the package that declares it, and Vercel's package a consumer adds. Each package.json's entry points,
+ * node_modules of the package that declares it, and the packages a consumer program adds. Each package.json's entry points,
  * `exports` and `bin`, lie inside the files it publishes, and the build emitted them. The project lives as long as the
  * scope.
  */
@@ -107,7 +115,7 @@ export const publishedProject = Effect.gen(function* () {
 	const scratch = yield* fs.makeTempDirectoryScoped({ prefix: "grizzle-package-" })
 	const project = path.join(scratch, "project")
 	const modules = path.join(project, "node_modules")
-	const built = yield* run(
+	const built = yield* runChild(
 		process.execPath,
 		[path.join(root, "scripts", "build.ts"), modules],
 		root
@@ -141,7 +149,10 @@ export const publishedProject = Effect.gen(function* () {
 				(name) => ({ name, from: path.join(root, "packages", directory, "node_modules", name) })
 			)
 		),
-		{ name: consumerDependency, from: path.join(root, "node_modules", consumerDependency) }
+		...Arr.map(consumerDependencies, (name) => ({
+			name,
+			from: path.join(root, "node_modules", name)
+		}))
 	]
 	yield* Effect.forEach(
 		Arr.dedupeWith(declared, (a, b) => a.name === b.name),

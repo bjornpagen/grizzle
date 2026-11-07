@@ -42,7 +42,8 @@ import { codesOf, compiled, cs, parsedOf } from "#test/unit/write/changeset/fixt
  *
  * Host normalization of enumerated members, arrays and Streams alike, over one to three strata, checked against the
  * brute-force add-wins calculator: a refusal before SQL is a ChangeSet the add-wins meaning rejects, by a key law some
- * stratum's own facts violate whatever the state, and a normalized ChangeSet means exactly what the one it came from
+ * stratum's own facts violate whatever the state, or a stratum that deletes two facts at one value of a key, which
+ * (S minus D) union A never shows, by that key's law; and a normalized ChangeSet means exactly what the one it came from
  * means. A fact no relation admits (a NULL, a field its relation lacks, a deletion without its serial field, an
  * addition with some serial fields and not all) is a planted fault, refused by its own fault before anything else. */
 const Pair = relation("Pair", { k: pg.integer, v: pg.integer, c: pg.integer }, ["k"])
@@ -340,7 +341,30 @@ type NormalizeFeature =
 	| "three strata"
 	| "a Stream member"
 	| "refused by a key"
+	| "refused by a key two deletions share"
 	| "a later stratum restates an earlier stratum's key"
+
+/** Pair's key laws, by the field each compares. */
+const pairKeys = {
+	k: lawNamesOf(Small).primaryKeyLaw(Pair),
+	c: lawIdOf(Small, pairC)
+} as const
+
+/** The key laws of Pair two distinct facts one stratum deletes share a value of. */
+const deletedAtOneKey = (strata: ReadonlyArray<ReadonlyArray<Member>>) =>
+	Arr.dedupe(
+		Arr.flatMap(strata, (ms) => {
+			const deleted = Arr.dedupeWith(
+				Arr.flatMap(ms, (m) => (m.relation === "Pair" && m.op === "delete" ? m.facts : [])),
+				(f, g) => pairText(f) === pairText(g)
+			)
+			return Arr.flatMap(["k", "c"] as const, (field) =>
+				Arr.some(deleted, (f, i) => Arr.some(deleted, (g, j) => i !== j && f[field] === g[field]))
+					? [pairKeys[field]]
+					: []
+			)
+		})
+	)
 
 /** Whether a later stratum adds a Pair fact at the key of a different one an earlier stratum adds. */
 const restated = (strata: ReadonlyArray<ReadonlyArray<Member>>): boolean => {
@@ -371,7 +395,12 @@ const normalizes = (
 		const expected = applyAddWins(oracleSchema, state, oracleOf(strata), { kind: "sequences" })
 		const { frontend, result } = yield* normalizedOf(changeSetOf(strata))
 		const normalization = succeeded(result, "a ChangeSet of admitted facts normalizes")
+		const deleted = deletedAtOneKey(strata)
 		if (normalization.kind === "keyConflict") {
+			if (Arr.contains(deleted, normalization.law)) {
+				c.note("refused by a key two deletions share")
+				return
+			}
 			c.note("refused by a key")
 			assert.equal(expected.kind, "invariant-rejected", "the add-wins meaning rejects it too")
 			const empty = oracleState(oracleSchema, {}, loadedSequences)
@@ -387,6 +416,11 @@ const normalizes = (
 			)
 			return
 		}
+		assert.deepEqual(
+			deleted,
+			[],
+			"a stratum that deletes two facts at one key is refused by that key"
+		)
 		if (strata.length >= 2 && restated(strata)) {
 			c.note("a later stratum restates an earlier stratum's key")
 		}
@@ -466,6 +500,7 @@ describe("normalization against the add-wins meaning", () => {
 								"three strata",
 								"a Stream member",
 								"refused by a key",
+								"refused by a key two deletions share",
 								"a later stratum restates an earlier stratum's key"
 							],
 							{ cases: 300, sense: notesOnly }

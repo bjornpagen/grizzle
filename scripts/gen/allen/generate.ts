@@ -184,7 +184,7 @@ const tableHeader: ReadonlyArray<string> = [
 
 /**
  * The text of packages/engine/src/allen/table.generated.ts, one formula per line in mask order, which the formatter leaves
- * as written. The allen unit test regenerates it and compares it with the committed file byte for byte.
+ * as written. The allen unit test regenerates the table and holds the committed one to it, entry for entry.
  */
 export const allenTableSource = (): string => {
 	const table = generateAllenTable()

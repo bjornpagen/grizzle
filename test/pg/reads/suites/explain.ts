@@ -1,8 +1,8 @@
 import { layer } from "@effect/vitest"
 import { assertInstanceOf } from "@effect/vitest/utils"
-import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { required, requiredInSpace } from "@grizzle/testing/features"
-import { array, element, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
+import { drawn, explore } from "@grizzle/testing/explore"
+import { required } from "@grizzle/testing/features"
+import { array, boolean, element, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
 import { set } from "@grizzle/testing/oracle"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
@@ -18,11 +18,11 @@ import type { Prologue } from "#adapter/wire/batch.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { relation, schema } from "#compiler/public/schema.ts"
+import { schema } from "#compiler/public/schema.ts"
 import { defaultPool, poolFor, rowsOn } from "#test/pg/adapter/support.ts"
 import { Item, Seat, Shop, Stock, uuidOf } from "#test/pg/reads/shop.ts"
 import { installed } from "#test/pg/reads/support.ts"
-import { assert, defined, failureOf, nonEmpty, unorderedEqual } from "#test/support/assert.ts"
+import { assert, assertVariant, defined, nonEmpty, unorderedEqual } from "#test/support/assert.ts"
 import { exactValue } from "#test/support/equivalence.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { a1, a2, t2, t4, tMissing, workFacts } from "#test/support/fixtures/golden/work.ts"
@@ -35,8 +35,10 @@ import { makeTap, type Tap, type WireWindow } from "#test/support/wire-tap.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 
 import { regex } from "arkregex"
-/** A schema no Db of the suite opens: a ChangeSet over it is over no level of any role here. */
-const Elsewhere = schema("Elsewhere", { Item: relation("Item", { id: uuid }, ["id"]) }, [])
+/**
+ * A schema no Db of the suite opens, holding Work's TaskNote: a ChangeSet over it is over no level of any role here.
+ */
+const Elsewhere = schema("Elsewhere", { TaskNote: W.TaskNote }, [])
 
 /** Every node of a plan tree, depth first. */
 const nodes = (plan: Plan): ReadonlyArray<Plan> => [plan, ...Arr.flatMap(plan.children, nodes)]
@@ -197,6 +199,38 @@ const changeCaseGen: Gen<ChangeCase> = (source) => ({
 	readBack: source.draw(element(["none", "seats and stock", "stock joined"] as const))
 })
 
+/**
+ * A drawn ChangeSet of note inserts, up to four over three tasks and three texts, over Work or over a schema no role of
+ * the Db holds.
+ */
+interface RefusalCase {
+	readonly foreign: boolean
+	readonly notes: ReadonlyArray<{ readonly task: number; readonly text: number }>
+}
+
+const refusalCaseGen: Gen<RefusalCase> = (source) => ({
+	foreign: source.draw(boolean),
+	notes: source.draw(
+		array((note) => ({ task: note.draw(int(0, 2)), text: note.draw(int(0, 2)) }), {
+			min: 1,
+			max: 4
+		})
+	)
+})
+
+type RefusalFeature = "compile" | "encode" | "explained"
+
+/**
+ * What explain makes of a refusal case: a ChangeSet over no level of the Db's role does not compile; one whose notes
+ * share a task with different texts is a same-key pair host normalization refuses; any other is explained.
+ */
+const refusalOf = (c: RefusalCase): RefusalFeature =>
+	c.foreign
+		? "compile"
+		: Arr.some(c.notes, (a) => Arr.some(c.notes, (b) => a.task === b.task && a.text !== b.text))
+			? "encode"
+			: "explained"
+
 /** Each search's budget beside its suite, draw and features. */
 const budget = {
 	literal: Formatter.format,
@@ -223,8 +257,9 @@ const budget = {
  *   no identity sequence advanced, which EXPLAIN ANALYZE would have done; a read-back joining a delta carrier plans the
  *   empty, analyzed carrier at one row, as the apply does;
  * - every Plan is estimate-only: node type, costs, rows and width, nothing else;
- * - a ChangeSet host normalization refuses (a same-key pair) and one outside the write scope are ReadError{encode} and
- *   {compile}, each found before a session is leased. No number of facts is refused: a statement's Bind message past
+ * - a drawn ChangeSet of notes over Work or over a schema no role of the Db holds is refused as a model of the host's
+ *   refusals says: outside the write scope ReadError{compile}, a same-key pair host normalization refuses
+ *   ReadError{encode}, each found before a session is leased, and any other is explained, executing nothing. No number of facts is refused: a statement's Bind message past
  *   PostgreSQL's message limit is the one resource refusal, a unit test's (test/unit/adapter/bind.test.ts), since a
  *   gibibyte of parameters is no case to send.
  */
@@ -505,14 +540,14 @@ export const explainSuite = (): void => {
 		)
 
 		it.effect(
-			"a ChangeSet's encode, resource and compile refusals keep their stages, before any session",
+			"refuses a drawn ChangeSet at compile or encode before any session as its model says, and explains every other, executing nothing",
 			(test) =>
 				searched(
 					test,
 					Effect.gen(function* () {
 						const o = yield* installed(W.Work, workFacts, { label: "real", extensions: [] })
 						const before = yield* tableState(o.installed, W.TaskNote)
-						const exhausted = yield* Effect.gen(function* () {
+						const explored = yield* Effect.gen(function* () {
 							const db = yield* Db.open(o.server.roles.app, {})
 							const ctx = defined(dbContext(db), "a Db's context")
 							/** The explain over a pool that counts its leases: every refusal is found on the host. */
@@ -527,39 +562,64 @@ export const explainSuite = (): void => {
 									})
 								}
 							}
-							const programs = {
-								/** A same-key pair among the enumerated additions, which host normalization refuses. */
-								encode: ChangeSet.empty(o.schema).insert(W.TaskNote, [
-									{ task: t4, note: "a" },
-									{ task: t4, note: "b" }
-								]),
-								/**
-								 * A ChangeSet over a schema that is no level of the Db's role, which its compilation refuses.
-								 */
-								compile: ChangeSet.empty(Elsewhere).insert(Elsewhere.relations.Item, [{ id: t4 }])
-							} as const
-							return yield* exhaust(
+							const tasks = [t2, t4, tMissing] as const
+							return yield* explore(
 								{
+									...budget,
 									suite: "reads/explain refusals",
-									generator: element<keyof typeof programs>(["encode", "compile"]),
-									literal: Formatter.format,
-									limit: 2,
-									coverage: requiredInSpace<keyof typeof programs>(["encode", "compile"]),
-									caseHang
+									draw: drawn(refusalCaseGen),
+									kept: [],
+									runs: 20,
+									coverage: required<RefusalFeature>(["compile", "encode", "explained"], {
+										cases: 20,
+										sense: notesOnly
+									}),
+									oracle: {
+										kind: "specification",
+										name: "host normalization's same-key refusal and the write scope's, both before any session"
+									}
 								},
-								(stage, c) =>
+								(c, notes) =>
 									Effect.gen(function* () {
-										const refusal = yield* failureOf(explain(counting, programs[stage], {}))
-										assertInstanceOf(refusal, ReadFailure)
-										assert.equal(refusal.stage, stage)
-										assert.equal(leases.count, 0, "no session leased")
-										c.note(stage)
+										const facts = Arr.map(c.notes, (n) => ({
+											task: defined(tasks[n.task]),
+											note: `note ${n.text}`
+										}))
+										const changes = c.foreign
+											? ChangeSet.empty(Elsewhere).insert(Elsewhere.relations.TaskNote, facts)
+											: ChangeSet.empty(o.schema).insert(W.TaskNote, facts)
+										const leased = leases.count
+										const explained = yield* Effect.result(explain(counting, changes, {}))
+										const expected = refusalOf(c)
+										switch (expected) {
+											case "explained": {
+												assertVariant(explained, "_tag", "Success", "a ChangeSet the host admits")
+												for (const plan of explained.success) {
+													estimateOnly(plan)
+												}
+												break
+											}
+											case "compile":
+											case "encode": {
+												assertVariant(explained, "_tag", "Failure", "a ChangeSet the host refuses")
+												const refusal = explained.failure
+												assertInstanceOf(refusal, ReadFailure)
+												assert.equal(refusal.stage, expected)
+												assert.equal(
+													refusal.reason._tag,
+													expected === "encode" ? "LawRejected" : "CompileError"
+												)
+												assert.equal(leases.count, leased, "no session leased")
+												break
+											}
+										}
+										notes.note(expected)
 									})
 							)
 						}).pipe(Effect.scoped, withLayer(o.layer))
 						const after = yield* tableState(o.installed, W.TaskNote)
 						assert.deepEqual(set(exactValue)(after, before), Option.none())
-						return exhausted
+						return explored
 					}).pipe(Effect.scoped)
 				)
 		)

@@ -37,9 +37,11 @@
  *   of its reverse pre-order into consecutive INSERTs.
  */
 import { layer } from "@effect/vitest"
-import { type Case, exhaust, type Oracle } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { element } from "@grizzle/testing/gen"
+import { type Case, drawn, exhaust, explore, type Oracle } from "@grizzle/testing/explore"
+import { required, requiredInSpace } from "@grizzle/testing/features"
+import { boolean, constant, element, type Gen, int, weighted } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
+import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Data, Effect, Formatter, Option } from "effect"
 import {
@@ -82,6 +84,7 @@ import {
 	predicted,
 	RFC,
 	readSql,
+	rowsByDepth,
 	rowsOfRead,
 	shapeCases,
 	shapeGen,
@@ -96,6 +99,7 @@ import { assert, deepEquals, defined, nonEmpty } from "#test/support/assert.ts"
 import type { Moment } from "#test/support/families/mutate.ts"
 import { caseHang } from "#test/support/limits.ts"
 import type { SqlError } from "#test/support/pg.ts"
+import { pickFrom, pickGen } from "#test/support/pick.ts"
 import {
 	type Attempted,
 	attempt,
@@ -435,31 +439,59 @@ const planFacts = (plan: PlanNode) => ({
 	read: rowsRead(plan)
 })
 
-/** A subtree whose descendants a plan reading scans: the root's first child, a subtree under 100 rows, and a leaf. */
-type Subtree = "a quarter of the tree" | "a subtree under 100 rows" | "a leaf"
+/**
+ * What a row whose descendants a plan reading scans heads: one of the root's children, a subtree of 100 rows or more
+ * below them, a subtree under 100 rows, or a leaf.
+ */
+const subtrees = [
+	"a quarter of the tree",
+	"a subtree of 100 rows or more",
+	"a subtree under 100 rows",
+	"a leaf"
+] as const
+type Subtree = (typeof subtrees)[number]
 
-/** A plan reading: the export, or one subtree's descendants, planned custom or generic. */
-type PlanProbe =
-	| { readonly read: "the export"; readonly mode: PlanMode }
-	| {
-			readonly read: `the descendants of ${Subtree}`
-			readonly subtree: Subtree
-			readonly mode: PlanMode
-	  }
+const subtreeOf = (row: TreeRow, depth: number): Subtree =>
+	depth === 1
+		? "a quarter of the tree"
+		: row.children === 0
+			? "a leaf"
+			: row.end - row.start < 100
+				? "a subtree under 100 rows"
+				: "a subtree of 100 rows or more"
 
-type PlanFeature = `${PlanProbe["read"]}, ${PlanMode} plan`
+/** What a plan reading reads: the export, or the descendants of a row below the root, drawn as its depth and a pick. */
+type PlanRead =
+	| Readonly<{ kind: "the export" }>
+	| Readonly<{ kind: "descendants"; depth: number; pick: number }>
 
-/** Every plan reading: the export and each subtree's descendants, each as a custom and as a generic plan. */
-const PLAN_PROBES: Arr.NonEmptyReadonlyArray<PlanProbe> = Arr.flatMap(
-	["custom", "generic"] as const,
-	(mode): Arr.NonEmptyReadonlyArray<PlanProbe> => [
-		{ read: "the export", mode },
-		...Arr.map(
-			["a quarter of the tree", "a subtree under 100 rows", "a leaf"] as const,
-			(subtree): PlanProbe => ({ read: `the descendants of ${subtree}`, subtree, mode })
+/** A plan reading, planned generic or custom. */
+interface PlanSketch {
+	readonly generic: boolean
+	readonly read: PlanRead
+}
+
+/** Every depth below the root alike, to `deepest`, and a pick among its rows. */
+const planSketchGen =
+	(deepest: number): Gen<PlanSketch> =>
+	(source) => ({
+		generic: source.draw(boolean),
+		read: source.draw(
+			weighted<PlanRead>([
+				[1, constant<PlanRead>({ kind: "the export" })],
+				[
+					3,
+					(inner) => ({
+						kind: "descendants",
+						depth: inner.draw(int(1, deepest)),
+						pick: inner.draw(pickGen)
+					})
+				]
+			])
 		)
-	]
-)
+	})
+
+type PlanFeature = `${"the export" | `the descendants of ${Subtree}`}, ${PlanMode} plan`
 
 layer(Substrate.layer)("trees.md's theorem on PostgreSQL 19rc1", (it) => {
 	it.effect(
@@ -747,7 +779,7 @@ layer(Substrate.layer)("trees.md's theorem on PostgreSQL 19rc1", (it) => {
 	)
 
 	it.effect(
-		"read a tree of 20,000 rows in document order by one scan of T1's index with no sort, and each subtree's descendants by a range scan of it that reads exactly them",
+		"read a tree of 20,000 rows in document order by one scan of T1's index with no sort, and the descendants of every row below the root by a range scan of it that reads exactly them",
 		(ctx) =>
 			searched(
 				ctx,
@@ -755,69 +787,75 @@ layer(Substrate.layer)("trees.md's theorem on PostgreSQL 19rc1", (it) => {
 					const s = yield* Substrate
 					const [seat] = yield* Effect.map(seatsOf(loweringsOf(["tree"])), nonEmpty)
 					const rows = loadTree(planLoad.rows, planLoad.fanout)
+					const byDepth = rowsByDepth(rows)
 					yield* loaded(seat.session, seat.schema, rows)
 					const node = qualified(seat.schema, "node")
 					yield* s.admin.query(`ANALYZE ${node}`, [])
-					const subtreeOf = (subtree: Subtree): TreeRow => {
-						switch (subtree) {
-							case "a quarter of the tree":
-								return defined(rows[1])
-							case "a subtree under 100 rows":
-								return Option.getOrThrow(
-									Arr.findFirst(rows, (r) => r.end - r.start > 1 && r.end - r.start < 100)
-								)
-							case "a leaf":
-								return Option.getOrThrow(Arr.findFirst(rows, (r) => r.children === 0))
-						}
-					}
-					return yield* exhaust(
+					const modes: ReadonlyArray<PlanMode> = ["custom", "generic"]
+					const reads = [
+						"the export",
+						...Arr.map(subtrees, (subtree) => `the descendants of ${subtree}` as const)
+					] as const
+					return yield* explore(
 						{
 							suite: "substrate/tree-plans",
-							generator: element(PLAN_PROBES),
+							draw: drawn(planSketchGen(byDepth.length - 1)),
 							literal: Formatter.format,
-							limit: PLAN_PROBES.length,
-							coverage: requiredInSpace<PlanFeature>(
-								nonEmpty(Arr.map(PLAN_PROBES, (p): PlanFeature => `${p.read}, ${p.mode} plan`))
+							oracle: {
+								kind: "postgresql",
+								name: "EXPLAIN's plan: T1's index alone, no Seq Scan, the export unsorted reading each row once, a range scan reading exactly the descendants the pre-order interval holds"
+							},
+							coverage: required<PlanFeature>(
+								nonEmpty(
+									Arr.flatMap(reads, (read) =>
+										Arr.map(modes, (mode): PlanFeature => `${read}, ${mode} plan`)
+									)
+								),
+								{ cases: 48, sense: notesOnly }
 							),
+							kept: [],
+							runs: 24,
+							shrink: completeShrink,
+							concurrency: 1,
+							steerEvery: 16,
 							caseHang
 						},
-						(probe, c) =>
+						(sketch, c) =>
 							Effect.gen(function* () {
-								const sql =
-									probe.read === "the export"
-										? `SELECT * FROM ${node} WHERE root = $1::int4 ORDER BY start`
-										: `SELECT * FROM ${node} WHERE root = $1::int4 AND start > $2::int8 AND start < $3::int8`
-								const n =
-									probe.read === "the export"
+								const mode: PlanMode = sketch.generic ? "generic" : "custom"
+								const subject =
+									sketch.read.kind === "the export"
 										? Option.none()
-										: Option.some(subtreeOf(probe.subtree))
-								const params = Option.match(n, {
+										: Option.some({
+												depth: sketch.read.depth,
+												row: pickFrom(defined(byDepth[sketch.read.depth]), sketch.read.pick)
+											})
+								const sql = Option.isNone(subject)
+									? `SELECT * FROM ${node} WHERE root = $1::int4 ORDER BY start`
+									: `SELECT * FROM ${node} WHERE root = $1::int4 AND start > $2::int8 AND start < $3::int8`
+								const params = Option.match(subject, {
 									onNone: () => ["0"],
-									onSome: (r) => ["0", String(r.start), String(r.end)]
+									onSome: ({ row }) => ["0", String(row.start), String(row.end)]
 								})
 								const e =
-									probe.mode === "custom"
+									mode === "custom"
 										? yield* explain(seat.session, sql, params, planned)
 										: yield* explainServerStatement(seat.session, sql, params, "generic", planned)
 								const facts = planFacts(e.plan)
-								const name: PlanFeature = `${probe.read}, ${probe.mode} plan`
-								const record = `${name}: ${Formatter.format({
-									...facts,
-									nodes: Arr.map(
-										findNodes(e.plan, () => true),
-										(p) => p.nodeType
-									)
-								})}`
-								yield* Effect.promise(() => ctx.annotate(record))
+								const name: PlanFeature = Option.match(subject, {
+									onNone: (): PlanFeature => `the export, ${mode} plan`,
+									onSome: ({ row, depth }): PlanFeature =>
+										`the descendants of ${subtreeOf(row, depth)}, ${mode} plan`
+								})
 								assert.deepEqual(facts.indexes, ["node_order"], `${name} reads T1's index alone`)
 								assert.equal(facts.seqScans, 0, `${name} scans nothing sequentially`)
-								Option.match(n, {
+								Option.match(subject, {
 									onNone: () => {
 										assert.equal(facts.sorts, 0, `${name} sorts nothing`)
 										assert.equal(facts.read, planLoad.rows, `${name} reads each row once`)
 									},
-									onSome: (r) =>
-										assert.equal(facts.read, r.end - r.start - 1, `${name} reads exactly them`)
+									onSome: ({ row }) =>
+										assert.equal(facts.read, row.end - row.start - 1, `${name} reads exactly them`)
 								})
 								c.note(name)
 							})

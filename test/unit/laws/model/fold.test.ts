@@ -1,11 +1,16 @@
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
-import { element } from "@grizzle/testing/gen"
+import { boolean, element, type Gen, int, shuffled } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
 import type { ColumnIdent } from "#compiler/core/ids.ts"
-import type { FieldDesc, LiteralDesc, MonoidName } from "#compiler/ir/desc.ts"
+import {
+	type FieldDesc,
+	type LiteralDesc,
+	type MonoidName,
+	monoidNames
+} from "#compiler/ir/desc.ts"
 import type { LawField } from "#compiler/ir/law.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
 import { type CarrierValue, irLiteral } from "#compiler/scalar/compute/literal.ts"
@@ -89,20 +94,21 @@ const carriersOf: { readonly [M in NumericMonoid]: Arr.NonEmptyReadonlyArray<Car
 	max: ["int2", "int4", "int8", "natural", "code", "money"]
 }
 
-const shapes: Arr.NonEmptyReadonlyArray<Shape> = nonEmpty(
-	Arr.flatMap(["count", "sum", "or", "twos", "max"] as const, (monoid) =>
-		Arr.flatMap(carriersOf[monoid], (carrier) =>
-			Arr.flatMap(
-				[
-					{ order: "ordered", accumulators: "named" },
-					{ order: "ordered", accumulators: "hidden" },
-					{ order: "counted", accumulators: "hidden" }
-				] as const,
-				(o) => Arr.map([false, true], (selected): Shape => ({ monoid, carrier, ...o, selected }))
-			)
-		)
-	)
+/** The monoids of the source's roster the reference folds in exact integers. */
+const numericMonoids: Arr.NonEmptyReadonlyArray<NumericMonoid> = nonEmpty(
+	Arr.filter(monoidNames, (m): m is NumericMonoid => m !== "concat")
 )
+
+/** The box: every monoid of the roster on every carrier it admits, an ordered family with named or hidden accumulators
+ * or a counted one with hidden ones, stepping over every member or a selected one. */
+const shapeGen: Gen<Shape> = (source) => {
+	const monoid = source.draw(element(numericMonoids))
+	const carrier = source.draw(element(carriersOf[monoid]))
+	const order = source.draw(element(["ordered", "counted"] as const))
+	const accumulators =
+		order === "ordered" ? source.draw(element(["named", "hidden"] as const)) : "hidden"
+	return { monoid, carrier, order, accumulators, selected: source.draw(boolean) }
+}
 
 type Feature =
 	| `monoid ${MonoidName}`
@@ -455,12 +461,19 @@ const hiddenFolds = (folds: ReadonlyArray<Hidden>): SchemaDesc => ({
 	extends: undefined
 })
 
-/** Every ordered pair of distinct hidden folds. */
-const foldPairs: Arr.NonEmptyReadonlyArray<readonly [Hidden, Hidden]> = nonEmpty(
-	Arr.flatMap(["count", "sum", "max"] as const, (a) =>
-		Arr.flatMap(["count", "sum", "max"] as const, (b) => (a === b ? [] : [[a, b] as const]))
-	)
-)
+/** A family's hidden folds in order, and the one a second schema removes. */
+interface Removal {
+	readonly folds: ReadonlyArray<Hidden>
+	readonly removed: number
+}
+
+/** The box: every order of two or three distinct hidden folds, and each of them removed. */
+const removalGen: Gen<Removal> = (source) => {
+	const folds = source.draw(shuffled(["count", "sum", "max"] as const, { min: 2, max: 3 }))
+	return { folds, removed: source.draw(int(0, folds.length - 1)) }
+}
+
+type NamesFeature = `${Hidden} removed` | "a fold before the removed one" | "a fold after it"
 
 /** The identifiers of the hidden accumulators the family's folds name, each fold's in plane order, by its monoid. */
 const hiddenOf = (model: LawModel): ReadonlyMap<MonoidName, ReadonlyArray<ColumnIdent>> =>
@@ -481,38 +494,52 @@ const hiddenOf = (model: LawModel): ReadonlyMap<MonoidName, ReadonlyArray<Column
 
 describe("a fold's natives are §2.3's: its copies on two axes, its combine and its identity pins", () => {
 	it.effect(
-		"a hidden accumulator is named by its fold's law: removing an earlier fold renames none of a later fold's",
+		"a hidden accumulator is named by its fold's law: removing a fold renames none of another fold's",
 		(ctx) =>
 			searched(
 				ctx,
 				exhaust(
 					{
 						suite: "unit/laws/model/fold-names",
-						generator: element(foldPairs),
+						generator: removalGen,
 						literal: Formatter.format,
-						/** The space: every ordered pair of distinct hidden folds by count, sum and max. */
-						limit: 6,
-						coverage: requiredInSpace<Hidden>(["count", "sum", "max"]),
+						/** The space: 6 orders of two folds with 2 removals, and 6 of three with 3. */
+						limit: 30,
+						coverage: requiredInSpace<NamesFeature>([
+							"count removed",
+							"sum removed",
+							"max removed",
+							"a fold before the removed one",
+							"a fold after it"
+						]),
 						caseHang,
-						box: "every ordered pair of distinct hidden folds by count, sum and max over one counted family",
+						box: "every order of two or three distinct hidden folds by count, sum and max over one counted family, each removed",
 						oracle: {
 							kind: "universal",
-							name: "metamorphic: a later fold's names with and without the earlier fold"
+							name: "metamorphic: every other fold's names with and without the removed fold"
 						}
 					},
-					([first, second], c) =>
+					(r, c) =>
 						Effect.sync(() => {
-							c.note(first)
-							c.note(second)
-							const both = modelOf(hiddenFolds([first, second]))
-							const alone = modelOf(hiddenFolds([second]))
-							const named = (model: LawModel) =>
-								defined(hiddenOf(model).get(second), `the ${second} fold's hidden accumulators`)
-							assert.deepEqual(
-								named(alone),
-								named(both),
-								`the ${second} fold's columns keep their names when the ${first} before it goes`
-							)
+							const gone = defined(r.folds[r.removed], "the removed fold")
+							c.note(`${gone} removed`)
+							if (r.removed > 0) {
+								c.note("a fold before the removed one")
+							}
+							if (r.removed < r.folds.length - 1) {
+								c.note("a fold after it")
+							}
+							const both = modelOf(hiddenFolds(r.folds))
+							const without = modelOf(hiddenFolds(Arr.remove(r.folds, r.removed)))
+							for (const kept of Arr.remove(r.folds, r.removed)) {
+								const named = (model: LawModel) =>
+									defined(hiddenOf(model).get(kept), `the ${kept} fold's hidden accumulators`)
+								assert.deepEqual(
+									named(without),
+									named(both),
+									`the ${kept} fold's columns keep their names when the ${gone} fold goes`
+								)
+							}
 							const natives = new Set(
 								Arr.map(onRelation(both, "LawColumn", "Member"), (x) => x.column)
 							)
@@ -533,7 +560,7 @@ describe("a fold's natives are §2.3's: its copies on two axes, its combine and 
 			exhaust(
 				{
 					suite: "unit/laws/model/fold",
-					generator: element(shapes),
+					generator: shapeGen,
 					literal: Formatter.format,
 					/** The space: 15 (monoid, carrier) pairs, 3 family and accumulator shapes, and 2 step selections. */
 					limit: 90,

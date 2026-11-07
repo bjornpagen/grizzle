@@ -21,7 +21,7 @@ import { jsonText } from "#compiler/core/trusted.ts"
  * uuid); and the conditional aggregate's lowering, which reads numeric literal payloads. It prints one JSON line: every
  * resolution with the module that asked for it, every trapped call with its frame, and the line of the positive
  * control, which constructs and runs a RegExp from this file so the parent can tell a silent trap from a quiet
- * production path.
+ * production path. Each module's load is recorded apart: what it resolved and trapped while it loaded.
  */
 interface Trapped {
 	readonly kind: string
@@ -88,13 +88,21 @@ const lineHere = (): number => {
 	return line
 }
 
+/** Where one module named on the command line began loading: the counts of resolutions and trapped calls before it. */
+interface LoadStart {
+	readonly module: string
+	readonly resolvedFrom: number
+	readonly trappedFrom: number
+}
+
 /**
- * What a probe run records: every module URL Node resolves with its importer, and every trapped call with the frame that
- * made it.
+ * What a probe run records: every module URL Node resolves with its importer, every trapped call with the frame that
+ * made it, and where each module named on the command line began loading.
  */
 interface Recorder {
 	readonly resolved: Array<Resolution>
 	readonly trapped: Array<Trapped>
+	readonly loads: Array<LoadStart>
 	/** A trapped call is recorded with the module that made it; one only Node's own code made is no module's. */
 	readonly record: (kind: string, trap: (...args: never) => unknown) => void
 }
@@ -105,6 +113,7 @@ const recorder = (): Recorder => {
 	return {
 		resolved: [],
 		trapped,
+		loads: [],
 		record: (kind, trap) => {
 			const frame = callerFrame(trap)
 			if (Option.isSome(frame)) {
@@ -163,11 +172,35 @@ installTraps(run)
 const control: readonly [number, boolean] = [lineHere(), new RegExp("^a+$", "u").test("aa")]
 
 for (const module of modules) {
+	run.loads.push({ module, resolvedFrom: run.resolved.length, trappedFrom: run.trapped.length })
 	await import(pathToFileURL(`${root}/${module}`).href)
 }
 
 /** Trapped calls made before the drivers run come from loading; the drivers' own are counted after. */
 const loaded = run.trapped.length
+const loadedResolved = run.resolved.length
+
+/**
+ * What loading each module named on the command line resolved and trapped, in the order they loaded: a module already
+ * loaded by one before it resolves nothing again, so the loads together hold every module the entries reach.
+ */
+const loads: ReadonlyArray<
+	Readonly<{
+		module: string
+		resolved: ReadonlyArray<Resolution>
+		trapped: ReadonlyArray<Trapped>
+	}>
+> = Arr.map(run.loads, (start, i) => {
+	const next = run.loads[i + 1]
+	return {
+		module: start.module,
+		resolved: run.resolved.slice(
+			start.resolvedFrom,
+			next === undefined ? loadedResolved : next.resolvedFrom
+		),
+		trapped: run.trapped.slice(start.trappedFrom, next === undefined ? loaded : next.trappedFrom)
+	}
+})
 
 /**
  * The text pipeline, over every family pattern of the regex differential tests and a set of refused sources.
@@ -351,6 +384,11 @@ process.stdout.write(
 		protoAccessor: Object.getOwnPropertyDescriptor(Object.prototype, "__proto__") !== undefined,
 		resolved: Arr.map(run.resolved, (r) => ({ importer: r.importer, url: r.url })),
 		trapped: Arr.map(run.trapped, (t) => ({ kind: t.kind, frame: t.frame })),
+		loads: Arr.map(loads, (load) => ({
+			module: load.module,
+			resolved: Arr.map(load.resolved, (r) => ({ importer: r.importer, url: r.url })),
+			trapped: Arr.map(load.trapped, (t) => ({ kind: t.kind, frame: t.frame }))
+		})),
 		loadedTrapped: loaded,
 		admitted: admittedChecks.length,
 		checked: Arr.reduce(admittedChecks, 0, (n, checks) => n + checks.length),

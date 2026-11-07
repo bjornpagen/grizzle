@@ -1,9 +1,11 @@
 import { layer } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { noCoverage, requiredInSpace } from "@grizzle/testing/features"
-import { element } from "@grizzle/testing/gen"
+import { drawn, explore } from "@grizzle/testing/explore"
+import { noCoverage, required } from "@grizzle/testing/features"
+import { array, boolean, type Gen, int, subarray } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
+import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect } from "effect"
+import { Array as Arr, Effect, Formatter } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
 import { emptyCodebook } from "#compiler/ir/codes.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
@@ -37,15 +39,18 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * The Walks example through the optimized lowering on PostgreSQL 19 (V6).
  *
  * Walks is admitted with explicit casts and lowered by the optimized pipeline to WITH RECURSIVE ... UNION, at every
- * depth its counter bounds it to (hops < 4 from 0, and the same walk one hop longer); that it agrees with the reference
- * and the conservative lowering is also the graph suite's (graph/equivalence). Its plan has one Recursive Union and,
- * its seed and step being plain SELECTs and its consumer the complete state, no Unique or Aggregate node at all, where
- * the conservative plan deduplicates (the recursive UNION's hash is the only deduplication). A consumer that drops the
- * hop count deduplicates once, outside the recursion.
+ * depth its counter bounds it to; that it agrees with the reference and the conservative lowering is also the graph
+ * suite's (graph/equivalence). Its plan has one Recursive Union and, its seed and step being plain SELECTs and its
+ * consumer the complete state, no Unique or Aggregate node at all, where the conservative plan deduplicates (the
+ * recursive UNION's hash is the only deduplication). A consumer that drops the hop count deduplicates once, outside
+ * the recursion.
  *
- * The counter shapes past Walks's own (a union of arms bounded unequally, a between, swapped operands, a decreasing
- * counter, a step of two over two seeds) each lower to the recursive CTE and agree with the reference and the
- * conservative lowering.
+ * Counters past Walks's own each lower to the recursive CTE and agree with the reference and the conservative
+ * lowering: one or two seeds, and one or two arms, each forward or backward along a follow, counting up or down by one
+ * or two while a bound in the direction it counts holds, strict or not, its operands either way round, or a between.
+ *
+ * Every case draws its graph: up to six people, each ordered pair of them a follow or not, so diamonds, cycles,
+ * self-loops and dead ends arrive by several routes, and the person a walk starts from, now and then one past them.
  */
 
 /** The graph fixture's Network. */
@@ -86,12 +91,8 @@ const walksBelow = (name: string, limit: number) =>
 		]
 	})
 
-/** Walks: depth 4. LongWalks: one hop more. */
-const Walks = walksBelow("Walks", 4)
-const LongWalks = walksBelow("LongWalks", 5)
-
 /** The people a walk reaches, its hop count dropped. */
-const reachableBy = (walks: typeof Walks) =>
+const reachableBy = (walks: ReturnType<typeof walksBelow>) =>
 	query(Network).rule((r) => {
 		const source = walks.bind({ start: r.param("person", uuid) })
 		const { person } = v(source, "source")
@@ -101,18 +102,20 @@ const reachableBy = (walks: typeof Walks) =>
 const vertex = (i: number): Uuid => `00000000-0000-4000-8000-00000000000${i}`
 const vertexId = (i: number): TypedLiteral => ({ kind: "uuid", value: vertex(i) })
 
-/** 0 -> 1 -> 3, 0 -> 2 -> 3 (a diamond), 3 -> 4 -> 0 (a cycle), 4 -> 5 -> 5 (a self-loop), and 3 -> 6, a dead end. */
-const edges: ReadonlyArray<readonly [number, number]> = [
-	[0, 1],
-	[0, 2],
-	[1, 3],
-	[2, 3],
-	[3, 4],
-	[4, 0],
-	[4, 5],
-	[5, 5],
-	[3, 6]
-]
+/** A graph over the people 0 … n - 1, each ordered pair of them a follow or not. */
+interface Graph {
+	readonly people: number
+	readonly follows: ReadonlyArray<readonly [number, number]>
+}
+
+const graphGen: Gen<Graph> = (source) => {
+	const people = source.draw(int(1, 6))
+	const each = Arr.range(0, people - 1)
+	return {
+		people,
+		follows: source.draw(subarray(Arr.flatMap(each, (a) => Arr.map(each, (b) => [a, b] as const))))
+	}
+}
 
 const checked = checking(Network)
 
@@ -156,17 +159,20 @@ const row = (
 		return value
 	})
 
-const facts = {
-	Person: Arr.map([0, 1, 2, 3, 4, 5, 6], (i) =>
+const factsOf = (graph: Graph) => ({
+	Person: Arr.map(Arr.range(0, graph.people - 1), (i) =>
 		row("Person", { id: vertexId(i), name: { kind: "text", value: `p${i}` } })
 	),
-	Follows: Arr.map(edges, ([a, b]) => row("Follows", { from: vertexId(a), to: vertexId(b) }))
-}
+	Follows: Arr.map(graph.follows, ([a, b]) =>
+		row("Follows", { from: vertexId(a), to: vertexId(b) })
+	)
+})
 
 const caseOf = (
 	label: string,
 	q: unknown,
-	values: Readonly<Record<string, TypedLiteral>>
+	values: Readonly<Record<string, TypedLiteral>>,
+	graph: Graph
 ): LabelledCase => {
 	const desc = queryValueDesc(q)
 	if (desc === undefined) {
@@ -187,7 +193,7 @@ const caseOf = (
 	}
 	return {
 		schema: genSchema,
-		facts: canonicalFacts(facts),
+		facts: canonicalFacts(factsOf(graph)),
 		query: { dag, params },
 		spelling: { mode: "drawn", edge: false },
 		label
@@ -196,215 +202,242 @@ const caseOf = (
 
 const optimized = optimizedLowering("optimized")
 
-const walks = caseOf("Walks", Walks, { start: vertexId(0) })
-const longWalks = caseOf("LongWalks", LongWalks, { start: vertexId(0) })
-const reachable = caseOf("Reachable", reachableBy(Walks), { person: vertexId(0) })
-const longReachable = caseOf("LongReachable", reachableBy(LongWalks), { person: vertexId(0) })
+/** A walk: its bound, its graph, and the person it starts from, now and then one past the graph. */
+interface WalkSketch {
+	readonly bound: number
+	readonly graph: Graph
+	readonly start: number
+}
 
-/** A case that agreed with the reference, by its label. */
-type AgreedFeature = `agreed: ${string}`
+const walkGen: Gen<WalkSketch> = (source) => {
+	const graph = source.draw(graphGen)
+	return { bound: source.draw(int(1, 6)), graph, start: source.draw(int(0, graph.people)) }
+}
 
 const deduplicating = (nodes: ReadonlyArray<string>): number =>
 	Arr.filter(nodes, (n) => n === "Unique" || n === "Aggregate").length
 
+/** What the walks' search shares. */
+const walkSearch = {
+	draw: drawn(walkGen),
+	literal: Formatter.format,
+	kept: [],
+	runs: 12,
+	shrink: completeShrink,
+	concurrency: 1,
+	steerEvery: 16,
+	caseHang
+} as const
+
+type ReachedFeature = "reached people" | "reached nobody"
+
 layer(Substrate.layer)("the Walks example through the optimized lowering", (it) => {
-	it.effect("each walk's plan has one Recursive Union and no other deduplication (V6)", (ctx) => {
-		const walkCases: Arr.NonEmptyReadonlyArray<LabelledCase> = [walks, longWalks]
-		return searched(
+	it.effect("each walk's plan has one Recursive Union and no other deduplication (V6)", (ctx) =>
+		searched(
 			ctx,
-			exhaust(
+			explore(
 				{
+					...walkSearch,
 					suite: "recursion/lowering/walk-plans",
-					generator: element(walkCases),
-					literal: (c: LabelledCase) => c.label,
-					limit: walkCases.length,
-					coverage: noCoverage,
-					caseHang
+					oracle: {
+						kind: "postgresql",
+						name: "EXPLAIN's plan: one Recursive Union over one WorkTable Scan and no Unique or Aggregate, where the conservative plan deduplicates"
+					},
+					coverage: noCoverage
 				},
-				(c) =>
+				(k) =>
 					Effect.gen(function* () {
+						const c = caseOf(
+							"Walks",
+							walksBelow("Walks", k.bound),
+							{ start: vertexId(k.start) },
+							k.graph
+						)
 						const plan = yield* explainMain(c, optimized)
 						assert.equal(Arr.filter(plan.nodes, (n) => n === "Recursive Union").length, 1, plan.sql)
 						assert.equal(Arr.filter(plan.nodes, (n) => n === "WorkTable Scan").length, 1, plan.sql)
 						assert.equal(deduplicating(plan.nodes), 0, `${Arr.join(plan.nodes, ", ")}\n${plan.sql}`)
-						/** The conservative plan of the same query deduplicates the seed and the step itself. */
 						const baseline = yield* explainMain(c, conservative)
 						contains(baseline.nodes, "Recursive Union")
 						assert.ok(deduplicating(baseline.nodes) > 0, Arr.join(baseline.nodes, ", "))
 					})
 			)
 		)
-	})
+	)
 
-	it.effect("dropping the hop count deduplicates once, outside the recursion", (ctx) =>
-		searched(
-			ctx,
-			Effect.gen(function* () {
-				const s = yield* Substrate
-				const name = yield* s.schema({ create: false, label: "reachable" })
-				const reachables: Arr.NonEmptyReadonlyArray<LabelledCase> = [reachable, longReachable]
-				const agreed = yield* exhaust(
-					{
-						suite: "recursion/lowering/reachable",
-						generator: element(reachables),
-						literal: (c: LabelledCase) => c.label,
-						limit: reachables.length,
-						coverage: requiredInSpace<AgreedFeature>(
-							Arr.map(reachables, (c): AgreedFeature => `agreed: ${c.label}`)
-						),
-						caseHang
-					},
-					(c, k) =>
-						Effect.gen(function* () {
-							const outcome = yield* runLabelledOracle(c, optimized, reference, {
-								...defaultRunOptions,
-								schema: { kind: "named", name: name }
+	it.effect(
+		"dropping the hop count deduplicates once, outside the recursion, and agrees with the reference",
+		(ctx) =>
+			searched(
+				ctx,
+				Effect.gen(function* () {
+					const s = yield* Substrate
+					const name = yield* s.schema({ create: false, label: "reachable" })
+					return yield* explore(
+						{
+							...walkSearch,
+							suite: "recursion/lowering/reachable",
+							oracle: {
+								kind: "second-implementation",
+								name: "the reference evaluator over the same facts; EXPLAIN's plan, one Recursive Union and one deduplication"
+							},
+							coverage: required<ReachedFeature>(["reached people", "reached nobody"], {
+								cases: 24,
+								sense: notesOnly
 							})
-							assert.equal(outcome.comparison.equal, true, printOutcome(outcome))
-							k.note(`agreed: ${c.label}`)
-						})
-				)
-				const plan = yield* explainMain(longReachable, optimized)
-				assert.equal(Arr.filter(plan.nodes, (n) => n === "Recursive Union").length, 1)
-				assert.equal(deduplicating(plan.nodes), 1, `${Arr.join(plan.nodes, ", ")}\n${plan.sql}`)
-				return agreed
-			})
-		)
+						},
+						(k, c) =>
+							Effect.gen(function* () {
+								const reached = caseOf(
+									"Reachable",
+									reachableBy(walksBelow("Walks", k.bound)),
+									{ person: vertexId(k.start) },
+									k.graph
+								)
+								const outcome = yield* runLabelledOracle(reached, optimized, reference, {
+									...defaultRunOptions,
+									schema: { kind: "named", name: name }
+								})
+								assert.equal(outcome.comparison.equal, true, printOutcome(outcome))
+								const plan = yield* explainMain(reached, optimized)
+								assert.equal(Arr.filter(plan.nodes, (n) => n === "Recursive Union").length, 1)
+								assert.equal(
+									deduplicating(plan.nodes),
+									1,
+									`${Arr.join(plan.nodes, ", ")}\n${plan.sql}`
+								)
+								c.note(
+									Arr.some(outcome.left.run.statements, (st) => st.rows.length > 0)
+										? "reached people"
+										: "reached nobody"
+								)
+							})
+					)
+				})
+			)
 	)
 })
 
 /**
- * Counters past the Walks shape: a union of arms bounded unequally, a between, swapped operands,
- * a decreasing counter, and a step of two over two seeds. Each lowers to the recursive CTE, which must agree row for
- * row with the reference evaluator and the conservative lowering.
+ * Counters past the Walks shape: one or two seeds, and one or two arms, each forward or backward along a follow,
+ * counting up or down while a bound in the direction it counts holds. Each lowers to the recursive CTE, which must
+ * agree row for row with the reference evaluator and the conservative lowering.
  */
 type NetworkRule = Rule<typeof Network>
 /** The feedback of a counter: the person reached and the hop count. */
 type CounterSelf = SelfSource<{ readonly person: typeof uuid; readonly hops: typeof pg.integer }>
 type Hops = Term<number, unknown, unknown, "integer">
 
-/** A step's next count: integer arithmetic is exact, and the counter proof narrows it into the row's integer field. */
-type Next = Term<bigint, unknown, unknown, "exact integer">
+/** An integer literal of the counter's field. */
+const lit = (n: number) => Compute.literal(pg.integer, n)
 
-/** The step's direction: from the person reached along a follow, or back against one. */
-type Direction = "forward" | "backward"
+/**
+ * The bound an arm's filter states in the direction its step counts: below or at a limit counting up, above or at it
+ * counting down, its operands either way round; or a between.
+ */
+type Bound =
+	| Readonly<{ kind: "compare"; strict: boolean; swapped: boolean; limit: number }>
+	| Readonly<{ kind: "between"; low: number; high: number }>
 
-const step =
-	(
-		bound: (r: NetworkRule, hops: Hops) => Predicate,
-		direction: Direction,
-		next: (hops: Hops) => Next
-	) =>
-	(r: NetworkRule, self: CounterSelf) => {
-		const { person, hops } = v(self, "self")
-		const { from, to } = v(Follows, "follows")
-		return r
-			.match(self, { person, hops })
-			.match(Follows, direction === "backward" ? { from, to: person } : { from: person, to })
-			.where(bound(r, hops))
-			.find({ person: direction === "backward" ? from : to, hops: next(hops) })
+/** An arm: the direction it follows, its step, nonzero, and its bound. */
+interface Arm {
+	readonly backward: boolean
+	readonly step: number
+	readonly bound: Bound
+}
+
+interface CounterSketch {
+	readonly seeds: Arr.NonEmptyReadonlyArray<number>
+	readonly arms: Arr.NonEmptyReadonlyArray<Arm>
+	readonly graph: Graph
+	readonly start: number
+}
+
+const boundGen: Gen<Bound> = (source) => {
+	if (source.draw(boolean)) {
+		const low = source.draw(int(-1, 3))
+		return { kind: "between", low, high: low + source.draw(int(0, 3)) }
 	}
+	return {
+		kind: "compare",
+		strict: source.draw(boolean),
+		swapped: source.draw(boolean),
+		limit: source.draw(int(-1, 5))
+	}
+}
 
-const counter = (
-	name: string,
-	rec: ReadonlyArray<ReturnType<typeof step>>,
-	seeds: ReadonlyArray<number>
-): unknown =>
-	query(Network).recursive(name, {
+const armGen: Gen<Arm> = (source) => ({
+	backward: source.draw(boolean),
+	step: source.draw(boolean) ? source.draw(int(1, 2)) : -source.draw(int(1, 2)),
+	bound: source.draw(boundGen)
+})
+
+const counterGen: Gen<CounterSketch> = (source) => {
+	const graph = source.draw(graphGen)
+	return {
+		seeds: [source.draw(int(-2, 4)), ...source.draw(array(int(-2, 4), { min: 0, max: 1 }))],
+		arms: [source.draw(armGen), ...source.draw(array(armGen, { min: 0, max: 1 }))],
+		graph,
+		start: source.draw(int(0, graph.people))
+	}
+}
+
+/** An arm's filter: its bound over the hop count, in the direction its step counts. */
+const filterOf = (r: NetworkRule, hops: Hops, arm: Arm): Predicate => {
+	const { bound } = arm
+	if (bound.kind === "between") {
+		return r.between(hops, bound.low, bound.high)
+	}
+	const limit = bound.limit
+	if (arm.step > 0) {
+		if (bound.swapped) {
+			return bound.strict ? r.gt(lit(limit), hops) : r.ge(lit(limit), hops)
+		}
+		return bound.strict ? r.lt(hops, limit) : r.le(hops, limit)
+	}
+	if (bound.swapped) {
+		return bound.strict ? r.lt(lit(limit), hops) : r.le(lit(limit), hops)
+	}
+	return bound.strict ? r.gt(hops, limit) : r.ge(hops, limit)
+}
+
+const armOf = (arm: Arm) => (r: NetworkRule, self: CounterSelf) => {
+	const { person, hops } = v(self, "self")
+	const { from, to } = v(Follows, "follows")
+	return r
+		.match(self, { person, hops })
+		.match(Follows, arm.backward ? { from, to: person } : { from: person, to })
+		.where(filterOf(r, hops, arm))
+		.find({
+			person: arm.backward ? from : to,
+			hops: arm.step > 0 ? Compute.add(hops, lit(arm.step)) : Compute.sub(hops, lit(-arm.step))
+		})
+}
+
+const counterOf = (k: CounterSketch): unknown =>
+	query(Network).recursive("Counter", {
 		row: { person: uuid, hops: pg.integer },
-		base: Arr.map(seeds, (seed) => (r: NetworkRule) => {
+		base: Arr.map(k.seeds, (seed) => (r: NetworkRule) => {
 			const { id } = v(Person, "person")
 			return r
 				.match(Person, { id })
 				.where(r.eq(id, r.param("start", uuid)))
-				.find({ person: id, hops: Compute.literal(pg.integer, seed) })
+				.find({ person: id, hops: lit(seed) })
 		}),
-		rec: [...rec]
+		rec: Arr.map(k.arms, armOf)
 	})
 
-const plusOne = (hops: Hops) => Compute.add(hops, Compute.literal(pg.integer, 1))
-const minusOne = (hops: Hops) => Compute.sub(hops, Compute.literal(pg.integer, 1))
-const plusTwo = (hops: Hops) => Compute.add(hops, Compute.literal(pg.integer, 2))
-
-/** Each counter case. */
-interface Counter {
-	readonly label: string
-	readonly q: unknown
-}
-const counters: Arr.NonEmptyReadonlyArray<Counter> = [
-	{
-		/**
-		 * Forward from hops 0 and 1, backward from 0 through 3: the backward states at hops 3 and 4 are reached only
-		 * under the weaker arm's bound.
-		 */
-		label: "two arms bounded unequally",
-		q: counter(
-			"Both",
-			[
-				step((r, hops) => r.lt(hops, 2), "forward", plusOne),
-				step((r, hops) => r.lt(hops, 4), "backward", plusOne)
-			],
-			[0]
-		)
-	},
-	{
-		label: "two arms bounded unequally, the weaker first",
-		q: counter(
-			"Both",
-			[
-				step((r, hops) => r.lt(hops, 4), "backward", plusOne),
-				step((r, hops) => r.lt(hops, 2), "forward", plusOne)
-			],
-			[0]
-		)
-	},
-	{
-		label: "between 0 and 3",
-		q: counter("Between", [step((r, hops) => r.between(hops, 0, 3), "forward", plusOne)], [0])
-	},
-	{
-		label: "4 > hops",
-		q: counter(
-			"Swapped",
-			[step((r, hops) => r.gt(Compute.literal(pg.integer, 4), hops), "forward", plusOne)],
-			[0]
-		)
-	},
-	{
-		label: "a countdown from 3 while hops >= 1",
-		q: counter("Countdown", [step((r, hops) => r.ge(hops, 1), "forward", minusOne)], [3])
-	},
-	{
-		label: "a countdown from 3 while 1 <= hops",
-		q: counter(
-			"Countdown",
-			[step((r, hops) => r.le(Compute.literal(pg.integer, 1), hops), "forward", minusOne)],
-			[3]
-		)
-	},
-	{
-		label: "a countdown from 3 while 0 < hops",
-		q: counter(
-			"Countdown",
-			[step((r, hops) => r.lt(Compute.literal(pg.integer, 0), hops), "forward", minusOne)],
-			[3]
-		)
-	},
-	{
-		label: "a step of 2 from 0 and 2 while hops < 6",
-		q: counter("Strides", [step((r, hops) => r.lt(hops, 6), "forward", plusTwo)], [0, 2])
-	}
-]
-
-/** A counter with its oracle case. */
-interface CounterCase extends Counter {
-	readonly oracle: LabelledCase
-}
-
-const counterCases = Arr.map(counters, (c): CounterCase => ({
-	...c,
-	oracle: caseOf(c.label, c.q, { start: vertexId(0) })
-}))
+type CounterFeature =
+	| "counting up"
+	| "counting down"
+	| "arms counting both ways"
+	| "two seeds"
+	| "a stride of two"
+	| "a backward arm"
+	| "a between"
+	| "swapped operands"
+	| "a non-strict bound"
+	| "rows reached past a seed"
 
 layer(Substrate.layer)("counter shapes through the optimized lowering", (it) => {
 	it.effect(
@@ -420,37 +453,94 @@ layer(Substrate.layer)("counter shapes through the optimized lowering", (it) => 
 						localVectorSchema,
 						emptyCodebook
 					)
-					return yield* exhaust(
+					const name = yield* s.schema({ create: false, label: "counters" })
+					return yield* explore(
 						{
 							suite: "recursion/lowering/counters",
-							generator: element(counterCases),
-							literal: (c: CounterCase) => c.label,
-							limit: counterCases.length,
-							coverage: requiredInSpace<AgreedFeature>(
-								Arr.map(counterCases, (c): AgreedFeature => `agreed: ${c.label}`)
+							draw: drawn(counterGen),
+							literal: Formatter.format,
+							oracle: {
+								kind: "second-implementation",
+								name: "the reference evaluator and the conservative lowering over the same facts"
+							},
+							coverage: required<CounterFeature>(
+								[
+									"counting up",
+									"counting down",
+									"arms counting both ways",
+									"two seeds",
+									"a stride of two",
+									"a backward arm",
+									"a between",
+									"swapped operands",
+									"a non-strict bound",
+									"rows reached past a seed"
+								],
+								{ cases: 48, sense: notesOnly }
 							),
+							kept: [],
+							runs: 24,
+							shrink: completeShrink,
+							concurrency: 1,
+							steerEvery: 16,
 							caseHang
 						},
-						(c, k) =>
+						(k, c) =>
 							Effect.gen(function* () {
-								const u = lowerCase(c.oracle, names)
+								const counted = caseOf(
+									"Counter",
+									counterOf(k),
+									{ start: vertexId(k.start) },
+									k.graph
+								)
+								const u = lowerCase(counted, names)
 								if (!u.ok) {
-									throw new Error(`${c.label}: ${u.error.message}`)
+									return assert.fail(`the counter is refused: ${u.error.message}`)
 								}
 								const statement = flight(u.value.roots)[0]
-								assert.equal(featureCount(shapeOf(statement.ast), "with recursive"), 1, c.label)
-								const name = yield* s.schema({ create: false, label: "counters" })
-								const outcome = yield* runLabelledOracle(c.oracle, optimized, reference, {
+								assert.equal(featureCount(shapeOf(statement.ast), "with recursive"), 1)
+								const outcome = yield* runLabelledOracle(counted, optimized, reference, {
 									...defaultRunOptions,
 									schema: { kind: "named", name: name }
 								})
 								assert.equal(outcome.comparison.equal, true, printOutcome(outcome))
-								const against = yield* runLabelledOracle(c.oracle, optimized, conservative, {
+								const against = yield* runLabelledOracle(counted, optimized, conservative, {
 									...defaultRunOptions,
 									schema: { kind: "named", name: name }
 								})
 								assert.equal(against.comparison.equal, true, printOutcome(against))
-								k.note(`agreed: ${c.label}`)
+								const up = Arr.some(k.arms, (arm) => arm.step > 0)
+								const down = Arr.some(k.arms, (arm) => arm.step < 0)
+								c.note(up ? "counting up" : "counting down")
+								if (up && down) {
+									c.note("arms counting both ways")
+								}
+								if (k.seeds.length > 1) {
+									c.note("two seeds")
+								}
+								if (Arr.some(k.arms, (arm) => Math.abs(arm.step) > 1)) {
+									c.note("a stride of two")
+								}
+								if (Arr.some(k.arms, (arm) => arm.backward)) {
+									c.note("a backward arm")
+								}
+								for (const { bound } of k.arms) {
+									if (bound.kind === "between") {
+										c.note("a between")
+									} else {
+										if (bound.swapped) {
+											c.note("swapped operands")
+										}
+										if (!bound.strict) {
+											c.note("a non-strict bound")
+										}
+									}
+								}
+								if (
+									Arr.some(outcome.left.run.statements, (st) => st.rows.length > k.seeds.length)
+								) {
+									c.note("rows reached past a seed")
+								}
 							})
 					)
 				})

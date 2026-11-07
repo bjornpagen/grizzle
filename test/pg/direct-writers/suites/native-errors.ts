@@ -1,17 +1,17 @@
 import { layer } from "@effect/vitest"
-import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { required, requiredInSpace } from "@grizzle/testing/features"
-import { array, element, type Gen, int, oneOf } from "@grizzle/testing/gen"
+import { drawn, explore } from "@grizzle/testing/explore"
+import { required } from "@grizzle/testing/features"
+import { array, boolean, element, type Gen, int, oneOf } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Option, Result } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Record, Result } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { ConstraintName, LawId } from "#compiler/core/ids.ts"
 import { type ConstraintOwner, constraintLaw } from "#compiler/ir/products.ts"
+import { quoteIdent, quoteString } from "#compiler/sql/print.ts"
 import {
 	Account,
-	auditor,
 	DeskReports,
 	DistinctPair,
 	desk,
@@ -20,7 +20,7 @@ import {
 	writer
 } from "#test/pg/direct-writers/schema.ts"
 import { bareFixture, type Fixture, failure, openFixture } from "#test/pg/e2e-laws/support.ts"
-import { assert, unorderedEqual } from "#test/support/assert.ts"
+import { assert, defined, nonEmpty, unorderedEqual } from "#test/support/assert.ts"
 import { lawIdOf, lawNamesOf, namesOf, parsedName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { elementAt } from "#test/support/oracle/pick.ts"
@@ -74,10 +74,44 @@ const insertGen: Gen<Insert> = oneOf<Insert>([
 	(source) => ({ into: "Entry", id: source.draw(int(10, 12)), amount: source.draw(int(-2, 5)) })
 ])
 
-/** The writes a derived relation refuses a role that may only read it. */
-type DerivedWrite = "INSERT" | "UPDATE" | "DELETE"
+/** A write of the derived relation, as a direct SQL writer would send it: drawn rows, a drawn column and filters. */
+type DerivedWrite =
+	| {
+			readonly kind: "INSERT"
+			readonly rows: Arr.NonEmptyReadonlyArray<readonly [account: number, entries: number]>
+	  }
+	| {
+			readonly kind: "UPDATE"
+			readonly column: DerivedColumn
+			readonly value: number
+			readonly where: Option.Option<number>
+	  }
+	| { readonly kind: "DELETE"; readonly where: Option.Option<number> }
 
-const derivedWrites: Arr.NonEmptyReadonlyArray<DerivedWrite> = ["INSERT", "UPDATE", "DELETE"]
+/** The derived relation's columns: its definition's heading. */
+type DerivedColumn = "account" | "entries"
+
+const derivedRowGen: Gen<readonly [number, number]> = (source) => [
+	source.draw(int(0, 2)),
+	source.draw(int(0, 2))
+]
+
+const whereGen: Gen<Option.Option<number>> = (source) =>
+	source.draw(boolean) ? Option.some(source.draw(int(0, 2))) : Option.none()
+
+const derivedWriteGen: Gen<DerivedWrite> = oneOf<DerivedWrite>([
+	(source) => ({
+		kind: "INSERT",
+		rows: [source.draw(derivedRowGen), ...source.draw(array(derivedRowGen, { min: 0, max: 1 }))]
+	}),
+	(source) => ({
+		kind: "UPDATE",
+		column: source.draw(element(["account", "entries"] as const)),
+		value: source.draw(int(0, 2)),
+		where: source.draw(whereGen)
+	}),
+	(source) => ({ kind: "DELETE", where: source.draw(whereGen) })
+])
 
 /** The refusal the model names, or the state it commits. */
 type Prediction =
@@ -119,8 +153,10 @@ type NativeFeature =
  *   stored account, so a negative one, the contract's refusal, is too, and ids that may repeat a stored or an earlier
  *   one), against a model that names the first refusal in the order PostgreSQL meets them (a domain's CHECK as the
  *   value is coerced, then the row's CHECK, then the key's unique index, 23505), or commits its state;
- * - a write to a derived relation is refused by privilege, 42501, for an INSERT, an UPDATE and a DELETE by a role
- *   that may only read it (one rule, no generator writes a derived relation directly).
+ * - a write to a derived relation is refused by privilege, 42501: a property over drawn INSERTs, UPDATEs and DELETEs
+ *   of it (rows, a column and a filter drawn) sent by each role of the login, the one that reads it and the one that
+ *   holds none of it, against PostgreSQL's own privilege check: no role holds the write's privilege on the derived
+ *   relation (has_table_privilege), which no generator writes directly.
  *
  * The contract's CHECK is the one the installation names for it.
  */
@@ -320,41 +356,85 @@ export const nativeErrorsSuite = (): void =>
 			)
 
 			it.effect(
-				"a write to a derived relation is refused by privilege to a role that reads it",
+				"every direct write to a derived relation is refused by privilege, whichever role of the login sends it",
 				(ctx) =>
 					searched(
 						ctx,
 						Effect.gen(function* () {
 							const f = yield* open()
-							const reader = yield* f.psql(auditor)
+							const roles = nonEmpty(
+								Arr.map(Record.values(desk.roles), (held) => held.role),
+								"desk's roles"
+							)
+							const opened = yield* Effect.forEach(roles, (r) =>
+								Effect.map(f.psql(r), (psql) => [r, psql] as const)
+							)
+							const writers = new Map(opened)
 							const view = f.t(identifierOf(identity.view(parsedName("AccountEntries"))))
+							const column = (field: DerivedColumn): string =>
+								quoteIdent(identifierOf(identity.column(parsedName(field))))
+							const filter = (where: Option.Option<number>): string =>
+								Option.match(where, {
+									onNone: () => "",
+									onSome: (n) => ` WHERE ${column("account")} = ${n}`
+								})
 							const statementOf = (write: DerivedWrite): string => {
-								switch (write) {
+								switch (write.kind) {
 									case "INSERT":
-										return `INSERT INTO ${view} VALUES (1, 1)`
+										return `INSERT INTO ${view} (${column("account")}, ${column("entries")}) VALUES ${Arr.join(
+											Arr.map(write.rows, ([account, entries]) => `(${account}, ${entries})`),
+											", "
+										)}`
 									case "UPDATE":
-										return `UPDATE ${view} SET "entries" = 0`
+										return `UPDATE ${view} SET ${column(write.column)} = ${write.value}${filter(write.where)}`
 									case "DELETE":
-										return `DELETE FROM ${view}`
+										return `DELETE FROM ${view}${filter(write.where)}`
 								}
 							}
-							return yield* exhaust(
+							const roleGen = element(roles)
+							return yield* explore(
 								{
 									suite: "direct-writers/derived-writes",
-									generator: element(derivedWrites),
-									literal: Formatter.format,
-									limit: derivedWrites.length,
-									coverage: requiredInSpace<`${DerivedWrite} refused by privilege`>(
-										Arr.map(derivedWrites, (write) => `${write} refused by privilege` as const)
+									draw: drawn((source) => ({
+										role: source.draw(roleGen),
+										write: source.draw(derivedWriteGen)
+									})),
+									literal: ({ role: r, write }) => `${r.name}: ${Formatter.format(write)}`,
+									oracle: {
+										kind: "postgresql",
+										name: "the role holds no privilege of the write on the derived relation (has_table_privilege), so PostgreSQL refuses it with 42501"
+									},
+									coverage: required<`${DerivedWrite["kind"]} refused by privilege`>(
+										[
+											"INSERT refused by privilege",
+											"UPDATE refused by privilege",
+											"DELETE refused by privilege"
+										],
+										{ cases: 24, sense: notesOnly }
 									),
+									kept: [],
+									runs: 24,
+									shrink: completeShrink,
+									concurrency: 1,
+									steerEvery: 8,
 									caseHang
 								},
-								(write, c) =>
+								({ role: r, write }, c) =>
 									Effect.gen(function* () {
+										const roleName = f.installed.role(r)
+										const held = yield* f.rows(
+											`SELECT pg_catalog.has_table_privilege(${quoteString(roleName)}, ${quoteString(view)}, ${quoteString(write.kind)})::text`
+										)
+										assert.deepEqual(
+											held,
+											[["false"]],
+											`${roleName} holds no ${write.kind} on the derived relation`
+										)
 										const statement = statementOf(write)
-										const refused = yield* failure(reader.run(statement))
+										const psql = defined(writers.get(r), `the psql child of ${r.name}`)
+										const refused = yield* failure(psql.run(statement))
 										assert.equal(refused.code, "42501", statement)
-										c.note(`${write} refused by privilege`)
+										c.note(`${write.kind} refused by privilege`)
 									})
 							)
 						}).pipe(Effect.scoped)

@@ -34,7 +34,7 @@ import {
 } from "@grizzle/testing/commands"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
 import { required, requiredInSpace } from "@grizzle/testing/features"
-import { element, type Gen, int, shuffled } from "@grizzle/testing/gen"
+import { boolean, element, type Gen, int, shuffled } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import type { Swarm } from "@grizzle/testing/swarm"
@@ -49,7 +49,6 @@ import {
 	Record as Rec,
 	String as Str
 } from "effect"
-import { planIndexNames, planNodeTypes } from "#bench/harness/explain.ts"
 import { appendAll, indices } from "#compiler/core/array.ts"
 import { quoteString } from "#compiler/sql/print.ts"
 import {
@@ -71,7 +70,7 @@ import {
 	storedOfRows,
 	writeOf
 } from "#test/pg/substrate/fin.ts"
-import { assert, deepEquals, defined, lacks, nonEmpty } from "#test/support/assert.ts"
+import { assert, deepEquals, defined, nonEmpty } from "#test/support/assert.ts"
 import {
 	BREAKING_FORMS,
 	type Form,
@@ -669,118 +668,93 @@ const cycleStatements = (c: CycleCase): ReadonlyArray<Mutation> => {
 	}
 }
 
-/** The RI measurement's load: owners 1 to 2,000, each with three rows, and the hundred owners each step touches. */
+/** The RI measurement's load: owners 1 to 2,000, each with three rows, and the most owners a write touches. */
 const riLoad = { owners: 2000, slots: 3, touched: 100 } as const
 
-/** The names an RI probe's SQL reads, in the seat's schema. */
+/** The names an RI write's SQL reads, in the seat's schema. */
 interface RiNames {
 	readonly owner: string
 	readonly fam: string
-	readonly natural: string
 }
 
-/** The owners from `from`, a hundred of them, as an int4 array. */
-const touchedOwners = (from: number): string =>
-	`ARRAY(SELECT pg_catalog.generate_series(${from}, ${from + riLoad.touched - 1}))`
-
-/** The members of the touched owners from `from` whose index satisfies `at`, as an int4 array. */
-const touchedMembers = (from: number, at: string): string =>
-	`ARRAY(SELECT o * ${riLoad.slots} + a FROM pg_catalog.generate_series(${from}, ${from + riLoad.touched - 1}) AS o, pg_catalog.generate_series(0, ${riLoad.slots - 1}) AS a WHERE ${at})`
-
 /**
- * What PostgreSQL's referential integrity asks of the family (utils/adt/ri_triggers.c), each a probe in a transaction of
- * its own over the committed load:
+ * A write over the committed load, of a run of `count` owners from `from`, which fires PostgreSQL's referential
+ * integrity against the family (utils/adt/ri_triggers.c), its saved plans custom or forced generic:
  *
- * - `scans` runs its statements before, then one statement, and counts the scans that one makes of fam's heap and of fam_key in the transaction
- *   (pg_stat_get_xact_numscans): the count's cascade, one `UPDATE ONLY fam SET g, copy WHERE g = $ AND copy = $` per
- *   owner; the closure's NO ACTION check on each deleted row, which first looks for a row that still holds its key
- *   (ri_Check_Pk_Match, `… WHERE g = $ AND at = $`) and then for a row that references it (`SELECT 1 FROM ONLY fam WHERE
- *   g = $ AND p = $ FOR KEY SHARE`), two queries a row; and the copy's NO ACTION check on each deleted owner, whose key
- *   match reads the owner and whose reference query (`… WHERE g = $ AND copy = $`) reads the family. Each statement
- *   finds its own rows by a primary key, never by (g, at), so every scan of fam_key is an RI query's;
- * - `plan` prepares the text ri_triggers.c builds for one RI query, with the referenced columns' types (ri_PlanCheck),
- *   and reads the generic plan a saved RI plan settles on once its custom plans stop being cheaper.
+ * - `count`: each owner's count grows by one, which the copy's foreign key cascades, one `UPDATE ONLY fam SET g, copy
+ *   WHERE g = $ AND copy = $` per owner;
+ * - `rows`: each owner's rows from slot `slot` on are deleted, a suffix, so the closure holds; the closure's NO ACTION
+ *   check on each deleted row first looks for a row that still holds its key (ri_Check_Pk_Match, `… WHERE g = $ AND at
+ *   = $`) and then for a row that references it (`SELECT 1 FROM ONLY fam WHERE g = $ AND p = $ FOR KEY SHARE`), two
+ *   queries a row;
+ * - `owners`: each owner's rows are deleted first, then the owners, whose copy's NO ACTION check per owner reads the
+ *   owner by its key and the family by `… WHERE g = $ AND copy = $`, one query of the family an owner.
+ *
+ * Each statement finds its own rows by a primary key, never by (g, at), so every scan of fam_key is an RI query's.
  */
-type RiProbe =
-	| {
-			readonly kind: "scans"
-			readonly name: RiFeature
-			readonly before: (names: RiNames) => ReadonlyArray<string>
-			readonly sql: (names: RiNames) => string
-			readonly queries: number
-	  }
-	| {
-			readonly kind: "plan"
-			readonly name: RiFeature
-			readonly types: (names: RiNames) => ReadonlyArray<string>
-			readonly sql: (names: RiNames) => string
-			readonly values: string
-	  }
+type RiWrite = Readonly<{
+	kind: "count" | "rows" | "owners"
+	from: number
+	count: number
+	slot: number
+	generic: boolean
+}>
 
-type RiFeature =
-	| "the count's cascade"
-	| "the closure's check on deleted last rows"
-	| "the closure's check on deleted families"
-	| "the copy's check on deleted owners"
-	| "the cascade's generic plan"
-	| "the copy check's generic plan"
-	| "the closure check's generic plan"
-
-const RI_PROBES: Arr.NonEmptyReadonlyArray<RiProbe> = [
-	{
-		kind: "scans",
-		name: "the count's cascade",
-		before: () => [],
-		sql: (n) => `UPDATE ${n.owner} SET n = n + 1 WHERE id = ANY (${touchedOwners(1)})`,
-		queries: riLoad.touched
-	},
-	{
-		kind: "scans",
-		name: "the closure's check on deleted last rows",
-		before: () => [],
-		sql: (n) =>
-			`DELETE FROM ${n.fam} WHERE member = ANY (${touchedMembers(1, `a = ${riLoad.slots - 1}`)})`,
-		queries: 2 * riLoad.touched
-	},
-	{
-		kind: "scans",
-		name: "the closure's check on deleted families",
-		before: () => [],
-		sql: (n) => `DELETE FROM ${n.fam} WHERE member = ANY (${touchedMembers(1, "true")})`,
-		queries: 2 * riLoad.touched * riLoad.slots
-	},
-	{
-		kind: "scans",
-		name: "the copy's check on deleted owners",
-		before: (n) => [`DELETE FROM ${n.fam} WHERE member = ANY (${touchedMembers(1, "true")})`],
-		sql: (n) => `DELETE FROM ${n.owner} WHERE id = ANY (${touchedOwners(1)})`,
-		queries: riLoad.touched
-	},
-	{
-		kind: "plan",
-		name: "the cascade's generic plan",
-		types: (n) => ["int4", n.natural, "int4", n.natural],
-		sql: (n) =>
-			`UPDATE ONLY ${n.fam} SET "g" = $1, "copy" = $2 WHERE $3 OPERATOR(pg_catalog.=) "g" AND $4::pg_catalog.int8 OPERATOR(pg_catalog.=) "copy"`,
-		values: "1, 3, 1, 3"
-	},
-	{
-		kind: "plan",
-		name: "the copy check's generic plan",
-		types: (n) => ["int4", n.natural],
-		sql: (n) =>
-			`SELECT 1 FROM ONLY ${n.fam} x WHERE $1 OPERATOR(pg_catalog.=) "g" AND $2::pg_catalog.int8 OPERATOR(pg_catalog.=) "copy" FOR KEY SHARE OF x`,
-		values: "1, 3"
-	},
-	{
-		kind: "plan",
-		name: "the closure check's generic plan",
-		types: (n) => ["int4", n.natural],
-		sql: (n) =>
-			`SELECT 1 FROM ONLY ${n.fam} x WHERE $1 OPERATOR(pg_catalog.=) "g" AND $2::pg_catalog.int8 OPERATOR(pg_catalog.=) "p" FOR KEY SHARE OF x`,
-		values: "1, 1"
+const riWriteGen: Gen<RiWrite> = (source) => {
+	const count = source.draw(int(1, riLoad.touched))
+	return {
+		kind: source.draw(element(["count", "rows", "owners"] as const)),
+		from: source.draw(int(1, riLoad.owners - count + 1)),
+		count,
+		slot: source.draw(int(0, riLoad.slots - 1)),
+		generic: source.draw(boolean)
 	}
-]
+}
+
+/** The owners a write touches, as an int4 array. */
+const touchedOwners = (w: RiWrite): string =>
+	`ARRAY(SELECT pg_catalog.generate_series(${w.from}, ${w.from + w.count - 1}))`
+
+/** The members of the owners a write touches from slot `slot` on, as an int4 array. */
+const touchedMembers = (w: RiWrite, slot: number): string =>
+	`ARRAY(SELECT o * ${riLoad.slots} + a FROM pg_catalog.generate_series(${w.from}, ${w.from + w.count - 1}) AS o, pg_catalog.generate_series(${slot}, ${riLoad.slots - 1}) AS a)`
+
+/** The statements before the measured one, and the measured one. */
+const riStatements = (
+	w: RiWrite,
+	n: RiNames
+): Readonly<{ before: ReadonlyArray<string>; measured: string }> => {
+	switch (w.kind) {
+		case "count":
+			return {
+				before: [],
+				measured: `UPDATE ${n.owner} SET n = n + 1 WHERE id = ANY (${touchedOwners(w)})`
+			}
+		case "rows":
+			return {
+				before: [],
+				measured: `DELETE FROM ${n.fam} WHERE member = ANY (${touchedMembers(w, w.slot)})`
+			}
+		case "owners":
+			return {
+				before: [`DELETE FROM ${n.fam} WHERE member = ANY (${touchedMembers(w, 0)})`],
+				measured: `DELETE FROM ${n.owner} WHERE id = ANY (${touchedOwners(w)})`
+			}
+	}
+}
+
+/** The RI queries of the family a write's measured statement makes: one per owner, or two per deleted row. */
+const riQueries = (w: RiWrite): number => {
+	switch (w.kind) {
+		case "count":
+		case "owners":
+			return w.count
+		case "rows":
+			return 2 * w.count * (riLoad.slots - w.slot)
+	}
+}
+
+type RiFeature = `${RiWrite["kind"]}, ${"custom" | "generic"} plans`
 
 /**
  * A refusal of the program search, named by its moment: at a statement of the transaction by its index, or at commit.
@@ -1151,7 +1125,7 @@ layer(Substrate.layer)("the fin lemmas of fin.md §5.2 on PostgreSQL 19rc1", (it
 			)
 	)
 	it.effect(
-		"run every referential-integrity query against the family by the g prefix of UNIQUE (g, at), with no sequential scan",
+		"run every referential-integrity query against the family by the g prefix of UNIQUE (g, at), with no sequential scan, its saved plans custom or generic",
 		(ctx) =>
 			searched(
 				ctx,
@@ -1161,10 +1135,9 @@ layer(Substrate.layer)("the fin lemmas of fin.md §5.2 on PostgreSQL 19rc1", (it
 						seatsOf({ ordered: rfc("mirrors", "ordered") }),
 						nonEmpty
 					)
-					const names = {
+					const names: RiNames = {
 						owner: qualified(seat.schema, "owner"),
-						fam: qualified(seat.schema, "fam"),
-						natural: qualified(seat.schema, "natural")
+						fam: qualified(seat.schema, "fam")
 					}
 					const loaded = yield* attempt(seat.session, [
 						`INSERT INTO ${names.owner} (id, n) SELECT o, ${riLoad.slots} FROM pg_catalog.generate_series(1, ${riLoad.owners}) AS o`,
@@ -1186,61 +1159,59 @@ layer(Substrate.layer)("the fin lemmas of fin.md §5.2 on PostgreSQL 19rc1", (it
 						),
 						(rows) => Arr.map(defined(rows[0]), Number)
 					)
-					return yield* exhaust(
+					return yield* explore(
 						{
 							suite: "substrate/fin-ri-prefix",
-							generator: element<RiProbe>(RI_PROBES),
-							literal: (probe) => probe.name,
-							limit: RI_PROBES.length,
-							coverage: requiredInSpace<RiFeature>(Arr.map(RI_PROBES, (p) => p.name)),
+							draw: drawn(riWriteGen),
+							literal: Formatter.format,
+							oracle: {
+								kind: "second-implementation",
+								name: "the RI queries ri_triggers.c makes of the family per touched owner or deleted row, counted against PostgreSQL's scans of fam and fam_key"
+							},
+							coverage: required<RiFeature>(
+								nonEmpty(
+									Arr.flatMap(["count", "rows", "owners"] as const, (kind) =>
+										Arr.map(
+											["custom", "generic"] as const,
+											(mode): RiFeature => `${kind}, ${mode} plans`
+										)
+									)
+								),
+								{ cases: 24, sense: notesOnly }
+							),
+							kept: [],
+							runs: 16,
+							shrink: completeShrink,
+							concurrency: 1,
+							steerEvery: 16,
 							caseHang
 						},
-						(probe, c) =>
+						(w, c) =>
 							Effect.gen(function* () {
+								const { before, measured } = riStatements(w, names)
 								yield* seat.session.begin
-								switch (probe.kind) {
-									case "scans": {
-										for (const statement of probe.before(names)) {
-											yield* seat.session.query(statement, [])
-										}
-										const [heapBefore, keyBefore] = yield* scans
-										yield* seat.session.query(probe.sql(names), [])
-										const [heapAfter, keyAfter] = yield* scans
-										assert.equal(
-											defined(heapAfter) - defined(heapBefore),
-											0,
-											`${probe.name} scans the family sequentially`
-										)
-										assert.equal(
-											defined(keyAfter) - defined(keyBefore),
-											probe.queries,
-											`${probe.name} scans fam_key once per RI query`
-										)
-										break
-									}
-									case "plan": {
-										yield* seat.session.query("SET LOCAL plan_cache_mode = force_generic_plan", [])
-										yield* seat.session.query(
-											`PREPARE ri (${Arr.join(probe.types(names), ", ")}) AS ${probe.sql(names)}`,
-											[]
-										)
-										const [[plan] = []] = yield* seat.session.values(
-											`EXPLAIN (COSTS OFF, FORMAT JSON) EXECUTE ri (${probe.values})`,
-											[]
-										)
-										yield* seat.session.query("DEALLOCATE ri", [])
-										assert.deepEqual(
-											planIndexNames(plan),
-											["fam_key"],
-											`the generic plan of ${probe.name}`
-										)
-										lacks(planNodeTypes(plan), "Seq Scan")
-										break
-									}
+								if (w.generic) {
+									yield* seat.session.query("SET LOCAL plan_cache_mode = force_generic_plan", [])
 								}
+								for (const statement of before) {
+									yield* seat.session.query(statement, [])
+								}
+								const [heapBefore, keyBefore] = yield* scans
+								yield* seat.session.query(measured, [])
+								const [heapAfter, keyAfter] = yield* scans
 								yield* seat.session.rollback
 								yield* seat.session.resetStatements
-								c.note(probe.name)
+								assert.equal(
+									defined(heapAfter) - defined(heapBefore),
+									0,
+									`${w.kind} scans the family sequentially`
+								)
+								assert.equal(
+									defined(keyAfter) - defined(keyBefore),
+									riQueries(w),
+									`${w.kind} scans fam_key once per RI query`
+								)
+								c.note(`${w.kind}, ${w.generic ? "generic" : "custom"} plans`)
 							})
 					)
 				})

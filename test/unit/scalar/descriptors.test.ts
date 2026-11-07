@@ -1,7 +1,16 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
 import { noCoverage, required, requiredInSpace } from "@grizzle/testing/features"
-import { element, int, map, oneOf, uniqueArray } from "@grizzle/testing/gen"
+import {
+	array,
+	constant,
+	type Gen,
+	int,
+	oneOf,
+	option,
+	uniqueArray,
+	weighted
+} from "@grizzle/testing/gen"
 import {
 	type Broken,
 	corrupted,
@@ -12,15 +21,18 @@ import {
 	type DrawnFeature,
 	lsw,
 	passed,
-	WILD_KINDS
+	WILD_KINDS,
+	wild
 } from "@grizzle/testing/lsw"
 import { matching } from "@grizzle/testing/pattern"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
+import { regex } from "arkregex"
 import { Array as Arr, Effect, Formatter, Option, Record } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
+import { binary64Precision } from "#compiler/ir/carriers.ts"
 import { decodeDesc, type FieldDesc } from "#compiler/ir/desc.ts"
 import { decodeScalarType } from "#compiler/ir/scalar-shape.ts"
 import { numericMaxPrecision, numericMaxScale, numericMinScale } from "#compiler/ir/scalar.ts"
@@ -32,33 +44,28 @@ import {
 	spanOf
 } from "#compiler/ir/scalar.ts"
 import { admittedClosedId } from "#compiler/scalar/closed-id.ts"
-import type { ScalarTerm } from "#compiler/scalar/compute/term.ts"
 import { pgDescriptors } from "#compiler/scalar/pg.ts"
 import { carrierSql, type Described, describeField } from "#compiler/scalar/registry.ts"
-import { bigserial, serial, smallserial } from "#compiler/scalar/serial.ts"
-import { uuidDescriptor } from "#compiler/scalar/uuid.ts"
 import { checkNumericTypmod } from "#compiler/scalar/values/decimal.ts"
 import { admitVectorDimensions } from "#compiler/scalar/vector.ts"
 import { closed } from "#compiler/schema/api.ts"
 import { writingOf } from "#compiler/schema/relation.ts"
-import {
-	assert,
-	containsText,
-	defined,
-	nonEmpty,
-	succeeded,
-	throwsRefused
-} from "#test/support/assert.ts"
-import {
-	contractDescriptor,
-	fieldIdentity,
-	spanDescriptor
-} from "#test/support/fixtures/descriptors.ts"
+import { assert, defined, nonEmpty, succeeded, throwsRefused } from "#test/support/assert.ts"
+import { fieldIdentity, spanDescriptor } from "#test/support/fixtures/descriptors.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
-
-import { regex } from "arkregex"
 import { argumentsOf } from "#test/support/list.ts"
+import {
+	type DescriptorSketch,
+	descriptorGen,
+	descriptorOf,
+	endpointGen,
+	isSerial,
+	spanCarrierOf,
+	spellings,
+	typeKeyOf
+} from "#test/unit/scalar/support.ts"
+
 /** Every object's keys in order, at every depth. */
 const keyOrder = (value: unknown): unknown =>
 	Arr.isArray(value)
@@ -73,200 +80,175 @@ const descOf = (value: unknown): FieldDesc => described(value).desc
 const scalarOf = (value: unknown): ScalarType => described(value).scalar
 const identityOf = (value: unknown): string => succeeded(fieldIdentity(value))
 
-/** Every spelling of one PostgreSQL type, canonical name first. */
-const aliasGroups = [
-	["smallint", [pgDescriptors.smallint, pgDescriptors.int2]],
-	["integer", [pgDescriptors.integer, pgDescriptors.int, pgDescriptors.int4]],
-	["bigint", [pgDescriptors.bigint, pgDescriptors.int8]],
+/**
+ * The namespace's descriptors of no typmod: every spelling that is a descriptor itself, and float(p) at every binary
+ * precision PostgreSQL admits.
+ */
+const plainSketches: Arr.NonEmptyReadonlyArray<DescriptorSketch> = nonEmpty(
 	[
-		"real",
-		[pgDescriptors.real, pgDescriptors.float4, ...Arr.makeBy(24, (i) => pgDescriptors.float(i + 1))]
+		...Arr.map(spellings, (name): DescriptorSketch => ({ kind: "spelling", name })),
+		...Arr.map(Arr.range(1, binary64Precision.value), (precision): DescriptorSketch => ({
+			kind: "float",
+			precision
+		}))
 	],
-	[
-		"double precision",
-		[
-			pgDescriptors["double precision"],
-			pgDescriptors.float8,
-			pgDescriptors.float,
-			...Arr.makeBy(29, (i) => pgDescriptors.float(i + 25))
-		]
-	],
-	["boolean", [pgDescriptors.boolean, pgDescriptors.bool]],
-	["smallserial", [pgDescriptors.smallserial, pgDescriptors.serial2, smallserial]],
-	["serial", [pgDescriptors.serial, pgDescriptors.serial4, serial]],
-	["bigserial", [pgDescriptors.bigserial, pgDescriptors.serial8, bigserial]]
-] as const satisfies ReadonlyArray<readonly [string, ReadonlyArray<unknown>]>
+	"the plain descriptors"
+)
+
+/** What two descriptors of the namespace came to. */
+type AliasFeature = "one value, two spellings" | "one type, two writings" | "two types"
+
+/** What two drawn descriptors came to. */
+type TypeFeature = "one type" | "two types of one kind" | "two types"
+
+/** What a descriptor of each kind of sketch reached. */
+type KindFeature = DescriptorSketch["kind"]
+
+const kindFeatures: Arr.NonEmptyReadonlyArray<KindFeature> = [
+	"spelling",
+	"float",
+	"numeric",
+	"vector",
+	"uuid",
+	"closedId",
+	"span",
+	"contract"
+]
 
 describe("alias identity", () => {
 	it.effect(
-		"makes every spelling of a type one descriptor, one Description and one ScalarType",
+		"makes two spellings one descriptor exactly when they name one type and one writing, and a serial one type with its integer",
 		(ctx) =>
-			Effect.gen(function* () {
-				const spellings = Arr.flatMap(aliasGroups, ([name, group]) => {
-					const [first, ...rest] = group
-					return Arr.map(rest, (alias) => ({ name, first, alias }))
-				})
-				yield* searched(
-					ctx,
-					exhaust(
-						{
-							suite: "unit/scalar/alias-identity",
-							generator: element(nonEmpty(spellings, "the aliases")),
-							literal: Formatter.format,
-							limit: spellings.length,
-							coverage: requiredInSpace<(typeof aliasGroups)[number][0]>(
-								Arr.map(aliasGroups, ([name]) => name)
-							),
-							caseHang
+			searched(
+				ctx,
+				exhaust(
+					{
+						suite: "unit/scalar/alias-identity",
+						/** Every pair of distinct positions, the first below the second. */
+						generator: (source) => {
+							const i = source.draw(int(0, plainSketches.length - 2))
+							const j = source.draw(int(i + 1, plainSketches.length - 1))
+							return [
+								defined(plainSketches[i], "a descriptor"),
+								defined(plainSketches[j], "a descriptor")
+							] as const
 						},
-						({ name, first, alias }, c) =>
-							Effect.sync(() => {
-								c.note(name)
-								assert.equal(alias, first, name)
-								assert.equal(identityOf(alias), identityOf(first), name)
-								assert.equal(sameScalarType(scalarOf(alias), scalarOf(first)), true, name)
-							})
-					)
+						literal: Formatter.format,
+						limit: (plainSketches.length * (plainSketches.length - 1)) / 2,
+						box: "every pair of the pg namespace's descriptors and float(p) at every precision",
+						oracle: {
+							kind: "specification",
+							name: "the SQL type each spelling names, which the catalog suite holds PostgreSQL to, and its writing"
+						},
+						coverage: requiredInSpace<AliasFeature>([
+							"one value, two spellings",
+							"one type, two writings",
+							"two types"
+						]),
+						caseHang
+					},
+					([x, y], c) =>
+						Effect.sync(() => {
+							const a = descriptorOf(x)
+							const b = descriptorOf(y)
+							const oneType = typeKeyOf(x) === typeKeyOf(y)
+							const oneWriting = writingOf(a).kind === writingOf(b).kind
+							const label = `${Formatter.format(x)} and ${Formatter.format(y)}`
+							assert.equal(a === b, oneType && oneWriting, label)
+							assert.equal(identityOf(a) === identityOf(b), oneType, label)
+							assert.equal(Object.isFrozen(a), true, label)
+							if (!oneType) {
+								c.note("two types")
+								return
+							}
+							c.note(oneWriting ? "one value, two spellings" : "one type, two writings")
+							assert.equal(sameScalarType(scalarOf(a), scalarOf(b)), true, label)
+							assert.deepEqual(descOf(a), descOf(b), label)
+						})
 				)
-			})
+			)
 	)
 
-	it.effect(
-		"keeps distinct types distinct, and a serial apart from its integer by its writing alone",
-		(ctx) =>
-			Effect.gen(function* () {
-				/**
-				 * Each serial with the integer it is written over. A type is what a field's Description identifies, and a
-				 * writing how the field is written (schema/relation.ts writingOf): two descriptors are two types, but a
-				 * serial is one type with its integer, and its writing alone tells the two apart.
-				 */
-				const serials: ReadonlyArray<readonly [unknown, unknown]> = [
-					[pgDescriptors.smallserial, pgDescriptors.smallint],
-					[pgDescriptors.serial, pgDescriptors.integer],
-					[pgDescriptors.bigserial, pgDescriptors.bigint]
-				]
-				/** The type a field is of, named by its caller-written descriptor: a serial's is its integer's. */
-				const typeOf = (field: unknown): unknown =>
-					Option.getOrElse(
-						Option.map(
-							Arr.findFirst(serials, ([written]) => written === field),
-							([, integer]) => integer
-						),
-						() => field
-					)
-				const distinct: ReadonlyArray<unknown> = [
-					pgDescriptors.smallint,
-					pgDescriptors.integer,
-					pgDescriptors.bigint,
-					pgDescriptors.numeric(5, 2),
-					pgDescriptors.numeric(5, 3),
-					pgDescriptors.numeric(6, 2),
-					pgDescriptors.real,
-					pgDescriptors["double precision"],
-					pgDescriptors.money,
-					pgDescriptors.boolean,
-					...Arr.map(serials, ([written]) => written),
-					uuidDescriptor,
-					pgDescriptors.vector(3),
-					pgDescriptors.vector(4),
-					pgDescriptors.vector(2),
-					pgDescriptors.vector(16000),
-					spanDescriptor(pgDescriptors.integer),
-					spanDescriptor(pgDescriptors.bigint),
-					spanDescriptor(pgDescriptors.bigint, 15n)
-				]
-				yield* searched(
-					ctx,
-					exhaust(
-						{
-							suite: "unit/scalar/distinct-types",
-							/** Every pair of distinct positions, the first below the second. */
-							generator: (source) => {
-								const i = source.draw(int(0, distinct.length - 2))
-								return [i, source.draw(int(i + 1, distinct.length - 1))] as const
-							},
-							literal: Formatter.format,
-							limit: (distinct.length * (distinct.length - 1)) / 2,
-							coverage: requiredInSpace<"two types" | "one type, two writings">([
-								"two types",
-								"one type, two writings"
-							]),
-							caseHang
-						},
-						([i, j], c) =>
-							Effect.sync(() => {
-								const [a, b] = [distinct[i], distinct[j]]
-								if (typeOf(a) === typeOf(b)) {
-									c.note("one type, two writings")
-									assert.equal(identityOf(a), identityOf(b), `${i} and ${j}: one type`)
-									assert.notEqual(
-										writingOf(a).kind,
-										writingOf(b).kind,
-										`${i} and ${j}: two writings`
-									)
-									return
-								}
-								c.note("two types")
-								assert.notEqual(identityOf(a), identityOf(b), `${i} and ${j}`)
-							})
-					)
-				)
-			})
+	it.effect("makes two descriptors one type exactly when their parts name one", (ctx) =>
+		searched(
+			ctx,
+			explore(
+				{
+					suite: "unit/scalar/distinct-types",
+					draw: drawn((source) => {
+						const x = source.draw(descriptorGen(2))
+						return [
+							x,
+							source.draw(
+								weighted([
+									[1, constant(x)],
+									[2, descriptorGen(2)]
+								])
+							)
+						] as const
+					}),
+					literal: Formatter.format,
+					oracle: {
+						kind: "specification",
+						name: "a type is its SQL type, typmod, roster, endpoint, width and contract name"
+					},
+					coverage: required<TypeFeature>(["one type", "two types of one kind", "two types"], {
+						cases: 300,
+						sense: notesOnly
+					}),
+					kept: [],
+					runs: 1000,
+					shrink: completeShrink,
+					concurrency: 1,
+					steerEvery: 16,
+					caseHang
+				},
+				([x, y], c) =>
+					Effect.sync(() => {
+						const oneType = typeKeyOf(x) === typeKeyOf(y)
+						c.note(oneType ? "one type" : x.kind === y.kind ? "two types of one kind" : "two types")
+						assert.equal(
+							identityOf(descriptorOf(x)) === identityOf(descriptorOf(y)),
+							oneType,
+							`${Formatter.format(x)} and ${Formatter.format(y)}`
+						)
+					})
+			)
+		)
 	)
 
 	it.effect(
 		"builds every descriptor's Description through its decoder, and a ScalarType the full decoder makes exactly",
 		(ctx) =>
-			Effect.gen(function* () {
-				const fields = nonEmpty<unknown>(
-					[
-						...Arr.flatMap(aliasGroups, ([, group]): ReadonlyArray<unknown> => group),
-						pgDescriptors.numeric(1000, -1000),
-						pgDescriptors.numeric(1, 1000),
-						pgDescriptors.money,
-						uuidDescriptor,
-						pgDescriptors.vector(16000),
-						pgDescriptors.vector(2),
-						spanDescriptor(pgDescriptors.int4),
-						spanDescriptor(pgDescriptors.int8, 1n),
-						spanDescriptor(pgDescriptors.integer, 2147483647),
-						admittedClosedId({ kind: "closed", name: "Kind", handles: ["Automatic", "Manual"] }),
-						contractDescriptor("Price", pgDescriptors.numeric(10, 2)),
-						contractDescriptor(
-							"Pick",
-							admittedClosedId({ kind: "closed", name: "Kind", handles: ["Automatic", "Manual"] })
-						),
-						contractDescriptor("Ticks", contractDescriptor("Instant", pgDescriptors.bigint)),
-						spanDescriptor(contractDescriptor("Instant", pgDescriptors.bigint), 5n),
-						contractDescriptor("Window", spanDescriptor(pgDescriptors.int4))
-					],
-					"the descriptors"
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/scalar/descriptor-decode",
+						draw: drawn(descriptorGen(2)),
+						literal: Formatter.format,
+						oracle: { kind: "universal", name: "decode ∘ describe = describe, key order kept" },
+						coverage: required<KindFeature>(kindFeatures, { cases: 300, sense: notesOnly }),
+						kept: [],
+						runs: 1000,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang
+					},
+					(sketch, c) =>
+						Effect.sync(() => {
+							c.note(sketch.kind)
+							const field = descriptorOf(sketch)
+							const { desc, scalar } = described(field)
+							assert.deepEqual(succeeded(decodeDesc("field", desc)), desc)
+							const decoded = succeeded(decodeScalarType(structuredClone(scalar)))
+							assert.deepEqual(decoded, scalar)
+							assert.deepEqual(keyOrder(decoded), keyOrder(scalar))
+							assert.equal(Object.isFrozen(field), true)
+						})
 				)
-				yield* searched(
-					ctx,
-					exhaust(
-						{
-							suite: "unit/scalar/descriptor-decode",
-							generator: element(fields),
-							literal: Formatter.format,
-							limit: fields.length,
-							coverage: requiredInSpace<"a descriptor">(["a descriptor"]),
-							caseHang
-						},
-						(field, c) =>
-							Effect.sync(() => {
-								c.note("a descriptor")
-								const { desc, scalar } = described(field)
-								assert.deepEqual(succeeded(decodeDesc("field", desc)), desc)
-								const decoded = succeeded(decodeScalarType(structuredClone(scalar)))
-								assert.deepEqual(decoded, scalar)
-								assert.deepEqual(keyOrder(decoded), keyOrder(scalar))
-								assert.equal(Object.isFrozen(field), true)
-							})
-					)
-				)
-				assert.equal(Object.isFrozen(pgDescriptors), true)
-			})
+			)
 	)
 })
 
@@ -292,9 +274,6 @@ const numericTypmodOf = (
 	scale <= numericMaxScale.value
 		? { precision, scale: scale === 0 ? 0 : scale }
 		: undefined
-
-/** How many arguments a numeric call passes: none, the precision, both, or a third. */
-type Arity = 0 | 1 | 2 | 3
 
 describe("typmod validation", () => {
 	it.effect(
@@ -322,7 +301,7 @@ describe("typmod validation", () => {
 											wild: WILD_KINDS
 										})
 									),
-									source.draw(element<Arity>([2, 1, 0, 3]))
+									source.draw(int(0, 3))
 								] as const
 						),
 						literal: Formatter.format,
@@ -383,18 +362,34 @@ describe("typmod validation", () => {
 		(ctx) =>
 			searched(
 				ctx,
-				exhaust(
+				explore(
 					{
 						suite: "unit/scalar/float-typmod",
-						generator: oneOf<unknown>([int(-4, 59), element<unknown>([1.5, Number.NaN, "24"])]),
+						draw: drawn(lsw<number>({ live: int(-4, 59), stale: Option.none(), wild: WILD_KINDS })),
 						literal: Formatter.format,
-						/** The space: 64 integers and 3 other arguments. */
-						limit: 67,
-						coverage: requiredInSpace<"admitted" | "refused">(["admitted", "refused"]),
+						oracle: {
+							kind: "specification",
+							name: "PostgreSQL's float(p): real for 1-24, double precision for 25-53, an error otherwise"
+						},
+						coverage: required<TypmodFeature>(
+							[
+								"admitted",
+								"refused",
+								...Arr.map(WILD_KINDS, (kind): TypmodFeature => `wild ${kind}`)
+							],
+							{ cases: 500, sense: notesOnly }
+						),
+						kept: [],
+						runs: 500,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
 						caseHang
 					},
-					(precision, c) =>
+					(drawnPrecision, c) =>
 						Effect.sync(() => {
+							c.note(drawnFeature(drawnPrecision))
+							const precision = passed(drawnPrecision)
 							if (!isInteger(precision) || precision < 1 || precision > 53) {
 								c.note("refused")
 								throwsRefused(() => pgDescriptors.float(precision), "MalformedDescription")
@@ -426,15 +421,7 @@ describe("typmod validation", () => {
 										wild: WILD_KINDS
 									})
 								),
-								source.draw(
-									element<ReadonlyArray<unknown>>([
-										[],
-										[{ space: "S" }],
-										[{ space: "S", metric: "l2" }],
-										[{}],
-										["S"]
-									])
-								)
+								source.draw(option(array(wild(WILD_KINDS), { min: 1, max: 2 })))
 							] as const
 					),
 					literal: Formatter.format,
@@ -454,10 +441,15 @@ describe("typmod validation", () => {
 					steerEvery: 16,
 					caseHang
 				},
-				([d, extra], c) =>
+				([d, extras], c) =>
 					Effect.sync(() => {
 						c.note(drawnFeature(d))
 						const dimensions = passed(d)
+						const extra = Option.match(extras, {
+							onNone: (): ReadonlyArray<unknown> => [],
+							onSome: (values) =>
+								Arr.map(values, (value) => passed<never, never>({ kind: "wild", wild: value }))
+						})
 						if (
 							extra.length === 0 &&
 							isInteger(dimensions) &&
@@ -481,25 +473,14 @@ describe("typmod validation", () => {
 		(ctx) =>
 			Effect.gen(function* () {
 				/**
-				 * Each endpoint with its width's host kind and its type's maximum: integer's widths are JavaScript integers up to
-				 * 2^31 - 1, bigint's are bigints up to 2^63 - 1.
+				 * The widths each span carrier admits, as the README states them: an integer endpoint's are JavaScript
+				 * integers from 1 to 2^31 - 1, a bigint endpoint's bigints from 1 to 2^63 - 1.
 				 */
-				const endpoints: Arr.NonEmptyReadonlyArray<{
-					readonly name: "integer" | "bigint"
-					readonly endpoint: unknown
-					readonly admits: (width: number | bigint) => boolean
-				}> = [
+				const admits: { readonly [C in "range4" | "range8"]: (width: number | bigint) => boolean } =
 					{
-						name: "integer",
-						endpoint: pgDescriptors.integer,
-						admits: (w) => isInteger(w) && w >= 1 && w <= 2 ** 31 - 1
-					},
-					{
-						name: "bigint",
-						endpoint: pgDescriptors.bigint,
-						admits: (w) => typeof w === "bigint" && w >= 1n && w <= 2n ** 63n - 1n
+						range4: (w) => isInteger(w) && w >= 1 && w <= 2 ** 31 - 1,
+						range8: (w) => typeof w === "bigint" && w >= 1n && w <= 2n ** 63n - 1n
 					}
-				]
 				/** Widths of both host kinds around 0 and around each endpoint type's maximum. */
 				const widths = oneOf<number | bigint>([
 					int(-2, 2),
@@ -517,7 +498,7 @@ describe("typmod validation", () => {
 							draw: drawn(
 								(source) =>
 									[
-										source.draw(element(endpoints)),
+										source.draw(endpointGen(2)),
 										source.draw(
 											lsw<number | bigint>({
 												live: widths,
@@ -525,17 +506,17 @@ describe("typmod validation", () => {
 												wild: WILD_KINDS
 											})
 										),
-										source.draw(element<2 | 1 | 3>([2, 1, 3]))
+										source.draw(int(1, 3))
 									] as const
 							),
 							literal: Formatter.format,
-							coverage: required<TypmodFeature | "endpoint integer" | "endpoint bigint">(
+							coverage: required<TypmodFeature | "endpoint range4" | "endpoint range8">(
 								[
 									"admitted",
 									"refused",
 									...Arr.map(WILD_KINDS, (kind): TypmodFeature => `wild ${kind}`),
-									"endpoint integer",
-									"endpoint bigint"
+									"endpoint range4",
+									"endpoint range8"
 								],
 								{ cases: 1000, sense: notesOnly }
 							),
@@ -547,36 +528,35 @@ describe("typmod validation", () => {
 							steerEvery: 16,
 							caseHang
 						},
-						([e, d, arity], c) =>
+						([sketch, d, arity], c) =>
 							Effect.sync(() => {
-								c.note(`endpoint ${e.name}`)
+								const carrier = defined(spanCarrierOf(sketch), "an endpoint's span carrier")
+								const endpoint = descriptorOf(sketch)
+								c.note(`endpoint ${carrier}`)
 								c.note(drawnFeature(d))
 								const width = passed(d)
 								if (arity === 3) {
 									c.note("refused")
-									throwsRefused(() => spanDescriptor(e.endpoint, width, 0), "MalformedDescription")
+									throwsRefused(() => spanDescriptor(endpoint, width, 0), "MalformedDescription")
 									return
 								}
 								/** An undefined width is the optional width left out: span(endpoint). */
 								const given = arity === 2 ? width : undefined
 								if (given === undefined) {
 									c.note("admitted")
-									assert.equal(
-										spanOf(scalarOf(spanDescriptor(e.endpoint, given)))?.width,
-										undefined
-									)
+									assert.equal(spanOf(scalarOf(spanDescriptor(endpoint, given)))?.width, undefined)
 								} else if (
 									(typeof given === "number" || typeof given === "bigint") &&
-									e.admits(given)
+									admits[carrier](given)
 								) {
 									c.note("admitted")
 									assert.equal(
-										spanOf(scalarOf(spanDescriptor(e.endpoint, given)))?.width,
+										spanOf(scalarOf(spanDescriptor(endpoint, given)))?.width,
 										BigInt(given)
 									)
 								} else {
 									c.note("refused")
-									throwsRefused(() => spanDescriptor(e.endpoint, given), "MalformedDescription")
+									throwsRefused(() => spanDescriptor(endpoint, given), "MalformedDescription")
 								}
 							})
 					)
@@ -586,147 +566,55 @@ describe("typmod validation", () => {
 })
 
 describe("span endpoint eligibility", () => {
-	const Cents = contractDescriptor("Cents", pgDescriptors.bigint, (v: ScalarTerm) => v.ge(0n))
-	const Day = contractDescriptor("Day", pgDescriptors.integer)
-	const Small = contractDescriptor("Small", pgDescriptors.smallint)
+	/** What an endpoint came to: a span of either carrier, a refusal, or a serial's refusal. */
+	type EndpointFeature = "range4" | "range8" | "refused" | "a serial"
 
 	it.effect(
 		"admits integer, bigint and contracts over them, as int4range and int8range, and refuses every other endpoint",
 		(ctx) =>
-			Effect.gen(function* () {
-				const eligible: Arr.NonEmptyReadonlyArray<readonly [unknown, "range4" | "range8"]> = [
-					[pgDescriptors.integer, "range4"],
-					[pgDescriptors.int, "range4"],
-					[pgDescriptors.int4, "range4"],
-					[pgDescriptors.bigint, "range8"],
-					[pgDescriptors.int8, "range8"],
-					[Cents, "range8"],
-					[Day, "range4"],
-					[contractDescriptor("Outer", Cents), "range8"]
-				]
-				const ineligible: Arr.NonEmptyReadonlyArray<unknown> = [
-					pgDescriptors.numeric(10, 2),
-					pgDescriptors.decimal(10, 0),
-					pgDescriptors.real,
-					pgDescriptors.float(30),
-					pgDescriptors["double precision"],
-					pgDescriptors.boolean,
-					uuidDescriptor,
-					pgDescriptors.vector(3),
-					Small,
-					spanDescriptor(pgDescriptors.integer),
-					admittedClosedId({ kind: "closed", name: "K", handles: ["a"] })
-				]
-				/** Each serial, which its writing refuses, its type being its integer's, and the name it is refused by. */
-				const serials: Arr.NonEmptyReadonlyArray<readonly [unknown, string]> = [
-					[pgDescriptors.smallserial, "pg.smallserial"],
-					[pgDescriptors.serial, "pg.serial"],
-					[pgDescriptors.serial4, "pg.serial"],
-					[pgDescriptors.bigserial, "pg.bigserial"],
-					[pgDescriptors.serial8, "pg.bigserial"]
-				]
-				yield* searched(
-					ctx,
-					exhaust(
-						{
-							suite: "unit/scalar/span-endpoints",
-							generator: oneOf<
-								| readonly [unknown, "range4" | "range8" | "refused"]
-								| readonly [unknown, "a serial", string]
-							>([
-								element(eligible),
-								map(element(ineligible), (e): readonly [unknown, "refused"] => [e, "refused"]),
-								map(element(serials), ([e, name]): readonly [unknown, "a serial", string] => [
-									e,
-									"a serial",
-									name
-								])
-							]),
-							literal: Formatter.format,
-							limit: eligible.length + ineligible.length + serials.length,
-							coverage: requiredInSpace<"range4" | "range8" | "refused" | "a serial">([
-								"range4",
-								"range8",
-								"refused",
-								"a serial"
-							]),
-							caseHang
-						},
-						(drawnCase, c) =>
-							Effect.sync(() => {
-								c.note(drawnCase[1])
-								if (drawnCase[1] === "a serial") {
-									const [serial, , name] = drawnCase
-									const thrown = throwsRefused(() => spanDescriptor(serial), "UnsupportedOperation")
-									const capability =
-										thrown.reason._tag === "UnsupportedOperation" ? thrown.reason.capability : ""
-									containsText(
-										capability,
-										`spanEndpoint: ${name} is a serial generation declaration`,
-										name
-									)
-									return
-								}
-								const [endpoint, expected] = drawnCase
-								if (expected === "refused") {
-									throwsRefused(() => spanDescriptor(endpoint), "UnsupportedOperation")
-									return
-								}
-								const s = spanDescriptor(endpoint)
-								assert.equal(scalarOf(s).carrier, expected)
-								assert.ok(s.endpoint === endpoint, "the span keeps its endpoint descriptor")
-								assert.deepEqual(descOf(s), {
-									kind: "span",
-									endpoint: descOf(endpoint),
-									width: undefined
-								})
-								assert.ok(scalarOf(endpoint).caps.includes("spanEndpoint"), "an endpoint")
-								const contracted = contractOf(defined(spanOf(scalarOf(s)), "the span").endpoint)
-								assert.equal(contracted?.name, contractOf(scalarOf(endpoint))?.name)
-							})
-					)
-				)
-			})
-	)
-})
-
-describe("serial family", () => {
-	it.effect(
-		"is a way of writing its integer type: its writing serial, its type and Description its integer's",
-		(ctx) =>
 			searched(
 				ctx,
-				exhaust(
+				explore(
 					{
-						suite: "unit/scalar/serials",
-						generator: element<
-							readonly [
-								(
-									| typeof pgDescriptors.smallserial
-									| typeof pgDescriptors.serial
-									| typeof pgDescriptors.bigserial
-								),
-								"int2" | "int4" | "int8",
-								unknown
-							]
-						>([
-							[pgDescriptors.smallserial, "int2", pgDescriptors.smallint] as const,
-							[pgDescriptors.serial, "int4", pgDescriptors.integer] as const,
-							[pgDescriptors.bigserial, "int8", pgDescriptors.bigint] as const
-						]),
+						suite: "unit/scalar/span-endpoints",
+						draw: drawn(descriptorGen(2)),
 						literal: Formatter.format,
-						limit: 3,
-						coverage: requiredInSpace<"int2" | "int4" | "int8">(["int2", "int4", "int8"]),
+						oracle: {
+							kind: "specification",
+							name: "the README's span endpoints: integer or bigint, or a contract over one"
+						},
+						coverage: required<EndpointFeature>(["range4", "range8", "refused", "a serial"], {
+							cases: 300,
+							sense: notesOnly
+						}),
+						kept: [],
+						runs: 1000,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
 						caseHang
 					},
-					([field, carrier, plain], c) =>
+					(sketch, c) =>
 						Effect.sync(() => {
-							c.note(carrier)
-							assert.equal(field.writing, "serial")
-							const t = scalarOf(field)
-							assert.equal(t.carrier, carrier)
-							assert.deepEqual(t, scalarOf(plain), "a serial field's type is its integer's")
-							assert.deepEqual(descOf(field), descOf(plain), "and its Description")
+							const endpoint = descriptorOf(sketch)
+							const expected = spanCarrierOf(sketch)
+							if (expected === undefined) {
+								c.note(sketch.kind === "spelling" && isSerial(sketch.name) ? "a serial" : "refused")
+								throwsRefused(() => spanDescriptor(endpoint), "UnsupportedOperation")
+								return
+							}
+							c.note(expected)
+							const s = spanDescriptor(endpoint)
+							assert.equal(scalarOf(s).carrier, expected)
+							assert.ok(s.endpoint === endpoint, "the span keeps its endpoint descriptor")
+							assert.deepEqual(descOf(s), {
+								kind: "span",
+								endpoint: descOf(endpoint),
+								width: undefined
+							})
+							assert.ok(scalarOf(endpoint).caps.includes("spanEndpoint"), "an endpoint")
+							const contracted = contractOf(defined(spanOf(scalarOf(s)), "the span").endpoint)
+							assert.equal(contracted?.name, contractOf(scalarOf(endpoint))?.name)
 						})
 				)
 			)
@@ -738,7 +626,21 @@ const at = (value: unknown, site: string): ReadonlyArray<Broken<"MalformedDescri
 ]
 
 describe("closedId", () => {
-	const Kind = closed("Kind", ["Manual", "Automatic"])
+	/** A closed relation of a name and a roster of distinct handles. */
+	const liveClosed = (name: string, handles: Arr.NonEmptyReadonlyArray<string>) =>
+		closed(name, handles)
+
+	/** A closed relation: a drawn name, and a drawn roster of distinct handles. */
+	const closedGen: Gen<ReturnType<typeof liveClosed>> = (source) =>
+		liveClosed(
+			source.draw(matching(regex("^[A-Z][a-z]{1,8}$"))),
+			nonEmpty(
+				source.draw(
+					uniqueArray(matching(regex("^[A-Za-z]{1,6}$")), (item) => item, { min: 1, max: 5 }, 20)
+				),
+				"a roster's handles"
+			)
+		)
 
 	it.effect("names the roster, keeps the closed relation, and keeps declared handle order", (ctx) =>
 		searched(
@@ -811,7 +713,7 @@ describe("closedId", () => {
 		| "a bare string"
 		| "undefined"
 	const forgeries: Arr.NonEmptyReadonlyArray<
-		Corruption<typeof Kind, "MalformedDescription", ClosedRule>
+		Corruption<ReturnType<typeof liveClosed>, "MalformedDescription", ClosedRule>
 	> = [
 		{
 			rule: "not closed",
@@ -876,7 +778,7 @@ describe("closedId", () => {
 			explore(
 				{
 					suite: "unit/scalar/closed-id-forgeries",
-					draw: drawn(corrupted(Kind, forgeries)),
+					draw: drawn((source) => source.draw(corrupted(source.draw(closedGen), forgeries))),
 					literal: Formatter.format,
 					coverage: required<CorruptedFeature<ClosedRule>>(
 						["live", ...Arr.map(forgeries, (f): CorruptedFeature<ClosedRule> => `wild ${f.rule}`)],
@@ -898,10 +800,10 @@ describe("closedId", () => {
 							return
 						}
 						const field = admittedClosedId(forged.value)
-						assert.equal(field.roster, Kind)
+						assert.equal(field.roster, forged.value)
 						assert.deepEqual(rosterOf(scalarOf(field)), {
-							closed: parsedName(Kind.name),
-							handles: Kind.handles
+							closed: parsedName(forged.value.name),
+							handles: forged.value.handles
 						})
 					})
 			)

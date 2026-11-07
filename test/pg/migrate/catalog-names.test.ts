@@ -1,7 +1,7 @@
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { type Reached, requiredInSpace } from "@grizzle/testing/features"
-import { element } from "@grizzle/testing/gen"
+import { boolean, type Gen, int } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Record as Rec } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -100,12 +100,14 @@ const namesAt = (at: number): Names => ({
 	"derived relation": nameAt(at, 3)
 })
 
-const cases: Arr.NonEmptyReadonlyArray<BoxCase> = nonEmpty(
-	Arr.flatMap([ordinarySession, grizzleFirstSession], (ambient) =>
-		Arr.map(catalogNames, (_, at): BoxCase => ({ ambient, names: namesAt(at) }))
-	),
-	"a box case"
-)
+/**
+ * Every case of the box: the owner's path, the ordinary one or the installation's schemas first, and the schema whose
+ * relation takes a catalog name of the roster, each of the other objects the names after it.
+ */
+const caseGen: Gen<BoxCase> = (source) => ({
+	ambient: source.draw(boolean) ? grizzleFirstSession : ordinarySession,
+	names: namesAt(source.draw(int(0, catalogNames.length - 1)))
+})
 
 const entry = "Entry"
 
@@ -222,9 +224,9 @@ layer(Substrate.layer)("objects named like PostgreSQL's own types", (it) => {
 				exhaust(
 					{
 						suite: "pg/migrate/catalog-names",
-						generator: element(cases),
+						generator: caseGen,
 						literal: literalOf,
-						limit: cases.length,
+						limit: 2 * catalogNames.length,
 						coverage: requiredInSpace<Feature>(required),
 						caseHang
 					},

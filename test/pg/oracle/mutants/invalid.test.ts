@@ -26,9 +26,9 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Option, Order } from "effect"
+import { Array as Arr, Effect, Option, Order, Record, Result } from "effect"
 import { runMutant } from "#test/pg/oracle/mutants/support.ts"
-import { assert } from "#test/support/assert.ts"
+import { assert, nonEmpty } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import {
 	type Comparison,
@@ -49,31 +49,49 @@ import {
 	rootedCaseGen,
 	untaggedUnionRoot
 } from "#test/support/oracle/mutants/cases.ts"
-import { type MutantId, mutants } from "#test/support/oracle/mutants/mutants.ts"
+import { type Mutant, type MutantId, mutants } from "#test/support/oracle/mutants/mutants.ts"
 import type { KillVerdict } from "#test/support/oracle/runner.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 type Shape = "duplicates" | "lostWitness"
 
-/** An invalid mutant, the population it runs on, and the shape its listed counterexample takes. */
+/** The roster's invalid mutants, by their ids: the ones that name an invalid transformation. */
+type InvalidId = Extract<MutantId, `I${string}`>
+
+/** An invalid mutant's population and the shape its listed counterexample takes. */
 interface Population {
-	readonly id: MutantId
 	readonly gen: Gen<QueryCase>
 	readonly shape: Shape
 }
 
-const populations: Arr.NonEmptyReadonlyArray<Population> = [
-	{ id: "I1", gen: rootedCaseGen(projectRoot, defaultGenConfig), shape: "duplicates" },
-	{ id: "I2", gen: rootedCaseGen(fanoutJoinRoot, defaultGenConfig), shape: "duplicates" },
-	{ id: "I3", gen: noninjectiveKeyCaseGen, shape: "duplicates" },
-	{ id: "I5", gen: rootedCaseGen(projectGroupRoot, defaultGenConfig), shape: "duplicates" },
-	{ id: "I6", gen: rootedCaseGen(untaggedUnionRoot, defaultGenConfig), shape: "duplicates" },
-	{ id: "I7", gen: rootedCaseGen(existsOverTakeRoot, defaultGenConfig), shape: "lostWitness" },
-	{ id: "I8", gen: rootedCaseGen(closureRoot(true), defaultGenConfig), shape: "duplicates" }
-]
+/** Every invalid mutant's population: the record is total over the roster's invalid ids, so a new one needs its own. */
+const populations: { readonly [Id in InvalidId]: Population } = {
+	I1: { gen: rootedCaseGen(projectRoot, defaultGenConfig), shape: "duplicates" },
+	I2: { gen: rootedCaseGen(fanoutJoinRoot, defaultGenConfig), shape: "duplicates" },
+	I3: { gen: noninjectiveKeyCaseGen, shape: "duplicates" },
+	I5: { gen: rootedCaseGen(projectGroupRoot, defaultGenConfig), shape: "duplicates" },
+	I6: { gen: rootedCaseGen(untaggedUnionRoot, defaultGenConfig), shape: "duplicates" },
+	I7: { gen: rootedCaseGen(existsOverTakeRoot, defaultGenConfig), shape: "lostWitness" },
+	I8: { gen: rootedCaseGen(closureRoot(true), defaultGenConfig), shape: "duplicates" }
+}
+
+/** The ids the populations hold: exactly the roster's invalid ones. */
+const invalidIds: ReadonlySet<MutantId> = new Set(Record.keys(populations))
+
+/** Whether a roster id names an invalid mutant. */
+const isInvalidId = (id: MutantId): id is InvalidId => invalidIds.has(id)
+
+/** The roster's invalid mutants, in its order: the space every case of the suite draws from. */
+const invalid: Arr.NonEmptyReadonlyArray<Mutant & Readonly<{ id: InvalidId }>> = nonEmpty(
+	Arr.filterMap(Record.values(mutants), (m) => {
+		const id = m.id
+		return isInvalidId(id) ? Result.succeed({ ...m, id }) : Result.failVoid
+	}),
+	"the roster's invalid mutants"
+)
 
 /** A mutant killed by its listed counterexample. */
-type KilledFeature = `killed ${MutantId}`
+type KilledFeature = `killed ${InvalidId}`
 
 const distinctKeys = (run: Run, label: string): ReadonlyArray<string> =>
 	Arr.sort(
@@ -155,9 +173,11 @@ const expectLostWitness = (j: Judged, c: Comparison): void => {
  * or against the mutant's own first reading (runner.ts KillVerdict), and the shrunk kill is a difference of the sets of the
  * listed shape, with no structural change.
  */
-const killed = ({ id, gen, shape }: Population) =>
+const killed = (mutant: Mutant & Readonly<{ id: InvalidId }>) =>
 	Effect.gen(function* () {
-		const mutant = mutants[id]
+		const { id } = mutant
+		const { gen, shape } = populations[id]
+		assert.equal(mutant.valid, false, `${id} is an invalid mutant of the roster`)
 		const run = yield* runMutant(mutant, gen, `mutants/${id}`)
 		assert.deepEqual(run.harnessErrors, [], Arr.join(run.harnessErrors, "\n\n"))
 		if (run.result.kind === "survived") {
@@ -198,11 +218,16 @@ layer(Substrate.layer)("the invalid mutants are killed", (it) => {
 				exhaust(
 					{
 						suite: "mutants/invalid",
-						generator: element(populations),
-						literal: (p: Population) => p.id,
-						limit: populations.length,
+						generator: element(invalid),
+						literal: (m: Mutant) => m.id,
+						limit: invalid.length,
+						box: "every invalid mutant of the roster (mutants.ts)",
+						oracle: {
+							kind: "specification",
+							name: "the counterexample each invalid mutant's transformation lists, judged on the shrunk kill"
+						},
 						coverage: requiredInSpace<KilledFeature>(
-							Arr.map(populations, (p): KilledFeature => `killed ${p.id}`)
+							Arr.map(invalid, (m): KilledFeature => `killed ${m.id}`)
 						),
 						caseHang
 					},
@@ -213,6 +238,6 @@ layer(Substrate.layer)("the invalid mutants are killed", (it) => {
 						})
 				)
 			),
-		populations.length * 600_000
+		invalid.length * 600_000
 	)
 })

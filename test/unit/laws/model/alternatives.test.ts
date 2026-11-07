@@ -1,13 +1,13 @@
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
-import { element } from "@grizzle/testing/gen"
+import { array, element, filter, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Order, Record as Rec } from "effect"
 import type { LawRelation, NativeColumn } from "#compiler/ir/law.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
 import type { CarrierValue } from "#compiler/scalar/compute/literal.ts"
-import { assert, defined, nonEmpty } from "#test/support/assert.ts"
+import { assert, defined } from "#test/support/assert.ts"
 import {
 	alternatives,
 	closed,
@@ -48,18 +48,11 @@ type Assignment = ReadonlyArray<Arm>
 
 const handleNames = ["h0", "h1", "h2"] as const
 
-/** Every assignment of arms to a roster of `k` handles. */
-const assignmentsOf = (k: number): ReadonlyArray<Assignment> =>
-	k === 0
-		? [[]]
-		: Arr.flatMap(assignmentsOf(k - 1), (a) =>
-				Arr.map(["none", "A", "B"] as const, (x) => [...a, x])
-			)
-
-const cases: Arr.NonEmptyReadonlyArray<Assignment> = nonEmpty(
-	Arr.flatMap([1, 2, 3], (k) =>
-		Arr.filter(assignmentsOf(k), (a) => Arr.some(a, (x) => x !== "none"))
-	)
+/** The box: a roster of 1 to 3 handles, each unarmed or armed by A or B, at least one of them armed. */
+const assignmentGen: Gen<Assignment> = filter(
+	array(element(["none", "A", "B"] as const), { min: 1, max: 3 }),
+	(a) => Arr.some(a, (x) => x !== "none"),
+	1
 )
 
 type Feature =
@@ -219,7 +212,7 @@ describe("alternatives lowers to its containments' natives", () => {
 			exhaust(
 				{
 					suite: "unit/laws/model/alternatives",
-					generator: element(cases),
+					generator: assignmentGen,
 					literal: Formatter.format,
 					/** The space: 2, 8 and 26 armed assignments of rosters of 1, 2 and 3 handles. */
 					limit: 36,

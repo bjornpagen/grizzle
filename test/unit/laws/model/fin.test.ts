@@ -1,13 +1,14 @@
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
-import { element } from "@grizzle/testing/gen"
+import { array, boolean, element, type Gen, subarray } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Order, Record as Rec } from "effect"
+import type { AxisKind } from "#compiler/ir/family.ts"
 import type { NativeColumn, NativeOf } from "#compiler/ir/law.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
-import { assert, nonEmpty, succeeded } from "#test/support/assert.ts"
+import { assert, succeeded } from "#test/support/assert.ts"
 import {
 	type AuthoredStatementDesc,
 	contained,
@@ -63,20 +64,18 @@ import { owner } from "#test/unit/physical/fixtures.ts"
  *   index on the predecessor axis and the count on the last; the owner axis of a family over every fact has no base;
  * - **the generated columns:** ‹p› is pred of the index and ‹pn› pred of the count, NULL at 0.
  *
- * Bound: every family of group width 1 or 2, ordered or counted, with 0 to 2 copies on each axis it admits, each copy
- * a caller field or an accumulated one: 2 × 4³ ordered and 2 × 4 counted, 136 schemas, exhausted. A CHECK is judged
- * on every index and count in 0 … 3, the index from −1 when counted, and a pin on every base in 0 … 2 against its
- * start and another value.
+ * Bound: every family of group width 1 or 2, ordered or counted, with a caller copy or none and an accumulated copy or
+ * none on each axis it admits: 2 × 4³ ordered and 2 × 4 counted, 136 schemas, exhausted. A CHECK is judged on every
+ * index and count in 0 … 3, the index from −1 when counted, and a pin on every base in 0 … 2 against its start and
+ * another value. A lemma restated on an axis is judged on every family of either order and width, on each axis its
+ * sides can name.
  */
 
 type Copy = "caller" | "accumulated"
 type Copies = ReadonlyArray<Copy>
-const copyings: Arr.NonEmptyReadonlyArray<Copies> = [
-	[],
-	["caller"],
-	["accumulated"],
-	["caller", "accumulated"]
-]
+
+/** An axis's copies: a caller copy or none and an accumulated one or none, in that order. */
+const copiesGen: Gen<Copies> = subarray(["caller", "accumulated"] as const)
 
 interface Shape {
 	readonly order: "ordered" | "counted"
@@ -86,24 +85,25 @@ interface Shape {
 	readonly last: Copies
 }
 
-const shapes: Arr.NonEmptyReadonlyArray<Shape> = nonEmpty([
-	...Arr.flatMap([1, 2] as const, (width) =>
-		Arr.flatMap(copyings, (owner) =>
-			Arr.flatMap(copyings, (predecessor) =>
-				Arr.map(copyings, (last): Shape => ({ order: "ordered", width, owner, predecessor, last }))
-			)
-		)
-	),
-	...Arr.flatMap([1, 2] as const, (width) =>
-		Arr.map(copyings, (owner): Shape => ({
-			order: "counted",
-			width,
-			owner,
-			predecessor: [],
-			last: []
-		}))
-	)
-])
+const orders = ["ordered", "counted"] as const
+const widths = [1, 2] as const
+
+/** The box: a family of either order and width, with copies on each axis it admits: a counted family's index is a
+ * drawn column no side names, so only its owner axis takes a copy. */
+const shapeGen: Gen<Shape> = (source) => {
+	const order = source.draw(element(orders))
+	const width = source.draw(element(widths))
+	const owner = source.draw(copiesGen)
+	return order === "ordered"
+		? {
+				order,
+				width,
+				owner,
+				predecessor: source.draw(copiesGen),
+				last: source.draw(copiesGen)
+			}
+		: { order, width, owner, predecessor: [], last: [] }
+}
 
 type Feature =
 	| "ordered"
@@ -394,106 +394,110 @@ const checkShape = (s: Shape): void => {
 	checkCopies(model, s)
 }
 
+/** A family's own lemma on one axis, restated by the schema: the family of a shape with no copies. */
+interface Restated {
+	readonly shape: Shape
+	readonly axis: AxisKind
+}
+
+type RestatedFeature = AxisKind | "counted" | "two group fields"
+
+/** The box: a family of either order and width, restated on an axis its sides can name: a counted family's index is a
+ * drawn column no side names, so only its owner axis. */
+const restatedGen: Gen<Restated> = (source) => {
+	const order = source.draw(element(orders))
+	const shape: Shape = {
+		order,
+		width: source.draw(element(widths)),
+		owner: [],
+		predecessor: [],
+		last: []
+	}
+	return {
+		shape,
+		axis:
+			order === "ordered"
+				? source.draw(element(["owner", "predecessor", "last"] as const))
+				: "owner"
+	}
+}
+
+/** The lemma a family states on an axis, written as a containment: the member's group into the owner's key, the
+ * predecessor's index into the index, and the owner's last index into the index. */
+const lemmaOf = (r: Restated): AuthoredStatementDesc => {
+	const g = group(r.shape)
+	const k = keys(r.shape)
+	switch (r.axis) {
+		case "owner":
+			return contained(on("Member", g), on("Owner", k))
+		case "predecessor":
+			return contained(on("Member", [...g, pred("at")]), on("Member", [...g, "at"]))
+		case "last":
+			return contained(on("Owner", [...k, pred("n")]), on("Member", [...g, "at"]))
+	}
+}
+
 /** Whether two native columns are one: one field's handle, or one law column's identifier. */
 const sameColumn = (a: NativeColumn, b: NativeColumn): boolean =>
 	a.kind === "field"
 		? b.kind === "field" && a.field === b.field
 		: b.kind === "law" && a.column === b.column
 
-/** A member in `counted` counted families, each folded by a sum or not, beside at most one sequence (rows-first §1). */
-interface Disjoint {
-	readonly counted: 1 | 2 | 3
-	readonly folded: boolean
-	readonly sequence: "none" | "ordered" | "tree"
-}
+/**
+ * A member in one to three counted families of distinct owners, each folded by a sum into its owner or not (rows-first
+ * §1). A member of a counted family is a member of no sequence: one is written nested under its owner, the other as
+ * rows of its own, which the schema refuses as UnwritableRelation, held against its reference by unit/write/fill-order.
+ */
+type Disjoint = ReadonlyArray<boolean>
 
-const disjointShapes: Arr.NonEmptyReadonlyArray<Disjoint> = nonEmpty(
-	Arr.flatMap([1, 2, 3] as const, (counted) =>
-		Arr.flatMap([false, true], (folded) =>
-			Arr.map(["none", "ordered", "tree"] as const, (sequence): Disjoint => ({
-				counted,
-				folded,
-				sequence
-			}))
-		)
-	)
-)
+/** The box: every member in 1 to 3 counted families, each folded or not. */
+const disjointGen: Gen<Disjoint> = array(boolean, { min: 1, max: 3 })
 
 type DisjointFeature =
 	| "1 counted"
 	| "2 counted"
 	| "3 counted"
-	| "folded"
-	| `sequence ${Disjoint["sequence"]}`
-const disjointFeatures: Arr.NonEmptyReadonlyArray<DisjointFeature> = [
+	| "a folded family"
+	| "an unfolded family"
+const disjointFeatures: Arr.NonEmptyReadonlyArray<
+	DisjointFeature | readonly [DisjointFeature, DisjointFeature]
+> = [
 	"1 counted",
 	"2 counted",
 	"3 counted",
-	"folded",
-	"sequence none",
-	"sequence ordered",
-	"sequence tree"
+	"a folded family",
+	"an unfolded family",
+	["a folded family", "an unfolded family"]
 ]
 
 const disjointSchema = (d: Disjoint): SchemaDesc => {
-	const owners = Arr.makeBy(d.counted, (j) => `C${j}`)
-	const treeFields =
-		d.sequence === "tree"
-			? {
-					parent: f.uuid,
-					doc: f.uuid,
-					at: f.drawn,
-					children: f.drawn,
-					start: f.drawn,
-					end: f.drawn
-				}
-			: d.sequence === "ordered"
-				? { s: f.uuid, at: f.drawn }
-				: {}
-	const sequence: ReadonlyArray<AuthoredStatementDesc> =
-		d.sequence === "tree"
-			? [
-					{
-						kind: "tree",
-						member: on("M", ["parent", "at"]),
-						slots: fin("M", "children"),
-						root: "doc"
-					}
-				]
-			: d.sequence === "ordered"
-				? [ordered(on("M", ["s", "at"]), fin("S", "n"))]
-				: []
+	const owners = Arr.map(d, (folded, j) => ({ name: `C${j}`, folded }))
 	return {
 		name: "Disjoint",
 		relations: [
 			...Arr.map(owners, (o) =>
 				relation(
-					o,
-					{ id: f.uuid, n: f.drawn, ...(d.folded ? { total: f.accumulated(f.bigint, 0n) } : {}) },
+					o.name,
+					{ id: f.uuid, n: f.drawn, ...(o.folded ? { total: f.accumulated(f.bigint, 0n) } : {}) },
 					["id"]
 				)
 			),
-			...(d.sequence === "ordered" ? [relation("S", { id: f.uuid, n: f.drawn }, ["id"])] : []),
 			relation(
 				"M",
 				{
 					id: f.uuid,
 					x: f.bigint,
-					...Rec.fromEntries(Arr.map(owners, (o) => [`g${o}`, f.uuid] as const)),
-					...treeFields
+					...Rec.fromEntries(Arr.map(owners, (o) => [`g${o.name}`, f.uuid] as const))
 				},
 				["id"]
 			)
 		],
-		statements: [
-			...Arr.flatMap(owners, (o): ReadonlyArray<AuthoredStatementDesc> => [
-				counted(on("M", [`g${o}`]), fin(o, "n")),
-				...(d.folded
-					? [fold(fin(o, "n"), "sum", on("M", [`g${o}`, "x"]), on(o, ["id", "total"]))]
-					: [])
-			]),
-			...sequence
-		],
+		statements: Arr.flatMap(owners, (o): ReadonlyArray<AuthoredStatementDesc> => [
+			counted(on("M", [`g${o.name}`]), fin(o.name, "n")),
+			...(o.folded
+				? [fold(fin(o.name, "n"), "sum", on("M", [`g${o.name}`, "x"]), on(o.name, ["id", "total"]))]
+				: [])
+		]),
 		extends: undefined
 	}
 }
@@ -513,15 +517,10 @@ const checkDisjoint = (d: Disjoint): void => {
 		succeeded(compileInstallation(owned, installOptions(owned, owner))).statements
 	)
 	const families = model.families
-	assert.equal(
-		families.length,
-		d.counted + (d.sequence === "none" ? 0 : 1),
-		"one family per statement"
-	)
+	assert.equal(families.length, d.length, "one family per counted statement")
 	const drawn = Arr.flatMap(families, (family) => [
 		family.copy,
 		...(family.index.kind === "law" ? [family.index.column] : []),
-		...(family.members.kind === "tree" ? [family.members.parentStart] : []),
 		...Arr.flatMap(family.folds, (fl) =>
 			Arr.flatMap(fl.planes, (p) =>
 				Arr.flatMap([p.before, p.after], (x) => (x.kind === "law" ? [x.column] : []))
@@ -538,7 +537,7 @@ const checkDisjoint = (d: Disjoint): void => {
 		Arr.every(drawn, (x) => natives.has(x)),
 		"every drawn column is a law column native of the member"
 	)
-	const fks = Arr.flatMap(["M", "S", ...Arr.makeBy(d.counted, (j) => `C${j}`)], (r) =>
+	const fks = Arr.flatMap(["M", ...Arr.map(d, (_, j) => `C${j}`)], (r) =>
 		onRelation(model, "ForeignKey", r)
 	)
 	assert.equal(fks.length, 3 * families.length, "three axes per family, and no other reference")
@@ -562,8 +561,8 @@ const checkDisjoint = (d: Disjoint): void => {
 			1,
 			`the family ${family.id.owner}.${family.id.count} has its own owner axis`
 		)
-		/** The predecessor axis runs member to member into the index; the last axis, a tree's included, from the owner's
-		 * key, which the predecessor's source never reads. */
+		/** The predecessor axis runs member to member into the index; the last axis from the owner's key, which the
+		 * predecessor's source never reads. */
 		const predecessor = Arr.filter(
 			fks,
 			(fk) =>
@@ -593,13 +592,13 @@ describe("a family's natives are §2.1's three axes", () => {
 				exhaust(
 					{
 						suite: "unit/laws/model/fin",
-						generator: element(shapes),
+						generator: shapeGen,
 						literal: Formatter.format,
 						/** The space: 2 widths × 4³ copy sets ordered, and 2 widths × 4 owner copy sets counted. */
 						limit: 136,
 						coverage: requiredInSpace<Feature>(features),
 						caseHang,
-						box: "every family of group width 1 or 2, ordered or counted, with 0 to 2 copies on each axis it admits",
+						box: "every family of group width 1 or 2, ordered or counted, with a caller copy or none and an accumulated copy or none on each axis it admits",
 						oracle: {
 							kind: "specification",
 							name: "w4-w7 §2.1's axis table as a checker, its CHECKs by the reference evaluator"
@@ -640,43 +639,45 @@ describe("a family's natives are §2.1's three axes", () => {
 				exhaust(
 					{
 						suite: "unit/laws/model/fin-restated",
-						generator: element(["owner", "predecessor", "last"] as const),
+						generator: restatedGen,
 						literal: Formatter.format,
-						/** The space: the three axes, each restated by its own lemma. */
-						limit: 3,
-						coverage: requiredInSpace<"owner" | "predecessor" | "last">([
+						/** The space: an ordered family's three axes and a counted family's owner axis, at either width. */
+						limit: 8,
+						coverage: requiredInSpace<RestatedFeature>([
 							"owner",
 							"predecessor",
-							"last"
+							"last",
+							"counted",
+							"two group fields"
 						]),
 						caseHang,
-						box: "an ordered family of one group field with its lemma restated on each axis",
+						box: "a family of either order and width with its lemma restated on each axis its sides can name",
 						oracle: { kind: "specification", name: "w4-w7 §2.1's merging rule" }
 					},
-					(axis, c) =>
+					(r, c) =>
 						Effect.sync(() => {
-							c.note(axis)
-							const s: Shape = { order: "ordered", width: 1, owner: [], predecessor: [], last: [] }
-							const desc = schemaOf(s)
-							const lemma = {
-								owner: contained(on("Member", ["g1"]), on("Owner", ["k1"])),
-								predecessor: contained(
-									on("Member", ["g1", pred("at")]),
-									on("Member", ["g1", "at"])
-								),
-								last: contained(on("Owner", ["k1", pred("n")]), on("Member", ["g1", "at"]))
-							}[axis]
-							const model = modelOf({ ...desc, statements: [...desc.statements, lemma] })
+							c.note(r.axis)
+							if (r.shape.order === "counted") {
+								c.note("counted")
+							}
+							if (r.shape.width === 2) {
+								c.note("two group fields")
+							}
+							const desc = schemaOf(r.shape)
+							const model = modelOf({
+								...desc,
+								statements: [...desc.statements, lemmaOf(r)]
+							})
 							assert.deepEqual(
 								foreignKeyShapes(model),
-								expectedForeignKeys(s),
+								expectedForeignKeys(r.shape),
 								"a restated lemma adds no foreign key"
 							)
 							const law = familyLaw(model, { owner: "Owner", count: "n" })
-							const [riding, ...more] = ridingLaws(model, axis)
+							const [riding, ...more] = ridingLaws(model, r.axis)
 							assert.ok(
 								riding !== undefined && more.length === 0,
-								`the restated ${axis} lemma rides its axis`
+								`the restated ${r.axis} lemma rides its axis`
 							)
 							const [fk, ...others] = Arr.filter(
 								loweringOf(model, riding),
@@ -684,12 +685,12 @@ describe("a family's natives are §2.1's three axes", () => {
 							)
 							assert.ok(
 								fk !== undefined && others.length === 0,
-								`the restated ${axis} lemma lowers to its axis's foreign key`
+								`the restated ${r.axis} lemma lowers to its axis's foreign key`
 							)
 							assert.equal(fk.lawIds[0], law, "the axis reports the family's law first")
 							assert.ok(
 								Arr.contains(fk.lawIds, riding),
-								`the ${axis} axis names the restated lemma`
+								`the ${r.axis} axis names the restated lemma`
 							)
 						})
 				)
@@ -697,20 +698,20 @@ describe("a family's natives are §2.1's three axes", () => {
 	)
 
 	it.effect(
-		"a member in several counted families beside one sequence: every family's columns and axes its own",
+		"a member in several counted families: every family's columns and axes its own",
 		(ctx) =>
 			searched(
 				ctx,
 				exhaust(
 					{
 						suite: "unit/laws/model/fin-disjoint",
-						generator: element(disjointShapes),
+						generator: disjointGen,
 						literal: Formatter.format,
-						/** The space: 1 to 3 counted families, a sum fold over each or none, beside no sequence, an ordered one or a tree. */
-						limit: 18,
+						/** The space: 1 to 3 counted families, each folded by a sum or not: 2 + 4 + 8. */
+						limit: 14,
 						coverage: requiredInSpace<DisjointFeature>(disjointFeatures),
 						caseHang,
-						box: "a member in 1 to 3 counted families, each folded by a sum or not, beside no sequence, an ordered family or a tree",
+						box: "a member in 1 to 3 counted families, each folded by a sum or not",
 						oracle: {
 							kind: "specification",
 							name: "rows-first §1: each family's drawn columns and axes distinct by identity"
@@ -718,10 +719,15 @@ describe("a family's natives are §2.1's three axes", () => {
 					},
 					(d, c) =>
 						Effect.sync(() => {
-							c.note(`${d.counted} counted`)
-							c.note(`sequence ${d.sequence}`)
-							if (d.folded) {
-								c.note("folded")
+							c.note(d.length === 1 ? "1 counted" : d.length === 2 ? "2 counted" : "3 counted")
+							if (Arr.contains(d, true)) {
+								c.note("a folded family")
+							}
+							if (Arr.contains(d, false)) {
+								c.note("an unfolded family")
+							}
+							if (Arr.contains(d, true) && Arr.contains(d, false)) {
+								c.pair("a folded family", "an unfolded family")
 							}
 							checkDisjoint(d)
 						})

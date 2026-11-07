@@ -1,7 +1,9 @@
 import { describe, it } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { element } from "@grizzle/testing/gen"
+import { type Case, drawn, explore } from "@grizzle/testing/explore"
+import { required } from "@grizzle/testing/features"
+import { boolean, constant, element, type Gen, int, map, oneOf, subset } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
+import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
 import {
@@ -17,6 +19,7 @@ import {
 	on,
 	pred,
 	relation,
+	type RowScalars,
 	type Selection,
 	type Statement,
 	schema,
@@ -34,7 +37,7 @@ import type {
 } from "#compiler/sql/ast.ts"
 import { types } from "#compiler/sql/build.ts"
 import { identityHooks, transformExpr } from "#compiler/sql/transform.ts"
-import { assert, defined, nonEmpty } from "#test/support/assert.ts"
+import { assert, defined } from "#test/support/assert.ts"
 import { installationNamesOf, type Names } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { owning } from "#test/support/policy.ts"
@@ -52,15 +55,21 @@ import { owner } from "#test/unit/physical/fixtures.ts"
  * - a containment is one FOREIGN KEY from its left side's columns to its right side's, in term order, into a key over
  *   exactly the referenced columns, and an index leads with its referencing columns;
  * - a target selection that fixes a field to a constant is a constant law column on the source, NOT NULL and reading no
- *   field, which the reference carries into the target's superkey over its key and that field: one such UNIQUE however
- *   many constants reference it, so the target needs no index per constant;
- * - a foreign key on a cycle is DEFERRABLE INITIALLY DEFERRED, and one on no cycle into a target it cannot replace (one
- *   with no field beside the referenced key) is NOT DEFERRABLE;
+ *   field, which the reference carries after its terms into the target's superkey over its terms and that field: one
+ *   such UNIQUE however many constants reference it, so the target needs no index per constant;
+ * - a foreign key is DEFERRABLE INITIALLY DEFERRED exactly when it lies on a cycle of the references or its target
+ *   holds a field beside the referenced ones, which a write can replace at the key; otherwise it is NOT DEFERRABLE;
  * - mirrors(a, b) is sugar: it installs exactly what contained(a, b) and contained(b, a) install.
  *
+ * The search draws one law over five relations: a key over Item's owner and its code or pred(at), a containment of
+ * Item's owner, and its code into a superkey, into Owner's id and rank, a set of references among three relations of
+ * their keys and fields, or mirrors of Owner or Item with Profile. Every Item side is over every fact or a drawn
+ * selection, a boolean field fixed, a code compared, or both; every Owner side over every fact, a drawn comparison or
+ * range of rank, or a fixed live, beside a second constant selection from Note or none. The oracle is §5.1 turned into
+ * a checker of the drawn law's DDL.
+ *
  * `NULLS DISTINCT` and `MATCH SIMPLE` are the printer's spelling of every UNIQUE and FOREIGN KEY node, so no structure
- * here holds them. A containment whose target a cascade feeds is deferred too; no W1 law cascades, so that rule waits for
- * the families that do.
+ * here holds them. A containment whose target a cascade feeds is deferred too, which no law of this box does.
  */
 
 const Owner = relation("Owner", { id: uuid, rank: pg.int4, live: pg.boolean, slots: natural }, [
@@ -76,156 +85,315 @@ const Note = relation("Note", { id: uuid, owner: uuid }, ["id"])
 const Profile = relation("Profile", { owner: uuid }, ["owner"])
 const Seat = relation("Seat", { owner: uuid }, ["owner"])
 
-/** A source selection: a boolean field, a comparison, or their conjunction. */
-type Phi = "a boolean field" | "a comparison" | "a conjunction"
-/** A target selection that fixes no field to a constant: a comparison, or a conjunction of two. */
-type TargetPhi = "a comparison" | "a range"
+const ops = ["gt", "ge", "lt", "le"] as const
 
-/** The fields each selection reads. */
-const phiFields: Readonly<Record<Phi, ReadonlyArray<string>>> = {
-	"a boolean field": ["live"],
-	"a comparison": ["code"],
-	"a conjunction": ["live", "code"]
-}
-const targetPhiFields: Readonly<Record<TargetPhi, ReadonlyArray<string>>> = {
-	"a comparison": ["rank"],
-	"a range": ["rank"]
+/** A comparison of a field with a constant. */
+interface Comparison {
+	readonly op: (typeof ops)[number]
+	readonly value: number
 }
 
-const itemsWhere = (phi: Phi): Selection<typeof Item> => {
-	switch (phi) {
-		case "a boolean field":
-			return select(Item, (i) => i.eq(i.live, true))
-		case "a comparison":
-			return select(Item, (i) => i.gt(i.code, 0))
-		case "a conjunction":
-			return select(Item, (i) => i.and(i.eq(i.live, true), i.gt(i.code, 0)))
-	}
-}
+const comparisonGen: Gen<Comparison> = (source) => ({
+	op: source.draw(element(ops)),
+	value: source.draw(int(-2, 2))
+})
 
-const ownersWhere = (phi: TargetPhi): Selection<typeof Owner> => {
-	switch (phi) {
-		case "a comparison":
-			return select(Owner, (o) => o.gt(o.rank, 0))
-		case "a range":
-			return select(Owner, (o) => o.and(o.gt(o.rank, 0), o.lt(o.rank, 9)))
-	}
-}
+/** An Item side's facts: every one, or those a selection holds of, live fixed, code compared, or both. */
+type ItemSelection =
+	| Readonly<{ kind: "every" }>
+	| Readonly<{ kind: "a boolean field"; live: boolean }>
+	| Readonly<{ kind: "a comparison"; code: Comparison }>
+	| Readonly<{ kind: "a conjunction"; live: boolean; code: Comparison }>
 
-/** One rule of §5.1, stated over the four relations, with the selection it reads where it reads one. */
-type Rule =
-	| { readonly rule: "a key over fields" }
-	| { readonly rule: "a key over a selected side"; readonly phi: Phi }
-	| { readonly rule: "a key over a pred term" }
-	| { readonly rule: "a key over a selected pred term"; readonly phi: Phi }
-	| { readonly rule: "a containment" }
-	| { readonly rule: "a containment into a superkey" }
-	| { readonly rule: "a containment from a selected side"; readonly phi: Phi }
-	| { readonly rule: "a containment into a selected side"; readonly phi: TargetPhi }
-	| { readonly rule: "a containment into a constant selection" }
-	| { readonly rule: "two constant selections of one target" }
-	| { readonly rule: "a cycle" }
-	| { readonly rule: "mirrors"; readonly over: "whole relations" | "a selected target" }
+type ItemPhi = Exclude<ItemSelection, Readonly<{ kind: "every" }>>
 
-type RuleFeature = Rule["rule"] | `selection: ${Phi | TargetPhi}`
-
-const phis: Arr.NonEmptyReadonlyArray<Phi> = ["a boolean field", "a comparison", "a conjunction"]
-const targetPhis: Arr.NonEmptyReadonlyArray<TargetPhi> = ["a comparison", "a range"]
-
-const rules: Arr.NonEmptyReadonlyArray<Rule> = [
-	{ rule: "a key over fields" },
-	...Arr.map(phis, (phi): Rule => ({ rule: "a key over a selected side", phi })),
-	{ rule: "a key over a pred term" },
-	...Arr.map(phis, (phi): Rule => ({ rule: "a key over a selected pred term", phi })),
-	{ rule: "a containment" },
-	{ rule: "a containment into a superkey" },
-	...Arr.map(phis, (phi): Rule => ({ rule: "a containment from a selected side", phi })),
-	...Arr.map(targetPhis, (phi): Rule => ({ rule: "a containment into a selected side", phi })),
-	{ rule: "a containment into a constant selection" },
-	{ rule: "two constant selections of one target" },
-	{ rule: "a cycle" },
-	{ rule: "mirrors", over: "whole relations" },
-	{ rule: "mirrors", over: "a selected target" }
-]
-
-const features: Arr.NonEmptyReadonlyArray<RuleFeature> = nonEmpty([
-	...new Set<RuleFeature>([
-		...Arr.map(rules, (r) => r.rule),
-		...Arr.map([...phis, ...targetPhis], (phi): RuleFeature => `selection: ${phi}`)
-	])
+const itemSelectionGen: Gen<ItemSelection> = oneOf<ItemSelection>([
+	constant<ItemSelection>({ kind: "every" }),
+	map(boolean, (live): ItemSelection => ({ kind: "a boolean field", live })),
+	map(comparisonGen, (code): ItemSelection => ({ kind: "a comparison", code })),
+	(source): ItemSelection => ({
+		kind: "a conjunction",
+		live: source.draw(boolean),
+		code: source.draw(comparisonGen)
+	})
 ])
 
-/** The rule's statements: what the schema states beside its four relations. */
-const statementsOf = (r: Rule): ReadonlyArray<Statement> => {
-	switch (r.rule) {
-		case "a key over fields":
-			return [key(on(Item, "owner", "code"))]
-		case "a key over a selected side":
-			return [key(on(itemsWhere(r.phi), "owner", "code"))]
-		case "a key over a pred term":
-			return [key(on(Item, "owner", pred("at")))]
-		case "a key over a selected pred term":
-			return [key(on(itemsWhere(r.phi), "owner", pred("at")))]
-		case "a containment":
+/** An Owner selection that fixes no field: rank compared, or a range of rank `width` wide above `low`. */
+type OwnerPhi =
+	| Readonly<{ kind: "a comparison"; rank: Comparison }>
+	| Readonly<{ kind: "a range"; low: number; width: number }>
+
+/** A second containment into Owner's id, from Note's owner, of a constant selection too, or none. */
+type Second = Readonly<{ kind: "none" }> | Readonly<{ kind: "from Note"; live: boolean }>
+
+/** A containment's target facts: every Owner, those a selection fixing no field holds of, or those of one live. */
+type Target =
+	| Readonly<{ kind: "every" }>
+	| Readonly<{ kind: "selected"; phi: OwnerPhi }>
+	| Readonly<{ kind: "constant"; live: boolean; second: Second }>
+
+const targetGen: Gen<Target> = oneOf<Target>([
+	constant<Target>({ kind: "every" }),
+	oneOf<Target>([
+		map(comparisonGen, (rank): Target => ({
+			kind: "selected",
+			phi: { kind: "a comparison", rank }
+		})),
+		(source): Target => ({
+			kind: "selected",
+			phi: { kind: "a range", low: source.draw(int(-2, 2)), width: source.draw(int(2, 4)) }
+		})
+	]),
+	(source): Target => ({
+		kind: "constant",
+		live: source.draw(boolean),
+		second: source.draw(
+			oneOf<Second>([
+				constant<Second>({ kind: "none" }),
+				map(boolean, (live): Second => ({ kind: "from Note", live }))
+			])
+		)
+	})
+])
+
+/** The relations the references draw among, each with whether it holds a field beside the key every reference into it
+ * names: a write can replace such a fact at its key. */
+const besideKey = { Note: true, Profile: false, Seat: false } as const
+type Referenced = keyof typeof besideKey
+
+/** Every reference between the three relations, from a field of one into another's key. */
+const edges = [
+	"Note → Seat",
+	"Note → Profile",
+	"Profile → Seat",
+	"Seat → Profile",
+	"Profile → Note",
+	"Seat → Note"
+] as const
+type Edge = (typeof edges)[number]
+
+/** A reference's relations, the field it reads and the key field it names, and its statement. */
+interface EdgeSpec {
+	readonly from: Referenced
+	readonly field: string
+	readonly to: Referenced
+	readonly key: string
+	readonly statement: Statement
+}
+
+const edgeOf = (e: Edge): EdgeSpec => {
+	switch (e) {
+		case "Note → Seat":
+			return {
+				from: "Note",
+				field: "owner",
+				to: "Seat",
+				key: "owner",
+				statement: contained(on(Note, "owner"), on(Seat, "owner"))
+			}
+		case "Note → Profile":
+			return {
+				from: "Note",
+				field: "owner",
+				to: "Profile",
+				key: "owner",
+				statement: contained(on(Note, "owner"), on(Profile, "owner"))
+			}
+		case "Profile → Seat":
+			return {
+				from: "Profile",
+				field: "owner",
+				to: "Seat",
+				key: "owner",
+				statement: contained(on(Profile, "owner"), on(Seat, "owner"))
+			}
+		case "Seat → Profile":
+			return {
+				from: "Seat",
+				field: "owner",
+				to: "Profile",
+				key: "owner",
+				statement: contained(on(Seat, "owner"), on(Profile, "owner"))
+			}
+		case "Profile → Note":
+			return {
+				from: "Profile",
+				field: "owner",
+				to: "Note",
+				key: "id",
+				statement: contained(on(Profile, "owner"), on(Note, "id"))
+			}
+		case "Seat → Note":
+			return {
+				from: "Seat",
+				field: "owner",
+				to: "Note",
+				key: "id",
+				statement: contained(on(Seat, "owner"), on(Note, "id"))
+			}
+	}
+}
+
+/** The side mirrors pairs with Profile's owner: Owner's id, or an Item side's id. */
+type MirrorLeft = Readonly<{ kind: "Owner" }> | Readonly<{ kind: "Item"; selection: ItemSelection }>
+
+/** One law of the box. */
+type Law =
+	| Readonly<{ kind: "key"; selection: ItemSelection; second: "code" | "pred" }>
+	| Readonly<{ kind: "containment"; selection: ItemSelection; superkey: boolean; target: Target }>
+	| Readonly<{ kind: "references"; edges: ReadonlyArray<Edge> }>
+	| Readonly<{ kind: "mirrors"; left: MirrorLeft }>
+
+const lawGen: Gen<Law> = oneOf<Law>([
+	(source): Law => ({
+		kind: "key",
+		selection: source.draw(itemSelectionGen),
+		second: source.draw(element(["code", "pred"] as const))
+	}),
+	(source): Law => ({
+		kind: "containment",
+		selection: source.draw(itemSelectionGen),
+		superkey: source.draw(boolean),
+		target: source.draw(targetGen)
+	}),
+	map(subset(edges, { min: 1, max: edges.length }), (drawnEdges): Law => ({
+		kind: "references",
+		edges: drawnEdges
+	})),
+	(source): Law => ({
+		kind: "mirrors",
+		left: source.draw(
+			oneOf<MirrorLeft>([
+				constant<MirrorLeft>({ kind: "Owner" }),
+				map(itemSelectionGen, (selection): MirrorLeft => ({ kind: "Item", selection }))
+			])
+		)
+	})
+])
+
+type ItemRow = RowScalars<typeof Item>
+type OwnerRow = RowScalars<typeof Owner>
+
+const codeCompared = (i: ItemRow, c: Comparison) => {
+	switch (c.op) {
+		case "gt":
+			return i.gt(i.code, c.value)
+		case "ge":
+			return i.ge(i.code, c.value)
+		case "lt":
+			return i.lt(i.code, c.value)
+		case "le":
+			return i.le(i.code, c.value)
+	}
+}
+
+const rankCompared = (o: OwnerRow, c: Comparison) => {
+	switch (c.op) {
+		case "gt":
+			return o.gt(o.rank, c.value)
+		case "ge":
+			return o.ge(o.rank, c.value)
+		case "lt":
+			return o.lt(o.rank, c.value)
+		case "le":
+			return o.le(o.rank, c.value)
+	}
+}
+
+const itemsWhere = (phi: ItemPhi): Selection<typeof Item> => {
+	switch (phi.kind) {
+		case "a boolean field": {
+			const { live } = phi
+			return select(Item, (i) => i.eq(i.live, live))
+		}
+		case "a comparison": {
+			const { code } = phi
+			return select(Item, (i) => codeCompared(i, code))
+		}
+		case "a conjunction": {
+			const { live, code } = phi
+			return select(Item, (i) => i.and(i.eq(i.live, live), codeCompared(i, code)))
+		}
+	}
+}
+
+const ownersWhere = (phi: OwnerPhi): Selection<typeof Owner> => {
+	switch (phi.kind) {
+		case "a comparison": {
+			const { rank } = phi
+			return select(Owner, (o) => rankCompared(o, rank))
+		}
+		case "a range": {
+			const { low, width } = phi
+			return select(Owner, (o) => o.and(o.gt(o.rank, low), o.lt(o.rank, low + width)))
+		}
+	}
+}
+
+/** Owner's facts of one live. */
+const ownersLive = (live: boolean): Selection<typeof Owner> =>
+	select(Owner, (o) => o.eq(o.live, live))
+
+/** An Item side's source: the relation, or its selection. */
+const itemSource = (s: ItemSelection): typeof Item | Selection<typeof Item> =>
+	s.kind === "every" ? Item : itemsWhere(s)
+
+/** A containment target's source: the relation, its selection, or its facts of one live. */
+const ownerSource = (t: Target): typeof Owner | Selection<typeof Owner> => {
+	switch (t.kind) {
+		case "every":
+			return Owner
+		case "selected":
+			return ownersWhere(t.phi)
+		case "constant":
+			return ownersLive(t.live)
+	}
+}
+
+/** The containment from Note a constant target states beside the law's, or none. */
+const secondOf = (t: Target): ReadonlyArray<Statement> =>
+	t.kind === "constant" && t.second.kind === "from Note"
+		? [contained(on(Note, "owner"), on(ownersLive(t.second.live), "id"))]
+		: []
+
+/** The statements a law states beside the five relations. */
+const statementsOf = (law: Law): ReadonlyArray<Statement> => {
+	switch (law.kind) {
+		case "key":
 			return [
-				contained(on(Item, "owner"), on(Owner, "id")),
-				contained(on(Note, "owner"), on(Seat, "owner"))
+				law.second === "code"
+					? key(on(itemSource(law.selection), "owner", "code"))
+					: key(on(itemSource(law.selection), "owner", pred("at")))
 			]
-		case "a containment into a superkey":
-			return [contained(on(Item, "owner", "code"), on(Owner, "id", "rank"))]
-		case "a containment from a selected side":
-			return [contained(on(itemsWhere(r.phi), "owner"), on(Owner, "id"))]
-		case "a containment into a selected side":
-			return [contained(on(Item, "owner"), on(ownersWhere(r.phi), "id"))]
-		case "a containment into a constant selection":
+		case "containment":
 			return [
-				contained(
-					on(Item, "owner"),
-					on(
-						select(Owner, (o) => o.eq(o.live, true)),
-						"id"
-					)
-				)
+				law.superkey
+					? contained(
+							on(itemSource(law.selection), "owner", "code"),
+							on(ownerSource(law.target), "id", "rank")
+						)
+					: contained(on(itemSource(law.selection), "owner"), on(ownerSource(law.target), "id")),
+				...secondOf(law.target)
 			]
-		case "two constant selections of one target":
-			return [
-				contained(
-					on(Item, "owner"),
-					on(
-						select(Owner, (o) => o.eq(o.live, true)),
-						"id"
-					)
-				),
-				contained(
-					on(Note, "owner"),
-					on(
-						select(Owner, (o) => o.eq(o.live, false)),
-						"id"
-					)
-				)
-			]
-		case "a cycle":
-			return [
-				contained(on(Profile, "owner"), on(Seat, "owner")),
-				contained(on(Seat, "owner"), on(Profile, "owner"))
-			]
+		case "references":
+			return Arr.map(law.edges, (e) => edgeOf(e).statement)
 		case "mirrors":
-			return r.over === "whole relations"
+			return law.left.kind === "Owner"
 				? [mirrors(on(Owner, "id"), on(Profile, "owner"))]
-				: [mirrors(on(itemsWhere("a comparison"), "id"), on(Profile, "owner"))]
+				: [mirrors(on(itemSource(law.left.selection), "id"), on(Profile, "owner"))]
 	}
 }
 
 /** mirrors' two containments, written out. */
-const containmentsOf = (over: "whole relations" | "a selected target"): ReadonlyArray<Statement> =>
-	over === "whole relations"
+const containmentsOf = (left: MirrorLeft): ReadonlyArray<Statement> =>
+	left.kind === "Owner"
 		? [
 				contained(on(Owner, "id"), on(Profile, "owner")),
 				contained(on(Profile, "owner"), on(Owner, "id"))
 			]
 		: [
-				contained(on(itemsWhere("a comparison"), "id"), on(Profile, "owner")),
-				contained(on(Profile, "owner"), on(itemsWhere("a comparison"), "id"))
+				contained(on(itemSource(left.selection), "id"), on(Profile, "owner")),
+				contained(on(Profile, "owner"), on(itemSource(left.selection), "id"))
 			]
 
 const installed = (statements: ReadonlyArray<Statement>): Installation => {
@@ -340,6 +508,11 @@ class Reading {
 
 	column(relation: string, field: string): string {
 		return this.#names.columnIdent({ name: relation }, field)
+	}
+
+	/** Every foreign key of the installation, of every table. */
+	foreignKeys(): ReadonlyArray<ForeignKey> {
+		return Arr.flatMap([...this.#tables.values()], (t) => t.foreignKeys)
 	}
 
 	/** The columns a law adds to `relation`: every generated column but an identity. */
@@ -462,142 +635,284 @@ class Reading {
 	}
 }
 
-/** The DDL each rule must install, read from its installation. */
-const checkRule = (r: Rule, i: Installation): void => {
-	const at = new Reading(i)
-	const col = (relation: string, field: string) => at.column(relation, field)
-	switch (r.rule) {
-		case "a key over fields":
-			assert.deepEqual(at.lawColumns("Item"), [], "a side over every fact adds no column")
-			at.keys("Item", [col("Item", "owner"), col("Item", "code")], 1)
-			return
-		case "a key over a selected side": {
-			const when = phiFields[r.phi]
-			const owners = at.partial("Item", { kind: "field", field: "owner" }, when, types.uuid)
-			const codes = at.partial("Item", { kind: "field", field: "code" }, when, types.integer)
-			assert.equal(at.lawColumns("Item").length, 2, "one law column per term")
-			at.keys("Item", [owners, codes], 1)
-			return
-		}
-		case "a key over a pred term": {
-			const prior = at.partial("Item", { kind: "pred", field: "at" }, [], types.bigint)
-			assert.equal(at.lawColumns("Item").length, 1, "a law column for the pred term alone")
-			at.keys("Item", [col("Item", "owner"), prior], 1)
-			return
-		}
-		case "a key over a selected pred term": {
-			const when = phiFields[r.phi]
-			const owners = at.partial("Item", { kind: "field", field: "owner" }, when, types.uuid)
-			const prior = at.partial("Item", { kind: "pred", field: "at" }, when, types.bigint)
-			assert.equal(at.lawColumns("Item").length, 2, "one law column per term")
-			at.keys("Item", [owners, prior], 1)
-			return
-		}
-		case "a containment": {
-			assert.deepEqual(at.lawColumns("Item"), [], "a side over every fact adds no column")
-			at.reference("Item", [col("Item", "owner")], "Owner", [col("Owner", "id")])
-			const immediate = at.reference("Note", [col("Note", "owner")], "Seat", [col("Seat", "owner")])
-			assert.equal(immediate.deferrable, undefined, "off every cycle, into a key no write replaces")
-			return
-		}
-		case "a containment into a superkey":
-			at.keys("Owner", [col("Owner", "id"), col("Owner", "rank")], 1)
-			at.reference("Item", [col("Item", "owner"), col("Item", "code")], "Owner", [
-				col("Owner", "id"),
-				col("Owner", "rank")
-			])
-			return
-		case "a containment from a selected side": {
-			const owners = at.partial(
-				"Item",
-				{ kind: "field", field: "owner" },
-				phiFields[r.phi],
-				types.uuid
-			)
-			at.reference("Item", [owners], "Owner", [col("Owner", "id")])
-			return
-		}
-		case "a containment into a selected side": {
-			const ids = at.partial(
-				"Owner",
-				{ kind: "field", field: "id" },
-				targetPhiFields[r.phi],
-				types.uuid
-			)
-			assert.deepEqual(at.lawColumns("Item"), [], "the source's side adds no column")
-			at.keys("Owner", [ids], 1)
-			at.reference("Item", [col("Item", "owner")], "Owner", [ids])
-			return
-		}
-		case "a containment into a constant selection": {
-			const tag = at.constant("Item", types.boolean)
-			assert.deepEqual(at.lawColumns("Owner"), [], "the target holds no law column")
-			at.keys("Owner", [col("Owner", "id"), col("Owner", "live")], 1)
-			at.reference("Item", [col("Item", "owner"), tag], "Owner", [
-				col("Owner", "id"),
-				col("Owner", "live")
-			])
-			return
-		}
-		case "two constant selections of one target": {
-			const superkey = [col("Owner", "id"), col("Owner", "live")]
-			at.keys("Owner", superkey, 1)
-			at.reference(
-				"Item",
-				[col("Item", "owner"), at.constant("Item", types.boolean)],
-				"Owner",
-				superkey
-			)
-			at.reference(
-				"Note",
-				[col("Note", "owner"), at.constant("Note", types.boolean)],
-				"Owner",
-				superkey
-			)
-			return
-		}
-		case "a cycle": {
-			const there = at.reference("Profile", [col("Profile", "owner")], "Seat", [
-				col("Seat", "owner")
-			])
-			const back = at.reference("Seat", [col("Seat", "owner")], "Profile", [
-				col("Profile", "owner")
-			])
-			assert.deepEqual(
-				[there.deferrable, back.deferrable],
-				["INITIALLY DEFERRED", "INITIALLY DEFERRED"]
-			)
-			return
-		}
-		case "mirrors":
-			assert.deepEqual(i.statements, installed(containmentsOf(r.over)).statements)
-			return
+type Feature =
+	| "a key over fields"
+	| "a key over a selected side"
+	| "a key over a pred term"
+	| "a key over a selected pred term"
+	| "a containment"
+	| "a containment into a superkey"
+	| "a containment from a selected side"
+	| "a containment into a selected side"
+	| "a containment into a constant selection"
+	| "two constant selections of one target"
+	| "a reference on a cycle"
+	| "a reference into a replaceable target"
+	| "a reference off every cycle into a key no write replaces"
+	| "mirrors over whole relations"
+	| "mirrors over a selected side"
+	| `selection: ${ItemPhi["kind"]}`
+	| `target selection: ${OwnerPhi["kind"]}`
+
+/** The fields an Item selection reads. */
+const itemFields = (phi: ItemPhi): ReadonlyArray<string> => {
+	switch (phi.kind) {
+		case "a boolean field":
+			return ["live"]
+		case "a comparison":
+			return ["code"]
+		case "a conjunction":
+			return ["live", "code"]
 	}
 }
 
+/** A term's field and the base type its law column holds. */
+type Term = readonly [field: string, type: TypeRef]
+
+/** An Item side's column of a field term: its own column over every fact, its partial law column over a selection. */
+const itemColumn = (at: Reading, selection: ItemSelection, [field, type]: Term): string =>
+	selection.kind === "every"
+		? at.column("Item", field)
+		: at.partial("Item", { kind: "field", field }, itemFields(selection), type)
+
+/** A key over Item's owner and its code or pred(at): a law column per selected or pred term, under one UNIQUE. */
+const checkKey = (
+	law: Extract<Law, { readonly kind: "key" }>,
+	at: Reading,
+	c: Case<Feature>
+): void => {
+	const { selection } = law
+	const owners = itemColumn(at, selection, ["owner", types.uuid])
+	const second =
+		law.second === "code"
+			? itemColumn(at, selection, ["code", types.integer])
+			: at.partial(
+					"Item",
+					{ kind: "pred", field: "at" },
+					selection.kind === "every" ? [] : itemFields(selection),
+					types.bigint
+				)
+	assert.equal(
+		at.lawColumns("Item").length,
+		(selection.kind === "every" ? 0 : 1) +
+			(selection.kind === "every" && law.second === "code" ? 0 : 1),
+		"a law column per term of a selected side or pred term, and no other"
+	)
+	at.keys("Item", [owners, second], 1)
+	if (selection.kind !== "every") {
+		c.note(`selection: ${selection.kind}`)
+	}
+	c.note(
+		law.second === "code"
+			? selection.kind === "every"
+				? "a key over fields"
+				: "a key over a selected side"
+			: selection.kind === "every"
+				? "a key over a pred term"
+				: "a key over a selected pred term"
+	)
+}
+
+/**
+ * A containment of Item's owner, and its code, into Owner's id, and its rank: a law column per term of a selected side,
+ * a constant column on the source for a target of one live, carried into Owner's superkey over the referenced columns
+ * and live, and a deferred reference, since Owner holds slots beside every key a reference names.
+ */
+const checkContainment = (
+	law: Extract<Law, { readonly kind: "containment" }>,
+	at: Reading,
+	c: Case<Feature>
+): void => {
+	const { selection, target } = law
+	const sourceTerms: ReadonlyArray<Term> = law.superkey
+		? [
+				["owner", types.uuid],
+				["code", types.integer]
+			]
+		: [["owner", types.uuid]]
+	const targetTerms: ReadonlyArray<Term> = law.superkey
+		? [
+				["id", types.uuid],
+				["rank", types.integer]
+			]
+		: [["id", types.uuid]]
+	const sources = Arr.map(sourceTerms, (term) => itemColumn(at, selection, term))
+	const targets = Arr.map(targetTerms, ([field, type]) =>
+		target.kind === "selected"
+			? at.partial("Owner", { kind: "field", field }, ["rank"], type)
+			: at.column("Owner", field)
+	)
+	const constants = target.kind === "constant" ? [at.constant("Item", types.boolean)] : []
+	const referenced = target.kind === "constant" ? [...targets, at.column("Owner", "live")] : targets
+	assert.equal(
+		at.lawColumns("Item").length,
+		(selection.kind === "every" ? 0 : sources.length) + constants.length,
+		"the source's law columns: one per term of a selected side, and the constant"
+	)
+	assert.equal(
+		at.lawColumns("Owner").length,
+		target.kind === "selected" ? targets.length : 0,
+		"the target's law columns: one per term of a selection fixing no field"
+	)
+	at.keys("Owner", referenced, 1)
+	const fk = at.reference("Item", [...sources, ...constants], "Owner", referenced)
+	assert.equal(
+		fk.deferrable,
+		"INITIALLY DEFERRED",
+		"Owner's slots let a write replace it at its key"
+	)
+	const sourceFacets: ReadonlyArray<Feature> = [
+		...(law.superkey ? ["a containment into a superkey" as const] : []),
+		...(selection.kind === "every" ? [] : ["a containment from a selected side" as const])
+	]
+	const targetFacet: ReadonlyArray<Feature> =
+		target.kind === "every"
+			? []
+			: [
+					target.kind === "selected"
+						? "a containment into a selected side"
+						: "a containment into a constant selection"
+				]
+	c.note("a containment")
+	c.noteAll([...sourceFacets, ...targetFacet])
+	for (const first of sourceFacets) {
+		for (const second of targetFacet) {
+			c.pair(first, second)
+		}
+	}
+	if (selection.kind !== "every") {
+		c.note(`selection: ${selection.kind}`)
+	}
+	if (target.kind === "selected") {
+		c.note(`target selection: ${target.phi.kind}`)
+	}
+	if (target.kind === "constant" && target.second.kind === "from Note") {
+		const superkey = [at.column("Owner", "id"), at.column("Owner", "live")]
+		at.keys("Owner", superkey, 1)
+		at.reference(
+			"Note",
+			[at.column("Note", "owner"), at.constant("Note", types.boolean)],
+			"Owner",
+			superkey
+		)
+		c.note("two constant selections of one target")
+	}
+}
+
+/** Whether the references lead from `from` to `to`, through relations not yet `seen`. */
+const reaches = (
+	specs: ReadonlyArray<EdgeSpec>,
+	from: Referenced,
+	to: Referenced,
+	seen: ReadonlySet<Referenced>
+): boolean =>
+	from === to ||
+	Arr.some(
+		specs,
+		(e) => e.from === from && !seen.has(e.to) && reaches(specs, e.to, to, new Set([...seen, e.to]))
+	)
+
+/** Every reference is one foreign key into its target's key, deferred exactly on a cycle or into a replaceable target. */
+const checkReferences = (
+	law: Extract<Law, { readonly kind: "references" }>,
+	at: Reading,
+	c: Case<Feature>
+): void => {
+	const specs = Arr.map(law.edges, edgeOf)
+	for (const e of specs) {
+		const fk = at.reference(e.from, [at.column(e.from, e.field)], e.to, [at.column(e.to, e.key)])
+		const cycle = reaches(specs, e.to, e.from, new Set([e.to]))
+		const replaceable = besideKey[e.to]
+		c.note(
+			cycle
+				? "a reference on a cycle"
+				: replaceable
+					? "a reference into a replaceable target"
+					: "a reference off every cycle into a key no write replaces"
+		)
+		assert.equal(
+			fk.deferrable,
+			cycle || replaceable ? "INITIALLY DEFERRED" : undefined,
+			`${e.from} → ${e.to}: deferred exactly on a cycle or into a replaceable target`
+		)
+	}
+	assert.equal(at.foreignKeys().length, specs.length, "one foreign key per reference, and no other")
+}
+
+const situations: Arr.NonEmptyReadonlyArray<Feature | readonly [Feature, Feature]> = [
+	"a key over fields",
+	"a key over a selected side",
+	"a key over a pred term",
+	"a key over a selected pred term",
+	"a containment",
+	"a containment into a superkey",
+	"a containment from a selected side",
+	"a containment into a selected side",
+	"a containment into a constant selection",
+	"two constant selections of one target",
+	"a reference on a cycle",
+	"a reference into a replaceable target",
+	"a reference off every cycle into a key no write replaces",
+	"mirrors over whole relations",
+	"mirrors over a selected side",
+	"selection: a boolean field",
+	"selection: a comparison",
+	"selection: a conjunction",
+	"target selection: a comparison",
+	"target selection: a range",
+	["a containment into a superkey", "a containment into a selected side"],
+	["a containment into a superkey", "a containment into a constant selection"],
+	["a containment from a selected side", "a containment into a selected side"],
+	["a containment from a selected side", "a containment into a constant selection"]
+]
+
 describe("partial projections lower by §5.1's rules", () => {
 	it.effect(
-		"every rule installs its DDL: generated CASE columns, keys and references over them, constant columns, deferral, and mirrors as its containments",
+		"every drawn law installs its DDL: generated CASE columns, keys and references over them, constant columns, deferral, and mirrors as its containments",
 		(ctx) =>
 			searched(
 				ctx,
-				exhaust(
+				explore(
 					{
 						suite: "unit/laws/model/projection",
-						generator: element(rules),
+						draw: drawn(lawGen),
 						literal: Formatter.format,
-						/** The space is the rules: 7 unselected, 3 selections for each of 3 selected rules, 2 for the selected target, and 2 mirrors. */
-						limit: 20,
-						coverage: requiredInSpace<RuleFeature>(features),
+						oracle: {
+							kind: "specification",
+							name: "fin.md §5.1's lowering rules as a checker of the installation's DDL"
+						},
+						coverage: required<Feature>(situations, { cases: 96, sense: notesOnly }),
+						kept: [],
+						runs: 32,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
 						caseHang
 					},
-					(r, c) =>
+					(law, c) =>
 						Effect.sync(() => {
-							c.note(r.rule)
-							if ("phi" in r) {
-								c.note(`selection: ${r.phi}`)
+							const installation = installed(statementsOf(law))
+							const at = new Reading(installation)
+							switch (law.kind) {
+								case "key":
+									return checkKey(law, at, c)
+								case "containment":
+									return checkContainment(law, at, c)
+								case "references":
+									return checkReferences(law, at, c)
+								case "mirrors":
+									if (law.left.kind === "Item" && law.left.selection.kind !== "every") {
+										c.note("mirrors over a selected side")
+										c.note(`selection: ${law.left.selection.kind}`)
+									} else {
+										c.note("mirrors over whole relations")
+									}
+									assert.deepEqual(
+										installation.statements,
+										installed(containmentsOf(law.left)).statements,
+										"mirrors installs exactly its two containments"
+									)
 							}
-							checkRule(r, installed(statementsOf(r)))
 						})
 				)
 			)

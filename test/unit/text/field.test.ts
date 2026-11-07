@@ -58,7 +58,13 @@ describe("str.regex", () => {
 							const analyzed = textLookup(source, flags)
 							if (analyzed.ok) {
 								const desc = succeeded(describeField(field, SourceLoc("field", []))).desc
-								assert.deepEqual(desc, { kind: "text", source, flags, language: analyzed.value })
+								assert.deepEqual(desc, {
+									kind: "text",
+									source,
+									flags,
+									bytes: undefined,
+									language: analyzed.value
+								})
 								assert.equal(decodeDesc("field", desc).ok, true)
 								assert.equal(decodeDesc("schema", schemaDescOf(content())).ok, true)
 								c.note("admitted")

@@ -19,7 +19,7 @@ import {
 	type TakeBound,
 	type ValidDag
 } from "#compiler/ir/rel.ts"
-import { contractOf, type RegexRef, type ScalarType } from "#compiler/ir/scalar.ts"
+import { contractOf, type RegexRef, refinementText, type ScalarType } from "#compiler/ir/scalar.ts"
 import {
 	type ArrayPart,
 	type ArraySlot,
@@ -786,7 +786,7 @@ const namedType = (p: PhysicalType, at: string): TypeRef =>
 		: refuse(
 				"UnsupportedOperation",
 				at,
-				`the domain name of the text refinement /${p.regex.source}/${p.regex.flags}, which no stored field declares, so the installation holds no domain of it; declare a field of that pattern on a stored relation, or type the value by a pattern a stored field declares`
+				`the domain name of the text refinement ${refinementText(p.regex)}, which no stored field declares, so the installation holds no domain of it; declare a field of that refinement on a stored relation, or type the value by a refinement a stored field declares`
 			)
 
 /** The PostgreSQL type of a value of `t` (physicalTypeOf); a refinement without a domain name is refused. */

@@ -17,78 +17,69 @@ import { type Case, exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen, int, oneOf } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Effect, Formatter } from "effect"
+import { Effect, Formatter, Record as Rec } from "effect"
 import {
 	alignUp,
 	blockSize,
 	constantMaxBits,
 	heapTupleMaxBytes,
-	int2Max,
-	int2Min,
-	int4Max,
-	int4Min,
-	int8Max,
-	int8Min,
 	itemIdBytes,
-	type Limit,
 	maxAlign,
 	pageHeaderBytes,
 	rosterMaxCodes,
 	typlens
 } from "#compiler/core/limits.ts"
-import { assert } from "#test/support/assert.ts"
+import { integerRanges } from "#compiler/ir/carriers.ts"
+import { assert, nonEmpty } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 
-/** One of PostgreSQL's integer types, beside the Node typed array that holds the same integers. */
-interface IntegerType {
-	readonly least: bigint
-	readonly greatest: bigint
-	readonly typlen: Limit
-	readonly bytes: number
-	readonly holds: (value: bigint) => boolean
-}
+/** An integer carrier: smallint, integer and bigint, by the carriers' own roster of their ranges. */
+type IntegerCarrier = keyof typeof integerRanges
 
-const integerTypes = {
-	smallint: {
-		least: BigInt(int2Min.value),
-		greatest: BigInt(int2Max.value),
-		typlen: typlens.int2,
-		bytes: Int16Array.BYTES_PER_ELEMENT,
-		holds: (value: bigint) => Int16Array.of(Number(value))[0] === Number(value)
-	},
-	integer: {
-		least: BigInt(int4Min.value),
-		greatest: BigInt(int4Max.value),
-		typlen: typlens.int4,
-		bytes: Int32Array.BYTES_PER_ELEMENT,
-		holds: (value: bigint) => Int32Array.of(Number(value))[0] === Number(value)
-	},
-	bigint: {
-		least: int8Min.value,
-		greatest: int8Max.value,
-		typlen: typlens.int8,
-		bytes: BigInt64Array.BYTES_PER_ELEMENT,
-		holds: (value: bigint) => BigInt64Array.of(value)[0] === value
+/** The integer carriers, the roster the carriers declare their ranges by. */
+const integerCarriers = nonEmpty(Rec.keys(integerRanges), "the integer carriers")
+
+/** Node's typed array of each integer carrier's width, which holds the same two's-complement integers. */
+const typedArrays: {
+	readonly [C in IntegerCarrier]: {
+		readonly bytes: number
+		readonly holds: (value: bigint) => boolean
 	}
-} as const satisfies Readonly<Record<string, IntegerType>>
-
-type IntegerName = keyof typeof integerTypes
+} = {
+	int2: {
+		bytes: Int16Array.BYTES_PER_ELEMENT,
+		holds: (value) => Int16Array.of(Number(value))[0] === Number(value)
+	},
+	int4: {
+		bytes: Int32Array.BYTES_PER_ELEMENT,
+		holds: (value) => Int32Array.of(Number(value))[0] === Number(value)
+	},
+	int8: {
+		bytes: BigInt64Array.BYTES_PER_ELEMENT,
+		holds: (value) => BigInt64Array.of(value)[0] === value
+	}
+}
 
 describe("PostgreSQL's integers", () => {
 	/**
 	 * Each integer type's published least and greatest values are the ends of the two's-complement integers of its
 	 * typlen: each end is held, and the value one past it is not. Oracle: Node's typed array of the same width.
 	 */
-	const ends = (name: IntegerName, c: Case<IntegerName>) =>
+	const ends = (carrier: IntegerCarrier, c: Case<IntegerCarrier>) =>
 		Effect.sync(() => {
-			const type = integerTypes[name]
-			assert.equal(type.typlen.value, type.bytes, "the typlen is the typed array's element size")
-			assert.equal(type.holds(type.greatest), true, "the greatest value is held")
-			assert.equal(type.holds(type.greatest + 1n), false, "one past the greatest is not")
-			assert.equal(type.holds(type.least), true, "the least value is held")
-			assert.equal(type.holds(type.least - 1n), false, "one before the least is not")
-			assert.equal(type.least, -(type.greatest + 1n), "two's complement")
-			c.note(name)
+			const [least, greatest] = integerRanges[carrier]
+			const oracle = typedArrays[carrier]
+			assert.equal(
+				typlens[carrier].value,
+				oracle.bytes,
+				"the typlen is the typed array's element size"
+			)
+			assert.equal(oracle.holds(greatest), true, "the greatest value is held")
+			assert.equal(oracle.holds(greatest + 1n), false, "one past the greatest is not")
+			assert.equal(oracle.holds(least), true, "the least value is held")
+			assert.equal(oracle.holds(least - 1n), false, "one before the least is not")
+			assert.equal(least, -(greatest + 1n), "two's complement")
+			c.note(carrier)
 		})
 
 	it.effect("are the two's-complement integers of their typlens", (ctx) =>
@@ -97,10 +88,15 @@ describe("PostgreSQL's integers", () => {
 			exhaust(
 				{
 					suite: "unit/core/limits-integers",
-					generator: element<IntegerName>(["smallint", "integer", "bigint"]),
+					generator: element(integerCarriers),
 					literal: Formatter.format,
-					limit: 3,
-					coverage: requiredInSpace<IntegerName>(["smallint", "integer", "bigint"]),
+					limit: integerCarriers.length,
+					box: "every integer carrier",
+					oracle: {
+						kind: "second-implementation",
+						name: "Node's typed array of the carrier's width"
+					},
+					coverage: requiredInSpace<IntegerCarrier>(integerCarriers),
 					caseHang
 				},
 				ends
@@ -118,11 +114,7 @@ describe("PostgreSQL's integers", () => {
 	const numbers = (code: number, c: Case<Code>) =>
 		Effect.sync(() => {
 			const isCode = code >= 0 && code < rosterMaxCodes.value
-			assert.equal(
-				isCode,
-				code >= 0 && integerTypes.smallint.holds(BigInt(code)),
-				`the code ${code}`
-			)
+			assert.equal(isCode, code >= 0 && typedArrays.int2.holds(BigInt(code)), `the code ${code}`)
 			c.note(
 				code < 0
 					? "below the codes"
@@ -214,7 +206,7 @@ describe("a heap page", () => {
 
 	/** Every size from 0 to four times the greatest alignment, at every power-of-two alignment up to it: 132. */
 	const roundings: Gen<Rounding> = (s) => ({
-		a: s.draw(element([1, 2, 4, 8])),
+		a: 2 ** s.draw(int(0, Math.log2(maxAlign.value))),
 		n: s.draw(int(0, 4 * maxAlign.value))
 	})
 

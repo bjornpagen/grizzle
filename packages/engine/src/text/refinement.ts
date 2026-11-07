@@ -8,6 +8,7 @@ import * as Result from "#compiler/core/result.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
 import { codePoints } from "#compiler/core/text.ts"
 import {
+	type PatternCheck,
 	type RegexCheck,
 	RegexKey,
 	type TextBounds,
@@ -32,7 +33,7 @@ import type { Nfa } from "#compiler/scalar/regex/nfa.ts"
 import type { RegexFlags } from "#compiler/scalar/regex/parse.ts"
 import type { TextLookup } from "#compiler/scalar/registry.ts"
 import type { CreateDomain, Expr } from "#compiler/sql/ast.ts"
-import { binary, cUtf8Collation, lit, types } from "#compiler/sql/build.ts"
+import { and, binary, call, cUtf8Collation, le, lit, types } from "#compiler/sql/build.ts"
 import { printExpr } from "#compiler/sql/print.ts"
 import { structuralBounds } from "#compiler/text/bounds.ts"
 
@@ -47,9 +48,9 @@ const dfaLimits: DfaLimits = Object.freeze({
 
 /**
  * How PostgreSQL enforces the refinement: no check for a tautology over admitted text, else its language's enforcement
- * (ir/scalar.ts RegexCheck), with the bounds it proves on every member.
+ * (ir/scalar.ts PatternCheck), with the bounds it proves on every member.
  */
-type TextCheck = { readonly kind: "tautology" } | RegexCheck
+type TextCheck = { readonly kind: "tautology" } | PatternCheck
 
 export interface TextRefinement {
 	readonly source: string
@@ -99,11 +100,11 @@ type Known =
 
 /** A nontrivial check with the UTF-8 bytes its predicate prints in (predicateBytes). */
 interface Measured {
-	readonly check: RegexCheck
+	readonly check: PatternCheck
 	readonly bytes: number
 }
 
-const measured = (check: RegexCheck): Measured => ({ check, bytes: predicateBytes(check) })
+const measured = (check: PatternCheck): Measured => ({ check, bytes: predicateBytes(check) })
 
 /**
  * The enforcement of a finite language whose predicate prints in fewer bytes, the IN list where the two print alike.
@@ -267,6 +268,54 @@ export const textInfo = (refinement: TextRefinement): TextInfo =>
 export const textLookup: TextLookup = (source, flags) =>
 	Result.map(analyzeText(source, flags, SourceLoc(`/${source}/${flags}`, [])), textLanguage)
 
+/** The tighter of a pattern's bounds and a byte bound's: a code point takes at least a byte. */
+const boundsWithin = (bounds: TextBounds | undefined, octets: number): TextBounds =>
+	bounds === undefined
+		? { length: octets, bytes: octets }
+		: { length: Math.min(bounds.length, octets), bytes: Math.min(bounds.bytes, octets) }
+
+/**
+ * The language of a text of at most `octets` UTF-8 bytes whose pattern is `refinement` (str.bytes): the pattern's own
+ * where its bounds prove every member fits, so the two spell one language; else its members of at most so many bytes,
+ * enforced by `octet_length(VALUE) <= octets` beside the pattern's check, or alone for a tautology, under a key of its
+ * own, the pattern's key with the bound.
+ */
+const languageWithin = (refinement: TextRefinement, octets: number): TextLanguage => {
+	const check = refinement.check
+	if (check.kind !== "tautology" && check.bounds !== undefined && check.bounds.bytes <= octets) {
+		return textLanguage(refinement)
+	}
+	const cut: TextLanguage =
+		check.kind === "tautology"
+			? {
+					kind: "refined",
+					key: RegexKey(keyDigest(`octets<=${octets}`)),
+					check: {
+						kind: "octets",
+						octets,
+						check: undefined,
+						bounds: boundsWithin(undefined, octets)
+					}
+				}
+			: {
+					kind: "refined",
+					key: RegexKey(keyDigest(`${refinement.key}&octets<=${octets}`)),
+					check: { kind: "octets", octets, check, bounds: boundsWithin(check.bounds, octets) }
+				}
+	return Object.freeze(cut)
+}
+
+/**
+ * The analyzed language of a pattern cut to `octets` UTF-8 bytes (languageWithin), a refusal located at the pattern:
+ * what a str.bytes descriptor is admitted with.
+ */
+export const textLookupWithin =
+	(octets: number): TextLookup =>
+	(source, flags) =>
+		Result.map(analyzeText(source, flags, SourceLoc(`/${source}/${flags}`, [])), (refinement) =>
+			languageWithin(refinement, octets)
+		)
+
 /** A domain CHECK's VALUE. */
 export const domainValue: Expr = Object.freeze({ kind: "domainValue" })
 
@@ -279,11 +328,8 @@ const memberLiteral = (member: string): Expr => lit.text(member, types.text)
  */
 const memberBytes = utf8Length(printExpr(memberLiteral("")))
 
-/**
- * The membership predicate over `value` (domainValue inside a domain CHECK), without the IS TRUE wrapper, which the
- * printer adds to every CHECK.
- */
-export const membership = (check: RegexCheck, value: Expr): Expr => {
+/** A pattern's membership predicate over `value`: `value IN (...)` of its members, or `value ~ '<ARE>'`. */
+const patternMembership = (check: PatternCheck, value: Expr): Expr => {
 	switch (check.kind) {
 		case "finite":
 			return {
@@ -297,13 +343,34 @@ export const membership = (check: RegexCheck, value: Expr): Expr => {
 	}
 }
 
+/** A byte bound's test over `value`: `octet_length(value) <= octets`. */
+const octetsTest = (octets: number, value: Expr): Expr =>
+	le(call("octet_length", [value]), lit.int(octets, types.integer))
+
+/**
+ * The membership predicate over `value` (domainValue inside a domain CHECK), without the IS TRUE wrapper, which the
+ * printer adds to every CHECK: a pattern's, or a byte bound's test before the pattern's, so PostgreSQL's regex engine
+ * never reads a value past the bound.
+ */
+export const membership = (check: RegexCheck, value: Expr): Expr => {
+	switch (check.kind) {
+		case "finite":
+		case "regex":
+			return patternMembership(check, value)
+		case "octets":
+			return check.check === undefined
+				? octetsTest(check.octets, value)
+				: and([octetsTest(check.octets, value), patternMembership(check.check, value)])
+	}
+}
+
 /**
  * The UTF-8 bytes a check's predicate over VALUE prints in, what choose compares two equivalent checks by. Every CHECK
  * prints its predicate in one place whatever its form, alone inside `CHECK ((...) IS TRUE)` or as a term of a
  * contract's conjunction, so the predicates' bytes order the statements as the statements' own bytes do.
  */
-const predicateBytes = (check: RegexCheck): number =>
-	utf8Length(printExpr(membership(check, domainValue)))
+const predicateBytes = (check: PatternCheck): number =>
+	utf8Length(printExpr(patternMembership(check, domainValue)))
 
 /**
  * The compiler-owned structural domain of a nontrivial refinement:

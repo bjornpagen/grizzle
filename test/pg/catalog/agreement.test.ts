@@ -1,7 +1,7 @@
 import { layer } from "@effect/vitest"
 import { type Case, drawn, explore, type Kept } from "@grizzle/testing/explore"
 import { noCoverage, required } from "@grizzle/testing/features"
-import { boolean, int } from "@grizzle/testing/gen"
+import { array, boolean, element, type Gen, int, map, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -18,7 +18,7 @@ import { LowerContext } from "#compiler/lower/conservative/context.ts"
 import { Delivery } from "#compiler/lower/conservative/deliver.ts"
 import type { CatalogOptions } from "#compiler/lower/shapes/catalog/context.ts"
 import { CatalogEditor } from "#compiler/lower/shapes/catalog/edit.ts"
-import { rewriteCatalog } from "#compiler/lower/shapes/catalog/rewrite.ts"
+import { type CatalogResult, rewriteCatalog } from "#compiler/lower/shapes/catalog/rewrite.ts"
 import * as Q from "#test/pg/catalog/queries.ts"
 import {
 	appliedRules,
@@ -29,11 +29,10 @@ import {
 	labOptions,
 	oracleCase
 } from "#test/pg/catalog/support.ts"
-import { assert, defined } from "#test/support/assert.ts"
+import { assert, defined, nonEmpty } from "#test/support/assert.ts"
 import { catalogDispatch } from "#test/support/compile.ts"
 import type { AuthoredExprDesc, QueryDesc } from "#test/support/fixtures/ir/desc.ts"
 import { caseHang } from "#test/support/limits.ts"
-import type { RawRow } from "#test/support/oracle/install/capture.ts"
 import {
 	conservative,
 	defaultRunOptions,
@@ -92,11 +91,11 @@ type Delivers = "rows" | "maybe none"
  * ordered pass over whole inputs. Each entry's restrictions are run where they sit: Q's own predicates before the as-of
  * union, shared constants before the windows, first-occurrence conditions after them.
  *
- * Planted facts hold what a drawn population of small groups cannot: the percentile disagreements the catalog documents
- * (p = 0, which the recognizer refuses because the native form returns the first value where ceil(0) selects no
- * ordinal, and 0.07 · 100 over a group of a hundred, which it refuses because the composition's numeric ceil rounds the
- * product where the native form does not). R24 is the aggregate shapes', held by test/pg/lower-shapes over generated
- * groups.
+ * The discrete percentile's documented disagreements are a search of their own (fractionCaseGen): drawn fractions,
+ * dyadic and decimal, over drawn groups of up to a hundred sittings, where p = 0, which the recognizer refuses because
+ * the native form returns the first value where ceil(0) selects no ordinal, and a product like 0.07 · 100, which it
+ * refuses because the composition's numeric ceil rounds it where the native form does not, come up beside every
+ * fraction it admits. R24 is the aggregate shapes', held by test/pg/lower-shapes over generated groups.
  *
  * One entry's agreement over drawn lab facts.
  */
@@ -155,6 +154,14 @@ const agree = (
 						)
 						assert.equal(outcome.comparison.equal, true, printOutcome(outcome))
 						assert.deepEqual(appliedRules(side.last()), Arr.sort([...rules], Order.String), label)
+						for (const op of nativeTargets(side.last())) {
+							const resolved = yield* s.admin.queryValues("SELECT to_regprocedure($1)::text", [op])
+							assert.equal(
+								resolved[0]?.[0],
+								op,
+								`the native target ${op} is an overload PostgreSQL has`
+							)
+						}
 						if (Arr.some(outcome.right.run.statements, (st) => st.rows.length > 0)) {
 							c.note("delivers rows")
 						}
@@ -163,48 +170,93 @@ const agree = (
 		})
 	)
 
-/** One entry's agreement over planted facts. */
-const agreeOn = (label: string, desc: QueryDesc, rules: ReadonlyArray<CertificateRule>, f: Facts) =>
-	Effect.gen(function* () {
-		const s = yield* Substrate
-		const schema = yield* s.schema({ create: false, label: "catalog" })
-		const side = catalogLowering(labOptions)
-		const outcome = yield* runLabelledOracle(oracleCase(label, desc, f), conservative, side, {
-			...defaultRunOptions,
-			schema: { kind: "named", name: schema }
-		})
-		assert.equal(outcome.comparison.equal, true, printOutcome(outcome))
-		assert.deepEqual(appliedRules(side.last()), Arr.sort([...rules], Order.String), label)
-		return outcome
-	})
-
 const whole: CatalogOptions = { ...labOptions, parents: "whole" }
 const bound: CatalogOptions = { ...labOptions, parents: "bound" }
 
-/** The rows a side's statements delivered. */
-const rowsOf = (o: {
-	readonly run: { readonly statements: ReadonlyArray<{ readonly rows: ReadonlyArray<RawRow> }> }
-}): ReadonlyArray<RawRow> => Arr.flatMap(o.run.statements, (st) => st.rows)
+/**
+ * A discrete percentile's case: its fraction, drawn as a dyadic m / 2^j, j up to one past the largest the rewrite
+ * admits, or as a decimal k / 100; and up to three students' groups of sittings, each of a drawn size whose scores
+ * rise by one every `tie` sittings, so ties come up.
+ */
+interface FractionCase {
+	readonly p: number
+	readonly groups: ReadonlyArray<{ readonly size: number; readonly tie: number }>
+}
+
+/** The largest denominator 2^j of a dyadic fraction the discrete rewrite admits (percentile.ts maxDyadicExponent). */
+const admittedDenominator = 2 ** 7
+
+const groupGen: Gen<FractionCase["groups"][number]> = (source) => ({
+	size: source.draw(int(1, 100)),
+	tie: source.draw(int(1, 3))
+})
+
+const fractionCaseGen: Gen<FractionCase> = (source) => ({
+	p: source.draw(
+		weighted<number>([
+			[
+				1,
+				(fraction) => {
+					const j = fraction.draw(int(0, Math.log2(admittedDenominator) + 1))
+					return fraction.draw(int(0, 2 ** j)) / 2 ** j
+				}
+			],
+			[1, map(int(0, 100), (k) => k / 100)]
+		])
+	),
+	groups: source.draw(array(groupGen, { min: 1, max: 3 }))
+})
+
+/** The facts of a case: student g + 1's sittings, ids apart, on days 1 to its size, its scores rising per tie. */
+const fractionFacts = (c: FractionCase): Facts => ({
+	sittings: Arr.flatMap(c.groups, (group, g) =>
+		Arr.map(
+			indices(group.size),
+			(k) => [g * 1000 + k + 1, g + 1, k + 1, Math.floor(k / group.tie) + 1] as const
+		)
+	),
+	prices: [],
+	points: []
+})
 
 /**
- * A group of a hundred sittings of student 1, on days and scores 1 to 100: the planted group the 0.07 · 100 and 0.375 ·
- * 100 gates need, which a drawn population of small groups never holds.
+ * Whether the native form selects what the composition selects in a group of `size` sittings: PostgreSQL computes
+ * x = p · n in double precision, the native percentile_disc takes the value at ceil(x), and at least the first, while the
+ * composition casts x to numeric, keeping 15 significant digits, and takes the value at its ceil, none at 0. The two
+ * agree where those positions hold the same score.
  */
-const hundred: Facts = {
-	...labFacts,
-	sittings: Arr.map(indices(100), (k) => [k + 1, 1, k + 1, k + 1] as const)
+const groupAgrees = (p: number, group: FractionCase["groups"][number]): boolean => {
+	const x = p * group.size
+	const composed = Math.ceil(Number(x.toPrecision(15)))
+	const native = Math.max(1, Math.ceil(x))
+	const score = (position: number) => Math.floor((position - 1) / group.tie) + 1
+	return composed >= 1 && score(composed) === score(native)
 }
 
-/** The native targets an entry's rewrite over the lab's facts names: its windows' and ordered-set aggregates' overloads. */
-const nativeTargets = (desc: QueryDesc): ReadonlyArray<string> => {
-	const r = rewriteCatalog(oracleCase("ops", desc, labFacts).query.dag, labOptions)
-	if (!r.ok) {
-		throw new Error(r.error.message)
-	}
-	return Arr.flatMap(topoOrder(r.value.dag), (n): ReadonlyArray<string> =>
+/** The rewrite admits a fraction in (0, 1] whose denominator is at most admittedDenominator. */
+const admitted = (p: number): boolean =>
+	p > 0 && p <= 1 && Number.isInteger(p * admittedDenominator)
+
+type FractionFeature =
+	| "admitted"
+	| "kept at p = 0"
+	| "kept, the native form rounding apart"
+	| "kept, the native form agreeing"
+
+/** The decimal fractions and group sizes whose product the composition's numeric cast rounds below the native ceil. */
+const roundingApart: ReadonlyArray<readonly [k: number, size: number]> = Arr.flatMap(
+	Arr.range(1, 100),
+	(k) =>
+		Arr.flatMap(Arr.range(1, 100), (size): ReadonlyArray<readonly [number, number]> =>
+			groupAgrees(k / 100, { size, tie: 1 }) ? [] : [[k, size]]
+		)
+)
+
+/** The native targets a rewrite names: its windows' and ordered-set aggregates' overloads. */
+const nativeTargets = (rewritten: CatalogResult): ReadonlyArray<string> =>
+	Arr.flatMap(topoOrder(rewritten.dag), (n): ReadonlyArray<string> =>
 		n.kind === "Window" || n.kind === "OrderedSetAggregate" ? [n.op] : []
 	)
-}
 
 /** The five as-of agreements of one comparison mode: bound and attached, ordered and LATERAL, and over a filtered Q. */
 const asOfAgreements = (
@@ -249,32 +301,6 @@ const asOfAgreements = (
 	})
 
 layer(Substrate.layer)("the compile-target catalog against its compositions", (it) => {
-	it.effect("every native target names an overload PostgreSQL 19 has", () =>
-		Effect.gen(function* () {
-			const s = yield* Substrate
-			const ops = new Set(
-				Arr.flatMap(
-					[
-						Q.running(Q.plainSelfMatch),
-						Q.boundNeighbor("next", []),
-						Q.boundAsOf("le", [], "day"),
-						Q.groupedShare("Sitting", false),
-						Q.keyedShare(false),
-						Q.discretePercentile([0.5], Q.ordinalStage),
-						Q.continuousPercentile(0.5, "score"),
-						Q.modeOfDays("asc", Q.plainMode)
-					],
-					nativeTargets
-				)
-			)
-			assert.notEqual(ops.size, 0, "a native target")
-			for (const op of ops) {
-				const rows = yield* s.admin.queryValues("SELECT to_regprocedure($1)::text", [op])
-				assert.equal(rows[0]?.[0], op, op)
-			}
-		})
-	)
-
 	it.effect("R26: ordinals agree with the self-join count, ascending, descending and mixed", (t) =>
 		Effect.gen(function* () {
 			yield* agree(t, "ordinal asc", Q.ordinal(["asc", "asc"]), ["R26"], labOptions, "rows")
@@ -537,79 +563,133 @@ layer(Substrate.layer)("the compile-target catalog against its compositions", (i
 		})
 	)
 
-	it.effect("R29 records the documented disagreements: p = 0 and 0.07 · 100", () =>
-		Effect.gen(function* () {
-			const s = yield* Substrate
-			const schema = yield* s.schema({ create: false, label: "catalog" })
-			/**
-			 * The native form at fraction p, forced: the same query at p = 0.5, rewritten, its fraction replaced by p.
-			 */
-			const forced = (p: number): Lowering => ({
-				name: `native at p = ${p}`,
-				lower: ({ names }) => {
-					const half = oracleCase("p = 0.5", Q.discretePercentile([0.5], Q.ordinalStage), labFacts)
-					const rewritten = rewriteCatalog(half.query.dag, labOptions)
-					if (!rewritten.ok) {
-						return rewritten
-					}
-					const ed = new CatalogEditor(rewritten.value.dag)
-					const cell = Option.getOrThrowWith(
-						Arr.findFirst(ed.cells(), (c) => c.current.kind === "OrderedSetAggregate"),
-						() => new Error("an OrderedSetAggregate node")
+	it.effect(
+		"R29 admits exactly the fractions whose native form agrees with the composition, and the native form disagrees where the model of both says",
+		(t) =>
+			searched(
+				t,
+				Effect.gen(function* () {
+					const s = yield* Substrate
+					const schema = yield* s.schema({ create: false, label: "catalog" })
+					const options = { ...defaultRunOptions, schema: { kind: "named", name: schema } } as const
+					/**
+					 * The native form at fraction p, forced: the same query at p = 0.5, rewritten, its fraction replaced by p.
+					 */
+					const forced = (p: number): Lowering => ({
+						name: `native at p = ${p}`,
+						lower: ({ names }) => {
+							const half = oracleCase(
+								"p = 0.5",
+								Q.discretePercentile([0.5], Q.ordinalStage),
+								labFacts
+							)
+							const rewritten = rewriteCatalog(half.query.dag, labOptions)
+							if (!rewritten.ok) {
+								return rewritten
+							}
+							const ed = new CatalogEditor(rewritten.value.dag)
+							const cell = Option.getOrThrowWith(
+								Arr.findFirst(ed.cells(), (c) => c.current.kind === "OrderedSetAggregate"),
+								() => new Error("an OrderedSetAggregate node")
+							)
+							const osa = cell.current
+							if (osa.kind !== "OrderedSetAggregate") {
+								throw new Error("an OrderedSetAggregate node")
+							}
+							const spec = defined(osa.fractions[0], "a fraction")
+							if (spec.kind !== "literal") {
+								throw new Error("a literal fraction")
+							}
+							const literal = ed.expr({
+								...spec,
+								value: { kind: "float", value: canonicalZero(p) }
+							})
+							ed.redefine(cell, { ...osa, fractions: [literal] })
+							const built = ed.build()
+							return lowerNative(built, built.roots[0], names)
+						}
+					})
+					return yield* explore(
+						{
+							suite: "catalog/percentile fractions",
+							draw: drawn(fractionCaseGen),
+							literal: Formatter.format,
+							coverage: required<FractionFeature>(
+								[
+									"admitted",
+									"kept at p = 0",
+									"kept, the native form rounding apart",
+									"kept, the native form agreeing"
+								],
+								{ cases: 16, sense: notesOnly }
+							),
+							kept: [],
+							runs: agreementRuns,
+							shrink: completeShrink,
+							concurrency: 1,
+							steerEvery: 16,
+							caseHang,
+							oracle: {
+								kind: "second-implementation",
+								name: "a model of both forms' positions: the native ceil in double precision, the composition's through a 15-digit numeric"
+							}
+						},
+						(drawnCase, c) =>
+							Effect.gen(function* () {
+								/**
+								 * While no witness has met a rounding apart, half the witnesses take a decimal fraction and a group
+								 * size whose product the model rounds apart, by a draw of their own.
+								 */
+								const aimed =
+									Option.exists(c.steering, (pending) =>
+										pending.has("kept, the native form rounding apart")
+									) && c.draw(boolean)
+								const [k, size] = aimed
+									? c.draw(element(nonEmpty(roundingApart, "a fraction the forms round apart")))
+									: [0, 0]
+								const fc: FractionCase = aimed
+									? { p: k / 100, groups: [{ size, tie: 1 }, ...Arr.drop(drawnCase.groups, 1)] }
+									: drawnCase
+								const label = `p = ${fc.p}`
+								const desc = Q.discretePercentile([fc.p], Q.ordinalStage)
+								const facts = fractionFacts(fc)
+								const side = catalogLowering(labOptions)
+								const catalog = yield* runLabelledOracle(
+									oracleCase(label, desc, facts),
+									conservative,
+									side,
+									options
+								)
+								assert.equal(catalog.comparison.equal, true, printOutcome(catalog))
+								assert.deepEqual(
+									appliedRules(side.last()),
+									admitted(fc.p) ? ["R29"] : ["R26"],
+									"the rewrite admits exactly the dyadic fractions in (0, 1]"
+								)
+								const agrees = Arr.every(fc.groups, (group) => groupAgrees(fc.p, group))
+								const native = yield* runLabelledOracle(
+									oracleCase(label, desc, facts),
+									conservative,
+									forced(fc.p),
+									options
+								)
+								assert.equal(native.comparison.equal, agrees, printOutcome(native))
+								if (admitted(fc.p)) {
+									assert.ok(agrees, "an admitted fraction's native form agrees in every group")
+									c.note("admitted")
+								} else if (fc.p === 0) {
+									c.note("kept at p = 0")
+								} else {
+									c.note(
+										agrees
+											? "kept, the native form agreeing"
+											: "kept, the native form rounding apart"
+									)
+								}
+							})
 					)
-					const osa = cell.current
-					if (osa.kind !== "OrderedSetAggregate") {
-						throw new Error("an OrderedSetAggregate node")
-					}
-					const spec = defined(osa.fractions[0], "a fraction")
-					if (spec.kind !== "literal") {
-						throw new Error("a literal fraction")
-					}
-					const literal = ed.expr({ ...spec, value: { kind: "float", value: canonicalZero(p) } })
-					ed.redefine(cell, { ...osa, fractions: [literal] })
-					const built = ed.build()
-					return lowerNative(built, built.roots[0], names)
-				}
-			})
-
-			/**
-			 * p = 0: the recognizer keeps the composition (the inner ordinals still take R26), which selects nothing;
-			 * the native form returns each group's first value, the recorded disagreement.
-			 */
-			const zero = Q.discretePercentile([0], Q.ordinalStage)
-			const composedZero = yield* agreeOn("p = 0", zero, ["R26"], labFacts)
-			assert.deepEqual(rowsOf(composedZero.left), [])
-			const native = yield* runLabelledOracle(
-				oracleCase("p = 0", zero, labFacts),
-				conservative,
-				forced(0),
-				{
-					...defaultRunOptions,
-					schema: { kind: "named", name: schema }
-				}
+				})
 			)
-			assert.equal(native.comparison.equal, false, printOutcome(native))
-			/**
-			 * 0.07 · 100 = 7.000000000000001 in double precision: the composition's numeric ceil keeps 15 digits and
-			 * selects the seventh value, the native aggregate the eighth. The recognizer keeps the composition; the
-			 * forced native form records the disagreement.
-			 */
-			const p7 = Q.discretePercentile([0.07], Q.ordinalStage)
-			yield* agreeOn("0.07 of 100", p7, ["R26"], hundred)
-			const nativeP7 = yield* runLabelledOracle(
-				oracleCase("0.07 of 100", p7, hundred),
-				conservative,
-				forced(0.07),
-				{
-					...defaultRunOptions,
-					schema: { kind: "named", name: schema }
-				}
-			)
-			assert.equal(nativeP7.comparison.equal, false, printOutcome(nativeP7))
-			/** A dyadic fraction of the same group, which the recognizer admits, agrees: 0.375 · 100 is 37.5 exactly. */
-			const dyadic = Q.discretePercentile([0.375], Q.ordinalStage)
-			yield* agreeOn("0.375 of 100", dyadic, ["R29"], hundred)
-		})
 	)
 
 	it.effect("R31: the mode agrees with the count-and-take, ties to the smallest value", (t) =>

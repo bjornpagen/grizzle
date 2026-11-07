@@ -18,7 +18,7 @@
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
-import { element } from "@grizzle/testing/gen"
+import { constant, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Data, Effect, Formatter, String as Str } from "effect"
 import { type BatchStatement, runFramedTwice, writeFrame } from "#adapter/wire/batch.ts"
@@ -58,30 +58,22 @@ const writeSql = (at: number): string => `select ${at} as write`
 
 const statement = (sql: string): BatchStatement => ({ sql: testSql(sql), params: [] })
 
-/** Every case of the box: each count of reads and writes with every fault it can carry. */
-const cases: Readonly<{ 0: TwoFlights }> & ReadonlyArray<TwoFlights> = [
-	{ reads: 1, writes: 0, fault: { kind: "none" } },
-	...Arr.flatMap([1, 2], (reads) =>
-		Arr.flatMap([0, 1, 2], (writes): ReadonlyArray<TwoFlights> => [
-			{ reads, writes, fault: { kind: "none" } },
-			...Arr.map(Arr.range(0, reads - 1), (at): TwoFlights => ({
-				reads,
-				writes,
-				fault: { kind: "read", at }
-			})),
-			...Arr.map(
-				Arr.makeBy(writes, (at) => at),
-				(at): TwoFlights => ({
-					reads,
-					writes,
-					fault: { kind: "write", at }
-				})
-			),
-			{ reads, writes, fault: { kind: "making" } },
-			{ reads, writes, fault: { kind: "commit" } }
-		])
-	)
-]
+/** Every fault a case of these counts can carry: none, a read or a write refused, the making, COMMIT. */
+const faultOf = (reads: number, writes: number): Gen<Fault> =>
+	oneOf<Fault>([
+		constant({ kind: "none" }),
+		map(int(0, reads - 1), (at): Fault => ({ kind: "read", at })),
+		...(writes > 0 ? [map(int(0, writes - 1), (at): Fault => ({ kind: "write", at }))] : []),
+		constant({ kind: "making" }),
+		constant({ kind: "commit" })
+	])
+
+/** The box: one or two reads, zero to two writes, and every fault the counts can carry. */
+const twoFlights: Gen<TwoFlights> = (source) => {
+	const reads = source.draw(int(1, 2))
+	const writes = source.draw(int(0, 2))
+	return { reads, writes, fault: source.draw(faultOf(reads, writes)) }
+}
 
 type Situation = Fault["kind"] | "no write" | "two reads"
 
@@ -130,9 +122,9 @@ describe("a write that reads before it writes", () => {
 			exhaust(
 				{
 					suite: "unit/adapter/two-flights",
-					generator: element(cases),
+					generator: twoFlights,
 					literal: Formatter.format,
-					limit: cases.length,
+					limit: 33,
 					coverage: requiredInSpace<Situation>([
 						"none",
 						"read",
@@ -169,10 +161,7 @@ describe("a write that reads before it writes", () => {
 							immediateDelivery
 						)
 						const reads = Arr.map(Arr.range(0, c.reads - 1), (at) => statement(readSql(at)))
-						const writes = Arr.map(
-							Arr.makeBy(c.writes, (at) => at),
-							(at) => statement(writeSql(at))
-						)
+						const writes = Array.from({ length: c.writes }, (_, at) => statement(writeSql(at)))
 						let made = false
 						const ran = yield* Effect.result(
 							runFramedTwice(session, writeFrame(flightPrologue), reads, (outcomes) => {

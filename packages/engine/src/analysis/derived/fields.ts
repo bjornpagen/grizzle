@@ -7,6 +7,7 @@ import type { HeadingColumn } from "#compiler/ir/rel.ts"
 import {
 	contractOf,
 	isNumericValue,
+	languageOctets,
 	languageOfText,
 	type NumericValueType,
 	type ScalarType,
@@ -78,8 +79,20 @@ export const declaredDescOf = (
 			const language = languageOfText(type.text)
 			return Result.ok(
 				regex === "wildcard"
-					? { kind: "text", source: wildcardSource, flags: wildcardFlags, language }
-					: { kind: "text", source: regex.source, flags: regex.flags, language }
+					? {
+							kind: "text",
+							source: wildcardSource,
+							flags: wildcardFlags,
+							bytes: undefined,
+							language
+						}
+					: {
+							kind: "text",
+							source: regex.source,
+							flags: regex.flags,
+							bytes: languageOctets(language),
+							language
+						}
 			)
 		}
 		case "code":

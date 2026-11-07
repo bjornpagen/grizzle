@@ -1,9 +1,10 @@
 import { layer } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { element, type Gen } from "@grizzle/testing/gen"
+import { type Case, drawn, explore } from "@grizzle/testing/explore"
+import { required } from "@grizzle/testing/features"
+import { boolean, constant, element, filter, type Gen, map, subset } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Option } from "effect"
+import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { closedId, contract, pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -19,7 +20,7 @@ import {
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
-import { assert, defined } from "#test/support/assert.ts"
+import { assert, defined, nonEmpty } from "#test/support/assert.ts"
 import { checkInstalled, installedScope } from "#test/support/catalog/installed.ts"
 import { readCatalog } from "#test/support/catalog/read.ts"
 import {
@@ -35,32 +36,35 @@ import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
-/** What a version holds, each a knob a case turns.
+/** What a version holds, each a knob a history turns.
  *
- * Worlds across migrations on PostgreSQL 19: each case migrates one version of a schema with worlds to a next that
- * changes one thing a world rests on, through its generated, reviewed folders (`migrated`: each drafted under the
- * renames its version declares, applied by the real runner, which drift-checks the catalog it reaches). The oracle is
- * PostgreSQL's catalog: each login's and role's OID, the drift check, Db.open's admission and the installed-catalog
- * checker.
+ * Worlds across migrations on PostgreSQL 19: each case draws a starting version of a schema with worlds and a history
+ * of one or two later versions, each turning a drawn set of the knobs a world rests on, and migrates through its
+ * generated, reviewed folders (`migrated`: each drafted under the renames its version declares, applied by the real
+ * runner, which drift-checks the catalog it reaches). The oracle is PostgreSQL's catalog: each login's and role's OID,
+ * the drift check, Db.open's admission and the installed-catalog checker.
  *
  * The schema: documents of organizations on a tier (a roster, whose closed ids are smallint codes), each with a word
- * count and a cap (a contract), their shares and their notes (a serial field), and a derived relation over the documents' word counts.
- * Two contexts are read: the session's subject, and a quota whose cap is the contract. `editor` holds the documents and
- * the derived relation whole, refreshes it, reads Capped (the documents at the quota's cap) and writes Mine, its notes
- * under row security; `viewer` holds the organizations, the tier and the derived relation whole. Both are of one login.
+ * count and a cap (a contract), their shares and their notes (a serial field), and a derived relation over the
+ * documents' word counts. Two contexts are read: the session's subject, and a quota whose cap is the contract. `editor`
+ * holds the documents and the derived relation whole, refreshes it, reads Capped (the documents at the quota's cap) and
+ * writes Mine, its notes under row security; `viewer` holds the organizations, the tier and the derived relation whole.
+ * Both are of one login.
  *
- * The changes, one per case:
+ * The knobs, each a change a world rests on when it turns:
  * - a read query entry's head;
- * - a written entry's policy filter, which reads no relation besides the one it writes (its filter function goes);
- * - a filter function's relation (documents owned, then documents shared);
- * - a context's contract, the cap's least value;
- * - the login's name, declared renamed (`--rename @desk=@counter`);
+ * - a written entry's policy filter, among the notes of documents the subject owns, of documents shared with it, and
+ *   its own, so a filter function reads another relation or stops reading one;
+ * - a context's contract, the cap's least value, raised or lowered;
+ * - the login's name, declared renamed (`--rename @desk=@counter`, and back);
  * - the tier's roster grown by a handle, a new names constant and roster domain under the viewer's view of the
  *   organizations, which decodes each organization's tier through the names constant;
  * - the word count retyped from integer to bigint, a column under the derived relation, whose materialized view goes and
  *   comes back, and under the editor's view of the documents.
+ * A roster only grows and the word count only widens: a shrunk roster or a narrowed column is a declared drop or a data
+ * step, which is another suite's.
  *
- * Properties, for every case:
+ * Properties, for every history:
  * - each folder applies and the drift check admits the catalog it reaches: every world object reading what changed was
  *   dropped before the change and created after it, in the same transaction;
  * - Db.open admits every role at the last snapshot;
@@ -77,14 +81,8 @@ interface Knobs {
 	readonly login: "desk" | "counter"
 }
 
-const start: Knobs = {
-	tiers: ["Free", "Pro"],
-	words: "integer",
-	capLeast: 0,
-	mine: "owned",
-	capped: "id",
-	login: "desk"
-}
+/** The filters Mine may read, in the order a draw shrinks toward. */
+const mines = ["owned", "shared", "authored"] as const satisfies ReadonlyArray<Knobs["mine"]>
 
 const Sub = str.regex("^u_[a-z]{1,8}$")
 const Session = context("Session", { sub: Sub })
@@ -170,64 +168,170 @@ const versionOf = (name: string, k: Knobs) => {
 
 type Built = ReturnType<typeof versionOf>
 
-/** The changes a case makes to the starting version, each named. */
-const cases = [
-	{ name: "a read query entry's head changes", to: { ...start, capped: "id and cap" } },
-	{
-		name: "a written entry's policy filter stops reading another relation",
-		to: { ...start, mine: "authored" }
-	},
-	{ name: "a filter function reads another relation", to: { ...start, mine: "shared" } },
-	{ name: "a context's contract changes", to: { ...start, capLeast: 1 } },
-	{ name: "the login is renamed", to: { ...start, login: "counter" } },
-	{
-		name: "a roster under a world view grows",
-		to: { ...start, tiers: ["Free", "Pro", "Team"] }
-	},
-	{
-		name: "a column under a derived relation and a world view is retyped",
-		to: { ...start, words: "bigint" }
+/** A turn of one knob, by the change it makes: what a case reaches. */
+type WorldsFeature =
+	| "a read query entry's head changes"
+	| "a written entry's policy filter stops reading another relation"
+	| "a filter function reads another relation"
+	| "a context's contract changes"
+	| "the login is renamed"
+	| "the login is renamed back"
+	| "a roster under a world view grows"
+	| "a column under a derived relation and a world view is retyped"
+	| "several knobs turn at once"
+	| "a history of two migrations"
+
+/** One knob's turn: the version after it turns, from the version before. */
+type Turn = (at: Knobs) => Gen<Knobs>
+
+/** Every knob's turn that applies to `k`: a roster that can grow, a word count that can widen, and every other. */
+const turnsOf = (k: Knobs): Arr.NonEmptyReadonlyArray<Turn> => [
+	(at) => constant<Knobs>({ ...at, capped: at.capped === "id" ? "id and cap" : "id" }),
+	(at) =>
+		map(
+			element(
+				nonEmpty(
+					Arr.filter(mines, (m) => m !== at.mine),
+					"another filter"
+				)
+			),
+			(mine): Knobs => ({ ...at, mine })
+		),
+	(at) => constant<Knobs>({ ...at, capLeast: at.capLeast === 0 ? 1 : 0 }),
+	(at) => constant<Knobs>({ ...at, login: at.login === "desk" ? "counter" : "desk" }),
+	...(k.tiers.length === 2
+		? [(at: Knobs) => constant<Knobs>({ ...at, tiers: ["Free", "Pro", "Team"] })]
+		: []),
+	...(k.words === "integer" ? [(at: Knobs) => constant<Knobs>({ ...at, words: "bigint" })] : [])
+]
+
+/** The version after turning a drawn nonempty set of `k`'s knobs, each once. */
+const nextGen =
+	(k: Knobs): Gen<Knobs> =>
+	(source) => {
+		const turns = turnsOf(k)
+		const chosen = source.draw(subset(turns, { min: 1, max: turns.length }))
+		return Arr.reduce(chosen, k, (at, turn) => source.draw(turn(at)))
 	}
-] as const satisfies Arr.NonEmptyReadonlyArray<{ readonly name: string; readonly to: Knobs }>
 
-type WorldsCase = (typeof cases)[number]
+/** A history: a starting version, and one or two later versions, each turning knobs of the one before. */
+interface History {
+	readonly start: Knobs
+	readonly later: Arr.NonEmptyReadonlyArray<Knobs>
+}
 
-/** A case reached: the change it made. */
-type WorldsFeature = WorldsCase["name"]
+const historyGen: Gen<History> = (source) => {
+	const start: Knobs = {
+		tiers: source.draw(boolean) ? ["Free", "Pro", "Team"] : ["Free", "Pro"],
+		words: source.draw(boolean) ? "bigint" : "integer",
+		capLeast: source.draw(boolean) ? 1 : 0,
+		mine: source.draw(element(mines)),
+		capped: source.draw(boolean) ? "id and cap" : "id",
+		login: source.draw(boolean) ? "counter" : "desk"
+	}
+	const first = source.draw(nextGen(start))
+	return {
+		start,
+		later: source.draw(boolean) ? [first, source.draw(nextGen(first))] : [first]
+	}
+}
 
-const caseGen: Gen<WorldsCase> = element<WorldsCase>(cases)
+/** What turning `from` into `to` changes, by feature. */
+const turnedOf = (from: Knobs, to: Knobs): ReadonlyArray<WorldsFeature> => [
+	...(from.capped !== to.capped ? ["a read query entry's head changes" as const] : []),
+	...(from.mine !== to.mine
+		? [
+				to.mine === "authored"
+					? ("a written entry's policy filter stops reading another relation" as const)
+					: ("a filter function reads another relation" as const)
+			]
+		: []),
+	...(from.capLeast !== to.capLeast ? ["a context's contract changes" as const] : []),
+	...(from.login !== to.login ? ["the login is renamed" as const] : []),
+	...(from.tiers.length !== to.tiers.length ? ["a roster under a world view grows" as const] : []),
+	...(from.words !== to.words
+		? ["a column under a derived relation and a world view is retyped" as const]
+		: [])
+]
+
+/** What a history reaches: each migration's turns, several at once, two migrations, and a login renamed back. */
+const historyFeatures = (h: History): ReadonlyArray<WorldsFeature> => {
+	const versions = [h.start, ...h.later]
+	const turns = Arr.flatMap(h.later, (to, i): ReadonlyArray<WorldsFeature> => {
+		const turned = turnedOf(defined(versions[i], "the version before"), to)
+		return turned.length > 1 ? [...turned, "several knobs turn at once"] : turned
+	})
+	const [first, second] = h.later
+	return [
+		...turns,
+		...(second === undefined ? [] : ["a history of two migrations" as const]),
+		...(second !== undefined && first.login !== h.start.login && second.login === h.start.login
+			? ["the login is renamed back" as const]
+			: [])
+	]
+}
+
+/** How many draws a steered case makes for a history that reaches a pending situation, before it gives up. */
+const aimAttempts = 32
+
+/**
+ * The history a case runs: the drawn one, or, where steering names situations no case has reached, the first of up
+ * to `aimAttempts` draws that reaches one.
+ */
+const aimedHistory = (drawnHistory: History, c: Case<WorldsFeature>): History =>
+	Option.match(c.steering, {
+		onNone: () => drawnHistory,
+		onSome: (pending) => {
+			const reaches = (h: History) => Arr.some(historyFeatures(h), (f) => pending.has(f))
+			return reaches(drawnHistory) ? drawnHistory : c.draw(filter(historyGen, reaches, aimAttempts))
+		}
+	})
 
 /** A role's OID, as the owner reads it. */
 const oidQuery = "SELECT r.oid::text FROM pg_catalog.pg_roles AS r WHERE r.rolname = $1::text"
 
 layer(Substrate.layer)("worlds across migrations", (it) => {
 	it.effect(
-		"each change a world rests on migrates with its roles kept and its catalog admitted",
+		"every history of the changes a world rests on migrates with its roles kept and its catalog admitted",
 		(ctx) =>
 			searched(
 				ctx,
-				exhaust(
+				explore(
 					{
-						/**
-						 * Every case, the first version migrated to the case's next: each login and its roles keep their OIDs, the migration
-						 * applies again with nothing pending, Db.open admits the last version's roles, and the installed-catalog checker finds
-						 * nothing. A case migrates twice and opens two Dbs, so it may run five minutes before it counts as hung.
-						 */
 						suite: "pg/migrate/worlds",
-						generator: caseGen,
-						literal: (c: WorldsCase) => c.name,
-						limit: cases.length,
-						box: "every one of the seven changes a world rests on, each from the first version to its next",
+						draw: drawn(historyGen),
+						literal: Formatter.format,
 						oracle: {
 							kind: "postgresql",
 							name: "the catalog: each login's and role's OID across the versions, the runner's drift check, Db.open's admission and the installed-catalog checker"
 						},
-						coverage: requiredInSpace<WorldsFeature>(Arr.map(cases, (c) => c.name)),
+						coverage: required<WorldsFeature>(
+							[
+								"a read query entry's head changes",
+								"a written entry's policy filter stops reading another relation",
+								"a filter function reads another relation",
+								"a context's contract changes",
+								"the login is renamed",
+								"the login is renamed back",
+								"a roster under a world view grows",
+								"a column under a derived relation and a world view is retyped",
+								"several knobs turn at once",
+								"a history of two migrations"
+							],
+							{ cases: 16, sense: notesOnly }
+						),
+						kept: [],
+						runs: 2,
+						shrink: { kind: "bounded", candidates: 12 },
+						concurrency: 1,
+						steerEvery: 4,
 						caseHang
 					},
-					(c, reached) =>
+					(drawnHistory, reached) =>
 						Effect.gen(function* () {
-							reached.note(c.name)
+							const h = aimedHistory(drawnHistory, reached)
+							reached.noteAll(historyFeatures(h))
+							const versions = [h.start, ...h.later]
 							const substrate = yield* Substrate
 							const built: Array<Built> = []
 							const version =
@@ -241,8 +345,8 @@ layer(Substrate.layer)("worlds across migrations", (it) => {
 							const m = yield* migrated({
 								label: "worlds_mig",
 								schemaName: { kind: "unique" },
-								first: version(start),
-								later: [version(c.to)],
+								first: version(h.start),
+								later: Arr.map(h.later, version),
 								/** The one placeholder these versions draft: the word count's conversion, from its own value. */
 								apply: {
 									kind: "values",
@@ -250,19 +354,22 @@ layer(Substrate.layer)("worlds across migrations", (it) => {
 										`${quoteIdent(identifierOf(identity.column(parsedName("words"))))}::bigint`
 								},
 								register: true,
-								/** The login's rename, the one name a version takes from another, declared; nothing is dropped. */
-								declared: (i) =>
-									i > 0 && c.to.login !== start.login
+								/** Each login's rename, the one name a version takes from another, declared; nothing is dropped. */
+								declared: (i) => {
+									const from = versions[i - 1]
+									const to = defined(versions[i], "a version")
+									return from !== undefined && from.login !== to.login
 										? {
 												renames: [
 													{
-														from: { kind: "login", login: parsedName(start.login) },
-														to: { kind: "login", login: parsedName(c.to.login) }
+														from: { kind: "login", login: parsedName(from.login) },
+														to: { kind: "login", login: parsedName(to.login) }
 													}
 												],
 												drops: []
 											}
-										: noDeclarations,
+										: noDeclarations
+								},
 								observe: Option.some((i: number, owner: RawSession) =>
 									Effect.gen(function* () {
 										const b = defined(built[i], `version ${i}`)

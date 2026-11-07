@@ -1,7 +1,7 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
 import { required, requiredInSpace } from "@grizzle/testing/features"
-import { array, element, type Gen, int, oneOf } from "@grizzle/testing/gen"
+import { array, element, type Gen, oneOf } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -26,7 +26,7 @@ import {
 	type Shape,
 	sameValue,
 	shapes,
-	targets
+	targetGen
 } from "#test/support/lexical.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { checkedIn } from "#test/support/policy.ts"
@@ -55,6 +55,9 @@ const nfaOf = (source: string): Nfa => buildNfa(succeeded(parsePattern(source, "
 
 const roundDouble = (negative: boolean, num: bigint, den: bigint): number =>
 	toFloat(negative, num, den, "float8")
+
+/** The greatest precision of the numeric targets whose forms the text analysis is held to admit. */
+const admittedMaxPrecision = 12
 
 describe("lexical forms", () => {
 	it.effect(
@@ -117,16 +120,7 @@ describe("lexical forms", () => {
 				exhaust(
 					{
 						suite: "unit/scalar/lexical-admitted",
-						generator: oneOf<LexicalTarget>([
-							element(targets),
-							(source) => {
-								const precision = source.draw(int(1, 12))
-								return {
-									kind: "decimal",
-									typmod: { precision, scale: source.draw(int(0, precision)) }
-								}
-							}
-						]),
+						generator: targetGen(admittedMaxPrecision),
 						literal: Formatter.format,
 						limit: 200,
 						coverage: requiredInSpace<LexicalTarget["kind"]>([
@@ -137,7 +131,7 @@ describe("lexical forms", () => {
 							"date"
 						]),
 						caseHang,
-						box: "every target kind, and numeric(p, s) for p from 1 to 12 and s from 0 to p",
+						box: "every integer carrier, numeric(p, s) for p from 1 to 12 and s from 0 to p, and every other kind",
 						oracle: {
 							kind: "specification",
 							name: "the text analysis's admission (text/refinement.ts)"
@@ -174,7 +168,7 @@ const pairGen: Gen<{ readonly inner: string; readonly outer: string }> = oneOf([
 	}),
 	(source) => ({
 		inner: source.draw(patternOver(alphabet)),
-		outer: formSource(source.draw(element(targets)))
+		outer: formSource(source.draw(targetGen(admittedMaxPrecision)))
 	})
 ])
 

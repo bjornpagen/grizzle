@@ -1,34 +1,23 @@
 import { type Column, convertColumn } from "#compiler/core/decoder.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { serialCarriers } from "#compiler/ir/scalar.ts"
-import {
-	bareEnv,
-	carrierSql,
-	type Descriptor,
-	defineField,
-	type SqlTag
-} from "#compiler/scalar/registry.ts"
+import { bareEnv, carrierSql, type Descriptor, defineField } from "#compiler/scalar/registry.ts"
 import { convertByCarrier } from "#compiler/scalar/values/convert.ts"
 
 type SerialName = keyof typeof serialCarriers
 
 /**
- * A serial's descriptor: its integer's, whose field is written by its sequence. `writing` is the member a field's
- * writing is read from: a relation records the field's type as the integer's, and how it is written as serial.
+ * A serial's descriptor: its integer's Description, and its column its integer's conversion, whose field is written by
+ * its sequence. `writing` is the member a field's writing is read from: a relation records the field's type as the
+ * integer's, and how it is written as serial.
  */
-export interface SerialDescriptor<
-	Sql extends SqlTag = SqlTag,
-	A = unknown
-> extends Descriptor<Sql> {
-	readonly writing: "serial"
-	readonly column: Column<A>
-}
-
-/** A serial's Description is its integer's, and its column its integer's conversion. */
 const serialDescriptor = <const N extends SerialName, A>(
 	name: N,
 	column: Column<A>
-): SerialDescriptor<(typeof carrierSql)[(typeof serialCarriers)[N]], A> => {
+): Descriptor<(typeof carrierSql)[(typeof serialCarriers)[N]]> & {
+	readonly writing: "serial"
+	readonly column: Column<A>
+} => {
 	const sql = carrierSql[serialCarriers[name]]
 	return defineField(
 		{},
@@ -40,7 +29,7 @@ const serialDescriptor = <const N extends SerialName, A>(
 	)
 }
 
-export const smallserial: SerialDescriptor<"smallint", number> = serialDescriptor(
+const smallserial = serialDescriptor(
 	"smallserial",
 	convertColumn(convertByCarrier.int2({ carrier: "int2" }))
 )
@@ -54,12 +43,9 @@ export const smallserial: SerialDescriptor<"smallint", number> = serialDescripto
  * integer's and its descriptor says it is serial by `writing`, which the type level (types/fields) and the relation
  * builder read.
  */
-export const serial: SerialDescriptor<"integer", number> = serialDescriptor(
-	"serial",
-	convertColumn(convertByCarrier.int4({ carrier: "int4" }))
-)
+const serial = serialDescriptor("serial", convertColumn(convertByCarrier.int4({ carrier: "int4" })))
 
-export const bigserial: SerialDescriptor<"bigint", bigint> = serialDescriptor(
+const bigserial = serialDescriptor(
 	"bigserial",
 	convertColumn(convertByCarrier.int8({ carrier: "int8" }))
 )

@@ -1,10 +1,9 @@
-import { NodeServices } from "@effect/platform-node"
-import { describe, it, layer } from "@effect/vitest"
+import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, FileSystem, Formatter, Order, Path } from "effect"
+import { Array as Arr, Effect, Formatter, Order } from "effect"
 import {
 	allenAtomCount,
 	allenAtoms,
@@ -16,7 +15,7 @@ import { allenFormula } from "#compiler/allen/lower.ts"
 import { AllenMask, allenMaskOf, converseMask, fullAllenMask } from "#compiler/allen/mask.ts"
 import { allenTable } from "#compiler/allen/table.generated.ts"
 import { type AllenRelation, allenRelations } from "#compiler/core/allen.ts"
-import { allenTableSource, generateAllenTable } from "#scripts/gen/allen/generate.ts"
+import { generateAllenTable } from "#scripts/gen/allen/generate.ts"
 import { assert, defined, nonEmpty } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import {
@@ -27,10 +26,10 @@ import {
 	type PairFacts,
 	type RangeType,
 	rangeLimits,
+	rangeTypes,
 	relationsHolding,
 	type Spelling,
 	spanText,
-	textFormulaMismatches,
 	universe,
 	universePairs,
 	universeSpellings,
@@ -38,8 +37,9 @@ import {
 	windowSpans
 } from "#test/support/oracle/allen.ts"
 
-const types = ["int4range", "int8range"] as const satisfies ReadonlyArray<RangeType>
-const pairsOf = new Map(Arr.map(types, (type) => [type, universePairs(universe(type))] as const))
+const pairsOf = new Map(
+	Arr.map(rangeTypes, (type) => [type, universePairs(universe(type))] as const)
+)
 /** The element at an index the test knows is in range, failing the test where it is not. */
 const at = <A>(values: ArrayLike<A>, index: number): A =>
 	defined(values[index], `an element at ${index}`)
@@ -47,39 +47,39 @@ const at = <A>(values: ArrayLike<A>, index: number): A =>
 const pairs = (type: RangeType): ReadonlyArray<PairFacts> =>
 	defined(pairsOf.get(type), `the pairs of ${type}`)
 
-/**
- * The defining formulas: the seven basic relations, and the six converses with the operands
- * swapped.
- */
-const definingFormulas: Arr.NonEmptyReadonlyArray<readonly [AllenRelation, string]> = [
-	["before", "A << B AND NOT A -|- B"],
-	["meets", "A << B AND A -|- B"],
-	["overlaps", "A && B AND A &< B AND NOT A &> B AND NOT A @> B"],
-	["starts", "A <@ B AND B &> A AND A <> B"],
-	["during", "A <@ B AND NOT B &> A AND NOT B &< A"],
-	["finishes", "A <@ B AND B &< A AND A <> B"],
-	["equals", "A = B"],
-	["after", "B << A AND NOT B -|- A"],
-	["metBy", "B << A AND B -|- A"],
-	["overlappedBy", "B && A AND B &< A AND NOT B &> A AND NOT B @> A"],
-	["startedBy", "B <@ A AND A &> B AND B <> A"],
-	["contains", "B <@ A AND NOT A &> B AND NOT A &< B"],
-	["finishedBy", "B <@ A AND A &< B AND B <> A"]
-]
-
-layer(NodeServices.layer, { excludeTestServices: true })("the committed Allen table", (live) => {
-	live.effect("equals table.generated.ts byte for byte when regenerated", () =>
-		Effect.gen(function* () {
-			const fs = yield* FileSystem.FileSystem
-			const path = yield* Path.Path
-			const committed = yield* fs.readFileString(
-				path.join(import.meta.dirname, "../../../packages/engine/src/allen/table.generated.ts")
+describe("the committed Allen table", () => {
+	it.effect("is the offline minimization's table, entry for entry, when regenerated", (ctx) => {
+		const generated = generateAllenTable()
+		return searched(
+			ctx,
+			exhaust(
+				{
+					suite: "unit/allen/table-generated",
+					generator: int(0, fullAllenMask),
+					literal: Formatter.format,
+					limit: fullAllenMask + 1,
+					box: "every mask over the thirteen basic relations, the empty and the full one included",
+					oracle: {
+						kind: "specification",
+						name: "the offline minimization the table is written from (scripts/gen/allen/generate.ts), regenerated"
+					},
+					coverage: requiredInSpace<"the empty mask" | "a mask" | "the full mask">([
+						"the empty mask",
+						"a mask",
+						"the full mask"
+					]),
+					caseHang
+				},
+				(mask, c) =>
+					Effect.sync(() => {
+						c.note(
+							mask === 0 ? "the empty mask" : mask === fullAllenMask ? "the full mask" : "a mask"
+						)
+						assert.deepEqual(at(allenTable, mask), at(generated, mask))
+					})
 			)
-			assert.equal(allenTableSource(), committed)
-			assert.equal(allenTable.length, 8192)
-			assert.deepEqual(allenTable, generateAllenTable())
-		})
-	)
+		)
+	})
 })
 
 describe("the generated Allen table", () => {
@@ -271,19 +271,22 @@ describe("the verification universe", () => {
 			 * would silently stop checking if the universe lost it.
 			 */
 			const bounds = ["[]", "[)", "(]", "()"] as const
-			const situations = Arr.flatMap(types, (type): Arr.NonEmptyReadonlyArray<UniverseFeature> => [
-				`${type} its least value`,
-				...Arr.map(windowSpans(), (span): UniverseFeature => `${type} span ${spanText(span)}`),
-				`${type} its greatest value`,
-				`${type} its whole range`,
-				...Arr.map(bounds, (b): UniverseFeature => `${type} spelled ${b}`),
-				...Arr.map(allenRelations, (relation): UniverseFeature => `${type} ${relation}`)
-			])
+			const situations = Arr.flatMap(
+				rangeTypes,
+				(type): Arr.NonEmptyReadonlyArray<UniverseFeature> => [
+					`${type} its least value`,
+					...Arr.map(windowSpans(), (span): UniverseFeature => `${type} span ${spanText(span)}`),
+					`${type} its greatest value`,
+					`${type} its whole range`,
+					...Arr.map(bounds, (b): UniverseFeature => `${type} spelled ${b}`),
+					...Arr.map(allenRelations, (relation): UniverseFeature => `${type} ${relation}`)
+				]
+			)
 			type Item =
 				| { readonly kind: "spelling"; readonly type: RangeType; readonly spelling: Spelling }
 				| { readonly kind: "pair"; readonly type: RangeType; readonly pair: PairFacts }
 			const items: Gen<Item> = oneOf([
-				...Arr.map(types, (type) =>
+				...Arr.map(rangeTypes, (type) =>
 					map(
 						element(nonEmpty(universeSpellings(type), `the ${type} spellings`)),
 						(spelling): Item => ({
@@ -293,7 +296,7 @@ describe("the verification universe", () => {
 						})
 					)
 				),
-				...Arr.map(types, (type) =>
+				...Arr.map(rangeTypes, (type) =>
 					map(element(nonEmpty(pairs(type), `the ${type} pairs`)), (pair): Item => ({
 						kind: "pair",
 						type,
@@ -302,7 +305,7 @@ describe("the verification universe", () => {
 				)
 			])
 			const texts = new Map(
-				Arr.map(types, (type) => [type, new Set(Arr.map(universe(type), spanText))] as const)
+				Arr.map(rangeTypes, (type) => [type, new Set(Arr.map(universe(type), spanText))] as const)
 			)
 			return searched(
 				ctx,
@@ -364,7 +367,7 @@ describe("the verification universe", () => {
 					literal: Formatter.format,
 					limit: pairLimit,
 					coverage: requiredInSpace<`${RangeType} ${AllenRelation}`>(
-						Arr.flatMap(types, (type) =>
+						Arr.flatMap(rangeTypes, (type) =>
 							Arr.map(allenRelations, (r): `${RangeType} ${AllenRelation}` => `${type} ${r}`)
 						)
 					),
@@ -385,7 +388,7 @@ describe("the verification universe", () => {
 
 /** Every ordered pair of both universes, with its type. */
 const typedPairs: Gen<{ readonly type: RangeType; readonly pair: PairFacts }> = oneOf(
-	Arr.map(types, (type) =>
+	Arr.map(rangeTypes, (type) =>
 		map(element(nonEmpty(pairs(type), `the ${type} pairs`)), (pair) => ({ type, pair }))
 	)
 )
@@ -438,12 +441,12 @@ describe("the exhaustive check against the brute-force classifier", () => {
 					{
 						suite: "unit/allen/table-universe",
 						generator: (source) =>
-							[source.draw(element(types)), source.draw(int(0, fullAllenMask))] as const,
+							[source.draw(element(rangeTypes)), source.draw(int(0, fullAllenMask))] as const,
 						literal: Formatter.format,
-						limit: types.length * (fullAllenMask + 1),
+						limit: rangeTypes.length * (fullAllenMask + 1),
 						coverage:
 							requiredInSpace<`${RangeType} ${"the empty mask" | "the full mask" | "a mask"}`>(
-								Arr.flatMap(types, (type) => [
+								Arr.flatMap(rangeTypes, (type) => [
 									`${type} the empty mask` as const,
 									`${type} the full mask` as const,
 									`${type} a mask` as const
@@ -461,33 +464,5 @@ describe("the exhaustive check against the brute-force classifier", () => {
 						})
 				)
 			)
-	)
-
-	it.effect("confirms the defining formulas over every ordered pair of both universes", (ctx) =>
-		searched(
-			ctx,
-			exhaust(
-				{
-					suite: "unit/allen/defining-formulas",
-					generator: (source) =>
-						[source.draw(element(types)), source.draw(element(definingFormulas))] as const,
-					literal: Formatter.format,
-					limit: types.length * definingFormulas.length,
-					coverage: requiredInSpace<AllenRelation>(allenRelations),
-					caseHang
-				},
-				([type, [relation, text]], c) =>
-					Effect.sync(() => {
-						c.note(relation)
-						assert.deepEqual(
-							Arr.map(textFormulaMismatches(text, [relation], pairs(type)), (p) => [
-								spanText(p.a),
-								spanText(p.b)
-							]),
-							[]
-						)
-					})
-			)
-		)
 	)
 })

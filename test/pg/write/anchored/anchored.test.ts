@@ -1,9 +1,11 @@
 import { layer } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { element } from "@grizzle/testing/gen"
+import { drawn, explore } from "@grizzle/testing/explore"
+import { required } from "@grizzle/testing/features"
+import { element, type Gen, int, uniqueArray } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
+import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { type EstimatedNode, parsePlanTree, planNodes } from "#bench/harness/explain.ts"
 import {
 	claimOf,
@@ -24,6 +26,7 @@ import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { installedCodes, paramTexts, realityWrite, testArtifacts } from "#test/support/compile.ts"
 import { Instant } from "#test/support/fixtures/api/contracts.ts"
+import { QueueKind, Resource } from "#test/support/fixtures/api/queue.ts"
 import { installMigrated as install } from "#test/support/install-migrate.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -42,31 +45,63 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * probe by key is far cheaper than a scan, and analyzed. Each member's ChangeSet is compiled against the installation
  * (`compileWrite`), and in one transaction the statements before its deletion that make the carriers it
  * reads run with fixed parameters; then its deletion is planned (EXPLAIN, FORMAT JSON) and the transaction rolled
- * back. The plan does not depend on the parameters' values, only on the statement and the statistics. The property is the plan's contract, not its text: exactly one node reads Wanted, and an index
- * condition bounds it. Every member shape is planned (exhaust), each a required feature. */
-const shapes = [
-	"the claim's deletion of the Wanted items its pick names",
-	"a deletion of the Wanted items a relation parameter names",
-	"a deletion of the Wanted item a parameter selects"
-] as const
-type Shape = (typeof shapes)[number]
+ * back. A case draws the member's shape and every parameter's value: digests of loaded items and of none, a relation
+ * parameter of no keys to several, the claim's kind, resource, slot, seat and instants; PostgreSQL plans the deletion
+ * for those values, as a custom plan does. The property is the plan's contract, not its text: exactly one node reads
+ * Wanted, and an index condition bounds it, whatever the values. Each shape is a required feature, as are a relation
+ * parameter of no keys and one of several. */
+type Shape =
+	| "the claim's deletion of the Wanted items its pick names"
+	| "a deletion of the Wanted items a relation parameter names"
+	| "a deletion of the Wanted item a parameter selects"
 
-type AnchoredFeature = `${Shape}: Wanted read once, by an index condition`
+type AnchoredFeature =
+	| `${Shape}: Wanted read once, by an index condition`
+	| "a relation parameter of no keys"
+	| "a relation parameter of several keys"
 
 /** Wanted and Work items loaded, keyed by digest: enough that a probe per input row is the right join at any estimate of
  * a relation parameter's arrays, their length in a custom plan and the default ten in a generic one. */
 const items = 200_000
 
-const hostParams: Readonly<Record<string, unknown>> = {
-	kind: "render",
-	slot: Slot(0),
-	now: Instant(1n),
-	from: Digest(Str.repeat(64)("0")),
-	resource: "gpu",
-	fromSeat: SeatNo(0),
-	expires: Instant(2n),
-	key: Digest(Str.repeat(64)("f")),
-	keys: [{ key: Digest(Str.repeat(64)("a")) }, { key: Digest(Str.repeat(64)("b")) }]
+/**
+ * One member's shape, and every parameter any member reads, drawn: the plan is the deletion's for these values. An item
+ * is named by its number, whose digest the load computes (digestOf): within the load for 1 to `items`, of no item
+ * beyond.
+ */
+interface Anchored {
+	readonly shape: Shape
+	readonly keys: ReadonlyArray<number>
+	readonly from: number
+	readonly key: number
+	readonly params: Readonly<Record<string, unknown>>
+}
+
+const itemGen = int(1, 2 * items)
+
+const anchoredGen: Gen<Anchored> = (source) => {
+	const keys = source.draw(uniqueArray(itemGen, (n) => n, { min: 0, max: 4 }, 8))
+	return {
+		shape: source.draw(
+			element([
+				"the claim's deletion of the Wanted items its pick names",
+				"a deletion of the Wanted items a relation parameter names",
+				"a deletion of the Wanted item a parameter selects"
+			] as const)
+		),
+		params: {
+			kind: source.draw(element(QueueKind.handles)),
+			slot: Slot(source.draw(int(0, 3))),
+			now: Instant(BigInt(source.draw(int(0, 3)))),
+
+			resource: source.draw(element(Resource.handles)),
+			fromSeat: SeatNo(source.draw(int(0, 3))),
+			expires: Instant(BigInt(source.draw(int(0, 3))))
+		},
+		keys,
+		from: source.draw(itemGen),
+		key: source.draw(itemGen)
+	}
 }
 
 /** Every node of a plan that reads `relation`'s rows: not the DELETE itself, nor a bitmap index scan, which only yields
@@ -163,22 +198,47 @@ layer(Substrate.layer, { excludeTestServices: true })("an anchored deletion", (i
 					)
 				}
 				const wanted = names.relation("Wanted").name
-				return yield* exhaust(
+				return yield* explore(
 					{
 						suite: "pg/write/anchored",
-						generator: element(shapes),
+						draw: drawn(anchoredGen),
 						literal: Formatter.format,
-						limit: shapes.length,
-						coverage: requiredInSpace<AnchoredFeature>(
-							Arr.map(
-								shapes,
-								(shape): AnchoredFeature => `${shape}: Wanted read once, by an index condition`
-							)
+						oracle: {
+							kind: "postgresql",
+							name: "PostgreSQL's plan of the deletion for the drawn values: one node reads Wanted, bounded by an index condition"
+						},
+						coverage: required<AnchoredFeature>(
+							[
+								"the claim's deletion of the Wanted items its pick names: Wanted read once, by an index condition",
+								"a deletion of the Wanted items a relation parameter names: Wanted read once, by an index condition",
+								"a deletion of the Wanted item a parameter selects: Wanted read once, by an index condition",
+								"a relation parameter of no keys",
+								"a relation parameter of several keys"
+							],
+							{ cases: 24, sense: notesOnly }
 						),
+						kept: [],
+						runs: 12,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 8,
 						caseHang
 					},
-					(shape, c) =>
+					({ shape, keys, from, key, params }, c) =>
 						Effect.gen(function* () {
+							const numbered = [from, key, ...keys]
+							const digestRows = yield* s.admin.queryValues(
+								`SELECT ${digestOf("n")} FROM pg_catalog.unnest(ARRAY[${Arr.join(Arr.map(numbered, String), ", ")}]::integer[]) WITH ORDINALITY AS u (n, at) ORDER BY at`,
+								[]
+							)
+							const digests = Arr.map(digestRows, (row) => Digest(String(row[0])))
+							const digestOfItem = (at: number) => defined(digests[at], `the digest of item ${at}`)
+							const hostParams: Readonly<Record<string, unknown>> = {
+								...params,
+								from: digestOfItem(0),
+								key: digestOfItem(1),
+								keys: Arr.map(keys, (_, i) => ({ key: digestOfItem(i + 2) }))
+							}
 							const desc = changeSetDesc(members[shape])
 							if (desc === undefined) {
 								throw new Error(`${shape}: no ChangeSet`)
@@ -237,6 +297,14 @@ layer(Substrate.layer, { excludeTestServices: true })("an anchored deletion", (i
 								`${shape}: these nodes read Wanted unbounded`
 							)
 							c.note(`${shape}: Wanted read once, by an index condition`)
+							if (shape === "a deletion of the Wanted items a relation parameter names") {
+								if (keys.length > 1) {
+									c.note("a relation parameter of several keys")
+								}
+								if (keys.length === 0) {
+									c.note("a relation parameter of no keys")
+								}
+							}
 						})
 				)
 			})

@@ -1,13 +1,13 @@
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
-import { element } from "@grizzle/testing/gen"
+import { boolean, element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Order } from "effect"
 import type { NativeColumn, NativeOf } from "#compiler/ir/law.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
-import { assert, nonEmpty, refused, succeeded } from "#test/support/assert.ts"
+import { assert, refused, succeeded } from "#test/support/assert.ts"
 import {
 	type AuthoredStatementDesc,
 	contained,
@@ -61,15 +61,20 @@ interface Shape {
 	readonly payload: boolean
 }
 
-const shapes: Arr.NonEmptyReadonlyArray<Shape> = nonEmpty(
-	Arr.flatMap(["every", "selected"] as const, (source) =>
-		Arr.flatMap(["every", "selected"] as const, (target) =>
-			Arr.flatMap([true, false], (keyed) =>
-				Arr.map([false, true], (payload): Shape => ({ source, target, keyed, payload }))
-			)
-		)
-	)
-)
+const sides = ["every", "selected"] as const
+
+/**
+ * The box: a source selected or not, into a target selected or not, keyed or not. An unselected keyed target has a
+ * payload field or none, and an unselected unkeyed one always has one, since a target of its span key alone is keyed by
+ * it; a selected target holds the field its selection reads, which is its payload.
+ */
+const shapeGen: Gen<Shape> = (source) => {
+	const from = source.draw(element(sides))
+	const target = source.draw(element(sides))
+	const keyed = source.draw(boolean)
+	const payload = target === "selected" ? false : keyed ? source.draw(boolean) : true
+	return { source: from, target, keyed, payload }
+}
 
 type Feature =
 	| "a selected source"
@@ -121,12 +126,6 @@ const schemaOf = (s: Shape): SchemaDesc => {
 		extends: undefined
 	}
 }
-
-/** Whether a shape is one the space holds: an unselected target's key is its declared span key or none, and a target
- * with no field beyond its key is only the unselected keyed one. */
-const meaningful = (s: Shape): boolean => (s.target === "every" ? s.keyed || s.payload : !s.payload)
-
-const cases: Arr.NonEmptyReadonlyArray<Shape> = nonEmpty(Arr.filter(shapes, meaningful))
 
 /** A column by what it is: a field by its name, a law column by the field whose values it holds. */
 const text = (
@@ -226,10 +225,10 @@ describe("a coverage law lowers to a PERIOD reference into a WITHOUT OVERLAPS ke
 				exhaust(
 					{
 						suite: "unit/laws/model/coverage",
-						generator: element(cases),
+						generator: shapeGen,
 						literal: Formatter.format,
 						/** The space: 2 sources × 5 targets. */
-						limit: cases.length,
+						limit: 10,
 						coverage: requiredInSpace<Feature>(features),
 						caseHang,
 						box: "a source selected or not into a target selected or not, keyed or not, with a payload field or none",

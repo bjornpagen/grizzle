@@ -1,138 +1,229 @@
-import { NodeServices } from "@effect/platform-node"
-import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, FileSystem, Path, String as Str } from "effect"
-import { assert } from "#test/support/assert.ts"
-import { exitedCleanly, publishedProject, run } from "#test/unit/dev/published.ts"
-
-const consumer = `import { attachDatabasePool } from "@vercel/functions/db-connections"
-import { Effect, Redacted } from "effect"
-import pgDriver from "pg"
-import { context, Db, DbLayer, key, login, on, type PgSocket, query, relation, role, schema, str, TokenError, uuid, v } from "@bjornpagen/grizzle"
-
-const Note = relation("Note", { id: uuid, author: uuid, text: str.regex("^.{1,200}$", "su") }, ["id"])
-export const App = schema("App", { Note }, [key(on(Note, "id"))])
-const Session = context("Session", { sub: uuid })
-export const mine = query(App).rule((r) => {
-	const { id, author, text } = v(Note, "note")
-	return r.match(Note, { id, author, text }).match(Session, { sub: author }).find({ id, text })
-})
-export const Reader = role(App, "reader", { Note })
-export const Member = role(App, "member", { Mine: mine }, { write: ["Mine"] })
-export const Web = login(App, "web", [Reader, Member])
-export const texts = query(Reader).rule((r) => {
-	const { text } = v(Note, "note")
-	return r.match(Note, { text }).find({ text })
-})
-declare const snapshot: { readonly fingerprint: string }
-declare const openSocket: () => PgSocket
-const connection = {
-	driver: pgDriver,
-	transport: { kind: "sslRequest", host: "localhost", port: 5432, open: openSocket, ca: "-----BEGIN CERTIFICATE-----", servername: "localhost" },
-	database: "app",
-	password: Redacted.make("secret"),
-	connectTimeoutMs: 10_000,
-	pool: { max: 10, min: 1, idleTimeoutMs: 5_000 }
-} as const
-export const layer = DbLayer.make({
-	...connection,
-	login: Web,
-	snapshot,
-	attachPool: attachDatabasePool,
-	verify: (token) => Effect.fail(new TokenError({ cause: token }))
-})
-export const reader = Db.open(Web.roles.reader, {})
-export const member = Db.open(Web.roles.member, { token: "a token" })
-// @ts-expect-error -- Member reads a context, so opening it takes a token
-Db.open(Web.roles.member, {})
-const verify = (token: string) => Effect.fail(new TokenError({ cause: token }))
-// @ts-expect-error -- a port is a number
-DbLayer.make({ ...connection, transport: { ...connection.transport, port: "5432" }, login: Web, snapshot, verify })
-// @ts-expect-error -- a role of Web reads a context, so its layer takes a verify
-DbLayer.make({ ...connection, login: Web, snapshot })
-`
-
-const consumerTsconfig = `{
-	"compilerOptions": {
-		"target": "esnext",
-		"module": "nodenext",
-		"moduleResolution": "nodenext",
-		"strict": true,
-		"exactOptionalPropertyTypes": true,
-		"noEmit": true,
-		"skipLibCheck": true,
-		"types": []
-	},
-	"include": ["consumer.ts"]
-}
-`
-
 /**
  * The published packages, installed as a consumer installs them (published.ts), used as a consumer uses them:
  *
- * - Node loads the package from node_modules, where it strips no types, so every module resolves to dist without a
- *   `#…ts` specifier: its entry imports with only the declared dependencies installed, and exposes the API the README
- *   names.
- * - The `grizzle` bin runs from node_modules and prints its usage.
- * - A consumer's TypeScript program typechecks against the published declarations alone, with no access to src's `#`
- *   imports: a schema, a context, roles and their login, a query over a role, a layer over the pg the consumer installs
- *   beside it, whose attachPool is Vercel's own attachDatabasePool and whose verify fails with TokenError, Db.open of
- *   each role, and misuses the types refuse (so the declarations are not `any`).
+ * - Node loads every entry point from node_modules, where it strips no types, so every module resolves to dist without
+ *   a `#…ts` specifier, with only the declared dependencies installed: an exhaustion of every export and bin the
+ *   installed package.json files name. Each export's module exports exactly the names its source does, the oracle being
+ *   the same specifier resolved in the repository under the grizzle-source condition, a second build of the same
+ *   module; each bin runs from node_modules and prints its usage.
+ * - The README's and SKILL.md's programs, mirrored line for line in test/types/examples/fixtures, typecheck as a
+ *   consumer's against the published declarations alone, with no access to src's `#` imports: so the declarations are
+ *   self-contained, and never `any`, since a refusal the README states by `@ts-expect-error` would leave its directive
+ *   unused.
  *
  * That the built package opens a role against the cluster and reads is test/pg/package/consumer.test.ts's.
  */
-const usedAsPublished = Effect.gen(function* () {
-	const fs = yield* FileSystem.FileSystem
-	const path = yield* Path.Path
-	const { root, project, shell } = yield* publishedProject
-	const loaded = yield* run(
-		process.execPath,
-		[
-			"--input-type=module",
-			"-e",
-			"const m = await import('@bjornpagen/grizzle'); console.log(Object.keys(m).sort().join(' '))"
-		],
-		project
-	)
-	assert.equal(loaded.exitCode, exitedCleanly, `the import: ${loaded.stderr}`)
-	const names = new Set(Str.split(Str.trim(loaded.stdout), " "))
-	assert.deepEqual(
-		Arr.filter(
-			["ChangeSet", "Db", "DbLayer", "defineConfig", "key", "query", "relation", "schema"],
-			(name) => !names.has(name)
-		),
-		[],
-		"the package exports these names"
-	)
+import { NodeServices } from "@effect/platform-node"
+import { layer } from "@effect/vitest"
+import { exhaust } from "@grizzle/testing/explore"
+import { requiredInSpace } from "@grizzle/testing/features"
+import { element } from "@grizzle/testing/gen"
+import { searched } from "@grizzle/testing/vitest"
+import {
+	Array as Arr,
+	Context,
+	Effect,
+	FileSystem,
+	Formatter,
+	Layer,
+	Path,
+	Record,
+	Result,
+	String as Str
+} from "effect"
+import { trustedJson } from "#compiler/core/trusted.ts"
+import { assert, nonEmpty } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
+import { sourceCondition } from "#test/support/process.ts"
+import {
+	exitedCleanly,
+	type PublishedProject,
+	publishedProject,
+	runChild
+} from "#test/unit/dev/published.ts"
 
-	const help = yield* run(
-		process.execPath,
-		[path.join(shell, "dist", "cli", "main.js"), "--help"],
-		project
-	)
-	assert.equal(help.exitCode, exitedCleanly, `grizzle --help: ${help.stderr}`)
-	assert.ok(Str.startsWith("Usage:")(help.stdout), help.stdout)
+/**
+ * The compiler options a consumer of the README's programs checks them under: the repository's own strictness, Node's
+ * types, and nothing of src's: no `#` imports, no grizzle-source condition, no paths.
+ */
+const mirrorTsconfig = `{
+	"compilerOptions": {
+		"target": "esnext",
+		"lib": ["esnext"],
+		"module": "nodenext",
+		"moduleResolution": "nodenext",
+		"moduleDetection": "force",
+		"strict": true,
+		"exactOptionalPropertyTypes": true,
+		"noUncheckedIndexedAccess": true,
+		"allowImportingTsExtensions": true,
+		"noEmit": true,
+		"skipLibCheck": true,
+		"types": ["node"]
+	},
+	"include": ["readme.ts", "skill.ts"]
+}
+`
 
-	yield* fs.writeFileString(path.join(project, "consumer.ts"), consumer)
-	yield* fs.writeFileString(path.join(project, "tsconfig.json"), consumerTsconfig)
-	const checked = yield* run(
-		process.execPath,
-		[
-			path.join(root, "node_modules", "typescript", "bin", "tsc"),
-			"-p",
-			path.join(project, "tsconfig.json")
-		],
-		project
-	)
-	assert.equal(
-		checked.exitCode,
-		exitedCleanly,
-		`the consumer typecheck:\n${checked.stdout}${checked.stderr}`
-	)
-})
+/** The README's and SKILL.md's mirrored programs, which the type batch holds to their blocks, by their paths. */
+const mirrors = {
+	readme: "test/types/examples/fixtures/readme.ts",
+	skill: "test/types/examples/fixtures/skill.ts"
+} as const
 
-layer(NodeServices.layer, { excludeTestServices: true })("the published package", (it) => {
+/** A published entry point: an export of a package, by the specifier a consumer imports, or a bin, by its path. */
+type Entry =
+	| Readonly<{ kind: "export"; specifier: string }>
+	| Readonly<{ kind: "bin"; name: string; path: string }>
+
+/** The fields of an installed package.json its entry points come from, a file the build copied from the repository. */
+type InstalledManifest = {
+	readonly name: string
+	readonly exports: Record.ReadonlyRecord<string, unknown>
+	readonly bin?: Record.ReadonlyRecord<string, string>
+}
+
+/** A child's program: imports every specifier named on its command line and prints each one's export names, sorted. */
+const exportNames =
+	"const names = {}; for (const specifier of process.argv.slice(1)) { names[specifier] = Object.keys(await import(specifier)).sort() } console.log(JSON.stringify(names))"
+
+/** The published packages, built once for the file into a scratch project that lives as long as the layer. */
+class Published extends Context.Service<Published, PublishedProject>()(
+	"grizzle-workspace/test/unit/dev/package.test/Published"
+) {
+	static readonly layer = Layer.provideMerge(
+		Layer.effect(Published, publishedProject),
+		NodeServices.layer
+	)
+}
+
+layer(Published.layer, { excludeTestServices: true })("the published package", (it) => {
 	it.effect(
-		"loads from node_modules, runs its bin, and typechecks a consumer against its declarations alone",
-		() => usedAsPublished
+		"loads every entry point from node_modules, each exporting what its source does, and runs every bin",
+		(ctx) =>
+			Effect.gen(function* () {
+				const fs = yield* FileSystem.FileSystem
+				const path = yield* Path.Path
+				const { root, project } = yield* Published
+				const manifests = yield* Effect.forEach(["engine", "grizzle"], (directory) =>
+					Effect.gen(function* () {
+						const repositoryText = yield* fs.readFileString(
+							path.join(root, "packages", directory, "package.json")
+						)
+						const repository = trustedJson<InstalledManifest>(repositoryText)
+						const installed = path.join(project, "node_modules", repository.name)
+						const installedText = yield* fs.readFileString(path.join(installed, "package.json"))
+						return { installed, manifest: trustedJson<InstalledManifest>(installedText) }
+					})
+				)
+				const entries: ReadonlyArray<Entry> = Arr.flatMap(manifests, ({ installed, manifest }) => [
+					...Arr.filterMap(Record.keys(manifest.exports), (subpath) =>
+						subpath === "./package.json"
+							? Result.failVoid
+							: Result.succeed({
+									kind: "export" as const,
+									specifier: `${manifest.name}${Str.slice(1)(subpath)}`
+								})
+					),
+					...Arr.map(Record.toEntries(manifest.bin ?? {}), ([name, bin]) => ({
+						kind: "bin" as const,
+						name,
+						path: path.join(installed, bin)
+					}))
+				])
+				const specifiers = Arr.flatMap(entries, (entry) =>
+					entry.kind === "export" ? [entry.specifier] : []
+				)
+				/** Every export's names, as a child Node run in `cwd` with `conditions` imports it. */
+				const namesIn = (cwd: string, conditions: ReadonlyArray<string>) =>
+					Effect.gen(function* () {
+						const imported = yield* runChild(
+							process.execPath,
+							[...conditions, "--input-type=module", "-e", exportNames, ...specifiers],
+							cwd
+						)
+						assert.equal(
+							imported.exitCode,
+							exitedCleanly,
+							`the imports in ${cwd}: ${imported.stderr}`
+						)
+						return trustedJson<Record.ReadonlyRecord<string, ReadonlyArray<string>>>(
+							Str.trim(imported.stdout)
+						)
+					})
+				const published = yield* namesIn(project, [])
+				const source = yield* namesIn(path.join(root, "packages", "grizzle"), [sourceCondition])
+				return yield* searched(
+					ctx,
+					exhaust(
+						{
+							suite: "unit/dev/published entry points",
+							generator: element(nonEmpty(entries, "the published entry points")),
+							literal: Formatter.format,
+							limit: entries.length,
+							coverage: requiredInSpace<Entry["kind"]>(["export", "bin"]),
+							box: "every export and bin the published packages' package.json files name",
+							oracle: {
+								kind: "second-implementation",
+								name: "the same entry point resolved in the repository under the grizzle-source condition"
+							},
+							caseHang
+						},
+						(entry, c) =>
+							Effect.gen(function* () {
+								c.note(entry.kind)
+								switch (entry.kind) {
+									case "export":
+										assert.deepEqual(
+											Record.get(published, entry.specifier),
+											Record.get(source, entry.specifier),
+											`${entry.specifier}: its published names are its source's`
+										)
+										return
+									case "bin": {
+										const help = yield* runChild(process.execPath, [entry.path, "--help"], project)
+										assert.equal(
+											help.exitCode,
+											exitedCleanly,
+											`${entry.name} --help: ${help.stderr}`
+										)
+										assert.ok(Str.startsWith("Usage:")(help.stdout), help.stdout)
+										return
+									}
+								}
+							})
+					)
+				)
+			})
+	)
+
+	it.effect("typechecks the README's and SKILL.md's programs against its declarations alone", () =>
+		Effect.gen(function* () {
+			const fs = yield* FileSystem.FileSystem
+			const path = yield* Path.Path
+			const { root, project } = yield* Published
+			const readme = yield* fs.readFileString(path.join(root, mirrors.readme))
+			const skill = yield* fs.readFileString(path.join(root, mirrors.skill))
+			yield* fs.writeFileString(path.join(project, "readme.ts"), readme)
+			yield* fs.writeFileString(
+				path.join(project, "skill.ts"),
+				Str.replaceAll(`#${mirrors.readme}`, "./readme.ts")(skill)
+			)
+			yield* fs.writeFileString(path.join(project, "tsconfig.json"), mirrorTsconfig)
+			const checked = yield* runChild(
+				process.execPath,
+				[
+					path.join(root, "node_modules", "typescript", "bin", "tsc"),
+					"-p",
+					path.join(project, "tsconfig.json")
+				],
+				project
+			)
+			assert.equal(
+				checked.exitCode,
+				exitedCleanly,
+				`the README's programs, typechecked as a consumer's:\n${checked.stdout}${checked.stderr}`
+			)
+		})
 	)
 })

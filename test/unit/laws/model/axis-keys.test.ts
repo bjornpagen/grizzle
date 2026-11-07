@@ -1,114 +1,170 @@
 import { describe, it } from "@effect/vitest"
 import { type Case, exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
-import { element } from "@grizzle/testing/gen"
+import { constant, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { alignUp, maxAlign, typlens } from "#compiler/core/limits.ts"
+import type { ExprDesc, FieldDesc } from "#compiler/ir/desc.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { accumulated, Bits, bits, drawn, natural, uuid } from "#compiler/public/fields.ts"
 import {
 	closed,
-	fin,
-	fold,
+	fin as finOf,
+	fold as foldOf,
 	Monoid,
-	on,
-	ordered,
-	relation,
+	on as onOf,
+	ordered as orderedOf,
+	relation as relationOf,
 	schema
 } from "#compiler/public/schema.ts"
-import { str } from "#compiler/public/text.ts"
 import { btreeMaxItemSize } from "#compiler/schema/representability.ts"
 import { assert, refused, succeeded } from "#test/support/assert.ts"
 import { codebookOfStates } from "#test/support/closed/generate.ts"
+import {
+	charLength,
+	f,
+	fin,
+	fold,
+	le,
+	literal,
+	on,
+	ordered,
+	relation,
+	type SchemaDesc,
+	value
+} from "#test/support/fixtures/ir/desc.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { ownedInput } from "#test/support/policy.ts"
 
 /**
  * A family axis's key is a key like any declared one (laws/model/plan.ts #axis): the UNIQUE its predecessor and last
- * axes reference, Line's (doc, at, after) for a `Monoid.concat` fold that carries its running text `after` along them,
- * fits a B-tree entry for every value its columns admit, or the schema is refused when it compiles with
- * UnrepresentableKey, naming the UNIQUE, the family and the fold, where PostgreSQL would refuse the first write that
- * outgrew it (54000).
+ * axes reference, Line's (doc, at, after) for a concat fold that carries its running text `after` along them, fits a
+ * B-tree entry for every value its columns admit, or the schema is refused when it compiles with UnrepresentableKey at
+ * the fold, over that UNIQUE, where PostgreSQL would refuse the first write that outgrew it (54000).
  *
- * The box: the fold's text, its pieces and accumulators one type, of no bound (`^.*$`), of at most 64 code points of 4
- * bytes, or of at most 2,805 ASCII letters. The oracle: the B-tree entry nbtree.h bounds, counted by hand from the
- * columns' layouts as schema/representability.ts documents the count (entryBytes), refused exactly past BTMaxItemSize,
- * and an unbounded text refused whatever its entry.
+ * The box: the fold's text, its pieces and accumulators one type, of no bound, or bounded by a contract to at most n
+ * bytes, or to at most n code points of 4 bytes each, with n every bound whose entry lies within one MAXALIGN step of
+ * BTMaxItemSize on either side. The oracle: the B-tree entry nbtree.h bounds, counted by hand from the columns' layouts
+ * as schema/representability.ts documents the count (entryBytes), refused exactly past BTMaxItemSize, and an unbounded
+ * text refused whatever its entry.
  */
-interface TextType {
-	readonly name: "unbounded" | "64 code points" | "2,805 letters"
-	/** Its longest value in UTF-8 bytes; none for a pattern of no bound. */
-	readonly bytes: number | undefined
-}
+type TextType =
+	| Readonly<{ kind: "unbounded" }>
+	| Readonly<{ kind: "octets"; n: number }>
+	| Readonly<{ kind: "code points"; n: number }>
 
-const types: Arr.NonEmptyReadonlyArray<TextType> = [
-	{ name: "unbounded", bytes: undefined },
-	{ name: "64 code points", bytes: 64 * 4 },
-	{ name: "2,805 letters", bytes: 255 * 11 }
-]
+/** The bytes the IndexTupleData header, a uuid and a bigint aligned to 8 take, at exact offsets since no varlena or
+ * NULL comes before them. */
+const keyPrefixBytes = alignUp(8 + typlens.uuid.value, typlens.int8.value) + typlens.int8.value
 
-/** The text type of `t`, its pattern a literal the type checker admits. */
-const textOf = (t: TextType) => {
-	switch (t.name) {
+/** The bytes of the entry before the text's data: its prefix, aligned to 4 for the text, and the text's varlena header. */
+const textStartBytes = alignUp(keyPrefixBytes, 4) + 4
+
+/**
+ * The B-tree entry of Line's (doc, at, after) as index_form_tuple lays it out: its prefix, then the text's 4-byte
+ * varlena header and its longest value aligned to 4, the whole MAXALIGNed.
+ */
+const entryBytes = (textBytes: number): number =>
+	alignUp(textStartBytes + textBytes, maxAlign.value)
+
+/** The most text bytes whose entry fits: BTMaxItemSize is itself MAXALIGNed. */
+const fittingBytes = btreeMaxItemSize.value - textStartBytes
+
+/** UTF-8 encodes a code point in at most 4 bytes. */
+const codePointBytes = 4
+
+/** A text type's longest value in UTF-8 bytes, or none for a text of no bound. */
+const bytesOf = (t: TextType): number | undefined => {
+	switch (t.kind) {
 		case "unbounded":
-			return str.regex("^.*$", "su")
-		case "64 code points":
-			return str.regex("^.{0,64}$", "su")
-		case "2,805 letters":
-			return str.regex(
-				"^[a-z]{0,255}[a-z]{0,255}[a-z]{0,255}[a-z]{0,255}[a-z]{0,255}[a-z]{0,255}[a-z]{0,255}[a-z]{0,255}[a-z]{0,255}[a-z]{0,255}[a-z]{0,255}$"
-			)
+			return undefined
+		case "octets":
+			return t.n
+		case "code points":
+			return t.n * codePointBytes
 	}
 }
 
-/**
- * The B-tree entry of Line's (doc, at, after) as index_form_tuple lays it out: the IndexTupleData header, a uuid aligned
- * to 1, a bigint aligned to 8, both at exact offsets since no varlena or NULL comes before them, then the text's 4-byte
- * varlena header and its longest value aligned to 4, the whole MAXALIGNed.
- */
-const entryBytes = (textBytes: number): number => {
-	const header = 8
-	const doc = header + typlens.uuid.value
-	const at = alignUp(doc, typlens.int8.value) + typlens.int8.value
-	return alignUp(alignUp(at, 4) + 4 + textBytes, maxAlign.value)
-}
+/** The box: the unbounded text, and every bound of either measure whose entry lies within a MAXALIGN step of the bound. */
+const textGen: Gen<TextType> = oneOf<TextType>([
+	constant<TextType>({ kind: "unbounded" }),
+	map(int(fittingBytes - maxAlign.value, fittingBytes + maxAlign.value), (n): TextType => ({
+		kind: "octets",
+		n
+	})),
+	map(
+		int(
+			Math.floor((fittingBytes - maxAlign.value) / codePointBytes),
+			Math.ceil((fittingBytes + maxAlign.value) / codePointBytes)
+		),
+		(n): TextType => ({ kind: "code points", n })
+	)
+])
 
-/** The bytes the refusal counts each of Line's (doc, at, after) at, a text's with its 4-byte varlena header. */
-const datumsOf = (textBytes: number) => [
-	{ field: "doc", bytes: typlens.uuid.value },
-	{ field: "at", bytes: typlens.int8.value },
-	{ field: "after", bytes: 4 + textBytes }
-]
+const octetLength = (arg: ExprDesc): ExprDesc => ({
+	kind: "compute",
+	fn: "octetLength",
+	args: [arg]
+})
+
+/** The text of `t`: the wildcard, or the wildcard under a contract bounding its octet_length or char_length. */
+const textOf = (t: TextType): FieldDesc => {
+	switch (t.kind) {
+		case "unbounded":
+			return f.wildcard
+		case "octets":
+			return f.contract("Bounded", f.wildcard, le(octetLength(value), literal(t.n)))
+		case "code points":
+			return f.contract("Bounded", f.wildcard, le(charLength(value), literal(t.n)))
+	}
+}
 
 /** Doc's lines in order, and the concat fold of their pieces into Doc.text, every text of `t`. */
-const docSchema = (t: TextType) => {
+const docSchema = (t: TextType): SchemaDesc => {
 	const text = textOf(t)
-	const Doc = relation("Doc", { id: uuid, n: drawn(natural), text: accumulated(text, "") }, ["id"])
-	const Line = relation(
-		"Line",
-		{
-			doc: uuid,
-			at: drawn(natural),
-			piece: text,
-			before: accumulated(text, ""),
-			after: accumulated(text, "")
-		},
-		["doc", "at"]
-	)
-	const lines = ordered(on(Line, "doc", "at"), fin(Doc, "n"))
-	const joined = fold(
-		lines,
-		Monoid.concat,
-		on(Line, "doc", "piece", "before", "after"),
-		on(Doc, "id", "text")
-	)
-	return schema("Axis", { Doc, Line }, [lines, joined])
+	return {
+		name: "Axis",
+		relations: [
+			relation("Doc", { id: f.uuid, n: f.drawn, text: f.accumulated(text, "") }, ["id"]),
+			relation(
+				"Line",
+				{
+					doc: f.uuid,
+					at: f.drawn,
+					piece: text,
+					before: f.accumulated(text, ""),
+					after: f.accumulated(text, "")
+				},
+				["doc", "at"]
+			)
+		],
+		statements: [
+			ordered(on("Line", ["doc", "at"]), fin("Doc", "n")),
+			fold(
+				fin("Doc", "n"),
+				"concat",
+				on("Line", ["doc", "piece", "before", "after"]),
+				on("Doc", ["id", "text"])
+			)
+		],
+		extends: undefined
+	}
 }
 
-type Feature = "an unbounded accumulator" | "an entry past the bound" | "an entry within it"
+type Verdict = "an entry within the bound" | "an entry at the bound" | "an entry past the bound"
+type Feature = Verdict | TextType["kind"]
+
+const verdictOf = (bytes: number): Verdict => {
+	const entry = entryBytes(bytes)
+	return entry < btreeMaxItemSize.value
+		? "an entry within the bound"
+		: entry === btreeMaxItemSize.value
+			? "an entry at the bound"
+			: "an entry past the bound"
+}
 
 describe("a family axis's key", () => {
 	it.effect(
@@ -123,52 +179,67 @@ describe("a family axis's key", () => {
 							kind: "specification",
 							name: "nbtree.h's BTMaxItemSize over the entry counted from the columns' layouts"
 						},
-						box: "a concat fold's text of no bound, of 64 code points, or of 2,805 letters",
-						generator: element(types),
+						box: "a concat fold's text of no bound, or of a byte or code point bound whose entry is within a MAXALIGN step of BTMaxItemSize",
+						generator: textGen,
 						literal: Formatter.format,
-						limit: 3,
+						/** The space: the unbounded text, 17 byte bounds and 5 code point bounds. */
+						limit: 23,
 						coverage: requiredInSpace<Feature>([
-							"an unbounded accumulator",
-							"an entry past the bound",
-							"an entry within it"
+							"unbounded",
+							["octets", "an entry within the bound"],
+							["octets", "an entry at the bound"],
+							["octets", "an entry past the bound"],
+							["code points", "an entry within the bound"],
+							["code points", "an entry at the bound"],
+							["code points", "an entry past the bound"]
 						]),
 						caseHang
 					},
 					(t: TextType, c: Case<Feature>) =>
 						Effect.sync(() => {
-							const owned = succeeded(ownedInput(docSchema(t)))
+							const desc = docSchema(t)
+							const owned = succeeded(ownedInput(desc))
 							const compiled = compileInstallation(owned, installOptions(owned, "owner"))
-							const bytes = t.bytes === undefined ? undefined : entryBytes(t.bytes)
-							if (bytes !== undefined && bytes <= btreeMaxItemSize.value) {
-								succeeded(compiled, `${t.name}: an entry of ${bytes} bytes fits`)
-								c.note("an entry within it")
+							const bytes = bytesOf(t)
+							if (bytes === undefined) {
+								c.note("unbounded")
+							} else {
+								c.pair(t.kind, verdictOf(bytes))
+							}
+							if (bytes !== undefined && entryBytes(bytes) <= btreeMaxItemSize.value) {
+								succeeded(compiled, `an entry of ${entryBytes(bytes)} bytes fits`)
 								return
 							}
 							const reason = refused(compiled, "UnrepresentableKey").reason
 							if (reason._tag !== "UnrepresentableKey") {
 								return assert.fail("an UnrepresentableKey reason")
 							}
+							const foldAt = Arr.findFirstIndex(desc.statements, (s) => s.kind === "fold")
+							assert.deepEqual(
+								reason.at.path,
+								["statements", ...Option.toArray(foldAt)],
+								"the refusal is the fold's"
+							)
 							assert.deepEqual(
 								reason.key,
 								["doc", "at", "after"],
 								"the UNIQUE Line's axes reference"
 							)
-							assert.ok(
-								Str.includes("the concat fold into Doc.text")(reason.subject),
-								`the refusal names the fold: ${reason.subject}`
-							)
 							assert.deepEqual(
 								reason.fault,
-								bytes === undefined || t.bytes === undefined
+								bytes === undefined
 									? { kind: "unboundedText", field: "after" }
 									: {
 											kind: "btreeEntry",
-											bytes,
+											bytes: entryBytes(bytes),
 											limit: btreeMaxItemSize.value,
-											datums: datumsOf(t.bytes)
+											datums: [
+												{ field: "doc", bytes: typlens.uuid.value },
+												{ field: "at", bytes: typlens.int8.value },
+												{ field: "after", bytes: 4 + bytes }
+											]
 										}
 							)
-							c.note(bytes === undefined ? "an unbounded accumulator" : "an entry past the bound")
 						})
 				)
 			)
@@ -180,18 +251,18 @@ describe("a carried set's key", () => {
 	 * A set an axis carries is its roster's bit(n), n every code the roster has minted, holes included: the law model
 	 * counts it at its two live handles, and the installation's codes size it exactly (physical/ddl/tables.ts
 	 * setUniqueBound), so a roster pruned of many handles refuses the UNIQUE when it is compiled rather than at an insert
-	 * (54000). The box: Tag's codes its two live handles, then 0, 21,310 or 21,311 holes, the entry exactly at
-	 * BTMaxItemSize at 21,310 and one MAXALIGN past it at 21,311. The oracle: the entry counted by hand, a bit(n)'s varlena
-	 * header, its 4-byte bit count and a byte per eight codes after Line's (order, at) at their exact offsets.
+	 * (54000). The box: Tag's codes its two live handles, then every count of holes whose codes lie within a MAXALIGN
+	 * step's worth of bytes of the most that fit. The oracle: the entry counted by hand, a bit(n)'s varlena header, its
+	 * 4-byte bit count and a byte per eight codes after Line's (order, at) at their exact offsets.
 	 */
 	const Tag = closed("Tag", ["red", "blue"])
 	const none = Bits.of(Tag, [])
-	const Order = relation(
+	const Order = relationOf(
 		"Order",
 		{ id: uuid, n: drawn(natural), seen: accumulated(bits(Tag), none) },
 		["id"]
 	)
-	const Line = relation(
+	const Line = relationOf(
 		"Line",
 		{
 			order: uuid,
@@ -202,14 +273,17 @@ describe("a carried set's key", () => {
 		},
 		["order", "at"]
 	)
-	const lines = ordered(on(Line, "order", "at"), fin(Order, "n"))
-	const seen = fold(
+	const lines = orderedOf(onOf(Line, "order", "at"), finOf(Order, "n"))
+	const seen = foldOf(
 		lines,
 		Monoid.or,
-		on(Line, "order", "flags", "before", "after"),
-		on(Order, "id", "seen")
+		onOf(Line, "order", "flags", "before", "after"),
+		onOf(Order, "id", "seen")
 	)
 	const owned = succeeded(ownedInput(schema("Holes", { Tag, Order, Line }, [lines, seen])))
+
+	/** Tag's live handles, which every code count holds. */
+	const live = 2
 
 	/** Tag's codes: its two live handles, then `holes` removed ones. */
 	const codesWith = (holes: number) =>
@@ -219,22 +293,26 @@ describe("a carried set's key", () => {
 				slots: [
 					{ kind: "live", handle: "red" },
 					{ kind: "live", handle: "blue" },
-					...Array.from({ length: holes }, (_, i) => ({ kind: "hole" as const, was: `gone${i}` }))
+					...Arr.makeBy(holes, (i) => ({ kind: "hole" as const, was: `gone${i}` }))
 				],
 				spellings: { plain: 1 }
 			}
 		])
 
-	/** A bit(n) of `codes` codes: its varlena header, its 4-byte bit count and a byte per eight codes. */
-	const setBytes = (codes: number): number => 4 + typlens.int4.value + Math.ceil(codes / 8)
+	/** A bit(n)'s varlena header and its 4-byte bit count, before a byte per eight codes. */
+	const setHeaderBytes = 4 + typlens.int4.value
 
-	/** Line's (order, at, after) entry: its header, a uuid, a bigint aligned to 8, a bit(n) aligned to 4, MAXALIGNed. */
-	const entryOf = (codes: number): number => {
-		const at = alignUp(8 + typlens.uuid.value, typlens.int8.value) + typlens.int8.value
-		return alignUp(alignUp(at, 4) + setBytes(codes), maxAlign.value)
-	}
+	/** A bit(n) of `codes` codes. */
+	const setBytes = (codes: number): number => setHeaderBytes + Math.ceil(codes / 8)
 
-	type SetFeature = "no hole" | "an entry at the bound" | "an entry past it"
+	/** Line's (order, at, after) entry: its prefix, a bit(n) aligned to 4, MAXALIGNed. */
+	const entryOf = (codes: number): number =>
+		alignUp(alignUp(keyPrefixBytes, 4) + setBytes(codes), maxAlign.value)
+
+	/** The most codes whose entry fits: each eight codes take a byte, and BTMaxItemSize is itself MAXALIGNed. */
+	const fittingCodes = 8 * (btreeMaxItemSize.value - alignUp(keyPrefixBytes, 4) - setHeaderBytes)
+
+	type SetFeature = "an entry within the bound" | "an entry at the bound" | "an entry past it"
 
 	it.effect("is sized by its roster's codes, holes included, and refused past the bound", (ctx) =>
 		searched(
@@ -246,28 +324,28 @@ describe("a carried set's key", () => {
 						kind: "specification",
 						name: "VARBITTOTALLEN and nbtree.h's BTMaxItemSize, counted by hand"
 					},
-					box: "Tag's two live handles and 0, 21,310 or 21,311 holes",
-					generator: element([0, 21_310, 21_311] as const),
+					box: "Tag's two live handles and every count of holes within eight codes of the most that fit",
+					generator: int(fittingCodes - live - 8, fittingCodes - live + 8),
 					literal: Formatter.format,
-					limit: 3,
-					coverage: requiredInSpace<SetFeature>([
-						"no hole",
-						"an entry at the bound",
-						"an entry past it"
-					]),
+					limit: 17,
+					coverage: requiredInSpace<SetFeature>(["an entry at the bound", "an entry past it"]),
 					caseHang
 				},
 				(holes: number, c: Case<SetFeature>) =>
 					Effect.sync(() => {
-						const codes = codesWith(holes)
+						const codes = live + holes
 						const compiled = compileInstallation(owned, {
-							...completeInstallOptions(owned, owned.installation, [], [], codes),
+							...completeInstallOptions(owned, owned.installation, [], [], codesWith(holes)),
 							owner: "owner"
 						})
-						const bytes = entryOf(2 + holes)
+						const bytes = entryOf(codes)
 						if (bytes <= btreeMaxItemSize.value) {
 							succeeded(compiled, `${holes} holes: an entry of ${bytes} bytes fits`)
-							c.note(holes === 0 ? "no hole" : "an entry at the bound")
+							c.note(
+								bytes === btreeMaxItemSize.value
+									? "an entry at the bound"
+									: "an entry within the bound"
+							)
 							return
 						}
 						const reason = refused(compiled, "UnrepresentableKey").reason
@@ -281,7 +359,7 @@ describe("a carried set's key", () => {
 							datums: [
 								{ field: "order", bytes: typlens.uuid.value },
 								{ field: "at", bytes: typlens.int8.value },
-								{ field: "after", bytes: setBytes(2 + holes) }
+								{ field: "after", bytes: setBytes(codes) }
 							]
 						})
 						c.note("an entry past it")

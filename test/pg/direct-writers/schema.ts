@@ -54,5 +54,5 @@ export const writer = role(
 	{ Account, Entry, Pair },
 	{ write: ["Account", "Entry", "Pair"] }
 )
-export const auditor = role(DeskReports, "auditor", { AccountEntries })
+const auditor = role(DeskReports, "auditor", { AccountEntries })
 export const desk = login(DeskReports, "desk", [writer, auditor])

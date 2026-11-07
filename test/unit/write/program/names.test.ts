@@ -9,7 +9,8 @@ import { bindFrame } from "#adapter/wire/batch.ts"
 import { inForce } from "#compiler/write/family/order.ts"
 import { bindWrite } from "#compiler/write/program/bind.ts"
 import type { CompiledWrite } from "#compiler/write/program/compile.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { assert, nonEmpty, succeeded } from "#test/support/assert.ts"
+import { parameterNames } from "#test/support/kernel/dict.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 import {
@@ -21,8 +22,10 @@ import {
 } from "#test/unit/write/put/support.ts"
 
 /** A parameter takes any name its declaration gives it: no name is a slot source the runtime reads otherwise. A
- * relation parameter named like a source the runtime might read ("relation", "cursor", "parentKeys") or like a
- * page's reserved placeholder identity binds exactly as one named "items" does: every statement's placeholder texts. */
+ * relation parameter under every name of the parameter-name dictionary (kernel/dict.ts parameterNames: a page's own
+ * input names, spellings like a source the runtime might read or a page's reserved placeholder identity, then the
+ * identifier dictionary's names) binds exactly as one named "items" does: every statement's placeholder texts, the
+ * oracle being the program's invariance under renaming its parameter. */
 const membersOf = (program: CompiledWrite, value: unknown) =>
 	collectInputs(program.frontend, parsedOf(value).inputs)
 
@@ -52,7 +55,7 @@ const bound = Effect.fn("bound")(function* (name: string) {
 })
 
 describe("parameter names", () => {
-	it.effect("bind a relation parameter named like a reserved source as one named items", (ctx) =>
+	it.effect("bind a relation parameter under any dictionary name as one named items", (ctx) =>
 		searched(
 			ctx,
 			Effect.gen(function* () {
@@ -60,16 +63,15 @@ describe("parameter names", () => {
 				return yield* exhaust(
 					{
 						suite: "unit/write/program-names",
-						generator: element([
-							"relation",
-							"cursor",
-							"parentKeys",
-							"page:limit",
-							"page:boundary:0"
-						]),
+						generator: element(nonEmpty(parameterNames, "the parameter names")),
 						literal: Formatter.format,
-						limit: 5,
+						limit: parameterNames.length,
 						coverage: noCoverage,
+						box: "every name of the parameter-name dictionary",
+						oracle: {
+							kind: "universal",
+							name: "renaming a relation parameter changes no placeholder text a statement binds"
+						},
 						caseHang
 					},
 					(name) =>

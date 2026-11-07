@@ -3,9 +3,10 @@
  * are a set by identity, and a stored relation holds each fact once because its primary key's law refuses a second
  * fact at one key.
  *
- * The space is exhaustive: Worker holds nothing or (1, a); a write inserts one or two facts drawn from (1, a), (1, b)
- * and (2, a), repeats included, the two in one member or in two, through a grizzle writer or a direct one; and the
- * host states Worker's primary key's law or does not. The oracle is the rule written naively:
+ * The space is exhaustive over a box: a fact is an id of two and a name of two, so two facts share a key, are one
+ * fact, or neither; Worker holds at most one fact at each id; a write is one or two members, each inserting one or two
+ * facts, repeats included, through a grizzle writer or a direct one; and the host states Worker's primary key's law
+ * or does not. The oracle is the rule written naively:
  *
  * - a grizzle write's facts are one set by identity, so an identical fact stated twice, in one member or across two, is
  *   one fact; two facts at one key with different identities, or a fact at a stored fact's key with another identity,
@@ -19,10 +20,10 @@
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
-import { element, type Gen } from "@grizzle/testing/gen"
+import { array, boolean, codePoint, type Gen, int } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Order, Result } from "effect"
-import { assert, nonEmpty } from "#test/support/assert.ts"
+import { assert } from "#test/support/assert.ts"
 import { expectFor, type WriterKind } from "#test/support/history/model.ts"
 import { wild } from "#test/support/kernel/naming.ts"
 import {
@@ -58,12 +59,6 @@ const keyed: HostSchema = {
 
 const unkeyed: HostSchema = { relations: [worker], laws: [] }
 
-const facts: Arr.NonEmptyReadonlyArray<HostFact> = [
-	{ id: 1, name: "a" },
-	{ id: 1, name: "b" },
-	{ id: 2, name: "a" }
-]
-
 const factText = (f: HostFact): string =>
 	`${valueText(f["id"] ?? "")}/${valueText(f["name"] ?? "")}`
 
@@ -76,32 +71,34 @@ interface RepeatCase {
 	readonly schema: "keyed" | "unkeyed"
 	readonly stored: ReadonlyArray<HostFact>
 	/** The write's members, each a list of facts inserted into Worker. */
-	readonly members: Arr.NonEmptyReadonlyArray<Arr.NonEmptyReadonlyArray<HostFact>>
+	readonly members: ReadonlyArray<ReadonlyArray<HostFact>>
 }
 
-/** Every write of one or two facts, the two in one member or in two. */
-const writes: ReadonlyArray<Arr.NonEmptyReadonlyArray<Arr.NonEmptyReadonlyArray<HostFact>>> = [
-	...Arr.map(facts, (f): Arr.NonEmptyReadonlyArray<Arr.NonEmptyReadonlyArray<HostFact>> => [[f]]),
-	...Arr.flatMap(facts, (f) =>
-		Arr.flatMap(
-			facts,
-			(g): ReadonlyArray<Arr.NonEmptyReadonlyArray<Arr.NonEmptyReadonlyArray<HostFact>>> => [
-				[[f, g]],
-				[[f], [g]]
-			]
-		)
-	)
-]
+/** The box's bound on Worker's ids and on its names. */
+const keys = 2
 
-const cases: ReadonlyArray<RepeatCase> = Arr.flatMap(["grizzle", "direct"] as const, (writer) =>
-	Arr.flatMap(["keyed", "unkeyed"] as const, (schema) =>
-		Arr.flatMap([[], [facts[0]]], (stored) =>
-			Arr.map(writes, (members): RepeatCase => ({ writer, schema, stored, members }))
-		)
-	)
-)
+/** A name of the box: `a` or `b`. */
+const nameGen: Gen<string> = codePoint(0x61, 0x61 + keys - 1)
 
-const caseGen: Gen<RepeatCase> = element(nonEmpty(cases, "the repeat cases"))
+/** A fact of the box: an id and a name, each of two. */
+const factGen: Gen<HostFact> = (source) => ({
+	id: source.draw(int(1, keys)),
+	name: source.draw(nameGen)
+})
+
+/** A stored state Worker's key admits: at each id, no fact or one of a drawn name. */
+const storedGen: Gen<ReadonlyArray<HostFact>> = (source) =>
+	Arr.flatMap(Arr.range(1, keys), (id) =>
+		source.draw(boolean) ? [{ id, name: source.draw(nameGen) }] : []
+	)
+
+/** Every case of the box: a writer, a host, a stored state, and a write of one or two members of one or two facts. */
+const caseGen: Gen<RepeatCase> = (source) => ({
+	writer: source.draw(boolean) ? "direct" : "grizzle",
+	schema: source.draw(boolean) ? "unkeyed" : "keyed",
+	stored: source.draw(storedGen),
+	members: source.draw(array(array(factGen, { min: 1, max: 2 }), { min: 1, max: 2 }))
+})
 
 /** What the naive rule expects: the key's refusal, or the state after with whether it changed. */
 type Naive =
@@ -167,7 +164,7 @@ const outcomeOf = (c: RepeatCase): Expected =>
 
 describe("the host write models judge a repeated fact by its key", () => {
 	it.effect(
-		"over every write of up to two Worker facts, from each state, through each writer",
+		"over every write of up to two members of up to two Worker facts, from each state, through each writer",
 		(ctx) =>
 			searched(
 				ctx,
@@ -177,11 +174,11 @@ describe("the host write models judge a repeated fact by its key", () => {
 						generator: caseGen,
 						literal: Formatter.format,
 						/**
-						 * The space holds 168 cases (2 writers, 2 hosts, 2 states, 21 writes); the limit is the cap against a
+						 * The space holds 15,120 cases (2 writers, 2 hosts, 9 states, 420 writes); the limit is the cap against a
 						 * space grown by mistake.
 						 */
-						limit: 300,
-						box: "every write of one or two Worker facts from three, each split, state, writer and host",
+						limit: 16_000,
+						box: "every write of one or two members of one or two Worker facts over two ids and two names, from every state the key admits, through each writer, under each host",
 						oracle: {
 							kind: "specification",
 							name: "the identity-set and key rule, written naively (naive)"

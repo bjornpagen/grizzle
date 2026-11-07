@@ -1,8 +1,11 @@
 import { layer } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { noCoverage } from "@grizzle/testing/features"
-import { element, type Gen } from "@grizzle/testing/gen"
+import { drawn, exhaust, explore } from "@grizzle/testing/explore"
+import { noCoverage, required } from "@grizzle/testing/features"
+import { characterOf, element, type Gen, string } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
+import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
+import { regex } from "arkregex"
 import { Array as Arr, Effect, Exit, Formatter, Option, Order, String as Str } from "effect"
 import { executionInputs, type InputRefusal, paramCodecs } from "#adapter/reader/relations.ts"
 import { checkedSchema } from "#compiler/analysis/schema.ts"
@@ -429,6 +432,50 @@ const install = () =>
 		return { schema: name, installation }
 	})
 
+/** Where a refined value is written: grizzle's insert sent past the host codec, or a direct SQL writer's statement. */
+type RefinedPath =
+	| "grizzle's compiled insert"
+	| "a direct insert of an article's slug"
+	| "a direct update of a draft's slug"
+	| "a direct update of a draft's note"
+
+/** A refined value written along a path: a slug, or the note for the note's path. */
+interface RefinedWrite {
+	readonly path: RefinedPath
+	readonly value: string
+}
+
+type RefinedFeature = `${RefinedPath}: ${"refused" | "admitted"}`
+
+/** The slug's own pattern, as ECMAScript reads it: the oracle the domain's CHECK must agree with. */
+const slugPattern = regex("^[a-z][a-z0-9-]*$")
+
+const slugAdmits = (value: string): boolean => slugPattern.test(value)
+
+/** Short texts over the slug's class edges and its outside: lowercase ends, digits, the hyphen, a capital, a space, é. */
+const slugTextGen = string(characterOf(["a", "z", "0", "9", "-", "A", " ", "é"]), {
+	min: 0,
+	max: 4
+})
+
+/** Texts around the note's length bound, in characters: one-byte, two-byte and four-byte ones, and a newline. */
+const noteTextGen = string(characterOf(["a", "é", "\n", "\u{1F600}"]), { min: 0, max: limit + 2 })
+
+const refinedWriteGen: Gen<RefinedWrite> = (source) => {
+	const path = source.draw(
+		element([
+			"grizzle's compiled insert",
+			"a direct insert of an article's slug",
+			"a direct update of a draft's slug",
+			"a direct update of a draft's note"
+		] as const)
+	)
+	return {
+		path,
+		value: source.draw(path === "a direct update of a draft's note" ? noteTextGen : slugTextGen)
+	}
+}
+
 layer(Substrate.layer)("refinement validation sites on PostgreSQL 19", (it) => {
 	const loadArticles = (
 		schemaName: string,
@@ -576,126 +623,191 @@ layer(Substrate.layer)("refinement validation sites on PostgreSQL 19", (it) => {
 			)
 	)
 
-	it.effect("a refined write is refused before commit with its refinement identity", () =>
-		Effect.gen(function* () {
-			const s = yield* Substrate
-			const { schema: name, installation } = yield* install()
-			const reality = realityWrite(
-				ok(
-					testArtifacts(Content, {
-						installation: identity.schema(parsedSchemaName(name)),
-						vectorSchema: undefined,
-						codes: installedCodes(installation.names.codes)
-					}),
-					"artifacts"
-				)
-			)
-			const frontend = ok(
-				compileChangeSet(
-					checking(Content),
-					changeSet(
-						ChangeSet.empty(Content).insert(Article, [
-							{ id: id(1), slug: "Not A Slug", title: "anything" }
-						])
-					),
-					{
-						claims: reality.claims,
-						laws: reality.laws,
-						derived: reality.derived,
-						world: reality.world,
-						codes: installation.names.codes
+	it.effect(
+		"a refined write is refused before commit with its refinement identity exactly when its value is outside the refinement, by grizzle's compiled insert and a direct SQL writer alike",
+		(ctx) =>
+			searched(
+				ctx,
+				Effect.gen(function* () {
+					const s = yield* Substrate
+					const { schema: name, installation } = yield* install()
+					const reality = realityWrite(
+						ok(
+							testArtifacts(Content, {
+								installation: identity.schema(parsedSchemaName(name)),
+								vectorSchema: undefined,
+								codes: installedCodes(installation.names.codes)
+							}),
+							"artifacts"
+						)
+					)
+					const frontend = ok(
+						compileChangeSet(
+							checking(Content),
+							changeSet(
+								ChangeSet.empty(Content).insert(Article, [
+									{ id: id(1), slug: "a-slug", title: "anything" }
+								])
+							),
+							{
+								claims: reality.claims,
+								laws: reality.laws,
+								derived: reality.derived,
+								world: reality.world,
+								codes: installation.names.codes
+							}
+						),
+						"changeset"
+					)
+					const write = ok(
+						realizeConservative(frontend, {
+							names: reality.names,
+							reads: reality.reads,
+							share: new StatementShare()
+						}),
+						"realize"
+					)
+					const found = Arr.findFirst(
+						write.steps,
+						(x) => x.kind === "action" && x.statement.result.kind === "insert"
+					)
+					if (Option.isNone(found) || found.value.kind !== "action") {
+						throw new Error("an insert step")
 					}
-				),
-				"changeset"
+					const step = found.value
+					/** The enumerated member's facts as the insert's member placeholders, one array of the facts per column, each
+					 * placeholder carrying the array of its part. The arrays are written straight from the facts' texts
+					 * (arrayTexts), past the host codec, whose admission refuses a slug outside the pattern before any SQL: what
+					 * reaches PostgreSQL is a value the slug's domain alone judges, as a writer that skipped the codec would send
+					 * it. */
+					const arraysOf = (fact: Readonly<Record<string, string>>) =>
+						Arr.map(step.statement.params, (slot) => {
+							if (slot.kind !== "member") {
+								throw new Error(`a member placeholder, not ${slot.kind}`)
+							}
+							const fields = Arr.map(slot.columns, (c) => c.name)
+							const written = arrayTexts(
+								slot.relation,
+								fields,
+								[Arr.map(fields, (f) => defined(fact[f], `the fact's ${f}`))],
+								maxStringLength.value
+							)
+							if (!written.ok) {
+								throw new Error(`arrays: ${written.error._tag}`)
+							}
+							return defined(
+								written.value[slot.part.kind === "column" ? slot.part.index : 0],
+								`the array of placeholder ${slot.number}`
+							)
+						})
+					const world = yield* oracleWorld(installation)
+					const session = yield* s.session({ ...worldSession(world), label: "writer" })
+					const slugCheck = slugDomain(installation).constraint
+					const noteCheck = noteCheckOf(installation)
+					const table = (t: string) => `${quoteIdent(name)}.${quoteIdent(t)}`
+					yield* session.query(
+						`INSERT INTO ${table("draft")} ("id", "slug", "note") VALUES ('${id(3)}', 'fine', 'ok')`,
+						[]
+					)
+					/** The statement a case sends, the constraint that judges its value, and whether the value is admitted. */
+					const sent = (w: RefinedWrite) => {
+						switch (w.path) {
+							case "grizzle's compiled insert":
+								return {
+									send: Effect.asVoid(
+										session.values(
+											step.statement.sql.text,
+											arraysOf({ id: id(1), slug: w.value, title: "anything" })
+										)
+									),
+									check: slugCheck,
+									admitted: slugAdmits(w.value)
+								}
+							case "a direct insert of an article's slug":
+								return {
+									send: Effect.asVoid(
+										session.query(
+											`INSERT INTO ${table("article")} ("id", "slug", "title") VALUES ('${id(2)}', ${literal(w.value)}, 't')`,
+											[]
+										)
+									),
+									check: slugCheck,
+									admitted: slugAdmits(w.value)
+								}
+							case "a direct update of a draft's slug":
+								return {
+									send: Effect.asVoid(
+										session.query(
+											`UPDATE ${table("draft")} SET "slug" = ${literal(w.value)} WHERE "id" = '${id(3)}'`,
+											[]
+										)
+									),
+									check: slugCheck,
+									admitted: slugAdmits(w.value)
+								}
+							case "a direct update of a draft's note":
+								return {
+									send: Effect.asVoid(
+										session.query(
+											`UPDATE ${table("draft")} SET "note" = ${literal(w.value)} WHERE "id" = '${id(3)}'`,
+											[]
+										)
+									),
+									check: noteCheck,
+									admitted: Arr.fromIterable(w.value).length <= limit
+								}
+						}
+					}
+					const count = s.admin.queryValues(
+						`SELECT (SELECT count(*) FROM ${table("article")})::text, (SELECT count(*) FROM ${table("draft")} WHERE "slug" = 'fine' AND "note" = 'ok')::text`,
+						[]
+					)
+					return yield* explore(
+						{
+							suite: "pg/regex-complete/refined-write",
+							draw: drawn(refinedWriteGen),
+							literal: Formatter.format,
+							oracle: {
+								kind: "second-implementation",
+								name: "ECMAScript's match of the slug's pattern and the note's length in characters, against the domain's CHECK"
+							},
+							coverage: required<RefinedFeature>(
+								[
+									"grizzle's compiled insert: refused",
+									"grizzle's compiled insert: admitted",
+									"a direct insert of an article's slug: refused",
+									"a direct insert of an article's slug: admitted",
+									"a direct update of a draft's slug: refused",
+									"a direct update of a draft's slug: admitted",
+									"a direct update of a draft's note: refused",
+									"a direct update of a draft's note: admitted"
+								],
+								{ cases: 96, sense: notesOnly }
+							),
+							kept: [],
+							runs: 48,
+							shrink: completeShrink,
+							concurrency: 1,
+							steerEvery: 16,
+							caseHang
+						},
+						(w, c) =>
+							Effect.gen(function* () {
+								const { send, check, admitted } = sent(w)
+								if (admitted) {
+									yield* inTransaction(session, send)
+									c.note(`${w.path}: admitted`)
+								} else {
+									yield* expectConstraint(inTransaction(session, send), check, "23514")
+									c.note(`${w.path}: refused`)
+								}
+								yield* session.rollback
+								const committed = yield* count
+								assert.deepEqual(committed, [["0", "1"]], "nothing was committed")
+							})
+					)
+				})
 			)
-			const write = ok(
-				realizeConservative(frontend, {
-					names: reality.names,
-					reads: reality.reads,
-					share: new StatementShare()
-				}),
-				"realize"
-			)
-			const found = Arr.findFirst(
-				write.steps,
-				(x) => x.kind === "action" && x.statement.result.kind === "insert"
-			)
-			if (Option.isNone(found) || found.value.kind !== "action") {
-				throw new Error("an insert step")
-			}
-			const step = found.value
-			/** The enumerated member's facts as the insert's member placeholders, one array of the facts per column, each
-			 * placeholder carrying the array of its part. The arrays are written straight from the facts' texts
-			 * (arrayTexts), past the host codec, whose admission refuses the slug before any SQL: what reaches PostgreSQL is a
-			 * value the slug's domain alone judges, as a writer that skipped the codec would send it. */
-			const fact: Readonly<Record<string, string>> = {
-				id: id(1),
-				slug: "Not A Slug",
-				title: "anything"
-			}
-			const arrays = Arr.map(step.statement.params, (slot) => {
-				if (slot.kind !== "member") {
-					throw new Error(`a member placeholder, not ${slot.kind}`)
-				}
-				const fields = Arr.map(slot.columns, (c) => c.name)
-				const written = arrayTexts(
-					slot.relation,
-					fields,
-					[Arr.map(fields, (f) => defined(fact[f], `the fact's ${f}`))],
-					maxStringLength.value
-				)
-				if (!written.ok) {
-					throw new Error(`arrays: ${written.error._tag}`)
-				}
-				return defined(
-					written.value[slot.part.kind === "column" ? slot.part.index : 0],
-					`the array of placeholder ${slot.number}`
-				)
-			})
-			const world = yield* oracleWorld(installation)
-			const session = yield* s.session({ ...worldSession(world), label: "writer" })
-			const slug = slugDomain(installation)
-			const slugCheck = slug.constraint
-			yield* expectConstraint(
-				inTransaction(session, session.values(step.statement.sql.text, arrays)),
-				slugCheck,
-				"23514"
-			)
-			yield* session.rollback
-			/** Nothing was committed. */
-			const count = yield* s.admin.queryValues(
-				`SELECT count(*)::text FROM ${quoteIdent(name)}."article"`,
-				[]
-			)
-			assert.deepEqual(count, [["0"]])
-			/** A direct SQL writer's INSERT and UPDATE meet the same domain. */
-			const table = (t: string) => `${quoteIdent(name)}.${quoteIdent(t)}`
-			yield* expectConstraint(
-				session.query(
-					`INSERT INTO ${table("article")} ("id", "slug", "title") VALUES ('${id(2)}', 'Bad Slug', 't')`,
-					[]
-				),
-				slugCheck,
-				"23514"
-			)
-			yield* session.query(
-				`INSERT INTO ${table("draft")} ("id", "slug", "note") VALUES ('${id(3)}', 'fine', 'ok')`,
-				[]
-			)
-			yield* expectConstraint(
-				session.query(`UPDATE ${table("draft")} SET "slug" = 'NOT OK' WHERE "id" = '${id(3)}'`, []),
-				slugCheck,
-				"23514"
-			)
-			yield* expectConstraint(
-				session.query(
-					`UPDATE ${table("draft")} SET "note" = 'too long' WHERE "id" = '${id(3)}'`,
-					[]
-				),
-				noteCheckOf(installation),
-				"23514"
-			)
-		})
 	)
 
 	it.effect(

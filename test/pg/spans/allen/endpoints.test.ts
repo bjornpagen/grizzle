@@ -25,7 +25,13 @@ import { defined, nonEmpty } from "#test/support/assert.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { argumentsOf } from "#test/support/list.ts"
-import { type HalfOpen, type RangeType, rangeLimits, spanText } from "#test/support/oracle/allen.ts"
+import {
+	type HalfOpen,
+	type RangeType,
+	rangeLimits,
+	rangeTypes,
+	spanText
+} from "#test/support/oracle/allen.ts"
 import { endpointMaskPredicate } from "#test/support/oracle/gen/spans.ts"
 import { oracleCheck, PropertyFailed } from "#test/support/oracle/runner.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
@@ -42,7 +48,6 @@ const BigPairs = relation("BigPairs", { id: pg.integer, a: span(pg.bigint), b: s
 ])
 const Pairs = schema("EndpointPairs", { IntPairs, BigPairs }, [])
 
-const carriers: Arr.NonEmptyReadonlyArray<RangeType> = ["int4range", "int8range"]
 const relationOf: Readonly<Record<RangeType, string>> = {
 	int4range: "IntPairs",
 	int8range: "BigPairs"
@@ -316,7 +321,7 @@ const spanHost = (carrier: RangeType, s: HalfOpen) =>
 const installPairs = Effect.gen(function* () {
 	const s = yield* Substrate
 	const installed = yield* installSpans(Pairs, { label: "endpoints", extensions: [] })
-	for (const carrier of carriers) {
+	for (const carrier of rangeTypes) {
 		const facts = factsOf(carrier)
 		yield* s.admin.queryValues(
 			`INSERT INTO ${tableOf(installed, carrier)} ("id", "a", "b") SELECT j.id, j.a::${carrier}, j.b::${carrier} FROM jsonb_to_recordset($1::text::jsonb) AS j(id int4, a text, b text)`,
@@ -387,7 +392,7 @@ const pairPredicates: Gen<Pred> = oneOf<Pred>([
 ])
 
 const exhaustiveCases: Gen<EndpointCase> = (source) => ({
-	carrier: source.draw(element(carriers)),
+	carrier: source.draw(element(rangeTypes)),
 	pred: source.draw(pairPredicates),
 	window: 0,
 	at: 0
@@ -469,7 +474,7 @@ const predGen = (depth: number): Gen<Pred> => {
 }
 
 const caseGen: Gen<EndpointCase> = (source) => ({
-	carrier: source.draw(element(carriers)),
+	carrier: source.draw(element(rangeTypes)),
 	pred: source.draw(predGen(3)),
 	window: source.draw(int(0, 17)),
 	at: source.draw(int(0, 400))
@@ -550,7 +555,7 @@ layer(Substrate.layer)("endpoint spellings of span relations on PostgreSQL 19", 
 							literal: Formatter.format,
 							limit: exhaustiveLimit,
 							coverage: requiredInSpace<ExhaustiveFeature>(
-								Arr.flatMap(carriers, (carrier): Arr.NonEmptyReadonlyArray<ExhaustiveFeature> => [
+								Arr.flatMap(rangeTypes, (carrier): Arr.NonEmptyReadonlyArray<ExhaustiveFeature> => [
 									`${carrier} rewritten`,
 									`${carrier} every fact`,
 									`${carrier} no fact`,

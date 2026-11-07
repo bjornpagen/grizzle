@@ -35,6 +35,7 @@ import { decimalTag, isDecimalPayload } from "#compiler/ir/decimal.ts"
 import { type Fact, factNames, factsSorted } from "#compiler/ir/proof.ts"
 import { textLanguageShape } from "#compiler/ir/scalar-shape.ts"
 import {
+	languageOctets,
 	type NumericBound,
 	numericMaxPrecision,
 	numericMaxScale,
@@ -89,7 +90,12 @@ export type FieldDesc =
 			readonly kind: "text"
 			readonly source: string
 			readonly flags: "u" | "su"
-			/** The pattern's language as the text analysis proved it where the descriptor was admitted. */
+			/**
+			 * The most UTF-8 bytes a value holds, str.bytes's bound where it cuts the pattern's language; none for a text of
+			 * its pattern alone.
+			 */
+			readonly bytes: number | undefined
+			/** The pattern's language as the text analysis proved it where the descriptor was admitted, cut to `bytes`. */
 			readonly language: TextLanguage
 	  }
 	| {
@@ -1275,7 +1281,15 @@ const fieldDescShape: S.Shape<FieldDesc> = S.lazy("a field descriptor", () =>
 			`numeric(p, s), both declared, p in 1..${numericMaxPrecision.value} and s in ${numericMinScale.value}..${numericMaxScale.value}`
 		),
 		uuid: S.struct({}),
-		text: S.struct({ source: S.string, flags: regexFlags, language: textLanguageShape }),
+		text: S.refine(
+			S.structStated(
+				{ source: S.string, flags: regexFlags, language: textLanguageShape },
+				{ bytes: S.nonNegativeInteger },
+				{}
+			),
+			(t) => t.bytes === languageOctets(t.language),
+			"a text's byte bound, the one its language enforces"
+		),
 		contract: S.structStated(
 			{
 				name,

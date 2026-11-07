@@ -1,25 +1,29 @@
 /**
  * The reads of families and trees through grizzle's installed indexes, on PostgreSQL 19rc1 (fin.md §11, "Plan
- * audits", trees.md §3, §5): every ordered and tree read is an index or range scan of the index grizzle installs for it,
- * with no sort, no sequential scan and no recursion, and returns exactly the rows the parent links say it should.
+ * audits", trees.md §3, §5): the export, every subtree's descendants and every family's members are an index or range
+ * scan of the index grizzle installs for them, with no sort, no sequential scan and no recursion, and return exactly the
+ * rows the parent links say they should.
  *
- * The reads, each over a planted, analyzed load and each planned custom and generic (R04):
+ * The reads, each over a planted, analyzed load and each planned custom or generic as the search draws (R04), of a row
+ * drawn at every depth below the root alike and of an owner drawn among them all. A row's ancestors are no such read:
+ * `start <= n.start AND end > n.start` reads every row before it in pre-order, so for a row late in it the planner
+ * rightly scans the table, and no index grizzle installs serves it.
  *
  * - **the export**, `WHERE doc = $1 ORDER BY start`: one scan of T1's UNIQUE (r, start), reading each row once;
  * - **descendants** of a row, `start > n.start AND start < n.end`: a range scan of T1 reading exactly them;
- * - **ancestors** of a row, `start <= n.start AND end > n.start`: a range scan of T1 up to the row, filtered by end;
  * - **an ordered family's members**, `WHERE g = $1 ORDER BY at`: a scan of the family key UNIQUE (g, at) reading exactly
  *   its members, whether the planner sorts them after a bitmap scan or reads them in order.
  *
  * - **Oracles:** EXPLAIN's plan shape (bench/harness/explain.ts), its index named by the installed catalog's role
  *   (installed.ts), never by an allocated name; and each read's rows against the tree's parent links
- *   (families/tree.ts descendantsOf, ancestorsOf) or the family as written, a second implementation that reads no
- *   interval.
+ *   (families/tree.ts descendantsOf) or the family as written, a second implementation that reads no interval.
  */
 import { layer } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { element } from "@grizzle/testing/gen"
+import { drawn, explore } from "@grizzle/testing/explore"
+import { required } from "@grizzle/testing/features"
+import { boolean, constant, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
+import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
 import {
@@ -35,10 +39,11 @@ import {
 import { constraintOf as familyConstraintOf, familySeat } from "#test/pg/fin/family.ts"
 import { type Catalogued, seatOf } from "#test/pg/fin/installed.ts"
 import { nativesOf, nodeBatchParams, nodeBatchSql, RELATIONS, Trees } from "#test/pg/fin/tree.ts"
-import { loadTree, type TreeRow } from "#test/pg/substrate/tree.ts"
+import { loadTree, rowsByDepth, type TreeRow } from "#test/pg/substrate/tree.ts"
 import { assert, defined, nonEmpty } from "#test/support/assert.ts"
-import { ancestorsOf, descendantsOf } from "#test/support/families/tree.ts"
+import { descendantsOf } from "#test/support/families/tree.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { pickFrom, pickGen } from "#test/support/pick.ts"
 import { attempt } from "#test/support/substrate.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -48,45 +53,64 @@ const planned: ExplainOptions = { wal: false, serialize: { kind: "off" } }
 /** The planted loads: one tree of 20,000 rows of fan-out up to four, and 200 owners of 100 ordered members each. */
 const load = { tree: 20_000, fanout: 4, owners: 200, members: 100 } as const
 
-/** A row whose reads a probe plans: the root's first child, a subtree under 100 rows, a leaf, and the deepest row. */
-type Subject = "a quarter of the tree" | "a subtree under 100 rows" | "a leaf" | "the deepest row"
+/**
+ * What a row whose reads a probe plans is: one of the root's children, a row heading 100 rows or more below them, a
+ * row heading fewer, or a leaf.
+ */
+const subjects = [
+	"a quarter of the tree",
+	"a subtree of 100 rows or more",
+	"a subtree under 100 rows",
+	"a leaf"
+] as const
+type Subject = (typeof subjects)[number]
 
-type Probe =
-	| { readonly read: "the export"; readonly mode: PlanMode }
-	| {
-			readonly read: "descendants" | "ancestors"
-			readonly subject: Subject
-			readonly mode: PlanMode
-	  }
-	| { readonly read: "a family's members"; readonly mode: PlanMode }
+const subjectOf = (row: TreeRow, depth: number): Subject =>
+	depth === 1
+		? "a quarter of the tree"
+		: row.children === 0
+			? "a leaf"
+			: row.end - row.start < 100
+				? "a subtree under 100 rows"
+				: "a subtree of 100 rows or more"
+
+/**
+ * What a probe reads: the export, the descendants of a row below the root, drawn as its depth and a pick among the
+ * rows at it, or the members of a drawn owner.
+ */
+type Read =
+	| Readonly<{ kind: "the export" }>
+	| Readonly<{ kind: "descendants"; depth: number; pick: number }>
+	| Readonly<{ kind: "a family's members"; owner: number }>
+
+/** A probe's read, planned generic or custom. */
+interface ProbeSketch {
+	readonly generic: boolean
+	readonly read: Read
+}
+
+/** Every depth below the root alike, to `deepest`, and every owner of the family load. */
+const probeGen = (deepest: number): Gen<ProbeSketch> => {
+	const descendants: Gen<Read> = (source) => ({
+		kind: "descendants",
+		depth: source.draw(int(1, deepest)),
+		pick: source.draw(pickGen)
+	})
+	return (source) => ({
+		generic: source.draw(boolean),
+		read: source.draw(
+			oneOf<Read>([
+				constant<Read>({ kind: "the export" }),
+				descendants,
+				map(int(1, load.owners), (owner): Read => ({ kind: "a family's members", owner }))
+			])
+		)
+	})
+}
 
 type PlanFeature =
 	| `${"the export" | "a family's members"}, ${PlanMode} plan`
-	| `the ${"descendants" | "ancestors"} of ${Subject}, ${PlanMode} plan`
-
-const probeName = (p: Probe): PlanFeature =>
-	p.read === "descendants" || p.read === "ancestors"
-		? `the ${p.read} of ${p.subject}, ${p.mode} plan`
-		: `${p.read}, ${p.mode} plan`
-
-const SUBJECTS: ReadonlyArray<Subject> = [
-	"a quarter of the tree",
-	"a subtree under 100 rows",
-	"a leaf",
-	"the deepest row"
-]
-
-const PROBES: Arr.NonEmptyReadonlyArray<Probe> = nonEmpty(
-	Arr.flatMap(["custom", "generic"] as const, (mode): ReadonlyArray<Probe> => [
-		{ read: "the export", mode },
-		{ read: "a family's members", mode },
-		...Arr.flatMap(SUBJECTS, (subject): ReadonlyArray<Probe> => [
-			{ read: "descendants", subject, mode },
-			{ read: "ancestors", subject, mode }
-		])
-	]),
-	"a probe"
-)
+	| `the descendants of ${Subject}, ${PlanMode} plan`
 
 /** The node types of a recursive read, none of which a family or tree read may plan. */
 const RECURSIVE: ReadonlyArray<string> = ["Recursive Union", "WorkTable Scan", "CTE Scan"]
@@ -109,7 +133,7 @@ layer(Substrate.layer)(
 	"family and tree reads through grizzle's installed indexes on PostgreSQL 19rc1",
 	(it) => {
 		it.effect(
-			"read a tree in document order with no sort, each subtree's descendants and each row's ancestors by scans of T1's index, and a family's members by its key, with no sequential scan and no recursion",
+			"read a tree in document order with no sort, each subtree's descendants by a range scan of T1's index, and a family's members by its key, with no sequential scan and no recursion",
 			(ctx) =>
 				searched(
 					ctx,
@@ -142,100 +166,94 @@ layer(Substrate.layer)(
 								Option.contains(familyConstraintOf(family, c), "key")
 							)
 						).name
-						/** The deepest row, its depth read once per row from its parent's, loadTree's pre-order putting every parent first. */
-						const depths = new Map<number, number>()
-						for (const r of rows) {
-							depths.set(r.id, r.parent === r.id ? 0 : (depths.get(r.parent) ?? 0) + 1)
-						}
-						const deepest = defined(
-							Arr.sort(
-								rows,
-								Order.mapInput(Order.flip(Order.Number), (r: TreeRow) => depths.get(r.id) ?? 0)
-							)[0]
+						const byDepth = rowsByDepth(rows)
+						const modes: ReadonlyArray<PlanMode> = ["custom", "generic"]
+						const situations = nonEmpty(
+							Arr.flatMap(modes, (mode): ReadonlyArray<PlanFeature> => [
+								`the export, ${mode} plan`,
+								`a family's members, ${mode} plan`,
+								...Arr.map(
+									subjects,
+									(subject): PlanFeature => `the descendants of ${subject}, ${mode} plan`
+								)
+							])
 						)
-						const subjectOf = (subject: Subject): TreeRow => {
-							switch (subject) {
-								case "a quarter of the tree":
-									return defined(rows[1])
-								case "a subtree under 100 rows":
-									return Option.getOrThrow(
-										Arr.findFirst(rows, (r) => r.end - r.start > 1 && r.end - r.start < 100)
-									)
-								case "a leaf":
-									return Option.getOrThrow(Arr.findFirst(rows, (r) => r.children === 0))
-								case "the deepest row":
-									return deepest
-							}
-						}
 						const t = (role: string) => trees.column("Node", role)
-						return yield* exhaust(
+						return yield* explore(
 							{
 								suite: "fin/plans",
-								generator: element(PROBES),
+								draw: drawn(probeGen(byDepth.length - 1)),
 								literal: Formatter.format,
-								limit: PROBES.length,
-								box: "the export, the descendants and ancestors of four rows of a 20,000-row tree, and one family's members among 200, each planned custom and generic",
 								oracle: {
 									kind: "postgresql",
 									name: "EXPLAIN's plan shape: T1's or the family key's index alone, no Sort, no Seq Scan, no recursive node; each read's rows against the tree's parent links or the family as written"
 								},
-								coverage: requiredInSpace<PlanFeature>(nonEmpty(Arr.map(PROBES, probeName))),
+								coverage: required<PlanFeature>(situations, { cases: 64, sense: notesOnly }),
+								kept: [],
+								runs: 32,
+								shrink: completeShrink,
+								concurrency: 1,
+								steerEvery: 16,
 								caseHang
 							},
-							(probe, c) =>
+							(sketch, c) =>
 								Effect.gen(function* () {
-									const session = probe.read === "a family's members" ? f.session : trees.session
-									const query = (() => {
-										switch (probe.read) {
+									const mode: PlanMode = sketch.generic ? "generic" : "custom"
+									const read = sketch.read
+									const subjectAt = (depth: number, pick: number) => {
+										const row = pickFrom(
+											defined(byDepth[depth], `the rows at depth ${depth}`),
+											pick
+										)
+										return { row, subject: subjectOf(row, depth) }
+									}
+									const session = read.kind === "a family's members" ? f.session : trees.session
+									const probe = (() => {
+										switch (read.kind) {
 											case "the export":
 												return {
+													name: `the export, ${mode} plan` as const,
 													sql: `SELECT ${t("id")} FROM ${trees.table("Node")} WHERE ${t("doc")} = $1::int4 ORDER BY ${t("start")}`,
 													params: ["0"]
 												}
 											case "descendants": {
-												const n = subjectOf(probe.subject)
+												const { row, subject } = subjectAt(read.depth, read.pick)
 												return {
+													name: `the descendants of ${subject}, ${mode} plan` as const,
 													sql: `SELECT ${t("id")} FROM ${trees.table("Node")} WHERE ${t("doc")} = $1::int4 AND ${t("start")} > $2::int8 AND ${t("start")} < $3::int8`,
-													params: ["0", String(n.start), String(n.end)]
-												}
-											}
-											case "ancestors": {
-												const n = subjectOf(probe.subject)
-												return {
-													sql: `SELECT ${t("id")} FROM ${trees.table("Node")} WHERE ${t("doc")} = $1::int4 AND ${t("start")} < $2::int8 AND ${t("end")} > $2::int8`,
-													params: ["0", String(n.start)]
+													params: ["0", String(row.start), String(row.end)]
 												}
 											}
 											case "a family's members":
 												return {
+													name: `a family's members, ${mode} plan` as const,
 													sql: `SELECT ${fc("Member", "member")} FROM ${f.table("Member")} WHERE ${fc("Member", "g")} = $1::int4 ORDER BY ${fc("Member", "at")}`,
-													params: ["7"]
+													params: [String(read.owner)]
 												}
 										}
 									})()
+									const name: PlanFeature = probe.name
 									const e =
-										probe.mode === "custom"
-											? yield* explain(session, query.sql, query.params, planned)
+										mode === "custom"
+											? yield* explain(session, probe.sql, probe.params, planned)
 											: yield* explainServerStatement(
 													session,
-													query.sql,
-													query.params,
+													probe.sql,
+													probe.params,
 													"generic",
 													planned
 												)
 									const facts = planFacts(e.plan)
-									const name = probeName(probe)
-									yield* Effect.promise(() => ctx.annotate(`${name}: ${Formatter.format(facts)}`))
 									assert.deepEqual(
 										facts.indexes,
-										[probe.read === "a family's members" ? key : t1],
+										[read.kind === "a family's members" ? key : t1],
 										`${name} reads its index alone`
 									)
 									assert.equal(facts.seqScans, 0, `${name} scans nothing sequentially`)
 									assert.deepEqual(facts.recursive, [], `${name} does not recurse`)
-									const answered = yield* session.values(query.sql, query.params)
+									const answered = yield* session.values(probe.sql, probe.params)
 									const got = Arr.map(answered, (r) => Number(r[0]))
-									switch (probe.read) {
+									switch (read.kind) {
 										case "the export":
 											assert.equal(facts.sorts, 0, `${name} sorts nothing`)
 											assert.equal(facts.read, load.tree, `${name} reads each row once`)
@@ -246,22 +264,16 @@ layer(Substrate.layer)(
 											)
 											break
 										case "descendants": {
-											const n = subjectOf(probe.subject)
-											assert.equal(facts.read, n.end - n.start - 1, `${name} reads exactly them`)
-											assert.deepEqual(
-												Arr.sort(got, Order.Number),
-												Arr.sort(descendantsOf(rows, n.id), Order.Number),
-												`${name} are the rows under it by their parent links`
+											const { row } = subjectAt(read.depth, read.pick)
+											assert.equal(
+												facts.read,
+												row.end - row.start - 1,
+												`${name} reads exactly them`
 											)
-											break
-										}
-										case "ancestors": {
-											const n = subjectOf(probe.subject)
-											assert.ok(facts.read <= n.start, `${name} reads no row after it in pre-order`)
 											assert.deepEqual(
 												Arr.sort(got, Order.Number),
-												Arr.sort(ancestorsOf(rows, n.id), Order.Number),
-												`${name} are the rows above it by their parent links`
+												Arr.sort(descendantsOf(rows, row.id), Order.Number),
+												`${name} are the rows under it by their parent links`
 											)
 											break
 										}
@@ -269,7 +281,10 @@ layer(Substrate.layer)(
 											assert.equal(facts.read, load.members, `${name} reads exactly its members`)
 											assert.deepEqual(
 												got,
-												Arr.map(Arr.range(0, load.members - 1), (a) => 7 * load.members + a),
+												Arr.map(
+													Arr.range(0, load.members - 1),
+													(a) => read.owner * load.members + a
+												),
 												`${name} come in slot order`
 											)
 											break

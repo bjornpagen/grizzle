@@ -8,6 +8,7 @@ import {
 	element,
 	filter,
 	type Gen,
+	int,
 	map,
 	oneOf
 } from "@grizzle/testing/gen"
@@ -49,15 +50,21 @@ import {
 import { type PgErrorFields, pgErrorFields } from "#test/support/substrate/errors.ts"
 import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
 
+/** Tick's bound: a tick lies in [-tickBound, tickBound]. */
+const tickBound = 100n
+
 const Tick = contract("Tick", pg.bigint, (value) =>
-	Compute.and(Compute.ge(value, -100n), Compute.le(value, 100n))
+	Compute.and(Compute.ge(value, -tickBound), Compute.le(value, tickBound))
 )
+
+/** Slot's declared width. */
+const slotWidth = 15
 
 const Booking = relation("Booking", { room: uuid, during: span(pg.bigint), guest: uuid }, [
 	"room",
 	"during"
 ])
-const Slot = relation("Slot", { id: pg.integer, fixed: span(pg.integer, 15) }, ["id"])
+const Slot = relation("Slot", { id: pg.integer, fixed: span(pg.integer, slotWidth) }, ["id"])
 const Plan = relation("Plan", { id: pg.integer, ticks: span(Tick) }, ["id"])
 const Edge = relation("Edge", { id: pg.integer, s: span(pg.bigint) }, ["id"])
 const Store = schema("Store", { Booking, Slot, Plan, Edge }, [])
@@ -79,28 +86,27 @@ const edgeBounds = query(Store).rule((r) => {
 const int8 = rangeLimits.int8range
 const int4 = rangeLimits.int4range
 
+/** A value within `distance` of `at`, either side. */
+const near = (at: bigint, distance: number): Gen<bigint> =>
+	map(int(-distance, distance), (d) => at + BigInt(d))
+
 /**
- * An endpoint drawn from the window around zero, a type's limits and the values beside them, or anywhere in the type.
+ * An endpoint drawn from the window around zero, within two of a type's least or greatest value, or anywhere in the
+ * type.
  */
 const endpointGen = (limits: { readonly min: bigint; readonly max: bigint }): Gen<bigint> =>
 	oneOf([
 		bigint(-4n, 9n),
-		element([
-			limits.min,
-			limits.min + 1n,
-			limits.min + 2n,
-			limits.max - 2n,
-			limits.max - 1n,
-			limits.max
-		]),
+		map(int(0, 2), (d) => limits.min + BigInt(d)),
+		map(int(0, 2), (d) => limits.max - BigInt(d)),
 		bigint(limits.min, limits.max)
 	])
 
 /** A nonempty span of two distinct drawn endpoints, the lesser its start. */
-const spanOf = (near: Gen<bigint>): Gen<HalfOpen> =>
+const spanOf = (endpoint: Gen<bigint>): Gen<HalfOpen> =>
 	map(
 		filter(
-			(source): readonly [bigint, bigint] => [source.draw(near), source.draw(near)],
+			(source): readonly [bigint, bigint] => [source.draw(endpoint), source.draw(endpoint)],
 			([a, b]) => a !== b,
 			10
 		),
@@ -165,7 +171,7 @@ const written = (
 		assert.deepEqual(stored, [[expected.kind === "stored" ? expected.text : text]], text)
 	}).pipe(Effect.scoped)
 
-const holds = (x: bigint): boolean => x >= -100n && x <= 100n
+const holds = (x: bigint): boolean => x >= -tickBound && x <= tickBound
 
 layer(Substrate.layer)("span storage", (it) => {
 	const setup = Effect.gen(function* () {
@@ -329,30 +335,21 @@ layer(Substrate.layer)("span storage", (it) => {
 						| "a narrower span refused"
 						| "a wider span refused"
 						| "a span wider than the type refused"
-					/**
-					 * A width, then a start that keeps the span inside int4; and, planted, the declared width from the lower limit
-					 * and to the upper limit, which a drawn width and start meet too rarely.
-					 */
+					/** A width: within one of the declared width, the least or the whole type's, or any between. */
 					const widths = oneOf([
-						element([15n, 14n, 16n, 1n, int4.max - int4.min]),
+						near(BigInt(slotWidth), 1),
+						map(int(0, 1), (d) => (d === 0 ? 1n : int4.max - int4.min)),
 						bigint(1n, int4.max - int4.min)
 					])
-					/** A start that keeps a span of width `w` inside int4: zero only where the span fits from it. */
-					const starts = (w: bigint): Gen<bigint> =>
-						oneOf([
-							w <= int4.max
-								? element([int4.min, int4.max - w, 0n])
-								: element([int4.min, int4.max - w]),
-							bigint(int4.min, int4.max - w)
+					/** A span of width `w` inside int4: from int4's least value, up to its greatest, or from any start between. */
+					const placed = (w: bigint): Gen<HalfOpen> =>
+						oneOf<HalfOpen>([
+							map(int(0, 1), (end): HalfOpen =>
+								end === 0 ? { lo: int4.min, hi: int4.min + w } : { lo: int4.max - w, hi: int4.max }
+							),
+							map(bigint(int4.min, int4.max - w), (lo): HalfOpen => ({ lo, hi: lo + w }))
 						])
-					const arb: Gen<HalfOpen> = oneOf<HalfOpen>([
-						map(element([int4.min, int4.max - 15n]), (lo): HalfOpen => ({ lo, hi: lo + 15n })),
-						(source) => {
-							const w = source.draw(widths)
-							const lo = source.draw(starts(w))
-							return { lo, hi: lo + w }
-						}
-					])
+					const arb: Gen<HalfOpen> = (source) => source.draw(placed(source.draw(widths)))
 					return yield* explore(
 						{
 							suite: "spans/storage/width",
@@ -375,11 +372,11 @@ layer(Substrate.layer)("span storage", (it) => {
 							Effect.gen(function* () {
 								const w = d.hi - d.lo
 								const expected: Written =
-									w === 15n
+									w === BigInt(slotWidth)
 										? { kind: "stored", text: spanText(d) }
 										: { kind: "refused", sqlstate: "23514", constraint: width }
 								yield* written(installed, "Slot", "fixed", "int4range", spanText(d), expected)
-								if (w === 15n) {
+								if (w === BigInt(slotWidth)) {
 									c.note("the declared width stored")
 									if (d.lo === int4.min) {
 										c.note("the declared width stored from the lower limit")
@@ -389,7 +386,7 @@ layer(Substrate.layer)("span storage", (it) => {
 									}
 								} else {
 									c.note(
-										w < 15n
+										w < BigInt(slotWidth)
 											? "a narrower span refused"
 											: w > int4.max
 												? "a span wider than the type refused"
@@ -420,12 +417,16 @@ layer(Substrate.layer)("span storage", (it) => {
 						| "refused by its lower endpoint alone"
 						| "refused by its upper endpoint alone"
 						| "refused by both endpoints"
-					const near = oneOf([
-						element([-101n, -100n, -99n, 0n, 99n, 100n, 101n, int8.min, int8.max]),
-						bigint(-200n, 200n),
+					/** An endpoint within one of either of Tick's bounds, near zero, at a limit of bigint, or anywhere. */
+					const endpoint = oneOf([
+						near(-tickBound, 1),
+						near(tickBound, 1),
+						near(0n, 1),
+						map(int(0, 1), (end) => (end === 0 ? int8.min : int8.max)),
+						bigint(-2n * tickBound, 2n * tickBound),
 						bigint(int8.min, int8.max)
 					])
-					const arb = spanOf(near)
+					const arb = spanOf(endpoint)
 					return yield* explore(
 						{
 							suite: "spans/storage/endpoints",
@@ -461,7 +462,7 @@ layer(Substrate.layer)("span storage", (it) => {
 												? "refused by its lower endpoint alone"
 												: "refused by both endpoints"
 								)
-								if (lower && upper && (d.lo === -100n || d.hi === 100n)) {
+								if (lower && upper && (d.lo === -tickBound || d.hi === tickBound)) {
 									c.note("an endpoint at the contract's bound stored")
 								}
 							})

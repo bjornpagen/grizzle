@@ -27,6 +27,7 @@ import {
 	type ContractBase,
 	type ContractInfo,
 	type DeclaredType,
+	languageOctets,
 	type NumericBound,
 	type NumericTypmod,
 	type Roster,
@@ -340,25 +341,39 @@ interface TextDescriptor extends Built, Columned<unknown> {
 	readonly pattern: { readonly source: string; readonly flags: "u" | "su" }
 }
 
-/**
- * The str.regex descriptors text/field.ts made, each with what describeField answers for it: its Description, which
- * carries its pattern's language as the text analysis proved it once, when its builder registered it, its ScalarType
- * and its column, or the refusal of its pattern. A WeakMap holds nothing alive and is never enumerated.
- */
-const ownedText = new WeakMap<object, Result.Result<Described, CompileError>>()
+/** A text descriptor as its builder registered it: its pattern, and what describeField answers for it. */
+interface RegisteredText {
+	readonly pattern: { readonly source: string; readonly flags: "u" | "su" }
+	readonly described: Result.Result<Described, CompileError>
+}
 
 /**
- * Registers `value`, a frozen str.regex descriptor its builder made, with its pattern analyzed by `text`, and returns
- * it. The analysis is the descriptor's admission: its Description carries the language it proved, so every pass that
- * reads the descriptor reads the language and none analyzes the pattern again, whatever position it is passed in.
+ * The str.regex and str.bytes descriptors text/field.ts made, each with its pattern and what describeField answers for
+ * it: its Description, which carries its pattern's language as the text analysis proved it once, when its builder
+ * registered it, cut to its byte bound, its ScalarType and its column, or the refusal of its pattern. A WeakMap holds
+ * nothing alive and is never enumerated.
+ */
+const ownedText = new WeakMap<object, RegisteredText>()
+
+/**
+ * Registers `value`, a frozen str.regex or str.bytes descriptor its builder made, with its pattern analyzed by `text`,
+ * which cuts it to the descriptor's byte bound where it has one, and returns it. The analysis is the descriptor's
+ * admission: its Description carries the language it proved, so every pass that reads the descriptor reads the language
+ * and none analyzes the pattern again, whatever position it is passed in.
  */
 export const registerTextDescriptor = <T extends TextDescriptor>(value: T, text: TextLookup): T => {
 	const { source, flags } = value.pattern
-	ownedText.set(
-		value,
-		Result.flatMap(
+	ownedText.set(value, {
+		pattern: value.pattern,
+		described: Result.flatMap(
 			Result.flatMap(text(source, flags), (language) =>
-				decodeDesc("field", { kind: "text", source, flags, language })
+				decodeDesc("field", {
+					kind: "text",
+					source,
+					flags,
+					bytes: languageOctets(language),
+					language
+				})
 			),
 			(desc): Result.Result<Described, CompileError> =>
 				Result.map(scalarTypeOf(desc, bareEnv, SourceLoc(`/${source}/${flags}`, [])), (scalar) => ({
@@ -368,8 +383,31 @@ export const registerTextDescriptor = <T extends TextDescriptor>(value: T, text:
 					column: value.column
 				}))
 		)
-	)
+	})
 	return value
+}
+
+/**
+ * A text descriptor a builder registered (str.regex, str.bytes): its pattern, and the byte bound its Description
+ * states, none for a pattern alone or a pattern its analysis refused; undefined for any other value.
+ */
+export const registeredText = (
+	value: unknown
+):
+	| {
+			readonly pattern: { readonly source: string; readonly flags: "u" | "su" }
+			readonly bytes: number | undefined
+	  }
+	| undefined => {
+	if (!hasProperties(value)) {
+		return undefined
+	}
+	const known = ownedText.get(value)
+	if (known === undefined) {
+		return undefined
+	}
+	const desc = known.described.ok ? known.described.value.desc : undefined
+	return { pattern: known.pattern, bytes: desc?.kind === "text" ? desc.bytes : undefined }
 }
 
 /**
@@ -403,7 +441,7 @@ export const describeField = (
 	/** A str.regex descriptor: its regex is its Description; str.regex owns the rest of its metadata. */
 	const regex = ownedText.get(value)
 	if (regex !== undefined) {
-		return regex
+		return regex.described
 	}
 	/**
 	 * Testing for the brand reads the caller's value, which can run its code (`in` runs a proxy's `has` trap) and throw:

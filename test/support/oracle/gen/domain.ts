@@ -9,6 +9,7 @@ import {
 	type Capability,
 	type Carrier,
 	contractOf,
+	languageOctets,
 	languageOfText,
 	type NumericBound,
 	numericBoundOf,
@@ -390,8 +391,14 @@ export const fieldDescOf = (type: ScalarType): FieldDesc => {
 			}
 			const language = languageOfText(text)
 			return text.regex === "wildcard"
-				? { kind: "text", source: "^.*$", flags: "su", language }
-				: { kind: "text", source: text.regex.source, flags: text.regex.flags, language }
+				? { kind: "text", source: "^.*$", flags: "su", bytes: undefined, language }
+				: {
+						kind: "text",
+						source: text.regex.source,
+						flags: text.regex.flags,
+						bytes: languageOctets(language),
+						language
+					}
 		}
 		case "code":
 			return { kind: "closedId", roster: codeRoster(type).closed }

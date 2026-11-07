@@ -9,21 +9,39 @@
  * Slots. Roles: `manager` writes the north Stores, a query entry whose filter puts Store under row security; `stocker`
  * writes Item whole; `picker` writes the Items of the first store, a filter over the group; `shelver` writes Slot whole.
  *
- * Properties, each as PostgreSQL decides it under the role (SET LOCAL ROLE in the owner's session, rolled back):
- * - **Columns:** stocker reads Store's id, region, count and stock and updates its count and stock, and is refused
- *   (42501) reading or updating its label, inserting a Store and deleting one; shelver reads Shelf's id and count and is
- *   refused updating the count of the immutable Shelf and reading its tag.
- * - **Rows:** under Store's row security, stocker, whose members are every Item, reads and updates every Store; picker
- *   reads and updates exactly the first store, the one its filter's group names; manager reads the north ones.
- * - **Through grizzle's own apply:** stocker appends Items to a north and a south store, puts a quantity and deletes an
- *   Item, each one read flight and count statement over those columns alone, and each Store's count and stock are the
- *   family's.
+ * The oracle is a model of the rule, per role and owner: the columns it may select and update, and the owners its row
+ * security admits (every store for stocker, the first store for picker, the north ones for manager, every shelf for
+ * shelver; nothing of an owner whose family the role does not write).
+ * - **Columns and rows:** a case draws stores (a subset of four keys, the first store's among them or not, each in a
+ *   drawn region) and shelves, then probes, each a role and a statement on an owner: a SELECT of a drawn field, an
+ *   UPDATE of one to itself returning the key, an INSERT or a DELETE. PostgreSQL decides each under the role (SET LOCAL
+ *   ROLE in the owner's session, rolled back): a statement the model's columns refuse is refused with 42501, and every
+ *   other answers exactly the keys of the owners the model admits. Manager's columns are its query entry's, outside the
+ *   rule, so its probes select the key alone.
+ * - **Through grizzle's own apply:** stocker appends, puts and deletes drawn Items of drawn stores through its Db, and
+ *   after each write every Store's count and stock are the family's: the number of its Items and the sum of their
+ *   quantities.
  */
 import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Option, Order, Result } from "effect"
+import { drawn as drawnCase, explore } from "@grizzle/testing/explore"
+import { required } from "@grizzle/testing/features"
+import { array, element, type Gen, int, oneOf, subarray } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
+import { completeShrink } from "@grizzle/testing/shrink"
+import { searched } from "@grizzle/testing/vitest"
+import {
+	Array as Arr,
+	Effect,
+	Formatter,
+	Option,
+	Order,
+	Record,
+	Result,
+	String as Str
+} from "effect"
 import { Db } from "#adapter/public/db.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { accumulated, drawn, natural, pg, uuid } from "#compiler/public/fields.ts"
+import { accumulated, drawn, natural, pg, type Uuid, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	contained,
@@ -41,23 +59,22 @@ import {
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
-import { assert, defined } from "#test/support/assert.ts"
+import { assert, defined, nonEmpty } from "#test/support/assert.ts"
 import { migrated, type Version } from "#test/support/installed.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 import { loginLayer } from "#test/support/worlds.ts"
 
-const S1 = "00000000-0000-4000-8000-000000000001"
-const S2 = "00000000-0000-4000-8000-000000000002"
-const S3 = "00000000-0000-4000-8000-000000000003"
-const S9 = "00000000-0000-4000-8000-000000000009"
-const I1 = "00000000-0000-4000-8000-0000000000a1"
-const I2 = "00000000-0000-4000-8000-0000000000a2"
-const I3 = "00000000-0000-4000-8000-0000000000a3"
-const H1 = "00000000-0000-4000-8000-0000000000b1"
+/** The uuid of the `n`th key of a kind: stores 0x0, items 0xa0 and shelves 0xb0. */
+const uuidAt = (base: number, n: number): Uuid =>
+	`00000000-0000-4000-8000-${Str.padStart(12, "0")((base + n).toString(16))}`
+
+/** The first store, which picker's filter names. */
+const S1 = uuidAt(0, 1)
 
 /** The version under the declared name `name`. */
 const versionOf = (name: string) => {
@@ -104,12 +121,16 @@ const versionOf = (name: string) => {
 		Store,
 		Item,
 		Shelf,
+		Slot,
 		stocker,
 		login: login(base, "desk", [manager, stocker, picker, shelver])
 	}
 }
 
 type Built = ReturnType<typeof versionOf>
+
+type RoleName = "manager" | "stocker" | "picker" | "shelver"
+type Owner = "Store" | "Shelf"
 
 /** Takes on `role` for one transaction in the owner's session, sends `sql` and rolls back: its rows' first column as
  * text, sorted, or the SQLSTATE it was refused with. */
@@ -135,11 +156,130 @@ const asRole = (session: RawSession, role: string, sql: string) =>
 		})
 	})
 
+/** A store as a case draws it: its key, its region and its label. */
+interface StoreRow {
+	readonly id: Uuid
+	readonly region: "north" | "south"
+	readonly label: string
+}
+
+/** A statement a probe sends on an owner: a field selected or updated to itself, an insertion or a deletion. */
+type Statement =
+	| Readonly<{ kind: "select"; field: string }>
+	| Readonly<{ kind: "update"; field: string }>
+	| Readonly<{ kind: "insert" }>
+	| Readonly<{ kind: "delete" }>
+
+interface Probe {
+	readonly role: RoleName
+	readonly owner: Owner
+	readonly statement: Statement
+}
+
+/** A case: the stores and shelves the owner writes, and the probes the roles send. */
+interface Grants {
+	readonly stores: ReadonlyArray<StoreRow>
+	readonly shelves: ReadonlyArray<Uuid>
+	readonly probes: Arr.NonEmptyReadonlyArray<Probe>
+}
+
+/** What a role holds of an owner, by the rule: the fields it may select and update, and the owners it admits. */
+interface Hold {
+	readonly select: ReadonlySet<string>
+	readonly update: ReadonlySet<string>
+	readonly admits: (store: StoreRow) => boolean
+}
+
+/** A member writer's hold on Store, mutable: its key, count, end and copy to select, its count and end to update. */
+const memberOfStore = (admits: (store: StoreRow) => boolean): Hold => ({
+	select: new Set(["id", "region", "items", "stock"]),
+	update: new Set(["items", "stock"]),
+	admits
+})
+
+/** The rule's hold of a role on an owner; none where the role writes no member of the owner's family. */
+const holdOf = (role: RoleName, owner: Owner): Option.Option<Hold> => {
+	switch (role) {
+		case "stocker":
+			return owner === "Store" ? Option.some(memberOfStore(() => true)) : Option.none()
+		case "picker":
+			return owner === "Store" ? Option.some(memberOfStore((s) => s.id === S1)) : Option.none()
+		case "shelver":
+			return owner === "Shelf"
+				? Option.some({ select: new Set(["id", "slots"]), update: new Set(), admits: () => true })
+				: Option.none()
+		case "manager":
+			return owner === "Store"
+				? Option.some({
+						select: new Set(["id"]),
+						update: new Set(),
+						admits: (s) => s.region === "north"
+					})
+				: Option.none()
+	}
+}
+
+type GrantsFeature =
+	| "a member writer selects a column it holds"
+	| "a member writer is refused a column it lacks"
+	| "a member writer updates its count or end"
+	| "a member writer is refused an update"
+	| "an insertion or a deletion refused"
+	| "picker admits the first store alone"
+	| "manager admits the north stores"
+	| "a role reaches no owner outside its family"
+	| "the immutable owner's count is never updated"
+
+/** One Item as stocker writes it. */
+interface ItemFact {
+	readonly id: Uuid
+	readonly store: Uuid
+	readonly region: "north" | "south"
+	readonly qty: bigint
+}
+
+/** A write stocker sends through its Db: an Item appended, a quantity put, or an Item deleted. */
+type ItemWrite =
+	| Readonly<{ kind: "insert"; store: number; qty: number }>
+	| Readonly<{ kind: "put"; item: number; qty: number }>
+	| Readonly<{ kind: "delete"; item: number }>
+
+interface Apply {
+	readonly stores: Arr.NonEmptyReadonlyArray<StoreRow>
+	readonly writes: Arr.NonEmptyReadonlyArray<ItemWrite>
+}
+
+type ApplyFeature = "an append" | "a put of a quantity" | "a deletion" | "items of two stores"
+
+const regionGen: Gen<"north" | "south"> = element(["north", "south"] as const)
+
+/** Stores of a subset of four keys, the first store's among them or not. */
+const storesGen: Gen<ReadonlyArray<StoreRow>> = (source) =>
+	Arr.map(source.draw(subarray(Arr.range(1, 4))), (n) => ({
+		id: uuidAt(0, n),
+		region: source.draw(regionGen),
+		label: source.draw(element(["a", "b"] as const))
+	}))
+
+const statementGen = (fields: Arr.NonEmptyReadonlyArray<string>): Gen<Statement> =>
+	oneOf<Statement>([
+		(source) => ({ kind: "select", field: source.draw(element(fields)) }),
+		(source) => ({ kind: "update", field: source.draw(element(fields)) }),
+		(source) => ({ kind: source.draw(element(["insert", "delete"] as const)) })
+	])
+
+const roleNames = ["manager", "stocker", "picker", "shelver"] as const
+
+/** The item an index of a write names among those held, if any is. */
+const heldAt = (held: ReadonlyArray<ItemFact>, at: number): Option.Option<ItemFact> =>
+	Arr.isReadonlyArrayNonEmpty(held) ? Arr.get(held, at % held.length) : Option.none()
+
 layer(Substrate.layer)("a member writer's hold on its family's owner", (it) => {
 	it.effect(
 		"reads and updates exactly its family's columns of the owner, and exactly the owners its member writes admit",
-		() =>
-			Effect.scoped(
+		(ctx) =>
+			searched(
+				ctx,
 				Effect.gen(function* () {
 					const substrate = yield* Substrate
 					let built: Built | undefined
@@ -158,23 +298,21 @@ layer(Substrate.layer)("a member writer's hold on its family's owner", (it) => {
 					})
 					const b = defined(built, "the version")
 					const names = namesOf(m)
-					const store = names.table(b.Store)
-					const shelf = names.table(b.Shelf)
-					const sc = (f: "id" | "region" | "label" | "items" | "stock") => names.column(b.Store, f)
-					const hc = (f: "id" | "tag" | "slots") => names.column(b.Shelf, f)
+					const tables: { readonly [O in Owner]: string } = {
+						Store: names.table(b.Store),
+						Shelf: names.table(b.Shelf)
+					}
+					const fieldsOf: { readonly [O in Owner]: Arr.NonEmptyReadonlyArray<string> } = {
+						Store: nonEmpty(Record.keys(b.Store.fields), "Store's fields"),
+						Shelf: nonEmpty(Record.keys(b.Shelf.fields), "Shelf's fields")
+					}
+					const column = (relation: Owner, field: string): string =>
+						quoteIdent(names.columnIdent({ name: relation }, field))
 					const owner = yield* substrate.session({
 						...ownerSession(),
 						label: "family grants owner"
 					})
-					yield* owner.query(
-						`INSERT INTO ${store} (${sc("id")}, ${sc("region")}, ${sc("label")}, ${sc("items")}, ${sc("stock")}) VALUES ($1::uuid, 'north', 'a', 0, 0), ($2::uuid, 'south', 'b', 0, 0), ($3::uuid, 'north', 'c', 0, 0)`,
-						[S1, S2, S3]
-					)
-					yield* owner.query(
-						`INSERT INTO ${shelf} (${hc("id")}, ${hc("tag")}, ${hc("slots")}) VALUES ($1::uuid, 'a', 0)`,
-						[H1]
-					)
-					const roleOf = (r: "manager" | "stocker" | "picker" | "shelver") =>
+					const roleOf = (r: RoleName) =>
 						defined(
 							Arr.findFirst(
 								Arr.flatMap(m.installation.worlds, (l) => l.roles),
@@ -182,139 +320,330 @@ layer(Substrate.layer)("a member writer's hold on its family's owner", (it) => {
 							).pipe(Option.getOrUndefined),
 							`the role ${r}`
 						).role
-					const every = [S1, S2, S3]
-					const expect = (
-						r: "manager" | "stocker" | "picker" | "shelver",
-						sql: string,
-						want: { readonly rows: ReadonlyArray<string> } | { readonly refused: string },
-						why: string
-					) => Effect.map(asRole(owner, roleOf(r), sql), (got) => assert.deepEqual(got, want, why))
+					const sqlOf = (probe: Probe): string => {
+						const table = tables[probe.owner]
+						const key = column(probe.owner, "id")
+						const s = probe.statement
+						switch (s.kind) {
+							case "select":
+								return `SELECT ${key}::text FROM ${table} WHERE ${column(probe.owner, s.field)} IS NOT NULL`
+							case "update":
+								return `UPDATE ${table} SET ${column(probe.owner, s.field)} = ${column(probe.owner, s.field)} RETURNING ${key}::text`
+							case "insert":
+								return probe.owner === "Store"
+									? `INSERT INTO ${table} (${column("Store", "id")}, ${column("Store", "region")}, ${column("Store", "label")}, ${column("Store", "items")}, ${column("Store", "stock")}) VALUES ('${uuidAt(0, 9)}'::uuid, 'north', 'z', 0, 0)`
+									: `INSERT INTO ${table} (${column("Shelf", "id")}, ${column("Shelf", "tag")}, ${column("Shelf", "slots")}) VALUES ('${uuidAt(0xb0, 9)}'::uuid, 'z', 0)`
+							case "delete":
+								return `DELETE FROM ${table}`
+						}
+					}
+					const probeGen: Gen<Probe> = (source) => {
+						const role = source.draw(element(roleNames))
+						const on = source.draw(element(["Store", "Shelf"] as const))
+						return {
+							role,
+							owner: on,
+							statement:
+								role === "manager" && on === "Store"
+									? { kind: "select", field: "id" }
+									: source.draw(statementGen(fieldsOf[on]))
+						}
+					}
+					const grantsGen: Gen<Grants> = (source) => ({
+						stores: source.draw(storesGen),
+						shelves: Arr.map(source.draw(subarray(Arr.range(1, 2))), (n) => uuidAt(0xb0, n)),
+						probes: [source.draw(probeGen), ...source.draw(array(probeGen, { min: 0, max: 3 }))]
+					})
+					return yield* explore(
+						{
+							suite: "physical/family-grants/hold",
+							draw: drawnCase(grantsGen),
+							literal: Formatter.format,
+							oracle: {
+								kind: "specification",
+								name: "the member writer's rule: its family's key, count, ends and copies, the owners its members admit"
+							},
+							coverage: required<GrantsFeature>(
+								[
+									"a member writer selects a column it holds",
+									"a member writer is refused a column it lacks",
+									"a member writer updates its count or end",
+									"a member writer is refused an update",
+									"an insertion or a deletion refused",
+									"picker admits the first store alone",
+									"manager admits the north stores",
+									"a role reaches no owner outside its family",
+									"the immutable owner's count is never updated"
+								],
+								{ cases: 96, sense: notesOnly }
+							),
+							kept: [],
+							runs: 32,
+							shrink: completeShrink,
+							concurrency: 1,
+							steerEvery: 16,
+							caseHang
+						},
+						(g, c) =>
+							Effect.gen(function* () {
+								yield* owner.query(
+									`TRUNCATE ${tables.Store}, ${names.table(b.Item)}, ${tables.Shelf}, ${names.table(b.Slot)}`,
+									[]
+								)
+								for (const store of g.stores) {
+									yield* owner.query(
+										`INSERT INTO ${tables.Store} (${column("Store", "id")}, ${column("Store", "region")}, ${column("Store", "label")}, ${column("Store", "items")}, ${column("Store", "stock")}) VALUES ($1::uuid, $2, $3, 0, 0)`,
+										[store.id, store.region, store.label]
+									)
+								}
+								for (const shelf of g.shelves) {
+									yield* owner.query(
+										`INSERT INTO ${tables.Shelf} (${column("Shelf", "id")}, ${column("Shelf", "tag")}, ${column("Shelf", "slots")}) VALUES ($1::uuid, 'a', 0)`,
+										[shelf]
+									)
+								}
+								for (const probe of g.probes) {
+									const sql = sqlOf(probe)
+									const got = yield* asRole(owner, roleOf(probe.role), sql)
+									const hold = holdOf(probe.role, probe.owner)
+									const s = probe.statement
+									const allowed = Option.exists(hold, (h) =>
+										s.kind === "select"
+											? h.select.has(s.field)
+											: s.kind === "update"
+												? h.update.has(s.field)
+												: false
+									)
+									if (!allowed) {
+										assert.deepEqual(got, { refused: "42501" }, `${probe.role}: ${sql}`)
+										if (Option.isNone(hold)) {
+											c.note("a role reaches no owner outside its family")
+										} else if (s.kind === "insert" || s.kind === "delete") {
+											c.note("an insertion or a deletion refused")
+										} else if (probe.owner === "Shelf" && s.kind === "update") {
+											c.note("the immutable owner's count is never updated")
+										} else if (s.kind === "select") {
+											c.note("a member writer is refused a column it lacks")
+										} else {
+											c.note("a member writer is refused an update")
+										}
+										continue
+									}
+									const admitted = Option.match(hold, {
+										onNone: () => [],
+										onSome: (h) =>
+											probe.owner === "Store"
+												? Arr.map(Arr.filter(g.stores, h.admits), (store) => store.id)
+												: g.shelves
+									})
+									assert.deepEqual(
+										got,
+										{ rows: Arr.sort(admitted, Order.String) },
+										`${probe.role}: ${sql}`
+									)
+									switch (probe.role) {
+										case "picker":
+											if (
+												Arr.some(g.stores, (store) => store.id === S1) &&
+												Arr.some(g.stores, (store) => store.id !== S1)
+											) {
+												c.note("picker admits the first store alone")
+											}
+											break
+										case "manager":
+											if (
+												Arr.isReadonlyArrayNonEmpty(admitted) &&
+												admitted.length < g.stores.length
+											) {
+												c.note("manager admits the north stores")
+											}
+											break
+										case "stocker":
+										case "shelver":
+											break
+									}
+									c.note(
+										s.kind === "update"
+											? "a member writer updates its count or end"
+											: "a member writer selects a column it holds"
+									)
+								}
+							})
+					)
+				}).pipe(Effect.scoped)
+			)
+	)
 
-					yield* expect(
-						"stocker",
-						`SELECT ${sc("id")}::text FROM ${store} WHERE ${sc("region")} IS NOT NULL AND ${sc("items")} >= 0 AND ${sc("stock")} >= 0`,
-						{ rows: every },
-						"stocker reads every Store's key, region, count and stock"
-					)
-					yield* expect(
-						"stocker",
-						`SELECT ${sc("label")} FROM ${store}`,
-						{ refused: "42501" },
-						"stocker reads no Store label"
-					)
-					yield* expect(
-						"stocker",
-						`UPDATE ${store} SET ${sc("items")} = ${sc("items")}, ${sc("stock")} = ${sc("stock")} RETURNING ${sc("id")}::text`,
-						{ rows: every },
-						"stocker updates every Store's count and stock"
-					)
-					yield* expect(
-						"stocker",
-						`UPDATE ${store} SET ${sc("label")} = ${sc("label")}`,
-						{ refused: "42501" },
-						"stocker updates no Store label"
-					)
-					yield* expect(
-						"stocker",
-						`INSERT INTO ${store} (${sc("id")}, ${sc("region")}, ${sc("label")}, ${sc("items")}, ${sc("stock")}) VALUES ('${S9}'::uuid, 'north', 'z', 0, 0)`,
-						{ refused: "42501" },
-						"stocker inserts no Store"
-					)
-					yield* expect(
-						"stocker",
-						`DELETE FROM ${store}`,
-						{ refused: "42501" },
-						"stocker deletes no Store"
-					)
-					yield* expect(
-						"shelver",
-						`SELECT ${hc("id")}::text FROM ${shelf} WHERE ${hc("slots")} >= 0`,
-						{ rows: [H1] },
-						"shelver reads Shelf's key and count"
-					)
-					yield* expect(
-						"shelver",
-						`UPDATE ${shelf} SET ${hc("slots")} = ${hc("slots")}`,
-						{ refused: "42501" },
-						"shelver updates no count of the immutable Shelf"
-					)
-					yield* expect(
-						"shelver",
-						`SELECT ${hc("tag")} FROM ${shelf}`,
-						{ refused: "42501" },
-						"shelver reads no Shelf tag"
-					)
-
-					yield* expect(
-						"picker",
-						`SELECT ${sc("id")}::text FROM ${store}`,
-						{ rows: [S1] },
-						"picker reads exactly the store its filter's group names"
-					)
-					yield* expect(
-						"picker",
-						`UPDATE ${store} SET ${sc("items")} = ${sc("items")} RETURNING ${sc("id")}::text`,
-						{ rows: [S1] },
-						"picker updates exactly the store its filter's group names"
-					)
-					yield* expect(
-						"manager",
-						`SELECT ${sc("id")}::text FROM ${store}`,
-						{ rows: [S1, S3] },
-						"manager reads the north stores"
-					)
-
+	it.effect(
+		"keeps each owner's count and stock through a member writer's own appends, puts and deletes",
+		(ctx) =>
+			searched(
+				ctx,
+				Effect.gen(function* () {
+					const substrate = yield* Substrate
+					let built: Built | undefined
+					const m = yield* migrated({
+						label: "family_grants_apply",
+						schemaName: { kind: "unique" },
+						first: (name: string): Version => {
+							built = versionOf(name)
+							return { schema: built.schema, logins: [built.login] }
+						},
+						later: [],
+						apply: { kind: "noPlaceholders" },
+						register: true,
+						declared: () => noDeclarations,
+						observe: Option.none()
+					})
+					const b = defined(built, "the version")
+					const names = namesOf(m)
+					const store = names.table(b.Store)
+					const sc = (f: "id" | "region" | "label" | "items" | "stock") => names.column(b.Store, f)
+					const owner = yield* substrate.session({
+						...ownerSession(),
+						label: "family grants apply owner"
+					})
 					const counts = Effect.map(
 						owner.values(
 							`SELECT ${sc("id")}::text, ${sc("items")}::text, ${sc("stock")}::text FROM ${store} ORDER BY 1`,
 							[]
 						),
-						(rows) => Arr.map(rows, (row) => Arr.join(Arr.map(row, String), " "))
+						(rows) => Arr.map(rows, (row) => Arr.map(row, String))
 					)
-					yield* Effect.scoped(
-						Effect.gen(function* () {
-							const db = yield* Db.open(b.login.roles.stocker, {})
-							yield* db.apply(
-								ChangeSet.empty(b.stocker).insert(b.stocker.relations.Item, [
-									{ id: I1, store: S1, region: "north", qty: 2n },
-									{ id: I2, store: S1, region: "north", qty: 3n },
-									{ id: I3, store: S2, region: "south", qty: 5n }
-								]),
-								{}
-							)
-							const appended = yield* counts
-							assert.deepEqual(
-								appended,
-								[`${S1} 2 5`, `${S2} 1 5`, `${S3} 0 0`],
-								"each store's count and stock after the appends, a south store's included"
-							)
-							yield* db.apply(
-								ChangeSet.empty(b.stocker).put(b.stocker.relations.Item, [
-									{ id: I1, store: S1, region: "north", qty: 7n }
-								]),
-								{}
-							)
-							const put = yield* counts
-							assert.deepEqual(
-								put,
-								[`${S1} 2 10`, `${S2} 1 5`, `${S3} 0 0`],
-								"the first store's stock after a put of a quantity"
-							)
-							yield* db.apply(
-								ChangeSet.empty(b.stocker).delete(b.stocker.relations.Item, [
-									{ id: I1, store: S1, region: "north", qty: 7n }
-								]),
-								{}
-							)
-							const deleted = yield* counts
-							assert.deepEqual(
-								deleted,
-								[`${S1} 1 3`, `${S2} 1 5`, `${S3} 0 0`],
-								"the first store's count and stock after a delete"
-							)
-						})
-					).pipe(withLayer(loginLayer(m, b.login)))
-				})
+					const applyGen: Gen<Apply> = (source) => {
+						const stores = nonEmpty(
+							Arr.map(Arr.range(1, source.draw(int(1, 3))), (n) => ({
+								id: uuidAt(0, n),
+								region: source.draw(regionGen),
+								label: "a"
+							})),
+							"a store"
+						)
+						const writeGen = oneOf<ItemWrite>([
+							(s) => ({
+								kind: "insert",
+								store: s.draw(int(0, stores.length - 1)),
+								qty: s.draw(int(0, 9))
+							}),
+							(s) => ({ kind: "put", item: s.draw(int(0, 3)), qty: s.draw(int(0, 9)) }),
+							(s) => ({ kind: "delete", item: s.draw(int(0, 3)) })
+						])
+						return {
+							stores,
+							writes: [source.draw(writeGen), ...source.draw(array(writeGen, { min: 0, max: 5 }))]
+						}
+					}
+					return yield* Effect.gen(function* () {
+						const db = yield* Db.open(b.login.roles.stocker, {})
+						return yield* explore(
+							{
+								suite: "physical/family-grants/apply",
+								draw: drawnCase(applyGen),
+								literal: Formatter.format,
+								oracle: {
+									kind: "specification",
+									name: "the families model: each store's count is its Items', its stock their quantities' sum"
+								},
+								coverage: required<ApplyFeature>(
+									["an append", "a put of a quantity", "a deletion", "items of two stores"],
+									{ cases: 32, sense: notesOnly }
+								),
+								kept: [],
+								runs: 16,
+								shrink: completeShrink,
+								concurrency: 1,
+								steerEvery: 8,
+								caseHang
+							},
+							(a, c) =>
+								Effect.gen(function* () {
+									yield* owner.query(
+										`TRUNCATE ${store}, ${names.table(b.Item)}, ${names.table(b.Shelf)}, ${names.table(b.Slot)}`,
+										[]
+									)
+									for (const s of a.stores) {
+										yield* owner.query(
+											`INSERT INTO ${store} (${sc("id")}, ${sc("region")}, ${sc("label")}, ${sc("items")}, ${sc("stock")}) VALUES ($1::uuid, $2, $3, 0, 0)`,
+											[s.id, s.region, s.label]
+										)
+									}
+									const items = new Map<Uuid, ItemFact>()
+									for (const [at, w] of a.writes.entries()) {
+										const held = Arr.fromIterable(items.values())
+										switch (w.kind) {
+											case "insert": {
+												const into = Arr.getUnsafe(a.stores, w.store)
+												const fact: ItemFact = {
+													id: uuidAt(0xa0, at + 1),
+													store: into.id,
+													region: into.region,
+													qty: BigInt(w.qty)
+												}
+												yield* db.apply(
+													ChangeSet.empty(b.stocker).insert(b.stocker.relations.Item, [fact]),
+													{}
+												)
+												items.set(fact.id, fact)
+												c.note("an append")
+												break
+											}
+											case "put": {
+												const target = heldAt(held, w.item)
+												if (Option.isNone(target)) {
+													break
+												}
+												const fact: ItemFact = { ...target.value, qty: BigInt(w.qty) }
+												yield* db.apply(
+													ChangeSet.empty(b.stocker).put(b.stocker.relations.Item, [fact]),
+													{}
+												)
+												items.set(fact.id, fact)
+												c.note("a put of a quantity")
+												break
+											}
+											case "delete": {
+												const target = heldAt(held, w.item)
+												if (Option.isNone(target)) {
+													break
+												}
+												yield* db.apply(
+													ChangeSet.empty(b.stocker).delete(b.stocker.relations.Item, [
+														target.value
+													]),
+													{}
+												)
+												items.delete(target.value.id)
+												c.note("a deletion")
+												break
+											}
+										}
+										const expected = Arr.map(
+											Arr.sort(
+												Arr.map(a.stores, (s) => s.id),
+												Order.String
+											),
+											(id) => {
+												const mine = Arr.filter(
+													Arr.fromIterable(items.values()),
+													(i) => i.store === id
+												)
+												return [
+													id,
+													String(mine.length),
+													String(Arr.reduce(mine, 0n, (sum, i) => sum + i.qty))
+												]
+											}
+										)
+										const after = yield* counts
+										assert.deepEqual(after, expected, `after ${Formatter.format(w)}`)
+									}
+									if (new Set(Arr.map(Arr.fromIterable(items.values()), (i) => i.store)).size > 1) {
+										c.note("items of two stores")
+									}
+								})
+						)
+					}).pipe(Effect.scoped, withLayer(loginLayer(m, b.login)))
+				}).pipe(Effect.scoped)
 			)
 	)
 })

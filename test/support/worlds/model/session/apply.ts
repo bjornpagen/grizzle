@@ -403,15 +403,17 @@ const carriedFields = (base: BaseSpec, w: Written): ReadonlySet<string> =>
 	)
 
 /**
- * The key refusal grizzle's host normalization makes of one target's additions in a stratum (packages/engine/src/write/
- * normalize/normalize.ts), before any SQL is sent: two facts its inserts and puts submit, inside the entry or not and
- * whatever the claims fill, that agree on a key (or, of a span key, collide) and differ elsewhere break the key whatever
- * is stored, and the first key of the target holding such a pair, the primary key first and then the declared keys in
- * order, is invariant-rejected on its law, its witness the key of one of those facts in the terms it was written in.
- * A key is compared on the fields the relation it is written through carries (write/frontend/entry.ts entryFacts): a
- * query entry's fixed fields are one value for the whole stratum, so they take no part, and a span key whose span the
- * entry does not carry is not checked here. Deletions take no part: a delete names facts, and one that is not stored
- * deletes nothing. A generated addition takes part on no key holding its serial field.
+ * The key refusal grizzle's host normalization makes of one target's additions, or of its deletions, in a stratum
+ * (packages/engine/src/write/normalize/normalize.ts), before any SQL is sent: two facts its inserts and puts submit,
+ * inside the entry or not and whatever the claims fill, that agree on a key (or, of a span key, collide) and differ
+ * elsewhere break the key whatever is stored; and two facts its deletes name, inside the entry or not, that agree on
+ * every field of a key, a span compared as a value, and differ elsewhere name two facts where the key names one. The
+ * first key of the target holding such a pair, the primary key first and then the declared keys in order, the
+ * additions judged before the deletions, is invariant-rejected on its law, its witness the key of one of those facts in
+ * the terms it was written in. A key is compared on the fields the relation it is written through carries
+ * (write/frontend/entry.ts entryFacts): a query entry's fixed fields are one value for the whole stratum, so they take
+ * no part, and a span key whose span the entry does not carry is not checked here. A generated addition takes part on
+ * no key holding its serial field.
  */
 const keyConflictOf = (
 	state: ModelState,
@@ -419,11 +421,13 @@ const keyConflictOf = (
 	target: string
 ): ActionOutcome | undefined => {
 	const base = state.install.base
-	const submitted = Arr.flatMap(ops, ({ op, written }) =>
-		written.target === target && op.kind !== "delete"
-			? Arr.map(op.facts, (f) => ({ fact: targetTermsOf(written, f), w: written }))
-			: []
-	)
+	const listed = (deletions: boolean) =>
+		Arr.flatMap(ops, ({ op, written }) =>
+			written.target === target && (op.kind === "delete") === deletions
+				? Arr.map(op.facts, (f) => ({ fact: targetTermsOf(written, f), w: written }))
+				: []
+		)
+	const submitted = listed(false)
 	const drawn = withSerials(
 		base,
 		target,
@@ -431,24 +435,40 @@ const keyConflictOf = (
 		nextDraw(state)
 	).facts
 	const additions = Arr.map(Arr.zip(submitted, drawn), ([x, fact]) => ({ fact, w: x.w }))
-	const [first] = additions
+	return (
+		conflictAmong(state, target, additions, "collide") ??
+		conflictAmong(state, target, listed(true), "equal")
+	)
+}
+
+/**
+ * The refusal of the first key of `target` two of `facts` agree on and differ elsewhere (see `keyConflictOf`): a span
+ * key's agreement is a collision among additions and equal values among deletions.
+ */
+const conflictAmong = (
+	state: ModelState,
+	target: string,
+	facts: ReadonlyArray<{ readonly fact: HostFact; readonly w: Written }>,
+	spans: "collide" | "equal"
+): ActionOutcome | undefined => {
+	const [first] = facts
 	if (first === undefined) {
 		return undefined
 	}
-	const carried = carriedFields(base, first.w)
+	const carried = carriedFields(state.install.base, first.w)
 	const carriedOnly = (fields: ReadonlyArray<string>): ReadonlyArray<string> =>
 		Arr.filter(fields, (f) => carried.has(f))
-	for (const key of keysOf(base, target)) {
+	for (const key of keysOf(state.install.base, target)) {
 		const law = keyLawOf(state, target, key)
 		if (law === undefined || (law.kind === "spanKey" && !carried.has(law.span))) {
 			continue
 		}
 		const agree = (a: HostFact, b: HostFact): boolean =>
-			law.kind === "spanKey"
+			law.kind === "spanKey" && spans === "collide"
 				? collide({ ...law, scalars: carriedOnly(law.scalars) }, a, b)
 				: projection(a, carriedOnly(key)) === projection(b, carriedOnly(key))
-		const paired = Arr.filter(additions, (x) =>
-			Arr.some(additions, (y) => agree(x.fact, y.fact) && !sameValues(x.fact, y.fact))
+		const paired = Arr.filter(facts, (x) =>
+			Arr.some(facts, (y) => agree(x.fact, y.fact) && !sameValues(x.fact, y.fact))
 		)
 		if (paired.length > 0) {
 			return {
@@ -655,8 +675,8 @@ const onHost = (refusal: ActionOutcome): Called => ({ kind: "host", refusals: [r
  * - a relation outside the role's write list, a stratum that writes a query entry and also a relation its filter reads,
  *   and a read-back whose delta the change does not determine are refused when they compile;
  * - before any SQL, stratum by stratum, a value its field's encoder refuses (a base type's fault) is refused, and two
- *   facts the stratum's inserts and puts submit to one target that agree on a key and differ elsewhere are
- *   `invariant-rejected` on that key's law (keyConflictOf); an input of any number of facts is admitted;
+ *   facts the stratum's inserts and puts submit to one target, or two its deletes name, that agree on a key and differ
+ *   elsewhere are `invariant-rejected` on that key's law (keyConflictOf); an input of any number of facts is admitted;
  * - an op holding a value its law domain's CHECK refuses (an integer past its contract's bounds, a text past its
  *   pattern), which the encoder admits, is `invariant-rejected` on that domain's CHECK law, its witness withheld, as
  *   its stratum's statement casts the value: before anything else the statement meets;

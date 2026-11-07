@@ -1,10 +1,15 @@
 import { textColumn } from "#compiler/core/decoder.ts"
 import { malformedDescription } from "#compiler/core/errors.ts"
+import { int4Max } from "#compiler/core/limits.ts"
 import { captureLoc } from "#compiler/core/loc.ts"
 import { builtMark } from "#compiler/core/phantom.ts"
 import { isRegexFlags, type RegexFlags } from "#compiler/scalar/regex/parse.ts"
-import { registerTextDescriptor } from "#compiler/scalar/registry.ts"
-import { textLookup } from "#compiler/text/refinement.ts"
+import {
+	registeredText,
+	registerTextDescriptor,
+	type TextLookup
+} from "#compiler/scalar/registry.ts"
+import { textLookup, textLookupWithin } from "#compiler/text/refinement.ts"
 import type { TextField } from "#compiler/types/fields/field.ts"
 import type {
 	Refused,
@@ -85,6 +90,23 @@ export const admitRegex = (source: unknown, flags: unknown): void => {
 /** The first flags argument, undefined when there is none. */
 const firstFlags = <A extends RegexFlagsArguments>(flags: A): A[0] => flags[0]
 
+/** The descriptor of a pattern, its language analyzed by `lookup`, which cuts it to a byte bound where it has one. */
+const textField = <Host extends string, S extends string, F extends RegexFlags>(
+	source: S,
+	flags: F,
+	lookup: TextLookup
+): RegexText<Host, S, F> =>
+	registerTextDescriptor(
+		Object.freeze({
+			...builtMark,
+			sql: "text",
+			pattern: Object.freeze({ source, flags }),
+			desc: Object.freeze({ kind: "text", source, flags }),
+			column: textColumn<Host>()
+		}),
+		lookup
+	)
+
 /**
  * The descriptor of an admitted source and flags arguments. Its host type is the one the caller names, its column's
  * claim. str.regex is this over literal arguments, naming the pattern's inferred language; a caller driving the
@@ -97,15 +119,56 @@ export const regexField = <Host extends string, S extends string, A extends Rege
 	const first = firstFlags(flags)
 	admitRegex(source, first)
 	const resolved: RegexFlagsOf<A> = flagsOf[`${first}` as const]
-	return registerTextDescriptor(
-		Object.freeze({
-			...builtMark,
-			sql: "text",
-			pattern: Object.freeze({ source, flags: resolved }),
-			desc: Object.freeze({ kind: "text", source, flags: resolved }),
-			column: textColumn<Host>()
-		}),
-		textLookup
+	return textField<Host, S, RegexFlagsOf<A>>(source, resolved, textLookup)
+}
+
+/** A JavaScript caller's str.bytes arguments the types forbid: a malformed argument, thrown synchronously. */
+const refuseBytes = (capability: string): never => {
+	throw malformedDescription(captureLoc("str.bytes", []), capability)
+}
+
+/**
+ * The admission core of str.bytes: a byte bound octet_length's integer result compares with, from 0 to int4's
+ * greatest, and a text descriptor a builder made, str.regex's or str.bytes's; the bound the descriptor states, the
+ * tighter of the two where the pattern is already bounded.
+ */
+const admitBytes = (bytes: unknown, pattern: unknown): number => {
+	if (
+		typeof bytes !== "number" ||
+		!Number.isSafeInteger(bytes) ||
+		bytes < 0 ||
+		bytes > int4Max.value
+	) {
+		return refuseBytes(
+			`a byte bound: an integer from 0 to ${int4Max.value}, which octet_length's integer result is compared with`
+		)
+	}
+	const registered = registeredText(pattern)
+	if (registered === undefined) {
+		return refuseBytes(
+			"a text descriptor a builder made, str.regex(...), whose language the byte bound cuts"
+		)
+	}
+	return registered.bytes === undefined ? bytes : Math.min(bytes, registered.bytes)
+}
+
+/**
+ * str.bytes(N, pattern): text of `pattern`'s language of at most N UTF-8 bytes. The bound is a refinement as the
+ * pattern is, not a type: the field's host type and domain are the pattern's, so it meets any text a pattern-refined
+ * text meets. Its domain checks `octet_length(VALUE) <= N` before the pattern, one domain for each language and bound,
+ * and a key reads N as its bytes exactly; a bound every value of the pattern already meets leaves the pattern's own
+ * type. Text always carries a pattern, so the bound takes one: `str.bytes(N, str.regex("^.*$", "su"))` is any text of
+ * at most N bytes.
+ */
+const bytesConstructor = <Host extends string, S extends string, F extends RegexFlags>(
+	bytes: number,
+	pattern: RegexText<Host, S, F>
+): RegexText<Host, S, F> => {
+	const octets = admitBytes(bytes, pattern)
+	return textField<Host, S, F>(
+		pattern.pattern.source,
+		pattern.pattern.flags,
+		textLookupWithin(octets)
 	)
 }
 
@@ -121,7 +184,8 @@ const regexConstructor = <
 
 interface Str {
 	readonly regex: typeof regexConstructor
+	readonly bytes: typeof bytesConstructor
 }
 
-/** Bare `str` is not a field descriptor: it has no host or SQL type, only the constructor. */
-export const str: Str = Object.freeze({ regex: regexConstructor })
+/** Bare `str` is not a field descriptor: it has no host or SQL type, only the constructors. */
+export const str: Str = Object.freeze({ regex: regexConstructor, bytes: bytesConstructor })

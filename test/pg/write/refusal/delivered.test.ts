@@ -1,7 +1,9 @@
 import { layer } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { noCoverage } from "@grizzle/testing/features"
-import { element, type Gen } from "@grizzle/testing/gen"
+import { drawn, explore } from "@grizzle/testing/explore"
+import { required } from "@grizzle/testing/features"
+import { array, element, type Gen, int, subarray } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
+import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Layer, Option } from "effect"
 import { compiledWrite } from "#adapter/apply/compile.ts"
@@ -40,14 +42,19 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * with an ExecutionFailure carrying the server's report, SQLSTATE 21Z01 with the delivered type it broke as its
  * constraint. The database's answer contradicts a proof, which fails closed as a typed failure, and nothing commits.
  *
- * The breaches are made by hand, as a compiler defect would make them: the constraints behind the evidence are dropped
- * after the Db opened, and rows they forbade are inserted directly. The marker is a bare child, met with no child: Tag
- * holds its key alone, so two rows at one key are one fact, and a bare child never has too many. The holder (a deferred
- * reference into Account), the badge and the profile are options, met with too many, and the holder with none, which
- * before COMMIT is no breach. Each is met fused
- * into its parent's statement (marker, badge) and pipelined as a statement of its own (holder, profile) by the optimized
- * artifact db.apply runs, and pipelined by the conservative realization, which pipelines every attachment. Lawful rows go
- * through both artifacts first, delivered in their proved types. */
+ * The breaches are made as a compiler defect would make them: the constraints behind the evidence are dropped after the
+ * Db opened (Note's foreign keys, and the keys of Account, Badge and Profile), so the database may hold rows they forbid.
+ * A case draws such a state: for each of three accounts, its rows of Account (none, one, or two under distinct names),
+ * of Badge and of Profile; which of two tags Tag holds; the notes already stored, each over a drawn account and tag,
+ * either possibly absent; then the note the write inserts over its own, and the artifact that runs it: the optimized one
+ * db.apply runs, which fuses the marker and the badge into their parent's statement and pipelines the holder and the
+ * profile, or the conservative realization, which pipelines every attachment.
+ *
+ * The oracle is a model of the delivered types over every note the read-back reads: the marker is a bare child, broken
+ * by no child (Tag keeps its key, so it never has two); the holder (a deferred reference into Account), the badge and the
+ * profile are options, broken by two children, and the holder's none is no breach before COMMIT. A state the model finds
+ * no breach in commits the note and reads back every note with exactly its children; any breach aborts the write with
+ * an ExecutionFailure the server raised, 21Z01 naming a delivered type some breach broke, and commits nothing. */
 const text = str.regex(".*")
 
 /** Five fields beyond the key pipeline the holder and the profile; one fuses the marker and the badge. */
@@ -80,16 +87,6 @@ interface NoteFact {
 	readonly account: number
 	readonly tag: number
 }
-
-const account = (id: number) => ({
-	id,
-	name: `n${id}`,
-	city: "c",
-	street: "s",
-	zip: "z",
-	country: "k"
-})
-const profile = (account: number, a: string) => ({ account, a, b: "b", c: "c", d: "d", e: "e" })
 
 /** Every note with its account as its holder and its tag as its marker, each exactly one by containment, and its badge
  * and profile, each an option. */
@@ -141,75 +138,135 @@ const write = (s: NotesInstalled, note: NoteFact) =>
 
 type Artifact = "optimized" | "conservative"
 
-/** A note one artifact writes. */
-interface ArtifactNote {
-	readonly artifact: Artifact
-	readonly id: number
-}
+/** The read-back's attachments, by name. */
+type Attachment = "holder" | "marker" | "badge" | "profile"
 
-/** A note whose read-back meets a breach: the attachment it breaks and how, and the delivered type it breaks. */
-interface Breach {
-	readonly label: string
+/** A drawn state of the unconstrained tables, the note the write inserts and the artifact that runs it. */
+interface Drawn {
+	/** Each account's rows of Account, Badge and Profile, by the account's id less one: distinct names of each. */
+	readonly accounts: ReadonlyArray<
+		Readonly<{
+			names: ReadonlyArray<string>
+			badges: ReadonlyArray<string>
+			profiles: ReadonlyArray<string>
+		}>
+	>
+	readonly tags: ReadonlyArray<number>
+	readonly stored: ReadonlyArray<NoteFact>
 	readonly note: NoteFact
-	readonly delivered: "one" | "option"
+	readonly artifact: Artifact
 }
 
-const breaches: Arr.NonEmptyReadonlyArray<Breach> = [
-	{
-		label: "a pipelined option, the holder, with two children",
-		note: { id: 11, account: 4, tag: 1 },
-		delivered: "option"
-	},
-	{
-		label: "a bare child, the marker, with no child",
-		note: { id: 12, account: 1, tag: 404 },
-		delivered: "one"
-	},
-	{
-		label: "a fused option, the badge, with two children",
-		note: { id: 14, account: 2, tag: 1 },
-		delivered: "option"
-	},
-	{
-		label: "a pipelined option, the profile, with two children",
-		note: { id: 15, account: 3, tag: 1 },
-		delivered: "option"
-	}
-]
+/** The accounts a state holds rows of, and one past them, which no row holds. */
+const accountsDrawn = 3
+/** The tags a state may hold, and one past them, which Tag never holds. */
+const tagsDrawn = 2
+/** The note the write inserts: an id no stored note takes. */
+const writtenId = 100
 
-/** Every breach, met by each artifact. */
-const breachCases: Gen<{ readonly artifact: Artifact; readonly breach: Breach }> = (source) => ({
-	artifact: source.draw(element<Artifact>(["optimized", "conservative"])),
-	breach: source.draw(element(breaches))
+/** Distinct names of one table's rows at one key: none, one or two. */
+const namesGen: Gen<ReadonlyArray<string>> = subarray(["x", "y"] as const)
+
+const noteOver =
+	(id: number): Gen<NoteFact> =>
+	(source) => ({
+		id,
+		account: source.draw(int(1, accountsDrawn + 1)),
+		tag: source.draw(int(1, tagsDrawn + 1))
+	})
+
+const drawnGen: Gen<Drawn> = (source) => {
+	const accounts = Arr.map(Arr.range(1, accountsDrawn), () => ({
+		names: source.draw(namesGen),
+		badges: source.draw(namesGen),
+		profiles: source.draw(namesGen)
+	}))
+	const stored = source.draw(array(noteOver(0), { min: 0, max: 2 }))
+	return {
+		accounts,
+		tags: source.draw(subarray(Arr.range(1, tagsDrawn))),
+		stored: Arr.map(stored, (n, i) => ({ ...n, id: i + 1 })),
+		note: source.draw(noteOver(writtenId)),
+		artifact: source.draw(element(["optimized", "conservative"] as const))
+	}
+}
+
+/** The rows a state holds at an account, of one of its tables. */
+const rowsAt = (
+	d: Drawn,
+	account: number,
+	of: (rows: Drawn["accounts"][number]) => ReadonlyArray<string>
+): ReadonlyArray<string> =>
+	Option.match(Arr.get(d.accounts, account - 1), { onNone: () => [], onSome: of })
+
+/** A note's attachment as the model delivers it, or the delivered type its children break. */
+type Delivered =
+	| Readonly<{ kind: "delivered"; value: Option.Option<Readonly<Record<string, unknown>>> }>
+	| Readonly<{ kind: "breached"; type: "one" | "option" }>
+
+/** An option over a key's children: none, the one, or a breach of the option by two. */
+const optionOver = (
+	children: ReadonlyArray<string>,
+	fact: (name: string) => Readonly<Record<string, unknown>>
+): Delivered => {
+	const [first, ...rest] = children
+	return first === undefined
+		? { kind: "delivered", value: Option.none() }
+		: Arr.isReadonlyArrayNonEmpty(rest)
+			? { kind: "breached", type: "option" }
+			: { kind: "delivered", value: Option.some(bareRecord(fact(first))) }
+}
+
+const deliveredOf = (d: Drawn, note: NoteFact): { readonly [A in Attachment]: Delivered } => ({
+	holder: optionOver(
+		rowsAt(d, note.account, (a) => a.names),
+		(name) => ({
+			name,
+			city: "c",
+			street: "s",
+			zip: "z",
+			country: "k"
+		})
+	),
+	marker: d.tags.includes(note.tag)
+		? { kind: "delivered", value: Option.some(bareRecord({ marked: true })) }
+		: { kind: "breached", type: "one" },
+	badge: optionOver(
+		rowsAt(d, note.account, (a) => a.badges),
+		(label) => ({ label })
+	),
+	profile: optionOver(
+		rowsAt(d, note.account, (a) => a.profiles),
+		(a) => ({
+			a,
+			b: "b",
+			c: "c",
+			d: "d",
+			e: "e"
+		})
+	)
 })
 
-/** An exhaustive check's budget beside its suite and generator. */
-const exhaustive = {
-	literal: Formatter.format,
-	coverage: noCoverage,
-	caseHang
-} as const
+const attachments: Arr.NonEmptyReadonlyArray<Attachment> = ["holder", "marker", "badge", "profile"]
+
+type DeliveredFeature =
+	| `${Attachment} breached`
+	| "a stored note's attachment breached"
+	| "no holder, committed"
+	| `${Artifact}: every delivered type proved, committed`
+	| `${Artifact}: a breach aborts the write`
 
 layer(Substrate.layer, { excludeTestServices: true })(
 	"a read-back attachment's delivered type, checked inside its statement",
 	(it) => {
 		it.effect(
-			"a breach of any delivered type in any form aborts the write, in both artifacts",
+			"a breach of any delivered type in any form aborts the write, in both artifacts, and every other state commits and delivers its proved types",
 			(ctx) =>
 				searched(
 					ctx,
 					Effect.gen(function* () {
 						const sub = yield* Substrate
-						const o = yield* installed(
-							Notes,
-							{
-								Account: [account(1), account(2), account(3)],
-								Tag: [{ id: 1 }],
-								Badge: [{ account: 1, label: "b1" }],
-								Profile: [profile(1, "p1")]
-							},
-							{ label: "real", extensions: [] }
-						)
+						const o = yield* installed(Notes, {}, { label: "real", extensions: [] })
 						const s = o.schema
 						const names = namesOf(o.installed)
 						const sql = (text: string) => sub.admin.queryValues(text, [])
@@ -220,6 +277,65 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								),
 								(rows) => Number(rows[0]?.[0])
 							)
+						/**
+						 * The defect: the constraints behind the evidence go. Note's foreign keys go in one pass, then the keys
+						 * they reference in another.
+						 */
+						const passes = [
+							`conrelid = '${names.table(Note)}'::regclass AND contype = 'f'`,
+							`conrelid IN ('${names.table(Account)}'::regclass, '${names.table(Badge)}'::regclass, '${names.table(Profile)}'::regclass) AND contype = 'p'`
+						]
+						/** Writes a drawn state whole, every table emptied first. */
+						const stateOf = (d: Drawn) => {
+							const values = (rows: ReadonlyArray<string>): string => Arr.join(rows, ", ")
+							const accountRows = Arr.flatMap(d.accounts, (a, i) =>
+								Arr.map(a.names, (name) => `(${i + 1}, '${name}', 'c', 's', 'z', 'k')`)
+							)
+							const badgeRows = Arr.flatMap(d.accounts, (a, i) =>
+								Arr.map(a.badges, (label) => `(${i + 1}, '${label}')`)
+							)
+							const profileRows = Arr.flatMap(d.accounts, (a, i) =>
+								Arr.map(a.profiles, (x) => `(${i + 1}, '${x}', 'b', 'c', 'd', 'e')`)
+							)
+							const tagRows = Arr.map(d.tags, (id) => `(${id})`)
+							const noteRows = Arr.map(d.stored, (n) => `(${n.id}, ${n.account}, ${n.tag})`)
+							const insert = (
+								table: string,
+								columns: ReadonlyArray<string>,
+								rows: ReadonlyArray<string>
+							): ReadonlyArray<string> =>
+								Arr.isReadonlyArrayNonEmpty(rows)
+									? [`INSERT INTO ${table} (${Arr.join(columns, ", ")}) VALUES ${values(rows)}`]
+									: []
+							return [
+								`TRUNCATE ${Arr.join(Arr.map([Note, Account, Tag, Badge, Profile], names.table), ", ")}`,
+								...insert(
+									names.table(Account),
+									Arr.map(["id", "name", "city", "street", "zip", "country"] as const, (f) =>
+										names.column(Account, f)
+									),
+									accountRows
+								),
+								...insert(names.table(Tag), [names.column(Tag, "id")], tagRows),
+								...insert(
+									names.table(Badge),
+									Arr.map(["account", "label"] as const, (f) => names.column(Badge, f)),
+									badgeRows
+								),
+								...insert(
+									names.table(Profile),
+									Arr.map(["account", "a", "b", "c", "d", "e"] as const, (f) =>
+										names.column(Profile, f)
+									),
+									profileRows
+								),
+								...insert(
+									names.table(Note),
+									Arr.map(["id", "account", "tag"] as const, (f) => names.column(Note, f)),
+									noteRows
+								)
+							]
+						}
 						return yield* Effect.gen(function* () {
 							const db = yield* Db.open(o.server.roles.app, {})
 							const opened = defined(dbContext(db), "the opened Db's context")
@@ -234,60 +350,6 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								)
 								return runApplication(opened, entry, {}, artifact, changes.reads)
 							}
-
-							yield* exhaust(
-								{
-									...exhaustive,
-									suite: "pg/write/delivered/lawful",
-									generator: element<ArtifactNote>([
-										{ artifact: "optimized", id: 1 },
-										{ artifact: "conservative", id: 2 }
-									]),
-									limit: 2
-								},
-								({ artifact, id }) =>
-									Effect.gen(function* () {
-										const outcome = yield* run(artifact, { id, account: 1, tag: 1 })
-										if (outcome.kind !== "accepted") {
-											return assert.fail(`${artifact}: the lawful note answered ${outcome.kind}`)
-										}
-										const mine = Option.getOrThrowWith(
-											Arr.findFirst(outcome.reads.notes, (row) => row.id === id),
-											() => new Error(`${artifact}: the note read back`)
-										)
-										assert.deepEqual(
-											mine.holder,
-											Option.some(
-												bareRecord({ name: "n1", city: "c", street: "s", zip: "z", country: "k" })
-											),
-											`${artifact}: the holder`
-										)
-										assert.deepEqual(
-											mine.marker,
-											Option.some(bareRecord({ marked: true })),
-											`${artifact}: the marker`
-										)
-										assert.deepEqual(
-											mine.badge,
-											Option.some(bareRecord({ label: "b1" })),
-											`${artifact}: the badge`
-										)
-										assert.deepEqual(
-											mine.profile,
-											Option.some(bareRecord({ a: "p1", b: "b", c: "c", d: "d", e: "e" })),
-											`${artifact}: the profile`
-										)
-									})
-							)
-
-							/**
-							 * The defect, by hand: the constraints behind the evidence go, and rows they forbade arrive. Note's
-							 * foreign keys go in one pass, then the keys they reference in another.
-							 */
-							const passes = [
-								`conrelid = '${names.table(Note)}'::regclass AND contype = 'f'`,
-								`conrelid IN ('${names.table(Account)}'::regclass, '${names.table(Badge)}'::regclass, '${names.table(Profile)}'::regclass) AND contype = 'p'`
-							]
 							for (const constraints of passes) {
 								const drops = yield* sql(
 									`SELECT format('ALTER TABLE %s DROP CONSTRAINT %I', conrelid::regclass, conname) FROM pg_catalog.pg_constraint WHERE ${constraints}`
@@ -296,62 +358,102 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									yield* sql(String(drop))
 								}
 							}
-							yield* sql(
-								`INSERT INTO ${names.table(Account)} VALUES (4, 'a', 'c', 's', 'z', 'k'), (4, 'b', 'c', 's', 'z', 'k')`
-							)
-							yield* sql(`INSERT INTO ${names.table(Badge)} VALUES (2, 'x'), (2, 'y')`)
-							yield* sql(
-								`INSERT INTO ${names.table(Profile)} VALUES (3, 'x', 'b', 'c', 'd', 'e'), (3, 'y', 'b', 'c', 'd', 'e')`
-							)
-
-							yield* exhaust(
+							return yield* explore(
 								{
-									...exhaustive,
-									suite: "pg/write/delivered/no-holder",
-									generator: element<ArtifactNote>([
-										{ artifact: "optimized", id: 16 },
-										{ artifact: "conservative", id: 17 }
-									]),
-									limit: 2
+									suite: "pg/write/delivered",
+									draw: drawn(drawnGen),
+									literal: Formatter.format,
+									oracle: {
+										kind: "specification",
+										name: "the delivered types' model: a bare child breaks without a child, an option with two, over every note read back"
+									},
+									coverage: required<DeliveredFeature>(
+										[
+											"holder breached",
+											"marker breached",
+											"badge breached",
+											"profile breached",
+											"a stored note's attachment breached",
+											"no holder, committed",
+											"optimized: every delivered type proved, committed",
+											"conservative: every delivered type proved, committed",
+											"optimized: a breach aborts the write",
+											"conservative: a breach aborts the write"
+										],
+										{ cases: 96, sense: notesOnly }
+									),
+									kept: [],
+									runs: 48,
+									shrink: completeShrink,
+									concurrency: 1,
+									steerEvery: 16,
+									caseHang
 								},
-								({ artifact, id }) =>
+								(d, c) =>
 									Effect.gen(function* () {
-										const outcome = yield* run(artifact, { id, account: 404, tag: 1 })
+										for (const statement of stateOf(d)) {
+											yield* sql(statement)
+										}
+										const every = [...d.stored, d.note]
+										const delivered = Arr.map(every, (note) => ({ note, by: deliveredOf(d, note) }))
+										const breached = Arr.flatMap(delivered, ({ note, by }) =>
+											Arr.flatMap(attachments, (attachment) => {
+												const one = by[attachment]
+												return one.kind === "breached" ? [{ note, attachment, type: one.type }] : []
+											})
+										)
+										const label = `${d.artifact}: ${Formatter.format(d)}`
+										if (Arr.isReadonlyArrayNonEmpty(breached)) {
+											const failure = yield* failureOf(run(d.artifact, d.note))
+											assert.ok(
+												failure._tag === "ExecutionFailure" &&
+													failure.reason._tag === "ServerError",
+												`${label}: an ExecutionFailure the server raised, got ${String(failure)}`
+											)
+											const sqlstate: string = failure.reason.sqlstate
+											const type: string | undefined = failure.reason.constraint
+											assert.equal(sqlstate, sqlstates.grizzleDeliveredType, `${label}: a breach`)
+											assert.ok(
+												Arr.some(breached, (b) => b.type === type),
+												`${label}: ${String(type)} is a delivered type some breach broke`
+											)
+											const kept = yield* stored(d.note.id)
+											assert.equal(kept, 0, `${label}: nothing committed`)
+											for (const b of breached) {
+												c.note(`${b.attachment} breached`)
+												if (b.note.id !== d.note.id) {
+													c.note("a stored note's attachment breached")
+												}
+											}
+											c.note(`${d.artifact}: a breach aborts the write`)
+											return
+										}
+										const outcome = yield* run(d.artifact, d.note)
 										if (outcome.kind !== "accepted") {
 											return assert.fail(
-												`${artifact}: a holder with no child answered ${outcome.kind}`
+												`${label}: a state with no breach answered ${outcome.kind}`
 											)
 										}
-										const mine = Option.getOrThrowWith(
-											Arr.findFirst(outcome.reads.notes, (row) => row.id === id),
-											() => new Error(`${artifact}: the note read back`)
-										)
-										assert.deepEqual(mine.holder, Option.none(), `${artifact}: no holder`)
-										const committed = yield* stored(id)
-										assert.equal(committed, 1, `${artifact}: the note committed`)
-									})
-							)
-							return yield* exhaust(
-								{
-									...exhaustive,
-									suite: "pg/write/delivered/breaches",
-									generator: breachCases,
-									limit: 2 * breaches.length
-								},
-								({ artifact, breach }) =>
-									Effect.gen(function* () {
-										const label = `${artifact}: ${breach.label}`
-										const failure = yield* failureOf(run(artifact, breach.note))
-										assert.ok(
-											failure._tag === "ExecutionFailure" && failure.reason._tag === "ServerError",
-											`${label}: an ExecutionFailure the server raised, got ${String(failure)}`
-										)
-										const sqlstate: string = failure.reason.sqlstate
-										const delivered: string | undefined = failure.reason.constraint
-										assert.equal(sqlstate, sqlstates.grizzleDeliveredType, `${label}: a breach`)
-										assert.equal(delivered, breach.delivered, `${label}: the type it broke`)
-										const committed = yield* stored(breach.note.id)
-										assert.equal(committed, 0, `${label}: nothing committed`)
+										for (const { note, by } of delivered) {
+											const row = Option.getOrThrowWith(
+												Arr.findFirst(outcome.reads.notes, (r) => r.id === note.id),
+												() => new Error(`${label}: note ${note.id} read back`)
+											)
+											for (const attachment of attachments) {
+												const expected = by[attachment]
+												const got: Option.Option<unknown> = row[attachment]
+												const want: Option.Option<unknown> =
+													expected.kind === "delivered" ? expected.value : Option.none()
+												assert.deepEqual(got, want, `${label}: note ${note.id}'s ${attachment}`)
+											}
+										}
+										assert.equal(outcome.reads.notes.length, every.length, `${label}: every note`)
+										const committed = yield* stored(d.note.id)
+										assert.equal(committed, 1, `${label}: the note committed`)
+										if (rowsAt(d, d.note.account, (a) => a.names).length === 0) {
+											c.note("no holder, committed")
+										}
+										c.note(`${d.artifact}: every delivered type proved, committed`)
 									})
 							)
 						}).pipe(

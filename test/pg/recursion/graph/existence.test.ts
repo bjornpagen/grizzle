@@ -1,9 +1,11 @@
 import { layer } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { element } from "@grizzle/testing/gen"
+import { drawn, explore } from "@grizzle/testing/explore"
+import { required } from "@grizzle/testing/features"
+import { element, type Gen, int, subarray } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
+import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect } from "effect"
+import { Array as Arr, Effect, Formatter } from "effect"
 import type { CertificateRule } from "#compiler/ir/certificate.ts"
 import { emptyCodebook } from "#compiler/ir/codes.ts"
 import type { EvidenceCatalog, TemplateContext } from "#compiler/ir/evidence.ts"
@@ -44,8 +46,11 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * violated until commit; the oracle loads the facts in its transaction, with a Follows edge into a person that does
  * not exist, and the queries run there. The transaction-context artifact (as a read-back's is) keeps
  * every explicit Person match, because a deferred containment is no existence evidence inside a transaction, and so
- * agrees with the reference evaluator over the violating state: the friends of friends through the missing person are
+ * agrees with the reference evaluator over the violating state: the friends of friends through a missing person are
  * not friends of friends. The Follows-only match keeps its dangling edges, since no rewrite adds an existence test.
+ *
+ * A case draws one of the three queries, the persons 1 to 6 that exist, every ordered pair of 1 to 6 a Follows edge
+ * or not, so an edge dangles wherever an endpoint is missing, and the person the query starts from.
  */
 
 const Person = relation("Person", { id: pg.integer, name: str.regex("^.*$", "su") }, ["id"])
@@ -74,37 +79,42 @@ const catalog: EvidenceCatalog = {
 	}))
 }
 
-const int = (n: number): TypedLiteral => ({ kind: "int", value: BigInt(n) })
+const intLit = (n: number): TypedLiteral => ({ kind: "int", value: BigInt(n) })
 const text = (s: string): TypedLiteral => ({ kind: "text", value: s })
 
-/**
- * Persons 1 to 4; 1 follows 2 and the missing 9, 2 follows 3, 9 follows 4: inside the transaction the edges 1 -> 9 and
- * 9 -> 4 dangle.
- */
-const facts = {
-	/** In the checked heading's column order: id, name. */
-	Person: Arr.map([1, 2, 3, 4], (i) => [int(i), text(`p${i}`)]),
-	Follows: Arr.map(
-		[
-			[1, 2],
-			[1, 9],
-			[2, 3],
-			[9, 4]
-		] as const,
-		([a, b]) => [int(a), int(b)]
-	)
+/** A state, perhaps violating the deferred containments: the persons that exist, and every Follows edge. */
+interface State {
+	readonly persons: ReadonlyArray<number>
+	readonly follows: ReadonlyArray<readonly [number, number]>
 }
 
-const caseOf = (label: string, q: unknown): LabelledCase =>
+/** The persons and edges over 1 … 6, each person present or not and each ordered pair an edge or not. */
+const stateGen: Gen<State> = (source) => {
+	const everyone = Arr.range(1, 6)
+	return {
+		persons: source.draw(subarray(everyone)),
+		follows: source.draw(
+			subarray(Arr.flatMap(everyone, (a) => Arr.map(everyone, (b) => [a, b] as const)))
+		)
+	}
+}
+
+/** A network's facts, Person's in its checked heading's column order: id, name. */
+const factsOf = (network: State) => ({
+	Person: Arr.map(network.persons, (i) => [intLit(i), text(`p${i}`)]),
+	Follows: Arr.map(network.follows, ([a, b]) => [intLit(a), intLit(b)])
+})
+
+const caseOf = (label: string, q: unknown, network: State, person: number): LabelledCase =>
 	publicCase({
 		schema: Network,
 		name: "Network",
 		relations: ["Person", "Follows"],
 		containments,
-		facts,
+		facts: factsOf(network),
 		label,
 		query: q,
-		params: { person: int(1) }
+		params: { person: intLit(person) }
 	})
 
 /** Friends of friends: exactly two directed steps, every participating person required to exist. */
@@ -181,14 +191,33 @@ const certifiedIn = (c: LabelledCase, context: TemplateContext): ReadonlyArray<C
 		(x) => x.rule
 	)
 
-const cases: Arr.NonEmptyReadonlyArray<LabelledCase> = [
-	caseOf("FriendsOfFriends", FriendsOfFriends),
-	caseOf("FollowsOnly", FollowsOnly),
-	caseOf("Existing", Existing)
-]
+/** The queries a case draws among. */
+const queryNames = ["FriendsOfFriends", "FollowsOnly", "Existing"] as const
+type QueryName = (typeof queryNames)[number]
+const queries: Readonly<Record<QueryName, unknown>> = { FriendsOfFriends, FollowsOnly, Existing }
 
-/** A query whose transaction artifact agreed over the violated law, by its label. */
-type AgreedFeature = `agreed: ${string}`
+/** A drawn case: a query, a network and the person it starts from. */
+interface Sketch {
+	readonly query: QueryName
+	readonly network: State
+	readonly person: number
+}
+
+const sketchGen: Gen<Sketch> = (source) => ({
+	query: source.draw(element(queryNames)),
+	network: source.draw(stateGen),
+	person: source.draw(int(1, 6))
+})
+
+/** Whether some Follows edge dangles: an endpoint no Person row holds. */
+const dangles = (network: State): boolean =>
+	Arr.some(
+		network.follows,
+		([a, b]) => !network.persons.includes(a) || !network.persons.includes(b)
+	)
+
+/** A query whose transaction artifact agreed, over a violated deferred law or none. */
+type AgreedFeature = `${QueryName} agreed over ${"a dangling edge" | "a lawful state"}`
 
 layer(Substrate.layer)("endpoint existence during deferred violations", (it) => {
 	it.effect(
@@ -199,26 +228,41 @@ layer(Substrate.layer)("endpoint existence during deferred violations", (it) => 
 				Effect.gen(function* () {
 					const s = yield* Substrate
 					const schema = yield* s.schema({ create: false, label: "deferred" })
-					return yield* exhaust(
+					return yield* explore(
 						{
 							suite: "recursion/graph/existence",
-							generator: element(cases),
-							literal: (c: LabelledCase) => c.label,
-							limit: cases.length,
-							coverage: requiredInSpace<AgreedFeature>(
-								Arr.map(cases, (c): AgreedFeature => `agreed: ${c.label}`)
+							draw: drawn(sketchGen),
+							literal: Formatter.format,
+							oracle: {
+								kind: "second-implementation",
+								name: "the reference evaluator and the conservative lowering over the same state, its deferred laws perhaps violated"
+							},
+							coverage: required<AgreedFeature>(
+								Arr.map(queryNames, (q): AgreedFeature => `${q} agreed over a dangling edge`),
+								{ cases: 32, sense: notesOnly }
 							),
+							kept: [],
+							runs: 16,
+							shrink: completeShrink,
+							concurrency: 1,
+							steerEvery: 16,
 							caseHang
 						},
-						(c, k) =>
+						(k, c) =>
 							Effect.gen(function* () {
-								const outcome = yield* runLabelledOracle(c, optimizedIn("transaction"), reference, {
-									...defaultRunOptions,
-									schema: { kind: "named", name: schema }
-								})
+								const labelled = caseOf(k.query, queries[k.query], k.network, k.person)
+								const outcome = yield* runLabelledOracle(
+									labelled,
+									optimizedIn("transaction"),
+									reference,
+									{
+										...defaultRunOptions,
+										schema: { kind: "named", name: schema }
+									}
+								)
 								assert.equal(outcome.comparison.equal, true, printOutcome(outcome))
 								const agreed = yield* runLabelledOracle(
-									c,
+									labelled,
 									optimizedIn("transaction"),
 									conservative,
 									{
@@ -227,8 +271,10 @@ layer(Substrate.layer)("endpoint existence during deferred violations", (it) => 
 									}
 								)
 								assert.equal(agreed.comparison.equal, true, printOutcome(agreed))
-								lacks(certifiedIn(c, "transaction"), "R03.elimination")
-								k.note(`agreed: ${c.label}`)
+								lacks(certifiedIn(labelled, "transaction"), "R03.elimination")
+								c.note(
+									`${k.query} agreed over ${dangles(k.network) ? "a dangling edge" : "a lawful state"}`
+								)
 							})
 					)
 				})

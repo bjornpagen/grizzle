@@ -1,8 +1,14 @@
 import { layer } from "@effect/vitest"
+import { drawn, explore } from "@grizzle/testing/explore"
+import { required } from "@grizzle/testing/features"
+import { array, element, type Gen } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
+import { completeShrink } from "@grizzle/testing/shrink"
+import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { fresh, openPayroll, type Payroll } from "#test/pg/e2e-laws/payroll.ts"
-import { assert } from "#test/support/assert.ts"
+import { assert, nonEmpty } from "#test/support/assert.ts"
 import {
 	acme,
 	ada,
@@ -21,6 +27,7 @@ import {
 	tSettled
 } from "#test/support/fixtures/golden/payroll.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import type { PgErrorFields } from "#test/support/substrate/errors.ts"
 import { pgErrorFields } from "#test/support/substrate/errors.ts"
 import type { PsqlWriter } from "#test/support/substrate/psql.ts"
@@ -133,9 +140,22 @@ const runRow = (
 		return Option.none()
 	})
 
-const checkRow = (p: Payroll, row: DirectWriter) =>
+/** A psql child of each role of the fixture, in its role's world. */
+type Writers = { readonly [R in DirectWriter["role"]]: PsqlWriter }
+
+/** One psql child per role of the fixture, closed with the scope. */
+const writersOf = (p: Payroll) =>
 	Effect.gen(function* () {
-		const psql = yield* p.f.psql(p.w[row.role])
+		const clerk = yield* p.f.psql(p.w.clerk)
+		const hr = yield* p.f.psql(p.w.hr)
+		const approver = yield* p.f.psql(p.w.approver)
+		const writers: Writers = { clerk, hr, approver }
+		return writers
+	})
+
+const checkRow = (p: Payroll, writers: Writers, row: DirectWriter) =>
+	Effect.gen(function* () {
+		const psql = writers[row.role]
 		if (row.precondition.kind === "setup") {
 			const setup = yield* runRow(
 				psql,
@@ -226,17 +246,17 @@ const toAfterReverse = (p: Payroll) =>
 		}
 	})
 
-const refused: ReadonlyArray<DirectWriter> = Arr.filter(
-	directWriters,
-	(r) => r.outcome.kind !== "accepted" && r.startsFrom.kind === "stateA"
+const refused: Arr.NonEmptyReadonlyArray<DirectWriter> = nonEmpty(
+	Arr.filter(directWriters, (r) => r.outcome.kind !== "accepted" && r.startsFrom.kind === "stateA"),
+	"the refused rows"
 )
-const accepted: ReadonlyArray<DirectWriter> = Arr.filter(
-	directWriters,
-	(r) => r.outcome.kind === "accepted"
+const accepted: Arr.NonEmptyReadonlyArray<DirectWriter> = nonEmpty(
+	Arr.filter(directWriters, (r) => r.outcome.kind === "accepted"),
+	"the accepted rows"
 )
 
 /** Every native error the header names, at the place it names: what the refused rows must reach between them. */
-const promised: ReadonlyArray<string> = [
+const promised = [
 	"23505 at statement",
 	"23514 at statement",
 	"23P01 at statement",
@@ -245,18 +265,46 @@ const promised: ReadonlyArray<string> = [
 	"23503 at statement",
 	"23503 at commit",
 	"42501 at statement"
-]
+] as const
+type Promised = (typeof promised)[number]
 
-/** The SQLSTATE a refused row fails with, at its place. */
-const reachedBy = (row: DirectWriter): ReadonlyArray<string> => {
+const isPromised = (error: string): error is Promised => Arr.some(promised, (p) => p === error)
+
+/** The SQLSTATE a refused row fails with, at its place, when the header names it. */
+const reachedBy = (row: DirectWriter): ReadonlyArray<Promised> => {
 	switch (row.outcome.kind) {
 		case "accepted":
 			return []
 		case "refused":
-		case "constraint":
-			return [`${row.outcome.sqlstate} at ${row.outcome.at}`]
+		case "constraint": {
+			const error = `${row.outcome.sqlstate} at ${row.outcome.at}`
+			return isPromised(error) ? [error] : []
+		}
 	}
 }
+
+/** Refused rows, run one after another in the drawn order, any of them again. */
+const refusedRunGen: Gen<Arr.NonEmptyReadonlyArray<DirectWriter>> = (source) => [
+	source.draw(element(refused)),
+	...source.draw(array(element(refused), { min: 0, max: 5 }))
+]
+
+/** An accepted row, and the refused rows its writers run first, which change nothing. */
+interface AcceptedCase {
+	readonly before: ReadonlyArray<DirectWriter>
+	readonly row: DirectWriter
+}
+
+const acceptedCaseGen: Gen<AcceptedCase> = (source) => ({
+	before: source.draw(array(element(refused), { min: 0, max: 2 })),
+	row: source.draw(element(accepted))
+})
+
+type AcceptedFeature =
+	| "an accepted row from state A"
+	| "an accepted row from a named state"
+	| "an accepted row after its precondition"
+	| "an accepted row after refused rows"
 
 /**
  * The payroll example's direct psql writers see the stated native errors.
@@ -269,53 +317,119 @@ const reachedBy = (row: DirectWriter): ReadonlyArray<string> => {
  * a code no handle of a closed roster holds, which its roster domain's CHECK refuses; 22P02 for a handle's text, which a
  * code column reads as a smallint; 23503 from a deferred foreign key at COMMIT, or at the statement once the writer sets
  * every constraint IMMEDIATE, with the constraint's stable name where the row names it; 42501 for a privilege the role
- * lacks. Every law is native, so no refusal is a law function's 23000. A refused row
- * changes nothing, so the refused rows run one after another on one installation; each accepted row runs on its own
- * installation, from the state it names, and is judged by its outcome alone.
+ * lacks. Every law is native, so no refusal is a law function's 23000.
+ *
+ * Both are searches over the fixture's rows, each row's outcome the oracle. A refused row changes nothing, so a case
+ * draws a run of refused rows, in any order and any of them again, and runs them one after another on one installation,
+ * each through its role's one psql child: each meets its outcome whatever ran before it, the state is unchanged after,
+ * and the witnesses reach every native error the header names. An accepted row commits, so each case opens its own
+ * installation, runs drawn refused rows first, then the drawn accepted row from the state it names, judged by its
+ * outcome alone.
  */
 export const payrollDirectSuite = (): void => {
 	layer(Substrate.layer, { excludeTestServices: true })(
 		"the payroll example's direct psql writers see PostgreSQL's native errors",
 		(it) => {
 			it.effect(
-				"every refused row fails with its SQLSTATE, where its row says, and changes nothing",
-				() =>
-					Effect.gen(function* () {
-						const p = yield* openPayroll
-						const counts = `SELECT (SELECT count(*) FROM $S."deposit")::text, (SELECT count(*) FROM $S."posting")::text, (SELECT count(*) FROM $S."employment")::text, (SELECT "stage"::text FROM $S."pay_run" WHERE "id" = '${run1}')`
-						const before = yield* p.f.rows(counts)
-						for (const row of refused) {
-							yield* checkRow(p, row)
-						}
-						const rows = yield* p.f.rows(counts)
-						assert.deepEqual(rows, before)
-						const reached = new Set(Arr.flatMap(refused, reachedBy))
-						assert.deepEqual(
-							Arr.filter(promised, (error) => !reached.has(error)),
-							[],
-							"every native error the header names is some refused row's"
-						)
-					}).pipe(Effect.scoped)
-			)
-
-			it.effect("every accepted row commits, from the state it names", () =>
-				Effect.forEach(
-					accepted,
-					(row) =>
+				"every refused row fails with its SQLSTATE, where its row says, and changes nothing, in any order and again",
+				(ctx) =>
+					searched(
+						ctx,
 						Effect.gen(function* () {
 							const p = yield* openPayroll
-							if (row.startsFrom.kind === "named") {
-								assert.equal(
-									row.startsFrom.state,
-									"after reverse",
-									`${row.name}: a state the suite reaches`
-								)
-								yield* toAfterReverse(p)
-							}
-							yield* checkRow(p, row)
-						}).pipe(Effect.scoped),
-					{ discard: true }
-				)
+							const writers = yield* writersOf(p)
+							const counts = `SELECT (SELECT count(*) FROM $S."deposit")::text, (SELECT count(*) FROM $S."posting")::text, (SELECT count(*) FROM $S."employment")::text, (SELECT "stage"::text FROM $S."pay_run" WHERE "id" = '${run1}')`
+							const before = yield* p.f.rows(counts)
+							return yield* explore(
+								{
+									suite: "e2e-laws/payroll-direct/refused",
+									draw: drawn(refusedRunGen),
+									literal: (rows) => Formatter.format(Arr.map(rows, (row) => row.name)),
+									oracle: {
+										kind: "specification",
+										name: "the payroll example's outcome table: each refused row's SQLSTATE and place, and the state unchanged"
+									},
+									coverage: required<Promised>(promised, { cases: 32, sense: notesOnly }),
+									kept: [],
+									runs: 16,
+									shrink: completeShrink,
+									concurrency: 1,
+									steerEvery: 8,
+									caseHang
+								},
+								(rows, c) =>
+									Effect.gen(function* () {
+										for (const row of rows) {
+											yield* checkRow(p, writers, row)
+											c.noteAll(reachedBy(row))
+										}
+										const after = yield* p.f.rows(counts)
+										assert.deepEqual(after, before, "the refused rows changed nothing")
+									})
+							)
+						}).pipe(Effect.scoped)
+					)
+			)
+
+			it.effect(
+				"every accepted row commits from the state it names, whatever refused rows ran before it",
+				(ctx) =>
+					searched(
+						ctx,
+						explore(
+							{
+								suite: "e2e-laws/payroll-direct/accepted",
+								draw: drawn(acceptedCaseGen),
+								literal: ({ before, row }) =>
+									Formatter.format({ before: Arr.map(before, (r) => r.name), row: row.name }),
+								oracle: {
+									kind: "specification",
+									name: "the payroll example's outcome table: each accepted row commits from its state"
+								},
+								coverage: required<AcceptedFeature>(
+									[
+										"an accepted row from state A",
+										"an accepted row from a named state",
+										"an accepted row after its precondition",
+										"an accepted row after refused rows"
+									],
+									{ cases: 12, sense: notesOnly }
+								),
+								kept: [],
+								runs: 4,
+								shrink: completeShrink,
+								concurrency: 1,
+								steerEvery: 4,
+								caseHang
+							},
+							({ before, row }, c) =>
+								Effect.gen(function* () {
+									const p = yield* openPayroll
+									const writers = yield* writersOf(p)
+									for (const refusal of before) {
+										yield* checkRow(p, writers, refusal)
+									}
+									if (row.startsFrom.kind === "named") {
+										assert.equal(
+											row.startsFrom.state,
+											"after reverse",
+											`${row.name}: a state the suite reaches`
+										)
+										yield* toAfterReverse(p)
+										c.note("an accepted row from a named state")
+									} else {
+										c.note("an accepted row from state A")
+									}
+									if (row.precondition.kind === "setup") {
+										c.note("an accepted row after its precondition")
+									}
+									if (Arr.isReadonlyArrayNonEmpty(before)) {
+										c.note("an accepted row after refused rows")
+									}
+									yield* checkRow(p, writers, row)
+								}).pipe(Effect.scoped)
+						)
+					)
 			)
 		}
 	)

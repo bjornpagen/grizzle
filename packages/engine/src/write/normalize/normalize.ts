@@ -61,8 +61,8 @@ export const refilledSlot = (
 	return Object.freeze({ ...keyNormalized(normal), slot: slot.slot, count: normal.facts.length })
 }
 
-/** A same-key conflict between two additions of one stratum: invariant-rejected with the key law and its description,
- * whose witness is the key values only. */
+/** A same-key conflict between two additions, or two deletions, of one stratum: invariant-rejected with the key law and
+ * its description, whose witness is the key values only. */
 interface KeyRefusal {
 	readonly kind: "keyConflict"
 	readonly stratum: number
@@ -288,7 +288,7 @@ const keyValues = (
 
 const names = (fields: ReadonlyArray<HostKeyField>): KeySet => fields.map((f) => f.field)
 
-/** The refusal of two additions of `facts`'s relation at one key, `fact` the later. */
+/** The refusal of two additions or two deletions of `facts`'s relation at one key, `fact` the later. */
 const conflictOf = (
 	stratum: number,
 	facts: SlotFacts,
@@ -324,6 +324,31 @@ const primaryConflict = (stratum: number, facts: SlotFacts, fact: NestedFact): K
 }
 
 /**
+ * The first of one relation's facts, in canonical order, sharing a declared key's value with an earlier one of another
+ * identity, the keys tried primary key first, each over the facts `onKey` takes part on it.
+ */
+const keyConflictIn = (
+	stratum: number,
+	facts: SlotFacts,
+	onKey: (fields: ReadonlyArray<HostKeyField>) => ReadonlyArray<Entry>
+): KeyRefusal | undefined => {
+	for (const key of facts.host.keys) {
+		const { fields } = key
+		const keyText = keyTextOf(fields)
+		const seen = new Map<string, Entry>()
+		for (const e of onKey(fields)) {
+			const k = keyText(e.fact)
+			const prior = seen.get(k)
+			if (prior !== undefined && prior.identity !== e.identity) {
+				return conflictOf(stratum, facts, e.fact, fields, key)
+			}
+			seen.set(k, e)
+		}
+	}
+	return undefined
+}
+
+/**
  * Same-key refusal over one stratum's additions of one relation (`normalizeChangeSet`, step 3): the first addition, in
  * canonical order, sharing a declared key's value with an earlier one of another identity, the keys tried primary key
  * first; then the first whose span overlaps an earlier one's at equal scalar fields. A generated addition takes part
@@ -336,21 +361,11 @@ const sameKey = (
 	complete: ReadonlyArray<Entry>,
 	generated: ReadonlyArray<Entry>
 ): KeyRefusal | undefined => {
-	for (const key of facts.host.keys) {
-		const { fields } = key
-		const keyText = keyTextOf(fields)
-		const candidates = fields.some((f) => serial.includes(f.field))
-			? complete
-			: [...complete, ...generated]
-		const seen = new Map<string, Entry>()
-		for (const e of candidates) {
-			const k = keyText(e.fact)
-			const prior = seen.get(k)
-			if (prior !== undefined && prior.identity !== e.identity) {
-				return conflictOf(stratum, facts, e.fact, fields, key)
-			}
-			seen.set(k, e)
-		}
+	const keyed = keyConflictIn(stratum, facts, (fields) =>
+		fields.some((f) => serial.includes(f.field)) ? complete : [...complete, ...generated]
+	)
+	if (keyed !== undefined) {
+		return keyed
 	}
 	for (const check of facts.host.spans) {
 		const { span, witness } = check
@@ -421,7 +436,10 @@ const sameKey = (
  *    that holds no serial field; its identity does not exist yet on the others. Keys are tried primary
  *    key first, then in declaration order, and facts in canonical order, so the refusal is deterministic. A span
  *    candidate key also refuses two additions whose spans overlap at equal scalar fields, the pair
- *    the statement would otherwise meet as a violation that aborts it.
+ *    the statement would otherwise meet as a violation that aborts it. Deletions are a relation's facts too: two facts
+ *    the stratum deletes with one value of a declared key and different identities name two facts where the key names
+ *    one, a key conflict on that key's law, judged over the deletions alone and before netting, since an addition at a
+ *    deleted key is a replacement.
  * 4. Nets additions against deletions within the stratum: a fact both added and deleted stays and is neither deleted
  *    nor counted, so it leaves the deletions (D EXCEPT A); and a fact both an insert and a put request is
  *    the put's, so it leaves the insert. Deleting an absent fact, or one a put displaces anyway, stays a
@@ -539,13 +557,14 @@ export const normalizeChangeSet = (
 		for (const id of sets.put.keys()) {
 			sets.insert.delete(id)
 		}
-		const refused = sameKey(
-			stratum,
-			relation,
-			serial,
-			sorted([...sets.put.values(), ...sets.insert.values()]),
-			sorted(sets.generated.values())
-		)
+		const refused =
+			sameKey(
+				stratum,
+				relation,
+				serial,
+				sorted([...sets.put.values(), ...sets.insert.values()]),
+				sorted(sets.generated.values())
+			) ?? keyConflictIn(stratum, relation, () => sorted(sets.delete.values()))
 		if (refused !== undefined) {
 			return Result.ok(refused)
 		}

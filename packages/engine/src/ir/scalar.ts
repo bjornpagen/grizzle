@@ -73,7 +73,8 @@ export const serialCarriers = {
 	bigserial: "int8"
 } as const satisfies Readonly<Record<string, Carrier>>
 
-export const spanCarriers: ReadonlyArray<Carrier> = ["range4", "range8"]
+/** The span carriers, range4 over int4 endpoints and range8 over int8 endpoints. */
+export const spanCarriers = ["range4", "range8"] as const satisfies ReadonlyArray<Carrier>
 
 /**
  * The operation capability vocabulary: storage, equality, ordering, hashing used for bucketing, the
@@ -276,17 +277,35 @@ export interface TextBounds {
 }
 
 /**
- * How PostgreSQL enforces a language some admitted text value is no member of, with the bounds the enforcement proves
- * on every member: `VALUE IN (...)` of its members, at least one since an analyzed language has a member, or
- * `VALUE ~ '<ARE>'` of the pattern's translation. The text analysis chooses it (text/refinement.ts).
+ * How PostgreSQL enforces a pattern's language some admitted text value is no member of, with the bounds the
+ * enforcement proves on every member: `VALUE IN (...)` of its members, at least one since an analyzed language has a
+ * member, or `VALUE ~ '<ARE>'` of the pattern's translation. The text analysis chooses it (text/refinement.ts).
  */
-export type RegexCheck =
+export type PatternCheck =
 	| {
 			readonly kind: "finite"
 			readonly members: NonEmptyReadonlyArray<string>
 			readonly bounds: TextBounds
 	  }
 	| { readonly kind: "regex"; readonly pattern: string; readonly bounds: TextBounds | undefined }
+
+/**
+ * How PostgreSQL enforces a text refinement: its pattern's language (PatternCheck), or a byte bound that cuts it,
+ * `octet_length(VALUE) <= octets` beside the pattern's check, or alone where the pattern admits every value
+ * (str.bytes), with the tighter of the pattern's bounds and the byte bound's, a code point taking at least a byte.
+ */
+export type RegexCheck =
+	| PatternCheck
+	| {
+			readonly kind: "octets"
+			readonly octets: number
+			readonly check: PatternCheck | undefined
+			readonly bounds: TextBounds
+	  }
+
+/** The byte bound a check enforces beside its pattern's, str.bytes's: none for a pattern's check alone. */
+export const octetsOf = (check: RegexCheck): number | undefined =>
+	check.kind === "octets" ? check.octets : undefined
 
 /**
  * A regex refinement: its source and flags as declared, its language's key and its enforcement, which the text
@@ -330,6 +349,10 @@ export const languageOfText = (text: TextInfo): TextLanguage =>
 		? Object.freeze({ kind: "every" })
 		: Object.freeze({ kind: "refined", key: text.regex.key, check: text.regex.check })
 
+/** The byte bound a text descriptor's language enforces beside its pattern's (octetsOf): none for an unrefined text. */
+export const languageOctets = (language: TextLanguage): number | undefined =>
+	language.kind === "every" ? undefined : octetsOf(language.check)
+
 /**
  * Every text descriptor carries regex metadata: a specific pattern or the canonical wildcard, and the bounds a specific
  * pattern proves on the value's length in code points and in UTF-8 bytes, which are proved together or not at all. The
@@ -356,7 +379,7 @@ export interface Roster {
 
 /** The integer carriers, a serial field's among them. */
 export type IntegerCarrier = "int2" | "int4" | "int8"
-export type SpanCarrier = "range4" | "range8"
+export type SpanCarrier = (typeof spanCarriers)[number]
 /** The carriers whose descriptor holds nothing beside its carrier, its capabilities and its contract. */
 type BareCarrier = "float4" | "float8" | "money" | "bool" | "uuid" | "date"
 
@@ -773,6 +796,15 @@ const nativeNames: Readonly<Record<Carrier, string>> = {
 }
 
 /**
+ * A text refinement as diagnostics name it: its pattern, and the byte bound str.bytes cuts it to, as
+ * "text ~ /^[a-z]+$/u" or "text ~ /^.*$/su of at most 64 bytes".
+ */
+export const refinementText = (regex: RegexRef): string => {
+	const octets = octetsOf(regex.check)
+	return `text ~ /${regex.source}/${regex.flags}${octets === undefined ? "" : ` of at most ${octets} bytes`}`
+}
+
+/**
  * A short human label for printing and diagnostics, never emitted SQL (the physical package owns domain identifiers):
  * "numeric(10,2)", "contract Cents over bigint", "code Kind", "bits Kind", "text ~ /^[a-z]+$/u".
  */
@@ -798,7 +830,7 @@ export const typeLabel = (t: ScalarType): string => {
 			return `bits ${t.roster.closed}`
 		case "text": {
 			const { regex } = t.text
-			return regex === "wildcard" ? "text" : `text ~ /${regex.source}/${regex.flags}`
+			return regex === "wildcard" ? "text" : refinementText(regex)
 		}
 		case "float4":
 		case "float8":

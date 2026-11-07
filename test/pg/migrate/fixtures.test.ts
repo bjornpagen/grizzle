@@ -1,7 +1,8 @@
 import { layer } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { element, type Gen } from "@grizzle/testing/gen"
+import { drawn, explore } from "@grizzle/testing/explore"
+import { required } from "@grizzle/testing/features"
+import { element, type Gen, int } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Layer, Option, Record as Rec } from "effect"
 import type { FolderSource } from "#adapter/migrate/input.ts"
@@ -66,10 +67,11 @@ import { testVerify, tokenOf } from "#test/support/worlds.ts"
  *
  * The worked examples, migrated version by version through the real apply runner, on PostgreSQL 19.
  *
- * The examples are a dictionary of schema histories over the public-API fixtures: Work,
- * then its Reports extension, then Work again, which drops the derived relation, then Work once more, which changes
- * nothing; the same for Payroll and its Reporting; and every other example (Plans, the queue, the ledger, the graph,
- * vector search, spans and calendars) installed and drafted again, which changes nothing. Each history is drafted from the empty
+ * The fixtures are a dictionary of realistic schemas, each a family of levels: Work and its Reports extension, Payroll
+ * and its Reporting, and every other example (Plans, the queue, the ledger, the graph, vector search, spans and
+ * calendars) a family of one level. A history is drawn as a walk over one family's levels, two to four versions, each
+ * at any level, so it adds an extension's derived relation and its worlds, drops them, and drafts a version again after
+ * itself, which changes nothing. Each history is drafted from the empty
  * snapshot on, as `grizzle generate` drafts it, and applied as `grizzle migrate` applies it: the real runner on the
  * migration identity's own connection path (verify-full TLS), every folder up to the step with that step's snapshot.
  * Every fixture is installed under the allocated name, every level of it renamed, so the declared name is the
@@ -122,23 +124,22 @@ const renamed = (desc: SchemaDesc, name: string): SchemaDesc => ({
 	...(desc.extends === undefined ? {} : { extends: renamed(desc.extends, name) })
 })
 
-/** The worked examples' histories, by name. */
-const historyLabels = [
-	"work",
-	"payroll",
-	"plans",
-	"queue",
-	"ledger",
-	"network",
-	"search",
-	"schedule",
-	"calendars"
-] as const
-type HistoryLabel = (typeof historyLabels)[number]
+/** The fixture families, by name. */
+type HistoryLabel =
+	| "work"
+	| "payroll"
+	| "plans"
+	| "queue"
+	| "ledger"
+	| "network"
+	| "search"
+	| "schedule"
+	| "calendars"
 
-interface History {
+/** A fixture family: a base schema and the extensions of it its fixture declares, each a level a history stands at. */
+interface Family {
 	readonly label: HistoryLabel
-	readonly versions: Arr.NonEmptyReadonlyArray<Version>
+	readonly levels: Arr.NonEmptyReadonlyArray<Version>
 }
 
 const work = versionOf(workApi.Work, (name) => [
@@ -149,36 +150,83 @@ const reporting = versionOf(payrollApi.Reporting, (name) => [
 	payrollApi.reportingWorlds(rebuild(payrollApi.Payroll, name)).server
 ])
 
-const histories: Arr.NonEmptyReadonlyArray<History> = [
-	{ label: "work", versions: [work, versionOf(workApi.Reports, noLogins), work, work] },
-	{ label: "payroll", versions: [payroll, reporting, payroll, payroll] },
-	...Arr.map(
-		[
-			[
-				"plans",
-				versionOf(workApi.Plans, (name) => [
-					workApi.plansWorlds(rebuild(workApi.Plans, name)).server
-				])
-			],
-			[
-				"queue",
-				versionOf(queueApi.Queue, (name) => [
-					queueApi.queueWorlds(rebuild(queueApi.Queue, name)).server
-				])
-			],
-			["ledger", versionOf(ledgerApi.Ledger, noLogins)],
-			["network", versionOf(graphApi.Network, noLogins)],
-			[
-				"search",
-				versionOf(searchApi.Search, (name) => [
-					searchApi.searchWorlds(rebuild(searchApi.Search, name)).server
-				])
-			],
-			["schedule", versionOf(spansApi.Schedule, noLogins)],
-			["calendars", versionOf(spansApi.Calendars, noLogins)]
-		] as const,
-		([label, version]): History => ({ label, versions: [version, version] })
-	)
+/** The dictionary of fixture families: realistic schemas whose features the generated paths do not reach. */
+const families: Arr.NonEmptyReadonlyArray<Family> = [
+	{ label: "work", levels: [work, versionOf(workApi.Reports, noLogins)] },
+	{ label: "payroll", levels: [payroll, reporting] },
+	{
+		label: "plans",
+		levels: [
+			versionOf(workApi.Plans, (name) => [workApi.plansWorlds(rebuild(workApi.Plans, name)).server])
+		]
+	},
+	{
+		label: "queue",
+		levels: [
+			versionOf(queueApi.Queue, (name) => [
+				queueApi.queueWorlds(rebuild(queueApi.Queue, name)).server
+			])
+		]
+	},
+	{ label: "ledger", levels: [versionOf(ledgerApi.Ledger, noLogins)] },
+	{ label: "network", levels: [versionOf(graphApi.Network, noLogins)] },
+	{
+		label: "search",
+		levels: [
+			versionOf(searchApi.Search, (name) => [
+				searchApi.searchWorlds(rebuild(searchApi.Search, name)).server
+			])
+		]
+	},
+	{ label: "schedule", levels: [versionOf(spansApi.Schedule, noLogins)] },
+	{ label: "calendars", levels: [versionOf(spansApi.Calendars, noLogins)] }
+]
+
+/** A history: a family, and the level of each of its versions, in order. */
+interface History {
+	readonly family: Family
+	readonly levels: Arr.NonEmptyReadonlyArray<number>
+}
+
+/** A walk over one of `among`'s families: two to four versions, each at any of its levels. */
+const historyFrom =
+	(among: Arr.NonEmptyReadonlyArray<Family>): Gen<History> =>
+	(source) => {
+		const family = source.draw(element(among))
+		const level = int(0, family.levels.length - 1)
+		return {
+			family,
+			levels: Arr.makeBy(source.draw(int(2, 4)), () => source.draw(level))
+		}
+	}
+
+/** A history's versions, in order. */
+const versionsOf = (h: History): Arr.NonEmptyReadonlyArray<Version> =>
+	Arr.map(h.levels, (at) => defined(h.family.levels[at], "a level of the family"))
+
+/** A history as a kept case would name it: its family and its levels. */
+const historyText = (h: History): string =>
+	`${h.family.label} at ${Arr.join(Arr.map(h.levels, String), ", ")}`
+
+type FixtureFeature =
+	| HistoryLabel
+	| "an extension added"
+	| "an extension dropped"
+	| "a version drafted again"
+
+/** What a history reaches: its family, and each step's move between levels. */
+const featuresOf = (h: History): ReadonlyArray<FixtureFeature> => [
+	h.family.label,
+	...Arr.flatMap(Arr.drop(h.levels, 1), (to, i): ReadonlyArray<FixtureFeature> => {
+		const from = defined(h.levels[i], "the level before")
+		return [
+			to > from
+				? "an extension added"
+				: to < from
+					? "an extension dropped"
+					: "a version drafted again"
+		]
+	})
 ]
 
 /** A version's installation under `name`, owned by `owner`, with its logins: the complete installation, its derived
@@ -224,8 +272,9 @@ const declaredFrom = (
 /** The three installations of the last version, the fresh one and the installer's dropped once compared.
  *
  * Db.open admits the database: a refusal fails the test. */
-const migrates = (history: History) =>
+const migrates = (h: History) =>
 	Effect.gen(function* () {
+		const history = { label: h.family.label, versions: versionsOf(h) }
 		const substrate = yield* Substrate
 		const owner = substrate.owner.role
 		const name = yield* substrate.schema({ create: false, label: history.label })
@@ -337,27 +386,53 @@ const migrates = (history: History) =>
 		}
 	}).pipe(Effect.scoped)
 
-const historyGen: Gen<History> = element(histories)
-
 layer(Substrate.layer)("the worked examples migrate version by version", (it) => {
 	it.effect(
 		"every history: every apply admitted and checked, the history the fresh install and the installer agree, the ledger complete and Db.open admits every role",
 		(ctx) =>
 			searched(
 				ctx,
-				exhaust(
+				explore(
 					{
-						/** Every history, each its own case: a history drafts, applies and compares at most four versions and opens every role
-						 * of the last. */
 						suite: "pg/migrate/fixtures",
-						generator: historyGen,
-						literal: (history: History) => history.label,
-						limit: histories.length,
-						coverage: requiredInSpace<HistoryLabel>(historyLabels),
-						caseHang
+						draw: drawn(historyFrom(families)),
+						literal: historyText,
+						coverage: required<FixtureFeature>(
+							[
+								...Arr.map(families, (f) => f.label),
+								"an extension added",
+								"an extension dropped",
+								"a version drafted again"
+							],
+							{ cases: 16, sense: notesOnly }
+						),
+						kept: [],
+						runs: 2,
+						shrink: { kind: "bounded", candidates: 8 },
+						concurrency: 1,
+						steerEvery: 2,
+						caseHang,
+						oracle: {
+							kind: "second-implementation",
+							name: "the fresh-install script and the test installer, against the history the runner migrated"
+						}
 					},
-					(history, c) => {
-						c.note(history.label)
+					(drawnHistory, c) => {
+						const aimed = Option.match(c.steering, {
+							onNone: (): ReadonlyArray<Family> => [],
+							onSome: (pending) =>
+								Arr.filter(
+									families,
+									(f) =>
+										pending.has(f.label) ||
+										(f.levels.length > 1 &&
+											(pending.has("an extension added") || pending.has("an extension dropped")))
+								)
+						})
+						const history = Arr.isReadonlyArrayNonEmpty(aimed)
+							? c.draw(historyFrom(aimed))
+							: drawnHistory
+						c.noteAll(featuresOf(history))
 						return migrates(history)
 					}
 				)

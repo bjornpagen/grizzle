@@ -30,7 +30,7 @@ import { bits } from "#compiler/public/fields.ts"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
 import { evaluateTable } from "#compiler/scalar/compute/evaluate.ts"
 import type { CarrierValue } from "#compiler/scalar/compute/literal.ts"
-import { nativeOp } from "#compiler/scalar/compute/registry.ts"
+import { type NativeFn, nativeOp, nativeOps } from "#compiler/scalar/compute/registry.ts"
 import { capabilitiesOf } from "#compiler/scalar/registry.ts"
 import { closed } from "#compiler/schema/api.ts"
 import { assert, defined, nonEmpty, succeeded, throwsRefused } from "#test/support/assert.ts"
@@ -77,8 +77,28 @@ const patterns: Gen<Pattern> = (s) => {
 	return { live, a, b }
 }
 
-const setOperations = ["union", "intersection", "difference", "subset", "disjoint"] as const
-type SetOperation = (typeof setOperations)[number]
+/** The registry's operations over two sets: every native node whose two operands are both a set over a roster. */
+const twoSetOps = nonEmpty(
+	Arr.filter(
+		nativeOps,
+		(op) =>
+			op.operands.kind === "positional" &&
+			op.operands.carriers.length === 2 &&
+			Arr.every(op.operands.carriers, (carrier) => carrier === "bits")
+	),
+	"the registry's operations over two sets"
+)
+
+/** The Compute member a JavaScript caller names each operation over two values by, the registry's function name. */
+const twoOperandCores: Readonly<Partial<Record<NativeFn, (a: unknown, b: unknown) => unknown>>> = {
+	eq: Compute.eq,
+	ne: Compute.ne,
+	union: Compute.union,
+	intersection: Compute.intersection,
+	difference: Compute.difference,
+	subset: Compute.subset,
+	disjoint: Compute.disjoint
+}
 
 type Situation =
 	| "a hole"
@@ -243,29 +263,35 @@ describe("the host's set algebra", () => {
 	)
 
 	it.effect(
-		"refuses every set operation over sets of two rosters, which name other handles",
+		"refuses every operation over two sets of two rosters, which name other handles",
 		(ctx) =>
 			searched(
 				ctx,
 				exhaust(
 					{
 						suite: "unit/compute/bits-two-rosters",
-						generator: element(setOperations),
+						generator: element(twoSetOps),
 						literal: Formatter.format,
-						limit: setOperations.length,
-						coverage: requiredInSpace<SetOperation>(setOperations),
+						limit: twoSetOps.length,
+						coverage: requiredInSpace<NativeFn>(
+							nonEmpty(
+								Arr.map(twoSetOps, (op) => op.fn),
+								"a function"
+							)
+						),
 						caseHang,
-						box: "every binary set operation",
+						box: "every native operation over two sets",
 						oracle: { kind: "specification", name: "a set meets only a set of its roster" }
 					},
-					(operation, c) =>
+					(op, c) =>
 						Effect.sync(() => {
+							const core = defined(twoOperandCores[op.fn], `the Compute member of ${op.fn}`)
 							const left = bits(closed("Left", ["a", "b"]))
 							const right = bits(closed("Right", ["a", "b"]))
 							const x = Compute.literal(left, new Set(["a"]))
 							const y = Compute.literal(right, new Set(["a"]))
-							throwsRefused(() => Compute[operation](x, y), "MalformedDescription")
-							c.note(operation)
+							throwsRefused(() => core(x, y), "MalformedDescription")
+							c.note(op.fn)
 						})
 				)
 			)

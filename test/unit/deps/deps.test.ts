@@ -20,7 +20,7 @@ import {
 } from "effect"
 import { appendAll } from "#compiler/core/array.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
-import { assert, like, matchers, nonEmpty } from "#test/support/assert.ts"
+import { assert, defined, like, matchers, nonEmpty } from "#test/support/assert.ts"
 import { repoRoot } from "#test/support/files.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { hardenedNode, run, runOptions, sourceCondition } from "#test/support/process.ts"
@@ -219,13 +219,22 @@ layer(NodeServices.layer, { excludeTestServices: true })(
 )
 
 layer(NodeServices.layer, { excludeTestServices: true })("runtime", (it) => {
+	/** A module URL Node resolved, and the module whose import asked for it. */
+	type Resolved = { readonly importer: string; readonly url: string }
+	/** A trapped call and the frame that made it. */
+	type Trapped = { readonly kind: string; readonly frame: string }
 	/** The probe's one JSON line, which runtime-probe.ts, the test's own child process, prints. */
 	type ProbeOutput = {
 		readonly control: boolean
 		readonly controlLine: number
 		readonly protoAccessor: boolean
-		readonly resolved: ReadonlyArray<{ readonly importer: string; readonly url: string }>
-		readonly trapped: ReadonlyArray<{ readonly kind: string; readonly frame: string }>
+		readonly resolved: ReadonlyArray<Resolved>
+		readonly trapped: ReadonlyArray<Trapped>
+		readonly loads: ReadonlyArray<{
+			readonly module: string
+			readonly resolved: ReadonlyArray<Resolved>
+			readonly trapped: ReadonlyArray<Trapped>
+		}>
 		readonly loadedTrapped: number
 		readonly admitted: number
 		readonly checked: number
@@ -259,17 +268,28 @@ layer(NodeServices.layer, { excludeTestServices: true })("runtime", (it) => {
 		})
 
 	/**
-	 * The trapped calls made from modules under a directory of the repository: the one filter both checks below use.
+	 * The trapped calls made from modules under a directory of the repository: the one filter every check below uses.
 	 */
-	const trappedUnder = (out: ProbeOutput, dir: string): Array<string> =>
+	const trappedUnder = (trapped: ReadonlyArray<Trapped>, dir: string): Array<string> =>
 		Arr.map(
-			Arr.filter(out.trapped, (t) => pipe(t.frame, Str.includes(`${root}${dir}/`))),
+			Arr.filter(trapped, (t) => pipe(t.frame, Str.includes(`${root}${dir}/`))),
 			(t) => `${t.kind} ${t.frame}`
 		)
 
+	/**
+	 * The arkregex and @ark modules loaded from neither a test module nor arkregex's own: arkregex is the tests' regex
+	 * door (no-raw-regexp), so a test module may load it, and its own modules load @ark; src, and every dependency src
+	 * loads, never does.
+	 */
+	const arkBeyondTests = (resolved: ReadonlyArray<Resolved>): ReadonlyArray<Resolved> =>
+		Arr.filter(
+			resolved,
+			(r) => isArkUrl(r.url) && !isArkUrl(r.importer) && !Str.includes(`${root}test/`)(r.importer)
+		)
+
 	it.effect(
-		"runs under hardened Node, and loads every entry point and drives every text parser so, with no arkregex module and no RegExp from src/",
-		() =>
+		"runs under hardened Node, and loads every entry point, each reaching no arkregex module and no RegExp from src/, and drives every text parser so",
+		(ctx) =>
 			Effect.gen(function* () {
 				assert.equal(
 					Object.getOwnPropertyDescriptor(Object.prototype, "__proto__"),
@@ -302,7 +322,7 @@ layer(NodeServices.layer, { excludeTestServices: true })("runtime", (it) => {
 				 * The filter can fire: the planted module's construction, its literal's match and its String.prototype.match
 				 * are each found under its directory, on their own lines.
 				 */
-				const fromPlanted = trappedUnder(out, "test/unit/deps/fixtures")
+				const fromPlanted = trappedUnder(out.trapped, "test/unit/deps/fixtures")
 				assert.equal(
 					Arr.filter(
 						fromPlanted,
@@ -339,18 +359,33 @@ layer(NodeServices.layer, { excludeTestServices: true })("runtime", (it) => {
 					),
 					[]
 				)
-				/**
-				 * The arkregex and @ark modules loaded from neither a test module nor arkregex's own: arkregex is the tests'
-				 * regex door (no-raw-regexp), so a test module may load it, and its own modules load @ark; src, and every
-				 * dependency src loads, never does.
-				 */
-				const arkBeyondTests = Arr.filter(
-					out.resolved,
-					(r) =>
-						isArkUrl(r.url) && !isArkUrl(r.importer) && !Str.includes(`${root}test/`)(r.importer)
+				assert.deepEqual(arkBeyondTests(out.resolved), [], "the probe's whole run")
+				assert.deepEqual(trappedUnder(out.trapped, "packages"), [], "the probe's whole run")
+				const loads = new Map(Arr.map(out.loads, (load) => [load.module, load] as const))
+				return yield* searched(
+					ctx,
+					exhaust(
+						{
+							suite: "unit/deps/entry points",
+							generator: element(nonEmpty(entries, "the packages' entry points")),
+							literal: Formatter.format,
+							limit: entries.length,
+							coverage: noCoverage,
+							box: "every entry point the packages' package.json exports and bins name",
+							oracle: {
+								kind: "specification",
+								name: "what the entry's load resolved and trapped, in a child Node under the RegExp trap"
+							},
+							caseHang
+						},
+						(entry) =>
+							Effect.sync(() => {
+								const load = defined(loads.get(entry), `the probe loaded ${entry}`)
+								assert.deepEqual(arkBeyondTests(load.resolved), [], `${entry}: arkregex or @ark`)
+								assert.deepEqual(trappedUnder(load.trapped, "packages"), [], `${entry}: a RegExp`)
+							})
+					)
 				)
-				assert.deepEqual(arkBeyondTests, [])
-				assert.deepEqual(trappedUnder(out, "packages"), [])
 			})
 	)
 })

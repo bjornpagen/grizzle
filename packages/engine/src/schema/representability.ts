@@ -405,8 +405,8 @@ export const lengthBound = (measure: LengthMeasure, predicate: ExprDesc): number
 
 /**
  * The most UTF-8 bytes a pattern's language admits, as the text analysis proved it where its descriptor was admitted
- * (ir/scalar.ts TextLanguage): exact from the minimal DFA, structural above its bound; Infinity for a tautology or a
- * language the analysis bounds nowhere.
+ * (ir/scalar.ts TextLanguage): exact from the minimal DFA, structural above its bound, and the byte bound itself where
+ * str.bytes cuts it tighter; Infinity for a tautology or a language the analysis bounds nowhere.
  */
 const languageByteBound = (language: TextLanguage): number =>
 	language.kind === "every"

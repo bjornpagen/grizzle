@@ -1,12 +1,12 @@
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
-import { element } from "@grizzle/testing/gen"
+import { boolean, type Gen, subarray } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Order, Record as Rec } from "effect"
 import type { LawModel } from "#compiler/laws/model/model.ts"
 import type { CarrierValue } from "#compiler/scalar/compute/literal.ts"
-import { assert, defined, nonEmpty } from "#test/support/assert.ts"
+import { assert, defined } from "#test/support/assert.ts"
 import {
 	type AuthoredStatementDesc,
 	contained,
@@ -62,14 +62,14 @@ import {
  * A count fold over the tree rides the predecessor and last axes, and its first-slot pin is `at > 0 OR before = ι`, the
  * root at slot 0 included, as the root pin holds it there: the root's before is no free value.
  *
- * Bound: every tree with 0 to 2 parent copies, each a caller field or an accumulated one, mutable or not, with a
- * hidden count fold or none, 16 schemas;
- * the CHECK on every row with parent = id or not and at, children, start, end, ‹ps› and ‹n› in 0 … 3 (8,192 rows), and
- * the owner axis on every root of children, ‹n›, ‹ps› and copies in 0 … 1. The named mutants: a cascading owner axis
- * over ‹parent₀› (refused by PostgreSQL), the root's copies left free of the axis (the old ‹parent₀› source), the root pin dropped (the unpinned sentinel: a root at slot 1
- * accepted), T0's root copy dropped (the owner axis without r → r) and T5's end dropped (the last axis without
- * end → end), and the root's before left unpinned (a first-slot pin exempting start 0: the root at slot 0 with a
- * before of 1 accepted), each a different set of natives or verdicts this box refuses.
+ * Bound: every tree with a caller field's parent copy or none and an accumulated one or none, mutable or not, with a
+ * hidden count fold or none, 16 schemas; the CHECK on every row with parent = id or not and at, children, start, end,
+ * ‹ps› and ‹n› in 0 … 3 (8,192 rows), and the owner axis on every root of children, ‹n›, ‹ps› and copies in 0 … 1. The
+ * named mutants: a cascading owner axis over ‹parent₀› (refused by PostgreSQL), the root's copies left free of the axis
+ * (an owner axis from ‹parent₀›), the root pin dropped (the unpinned sentinel: a root at slot 1 accepted), T0's root copy
+ * dropped (the owner axis without r → r) and T5's end dropped (the last axis without end → end), and the root's before
+ * left unpinned (a first-slot pin exempting start 0: the root at slot 0 with a before of 1 accepted), each a different
+ * set of natives or verdicts this box refuses.
  */
 
 type Copy = "caller" | "accumulated"
@@ -80,16 +80,12 @@ interface Shape {
 	readonly fold: boolean
 }
 
-const shapes: Arr.NonEmptyReadonlyArray<Shape> = nonEmpty(
-	Arr.flatMap([false, true], (isMutable) =>
-		Arr.flatMap([false, true], (withFold) =>
-			Arr.map(
-				[[], ["caller"], ["accumulated"], ["caller", "accumulated"]] as const,
-				(copies): Shape => ({ copies, mutable: isMutable, fold: withFold })
-			)
-		)
-	)
-)
+/** The box: a caller copy or none and an accumulated copy or none, in that order, mutable or not, with a fold or none. */
+const shapeGen: Gen<Shape> = (source) => ({
+	copies: source.draw(subarray(["caller", "accumulated"] as const)),
+	mutable: source.draw(boolean),
+	fold: source.draw(boolean)
+})
 
 type Feature =
 	| "an immutable tree"
@@ -427,7 +423,7 @@ describe("a tree's natives are §2.2's: the family on three axes, T0 to T6, and 
 			exhaust(
 				{
 					suite: "unit/laws/model/tree",
-					generator: element(shapes),
+					generator: shapeGen,
 					literal: Formatter.format,
 					/** The space: 4 copy sets, mutable or not, with a fold or none. */
 					limit: 16,

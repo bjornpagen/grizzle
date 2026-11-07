@@ -4,8 +4,8 @@ import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, pipe, String as Str } from "effect"
-import { ALLEN, AllenMask, fullAllenMask } from "#compiler/allen/mask.ts"
-import { allenRelations } from "#compiler/core/allen.ts"
+import { atomLiterals, literalNegated } from "#compiler/allen/atoms.ts"
+import { AllenMask, fullAllenMask } from "#compiler/allen/mask.ts"
 import { indices } from "#compiler/core/array.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
@@ -17,6 +17,7 @@ import {
 	canonicalizationSurvey,
 	canonicalize,
 	type RangeType,
+	rangeTypes,
 	spanText,
 	spellingText,
 	universe,
@@ -27,17 +28,15 @@ import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/su
 
 import { regex } from "arkregex"
 
-const types = ["int4range", "int8range"] as const satisfies ReadonlyArray<RangeType>
-
 /** Every range type, each case noting its own: an exhaustion over the types, each case in a schema of its own. */
 const everyType = <E, R>(suite: string, property: (type: RangeType) => Effect.Effect<void, E, R>) =>
 	exhaust(
 		{
 			suite,
-			generator: element<RangeType>(types),
+			generator: element(rangeTypes),
 			literal: Formatter.format,
-			limit: types.length,
-			coverage: requiredInSpace<RangeType>(types),
+			limit: rangeTypes.length,
+			coverage: requiredInSpace<RangeType>(rangeTypes),
 			caseHang
 		},
 		(type, c) => Effect.tap(property(type), () => Effect.sync(() => c.note(type)))
@@ -105,7 +104,7 @@ $f$`,
 	)
 
 	it.effect(
-		"gives 0 mismatches for every mask over every ordered pair of the stored universe of every range type",
+		"gives 0 mismatches for every mask and every literal over every ordered pair of the stored universe of every range type",
 		(ctx) =>
 			searched(
 				ctx,
@@ -138,24 +137,28 @@ $f$`,
 							new Set(Arr.map(spans, spanText))
 						)
 
-						/** Every ordered pair of stored values, with the host classifier's relation bit. */
+						/**
+						 * Every ordered pair of stored values, with the host classifier's relation bit and the host's transcription of
+						 * PostgreSQL's operators, each atom's truth as its bit.
+						 */
 						const pairs = universePairs(spans)
 						yield* db.query(
-							`CREATE TABLE ${schema}.p (a ${type} NOT NULL, b ${type} NOT NULL, rel int4 NOT NULL)`,
+							`CREATE TABLE ${schema}.p (a ${type} NOT NULL, b ${type} NOT NULL, rel int4 NOT NULL, atoms int4 NOT NULL)`,
 							[]
 						)
 						yield* db.query(
-							`INSERT INTO ${schema}.p (a, b, rel)
-SELECT x.v, y.v, j.rel
+							`INSERT INTO ${schema}.p (a, b, rel, atoms)
+SELECT x.v, y.v, j.rel, j.atoms
 FROM (SELECT DISTINCT v FROM ${schema}.u) AS x
 CROSS JOIN (SELECT DISTINCT v FROM ${schema}.u) AS y
-JOIN jsonb_to_recordset($1::text::jsonb) AS j(a text, b text, rel int4) ON j.a = x.v::text AND j.b = y.v::text`,
+JOIN jsonb_to_recordset($1::text::jsonb) AS j(a text, b text, rel int4, atoms int4) ON j.a = x.v::text AND j.b = y.v::text`,
 							[
 								jsonText(
 									Arr.map(pairs, (p) => ({
 										a: spanText(p.a),
 										b: spanText(p.b),
-										rel: p.relationBit
+										rel: p.relationBit,
+										atoms: p.atoms
 									}))
 								)
 							]
@@ -194,17 +197,28 @@ JOIN jsonb_to_recordset($1::text::jsonb) AS j(a text, b text, rel int4) ON j.a =
 						assert.equal(checked, fullAllenMask)
 
 						/**
-						 * The same query catches a wrong formula: the hand overlaps derivation without NOT A @> B admits
-						 * finishedBy, on PostgreSQL as on the host.
+						 * Every literal, each atom and its negation: PostgreSQL's operator must hold exactly where the host's
+						 * transcription of it holds, which the unit suite holds to each atom's relation set.
 						 */
-						const hand = formulaSql([[0, 10, 13]], "r1.a", "r1.b")
-						const wrong = yield* db.values(
-							`SELECT DISTINCT r1.rel::text FROM ${schema}.p AS r1 WHERE (${hand}) <> (((${ALLEN.overlaps} >> r1.rel) & 1) = 1)`,
+						const literals = Arr.flatten(atomLiterals)
+						const [literalRow] = yield* db.values(
+							`SELECT ${Arr.join(
+								Arr.map(
+									literals,
+									(literal) =>
+										`count(*) FILTER (WHERE (${formulaSql([[literal]], "r1.a", "r1.b")}) <> (((r1.atoms >> ${literal >> 1}) & 1) = ${literalNegated(literal) ? 0 : 1}))::text`
+								),
+								", "
+							)} FROM ${schema}.p AS r1`,
 							[]
 						)
 						assert.deepEqual(
-							Arr.map(wrong, ([rel]) => allenRelations[Number(rel)]),
-							["finishedBy"]
+							Arr.flatMap(literals, (literal, i) =>
+								Number(literalRow?.[i]) === 0
+									? []
+									: [{ literal, mismatches: Number(literalRow?.[i]) }]
+							),
+							[]
 						)
 					})
 				)

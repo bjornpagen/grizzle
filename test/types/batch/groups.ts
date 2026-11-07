@@ -4,6 +4,7 @@ import { changeSetEntriesFrom, changeSetModules } from "#test/support/agreement/
 import { computeEntriesFrom, computeModules } from "#test/support/agreement/compute.ts"
 import { agreementEntriesFrom, agreementModules } from "#test/support/agreement/queries.ts"
 import { schemaEntriesFrom, schemaModules } from "#test/support/agreement/schemas.ts"
+import { bytesProgram } from "#test/support/text/bytes.ts"
 import { checkUnit, type Group, type UnitSpec } from "#test/types/batch/batch.ts"
 import { nestingCases, nestingSource } from "#test/types/changeset/nesting.ts"
 import {
@@ -226,6 +227,19 @@ export const typeGroups: ReadonlyArray<Group> = [
 				disarm: false,
 				heavy: false,
 				source: (_entry, seed) => [{ file: "contained.ts", source: containedProgram(seed).source }]
+			}
+		}
+	},
+	{
+		owner: "test/types/text/bytes.test.ts",
+		units: {
+			"text/bytes": {
+				kind: "program",
+				dir: "test/types/text",
+				prefix: ".bytes-",
+				disarm: false,
+				heavy: false,
+				source: (_entry, seed) => [{ file: "bytes.ts", source: bytesProgram(seed).source }]
 			}
 		}
 	}

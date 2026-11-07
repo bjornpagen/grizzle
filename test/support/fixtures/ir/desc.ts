@@ -126,7 +126,7 @@ export const textDesc = (
 	if (!language.ok) {
 		throw language.error
 	}
-	return { kind: "text", source, flags, language: language.value }
+	return { kind: "text", source, flags, bytes: undefined, language: language.value }
 }
 
 /** natural: the builtin contract over bigint, never below zero, that pred reads (scalar/natural.ts). */

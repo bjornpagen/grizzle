@@ -91,13 +91,16 @@ export type OperandPremise =
 	| {
 			/**
 			 * An operand whose every value is a member of a regex refinement's language, the language of `pattern` under
-			 * `flags`: its type's, or the refinement a Compute.matches guard gives it inside its branch. A parse's lexical
-			 * precondition rests on it, the language included in the form, which the tests' proof kernel decides again.
+			 * `flags`, and of at most `bytes` UTF-8 bytes where the refinement bounds them: its type's, or the refinement a
+			 * Compute.matches guard gives it inside its branch. A parse's lexical precondition rests on it, the language
+			 * included in the form, and a cast's into a refined text, the language included in the target's pattern and
+			 * the bytes within its byte bound (str.bytes), which the tests' proof kernel decides again.
 			 */
 			readonly kind: "language"
 			readonly operand: OperandIndex
 			readonly pattern: string
 			readonly flags: "u" | "su"
+			readonly bytes: number | undefined
 	  }
 
 /** The proof of one precondition: the precondition and the premises it rests on. */

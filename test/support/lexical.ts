@@ -1,8 +1,18 @@
-import { characterOf, element, type Gen, int, map, oneOf, string } from "@grizzle/testing/gen"
-import { type Array as Arr, DateTime, String as Str } from "effect"
+import {
+	characterOf,
+	constant,
+	element,
+	type Gen,
+	int,
+	map,
+	oneOf,
+	string
+} from "@grizzle/testing/gen"
+import { type Array as Arr, DateTime, Record as Rec, String as Str } from "effect"
 import { integerRanges } from "#compiler/ir/carriers.ts"
 import type { LexicalTarget } from "#compiler/scalar/lexical.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { nonEmpty } from "#test/support/assert.ts"
 
 /**
  * Candidates for the lexical forms (scalar/lexical.ts), shared by the unit suite and the PostgreSQL differential: each
@@ -32,18 +42,32 @@ const digit = characterOf(["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"])
 const digits = (min: number, max: number): Gen<string> => string(digit, { min, max })
 const sign = element(["", "", "+", "-"])
 
-/** The targets the forms are drawn for: every kind, an integer carrier each, typmods with s = 0, s = p and between. */
-export const targets: Arr.NonEmptyReadonlyArray<LexicalTarget> = [
-	{ kind: "integer", carrier: "int2" },
-	{ kind: "integer", carrier: "int4" },
-	{ kind: "integer", carrier: "int8" },
-	{ kind: "decimal", typmod: { precision: 5, scale: 2 } },
-	{ kind: "decimal", typmod: { precision: 4, scale: 0 } },
-	{ kind: "decimal", typmod: { precision: 3, scale: 3 } },
-	{ kind: "double" },
-	{ kind: "boolean" },
-	{ kind: "date" }
-]
+/**
+ * The lexical targets, one generator per kind of LexicalTarget, so a kind the type gains is a missing key here: an
+ * integer carrier of the carriers' ranges, numeric(p, s) for every precision up to `maxPrecision` and every scale from
+ * 0 to p, and the double, boolean and date forms.
+ */
+export const targetGen = (maxPrecision: number): Gen<LexicalTarget> => {
+	const ofKind: {
+		readonly [K in LexicalTarget["kind"]]: Gen<Extract<LexicalTarget, { readonly kind: K }>>
+	} = {
+		integer: map(element(nonEmpty(Rec.keys(integerRanges), "the integer carriers")), (carrier) => ({
+			kind: "integer",
+			carrier
+		})),
+		decimal: (source) => {
+			const precision = source.draw(int(1, maxPrecision))
+			return { kind: "decimal", typmod: { precision, scale: source.draw(int(0, precision)) } }
+		},
+		double: constant({ kind: "double" }),
+		boolean: constant({ kind: "boolean" }),
+		date: constant({ kind: "date" })
+	}
+	return oneOf<LexicalTarget>(nonEmpty(Rec.values(ofKind), "a generator per kind"))
+}
+
+/** The greatest precision of a candidate's numeric target, whose texts stay a few digits long. */
+const candidateMaxPrecision = 6
 
 /** A candidate text, whether the specification makes it a member, and the value it names when it is one. */
 export interface Candidate {
@@ -226,20 +250,24 @@ const dateGen: Gen<Candidate> = (source) => {
 /** One corruption of a member: a space, a doubled sign or point, a letter, or nothing left. */
 const corruptions = [" ", "+-", "..", "x", ""] as const
 
+/** The candidates of a target's form. */
+const candidatesOf = (target: LexicalTarget): Gen<Candidate> => {
+	switch (target.kind) {
+		case "integer":
+			return integerGen(target.carrier)
+		case "decimal":
+			return decimalGen(target.typmod.precision, target.typmod.scale)
+		case "double":
+			return doubleGen
+		case "boolean":
+			return booleanGen
+		case "date":
+			return dateGen
+	}
+}
+
 export const candidateGen: Gen<Candidate> = (source) => {
-	const base = source.draw(
-		oneOf<Candidate>([
-			integerGen("int2"),
-			integerGen("int4"),
-			integerGen("int8"),
-			decimalGen(5, 2),
-			decimalGen(4, 0),
-			decimalGen(3, 3),
-			doubleGen,
-			booleanGen,
-			dateGen
-		])
-	)
+	const base = source.draw(candidatesOf(source.draw(targetGen(candidateMaxPrecision))))
 	const corruption = source.draw(element([undefined, undefined, undefined, ...corruptions]))
 	if (corruption === undefined || !base.member) {
 		return base

@@ -60,6 +60,7 @@ import {
 	numericMinScale,
 	type NumericTypmod,
 	numericTypmodOf,
+	type PatternCheck,
 	type RegexCheck,
 	type RegexRef,
 	RegexKey,
@@ -153,10 +154,25 @@ const textBoundsShape: S.Shape<TextBounds> = S.struct({
 	bytes: S.nonNegativeInteger
 })
 
-/** A language's enforcement as the text analysis chose it (ir/scalar.ts RegexCheck). */
+const finiteCheckShape = S.struct({ members: S.nonEmptyArray(S.string), bounds: textBoundsShape })
+
+const patternRegexShape = S.structStated({ pattern: S.string }, { bounds: textBoundsShape }, {})
+
+/** A pattern's enforcement as the text analysis chose it (ir/scalar.ts PatternCheck). */
+const patternCheckShape: S.Shape<PatternCheck> = S.tagged("kind", {
+	finite: finiteCheckShape,
+	regex: patternRegexShape
+})
+
+/** A refinement's enforcement (ir/scalar.ts RegexCheck): a pattern's, or a byte bound beside one or alone. */
 const regexCheckShape: S.Shape<RegexCheck> = S.tagged("kind", {
-	finite: S.struct({ members: S.nonEmptyArray(S.string), bounds: textBoundsShape }),
-	regex: S.structStated({ pattern: S.string }, { bounds: textBoundsShape }, {})
+	finite: finiteCheckShape,
+	regex: patternRegexShape,
+	octets: S.structStated(
+		{ octets: S.nonNegativeInteger, bounds: textBoundsShape },
+		{ check: patternCheckShape },
+		{}
+	)
 })
 
 const regexKeyShape = S.branded(RegexKey, S.nonEmptyString)

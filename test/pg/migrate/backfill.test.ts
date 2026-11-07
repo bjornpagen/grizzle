@@ -5,19 +5,36 @@
  * then proves every native over the backfilled rows.
  *
  * - **A second implementation:** the reference fold (test/support/families/fold.ts) of each owner's members in key
- *   order states every backfilled value; what the migration leaves must be exactly that.
+ *   order states every backfilled value of a family, each owner's tag is what its members' copy holds, and for a tree
+ *   the direct pre-order numbering (test/support/families/tree.ts), its children in key order, states every node's
+ *   slot, count, interval, sibling count and parent's kind; what the migration leaves must be exactly that.
  * - **PostgreSQL as the judge:** the migration commits, and no constraint of the installation is left NOT VALID.
  *
- * The box: owners with 0, 1 and 3 existing members, so the backfill meets an empty family, a family of one (its first
- * slot its last), and a family whose predecessor chain the running sum must close; the same family with each owner's
- * tag copied onto its members along the owner axis; and a forest of a tree folded by count over each node's children,
- * as NP's fold suite folds it (test/pg/fin/fold.test.ts), with each node's parent's kind copied down the parent axis,
- * the root its own.
+ * The spaces, generated: one to three owners whose members fall among them in any counts, so a backfill meets empty
+ * families, families of one (the first slot the last) and families whose predecessor chain the running sum must close;
+ * member keys drawn apart and written out of their order, and each member's value; and the same family with each
+ * owner's tag copied onto its members along the owner axis, or without. And one or two trees of one to five nodes,
+ * each under its own root value, folded by count over each node's children, as NP's fold suite folds it
+ * (test/pg/fin/fold.test.ts), each node's parent's kind copied down the parent axis, the root its own, node keys drawn
+ * apart and written out of their order.
  */
 import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Option, Order, Record as Rec } from "effect"
+import { type Case, drawn, explore } from "@grizzle/testing/explore"
+import { required } from "@grizzle/testing/features"
+import {
+	boolean,
+	composition,
+	filter,
+	type Gen,
+	int,
+	parents,
+	shuffled
+} from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
+import { searched } from "@grizzle/testing/vitest"
+import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
-import { accumulated, drawn, natural, pg } from "#compiler/public/fields.ts"
+import { accumulated, drawn as drawnField, natural, pg } from "#compiler/public/fields.ts"
 import {
 	type AnySchema,
 	contained,
@@ -36,30 +53,15 @@ import { byMember, FOLD_SPECS, foldRead, foldSeatOf } from "#test/pg/fin/folds.t
 import { seatOfInstalled } from "#test/pg/fin/installed.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { foldStoredOf } from "#test/support/families/fold.ts"
-import { type Node, numbered } from "#test/support/families/tree.ts"
+import { type Node, numbered, type Rooted } from "#test/support/families/tree.ts"
 import { migrated } from "#test/support/installed.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
-/** The rows before the family: owner 0 with no member, owner 1 with one, owner 2 with three, members keyed apart. */
-const EXISTING: ReadonlyArray<{
-	readonly owner: number
-	readonly members: ReadonlyArray<{ readonly member: number; readonly x: number }>
-}> = [
-	{ owner: 0, members: [] },
-	{ owner: 1, members: [{ member: 10, x: 5 }] },
-	{
-		owner: 2,
-		members: [
-			{ member: 22, x: 1 },
-			{ member: 20, x: 2 },
-			{ member: 21, x: 3 }
-		]
-	}
-] as const
-
+/** The counted family before it: owners keyed by id, members keyed by member, each with its owner g and a value x. */
 const before = (name: string) =>
 	schema(
 		name,
@@ -73,7 +75,7 @@ const before = (name: string) =>
 const after = (name: string) => {
 	const Owner = relation(
 		"Owner",
-		{ id: pg.int4, n: drawn(natural), end: accumulated(pg.int4, 0) },
+		{ id: pg.int4, n: drawnField(natural), end: accumulated(pg.int4, 0) },
 		["id"]
 	)
 	const Member = relation("Member", { member: pg.int4, g: pg.int4, x: pg.int4 }, ["member"])
@@ -90,32 +92,6 @@ const SPEC = defined(
 	)
 )
 
-/** Writes the existing rows, as the owner, in one SERIALIZABLE transaction, into the first version's tables. */
-const written = (owner: RawSession, schemaName: string): Effect.Effect<void> =>
-	Effect.gen(function* () {
-		const schemaIdent = quoteIdent(identifierOf(identity.schema(parsedSchemaName(schemaName))))
-		const table = (r: string) =>
-			`${schemaIdent}.${quoteIdent(identifierOf(identity.table(parsedName(r))))}`
-		const column = (f: string) => quoteIdent(identifierOf(identity.column(parsedName(f))))
-		const owners = Arr.join(
-			Arr.map(EXISTING, (o) => `(${o.owner})`),
-			", "
-		)
-		const members = Arr.join(
-			Arr.flatMap(EXISTING, (o) =>
-				Arr.map(o.members, (mb) => `(${mb.member}, ${o.owner}, ${mb.x})`)
-			),
-			", "
-		)
-		yield* owner.query("BEGIN ISOLATION LEVEL SERIALIZABLE", [])
-		yield* owner.query(`INSERT INTO ${table("Owner")} (${column("id")}) VALUES ${owners}`, [])
-		yield* owner.query(
-			`INSERT INTO ${table("Member")} (${column("member")}, ${column("g")}, ${column("x")}) VALUES ${members}`,
-			[]
-		)
-		yield* owner.query("COMMIT", [])
-	}).pipe(Effect.orDie)
-
 /** The counted family again, each owner's tag copied onto its members along the owner axis. */
 const copyBefore = (name: string) =>
 	schema(
@@ -130,7 +106,7 @@ const copyBefore = (name: string) =>
 const copyAfter = (name: string) => {
 	const Owner = relation(
 		"Owner",
-		{ id: pg.int4, tag: pg.int4, n: drawn(natural), end: accumulated(pg.int4, 0) },
+		{ id: pg.int4, tag: pg.int4, n: drawnField(natural), end: accumulated(pg.int4, 0) },
 		["id"]
 	)
 	const Member = relation(
@@ -145,9 +121,6 @@ const copyAfter = (name: string) => {
 		contained(on(Member, "g", "ownerTag"), on(Owner, "id", "tag"))
 	])
 }
-
-/** Each owner's tag. */
-const tagOf = (owner: number): number => 100 + owner
 
 /** A tree of Node, one per doc, folded by count over each node's children (FoldedTree's), each node's parent's kind
  * copied down. */
@@ -167,10 +140,10 @@ const treeAfter = (name: string) => {
 			id: pg.int4,
 			doc: pg.int4,
 			parent: pg.int4,
-			at: drawn(natural),
-			children: drawn(natural),
-			start: drawn(natural),
-			end: drawn(natural),
+			at: drawnField(natural),
+			children: drawnField(natural),
+			start: drawnField(natural),
+			end: drawnField(natural),
 			kind: pg.int4,
 			parentKind: accumulated(pg.int4, 0),
 			before: accumulated(natural, 0n),
@@ -194,23 +167,97 @@ const treeAfter = (name: string) => {
 	])
 }
 
-/** The stored forest: a root whose children and grandchildren are keyed out of their order, and a root of one child,
- * each node's kind drawn from its key. */
-const FOREST = Arr.map(
-	[
-		[1, 1, 1],
-		[6, 1, 1],
-		[2, 1, 1],
-		[4, 1, 1],
-		[9, 2, 1],
-		[7, 2, 1],
-		[8, 4, 1],
-		[11, 7, 1],
-		[30, 30, 30],
-		[31, 30, 30]
-	] as const,
-	([id, parent, doc]) => ({ id, parent, doc, kind: (id * 5) % 7 })
-)
+/** The bound on a drawn value: a member's x and an owner's tag lie within it either way, a node's kind below it. */
+const valueBound = 9
+
+/** The keys a drawn member or node takes, apart from one another. */
+const keyRange = Arr.range(1, 40)
+
+/** One member as written: its key, its owner and its value. */
+interface WrittenMember {
+	readonly member: number
+	readonly g: number
+	readonly x: number
+}
+
+/** A populated family: its owners, each with its tag, and its members in the order they are written. */
+interface Family {
+	readonly copied: boolean
+	readonly tags: Arr.NonEmptyReadonlyArray<number>
+	readonly members: ReadonlyArray<WrittenMember>
+}
+
+/**
+ * One to three owners, ids 0 up, each with a tag; up to six members falling among them in drawn counts, each keyed
+ * apart, the keys drawn in any order, so each family's members are written out of their key order; each member's value;
+ * and whether the tags are copied onto the members.
+ */
+const familyGen: Gen<Family> = (source) => {
+	const owners = source.draw(int(1, 3))
+	const total = source.draw(int(0, 6))
+	const counts = source.draw(composition(total, owners))
+	const keys = source.draw(shuffled(keyRange, { min: total, max: total }))
+	const tags = Arr.makeBy(owners, () => source.draw(int(-valueBound, valueBound)))
+	let at = 0
+	const members: Array<WrittenMember> = []
+	for (const [g, count] of counts.entries()) {
+		for (let k = 0; k < count; k += 1) {
+			members.push({
+				member: defined(keys[at], "a member's key"),
+				g,
+				x: source.draw(int(-valueBound, valueBound))
+			})
+			at += 1
+		}
+	}
+	return {
+		copied: source.draw(boolean),
+		tags,
+		members
+	}
+}
+
+/** One node as written: its key, its parent's (its own at a root), its tree's root value and its kind. */
+interface WrittenNode {
+	readonly id: number
+	readonly parent: number
+	readonly doc: number
+	readonly kind: number
+}
+
+/** A forest as written: every tree's nodes, each tree in its node order, its root first. */
+interface Forest {
+	readonly trees: ReadonlyArray<ReadonlyArray<WrittenNode>>
+}
+
+/**
+ * One or two trees of one to five nodes, each tree's shape drawn by its parents, its root value apart from the other's,
+ * every node keyed apart, the keys drawn in any order, so siblings are written out of their key order, and each node's
+ * kind.
+ */
+const forestGen: Gen<Forest> = (source) => {
+	const shapes = Arr.makeBy(source.draw(int(1, 2)), () => source.draw(parents({ min: 1, max: 5 })))
+	const sizes = Arr.map(shapes, (shape) => shape.length + 1)
+	const total = Arr.reduce(sizes, 0, (sum, size) => sum + size)
+	const keys = source.draw(shuffled(keyRange, { min: total, max: total }))
+	const docs = source.draw(
+		shuffled(Arr.range(1, valueBound), { min: shapes.length, max: shapes.length })
+	)
+	let offset = 0
+	const trees = Arr.map(shapes, (shape, t) => {
+		const idOf = (node: number) => defined(keys[offset + node], "a node's key")
+		const doc = defined(docs[t], "a tree's root value")
+		const nodes = Arr.makeBy(shape.length + 1, (node) => ({
+			id: idOf(node),
+			parent: idOf(node === 0 ? 0 : defined(shape[node - 1], "a node's parent")),
+			doc,
+			kind: source.draw(int(0, valueBound))
+		}))
+		offset += shape.length + 1
+		return nodes
+	})
+	return { trees }
+}
 
 /** A relation's stored rows, each a value per field. */
 interface Stored {
@@ -262,15 +309,14 @@ const inserted = (
 	}).pipe(Effect.orDie)
 
 /**
- * The rows of `relation` after migrating from `before` to `after` over `stored`, each its `fields` as text joined by
- * spaces, sorted; and no constraint of the installation left NOT VALID.
+ * The installation migrated from `before` to `after` over `stored`, written into the first version; no constraint of
+ * it left NOT VALID.
  */
-const migratedRows = (
+const migratedOver = (
 	label: string,
 	before: (name: string) => AnySchema,
 	after: (name: string) => AnySchema,
-	stored: ReadonlyArray<Stored>,
-	reads: ReadonlyArray<{ readonly relation: string; readonly fields: ReadonlyArray<string> }>
+	stored: ReadonlyArray<Stored>
 ) =>
 	Effect.gen(function* () {
 		const s = yield* Substrate
@@ -299,126 +345,285 @@ const migratedRows = (
 			0,
 			"VALIDATE leaves no constraint NOT VALID"
 		)
-		const { table, column } = namesOf(m.declared)
-		const out: Record<string, ReadonlyArray<string>> = {}
-		for (const r of reads) {
-			const rows = yield* s.admin.queryValues(
-				`SELECT ${Arr.join(
-					Arr.map(r.fields, (f) => `${column(f)}::text`),
-					", "
-				)} FROM ${table(r.relation)}`,
-				[]
-			)
-			out[r.relation] = Arr.sort(
-				Arr.map(rows, (row) => Arr.join(Arr.map(row, String), " ")),
-				Order.String
-			)
+		return m
+	})
+
+/** The rows of `relation` in the installation declared `declared`, each its `fields` as text joined by spaces, sorted. */
+const rowsOf = (declared: string, relation: string, fields: ReadonlyArray<string>) =>
+	Effect.gen(function* () {
+		const s = yield* Substrate
+		const { table, column } = namesOf(declared)
+		const rows = yield* s.admin.queryValues(
+			`SELECT ${Arr.join(
+				Arr.map(fields, (f) => `${column(f)}::text`),
+				", "
+			)} FROM ${table(relation)}`,
+			[]
+		)
+		return Arr.sort(
+			Arr.map(rows, (row) => Arr.join(Arr.map(row, String), " ")),
+			Order.String
+		)
+	})
+
+/** Whether keys written in this order are out of their own. */
+const outOfOrder = (keys: ReadonlyArray<number>): boolean =>
+	Arr.some(keys, (key, at) => at > 0 && key < defined(keys[at - 1], "the key before"))
+
+type FamilyFeature =
+	| "an empty family"
+	| "a family of one"
+	| "a family of several"
+	| "members written out of their key order"
+	| "tags copied"
+	| "a fold without a copy"
+
+type TreeFeature =
+	| "two trees"
+	| "a root alone"
+	| "a node of several children"
+	| "a grandchild"
+	| "siblings written out of their key order"
+
+/** Each owner of a family: its id, its tag, and its members in the order they are written. */
+const ownersOf = (family: Family) =>
+	Arr.map(family.tags, (tag, owner) => ({
+		owner,
+		tag,
+		members: Arr.filter(family.members, (mb) => mb.g === owner)
+	}))
+
+/** What a family reaches: each owner's family by its size, members written out of key order, and the copy or none. */
+const familyFeatures = (family: Family): ReadonlyArray<FamilyFeature> => [
+	...Arr.flatMap(ownersOf(family), (f): ReadonlyArray<FamilyFeature> => [
+		f.members.length === 0
+			? "an empty family"
+			: f.members.length === 1
+				? "a family of one"
+				: "a family of several",
+		...(outOfOrder(Arr.map(f.members, (mb) => mb.member))
+			? ["members written out of their key order" as const]
+			: [])
+	]),
+	family.copied ? "tags copied" : "a fold without a copy"
+]
+
+/** The written node of key `id` among `nodes`. */
+const nodeIn = (nodes: ReadonlyArray<WrittenNode>, id: number): WrittenNode =>
+	defined(Option.getOrUndefined(Arr.findFirst(nodes, (n) => n.id === id)), "a written node")
+
+/** The children of the node of key `id` among `nodes`, in the order they are written. */
+const childrenIn = (nodes: ReadonlyArray<WrittenNode>, id: number): ReadonlyArray<WrittenNode> =>
+	Arr.filter(nodes, (n) => n.parent === id && n.id !== id)
+
+/** What a forest reaches: two trees, a root alone, a node of several children, a grandchild, siblings out of order. */
+const forestFeatures = (forest: Forest): ReadonlyArray<TreeFeature> => {
+	const nodes = Arr.flatten(forest.trees)
+	return [
+		...(forest.trees.length > 1 ? ["two trees" as const] : []),
+		...Arr.flatMap(nodes, (n): ReadonlyArray<TreeFeature> => {
+			const children = childrenIn(nodes, n.id)
+			return [
+				...(n.parent === n.id && children.length === 0 ? ["a root alone" as const] : []),
+				...(children.length > 1 ? ["a node of several children" as const] : []),
+				...(outOfOrder(Arr.map(children, (child) => child.id))
+					? ["siblings written out of their key order" as const]
+					: []),
+				...(n.parent !== n.id && nodeIn(nodes, n.parent).parent !== n.parent
+					? ["a grandchild" as const]
+					: [])
+			]
+		})
+	]
+}
+
+/** How many draws a steered case makes for a value that reaches a pending situation, before it gives up. */
+const aimAttempts = 32
+
+/**
+ * The value a case runs: the drawn one, or, where steering names situations no case has reached, the first of up to
+ * `aimAttempts` draws of `generator` that reaches one.
+ */
+const aimed = <A, F extends string>(
+	drawnValue: A,
+	generator: Gen<A>,
+	features: (value: A) => ReadonlyArray<F>,
+	c: Case<F>
+): A =>
+	Option.match(c.steering, {
+		onNone: () => drawnValue,
+		onSome: (pending) => {
+			const reaches = (value: A) => Arr.some(features(value), (f) => pending.has(f))
+			return reaches(drawnValue) ? drawnValue : c.draw(filter(generator, reaches, aimAttempts))
 		}
-		return out
 	})
 
 layer(Substrate.layer)("backfilling a counted family with a fold on PostgreSQL 19rc1", (it) => {
 	it.effect(
-		"draw every hidden index, copy, accumulator, count and end of populated relations in key order, and VALIDATE every native",
-		() =>
-			Effect.gen(function* () {
-				const s = yield* Substrate
-				let schemaName = ""
-				const m = yield* migrated({
-					label: "backfill",
-					schemaName: { kind: "unique" },
-					first: (name) => {
-						schemaName = name
-						return { schema: before(name), logins: [] }
+		"draw every hidden index, copy, accumulator, count and end of populated families in key order, each owner's tag along the owner axis, and VALIDATE every native",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "pg/migrate/backfill-family",
+						draw: drawn(familyGen),
+						literal: Formatter.format,
+						coverage: required<FamilyFeature>(
+							[
+								"an empty family",
+								"a family of one",
+								"a family of several",
+								"members written out of their key order",
+								"tags copied",
+								"a fold without a copy"
+							],
+							{ cases: 12, sense: notesOnly }
+						),
+						kept: [],
+						runs: 3,
+						shrink: { kind: "bounded", candidates: 24 },
+						concurrency: 1,
+						steerEvery: 4,
+						caseHang,
+						oracle: {
+							kind: "second-implementation",
+							name: "the reference fold of each owner's members in key order, and each owner's tag on its members"
+						}
 					},
-					later: [(name) => ({ schema: after(name), logins: [] })],
-					apply: { kind: "noPlaceholders" },
-					register: false,
-					declared: () => noDeclarations,
-					observe: Option.some((v: number, owner: RawSession) =>
-						v !== 0 ? Effect.void : written(owner, schemaName)
-					)
-				})
-				const unvalidated = yield* s.admin.queryValues(
-					`SELECT count(*)::int4 FROM pg_catalog.pg_constraint WHERE connamespace = '${quoteIdent(m.schema)}'::regnamespace AND NOT convalidated`,
-					[]
+					(drawnFamily: Family, c: Case<FamilyFeature>) =>
+						Effect.gen(function* () {
+							const family = aimed(drawnFamily, familyGen, familyFeatures, c)
+							c.noteAll(familyFeatures(family))
+							const families = ownersOf(family)
+							const m = yield* migratedOver(
+								"backfill",
+								family.copied ? copyBefore : before,
+								family.copied ? copyAfter : after,
+								[
+									{
+										relation: "Owner",
+										rows: Arr.map(families, (f) =>
+											family.copied ? { id: f.owner, tag: f.tag } : { id: f.owner }
+										)
+									},
+									{
+										relation: "Member",
+										rows: Arr.map(family.members, (mb) => ({ member: mb.member, g: mb.g, x: mb.x }))
+									}
+								]
+							)
+							const seat = yield* seatOfInstalled(m, ["Owner", "Member"], "backfill")
+							const f = foldSeatOf(
+								{ ...SPEC, schema: (family.copied ? copyAfter : after)(m.declared) },
+								seat
+							)
+							const read = yield* foldRead(f)
+							const expected = foldStoredOf(
+								SPEC.monoid,
+								Arr.map(families, (o) => ({
+									owner: o.owner,
+									members: Arr.map(
+										Arr.sort(
+											o.members,
+											Order.mapInput(Order.Number, (mb: WrittenMember) => mb.member)
+										),
+										(mb) => ({ member: mb.member, x: BigInt(mb.x), selected: true })
+									)
+								}))
+							)
+							assert.deepEqual(
+								read,
+								byMember(expected),
+								"the backfill draws the reference fold of each family in key order"
+							)
+							if (!family.copied) {
+								return
+							}
+							const tagged = yield* rowsOf(m.declared, "Member", ["member", "ownerTag"])
+							assert.deepEqual(
+								tagged,
+								Arr.sort(
+									Arr.map(
+										family.members,
+										(mb) => `${mb.member} ${defined(family.tags[mb.g], "its owner's tag")}`
+									),
+									Order.String
+								),
+								"each member holds its owner's tag"
+							)
+						})
 				)
-				assert.equal(
-					Number(Arr.getUnsafe(Arr.getUnsafe(unvalidated, 0), 0)),
-					0,
-					"VALIDATE leaves no constraint NOT VALID"
-				)
-				const seat = yield* seatOfInstalled(m, ["Owner", "Member"], "backfill")
-				const f = foldSeatOf({ ...SPEC, schema: after(m.declared) }, seat)
-				const read = yield* foldRead(f)
-				const expected = foldStoredOf(
-					SPEC.monoid,
-					Arr.map(EXISTING, (o) => ({
-						owner: o.owner,
-						members: Arr.map(
-							Arr.sort(
-								o.members,
-								Order.mapInput(Order.Number, (mb: { readonly member: number }) => mb.member)
-							),
-							(mb: { readonly member: number; readonly x: number }) => ({
-								member: mb.member,
-								x: BigInt(mb.x),
-								selected: true
-							})
-						)
-					}))
-				)
-				assert.deepEqual(
-					read,
-					byMember(expected),
-					"the backfill draws the reference fold of each family in key order"
-				)
-			})
-	)
-	it.effect(
-		"draw a copy along the owner axis: each member's owner's tag, and every native VALIDATEd",
-		() =>
-			Effect.gen(function* () {
-				const members = Arr.flatMap(EXISTING, (o) =>
-					Arr.map(o.members, (mb) => ({ member: mb.member, g: o.owner, x: mb.x }))
-				)
-				const rows = yield* migratedRows(
-					"backfillcopy",
-					copyBefore,
-					copyAfter,
-					[
-						{
-							relation: "Owner",
-							rows: Arr.map(EXISTING, (o) => ({ id: o.owner, tag: tagOf(o.owner) }))
-						},
-						{ relation: "Member", rows: members }
-					],
-					[{ relation: "Member", fields: ["member", "ownerTag"] }]
-				)
-				assert.deepEqual(
-					rows["Member"],
-					Arr.sort(
-						Arr.map(members, (mb) => `${mb.member} ${tagOf(mb.g)}`),
-						Order.String
-					),
-					"each member holds its owner's tag"
-				)
-			})
+			)
 	)
 
 	it.effect(
-		"draw a tree's numbering, its count fold over each node's siblings, the root its one admitted state, and each parent copy, the root its own",
-		() =>
-			Effect.gen(function* () {
-				const rows = yield* migratedRows(
-					"backfilltree",
-					treeBefore,
-					treeAfter,
-					[{ relation: "Node", rows: FOREST }],
-					[
-						{
-							relation: "Node",
-							fields: [
+		"draw a forest's numbering, its count fold over each node's siblings, the root its one admitted state, and each parent copy, the root its own",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "pg/migrate/backfill-tree",
+						draw: drawn(forestGen),
+						literal: Formatter.format,
+						coverage: required<TreeFeature>(
+							[
+								"two trees",
+								"a root alone",
+								"a node of several children",
+								"a grandchild",
+								"siblings written out of their key order"
+							],
+							{ cases: 12, sense: notesOnly }
+						),
+						kept: [],
+						runs: 3,
+						shrink: { kind: "bounded", candidates: 24 },
+						concurrency: 1,
+						steerEvery: 4,
+						caseHang,
+						oracle: {
+							kind: "second-implementation",
+							name: "the direct pre-order numbering of the forest, its children in key order, and each parent's kind"
+						}
+					},
+					(drawnForest: Forest, c: Case<TreeFeature>) =>
+						Effect.gen(function* () {
+							const forest = aimed(drawnForest, forestGen, forestFeatures, c)
+							c.noteAll(forestFeatures(forest))
+							const nodes = Arr.flatten(forest.trees)
+							const byId = (id: number): WrittenNode => nodeIn(nodes, id)
+							const childrenOf = (id: number): ReadonlyArray<WrittenNode> => childrenIn(nodes, id)
+							const m = yield* migratedOver("backfilltree", treeBefore, treeAfter, [
+								{
+									relation: "Node",
+									rows: Arr.map(nodes, (n) => ({
+										id: n.id,
+										parent: n.parent,
+										doc: n.doc,
+										kind: n.kind
+									}))
+								}
+							])
+							const nodeOf = (id: number): Node => ({
+								id,
+								children: Arr.map(
+									Arr.sort(
+										childrenOf(id),
+										Order.mapInput(Order.Number, (n: WrittenNode) => n.id)
+									),
+									(n) => nodeOf(n.id)
+								)
+							})
+							const roots: ReadonlyArray<Rooted> = Arr.sort(
+								Arr.map(
+									Arr.filter(nodes, (n) => n.parent === n.id),
+									(r): Rooted => ({ root: r.doc, tree: nodeOf(r.id) })
+								),
+								Order.mapInput(Order.Number, (r: Rooted) => r.root)
+							)
+							const numberedRows = yield* rowsOf(m.declared, "Node", [
 								"id",
 								"at",
 								"children",
@@ -428,49 +633,35 @@ layer(Substrate.layer)("backfilling a counted family with a fold on PostgreSQL 1
 								"after",
 								"total",
 								"parentKind"
-							]
-						}
-					]
-				)
-				const byId = (id: number) =>
-					defined(Option.getOrUndefined(Arr.findFirst(FOREST, (n) => n.id === id)))
-				const nodeOf = (id: number): Node => ({
-					id,
-					children: Arr.map(
-						Arr.sort(
-							Arr.filter(FOREST, (n) => n.parent === id && n.id !== id),
-							Order.mapInput(Order.Number, (n: { readonly id: number }) => n.id)
-						),
-						(n) => nodeOf(n.id)
-					)
-				})
-				const roots = Arr.filter(FOREST, (n) => n.parent === n.id)
-				assert.deepEqual(
-					rows["Node"],
-					Arr.sort(
-						Arr.map(numbered(Arr.map(roots, (r) => ({ root: r.doc, tree: nodeOf(r.id) }))), (r) =>
-							Arr.join(
-								Arr.map(
-									[
-										r.id,
-										r.at,
-										r.children,
-										r.start,
-										r.end,
-										r.at,
-										r.at + 1,
-										r.children,
-										byId(byId(r.id).parent).kind
-									],
-									String
+							])
+							assert.deepEqual(
+								numberedRows,
+								Arr.sort(
+									Arr.map(numbered(roots), (r) =>
+										Arr.join(
+											Arr.map(
+												[
+													r.id,
+													r.at,
+													r.children,
+													r.start,
+													r.end,
+													r.at,
+													r.at + 1,
+													r.children,
+													byId(byId(r.id).parent).kind
+												],
+												String
+											),
+											" "
+										)
+									),
+									Order.String
 								),
-								" "
+								"NP's numbering, NP's lawful count fold, each parent's kind"
 							)
-						),
-						Order.String
-					),
-					"NP's numbering, NP's lawful count fold, each parent's kind"
+						})
 				)
-			})
+			)
 	)
 })

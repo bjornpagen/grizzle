@@ -1,23 +1,24 @@
 import { createServer, type Socket } from "node:net"
 import { layer } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { element, type Gen } from "@grizzle/testing/gen"
+import { drawn, exhaust, explore } from "@grizzle/testing/explore"
+import { required, requiredInSpace } from "@grizzle/testing/features"
+import { array, constant, element, type Gen, int, map, weighted } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
+import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Effect, Formatter, Redacted } from "effect"
+import { Deferred, Effect, Exit, Formatter, Redacted, Result } from "effect"
 import { OpenError } from "#adapter/errors/execution.ts"
-import { CredentialError } from "#adapter/errors/failures.ts"
+import { CredentialError, type TlsFault } from "#adapter/errors/failures.ts"
 import type { SessionPool } from "#adapter/wire/session.ts"
 import { quoteIdent, quoteString } from "#compiler/sql/print.ts"
 import {
-	countingPassword,
 	defaultPool,
 	poolFor,
 	roleDefaults,
 	rowsOn,
 	substrateLogin
 } from "#test/pg/adapter/support.ts"
-import { assert } from "#test/support/assert.ts"
+import { assert, assertVariant } from "#test/support/assert.ts"
 import type { InitializedClusterShape } from "#test/support/cluster.ts"
 import { pgPin } from "#test/support/env.ts"
 import { caseHang, testIdleTimeout } from "#test/support/limits.ts"
@@ -47,51 +48,206 @@ const refusedStage = (pool: SessionPool) =>
 		(failure) => (failure._tag === "OpenError" ? failure.stage : failure._tag)
 	)
 
-/** A server that answers every SSLRequest with N, recording what each client sends after that answer. */
-const refusingServer = Effect.acquireRelease(
-	Effect.callback<{
-		readonly port: number
-		readonly after: () => number
-		readonly close: () => void
-	}>((resume) => {
-		const sockets = new Set<Socket>()
-		let after = 0
-		const server = createServer((socket) => {
-			sockets.add(socket)
-			let answered = false
-			socket.on("data", (chunk) => {
-				if (answered) {
-					after += chunk.length
-				} else {
-					answered = true
-					socket.write("N")
-				}
-			})
-			socket.on("error", () => undefined)
-			socket.on("close", () => sockets.delete(socket))
-		})
-		server.listen(0, pgPin.host, () => {
-			const address = server.address()
-			const port = address !== null && typeof address === "object" ? address.port : 0
-			resume(
-				Effect.succeed({
-					port,
-					after: () => after,
-					close: () => {
-						for (const socket of sockets) {
-							socket.destroy()
+/** The length of an SSLRequest: its length word and its request code. */
+const sslRequestBytes = 8
+
+/** A fatal TLS alert record, handshake_failure: what a server that said yes and then speaks no TLS ends with. */
+const handshakeFailure = Buffer.from([0x15, 0x03, 0x03, 0x00, 0x02, 0x02, 0x28])
+
+/** TLS's record type of a handshake message: the first byte of a ClientHello. */
+const handshakeRecord = 0x16
+
+/** What the client sent the server after the server's answer, once the client's connection has closed. */
+interface Answered {
+	readonly port: number
+	readonly after: Effect.Effect<Buffer>
+}
+
+/**
+ * A server that answers a client's SSLRequest with `answer`, in one write, and records every byte the client sends
+ * after its request. A client told yes in exactly one byte, `S`, starts its TLS handshake, which the server refuses with
+ * a fatal alert, leaving the connection for the client to close. `after` waits for the client's connection to close, a
+ * fact, and is what it sent.
+ */
+const answeringServer = (answer: Buffer) =>
+	Effect.acquireRelease(
+		Effect.callback<Answered & { readonly close: () => void }>((resume) => {
+			const sockets = new Set<Socket>()
+			const sent: Array<Buffer> = []
+			const closed = Deferred.makeUnsafe<void>()
+			const server = createServer((socket) => {
+				sockets.add(socket)
+				let answered = false
+				socket.on("data", (chunk: Buffer) => {
+					if (answered) {
+						sent.push(chunk)
+						if (answer.equals(Buffer.from("S"))) {
+							socket.write(handshakeFailure)
 						}
-						server.close()
+						return
 					}
+					answered = true
+					sent.push(chunk.subarray(sslRequestBytes))
+					socket.write(answer)
 				})
+				socket.on("error", () => undefined)
+				socket.on("close", () => {
+					sockets.delete(socket)
+					Deferred.doneUnsafe(closed, Exit.void)
+				})
+			})
+			server.listen(0, pgPin.host, () => {
+				const address = server.address()
+				const port = address !== null && typeof address === "object" ? address.port : 0
+				resume(
+					Effect.succeed({
+						port,
+						after: Effect.map(Deferred.await(closed), () => Buffer.concat(sent)),
+						close: () => {
+							for (const socket of sockets) {
+								socket.destroy()
+							}
+							server.close()
+						}
+					})
+				)
+			})
+		}),
+		(server) =>
+			Effect.sync(() => {
+				server.close()
+			})
+	)
+
+/** The letters of PostgreSQL's answers to an SSLRequest that a client branches on: yes, no, and an ErrorResponse. */
+const answerLetters = ["S", "N", "E"] as const
+
+/** One byte of an answer: one of the protocol's letters, or any byte. */
+const answerByte: Gen<number> = weighted<number>([
+	[2, map(element(answerLetters), (letter) => Buffer.from(letter).readUInt8(0))],
+	[1, int(0, 0xff)]
+])
+
+/** An answer to an SSLRequest: one byte, as PostgreSQL answers, or two or three. */
+const answerGen: Gen<ReadonlyArray<number>> = weighted<ReadonlyArray<number>>([
+	[2, map(answerByte, (b) => [b])],
+	[1, array(answerByte, { min: 2, max: 3 })]
+])
+
+type AnswerFeature =
+	| "answered yes"
+	| "answered no"
+	| "answered an ErrorResponse's letter"
+	| "answered another byte"
+	| "answered more than one byte"
+
+/** What a client must make of an answer: TLS for exactly `S`, no TLS offered for exactly `N`, no answer otherwise. */
+const answerFault = (answer: Buffer): TlsFault["kind"] =>
+	answer.equals(Buffer.from("S"))
+		? "handshake"
+		: answer.equals(Buffer.from("N"))
+			? "notOffered"
+			: "unanswered"
+
+/** The feature an answer reaches. */
+const answerFeature = (answer: Buffer): AnswerFeature =>
+	answer.length > 1
+		? "answered more than one byte"
+		: answer.equals(Buffer.from("S"))
+			? "answered yes"
+			: answer.equals(Buffer.from("N"))
+				? "answered no"
+				: answer.equals(Buffer.from("E"))
+					? "answered an ErrorResponse's letter"
+					: "answered another byte"
+
+/**
+ * Where a pool's password Effect answers from: the role's password as it is now, the one it was when the mode was set,
+ * one the role never had, or a failure.
+ */
+type ProviderMode = "follows" | "pinned" | "wrong" | "fails"
+
+const providerModes = [
+	"follows",
+	"pinned",
+	"wrong",
+	"fails"
+] as const satisfies ReadonlyArray<ProviderMode>
+
+/**
+ * A step of a credential program: lease `count` sessions one after another, each held until the step ends; rotate the
+ * role's password; or set the provider's mode.
+ */
+type CredentialStep =
+	| { readonly kind: "lease"; readonly count: number }
+	| { readonly kind: "rotate" }
+	| { readonly kind: "provider"; readonly mode: ProviderMode }
+
+interface CredentialProgram {
+	readonly max: number
+	readonly provider: ProviderMode
+	readonly steps: ReadonlyArray<CredentialStep>
+}
+
+const credentialProgramGen: Gen<CredentialProgram> = (source) => {
+	const max = source.draw(int(1, 3))
+	const mode = element(providerModes)
+	return {
+		max,
+		provider: source.draw(mode),
+		steps: source.draw(
+			array(
+				weighted<CredentialStep>([
+					[3, map(int(1, max), (count): CredentialStep => ({ kind: "lease", count }))],
+					[1, constant({ kind: "rotate" })],
+					[1, map(mode, (m): CredentialStep => ({ kind: "provider", mode: m }))]
+				]),
+				{ min: 1, max: 8 }
 			)
-		})
-	}),
-	(server) =>
-		Effect.sync(() => {
-			server.close()
-		})
-)
+		)
+	}
+}
+
+/**
+ * The provider as the model holds it: following the role's password, pinned to one of its versions, answering one it
+ * never had, or failing.
+ */
+type Provider =
+	| { readonly kind: "follows" }
+	| { readonly kind: "pinned"; readonly version: number }
+	| { readonly kind: "wrong" }
+	| { readonly kind: "fails" }
+
+const providerAt = (mode: ProviderMode, version: number): Provider =>
+	mode === "pinned" ? { kind: "pinned", version } : { kind: mode }
+
+/**
+ * What a lease that finds no idle session meets: one evaluation of the password Effect, which fails at stage credential
+ * when the provider fails, at stage authentication when it answers a version of the password the role no longer holds,
+ * and opens a session otherwise.
+ */
+type Attempt = "opened" | "credential" | "authentication"
+
+const attemptOf = (provider: Provider, version: number): Attempt => {
+	switch (provider.kind) {
+		case "fails":
+			return "credential"
+		case "pinned":
+			return provider.version === version ? "opened" : "authentication"
+		case "wrong":
+			return "authentication"
+		case "follows":
+			return "opened"
+	}
+}
+
+type CredentialFeature =
+	| "a session reused"
+	| "a session opened"
+	| "refused at credential"
+	| "refused at authentication"
+	| "opened after a rotation"
+	| "reused while no new session could open"
 
 /**
  * The names the local server's certificate carries (scripts/pg/init.sh: DNS:localhost, IP:127.0.0.1, IP:::1): verify-full
@@ -153,11 +309,19 @@ const tlsConfigs: Gen<TlsConfig> = (source) => ({
  *
  * - verify-full TLS, exhaustively over the axes a deployment sets (CA bundle, host dialled, name verified): a session
  *   is accepted exactly when the CA is the server's and the verified name is one its certificate carries, and it logs
- *   in as the role it named, over TLS; there is no unverified mode and no plaintext fallback;
- * - a wrong password is refused at the authentication stage, the password Effect is evaluated per connection attempt,
- *   and a failing one is the CredentialError reason of OpenError, and a later lease's refusal.
+ *   in as the role it named, over TLS; there is no unverified mode;
+ * - no plaintext fallback, over drawn answers of a server to the SSLRequest (the protocol's letters and any byte, one
+ *   to three of them): exactly `S` starts a TLS handshake, which a server that speaks no TLS refuses at stage tls, and
+ *   any other answer is refused at stage tls, `N` as no TLS offered and the rest as no answer, the client sending
+ *   nothing after its request;
+ * - the password Effect, over drawn programs of leases, rotations of the role's password and a provider that follows
+ *   the role's password, is pinned to one version of it, answers one it never had, or fails: a lease takes an idle
+ *   session without asking for a password, and every other lease evaluates the Effect once, and opens a session, or is
+ *   refused at stage credential with the CredentialError as its reason or at stage authentication with the server's
+ *   refusal, as the provider's answer meets the role's password then, a model of the pool's idle sessions judging each.
  *
- * The logins a Db opens through, and the roles it may run as, are reads/suites/open.ts's open faults.
+ * The logins a Db opens through and the roles it may run as are the worlds model's (test/pg/world-model), and what
+ * admission judges of the database is reads/suites/open.ts's.
  */
 export const connectionSuite = (): void => {
 	layer(Substrate.layer)("adapter connections", (it) => {
@@ -227,129 +391,220 @@ export const connectionSuite = (): void => {
 		)
 
 		it.effect(
-			"never falls back to plaintext: a server that refuses TLS is refused, and is sent nothing",
-			() =>
-				Effect.gen(function* () {
-					const s = yield* Substrate
-					const schema = yield* s.schema(freshSchema)
-					const writer = yield* substrateLogin(schema, "server", roleDefaults)
-					const server = yield* refusingServer
-					const pool = yield* poolFor(writer, {
-						...defaultPool,
-						transport: {
-							kind: "given",
-							transport: { ...clusterTransport(s.cluster), port: server.port }
-						}
-					})
-					const stage = yield* refusedStage(pool)
-					assert.equal(stage, "tls")
-					assert.equal(server.after(), 0)
-				}).pipe(Effect.scoped)
-		)
-
-		it.effect("refuses a wrong password at the authentication stage", () =>
-			Effect.gen(function* () {
-				const s = yield* Substrate
-				const schema = yield* s.schema(freshSchema)
-				const writer = yield* substrateLogin(schema, "server", roleDefaults)
-				const pool = yield* poolFor(writer, {
-					...defaultPool,
-					password: { kind: "given", password: Redacted.make("not the password") }
-				})
-				const stage = yield* refusedStage(pool)
-				assert.equal(stage, "authentication")
-			}).pipe(Effect.scoped)
-		)
-
-		it.effect(
-			"evaluates the password Effect for each connection attempt, so rotation needs no restart",
-			() =>
-				Effect.gen(function* () {
-					const s = yield* Substrate
-					const schema = yield* s.schema(freshSchema)
-					const writer = yield* substrateLogin(schema, "server", roleDefaults)
-					const rotating = countingPassword(Redacted.value(writer.password))
-					const pool = yield* poolFor(writer, {
-						...defaultPool,
-						password: { kind: "given", password: rotating.password },
-						pool: { idleTimeoutMs: testIdleTimeout.value, min: 1, max: 4 }
-					})
-					yield* Effect.scoped(
-						Effect.gen(function* () {
-							for (let i = 0; i < 3; i++) {
-								yield* Effect.flatMap(pool.lease, (session) =>
-									rowsOn(session, "SELECT 1::text", [])
-								)
-							}
-						})
-					)
-					const opened = yield* pool.size
-					assert.equal(opened, 3)
-					assert.equal(rotating.state.evaluations, opened)
-					yield* s.admin.query(
-						`ALTER ROLE ${quoteIdent(writer.role)} PASSWORD ${quoteString("rotated-secret")}`,
-						[]
-					)
-					rotating.state.secret = "rotated-secret"
-					yield* Effect.scoped(
-						Effect.gen(function* () {
-							for (let i = 0; i < 4; i++) {
-								yield* Effect.flatMap(pool.lease, (session) =>
-									rowsOn(session, "SELECT 1::text", [])
-								)
-							}
-						})
-					)
-					const size = yield* pool.size
-					assert.equal(size, 4)
-					assert.equal(rotating.state.evaluations, 4)
-				}).pipe(Effect.scoped)
+			"never falls back to plaintext: after its SSLRequest a client sends nothing but a TLS handshake, whatever the server answers",
+			(ctx) =>
+				searched(
+					ctx,
+					Effect.gen(function* () {
+						const s = yield* Substrate
+						const schema = yield* s.schema(freshSchema)
+						const writer = yield* substrateLogin(schema, "server", roleDefaults)
+						return yield* explore(
+							{
+								suite: "adapter/tls answers",
+								draw: drawn(answerGen),
+								literal: Formatter.format,
+								kept: [],
+								runs: 16,
+								shrink: completeShrink,
+								concurrency: 1,
+								steerEvery: 16,
+								coverage: required<AnswerFeature>(
+									[
+										"answered yes",
+										"answered no",
+										"answered an ErrorResponse's letter",
+										"answered another byte",
+										"answered more than one byte"
+									],
+									{ cases: 40, sense: notesOnly }
+								),
+								caseHang,
+								oracle: {
+									kind: "specification",
+									name: "PostgreSQL's SSLRequest exchange: TLS after exactly S, and the connection refused otherwise"
+								}
+							},
+							(bytes, c) =>
+								Effect.gen(function* () {
+									const answer = Buffer.from(bytes)
+									const server = yield* answeringServer(answer)
+									const pool = yield* poolFor(writer, {
+										...defaultPool,
+										transport: {
+											kind: "given",
+											transport: { ...clusterTransport(s.cluster), port: server.port }
+										}
+									})
+									const refused = yield* Effect.flip(Effect.scoped(leaseRefused(pool)))
+									const after = yield* server.after
+									assert.equal(refused.stage, "tls")
+									assertVariant(refused.reason, "_tag", "TlsRefused")
+									const fault = answerFault(answer)
+									assert.equal(refused.reason.fault.kind, fault)
+									if (fault === "handshake") {
+										assert.equal(after[0], handshakeRecord, "what follows yes is a TLS handshake")
+									} else {
+										assert.equal(after.length, 0, "a client told anything but yes sends nothing")
+									}
+									c.note(answerFeature(answer))
+								})
+						)
+					}).pipe(Effect.scoped)
+				)
 		)
 
 		it.effect(
-			"makes CredentialError the reason of OpenError on opening and a later lease's refusal",
-			() =>
-				Effect.gen(function* () {
-					const s = yield* Substrate
-					const schema = yield* s.schema(freshSchema)
-					const writer = yield* substrateLogin(schema, "server", roleDefaults)
-					const failing = Effect.fail(
-						new CredentialError({ cause: "the provider chain resolved nothing" })
-					)
-					const broken = yield* poolFor(writer, {
-						...defaultPool,
-						password: { kind: "given", password: failing }
-					})
-					const opened = yield* Effect.flip(Effect.scoped(leaseRefused(broken)))
-					assert.equal(opened.stage, "credential")
-					assert.ok(opened.reason instanceof CredentialError)
-
-					/**
-					 * A provider that works at first and fails later: the first connection succeeds, a later attempt fails.
-					 */
-					const state = { ok: true }
-					const flaky = Effect.suspend(() =>
-						state.ok
-							? Effect.succeed(writer.password)
-							: Effect.fail(new CredentialError({ cause: "the token could not be renewed" }))
-					)
-					const pool = yield* poolFor(writer, {
-						...defaultPool,
-						password: { kind: "given", password: flaky },
-						pool: { idleTimeoutMs: testIdleTimeout.value, min: 1, max: 4 }
-					})
-					const leasedRows = yield* leased(pool, okQuery)
-					assert.deepEqual(leasedRows, [["ok"]])
-					state.ok = false
-					const later = yield* Effect.scoped(
-						Effect.gen(function* () {
-							yield* pool.lease
-							return yield* Effect.flip(pool.lease)
-						})
-					)
-					assert.ok(later instanceof CredentialError)
-					assert.equal(new OpenError({ reason: later }).stage, "credential")
-				}).pipe(Effect.scoped)
+			"evaluates the password Effect once per connection attempt and opens, or refuses at credential or authentication, as its answer meets the role's password",
+			(ctx) =>
+				searched(
+					ctx,
+					Effect.gen(function* () {
+						const s = yield* Substrate
+						const schema = yield* s.schema(freshSchema)
+						const writer = yield* substrateLogin(schema, "server", roleDefaults)
+						const base = Redacted.value(writer.password)
+						/** The role's password at a version: the one it was created with, then each rotation's. */
+						const secretAt = (version: number): string =>
+							version === 0 ? base : `${base}-${version}`
+						const setPassword = (version: number) =>
+							s.admin.query(
+								`ALTER ROLE ${quoteIdent(writer.role)} PASSWORD ${quoteString(secretAt(version))}`,
+								[]
+							)
+						return yield* explore(
+							{
+								suite: "adapter/credentials",
+								draw: drawn(credentialProgramGen),
+								literal: Formatter.format,
+								kept: [],
+								runs: 12,
+								shrink: completeShrink,
+								concurrency: 1,
+								steerEvery: 16,
+								coverage: required<CredentialFeature>(
+									[
+										"a session reused",
+										"a session opened",
+										"refused at credential",
+										"refused at authentication",
+										"opened after a rotation",
+										"reused while no new session could open"
+									],
+									{ cases: 24, sense: notesOnly }
+								),
+								caseHang,
+								oracle: {
+									kind: "specification",
+									name: "a model of the pool's sessions and its password: one evaluation per new connection, judged against the role's password"
+								}
+							},
+							(program, c) =>
+								Effect.gen(function* () {
+									yield* setPassword(0)
+									/** The model: the pool's idle sessions, the role's password version, the provider, its evaluations. */
+									let idle = 0
+									let version = 0
+									let provider = providerAt(program.provider, 0)
+									let evaluations = 0
+									/** The password Effect: it answers as the model's provider does, counting each evaluation. */
+									const live = { provider, version, evaluations: 0 }
+									const password = Effect.suspend(() => {
+										live.evaluations += 1
+										const answering = live.provider
+										switch (answering.kind) {
+											case "fails":
+												return Effect.fail(
+													new CredentialError({ cause: "the provider chain resolved nothing" })
+												)
+											case "pinned":
+												return Effect.succeed(Redacted.make(secretAt(answering.version)))
+											case "wrong":
+												return Effect.succeed(Redacted.make(`${base}-wrong`))
+											case "follows":
+												return Effect.succeed(Redacted.make(secretAt(live.version)))
+										}
+									})
+									const pool = yield* poolFor(writer, {
+										...defaultPool,
+										password: { kind: "given", password },
+										pool: { idleTimeoutMs: testIdleTimeout.value, min: 1, max: program.max }
+									})
+									for (const step of program.steps) {
+										switch (step.kind) {
+											case "rotate": {
+												version += 1
+												yield* setPassword(version)
+												live.version = version
+												break
+											}
+											case "provider": {
+												provider = providerAt(step.mode, version)
+												live.provider = provider
+												break
+											}
+											case "lease": {
+												let held = 0
+												yield* Effect.scoped(
+													Effect.gen(function* () {
+														for (let k = 0; k < step.count; k++) {
+															const attempted = yield* Effect.result(leaseRefused(pool))
+															if (idle > 0) {
+																assertVariant(
+																	attempted,
+																	"_tag",
+																	"Success",
+																	"an idle session is reused"
+																)
+																idle -= 1
+																c.note("a session reused")
+																if (attemptOf(provider, version) !== "opened") {
+																	c.note("reused while no new session could open")
+																}
+															} else {
+																const attempt = attemptOf(provider, version)
+																evaluations += 1
+																if (attempt === "opened") {
+																	assertVariant(attempted, "_tag", "Success", "a new session opens")
+																	c.note("a session opened")
+																	if (version > 0) {
+																		c.note("opened after a rotation")
+																	}
+																} else {
+																	assertVariant(
+																		attempted,
+																		"_tag",
+																		"Failure",
+																		"a new session is refused"
+																	)
+																	assert.equal(attempted.failure.stage, attempt)
+																	assert.equal(
+																		attempted.failure.reason._tag,
+																		attempt === "credential" ? "CredentialError" : "StartupRefused"
+																	)
+																	c.note(`refused at ${attempt}`)
+																}
+															}
+															if (Result.isSuccess(attempted)) {
+																held += 1
+																const rows = yield* rowsOn(attempted.success, currentUser, [])
+																assert.deepEqual(rows, [[writer.role, "true"]])
+															}
+														}
+													})
+												)
+												idle += held
+												break
+											}
+										}
+										assert.equal(live.evaluations, evaluations, "one evaluation per attempt")
+										const size = yield* pool.size
+										assert.equal(size, idle, "every session opened is idle in the pool")
+									}
+								})
+						)
+					}).pipe(Effect.scoped)
+				)
 		)
 	})
 }

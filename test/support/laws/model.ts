@@ -483,6 +483,39 @@ const relationAfter = (
 	return [...out.values()]
 }
 
+/**
+ * The violations of the primary and candidate keys, span keys among them, by two distinct facts one stratum's `ops`
+ * delete that agree on every field of the key, a span compared as a value: host normalization refuses such a deletion
+ * before any SQL, its witness naming the facts by the key's fields. A projected key reads only the facts its selection
+ * holds of and judges no deletion.
+ */
+const deletedAtOneKey = (
+	schema: HostSchema,
+	ops: ReadonlyArray<HostOp>
+): ReadonlyArray<Violation> =>
+	Arr.flatMap(schema.laws, (law): ReadonlyArray<Violation> => {
+		if ((law.kind !== "key" && law.kind !== "spanKey") || law.selection.kind !== "every") {
+			return []
+		}
+		const relation = relationOf(schema, law.relation)
+		const fields = law.kind === "key" ? law.fields : [...law.scalars, law.span]
+		const deleted = [
+			...new Map(
+				Arr.flatMap(ops, (o) =>
+					o.relation === law.relation && o.kind === "delete"
+						? Arr.map(o.facts, (f) => [identity(relation, f), f] as const)
+						: []
+				)
+			).values()
+		]
+		const bad = Arr.filter(deleted, (f, i) =>
+			Arr.some(deleted, (g, j) => i !== j && projection(f, fields) === projection(g, fields))
+		)
+		return Arr.isReadonlyArrayNonEmpty(bad)
+			? [{ law: law.law, immediate: true, violators: violatorsOf(law, bad) }]
+			: []
+	})
+
 /** The add-wins transition of one stratum of enumerated members. */
 export const transition = (
 	schema: HostSchema,
@@ -792,6 +825,9 @@ export const overlapsUnequally = (state: HostState, law: HostLaw): boolean => {
 /**
  * What a ChangeSet of `ops` must do from the lawful `state`. Every relation's primary key is one of the schema's laws
  * (keyedSchema), so a state holding one fact twice is always that key's violation, never an outcome the laws pass.
+ * Two facts a stratum deletes at one value of a primary or candidate key (a span key's span compared as a value) are
+ * that key's refusal before any SQL, whatever S' holds: a key names one fact. The refusal may name any key the
+ * stratum's additions break too, since the host judges a stratum's relations in an order the model leaves open.
  */
 export const expect = (
 	schema: HostSchema,
@@ -800,6 +836,16 @@ export const expect = (
 ): Expected => {
 	const next = transition(keyedSchema(schema), state, ops)
 	const all = violations(schema, next)
+	const deleted = deletedAtOneKey(schema, ops)
+	if (deleted.length > 0) {
+		return {
+			kind: "invariant-rejected",
+			violations: [
+				...deleted,
+				...Arr.filter(all, (v) => v.immediate && Arr.isReadonlyArrayNonEmpty(v.violators))
+			]
+		}
+	}
 	const immediate = Arr.filter(all, (v) => v.immediate)
 	if (immediate.length > 0) {
 		return { kind: "invariant-rejected", violations: immediate }

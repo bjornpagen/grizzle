@@ -1,7 +1,10 @@
 import { describe, it } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { boolean, element, filter, type Gen } from "@grizzle/testing/gen"
+import { drawn, exhaust, explore } from "@grizzle/testing/explore"
+import { required, requiredInSpace } from "@grizzle/testing/features"
+import { boolean, constant, element, filter, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
+import { completeShrink } from "@grizzle/testing/shrink"
+import { bigint as bigintIn } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
@@ -1320,39 +1323,58 @@ describe("unbounded computed state through a correlated import", () => {
 
 describe("the seen-state estimate", () => {
 	/**
-	 * A countdown over a bigint by n - 1 while n > 0, seeded by data (a count over the vertices) or by a literal. A seed
-	 * of a literal s from 0 to bigint's greatest counts the s + 1 states from s down to 0, recorded and never refused
-	 * however many no store holds, the step's least value, -1, within bigint. A seed admission cannot read is any bigint,
-	 * and a literal at bigint's least value is that value: either puts bigint's least value among the states, where the
-	 * step may compute n - 1 before its filter drops the row (check/recursion/state.ts counterNarrowing), so the
-	 * narrowing of the step into n is PartialOperation, naming n and the fits precondition.
+	 * A countdown over a bigint by n - 1 while n > 0, seeded by data (a count over the vertices) or by a literal s, drawn
+	 * near each of bigint's least value, zero and its greatest value, or anywhere between. Its states are s down to 0, s +
+	 * 1 of them, for s at or above 0, and s alone below it; the step may compute n - 1 on any state before its filter drops
+	 * the row (check/recursion/state.ts counterNarrowing), so the narrowing of the step into n is proved exactly when the
+	 * least state less one is a bigint. A literal above bigint's least value is admitted, recording its states however
+	 * many no store holds; a seed admission cannot read is any bigint, and the literal at bigint's least value is that
+	 * value, so either is PartialOperation, naming n and the fits precondition.
 	 */
-	type Seed = "data" | bigint
-	const seeds: Arr.NonEmptyReadonlyArray<Seed> = [
-		"data",
-		0n,
-		2n,
-		2n ** 40n,
-		2n ** 62n,
-		int8Max.value,
-		int8Min.value
-	]
+	type Seed = Readonly<{ kind: "data" }> | Readonly<{ kind: "literal"; value: bigint }>
+	type CountdownFeature =
+		| "admitted from zero or above"
+		| "admitted from below zero"
+		| "admitted from bigint's greatest value"
+		| "refused data"
+		| "refused from bigint's least value"
+	const literal = (value: bigint): Seed => ({ kind: "literal", value })
+	const seedGen: Gen<Seed> = oneOf<Seed>([
+		constant<Seed>({ kind: "data" }),
+		map(int(0, 3), (d) => literal(int8Min.value + BigInt(d))),
+		map(int(-3, 3), (d) => literal(BigInt(d))),
+		map(int(0, 3), (d) => literal(int8Max.value - BigInt(d))),
+		map(bigintIn(int8Min.value, int8Max.value), literal)
+	])
 	it.effect(
-		"counts a countdown from its seed to its bound and admits every estimate, and refuses the step over a seed that may be bigint's least value",
+		"counts a countdown's states from its seed to its bound and admits every estimate, and refuses the step over a seed that may be bigint's least value",
 		(ctx) =>
 			searched(
 				ctx,
-				exhaust(
+				explore(
 					{
 						suite: "unit/recursion/countdown",
-						generator: element<Seed>(seeds),
+						draw: drawn(seedGen),
 						literal: Formatter.format,
-						limit: seeds.length,
-						coverage: requiredInSpace<"admitted literal" | "refused data" | "refused literal">([
-							"admitted literal",
-							"refused data",
-							"refused literal"
-						]),
+						oracle: {
+							kind: "second-implementation",
+							name: "the countdown's states counted from its seed, and the step's least value, its least state less one, within bigint"
+						},
+						coverage: required<CountdownFeature>(
+							[
+								"admitted from zero or above",
+								"admitted from below zero",
+								"admitted from bigint's greatest value",
+								"refused data",
+								"refused from bigint's least value"
+							],
+							{ cases: 32, sense: notesOnly }
+						),
+						kept: [],
+						runs: 64,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
 						caseHang
 					},
 					(seeded, c) =>
@@ -1365,7 +1387,7 @@ describe("the seen-state estimate", () => {
 										vars: vars("Vertex", "id"),
 										matches: [match(relationSource("Vertex"), { id: ref("Vertex", "id") })],
 										where: [],
-										head: { n: seeded === "data" ? count() : typedLit(seeded, bigint) },
+										head: { n: seeded.kind === "data" ? count() : typedLit(seeded.value, bigint) },
 										interiors: [],
 										attach: []
 									})
@@ -1381,14 +1403,19 @@ describe("the seen-state estimate", () => {
 									})
 								]
 							)
-							if (seeded !== "data" && seeded >= 0n) {
-								c.note("admitted literal")
+							if (seeded.kind === "literal" && seeded.value > int8Min.value) {
+								c.note(
+									seeded.value >= 0n ? "admitted from zero or above" : "admitted from below zero"
+								)
+								if (seeded.value === int8Max.value) {
+									c.note("admitted from bigint's greatest value")
+								}
 								const cert = theRecursive(admitted(outcomeOf(desc))).termination
 								assert.equal(cert.kind, "wellFounded")
-								assert.equal(cert.stateEstimate, seeded + 1n)
+								assert.equal(cert.stateEstimate, seeded.value >= 0n ? seeded.value + 1n : 1n)
 								return
 							}
-							c.note(seeded === "data" ? "refused data" : "refused literal")
+							c.note(seeded.kind === "data" ? "refused data" : "refused from bigint's least value")
 							const r = checkQuery(checking(Graph), desc, checkOptions("query"))
 							assert.ok(!r.ok, "the step over bigint's least value is refused")
 							const reason = r.error.reason

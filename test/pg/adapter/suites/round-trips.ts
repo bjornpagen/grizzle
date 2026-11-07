@@ -1,13 +1,11 @@
 import { layer } from "@effect/vitest"
-import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { required, requiredInSpace } from "@grizzle/testing/features"
+import { drawn, explore } from "@grizzle/testing/explore"
+import { required } from "@grizzle/testing/features"
 import { array, boolean, element, type Gen, int, shuffled } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
-import { admit } from "#adapter/admission/admit.ts"
-import { admissionExpectation } from "#adapter/admission/expectation.ts"
 import { dbContext } from "#adapter/db/context.ts"
 import { makeDb } from "#adapter/db/db.ts"
 import type { ReadError } from "#adapter/errors/execution.ts"
@@ -19,12 +17,11 @@ import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
 import { arm, query, v } from "#compiler/public/query.ts"
 import { derived, login, relation, role, schema } from "#compiler/public/schema.ts"
-import { ownLogin } from "#compiler/schema/own.ts"
-import { loginDescOf } from "#compiler/schema/world.ts"
+import { printObjectName } from "#compiler/sql/print.ts"
 import { defaultPool, poolFor, rowsOn } from "#test/pg/adapter/support.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { assert, defined } from "#test/support/assert.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { a1, t1, t4, t5, tMissing, workFacts } from "#test/support/fixtures/golden/work.ts"
 import { installMigrated as install } from "#test/support/install-migrate.ts"
@@ -139,6 +136,14 @@ const writeCallsGen = array(
 	{ min: 1, max: 4 }
 )
 
+type RefreshFeature = "a refresh of an unpopulated view" | "a refresh of a populated view"
+
+/**
+ * A drawn program of refreshes, each run on the view as the last left it or emptied first, `WITH NO DATA`, the
+ * unpopulated state a migration that recreates the view leaves.
+ */
+const refreshesGen = array(boolean, { min: 1, max: 4 })
+
 /**
  * One round trip per public call, observed on the protocol through the tap (test/support/wire-tap.ts).
  *
@@ -159,8 +164,10 @@ const writeCallsGen = array(
  * - drawn writes: ChangeSets of note inserts, puts and deletes, with or without a read-back that attaches, through
  *   db.apply, a compiled handle and db.explain; one with nothing to write sends its transaction all the same, its
  *   frame alone, so even it meets the fence;
- * - Db.open's admission, one round trip of statements apart and the fence's transaction; db.refresh unpopulated then
- *   populated, a finite space exhausted.
+ * - drawn programs of db.refresh, each on its view as the last refresh left it or emptied first as a migration that
+ *   recreates it leaves it, so the server chooses the plain and the concurrent form, read from pg_class before each
+ *   call, and every refresh leaves its view populated. Db.open's admission, with every refined claim it judges, is
+ *   test/pg/world-model/admission.test.ts's.
  */
 export const roundTripSuite = (): void => {
 	layer(Substrate.layer, { excludeTestServices: true })("one round trip per public call", (it) => {
@@ -389,31 +396,6 @@ export const roundTripSuite = (): void => {
 		)
 
 		it.effect(
-			"Db.open's admission is one round trip of statements apart and the fence's transaction",
-			() =>
-				Effect.gen(function* () {
-					const o = yield* installed(W.Work, workFacts, { label: "real", extensions: [] })
-					yield* Effect.gen(function* () {
-						const opened = yield* Db.open(o.server.roles.app, {})
-						const { context, tap } = yield* tapped(opened, o.installed.as(o.server))
-						const admitted = yield* observe(
-							tap,
-							admit(context.pool, admissionExpectation(context.artifacts), {
-								artifacts: context.artifacts,
-								login: succeeded(ownLogin(defined(loginDescOf(o.server)))),
-								role: context.role,
-								snapshot: o.installed.snapshot,
-								/** The full role reads no context: a Db of it has no claims to judge. */
-								claims: []
-							})
-						)
-						assertFlights("admission", admitted.window, 1, readFraming)
-						assert.equal(tap.cancels(), 0)
-					}).pipe(Effect.scoped, withLayer(o.layer))
-				}).pipe(Effect.scoped)
-		)
-
-		it.effect(
 			"every drawn write, compiled write and EXPLAIN of a ChangeSet is one round trip in its transaction",
 			(testContext) =>
 				searched(
@@ -514,43 +496,72 @@ export const roundTripSuite = (): void => {
 		)
 
 		it.effect(
-			"db.refresh is one round trip, unpopulated and populated, its choice made in the server",
+			"every drawn db.refresh is one round trip, its view unpopulated or populated, its choice made in the server",
 			(testContext) =>
 				searched(
 					testContext,
 					Effect.gen(function* () {
+						const s = yield* Substrate
 						const installation = yield* install(derivedFixture("Edu").Reports, {
 							ambient: ordinarySession,
 							extensions: [],
 							label: "trips",
 							logins: [derivedFixture("Edu").server]
 						})
-						/** The first refresh populates the view plainly; the second refreshes it concurrently. */
 						const fixture = derivedFixture(installation.schema)
+						const view = printObjectName(installation.names.relation("StudentWeekly"))
+						/** pg_class.relispopulated of the view, read as the owner. */
+						const populated = Effect.map(
+							s.admin.queryValues(
+								"SELECT c.relispopulated FROM pg_catalog.pg_class AS c WHERE c.oid = $1::regclass",
+								[view]
+							),
+							(rows) => rows[0]?.[0] === true
+						)
 						return yield* Effect.gen(function* () {
 							const opened = yield* Db.open(fixture.server.roles.refresher, {})
 							const { db, tap } = yield* tapped(opened, installation.as(fixture.server))
-							const exhausted = yield* exhaust(
+							return yield* explore(
 								{
 									suite: "adapter/round-trips refresh",
-									generator: element<"unpopulated" | "populated">(["unpopulated", "populated"]),
+									draw: drawn(refreshesGen),
 									literal: Formatter.format,
-									limit: 2,
-									coverage: requiredInSpace<"unpopulated" | "populated">([
-										"unpopulated",
-										"populated"
-									]),
+									kept: [],
+									runs: 6,
+									shrink: completeShrink,
+									concurrency: 1,
+									steerEvery: 16,
+									coverage: required<RefreshFeature>(
+										["a refresh of an unpopulated view", "a refresh of a populated view"],
+										{ cases: 8, sense: notesOnly }
+									),
 									caseHang
 								},
-								(state, c) =>
+								(refreshes, notes) =>
 									Effect.gen(function* () {
-										const refreshed = yield* observe(tap, db.refresh(fixture.StudentWeekly))
-										assertFlights(`refresh, ${state}`, refreshed.window, 1, writeFraming)
-										c.note(state)
+										for (const emptied of refreshes) {
+											if (emptied) {
+												yield* s.admin.query(`REFRESH MATERIALIZED VIEW ${view} WITH NO DATA`, [])
+											}
+											const before = yield* populated
+											const refreshed = yield* observe(tap, db.refresh(fixture.StudentWeekly))
+											assertFlights(
+												before ? "refresh, populated" : "refresh, unpopulated",
+												refreshed.window,
+												1,
+												writeFraming
+											)
+											const after = yield* populated
+											assert.ok(after, "a refresh leaves its view populated")
+											notes.note(
+												before
+													? "a refresh of a populated view"
+													: "a refresh of an unpopulated view"
+											)
+										}
+										assert.equal(tap.cancels(), 0)
 									})
 							)
-							assert.equal(tap.cancels(), 0)
-							return exhausted
 						}).pipe(Effect.scoped, withLayer(loginLayer(installation, fixture.server)))
 					}).pipe(Effect.scoped)
 				)

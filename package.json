@@ -567,12 +567,20 @@
 				},
 				{
 					"files": [
+						"test/unit/dev/package.test.ts"
+					],
+					"reason": "The published-package gate: the README's and SKILL.md's mirrored programs, the one sanctioned example code, typecheck against the declarations the build emits alone, so those declarations are self-contained and never any; its other case exhausts the published entry points and bins against the source."
+				},
+				{
+					"files": [
 						"test/pg/bench/"
 					],
 					"reason": "The performance gates: each measures a workload against its gate, a performance property, never a verdict a person wrote."
 				},
 				{
 					"files": [
+						"test/types/api/recursion.test.ts",
+						"test/types/api/workload.test.ts",
 						"test/types/changeset/changeset.test.ts",
 						"test/types/compute/compute.test.ts",
 						"test/types/evidence/agreement.test.ts",

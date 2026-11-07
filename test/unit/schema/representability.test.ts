@@ -34,7 +34,7 @@ import type { ExprDesc, FieldDesc } from "#compiler/ir/desc.ts"
 import { fieldTypes } from "#compiler/ir/desc.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { natural, uuid } from "#compiler/public/fields.ts"
-import { keyTextBytes } from "#compiler/public/text.ts"
+import { keyTextBytes, str } from "#compiler/public/text.ts"
 import {
 	accumulatedField,
 	closed,
@@ -548,7 +548,13 @@ describe("pattern byte bounds", () => {
 							const language = textLookup(source, s.flags)
 							/** A pattern the analysis refuses has no descriptor, so nothing it bounds is a key's. */
 							const bound = language.ok
-								? textByteBound({ kind: "text", source, flags: s.flags, language: language.value })
+								? textByteBound({
+										kind: "text",
+										source,
+										flags: s.flags,
+										bytes: undefined,
+										language: language.value
+									})
 								: Number.POSITIVE_INFINITY
 							const anchored = Arr.every(alternatives, (a) => a.start && a.end)
 							const longest = maxOf(
@@ -1303,13 +1309,19 @@ const nullableTupleBytes = (datums: ReadonlyArray<Datum>): number => {
 type KeyArm = "declared key" | "key over a selection"
 type BudgetArm = KeyArm | "ordered axis" | "tree axis"
 
+/** How the text's bound is written: a contract over its octet_length, or str.bytes, which feeds the budget directly. */
+type Spelling = "a contract" | "str.bytes"
+
+const spellings: Arr.NonEmptyReadonlyArray<Spelling> = ["a contract", "str.bytes"]
+
 type BudgetCase =
 	| {
 			readonly arm: KeyArm
 			readonly companions: Arr.NonEmptyReadonlyArray<Companion>
 			readonly position: number
+			readonly spelling: Spelling
 	  }
-	| { readonly arm: "ordered axis" | "tree axis" }
+	| { readonly arm: "ordered axis" | "tree axis"; readonly spelling: Spelling }
 
 const budgetCaseGen: Gen<BudgetCase> = weighted<BudgetCase>([
 	[
@@ -1319,15 +1331,23 @@ const budgetCaseGen: Gen<BudgetCase> = weighted<BudgetCase>([
 			return {
 				arm: source.draw(element<KeyArm>(["declared key", "key over a selection"])),
 				companions,
-				position: source.draw(int(0, companions.length))
+				position: source.draw(int(0, companions.length)),
+				spelling: source.draw(element(spellings))
 			}
 		}
 	],
-	[1, element<BudgetCase>([{ arm: "ordered axis" }, { arm: "tree axis" }])]
+	[
+		1,
+		(source): BudgetCase => ({
+			arm: source.draw(element<"ordered axis" | "tree axis">(["ordered axis", "tree axis"])),
+			spelling: source.draw(element(spellings))
+		})
+	]
 ])
 
 type BudgetFeature =
 	| BudgetArm
+	| Spelling
 	| "tight"
 	| "slack"
 	| "text first"
@@ -1335,9 +1355,11 @@ type BudgetFeature =
 	| "text between"
 	| "a text beside it"
 
-/** A text bounded at `bytes` by its octet_length, over the wildcard. */
-const keyText = (bytes: number): FieldBase =>
-	rawContract("KeyText", wildcard, octetLengthAtMost(bytes))
+/** A text bounded at `bytes`, over the wildcard: by a contract over its octet_length, or by str.bytes. */
+const keyText = (bytes: number, spelling: Spelling): FieldBase =>
+	spelling === "a contract"
+		? rawContract("KeyText", wildcard, octetLengthAtMost(bytes))
+		: str.bytes(bytes, wildcard)
 
 /** The installation of a schema value: every index its law model plans, each entry proved or refused. */
 const installed = (value: unknown) =>
@@ -1349,8 +1371,8 @@ const installed = (value: unknown) =>
  * Doc's lines in order and the concat fold of their pieces into Doc.text, each text bounded at `bytes`: the axis's
  * UNIQUE is Line's (doc, at, after).
  */
-const orderedAxis = (bytes: number) => {
-	const text = keyText(bytes)
+const orderedAxis = (bytes: number, spelling: Spelling) => {
+	const text = keyText(bytes, spelling)
 	const Doc = relation(
 		"Doc",
 		{ id: uuid, n: drawnField(natural, []), text: accumulatedField(text, "", []) },
@@ -1386,8 +1408,8 @@ const orderedAxis = (bytes: number) => {
  * A tree of nodes and the concat fold of their pieces along it, each text bounded at `bytes`: its predecessor axis's
  * UNIQUE holds the parent as a law column that may hold NULL, the slot, the running text and the node's end.
  */
-const treeAxis = (bytes: number) => {
-	const text = keyText(bytes)
+const treeAxis = (bytes: number, spelling: Spelling) => {
+	const text = keyText(bytes, spelling)
 	const Node = relation(
 		"Node",
 		{
@@ -1445,7 +1467,7 @@ const keyArm = (s: Extract<BudgetCase, { readonly arm: KeyArm }>): Arm => {
 		companions: s.companions,
 		schemaAt: (bytes) => {
 			const named = Arr.map(descriptors, (d, i): readonly [string, FieldBase] => [`c${i}`, d])
-			const text: readonly [string, FieldBase] = ["t", keyText(bytes)]
+			const text: readonly [string, FieldBase] = ["t", keyText(bytes, s.spelling)]
 			const fields = [...Arr.take(named, s.position), text, ...Arr.drop(named, s.position)]
 			const names = Arr.map(fields, ([n]) => n)
 			if (!selected) {
@@ -1490,7 +1512,7 @@ const armOf = (s: BudgetCase): Arm => {
 			return {
 				fields: [uuid, natural],
 				companions: [uuidCompanion, naturalCompanion],
-				schemaAt: orderedAxis,
+				schemaAt: (bytes) => orderedAxis(bytes, s.spelling),
 				entryAt: (bytes) =>
 					btreeTupleBytes([
 						companionDatum(uuidCompanion),
@@ -1502,7 +1524,7 @@ const armOf = (s: BudgetCase): Arm => {
 			return {
 				fields: [uuid, natural, natural],
 				companions: [uuidCompanion, naturalCompanion, naturalCompanion],
-				schemaAt: treeAxis,
+				schemaAt: (bytes) => treeAxis(bytes, s.spelling),
 				entryAt: (bytes) =>
 					nullableTupleBytes([
 						companionDatum(uuidCompanion),
@@ -1552,6 +1574,8 @@ describe("keyTextBytes", () => {
 								"key over a selection",
 								"ordered axis",
 								"tree axis",
+								"a contract",
+								"str.bytes",
 								"tight",
 								"slack",
 								"text first",
@@ -1578,7 +1602,7 @@ describe("keyTextBytes", () => {
 								`the ${s.arm} with a text of ${budget} bytes`
 							)
 							const past = arm.entryAt(budget + 1) > postgresBtreeMaxItem
-							c.noteAll([s.arm, past ? "tight" : "slack", ...keyFeatures(s)])
+							c.noteAll([s.arm, s.spelling, past ? "tight" : "slack", ...keyFeatures(s)])
 							if (past) {
 								refused(installed(arm.schemaAt(budget + 1)), "UnrepresentableKey")
 							} else {

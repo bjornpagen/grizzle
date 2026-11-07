@@ -1321,6 +1321,7 @@ becomes one PostgreSQL schema.
 | `pg.boolean`                                       | boolean                                       | `boolean`                                                           |
 | `pg.smallserial`, `pg.serial`, `pg.bigserial`      | an identity column                            | `number`, `number`, `bigint`                                        |
 | `str.regex(pattern, flags?)`                       | text, behind a domain that checks the pattern | the pattern's language: `string`, or `"yes" \| "no"` for `^(yes\|no)$` |
+| `str.bytes(n, str.regex(...))`                     | text, behind a domain that checks its UTF-8 bytes, then the pattern | the pattern's own                                                   |
 | `closedId(X)`, for `X = closed("X", [...])`        | smallint, behind the roster's domain           | the union of its names                                              |
 | `bits(X)`, a set of `X`'s handles                  | bit(n), n `X`'s codes rounded up to whole hex digits, behind a domain that holds only live handles | `Bits<typeof X>`, a `ReadonlySet` of its names, `Bits.of(X, [...])` |
 | `contract(name, base, check?)`                     | a domain with that CHECK                      | the base type, branded with the name                                |
@@ -1337,15 +1338,22 @@ from 0001-01-01 to 9999-12-31, so no column holds an infinity or a year its text
 8601 text, `"2024-02-29"`, one text per day, ordered as the calendar is; every login pins `DateStyle` to ISO, so
 PostgreSQL writes it the same way. Dates compare, and `min` and `max` them, and a key or index may hold one.
 
-A text in a key, or in any index grizzle installs, needs a byte bound: its pattern's, a contract's
+`str.bytes(n, pattern)` is text of the pattern's language of at most `n` UTF-8 bytes, `n` from 0 to 2,147,483,647.
+The bound is a refinement as the pattern is, not a type: the field's host type is the pattern's, so it meets every
+text the pattern meets, and a value copied from a document text of no bound into it needs no cast. Its domain checks
+`octet_length(VALUE) <= n` before the pattern, so PostgreSQL's regex engine never reads a longer value, and refuses a
+longer value with 23514 as it refuses a value outside the pattern; equal patterns and bounds share one domain, and a
+bound every value of the pattern already meets leaves the pattern's own type and domain. Text always carries a
+pattern, so the bound takes one: `str.bytes(n, str.regex("^.*$", "su"))` is any text of at most `n` bytes.
+
+A text in a key, or in any index grizzle installs, needs a byte bound: its pattern's, `str.bytes`'s, a contract's
 `Compute.charLength(v)` bound, four bytes a code point, or a contract's `Compute.octetLength(v)` bound, its UTF-8 bytes
 exactly. `keyTextBytes(fields)` is the most bytes a text holds beside `fields` in every index grizzle plans over them,
 whatever their order and whichever is a hidden column that may be NULL; `fields` are the index's other columns, a
 key's other fields or, for a family axis that carries the text, its group fields, its natural index, the other values
-it carries and a tree's `end`. So
-`contract("KeyText", str.regex("^.*$", "su"), (v) => Compute.octetLength(v).le(keyTextBytes([uuid, natural])))` sits
-in a key with a uuid and a natural, declared or over a selection, and rides an ordered family's axis grouped by a
-uuid, and a pattern needs no counted repetition to be a key's. A key's entry is laid out
+it carries and a tree's `end`. So `str.bytes(keyTextBytes([uuid, natural]), str.regex("^.*$", "su"))` sits in a key
+with a uuid and a natural, declared or over a selection, and rides an ordered family's axis grouped by a uuid, and a
+pattern needs no counted repetition to be a key's. A key's entry is laid out
 as PostgreSQL lays it out: exactly through its fixed-width fields in key order, then each datum at its widest padding
 from the first text, numeric, set, range or vector on.
 

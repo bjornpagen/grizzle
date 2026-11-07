@@ -3,15 +3,18 @@
  * so two contracts of one definition share one domain and two of different definitions never do, and each column the
  * shared domain types still enforces its contract, its violation refused with 23514 on that domain.
  *
- * - **PostgreSQL as the judge, metamorphic:** for every pair of contracts over two bases (int4 and int8) and two
- *   predicates (≥ 0 and ≥ 1), the installed columns of the two are of one type exactly when the pair's definitions are
- *   equal; each column admits a value its predicate holds of and refuses, with 23514 on its column's domain reporting a
- *   contract law of the installation, a value its predicate refuses.
+ * - **PostgreSQL as the judge, metamorphic:** for drawn pairs of contracts, each over a base (int4 or int8) and a
+ *   least admitted value from -1 to 1, the second the first's definition one draw in three, the installed columns of
+ *   the two are of one type exactly when the pair's definitions are equal; each column admits a drawn value its
+ *   predicate holds of and refuses, with 23514 on its column's domain reporting a contract law of the installation, a
+ *   drawn value its predicate refuses.
  */
 import { layer } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { element } from "@grizzle/testing/gen"
+import { drawn, explore } from "@grizzle/testing/explore"
+import { required } from "@grizzle/testing/features"
+import { boolean, constant, type Gen, int, weighted } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
+import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { admittedIdentifier } from "#compiler/core/identity.ts"
@@ -19,61 +22,65 @@ import { constraintLaw } from "#compiler/ir/products.ts"
 import { contract, pg } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { cleared, seatOf } from "#test/pg/fin/installed.ts"
-import { assert, nonEmpty } from "#test/support/assert.ts"
+import { assert } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { attempt, refusalText } from "#test/support/substrate.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 type Base = "int4" | "int8"
-type Least = 0 | 1
 
 /** A contract's physical definition: its base and the least value its predicate admits. */
 interface Definition {
 	readonly base: Base
-	readonly least: Least
+	readonly least: number
 }
 
-const DEFINITIONS: Arr.NonEmptyReadonlyArray<Definition> = [
-	{ base: "int4", least: 0 },
-	{ base: "int4", least: 1 },
-	{ base: "int8", least: 0 },
-	{ base: "int8", least: 1 }
-]
+/** Contract A under a definition. */
+const contractA = (d: Definition) =>
+	d.base === "int4"
+		? contract("A", pg.int4, (v) => v.ge(d.least))
+		: contract("A", pg.int8, (v) => v.ge(BigInt(d.least)))
 
-/** A definition's key in the contract tables. */
-const keyOf = (d: Definition) => `${d.base} ${d.least}` as const
-
-/** Contract A under each definition. */
-const A = {
-	"int4 0": contract("A", pg.int4, (v) => v.ge(0)),
-	"int4 1": contract("A", pg.int4, (v) => v.ge(1)),
-	"int8 0": contract("A", pg.int8, (v) => v.ge(0n)),
-	"int8 1": contract("A", pg.int8, (v) => v.ge(1n))
-}
-
-/** Contract B under each definition. */
-const B = {
-	"int4 0": contract("B", pg.int4, (v) => v.ge(0)),
-	"int4 1": contract("B", pg.int4, (v) => v.ge(1)),
-	"int8 0": contract("B", pg.int8, (v) => v.ge(0n)),
-	"int8 1": contract("B", pg.int8, (v) => v.ge(1n))
-}
+/** Contract B under a definition. */
+const contractB = (d: Definition) =>
+	d.base === "int4"
+		? contract("B", pg.int4, (v) => v.ge(d.least))
+		: contract("B", pg.int8, (v) => v.ge(BigInt(d.least)))
 
 const schemaOf = (a: Definition, b: Definition) =>
 	schema(
 		"fin_domains",
-		{ R: relation("R", { id: pg.int4, a: A[keyOf(a)], b: B[keyOf(b)] }, ["id"]) },
+		{ R: relation("R", { id: pg.int4, a: contractA(a), b: contractB(b) }, ["id"]) },
 		[]
 	)
 
+/** Two contracts' definitions, and how far above and below each one's least value the written values lie. */
 interface Pair {
 	readonly a: Definition
 	readonly b: Definition
+	readonly above: number
+	readonly below: number
 }
 
-const PAIRS: Arr.NonEmptyReadonlyArray<Pair> = nonEmpty(
-	Arr.flatMap(DEFINITIONS, (a) => Arr.map(DEFINITIONS, (b) => ({ a, b })))
-)
+const definitionGen: Gen<Definition> = (source) => ({
+	base: source.draw(boolean) ? "int8" : "int4",
+	least: source.draw(int(-1, 1))
+})
+
+const pairGen: Gen<Pair> = (source) => {
+	const a = source.draw(definitionGen)
+	return {
+		a,
+		b: source.draw(
+			weighted<Definition>([
+				[1, constant(a)],
+				[2, definitionGen]
+			])
+		),
+		above: source.draw(int(0, 2)),
+		below: source.draw(int(1, 3))
+	}
+}
 
 type DomainFeature =
 	| "one definition shares one domain"
@@ -88,22 +95,28 @@ layer(Substrate.layer)("shared domains on PostgreSQL 19rc1", (it) => {
 		(ctx) =>
 			searched(
 				ctx,
-				exhaust(
+				explore(
 					{
 						suite: "fin/domains",
-						generator: element(PAIRS),
+						draw: drawn(pairGen),
 						literal: Formatter.format,
-						limit: PAIRS.length,
-						box: "every pair of contracts over two bases, int4 and int8, and two predicates, ≥ 0 and ≥ 1",
 						oracle: {
 							kind: "universal",
 							name: "metamorphic: equal definitions share one domain, and different ones never do; PostgreSQL judges each contract"
 						},
-						coverage: requiredInSpace<DomainFeature>([
-							"one definition shares one domain",
-							"two definitions take two domains",
-							"a shared domain refuses each contract's violation"
-						]),
+						coverage: required<DomainFeature>(
+							[
+								"one definition shares one domain",
+								"two definitions take two domains",
+								"a shared domain refuses each contract's violation"
+							],
+							{ cases: 16, sense: notesOnly }
+						),
+						kept: [],
+						runs: 8,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 4,
 						caseHang
 					},
 					(p: Pair, c) =>
@@ -114,11 +127,11 @@ layer(Substrate.layer)("shared domains on PostgreSQL 19rc1", (it) => {
 								attempt(seat.session, [
 									`INSERT INTO ${table} (${seat.column("R", "id")}, ${seat.column("R", "a")}, ${seat.column("R", "b")}) VALUES (1, ${a}, ${b})`
 								])
-							const lawful = yield* write(p.a.least, p.b.least)
+							const lawful = yield* write(p.a.least + p.above, p.b.least + p.above)
 							assert.equal(
 								lawful.kind,
 								"committed",
-								`${Formatter.format(p)}: each contract's least value commits`
+								`${Formatter.format(p)}: each contract's admitted value commits`
 							)
 							const types = yield* seat.session.values(
 								`SELECT pg_catalog.pg_typeof(${seat.column("R", "a")})::text, pg_catalog.pg_typeof(${seat.column("R", "b")})::text FROM ${table}`,
@@ -136,8 +149,8 @@ layer(Substrate.layer)("shared domains on PostgreSQL 19rc1", (it) => {
 							)
 							yield* cleared(seat, ["R"])
 							for (const [column, d, a, b] of [
-								["a", p.a, p.a.least - 1, p.b.least],
-								["b", p.b, p.a.least, p.b.least - 1]
+								["a", p.a, p.a.least - p.below, p.b.least],
+								["b", p.b, p.a.least, p.b.least - p.below]
 							] as const) {
 								const real = yield* write(a, b)
 								yield* seat.session.resetStatements

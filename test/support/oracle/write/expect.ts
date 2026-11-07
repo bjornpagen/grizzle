@@ -159,12 +159,23 @@ const keyFields = (
 	return { fields: projected.fields, primary: false }
 }
 
-/** Same-key pairs among the enumerated additions of each stratum, which host normalization refuses. */
-const hostRefusals = (ctx: ExpectContext, c: WChangeSet): ReadonlyArray<AcceptableRefusal> =>
+/**
+ * Same-key pairs among the enumerated facts of each stratum, which host normalization refuses before any SQL: among its
+ * additions, a generated one on the keys holding no serial field, or among its deletions, each a set of the relation's
+ * facts that a key names one of. Two additions at one key break it in the add-wins state too; two deletions break
+ * nothing there, so a ChangeSet that lists them is refused whatever its strata do.
+ */
+const hostRefusals = (
+	ctx: ExpectContext,
+	c: WChangeSet,
+	deletions: boolean
+): ReadonlyArray<AcceptableRefusal> =>
 	Arr.flatMap(c.strata, (stratum) =>
 		Arr.flatMap(ctx.group.relations, (relation) => {
-			const added = Arr.flatMap(stratum, (m) =>
-				m.relation === relation.name && m.op !== "delete" && m.source.kind === "array"
+			const listed = Arr.flatMap(stratum, (m) =>
+				m.relation === relation.name &&
+				(m.op === "delete") === deletions &&
+				m.source.kind === "array"
 					? m.source.facts
 					: []
 			)
@@ -174,9 +185,9 @@ const hostRefusals = (ctx: ExpectContext, c: WChangeSet): ReadonlyArray<Acceptab
 					ctx,
 					relation,
 					fields,
-					Arr.some(fields, (f) => serial.has(f))
-						? Arr.filter(added, (f) => !isGenerated(relation, f))
-						: added
+					!deletions && Arr.some(fields, (f) => serial.has(f))
+						? Arr.filter(listed, (f) => !isGenerated(relation, f))
+						: listed
 				)
 			)
 		})
@@ -423,11 +434,12 @@ const collisionsOf = (
  * A foreign key's witness carries no key, because PostgreSQL reports the key only in its message. A refusal may name
  * any law the realization can meet first, because which statement fails first is a scheduling choice left to the
  * compiler: every key law and immediate foreign key the first refused stratum breaks, and every key law a same-key
- * pair among the enumerated additions of any stratum breaks, which host normalization refuses before any SQL. Laws are
- * accepted exactly when every violation query evaluated by brute force is empty where it is judged.
+ * pair among the enumerated additions or the enumerated deletions of any stratum breaks, which host normalization
+ * refuses before any SQL. Laws are accepted exactly when every violation query evaluated by brute force is empty where
+ * it is judged.
  *
- * Before any of these, the bind: host normalization refuses a same-key pair among the enumerated additions first,
- * then a parameter passed outside the field it is declared at refuses the whole ChangeSet with EncodingFailure
+ * Before any of these, the bind: host normalization refuses a same-key pair among the enumerated additions or the
+ * enumerated deletions first, then a parameter passed outside the field it is declared at refuses the whole ChangeSet with EncodingFailure
  * refinedValue before any SQL (unboundParams). A stratum that adds a fact holding a stored value its field's domain
  * refuses, a described member reading a wider text into a narrower field, is refused there by the domain's law, or
  * meets a law of the stratum first. A refused change leaves the initial state.
@@ -459,7 +471,8 @@ const expectUnder = (
 	const schema = oracleSchemaOf(ctx.group, ctx.laws)
 	const initial = oracleState(schema, facts, sequences)
 	const collisions = collisionsOf(ctx, c, initial)
-	const host = hostRefusals(ctx, c)
+	const deleted = hostRefusals(ctx, c, true)
+	const host = [...hostRefusals(ctx, c, false), ...deleted]
 	const immediate = Arr.filter(ctx.group.containments, (x) => isImmediate(ctx.group, x))
 	const rejected = (refusals: ReadonlyArray<AcceptableRefusal>): Expected => ({
 		kind: "rejected",
@@ -472,6 +485,9 @@ const expectUnder = (
 		return host.length > 0
 			? rejected([])
 			: { kind: "unbound", params: unbound, initial, collisions }
+	}
+	if (deleted.length > 0) {
+		return rejected([])
 	}
 	/** The domains' refusals lead, then the host's and the stratum's. */
 	const outsideDomain = (

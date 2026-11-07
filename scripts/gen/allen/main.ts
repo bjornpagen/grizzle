@@ -6,7 +6,7 @@ import { allenTableSource } from "#scripts/gen/allen/generate.ts"
 
 /**
  * Writes packages/engine/src/allen/table.generated.ts from the generator: `node scripts/gen/allen/main.ts`. The allen unit
- * test regenerates the table and compares it with the committed file, so a stale table fails the tests.
+ * test regenerates the table and holds the committed one to it entry for entry, so a stale table fails the tests.
  */
 const main = Effect.gen(function* () {
 	const fs = yield* FileSystem.FileSystem

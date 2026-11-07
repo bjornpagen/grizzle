@@ -1,14 +1,14 @@
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
-import { element } from "@grizzle/testing/gen"
+import { boolean, element, type Gen, int, subarray } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { ParamId } from "#compiler/core/ids.ts"
 import type { ActionCore } from "#compiler/ir/write.ts"
 import { completeClass } from "#compiler/ir/write.ts"
 import { canonicalActionOrder, scheduleStratum } from "#compiler/write/frontend/schedule.ts"
-import { assert, nonEmpty } from "#test/support/assert.ts"
+import { assert } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 
 /**
@@ -111,52 +111,46 @@ const statementsOf = (
 	}
 }
 
-const ops: ReadonlyArray<Op> = ["insert", "put", "delete"]
-const pWrites: ReadonlyArray<Write | undefined> = [
-	undefined,
-	...Arr.flatMap(ops, (op) => Arr.map([1, 2], (id): Write => ({ op, fact: [id, id] })))
-]
-const cWrites: ReadonlyArray<Write | undefined> = [
-	undefined,
-	...Arr.flatMap(ops, (op) => Arr.map([1, 2], (ref): Write => ({ op, fact: [1, ref] })))
-]
-const pStates: ReadonlyArray<ReadonlyArray<number>> = [[], [1], [2], [1, 2]]
-const cStates = (keyed: boolean): ReadonlyArray<ReadonlyArray<Fact>> =>
-	keyed
-		? [[], [[1, 1]], [[1, 2]]]
-		: [
-				[],
-				[[1, 1]],
-				[[1, 2]],
-				[
-					[1, 1],
-					[1, 2]
-				]
-			]
+/** A write of one relation, or none: its op, and the id it writes (P's) or references (C's, whose own id is 1). */
+const writeGen =
+	(fact: (id: number) => Fact): Gen<Write | undefined> =>
+	(source) =>
+		source.draw(boolean)
+			? {
+					op: source.draw(element(["insert", "put", "delete"] as const)),
+					fact: fact(source.draw(int(1, 2)))
+				}
+			: undefined
 
-/** Every case of the box: lawful before, a write of one or both relations, lawful after. */
-const boxes: Arr.NonEmptyReadonlyArray<Box> = nonEmpty(
-	Arr.flatMap([true, false], (sourceFirst) =>
-		Arr.flatMap([true, false], (keyed) =>
-			Arr.flatMap(pStates, (p) =>
-				Arr.flatMap(cStates(keyed), (c) =>
-					Arr.flatMap(pWrites, (onP) =>
-						Arr.flatMap(cWrites, (onC): ReadonlyArray<Box> => {
-							const box: Box = { sourceFirst, keyed, p, c, onP, onC }
-							if ((onP === undefined && onC === undefined) || !holds(p, c)) {
-								return []
-							}
-							const finalC = onC === undefined ? c : cAfter(box, c, onC)
-							const finalP = onP === undefined ? p : pAfter(p, onP)
-							return finalC !== undefined && holds(finalP, finalC) ? [box] : []
-						})
-					)
-				)
-			)
-		)
-	),
-	"the lawful strata of the box"
-)
+/**
+ * Every stratum of the box: whether C is named first and whether it has a payload; P's ids and C's facts, each a
+ * subset of ids 1 and 2 and of C's two facts at id 1; and a write of P, of C or both. A stratum is drawn only when its
+ * state before is lawful, C's key and its reference, and its final state is too; any other is discarded.
+ */
+const boxGen: Gen<Box> = (source) => {
+	const sourceFirst = source.draw(boolean)
+	const keyed = source.draw(boolean)
+	const p = source.draw(subarray(Arr.range(1, 2)))
+	const c = source.draw(subarray(Arr.map(Arr.range(1, 2), (ref): Fact => [1, ref])))
+	const onP = source.draw(writeGen((id) => [id, id]))
+	const onC = source.draw(writeGen((ref) => [1, ref]))
+	const box: Box = { sourceFirst, keyed, p, c, onP, onC }
+	const finalC = onC === undefined ? c : cAfter(box, c, onC)
+	const finalP = onP === undefined ? p : pAfter(p, onP)
+	if (
+		(onP === undefined && onC === undefined) ||
+		(keyed && c.length > 1) ||
+		!holds(p, c) ||
+		finalC === undefined ||
+		!holds(finalP, finalC)
+	) {
+		source.discard()
+	}
+	return box
+}
+
+/** The box's tapes: two names, two shapes, four P states, four C states and seven writes of each relation. */
+const boxCases = 2 * 2 * 4 * 4 * 7 * 7
 
 type Situation =
 	| "both put, the source named first"
@@ -189,9 +183,9 @@ describe("a stratum's schedule", () => {
 				exhaust(
 					{
 						suite: "unit/write/schedule",
-						generator: element(boxes),
+						generator: boxGen,
 						literal: Formatter.format,
-						limit: boxes.length,
+						limit: boxCases,
 						coverage: requiredInSpace<Situation>([
 							"both put, the source named first",
 							"both put, the target named first",
