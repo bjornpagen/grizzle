@@ -27,9 +27,6 @@ never as a hack downstream. Every hash goes to qti-pie, which repins at once.
   - #3 a fold step or generated term under another refinement of its carrier, refused by the target domain (Q3);
   - #5 messageMaxBytes and maxStringLength exported (landed, 8a7c03ab);
   - #7 `lawsOf(schema)` and `sameLaw` (EXP).
-- **Bytes and the binary wire, once the owner approves the plan:** a first-class `bytes` type (bytea, Uint8Array), every
-  non-text value on the wire in binary format, sets and closed constants decoded from binary, no text parsing at the
-  boundary.
 - **The fallback audits:** FB-L and FB-A finish and push.
 
 ### P1: the publish
@@ -65,8 +62,18 @@ never as a hack downstream. Every hash goes to qti-pie, which repins at once.
   re-insert witness residual (a stored owner re-inserted beside a refused new owner).
 - **role's base type admits a role value** (AnyRole extends AnySchema) that the runtime then refuses as malformed: an
   illegal state the types still represent (found by FULLROLE).
-- **qti-pie's other limits:** #4 a bytes type (covered by the bytes plan if it lands in beta.1), #6 a pattern law naming
-  its relation and field, #8 float cast totality past the double form, and a containment whose source is a join.
+- **qti-pie's other limits:** #8 float cast totality past the double form, and a containment whose source is a join.
+- **bytes past 268,435,443 bytes:**
+  - Why: pg 8.23's parser decodes every result cell as a UTF-8 string, so a binary read isn't possible. Every bytes
+    value is read as hex text in one string.
+  - The design (BYTES, 2026-11-07), still one statement:
+    - every outermost select that delivers a bytes column is cross-joined with generate_series over chunks of a
+      measured Limit, delivering `encode(substring(col FROM i*C+1 FOR C), 'base64url')`, with octet_length and the
+      other columns on chunk 0;
+    - the reader groups rows by ordinal into one Uint8Array, filled with setFromBase64;
+    - a value's identity becomes its windows-1252 decode, so about 512 MiB;
+    - a digest key with an exact compare on a hit would reach about 1 GB.
+  - The riskiest part is the attachment stitching.
 - **Mutation adequacy:** one seeded `pnpm mutate` sample on the release commit, in a scratch copy. Every surviving
   mutant becomes a generator arm or a written equivalence, and triage.json is pruned to the code.
 - **PostgreSQL:** repin to 19rc2 on 2026-11-12 if the beta isn't out by then (pin.env, rebuild, re-init, delete the
