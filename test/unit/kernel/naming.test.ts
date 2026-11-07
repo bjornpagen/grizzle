@@ -16,7 +16,7 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Order, Record as Rec, String as Str } from "effect"
 import { indices } from "#compiler/core/array.ts"
-import { conversionOf, identifierOf, identity } from "#compiler/core/identity.ts"
+import { conversionOf, identifierOf } from "#compiler/core/identity.ts"
 import type { ConstraintName, LawId } from "#compiler/core/ids.ts"
 import { sha256Hex } from "#compiler/core/sha256.ts"
 import type { SchemaDesc, SideDesc, StatementDesc } from "#compiler/ir/desc.ts"
@@ -497,17 +497,27 @@ describe("production names from src", () => {
 									k.note("text domain")
 									const [owner, field] = declaredColumn(N.model.owned, use.table, use.column)
 									const textNames = N.textDomain({ name: owner }, field)
-									assert.equal(
-										textNames.law,
-										N.lawOfConstraint(
-											{ kind: "domain", name: textNames.domain },
-											textNames.constraint
-										),
-										`${owner}.${field}`
+									assert.equal(textNames.domain, domain.name, `${owner}.${field}`)
+									const law = N.patternLaw({ name: owner }, field)
+									/** The law src's installation records for the column under the domain's CHECK. */
+									const recorded = Arr.flatMap(N.installation.constraintLaws, (c) =>
+										c.kind === "domainConstraint" &&
+										c.owner === textNames.domain &&
+										c.name === textNames.constraint
+											? Arr.filter(c.uses, (u) => u.table === use.table && u.column === use.column)
+											: []
 									)
+									assert.deepEqual(
+										Arr.map(recorded, (u) => u.law.law),
+										[law],
+										`${owner}.${field}'s column states its own pattern law under its domain's CHECK`
+									)
+									const described = N.described(law)
 									assert.ok(
-										textNames.law === identifierOf(identity.patternLaw(domain.named)),
-										`${owner}.${field}`
+										described.kind === "pattern" &&
+											described.relation === owner &&
+											described.field === field,
+										`${owner}.${field}'s law names its relation and field`
 									)
 								}
 							}

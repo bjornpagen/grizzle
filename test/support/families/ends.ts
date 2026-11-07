@@ -132,11 +132,27 @@ const piecesSource = "^[ab]{0,16}$"
 const refines = (monoid: MonoidName, p: PlaneKind): boolean =>
 	monoid === "concat" && p.kind === "text"
 
-/** The rule a refined cell's accumulators' domain refuses a value on, as an outcome names it. */
-export const piecesLaw: Law = { kind: "pattern", source: piecesSource, flags: "u" }
+/**
+ * A rule of a refined cell's domains a value can break: its piece's byte bound over every text, or its accumulators'
+ * pattern.
+ */
+export type CellRule = "bound" | "pattern"
 
-/** The rule a refined cell's piece's domain refuses a value on: its byte bound over every text. */
-export const pieceLaw: Law = { kind: "pattern", source: "^.*$", flags: "su" }
+/** The pattern each rule's fields are declared with, which an outcome's pattern law spells. */
+const ruleSpelling: Readonly<
+	Record<CellRule, { readonly source: string; readonly flags: "u" | "su" }>
+> = {
+	bound: { source: "^.*$", flags: "su" },
+	pattern: { source: piecesSource, flags: "u" }
+}
+
+/** A field's law under a refined cell's rule, as an outcome names it: the field's own pattern law. */
+const ruleLaw = (rule: CellRule, relation: string, field: string): Law => ({
+	kind: "pattern",
+	relation,
+	field,
+	...ruleSpelling[rule]
+})
 
 /** The most bytes a refined cell's piece holds. */
 const pieceBytes = 3
@@ -900,11 +916,12 @@ export const treeRows = (g: Group, trees: ReadonlyArray<Node>): ReadonlyArray<Mo
 }
 
 /**
- * A stored row whose value breaks a rule of its refined cell, its accumulators' pattern or its piece's bound: the
- * cell, the rule, the row's relation and its key.
+ * A stored row's field whose value breaks a rule of its refined cell, its accumulators' pattern or its piece's bound:
+ * the cell, the rule, the field's own pattern law, the row's relation and its key.
  */
 export interface Broken {
 	readonly cell: Cell
+	readonly rule: CellRule
 	readonly law: Law
 	readonly relation: string
 	readonly id: unknown
@@ -928,20 +945,24 @@ export const brokenOf = (
 			const breaking = (
 				relation: string,
 				fields: ReadonlyArray<string>,
-				law: Law,
+				rule: CellRule,
 				holds: (v: unknown) => boolean
 			): ReadonlyArray<Broken> =>
 				Arr.flatMap(rows.get(relation) ?? [], (row) =>
-					Arr.some(fields, (f) => !holds(row[f])) ? [{ cell: c, law, relation, id: row["id"] }] : []
+					Arr.flatMap(fields, (f) =>
+						holds(row[f])
+							? []
+							: [{ cell: c, rule, law: ruleLaw(rule, relation, f), relation, id: row["id"] }]
+					)
 				)
 			const piece = c.step.kind === "doubled" ? [c.step.field] : []
 			return [
-				...breaking(g.member.name, piece, pieceLaw, fits),
+				...breaking(g.member.name, piece, "bound", fits),
 				...(s.kind === "tree"
-					? breaking(g.member.name, [...c.ends, ...running], piecesLaw, lies)
+					? breaking(g.member.name, [...c.ends, ...running], "pattern", lies)
 					: [
-							...breaking(s.owner.name, c.ends, piecesLaw, lies),
-							...breaking(g.member.name, running, piecesLaw, lies)
+							...breaking(s.owner.name, c.ends, "pattern", lies),
+							...breaking(g.member.name, running, "pattern", lies)
 						])
 			]
 		})

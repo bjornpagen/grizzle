@@ -72,19 +72,23 @@ type ViolationFields = Pick<
  *   or `unreported` where it states none. A table CHECK's refusal of a stated fact names `every` law of that table's
  *   CHECKs the fact, as its write fills it, breaks, in the schema's canonical order, whichever PostgreSQL tried first;
  *   where no stated fact breaks it, or the host leaves one of those CHECKs unjudged, the outcome names the CHECK
- *   PostgreSQL reported, `first`, since PostgreSQL tries a table's CHECKs in the order of their names.
+ *   PostgreSQL reported, `first`, since PostgreSQL tries a table's CHECKs in the order of their names. A domain's
+ *   refusal of a stated fact names `every` law of the fact's columns it types whose values it refuses, a pattern's
+ *   naming its relation and field, where the host judges each of those columns.
  * - SQLSTATE 23502 on a generated column of the installation's: grizzle writes no NULL, so only the column's generation
  *   expression is NULL there, a closed read at a key its relation holds no row at, and the outcome names the generated
  *   field's law (types/changeset Law `generated`) with the host's witness of the stated fact whose term has no value.
  *   A 23502 on any other column, or one reporting no column, is no law outcome.
- *   The outcome names exactly the laws the violation breaks wherever what grizzle controls decides them, and every law
- *   the violated object discharges where it cannot:
- *   - one law, for an object that discharges one: a key, a table CHECK, a contract's or a refinement's own domain;
- *   - a domain several columns share (identical definitions are one domain), the laws of the columns it types in the
- *     tables the failing statement writes, which are the only values that statement coerced to it; every column's law
- *     where it writes none of them (a COMMIT, or a statement into a carrier);
- *   - every law merged into one object, a family's axis foreign key carrying several containments: which pair of its
- *     columns failed is in PostgreSQL's DETAIL alone, which the classifier never reads.
+ *   The outcome names exactly the laws the violation breaks wherever what grizzle controls decides them, and `some` of
+ *   the laws the violated object discharges where it cannot decide among several:
+ *   - one law, for an object that discharges one: a key, a table CHECK, a contract's own domain, or a pattern's domain
+ *     that types one column of the tables the failing statement writes;
+ *   - a domain several columns share (a text domain types every field of its pattern, each its own law, and contracts
+ *     of one definition share one): the laws of the columns it types in the tables the failing statement writes, which
+ *     are the only values that statement coerced to it, or every column's where it writes none of them (a COMMIT, or a
+ *     statement into a carrier), `some` of them where they are several and the host judges no stated fact whole;
+ *   - `some` of the laws merged into one object, a family's axis foreign key carrying several containments: which pair
+ *     of its columns failed is in PostgreSQL's DETAIL alone, which the classifier never reads.
  *
  * Every DETAIL read here is grizzle's own text, raised by grizzle's own statement, but it is the
  * database's answer: one the installation's encoding does not read is never a guess at a law or a reason, it is the
@@ -200,25 +204,37 @@ const concurrentChange = (
 }
 
 /**
- * The laws a native violation names (see the header): a domain's, of the columns it types in the tables `written`, when
- * it types any there; every law the object discharges otherwise.
+ * The laws a native violation can name (see the header): a domain's, of the columns it types in the tables `written`,
+ * when it types any there; every law the object discharges otherwise.
  */
 const nativeLaws = (
 	native: NativeLaws,
 	written: ReadonlySet<RelationIdent>
 ): Arr.NonEmptyReadonlyArray<Law> => {
 	const coerced = new Set(
-		Arr.flatMap(native.uses, (use) => (written.has(use.table) ? [use.law] : []))
+		Arr.flatMap(native.uses, (use) => (written.has(use.table) ? [use.law.law] : []))
 	)
 	const broken = Arr.filter(native.laws, (l) => coerced.has(l.law))
 	return Arr.map(Arr.isReadonlyArrayNonEmpty(broken) ? broken : native.laws, (l) => l.described)
 }
 
 /**
+ * The laws an object's refusal names where nothing grizzle holds decides among them: its one law, decided, or `some`
+ * of its several, at least one of which the row broke.
+ */
+const objectRefused = (laws: Arr.NonEmptyReadonlyArray<Law>): Refused => {
+	const [first, ...rest] = laws
+	const [second, ...more] = rest
+	return second === undefined
+		? { kind: "every", laws: [first] }
+		: { kind: "some", laws: [first, second, ...more] }
+}
+
+/**
  * The laws a native refusal names, as the host judged it (write/program/witness.ts RefusedLaws): every law of its
- * table's CHECKs the stated row breaks; the CHECK PostgreSQL reported first, `broken`, where no stated row breaks it or
- * the host leaves one of its table's CHECKs unjudged; and `broken`, the laws its one object discharges, for any other
- * refusal.
+ * table's CHECKs or of its domain's columns the stated row breaks; the CHECK PostgreSQL reported first, `broken`,
+ * where no stated row breaks it or the host leaves one of its table's CHECKs unjudged; and for any other refusal the
+ * laws its one object discharges that the statement can break, `broken`, decided where it is one.
  */
 const refusedBy = (laws: RefusedLaws, broken: Arr.NonEmptyReadonlyArray<Law>): Refused => {
 	switch (laws.kind) {
@@ -227,7 +243,7 @@ const refusedBy = (laws: RefusedLaws, broken: Arr.NonEmptyReadonlyArray<Law>): R
 		case "first":
 			return { kind: "first", laws: broken }
 		case "object":
-			return { kind: "every", laws: broken }
+			return objectRefused(broken)
 	}
 }
 
@@ -311,14 +327,12 @@ export const violationClassifier =
 		if (native === undefined) {
 			return undefined
 		}
-		const broken = nativeLaws(
-			native,
-			new Set(Arr.map(written.relations, (relation) => laws.tableOf(relation)))
-		)
+		const tables = new Set(Arr.map(written.relations, (relation) => laws.tableOf(relation)))
+		const broken = nativeLaws(native, tables)
 		const judged = written.judge(
 			owner.kind === "table"
 				? { kind: "constraint", owner: owner.name, name: constraint }
-				: { kind: "domain", laws: broken, uses: native.uses }
+				: { kind: "domain", uses: Arr.filter(native.uses, (use) => tables.has(use.table)) }
 		)
 		return { kind: "rejected", refused: refusedBy(judged.laws, broken), witness: judged.witness }
 	}

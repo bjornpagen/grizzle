@@ -1870,7 +1870,7 @@ const spanKeyed = (relation: RelationSpec): boolean =>
 
 /**
  * The family of the law of an identity the installation names (LawFamily): a relation's primary key, a key or a span
- * key; a contract's or a pattern's domain CHECK; or a declared law's family.
+ * key; a contract's or a pattern's domain CHECK, a field's own pattern law among them; or a declared law's family.
  */
 const lawFamilyOf = (state: ModelState, law: string): Option.Option<LawFamily> => {
 	const base = state.install.base
@@ -1883,7 +1883,12 @@ const lawFamilyOf = (state: ModelState, law: string): Option.Option<LawFamily> =
 				: "key"
 		)
 	}
-	if (Arr.some(Record.values(state.names.domains), (id) => id === law)) {
+	if (
+		Arr.some(Record.values(state.names.domains), (id) => id === law) ||
+		Arr.some(Record.values(state.names.patterns), (fields) =>
+			Arr.some(Record.values(fields), (id) => id === law)
+		)
+	) {
 		return Option.some("domain")
 	}
 	return Option.map(

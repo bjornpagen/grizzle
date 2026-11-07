@@ -118,27 +118,38 @@ export const ofDomainType = (domain: FieldDomain, value: HostValue): boolean => 
 	}
 }
 
-/** One value a statement writes, at a field of its domain; none where the statement leaves the field out. */
+/**
+ * One value a statement writes, at a field of the relation it writes, of the field's domain; none where the statement
+ * leaves the field out.
+ */
 export interface Cell {
+	readonly field: string
 	readonly domain: FieldDomain
 	readonly value: HostValue | undefined
 }
 
+/** A field whose value its law domain's CHECK refuses, with that domain. */
+export interface CheckedField {
+	readonly field: string
+	readonly domain: LawDomain
+}
+
 /**
  * What the values a statement writes meet: a fault of a base type first, which the encoder (a Db) or the literal's
- * input function (a direct writer) meets before the statement runs; else the law domains whose CHECK a value breaks,
- * each once, all met as the statement casts its values, in an order the model leaves open.
+ * input function (a direct writer) meets before the statement runs; else the fields whose law domain's CHECK refuses a
+ * value, each once, all met as the statement casts its values, in an order the model leaves open. PostgreSQL names the
+ * domain alone; a Db names a pattern's refusal by the field.
  */
 export type RowFault =
 	| { readonly kind: "encoding"; readonly fault: EncodingFault }
-	| { readonly kind: "checks"; readonly domains: Arr.NonEmptyReadonlyArray<LawDomain> }
+	| { readonly kind: "checks"; readonly fields: Arr.NonEmptyReadonlyArray<CheckedField> }
 
 /**
  * The fault of the cells a statement writes; a cell the statement leaves out is a value of no type unless its field is
  * serial, which the identity default draws.
  */
 export const rowFault = (cells: ReadonlyArray<Cell>): RowFault | undefined => {
-	const checks = new Map<string, LawDomain>()
+	const checks = new Map<string, CheckedField>()
 	for (const cell of cells) {
 		const fault =
 			cell.value === undefined
@@ -150,11 +161,11 @@ export const rowFault = (cells: ReadonlyArray<Cell>): RowFault | undefined => {
 			return fault
 		}
 		if (fault !== undefined) {
-			checks.set(domainLawKey(fault.domain), fault.domain)
+			checks.set(cell.field, { field: cell.field, domain: fault.domain })
 		}
 	}
 	const [first, ...rest] = checks.values()
-	return first === undefined ? undefined : { kind: "checks", domains: [first, ...rest] }
+	return first === undefined ? undefined : { kind: "checks", fields: [first, ...rest] }
 }
 
 /** The cells of a fact written into a relation, at the fields it carries, in the relation's field order. */
@@ -165,7 +176,9 @@ export const factCells = (
 	carried: ReadonlyArray<string>
 ): ReadonlyArray<Cell> =>
 	Arr.flatMap(relationSpecOf(base, relation)?.fields ?? [], (field) =>
-		carried.includes(field.name) ? [{ domain: field.domain, value: fact[field.name] }] : []
+		carried.includes(field.name)
+			? [{ field: field.name, domain: field.domain, value: fact[field.name] }]
+			: []
 	)
 
 /** Whether a field's domain is a law domain: a contract or a refined text. */
@@ -185,8 +198,10 @@ export const lawDomainsOf = (base: BaseSpec): ReadonlyArray<LawDomain> => [
 ]
 
 /**
- * The CHECK law of a law domain, when the installation installs a DOMAIN for it: every contract's, and every refined
- * text's but one whose pattern admits every text, which gets none.
+ * The law a law domain's CHECK reports where PostgreSQL alone names it, to a direct writer or reader, by the domain and
+ * never the column: the law the installation's constraint map gives the DOMAIN's CHECK. Every contract has one; a
+ * refined text has one where the installation installs a DOMAIN for it that types a stored field, and none for a
+ * pattern that admits every text or one only a context field carries.
  */
 export const installedCheck = (names: InstalledNames, domain: LawDomain): LawId | undefined => {
 	const key = domainLawKey(domain)
@@ -199,6 +214,23 @@ export const checkLaw = (names: InstalledNames, domain: LawDomain): LawId => {
 	if (law === undefined) {
 		throw new Error(
 			`the installation names no CHECK law of the domain ${domainLawKey(domain)}, which refuses a value`
+		)
+	}
+	return law
+}
+
+/**
+ * The law a Db's refusal names for a field of `relation` whose law domain's CHECK refuses its value: a contract's law,
+ * or the field's own pattern law, which the host decides by the column, never another field the pattern's domain types.
+ */
+export const fieldLaw = (names: InstalledNames, relation: string, checked: CheckedField): LawId => {
+	if (checked.domain.kind === "contract") {
+		return checkLaw(names, checked.domain)
+	}
+	const law = names.patterns[relation]?.[checked.field]
+	if (law === undefined) {
+		throw new Error(
+			`the installation names no pattern law of ${relation}.${checked.field}, whose domain refuses a value`
 		)
 	}
 	return law

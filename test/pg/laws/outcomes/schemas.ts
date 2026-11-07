@@ -66,7 +66,8 @@ const positiveSeatsCheck = check("PositiveSeats", Club, (x) => x.gt(x.seats, 0))
  * - `key(on(Member, "email"))`: a candidate key, a 23505 on its unique constraint;
  * - `check("PositiveSeats", Club, ...)`: a table CHECK, a 23514 whose DETAIL quotes the whole failing row;
  * - Seats, a contract domain over an integer, and the code's `^.{1,20}$` refinement, a text refinement domain: two
- *   domain constraints, 23514 with the domain as the data type.
+ *   domain constraints, 23514 with the domain as the data type. Club's code and Member's code share the refinement's
+ *   one domain, each field its own pattern law, which the table the refused statement writes decides.
  */
 export const Clubs = schema("Clubs", { Region, Club, Member }, [
 	memberOfClub,
@@ -83,7 +84,9 @@ export const clubs = installationNamesOf(installationOf(Clubs, { kind: "declared
 export const memberKey: LawId = clubs.lawOf(emailKey)
 export const positiveSeats: LawId = clubs.lawOf(positiveSeatsCheck)
 export const seatsLaw: LawId = clubs.contract("Seats").law
-export const codeLaw: LawId = clubs.textDomain(Club, "code").law
+/** Club's code and Member's code share the one domain of `^.{1,20}$`, each field its own law. */
+export const clubCodeLaw: LawId = clubs.patternLaw(Club, "code")
+export const memberCodeLaw: LawId = clubs.patternLaw(Member, "code")
 
 /**
  * A club code a DETAIL must escape: a quote, a backslash, a comma and a bracket, inside the refinement's 20 characters.

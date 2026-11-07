@@ -741,6 +741,7 @@ const stateOf = (
 		primaryKeys: {},
 		laws: [],
 		domains: {},
+		patterns: {},
 		rosterConstants: {},
 		codes: {},
 		keys: {},

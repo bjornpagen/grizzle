@@ -242,11 +242,17 @@ export interface InstalledNames {
 	/** The law identities of each `BaseSpec.laws` entry, aligned by index and of the same kind. */
 	readonly laws: ReadonlyArray<LawIds>
 	/**
-	 * The CHECK law of each contract and refined-text DOMAIN, by its domain's name: a written value outside a contract's
-	 * range or a text's pattern passes grizzle's encoder (it checks the base type) and is refused by the domain's CHECK
-	 * as its statement casts it, before row constraints and policies.
+	 * The CHECK law of each contract and refined-text DOMAIN, by its domain's name, as PostgreSQL alone reports it to a
+	 * direct writer or reader, by the domain and never the column (the installation's constraint map): a written value
+	 * outside a contract's range or a text's pattern passes grizzle's encoder (it checks the base type) and is refused
+	 * by the domain's CHECK as its statement casts it, before row constraints and policies.
 	 */
 	readonly domains: Readonly<Record<string, LawId>>
+	/**
+	 * Each stored relation's refined-text fields' own pattern laws, by relation and field: what a Db's refusal names,
+	 * the host deciding the column whose value the shared DOMAIN refused.
+	 */
+	readonly patterns: Readonly<Record<string, Readonly<Record<string, LawId>>>>
 	/** The PostgreSQL role of each grizzle role and login. */
 	readonly roles: Readonly<Record<string, string>>
 	readonly logins: Readonly<Record<string, string>>

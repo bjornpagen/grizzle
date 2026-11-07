@@ -258,7 +258,7 @@ const fromStateA: Arr.NonEmptyReadonlyArray<Case> = [
 				outcome: p.f.withDb(p.w.server.roles.hr, (db) => applyRuntime(db, changes, {}))
 			}
 		},
-		law: L.textDomain(P.Employee, "code").law,
+		law: L.patternLaw(P.Employee, "code"),
 		witnesses: [{ kind: "key", relation: "Employee", values: { id: fresh(3) } }]
 	},
 	{

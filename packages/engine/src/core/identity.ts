@@ -957,9 +957,20 @@ export const identity = Object.freeze({
 	/** A law of the theory, as analysis/theory/theory.ts states it. */
 	law: (law: LawStatement): Identity<"law"> =>
 		mint("law", law.parts, law.stem, law.display, hashed),
-	/** The law of a structural text domain's CHECK. */
-	patternLaw: (domain: Identity<"textDomain">): Identity<"patternLaw"> =>
-		mint("patternLaw", [domain], [domain.stem], `law of ${domain.display}`, hashed),
+	/** The law of one stored field's text refinement, checked by its structural text domain's CHECK, which every field
+	 * of one pattern shares: one law per field, so the field names it. */
+	patternLaw: (
+		domain: Identity<"textDomain">,
+		relation: string,
+		field: string
+	): Identity<"patternLaw"> =>
+		mint(
+			"patternLaw",
+			[domain, relation, field],
+			[relation, "pattern", field],
+			`pattern law of ${relation}.${field} under ${domain.display}`,
+			hashed
+		),
 	/** A login's PostgreSQL role, `<schema>__<login>`: roles are cluster-wide, so its installation is part of it. */
 	login: (installation: Identity<"schema">, name: DeclaredName): Identity<"login"> =>
 		mint(

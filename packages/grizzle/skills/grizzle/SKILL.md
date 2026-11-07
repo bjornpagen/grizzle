@@ -423,12 +423,15 @@ The command line's own refusals, by stage:
   Retry only `TransientFailure`, and `Db.open`'s `OpenError` whose reason is `AdmissionTransient`, with `Effect.retry`
   and your own `Schedule`; after `CommitUnknown`, read back before running the call again.
 - A broken rule is an outcome of `db.apply`, never an error. `invariant-rejected` carries `refused`,
-  `{ kind: "every" | "first", laws }`, whose `laws` are the laws as the schema states them, never empty, such as
-  `[{ kind: "check", relation: "Grant", name: "WithinGrant" }]`: match on them directly, never on a constraint's name.
-  `every` names every law grizzle decides the write broke. `first` names the laws of the CHECK PostgreSQL tried first,
-  where grizzle cannot decide a row's checks on the host (a row only PostgreSQL computes, such as a query's, or a check
-  that reads a value grizzle does not hold, such as a count or an end a put keeps from the stored row): the row may
-  break other checks too, and another version of grizzle may name another of them.
+  `{ kind: "every" | "first" | "some", laws }`, whose `laws` are the laws as the schema states them, never empty, such
+  as `[{ kind: "check", relation: "Grant", name: "WithinGrant" }]`: match on them directly, never on a constraint's
+  name. A pattern's law names its field, `{ kind: "pattern", relation, field, source, flags }`, so two fields of one
+  pattern are two laws. `every` names every law grizzle decides the write broke. `first` names the laws of the CHECK
+  PostgreSQL tried first, where grizzle cannot decide a row's checks on the host (a row only PostgreSQL computes, such
+  as a query's, or a check that reads a value grizzle does not hold, such as a count or an end a put keeps from the
+  stored row): the row may break other checks too, and another version of grizzle may name another of them. `some`
+  names two laws or more of one PostgreSQL object, a family's merged foreign key or a domain several fields share,
+  where nothing decides which of them the row broke: at least one did.
 - No read raises an arithmetic error on a row: never catch 22003, 22012 or 2201F around a query. Integer arithmetic is
   exact and delivers `bigint`, money arithmetic exact `Money`, and floats are IEEE 754 (`x / 0.0` is ±Infinity). A
   partial operation needs its precondition proved, by a literal's type (`Compute.div(x, 7n)`), by a contract that

@@ -2326,15 +2326,21 @@ channel as a tagged class.
 
 - `invariant-rejected` carries `refused`, the rules as your schema states them, never empty, and how grizzle decided
   them, and `witness`, which says what broke them. Match on a law directly:
-  `{ kind: "check", relation: "Grant", name: "WithinGrant" }`. `refused` is one of two:
-  - `{ kind: "every", laws }`: every rule grizzle decides refused the write. A row check that refused a row you stated
-    names every rule of that row's table's checks the row breaks as the write fills it, its counts, ends, indexes and
-    copies at the values grizzle draws for it, each once, in your schema's canonical order of rules
-    (its primary keys', then its statements' in canonical order, the order its snapshot lists them, which depends on
-    what the schema says, never on how you wrote it), whichever check PostgreSQL tried first. Any other rule is the one
-    the failing constraint states, or, where one PostgreSQL object discharges several and its report does not say which
-    failed, each of them: a family's foreign key carries every containment merged into it, and one domain serves every
-    contract and pattern of the same definition.
+  `{ kind: "check", relation: "Grant", name: "WithinGrant" }`. `refused` is one of three:
+  - `{ kind: "every", laws }`: every rule grizzle decides refused the write, each judged broken. A row check that
+    refused a row you stated names every rule of that row's table's checks the row breaks as the write fills it, its
+    counts, ends, indexes and copies at the values grizzle draws for it, each once, in your schema's canonical order of
+    rules (its primary keys', then its statements' in canonical order, the order its snapshot lists them, which depends
+    on what the schema says, never on how you wrote it), whichever check PostgreSQL tried first. A domain that refused
+    a value of a row you stated names the rule of each field of that row it types whose value it refuses: a pattern's
+    rule names its field, so of two fields of one pattern it names the one you broke, or both. Any other rule is the one
+    the failing constraint states.
+  - `{ kind: "some", laws }`: one PostgreSQL object that discharges every rule here refused the write, its report does
+    not say which, and grizzle holds nothing that decides: at least one of them is broken, maybe more. A family's
+    foreign key carries every containment merged into it, and one domain serves every field of the same pattern and
+    every contract of the same definition: where grizzle judges no row you stated whole (a row a query computes, or a
+    value it cannot evaluate on the host), `some` names the rules of the fields the domain types in the tables the
+    statement writes. It always names two rules or more; one rule alone is `every`.
   - `{ kind: "first", laws }`: a row check that refused a row only PostgreSQL computes, which no ChangeSet states (a
     query's, or one grizzle fills on a family), or a row you stated one of whose table's checks reads a value grizzle
     does not hold on the host, such as a count or an end a put keeps from the stored row: the rules of the check
@@ -2356,7 +2362,10 @@ channel as a tagged class.
 
 A value its contract or pattern refuses passes the encoder, which checks only the base type, and is refused by its
 domain's CHECK as the statement casts it, before the row's constraints and row-level security: `invariant-rejected` on
-the contract's or pattern's rule, its witness the key of the row you stated that holds the value. So is a value
+the contract's rule or the field's pattern rule, its witness the key of the row you stated that holds the value.
+Fields of one pattern share one domain, and PostgreSQL's report names the domain, never the column, so grizzle judges
+the row you stated on the host and names the field whose value the pattern refuses:
+`{ kind: "pattern", relation: "Item", field: "slug", source: "^[a-z-]{1,64}$", flags: "u" }`. So is a value
 PostgreSQL generates into a refined field, and one grizzle fills into a fold's accumulator or end: the witness is the
 key of the row you stated whose generated or filled value breaks it, and `unreported` where that row is one only a
 refill writes, such as a stored owner whose family the write appends to.
@@ -2375,7 +2384,7 @@ refill writes, such as a stored owner whose family the write appends to.
 | `tree`       | `member`, `slots` and `root`, the root field                                                             |
 | `fold`       | `family`, its slots; `monoid`; `step` and `end`, sides                                                   |
 | `contract`   | `contract`                                                                                               |
-| `pattern`    | `source`, `flags`: one rule for every spelling of the same language                                      |
+| `pattern`    | `relation`, `field`, `source`, `flags`: a stored field's pattern as that field spells it, one rule per field |
 | `generated`  | `relation`, `field`: a generated field whose term has no value at a row, a closed read at a key its relation lacks |
 
 A side is its `relation`, its `terms` in the order the rule pairs them, each `{ kind: "field", field }` or

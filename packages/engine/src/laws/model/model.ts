@@ -207,11 +207,15 @@ export interface ConstraintLawOf {
 	readonly described: Law
 }
 
-/** One column a contract domain types, with the law of that use: the contract whose domain it is. */
+/**
+ * One column of a stored table a domain types, with the law its field states of it, described: a contract's domain's
+ * the law of the contract down the field's chain whose domain it is, a text domain's the field's own pattern law. The
+ * use carries its law whole, so whoever judges the column names the law without looking one up.
+ */
 export interface DomainUse {
 	readonly table: RelationIdent
 	readonly column: ColumnIdent
-	readonly law: LawId
+	readonly law: ConstraintLawOf
 }
 
 /**
@@ -220,8 +224,8 @@ export interface DomainUse {
  * order (`NativeObject.lawIds`): the first is the one it reports when nothing narrows it, a key law's where a key plans
  * the object, and a merged family axis lists its former's law and every containment that rides it. A domain constraint
  * also lists each column its domain types with that use's law, since PostgreSQL's report of a domain violation names
- * no table or column. The law model emits table constraints only; the installation, which names each contract's domain
- * by its definition, emits the domain constraints.
+ * no table or column: a text domain one law per stored field it types, so its laws are its uses'. The law model emits
+ * table constraints only; the installation, which names each domain by its definition, emits the domain constraints.
  */
 export type ConstraintLaw =
 	| {

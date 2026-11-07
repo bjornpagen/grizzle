@@ -1,10 +1,19 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { array, codePoint, element, type Gen, int, oneOf, string } from "@grizzle/testing/gen"
+import {
+	array,
+	codePoint,
+	element,
+	type Gen,
+	int,
+	oneOf,
+	string,
+	weighted
+} from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Option, pipe, Result, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Order, pipe, Result, String as Str } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import { ChangeSet, type Law } from "#compiler/public/changeset.ts"
 import { Compute } from "#compiler/public/compute.ts"
@@ -12,7 +21,7 @@ import { closedId, contract, generated, pg, Uuid, uuid } from "#compiler/public/
 import { check, closed, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { installed } from "#test/pg/reads/support.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
@@ -40,9 +49,17 @@ const Rate = closed.relation(
 	]
 )
 const Units = contract("Units", pg.integer, (x) => x.le(1000))
+/** The pattern an account's code and its alias share, so one domain types both columns, each field its own law. */
+const codeSource = "^[a-z]{1,8}$"
 const Account = relation.generated(
 	"Account",
-	{ id: uuid, tier: closedId(Tier), units: Units, code: str.regex("^[a-z]{1,8}$", "u") },
+	{
+		id: uuid,
+		tier: closedId(Tier),
+		units: Units,
+		code: str.regex(codeSource, "u"),
+		alias: str.regex(codeSource, "u")
+	},
 	["id"],
 	(r) => ({ rate: generated(pg.integer, Rate.at("rate", r.tier)) })
 )
@@ -55,16 +72,21 @@ const lawOf = {
 	positive: { kind: "check", relation: "Account", name: "Positive" },
 	withinRate: { kind: "check", relation: "Account", name: "WithinRate" },
 	units: { kind: "contract", contract: "Units" },
-	code: { kind: "pattern", source: "^[a-z]{1,8}$", flags: "u" },
+	code: { kind: "pattern", relation: "Account", field: "code", source: codeSource, flags: "u" },
+	alias: { kind: "pattern", relation: "Account", field: "alias", source: codeSource, flags: "u" },
 	rate: { kind: "generated", relation: "Account", field: "rate" }
 } as const satisfies Readonly<Record<string, Law>>
 type Broken = keyof typeof lawOf
+
+/** The rules of the one domain the code and the alias share. */
+const patternRules = ["code", "alias"] as const satisfies ReadonlyArray<Broken>
 
 /** An account as a case draws it, its id its position's. */
 interface Stated {
 	readonly tier: TierHandle
 	readonly units: number
 	readonly code: string
+	readonly alias: string
 }
 
 /** A code inside the pattern about half the time: lowercase letters, or printable ASCII of any length up to twelve. */
@@ -73,10 +95,20 @@ const codeGen: Gen<string> = oneOf([
 	string(codePoint(0x20, 0x7e), { min: 0, max: 12 })
 ])
 
+/**
+ * An alias inside the pattern three times in four, so an account breaks the code alone, the alias alone and both, and
+ * a write of every account inside every rule stays common.
+ */
+const aliasGen: Gen<string> = weighted([
+	[3, string(codePoint(0x61, 0x7a), { min: 1, max: 8 })],
+	[1, codeGen]
+])
+
 const statedGen: Gen<Stated> = (source) => ({
 	tier: source.draw(element(tiers)),
 	units: source.draw(oneOf([int(-3, 0), int(1, 120), int(400, 1000), int(1001, 1100)])),
-	code: source.draw(codeGen)
+	code: source.draw(codeGen),
+	alias: source.draw(aliasGen)
 })
 
 /** A case: one write of one to four accounts, inserted or put. */
@@ -110,7 +142,13 @@ const brokenOf = (law: Law): Broken | undefined => {
 		case "contract":
 			return law.contract === "Units" ? "units" : undefined
 		case "pattern":
-			return law.source === lawOf.code.source && law.flags === lawOf.code.flags ? "code" : undefined
+			return law.relation !== "Account"
+				? undefined
+				: law.field === "code"
+					? "code"
+					: law.field === "alias"
+						? "alias"
+						: undefined
 		case "generated":
 			return law.relation === "Account" && law.field === "rate" ? "rate" : undefined
 		case "primaryKey":
@@ -151,24 +189,32 @@ const brokenBy = (a: Stated): ReadonlySet<Broken> => {
 	if (!isCode(a.code)) {
 		out.add("code")
 	}
+	if (!isCode(a.alias)) {
+		out.add("alias")
+	}
 	return out
 }
 
-type Feature = `refused by ${Broken}` | "accepted" | "witnessed among several breaking accounts"
+type Feature =
+	| `refused by ${Broken}`
+	| "accepted"
+	| "witnessed among several breaking accounts"
+	| "refused by the code and the alias at once"
 
 /**
  * A native refusal witnessed on the host, against PostgreSQL 19.
  *
  * Accounts holds, on one relation, every native refusal the host judges a stated fact against: a row CHECK over a
  * written field (Positive), a row CHECK over a generated field (WithinRate, units at most the rate), a contract's domain
- * (Units, at most 1000), a pattern's domain (^[a-z]{1,8}$), and a generated column's NOT NULL (rate, Rate.at("rate",
- * tier), which Rate holds no row of for gold). Each case writes one to four accounts, inserted or put, each drawn inside
- * or outside each rule.
+ * (Units, at most 1000), a pattern's domain (^[a-z]{1,8}$), which the code and the alias share, each its own law, and a
+ * generated column's NOT NULL (rate, Rate.at("rate", tier), which Rate holds no row of for gold). Each case writes one
+ * to four accounts, inserted or put, each drawn inside or outside each rule.
  *
  * The oracle is the rules restated over the drawn fields: a write none of whose accounts breaks a rule is accepted;
- * any other is invariant-rejected naming one law, one of those its accounts break, as PostgreSQL met first, and its
- * witness the key of an account that breaks that law, never `unreported`: every account is stated, so the host holds
- * it.
+ * any other is invariant-rejected, `every`, its witness the key of an account that breaks what it names, never
+ * `unreported`: every account is stated, so the host holds it. It names one law, one of those the account breaks, as
+ * PostgreSQL met first; or, where PostgreSQL met the pattern's domain, which names no column, exactly the pattern laws
+ * of the account's fields it refuses, the code's, the alias's or both, in their columns' canonical order.
  */
 export const hostWitnessSuite = (): void => {
 	layer(Substrate.layer)("a native refusal witnessed on the host, against PostgreSQL 19", (it) => {
@@ -180,7 +226,8 @@ export const hostWitnessSuite = (): void => {
 					Effect.gen(function* () {
 						const s = yield* Substrate
 						const o = yield* installed(Accounts, {}, { label: "real", extensions: [] })
-						const group = installationGroup(namesOf(o.installed))
+						const names = namesOf(o.installed)
+						const group = installationGroup(names)
 						return yield* Effect.gen(function* () {
 							const db = yield* Db.open(o.server.roles.app, {})
 							return yield* explore(
@@ -198,12 +245,30 @@ export const hostWitnessSuite = (): void => {
 											sketch: {
 												op: "insert",
 												accounts: [
-													{ tier: "bronze", units: 400, code: "b" },
-													{ tier: "gold", units: 0, code: "a" }
+													{ tier: "bronze", units: 400, code: "b", alias: "b" },
+													{ tier: "gold", units: 0, code: "a", alias: "a" }
 												]
 											},
 											draws: "",
 											reaches: ["refused by withinRate"]
+										},
+										{
+											note: "qti-pie's shape: one relation whose two fields share one pattern source, the second broken alone, so the refusal names that field and never the other",
+											sketch: {
+												op: "insert",
+												accounts: [{ tier: "bronze", units: 10, code: "a", alias: "A1" }]
+											},
+											draws: "",
+											reaches: ["refused by alias"]
+										},
+										{
+											note: "both fields of one pattern broken in one account: the domain PostgreSQL names refuses the first column it casts, and the refusal names both fields' laws",
+											sketch: {
+												op: "put",
+												accounts: [{ tier: "silver", units: 5, code: "Q", alias: "" }]
+											},
+											draws: "",
+											reaches: ["refused by the code and the alias at once"]
 										}
 									],
 									runs: 60,
@@ -217,6 +282,8 @@ export const hostWitnessSuite = (): void => {
 											"refused by positive",
 											"refused by withinRate",
 											"refused by code",
+											"refused by alias",
+											"refused by the code and the alias at once",
 											"accepted",
 											"witnessed among several breaking accounts"
 										],
@@ -231,7 +298,8 @@ export const hostWitnessSuite = (): void => {
 											id: idOf(i),
 											tier: a.tier,
 											units: Units(a.units),
-											code: a.code
+											code: a.code,
+											alias: a.alias
 										}))
 										const base = ChangeSet.empty(o.schema)
 										const change =
@@ -255,13 +323,19 @@ export const hostWitnessSuite = (): void => {
 											"every",
 											"every account is stated, so the host judges the refused one"
 										)
-										assert.equal(outcome.refused.laws.length, 1, "one law")
-										const [law] = outcome.refused.laws
-										const named = brokenOf(law)
-										if (named === undefined) {
-											return assert.fail("the law is one of the accounts' rules")
-										}
-										assert.deepEqual(law, lawOf[named])
+										const named: ReadonlyArray<Broken> = Arr.map(
+											outcome.refused.laws,
+											(law): Broken => {
+												const rule = brokenOf(law)
+												if (rule === undefined) {
+													return assert.fail(
+														`the law ${Formatter.format(law)} is one of the accounts' rules`
+													)
+												}
+												assert.deepEqual(law, lawOf[rule])
+												return rule
+											}
+										)
 										const witness = outcome.witness
 										if (witness.kind !== "key") {
 											return assert.fail("every account is stated, so the host witnesses it")
@@ -271,12 +345,34 @@ export const hostWitnessSuite = (): void => {
 										if (Option.isNone(at)) {
 											return assert.fail("the witness is a stated account's key")
 										}
-										assert.ok(
-											broken[at.value]?.has(named) === true,
-											"the witnessed account breaks the law"
-										)
-										c.note(`refused by ${named}`)
-										if (Arr.filter(broken, (b) => b.has(named)).length > 1) {
+										const breaks = defined(broken[at.value], "the witnessed account's rules")
+										const patterns = Arr.filter(named, (rule) => Arr.contains(patternRules, rule))
+										if (patterns.length === 0) {
+											assert.equal(named.length, 1, "one law")
+											assert.ok(
+												Arr.every(named, (rule) => breaks.has(rule)),
+												"the witnessed account breaks the law"
+											)
+										} else {
+											assert.deepEqual(
+												named,
+												Arr.sortWith(
+													Arr.filter(patternRules, (rule) => breaks.has(rule)),
+													(rule) => names.columnIdent(Account, rule),
+													Order.String
+												),
+												"the pattern's domain names exactly the witnessed account's fields it refuses, in their columns' canonical order"
+											)
+											if (patterns.length > 1) {
+												c.note("refused by the code and the alias at once")
+											}
+										}
+										for (const rule of named) {
+											c.note(`refused by ${rule}`)
+										}
+										if (
+											Arr.filter(broken, (b) => Arr.some(named, (rule) => b.has(rule))).length > 1
+										) {
 											c.note("witnessed among several breaking accounts")
 										}
 									})

@@ -127,10 +127,19 @@ export const namesOfBuiltAt = (
 			...Arr.map(spec.base.derived, (d) => [d.name, Rec.keys(d.rules[0].head)] as const)
 		]
 		const roleOf = (name: string): string => installedRoleName(installation, name)
+		/** Whether the installation types a stored field's column by a text domain: a pattern every text matches has none. */
+		const textTyped = (r: RelationSpec, f: RelationSpec["fields"][number]): boolean => {
+			const table = names.tableIdent({ name: r.name })
+			const column = names.columnIdent({ name: r.name }, f.name)
+			return Arr.some(installation.textDomains, (d) =>
+				Arr.some(d.uses, (u) => u.table === table && u.column === column)
+			)
+		}
 		/**
-		 * Each contract and refined-text field domain of the base's relations, by its key, with its DOMAIN's CHECK law: a
-		 * contract's from its declaration, a text's from the domain the installation types the field's column with. A
-		 * text whose pattern every text matches has no DOMAIN, and no law.
+		 * Each contract and refined-text field domain of the base's relations, by its key, with the law its DOMAIN's CHECK
+		 * reports where PostgreSQL alone names it (constraintToLaw): a contract's from its declaration, a text's from the
+		 * domain the installation types the field's column with, the law of the first field it types. A text whose pattern
+		 * every text matches has no DOMAIN, and no law.
 		 */
 		const domainLaws = (
 			r: RelationSpec,
@@ -141,22 +150,24 @@ export const namesOfBuiltAt = (
 				case "contract":
 					return [[domainLawKey(domain), names.contract(domain.name).law]]
 				case "text": {
-					const table = names.tableIdent({ name: r.name })
-					const column = names.columnIdent({ name: r.name }, f.name)
-					const typed = Arr.some(installation.textDomains, (d) =>
-						Arr.some(d.uses, (u) => u.table === table && u.column === column)
+					if (!textTyped(r, f)) {
+						return []
+					}
+					const typed = names.textDomain(
+						namedRelation(built.relations[r.name], `relation ${r.name}`),
+						f.name
 					)
-					return typed
-						? [
-								[
-									domainLawKey(domain),
-									names.textDomain(
-										namedRelation(built.relations[r.name], `relation ${r.name}`),
-										f.name
-									).law
-								]
-							]
-						: []
+					const law = constraintLaw(
+						installation.constraintToLaw,
+						{ kind: "domain", name: typed.domain },
+						typed.constraint
+					)
+					if (law === undefined) {
+						throw new Error(
+							`the text domain of the stored field ${r.name}.${f.name} reports no law`
+						)
+					}
+					return [[domainLawKey(domain), law]]
 				}
 				case "uuid":
 				case "integer":
@@ -172,7 +183,8 @@ export const namesOfBuiltAt = (
 		 * its DOMAIN's CHECK reports (constraintToLaw), which a hand-set claim the domain refuses meets wherever the context
 		 * is read: a contract's domain is named by its definition; a text's is the structural domain the installation types
 		 * the field with, a use at the context's and the field's conversions (physical/ddl/roles.ts worldTextDomainUses). A
-		 * text whose pattern every text matches has no DOMAIN, and no law.
+		 * text whose pattern every text matches has no DOMAIN, and no law; a text domain only context fields carry types no
+		 * stored field, so it states no law, and a claim it refuses meets a bare 23514.
 		 */
 		const claimDomainLaws = (
 			c: ContextSpec,
@@ -219,14 +231,14 @@ export const namesOfBuiltAt = (
 							`the context field ${c.name}.${f.name} is typed by ${typed.length} of the installation's text domains`
 						)
 					}
-					return Arr.map(
-						typed,
-						(d) =>
-							[
-								domainLawKey(domain),
-								reported({ kind: "domain", name: d.name }, d.constraint)
-							] as const
-					)
+					return Arr.flatMap(typed, (d) => {
+						const law = constraintLaw(
+							installation.constraintToLaw,
+							{ kind: "domain", name: d.name },
+							d.constraint
+						)
+						return law === undefined ? [] : [[domainLawKey(domain), law] as const]
+					})
 				}
 				case "uuid":
 				case "integer":
@@ -303,7 +315,31 @@ export const namesOfBuiltAt = (
 					(c: ContextSpec) => Arr.flatMap(c.fields, (f) => claimDomainLaws(c, f))
 				),
 				...Arr.flatMap(spec.base.relations, (r) => Arr.flatMap(r.fields, (f) => domainLaws(r, f)))
-			])
+			]),
+			patterns: Rec.fromEntries(
+				Arr.map(
+					spec.base.relations,
+					(r) =>
+						[
+							r.name,
+							Rec.fromEntries(
+								Arr.flatMap(r.fields, (f) =>
+									f.domain.kind === "text" && textTyped(r, f)
+										? [
+												[
+													f.name,
+													names.patternLaw(
+														namedRelation(built.relations[r.name], `relation ${r.name}`),
+														f.name
+													)
+												] as const
+											]
+										: []
+								)
+							)
+						] as const
+				)
+			)
 		}
 	})
 

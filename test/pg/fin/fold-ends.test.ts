@@ -12,6 +12,7 @@ import { dbContext } from "#adapter/db/context.ts"
 import { Db } from "#adapter/public/db.ts"
 import type { ApplyOutcome } from "#adapter/types/db.ts"
 import type { MonoidName } from "#compiler/ir/desc.ts"
+import type { Law } from "#compiler/public/changeset.ts"
 import type { AnyRelation } from "#compiler/types/schema/relation.ts"
 import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
 import { cleared, seatOfInstalled } from "#test/pg/fin/installed.ts"
@@ -36,7 +37,6 @@ import {
 	type ModelRow,
 	type Node,
 	type OwnerState,
-	pieceLaw,
 	type State,
 	stepFacts,
 	stepsGen,
@@ -111,7 +111,7 @@ type Refused = "refused by its pattern" | "refused by its piece's bound"
 
 /** The situation a broken rule reaches. */
 const refusedBy = (b: Broken): Refused =>
-	deepEquals(b.law, pieceLaw) ? "refused by its piece's bound" : "refused by its pattern"
+	b.rule === "bound" ? "refused by its piece's bound" : "refused by its pattern"
 
 type Situation = `${CellLabel} in a ${FamilyKind} family, ${Form | Refused}`
 
@@ -645,10 +645,11 @@ const situations: Arr.NonEmptyReadonlyArray<Situation> = nonEmpty(
 )
 
 /**
- * A refused write's outcome, as the model judges it: `invariant-rejected` naming only rules its rows break, a piece's
- * bound or the accumulators' pattern, its witness the key of a row the write states whose value breaks a rule it names,
- * or `unreported` where the write states none (the rule broken at a row only a refill writes). The rules it names are
- * returned.
+ * A refused write's outcome, as the model judges it: `invariant-rejected` naming rules its rows break, a field's piece
+ * bound or its accumulators' pattern, each field's own law: every one it names where it decides them, at least one
+ * where it names `some` of a domain's; its witness the key of a row the write states whose value breaks a rule it
+ * names, every one of them where it decides them, or `unreported` where the write states none (the rule broken at a
+ * row only a refill writes). The rules it names are returned.
  */
 const judgeRefused = (
 	s: FoldSchema,
@@ -661,11 +662,23 @@ const judgeRefused = (
 			`a write whose rows break ${Formatter.format(Arr.map(broken, (b) => b.law))} is refused, not ${outcome.kind}: ${Formatter.format(w)}`
 		)
 	}
-	for (const law of outcome.refused.laws) {
-		assert.ok(
-			Arr.some(broken, (b) => deepEquals(b.law, law)),
-			`the refusal names a rule its rows break, not ${Formatter.format(law)}`
-		)
+	const breaks = (law: Law): boolean => Arr.some(broken, (b) => deepEquals(b.law, law))
+	switch (outcome.refused.kind) {
+		case "every":
+		case "first":
+			for (const law of outcome.refused.laws) {
+				assert.ok(
+					breaks(law),
+					`the refusal names a rule its rows break, not ${Formatter.format(law)}`
+				)
+			}
+			break
+		case "some":
+			assert.ok(
+				Arr.some(outcome.refused.laws, breaks),
+				`a refusal that names some of ${Formatter.format(outcome.refused.laws)} names one its rows break`
+			)
+			break
 	}
 	const named = Arr.filter(broken, (b) =>
 		Arr.some(outcome.refused.laws, (law) => deepEquals(b.law, law))
@@ -682,16 +695,22 @@ const judgeRefused = (
 		)
 		return named
 	}
+	const atWitness = (b: Broken): boolean =>
+		b.relation === witness.relation &&
+		Rec.keys(witness.values).length === 1 &&
+		witness.values["id"] === b.id
 	assert.ok(
-		Arr.some(
-			statedBroken,
-			(b) =>
-				b.relation === witness.relation &&
-				Rec.keys(witness.values).length === 1 &&
-				witness.values["id"] === b.id
-		),
+		Arr.some(statedBroken, atWitness),
 		`the witness ${Formatter.format(witness)} is a stated row whose value breaks a rule the refusal names: ${Formatter.format(statedBroken)}`
 	)
+	if (outcome.refused.kind === "every") {
+		for (const law of outcome.refused.laws) {
+			assert.ok(
+				Arr.some(named, (b) => atWitness(b) && deepEquals(b.law, law)),
+				`the witnessed row breaks every rule the refusal decides, ${Formatter.format(law)} among them`
+			)
+		}
+	}
 	return named
 }
 

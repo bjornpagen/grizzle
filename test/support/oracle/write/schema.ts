@@ -764,10 +764,10 @@ export interface WriteLawNames {
 		fields: ReadonlyArray<string>
 	) => { readonly law: LawId; readonly constraint: ConstraintName }
 	/**
-	 * The law of the text refinement domain that types a column (kernel/naming.ts textDomain), which a value outside
-	 * the domain violates.
+	 * A stored field's pattern law (kernel/naming.ts patternLaw), which a value outside its column's text refinement
+	 * domain violates: the field's own, whatever other fields the domain types.
 	 */
-	readonly textDomain: (relation: string, field: string) => LawId
+	readonly patternLaw: (relation: string, field: string) => LawId
 	/** The installed table of a relation, as schema-qualified quoted SQL. */
 	readonly table: (relation: string) => string
 	/** The identity sequence of a serial column, as schema-qualified quoted SQL. */
@@ -865,8 +865,8 @@ export const lawNames = (plan: RealInstallPlan): WriteLawNames => {
 			}
 			throw new Error(`no installed projected key ${relation}(${Arr.join(fields, ", ")})`)
 		},
-		textDomain: (relation, field) =>
-			installationNamesOf(plan.installation).textDomain({ name: relation }, field).law,
+		patternLaw: (relation, field) =>
+			installationNamesOf(plan.installation).patternLaw({ name: relation }, field),
 		table: (relation) => {
 			const n = tableOf(relation).name
 			return qualified(n)

@@ -335,13 +335,14 @@ const unboundParams = (ctx: ExpectContext, c: WChangeSet): ReadonlySet<string> =
 }
 
 /**
- * The domain refusals of a stratum that adds a fact holding a value its field's domain refuses: the law of each column's
- * domain that a described member other than a deletion breaks, where its facts, evaluated against the state before
+ * The domain refusals of a stratum that adds a fact holding a value its field's domain refuses: the pattern law of each
+ * column that a described member other than a deletion breaks, where its facts, evaluated against the state before
  * the stratum, hold a stored value read into a column whose domain refuses it (domain.ts fitsField), a wider text read
  * into a narrower one. A parameter is never one: the bind refuses a parameter outside its field first
- * (unboundParams). A domain's violation is reported by the domain PostgreSQL names, the law it enforces, with no key.
- * A deletion never breaks one: its member is carried as the comparison reads it, so an outside value matches no fact,
- * which the add-wins calculator already predicts.
+ * (unboundParams). A domain's violation is reported by the domain PostgreSQL names, with no key: the laws of the
+ * columns it types in the table the member writes, `some` of them where they are several, since PostgreSQL names no
+ * column and the host states no row of a described member. A deletion never breaks one: its member is carried as the
+ * comparison reads it, so an outside value matches no fact, which the add-wins calculator already predicts.
  */
 const domainLaws = (
 	ctx: ExpectContext,
@@ -357,7 +358,7 @@ const domainLaws = (
 		const facts = evaluateSource(ctx.group, target, m.source, params, state)
 		return Arr.flatMap(target.columns, (col) =>
 			Arr.some(facts, (fact) => !fitsField(col.kind, fact[col.name]))
-				? [ctx.laws.textDomain(target.name, col.name)]
+				? [ctx.laws.patternLaw(target.name, col.name)]
 				: []
 		)
 	})

@@ -992,18 +992,26 @@ export type Witness =
 /**
  * Which laws an `invariant-rejected` outcome names, and how grizzle decided them:
  *
- * - `every`: what grizzle decides refused the write. For a CHECK that refused a row the ChangeSet states, every rule of
- *   that row's table's CHECKs the row breaks as the write fills it, each once, in the schema's canonical order of its
- *   rules (its primary keys', then its statements' in canonical order), whichever CHECK PostgreSQL tried first; for any
- *   other rule, the rules its one PostgreSQL object discharges.
+ * - `every`: what grizzle decides refused the write, each rule judged broken. For a CHECK that refused a row the
+ *   ChangeSet states, every rule of that row's table's CHECKs the row breaks as the write fills it, each once, in the
+ *   schema's canonical order of its rules (its primary keys', then its statements' in canonical order), whichever CHECK
+ *   PostgreSQL tried first; for a domain that refused a value of a row the ChangeSet states, the rule of each column of
+ *   that row it types whose value it refuses, in its columns' canonical order, where the host judges every such column;
+ *   for any other refusal, the one rule its PostgreSQL object discharges among those the statement can break (a
+ *   domain's, of the columns it types in the tables the statement writes).
  * - `first`: a CHECK that refused a row the ChangeSet does not state, a row only PostgreSQL computes, as a query's, or
  *   a stated row one of whose table's CHECKs reads a value the host does not hold: the rules of the CHECK PostgreSQL
  *   tried first, which it orders by the CHECKs' installed names, an order no version of grizzle keeps. The row may
  *   break others too.
+ * - `some`: one PostgreSQL object that discharges every rule here refused the write, and nothing grizzle holds decides
+ *   which of them the row broke: at least one, maybe more. A family's foreign key carries every containment merged into
+ *   it, and a domain every rule of the columns it types in the tables the statement writes, where the host judges no
+ *   stated row whole. Two rules at least: an object of one rule is `every`, so `some` never names a decided rule.
  */
 export type Refused =
 	| { readonly kind: "every"; readonly laws: readonly [Law, ...Array<Law>] }
 	| { readonly kind: "first"; readonly laws: readonly [Law, ...Array<Law>] }
+	| { readonly kind: "some"; readonly laws: readonly [Law, Law, ...Array<Law>] }
 
 /**
  * A law as the schema states it, which an `invariant-rejected` outcome names: an application matches on it directly.
@@ -1024,7 +1032,9 @@ export type Refused =
  * - `fold`: a fold, by its family's slots, its monoid and its step and end sides: each owner's ends its members'
  *   combination;
  * - `contract`: a contract's predicate, by its name;
- * - `pattern`: a text pattern (str.regex), as its domain spells it: one law for every spelling of the same language;
+ * - `pattern`: a stored field's text refinement (str.regex), by its relation and field, spelled as that field declares
+ *   it: one law per field, so two fields of one pattern, which share one domain, are two laws, and a refusal names the
+ *   field whose value broke it;
  * - `generated`: a generated field, by its relation and field: its term has a value at every row, which a closed read
  *   `C.at` at a key its closed relation holds no row at does not, so PostgreSQL refuses the row by the column's NOT NULL.
  */
@@ -1058,5 +1068,11 @@ export type Law =
 			readonly end: SideDesc
 	  }
 	| { readonly kind: "contract"; readonly contract: string }
-	| { readonly kind: "pattern"; readonly source: string; readonly flags: "u" | "su" }
+	| {
+			readonly kind: "pattern"
+			readonly relation: string
+			readonly field: string
+			readonly source: string
+			readonly flags: "u" | "su"
+	  }
 	| { readonly kind: "generated"; readonly relation: string; readonly field: string }

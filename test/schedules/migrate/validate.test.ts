@@ -658,6 +658,8 @@ layer(Substrate.layer, { excludeTestServices: true })("a migration's Validate ph
 								 */
 								const codeDomain = x.nextNames.textDomain(Desk, "code")
 								const floorDomain = codeDomain
+								/** Desk's code's pattern law, which names both of the domain's refusals, over its rows and its payload. */
+								const codeLaw = x.nextNames.patternLaw(Desk, "code")
 								/** The tightened contract's domain, which types the assignment's rate in the next version. */
 								const rateDomain = x.nextNames.contract("Rate")
 								if (rateDomain.kind !== "checked") {
@@ -720,7 +722,7 @@ layer(Substrate.layer, { excludeTestServices: true })("a migration's Validate ph
 										fix: `UPDATE ${names.table(Assignment)} SET ${names.column(Assignment, "rate")} = 100 WHERE ${names.column(Assignment, "id")} = ${orphanAssignment}`
 									},
 									{
-										law: codeDomain.law,
+										law: codeLaw,
 										over: "rows",
 										reports: (server, place) =>
 											domainCheck(codeDomain)(server) && !inPayloadFile(place),
@@ -739,7 +741,7 @@ layer(Substrate.layer, { excludeTestServices: true })("a migration's Validate ph
 										: f
 								)
 								const payload: Refusing = {
-									law: floorDomain.law,
+									law: codeLaw,
 									over: "a payload",
 									reports: (server, place) =>
 										domainCheck(floorDomain)(server) && inPayloadFile(place),

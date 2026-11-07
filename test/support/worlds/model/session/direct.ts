@@ -16,6 +16,7 @@ import {
 } from "#test/support/worlds/model/session/catalog.ts"
 
 import {
+	type CheckedField,
 	checkLaw,
 	domainLawKey,
 	encodingState,
@@ -77,7 +78,6 @@ import type {
 	ModelState,
 	RoleRef,
 	RoleSpec,
-	HandleCodes,
 	Rule,
 	Source,
 	SqlState,
@@ -265,18 +265,21 @@ const integerValue = (text: string): HostValue => {
 /**
  * A hand-set claim cast to its field's type (README "Direct SQL access"): its base type's input first, 22P02 for a
  * text that is no value of it (not a uuid, not an integer, not a boolean) and 22003 for an integer past its range;
- * then its refinement, its law domain's CHECK for a value its contract or pattern refuses. A closed id's claim is its
- * handle's code, a smallint its roster's domain admits only where `codes` holds a live handle (23514 otherwise).
+ * then its refinement, its law domain's CHECK for a value its contract or pattern refuses, a bare 23514 where that
+ * CHECK states no law (a pattern only context fields carry, which types no stored field). A closed id's claim is its
+ * handle's code, a smallint its roster's domain admits only where the installation's codes hold a live handle (23514
+ * otherwise).
  */
-const claimCast = (domain: FieldDomain, codes: HandleCodes, text: string): ClaimCast => {
+const claimCast = (domain: FieldDomain, names: InstalledNames, text: string): ClaimCast => {
 	const refused = (sqlstate: ClaimRefusal): ClaimCast => ({
 		kind: "refused",
 		refusal: { kind: "state", sqlstate }
 	})
-	const checked = (law: LawDomain): ClaimCast => ({
-		kind: "refused",
-		refusal: { kind: "check", domain: law }
-	})
+	const checked = (law: LawDomain): ClaimCast =>
+		installedCheck(names, law) === undefined
+			? refused("23514")
+			: { kind: "refused", refusal: { kind: "check", domain: law } }
+	const codes = names.codes
 	switch (domain.kind) {
 		case "text":
 			return domain.matcher.test(text) ? { kind: "value", value: text } : checked(domain)
@@ -381,7 +384,7 @@ export const handSetFaults = (
  * value's own refusal otherwise, any of which the read may meet first. A member of no context of the installation is
  * never read.
  */
-const textRead = (base: BaseSpec, codes: HandleCodes, text: string): ClaimsRead => {
+const textRead = (base: BaseSpec, names: InstalledNames, text: string): ClaimsRead => {
 	if (text === "") {
 		return noClaims
 	}
@@ -406,7 +409,7 @@ const textRead = (base: BaseSpec, codes: HandleCodes, text: string): ClaimsRead 
 		}
 		const casts = Arr.map(cells, ({ field, claim }) => ({
 			field,
-			cast: claimCast(field.domain, codes, claim)
+			cast: claimCast(field.domain, names, claim)
 		}))
 		const [fault, ...faults] = Arr.flatMap(
 			casts,
@@ -437,10 +440,10 @@ const textRead = (base: BaseSpec, codes: HandleCodes, text: string): ClaimsRead 
  * read under hold for the transaction's life, since a migration never runs while a direct writer's transaction is open
  * (session/migrate.ts migrateBranches).
  */
-const settingRead = (base: BaseSpec, codes: HandleCodes, setting: ClaimsSetting): ClaimsRead =>
+const settingRead = (base: BaseSpec, names: InstalledNames, setting: ClaimsSetting): ClaimsRead =>
 	setting.kind === "facts"
 		? { kind: "document", facts: setting.facts, refused: new Map() }
-		: textRead(base, codes, setting.text)
+		: textRead(base, names, setting.text)
 
 /** The claims a session reads: none before it set any, else the read its setting was parsed to as it entered. */
 const claimsRead = (session: DirectSessionState): ClaimsRead =>
@@ -779,9 +782,12 @@ export const directBranches = (
 			Arr.some(factsIn(session.view, relation), (f) => atKey(f, key)),
 			then
 		)
-	/** The CHECK laws of the law domains a statement's values break, each once. */
-	const lawsOf = (domains: ReadonlyArray<LawDomain>): ReadonlyArray<LawId> => [
-		...new Set(Arr.map(domains, (d) => checkLaw(state.names, d)))
+	/**
+	 * The CHECK laws of the law domains a statement's values break, each once, as PostgreSQL alone reports them: by the
+	 * domain, never the field.
+	 */
+	const lawsOf = (fields: ReadonlyArray<CheckedField>): ReadonlyArray<LawId> => [
+		...new Set(Arr.map(fields, (f) => checkLaw(state.names, f.domain)))
 	]
 	/**
 	 * A literal's base-type fault in the values a statement names: PostgreSQL's parser runs each literal's input function
@@ -824,7 +830,7 @@ export const directBranches = (
 			return law === undefined ? [] : [law]
 		})
 		const [check, ...more] = [
-			...new Set([...(fault?.kind === "checks" ? lawsOf(fault.domains) : []), ...nulls])
+			...new Set([...(fault?.kind === "checks" ? lawsOf(fault.fields) : []), ...nulls])
 		]
 		return check === undefined ? undefined : [domainRefused(check), ...Arr.map(more, domainRefused)]
 	}
@@ -1045,7 +1051,7 @@ export const directBranches = (
 					claims: {
 						kind: "set",
 						setting: statement.setting,
-						read: settingRead(base, state.names.codes, statement.setting)
+						read: settingRead(base, state.names, statement.setting)
 					}
 				})
 			]
@@ -1129,7 +1135,7 @@ export const directBranches = (
 				return [refused("25000")]
 			}
 			const fault = rowFault(factCells(base, statement.relation, statement.set, fields))
-			const checks = fault?.kind === "checks" ? lawsOf(fault.domains) : []
+			const checks = fault?.kind === "checks" ? lawsOf(fault.fields) : []
 			return scanned(statement.relation, statement.key, at.policy, () => {
 				const old = targeted(statement.relation, statement.key, at.policy)
 				const [check, ...more] = checks

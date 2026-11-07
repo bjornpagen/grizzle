@@ -15,8 +15,8 @@ import { nextDraw, withSerial, withSerials } from "#test/support/worlds/model/dr
 import { uniqueFacts, entryRows, isMember } from "#test/support/worlds/model/host.ts"
 import {
 	type Cell,
-	checkLaw,
 	factCells,
+	fieldLaw,
 	type RowFault,
 	rowFault
 } from "#test/support/worlds/model/session/domains.ts"
@@ -89,6 +89,7 @@ const fillOf = (w: QueryWritten, fact: HostFact, facts: ContextFacts): HostFact 
 /** A field a role relation carries into its target: its name in the relation, and the target field's domain. */
 interface Carried {
 	readonly shown: string
+	readonly field: string
 	readonly domain: FieldDomain
 }
 
@@ -109,7 +110,7 @@ const carriedOf = (base: BaseSpec, w: Written): ReadonlyArray<Carried> => {
 				`the written relation ${w.entry} carries ${shown} into ${w.target}.${field}, which it does not hold`
 			)
 		}
-		return { shown, domain }
+		return { shown, field, domain }
 	})
 }
 
@@ -199,7 +200,7 @@ const newCell = (
 	value: HostValue | undefined
 ): void => {
 	if (column.values.added(value)) {
-		cells.push({ domain: column.domain, value })
+		cells.push({ field: column.field, domain: column.domain, value })
 	}
 }
 
@@ -705,8 +706,9 @@ const onHost = (refusal: ActionOutcome): Called => ({ kind: "host", refusals: [r
  *   facts the stratum's inserts and puts submit to one target, or two its deletes name, that agree on a key and differ
  *   elsewhere are `invariant-rejected` on that key's law (keyConflictOf); an input of any number of facts is admitted;
  * - an op holding a value its law domain's CHECK refuses (an integer past its contract's bounds, a text past its
- *   pattern), which the encoder admits, is `invariant-rejected` on that domain's CHECK law, its witness a violating
- *   fact's key (domainWitness), as its stratum's statement casts the value: before anything else the statement meets;
+ *   pattern), which the encoder admits, is `invariant-rejected` on the field's law, its contract's or its own pattern
+ *   law (fieldLaw), its witness a violating fact's key (domainWitness), as its stratum's statement casts the value:
+ *   before anything else the statement meets;
  * - each fact through a query entry fills its fixed fields; an inserted or put fact the entry cannot hold is
  *   `outside-world`, a deleted one a no-op; an inserted or put fact whose key a fact outside the entry holds, or that
  *   collides with one at another key's unique index (an at-most-one over a side), is `invariant-rejected` on that
@@ -762,7 +764,7 @@ export const applyCall = (
 			written,
 			checks:
 				fault?.kind === "checks"
-					? [...new Set(Arr.map(fault.domains, (d) => checkLaw(state.names, d)))]
+					? [...new Set(Arr.map(fault.fields, (f) => fieldLaw(state.names, written.target, f)))]
 					: []
 		}))
 	)

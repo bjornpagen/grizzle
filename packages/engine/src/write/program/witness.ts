@@ -15,7 +15,7 @@ import type { Split } from "#compiler/ir/cells.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import { predicateTable, type ScalarExpr, type TypedLiteral } from "#compiler/ir/expr.ts"
 import type { LawField, NativeOf, RelationInfo, TableRelation } from "#compiler/ir/law.ts"
-import { baseOf, contractOf, type ScalarType, spanOf, textOf } from "#compiler/ir/scalar.ts"
+import { baseOf, contractOf, type ScalarType, spanOf } from "#compiler/ir/scalar.ts"
 import type {
 	ConstraintLawOf,
 	ConstraintNativeKind,
@@ -110,15 +110,13 @@ const hostField = (row: JudgedRow, field: LawField): unknown => {
 
 /**
  * What refused a statement, as PostgreSQL reported it on an object of the installation: a table constraint by its
- * owner and name, a domain's CHECK by the columns of the written tables it types, or a generated column's NOT NULL.
+ * owner and name; a domain's CHECK by the columns it types in the tables the statement writes, each with the law its
+ * field states of it (DomainUse), none where the statement writes none of them, since PostgreSQL names the domain and
+ * never the column; or a generated column's NOT NULL.
  */
 export type Refuser =
 	| { readonly kind: "constraint"; readonly owner: RelationIdent; readonly name: ConstraintName }
-	| {
-			readonly kind: "domain"
-			readonly laws: NonEmptyReadonlyArray<Law>
-			readonly uses: ReadonlyArray<DomainUse>
-	  }
+	| { readonly kind: "domain"; readonly uses: ReadonlyArray<DomainUse> }
 	| { readonly kind: "generated"; readonly table: RelationIdent; readonly column: ColumnIdent }
 
 /**
@@ -138,11 +136,14 @@ export type StatementAt =
  * Which laws a refusal names, as the host decides them (README "Errors and outcomes"):
  * - every: a table CHECK's refusal of a row the ChangeSet states, every one of whose table's law-stating CHECKs the host
  *   judges: every law of them the row breaks, in the theory's order of laws (its primary keys', then its statements' in
- *   canonical order), whichever of them PostgreSQL tried first;
+ *   canonical order), whichever of them PostgreSQL tried first; or a domain's refusal of a row the ChangeSet states,
+ *   every one of whose columns the domain types the host judges: the law of each of them whose value it refuses;
  * - first: a table CHECK's refusal where no stated row breaks it, or where the row that breaks it has a law CHECK the
  *   host leaves unjudged, which the row may break too: the laws of the CHECK PostgreSQL tried first, which it orders
  *   by the CHECKs' installed names, an order no version keeps;
- * - object: any other refusal: the laws its one object discharges, which the classifier names.
+ * - object: any other refusal, a domain's where no stated row breaks it or the row that breaks it has a column the
+ *   host leaves unjudged: the laws its one object discharges that the statement can break, which the classifier names,
+ *   decided where there is one and `some` where there are several.
  */
 export type RefusedLaws =
 	| { readonly kind: "every"; readonly laws: NonEmptyReadonlyArray<Law> }
@@ -751,72 +752,142 @@ const brokenLaws = (
 	)
 }
 
-/** Whether one level of a type is what `law` states: a contract's level its contract law, a refined text level its
- * pattern law, compared by spelling. */
+/**
+ * Whether one level of a type is the one a domain's law states of a column it types: a contract's level its contract's
+ * law, and the column's structural text level, which no contract wraps, its field's pattern law. No other law is a
+ * type level's.
+ */
 const levelStates = (level: ScalarType, law: Law): boolean => {
-	const contract = contractOf(level)
-	if (contract !== undefined) {
-		return law.kind === "contract" && law.contract === contract.name
+	switch (law.kind) {
+		case "contract":
+			return contractOf(level)?.name === law.contract
+		case "pattern":
+			return contractOf(level) === undefined
+		case "primaryKey":
+		case "key":
+		case "check":
+		case "contained":
+		case "coverage":
+		case "family":
+		case "tree":
+		case "fold":
+		case "generated":
+			return false
 	}
-	const regex = textOf(level)?.regex
-	return (
-		regex !== undefined &&
-		regex !== "wildcard" &&
-		law.kind === "pattern" &&
-		law.source === regex.source &&
-		law.flags === regex.flags
-	)
 }
 
-/** How the host judges a stated row of `relation` against `refuser`. */
-const verdictOf = (
+/** How the host judges one stated row against what refused its statement: it breaks it, and the refusal names the laws
+ * `laws` says; or the host finds no break in it, the row holding or left unjudged. */
+type RowJudgement =
+	| { readonly kind: "breaks"; readonly laws: RefusedLaws }
+	| { readonly kind: "clear" }
+
+const clear: RowJudgement = Object.freeze({ kind: "clear" })
+
+/**
+ * How the host judges each stated row against one refuser (`row`), and the laws the refusal names where no stated row
+ * breaks it (`none`).
+ */
+interface RefuserJudge {
+	readonly row: (relation: RelationInfo, row: JudgedRow) => RowJudgement
+	readonly none: RefusedLaws
+}
+
+/**
+ * How the host judges a stated row of `relation` against a refusing domain, `uses` the columns it types in the tables
+ * the statement writes: each of the row's columns among them at the level of its type its law states (levelStates), a
+ * generated field at the value PostgreSQL generates into its domain from the row (domainValue). The row breaks the
+ * domain where one of them breaks. Where the host judges every one of them, the refusal names `every` law of those
+ * that break, each once, in the domain's order of its uses; where it leaves one unjudged, which the row may break too,
+ * the laws of the one object, which the classifier names.
+ */
+const domainRow = (
 	judge: Judge,
 	relation: RelationInfo,
-	refuser: Refuser,
-	checks: ReadonlyArray<LawCheck>,
+	uses: ReadonlyArray<DomainUse>,
 	row: JudgedRow
-): Verdict => {
+): RowJudgement => {
+	const typed = new Map(
+		uses.flatMap((use, order) =>
+			use.table === relation.ident ? [[use.column, { use, order }] as const] : []
+		)
+	)
+	const judged = relation.fields.flatMap((field) => {
+		const at = typed.get(field.column)
+		if (at === undefined) {
+			return []
+		}
+		return levels(field.type).flatMap((level) => {
+			if (!levelStates(level, at.use.law.described)) {
+				return []
+			}
+			const value = domainValue(judge, relation, row, field)
+			const verdict: Verdict =
+				value.kind === "value"
+					? breaksLevel(judge, value.value, level)
+					: value.kind === "null"
+						? "holds"
+						: "unjudged"
+			return [{ ...at, verdict }]
+		})
+	})
+	const broken = judged
+		.filter((j) => j.verdict === "breaks")
+		.toSorted((a, b) => a.order - b.order)
+		.map((j) => j.use.law)
+	const [head, ...rest] = broken
+	if (head === undefined) {
+		return clear
+	}
+	if (judged.some((j) => j.verdict === "unjudged")) {
+		return { kind: "breaks", laws: refusedByObject }
+	}
+	const once: NonEmptyReadonlyArray<ConstraintLawOf> = [
+		head,
+		...rest.filter((l, i) => l.law !== head.law && rest.findIndex((m) => m.law === l.law) === i)
+	]
+	return { kind: "breaks", laws: { kind: "every", laws: mapNonEmpty(once, (l) => l.described) } }
+}
+
+/** How the host judges stated rows against `refuser` (RefuserJudge). */
+const refuserJudge = (frontend: WriteFrontend, judge: Judge, refuser: Refuser): RefuserJudge => {
 	switch (refuser.kind) {
-		case "generated": {
-			const field = relation.fields.find((f) => f.column === refuser.column)
-			if (relation.ident !== refuser.table || field?.writing.kind !== "generated") {
-				return "unjudged"
-			}
-			const value = judge.evaluate(relation, field.writing.expr, row)
-			return value.kind === "null" ? "breaks" : value.kind === "value" ? "holds" : "unjudged"
-		}
-		case "domain": {
-			const typed = new Set(
-				refuser.uses.flatMap((use) => (use.table === relation.ident ? [use.column] : []))
-			)
-			return firstBreak(
-				relation.fields.flatMap((field) => {
-					if (refuser.uses.length > 0 && !typed.has(field.column)) {
-						return []
+		case "generated":
+			return {
+				row: (relation, row) => {
+					const field = relation.fields.find((f) => f.column === refuser.column)
+					if (relation.ident !== refuser.table || field?.writing.kind !== "generated") {
+						return clear
 					}
-					return levels(field.type).flatMap((level): ReadonlyArray<Verdict> => {
-						if (!refuser.laws.some((law) => levelStates(level, law))) {
-							return []
-						}
-						const value = domainValue(judge, relation, row, field)
-						switch (value.kind) {
-							case "value":
-								return [breaksLevel(judge, value.value, level)]
-							case "null":
-								return ["holds"]
-							case "unknown":
-								return ["unjudged"]
-						}
-					})
-				})
-			)
-		}
-		case "constraint": {
-			if (relation.ident !== refuser.owner) {
-				return "unjudged"
+					return judge.evaluate(relation, field.writing.expr, row).kind === "null"
+						? { kind: "breaks", laws: refusedByObject }
+						: clear
+				},
+				none: refusedByObject
 			}
-			const check = checks.find((c) => c.name === refuser.name)
-			return check === undefined ? "unjudged" : checkVerdict(judge, relation, check, row)
+		case "domain":
+			return {
+				row: (relation, row) => domainRow(judge, relation, refuser.uses, row),
+				none: refusedByObject
+			}
+		case "constraint": {
+			const table = frontend.written.find((r) => r.ident === refuser.owner)
+			const checks = table === undefined ? [] : lawChecks(frontend, judge, table)
+			const refusing = checks.find((c) => c.name === refuser.name)
+			if (refusing === undefined) {
+				return { row: () => clear, none: refusedByObject }
+			}
+			return {
+				row: (relation, row) =>
+					relation.ident === refuser.owner &&
+					checkVerdict(judge, relation, refusing, row) === "breaks"
+						? {
+								kind: "breaks",
+								laws: refusedLaws(frontend, judge, relation, refusing, checks, row)
+							}
+						: clear,
+				none: refusedFirst
+			}
 		}
 	}
 }
@@ -839,19 +910,19 @@ const verdictOf = (
  *   no row of the target's side meets at every pair;
  * - a span's endpoint CHECK of a contract: a fact whose span has an endpoint inside every level below the contract
  *   and outside the contract;
- * - a domain's CHECK, a contract's or a pattern's: a fact whose field, among the columns the domain types in the
- *   statement's tables, holds a value inside every level below the law's and outside the law's own, a generated field
- *   the value PostgreSQL generates into its domain from the row (domainValue);
+ * - a domain's CHECK, a contract's or a pattern's: a fact one of whose columns the domain types in the statement's
+ *   tables holds a value inside every level below its law's and outside its law's own, a generated field the value
+ *   PostgreSQL generates into its domain from the row (domainRow);
  * - a generated column's NOT NULL: a fact at which its generation expression is NULL, by a closed read at a key its
  *   relation holds no row at.
  *
  * The host never decides whether a write is refused: PostgreSQL has refused it. The host only names a row that breaks
  * what refused it, the first the statement states (statedFacts: a write's in its relations' order, a query entry's
  * precheck's in its own), its witness the key it was stated at, in the words it was stated in (a query entry's,
- * through `entryKey`), and the laws it breaks where it judges every law CHECK of its table (`refusedLaws`). Where the
- * host finds none (a row only PostgreSQL computes, a query's, a row whose law reads a value the host does not hold or
- * cannot evaluate, or one stated with no whole key, as a generated addition's identity is drawn), the witness is
- * `unreported`.
+ * through `entryKey`), and the laws it breaks where it judges every law CHECK of its table (`refusedLaws`) or every
+ * column of its the domain types (`domainRow`). Where the host finds none (a row only PostgreSQL computes, a query's,
+ * a row whose law reads a value the host does not hold or cannot evaluate, or one stated with no whole key, as a
+ * generated addition's identity is drawn), the witness is `unreported`.
  */
 export const hostJudgement = (
 	frontend: WriteFrontend,
@@ -859,24 +930,12 @@ export const hostJudgement = (
 	at: StatementAt,
 	refuser: Refuser
 ): HostJudgement => {
-	const judge = judgeOf(frontend)
-	const table =
-		refuser.kind === "constraint"
-			? frontend.written.find((r) => r.ident === refuser.owner)
-			: undefined
-	const checks = table === undefined ? [] : lawChecks(frontend, judge, table)
-	const refusing =
-		refuser.kind === "constraint" ? checks.find((c) => c.name === refuser.name) : undefined
+	const judging = refuserJudge(frontend, judgeOf(frontend), refuser)
 	for (const [relation, fact] of statedFacts(frontend, stated, at)) {
-		if (verdictOf(judge, relation, refuser, checks, fact.row) === "breaks") {
-			return {
-				witness: fact.witness,
-				laws:
-					refusing === undefined
-						? refusedByObject
-						: refusedLaws(frontend, judge, relation, refusing, checks, fact.row)
-			}
+		const judged = judging.row(relation, fact.row)
+		if (judged.kind === "breaks") {
+			return { witness: fact.witness, laws: judged.laws }
 		}
 	}
-	return { witness: unreported, laws: refusing === undefined ? refusedByObject : refusedFirst }
+	return { witness: unreported, laws: judging.none }
 }

@@ -6,7 +6,7 @@ import type {
 	ConstraintName,
 	ConstraintOwner,
 	DomainName,
-	LawId,
+	DomainUse,
 	RelationIdent,
 	RosterCodec,
 	SchemaArtifacts
@@ -44,7 +44,8 @@ export const reportedOwner = (
  *
  * Every table constraint, unique index and domain constraint maps, under the table or domain that owns it, to every
  * law its violation can report (NativeLaws): one native object can discharge several, as a family's axis foreign key
- * does every containment merged into it, and a domain several columns share is the contract of each. A native
+ * does every containment merged into it, and a domain several columns share states each one's law: a text domain each
+ * field's pattern law, a contract's domain each contract of its definition's. A native
  * violation names its constraint beside the table or data type it is on, so a name is read only under that owner:
  * every domain's CHECK is `check`, and two tables may each hold a row check of one name. A violation is read only when the owner it reports
  * lies in the installation's schema. The installation lists those constraints, each with its law described where it is
@@ -52,9 +53,9 @@ export const reportedOwner = (
  * An opened Db's artifacts are compiled from the schema whose snapshot the ledger's latest complete folder installed
  * (adapter/db/open.ts), so their table names the installed constraints.
  *
- * Every installed constraint but a roster domain's is in the table, a contract's and a text refinement domain's
- * included, so a constraint the table does not name under its owner reports no law. A constraint name is never parsed,
- * and never read without its owner.
+ * Every installed constraint but a roster domain's and a text domain's no stored field types is in the table, a
+ * contract's and a stored field's text refinement domain's included, so a constraint the table does not name under its
+ * owner reports no law. A constraint name is never parsed, and never read without its owner.
  *
  * A write statement's refusal (write/refusal.ts) raises with the law identity itself as the constraint name and reports
  * no owner: `raised` holds every law of the theory under its identity.
@@ -85,17 +86,11 @@ export interface KeyLaws {
 	readonly generatedOf: (table: RelationIdent, column: ColumnIdent) => Law | undefined
 }
 
-/** A column a domain types, and the law that column's field states of it: its contract's, or its refinement's. */
-export interface DomainUse {
-	readonly table: RelationIdent
-	readonly column: ColumnIdent
-	readonly law: LawId
-}
-
 /**
  * Every law one native constraint's violation can report, each described, in the order the installation lists them;
- * and, for a domain constraint, each column the domain types with its law, which decide among a shared domain's laws
- * by the table the violating statement wrote. A table constraint types no column: its uses are none.
+ * and, for a domain constraint, each column the domain types with its law (a text domain's one law per field), which
+ * decide among a shared domain's laws by the table the violating statement wrote and, on the host, by the column of the
+ * stated row that breaks it. A table constraint types no column: its uses are none.
  */
 export interface NativeLaws {
 	readonly laws: Arr.NonEmptyReadonlyArray<DescribedLaw>

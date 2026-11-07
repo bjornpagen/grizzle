@@ -43,7 +43,7 @@ import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import { type ConstraintLaws, type ConstraintOwner, constraintLaw } from "#compiler/ir/products.ts"
 import { type ConstraintLaw, compileLaws, type LawModel } from "#compiler/laws/model/model.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
-import { textDomainIdentity } from "#compiler/physical/ddl/domains.ts"
+import { type TextDomain, textDomainIdentity } from "#compiler/physical/ddl/domains.ts"
 import {
 	installationTypes,
 	roleReadNames,
@@ -256,7 +256,6 @@ export type ContractNames =
 export interface TextDomainNames {
 	readonly domain: DomainName
 	readonly constraint: ConstraintName
-	readonly law: LawId
 }
 
 export type SpanCheck =
@@ -301,6 +300,11 @@ export interface Names extends LawNames {
 	 * column (R12's "undeclared" view column included).
 	 */
 	readonly textDomain: (relation: NamedRelation, field: string) => TextDomainNames
+	/**
+	 * A stored field's pattern law, by the naming door's rule (identity.patternLaw) over the text domain that types its
+	 * column, never read back from the installation's constraint records, which a test holds to it.
+	 */
+	readonly patternLaw: (relation: NamedRelation, field: string) => LawId
 	/** A span column's installed CHECK. */
 	readonly spanCheck: (relation: NamedRelation, field: string, check: SpanCheck) => ConstraintName
 	/** A vector column's cosine-domain CHECK. */
@@ -878,33 +882,20 @@ export const reportedLawId = (described: ReadonlyMap<LawId, Law>, law: Law): Law
 			`${count} of the installation's laws have the description of the reported ${law.kind} law`
 	)
 
-/**
- * The text domain of a column, by its installed table and column: the one of the installation's assignments that
- * types it, and the law its constraint reports.
- */
-const textDomainOf = (
+/** The one of the installation's text domains that types a column, by its installed table and column. */
+const assignedDomain = (
 	installation: Installation,
 	table: RelationIdent,
 	column: ColumnIdent,
 	what: string
-): TextDomainNames => {
-	const assigned = single(
+): TextDomain =>
+	single(
 		Arr.filter(installation.textDomains, (d) =>
 			Arr.some(d.uses, (u) => u.table === table && u.column === column)
 		),
 		(count) =>
 			`the test names the text domain of ${what}, which ${count} of the installation's domains type`
 	)
-	const law = constraintLaw(
-		installation.constraintToLaw,
-		{ kind: "domain", name: assigned.name },
-		assigned.constraint
-	)
-	if (law === undefined) {
-		throw new Error(`the text domain constraint ${assigned.constraint} reports no law`)
-	}
-	return { domain: assigned.name, constraint: assigned.constraint, law }
-}
 
 /** The names of an installation under `schema`. */
 const namesOver = (installation: Installation, schema: string): Names => {
@@ -967,12 +958,27 @@ const namesOver = (installation: Installation, schema: string): Names => {
 			const s = installation.names.sequence(relation.name, field)
 			return `${quoteIdent(s.schema)}.${quoteIdent(s.name)}`
 		},
-		textDomain: (relation, field) =>
-			textDomainOf(
+		textDomain: (relation, field) => {
+			const assigned = assignedDomain(
 				installation,
 				tableIdent(relation),
 				columnIdent(relation, field),
 				`${relation.name}.${field}`
+			)
+			return { domain: assigned.name, constraint: assigned.constraint }
+		},
+		patternLaw: (relation, field) =>
+			identifierOf(
+				identity.patternLaw(
+					assignedDomain(
+						installation,
+						tableIdent(relation),
+						columnIdent(relation, field),
+						`${relation.name}.${field}`
+					).named,
+					relation.name,
+					field
+				)
 			),
 		spanCheck: (relation, field, check) =>
 			created(

@@ -27,9 +27,10 @@ import {
 	Club,
 	Clubs,
 	captainKey,
+	clubCodeLaw,
 	clubs,
-	codeLaw,
 	Member,
+	memberCodeLaw,
 	memberKey,
 	positiveSeats,
 	Seats,
@@ -152,9 +153,10 @@ const clubKeyGen: Gen<ClubKey> = (source) => ({
 
 /**
  * A statement-time native violation as a case draws it, each kind over values of its own: a member at a stored email
- * (the candidate key), a second captain of the stored club (the selected side's key, a UNIQUE over its law columns), and a club whose
- * seats are below one (the table CHECK) or above the contract's bound (the contract domain), or whose code is past the
- * refinement's twenty characters (the text refinement domain).
+ * (the candidate key), a second captain of the stored club (the selected side's key, a UNIQUE over its law columns), a
+ * club whose seats are below one (the table CHECK) or above the contract's bound (the contract domain), or whose code is
+ * past the refinement's twenty characters (the text refinement domain), and a member of the stored club whose code is
+ * past them (the same domain, Member's code its own law).
  */
 type NativeCase =
 	| {
@@ -166,6 +168,12 @@ type NativeCase =
 	| { readonly kind: "a table CHECK"; readonly club: ClubKey; readonly seats: number }
 	| { readonly kind: "a contract domain"; readonly club: ClubKey; readonly seats: number }
 	| { readonly kind: "a text refinement domain"; readonly club: ClubKey }
+	| {
+			readonly kind: "a text refinement domain another relation shares"
+			readonly id: Uuid
+			readonly email: string
+			readonly code: string
+	  }
 
 /** How many draws a fresh value's filter tries: a stored value is drawn about never. */
 const freshAttempts = 10
@@ -216,6 +224,12 @@ const nativeCaseGen: Gen<NativeCase> = oneOf<NativeCase>([
 			number: source.draw(numberGen),
 			code: source.draw(codeGen(21, 40))
 		}
+	}),
+	(source) => ({
+		kind: "a text refinement domain another relation shares",
+		id: source.draw(freshIdGen),
+		email: source.draw(freshEmailGen),
+		code: source.draw(codeGen(21, 40))
 	})
 ])
 
@@ -234,12 +248,14 @@ const club = (
  * The Clubs schema (schemas.ts) installs under a fresh schema name, every law native. A writer session in its full
  * world provokes each kind of violation, and PostgreSQL's error fields are read as the server sent them; the same
  * change through db.apply must be refused with the law the host names and the witness the host names: a native
- * violation at its statement (a candidate key, a selected side's UNIQUE, a table CHECK, a contract domain, a
- *   text refinement domain), each drawn over values of its own, is raised under the constraint the naming door names
- *   for its law, and db.apply reports the law and the key of the fact it states that breaks it: a unique object's
- *   refusal, which the insert protocol finds in its own rows, probing a unique object besides its arbiter, names the
- *   requested fact at the object's fields; a CHECK's and a domain's, which PostgreSQL states only in prose, the host
- *   names, judging the stated club (write/program/witness.ts).
+ * violation at its statement (a candidate key, a selected side's UNIQUE, a table CHECK, a contract domain, a text
+ * refinement domain at Club's code, and the same domain at Member's code), each drawn over values of its own, is raised
+ * under the constraint the naming door names for its law, and db.apply reports the law and the key of the fact it
+ * states that breaks it: a unique object's refusal, which the insert protocol finds in its own rows, probing a unique
+ * object besides its arbiter, names the requested fact at the object's fields; a CHECK's and a domain's, which
+ * PostgreSQL states only in prose, the host names, judging the stated club or member (write/program/witness.ts). The
+ * text domain PostgreSQL names is Club's code's and Member's code's alike, so its refusal names the law of the field
+ * of the relation the statement writes, never the other.
  *
  * The expected outcome is stated from the drawn values alone; the classifier that maps a server error to it is never
  * read. The oracle is the specification turned into a checker: each kind's constraint, read through the naming door.
@@ -318,6 +334,30 @@ export const witnessSuite = (): void => {
 											applied: db.apply(ChangeSet.empty(o.schema).insert(Member, [fact]), {})
 										}
 									}
+									case "a text refinement domain another relation shares": {
+										/** A member of the stored club past the refinement Club's code shares with it. */
+										const fact = {
+											id: k.id,
+											region: "North" as const,
+											number: 1n,
+											code: k.code,
+											email: k.email,
+											captain: false
+										}
+										return {
+											sql: insertMember,
+											params: [fact.id, region(fact.region), "1", fact.code, fact.email, "false"],
+											sqlstate: sqlstates.checkViolation,
+											constraint: undefined,
+											/** The member the ChangeSet states breaks Member's code, which the host names. */
+											expected: refusedBy(o.installed, memberCodeLaw, {
+												kind: "key",
+												relation: "Member",
+												values: { id: k.id }
+											}),
+											applied: db.apply(ChangeSet.empty(o.schema).insert(Member, [fact]), {})
+										}
+									}
 									case "a table CHECK":
 									case "a contract domain":
 									case "a text refinement domain": {
@@ -327,7 +367,7 @@ export const witnessSuite = (): void => {
 												? positiveSeats
 												: k.kind === "a contract domain"
 													? seatsLaw
-													: codeLaw
+													: clubCodeLaw
 										return {
 											sql: insertClub,
 											params: club(k.club, seatsValue, region),
@@ -368,7 +408,19 @@ export const witnessSuite = (): void => {
 										kind: "postgresql",
 										name: "each kind's constraint, read through the naming door, as PostgreSQL raises it, and the outcome db.apply must report"
 									},
-									kept: [],
+									kept: [
+										{
+											note: "qti-pie's shape: one pattern source in two relations, Club's code and Member's code, one domain PostgreSQL names alike; a member's code past it is refused by Member's code's law, never Club's",
+											sketch: {
+												kind: "a text refinement domain another relation shares",
+												id: member(9),
+												email: "kept@example.org",
+												code: "abcdefghijklmnopqrstu"
+											},
+											draws: "",
+											reaches: ["refused by a text refinement domain another relation shares"]
+										}
+									],
 									runs: 60,
 									shrink: { kind: "bounded", candidates: 100 },
 									concurrency: 1,
@@ -379,7 +431,8 @@ export const witnessSuite = (): void => {
 											"refused by a selected side's UNIQUE",
 											"refused by a table CHECK",
 											"refused by a contract domain",
-											"refused by a text refinement domain"
+											"refused by a text refinement domain",
+											"refused by a text refinement domain another relation shares"
 										],
 										{ cases: 60, sense: notesOnly }
 									),

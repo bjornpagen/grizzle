@@ -15,18 +15,20 @@ import {
 } from "#compiler/core/identity.ts"
 import type { Identifier, IdentityKind, LawId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { isNonEmpty } from "#compiler/core/nonempty.ts"
+import { isNonEmpty, mapNonEmpty, sortNonEmpty } from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
 import { type Codebook, firstCodebook } from "#compiler/ir/codes.ts"
 import type { ClosedTheoryRelation, TableRelation } from "#compiler/ir/law.ts"
 import type { ConstraintLaws, IndexRequest, InstallationManifest } from "#compiler/ir/products.ts"
-import { contractOf, type RegexRef, type ScalarType } from "#compiler/ir/scalar.ts"
+import { contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
 
 import {
 	type ConstraintLaw,
+	type ConstraintLawOf,
 	compileLaws,
 	constraintLawMap,
+	type DomainUse,
 	type LawModel
 } from "#compiler/laws/model/model.ts"
 import { addAdvanceFunctions } from "#compiler/physical/ddl/advance.ts"
@@ -46,8 +48,10 @@ import {
 	contextContracts,
 	contractDigest,
 	planTextDomains,
+	structuralRegex,
 	type TextColumnUse,
-	type TextDomain
+	type TextDomain,
+	textDomainIdentity
 } from "#compiler/physical/ddl/domains.ts"
 import {
 	type ContractSource,
@@ -288,30 +292,66 @@ const admittedSettings = (
 	return Result.ok(settings)
 }
 
-/** Each structural text domain's constraint, reporting the domain's law (identity.patternLaw), as a contract's does;
- * the law model plans no text domain, so the installation that names them lists them, a domain patterns of one
- * definition share once, with the first pattern's description. */
+/** Canonical use order, a domain's columns' order: table identifier, then column identifier. */
+const canonicalUse = (a: DomainUse, b: DomainUse): number =>
+	compareStrings(a.table, b.table) || compareStrings(a.column, b.column)
+
+/**
+ * Each structural text domain's constraint, with the law of every stored field it types (identity.patternLaw), each
+ * described as its field spells its pattern, and each field's column with that law, which a violation on that column
+ * reports, in canonical use order (table identifier, then column identifier). The law model plans no text domain, so
+ * the installation that names them lists them. A domain is named by its definition (textDomainIdentity), so patterns
+ * of one membership share one, and a domain no stored field types (a view column's, a context field's, a closed
+ * payload's) states no law and lists no constraint: PostgreSQL refuses a value there in a statement no write states,
+ * and no outcome names it.
+ */
 const textDomainConstraintLaws = (
-	plans: ReadonlyArray<{ readonly domain: TextDomain; readonly regex: RegexRef }>
-): ReadonlyArray<ConstraintLaw> =>
-	plans
-		.filter(({ domain }, i) => plans.findIndex((p) => p.domain.name === domain.name) === i)
-		.map(({ domain, regex }) => ({
-			kind: "domainConstraint",
-			name: domain.constraint,
-			owner: domain.name,
-			laws: [
-				{
-					law: identifierOf(identity.patternLaw(domain.named)),
+	relations: ReadonlyArray<TableRelation>
+): ReadonlyArray<ConstraintLaw> => {
+	const byDomain = new Map<
+		string,
+		{ readonly named: Identity<"textDomain">; readonly uses: [DomainUse, ...Array<DomainUse>] }
+	>()
+	for (const r of relations) {
+		for (const f of r.fields) {
+			const regex = structuralRegex(f.type)
+			if (regex === undefined) {
+				continue
+			}
+			const named = textDomainIdentity(regex)
+			const use: DomainUse = Object.freeze({
+				table: r.ident,
+				column: f.column,
+				law: Object.freeze({
+					law: identifierOf(identity.patternLaw(named, r.name, f.name)),
 					described: Object.freeze({
 						kind: "pattern",
+						relation: r.name,
+						field: f.name,
 						source: regex.source,
 						flags: regex.flags
 					})
-				}
-			],
-			uses: []
-		}))
+				})
+			})
+			const known = byDomain.get(named.identifier)
+			if (known === undefined) {
+				byDomain.set(named.identifier, { named, uses: [use] })
+			} else {
+				known.uses.push(use)
+			}
+		}
+	}
+	return [...byDomain.values()].map(({ named, uses }): ConstraintLaw => {
+		const ordered = sortNonEmpty(uses, canonicalUse)
+		return {
+			kind: "domainConstraint",
+			name: identifierOf(identity.domainCheck(named)),
+			owner: identifierOf(named),
+			laws: mapNonEmpty(ordered, (u) => u.law),
+			uses: ordered
+		}
+	})
+}
 
 /** The contracts a value of `t` is checked under, outermost first: its contract and every contract its base chain
  * names. */
@@ -320,11 +360,17 @@ const contractChain = (t: ScalarType): ReadonlyArray<DeclaredName> => {
 	return contract === undefined ? [] : [contract.name, ...contractChain(contract.base)]
 }
 
+/** A contract's law with its description, as its domain's constraint reports it. */
+const describedContract = (contract: DeclaredName): ConstraintLawOf => ({
+	law: identifierOf(contractLawIdentity(contract)),
+	described: contractLaw(contract)
+})
+
 /**
  * Each checked contract domain's constraint, a base contract's and a context contract's alike: the laws of every
  * contract whose definition the domain holds, in contract name order, since contracts of one definition share one
  * domain (W6.Q10), and each column of a stored relation the domain checks, down its type's contract chain, with the law
- * of the contract that column's chain names it by, which a violation on that column reports.
+ * of the contract that column's chain names it by, which a violation on that column reports, in canonical use order.
  */
 const contractConstraintLaws = (
 	names: InstallNames,
@@ -348,24 +394,23 @@ const contractConstraintLaws = (
 		}
 	}
 	return [...byDomain.values()].flatMap(({ named, contracts: sharing }) => {
-		const laws = sharing.map((contract) => ({
-			law: identifierOf(contractLawIdentity(contract)),
-			described: contractLaw(contract)
-		}))
+		const laws = sharing.map(describedContract)
 		if (!isNonEmpty(laws)) {
 			return []
 		}
-		const uses = relations.flatMap((r) =>
-			r.fields.flatMap((f) =>
-				contractChain(f.type)
-					.filter((contract) => names.contractNamed(contract).identifier === named.identifier)
-					.map((contract) => ({
-						table: r.ident,
-						column: f.column,
-						law: identifierOf(contractLawIdentity(contract))
-					}))
+		const uses = relations
+			.flatMap((r) =>
+				r.fields.flatMap((f) =>
+					contractChain(f.type)
+						.filter((contract) => names.contractNamed(contract).identifier === named.identifier)
+						.map((contract): DomainUse => ({
+							table: r.ident,
+							column: f.column,
+							law: describedContract(contract)
+						}))
+				)
 			)
-		)
+			.toSorted(canonicalUse)
 		return [
 			{
 				kind: "domainConstraint",
@@ -481,16 +526,13 @@ export const installationOver = (
 			const claimedDerived = new Set<string>()
 			const extensionRequests: Array<IndexRequest> = []
 			const statisticsRequests: Array<StatisticsRequest> = []
+			const stored = [...model.relations.values()].map((r) => r.relation)
 			/** A contract's domain is named by its definition, which only the installation's names spell, so the
 			 * installation lists every contract's domain constraint, as it lists the text domains'. */
 			const constraintLaws: Array<ConstraintLaw> = [
 				...model.constraints.filter((c) => c.kind !== "domainConstraint"),
-				...textDomainConstraintLaws(textPlans),
-				...contractConstraintLaws(
-					names,
-					contracts,
-					[...model.relations.values()].map((r) => r.relation)
-				)
+				...textDomainConstraintLaws(stored),
+				...contractConstraintLaws(names, contracts, stored)
 			]
 			for (const extension of extensions) {
 				const contribution = extension.contribute(b)

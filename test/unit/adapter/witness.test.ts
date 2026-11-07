@@ -81,8 +81,10 @@ import { nothingReported, type Reported, serverError } from "#test/support/serve
  * is grizzle's own defect; a 23000 on a law's identity with grizzle's DETAIL rejects that law at the refused key, decoded
  * through its columns (a uuid as its text, an integer as its number, a closed id's code as its handle, a text as itself);
  * any other class 23 violation reported in the installation's schema rejects the laws its constraint maps to under the
- * owner it reports, a shared domain's narrowed to the columns of the relations the statement writes, its witness
- * unreported; and everything else is ExecutionFailure carrying the server's report as given. Which constraint maps to
+ * owner it reports, a shared domain's (Clubs' code refinement types Club's and Member's code, each its own law)
+ * narrowed to the columns of the relations the statement writes, the host asked about those columns alone, the one law
+ * decided and several `some`, where the host decides none; and everything else is ExecutionFailure carrying the server's
+ * report as given. Which constraint maps to
  * which law is the installation's (the law families and the write oracle hold it to PostgreSQL's refusals).
  */
 
@@ -1229,12 +1231,10 @@ describe("a server error at a write", () => {
 								}
 								const n = native.value
 								const writtenTables = new Set(Arr.map(written, (r) => names.relation(r).name))
-								const coerced =
-									n.kind === "domainConstraint"
-										? new Set(
-												Arr.flatMap(n.uses, (u) => (writtenTables.has(u.table) ? [u.law] : []))
-											)
-										: new Set<LawId>()
+								const coercing = Arr.filter(n.kind === "domainConstraint" ? n.uses : [], (u) =>
+									writtenTables.has(u.table)
+								)
+								const coerced = new Set(Arr.map(coercing, (u) => u.law.law))
 								const narrowed = Arr.filter(n.laws, (l) => coerced.has(l.law))
 								return {
 									kind: "rejected",
@@ -1243,7 +1243,7 @@ describe("a server error at a write", () => {
 										n.kind === "constraint"
 											? `constraint ${n.owner} ${n.name}`
 											: `domain ${Arr.join(
-													Arr.map(n.uses, (u) => `${u.table}.${u.column}`),
+													Arr.map(coercing, (u) => `${u.table}.${u.column}`),
 													","
 												)}`
 									)
@@ -1254,8 +1254,8 @@ describe("a server error at a write", () => {
 									assert.ok(classified.kind === "rejected", `rejected, not ${classified.kind}`)
 									assert.equal(
 										classified.refused.kind,
-										"every",
-										"laws the host does not narrow, every one"
+										meaning.laws.length === 1 ? "every" : "some",
+										"laws the host does not narrow: the one decided, or some of several"
 									)
 									unorderedEqual(classified.refused.laws, meaning.laws, "the laws")
 									assert.deepEqual(classified.witness, meaning.witness)
