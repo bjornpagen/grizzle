@@ -1,3 +1,4 @@
+import type { Brand } from "effect"
 import type { Proving } from "#compiler/core/phantom.ts"
 import type {
 	ArithmeticSql,
@@ -65,6 +66,7 @@ import type {
 	Term,
 	TermBase,
 	TypeOfTerm,
+	UnionToIntersection,
 	ValueOfTerm
 } from "#compiler/types/core/phantom.ts"
 import type { EqualityStates, StatesOf, Stating } from "#compiler/types/evidence/evidence.ts"
@@ -171,6 +173,24 @@ type GuardOver<X, PA, OA, S extends SqlTag, V, FA extends Facts, L, LX, G> = Gua
 	PA,
 	ComputedOrigin<OA>
 >
+
+/** The brands a type carries, by name: a roster's identity (Rostered) and a contract's name. */
+type BrandNames<X> = X extends Brand.Brand<infer K> ? K : never
+
+/** Every brand a value of X carries, one Brand per name, as a branded value holds them. */
+type BrandsOf<X> = UnionToIntersection<
+	BrandNames<X> extends infer K ? (K extends string ? Brand.Brand<K> : never) : never
+>
+
+/** A closed id's handle without its brands: a contract over a closed id brands its handles by its name. */
+type Unbranded<H> = H extends (infer U extends string) & BrandsOf<H> ? U : H
+
+/**
+ * The set over the roster of a closed id of domain X and language L: a set of L's handles, unbranded, under X's
+ * roster's identity (Rostered), so it is the Bits of a set field over that roster, and meets a set over no other.
+ */
+type SetOver<X, L> = ReadonlySet<Unbranded<L>> &
+	Brand.Brand<Extract<BrandNames<X>, `roster ${string}`>>
 
 type T<A> = TypeOfTerm<A>
 type P<A> = ParamsOfTerm<A>
@@ -1155,6 +1175,15 @@ export interface ComputeApi {
 		Binary<A, B, X, "bits", "bits">,
 		Term<boolean, PA & P<B>, ComputedOrigin<OA | O<B>>, "boolean">
 	>
+	/**
+	 * The set over a closed id's roster holding exactly its handle: the empty set with the id's code's bit set,
+	 * `set_bit`, the set Bits.of writes for that one handle. A NULL id, a closed read's at an absent key, gives a NULL
+	 * set, as every operation of the algebra does. A handle's membership in a set is subset(singleton(id), set), which
+	 * refuses a set over another roster.
+	 */
+	singleton<A extends TermBase | FirstValue, X, PA, OA, L>(
+		id: A & FirstTerm<A> & Term<X, PA, OA, "code", unknown, Facts, L>
+	): Admitted<TakesFirst<A, "code">, Term<SetOver<X, L>, PA, ComputedOrigin<OA>, "bits">>
 }
 
 /** The comparison and boolean helpers a row check sees beside its fields. */

@@ -170,7 +170,8 @@ export const computeFns = [
 	"difference",
 	"cardinality",
 	"subset",
-	"disjoint"
+	"disjoint",
+	"singleton"
 ] as const
 export type ComputeFn = (typeof computeFns)[number]
 /** The functions that take a scale argument: round(a, scale) and trunc(a, scale). */
@@ -1394,7 +1395,8 @@ const computeCases: {
 	difference: unscaledCompute,
 	cardinality: unscaledCompute,
 	subset: unscaledCompute,
-	disjoint: unscaledCompute
+	disjoint: unscaledCompute,
+	singleton: unscaledCompute
 }
 
 const exprCases = {

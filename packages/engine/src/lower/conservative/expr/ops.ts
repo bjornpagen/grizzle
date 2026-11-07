@@ -15,7 +15,7 @@ import {
 	builtinFunctionNames,
 	type Expr
 } from "#compiler/sql/ast.ts"
-import { and, binary, call, lit, not, or, types } from "#compiler/sql/build.ts"
+import { and, binary, call, cast, lit, not, or, types } from "#compiler/sql/build.ts"
 
 type OpForm = { readonly kind: "binary"; readonly op: BinaryOperator } | { readonly kind: "negate" }
 
@@ -143,6 +143,17 @@ const setConstruct = (name: SetConstruct, args: ReadonlyArray<Expr>): Expr | und
 }
 
 /**
+ * A set with one more handle (scalar/compute/registry.ts setAdjoin): `set_bit(a, c::integer, 1)`, bit c of a
+ * set, from the left, is code c's.
+ */
+const adjoinSet = (args: ReadonlyArray<Expr>): Expr | undefined => {
+	const [a, c] = args
+	return args.length === 2 && a !== undefined && c !== undefined
+		? call("set_bit", [a, cast(c, types.integer), lit.int(1n, types.integer)])
+		: undefined
+}
+
+/**
  * A text's suffix test, `right(a, char_length(b)) = b` (scalar/compute/registry.ts textSuffix): PostgreSQL 19 has no
  * ends_with.
  */
@@ -173,14 +184,15 @@ const collapseText = (args: ReadonlyArray<Expr>, run: string): Expr | undefined 
 
 /**
  * The pattern operand `~` reads in a Compute.matches node's place (ir/expr.ts PatternTable): the ARE of each value
- * the node's pattern can take, never its source, which only grizzle's own automaton reads. A literal pattern is its
- * ARE's literal; any other is `CASE p WHEN '<source>' THEN '<ARE>' ... ELSE p END`, which reads the pattern once,
- * whatever SQL computes it, and whose ELSE keeps an absent C.at's NULL, which the match's reader refuses: every value
- * the pattern takes has its arm.
+ * the node's pattern can take, never its source, which only grizzle's own automaton reads. A pattern printed as a text
+ * literal, a literal pattern or one a persistent expression folds to its value (physical/ddl/expr.ts), is its ARE's
+ * literal, so no CASE compares two constants, which a generation expression refuses (42P22); any other is
+ * `CASE p WHEN '<source>' THEN '<ARE>' ... ELSE p END`, which reads the pattern once, whatever SQL computes it, and
+ * whose ELSE keeps an absent C.at's NULL, which the match's reader refuses: every value the pattern takes has its arm.
  */
-const patternOperand = (pattern: ScalarExpr | undefined, sql: Expr, table: PatternTable): Expr => {
-	if (pattern?.kind === "literal" && pattern.value.kind === "text") {
-		const source = pattern.value.value
+const patternOperand = (sql: Expr, table: PatternTable): Expr => {
+	if (sql.kind === "literal" && sql.value.kind === "text") {
+		const source = sql.value.value
 		const entry = table.find((e) => e.source === source)
 		if (entry === undefined) {
 			throw defect(`a literal pattern's entry in its node's pattern table: /${source}/`)
@@ -278,6 +290,8 @@ const registryForm = (id: OpId, args: ReadonlyArray<Expr>): Expr | undefined => 
 		case "subset":
 		case "disjoint":
 			return setConstruct(sql.kind, args)
+		case "adjoin":
+			return adjoinSet(args)
 		case "endsWith":
 			return textSuffix(args)
 		case "collapse":
@@ -374,7 +388,7 @@ export const defaultOps = (
 	const args = readOperands(
 		expr.op,
 		"patterns" in expr && subject !== undefined && pattern !== undefined
-			? [subject, patternOperand(expr.args[1], pattern, expr.patterns)]
+			? [subject, patternOperand(pattern, expr.patterns)]
 			: operands
 	)
 	const native = nativeOp(expr.op)

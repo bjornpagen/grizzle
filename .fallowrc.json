@@ -4,7 +4,7 @@
 		"test/**/*.test.ts",
 		"test/**/*.child.ts",
 		"test/types/**/fixtures/**/*.ts",
-		"test/support/programs/*.ts",
+		"test/support/programs/**/*.ts",
 		"test/unit/deps/fixtures/**/*.ts",
 		"test/unit/deps/runtime-probe.ts",
 		"test/support/pg-global-setup.ts",

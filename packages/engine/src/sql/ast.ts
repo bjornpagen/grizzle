@@ -298,6 +298,7 @@ export const builtinFunctionNames = [
 	"current_database",
 	"substring",
 	"bit_count",
+	"set_bit",
 	"bit_or",
 	"string_agg",
 	"generate_subscripts",

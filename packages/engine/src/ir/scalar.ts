@@ -94,8 +94,9 @@ export const spanCarriers = [
 /**
  * The operation capability vocabulary: storage, equality, ordering, hashing used for bucketing, the
  * aggregate overload families, span endpoints, expression-index eligibility, GiST, the set algebra of a set over a
- * roster (union, intersection, difference, cardinality, subset and disjointness), and the admitted extension
- * operation. A CapabilitySet is sorted and duplicate-free, so its canonical form is its identity.
+ * roster (union, intersection, difference, cardinality, subset and disjointness, and the singleton of a closed id of
+ * it), and the admitted extension operation. A CapabilitySet is sorted and duplicate-free, so its canonical form is
+ * its identity.
  */
 export const capabilities = [
 	"avg",

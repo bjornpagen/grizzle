@@ -3,15 +3,17 @@
  * registry names it, against a naive model of sets of codes.
  *
  * - The model: a set is a Set<number> of its codes in a roster of five codes, each live or a hole; union, intersection
- *   and difference are the Set operations, cardinality the count, subset and disjointness the membership tests.
+ *   and difference are the Set operations, cardinality the count, subset and disjointness the membership tests, and a
+ *   set with one more handle (set_bit, Compute.singleton's over the empty set) the set with that handle's code added.
+ *   A NULL handle, a closed read's at an absent key, gives NULL, as set_bit is strict.
  * - The codec as a second reader: each set the evaluator returns, written by the set codec under the installation's
  *   codes, is the model's set as one bit per code in its one text, X then the hex digits of the bits domain's width,
  *   holes and padding 0 (test/support/closed/bit-text.ts), so the host and the bit string PostgreSQL stores agree.
  * - The named invalid variant, refused at typing: a set operation over sets of two rosters, which are two universes
  *   whose codes name other handles.
  *
- * The box, exhausted: every hole pattern of a five-code roster that leaves a handle live, and every pair of subsets of
- * its live handles.
+ * The box, exhausted: every hole pattern of a five-code roster that leaves a handle live, every pair of subsets of
+ * its live handles, and each live handle and NULL as the one a set gains.
  */
 import { describe, it } from "@effect/vitest"
 import { type Case, exhaust } from "@grizzle/testing/explore"
@@ -110,6 +112,9 @@ const twoOperandCores: Readonly<Partial<Record<NativeFn, (a: unknown, b: unknown
 }
 
 type Situation =
+	| "a singleton at the first code"
+	| "a singleton at the last code"
+	| "a singleton past a hole, its code no position"
 	| "a hole"
 	| "an empty set"
 	| "a strict subset"
@@ -134,18 +139,23 @@ const opNode = (id: string, args: ReadonlyArray<ScalarExpr>, type: ScalarType, l
 	)
 }
 
-/** The host's value of `root`, which reads no leaf but its literals. */
-const evaluated = (root: ScalarExpr): CarrierValue => {
+/** The host's value of `root`, which reads no leaf but its literals and a closed read that answers NULL. */
+const hostValue = (root: ScalarExpr) => {
 	const table = predicateTable(root)
-	const value = succeeded(
+	return succeeded(
 		evaluateTable(
 			table.exprs,
 			table.root,
-			{ value: undefined, column: () => undefined, closed: () => undefined },
+			{ value: undefined, column: () => undefined, closed: () => sqlNull },
 			ProgramPatterns.of(tablePatterns(table))
 		),
 		"the host evaluates the set algebra"
 	)
+}
+
+/** The host's value of `root`, no operand of which is NULL. */
+const evaluated = (root: ScalarExpr): CarrierValue => {
+	const value = hostValue(root)
 	assertNot(value, sqlNull, "the host's set is a value, no operand being NULL")
 	return value
 }
@@ -188,6 +198,79 @@ const agrees = ({ live, a, b }: Pattern, c: Case<Situation>) =>
 		const codec = scalarCodec(set, book)
 		const bitText = (members: ReadonlySet<number>): string =>
 			`X${hexOfText(setText(size, [...members]))}`
+		const code: ScalarType = {
+			carrier: "code",
+			caps: capabilitiesOf("code"),
+			contract: undefined,
+			roster
+		}
+		const adjoined = (to: ScalarExpr, handle: ScalarExpr, label: string): ScalarExpr =>
+			opNode("set_bit(bit,integer,integer)", [to, handle], set, label)
+		const empty = literal(0, "empty")
+		const handleLiteral = (k: number): ScalarExpr =>
+			builtExpr(
+				{
+					kind: "literal",
+					value: { kind: "handle", handle: handleOf(k) },
+					type: code,
+					args: [],
+					nonNull: "literal"
+				},
+				ExprId(`h${k}`)
+			)
+		const liveCodes = nonEmpty([...codesOf(live)], "a live code")
+		for (const k of liveCodes) {
+			const handle = handleLiteral(k)
+			const single = evaluated(adjoined(empty, handle, "singleton"))
+			if (!(single instanceof Set)) {
+				return assert.fail("a singleton is a set")
+			}
+			assert.deepEqual([...single], [handleOf(k)], `the singleton of code ${k}`)
+			assert.equal(
+				succeeded(codec.encode(single)),
+				paramText(bitText(new Set([k]))),
+				`the singleton of code ${k} as bit(${wholeDigits(size)}), the set Bits.of writes for its handle`
+			)
+			const grown = evaluated(adjoined(x, handle, "adjoin"))
+			if (!(grown instanceof Set)) {
+				return assert.fail("a set with one more handle is a set")
+			}
+			assert.equal(
+				succeeded(codec.encode(grown)),
+				paramText(bitText(new Set([...ma, k]))),
+				`a with code ${k} added`
+			)
+			if (k === 0) {
+				c.note("a singleton at the first code")
+			}
+			if (k === size - 1) {
+				c.note("a singleton at the last code")
+			}
+			if (
+				Arr.some(
+					Arr.makeBy(k, (below) => below),
+					(below) => !isSet(live, below)
+				)
+			) {
+				c.note("a singleton past a hole, its code no position")
+			}
+		}
+		const absent = builtExpr(
+			{
+				kind: "closedAt",
+				relation: "Pick",
+				field: "kind",
+				args: [handleLiteral(liveCodes[0])],
+				type: code,
+				nonNull: "absentRefused"
+			},
+			ExprId("absent")
+		)
+		assert.equal(
+			hostValue(adjoined(empty, absent, "singleton of NULL")),
+			sqlNull,
+			"the singleton of a NULL handle is NULL"
+		)
 		for (const [id, fn] of [
 			["bitor", "union"],
 			["bitand", "intersection"],
@@ -255,6 +338,9 @@ describe("the host's set algebra", () => {
 						literal: Formatter.format,
 						limit: 3124,
 						coverage: requiredInSpace<Situation>([
+							"a singleton at the first code",
+							"a singleton at the last code",
+							"a singleton past a hole, its code no position",
 							"a hole",
 							"an empty set",
 							"a strict subset",

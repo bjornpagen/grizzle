@@ -277,6 +277,7 @@ export const predicateAtoms = (local: NodeId, e: ScalarExpr): ReadonlyArray<Atom
 		case "cardinality":
 		case "subset":
 		case "disjoint":
+		case "adjoin":
 		case "ne":
 		case "not":
 		case "cast":

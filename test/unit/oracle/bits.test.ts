@@ -4,8 +4,10 @@
  *
  * - The oracle, a second implementation: a set is a Set<number> of its codes in a roster of five handles; union,
  *   intersection and difference are the Set operations, cardinality the count, subset and disjointness the membership
- *   tests. It shares no code with the evaluator, which reads sets of handles.
- * - The box, exhausted: every pair of subsets of the five handles (1,024 cases).
+ *   tests, and a set with one more handle (set_bit, Compute.singleton's over the empty set) the set with its code
+ *   added. It shares no code with the evaluator, which reads sets of handles.
+ * - The box, exhausted: every pair of subsets of the five handles (1,024 cases), each with every handle added to the
+ *   first and to the empty set.
  */
 import { describe, it } from "@effect/vitest"
 import { type Case, exhaust } from "@grizzle/testing/explore"
@@ -53,6 +55,12 @@ const roster = new Roster(
 	nonEmpty(Arr.makeBy(size, handleOf))
 )
 const set: ScalarType = { carrier: "bits", caps: capabilitiesOf("bits"), roster }
+const code: ScalarType = {
+	carrier: "code",
+	caps: capabilitiesOf("code"),
+	contract: undefined,
+	roster
+}
 const plain = (carrier: "bool" | "int8"): ScalarType => ({
 	carrier,
 	caps: capabilitiesOf(carrier),
@@ -134,6 +142,32 @@ const agrees = ({ a, b }: Pair, c: Case<Situation>) =>
 			disjoint,
 			"disjoint"
 		)
+		for (const k of Arr.makeBy(size, (k) => k)) {
+			const handle = builtExpr(
+				{
+					kind: "literal",
+					value: { kind: "handle", handle: handleOf(k) },
+					type: code,
+					args: [],
+					nonNull: "literal"
+				},
+				ExprId(`h${k}`)
+			)
+			assert.deepEqual(
+				handlesOf(
+					evaluated(
+						opNode("set_bit(bit,integer,integer)", [literal(0, "empty"), handle], set, "singleton")
+					)
+				),
+				sorted([k]),
+				`the singleton of code ${k}`
+			)
+			assert.deepEqual(
+				handlesOf(evaluated(opNode("set_bit(bit,integer,integer)", [x, handle], set, "adjoin"))),
+				sorted(new Set([...ma, k])),
+				`a with code ${k} added`
+			)
+		}
 		if (ma.size === 0 || mb.size === 0) {
 			c.note("an empty set")
 		}

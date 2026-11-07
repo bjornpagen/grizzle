@@ -14,7 +14,7 @@ import {
 import { notesOnly } from "@grizzle/testing/sense"
 import { boundedShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Result } from "effect"
+import { Array as Arr, Effect, Formatter, Order, Result } from "effect"
 import { type ApplyOutcome, Db } from "#adapter/public/db.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { ChangeSet, type Law } from "#compiler/public/changeset.ts"
@@ -72,20 +72,22 @@ import { withLayer } from "#test/support/with-layer.ts"
  * contract over an integer and a refined text, holding a drawn subset of the kinds; FlagRel, a set of (from, to) flags,
  * whose row of a flag is its completions, empty for a flag it completes nowhere; FlagW, a flag's integer weight,
  * holding a drawn subset of the flags; and Allowed, a set of (kind, flag) pairs. A read is Pick.at of a payload field
- * at the row's kind, or FlagRel.row or FlagW.at at the row's own flag or, nested, at Pick.at("flag", kind). Its
- * positions:
+ * at the row's kind, or FlagRel.row, FlagW.at or `Compute.singleton` at the row's own flag or, nested, at
+ * Pick.at("flag", kind), or the union of FlagRel.row at the own flag with such a singleton. Its positions:
  *
  * - two row checks, each a drawn predicate: a read equal to the row's field of its type or to a literal, the
- *   downstream `Compute.subset(FlagRel.row(…), flags)` equal to true, the kind equal or unequal to a handle, and AND,
- *   OR and NOT of them;
+ *   downstream `Compute.subset(FlagRel.row(…), flags)` equal to true, a flag's membership in a set,
+ *   `Compute.subset(Compute.singleton(flag), set)` of the own or picked flag in the row's flags or a FlagRel.row, the
+ *   kind equal or unequal to a handle, and AND, OR and NOT of them;
  * - a containment of a selection's (kind, flag) into Allowed, under a drawn predicate: a table CHECK whose guard is
  *   the selection;
  * - a key over a selection's integer, under a drawn predicate: a law column `CASE WHEN φ THEN n END`, which grizzle's
  *   writer probes by a query that lowers the selection again. Each drawn row is written at every kind, so a row the
  *   selection keeps and one it leaves unknown share their integer;
  * - a generated field of each read, each its own relation: a closed id, an integer, a numeric, a text, a contract and
- *   a refined text read by Pick.at; and a set and an integer read by FlagRel.row and FlagW.at at the own and at the
- *   picked flag;
+ *   a refined text read by Pick.at; a set and an integer read by FlagRel.row and FlagW.at at the own and at the picked
+ *   flag; the singleton of the own and of the picked flag; and the union of the own flag's FlagRel.row with the picked
+ *   flag's singleton;
  * - a fold, the sum of an ordered family's integers under a drawn selection of its members. On the host, grizzle's
  *   writer fills it: an owner with every row nested as its members, a stored owner one member put at a time at its
  *   end, and a refill past the first owner's deleted first member; each owner's total must be the sum over the members the
@@ -103,8 +105,15 @@ import { withLayer } from "#test/support/with-layer.ts"
  * The planted bugs: a domain CHECK that refuses NULL refuses the downstream case and every generated closed id, set,
  * contract or pattern field at an absent key; a C.row of a prefix completed nowhere read as NULL refuses a subset
  * check and a generated set the contract stores empty; a host evaluator that reads a closed read at an absent key as
- * unsupported refuses a fold write whose selection it leaves unknown; and a fold CHECK that steps where `NOT φ` fails,
- * not where φ holds, refuses the host's fill of such a member.
+ * unsupported refuses a fold write whose selection it leaves unknown; a fold CHECK that steps where `NOT φ` fails,
+ * not where φ holds, refuses the host's fill of such a member; a singleton whose bit is set at its code plus one, or
+ * counted from the right, stores another set and decides a membership otherwise; and a singleton of a NULL id read as
+ * the empty set, on the host or in PostgreSQL, decides a membership the contract leaves unknown and stores a set where
+ * the contract refuses the row.
+ *
+ * The world's Flag has one to five handles, so a set over it is a whole number of hex digits (four flags) or padded,
+ * and a singleton meets the first and the last code; the downstream shape a diagonal closed relation once spelled, a
+ * row's own flag in FlagRel.row of the flag its kind picks, is a kept case, at a kind Pick holds and at one it lacks.
  */
 
 /** A Pick row's payload: a flag's code, an integer, a numeric in tenths, a text, a Units value and a Short text. */
@@ -157,6 +166,11 @@ type Read =
 	| { readonly kind: "at"; readonly field: PickField }
 	| { readonly kind: "row"; readonly of: FlagSource }
 	| { readonly kind: "weight"; readonly of: FlagSource }
+	| { readonly kind: "single"; readonly of: FlagSource }
+	| { readonly kind: "joined"; readonly of: FlagSource }
+
+/** The set a membership tests a flag against: the row's flags, or FlagRel.row at the own or the picked flag. */
+type Within = { readonly kind: "flags" } | { readonly kind: "row"; readonly of: FlagSource }
 
 /** A value a read or a row's field holds: a code, an integer or tenths, a text, or a set's codes in order. */
 type Value = number | string | ReadonlyArray<number>
@@ -166,6 +180,7 @@ type Against = { readonly kind: "field" } | { readonly kind: "literal"; readonly
 type Pred =
 	| { readonly kind: "eq"; readonly read: Read; readonly against: Against }
 	| { readonly kind: "subset"; readonly of: FlagSource }
+	| { readonly kind: "member"; readonly of: FlagSource; readonly within: Within }
 	| { readonly kind: "kind"; readonly ne: boolean; readonly handle: number }
 	| { readonly kind: "and" | "or"; readonly args: readonly [Pred, Pred] }
 	| { readonly kind: "not"; readonly arg: Pred }
@@ -225,7 +240,14 @@ const worldGen: Gen<World> = (s) => {
 const readGen: Gen<Read> = oneOf<Read>([
 	(s) => ({ kind: "at", field: s.draw(element(pickFields)) }),
 	(s) => ({ kind: "row", of: s.draw(element(flagSources)) }),
-	(s) => ({ kind: "weight", of: s.draw(element(flagSources)) })
+	(s) => ({ kind: "weight", of: s.draw(element(flagSources)) }),
+	(s) => ({ kind: "single", of: s.draw(element(flagSources)) }),
+	(s) => ({ kind: "joined", of: s.draw(element(flagSources)) })
+])
+
+const withinGen: Gen<Within> = oneOf<Within>([
+	() => ({ kind: "flags" }),
+	(s) => ({ kind: "row", of: s.draw(element(flagSources)) })
 ])
 
 /** A literal of a payload field's type. */
@@ -251,12 +273,18 @@ const literalGen = (w: World, read: Read): Gen<Value> => {
 		case "at":
 			return atLiteralGen(w, read.field)
 		case "row":
+		case "single":
+		case "joined":
 			return subarray(codesBelow(w.flags))
 		case "weight":
 			return smallInt
 	}
 }
 
+/**
+ * A leaf: a read compared, a FlagRel.row within the flags, a membership, the downstream membership of the own flag in
+ * FlagRel.row of the flag its kind picks, NULL at a kind Pick lacks, or the kind compared with a handle.
+ */
 const leafGen = (w: World): Gen<Pred> =>
 	oneOf<Pred>([
 		(s) => {
@@ -270,6 +298,8 @@ const leafGen = (w: World): Gen<Pred> =>
 			}
 		},
 		(s) => ({ kind: "subset", of: s.draw(element(flagSources)) }),
+		(s) => ({ kind: "member", of: s.draw(element(flagSources)), within: s.draw(withinGen) }),
+		() => ({ kind: "member", of: "own", within: { kind: "row", of: "picked" } }),
 		(s) => ({ kind: "kind", ne: s.draw(boolean), handle: s.draw(int(0, w.kinds - 1)) })
 	])
 
@@ -345,6 +375,16 @@ const readOf = (w: World, keys: Keys, read: Read): Value | undefined => {
 			const flag = flagFrom(w, keys, read.of)
 			return flag === undefined ? undefined : w.weight[flag]
 		}
+		case "single": {
+			const flag = flagFrom(w, keys, read.of)
+			return flag === undefined ? undefined : [flag]
+		}
+		case "joined": {
+			const flag = flagFrom(w, keys, read.of)
+			return flag === undefined
+				? undefined
+				: Arr.sort(Arr.dedupe([...(w.next[keys.flag] ?? []), flag]), Order.Number)
+		}
 	}
 }
 
@@ -354,6 +394,8 @@ const fieldOf = (item: Item, read: Read): Value => {
 		case "at":
 			return item[read.field]
 		case "row":
+		case "single":
+		case "joined":
 			return item.flags
 		case "weight":
 			return item.n
@@ -364,6 +406,17 @@ const sameValue = (a: Value, b: Value): boolean =>
 	typeof a === "object" && typeof b === "object"
 		? a.length === b.length && Arr.every(a, (x, i) => x === b[i])
 		: a === b
+
+/** A membership's flag and set over a row, each undefined where it is NULL. */
+const membershipOf = (
+	w: World,
+	item: Item,
+	p: Extract<Pred, { readonly kind: "member" }>
+): { readonly flag: number | undefined; readonly set: ReadonlyArray<number> | undefined } => {
+	const set =
+		p.within.kind === "flags" ? item.flags : readOf(w, item, { kind: "row", of: p.within.of })
+	return { flag: flagFrom(w, item, p.of), set: typeof set === "object" ? set : undefined }
+}
 
 /** A predicate's truth over a row: SQL's three-valued logic, a read at an absent key unknown. */
 const truth = (w: World, item: Item, p: Pred): Truth => {
@@ -379,6 +432,10 @@ const truth = (w: World, item: Item, p: Pred): Truth => {
 				? "unknown"
 				: truthOf(Arr.every(set, (code) => item.flags.includes(code)))
 		}
+		case "member": {
+			const { flag, set } = membershipOf(w, item, p)
+			return flag === undefined || set === undefined ? "unknown" : truthOf(set.includes(flag))
+		}
 		case "kind":
 			return truthOf((item.kind === p.handle) !== p.ne)
 		case "and":
@@ -390,6 +447,23 @@ const truth = (w: World, item: Item, p: Pred): Truth => {
 	}
 }
 
+/** Every membership a predicate states. */
+const membershipsOf = (p: Pred): ReadonlyArray<Extract<Pred, { readonly kind: "member" }>> => {
+	switch (p.kind) {
+		case "member":
+			return [p]
+		case "eq":
+		case "subset":
+		case "kind":
+			return []
+		case "and":
+		case "or":
+			return [...membershipsOf(p.args[0]), ...membershipsOf(p.args[1])]
+		case "not":
+			return membershipsOf(p.arg)
+	}
+}
+
 /** Every read a predicate states. */
 const readsOf = (p: Pred): ReadonlyArray<Read> => {
 	switch (p.kind) {
@@ -397,6 +471,11 @@ const readsOf = (p: Pred): ReadonlyArray<Read> => {
 			return [p.read]
 		case "subset":
 			return [{ kind: "row", of: p.of }]
+		case "member":
+			return [
+				{ kind: "single", of: p.of },
+				...(p.within.kind === "row" ? [{ kind: "row", of: p.within.of } as const] : [])
+			]
 		case "kind":
 			return []
 		case "and":
@@ -431,9 +510,15 @@ const generatedReads = {
 	GenRowOwn: { kind: "row", of: "own" },
 	GenRowPicked: { kind: "row", of: "picked" },
 	GenWeightOwn: { kind: "weight", of: "own" },
-	GenWeightPicked: { kind: "weight", of: "picked" }
+	GenWeightPicked: { kind: "weight", of: "picked" },
+	GenSingleOwn: { kind: "single", of: "own" },
+	GenSinglePicked: { kind: "single", of: "picked" },
+	GenJoinedPicked: { kind: "joined", of: "picked" }
 } as const satisfies Readonly<Record<string, Read>>
 type Generated = keyof typeof generatedReads
+
+/** The generated relations whose read is never NULL: each reads the row's own flag alone. */
+type NeverNull = "GenRowOwn" | "GenSingleOwn"
 
 /** The case's schema: its rosters, closed relations, the relations its rules hold, and the generated relations. */
 const schemaOf = (c: AbsentCase) => {
@@ -506,6 +591,8 @@ const schemaOf = (c: AbsentCase) => {
 	const itemOf = (name: string) => relation(name, itemFields, ["id"])
 	type ItemRow = RowScalars<ReturnType<typeof itemOf>>
 	const flagTerm = (r: ItemRow, of: FlagSource) => (of === "own" ? r.flag : Pick.at("flag", r.kind))
+	const joinedTerm = (r: ItemRow, of: FlagSource) =>
+		Compute.union(FlagRel.row(r.flag), Compute.singleton(flagTerm(r, of)))
 	const eqAt = (r: ItemRow, field: PickField, literal: Value | undefined): Predicate => {
 		switch (field) {
 			case "flag":
@@ -540,6 +627,16 @@ const schemaOf = (c: AbsentCase) => {
 					FlagW.at("w", flagTerm(r, read.of)),
 					typeof literal === "number" ? literal : r.n
 				)
+			case "single":
+				return Compute.eq(
+					Compute.singleton(flagTerm(r, read.of)),
+					typeof literal === "object" ? Bits.of(Flag, Arr.map(literal, flagOf)) : r.flags
+				)
+			case "joined":
+				return Compute.eq(
+					joinedTerm(r, read.of),
+					typeof literal === "object" ? Bits.of(Flag, Arr.map(literal, flagOf)) : r.flags
+				)
 		}
 	}
 	const predicate = (p: Pred, r: ItemRow): Predicate => {
@@ -548,6 +645,14 @@ const schemaOf = (c: AbsentCase) => {
 				return eqRead(r, p.read, p.against)
 			case "subset":
 				return r.eq(Compute.subset(FlagRel.row(flagTerm(r, p.of)), r.flags), true)
+			case "member":
+				return r.eq(
+					Compute.subset(
+						Compute.singleton(flagTerm(r, p.of)),
+						p.within.kind === "flags" ? r.flags : FlagRel.row(flagTerm(r, p.within.of))
+					),
+					true
+				)
 			case "kind":
 				return p.ne ? r.ne(r.kind, kindOf(p.handle)) : r.eq(r.kind, kindOf(p.handle))
 			case "and":
@@ -609,6 +714,18 @@ const schemaOf = (c: AbsentCase) => {
 		})),
 		GenWeightPicked: relation.generated("GenWeightPicked", genFields, ["id"], (r) => ({
 			g: generated(pg.integer, FlagW.at("w", Pick.at("flag", r.kind)))
+		})),
+		GenSingleOwn: relation.generated("GenSingleOwn", genFields, ["id"], (r) => ({
+			g: generated(bits(Flag), Compute.singleton(r.flag))
+		})),
+		GenSinglePicked: relation.generated("GenSinglePicked", genFields, ["id"], (r) => ({
+			g: generated(bits(Flag), Compute.singleton(Pick.at("flag", r.kind)))
+		})),
+		GenJoinedPicked: relation.generated("GenJoinedPicked", genFields, ["id"], (r) => ({
+			g: generated(
+				bits(Flag),
+				Compute.union(FlagRel.row(r.flag), Compute.singleton(Pick.at("flag", r.kind)))
+			)
 		}))
 	}
 	const statements = [
@@ -680,8 +797,19 @@ type Feature =
 	| "a containment refuses a selected row outside its target"
 	| "a key holds apart only its selection: a row it leaves unknown shares a selected value"
 	| "a key refuses a selected row at a selected row's value"
-	| `${Exclude<Generated, "GenRowOwn">} refused by its NOT NULL`
+	| "a check finds a membership true"
+	| "a check finds a membership false"
+	| "a check leaves a membership unknown at a NULL id"
+	| "a check leaves a membership unknown at a NULL set"
+	| "a containment's selection reads a membership"
+	| "a key's selection reads a membership"
+	| "a fold's selection reads a membership"
+	| `${Exclude<Generated, NeverNull>} refused by its NOT NULL`
 	| "a generated set stored empty"
+	| "a singleton stored at the first code"
+	| "a singleton stored at the last code"
+	| "a singleton stored over a roster of whole hex digits"
+	| "a singleton stored over a padded roster"
 	| "a fold steps a member its selection makes true"
 	| "a fold skips a member its selection leaves unknown, filled with its owner"
 	| "a fold skips a member its selection leaves unknown, filled into a stored owner"
@@ -709,7 +837,20 @@ const situations: NonEmptyReadonlyArray<Feature> = [
 	"GenRowPicked refused by its NOT NULL",
 	"GenWeightOwn refused by its NOT NULL",
 	"GenWeightPicked refused by its NOT NULL",
+	"GenSinglePicked refused by its NOT NULL",
+	"GenJoinedPicked refused by its NOT NULL",
 	"a generated set stored empty",
+	"a check finds a membership true",
+	"a check finds a membership false",
+	"a check leaves a membership unknown at a NULL id",
+	"a check leaves a membership unknown at a NULL set",
+	"a containment's selection reads a membership",
+	"a key's selection reads a membership",
+	"a fold's selection reads a membership",
+	"a singleton stored at the first code",
+	"a singleton stored at the last code",
+	"a singleton stored over a roster of whole hex digits",
+	"a singleton stored over a padded roster",
 	"a fold steps a member its selection makes true",
 	"a fold skips a member its selection leaves unknown, filled with its owner",
 	"a fold skips a member its selection leaves unknown, filled into a stored owner",
@@ -849,7 +990,28 @@ const absentCase = (c: AbsentCase, notes: Case<Feature>) =>
 					) {
 						notes.note("a check reads the empty set of a flag completed nowhere")
 					}
+					for (const membership of membershipsOf(pred)) {
+						const { flag, set } = membershipOf(w, item, membership)
+						notes.note(
+							flag === undefined
+								? "a check leaves a membership unknown at a NULL id"
+								: set === undefined
+									? "a check leaves a membership unknown at a NULL set"
+									: set.includes(flag)
+										? "a check finds a membership true"
+										: "a check finds a membership false"
+						)
+					}
 				}
+			}
+			if (membershipsOf(c.contained).length > 0) {
+				notes.note("a containment's selection reads a membership")
+			}
+			if (membershipsOf(c.keyed).length > 0) {
+				notes.note("a key's selection reads a membership")
+			}
+			if (membershipsOf(c.folded).length > 0) {
+				notes.note("a fold's selection reads a membership")
 			}
 			for (const [id, item] of c.items.entries()) {
 				const t = truth(w, item, c.contained)
@@ -906,13 +1068,26 @@ const absentCase = (c: AbsentCase, notes: Case<Feature>) =>
 					)
 					verdict(applied, name, value !== undefined, where(name, id))
 					if (value === undefined) {
-						if (name !== "GenRowOwn") {
+						if (name !== "GenRowOwn" && name !== "GenSingleOwn") {
 							notes.note(`${name} refused by its NOT NULL`)
 						}
 					} else {
 						rows.push(`${id} ${storedText(w, read, value)}`)
 						if (read.kind === "row" && typeof value === "object" && value.length === 0) {
 							notes.note("a generated set stored empty")
+						}
+						if (read.kind === "single" && typeof value === "object") {
+							if (value.includes(0)) {
+								notes.note("a singleton stored at the first code")
+							}
+							if (w.flags > 1 && value.includes(w.flags - 1)) {
+								notes.note("a singleton stored at the last code")
+							}
+							notes.note(
+								w.flags % 4 === 0
+									? "a singleton stored over a roster of whole hex digits"
+									: "a singleton stored over a padded roster"
+							)
 						}
 					}
 				}
@@ -1081,6 +1256,51 @@ layer(Substrate.layer, { excludeTestServices: true })("a closed read at an absen
 							reaches: [
 								"a check holds of a row with a NULL read",
 								"a check reads a set at a NULL prefix"
+							]
+						},
+						{
+							note: "downstream, with no diagonal: Kind {a, b} and Flag {x, y}, Pick holds only a → x, FlagRel x → {x} and y → {x, y}; Checked0's or(ne(kind, a), subset(singleton(flag), FlagRel.row(Pick.at(flag, kind)))) holds of kind a with flag x and of kind b, whose Pick read is NULL; Checked1's membership alone refuses kind b's unknown row and kind a's flag y; every selection reads the membership, and the picked singleton is refused by its NOT NULL at kind b",
+							sketch: {
+								world: {
+									kinds: 2,
+									flags: 2,
+									pick: [{ flag: 0, n: 1, d: 0, t: "", u: 0, p: "a" }, undefined],
+									next: [[0], [0, 1]],
+									weight: [undefined, undefined],
+									allowed: [[0], [0, 1]]
+								},
+								checks: [
+									{
+										kind: "or",
+										args: [
+											{ kind: "kind", ne: true, handle: 0 },
+											{ kind: "member", of: "own", within: { kind: "row", of: "picked" } }
+										]
+									},
+									{ kind: "member", of: "own", within: { kind: "row", of: "picked" } }
+								],
+								contained: { kind: "member", of: "own", within: { kind: "row", of: "picked" } },
+								keyed: { kind: "member", of: "own", within: { kind: "row", of: "picked" } },
+								folded: { kind: "member", of: "own", within: { kind: "row", of: "picked" } },
+								items: [
+									{ kind: 0, flag: 0, flags: [0], n: 1, d: 0, t: "", u: 0, p: "a" },
+									{ kind: 1, flag: 1, flags: [], n: 2, d: 0, t: "", u: 0, p: "a" },
+									{ kind: 0, flag: 1, flags: [1], n: 3, d: 0, t: "", u: 0, p: "a" }
+								]
+							},
+							draws: "",
+							reaches: [
+								"a check holds of a row with a NULL read",
+								"a check finds a membership true",
+								"a check finds a membership false",
+								"a check leaves a membership unknown at a NULL set",
+								"a containment's selection reads a membership",
+								"a key's selection reads a membership",
+								"a fold's selection reads a membership",
+								"GenSinglePicked refused by its NOT NULL",
+								"a singleton stored at the first code",
+								"a singleton stored at the last code",
+								"a singleton stored over a padded roster"
 							]
 						}
 					],

@@ -16,6 +16,38 @@ How to upgrade:
 
 ### Breaking changes
 
+#### A family's owner is written through a role's query entry
+
+- **An insert, a put or a delete of a family's owner through a role's query entry is applied.** Before, every insert
+  and put was refused with `DescribedHeadingMismatch`, which named a member head the caller never wrote, because the
+  entry's fill carried the owner's count and ends at their starts. An entry's slot now carries only the fields its facts
+  state. grizzle writes the owner's counts and ends, at their starts for an owner the write inserts. A put of the owner
+  is prechecked against the entry, then updates the entry's free columns in place and leaves the family as it is: it is
+  never the delete-then-insert pair, which deleted the owner from under its members. No codemod.
+- **A writable entry may hold its table's counts and ends, or leave them out.** The rule that every column of the
+  table is in the head or fixed no longer covers them. When the head holds them they are read-only, and no role holds
+  UPDATE on them through the entry. No codemod.
+- **A role is refused when it is declared if its writable entry's filter reads a count or an end, or if a key of the
+  entry's table holds one.** The refusal is `RoleRefused` `writeUnwritable`, with `filterReadsFamily` or
+  `keyHoldsFamily` naming the field. The owner's place in such an entry would move with member writes that no write
+  through the entry states, and a key holding one could be neither named nor probed by a write. An entry over a
+  sequence's members, keyed by its drawn index, is refused there too, where every write through it was refused
+  before. Codemod: none. Read such an entry without writing through it, or write the table whole.
+
+#### A closed id's singleton is a set: `Compute.singleton(id)`, and membership is `subset(singleton(id), set)`
+
+- **`Compute.singleton(id)`** is the set over a closed id's roster holding exactly its handle: `set_bit` of the empty
+  set at the id's code, `set_bit(X'0…'::<the set's domain>, code::integer, 1)`, so the singleton of code k is the set
+  `Bits.of` writes for handle k, bit k from the left. It stands wherever a set term does: in a row check, a selection,
+  a generated field's term, a fold and a query, under the algebra and beside closed reads. A NULL id, such as `C.at`
+  at a key its relation holds no row at, gives a NULL set, as every operation of the algebra does, and the rule's
+  three-valued logic decides. A handle's membership in a set is `Compute.subset(Compute.singleton(id), set)`, and a
+  closed id of another roster than the set is refused there, as a set over another roster is. An operand that is no
+  closed id, nor a contract over one, is refused, in the types and when the term is built (`UnsupportedOperation`,
+  `setAlgebra`). The host evaluates it in a generated field's and a fold's fill. A diagonal closed relation read as
+  `D.row(id)` to say the same is no longer needed. No codemod.
+- **Format and state:** none. No existing schema's installation, snapshot.json or meta.json changes.
+
 #### A put of a span-keyed owner in place is accepted over its family's members
 
 - **A put of a mutable owner whose key holds a span, at a stored owner with members, updates it and is accepted.**

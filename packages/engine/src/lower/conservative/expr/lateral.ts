@@ -79,6 +79,7 @@ const reach: { readonly [N in BuiltinFunctionName]: "row" | "rows" } = {
 	current_database: "row",
 	substring: "row",
 	bit_count: "row",
+	set_bit: "row",
 	bit_or: "rows",
 	string_agg: "rows",
 	generate_subscripts: "row",

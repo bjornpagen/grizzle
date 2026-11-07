@@ -436,10 +436,10 @@ const putOps = (put: Extract<ChosenAction, { readonly op: "put" }>): ReadonlyArr
 			return [{ op: "updateFrom", inPlace: choice.inPlace }]
 		case "ownerPut":
 			return [
+				...precheckOf(put, completeClass),
 				...(choice.inPlace === undefined
 					? []
 					: [{ op: "updateFrom", inPlace: choice.inPlace } as const]),
-				...precheckOf(put, completeClass),
 				{ op: "putInsert" },
 				...classify(relation, completeClass, "put")
 			]

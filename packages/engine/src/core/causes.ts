@@ -198,6 +198,8 @@ export type WritabilityReason =
 	| { readonly kind: "headFieldsShareAField"; readonly fields: ReadonlyArray<string> }
 	| { readonly kind: "fieldNotFixed"; readonly field: string }
 	| { readonly kind: "bindingNotVariableOrLiteral"; readonly field: string }
+	| { readonly kind: "filterReadsFamily"; readonly field: string }
+	| { readonly kind: "keyHoldsFamily"; readonly field: string }
 
 /** What a role relation a write or refresh list names is: an ordinary, closed or derived whole entry, or a query entry. */
 export type EntryKind = "relation" | "closed" | "derived" | "query"
@@ -399,6 +401,10 @@ const unwritableText = (reason: WritabilityReason): string => {
 			return `the written relation's field ${reason.field} is neither in the head nor fixed to a literal or a context field`
 		case "bindingNotVariableOrLiteral":
 			return `the written relation's field ${reason.field} is bound to neither a variable nor a literal`
+		case "keyHoldsFamily":
+			return `a key of the written relation holds its field ${reason.field}, which its family draws: no fact through the entry states it, so no write names or probes that key`
+		case "filterReadsFamily":
+			return `its filter reads the written relation's field ${reason.field}, which its family draws: the owner's membership would move with member writes no write through the entry states, and no policy can judge the owner at its insert`
 	}
 }
 

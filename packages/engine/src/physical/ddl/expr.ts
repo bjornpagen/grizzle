@@ -2,11 +2,14 @@ import type { CheckedSchema } from "#compiler/analysis/schema.ts"
 import { Refusal } from "#compiler/core/canonical.ts"
 import { CompileError, type ProseTag, prose } from "#compiler/core/errors.ts"
 import { bitInputText } from "#compiler/core/hex.ts"
+import { ExprId } from "#compiler/core/ids.ts"
+import { defect } from "#compiler/core/invariant.ts"
 import { childLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { moneyMinorUnits, vectorPayload } from "#compiler/ir/carriers.ts"
 import { codecOf, codeOf, handlesHex } from "#compiler/ir/codes.ts"
 import { datePartSlices } from "#compiler/ir/date.ts"
 import {
+	builtExpr,
 	type ColumnRef,
 	describeOp,
 	predicateTable,
@@ -33,10 +36,11 @@ import {
 	hostLiteralOf,
 	sqlNull
 } from "#compiler/scalar/compute/evaluate.ts"
-import { isDateParse } from "#compiler/scalar/compute/registry.ts"
+import { isDateParse, nativeOp, overloadOf } from "#compiler/scalar/compute/registry.ts"
+import { plainType } from "#compiler/scalar/compute/types.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
 import type { Expr } from "#compiler/sql/ast.ts"
-import { cast, lit, tableCol } from "#compiler/sql/build.ts"
+import { and, cast, lit, tableCol } from "#compiler/sql/build.ts"
 import { type ClosedRead, closedRead } from "#compiler/sql/constants.ts"
 import { dateOfText } from "#compiler/sql/lexical.ts"
 import { type ClosedRows, closedLeaf } from "#compiler/write/family/fold.ts"
@@ -318,7 +322,9 @@ const persistent = (
 			if (all.some((t) => t.carrier === "vector")) {
 				return lowerVectorOp(expr, args, at, names.vectorSchema)
 			}
-			const lowered = defaultOps(expr, args)
+			const lowered = isConstantBetween(expr, constants)
+				? composedBetween(names, expr, scope, constants)
+				: defaultOps(expr, args)
 			if (lowered === undefined) {
 				return refusePersistent(
 					"UnsupportedOperation",
@@ -329,6 +335,62 @@ const persistent = (
 			return lowered
 		}
 	}
+}
+
+/** Whether a subterm reads no row: a literal, or a compound subterm of the tree's constants. */
+const readsNoRow = (e: ScalarExpr, constants: ReadonlySet<ScalarExpr>): boolean =>
+	e.kind === "literal" || constants.has(e)
+
+/**
+ * Whether `expr` is a BETWEEN whose operand reads no row: PostgreSQL reads every BETWEEN as `x >= low AND x <= high`,
+ * so x and a bound that reads no row would compare two constants, which a generation expression refuses (42P22). A
+ * BETWEEN whose operand reads the row compares it alone with each bound.
+ */
+const isConstantBetween = (
+	expr: ScalarExpr & { readonly kind: "op" },
+	constants: ReadonlySet<ScalarExpr>
+): boolean => {
+	const [x] = expr.args
+	return nativeOp(expr.op)?.fn === "between" && x !== undefined && readsNoRow(x, constants)
+}
+
+/**
+ * A BETWEEN as the conjunction PostgreSQL reads it as, `x >= low AND x <= high`, each comparison of two operands that
+ * read no row as its value (foldedConstant), as every constant subterm is.
+ */
+const composedBetween = (
+	names: PhysicalNames,
+	expr: ScalarExpr & { readonly kind: "op" },
+	scope: PersistentScope,
+	constants: ReadonlySet<ScalarExpr>
+): Expr => {
+	const [x, low, high] = expr.args
+	if (x === undefined || low === undefined || high === undefined) {
+		throw defect("a BETWEEN of an operand and two bounds")
+	}
+	const carrier = baseOf(x.type).carrier
+	const side = (fn: "ge" | "le", bound: ScalarExpr): Expr => {
+		const op = overloadOf(fn, [carrier, carrier])
+		if (op === undefined || op.partial) {
+			throw defect(`a total ${fn} over ${carrier}, of which every BETWEEN over it is composed`)
+		}
+		const comparison = builtExpr(
+			{
+				kind: "op",
+				op: op.id,
+				args: [x, bound],
+				type: plainType("bool"),
+				nonNull: "strict",
+				volatility: op.volatility
+			},
+			ExprId(`${expr.id}.${fn}`)
+		)
+		const value = readsNoRow(bound, constants)
+			? foldedConstant(names, comparison, scope.closed)
+			: undefined
+		return value ?? persistent(names, comparison, scope, constants)
+	}
+	return and([side("ge", low), side("le", high)])
 }
 
 /**

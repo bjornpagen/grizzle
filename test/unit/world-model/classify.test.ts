@@ -330,6 +330,8 @@ const allowedBy = (
 				? ["key-not-determined", "field-not-fixed", "head-term-not-own-field"]
 				: ["field-not-fixed", "head-term-not-own-field"]
 		case "bindingNotVariableOrLiteral":
+		case "filterReadsFamily":
+		case "keyHoldsFamily":
 			return []
 	}
 }

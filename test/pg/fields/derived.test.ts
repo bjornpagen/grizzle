@@ -10,14 +10,14 @@ import {
 	took,
 	type Verdict
 } from "@grizzle/testing/commands"
-import { drawn, explore } from "@grizzle/testing/explore"
+import { type Case, drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
 import { boolean, constant, element, type Gen, int, subset } from "@grizzle/testing/gen"
 import { agree, type Disagreement, exact } from "@grizzle/testing/oracle"
 import { notesOnly } from "@grizzle/testing/sense"
 import { type Swarm, swarm } from "@grizzle/testing/swarm"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Option, Order, type Scope, Struct } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Order, Result, type Scope, Struct } from "effect"
 import type { MigrateError } from "#adapter/migrate/errors.ts"
 import type { FolderSource } from "#adapter/migrate/input.ts"
 import { scalarReader } from "#compiler/codec/read.ts"
@@ -79,6 +79,8 @@ import {
 	noDeclarations,
 	type Previous
 } from "#test/support/migrate/kit.ts"
+import { type CatalogResult, evaluate } from "#test/support/oracle/evaluate/catalog.ts"
+import { patternMember } from "#test/support/oracle/reference/evaluate.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { checking, owning } from "#test/support/policy.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
@@ -94,10 +96,12 @@ import { outputText } from "#test/support/wire.ts"
  * four generated fields, each one of its kind's expressions:
  * - k, a count: |a|, |b|, |a ∪ b| or |a ∩ b|;
  * - s, a set: a ∪ b, a ∩ b, a − b, b − a, or a ∪ L, a ∩ L or a − L, L a literal set operand, Bits.of(Tier, …) of the
- *   live handles at even declared positions (markedOf), which takes a's type, so its bits are the handles' codes;
+ *   live handles at even declared positions (markedOf), which takes a's type, so its bits are the handles' codes; or
+ *   {tier} or a ∪ {tier}, the singleton of the row's tier, Compute.singleton(tier), whose one bit is the tier's code;
  * - w, C.at over Weight, a closed relation keyed by a Tier with two integer payloads: Weight.at("w", tier) or
  *   Weight.at("v", tier);
- * - p, C.row over Pair, a closed relation keyed by two Tiers: Pair.row(tier), or it ∪ a.
+ * - p, C.row over Pair, a closed relation keyed by two Tiers: Pair.row(tier), it ∪ a, or it ∩ {tier}, whether the
+ *   tier pairs with itself.
  *
  * Tier is drawn by A8's generator (test/support/closed/generate.ts historyGen) and installed through its history, so
  * most cases meet a roster whose codes have holes, where a set's bit i is code i and not a handle's declared position;
@@ -127,10 +131,12 @@ import { outputText } from "#test/support/wire.ts"
  * second implementations of each generation expression: the host evaluator (scalar/compute/evaluate.ts) over the
  * checked schema's expression of the field, its closed reads answered from the model's rows of Weight and Pair, and a
  * naive model of the expression the model chose, over plain Sets. PostgreSQL's stored value of every generated column
- * of every row must agree with both, and PostgreSQL is the judge of every refusal.
+ * of every row must agree with both, and with the reference evaluator (test/support/oracle/evaluate/catalog.ts) where
+ * the expression reads no closed relation, and PostgreSQL is the judge of every refusal.
  *
  * Each case's commands are a swarm drawn per case (rule 7); the all-off draw is guarded by keeping `write`, which
- * applies in every state, always on. Bound: programs of three to eight steps over a roster of two to four handles after up
+ * applies in every state, always on. While no witness has added w over a row at a key Weight lacks, half the steered
+ * cases are aimed at it (aimedRun). Bound: programs of three to eight steps over a roster of two to four handles after up
  * to two migrations of its history.
  */
 
@@ -149,11 +155,24 @@ const generatedNames = ["k", "p", "s", "w"] as const
 type GeneratedName = (typeof generatedNames)[number]
 
 const countExprs = ["|a|", "|b|", "|a ∪ b|", "|a ∩ b|"] as const
-const pairExprs = ["Pair.row(tier)", "Pair.row(tier) ∪ a"] as const
-const setExprs = ["a ∪ b", "a ∩ b", "a − b", "b − a", "a ∪ L", "a ∩ L", "a − L"] as const
+const pairExprs = ["Pair.row(tier)", "Pair.row(tier) ∪ a", "Pair.row(tier) ∩ {tier}"] as const
+const setExprs = [
+	"a ∪ b",
+	"a ∩ b",
+	"a − b",
+	"b − a",
+	"a ∪ L",
+	"a ∩ L",
+	"a − L",
+	"{tier}",
+	"a ∪ {tier}"
+] as const
 
 /** The set expressions whose second operand is the literal set L. */
 const literalExprs: ReadonlyArray<SetExpr> = ["a ∪ L", "a ∩ L", "a − L"]
+
+/** The expressions that hold the singleton of the row's tier. */
+const singletonExprs: ReadonlyArray<Expr> = ["{tier}", "a ∪ {tier}", "Pair.row(tier) ∩ {tier}"]
 const weightExprs = ['Weight.at("w", tier)', 'Weight.at("v", tier)'] as const
 
 type CountExpr = (typeof countExprs)[number]
@@ -226,6 +245,7 @@ type Feature =
 	| "a roster with a hole"
 	| "a row written"
 	| "a row written under a literal set operand"
+	| "a row written under the singleton of a tier whose code is no position"
 	| "a write refused at an absent key"
 	| "an insert supplying a generated column refused"
 	| "an update of a generated column refused"
@@ -486,6 +506,10 @@ const builtOf = (name: string, m: Model, declaration: Declaration): Built => {
 						return Compute.intersection(r.a, Bits.of(Tier, markedOf(m.tier)))
 					case "a − L":
 						return Compute.difference(r.a, Bits.of(Tier, markedOf(m.tier)))
+					case "{tier}":
+						return Compute.singleton(r.tier)
+					case "a ∪ {tier}":
+						return Compute.union(r.a, Compute.singleton(r.tier))
 				}
 			}
 			const pairOf = (expr: PairExpr) => {
@@ -494,6 +518,8 @@ const builtOf = (name: string, m: Model, declaration: Declaration): Built => {
 						return Pair.row(r.tier)
 					case "Pair.row(tier) ∪ a":
 						return Compute.union(Pair.row(r.tier), r.a)
+					case "Pair.row(tier) ∩ {tier}":
+						return Compute.intersection(Pair.row(r.tier), Compute.singleton(r.tier))
 				}
 			}
 			const weightOf = (expr: WeightExpr) => {
@@ -573,6 +599,46 @@ const runGen: Gen<Run> = (source) => {
 		)
 	}
 }
+
+/**
+ * A run aimed at an addition over a key Weight lacks: Weight holds every live handle but one, w is no first generated
+ * field, and the program only writes rows and adds fields, so a row at the lacking handle may come before w is added.
+ */
+const lackingSwarm: Swarm<keyof Params> = { write: 1, add: 1 }
+
+const lackingRunGen: Gen<Run> = (source) => {
+	const history = source.draw(
+		historyGen(tierName, { handles: { min: 2, max: 4 }, migrations: { min: 0, max: 2 } })
+	)
+	const drawnRows = source.draw(closedRowsGen(history.state))
+	const lacking = source.draw(element(liveOf(history.state)))
+	const closedRows: ClosedRows = {
+		weight: Arr.map(
+			Arr.filter(liveOf(history.state), (tier) => tier !== lacking),
+			(tier) => ({ tier, w: source.draw(int(0, 3)), v: source.draw(int(-2, 2)) })
+		),
+		pair: drawnRows.pair
+	}
+	const generated: Generated = { ...source.draw(generatedGen), w: undefined }
+	return {
+		history,
+		closedRows,
+		generated,
+		program: source.draw(
+			program(machine(initialOf(history, closedRows, generated)), { min: 3, max: 8 }, lackingSwarm)
+		)
+	}
+}
+
+/**
+ * The run a witness makes: its drawn one, or, while no witness has added a closed read over rows at a key Weight lacks
+ * (Case.steering), a run aimed at it half the time.
+ */
+const aimedRun = (run: Run, c: Case<Feature>): Run =>
+	Option.exists(c.steering, (pending) => pending.has("an addition refused at an absent key")) &&
+	c.draw(boolean)
+		? c.draw(lackingRunGen)
+		: run
 
 /**
  * The installation a case migrates: the declared name its schema is built under, the owner's session that reads it,
@@ -816,10 +882,16 @@ const naive = (expr: Expr, row: Row, rows: ClosedRows, marked: ReadonlySet<strin
 			return comparable(new Set(Arr.filter(row.a, (h) => marked.has(h))))
 		case "a − L":
 			return comparable(new Set(Arr.filter(row.a, (h) => !marked.has(h))))
+		case "{tier}":
+			return comparable(new Set([row.tier]))
+		case "a ∪ {tier}":
+			return comparable(new Set([...row.a, row.tier]))
 		case "Pair.row(tier)":
 			return comparable(pairedWith(rows, row.tier))
 		case "Pair.row(tier) ∪ a":
 			return comparable(new Set([...pairedWith(rows, row.tier), ...row.a]))
+		case "Pair.row(tier) ∩ {tier}":
+			return comparable(new Set(Arr.filter([...pairedWith(rows, row.tier)], (h) => h === row.tier)))
 		case 'Weight.at("w", tier)':
 			return Option.getOrUndefined(Option.map(weighed, (x) => BigInt(x.w)))
 		case 'Weight.at("v", tier)':
@@ -833,6 +905,12 @@ const naive = (expr: Expr, row: Row, rows: ClosedRows, marked: ReadonlySet<strin
  */
 const markedOf = (state: RosterState): ReadonlyArray<string> =>
 	Arr.filter(liveOf(state), (_, i) => i % 2 === 0)
+
+/** The reference evaluator's value, which an expression over a row's own fields always has. */
+const referenceValue = (result: CatalogResult, what: string): CarrierValue =>
+	Result.isSuccess(result)
+		? result.success
+		: assert.fail(`${what}: ${Formatter.format(result.failure)}`)
 
 /** A row's caller values as the host evaluator reads its columns: exact carriers. */
 const hostRow = (row: Row): ReadonlyMap<string, CarrierValue> =>
@@ -959,6 +1037,25 @@ const sameAsModel = (sys: System, model: Model) =>
 					),
 					`the host evaluates ${name} over row ${i}`
 				)
+				const reference =
+					name === "k" || name === "s"
+						? [
+								[
+									"the reference evaluator",
+									comparable(
+										referenceValue(
+											evaluate(writing.expr, {
+												kind: "row",
+												column: (ref) => host.get(ref.name),
+												param: () => undefined,
+												regexMember: patternMember
+											}),
+											`the reference evaluates ${name} over row ${i}`
+										)
+									)
+								] as const
+							]
+						: []
 				yield* agree(
 					[
 						[
@@ -966,7 +1063,8 @@ const sameAsModel = (sys: System, model: Model) =>
 							comparable(storedCodec(name).convert(text(callerFields.length + j)))
 						],
 						["the host evaluator", comparable(evaluated)],
-						["the naive model", naive(expr, row, model.closedRows, new Set(markedOf(model.tier)))]
+						["the naive model", naive(expr, row, model.closedRows, new Set(markedOf(model.tier)))],
+						...reference
 					],
 					exact
 				)
@@ -1033,6 +1131,15 @@ const real = (
 				note("a row written")
 				if (after.generated.s !== undefined && literalExprs.includes(after.generated.s)) {
 					note("a row written under a literal set operand")
+				}
+				if (
+					Arr.some(
+						[after.generated.s, after.generated.p],
+						(expr) => expr !== undefined && singletonExprs.includes(expr)
+					) &&
+					codeAt(after.tier, p.tier) !== liveOf(after.tier).indexOf(p.tier)
+				) {
+					note("a row written under the singleton of a tier whose code is no position")
 				}
 				yield* sameAsModel(sys, after)
 				return took
@@ -1173,6 +1280,7 @@ layer(Substrate.layer)("generated fields on PostgreSQL 19rc1", (it) => {
 								"a roster with a hole",
 								"a row written",
 								"a row written under a literal set operand",
+								"a row written under the singleton of a tier whose code is no position",
 								"a write refused at an absent key",
 								"an insert supplying a generated column refused",
 								"an update of a generated column refused",
@@ -1197,9 +1305,10 @@ layer(Substrate.layer)("generated fields on PostgreSQL 19rc1", (it) => {
 							name: "the host evaluator and a naive model of each generation expression, against PostgreSQL's stored values; PostgreSQL's verdicts against the model's"
 						}
 					},
-					(run, kase) =>
+					(drawnRun, kase) =>
 						Effect.scoped(
 							Effect.gen(function* () {
+								const run = aimedRun(drawnRun, kase)
 								if (holesOf(run.history.state).length > 0) {
 									kase.note("a roster with a hole")
 								}

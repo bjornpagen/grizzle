@@ -1,7 +1,8 @@
 import { nominal } from "#compiler/core/brand.ts"
-import { codeColumn } from "#compiler/core/decoder.ts"
+import { bitsColumn, codeColumn } from "#compiler/core/decoder.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { hostRead } from "#compiler/core/host.ts"
+import { defined } from "#compiler/core/invariant.ts"
 import { captureLoc, childLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { builtMark } from "#compiler/core/phantom.ts"
 import { hasProperties, isList } from "#compiler/core/record.ts"
@@ -19,7 +20,7 @@ import {
 } from "#compiler/ir/desc.ts"
 import type { LiteralExpr, OpenExpr } from "#compiler/ir/open.ts"
 import { decodeScalarType } from "#compiler/ir/scalar-shape.ts"
-import { baseOf, type ScalarType, spanOf, typeLabel } from "#compiler/ir/scalar.ts"
+import { baseOf, rosterOf, type ScalarType, spanOf, typeLabel } from "#compiler/ir/scalar.ts"
 import { admittedClosedId, closedIdParts } from "#compiler/scalar/closed-id.ts"
 import {
 	exprEmitter,
@@ -579,6 +580,29 @@ const setOperation =
 		return call.finishCarried(real, ph, carrier)
 	}
 
+/** A checked Compute expression whose value is a set over a roster, with the roster's declared name. */
+interface SetChecked extends Checked {
+	readonly roster: string
+}
+
+/**
+ * Compute.singleton: the set over a closed id's roster holding exactly its handle. Its value is no operand's, so it is
+ * carried by the column of a set over that roster, which its checked type names.
+ */
+const singleton = (id: unknown, extra: ReadonlyArray<unknown>): SetChecked => {
+	const call = new Call("Compute.singleton")
+	if (extra.length > 0) {
+		return malformed(call.loc, "one closed id for singleton")
+	}
+	const x = call.term(id, "singleton's operand")
+	const checked = call.finish(
+		{ kind: "compute", fn: "singleton", args: [x.real] },
+		{ kind: "compute", fn: "singleton", args: [x.ph] }
+	)
+	const roster = defined(rosterOf(checked.type), "Compute.singleton is typed a set over a roster")
+	return { ...checked, roster: roster.closed }
+}
+
 /** Compute.and and Compute.or, total: of no predicate the constant true and false, of one that predicate. */
 const boolean =
 	(kind: "and" | "or") =>
@@ -1081,7 +1105,8 @@ const checks = Object.freeze({
 	difference: setOperation("difference"),
 	cardinality: unary("cardinality"),
 	subset: binary("subset", "literal"),
-	disjoint: binary("disjoint", "literal")
+	disjoint: binary("disjoint", "literal"),
+	singleton
 })
 
 /** The predicates, the same for a typed and a JavaScript caller, and's and or's operands as one list. */
@@ -1232,7 +1257,15 @@ export const compute = Object.freeze({
 		carried(checks.difference(a, b, []), a),
 	cardinality: (a: unknown) => plain(checks.cardinality(a, []), "bigint"),
 	subset: (a: unknown, b: unknown) => plain(checks.subset(a, b), "boolean"),
-	disjoint: (a: unknown, b: unknown) => plain(checks.disjoint(a, b), "boolean")
+	disjoint: (a: unknown, b: unknown) => plain(checks.disjoint(a, b), "boolean"),
+	/** The set's host type T is the public signature's, which its column, a set's over the roster, delivers. */
+	singleton: <T>(id: unknown): ScalarTerm<T, "bits"> => {
+		const checked = checks.singleton(id, [])
+		return scalarTerm(checked.expr, checked.type, {
+			column: bitsColumn<T>(checked.roster),
+			sql: "bits"
+		})
+	}
 })
 
 /** A JavaScript caller's plain result: the plain column of the checked result's SQL type. */
@@ -1362,5 +1395,12 @@ export const computeCore = Object.freeze({
 	cardinality: (a: unknown, ...extra: ReadonlyArray<unknown>) =>
 		plainBy(checks.cardinality(a, extra)),
 	subset: (a: unknown, b: unknown) => plainBy(checks.subset(a, b)),
-	disjoint: (a: unknown, b: unknown) => plainBy(checks.disjoint(a, b))
+	disjoint: (a: unknown, b: unknown) => plainBy(checks.disjoint(a, b)),
+	singleton: (id: unknown, ...extra: ReadonlyArray<unknown>): ScalarTerm => {
+		const checked = checks.singleton(id, extra)
+		return scalarTerm(checked.expr, checked.type, {
+			column: bitsColumn(checked.roster),
+			sql: "bits"
+		})
+	}
 })

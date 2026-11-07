@@ -12,8 +12,9 @@ import { workloadEntriesFrom, workloadModule } from "#test/support/agreement/wor
 import { bytesProgram } from "#test/support/text/bytes.ts"
 import { surfaceEntriesFrom, surfaceModule } from "#test/types/api/surface.ts"
 import { checkUnit, type Group, type UnitSpec } from "#test/types/batch/batch.ts"
+import { entryOwnerEntriesFrom, entryOwnerSource } from "#test/types/changeset/entry-owner.ts"
 import { nestingCases, nestingSource } from "#test/types/changeset/nesting.ts"
-import { doorModule } from "#test/types/harness/door.ts"
+import { doorEntriesFrom, doorModule } from "#test/types/harness/door.ts"
 import { vocabularyModule } from "#test/types/harness/vocabulary.ts"
 import {
 	entriesFrom,
@@ -128,6 +129,21 @@ export const typeGroups: ReadonlyArray<Group> = [
 		}
 	},
 	{
+		owner: "test/types/changeset/entry-owner.test.ts",
+		units: {
+			"changeset/entry-owner": {
+				kind: "program",
+				dir: "test/types/changeset",
+				prefix: ".entry-owner-",
+				disarm: true,
+				heavy: false,
+				source: (entry) => [
+					{ file: "index.ts", source: entryOwnerSource(entryOwnerEntriesFrom(entry)) }
+				]
+			}
+		}
+	},
+	{
 		owner: "test/types/changeset/nesting.test.ts",
 		units: {
 			"changeset/nesting": {
@@ -202,7 +218,7 @@ export const typeGroups: ReadonlyArray<Group> = [
 				disarm: true,
 				heavy: false,
 				source: (entry, seed) => [
-					{ file: "index.ts", source: doorModule(entry("test/support/assert.ts"), seed) }
+					{ file: "index.ts", source: doorModule(doorEntriesFrom(entry), seed) }
 				]
 			}
 		}

@@ -1512,12 +1512,16 @@ const compile = (
 					}
 					continue
 				}
-				/** An owner of counted families' counts and ends, which its enumerated slot carries at their starts. */
-				const owned = families.some((f) => f.owner.name === relation.name)
-					? written.heading
-							.filter((c) => c.writing.kind === "drawn" || c.writing.kind === "accumulated")
-							.map(carriedColumn)
-					: []
+				/** An owner of counted families' counts and ends, which its enumerated slot carries at their starts when the
+				 * slot is the owner's own rows: a query entry's slot fills its fill, a member of the owner whose head holds only
+				 * the fields its facts state (check/member.ts memberHeading), so the owner's insert writes them at their starts
+				 * and the stratum's appends to it take its count statement. */
+				const owned =
+					target.kind === "whole" && families.some((f) => f.owner.name === relation.name)
+						? written.heading
+								.filter((c) => c.writing.kind === "drawn" || c.writing.kind === "accumulated")
+								.map(carriedColumn)
+						: []
 				switch (op) {
 					case "put": {
 						const act = { op }

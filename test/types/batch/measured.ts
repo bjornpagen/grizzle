@@ -1,10 +1,11 @@
 import { Array as Arr, Effect, FileSystem, Path, String as Str } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { assert, defined } from "#test/support/assert.ts"
+import type { PreludeAt } from "#test/support/prelude.ts"
 import { scopedTempDir } from "#test/support/temp.ts"
 import { compiled } from "#test/types/batch/compiler.ts"
 import { disarm } from "#test/types/batch/directives.ts"
-import { type BudgetEntries, entriesFrom } from "#test/types/query/budget/generate.ts"
+import { entriesFrom } from "#test/types/query/budget/generate.ts"
 
 import { regex } from "arkregex"
 /**
@@ -66,7 +67,7 @@ interface Measured {
 export const measuredProgram = (
 	dir: string,
 	size: number,
-	source: (entries: BudgetEntries) => string,
+	source: (entries: PreludeAt) => string,
 	armed: boolean
 ) =>
 	Effect.scoped(
@@ -170,7 +171,7 @@ export const measuredProgram = (
 export const measuredSizes = (
 	dir: string,
 	sizes: ReadonlyArray<number>,
-	source: (size: number, entries: BudgetEntries) => string
+	source: (size: number, entries: PreludeAt) => string
 ) =>
 	Effect.forEach(sizes, (size) =>
 		Effect.map(

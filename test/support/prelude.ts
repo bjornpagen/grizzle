@@ -118,3 +118,10 @@ export const preludeImports = (
 	}
 	return [...statement("import", at.prelude.values), ...statement("import type", at.prelude.types)]
 }
+
+/**
+ * A generated program: its `header` line, the imports its `body` names through its prelude as `at` reaches it, then
+ * the body.
+ */
+export const preludeProgram = (header: string, at: PreludeAt, body: string): string =>
+	Arr.join([header, ...preludeImports(at, identifiers(body)), "", body], "\n")

@@ -7292,21 +7292,28 @@ interface SchemaEntries {
 	readonly errors: string
 }
 
-export const schemaEntriesFrom = (entry: (path: string) => string): SchemaEntries => ({
-	schema: entry("packages/engine/src/public/schema.ts"),
-	fields: entry("packages/engine/src/public/fields.ts"),
-	text: entry("packages/engine/src/public/text.ts"),
-	query: entry("packages/engine/src/public/query.ts"),
-	changeset: entry("packages/engine/src/types/changeset/changeset.ts"),
-	fieldTypes: entry("packages/engine/src/types/fields/field.ts"),
-	statementTypes: entry("packages/engine/src/types/schema/statements.ts"),
-	decoder: entry("packages/engine/src/core/decoder.ts"),
-	compute: entry("packages/engine/src/public/compute.ts"),
-	phantom: entry("packages/engine/src/types/core/phantom.ts"),
-	relationTypes: entry("packages/engine/src/types/schema/relation.ts"),
-	result: entry("packages/engine/src/core/result.ts"),
-	errors: entry("packages/engine/src/core/errors.ts")
-})
+/**
+ * Each namespace's prelude (test/support/programs/schemas, test/support/prelude.ts) as the program's directory reaches
+ * it: the program reads every repository name through these, each a module of the names it reads of one module.
+ */
+export const schemaEntriesFrom = (entry: (path: string) => string): SchemaEntries => {
+	const prelude = (name: string): string => entry(`test/support/programs/schemas/${name}.ts`)
+	return {
+		schema: prelude("schema"),
+		fields: prelude("fields"),
+		text: prelude("text"),
+		query: prelude("query"),
+		changeset: prelude("changeset"),
+		fieldTypes: prelude("field"),
+		statementTypes: prelude("statements"),
+		decoder: prelude("decoder"),
+		compute: prelude("compute"),
+		phantom: prelude("phantom"),
+		relationTypes: prelude("relation"),
+		result: prelude("result"),
+		errors: prelude("errors")
+	}
+}
 
 /**
  * The program over the run's cases: the floor's witnesses, then the stream of the agreement's label under the run's

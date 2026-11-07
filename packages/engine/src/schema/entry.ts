@@ -37,12 +37,13 @@ export interface FixedField<F> {
 
 /**
  * How an UPDATE in place of T's row stands toward a head field. `keyed`: a field of a key of T, its primary key or a
- * candidate key, the identity an UPDATE matches by and never sets. `claimFixed`: outside every key, its head variable
- * bound by a field of a positive context match of the rule (`owner: Session.sub`), so every fact of a Db's world holds
- * the claim's value there and no UPDATE sets it; a field bound to the claim only through a join is not. `free`: any
- * other, which an UPDATE in place may set.
+ * candidate key, the identity an UPDATE matches by and never sets. `family`: outside every key, a field T's family
+ * draws, an owner's count or end, which grizzle writes on the host and no fact of the entry states, so no UPDATE through
+ * the entry sets it. `claimFixed`: outside every key, its head variable bound by a field of a positive context match of
+ * the rule (`owner: Session.sub`), so every fact of a Db's world holds the claim's value there and no UPDATE sets it; a
+ * field bound to the claim only through a join is not. `free`: any other, which an UPDATE in place may set.
  */
-export type HeadStanding = "free" | "claimFixed" | "keyed"
+export type HeadStanding = "free" | "family" | "claimFixed" | "keyed"
 
 /** A head field of a writable entry: the field of T it writes, as `F` refers to it, and its standing. */
 interface HeadField<F> {
@@ -76,10 +77,14 @@ export type EntryFilter<F> =
  * - exactly one occurrence of an ordinary relation T supplies every head field, and each head term is a bare variable
  *   that occurrence binds to a field of its own;
  * - every field of T outside the head is fixed: bound to a literal, or to a variable a context match binds, which may
- *   fix several fields of T to one context field;
- * - every other match, negation and predicate only filters.
+ *   fix several fields of T to one context field; but a field T's family draws, an owner's count or end (`family`),
+ *   which grizzle writes and no fact states, so it is in the head or nowhere, and in no key of T, whose fields a write
+ *   names (`keyHoldsFamily`);
+ * - every other match, negation and predicate only filters, and reads no field T's family draws: the owner's
+ *   membership would then move with member writes that no write through the entry states, and the policy's WITH CHECK
+ *   could not judge an owner at its insert, before its family's count is written (`filterReadsFamily`).
  *
- * T's primary key is then in the head or fixed, since every field of T is one or the other. Anything else listed in
+ * T's primary key is then in the head or fixed, since every field of T in a key is one or the other. Anything else listed in
  * `write` is refused, with the reason named (WritabilityRefused). A filter may read a serial field of T: an addition
  * into E is checked against the filter before it writes (write/entry/precheck.ts), so its facts carry every serial
  * field the filter reads (write/frontend/entry.ts entryRelation), and an addition whose serial value grizzle would
@@ -234,6 +239,12 @@ const sourceVars = (source: SourceDesc, into: Set<string>): void => {
 	}
 }
 
+/** Whether T's family draws a field of T: an owner's count or end, which grizzle writes on the host. */
+const family = (target: OrdinaryDesc, field: string): boolean => {
+	const writing = target.fields[field]?.writing.kind
+	return writing === "drawn" || writing === "accumulated"
+}
+
 /** The variables a rule reads outside its head: its matches, its predicates and its interiors' arms. */
 const ruleVars = (
 	rule: Pick<RuleDesc, "matches" | "where" | "interiors">,
@@ -360,8 +371,17 @@ export const writableEntry = (
 	}
 
 	/**
+	 * A key's fields are the identity a write through the entry names and its precheck probes, so none is a field T's
+	 * family draws, which no fact states.
+	 */
+	const keyed = keyFieldsOf(base, target)
+	const drawnKey = [...keyed].toSorted(compareText).find((field) => family(target, field))
+	if (drawnKey !== undefined) {
+		return refused(name, { kind: "keyHoldsFamily", field: drawnKey })
+	}
+	/**
 	 * Every field of T: written by a head variable, which binds no other field of T, or fixed; one context field may
-	 * fix several.
+	 * fix several. A field T's family draws is in the head or nowhere: the filter below refuses one it reads.
 	 */
 	const fields = Object.keys(target.fields).toSorted(compareText)
 	const fixed: Array<FixedField<string>> = []
@@ -369,6 +389,9 @@ export const writableEntry = (
 	for (const field of fields) {
 		const binding = occurrence.bindings[field]
 		if (binding === undefined) {
+			if (family(target, field)) {
+				continue
+			}
 			return refused(name, { kind: "fieldNotFixed", field })
 		}
 		if (binding.kind === "literal") {
@@ -388,15 +411,18 @@ export const writableEntry = (
 		}
 		const context = contextBound.get(binding.var)
 		if (context === undefined) {
+			if (family(target, field)) {
+				continue
+			}
 			return refused(name, { kind: "fieldNotFixed", field })
 		}
 		fixed.push({ field, value: { kind: "context", ...context } })
 	}
 	/**
 	 * Each head variable is bound to a declared field (suppliers), so it writes one; in the entry's field order, each
-	 * keyed when its field is in a key of T, else claim-fixed when a context match binds its variable.
+	 * keyed when its field is in a key of T, else family when T's family draws it, else claim-fixed when a context match
+	 * binds its variable.
 	 */
-	const keyed = keyFieldsOf(base, target)
 	const head = new Map<string, HeadField<string>>()
 	for (const [x, headField] of [...headVars].toSorted(([, a], [, b]) => compareText(a, b))) {
 		const field = fieldOfVar.get(x)
@@ -405,7 +431,13 @@ export const writableEntry = (
 		}
 		head.set(headField, {
 			field,
-			kind: keyed.has(field) ? "keyed" : contextBound.has(x) ? "claimFixed" : "free"
+			kind: keyed.has(field)
+				? "keyed"
+				: family(target, field)
+					? "family"
+					: contextBound.has(x)
+						? "claimFixed"
+						: "free"
 		})
 	}
 
@@ -423,6 +455,9 @@ export const writableEntry = (
 		}
 		if (binding.kind === "var" && !read.has(binding.var)) {
 			continue
+		}
+		if (family(target, field)) {
+			return refused(name, { kind: "filterReadsFamily", field })
 		}
 		kept[field] = binding
 		heading[field] = decl.type

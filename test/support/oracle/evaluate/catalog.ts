@@ -62,8 +62,9 @@ import { power as numericPower } from "#test/support/oracle/evaluate/power.ts"
  * - "database": never, PostgreSQL alone computes it: a float's pow goes through the platform libm, which V8's Math.pow
  *   does not reproduce in the last place, and pgvector's operations are the extension's.
  *
- * A set's algebra over a roster's handles (union, intersection, difference, cardinality, subset, disjoint) is exact: a
- * bits value is the set of its handles, and bit(n)'s &, | and bit_count compute exactly the Set operations over them.
+ * A set's algebra over a roster's handles (union, intersection, difference, cardinality, subset, disjoint, and a set
+ * with one more handle, singleton's) is exact: a bits value is the set of its handles, and bit(n)'s &, |, bit_count
+ * and set_bit compute exactly the Set operations over them.
  * A text's concatenation, prefix and suffix tests and translation are exact over its code points, and its regex match is grizzle's own
  * automaton over the pattern's parse (src's scalar/regex/nfa.ts), which PostgreSQL's `~` over the pattern's ARE agrees
  * with (test/pg/compute/text.test.ts).
@@ -87,6 +88,7 @@ export const evaluationOf = (op: NativeOp): Evaluation => {
 		case "cardinality":
 		case "subset":
 		case "disjoint":
+		case "adjoin":
 		case "add":
 		case "sub":
 		case "mul":
@@ -659,6 +661,12 @@ const catalogApply = (
 		case "subset":
 		case "disjoint":
 			return setAlgebra(op.fn, op, args)
+		case "adjoin": {
+			const [set, handle] = args
+			return isHandleSet(set) && isString(handle)
+				? Result.succeed(new Set([...set, handle]))
+				: mismatch(op)
+		}
 		case "and":
 		case "or":
 		case "cast":

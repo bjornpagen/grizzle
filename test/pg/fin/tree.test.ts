@@ -17,6 +17,12 @@
  *   the model's moment, by a constraint whose role (read off the installed catalog, installed.ts) is one the model
  *   allows there, with that native's SQLSTATE, reporting the tree's law (the identity, the relation's primary key).
  *
+ * Each case's transaction is checked as its COMMIT would check it and rolled back: SET CONSTRAINTS ALL IMMEDIATE runs
+ * every deferred check at that statement, a refusal there is the commit's, and no row stays to clear. One case in 32,
+ * which its own text chooses, ends by a real COMMIT instead, its rows read and then cleared: every box requires both
+ * ends, and a refusal at a real COMMIT where the box meets one, so the search itself shows a real COMMIT never decides
+ * otherwise than the checked end.
+ *
  * The boxes are GT's (test/pg/substrate/tree.ts), so there is one generator, each named in its test, every row's r over
  * two values: every state of at most two rows with every field over its range and one past it; every forest shape of
  * at most three rows with every start and end; every shape of four to six rows with every start and end its rows' own
@@ -36,6 +42,7 @@ import { layer } from "@effect/vitest"
 import { exhaust, type Oracle } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
+import { fnv1a32 } from "@grizzle/testing/random"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Data, Effect, Formatter, Option, type Scope } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
@@ -99,6 +106,8 @@ import type { SqlError } from "#test/support/pg.ts"
 import {
 	type Attempted,
 	attempt,
+	attemptChecked,
+	type Checked,
 	momentText,
 	refusalText,
 	sameMoment
@@ -218,35 +227,74 @@ interface Judged {
 }
 
 /**
- * One transaction of INSERTs on a seat with no rows, judged against the model: the same verdict; a refusal at the same
- * moment by an installed constraint whose role the model allows there, with its SQLSTATE and the law it reports; a
- * commit that reads back as written, whose rows are then cleared.
+ * How a case's transaction ends: `checked`, its commit's checks run by SET CONSTRAINTS ALL IMMEDIATE, what it left read,
+ * and rolled back (substrate.ts attemptChecked), so no row stays and no seat needs clearing; or `commit`, a real COMMIT,
+ * whose rows are read and then cleared by a TRUNCATE. The model's verdict is the same for both, so the cases that end
+ * by COMMIT show a real commit never decides otherwise than the checked end.
+ */
+type End = "checked" | "commit"
+
+/**
+ * One case in 32 ends by a real COMMIT, the case's own text choosing it, so every box meets both ends and an exhaustion
+ * replays the same choice: a COMMIT's clearing TRUNCATE costs about six checked cases, so this adds a fifth to a box's
+ * time, and each box that meets a refusal at commit still requires one through a real COMMIT.
+ */
+const endOf = (statements: ReadonlyArray<ReadonlyArray<TreeRow>>): End =>
+	fnv1a32(Formatter.format(statements)) % 32 === 0 ? "commit" : "checked"
+
+/** A transaction ended by a real COMMIT, its rows read and then cleared, as a checked one reports it. */
+const committedOf = (
+	seat: Seat,
+	statements: ReadonlyArray<string>
+): Effect.Effect<
+	Checked<ReadonlyArray<ReadonlyArray<unknown>>>,
+	SqlError | TransactionRolledBack
+> =>
+	Effect.gen(function* () {
+		const real = yield* attempt(seat.session, statements)
+		if (real.kind === "refused") {
+			return real
+		}
+		const values = yield* seat.session.values(nodeReadSql(seat), [])
+		yield* cleared(seat, ["Node"])
+		return { kind: "committed", read: values }
+	})
+
+/**
+ * One transaction of INSERTs on a seat with no rows, ended as `end` says, judged against the model: the same verdict; a
+ * refusal at the same moment by an installed constraint whose role the model allows there, with its SQLSTATE and the
+ * law it reports; an accepted one that reads back as written. A case that fails anywhere clears its seat before its
+ * failure goes on, so the candidates its shrink runs meet none of its rows, whatever its transaction left.
  */
 const judged = (
 	t: TreeSeat,
-	statements: Arr.NonEmptyReadonlyArray<Arr.NonEmptyReadonlyArray<TreeRow>>
+	statements: Arr.NonEmptyReadonlyArray<Arr.NonEmptyReadonlyArray<TreeRow>>,
+	end: End
+): Effect.Effect<Judged, SqlError | TransactionRolledBack | Disagreed> =>
+	Effect.onError(judgedOnce(t, statements, end), () => Effect.ignore(cleared(t.seat, ["Node"])))
+
+/** One transaction of INSERTs on a seat with no rows, judged against the model (`judged`). */
+const judgedOnce = (
+	t: TreeSeat,
+	statements: Arr.NonEmptyReadonlyArray<Arr.NonEmptyReadonlyArray<TreeRow>>,
+	end: End
 ): Effect.Effect<Judged, SqlError | TransactionRolledBack | Disagreed> =>
 	Effect.gen(function* () {
 		const { seat } = t
 		const model = treePredicted(t.lowering, [], statements)
-		const real = yield* attempt(
-			seat.session,
-			Arr.map(statements, (rows) => nodeInsertSql(seat, rows))
-		)
+		const inserts = Arr.map(statements, (rows) => nodeInsertSql(seat, rows))
+		const real =
+			end === "checked"
+				? yield* attemptChecked(seat.session, inserts, seat.session.values(nodeReadSql(seat), []))
+				: yield* committedOf(seat, inserts)
 		yield* seat.session.resetStatements
 		const disagree = (why: string) =>
 			Effect.fail(
 				new Disagreed({
-					message: `${t.label}: ${why}; the model predicts ${predictedText(model)}, PostgreSQL gave ${attemptedText(real)}, for\n${sqlText(seat, statements)}`
+					message: `${t.label}, its ${end} end: ${why}; the model predicts ${predictedText(model)}, PostgreSQL gave ${attemptedText(real)}, for\n${sqlText(seat, statements)}`
 				})
 			)
-		/** A commit's rows, read and then cleared whatever the verdict, so no case, kept or shrunk, meets another's rows. */
-		const values =
-			real.kind === "committed"
-				? yield* Effect.tap(seat.session.values(nodeReadSql(seat), []), () =>
-						cleared(seat, ["Node"])
-					)
-				: []
+		const values = real.kind === "committed" ? real.read : []
 		const read = nodeRowsOfRead(values)
 		if (model.kind === "committed" && real.kind === "committed") {
 			if (!deepEquals(canonical(read), canonical(model.after))) {
@@ -330,6 +378,9 @@ type StateFeature =
 	| "root unpinned commits a root off slot 0"
 	| "P3's counterexample refused by grizzle"
 	| "P3's counterexample committed without r's copy"
+	| "a case ended by COMMIT"
+	| "a case ended by SET CONSTRAINTS and ROLLBACK"
+	| "a case refused at a real COMMIT"
 
 /**
  * Judges one case on every seat at once: each against the model; grizzle's against the theorem, where a commit of a
@@ -347,12 +398,14 @@ const judgeCase = (
 	const lawful = Option.isNone(breach)
 	const whole = statements.length === 1
 	const wrong = (committed: boolean) => (committed ? !lawful : whole && lawful)
+	const end = endOf(statements)
+	note(end === "commit" ? "a case ended by COMMIT" : "a case ended by SET CONSTRAINTS and ROLLBACK")
 	return Effect.forEach(
 		seats,
 		(t) =>
 			Effect.gen(function* () {
 				/** Uninterruptible: a seat's transaction and its clearing run whole, so one seat's failure never leaves another's rows. */
-				const j = yield* Effect.uninterruptible(judged(t, statements))
+				const j = yield* Effect.uninterruptible(judged(t, statements, end))
 				for (const v of j.verdicts) {
 					note(`${t.label} ${v}`)
 				}
@@ -414,6 +467,9 @@ const judgeCase = (
 				}
 				if (Option.exists(j.moment, (m) => m.kind === "commit")) {
 					note("grizzle refused at commit")
+					if (end === "commit") {
+						note("a case refused at a real COMMIT")
+					}
 				}
 				if (j.committed && Arr.dedupe(Arr.map(rows, (r) => r.root)).length > 1) {
 					note("grizzle committed a forest of two trees")
@@ -468,6 +524,8 @@ layer(Substrate.layer)(
 								box: "every state of one or two rows: every shape with at most two self-parented rows, every assignment of two root values up to swapping them, each row's at, children and start over [0, N] and end over [0, N + 1], the copies the host's",
 								oracle: THEOREM_ORACLE,
 								coverage: requiredInSpace<StateFeature>([
+									"a case ended by COMMIT",
+									"a case ended by SET CONSTRAINTS and ROLLBACK",
 									"grizzle committed",
 									"grizzle committed a forest of two trees",
 									"grizzle refused root pin",
@@ -480,6 +538,7 @@ layer(Substrate.layer)(
 									"grizzle refused predecessor axis",
 									"grizzle refused last axis",
 									"grizzle refused at commit",
+									"a case refused at a real COMMIT",
 									"grizzle refused no root",
 									"grizzle refused two roots",
 									"grizzle refused a family",
@@ -513,6 +572,8 @@ layer(Substrate.layer)(
 								box: "every forest shape of one to three rows with at most two self-parented rows and every assignment of two root values, up to relabelling and swapping the values, each row's start in [0, N) and end in [1, N], the family and copies the host's",
 								oracle: THEOREM_ORACLE,
 								coverage: requiredInSpace<StateFeature>([
+									"a case ended by COMMIT",
+									"a case ended by SET CONSTRAINTS and ROLLBACK",
 									"grizzle committed",
 									"grizzle committed a forest of two trees",
 									"grizzle refused owner axis",
@@ -522,6 +583,7 @@ layer(Substrate.layer)(
 									"grizzle refused interval",
 									"grizzle refused last axis",
 									"grizzle refused at commit",
+									"a case refused at a real COMMIT",
 									"grizzle refused a cycle",
 									"grizzle refused no root",
 									"grizzle refused two roots",
@@ -564,12 +626,15 @@ layer(Substrate.layer)(
 								box: "every shape of four and five rows with one or two self-parented rows and every assignment of two root values, and of six rows with one root value, up to relabelling, with every start placement T1, T2 and T3 pass and every end T6 passes, the family and copies the host's",
 								oracle: THEOREM_ORACLE,
 								coverage: requiredInSpace<StateFeature>([
+									"a case ended by COMMIT",
+									"a case ended by SET CONSTRAINTS and ROLLBACK",
 									"grizzle committed",
 									"grizzle committed a forest of two trees",
 									"grizzle refused owner axis",
 									"grizzle refused predecessor axis",
 									"grizzle refused last axis",
 									"grizzle refused at commit",
+									"a case refused at a real COMMIT",
 									"grizzle refused a row under another tree",
 									"grizzle refused an interval",
 									"without r's copy killed",
@@ -607,6 +672,8 @@ layer(Substrate.layer)(
 								box: "every single mutation of every tree of at most six rows and of every forest of two trees of at most six rows in all, each named (test/pg/substrate/tree.ts mutationsOf), written from no rows in one INSERT",
 								oracle: THEOREM_ORACLE,
 								coverage: requiredInSpace<StateFeature | MutationFeature>([
+									"a case ended by COMMIT",
+									"a case ended by SET CONSTRAINTS and ROLLBACK",
 									"a wrong start refused",
 									"a wrong end refused",
 									"a wrong at refused",
@@ -675,6 +742,8 @@ layer(Substrate.layer)(
 								box: "every tree and forest of two trees of at most six rows: every order of its rows in one INSERT, and every split of its pre-order and of its reverse pre-order into consecutive INSERTs",
 								oracle: THEOREM_ORACLE,
 								coverage: requiredInSpace<StateFeature | WriteFeature>([
+									"a case ended by COMMIT",
+									"a case ended by SET CONSTRAINTS and ROLLBACK",
 									"one insert committed",
 									"one insert with a child before its parent committed",
 									"a pre-order split committed",

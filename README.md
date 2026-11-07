@@ -1368,9 +1368,11 @@ PostgreSQL `name` holds. Codes are history: a new handle is appended, a removed 
 reorder is refused ([Migrations](#migrations)). `bits(Status)` is a set of handles, a `bit(n)` with one bit per code,
 n rounded up to a whole number of hex digits, whose domain holds only live handles' bits and every bit past the last
 code at 0. grizzle writes a set in hex alone: `X'…'` cast to its domain in SQL, `X` and its hex digits as a
-parameter's text. `Compute.union`, `.intersection`, `.difference`, `.cardinality`, `.subset` and `.disjoint` are its
-algebra, and there is no complement: the complement of a set within its roster is the full set less it. A key holds no set: a set's bit string is too wide for an
-index entry.
+parameter's text. `Compute.union`, `.intersection`, `.difference`, `.cardinality`, `.subset`, `.disjoint` and
+`.singleton` are its algebra, and there is no complement: the complement of a set within its roster is the full set
+less it. `Compute.singleton(id)` is the set of a closed id's one handle, the empty set with its code's bit set, so a
+handle's membership in a set is `Compute.subset(Compute.singleton(id), set)`; a NULL id gives a NULL set, as every
+operation of the algebra does. A key holds no set: a set's bit string is too wide for an index entry.
 
 ### How a field is written
 
@@ -1691,8 +1693,8 @@ the types don't reach, refused before any SQL. A role that holds every table of 
 ### Writing through a role
 
 A query entry in `write` is writable when it has one rule and all its columns come straight from one table, any
-column of that table the entry leaves out, a key column included, is fixed by the query to a constant or a claim, and
-every other match only filters. `myPosts` qualifies: its columns come from `Post`, and `author` and `org` are fixed
+column of that table the entry leaves out, a key column included, is fixed by the query to a constant or a claim, but
+a count or end its family draws, which the entry holds or leaves out, and every other match only filters. `myPosts` qualifies: its columns come from `Post`, and `author` and `org` are fixed
 by the token. A role whose `write` names any other entry is refused when you build it, with the reason.
 
 - An insert fills the fixed columns, and may leave out the entry's serial columns as an insert into a table may, also
@@ -1701,6 +1703,11 @@ by the token. A role whose `write` names any other entry is refused when you bui
   drawn. A row the query could never return (a filter it fails, a claim that is absent) is the outcome
   `outside-world`.
 - A delete of a row outside the entry does nothing: for this role, that row does not exist.
+- An entry over a family's owner writes the owner as a write of the table does: no row states its counts and ends,
+  which grizzle draws, and a put updates the entry's own columns in place and leaves the family as it is. Its filter
+  may read no count or end, and no key of the table may hold one; a role whose entry does is refused when you build
+  it. The owner's place in the entry would move with writes to its members that no write through the entry states,
+  and the table's policy could not judge an owner as it is inserted, before its count is written.
 - A put or insert that collides with a row outside the entry, on a key over the table or over a side of it, is
   `invariant-rejected` on that rule, and the witness is the key you submitted, in the entry's fields, never the other
   row. An error PostgreSQL still raises there is a typed failure, never an outcome.
@@ -2012,7 +2019,9 @@ ChangeSet.empty(Blog)               a write over a schema, or over a role: Chang
 - **A row holds the fields its caller writes**, `Written<R>`, for an insert and a put alike: never a generated, drawn
   or accumulated field ([How a field is written](#how-a-field-is-written)). A family's member is a row of its own,
   nested under its owner only in a sequence ([Families](#families)), and is written from an array or a `Stream`, never
-  from a query or through a query entry, since grizzle draws its family's values from its rows on the host.
+  from a query or through a query entry, since grizzle draws its family's values from its rows on the host. Its owner
+  may be written through a query entry whose filter reads none of the counts and ends grizzle draws
+  ([Writing through a role](#writing-through-a-role)).
 - **A relation's rows are a set.** Identical rows are one row, however often they are given. Two rows of one relation
   that share a key and differ elsewhere are `invariant-rejected` on that key before any SQL is sent, and an array
   literal of such rows, its keys literals, is a type error.

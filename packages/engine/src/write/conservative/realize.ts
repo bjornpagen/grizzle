@@ -1,5 +1,6 @@
 import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
+import { isNonEmpty } from "#compiler/core/nonempty.ts"
 import type * as Result from "#compiler/core/result.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import {
@@ -51,6 +52,7 @@ import {
 	writeContext
 } from "#compiler/write/insert/statement.ts"
 import { type CarrierCasts, castsNothing } from "#compiler/write/program/artifact.ts"
+import { inPlaceOf } from "#compiler/write/put/choose.ts"
 import { buildUpdateFrom, type PutStatement } from "#compiler/write/put/statement.ts"
 import { deltaSourceIn } from "#compiler/write/readback/lower.ts"
 import { breachGuard } from "#compiler/write/refusal.ts"
@@ -231,11 +233,9 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 				steps.push(
 					Object.freeze({ kind: "action", statement: built, relation, stratum: s, action: i })
 				)
-			/** The insert protocol for an insertion or a put's insert half, then, into a span primary key, the
-			 * classification of each requested fact it did not insert, and the sequence advance after explicit serial
-			 * values. */
-			const add = (serial: SerialClass, of: InsertOf) => {
-				const spec = { relation, serial, input, of } as const
+			/** An addition's precheck through a query entry: its facts inside the entry, and none at a unique object of a
+			 * fact outside it (entry/precheck.ts). */
+			const precheck = (serial: SerialClass) => {
 				const entry = action.info.entry
 				if (entry.kind === "entry") {
 					check(input, {
@@ -248,6 +248,12 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 						world: entry.names
 					})
 				}
+			}
+			/** The insert protocol for an insertion or a put's insert half, then, into a span primary key, the
+			 * classification of each requested fact it did not insert, and the sequence advance after explicit serial
+			 * values. */
+			const insert = (serial: SerialClass, of: InsertOf) => {
+				const spec = { relation, serial, input, of } as const
 				statement(buildInsert(w, spec))
 				const shape = insertShape(relation, serial)
 				if (shape.variant === "spanKey") {
@@ -270,19 +276,24 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 					break
 				}
 				case "insert":
-					add(action.serial, "insert")
+					precheck(action.serial)
+					insert(action.serial, "insert")
 					break
 				case "put": {
 					const payload = payloadOf(relation)
-					if (payload.kind === "keyed") {
-						/** An owner's put updates the fields its facts carry in place and inserts the rest, its families
-						 * left as they are (put/choose.ts ownerPut); any other put displaces its occupants first. */
-						const first = ownsFamily(relation.name)
-							? buildUpdateFrom(w, { relation, input, inPlace: { payload: payload.fields } })
-							: buildDisplacingDelete(w, { relation, input, payload: payload.fields })
-						statement(first)
+					if (ownsFamily(relation.name)) {
+						precheck(completeClass)
+						const set = inPlaceOf(action.info, payload)
+						if (isNonEmpty(set)) {
+							statement(buildUpdateFrom(w, { relation, input, inPlace: { payload: set } }))
+						}
+					} else {
+						if (payload.kind === "keyed") {
+							statement(buildDisplacingDelete(w, { relation, input, payload: payload.fields }))
+						}
+						precheck(completeClass)
 					}
-					add(completeClass, "put")
+					insert(completeClass, "put")
 					break
 				}
 			}

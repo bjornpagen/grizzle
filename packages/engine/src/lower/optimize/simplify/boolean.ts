@@ -264,6 +264,7 @@ export const foldBoolean = (editor: DagEditor, expr: ScalarExpr, column: ColumnV
 		case "cardinality":
 		case "subset":
 		case "disjoint":
+		case "adjoin":
 		case "cast":
 			return { kind: "expr", expr }
 	}
@@ -347,6 +348,7 @@ export const folds = (expr: ScalarExpr, column: ColumnValue): boolean => {
 		case "cardinality":
 		case "subset":
 		case "disjoint":
+		case "adjoin":
 		case "cast":
 			return false
 	}

@@ -390,8 +390,8 @@ const gcdOf = (a: bigint, b: bigint): bigint => {
  * concatenation, prefix and suffix tests, regex match (by the pattern's automaton) and translation (by code points,
  * as PostgreSQL's translate reads them), span endpoints, LEAST and
  * GREATEST by the type's order, and a set's union, intersection, difference, cardinality, subset and disjointness,
- * over its handles. Each case checks its operands' host kinds; the IR's typing guarantees them, so a mismatch is
- * `unsupported`. `and`, `or` and casts are evaluated by their nodes, never applied.
+ * and a set with one more handle, over its handles. Each case checks its operands' host kinds; the IR's typing
+ * guarantees them, so a mismatch is `unsupported`. `and`, `or` and casts are evaluated by their nodes, never applied.
  */
 const apply = (
 	op: NativeOp,
@@ -586,12 +586,10 @@ const apply = (
 			return isSet(a) && isSet(b) ? Result.ok([...a].every((h) => b.has(h))) : mismatch(op)
 		case "disjoint":
 			return isSet(a) && isSet(b) ? Result.ok(![...a].some((h) => b.has(h))) : mismatch(op)
+		case "adjoin":
+			return isSet(a) && isString(b) ? Result.ok(new Set([...a, b])) : mismatch(op)
 		case "complement":
 			return unsupported("complement, which no Compute operation yields")
-		case "round":
-		case "trunc":
-		case "ceil":
-		case "floor":
 		case "least":
 		case "greatest": {
 			const [t] = argTypes
@@ -610,6 +608,10 @@ const apply = (
 			}
 			return Result.ok(chosen)
 		}
+		case "round":
+		case "trunc":
+		case "ceil":
+		case "floor":
 		case "power":
 		case "sqrt":
 		case "widthBucket":
@@ -853,6 +855,7 @@ const nullAware = (
 			return unsupported(`${op.fn} evaluated by its node`)
 		case "abs":
 		case "add":
+		case "adjoin":
 		case "btrim":
 		case "cardinality":
 		case "ceil":

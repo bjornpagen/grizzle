@@ -100,8 +100,9 @@ type Owner = "catalog" | "vector"
 
 /**
  * How the node is spelled in SQL. A set's difference, subset and disjointness are constructs of bit's own operators:
- * `a & ~b`, `bit_count(a & ~b) = 0` and `bit_count(a & b) = 0`; a text's suffix test is one of right, char_length and
- * text's =, `right(a, char_length(b)) = b`, since PostgreSQL has no ends_with.
+ * `a & ~b`, `bit_count(a & ~b) = 0` and `bit_count(a & b) = 0`; a set with one more handle is set_bit at a closed id's
+ * code read as an integer, `set_bit(a, c::integer, 1)`; a text's suffix test is one of right, char_length and text's =,
+ * `right(a, char_length(b)) = b`, since PostgreSQL has no ends_with.
  */
 type SqlForm =
 	| { readonly kind: "infix"; readonly op: Infix; readonly owner: Owner }
@@ -120,6 +121,7 @@ type SqlForm =
 				| "difference"
 				| "subset"
 				| "disjoint"
+				| "adjoin"
 				| "endsWith"
 	  }
 	| {
@@ -165,7 +167,7 @@ type CatalogRef =
  * The Compute operation a native node serves, the comparisons, the boolean constructs, the set algebra over a roster,
  * the text operations and the casts; cond has no entry, it is the IR's cond node. The complement serves only the
  * difference and the subset test: it sets a set's hole and padding bits, so no Compute operation yields it; right serves
- * only the suffix test, endsWith.
+ * only the suffix test, endsWith; adjoin, a set with one more handle, serves Compute.singleton, over the empty set.
  */
 export type NativeFn =
 	| "add"
@@ -222,6 +224,7 @@ export type NativeFn =
 	| "cardinality"
 	| "subset"
 	| "disjoint"
+	| "adjoin"
 	| "cast"
 
 /** Operands of one carrier each, in order, at least one. */
@@ -274,9 +277,9 @@ interface FixedOverload extends OverloadBase {
 type OverloadResult = ResultCarrier | "text"
 
 /**
- * An operation PostgreSQL types by its operands' common type, a value of its operand carrier: LEAST and GREATEST over
- * any number, and a set's union, intersection, difference and complement, whose result is a set over its operands'
- * roster, which no fixed result carrier holds.
+ * An operation whose result is a value of its first operand's type, which no fixed result carrier holds: LEAST and
+ * GREATEST over any number, of their operands' common type, and a set's union, intersection, difference and complement,
+ * and a set with one more handle (adjoin), each a set over its first operand's roster.
  */
 interface CommonTypeOverload extends OverloadBase {
 	readonly fn: CommonTypeFn
@@ -288,7 +291,7 @@ interface CommonTypeOverload extends OverloadBase {
 /** One overload of the table: everything about it but its identity, the key the table lists it under. */
 type Overload = FixedOverload | CommonTypeOverload
 
-/** The Compute operations whose result is the common type of their operands. */
+/** The Compute operations whose result is a value of their first operand's type. */
 export type CommonTypeFn =
 	| "least"
 	| "greatest"
@@ -296,6 +299,7 @@ export type CommonTypeFn =
 	| "intersection"
 	| "difference"
 	| "complement"
+	| "adjoin"
 
 /** The Compute operations with a fixed result type. */
 export type FixedFn = Exclude<NativeFn, CommonTypeFn>
@@ -590,6 +594,29 @@ const setDifference: CommonTypeOverload = frozen({
 })
 
 /**
+ * A set with one more handle, `set_bit(a, c::integer, 1)` at a closed id's code c: a set over the operands' roster, bit
+ * c from the left code c's, as a set's literal writes it (ir/codes.ts handlesHex). c is a live code, below the set's
+ * width, so set_bit never reads past its string, and a's holes and padding stay clear; a NULL operand gives NULL, as
+ * set_bit is strict. Compute.singleton is it over the empty set.
+ */
+const setAdjoin: CommonTypeOverload = frozen({
+	fn: "adjoin",
+	operands: positional(["bits", "code"]),
+	result: "bits",
+	sql: { kind: "adjoin" },
+	catalog: {
+		kind: "function",
+		name: "set_bit",
+		args: ["bit", "integer", "integer"],
+		result: "bit",
+		owner: "catalog"
+	},
+	volatility: "immutable",
+	totality: total,
+	reads: "value"
+})
+
+/**
  * Whether one set is a subset of another, `bit_count(a & ~b) = 0`, or disjoint from it, `bit_count(a & b) = 0`: a
  * count of no member, so a hole or padding bit, which neither operand sets, never counts.
  */
@@ -711,7 +738,8 @@ const endpoint = (
  * - a cast: "cast:<source>-><target>" over its carriers, as castOverloads lists it.
  *
  * What the registry admits is the catalogue, not the catalog: same-type operands only, because Compute's operations
- * take two terms of one type, but right(text, integer), which only the suffix test reads; of text's functions only
+ * take two terms of one type, but right(text, integer), which only the suffix test reads, and set_bit over a set and a
+ * closed id's code, which only Compute.singleton reads; of text's functions only
  * its length, concatenation, prefix and suffix tests, regex match and translate, no array function, and of bit's only the set
  * algebra over a roster; no money * money,
  * money unary minus, abs(money) or float %, which PostgreSQL does not define; and no money / integer, which the public
@@ -735,7 +763,8 @@ const endpoint = (
  * - money / money is double precision;
  * - comparisons: every carrier with equality has = and <>, every ordered carrier the four orderings;
  * - a set over a roster's union (bitor), intersection (bitand) and cardinality (bit_count(bit)), its difference, subset
- *   and disjointness composed of them, all total; bitnot only inside those, since it sets the hole and padding bits;
+ *   and disjointness composed of them, and a set with one more handle (set_bit(bit,integer,integer) at a live code),
+ *   all total; bitnot only inside those, since it sets the hole and padding bits;
  * - text length in code points (char_length) and in UTF-8 bytes (octet_length), concatenation (textcat), and the
  *   prefix and suffix tests (starts_with, and right, char_length and = composed), each for checks only; and the regex match (textregexeq), whose pattern operand's every value was
  *   admitted inside PostgreSQL's regex compile space where the node was typed (compute/lower.ts), everywhere. textcat
@@ -1050,6 +1079,7 @@ const catalogOverloads = {
 		opId("int8eq")
 	]),
 	"disjoint:bits": setTest("disjoint", [opId("bitand"), opId("bit_count(bit)"), opId("int8eq")]),
+	"set_bit(bit,integer,integer)": setAdjoin,
 	"between:int4range": between(
 		"range4",
 		rangeOp("range_ge", "range4"),
@@ -1415,7 +1445,8 @@ const commonTypeFns: ReadonlySet<NativeFn> = new Set<CommonTypeFn>([
 	"union",
 	"intersection",
 	"difference",
-	"complement"
+	"complement",
+	"adjoin"
 ])
 
 /** Whether an overload is typed by its operands' common type: its function is one of CommonTypeFn. */

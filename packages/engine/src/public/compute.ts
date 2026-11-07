@@ -66,7 +66,8 @@ const catalogue: ComputeApi = {
 	difference: (a, b) => C.difference(a, b),
 	cardinality: (a) => C.cardinality(a),
 	subset: (a, b) => C.subset(a, b),
-	disjoint: (a, b) => C.disjoint(a, b)
+	disjoint: (a, b) => C.disjoint(a, b),
+	singleton: (id) => C.singleton(id)
 }
 
 /**

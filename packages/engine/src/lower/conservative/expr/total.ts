@@ -237,6 +237,7 @@ const exactIn = (
 		case "cardinality":
 		case "subset":
 		case "disjoint":
+		case "adjoin":
 			return undefined
 	}
 }

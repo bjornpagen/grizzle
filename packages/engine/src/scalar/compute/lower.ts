@@ -404,6 +404,7 @@ const checkMembers: ReadonlySet<string> = new Set([
 	"cardinality",
 	"subset",
 	"disjoint",
+	"singleton",
 	"greatest"
 ])
 
@@ -2359,6 +2360,33 @@ class Lowering<R extends Refs> {
 	}
 
 	/**
+	 * Compute.singleton(id): the set over a closed id's roster holding exactly its handle, the empty set with the id's
+	 * code's bit set (registry.ts setAdjoin), so it is the set Bits.of writes for that one handle. A NULL id gives NULL,
+	 * and a term of any other type has no singleton.
+	 */
+	singleton(id: Lowered, at: SourceLoc): Lowered {
+		const base = baseOf(id.nominal)
+		if (base.carrier !== "code") {
+			return stop(
+				"UnsupportedOperation",
+				at,
+				`setAlgebra: ${typeLabel(id.nominal)} has no singleton; it is a closed id's`
+			)
+		}
+		const type: ScalarType = Object.freeze({
+			carrier: "bits",
+			caps: capabilitiesOf("bits"),
+			roster: base.roster
+		})
+		const empty = this.literal({ handles: [] }, type, childLoc(at, "empty"))
+		return this.emitAt(
+			this.totalSpec(this.commonOp("adjoin", type, at), [empty, id], type),
+			undefined,
+			noFacts
+		)
+	}
+
+	/**
 	 * Two sets of one roster: the second a term or a parameter of the first's roster, or a set value over it (Bits.of),
 	 * a bare literal that adopts the first's type as an operand does, so its handles are coded by the first's roster. A
 	 * set over another roster is another universe, whose codes mean other handles.
@@ -3030,6 +3058,7 @@ class Lowering<R extends Refs> {
 			cardinality: 1,
 			subset: 2,
 			disjoint: 2,
+			singleton: 1,
 			widthBucket: 4
 		}
 		const expected = arity[fn]
@@ -3241,6 +3270,8 @@ class Lowering<R extends Refs> {
 				const op = this.overload(desc.fn, [a.actual, b.actual], here)
 				return this.native(op, [a, b], plainType("bool"), undefined, here, `Compute.${desc.fn}`)
 			}
+			case "singleton":
+				return this.singleton(this.term(arg(0), here), here)
 			case "cardinality": {
 				const a = this.set(desc.fn, this.term(arg(0), here), here)
 				const op = this.overload("cardinality", [a.set.actual], here)

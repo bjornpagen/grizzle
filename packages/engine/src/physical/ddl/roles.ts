@@ -699,10 +699,12 @@ interface WritePlan {
 const probeRow = "r0"
 
 /** Whether a role holds column UPDATE on a head field of its writable entry over a mutable T: only on a free one. A key
- * field is the identity an update matches by, and a claim-fixed one holds the claim's value in every fact of the world,
- * so the privilege set enforces the world beside the policy's WITH CHECK. */
+ * field is the identity an update matches by, a family's is grizzle's, which a role that writes the family's member
+ * holds UPDATE on as its member writer, and a claim-fixed one holds the claim's value in every fact of the world, so the
+ * privilege set enforces the world beside the policy's WITH CHECK. */
 const takesUpdate: Readonly<Record<HeadStanding, boolean>> = {
 	free: true,
+	family: false,
 	claimFixed: false,
 	keyed: false
 }
@@ -1595,8 +1597,9 @@ const addRowSecurity = (b: InstallBuilder, writers: ReadonlyArray<Writer>): void
  *   SELECT on each of its views; MAINTAIN on the materialized view of each derived relation it refreshes, which
  *   REFRESH MATERIALIZED VIEW checks. For each writable entry on T: a whole entry's table SELECT, INSERT and DELETE,
  *   and UPDATE when its relation is mutable, so an UPDATE of an immutable relation is refused by privilege (immutable by
- *   default is pinned); a query entry's column SELECT and INSERT on T's fields (the head's and the fixed ones, which
- *   are all of them), column UPDATE on its mutable head fields that are neither fixed nor in a key, and DELETE;
+ *   default is pinned); a query entry's column SELECT and INSERT on T's fields (the head's, the fixed ones and those
+ *   T's family draws, which are all of them), column UPDATE on its mutable head fields that are neither fixed, nor in a
+ *   key, nor drawn by T's family, and DELETE;
  *   EXECUTE on the advance function of every serial field of T (`addAdvanceFunctions`), the one way a write moves the field's
  *   identity sequence past explicit values, since no role holds a privilege on a sequence; EXECUTE on its filter
  *   functions and key and unique probes. For each family whose member it writes, on the family's owner O, unless it

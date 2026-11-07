@@ -6,7 +6,8 @@
  * - **Every bit string a drafted migration writes is one hex constant:** over generated schemas (one to three rosters
  *   of 1 to 9 codes, so most widths pad; a closed relation keyed by one or two of them with no payload, a closed-id
  *   payload or an open one, at a drawn density; a stored relation holding two sets over a drawn roster, their union,
- *   intersection and difference generated, a row check against a drawn set literal, and a containment into the closed
+ *   intersection and difference generated, the singleton of a closed id generated, the empty set with its code's bit
+ *   set, a row check against a drawn set literal, and a containment into the closed
  *   relation; an or fold over a counted family whose accumulator starts at the empty set), the first migration's every
  *   file lexes to statements in which every bit-string constant is X'…' of hex digits cast, with no binary B'' constant,
  *   no text cast to a bit type, no string_agg and no || beside a bit string; and its snapshot's every bit literal is
@@ -249,7 +250,7 @@ describe("a drafted migration's bit strings", () => {
 
 	/** A Compute operation's description. */
 	const computed = (
-		fn: "union" | "intersection" | "difference" | "disjoint",
+		fn: "union" | "intersection" | "difference" | "disjoint" | "singleton",
 		args: ReadonlyArray<ExprDesc>
 	): ExprDesc => ({ kind: "compute", fn, args })
 
@@ -302,6 +303,7 @@ describe("a drafted migration's bit strings", () => {
 				u: f.generated(sets, computed("union", [field("a"), field("b")])),
 				i: f.generated(sets, computed("intersection", [field("a"), field("b")])),
 				d: f.generated(sets, computed("difference", [field("a"), field("b")])),
+				one: f.generated(setOver(d.key[0]), computed("singleton", [field("kk0")])),
 				...Rec.fromEntries(Arr.map(d.key, (r, j) => [`kk${j}`, f.closedId(rosterName(r))] as const))
 			},
 			["id"]
@@ -587,7 +589,7 @@ describe("a drafted migration's bit strings", () => {
 									return [identifierOf(domain), wholeDigits(size)] as const
 								})
 							)
-							const setRosters = [d.setRoster, ...(d.fold ? [d.foldRoster] : [])]
+							const setRosters = [d.setRoster, d.key[0], ...(d.fold ? [d.foldRoster] : [])]
 							const lives = new Set(
 								Arr.map(setRosters, (r) => {
 									const size = defined(d.sizes[r])

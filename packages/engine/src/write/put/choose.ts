@@ -1,4 +1,4 @@
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { LawField } from "#compiler/ir/law.ts"
 import type { RelNode } from "#compiler/ir/rel.ts"
 import type { Action, PutAction } from "#compiler/ir/write.ts"
@@ -16,7 +16,7 @@ import {
 	type WrittenRelation
 } from "#compiler/write/frontend/compile.ts"
 import type { FamilyAt } from "#compiler/write/frontend/schedule.ts"
-import { payloadOf, serialOutsideKey } from "#compiler/write/frontend/targets.ts"
+import { type Payload, payloadOf, serialOutsideKey } from "#compiler/write/frontend/targets.ts"
 import { existingKeysProof, type MergeScope, mergeScopeProof } from "#compiler/write/put/proof.ts"
 
 /** Why a put is the DELETE-then-insert pair (see `choosePutTargets`). */
@@ -117,6 +117,22 @@ const uniqueOutsideKey = (relation: WrittenRelation): boolean => {
 const uniqueBesideKey = (relation: WrittenRelation): boolean =>
 	relation.uniques.others.some((u) => !relation.primaryFields.every((f) => u.equal.includes(f)))
 
+/** The fields an owner's put sets in place: those its facts carry outside its key (`payloadOf`), and through a query
+ * entry only its free head fields (schema/entry.ts HeadStanding), the ones the role holds column UPDATE on: a fixed or
+ * claim-fixed field holds the entry's value in every row the role sees, so it never differs there. */
+export const inPlaceOf = (info: ActionInfo, payload: Payload): ReadonlyArray<LawField> => {
+	if (payload.kind === "pureSet") {
+		return []
+	}
+	if (info.entry.kind === "whole") {
+		return payload.fields
+	}
+	const free = [...info.entry.entry.head.values()].flatMap((h) =>
+		h.kind === "free" ? [h.field] : []
+	)
+	return payload.fields.filter((f) => free.includes(f))
+}
+
 const describedNode = (action: Action<ActionInfo>): RelNode | undefined =>
 	action.source.kind === "described" ? action.source.node : undefined
 
@@ -131,8 +147,10 @@ const describedNode = (action: Action<ActionInfo>): RelNode | undefined =>
  * facts carry (`payloadOf`), none for an owner whose facts carry nothing outside its key, then the insert protocol's
  * put half for every fact no row holds, its counts at 0 and its ends at their starts (insert/statement.ts startOf).
  * Its families are left as they are, so it is never the pair, whose deletion of a stored owner would trip every
- * member's owner axis, whatever its key's kind, a WITHOUT OVERLAPS key included. The front end refuses a put of an
- * immutable owner.
+ * member's owner axis, whatever its key's kind, a WITHOUT OVERLAPS key included, through a role's query entry too: its
+ * UPDATE sets only the entry's free head fields (`inPlaceOf`), and its precheck runs before it, so a fact outside the
+ * entry or at the key of a fact outside it is refused as the pair's is, before the UPDATE meets the policy. The front end
+ * refuses a put of an immutable owner.
  *
  * Any other put lowers to the DELETE-then-insert pair (deleteThenInsert) when:
  *
@@ -217,18 +235,18 @@ export const choosePutTargets = (frontend: WriteFrontend): ChosenTargets => {
 					const chosen = (choice: PutChoice): ChosenAction => Object.freeze({ ...action, choice })
 					const pair = (reason: PairReason): ChosenAction =>
 						chosen({ ...place, target: "deleteThenInsert", reason })
-					if (info.entry.kind === "entry") {
-						return pair("entry")
-					}
 					const payload = payloadOf(relation)
 					if (relation.mutable && ownsFamily(frontend, relation.name)) {
+						const set = inPlaceOf(info, payload)
 						return chosen({
 							...place,
 							target: "ownerPut",
 							reason: "owner",
-							inPlace:
-								payload.kind === "keyed" ? Object.freeze({ payload: payload.fields }) : undefined
+							inPlace: isNonEmpty(set) ? Object.freeze({ payload: set }) : undefined
 						})
+					}
+					if (info.entry.kind === "entry") {
+						return pair("entry")
 					}
 					if (!relation.mutable) {
 						return pair("immutable")

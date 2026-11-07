@@ -19,8 +19,10 @@
  *   other answers exactly the keys of the owners the model admits. Manager's columns are its query entry's, outside the
  *   rule, so its probes select the key alone.
  * - **Through grizzle's own apply:** stocker appends, puts and deletes drawn Items of drawn stores through its Db, and
- *   after each write every Store's count and stock are the family's: the number of its Items and the sum of their
- *   quantities.
+ *   manager puts a drawn store's label through NorthStores, its query entry over the owner: a north store's label is
+ *   put in place, `no-change` when it holds it already, a south store's put is `invariant-rejected` on Store's key, the
+ *   store outside manager's entry. After
+ *   each write every Store's count and stock are the family's: the number of its Items and the sum of their quantities.
  */
 import { layer } from "@effect/vitest"
 import { drawn as drawnCase, explore } from "@grizzle/testing/explore"
@@ -123,6 +125,7 @@ const versionOf = (name: string) => {
 		Shelf,
 		Slot,
 		stocker,
+		manager,
 		login: login(base, "desk", [manager, stocker, picker, shelver])
 	}
 }
@@ -238,18 +241,26 @@ interface ItemFact {
 	readonly qty: bigint
 }
 
-/** A write stocker sends through its Db: an Item appended, a quantity put, or an Item deleted. */
+/** A write stocker sends through its Db: an Item appended, a quantity put, or an Item deleted; or manager's put of a
+ * store's label through NorthStores, its query entry over the north stores. */
 type ItemWrite =
 	| Readonly<{ kind: "insert"; store: number; qty: number }>
 	| Readonly<{ kind: "put"; item: number; qty: number }>
 	| Readonly<{ kind: "delete"; item: number }>
+	| Readonly<{ kind: "label"; store: number; label: "a" | "b" }>
 
 interface Apply {
 	readonly stores: Arr.NonEmptyReadonlyArray<StoreRow>
 	readonly writes: Arr.NonEmptyReadonlyArray<ItemWrite>
 }
 
-type ApplyFeature = "an append" | "a put of a quantity" | "a deletion" | "items of two stores"
+type ApplyFeature =
+	| "an append"
+	| "a put of a quantity"
+	| "a deletion"
+	| "items of two stores"
+	| "a north store's label put through NorthStores"
+	| "a south store's label refused through NorthStores"
 
 const regionGen: Gen<"north" | "south"> = element(["north", "south"] as const)
 
@@ -526,15 +537,28 @@ layer(Substrate.layer)("a member writer's hold on its family's owner", (it) => {
 								qty: s.draw(int(0, 9))
 							}),
 							(s) => ({ kind: "put", item: s.draw(int(0, 3)), qty: s.draw(int(0, 9)) }),
-							(s) => ({ kind: "delete", item: s.draw(int(0, 3)) })
+							(s) => ({ kind: "delete", item: s.draw(int(0, 3)) }),
+							(s) => ({
+								kind: "label",
+								store: s.draw(int(0, stores.length - 1)),
+								label: s.draw(element(["a", "b"] as const))
+							})
 						])
 						return {
 							stores,
 							writes: [source.draw(writeGen), ...source.draw(array(writeGen, { min: 0, max: 5 }))]
 						}
 					}
+					const labelOf = (id: Uuid) =>
+						Effect.map(
+							owner.values(`SELECT ${sc("label")} FROM ${store} WHERE ${sc("id")} = $1::uuid`, [
+								id
+							]),
+							(rows) => String(rows[0]?.[0])
+						)
 					return yield* Effect.gen(function* () {
 						const db = yield* Db.open(b.login.roles.stocker, {})
+						const managerDb = yield* Db.open(b.login.roles.manager, {})
 						return yield* explore(
 							{
 								suite: "physical/family-grants/apply",
@@ -545,7 +569,14 @@ layer(Substrate.layer)("a member writer's hold on its family's owner", (it) => {
 									name: "the families model: each store's count is its Items', its stock their quantities' sum"
 								},
 								coverage: required<ApplyFeature>(
-									["an append", "a put of a quantity", "a deletion", "items of two stores"],
+									[
+										"an append",
+										"a put of a quantity",
+										"a deletion",
+										"items of two stores",
+										"a north store's label put through NorthStores",
+										"a south store's label refused through NorthStores"
+									],
 									{ cases: 32, sense: notesOnly }
 								),
 								kept: [],
@@ -614,6 +645,39 @@ layer(Substrate.layer)("a member writer's hold on its family's owner", (it) => {
 												)
 												items.delete(target.value.id)
 												c.note("a deletion")
+												break
+											}
+											case "label": {
+												const target = Arr.getUnsafe(a.stores, w.store)
+												const was = yield* labelOf(target.id)
+												const outcome = yield* managerDb.apply(
+													ChangeSet.empty(b.manager).put(b.manager.relations.NorthStores, [
+														{ id: target.id, label: w.label }
+													]),
+													{}
+												)
+												const now = yield* labelOf(target.id)
+												const what = `manager's put of ${Formatter.format(w)}`
+												if (target.region === "north") {
+													assert.deepEqual(
+														[outcome.kind, now],
+														[was === w.label ? "no-change" : "accepted", w.label],
+														what
+													)
+													c.note("a north store's label put through NorthStores")
+												} else {
+													const laws: ReadonlyArray<string> =
+														outcome.kind === "invariant-rejected"
+															? Arr.map(outcome.refused.laws, (l) => l.kind)
+															: []
+													assert.deepEqual(
+														[outcome.kind, ...laws],
+														["invariant-rejected", "primaryKey"],
+														what
+													)
+													assert.equal(now, was, what)
+													c.note("a south store's label refused through NorthStores")
+												}
 												break
 											}
 										}
