@@ -42,15 +42,19 @@ const unwritable = (kind: "closed" | "closedRelation" | "derived"): string =>
 /** The ordinary relation a delta, a member or a ChangeSet method names, by declared name, refused when it is not one of
  * the schema's ordinary relations (WritableCheck), or of a role's whole ordinary entries. */
 const writableRelation = (relation: unknown, over: BuiltOver, label: string): string => {
-	const schema = over.kind === "schema" ? over.desc : over.desc.base
 	const named = namedRelation(relation, label)
-	const name = named.name
 	if (named.kind !== "relation") {
 		throw malformed(
 			label,
-			`an ordinary relation; ${name} is ${unwritable(named.kind)}, which no ChangeSet writes`
+			`an ordinary relation; ${named.name} is ${unwritable(named.kind)}, which no ChangeSet writes`
 		)
 	}
+	return declaredWritable(named.name, over, label)
+}
+
+/** The ordinary relation the schema, or a role's whole ordinary entries, declare under `name`, refused when it is none. */
+const declaredWritable = (name: string, over: BuiltOver, label: string): string => {
+	const schema = over.kind === "schema" ? over.desc : over.desc.base
 	const declared = over.relations.get(name)
 	if (declared === undefined) {
 		throw malformed(
@@ -72,6 +76,13 @@ const writableRelation = (relation: unknown, over: BuiltOver, label: string): st
 	}
 	return name
 }
+
+/** The relation a member names by its declared name alone, insertAll's key: of a ChangeSet over a role a query entry, or
+ * an ordinary relation as `memberRelation` finds one. */
+export const memberRelationNamed = (name: string, over: BuiltOver, label: string): string =>
+	over.kind === "role" && over.entries.get(name)?.kind === "world"
+		? name
+		: declaredWritable(name, over, label)
 
 /** One side of the delta of `relation`, a source whose variables are minted over `carriers`, the relation's heading. */
 const deltaSource = <C extends Carriers>(

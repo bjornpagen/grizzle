@@ -22,6 +22,7 @@ import type {
 	Headed,
 	InputTerm,
 	Invariant,
+	IsOneLiteral,
 	IsRetyped,
 	OnlyParams,
 	ParamArg,
@@ -53,7 +54,9 @@ import type {
 	IsRelationOf,
 	LevelsOf,
 	RelationOf,
-	StatementsOf
+	RelationsOf,
+	StatementsOf,
+	UnderName
 } from "#compiler/types/schema/schema.ts"
 import type {
 	AnyTerm,
@@ -351,6 +354,73 @@ type OrderedMemberName<S> = NameOf<
 >
 
 /**
+ * The relation an insertAll key names: the one S's record holds under that name, one literal, among the relations a
+ * ChangeSet writes; none for a key that names no ordinary or world relation of S.
+ */
+type InsertedRelation<S, K> =
+	IsOneLiteral<K> extends true
+		? Extract<UnderName<RelationsOf<S>, K>, AnyRelation | AnyWorld>
+		: never
+
+/** What insert requires of the relation it writes, as one type: unknown where it writes R. */
+type InsertChecks<S, R, Done extends Strata, Last extends Stratum> = WritableCheck<S, R> &
+	NotSequenceMember<S, R> &
+	EditsOnce<Done, EditsWith<Last, S, R>>
+
+/**
+ * What insertAll requires of its members at key K: a required key, since a key that may be missing inserts nothing its
+ * type states; a key naming a relation the ChangeSet writes; then what insert requires of that relation, and of its
+ * members, its facts (MemberCheck), each refused at the key.
+ */
+type InsertAt<
+	S,
+	Rows,
+	K extends keyof Rows,
+	Done extends Strata,
+	Last extends Stratum
+> = Rows extends { readonly [P in K]-?: unknown }
+	? InsertOf<S, InsertedRelation<S, K>, Rows[K], Done, Last>
+	: Refusal<"insertAll names each relation by a required key: an optional key may insert nothing">
+
+/** InsertAt of a required key, once its relation is read. */
+type InsertOf<S, R, M, Done extends Strata, Last extends Stratum> = [R] extends [never]
+	? Refusal<"a ChangeSet writes only the ordinary relations of its schema and the world relations its role writes">
+	: InsertChecks<S, R, Done, Last> extends infer C
+		? unknown extends C
+			? MemberCheck<M, AdditionIn<S, R>, R>
+			: C
+		: never
+
+/** The relations insertAll's members write: each key's relation and the members its insert nests (NestedWrites). */
+type InsertedWrites<S, Rows> = {
+	[K in keyof Rows]-?: NameOf<InsertedRelation<S, K>> | NestedWrites<S, InsertedRelation<S, K>>
+}[keyof Rows]
+
+/** The immutable owners whose families insertAll's members append to (FixedOwnerOf). */
+type InsertedNeeds<S, Rows> = {
+	[K in keyof Rows]-?: FixedOwnerOf<S, InsertedRelation<S, K>>
+}[keyof Rows]
+
+/** Whether the last stratum edits a family's members once insertAll's members are added to it (EditsWith). */
+type InsertedEdits<Last extends Stratum, S, Rows> = boolean extends Last["edits"]
+	? boolean
+	: Last["edits"] extends true
+		? true
+		: true extends { [K in keyof Rows]-?: IsFamilyMember<S, InsertedRelation<S, K>> }[keyof Rows]
+			? true
+			: false
+
+/**
+ * The parameters insertAll's members need together: each member's map (ParamsOf), joined as successive inserts join
+ * them, and unknown where none names one.
+ */
+type InsertedParams<Rows> = {
+	[K in keyof Rows]-?: (params: ParamsOf<Rows[K]>) => void
+}[keyof Rows] extends (params: infer P) => void
+	? P
+	: unknown
+
+/**
  * A put or a delete of R in S that the engine cannot plan, in the order its front end refuses one (write/frontend/
  * compile.ts): a tree's row, since a tree is rewritten whole; a row whose key a field grizzle writes holds, since no
  * fact states it; then a delete of a member of an immutable owner's family, fixed when its owner was inserted, or a put
@@ -517,6 +587,26 @@ export interface ChangeSet<
 			Last["inserts"] | NameOf<R> | NestedWrites<S, R>,
 			Last["needs"] | FixedOwnerOf<S, R>,
 			EditsWith<Last, S, R>
+		>
+	>
+	/**
+	 * Adds the members of each relation the record names by its key, as one insert of each would: the members at each
+	 * key are what insert takes for that relation, checked as insert checks them and refused at their key. Inserts within
+	 * one stratum are one set, so the record's order is no part of the ChangeSet.
+	 */
+	insertAll<const Rows extends { readonly [K in keyof Rows]: Member<S, unknown> }>(
+		rows: Rows & { readonly [K in keyof Rows]: InsertAt<S, Rows, K, Done, Last> }
+	): ChangeSet<
+		S,
+		JointParams<Params, InsertedParams<Rows>>,
+		Writes | InsertedWrites<S, Rows>,
+		Reads,
+		Cx | ContextsOf<Rows[keyof Rows]>,
+		Done,
+		Stratum<
+			Last["inserts"] | InsertedWrites<S, Rows>,
+			Last["needs"] | InsertedNeeds<S, Rows>,
+			InsertedEdits<Last, S, Rows>
 		>
 	>
 	/**

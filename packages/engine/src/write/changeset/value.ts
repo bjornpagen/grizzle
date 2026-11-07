@@ -52,7 +52,12 @@ import {
 	higherOver,
 	overName
 } from "#compiler/write/changeset/levels.ts"
-import { type DeltaValue, delta, memberRelation } from "#compiler/write/delta/source.ts"
+import {
+	type DeltaValue,
+	delta,
+	memberRelation,
+	memberRelationNamed
+} from "#compiler/write/delta/source.ts"
 
 export type MemberOp = MemberDesc["op"]
 
@@ -212,6 +217,9 @@ export type ReadBackInput = (delta: DeltaValue) => unknown
 export interface ChangeSetValue extends Built {
 	readonly reads: RowDecoder<unknown>
 	insert(relation: unknown, facts: MemberInput): ChangeSetValue
+	/** A JavaScript caller's record is read once: one that is no plain record, holds a symbol key or throws as it is read
+	 * is refused, and so is a key that names no relation the ChangeSet writes. */
+	insertAll(rows: Readonly<Record<string, MemberInput>>): ChangeSetValue
 	delete(relation: unknown, facts: MemberInput): ChangeSetValue
 	put(relation: unknown, facts: MemberInput): ChangeSetValue
 	/** A read-back from a JavaScript caller may be any value; the builder checks it is a function. */
@@ -688,6 +696,7 @@ const make = <S, P, W extends string, Rd, Done extends Strata, Last extends Stra
 		schema,
 		reads: decoder,
 		insert: (relation, facts) => addMember(state, decoder, "insert", relation, facts),
+		insertAll: (rows) => addInserts(state, decoder, rows),
 		delete: (relation, facts) => addMember(state, decoder, "delete", relation, facts),
 		put: (relation, facts) => addMember(state, decoder, "put", relation, facts),
 		read: (name, readBack) => addRead(state, decoder, name, readBack),
@@ -785,6 +794,18 @@ const memberState = (
 	throw malformed(label, "a member: an array of facts, a Stream of facts, or a query")
 }
 
+/** The scope with `member` in its last stratum. The member's parameters are free: a private parameter of that name moves
+ * out of its way. */
+const scopeWith = (scope: Scope, member: MemberState): Scope => {
+	const released = release(scope, member.kind === "query" ? member.params : new Set())
+	const last = released.strata.length - 1
+	return {
+		strata: released.strata.map((s, i) => (i === last ? withMember(s, i, member) : s)),
+		reads: released.reads,
+		bound: released.bound
+	}
+}
+
 const addMember = <S, P, W extends string, Rd, Done extends Strata, Last extends Stratum>(
 	state: ChangeSetState,
 	decoder: RowDecoder<Rd>,
@@ -794,13 +815,46 @@ const addMember = <S, P, W extends string, Rd, Done extends Strata, Last extends
 ): ChangeSetOf<S, P, W, Rd, never, Done, Last> & SchemaMember => {
 	const label = `ChangeSet.${op}`
 	const name = memberRelation(relation, state.over, label)
-	const loc = buildLoc(`${op} ${name}`, [])
-	const member = memberState(state, op, name, loc, facts, label)
-	/** The member's parameters are free: a private parameter of that name moves out of its way. */
-	const scope = release(state, member.kind === "query" ? member.params : new Set())
-	const last = scope.strata.length - 1
-	const strata = scope.strata.map((s, i) => (i === last ? withMember(s, i, member) : s))
-	return make(state.schema, state.over, strata, scope.reads, scope.bound, decoder)
+	const member = memberState(state, op, name, buildLoc(`${op} ${name}`, []), facts, label)
+	const scope = scopeWith(state, member)
+	return make(state.schema, state.over, scope.strata, scope.reads, scope.bound, decoder)
+}
+
+/** The record from a JavaScript caller, read once through hostRead: its own string keys and their members, in its
+ * order. A getter or proxy trap that throws, a value that is no plain record, and a symbol key, which no insert of the
+ * record's would write, refuse it. */
+const insertRows = (
+	rows: Readonly<Record<string, MemberInput>>,
+	label: string
+): ReadonlyArray<readonly [string, MemberInput]> => {
+	const read = hostRead(
+		malformed(label, "a record of members by relation name whose reading throws nothing"),
+		() =>
+			isPlainRecord(rows) && Object.getOwnPropertySymbols(rows).length === 0
+				? Result.ok(Object.entries(rows))
+				: Result.err(malformed(label, "a record of members by relation name, with no symbol key"))
+	)
+	if (!read.ok) {
+		throw read.error
+	}
+	return read.value
+}
+
+/** insertAll: each key's members inserted as insert inserts them, in the record's order, into one ChangeSet made once. */
+const addInserts = <S, P, W extends string, Rd, Done extends Strata, Last extends Stratum>(
+	state: ChangeSetState,
+	decoder: RowDecoder<Rd>,
+	rows: Readonly<Record<string, MemberInput>>
+): ChangeSetOf<S, P, W, Rd, never, Done, Last> & SchemaMember => {
+	const label = "ChangeSet.insertAll"
+	const scope = insertRows(rows, label).reduce<Scope>((at, [key, facts]) => {
+		const name = memberRelationNamed(key, state.over, label)
+		return scopeWith(
+			at,
+			memberState(state, "insert", name, buildLoc(`insert ${name}`, []), facts, label)
+		)
+	}, state)
+	return make(state.schema, state.over, scope.strata, scope.reads, scope.bound, decoder)
 }
 
 /** The records of the read-backs before it and of this one, under its name: the rows of its query's immediate decoder,

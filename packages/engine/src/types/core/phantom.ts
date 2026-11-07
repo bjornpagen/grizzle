@@ -952,6 +952,7 @@ export const typeRefusals = [
 	"arms of different headings share a field that holds a different constant in each",
 	"bind the query's parameters before matching it: Q.bind({ ... })",
 	"get needs a query proved at most one row per parameter binding",
+	"insertAll names each relation by a required key: an optional key may insert nothing",
 	"no arm of the source delivers the bound constants",
 	"not a field of the arms the bindings select",
 	"one literal name",

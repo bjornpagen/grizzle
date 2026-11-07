@@ -2066,6 +2066,7 @@ A write is a ChangeSet: the rows to insert, delete and put, applied as one trans
 ```text
 ChangeSet.empty(Blog)               a write over a schema, or over a role: ChangeSet.empty(MemberBlog)
   .insert(Post, rows)               add these rows; a row already present is no change
+  .insertAll({ Post: rows })        an insert of each relation the record names by its key
   .delete(Comment, rows)            remove these rows
   .put(PostViews, rows)             after the change, the row at each key is the one given
   .read("name", (delta) => query)   a query over the result, delivered in the outcome

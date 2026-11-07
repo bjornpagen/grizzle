@@ -365,7 +365,12 @@ const faults = [
 	"a read-back that returns no query",
 	"a delta of a closed relation",
 	"a union with no ChangeSet",
-	"a sequence of three"
+	"a sequence of three",
+	"an insertAll key of a closed relation",
+	"an insertAll key of no relation",
+	"an insertAll record with a symbol key",
+	"an insertAll record that is no plain record",
+	"an insertAll record whose reading throws"
 ] as const
 type Fault = (typeof faults)[number]
 
@@ -1285,6 +1290,9 @@ const foreign = query(schema("Elsewhere", { Task }, [])).rule((r: RuleValue) => 
 	return r.match(Task, { id, account, kind }).find({ id, account, kind })
 })
 
+/** An array of no facts. */
+const noFacts: ReadonlyArray<unknown> = []
+
 /** The malformed call a fault makes on the ChangeSet `c`. */
 const faultCall = (fault: Fault, c: ChangeSetValue): unknown => {
 	switch (fault) {
@@ -1314,6 +1322,25 @@ const faultCall = (fault: Fault, c: ChangeSetValue): unknown => {
 			return ChangeSet.union(c, {})
 		case "a sequence of three":
 			return ChangeSet.sequence(c, c, c)
+		case "an insertAll key of a closed relation":
+			return c.insertAll({ Kind: [{ id: "Automatic" }] })
+		case "an insertAll key of no relation":
+			return c.insertAll({ Nowhere: noFacts })
+		case "an insertAll record with a symbol key":
+			return c.insertAll({ [Symbol.for("Task")]: noFacts })
+		case "an insertAll record that is no plain record":
+			return c.insertAll(new Proxy({}, { getPrototypeOf: () => Date.prototype }))
+		case "an insertAll record whose reading throws":
+			return c.insertAll(
+				new Proxy(
+					{},
+					{
+						ownKeys: () => {
+							throw new Error("a record whose keys throw")
+						}
+					}
+				)
+			)
 	}
 }
 

@@ -13,7 +13,8 @@ import { type PreludeAt, preludeProgram } from "#test/support/prelude.ts"
  *   before it keyed by the parent's field, delivered as the one child where the containment chain proves it, and a read
  *   of it through a Db of the Reader;
  * - one ChangeSet of `members` members in one stratum, round the relations: inserts, or inserts, deletes and puts in turn,
- *   each put of a mutable relation, so a chain's every call is checked against the stratum the call before it made;
+ *   each put of a mutable relation, so a chain's every call is checked against the stratum the call before it made; or
+ *   one insertAll of the first `members` relations, each key checked as its insert is;
  * - `contexts` contexts, each read by a query entry of one role, Ctx, and each entry's query run through a Db of Ctx.
  *
  * One dimension grows the schema with its rules and members, as an application grows: a call whose cost grows with the
@@ -23,7 +24,7 @@ type QueryShape = {
 	readonly relations: number
 	readonly rules: number
 	readonly members: number
-	readonly writes: "inserts" | "inserts, deletes and puts"
+	readonly writes: "inserts" | "inserts, deletes and puts" | "insertAll"
 	readonly contexts: number
 }
 
@@ -53,6 +54,17 @@ export const queryDimensions: ReadonlyArray<QueryDimension> = [
 			rules: 0,
 			members,
 			writes: "inserts, deletes and puts",
+			contexts: 0
+		})
+	},
+	{
+		name: "ChangeSet insertAll over every relation",
+		sizes: [25, 50, 100],
+		shape: (size) => ({
+			relations: size,
+			rules: 0,
+			members: size,
+			writes: "insertAll",
 			contexts: 0
 		})
 	},
@@ -97,18 +109,32 @@ export const read${q} = (db: DbOf<typeof Reader, unknown>) => db.execute(owned${
 `
 }
 
+/** One fact of any relation, as a member writes it. */
+const fact = `[{ id: someId, parent: someId, amount: 1n, label: "abc", kind: "A", qty: 1 }]`
+
 /**
  * Member m: one fact of relation m, round the relations, inserted; or, writing inserts, deletes and puts, the m-th of
  * them in turn, each put of the mutable relations, every seventh (statements), round them.
  */
 const memberCall = (m: number, shape: QueryShape): string => {
-	const fact = `[{ id: someId, parent: someId, amount: 1n, label: "abc", kind: "A", qty: 1 }]`
 	const turn = shape.writes === "inserts" ? 0 : m % 3
 	if (turn === 2) {
 		return `\t.put(R${7 * (m % Math.ceil(shape.relations / 7))}, ${fact})`
 	}
 	return `\t.${turn === 0 ? "insert" : "delete"}(R${m % shape.relations}, ${fact})`
 }
+
+/** The ChangeSet's members: a chain of calls, or one insertAll keyed by the first `members` relations. */
+const members = (shape: QueryShape): string =>
+	shape.writes === "insertAll"
+		? `\t.insertAll({ ${Arr.join(
+				Arr.map(indices(shape.members), (m) => `R${m}: ${fact}`),
+				", "
+			)} })`
+		: Arr.join(
+				Arr.map(indices(shape.members), (m) => memberCall(m, shape)),
+				"\n"
+			)
 
 /** Context j and the query entry of Ctx that reads it, over relation j, round the relations. */
 const contextBlock = (
@@ -155,10 +181,7 @@ ${Arr.join(
 			shape.members > 0
 				? `declare const someId: Uuid
 export const change = ChangeSet.empty(S)
-${Arr.join(
-	Arr.map(indices(shape.members), (m) => memberCall(m, shape)),
-	"\n"
-)}
+${members(shape)}
 `
 				: ""
 		}${Arr.join(
