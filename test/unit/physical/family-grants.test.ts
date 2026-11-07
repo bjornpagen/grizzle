@@ -4,6 +4,10 @@
  * one narrowed by a literal or by a join, or not at all, over a counted family with a fold and a copy and an ordered
  * one, each owner mutable or not, and a serial field on the owner and on a relation of its own.
  *
+ * - **Declaration refusals:** a role is refused when it is declared exactly when it writes through a query entry over a
+ *   relation whose key holds a field the relation's family draws, judged from the schema's declarations: a Slot is keyed
+ *   by its shelf and its drawn index, which no fact through an entry states. The refusal is `keyHoldsFamily`, naming the
+ *   entry and the field; every other property below holds over the roles that are declared.
  * - **Exact grants:** a role's grants on an owner are exactly its grants there with no member written (the control:
  *   the same world, every member write dropped) together with the rule: column SELECT on O's key, count, ends and
  *   copies, exactly what the family's read flight reads, and, when O is mutable, column UPDATE on its count and ends,
@@ -31,7 +35,8 @@ import { boolean, element, type Gen } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Option, Order, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Order, Result, String as Str } from "effect"
+import { CompileError } from "#compiler/core/errors.ts"
 import { isNonEmpty } from "#compiler/core/nonempty.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
@@ -147,6 +152,12 @@ type RoleName = (typeof roleNames)[number]
 interface World {
 	readonly writes: { readonly [R in RoleName]: Writes }
 	readonly mutability: Mutability
+}
+
+/** A role and how it writes each relation. */
+interface Writer {
+	readonly name: RoleName
+	readonly writes: Writes
 }
 
 const writesGen: Gen<Writes> = (source) => ({
@@ -308,21 +319,20 @@ const roleOf = (s: ReturnType<typeof schemaOf>, name: RoleName, w: Writes) => {
 	return role(s, name, entries, { write: names, refresh: [] })
 }
 
-/** The world with every member write dropped: the control a role's own entries' grants are read from. */
-const withoutMembers = (w: World): World => ({
+/** A role with every member write dropped: the control its own entries' grants are read from. */
+const withoutMembers = (w: Writer): Writer => ({
 	...w,
-	writes: {
-		clerk: { ...w.writes.clerk, Item: "none", Slot: "none" },
-		keeper: { ...w.writes.keeper, Item: "none", Slot: "none" }
-	}
+	writes: { ...w.writes, Item: "none", Slot: "none" }
 })
 
-const compiled = (w: World) => {
-	const s = schemaOf(w.mutability)
+/** The installation of the declared roles `writers`, held by one login, or by none when no role is declared. */
+const compiled = (mutability: Mutability, writers: ReadonlyArray<Writer>) => {
+	const s = schemaOf(mutability)
 	const owned = owning(s)
-	const logins = [
-		login(s, "desk", [roleOf(s, "clerk", w.writes.clerk), roleOf(s, "keeper", w.writes.keeper)])
-	]
+	const roles: ReadonlyArray<ReturnType<typeof roleOf>> = Arr.map(writers, (w) =>
+		roleOf(s, w.name, w.writes)
+	)
+	const logins = isNonEmpty(roles) ? [login(s, "desk", roles)] : []
 	return compileInstallation(
 		owned,
 		completeInstallOptions(
@@ -345,11 +355,10 @@ const narrows = (w: string): boolean => w !== "none" && w !== "whole" && w !== "
  * whose member filter reads neither its group nor a copy, or whose owner entry is narrowed by any filter but the
  * members' translated one (only NorthStores with NorthItems agree). */
 const expectedRefusals = (
-	w: World
+	writers: ReadonlyArray<Writer>
 ): ReadonlyArray<{ readonly role: RoleName; readonly family: string }> =>
-	Arr.flatMap(roleNames, (r) =>
+	Arr.flatMap(writers, ({ name: r, writes: ws }) =>
 		Arr.flatMap(owners, (o) => {
-			const ws = w.writes[r]
 			const member: string = ws[memberOf[o]]
 			const own: string = ws[o]
 			if (member === "none" || own === "whole") {
@@ -427,6 +436,61 @@ const columnsOf = (i: Installation, relation: string): ReadonlyArray<string> => 
 }
 
 const sorted = (xs: Iterable<string>): ReadonlyArray<string> => Arr.sort(xs, Order.String)
+
+/** The refusal a role meets when it is declared: the query entry it writes and the field of a key its family draws. */
+interface DeclarationRefusal {
+	readonly role: RoleName
+	readonly rule: {
+		readonly kind: "writeUnwritable"
+		readonly entry: string
+		readonly why: { readonly kind: "keyHoldsFamily"; readonly field: string }
+	}
+}
+
+/** The first field of a relation's primary key, in text order, whose declaration states that its family draws it. */
+const familyKeyField = (r: {
+	readonly fields: Readonly<Record<string, object>>
+	readonly primaryKey: ReadonlyArray<string>
+}): Option.Option<string> =>
+	Arr.findFirst(sorted(r.primaryKey), (f) => {
+		const field = r.fields[f]
+		return (
+			field !== undefined &&
+			"writing" in field &&
+			(field.writing === "drawn" || field.writing === "accumulated")
+		)
+	})
+
+/**
+ * The refusal `w` meets when it is declared, as the writable-entry rule judges its writes from the schema's
+ * declarations: its first query entry, in write order, over a relation whose key holds a field the relation's family
+ * draws, which no fact through the entry states. No key but a primary one is declared, and no entry's filter reads a
+ * count or an end, so no other clause of the rule refuses a role of this world.
+ */
+const declarationRefusal = (
+	s: ReturnType<typeof schemaOf>,
+	w: Writer
+): DeclarationRefusal | undefined => {
+	for (const t of written) {
+		const write: string = w.writes[t]
+		if (write === "none" || write === "whole") {
+			continue
+		}
+		const field = familyKeyField(s.relations[t])
+		if (Option.isSome(field)) {
+			const [entry] = queryEntry(s, t, write)
+			return {
+				role: w.name,
+				rule: {
+					kind: "writeUnwritable",
+					entry,
+					why: { kind: "keyHoldsFamily", field: field.value }
+				}
+			}
+		}
+	}
+	return undefined
+}
 
 /** The policies on each table, by role, and the tables with row security. */
 const security = (
@@ -596,6 +660,7 @@ type GrantsFeature =
 	| "a narrowed owner entry the members' filter agrees with"
 	| "a serial written through a query entry"
 	| "a serial written whole"
+	| "a writable entry whose key holds a drawn index refused when declared"
 
 const features: Arr.NonEmptyReadonlyArray<GrantsFeature> = [
 	"a member writer of a mutable owner",
@@ -607,12 +672,17 @@ const features: Arr.NonEmptyReadonlyArray<GrantsFeature> = [
 	"a narrowed owner entry refused",
 	"a narrowed owner entry the members' filter agrees with",
 	"a serial written through a query entry",
-	"a serial written whole"
+	"a serial written whole",
+	"a writable entry whose key holds a drawn index refused when declared"
 ]
 
-const noteWorld = (w: World, c: Case<GrantsFeature>): void => {
-	for (const r of roleNames) {
-		const ws = w.writes[r]
+/** The features the declared roles `writers` reach, each owner mutable as `mutability` says. */
+const noteWriters = (
+	writers: ReadonlyArray<Writer>,
+	mutability: Mutability,
+	c: Case<GrantsFeature>
+): void => {
+	for (const { writes: ws } of writers) {
 		for (const o of owners) {
 			const member: string = ws[memberOf[o]]
 			const own: string = ws[o]
@@ -620,7 +690,7 @@ const noteWorld = (w: World, c: Case<GrantsFeature>): void => {
 				continue
 			}
 			c.note(
-				w.mutability[o]
+				mutability[o]
 					? "a member writer of a mutable owner"
 					: "a member writer of an immutable owner"
 			)
@@ -671,9 +741,32 @@ describe("a member writer's hold on its family's owner", () => {
 					},
 					(w, c) =>
 						Effect.sync(() => {
-							noteWorld(w, c)
-							const result = compiled(w)
-							const refusals = expectedRefusals(w)
+							const s = schemaOf(w.mutability)
+							const declared = Arr.flatMap(roleNames, (name): ReadonlyArray<Writer> => {
+								const writer = { name, writes: w.writes[name] }
+								const outcome = Result.try({
+									try: () => roleOf(s, name, writer.writes),
+									catch: (e) => e
+								})
+								const refusal = declarationRefusal(s, writer)
+								if (Result.isSuccess(outcome)) {
+									assert.equal(refusal, undefined, `${name} is declared, which the rule refuses`)
+									return [writer]
+								}
+								const error = outcome.failure
+								assert.ok(error instanceof CompileError, String(error))
+								assert.deepEqual(
+									error.reason._tag === "RoleRefused"
+										? { role: error.reason.role, rule: error.reason.rule }
+										: error.reason,
+									defined(refusal, `${name} is refused, which the rule declares: ${error.message}`)
+								)
+								c.note("a writable entry whose key holds a drawn index refused when declared")
+								return []
+							})
+							noteWriters(declared, w.mutability, c)
+							const result = compiled(w.mutability, declared)
+							const refusals = expectedRefusals(declared)
 							if (!result.ok) {
 								assert.equal(result.error.reason._tag, "UnsupportedOperation", result.error.message)
 								assert.ok(
@@ -690,11 +783,10 @@ describe("a member writer's hold on its family's owner", () => {
 							assert.deepEqual(refusals, [], "a world the rule refuses is refused")
 							const i = result.value
 							checkedStatements(i.statements, "installation statement")
-							const control = compiled(withoutMembers(w))
+							const control = compiled(w.mutability, Arr.map(declared, withoutMembers))
 							assert.ok(control.ok, "the control with no member written installs")
 							const ci = control.value
-							for (const r of roleNames) {
-								const ws = w.writes[r]
+							for (const { name: r, writes: ws } of declared) {
 								const theory = roleIn(i, r)
 								for (const o of owners) {
 									const table = i.names.relation(o).name
@@ -767,12 +859,12 @@ describe("a member writer's hold on its family's owner", () => {
 							for (const o of owners) {
 								const ownerTable = i.names.relation(o).name
 								const memberTable = i.names.relation(memberOf[o]).name
-								const familyNarrows = Arr.some(roleNames, (r) => {
-									const member: string = w.writes[r][memberOf[o]]
-									const own: string = w.writes[r][o]
+								const familyNarrows = Arr.some(declared, ({ writes: ws }) => {
+									const member: string = ws[memberOf[o]]
+									const own: string = ws[o]
 									return own === "none" && narrows(member)
 								})
-								const ownNarrows = Arr.some(roleNames, (r) => narrows(w.writes[r][o]))
+								const ownNarrows = Arr.some(declared, ({ writes: ws }) => narrows(ws[o]))
 								assert.equal(
 									secured.has(ownerTable),
 									familyNarrows || ownNarrows,
@@ -780,15 +872,15 @@ describe("a member writer's hold on its family's owner", () => {
 								)
 								assert.equal(
 									secured.has(memberTable),
-									Arr.some(roleNames, (r) => narrows(w.writes[r][memberOf[o]])),
+									Arr.some(declared, ({ writes: ws }) => narrows(ws[memberOf[o]])),
 									`${memberOf[o]} has row security exactly when a writer narrows it`
 								)
 								if (secured.has(ownerTable)) {
 									c.note("a member writer under its owner's row security")
 								}
-								for (const r of roleNames) {
-									const member: string = w.writes[r][memberOf[o]]
-									const own: string = w.writes[r][o]
+								for (const { name: r, writes: ws } of declared) {
+									const member: string = ws[memberOf[o]]
+									const own: string = ws[o]
 									if (member === "none" || own === "whole") {
 										continue
 									}
