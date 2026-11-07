@@ -59,17 +59,23 @@ export type { CalendarDate } from "#compiler/ir/date.ts"
 export type DateField = Field<CalendarDate, "date">
 
 /**
- * bytes: PostgreSQL's bytea, its host value a Uint8Array over its own ArrayBuffer, written and read back whole: its SQL
- * type "bytea" is storage alone, which no key, side, computation, parameter, filter or written-by-PostgreSQL field takes
- * (scalar/bytes.ts).
+ * The SQL types of storage alone, the type level's reading of a capability set of storage only (scalar/registry.ts
+ * storedOnly): a value of one is written and read back whole, so no key, side, computation, parameter, filter,
+ * contract or written-by-PostgreSQL field takes one. bytea is the one such type.
  */
-export type BytesField = Field<Uint8Array<ArrayBuffer>, "bytea">
+export type StoredOnlySql = "bytea"
 
 /**
- * The refusal of a descriptor or term of SQL type Sql where it is bytes, which no key, rule, computation, parameter,
- * filter, contract or written-by-PostgreSQL field takes; nothing for any other.
+ * bytes: PostgreSQL's bytea, its host value a Uint8Array over its own ArrayBuffer, written and read back whole: its SQL
+ * type is stored only (StoredOnlySql) (scalar/bytes.ts).
  */
-export type NotBytes<Sql> = [Sql] extends ["bytea"]
+export type BytesField = Field<Uint8Array<ArrayBuffer>, StoredOnlySql>
+
+/**
+ * The refusal of a descriptor or term of SQL type Sql where it is stored only (StoredOnlySql), which no key, rule,
+ * computation, parameter, filter, contract or written-by-PostgreSQL field takes; nothing for any other.
+ */
+export type NotStoredOnly<Sql> = [Sql] extends [StoredOnlySql]
 	? Refusal<"bytes are stored only, written and read back whole: no key, rule, computation, parameter or filter reads them">
 	: unknown
 

@@ -16,6 +16,7 @@ import type {
 	FieldBase,
 	HandleOf,
 	LiteralOf,
+	StoredOnlySql,
 	WritingTag
 } from "#compiler/types/fields/field.ts"
 import type {
@@ -515,7 +516,7 @@ export type Statement =
  */
 export type RowScalars<V extends Shows<string, unknown>> = {
 	readonly [
-		K in keyof V["heading"] as V["heading"][K] extends { readonly sql: "bytea" } ? never : K
+		K in keyof V["heading"] as V["heading"][K] extends { readonly sql: StoredOnlySql } ? never : K
 	]: Scalar<
 		FieldTypeOf<V["heading"], K> extends readonly [infer D, SqlTag] ? D : never,
 		unknown,
@@ -542,8 +543,8 @@ export type NaturalFieldOf<R> = NaturalIn<HeadingOf<R>>
 export type SideHeading<R> = Fact<SideRelation<R>>
 
 /** The fields of the heading C that are bytes, which no side reads: a bytes value has no equality. */
-type BytesIn<C> = {
-	[K in keyof C]-?: C[K] extends { readonly sql: "bytea" } ? K : never
+type StoredOnlyIn<C> = {
+	[K in keyof C]-?: C[K] extends { readonly sql: StoredOnlySql } ? K : never
 }[keyof C] &
 	string
 
@@ -552,7 +553,7 @@ type BytesIn<C> = {
  * fields.
  */
 export type TermOf<R> =
-	| Exclude<keyof SideHeading<R> & string, BytesIn<HeadingOf<SideRelation<R>>>>
+	| Exclude<keyof SideHeading<R> & string, StoredOnlyIn<HeadingOf<SideRelation<R>>>>
 	| Pred<NaturalFieldOf<SideRelation<R>>>
 
 /**

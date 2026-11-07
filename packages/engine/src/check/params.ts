@@ -26,6 +26,7 @@ import type { ParamDecl } from "#compiler/ir/products.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import { type ScalarType, typeLabel } from "#compiler/ir/scalar.ts"
 import { commonType, compatible } from "#compiler/scalar/compute/types.ts"
+import { storedOnly } from "#compiler/scalar/registry.ts"
 
 /**
  * A parameter is of one kind once a use types it: a scalar of the type its uses declare, or a relation of the heading
@@ -70,11 +71,11 @@ export class ParamCell {
 	}
 
 	/**
-	 * Records a use of the parameter as a scalar at `type`, the type the use declares; bytes, which no parameter carries,
-	 * are refused.
+	 * Records a use of the parameter as a scalar at `type`, the type the use declares; a stored-only type
+	 * (scalar/registry.ts storedOnly), as bytes is, which no parameter carries, is refused.
 	 */
 	use(type: ScalarType, loc: SourceLoc): ParamId {
-		if (type.carrier === "bytes") {
+		if (storedOnly(type)) {
 			return fail(
 				"UnsupportedOperation",
 				loc,
@@ -106,11 +107,11 @@ export class ParamCell {
 	}
 
 	/**
-	 * Records a use of the parameter as a relation with its declared heading; a heading of a bytes field, which no
+	 * Records a use of the parameter as a relation with its declared heading; a heading of a stored-only field, which no
 	 * parameter carries, is refused.
 	 */
 	useRelation(heading: Heading, loc: SourceLoc): ParamId {
-		const stored = heading.find((c) => c.type.carrier === "bytes")
+		const stored = heading.find((c) => storedOnly(c.type))
 		if (stored !== undefined) {
 			return fail(
 				"UnsupportedOperation",

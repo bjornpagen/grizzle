@@ -65,6 +65,7 @@ import type { OwnedSchema } from "#compiler/ir/products.ts"
 import type { DeclaredKey } from "#compiler/ir/rel.ts"
 import { Roster } from "#compiler/ir/scalar.ts"
 import { isNaturalDesc } from "#compiler/scalar/natural.ts"
+import { descCapabilities } from "#compiler/scalar/registry.ts"
 import { type WritableEntry, writableEntry } from "#compiler/schema/entry.ts"
 import { keyLayout } from "#compiler/schema/representability.ts"
 import { foreignInput } from "#compiler/schema/terms.ts"
@@ -184,7 +185,8 @@ export interface OwnedContract {
  *   (MalformedDescription);
  * - a side term pred of a field that is not natural, a selection or row check that reads anything but its own row,
  *   and a key over a closed relation (MalformedDescription);
- * - a key over a bytes field, and a side that reads one: bytes have no equality (UnsupportedOperation);
+ * - a key over a field of a type with no equality, and a side that reads one, as bytes is (UnsupportedOperation,
+ *   scalar/registry.ts descCapabilities);
  * - a statement that names a derived relation (LawOnDerived), and a family, tree, fold or alternatives statement over
  *   anything but ordinary relations, its slots' owner one with a field of its count, and a roster (MalformedDescription);
  * - a primary or candidate key whose index entry can exceed PostgreSQL's limit (UnrepresentableKey, representability.ts);
@@ -688,11 +690,11 @@ const ownKey = (
 					`a key over fields of ${name}; ${field} is not one`
 				)
 			}
-			if (decl.type.kind === "bytes") {
+			if (!descCapabilities(decl.type).includes("equality")) {
 				return fail(
 					"UnsupportedOperation",
 					loc,
-					`equality: a key over ${name}.${field}, which is bytes: a bytes value is stored only, so no key holds one`
+					`equality: a key over ${name}.${field}, of a type with no equality, as bytes is: no key holds one`
 				)
 			}
 			return { field, desc: decl.type }
@@ -1155,11 +1157,11 @@ class Owner {
 		)
 		for (const t of reading) {
 			const desc = entry.heading[t.field]
-			if (desc?.kind === "bytes") {
+			if (desc !== undefined && !descCapabilities(desc).includes("equality")) {
 				fail(
 					"UnsupportedOperation",
 					s.desc.loc,
-					`equality: ${statementLabel(s.desc)} reads ${side.relation}.${t.field}, which is bytes: a bytes value is stored only, so no rule's side reads one`
+					`equality: ${statementLabel(s.desc)} reads ${side.relation}.${t.field}, of a type with no equality, as bytes is: no rule's side reads one`
 				)
 			}
 			if (t.kind === "pred" && (desc === undefined || !isNaturalDesc(desc))) {

@@ -181,7 +181,12 @@ import { type Inclusion, patternIncludes } from "#compiler/scalar/regex/inclusio
 import type { PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
 import { type CharMap, charMapOf, imageFlags, imageOf } from "#compiler/scalar/regex/translate.ts"
 import { collapseSources } from "#compiler/scalar/regex/whitespace.ts"
-import { capabilitiesOf, numericValue, type TextLookup } from "#compiler/scalar/registry.ts"
+import {
+	capabilitiesOf,
+	numericValue,
+	storedOnly,
+	type TextLookup
+} from "#compiler/scalar/registry.ts"
 import { Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 
@@ -1801,12 +1806,12 @@ class Lowering<R extends Refs> {
 	}
 
 	/**
-	 * A reference an operation reads: refused where it is bytes, which is stored only, so no comparison, computation,
-	 * cast, conditional or guard reads one (scalar/registry.ts nativeCapabilities).
+	 * A reference an operation reads: refused where its type is stored only (scalar/registry.ts storedOnly), as bytes is,
+	 * so no comparison, computation, cast, conditional or guard reads one.
 	 */
 	reference(desc: LeafDesc<R>, at: SourceLoc): Lowered {
 		const leaf = this.emit(unwrap(this.env.leaf(desc, at)))
-		return baseOf(leaf.nominal).carrier === "bytes"
+		return storedOnly(leaf.nominal)
 			? stop(
 					"UnsupportedOperation",
 					at,

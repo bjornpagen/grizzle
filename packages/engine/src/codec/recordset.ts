@@ -28,7 +28,7 @@ import type {
 	NormalFacts,
 	RelationParamEncoder
 } from "#compiler/ir/products.ts"
-import type { ScalarType } from "#compiler/ir/scalar.ts"
+import type { Carrier, ScalarType } from "#compiler/ir/scalar.ts"
 import {
 	admitFact,
 	admitted,
@@ -94,6 +94,60 @@ export type RelationNormalizer = (
 interface BuiltColumn {
 	readonly field: string
 	readonly codec: ScalarCodec
+	/** The column's array of the facts' values, in its carrier's form (arrayForms). */
+	readonly array: ColumnArray
+}
+
+/**
+ * One column's array of admitted facts' values at the field `column`, as one placeholder carries it, or the column's
+ * bound past which none can: `input` names the relation input, which a refusal names with the field.
+ */
+type ColumnArray = (
+	input: string,
+	column: string,
+	facts: ReadonlyArray<Fact>
+) => Result.Result<Param, LiteralBound>
+
+/** A text array literal of the values' canonical texts (columnLiteral), within the longest string. */
+const textArray =
+	(codec: ScalarCodec): ColumnArray =>
+	(input, column, facts) =>
+		columnLiteral(input, column, facts, (fact) => codec.text(fact[column]), maxStringLength.value)
+
+/** A binary bytea[] of the admitted bytes values (codec/bytea.ts byteaArray), within the longest message. */
+const binaryArray: ColumnArray = (input, column, facts) =>
+	byteaArray(
+		input,
+		column,
+		facts.map((fact) => admitted({ carrier: "bytes" }, fact[column]))
+	)
+
+/**
+ * How each carrier's column travels as one placeholder's array: a text array literal of its canonical texts, and a
+ * bytes column's a binary bytea[], whose values no text carries at their own size. Chosen once per column, when its
+ * relation's spec is built, so no fact meets the choice.
+ */
+const arrayForms: { readonly [C in Carrier]: (codec: ScalarCodec) => ColumnArray } = {
+	int2: textArray,
+	int4: textArray,
+	int8: textArray,
+	numeric: textArray,
+	float4: textArray,
+	float8: textArray,
+	money: textArray,
+	bool: textArray,
+	uuid: textArray,
+	date: textArray,
+	text: textArray,
+	bytes: () => binaryArray,
+	code: textArray,
+	bits: textArray,
+	range4: textArray,
+	range8: textArray,
+	rangeDate: textArray,
+	vector: textArray,
+	exactInteger: textArray,
+	exactMoney: textArray
 }
 
 interface BuiltSpec {
@@ -106,10 +160,10 @@ interface BuiltSpec {
 }
 
 const buildSpec = (spec: RelationSpec): BuiltSpec => {
-	const columns = spec.columns.map((column): BuiltColumn => ({
-		field: column.field,
-		codec: scalarCodec(column.type, spec.codes)
-	}))
+	const columns = spec.columns.map((column): BuiltColumn => {
+		const codec = scalarCodec(column.type, spec.codes)
+		return { field: column.field, codec, array: arrayForms[codec.spec.carrier](codec) }
+	})
 	const heading = columns.map((c): HeadingField => ({ name: c.field, spec: c.codec.spec }))
 	return {
 		relation: spec.relation,
@@ -452,19 +506,7 @@ export const normalArray = (
 			return Result.ok(countParam(normal.facts.length))
 		}
 		const column = defined(built.columns[part], "a placeholder's column among its input's columns")
-		return column.codec.spec.carrier === "bytes"
-			? byteaArray(
-					spec.relation,
-					column.field,
-					normal.facts.map((fact) => admitted({ carrier: "bytes" }, fact[column.field]))
-				)
-			: columnLiteral(
-					spec.relation,
-					column.field,
-					normal.facts,
-					(fact) => column.codec.text(fact[column.field]),
-					maxStringLength.value
-				)
+		return column.array(spec.relation, column.field, normal.facts)
 	}
 }
 

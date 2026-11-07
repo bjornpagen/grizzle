@@ -31,6 +31,7 @@ import type {
 	FieldBase,
 	GeneratedField,
 	HandleOf,
+	StoredOnlySql,
 	WritingTag
 } from "#compiler/types/fields/field.ts"
 import type {
@@ -205,7 +206,7 @@ type ClosedFieldsCheck<Fields> = [
 	{
 		[K in keyof Fields]-?: Fields[K] extends
 			| { readonly writing: WritingTag }
-			| { readonly sql: "range" | "vector" | "bits" | "bytea" }
+			| { readonly sql: "range" | "vector" | "bits" | StoredOnlySql }
 			? K
 			: never
 	}[keyof Fields]

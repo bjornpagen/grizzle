@@ -59,7 +59,7 @@ import { binaryCoercion } from "#compiler/scalar/compute/registry.ts"
 import { contractPredicateTable } from "#compiler/scalar/compute/total.ts"
 import { isNaturalDesc } from "#compiler/scalar/natural.ts"
 import { CompilePatterns, type PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
-import { type ScalarEnv, scalarTypeOf } from "#compiler/scalar/registry.ts"
+import { type ScalarEnv, scalarTypeOf, storedOnly } from "#compiler/scalar/registry.ts"
 import type { WritableEntry } from "#compiler/schema/entry.ts"
 import type {
 	Owned,
@@ -608,7 +608,7 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 				}
 				return drawnWriting
 			case "accumulated":
-				if (f.desc.kind === "bytes") {
+				if (storedOnly(type)) {
 					return fail(
 						"UnsupportedOperation",
 						at,
@@ -646,7 +646,7 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 		patterns: PatternAutomata
 	): FieldWriting {
 		const loc = generatedLoc(r, field)
-		if (declared.carrier === "bytes") {
+		if (storedOnly(declared)) {
 			return fail(
 				"UnsupportedOperation",
 				loc,

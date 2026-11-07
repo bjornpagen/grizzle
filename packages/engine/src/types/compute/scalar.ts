@@ -23,7 +23,7 @@ import type {
 	TypeOfTerm,
 	TypeRefusal
 } from "#compiler/types/core/phantom.ts"
-import type { LiteralOf, NotBytes } from "#compiler/types/fields/field.ts"
+import type { LiteralOf, NotStoredOnly } from "#compiler/types/fields/field.ts"
 
 /**
  * What may stand opposite a term of host type T and SQL type S: a term that meets T and S (Meets, the one relation, a
@@ -325,7 +325,7 @@ type IsHeadLiteral<A> =
  * untyped, and the checker types it from the term it meets. FirstTerm reads a term's own origin, and refuses a
  * JavaScript value by the same name: every first operand admits one beside its terms (A extends TermBase | FirstValue),
  * so its refusal names the rule rather than the members a value lacks. A term of bytes, which no operation reads, is
- * refused (NotBytes). FirstOrigin reads the origin a callback's returned term was inferred with (Compute.when's
+ * refused (NotStoredOnly). FirstOrigin reads the origin a callback's returned term was inferred with (Compute.when's
  * branch), where no type parameter holds the value itself.
  */
 export type FirstTerm<A> = A extends FirstValue
@@ -334,7 +334,7 @@ export type FirstTerm<A> = A extends FirstValue
 			IsHeadLiteral<A> extends true ? false : true,
 			"a term first: a literal takes its place opposite a term, never first"
 		> &
-			NotBytes<SqlOfTerm<A>>
+			NotStoredOnly<SqlOfTerm<A>>
 /** A JavaScript value written where a first operand belongs: a primitive, a Decimal, a Money, a vector, a span or a set. */
 export type FirstValue =
 	| string

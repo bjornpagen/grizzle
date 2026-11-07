@@ -136,7 +136,7 @@ import {
 	withoutSpanWidth
 } from "#compiler/scalar/compute/types.ts"
 import { CompilePatterns, type PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
-import { spanType } from "#compiler/scalar/registry.ts"
+import { hasCapability, spanType } from "#compiler/scalar/registry.ts"
 import { textLookup } from "#compiler/text/refinement.ts"
 
 /**
@@ -491,15 +491,15 @@ const adoptCompare = (t: ScalarType): ScalarType => {
 }
 
 /**
- * The refusal of a bytes column where a binding would compare it, saying `why`: a bytes value is stored only, so no
- * join, correlation or constant compares one.
+ * The refusal of a column with no equality capability where a binding would compare it, saying `why`: a join, a
+ * correlation and a constant each compare the column, which a stored-only type, as bytes is, never is.
  */
-const storedOnly = (column: HeadingColumn, why: string, loc: SourceLoc): void => {
-	if (baseOf(column.type).carrier === "bytes") {
+const comparable = (column: HeadingColumn, why: string, loc: SourceLoc): void => {
+	if (!hasCapability(column.type, "equality")) {
 		fail(
 			"UnsupportedOperation",
 			loc,
-			`equality: column ${column.name} is ${typeLabel(column.type)}, which is stored only: ${why}`
+			`equality: column ${column.name} is ${typeLabel(column.type)}, which has no equality: ${why}`
 		)
 	}
 }
@@ -2464,7 +2464,7 @@ class RuleCheck {
 	 * attachment's correlation equates it with, gives it the column's type, and a later one is a rebinding (#rebind).
 	 */
 	#bindParent(slot: ParentSlot, column: HeadingColumn, loc: SourceLoc): SlotBinding {
-		storedOnly(column, "no parent's column correlates with it", loc)
+		comparable(column, "no parent's column correlates with it", loc)
 		const binding = this.#parentBindings.get(slot.id)
 		if (binding !== undefined) {
 			return this.#rebind(slot, binding.type, column, loc)
@@ -2484,7 +2484,7 @@ class RuleCheck {
 		column: HeadingColumn,
 		loc: SourceLoc
 	): SlotBinding {
-		storedOnly(column, `variable ${slot.name} binds it and no other column`, loc)
+		comparable(column, `variable ${slot.name} binds it and no other column`, loc)
 		this.#compatibleBinding(slot, type, column, loc)
 		if (sameScalarType(type, column.type)) {
 			return { column: column.name, var: slot }
@@ -2798,7 +2798,7 @@ class RuleCheck {
 	 * any other value is a hidden variable equated with it by the filter.
 	 */
 	#constant(column: HeadingColumn, e: ResolvedExpr, loc: SourceLoc): ConstantPlacement {
-		storedOnly(column, "no constant, parameter or term fixes it", loc)
+		comparable(column, "no constant, parameter or term fixes it", loc)
 		const baseMatches = (t: ScalarType) => sameScalarType(baseOf(column.type), baseOf(t))
 		if (e.kind === "literal" && e.type === undefined) {
 			const literal = this.cx.schema.literal(e.value, column.type, loc, this.cx.patterns)

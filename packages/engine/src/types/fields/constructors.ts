@@ -26,15 +26,16 @@ import type {
 	FloatField,
 	GeneratedField,
 	Infer,
-	SpanEndpointLike,
 	NaturalField,
-	NotBytes,
 	NotSerial,
 	NotSerialBases,
+	NotStoredOnly,
 	NumericTypmodField,
 	SerialField,
+	SpanEndpointLike,
 	SpanField,
 	SpanWidthOf,
+	StoredOnlySql,
 	WritingTag
 } from "#compiler/types/fields/field.ts"
 import type { AnyRoster, HandleOf } from "#compiler/types/schema/relation.ts"
@@ -122,7 +123,7 @@ export type ContractConstructor = <
 	name: Name,
 	base: B &
 		NotSerialBase<B> &
-		NotBytes<B["sql"]> &
+		NotStoredOnly<B["sql"]> &
 		ContractBase<NoInfer<Name>, B> &
 		OneContractName<NoInfer<Name>>,
 	predicate?: (
@@ -178,15 +179,15 @@ export type DrawnConstructor = (type: NaturalField) => DrawnField
 
 /**
  * An accumulated field is of a value type: no span, no vector, and no field of a writing of its own; and no bytes, which
- * grizzle never fills (NotBytes).
+ * grizzle never fills (NotStoredOnly).
  */
 export type Accumulable<F> = F extends
 	| SpanField<unknown, unknown>
 	| VectorField<number>
 	| { readonly writing: WritingTag }
 	? Refusal<"an accumulated field is of a value type: no span, vector or field of a writing of its own">
-	: F extends { readonly sql: "bytea" }
-		? NotBytes<"bytea">
+	: F extends { readonly sql: StoredOnlySql }
+		? NotStoredOnly<StoredOnlySql>
 		: unknown
 
 /**
@@ -210,6 +211,6 @@ export type GeneratedTermOf<F extends FieldBase> = InputTerm<DomainOf<F>, never,
  * written fields and closed reads are all a generation expression may read.
  */
 export type GeneratedConstructor = <F extends FieldBase, T extends GeneratedTermOf<F>>(
-	type: F & NotSerial & NotSerialBases<F> & NotBytes<F["sql"]>,
+	type: F & NotSerial & NotSerialBases<F> & NotStoredOnly<F["sql"]>,
 	term: T & Parameterless<T>
 ) => GeneratedField<F>

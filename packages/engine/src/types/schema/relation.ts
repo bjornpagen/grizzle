@@ -24,7 +24,8 @@ import type {
 	ClosedIdField,
 	FieldBase,
 	HandleOf,
-	SerialField
+	SerialField,
+	StoredOnlySql
 } from "#compiler/types/fields/field.ts"
 
 /**
@@ -53,7 +54,7 @@ export type DistinctFields<K> =
 export type KeyFieldOf<Fields> = {
 	[K in keyof Fields]-?: Fields[K] extends
 		| BitsField<unknown>
-		| { readonly sql: "bytea" }
+		| { readonly sql: StoredOnlySql }
 		| { readonly writing: "generated" | "accumulated" }
 		? never
 		: K

@@ -160,6 +160,14 @@ export const hasCapability = (t: ScalarType, capability: Capability): boolean =>
 	t.caps.includes(capability)
 
 /**
+ * Whether a type is stored only: its capability set is storage alone, so a value of it is written and read back whole
+ * and nothing more. No operation reads one, no parameter carries one, and neither PostgreSQL nor grizzle writes a field
+ * of one; bytes is such a carrier (nativeCapabilities). Each of those refusals reads it here, off the capability set,
+ * never off the carrier's name.
+ */
+export const storedOnly = (t: ScalarType): boolean => t.caps.every((c) => c === "storage")
+
+/**
  * A capability diagnostic: UnsupportedOperation, its capability naming the
  * registry capability first, then what lacks it and why.
  */
@@ -650,6 +658,48 @@ const rosterAt = (
 	return roster === undefined
 		? Result.err(malformedDescription(loc, `a closed relation named ${JSON.stringify(closed)}`))
 		: Result.ok(roster)
+}
+
+/** A span's endpoint through its contracts: the declaration its carrier is read off. */
+const endpointBase = (desc: FieldDesc): FieldDesc =>
+	desc.kind === "contract" ? endpointBase(desc.base) : desc
+
+/**
+ * The capability set of the type a FieldDesc declares, read off its carrier alone, before its rosters or a contract's
+ * predicate are resolved: a contract's is its base's, as scalarAt gives it, and a span's its range carrier's. What a
+ * declaration may take part in, a key or a law's side, is read here, off the capability set, never off a kind's name.
+ */
+export const descCapabilities = (desc: FieldDesc): CapabilitySet => {
+	switch (desc.kind) {
+		case "pg":
+			return capabilitiesOf(pgCarriers[desc.type])
+		case "numeric":
+			return capabilitiesOf("numeric")
+		case "uuid":
+			return capabilitiesOf("uuid")
+		case "bytes":
+			return capabilitiesOf("bytes")
+		case "text":
+			return capabilitiesOf("text")
+		case "closedId":
+			return capabilitiesOf("code")
+		case "bits":
+			return capabilitiesOf("bits")
+		case "vector":
+			return capabilitiesOf("vector")
+		case "span": {
+			const endpoint = endpointBase(desc.endpoint)
+			return capabilitiesOf(
+				endpoint.kind === "pg" && endpoint.type === "date"
+					? "rangeDate"
+					: endpoint.kind === "pg" && endpoint.type === "bigint"
+						? "range8"
+						: "range4"
+			)
+		}
+		case "contract":
+			return descCapabilities(desc.base)
+	}
 }
 
 /** A plain value type of `carrier`: no typmod, refinement or contract. */
