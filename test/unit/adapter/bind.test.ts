@@ -23,7 +23,7 @@ import { serverStatement } from "#adapter/wire/session.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { testSql } from "#test/support/sql.ts"
-import { paramText } from "#test/support/wire.ts"
+import { paramText, textsOfParams } from "#test/support/wire.ts"
 
 /**
  * The one bound a flight's parameters meet before they are sent (wire/batch.ts bindOverrun): each statement's Bind
@@ -49,8 +49,8 @@ const pgBind = (statement: FlightStatement): Buffer => {
 	const connection = new Connection({ stream: () => wire })
 	connection.bind(
 		"server" in statement
-			? { statement: statement.server.name, values: [...statement.params] }
-			: { values: [...statement.params] },
+			? { statement: statement.server.name, values: [...textsOfParams(statement.params)] }
+			: { values: [...textsOfParams(statement.params)] },
 		false
 	)
 	return Buffer.concat(written)

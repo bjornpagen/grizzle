@@ -16,8 +16,9 @@ import type { Fact } from "#compiler/ir/proof.ts"
 
 /**
  * The native carriers grizzle admits. range4, range8 and rangeDate are int4range, int8range and daterange,
- * the only span carriers; date is a calendar day; there is no timestamp, interval, bytea, JSON or array carrier. exactInteger and
- * exactMoney are the exact arithmetic carriers (ExactType), never a field's.
+ * the only span carriers; date is a calendar day; bytes is bytea, a value stored and read back whole (BytesType); there is
+ * no timestamp, interval, JSON or array carrier. exactInteger and exactMoney are the exact arithmetic carriers
+ * (ExactType), never a field's.
  */
 export const carriers = [
 	"int2",
@@ -31,6 +32,7 @@ export const carriers = [
 	"uuid",
 	"date",
 	"text",
+	"bytes",
 	"code",
 	"bits",
 	"range4",
@@ -65,6 +67,7 @@ export const fewValued: Readonly<Record<Carrier, boolean>> = {
 	uuid: false,
 	date: false,
 	text: false,
+	bytes: false,
 	code: true,
 	bits: false,
 	range4: false,
@@ -557,16 +560,17 @@ type NumericType = NumericTypmodType | NumericValueType
 
 /**
  * The value domains a contract is over: every value type a field declares, never a computed numeric or an exact value,
- * which only an operation makes, nor a set over a roster, whose holes and padding no predicate over it could keep apart.
+ * which only an operation makes, nor a set over a roster, whose holes and padding no predicate over it could keep apart,
+ * nor bytes, which no predicate reads.
  */
-export type ContractBase = Exclude<ScalarType, NumericValueType | ExactType | BitsType>
+export type ContractBase = Exclude<ScalarType, NumericValueType | ExactType | BitsType | BytesType>
 
 /**
- * What a field descriptor declares (scalar/registry.ts scalarTypeOf): a value domain a contract may be over, or a set
- * over a roster. A computed numeric and an exact value are a value's making, which no declaration states. How a field
- * is written, by its sequence among the ways, is the field's writing, never its type.
+ * What a field descriptor declares (scalar/registry.ts scalarTypeOf): a value domain a contract may be over, a set over
+ * a roster, or bytes. A computed numeric and an exact value are a value's making, which no declaration states. How a
+ * field is written, by its sequence among the ways, is the field's writing, never its type.
  */
-export type DeclaredType = ContractBase | BitsType
+export type DeclaredType = ContractBase | BitsType | BytesType
 
 /** Whether a type is a computed numeric, which no declaration states. */
 export const isNumericValue = (t: ScalarType): t is NumericValueType =>
@@ -608,6 +612,15 @@ interface BitsType {
 	readonly carrier: "bits"
 	readonly caps: CapabilitySet
 	readonly roster: Roster
+}
+
+/**
+ * bytea: a value written and read back whole, of the storage capability alone (scalar/registry.ts nativeCapabilities),
+ * so no key, rule, computation, parameter or filter reads one, and no contract is over one.
+ */
+interface BytesType {
+	readonly carrier: "bytes"
+	readonly caps: CapabilitySet
 }
 
 interface SpanType {
@@ -658,6 +671,7 @@ export type ScalarType =
 	| NumericType
 	| BareType
 	| TextType
+	| BytesType
 	| CodeType
 	| BitsType
 	| SpanType
@@ -684,6 +698,7 @@ export const contractOf = (t: ScalarType): ContractInfo | undefined => {
 		case "rangeDate":
 		case "vector":
 			return t.contract
+		case "bytes":
 		case "bits":
 		case "exactInteger":
 		case "exactMoney":
@@ -706,6 +721,7 @@ export const textOf = (t: ScalarType): TextInfo | undefined => {
 		case "bool":
 		case "uuid":
 		case "date":
+		case "bytes":
 		case "code":
 		case "bits":
 		case "range4":
@@ -735,6 +751,7 @@ export const rosterOf = (t: ScalarType): Roster | undefined => {
 		case "uuid":
 		case "date":
 		case "text":
+		case "bytes":
 		case "range4":
 		case "range8":
 		case "rangeDate":
@@ -773,6 +790,7 @@ export const spanOf = (t: ScalarType): SpanInfo | undefined => {
 		case "uuid":
 		case "date":
 		case "text":
+		case "bytes":
 		case "code":
 		case "bits":
 		case "vector":
@@ -797,6 +815,7 @@ export const numericTypmodOf = (t: ScalarType): NumericTypmod | undefined => {
 		case "uuid":
 		case "date":
 		case "text":
+		case "bytes":
 		case "code":
 		case "bits":
 		case "range4":
@@ -825,6 +844,7 @@ export const vectorTypmodOf = (t: ScalarType): VectorTypmod | undefined => {
 		case "uuid":
 		case "date":
 		case "text":
+		case "bytes":
 		case "code":
 		case "bits":
 		case "range4":
@@ -949,6 +969,7 @@ const nativeNames: Readonly<Record<Carrier, string>> = {
 	uuid: "uuid",
 	date: "date",
 	text: "text",
+	bytes: "bytea",
 	code: "smallint",
 	bits: "bit",
 	range4: "int4range",
@@ -1002,6 +1023,7 @@ export const typeLabel = (t: ScalarType): string => {
 		case "bool":
 		case "uuid":
 		case "date":
+		case "bytes":
 		case "range4":
 		case "range8":
 		case "rangeDate":

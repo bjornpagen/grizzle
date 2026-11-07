@@ -58,6 +58,7 @@ const integerKind = (desc: FieldDesc): "int2" | "int4" | "int8" | undefined => {
 						: undefined
 		case "numeric":
 		case "uuid":
+		case "bytes":
 		case "text":
 		case "closedId":
 		case "bits":
@@ -195,6 +196,8 @@ export const literalResult = (
 		}
 		case "uuid":
 			return toUuid(value)
+		case "bytes":
+			return Result.err("bytesLiteral")
 		case "text":
 			return validateText(value)
 		case "closedId":

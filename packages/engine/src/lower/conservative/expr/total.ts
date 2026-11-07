@@ -68,6 +68,7 @@ const spaceOf = (t: ScalarType): Space | undefined => {
 		case "uuid":
 		case "date":
 		case "text":
+		case "bytes":
 		case "code":
 		case "bits":
 		case "range4":

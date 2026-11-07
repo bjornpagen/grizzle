@@ -82,6 +82,7 @@ const carrierHost = (type: ScalarType): string => {
 			return `Vector<${type.typmod.dims}>`
 		case "date":
 			return "CalendarDate"
+		case "bytes":
 		case "bits":
 			throw new Error(`no agreement schema declares a ${type.carrier} field`)
 	}
@@ -242,6 +243,7 @@ const paramDomain = (type: ScalarType): string => {
 		case "bool":
 		case "uuid":
 		case "date":
+		case "bytes":
 		case "text":
 		case "code":
 		case "bits":

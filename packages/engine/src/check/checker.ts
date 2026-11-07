@@ -490,6 +490,20 @@ const adoptCompare = (t: ScalarType): ScalarType => {
 	return v.carrier === "numeric" ? anyNumeric : withoutSpanWidth(v)
 }
 
+/**
+ * The refusal of a bytes column where a binding would compare it, saying `why`: a bytes value is stored only, so no
+ * join, correlation or constant compares one.
+ */
+const storedOnly = (column: HeadingColumn, why: string, loc: SourceLoc): void => {
+	if (baseOf(column.type).carrier === "bytes") {
+		fail(
+			"UnsupportedOperation",
+			loc,
+			`equality: column ${column.name} is ${typeLabel(column.type)}, which is stored only: ${why}`
+		)
+	}
+}
+
 const columnOf = (heading: Heading, name: string): HeadingColumn | undefined =>
 	heading.find((c) => c.name === name)
 
@@ -2450,6 +2464,7 @@ class RuleCheck {
 	 * attachment's correlation equates it with, gives it the column's type, and a later one is a rebinding (#rebind).
 	 */
 	#bindParent(slot: ParentSlot, column: HeadingColumn, loc: SourceLoc): SlotBinding {
+		storedOnly(column, "no parent's column correlates with it", loc)
 		const binding = this.#parentBindings.get(slot.id)
 		if (binding !== undefined) {
 			return this.#rebind(slot, binding.type, column, loc)
@@ -2469,6 +2484,7 @@ class RuleCheck {
 		column: HeadingColumn,
 		loc: SourceLoc
 	): SlotBinding {
+		storedOnly(column, `variable ${slot.name} binds it and no other column`, loc)
 		this.#compatibleBinding(slot, type, column, loc)
 		if (sameScalarType(type, column.type)) {
 			return { column: column.name, var: slot }
@@ -2782,6 +2798,7 @@ class RuleCheck {
 	 * any other value is a hidden variable equated with it by the filter.
 	 */
 	#constant(column: HeadingColumn, e: ResolvedExpr, loc: SourceLoc): ConstantPlacement {
+		storedOnly(column, "no constant, parameter or term fixes it", loc)
 		const baseMatches = (t: ScalarType) => sameScalarType(baseOf(column.type), baseOf(t))
 		if (e.kind === "literal" && e.type === undefined) {
 			const literal = this.cx.schema.literal(e.value, column.type, loc, this.cx.patterns)

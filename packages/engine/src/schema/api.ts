@@ -200,18 +200,18 @@ const generated = <
 export const relation: typeof ordinaryRelation & { readonly generated: typeof generated } =
 	Object.freeze(Object.assign(ordinaryRelation, { generated }))
 
-/** A closed relation's fields are closed ids, and open-typed values that are no serial, span, set or vector. */
+/** A closed relation's fields are closed ids, and open-typed values that are no serial, span, set, vector or bytes. */
 type ClosedFieldsCheck<Fields> = [
 	{
 		[K in keyof Fields]-?: Fields[K] extends
 			| { readonly writing: WritingTag }
-			| { readonly sql: "range" | "vector" | "bits" }
+			| { readonly sql: "range" | "vector" | "bits" | "bytea" }
 			? K
 			: never
 	}[keyof Fields]
 ] extends [never]
 	? unknown
-	: Refusal<"a closed relation's field is a closed id, or a value of a type that is no serial, span, set or vector">
+	: Refusal<"a closed relation's field is a closed id, or a value of a type that is no serial, span, set, vector or bytes">
 
 /**
  * closed(name, handles): a roster, the handles it introduces, each once, in declared order, which is their codes'

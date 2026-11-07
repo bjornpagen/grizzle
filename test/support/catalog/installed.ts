@@ -459,13 +459,14 @@ const vectorSchemaOf = (catalog: Catalog, type: NamedType): Option.Option<string
 
 /**
  * Each login's fixed defaults, `name=value` as pg_db_role_setting stores them: dates written in ISO 8601's YYYY-MM-DD,
- * float text in shortest round-trip form (only when extra_float_digits is positive), lc_monetary, lc_numeric and
- * lc_time at C.UTF-8, and the search path of
+ * float text in shortest round-trip form (only when extra_float_digits is positive), bytea written as hex, lc_monetary,
+ * lc_numeric and lc_time at C.UTF-8, and the search path of
  * pg_catalog and the session's temporary schema alone, a list PostgreSQL stores with its schemas bare. Nothing else:
  * jit and lc_messages are the database owner's.
  */
 export const fixedDefaults: ReadonlyArray<string> = [
 	"DateStyle=ISO, YMD",
+	"bytea_output=hex",
 	"extra_float_digits=1",
 	"lc_monetary=C.UTF-8",
 	"lc_numeric=C.UTF-8",
@@ -586,7 +587,8 @@ const vectorProblems = (catalog: Catalog, scope: InstalledScope): ReadonlyArray<
  *   when a column it reads (of its world's views, or of its whole closed relations' payloads) or a column of a table it
  *   inserts into is, or rests through the schema's domains on, that schema's `vector`, so it can name the type a search
  *   binds; and each login stores exactly the fixed defaults (`search_path = pg_catalog, pg_temp`,
- *   `extra_float_digits = 1` and lc_monetary, lc_numeric and lc_time at C.UTF-8) plus, exactly when one of its roles
+ *   `extra_float_digits = 1`, `bytea_output = hex` and lc_monetary, lc_numeric and lc_time at C.UTF-8) plus, exactly
+ *   when one of its roles
  *   names the vector type, `hnsw.iterative_scan = strict_order` (check/approximate/policy.ts), which PostgreSQL applies
  *   at login and never on SET ROLE.
  *

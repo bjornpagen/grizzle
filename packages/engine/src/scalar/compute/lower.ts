@@ -454,6 +454,7 @@ const carrierBounds = (t: ScalarType): Bounds | undefined => {
 		case "bool":
 		case "uuid":
 		case "text":
+		case "bytes":
 		case "code":
 		case "bits":
 		case "range4":
@@ -925,6 +926,7 @@ export const withinGuards = (carrier: Carrier): boolean => {
 		case "uuid":
 		case "date":
 		case "text":
+		case "bytes":
 		case "code":
 		case "bits":
 		case "range4":
@@ -1790,6 +1792,29 @@ class Lowering<R extends Refs> {
 		return this.settle(this.env.emit(spec), type, undefined)
 	}
 
+	/**
+	 * A term read whole, as a head reads it or a field is written from it: a bare reference of any type, bytes among them,
+	 * or any other term (term), whose operands an operation reads.
+	 */
+	whole(desc: ExprDesc<Located, R>, at: SourceLoc): Lowered {
+		return isReference(desc) ? this.emit(unwrap(this.env.leaf(desc, at))) : this.term(desc, at)
+	}
+
+	/**
+	 * A reference an operation reads: refused where it is bytes, which is stored only, so no comparison, computation,
+	 * cast, conditional or guard reads one (scalar/registry.ts nativeCapabilities).
+	 */
+	reference(desc: LeafDesc<R>, at: SourceLoc): Lowered {
+		const leaf = this.emit(unwrap(this.env.leaf(desc, at)))
+		return baseOf(leaf.nominal).carrier === "bytes"
+			? stop(
+					"UnsupportedOperation",
+					at,
+					`storage: ${typeLabel(leaf.nominal)} is stored only, read whole as a head or a written value, so no Compute operation, rule, selection or filter reads it`
+				)
+			: leaf
+	}
+
 	/** A term: anything but an untyped literal, which takes the type of the term it meets. */
 	term(desc: ExprDesc<Located, R>, at: SourceLoc): Lowered {
 		if (desc.kind === "literal" && desc.type === undefined) {
@@ -1917,7 +1942,7 @@ class Lowering<R extends Refs> {
 			case "field":
 			case "value":
 			case "parent":
-				return this.emit(unwrap(this.env.leaf(desc, at)))
+				return this.reference(desc, at)
 			case "param":
 				return this.param(desc, at)
 			case "literal": {
@@ -3521,6 +3546,7 @@ class Lowering<R extends Refs> {
 			case "uuid":
 			case "date":
 			case "text":
+			case "bytes":
 			case "code":
 			case "bits":
 			case "range4":
@@ -3760,6 +3786,7 @@ const roundingScale = (target: ScalarType): number => {
 		case "uuid":
 		case "date":
 		case "text":
+		case "bytes":
 		case "code":
 		case "bits":
 		case "range4":
@@ -3799,6 +3826,7 @@ const conversionOf = (from: ScalarType, to: ScalarType, how: CastHow): Conversio
 		case "uuid":
 		case "date":
 		case "text":
+		case "bytes":
 		case "code":
 		case "bits":
 		case "range4":
@@ -3902,6 +3930,7 @@ export const fitRange = (target: ScalarType): readonly [Exact, Exact] | undefine
 		case "uuid":
 		case "date":
 		case "text":
+		case "bytes":
 		case "code":
 		case "bits":
 		case "range4":
@@ -4182,6 +4211,7 @@ const zeroLiteral = (v: ScalarType): LiteralDesc => {
 		case "uuid":
 		case "date":
 		case "text":
+		case "bytes":
 		case "code":
 		case "bits":
 		case "range4":
@@ -4287,6 +4317,13 @@ const sameRefinement = (a: ScalarType, to: ScalarType): boolean => {
 
 const compatibleCore = (a: ScalarType, b: ScalarType): boolean => meets(valueType(a), valueType(b))
 
+/**
+ * Whether a description is a bare reference: a variable, a row's field, a contract's VALUE or a parent's column, the
+ * leaf kinds, which no other arm of a description holds.
+ */
+const isReference = <R extends Refs>(desc: ExprDesc<Located, R>): desc is LeafDesc<R> =>
+	desc.kind === "var" || desc.kind === "field" || desc.kind === "value" || desc.kind === "parent"
+
 const run = <R extends Refs>(
 	env: LowerEnv<R>,
 	f: (l: Lowering<R>) => Lowered
@@ -4336,7 +4373,7 @@ const run = <R extends Refs>(
 export const lowerTerm = <R extends Refs>(
 	desc: ExprDesc<Located, R>,
 	env: LowerEnv<R>
-): Result.Result<Lowered, CompileError> => run(env, (l) => l.term(desc, env.loc))
+): Result.Result<Lowered, CompileError> => run(env, (l) => l.whole(desc, env.loc))
 
 /**
  * Lowers a term a function returns unchanged, the argument of min or max: delivered with the contract the term has.
@@ -4349,7 +4386,7 @@ export const lowerReturned = <R extends Refs>(
 	env: LowerEnv<R>
 ): Result.Result<Lowered, CompileError> =>
 	run(env, (l) => {
-		const t = l.term(desc, env.loc)
+		const t = l.whole(desc, env.loc)
 		return contractOf(t.actual)?.name === contractOf(t.nominal)?.name
 			? t
 			: l.convert(t, t.nominal, env.loc)

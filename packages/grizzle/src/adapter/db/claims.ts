@@ -131,8 +131,9 @@ const claimHost = (type: ScalarType, value: unknown): Option.Option<unknown> => 
 		case "exactMoney":
 			return Option.some(value)
 		case "bits":
+		case "bytes":
 			throw defect(
-				"a context's field is no set: a context admits no bits field (ir/desc.ts contextFieldAdmits)"
+				`a context's field is no ${type.carrier} field: a context admits none (ir/desc.ts contextFieldAdmits)`
 			)
 	}
 }

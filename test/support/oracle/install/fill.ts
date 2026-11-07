@@ -106,6 +106,7 @@ const lawColumnType = (type: ScalarType): ColumnType | undefined => {
 			return { sql: builtinType("boolean"), value: { kind: "bool" }, contract: uncontracted }
 		case "uuid":
 		case "date":
+		case "bytes":
 		case "text":
 		case "code":
 		case "bits":

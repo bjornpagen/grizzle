@@ -306,6 +306,7 @@ export const evalValue = (spec: CarrierSpec, value: unknown): CarrierValue | und
 				: undefined
 		}
 		case "vector":
+		case "bytes":
 			return undefined
 		case "int8":
 		case "numeric":
@@ -364,6 +365,7 @@ const hostValue = (spec: CarrierSpec, value: CarrierValue): unknown => {
 		case "uuid":
 		case "date":
 		case "text":
+		case "bytes":
 		case "code":
 		case "bits":
 		case "range8":

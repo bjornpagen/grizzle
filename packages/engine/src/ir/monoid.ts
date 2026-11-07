@@ -85,6 +85,7 @@ const summable = (t: ScalarType): boolean => {
 		case "uuid":
 		case "date":
 		case "text":
+		case "bytes":
 		case "code":
 		case "bits":
 		case "range4":
@@ -116,6 +117,7 @@ const bounded = (t: ScalarType): boolean => {
 		case "uuid":
 		case "date":
 		case "text":
+		case "bytes":
 		case "bits":
 		case "range4":
 		case "range8":
@@ -161,6 +163,7 @@ const zeroOf = (t: ScalarType): TypedLiteral => {
 		case "uuid":
 		case "date":
 		case "text":
+		case "bytes":
 		case "code":
 		case "bits":
 		case "range4":
@@ -195,6 +198,7 @@ const leastOf = (t: ScalarType): TypedLiteral => {
 		case "uuid":
 		case "date":
 		case "text":
+		case "bytes":
 		case "bits":
 		case "range4":
 		case "range8":

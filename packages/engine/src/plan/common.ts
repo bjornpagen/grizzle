@@ -75,7 +75,7 @@ export { parseSqlstate, type Sqlstate, sqlstateClass, sqlstates } from "#compile
 export { compareCodePoints } from "#compiler/core/text.ts"
 export { jsonText, trusted, trustedJson } from "#compiler/core/trusted.ts"
 export { TupleMap } from "#compiler/core/tuple-map.ts"
-export type { OutputRows, OutputText, ParamText } from "#compiler/core/wire.ts"
+export type { OutputRows, OutputText, Param, ParamText } from "#compiler/core/wire.ts"
 export {
 	type Codebook,
 	codeNames,

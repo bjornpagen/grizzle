@@ -3527,6 +3527,7 @@ const keyValueText = (type: ScalarType): string => {
 		case "bool":
 		case "date":
 		case "text":
+		case "bytes":
 		case "bits":
 		case "range8":
 		case "rangeDate":

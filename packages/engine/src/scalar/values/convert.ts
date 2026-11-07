@@ -3,6 +3,7 @@ import type { OutputText } from "#compiler/core/wire.ts"
 import { handleAt, type RosterCodec } from "#compiler/ir/codes.ts"
 import { convertDate } from "#compiler/ir/date.ts"
 import type { Carrier } from "#compiler/ir/scalar.ts"
+import { convertBytes } from "#compiler/scalar/values/bytes.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { convertComponent, convertDouble, convertReal } from "#compiler/scalar/values/float.ts"
 import type { CarrierHost, SpecOf } from "#compiler/scalar/values/identity.ts"
@@ -94,6 +95,7 @@ const convertBits =
  * | money | money::numeric | Money.fromOutput, the minor-unit count |
  * | bool | `true`/`false` (bool::text), `t`/`f` (boolout) | the first letter is t |
  * | uuid, text | uuid_out, the string | the text itself |
+ * | bytes | byteaout under bytea_output = hex, `\x` and two hex digits a byte | a fresh Uint8Array over its own buffer |
  * | date | date_out under DateStyle ISO, YYYY-MM-DD | the text itself, a CalendarDate |
  * | code | int2out of the code | the live handle the code names |
  * | bits | bit_out, n characters of 0 and 1 | a fresh Set of the handles of its 1 bits, position i code i |
@@ -118,6 +120,7 @@ export const convertByCarrier: { readonly [C in Carrier]: (spec: SpecOf<C>) => C
 	uuid: () => identity,
 	date: () => convertDate,
 	text: () => identity,
+	bytes: () => convertBytes,
 	code: (spec) => convertCode(spec.roster),
 	bits: (spec) => convertBits(spec.roster),
 	range4: () => convertSpan(Number),

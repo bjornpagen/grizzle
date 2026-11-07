@@ -11,6 +11,7 @@ import {
 	everyProperty,
 	type LiteralBound,
 	maxStringLength,
+	type Param,
 	type ParamDecl,
 	type ParamId,
 	type ParamText,
@@ -47,7 +48,7 @@ interface RelationInput {
 	readonly array: (
 		columns: ReadonlyArray<RelationColumn>,
 		part: number
-	) => Result.Result<ParamText, InputTooLarge>
+	) => Result.Result<Param, InputTooLarge>
 }
 
 export type RelationInputs = ReadonlyMap<ParamId, RelationInput>
@@ -142,7 +143,7 @@ const prepareInput = (
 	const array = (
 		columns: ReadonlyArray<RelationColumn>,
 		part: number
-	): Result.Result<ParamText, InputTooLarge> => {
+	): Result.Result<Param, InputTooLarge> => {
 		const written = sameColumns(columns, declared)
 			? declaredArray(decl, normal, part)
 			: normalArray(specOver(decl, columns, codec.codes))(normal, part)
@@ -201,7 +202,7 @@ export const executionInputs = (
 	params: HostParams
 ): Result.Result<ExecutionInputs, EncodingFailure> => {
 	const relations = new Map<ParamId, RelationInput>()
-	const scalars = new Map<ParamId, ParamText>()
+	const scalars = new Map<ParamId, Param>()
 	for (const codec of codecs) {
 		if (codec.kind === "relation") {
 			const input = prepareInput(codec, params[codec.decl.name])

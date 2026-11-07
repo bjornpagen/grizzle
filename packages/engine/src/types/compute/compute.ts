@@ -70,7 +70,7 @@ import type {
 	ValueOfTerm
 } from "#compiler/types/core/phantom.ts"
 import type { EqualityStates, StatesOf, Stating } from "#compiler/types/evidence/evidence.ts"
-import type { Field, LiteralOf, NotRoster } from "#compiler/types/fields/field.ts"
+import type { Field, LiteralOf, NotBytes, NotRoster } from "#compiler/types/fields/field.ts"
 import type { PatternValidate } from "#compiler/types/fields/regex.ts"
 import type { Scored } from "#compiler/types/vector/vector.ts"
 
@@ -330,7 +330,7 @@ export interface ComputeApi {
 	 * reads it.
 	 */
 	literal<H, S extends SqlTag, D, F extends Facts, const V>(
-		type: Field<H, S, D, F> & ([S] extends ["code"] ? NotRoster : unknown),
+		type: Field<H, S, D, F> & ([S] extends ["code"] ? NotRoster : unknown) & NotBytes<S>,
 		value: Fit<V, NoInfer<LiteralOf<H>>> & ContractAdmits<Takes<V, LiteralOf<H>>, F, V>
 	): Admitted<
 		Every<[Takes<V, LiteralOf<H>>, Not<Refutes<F, V>>]>,

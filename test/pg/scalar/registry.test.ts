@@ -43,6 +43,7 @@ const carrierTypes = (vectorSchema: string): Readonly<Record<Carrier, string>> =
 	uuid: "uuid",
 	date: "date",
 	text: "text",
+	bytes: "bytea",
 	code: "int2",
 	bits: "bit",
 	range4: "int4range",

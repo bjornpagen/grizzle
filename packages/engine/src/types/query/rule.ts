@@ -63,7 +63,7 @@ import type {
 	SoleMatch,
 	Split
 } from "#compiler/types/evidence/evidence.ts"
-import type { Field, FieldBase, LiteralOf } from "#compiler/types/fields/field.ts"
+import type { Field, FieldBase, LiteralOf, NotBytes } from "#compiler/types/fields/field.ts"
 import type { BoundSource, ContextsOf, Finished } from "#compiler/types/query/query.ts"
 import type {
 	Aggregate,
@@ -394,10 +394,20 @@ type ParamRelationAt<R, C> = [R] extends [never]
 		? unknown
 		: Refusal<"the relation is not in this query's schema">
 
-/** The refusal a relation parameter's heading carries: none for a heading of at least one field, as a relation has. */
+/**
+ * The refusal a relation parameter's heading carries: none for a heading of at least one field, as a relation has, and
+ * no bytes field, which no parameter holds.
+ */
 export type ParamFields<C> = [keyof C] extends [never]
 	? Refusal<"a relation parameter has at least one field, as a relation does">
-	: unknown
+	: [BytesFieldsIn<C>] extends [never]
+		? unknown
+		: NotBytes<"bytea">
+
+/** The bytes fields of a heading C, which no parameter holds. */
+type BytesFieldsIn<C> = {
+	[K in keyof C]-?: C[K] extends { readonly sql: "bytea" } ? K : never
+}[keyof C]
 
 /**
  * The SQL types min and max are defined over: the numeric family and money, booleans (bool_and and bool_or), text and
@@ -470,10 +480,13 @@ export interface Rule<S, Params = unknown, Sole = "no match", Facts = NoFacts, C
 		rule: (r: Rule<S>) => Finished<Head, Ev, P2, S, IHead, Hc, Cx2>
 	): BoundSource<S, Head, P2, Hc, Cx2, Ev, never>
 
-	/** A scalar parameter of the descriptor's type and facts, which the caller binds by name; a term, first included. */
+	/**
+	 * A scalar parameter of the descriptor's type and facts, which the caller binds by name; a term, first included. No
+	 * parameter is bytes (NotBytes).
+	 */
 	param<const Name extends string, H, Sql extends SqlTag, D, F extends ProvedFacts>(
 		name: Name,
-		type: Field<H, Sql, D, F>
+		type: Field<H, Sql, D, F> & NotBytes<Sql>
 	): ParamTerm<Name, H, Sql, D, F>
 	/**
 	 * A relation-valued parameter over a heading of fields, or over a relation of the rule's schema, whose heading it

@@ -125,6 +125,11 @@ export const nativeCapabilities = {
 	/** date_ops for B-tree and hash, btree_gist's gist_date_ops, and min and max (date_smaller, date_larger). */
 	date: ["equality", "expressionIndex", "gist", "hashing", "minMax", "ordering", "storage"],
 	text: ["equality", "expressionIndex", "gist", "hashing", "minMax", "ordering", "storage"],
+	/**
+	 * bytea has equality, a B-tree and a hash class, but grizzle admits storage alone: a bytes value is written and read
+	 * back whole, so no key, rule, computation, parameter or filter reads one.
+	 */
+	bytes: ["storage"],
 	/** A closed id is its code, a smallint under its roster's domain, ordered by code: int2's classes and order. */
 	code: ["equality", "expressionIndex", "gist", "hashing", "minMax", "ordering", "storage"],
 	/**
@@ -183,6 +188,7 @@ export const carrierSql = {
 	uuid: "uuid",
 	date: "date",
 	text: "text",
+	bytes: "bytea",
 	code: "code",
 	bits: "bits",
 	range4: "range",
@@ -467,7 +473,7 @@ export const describeField = (
 				loc,
 				isCopy
 					? "a field descriptor a builder made: a copy of one (an object spread) is none, because a descriptor's host type is its builder's"
-					: "a field descriptor a builder made: pg.*, uuid, str.regex, contract, span, closedId or pg.vector"
+					: "a field descriptor a builder made: pg.*, uuid, bytes, str.regex, contract, span, closedId or pg.vector"
 			)
 		)
 	)
@@ -586,6 +592,8 @@ const scalarAt = (
 			return Result.ok(numericType(Object.freeze({ precision: desc.precision, scale: desc.scale })))
 		case "uuid":
 			return Result.ok(plainType("uuid"))
+		case "bytes":
+			return Result.ok(Object.freeze({ carrier: "bytes", caps: capabilitiesOf("bytes") }))
 		case "text":
 			return Result.ok(
 				Object.freeze({
@@ -746,6 +754,15 @@ const contractOver = (
 			)
 		)
 	}
+	if (base.carrier === "bytes") {
+		return Result.err(
+			capabilityError(
+				loc,
+				"equality",
+				`${typeLabel(base)} is stored only, so no predicate reads it; no contract is over bytes`
+			)
+		)
+	}
 	return Result.ok(Object.freeze({ name, base, predicate, facts: Object.freeze([...facts]) }))
 }
 
@@ -852,6 +869,8 @@ const hostLiteral = (base: ScalarType, value: unknown): Result.Result<LiteralDes
 			return toCalendarDate(value)
 		case "text":
 			return validateText(value)
+		case "bytes":
+			return Result.err("bytesLiteral")
 		case "code":
 			return typeof value === "string" && base.roster.handles.includes(value)
 				? Result.ok(value)

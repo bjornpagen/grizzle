@@ -122,6 +122,7 @@ export const types = {
 	text: builtinType("text"),
 	uuid: builtinType("uuid"),
 	date: builtinType("date"),
+	bytea: builtinType("bytea"),
 	jsonb: builtinType("jsonb"),
 	money: builtinType("money"),
 	int4range: builtinType("int4range"),

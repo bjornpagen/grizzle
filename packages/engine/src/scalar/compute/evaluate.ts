@@ -191,6 +191,8 @@ export const hostLiteralOf = (value: CarrierValue, type: ScalarType): TypedLiter
 			return typeof value === "boolean" ? { kind: "bool", value } : wrong()
 		case "text":
 			return isString(value) ? { kind: "text", value } : wrong()
+		case "bytes":
+			return wrong()
 		case "uuid":
 			return isString(value) ? { kind: "uuid", value } : wrong()
 		case "date": {
@@ -298,6 +300,8 @@ export const compareValues = (
 			return a === b ? 0 : a < b ? -1 : 1
 		case "text":
 			return isString(a) && isString(b) ? compareCodePoints(a, b) : undefined
+		case "bytes":
+			return undefined
 		case "code": {
 			if (!isString(a) || !isString(b)) {
 				return undefined

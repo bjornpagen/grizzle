@@ -76,12 +76,13 @@ const searchProbe = query(search.Search).rule((r) => {
 
 /**
  * A value admission must refuse for each role default an installation stores, as ALTER ROLE ... SET spells it:
- * PostgreSQL's own search path, no extra float digits, PostgreSQL's own date style, the C locale.
+ * PostgreSQL's own search path, no extra float digits, PostgreSQL's own date style, bytea's escape format, the C locale.
  */
 const wrongRoleDefault: { readonly [P in RoleDefaultParameter]: string } = {
 	search_path: `${quoteIdent("$user")}, ${quoteIdent("public")}`,
 	extra_float_digits: quoteString("0"),
 	DateStyle: quoteString("Postgres, MDY"),
+	bytea_output: quoteString("escape"),
 	lc_monetary: quoteString("C"),
 	lc_numeric: quoteString("C"),
 	lc_time: quoteString("C")

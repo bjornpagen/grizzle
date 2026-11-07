@@ -57,7 +57,7 @@ import {
 	emitText,
 	nominal,
 	type OutputRows,
-	type ParamText,
+	type Param,
 	sha256Hex
 } from "#compiler/plan/common.ts"
 
@@ -289,7 +289,7 @@ export type WireQuery =
 	| {
 			readonly _tag: "statement"
 			readonly sql: SentText
-			readonly params: ReadonlyArray<ParamText>
+			readonly params: ReadonlyArray<Param>
 			/** The session's name for the statement in this execution. */
 			readonly name: StatementName
 	  }
@@ -700,7 +700,8 @@ export interface Session {
  * A statement on the extended protocol, named or unnamed. pg sends a query without parameters or a name as a simple
  * Query message, which accepts several statements in one text, unless its `queryMode` is "extended", which pg's types
  * leave out. pg refuses a query before its bytes go out only for what this never builds: no text, parameters that are no
- * array or that its value mapper throws on (every parameter is a string), or a name it parsed for another text (a
+ * array or that its value mapper throws on (every parameter is a string, or a Uint8Array it sends in binary, a view of
+ * the same bytes), or a name it parsed for another text (a
  * server statement's name is its text's, serverStatement). So a pipeline is written whole: no statement is skipped while
  * the ones after it, COMMIT included, are sent.
  */
@@ -778,7 +779,7 @@ const makeSession = (
 						answer
 					)
 				} else {
-					client.query<Array<unknown>, Array<string>>(statementQuery(query), answer)
+					client.query<Array<unknown>, Array<Param>>(statementQuery(query), answer)
 				}
 			}
 		})

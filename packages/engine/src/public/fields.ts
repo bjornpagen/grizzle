@@ -3,6 +3,7 @@ import { nominal } from "#compiler/core/brand.ts"
 import { bitsColumn, brandColumn, type Columned, codeColumn } from "#compiler/core/decoder.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { bytesDescriptor } from "#compiler/scalar/bytes.ts"
 import { closedIdParts } from "#compiler/scalar/closed-id.ts"
 import { contractParts } from "#compiler/scalar/contract.ts"
 import { dateDescriptor } from "#compiler/scalar/date.ts"
@@ -40,6 +41,7 @@ import type {
 	AccumulatedField,
 	Bits as BitsValue,
 	BitsField,
+	BytesField,
 	ClosedIdField,
 	Contract,
 	DateField,
@@ -73,6 +75,7 @@ export { Vector } from "#compiler/scalar/values/vector.ts"
 export type {
 	AccumulatedField,
 	BitsField,
+	BytesField,
 	CalendarDate,
 	ClosedIdField,
 	Contract,
@@ -99,7 +102,7 @@ export type {
 export type { VectorField } from "#compiler/types/vector/vector.ts"
 
 /**
- * Public barrel: Scalar field descriptors: uuid, natural, pg, contract, span and closedId, the runtime values of
+ * Public barrel: Scalar field descriptors: uuid, natural, date, bytes, pg, contract, span and closedId, the runtime values of
  * packages/engine/src/scalar bound to their public signatures (types/fields), with the exact carriers Decimal and Money,
  * the uuid host value Uuid and pgvector's carrier Vector. str.regex is the text barrel's.
  *
@@ -117,6 +120,12 @@ export const natural: NaturalField = naturalDescriptor
 
 /** date: a calendar day, 0001-01-01 to 9999-12-31, its host value its ISO 8601 text (scalar/date.ts). */
 export const date: DateField = dateDescriptor
+
+/**
+ * bytes: PostgreSQL's bytea, its host value a Uint8Array over its own ArrayBuffer, written and read back whole and
+ * nothing else (scalar/bytes.ts).
+ */
+export const bytes: BytesField = bytesDescriptor
 
 export const pg: Pg = pgDescriptors
 

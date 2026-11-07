@@ -251,6 +251,7 @@ const hashable = (c: PlannedColumn): boolean => {
 		case "money":
 		case "exactMoney":
 		case "bits":
+		case "bytes":
 		case "vector":
 			return false
 	}

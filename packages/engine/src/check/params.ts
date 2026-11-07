@@ -55,7 +55,8 @@ const sameHeading = (a: Heading, b: Heading): boolean =>
  * where they differ only in a numeric typmod or a text refinement, the parameter widens to their common type, as
  * PostgreSQL's own common-type rule does. Its placeholder is bound as the base type, plain text for regex text. A
  * relation parameter has a declared heading, and every use declares the same one. One parameter is never both a
- * scalar and a relation parameter. `take("batch")` joins the parameters as pg.integer.
+ * scalar and a relation parameter, and no parameter is bytes or holds a bytes field. `take("batch")` joins the
+ * parameters as pg.integer.
  */
 export class ParamCell {
 	readonly name: string
@@ -68,8 +69,18 @@ export class ParamCell {
 		this.#entry = entry
 	}
 
-	/** Records a use of the parameter as a scalar at `type`, the type the use declares. */
+	/**
+	 * Records a use of the parameter as a scalar at `type`, the type the use declares; bytes, which no parameter carries,
+	 * are refused.
+	 */
 	use(type: ScalarType, loc: SourceLoc): ParamId {
+		if (type.carrier === "bytes") {
+			return fail(
+				"UnsupportedOperation",
+				loc,
+				`storage: parameter ${this.name} of ${typeLabel(type)}, which is stored only and never a parameter`
+			)
+		}
 		const prior = this.#entry
 		switch (prior.kind) {
 			case "relation":
@@ -94,8 +105,19 @@ export class ParamCell {
 		}
 	}
 
-	/** Records a use of the parameter as a relation with its declared heading. */
+	/**
+	 * Records a use of the parameter as a relation with its declared heading; a heading of a bytes field, which no
+	 * parameter carries, is refused.
+	 */
 	useRelation(heading: Heading, loc: SourceLoc): ParamId {
+		const stored = heading.find((c) => c.type.carrier === "bytes")
+		if (stored !== undefined) {
+			return fail(
+				"UnsupportedOperation",
+				loc,
+				`storage: relation parameter ${this.name}'s field ${stored.name} of ${typeLabel(stored.type)}, which is stored only and never a parameter`
+			)
+		}
 		const prior = this.#entry
 		switch (prior.kind) {
 			case "scalar":

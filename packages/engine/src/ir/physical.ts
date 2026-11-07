@@ -116,6 +116,8 @@ export const baseTypeRef = (names: PhysicalNames, t: ScalarType): TypeRef => {
 			return types.date
 		case "text":
 			return types.text
+		case "bytes":
+			return types.bytea
 		case "range4":
 			return types.int4range
 		case "range8":

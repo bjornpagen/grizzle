@@ -1336,6 +1336,7 @@ becomes one PostgreSQL schema.
 | `contract(name, base, check?)`                     | a domain with that CHECK                      | the base type, branded with the name                                |
 | `span(pg.integer)`, over integer, bigint or date  | a range                                       | `{ start, end }`, start included, end excluded                      |
 | `pg.vector(n)`                                     | pgvector's vector(n)                          | `Vector`, a Float32Array                                            |
+| `bytes`                                            | bytea, its column checked to at most 268,435,443 bytes | `Uint8Array`, a fresh one over its own buffer                |
 
 Text always carries a pattern, with flags `"u"` (the default) or `"su"`. A contract value is made with its
 constructor, `Cents(500n)`, which brands it without checking it: the database checks it on every write. `natural` is a
@@ -1348,6 +1349,14 @@ infinity or a year its text could not spell, whoever writes it; it is the type's
 8601 text, `"2024-02-29"`, one text per day, ordered as the calendar is; every login pins `DateStyle` to ISO, so
 PostgreSQL writes it the same way. Dates compare, and `min` and `max` them, a key or index may hold one, and
 `span(date)` is a span of days, PostgreSQL's daterange.
+
+`bytes` is a value written and read back whole, and nothing more: no key, unique or containment holds one, no rule,
+selection, filter or `Compute` operation reads one, no parameter is one, and no contract, generated or accumulated
+field is of one: each is `UnsupportedOperation` when it compiles, and a type error wherever the types see it, as a
+key, a side, a `Compute` call, a parameter or such a field. A query's head reads one, as it reads any field. It is
+written in binary, read back as PostgreSQL's hex text, and handed back as a fresh `Uint8Array` you own. A value is at
+most 268,435,443 bytes, which keeps its hex text one JavaScript string: a longer one is refused before any SQL, an
+`EncodingFailure` naming its field, and every bytes column carries a CHECK of that bound, so no writer stores one.
 
 A pattern is written in JavaScript's regular expression syntax under the `u` flag, and holds the part of it that
 PostgreSQL matches the same way: characters and escapes, classes and ranges, `\d`, `\w` and their complements, `.`,
@@ -2497,7 +2506,8 @@ yields:
 - no migration is running or stopped part-way, and the latest complete one reached the snapshot's fingerprint;
 - the login's and the role's settings and privileges are exactly what the snapshot installs. Every login's own
   defaults pin its sessions, each a setting a grizzle guarantee rests on: `search_path = pg_catalog, pg_temp`,
-  `extra_float_digits = 1`, `DateStyle = 'ISO, YMD'`, and `lc_monetary`, `lc_numeric` and `lc_time` at `C.UTF-8`.
+  `extra_float_digits = 1`, `DateStyle = 'ISO, YMD'`, `bytea_output = hex`, and `lc_monetary`, `lc_numeric` and
+  `lc_time` at `C.UTF-8`.
   A role's own default
   outranks the database's and the server's, so neither reaches a `Db`'s sessions, and a login with one of them
   missing, changed, or set for it in this database alone is refused. Every session of the login's pool also sends

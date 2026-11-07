@@ -144,6 +144,8 @@ const valueKind = (t: ScalarType, codes: Codebook): ValueKind => {
 			return { kind: "date" }
 		case "text":
 			return { kind: "text" }
+		case "bytes":
+			return { kind: "bytes" }
 		case "code":
 		case "bits":
 			return { kind: b.carrier, roster: codecOf(codes, b.roster) }

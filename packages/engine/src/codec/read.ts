@@ -21,6 +21,7 @@
  * | uuid | uuid_out text |
  * | date | date_out text under DateStyle ISO |
  * | text | the string |
+ * | bytes | byteaout text under bytea_output = hex, `\x` and lowercase hex digits, read into a fresh Uint8Array |
  * | code | int2out text, read as the handle the code names |
  * | bits | bit_out text, read as the set of handles |
  * | range4, range8, rangeDate | range_out of a bounded half-open range |
@@ -121,6 +122,7 @@ const cellTextByCarrier: { readonly [C in Carrier]: (cell: string) => string } =
 	uuid: itself,
 	date: itself,
 	text: itself,
+	bytes: itself,
 	code: itself,
 	bits: bitsCellText,
 	range4: itself,

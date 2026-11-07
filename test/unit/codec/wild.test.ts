@@ -5,6 +5,7 @@ import { noCoverage, required } from "@grizzle/testing/features"
 import {
 	array,
 	boolean,
+	bytes as byteValues,
 	codePoint,
 	element,
 	filter,
@@ -239,6 +240,13 @@ const written: { readonly [C in Carrier]: Arr.NonEmptyReadonlyArray<Written> } =
 				oneOf([codePoint(0x20, 0x7e), codePoint(0xa0, 0xd7_ff), codePoint(0xe0_00, 0x10_ffff)]),
 				{ min: 0, max: 10 }
 			)
+		}
+	],
+	bytes: [
+		{
+			label: "bytes",
+			type: { carrier: "bytes", caps },
+			live: map(byteValues({ min: 0, max: 16 }), (b) => Uint8Array.from(b))
 		}
 	],
 	code: [

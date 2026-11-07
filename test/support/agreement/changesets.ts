@@ -2191,6 +2191,8 @@ const hostText = (t: ScalarType): string => {
 			return t.text.regex === "wildcard"
 				? "string"
 				: `RegexInfer<${jsonText(t.text.regex.source)}, ${jsonText(t.text.regex.flags)}>`
+		case "bytes":
+			return "Uint8Array<ArrayBuffer>"
 		case "code":
 			return Arr.join(
 				Arr.map(t.roster.handles, (h) => jsonText(h)),

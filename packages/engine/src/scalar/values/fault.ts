@@ -5,6 +5,7 @@ import {
 	type ValueFault,
 	valueFaultWords
 } from "#compiler/core/errors.ts"
+import { bytesMaxLength } from "#compiler/core/limits.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import { cosineNormMax, cosineNormMin, vectorMaxDimensions } from "#compiler/ir/carriers.ts"
 import {
@@ -56,6 +57,10 @@ const valueFaults: { readonly [F in ValueFault]: string } = {
 	textType: "a string",
 	textNul: "text without NUL: PostgreSQL text cannot store U+0000",
 	textSurrogate: "well-formed text: an unpaired UTF-16 surrogate is not a Unicode scalar",
+	bytesType: "bytes: a Uint8Array",
+	bytesLength: `bytes whose hex text one JavaScript string holds: at most ${bytesMaxLength.value} bytes`,
+	bytesLiteral:
+		"bytes in no literal: a bytes value is written and read back whole, never a rule's or a query's constant",
 	codeHandle: "a handle of the closed relation's roster",
 	bitsType: "a set of handles: a Set whose members are strings",
 	bitsMember: "a set of handles of the closed relation's roster",

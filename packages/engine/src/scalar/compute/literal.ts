@@ -270,6 +270,8 @@ const carriedOf = (value: LiteralDesc, t: ScalarType): Result.Result<CarriedLite
 			return typeof value === "string"
 				? finish({ kind: "text", value }, value)
 				: Result.err("a string")
+		case "bytes":
+			return Result.err("no literal: a bytes value is written and read back whole")
 		case "code":
 			return typeof value === "string"
 				? finish({ kind: "handle", handle: value }, value)

@@ -13,6 +13,7 @@ import { assert } from "#test/support/assert.ts"
 import { isList } from "#test/support/list.ts"
 import { mergeComparator } from "#test/support/merge.ts"
 import { statementSql } from "#test/support/sql.ts"
+import { textsOfParams } from "#test/support/wire.ts"
 
 /**
  * A page as the runtime delivers it, trusted at its documented shape: the runtime readers type it unknown, since their
@@ -325,7 +326,10 @@ export const countingExecutor = (
 				}
 				for (const statement of flight.statements) {
 					counts.statements++
-					counts.sent.push({ sql: statementSql(statement), params: statement.params })
+					counts.sent.push({
+						sql: statementSql(statement),
+						params: textsOfParams(statement.params)
+					})
 				}
 				return inner.run(flight)
 			})

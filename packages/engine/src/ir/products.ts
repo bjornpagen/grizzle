@@ -9,7 +9,7 @@ import type {
 	SchemaFingerprint
 } from "#compiler/core/ids.ts"
 import type * as Result from "#compiler/core/result.ts"
-import type { OutputText, ParamText } from "#compiler/core/wire.ts"
+import type { OutputText, Param, ParamText } from "#compiler/core/wire.ts"
 import type { Certificate } from "#compiler/ir/certificate.ts"
 import type { SchemaDesc } from "#compiler/ir/desc.ts"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
@@ -65,12 +65,15 @@ export interface NormalFacts {
 export type ArrayTexts = ReadonlyArray<ParamText>
 
 /**
- * A relation input's column whose array literal would be longer than the longest string the host builds
- * (core/limits.ts maxStringLength): no placeholder can carry it, so the input is refused before any SQL is sent, which
- * the shell raises as InputTooLarge. `input` names the relation parameter or the written relation, `column` its field.
+ * A relation input's column whose array no placeholder can carry, so the input is refused before any SQL is sent, which
+ * the shell raises as InputTooLarge: a text array literal longer than the longest string the host builds, `limit`
+ * UTF-16 code units (core/limits.ts maxStringLength), or a bytes column's binary array longer than the longest message
+ * PostgreSQL reads, `limit` bytes (core/limits.ts messageMaxBytes; codec/bytea.ts). `input` names the relation
+ * parameter or the written relation, `column` its field.
  */
 export interface LiteralBound {
 	readonly _tag: "LiteralBound"
+	readonly form: "text" | "binary"
 	readonly input: string
 	readonly column: string
 	readonly limit: number
@@ -95,7 +98,7 @@ export type KeyNormalized = NormalFacts & { readonly [keyNormalizedBrand]: true 
 type ArrayEncoder<F extends NormalFacts> = (
 	facts: F,
 	part: number
-) => Result.Result<ParamText, LiteralBound>
+) => Result.Result<Param, LiteralBound>
 
 /** MemberEncoder: a member slot's key-normalized facts to one of its arrays. */
 export type MemberEncoder = ArrayEncoder<KeyNormalized>

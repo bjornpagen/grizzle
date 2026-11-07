@@ -184,6 +184,7 @@ const identityOf = (desc: FieldDesc): string => {
 		case "pg":
 			return desc.type
 		case "numeric":
+		case "bytes":
 		case "uuid":
 		case "text":
 			return desc.kind
@@ -217,6 +218,7 @@ const sided = (sketch: DeclaredSketch, side: string): DeclaredSketch => {
 				return { ...desc, endpoint: rename(desc.endpoint, depth + 1) }
 			case "pg":
 			case "numeric":
+			case "bytes":
 			case "uuid":
 			case "text":
 			case "vector":
@@ -241,6 +243,7 @@ const bareDate = (desc: FieldDesc): boolean => {
 		case "span":
 			return bareDate(desc.endpoint)
 		case "numeric":
+		case "bytes":
 		case "uuid":
 		case "text":
 		case "closedId":
@@ -272,6 +275,7 @@ const pairedGen = (a: DeclaredSketch): Gen<readonly [Pairing, DeclaredSketch]> =
 					case "bits":
 						return ["another roster", sided(a, "b")]
 					case "pg":
+					case "bytes":
 					case "uuid":
 					case "contract":
 					case "span":

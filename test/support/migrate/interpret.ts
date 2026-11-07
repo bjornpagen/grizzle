@@ -538,6 +538,7 @@ const valueOf = (value: string, type: TypeRef): SqlValue => {
 		case "numeric":
 		case "real":
 		case "record":
+		case "bytea":
 		case "uuid":
 		case "date":
 		case "daterange":

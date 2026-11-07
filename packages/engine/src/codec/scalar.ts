@@ -46,6 +46,7 @@ import {
  * | uuid | lowercase hyphenated |
  * | date | YYYY-MM-DD, 0001-01-01 to 9999-12-31 |
  * | text | the string |
+ * | bytes | `\x` and two lowercase hex digits a byte, byteain's hex input; a member's array is binary (codec/bytea.ts) |
  * | code | the handle's code, decimal digits |
  * | bits | X then bit(n)'s whole hex digits, position i code i, a hole and the padding 0 |
  * | range4, range8, rangeDate | [start,end) |
@@ -59,7 +60,11 @@ export interface ScalarCodec {
 	readonly type: ScalarType
 	/** The exact carrier's admission spec (values/identity.ts), which fact identity uses. */
 	readonly spec: CarrierSpec
-	/** Admit a host value and write its canonical text: the parameter text, the array element, the fact identity's part. */
+	/**
+	 * Admit a host value and write its canonical text: the parameter text, the array element, the fact identity's part.
+	 * A bytes value's is byteain's hex text, which no parameter carries, since no parameter is bytes; its member arrays
+	 * travel in binary (codec/bytea.ts).
+	 */
 	readonly encode: (value: unknown) => Result.Result<ParamText, CodecFault>
 	/**
 	 * The canonical text of an admitted value: one text per value under native equality. A value of another carrier's
@@ -97,6 +102,7 @@ export const carrierSpecOf = (type: ScalarType, codes: Codebook): CarrierSpec =>
 		case "uuid":
 		case "date":
 		case "text":
+		case "bytes":
 		case "exactInteger":
 		case "exactMoney":
 			return { carrier: type.carrier }

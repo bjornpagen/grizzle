@@ -2,6 +2,7 @@ import { scalarReader } from "#compiler/codec/read.ts"
 import type { OutputText } from "#compiler/core/wire.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { RelationInfo } from "#compiler/ir/law.ts"
+import { isBytes } from "#compiler/scalar/values/bytes.ts"
 import type { FactIdentity } from "#compiler/scalar/values/identity.ts"
 import { isVector } from "#compiler/scalar/values/vector.ts"
 import type { KeyHost, Witness } from "#compiler/types/changeset/changeset.ts"
@@ -235,9 +236,12 @@ export const witnessDecoder = (context: OutcomeContext): KeyDecoder => {
 			if (column === undefined) {
 				return undefined
 			}
-			/** Every carrier's host value but a vector's and a set's is a key value: ownership refuses a key over a set. */
+			/**
+			 * Every carrier's host value but a vector's, a set's and bytes' is a key value: ownership refuses a key over a
+			 * set or bytes.
+			 */
 			const value = scalarReader(column.type, context.codes).convert(text)
-			if (isVector(value) || isSet(value)) {
+			if (isVector(value) || isSet(value) || isBytes(value)) {
 				return undefined
 			}
 			values[field] = value

@@ -43,6 +43,7 @@ const strictFaults = [
 	"moneyShape",
 	"spanSyntax",
 	"bitsSyntax",
+	"bytesSyntax",
 	"vectorSyntax",
 	"vectorOverflow"
 ] as const
@@ -447,6 +448,22 @@ const readBits =
 		return Result.succeed(handles)
 	}
 
+/**
+ * byteaout's hex text: `\x`, then two lowercase hex digits a byte, which hex_encode writes; any other text is
+ * bytesSyntax.
+ */
+const readBytes = (text: string): Result.Result<Uint8Array<ArrayBuffer>, StrictFault> => {
+	if (!Str.startsWith("\\x")(text) || text.length % 2 !== 0) {
+		return Result.fail("bytesSyntax")
+	}
+	for (let at = 2; at < text.length; at++) {
+		if (!Option.exists(Str.charCodeAt(text, at), (c) => isDigit(c) || (c >= 0x61 && c <= 0x66))) {
+			return Result.fail("bytesSyntax")
+		}
+	}
+	return Result.succeed(Uint8Array.fromHex(Str.slice(2)(text)))
+}
+
 const readers: {
 	readonly [C in Carrier]: (
 		spec: SpecOf<C>
@@ -463,6 +480,7 @@ const readers: {
 	uuid: () => (text) => toResult(toUuid(text)),
 	date: () => (text) => toResult(toCalendarDate(text)),
 	text: () => (text) => toResult(validateText(text)),
+	bytes: () => readBytes,
 	code: (spec) => readCode(spec.roster),
 	bits: (spec) => readBits(spec.roster),
 	range4: () => readSpan("int4"),

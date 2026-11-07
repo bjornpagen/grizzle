@@ -77,6 +77,9 @@ const vectorOf =
 
 const itself = (text: string): unknown => text
 
+/** No cursor carries a bytes value, which has no order, so every text reads none, which admission refuses. */
+const noValue = (): unknown => undefined
+
 /** A code's decimal digits, read as the handle it names; a hole, a code past the roster or other text reads none. */
 const handleOf =
 	(roster: RosterCodec) =>
@@ -136,6 +139,7 @@ const candidates: { readonly [C in Carrier]: (spec: SpecOf<C>) => (text: string)
 	uuid: () => itself,
 	date: () => itself,
 	text: () => itself,
+	bytes: () => noValue,
 	code: (spec) => handleOf(spec.roster),
 	bits: (spec) => handlesOf(spec.roster),
 	range4: () => spanOf(Number),

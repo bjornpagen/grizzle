@@ -20,6 +20,7 @@ import type {
 	Facts,
 	FactsOf,
 	LanguageOf,
+	Refusal,
 	Rostered
 } from "#compiler/types/core/phantom.ts"
 
@@ -56,6 +57,21 @@ export type { CalendarDate } from "#compiler/ir/date.ts"
 
 /** date: a calendar day, its host value and language its ISO 8601 text (scalar/date.ts). */
 export type DateField = Field<CalendarDate, "date">
+
+/**
+ * bytes: PostgreSQL's bytea, its host value a Uint8Array over its own ArrayBuffer, written and read back whole: its SQL
+ * type "bytea" is storage alone, which no key, side, computation, parameter, filter or written-by-PostgreSQL field takes
+ * (scalar/bytes.ts).
+ */
+export type BytesField = Field<Uint8Array<ArrayBuffer>, "bytea">
+
+/**
+ * The refusal of a descriptor or term of SQL type Sql where it is bytes, which no key, rule, computation, parameter,
+ * filter, contract or written-by-PostgreSQL field takes; nothing for any other.
+ */
+export type NotBytes<Sql> = [Sql] extends ["bytea"]
+	? Refusal<"bytes are stored only, written and read back whole: no key, rule, computation, parameter or filter reads them">
+	: unknown
 
 export interface Field<out Host, out Sql extends SqlTag, out D = Host, out F extends Facts = Facts>
 	extends FieldBase, Proving<F> {

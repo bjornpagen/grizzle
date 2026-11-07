@@ -74,7 +74,7 @@ import { type FoldMonoid, folded } from "#test/support/families/fold.ts"
 import { lawNamesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { checking, owning } from "#test/support/policy.ts"
-import { outputRows } from "#test/support/wire.ts"
+import { outputRows, textsOfParams } from "#test/support/wire.ts"
 import { descOf, parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 
 /**
@@ -2018,7 +2018,7 @@ const runStep =
 						bound.form(statement).paramSlots,
 						s.relation,
 						s.result,
-						succeeded(chunks(statement))
+						Arr.map(succeeded(chunks(statement)), textsOfParams)
 					)
 					if (verdict !== undefined) {
 						return refuse(verdict)
@@ -2046,7 +2046,10 @@ const runStep =
 					)
 				}
 				for (const chunk of succeeded(chunks(statement))) {
-					if (applyFamily(db, step, step.relation, family, rowsOfChunk(chunk)) === "key") {
+					if (
+						applyFamily(db, step, step.relation, family, rowsOfChunk(textsOfParams(chunk))) ===
+						"key"
+					) {
 						return refuse("key")
 					}
 					if (!checked()) {

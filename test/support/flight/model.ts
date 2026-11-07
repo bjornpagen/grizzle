@@ -16,6 +16,7 @@ import {
 	type Transaction,
 	writeFrame
 } from "#adapter/wire/batch.ts"
+import { textsOfParams } from "#test/support/wire.ts"
 
 import {
 	type Answer,
@@ -246,7 +247,9 @@ const framedSlot = (
 		case "prologue":
 			return {
 				kind: "prologue",
-				params: slot.step === "lock" ? flightPrologue.fence.params : flightPrologue.enter.params
+				params: textsOfParams(
+					slot.step === "lock" ? flightPrologue.fence.params : flightPrologue.enter.params
+				)
 			}
 		case "end":
 			return { kind: "text", text: frame.end }
@@ -275,7 +278,9 @@ export const framedOf =
 			return { kind: "text", text: controlText(query.control) }
 		}
 		const known = Arr.some(plannedOf(call), (planned) => statementOf(planned).sql === query.sql)
-		return known ? { kind: "text", text: query.sql } : { kind: "prologue", params: query.params }
+		return known
+			? { kind: "text", text: query.sql }
+			: { kind: "prologue", params: textsOfParams(query.params) }
 	}
 
 /** A failure of the wire as plain data, compared structurally. */

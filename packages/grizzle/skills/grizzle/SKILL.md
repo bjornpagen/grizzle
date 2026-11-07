@@ -368,8 +368,9 @@ The command line's own refusals, by stage:
 - Connect straight to PostgreSQL: PgBouncer is not supported.
 - Every server setting grizzle does not pin is the database owner's, set on the database or the server: a login's
   role holds exactly its pinned defaults, and `Db.open` refuses one that holds any other. A login's role pins only
-  what a grizzle guarantee rests on: `search_path`, `extra_float_digits = 1`, `DateStyle = 'ISO, YMD'`, `lc_monetary`,
-  `lc_numeric` and `lc_time` at `C.UTF-8`, and for a login whose roles search vectors
+  what a grizzle guarantee rests on: `search_path`, `extra_float_digits = 1`, `DateStyle = 'ISO, YMD'`,
+  `bytea_output = hex`, `lc_monetary`, `lc_numeric` and `lc_time` at `C.UTF-8`, and for a login whose roles search
+  vectors
   `hnsw.iterative_scan = strict_order`. So `hnsw.ef_search`, `hnsw.max_scan_tuples` and `hnsw.scan_mem_multiplier`
   decide which rows an `approximateNearest` read returns and how many; JIT is the owner's too, and on a server built
   with LLVM `jit_above_cost` can make a large statement compile its plan first; and the server's messages come in its
@@ -474,6 +475,8 @@ The command line's own refusals, by stage:
   `Compute.difference`, `Compute.cardinality`, `Compute.subset`, `Compute.disjoint` and `Compute.singleton`, and no
   complement. Test a closed id's membership in a set as `Compute.subset(Compute.singleton(id), set)`:
   `Compute.singleton(id)` is the set of the id's one handle, and a NULL id gives a NULL set.
+- A `bytes` field, a `Uint8Array`, is written and read back whole and nothing more: never in a key, a rule's side, a
+  filter, a parameter, a `Compute` call, a contract, or a generated or accumulated field.
 - Every numeric field declares its precision and scale, `pg.numeric(p, s)`; there is no bare `pg.numeric`. A sum,
   a mean or an operation's numeric result carries the digits its computation proves, and one past 131,072 integer
   digits is `ResourceBound`. Convert an integer, money or a float to numeric with `Compute.numeric(x)`, never a cast to

@@ -189,6 +189,7 @@ const spelledLiteral = (
 		case "uuid":
 		case "date":
 		case "text":
+		case "bytes":
 		case "code":
 		case "bits":
 		case "span":
@@ -296,6 +297,11 @@ export const literalFor = (
 				return refuse(location, "text (well-formed, without NUL)", value)
 			}
 			return Result.succeed(literal({ kind: "text", value }, type))
+		case "bytes":
+			if (!(value instanceof Uint8Array)) {
+				return refuse(location, "bytes (a Uint8Array)", value)
+			}
+			return Result.succeed(literal({ kind: "text", value: `\\x${value.toHex()}` }, type))
 		case "code": {
 			const code = typeof value === "string" ? v.roster.codeOf.get(value) : undefined
 			if (code === undefined) {

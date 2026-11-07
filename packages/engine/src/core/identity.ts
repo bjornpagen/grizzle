@@ -896,6 +896,15 @@ export const identity = Object.freeze({
 			`date range check of ${relation}.${field}`,
 			hashed
 		),
+	/** A bytes column's length CHECK: the bytes whose hex text one string holds. */
+	bytesCheck: (relation: string, field: string): Identity<"bytesCheck"> =>
+		mint(
+			"bytesCheck",
+			[relation, field],
+			[relation, "length", field],
+			`bytes length check of ${relation}.${field}`,
+			hashed
+		),
 	/** A contract's, text domain's, roster's or set's domain's CHECK, `check` in its domain's constraint namespace. */
 	domainCheck: (
 		domain: Identity<"contractDomain" | "textDomain" | "rosterDomain" | "bitsDomain">

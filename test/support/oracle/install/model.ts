@@ -20,6 +20,7 @@ export type ValueKind =
 	| { readonly kind: "uuid" }
 	| { readonly kind: "date" }
 	| { readonly kind: "text" }
+	| { readonly kind: "bytes" }
 	| { readonly kind: "code"; readonly roster: RosterCodec }
 	| { readonly kind: "bits"; readonly roster: RosterCodec }
 	| { readonly kind: "span"; readonly carrier: SpanCarrier }

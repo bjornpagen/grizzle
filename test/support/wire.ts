@@ -9,7 +9,7 @@
  */
 import { Array as Arr, String as Str } from "effect"
 import { nominal } from "#compiler/core/brand.ts"
-import type { OutputRows, OutputText, ParamText } from "#compiler/core/wire.ts"
+import type { OutputRows, OutputText, Param, ParamText } from "#compiler/core/wire.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 
 /** A text a test states PostgreSQL wrote. */
@@ -21,6 +21,21 @@ export const outputRows = (rows: ReadonlyArray<ReadonlyArray<string>>): OutputRo
 
 /** A parameter text a test sends on the wire itself, or expects an encoder to write. */
 export const paramText = nominal<string, ParamText>()
+
+/**
+ * A placeholder's value as its text, for a test whose statements hold no bytes column's member array, the one binary
+ * parameter (codec/bytea.ts): a binary one there is the test's own error, and throws.
+ */
+export const textOfParam = (param: Param): ParamText => {
+	if (typeof param !== "string") {
+		throw new Error("a binary parameter where the test's statements hold no bytes column")
+	}
+	return param
+}
+
+/** Placeholder values as their texts (textOfParam). */
+export const textsOfParams = (params: ReadonlyArray<Param>): ReadonlyArray<ParamText> =>
+	Arr.map(params, textOfParam)
 
 /** The bits one hex digit's value spells, most significant first. */
 const digitBits = (digit: string): string =>

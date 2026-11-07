@@ -73,6 +73,7 @@ import { clusterConnection, parsedConnection, SqlError } from "#test/support/pg.
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
+import { textsOfParams } from "#test/support/wire.ts"
 import { type FullWorld, fullWorld } from "#test/support/worlds.ts"
 
 /**
@@ -506,7 +507,7 @@ export const runtimeSession = Effect.fn("runtimeSession")(function* <S>(
 					query._tag === "statement" &&
 					query.sql !== prologue.fence.server.sql &&
 					query.sql !== prologue.enter.server.sql
-						? Result.succeed({ sql: query.sql, params: [...query.params] })
+						? Result.succeed({ sql: query.sql, params: textsOfParams(query.params) })
 						: Result.failVoid
 				)
 			)

@@ -78,6 +78,7 @@ const sqlType = (schema: string, c: HeadingColumn): string => {
 			return "text COLLATE pg_catalog.pg_c_utf8"
 		case "code":
 			return rosterDomainSql(schema, c.type.roster.closed)
+		case "bytes":
 		case "float4":
 		case "int2":
 		case "range4":

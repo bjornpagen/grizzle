@@ -397,8 +397,8 @@ class Call {
 	}
 
 	/**
-	 * finish of an expression whose value is plain: a closed id's, a set's, a span's and a vector's values are no plain
-	 * value.
+	 * finish of an expression whose value is plain: a closed id's, a set's, a span's, a vector's and bytes' values are no
+	 * plain value.
 	 */
 	finishPlain(real: OpenExpr, ph: ExprDesc): PlainChecked {
 		const checked = this.finish(real, ph)
@@ -409,7 +409,8 @@ class Call {
 			carrier === "range4" ||
 			carrier === "range8" ||
 			carrier === "rangeDate" ||
-			carrier === "vector"
+			carrier === "vector" ||
+			carrier === "bytes"
 		) {
 			return malformed(this.loc, `a value of a plain SQL type, not ${typeLabel(checked.type)}`)
 		}
@@ -658,6 +659,7 @@ const zeroOf = (t: ScalarType): unknown => {
 		case "uuid":
 		case "date":
 		case "text":
+		case "bytes":
 		case "code":
 		case "bits":
 		case "range4":

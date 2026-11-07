@@ -953,6 +953,7 @@ const filler = (type: ScalarType, i: number): TypedLiteral => {
 				kind: "numeric",
 				value: defined(DecimalText.parse(`${i}`), `the decimal text ${i}`)
 			}
+		case "bytes":
 		case "float4":
 		case "float8":
 		case "range4":

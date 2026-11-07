@@ -56,6 +56,7 @@ import { f } from "#test/support/fixtures/ir/desc.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { largeStatements } from "#test/support/oracle/forms.ts"
+import { textOfParam } from "#test/support/wire.ts"
 
 /**
  * The pure parts of the reader: a relation input from the caller's value to the arrays its statements bind, every
@@ -592,7 +593,9 @@ describe("a read's relation input", () => {
 								[heading, declaredColumns],
 								[otherNames, otherColumns]
 							] as const) {
-								const literals = Arr.map(arraysOver(columns), readArrayLiteral)
+								const literals = Arr.map(arraysOver(columns), (array) =>
+									readArrayLiteral(textOfParam(array))
+								)
 								const rows = Arr.map(defined(literals[0], "a column's array"), (_, row) =>
 									keyOf(Arr.map(literals, (column) => column[row]))
 								)

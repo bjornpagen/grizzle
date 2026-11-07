@@ -174,6 +174,7 @@ const sum = (values: Arr.NonEmptyReadonlyArray<Value>, type: ScalarType): Value 
 		case "range4":
 		case "range8":
 		case "rangeDate":
+		case "bytes":
 		case "text":
 		case "uuid":
 		case "date":
@@ -204,6 +205,7 @@ const avg = (values: Arr.NonEmptyReadonlyArray<Value>, type: ScalarType): Value 
 		case "range4":
 		case "range8":
 		case "rangeDate":
+		case "bytes":
 		case "text":
 		case "uuid":
 		case "date":

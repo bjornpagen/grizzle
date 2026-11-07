@@ -125,6 +125,7 @@ export const roleDefaultSettings = [
 	{ parameter: "search_path" },
 	{ parameter: "extra_float_digits", value: "1" },
 	{ parameter: "DateStyle", value: "ISO, YMD" },
+	{ parameter: "bytea_output", value: "hex" },
 	{ parameter: "lc_monetary", value: "C.UTF-8" },
 	{ parameter: "lc_numeric", value: "C.UTF-8" },
 	{ parameter: "lc_time", value: "C.UTF-8" }

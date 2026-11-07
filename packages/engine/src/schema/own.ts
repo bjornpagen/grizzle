@@ -184,6 +184,7 @@ export interface OwnedContract {
  *   (MalformedDescription);
  * - a side term pred of a field that is not natural, a selection or row check that reads anything but its own row,
  *   and a key over a closed relation (MalformedDescription);
+ * - a key over a bytes field, and a side that reads one: bytes have no equality (UnsupportedOperation);
  * - a statement that names a derived relation (LawOnDerived), and a family, tree, fold or alternatives statement over
  *   anything but ordinary relations, its slots' owner one with a field of its count, and a roster (MalformedDescription);
  * - a primary or candidate key whose index entry can exceed PostgreSQL's limit (UnrepresentableKey, representability.ts);
@@ -680,9 +681,21 @@ const ownKey = (
 	const layout = keyLayout(
 		keyFields.map((field) => {
 			const decl = r.fields[field]
-			return decl === undefined
-				? fail("MalformedDescription", loc, `a key over fields of ${name}; ${field} is not one`)
-				: { field, desc: decl.type }
+			if (decl === undefined) {
+				return fail(
+					"MalformedDescription",
+					loc,
+					`a key over fields of ${name}; ${field} is not one`
+				)
+			}
+			if (decl.type.kind === "bytes") {
+				return fail(
+					"UnsupportedOperation",
+					loc,
+					`equality: a key over ${name}.${field}, which is bytes: a bytes value is stored only, so no key holds one`
+				)
+			}
+			return { field, desc: decl.type }
 		})
 	)
 	if (!layout.ok) {
@@ -1142,6 +1155,13 @@ class Owner {
 		)
 		for (const t of reading) {
 			const desc = entry.heading[t.field]
+			if (desc?.kind === "bytes") {
+				fail(
+					"UnsupportedOperation",
+					s.desc.loc,
+					`equality: ${statementLabel(s.desc)} reads ${side.relation}.${t.field}, which is bytes: a bytes value is stored only, so no rule's side reads one`
+				)
+			}
 			if (t.kind === "pred" && (desc === undefined || !isNaturalDesc(desc))) {
 				fail(
 					"MalformedDescription",

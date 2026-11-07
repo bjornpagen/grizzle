@@ -608,6 +608,13 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 				}
 				return drawnWriting
 			case "accumulated":
+				if (f.desc.kind === "bytes") {
+					return fail(
+						"UnsupportedOperation",
+						at,
+						`storage: accumulated field ${r.name}.${f.name} of ${typeLabel(type)}, which is stored only, written by its caller and never by grizzle's fill`
+					)
+				}
 				if (f.desc.kind === "span" || f.desc.kind === "vector") {
 					return fail(
 						"MalformedDescription",
@@ -639,6 +646,13 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 		patterns: PatternAutomata
 	): FieldWriting {
 		const loc = generatedLoc(r, field)
+		if (declared.carrier === "bytes") {
+			return fail(
+				"UnsupportedOperation",
+				loc,
+				`storage: generated field ${r.name}.${field} of ${typeLabel(declared)}, which is stored only, written by its caller and never by PostgreSQL from its row`
+			)
+		}
 		const above = closedReadNames(expr).find(row.above)
 		if (above !== undefined) {
 			return fail(

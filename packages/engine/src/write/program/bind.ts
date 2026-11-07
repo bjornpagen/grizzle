@@ -13,7 +13,7 @@ import { maxStringLength } from "#compiler/core/limits.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import { type ReadonlyTupleMap, TupleMap, TupleSet } from "#compiler/core/tuple-map.ts"
-import type { OutputText, ParamText } from "#compiler/core/wire.ts"
+import type { OutputText, Param, ParamText } from "#compiler/core/wire.ts"
 import { type Family, isSequence, isTreeOf } from "#compiler/ir/family.ts"
 import type { FamilyId, LawField, RelationInfo } from "#compiler/ir/law.ts"
 import type { LiteralBound, WriteSlot } from "#compiler/ir/products.ts"
@@ -134,12 +134,12 @@ export interface BoundWrite {
 	/** The form of a statement of an artifact this application sends (`sentForm`). */
 	readonly form: (statement: ArtifactStatement) => SentForm
 	/**
-	 * The placeholder texts of that form: none reads another statement's rows. A relation input's arrays are written
-	 * once per statement, by the encoder its placeholders share.
+	 * The placeholder values of that form, each a text or a bytes value's binary form: none reads another statement's
+	 * rows. A relation input's arrays are written once per statement, by the encoder its placeholders share.
 	 */
 	readonly values: (
 		statement: ArtifactStatement
-	) => Result.Result<ReadonlyArray<ParamText>, EncodingFailure | LiteralBound>
+	) => Result.Result<ReadonlyArray<Param>, EncodingFailure | LiteralBound>
 	/** How the application's statements reach the server: one flight, or a read flight first (`Flights`). */
 	readonly flights: Flights
 }
@@ -155,7 +155,7 @@ export interface BoundWrite {
 export type Chunks = (
 	statement: ArtifactStatement
 ) => Result.Result<
-	ReadonlyArray<ReadonlyArray<ParamText>>,
+	ReadonlyArray<ReadonlyArray<Param>>,
 	EncodingFailure | LiteralBound | FamilyRowBound | CompileError
 >
 
@@ -313,7 +313,7 @@ export const bindWrite = (
 	const encodeSlot = (
 		slot: WriteSlot,
 		slotFacts: (slot: ParamId) => NormalizedSlot
-	): Result.Result<ParamText, EncodingFailure | LiteralBound> => {
+	): Result.Result<Param, EncodingFailure | LiteralBound> => {
 		switch (slot.kind) {
 			case "scalar":
 				return slot.encode(inputs.params[slot.param])
@@ -339,8 +339,8 @@ export const bindWrite = (
 		(slotFacts: (slot: ParamId) => NormalizedSlot) =>
 		(
 			statement: ArtifactStatement
-		): Result.Result<ReadonlyArray<ParamText>, EncodingFailure | LiteralBound> => {
-			const out: Array<ParamText> = []
+		): Result.Result<ReadonlyArray<Param>, EncodingFailure | LiteralBound> => {
+			const out: Array<Param> = []
 			for (const slot of form(statement).paramSlots) {
 				const encoded = encodeSlot(slot, slotFacts)
 				if (!encoded.ok) {
@@ -1203,7 +1203,7 @@ export const bindWrite = (
 							? target.kind === "owners" && familyKey(s.family) === familyKey(target.family)
 							: target.kind === "rows" && s.relation === target.relation)
 				)
-			const out: Array<ReadonlyArray<ParamText>> = []
+			const out: Array<ReadonlyArray<Param>> = []
 			for (const s of sent) {
 				const arrays = arraysOf(step.relation, s)
 				if (!arrays.ok) {

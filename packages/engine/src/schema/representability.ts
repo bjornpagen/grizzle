@@ -468,6 +468,7 @@ const integerFamily = (desc: FieldDesc): "int4" | "int8" | undefined => {
 			return desc.type === "integer" ? "int4" : desc.type === "bigint" ? "int8" : undefined
 		case "numeric":
 		case "uuid":
+		case "bytes":
 		case "text":
 		case "span":
 		case "closedId":
@@ -517,7 +518,10 @@ const numericMaximumSize = (precision: number): number =>
 const rangeBytes = (endpoint: Limit): number =>
 	rangeHeaderBytes.value + bounds.length * endpoint.value + rangeFlagBytes.value
 
-/** The largest index datum of a field, declared or inferred; undefined for text whose pattern proves no byte bound. */
+/**
+ * The largest index datum of a field, declared or inferred; undefined for bytes and for text whose pattern proves no
+ * byte bound.
+ */
 export const datumBound = (desc: InferredFieldDesc): DatumBound | undefined => {
 	switch (desc.kind) {
 		case "contract":
@@ -545,6 +549,8 @@ export const datumBound = (desc: InferredFieldDesc): DatumBound | undefined => {
 					: fixed(rangeBytes(typlens.int8), 8, "range")
 		case "vector":
 			return fixed(vectorHeaderBytes.value + typlens.float4.value * desc.dimensions, 4, "vector")
+		case "bytes":
+			return undefined
 		case "text":
 			break
 	}
@@ -717,8 +723,8 @@ export type KeyFields = ReadonlyArray<{
 }>
 
 /**
- * The bounded datums of a key's fields, or why the key has none: more columns than one index holds, or a field whose
- * datum has no bound. The rule every key's index entry starts from, a declared key's (keyLayout) and an inherited
+ * The bounded datums of a key's fields, or why the key has none: more columns than one index holds, a bytes field,
+ * which is stored only, or a field whose datum has no bound. The rule every key's index entry starts from, a declared key's (keyLayout) and an inherited
  * one's (analysis/derived/keys.ts derivedKeyLayout).
  */
 export const keyDatums = (
@@ -740,6 +746,9 @@ export const keyDatums = (
 		readonly datum: DatumBound
 	}> = []
 	for (const { field, desc } of fields) {
+		if (desc.kind === "bytes") {
+			return Result.err({ kind: "storageOnly", field })
+		}
 		const bound = datumBound(desc)
 		if (bound === undefined) {
 			return Result.err({ kind: "unboundedText", field })

@@ -47,6 +47,7 @@ export const types = {
 	bool: ofCarrier("bool", plainType("bool")),
 	uuid: ofCarrier("uuid", scalarOf(f.uuid, {})),
 	text: ofCarrier("text", wildcardText),
+	bytes: ofCarrier("bytes", scalarOf({ kind: "bytes" }, {})),
 	kind: ofCarrier(
 		"code",
 		scalarOf(f.closedId("Kind"), { Kind: ["Manual", "Automatic", "Ünïcode"] })

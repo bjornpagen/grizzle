@@ -57,7 +57,7 @@ import {
 	type EmittedText,
 	messageMaxBytes,
 	type OutputRows,
-	type ParamText,
+	type Param,
 	type SchemaFingerprint,
 	sqlstates
 } from "#compiler/plan/common.ts"
@@ -72,16 +72,16 @@ export type MigrationText = string & Brand.Brand<"MigrationText">
  */
 export type SentText = EmittedText | MigrationText
 
-/** One statement of a flight: its SQL and its parameters' texts, in placeholder order. */
+/** One statement of a flight: its SQL and its parameters, each a text or a binary value, in placeholder order. */
 export interface BatchStatement {
 	readonly sql: SentText
-	readonly params: ReadonlyArray<ParamText>
+	readonly params: ReadonlyArray<Param>
 }
 
-/** One run of a server statement of the session's pool, with its parameters' texts, in placeholder order. */
+/** One run of a server statement of the session's pool, with its parameters, in placeholder order. */
 export interface NamedStatement {
 	readonly server: ServerStatement
-	readonly params: ReadonlyArray<ParamText>
+	readonly params: ReadonlyArray<Param>
 }
 
 /**
@@ -1098,7 +1098,7 @@ export const bindFrame: BindFrame = {
  * The length the Bind message of one execution of `statement` declares, its Int32 length word included and its type
  * byte not, as pg 8.23 writes it (pg-protocol 1.16 serializer.ts `bind`): its fields of fixed size (bindFields), the
  * statement's name (none, or its server statement's), and each parameter's fields of fixed size (bindParamFields) and
- * UTF-8 bytes.
+ * bytes: a text's UTF-8 bytes, a binary value's own.
  */
 export const bindLength = (statement: FlightStatement): number => {
 	const name = "server" in statement ? statement.server.name : ""
@@ -1112,7 +1112,10 @@ export const bindLength = (statement: FlightStatement): number => {
 		bindFields.results +
 		bindFields.result
 	for (const param of statement.params) {
-		length += bindParamFields.format + bindParamFields.length + Buffer.byteLength(param, "utf8")
+		length +=
+			bindParamFields.format +
+			bindParamFields.length +
+			(typeof param === "string" ? Buffer.byteLength(param, "utf8") : param.byteLength)
 	}
 	return length
 }

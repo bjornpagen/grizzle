@@ -223,6 +223,8 @@ export const valueIdentity = (v: Value, type: ScalarType): ValueIdentity => {
 			return ["value", asMoney(v).minorUnits]
 		case "bool":
 			return ["value", v === true]
+		case "bytes":
+			throw referenceUnsupported("a bytes value, which is stored only")
 		case "uuid":
 		case "date":
 		case "text":
@@ -273,6 +275,8 @@ export const indexIdentity = (v: Value, type: ScalarType): ValueIdentity | undef
 			return v instanceof Money ? valueIdentity(v, type) : undefined
 		case "bool":
 			return typeof v === "boolean" ? valueIdentity(v, type) : undefined
+		case "bytes":
+			return undefined
 		case "uuid":
 		case "date":
 		case "text":
@@ -443,6 +447,8 @@ export const literalOfValue = (v: Value, type: ScalarType): TypedLiteral => {
 			return { kind: "money", value: asMoney(v) }
 		case "bool":
 			return { kind: "bool", value: asBoolean(v) }
+		case "bytes":
+			throw referenceUnsupported("a bytes value, which is stored only")
 		case "text":
 			return { kind: "text", value: asString(v) }
 		case "uuid":

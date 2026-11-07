@@ -1350,6 +1350,7 @@ const cellText = (v: Value, type: ScalarType): string => {
 			return String(code)
 		}
 		case "bool":
+		case "bytes":
 		case "bits":
 		case "float4":
 		case "float8":

@@ -351,6 +351,7 @@ export const catalogTypeName = {
 	uuid: "uuid",
 	date: "date",
 	text: "text",
+	bytes: "bytea",
 	code: "smallint",
 	bits: "bit",
 	range4: "anyrange",
@@ -1055,6 +1056,13 @@ const catalogOverloads = {
 	"in:text": membership("text", opId("texteq")),
 	"least:text": extreme("least", "text", opId("text_lt")),
 	"greatest:text": extreme("greatest", "text", opId("text_gt")),
+	/**
+	 * bytea's equality and inequality, which no Compute call reaches, since a bytes value has no equality capability:
+	 * what grizzle's own statements compare a stored bytes column by, a rewrite's proof (carrierEquality) and a key
+	 * law's violation, two facts of one key that differ in a payload field (analysis/theory/laws.ts keyViolation).
+	 */
+	byteaeq: comparison("eq", "bytes"),
+	byteane: comparison("ne", "bytes"),
 	"code:int2eq": comparison("eq", "code"),
 	"code:int2ne": comparison("ne", "code"),
 	"code:int2lt": comparison("lt", "code"),
@@ -1524,6 +1532,7 @@ const equalities: { readonly [C in Carrier]: DefinedOp } = Object.freeze({
 	uuid: comparisonId("uuid_eq"),
 	date: comparisonId("date_eq"),
 	text: comparisonId("texteq"),
+	bytes: comparisonId("byteaeq"),
 	code: comparisonId("code:int2eq"),
 	bits: comparisonId("biteq"),
 	range4: definedRangeOp("range_eq", "range4"),

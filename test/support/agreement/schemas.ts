@@ -2799,6 +2799,8 @@ const hostOfDesc = (desc: FieldDesc, base: Base, ids: Ids): string => {
 			return "Fi.Decimal"
 		case "uuid":
 			return "Fi.Uuid"
+		case "bytes":
+			return "Uint8Array<ArrayBuffer>"
 		case "text":
 			return `Tx.RegexInfer<${jsonText(desc.source)}, ${jsonText(desc.flags)}>`
 		case "contract":
@@ -2959,6 +2961,8 @@ const hostOfScalar = (t: ScalarType, ids: Ids): string => {
 			return t.text.regex === "wildcard"
 				? "string"
 				: `Tx.RegexInfer<${jsonText(t.text.regex.source)}, ${jsonText(t.text.regex.flags)}>`
+		case "bytes":
+			return "Uint8Array<ArrayBuffer>"
 		case "code":
 			return literalUnion(t.roster.handles)
 		case "bits":
@@ -5436,6 +5440,8 @@ const valueDescriptorType = (desc: FieldDesc, base: Base, ids: Ids): string => {
 			return "Fi.NumericTypmodField"
 		case "uuid":
 			return 'Fi.Field<Fi.Uuid, "uuid">'
+		case "bytes":
+			return "Fi.BytesField"
 		case "text":
 			return `Tx.RegexText<${hostOfDesc(desc, base, ids)}, ${jsonText(desc.source)}, ${jsonText(desc.flags)}>`
 		case "contract": {
@@ -5477,6 +5483,7 @@ const literalType = (
 		case "bits":
 			return `ReadonlySet<${literalUnion(rosterNamed(base, desc.roster).handles)}>`
 		case "pg":
+		case "bytes":
 		case "uuid":
 		case "text":
 		case "span":

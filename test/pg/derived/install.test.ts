@@ -165,6 +165,7 @@ const typmodOf = (desc: InferredFieldDesc): number => {
 		case "vector":
 			return desc.dimensions
 		case "pg":
+		case "bytes":
 		case "uuid":
 		case "text":
 		case "contract":

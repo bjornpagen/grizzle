@@ -40,6 +40,7 @@ export const builtinTypeNames = [
 	"text",
 	"uuid",
 	"date",
+	"bytea",
 	"jsonb",
 	"money",
 	"int4range",
@@ -91,6 +92,7 @@ export const catalogSpelling: { readonly [T in CatalogTypeName]: CatalogSpelling
 	text: "qualified",
 	uuid: "qualified",
 	date: "qualified",
+	bytea: "qualified",
 	jsonb: "qualified",
 	jsonpath: "qualified",
 	money: "qualified",
@@ -1367,7 +1369,8 @@ export interface AlterDatabaseDefault {
 /**
  * The role-level settings of one text value Publish stores for a login, each one a grizzle guarantee rests on:
  * extra_float_digits, under which float text is shortest round-trip; DateStyle, under which date_out writes ISO 8601's
- * YYYY-MM-DD, a date's host text; lc_monetary, lc_numeric and lc_time, the locale categories a value's text can depend
+ * YYYY-MM-DD, a date's host text; bytea_output, under which byteaout writes `\x` and two hex digits a byte, a bytes
+ * value's text; lc_monetary, lc_numeric and lc_time, the locale categories a value's text can depend
  * on, money's two fractional digits among them; and pgvector's strict-order
  * iterative scan, on which an approximate read's order and its cursors rest (check/approximate/policy.ts). An
  * `hnsw.*` name is a placeholder until the vector library is loaded in the session that stores it. Every other
@@ -1376,6 +1379,7 @@ export interface AlterDatabaseDefault {
 const textParameters = [
 	"extra_float_digits",
 	"DateStyle",
+	"bytea_output",
 	"lc_monetary",
 	"lc_numeric",
 	"lc_time",

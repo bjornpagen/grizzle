@@ -9,6 +9,13 @@ import { codeOf, handlesText, type RosterCodec } from "#compiler/ir/codes.ts"
 import { type CalendarDate, toCalendarDate } from "#compiler/ir/date.ts"
 import type { Carrier } from "#compiler/ir/scalar.ts"
 import { statedRoster } from "#compiler/scalar/values/bits.ts"
+import {
+	admitBytes,
+	type Bytes,
+	bytesText,
+	compareBytes,
+	isBytes
+} from "#compiler/scalar/values/bytes.ts"
 import { Decimal, type NumericTypmod, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 import { compareFloat, floatText, toDouble, toReal } from "#compiler/scalar/values/float.ts"
 import { toInt2, toInt4, toInt8 } from "#compiler/scalar/values/integer.ts"
@@ -68,6 +75,8 @@ export interface CarrierHost {
 	/** A date's host value is its ISO 8601 text, its one form (values/date.ts). */
 	readonly date: CalendarDate
 	readonly text: string
+	/** A bytes value's host value is a Uint8Array over its own ArrayBuffer (values/bytes.ts). */
+	readonly bytes: Bytes
 	/** A closed id's host value is its handle. */
 	readonly code: string
 	/** A set's host value is its handles. */
@@ -95,6 +104,7 @@ interface SpecExtras {
 	readonly uuid: unknown
 	readonly date: unknown
 	readonly text: unknown
+	readonly bytes: unknown
 	readonly code: { readonly roster: RosterCodec }
 	readonly bits: { readonly roster: RosterCodec }
 	readonly vector: { readonly dimensions: number }
@@ -210,6 +220,7 @@ const admitters: Admitters = {
 	uuid: (value) => toUuid(value),
 	date: (value) => toCalendarDate(value),
 	text: (value) => validateText(value),
+	bytes: (value) => admitBytes(value),
 	code: (value, spec) => admitHandle(value, spec.roster),
 	bits: (value, spec) => admitHandles(value, spec.roster),
 	range4: (value, spec) => admitSpan("int4", value, spec.width),
@@ -238,6 +249,7 @@ export const unreadableFault: { readonly [C in Carrier]: ValueFault } = {
 	uuid: "uuidSyntax",
 	date: "dateSyntax",
 	text: "textType",
+	bytes: "bytesType",
 	code: "codeHandle",
 	bits: "bitsType",
 	range4: "spanType",
@@ -287,6 +299,7 @@ const hostChecks: { readonly [C in Carrier]: (value: unknown) => value is Carrie
 	uuid: isString,
 	date: (value): value is CalendarDate => toCalendarDate(value).ok,
 	text: isString,
+	bytes: isBytes,
 	code: isString,
 	bits: isStringSet,
 	range4: isSpanOf(isNumber),
@@ -318,6 +331,7 @@ const canonicalTexts: CanonicalTexts = {
 	uuid: (v) => v,
 	date: (v) => v,
 	text: (v) => v,
+	bytes: (v) => bytesText(v),
 	code: (v, spec) => String(codeOf(spec.roster, v)),
 	bits: (v, spec) => handlesText(spec.roster, v),
 	range4: (v) => spanText(v),
@@ -341,9 +355,11 @@ const canonicalTexts: CanonicalTexts = {
  * - `canonicalText` gives every admitted value its one text, equal exactly when PostgreSQL's equality for the type
  *   holds, because every host value is in its one form (a Decimal has no display scale, a float and a vector component
  *   one zero): numeric 1.0 = 1.00 are one Decimal written 1, NaN = NaN, -0 = +0, text by exact scalar sequence. It is
- *   the parameter text, the array element and the fact identity's part alike (codec/scalar.ts text).
+ *   the parameter text, the array element and the fact identity's part alike (codec/scalar.ts text); a bytes value's is
+ *   byteain's hex text, which a family write's text array carries, while a member's array of bytes travels in binary
+ *   (codec/bytea.ts).
  * - `compareValues` is PostgreSQL's B-tree order for the type: float and numeric total orders with NaN last, text in
- *   code point order, uuid by bytes, closed ids by code, which is roster order, spans by start then end, vectors as
+ *   code point order, uuid and bytes by bytes, closed ids by code, which is roster order, spans by start then end, vectors as
  *   vector_cmp, and sets by their bit strings, an order internal to the host, since a set has no ordering.
  * - `factIdentity` admits a whole fact against its heading and gives it its identity, each field's canonical text in
  *   field-name order, so two facts are the same fact exactly when their identities are equal element by element: the
@@ -379,6 +395,7 @@ const comparators: Comparators = {
 	uuid: (x, y) => compareOrdered(x, y),
 	date: (x, y) => compareOrdered(x, y),
 	text: (x, y) => compareCodePoints(x, y),
+	bytes: (x, y) => compareBytes(x, y),
 	code: (x, y, spec) => sign(codeOf(spec.roster, x) - codeOf(spec.roster, y)),
 	bits: (x, y, spec) => compareOrdered(handlesText(spec.roster, x), handlesText(spec.roster, y)),
 	range4: (x, y) => compareSpan(x, y),

@@ -24,7 +24,7 @@ import { paramText } from "#test/support/wire.ts"
  *
  * A login here is what an installation's migration makes of a login: a role `<schema>__<name>` that logs in, whose role
  * defaults are the installation's own for every login (physical/ddl/roles.ts roleDefaultSettings): search_path =
- * pg_catalog, pg_temp, lc_monetary, lc_numeric and lc_time at C.UTF-8 and extra_float_digits = 1.
+ * pg_catalog, pg_temp, lc_monetary, lc_numeric and lc_time at C.UTF-8, bytea_output = hex and extra_float_digits = 1.
  *
  * The settings an installation stores as role defaults for every login, and their values.
  */

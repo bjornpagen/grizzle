@@ -2,6 +2,7 @@ import { exact, set, structuralHash } from "@grizzle/testing/oracle"
 import { Array as Arr, Data, Formatter, Option, Order, Record as Rec, String as Str } from "effect"
 import { CompileError, type CompileReason, prose, type ProseTag } from "#compiler/core/errors.ts"
 import type { DomainDigest } from "#compiler/core/fingerprint.ts"
+import { bytesMaxLength } from "#compiler/core/limits.ts"
 
 import {
 	type DeclaredName,
@@ -167,6 +168,14 @@ const spanWidth = (column: string, width: bigint): Expr => {
  * The documented cosine domain over a column: pgvector's norm, in double precision, between the domain's derived
  * bounds (ir/carriers.ts cosineNormMin and cosineNormMax).
  */
+/** A bytes column's length CHECK: its octet_length within the bytes whose hex text one string holds. */
+const bytesLength = (column: string): Expr =>
+	binary(
+		"<=",
+		call("octet_length", [tableCol(column)]),
+		lit.int(bytesMaxLength.value, types.integer)
+	)
+
 const vectorNorm = (vectorSchema: string, column: string): Expr => ({
 	kind: "between",
 	expr: qualifiedCall(vectorSchema, "vector_norm", [tableCol(column)]),
@@ -502,6 +511,8 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 				return builtin(builtinType("uuid"), { kind: "uuid" })
 			case "text":
 				return builtin(builtinType("text"), { kind: "text" })
+			case "bytes":
+				return builtin(builtinType("bytea"), { kind: "bytes" })
 			case "contract": {
 				const existing = domains.get(field.name)
 				if (existing !== undefined && existing.identity !== identity(field)) {
@@ -706,7 +717,8 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 			const type = resolve(fieldDesc, fieldLocation)
 			const serial = decl.writing.kind === "serial"
 			/**
-			 * The column's storage CHECKs, in the real installer's order: a span's shape and its width; a vector's norm. A
+			 * The column's storage CHECKs, in the real installer's order: a span's shape and its width; a vector's norm; a
+			 * bytes column's length. A
 			 * span endpoint's contract predicate is a predicate CHECK, which the minimal installer leaves out (see the
 			 * header).
 			 */
@@ -731,6 +743,9 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 					vectorNorm(vectorSchema, column),
 					fieldLocation
 				)
+			}
+			if (stored.kind === "bytes") {
+				check(door.bytesCheck(r.name, field).identifier, bytesLength(column), fieldLocation)
 			}
 			if (!serial) {
 				columns.push({ field, column, type, sequence: { kind: "none" }, location: fieldLocation })

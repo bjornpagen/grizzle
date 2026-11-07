@@ -2,6 +2,7 @@
  * A relation input's encoding, a hot path: every execution that binds a relation input normalizes it and writes each
  * of its facts here, so the per-fact work is native loops with no closure or Option per element.
  */
+import { byteaArray } from "#compiler/codec/bytea.ts"
 import { encodeFailure, factPlace, slotPlace } from "#compiler/codec/fault.ts"
 import {
 	countParam,
@@ -18,7 +19,7 @@ import { maxStringLength } from "#compiler/core/limits.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
 import { type ReadonlyTupleMap, TupleMap } from "#compiler/core/tuple-map.ts"
-import type { ParamText } from "#compiler/core/wire.ts"
+import type { Param, ParamText } from "#compiler/core/wire.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type {
 	ArrayTexts,
@@ -30,6 +31,7 @@ import type {
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import {
 	admitFact,
+	admitted,
 	compareFactIdentities,
 	type FactIdentity,
 	type HeadingField,
@@ -183,7 +185,8 @@ export type NormalForm = (
  * Relation-valued inputs: the array encoder and the Stream collector.
  *
  * An enumerated ChangeSet member and a relation parameter are one thing, a set of facts the input binds, whatever its
- * size. It travels as parallel arrays, one text-format array literal per column, every column's array one element per
+ * size. It travels as parallel arrays, one text-format array literal per column, a bytes column's a binary bytea[]
+ * (codec/bytea.ts) where a member carries it, every column's array one element per
  * fact in the same order, or, for an input of no column, as its count of facts (sql/ast.ts ArraysSource); every member,
  * a Stream included, travels this way. The host codec owns the set property and the null ban for these forms:
  *
@@ -307,7 +310,7 @@ const grown = (
 ): LiteralBound | undefined => {
 	const length = literal.length + added
 	if (length > limit) {
-		return { _tag: "LiteralBound", input, column: literal.column, limit }
+		return { _tag: "LiteralBound", form: "text", input, column: literal.column, limit }
 	}
 	literal.length = length
 	return undefined
@@ -429,7 +432,8 @@ export const textArrayParam = (values: ReadonlyArray<string>): ParamText =>
 
 /**
  * The writer of a placeholder's array of normal facts under `spec` (ir/products.ts ArrayEncoder): of the facts written
- * in the spec's column order, the array at a part, its column's literal (columnLiteral), or, of no column, their count.
+ * in the spec's column order, the array at a part, its column's literal (columnLiteral), a bytes column's binary bytea[]
+ * of its admitted values (codec/bytea.ts byteaArray), or, of no column, their count.
  * Each placeholder writes its own array and no other, and never admits a fact again. Its columns are its input's whole
  * heading in the statement's order, which every statement over an input declares, so the facts are normal under the
  * spec's heading; facts normal under another are the compiler's defect, never the caller's input, since admitting them
@@ -437,7 +441,7 @@ export const textArrayParam = (values: ReadonlyArray<string>): ParamText =>
  */
 export const normalArray = (
 	spec: RelationSpec
-): ((normal: NormalFacts, part: number) => Result.Result<ParamText, LiteralBound>) => {
+): ((normal: NormalFacts, part: number) => Result.Result<Param, LiteralBound>) => {
 	const built = buildSpec(spec)
 	const ownHeading = headingText(built.plan)
 	return (normal, part) => {
@@ -448,13 +452,19 @@ export const normalArray = (
 			return Result.ok(countParam(normal.facts.length))
 		}
 		const column = defined(built.columns[part], "a placeholder's column among its input's columns")
-		return columnLiteral(
-			spec.relation,
-			column.field,
-			normal.facts,
-			(fact) => column.codec.text(fact[column.field]),
-			maxStringLength.value
-		)
+		return column.codec.spec.carrier === "bytes"
+			? byteaArray(
+					spec.relation,
+					column.field,
+					normal.facts.map((fact) => admitted({ carrier: "bytes" }, fact[column.field]))
+				)
+			: columnLiteral(
+					spec.relation,
+					column.field,
+					normal.facts,
+					(fact) => column.codec.text(fact[column.field]),
+					maxStringLength.value
+				)
 	}
 }
 

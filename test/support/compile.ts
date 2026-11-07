@@ -22,6 +22,7 @@ import {
 } from "#compiler/lower/optimize/pipeline.ts"
 import { catalogLowerers } from "#compiler/lower/shapes/catalog/native.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
+import { textOfParam } from "#test/support/wire.ts"
 
 import {
 	compileQuery,
@@ -337,7 +338,7 @@ export const paramTexts = (
 						`encode ${slot.param}: column ${encoded.error.column} past ${encoded.error.limit}`
 					)
 				}
-				return encoded.value
+				return textOfParam(encoded.value)
 			}
 			case "member":
 			case "page":

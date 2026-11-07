@@ -127,6 +127,7 @@ export type RecursionRefusal =
 export type KeyFault =
 	| { readonly kind: "columns"; readonly limit: number }
 	| { readonly kind: "unboundedText"; readonly field: string }
+	| { readonly kind: "storageOnly"; readonly field: string }
 	| {
 			readonly kind: "btreeEntry"
 			readonly bytes: number
@@ -339,6 +340,8 @@ export const keyFaultText = (name: string, key: ReadonlyArray<string>, fault: Ke
 			return `${name}: it has ${key.length} fields, above PostgreSQL's limit of ${fault.limit} columns in one index (INDEX_MAX_KEYS)`
 		case "unboundedText":
 			return `${name}: field ${fault.field} is text whose pattern proves no byte bound; a bounded anchored pattern, or a contract bounding its charLength or octetLength, does`
+		case "storageOnly":
+			return `${name}: field ${fault.field} is bytes, which is stored only, with no equality, so no key or index holds it`
 		case "btreeEntry":
 			return `${name}: its B-tree entry can reach ${fault.bytes} bytes, above PostgreSQL's ${fault.limit}-byte limit (${fault.datums.map((d) => `${d.field} ${d.bytes} bytes`).join(", ")})`
 		case "spans":

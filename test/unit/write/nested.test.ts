@@ -32,6 +32,7 @@ import { testArtifacts, testCompile } from "#test/support/compile.ts"
 import { lawNamesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { checking, owning } from "#test/support/policy.ts"
+import { textOfParam } from "#test/support/wire.ts"
 import { descOf, parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 
 /**
@@ -278,14 +279,14 @@ describe("a nested write through the program", () => {
 							)
 							const nodeChunks = succeeded(chunks(nodeStep))
 							const nodeIds = Arr.flatMap(nodeChunks, (chunk) =>
-								arrayItems(defined(chunk[0], "the ids' array, the key's"))
+								arrayItems(textOfParam(defined(chunk[0], "the ids' array, the key's")))
 							)
 							const expectedIds = Arr.flatMap(box.trees, (parentOf, t) =>
 								Arr.map(numberedOf(parentOf, 300 + 10 * t), (r) => r.id)
 							)
 							assert.deepEqual(nodeIds, expectedIds, "a tree's nodes go in pre-order, tree by tree")
 							const starts = Arr.flatMap(nodeChunks, (chunk) =>
-								arrayItems(defined(chunk[4], "the starts' array"))
+								arrayItems(textOfParam(defined(chunk[4], "the starts' array")))
 							)
 							const expectedStarts = Arr.flatMap(box.trees, (parentOf, t) =>
 								Arr.map(numberedOf(parentOf, 300 + 10 * t), (r) => String(r.start))
@@ -458,7 +459,7 @@ describe("a nested write's facts are a set by identity (rule 0, ruling 1)", () =
 							)
 							const written = Arr.flatMap(
 								succeeded(chunks(defined(lineStep, "the Line insert step"))),
-								(chunk) => arrayItems(defined(chunk[0], "the ids' array, the key's"))
+								(chunk) => arrayItems(textOfParam(defined(chunk[0], "the ids' array, the key's")))
 							)
 							assert.deepEqual(
 								Arr.sort(written, Str.Order),
@@ -553,10 +554,10 @@ describe("a nested tree at depth and width", () => {
 							)
 							const executed = succeeded(chunks(step))
 							const starts = Arr.flatMap(executed, (chunk) =>
-								arrayItems(defined(chunk[4], "the starts' array"))
+								arrayItems(textOfParam(defined(chunk[4], "the starts' array")))
 							)
 							const ends = Arr.flatMap(executed, (chunk) =>
-								arrayItems(defined(chunk[5], "the ends' array"))
+								arrayItems(textOfParam(defined(chunk[5], "the ends' array")))
 							)
 							assert.equal(starts.length, box.n, "every node is written once")
 							for (let k = 0; k < box.n; k += 1) {

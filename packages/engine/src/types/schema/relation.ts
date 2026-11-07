@@ -47,11 +47,13 @@ export type DistinctFields<K> =
 
 /**
  * The fields a primary key may list: no set, whose bit string is wider than an index entry holds (its datum is bounded
- * by a roster's most codes), and none PostgreSQL or grizzle computes from the row it would identify.
+ * by a roster's most codes), no bytes, which have no equality, and none PostgreSQL or grizzle computes from the row it
+ * would identify.
  */
 export type KeyFieldOf<Fields> = {
 	[K in keyof Fields]-?: Fields[K] extends
 		| BitsField<unknown>
+		| { readonly sql: "bytea" }
 		| { readonly writing: "generated" | "accumulated" }
 		? never
 		: K

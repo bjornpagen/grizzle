@@ -71,6 +71,7 @@ export const lexicalTargetOf = (type: ScalarType): LexicalTarget | undefined => 
 		case "money":
 		case "uuid":
 		case "text":
+		case "bytes":
 		case "code":
 		case "bits":
 		case "range4":

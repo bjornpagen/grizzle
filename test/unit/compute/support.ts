@@ -130,6 +130,8 @@ const columnOf = (desc: FieldDesc): Column<unknown> => {
 		}
 		case "bits":
 			return bitsColumn(desc.roster)
+		case "bytes":
+			return convertColumn(convertByCarrier.bytes({ carrier: "bytes" }))
 		case "vector":
 			return convertColumn(
 				convertByCarrier.vector({ carrier: "vector", dimensions: desc.dimensions })

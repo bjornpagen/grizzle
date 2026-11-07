@@ -161,6 +161,8 @@ const sameValue = (value: CarrierValue, text: string, type: ScalarType): boolean
 			throw new Error(
 				`a compute case of a ${c} is compared under its roster's codes, which an evaluation case does not carry`
 			)
+		case "bytes":
+			throw new Error("no compute case reads bytes, which are stored only")
 		case "range4":
 		case "range8":
 		case "rangeDate":

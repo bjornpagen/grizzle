@@ -87,6 +87,7 @@ import type { SqlError } from "#test/support/pg.ts"
 import { spread } from "#test/support/plans.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
+import { textsOfParams } from "#test/support/wire.ts"
 import { type Built, type BuiltRole, buildInstall } from "#test/support/worlds/execute/build.ts"
 import { carrierOf, valueOfText } from "#test/support/worlds/execute/host.ts"
 import type { RealizeRefused } from "#test/support/worlds/execute/refused.ts"
@@ -972,13 +973,13 @@ const precheck = (
 					if (st.step.kind !== "carrier" && st.step.kind !== "analyze") {
 						return assert.fail(`${label}: a ${st.step.kind} statement before the check`)
 					}
-					yield* run(bound.form(st).sql, succeeded(bound.values(st)))
+					yield* run(bound.form(st).sql, textsOfParams(succeeded(bound.values(st))))
 				}
 				const plan = yield* explained(
 					run,
 					label,
 					bound.form(statement).sql,
-					succeeded(bound.values(statement))
+					textsOfParams(succeeded(bound.values(statement)))
 				)
 				return readingOf(cx, label, plan, inputs, Option.some(calls))
 			})

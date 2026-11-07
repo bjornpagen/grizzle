@@ -14,7 +14,7 @@ import type { Perturbation } from "#test/support/oracle/perturb.ts"
  * The storage carriers the general draw declares a field of: every one but a set's, whose only comparison is equality
  * and whose algebra is the closed laws' (W3), which the public reference does not model.
  */
-type DrawnCarrier = Exclude<StorageCarrier, "bits" | "date" | "rangeDate">
+type DrawnCarrier = Exclude<StorageCarrier, "bits" | "bytes" | "date" | "rangeDate">
 
 /**
  * The field types the general draw declares, by the storage carrier each has (ir/scalar.ts StorageCarrier), so a
@@ -25,7 +25,7 @@ type DrawnCarrier = Exclude<StorageCarrier, "bits" | "date" | "rangeDate">
  * case's closed roster, smallint, real, a span over integer and over bigint, and a vector of three dimensions
  * (pg.vector(3)), whose -0 components are its twin spellings. A field's recorded pick names an index of fieldKinds,
  * these kinds in this record's order, so a kind joins at the end and every kept pick keeps its kind. A set over a
- * roster is no drawn kind (DrawnCarrier).
+ * roster is no drawn kind, and neither is bytes, which the reference's equality and order never read (DrawnCarrier).
  */
 const drawnKinds = {
 	int4: ["int4"],

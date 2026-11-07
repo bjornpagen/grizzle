@@ -204,6 +204,7 @@ const keyValueGen = (artifacts: SchemaArtifacts, field: LawField): Gen<KeyValue>
 		case "float8":
 		case "money":
 		case "bool":
+		case "bytes":
 		case "date":
 		case "bits":
 		case "range4":

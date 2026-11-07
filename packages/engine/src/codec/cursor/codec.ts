@@ -190,6 +190,8 @@ export const cursorValueMaxBytes = (type: ScalarType): number | "unbounded" => {
 			return integerMaxText("int2")
 		case "bits":
 			throw defect("a set over a roster has no order, so no cursor compares one")
+		case "bytes":
+			throw defect("bytes have no order, so no cursor compares one")
 		case "range4":
 			return rangeMaxText("int4")
 		case "range8":
@@ -233,6 +235,8 @@ export const cursorValueMinBytes = (type: ScalarType): number => {
 			return 1
 		case "bits":
 			throw defect("a set over a roster has no order, so no cursor compares one")
+		case "bytes":
+			throw defect("bytes have no order, so no cursor compares one")
 		case "range4":
 		case "range8":
 			return "[0,1)".length

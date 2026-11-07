@@ -12,7 +12,7 @@ import {
 	type OutputRows,
 	type OutputText,
 	type ParamId,
-	type ParamText,
+	type Param,
 	type Row,
 	rowText,
 	type StatementSpec,
@@ -122,7 +122,7 @@ export const readForm = <S extends FusedStatement>(
  */
 export interface ExecutionInputs {
 	readonly params: HostParams
-	readonly scalars: ReadonlyMap<ParamId, ParamText>
+	readonly scalars: ReadonlyMap<ParamId, Param>
 	readonly relations: RelationInputs
 }
 
@@ -141,7 +141,7 @@ const declaredInput = <V>(inputs: ReadonlyMap<ParamId, V>, param: ParamId): V =>
 }
 
 /** The encoded text of the scalar input `param`. */
-const scalarInput = (inputs: ExecutionInputs, param: ParamId): ParamText =>
+const scalarInput = (inputs: ExecutionInputs, param: ParamId): Param =>
 	declaredInput(inputs.scalars, param)
 
 /** The distinct fact count of the relation input `param`. */
@@ -170,7 +170,7 @@ export const formFor = <S extends LoweredStatement, Slot, Choice>(
 export const readBinding = (
 	slot: DeclaredParamSlot,
 	inputs: ExecutionInputs
-): Result.Result<ParamText, InputTooLarge> => {
+): Result.Result<Param, InputTooLarge> => {
 	switch (slot.kind) {
 		case "scalar":
 			return Result.succeed(scalarInput(inputs, slot.param))
@@ -190,9 +190,9 @@ export interface EmittedStatement extends BatchStatement {
 /** The text and placeholder texts of one execution of `form`, each placeholder bound by `bind`. */
 export const executionOf = <S extends LoweredStatement, Slot, E>(
 	form: StatementForm<S, Slot>,
-	bind: (slot: Slot) => Result.Result<ParamText, E>
+	bind: (slot: Slot) => Result.Result<Param, E>
 ): Result.Result<EmittedStatement, E> => {
-	const encoded: Array<ParamText> = []
+	const encoded: Array<Param> = []
 	for (const slot of form.slots) {
 		const bound = bind(slot)
 		if (Result.isFailure(bound)) {
@@ -206,7 +206,7 @@ export const executionOf = <S extends LoweredStatement, Slot, E>(
 /** One execution of `form`, its parameters encoded. */
 export const encodeForm = <S extends LoweredStatement, Slot, E>(
 	form: StatementForm<S, Slot>,
-	bind: (slot: Slot) => Result.Result<ParamText, E>
+	bind: (slot: Slot) => Result.Result<Param, E>
 ): Effect.Effect<BatchStatement, E> =>
 	Effect.suspend(() => Effect.fromResult(executionOf(form, bind)))
 

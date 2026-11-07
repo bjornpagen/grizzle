@@ -41,7 +41,7 @@ import { assert, defined, failed, nonEmpty, succeeded } from "#test/support/asse
 import { f } from "#test/support/fixtures/ir/desc.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { paramText } from "#test/support/wire.ts"
+import { paramText, textOfParam } from "#test/support/wire.ts"
 import { kindCodes, types } from "#test/unit/codec/support.ts"
 import { asDecimal } from "#test/unit/codec/values.ts"
 
@@ -424,7 +424,7 @@ describe("relation normalization", () => {
 								for (const { encode, write } of statements) {
 									const arrays = succeeded(encode(facts)).arrays
 									assert.deepEqual<ReadonlyArray<string>>(
-										Arr.map(arrays, (_, part) => succeeded(write(marked, part))),
+										Arr.map(arrays, (_, part) => textOfParam(succeeded(write(marked, part)))),
 										arrays
 									)
 								}

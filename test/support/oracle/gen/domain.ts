@@ -315,6 +315,11 @@ const carrierDraws: { readonly [C in StorageCarrier]: CarrierDraw } = {
 		kind: "undrawn",
 		reason:
 			"a set's only comparison is equality, and its algebra is the closed laws' (W3), which the differential reference does not model"
+	},
+	bytes: {
+		kind: "undrawn",
+		reason:
+			"a bytes value is stored only, so no query compares, orders or computes one; its round trip is judged on its own installation (test/pg/fields/bytes.test.ts)"
 	}
 }
 
@@ -813,6 +818,7 @@ export const twinSpellings: { readonly [C in Carrier]: TwinSpellings } = {
 	uuid: canonicalOnly,
 	date: canonicalOnly,
 	text: canonicalOnly,
+	bytes: canonicalOnly,
 	code: canonicalOnly,
 	bits: canonicalOnly,
 	range4: canonicalOnly,

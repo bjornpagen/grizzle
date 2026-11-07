@@ -665,6 +665,10 @@ const describes = (t: ScalarType, desc: FieldDesc, env: ScalarEnv, at: string): 
 			)
 			assert.deepEqual(numericBoundOf(t), undefined, at)
 			return
+		case "bytes":
+			assert.equal(t.carrier, "bytes", at)
+			assert.deepEqual(t.caps, capabilitiesOf("bytes"), at)
+			return
 		case "uuid":
 			plain(t, "uuid", at)
 			return
@@ -705,6 +709,7 @@ const describes = (t: ScalarType, desc: FieldDesc, env: ScalarEnv, at: string): 
 /** A reading's content as plain data: exactly what `describes` holds its type to. */
 type Content =
 	| { readonly kind: "plain"; readonly carrier: Carrier }
+	| { readonly kind: "bytes" }
 	| {
 			readonly kind: "numeric"
 			readonly typmod: { readonly precision: number; readonly scale: number }
@@ -728,6 +733,8 @@ const contentOf = (desc: FieldDesc, env: ScalarEnv): Content => {
 			return { kind: "plain", carrier: pgCarrier[desc.type] }
 		case "numeric":
 			return { kind: "numeric", typmod: { precision: desc.precision, scale: desc.scale } }
+		case "bytes":
+			return { kind: "bytes" }
 		case "uuid":
 			return { kind: "plain", carrier: "uuid" }
 		case "text":

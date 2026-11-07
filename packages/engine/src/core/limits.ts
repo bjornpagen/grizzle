@@ -363,6 +363,28 @@ export const maxStringLength = published({
 })
 
 /**
+ * The hex digits one byte takes in bytea's hex format, PostgreSQL's output text of a bytes value and its canonical
+ * text alike.
+ *
+ * @formatConstant two hex digits a byte
+ */
+const hexDigitsPerByte = 2
+
+/**
+ * The most bytes one bytes value holds: bytea's hex output, `\x` and then two hex digits a byte, is one result cell's
+ * string, which the host reads every cell as, so a longer value could not be read back. A longer value is refused at
+ * its boundary (bytesLength), and every stored bytes column carries the CHECK of this bound, so no writer stores one.
+ */
+export const bytesMaxLength: Limit = derived({
+	owner: "grizzle's bytes carrier (scalar/values/bytes.ts)",
+	unit: "bytes",
+	scope: "one bytes value, whose hex output text is one JavaScript string",
+	from: [maxStringLength],
+	derivation: `byteaout under bytea_output = hex writes \\x and two hex digits a byte, "rp = result = palloc(VARSIZE_ANY_EXHDR(vlena) * 2 + 2 + 1)" (${postgresSource}/src/backend/utils/adt/bytea.c#L284), a text of at most maxStringLength UTF-16 code units`,
+	compute: ([max]) => Math.floor((max.value - "\\x".length) / hexDigitsPerByte)
+})
+
+/**
  * The most columns one table of PostgreSQL holds: a stored relation's table with the tag columns added to it, a view, a
  * materialized view and a write program's carrier, each refused as ResourceBound (tableColumns) where it is emitted,
  * since PostgreSQL refuses the statement with 54011, "tables can have at most 1600 columns". A column the table once

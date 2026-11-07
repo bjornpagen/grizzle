@@ -64,6 +64,8 @@ const sqlTypeOf = (type: ScalarType, plan: InstallPlan): TypeRef => {
 			return types.date
 		case "text":
 			return types.text
+		case "bytes":
+			return types.bytea
 		case "code": {
 			const closed = b.roster.closed
 			const r = plan.rosters[closed]

@@ -24,6 +24,7 @@ import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.
 import { lawNamesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { checking } from "#test/support/policy.ts"
+import { textOfParam } from "#test/support/wire.ts"
 import { descOf, parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 
 /**
@@ -319,7 +320,8 @@ describe("a nested write's identities", () => {
 							)
 							const written = Arr.flatMap(
 								succeeded(chunks(defined(step, "the Member insert step"))),
-								(chunk) => arrayItems(defined(chunk[0], "the owners' array, the key's first"))
+								(chunk) =>
+									arrayItems(textOfParam(defined(chunk[0], "the owners' array, the key's first")))
 							)
 							assert.deepEqual(
 								Arr.sort(written, Str.Order),

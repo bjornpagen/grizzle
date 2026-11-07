@@ -504,9 +504,10 @@ export class LawRejected extends Data.TaggedError("LawRejected")<{ readonly law:
  * - message: the Bind message of the flight's statement at `statement` would be `bytes` long, as its length word
  *   counts it, past the longest message PostgreSQL reads, `limit` (core/limits.ts messageMaxBytes), past which the
  *   backend ends the connection instead of answering;
- * - literal: the array of the relation input `input`'s column `column` would be longer than the longest string the
- *   host builds, `limit` UTF-16 code units (core/limits.ts maxStringLength), so no placeholder can carry it
- *   (ir/products.ts LiteralBound);
+ * - literal: the array of the relation input `input`'s column `column` would be longer than any placeholder carries,
+ *   so none can carry it (ir/products.ts LiteralBound): a text array longer than the longest string the host builds,
+ *   `limit` UTF-16 code units (core/limits.ts maxStringLength), or a bytes column's binary array longer than the longest
+ *   message PostgreSQL reads, `limit` bytes (core/limits.ts messageMaxBytes);
  * - familyRow: one row a family write places, vacates or recounts, a `member` row of the family `owner.count`, is past
  *   one of those bounds alone, so no `statement` of the write's plan can carry it however its rows are cut
  *   (write/family/order.ts Unsendable).
@@ -523,6 +524,7 @@ export type InputBound =
 	  }
 	| {
 			readonly kind: "literal"
+			readonly form: "text" | "binary"
 			readonly input: string
 			readonly column: string
 			readonly limit: number
@@ -548,7 +550,9 @@ export class InputTooLarge extends Data.TaggedError("InputTooLarge")<{
 			case "message":
 				return `statement ${bound.statement} of the call would send a Bind message of ${bound.bytes} bytes, past PostgreSQL's limit of ${bound.limit}; split the input across calls`
 			case "literal":
-				return `the array of column ${bound.column} of input ${bound.input} would be longer than ${bound.limit} UTF-16 code units, the longest string the host builds; split the input across calls`
+				return bound.form === "text"
+					? `the array of column ${bound.column} of input ${bound.input} would be longer than ${bound.limit} UTF-16 code units, the longest string the host builds; split the input across calls`
+					: `the binary array of column ${bound.column} of input ${bound.input} would be longer than ${bound.limit} bytes, the longest message PostgreSQL reads; split the input across calls`
 			case "familyRow": {
 				const row = bound.row
 				const past =
@@ -576,7 +580,13 @@ export const familyRowBound = (family: Family, row: Unsendable): InputTooLarge =
 /** The bound of a relation input's column whose array no string can hold, as the engine reports it. */
 export const literalBound = (bound: LiteralBound): InputTooLarge =>
 	new InputTooLarge({
-		bound: { kind: "literal", input: bound.input, column: bound.column, limit: bound.limit }
+		bound: {
+			kind: "literal",
+			form: bound.form,
+			input: bound.input,
+			column: bound.column,
+			limit: bound.limit
+		}
 	})
 
 /**

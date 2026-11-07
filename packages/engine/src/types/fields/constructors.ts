@@ -28,6 +28,7 @@ import type {
 	Infer,
 	SpanEndpointLike,
 	NaturalField,
+	NotBytes,
 	NotSerial,
 	NotSerialBases,
 	NumericTypmodField,
@@ -119,7 +120,11 @@ export type ContractConstructor = <
 	const Proved extends ReadonlyArray<keyof Facts> = readonly []
 >(
 	name: Name,
-	base: B & NotSerialBase<B> & ContractBase<NoInfer<Name>, B> & OneContractName<NoInfer<Name>>,
+	base: B &
+		NotSerialBase<B> &
+		NotBytes<B["sql"]> &
+		ContractBase<NoInfer<Name>, B> &
+		OneContractName<NoInfer<Name>>,
 	predicate?: (
 		v: Scalar<DomainOf<B>, unknown, unknown, B["sql"], Infer<B>>
 	) => Pr & Parameterless<Pr>,
@@ -171,13 +176,18 @@ export type BitsConstructor = <C extends AnyRoster>(
 /** drawn(natural): a natural grizzle draws, a family's index or count or a tree's start or end. */
 export type DrawnConstructor = (type: NaturalField) => DrawnField
 
-/** An accumulated field is of a value type: no span, no vector, and no field of a writing of its own. */
+/**
+ * An accumulated field is of a value type: no span, no vector, and no field of a writing of its own; and no bytes, which
+ * grizzle never fills (NotBytes).
+ */
 export type Accumulable<F> = F extends
 	| SpanField<unknown, unknown>
 	| VectorField<number>
 	| { readonly writing: WritingTag }
 	? Refusal<"an accumulated field is of a value type: no span, vector or field of a writing of its own">
-	: unknown
+	: F extends { readonly sql: "bytea" }
+		? NotBytes<"bytea">
+		: unknown
 
 /**
  * accumulated(type, start): a field of `type` grizzle fills on the host and PostgreSQL proves, a fold's accumulator or
@@ -200,6 +210,6 @@ export type GeneratedTermOf<F extends FieldBase> = InputTerm<DomainOf<F>, never,
  * written fields and closed reads are all a generation expression may read.
  */
 export type GeneratedConstructor = <F extends FieldBase, T extends GeneratedTermOf<F>>(
-	type: F & NotSerial & NotSerialBases<F>,
+	type: F & NotSerial & NotSerialBases<F> & NotBytes<F["sql"]>,
 	term: T & Parameterless<T>
 ) => GeneratedField<F>

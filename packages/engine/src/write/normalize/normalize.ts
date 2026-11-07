@@ -15,6 +15,7 @@ import type { LawField } from "#compiler/ir/law.ts"
 import type { KeyNormalized, NormalFacts } from "#compiler/ir/products.ts"
 import type { KeySet } from "#compiler/ir/rel.ts"
 import type { SpanCarrier } from "#compiler/ir/scalar.ts"
+import { isBytes } from "#compiler/scalar/values/bytes.ts"
 import {
 	admitted,
 	admittedText,
@@ -303,10 +304,12 @@ const spanStartOrder = (a: HostSpan["start"], b: HostSpan["start"]): number => {
 /** Whether an admitted value is a set's. */
 const isSet = (value: CarrierHost[Carrier]): value is ReadonlySet<string> => value instanceof Set
 
-/** A key field's admitted value as a key value: ownership refuses a key over a set, so a set is no key field's. */
+/**
+ * A key field's admitted value as a key value: ownership refuses a key over a set or bytes, so neither is a key field's.
+ */
 const keyHost = (value: CarrierHost[Carrier]): KeyHost => {
-	if (isSet(value)) {
-		throw defect("a key field over a set, which ownership refuses")
+	if (isSet(value) || isBytes(value)) {
+		throw defect("a key field over a set or bytes, which ownership refuses")
 	}
 	return value
 }

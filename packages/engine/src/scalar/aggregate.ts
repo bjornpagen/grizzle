@@ -235,6 +235,8 @@ const catalogName = (t: ScalarType): string => {
 			return "date"
 		case "text":
 			return "text"
+		case "bytes":
+			return "bytea"
 		case "code":
 			return "smallint"
 		case "bits":

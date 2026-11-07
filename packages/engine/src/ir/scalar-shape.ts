@@ -336,6 +336,9 @@ const narrowContract = (t: WireScalarType, contract: WireContract): ContractInfo
 	if (base.carrier === "bits") {
 		return "a set over a roster is never a contract's base"
 	}
+	if (base.carrier === "bytes") {
+		return "bytes are never a contract's base"
+	}
 	const { name, predicate } = contract
 	if (predicate !== undefined) {
 		const [problem] = predicateProblems(predicate, base)
@@ -485,6 +488,8 @@ const narrow = (t: WireScalarType): ScalarType | string => {
 				return "no contract is over a set over a roster"
 			}
 			return Object.freeze({ carrier, caps, roster: t.roster })
+		case "bytes":
+			return contract === undefined ? Object.freeze({ carrier, caps }) : "no contract is over bytes"
 		case "range4":
 		case "range8":
 		case "rangeDate": {

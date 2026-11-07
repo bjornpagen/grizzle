@@ -259,6 +259,8 @@ const writable = (carrier: Carrier): ReadonlyArray<GuardTest["kind"]> => {
 			return ["nonzero", "nonnegative", "positive", "isFinite", "within"]
 		case "text":
 			return ["matches", "octets", "typed"]
+		case "bytes":
+			return []
 		case "bool":
 		case "uuid":
 		case "date":

@@ -117,6 +117,7 @@ export const exactNumericBound = (t: ScalarType): NumericBound | undefined => {
 		case "uuid":
 		case "date":
 		case "text":
+		case "bytes":
 		case "code":
 		case "bits":
 		case "range4":
@@ -155,6 +156,7 @@ export const familyDigits = (t: ScalarType): number | undefined => {
 		case "uuid":
 		case "date":
 		case "text":
+		case "bytes":
 		case "code":
 		case "bits":
 		case "range4":
@@ -329,6 +331,7 @@ export const exactFamily = (t: ScalarType): "exactInteger" | "exactMoney" | unde
 		case "uuid":
 		case "date":
 		case "text":
+		case "bytes":
 		case "code":
 		case "bits":
 		case "range4":

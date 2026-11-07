@@ -511,10 +511,12 @@ export type Statement =
  * Each field of the source V shows as a Scalar of its field's domain and SQL type, whose language is the field's
  * values, beside the comparison and boolean helpers of Compute: a relation shows its own name and heading, and a
  * builder passes what it inferred of its argument (Shows), so a row of a generic source is typed by the heading its
- * relations share.
+ * relations share. A bytes field shows not at all: no row check, selection or generated field reads one.
  */
 export type RowScalars<V extends Shows<string, unknown>> = {
-	readonly [K in keyof V["heading"]]: Scalar<
+	readonly [
+		K in keyof V["heading"] as V["heading"][K] extends { readonly sql: "bytea" } ? never : K
+	]: Scalar<
 		FieldTypeOf<V["heading"], K> extends readonly [infer D, SqlTag] ? D : never,
 		unknown,
 		Origin<V["name"], K & string>,
@@ -539,8 +541,19 @@ export type NaturalFieldOf<R> = NaturalIn<HeadingOf<R>>
 
 export type SideHeading<R> = Fact<SideRelation<R>>
 
-/** A term a side over R may read: a field of the relation it reads, or pred of one of its natural fields. */
-export type TermOf<R> = (keyof SideHeading<R> & string) | Pred<NaturalFieldOf<SideRelation<R>>>
+/** The fields of the heading C that are bytes, which no side reads: a bytes value has no equality. */
+type BytesIn<C> = {
+	[K in keyof C]-?: C[K] extends { readonly sql: "bytea" } ? K : never
+}[keyof C] &
+	string
+
+/**
+ * A term a side over R may read: a field of the relation it reads, but no bytes field, or pred of one of its natural
+ * fields.
+ */
+export type TermOf<R> =
+	| Exclude<keyof SideHeading<R> & string, BytesIn<HeadingOf<SideRelation<R>>>>
+	| Pred<NaturalFieldOf<SideRelation<R>>>
 
 /**
  * What field K of the heading C joins as: its domain and its PostgreSQL type, read off its carrier. Text and uuid are

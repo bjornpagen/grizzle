@@ -64,11 +64,11 @@ export const declaredRow = (
 }
 
 /**
- * A state column's type: one that hashes, so never a set. PostgreSQL has no hash operator class for a bit string, so a
- * set's capabilities hold no hashing, and the type states it for what reads a state column after admission (the
- * seen-state estimate, termination.ts).
+ * A state column's type: one that hashes, so never a set or bytes. PostgreSQL has no hash operator class for a bit
+ * string, and bytes are stored only, so neither's capabilities hold hashing, and the type states it for what reads a
+ * state column after admission (the seen-state estimate, termination.ts).
  */
-export type StateType = Exclude<ScalarType, { readonly carrier: "bits" }>
+export type StateType = Exclude<ScalarType, { readonly carrier: "bits" | "bytes" }>
 
 /** A column's type as a state column's, or the unhashableState refusal of a column whose type does not hash. */
 export const requireHashing = (
@@ -77,7 +77,7 @@ export const requireHashing = (
 	type: ScalarType,
 	loc: SourceLoc
 ): StateType => {
-	if (type.carrier === "bits" || !type.caps.includes("hashing")) {
+	if (type.carrier === "bits" || type.carrier === "bytes" || !type.caps.includes("hashing")) {
 		failRecursion(loc, {
 			kind: "unhashableState",
 			recursion,

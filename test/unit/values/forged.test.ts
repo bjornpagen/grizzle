@@ -33,6 +33,7 @@ import { readArrayLiteral } from "#test/support/arrays.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { carriers, type Feature, forgedCases, pairOf, pairs } from "#test/support/forged.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { textOfParam } from "#test/support/wire.ts"
 import { kindCodes } from "#test/unit/codec/support.ts"
 
 describe("a forged carrier instance", () => {
@@ -129,7 +130,7 @@ describe("a forged carrier instance", () => {
 								buffer.fill(7)
 							}
 							assert.deepEqual<ReadonlySet<string | null>>(
-								new Set(readArrayLiteral(succeeded(normalArray(relation)(normal, 0)))),
+								new Set(readArrayLiteral(textOfParam(succeeded(normalArray(relation)(normal, 0))))),
 								distinct,
 								"the array the facts travel as carries the admitted values"
 							)

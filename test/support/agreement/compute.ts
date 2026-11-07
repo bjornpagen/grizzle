@@ -2485,6 +2485,8 @@ const hostText = (t: ScalarType, uses: Set<Imported>, position: "term" | "delive
 			return "CalendarDate"
 		case "text":
 			return "string"
+		case "bytes":
+			return "Uint8Array<ArrayBuffer>"
 		case "range4":
 		case "range8":
 		case "rangeDate":
