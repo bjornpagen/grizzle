@@ -6,6 +6,7 @@ import { textBytesBeside } from "#compiler/schema/representability.ts"
 import { type RegexText, regexField } from "#compiler/text/field.ts"
 import type { Field, FieldBase } from "#compiler/types/fields/field.ts"
 
+export { type Limit, maxStringLength, messageMaxBytes } from "#compiler/core/limits.ts"
 export { type RegexText, str } from "#compiler/text/field.ts"
 
 /** The SQL types a text parses into, those with a lexical form (scalar/lexical.ts). */

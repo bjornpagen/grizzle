@@ -1377,6 +1377,12 @@ pattern needs no counted repetition to be a key's. A key's entry is laid out
 as PostgreSQL lays it out: exactly through its fixed-width fields in key order, then each datum at its widest padding
 from the first text, numeric, set, range or vector on.
 
+Two bounds a call is refused by before it is sent are exported beside it: `messageMaxBytes`, the longest message
+PostgreSQL reads (1,073,741,822 bytes), and `maxStringLength`, the longest string V8 builds (536,870,888 UTF-16 code
+units). Each is a `Limit`: its `.value` is the number, and it carries its owner, unit, scope and the source the number
+is read from, so code that splits an input across calls (`InputTooLarge`,
+[Errors and outcomes](#errors-and-outcomes)) reads the bound instead of restating it.
+
 A roster, `closed("Status", ["Draft", "Published"])`, is a fixed list of handles, and a `closedId(Status)` column holds
 a handle's code: 0 … n − 1 in declared order, which is also their comparison order. The API reads and writes names; the
 table stores codes, under a smallint domain that admits only a live handle's code, and every role's view adds a
