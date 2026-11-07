@@ -77,26 +77,34 @@ import type {
 	Containment,
 	Counted,
 	CountedMember,
-	CountFieldOf,
+	CountFieldIn,
 	DiscriminatorsOf,
 	Fin,
+	FinShows,
 	Fold,
 	FoldEnd,
 	FoldStep,
 	Key,
 	KeyRef,
+	MemberRelationOf,
 	Mirrors,
 	Monoid as MonoidOf,
 	Mutable,
 	NoSetKey,
 	Ordered,
 	OrderedMember,
+	OwnerRelationOf,
+	KeyShows,
 	Pred,
-	RelationOfKey,
 	RowScalars,
 	Selection,
 	SelfFamily,
+	Shows,
+	ShowsKeyed,
 	Side,
+	SideHosts,
+	SideShows,
+	SideShowsKeyed,
 	SidesCompatible,
 	Statement,
 	TermOf,
@@ -157,7 +165,7 @@ type GeneratedApart<Written, G> = [keyof Written & keyof G] extends [never]
  * never writes (UnwrittenFieldsOf), a drawn or an accumulated one, which grizzle writes on the host: PostgreSQL
  * generates a column from the caller's fields alone.
  */
-type GenerationRow<R> = Omit<RowScalars<R>, UnwrittenFieldsOf<R>>
+type GenerationRow<R extends Shows<string, unknown>> = Omit<RowScalars<R>, UnwrittenFieldsOf<R>>
 
 /**
  * relation.generated(name, written, primaryKey, (row) => ({ f: generated(type, term), ... })): a relation whose
@@ -293,8 +301,8 @@ export const schema: typeof rootSchema & { readonly extend: typeof extend } = Ob
  * it is a candidate key; over a selection or a pred term it constrains only the facts the side reads. A roster is keyed
  * by its handle and a closed relation by its declared key, so no side of either is keyed.
  */
-export const key = <S extends Side<AnyRelation | Selection<AnyRelation>>>(
-	side: S & NoSetKey<S>
+export const key = <S extends Side<AnyRelation | Selection<AnyRelation>>, N extends string, C>(
+	side: S & SideShows<N, C> & NoSetKey<C, S["terms"]>
 ): Key<S> => keyBuilder<S>(side)
 
 /**
@@ -306,11 +314,13 @@ export const mutable = <R extends AnyRelation>(target: R): Mutable<R> => mutable
 export const check = <
 	const Name extends string,
 	R extends AnyRelation,
+	N extends string,
+	C,
 	Pr extends Predicate<never>
 >(
 	name: Name,
-	target: R,
-	predicate: (row: RowScalars<R>) => Pr & Parameterless<Pr>
+	target: R & (Shows<N, C> | Refusal<"a generic source's relations share one heading">),
+	predicate: (row: RowScalars<Shows<N, C>>) => Pr & Parameterless<Pr>
 ): Check<Name, R> => checkBuilder<Name, R>(name, target, predicate)
 
 /**
@@ -335,35 +345,66 @@ export const pred = <const F extends string>(field: F): Pred<F> => predBuilder<F
  * select(R, (row) => predicate): the facts of R a row predicate over their own fields holds of, in the row-check
  * language, the one spelling of a selection.
  */
-export const select = <R extends AnyRelation | AnyClosed, Pr extends Predicate<never>>(
-	target: R,
-	predicate: (row: RowScalars<R>) => Pr & Parameterless<Pr>
+export const select = <
+	R extends AnyRelation | AnyClosed,
+	N extends string,
+	C,
+	Pr extends Predicate<never>
+>(
+	target: R & (Shows<N, C> | Refusal<"a generic source's relations share one heading">),
+	predicate: (row: RowScalars<Shows<N, C>>) => Pr & Parameterless<Pr>
 ): Selection<R> => selectBuilder<R>(target, predicate)
 
-export const contained = <L extends AnySide, R extends AnySide>(
-	left: L,
-	right: R & SidesCompatible<L, R>
+export const contained = <
+	L extends AnySide,
+	R extends AnySide,
+	NL extends string,
+	CL,
+	NR extends string,
+	CR
+>(
+	left: L & SideShows<NL, CL>,
+	right: R &
+		SideShows<NR, CR> &
+		SidesCompatible<SideHosts<CL, L["terms"]>, SideHosts<CR, R["terms"]>>
 ): Containment<L, R> => containedBuilder<L, R>(left, right)
 
 /** mirrors(a, b): sugar for contained(a, b) and contained(b, a), which the schema states in its place. */
-export const mirrors = <L extends AnySide, R extends AnySide>(
-	left: L,
-	right: R & SidesCompatible<L, R>
+export const mirrors = <
+	L extends AnySide,
+	R extends AnySide,
+	NL extends string,
+	CL,
+	NR extends string,
+	CR
+>(
+	left: L & SideShows<NL, CL>,
+	right: R &
+		SideShows<NR, CR> &
+		SidesCompatible<SideHosts<CL, L["terms"]>, SideHosts<CR, R["terms"]>>
 ): Mirrors<L, R> => mirrorsBuilder<L, R>(left, right)
 
 export const alternatives = <
 	PK extends AnyRelation | Key<Side<AnyRelation, ReadonlyArray<string>>>,
+	PN extends string,
+	PC,
+	PF,
 	C extends AnyRoster,
-	const D extends DiscriminatorsOf<RelationOfKey<PK>, C>,
+	const D extends DiscriminatorsOf<PC, C>,
 	const Arms extends Partial<{ readonly [H in HandleOf<C>]: KeyRef<AnyRelation> }>
 >(
-	parent: PK,
+	parent: PK &
+		(
+			| ShowsKeyed<PN, PC, PF>
+			| KeyShows<PN, PC, PF>
+			| Refusal<"a generic source's relations share one heading">
+		),
 	discriminator: D,
 	roster: C,
 	arms: Arms &
-		ArmsCompatible<PK, Arms> &
+		ArmsCompatible<SideHosts<PC, PF>, Arms> &
 		ArmsOfRoster<C, Arms> &
-		ArmsApartFromParent<PK, Arms> &
+		ArmsApartFromParent<PN, Arms> &
 		AtLeastOneArm<Arms>
 ): Alternatives<PK, D, C, Arms> =>
 	alternativesBuilder<PK, D, C, Arms>(parent, discriminator, roster, arms)
@@ -372,8 +413,18 @@ export const alternatives = <
  * fin(O, n): the slots of O's count n: over an ordinary O, its drawn count, a family's second argument; over a closed O,
  * its natural field, which a closed relation's slot field reads (slot). Never a side, never a schema member.
  */
-export const fin = <O extends AnyRelation | AnyClosedRelation, const N extends CountFieldOf<O>>(
-	owner: O,
+export const fin = <
+	O extends AnyRelation | AnyClosedRelation,
+	ON extends string,
+	OC,
+	K,
+	const N extends CountFieldIn<K, OC>
+>(
+	owner: O &
+		(
+			| (Shows<ON, OC> & { readonly kind: K })
+			| Refusal<"a generic source's relations share one heading">
+		),
 	count: N
 ): Fin<O, N> => finBuilder<O, N>(owner, count)
 
@@ -381,15 +432,31 @@ export const fin = <O extends AnyRelation | AnyClosedRelation, const N extends C
  * ordered(on(F, g…, i), fin(O, n)): each owner's members, its group g… paired with O's primary key, indexed by their
  * drawn index i exactly 0 … n − 1, in order.
  */
-export const ordered = <F extends Side<AnyRelation>, Fi extends AnyFin>(
-	family: F & OrderedMember<F, Fi>,
-	slots: Fi
+export const ordered = <
+	F extends Side<AnyRelation>,
+	Fi extends AnyFin,
+	N extends string,
+	C,
+	ON extends string,
+	OC,
+	OK extends ReadonlyArray<string>
+>(
+	family: F & SideShows<N, C> & OrderedMember<C, F["terms"], OC, OK>,
+	slots: Fi & FinShows<ON, OC, OK>
 ): Ordered<F, Fi> => orderedBuilder<F, Fi>(family, slots)
 
 /** counted(on(F, g…), fin(O, n)): each owner's n members, their index hidden. */
-export const counted = <F extends Side<AnyRelation>, Fi extends AnyFin>(
-	family: F & CountedMember<F, Fi>,
-	slots: Fi
+export const counted = <
+	F extends Side<AnyRelation>,
+	Fi extends AnyFin,
+	N extends string,
+	C,
+	ON extends string,
+	OC,
+	OK extends ReadonlyArray<string>
+>(
+	family: F & SideShows<N, C> & CountedMember<C, F["terms"], OC, OK>,
+	slots: Fi & FinShows<ON, OC, OK>
 ): Counted<F, Fi> => countedBuilder<F, Fi>(family, slots)
 
 /**
@@ -397,10 +464,23 @@ export const counted = <F extends Side<AnyRelation>, Fi extends AnyFin>(
  * self-parented root a member, with T's drawn `start` and `end` its pre-order interval and r the caller's field each
  * tree's rows share.
  */
-export const tree = <F extends Side<AnyRelation>, Fi extends AnyFin, const Root extends string>(
-	family: F & SelfFamily<F, Fi>,
+export const tree = <
+	F extends Side<AnyRelation>,
+	Fi extends AnyFin,
+	const Root extends string,
+	N extends string,
+	C,
+	K
+>(
+	family: F &
+		SideShowsKeyed<N, C, K> &
+		(
+			| Side<Fi["owner"]>
+			| Refusal<"a tree is a family of T over itself, on(T, parent, at), with drawn start and end">
+		) &
+		SelfFamily<C, K, F["terms"], Fi["count"]>,
 	slots: Fi,
-	root: { readonly root: Root & TreeRootOf<F, Root> }
+	root: { readonly root: Root & TreeRootOf<C, Root> }
 ): Tree<F, Fi, Root> => treeBuilder<F, Fi, Root>(family, slots, root)
 
 /**
@@ -414,12 +494,29 @@ export const fold = <
 	Fa extends AnyFamily,
 	M extends AnyMonoid,
 	S extends Side<AnyRelation | Selection<AnyRelation>>,
-	E extends Side<AnyRelation>
+	E extends Side<AnyRelation>,
+	SN extends string,
+	SC,
+	EN extends string,
+	EC,
+	EK
 >(
 	family: Fa,
 	monoid: M,
-	step: S & FoldStep<Fa, M, S>,
-	end: E & FoldEnd<Fa, M, E, S>
+	step: S &
+		SideShows<SN, SC> &
+		(
+			| Side<MemberRelationOf<Fa> | Selection<MemberRelationOf<Fa>>>
+			| Refusal<"a fold's step is its family's member: its group, its value, then an accumulated pair per plane">
+		) &
+		FoldStep<Fa, M, SC, S["terms"]>,
+	end: E &
+		SideShowsKeyed<EN, EC, EK> &
+		(
+			| Side<OwnerRelationOf<Fa>>
+			| Refusal<"a fold's end names one accumulated field of the owner per plane">
+		) &
+		FoldEnd<Fa, M, EC, EK, E["terms"], SC, S["terms"]>
 ): Fold<Fa, M, S, E> => foldBuilder<Fa, M, S, E>(family, monoid, step, end)
 
 /** The closed set of monoids a fold combines by: count, sum, or, twos (two planes) and max. */

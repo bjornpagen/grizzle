@@ -1004,6 +1004,7 @@ export type WorldFeature =
 	| "read:span"
 	| `claim:${ClaimDomain}`
 	| `claim-refused:${ClaimDomain}:${ClaimRefusal}`
+	| `claim-refused-read:${RefinedClaim}:${ClaimReadAt}`
 	| `readback:${ReadBackClass}`
 	| `law:${LawFamily}:${LawPath}:${Witness["kind"]}`
 	| "law:check:declared-key"
@@ -1064,6 +1065,12 @@ type ClaimDomain = Exclude<FieldDomain["kind"], "serial" | "span">
  * value of its type, an integer past its range, a value its contract, pattern or roster refuses.
  */
 export type ClaimRefusal = Extract<SqlState, "22P02" | "22003" | "23514">
+
+/** The domain kinds of a refined claim, the ones whose refusal is 23514: a contract, a pattern and a roster. */
+export type RefinedClaim = Extract<ClaimDomain, "contract" | "text" | "handle">
+
+/** Where a statement reads a claim: delivered into an output column, or only in a filter. */
+export type ClaimReadAt = "output" | "filter"
 
 /**
  * An applied insertion, by its facts' serial class (complete, or generated: leaving out every classed serial field),

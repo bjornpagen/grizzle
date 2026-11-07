@@ -20,7 +20,7 @@ import { keep, type Swarm, swarm, swarmChoice, weightOf } from "@grizzle/testing
 import { Array as Arr, Option, Record as Rec, String as Str } from "effect"
 import { int8Min } from "#compiler/core/limits.ts"
 import { accumulated, bits, drawn, natural, pg, uuid } from "#compiler/public/fields.ts"
-import { type AnyFamily, check, type Statement, schema } from "#compiler/public/schema.ts"
+import { type AnyFamily, type RowScalars, schema, type Statement } from "#compiler/public/schema.ts"
 import {
 	accumulatedField,
 	bitsOf,
@@ -44,7 +44,6 @@ import {
 	selectBuilder,
 	treeBuilder
 } from "#compiler/schema/statements.ts"
-import type { Predicate } from "#compiler/types/core/phantom.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { AnyRelation, AnyRoster, Relation } from "#compiler/types/schema/relation.ts"
 import { defined } from "#test/support/assert.ts"
@@ -581,7 +580,7 @@ export type BuiltRelation = Relation<
 >
 
 /** The row a selection's or a check's predicate reads, as a check over a relation built at run time reads it. */
-type Row = Parameters<Parameters<typeof check<string, BuiltRelation, Predicate>>[2]>[0]
+type Row = RowScalars<BuiltRelation>
 
 const field = (row: Row, name: string) => defined(row[name], `the field ${name}`)
 

@@ -2026,11 +2026,13 @@ class Lowering<R extends Refs> {
 
 	/**
 	 * An equation of a text with a concatenation, `t = p || q` or its negation, decided without building the
-	 * concatenation: `char_length(t) = char_length(p) + char_length(q) AND starts_with(t, p) AND right(t,
-	 * char_length(q)) = q`, which holds exactly where t is p then q, since its first characters are p's and the rest,
-	 * of q's length, are q's. No operand is longer than a value PostgreSQL already holds, so nothing allocates past
-	 * MaxAllocSize, in any mode: a fold's combine over concat (ir/monoid.ts) is such an equation, and so stands in a
-	 * law's violation query and its CHECK. Undefined for any other comparison.
+	 * concatenation: `CASE WHEN char_length(t) = char_length(p) + char_length(q) THEN starts_with(t, p) AND right(t,
+	 * char_length(q)) = q ELSE <the lengths' equation> END`, which holds exactly where t is p then q, since its first
+	 * characters are p's and the rest, of q's length, are q's. It is three-valued exactly as `t = p || q` is: the
+	 * lengths' equation reads all three operands, so it is NULL where any is, and the CASE takes it there, where a
+	 * conjunction would let a false prefix or suffix decide. No operand is longer than a value PostgreSQL already
+	 * holds, so nothing allocates past MaxAllocSize, in any mode: a fold's combine over concat (ir/monoid.ts) is such an
+	 * equation, and so stands in a law's violation query and its CHECK. Undefined for any other comparison.
 	 */
 	concatEquation(
 		desc: Extract<ExprDesc<Located, R>, { readonly kind: "compare" }>,
@@ -2071,14 +2073,16 @@ class Lowering<R extends Refs> {
 		const bool = plainType("bool")
 		const test = (fn: "startsWith" | "endsWith", b: Lowered): Lowered =>
 			this.native(this.overload(fn, [t.actual, b.actual], here), [t, b], bool, undefined, here, fn)
-		const holds = this.native(
+		const lengths = this.comparison("eq", [lengthOf(t), sum], here)
+		const parts = this.native(
 			this.overload("and", [bool], here),
-			[this.comparison("eq", [lengthOf(t), sum], here), test("startsWith", p), test("endsWith", q)],
+			[test("startsWith", p), test("endsWith", q)],
 			bool,
 			undefined,
 			here,
 			"and"
 		)
+		const holds = this.conditional(lengths, parts, lengths, here)
 		return desc.op === "eq"
 			? holds
 			: this.native(this.overload("not", [bool], here), [holds], bool, undefined, here, "not")

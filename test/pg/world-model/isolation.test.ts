@@ -167,7 +167,9 @@ const claimsRequired: Situations<WorldFeature> = [
 
 /**
  * What the hand-set claims suite must reach: each way a hand-set claim's cast refuses it, of every type a context field
- * takes, met where a direct writer's statement reads the context.
+ * takes, met where a direct writer's statement reads the context; and a contract's, a pattern's and a roster's
+ * refusal met both where a view delivers the claim into an output column and where it reads the claim only in its
+ * filter, which no cast to the field's domain in the view's own columns reaches.
  */
 const handSetRequired: Situations<WorldFeature> = [
 	"claim-refused:uuid:22P02",
@@ -180,7 +182,13 @@ const handSetRequired: Situations<WorldFeature> = [
 	"claim-refused:handle:23514",
 	"claim-refused:contract:22P02",
 	"claim-refused:contract:22003",
-	"claim-refused:contract:23514"
+	"claim-refused:contract:23514",
+	"claim-refused-read:contract:filter",
+	"claim-refused-read:contract:output",
+	"claim-refused-read:text:filter",
+	"claim-refused-read:text:output",
+	"claim-refused-read:handle:filter",
+	"claim-refused-read:handle:output"
 ]
 
 layer(Substrate.layer, { excludeTestServices: true })("the worlds model: isolation", (it) => {

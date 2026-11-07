@@ -116,6 +116,18 @@ How to upgrade:
   in the same ChangeSet is refilled, where before it was inserted again with the old ones and refused. Regenerate: the
   deferred axes change. No codemod.
 
+#### An equation with a concatenation and a float division by zero are NULL where an operand is
+
+- **`t = p || q`, which grizzle decides without building the concatenation, is NULL exactly where one of t, p and q
+  is, as PostgreSQL's own equation is.** It was the conjunction of the lengths' equation, `starts_with(t, p)` and
+  `right(t, char_length(q)) = q`, so where a closed read at an absent key left p NULL and q's suffix differed from t's,
+  it was false, and its negation true: a check `Compute.ne(Compute.concat(Pick.at("t", kind), "b"), t)` held of a row
+  PostgreSQL's plain meaning leaves unknown, and a selection, a key's or a containment's, took a row it skips. It is
+  now `CASE WHEN <the lengths' equation> THEN <prefix> AND <suffix> ELSE <the lengths' equation> END`. A float
+  division by zero over a NULL dividend, which an `isFinite` over a closed read evaluates, was negative infinity, so
+  `isFinite(x / 0)` was false where it is unknown; it is NULL. Regenerate: a fold's combine over concat and every such
+  equation and division print differently. No codemod.
+
 #### A fold's selection a closed read leaves unknown skips the member, on the host and in its CHECK
 
 - **A fold step's selection that a closed read at an absent key leaves unknown, NULL, holds of no member, as a
@@ -416,7 +428,7 @@ How to upgrade:
   names only its program's parameters", where a literal's excess property was TS2353 or TS2322. A key's `get` still
   reads only the key's fields, so a whole fact names its key. Remove the extra key. No codemod.
 
-#### A concurrent change outside the installation, and a refined claim admission can't judge, fail closed
+#### A concurrent change outside the installation, a refined claim admission can't judge, and a hand-set claim its refinement refuses fail closed
 
 - **A 40Z01 whose DETAIL names a relation the installation doesn't store is an `ExecutionFailure`.** The witness
   classifier read a write statement's concurrent change as a `TransientFailure` at whatever relation its DETAIL named;
@@ -427,6 +439,13 @@ How to upgrade:
   `admission`.** Admission skipped such a claim of a pattern, admitting it unjudged, and died with a defect on such a
   claim of a contract; now both are `AdmissionFailed`, before admission sends anything. A Db's own claims always have
   their domains, so a correct installation never meets it. No codemod.
+- **A claim a direct writer sets by hand that its contract, pattern or roster refuses is 23514 wherever a statement
+  reads its context.** A context source judged each claim by its base type alone, leaving refinements to `Db.open`'s
+  admission, so a hand-set claim outside its contract was read as a plain value: compared in a join or a filter, it
+  could match or admit rows. Now the source casts every claim to its field's own type, a contract's, a pattern's or a
+  roster's domain, where the context is read; a `Db`'s claims, which admission already checked, read the same. Format
+  and state: every view and query that reads a context with a refined field changes its SQL, so the next migration
+  redrafts those views. No codemod.
 - **`Db.open` refuses options that are no object with an `OpenError` at stage `schema`, before it looks up the
   layer.** A JavaScript caller's `Db.open(role)` with no options, or with `null`, died reading their token with a
   `TypeError`; now no options, `null`, a list or any other value that is no object is `MalformedDescription`, as a

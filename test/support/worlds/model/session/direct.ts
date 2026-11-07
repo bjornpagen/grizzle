@@ -296,8 +296,10 @@ const claimCast = (domain: FieldDomain, codes: HandleCodes, text: string): Claim
 	}
 }
 
-/** One hand-set claim's fault: the domain of its field and the SQLSTATE its cast meets. */
+/** One hand-set claim's fault: its context and field, the field's domain, and the SQLSTATE its cast meets. */
 interface ClaimFault {
+	readonly context: string
+	readonly field: string
 	readonly domain: FieldDomain
 	readonly sqlstate: SqlState
 }
@@ -325,7 +327,16 @@ export const handSetFaults = (
 						return []
 					}
 					const cast = claimCast(field.domain, codes, claim)
-					return cast.kind === "refused" ? [{ domain: field.domain, sqlstate: cast.sqlstate }] : []
+					return cast.kind === "refused"
+						? [
+								{
+									context: context.name,
+									field: field.name,
+									domain: field.domain,
+									sqlstate: cast.sqlstate
+								}
+							]
+						: []
 				})
 			})
 	})

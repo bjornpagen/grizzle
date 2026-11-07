@@ -384,7 +384,9 @@ const profiled = (field: string): Term => variable(`p_${field}`)
 /**
  * The documents base's README-shaped worlds over its Profile variant (docsProfileBase), the member reading Profile
  * beside its entries: each organization on the plan its token's Profile claims, with every one of the Profile's claims,
- * so a read of it meets a claim of every type a context field takes.
+ * so a read of it meets a claim of every type a context field takes; the organizations on that plan alone
+ * (ProfileFiltered), which reads the badge, tier and plan claims in its filter and delivers none of them; and every
+ * organization with the plan claim delivered beside it (ProfilePlan), a contract's claim read into an output column.
  */
 export const docsProfileInstall: InstallSpec = {
 	base: docsProfileBase,
@@ -423,6 +425,32 @@ export const docsProfileInstall: InstallSpec = {
 									tier: profiled("tier"),
 									plan
 								},
+								none
+							)
+						),
+						ProfileFiltered: query(
+							rule(
+								[
+									of("Org", { id: org, plan }),
+									{
+										source: { kind: "context", name: "Profile" },
+										fields: { badge: profiled("badge"), tier: profiled("tier"), plan }
+									}
+								],
+								{ org },
+								none
+							)
+						),
+						ProfilePlan: query(
+							rule(
+								[
+									of("Org", { id: org }),
+									{
+										source: { kind: "context", name: "Profile" },
+										fields: { plan: profiled("plan") }
+									}
+								],
+								{ org, plan: profiled("plan") },
 								none
 							)
 						)

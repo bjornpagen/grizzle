@@ -22,7 +22,6 @@ import {
 	type ColumnDef,
 	type ColumnGeneration,
 	type CommentTarget,
-	type ContextColumn,
 	type ContextSource,
 	type CreateFunction,
 	type Cte,
@@ -220,20 +219,17 @@ const claimsMisshapen = `'strict $.* ? (@.type() != "object" || exists (@.* ? (@
 const claimsDocument = (refusal: QualifiedFunctionRef): string =>
 	`SELECT CASE WHEN "k"."s" <> ''${castTo("text")} THEN CASE WHEN "k"."s" IS JSON OBJECT WITH UNIQUE KEYS AND ${inCatalog("pg_input_is_valid")}("k"."s", ${quoteString(inCatalog("jsonb"))}${castTo("text")}) THEN "k"."s"${castTo("jsonb")} ELSE ${inCatalog("to_jsonb")}(${refuseClaims(refusal, [])}) END ELSE '{}'${castTo("jsonb")} END AS "j" FROM (SELECT ${inCatalog("current_setting")}(${quoteString(claimsSettingName)}${castTo("text")}, true) AS "s") AS "k"`
 
-/** A claim of a context source in the claims document `document`: its JSON string, cast to its column's type. */
-const claimRead = (
-	document: string,
-	source: ContextSource,
-	{ field, column }: ContextColumn
-): string =>
-	`(${document} #>> ${quoteString(textArrayLiteral([source.context, field]))}${castToArray("text")})::${printType(column.type)}`
+/** A claim of a context source in the claims document `document`: its JSON string at `field`, cast to `type`. */
+const claimRead = (document: string, source: ContextSource, field: string, type: TypeRef): string =>
+	`(${document} #>> ${quoteString(textArrayLiteral([source.context, field]))}${castToArray("text")})::${printType(type)}`
 
 /**
  * The claims document as a context source reads it (sql/ast.ts ContextSource), a scalar subquery: refused through the
  * source's refusal function where the document is no claims document, a member that is no object of strings breaking
  * the shape the Db path writes; the document where it holds no member for the context, or a member holding exactly the
- * source's fields, each a value of its column's type, which reads every claim once here, so a claim its type refuses
- * raises that type's error wherever the context is read, whichever columns the source's readers read (a read of a
+ * source's fields, each a value of the type it is judged by (ContextColumn `judged`: its field's own, a contract's,
+ * pattern's or roster's domain included), which reads every claim once here, so a claim its type or its refinement
+ * refuses raises that error (22P02, 22003, 23514) wherever the context is read, whichever columns the source's readers read (a read of a
  * string is never NULL, so num_nonnulls counts every field); and refused where the member holds any other keys. It
  * reads no column of the statement, so PostgreSQL computes it once per statement as an InitPlan, reading the setting
  * once: when it is first read, or, under a parallel plan, before the workers start.
@@ -242,7 +238,9 @@ const contextClaims = (source: ContextSource): string => {
 	const context = `${quoteString(source.context)}${castTo("text")}`
 	const member = `("d"."j" -> ${context})`
 	const keys = `${quoteString(textArrayLiteral(source.columns.map((c) => c.field)))}${castToArray("text")}`
-	const reads = source.columns.map((c) => claimRead(`"d"."j"`, source, c)).join(", ")
+	const reads = source.columns
+		.map((c) => claimRead(`"d"."j"`, source, c.field, c.judged))
+		.join(", ")
 	const readable = `${member} ?& ${keys} AND (${member} - ${keys}) = '{}'${castTo("jsonb")} AND ${inCatalog("num_nonnulls")}(${reads}) = ${source.columns.length}`
 	return `(SELECT CASE WHEN ${inCatalog("jsonb_path_exists")}("d"."j", ${claimsMisshapen}) THEN ${inCatalog("to_jsonb")}(${refuseClaims(source.refusal, [])}) WHEN NOT ("d"."j" ? ${context}) OR (${readable}) THEN "d"."j" ELSE ${inCatalog("to_jsonb")}(${refuseClaims(source.refusal, [source.context])}) END FROM (${claimsDocument(source.refusal)}) AS "d")`
 }
@@ -254,11 +252,12 @@ const contextClaims = (source: ContextSource): string => {
  * its readers, and the document stays one InitPlan however many columns are read.
  */
 const printContextSource = (source: ContextSource): string => {
-	const reads = source.columns.map((c) =>
-		c.column.collation === undefined
-			? claimRead(`"m"."j"`, source, c)
-			: `${claimRead(`"m"."j"`, source, c)} COLLATE ${printObjectName(c.column.collation)}`
-	)
+	const reads = source.columns.map((c) => {
+		const read = claimRead(`"m"."j"`, source, c.field, c.column.type)
+		return c.column.collation === undefined
+			? read
+			: `${read} COLLATE ${printObjectName(c.column.collation)}`
+	})
 	return `(SELECT ${reads.join(", ")} FROM (SELECT ${contextClaims(source)} AS "j") AS "m" WHERE "m"."j" ? ${quoteString(source.context)}${castTo("text")}) AS ${quoteIdent(source.alias)}(${printIdentList(source.columns.map((c) => c.column.name))})`
 }
 

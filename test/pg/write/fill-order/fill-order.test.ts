@@ -341,6 +341,17 @@ const replacedOwner: ClusterCase = {
 }
 
 /**
+ * The shape a delete once broke with no copy at all: R1, the member of R0's ordered family, owns a counted family of
+ * R2. Deleting R0's first member re-places the second, deleting it and inserting it again beneath its counted member,
+ * which references it along the counted family's owner axis: that axis waits for the commit, the re-placed row
+ * keeping its key and its count.
+ */
+const replacedOwnerBare: ClusterCase = {
+	...replacedOwner,
+	spec: { ...replacedOwner.spec, copies: [] }
+}
+
+/**
  * The case the search found re-inserting a counted member with its old count: R4 is a member of R2's ordered family
  * and of R3's counted one. A delete of one R4 row and a move of another to a second R2 group re-place R4 rows, deleting
  * them before the counted family's count statement and inserting them after it, which no cascade reaches, while the
@@ -549,6 +560,16 @@ layer(Substrate.layer, { excludeTestServices: true })("the fill order on the clu
 									"a counted family of nested owners",
 									"a follow-up written over the stored instance",
 									"a follow-up that refills a value it leaves stale",
+									"a follow-up that re-places an owner of counted members"
+								]
+							},
+							{
+								note: "a delete of an ordered family's member re-places the next, which owns a counted member and nothing copies",
+								sketch: replacedOwnerBare,
+								draws: "",
+								reaches: [
+									"a counted family of nested owners",
+									"a follow-up written over the stored instance",
 									"a follow-up that re-places an owner of counted members"
 								]
 							},

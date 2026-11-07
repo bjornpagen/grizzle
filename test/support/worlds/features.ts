@@ -43,6 +43,7 @@ import type {
 	ActionKind,
 	AdditionFeature,
 	BaseSpec,
+	ClaimReadAt,
 	ClaimRefusal,
 	ClaimState,
 	ContextFacts,
@@ -68,6 +69,7 @@ import type {
 	PageKey,
 	ActionOutcome,
 	RelationSpec,
+	RefinedClaim,
 	RoleSpec,
 	Rule,
 	ModelSession,
@@ -1451,12 +1453,88 @@ const claimRefusalsOf = (
 	const sqlstate = observation.sqlstate
 	const refusal: ClaimRefusal | undefined =
 		sqlstate === "22P02" || sqlstate === "22003" || sqlstate === "23514" ? sqlstate : undefined
-	return refusal === undefined
-		? []
-		: Arr.flatMap(
-				handSetFaults(state.install.base, state.names.codes, session.claims.setting.text),
-				(fault) => (fault.sqlstate === refusal ? claimRefusalFeature(fault.domain, refusal) : [])
+	if (refusal === undefined) {
+		return []
+	}
+	const statement = action.statement
+	const entry =
+		statement.kind === "select-view"
+			? Option.getOrUndefined(
+					Option.flatMap(
+						Arr.findFirst(state.install.roles, (r) => r.name === statement.role),
+						(role) => Option.fromUndefinedOr(role.entries[statement.relation])
+					)
+				)
+			: undefined
+	return Arr.flatMap(
+		handSetFaults(state.install.base, state.names.codes, session.claims.setting.text),
+		(fault): ReadonlyArray<WorldFeature> => {
+			if (fault.sqlstate !== refusal) {
+				return []
+			}
+			const at = entry === undefined ? undefined : claimReadAt(entry, fault.context, fault.field)
+			const refined = refinedOf(fault.domain)
+			return [
+				...claimRefusalFeature(fault.domain, refusal),
+				...(at === undefined || refined === undefined || refusal !== "23514"
+					? []
+					: [`claim-refused-read:${refined}:${at}` as const])
+			]
+		}
+	)
+}
+
+/** A refined claim's domain kind: a contract, a pattern's text or a roster's handle; none for an unrefined one. */
+const refinedOf = (domain: FieldDomain): RefinedClaim | undefined =>
+	domain.kind === "contract" || domain.kind === "text" || domain.kind === "handle"
+		? domain.kind
+		: undefined
+
+/** The match a variable of a rule is first bound at: its source and the field it binds; none for an unbound one. */
+const firstBinding = (
+	rule: Rule,
+	variable: string
+): { readonly source: Rule["matches"][number]["source"]; readonly field: string } | undefined =>
+	Option.getOrUndefined(
+		Arr.head(
+			Arr.flatMap(rule.matches, (o) =>
+				Arr.flatMap(Record.toEntries(o.fields), ([field, term]) =>
+					term.kind === "var" && term.name === variable ? [{ source: o.source, field }] : []
+				)
 			)
+		)
+	)
+
+/**
+ * Where a view's query entry reads a context field: `output` where a head field delivers the claim (a context term of
+ * it, or a variable first bound at it); `filter` where a rule reads the context but delivers the field nowhere; none
+ * where no rule reads the context, or the entry is whole.
+ */
+const claimReadAt = (entry: EntrySpec, context: string, field: string): ClaimReadAt | undefined => {
+	if (entry.kind === "whole") {
+		return undefined
+	}
+	const delivers = (rule: Rule): boolean =>
+		Arr.some(Record.values(rule.head), (term) => {
+			if (term.kind === "context") {
+				return term.context === context && term.field === field
+			}
+			if (term.kind !== "var") {
+				return false
+			}
+			const at = firstBinding(rule, term.name)
+			return at?.source.kind === "context" && at.source.name === context && at.field === field
+		})
+	const reads = (rule: Rule): boolean =>
+		Arr.some(
+			[...rule.matches, ...rule.negations.flat()],
+			(o) => o.source.kind === "context" && o.source.name === context
+		)
+	return Arr.some(entry.rules, delivers)
+		? "output"
+		: Arr.some(entry.rules, reads)
+			? "filter"
+			: undefined
 }
 
 /** A refused hand-set claim's feature, by its field's domain; none for a domain no context field takes. */

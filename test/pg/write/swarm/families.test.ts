@@ -1100,6 +1100,62 @@ const kept: ReadonlyArray<Kept<SwarmCase, Situation>> = [
 		},
 		draws: "",
 		reaches: ["a follow-up accepted", "a follow-up refilling a value"]
+	},
+	{
+		note: "found: a counted family's sum fold stepping its member's copy along an ordered family's owner axis, once refused as unfillable where the reference admits it, written and refilled after the ordered owner's put",
+		sketch: {
+			spec: bare(
+				coreOf(
+					[true, true, true],
+					[
+						{ kind: "ordered", owner: 2, member: 0, fold: "none" },
+						{ kind: "counted", owner: 1, member: 0, fold: "sum" }
+					],
+					[{ family: 0, axis: "owner", source: { kind: "caller" } }],
+					[{ family: 1, copy: 0 }]
+				)
+			),
+			steps: [
+				inserted(
+					[
+						{ relation: 2, id: 1, v: 1n, memberOf: [] },
+						{ relation: 1, id: 2, v: 0n, memberOf: [] },
+						{
+							relation: 0,
+							id: 3,
+							v: 0n,
+							memberOf: [
+								{ family: 0, owner: 1, slot: 0 },
+								{ family: 1, owner: 2, slot: 0 }
+							]
+						}
+					],
+					false,
+					undefined
+				),
+				{
+					kind: "follow",
+					followUp: {
+						owner: 2,
+						row: 1,
+						put: Option.some(2n),
+						inserted: [],
+						removed: Option.none(),
+						appended: Option.none(),
+						moved: Option.none()
+					},
+					plain: [],
+					query: undefined,
+					shape: { split: false, repeat: false }
+				}
+			]
+		},
+		draws: "",
+		reaches: [
+			"a lawful first insert accepted",
+			"a follow-up accepted",
+			"a follow-up refilling a value"
+		]
 	}
 ]
 

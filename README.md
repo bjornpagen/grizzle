@@ -1910,8 +1910,9 @@ scan of its own and agrees with PostgreSQL to the bit, a double's rounding inclu
 
 `Compute.concat(a, b)` is `a || b`, text of no pattern. A concatenation allocates its result, so it stands in checks,
 contract predicates, generated fields and folds, and in a query only as a side of `Compute.eq` or `Compute.ne`, which
-is decided without building it: by the lengths, a prefix and a suffix. Its first operand is a term, as every
-operation's is, so a leading literal is a typed constant, `Compute.concat(Compute.literal(Prose, "item-"), id)`.
+is decided without building it: by the lengths, a prefix and a suffix, and NULL exactly where `a || b` would be. Its
+first operand is a term, as every operation's is, so a leading literal is a typed constant,
+`Compute.concat(Compute.literal(Prose, "item-"), id)`.
 
 `Compute.translate(x, from, to)` is PostgreSQL's `translate`, by characters: each character of `x` that `from` holds
 becomes the character of `to` at its position, so `Compute.translate(title, "\t\n\r", "   ")` reads a title in
@@ -2167,8 +2168,9 @@ deploy. A migration's name, `--name` or derived from its change, is at most 240 
   expression (`SET EXPRESSION`), and drops the old ones `RESTRICT`: PostgreSQL itself refuses a migration that missed
   a reader. A rule over closed relations alone runs as its violation query at the start of the migration's first
   file, when it is new or its closed rows changed, so rows that break it refuse the migration before it changes
-  anything. A slotted key reads its owners' counts, never its slots' roster's size, so a changed count replaces every
-  constant of its space, and a grown or renamed slot roster replaces none.
+  anything. A slotted key reads its owners' counts, never its slots' roster's size, so a changed count replaces its
+  counts' constant and its rows', and its owners' bases where they move, and a grown or renamed slot roster replaces
+  none.
 - **A family added to stored rows is backfilled.** grizzle draws every value a family holds, so a family new to
   relations that may hold rows takes its values from SQL over those rows, in the migration that adds it, never from
   you: each member's index in its member key's order, each count, each fold's running values in index order, and a

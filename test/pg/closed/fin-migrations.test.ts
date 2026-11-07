@@ -12,7 +12,9 @@
  *
  * Oracle, against PostgreSQL's catalog and verdicts:
  * - content addressing: the functions Step's CHECK depends on stand exactly when Last's rows, as codes, and Model's
- *   counts stand, and are every one new when a count changes; a rename keeps every code, so it replaces none of them.
+ *   counts stand, and each stands exactly when its content does: a function keeps its name only with its body, and a
+ *   new name holds a body no function had. So a changed count replaces at least its counts' constant and its rows', and
+ *   the owners' bases only where they move; a rename keeps every code, so it replaces none of them.
  *   Beside a rename, StepProduct's stand exactly when the rows and Position's size stand: a grown roster replaces the
  *   product's and no dependent space's.
  * - verdicts: a probe is admitted into both exactly when its pair is a row of Last, refused with 23514 otherwise.
@@ -236,6 +238,8 @@ const declaredAt = (h: History, stages: ReadonlyArray<Stage>, v: number): Declar
 /** What a version reads: the functions each probe's CHECK depends on, each probe's verdicts, and Step's rows. */
 interface Observed {
 	readonly step: ReadonlyArray<string>
+	/** Each function Step's CHECK depends on, by its name, beside the digest of its body. */
+	readonly stepBodies: ReadonlyArray<readonly [string, string]>
 	readonly stepProduct: ReadonlyArray<string>
 	readonly verdicts: ReadonlyArray<readonly [Option.Option<string>, Option.Option<string>]>
 	readonly rows: ReadonlyArray<string>
@@ -296,6 +300,14 @@ const finCase = (h: History, c: Case<FinFeature>) =>
 							),
 							(rows) => Arr.map(rows, (row) => String(row[0]))
 						)
+					const bodies = (r: string) =>
+						Effect.map(
+							values(
+								owner,
+								`SELECT p.proname::text, pg_catalog.md5(p.prosrc) FROM pg_catalog.pg_constraint AS c JOIN pg_catalog.pg_depend AS d ON d.classid = 'pg_catalog.pg_constraint'::regclass AND d.objid = c.oid AND d.refclassid = 'pg_catalog.pg_proc'::regclass JOIN pg_catalog.pg_proc AS p ON p.oid = d.refobjid WHERE c.conrelid = '${table(r)}'::regclass AND c.contype = 'c' ORDER BY 1`
+							),
+							(rows) => Arr.map(rows, (row) => [String(row[0]), String(row[1])] as const)
+						)
 					const insert = (r: string, probe: Row) =>
 						Effect.map(
 							Effect.result(
@@ -324,6 +336,7 @@ const finCase = (h: History, c: Case<FinFeature>) =>
 						verdicts.push([intoStep, intoProduct])
 					}
 					const step = yield* reads("Step")
+					const stepBodies = yield* bodies("Step")
 					const stepProduct = yield* reads("StepProduct")
 					const stored = yield* values(
 						owner,
@@ -331,6 +344,7 @@ const finCase = (h: History, c: Case<FinFeature>) =>
 					)
 					observed.push({
 						step,
+						stepBodies,
 						stepProduct,
 						verdicts,
 						rows: Arr.map(stored, (row) => String(row[0]))
@@ -367,13 +381,22 @@ const finCase = (h: History, c: Case<FinFeature>) =>
 			const before = defined(stages[v - 1], "the stage before")
 			const space = (s: Stage): ValueIdentity => [...rowPairs(s), s.counts[0], s.counts[1]]
 			const product = (s: Stage): ValueIdentity => [...rowPairs(s), s.positions.length]
+			const bodyBefore = new Map(was.stepBodies)
+			const bodiesBefore = new Set(Arr.map(was.stepBodies, ([, body]) => body))
+			for (const [name, body] of now.stepBodies) {
+				const kept = bodyBefore.get(name)
+				assert.ok(
+					kept === undefined ? !bodiesBefore.has(body) : kept === body,
+					`version ${v}: ${name} is named by its content`
+				)
+			}
 			if (change.kind === "a count grows") {
 				if (admitted.length > 0) {
 					c.note("a count grown under stored probes")
 				}
 				assert.ok(
-					Arr.every(now.step, (fn) => !Arr.contains(was.step, fn)),
-					`version ${v}: a changed count replaces every constant of the space`
+					Arr.filter(now.step, (fn) => !Arr.contains(was.step, fn)).length >= 2,
+					`version ${v}: a changed count replaces its counts' constant and its rows'`
 				)
 			}
 			assert.equal(
@@ -393,7 +416,7 @@ const finCase = (h: History, c: Case<FinFeature>) =>
 
 layer(Substrate.layer)("dependent keys through grizzle's migrations on PostgreSQL 19rc1", (it) => {
 	it.effect(
-		"a changed count replaces every constant of its space, a rename or a grown slot roster replaces none of it, and every probe is admitted exactly into Last's rows",
+		"a changed count replaces its counts' and its rows' constants, each constant is named by its content, a rename or a grown slot roster replaces none of it, and every probe is admitted exactly into Last's rows",
 		(ctx) =>
 			searched(
 				ctx,

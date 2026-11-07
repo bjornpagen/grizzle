@@ -13,6 +13,7 @@ import {
 	mutable,
 	on,
 	relation,
+	type RowScalars,
 	schema,
 	select,
 	type Statement
@@ -358,7 +359,7 @@ const lawOf = (space: Space, law: LawSpec): Effect.Effect<Statement, RealizeRefu
 const fieldsOf = (predicate: RowPredicate): ReadonlyArray<string> =>
 	predicate.kind === "compare" ? [predicate.field] : Arr.flatMap(predicate.parts, fieldsOf)
 
-type Row = Parameters<Parameters<typeof check<string, BuiltRelation, Predicate>>[2]>[0]
+type Row = RowScalars<BuiltRelation>
 
 type RowTerm = NonNullable<Row[string]>
 

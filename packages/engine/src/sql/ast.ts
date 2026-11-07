@@ -596,9 +596,9 @@ export type FromItem = FromSource | JoinChain
  * a member for `context` holding exactly the source's fields, each column its field's claim, the member's JSON string
  * at the field's key, read by the column's type and collated as the column is; no row when they hold no member for it;
  * and refused through `refusal`, the installation's refusal function, when the setting is no claims document, the
- * member holds any other keys, or a claim is no value of its column's type. Every claim the statement reads at the
- * source is a column reference to it, so the source reads the setting and judges the member once, however many columns
- * are read.
+ * member holds any other keys, or a claim is no value of the type it is judged by (ContextColumn `judged`). Every
+ * claim the statement reads at the source is a column reference to it, so the source reads the setting and judges the
+ * member once, however many columns are read.
  */
 export interface ContextSource {
 	readonly kind: "context"
@@ -612,10 +612,16 @@ export interface ContextSource {
 	readonly alias: string
 }
 
-/** One field of a context source: the key of its claim in the context's member, and its column. */
+/**
+ * One field of a context source: the key of its claim in the context's member; the column it is delivered as, of its
+ * base type; and the type its claim is judged by where the source reads the member, its field's own: a contract's, a
+ * pattern's or a roster's domain, else its base. Whoever set the claims, a Db or a direct writer by hand, a claim its
+ * refinement refuses raises the domain's 23514 wherever the context is read, never reaching a reader as a base value.
+ */
 export interface ContextColumn {
 	readonly field: string
 	readonly column: ColumnDefinition
+	readonly judged: TypeRef
 }
 
 /**

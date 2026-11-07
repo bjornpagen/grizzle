@@ -438,14 +438,89 @@ const writeJudges: { readonly [R in EducationRole]: Readonly<Record<string, Judg
 	}
 }
 
-/** Rows a role saw: through a relation of its own (a Db's read, a direct read of its view) or a table read directly. */
+/**
+ * Rows a role saw: through a relation of its own (a Db's read, a direct read of its view) or a table read directly.
+ * `rows` are the rows of `relation` the answer was made of, which the role's world judges; `shown` is what the answer
+ * delivered of them: the rows themselves, or a recursive read's pairs of their values.
+ */
 interface Read {
 	readonly role: EducationRole
 	readonly through: "entry" | "table"
 	readonly relation: string
 	readonly rows: ReadonlyArray<HostFact>
+	readonly shown: ReadonlyArray<HostFact>
 	readonly view: HostState
 	readonly facts: ContextFacts
+}
+
+/** A flattened attachment row's parent: its fields, every one a declared name, which holds no dot. */
+const parentOf = (row: HostFact): HostFact =>
+	Record.filter(row, (_, field) => !Str.includes(".")(field))
+
+/**
+ * A flattened attachment row's child as a row of the attached relation (model/reads.ts flattened): its nested fields
+ * under their own names, and the join field the attachment matched on, which holds the parent's value; none for a
+ * parent the attachment gave no child.
+ */
+const childOf = (
+	row: HostFact,
+	on: { readonly parent: string; readonly child: string }
+): ReadonlyArray<HostFact> => {
+	const nested = Arr.flatMap(
+		Record.toEntries(row),
+		([field, value]): ReadonlyArray<readonly [string, HostValue]> =>
+			Option.match(Str.indexOf(".")(field), {
+				onNone: () => [],
+				onSome: (dot) => [[Str.slice(dot + 1)(field), value] as const]
+			})
+	)
+	const joined = row[on.parent]
+	return nested.length === 0 || joined === undefined
+		? []
+		: [{ ...Record.fromEntries(nested), [on.child]: joined }]
+}
+
+/**
+ * The reads a Db's read of a relation made, by the shape it was read in (model/step.ts readCall): its rows as they
+ * are; an attachment's parents as rows of the relation and its children as rows of the attached relation; a recursive
+ * read's pairs, made of every row of the relation the role holds in the state it read, each of which its world judges.
+ */
+const dbReads = (
+	state: ModelState,
+	actor: Extract<Actor, { readonly kind: "db" }>,
+	action: Extract<Action, { readonly kind: "read" }>,
+	rows: ReadonlyArray<HostFact>
+): ReadonlyArray<Read> => {
+	const read = (
+		relation: string,
+		made: ReadonlyArray<HostFact>,
+		shown: ReadonlyArray<HostFact>
+	): Read => ({
+		role: actor.role,
+		through: "entry",
+		relation,
+		rows: made,
+		shown,
+		view: actor.view,
+		facts: actor.facts
+	})
+	const via = action.via
+	switch (via.kind) {
+		case "execute":
+		case "get":
+		case "page":
+		case "compile":
+			return [read(action.relation, rows, rows)]
+		case "attach": {
+			const parents = Arr.map(rows, parentOf)
+			const children = Arr.flatMap(rows, (row) => childOf(row, via))
+			return [read(action.relation, parents, parents), read(via.relation, children, children)]
+		}
+		case "reach":
+			return [
+				read(action.relation, entryRows(state, actor.role, action.relation, actor.facts), rows)
+			]
+	}
 }
 
 /** The read a prepared statement of a direct session names, as the session last prepared it before this action. */
@@ -466,9 +541,10 @@ const preparedRead = (
 	)
 
 /**
- * Every row an action showed a role: a Db's read; the read-backs of an accepted apply, its rows and inserted facts in
- * the post-change state and its deleted ones in the state before; and a direct writer's reads of a role's view, of a
- * table, of a prepared read under the claims it holds when executed, and of the facts ON CONFLICT DO SELECT answers.
+ * Every row an action showed a role: a Db's read, by the shape it was read in (dbReads); the read-backs of an accepted
+ * apply, its rows and inserted facts in the post-change state and its deleted ones in the state before; and a direct
+ * writer's reads of a role's view, of a table, of a prepared read under the claims it holds when executed, and of the
+ * facts ON CONFLICT DO SELECT answers.
  */
 const readsOf = (seen: Seen, earlier: ReadonlyArray<Seen>): ReadonlyArray<Read> => {
 	const { action, observation } = seen
@@ -480,6 +556,7 @@ const readsOf = (seen: Seen, earlier: ReadonlyArray<Seen>): ReadonlyArray<Read> 
 				through: "entry",
 				relation: back.relation,
 				rows: [...back.rows, ...back.delta.inserted],
+				shown: [...back.rows, ...back.delta.inserted],
 				view: seen.after.reality,
 				facts: actor.facts
 			},
@@ -488,6 +565,7 @@ const readsOf = (seen: Seen, earlier: ReadonlyArray<Seen>): ReadonlyArray<Read> 
 				through: "entry",
 				relation: back.relation,
 				rows: back.delta.deleted,
+				shown: back.delta.deleted,
 				view: seen.before.reality,
 				facts: actor.facts
 			}
@@ -497,16 +575,7 @@ const readsOf = (seen: Seen, earlier: ReadonlyArray<Seen>): ReadonlyArray<Read> 
 		return []
 	}
 	if (action.kind === "read" && actor.kind === "db") {
-		return [
-			{
-				role: actor.role,
-				through: "entry",
-				relation: action.relation,
-				rows: observation.rows,
-				view: actor.view,
-				facts: actor.facts
-			}
-		]
+		return dbReads(seen.before, actor, action, observation.rows)
 	}
 	if (action.kind !== "direct" || actor.kind !== "direct") {
 		return []
@@ -548,6 +617,7 @@ const readsOf = (seen: Seen, earlier: ReadonlyArray<Seen>): ReadonlyArray<Read> 
 						through: "entry",
 						relation: read.relation,
 						rows: observation.rows,
+						shown: observation.rows,
 						view: actor.view,
 						facts: actor.facts
 					}
@@ -561,6 +631,7 @@ const readsOf = (seen: Seen, earlier: ReadonlyArray<Seen>): ReadonlyArray<Read> 
 					through: "table",
 					relation: read.relation,
 					rows: observation.rows,
+					shown: observation.rows,
 					view: actor.view,
 					facts: actor.facts
 				}
@@ -691,7 +762,7 @@ const noNameCheck: StepCheck = ({ seen, earlier }) => {
 		if (read.role !== "importer") {
 			continue
 		}
-		for (const row of read.rows) {
+		for (const row of read.shown) {
 			const name = Arr.findFirst(
 				Record.values(row),
 				(value) => typeof value === "string" && namePattern.test(value)
@@ -757,7 +828,7 @@ const noteSeen = (c: Case<Feature>, seen: Seen, earlier: ReadonlyArray<Seen>): v
 		c.note("a witness was shown")
 	}
 	for (const read of readsOf(seen, earlier)) {
-		if (read.rows.length > 0) {
+		if (read.shown.length > 0) {
 			c.note(`${read.role} saw rows of its world`)
 		}
 		if (read.role === "guardian" && restrictedChild(read.view, read.facts)) {

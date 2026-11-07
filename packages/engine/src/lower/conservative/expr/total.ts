@@ -466,7 +466,9 @@ const exactQuotient = (x: Expr, y: Expr, carrier: "float4" | "float8"): Expr => 
  * (it computes IEEE there): NaN and the infinities (which it propagates), zeros of a product, and magnitudes inside
  * the range native.ts nativeRange states. The exact path computes the exact value of the finite operands and rounds it
  * once (roundToFloat); a zero divisor gives the infinity of the dividend's sign, or NaN over a zero or NaN dividend
- * (grizzle's floats have one zero, so the divisor's sign never shows); the square root of a negative is NaN.
+ * (grizzle's floats have one zero, so the divisor's sign never shows), and NULL over a NULL dividend, as every
+ * strict operation is NULL over a NULL operand, which a closed read at an absent key reads; the square root of a
+ * negative is NaN.
  */
 const guardedForm = (
 	op: Exclude<IeeeOp, "round">,
@@ -533,9 +535,10 @@ const guardedForm = (
 			const byZero = caseOf(
 				[
 					[or([eq(x, zero), eq(x, nan)]), nan],
-					[gt(x, zero), floatLit(Number.POSITIVE_INFINITY, carrier)]
+					[gt(x, zero), floatLit(Number.POSITIVE_INFINITY, carrier)],
+					[lt(x, zero), floatLit(Number.NEGATIVE_INFINITY, carrier)]
 				],
-				floatLit(Number.NEGATIVE_INFINITY, carrier)
+				x
 			)
 			return caseOf(
 				[

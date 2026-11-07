@@ -35,7 +35,7 @@ import { keep, type Swarm, swarm, swarmChoice } from "@grizzle/testing/swarm"
 import { Array as Arr, Option, Order, pipe, Record as Rec, String as Str } from "effect"
 import type { ChangedColumn, DerivedReader, FamilyName } from "#compiler/core/causes.ts"
 import { accumulated, drawn, natural, pg, uuid } from "#compiler/public/fields.ts"
-import { type AnyFamily, check, type Statement, schema } from "#compiler/public/schema.ts"
+import { type AnyFamily, type RowScalars, schema, type Statement } from "#compiler/public/schema.ts"
 import { generatedField, generatedRelation, relation } from "#compiler/schema/relation.ts"
 import {
 	containedBuilder,
@@ -51,7 +51,6 @@ import {
 	selectBuilder,
 	treeBuilder
 } from "#compiler/schema/statements.ts"
-import type { Predicate } from "#compiler/types/core/phantom.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { AnyRelation, Relation } from "#compiler/types/schema/relation.ts"
 import { defined } from "#test/support/assert.ts"
@@ -673,7 +672,7 @@ type BuiltRelation = Relation<
 >
 
 /** The row a selection's predicate reads, as a check over a relation built at run time reads it. */
-type Row = Parameters<Parameters<typeof check<string, BuiltRelation, Predicate>>[2]>[0]
+type Row = RowScalars<BuiltRelation>
 
 /** The fields of relation `r` of a specification, in declared order. */
 const fieldsOf = (spec: FillSpec, r: number): Record<string, FieldBase> => {

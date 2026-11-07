@@ -886,6 +886,7 @@ export const typeRefusals = [
 	"a fold's end names one accumulated field of the owner per plane",
 	"a fold's step is its family's member: its group, its value, then an accumulated pair per plane",
 	"a generated field is named apart from the relation's written fields",
+	"a generic source's relations share one heading",
 	"a key gets its one row",
 	"a key lists each field once",
 	"a key lists no set: a set's bit string is too wide for an index entry",

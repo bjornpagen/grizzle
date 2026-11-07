@@ -240,7 +240,13 @@ const afterBegin = (
  * hand-set claim its field refuses meets where a statement reads it.
  */
 const directReach = (feature: WorldFeature): boolean =>
-	startingWith("op:direct:", "op:direct-end:", "object:", "claim-refused:")(feature)
+	startingWith(
+		"op:direct:",
+		"op:direct-end:",
+		"object:",
+		"claim-refused:",
+		"claim-refused-read:"
+	)(feature)
 
 /** A live BEGIN aimed on every draw at `targets`, read of its outcome through `read`, among the box's BEGINs. */
 const aimedBegin = (

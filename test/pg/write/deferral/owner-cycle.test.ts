@@ -11,7 +11,7 @@ import { dbContext } from "#adapter/db/context.ts"
 import { Db } from "#adapter/public/db.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { drawn as drawnField, natural, pg, uuid } from "#compiler/public/fields.ts"
-import { check, type Statement, schema } from "#compiler/public/schema.ts"
+import { check, type RowScalars, schema, type Statement } from "#compiler/public/schema.ts"
 import { relation } from "#compiler/schema/relation.ts"
 import {
 	containedBuilder,
@@ -23,7 +23,6 @@ import {
 	orderedBuilder,
 	selectBuilder
 } from "#compiler/schema/statements.ts"
-import type { Predicate } from "#compiler/types/core/phantom.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { AnyRelation, Relation } from "#compiler/types/schema/relation.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
@@ -185,7 +184,7 @@ type BuiltRelation = Relation<
 >
 
 /** The row a predicate reads, as a check over a relation built at run time reads it. */
-type Row = Parameters<Parameters<typeof check<string, BuiltRelation, Predicate>>[2]>[0]
+type Row = RowScalars<BuiltRelation>
 
 const schemaOf = (
 	declared: string,
