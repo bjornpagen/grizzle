@@ -37,6 +37,7 @@ import {
 } from "#compiler/check/allen.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
+import { defined } from "#compiler/core/invariant.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { TupleMap } from "#compiler/core/tuple-map.ts"
 import {
@@ -72,7 +73,7 @@ import {
 import { baseOf, type ScalarType, typeLabel } from "#compiler/ir/scalar.ts"
 import { chain } from "#compiler/logical/defined.ts"
 import { conjuncts, type Fixed, fixedEqual, readColumns } from "#compiler/logical/props.ts"
-import { nativeOp, overloadOf } from "#compiler/scalar/compute/registry.ts"
+import { carrierEquality, nativeOp } from "#compiler/scalar/compute/registry.ts"
 
 export interface RuleContext {
 	/**
@@ -102,11 +103,7 @@ export const realizationOf = (
 	node: RelNode
 ): Realization => placed(node.id) ?? defaultRealizationOf(node.kind)
 
-const equalityOp = (t: ScalarType): ReadonlyArray<OpId> => {
-	const c = baseOf(t).carrier
-	const op = overloadOf("eq", [c, c])
-	return op === undefined ? [] : [op.id]
-}
+const equalityOp = (t: ScalarType): OpId => carrierEquality(baseOf(t).carrier)
 
 const typeIdentity = (t: ScalarType): ReadonlyArray<CoercionIdentity> => {
 	const base = baseOf(t)
@@ -115,13 +112,16 @@ const typeIdentity = (t: ScalarType): ReadonlyArray<CoercionIdentity> => {
 }
 
 const columnTypes = (heading: Heading, columns: ReadonlyArray<string>): ReadonlyArray<ScalarType> =>
-	columns.flatMap((c) => {
-		const column = heading.find((x) => x.name === c)
-		return column === undefined ? [] : [column.type]
-	})
+	columns.map(
+		(c) =>
+			defined(
+				heading.find((x) => x.name === c),
+				"a compared column is a column of its heading"
+			).type
+	)
 
 const comparing = (types: ReadonlyArray<ScalarType>): Justification =>
-	justify({ equality: types.flatMap(equalityOp), coercions: types.flatMap(typeIdentity) })
+	justify({ equality: types.map(equalityOp), coercions: types.flatMap(typeIdentity) })
 
 /**
  * The native equality operators and type and collation identities comparing `columns` of a heading under native
