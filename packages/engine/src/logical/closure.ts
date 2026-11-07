@@ -235,12 +235,13 @@ export const independentFactors = (
 	readonly factors: ReadonlyArray<NonEmptyReadonlyArray<string>>
 	readonly factorOf: ReadonlyMap<string, number>
 } => {
+	/** Each dependency with its determined columns not yet pruned: zero once it stands no longer. */
+	const states = dependencies.map((d) => ({ d, standing: d.to.length }))
 	/** Each column's standing dependencies reading it, and the dependencies determining it. */
 	const readers = new Map<string, number>()
-	const determiners = new Map<string, Array<number>>()
-	/** Each dependency's determined columns not yet pruned; zero once it stands no longer. */
-	const standing = dependencies.map((d) => d.to.length)
-	for (const [i, d] of dependencies.entries()) {
+	const determiners = new Map<string, Array<(typeof states)[number]>>()
+	for (const state of states) {
+		const d = state.d
 		if (d.to.length === 0) {
 			continue
 		}
@@ -248,9 +249,12 @@ export const independentFactors = (
 			readers.set(c, (readers.get(c) ?? 0) + 1)
 		}
 		for (const c of d.to) {
-			const by = determiners.get(c) ?? []
-			by.push(i)
-			determiners.set(c, by)
+			const by = determiners.get(c)
+			if (by === undefined) {
+				determiners.set(c, [state])
+			} else {
+				by.push(state)
+			}
 		}
 	}
 	const pruned = new Set<string>()
@@ -260,13 +264,12 @@ export const independentFactors = (
 			continue
 		}
 		pruned.add(c)
-		for (const i of determiners.get(c) ?? []) {
-			const left = (standing[i] ?? 0) - 1
-			standing[i] = left
-			if (left > 0) {
+		for (const state of determiners.get(c) ?? []) {
+			state.standing -= 1
+			if (state.standing > 0) {
 				continue
 			}
-			for (const r of dependencies[i]?.from ?? []) {
+			for (const r of state.d.from) {
 				const reading = (readers.get(r) ?? 0) - 1
 				readers.set(r, reading)
 				if (reading === 0 && determiners.has(r)) {
@@ -289,8 +292,8 @@ export const independentFactors = (
 		}
 		return at
 	}
-	for (const [i, d] of dependencies.entries()) {
-		if ((standing[i] ?? 0) === 0) {
+	for (const { d, standing } of states) {
+		if (standing === 0) {
 			continue
 		}
 		const [first, ...rest] = [...d.from, ...d.to.filter((c) => !pruned.has(c))]
@@ -307,20 +310,25 @@ export const independentFactors = (
 	}
 	const factors: Array<[string, ...Array<string>]> = []
 	const factorOf = new Map<string, number>()
-	const byRoot = new Map<string, number>()
+	/** Each root's factor, with its index among the factors. */
+	const byRoot = new Map<
+		string,
+		{ readonly at: number; readonly factor: [string, ...Array<string>] }
+	>()
 	for (const c of columns) {
 		if (pruned.has(c)) {
 			continue
 		}
 		const root = find(c)
-		const at = byRoot.get(root)
-		if (at === undefined) {
-			byRoot.set(root, factors.length)
+		const known = byRoot.get(root)
+		if (known === undefined) {
+			const factor: [string, ...Array<string>] = [c]
+			byRoot.set(root, { at: factors.length, factor })
 			factorOf.set(c, factors.length)
-			factors.push([c])
+			factors.push(factor)
 		} else {
-			factorOf.set(c, at)
-			factors[at]?.push(c)
+			factorOf.set(c, known.at)
+			known.factor.push(c)
 		}
 	}
 	return { factors, factorOf }

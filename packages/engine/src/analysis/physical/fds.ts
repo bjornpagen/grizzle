@@ -2,6 +2,7 @@ import type { MultiplicityReason } from "#compiler/analysis/certificates/reasons
 import { appendAll } from "#compiler/core/array.ts"
 import { compareText } from "#compiler/core/canonical.ts"
 import type { NodeId, ParamId } from "#compiler/core/ids.ts"
+import { defined } from "#compiler/core/invariant.ts"
 import type { CoercionIdentity } from "#compiler/ir/certificate.ts"
 import type { EvidenceContext, Grounds, Premise } from "#compiler/ir/evidence.ts"
 import { evidenceContexts, lessDemanding, premiseText, strongest } from "#compiler/ir/evidence.ts"
@@ -305,6 +306,12 @@ interface Waiting {
 	readonly pointFrom: ReadonlyMap<string, ReadonlyArray<number>>
 }
 
+/** The invariant of an index the Waiting holds: it names an implication of the table it was built from. */
+const indexedImplication = "the waiting index names an implication of its table"
+
+/** The invariant of an index the Waiting holds: it names a point rule of the table it was built from. */
+const indexedPoint = "the waiting index names a point rule of its table"
+
 const indexed = (imps: ReadonlyArray<Implication>, points: ReadonlyArray<PointRule>): Waiting => {
 	const fromColumn = new Map<string, Array<number>>()
 	const atSpan = new Map<string, Array<number>>()
@@ -438,9 +445,8 @@ export class Dependencies {
 		for (const c of [...columns, row]) {
 			need(c)
 		}
-		for (let at = 0; at < queue.length; at++) {
-			const a = queue[at]
-			for (const imp of a === undefined ? [] : (deriving.get(a) ?? [])) {
+		for (const a of queue) {
+			for (const imp of deriving.get(a) ?? []) {
 				if (keptImps.has(imp)) {
 					continue
 				}
@@ -498,29 +504,25 @@ export class Dependencies {
 			}
 		}
 		const fire = (i: number): void => {
-			const imp = imps[i]
-			if (imp === undefined) {
-				return
-			}
+			const imp = defined(imps[i], indexedImplication)
 			for (const t of imp.to) {
 				learn(t, { kind: "implication", index: i, implication: imp })
 			}
 		}
 		const firePoint = (i: number): void => {
-			const rule = rules[i]
-			if (rule !== undefined) {
-				learnPoint(rule.span, { kind: "point", index: i, rule })
-			}
+			const rule = defined(rules[i], indexedPoint)
+			learnPoint(rule.span, { kind: "point", index: i, rule })
 		}
+		const waitingOn = (i: number): number => defined(waiting[i], indexedImplication)
 		const count = (i: number): void => {
-			const left = (waiting[i] ?? 0) - 1
+			const left = waitingOn(i) - 1
 			waiting[i] = left
 			if (left === 0) {
 				fire(i)
 			}
 		}
 		const countAt = (i: number, span: string): void => {
-			if ((waiting[i] ?? -1) < 0) {
+			if (waitingOn(i) < 0) {
 				return
 			}
 			const seen = pointedAt.get(i) ?? new Set<string>()
@@ -546,24 +548,21 @@ export class Dependencies {
 				firePoint(i)
 			}
 		}
-		for (let at = 0; at < queue.length; at++) {
-			const fact = queue[at]
-			if (fact === undefined) {
-				continue
-			}
+		for (const fact of queue) {
 			if (fact.kind === "column") {
 				for (const i of this.#waiting.fromColumn.get(fact.column) ?? []) {
-					if ((waiting[i] ?? -1) > 0) {
+					if (waitingOn(i) > 0) {
 						count(i)
 					}
 				}
 				for (const i of this.#waiting.pointFrom.get(fact.column) ?? []) {
-					const left = (pointWaiting[i] ?? 0) - 1
-					if ((pointWaiting[i] ?? -1) > 0) {
-						pointWaiting[i] = left
-						if (left === 0) {
-							firePoint(i)
-						}
+					const pending = defined(pointWaiting[i], indexedPoint)
+					if (pending <= 0) {
+						continue
+					}
+					pointWaiting[i] = pending - 1
+					if (pending === 1) {
+						firePoint(i)
 					}
 				}
 			}
@@ -597,10 +596,10 @@ export class Dependencies {
 				continue
 			}
 			seen.add(name)
-			const how = column ? closure.columns.get(key) : closure.points.get(key)
-			if (how === undefined) {
-				continue
-			}
+			const how = defined(
+				column ? closure.columns.get(key) : closure.points.get(key),
+				"an explained fact is one its closure learned"
+			)
 			switch (how.kind) {
 				case "start":
 					continue

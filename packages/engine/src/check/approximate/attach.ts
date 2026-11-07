@@ -2,6 +2,7 @@ import { subtree } from "#compiler/check/approximate/trace.ts"
 import type { ResolvedStage } from "#compiler/check/params.ts"
 import { parentUse } from "#compiler/check/scan.ts"
 import { appendAll } from "#compiler/core/array.ts"
+import { defined } from "#compiler/core/invariant.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import { inputsOf, keptRowsOf, type NodeOf, type RelDag, type RelNode } from "#compiler/ir/rel.ts"
@@ -52,11 +53,10 @@ const correlationSteps = (
 ): ReadonlyArray<readonly [RelNode, string]> => {
 	switch (node.kind) {
 		case "ProjectSet": {
-			const out = node.out.find((o) => o.name === name)
-			if (out === undefined) {
-				return []
-			}
-			const expr = out.expr
+			const expr = defined(
+				node.out.find((o) => o.name === name),
+				"a traced correlation column is a column of the projection it reaches"
+			).expr
 			return expr.kind === "column" && expr.column.node === node.input.id
 				? [[node.input, expr.column.name]]
 				: []
@@ -78,8 +78,7 @@ const correlationSteps = (
 		case "SemiJoin":
 		case "AntiJoin":
 		case "Difference": {
-			const kept = keptRowsOf(node)
-			return kept === undefined ? [] : [[kept.input, name]]
+			return [[defined(keptRowsOf(node), "a node that keeps its input's rows").input, name]]
 		}
 		case "ApproximateNearest":
 		case "Base":

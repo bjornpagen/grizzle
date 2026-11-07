@@ -37,6 +37,7 @@ import { allenMaskMax } from "#compiler/core/allen.ts"
 import { canonicalEquals, catchRefusal, everyProperty } from "#compiler/core/canonical.ts"
 import { type CompileError, unsupported } from "#compiler/core/errors.ts"
 import { makeIdSupply, type NodeId, type ParamId, type VarId } from "#compiler/core/ids.ts"
+import { defined } from "#compiler/core/invariant.ts"
 import { int4Max } from "#compiler/core/limits.ts"
 import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import {
@@ -2681,7 +2682,10 @@ class RuleCheck {
 				)
 			)
 		}
-		const delivered = columnOf(this.cx.deliveredOf(arm), column)?.type ?? col.type
+		const delivered = defined(
+			columnOf(this.cx.deliveredOf(arm), column),
+			"an arm delivered each column of its heading before a union widened it"
+		).type
 		return this.cx.schema.admits(value, delivered, this.cx.patterns)
 	}
 

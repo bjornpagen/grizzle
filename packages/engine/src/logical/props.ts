@@ -1,6 +1,7 @@
 import { appendAll } from "#compiler/core/array.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { NodeId, OccurrenceId, ParamId } from "#compiler/core/ids.ts"
+import { defect, defined } from "#compiler/core/invariant.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { NodeScope, OuterRefs } from "#compiler/ir/dag.ts"
 import { type EvidenceContext, type Premise, strongest } from "#compiler/ir/evidence.ts"
@@ -518,35 +519,46 @@ const stepSource = (props: Table, d: Dependency, column: string): StepSource => 
 			if (witness.kind !== "semiJoinPair") {
 				return own(fixedWitnessValue(props, witness, column))
 			}
-			const pair = node.kind === "SemiJoin" ? node.on[witness.index] : undefined
-			return pair === undefined || node.kind !== "SemiJoin"
-				? opaque
-				: {
-						kind: "input",
-						input: node.right,
-						column: pair.right,
-						over: (right) =>
-							fixedColumn(column, { kind: "semiJoinPair", index: witness.index, right })
-					}
+			if (node.kind !== "SemiJoin") {
+				throw defect("a semi-join pair fixes a column of its semi-join")
+			}
+			const pair = defined(
+				node.on[witness.index],
+				"a semi-join pair's index names one of its pairs"
+			)
+			return {
+				kind: "input",
+				input: node.right,
+				column: pair.right,
+				over: (right) => fixedColumn(column, { kind: "semiJoinPair", index: witness.index, right })
+			}
 		}
 		case "correlated": {
-			const corr = node.kind === "MatchRegion" ? node.correlated[rule.index] : undefined
-			if (corr === undefined || node.kind !== "MatchRegion") {
-				return opaque
+			if (node.kind !== "MatchRegion") {
+				throw defect("a correlated variable is a region's")
 			}
+			const corr = defined(
+				node.correlated[rule.index],
+				"a correlated rule's index names a correlated variable of its region"
+			)
 			return own(fixedOf(corr.expr, regionLocals(props.node.id, node)) ?? { kind: "expr" })
 		}
-		case "equal": {
-			const [from] = d.from
-			return from === undefined ? opaque : { kind: "column", column: from }
-		}
+		case "equal":
+			return {
+				kind: "column",
+				column: defined(d.from[0], "an equality's step is determined by its one column")
+			}
 		case "match": {
 			if (node.kind !== "MatchRegion") {
-				return opaque
+				throw defect("a match binds a variable of its region")
 			}
-			const occurrence = node.occurrences.find((o) => o.id === rule.occurrence)
-			const binding = occurrence?.bindings.find((b) => b.var.name === column)
-			if (occurrence === undefined || binding === undefined) {
+			const occurrence = defined(
+				node.occurrences.find((o) => o.id === rule.occurrence),
+				"a match rule's occurrence is one of its region's"
+			)
+			/** A hidden attribute of the occurrence is bound to no variable: what it holds is opaque. */
+			const binding = occurrence.bindings.find((b) => b.var.name === column)
+			if (binding === undefined) {
 				return opaque
 			}
 			const constant = occurrence.constants.find((k) => k.column === binding.column)
@@ -562,8 +574,9 @@ const stepSource = (props: Table, d: Dependency, column: string): StepSource => 
 		}
 		case "projection": {
 			if (node.kind !== "ProjectSet") {
-				return opaque
+				throw defect("a projection's rule is a projection's")
 			}
+			/** A hidden attribute of the input is no output: what it holds is opaque. */
 			const out = node.out.find((o) => o.name === column)
 			if (out === undefined) {
 				return opaque
@@ -581,14 +594,18 @@ const stepSource = (props: Table, d: Dependency, column: string): StepSource => 
 		}
 		case "kept":
 		case "grouped": {
-			const input = inputOf(node, rule.input.node)
+			const input = defined(
+				inputOf(node, rule.input.node),
+				"a carried rule's input is an input of its node"
+			)
 			const carry = rule.rule === "kept" ? rowsKeep : groupKeeps
-			return input === undefined
-				? opaque
-				: { kind: "input", input, column, over: (derived) => carry(d.from, [column], derived) }
+			return { kind: "input", input, column, over: (derived) => carry(d.from, [column], derived) }
 		}
 		case "agreed":
-			return node.kind === "Union" ? { kind: "arms", arms: unionArms(node.groups) } : opaque
+			if (node.kind !== "Union") {
+				throw defect("the arms that agree on a column are a union's")
+			}
+			return { kind: "arms", arms: unionArms(node.groups) }
 		case "declared":
 		case "viewAlternative":
 		case "group":
@@ -709,38 +726,54 @@ const fixedWitnessValue = (
 	switch (witness.kind) {
 		case "conjunct": {
 			if (node.kind !== "Filter") {
-				return { kind: "expr" }
+				throw defect("a conjunct fixes a column of its filter")
 			}
 			const input = node.input.node.id
-			const conjunct = conjuncts(node.pred).find((e) => e.id === witness.expr)
-			const operands = conjunct === undefined ? undefined : equalityOperands(conjunct)
-			const other = operands?.find((o) => localColumn(o, input) !== column)
-			return other === undefined
-				? { kind: "expr" }
-				: (fixedOf(other, new Set([input])) ?? { kind: "expr" })
+			const conjunct = defined(
+				conjuncts(node.pred).find((e) => e.id === witness.expr),
+				"a conjunct witness names a conjunct of its filter"
+			)
+			const operands = defined(
+				equalityOperands(conjunct),
+				"a conjunct that fixes a column is an equality"
+			)
+			const other = defined(
+				operands.find((o) => localColumn(o, input) !== column),
+				"an equality that fixes a column has an operand other than the column"
+			)
+			return fixedOf(other, new Set([input])) ?? { kind: "expr" }
 		}
 		case "closedValue": {
 			if (node.kind !== "Closed") {
-				return { kind: "expr" }
+				throw defect("a closed value fixes a column of its closed relation")
 			}
-			const i = node.heading.findIndex((h) => h.name === column)
-			const literal = node.rows[0]?.[i]
-			return literal === undefined
-				? { kind: "expr" }
-				: { kind: "literal", literal, key: nativeEqualityKey(literal) }
+			const row = defined(node.rows[0], "a column every fact agrees on has a fact")
+			const literal = defined(
+				row[node.heading.findIndex((h) => h.name === column)],
+				"a closed value's column is a column of its relation"
+			)
+			return { kind: "literal", literal, key: nativeEqualityKey(literal) }
 		}
 		case "takeCorrelation": {
-			const corr = node.kind === "Take" ? node.correlation[witness.index] : undefined
-			return corr === undefined || node.kind !== "Take"
-				? { kind: "expr" }
-				: (fixedOf(corr.expr, new Set([node.input.node.id])) ?? { kind: "expr" })
+			if (node.kind !== "Take") {
+				throw defect("a take's correlation fixes a column of its take")
+			}
+			const corr = defined(
+				node.correlation[witness.index],
+				"a take correlation's index names one of its take's"
+			)
+			return fixedOf(corr.expr, new Set([node.input.node.id])) ?? { kind: "expr" }
 		}
 		case "attachCorrelation": {
 			const attach = props.attachment
-			const pair = attach?.id === witness.attach ? attach.correlation[witness.index] : undefined
-			return pair === undefined || attach === undefined
-				? { kind: "expr" }
-				: { kind: "outer", node: attach.parent.id, column: pair.parent }
+			if (attach?.id !== witness.attach) {
+				throw defect("an attachment's correlation fixes a column of the child it relates")
+			}
+			const pair = defined(
+				attach.correlation[witness.index],
+				"an attachment correlation's index names one of its pairs"
+			)
+			return { kind: "outer", node: attach.parent.id, column: pair.parent }
 		}
 	}
 }
@@ -1696,7 +1729,7 @@ const regionProps = (subject: Subject, node: ReadingOf<"MatchRegion">, env: Prop
 		contexts.push(src.context)
 		const sourceNode = src.node
 		/** Each source column's variables, in binding order; a column bound to several equates them. */
-		const varsAt = new Map<string, Array<string>>()
+		const varsAt = new Map<string, [string, ...Array<string>]>()
 		for (const b of o.bindings) {
 			const v = b.var.name
 			const facts = bound.get(v) ?? []
@@ -1710,9 +1743,13 @@ const regionProps = (subject: Subject, node: ReadingOf<"MatchRegion">, env: Prop
 			if (!heading.has(v)) {
 				continue
 			}
-			const at = varsAt.get(b.column) ?? []
+			const at = varsAt.get(b.column)
+			if (at === undefined) {
+				varsAt.set(b.column, [v])
+				continue
+			}
 			const [first] = at
-			if (first !== undefined && first !== v) {
+			if (first !== v) {
 				const e = statedEquality(first, v, {
 					kind: "sharedColumn",
 					occurrence: o.id,
@@ -1722,7 +1759,6 @@ const regionProps = (subject: Subject, node: ReadingOf<"MatchRegion">, env: Prop
 				equal.push(e)
 			}
 			at.push(v)
-			varsAt.set(b.column, at)
 		}
 		const lateral = refsTo(env.scope(sourceNode).outer, locals)
 		if (lateral.length === 0) {
@@ -1732,7 +1768,7 @@ const regionProps = (subject: Subject, node: ReadingOf<"MatchRegion">, env: Prop
 			for (const v of fixedNames(src, column) ?? []) {
 				const other =
 					v.name.kind === "outer" ? varOf({ node: v.name.node, column: v.name.column }) : undefined
-				if (w === undefined || other === undefined || other === w) {
+				if (other === undefined || other === w) {
 					continue
 				}
 				const stated = statedEquality(other, w, {

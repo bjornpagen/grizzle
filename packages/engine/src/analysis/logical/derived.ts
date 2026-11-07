@@ -1,3 +1,4 @@
+import { defined } from "#compiler/core/invariant.ts"
 import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { type KeyAlternative, type KeyProof, keyWith } from "#compiler/ir/keys.ts"
 import type { HeadingColumn } from "#compiler/ir/rel.ts"
@@ -50,7 +51,7 @@ export const inheritedKeys = <C extends HeadingColumn>(
 		return [{ columns: single === undefined ? heading : [single], proof: empty, alternatives: [] }]
 	}
 	const position = new Map(heading.map((c, i) => [c.name, i]))
-	const at = (c: C) => position.get(c.name) ?? 0
+	const at = (c: C) => defined(position.get(c.name), "a key's column is a column of its heading")
 	const listed = proved.flatMap((proof) => [
 		{ proof, alternatives: proof.alternatives },
 		...proof.alternatives.flatMap((a) => {
@@ -68,7 +69,7 @@ export const inheritedKeys = <C extends HeadingColumn>(
 				return a.columns.length - b.columns.length
 			}
 			for (const [i, c] of a.columns.entries()) {
-				const d = at(c) - at(b.columns[i] ?? c)
+				const d = at(c) - at(defined(b.columns[i], "two keys of one width"))
 				if (d !== 0) {
 					return d
 				}

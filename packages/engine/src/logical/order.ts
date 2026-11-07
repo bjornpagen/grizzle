@@ -1,6 +1,7 @@
 import { appendAll } from "#compiler/core/array.ts"
 import { compareText } from "#compiler/core/canonical.ts"
 import { CompileError, type ProseTag, prose } from "#compiler/core/errors.ts"
+import { defined } from "#compiler/core/invariant.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { KeyClasses, KeyFactors } from "#compiler/ir/keys.ts"
@@ -147,7 +148,7 @@ export const completeOrder = (
 			return a.length - b.length
 		}
 		for (const [i, x] of a.entries()) {
-			const d = compareText(x, b[i] ?? x)
+			const d = compareText(x, defined(b[i], "two candidates of one width"))
 			if (d !== 0) {
 				return d
 			}

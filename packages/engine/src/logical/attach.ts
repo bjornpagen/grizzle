@@ -401,12 +401,12 @@ const reflexiveOne = (attach: NodeOf<"Attach">, parent: Props, child: RelNode): 
 		filters.push(at)
 		at = at.input
 	}
-	if (at.kind !== "MatchRegion" || at.occurrences.length !== 1 || at.equalities.length > 0) {
+	if (at.kind !== "MatchRegion" || at.equalities.length > 0) {
 		return false
 	}
 	const region = at
-	const [o] = region.occurrences
-	if (o === undefined) {
+	const [o, ...others] = region.occurrences
+	if (o === undefined || others.length > 0) {
 		return false
 	}
 	const source = o.source
