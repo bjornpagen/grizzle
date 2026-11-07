@@ -6,12 +6,10 @@ export type { Family } from "#compiler/ir/family.ts"
 export type { FamilyId, TableRelation } from "#compiler/ir/law.ts"
 export type {
 	AnyChangeSet,
-	AppendsBeside,
 	ChangeSet,
 	Law,
 	PlannedStrata,
 	Refused,
-	Strata,
 	Witness,
 	WritesOf
 } from "#compiler/types/changeset/changeset.ts"

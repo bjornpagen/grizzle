@@ -41,7 +41,6 @@ export {
 	type GroupMerge,
 	keyColumns,
 	mapTree,
-	type PageParamSlot,
 	type PageStatementSlot,
 	type ProgramDelivery,
 	type RelationColumn,

@@ -97,7 +97,6 @@ export {
 	type SchemaDesc
 } from "#compiler/ir/desc.ts"
 export type {
-	ArrayTexts,
 	ConstraintOwner,
 	Encoder,
 	LiteralBound,

@@ -31,6 +31,7 @@
 	"ignorePatterns": [
 		"!packages/engine/src/laws/families/coverage/**",
 		"!packages/engine/src/query/build/**",
+		"!test/unit/query/build/**",
 		"packages/devtools/src/*/fixtures/**"
 	],
 	"ignoreDependencies": ["grizzle:config"],

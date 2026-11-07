@@ -308,7 +308,7 @@ const statementGen: Gen<Statement> = weighted([
 type GrizzleActorName = "app" | "app2"
 type DirectActorName = "d1" | "d2"
 
-export type Session =
+type Session =
 	| {
 			readonly kind: "grizzle"
 			readonly actor: GrizzleActorName

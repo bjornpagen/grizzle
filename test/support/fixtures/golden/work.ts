@@ -25,11 +25,6 @@ const t6 = id(2, 6)
 export const t7 = id(2, 7)
 /** A task id no fact has. */
 export const tMissing = id(2, 0x99)
-/**
- * A task the worked example's test adds after AccountBudget's first refresh, so the view's facts are those of the last
- * refresh.
- */
-export const tLate = id(2, 8)
 
 /**
  * A lawful state of Work: every Task selecting a handle has its arm and nothing else, every task's

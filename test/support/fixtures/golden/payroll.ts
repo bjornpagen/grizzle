@@ -52,7 +52,6 @@ const s2 = s1 + 8n * hour
 const s3 = base + 2n * day + 9n * hour
 export const s4 = s3 + 8n * hour
 export const w1 = 2922n
-export const w2 = 2923n
 /** approveRun's now, run2's settlement in stateB, and the now run1 is paid at. */
 export const tApproved = p1 + hour
 export const tSettled = p1 + 2n * hour

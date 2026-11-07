@@ -360,7 +360,7 @@ export interface RegionOptions {
  * The options of a plain region: every bound variable in its heading, a fresh node, nothing correlated or equated. A
  * region that states more spreads this.
  */
-export const plainRegion: RegionOptions = {
+const plainRegion: RegionOptions = {
 	heading: { kind: "bound" },
 	id: { kind: "fresh" },
 	correlated: [],
@@ -384,23 +384,8 @@ export const statedKey = (key: KeySet): KeyProof => ({
 	context: "queryLocal"
 })
 
-export const keyed = (
-	keys: ReadonlyArray<KeySet>,
-	card: "many" | "atMostOne" | "one"
-): MetaSpec => ({
-	...conservativeMeta,
-	logicalKeys: Arr.map(keys, statedKey),
-	card
-})
-
 export const asc = (...columns: ReadonlyArray<string>): CompletedOrder => ({
 	keys: Arr.map(columns, (column) => ({ column, dir: "asc" as const }))
-})
-
-export const order = (
-	...keys: ReadonlyArray<readonly [string, "asc" | "desc"]>
-): CompletedOrder => ({
-	keys: Arr.map(keys, ([column, dir]) => ({ column, dir }))
 })
 
 /** Whether two headings hold the same column names. */
