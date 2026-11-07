@@ -30,6 +30,7 @@ import {
 	mutableOrDrawn,
 	type Planted,
 	plantedGen,
+	relationAt,
 	relationName,
 	replacingGen,
 	sourceClassOf,
@@ -91,6 +92,7 @@ type ClusterSituation =
 	| "a follow-up that refills a value it leaves stale"
 	| "a follow-up that refills a fold stepping a copy"
 	| "a follow-up that re-places an owner of counted members"
+	| "a follow-up that re-places an immutable owner of counted members"
 
 const situations: Arr.NonEmptyReadonlyArray<ClusterSituation> = [
 	"a tree owning an ordered family",
@@ -111,7 +113,8 @@ const situations: Arr.NonEmptyReadonlyArray<ClusterSituation> = [
 	"an owner put in place beside an append to its family",
 	"a follow-up that refills a value it leaves stale",
 	"a follow-up that refills a fold stepping a copy",
-	"a follow-up that re-places an owner of counted members"
+	"a follow-up that re-places an owner of counted members",
+	"a follow-up that re-places an immutable owner of counted members"
 ]
 
 /** Whether a follow-up re-places a stored row, `was` before it and `now` after: it moves the row to another slot or
@@ -297,6 +300,14 @@ const aims: ReadonlyArray<readonly [ClusterSituation, Gen<ClusterCase>]> = [
 		"a follow-up that re-places an owner of counted members",
 		caseOver(
 			plantedGen("re-placed owner"),
+			(spec) => constant(fullInstance(spec)),
+			(spec, rows) => replacingGen(spec, rows, 0)
+		)
+	],
+	[
+		"a follow-up that re-places an immutable owner of counted members",
+		caseOver(
+			plantedGen("re-placed immutable owner"),
 			(spec) => constant(fullInstance(spec)),
 			(spec, rows) => replacingGen(spec, rows, 0)
 		)
@@ -696,15 +707,17 @@ layer(Substrate.layer, { excludeTestServices: true })("the fill order on the clu
 								) {
 									c.note("a follow-up that refills a fold stepping a copy")
 								}
-								if (
-									Arr.some(
-										after,
-										(x) =>
-											Arr.some(rows, (was) => was.id === x.id && replaced(spec, was, x)) &&
-											Arr.some(after, (y) => Arr.some(y.memberOf, (m) => m.owner === x.id))
-									)
-								) {
+								const replacedOwners = Arr.filter(
+									after,
+									(x) =>
+										Arr.some(rows, (was) => was.id === x.id && replaced(spec, was, x)) &&
+										Arr.some(after, (y) => Arr.some(y.memberOf, (m) => m.owner === x.id))
+								)
+								if (Arr.isReadonlyArrayNonEmpty(replacedOwners)) {
 									c.note("a follow-up that re-places an owner of counted members")
+								}
+								if (Arr.some(replacedOwners, (x) => !relationAt(spec, x.relation).mutable)) {
+									c.note("a follow-up that re-places an immutable owner of counted members")
 								}
 								if (
 									Option.isSome(followUp.value.put) &&

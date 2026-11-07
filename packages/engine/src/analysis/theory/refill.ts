@@ -427,7 +427,9 @@ export const refillable = (l: Family): boolean => l.member.mutable && l.owner.mu
  *   with every value as the stratum leaves them, their owners' new values among them, before the change reaches the
  *   owners (members first); and of every family owned by a relation a put or a delete may re-place (`replaces`), one
  *   that owns no sequence, whose rows such a write deletes and inserts again under the members that reference them (a
- *   put or a delete of a member that owns a sequence is refused);
+ *   put or a delete of a member that owns a sequence is refused). A mutable owner's axis there is deferred by the plan's
+ *   own rules already (laws/model/plan.ts FamilyPlanner); an immutable owner's, which a delete of an ordered family's
+ *   member re-places just the same, by this rule alone;
  * - `predecessor`: the predecessor axis of every ordered family and tree a change refills, whose members' accumulators
  *   and copies a refill rewrites in place across its statements;
  * - and the owner axis of every tree a change refills, whose nodes' copies of their parent's a refill rewrites in place.

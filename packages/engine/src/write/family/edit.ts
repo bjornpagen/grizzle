@@ -27,7 +27,7 @@
  * index is a coordinate, never a multiplicity. A member key a family's changes name twice is refused, never a second
  * member.
  */
-import { readsOf } from "#compiler/analysis/theory/fill.ts"
+import { readsOf, withGenerationInputs } from "#compiler/analysis/theory/fill.ts"
 import { encodeFailure, slotPlace } from "#compiler/codec/fault.ts"
 import { admittedParam, carrierSpecOf } from "#compiler/codec/scalar.ts"
 import { sameOrder } from "#compiler/core/array.ts"
@@ -281,40 +281,29 @@ export const groupOfOwner = (ctx: FillContext, family: Family, values: Values): 
 	mapNonEmpty(family.group, (g) => textOf(ctx, g.owner.type, values.get(fieldKey(g.owner.name))))
 
 /** The fields a family's drawn values read of a member: its step value, its selections' fields, every column its axes
- * carry from a member, and the fields every generated one of those reads, transitively. */
-const inputsOf = (family: Family, relation: LawRelation): ReadonlySet<string> => {
-	const out = new Set<string>()
-	const pending: Array<string> = []
-	const add = (name: string): void => {
-		if (!out.has(name)) {
-			out.add(name)
-			pending.push(name)
-		}
-	}
+ * carry from a member, and the fields every generated one of those reads, transitively (fill.ts withGenerationInputs).
+ * A selection's law columns (a fold's accumulators) are no member field, so no caller's update changes them. */
+const inputsOf = (family: Family, relation: LawRelation): ReadonlyArray<LawField> => {
+	const named = new Set<string>()
 	for (const fold of family.folds) {
 		if (fold.step.kind === "value") {
-			add(fold.step.field.name)
+			named.add(fold.step.field.name)
 		}
 		for (const w of fold.where) {
 			for (const name of readsOf(w)) {
-				add(name)
+				named.add(name)
 			}
 		}
 	}
 	for (const pair of [...family.axes.predecessor, ...family.axes.last]) {
 		if (pair.to.kind === "field") {
-			add(pair.to.field.name)
+			named.add(pair.to.field.name)
 		}
 	}
-	for (let name = pending.pop(); name !== undefined; name = pending.pop()) {
-		const field = relation.fields.find((f) => f.name === name)
-		if (field?.writing.kind === "generated") {
-			for (const read of readsOf(field.writing.expr)) {
-				add(read)
-			}
-		}
-	}
-	return out
+	return withGenerationInputs(
+		relation,
+		relation.fields.filter((f) => named.has(f.name))
+	)
 }
 
 /**
@@ -469,16 +458,12 @@ const fillGroup = (
 	for (const m of stored) {
 		byKey.set(m.key, m)
 	}
-	const inputs = inputsOf(family, relation)
+	const inputs = inputsOf(family, relation).filter((field) => field.writing.kind !== "generated")
 	const changesInput = (before: Values, after: Values): boolean =>
-		[...inputs].some((name) => {
-			const field = relation.fields.find((f) => f.name === name)
-			return (
-				field !== undefined &&
-				field.writing.kind !== "generated" &&
-				!same(ctx, field.type, before.get(fieldKey(name)), after.get(fieldKey(name)))
-			)
-		})
+		inputs.some(
+			(field) =>
+				!same(ctx, field.type, before.get(fieldKey(field.name)), after.get(fieldKey(field.name)))
+		)
 	const removedSlots = stored.filter((m) => edit.removals.has(m.key)).map((m) => m.slot)
 	if (fixed !== undefined) {
 		/** A fixed group of an immutable owner takes no append, no removal and no change of what its family values read:
