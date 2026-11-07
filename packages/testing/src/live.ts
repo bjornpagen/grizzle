@@ -27,7 +27,7 @@ export const liveSleepUntil = (moment: number): Effect.Effect<void> =>
  * case. The case stays among the fibers its search awaits before it returns (explore.ts withCaseLives), so a cleanup
  * past the grace delays the search's end and never outlives it.
  */
-const HUNG_CLEANUP_GRACE = Duration.seconds(5)
+export const HUNG_CLEANUP_GRACE = Duration.seconds(5)
 
 /** Interrupts a fiber without waiting for its cleanup: its caller keeps the fiber and awaits it later. */
 export const abandon = <A, E>(running: Fiber.Fiber<A, E>): Effect.Effect<void> =>

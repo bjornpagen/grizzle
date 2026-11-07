@@ -9,7 +9,6 @@ import {
 	Formatter,
 	Option,
 	Order,
-	Ref,
 	String as Str
 } from "effect"
 import { fraction, type Fraction, plus, times } from "#chance.fixtures.ts"
@@ -201,44 +200,6 @@ describe("explore", () => {
 			)
 			strictEqual(failed._tag, "CaseHung")
 		}).pipe(Effect.provideService(Run, fullRun))
-	)
-
-	it.effect(
-		"runs a hung case's cleanup before it reports the hang, and never waits on cleanup that cannot end",
-		() =>
-			Effect.gen(function* () {
-				const cleaned = yield* Ref.make(false)
-				const released = yield* Effect.flip(
-					explore(
-						{
-							...searchOf("cleanup ends", int(0, 9), noCoverage, 100, 4),
-							caseHang: Duration.millis(20)
-						},
-						() =>
-							Effect.andThen(
-								Effect.addFinalizer(() => Effect.andThen(Effect.yieldNow, Ref.set(cleaned, true))),
-								Effect.never
-							)
-					)
-				)
-				strictEqual(released._tag, "CaseHung")
-				const returned = yield* Ref.get(cleaned)
-				strictEqual(returned, true, "the hung case's lease went back before the hang was reported")
-				const frozen = yield* Effect.flip(
-					explore(
-						{
-							...searchOf("cleanup frozen", int(0, 9), noCoverage, 100, 4),
-							caseHang: Duration.millis(20)
-						},
-						() =>
-							Effect.andThen(
-								Effect.addFinalizer(() => Effect.never),
-								Effect.never
-							)
-					)
-				)
-				strictEqual(frozen._tag, "CaseHung")
-			}).pipe(Effect.provideService(Run, fullRun))
 	)
 
 	it.effect("fails a case its property used after the case ended, by a note or a draw", () =>

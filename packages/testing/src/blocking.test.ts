@@ -28,8 +28,13 @@ import { searched } from "#vitest/searched.ts"
 /** The program that searches a planted property. */
 const program = `${import.meta.dirname}/blocking.fixtures.ts`
 
-/** A replay token as a report prints it. */
-const REPLAY_LINE = regex("TEST_REPLAY='(?<token>[^']*)'")
+/**
+ * The replay token of the watchdog's report, past the line that opens it. A search's own report, which it prints as it
+ * waits on a stopped case's cleanup, carries a token too, under a line of its own.
+ */
+const REPLAY_LINE = regex(
+	"a case that blocked its process\n(?:.*\n)*?replay it alone: TEST_REPLAY='(?<token>[^']*)'"
+)
 
 /** The line the program prints when its search ends: how it ended. */
 const ENDED_LINE = regex("^ended: (?<ending>\\S+)$", "m")
@@ -48,8 +53,8 @@ const DEADLINE_BODIES = ["loop", "backtrack", "returns", "sleeps"] as const
 
 /**
  * A planted search of `body` in one of two regimes: a short hang limit and no deadline, or, when `deadlineFirst`, a
- * hang limit of a minute and a deadline of a few seconds, which the case reaches first. A pause is drawn in the first
- * regime alone: under the second it would outlast the deadline.
+ * hang limit of a minute and a deadline whose cut comes one to two and a half seconds after the search begins, which
+ * the case reaches first. A pause is drawn in the first regime alone: under the second it would outlast the cut.
  */
 const plantedOf =
 	(body: Body, deadlineFirst: boolean): Gen<Planted> =>
@@ -70,7 +75,7 @@ const plantedOf =
 			threshold,
 			hangMillis: 60_000,
 			pauseMillis: 0,
-			deadlineMillis: Option.some(source.draw(int(1500, 3000)))
+			deadlineMillis: Option.some(PRINT_MARGIN_MILLIS + source.draw(int(1000, 2500)))
 		}
 	}
 

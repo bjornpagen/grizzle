@@ -13,8 +13,8 @@ import {
 	type SearchFailure
 } from "#explore.ts"
 import { noCoverage, required } from "#features.ts"
-import { array, element, type Gen, int, weighted } from "#gen.ts"
-import { liveMillis, liveSleep } from "#live.ts"
+import { array, element, type Gen, int, map, weighted } from "#gen.ts"
+import { HUNG_CLEANUP_GRACE, liveMillis, liveSleep } from "#live.ts"
 import { floorSeed, rotatingSeed } from "#random.ts"
 import { type ReplayCase, replayTokenOf } from "#replay.ts"
 import { notesOnly } from "#sense.ts"
@@ -325,7 +325,8 @@ type Ending = (typeof ENDINGS)[number]
 /**
  * A planted search whose cases each hold a resource with a finalizer that takes `releaseMillis` to run: it runs `cases`
  * cases, `concurrency` at once, and its case at `blocksAt`, in start order, blocks once it holds its resource. A cut
- * search's deadline arrives while that case blocks; a hung one's hang limit does.
+ * search's deadline arrives while that case blocks; a hung one's hang limit does. A slow release outlasts a hung case's
+ * grace by half a second or more, so a search that stopped waiting for it at the grace returns before it ends.
  */
 type Lifetimes = Readonly<{
 	ending: Ending
@@ -334,6 +335,15 @@ type Lifetimes = Readonly<{
 	blocksAt: number
 	releaseMillis: number
 }>
+
+/** The hang limit of a hung search's cases: short, so its hang guard stops the blocking case first. */
+const SHORT_HANG = Duration.millis(200)
+
+/**
+ * The longest a hung case's cleanup may take and still end within its grace, however early in the case it began: the
+ * case is stopped by its hang limit after it began, and its grace runs from that stop.
+ */
+const withinGraceMillis = Duration.toMillis(SHORT_HANG) + Duration.toMillis(HUNG_CLEANUP_GRACE)
 
 const lifetimes: Gen<Lifetimes> = (source) => {
 	const cases = source.draw(int(1, 4))
@@ -345,7 +355,7 @@ const lifetimes: Gen<Lifetimes> = (source) => {
 		releaseMillis: source.draw(
 			weighted([
 				[5, int(0, 200)],
-				[1, int(5100, 5400)]
+				[1, map(int(500, 1500), (past) => withinGraceMillis + past)]
 			])
 		)
 	}
@@ -357,10 +367,10 @@ const lifetimes: Gen<Lifetimes> = (source) => {
  */
 const CUT_AFTER_MILLIS = 300
 
-/** The hang limit of a hung search's cases: short, so its hang guard stops the blocking case first. */
-const SHORT_HANG = Duration.millis(200)
-
-type LifetimeFeature = Ending | "a cleanup past the grace" | "cases beside the blocking one"
+type LifetimeFeature =
+	| Ending
+	| "a hung case's cleanup past the grace"
+	| "cases beside the blocking one"
 
 describe("a search's cases", () => {
 	it.effect(
@@ -378,7 +388,12 @@ describe("a search's cases", () => {
 						draw: drawn(lifetimes),
 						literal: Formatter.format,
 						coverage: required<LifetimeFeature>(
-							["cut", "hung", "a cleanup past the grace", "cases beside the blocking one"],
+							[
+								"cut",
+								"hung",
+								"a hung case's cleanup past the grace",
+								"cases beside the blocking one"
+							],
 							{ cases: 24, sense: notesOnly }
 						),
 						kept: [],
@@ -391,8 +406,8 @@ describe("a search's cases", () => {
 					(planted, c) =>
 						Effect.gen(function* () {
 							c.note(planted.ending)
-							if (planted.releaseMillis > 5000) {
-								c.note("a cleanup past the grace")
+							if (planted.ending === "hung" && planted.releaseMillis > withinGraceMillis) {
+								c.note("a hung case's cleanup past the grace")
 							}
 							if (planted.cases > 1 && planted.concurrency > 1) {
 								c.note("cases beside the blocking one")
