@@ -1,7 +1,7 @@
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
 import { type Situations, unreachedOf } from "@grizzle/testing/features"
-import { Effect } from "effect"
+import { Array as Arr, Effect } from "effect"
 import {
 	type ChangeSetNote,
 	changeSetCount,
@@ -18,8 +18,9 @@ import { checked } from "#test/types/batch/groups.ts"
  * compiles and binds it; a refusal's Refusal names the engine's reason; and an admitted ChangeSet's parameters,
  * writes, read-backs and level, and its application's channels, are the engine's, each asserted exactly.
  *
- * The floor's witnesses, the same in every run, plant every fault and reach every construct, both verdicts and every
- * Refusal of the write path, so the program is never vacuous on any seed.
+ * The floor's witnesses, the same in every run, a population aimed at each requirement, plant every fault
+ * and reach every construct, every verdict and every Refusal of the write path, so the program is never vacuous on any
+ * seed.
  */
 const required: Situations<ChangeSetNote> = [
 	"admitted",
@@ -42,7 +43,10 @@ layer(NodeServices.layer, { excludeTestServices: true })(
 
 		it("the floor's witnesses plant every fault and reach every construct, both verdicts and every Refusal", () => {
 			assert.deepEqual(
-				unreachedOf(required, [changeSetWitnesses().tally]),
+				unreachedOf(
+					required,
+					Arr.map(changeSetWitnesses(), (w) => w.tally)
+				),
 				[],
 				"situations no floor witness reached"
 			)

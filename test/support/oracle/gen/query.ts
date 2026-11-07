@@ -1184,8 +1184,6 @@ class QueryResolver {
 	readonly #storedGroups = new Map<RelNode, RelNode>()
 	/** The query parameter each term parameter name is bound to, once a term over it is lowered (termParam). */
 	readonly #termParamIds = new Map<string, ParamId>()
-	/** The expressions that are stable, which every operator over them inherits. */
-	readonly #stable = new Set<ScalarExpr>()
 
 	readonly #source: Source
 
@@ -1353,26 +1351,14 @@ class QueryResolver {
 
 	/** An operator node, defined on every value; it is stable when an operand is. */
 	op(op: DefinedOp, args: ReadonlyArray<ScalarExpr>, type: ScalarType): ScalarExpr {
-		const id = this.b.expr({
+		return this.b.expr({
 			kind: "op",
 			op,
 			args,
 			type,
 			nonNull: "strict",
-			volatility: Arr.some(args, (a) => this.#stable.has(a)) ? "stable" : "immutable"
+			volatility: Arr.some(args, (a) => a.volatility === "stable") ? "stable" : "immutable"
 		})
-		if (Arr.some(args, (a) => this.#stable.has(a))) {
-			this.#stable.add(id)
-		}
-		return id
-	}
-
-	/** Records what a computed term's root can do. */
-	noteTerm(t: { readonly expr: ScalarExpr; readonly stable: boolean }): ScalarExpr {
-		if (t.stable) {
-			this.#stable.add(t.expr)
-		}
-		return t.expr
 	}
 
 	source(s: SourceSketch): Built {
@@ -1858,7 +1844,7 @@ class QueryResolver {
 					: undefined
 				return built === undefined
 					? this.lit({ kind: "bool", value: p.compare.op % 2 === 0 }, bool)
-					: this.noteTerm(built)
+					: built.expr
 			}
 			case "not":
 				return this.op(notOp, [this.pred(p.arg, input)], bool)
@@ -2001,7 +1987,7 @@ class QueryResolver {
 				if (t !== undefined) {
 					const name = freshName(`y${i}`, taken)
 					taken.add(name)
-					items.push({ name, expr: this.noteTerm(t) })
+					items.push({ name, expr: t.expr })
 					heading.push(column(name, t.type))
 					continue
 				}
@@ -2273,7 +2259,7 @@ class QueryResolver {
 			input: built.node,
 			out: Arr.map(items, (i) => ({
 				name: i.column.name,
-				expr: i.term === undefined ? this.col(built.node, i.column) : this.noteTerm(i.term)
+				expr: i.term === undefined ? this.col(built.node, i.column) : i.term.expr
 			})),
 			heading
 		})

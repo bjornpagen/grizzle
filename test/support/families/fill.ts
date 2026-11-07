@@ -256,9 +256,10 @@ interface FillSpace {
  * A specification drawn under a swarm of `fillFeatures`: up to `space.relations` relations, families between them and
  * copies on their axes. A family is drawn only where the theory admits it (a relation is the member of at most one
  * sequence, a tree its own, and a counted family's owner comes before its member, so counted families never form a
- * cycle); every other shape, a counted member that is also a sequence's member or owner among them, is drawn, so the
- * suites meet the refusals too. An ordered family's owner comes before its member too, but where the swarm keeps
- * `nesting cycle`, which draws any owner and member, an ordered family of a relation over itself among them.
+ * cycle); every other shape is drawn, a counted member that is also a sequence's member, a tree's node or a sequence's
+ * owner among them, so the suites meet the refusals too. An ordered family's owner comes before its member too, but
+ * where the swarm keeps `nesting cycle`, which draws any owner and member, an ordered family of a relation over itself
+ * among them.
  */
 export const fillSpecGen =
 	(space: FillSpace): Gen<FillSpec> =>
@@ -353,17 +354,15 @@ type Stage =
 type LaterKind = "afterMembers" | "countedFill" | "cycle" | "unreached"
 
 /**
- * The reference's verdict on a specification, in the order the compiler decides them: a relation no write fills (a
- * counted family's member that is a sequence's member or owner, or sequences that nest each other in a cycle); then
- * copies no write fills, each with the causes it may be reported by; then a relation with a key over its generated
- * `g`; else admitted. A copy of `g` along a predecessor or a last axis makes its target's superkey hold `g`, but the
- * family's own key holds every two of its rows apart first, so no addition meets that superkey.
+ * The reference's verdict on a specification, in the order the compiler decides them: a relation no write fills,
+ * sequences that nest each other in a cycle; then copies no write fills, each with the causes it may be reported by;
+ * then a relation with a key over its generated `g`; else admitted. A copy of `g` along a predecessor or a last axis
+ * makes its target's superkey hold `g`, but the family's own key holds every two of its rows apart first, so no
+ * addition meets that superkey. A counted family's member may also be a sequence's member, a tree's node or a
+ * sequence's owner: the walk fills its row and the counted family's fill completes it.
  */
 type Verdict =
-	| {
-			readonly kind: "unwritable"
-			readonly causes: ReadonlyArray<"countedAndSequence" | "nestingCycle">
-	  }
+	| { readonly kind: "unwritable" }
 	| {
 			readonly kind: "unfillable"
 			readonly copies: ReadonlyArray<{
@@ -374,16 +373,8 @@ type Verdict =
 	| { readonly kind: "generatedKey"; readonly relations: ReadonlyArray<number> }
 	| { readonly kind: "admitted" }
 
-/** The counted families of a specification, by index. */
-const countedFamilies = (spec: FillSpec): ReadonlyArray<number> =>
-	Arr.flatMap(spec.families, (f, k) => (f.kind === "counted" ? [k] : []))
-
-/** The structural refusals the reference finds: see `Verdict`. */
-const structural = (spec: FillSpec): ReadonlyArray<"countedAndSequence" | "nestingCycle"> => {
-	const counted = Arr.some(countedFamilies(spec), (c) => {
-		const m = familyAt(spec, c).member
-		return Arr.some(spec.families, (s) => isSequence(s) && (s.member === m || s.owner === m))
-	})
+/** Whether the reference finds sequences that nest each other in a cycle, which no write fills: see `Verdict`. */
+const nestingCycle = (spec: FillSpec): boolean => {
 	const nests = Arr.filter(spec.families, (s) => s.kind === "ordered")
 	const reaches = (from: number, to: number): boolean => {
 		const seen = new Set<number>()
@@ -403,11 +394,7 @@ const structural = (spec: FillSpec): ReadonlyArray<"countedAndSequence" | "nesti
 		}
 		return false
 	}
-	const cycle = Arr.some(nests, (s) => reaches(s.member, s.owner) || s.member === s.owner)
-	return [
-		...(counted ? ["countedAndSequence" as const] : []),
-		...(cycle ? ["nestingCycle" as const] : [])
-	]
+	return Arr.some(nests, (s) => reaches(s.member, s.owner) || s.member === s.owner)
 }
 
 /**
@@ -507,9 +494,8 @@ const refusalsOf = (spec: FillSpec, j: number): ReadonlyArray<LaterKind> => {
 
 /** The reference's verdict on a specification: see `Verdict`. */
 export const verdictOf = (spec: FillSpec): Verdict => {
-	const causes = structural(spec)
-	if (Arr.isReadonlyArrayNonEmpty(causes)) {
-		return { kind: "unwritable", causes }
+	if (nestingCycle(spec)) {
+		return { kind: "unwritable" }
 	}
 	const copies = Arr.flatMap(spec.copies, (_, j) => {
 		const later = refusalsOf(spec, j)
@@ -733,26 +719,34 @@ const nestedOnly = (spec: FillSpec, r: number): boolean =>
 /** How many rows an instance holds at most: a bound on its size, which keeps a case small. */
 const instanceBound = 24
 
+/** A row of an instance as it is made: its counted families' owners are named once every row is made. */
+interface DraftRow {
+	readonly relation: number
+	readonly id: number
+	readonly v: bigint
+	readonly memberOf: Array<InstanceRow["memberOf"][number]>
+}
+
 /**
  * An instance of an admitted specification: some rows of each relation a ChangeSet inserts itself (no ordered family's
- * member and no counted one's), each sequence's members nested under their owner's rows, a tree's nodes to a few
- * levels; then each counted family's members, naming an owner of every counted family they belong to. Counted members
- * come in their relations' order, after every other row, and a counted family's owner's relation comes before its
- * member's, so every owner is written first. `count` says how many rows of a kind, between its bounds, and `value` each
- * row's `v`.
+ * member), each sequence's members nested under their owner's rows, a tree's nodes to a few levels; then every row of
+ * a counted family's member, nested or not, names an owner of each counted family it belongs to. Relations name their
+ * owners in their order, and a counted family's owner's relation comes before its member's, so every owner is made
+ * first; a relation with a counted family none of whose owner's rows is left loses every row, and every row nested
+ * under one. `count` says how many rows of a kind, between its bounds, and `value` each row's `v`.
  */
 const instanceOf = (
 	spec: FillSpec,
 	count: (lo: number, hi: number) => number,
 	value: (id: number) => bigint
 ): ReadonlyArray<InstanceRow> => {
-	const rows: Array<InstanceRow> = []
+	const rows: Array<DraftRow> = []
 	const make = (relation: number, memberOf: InstanceRow["memberOf"], depth: number): void => {
 		if (rows.length >= instanceBound) {
 			return
 		}
 		const id = rows.length + 1
-		rows.push({ relation, id, v: value(id), memberOf })
+		rows.push({ relation, id, v: value(id), memberOf: [...memberOf] })
 		for (const [f, family] of spec.families.entries()) {
 			if (family.owner !== relation || family.kind === "counted") {
 				continue
@@ -766,42 +760,54 @@ const instanceOf = (
 			}
 		}
 	}
-	const countedMember = (r: number): boolean =>
-		Arr.some(spec.families, (f) => f.kind === "counted" && f.member === r)
+	const countedOf = (r: number): ReadonlyArray<number> =>
+		Arr.flatMap(spec.families, (f, k) => (f.kind === "counted" && f.member === r ? [k] : []))
 	for (const [r] of spec.relations.entries()) {
-		if (!nestedOnly(spec, r) && !countedMember(r)) {
-			const k = count(0, 2)
+		if (!nestedOnly(spec, r)) {
+			const k = count(0, Arr.isReadonlyArrayNonEmpty(countedOf(r)) ? 3 : 2)
 			for (let i = 0; i < k; i += 1) {
 				make(r, [], 0)
 			}
 		}
 	}
+	const removed = new Set<number>()
+	const left = (r: number): ReadonlyArray<DraftRow> =>
+		Arr.filter(rows, (row) => row.relation === r && !removed.has(row.id))
 	for (const [r] of spec.relations.entries()) {
-		if (!countedMember(r)) {
+		const memberships = countedOf(r)
+		const candidates = Arr.map(memberships, (f) => left(familyAt(spec, f).owner))
+		if (Arr.some(candidates, (c) => c.length === 0)) {
+			for (const row of left(r)) {
+				removed.add(row.id)
+			}
+			for (const row of rows) {
+				if (
+					Arr.some(
+						row.memberOf,
+						(m) => isSequence(familyAt(spec, m.family)) && removed.has(m.owner)
+					)
+				) {
+					removed.add(row.id)
+				}
+			}
 			continue
 		}
-		const memberships = Arr.flatMap(spec.families, (f, k) =>
-			f.kind === "counted" && f.member === r ? [k] : []
-		)
-		const k = count(0, 3)
-		for (let i = 0; i < k; i += 1) {
-			const owners = Arr.map(memberships, (f) => {
-				const candidates = Arr.filter(rows, (row) => row.relation === familyAt(spec, f).owner)
-				return Arr.isReadonlyArrayNonEmpty(candidates)
-					? Option.some({
-							family: f,
-							owner: defined(candidates[count(0, candidates.length - 1)], "an owner").id,
-							slot: 0
-						})
-					: Option.none()
-			})
-			const named = Arr.getSomes(owners)
-			if (named.length === memberships.length) {
-				make(r, named, 0)
+		for (const row of left(r)) {
+			for (const [i, f] of memberships.entries()) {
+				const choices = defined(candidates[i], "an owner's rows")
+				row.memberOf.push({
+					family: f,
+					owner: defined(choices[count(0, choices.length - 1)], "an owner").id,
+					slot: 0
+				})
 			}
 		}
 	}
-	return rows
+	return Arr.flatMap(rows, (row) =>
+		removed.has(row.id)
+			? []
+			: [{ relation: row.relation, id: row.id, v: row.v, memberOf: row.memberOf }]
+	)
 }
 
 /** An instance drawn: its counts and its values each a decision, values small around zero. */
@@ -1302,9 +1308,11 @@ const ownsSequence = (spec: FillSpec, r: number): boolean =>
  * A second ChangeSet over a stored instance, written after its first insert, around one row of `owner`: a mutable
  * relation that is no tree's, owns no sequence while it is a member, and is a member only of mutable owners' families,
  * so the rules admit its put in place. It puts the row with a new `v`, or leaves it; inserts counted members under it
- * in one counted family it owns, each naming a row of the owner of every other counted family it is a member of, every
- * such owner mutable; and puts a member at the end of one ordered family it owns, whose member owns no sequence and is
- * mutable where it owns a family, or none. Each new row's id follows the instance's.
+ * in one counted family it owns whose member is no ordered family's, each naming a row of the owner of every other
+ * counted family it is a member of, every such owner mutable, with the sequences it owns empty; and puts a member at
+ * the end of one ordered family it owns, whose member owns no sequence, is mutable where it owns a family and names a
+ * row of the owner of every counted family it is a member of, every such owner mutable, or none. Each new row's id
+ * follows the instance's.
  */
 export interface FollowUp {
 	readonly owner: number
@@ -1340,24 +1348,29 @@ export const followUpGen =
 			Arr.filter(rows, (row) => row.relation === r)
 		const mutable = (r: number): boolean => relationAt(spec, r).mutable
 		const families = Arr.map(spec.families, (_, k) => k)
-		/** The counted families of `owner` a member may be inserted into: each owner it names mutable, with a row. */
+		/** Whether every counted family `member` is a member of has a mutable owner with a row, which a new member names. */
+		const countedOwners = (member: number): boolean =>
+			Arr.every(
+				spec.families,
+				(o) =>
+					o.kind !== "counted" ||
+					o.member !== member ||
+					(mutable(o.owner) && Arr.isReadonlyArrayNonEmpty(rowsOf(o.owner)))
+			)
+		/** The counted families of `owner` a member may be inserted into: its member inserted directly, no ordered
+		 * family's, and each owner it names mutable, with a row. */
 		const countedOf = (owner: number): ReadonlyArray<number> =>
 			Arr.filter(families, (k) => {
 				const f = familyAt(spec, k)
 				return (
 					f.kind === "counted" &&
 					f.owner === owner &&
-					Arr.every(
-						spec.families,
-						(o) =>
-							o.kind !== "counted" ||
-							o.member !== f.member ||
-							(mutable(o.owner) && Arr.isReadonlyArrayNonEmpty(rowsOf(o.owner)))
-					)
+					!nestedOnly(spec, f.member) &&
+					countedOwners(f.member)
 				)
 			})
 		/** The ordered families of `owner` a member may be put at the end of: one that owns no sequence, mutable where
-		 * it owns a family. */
+		 * it owns a family, and naming a mutable owner of each counted family it is a member of. */
 		const orderedOf = (owner: number): ReadonlyArray<number> =>
 			Arr.filter(families, (k) => {
 				const f = familyAt(spec, k)
@@ -1365,7 +1378,8 @@ export const followUpGen =
 					f.kind === "ordered" &&
 					f.owner === owner &&
 					!ownsSequence(spec, f.member) &&
-					(mutable(f.member) || !Arr.some(spec.families, (o) => o.owner === f.member))
+					(mutable(f.member) || !Arr.some(spec.families, (o) => o.owner === f.member)) &&
+					countedOwners(f.member)
 				)
 			})
 		const owners = Arr.filter(
@@ -1390,6 +1404,21 @@ export const followUpGen =
 		const owner = defined(chosen[source.draw(int(0, chosen.length - 1))], "an owner")
 		const candidates = rowsOf(owner)
 		const row = defined(candidates[source.draw(int(0, candidates.length - 1))], "an owner's row")
+		/** A new row's memberships of the counted families of `member`, each owner drawn among its rows but `fixed`'s,
+		 * which is the chosen row. */
+		const countedMemberships = (
+			member: number,
+			fixed: number | undefined
+		): ReadonlyArray<InstanceRow["memberOf"][number]> =>
+			Arr.flatMap(spec.families, (o, n) => {
+				if (o.kind !== "counted" || o.member !== member) {
+					return []
+				}
+				const choices = rowsOf(o.owner)
+				const named =
+					n === fixed ? row : defined(choices[source.draw(int(0, choices.length - 1))], "an owner")
+				return [{ family: n, owner: named.id, slot: 0 }]
+			})
 		const put = source.draw(boolean)
 			? Option.some(row.v + BigInt(source.draw(int(1, 3))) * (source.draw(boolean) ? 1n : -1n))
 			: Option.none()
@@ -1404,17 +1433,7 @@ export const followUpGen =
 							relation: member,
 							id: rows.length + 1 + made.length,
 							v: BigInt(source.draw(int(-2, 3))),
-							memberOf: Arr.flatMap(spec.families, (o, n) => {
-								if (o.kind !== "counted" || o.member !== member) {
-									return []
-								}
-								const choices = rowsOf(o.owner)
-								const named =
-									n === k
-										? row
-										: defined(choices[source.draw(int(0, choices.length - 1))], "an owner")
-								return [{ family: n, owner: named.id, slot: 0 }]
-							})
+							memberOf: countedMemberships(member, k)
 						})
 					}
 					return made
@@ -1425,8 +1444,9 @@ export const followUpGen =
 			Arr.isReadonlyArrayNonEmpty(ordered) && source.draw(boolean)
 				? (() => {
 						const g = defined(ordered[source.draw(int(0, ordered.length - 1))], "an ordered family")
+						const member = familyAt(spec, g).member
 						return Option.some({
-							relation: familyAt(spec, g).member,
+							relation: member,
 							id: rows.length + 1 + inserted.length,
 							v: BigInt(source.draw(int(-2, 3))),
 							memberOf: [
@@ -1434,7 +1454,8 @@ export const followUpGen =
 									family: g,
 									owner: row.id,
 									slot: Arr.filter(rows, (r) => membershipIn(r, g)?.owner === row.id).length
-								}
+								},
+								...countedMemberships(member, undefined)
 							]
 						})
 					})()
@@ -1458,8 +1479,12 @@ export const followUpRows = (
 	...Option.toArray(followUp.appended)
 ]
 
-/** A follow-up's ChangeSet, member by member: the owner's put, the counted members' insert, the appended member's put. */
+/**
+ * A follow-up's ChangeSet, member by member: the owner's put, the counted members' insert, each a top fact of its
+ * relation with the sequences it owns empty and a tree's root its own, and the appended member's put.
+ */
 export const followUpMembers = (
+	spec: FillSpec,
 	rows: ReadonlyArray<InstanceRow>,
 	followUp: FollowUp
 ): ReadonlyArray<FollowUpMember> => {
@@ -1480,7 +1505,7 @@ export const followUpMembers = (
 				{
 					relation: inserted[0].relation,
 					op: "insert",
-					facts: Arr.map(inserted, (r) => memberFact(r, r.v))
+					facts: instanceFacts(spec, inserted).get(inserted[0].relation) ?? []
 				}
 			]
 		}),

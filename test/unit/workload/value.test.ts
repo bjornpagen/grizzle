@@ -1,14 +1,23 @@
 import { describe, it } from "@effect/vitest"
-import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { noCoverage, required } from "@grizzle/testing/features"
-import { element, filter, type Gen, map, uniqueArray } from "@grizzle/testing/gen"
-import { type Drawn, passed, wild } from "@grizzle/testing/lsw"
+import { drawn, explore } from "@grizzle/testing/explore"
+import { required } from "@grizzle/testing/features"
+import {
+	array,
+	element,
+	filter,
+	type Gen,
+	int,
+	map,
+	uniqueArray,
+	weighted
+} from "@grizzle/testing/gen"
+import { type Drawn, lsw, passed, WILD_IS_DATA, WILD_KINDS, wild } from "@grizzle/testing/lsw"
 import { matching } from "@grizzle/testing/pattern"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import type { Source } from "@grizzle/testing/source"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
 import { catchCompileError } from "#compiler/core/canonical.ts"
 import type { SchemaFingerprint } from "#compiler/core/ids.ts"
 import { formatLoc } from "#compiler/core/loc.ts"
@@ -34,6 +43,7 @@ import {
 import { compileTestWorkload, testCompile } from "#test/support/compile.ts"
 import { queryFromDescription } from "#test/support/describe.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { pickFrom, pickGen } from "#test/support/pick.ts"
 import {
 	Board,
 	fixtureLogin,
@@ -330,22 +340,184 @@ describe("workload(schema, programs)", () => {
 	)
 })
 
-/** What workload()'s signature forbids, each refused MalformedDescription. */
-const forbidden: Arr.NonEmptyReadonlyArray<readonly [string, () => unknown]> = [
-	["no schema", () => admitWorkload({}, {})],
-	["programs as a list", () => admitWorkload(Board, [orderedTasks])],
-	["a program that is no program", () => admitWorkload(Board, { x: 1 })],
-	["an empty program name", () => admitWorkload(Board, { "": orderedTasks })],
-	["a third argument", () => admitWorkload(Board, {}, {})],
-	[
-		"a program over a schema that is no level of the workload's",
-		() => admitWorkload(W.Work, { orderedTasks })
-	],
-	[
-		"a program over an extension of the workload's schema",
-		() => admitWorkload(W.Work, { accountBudgets: W.accountBudgets })
+/** The schemas a workload is drawn over: the worked example, its Reports level, and Board. */
+type SchemaName = "Work" | "Reports" | "Board"
+
+const schemaValue = (name: SchemaName): unknown =>
+	name === "Work" ? W.Work : name === "Reports" ? W.Reports : Board
+
+/** Each schema's own programs, every one over it. */
+const ownPrograms = (name: SchemaName): Arr.NonEmptyReadonlyArray<Program> =>
+	name === "Work"
+		? nonEmpty(workWorkloads.programs, "Work's programs")
+		: name === "Reports"
+			? [namedQuery("accountBudgets", W.accountBudgets)]
+			: nonEmpty(boardPrograms, "Board's programs")
+
+/** Whether a program over `over` belongs in a workload over `schema`: over it, or over a level below it. */
+const belongs = (over: SchemaName, schema: SchemaName): boolean =>
+	over === schema || (over === "Work" && schema === "Reports")
+
+const schemaNameGen: Gen<SchemaName> = (source) => {
+	switch (source.draw(int(0, 2))) {
+		case 0:
+			return "Work"
+		case 1:
+			return "Reports"
+		default:
+			return "Board"
+	}
+}
+
+/** The wild kinds whose values are data: a value no schema, record or program is, read without running code. */
+const dataKinds = nonEmpty(
+	Arr.filter(WILD_KINDS, (kind) => WILD_IS_DATA[kind]),
+	"the data wild kinds"
+)
+
+/** A program a record holds: one over a drawn schema, by a pick among its programs, or a value that is no program. */
+type ProgramArg =
+	| { readonly kind: "program"; readonly over: SchemaName; readonly pick: number }
+	| { readonly kind: "no program"; readonly value: Drawn<never, never> }
+
+type ProgramsArg =
+	| {
+			readonly kind: "record"
+			readonly entries: ReadonlyArray<{ readonly name: string; readonly program: ProgramArg }>
+	  }
+	| { readonly kind: "list"; readonly programs: ReadonlyArray<ProgramArg> }
+	| { readonly kind: "wild"; readonly value: Drawn<never, never> }
+
+interface SignatureCase {
+	readonly schema: Drawn<SchemaName, never>
+	readonly programs: ProgramsArg
+	readonly extra: ReadonlyArray<Drawn<never, never>>
+}
+
+const wildData: Gen<Drawn<never, never>> = map(wild(dataKinds), (w): Drawn<never, never> => ({
+	kind: "wild",
+	wild: w
+}))
+
+/** A wild value that is an object or a function: what a programs argument's type admits, of no record's shape. */
+const wildObject: Gen<Drawn<never, never>> = map(
+	wild(["function", "anything"]),
+	(w): Drawn<never, never> => ({ kind: "wild", wild: w })
+)
+
+const programArgGen: Gen<ProgramArg> = weighted<ProgramArg>([
+	[4, (s) => ({ kind: "program", over: s.draw(schemaNameGen), pick: s.draw(pickGen) })],
+	[1, (s) => ({ kind: "no program", value: s.draw(wildData) })]
+])
+
+/** A program name: an identifier, or the empty name. */
+const programNameGen: Gen<string> = weighted<string>([
+	[5, nameGen],
+	[1, (): string => ""]
+])
+
+const signatureCaseGen: Gen<SignatureCase> = (source) => ({
+	schema: source.draw(lsw({ live: schemaNameGen, stale: Option.none(), wild: dataKinds })),
+	programs: source.draw(
+		weighted<ProgramsArg>([
+			[
+				5,
+				(s) => ({
+					kind: "record",
+					entries: s.draw(
+						array((e) => ({ name: e.draw(programNameGen), program: e.draw(programArgGen) }), {
+							min: 0,
+							max: 3
+						})
+					)
+				})
+			],
+			[1, (s) => ({ kind: "list", programs: s.draw(array(programArgGen, { min: 0, max: 2 })) })],
+			[1, (s) => ({ kind: "wild", value: s.draw(wildObject) })]
+		])
+	),
+	extra: source.draw(array(wildData, { min: 0, max: 1 }))
+})
+
+const programValue = (p: ProgramArg): unknown =>
+	p.kind === "no program" ? passed(p.value) : pickFrom(ownPrograms(p.over), p.pick).value
+
+/** The record a caller's entries make: a later entry of one name replaces an earlier one. */
+const recordOf = (
+	entries: ReadonlyArray<{ readonly name: string; readonly program: ProgramArg }>
+): ReadonlyMap<string, ProgramArg> => new Map(Arr.map(entries, (e) => [e.name, e.program] as const))
+
+/** Whether workload() admits a case: two arguments, a schema, a record of named programs over it or a level below. */
+const admits = (c: SignatureCase): boolean => {
+	if (c.extra.length > 0 || c.schema.kind !== "live" || c.programs.kind !== "record") {
+		return false
+	}
+	const schema = c.schema.value
+	return Arr.every(
+		[...recordOf(c.programs.entries)],
+		([name, p]) => name !== "" && p.kind === "program" && belongs(p.over, schema)
+	)
+}
+
+/**
+ * The value a case passes as workload()'s programs, which its type asks to be an object: a record, a list, or a wild
+ * object or function; a wild value of another kind no typed caller can pass.
+ */
+const programsValue = (p: ProgramsArg): Option.Option<object> => {
+	switch (p.kind) {
+		case "record":
+			return Option.some(
+				Rec.fromEntries(Arr.map(p.entries, (e) => [e.name, programValue(e.program)] as const))
+			)
+		case "list":
+			return Option.some(Arr.map(p.programs, programValue))
+		case "wild": {
+			const value = passed(p.value)
+			return (typeof value === "object" && value !== null) || typeof value === "function"
+				? Option.some(value)
+				: Option.none()
+		}
+	}
+}
+
+type SignatureFeature =
+	| "admitted"
+	| "a wild schema"
+	| "programs as a list"
+	| "wild programs"
+	| "an empty program name"
+	| "a value that is no program"
+	| "a program over another schema"
+	| "a program over a level below"
+	| "a program over an extension"
+	| "a third argument"
+
+const signatureFeatures = (c: SignatureCase): ReadonlyArray<SignatureFeature> => {
+	const schema = c.schema.kind === "live" ? Option.some(c.schema.value) : Option.none()
+	const programs = c.programs.kind === "record" ? [...recordOf(c.programs.entries)] : []
+	const over = (test: (p: SchemaName, s: SchemaName) => boolean) =>
+		Option.exists(schema, (s) =>
+			Arr.some(programs, ([, p]) => p.kind === "program" && test(p.over, s))
+		)
+	return [
+		...(admits(c) ? ["admitted" as const] : []),
+		...(c.schema.kind === "wild" ? ["a wild schema" as const] : []),
+		...(c.programs.kind === "list" ? ["programs as a list" as const] : []),
+		...(c.programs.kind === "wild" ? ["wild programs" as const] : []),
+		...(Arr.some(programs, ([name]) => name === "") ? ["an empty program name" as const] : []),
+		...(Arr.some(programs, ([, p]) => p.kind === "no program")
+			? ["a value that is no program" as const]
+			: []),
+		...(over((p, s) => !belongs(p, s) && !(p === "Reports" && s === "Work"))
+			? ["a program over another schema" as const]
+			: []),
+		...(over((p, s) => p !== s && belongs(p, s)) ? ["a program over a level below" as const] : []),
+		...(over((p, s) => p === "Reports" && s === "Work")
+			? ["a program over an extension" as const]
+			: []),
+		...(c.extra.length > 0 ? ["a third argument" as const] : [])
 	]
-]
+}
 
 /**
  * Where a JavaScript caller hands workload() a value whose reading runs the caller's code: as the programs record, or as
@@ -356,24 +528,66 @@ type UnreadableSite = "programs record" | "program"
 type UnreadableFeature = `${UnreadableSite} ${"proxy" | "throwing getter"}`
 
 describe("workload()'s signature", () => {
-	it.effect("refuses what it forbids with MalformedDescription", (ctx) =>
-		searched(
-			ctx,
-			exhaust(
-				{
-					suite: "unit/workload/value-signature",
-					generator: element(forbidden),
-					literal: Formatter.format,
-					limit: forbidden.length,
-					coverage: noCoverage,
-					caseHang
-				},
-				([why, call]) =>
-					Effect.sync(() => {
-						refused(catchCompileError(call), "MalformedDescription", why)
-					})
+	it.effect(
+		"admits a schema and a record of named programs over it or a level below, and refuses any other call with MalformedDescription",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/workload/value-signature",
+						draw: drawn(signatureCaseGen),
+						literal: Formatter.format,
+						oracle: {
+							kind: "specification",
+							name: "workload(schema, programs): a schema, a plain record of named programs over it or a level below, nothing more"
+						},
+						coverage: required<SignatureFeature>(
+							[
+								"admitted",
+								"a wild schema",
+								"programs as a list",
+								"wild programs",
+								"an empty program name",
+								"a value that is no program",
+								"a program over another schema",
+								"a program over a level below",
+								"a program over an extension",
+								"a third argument"
+							],
+							{ cases: 200, sense: notesOnly }
+						),
+						kept: [],
+						runs: 100,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang
+					},
+					(c, k) =>
+						Effect.gen(function* () {
+							const programs = programsValue(c.programs)
+							yield* k.assume(Option.isSome(programs))
+							if (Option.isNone(programs)) {
+								return
+							}
+							k.noteAll(signatureFeatures(c))
+							const schema =
+								c.schema.kind === "live" ? schemaValue(c.schema.value) : passed(c.schema)
+							const [third] = c.extra
+							const result = catchCompileError(() =>
+								third === undefined
+									? admitWorkload(schema, programs.value)
+									: admitWorkload(schema, programs.value, passed(third))
+							)
+							if (admits(c)) {
+								succeeded(result, "workload() admits a schema and its programs")
+								return
+							}
+							refused(result, "MalformedDescription")
+						})
+				)
 			)
-		)
 	)
 
 	it.effect(

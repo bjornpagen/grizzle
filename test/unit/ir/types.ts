@@ -40,10 +40,10 @@ import { dictionaryNameGen } from "#test/support/kernel/dict.ts"
  */
 
 /** The rosters a declared type's closed ids and sets read: the closed relation's name and its handles in code order. */
-type Rosters = Readonly<Record<string, NonEmptyReadonlyArray<string>>>
+export type Rosters = Readonly<Record<string, NonEmptyReadonlyArray<string>>>
 
 /** A declared type as its declaration states it: its descriptor, and the rosters it names. */
-type DeclaredSketch = Readonly<{ desc: FieldDesc; rosters: Rosters }>
+export type DeclaredSketch = Readonly<{ desc: FieldDesc; rosters: Rosters }>
 
 const noRosters: Rosters = {}
 
@@ -72,7 +72,7 @@ const smallFirst = (small: Gen<number>, whole: Gen<number>): Gen<number> =>
  * A text refinement: a bounded run of letters from `a` to a drawn letter, a bounded run of any code point, or the
  * unbounded wildcard, under the flags each states.
  */
-const textGen: Gen<FieldDesc> = oneOf<FieldDesc>([
+export const textGen: Gen<FieldDesc> = oneOf<FieldDesc>([
 	(source) => {
 		const last = source.draw(codePoint(0x61, 0x7a))
 		const lo = source.draw(int(0, 3))
@@ -81,6 +81,13 @@ const textGen: Gen<FieldDesc> = oneOf<FieldDesc>([
 	map(int(0, 4), (hi) => textDesc(`^.{0,${hi}}$`, "su")),
 	map(boolean, (dotAll) => textDesc("^.*$", dotAll ? "su" : "u"))
 ])
+
+/** numeric(p, s), its precision and scale anywhere PostgreSQL admits them, small ones first. */
+export const numericGen: Gen<FieldDesc> = (source) => ({
+	kind: "numeric",
+	precision: source.draw(smallFirst(int(1, 12), int(1, numericMaxPrecision.value))),
+	scale: source.draw(smallFirst(int(0, 4), int(numericMinScale.value, numericMaxScale.value)))
+})
 
 /** A span's endpoint: integer or bigint, or a contract over one. */
 const endpointGen: Gen<FieldDesc> = (source) => {
@@ -93,14 +100,7 @@ const endpointGen: Gen<FieldDesc> = (source) => {
 /** A declared type of no contract and no set: the kinds a contract's base may be. */
 const contractBaseGen: Gen<DeclaredSketch> = oneOf<DeclaredSketch>([
 	map(element(pgScalarNames), (type) => ({ desc: { kind: "pg", type }, rosters: noRosters })),
-	(source) => ({
-		desc: {
-			kind: "numeric",
-			precision: source.draw(smallFirst(int(1, 12), int(1, numericMaxPrecision.value))),
-			scale: source.draw(smallFirst(int(0, 4), int(numericMinScale.value, numericMaxScale.value)))
-		},
-		rosters: noRosters
-	}),
+	map(numericGen, (desc) => ({ desc, rosters: noRosters })),
 	constant<DeclaredSketch>({ desc: { kind: "uuid" }, rosters: noRosters }),
 	map(textGen, (desc) => ({ desc, rosters: noRosters })),
 	map(rosterGen, (roster) => ({
@@ -125,7 +125,7 @@ const contractBaseGen: Gen<DeclaredSketch> = oneOf<DeclaredSketch>([
  * A declared type of every kind: a base, a set over a roster, a contract over a base (natural, the builtin contract,
  * among them).
  */
-const declaredGen: Gen<DeclaredSketch> = weighted<DeclaredSketch>([
+export const declaredGen: Gen<DeclaredSketch> = weighted<DeclaredSketch>([
 	[6, contractBaseGen],
 	[
 		1,
@@ -153,8 +153,10 @@ const declaredGen: Gen<DeclaredSketch> = weighted<DeclaredSketch>([
 	[1, constant<DeclaredSketch>({ desc: naturalDescriptor.desc, rosters: noRosters })]
 ])
 
-/** The type a declared sketch states, as the registry builds it. */
-const declaredType = (sketch: DeclaredSketch): ScalarType => scalarOf(sketch.desc, sketch.rosters)
+/** A declared type, as the registry builds a field's: the types a field, and so a fold's plane, can have. */
+export const declaredTypeGen: Gen<ScalarType> = map(declaredGen, (sketch) =>
+	scalarOf(sketch.desc, sketch.rosters)
+)
 
 /** A computed numeric's bound, within the computed bounds, or an exact type's digits. */
 const computedGen: Gen<ScalarType> = oneOf<ScalarType>([
@@ -174,6 +176,6 @@ const computedGen: Gen<ScalarType> = oneOf<ScalarType>([
 
 /** A scalar type: a declared one, or a computed one no declaration states. */
 export const scalarTypeGen: Gen<ScalarType> = weighted([
-	[5, map(declaredGen, declaredType)],
+	[5, declaredTypeGen],
 	[1, computedGen]
 ])

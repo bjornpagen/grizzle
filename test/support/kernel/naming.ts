@@ -790,18 +790,6 @@ export const lawNamesOf = (subject: NamingSubject): LawNames => {
 export const lawIdOf = (schema: AnySchema, law: Statement): LawId => lawNamesOf(schema).lawOf(law)
 
 /**
- * The installed name of a constraint of a relation, named by its kind and its fields (as a set): a primary key, a
- * unique key or span key, a foreign key, or a finite check. A named row check has no field set: a test names its
- * constraint by its law, `lawNamesOf(schema).constraintOf(lawIdOf(schema, checkStatement), "TableCheck")`.
- */
-export const constraintOf = <R extends AnyRelation>(
-	schema: AnySchema,
-	relation: R,
-	kind: ConstraintKind,
-	fields: ReadonlyArray<keyof R["fields"] & string>
-): ConstraintName => lawNamesOf(schema).fieldConstraint(relation, kind, fields)
-
-/**
  * A subject's whole installation compiled without a database, under the schema `at` names: own and compileInstallation
  * over the complete install options (physical/complete.ts), as `grizzle generate` drafts it (cli/generate.ts), its codes
  * a fresh installation's (installationWith takes a history's). A door that named a partial installation would name

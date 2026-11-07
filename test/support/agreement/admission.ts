@@ -6,14 +6,24 @@ import * as Result from "#compiler/core/result.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { compilePage, statedOrderOf } from "#compiler/lower/shapes/page/compile.ts"
 import { type QueryTemplate, queryInput } from "#compiler/program/compile.ts"
-import { Decimal, Money, pg, Vector } from "#compiler/public/fields.ts"
+import { Decimal, Money, pg, uuid, Vector } from "#compiler/public/fields.ts"
 import { schema } from "#compiler/public/schema.ts"
 import { queryOver, type QueryValue, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { computeCore, handleTerm } from "#compiler/scalar/compute/builders.ts"
 import { check } from "#compiler/schema/api.ts"
 import type { TypeRefusal } from "#compiler/types/core/phantom.ts"
-import { Agree, Cell, Cents, Shade, Tone } from "#test/support/agreement/schema.ts"
+import {
+	Agree,
+	AgreeAbove,
+	Apart,
+	Cell,
+	Cents,
+	Item,
+	Note,
+	Shade,
+	Tone
+} from "#test/support/agreement/schema.ts"
 import { compileTemplate, testArtifacts, testCompile } from "#test/support/compile.ts"
 
 /**
@@ -66,6 +76,11 @@ import { compileTemplate, testArtifacts, testCompile } from "#test/support/compi
  * combinator reads the fields at risk: orderBy orders by the name some record holds that the shape does not deliver as
  * a column (an arm's own field, an attachment), and an attachment's child heads an arm's own field over a union of
  * several headings. Its directive is the diagnostic the types raise where they refuse (combinatorDiagnostic).
+ * The scope axis closes it over the schema a matched query is written over, what a relation parameter of an imported
+ * query is bound to, and where a relational negation stands (scopeCells): a rule matches a query, as it is or bound,
+ * only over a level of its schema, though the schemas share every relation the query reads; a relation parameter binds
+ * the importing rule's own relation parameter alone; and r.not is a rule's filter, alone or in a conjunction there,
+ * never in a disjunction. Each refusal is named, and the engine's reason must be the one its refusal names.
  * A refusal both name is under its named directive (namedRefusal): a JavaScript value at a first operand (firstOperand,
  * computeFirst, condThen) is "a term first", whatever value it is. Every other refusal is the diagnostic of its
  * position. The positions whose verdict turns on two constants being one value (deadFilter, heteroClash,
@@ -1313,6 +1328,303 @@ export const combinatorCells = (): ReadonlyArray<CombinatorCell> =>
 	)
 
 /**
+ * The level a matched query is written over, beside the schema of the rule that matches it: the rule's own, one below
+ * it (the rule over AgreeAbove, an extension of Agree, the query over Agree), one above it (the query over AgreeAbove,
+ * the rule over Agree), or one apart (the rule over Apart, which holds Cell but is no level of Agree).
+ */
+const matchedLevels = ["own", "below", "above", "apart"] as const
+type MatchedLevel = (typeof matchedLevels)[number]
+
+/** How a rule reads the query it matches: the query as it is, or bound through Q.bind. */
+const matchedForms = ["query", "bound"] as const
+type MatchedForm = (typeof matchedForms)[number]
+
+/**
+ * What a relation parameter of an imported query is bound to: the importing rule's own relation parameter, a query, a
+ * bound query or an interior stage of the importing rule.
+ */
+const relationSources = ["relationParam", "query", "boundQuery", "interior"] as const
+type RelationSource = (typeof relationSources)[number]
+
+/** A schema of the scope cells: its name in the program, and its value. */
+interface Over {
+	readonly source: string
+	readonly value: unknown
+}
+const agreeOver: Over = { source: "Agree", value: Agree }
+const aboveOver: Over = { source: "AgreeAbove", value: AgreeAbove }
+const apartOver: Over = { source: "Apart", value: Apart }
+
+/** The schema a matched query of a level is written over, and the one the rule that matches it is over. */
+const oversOf = (level: MatchedLevel): { readonly query: Over; readonly rule: Over } => {
+	switch (level) {
+		case "own":
+			return { query: agreeOver, rule: agreeOver }
+		case "below":
+			return { query: agreeOver, rule: aboveOver }
+		case "above":
+			return { query: aboveOver, rule: agreeOver }
+		case "apart":
+			return { query: agreeOver, rule: apartOver }
+	}
+}
+
+/** Cell's ids over a schema, as it is or under an integer parameter p, which Q.bind binds to 1. */
+const matchedOf = (
+	over: Over,
+	form: MatchedForm
+): { readonly source: string; readonly value: () => unknown } => {
+	switch (form) {
+		case "query":
+			return {
+				source: `query(${over.source}).rule((r) => { const { id } = v(Cell, "cell"); return r.match(Cell, { id }).find({ id }) })`,
+				value: () =>
+					queryOver(over.value).rule((r: RuleValue) => {
+						const vars = varsOver(Cell, "cell")
+						return r.match(Cell, { id: vars["id"] }).find({ id: vars["id"] })
+					})
+			}
+		case "bound":
+			return {
+				source: `query(${over.source}).rule((r) => { const { id } = v(Cell, "cell"); return r.match(Cell, { id, integer: r.param("p", Cell.fields.integer) }).find({ id }) }).bind({ p: 1 })`,
+				value: () =>
+					queryOver(over.value)
+						.rule((r: RuleValue) => {
+							const vars = varsOver(Cell, "cell")
+							return r
+								.match(Cell, { id: vars["id"], integer: r.param("p", Cell.fields.integer) })
+								.find({ id: vars["id"] })
+						})
+						.bind({ p: 1 })
+			}
+	}
+}
+
+/** Cell's ids keyed by a relation parameter of ids, the query whose parameter the relation cells bind. */
+const byIdsSource =
+	'const byIds = query(Agree).rule((r) => { const ids = r.relation("ids", { id: uuid }); const { id } = v(Cell, "cell"); return r.match(ids, { id }).match(Cell, { id }).find({ id }) })'
+const byIds = (): QueryValue =>
+	queryOver(Agree).rule((r: RuleValue) => {
+		const ids = r.relation("ids", { id: uuid })
+		const vars = varsOver(Cell, "cell")
+		return r.match(ids, { id: vars["id"] }).match(Cell, { id: vars["id"] }).find({ id: vars["id"] })
+	})
+
+/** What a relation parameter is bound to, inside the importing rule: its source, and its value under that rule. */
+const relationSourceOf = (
+	source: RelationSource
+): { readonly source: string; readonly value: (r: RuleValue) => unknown } => {
+	const cellIds = matchedOf(agreeOver, "query")
+	const boundIds = matchedOf(agreeOver, "bound")
+	switch (source) {
+		case "relationParam":
+			return {
+				source: 'r.relation("outer", { id: uuid })',
+				value: (r) => r.relation("outer", { id: uuid })
+			}
+		case "query":
+			return { source: cellIds.source, value: () => cellIds.value() }
+		case "boundQuery":
+			return { source: boundIds.source, value: () => boundIds.value() }
+		case "interior":
+			return {
+				source:
+					'r.interior((s) => { const { id } = v(Cell, "inner"); return s.match(Cell, { id }).find({ id }) })',
+				value: (r) =>
+					r.interior((s: RuleValue) => {
+						const vars = varsOver(Cell, "inner")
+						return s.match(Cell, { id: vars["id"] }).find({ id: vars["id"] })
+					})
+			}
+	}
+}
+
+/** One cell of the scope axis: what it reaches, the engine's verdict, and its lines. */
+export interface ScopeCell {
+	readonly what: string
+	readonly admitted: boolean
+	readonly lines: ReadonlyArray<string>
+}
+
+/**
+ * The engine's verdict on a scope cell's statement, built and compiled as the runtime does, and the refusal the types
+ * name for its reason: a query over no level of the rule's schema (ForeignLevel), and a relation parameter bound to
+ * anything but the importing rule's own (Query.bind's UnsupportedOperation). Any other refusal is the generator's
+ * defect.
+ */
+const scopeVerdict = (
+	axis: ScopeAxis,
+	what: string,
+	build: () => unknown
+): { readonly admitted: true } | { readonly admitted: false; readonly refusal: TypeRefusal } => {
+	const compiled = Result.flatMap(catchCompileError(build), (q) =>
+		compileTemplate(q, undefined, { ...testCompile, read: "rows" })
+	)
+	if (compiled.ok) {
+		return { admitted: true }
+	}
+	const reason = compiled.error.reason
+	switch (axis) {
+		case "level":
+			if (reason._tag === "ForeignLevel") {
+				return { admitted: false, refusal: "the query is not over a level of this query's schema" }
+			}
+			break
+		case "binding":
+			if (reason._tag === "UnsupportedOperation" && reason.at.label === "Query.bind") {
+				return {
+					admitted: false,
+					refusal:
+						"a relation parameter binds a relation parameter of the importing rule, r.relation(name, heading)"
+				}
+			}
+			break
+		case "negation":
+			if (reason._tag === "UnsupportedOperation" && reason.at.label !== "Query.bind") {
+				return {
+					admitted: false,
+					refusal: "relational negation is a rule-level filter, alone or in a top-level conjunction"
+				}
+			}
+			break
+	}
+	throw new Error(
+		`the engine refuses the scope cell ${what} for no reason of its axis: ${reason._tag}`
+	)
+}
+
+/** What a scope cell holds to the engine's reason: a match's level, a relation binding, a negation's place. */
+type ScopeAxis = "level" | "binding" | "negation"
+
+/**
+ * Where a relational negation stands in a rule's filters: alone, in a conjunction there, in a conjunction of one, in a
+ * disjunction, or in a conjunction inside a disjunction.
+ */
+const negationPlaces = [
+	"filter",
+	"conjunction",
+	"nestedConjunction",
+	"disjunction",
+	"conjunctionInDisjunction"
+] as const
+type NegationPlace = (typeof negationPlaces)[number]
+
+/** A filter of Item's rule holding r.not(Note, ...) at a place: its source, and its value under that rule. */
+const negationAt = (
+	place: NegationPlace
+): {
+	readonly source: string
+	readonly value: (r: RuleValue, id: unknown, n: unknown) => unknown
+} => {
+	const negation = (r: RuleValue, id: unknown) => r.not(Note, { item: id })
+	switch (place) {
+		case "filter":
+			return { source: "r.not(Note, { item: id })", value: (r, id) => negation(r, id) }
+		case "conjunction":
+			return {
+				source: "r.and(r.not(Note, { item: id }), r.eq(n, 1))",
+				value: (r, id, n) => r.and(negation(r, id), r.eq(n, 1))
+			}
+		case "nestedConjunction":
+			return {
+				source: "r.and(r.and(r.not(Note, { item: id })), r.eq(n, 1))",
+				value: (r, id, n) => r.and(r.and(negation(r, id)), r.eq(n, 1))
+			}
+		case "disjunction":
+			return {
+				source: "r.or(r.not(Note, { item: id }), r.eq(n, 1))",
+				value: (r, id, n) => r.or(negation(r, id), r.eq(n, 1))
+			}
+		case "conjunctionInDisjunction":
+			return {
+				source: "r.or(r.and(r.not(Note, { item: id })), r.eq(n, 1))",
+				value: (r, id, n) => r.or(r.and(negation(r, id)), r.eq(n, 1))
+			}
+	}
+}
+
+/** A scope cell's lines: its statement, under the directive of its refusal where the engine refuses it. */
+const scopeCellOf = (
+	axis: ScopeAxis,
+	what: string,
+	code: "TS2322" | "TS2345",
+	line: string,
+	build: () => unknown
+): ScopeCell => {
+	const verdict = scopeVerdict(axis, what, build)
+	return {
+		what,
+		admitted: verdict.admitted,
+		lines: verdict.admitted
+			? [line]
+			: [`// @ts-expect-error -- ${code} refusal: ${verdict.refusal}`, line]
+	}
+}
+
+/**
+ * The scope axis: every level a matched query may be written over against its rule's schema, as it is and bound
+ * (matchedLevels, matchedForms), and every source a relation parameter of an imported query may be bound to
+ * (relationSources), once each, each verdict the engine's. A match's refusal is its source argument's (TS2345), a
+ * binding's the property of bind's argument (TS2322).
+ */
+export const scopeCells = (): ReadonlyArray<ScopeCell> => [
+	...Arr.flatMap(matchedLevels, (level) =>
+		Arr.map(matchedForms, (form, j): ScopeCell => {
+			const overs = oversOf(level)
+			const matched = matchedOf(overs.query, form)
+			const name = `l${matchedLevels.indexOf(level)}_${j}`
+			return scopeCellOf(
+				"level",
+				`${form === "bound" ? "a bound query" : "a query"} over the ${level} level`,
+				"TS2345",
+				`export const ${name} = query(${overs.rule.source}).rule((r) => { const m = ${matched.source}; const { id } = v(m, "m"); return r.match(m, { id }).find({ id }) })`,
+				() => {
+					const m = matched.value()
+					return queryOver(overs.rule.value).rule((r: RuleValue) => {
+						const vars = varsOver(m, "m")
+						return r.match(m, { id: vars["id"] }).find({ id: vars["id"] })
+					})
+				}
+			)
+		})
+	),
+	...Arr.map(relationSources, (source, j): ScopeCell => {
+		const bound = relationSourceOf(source)
+		return scopeCellOf(
+			"binding",
+			`a relation parameter bound to: ${source}`,
+			"TS2322",
+			`export const b${j} = query(Agree).rule((r) => { const m = byIds.bind({ ids: ${bound.source} }); const { id } = v(m, "m"); return r.match(m, { id }).find({ id }) })`,
+			() => {
+				const imported = byIds()
+				return queryOver(Agree).rule((r: RuleValue) => {
+					const m = imported.bind({ ids: bound.value(r) })
+					const vars = varsOver(m, "m")
+					return r.match(m, { id: vars["id"] }).find({ id: vars["id"] })
+				})
+			}
+		)
+	}),
+	...Arr.map(negationPlaces, (place, j): ScopeCell => {
+		const filter = negationAt(place)
+		return scopeCellOf(
+			"negation",
+			`a relational negation at: ${place}`,
+			"TS2345",
+			`export const g${j} = query(Agree).rule((r) => { const { id, n } = v(Item, "item"); return r.match(Item, { id, n }).where(${filter.source}).find({ id }) })`,
+			() =>
+				queryOver(Agree).rule((r: RuleValue) => {
+					const vars = varsOver(Item, "item")
+					return r
+						.match(Item, { id: vars["id"], n: vars["n"] })
+						.where(filter.value(r, vars["id"], vars["n"]))
+						.find({ id: vars["id"] })
+				})
+		)
+	})
+]
+
+/**
  * The module holding the matrix and the combinator axis, its imports spelled by `entries`; a page reads through the
  * role of the whole schema.
  */
@@ -1326,19 +1638,21 @@ export const admissionModule = (
 		readonly schema: string
 	},
 	cells: ReadonlyArray<AdmissionCell>,
-	combined: ReadonlyArray<CombinatorCell>
+	combined: ReadonlyArray<CombinatorCell>,
+	scoped: ReadonlyArray<ScopeCell>
 ): string =>
 	Arr.join(
 		[
 			"// Generated by test/support/agreement/admission.ts: the admission agreement over every position and constant kind.",
 			`import { Compute } from ${jsonText(entries.compute)}`,
-			`import { Decimal, Money, pg, Vector } from ${jsonText(entries.fields)}`,
+			`import { Decimal, Money, pg, uuid, Vector } from ${jsonText(entries.fields)}`,
 			`import { query, v } from ${jsonText(entries.query)}`,
 			`import type { DbOf } from ${jsonText(entries.db)}`,
 			`import { check, role } from ${jsonText(entries.declare)}`,
-			`import { Agree, Cell, Cents, Shade, Tone } from ${jsonText(entries.schema)}`,
+			`import { Agree, AgreeAbove, Apart, Cell, Cents, Item, Note, Shade, Tone } from ${jsonText(entries.schema)}`,
 			"",
 			'const Reader = role(Agree, "reader", Agree.relations)',
+			byIdsSource,
 			"",
 			...Arr.flatMap(cells, (c) => [
 				`/** ${c.kind} at ${c.position}: the engine ${c.admitted ? "admits" : "refuses"} it. */`,
@@ -1346,6 +1660,10 @@ export const admissionModule = (
 			]),
 			...Arr.flatMap(combined, (c) => [
 				`/** ${c.combinator} over ${c.base} under ${c.wrapper}: the engine ${c.admitted ? "admits" : "refuses"} it. */`,
+				...c.lines
+			]),
+			...Arr.flatMap(scoped, (c) => [
+				`/** ${c.what}: the engine ${c.admitted ? "admits" : "refuses"} it. */`,
 				...c.lines
 			]),
 			""

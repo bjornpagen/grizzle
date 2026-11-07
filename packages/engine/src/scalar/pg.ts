@@ -11,6 +11,27 @@ import { checkNumericTypmod, type Decimal } from "#compiler/scalar/values/decima
 import { describeFault } from "#compiler/scalar/values/fault.ts"
 import { vector } from "#compiler/scalar/vector.ts"
 
+/** The integers 1 through N, a union of their literals. */
+type OneThrough<
+	N extends number,
+	Counted extends ReadonlyArray<unknown> = [unknown],
+	Below = never
+> = Counted["length"] extends N
+	? Below | N
+	: OneThrough<N, [...Counted, unknown], Below | Counted["length"]>
+
+/**
+ * The binary precisions float(p) admits, 1 through binary64's 53, and real's among them, 1 through binary32's 24, as
+ * PostgreSQL resolves them (floatRealPrecision and floatDoublePrecision).
+ */
+export type FloatPrecision = OneThrough<53>
+type RealPrecision = OneThrough<24>
+
+/** The SQL type float(P) resolves to: real where real's precision holds P, double precision past it. */
+export type FloatSql<P extends FloatPrecision> = P extends RealPrecision
+	? "real"
+	: "double precision"
+
 /** A descriptor whose values are A. */
 type ColumnDescriptor<Sql extends SqlTag, A> = Descriptor<Sql> & { readonly column: Column<A> }
 
@@ -20,10 +41,14 @@ interface NumericTypmodDescriptor extends ColumnDescriptor<"numeric", Decimal> {
 	readonly scale: number
 }
 
+/** The real or double precision descriptor float(P) resolves to. */
+type FloatDescriptor<P extends FloatPrecision> = ColumnDescriptor<FloatSql<P>, number>
+
+/** Every binary precision float(p) admits, each with the descriptor it resolves to. */
+type FloatDescriptors = { readonly [P in FloatPrecision]: FloatDescriptor<P> }
+
 type FloatDescriptorConstructor = ColumnDescriptor<"double precision", number> &
-	((
-		precision: unknown
-	) => ColumnDescriptor<"real", number> | ColumnDescriptor<"double precision", number>)
+	(<const P extends FloatPrecision>(precision: P) => FloatDescriptor<P>)
 
 const plain = <const T extends PgScalarName, A>(
 	type: T,
@@ -69,27 +94,101 @@ const floatDoublePrecision: Limit = derived({
 	compute: ([p]) => p.value
 })
 
-/** float(p): PostgreSQL's binary precision rule. */
-const float = (
-	precision: unknown
-): ColumnDescriptor<"real", number> | ColumnDescriptor<"double precision", number> => {
-	if (!isInteger(precision) || precision < 1 || precision > floatDoublePrecision.value) {
-		throw malformedDescription(
-			captureLoc("pg.float", []),
-			`a float binary precision: an integer 1-${floatRealPrecision.value} (real) or ${floatRealPrecision.value + 1}-${floatDoublePrecision.value} (double precision)`
-		)
-	}
-	return precision <= floatRealPrecision.value ? real : doublePrecision
+/** Whether a JavaScript caller's precision is one float(p) admits: an entry of floatDescriptors. */
+const isFloatPrecision = (value: unknown): value is FloatPrecision =>
+	isInteger(value) && Object.hasOwn(floatDescriptors, value)
+
+const refuseFloat = (): never => {
+	throw malformedDescription(
+		captureLoc("pg.float", []),
+		`a float binary precision: an integer 1-${floatRealPrecision.value} (real) or ${floatRealPrecision.value + 1}-${floatDoublePrecision.value} (double precision)`
+	)
 }
 
+/**
+ * float(p): PostgreSQL's binary precision rule, read off the descriptors each precision resolves to, so the type of
+ * float(P) is the descriptor P resolves to. A JavaScript caller's precision of no entry is a malformed description.
+ */
+const float = <const P extends FloatPrecision>(precision: P): FloatDescriptor<P> =>
+	isFloatPrecision(precision) ? floatDescriptors[precision] : refuseFloat()
+
+/**
+ * float(p) over a precision known only at run time, as a JavaScript caller passes it: the real or double precision
+ * descriptor it resolves to, or a malformed description.
+ */
+export const floatOf = (
+	precision: unknown
+): ColumnDescriptor<"real", number> | ColumnDescriptor<"double precision", number> =>
+	isFloatPrecision(precision) ? floatDescriptors[precision] : refuseFloat()
+
 const doublePrecision: FloatDescriptorConstructor = defineField(
-	(precision: unknown) => float(precision),
+	<const P extends FloatPrecision>(precision: P) => float(precision),
 	"double precision",
 	{ kind: "pg", type: "double precision" },
 	{ column: convertColumn(convertByCarrier.float8({ carrier: "float8" })) },
 	SourceLoc('pg["double precision"]', []),
 	bareEnv
 )
+
+/**
+ * The descriptor of each binary precision float(p) admits: real through floatRealPrecision, double precision past it
+ * through floatDoublePrecision, the two Limits' values (FloatPrecision, types/fields/field.ts).
+ */
+const floatDescriptors: FloatDescriptors = Object.freeze({
+	1: real,
+	2: real,
+	3: real,
+	4: real,
+	5: real,
+	6: real,
+	7: real,
+	8: real,
+	9: real,
+	10: real,
+	11: real,
+	12: real,
+	13: real,
+	14: real,
+	15: real,
+	16: real,
+	17: real,
+	18: real,
+	19: real,
+	20: real,
+	21: real,
+	22: real,
+	23: real,
+	24: real,
+	25: doublePrecision,
+	26: doublePrecision,
+	27: doublePrecision,
+	28: doublePrecision,
+	29: doublePrecision,
+	30: doublePrecision,
+	31: doublePrecision,
+	32: doublePrecision,
+	33: doublePrecision,
+	34: doublePrecision,
+	35: doublePrecision,
+	36: doublePrecision,
+	37: doublePrecision,
+	38: doublePrecision,
+	39: doublePrecision,
+	40: doublePrecision,
+	41: doublePrecision,
+	42: doublePrecision,
+	43: doublePrecision,
+	44: doublePrecision,
+	45: doublePrecision,
+	46: doublePrecision,
+	47: doublePrecision,
+	48: doublePrecision,
+	49: doublePrecision,
+	50: doublePrecision,
+	51: doublePrecision,
+	52: doublePrecision,
+	53: doublePrecision
+})
 
 /** numeric's column, every typmod's: Decimal.fromOutput reads PostgreSQL's text into the value's one form, at any scale. */
 const numericColumn: Column<Decimal> = convertColumn(
@@ -141,8 +240,8 @@ const numeric = (...args: ReadonlyArray<unknown>): NumericTypmodDescriptor => {
  *   Because `pg.float` and `pg["double precision"]` are one value, that value is the callable one.
  *
  * A malformed typmod from a JavaScript caller is CompileError MalformedDescription, thrown synchronously, the builders'
- * convention. Precision, scale and float's choice are runtime values only: the TypeScript signatures in
- * types/fields take a number, and the type of pg.float(p) is real or double precision.
+ * convention. Precision and scale are runtime values only, the TypeScript signatures in types/fields taking a number;
+ * float's binary precision is typed, and the type of pg.float(p) is the descriptor p resolves to.
  *
  * Each descriptor's column is its carrier's conversion (values/convert.ts), so its host type is the conversion's:
  * pg.bigint's is BigInt, a bigint, and the public binding (public/fields.ts) checks it against `Field<bigint, "bigint">`.

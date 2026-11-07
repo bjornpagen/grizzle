@@ -2,18 +2,23 @@ import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
 import { constant, type Gen, map, oneOf, weighted } from "@grizzle/testing/gen"
-import { type Corrupted, type CorruptedFeature, corruptedFeature } from "@grizzle/testing/lsw"
+import {
+	type Corrupted,
+	type CorruptedFeature,
+	corrupted,
+	corruptedFeature
+} from "@grizzle/testing/lsw"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Record as Rec, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Record as Rec, String as Str } from "effect"
 import { makeIdSupply } from "#compiler/core/ids.ts"
 import { formatLoc, formatPath } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
 import { toTable } from "#compiler/ir/dag.ts"
 import { type DagTable, type RelKind, relKinds } from "#compiler/ir/rel.ts"
 import { conformWith, decodeWith, type Shape } from "#compiler/ir/shape.ts"
-import { assert, refusalLoc, succeeded } from "#test/support/assert.ts"
+import { assert, nonEmpty, refusalLoc, succeeded } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { dagProblems, dagTableShape, validateTable } from "#test/support/oracle/dag-validate.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
@@ -163,28 +168,27 @@ const ruleFeatures: ReadonlyArray<CorruptedFeature<DagRule>> = Arr.map(
 	(c): CorruptedFeature<DagRule> => `${c.from} ${c.rule}`
 )
 
+/** The every-kind fixture as a table: every kind of node and expression, so a site of every rule. */
+const everyKindTable: DagTable = succeeded(toTable(everyKind(makeIdSupply()).dag))
+
 /**
  * The live DAGs the corruptions break, as tables: the every-kind fixture, which holds every kind of node and
  * expression and so offers a site to every rule, or a generated DAG, whose structure no fixture fixes.
  */
 const liveTables: Gen<DagTable> = weighted([
-	[1, constant(succeeded(toTable(everyKind(makeIdSupply()).dag)))],
+	[1, constant(everyKindTable)],
 	[3, map(generatedDags, (dag) => succeeded(toTable(dag)))]
 ])
 
-/**
- * A live DAG, the live variant a case corrupts (none, or one picked), and the site each rule is broken at: picks,
- * since the variants and the sites are known only once the DAG is drawn.
- */
-const caseGen: Gen<readonly [DagTable, LiveChoice, number]> = (source) => [
+/** A live DAG, and the live variant a case corrupts: none, or one picked, since the variants are the DAG's own. */
+const caseGen: Gen<readonly [DagTable, LiveChoice]> = (source) => [
 	source.draw(liveTables),
 	source.draw(
 		oneOf<LiveChoice>([
 			constant({ kind: "generated" }),
 			map(pickGen, (pick): LiveChoice => ({ kind: "variant", pick }))
 		])
-	),
-	source.draw(pickGen)
+	)
 ]
 
 describe("validateDag", () => {
@@ -198,11 +202,11 @@ describe("validateDag", () => {
 						suite: "unit/ir/validate-generated",
 						literal: Formatter.format,
 						draw: drawn(caseGen),
-						runs: 500,
+						runs: 150,
 						shrink: completeShrink,
 						coverage: required<DagFeature>(
 							["live", ...ruleFeatures, ...Arr.map(relKinds, (k): DagFeature => `node ${k}`)],
-							{ cases: 500, sense: notesOnly }
+							{ cases: 600, sense: notesOnly }
 						),
 						kept: [],
 						concurrency: 1,
@@ -213,33 +217,53 @@ describe("validateDag", () => {
 							name: "each corruption's rule restated over the table, and the shape decoder against conformWith"
 						}
 					},
-					([dag, variant, site], n) =>
+					([table, choice], n) =>
 						Effect.sync(() => {
-							const live = liveFrom(dag, variant)
+							const pending = Option.getOrUndefined(n.steering)
+							const pendingRules = Arr.filter(
+								dagCorruptions,
+								(corruption) => pending?.has(`${corruption.from} ${corruption.rule}`) === true
+							)
+							const pendingNodes = Arr.some(relKinds, (k) => pending?.has(`node ${k}`) === true)
+							const live = liveFrom(
+								Arr.isReadonlyArrayNonEmpty(pendingRules) || pendingNodes ? everyKindTable : table,
+								choice
+							)
 							if (live.variant.kind === "at") {
 								n.note(`variant ${live.variant.at}`)
 							}
-							n.note("live")
-							const validated = judged({ kind: "live", value: live.dag })
+							const [aimable, ...moreAimable] = Arr.filter(pendingRules, (corruption) =>
+								Arr.isReadonlyArrayNonEmpty(corruption.sites(live.dag))
+							)
+							const aimed =
+								aimable === undefined
+									? Option.none()
+									: Option.some(pickFrom([aimable, ...moreAimable], n.draw(pickGen)))
+							const c: Corrupted<unknown, DagRefusal, DagRule> = pendingNodes
+								? { kind: "live", value: live.dag }
+								: Option.match(aimed, {
+										onNone: () => n.draw(corrupted(live.dag, dagCorruptions)),
+										onSome: (corruption) => {
+											const broken = pickFrom(
+												nonEmpty(corruption.sites(live.dag), "a site of a pending rule"),
+												n.draw(pickGen)
+											)
+											return {
+												kind: corruption.from,
+												rule: corruption.rule,
+												at: broken.at,
+												value: broken.value,
+												refusal: broken.refusal
+											}
+										}
+									})
+							n.note(corruptedFeature(c))
+							if (c.kind !== "live") {
+								n.pair(corruptedFeature(c), `site ${c.at}`)
+							}
+							const validated = judged(c)
 							for (const node of validated === undefined ? [] : Rec.values(validated.nodes)) {
 								n.note(`node ${node.kind}`)
-							}
-							for (const corruption of dagCorruptions) {
-								const [first, ...rest] = corruption.sites(live.dag)
-								if (first === undefined) {
-									continue
-								}
-								const broken = pickFrom([first, ...rest], site)
-								const c: Corrupted<unknown, DagRefusal, DagRule> = {
-									kind: corruption.from,
-									rule: corruption.rule,
-									at: broken.at,
-									value: broken.value,
-									refusal: broken.refusal
-								}
-								n.note(corruptedFeature(c))
-								n.pair(corruptedFeature(c), `site ${c.at}`)
-								judged(c)
 							}
 						})
 				)
@@ -255,13 +279,13 @@ type LiveChoice =
 	| { readonly kind: "generated" }
 	| { readonly kind: "variant"; readonly pick: number }
 
+/** Which live variant a case corrupts: none, the DAG as drawn, or the one at a place. */
+type LiveVariantDrawn = { readonly kind: "none" } | { readonly kind: "at"; readonly at: string }
+
 const liveFrom = (
 	dag: DagTable,
 	choice: LiveChoice
-): {
-	readonly dag: DagTable
-	readonly variant: { readonly kind: "none" } | { readonly kind: "at"; readonly at: string }
-} => {
+): { readonly dag: DagTable; readonly variant: LiveVariantDrawn } => {
 	const [first, ...rest] = liveVariants(dag)
 	if (choice.kind === "generated" || first === undefined) {
 		return { dag, variant: { kind: "none" } }

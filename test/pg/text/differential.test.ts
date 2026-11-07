@@ -1,14 +1,16 @@
 import { layer } from "@effect/vitest"
-import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { noCoverage, required } from "@grizzle/testing/features"
-import { array, constant, element, type Gen } from "@grizzle/testing/gen"
+import { drawn, explore } from "@grizzle/testing/explore"
+import { required } from "@grizzle/testing/features"
+import { array, boolean, constant, element, type Gen, int, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Exit, Formatter } from "effect"
+import { Array as Arr, Effect, Exit, Formatter, Option } from "effect"
 import { everyProperty } from "#compiler/core/canonical.ts"
+import type { RegexSpaceMeasure } from "#compiler/core/errors.ts"
 import { domainDigest } from "#compiler/core/fingerprint.ts"
 import { identity } from "#compiler/core/identity.ts"
+import { regexMaxRepeat } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import * as RegexIr from "#compiler/scalar/regex/ir.ts"
@@ -54,6 +56,95 @@ import {
  * is test/unit/text/parse.test.ts's, and that the budgets judge the printed ARE whatever its spelling is
  * test/unit/text/lowering.test.ts's.
  */
+/**
+ * A pattern with a hole for a repetition count: a body repeated `{n}` or `{0,n}`, anchored at both ends or followed by
+ * a literal.
+ */
+interface EdgeSketch {
+	readonly body: string
+	readonly exact: boolean
+	readonly anchored: boolean
+}
+
+/** The pattern of an edge sketch at `n` repetitions. */
+const patternAt = (edge: EdgeSketch, n: number): string =>
+	`${edge.anchored ? "^" : ""}(?:${edge.body}){${edge.exact ? n : `0,${n}`}}${edge.anchored ? "$" : "b"}`
+
+/** What the text analysis refuses a pattern by: the compile-space measure past its budget, or another refusal. */
+type EdgeRefusal = RegexSpaceMeasure["kind"] | "another refusal"
+
+/** What an edge search reached: the refusal past its largest admitted repetition, or the repetition bound itself. */
+type EdgeFeature = EdgeRefusal | "the repeat bound"
+
+const measureAt = (edge: EdgeSketch, n: number): "admitted" | EdgeRefusal => {
+	const r = analyzeText(patternAt(edge, n), "u", SourceLoc("str.regex", []))
+	if (r.ok) {
+		return "admitted"
+	}
+	const reason = r.error.reason
+	return reason._tag === "ResourceBound" && reason.bound.kind === "regexCompileSpace"
+		? reason.bound.measure.kind
+		: "another refusal"
+}
+
+/** The largest repetition count the analysis admits, and what refuses the count past it. */
+interface Edge {
+	readonly greatest: number
+	readonly past: EdgeFeature
+}
+
+/**
+ * The largest repetition count the analysis admits from an admitted 1, by bisection over 1 to regexMaxRepeat: a count
+ * whose successor is refused, the budget's edge, or regexMaxRepeat itself.
+ */
+const edgeAt = (edge: EdgeSketch): Edge => {
+	const top = measureAt(edge, regexMaxRepeat.value)
+	if (top === "admitted") {
+		return { greatest: regexMaxRepeat.value, past: "the repeat bound" }
+	}
+	let low = 1
+	let high: number = regexMaxRepeat.value
+	let past: EdgeRefusal = top
+	while (high - low > 1) {
+		const middle = Math.floor((low + high) / 2)
+		const measured = measureAt(edge, middle)
+		if (measured === "admitted") {
+			low = middle
+		} else {
+			high = middle
+			past = measured
+		}
+	}
+	return { greatest: low, past }
+}
+
+const edgeOf =
+	(body: Gen<string>): Gen<EdgeSketch> =>
+	(source) => ({
+		body: source.draw(body),
+		exact: source.draw(boolean),
+		anchored: source.draw(boolean)
+	})
+
+/** An alternation of an anchor and a wide class's counted run, the shape whose anchors multiply its positions. */
+const anchoredAlternationGen: Gen<EdgeSketch> = edgeOf(
+	(source) =>
+		`(?:${source.draw(element(["^", "$"]))}|${source.draw(element([".", "[a-z]", "\\W"]))}{1,${source.draw(int(1, regexMaxRepeat.value))}}|${source.draw(element(["^", "$", ""]))})`
+)
+
+/** A counted run of a nullable body, the shape whose empty paths join pairs of states. */
+const nullableNestGen: Gen<EdgeSketch> = edgeOf(
+	(source) =>
+		`(?:${source.draw(element(["a|", "a|b?", "a?", "(?:a|)"]))}){${source.draw(int(2, regexMaxRepeat.value))}}`
+)
+
+/** A drawn nested body, or one of the shapes the budgets other than positions bind first. */
+const edgeGen: Gen<EdgeSketch> = weighted<EdgeSketch>([
+	[3, edgeOf(nestedPattern)],
+	[1, anchoredAlternationGen],
+	[1, nullableNestGen]
+])
+
 const loc = (family: string, i: number) => SourceLoc("str.regex", [family, i])
 /** A batch's randomized strings, and the generated patterns a case draws besides the family's own. */
 const stringsPerCase = 500
@@ -336,48 +427,51 @@ layer(Substrate.layer)(
 		const compileWithin = (db: RawSession, are: string) =>
 			db.query("SELECT 'x' COLLATE pg_catalog.pg_c_utf8 ~ $1::text", [are])
 
-		/** The planted worst case of each budget. */
-		const atBound: Arr.NonEmptyReadonlyArray<readonly [string, Flags]> = [
-			["^(?:[a-z]{1,255}){16}$", "u"],
-			["^(?:.{1,255}){16}$", "u"],
-			["^(?:.{1,255}){16}$", "su"],
-			["^(?:\\W{1,255}){16}$", "u"],
-			["^(?:(?:ab|cd|ef|gh){0,255}){0,2}$", "u"],
-			["(?:[^a]{2,255}x){0,8}", "u"],
-			["^(?:[a-z]{0,255}){0,8}$", "u"],
-			["(?:a?){255}(?:b?){100}c", "u"],
-			["^(?:(?:a?){60}){2}$", "u"],
-			["(?:(?:a|){100}){1,2}b", "u"],
-			["(?:(?:a|b?){8}){8}c", "u"],
-			["(?:$|a|){4}(?:^|a|){4}b", "u"],
-			["(?:(?:a|$){1,3}){2}(?:^)?b", "u"],
-			["(?:^|.{1,127}|$){2,4}b", "u"],
-			["^(?:a{250}){4}$|^(?:b{250}){4}$", "u"],
-			["(?:(?:(?:^){255}){255}){255}a", "u"],
-			["(?:(?:.|$|){0,2})+b", "u"],
-			["(?:(?:a*){8}|(?:$){0,8})(?:(?:a|){8,}|(?:^)*)+b", "u"]
-		]
-
 		it.effect(
-			"compiles admitted patterns at each budget inside PostgreSQL's regex compile space",
+			"compiles the largest admitted repetition of a drawn body, at each budget's edge, inside PostgreSQL's regex compile space",
 			(ctx) =>
 				searched(
 					ctx,
 					Effect.gen(function* () {
 						const s = yield* Substrate
 						const db = yield* s.session(ownerSession())
-						return yield* exhaust(
+						return yield* explore(
 							{
 								suite: "text/differential/at-bound",
-								generator: element(atBound),
+								draw: drawn(edgeGen),
 								literal: Formatter.format,
-								limit: atBound.length,
-								coverage: noCoverage,
+								oracle: {
+									kind: "postgresql",
+									name: "PostgreSQL 19's regex compiler and ~, on the largest repetition the budgets admit"
+								},
+								coverage: required<EdgeFeature>(
+									["positions", "anchors", "anchorWeight", "closurePairs"],
+									{ cases: 60, sense: notesOnly }
+								),
+								kept: [],
+								runs: 8,
+								shrink: completeShrink,
+								concurrency: 1,
+								steerEvery: 4,
 								caseHang
 							},
-							([source, flags]) =>
+							(drawnEdge, k) =>
 								Effect.gen(function* () {
-									const r = admitted(source, flags, SourceLoc("str.regex", []))
+									const edge = Option.getOrElse(
+										Option.flatMap(k.steering, (pending) =>
+											pending.has("anchorWeight")
+												? Option.some(k.draw(anchoredAlternationGen))
+												: pending.has("closurePairs")
+													? Option.some(k.draw(nullableNestGen))
+													: Option.none()
+										),
+										() => drawnEdge
+									)
+									yield* k.assume(measureAt(edge, 1) === "admitted")
+									const { greatest, past } = edgeAt(edge)
+									k.note(past)
+									const source = patternAt(edge, greatest)
+									const r = admitted(source, "u", SourceLoc("str.regex", []))
 									yield* compileWithin(db, r.are)
 									const rows = yield* db.values(
 										"SELECT ($1::text COLLATE pg_catalog.pg_c_utf8 ~ $2::text)::text",

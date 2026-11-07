@@ -1742,7 +1742,13 @@ const equalWitnessShape: S.Shape<EqualWitness> = S.tagged("kind", {
 	sharedColumn: S.struct({ occurrence: occurrenceIdShape, column: S.nonEmptyString }),
 	correlatedCopy: S.struct({ index: S.nonNegativeInteger }),
 	viewMember: S.struct({}),
-	arms: S.struct({ arms: S.nonEmptyArray(implicationShape) })
+	arms: S.struct({ arms: S.nonEmptyArray(implicationShape) }),
+	closedColumns: S.struct({}),
+	lateralFixed: S.struct({
+		occurrence: occurrenceIdShape,
+		column: S.nonEmptyString,
+		fixed: implicationShape
+	})
 })
 
 const atMostOneWitnessShape: S.Shape<AtMostOneWitness> = S.tagged("kind", {

@@ -19,11 +19,13 @@ import type {
 	Minted,
 	Origin,
 	OriginOfTerm,
+	ParamNeeds,
 	ParamsContribution,
 	ParamsOfTerm,
 	Refusal,
 	Retyped,
 	Source,
+	SourceOrigin,
 	SqlOfCarrier,
 	TermBase,
 	UnionToIntersection,
@@ -42,7 +44,7 @@ import type { AnyContext, AnyWorld } from "#compiler/types/schema/world.ts"
  */
 export interface Aggregate<
 	out T,
-	out P = unknown,
+	in P = unknown,
 	out Sql extends SqlTag = SqlTag,
 	out D = T,
 	out L = T
@@ -52,7 +54,7 @@ export interface Aggregate<
 		Languaged<L>,
 		Phantom<{
 			readonly aggregate: T
-			readonly params: P
+			readonly needs: ParamNeeds<P>
 		}> {
 	readonly aggregate: AggregateName
 	readonly column: Column<T>
@@ -61,15 +63,18 @@ export interface Aggregate<
 
 /**
  * A head term yielding zero or more facts per binding. The runtime value names its producer, and carries its span
- * operand's column, whose values are T, and SQL type; its span operand's domain is its domain D and its language L.
+ * operand's column, whose values are T, and SQL type; its span operand's domain is its domain D and its language L. O
+ * is the origin of what it reads, a computation over its operands' (ComputedOrigin), which the evidence reads as a
+ * term's: unknown, which nothing determines, where it states none.
  */
-export interface Producer<out T, out P = unknown, out D = T, out L = T>
+export interface Producer<out T, in P = unknown, out D = T, out L = T, out O = unknown>
 	extends
 		Domained<D>,
 		Languaged<L>,
 		Phantom<{
 			readonly produces: T
-			readonly params: P
+			readonly needs: ParamNeeds<P>
+			readonly origin: O
 		}> {
 	readonly produces: "intersection" | "difference" | "pack"
 	readonly column: Column<T>
@@ -121,20 +126,21 @@ export type VSource = (
  * The variables `v` mints over a source in the scope named N, one per carrier of its heading (schema/record.ts mint). A
  * variable over a relation, closed relation or derived relation names the relation and field it came from and its
  * scope, so the variables of two scopes of one relation are of two types; key retention through find is decided from
- * that origin.
+ * that origin. A variable over any other source names the source's field and its scope (SourceOrigin).
  */
 export type VarsOf<R extends Headed<Carriers>, N extends string> = Minted<
 	R["heading"],
 	VarOrigins<R, N>
 >
-export type VarOrigins<R, N extends string> = R extends {
-	readonly kind: "relation" | "closed" | "closedRelation" | "derived" | "world" | "context"
-	readonly name: infer Rel extends string
-}
-	? R extends Headed<infer C>
-		? { readonly [K in keyof C]: Origin<Rel, K & string, N> }
+export type VarOrigins<R, N extends string> =
+	R extends Headed<infer C>
+		? R extends {
+				readonly kind: "relation" | "closed" | "closedRelation" | "derived" | "world" | "context"
+				readonly name: infer Rel extends string
+			}
+			? { readonly [K in keyof C]: Origin<Rel, K & string, N> }
+			: { readonly [K in keyof C]: SourceOrigin<K & string, N> }
 		: unknown
-	: unknown
 
 /**
  * What a match or negation may bind each field to: a JavaScript value of the field's language, every value of its
@@ -343,7 +349,7 @@ export interface HeadLiteral<L>
 		TermBase,
 		Domained<Retyped<JavaScriptType<L>, JavaScriptSql<L>>>,
 		Languaged<JavaScriptType<L>>,
-		Phantom<{ readonly params: unknown; readonly origin: LiteralOrigin }> {
+		Phantom<{ readonly needs: ParamNeeds<unknown>; readonly origin: LiteralOrigin }> {
 	readonly column: Column<L>
 	readonly sql: SqlTag
 }
@@ -373,7 +379,7 @@ type JavaScriptSql<L> = L extends string
  * What a head may hold: a term, an aggregate, a producer, or a JavaScript value, which the checker types by the field
  * it writes, else by the type its union's other arms agree on, else by its own default.
  */
-export type HeadTerm = TermBase | Aggregate<unknown> | Producer<unknown> | HeadValue
+export type HeadTerm = TermBase | Aggregate<unknown, never> | Producer<unknown, never> | HeadValue
 export type HeadShape = Record<string, HeadTerm>
 /**
  * A head as its arm holds it: each JavaScript value its head literal (schema/record.ts headRecord), every other entry
@@ -382,7 +388,7 @@ export type HeadShape = Record<string, HeadTerm>
 export type HeadTerms<H> = {
 	readonly [K in keyof H]: H[K] extends HeadValue
 		? HeadLiteral<H[K]>
-		: Extract<H[K], TermBase | Aggregate<unknown> | Producer<unknown>>
+		: Extract<H[K], TermBase | Aggregate<unknown, never> | Producer<unknown, never>>
 }
 
 /** The host value of each head term: the record a find over head H decodes to (schema/record.ts record). */

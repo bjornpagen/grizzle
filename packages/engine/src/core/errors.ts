@@ -332,6 +332,9 @@ const duplicateText = (duplicate: Duplicate): string => {
  *   `proves` leaves out.
  * - `RecursionRefused`: recursion admission refused (check/recursion), for `cause`.
  * - `DerivedRefused`: derived analysis refused a derived relation (analysis/derived), for `cause`.
+ * - `ForeignLevel`: a rule over `over`, a schema or a role, matches a query or a bound import of one written over
+ *   `written`, which is none of `over`'s levels: a query reads what its own schema declares, so a rule reads a query only
+ *   over a level of its schema, whatever relations the two share.
  * - `RoleRefused`, `LoginRefused`, `ContextRefused`: a role, a login or a context breaks the rule `rule`.
  * - `RoleNameTooLong`: a login's or a role's PostgreSQL role, `role` (`<schema>__<name>`), is longer than PostgreSQL's
  *   `limit` bytes.
@@ -434,6 +437,12 @@ export type CompileReason =
 	  }
 	| { readonly _tag: "RecursionRefused"; readonly at: SourceLoc; readonly cause: RecursionRefusal }
 	| { readonly _tag: "DerivedRefused"; readonly at: SourceLoc; readonly cause: DerivedRefusal }
+	| {
+			readonly _tag: "ForeignLevel"
+			readonly at: SourceLoc
+			readonly written: string
+			readonly over: string
+	  }
 	| {
 			readonly _tag: "GeneratedRefused"
 			readonly at: SourceLoc
@@ -629,6 +638,8 @@ export const compileReasonText = (reason: CompileReason): string => {
 			return recursionRefusalText(reason.cause)
 		case "DerivedRefused":
 			return derivedRefusalText(reason.cause)
+		case "ForeignLevel":
+			return `a query over a level of ${reason.over}; it is written over ${reason.written}, which is none of its levels`
 		case "GeneratedRefused":
 			return `generated field ${reason.relation}.${reason.field}: ${generatedRuleText(reason.rule)}`
 		case "RoleRefused":

@@ -8,7 +8,7 @@
  *   two-plane model), so a set stepped twice is twice.
  * - The combine is evaluated over host values: bigints for count, sum and max over natural, Sets of handles for or and
  *   twos, handles in roster order for max over a closed id, and strings for concat.
- * - `admits`, against the validators its construction must pass, over every generated scalar type: a monoid admits a
+ * - `admits`, against the validators its construction must pass, over every generated field type: a monoid admits a
  *   carrier exactly when its identity there is one value of the carrier per plane (literalProblem) and the CHECK that
  *   proves its combine types over it (check/fold.ts combineRule), but count, which reads no step value and counts in
  *   natural alone.
@@ -36,7 +36,7 @@ import { capabilitiesOf } from "#compiler/scalar/registry.ts"
 import { assert, nonEmpty, succeeded, throwsDefect } from "#test/support/assert.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { scalarTypeGen } from "#test/unit/ir/types.ts"
+import { declaredTypeGen } from "#test/unit/ir/types.ts"
 
 const int8: ScalarType = { carrier: "int8", caps: capabilitiesOf("int8"), contract: undefined }
 const natural: ScalarType = {
@@ -337,7 +337,7 @@ describe("the closed monoids", () => {
 						suite: "unit/ir/monoid-admits",
 						literal: Formatter.format,
 						draw: drawn(
-							(source) => [source.draw(element(monoidNames)), source.draw(scalarTypeGen)] as const
+							(source) => [source.draw(element(monoidNames)), source.draw(declaredTypeGen)] as const
 						),
 						runs: 400,
 						shrink: completeShrink,

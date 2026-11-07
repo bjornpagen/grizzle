@@ -73,12 +73,7 @@ import {
 	Recognizer
 } from "#compiler/laws/model/plan.ts"
 import { rowColumn, wideRow } from "#compiler/laws/model/rows.ts"
-import {
-	beyondPrimary,
-	readFields,
-	type RelationLaws,
-	relationLaws
-} from "#compiler/laws/model/uniques.ts"
+import { readFields, type RelationLaws, relationLaws } from "#compiler/laws/model/uniques.ts"
 import {
 	type ClosedRelations,
 	type LeafDesc,
@@ -472,6 +467,42 @@ interface DeferralQuery {
 	readonly targetFields: ReadonlyArray<LawField>
 }
 
+/** Whether a planned foreign key is installed deferrable: as its plan states, or as the schema-wide rule decides it. */
+const deferrable = (
+	n: Extract<NativePlan, { readonly kind: "ForeignKey" }>,
+	deferred: (fk: DeferralQuery) => boolean
+): boolean =>
+	n.deferral === "rule"
+		? deferred({
+				relation: n.relation,
+				target: n.target,
+				targetFields: n.targetColumns.flatMap((c) => (c.kind === "field" ? [c.field] : []))
+			})
+		: n.deferral === "deferred"
+
+/**
+ * The laws whose containment evidence holds at every statement: each a plan discharges by an immediate foreign key, a
+ * ClosedCheck or a table CHECK of a containment, declared or generated. It reads the plans and the deferral alone, which
+ * no evidence context changes, so a theory of any contexts decides it alike.
+ */
+const immediateOf = (
+	plans: ReadonlyArray<LawPlan>,
+	deferred: (fk: DeferralQuery) => boolean
+): ReadonlySet<LawId> =>
+	new Set(
+		plans.flatMap((plan) =>
+			plan.natives.some(
+				(n) =>
+					(n.kind === "ForeignKey" && !deferrable(n, deferred)) ||
+					n.kind === "ClosedCheck" ||
+					((n.kind === "TableCheck" || n.kind === "GeneratedCheck") &&
+						plan.law.detail.kind === "containment")
+			)
+				? [plan.law.id]
+				: []
+		)
+	)
+
 /** A plan's native object as the specializer materializes it: a generated CHECK with its predicate lowered into the
  * extension DAG (`#lowerCheck`), a law column with its value lowered there (`ColumnLowering`), a ClosedCheck with its
  * guard lowered, every other as its plan states it. */
@@ -752,9 +783,16 @@ class Specializer {
 		return named
 	}
 
+	/** The laws whose containment evidence holds at every statement (immediateOf), from the plans alone. */
+	immediate(): ReadonlySet<LawId> {
+		const plans = this.theory.laws.map((law) => this.recognizer.plan(law))
+		return immediateOf(plans, this.#deferral(plans))
+	}
+
 	run(): LawModel {
 		const plans = this.theory.laws.map((law) => this.recognizer.plan(law))
 		const deferred = this.#deferral(plans)
+		const immediate = immediateOf(plans, deferred)
 
 		/** The extension DAG: each generated CHECK's predicate and each law column's value. */
 		const ext = new ViolationBuilder(SourceLoc(`schema ${this.owned.name}`, []))
@@ -808,7 +846,6 @@ class Specializer {
 		for (const pk of this.theory.primaryKeys) {
 			this.#seed(byKey, pk)
 		}
-		const immediate = new Set<LawId>()
 		const implyingKey = this.#implyingKey()
 		/** Key laws first, so an object a key law and another law both plan reports the key's law. */
 		const keysFirst = [
@@ -819,13 +856,6 @@ class Specializer {
 			const objects: Array<NativeObject> = []
 			for (const n of placedNatives) {
 				const object = this.#materialize(n, plan, deferred, (e) => merged.expr(e))
-				if (
-					(object.kind === "ForeignKey" && !object.deferrable) ||
-					object.kind === "ClosedCheck" ||
-					(object.kind === "TableCheck" && plan.law.detail.kind === "containment")
-				) {
-					immediate.add(plan.law.id)
-				}
 				const key = structuralKey(nativeIdentity(object))
 				const known = byKey.get(key)
 				if (known === undefined) {
@@ -892,14 +922,14 @@ class Specializer {
 
 	/**
 	 * Refuses a relation no addition to compiles: one whose primary key, or a unique object an addition meets beyond it
-	 * (uniques.ts beyondPrimary), reads a field PostgreSQL generates, which no fact carries, so neither the host's
+	 * (RelationLaws.beyond), reads a field PostgreSQL generates, which no fact carries, so neither the host's
 	 * same-key check nor a statement's probe can meet the object.
 	 */
 	#refuseGeneratedKeys(
 		relations: ReadonlyMap<string, RelationLaws>
 	): ReadonlyMap<string, RelationLaws> {
 		for (const laws of relations.values()) {
-			for (const u of [laws.uniques.primary, ...beyondPrimary(laws)]) {
+			for (const u of [laws.uniques.primary, ...laws.beyond]) {
 				const generated = readFields(u).find((f) => f.writing.kind === "generated")
 				if (generated !== undefined) {
 					throw new Refusal(
@@ -1268,16 +1298,7 @@ class Specializer {
 					columns: mapNonEmpty(n.columns, (c) => this.#column(c)),
 					target: n.target,
 					targetColumns: mapNonEmpty(n.targetColumns, (c) => this.#column(c)),
-					deferrable:
-						n.deferral === "rule"
-							? deferred({
-									relation: n.relation,
-									target: n.target,
-									targetFields: n.targetColumns.flatMap((c) =>
-										c.kind === "field" ? [c.field] : []
-									)
-								})
-							: n.deferral === "deferred",
+					deferrable: deferrable(n, deferred),
 					onUpdate: n.onUpdate,
 					lawIds
 				}
@@ -1513,6 +1534,13 @@ const specialize = (
 ): Result.Result<LawModel, CompileError> =>
 	catchRefusal(() => new Specializer(theory, checked).run())
 
+/** The laws a theory's specialization proves immediate (Specializer.immediate), or the refusal of a plan. */
+const immediateLaws = (
+	theory: Theory,
+	checked: CheckedSchema
+): Result.Result<ReadonlySet<LawId>, CompileError> =>
+	catchRefusal(() => new Specializer(theory, checked).immediate())
+
 /** Law specialization: an owned schema's CheckedTheory with every law's LawLowering. It runs theory normalization with
  * the law identities the naming door gives (theory.ts lawIdentityOf), recognizes every normalized law (`Recognizer`),
  * and settles what depends on the whole schema at once:
@@ -1547,16 +1575,15 @@ const specialize = (
  *
  * The law model of an owned schema, or the first refusal: a theory refusal, a law shape the compiler does not
  * admit (UnsupportedLawFamily), a law over a derived relation (LawOnDerived) or an unrepresentable key. A first
- * normalization settles foreign key deferral, and the second rebuilds the theory with the immediate evidence that
- * deferral gives. */
+ * normalization's plans settle foreign key deferral and so the laws it proves immediate (Specializer.immediate), and
+ * the theory rebuilt with the immediate evidence that deferral gives is specialized once. */
 export const compileLaws = (owned: Owned): Result.Result<LawModel, CompileError> =>
 	Result.flatMap(checkedSchema(owned), (checked) =>
 		Result.flatMap(buildTheory(checked, provisionalTheory), (first) =>
-			Result.flatMap(specialize(first, checked), (model) =>
+			Result.flatMap(immediateLaws(first, checked), (immediate) =>
 				Result.flatMap(
 					buildTheory(checked, {
-						containmentContext: (law) =>
-							model.immediate.has(law.id) ? "immediate" : "committedSnapshot"
+						containmentContext: (law) => (immediate.has(law.id) ? "immediate" : "committedSnapshot")
 					}),
 					(theory) => specialize(theory, checked)
 				)

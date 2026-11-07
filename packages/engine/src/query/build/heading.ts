@@ -5,6 +5,7 @@ import type { SchemaInfo } from "#compiler/query/build/scope.ts"
 import { type Typing, typed, untyped } from "#compiler/scalar/compute/term.ts"
 import { commonType, compatible } from "#compiler/scalar/compute/types.ts"
 import { describeField, type ScalarEnv, scalarTypeOf } from "#compiler/scalar/registry.ts"
+import type { WrittenOver } from "#compiler/schema/level.ts"
 import { malformed } from "#compiler/schema/protocol.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
 import { roleDescOf } from "#compiler/schema/world.ts"
@@ -83,10 +84,11 @@ export const unionHeading = (arms: ReadonlyArray<Heading>): Heading => {
 }
 
 /**
- * The roster environment of a schema or role: every closed relation of the schema, or of the role's base, and of the
- * levels below it, by name, so a closedId field described only by its Description still resolves its handles.
+ * The roster environment of a schema or role at its level: every closed relation of the schema, or of the role's base,
+ * and of the levels below it, by name, so a closedId field described only by its Description still resolves its
+ * handles.
  */
-export const schemaInfo = (value: unknown): SchemaInfo => {
+export const schemaInfo = (value: unknown, over: WrittenOver): SchemaInfo => {
 	const desc = schemaDescOf(value) ?? roleDescOf(value)?.base
 	const rosters = new Map<string, NonEmptyReadonlyArray<string>>()
 	for (let at = desc; at !== undefined; at = at.extends) {
@@ -98,6 +100,7 @@ export const schemaInfo = (value: unknown): SchemaInfo => {
 	}
 	return Object.freeze({
 		value,
+		over,
 		env: Object.freeze({
 			kind: "builder",
 			roster: (name: string) => rosters.get(name)

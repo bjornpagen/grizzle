@@ -566,31 +566,18 @@ export const unfillableText = (fill: {
 
 /**
  * Why no write fills a relation's rows (ir/fill.ts):
- * - `countedAndSequence`: it is a member of the counted family `counted` and, by `role`, a member of the sequence
- *   `sequence` (a member's tree included) or its owner: a sequence's members are written nested under their owner, and
- *   a counted family's are rows of their own, so neither write fills the other's columns;
  * - `nestingCycle`: the sequences `families` nest each other in a cycle, an ordered family over its own relation among
  *   them, so every row of the cycle is nested under another and none is written first;
  * - `generatedKey`: a unique object of the law `law` reads `field`, which PostgreSQL generates and no fact carries, so
  *   no addition's same-key check or probe can meet it.
  */
 export type UnwritableCause =
-	| {
-			readonly kind: "countedAndSequence"
-			readonly counted: FamilyName
-			readonly sequence: FamilyName
-			readonly role: "member" | "owner"
-	  }
 	| { readonly kind: "nestingCycle"; readonly families: ReadonlyArray<FamilyName> }
 	| { readonly kind: "generatedKey"; readonly law: LawId; readonly field: string }
 
 /** An UnwritableRelation's sentence. */
 export const unwritableRelationText = (relation: string, cause: UnwritableCause): string => {
 	switch (cause.kind) {
-		case "countedAndSequence":
-			return cause.role === "member"
-				? `no write fills ${relation}: a member of the counted family ${familyNameText(cause.counted)} is a member of no sequence or tree, and it is one of ${familyNameText(cause.sequence)}, whose members are written nested under their owner, where no counted family's fill reaches`
-				: `no write fills ${relation}: a member of the counted family ${familyNameText(cause.counted)} owns no sequence, and it owns ${familyNameText(cause.sequence)}, whose members are written nested under its rows, which a counted member's fill does not reach`
 		case "nestingCycle":
 			return `no write fills ${relation}: the sequences ${cause.families.map(familyNameText).join(", ")} nest each other in a cycle, so every row of them is nested under another and none is written first`
 		case "generatedKey":

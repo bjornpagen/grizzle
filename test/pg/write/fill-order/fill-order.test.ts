@@ -43,7 +43,9 @@ import { fullWorld, loginLayer } from "#test/support/worlds.ts"
  * nested under their owners, a tree's nodes to any depth, a counted family's members by their group keys), is accepted
  * through db.apply and stores exactly the rows the reference writer fills (test/support/families/fill.ts
  * `writtenRows`): every field of every row, each count, index, interval, fold end and copy, a counted family's among
- * them, whatever its owner's standing, a top relation's row, a tree's node or a sequence's member.
+ * them, whatever its owner's standing, a top relation's row, a tree's node or a sequence's member, and whatever its
+ * member's: a counted member may itself be an ordered family's member, a tree's node or a sequence's owner, its row
+ * filled by the nested walk and completed by its counted families' fill.
  *
  * A drawn follow-up over the stored instance (fill.ts `followUpGen`), one ChangeSet that puts an owner's row with a new
  * `v`, inserts counted members under it and puts a member at the end of one of its ordered families, is then applied
@@ -61,6 +63,9 @@ type ClusterSituation =
 	| "a tree owning a counted family"
 	| "a counted member's copy of a tree node's end"
 	| "a counted family of nested owners"
+	| "a counted member that is an ordered family's"
+	| "a counted member that is a tree's node"
+	| "a counted member that owns a sequence"
 	| "a copy along a counted family of a leaving column"
 	| "a predecessor copy"
 	| "a last copy"
@@ -75,6 +80,9 @@ const situations: Arr.NonEmptyReadonlyArray<ClusterSituation> = [
 	"a tree owning a counted family",
 	"a counted member's copy of a tree node's end",
 	"a counted family of nested owners",
+	"a counted member that is an ordered family's",
+	"a counted member that is a tree's node",
+	"a counted member that owns a sequence",
 	"a copy along a counted family of a leaving column",
 	"a predecessor copy",
 	"a last copy",
@@ -128,6 +136,21 @@ const shapesOf = (spec: FillSpec): ReadonlyArray<ClusterSituation> => {
 		...(Arr.some(spec.families, (f) => f.kind === "tree" && f.fold !== "none")
 			? (["a fold over a tree"] as const)
 			: []),
+		...Arr.flatMap(spec.families, (c): ReadonlyArray<ClusterSituation> =>
+			c.kind !== "counted"
+				? []
+				: Arr.flatMap(spec.families, (s): ReadonlyArray<ClusterSituation> => [
+						...(s.kind === "ordered" && s.member === c.member
+							? (["a counted member that is an ordered family's"] as const)
+							: []),
+						...(s.kind === "tree" && s.member === c.member
+							? (["a counted member that is a tree's node"] as const)
+							: []),
+						...(s.kind !== "counted" && s.owner === c.member
+							? (["a counted member that owns a sequence"] as const)
+							: [])
+					])
+		),
 		...copyShapes
 	]
 }
@@ -155,7 +178,7 @@ const caseGen: Gen<{
 		(f) =>
 			writesVerdict(
 				spec,
-				Arr.map(followUpMembers(rows, f), (m) => ({ relation: m.relation, op: m.op }))
+				Arr.map(followUpMembers(spec, rows, f), (m) => ({ relation: m.relation, op: m.op }))
 			).kind === "written"
 	)
 	return { spec, rows, followUp }
@@ -232,7 +255,7 @@ layer(Substrate.layer, { excludeTestServices: true })("the fill order on the clu
 								if (Option.isNone(followUp)) {
 									return
 								}
-								const members = followUpMembers(rows, followUp.value)
+								const members = followUpMembers(spec, rows, followUp.value)
 								const next = Arr.reduce(members, ChangeSet.empty(value), (cs, m) => {
 									const relation = defined(built.relations[relationName(m.relation)])
 									return m.op === "put" ? cs.put(relation, m.facts) : cs.insert(relation, m.facts)

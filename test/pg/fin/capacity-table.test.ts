@@ -20,6 +20,7 @@ import { requiredInSpace } from "@grizzle/testing/features"
 import { array, boolean, element, type Gen, int } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
+import { indices } from "#compiler/core/array.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { accumulated, drawn, generated, natural, pg, span } from "#compiler/public/fields.ts"
 import {
@@ -223,7 +224,7 @@ const countedRows = (seat: Seat, n: number, need: number): ReadonlyArray<string>
 		seat,
 		"Seat",
 		["id", "club", "‹i›", "‹n›"],
-		Arr.map(Arr.range(0, n - 1), (i) => [10 + i, 1, i, n])
+		Arr.map(indices(n), (i) => [10 + i, 1, i, n])
 	)
 ]
 

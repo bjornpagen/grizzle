@@ -1,7 +1,8 @@
 import { describe, it } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
+import { drawn, explore } from "@grizzle/testing/explore"
 import { noCoverage } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
+import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
@@ -22,7 +23,7 @@ import {
 } from "#test/unit/write/put/support.ts"
 
 /** A parameter takes any name its declaration gives it: no name is a slot source the runtime reads otherwise. A
- * relation parameter under every name of the parameter-name dictionary (kernel/dict.ts parameterNames: a page's own
+ * relation parameter under a name drawn from the parameter-name dictionary (kernel/dict.ts parameterNames: a page's own
  * input names, spellings like a source the runtime might read or a page's reserved placeholder identity, then the
  * identifier dictionary's names) binds exactly as one named "items" does: every statement's placeholder texts, the
  * oracle being the program's invariance under renaming its parameter. */
@@ -60,18 +61,21 @@ describe("parameter names", () => {
 			ctx,
 			Effect.gen(function* () {
 				const items = yield* bound("items")
-				return yield* exhaust(
+				return yield* explore(
 					{
 						suite: "unit/write/program-names",
-						generator: element(nonEmpty(parameterNames, "the parameter names")),
+						draw: drawn(element(nonEmpty(parameterNames, "the parameter names"))),
 						literal: Formatter.format,
-						limit: parameterNames.length,
 						coverage: noCoverage,
-						box: "every name of the parameter-name dictionary",
 						oracle: {
 							kind: "universal",
 							name: "renaming a relation parameter changes no placeholder text a statement binds"
 						},
+						kept: [],
+						runs: 192,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
 						caseHang
 					},
 					(name) =>

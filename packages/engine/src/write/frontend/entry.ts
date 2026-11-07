@@ -206,7 +206,8 @@ export const entryFacts = (
 			keys: target.keys.map((k) => ({
 				law: k.law,
 				described: k.described,
-				fields: mapped(k.fields)
+				fields: mapped(k.fields),
+				stated: k.stated
 			})),
 			spans: target.spans.flatMap((check) => {
 				const span = headOf.get(check.span.field)

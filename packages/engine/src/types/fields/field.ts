@@ -9,11 +9,13 @@ import type {
 	Proving
 } from "#compiler/core/phantom.ts"
 import type { CalendarDate } from "#compiler/ir/date.ts"
+import type { FloatPrecision, FloatSql } from "#compiler/scalar/pg.ts"
 import type { SqlTag } from "#compiler/scalar/registry.ts"
 import type { Decimal } from "#compiler/scalar/values/decimal.ts"
 import type { Span } from "#compiler/scalar/values/span.ts"
 import type {
 	BaseOf,
+	DeclaresAll,
 	DomainOf,
 	Facts,
 	FactsOf,
@@ -85,8 +87,8 @@ export interface NumericTypmodField extends Field<Decimal, "numeric"> {
 	readonly scale: number
 }
 
-/** float(p): real or double precision, chosen at runtime by the binary precision. */
-export type FloatField = Field<number, "real"> | Field<number, "double precision">
+/** float(p): the real or double precision field its binary precision P resolves to. */
+export type FloatField<P extends FloatPrecision> = Field<number, FloatSql<P>>
 
 /**
  * natural: a bigint never below zero, which its values are proved to be, and the one field type a law side may read
@@ -142,12 +144,18 @@ export type DeclaredFacts<Proved extends ReadonlyArray<keyof Facts>> = {
 	readonly [K in Proved[number]]: true
 }
 
+/** What a contract's domain carries of the facts it declares: one Declares per fact, nothing where it declares none. */
+type DeclaredDomain<Proved extends ReadonlyArray<keyof Facts>> = [Proved[number]] extends [never]
+	? unknown
+	: DeclaresAll<Proved[number]>
+
 /**
  * A nominal contract: base descriptor, optional total predicate, PostgreSQL domain. Its host type is
  * the base host type branded with the contract's name, so two contracts over one base are distinct types.
  * The contract is its brand's minting function: `Cents(1500n)` brands without checking, and the database validates on
  * write. Its values have its base's facts and the facts it declares its predicate proves (Proved), which compilation
- * proves from the predicate.
+ * proves from the predicate; its domain, its identity, carries the declared ones (Declares), so every value of its type
+ * has them, read from a query's heading too.
  */
 export interface Contract<
 	Name extends string,
@@ -156,7 +164,7 @@ export interface Contract<
 > extends Field<
 	Infer<B> & Brand.Brand<Name>,
 	B["sql"],
-	DomainOf<B> & Brand.Brand<Name>,
+	DomainOf<B> & Brand.Brand<Name> & DeclaredDomain<Proved>,
 	FactsOf<B> & DeclaredFacts<Proved>
 > {
 	(unbranded: Brand.Brand.Unbranded<Infer<B> & Brand.Brand<Name>>): Infer<B> & Brand.Brand<Name>

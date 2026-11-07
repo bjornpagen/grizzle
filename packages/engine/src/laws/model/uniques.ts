@@ -1,5 +1,5 @@
 import { appendAll, sameOrder } from "#compiler/core/array.ts"
-import { canonicalEquals, everyProperty } from "#compiler/core/canonical.ts"
+import { canonicalTextOf } from "#compiler/core/canonical.ts"
 import { identifierOf } from "#compiler/core/identity.ts"
 import type { ColumnIdent, ConstraintName, LawId, NodeId } from "#compiler/core/ids.ts"
 import { defect } from "#compiler/core/invariant.ts"
@@ -31,6 +31,14 @@ interface Named {
 	readonly described: Law
 }
 
+/**
+ * A unique object's guard: a row guard with its predicate's canonical text, encoded once where the object is built, by
+ * which two objects' guards compare (`subsumes`).
+ */
+export interface UniqueGuard extends RowGuard {
+	readonly canonical: string
+}
+
 /** A unique object: the handles of the fields two facts must share to conflict, in the object's order, and for a
  * UNIQUE over law columns (`guarded`) the guards both facts must meet, its columns' guards' conjuncts, for a span object
  * the span two facts' values must overlap at, its compared fields of key types as btree_gist compares them, and the
@@ -41,13 +49,13 @@ export type UniqueObject = Named &
 		| {
 				readonly kind: "guarded"
 				readonly equal: NonEmptyReadonlyArray<LawField>
-				readonly within: NonEmptyReadonlyArray<RowGuard>
+				readonly within: NonEmptyReadonlyArray<UniqueGuard>
 		  }
 		| {
 				readonly kind: "span"
 				readonly equal: ReadonlyArray<LawField>
 				readonly span: SpanField
-				readonly within: ReadonlyArray<RowGuard>
+				readonly within: ReadonlyArray<UniqueGuard>
 		  }
 	)
 
@@ -119,9 +127,9 @@ const compared = (
 	columns: NonEmptyReadonlyArray<NativeColumn>,
 	lawColumns: LawColumns
 ):
-	| { readonly equal: NonEmptyReadonlyArray<LawField>; readonly within: ReadonlyArray<RowGuard> }
+	| { readonly equal: NonEmptyReadonlyArray<LawField>; readonly within: ReadonlyArray<UniqueGuard> }
 	| undefined => {
-	const guards = new Map<ScalarExpr, RowGuard>()
+	const guards = new Map<ScalarExpr, UniqueGuard>()
 	const equal: Array<LawField> = []
 	for (const c of columns) {
 		if (c.kind === "field") {
@@ -141,7 +149,7 @@ const compared = (
 		}
 		for (const g of native.value.guard) {
 			if (!guards.has(g)) {
-				guards.set(g, { predicate: g, reads: readsOf(relation, g) })
+				guards.set(g, { predicate: g, reads: readsOf(relation, g), canonical: canonicalTextOf(g) })
 			}
 		}
 		appendAll(equal, fields)
@@ -293,12 +301,18 @@ export interface RelationLaws {
 	/** Its primary key's native object, the one the law model seeds per ordinary relation. */
 	readonly primaryKey: NamedPrimaryKey
 	readonly uniques: UniqueObjects
+	/**
+	 * The unique objects an addition meets beyond its primary key (`beyondPrimary`), decided once as the law model is
+	 * built: what its refusal of a generated key, a write's probes and a role's probe functions read.
+	 */
+	readonly beyond: ReadonlyArray<UniqueObject>
 }
 
 /**
  * Whether the object `w` holds apart every two facts `u` holds apart: neither is a span object, `u` compares every
- * field `w` compares, and holds every fact `w` holds, its guards among `u`'s. Two facts `u` holds equal are then equal
- * where `w` compares, and both meet `w`'s guards, so `u` holds no two facts apart that `w` does not.
+ * field `w` compares, and holds every fact `w` holds, its guards among `u`'s, each by its predicate's canonical text.
+ * Two facts `u` holds equal are then equal where `w` compares, and both meet `w`'s guards, so `u` holds no two facts
+ * apart that `w` does not.
  */
 const subsumes = (w: UniqueObject | PrimaryKeyObject, u: UniqueObject): boolean =>
 	w.kind !== "span" &&
@@ -306,18 +320,16 @@ const subsumes = (w: UniqueObject | PrimaryKeyObject, u: UniqueObject): boolean 
 	w.equal.every((f) => u.equal.includes(f)) &&
 	(w.kind === "key" ||
 		w.within.every((g) =>
-			u.kind === "guarded"
-				? u.within.some((h) => canonicalEquals(g.predicate, h.predicate, everyProperty))
-				: false
+			u.kind === "guarded" ? u.within.some((h) => h.canonical === g.canonical) : false
 		))
 
 /**
  * The unique objects of a relation an addition meets beyond its primary key: every other object, but one another
  * object subsumes (`subsumes`), the primary key or one before it, which holds no two facts apart that the other does
  * not: a family's superkeys on its owner, which compare its primary key, and the targets of its predecessor and last
- * axes on its members, which compare its family key.
+ * axes on its members, which compare its family key. The law model decides it once per relation (RelationLaws.beyond).
  */
-export const beyondPrimary = ({ uniques }: RelationLaws): ReadonlyArray<UniqueObject> =>
+const beyondPrimary = (uniques: UniqueObjects): ReadonlyArray<UniqueObject> =>
 	uniques.others.filter(
 		(u, i) =>
 			!subsumes(uniques.primary, u) &&
@@ -371,7 +383,8 @@ export const relationLaws = (
 				others: Object.freeze(own.map((o) => o.object)),
 				keys: Object.freeze(keys)
 			})
-			return [relation.name, Object.freeze({ relation, primaryKey, uniques })] as const
+			const beyond = Object.freeze(beyondPrimary(uniques))
+			return [relation.name, Object.freeze({ relation, primaryKey, uniques, beyond })] as const
 		})
 	)
 }

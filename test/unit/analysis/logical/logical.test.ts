@@ -1,7 +1,7 @@
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
-import { boolean, element, type Gen } from "@grizzle/testing/gen"
+import { boolean, element, type Gen, int } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
 import { provisionalTheory } from "#compiler/analysis/theory/theory.ts"
@@ -23,7 +23,7 @@ import { f, relation } from "#test/support/fixtures/ir/desc.ts"
 import * as P from "#test/support/fixtures/ir/payroll.ts"
 import * as W from "#test/support/fixtures/ir/work.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { analyze, logicalEnv, theoryOf } from "#test/unit/analysis/logical/support.ts"
+import { analyze, logicalEnv, theoryUnder } from "#test/unit/analysis/logical/support.ts"
 
 /**
  * Normative logical evidence: the delivered type of attachments, on the shapes the small-scope suite
@@ -32,8 +32,8 @@ import { analyze, logicalEnv, theoryOf } from "#test/unit/analysis/logical/suppo
  * closed facts, relation parameters and filters fixing a key are judged there against the universe's truth.
  */
 
-const work = theoryOf(W.ReportsDesc, provisionalTheory)
-const payroll = theoryOf(P.ReportingDesc, provisionalTheory)
+const work = theoryUnder(W.ReportsDesc, provisionalTheory)
+const payroll = theoryUnder(P.ReportingDesc, provisionalTheory)
 
 const attachments = (dag: RelDag) =>
 	Arr.sort(
@@ -487,129 +487,133 @@ describe("the delivered type of an attachment", () => {
 	)
 
 	/**
-	 * Planted shapes no generator draws, each with the delivered type its rule gives: a span coverage proves coverage of
-	 * the leave by the union of the employee's spans, which usually holds no span equal to it, so never a bare child; a
-	 * containment over several fields proves one per parent only where both fields come from one source fact; a child
-	 * another reader shares keeps its own evidence, and the attachment is no narrower; and the fixtures' attachments,
-	 * bare by a declared containment, a mirrors' two included: mirrors is sugar for them, so the employee's tax profile
-	 * is one by Employee(id) ⊆ TaxProfile(employee) under the profile's key.
+	 * Shapes the generated queries do not draw, each over its variants with the delivered type its rule gives:
+	 * approved shifts' employee and week, read from one scan or two, each approved or not, with the timesheet attached
+	 * by either or both; a leave or an assignment, each a span coverage of Employment, with the employment attached by
+	 * either or both of its key's fields; and Work's notes attached to their tasks, shared with another reader or not.
 	 */
-	type Planted =
-		| "a span coverage"
-		| "both fields from one shift"
-		| "the fields from two shifts"
-		| "a shared child"
-		| "Work's task cards"
-		| "Work's account cards"
-		| "Payroll's payslip"
-		| "Payroll's employee card"
+	type Shape =
+		| {
+				readonly kind: "several fields"
+				readonly scans: 1 | 2
+				readonly approved: readonly [boolean, boolean]
+				readonly by: Correlated
+		  }
+		| {
+				readonly kind: "a span coverage"
+				readonly from: "Leave" | "Assignment"
+				readonly by: Correlated
+		  }
+		| { readonly kind: "a shared child"; readonly shared: boolean }
+	/** Which of a child's two key fields an attachment correlates: the first, the second, or both. */
+	type Correlated = "the first" | "the second" | "both"
+	const correlatedGen: Gen<Correlated> = (source) => {
+		const which = source.draw(int(0, 2))
+		return which === 0 ? "both" : which === 1 ? "the first" : "the second"
+	}
+	const shapeGen: Gen<Shape> = (source) => {
+		const kind = source.draw(int(0, 2))
+		if (kind === 0) {
+			return {
+				kind: "several fields",
+				scans: source.draw(boolean) ? 2 : 1,
+				approved: [source.draw(boolean), source.draw(boolean)],
+				by: source.draw(correlatedGen)
+			}
+		}
+		return kind === 1
+			? {
+					kind: "a span coverage",
+					from: source.draw(boolean) ? "Assignment" : "Leave",
+					by: source.draw(correlatedGen)
+				}
+			: { kind: "a shared child", shared: source.draw(boolean) }
+	}
+	/**
+	 * The delivered type the rules give: at most one child where the correlation binds the child's key, and exactly one
+	 * where, besides, a containment proves it from one fact of its selected source; a span coverage proves coverage by the
+	 * union of the target's spans, never one equal span.
+	 */
+	const deliveredOf = (shape: Shape): "one" | "option" | "array" => {
+		switch (shape.kind) {
+			case "several fields":
+				return shape.by !== "both"
+					? "array"
+					: shape.scans === 1 && shape.approved[0]
+						? "one"
+						: "option"
+			case "a span coverage":
+				return shape.by === "both" ? "option" : "array"
+			case "a shared child":
+				return "option"
+		}
+	}
+	type PlantedFeature =
+		| `${Shape["kind"]} ${"one" | "option" | "array"}`
+		| "a shared child keeps its evidence"
 	it.effect(
-		"delivers each planted shape's type: coverage no bare child, a several-field containment from one fact, a shared child its own evidence, the fixtures' by their declared containments",
+		"delivers each shape the type its rule gives: a several-field containment one from one fact of its source, a span coverage never one, a shared child its own evidence",
 		(ctx) =>
 			searched(
 				ctx,
 				exhaust(
 					{
 						suite: "unit/analysis/logical/bare-planted",
-						generator: element<Planted>([
-							"a span coverage",
-							"both fields from one shift",
-							"the fields from two shifts",
-							"a shared child",
-							"Work's task cards",
-							"Work's account cards",
-							"Payroll's payslip",
-							"Payroll's employee card"
-						]),
+						generator: shapeGen,
 						literal: Formatter.format,
-						limit: 8,
-						coverage: requiredInSpace<Planted>([
-							"a span coverage",
-							"both fields from one shift",
-							"the fields from two shifts",
-							"a shared child",
-							"Work's task cards",
-							"Work's account cards",
-							"Payroll's payslip",
-							"Payroll's employee card"
+						limit: 100,
+						box: "every variant of the several-field, span coverage and shared-child shapes",
+						oracle: {
+							kind: "specification",
+							name: "the containment proof's rule, restated over the shapes"
+						},
+						coverage: requiredInSpace<PlantedFeature>([
+							"several fields one",
+							"several fields option",
+							"several fields array",
+							"a span coverage option",
+							"a span coverage array",
+							"a shared child option",
+							"a shared child keeps its evidence"
 						]),
 						caseHang
 					},
-					(planted, c) =>
+					(shape, c) =>
 						Effect.sync(() => {
-							c.note(planted)
-							switch (planted) {
+							const delivered = deliveredOf(shape)
+							c.note(`${shape.kind} ${delivered}`)
+							switch (shape.kind) {
+								case "several fields":
+									assert.deepEqual(attachments(analyze(shifts(shape).dag, logicalEnv(payroll))), [
+										["sheet", delivered]
+									])
+									return
 								case "a span coverage": {
-									const payrollOnly = theoryOf(P.PayrollDesc, provisionalTheory)
+									const payrollOnly = theoryUnder(P.PayrollDesc, provisionalTheory)
 									assert.ok(
 										Arr.some(
 											payrollOnly.evidence.containments,
-											(x) => x.coverage && x.from.relation === "Leave"
-										)
-									)
-									assert.deepEqual(attachments(analyze(coverage().dag, logicalEnv(payrollOnly))), [
-										["employment", "option"]
-									])
-									return
-								}
-								case "both fields from one shift":
-								case "the fields from two shifts":
-									assert.deepEqual(
-										attachments(
-											analyze(
-												shifts(planted === "both fields from one shift" ? 1 : 2).dag,
-												logicalEnv(payroll)
-											)
+											(x) => x.coverage && x.from.relation === shape.from
 										),
-										[["sheet", planted === "both fields from one shift" ? "one" : "option"]]
+										`${shape.from} is a span coverage of Employment`
 									)
-									return
-								case "a shared child": {
-									const { dag, notes } = sharedNotes()
-									const analysis = succeeded(analyzeLogical(dag, logicalEnv(work)))
-									assert.deepEqual(attachments(analysis.dag), [["note", "option"]])
-									const meta = analysis.of(notes).node.meta
-									matchesObject(meta, { card: "many" })
-									assert.deepEqual(Arr.map(meta.logicalKeys, claimedColumns), [["task"]])
+									assert.deepEqual(
+										attachments(analyze(coverage(shape).dag, logicalEnv(payrollOnly))),
+										[["employment", delivered]]
+									)
 									return
 								}
-								case "Work's task cards":
-									assert.deepEqual(
-										attachments(analyze(W.workQueries.taskCards().dag, logicalEnv(work))),
-										[
-											["automatic", "option"],
-											["note", "option"]
-										]
-									)
-									return
-								case "Work's account cards":
-									assert.deepEqual(
-										attachments(analyze(W.workQueries.accountCards().dag, logicalEnv(work))),
-										[
-											["automaticTasks", "option"],
-											["tasks", "array"]
-										]
-									)
-									return
-								case "Payroll's payslip":
-									assert.deepEqual(
-										attachments(analyze(P.payrollQueries.payslip().dag, logicalEnv(payroll))),
-										[
-											["deposits", "array"],
-											["levies", "array"],
-											["offCycleReason", "option"],
-											["person", "one"]
-										]
-									)
-									return
-								case "Payroll's employee card":
-									assert.deepEqual(
-										attachments(analyze(P.payrollQueries.employeeCard().dag, logicalEnv(payroll))),
-										[
-											["manager", "option"],
-											["profile", "one"]
-										]
-									)
+								case "a shared child": {
+									const { dag, notes } = sharedNotes(shape.shared)
+									const analysis = succeeded(analyzeLogical(dag, logicalEnv(work)))
+									assert.deepEqual(attachments(analysis.dag), [["note", delivered]])
+									if (shape.shared) {
+										c.note("a shared child keeps its evidence")
+										const meta = analysis.of(notes).node.meta
+										matchesObject(meta, { card: "many" })
+										assert.deepEqual(Arr.map(meta.logicalKeys, claimedColumns), [["task"]])
+									}
+								}
 							}
 						})
 				)
@@ -617,16 +621,31 @@ describe("the delivered type of an attachment", () => {
 	)
 })
 
+/** A correlation of two pairs as an attachment states it: the first pair, the second, or both. */
+const correlationOf = (
+	by: "the first" | "the second" | "both",
+	first: readonly [string, string],
+	second: readonly [string, string]
+): ReadonlyArray<readonly [string, string]> =>
+	by === "both" ? [first, second] : by === "the first" ? [first] : [second]
+
 /**
- * contained(Leave(employee, during) -> Employment(employee, during)), a span coverage: each leave with its employee's
- * employments attached by employee and span.
+ * contained(Leave(employee, during) -> Employment(employee, during)) and Assignment's mirror of it, span coverages:
+ * each leave or assignment with its employee's employments attached by employee, span or both.
  */
-const coverage = (): BuiltQuery => {
+const coverage = (shape: {
+	readonly from: "Leave" | "Assignment"
+	readonly by: "the first" | "the second" | "both"
+}): BuiltQuery => {
 	const q = new Ir(P.payrollModel())
 	const parent = q.project(
 		q.region(
 			[
-				{ source: q.base("Leave"), bind: { employee: "employee", during: "during" }, constants: {} }
+				{
+					source: q.base(shape.from),
+					bind: { employee: "employee", during: "during" },
+					constants: {}
+				}
 			],
 			conservativeMeta
 		),
@@ -659,10 +678,7 @@ const coverage = (): BuiltQuery => {
 			parent,
 			employment,
 			"employment",
-			[
-				["employee", "employee"],
-				["during", "during"]
-			],
+			correlationOf(shape.by, ["employee", "employee"], ["during", "during"]),
 			"array",
 			undefined
 		)
@@ -671,18 +687,24 @@ const coverage = (): BuiltQuery => {
 
 /**
  * contained(on(select(Shift, (s) => s.eq(s.status, "approved")), "employee", "week"), on(Timesheet, "employee",
- * "week")): approved shifts' employee and week read from one scan or two, with the timesheet attached by both.
+ * "week")): shifts' employee and week read from one scan or two, each fixed to approved or not, with the timesheet
+ * attached by employee, week or both.
  */
-const shifts = (scans: 1 | 2): BuiltQuery => {
+const shifts = (shape: {
+	readonly scans: 1 | 2
+	readonly approved: readonly [boolean, boolean]
+	readonly by: "the first" | "the second" | "both"
+}): BuiltQuery => {
 	const q = new Ir(P.payrollModel())
 	const shift = q.base("Shift")
-	const approved = { status: q.litFor(shift, "status", "approved") }
+	const fixed = (approved: boolean) =>
+		approved ? { status: q.litFor(shift, "status", "approved") } : {}
 	const m = q.region(
-		scans === 1
-			? [{ source: shift, bind: { employee: "e", week: "w" }, constants: approved }]
+		shape.scans === 1
+			? [{ source: shift, bind: { employee: "e", week: "w" }, constants: fixed(shape.approved[0]) }]
 			: [
-					{ source: shift, bind: { employee: "e" }, constants: approved },
-					{ source: shift, bind: { week: "w" }, constants: approved }
+					{ source: shift, bind: { employee: "e" }, constants: fixed(shape.approved[0]) },
+					{ source: shift, bind: { week: "w" }, constants: fixed(shape.approved[1]) }
 				],
 		conservativeMeta
 	)
@@ -717,18 +739,15 @@ const shifts = (scans: 1 | 2): BuiltQuery => {
 			parent,
 			sheet,
 			"sheet",
-			[
-				["e", "employee"],
-				["w", "week"]
-			],
+			correlationOf(shape.by, ["e", "employee"], ["w", "week"]),
 			"array",
 			undefined
 		)
 	)
 }
 
-/** Tasks with their notes attached, the notes also a root of their own. */
-const sharedNotes = () => {
+/** Tasks with their notes attached, the notes also a root of their own where `shared` holds. */
+const sharedNotes = (shared: boolean) => {
 	const q = new Ir(W.workModel())
 	const parent = q.project(
 		q.region([{ source: q.base("Task"), bind: { id: "id" }, constants: {} }], conservativeMeta),
@@ -747,5 +766,5 @@ const sharedNotes = () => {
 		conservativeMeta
 	)
 	const attached = q.attach(parent, notes, "note", [["id", "task"]], "array", undefined)
-	return { dag: q.b.build([attached, notes]), notes }
+	return { dag: q.b.build(shared ? [attached, notes] : [attached]), notes }
 }

@@ -395,23 +395,10 @@ export const foreign = query(Settings).rule((r) => {
 	return r.match(Task, { id }).find({ id })
 })
 
-/** The same holds for a query, a bound import and an interior stage: each carries its schema. */
+/** The same holds for a query an arm attaches: it carries its schema. */
 export const allPreferences = query(Settings).rule((r) => {
 	const { account, enabled } = v(Preference, "preference")
 	return r.match(Preference, { account, enabled }).find({ account, enabled })
-})
-
-export const foreignQuery = query(Work).rule((r) => {
-	const { account } = v(allPreferences, "allPreferences")
-	// @ts-expect-error -- TS2345 refusal: the query is not over a level of this query's schema
-	return r.match(allPreferences, { account }).find({ account })
-})
-
-export const foreignImport = query(Work).rule((r) => {
-	const imported = preferencesByState.bind({ enabled: true })
-	const { account } = v(imported, "imported")
-	// @ts-expect-error -- TS2345 refusal: the query is not over a level of this query's schema
-	return r.match(imported, { account }).find({ account })
 })
 
 export const foreignArmAttach = query(Work).rule((r) => {
@@ -425,40 +412,6 @@ export const foreignArmAttach = query(Work).rule((r) => {
 	)
 })
 
-/** A relation parameter bound to a query reads that query's schema, so it is checked against the import's levels. */
-export const settingsIds = query(Settings).rule((r) => {
-	const { account } = v(Preference, "preference")
-	return r.match(Preference, { account }).find({ id: account })
-})
-
-export const workIds = query(Work).rule((r) => {
-	const { id } = v(Task, "task")
-	return r.match(Task, { id }).find({ id })
-})
-export const boundToWork = tasksById.bind({ ids: workIds })
-/**
- * A parameterized query bound to a relation parameter is consumed there, so it is bound first, and its parameters
- * join the importing rule's.
- */
-export const idsOfAccount = query(Work).rule((r) => {
-	const { id } = v(Task, "task")
-	return r.match(Task, { id, account: r.param("acct", Task.fields.account) }).find({ id })
-})
-// @ts-expect-error -- TS2322 refusal: bind the query's parameters before matching it: Q.bind({ ... })
-export const unboundRelationBinding = tasksById.bind({ ids: idsOfAccount })
-export const boundRelationBinding = query(Work).rule((r) => {
-	const wanted = tasksById.bind({
-		ids: idsOfAccount.bind({ acct: r.param("acct", Task.fields.account) })
-	})
-	const { id } = v(wanted, "wanted")
-	return r.match(wanted, { id }).find({ id })
-})
-
-export type BoundRelationParams = Expect<
-	Equals<ParamsOf<typeof boundRelationBinding>, { readonly acct: ParamType<Uuid, "uuid"> }>
->
-// @ts-expect-error -- TS2322 refusal: the bound source is not over a level of the query's schema
-export const foreignRelationBinding = tasksById.bind({ ids: settingsIds })
 /** An interior stage is over its rule's schema, and its parameters join the rule's. */
 export const interiorStage = query(Work).rule((r) => {
 	const stage = r.interior((r2) => {

@@ -39,7 +39,7 @@
 import { layer } from "@effect/vitest"
 import { type Case, drawn, exhaust, explore, type Oracle } from "@grizzle/testing/explore"
 import { required, requiredInSpace } from "@grizzle/testing/features"
-import { boolean, constant, element, type Gen, int, weighted } from "@grizzle/testing/gen"
+import { boolean, constant, element, type Gen, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -472,24 +472,25 @@ interface PlanSketch {
 }
 
 /** Every depth below the root alike, to `deepest`, and a pick among its rows. */
-const planSketchGen =
-	(deepest: number): Gen<PlanSketch> =>
-	(source) => ({
+const planSketchGen = (deepest: number): Gen<PlanSketch> => {
+	const depths = nonEmpty(Arr.range(1, deepest), "a depth below the root")
+	return (source) => ({
 		generic: source.draw(boolean),
 		read: source.draw(
 			weighted<PlanRead>([
 				[1, constant<PlanRead>({ kind: "the export" })],
 				[
-					3,
+					4,
 					(inner) => ({
 						kind: "descendants",
-						depth: inner.draw(int(1, deepest)),
+						depth: inner.draw(element(depths)),
 						pick: inner.draw(pickGen)
 					})
 				]
 			])
 		)
 	})
+}
 
 type PlanFeature = `${"the export" | `the descendants of ${Subtree}`}, ${PlanMode} plan`
 

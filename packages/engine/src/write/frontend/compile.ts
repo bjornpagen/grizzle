@@ -657,8 +657,9 @@ const merge = (params: Map<string, ParamDecl>, decl: ParamDecl, loc: SourceLoc):
  *
  * 1. Check. Each member's relation is resolved once by name. Compiled for a role, it must be in the role's write list,
  *    which the types already require of db.apply (a description that breaks it is OutsideRole): a whole entry writes
- *    its ordinary relation of the base, and a query entry its writable entry's target. Compiled for
- *    reality (a workload), it must be an ordinary relation (a closed or derived relation, which no ChangeSet writes, is
+ *    its ordinary relation of the base, and a query entry its writable entry's target; an insert also writes every
+ *    sequence member its nesting reaches, whose rows a role holds nothing of unless its write list names it. Compiled
+ *    for reality (a workload), it must be an ordinary relation (a closed or derived relation, which no ChangeSet writes, is
  *    MalformedDescription at the member). Each described member is checked as a query whose head is written into that
  *    relation, or into the entry's heading (checkMember: DescribedHeadingMismatch, an insert omitting all of its serial
  *    fields or none), and each read-back as a query over the post-change state that may read the delta sources of
@@ -793,11 +794,41 @@ const compile = (
 	}
 	/** Whether `name` is a member of a family: its rows' drawn values are the family planner's (write/family/edit.ts). */
 	const managed = (name: string): boolean => families.some((f) => f.member.name === name)
+	/**
+	 * The relations whose rows an insert into `name` writes through its nesting that are counted families' members, its
+	 * own among them: each one's counted families complete its rows after the walk, from what the read flight finds
+	 * stored, as they do a member's own insert (write/family/nesting.ts NestedLayout).
+	 */
+	const countedReached = (relation: RelationInfo): ReadonlyArray<string> =>
+		[...nestingFor(relation).layouts].flatMap(([name, laid]) =>
+			laid.pending.size > 0 ? [name] : []
+		)
 	/** Whether an insert into `name` nests families: it owns a sequence, ordered or a tree, or is a tree's relation
 	 * (rows-first.md §1). A counted family's members are rows of their own, inserted directly by their group key, so an
 	 * owner of counted families alone is inserted on the plain path, its counts at 0 and its ends at their starts. */
 	const nests = (name: string): boolean =>
 		families.some((f) => f.owner.name === name && isSequence(f))
+	/** An insert into `name` writes rows of every sequence member its nesting reaches, which a role holds nothing of
+	 * unless its write list names it (physical/ddl/roles.ts grants a member's writer a hold on its owner, never an owner's
+	 * writer one on its members): each is OutsideRole where the role's write list leaves it out. */
+	const refuseNestedOutsideRole = (name: string, loc: SourceLoc): void => {
+		const world = checked.world
+		if (world.kind === "reality") {
+			return
+		}
+		for (const reached of insertedBy(name)) {
+			if (!world.writes.has(reached)) {
+				throw new Refusal(
+					CompileError.make({
+						_tag: "OutsideRole",
+						at: loc,
+						role: world.role.name,
+						access: { kind: "write", relation: reached }
+					})
+				)
+			}
+		}
+	}
 	/**
 	 * An insert or a put of `relation` from a query, `member`, refused (QueriedOwnerAppend) where its stratum, `members`,
 	 * writes a member of one of the counted families it owns, unless every fact it writes carries a stored owner's key
@@ -844,7 +875,11 @@ const compile = (
 	 * tree's owner axis is no step: a tree is written whole.
 	 */
 	const refuseCascadedCopy = (
-		member: CheckedMember,
+		member: {
+			readonly relation: RelationInfo
+			readonly op: MemberDesc["op"]
+			readonly loc: SourceLoc
+		},
 		members: ReadonlyArray<CheckedMember>
 	): void => {
 		const op = member.op
@@ -987,6 +1022,9 @@ const compile = (
 			const loc = member.loc
 			const target = targetOf(member.relation, loc)
 			const { relation, entry } = target
+			if (member.op === "insert") {
+				refuseNestedOutsideRole(relation.name, loc)
+			}
 			const sequence = sequenceOf(relation.name)
 			if (sequence !== undefined && member.op === "insert") {
 				refuse(
@@ -1033,6 +1071,34 @@ const compile = (
 					fixedSentence(
 						`an insert into ${relation.name}`,
 						fixed,
+						"appending to an owner this stratum does not insert"
+					)
+				)
+			}
+			/** A nested insert appends each counted member it writes to that member's counted families, as a member's own
+			 * insert does, so an immutable owner of one of them takes it only where the stratum inserts that owner. */
+			const nestedFixed =
+				member.op === "insert" && nests(relation.name)
+					? countedReached(relation).flatMap((name) =>
+							families.filter(
+								(f) =>
+									f.member.name === name &&
+									name !== relation.name &&
+									!isSequence(f) &&
+									!writtenOf(f.owner.name, loc).mutable &&
+									!stratum.members.some(
+										(m) => m.op === "insert" && insertedBy(m.relation).has(f.owner.name)
+									)
+							)
+						)[0]
+					: undefined
+			if (nestedFixed !== undefined) {
+				refuse(
+					"UnsupportedOperation",
+					loc,
+					fixedSentence(
+						`an insert into ${relation.name}, which nests ${nestedFixed.member.name}`,
+						nestedFixed,
 						"appending to an owner this stratum does not insert"
 					)
 				)
@@ -1129,20 +1195,33 @@ const compile = (
 		const writtenNames = new Set(members.map((m) => m.relation.name))
 		for (const m of members) {
 			refuseMovedFilter(m, writtenNames)
-			refuseCascadedCopy(m, members)
-			const stale = staleRead(families, m.relation, m.op)
-			if (stale !== undefined) {
-				throw new Refusal(
-					CompileError.make({
-						_tag: "StaleDerivedRead",
-						at: m.loc,
-						op: m.op,
-						member: m.relation.name,
-						changed: stale.changed,
-						copies: stale.copies,
-						reader: stale.reader
-					})
-				)
+			/** A nested insert writes, besides its own relation's rows, every counted member's its nesting reaches, each
+			 * an insert of its own relation as far as its counted families are concerned. */
+			const nestedCounted =
+				m.op === "insert" && nests(m.relation.name)
+					? countedReached(m.relation).flatMap((name) =>
+							name === m.relation.name ? [] : [writtenOf(name, m.loc)]
+						)
+					: []
+			for (const w of [
+				m,
+				...nestedCounted.map((relation) => ({ relation, op: m.op, loc: m.loc }))
+			]) {
+				refuseCascadedCopy(w, members)
+				const stale = staleRead(families, w.relation, w.op)
+				if (stale !== undefined) {
+					throw new Refusal(
+						CompileError.make({
+							_tag: "StaleDerivedRead",
+							at: w.loc,
+							op: w.op,
+							member: w.relation.name,
+							changed: stale.changed,
+							copies: stale.copies,
+							reader: stale.reader
+						})
+					)
+				}
 			}
 		}
 	}
@@ -1203,12 +1282,14 @@ const compile = (
 	 * protocol makes a second equal fact an exact repeat. */
 	/** Each stratum's nested writes, by its position among the occupied strata, the stratum its statements run in. */
 	const nestedWrites: Array<NestedWrite> = []
-	/** Each stratum's slots of the relations whose rows a family planner writes, by operation. */
+	/** Each stratum's slots of the relations whose rows a family planner writes, by operation, and the counted members
+	 * its nested writes reach, whose rows the planner completes (`countedReached`). */
 	const edits: Array<{
 		readonly stratum: number
 		readonly relation: string
-		readonly op: "insert" | "put" | "delete"
-		readonly slot: ParamId
+		readonly write:
+			| { readonly op: "insert" | "put" | "delete"; readonly slot: ParamId }
+			| { readonly op: "nested" }
 	}> = []
 	const draftsByStratum = occupied.map(({ s, members }, stratum) => {
 		const drafts: Array<Draft> = []
@@ -1378,13 +1459,23 @@ const compile = (
 						entry: { kind: "entry", entry: target.entry, names: target.names, fill }
 					})
 				}
-				if (managed(relation.name) && !families.some((f) => isTreeOf(f, relation.name))) {
+				if (
+					managed(relation.name) &&
+					!families.some((f) => isTreeOf(f, relation.name)) &&
+					!(op === "insert" && nests(relation.name))
+				) {
 					const heading = classes.complete
 					const act: SingleAct =
 						op === "insert" ? { op, serial: completeClass } : op === "put" ? { op } : { op }
 					const slot = singleInput(act, heading, heading)
 					if (slot !== undefined) {
-						edits.push(Object.freeze({ stratum, relation: relation.name, op, slot: slot.slot }))
+						edits.push(
+							Object.freeze({
+								stratum,
+								relation: relation.name,
+								write: { op, slot: slot.slot }
+							})
+						)
 					}
 					continue
 				}
@@ -1448,7 +1539,12 @@ const compile = (
 									})
 								)
 								nestedWrites.push(Object.freeze({ stratum, nesting, slot }))
-								if (nesting.tree === undefined) {
+								for (const name of countedReached(relation)) {
+									edits.push(
+										Object.freeze({ stratum, relation: name, write: { op: "nested" } as const })
+									)
+								}
+								if (nesting.root.kind === "plain") {
 									draft(complete, nesting.top, slot, [])
 								}
 							}
@@ -1724,7 +1820,7 @@ const compile = (
 	 * relation among them, every edited member relation, and the owners of its families, whose count statements return
 	 * only their keys, counts and ends. Their statements fill no delta carrier, so no read-back names their deltas. */
 	const nestedRelations = new Set([
-		...nestedWrites.flatMap((n) => n.nesting.reached.map((r) => r.family.member.name)),
+		...nestedWrites.flatMap((n) => [...n.nesting.layouts.keys()]),
 		...edits.map((e) => e.relation),
 		...families
 			.filter((f) => edits.some((e) => e.relation === f.member.name))
@@ -1741,8 +1837,14 @@ const compile = (
 		...groupBy(edits, (e) => `${e.stratum}\u0000${e.relation}`)
 	].map(([, list]): StratumEdit => {
 		const first = list[0]
-		const slotOf = (op: "insert" | "put" | "delete"): ParamId | undefined =>
-			list.find((e) => e.op === op)?.slot
+		const slotOf = (op: "insert" | "put" | "delete"): ParamId | undefined => {
+			for (const e of list) {
+				if (e.write.op === op) {
+					return e.write.slot
+				}
+			}
+			return undefined
+		}
 		return Object.freeze({
 			stratum: first.stratum,
 			relation: writtenOf(first.relation, at),

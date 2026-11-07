@@ -146,16 +146,16 @@ const pairLeaves: Arr.NonEmptyReadonlyArray<Pred> = nonEmpty(
  */
 interface Spelling<E> {
 	readonly endpoint: (x: Endpoint, of: Column) => E
-	readonly compare: (cmp: Comparison, x: E, y: E) => Predicate
-	readonly pointIn: (point: E, within: Operand) => Predicate
-	readonly allen: (left: Column, mask: number, right: Operand) => Predicate
-	readonly and: (parts: ReadonlyArray<Predicate>) => Predicate
-	readonly or: (parts: ReadonlyArray<Predicate>) => Predicate
-	readonly id: () => Predicate
+	readonly compare: (cmp: Comparison, x: E, y: E) => Predicate<never>
+	readonly pointIn: (point: E, within: Operand) => Predicate<never>
+	readonly allen: (left: Column, mask: number, right: Operand) => Predicate<never>
+	readonly and: (parts: ReadonlyArray<Predicate<never>>) => Predicate<never>
+	readonly or: (parts: ReadonlyArray<Predicate<never>>) => Predicate<never>
+	readonly id: () => Predicate<never>
 }
 
 /** The predicate through one rule's builders. */
-const spell = <E>(p: Pred, s: Spelling<E>): Predicate => {
+const spell = <E>(p: Pred, s: Spelling<E>): Predicate<never> => {
 	switch (p.kind) {
 		case "compare":
 			return s.compare(p.cmp, s.endpoint(p.x, p.of), s.endpoint(p.y, p.against))

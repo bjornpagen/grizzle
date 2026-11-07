@@ -15,6 +15,7 @@ import type {
 	Refusal
 } from "#compiler/types/core/phantom.ts"
 
+import type { FloatPrecision } from "#compiler/scalar/pg.ts"
 import type {
 	AccumulatedField,
 	BitsField,
@@ -44,8 +45,11 @@ import type { VectorField } from "#compiler/types/vector/vector.ts"
  */
 type NumericConstructor = (precision: number, scale: number) => NumericTypmodField
 
-/** float(p): real for binary precision 1-24, double precision for 25-53, chosen at runtime. */
-type FloatConstructor = (precision: number) => FloatField
+/**
+ * float(p): real for binary precision 1-24, double precision for 25-53, as PostgreSQL resolves it; a precision outside
+ * them is no float's.
+ */
+type FloatConstructor = <const P extends FloatPrecision>(precision: P) => FloatField<P>
 
 /**
  * The signatures of the field descriptor constructors: uuid, pg, contract, span and closedId, the runtime values of
@@ -54,9 +58,11 @@ type FloatConstructor = (precision: number) => FloatField
  *
  * A descriptor's host type is the type of its column, the conversion its builder made, and the runtime descriptors
  * carry their literal SQL names and members (scalar/registry.ts defineField), so every binding has its public type by
- * construction. Typmod arguments are runtime values: numeric precision and scale, float's binary precision, vector
- * dimensions and span widths are checked by the runtime builders, which throw CompileError MalformedDescription on a
- * malformed one. A vector's dimension count is the one literal the type keeps, an equality-only tag.
+ * construction. Typmod arguments are runtime values: numeric precision and scale, vector dimensions and span widths
+ * are checked by the runtime builders, which throw CompileError MalformedDescription on a malformed one. A vector's
+ * dimension count is the one literal the type keeps, an equality-only tag, and float's binary precision the one the
+ * type resolves, to the real or double precision field PostgreSQL resolves it to; a JavaScript caller's malformed
+ * one is refused at runtime as well.
  * A contract is its brand's minting function, the call of Effect's brand constructor: it brands without checking, and
  * the database validates on write. test/unit/scalar pins the runtime behavior, and test/types/fields the signatures.
  *
@@ -108,7 +114,7 @@ export interface Pg {
 export type ContractConstructor = <
 	const Name extends string,
 	B extends FieldBase,
-	Pr extends Predicate = Predicate,
+	Pr extends Predicate<never> = Predicate,
 	const Proved extends ReadonlyArray<keyof Facts> = readonly []
 >(
 	name: Name,
@@ -182,12 +188,7 @@ export type AccumulatedConstructor = <const F extends FieldBase>(
  * A term of the declared type F exactly: its identity and SQL type are F's, as PostgreSQL types a generation expression
  * by its column's type, with no implicit cast.
  */
-export type GeneratedTermOf<F extends FieldBase> = InputTerm<
-	DomainOf<F>,
-	unknown,
-	unknown,
-	F["sql"]
->
+export type GeneratedTermOf<F extends FieldBase> = InputTerm<DomainOf<F>, never, unknown, F["sql"]>
 
 /**
  * generated(type, term): a field PostgreSQL writes, a STORED generated column of `type` whose value is `term`, read off

@@ -123,21 +123,6 @@ export const titlesByPrefix = query(Board).rule((r) => {
 		.find({ id, title })
 })
 
-/**
- * Beyond the examples: a prefix search over ManualTask's operator, the worked example's unbounded `^.*$`, whose B-tree entry has
- * no byte bound.
- */
-export const operatorsByPrefix = query(W.Work).rule((r) => {
-	const { task, operator } = v(W.ManualTask, "manualTask")
-	return r
-		.match(W.ManualTask, { task, operator })
-		.where(
-			r.ge(operator, r.param("lo", W.ManualTask.fields.operator)),
-			r.lt(operator, r.param("hi", W.ManualTask.fields.operator))
-		)
-		.find({ task, operator })
-})
-
 /** The login the workload tests' workloads are owned by, which a plan records their programs' access under. */
 export const fixtureLogin = "server"
 

@@ -1,18 +1,18 @@
 import { describe, it } from "@effect/vitest"
-import { drawn, exhaust, explore } from "@grizzle/testing/explore"
+import { drawn, explore } from "@grizzle/testing/explore"
 import { noCoverage, required } from "@grizzle/testing/features"
-import { array, element, int } from "@grizzle/testing/gen"
+import { array, element, type Gen, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Record, String as Str } from "effect"
 import { canonicalTextOf, catchRefusal } from "#compiler/core/canonical.ts"
 import { maxIdentifierBytes } from "#compiler/core/identity.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import { carrierDigestHex, carrierName, isCarrierName } from "#compiler/sql/naming.ts"
 import { CarrierSupply, typesDigest } from "#compiler/write/carriers/carriers.ts"
-import { assert, refused, succeeded } from "#test/support/assert.ts"
+import { assert, nonEmpty, refused, succeeded } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { heading, scalarTypes } from "#test/unit/ir/fixture.ts"
 
@@ -35,6 +35,19 @@ const headings: Arr.NonEmptyReadonlyArray<Heading> = [
 	noColumn,
 	heading(["key", scalarTypes.uuid])
 ]
+
+/** A column-type class of none to two columns, each of a type of the fixture's roster. */
+const classGen: Gen<Heading> = (source) => {
+	const typeGen = element(nonEmpty(Record.values(scalarTypes), "a scalar type"))
+	switch (source.draw(int(0, 2))) {
+		case 0:
+			return heading()
+		case 1:
+			return heading(["a", source.draw(typeGen)])
+		default:
+			return heading(["a", source.draw(typeGen)], ["b", source.draw(typeGen)])
+	}
+}
 
 /** The canonical text of a heading's column types: what a carrier's digest stands for. */
 const typesOf = (h: Heading): string => canonicalTextOf(Arr.map(h, (c) => c.type))
@@ -122,14 +135,22 @@ describe("a program's carriers", () => {
 		(ctx) =>
 			searched(
 				ctx,
-				exhaust(
+				explore(
 					{
 						suite: "unit/write/carrier-count",
+						/** More carriers of one class than a 16-bit ordinal counts, of a drawn class of none to two columns. */
+						draw: drawn(classGen),
 						literal: Formatter.format,
-						/** More carriers of one class than a 16-bit ordinal counts, of a class of one column and of none. */
-						generator: (source) => source.draw(element([oneColumn, noColumn])),
-						limit: 2,
+						oracle: {
+							kind: "specification",
+							name: "a carrier's name is its class's digest and its ordinal, within PostgreSQL's identifier"
+						},
 						coverage: noCoverage,
+						kept: [],
+						runs: 2,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 4,
 						caseHang
 					},
 					(h) =>

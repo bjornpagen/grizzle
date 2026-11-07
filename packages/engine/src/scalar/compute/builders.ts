@@ -34,7 +34,6 @@ import {
 import {
 	arithmeticSql,
 	divisorSql,
-	type EndpointSql,
 	type IntegralSql,
 	type NumericSql,
 	type PlainHost,
@@ -1164,11 +1163,11 @@ export const compute = Object.freeze({
 	isFinite: <T, S extends SqlTag>(x: TermCarrier<T, S>) => guardValue(checks.isFinite(x), x),
 	within: <T, S extends SqlTag>(x: TermCarrier<T, S>, low: unknown, high: unknown) =>
 		guardValue(checks.within(x, low, high), x),
-	lower: <T, S extends EndpointSql>(s: unknown, endpoint: TermCarrier<T, S>): ScalarTerm<T, S> =>
+	lower: <T, S extends SqlTag>(s: unknown, endpoint: TermCarrier<T, S>): ScalarTerm<T, S> =>
 		carried(checks.lower(s, endpoint, []), endpoint),
-	upper: <T, S extends EndpointSql>(s: unknown, endpoint: TermCarrier<T, S>): ScalarTerm<T, S> =>
+	upper: <T, S extends SqlTag>(s: unknown, endpoint: TermCarrier<T, S>): ScalarTerm<T, S> =>
 		carried(checks.upper(s, endpoint, []), endpoint),
-	width: <S extends EndpointSql>(s: unknown, endpoint: OfSql<S>) =>
+	width: <S extends SqlTag>(s: unknown, endpoint: OfSql<S>) =>
 		plain(checks.width(s, endpoint, []), "exact integer"),
 	charLength: (s: unknown) => plain(checks.charLength(s, []), "integer"),
 	octetLength: (s: unknown) => plain(checks.octetLength(s, []), "integer"),

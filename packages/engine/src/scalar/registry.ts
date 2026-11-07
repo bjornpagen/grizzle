@@ -30,6 +30,7 @@ import {
 	languageOctets,
 	type NumericBound,
 	type NumericTypmod,
+	type PatternLanguage,
 	type Roster,
 	type ScalarType,
 	type SpanCarrier,
@@ -361,7 +362,10 @@ const ownedText = new WeakMap<object, RegisteredText>()
  * admission: its Description carries the language it proved, so every pass that reads the descriptor reads the language
  * and none analyzes the pattern again, whatever position it is passed in.
  */
-export const registerTextDescriptor = <T extends TextDescriptor>(value: T, text: TextLookup): T => {
+export const registerTextDescriptor = <T extends TextDescriptor>(
+	value: T,
+	text: DescriptorLanguage
+): T => {
 	const { source, flags } = value.pattern
 	ownedText.set(value, {
 		pattern: value.pattern,
@@ -502,11 +506,20 @@ export const serialNameOf = (described: Described): string | undefined => {
 type RosterLookup = (name: DeclaredName) => NonEmptyReadonlyArray<string> | undefined
 
 /**
- * The analyzed language of a text pattern: the text analysis's (text/refinement.ts textLookup), which a str.regex
- * descriptor is admitted with and a lowering types a pattern it computes by. The scalar layer reads it through this
- * type alone, since the analysis is the text package's.
+ * The analyzed language of a text pattern, before any byte bound cuts it: the text analysis's (text/refinement.ts
+ * textLookup), which a str.regex descriptor is admitted with and a lowering types a pattern it computes by. The scalar
+ * layer reads it through this type alone, since the analysis is the text package's.
  */
 export type TextLookup = (
+	source: string,
+	flags: "u" | "su"
+) => Result.Result<PatternLanguage, CompileError>
+
+/**
+ * The analyzed language of a text descriptor's pattern, cut to the descriptor's byte bound where it has one: a pattern's
+ * own (TextLookup) for str.regex, and its cut (ir/scalar.ts languageWithin) for str.bytes.
+ */
+export type DescriptorLanguage = (
 	source: string,
 	flags: "u" | "su"
 ) => Result.Result<TextLanguage, CompileError>

@@ -5,8 +5,8 @@ import type {
 import { ChangeSet as changeSets } from "#compiler/write/changeset/value.ts"
 
 /**
- * Public barrel: ChangeSet, Delta, outcomes, witnesses and the laws an outcome names. packages/grizzle/src/index.ts
- * re-exports it.
+ * Public barrel: ChangeSet, Delta, the rows a caller writes (Written, Addition, AdditionIn), outcomes, witnesses and
+ * the laws an outcome names. packages/grizzle/src/index.ts re-exports it.
  *
  * ChangeSet is the sealed canonical value of packages/engine/src/write/changeset, built under its public signature
  * (types/changeset ChangeSetConstructor): the runtime records the Description and the inputs and holds the builders'
@@ -25,6 +25,7 @@ export type ChangeSet<
 
 export type {
 	Addition,
+	AdditionIn,
 	AnyChangeSet,
 	Delta,
 	DeltaSource,
@@ -33,5 +34,6 @@ export type {
 	LawSide,
 	Member,
 	Witness,
-	WritableOf
+	WritableOf,
+	Written
 } from "#compiler/types/changeset/changeset.ts"

@@ -1396,13 +1396,15 @@ caller's and generated fields, its counts, its index, a tree's `start` and `end`
 nesting), and every copy it takes from its owner or from the member before it. Then it fills the members of each
 ordered family and tree the row owns, nested under it, and on leaving the row what it reads off them: a fold's end and
 a copy along a last axis. A counted family fills its own members after that, from their owner's whole row, and then
-its own fold's end. So:
+its own fold's end. A counted family's member that the insert nests, as a sequence's member, a tree's node or the
+owner of the rows nested under it, is filled by the walk like any row there, and its counted families complete it
+afterwards. So:
 
 - a copy along an ordered family's or a tree's owner axis reads a column its owner fills on entering it, never a
   fold's end, a copy along a last axis, or a column read from one;
 - a copy along a counted family's owner axis reads any column of its owner but the end of a fold over that family;
-- a counted family's count and fold ends are read only by that family's own members and ends: no other family's copy,
-  fold step or selection reads them;
+- a counted family's count and fold ends, and the index, count and copies it fills on its members, are read only by
+  that family's own members and ends: no other family's copy, fold step or selection reads them;
 - no row's columns read each other in a cycle, as copies along a tree's owner axis can at its root.
 
 A schema that breaks one of these is refused as `UnfillableField`, naming the field, the law that fills it, the column
@@ -1571,13 +1573,11 @@ A family is a rule over rows the caller writes: each owner's members, counted by
   joined by it. The family's axes key each running text, so its pieces and accumulators are text of a bounded pattern
   ([Limits](#limits)).
 
-A relation is a member of at most one ordered family or tree, which orders it, or of any number of counted families,
-each with its own hidden columns and foreign keys, never of both, and a counted family's member owns no ordered family
-or tree: a sequence's members are written nested under their owner and a counted family's are rows of their own, so
-no write would fill such a relation, and it is refused when the schema compiles (`UnwritableRelation`,
-`countedAndSequence`). Ordered families that nest each other in a cycle, an ordered family of a relation over itself
-among them, are refused the same way (`nestingCycle`), since no row of them could be written first. One count counts
-one family.
+A relation is a member of at most one ordered family or tree, which orders it, and of any number of counted families,
+each with its own hidden columns and foreign keys. A counted family's member may also be an ordered family's member,
+a tree's node or a sequence's owner. Ordered families that nest each other in a cycle, an ordered family of a relation
+over itself among them, are refused when the schema compiles (`UnwritableRelation`, `nestingCycle`), since no row of
+them could be written first. One count counts one family.
 
 grizzle owns every value a family holds: each count, index, interval, copy and accumulator is drawn on the host on
 every write and proved by PostgreSQL, never written by the caller. A fold's running `after` is no generated column: it
@@ -1590,10 +1590,14 @@ never narrowed into its column's type unproved.
   `{ id, doc, children: [{ id, children: [] }] }`. A nested member, at any depth, states no other field: one its
   nesting supplies, one grizzle draws or accumulates, or one its relation lacks is a type error, and from JavaScript an
   `EncodingFailure` (`factShape`) before any SQL. An insert of an ordered member alone is a type error, since its
-  order is the nesting's. A tree is written whole: a put or a delete of one of its rows is refused, because a row
-  inserted or removed in the middle shifts every later interval.
-- **A counted member is a row.** It is never nested: its group key names its owner, and it is inserted, put and
-  deleted like any row.
+  order is the nesting's. A tree is written whole: a put or a delete of one of its rows is a type error, and from
+  JavaScript refused when the ChangeSet compiles, because a row inserted or removed in the middle shifts every later
+  interval.
+- **A counted member is a row.** Its group key names its owner, and it is inserted, put and deleted like any row. A
+  counted member that is also a sequence's member or a tree's node is inserted nested under its owner in that
+  sequence, its group key among the fields it states, and one that owns a sequence is inserted with that sequence's
+  members nested under it; grizzle reads each of its counted families' stored groups and appends it there as it
+  appends a row inserted on its own.
 - **A change rewrites what it shifts.** Every change to one owner's family is one edit of it: an append takes the
   slots after the last; a counted member's removal moves the last member into the freed slot and refills from there;
   an update that changes a step value, or a value a selection or a copy reads, refills from its slot; one that
@@ -1609,7 +1613,11 @@ never narrowed into its column's type unproved.
   member, is refused when the ChangeSet compiles (`StaleDerivedRead`): derive such a value from a column fixed once
   its row is written.
 - **An immutable owner's family is fixed when the owner is inserted.** Declare `mutable(Owner)` for a family that
-  changes later; a delete of a member of an immutable owner's family is refused before any SQL.
+  changes later, or an owner you put: a delete of a member of an immutable owner's family, and a put of an immutable
+  owner, are type errors, and from JavaScript refused when the ChangeSet compiles. So is an insert of a member of an
+  immutable owner's family in a stratum that inserts no such owner, which the types, seeing no strata, admit; and a
+  ChangeSet that writes a family's members in more than one stratum, since each stratum's edits are planned from one
+  read before the ChangeSet's writes.
 
 ## Permissions
 
@@ -2604,10 +2612,10 @@ workflows, whose rules are worth declaring and whose users see different slices 
   `str.regex` field's domain CHECK among them, and a query matches or collapses only a text whose pattern bounds it
   within.
 - **Tables are immutable by default.** `mutable(T)` opts one in to in-place updates.
-- **A relation is a member of at most one ordered family or tree**, which orders it, or of any number of counted
-  families, never of both ([Families](#families)). A tree is written whole, by inserting its root with the whole tree
-  nested. A put or a delete of a family's member that owns an ordered family or a tree is refused: a member's edit does
-  not reach the rows nested under it, which only an insert of its owner writes.
+- **A relation is a member of at most one ordered family or tree**, which orders it, and of any number of counted
+  families ([Families](#families)). A tree is written whole, by inserting its root with the whole tree nested. A put or
+  a delete of a family's member that owns an ordered family or a tree is refused: a member's edit does not reach the
+  rows nested under it, which only an insert of its owner writes.
 - **An insert or a put of an owner from a query cannot share its ChangeSet with an append to the owner's family.** An
   owner the ChangeSet inserts and appends members to holds its final count and ends in its own row, since PostgreSQL
   checks a row's CHECKs as it inserts the row, and grizzle draws them on the host from the facts the ChangeSet states;
@@ -2619,9 +2627,10 @@ workflows, whose rules are worth declaring and whose users see different slices 
 - **A put or a delete names its rows by their primary key**, so a relation whose primary key holds a field grizzle
   writes, such as a sequence's member keyed by its owner and its drawn index, is put and deleted by no ChangeSet: its
   facts cannot state the key. A put also compares its facts at every declared key before it is sent, so a declared key
-  holding such a field refuses the put too, though not a delete, which compares none. Such a write is refused with
-  `UnstatedKey` when the ChangeSet is compiled, naming the key: key the member by fields its caller writes, such as an
-  id, to put or delete it, declare no key over a field grizzle writes, and insert a sequence nested under its owner.
+  holding such a field refuses the put too, though not a delete, which compares none. Such a write is a type error, and
+  from JavaScript refused with `UnstatedKey` when the ChangeSet is compiled, naming the key: key the member by fields its
+  caller writes, such as an id, to put or delete it, declare no key over a field grizzle writes, and insert a sequence
+  nested under its owner.
 - **A closed relation is as large as its key's code space.** Its constant holds one cell per combination of its key
   fields' codes, so a sparse relation over a large product of rosters is costly in proportion to the product: choose
   coordinates that make it dense, such as slots, whose space is each owner's counts rather than the product

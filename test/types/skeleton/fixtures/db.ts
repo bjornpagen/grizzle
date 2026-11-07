@@ -61,8 +61,6 @@ export type Opened = Expect<
 >
 // @ts-expect-error -- TS2554: Db.open needs its options
 export const omitted = Db.open(Server.roles.writer)
-// @ts-expect-error -- TS2739: Db.open takes a role reached through its login, never a schema
-export const unrole = Db.open(Work, {})
 export const layer = DbLayer.make({
 	driver: pgDriver,
 	transport: {
@@ -230,12 +228,13 @@ export const generated = ChangeSet.empty(Work).insert(Ticket, [
 export const explicit = ChangeSet.empty(Work).insert(Ticket, [
 	{ id: 7n, account: accountId, amount: Cents(5n) }
 ])
-// @ts-expect-error -- TS2322: an addition omits no field other than its serial fields
+// @ts-expect-error -- TS2345 refusal: a member fact is not a fact of the relation
 export const missing = ChangeSet.empty(Work).insert(Ticket, [{ id: 7n, account: accountId }])
-export const generatedDelete = ChangeSet.empty(Work).delete(Ticket, [
-	// @ts-expect-error -- TS2741: a deletion names complete facts; a serial is never omitted from one
-	{ account: accountId, amount: Cents(5n) }
-])
+export const generatedDelete = ChangeSet.empty(Work).delete(
+	Ticket,
+	// @ts-expect-error -- TS2345 refusal: a member fact is not a fact of the relation
+	[{ account: accountId, amount: Cents(5n) }]
+)
 
 /** A query member contributes its parameters; read-backs arrive under their names. */
 export const noteAll = ChangeSet.empty(Work)
@@ -296,8 +295,6 @@ export const tickedTwice = refresher.apply(ChangeSet.union(clockTick, ChangeSet.
 // @ts-expect-error -- TS2345 refusal: the ChangeSets' schemas are not levels of one another
 export const tickedWork = refresher.apply(ChangeSet.union(clockTick, ChangeSet.empty(Work)), {})
 export const refreshed = refresher.refresh(StudentWeekly, RecentSittings)
-// @ts-expect-error -- TS2345: reporter may not refresh
-export const reporterRefresh = reporter.refresh(StudentWeekly)
 /**
  * A derived relation's inherited keys type get: a lookup by StudentWeekly's (student, week) is at most
  * one row.

@@ -60,6 +60,7 @@ import {
 	type ValueRefs
 } from "#compiler/ir/rel.ts"
 
+import { type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
 import {
 	type Closure,
 	closure,
@@ -99,13 +100,14 @@ export interface Provenance {
  * determines its output heading under its input's dependencies:
  *
  * - Base: its primary key and each declared key, immediate storage facts; a derived or world relation's view keys, as
- *   its environment names them. Closed: each column whose values are distinct, a column of one value fixed, at most
- *   one fact; descriptor facts. Context: at most one fact. A membership's row: exactly one fact, a descriptor fact.
+ *   its environment names them. Closed: each column whose values are distinct, a column of one value fixed, two
+ *   columns of one type holding one value in every fact equal, at most one fact; descriptor facts. Context: at most one fact. A membership's row: exactly one fact, a descriptor fact.
  *   Delta: its relation's keys, which hold in both of the states it compares. Any other InputSet, Recursive and
  *   SelfRef: none beyond the whole heading, a set.
  * - MatchRegion: a scan determines what it binds from its source's dependencies, its source columns bound to variables,
  *   fixed by a constant, or fixed in the source; shared variables join, a column bound to two variables equates them,
- *   equalities equate, a correlated variable follows from what it reads.
+ *   equalities equate, a correlated variable follows from what it reads, and a variable bound to a column its lateral
+ *   source fixes to a region column's value equals that column's variable.
  * - Filter: an equality with a value fixed per evaluation fixes its column; one between two columns equates them; a
  *   false conjunct leaves at most one row, none.
  * - ProjectSet: closes over its input, its computed outputs following from the columns they read.
@@ -916,29 +918,23 @@ const keptEqualities = (input: Props, kept: (column: string) => boolean): Readon
 
 /**
  * The dependencies a node keeps from an input whose rows it keeps, over the input columns it carries under the same
- * names (`carried`): each input determinant whose columns are carried, fixed, or of a class a carried column stands
- * for, determining the carried columns of the closure in the input of the carried columns standing for it, by `rule`.
+ * names (`carried`): each input determinant whose columns the carried columns stand for (carried, fixed, of a class a
+ * carried column stands for, or determined by columns standing so, standingFor), determining the carried columns of
+ * the closure in the input of the carried columns standing for it, by `rule`.
  */
 const carried = (
 	input: Props,
 	carriedColumn: (column: string) => boolean,
 	rule: (from: KeySet, to: KeySet, input: Implication) => Dependency
 ): ReadonlyArray<Dependency> => {
-	const fixed = new Set(fixedColumns(input))
+	const standing = standingFor(
+		input,
+		new Map(input.columns.filter(carriedColumn).map((c) => [c, c]))
+	)
 	return determinantsOf(input).flatMap((d) => {
-		const from: Array<string> = []
-		for (const c of d) {
-			const stand = carriedColumn(c)
-				? c
-				: fixed.has(c)
-					? undefined
-					: classOf(input, c).find(carriedColumn)
-			if (stand === undefined && !fixed.has(c)) {
-				return []
-			}
-			if (stand !== undefined && !from.includes(stand)) {
-				from.push(stand)
-			}
+		const from = outputsOf(standing, d)
+		if (from === undefined) {
+			return []
 		}
 		const reached = closureOf(input, from)
 		const to = [...reached.columns.keys()].filter((c) => carriedColumn(c) && !from.includes(c))
@@ -1274,7 +1270,15 @@ export const logicalPropsOf = (node: RelNode, reading: PropsReading, env: PropsE
 			const rows = reading.rows
 			const deps: Array<Dependency> =
 				rows.length <= 1 ? [atMostOneRow(all, { kind: "singleFact" })] : []
-			for (const [i, c] of all.entries()) {
+			const equal: Array<Equality> = []
+			/** Each class's first column so far, with its type and its values fact by fact. */
+			const firsts: Array<{
+				readonly column: string
+				readonly type: ScalarType
+				readonly values: ReadonlyArray<EqualityKey>
+			}> = []
+			for (const [i, h] of reading.heading.entries()) {
+				const c = h.name
 				const values = closedColumn(reading, i).map((v) => nativeEqualityKey(v))
 				if (new Set(values).size === values.length) {
 					deps.push(distinctColumn(c, all))
@@ -1282,6 +1286,16 @@ export const logicalPropsOf = (node: RelNode, reading: PropsReading, env: PropsE
 				if (values.length > 0 && new Set(values).size === 1) {
 					deps.push(fixedColumn(c, { kind: "closedValue" }))
 				}
+				const first = firsts.find(
+					(f) => sameScalarType(f.type, h.type) && f.values.every((v, j) => v === values[j])
+				)
+				if (first === undefined) {
+					firsts.push({ column: c, type: h.type, values })
+					continue
+				}
+				const stated = statedEquality(first.column, c, { kind: "closedColumns" })
+				deps.push(stated.there, stated.back)
+				equal.push(stated)
 			}
 			return finish(
 				subject,
@@ -1290,7 +1304,7 @@ export const logicalPropsOf = (node: RelNode, reading: PropsReading, env: PropsE
 					exactlyOne: rows.length === 1,
 					provenance: noProvenance,
 					context: "queryLocal",
-					equal: []
+					equal
 				})
 			)
 		}
@@ -1596,6 +1610,23 @@ const regionProps = (subject: Subject, node: ReadingOf<"MatchRegion">, env: Prop
 		if (lateral.length === 0) {
 			appendAll(equal, sourceEqualities(src, o.id, varsAt))
 		}
+		for (const [column, [w]] of lateral.length === 0 ? [] : varsAt) {
+			for (const v of fixedNames(src, column) ?? []) {
+				const other =
+					v.name.kind === "outer" ? varOf({ node: v.name.node, column: v.name.column }) : undefined
+				if (w === undefined || other === undefined || other === w) {
+					continue
+				}
+				const stated = statedEquality(other, w, {
+					kind: "lateralFixed",
+					occurrence: o.id,
+					column,
+					fixed: v.derivation
+				})
+				deps.push(stated.there, stated.back)
+				equal.push(stated)
+			}
+		}
 		const reads = lateral.length === 0 ? [] : varsOf(lateral)
 		if (reads === undefined) {
 			continue
@@ -1733,10 +1764,84 @@ const sourceEqualities = (
 	return out
 }
 
+/** The outputs standing for every column of `d`, each once, or undefined when one has none. */
+const outputsOf = (
+	resolved: ReadonlyMap<string, ReadonlyArray<string>>,
+	d: ReadonlyArray<string>
+): ReadonlyArray<string> | undefined => {
+	const out = new Set<string>()
+	for (const c of d) {
+		const outs = resolved.get(c)
+		if (outs === undefined) {
+			return undefined
+		}
+		for (const o of outs) {
+			out.add(o)
+		}
+	}
+	return [...out]
+}
+
 /**
- * A projection closes over its input: each input determinant whose columns the output keeps (copied, determined by a
- * copied column, or fixed), and each copying output alone, determines the outputs whose values its closure in the input
- * reaches, a copy of a reached column, or a computed or constant output reading only reached columns. So two copies of
+ * The outputs standing for each input column a projection's determinants can name, by the copies `copies` (each input
+ * column's first copying output): a column fixed in the input needs none; a copied column, or one of a class with a
+ * copied column, its copy; and a dropped column, the outputs standing for the columns of an input determinant, or of a
+ * copied column, whose closure in the input reaches it. The dropped columns are resolved as a closure is reached, round
+ * by round until none is added, each by the first determinant whose columns are all resolved, so a chain of dropped
+ * columns, each determined by columns the projection keeps or by columns resolved before it, is resolved whatever its
+ * order, and a cycle of dropped columns no kept column determines stays unresolved.
+ */
+const standingFor = (
+	input: Props,
+	copies: ReadonlyMap<string, string>
+): ReadonlyMap<string, ReadonlyArray<string>> => {
+	const resolved = new Map<string, ReadonlyArray<string>>()
+	for (const c of fixedColumns(input)) {
+		resolved.set(c, [])
+	}
+	for (const c of input.columns) {
+		const copy = classOf(input, c)
+			.map((m) => copies.get(m))
+			.find((out) => out !== undefined)
+		if (!resolved.has(c) && copy !== undefined) {
+			resolved.set(c, [copies.get(c) ?? copy])
+		}
+	}
+	const determinants = determinantsOf(input)
+	const dropped = new Set(determinants.flat().filter((c) => !resolved.has(c)))
+	if (dropped.size === 0) {
+		return resolved
+	}
+	const candidates = [...determinants, ...[...copies.keys()].map((c) => [c])].map((d) => ({
+		d,
+		reached: coverOf(input, d).columns
+	}))
+	for (let changed = true; changed;) {
+		changed = false
+		for (const c of dropped) {
+			if (resolved.has(c)) {
+				continue
+			}
+			for (const { d, reached } of candidates) {
+				const outs = d.includes(c) || !reached.has(c) ? undefined : outputsOf(resolved, d)
+				if (outs === undefined) {
+					continue
+				}
+				resolved.set(c, outs)
+				changed = true
+				break
+			}
+		}
+	}
+	return resolved
+}
+
+/**
+ * A projection closes over its input: each input determinant whose columns the output stands for (copied, of a class
+ * with a copied column, fixed, or dropped and determined by columns standing so, standingFor), with each column put as
+ * the outputs standing for it, and each copying output alone, determines the outputs whose values its closure in the
+ * input reaches, a copy of a reached column, or a computed or constant output reading only reached columns. So a
+ * dependency whose determinants include a dropped column holds over the columns that determine it, and two copies of
  * one column, or of equal columns, determine each other.
  */
 const projectProps = (subject: Subject, node: ReadingOf<"ProjectSet">): Props => {
@@ -1759,43 +1864,11 @@ const projectProps = (subject: Subject, node: ReadingOf<"ProjectSet">): Props =>
 		}
 		reads.set(o.name, readColumns(o.expr, inputId))
 	}
-	const inputFixed = new Set(fixedColumns(input))
-	/**
-	 * The output standing for an input column: its copy, a copy of the first column of its class copied, or a copy of a
-	 * column that determines it.
-	 */
-	const standFor = (c: string): string | undefined => {
-		const copy = copies.get(c)
-		if (copy !== undefined) {
-			return copy
-		}
-		for (const m of classOf(input, c)) {
-			const out = copies.get(m)
-			if (out !== undefined) {
-				return out
-			}
-		}
-		for (const [col, out] of copies) {
-			if (coverOf(input, [col]).columns.has(c)) {
-				return out
-			}
-		}
-		return undefined
-	}
-	/** The images of the input's determinants that the output keeps, then each copying output alone. */
+	const standing = standingFor(input, copies)
+	/** The images of the input's determinants, each column standing as it resolves, then each copying output alone. */
 	const images = determinantsOf(input).flatMap((d): ReadonlyArray<ReadonlyArray<string>> => {
-		const from: Array<string> = []
-		for (const c of d) {
-			if (inputFixed.has(c)) {
-				continue
-			}
-			const out = standFor(c)
-			if (out === undefined) {
-				return []
-			}
-			from.push(out)
-		}
-		return [from]
+		const from = outputsOf(standing, d)
+		return from === undefined ? [] : [from]
 	})
 	const deps: Array<Dependency> = []
 	const seen = new Set<string>()

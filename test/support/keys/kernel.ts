@@ -14,6 +14,7 @@ import type { Fold } from "#compiler/ir/fold.ts"
 import { comparedValue } from "#compiler/ir/injective.ts"
 import type { Dependency, Implication, KeyProof, Rule } from "#compiler/ir/keys.ts"
 import type { KeySet, NodeOf, RelDag, RelNode } from "#compiler/ir/rel.ts"
+import { sameScalarType } from "#compiler/ir/scalar.ts"
 import { nativeOp } from "#compiler/scalar/compute/registry.ts"
 import { defined } from "#test/support/assert.ts"
 
@@ -69,7 +70,11 @@ const ruleParts = (rule: Rule): ReadonlyArray<KeyProof | Implication> => {
 		case "fixed":
 			return rule.witness.kind === "semiJoinPair" ? [rule.witness.right] : []
 		case "equal":
-			return rule.witness.kind === "arms" ? rule.witness.arms : []
+			return rule.witness.kind === "arms"
+				? rule.witness.arms
+				: rule.witness.kind === "lateralFixed"
+					? [rule.witness.fixed]
+					: []
 		case "match":
 			return [rule.source]
 		case "projection":
@@ -780,6 +785,50 @@ export class KeyKernel {
 					e?.kind === "column" ? this.#varFor(n, e.column.node, e.column.name) : undefined
 				return c?.var.name === a && copied === b ? [] : ["no correlated variable copying the other"]
 			}
+			case "closedColumns": {
+				if (n.kind !== "Closed") {
+					return ["closed columns outside a closed relation"]
+				}
+				const at = (c: string) => Arr.findFirstIndex(n.heading, (h) => h.name === c)
+				const ia = at(a)
+				const ib = at(b)
+				if (Option.isNone(ia) || Option.isNone(ib)) {
+					return ["a closed column outside the heading"]
+				}
+				const ta = defined(n.heading[ia.value], "a heading column").type
+				const tb = defined(n.heading[ib.value], "a heading column").type
+				const same = Arr.every(n.rows, (row) => {
+					const x = row[ia.value]
+					const y = row[ib.value]
+					return x !== undefined && y !== undefined && nativeEqualityKey(x) === nativeEqualityKey(y)
+				})
+				return sameScalarType(ta, tb) && same
+					? []
+					: ["two closed columns some fact holds different values in, or of different types"]
+			}
+			case "lateralFixed": {
+				if (n.kind !== "MatchRegion") {
+					return ["a lateral source's fixed column outside a region"]
+				}
+				const o = Option.getOrUndefined(Arr.findFirst(n.occurrences, (x) => x.id === w.occurrence))
+				const fixed = w.fixed
+				if (o === undefined || fixed.node !== o.source.id || fixed.from.length > 0) {
+					return ["no derivation from nothing at the occurrence's source"]
+				}
+				const bound = Arr.map(
+					Arr.filter(o.bindings, (x) => x.column === w.column),
+					(x) => x.var.name
+				)
+				const value = this.#value(fixed, w.column)
+				const other =
+					value?.kind === "outer" ? this.#varFor(n, value.node, value.column) : undefined
+				const holds =
+					other !== undefined &&
+					((bound.includes(a) && other === b) || (bound.includes(b) && other === a))
+				return holds
+					? [...checked.implication(fixed)]
+					: ["no variable bound to a source column fixed to the other variable's region column"]
+			}
 			case "arms": {
 				if (n.kind !== "Union") {
 					return ["columns equal in every arm, outside a union"]
@@ -1193,6 +1242,12 @@ export class KeyKernel {
 					case "equal":
 						if (r.witness.kind === "arms") {
 							Arr.forEach(r.witness.arms, fromImplication)
+						}
+						if (r.witness.kind === "lateralFixed") {
+							fromImplication(r.witness.fixed)
+						}
+						if (r.witness.kind === "closedColumns") {
+							contexts.push("queryLocal")
 						}
 						break
 					case "correlated":

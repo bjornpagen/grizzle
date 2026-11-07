@@ -12,18 +12,27 @@ import {
 	int,
 	map,
 	oneOf,
+	option,
 	string,
 	weighted
 } from "@grizzle/testing/gen"
+import {
+	type CorruptedFeature,
+	type Corruption,
+	corrupted,
+	corruptedFeature
+} from "@grizzle/testing/lsw"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint, float } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, pipe, Record as Rec, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Option, pipe, Record as Rec, String as Str } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { type Canonicalizable, canonicalTag, type Json } from "#compiler/core/canonical.ts"
+import type { CompileError } from "#compiler/core/errors.ts"
 import { formatLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { isRecord } from "#compiler/core/record.ts"
+import type * as Result from "#compiler/core/result.ts"
 import { jsonText, trustedJson } from "#compiler/core/trusted.ts"
 import { MoneyText, VectorText } from "#compiler/ir/carriers.ts"
 import { DecimalText } from "#compiler/ir/decimal.ts"
@@ -39,6 +48,7 @@ import {
 	type FieldDesc,
 	type LiteralDesc
 } from "#compiler/ir/desc.ts"
+import { numericMaxPrecision } from "#compiler/ir/scalar.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { predicateExpr } from "#compiler/scalar/compute/term.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
@@ -53,6 +63,7 @@ import {
 	succeeded
 } from "#test/support/assert.ts"
 
+import { admitSchemaDesc } from "#compiler/schema/admit.ts"
 import { descFromJson } from "#test/support/describe.ts"
 import {
 	type ChangeSetDesc,
@@ -67,7 +78,16 @@ import {
 	textDesc
 } from "#test/support/fixtures/ir/desc.ts"
 import { caseHang } from "#test/support/limits.ts"
+import {
+	defaultSchemaLimits,
+	fullDataSwarm,
+	resolveSchema,
+	schemaDesc,
+	schemaSketchGen
+} from "#test/support/oracle/gen/schema.ts"
+import { pickFrom, pickGen } from "#test/support/pick.ts"
 import { fail } from "#test/unit/ir/fixture.ts"
+import { declaredGen } from "#test/unit/ir/types.ts"
 
 import { regex } from "arkregex"
 const dec = (text: string) => defined(DecimalText.parse(text))
@@ -635,19 +655,53 @@ const samples: ReadonlyArray<readonly [DescKind, unknown]> = [
 	["workload", workload]
 ]
 
+/**
+ * A description decoded as its author's is: a schema through its admission, which admits its closed relations before it
+ * decodes it as one (schema/admit.ts), any other kind by itself.
+ */
+const decodeHanded = (kind: DescKind, value: unknown): Result.Result<unknown, CompileError> =>
+	kind === "schema" ? admitSchemaDesc(value) : decodeDesc(kind, value)
+
+/**
+ * A description and the kind it is decoded as: one of the samples, which hold every kind of description and every
+ * stage, statement and expression kind no generator draws; a schema the differential oracle generates, one of its
+ * relations or one of its statements; or a generated field type.
+ */
+const corpusGen: Gen<readonly [DescKind, unknown]> = (source) => {
+	const generated = source.draw(
+		resolveSchema(
+			source.draw(schemaSketchGen(defaultSchemaLimits)),
+			{ mode: "drawn", edge: false },
+			fullDataSwarm
+		)
+	)
+	const desc = schemaDesc(generated)
+	const arm = source.draw(int(0, 5))
+	if (arm < 2) {
+		return pickFrom(nonEmpty(samples, "the samples"), source.draw(pickGen))
+	}
+	if (arm === 2) {
+		return ["schema", desc]
+	}
+	if (arm === 3) {
+		return [
+			"relation",
+			pickFrom(nonEmpty(desc.relations, "a generated relation"), source.draw(pickGen))
+		]
+	}
+	const [statement, ...more] = desc.statements
+	return arm === 4 && statement !== undefined
+		? ["statement", pickFrom([statement, ...more], source.draw(pickGen))]
+		: ["field", source.draw(declaredGen).desc]
+}
+
 /** The JSON form written as JSON text and parsed back: what a process boundary does. */
 const throughJson = (value: unknown): unknown =>
 	trustedJson<Json>(jsonText(succeeded(descToJson(value))))
 
 const refuses = (kind: DescKind, value: unknown) => {
-	assert.equal(fail(decodeDesc(kind, value)).reason._tag, "MalformedDescription")
+	assert.equal(fail(decodeHanded(kind, value)).reason._tag, "MalformedDescription")
 }
-
-const side = (relation: string, field: string) => ({
-	relation,
-	terms: [{ kind: "field", field }],
-	selection: everyFact
-})
 
 /** `innermost` under `depth` relational negations. */
 const notChain = (depth: number, innermost: unknown): unknown => {
@@ -708,35 +762,50 @@ describe("Descriptions", () => {
 		"locates every node a JavaScript author leaves unlocated by its path, and keeps a stated location",
 		(ctx) => {
 			const stated = SourceLoc("stated by the author", ["builder"])
-			const sites = Arr.flatMap(samples, ([kind, value]) => [
-				{ kind, value, site: "none" as const },
-				...Arr.map(located(succeeded(decodeDesc(kind, value)), []), (l) => ({
-					kind,
-					value,
-					site: l.path
-				}))
-			])
+			/** The kinds whose descriptions hold a located node, as the samples, which hold every kind, show. */
+			const locatedKinds = nonEmpty(
+				Arr.dedupe(
+					Arr.flatMap(samples, ([kind, value]) =>
+						Arr.isReadonlyArrayNonEmpty(located(succeeded(decodeHanded(kind, value)), []))
+							? [kind]
+							: []
+					)
+				),
+				"the located kinds"
+			)
 			return searched(
 				ctx,
-				exhaust(
+				explore(
 					{
 						suite: "unit/ir/desc-locations",
 						literal: Formatter.format,
-						generator: element(nonEmpty(sites, "the location sites")),
-						limit: 2000,
-						coverage: requiredInSpace<LocatedFeature>(
-							Arr.flatMap(
-								nonEmpty(
-									Arr.dedupe(Arr.flatMap(sites, (x) => (x.site === "none" ? [] : [x.kind]))),
-									"the located kinds"
-								),
-								(kind): Arr.NonEmptyReadonlyArray<LocatedFeature> => [
-									`located ${kind}`,
-									`stated ${kind}`
-								]
+						draw: drawn((source) => {
+							const [kind, value] = source.draw(corpusGen)
+							const sites = Arr.map(
+								located(succeeded(decodeHanded(kind, value)), []),
+								(l) => l.path
 							)
+							const site = source.draw(pickGen)
+							return {
+								kind,
+								value,
+								site: pickFrom<"none" | ReadonlyArray<string | number>>(["none", ...sites], site)
+							}
+						}),
+						runs: 300,
+						shrink: completeShrink,
+						coverage: required<LocatedFeature>(
+							Arr.flatMap(locatedKinds, (kind): Arr.NonEmptyReadonlyArray<LocatedFeature> => [
+								`located ${kind}`,
+								`stated ${kind}`
+							]),
+							{ cases: 2000, sense: notesOnly }
 						),
-						caseHang
+						kept: [],
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang,
+						oracle: { kind: "universal", name: "a node's location is its path, a stated one kept" }
 					},
 					({ kind, value, site }, c) =>
 						Effect.sync(() => {
@@ -747,7 +816,7 @@ describe("Descriptions", () => {
 							}
 							/** One label names the description every unstated location lies in; the path is the node's own. */
 							const labels = new Set<unknown>()
-							for (const l of located(succeeded(decodeDesc(kind, input)), [])) {
+							for (const l of located(succeeded(decodeHanded(kind, input)), [])) {
 								const isStated =
 									site !== "none" &&
 									l.path.length === site.length &&
@@ -869,278 +938,6 @@ describe("Descriptions", () => {
 		}
 	)
 
-	it.effect("admits an Ordered exactly where a whole query stands", (ctx) => {
-		const top: QueryDesc = versioned({
-			kind: "order",
-			input: rules(budgetRule),
-			order: [{ column: "budget", dir: "asc" }]
-		})
-		type Position =
-			| "a page's query"
-			| "an attachment child"
-			| "a read-back"
-			| "a workload program"
-			| "an imported source"
-			| "a ChangeSet member"
-			| "a derived definition"
-		const placed = (position: Position): readonly [DescKind, unknown] => {
-			switch (position) {
-				case "a page's query":
-					return ["query", top]
-				case "an attachment child":
-					return [
-						"query",
-						versioned({ kind: "attach", input: rules(rule), attach: { name: "a", child: top } })
-					]
-				case "a read-back":
-					return ["changeSet", { ...changeSet, reads: [{ name: "page", query: top }] }]
-				case "a workload program":
-					return ["workload", { ...workload, programs: { ordered: { kind: "query", query: top } } }]
-				case "an imported source":
-					return [
-						"rule",
-						{ ...rule, matches: [{ source: { kind: "query", query: top }, bindings: {} }] }
-					]
-				case "a ChangeSet member":
-					return [
-						"changeSet",
-						{
-							...changeSet,
-							strata: [
-								{
-									members: [
-										{ op: "insert", relation: "Task", member: { kind: "query", query: top } }
-									]
-								}
-							]
-						}
-					]
-				case "a derived definition":
-					return ["relation", { kind: "derived", name: "D", query: top, level: 1 }]
-			}
-		}
-		const whole: ReadonlyArray<Position> = [
-			"a page's query",
-			"an attachment child",
-			"a read-back",
-			"a workload program"
-		]
-		return searched(
-			ctx,
-			exhaust(
-				{
-					suite: "unit/ir/desc-ordered-positions",
-					literal: Formatter.format,
-					generator: element<Position>([
-						"a page's query",
-						"an attachment child",
-						"a read-back",
-						"a workload program",
-						"an imported source",
-						"a ChangeSet member",
-						"a derived definition"
-					]),
-					limit: 7,
-					coverage: requiredInSpace<Position>([
-						"a page's query",
-						"an attachment child",
-						"a read-back",
-						"a workload program",
-						"an imported source",
-						"a ChangeSet member",
-						"a derived definition"
-					]),
-					caseHang
-				},
-				(position, c) =>
-					Effect.sync(() => {
-						c.note(position)
-						const [kind, value] = placed(position)
-						if (whole.includes(position)) {
-							succeeded(decodeDesc(kind, value))
-						} else {
-							refuses(kind, value)
-						}
-					})
-			)
-		)
-	})
-
-	it.effect(
-		"decodes a scale and an aggregate's argument exactly where their arm states them, refuses each at it, and refuses an origin on every statement",
-		(ctx) => {
-			type AggregateFn = "count" | "sum" | "mean" | "min" | "max"
-			/** The statements an origin is tried on: none states one, a containment included (R5 deleted the origin). */
-			type OriginKind = "key" | "mutable" | "check" | "contained"
-			type DecoderCase =
-				| { readonly kind: "compute"; readonly fn: ComputeFn; readonly scale: "absent" | 2 }
-				| { readonly kind: "statement"; readonly statement: OriginKind }
-				| { readonly kind: "aggregate"; readonly fn: AggregateFn; readonly arg: boolean }
-			/**
-			 * The arguments each function's call states: the decoder reads none of their count, so any count is an input.
-			 */
-			const arity: Readonly<Record<ComputeFn, number>> = {
-				add: 2,
-				sub: 2,
-				mul: 2,
-				div: 2,
-				mod: 2,
-				neg: 1,
-				quot: 2,
-				rem: 2,
-				abs: 1,
-				sign: 1,
-				round: 1,
-				trunc: 1,
-				ceil: 1,
-				floor: 1,
-				gcd: 2,
-				lcm: 2,
-				power: 2,
-				sqrt: 1,
-				least: 2,
-				greatest: 2,
-				widthBucket: 4,
-				minScale: 1,
-				union: 2,
-				intersection: 2,
-				difference: 2,
-				cardinality: 1,
-				subset: 2,
-				disjoint: 2,
-				numeric: 1,
-				lower: 1,
-				upper: 1,
-				width: 1,
-				charLength: 1,
-				octetLength: 1,
-				concat: 2,
-				startsWith: 2,
-				endsWith: 2,
-				matches: 2,
-				translate: 3,
-				collapse: 1,
-				cosineDistance: 2
-			}
-			const origin = { alternatives: "A" }
-			const statementOf = (kind: OriginKind): unknown => {
-				switch (kind) {
-					case "key":
-						return { kind, side: side("R", "a"), origin }
-					case "mutable":
-						return { kind, relation: "R", origin }
-					case "check":
-						return {
-							kind,
-							name: "positive",
-							relation: "R",
-							predicate: {
-								kind: "compare",
-								op: "gt",
-								left: { kind: "field", field: "a" },
-								right: { kind: "field", field: "b" }
-							},
-							origin
-						}
-					case "contained":
-						return { kind, left: side("R", "a"), right: side("S", "id"), origin }
-				}
-			}
-			const space = oneOf<DecoderCase>([
-				(source) => ({
-					kind: "compute",
-					fn: source.draw(element(computeFns)),
-					scale: source.draw(element<"absent" | 2>(["absent", 2]))
-				}),
-				map(
-					element<OriginKind>(["key", "mutable", "check", "contained"]),
-					(statement): DecoderCase => ({
-						kind: "statement",
-						statement
-					})
-				),
-				(source) => ({
-					kind: "aggregate",
-					fn: source.draw(element<AggregateFn>(["count", "sum", "mean", "min", "max"])),
-					arg: source.draw(boolean)
-				})
-			])
-			return searched(
-				ctx,
-				exhaust(
-					{
-						suite: "unit/ir/desc-dependent-absences",
-						literal: Formatter.format,
-						generator: space,
-						limit: 100,
-						coverage: requiredInSpace<
-							| "scale refused"
-							| "scale decoded"
-							| "origin refused"
-							| "aggregate refused"
-							| "aggregate decoded"
-						>([
-							"scale refused",
-							"scale decoded",
-							"origin refused",
-							"aggregate refused",
-							"aggregate decoded"
-						]),
-						caseHang
-					},
-					(c, n) =>
-						Effect.sync(() => {
-							switch (c.kind) {
-								case "compute": {
-									const args = Arr.map(indices(arity[c.fn]), (i) => ({
-										kind: "field",
-										field: `f${i}`
-									}))
-									const decoded = decodeDesc(
-										"expr",
-										c.scale === "absent"
-											? { kind: "compute", fn: c.fn, args }
-											: { kind: "compute", fn: c.fn, args, scale: c.scale }
-									)
-									const admitted = c.scale === "absent" || c.fn === "round" || c.fn === "trunc"
-									assert.equal(decoded.ok, admitted, `${c.fn} with scale ${c.scale}`)
-									if (decoded.ok) {
-										n.note("scale decoded")
-										return
-									}
-									n.note("scale refused")
-									assert.equal(decoded.error.reason._tag, "MalformedDescription")
-									containsText(formatLoc(refusalLoc(decoded.error)), "scale")
-									return
-								}
-								case "statement": {
-									const decoded = decodeDesc("statement", statementOf(c.statement))
-									n.note("origin refused")
-									const error = fail(decoded)
-									assert.equal(error.reason._tag, "MalformedDescription")
-									containsText(formatLoc(refusalLoc(error)), "origin")
-									return
-								}
-								case "aggregate": {
-									const term = c.arg
-										? { kind: "aggregate", fn: c.fn, arg: { kind: "var", var: "v1" } }
-										: { kind: "aggregate", fn: c.fn }
-									const decoded = decodeDesc("rule", { ...rule, head: { n: term } })
-									assert.equal(
-										decoded.ok,
-										c.arg === (c.fn !== "count"),
-										`${c.fn} with arg ${c.arg}`
-									)
-									n.note(decoded.ok ? "aggregate decoded" : "aggregate refused")
-									return
-								}
-							}
-						})
-				)
-			)
-		}
-	)
-
 	/** The value with `f` applied to the part at `path`. */
 	const editedAt = (
 		value: unknown,
@@ -1199,272 +996,532 @@ describe("Descriptions", () => {
 			)
 		]
 	}
-	const ordered: QueryStageDesc = {
-		kind: "order",
-		input: rules(rule),
-		order: [{ column: "account", dir: "asc" }]
-	}
-	/**
-	 * The Description boundary's own rules, each broken in a sample: one version; a literal no JavaScript NaN, a money,
-	 * vector or decimal tagged; take only after an order; a rules stage with an arm; on an Ordered only take; a union
-	 * over a query, not over the builder's rules, which are one stage; each order column once; a primary key nonempty and
-	 * among the fields; a relation's, a field's and a program's name storable text; a role with a relation; a context
-	 * field of a claim's scalar type; a closed relation's rows each of every field, keyed by closed ids, one per key; a
-	 * primary key its writer fills, never a generated field; an Allen mask of thirteen bits; a numeric precision 1-1000;
-	 * each variable id once; a payload in JSON canonical.
-	 */
-	const broken: ReadonlyArray<readonly [string, DescKind, unknown]> = [
-		["another version", "query", { ...query, v: 2 }],
-		["a JavaScript NaN literal", "expr", { kind: "literal", value: Number.NaN }],
-		[
-			"take but no order",
-			"query",
-			versioned({ kind: "take", input: rules(rule), take: { kind: "literal", k: 1 } })
-		],
-		["a rules stage without arms", "query", { stage: { kind: "rules", arms: [] } }],
-		[
-			"an attachment on an Ordered",
-			"query",
-			versioned({ kind: "attach", input: ordered, attach: { name: "a", child } })
-		],
-		["a union on an Ordered", "query", versioned({ kind: "union", input: ordered, arms: [rule] })],
-		["a name on an Ordered", "query", versioned({ kind: "named", input: ordered, name: "n" })],
-		[
-			"an order on an Ordered",
-			"query",
-			versioned({ kind: "order", input: ordered, order: [{ column: "id", dir: "asc" }] })
-		],
-		[
-			"an approximate stage on an Ordered",
-			"query",
-			versioned({ kind: "approx", input: ordered, by: "d", take: 3 })
-		],
-		[
-			"a union over the builder's rules",
-			"query",
-			versioned({ kind: "union", input: rules(rule), arms: [rule] })
-		],
-		[
-			"a repeated order column",
-			"query",
-			versioned({
-				kind: "order",
-				input: rules(rule),
-				order: [
-					{ column: "account", dir: "asc" },
-					{ column: "account", dir: "desc" }
-				]
-			})
-		],
-		["an untagged money literal", "expr", { kind: "literal", value: { money: 5n } }],
-		["an untagged vector literal", "expr", { kind: "literal", value: { vector: [1, 2] } }],
-		["an untagged decimal", "expr", { kind: "literal", value: { canonical: "1.5" } }],
-		[
-			"a primary key outside the fields",
-			"relation",
-			{ kind: "relation", name: "R", fields: { a: caller({ kind: "uuid" }) }, primaryKey: ["b"] }
-		],
-		[
-			"an empty primary key",
-			"relation",
-			{ kind: "relation", name: "R", fields: { a: caller({ kind: "uuid" }) }, primaryKey: [] }
-		],
-		...Arr.flatMap(
-			["\ud800", "a\u0000b"],
-			(bad): ReadonlyArray<readonly [string, DescKind, unknown]> => [
-				[
-					`a relation name ${Formatter.format(bad)}`,
-					"relation",
-					{
-						kind: "relation",
-						name: bad,
-						fields: { a: caller({ kind: "uuid" }) },
-						primaryKey: ["a"]
-					}
-				],
-				[
-					`a field name ${Formatter.format(bad)}`,
-					"relation",
-					{
-						kind: "relation",
-						name: "R",
-						fields: { a: caller({ kind: "uuid" }), [bad]: caller({ kind: "uuid" }) },
-						primaryKey: ["a"]
-					}
-				],
-				[
-					`a program name ${Formatter.format(bad)}`,
-					"workload",
-					{ schema: "S", programs: { [bad]: { kind: "query", query } } }
-				]
-			]
-		),
-		[
-			"a role with no relation",
-			"role",
-			{
-				name: "r",
-				base: { name: "S", relations, statements: [] },
-				relations: [],
-				write: [],
-				refresh: []
-			}
-		],
-		[
-			"a context field of a numeric type, which no claim carries exactly",
-			"context",
-			{ name: "Session", fields: { amount: { kind: "numeric", precision: 10, scale: 2 } } }
-		],
-		[
-			"a closed relation's row without a field",
-			"relation",
-			{ ...plan, rows: [{ tier: "Free", seats: 1 }] }
-		],
-		[
-			"two closed rows at one key",
-			"relation",
-			{
-				...plan,
-				rows: [
-					{ tier: "Free", seats: 1, price: dec("0") },
-					{ tier: "Free", seats: 2, price: dec("1") }
-				]
-			}
-		],
-		["a closed relation keyed by an open field", "relation", { ...plan, key: ["seats"] }],
-		[
-			"a primary key over a generated field",
-			"relation",
-			{
-				kind: "relation",
-				name: "R",
-				fields: {
-					a: {
-						type: { kind: "pg", type: "integer" },
-						writing: { kind: "generated", expr: { kind: "literal", value: 1, type: undefined } }
-					}
-				},
-				primaryKey: ["a"]
-			}
-		],
-		...Arr.map([8192, -1, 1.5], (mask): readonly [string, DescKind, unknown] => [
-			`an Allen mask ${mask}`,
-			"expr",
-			{ kind: "allen", left: { kind: "var", var: "a" }, mask, right: { kind: "var", var: "b" } }
-		]),
-		...Arr.map([0, 1001], (precision): readonly [string, DescKind, unknown] => [
-			`a numeric precision ${precision}`,
-			"field",
-			{ kind: "numeric", precision }
-		]),
-		["a repeated variable id", "rule", { ...rule, vars: [{ id: "v1" }, { id: "v1" }] }]
+	/** Where a query description stands: a whole query's place, or one that reads it as a set. */
+	type QueryPlace =
+		| "a page's query"
+		| "an attachment child"
+		| "a read-back"
+		| "a workload program"
+		| "an imported source"
+		| "a ChangeSet member"
+		| "a derived definition"
+	const wholePlaces: ReadonlyArray<QueryPlace> = [
+		"a page's query",
+		"an attachment child",
+		"a read-back",
+		"a workload program"
 	]
-	const malformedPayloads = ["~d:1.2.3", "~m:-0", "~m:1.5", "~v:[0.1]", "~v:[1]@"] as const
-	type Corrupt =
-		| {
-				readonly kind: "null"
-				readonly sample: number
-				readonly path: ReadonlyArray<string | number>
-		  }
-		| {
-				readonly kind: "unknown property"
-				readonly sample: number
-				readonly path: ReadonlyArray<string | number>
-		  }
-		| {
-				readonly kind: "a broken rule"
-				readonly rule: string
-				readonly desc: DescKind
-				readonly value: unknown
-		  }
-		| { readonly kind: "a malformed payload"; readonly text: string }
-	type CorruptFeature = Corrupt["kind"] | `broken: ${string}`
-
-	it.effect("refuses every description broken at one part or one rule", (ctx) => {
-		const corruptions = oneOf<Corrupt>([
-			map(
-				element(
-					nonEmpty(
-						Arr.flatMap(samples, ([, value], sample) =>
-							Arr.map(partsOf(value, []), (part) => ({ sample, part }))
-						),
-						"the samples' parts"
-					)
-				),
-				({ sample, part }): Corrupt => ({ kind: "null", sample, path: part.path })
-			),
-			map(
-				element(
-					nonEmpty(
-						Arr.flatMap(samples, ([, value], sample) =>
-							Arr.flatMap(partsOf(value, []), (part) =>
-								part.struct ? [{ sample, path: part.path }] : []
-							)
-						),
-						"the samples' structs"
-					)
-				),
-				({ sample, path }): Corrupt => ({ kind: "unknown property", sample, path })
-			),
-			map(element(nonEmpty(broken, "the broken rules")), ([rule, desc, value]): Corrupt => ({
-				kind: "a broken rule",
-				rule,
-				desc,
-				value
-			})),
-			map(element(malformedPayloads), (text): Corrupt => ({
-				kind: "a malformed payload",
-				text
-			}))
-		])
+	/** The value at `path` in `value`, or undefined where none is. */
+	const partAt = (value: unknown, path: ReadonlyArray<string | number>): unknown =>
+		Arr.reduce(path, value, (part, key) =>
+			part !== null && typeof part === "object" ? Reflect.get(part, key) : undefined
+		)
+	/**
+	 * The place a query description at `path` stands, read off the description's grammar: what its parent and
+	 * grandparent are.
+	 */
+	const placeOf = (
+		kind: DescKind,
+		value: unknown,
+		path: ReadonlyArray<string | number>
+	): QueryPlace | undefined => {
+		if (path.length === 0) {
+			return kind === "query" ? "a page's query" : undefined
+		}
+		const [grand, parentKey, key] = Arr.takeRight(path, 3)
+		const parent = partAt(value, Arr.dropRight(path, 1))
+		if (key === "child" && parentKey === "attach") {
+			return "an attachment child"
+		}
+		if (key !== "query") {
+			return undefined
+		}
+		if (isRecord(parent) && Reflect.get(parent, "kind") === "derived") {
+			return "a derived definition"
+		}
+		if (parentKey === "source") {
+			return "an imported source"
+		}
+		if (parentKey === "member") {
+			return "a ChangeSet member"
+		}
+		if (typeof parentKey === "number" && grand === "reads") {
+			return "a read-back"
+		}
+		const programs = partAt(value, Arr.dropRight(path, 2))
+		return isRecord(programs) && Arr.takeRight(Arr.dropRight(path, 2), 1)[0] === "programs"
+			? "a workload program"
+			: undefined
+	}
+	/** Every query description a description holds, by its path: a record whose one property is its stage. */
+	const queriesIn = (value: unknown): ReadonlyArray<ReadonlyArray<string | number>> =>
+		Arr.flatMap(partsOf(value, []), (part) => {
+			const held = partAt(value, part.path)
+			return isRecord(held) && Rec.keys(held).length === 1 && Rec.has(held, "stage")
+				? [part.path]
+				: []
+		})
+	/** The samples that hold a query description: no generator draws one. */
+	const queried = nonEmpty(
+		Arr.filter(samples, ([, value]) => Arr.isReadonlyArrayNonEmpty(queriesIn(value))),
+		"a sample holding a query"
+	)
+	it.effect("admits an Ordered exactly where a whole query stands", (ctx) => {
+		const top: QueryDesc = versioned({
+			kind: "order",
+			input: rules(budgetRule),
+			order: [{ column: "budget", dir: "asc" }]
+		})
 		return searched(
 			ctx,
-			exhaust(
+			explore(
 				{
-					suite: "unit/ir/desc-corruptions",
+					suite: "unit/ir/desc-ordered-positions",
 					literal: Formatter.format,
-					generator: corruptions,
-					limit: 20_000,
-					coverage: requiredInSpace<CorruptFeature>([
-						"null",
-						"unknown property",
-						"a malformed payload",
-						...Arr.map(broken, ([rule]): CorruptFeature => `broken: ${rule}`)
-					]),
-					caseHang
+					draw: drawn(
+						(source) => [pickFrom(queried, source.draw(pickGen)), source.draw(pickGen)] as const
+					),
+					runs: 200,
+					shrink: completeShrink,
+					coverage: required<QueryPlace>(
+						[
+							"a page's query",
+							"an attachment child",
+							"a read-back",
+							"a workload program",
+							"an imported source",
+							"a ChangeSet member",
+							"a derived definition"
+						],
+						{ cases: 2000, sense: notesOnly }
+					),
+					kept: [],
+					concurrency: 1,
+					steerEvery: 16,
+					caseHang,
+					oracle: {
+						kind: "specification",
+						name: "an Ordered stands where a whole query does: a page, a child, a read-back, a program"
+					}
 				},
-				(corrupt, c) =>
-					Effect.sync(() => {
-						switch (corrupt.kind) {
-							case "null":
-							case "unknown property": {
-								c.note(corrupt.kind)
-								const [kind, value] = defined(samples[corrupt.sample])
-								refuses(
-									kind,
-									editedAt(value, corrupt.path, (part) =>
-										corrupt.kind === "null"
-											? null
-											: { ...(isRecord(part) ? part : {}), unknownProperty: 1 }
-									)
-								)
-								return
-							}
-							case "a broken rule":
-								c.note(`broken: ${corrupt.rule}`)
-								refuses(corrupt.desc, corrupt.value)
-								return
-							case "a malformed payload":
-								c.note(corrupt.kind)
-								assert.equal(
-									fail(descFromJson("expr", { kind: "literal", value: corrupt.text })).reason._tag,
-									"MalformedDescription"
-								)
+				([[kind, value], pick], c) =>
+					Effect.gen(function* () {
+						const queries = queriesIn(value)
+						yield* c.assume(Arr.isReadonlyArrayNonEmpty(queries))
+						const path = pickFrom(nonEmpty(queries, "a query's place"), pick)
+						const place = placeOf(kind, value, path)
+						if (place === undefined) {
+							return assert.fail(
+								`a query description at a place of no name: ${Formatter.format(path)}`
+							)
 						}
+						c.note(place)
+						const placed = editedAt(value, path, () => top)
+						if (wholePlaces.includes(place)) {
+							succeeded(decodeHanded(kind, placed))
+							return
+						}
+						refuses(kind, placed)
 					})
 			)
 		)
 	})
+
+	it.effect(
+		"decodes a scale and an aggregate's argument exactly where their arm states them, and refuses each anywhere else",
+		(ctx) => {
+			type AggregateFn = "count" | "sum" | "mean" | "min" | "max"
+			type DecoderCase =
+				| {
+						readonly kind: "compute"
+						readonly fn: ComputeFn
+						readonly args: number
+						readonly scale: Option.Option<number>
+				  }
+				| { readonly kind: "aggregate"; readonly fn: AggregateFn; readonly arg: boolean }
+			/** Any function of the catalogue, called on any count of arguments, which the decoder never reads. */
+			const space = oneOf<DecoderCase>([
+				(source) => ({
+					kind: "compute",
+					fn: source.draw(element(computeFns)),
+					args: source.draw(int(1, 4)),
+					scale: source.draw(option(int(-2, 4)))
+				}),
+				(source) => ({
+					kind: "aggregate",
+					fn: source.draw(element<AggregateFn>(["count", "sum", "mean", "min", "max"])),
+					arg: source.draw(boolean)
+				})
+			])
+			return searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/ir/desc-dependent-absences",
+						literal: Formatter.format,
+						draw: drawn(space),
+						runs: 300,
+						shrink: completeShrink,
+						coverage: required<
+							"scale refused" | "scale decoded" | "aggregate refused" | "aggregate decoded"
+						>(["scale refused", "scale decoded", "aggregate refused", "aggregate decoded"], {
+							cases: 1000,
+							sense: notesOnly
+						}),
+						kept: [],
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang,
+						oracle: {
+							kind: "specification",
+							name: "a scale where round and trunc state one, an argument where an aggregate reads one"
+						}
+					},
+					(c, n) =>
+						Effect.sync(() => {
+							switch (c.kind) {
+								case "compute": {
+									const args = Arr.map(indices(c.args), (i) => ({
+										kind: "field",
+										field: `f${i}`
+									}))
+									const decoded = decodeDesc(
+										"expr",
+										Option.match(c.scale, {
+											onNone: () => ({ kind: "compute", fn: c.fn, args }),
+											onSome: (scale) => ({ kind: "compute", fn: c.fn, args, scale })
+										})
+									)
+									const admitted = Option.isNone(c.scale) || c.fn === "round" || c.fn === "trunc"
+									assert.equal(
+										decoded.ok,
+										admitted,
+										`${c.fn} with scale ${Formatter.format(c.scale)}`
+									)
+									if (decoded.ok) {
+										n.note("scale decoded")
+										return
+									}
+									n.note("scale refused")
+									assert.equal(decoded.error.reason._tag, "MalformedDescription")
+									containsText(formatLoc(refusalLoc(decoded.error)), "scale")
+									return
+								}
+								case "aggregate": {
+									const term = c.arg
+										? { kind: "aggregate", fn: c.fn, arg: { kind: "var", var: "v1" } }
+										: { kind: "aggregate", fn: c.fn }
+									const decoded = decodeDesc("rule", { ...rule, head: { n: term } })
+									assert.equal(
+										decoded.ok,
+										c.arg === (c.fn !== "count"),
+										`${c.fn} with arg ${c.arg}`
+									)
+									n.note(decoded.ok ? "aggregate decoded" : "aggregate refused")
+								}
+							}
+						})
+				)
+			)
+		}
+	)
+
+	/**
+	 * The Description boundary's own rules, each broken at every part of a description that offers it: no part null; a
+	 * struct of its kind's properties only; a literal no JavaScript NaN, a money, vector or decimal tagged; take only
+	 * after an order; a rules stage with an arm; on an Ordered only take; a union over a query, not over the builder's
+	 * rules, which are one stage; each order column once; a primary key nonempty and among the fields, filled by its
+	 * writer; a relation's, a field's and a program's name storable text; a closed relation's rows each of every field,
+	 * one per key, keyed by closed ids; an Allen mask of thirteen bits; a numeric precision 1-1000; each variable id once.
+	 */
+	type DescRule =
+		| "no part is null"
+		| "a struct holds its kind's properties only"
+		| "a literal is no JavaScript NaN"
+		| "a money, vector or decimal literal is tagged"
+		| "take only after an order"
+		| "a rules stage has an arm"
+		| "on an Ordered, only take"
+		| "a union is over a query, never the builder's rules"
+		| "each order column once"
+		| "a primary key is nonempty and among the fields"
+		| "a primary key is filled by its writer"
+		| "a name is storable text"
+		| "a closed relation's rows are each of every field, one per key"
+		| "a closed relation is keyed by closed ids"
+		| "an Allen mask is thirteen bits"
+		| "a numeric precision is 1 to 1000"
+		| "each variable id once"
+	type Described = readonly [DescKind, unknown]
+	type DescCorruption = Corruption<Described, DescKind, DescRule>
+	/** A part's kind, by which a site is named, or the key it stands at. */
+	const nameOf = (
+		part: Readonly<Record<string, unknown>>,
+		path: ReadonlyArray<string | number>
+	) => {
+		const kind = Reflect.get(part, "kind")
+		return typeof kind === "string" ? kind : String(Arr.takeRight(path, 1)[0] ?? "the description")
+	}
+	/** Every record part `select` picks, each broken into each of `broken`'s values, as the sites of `rule`. */
+	const breaking = (
+		rule: DescRule,
+		select: (
+			part: Readonly<Record<string, unknown>>,
+			path: ReadonlyArray<string | number>
+		) => boolean,
+		broken: (part: Readonly<Record<string, unknown>>) => ReadonlyArray<unknown>
+	): DescCorruption => ({
+		rule,
+		from: "wild",
+		weight: 1,
+		sites: ([kind, value]) =>
+			Arr.flatMap(partsOf(value, []), ({ path }) => {
+				const part = partAt(value, path)
+				return isRecord(part) && select(part, path)
+					? Arr.map(broken(part), (edited) => ({
+							value: editedAt(value, path, () => edited),
+							refusal: kind,
+							at: nameOf(part, path)
+						}))
+					: []
+			})
+	})
+	const kindIs =
+		(kind: string, ...keys: ReadonlyArray<string>) =>
+		(part: Readonly<Record<string, unknown>>): boolean =>
+			Reflect.get(part, "kind") === kind && Arr.every(keys, (key) => Rec.has(part, key))
+	/** The text no name may hold: a lone surrogate, and a NUL. */
+	const unstorable = ["\ud800", "a\u0000b"] as const
+	const descCorruptions: Arr.NonEmptyReadonlyArray<DescCorruption> = [
+		{
+			rule: "no part is null",
+			from: "wild",
+			weight: 1,
+			sites: ([kind, value]) =>
+				Arr.map(partsOf(value, []), ({ path }) => ({
+					value: editedAt(value, path, () => null),
+					refusal: kind,
+					at: String(Arr.takeRight(path, 1)[0] ?? "the description")
+				}))
+		},
+		{
+			rule: "a struct holds its kind's properties only",
+			from: "wild",
+			weight: 1,
+			sites: ([kind, value]) =>
+				Arr.flatMap(partsOf(value, []), ({ path, struct }) => {
+					const part = partAt(value, path)
+					return struct && isRecord(part)
+						? [
+								{
+									value: editedAt(value, path, () => ({ ...part, unknownProperty: 1 })),
+									refusal: kind,
+									at: nameOf(part, path)
+								}
+							]
+						: []
+				})
+		},
+		breaking("a literal is no JavaScript NaN", kindIs("literal", "value"), (part) => [
+			{ ...part, value: Number.NaN }
+		]),
+		breaking("a money, vector or decimal literal is tagged", kindIs("literal", "value"), (part) => [
+			{ ...part, value: { money: 5n } },
+			{ ...part, value: { vector: [1, 2] } },
+			{ ...part, value: { canonical: "1.5" } }
+		]),
+		breaking(
+			"take only after an order",
+			(part) => {
+				const input = Reflect.get(part, "input")
+				return (
+					kindIs("take", "input")(part) && isRecord(input) && Reflect.get(input, "kind") === "order"
+				)
+			},
+			(part) => {
+				const input = Reflect.get(part, "input")
+				return isRecord(input) ? [{ ...part, input: Reflect.get(input, "input") }] : []
+			}
+		),
+		breaking("a rules stage has an arm", kindIs("rules", "arms"), (part) => [
+			{ ...part, arms: [] }
+		]),
+		breaking("on an Ordered, only take", kindIs("order", "input", "order"), (part) => [
+			{ kind: "attach", input: part, attach: { name: "a", child } },
+			{ kind: "union", input: part, arms: [rule] },
+			{ kind: "named", input: part, name: "n" },
+			{ kind: "order", input: part, order: [{ column: "id", dir: "asc" }] },
+			{ kind: "approx", input: part, by: "d", take: 3 }
+		]),
+		breaking(
+			"a union is over a query, never the builder's rules",
+			kindIs("rules", "arms"),
+			(part) => [{ kind: "union", input: part, arms: Reflect.get(part, "arms") }]
+		),
+		breaking("each order column once", kindIs("order", "input", "order"), (part) => {
+			const [first, ...rest] = Arr.filter([Reflect.get(part, "order")].flat(), isRecord)
+			return first === undefined
+				? []
+				: [
+						{
+							...part,
+							order: [
+								first,
+								...rest,
+								{ ...first, dir: Reflect.get(first, "dir") === "asc" ? "desc" : "asc" }
+							]
+						}
+					]
+		}),
+		breaking(
+			"a primary key is nonempty and among the fields",
+			kindIs("relation", "fields", "primaryKey"),
+			(part) => {
+				const fields = Reflect.get(part, "fields")
+				const fresh = `${Arr.join(isRecord(fields) ? Rec.keys(fields) : [], "")}x`
+				return [
+					{ ...part, primaryKey: [] },
+					{ ...part, primaryKey: [...[Reflect.get(part, "primaryKey")].flat(), fresh] }
+				]
+			}
+		),
+		breaking(
+			"a primary key is filled by its writer",
+			kindIs("relation", "fields", "primaryKey"),
+			(part) => {
+				const fields = Reflect.get(part, "fields")
+				const [key] = [Reflect.get(part, "primaryKey")].flat()
+				const keyed =
+					typeof key === "string" && isRecord(fields) ? Reflect.get(fields, key) : undefined
+				return typeof key === "string" && isRecord(fields) && isRecord(keyed)
+					? [
+							{
+								...part,
+								fields: {
+									...fields,
+									[key]: {
+										type: Reflect.get(keyed, "type"),
+										writing: {
+											kind: "generated",
+											expr: { kind: "literal", value: 1, type: undefined }
+										}
+									}
+								}
+							}
+						]
+					: []
+			}
+		),
+		breaking(
+			"a name is storable text",
+			(part) =>
+				kindIs("relation", "fields", "primaryKey")(part) ||
+				kindIs("closed", "handles")(part) ||
+				kindIs("closedRelation", "rows")(part) ||
+				kindIs("derived", "query", "level")(part) ||
+				isRecord(Reflect.get(part, "programs")),
+			(part) => {
+				const programs = Reflect.get(part, "programs")
+				const fields = Reflect.get(part, "fields")
+				return Arr.flatMap(unstorable, (bad): ReadonlyArray<unknown> => [
+					...(isRecord(programs)
+						? [{ ...part, programs: { ...programs, [bad]: { kind: "query", query } } }]
+						: [{ ...part, name: bad }]),
+					...(isRecord(fields) && Reflect.get(part, "kind") === "relation"
+						? [{ ...part, fields: { ...fields, [bad]: caller({ kind: "uuid" }) } }]
+						: [])
+				])
+			}
+		),
+		breaking(
+			"a closed relation's rows are each of every field, one per key",
+			kindIs("closedRelation", "rows"),
+			(part) => {
+				const [first, ...rest] = Arr.filter([Reflect.get(part, "rows")].flat(), isRecord)
+				if (first === undefined) {
+					return []
+				}
+				const [, ...fewer] = Rec.toEntries(first)
+				return [
+					{ ...part, rows: [Rec.fromEntries(fewer), ...rest] },
+					{ ...part, rows: [first, first, ...rest] }
+				]
+			}
+		),
+		breaking(
+			"a closed relation is keyed by closed ids",
+			kindIs("closedRelation", "fields", "key"),
+			(part) => {
+				const fields = Reflect.get(part, "fields")
+				return Arr.flatMap(isRecord(fields) ? Rec.toEntries(fields) : [], ([name, desc]) =>
+					isRecord(desc) && Reflect.get(desc, "kind") !== "closedId"
+						? [{ ...part, key: [name] }]
+						: []
+				)
+			}
+		),
+		breaking("an Allen mask is thirteen bits", kindIs("allen", "mask"), (part) =>
+			Arr.map([2 ** 13, -1, 1.5], (mask) => ({ ...part, mask }))
+		),
+		breaking("a numeric precision is 1 to 1000", kindIs("numeric", "precision"), (part) =>
+			Arr.map([0, numericMaxPrecision.value + 1], (precision) => ({ ...part, precision }))
+		),
+		breaking(
+			"each variable id once",
+			(part) => Arr.isArray(Reflect.get(part, "vars")) && Rec.has(part, "matches"),
+			(part) => {
+				const vars = [Reflect.get(part, "vars")].flat()
+				const [first] = vars
+				return first === undefined ? [] : [{ ...part, vars: [...vars, first] }]
+			}
+		)
+	]
+
+	it.effect(
+		"refuses every description broken at one part or one rule, and decodes every other",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/ir/desc-corruptions",
+						literal: Formatter.format,
+						draw: drawn((source) =>
+							source.draw(corrupted(source.draw(corpusGen), descCorruptions))
+						),
+						runs: 500,
+						shrink: completeShrink,
+						coverage: required<CorruptedFeature<DescRule>>(
+							[
+								"live",
+								...Arr.map(
+									descCorruptions,
+									(c): CorruptedFeature<DescRule> => `${c.from} ${c.rule}`
+								)
+							],
+							{ cases: 3000, sense: notesOnly }
+						),
+						kept: [],
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang,
+						oracle: {
+							kind: "specification",
+							name: "each rule of the Description boundary, broken at its site"
+						}
+					},
+					(c, n) =>
+						Effect.sync(() => {
+							n.note(corruptedFeature(c))
+							if (c.kind === "live") {
+								succeeded(decodeHanded(c.value[0], c.value[1]))
+								return
+							}
+							refuses(c.refusal, c.value)
+						})
+				)
+			)
+	)
 
 	/**
 	 * An in-memory description of any depth decodes, as its text form does, and never overflows the stack; a cyclic one

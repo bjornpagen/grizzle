@@ -21,7 +21,7 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { boolean, constant, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
+import { boolean, constant, element, type Gen, int, map, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -91,18 +91,19 @@ interface ProbeSketch {
 
 /** Every depth below the root alike, to `deepest`, and every owner of the family load. */
 const probeGen = (deepest: number): Gen<ProbeSketch> => {
+	const depths = nonEmpty(Arr.range(1, deepest), "a depth below the root")
 	const descendants: Gen<Read> = (source) => ({
 		kind: "descendants",
-		depth: source.draw(int(1, deepest)),
+		depth: source.draw(element(depths)),
 		pick: source.draw(pickGen)
 	})
 	return (source) => ({
 		generic: source.draw(boolean),
 		read: source.draw(
-			oneOf<Read>([
-				constant<Read>({ kind: "the export" }),
-				descendants,
-				map(int(1, load.owners), (owner): Read => ({ kind: "a family's members", owner }))
+			weighted<Read>([
+				[1, constant<Read>({ kind: "the export" })],
+				[4, descendants],
+				[1, map(int(1, load.owners), (owner): Read => ({ kind: "a family's members", owner }))]
 			])
 		)
 	})

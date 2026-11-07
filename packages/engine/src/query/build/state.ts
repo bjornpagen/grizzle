@@ -22,6 +22,7 @@ import {
 } from "#compiler/query/build/scope.ts"
 import { untyped } from "#compiler/scalar/compute/term.ts"
 import { describeField, type ScalarEnv } from "#compiler/scalar/registry.ts"
+import type { WrittenOver } from "#compiler/schema/level.ts"
 import {
 	fieldDescOf as fieldDesc,
 	isPlainRecord,
@@ -165,12 +166,17 @@ export const stageHeading = (stage: QueryStageDesc, env: ScalarEnv): Heading => 
 	}
 }
 
+/**
+ * Where a source may be matched: anywhere; only in the rule whose interior stage it is; only in a recursive arm of its
+ * own definition; or, a query or a bound import of one, in a rule over a level above the level it is written over.
+ */
 type SourceScope =
 	| { readonly kind: "anywhere" }
 	| { readonly kind: "interior"; readonly ctx: RuleContext }
 	| { readonly kind: "self"; readonly token: object }
+	| { readonly kind: "written"; readonly over: WrittenOver }
 
-export const anywhere: SourceScope = Object.freeze({ kind: "anywhere" })
+const anywhere: SourceScope = Object.freeze({ kind: "anywhere" })
 
 export interface SourceInfo {
 	readonly desc: OpenSource
@@ -182,7 +188,7 @@ export interface SourceInfo {
 	readonly carriers: Carriers
 	/** The relation variables over this source come from. */
 	readonly origin: SourceOrigin
-	/** Where the source may be matched: anywhere, or only in its interior stage's rule or its recursive arms. */
+	/** Where the source may be matched (SourceScope). */
 	readonly scope: SourceScope
 	readonly label: string
 }
@@ -352,7 +358,7 @@ export const sourceInfo = (value: unknown, label: string, env: ScalarEnv): Sourc
 			heading: query.heading,
 			carriers: headingOf(query.carriers),
 			origin: noOrigin,
-			scope: anywhere,
+			scope: { kind: "written", over: query.schema.over },
 			/** A named query is labelled by its diagnostic name. */
 			label: stage.kind === "named" ? stage.name : "query"
 		}

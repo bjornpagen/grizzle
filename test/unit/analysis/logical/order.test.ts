@@ -25,7 +25,7 @@ import { assert, defined, refused, succeeded } from "#test/support/assert.ts"
 import { asc as ascending, type BuiltQuery, Ir } from "#test/support/fixtures/ir/build.ts"
 import * as W from "#test/support/fixtures/ir/work.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { logicalEnv, theoryOf } from "#test/unit/analysis/logical/support.ts"
+import { logicalEnv, theoryUnder } from "#test/unit/analysis/logical/support.ts"
 
 /**
  * Order completion: the page completion policy, union roster-order completion included.
@@ -416,7 +416,7 @@ describe("completing an order over a union of different headings", () => {
 					],
 			conservativeMeta
 		)
-	const work = theoryOf(W.WorkDesc, provisionalTheory)
+	const work = theoryUnder(W.WorkDesc, provisionalTheory)
 	const subjectAt = (built: BuiltQuery, at: RelNode) => {
 		const analysis = succeeded(analyzeLogical(built.dag, logicalEnv(work)))
 		return orderSubjectOf(at, analysis.of(at).props, [], (k) =>

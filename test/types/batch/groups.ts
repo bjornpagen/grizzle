@@ -1,12 +1,18 @@
 import { Array as Arr, Record as Rec } from "effect"
+import { accessEntriesFrom, accessModule } from "#test/support/agreement/access.ts"
 import { attachEntriesFrom, attachModule } from "#test/support/agreement/attachments.ts"
 import { changeSetEntriesFrom, changeSetModules } from "#test/support/agreement/changesets.ts"
 import { computeEntriesFrom, computeModules } from "#test/support/agreement/compute.ts"
+import { configEntriesFrom, configModule } from "#test/support/agreement/dbconfig.ts"
 import { agreementEntriesFrom, agreementModules } from "#test/support/agreement/queries.ts"
+import { recursionEntriesFrom, recursionModule } from "#test/support/agreement/recursion.ts"
 import { schemaEntriesFrom, schemaModules } from "#test/support/agreement/schemas.ts"
+import { workloadEntriesFrom, workloadModule } from "#test/support/agreement/workloads.ts"
 import { bytesProgram } from "#test/support/text/bytes.ts"
 import { checkUnit, type Group, type UnitSpec } from "#test/types/batch/batch.ts"
 import { nestingCases, nestingSource } from "#test/types/changeset/nesting.ts"
+import { doorModule } from "#test/types/harness/door.ts"
+import { vocabularyModule } from "#test/types/harness/vocabulary.ts"
 import {
 	entriesFrom,
 	generateQuerySource,
@@ -40,7 +46,64 @@ const fixtureUnits = (
 })
 
 export const typeGroups: ReadonlyArray<Group> = [
-	{ owner: "test/types/api/api.test.ts", units: fixtureUnits("api", ["support.ts"]) },
+	{
+		owner: "test/types/api/access.test.ts",
+		units: {
+			"api/access": {
+				kind: "program",
+				dir: "test/types/api",
+				prefix: ".access-",
+				disarm: true,
+				heavy: false,
+				source: (entry, seed) => [
+					{ file: "index.ts", source: accessModule(accessEntriesFrom(entry), seed) }
+				]
+			}
+		}
+	},
+	{
+		owner: "test/types/api/config.test.ts",
+		units: {
+			"api/config": {
+				kind: "program",
+				dir: "test/types/api",
+				prefix: ".config-",
+				disarm: true,
+				heavy: false,
+				source: (entry) => [{ file: "index.ts", source: configModule(configEntriesFrom(entry)) }]
+			}
+		}
+	},
+	{
+		owner: "test/types/api/recursion.test.ts",
+		units: {
+			"api/recursion": {
+				kind: "program",
+				dir: "test/types/api",
+				prefix: ".recursion-",
+				disarm: true,
+				heavy: false,
+				source: (entry, seed) => [
+					{ file: "index.ts", source: recursionModule(recursionEntriesFrom(entry), seed) }
+				]
+			}
+		}
+	},
+	{
+		owner: "test/types/api/workload.test.ts",
+		units: {
+			"api/workload": {
+				kind: "program",
+				dir: "test/types/api",
+				prefix: ".workload-",
+				disarm: true,
+				heavy: false,
+				source: (entry, seed) => [
+					{ file: "index.ts", source: workloadModule(workloadEntriesFrom(entry), seed) }
+				]
+			}
+		}
+	},
 	{
 		owner: "test/types/changeset/changeset.test.ts",
 		units: {
@@ -82,7 +145,6 @@ export const typeGroups: ReadonlyArray<Group> = [
 			}
 		}
 	},
-	{ owner: "test/types/derived/derived.test.ts", units: fixtureUnits("derived", ["support.ts"]) },
 	{
 		owner: "test/types/evidence/evidence.test.ts",
 		units: fixtureUnits("evidence", ["support.ts"])
@@ -115,14 +177,38 @@ export const typeGroups: ReadonlyArray<Group> = [
 			}
 		}
 	},
-	{ owner: "test/types/examples/examples.test.ts", units: fixtureUnits("examples", ["work.ts"]) },
-	{ owner: "test/types/fields/fields.test.ts", units: fixtureUnits("fields", ["support.ts"]) },
-	{ owner: "test/types/harness/harness.test.ts", units: fixtureUnits("harness", []) },
+	{ owner: "test/types/examples/examples.test.ts", units: fixtureUnits("examples", []) },
+	{
+		owner: "test/types/harness/harness.test.ts",
+		units: {
+			"harness/vocabulary": {
+				kind: "program",
+				dir: "test/types/harness",
+				prefix: ".vocabulary-",
+				disarm: true,
+				heavy: false,
+				source: (_entry, seed) => [{ file: "index.ts", source: vocabularyModule(seed) }]
+			},
+			"harness/door": {
+				kind: "program",
+				dir: "test/types/harness",
+				prefix: ".door-",
+				disarm: true,
+				heavy: false,
+				source: (entry, seed) => [
+					{ file: "index.ts", source: doorModule(entry("test/support/assert.ts"), seed) }
+				]
+			}
+		}
+	},
 	{ owner: "test/types/page/page.test.ts", units: fixtureUnits("page", ["support.ts"]) },
 	{
 		owner: "test/types/query/query.test.ts",
+		units: fixtureUnits("query", ["support.ts"])
+	},
+	{
+		owner: "test/types/query/budget/refusals.test.ts",
 		units: {
-			...fixtureUnits("query", ["support.ts"]),
 			"query/budget": {
 				kind: "program",
 				dir: "test/types/query",

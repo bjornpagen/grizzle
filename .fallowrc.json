@@ -22,7 +22,6 @@
 		"scripts/dev/profile/compile.ts",
 		"scripts/dev/profile/read.ts",
 		"scripts/gen/allen/main.ts",
-		"test/types/examples/work.ts",
 		"oxlint.config.ts",
 		"packages/devtools/src/oxlint/fixtures.config.ts",
 		"packages/testing/src/vitest/coverage.ts",

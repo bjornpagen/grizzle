@@ -69,7 +69,7 @@ export const generateStatementSource = (relations: number, entries: BudgetEntrie
 import { ChangeSet } from ${jsonText(entries.changeset)}
 import { contained, type Fact, key, type KeysOf, on, relation, role, schema } from ${jsonText(entries.schema)}
 import { generated, type Uuid, uuid } from ${jsonText(entries.fields)}
-import type { Addition } from ${jsonText(entries.changesetTypes)}
+import type { Addition } from ${jsonText(entries.changeset)}
 import { str } from ${jsonText(entries.text)}
 import { type HeadOf, query, v } from ${jsonText(entries.query)}
 

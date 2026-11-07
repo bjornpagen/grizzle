@@ -1,7 +1,7 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { element, type Gen, int, uniqueArray } from "@grizzle/testing/gen"
+import { constant, element, type Gen, int, uniqueArray, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -80,15 +80,21 @@ interface Anchored {
 const itemGen = int(1, 2 * items)
 
 const anchoredGen: Gen<Anchored> = (source) => {
-	const keys = source.draw(uniqueArray(itemGen, (n) => n, { min: 0, max: 4 }, 8))
+	const shape = source.draw(
+		element([
+			"the claim's deletion of the Wanted items its pick names",
+			"a deletion of the Wanted items a relation parameter names",
+			"a deletion of the Wanted item a parameter selects"
+		] as const)
+	)
+	const keys = source.draw(
+		weighted<ReadonlyArray<number>>([
+			[1, constant([])],
+			[2, uniqueArray(itemGen, (n) => n, { min: 1, max: 4 }, 8)]
+		])
+	)
 	return {
-		shape: source.draw(
-			element([
-				"the claim's deletion of the Wanted items its pick names",
-				"a deletion of the Wanted items a relation parameter names",
-				"a deletion of the Wanted item a parameter selects"
-			] as const)
-		),
+		shape,
 		params: {
 			kind: source.draw(element(QueueKind.handles)),
 			slot: Slot(source.draw(int(0, 3))),
@@ -198,6 +204,29 @@ layer(Substrate.layer, { excludeTestServices: true })("an anchored deletion", (i
 					)
 				}
 				const wanted = names.relation("Wanted").name
+				/** Each member's ChangeSet compiled against the installation, once: its plan is drawn per case. */
+				const compiledOf = (shape: Shape) => {
+					const desc = changeSetDesc(members[shape])
+					if (desc === undefined) {
+						throw new Error(`${shape}: no ChangeSet`)
+					}
+					const program = compileWrite(checking(S), desc, reality)
+					if (!program.ok) {
+						throw new Error(`${shape}: ${program.error.message}`)
+					}
+					return program.value
+				}
+				const programs = {
+					"the claim's deletion of the Wanted items its pick names": compiledOf(
+						"the claim's deletion of the Wanted items its pick names"
+					),
+					"a deletion of the Wanted items a relation parameter names": compiledOf(
+						"a deletion of the Wanted items a relation parameter names"
+					),
+					"a deletion of the Wanted item a parameter selects": compiledOf(
+						"a deletion of the Wanted item a parameter selects"
+					)
+				}
 				return yield* explore(
 					{
 						suite: "pg/write/anchored",
@@ -215,7 +244,7 @@ layer(Substrate.layer, { excludeTestServices: true })("an anchored deletion", (i
 								"a relation parameter of no keys",
 								"a relation parameter of several keys"
 							],
-							{ cases: 24, sense: notesOnly }
+							{ cases: 48, sense: notesOnly }
 						),
 						kept: [],
 						runs: 12,
@@ -239,17 +268,10 @@ layer(Substrate.layer, { excludeTestServices: true })("an anchored deletion", (i
 								key: digestOfItem(1),
 								keys: Arr.map(keys, (_, i) => ({ key: digestOfItem(i + 2) }))
 							}
-							const desc = changeSetDesc(members[shape])
-							if (desc === undefined) {
-								throw new Error(`${shape}: no ChangeSet`)
-							}
-							const program = compileWrite(checking(S), desc, reality)
-							if (!program.ok) {
-								throw new Error(`${shape}: ${program.error.message}`)
-							}
-							const statements = program.value.artifacts.optimized.statements
-							/** Each placeholder's text from the fixed parameters, a relation's normalized once. */
-							const declared = { params: program.value.params, codes: names.codes }
+							const program = programs[shape]
+							const statements = program.artifacts.optimized.statements
+							/** Each placeholder's text from the drawn parameters, a relation's normalized once. */
+							const declared = { params: program.params, codes: names.codes }
 							const found = Arr.findFirst(statements, (st, at) =>
 								st.step.kind === "write" &&
 								st.step.relation === Wanted.name &&

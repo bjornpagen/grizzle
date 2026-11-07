@@ -1,4 +1,3 @@
-import { canonicalEquals, everyProperty } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { type DeclaredName, parseDeclaredName } from "#compiler/core/identity.ts"
 import { ExprId, NodeId, ParamId } from "#compiler/core/ids.ts"
@@ -27,6 +26,7 @@ import {
 	type TableExpr,
 	type TableExprOf
 } from "#compiler/ir/expr.ts"
+import { identicalRoster, identicalSpan, identicalText } from "#compiler/ir/identical.ts"
 import {
 	type Exact,
 	type Fact,
@@ -258,8 +258,31 @@ const spanShape: S.Shape<WireSpan> = S.structStated(
 	{}
 )
 
-const sameOptional = (a: unknown, b: unknown): boolean =>
-	a === undefined || b === undefined ? a === b : canonicalEquals(a, b, everyProperty)
+/** Both absent, or both present and identical. */
+const both = <A, B>(a: A | undefined, b: B | undefined, same: (x: A, y: B) => boolean): boolean =>
+	a === undefined || b === undefined ? a === b : same(a, b)
+
+/** A wire typmod as the base's typmod states it: numeric(p, s)'s precision and scale, or vector(n)'s dimensions. */
+const sameTypmod = (wire: WireTypmod, base: ScalarType): boolean => {
+	const numeric = numericTypmodOf(base)
+	if (numeric !== undefined) {
+		return (
+			wire.precision === numeric.precision &&
+			wire.scale === numeric.scale &&
+			wire.dims === undefined
+		)
+	}
+	const vector = vectorTypmodOf(base)
+	return (
+		vector !== undefined &&
+		wire.precision === undefined &&
+		wire.scale === undefined &&
+		wire.dims === vector.dims
+	)
+}
+
+const baseHasTypmod = (base: ScalarType): boolean =>
+	numericTypmodOf(base) !== undefined || vectorTypmodOf(base) !== undefined
 
 /**
  * The contract of a wire descriptor, or the first broken rule: its base has the descriptor's carrier and is a value
@@ -272,21 +295,16 @@ const narrowContract = (t: WireScalarType, contract: WireContract): ContractInfo
 	if (base.carrier !== t.carrier) {
 		return "a contract has its base's carrier"
 	}
-	/**
-	 * The domain keeps its base's typmod, text refinement, roster and span: an outer field
-	 * that differs would let a literal pass for the contract that its base, and PostgreSQL's domain, refuses.
-	 */
-	const baseTypmod = numericTypmodOf(base) ?? vectorTypmodOf(base)
-	if (!sameOptional(t.typmod, baseTypmod)) {
+	if (t.typmod === undefined ? baseHasTypmod(base) : !sameTypmod(t.typmod, base)) {
 		return "a contract carries its base's typmod, unchanged"
 	}
-	if (!sameOptional(t.text, textOf(base))) {
+	if (!both(t.text, textOf(base), identicalText)) {
 		return "a contract carries its base's text, unchanged"
 	}
-	if (!sameOptional(t.roster, rosterOf(base))) {
+	if (!both(t.roster, rosterOf(base), identicalRoster)) {
 		return "a contract carries its base's roster, unchanged"
 	}
-	if (!sameOptional(t.span, spanOf(base))) {
+	if (!both(t.span, spanOf(base), identicalSpan)) {
 		return "a contract carries its base's span, unchanged"
 	}
 	if (isNumericValue(base)) {

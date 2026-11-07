@@ -1,7 +1,7 @@
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
 import { type Situations, unreachedOf } from "@grizzle/testing/features"
-import { Effect } from "effect"
+import { Array as Arr, Effect } from "effect"
 import {
 	type ComputeNote,
 	computeCount,
@@ -46,7 +46,10 @@ layer(NodeServices.layer, { excludeTestServices: true })(
 
 		it("the floor's witnesses reach every construct under both verdicts, every Refusal and every inference", () => {
 			assert.deepEqual(
-				unreachedOf(required, [computeWitnesses().tally]),
+				unreachedOf(
+					required,
+					Arr.map(computeWitnesses(), (stratum) => stratum.tally)
+				),
 				[],
 				"situations no floor witness reached"
 			)

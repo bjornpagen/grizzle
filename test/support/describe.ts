@@ -14,6 +14,7 @@ import {
 	queryOf
 } from "#compiler/query/build/query.ts"
 import { described, isOrdered, type QueryState, stageHeading } from "#compiler/query/build/state.ts"
+import { levelOf, type WrittenOver } from "#compiler/schema/level.ts"
 import { checkedIn } from "#test/support/policy.ts"
 
 /** A payload its carrier parsed, or MalformedDescription where its grammar admits no such payload. */
@@ -42,6 +43,25 @@ export const fromQueryDescription = (
 ): Result.Result<QueryDesc, CompileError> => descFromJson("query", description)
 
 /**
+ * What a rebuilt query is written over: its schema's or role's level, or, with no schema, no level (WrittenOver), so
+ * no rule matches it; a value that is neither a schema nor a role is refused.
+ */
+const writtenOver = (schema: unknown): Result.Result<WrittenOver, CompileError> => {
+	if (schema === undefined) {
+		return Result.ok({ kind: "description" })
+	}
+	const level = levelOf(schema)
+	return level === undefined
+		? Result.err(
+				malformedDescription(
+					SourceLoc("query", []),
+					"a schema built by schema(...) or schema.extend(...), or a role built by role(...)"
+				)
+			)
+		: Result.ok(level)
+}
+
+/**
  * A query or ordered value rebuilt from its Description: the same combinators, over a heading the Description states,
  * typed where its descriptors say so. Its heading carries no column: it is described, and delivers no records. A
  * Description spells every name, so it waits on no attachment child.
@@ -50,17 +70,19 @@ export const queryFromDesc = (
 	desc: unknown,
 	schema: unknown
 ): Result.Result<QueryValue | OrderedValue, CompileError> =>
-	Result.map(decodeDesc("query", desc), (owned) => {
-		const info = schemaInfo(schema)
-		const state: QueryState = {
-			desc: owned,
-			heading: stageHeading(owned.stage, info.env),
-			carriers: described,
-			schema: info,
-			pending: new Set()
-		}
-		return isOrdered(state) ? orderedOf(state, described) : queryOf(state, described)
-	})
+	Result.flatMap(writtenOver(schema), (over) =>
+		Result.map(decodeDesc("query", desc), (owned) => {
+			const info = schemaInfo(schema, over)
+			const state: QueryState = {
+				desc: owned,
+				heading: stageHeading(owned.stage, info.env),
+				carriers: described,
+				schema: info,
+				pending: new Set()
+			}
+			return isOrdered(state) ? orderedOf(state, described) : queryOf(state, described)
+		})
+	)
 
 /**
  * The inverse of describeQuery: a QueryDescription back to a query value (queryFromDesc). A value that does not decode

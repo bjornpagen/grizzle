@@ -13,6 +13,7 @@ import {
 	contractOf,
 	numericMaxFractionDigits,
 	numericMaxIntegerDigits,
+	octetsOf,
 	type ScalarType,
 	textOf
 } from "#compiler/ir/scalar.ts"
@@ -109,12 +110,14 @@ const proofHolds = (
 				) {
 					return false
 				}
+				const octets = octetsOf(refinement.check)
 				return Arr.some(
 					premises,
 					(m: OperandPremise) =>
 						(m.kind === "checked" && m.operand === 0) ||
 						(m.kind === "language" &&
 							m.operand === 0 &&
+							(octets === undefined || (m.bytes !== undefined && m.bytes <= octets)) &&
 							patternIncludes({ source: m.pattern, flags: m.flags }, refinement).kind ===
 								"included")
 				)

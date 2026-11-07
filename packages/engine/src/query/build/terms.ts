@@ -64,9 +64,14 @@ interface AggregateValue<out T, out S extends SqlTag> extends Built, TermCarrier
 	readonly aggregate: AggregateName
 }
 
-/** A producer: its function, and the carrier of the spans it yields, its operand's. */
-interface ProducerValue<out T, out S extends SqlTag> extends Built, TermCarrier<T, S> {
-	readonly produces: "intersection" | "difference" | "pack"
+/** A producer: its function F, and the carrier of the spans it yields, its operand's. */
+interface ProducerValue<
+	out T,
+	out S extends SqlTag,
+	out F extends "intersection" | "difference" | "pack"
+>
+	extends Built, TermCarrier<T, S> {
+	readonly produces: F
 }
 
 const headValue = <V extends Built>(value: V, desc: OpenHead, typing: Typing): V =>
@@ -465,11 +470,11 @@ const carried = (value: unknown, label: string): TermCarrier => {
 }
 
 /** Producers: head terms yielding zero or more spans per binding, of their left operand's span type. */
-const producer = <T, S extends SqlTag>(
-	fn: "intersection" | "difference",
+const producer = <T, S extends SqlTag, F extends "intersection" | "difference">(
+	fn: F,
 	left: TermCarrier<T, S>,
 	right: unknown
-): ProducerValue<T, S> => {
+): ProducerValue<T, S, F> => {
 	const l = spanTerm(left, `r.${fn}`)
 	carried(left, `r.${fn}`)
 	const r = spanOperand(right, l.typing, `r.${fn}`)
@@ -483,14 +488,16 @@ const producer = <T, S extends SqlTag>(
 export const intersection = <T, S extends SqlTag>(
 	left: TermCarrier<T, S>,
 	right: unknown
-): ProducerValue<T, S> => producer("intersection", left, right)
+): ProducerValue<T, S, "intersection"> => producer("intersection", left, right)
 
 export const difference = <T, S extends SqlTag>(
 	left: TermCarrier<T, S>,
 	right: unknown
-): ProducerValue<T, S> => producer("difference", left, right)
+): ProducerValue<T, S, "difference"> => producer("difference", left, right)
 
-export const pack = <T, S extends SqlTag>(spans: TermCarrier<T, S>): ProducerValue<T, S> => {
+export const pack = <T, S extends SqlTag>(
+	spans: TermCarrier<T, S>
+): ProducerValue<T, S, "pack"> => {
 	const s = spanTerm(spans, "r.pack")
 	carried(spans, "r.pack")
 	return headValue(

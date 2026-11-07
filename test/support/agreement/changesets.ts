@@ -5,13 +5,14 @@ import { sample, type Source } from "@grizzle/testing/source"
 import { keep, type Swarm, swarm, swarmChoice } from "@grizzle/testing/swarm"
 import { Array as Arr, Effect, Option, Record as Rec, Result, Stream, String as Str } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
+import { changeOps } from "#adapter/db/db.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import { CompileError, type CompileReason } from "#compiler/core/errors.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
+import { isSequence, isTreeOf } from "#compiler/ir/family.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { contractOf } from "#compiler/ir/scalar.ts"
-import { pg } from "#compiler/public/fields.ts"
-import { Money } from "#compiler/public/fields.ts"
+import { Bits, Money, pg } from "#compiler/public/fields.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
@@ -24,18 +25,32 @@ import {
 } from "#compiler/write/changeset/value.ts"
 import type { DeltaValue } from "#compiler/write/delta/source.ts"
 import { inForce } from "#compiler/write/family/order.ts"
+import { isCarried } from "#compiler/write/insert/statement.ts"
 import { bindWrite } from "#compiler/write/program/bind.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
 import {
+	Bin,
 	Budget,
+	Cart,
 	Cents,
+	Chip,
+	Clerk,
+	Entry,
+	Flag,
+	Item,
 	Kind,
 	Ledger,
+	Line,
+	Node,
+	Order,
 	Other,
 	Pair,
+	Pool,
 	Reader,
 	Reports,
+	Tag,
 	Task,
+	TaskCount,
 	Ticket,
 	Twin,
 	Work,
@@ -54,24 +69,44 @@ import { checking } from "#test/support/policy.ts"
  * - a ChangeSet, and its application through a role's Db, typechecks exactly when the engine builds, compiles and
  *   binds it: a refused case stands under a directive, which the type-test batch disarms;
  * - the Refusal a refused case's directive names is the engine's reason (claimOf);
- * - an admitted ChangeSet's parameters, writes, read-backs and schema are the engine's, and its application's error,
- *   success and service channels are ApplyError, the ApplyOutcome of its read-backs, and none, each asserted exactly.
+ * - an admitted ChangeSet's parameters, writes, read-backs and schema are the engine's, and so are the rows of each
+ *   relation it writes, the fields its caller writes (Written) and those its addition holds (AdditionIn); its
+ *   application's error, success and service channels are ApplyError, the ApplyOutcome of its read-backs, and none,
+ *   each asserted exactly.
  *
  * A case is a valid ChangeSet by construction with at most one planted fault, so the one line the case is written on
  * raises at most the one diagnostic its directive names: a read-back name repeated by read, union or sequence, a
- * closed relation written, a described member's head that is no fact of its relation or writes an exact value into a
- * plain field, a member fact with a field its relation lacks or some of its serials, two facts an addition or a put
- * lists sharing a key with literal payloads that differ, a fold over a delta reading no key, ChangeSets over schemas
- * that are no levels of one another, a role that does not write the relation, a parameter left unbound. The floor's
- * witnesses (changeSetWitnesses), the same in every run, reach every fault and every construct.
+ * closed or derived relation written, a read-back of a derived relation's delta, a described member's head that is no
+ * fact of its relation or writes an exact value into a plain field, a member fact with a field its relation lacks or
+ * some of its serials, missing a field or holding a value outside one, two facts an addition, a deletion or a put lists
+ * sharing a key with literal payloads that differ, a family's member fact that is no fact of its relation as the
+ * nesting takes it (a root field below a tree's root, a field its relation lacks or a drawn one in a nested member, a
+ * nested member missing a field, a counted member nested, an accumulated field or a count in a put, a generated field
+ * in an insert), a family write the engine cannot plan (a sequence's member written
+ * alone or by its row, a tree's row put or deleted, an immutable owner put, a member of an immutable owner's family
+ * deleted), a fold over a delta reading no key, ChangeSets over schemas that are no levels of one another, a role that
+ * does not write the relation (or a member its insert nests), a parameter left unbound, a compiled ChangeSet read as a
+ * query. The floor's witnesses (changeSetWitnesses), the same in every run, each aimed at a requirement, reach every
+ * fault and every construct.
  *
  * One equivalence, brands being type-only: a contract's value written as its bare base value (`cents: 5n`), which the
- * engine checks by value and admits, the types refuse for its missing brand, as the head no fact of its relation.
+ * engine checks by value and admits, the types refuse for its missing brand, as the head no fact of its relation. And
+ * the declared classes the engine refuses by its strata, which the types do not see (declaredOf): an insert of a member
+ * of an immutable owner's family in a stratum that inserts no such owner, and a family's members edited in more than
+ * one stratum. The types admit each, so its case stands under no directive, and the engine's refusal is asserted by its
+ * tag, UnsupportedOperation.
  */
 
-type RelName = "Task" | "Budget" | "Ticket" | "Pair" | "Ledger"
-const relNames: Arr.NonEmptyReadonlyArray<RelName> = ["Task", "Budget", "Ticket", "Pair", "Ledger"]
-const relations = { Task, Budget, Ticket, Pair, Ledger } as const
+type RelName = "Task" | "Budget" | "Ticket" | "Pair" | "Ledger" | "Tag"
+const relNames: Arr.NonEmptyReadonlyArray<RelName> = [
+	"Task",
+	"Budget",
+	"Ticket",
+	"Pair",
+	"Ledger",
+	"Tag"
+]
+const relations = { Task, Budget, Ticket, Pair, Ledger, Tag } as const
 
 /** A value a case writes: its source and the value the engine's reading builds. */
 interface Lit {
@@ -99,6 +134,10 @@ const cents: Arr.NonEmptyReadonlyArray<Lit> = [
 	{ text: "Cents(0n)", value: Cents(0n) }
 ]
 const plainNumber: Lit = { text: "1", value: 1 }
+const kinds: Arr.NonEmptyReadonlyArray<Lit> = [
+	{ text: '"Automatic"', value: "Automatic" },
+	{ text: '"Manual"', value: "Manual" }
+]
 const bigints: Arr.NonEmptyReadonlyArray<Lit> = [
 	{ text: "1n", value: 1n },
 	{ text: "2n", value: 2n }
@@ -112,10 +151,7 @@ const fieldsOf: { readonly [R in RelName]: Arr.NonEmptyReadonlyArray<FieldInfo> 
 			name: "kind",
 			serial: false,
 			key: false,
-			values: [
-				{ text: '"Automatic"', value: "Automatic" },
-				{ text: '"Manual"', value: "Manual" }
-			],
+			values: kinds,
 			bad: { text: '"Paused"', value: "Paused" }
 		}
 	],
@@ -155,6 +191,26 @@ const fieldsOf: { readonly [R in RelName]: Arr.NonEmptyReadonlyArray<FieldInfo> 
 			values: [{ text: "Money.of(5n)", value: Money.of(5n) }],
 			bad: { text: "5n", value: 5n }
 		}
+	],
+	Tag: [
+		{ name: "id", serial: false, key: true, values: uuids, bad: plainNumber },
+		{
+			name: "kind",
+			serial: false,
+			key: false,
+			values: kinds,
+			bad: { text: '"Paused"', value: "Paused" }
+		},
+		{
+			name: "flags",
+			serial: false,
+			key: false,
+			values: [
+				{ text: 'Bits.of(Flag, ["on"])', value: Bits.of(Flag, ["on"]) },
+				{ text: "Bits.of(Flag, [])", value: Bits.of(Flag, []) }
+			],
+			bad: plainNumber
+		}
 	]
 }
 
@@ -164,18 +220,38 @@ const changeSetFaults = [
 	"a read-back name repeated by union",
 	"a read-back name repeated by sequence",
 	"a closed relation written",
+	"a derived relation written",
+	"a derived relation's delta read",
 	"a head with a field its relation lacks",
 	"a head without a field",
 	"a head literal outside its field",
 	"an exact value into a plain field",
 	"a fact with a field its relation lacks",
+	"a fact missing a field",
+	"a fact value outside its field",
 	"an addition with some of its serials",
 	"two facts sharing a key",
 	"a value missing its brand",
+	"a nested root field",
+	"a deep root field",
+	"a nested field its relation lacks",
+	"a nested drawn field",
+	"a nested member missing a field",
+	"a counted member nested",
+	"an accumulated field written",
+	"a count written by a put",
+	"a generated field supplied",
+	"a sequence member written alone",
+	"a sequence member edited by its row",
+	"a tree row edited",
+	"an immutable owner put",
+	"a member of an immutable family deleted",
 	"a fold over a delta reading no key",
 	"ChangeSets over unrelated schemas",
 	"a role that does not write the relation",
-	"a parameter left unbound"
+	"a parameter left unbound",
+	"a compiled ChangeSet read by execute",
+	"a compiled ChangeSet read by get"
 ] as const
 type ChangeSetFault = (typeof changeSetFaults)[number]
 
@@ -187,6 +263,15 @@ const changeSetFeatures = [
 	"array member",
 	"stream member",
 	"described member",
+	"family member",
+	"nested members",
+	"a nested tree",
+	"a counted member",
+	"a mutable family",
+	"an immutable family",
+	"an append beside its owner",
+	"an append alone",
+	"family members in two strata",
 	"a parameter",
 	"a narrowed exact value",
 	"a head parameter",
@@ -200,7 +285,8 @@ const changeSetFeatures = [
 	"sequence",
 	"bind",
 	"over an extension",
-	"applied"
+	"applied",
+	"a partial write list"
 ] as const
 type ChangeSetFeature = (typeof changeSetFeatures)[number]
 
@@ -211,31 +297,47 @@ const refusalNotes = {
 	"read-back names are distinct: the ChangeSets share a read-back name":
 		"refused: a shared read name",
 	"a ChangeSet writes only the ordinary relations of its schema and the world relations its role writes":
-		"refused: a closed relation",
+		"refused: an ordinary relation",
 	"the query's head is not a fact of the relation": "refused: a head",
 	"a member's head writes each field at its type: an exact value re-enters a plain field only by Compute.cast":
 		"refused: an exact value",
 	"a member fact is not a fact of the relation": "refused: a member fact",
+	"a sequence's member is written under its owner: nest it in order at the owner's count field":
+		"refused: a sequence member",
 	"a fold reads each fact it matches once, by a key: bind a key of every source the rule matches, or match a query of the distinct values":
 		"refused: a fold",
 	"the ChangeSets' schemas are not levels of one another": "refused: unrelated schemas",
 	"a ChangeSet writes only relations its role's write list names": "refused: a write list",
 	"two facts of one relation share a key with different values; a key names one fact":
-		"refused: a shared key"
+		"refused: a shared key",
+	"a compiled ChangeSet applies, and a compiled query reads": "refused: a compiled ChangeSet read",
+	"a put or a delete names its rows by their key, and no fact states a key field grizzle writes: key the relation by fields its caller writes":
+		"refused: an unstated key",
+	"a tree is rewritten whole: insert its root with the whole tree nested": "refused: a tree row",
+	"an owner's put updates its row in place, which an immutable owner refuses: declare it mutable to put it":
+		"refused: an immutable owner",
+	"an immutable owner's family is fixed when its owner is inserted: declare the owner mutable to change it":
+		"refused: a fixed family"
 } as const
 type ChangeSetRefusal = keyof typeof refusalNotes
 type RefusalNote = (typeof refusalNotes)[ChangeSetRefusal]
 export const changeSetRefusals: Arr.NonEmptyReadonlyArray<RefusalNote> = [
 	"refused: a read name",
 	"refused: a shared read name",
-	"refused: a closed relation",
+	"refused: an ordinary relation",
 	"refused: a head",
 	"refused: an exact value",
 	"refused: a member fact",
+	"refused: a sequence member",
 	"refused: a fold",
 	"refused: unrelated schemas",
 	"refused: a write list",
-	"refused: a shared key"
+	"refused: a shared key",
+	"refused: a compiled ChangeSet read",
+	"refused: an unstated key",
+	"refused: a tree row",
+	"refused: an immutable owner",
+	"refused: a fixed family"
 ]
 
 /** What a case reached: its constructs and fault, the engine's verdict, and the Refusal its directive names. */
@@ -243,6 +345,7 @@ export type ChangeSetNote =
 	| ChangeSetFeature
 	| "admitted"
 	| "refused"
+	| "declared"
 	| "refused: structurally"
 	| RefusalNote
 
@@ -278,15 +381,57 @@ type MemberSpec =
 			readonly match: ReadonlyArray<readonly [string, HeadTerm]>
 			readonly head: ReadonlyArray<readonly [string, HeadTerm]>
 	  }
+	| {
+			readonly kind: "family"
+			readonly op: Op
+			readonly relation: FamilyRel
+			readonly facts: Arr.NonEmptyReadonlyArray<FamilyFact>
+	  }
+	| {
+			/** An insert of a counted family's owners, then of members appended to them, in one stratum. */
+			readonly kind: "appended"
+			readonly owner: CountedOwner
+			readonly owners: Arr.NonEmptyReadonlyArray<FamilyFact>
+			readonly members: Arr.NonEmptyReadonlyArray<FamilyFact>
+	  }
+	| { readonly kind: "derived"; readonly op: Op }
 
-interface ReadSpec {
-	readonly name: string
-	readonly source: "added" | "removed" | "state"
-	readonly relation: RelName
-	/** The fields its match binds and its head delivers, or a count over the facts it matches. */
-	readonly fold: "none" | "keyed" | "unkeyed"
-	readonly fields: Arr.NonEmptyReadonlyArray<string>
-}
+/** Work's families' owners, each immutable or mutable, and their members. */
+type OrderedOwner = "Order" | "Cart"
+type CountedOwner = "Pool" | "Bin"
+const sequenceMembers = { Order: "Line", Cart: "Entry" } as const
+const countedMembers = { Pool: "Item", Bin: "Chip" } as const
+const mutableOwners: ReadonlyArray<OrderedOwner | CountedOwner> = ["Cart", "Bin"]
+
+/** A relation of Work's families: an owner, an ordered or counted member, or a tree's node. */
+type FamilyRel =
+	| OrderedOwner
+	| CountedOwner
+	| (typeof sequenceMembers)[OrderedOwner]
+	| (typeof countedMembers)[CountedOwner]
+	| "Node"
+
+/** A field of a family member's fact: a value its caller writes, or the rows nested at a count field. */
+type FamilyValue =
+	| { readonly kind: "value"; readonly lit: Lit }
+	| { readonly kind: "rows"; readonly rows: ReadonlyArray<FamilyFact> }
+type FamilyFact = ReadonlyArray<readonly [string, FamilyValue]>
+
+/**
+ * A read-back: of a written relation's added or removed facts, or of a relation's state, its fields or a count over
+ * them; or of a derived relation's delta, which no ChangeSet writes, matched whole into an empty head.
+ */
+type ReadSpec =
+	| {
+			readonly kind: "relation"
+			readonly name: string
+			readonly source: "added" | "removed" | "state"
+			readonly relation: RelName
+			/** The fields its match binds and its head delivers, or a count over the facts it matches. */
+			readonly fold: "none" | "keyed" | "unkeyed"
+			readonly fields: Arr.NonEmptyReadonlyArray<string>
+	  }
+	| { readonly kind: "derived"; readonly name: string; readonly source: "added" | "removed" }
 
 interface BuiltSpec {
 	readonly kind: "built"
@@ -301,12 +446,17 @@ type ChangeSpec =
 	| BuiltSpec
 	| { readonly kind: "union" | "sequence"; readonly a: ChangeSpec; readonly b: ChangeSpec }
 
-/** How a case's ChangeSet is applied: by a role's Db, through apply or compile, with its arguments. */
+/**
+ * How a case's ChangeSet is applied: by a role's Db, through apply or compile, with its arguments; or, compiled, read as
+ * a query is, by execute or get.
+ */
 interface ApplySpec {
-	readonly role: "Writer" | "Reader"
-	readonly entry: "apply" | "compile"
+	readonly role: RoleName
+	readonly entry: "apply" | "compile" | "execute" | "get"
 	readonly args: ReadonlyArray<readonly [string, Lit]>
 }
+
+type RoleName = "Writer" | "Clerk" | "Reader"
 
 interface CaseSpec {
 	readonly change: ChangeSpec
@@ -318,17 +468,30 @@ interface CaseSpec {
 class Drawing {
 	readonly #source: Source
 	readonly #swarm: Swarm<ChangeSetFeature>
+	readonly #aim: ReadonlySet<ChangeSetFeature>
 	#params = 0
 	#reads = 0
 	readonly reached = new Set<ChangeSetFeature>()
 
-	constructor(source: Source, drawn: Swarm<ChangeSetFeature>) {
+	/** A drawing aimed at the features `aim` names: a floor witness of a requirement keeps and chooses each of them. */
+	constructor(source: Source, drawn: Swarm<ChangeSetFeature>, aim: ReadonlySet<ChangeSetFeature>) {
 		this.#source = source
 		this.#swarm = drawn
+		this.#aim = aim
+	}
+
+	/** Whether the drawing is aimed at `feature`. */
+	aimed(feature: ChangeSetFeature): boolean {
+		return this.#aim.has(feature)
+	}
+
+	/** Whether the drawing is aimed at any feature, so it plants a fault only where its aim names one. */
+	aiming(): boolean {
+		return this.#aim.size > 0
 	}
 
 	keep(feature: ChangeSetFeature): boolean {
-		const kept = this.#source.draw(keep(this.#swarm, feature))
+		const kept = this.#aim.has(feature) || this.#source.draw(keep(this.#swarm, feature))
 		if (kept) {
 			this.reached.add(feature)
 		}
@@ -340,7 +503,10 @@ class Drawing {
 	}
 
 	choose<O extends ChangeSetFeature>(options: Arr.NonEmptyReadonlyArray<O>): O {
-		const chosen = this.#source.draw(swarmChoice(this.#swarm, options))
+		const aimed = Arr.findFirst(options, (o) => this.#aim.has(o))
+		const chosen = Option.isSome(aimed)
+			? aimed.value
+			: this.#source.draw(swarmChoice(this.#swarm, options))
 		this.reached.add(chosen)
 		return chosen
 	}
@@ -395,6 +561,15 @@ const factOf = (
 	if (fault === "an addition with some of its serials") {
 		return Arr.filter(base, ([name]) => name !== "b")
 	}
+	const payload = Arr.findFirst(written, (f) => !f.key && !f.serial)
+	if (fault === "a fact missing a field" && Option.isSome(payload)) {
+		return Arr.filter(base, ([name]) => name !== payload.value.name)
+	}
+	if (fault === "a fact value outside its field" && Option.isSome(payload)) {
+		return Arr.map(base, ([name, lit]) =>
+			name === payload.value.name ? ([name, payload.value.bad] as const) : ([name, lit] as const)
+		)
+	}
 	return base
 }
 
@@ -437,7 +612,7 @@ const describedOf = (
 	const headLiteral = d.keep("a head literal")
 	const extraParams: Array<ParamSpec> = []
 	const plain = (f: FieldInfo): HeadTerm => {
-		if (f.key || f.serial || f.name === "balance") {
+		if (f.key || f.serial || f.name === "balance" || f.name === "flags") {
 			return headOf(f)
 		}
 		if (headParam && extraParams.length === 0) {
@@ -507,6 +682,8 @@ const describedOf = (
 const factFaults: ReadonlyArray<ChangeSetFault> = [
 	"two facts sharing a key",
 	"a fact with a field its relation lacks",
+	"a fact missing a field",
+	"a fact value outside its field",
 	"an addition with some of its serials"
 ]
 const headFaults: ReadonlyArray<ChangeSetFault> = [
@@ -518,7 +695,7 @@ const headFaults: ReadonlyArray<ChangeSetFault> = [
 ]
 
 /** A member: its operation and relation, then its facts, enumerated or as a Stream, or its description. */
-const memberOf = (d: Drawing, fault: ChangeSetFault | undefined): MemberSpec => {
+const memberOf = (d: Drawing, fault: ChangeSetFault | undefined, clean: boolean): MemberSpec => {
 	if (fault === "a closed relation written") {
 		return {
 			kind: "array",
@@ -527,10 +704,21 @@ const memberOf = (d: Drawing, fault: ChangeSetFault | undefined): MemberSpec => 
 			facts: [[["id", { text: '"Automatic"', value: "Automatic" }]]]
 		}
 	}
+	if (fault === "a derived relation written") {
+		return { kind: "derived", op: d.choose(["insert", "delete", "put"] as const) }
+	}
+	const plain = d.aimed("described member") || d.aimed("a partial write list")
+	if (fault !== undefined && isFamilyFault(fault)) {
+		return plantedFamilyMember(d, fault)
+	}
+	if (fault === undefined && !plain && d.keep("family member")) {
+		return familyMemberOf(d, clean)
+	}
+	const narrowed = d.aimed("a narrowed exact value")
 	const op =
 		fault === "an addition with some of its serials"
 			? "insert"
-			: fault === "two facts sharing a key"
+			: narrowed
 				? d.choose(["insert", "put"] as const)
 				: d.choose(["insert", "delete", "put"] as const)
 	const relation: RelName =
@@ -540,9 +728,11 @@ const memberOf = (d: Drawing, fault: ChangeSetFault | undefined): MemberSpec => 
 				? "Task"
 				: fault === "a value missing its brand"
 					? d.from(["Budget", "Ticket"] as const)
-					: fault === "an exact value into a plain field"
+					: fault === "an exact value into a plain field" || narrowed
 						? "Ledger"
-						: d.from(relNames)
+						: d.aimed("a partial write list")
+							? d.from(["Task", "Budget"] as const)
+							: d.from(relNames)
 	const described =
 		fault !== undefined && Arr.contains(headFaults, fault)
 			? true
@@ -557,10 +747,8 @@ const memberOf = (d: Drawing, fault: ChangeSetFault | undefined): MemberSpec => 
 			fault
 		)
 	}
-	const kind = d.keep("stream member") ? "stream" : "array"
-	d.note(kind === "stream" ? "stream member" : "array member")
-	const planted = fault !== undefined && Arr.contains(factFaults, fault) ? fault : undefined
 	if (fault === "two facts sharing a key") {
+		d.note("array member")
 		const first = factOf(d, op, relation, undefined, 0)
 		const payload = Arr.findFirst(
 			fieldsOf[relation],
@@ -573,9 +761,273 @@ const memberOf = (d: Drawing, fault: ChangeSetFault | undefined): MemberSpec => 
 		)
 		return { kind: "array", op, relation, facts: [first, second] }
 	}
+	const kind = d.keep("stream member") ? "stream" : "array"
+	d.note(kind === "stream" ? "stream member" : "array member")
+	const planted = fault !== undefined && Arr.contains(factFaults, fault) ? fault : undefined
 	const extra = d.from([0, 1]) === 1 ? [factOf(d, op, relation, undefined, 1)] : []
 	return { kind, op, relation, facts: [factOf(d, op, relation, planted, 0), ...extra] }
 }
+
+/**
+ * The faults a family's member fact carries, and the writes of a family's relation the engine cannot plan: a sequence's
+ * member written alone or by its row, a tree's row put or deleted, an immutable owner put, a member of an immutable
+ * owner's family deleted.
+ */
+const familyFaults = [
+	"a nested root field",
+	"a deep root field",
+	"a nested field its relation lacks",
+	"a nested drawn field",
+	"a nested member missing a field",
+	"a counted member nested",
+	"an accumulated field written",
+	"a count written by a put",
+	"a generated field supplied",
+	"a sequence member written alone",
+	"a sequence member edited by its row",
+	"a tree row edited",
+	"an immutable owner put",
+	"a member of an immutable family deleted"
+] as const satisfies ReadonlyArray<ChangeSetFault>
+type FamilyFault = (typeof familyFaults)[number]
+
+/** Whether a fault is one a family's member carries. */
+const isFamilyFault = (fault: ChangeSetFault): fault is FamilyFault =>
+	Arr.some(familyFaults, (f) => f === fault)
+
+const familyValue = (lit: Lit): FamilyValue => ({ kind: "value", lit })
+const nestedRows = (rows: ReadonlyArray<FamilyFact>): FamilyValue => ({ kind: "rows", rows })
+
+/** The ordinals 1 to `count`, none when it is 0. */
+const ordinals = (count: number): ReadonlyArray<number> =>
+	Arr.filter(Arr.range(1, Math.max(count, 1)), (i) => i <= count)
+const labels: Arr.NonEmptyReadonlyArray<Lit> = [
+	{ text: "0", value: 0 },
+	{ text: "1", value: 1 }
+]
+const zero: Lit = { text: "0n", value: 0n }
+
+/**
+ * An ordered family's owner with its members nested at its count field, in order, each a quantity; a planted fault
+ * gives the first member a field its relation lacks or its drawn index.
+ */
+const orderOf = (d: Drawing, index: number, fault: ChangeSetFault | undefined): FamilyFact => {
+	const planted =
+		fault === "a nested field its relation lacks" ||
+		fault === "a nested drawn field" ||
+		fault === "a nested member missing a field"
+	const count = planted || d.aimed("nested members") ? d.from([1, 2]) : d.from([0, 1, 2])
+	if (count > 0) {
+		d.note("nested members")
+	}
+	const lines = Arr.map(ordinals(count), (i): FamilyFact => {
+		const line: FamilyFact = [["qty", familyValue(d.from(bigints))]]
+		return i > 1 || !planted
+			? line
+			: fault === "a nested member missing a field"
+				? []
+				: [
+						...line,
+						fault === "a nested drawn field"
+							? ["at", familyValue(zero)]
+							: ["note", familyValue(plainNumber)]
+					]
+	})
+	return [
+		["id", familyValue(Arr.getUnsafe(uuids, index % uuids.length))],
+		["n", nestedRows(lines)]
+	]
+}
+
+/**
+ * A tree, its root with up to two children and a child with a child of its own, every node of a distinct id; a planted
+ * fault gives the first child, or the first child's first child, the root field its nesting supplies.
+ */
+const treeOf = (d: Drawing, fault: ChangeSetFault | undefined): FamilyFact => {
+	let next = 0
+	const nodeOf = (rooted: boolean, children: ReadonlyArray<FamilyFact>): FamilyFact => {
+		next += 1
+		return [
+			["id", familyValue(uuidLit(next))],
+			...(rooted ? [["doc", familyValue(uuidLit(1))] as const] : []),
+			["label", familyValue(d.from(labels))],
+			["children", nestedRows(children)]
+		]
+	}
+	const nested = fault === "a nested root field"
+	const deep = fault === "a deep root field"
+	const children = Arr.map(
+		ordinals(nested || deep || d.aimed("a nested tree") ? d.from([1, 2]) : d.from([0, 1, 2])),
+		(i) => {
+			const first = i === 1
+			const below = Arr.map(ordinals(deep && first ? 1 : d.from([0, 0, 1])), (j) =>
+				nodeOf(deep && first && j === 1, [])
+			)
+			return nodeOf(nested && first, below)
+		}
+	)
+	if (Arr.isReadonlyArrayNonEmpty(children)) {
+		d.note("a nested tree")
+	}
+	return nodeOf(true, children)
+}
+
+/** A counted family's member of `owner`: its value, distinct among a member's facts by their index. */
+const countedFact = (owner: Lit, index: number): FamilyFact => [
+	["owner", familyValue(owner)],
+	["v", familyValue(Arr.getUnsafe(bigints, index % bigints.length))]
+]
+
+/** A family's member's written row: its owner's key and its quantity, or its value. */
+const keyedRow = (d: Drawing): FamilyFact => [
+	["owner", familyValue(d.from(uuids))],
+	["qty", familyValue(d.from(bigints))]
+]
+
+/** A family member over `relation`, its family noted: a tree's, a mutable owner's, or an immutable owner's. */
+const familyOf = (
+	d: Drawing,
+	op: Op,
+	relation: FamilyRel,
+	facts: Arr.NonEmptyReadonlyArray<FamilyFact>
+): MemberSpec => {
+	d.note(
+		relation === "Node"
+			? "a nested tree"
+			: Arr.some(mutableOwners, (o) => o === relation || familyMemberRelation(o) === relation)
+				? "a mutable family"
+				: "an immutable family"
+	)
+	return { kind: "family", op, relation, facts }
+}
+
+/** A family's member carrying a planted fault: a fact its nesting does not take, or a write the engine cannot plan. */
+const plantedFamilyMember = (d: Drawing, fault: FamilyFault): MemberSpec => {
+	d.note("family member")
+	switch (fault) {
+		case "a nested root field":
+		case "a deep root field":
+			return familyOf(d, "insert", "Node", [treeOf(d, fault)])
+		case "a nested field its relation lacks":
+		case "a nested drawn field":
+		case "a nested member missing a field":
+			return familyOf(d, "insert", d.from(["Order", "Cart"] as const), [orderOf(d, 0, fault)])
+		case "a counted member nested":
+			return familyOf(d, "insert", d.from(["Pool", "Bin"] as const), [
+				[
+					["id", familyValue(d.from(uuids))],
+					["k", nestedRows([[["v", familyValue(d.from(bigints))]]])]
+				]
+			])
+		case "an accumulated field written":
+		case "a count written by a put": {
+			const owner = d.from(["Cart", "Bin"] as const)
+			const field =
+				fault === "a count written by a put"
+					? ([owner === "Cart" ? "n" : "k", nestedRows([])] as const)
+					: ([owner === "Cart" ? "total" : "size", familyValue(zero)] as const)
+			return familyOf(d, "put", owner, [[["id", familyValue(d.from(uuids))], field]])
+		}
+		case "a generated field supplied":
+			return familyOf(d, "insert", "Chip", [
+				[...countedFact(d.from(uuids), 0), ["next", familyValue({ text: "2n", value: 2n })]]
+			])
+		case "a sequence member written alone":
+			return familyOf(d, "insert", d.from(["Line", "Entry"] as const), [keyedRow(d)])
+		case "a sequence member edited by its row":
+			return familyOf(d, d.choose(["delete", "put"] as const), d.from(["Line", "Entry"] as const), [
+				keyedRow(d)
+			])
+		case "a tree row edited":
+			return familyOf(d, d.choose(["delete", "put"] as const), "Node", [
+				[
+					["id", familyValue(d.from(uuids))],
+					["parent", familyValue(d.from(uuids))],
+					["doc", familyValue(d.from(uuids))],
+					["label", familyValue(d.from(labels))]
+				]
+			])
+		case "an immutable owner put":
+			return familyOf(d, "put", d.from(["Order", "Pool"] as const), [
+				[["id", familyValue(d.from(uuids))]]
+			])
+		case "a member of an immutable family deleted":
+			return familyOf(d, "delete", "Item", [countedFact(d.from(uuids), 0)])
+	}
+}
+
+/**
+ * A member of one of Work's families, each over an immutable owner and a mutable one: an ordered family's owner
+ * inserted with its members nested, or deleted, and put where it is mutable; a counted family's owner inserted, deleted,
+ * and put where it is mutable; a counted member put, inserted beside an insert of its owner, inserted alone, whose
+ * stratum may insert no owner of an immutable family, and deleted where its owner is mutable; or a tree inserted from
+ * its root. A counted member is an edit of its family, which the engine refuses in more than one stratum and, appended
+ * to an immutable owner its stratum does not insert, at all: the declared classes (declaredOf), which the types, seeing
+ * no strata, admit; so only a case that plants no fault (`clean`) writes one, and nothing else refuses it first.
+ */
+const familyMemberOf = (d: Drawing, clean: boolean): MemberSpec => {
+	d.note("family member")
+	const relation = d.aimed("nested members")
+		? d.from(["Order", "Cart"] as const)
+		: d.aimed("a nested tree")
+			? "Node"
+			: d.aimed("an append alone") || d.aimed("an append beside its owner")
+				? "Item"
+				: d.aimed("family members in two strata")
+					? "Chip"
+					: d.aimed("a counted member")
+						? d.from(["Item", "Chip"] as const)
+						: d.aimed("a mutable family")
+							? d.from(["Cart", "Bin", "Chip"] as const)
+							: d.aimed("an immutable family")
+								? d.from(["Order", "Pool", "Item"] as const)
+								: clean
+									? d.from(["Order", "Cart", "Pool", "Bin", "Item", "Chip", "Node"] as const)
+									: d.from(["Order", "Cart", "Pool", "Bin", "Node"] as const)
+	if (relation === "Node") {
+		return familyOf(d, "insert", relation, [treeOf(d, undefined)])
+	}
+	const op = d.choose(
+		relation === "Item"
+			? (["insert", "put"] as const)
+			: relation === "Order" || relation === "Pool"
+				? (["insert", "delete"] as const)
+				: (["insert", "delete", "put"] as const)
+	)
+	const owner = d.from(uuids)
+	const facts = Arr.map(Arr.range(1, d.from([1, 2])), (i): FamilyFact => {
+		if (relation === "Item" || relation === "Chip") {
+			d.note("a counted member")
+			return countedFact(owner, i - 1)
+		}
+		return (relation === "Order" || relation === "Cart") && op === "insert"
+			? orderOf(d, i - 1, undefined)
+			: [["id", familyValue(Arr.getUnsafe(uuids, (i - 1) % uuids.length))]]
+	})
+	const written: Arr.NonEmptyReadonlyArray<FamilyFact> = [
+		Arr.headNonEmpty(facts),
+		...facts.slice(1)
+	]
+	if (
+		relation === "Item" &&
+		op === "insert" &&
+		!(clean && !d.aimed("an append beside its owner") && d.keep("an append alone"))
+	) {
+		d.note("an append beside its owner")
+		d.note("an immutable family")
+		return {
+			kind: "appended",
+			owner: "Pool",
+			owners: [[["id", familyValue(owner)]]],
+			members: written
+		}
+	}
+	return familyOf(d, op, relation, written)
+}
+
+/** The member relation of a family's owner. */
+const familyMemberRelation = (owner: OrderedOwner | CountedOwner): FamilyRel =>
+	owner === "Order" || owner === "Cart" ? sequenceMembers[owner] : countedMembers[owner]
 
 /** A read-back of a written relation's added or removed facts, or of a relation's state, or a count over them. */
 const readOf = (
@@ -584,6 +1036,17 @@ const readOf = (
 	written: ReadonlyArray<RelName>,
 	fault: ChangeSetFault | undefined
 ): ReadSpec => {
+	if (fault === "a derived relation's delta read") {
+		const derivedSource = d.choose([
+			"read-back of added facts",
+			"read-back of removed facts"
+		] as const)
+		return {
+			kind: "derived",
+			name,
+			source: derivedSource === "read-back of added facts" ? "added" : "removed"
+		}
+	}
 	const delta =
 		fault === "a fold over a delta reading no key" ||
 		(Arr.isReadonlyArrayNonEmpty(written) && d.from([0, 1, 2]) > 0)
@@ -612,6 +1075,7 @@ const readOf = (
 					)
 				: Arr.map(fields, (f) => f.name)
 	return {
+		kind: "relation",
 		name,
 		source:
 			source === "read-back of added facts"
@@ -628,7 +1092,15 @@ const readOf = (
 const memberFaults: ReadonlyArray<ChangeSetFault> = [
 	...factFaults,
 	...headFaults,
-	"a closed relation written"
+	...familyFaults,
+	"a closed relation written",
+	"a derived relation written"
+]
+
+/** The faults a case plants in its one member, which no other member's op may stand beside. */
+const soleMemberFaults: ReadonlyArray<ChangeSetFault> = [
+	"two facts sharing a key",
+	"a derived relation written"
 ]
 
 /** The value a parameter is bound or passed: one of its field's values, or an amount. */
@@ -651,7 +1123,8 @@ const builtOf = (
 	d: Drawing,
 	level: Level,
 	fault: ChangeSetFault | undefined,
-	readName: string | undefined
+	readName: string | undefined,
+	clean: boolean
 ): BuiltSpec => {
 	if (level === "Other" || level === "Twin") {
 		return { kind: "built", level, members: [], reads: [], bind: undefined }
@@ -659,26 +1132,36 @@ const builtOf = (
 	const memberFault = fault !== undefined && Arr.contains(memberFaults, fault) ? fault : undefined
 	const unbound = fault === "a parameter left unbound"
 	const count =
-		memberFault !== undefined || unbound || fault === "a role that does not write the relation"
-			? d.from([1, 2])
-			: d.from([0, 1, 1, 2])
-	const members = Arr.map(Arr.range(1, count), (i): MemberSpec => {
+		memberFault !== undefined && Arr.contains(soleMemberFaults, memberFault)
+			? 1
+			: memberFault !== undefined ||
+				  unbound ||
+				  fault === "a role that does not write the relation" ||
+				  d.aimed("family member")
+				? d.from([1, 2])
+				: d.from([0, 1, 1, 2])
+	const members = Arr.map(ordinals(count), (i): MemberSpec => {
 		if (i === 1 && unbound) {
 			return describedWithParam(d)
 		}
-		return memberOf(d, i === 1 ? memberFault : undefined)
+		return memberOf(d, i === 1 ? memberFault : undefined, clean)
 	})
 	const written = Arr.flatMap(members, (m): ReadonlyArray<RelName> =>
-		m.relation === "Kind" ? [] : [m.relation]
+		(m.kind === "array" || m.kind === "stream" || m.kind === "query") && m.relation !== "Kind"
+			? [m.relation]
+			: []
 	)
 	const repeated = fault === "a read-back name repeated by read"
-	const folded = fault === "a fold over a delta reading no key"
+	const folded =
+		fault === "a fold over a delta reading no key" || fault === "a derived relation's delta read"
 	const readCount = repeated
 		? 2
-		: readName !== undefined || folded
-			? d.from([1, 2])
-			: d.from([0, 0, 1, 2])
-	const names = Arr.map(Arr.range(1, readCount), (i) =>
+		: fault === "a derived relation's delta read"
+			? 1
+			: readName !== undefined || folded
+				? d.from([1, 2])
+				: d.from([0, 0, 1, 2])
+	const names = Arr.map(ordinals(readCount), (i) =>
 		i === 1 && readName !== undefined ? readName : repeated && i === 2 ? "r0" : d.readName()
 	)
 	const reads = Arr.map(names, (name, i) =>
@@ -712,11 +1195,23 @@ const describedWithParam = (d: Drawing): MemberSpec => {
 	}
 }
 
+/** The faults that read a compiled ChangeSet as a compiled query is read. */
+const compiledReadFaults: ReadonlyArray<ChangeSetFault> = [
+	"a compiled ChangeSet read by execute",
+	"a compiled ChangeSet read by get"
+]
+
 /** A case's ChangeSet: one built over Work or its extension, or a union or sequence of two. */
 const changeOf = (d: Drawing, fault: ChangeSetFault | undefined): ChangeSpec => {
+	const clean = fault === undefined
 	const applied =
-		fault === "a role that does not write the relation" || fault === "a parameter left unbound"
-	const level = (): Level => (!applied && d.keep("over an extension") ? "Reports" : "Work")
+		fault === "a role that does not write the relation" ||
+		fault === "a parameter left unbound" ||
+		(fault !== undefined && Arr.contains(compiledReadFaults, fault))
+	const derivedFault =
+		fault === "a derived relation written" || fault === "a derived relation's delta read"
+	const level = (): Level =>
+		derivedFault || (!applied && d.keep("over an extension")) ? "Reports" : "Work"
 	if (
 		fault === "a read-back name repeated by union" ||
 		fault === "a read-back name repeated by sequence"
@@ -724,8 +1219,8 @@ const changeOf = (d: Drawing, fault: ChangeSetFault | undefined): ChangeSpec => 
 		const name = d.readName()
 		return {
 			kind: fault === "a read-back name repeated by union" ? "union" : "sequence",
-			a: builtOf(d, level(), undefined, name),
-			b: builtOf(d, level(), undefined, name)
+			a: builtOf(d, level(), undefined, name, clean),
+			b: builtOf(d, level(), undefined, name, clean)
 		}
 	}
 	if (fault === "ChangeSets over unrelated schemas") {
@@ -734,26 +1229,29 @@ const changeOf = (d: Drawing, fault: ChangeSetFault | undefined): ChangeSpec => 
 		return d.from([0, 1]) === 0
 			? {
 					kind,
-					a: builtOf(d, "Work", undefined, undefined),
-					b: builtOf(d, other, undefined, undefined)
+					a: builtOf(d, "Work", undefined, undefined, clean),
+					b: builtOf(d, other, undefined, undefined, clean)
 				}
 			: {
 					kind,
-					a: builtOf(d, other, undefined, undefined),
-					b: builtOf(d, "Work", undefined, undefined)
+					a: builtOf(d, other, undefined, undefined, clean),
+					b: builtOf(d, "Work", undefined, undefined, clean)
 				}
 	}
-	const combined = d.keep("union") ? "union" : d.keep("sequence") ? "sequence" : undefined
-	if (
-		combined === undefined ||
-		(fault !== undefined && fault !== "a role that does not write the relation")
-	) {
-		return builtOf(d, level(), fault, undefined)
+	const combined = d.aimed("family members in two strata")
+		? d.choose(["sequence"] as const)
+		: d.keep("union")
+			? "union"
+			: d.keep("sequence")
+				? "sequence"
+				: undefined
+	if (combined === undefined || (fault !== undefined && !Arr.contains(applicationFaults, fault))) {
+		return builtOf(d, level(), fault, undefined, clean)
 	}
 	return {
 		kind: combined,
-		a: builtOf(d, level(), undefined, undefined),
-		b: builtOf(d, level(), undefined, undefined)
+		a: builtOf(d, level(), undefined, undefined, clean),
+		b: builtOf(d, level(), undefined, undefined, clean)
 	}
 }
 
@@ -770,33 +1268,135 @@ const levelOf = (c: ChangeSpec): Level => {
 const builtsOf = (c: ChangeSpec): ReadonlyArray<BuiltSpec> =>
 	c.kind === "built" ? [c] : [...builtsOf(c.a), ...builtsOf(c.b)]
 
+/** A ChangeSet's strata: a built one's one, a sequence's in turn, and a union's position by position. */
+const strataOf = (c: ChangeSpec): ReadonlyArray<ReadonlyArray<MemberSpec>> => {
+	switch (c.kind) {
+		case "built":
+			return [c.members]
+		case "sequence":
+			return [...strataOf(c.a), ...strataOf(c.b)]
+		case "union": {
+			const a = strataOf(c.a)
+			const b = strataOf(c.b)
+			return Arr.map(ordinals(Math.max(a.length, b.length)), (i) => [
+				...(a[i - 1] ?? []),
+				...(b[i - 1] ?? [])
+			])
+		}
+	}
+}
+
+/**
+ * The declared class a ChangeSet is of, which the engine's front end refuses with UnsupportedOperation when it compiles
+ * and the types, which see no strata, admit: a stratum that inserts a member of the immutable Pool's family and no Pool,
+ * so every append is to a stored owner, whose family is fixed; or a family's members edited in more than one stratum,
+ * each stratum's edits planned from one read before the ChangeSet's writes.
+ */
+const declaredOf = (c: ChangeSpec): DeclaredClass | undefined => {
+	const strata = strataOf(c)
+	if (
+		Arr.some(
+			strata,
+			(members) =>
+				Arr.some(
+					members,
+					(m) => m.kind === "family" && m.relation === "Item" && m.op === "insert"
+				) &&
+				!Arr.some(
+					members,
+					(m) =>
+						m.kind === "appended" ||
+						(m.kind === "family" && m.relation === "Pool" && m.op === "insert")
+				)
+		)
+	) {
+		return "an append alone"
+	}
+	return Arr.filter(strata, (members) => Arr.some(members, isEdit)).length > 1
+		? "family members in two strata"
+		: undefined
+}
+
+/** The classes declaredOf names, each a construct a case reaches. */
+type DeclaredClass = "an append alone" | "family members in two strata"
+
+/** Whether a member edits a family: it writes a member relation of an ordered or a counted family. */
+const isEdit = (m: MemberSpec): boolean =>
+	m.kind === "appended" ||
+	(m.kind === "family" && Arr.contains(["Line", "Entry", "Item", "Chip"], m.relation))
+
 /** The parameters a case's ChangeSet leaves free: every one its members declare that no bind closed. */
 const freeParams = (c: ChangeSpec): ReadonlyArray<readonly [string, Lit]> =>
 	Arr.flatMap(builtsOf(c), (b) => (b.bind === undefined ? paramValuesOf(b) : []))
 
+/** The faults planted in a case's application rather than in its ChangeSet, whatever ChangeSet it applies. */
+const applicationFaults: ReadonlyArray<ChangeSetFault> = [
+	"a role that does not write the relation",
+	"a compiled ChangeSet read by execute",
+	"a compiled ChangeSet read by get"
+]
+
+/** The relations a member writes as the types read them (WritesOf): its own, and the lines an order's insert nests. */
+const memberWrites = (m: MemberSpec): ReadonlyArray<string> => {
+	switch (m.kind) {
+		case "derived":
+			return ["TaskCount"]
+		case "family":
+			return (m.relation === "Order" || m.relation === "Cart") && m.op === "insert"
+				? [m.relation, sequenceMembers[m.relation]]
+				: [m.relation]
+		case "appended":
+			return [m.owner, countedMembers[m.owner]]
+		case "array":
+		case "stream":
+		case "query":
+			return [m.relation]
+	}
+}
+
+/** The relations the clerk's write list names: no family's member, so an owner's nested insert is outside it. */
+const clerkWrites: ReadonlyArray<string> = ["Task", "Budget", "Order", "Cart", "Pool", "Bin"]
+
 /** One case: at most one fault, then its ChangeSet, then, where its level is Work, its application. */
 const caseOver = (d: Drawing): CaseSpec => {
-	const fault = d.from([0, 1]) === 1 ? d.choose(changeSetFaults) : undefined
+	const aimedFault = Arr.findFirst(changeSetFaults, (f) => d.aimed(f))
+	const fault = Option.isSome(aimedFault)
+		? d.choose([aimedFault.value])
+		: !d.aiming() && d.from([0, 1]) === 1
+			? d.choose(changeSetFaults)
+			: undefined
 	const change = changeOf(d, fault)
-	const applies =
+	const forced =
 		fault === "a role that does not write the relation" ||
 		fault === "a parameter left unbound" ||
-		d.keep("applied")
-	if (
-		!applies ||
-		levelOf(change) !== "Work" ||
-		(fault !== undefined &&
-			fault !== "a role that does not write the relation" &&
-			fault !== "a parameter left unbound")
-	) {
+		(fault !== undefined && Arr.contains(compiledReadFaults, fault))
+	const applies = forced || d.keep("applied")
+	if (!applies || levelOf(change) !== "Work" || (fault !== undefined && !forced)) {
 		return { change, apply: undefined, fault }
 	}
 	d.note("applied")
 	const free = freeParams(change)
-	const writes = Arr.some(builtsOf(change), (b) => Arr.isReadonlyArrayNonEmpty(b.members))
-	const role = fault === "a role that does not write the relation" && writes ? "Reader" : "Writer"
+	const writes = Arr.flatMap(builtsOf(change), (b) => Arr.flatMap(b.members, memberWrites))
+	const clerkly = Arr.every(writes, (w) => Arr.contains(clerkWrites, w))
+	const role: RoleName =
+		fault === "a role that does not write the relation" && Arr.isReadonlyArrayNonEmpty(writes)
+			? clerkly
+				? "Reader"
+				: d.from(["Reader", "Clerk"] as const)
+			: clerkly && d.keep("a partial write list")
+				? "Clerk"
+				: "Writer"
+	if (role === "Clerk") {
+		d.note("a partial write list")
+	}
 	const entry =
-		fault === "a parameter left unbound" ? "apply" : d.from(["apply", "apply", "compile"] as const)
+		fault === "a parameter left unbound"
+			? "apply"
+			: fault === "a compiled ChangeSet read by execute"
+				? "execute"
+				: fault === "a compiled ChangeSet read by get"
+					? "get"
+					: d.from(["apply", "apply", "compile"] as const)
 	const args = fault === "a parameter left unbound" ? free.slice(1) : free
 	return { change, apply: { role, entry, args }, fault }
 }
@@ -804,7 +1404,19 @@ const caseOver = (d: Drawing): CaseSpec => {
 /** The source of a case's ChangeSet and its application, with the names it uses. */
 class Rendering {
 	readonly uses = new Set<
-		"Compute" | "Stream" | "Money" | "pg" | Level | RelName | "Kind" | "Cents"
+		| "Compute"
+		| "Stream"
+		| "Money"
+		| "pg"
+		| Level
+		| RelName
+		| FamilyRel
+		| "Kind"
+		| "TaskCount"
+		| "Cents"
+		| "Bits"
+		| "Flag"
+		| RoleName
 	>()
 
 	lit(l: Lit): string {
@@ -814,12 +1426,34 @@ class Rendering {
 		if (Str.startsWith("Money.")(l.text)) {
 			this.uses.add("Money")
 		}
+		if (Str.startsWith("Bits.")(l.text)) {
+			this.uses.add("Bits")
+			this.uses.add("Flag")
+		}
 		return l.text
 	}
 
 	fact(f: ReadonlyArray<readonly [string, Lit]>): string {
 		return `{ ${Arr.join(
 			Arr.map(f, ([n, l]) => `${n}: ${this.lit(l)}`),
+			", "
+		)} }`
+	}
+
+	familyFact(f: FamilyFact): string {
+		return `{ ${Arr.join(
+			Arr.map(
+				f,
+				([n, x]) =>
+					`${n}: ${
+						x.kind === "value"
+							? this.lit(x.lit)
+							: `[${Arr.join(
+									Arr.map(x.rows, (row) => this.familyFact(row)),
+									", "
+								)}]`
+					}`
+			),
 			", "
 		)} }`
 	}
@@ -843,20 +1477,41 @@ class Rendering {
 	}
 
 	member(m: MemberSpec): string {
-		this.uses.add(m.relation)
 		switch (m.kind) {
 			case "array":
+				this.uses.add(m.relation)
 				return `.${m.op}(${m.relation}, [${Arr.join(
 					Arr.map(m.facts, (f) => this.fact(f)),
 					", "
 				)}])`
 			case "stream":
+				this.uses.add(m.relation)
 				this.uses.add("Stream")
 				return `.${m.op}(${m.relation}, Stream.make(${Arr.join(
 					Arr.map(m.facts, (f) => this.fact(f)),
 					", "
 				)}))`
+			case "family":
+				this.uses.add(m.relation)
+				return `.${m.op}(${m.relation}, [${Arr.join(
+					Arr.map(m.facts, (f) => this.familyFact(f)),
+					", "
+				)}])`
+			case "appended":
+				this.uses.add(m.owner)
+				this.uses.add(countedMembers[m.owner])
+				return `.insert(${m.owner}, [${Arr.join(
+					Arr.map(m.owners, (f) => this.familyFact(f)),
+					", "
+				)}]).insert(${countedMembers[m.owner]}, [${Arr.join(
+					Arr.map(m.members, (f) => this.familyFact(f)),
+					", "
+				)}])`
+			case "derived":
+				this.uses.add("TaskCount")
+				return `.${m.op}(TaskCount, [])`
 			case "query": {
+				this.uses.add(m.relation)
 				const params = Arr.map(m.params, (p) => {
 					if (p.field === undefined) {
 						this.uses.add("pg")
@@ -874,6 +1529,11 @@ class Rendering {
 	}
 
 	read(rd: ReadSpec): string {
+		if (rd.kind === "derived") {
+			this.uses.add("TaskCount")
+			this.uses.add("Reports")
+			return `.read(${jsonText(rd.name)}, (delta) => query(Reports).rule((r) => r.match(delta.${rd.source}(TaskCount), {}).find({})))`
+		}
 		this.uses.add(rd.relation)
 		const source = rd.source === "state" ? rd.relation : `delta.${rd.source}(${rd.relation})`
 		const bound = Arr.join(
@@ -916,6 +1576,16 @@ class Rendering {
 
 const levels = { Work, Reports, Other, Twin } as const
 const closedRelations = { ...relations, Kind } as const
+const familyRelations = { Order, Line, Cart, Entry, Pool, Item, Bin, Chip, Node } as const
+
+/** A family member's fact as the facade takes it: each value, and each nested row's fact in its place. */
+const familyFactValue = (f: FamilyFact): Readonly<Record<string, unknown>> =>
+	Rec.fromEntries(
+		Arr.map(
+			f,
+			([n, x]) => [n, x.kind === "value" ? x.lit.value : Arr.map(x.rows, familyFactValue)] as const
+		)
+	)
 
 /** The engine's reading of a ChangeSet: the same construct, built by the facade and the query builder's view. */
 const buildChange = (c: ChangeSpec): unknown => {
@@ -925,16 +1595,31 @@ const buildChange = (c: ChangeSpec): unknown => {
 			: changeSetOver.sequence(buildChange(c.a), buildChange(c.b))
 	}
 	const withMembers = Arr.reduce(c.members, changeSetOver.empty(levels[c.level]), (cs, m) => {
-		const target = closedRelations[m.relation]
 		const facts = (f: ReadonlyArray<readonly [string, Lit]>) =>
 			Rec.fromEntries(Arr.map(f, ([n, l]) => [n, l.value] as const))
 		switch (m.kind) {
 			case "array":
-				return written(cs, m.op, target, Arr.map(m.facts, facts))
+				return written(cs, m.op, closedRelations[m.relation], Arr.map(m.facts, facts))
 			case "stream":
-				return written(cs, m.op, target, Stream.fromIterable(Arr.map(m.facts, facts)))
+				return written(
+					cs,
+					m.op,
+					closedRelations[m.relation],
+					Stream.fromIterable(Arr.map(m.facts, facts))
+				)
 			case "query":
-				return written(cs, m.op, target, describedQuery(m))
+				return written(cs, m.op, closedRelations[m.relation], describedQuery(m))
+			case "family":
+				return written(cs, m.op, familyRelations[m.relation], Arr.map(m.facts, familyFactValue))
+			case "appended":
+				return written(
+					written(cs, "insert", familyRelations[m.owner], Arr.map(m.owners, familyFactValue)),
+					"insert",
+					familyRelations[countedMembers[m.owner]],
+					Arr.map(m.members, familyFactValue)
+				)
+			case "derived":
+				return written(cs, m.op, TaskCount, [])
 		}
 	})
 	const withReads = Arr.reduce(c.reads, withMembers, (cs, rd) =>
@@ -964,7 +1649,8 @@ const descriptors: { readonly [R in RelName]: Readonly<Record<string, unknown>> 
 	Budget: Budget.fields,
 	Ticket: Ticket.fields,
 	Pair: Pair.fields,
-	Ledger: Ledger.fields
+	Ledger: Ledger.fields,
+	Tag: Tag.fields
 }
 
 const describedQuery = (m: Extract<MemberSpec, { readonly kind: "query" }>) =>
@@ -1009,6 +1695,18 @@ const describedQuery = (m: Extract<MemberSpec, { readonly kind: "query" }>) =>
 	})
 
 const readQuery = (rd: ReadSpec, delta: DeltaValue): unknown =>
+	rd.kind === "derived"
+		? queryOver(Reports).rule((r: RuleValue) =>
+				r
+					.match(rd.source === "added" ? delta.added(TaskCount) : delta.removed(TaskCount), {})
+					.find({})
+			)
+		: relationRead(rd, delta)
+
+const relationRead = (
+	rd: Extract<ReadSpec, { readonly kind: "relation" }>,
+	delta: DeltaValue
+): unknown =>
 	queryOver(Work).rule((r: RuleValue) => {
 		const target = relations[rd.relation]
 		const source =
@@ -1035,6 +1733,22 @@ type Claim =
 
 const oneLine = (text: string): string => Arr.join(Str.split(text, "\n"), " ")
 
+/**
+ * The Refusal the types name for a family write the engine's front end cannot plan, by the capability it states
+ * (write/frontend/compile.ts); none for any other.
+ */
+const unplannedOf = (capability: string): ChangeSetRefusal | undefined =>
+	Str.includes("a sequence's member is written under its owner")(capability)
+		? "a sequence's member is written under its owner: nest it in order at the owner's count field"
+		: Str.includes("a tree is rewritten whole")(capability)
+			? "a tree is rewritten whole: insert its root with the whole tree nested"
+			: Str.includes("the immutable owner of the family")(capability)
+				? "an owner's put updates its row in place, which an immutable owner refuses: declare it mutable to put it"
+				: Str.startsWith("a delete of")(capability) &&
+					  Str.includes("an immutable owner's family is fixed")(capability)
+					? "an immutable owner's family is fixed when its owner is inserted: declare the owner mutable to change it"
+					: undefined
+
 /** The Refusal the types name for the engine's reason, the call a repeated read-back name meets telling which. */
 const claimOf = (reason: CompileReason, spec: CaseSpec): Claim => {
 	if (reason._tag === "MalformedDescription") {
@@ -1046,7 +1760,8 @@ const claimOf = (reason: CompileReason, spec: CaseSpec): Claim => {
 							? "read-back names are distinct: this ChangeSet already has a read-back of this name"
 							: "read-back names are distinct: the ChangeSets share a read-back name"
 				}
-			: Str.includes("closed relation")(reason.what)
+			: Str.includes("closed relation")(reason.what) ||
+				  Str.includes("derived relation")(reason.what)
 				? {
 						kind: "refusal",
 						refusal:
@@ -1056,7 +1771,25 @@ const claimOf = (reason: CompileReason, spec: CaseSpec): Claim => {
 					? { kind: "refusal", refusal: "the ChangeSets' schemas are not levels of one another" }
 					: Str.startsWith("a literal of")(reason.what)
 						? { kind: "refusal", refusal: "the query's head is not a fact of the relation" }
-						: { kind: "prose", why: `the engine: ${oneLine(reason.what)}` }
+						: Str.startsWith("an operation of the compiled program")(reason.what)
+							? {
+									kind: "refusal",
+									refusal: "a compiled ChangeSet applies, and a compiled query reads"
+								}
+							: { kind: "prose", why: `the engine: ${oneLine(reason.what)}` }
+	}
+	if (reason._tag === "UnstatedKey") {
+		return {
+			kind: "refusal",
+			refusal:
+				"a put or a delete names its rows by their key, and no fact states a key field grizzle writes: key the relation by fields its caller writes"
+		}
+	}
+	if (reason._tag === "UnsupportedOperation") {
+		const refusal = unplannedOf(reason.capability)
+		if (refusal !== undefined) {
+			return { kind: "refusal", refusal }
+		}
 	}
 	if (reason._tag === "DescribedHeadingMismatch") {
 		return Str.startsWith("a member column")(reason.capability)
@@ -1088,11 +1821,54 @@ interface Admitted {
 	readonly params: ReadonlyArray<readonly [string, string]>
 	readonly writes: ReadonlyArray<string>
 	readonly reads: ReadonlyArray<readonly [string, string]>
+	/** Each relation a member writes, with the fields its caller writes and those an addition of it holds. */
+	readonly rows: ReadonlyArray<RowShape>
 }
 
-/** Where a refusal lands: the ChangeSet's one line, or its application's. */
+/** A written relation's caller-written fields (Written) and the fields its addition in the schema holds (AdditionIn). */
+interface RowShape {
+	readonly relation: string
+	readonly written: ReadonlyArray<string>
+	readonly addition: ReadonlyArray<string>
+}
+
+/**
+ * The row shape of `name`, read off the engine's law model: its fields a caller states (isCarried), and of those, an
+ * addition's: less its serial fields, which one arm of an addition leaves out, less a tree's parent, which its nesting
+ * supplies, and with the count field of each sequence it owns, at which its members nest.
+ */
+const rowShapeOf = (laws: ReturnType<typeof realityWrite>["laws"], name: string): RowShape => {
+	const relation = laws.relations.get(name)
+	if (relation === undefined) {
+		throw new Error(`the law model holds no relation ${name}, which a member writes`)
+	}
+	const heading = relation.relation.heading
+	const written = Arr.map(Arr.filter(heading, isCarried), (f) => f.name)
+	const omitted = new Set([
+		...Arr.flatMap(heading, (f) => (f.writing.kind === "serial" ? [f.name] : [])),
+		...Arr.flatMap(laws.families, (f) =>
+			isTreeOf(f, name) ? Arr.map(f.group, (g) => g.member.name) : []
+		)
+	])
+	return {
+		relation: name,
+		written,
+		addition: [
+			...Arr.filter(written, (f) => !omitted.has(f)),
+			...Arr.flatMap(laws.families, (f) =>
+				f.owner.name === name && isSequence(f) ? [f.count.name] : []
+			)
+		]
+	}
+}
+
+/**
+ * Where a refusal lands: the ChangeSet's one line, or its application's; or a declared class the types admit and the
+ * engine refuses when it compiles (declaredOf).
+ */
 type Verdict =
 	| { readonly kind: "admitted"; readonly admitted: Admitted }
+	| { readonly kind: "declared"; readonly declared: DeclaredClass }
 	| {
 			readonly kind: "refused"
 			readonly at: "change" | "apply"
@@ -1134,12 +1910,28 @@ const hostText = (t: ScalarType): string => {
 				" | "
 			)
 		case "bits":
+			return `BitsOf<typeof ${t.roster.closed}>`
 		case "range4":
 		case "range8":
 		case "vector":
 			return `unknown /* ${t.carrier} */`
 	}
 }
+
+/**
+ * The ParamType a parameter of the engine's type has, as the program spells it: a closed id's domain is its handles,
+ * each branded by its roster, and its language the handles alone; any other's language is its domain.
+ */
+const paramText = (t: ScalarType): string =>
+	t.carrier === "code"
+		? `ParamType<${Arr.join(
+				Arr.map(
+					t.roster.handles,
+					(h) => `(${jsonText(h)} & Rostered<${jsonText(t.roster.closed)}>)`
+				),
+				" | "
+			)}, "code", ${hostText(t)}>`
+		: `ParamType<${hostText(t)}, ${jsonText(carrierSql[t.carrier])}>`
 
 const refusedAt = (
 	at: "change" | "apply",
@@ -1165,9 +1957,11 @@ const realityOf = (level: Level) => {
 	return { checked: checking(levels[level]), options: realityWrite(artifacts.value) }
 }
 
+const roles = { Writer, Clerk, Reader } as const
+
 /** The world a role's Db compiles a ChangeSet in: its checked world and its compile options. */
-const roleWorldOf = (name: "Writer" | "Reader") => {
-	const artifacts = testArtifacts(name === "Writer" ? Writer : Reader, testCompile)
+const roleWorldOf = (name: RoleName) => {
+	const artifacts = testArtifacts(roles[name], testCompile)
 	if (!artifacts.ok) {
 		throw artifacts.error
 	}
@@ -1218,6 +2012,17 @@ const codeOf = (spec: CaseSpec): string =>
 const streamFirst = (c: ChangeSpec): boolean =>
 	c.kind === "built" ? c.members[0]?.kind === "stream" : streamFirst(c.a)
 
+/**
+ * The operations db.compile's handle of a compiled ChangeSet over `level` offers (changeOps), the shell's oracle of what
+ * a compiled ChangeSet does when read as a query: a read refuses before it reads its parameters or reaches the compiled
+ * value's apply.
+ */
+const compiledChange = (level: Level) =>
+	changeOps({
+		schema: levels[level],
+		apply: () => Effect.die(new Error("a compiled ChangeSet read as a query never applies"))
+	})
+
 /** The engine's verdict on a case: built, compiled over reality, bound, then compiled for the applying role. */
 const verdictOf = (spec: CaseSpec): Verdict => {
 	const code = codeOf(spec)
@@ -1231,8 +2036,22 @@ const verdictOf = (spec: CaseSpec): Verdict => {
 		throw new Error("a ChangeSet the facade built has no Description")
 	}
 	const program = compileWrite(reality.checked, desc, reality.options)
+	const declared = declaredOf(spec.change)
 	if (!program.ok) {
+		if (declared !== undefined) {
+			if (program.error.reason._tag !== "UnsupportedOperation") {
+				throw new Error(
+					`a case of the declared class "${declared}" is refused as ${program.error.reason._tag}, where the engine's declared class is UnsupportedOperation`
+				)
+			}
+			return { kind: "declared", declared }
+		}
 		return refusedAt("change", program.error, spec, code)
+	}
+	if (declared !== undefined) {
+		throw new Error(
+			`the engine compiles a case of the declared class "${declared}", which it refuses`
+		)
 	}
 	const args = Rec.fromEntries(
 		Arr.map(spec.apply?.args ?? freeParams(spec.change), ([n, l]) => [n, l.value] as const)
@@ -1275,6 +2094,19 @@ const verdictOf = (spec: CaseSpec): Verdict => {
 		if (!applied.ok) {
 			return refusedAt("apply", applied.error, spec, code)
 		}
+		if (spec.apply.entry === "execute" || spec.apply.entry === "get") {
+			const ops = compiledChange(levelOf(spec.change))
+			const failure =
+				spec.apply.entry === "execute"
+					? Effect.runSync(Effect.flip(ops.execute({})))
+					: Effect.runSync(Effect.flip(ops.get({})))
+			return refusedAt(
+				"apply",
+				failure._tag === "ReadFailure" ? failure.reason : failure,
+				spec,
+				code
+			)
+		}
 	}
 	if (spec.fault === "a value missing its brand") {
 		return {
@@ -1289,16 +2121,28 @@ const verdictOf = (spec: CaseSpec): Verdict => {
 		kind: "admitted",
 		admitted: {
 			params: Arr.flatMap(program.value.params, (p) =>
-				p.kind === "scalar" && free.has(p.name)
-					? [
-							[
-								p.name,
-								`ParamType<${hostText(p.type)}, ${jsonText(carrierSql[p.type.carrier])}>`
-							] as const
-						]
-					: []
+				p.kind === "scalar" && free.has(p.name) ? [[p.name, paramText(p.type)] as const] : []
 			),
-			writes: Arr.dedupe(Arr.flatMap(desc.strata, (s) => Arr.map(s.members, (m) => m.relation))),
+			writes: Arr.dedupe([
+				...Arr.flatMap(desc.strata, (st) => Arr.map(st.members, (m) => m.relation)),
+				...Arr.flatMap(program.value.frontend.nested, (n) =>
+					Arr.map(n.nesting.reached, (r) => r.family.member.name)
+				)
+			]),
+			rows: Arr.map(
+				Arr.dedupe(
+					Arr.flatMap(builtsOf(spec.change), (b) =>
+						Arr.flatMap(b.members, (m) =>
+							m.kind === "derived"
+								? []
+								: m.kind === "appended"
+									? [m.owner, countedMembers[m.owner]]
+									: [m.relation]
+						)
+					)
+				),
+				(name) => rowShapeOf(reality.options.laws, name)
+			),
 			reads: Arr.map(
 				program.value.frontend.ir.reads,
 				(rd) =>
@@ -1329,19 +2173,28 @@ interface Drawn {
 	readonly reached: ReadonlySet<ChangeSetFeature>
 }
 
-const drawnGen: Gen<Drawn> = (source) => {
-	const d = new Drawing(source, source.draw(swarm(changeSetFeatures)))
-	return { spec: caseOver(d), reached: d.reached }
-}
+/** A case drawn aimed at the features `aim` names: none for a plain draw. */
+const drawnGen =
+	(aim: ReadonlySet<ChangeSetFeature>): Gen<Drawn> =>
+	(source) => {
+		const d = new Drawing(source, source.draw(swarm(changeSetFeatures)), aim)
+		return { spec: caseOver(d), reached: d.reached }
+	}
 
 const caseOf = ({ spec, reached }: Drawn): ChangeSetCase => {
 	const rendering = new Rendering()
 	const change = rendering.change(spec.change)
 	const args = spec.apply === undefined ? "" : rendering.args(spec.apply.args)
+	if (spec.apply !== undefined) {
+		rendering.uses.add(spec.apply.role)
+	}
 	const verdict = verdictOf(spec)
 	const notes = new Set<ChangeSetNote>(reached)
 	if (verdict.kind === "admitted") {
 		notes.add("admitted")
+	} else if (verdict.kind === "declared") {
+		notes.add("declared")
+		notes.add(verdict.declared)
 	} else {
 		notes.add("refused")
 		notes.add(
@@ -1352,23 +2205,40 @@ const caseOf = ({ spec, reached }: Drawn): ChangeSetCase => {
 	}
 	for (const b of builtsOf(spec.change)) {
 		for (const m of b.members) {
-			notes.add(m.op)
+			notes.add(m.kind === "appended" ? "insert" : m.op)
 		}
 	}
 	return { spec, change, args, verdict, uses: rendering.uses, notes }
 }
 
 /**
- * The situations the floor's witnesses reach: every construct and fault, each construct admitted, and each fault
- * refused, but a key two facts share, whose Refusal the types state only where the facts' literal types differ.
+ * The situations the floor's witnesses reach: every construct and fault, each construct admitted but an append alone,
+ * which is the declared class where its stratum inserts no owner, and each fault refused; a key two facts share and a
+ * derived relation written, under each op, and a derived relation's delta, added and removed.
  */
 export const changeSetRequired: ReadonlyArray<Reached<ChangeSetNote>> = [
 	...changeSetFeatures,
+	"declared",
+	["an append alone", "declared"],
+	["family members in two strata", "declared"],
 	...Arr.map(
-		Arr.filter(changeSetFeatures, (f) => !Arr.contains(changeSetFaults, f)),
+		Arr.filter(
+			changeSetFeatures,
+			(f) =>
+				!Arr.contains(changeSetFaults, f) &&
+				f !== "an append alone" &&
+				f !== "family members in two strata"
+		),
 		(f) => [f, "admitted"] as const
 	),
-	...Arr.map(changeSetFaults, (f) => [f, "refused"] as const)
+	...Arr.map(changeSetFaults, (f) => [f, "refused"] as const),
+	...Arr.flatMap(["two facts sharing a key", "a derived relation written"] as const, (f) =>
+		Arr.map(["insert", "delete", "put"] as const, (op) => [f, op] as const)
+	),
+	...Arr.map(
+		["read-back of added facts", "read-back of removed facts"] as const,
+		(source) => ["a derived relation's delta read", source] as const
+	)
 ]
 
 /** The cases the run's own stream draws. */
@@ -1376,25 +2246,84 @@ export const changeSetCount = 160
 
 const changeSetLabel = "types/changeset agreement"
 
-const caseGen: Gen<ChangeSetCase> = (source) => caseOf(drawnGen(source))
+const caseGen =
+	(aim: ReadonlySet<ChangeSetFeature>): Gen<ChangeSetCase> =>
+	(source) =>
+		caseOf(drawnGen(aim)(source))
 
-/** What a case reached: its notes, and each construct with its verdict. */
-const reachedBy = (c: ChangeSetCase): ReadonlyArray<Reached<ChangeSetNote>> => [
-	...c.notes,
-	...Arr.flatMap([...c.notes], (n): ReadonlyArray<Reached<ChangeSetNote>> =>
-		Arr.contains(changeSetFeatures, n)
-			? [[n, c.verdict.kind === "admitted" ? "admitted" : "refused"]]
-			: []
+/** What a case reached: its notes, each construct with its verdict, and its fault with each of its constructs. */
+const reachedBy = (c: ChangeSetCase): ReadonlyArray<Reached<ChangeSetNote>> => {
+	const fault = c.spec.fault
+	return [
+		...c.notes,
+		...Arr.flatMap([...c.notes], (n): ReadonlyArray<Reached<ChangeSetNote>> =>
+			Arr.contains(changeSetFeatures, n)
+				? [
+						[n, c.verdict.kind],
+						...(fault === undefined || n === fault ? [] : [[fault, n] as const])
+					]
+				: []
+		)
+	]
+}
+
+/**
+ * The features a witness of a requirement is aimed at: the features it names, and what each needs of its case to be
+ * drawn at all (a narrowed value a described member, a family's construct a family member, a write list an
+ * application). A verdict is no feature: a case aimed at a construct plants no fault, so it is admitted where the
+ * engine admits it.
+ */
+const aimOf = (situation: Reached<ChangeSetNote>): ReadonlySet<ChangeSetFeature> => {
+	const named: ReadonlyArray<ChangeSetNote> =
+		typeof situation === "string" ? [situation] : situation
+	return new Set(
+		Arr.flatMap(changeSetFeatures, (f): ReadonlyArray<ChangeSetFeature> =>
+			named.includes(f) ? [f, ...(prerequisites[f] ?? [])] : []
+		)
 	)
-]
+}
 
-/** The floor's witnesses, the same in every run, the only cases that meet the required situations. */
+/** What a construct needs of its case to be drawn at all; a construct this names not needs nothing more. */
+const prerequisites: { readonly [F in ChangeSetFeature]?: ReadonlyArray<ChangeSetFeature> } = {
+	"a narrowed exact value": ["described member"],
+	"a head parameter": ["described member"],
+	"a head literal": ["described member"],
+	"nested members": ["family member", "insert"],
+	"a nested tree": ["family member"],
+	"a counted member": ["family member"],
+	"a mutable family": ["family member"],
+	"an immutable family": ["family member"],
+	"an append alone": ["family member", "a counted member", "insert"],
+	"an append beside its owner": ["family member", "a counted member", "insert"],
+	"family members in two strata": ["family member", "a counted member", "sequence"],
+	"a partial write list": ["applied"],
+	"a generated addition": ["insert"]
+}
+
+/**
+ * The floor's witnesses, the same in every run, the only cases that meet the required situations: for each required
+ * situation, a population on its own floor stream aimed at it, with the tally it reached.
+ */
 export const changeSetWitnesses = () =>
-	floorPopulation(changeSetLabel, caseGen, changeSetCount, reachedBy)
+	Arr.map(Arr.dedupeWith(Arr.map(changeSetRequired, aimOf), sameAim), (aim) =>
+		floorPopulation(
+			`${changeSetLabel} aimed at ${Arr.join([...aim], ", ")}`,
+			caseGen(aim),
+			aimedCount,
+			reachedBy
+		)
+	)
+
+/** Two aims are one when they name the same features. */
+const sameAim = (a: ReadonlySet<ChangeSetFeature>, b: ReadonlySet<ChangeSetFeature>): boolean =>
+	a.size === b.size && Arr.every([...a], (f) => b.has(f))
+
+/** The witnesses drawn aimed at one requirement. */
+const aimedCount = 2
 
 const changeSetCases = (seed: number): ReadonlyArray<ChangeSetCase> => [
-	...changeSetWitnesses().values,
-	...sample(caseGen, rotatingSeed(seed, floorSeed(changeSetLabel)), changeSetCount)
+	...Arr.flatMap(changeSetWitnesses(), (w) => w.values),
+	...sample(caseGen(new Set()), rotatingSeed(seed, floorSeed(changeSetLabel)), changeSetCount)
 ]
 
 /** The modules the program imports, each spelled as an import specifier relative to the program's directory. */
@@ -1460,6 +2389,12 @@ const blockOf = (c: ChangeSetCase, i: number): string => {
 					"; "
 				)} }`
 			: "never"
+	const readsText =
+		v.kind === "admitted" && Arr.isReadonlyArrayNonEmpty(v.admitted.reads)
+			? reads
+			: c.spec.change.kind === "built"
+				? "unknown"
+				: "{}"
 	const assertions =
 		v.kind === "admitted"
 			? [
@@ -1471,30 +2406,53 @@ const blockOf = (c: ChangeSetCase, i: number): string => {
 						""
 					)}]`,
 					`export type W${i} = Expect<Equals<WritesOf<typeof c${i}>, ${unionOf(v.admitted.writes)}>>`,
-					`export type R${i} = Expect<Equals<ReadsOf<typeof c${i}>, ${Arr.isReadonlyArrayNonEmpty(v.admitted.reads) ? reads : "{}"}>>`,
-					`export type S${i} = Expect<Equals<SchemaOf<typeof c${i}>, typeof ${levelOf(c.spec.change)}>>`
+					`export type R${i} = Expect<Equals<ReadsOf<typeof c${i}>, ${readsText}>>`,
+					`export type S${i} = Expect<Equals<SchemaOf<typeof c${i}>, typeof ${levelOf(c.spec.change)}>>`,
+					...(Arr.isReadonlyArrayNonEmpty(v.admitted.rows)
+						? [
+								`export type V${i} = [${Arr.join(
+									Arr.map(
+										v.admitted.rows,
+										(row) =>
+											`Expect<Equals<keyof Written<typeof ${row.relation}>, ${unionOf(row.written)}>>, Expect<Equals<keyof AdditionIn<typeof ${levelOf(c.spec.change)}, typeof ${row.relation}>, ${unionOf(row.addition)}>>`
+									),
+									", "
+								)}]`
+							]
+						: [])
 				]
 			: []
 	const apply = c.spec.apply
 	if (apply === undefined) {
 		return Arr.join([...change, ...assertions, ""], "\n")
 	}
-	const call = apply.entry === "apply" ? `db.apply(c${i}, ${c.args})` : `db.compile(c${i})`
+	const call =
+		apply.entry === "apply"
+			? `db.apply(c${i}, ${c.args})`
+			: apply.entry === "compile"
+				? `db.compile(c${i})`
+				: `h.${apply.entry}(${c.args})`
+	const handle =
+		apply.entry === "apply" || apply.entry === "compile"
+			? `db: DbOf<typeof ${apply.role}, unknown>`
+			: `h: Compiled<typeof ${apply.role}, typeof c${i}, unknown>`
 	const channels =
 		v.kind === "admitted"
 			? apply.entry === "apply"
 				? [
-						`export type E${i} = [Expect<Equals<Effect.Error<ReturnType<typeof a${i}>>, ApplyError>>, Expect<Equals<Effect.Success<ReturnType<typeof a${i}>>, ApplyOutcome<${Arr.isReadonlyArrayNonEmpty(v.admitted.reads) ? reads : "{}"}>>>, Expect<Equals<Effect.Services<ReturnType<typeof a${i}>>, never>>]`
+						`export type E${i} = [Expect<Equals<Effect.Error<ReturnType<typeof a${i}>>, ApplyError>>, Expect<Equals<Effect.Success<ReturnType<typeof a${i}>>, ApplyOutcome<${readsText}>>>, Expect<Equals<Effect.Services<ReturnType<typeof a${i}>>, never>>]`
 					]
-				: [
-						`export type E${i} = [Expect<Equals<Effect.Error<ReturnType<typeof a${i}>>, CompileError>>, Expect<Equals<Effect.Services<ReturnType<typeof a${i}>>, Scope.Scope>>]`
-					]
+				: apply.entry === "compile"
+					? [
+							`export type E${i} = [Expect<Equals<Effect.Error<ReturnType<typeof a${i}>>, CompileError>>, Expect<Equals<Effect.Services<ReturnType<typeof a${i}>>, Scope.Scope>>]`
+						]
+					: []
 			: []
 	return Arr.join(
 		[
 			...change,
 			...assertions,
-			`export const a${i} = (db: DbOf<typeof ${apply.role}, unknown>) =>`,
+			`export const a${i} = (${handle}) =>`,
 			...directiveOf(v, "apply"),
 			`\t${call}`,
 			...channels,
@@ -1523,11 +2481,24 @@ export const changeSetModules = (
 			"Ticket",
 			"Pair",
 			"Ledger",
+			"Tag",
+			"Flag",
+			"Order",
+			"Line",
+			"Cart",
+			"Entry",
+			"Pool",
+			"Item",
+			"Bin",
+			"Chip",
+			"Node",
+			"TaskCount",
 			"Cents",
 			"Writer",
+			"Clerk",
 			"Reader"
 		],
-		(n) => uses.has(n) || n === "Work" || n === "Writer" || n === "Reader" || n === "Cents"
+		(n) => uses.has(n) || n === "Work" || n === "Cents" || n === "Flag"
 	)
 	return [
 		{
@@ -1537,22 +2508,22 @@ export const changeSetModules = (
 					"// Generated by test/support/agreement/changesets.ts: the ChangeSet type/engine agreement.",
 					'import type { Effect, Scope } from "effect"',
 					...(uses.has("Stream") ? ['import { Stream } from "effect"'] : []),
-					`import { ChangeSet } from ${jsonText(entries.changeset)}`,
+					`import { type AdditionIn, ChangeSet, type Written } from ${jsonText(entries.changeset)}`,
 					...(uses.has("Compute") ? [`import { Compute } from ${jsonText(entries.compute)}`] : []),
-					`import { type CalendarDate, type Decimal, Money, pg, type Uuid } from ${jsonText(entries.fields)}`,
+					`import { ${uses.has("Bits") ? "Bits, " : ""}type CalendarDate, type Decimal, Money, pg, type Uuid } from ${jsonText(entries.fields)}`,
 					`import { type ParamsOf, type ParamType, query, v } from ${jsonText(entries.query)}`,
 					`import type { ReadsOf, WritesOf } from ${jsonText(entries.types)}`,
 					`import type { Phantom } from ${jsonText(entries.phantom)}`,
-					`import type { Invariant } from ${jsonText(entries.typesPhantom)}`,
-					`import type { Infer } from ${jsonText(entries.field)}`,
-					`import type { DbOf } from ${jsonText(entries.db)}`,
+					`import type { Invariant, Rostered } from ${jsonText(entries.typesPhantom)}`,
+					`import type { Bits as BitsOf, Infer } from ${jsonText(entries.field)}`,
+					`import type { Compiled, DbOf } from ${jsonText(entries.db)}`,
 					`import type { ApplyError, ApplyOutcome, CompileError } from ${jsonText(entries.outcome)}`,
 					`import { ${Arr.join(schemaNames, ", ")} } from ${jsonText(entries.agreement)}`,
 					"",
 					"type Equals<A, B> = (<X>() => X extends A ? 1 : 2) extends <X>() => X extends B ? 1 : 2 ? true : false",
 					"type Expect<T extends true> = T",
 					"type SchemaOf<C> = C extends Phantom<{ readonly schema: Invariant<infer S> }> ? S : never",
-					"export type Hosts = [CalendarDate, Decimal, Money, Uuid, Infer<typeof Cents>, typeof pg]",
+					'export type Hosts = [CalendarDate, Decimal, Money, Uuid, Infer<typeof Cents>, typeof pg, BitsOf<typeof Flag>, Rostered<"Kind">]',
 					"",
 					...Arr.map(cases, blockOf)
 				],

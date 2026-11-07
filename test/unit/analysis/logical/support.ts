@@ -41,12 +41,13 @@ import {
 import { RecordingReference } from "#test/support/oracle/reference/evaluations.ts"
 import { equal, type Row, valueKey } from "#test/support/oracle/reference/values.ts"
 import { ownedInput } from "#test/support/policy.ts"
+import type { HostFacts } from "#test/unit/analysis/theory/support.ts"
 
 /** The theory of a schema, provisional unless the test states the options law specialization would. */
-export const theoryOf = (desc: SchemaDesc, options: TheoryOptions): Theory =>
+export const theoryUnder = (desc: SchemaDesc, options: TheoryOptions): Theory =>
 	succeeded(buildTheory(succeeded(Result.flatMap(ownedInput(desc), checkedSchema)), options))
 
-export const theoryResult = (
+export const theoryResultUnder = (
 	desc: SchemaDesc,
 	options: TheoryOptions
 ): Result.Result<Theory, CompileError> =>
@@ -68,8 +69,6 @@ const genSchemaOf = (t: Theory): GenSchema => ({
 	closed: [],
 	containments: []
 })
-
-export type HostFacts = Readonly<Record<string, ReadonlyArray<Readonly<Record<string, unknown>>>>>
 
 /**
  * Host facts as typed rows in heading order, every stored relation present. Each host value is admitted as the

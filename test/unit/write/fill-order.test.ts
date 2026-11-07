@@ -62,10 +62,11 @@ import { descOf, parsedOf } from "#test/unit/write/changeset/fixtures.ts"
  *
  * - **The schema compiles exactly where the reference model admits it** (fill.ts `verdictOf`, a second implementation of
  *   the fill order over the specification's own names), and a refusal is the one the model names: UnwritableRelation
- *   for a counted family's member that is a sequence's member or owner, for sequences nesting each other, or for a
- *   unique object over a generated field; UnfillableField for a copy whose source its row fills after it, naming the
- *   copy's relation, field, family, axis and source as the specification states them, for a cause the model gives.
- *   The schema compiles as `grizzle generate` compiles it: its artifacts and its installation.
+ *   for sequences nesting each other, or for a unique object over a generated field; UnfillableField for a copy whose
+ *   source its row fills after it, naming the copy's relation, field, family, axis and source as the specification
+ *   states them, for a cause the model gives. A counted family's member that is also an ordered family's member, a
+ *   tree's node or a sequence's owner is admitted. The schema compiles as `grizzle generate` compiles it: its artifacts
+ *   and its installation.
  * - **Every write program of its full role compiles over an admitted schema**: one ChangeSet inserting an instance of
  *   every relation a caller inserts (a sequence's members nested under their owners, a counted family's members by
  *   their group keys), which also binds, its family reads finding nothing stored; and each relation's own insert, put
@@ -73,7 +74,7 @@ import { descOf, parsedOf } from "#test/unit/write/changeset/fixtures.ts"
  *   written whole, a sequence's members nested, and a family's member that owns a sequence written only nested).
  * - **The nested write fills what the reference writer fills** (fill.ts `writtenRows`): every field of every nested row
  *   the insert writes, a tree's to any depth, its interval, index, counts, fold ends and copies among them, but the
- *   counts and ends a counted family's own fill writes later.
+ *   counts, ends and copies a counted family's own fill writes later, a nested counted member's among them.
  * - **A later write compiles exactly where the reference finds it leaves no value stale** (fill.ts `writesVerdict`):
  *   each relation's own insert, put and delete the rules admit, and a drawn follow-up over the stored instance (an
  *   owner's put beside appends to its families), are refused with StaleDerivedRead naming a change and a value the
@@ -88,7 +89,6 @@ import { descOf, parsedOf } from "#test/unit/write/changeset/fixtures.ts"
 
 type FillSituation =
 	| "admitted"
-	| "refused: a counted member that is a sequence's"
 	| "refused: sequences nesting each other"
 	| "refused: a key over a generated field"
 	| "refused: a copy of a column filled after its members"
@@ -97,6 +97,9 @@ type FillSituation =
 	| "admitted: a tree owning an ordered family"
 	| "admitted: a tree owning a counted family"
 	| "admitted: a counted family of nested owners"
+	| "admitted: a counted member that is an ordered family's"
+	| "admitted: a counted member that is a tree's node"
+	| "admitted: a counted member that owns a sequence"
 	| "admitted: a copy along a counted family of a leaving column"
 	| "admitted: a copy of a tree's end"
 	| "admitted: a nesting three deep"
@@ -238,16 +241,8 @@ const property = (
 				const reason = defined(refusal, "a schema no write fills is refused").reason
 				assert.equal(reason._tag, "UnwritableRelation", Formatter.format(spec))
 				if (reason._tag === "UnwritableRelation") {
-					const kind = reason.cause.kind
-					assert.ok(
-						kind !== "generatedKey" && verdict.causes.includes(kind),
-						`a cause the model gives, not ${kind}`
-					)
-					note(
-						kind === "nestingCycle"
-							? "refused: sequences nesting each other"
-							: "refused: a counted member that is a sequence's"
-					)
+					assert.equal(reason.cause.kind, "nestingCycle", "sequences nesting each other")
+					note("refused: sequences nesting each other")
 				}
 				return
 			}
@@ -389,7 +384,7 @@ const property = (
 			}
 		}
 		if (Option.isSome(followUp)) {
-			const followed = followUpMembers(rows, followUp.value)
+			const followed = followUpMembers(spec, rows, followUp.value)
 			const follow = Arr.reduce(followed, ChangeSet.empty(value), (cs, m) =>
 				m.op === "put"
 					? cs.put(relationOf(built, m.relation), m.facts)
@@ -430,6 +425,19 @@ const property = (
 		) {
 			note("admitted: a counted family of nested owners")
 		}
+		for (const counted of Arr.filter(spec.families, (f) => f.kind === "counted")) {
+			for (const s of spec.families) {
+				if (s.kind === "ordered" && s.member === counted.member) {
+					note("admitted: a counted member that is an ordered family's")
+				}
+				if (s.kind === "tree" && s.member === counted.member) {
+					note("admitted: a counted member that is a tree's node")
+				}
+				if (s.kind !== "counted" && s.owner === counted.member) {
+					note("admitted: a counted member that owns a sequence")
+				}
+			}
+		}
 		for (const [j, copy] of spec.copies.entries()) {
 			const family = defined(spec.families[copy.family])
 			if (family.kind === "counted" && sourceClassOf(spec, j) === "leaving") {
@@ -455,7 +463,6 @@ const property = (
 
 const fillSituations: Arr.NonEmptyReadonlyArray<FillSituation> = [
 	"admitted",
-	"refused: a counted member that is a sequence's",
 	"refused: sequences nesting each other",
 	"refused: a key over a generated field",
 	"refused: a copy of a column filled after its members",
@@ -464,6 +471,9 @@ const fillSituations: Arr.NonEmptyReadonlyArray<FillSituation> = [
 	"admitted: a tree owning an ordered family",
 	"admitted: a tree owning a counted family",
 	"admitted: a counted family of nested owners",
+	"admitted: a counted member that is an ordered family's",
+	"admitted: a counted member that is a tree's node",
+	"admitted: a counted member that owns a sequence",
 	"admitted: a copy along a counted family of a leaving column",
 	"admitted: a copy of a tree's end",
 	"admitted: a nesting three deep",
@@ -825,7 +835,7 @@ describe("the fill order: a schema generate accepts is one every write of fills"
 						suite: "unit/write/fill-order",
 						draw: drawn(caseGen),
 						literal: Formatter.format,
-						coverage: required<FillSituation>(fillSituations, { cases: 240, sense: notesOnly }),
+						coverage: required<FillSituation>(fillSituations, { cases: 480, sense: notesOnly }),
 						kept: [],
 						runs: 100,
 						shrink: boundedShrink(400),

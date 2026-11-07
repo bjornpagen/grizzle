@@ -31,6 +31,7 @@ import {
 	nestedSet
 } from "#compiler/write/family/nesting.ts"
 import type { MemberSlot, SlotFacts, WriteFrontend } from "#compiler/write/frontend/compile.ts"
+import { isCarried } from "#compiler/write/insert/statement.ts"
 import type { RelationUniques } from "#compiler/write/insert/unique.ts"
 
 type Fact = { readonly [field: string]: unknown }
@@ -179,11 +180,7 @@ export interface HostKeyField {
  * the host (`checks`, `Probed`), its law, its compared fields, its span field with its range carrier's spec, and the
  * fields a conflict at it names. */
 export interface HostChecks {
-	readonly keys: ReadonlyArray<{
-		readonly law: LawId
-		readonly described: Law
-		readonly fields: ReadonlyArray<HostKeyField>
-	}>
+	readonly keys: ReadonlyArray<HostKey>
 	readonly spans: ReadonlyArray<{
 		readonly law: LawId
 		readonly described: Law
@@ -197,6 +194,18 @@ export interface HostChecks {
 }
 
 export type Range = "range4" | "range8"
+
+/**
+ * A declared key the host compares a relation's facts at: its law, its fields, and whether a fact as its caller writes
+ * it states every one of them, its caller's and serial fields alone (`stated`): a deletion's facts, which state no
+ * field grizzle writes, are compared only at such a key.
+ */
+export interface HostKey {
+	readonly law: LawId
+	readonly described: Law
+	readonly fields: ReadonlyArray<HostKeyField>
+	readonly stated: boolean
+}
 
 /** A key field of the relation's facts, by its name, with its spec under the installation's codes. */
 const hostKeyField =
@@ -214,11 +223,12 @@ export const hostChecks = (
 	codes: Codebook
 ): HostChecks =>
 	Object.freeze({
-		keys: keyLaws.map((k) =>
+		keys: keyLaws.map((k): HostKey =>
 			Object.freeze({
 				law: k.law,
 				described: k.described,
-				fields: k.fields.map(hostKeyField(codes))
+				fields: k.fields.map(hostKeyField(codes)),
+				stated: k.fields.every(isCarried)
 			})
 		),
 		spans: uniques.checks.flatMap(({ object: check, pairs }) => {
@@ -330,13 +340,13 @@ const primaryConflict = (stratum: number, facts: SlotFacts, fact: NestedFact): K
 const keyConflictIn = (
 	stratum: number,
 	facts: SlotFacts,
-	onKey: (fields: ReadonlyArray<HostKeyField>) => ReadonlyArray<Entry>
+	onKey: (key: HostKey) => ReadonlyArray<Entry>
 ): KeyRefusal | undefined => {
 	for (const key of facts.host.keys) {
 		const { fields } = key
 		const keyText = keyTextOf(fields)
 		const seen = new Map<string, Entry>()
-		for (const e of onKey(fields)) {
+		for (const e of onKey(key)) {
 			const k = keyText(e.fact)
 			const prior = seen.get(k)
 			if (prior !== undefined && prior.identity !== e.identity) {
@@ -361,7 +371,7 @@ const sameKey = (
 	complete: ReadonlyArray<Entry>,
 	generated: ReadonlyArray<Entry>
 ): KeyRefusal | undefined => {
-	const keyed = keyConflictIn(stratum, facts, (fields) =>
+	const keyed = keyConflictIn(stratum, facts, ({ fields }) =>
 		fields.some((f) => serial.includes(f.field)) ? complete : [...complete, ...generated]
 	)
 	if (keyed !== undefined) {
@@ -439,7 +449,8 @@ const sameKey = (
  *    the statement would otherwise meet as a violation that aborts it. Deletions are a relation's facts too: two facts
  *    the stratum deletes with one value of a declared key and different identities name two facts where the key names
  *    one, a key conflict on that key's law, judged over the deletions alone and before netting, since an addition at a
- *    deleted key is a replacement.
+ *    deleted key is a replacement, and only at a key a deletion's facts state (HostKey `stated`): a deletion states no
+ *    field grizzle writes, so a declared key holding one compares none of them.
  * 4. Nets additions against deletions within the stratum: a fact both added and deleted stays and is neither deleted
  *    nor counted, so it leaves the deletions (D EXCEPT A); and a fact both an insert and a put request is
  *    the put's, so it leaves the insert. Deleting an absent fact, or one a put displaces anyway, stays a
@@ -564,7 +575,8 @@ export const normalizeChangeSet = (
 				serial,
 				sorted([...sets.put.values(), ...sets.insert.values()]),
 				sorted(sets.generated.values())
-			) ?? keyConflictIn(stratum, relation, () => sorted(sets.delete.values()))
+			) ??
+			keyConflictIn(stratum, relation, (key) => (key.stated ? sorted(sets.delete.values()) : []))
 		if (refused !== undefined) {
 			return Result.ok(refused)
 		}

@@ -5,9 +5,9 @@ import { captureLoc } from "#compiler/core/loc.ts"
 import { builtMark } from "#compiler/core/phantom.ts"
 import { isRegexFlags, type RegexFlags } from "#compiler/scalar/regex/parse.ts"
 import {
+	type DescriptorLanguage,
 	registeredText,
-	registerTextDescriptor,
-	type TextLookup
+	registerTextDescriptor
 } from "#compiler/scalar/registry.ts"
 import { textLookup, textLookupWithin } from "#compiler/text/refinement.ts"
 import type { TextField } from "#compiler/types/fields/field.ts"
@@ -94,7 +94,7 @@ const firstFlags = <A extends RegexFlagsArguments>(flags: A): A[0] => flags[0]
 const textField = <Host extends string, S extends string, F extends RegexFlags>(
 	source: S,
 	flags: F,
-	lookup: TextLookup
+	lookup: DescriptorLanguage
 ): RegexText<Host, S, F> =>
 	registerTextDescriptor(
 		Object.freeze({

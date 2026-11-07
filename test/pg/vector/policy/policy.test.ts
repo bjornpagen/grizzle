@@ -1,9 +1,9 @@
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
-import { element } from "@grizzle/testing/gen"
+import { constant, element, map, oneOf } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter } from "effect"
+import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { dbContext } from "#adapter/db/context.ts"
 import { OpenError } from "#adapter/errors/execution.ts"
 import { AdmissionRefused } from "#adapter/errors/failures.ts"
@@ -20,7 +20,7 @@ import {
 	installFixture,
 	vectorParam
 } from "#test/pg/vector/ann/support.ts"
-import { assert, defined } from "#test/support/assert.ts"
+import { assert, defined, nonEmpty } from "#test/support/assert.ts"
 import { paramTexts, scalarsOnly } from "#test/support/compile.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
@@ -77,52 +77,63 @@ const underfill = (db: object, fx: Fixture) =>
 		)}`
 	})
 
-/**
- * A change to the login's stored search default: none, its removal, or each other value hnsw.iterative_scan takes.
- * Every value the parameter takes and its absence: the box the exhaustion covers.
- */
-type DefaultChange =
-	| { readonly kind: "intact" }
-	| { readonly kind: "removed" }
-	| { readonly kind: "changed"; readonly value: "off" | "relaxed_order" }
+/** One of the policy's settings, by its place in it. */
+type PolicySetting = (typeof searchPolicySettings)[number]
 
-const changes: Arr.NonEmptyReadonlyArray<DefaultChange> = [
-	{ kind: "intact" },
-	{ kind: "removed" },
-	{ kind: "changed", value: "off" },
-	{ kind: "changed", value: "relaxed_order" }
-]
+/**
+ * A change to the login's stored default of one of the policy's settings: its removal, or a value the parameter takes,
+ * the policy's own among them.
+ */
+interface DefaultChange {
+	readonly setting: PolicySetting
+	readonly value: Option.Option<string>
+}
 
 type PolicyFeature =
 	| "the stored policy fills the read"
 	| "a lost default refused"
 	| "a changed default refused"
 
+/** Loads the vector library in the admin session, so its `hnsw.*` parameters are known there. */
+const loadVectorLibrary = Effect.flatMap(Substrate, (s) =>
+	s.admin.query(`SELECT vector_ext.vector_dims('[1]'::vector_ext.vector)`, [])
+)
+
+/** Every value PostgreSQL lists for an enum parameter. */
+const valuesOf = (parameter: string) =>
+	Effect.gen(function* () {
+		const s = yield* Substrate
+		yield* loadVectorLibrary
+		const rows = yield* s.admin.queryValues(
+			"SELECT pg_catalog.unnest(s.enumvals)::text FROM pg_catalog.pg_settings AS s WHERE s.name = $1::text",
+			[parameter]
+		)
+		return nonEmpty(
+			Arr.map(rows, (row) => String(row[0])),
+			`the values of ${parameter}`
+		)
+	})
+
 /**
- * Stores `change` as the login's default of the policy's parameter, as the migration identity, whose session must have
+ * Stores `change` as the login's default of its setting's parameter, as the migration identity, whose session must have
  * loaded the vector library to name an `hnsw.*` parameter; the release puts the policy's value back.
  */
 const changedDefault = (fx: Fixture, change: DefaultChange) =>
 	Effect.gen(function* () {
 		const s = yield* Substrate
 		const role = quoteIdent(loginRole(fx))
-		const [setting] = searchPolicySettings
-		yield* s.admin.query(`SELECT vector_ext.vector_dims('[1]'::vector_ext.vector)`, [])
-		switch (change.kind) {
-			case "intact":
-				return
-			case "removed":
-				yield* s.admin.query(`ALTER ROLE ${role} RESET ${setting.parameter}`, [])
-				break
-			case "changed":
-				yield* s.admin.query(`ALTER ROLE ${role} SET ${setting.parameter} = '${change.value}'`, [])
-				break
+		const { parameter, value } = change.setting
+		yield* loadVectorLibrary
+		if (Option.isSome(change.value)) {
+			yield* s.admin.query(`ALTER ROLE ${role} SET ${parameter} = '${change.value.value}'`, [])
+		} else {
+			yield* s.admin.query(`ALTER ROLE ${role} RESET ${parameter}`, [])
 		}
 		yield* Effect.addFinalizer(() =>
 			Effect.orDie(
 				Effect.andThen(
-					s.admin.query(`SELECT vector_ext.vector_dims('[1]'::vector_ext.vector)`, []),
-					s.admin.query(`ALTER ROLE ${role} SET ${setting.parameter} = '${setting.value}'`, [])
+					loadVectorLibrary,
+					s.admin.query(`ALTER ROLE ${role} SET ${parameter} = '${value}'`, [])
 				)
 			)
 		)
@@ -153,14 +164,31 @@ layer(Substrate.layer)("the HNSW search policy as login defaults", (it) => {
 						assert.deepEqual(rows, [[p.value]], p.parameter)
 					}
 					const role = loginRole(fx)
-					const [setting] = searchPolicySettings
+					const listed = yield* Effect.forEach(searchPolicySettings, (setting) =>
+						Effect.map(valuesOf(setting.parameter), (taken) => [setting.parameter, taken] as const)
+					)
+					const values = new Map(listed)
 					return yield* exhaust(
 						{
 							suite: "pg/vector/policy",
-							generator: element(changes),
+							generator: (source): DefaultChange => {
+								const setting = source.draw(element(searchPolicySettings))
+								const taken = defined(values.get(setting.parameter), setting.parameter)
+								return {
+									setting,
+									value: source.draw(
+										oneOf([constant(Option.none<string>()), map(element(taken), Option.some)])
+									)
+								}
+							},
 							literal: Formatter.format,
-							limit: changes.length,
-							box: "the login's default of hnsw.iterative_scan at each value the parameter takes, and removed",
+							limit: Arr.reduce(
+								searchPolicySettings,
+								0,
+								(n, setting) =>
+									n + 1 + defined(values.get(setting.parameter), setting.parameter).length
+							),
+							box: "the login's default of each policy setting at every value PostgreSQL lists for its parameter, and removed",
 							oracle: {
 								kind: "specification",
 								name: "admission holds the login's stored defaults to the policy's: one removed or changed is refused at settings"
@@ -177,7 +205,8 @@ layer(Substrate.layer)("the HNSW search policy as login defaults", (it) => {
 								Effect.gen(function* () {
 									yield* changedDefault(fx, change)
 									const open = Db.open(fx.opened.server.roles.app, {})
-									if (change.kind !== "intact") {
+									const { setting } = change
+									if (!Option.contains(change.value, setting.value)) {
 										const error = yield* Effect.flip(
 											open.pipe(Effect.scoped, withLayer(fx.opened.layer))
 										)
@@ -196,12 +225,12 @@ layer(Substrate.layer)("the HNSW search policy as login defaults", (it) => {
 													"settings",
 													`role ${role} default ${setting.parameter}`,
 													setting.value,
-													change.kind === "removed" ? "<not set>" : change.value
+													Option.getOrElse(change.value, () => "<not set>")
 												]
 											]
 										)
 										k.note(
-											change.kind === "removed"
+											Option.isNone(change.value)
 												? "a lost default refused"
 												: "a changed default refused"
 										)

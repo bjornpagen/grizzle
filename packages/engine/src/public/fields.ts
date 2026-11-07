@@ -125,7 +125,7 @@ export const pg: Pg = pgDescriptors
 export const contract: ContractConstructor = <
 	const Name extends string,
 	B extends FieldBase,
-	Pr extends Predicate = Predicate,
+	Pr extends Predicate<never> = Predicate,
 	const Proved extends ReadonlyArray<keyof Facts> = readonly []
 >(
 	name: Name,

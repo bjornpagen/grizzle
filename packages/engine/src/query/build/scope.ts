@@ -2,17 +2,20 @@ import { captureLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import type { InteriorDesc } from "#compiler/ir/desc.ts"
 import type { VarRef } from "#compiler/ir/open.ts"
 import type { ScalarEnv } from "#compiler/scalar/registry.ts"
+import type { WrittenOver } from "#compiler/schema/level.ts"
 
 /** A builder location: the label, the path under it (empty at the label itself) and the user's call site. */
 export const buildLoc = (label: string, path: ReadonlyArray<string | number>): SourceLoc =>
 	captureLoc(label, path)
 
 /**
- * What a query knows about the schema it is written over: the schema value, when the query was built by query(S),
- * and the field environment that resolves a closed reference's roster by name.
+ * What a query knows about the schema it is written over: the schema value, when the query was built by query(S), what
+ * it is written over (schema/level.ts WrittenOver), which a rule that matches the query must be over a level above, and
+ * the field environment that resolves a closed reference's roster by name.
  */
 export interface SchemaInfo {
 	readonly value: unknown
+	readonly over: WrittenOver
 	readonly env: ScalarEnv
 }
 

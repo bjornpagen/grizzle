@@ -1,12 +1,16 @@
 import { layer } from "@effect/vitest"
-import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { noCoverage, required } from "@grizzle/testing/features"
-import { array, element, type Gen, subset } from "@grizzle/testing/gen"
+import { drawn, explore } from "@grizzle/testing/explore"
+import { required } from "@grizzle/testing/features"
+import { array, element, type Gen, int, subset, weighted } from "@grizzle/testing/gen"
+import { matching } from "@grizzle/testing/pattern"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
+import type { Source } from "@grizzle/testing/source"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Order, pipe, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Order, pipe, Record as Rec, String as Str } from "effect"
 import { derivedAnalysis } from "#compiler/analysis/schema.ts"
+import { indices } from "#compiler/core/array.ts"
+import { catchCompileError } from "#compiler/core/canonical.ts"
 import * as Result from "#compiler/core/result.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { codeOf } from "#compiler/ir/codes.ts"
@@ -15,15 +19,17 @@ import { baseOf, textInfoOf } from "#compiler/ir/scalar.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { conservativeInput, flight } from "#compiler/lower/conservative/types.ts"
 import { columnType } from "#compiler/physical/ddl/names.ts"
-import { Compute } from "#compiler/public/compute.ts"
 import { uuid, type Uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { derived, login, relation, role, schema } from "#compiler/public/schema.ts"
-import { str } from "#compiler/public/text.ts"
+import { closed, derived, login, relation, role, schema } from "#compiler/public/schema.ts"
+import { queryOver, varsOver } from "#compiler/query/build/query.ts"
+import type { RuleValue } from "#compiler/query/build/rule.ts"
+import { computeCore } from "#compiler/scalar/compute/builders.ts"
+import { derived as runtimeDerived } from "#compiler/schema/relation.ts"
 import { printObjectName, printType, quoteIdent } from "#compiler/sql/print.ts"
 import { textLookup } from "#compiler/text/refinement.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { assert, defined as present, succeeded } from "#test/support/assert.ts"
+import { assert, nonEmpty, defined as present, succeeded } from "#test/support/assert.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import {
 	type Installed,
@@ -33,16 +39,28 @@ import {
 import { namesOf, parsedName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { checkedIn } from "#test/support/policy.ts"
+import { compiledPattern } from "#test/support/regex.ts"
 import { ownerSession, Substrate, worldSession } from "#test/support/substrate/substrate.ts"
-import * as K from "#test/unit/derived/kit.ts"
+import {
+	type SketchedField,
+	fieldOf,
+	fieldSketchGen,
+	type PatternSketch,
+	pgField,
+	patternOf,
+	patternSketchGen
+} from "#test/unit/schema/field-sketch.ts"
+import { regex } from "#test/unit/schema/support.ts"
 
 /** Derived relations installed on PostgreSQL 19 (gate).
  *
- * - the inferred descriptors hold: every view column's catalog type, typmod and collation is the one its inferred field
- *   descriptor names, for every aggregate overload, refinement, roster and contract, a closed id read from its roster's
- *   own facts, which the lowering delivers as a smallint literal, included;
- * - over drawn patterns, a view column of a refined-text literal has its pattern's domain, whether a stored field
- *   declares the pattern or not, and plain text for the wildcard; a role refreshing the relation refreshes the
+ * - the inferred descriptors hold: over a derived relation of one relation of drawn field types (field-sketch.ts:
+ *   every pg descriptor, the numeric typmod box, refined and wildcard text, contracts, spans, closed ids and sets over
+ *   drawn rosters, vectors), grouped by drawn fields with drawn counts, sums, means, minima and maxima, every view
+ *   column's catalog type, typmod and collation is the one its inferred field descriptor names; a definition the
+ *   compiler refuses gives its case up;
+ * - over drawn patterns and drawn members of them, a view column of a refined-text literal has its pattern's domain,
+ *   whether a stored field declares the pattern or not, and plain text for the wildcard; a role refreshing the relation refreshes the
  *   materialized view, plainly and concurrently, to the definition's rows, and a role reading it reads the literals
  *   through its world's view;
  * - a refresh inside an owner's transaction whose drawn writes leave a deferred containment false (tasks of absent
@@ -136,11 +154,27 @@ const workFacts = {
 }
 
 /**
- * The atttypmod of an inferred descriptor's column: numeric(p, s)'s, and -1 for every other, a computed numeric's numeric
- * of no typmod among them.
+ * The atttypmod of an inferred descriptor's column, as PostgreSQL encodes it: numeric(p, s)'s, its scale in eleven bits
+ * of two's complement (numeric.c make_numeric_typmod), a vector's its dimensions, and -1 for every other, a domain's
+ * column and a computed numeric's numeric of no typmod among them.
  */
-const typmodOf = (desc: InferredFieldDesc): number =>
-	desc.kind === "numeric" ? ((desc.precision << 16) | desc.scale) + 4 : -1
+const typmodOf = (desc: InferredFieldDesc): number => {
+	switch (desc.kind) {
+		case "numeric":
+			return ((desc.precision << 16) | (desc.scale & 0x7ff)) + 4
+		case "vector":
+			return desc.dimensions
+		case "pg":
+		case "uuid":
+		case "text":
+		case "contract":
+		case "span":
+		case "closedId":
+		case "bits":
+		case "computedNumeric":
+			return -1
+	}
+}
 
 /** The accounts the work facts hold, and those and two accounts no fact holds. */
 const heldAccounts: ReadonlyArray<string> = [id(1), id(2), id(3)]
@@ -190,64 +224,55 @@ const deferredFeatures = (c: DeferredCase): ReadonlyArray<DeferredFeature> => [
 		: [])
 ]
 
-/** The patterns a case's field and literals are drawn from: three that a domain refines, and the wildcard. */
-const patterns = {
-	upper: { source: "^[A-Z]{3}$", flags: "u", members: ["ABC", "QRS"] },
-	lower: { source: "^[a-z]+$", flags: "u", members: ["abc", "z"] },
-	digits: { source: "^[0-9]{2}$", flags: "u", members: ["42", "07"] },
-	any: { source: "^.*$", flags: "su", members: ["x", "Q7"] }
-} as const
+/** A literal's pattern: the one Coded's field declares, a drawn class pattern, or the wildcard. */
+type LiteralPattern =
+	| { readonly kind: "declared" }
+	| { readonly kind: "drawn"; readonly pattern: PatternSketch }
 
-type PatternKey = keyof typeof patterns
-
-const patternKeys: Arr.NonEmptyReadonlyArray<PatternKey> = ["upper", "lower", "digits", "any"]
-
-/** A pattern's refined text. */
-const refinedOf = (key: PatternKey) => {
-	switch (key) {
-		case "upper":
-			return str.regex("^[A-Z]{3}$")
-		case "lower":
-			return str.regex("^[a-z]+$")
-		case "digits":
-			return str.regex("^[0-9]{2}$")
-		case "any":
-			return str.regex("^.*$", "su")
-	}
-}
-
-/** The text a literal of a pattern holds: its first member. */
-const memberOf = (key: PatternKey): string => patterns[key].members[0]
-
-/** A literal of a pattern's refined text, holding its first member. */
-const literalOf = (key: PatternKey) => {
-	switch (key) {
-		case "upper":
-			return Compute.literal(str.regex("^[A-Z]{3}$"), "ABC")
-		case "lower":
-			return Compute.literal(str.regex("^[a-z]+$"), "abc")
-		case "digits":
-			return Compute.literal(str.regex("^[0-9]{2}$"), "42")
-		case "any":
-			return Compute.literal(str.regex("^.*$", "su"), "x")
-	}
-}
-
-/** A case: Coded's field's pattern, its rows' codes, and the patterns of the derived relation's two literals. */
+/** A case: Coded's field's pattern, its rows' codes, and the derived relation's two literals, each with its member. */
 interface LiteralCase {
-	readonly declared: PatternKey
+	readonly declared: PatternSketch
 	readonly codes: ReadonlyArray<string>
-	readonly first: PatternKey
-	readonly second: PatternKey
+	readonly first: { readonly pattern: LiteralPattern; readonly member: string }
+	readonly second: { readonly pattern: LiteralPattern; readonly member: string }
+}
+
+/** The pattern sketch a literal's pattern stands for. */
+const sketchOf = (c: LiteralCase, p: LiteralPattern): PatternSketch =>
+	p.kind === "declared" ? c.declared : p.pattern
+
+/** A member of a pattern: a text it matches, of printable ASCII for the wildcard, which PostgreSQL's text holds. */
+const memberGen = (p: PatternSketch): Gen<string> => {
+	const { source, flags } =
+		p.kind === "wildcard" ? { source: "^[ -~]{0,4}$", flags: "u" } : patternOf(p)
+	return matching(compiledPattern(source, flags))
+}
+
+/** Whether two pattern sketches are one pattern. */
+const samePattern = (a: PatternSketch, b: PatternSketch): boolean => {
+	const [x, y] = [patternOf(a), patternOf(b)]
+	return x.source === y.source && x.flags === y.flags
 }
 
 const literalCaseGen: Gen<LiteralCase> = (source) => {
-	const declared = source.draw(element(patternKeys))
+	const declared = source.draw(patternSketchGen)
+	const literal = (s: Source) => {
+		const pattern = s.draw(
+			weighted<LiteralPattern>([
+				[1, (): LiteralPattern => ({ kind: "declared" })],
+				[2, (d) => ({ kind: "drawn", pattern: d.draw(patternSketchGen) })]
+			])
+		)
+		return {
+			pattern,
+			member: s.draw(memberGen(pattern.kind === "declared" ? declared : pattern.pattern))
+		}
+	}
 	return {
 		declared,
-		codes: source.draw(array(element(patterns[declared].members), { min: 0, max: 3 })),
-		first: source.draw(element(patternKeys)),
-		second: source.draw(element(patternKeys))
+		codes: source.draw(array(memberGen(declared), { min: 0, max: 3 })),
+		first: literal(source),
+		second: literal(source)
 	}
 }
 
@@ -259,69 +284,253 @@ type LiteralFeature =
 	| "no row refreshed"
 
 const literalFeatures = (c: LiteralCase): ReadonlyArray<LiteralFeature> => [
-	...Arr.map([c.first, c.second], (key): LiteralFeature =>
-		key === "any"
+	...Arr.map([c.first, c.second], (l): LiteralFeature => {
+		const sketch = sketchOf(c, l.pattern)
+		return sketch.kind === "wildcard"
 			? "a literal of the wildcard"
-			: key === c.declared
+			: samePattern(sketch, c.declared)
 				? "a literal of a pattern a field declares"
 				: "a literal of a pattern no field declares"
-	),
+	}),
 	c.codes.length > 0 ? "rows refreshed" : "no row refreshed"
 ]
 
+/** An aggregate of a derived head: a count, or sum, mean, min or max over a drawn field. */
+type DescriptorAggregate =
+	| { readonly fn: "count" }
+	| { readonly fn: "sum" | "mean" | "min" | "max"; readonly field: number }
+
+/**
+ * A derived relation over one relation of drawn field types: grouped by a drawn subset of its fields, with drawn
+ * aggregates, or projecting the group alone; a definition the compiler refuses (an aggregate a type does not take, a
+ * key no B-tree holds) gives the case up, so every admitted one is installed.
+ */
+interface DescriptorCase {
+	readonly rosters: Arr.NonEmptyReadonlyArray<number>
+	readonly fields: Arr.NonEmptyReadonlyArray<SketchedField>
+	readonly group: ReadonlyArray<number>
+	readonly aggregates: ReadonlyArray<DescriptorAggregate>
+}
+
+/** The SQL types sum and mean take among pg's descriptors: the integers and the floats (money's sum is exact money). */
+const summedSql: ReadonlySet<string> = new Set([
+	"smallint",
+	"integer",
+	"bigint",
+	"real",
+	"double precision"
+])
+
+/** Whether sum and mean take a field: an integer, a float or a numeric, or a contract over one. */
+const summed = (f: SketchedField): boolean => {
+	switch (f.kind) {
+		case "pg":
+			return summedSql.has(pgField(f.member).sql)
+		case "numeric":
+			return true
+		case "contract":
+			return summed(f.base)
+		case "uuid":
+		case "text":
+		case "closedId":
+		case "vector":
+		case "span":
+		case "bits":
+			return false
+	}
+}
+
+/** Whether min and max take a field: one sum takes, or text. */
+const extremal = (f: SketchedField): boolean =>
+	summed(f) || f.kind === "text" || (f.kind === "contract" && f.base.kind === "text")
+
+/** Whether a field may be a group key: none of unbounded text or of a vector, whose B-tree entry no bound holds. */
+const keyable = (f: SketchedField): boolean => {
+	const base = f.kind === "contract" ? f.base : f
+	return !(base.kind === "vector" || (base.kind === "text" && base.pattern.kind === "wildcard"))
+}
+
+const descriptorCaseGen: Gen<DescriptorCase> = (source) => {
+	const rosters = nonEmpty(source.draw(array(int(1, 3), { min: 1, max: 2 })), "the rosters")
+	const drawnFields = nonEmpty(
+		source.draw(
+			array(
+				fieldSketchGen(rosters.length, (s) => `C${s.draw(int(0, 9))}`),
+				{ min: 1, max: 4 }
+			)
+		),
+		"the fields"
+	)
+	const fields = Arr.map(drawnFields, (f, i): SketchedField =>
+		f.kind === "contract" ? { ...f, name: `C${i}` } : f
+	)
+	const where = (keep: (f: SketchedField) => boolean) =>
+		Arr.filter(indices(fields.length), (i) => keep(Arr.getUnsafe(fields, i)))
+	const keys = where(keyable)
+	const sums = where(summed)
+	const extremes = where(extremal)
+	const pick = (s: Source, among: ReadonlyArray<number>) =>
+		Arr.getUnsafe(among, s.draw(int(0, among.length - 1)))
+	return {
+		rosters,
+		fields,
+		group: source.draw(subset(keys, { min: 0, max: Math.min(2, keys.length) })),
+		aggregates: source.draw(
+			array(
+				(s): DescriptorAggregate => {
+					switch (s.draw(int(0, 4))) {
+						case 1:
+							return sums.length > 0 ? { fn: "sum", field: pick(s, sums) } : { fn: "count" }
+						case 2:
+							return sums.length > 0 ? { fn: "mean", field: pick(s, sums) } : { fn: "count" }
+						case 3:
+							return extremes.length > 0 ? { fn: "min", field: pick(s, extremes) } : { fn: "count" }
+						case 4:
+							return extremes.length > 0 ? { fn: "max", field: pick(s, extremes) } : { fn: "count" }
+						default:
+							return { fn: "count" }
+					}
+				},
+				{ min: 0, max: 3 }
+			)
+		)
+	}
+}
+
+/** The schema of a case: Base's one relation R, and its derived relation D over it. */
+const descriptorSchemaOf = (c: DescriptorCase) => {
+	const rosters = Arr.map(c.rosters, (count, i) =>
+		closed(
+			`K${i}`,
+			Arr.prepend(
+				Arr.map(Arr.range(1, count - 1), (h) => `h${h}`),
+				"h0"
+			)
+		)
+	)
+	const fieldName = (i: number) => `f${i}`
+	const R = relation(
+		"R",
+		{
+			id: uuid,
+			...Rec.fromEntries(Arr.map(c.fields, (f, i) => [fieldName(i), fieldOf(f, rosters)] as const))
+		},
+		["id"]
+	)
+	const Base = schema(
+		"Base",
+		{ ...Rec.fromEntries(Arr.map(rosters, (r, i) => [`K${i}`, r] as const)), R },
+		[]
+	)
+	const projected =
+		c.group.length === 0 && c.aggregates.length === 0 ? indices(c.fields.length) : c.group
+	const definition = queryOver(Base).rule((r: RuleValue) => {
+		const vars = varsOver(R, "r")
+		return r.match(R, vars).find({
+			...Rec.fromEntries(Arr.map(projected, (i) => [fieldName(i), vars[fieldName(i)]] as const)),
+			...Rec.fromEntries(
+				Arr.map(c.aggregates, (a, i) => {
+					switch (a.fn) {
+						case "count":
+							return [`a${i}`, r.count()] as const
+						case "sum":
+							return [`a${i}`, r.sum(vars[fieldName(a.field)])] as const
+						case "mean":
+							return [`a${i}`, r.mean(vars[fieldName(a.field)])] as const
+						case "min":
+							return [`a${i}`, r.min(vars[fieldName(a.field)])] as const
+						case "max":
+							return [`a${i}`, r.max(vars[fieldName(a.field)])] as const
+					}
+				})
+			)
+		})
+	})
+	return schema.extend(Base, { D: runtimeDerived("D", definition, []) }, [])
+}
+
+type DescriptorFeature =
+	| `aggregate ${DescriptorAggregate["fn"]}`
+	| `column ${InferredFieldDesc["kind"]}`
+
 layer(Substrate.layer)("derived relations on PostgreSQL 19", (it) => {
 	it.effect(
-		"inferred descriptors hold for every aggregate overload, refinement, roster and contract",
+		"inferred descriptors hold: every view column's catalog type, typmod and collation is its descriptor's",
 		(ctx) =>
 			searched(
 				ctx,
-				Effect.gen(function* () {
-					const substrate = yield* Substrate
-					const installed = yield* install(K.KitReports, {
-						ambient: ordinarySession,
-						extensions: [],
-						label: "derived",
-						logins: []
-					})
-					const owner = yield* substrate.session({ ...ownerSession(), label: "owner" })
-					return yield* exhaust(
-						{
-							suite: "derived/install/descriptors",
-							generator: element([
-								"Sums",
-								"Means",
-								"Extremes",
-								"Facts",
-								"Computed",
-								"Kinds"
-							] as const),
-							literal: Formatter.format,
-							limit: 6,
-							coverage: noCoverage,
-							caseHang
+				explore(
+					{
+						suite: "pg/derived/install/descriptors",
+						draw: drawn(descriptorCaseGen),
+						literal: Formatter.format,
+						oracle: {
+							kind: "postgresql",
+							name: "the installed view's pg_attribute: each column's type, typmod and collation"
 						},
-						(relation) =>
+						coverage: required<DescriptorFeature>(
+							[
+								"aggregate count",
+								"aggregate sum",
+								"aggregate mean",
+								"aggregate min",
+								"aggregate max",
+								"column pg",
+								"column numeric",
+								"column text",
+								"column contract",
+								"column closedId",
+								"column span",
+								"column computedNumeric"
+							],
+							{ cases: 80, sense: notesOnly }
+						),
+						kept: [],
+						runs: 12,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 4,
+						caseHang
+					},
+					(c, k) =>
+						Effect.scoped(
 							Effect.gen(function* () {
-								const { analysis, view } = viewOf(installed, relation)
-								for (const c of analysis.heading) {
-									const column = installed.names.column(relation, c.name)
-									const desc = c.desc
-									const expected = printType(columnType(installed.names, c.type).type)
+								const built = catchCompileError(() => descriptorSchemaOf(c))
+								yield* k.assume(built.ok && Result.map(checkedIn(built.value), derivedAnalysis).ok)
+								if (!built.ok) {
+									return
+								}
+								const substrate = yield* Substrate
+								const installed = yield* install(built.value, {
+									ambient: ordinarySession,
+									extensions: [],
+									label: "derived",
+									logins: []
+								})
+								const owner = yield* substrate.session({ ...ownerSession(), label: "owner" })
+								const { analysis, view } = viewOf(installed, "D")
+								for (const a of c.aggregates) {
+									k.note(`aggregate ${a.fn}`)
+								}
+								for (const col of analysis.heading) {
+									k.note(`column ${col.desc.kind}`)
+									const column = installed.names.column("D", col.name)
+									const expected = printType(columnType(installed.names, col.type).type)
 									const attribute = yield* owner.values(
 										`SELECT (a.atttypid = '${Str.replaceAll("'", "''")(expected)}'::regtype)::text, a.atttypmod::text, a.attcollation::regcollation::text FROM pg_catalog.pg_attribute AS a WHERE a.attrelid = '${view}'::regclass AND a.attname = '${column}'`,
 										[]
 									)
 									const [[sameType, typmod, collation]] =
 										trusted<Arr.NonEmptyReadonlyArray<readonly [string, string, string]>>(attribute)
-									assert.equal(sameType, "true", `${relation}.${c.name} is ${expected}`)
-									assert.equal(Number(typmod), typmodOf(desc), `${relation}.${c.name} typmod`)
-									if (baseOf(c.type).carrier === "text") {
-										assert.equal(collation, "pg_c_utf8", `${relation}.${c.name} collation`)
+									assert.equal(sameType, "true", `D.${col.name} is ${expected}`)
+									assert.equal(Number(typmod), typmodOf(col.desc), `D.${col.name} typmod`)
+									if (baseOf(col.type).carrier === "text") {
+										assert.equal(collation, "pg_c_utf8", `D.${col.name} collation`)
 									}
 								}
 							})
-					)
-				})
+						)
+				)
 			)
 	)
 
@@ -360,17 +569,26 @@ layer(Substrate.layer)("derived relations on PostgreSQL 19", (it) => {
 						Effect.scoped(
 							Effect.gen(function* () {
 								const substrate = yield* Substrate
-								const Coded = relation("Coded", { id: uuid, code: refinedOf(c.declared) }, ["id"])
+								const declared = patternOf(c.declared)
+								const Coded = relation(
+									"Coded",
+									{ id: uuid, code: regex(declared.source, declared.flags) },
+									["id"]
+								)
 								const C = schema("C", { Coded }, [])
-								const literals = query(C).rule((r) => {
-									const { id } = v(Coded, "coded")
-									return r.match(Coded, { id }).find({
-										id,
+								const literalOf = (l: LiteralCase["first"]) => {
+									const { source, flags } = patternOf(sketchOf(c, l.pattern))
+									return computeCore.literal(regex(source, flags), l.member)
+								}
+								const literals = queryOver(C).rule((r: RuleValue) => {
+									const vars = varsOver(Coded, "coded")
+									return r.match(Coded, { id: vars["id"] }).find({
+										id: vars["id"],
 										first: literalOf(c.first),
 										second: literalOf(c.second)
 									})
 								})
-								const Literals = derived("Literals", literals)
+								const Literals = runtimeDerived("Literals", literals, [])
 								const Ext = schema.extend(C, { Literals }, [])
 								const viewer = role(Ext, "viewer", { Literals })
 								const refresher = role(
@@ -391,19 +609,15 @@ layer(Substrate.layer)("derived relations on PostgreSQL 19", (it) => {
 								 * Each pattern's type as regtype prints it: the installation's domain of it, or text for the
 								 * wildcard, which no domain refines.
 								 */
-								const typeOf = (key: PatternKey): string => {
-									const pattern = patterns[key]
-									const info = textInfoOf(
-										pattern.source,
-										pattern.flags,
-										succeeded(textLookup(pattern.source, pattern.flags))
-									)
+								const typeOf = (l: LiteralCase["first"]): string => {
+									const { source, flags } = patternOf(sketchOf(c, l.pattern))
+									const info = textInfoOf(source, flags, succeeded(textLookup(source, flags)))
 									if (info.regex === "wildcard") {
 										return "text"
 									}
 									const domain = installed.names.textDomain(info.regex)
 									if (domain === undefined) {
-										return assert.fail(`the installation names no domain of ${pattern.source}`)
+										return assert.fail(`the installation names no domain of ${source}`)
 									}
 									return `${domain.schema}.${domain.name}`
 								}
@@ -439,7 +653,7 @@ layer(Substrate.layer)("derived relations on PostgreSQL 19", (it) => {
 								)
 								assert.deepEqual(
 									viewingRows,
-									Arr.map(c.codes, (_, i) => [id(i + 1), memberOf(c.first), memberOf(c.second)])
+									Arr.map(c.codes, (_, i) => [id(i + 1), c.first.member, c.second.member])
 								)
 								k.noteAll(literalFeatures(c))
 							})

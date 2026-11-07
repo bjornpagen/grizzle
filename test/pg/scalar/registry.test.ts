@@ -1,14 +1,22 @@
 import { layer } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { noCoverage, requiredInSpace } from "@grizzle/testing/features"
-import { array, element, int } from "@grizzle/testing/gen"
+import { required, requiredInSpace } from "@grizzle/testing/features"
+import { array, element, type Gen, int, oneOf } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, pipe, Result, String as Str } from "effect"
-import { type Capability, type Carrier, carriers } from "#compiler/ir/scalar.ts"
-import { pgDescriptors } from "#compiler/scalar/pg.ts"
-import { type Described, nativeCapabilities } from "#compiler/scalar/registry.ts"
-import { uuidDescriptor } from "#compiler/scalar/uuid.ts"
+import { vectorMaxDimensions } from "#compiler/ir/carriers.ts"
+import {
+	type Capability,
+	type Carrier,
+	carriers,
+	numericMaxPrecision,
+	numericMaxScale,
+	numericMinScale
+} from "#compiler/ir/scalar.ts"
+import { floatOf, pgDescriptors } from "#compiler/scalar/pg.ts"
+import { nativeCapabilities } from "#compiler/scalar/registry.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { assert, contains, defined } from "#test/support/assert.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
@@ -17,6 +25,7 @@ import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import { regex } from "arkregex"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { isSerial, spelled, spellings } from "#test/unit/scalar/support.ts"
 /**
  * The catalog type of each carrier; a closed id is probed through smallint, the type of its code under its roster's
  * domain, a set through bit, ranges through int4range and int8range, and the exact carriers through numeric, the type
@@ -211,80 +220,50 @@ const probe = (db: RawSession, spellings: ReadonlyArray<string>) =>
 
 const accepts = (f: () => unknown): boolean => Result.isSuccess(Result.try(f))
 
-/**
- * Every alias spelling of a type the language names without a typmod, with its descriptor; numeric's spellings each
- * carry one (the numeric typmods case).
- */
-const aliasSpellings: Arr.NonEmptyReadonlyArray<readonly [string, Described]> = [
-	["smallint", pgDescriptors.smallint],
-	["int2", pgDescriptors.int2],
-	["integer", pgDescriptors.integer],
-	["int", pgDescriptors.int],
-	["int4", pgDescriptors.int4],
-	["bigint", pgDescriptors.bigint],
-	["int8", pgDescriptors.int8],
-	["real", pgDescriptors.real],
-	["float4", pgDescriptors.float4],
-	["double precision", pgDescriptors["double precision"]],
-	["float8", pgDescriptors.float8],
-	["float", pgDescriptors.float],
-	["money", pgDescriptors.money],
-	["boolean", pgDescriptors.boolean],
-	["bool", pgDescriptors.bool],
-	["uuid", uuidDescriptor]
-]
+/** A precision or a scale near numerictypmodin's bounds, or anywhere past them on either side. */
+const nearBounds = (bounds: ReadonlyArray<number>, far: number): Gen<number> =>
+	oneOf([int(-far, far), ...Arr.map(bounds, (bound) => int(bound - 2, bound + 2))])
 
-/** The edges of numeric's precision and scale, each paired with every other. */
-const numericEdges = [-1001, -1000, -999, -1, 0, 1, 2, 999, 1000, 1001]
-const edgePairs: ReadonlyArray<readonly [number, number]> = Arr.flatMap(numericEdges, (p) =>
-	Arr.map(numericEdges, (sc) => [p, sc] as const)
-)
+/** A numeric typmod: its precision near 1 and numericMaxPrecision, its scale near 0 and both scale bounds. */
+const typmodGen: Gen<readonly [number, number]> = (source) =>
+	[
+		source.draw(nearBounds([1, numericMaxPrecision.value], numericMaxPrecision.value + 10)),
+		source.draw(
+			nearBounds([numericMinScale.value, 0, numericMaxScale.value], numericMaxScale.value + 10)
+		)
+	] as const
 
-/** The edges of pgvector's dimensions. */
-const vectorDims: Arr.NonEmptyReadonlyArray<number> = [
-	-1, 0, 1, 2, 1536, 2000, 2001, 15999, 16000, 16001, 100000
-]
+/** What a vector dimension count reached: refused below, admitted, refused above. */
+type DimensionsFeature = "refused below" | "admitted" | "refused above"
 
 layer(Substrate.layer)("descriptors against the PostgreSQL 19 catalog", (it) => {
-	it.effect("names one PostgreSQL type with every alias spelling", (ctx) =>
+	it.effect("names the type PostgreSQL stores with every spelling of the pg namespace", (ctx) =>
 		searched(
 			ctx,
 			Effect.gen(function* () {
 				const { session } = yield* Substrate
 				const db = yield* session(ownerSession())
 				yield* installProbe(db)
-				const exhausted = yield* exhaust(
+				return yield* exhaust(
 					{
 						suite: "pg/scalar/registry/spellings",
-						generator: element(aliasSpellings),
-						literal: ([spelling]: readonly [string, Described]) => Formatter.format(spelling),
-						limit: aliasSpellings.length,
-						coverage: noCoverage,
+						generator: element(spellings),
+						literal: Formatter.format,
+						limit: spellings.length,
+						box: "every spelling of the pg namespace that is a descriptor, the serials among them",
+						oracle: {
+							kind: "postgresql",
+							name: "the type PostgreSQL stores a column of the spelling as"
+						},
+						coverage: requiredInSpace<"a serial" | "a type">(["a serial", "a type"]),
 						caseHang
 					},
-					([spelling, field]) =>
+					(spelling, c) =>
 						Effect.map(probe(db, [spelling]), (stored) => {
-							assert.deepEqual(stored, [field.sql], spelling)
+							c.note(isSerial(spelling) ? "a serial" : "a type")
+							assert.deepEqual(stored, [spelled(spelling).sql], spelling)
 						})
 				)
-				/** The serial names are PostgreSQL's serial pseudo-types over these integers. */
-				const serials = yield* probe(db, [
-					"smallserial",
-					"serial2",
-					"serial",
-					"serial4",
-					"bigserial",
-					"serial8"
-				])
-				assert.deepEqual(serials, [
-					pgDescriptors.smallserial.sql,
-					pgDescriptors.serial2.sql,
-					pgDescriptors.serial.sql,
-					pgDescriptors.serial4.sql,
-					pgDescriptors.bigserial.sql,
-					pgDescriptors.serial8.sql
-				])
-				return exhausted
 			})
 		)
 	)
@@ -318,12 +297,12 @@ layer(Substrate.layer)("descriptors against the PostgreSQL 19 catalog", (it) => 
 							Effect.map(probe(db, [`float(${p})`]), (stored) => {
 								const pgAccepts = !pipe(storedAt(stored, 0), Str.startsWith("refused"))
 								assert.equal(
-									accepts(() => pgDescriptors.float(p)),
+									accepts(() => floatOf(p)),
 									pgAccepts,
 									`float(${p})`
 								)
 								if (pgAccepts) {
-									assert.equal(storedAt(stored, 0), pgDescriptors.float(p).sql, `float(${p})`)
+									assert.equal(storedAt(stored, 0), floatOf(p).sql, `float(${p})`)
 									c.note(storedAt(stored, 0) === "real" ? "real" : "double precision")
 								} else {
 									c.note(p < 1 ? "refused below" : "refused above")
@@ -341,17 +320,16 @@ layer(Substrate.layer)("descriptors against the PostgreSQL 19 catalog", (it) => 
 				const { session } = yield* Substrate
 				const db = yield* session(ownerSession())
 				yield* installProbe(db)
-				const explored = yield* explore(
+				return yield* explore(
 					{
 						suite: "pg/scalar/registry/numeric-typmods",
-						draw: drawn(
-							array(
-								(source) => [source.draw(int(-5, 1010)), source.draw(int(-1010, 1010))] as const,
-								{ min: 1, max: 400 }
-							)
-						),
+						draw: drawn(array(typmodGen, { min: 1, max: 400 })),
 						literal: Formatter.format,
-						coverage: noCoverage,
+						oracle: { kind: "postgresql", name: "numerictypmodin, through a column's declaration" },
+						coverage: required<"admitted" | "refused">(["admitted", "refused"], {
+							cases: 2,
+							sense: notesOnly
+						}),
 						kept: [],
 						runs: 2,
 						shrink: completeShrink,
@@ -359,9 +337,8 @@ layer(Substrate.layer)("descriptors against the PostgreSQL 19 catalog", (it) => 
 						steerEvery: 16,
 						caseHang
 					},
-					(drawnPairs) =>
+					(pairs, c) =>
 						Effect.gen(function* () {
-							const pairs = [...edgePairs, ...drawnPairs]
 							const stored = yield* probe(
 								db,
 								Arr.map(pairs, ([p, s]) => `numeric(${p}, ${s})`)
@@ -373,20 +350,13 @@ layer(Substrate.layer)("descriptors against the PostgreSQL 19 catalog", (it) => 
 									pgAccepts,
 									`numeric(${p}, ${s})`
 								)
+								c.note(pgAccepts ? "admitted" : "refused")
 								if (pgAccepts) {
 									assert.equal(stored[i], `numeric(${p},${s})`)
 								}
 							}
 						})
 				)
-				/** PostgreSQL reads numeric(p) as numeric(p, 0); pg.numeric refuses it, both declared. */
-				const bare = yield* probe(db, ["numeric(5)", "decimal(5)", "numeric(1000)"])
-				assert.deepEqual(bare, ["numeric(5,0)", "numeric(5,0)", "numeric(1000,0)"])
-				assert.equal(
-					accepts(() => pgDescriptors.numeric(5)),
-					false
-				)
-				return explored
 			})
 		)
 	)
@@ -402,15 +372,28 @@ layer(Substrate.layer)("descriptors against the PostgreSQL 19 catalog", (it) => 
 				return yield* exhaust(
 					{
 						suite: "pg/scalar/registry/vector-dimensions",
-						generator: element(vectorDims),
+						generator: oneOf([
+							int(-2, 3),
+							int(vectorMaxDimensions.value - 2, vectorMaxDimensions.value + 2)
+						]),
 						literal: Formatter.format,
-						limit: vectorDims.length,
-						coverage: noCoverage,
+						limit: 11,
+						box: "every dimension count within two of 1 and of vectorMaxDimensions, and down to -2",
+						oracle: {
+							kind: "postgresql",
+							name: "pgvector's typmod input, through a column's declaration"
+						},
+						coverage: requiredInSpace<DimensionsFeature>([
+							"refused below",
+							"admitted",
+							"refused above"
+						]),
 						caseHang
 					},
-					(n) =>
+					(n, c) =>
 						Effect.map(probe(db, [`${vectorSchema}.vector(${n})`]), (stored) => {
 							const pgAccepts = !pipe(storedAt(stored, 0), Str.startsWith("refused"))
+							c.note(pgAccepts ? "admitted" : n < 1 ? "refused below" : "refused above")
 							assert.equal(
 								accepts(() => pgDescriptors.vector(n)),
 								pgAccepts,

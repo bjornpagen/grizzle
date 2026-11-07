@@ -12,13 +12,14 @@ import type {
 	ParamOrigin,
 	ParamsOfTerm,
 	Refusal,
+	SourceOrigin,
 	TermBase,
 	UnionToIntersection,
 	ValueOfTerm
 } from "#compiler/types/core/phantom.ts"
 import type { AnyDerived } from "#compiler/types/derived/derived.ts"
 import type { Aggregate, Producer } from "#compiler/types/query/terms.ts"
-import type { AnyClosed, AnyRelation, NameOf } from "#compiler/types/schema/relation.ts"
+import type { AnyClosed, AnyRelation, HeadingOf, NameOf } from "#compiler/types/schema/relation.ts"
 import type { ContainmentsOf, KeysOf, StatementsOf } from "#compiler/types/schema/schema.ts"
 import type {
 	Alternatives,
@@ -190,14 +191,22 @@ type HandleField<O, PN, D, N> = {
 /** The key of origin (R, F, N), `relation.scope.field`: the one variable of its rule it names. */
 export type ScopedKey<R extends string, F extends string, N extends string> = `${R}.${N}.${F}`
 
-/** The key of a variable's origin (ScopedKey); never for an input, a computed term, or a variable of a source. */
+/**
+ * The key of a variable of a source that is no relation (SourceOrigin), `:scope.field`: no relation's name begins with
+ * a colon, so it is no ScopedKey, and a rule holds one scope of each name, so it names one variable of its rule.
+ */
+type SourceKey<F extends string, N extends string> = `:${N}.${F}`
+
+/** The key of a variable's origin (ScopedKey, SourceKey); never for an input or a computed term. */
 type OriginKey<X> =
 	X extends Phantom<{ readonly origin: infer O }>
 		? [O] extends [InputOrigin]
 			? never
 			: O extends Origin<infer R, infer F, infer N>
 				? ScopedKey<R, F, N>
-				: never
+				: O extends SourceOrigin<infer F, infer N>
+					? SourceKey<F, N>
+					: never
 		: never
 
 /**
@@ -231,12 +240,13 @@ type BindsAt<M, R, F, Key> =
 /**
  * What determines a term, by origin key, once the rule's filters are read: nothing for an input (a literal, a
  * parameter, a parent variable, a handle) or a variable whose origin the rule fixes to an input (FixedFields); a
- * variable's own origin key; and what a computation's operands need (ComputedOrigin), but the fixed ones. Lost for a term of
+ * variable's own origin key; and what a computation's operands need (ComputedOrigin), a span producer's among them,
+ * but the fixed ones. Lost for a term of
  * unknown origin, which nothing the rule states determines, and for a binding that may be absent. The engine reads the
  * same (logical/props.ts): a scan's column bound to a computation follows from the variables it reads, a projection's
  * computed output from the columns it reads, and an equality with a value that reads no column fixes its column.
  */
-type Needs<X, FixedFields extends string> = X extends TermBase
+type Needs<X, FixedFields extends string> = X extends TermBase | Producer<unknown, never>
 	? OriginNeeds<OriginOfTerm<X>, FixedFields>
 	: X extends undefined
 		? Lost
@@ -250,7 +260,9 @@ type OriginNeeds<O, FixedFields extends string> = unknown extends O
 			? OriginNeeds<Operands, FixedFields>
 			: O extends Origin<infer R, infer F, infer N>
 				? Exclude<ScopedKey<R, F, N>, FixedFields>
-				: Lost
+				: O extends SourceOrigin<infer F, infer N>
+					? Exclude<SourceKey<F, N>, FixedFields>
+					: Lost
 /** Whether a term's needs lie within the origins Known: never for an input, false for Lost. */
 type DeterminedBy<Need, Known> = Lost extends Need ? false : [Need] extends [Known] ? true : false
 
@@ -260,10 +272,12 @@ type DeterminedBy<Need, Known> = Lost extends Need ? false : [Need] extends [Kno
  * inputs alone) fixes the variable, `r.eq(account, r.param("account"))` as a match binding account to the parameter
  * would (Fixed); and one between two variables makes each determine the other (a Dep each way). A predicate records its
  * statements as a phantom (Stating); where collects them, a conjunction passes its conjuncts' on, and anything else
- * states nothing.
+ * states nothing. The statements are carried contravariantly: a predicate that states more is the narrower type, so
+ * where TypeScript reduces a union of predicates to its widest members (a conditional's branches) it keeps the one that
+ * states less, which is what holds whichever branch runs.
  */
-export interface Stating<out Statements> extends Built {
-	readonly [phantom]?: { readonly states: Statements } | undefined
+export interface Stating<in Statements> extends Built {
+	readonly [phantom]?: { readonly states: (stated: Statements) => void } | undefined
 }
 
 /**
@@ -324,7 +338,8 @@ type OneValue<V> = [V] extends [never]
 						: V
 			: unknown
 		: unknown
-type StatesOfEach<X> = X extends Phantom<{ readonly states: infer St }> ? St : never
+type StatesOfEach<X> =
+	X extends Phantom<{ readonly states: (stated: infer St) => void }> ? St : never
 type FixedKeys<St> = St extends Fixed<infer K, unknown> ? K : never
 type EqualitiesOf<St> = St extends Dep<string, string> ? St : never
 /**
@@ -342,11 +357,19 @@ type MustFix<X> = [FixedKeys<StatesOfEach<X>>] extends [infer All extends string
 			: Fixed<All, OrUnknown<SharedNames<X, All>>>
 		: never
 	: never
-/** The names every member of a union of predicates X fixes the variable K to. */
-type SharedNames<X, K> = (
-	X extends unknown ? (names: NamedValues<StatesOfEach<X>, K>) => void : never
-) extends (names: infer I) => void
-	? I
+/**
+ * The names every member of a union of predicates X fixes the variable K to: each name some member fixes it to, kept
+ * where every member fixes it to that name too. Names are compared as values, a literal, a parameter or a parent's
+ * field, so a literal one member names and a parameter another names are no name they share.
+ */
+type SharedNames<X, K> = SharedAmong<X, AnyMemberNames<X, K>, K>
+type AnyMemberNames<X, K> = X extends unknown ? NamedValues<StatesOfEach<X>, K> : never
+type SharedAmong<X, N, K> = N extends unknown
+	? false extends (
+			X extends unknown ? (N extends NamedValues<StatesOfEach<X>, K> ? true : false) : never
+		)
+		? never
+		: N
 	: never
 type OrUnknown<V> = [V] extends [never] ? unknown : V
 type MustEqual<X> = [EqualitiesOf<StatesOfEach<X>>] extends [infer All]
@@ -376,8 +399,12 @@ type IsSingle<U> = [U] extends [never]
 		? false
 		: true
 
-type AggregateFields<H> = { [K in keyof H]-?: H[K] extends Aggregate<unknown> ? K : never }[keyof H]
-type ProducerFields<H> = { [K in keyof H]-?: H[K] extends Producer<unknown> ? K : never }[keyof H]
+type AggregateFields<H> = {
+	[K in keyof H]-?: H[K] extends Aggregate<unknown, never> ? K : never
+}[keyof H]
+type ProducerFields<H> = {
+	[K in keyof H]-?: H[K] extends Producer<unknown, never> ? K : never
+}[keyof H]
 /**
  * What a child's clauses prove beyond its keys (Rule.find): whether a containment proves it, true or never
  * (ContainmentProof), whether a reflexive self-match proves a nonempty group (ReflexiveProof), and the arm an
@@ -393,31 +420,102 @@ type NoProofs = Proofs<never, false, never>
 /**
  * The evidence of a finished head H over a rule whose head fields have the origins O and the values V (HeadValues),
  * whose clauses prove Pr, and whose keys are Keys (HeadKeys: each a union of head field names, wrapped as
- * `readonly [Fields]`, the empty one when the head is pinned).
+ * `readonly [Fields]`, the empty one when the head is pinned); a producer's head reads its rule's bindings R.
  */
 export type EvidenceOf<
 	H,
 	Keys,
 	V,
 	O = unknown,
-	Pr extends Proofs<true, boolean, unknown> = NoProofs
+	Pr extends Proofs<true, boolean, unknown> = NoProofs,
+	R = never
 > = [ProducerFields<H>] extends [never]
 	? [AggregateFields<H>] extends [never]
 		? PlainEvidence<
 				[Keys] extends [never]
 					? readonly [KeyOver<keyof H & string>]
 					: readonly [KeyOver<keyof H & string>, ...ReadonlyArray<KeyOf<Keys>>],
-				IsPinned<Keys>,
+				PinnedOrSplit<Keys, H, R>,
 				O,
 				Pr
 			> &
 				ValuesPart<V>
-		: GroupedEvidence<Exclude<keyof H, AggregateFields<H>>, Keys, O, Pr> & ValuesPart<V>
+		: GroupedEvidence<
+				Exclude<keyof H, AggregateFields<H> | ConstantFields<H>>,
+				Keys,
+				PinnedOrSplit<Keys, H, R>,
+				O,
+				Pr
+			> &
+				ValuesPart<V>
 	: {
 			readonly keys: readonly [KeyOver<keyof H & string>]
-			readonly card: "many"
+			readonly card: ProducedCard<H, R>
 			readonly origins: O
 		}
+
+/**
+ * What a rule binds, as a producer's head and a flagged filter's readings read it: its schema S, its occurrences Os,
+ * what its filters state St, and its filters that are each one of several predicates (Sp, each a Split). An interface,
+ * so a head that produces nothing and a rule that splits nothing never read it.
+ */
+export interface RuleBindings<out S, out Os, out St, out Sp> {
+	readonly schema: S
+	readonly occurrences: Os
+	readonly stated: St
+	readonly splits: Sp
+}
+
+/**
+ * A filter that is one of several predicates, either of which may run, `flag ? r.eq(a, p) : r.eq(b, q)`: what each
+ * reading states (Reading), beside what all of them state, which the rule's statements hold already (MustState).
+ */
+export interface Split<out Readings> {
+	readonly readings: Readings
+}
+export interface Reading<out Statements> {
+	readonly states: Statements
+}
+
+/**
+ * Whether the head is pinned, at most one row per binding: by what the rule's filters state, or, a proof by cases, by
+ * each reading of some one flagged filter (Split), every other filter at what all its readings state. That is one key
+ * derivation per reading of each flagged filter, linear in them; a proof over several flagged filters read at once
+ * would multiply them, and is not made.
+ */
+type PinnedOrSplit<Keys, H, R> = IsPinned<Keys> extends true ? true : SplitPinned<H, R>
+type SplitPinned<H, R> =
+	R extends RuleBindings<infer S, infer Os, infer St, infer Sp>
+		? true extends PinnedBySplit<S, Os, H, St, Sp>
+			? true
+			: false
+		: false
+type PinnedBySplit<S, Os, H, St, Sp> =
+	Sp extends Split<infer Rd> ? (false extends ReadingPins<S, Os, H, St, Rd> ? false : true) : never
+type ReadingPins<S, Os, H, St, Rd> =
+	Rd extends Reading<infer RS> ? IsPinned<HeadKeys<S, Os, H, St | RS>> : never
+
+/**
+ * A producer yields its facts per binding of its rule, the rule's whole region, which no projection onto the head
+ * narrows (check/checker.ts #produceNode): an intersection at most one per binding, so at most one where every variable
+ * the rule binds is pinned (RegionHead); a difference up to two and a pack any number (logical/props.ts Produce).
+ */
+type ProducedCard<H, R> = H[ProducerFields<H>] extends { readonly produces: "intersection" }
+	? R extends RuleBindings<infer S, infer Os, infer St, unknown>
+		? IsPinned<HeadKeys<S, Os, RegionHead<Os>, St>> extends true
+			? "atMostOne"
+			: "many"
+		: "many"
+	: "many"
+
+/** A head of one field holding every term the rule's matches bind, pinned exactly where all of them are. */
+interface RegionHead<Os> {
+	readonly region: Os extends ReadonlyArray<infer M>
+		? M extends SoleMatch<unknown, infer B>
+			? B[keyof B]
+			: never
+		: never
+}
 
 /** The values an evidence carries, as the part of the evidence that keeps them: absent where it carries none. */
 type ValuesPart<V> = [keyof V] extends [never] ? unknown : { readonly values: V }
@@ -541,17 +639,30 @@ type PlainEvidence<Keys, Pinned extends boolean, O, Pr> = Pinned extends true
 	: { readonly keys: Keys; readonly card: "many"; readonly origins: O }
 
 /**
- * An aggregate head is keyed by its group terms and by every key the rule proves within them; it is one row per parent
+ * The head fields that hold a constant, a JavaScript value, a typed constant or a parameter: beside an aggregate each is
+ * added over the groups, never a group term, as the checker groups (check/checker.ts #grouped).
+ */
+type ConstantFields<H> = {
+	[K in keyof H]-?: H[K] extends Phantom<{ readonly origin: infer O }>
+		? [O] extends [ParamOrigin | ConstantOrigin | LiteralOrigin]
+			? K
+			: never
+		: never
+}[keyof H]
+
+/**
+ * An aggregate head is keyed by its group terms, its fields but its aggregates and constants (ConstantFields), and by
+ * every key the rule proves within them; it is one row per parent
  * when a reflexive self-match proves its group nonempty and its group terms are all inputs, which ReflexiveProof
  * requires.
  */
-type GroupedEvidence<G, Keys, O, Pr> = {
+type GroupedEvidence<G, Keys, Pinned extends boolean, O, Pr> = {
 	readonly keys: [Beside<Keys, G>] extends [never]
 		? readonly [KeyOver<G & string>]
 		: readonly [KeyOver<G & string>, ...ReadonlyArray<KeyOf<Beside<Keys, G>>>]
 	readonly card: Pr extends Proofs<true, true, unknown>
 		? "one"
-		: IsPinned<Keys> extends true
+		: Pinned extends true
 			? "atMostOne"
 			: "many"
 	readonly origins: O
@@ -620,15 +731,41 @@ type BoundOrigins<B> = { [K in keyof B]-?: OriginKey<B[K]> }[keyof B]
 type DepsOf<S, M, FixedFields extends string> =
 	M extends SoleMatch<infer R, infer B>
 		? R extends AnyRelation | AnyClosed | AnyDerived | AnyWorld | AnyContext
-			? KeyDeps<KeysOf<S, R>, B, FixedFields, BoundOrigins<B>>
-			: never
+			? KeyDeps<KeysOf<S, R>, B, FixedFields, BoundOrigins<B>, never>
+			: KeyDeps<SourceKeys<R>, B, FixedFields, BoundOrigins<B>, SourceNeeds<R, FixedFields>>
 		: never
 
-type KeyDeps<Keys, B, FixedFields extends string, To> = 0 extends 1 & Keys
+/**
+ * One dependency per key whose fields are all bound: from what the bound terms need, and what the source's own inputs
+ * need (Extra), to To.
+ */
+type KeyDeps<Keys, B, FixedFields extends string, To, Extra> = 0 extends 1 & Keys
 	? never
 	: Keys extends ReadonlyArray<infer F extends string>
-		? DepFrom<{ [K in F]-?: K extends keyof B ? Needs<B[K], FixedFields> : Lost }[F], To>
+		? DepFrom<{ [K in F]-?: K extends keyof B ? Needs<B[K], FixedFields> : Lost }[F] | Extra, To>
 		: never
+
+/**
+ * The keys of a source that is no relation, as a match of it reads them: its whole heading, every field of every arm,
+ * since it is a set; and, for a query, a bound import or an interior stage, every key its own evidence proves, which
+ * holds per binding of the inputs it reads (SourceNeeds). A relation parameter, a recursive definition's self and a
+ * delta are keyed by their heading alone.
+ */
+type SourceKeys<R> =
+	| ReadonlyArray<KeyOfAnyArm<HeadingOf<R>> & string>
+	| (R extends Phantom<{ readonly evidence: { readonly keys: infer Ks } }>
+			? Ks extends ReadonlyArray<infer K extends ReadonlyArray<string>>
+				? K
+				: never
+			: never)
+type KeyOfAnyArm<H> = H extends unknown ? keyof H : never
+
+/**
+ * What a bound import's facts depend on beside its keys: the variables its bindings read, whose values select which
+ * facts it holds (BoundSource's `reads`); nothing for any other source, whose inputs are the rule's own parameters.
+ */
+type SourceNeeds<R, FixedFields extends string> =
+	R extends Phantom<{ readonly reads: infer Rd }> ? OriginNeeds<Rd, FixedFields> : never
 type DepFrom<From, To> = Lost extends From ? never : Dep<From & string, To & string>
 /** What Known determines under Deps: Known with each dependency's To whose From it holds, to a fixed point. */
 type Closure<Deps, Known extends string> =
@@ -655,20 +792,24 @@ type HeadFieldsOf<H, Key> = {
 		: never
 }[keyof H]
 
-/** One match's candidate parts: nothing, or the head fields holding one of its keys' variables. */
+/**
+ * One match's candidate parts: nothing, or the head fields holding one of its keys' variables, with those holding what
+ * a bound import's bindings read.
+ */
 type Choices<S, M, H, FixedFields extends string> =
 	| readonly [never]
 	| (M extends SoleMatch<infer R, infer B>
 			? R extends AnyRelation | AnyClosed | AnyDerived | AnyWorld | AnyContext
-				? KeyChoices<KeysOf<S, R>, B, H, FixedFields>
-				: never
+				? KeyChoices<KeysOf<S, R>, B, H, FixedFields, never>
+				: KeyChoices<SourceKeys<R>, B, H, FixedFields, SourceNeeds<R, FixedFields>>
 			: never)
 
-type KeyChoices<Keys, B, H, FixedFields extends string> = 0 extends 1 & Keys
+type KeyChoices<Keys, B, H, FixedFields extends string, Extra> = 0 extends 1 & Keys
 	? never
 	: Keys extends ReadonlyArray<infer F extends string>
 		? HeadSet<
-				{ [K in F]-?: K extends keyof B ? HeadFieldsAt<Needs<B[K], FixedFields>, H> : Lost }[F]
+				| { [K in F]-?: K extends keyof B ? HeadFieldsAt<Needs<B[K], FixedFields>, H> : Lost }[F]
+				| HeadFieldsAt<Extra, H>
 			>
 		: never
 /** The head fields holding each variable a key field needs, Lost when one is held by none or the field is Lost. */

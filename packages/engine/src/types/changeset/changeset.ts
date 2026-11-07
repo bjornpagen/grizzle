@@ -1,6 +1,6 @@
 import type { Stream } from "effect"
 import type { RowDecoder } from "#compiler/core/decoder.ts"
-import type { Built, Phantom } from "#compiler/core/phantom.ts"
+import type { Built, delta, Phantom } from "#compiler/core/phantom.ts"
 import type { MonoidName, SideDesc, SlotsDesc } from "#compiler/ir/desc.ts"
 
 /** One side of a law as an outcome names it: its statement's side, as its Description states it (ir/desc.ts). */
@@ -50,8 +50,11 @@ import type {
 } from "#compiler/types/schema/schema.ts"
 import type {
 	AnyTerm,
+	Counted,
 	DrawnFieldOf,
 	Fin,
+	Key,
+	Mutable,
 	Ordered,
 	Side,
 	Tree
@@ -71,6 +74,10 @@ import type {
  * supplies every serial field is an addition like an array that does. M is a const type
  * parameter: an array literal whose facts carry a literal-typed field (a closed relation's handle) would otherwise widen
  * that field, miss the constraint, and infer M as the constraint itself, whose query arm types the parameters `any`.
+ * insert, delete and put constrain M to members of any facts, `Member<S, unknown>`, so M is always inferred as written
+ * and MemberCheck alone decides which facts fit: a fact missing a field, holding one of another type or one its
+ * relation lacks is refused with one Refusal, never by the constraint's elaboration, whose diagnostic varies with the
+ * literal's shape.
  */
 export type Member<S, F> = ReadonlyArray<F> | Stream.Stream<F> | QueryAt<LevelsOf<S>>
 
@@ -337,6 +344,102 @@ type OrderedMemberName<S> = NameOf<
 >
 
 /**
+ * A put or a delete of R in S that the engine cannot plan, in the order its front end refuses one (write/frontend/
+ * compile.ts): a tree's row, since a tree is rewritten whole; a row whose key a field grizzle writes holds, since no
+ * fact states it; then a delete of a member of an immutable owner's family, fixed when its owner was inserted, or a put
+ * of an immutable family owner, whose put updates its row in place. A relation with no drawn field is no tree and owns
+ * no family, and one whose caller writes every field states every key, so each test is read only where it can hold:
+ * a schema whose statements are generic refuses nothing, and neither does a relation of no one name or no ordinary
+ * relation, which WritableCheck refuses.
+ */
+type EditCheck<S, R, Op extends "put" | "delete"> = [R] extends [AnyRelation]
+	? string extends NameOf<R>
+		? unknown
+		: EditOf<S, R, Op>
+	: unknown
+
+/** EditCheck of an ordinary relation of one name. */
+type EditOf<S, R, Op extends "put" | "delete"> =
+	IsTreeRow<S, R> extends true
+		? Refusal<"a tree is rewritten whole: insert its root with the whole tree nested">
+		: UnstatedKey<S, R, Op> extends true
+			? Refusal<"a put or a delete names its rows by their key, and no fact states a key field grizzle writes: key the relation by fields its caller writes">
+			: Op extends "delete"
+				? IsFixedMember<S, R> extends true
+					? Refusal<"an immutable owner's family is fixed when its owner is inserted: declare the owner mutable to change it">
+					: unknown
+				: IsImmutableOwner<S, R> extends true
+					? Refusal<"an owner's put updates its row in place, which an immutable owner refuses: declare it mutable to put it">
+					: unknown
+
+/** Whether R is a tree's relation in S. */
+type IsTreeRow<S, R> = [DrawnFieldOf<R>] extends [never]
+	? false
+	: [Extract<NameOf<R>, NameOf<MemberRelationOf<Extract<SequenceOf<S>, AnyTree>>>>] extends [never]
+		? false
+		: true
+
+/**
+ * Whether a key of R that `op` names its rows by holds a field its caller never writes (UnwrittenFieldsOf): a delete's
+ * primary key, and a put's every declared key, which it compares its facts at.
+ */
+type UnstatedKey<S, R, Op extends "put" | "delete"> = [UnwrittenFieldsOf<R>] extends [never]
+	? false
+	: [
+				Extract<
+					PrimaryKeyOf<R>[number] | (Op extends "put" ? CandidateKeyFieldOf<S, R> : never),
+					UnwrittenFieldsOf<R>
+				>
+		  ] extends [never]
+		? false
+		: true
+
+/** The fields of R's candidate keys in S: each key statement over R whole. */
+type CandidateKeyFieldOf<S, R> =
+	Extract<StatementsOf<S>[number], Key<Side<R, ReadonlyArray<string>>>> extends infer K
+		? K extends Key<Side<unknown, infer T extends ReadonlyArray<string>>>
+			? T[number]
+			: never
+		: never
+
+/** The names of the relations S declares mutable. */
+type MutableName<S> =
+	Extract<StatementsOf<S>[number], Mutable<unknown>> extends infer M
+		? M extends Mutable<infer X>
+			? NameOf<X>
+			: never
+		: never
+
+/** S's families whose members are rows of their own: its ordered and counted families. */
+type RowFamilyOf<S> = Extract<
+	StatementsOf<S>[number],
+	Ordered<unknown, unknown> | Counted<unknown, unknown>
+>
+
+/** Whether R is the member of an ordered or a counted family of S whose owner is immutable. */
+type IsFixedMember<S, R> = [
+	Exclude<
+		RowFamilyOf<S> extends infer Fa
+			? Fa extends unknown
+				? [Extract<NameOf<MemberRelationOf<Fa>>, NameOf<R>>] extends [never]
+					? never
+					: OwnerNameOf<Fa>
+				: never
+			: never,
+		MutableName<S>
+	>
+] extends [never]
+	? false
+	: true
+
+/** Whether R owns an ordered or a counted family of S and is immutable. */
+type IsImmutableOwner<S, R> = [DrawnFieldOf<R>] extends [never]
+	? false
+	: [Extract<NameOf<R>, Exclude<OwnerNameOf<RowFamilyOf<S>>, MutableName<S>>>] extends [never]
+		? false
+		: true
+
+/**
  * Params is carried invariantly as well as read through `params`, so a ChangeSet that still needs parameters is never
  * a bound one.
  * Any ChangeSet, and any ChangeSet over S: the members every runtime ChangeSet has. ChangeSet is invariant in its
@@ -386,7 +489,7 @@ export interface ChangeSet<
 	 * member relation is written too. A counted family's member is a row of its own relation, inserted directly, its
 	 * group key naming its owner; grizzle draws every count, index, interval, copy and accumulator.
 	 */
-	insert<R extends AnyRelation | AnyWorld, const M extends Member<S, AdditionIn<S, R>>>(
+	insert<R extends AnyRelation | AnyWorld, const M extends Member<S, unknown>>(
 		relation: R & WritableCheck<S, R> & NotSequenceMember<S, R>,
 		facts: M & MemberCheck<M, AdditionIn<S, R>, R>
 	): ChangeSet<
@@ -398,20 +501,23 @@ export interface ChangeSet<
 	>
 	/**
 	 * Removes each member fact, stated as its caller writes it (Written<R>): the fields PostgreSQL and grizzle write are
-	 * no part of a fact's identity a caller states, so an insert and a delete of one fact state one row.
+	 * no part of a fact's identity a caller states, so an insert and a delete of one fact state one row. A tree's row, a
+	 * row whose primary key holds a field grizzle writes, and a member of an immutable owner's family are no delete's
+	 * (EditCheck).
 	 */
-	delete<R extends AnyRelation | AnyWorld, const M extends Member<S, Written<R>>>(
-		relation: R & WritableCheck<S, R>,
+	delete<R extends AnyRelation | AnyWorld, const M extends Member<S, unknown>>(
+		relation: R & WritableCheck<S, R> & EditCheck<S, R, "delete">,
 		facts: M & MemberCheck<M, Written<R>, R>
 	): ChangeSet<S, Simplify<Params & ParamsOf<M>>, Writes | NameOf<R>, Reads, Cx | ContextsOf<M>>
 	/**
 	 * After the change, R's fact at each member's key is that member, with the fields its caller does not write as
 	 * PostgreSQL and grizzle write them. For every relation it is the row its caller writes (Written<R>): an owner's put
 	 * leaves its families as they are, and a member's put is an edit of its family, in place, a refill from its slot or
-	 * a move between groups, which grizzle plans.
+	 * a move between groups, which grizzle plans. A tree's row, a row a declared key of which holds a field grizzle
+	 * writes, and an immutable family owner are no put's (EditCheck).
 	 */
-	put<R extends AnyRelation | AnyWorld, const M extends Member<S, Written<R>>>(
-		relation: R & WritableCheck<S, R>,
+	put<R extends AnyRelation | AnyWorld, const M extends Member<S, unknown>>(
+		relation: R & WritableCheck<S, R> & EditCheck<S, R, "put">,
 		facts: M & MemberCheck<M, Written<R>, R>
 	): ChangeSet<S, Simplify<Params & ParamsOf<M>>, Writes | NameOf<R>, Reads, Cx | ContextsOf<M>>
 	/**
@@ -456,11 +562,11 @@ export interface Delta<S> {
 /**
  * A delta of R: a source of R's facts whose heading is R's own, so its variables are minted over R's fields. It names no
  * relation, so its variables carry no origin; it holds R's facts, so it is keyed by R's keys, which a fold over it reads
- * (`deltaOf`, a phantom no value carries).
+ * (under `delta`, a phantom no value carries and no caller spells).
  */
 export interface DeltaSource<R extends Headed<Carriers>>
 	extends Source<Fact<R>>, Headed<R["heading"]> {
-	readonly deltaOf?: Invariant<R>
+	readonly [delta]?: Invariant<R> | undefined
 }
 
 /** The writes and the read-backs of a ChangeSet: Reads is its reads decoder's records. */
@@ -553,7 +659,9 @@ export type Witness =
  * - `fold`: a fold, by its family's slots, its monoid and its step and end sides: each owner's ends its members'
  *   combination;
  * - `contract`: a contract's predicate, by its name;
- * - `pattern`: a text pattern (str.regex), as its domain spells it: one law for every spelling of the same language.
+ * - `pattern`: a text pattern (str.regex), as its domain spells it: one law for every spelling of the same language;
+ * - `generated`: a generated field, by its relation and field: its term has a value at every row, which a closed read
+ *   `C.at` at a key its closed relation holds no row at does not, so PostgreSQL refuses the row by the column's NOT NULL.
  */
 export type Law =
 	| {
@@ -586,3 +694,4 @@ export type Law =
 	  }
 	| { readonly kind: "contract"; readonly contract: string }
 	| { readonly kind: "pattern"; readonly source: string; readonly flags: "u" | "su" }
+	| { readonly kind: "generated"; readonly relation: string; readonly field: string }

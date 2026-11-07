@@ -102,7 +102,7 @@ export const generateFamiliesSource = (families: number, entries: BudgetEntries)
 import { ChangeSet } from ${jsonText(entries.changeset)}
 import { accumulated, drawn, natural, pg, type Uuid, uuid } from ${jsonText(entries.fields)}
 import { counted, fin, fold, Monoid, on, ordered, relation, schema, tree } from ${jsonText(entries.schema)}
-import type { AdditionIn } from ${jsonText(entries.changesetTypes)}
+import type { AdditionIn } from ${jsonText(entries.changeset)}
 
 type Equals<A, B> = (<X>() => X extends A ? 1 : 2) extends <X>() => X extends B ? 1 : 2 ? true : false
 type Expect<T extends true> = T

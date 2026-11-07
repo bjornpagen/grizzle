@@ -1,19 +1,32 @@
 import { layer } from "@effect/vitest"
-import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { required, requiredInSpace } from "@grizzle/testing/features"
-import { array, element, type Gen } from "@grizzle/testing/gen"
+import { drawn, explore } from "@grizzle/testing/explore"
+import { required } from "@grizzle/testing/features"
+import { array, constant, element, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
+import { float } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Option, pipe, Result, String as Str } from "effect"
+import {
+	Array as Arr,
+	Effect,
+	Formatter,
+	Option,
+	pipe,
+	Record as Rec,
+	Result,
+	String as Str
+} from "effect"
+import { SourceLoc } from "#compiler/core/loc.ts"
 import { cosineNormMax, cosineNormMin } from "#compiler/ir/carriers.ts"
 import { emptyCodebook } from "#compiler/ir/codes.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { pg, uuid, Vector, type Uuid } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
+import { describeField } from "#compiler/scalar/registry.ts"
 import { isVector } from "#compiler/scalar/values/vector.ts"
+import { exactVectorText, normOf, normTolerance, vectorInVerdict } from "#test/pg/vector/support.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { assert, faulted, refused, succeeded } from "#test/support/assert.ts"
+import { assert, defined, faulted, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { installMigrated as install } from "#test/support/install-migrate.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
@@ -41,35 +54,80 @@ const embeddingType = (): ScalarType => scalarOf({ kind: "vector", dimensions: 4
 const lowest = cosineNormMin.value
 const highest = cosineNormMax.value
 
+/** The largest finite binary32 value. */
+const floatMax = Math.fround(3.4028234663852886e38)
+
 /**
- * The zero, a tiny and a huge norm, and the binary32 neighbours just past each bound: vectors outside the cosine
- * domain, each with the row number it is tried at. The database refuses each on the vector column, and the codec
- * refuses each first, on the host.
+ * A component: the norm's bounds and their binary32 neighbours, a quarter of the least norm, values that underflow or
+ * overflow binary32, the non-finite ones, -0, and any binary32 value.
  */
-const outside: Arr.NonEmptyReadonlyArray<readonly [row: number, value: string]> = Arr.map(
-	Arr.make(
-		"[0,0,0,0]",
-		`[${lowest / 4},0,0,0]`,
-		`[${Math.fround(lowest * (1 - 2 ** -24))},0,0,0]`,
-		`[${highest * 2},0,0,0]`,
-		`[${highest * (1 + 2 ** -23)},0,0,0]`,
-		"[1e30,1e30,0,0]"
+const componentGen: Gen<number> = oneOf([
+	element([
+		0,
+		-0,
+		1,
+		lowest / 2,
+		lowest,
+		Math.fround(lowest * (1 - 2 ** -24)),
+		highest,
+		highest * (1 + 2 ** -23),
+		highest * 2,
+		1e-50,
+		1e39,
+		Number.NaN,
+		Number.POSITIVE_INFINITY,
+		Number.NEGATIVE_INFINITY
+	]),
+	float(-floatMax, floatMax)
+])
+
+/**
+ * A vector under test, as a writer spells it: its components drawn one by one, all equal (four of half the least norm
+ * have the least norm exactly), or one at a bound of the norm and the others zero; of the column's dimensions or one
+ * more or fewer; in one of the relation's vector columns, the other holding a unit vector.
+ */
+interface StoredSketch {
+	readonly column: VectorColumn
+	readonly components: ReadonlyArray<number>
+}
+
+/** The relation's vector columns. */
+type VectorColumn = (typeof vectorColumns)[number]
+
+const vectorColumns = nonEmpty(
+	Arr.filter(
+		Rec.keys(Embedding.fields),
+		(name) =>
+			succeeded(describeField(Embedding.fields[name], SourceLoc(name, []))).scalar.carrier ===
+			"vector"
 	),
-	(value, i) => [10 + i, value] as const
+	"Embedding's vector columns"
 )
 
-/** Input pgvector itself refuses, with the SQLSTATE it refuses it with. */
-const malformed: Arr.NonEmptyReadonlyArray<readonly [input: string, sqlstate: "22000" | "22003"]> =
-	[
-		["[1,0,0]", "22000"],
-		["[1,0,0,0,0]", "22000"],
-		["[NaN,1,0,0]", "22000"],
-		["[Infinity,1,0,0]", "22000"],
-		["[1,1e39,0,0]", "22003"]
-	]
+const storedGen: Gen<StoredSketch> = (source) => {
+	const length = source.draw(oneOf([constant(4), int(3, 5)]))
+	return {
+		column: source.draw(element(vectorColumns)),
+		components: source.draw(
+			oneOf([
+				array(componentGen, { min: length, max: length }),
+				map(componentGen, (x) => Array.from({ length }, () => x)),
+				map(element([lowest, highest, -lowest, -highest]), (bound) =>
+					Array.from({ length }, (_, i) => (i === 0 ? bound : 0))
+				)
+			])
+		)
+	}
+}
 
-/** A vector refused, by its text. */
-type RefusedFeature = `refused ${string}`
+/** What a stored vector met: admitted, at a bound or inside, or refused, by the CHECK or by pgvector's input. */
+type StoredFeature =
+	| "admitted at a bound"
+	| "admitted inside"
+	| "refused by the norm CHECK"
+	| "refused as malformed"
+	| "refused past binary32"
+	| "the other column"
 
 /**
  * A key's components: both zeros, so a vector meets its twin spelling, and a few values, never both zero, which the
@@ -116,113 +174,102 @@ layer(Substrate.layer)("vector storage", (it) => {
 						...worldSession(store.world(world.app)),
 						label: "writer"
 					})
-					/** A unit vector, admitted by every check: the raw column's value where the test is about `value`. */
-					const unit = "[1,0,0,0]"
-					/** A row whose `value` is the vector under test, beside a raw column holding `raw`. */
-					const insert = (n: number, value: string, raw: string) =>
-						writer.values(
-							`INSERT INTO ${table} ("id", "value", "raw") VALUES ($1::text::uuid, $2::text::"vector_ext"."vector"(4), $3::text::"vector_ext"."vector"(4))`,
-							[id(n), value, raw]
-						)
-
 					const codec = codecOf(embeddingType(), emptyCodebook)
-					yield* exhaust(
-						{
-							suite: "pg/vector/storage/norm",
-							generator: element(outside),
-							literal: ([, value]: readonly [number, string]) => value,
-							limit: outside.length,
-							coverage: requiredInSpace<RefusedFeature>(
-								Arr.map(outside, ([, value]): RefusedFeature => `refused ${value}`)
-							),
-							caseHang
-						},
-						([row, value], k) =>
-							Effect.gen(function* () {
-								const e = yield* expectConstraint(
-									insert(row, value, unit),
-									names.normCheck(Embedding, "value"),
-									"23514"
-								)
-								assert.equal(e.code, "23514")
-								const read = strictRead(embeddingType(), value)
-								if (Result.isFailure(read)) {
-									return assert.fail(`the strict reader refused ${value}: ${read.failure}`)
-								}
-								const host = read.success
-								if (!isVector(host)) {
-									return assert.fail(`the strict reader read ${value} as no vector`)
-								}
-								faulted(codec.encode(host), "vectorNorm", value)
-								k.note(`refused ${value}`)
-							})
-					)
-
-					/**
-					 * Both bounds are admitted, by the CHECK and by the codec; four components of half the least norm have
-					 * the least norm.
-					 */
-					const admitted = [
-						[lowest, 0, 0, 0],
-						[highest, 0, 0, 0],
-						[0, -highest, 0, 0],
-						[lowest / 2, lowest / 2, lowest / 2, lowest / 2],
-						[0.6, 0.8, 0, 0]
-					]
-					for (const [i, xs] of admitted.entries()) {
-						const text = codec.encode(Vector.make(Float32Array.from(xs), 4))
-						if (!text.ok) {
-							throw new Error(
-								`codec refused ${Arr.join(
-									Arr.map(xs, (x) => String(x)),
-									","
-								)}`
-							)
-						}
-						yield* insert(100 + i, text.value, unit)
-					}
-					const norms = yield* s.admin.queryValues(
-						`SELECT "vector_ext"."vector_norm"("value")::text FROM ${table} WHERE "id" IN ('${id(100)}', '${id(101)}', '${id(103)}') ORDER BY "id"`,
-						[]
-					)
-					assert.deepEqual(
-						Arr.map(norms, (row) => Arr.map(row, Number)),
-						[[lowest], [highest], [lowest]]
-					)
-
-					/** Every vector column has the cosine domain: the zero vector is refused on the other column too. */
-					const raw = yield* expectConstraint(
-						insert(200, "[1,0,0,0]", "[0,0,0,0]"),
-						names.normCheck(Embedding, "raw"),
-						"23514"
-					)
-					assert.equal(raw.code, "23514")
-
-					const inputs = yield* exhaust(
+					/** A unit vector, admitted by every check: the other column's value. */
+					const unit = "[1,0,0,0]"
+					let row = 0
+					return yield* explore(
 						{
 							suite: "pg/vector/storage/input",
-							generator: element(malformed),
-							literal: ([bad]: readonly [string, string]) => bad,
-							limit: malformed.length,
-							coverage: requiredInSpace<RefusedFeature>(
-								Arr.map(malformed, ([bad]): RefusedFeature => `refused ${bad}`)
+							draw: drawn(storedGen),
+							literal: Formatter.format,
+							oracle: {
+								kind: "postgresql",
+								name: "pgvector's input and the column's norm CHECK, against a model of pgvector's checks and the norm"
+							},
+							coverage: required<StoredFeature>(
+								[
+									"admitted at a bound",
+									"admitted inside",
+									"refused by the norm CHECK",
+									"refused as malformed",
+									"refused past binary32",
+									"the other column"
+								],
+								{ cases: 60, sense: notesOnly }
 							),
+							kept: [],
+							runs: 60,
+							shrink: completeShrink,
+							concurrency: 1,
+							steerEvery: 8,
 							caseHang
 						},
-						([bad, sqlstate], k) =>
+						({ column, components }, k) =>
 							Effect.gen(function* () {
-								yield* expectSqlstate(insert(300, bad, unit), sqlstate)
-								k.note(`refused ${bad}`)
+								row++
+								const values = Arr.map(vectorColumns, (name) =>
+									name === column ? exactVectorText(components) : unit
+								)
+								const insert = writer.values(
+									`INSERT INTO ${table} ("id", ${Arr.join(
+										Arr.map(vectorColumns, (name) => names.column(Embedding, name)),
+										", "
+									)}) VALUES ($1::text::uuid, ${Arr.join(
+										Arr.map(vectorColumns, (_, i) => `$${i + 2}::text::"vector_ext"."vector"(4)`),
+										", "
+									)})`,
+									[id(row), ...values]
+								)
+								if (column !== Arr.headNonEmpty(vectorColumns)) {
+									k.note("the other column")
+								}
+								const input = vectorInVerdict(components, Option.some(4))
+								if (input !== "admitted") {
+									k.note(input === "22003" ? "refused past binary32" : "refused as malformed")
+									yield* expectSqlstate(insert, input)
+									return
+								}
+								const host = Vector.make(Float32Array.from(components), 4)
+								const norm = normOf(components)
+								const inside = norm >= lowest && norm <= highest
+								const encoded = codec.encode(host)
+								if (!inside) {
+									k.note("refused by the norm CHECK")
+									const e = yield* expectConstraint(
+										insert,
+										names.normCheck(Embedding, column),
+										"23514"
+									)
+									assert.equal(e.code, "23514")
+									faulted(encoded, "vectorNorm", "the codec refuses what the CHECK refuses")
+									return
+								}
+								k.note(
+									norm === lowest || norm === highest ? "admitted at a bound" : "admitted inside"
+								)
+								yield* insert
+								const text = succeeded(encoded)
+								const [first] = yield* s.admin.queryValues(
+									`SELECT "vector_ext"."vector_norm"(${names.column(Embedding, column)})::text, ${names.column(Embedding, column)}::text FROM ${table} WHERE "id" = $1::text::uuid`,
+									[id(row)]
+								)
+								const [native, stored] = defined(first, "the stored row")
+								assert.ok(
+									Math.abs(Number(native) - norm) <= normTolerance(4, norm),
+									`vector_norm ${String(native)}, the host's ${norm}`
+								)
+								const read = strictRead(embeddingType(), String(stored))
+								if (Result.isFailure(read) || !isVector(read.success)) {
+									return assert.fail(`the strict reader refused ${String(stored)}`)
+								}
+								assert.equal(
+									succeeded(codec.encode(read.success)),
+									text,
+									"what pgvector stores reads back as the codec's text of the host vector"
+								)
 							})
 					)
-					/**
-					 * Vector.from is the explicit boundary: a vector of the field's dimensions passes when its norm is in the
-					 * domain, and is refused otherwise.
-					 */
-					const refinedFrom = Vector.from(Vector.make(Float32Array.of(3, 4, 0, 0), 4), 4)
-					assert.equal(Vector.norm(succeeded(refinedFrom)), 5)
-					refused(Vector.from(Vector.make(Float32Array.of(0, 0, 0, 0), 4), 4), "vectorNorm")
-					return inputs
 				})
 			)
 	)

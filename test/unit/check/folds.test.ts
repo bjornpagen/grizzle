@@ -1,7 +1,9 @@
 import { describe, it } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { element } from "@grizzle/testing/gen"
+import { drawn, explore } from "@grizzle/testing/explore"
+import { required } from "@grizzle/testing/features"
+import { array, boolean, element, type Gen, int } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
+import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
@@ -43,24 +45,21 @@ import {
  * A fold reads each fact its rule matches once, by a key (ir/rel.ts FoldInput, check/checker.ts foldInput), one rule
  * for every aggregate: count, sum, mean, min and max alike.
  *
- * The box is every rule over Post(id, org, views) and Comment(id, post, author), both keyed by id, of these shapes:
- * one match of either relation binding each nonempty subset of its fields; a join of Post bound by (id, org) with
+ * The search draws every rule over Post(id, org, views) and Comment(id, post, author), both keyed by id, of these
+ * shapes: one match of either relation binding a nonempty subset of its fields; a join of Post bound by (id, org) with
  * Comment bound by its post, with or without Comment's id; and an attached child of Comment under each post, with or
- * without Comment's id. Each folds by each aggregate, grouped by a bound variable or not, with a constant beside the
- * fold or not, over each of three databases: equal values on distinct facts (two posts of one org with equal views, two
- * comments of one author on one post), all values distinct, and no facts.
+ * without Comment's id. Each folds by an aggregate, grouped by a bound variable or not, with a constant beside the fold
+ * or not, over a drawn database: up to four facts of each relation over small value domains, so equal values on
+ * distinct facts (two posts of one org with equal views, two comments of one author on one post), a comment of no post
+ * and no facts at all are all frequent.
  *
  * Two oracles judge it:
  *
  * - the rule turned into a checker: a fold is refused (FoldOverProjection) exactly when some match binds no key of its
  *   source whole, at that match, naming its source and the key to bind (its primary key), and admitted otherwise;
  * - a second implementation, the host's fold: every admitted fold's answer from the reference evaluator over the
- *   checked IR equals the host's fold over the matched facts, each matched fact tuple once. Two posts of one org with
- *   five views each sum to ten, and two comments on one post count two: equal values on distinct facts both
- *   contribute.
- *
- * Bound: the box is exhausted, 1,080 cases (18 rule shapes, 5 aggregates, grouped or not, a constant beside the fold or
- * not, 3 databases).
+ *   checked IR equals the host's fold over the matched facts, each matched fact tuple once, so equal values on distinct
+ *   facts both contribute.
  */
 
 const Blog: SchemaDesc = {
@@ -117,33 +116,23 @@ const fns: Arr.NonEmptyReadonlyArray<Fn> = ["count", "sum", "mean", "min", "max"
 /** A fact row of three integer columns, in its relation's declared order. */
 type Fact = readonly [number, number, number]
 
-/** The databases of the box: equal values on distinct facts, all values distinct, and none. */
-type Database = "equal values" | "distinct values" | "empty"
-const databases: Readonly<Record<Database, Readonly<Record<RelationName, ReadonlyArray<Fact>>>>> = {
-	"equal values": {
-		Post: [
-			[1, 10, 5],
-			[2, 10, 5],
-			[3, 20, 7]
-		],
-		Comment: [
-			[1, 1, 100],
-			[2, 1, 100],
-			[3, 2, 101]
-		]
-	},
-	"distinct values": {
-		Post: [
-			[1, 10, 5],
-			[2, 20, 6]
-		],
-		Comment: [
-			[1, 1, 100],
-			[2, 2, 101]
-		]
-	},
-	empty: { Post: [], Comment: [] }
-}
+/** A database of the search: each relation's facts, keyed by their positions. */
+type Database = Readonly<Record<RelationName, ReadonlyArray<Fact>>>
+
+/** Up to four facts of a relation, its id its position, its other fields from small domains. */
+const factsGen =
+	(other: readonly [Gen<number>, Gen<number>]): Gen<ReadonlyArray<Fact>> =>
+	(source) =>
+		Arr.map(
+			source.draw(array((s) => [s.draw(other[0]), s.draw(other[1])] as const, { min: 0, max: 4 })),
+			([a, b], i): Fact => [i + 1, a, b]
+		)
+
+/** Posts of one of two orgs with up to two views, and comments on one of five posts by one of two authors. */
+const databaseGen: Gen<Database> = (source) => ({
+	Post: source.draw(factsGen([int(10, 11), int(0, 2)])),
+	Comment: source.draw(factsGen([int(1, 5), int(100, 101)]))
+})
 
 /**
  * A rule shape of the box: a match of one relation binding `bound`; Post by (id, org) joined to Comment by its post,
@@ -163,39 +152,28 @@ interface FoldCase {
 	readonly database: Database
 }
 
-/** Every nonempty subset of a relation's fields, in field order. */
-const subsets = (fields: ReadonlyArray<Field>): ReadonlyArray<ReadonlyArray<Field>> =>
-	Arr.map(Arr.range(1, (1 << fields.length) - 1), (mask) =>
-		Arr.filter(fields, (_, i) => ((mask >> i) & 1) === 1)
-	)
+/** Every rule shape: one relation's match binding a nonempty subset of its fields, a join or an attachment. */
+const shapeGen: Gen<Shape> = (source) => {
+	const kind = source.draw(int(0, 2))
+	if (kind === 0) {
+		const relation = source.draw(boolean) ? "Comment" : "Post"
+		const mask = source.draw(int(1, 7))
+		return {
+			kind: "one",
+			relation,
+			bound: Arr.filter(fieldsOf[relation], (_, i) => ((mask >> i) & 1) === 1)
+		}
+	}
+	return { kind: kind === 1 ? "join" : "attached", commentId: source.draw(boolean) }
+}
 
-const shapes: Arr.NonEmptyReadonlyArray<Shape> = [
-	{ kind: "join", commentId: true },
-	{ kind: "join", commentId: false },
-	{ kind: "attached", commentId: true },
-	{ kind: "attached", commentId: false },
-	...Arr.flatMap(["Post", "Comment"] as const, (relation) =>
-		Arr.map(subsets(fieldsOf[relation]), (bound): Shape => ({ kind: "one", relation, bound }))
-	)
-]
-
-const databaseNames: Arr.NonEmptyReadonlyArray<Database> = [
-	"equal values",
-	"distinct values",
-	"empty"
-]
-
-const groupings: Arr.NonEmptyReadonlyArray<boolean> = [false, true]
-
-const cases: Arr.NonEmptyReadonlyArray<FoldCase> = Arr.flatMap(shapes, (shape) =>
-	Arr.flatMap(fns, (fn) =>
-		Arr.flatMap(groupings, (grouped) =>
-			Arr.flatMap(groupings, (constant) =>
-				Arr.map(databaseNames, (database): FoldCase => ({ shape, fn, grouped, constant, database }))
-			)
-		)
-	)
-)
+const caseGen: Gen<FoldCase> = (source) => ({
+	shape: source.draw(shapeGen),
+	fn: source.draw(element(fns)),
+	grouped: source.draw(boolean),
+	constant: source.draw(boolean),
+	database: source.draw(databaseGen)
+})
 
 /** The constant a case's head delivers beside its fold, where it states one. */
 const constantValue = 7
@@ -371,7 +349,7 @@ const at = (relation: RelationName, fact: Fact, field: Field): number =>
 
 /** The matched fact tuples of a root rule: each fact of its one relation, or each (post, comment) a comment names. */
 const matched = (c: FoldCase): ReadonlyArray<(relation: RelationName) => Fact | undefined> => {
-	const db = databases[c.database]
+	const db = c.database
 	if (c.shape.kind === "one") {
 		const relation = c.shape.relation
 		return Arr.map(db[relation], (fact) => (r: RelationName) => (r === relation ? fact : undefined))
@@ -459,7 +437,7 @@ const referenceAnswer = (
 ): ReadonlyArray<string> => {
 	const literals = (rows: ReadonlyArray<Fact>): ReadonlyArray<ReadonlyArray<TypedLiteral>> =>
 		Arr.map(rows, (row) => Arr.map(row, (n): TypedLiteral => ({ kind: "int", value: BigInt(n) })))
-	const db = databases[c.database]
+	const db = c.database
 	const reference = Reference.of(dag, {
 		schema: blogFacts,
 		facts: canonicalFacts({ Post: literals(db.Post), Comment: literals(db.Comment) }),
@@ -497,7 +475,7 @@ type Feature =
 	| "equal values summed twice"
 	| "a constant beside the fold"
 
-const required: Arr.NonEmptyReadonlyArray<Feature> = [
+const situations: Arr.NonEmptyReadonlyArray<Feature> = [
 	"refused one",
 	"admitted one",
 	"refused join",
@@ -514,20 +492,42 @@ const refusalOf = (
 ): Extract<CompileReason, { _tag: "FoldOverProjection" }> | undefined =>
 	reason._tag === "FoldOverProjection" ? reason : undefined
 
+/** Whether some group of a case's matched tuples holds two of them whose folded values are equal. */
+const equalValuesTwice = (c: FoldCase, b: Built): boolean => {
+	const values = Arr.flatMap(matched(c), (t) => {
+		const arg = t(b.arg.relation)
+		const group = b.group === undefined ? undefined : t(b.group.relation)
+		return arg === undefined
+			? []
+			: [
+					`${group === undefined || b.group === undefined ? "" : at(b.group.relation, group, b.group.field)}|${at(b.arg.relation, arg, b.arg.field)}`
+				]
+	})
+	return new Set(values).size < values.length
+}
+
 describe("a fold reads each fact it matches once, by a key", () => {
 	it.effect(
-		`is refused exactly where a match binds no key of its source, and otherwise folds every matched fact, over the box of ${cases.length} cases`,
+		"is refused exactly where a match binds no key of its source, and otherwise folds every matched fact",
 		(ctx) =>
 			searched(
 				ctx,
-				exhaust(
+				explore(
 					{
 						suite: "unit/check/folds",
-						generator: element(cases),
 						literal: Formatter.format,
-						limit: cases.length,
-						coverage: requiredInSpace<Feature>(required),
-						caseHang
+						draw: drawn(caseGen),
+						runs: 400,
+						shrink: completeShrink,
+						coverage: required<Feature>(situations, { cases: 2000, sense: notesOnly }),
+						kept: [],
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang,
+						oracle: {
+							kind: "second-implementation",
+							name: "the key rule turned into a checker, and the host's fold over the matched facts"
+						}
 					},
 					(c, k) =>
 						Effect.sync(() => {
@@ -560,24 +560,15 @@ describe("a fold reads each fact it matches once, by a key", () => {
 							if (c.shape.kind === "attached") {
 								return
 							}
-							const root = checked.value.dag.roots[0]
-							const expected = hostAnswer(c, b)
-							assert.deepEqual(
-								referenceAnswer(root, checked.value.dag, c, b),
-								expected,
-								"the checked fold's answer is the host's fold over every matched fact"
-							)
-							if (
-								c.fn === "sum" &&
-								c.database === "equal values" &&
-								c.shape.kind === "one" &&
-								c.shape.relation === "Post" &&
-								b.arg.field === "views" &&
-								b.group?.field === "org"
-							) {
-								assert.ok(expected.includes("10|10"), "two posts of org 10 with 5 views sum to 10")
+							if (c.fn === "sum" && equalValuesTwice(c, b)) {
 								k.note("equal values summed twice")
 							}
+							const root = checked.value.dag.roots[0]
+							assert.deepEqual(
+								referenceAnswer(root, checked.value.dag, c, b),
+								hostAnswer(c, b),
+								"the checked fold's answer is the host's fold over every matched fact"
+							)
 						})
 				)
 			)

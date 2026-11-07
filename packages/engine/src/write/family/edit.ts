@@ -65,11 +65,17 @@ export type Values = ReadonlyMap<ColumnKey, unknown>
 /** A fact of a member relation's slot, as normalization admitted it: its fields' host values by name. */
 export type Fact = { readonly [field: string]: unknown }
 
-/** A family-managed relation's changes in one stratum, as its normalized slots hold them. */
+/**
+ * A family-managed relation's changes in one stratum: its facts as its normalized slots hold them, and the rows of it the
+ * stratum's nested writes fill (write/family/nesting.ts NestedRow), each with every column the walk filled. A nested
+ * row is appended to each counted family it is a member of, whose fill completes it, and inserted whole; the sequences
+ * it is a member of are the walk's.
+ */
 export interface RelationChanges {
 	readonly inserts: ReadonlyArray<Fact>
 	readonly puts: ReadonlyArray<Fact>
 	readonly deletes: ReadonlyArray<Fact>
+	readonly nested: ReadonlyArray<Values>
 }
 
 /** What one stratum's edits of a member relation read and write, compiled once: its row layout, its families with
@@ -158,11 +164,12 @@ export interface ReadKeys {
 }
 
 /**
- * One family's read's keys (`ReadKeys`): every member key the changes name, and every group an insert or a put names.
- * A stored row at an insert's key is its exact repeat, no change, or the key law's refusal; a stored owner at a group's
- * key is a stored group, whatever the changeset inserts there, since an owner the changeset inserts may be the exact
- * repeat of a stored one, its members stored with it. The owners the changeset inserts are read in the same SELECT as
- * every other group, so their keys cost no flight of their own.
+ * One family's read's keys (`ReadKeys`): every member key the changes name, and every group an insert, a put or, for a
+ * counted family, a nested row names. A stored row at an insert's key is its exact repeat, no change, or the key law's
+ * refusal; a stored owner at a group's key is a stored group, whatever the changeset inserts there, since an owner the
+ * changeset inserts may be the exact repeat of a stored one, its members stored with it. The owners the changeset
+ * inserts are read in the same SELECT as every other group, so their keys cost no flight of their own. A sequence reads
+ * nothing for a nested row, whose place in it the walk drew.
  */
 export const readKeys = (
 	ctx: FillContext,
@@ -170,14 +177,18 @@ export const readKeys = (
 	family: Family,
 	changes: RelationChanges
 ): ReadKeys | undefined => {
+	const nested = isSequence(family) ? [] : changes.nested
 	const keys = new Map<string, MemberKey>()
-	for (const fact of [...changes.deletes, ...changes.puts, ...changes.inserts]) {
-		const key = keyOf(ctx, target.layout, valuesOfFact(fact))
+	for (const values of [
+		...[...changes.deletes, ...changes.puts, ...changes.inserts].map(valuesOfFact),
+		...nested
+	]) {
+		const key = keyOf(ctx, target.layout, values)
 		keys.set(textsKey(key), key)
 	}
 	const groups = new Map<string, Owner>()
-	for (const fact of [...changes.inserts, ...changes.puts]) {
-		const group = groupOf(ctx, family, valuesOfFact(fact))
+	for (const values of [...[...changes.inserts, ...changes.puts].map(valuesOfFact), ...nested]) {
+		const group = groupOf(ctx, family, values)
 		groups.set(textsKey(group), group)
 	}
 	if (keys.size === 0 && groups.size === 0) {
@@ -760,16 +771,16 @@ export const planEdits = (
 	/** Each row the changes name, once: a key named twice is refused, never a second member. */
 	const named = new Map<
 		string,
-		{ readonly op: "insert" | "put" | "delete"; readonly values: Values }
+		{ readonly op: "insert" | "put" | "delete" | "nested"; readonly values: Values }
 	>()
 	const keys = new Map<string, MemberKey>()
-	for (const [op, facts] of [
-		["insert", changes.inserts],
-		["put", changes.puts],
-		["delete", changes.deletes]
+	for (const [op, rows] of [
+		["insert", changes.inserts.map(valuesOfFact)],
+		["put", changes.puts.map(valuesOfFact)],
+		["delete", changes.deletes.map(valuesOfFact)],
+		["nested", changes.nested]
 	] as const) {
-		for (const fact of facts) {
-			const values = valuesOfFact(fact)
+		for (const values of rows) {
 			const key = keyOf(ctx, target.layout, values)
 			const text = textsKey(key)
 			if (named.has(text)) {
@@ -866,6 +877,11 @@ export const planEdits = (
 				case "insert":
 					groupEdit(groupOf(ctx, family, values)).appends.push({ key, values, by: "insert" })
 					break
+				case "nested":
+					if (!isSequence(family)) {
+						groupEdit(groupOf(ctx, family, values)).appends.push({ key, values, by: "insert" })
+					}
+					break
 				case "put": {
 					const group = groupOf(ctx, family, values)
 					if (was === undefined) {
@@ -949,8 +965,9 @@ export const planEdits = (
 			}
 		}
 		/** An insert at a stored key that is no exact repeat stays an insert beside the stored row, which its key law then
-		 * refuses at the statement: never a silent replacement of the stored row. */
-		const inserted = !storedRows.has(text) || op?.op === "insert"
+		 * refuses at the statement: never a silent replacement of the stored row. A nested row is always inserted, as its
+		 * nesting's other rows are. */
+		const inserted = !storedRows.has(text) || op?.op === "insert" || op?.op === "nested"
 		if (inserted) {
 			for (const c of target.layout.columns) {
 				const start = c.column.kind === "field" ? startHost(ctx, c.column.field) : undefined

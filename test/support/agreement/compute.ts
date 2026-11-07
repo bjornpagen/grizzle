@@ -6,17 +6,20 @@ import { keep, type Swarm, swarm, swarmChoice } from "@grizzle/testing/swarm"
 import { Array as Arr, Option, Record as Rec, Result, String as Str } from "effect"
 import { CompileError, type CompileReason } from "#compiler/core/errors.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
+import { toCalendarDate } from "#compiler/ir/date.ts"
 import type { ParamDecl } from "#compiler/ir/products.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import { contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { Compute } from "#compiler/public/compute.ts"
-import { Decimal, Money } from "#compiler/public/fields.ts"
+import { Bits, Decimal, Money } from "#compiler/public/fields.ts"
+import { lexicalForm } from "#compiler/public/text.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
-import { typedTermOf } from "#compiler/scalar/compute/term.ts"
+import { guarded, typedTermOf } from "#compiler/scalar/compute/term.ts"
+import { meets } from "#compiler/scalar/compute/types.ts"
 import { carrierSql } from "#compiler/scalar/registry.ts"
-import { Cell, Cells } from "#test/support/agreement/compute-schema.ts"
+import { Cell, Cells, Tone } from "#test/support/agreement/compute-schema.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
 import { messageOf } from "#test/support/message.ts"
 
@@ -75,9 +78,15 @@ interface Lit {
 }
 
 /**
+ * A string TypeScript types as string, never its literal: what a value computed at run time is, which the program
+ * declares under this name, and whose value the engine reads.
+ */
+const widened: Lit = { text: "widened", value: "^[a-z]+$" }
+
+/**
  * The JavaScript values a case draws, the values the catalogue's literal typing branches on: numbers whole and not,
  * zero and negative; bigints; exact decimal strings and other text, patterns well formed and not; a boolean; a uuid; a
- * Decimal and a Money.
+ * Decimal, a Money, a set of Tone's handles, and a string TypeScript types as string (widened).
  */
 const lits: Arr.NonEmptyReadonlyArray<Lit> = [
 	{ text: "0", value: 0 },
@@ -97,7 +106,9 @@ const lits: Arr.NonEmptyReadonlyArray<Lit> = [
 	{ text: "true", value: true },
 	{ text: '"00000000-0000-4000-8000-000000000001"', value: "00000000-0000-4000-8000-000000000001" },
 	{ text: 'Decimal.of("0.25")', value: Decimal.of("0.25") },
-	{ text: "Money.of(5n)", value: Money.of(5n) }
+	{ text: "Money.of(5n)", value: Money.of(5n) },
+	{ text: 'Bits.of(Tone, ["low"])', value: Bits.of(Tone, ["low"]) },
+	widened
 ]
 
 /** The catalogue's operations of one, two and three operands, each a Compute member called on its operands. */
@@ -158,6 +169,30 @@ type AggregateFn = (typeof aggregates)[number]
 const values = ["Decimal.of", "Money.of"] as const
 type ValueCtor = (typeof values)[number]
 
+/**
+ * What stands opposite a first operand: its own field, a parameter of it, a JavaScript value, a typed literal of it,
+ * another field, a computed term over it, or the base of a contract over its type.
+ */
+const otherKinds = [
+	"same operand",
+	"param operand",
+	"literal operand",
+	"typed operand",
+	"other operand",
+	"computed operand",
+	"based operand"
+] as const
+
+/** What stands opposite a first operand at the depth where no computed term is drawn. */
+const leafKinds = [
+	"same operand",
+	"param operand",
+	"literal operand",
+	"typed operand",
+	"other operand",
+	"based operand"
+] as const
+
 /** The constructs a case may use, each a swarm feature. */
 const computeFeatures = [
 	...unaryFns,
@@ -181,10 +216,8 @@ const computeFeatures = [
 	"Decimal member",
 	"parts member",
 	"literal first",
-	"param operand",
-	"literal operand",
-	"typed operand",
-	"computed operand"
+	"foreign operand",
+	...otherKinds
 ] as const
 type ComputeFeature = (typeof computeFeatures)[number]
 
@@ -245,6 +278,7 @@ type Operand =
 	| { readonly kind: "literal"; readonly lit: Lit }
 	| { readonly kind: "typed"; readonly field: FieldName; readonly lit: Lit }
 	| { readonly kind: "guarded" }
+	| { readonly kind: "lexical"; readonly field: FieldName }
 	| { readonly kind: "term"; readonly term: TermSpec }
 
 type TermSpec =
@@ -339,6 +373,15 @@ const homes: { readonly [F in Fn]: Arr.NonEmptyReadonlyArray<Family> } = {
 
 const numericHomes: Arr.NonEmptyReadonlyArray<Family> = ["integer", "numeric", "float", "money"]
 
+/** The families an aggregate's operand is drawn from: the numeric family's, money's, and an ordered and unordered other. */
+const aggregateHomes: Arr.NonEmptyReadonlyArray<Family> = [
+	...numericHomes,
+	"text",
+	"date",
+	"boolean",
+	"vector"
+]
+
 /** One case's drawing: its swarm, the source its decisions come from, the constructs it reached and its parameters. */
 class Drawing {
 	readonly #source: Source
@@ -381,15 +424,70 @@ class Drawing {
 	}
 }
 
-/** A field of one of `homes` four times in five, and of any family otherwise. */
+/** A field of one of `homes`, and, where the swarm keeps foreign operands, of any family a quarter of the time. */
 const homeField = (d: Drawing, home: Arr.NonEmptyReadonlyArray<Family>): FieldName =>
-	d.from([0, 1, 2, 3, 4]) < 4 ? d.from(families[d.from(home)]) : d.from(allFields)
+	d.keep("foreign operand") && d.from([0, 1, 2, 3]) === 0
+		? d.from(allFields)
+		: d.from(families[d.from(home)])
 
 /** The field an operand reads, where it reads one directly. */
 const fieldOf = (o: Operand): FieldName | undefined =>
 	o.kind === "field" || o.kind === "param" || o.kind === "typed" ? o.field : undefined
 
-/** A first operand: a field, a parameter of one, a computed term, or, where the swarm keeps it, a literal. */
+/**
+ * The JavaScript values of the dictionary a field's language holds, as their host types read them: numbers for the
+ * number fields, bigints for the bigint fields, a decimal's for numeric, Money for money, strings for a text, a uuid, a
+ * date or a closed id, a boolean for a flag, a set for a set; the dictionary itself for a span or a vector, which none
+ * of it is.
+ */
+const languageLits = (field: FieldName): Arr.NonEmptyReadonlyArray<Lit> => {
+	const host = (l: Lit): string =>
+		l.value instanceof Decimal
+			? "decimal"
+			: l.value instanceof Money
+				? "money"
+				: l.value instanceof Set
+					? "set"
+					: typeof l.value
+	const of = (kinds: ReadonlyArray<string>): Arr.NonEmptyReadonlyArray<Lit> => {
+		const held = Arr.filter(lits, (l) => Arr.contains(kinds, host(l)))
+		return Arr.isReadonlyArrayNonEmpty(held) ? held : lits
+	}
+	switch (Cell.fields[field].sql) {
+		case "smallint":
+		case "integer":
+		case "real":
+		case "double precision":
+			return of(["number"])
+		case "bigint":
+			return of(["bigint"])
+		case "numeric":
+			return of(["bigint", "string", "decimal"])
+		case "money":
+			return of(["money", "bigint"])
+		case "text":
+		case "uuid":
+		case "date":
+		case "code":
+			return of(["string"])
+		case "boolean":
+			return of(["boolean"])
+		case "bits":
+			return of(["set"])
+		case "range":
+		case "vector":
+			return lits
+	}
+}
+
+/** A JavaScript value opposite a field: of the field's language half the time, and any of the dictionary otherwise. */
+const litOf = (d: Drawing, field: FieldName): Lit =>
+	d.from([0, 1]) === 0 ? d.from(languageLits(field)) : d.from(lits)
+
+/**
+ * A first operand: a field, a parameter of one, a typed constant of one, a computed term, or, where the swarm keeps it,
+ * a literal.
+ */
 const firstOperand = (
 	d: Drawing,
 	home: Arr.NonEmptyReadonlyArray<Family>,
@@ -398,11 +496,16 @@ const firstOperand = (
 	if (depth > 0 && d.keep("literal first") && d.from([0, 1, 2, 3]) === 0) {
 		return { kind: "literal", lit: d.from(lits) }
 	}
-	switch (d.from(["field", "field", "field", "param", "computed"] as const)) {
+	switch (d.from(["field", "field", "field", "param", "typed", "computed"] as const)) {
 		case "field":
 			return { kind: "field", field: homeField(d, home) }
 		case "param":
 			return d.param(homeField(d, home))
+		case "typed": {
+			const field = homeField(d, home)
+			d.note("typed operand")
+			return { kind: "typed", field, lit: litOf(d, field) }
+		}
 		case "computed":
 			return depth > 0 && d.keep("computed operand")
 				? { kind: "term", term: applyOver(d, d.from(unaryAndBinary), depth - 1) }
@@ -410,72 +513,225 @@ const firstOperand = (
 	}
 }
 
-const unaryAndBinary: Arr.NonEmptyReadonlyArray<UnaryFn | BinaryFn> = [...unaryFns, ...binaryFns]
+/**
+ * The partial operations, whose precondition compilation judges: one stands at a case's root or as a when's branch,
+ * never inside another call, where the engine refuses the enclosing call's operand types before it judges the
+ * precondition and the types, which judge each call, would name the precondition too.
+ */
+const partialFns = ["div", "mod", "quot", "rem", "sqrt", "power", "minScale"] as const
+
+/** The operations of one or two operands a computed operand applies: every one but a partial operation (partialFns). */
+const unaryAndBinary: Arr.NonEmptyReadonlyArray<
+	Exclude<UnaryFn | BinaryFn, (typeof partialFns)[number]>
+> = [
+	"neg",
+	"abs",
+	"sign",
+	"ceil",
+	"floor",
+	"round",
+	"trunc",
+	"numeric",
+	"base",
+	"charLength",
+	"octetLength",
+	"lowerAscii",
+	"replaceWhitespace",
+	"collapse",
+	"cardinality",
+	"add",
+	"sub",
+	"mul",
+	"gcd",
+	"lcm",
+	"least",
+	"greatest",
+	"concat",
+	"startsWith",
+	"endsWith",
+	"cosineDistance",
+	"union",
+	"intersection",
+	"difference",
+	"subset",
+	"disjoint"
+]
 
 /**
  * An operand opposite `first`: the same field, a parameter of it, a JavaScript value, a typed literal of it, another
- * field, or a computed term over it.
+ * field, a computed term over it, or the base of a contract over its type, which keeps the facts the contract declares.
  */
 const otherOperand = (d: Drawing, first: Operand, depth: number): Operand => {
 	const field = fieldOf(first) ?? d.from(allFields)
-	switch (
-		d.from([
-			"same",
-			"same",
-			"same",
-			"param",
-			"literal",
-			"literal",
-			"typed",
-			"other",
-			"computed"
-		] as const)
-	) {
-		case "same":
+	switch (d.choose(depth > 0 ? otherKinds : leafKinds)) {
+		case "same operand":
 			return { kind: "field", field }
-		case "param":
+		case "param operand":
 			return d.param(field)
-		case "literal":
-			d.note("literal operand")
-			return { kind: "literal", lit: d.from(lits) }
-		case "typed":
-			d.note("typed operand")
-			return { kind: "typed", field, lit: d.from(lits) }
-		case "other":
+		case "literal operand":
+			return { kind: "literal", lit: litOf(d, field) }
+		case "typed operand":
+			return { kind: "typed", field, lit: litOf(d, field) }
+		case "other operand":
 			return { kind: "field", field: d.from(allFields) }
-		case "computed":
-			return depth > 0 && d.keep("computed operand")
-				? {
-						kind: "term",
-						term: { kind: "apply", fn: d.from(unaryAndBinary), args: [{ kind: "field", field }] }
-					}
-				: { kind: "field", field }
+		case "computed operand":
+			return { kind: "term", term: computedOver(d, field) }
+		case "based operand": {
+			d.note("base")
+			const contracts = contractsOver[field]
+			return {
+				kind: "term",
+				term: {
+					kind: "apply",
+					fn: "base",
+					args: [{ kind: "field", field: contracts === undefined ? field : d.from(contracts) }]
+				}
+			}
+		}
 	}
 }
+
+/**
+ * The contract fields of Cell over each field's type, whose base meets the field: a contract's base opposite its base's
+ * values.
+ */
+const contractsOver: { readonly [F in FieldName]?: Arr.NonEmptyReadonlyArray<FieldName> } = {
+	int: ["divisor"],
+	big: ["cents", "epoch"],
+	dec: ["rate"],
+	text: ["body"]
+}
+
+/**
+ * A computed operand over a field: an operation of one or two operands with the field first, the second drawn opposite
+ * it, as every operation is called with its own arity.
+ */
+const computedOver = (d: Drawing, field: FieldName): TermSpec => {
+	const fn = d.from(unaryAndBinary)
+	d.note(fn)
+	const first: Operand = { kind: "field", field }
+	return Arr.contains(unaryFns, fn)
+		? { kind: "apply", fn, args: [first, ...scaleOf(d, fn)] }
+		: { kind: "apply", fn, args: [first, otherOperand(d, first, 0)] }
+}
+
+/** A round's or a trunc's scale, half the time, a JavaScript value; no other operation takes one. */
+const scaleOf = (d: Drawing, fn: Fn): ReadonlyArray<Operand> =>
+	(fn === "round" || fn === "trunc") && d.from([0, 1]) === 1
+		? [{ kind: "literal", lit: d.from(lits) }]
+		: []
+
+/**
+ * The strings a translate's map is drawn from, the values its checks branch on: one length or another, every character
+ * once or one repeated.
+ */
+const maps: Arr.NonEmptyReadonlyArray<Lit> = [
+	{ text: '"a"', value: "a" },
+	{ text: '"x"', value: "x" },
+	{ text: '"ab"', value: "ab" },
+	{ text: '"ba"', value: "ba" },
+	{ text: '"aa"', value: "aa" },
+	{ text: '"abc"', value: "abc" }
+]
+
+/** translate's to opposite its from: a map string of the from's length half the time, and any side otherwise. */
+const mapOpposite = (d: Drawing, from: Operand): Operand => {
+	const sameLength =
+		from.kind === "literal" && typeof from.lit.value === "string"
+			? Arr.filter(
+					maps,
+					(m) => typeof m.value === "string" && m.value.length === String(from.lit.value).length
+				)
+			: []
+	return Arr.isReadonlyArrayNonEmpty(sameLength) && d.from([0, 1]) === 0
+		? { kind: "literal", lit: d.from(sameLength) }
+		: mapOperand(d)
+}
+
+/** One side of translate's map: a map string half the time, and any value of the dictionary otherwise. */
+const mapOperand = (d: Drawing): Operand => ({
+	kind: "literal",
+	lit: d.from([0, 1]) === 0 ? d.from(maps) : d.from(lits)
+})
+
+/**
+ * A partial operation's operands aimed at its precondition, half the time: an integer, or the contract itself, divided
+ * by the base or the value of a contract that declares nonzero; a numeric divided by a typed constant of it; a double
+ * precision constant, whose value proves its facts, raised to a power.
+ */
+const aimedOperands: {
+	readonly [F in Fn]?: (d: Drawing) => Arr.NonEmptyReadonlyArray<Operand>
+} = {
+	div: (d) => provedDivisor(d),
+	mod: (d) => provedDivisor(d),
+	quot: (d) => [
+		{ kind: "field", field: "dec" },
+		{ kind: "typed", field: "dec", lit: d.from(languageLits("dec")) }
+	],
+	rem: (d) => [
+		{ kind: "field", field: "dec" },
+		{ kind: "typed", field: "dec", lit: d.from(languageLits("dec")) }
+	],
+	power: (d) => [
+		{ kind: "typed", field: "dbl", lit: d.from(languageLits("dbl")) },
+		otherOperand(d, { kind: "field", field: "dbl" }, 0)
+	]
+}
+
+/** An integer, or the contract itself, divided by the base or the value of a contract that declares nonzero. */
+const provedDivisor = (d: Drawing): Arr.NonEmptyReadonlyArray<Operand> =>
+	d.from([0, 1]) === 0
+		? [
+				{ kind: "field", field: "int" },
+				{
+					kind: "term",
+					term: { kind: "apply", fn: "base", args: [{ kind: "field", field: "divisor" }] }
+				}
+			]
+		: [
+				{ kind: "field", field: "divisor" },
+				{ kind: "field", field: "divisor" }
+			]
+
+/**
+ * A numeric operand proved finite: a typed constant of a numeric field, or the numeric of an integer, whose value is
+ * finite by its type.
+ */
+const finiteOperand = (d: Drawing): Operand =>
+	d.from([0, 1]) === 0
+		? { kind: "typed", field: "dec", lit: d.from(languageLits("dec")) }
+		: {
+				kind: "term",
+				term: {
+					kind: "apply",
+					fn: "numeric",
+					args: [{ kind: "field", field: d.from(families.integer) }]
+				}
+			}
 
 /** An application of `fn` to operands drawn for it. */
 const applyOver = (d: Drawing, fn: Fn, depth: number): TermSpec => {
 	d.note(fn)
+	const aim = aimedOperands[fn]
+	if (aim !== undefined && d.from([0, 1]) === 0) {
+		return { kind: "apply", fn, args: aim(d) }
+	}
 	const first = firstOperand(d, homes[fn], depth)
 	if (Arr.contains(unaryFns, fn)) {
-		const scaled =
-			(fn === "round" || fn === "trunc") && d.from([0, 1]) === 1
-				? [{ kind: "literal", lit: d.from(lits) } as const]
-				: []
-		return { kind: "apply", fn, args: [first, ...scaled] }
+		return { kind: "apply", fn, args: [first, ...scaleOf(d, fn)] }
 	}
 	if (fn === "translate") {
-		return {
-			kind: "apply",
-			fn,
-			args: [first, { kind: "literal", lit: d.from(lits) }, { kind: "literal", lit: d.from(lits) }]
-		}
+		const from = mapOperand(d)
+		return { kind: "apply", fn, args: [first, from, mapOpposite(d, from)] }
 	}
 	if (fn === "widthBucket") {
 		return {
 			kind: "apply",
 			fn,
-			args: [first, otherOperand(d, first, 0), otherOperand(d, first, 0), d.param("int")]
+			args:
+				d.from([0, 1]) === 0
+					? [finiteOperand(d), finiteOperand(d), finiteOperand(d), d.param("int")]
+					: [first, otherOperand(d, first, 0), otherOperand(d, first, 0), d.param("int")]
 		}
 	}
 	return {
@@ -490,65 +746,133 @@ const applyOver = (d: Drawing, fn: Fn, depth: number): TermSpec => {
 	}
 }
 
-/** A guard over a subject drawn from the numeric families, or a text's match. */
-const guardOver = (d: Drawing): GuardSpec => {
-	const kind = d.choose([...tests, "within", "matches"] as const)
+/**
+ * A guard of one kind over a subject drawn from `subjects`, or a text's match; a parameter a third of the time where
+ * `parameters` says, as a when's subject is.
+ */
+const guardOf = (
+	d: Drawing,
+	kind: Test | "within" | "matches",
+	subjects: Arr.NonEmptyReadonlyArray<Family>,
+	parameters: boolean
+): GuardSpec => {
+	const subject = (home: Arr.NonEmptyReadonlyArray<Family>): Operand =>
+		parameters && d.from([0, 1, 2]) === 0 ? d.param(homeField(d, home)) : firstOperand(d, home, 0)
 	switch (kind) {
 		case "within": {
-			const x = firstOperand(d, numericHomes, 0)
-			return { kind: "within", x, low: d.from(lits), high: d.from(lits) }
+			const x = subject(subjects)
+			const field = fieldOf(x) ?? d.from(allFields)
+			const bound = (): Lit =>
+				d.from([0, 1, 2, 3]) < 3 ? d.from(languageLits(field)) : d.from(lits)
+			return { kind: "within", x, low: bound(), high: bound() }
 		}
 		case "matches": {
-			const x = firstOperand(d, ["text"], 0)
-			return { kind: "matches", x, pattern: otherOperand(d, x, 0) }
+			const x = subject(["text"])
+			return {
+				kind: "matches",
+				x,
+				pattern:
+					d.from([0, 1, 2]) === 0
+						? { kind: "lexical", field: d.from(allFields) }
+						: otherOperand(d, x, 0)
+			}
 		}
 		case "nonzero":
 		case "nonnegative":
 		case "positive":
 		case "isFinite":
-			return { kind: "test", test: kind, x: firstOperand(d, numericHomes, 0) }
+			return { kind: "test", test: kind, x: subject(subjects) }
 	}
 }
 
-const subjectOf = (g: GuardSpec): Operand => g.x
+const guardKinds = [...tests, "within", "matches"] as const
+type GuardKind = (typeof guardKinds)[number]
 
 /**
- * A when's branch over the guarded subject: a partial operation of it (a division by it, its remainder, square root,
- * power, least scale or cast), or another operation with it first.
+ * The operations a when's branch applies to the guarded subject: a partial operation of it (a division by it, its
+ * remainder, square root, power, least scale or cast), a concatenation, or another operation with it first.
  */
-const guardedBody = (d: Drawing, subject: Operand): TermSpec => {
+const branches = [
+	"div",
+	"mod",
+	"sqrt",
+	"power",
+	"minScale",
+	"cast",
+	"parse",
+	"concat",
+	"other"
+] as const
+type Branch = (typeof branches)[number]
+
+/**
+ * The guard a branch's partial operation needs: nonzero for a divisor, nonnegative for a radicand, positive or a range
+ * for a power's base, finite or a range for a least scale or a narrowing, and a match for a text.
+ */
+const neededGuards: { readonly [B in Branch]: Arr.NonEmptyReadonlyArray<GuardKind> } = {
+	div: ["nonzero"],
+	mod: ["nonzero"],
+	sqrt: ["nonnegative"],
+	power: ["positive", "within"],
+	minScale: ["isFinite", "within"],
+	cast: ["isFinite", "within"],
+	parse: ["matches"],
+	concat: ["matches"],
+	other: guardKinds
+}
+
+/** The families a branch's subject is drawn from: those its operation is defined over. */
+const branchHomes: { readonly [B in Branch]: Arr.NonEmptyReadonlyArray<Family> } = {
+	div: homes.div,
+	mod: homes.mod,
+	sqrt: homes.sqrt,
+	power: homes.power,
+	minScale: homes.minScale,
+	cast: numericHomes,
+	parse: ["text"],
+	concat: ["text"],
+	other: numericHomes
+}
+
+/**
+ * A when's branch over the guarded subject: the branch's operation, whose other operand is drawn opposite the subject,
+ * a divisor's dividend its own field three times in four, so the operation meets the subject, and a cast's target
+ * related to it half the time.
+ */
+const guardedBody = (d: Drawing, guard: GuardSpec, branch: Branch): TermSpec => {
+	const subject = guard.x
 	const guarded: Operand = { kind: "guarded" }
-	const field = fieldOf(subject) ?? d.from(allFields)
-	switch (d.from(["div", "mod", "sqrt", "power", "minScale", "cast", "concat", "other"] as const)) {
+	const own = fieldOf(subject)
+	const field = own ?? d.from(allFields)
+	const opposite = (fn: Fn): FieldName =>
+		own !== undefined && d.from([0, 1, 2, 3]) < 3 ? own : homeField(d, homes[fn])
+	switch (branch) {
 		case "div":
-		case "mod": {
-			const fn = d.from(["div", "mod"] as const)
-			d.note(fn)
+		case "mod":
+			d.note(branch)
 			return {
 				kind: "apply",
-				fn,
-				args: [{ kind: "field", field: homeField(d, homes[fn]) }, guarded]
+				fn: branch,
+				args: [{ kind: "field", field: opposite(branch) }, guarded]
 			}
-		}
 		case "sqrt":
 			d.note("sqrt")
 			return { kind: "apply", fn: "sqrt", args: [guarded] }
 		case "power":
 			d.note("power")
-			return { kind: "apply", fn: "power", args: [guarded, { kind: "literal", lit: d.from(lits) }] }
+			return { kind: "apply", fn: "power", args: [guarded, otherOperand(d, subject, 0)] }
 		case "minScale":
 			d.note("minScale")
 			return { kind: "apply", fn: "minScale", args: [guarded] }
 		case "cast":
 			d.note("cast")
-			return { kind: "cast", x: guarded, to: d.from(allFields) }
+			return { kind: "cast", x: guarded, to: castTarget(d, field) }
+		case "parse":
+			d.note("cast")
+			return { kind: "cast", x: guarded, to: parseTarget(d, guard) }
 		case "concat":
 			d.note("concat")
-			return {
-				kind: "apply",
-				fn: "concat",
-				args: [guarded, { kind: "literal", lit: d.from(lits) }]
-			}
+			return { kind: "apply", fn: "concat", args: [guarded, otherOperand(d, subject, 0)] }
 		case "other": {
 			const fn = d.from(binaryFns)
 			d.note(fn)
@@ -557,46 +881,81 @@ const guardedBody = (d: Drawing, subject: Operand): TermSpec => {
 	}
 }
 
+/**
+ * An operand of the type a branch over `subject` returns, which its otherwise branch is drawn opposite: a cast's target,
+ * an integer for a least scale, and otherwise the branch's first operand, the subject where it stands first.
+ */
+const branchOperand = (body: TermSpec, subject: Operand): Operand => {
+	switch (body.kind) {
+		case "cast":
+			return { kind: "field", field: body.to }
+		case "apply": {
+			if (body.fn === "minScale") {
+				return { kind: "field", field: "int" }
+			}
+			const [first] = body.args
+			return first.kind === "guarded" ? subject : first
+		}
+		case "endpoint":
+		case "cond":
+		case "when":
+			return { kind: "field", field: "int" }
+	}
+}
+
+/** A parse's guard: a match, half the time against the lexical form of a type a text parses into. */
+const lexicalGuard = (d: Drawing, guard: GuardSpec, branch: Branch): GuardSpec =>
+	branch === "parse" && guard.kind === "matches" && d.from([0, 1]) === 0
+		? { kind: "matches", x: guard.x, pattern: { kind: "lexical", field: d.from(parseTargets) } }
+		: guard
+
+/** A parse's target: the type whose lexical form its guard matched, or a type a text parses into or does not. */
+const parseTarget = (d: Drawing, guard: GuardSpec): FieldName =>
+	guard.kind === "matches" && guard.pattern.kind === "lexical"
+		? guard.pattern.field
+		: d.from(parseTargets)
+
+/** The fields of the types a text parses into, and a type with no lexical form. */
+const parseTargets: Arr.NonEmptyReadonlyArray<FieldName> = [
+	"small",
+	"int",
+	"big",
+	"dec",
+	"dbl",
+	"flag",
+	"day",
+	"id"
+]
+
 /** A list of one value, or of it twice, so a list is refused for one reason at most. */
 const inValues = (lit: Lit, count: number): Arr.NonEmptyReadonlyArray<Lit> =>
 	count === 1 ? [lit] : [lit, lit]
 
-/** A predicate: a comparison, a range, a list, or a guard used as one. */
-const predOver = (d: Drawing): PredSpec => {
-	const kind = d.choose([...compares, "between", "in", ...tests, "within", "matches"] as const)
+const predKinds = [...compares, "between", "in", ...guardKinds] as const
+type PredKind = (typeof predKinds)[number]
+
+/** A predicate of one kind: a comparison, a range, a list, or a guard used as one. */
+const predOf = (d: Drawing, kind: PredKind): PredSpec => {
 	switch (kind) {
 		case "between": {
 			const a = firstOperand(d, homes.least, 1)
 			return { kind: "between", a, low: otherOperand(d, a, 0), high: otherOperand(d, a, 0) }
 		}
-		case "in":
+		case "in": {
+			const a = firstOperand(d, homes.least, 1)
 			return {
 				kind: "in",
-				a: firstOperand(d, homes.least, 1),
-				values: inValues(d.from(lits), d.from([1, 2]))
+				a,
+				values: inValues(litOf(d, fieldOf(a) ?? d.from(allFields)), d.from([1, 2]))
 			}
+		}
 		case "nonzero":
 		case "nonnegative":
 		case "positive":
 		case "isFinite":
-			return {
-				kind: "guard",
-				guard: { kind: "test", test: kind, x: firstOperand(d, numericHomes, 0) }
-			}
 		case "within":
-			return {
-				kind: "guard",
-				guard: {
-					kind: "within",
-					x: firstOperand(d, numericHomes, 0),
-					low: d.from(lits),
-					high: d.from(lits)
-				}
-			}
-		case "matches": {
-			const x = firstOperand(d, ["text"], 0)
-			return { kind: "guard", guard: { kind: "matches", x, pattern: otherOperand(d, x, 0) } }
-		}
+		case "matches":
+			return { kind: "guard", guard: guardOf(d, kind, numericHomes, false) }
 		case "eq":
 		case "ne":
 		case "lt":
@@ -609,52 +968,249 @@ const predOver = (d: Drawing): PredSpec => {
 	}
 }
 
-/** A term: an operation, a cast, a span's endpoint, a conditional or a guarded branch. */
-const termOver = (d: Drawing): TermSpec => {
-	const kind = d.choose([
-		...unaryFns,
-		...binaryFns,
-		...ternaryFns,
-		"cast",
-		"lower",
-		"upper",
-		"width",
-		"cond",
-		"when"
-	] as const)
-	if (kind === "cast") {
-		return { kind: "cast", x: firstOperand(d, numericHomes, 1), to: d.from(allFields) }
-	}
-	if (kind === "lower" || kind === "upper" || kind === "width") {
-		return {
-			kind: "endpoint",
-			fn: kind,
-			s: firstOperand(d, ["span"], 0),
-			to: d.from([...families.span, ...families.integer])
-		}
-	}
-	if (kind === "cond") {
-		const p = predOver(d)
-		const whenTrue = firstOperand(d, homes.least, 1)
-		return { kind: "cond", p, whenTrue, otherwise: otherOperand(d, whenTrue, 1) }
-	}
-	if (kind === "when") {
-		const guard = guardOver(d)
-		return {
-			kind: "when",
-			guard,
-			body: guardedBody(d, subjectOf(guard)),
-			otherwise: otherOperand(d, subjectOf(guard), 0)
-		}
-	}
-	return applyOver(d, kind, 1)
+/**
+ * The fields a cast over a field's values converts into where PostgreSQL may have the cast: the numeric family's
+ * among themselves, money and the contracts over them; a text's into the types with a lexical form and its contract;
+ * and any other into the field itself.
+ */
+const castTargets = (field: FieldName): Arr.NonEmptyReadonlyArray<FieldName> =>
+	Arr.contains(families.text, field)
+		? ["small", "int", "big", "dec", "dbl", "flag", "day", "body", "money", "id"]
+		: Arr.contains(
+					[...families.integer, ...families.numeric, ...families.float, ...families.money],
+					field
+			  )
+			? [...families.integer, ...families.numeric, ...families.float, ...families.money]
+			: [field]
+
+/** A cast's target: a field related to the operand's half the time, and any field otherwise. */
+const castTarget = (d: Drawing, field: FieldName): FieldName =>
+	d.from([0, 1]) === 0 ? d.from(castTargets(field)) : d.from(allFields)
+
+/** The endpoint field of a span field an operand reads: Cents for centsSpan, an integer for intSpan. */
+const endpointOf = (s: Operand): Option.Option<FieldName> => {
+	const field = fieldOf(s)
+	return field === "centsSpan"
+		? Option.some("cents")
+		: field === "intSpan"
+			? Option.some("int")
+			: Option.none()
 }
 
-/** The names a member case reads: the holder's own, and names a reader may reach for that it lacks. */
+/**
+ * A cast under its aim: a narrowing into an integer, a value into a contract over its base, a text parsed into a type
+ * with a lexical form, or an operand of the families casts read into a target related to it.
+ */
+const castOf = (d: Drawing, aim: CastAim): TermSpec => {
+	switch (aim) {
+		case "narrowing":
+			return {
+				kind: "cast",
+				x: firstOperand(d, ["integer", "integer", "numeric", "float"], 1),
+				to: d.from(["small", "int", "big"] as const)
+			}
+		case "contract": {
+			const base = d.from(["int", "big", "dec", "text"] as const)
+			const contracts = contractsOver[base]
+			return {
+				kind: "cast",
+				x: d.from([0, 1, 2]) === 0 ? d.param(base) : { kind: "field", field: base },
+				to: contracts === undefined ? base : d.from(contracts)
+			}
+		}
+		case "parse":
+			return {
+				kind: "cast",
+				x: firstOperand(d, ["text"], 1),
+				to: d.from(["small", "int", "big", "dec", "dbl", "flag", "day"] as const)
+			}
+		case "related": {
+			const x = firstOperand(d, castHomes, 1)
+			return { kind: "cast", x, to: castTarget(d, fieldOf(x) ?? d.from(allFields)) }
+		}
+	}
+}
+
+/** The families a cast's operand is drawn from: the numeric family's, money's and a text's, which parses. */
+const castHomes: Arr.NonEmptyReadonlyArray<Family> = [...numericHomes, "text"]
+
+const termKinds = [
+	...unaryFns,
+	...binaryFns,
+	...ternaryFns,
+	"cast",
+	"lower",
+	"upper",
+	"width",
+	"cond",
+	"when"
+] as const
+type TermKind = (typeof termKinds)[number]
+
+/** What a cast aims at: a narrowing into an integer, a contract over its base, a parse, or a target related to it. */
+const castAims = ["narrowing", "contract", "parse", "related"] as const
+type CastAim = (typeof castAims)[number]
+
+/**
+ * A term's root: a cast under its aim, a when of one branch, or any other term construct. Each aim and branch is a
+ * root of its own, so the floor draws each often enough to meet what it aims at.
+ */
+type TermRoot =
+	| { readonly kind: "cast"; readonly aim: CastAim }
+	| { readonly kind: "when"; readonly branch: Branch }
+	| { readonly kind: "term"; readonly root: Exclude<TermKind, "cast" | "when"> }
+
+/** A term's root of a construct the swarm chose: a cast's aim and a when's branch drawn. */
+const termRootOf = (d: Drawing, kind: TermKind): TermRoot =>
+	kind === "cast"
+		? { kind: "cast", aim: d.from(castAims) }
+		: kind === "when"
+			? { kind: "when", branch: d.from(branches) }
+			: { kind: "term", root: kind }
+
+/** Every term's root. */
+const termRoots: Arr.NonEmptyReadonlyArray<TermRoot> = [
+	...Arr.map(castAims, (aim): TermRoot => ({ kind: "cast", aim })),
+	...Arr.map(branches, (branch): TermRoot => ({ kind: "when", branch })),
+	...Arr.flatMap(termKinds, (root): ReadonlyArray<TermRoot> =>
+		root === "cast" || root === "when" ? [] : [{ kind: "term", root }]
+	)
+]
+
+/** The construct a term's root is, which its case reaches, and the name of its stratum. */
+const termRootName = (root: TermRoot): { readonly feature: TermKind; readonly name: string } => {
+	switch (root.kind) {
+		case "cast":
+			return { feature: "cast", name: `cast: ${root.aim}` }
+		case "when":
+			return { feature: "when", name: `when: ${root.branch}` }
+		case "term":
+			return { feature: root.root, name: root.root }
+	}
+}
+
+/**
+ * A term of one kind: an operation, a cast under its aim, a span's endpoint, a conditional or a guarded branch of one
+ * kind, whose guard is the one the branch needs half the time.
+ */
+const termOf = (d: Drawing, root: TermRoot): TermSpec => {
+	switch (root.kind) {
+		case "cast":
+			return castOf(d, root.aim)
+		case "when": {
+			const guard = lexicalGuard(
+				d,
+				guardOf(
+					d,
+					d.choose(d.from([0, 1]) === 0 ? neededGuards[root.branch] : guardKinds),
+					branchHomes[root.branch],
+					true
+				),
+				root.branch
+			)
+			const body = guardedBody(d, guard, root.branch)
+			return {
+				kind: "when",
+				guard,
+				body,
+				otherwise: otherOperand(d, branchOperand(body, guard.x), 0)
+			}
+		}
+		case "term": {
+			const kind = root.root
+			if (kind === "lower" || kind === "upper" || kind === "width") {
+				const s = firstOperand(d, ["span"], 0)
+				const own = endpointOf(s)
+				return {
+					kind: "endpoint",
+					fn: kind,
+					s,
+					to:
+						Option.isSome(own) && d.from([0, 1]) === 0
+							? own.value
+							: d.from([...families.span, ...families.integer])
+				}
+			}
+			if (kind === "cond") {
+				const p = predOf(d, d.choose(predKinds))
+				const whenTrue = firstOperand(d, homes.least, 1)
+				return { kind: "cond", p, whenTrue, otherwise: otherOperand(d, whenTrue, 1) }
+			}
+			return applyOver(d, kind, 1)
+		}
+	}
+}
+
+/** The names a member case reads: the holder's own, and names a reader may reach for that it lacks (computeMembers). */
 const memberNames: { readonly [H in Holder]: Arr.NonEmptyReadonlyArray<string> } = {
-	Compute: ["scale", "trimScale", "displayScale", ...Rec.keys(Compute)],
+	Compute: ["scale", "trimScale", "displayScale"],
 	Decimal: ["text", "parts", "isFinite", "equals", "scale", "identityText", "displayScale"],
 	parts: ["kind", "coefficient", "minScale", "exponent"]
+}
+
+/** Compute's own members. */
+const computeMembers: Arr.NonEmptyReadonlyArray<string> = ["literal", ...Rec.keys(Compute)]
+
+const memberFeatures = ["Compute member", "Decimal member", "parts member"] as const
+type MemberFeature = (typeof memberFeatures)[number]
+
+const holderOf: { readonly [M in MemberFeature]: Holder } = {
+	"Compute member": "Compute",
+	"Decimal member": "Decimal",
+	"parts member": "parts"
+}
+
+/**
+ * A construct a case is rooted at: an operation, a cast, an endpoint, a conditional or a guarded branch; a guard,
+ * comparison, range or list; an aggregate; a host value; or a member read.
+ */
+type Root =
+	| { readonly kind: "term"; readonly root: TermRoot }
+	| { readonly kind: "predicate"; readonly root: PredKind }
+	| { readonly kind: "aggregate"; readonly root: AggregateFn }
+	| { readonly kind: "value"; readonly root: ValueCtor }
+	| { readonly kind: "member"; readonly root: MemberFeature }
+
+/**
+ * Every construct, each a root. The floor draws its witnesses root by root (computeWitnesses), so each construct is
+ * drawn often enough to meet both verdicts.
+ */
+const roots: Arr.NonEmptyReadonlyArray<Root> = [
+	...Arr.map(termRoots, (root): Root => ({ kind: "term", root })),
+	...Arr.map(predKinds, (root): Root => ({ kind: "predicate", root })),
+	...Arr.map(aggregates, (root): Root => ({ kind: "aggregate", root })),
+	...Arr.map(values, (root): Root => ({ kind: "value", root })),
+	...Arr.map(memberFeatures, (root): Root => ({ kind: "member", root }))
+]
+
+/** The name of a root's stratum. */
+const rootName = (root: Root): string =>
+	root.kind === "term" ? termRootName(root.root).name : root.root
+
+/** A case rooted at one construct. */
+const caseAt = (d: Drawing, root: Root): CaseSpec => {
+	d.note(root.kind === "term" ? termRootName(root.root).feature : root.root)
+	switch (root.kind) {
+		case "term":
+			return { kind: "term", term: termOf(d, root.root) }
+		case "predicate":
+			return { kind: "predicate", pred: predOf(d, root.root) }
+		case "aggregate":
+			return { kind: "aggregate", fn: root.root, of: firstOperand(d, aggregateHomes, 1) }
+		case "value":
+			return { kind: "value", ctor: root.root, lit: d.from(lits) }
+		case "member": {
+			const holder = holderOf[root.root]
+			return {
+				kind: "member",
+				holder,
+				name:
+					holder === "Compute" && d.from([0, 1]) === 0
+						? d.from(computeMembers)
+						: d.from(memberNames[holder])
+			}
+		}
+	}
 }
 
 /** One case: its kind under the swarm, then its parts. */
@@ -663,29 +1219,22 @@ const caseOver = (d: Drawing): CaseSpec => {
 		d.from(["term", "term", "term", "term", "predicate", "aggregate", "value", "member"] as const)
 	) {
 		case "term":
-			return { kind: "term", term: termOver(d) }
+			return caseAt(d, { kind: "term", root: termRootOf(d, d.choose(termKinds)) })
 		case "predicate":
-			return { kind: "predicate", pred: predOver(d) }
+			return caseAt(d, { kind: "predicate", root: d.choose(predKinds) })
 		case "aggregate":
-			return { kind: "aggregate", fn: d.choose(aggregates), of: firstOperand(d, numericHomes, 1) }
+			return caseAt(d, { kind: "aggregate", root: d.choose(aggregates) })
 		case "value":
-			return { kind: "value", ctor: d.choose(values), lit: d.from(lits) }
-		case "member": {
-			const feature = d.choose(["Compute member", "Decimal member", "parts member"] as const)
-			const holder: Holder =
-				feature === "Compute member"
-					? "Compute"
-					: feature === "Decimal member"
-						? "Decimal"
-						: "parts"
-			return { kind: "member", holder, name: d.from(memberNames[holder]) }
-		}
+			return caseAt(d, { kind: "value", root: d.choose(values) })
+		case "member":
+			return caseAt(d, { kind: "member", root: d.choose(memberFeatures) })
 	}
 }
 
 /** The source of a case's parts, and whether it reads the rule (a parameter, an aggregate) and the cell. */
 class Rendering {
 	usesRule = false
+	lexical = false
 	usesCell = false
 	readonly fields = new Set<FieldName>()
 
@@ -704,6 +1253,9 @@ class Rendering {
 				return `Compute.literal(Cell.fields.${o.field}, ${o.lit.text})`
 			case "guarded":
 				return "g"
+			case "lexical":
+				this.lexical = true
+				return `lexicalForm(Cell.fields.${o.field})`
 			case "term":
 				return this.term(o.term)
 		}
@@ -839,6 +1391,8 @@ class Building {
 				return computeCore.literal(Cell.fields[o.field], o.lit.value)
 			case "guarded":
 				return this.#guarded
+			case "lexical":
+				return hostLexical.lexicalForm(Cell.fields[o.field])
 			case "term":
 				return this.term(o.term)
 		}
@@ -953,6 +1507,10 @@ const claimOf = (reason: CompileReason): Claim => {
 
 /** The names a program's type texts and values import beside the schema's, as they are used. */
 type Imported =
+	| "DomainOf"
+	| "lexicalForm"
+	| "widened"
+	| "Bits"
 	| "Decimal"
 	| "Money"
 	| "Uuid"
@@ -977,7 +1535,8 @@ const contractFields: Readonly<Record<string, FieldName>> = {
 
 /**
  * The host type a value of the engine's type `t` has, as the program spells it, with the names it imports: a term's
- * identity, where a closed id's handles carry their roster's brand, or the values a column delivers, its bare handles.
+ * identity, a contract's domain with the facts it declares and a closed id's handles with their roster's brand, or the
+ * values a column delivers, a contract's host value and bare handles.
  */
 const hostText = (t: ScalarType, uses: Set<Imported>, position: "term" | "delivered"): string => {
 	const named = contractOf(t)
@@ -985,6 +1544,10 @@ const hostText = (t: ScalarType, uses: Set<Imported>, position: "term" | "delive
 		const field = contractFields[named.name]
 		if (field === undefined) {
 			throw new Error(`a contract no field of Cell is the type of: ${named.name}`)
+		}
+		if (position === "term") {
+			uses.add("DomainOf")
+			return `DomainOf<typeof Cell.fields.${field}>`
 		}
 		uses.add("Infer")
 		return `Infer<typeof Cell.fields.${field}>`
@@ -1088,10 +1651,11 @@ const computeDecided: Arr.NonEmptyReadonlyArray<DecidedNote> = [
 
 /**
  * Which of the engine's decisions no type states a refusal is, where it is one: a precondition compilation alone
- * proves, a literal's value against its contract or pattern, a JavaScript number's integrality where a case writes a
- * fractional one, and, by the engine's words, a decimal's digits, a pattern term's values and a text function's place.
+ * proves, a literal's value against its contract or pattern, and, by the engine's words, a decimal's digits, a pattern
+ * term's values, a translate's map and a text function's place. A JavaScript number's integrality is the whole case's
+ * (verdictOf).
  */
-const decidedBy = (thrown: unknown, fractional: boolean): DecidedNote | undefined => {
+const decidedBy = (thrown: unknown): DecidedNote | undefined => {
 	if (!(thrown instanceof CompileError)) {
 		return undefined
 	}
@@ -1121,10 +1685,11 @@ const decidedBy = (thrown: unknown, fractional: boolean): DecidedNote | undefine
 		? engineDecides.digits
 		: Str.startsWith("a pattern whose every value is seen")(text)
 			? engineDecides.pattern
-			: Str.includes(" in a query")(text)
-				? engineDecides.placement
-				: fractional && Str.startsWith("an integer host value")(text)
-					? engineDecides.integral
+			: Str.startsWith("from and to of")(text) ||
+				  Str.startsWith("from holding each character once")(text)
+				? engineDecides.literal
+				: Str.includes(" in a query")(text)
+					? engineDecides.placement
 					: undefined
 }
 
@@ -1151,14 +1716,21 @@ const refusedBy = (thrown: unknown, code: string): Verdict => ({
 })
 
 /** The engine's refusal of a case: one of its decisions no type states, or a refusal the types share. */
-const decidedOr = (
-	thrown: unknown,
-	term: Admitted["term"],
-	code: string,
-	fractional: boolean
-): Verdict => {
-	const note = decidedBy(thrown, fractional)
+const decidedOr = (thrown: unknown, term: Admitted["term"], code: string): Verdict => {
+	const note = decidedBy(thrown)
 	return note === undefined ? refusedBy(thrown, code) : { kind: "decided", note, term }
+}
+
+/**
+ * A scalar parameter's ParamType: its domain and SQL type, and its host value where they differ, as for a contract
+ * that declares facts, whose domain carries them.
+ */
+const paramTypeText = (t: ScalarType, uses: Set<Imported>): string => {
+	const sql = jsonText(carrierSql[t.carrier])
+	const declares = contractOf(t)
+	return declares !== undefined && Arr.isReadonlyArrayNonEmpty(declares.facts)
+		? `ParamType<${hostText(t, uses, "term")}, ${sql}, ${hostText(t, uses, "delivered")}>`
+		: `ParamType<${hostText(t, uses, "term")}, ${sql}>`
 }
 
 const paramsOf = (
@@ -1166,14 +1738,7 @@ const paramsOf = (
 	uses: Set<Imported>
 ): ReadonlyArray<readonly [string, string]> =>
 	Arr.flatMap(params, (p) =>
-		p.kind === "scalar"
-			? [
-					[
-						p.name,
-						`ParamType<${hostText(p.type, uses, "term")}, ${jsonText(carrierSql[p.type.carrier])}>`
-					] as const
-				]
-			: []
+		p.kind === "scalar" ? [[p.name, paramTypeText(p.type, uses)] as const] : []
 	)
 
 const outOf = (heading: Heading, uses: Set<Imported>): string | undefined =>
@@ -1228,6 +1793,7 @@ const engineQuery = (
  */
 const hostDecimal: { of(input: unknown): Decimal } = Decimal
 const hostMoney: { of(input: unknown): Money } = Money
+const hostLexical: { lexicalForm(type: unknown): string } = { lexicalForm }
 
 /** The values a parts member is read off: a finite Decimal and the specials its parts may be. */
 const decimals: Arr.NonEmptyReadonlyArray<Decimal> = [
@@ -1248,30 +1814,20 @@ const hasMember = (holder: Holder, name: string): boolean => {
 	}
 }
 
-/** The engine's verdict on a case, with the names its expected types import. */
-const verdictOf = (
+/** The engine's verdict on a case as written, with the names its expected types import. */
+const engineVerdict = (
 	spec: CaseSpec,
 	fields: ReadonlySet<FieldName>,
 	uses: Set<Imported>
 ): Verdict => {
 	const code = codeOf(spec)
-	const written = [
-		...Arr.flatMap(operandsOf(spec), (o) =>
-			o.kind === "literal" || o.kind === "typed" ? [o.lit] : []
-		),
-		...litsOf(spec)
-	]
-	const fractional = Arr.some(
-		written,
-		(l) => typeof l.value === "number" && !Number.isInteger(l.value)
-	)
 	switch (spec.kind) {
 		case "value": {
 			const made = Result.try(() =>
 				spec.ctor === "Decimal.of" ? hostDecimal.of(spec.lit.value) : hostMoney.of(spec.lit.value)
 			)
 			return Result.isFailure(made)
-				? decidedOr(made.failure, undefined, code, fractional)
+				? decidedOr(made.failure, undefined, code)
 				: { kind: "admitted", admitted: { term: undefined, out: undefined, params: [] } }
 		}
 		case "member":
@@ -1287,7 +1843,7 @@ const verdictOf = (
 		case "aggregate": {
 			const built = Result.try(() => engineQuery(spec, fields))
 			if (Result.isFailure(built)) {
-				return decidedOr(built.failure, undefined, code, fractional)
+				return decidedOr(built.failure, undefined, code)
 			}
 			const typed = spec.kind === "term" ? typedTermOf(built.success.term()) : undefined
 			const term =
@@ -1296,7 +1852,7 @@ const verdictOf = (
 					: { type: hostText(typed.type, uses, "term"), sql: typed.carrier.sql }
 			const template = compileTemplate(built.success.query, undefined, testCompile)
 			if (!template.ok) {
-				return decidedOr(template.error, term, code, fractional)
+				return decidedOr(template.error, term, code)
 			}
 			return {
 				kind: "admitted",
@@ -1308,6 +1864,280 @@ const verdictOf = (
 			}
 		}
 	}
+}
+
+/**
+ * The verdict the types are held to. The engine builds a whole case before it judges any precondition, so it names a
+ * case's first refusal; the types judge each call, so a when's branch states its precondition whatever its otherwise
+ * branch is. Where the engine refuses a when for what names no Refusal, the branch's own verdict is the engine's on
+ * the when with a parameter of the branch's type as its otherwise (branchField), and a Refusal it names is the case's.
+ */
+const verdictOf = (
+	spec: CaseSpec,
+	fields: ReadonlySet<FieldName>,
+	uses: Set<Imported>
+): Verdict => {
+	const judged = valueVerdict(spec, fields, uses)
+	if (
+		spec.kind !== "term" ||
+		spec.term.kind !== "when" ||
+		judged.kind === "admitted" ||
+		(judged.kind === "refused" && judged.claim.kind === "refusal")
+	) {
+		return judged
+	}
+	const when = spec.term
+	return Option.match(branchField(when), {
+		onNone: () => judged,
+		onSome: (field) => {
+			const branch = valueVerdict(
+				{ kind: "term", term: { ...when, otherwise: { kind: "param", name: "q", field } } },
+				fields,
+				uses
+			)
+			return branch.kind === "refused" && branch.claim.kind === "refusal"
+				? { kind: "refused", claim: branch.claim, code: codeOf(spec) }
+				: judged
+		}
+	})
+}
+
+/** The subject a guard hands its when's branch: the term under `guarded`. */
+const guardSubject = (guard: unknown): unknown =>
+	typeof guard === "object" && guard !== null && guarded in guard ? guard[guarded] : undefined
+
+/**
+ * A field of Cell whose type meets the type of what a when's branch delivers, where one does: the branch built over
+ * its guard's subject and typed as the engine types it, in a rule of its own.
+ */
+const branchField = (
+	when: Extract<TermSpec, { readonly kind: "when" }>
+): Option.Option<FieldName> => {
+	const found: Array<FieldName> = []
+	Result.try(() =>
+		queryOver(Cells).rule((r: RuleValue) => {
+			const cell = varsOver(Cell, "cell")
+			const subject = guardSubject(new Building(r, cell, undefined).guard(when.guard))
+			const typed = typedTermOf(new Building(r, cell, subject).term(when.body))
+			if (typed !== undefined) {
+				for (const field of allFields) {
+					const own = typedTermOf(cell[field])
+					if (own !== undefined && meets(own.type, typed.type)) {
+						found.push(field)
+					}
+				}
+			}
+			return r.match(Cell, { id: cell["id"] }).find({ id: cell["id"] })
+		})
+	)
+	return Arr.head(found)
+}
+
+/**
+ * The engine's verdict on a case as the types read its JavaScript values. A value's type shows the types its class,
+ * and a number's or a decimal text's facts, never whether the engine reads the value where it stands: a fractional
+ * number where an integer does, a string that spells no exact decimal where a numeric does, a string of a date's shape
+ * that is no date. Where the engine refuses a case that writes such a value, the types are held to its verdict on the
+ * case with each a stand-in the engine reads, of the facts the types read (standInsOf): admitted, the refusal is the
+ * value's, which the engine alone decides; refused, it is the refusal the types see.
+ */
+const valueVerdict = (
+	spec: CaseSpec,
+	fields: ReadonlySet<FieldName>,
+	uses: Set<Imported>
+): Verdict => {
+	const written = engineVerdict(spec, fields, uses)
+	if (
+		written.kind === "admitted" ||
+		(written.kind === "refused" && written.claim.kind === "refusal")
+	) {
+		return written
+	}
+	return Option.match(standInsOf(spec), {
+		onNone: () => written,
+		onSome: (read) => {
+			const standing = engineVerdict(read.spec, fields, uses)
+			return standing.kind === "admitted"
+				? {
+						kind: "decided",
+						note: written.kind === "decided" ? written.note : read.note,
+						term: standing.admitted.term
+					}
+				: standing
+		}
+	})
+}
+
+/**
+ * A value the engine may refuse where the types admit its type, at a field of Cell the value stands opposite, and the
+ * stand-in the engine reads there, of the facts the types read: 1 for a fractional number at an integer, which the
+ * types read as finite, nonzero and nonnegative, as they read the residue of a string that spells no exact decimal at a
+ * numeric, "1"; and a date for a date's shape.
+ */
+const standInAt = (
+	l: Lit,
+	anchor: FieldName | undefined
+): Option.Option<{ readonly lit: Lit; readonly note: DecidedNote }> => {
+	if (anchor === undefined) {
+		return Option.none()
+	}
+	const value = l.value
+	const sql = Cell.fields[anchor].sql
+	if (
+		(sql === "smallint" || sql === "integer") &&
+		typeof value === "number" &&
+		!Number.isInteger(value)
+	) {
+		return Option.some({ lit: { text: "1", value: 1 }, note: engineDecides.integral })
+	}
+	if (sql === "numeric" && typeof value === "string" && !Decimal.fromString(value).ok) {
+		return Option.some({ lit: { text: '"1"', value: "1" }, note: engineDecides.digits })
+	}
+	return sql === "date" &&
+		typeof value === "string" &&
+		Arr.length(Str.split(value, "-")) >= 3 &&
+		!toCalendarDate(value).ok
+		? Option.some({
+				lit: { text: '"2024-01-31"', value: "2024-01-31" },
+				note: engineDecides.literal
+			})
+		: Option.none()
+}
+
+/**
+ * A case with every value the engine may refuse where the types admit its type read as its stand-in (standInAt), each
+ * at the field it stands opposite: an operation's first operand's, a comparison's, a range's subject's, a typed
+ * constant's own and a conditional's first branch's; and a match's pattern constant of a string, which the types read
+ * as a text term whatever the string, as "x", a pattern in the grammar. None where nothing is replaced.
+ */
+const standInsOf = (
+	spec: CaseSpec
+): Option.Option<{ readonly spec: CaseSpec; readonly note: DecidedNote }> => {
+	const notes: Array<DecidedNote> = []
+	const lit = (l: Lit, anchor: FieldName | undefined): Lit =>
+		Option.match(standInAt(l, anchor), {
+			onNone: () => l,
+			onSome: (standIn) => {
+				notes.push(standIn.note)
+				return standIn.lit
+			}
+		})
+	const patternLit = (l: Lit): Lit => {
+		if (typeof l.value !== "string" || l.value === "x") {
+			return l
+		}
+		notes.push(engineDecides.pattern)
+		return { text: '"x"', value: "x" }
+	}
+	const operand = (o: Operand, anchor: FieldName | undefined): Operand => {
+		switch (o.kind) {
+			case "literal":
+				return { kind: "literal", lit: lit(o.lit, anchor) }
+			case "typed":
+				return { kind: "typed", field: o.field, lit: lit(o.lit, o.field) }
+			case "term":
+				return { kind: "term", term: term(o.term) }
+			case "field":
+			case "param":
+			case "guarded":
+			case "lexical":
+				return o
+		}
+	}
+	const guard = (g: GuardSpec): GuardSpec => {
+		switch (g.kind) {
+			case "test":
+				return { kind: "test", test: g.test, x: operand(g.x, undefined) }
+			case "within": {
+				const at = fieldOf(g.x)
+				return {
+					kind: "within",
+					x: operand(g.x, undefined),
+					low: lit(g.low, at),
+					high: lit(g.high, at)
+				}
+			}
+			case "matches":
+				return {
+					kind: "matches",
+					x: operand(g.x, undefined),
+					pattern:
+						g.pattern.kind === "typed"
+							? { kind: "typed", field: g.pattern.field, lit: patternLit(g.pattern.lit) }
+							: operand(g.pattern, undefined)
+				}
+		}
+	}
+	const pred = (p: PredSpec): PredSpec => {
+		const at = p.kind === "guard" ? undefined : fieldOf(p.a)
+		switch (p.kind) {
+			case "compare":
+				return { kind: "compare", op: p.op, a: operand(p.a, undefined), b: operand(p.b, at) }
+			case "between":
+				return {
+					kind: "between",
+					a: operand(p.a, undefined),
+					low: operand(p.low, at),
+					high: operand(p.high, at)
+				}
+			case "in":
+				return {
+					kind: "in",
+					a: operand(p.a, undefined),
+					values: Arr.map(p.values, (v) => lit(v, at))
+				}
+			case "guard":
+				return { kind: "guard", guard: guard(p.guard) }
+		}
+	}
+	const term = (t: TermSpec): TermSpec => {
+		switch (t.kind) {
+			case "apply": {
+				const [first, ...rest] = t.args
+				const at = t.fn === "round" || t.fn === "trunc" ? "int" : fieldOf(first)
+				return {
+					kind: "apply",
+					fn: t.fn,
+					args: [
+						operand(first, undefined),
+						...Arr.map(rest, (o) => (t.fn === "translate" ? o : operand(o, at)))
+					]
+				}
+			}
+			case "cast":
+				return { kind: "cast", x: operand(t.x, undefined), to: t.to }
+			case "endpoint":
+				return { kind: "endpoint", fn: t.fn, s: operand(t.s, undefined), to: t.to }
+			case "cond":
+				return {
+					kind: "cond",
+					p: pred(t.p),
+					whenTrue: operand(t.whenTrue, undefined),
+					otherwise: operand(t.otherwise, fieldOf(t.whenTrue))
+				}
+			case "when":
+				return {
+					kind: "when",
+					guard: guard(t.guard),
+					body: term(t.body),
+					otherwise: operand(t.otherwise, undefined)
+				}
+		}
+	}
+	const read = ((): CaseSpec => {
+		switch (spec.kind) {
+			case "term":
+				return { kind: "term", term: term(spec.term) }
+			case "predicate":
+				return { kind: "predicate", pred: pred(spec.pred) }
+			case "aggregate":
+				return { kind: "aggregate", fn: spec.fn, of: operand(spec.of, undefined) }
+			case "value":
+			case "member":
+				return spec
+		}
+	})()
+	return Option.map(Arr.head(notes), (note) => ({ spec: read, note }))
 }
 
 /** One drawn case: its source lines, the engine's verdict, the names it imports and what it reached. */
@@ -1328,34 +2158,14 @@ interface Drawn {
 	readonly reached: ReadonlySet<ComputeFeature>
 }
 
-const drawnGen: Gen<Drawn> = (source) => {
-	const d = new Drawing(source, source.draw(swarm(computeFeatures)))
-	return { spec: caseOver(d), reached: d.reached }
-}
-
-/** The JavaScript values a case writes outside its operands: a range guard's bounds, a list's members, a host value. */
-const litsOf = (spec: CaseSpec): ReadonlyArray<Lit> => {
-	const ofGuard = (g: GuardSpec): ReadonlyArray<Lit> => (g.kind === "within" ? [g.low, g.high] : [])
-	const ofPred = (p: PredSpec): ReadonlyArray<Lit> =>
-		p.kind === "in" ? p.values : p.kind === "guard" ? ofGuard(p.guard) : []
-	const ofTerm = (t: TermSpec): ReadonlyArray<Lit> =>
-		t.kind === "when"
-			? [...ofGuard(t.guard), ...ofTerm(t.body)]
-			: t.kind === "cond"
-				? ofPred(t.p)
-				: []
-	switch (spec.kind) {
-		case "term":
-			return ofTerm(spec.term)
-		case "predicate":
-			return ofPred(spec.pred)
-		case "value":
-			return [spec.lit]
-		case "aggregate":
-		case "member":
-			return []
+/** A case drawn under a swarm over the constructs: rooted where `root` says, or at a construct the swarm chooses. */
+const drawnGen =
+	(root: Option.Option<Root>): Gen<Drawn> =>
+	(source) => {
+		const d = new Drawing(source, source.draw(swarm(computeFeatures)))
+		const spec = Option.isSome(root) ? caseAt(d, root.value) : caseOver(d)
+		return { spec, reached: d.reached }
 	}
-}
 
 /** The operands a case reads, at every depth. */
 const operandsOf = (spec: CaseSpec): ReadonlyArray<Operand> => {
@@ -1405,8 +2215,6 @@ const operandsOf = (spec: CaseSpec): ReadonlyArray<Operand> => {
 /** The fields of Cell whose type is a contract. */
 const contractTyped: ReadonlySet<FieldName> = new Set(Rec.values(contractFields))
 
-const partialFns: ReadonlySet<string> = new Set(["div", "mod", "sqrt", "power", "minScale"])
-
 /** What the program infers of an admitted case, as the engine typed it. */
 const inferencesOf = (spec: CaseSpec, admitted: Admitted): ReadonlyArray<Inference> => {
 	const operands = operandsOf(spec)
@@ -1418,7 +2226,7 @@ const inferencesOf = (spec: CaseSpec, admitted: Admitted): ReadonlyArray<Inferen
 	const guardedBody =
 		spec.kind === "term" && spec.term.kind === "when"
 			? spec.term.body.kind === "cast" ||
-				(spec.term.body.kind === "apply" && partialFns.has(spec.term.body.fn))
+				(spec.term.body.kind === "apply" && Arr.contains(partialFns, spec.term.body.fn))
 			: false
 	const guardedParam =
 		spec.kind === "term" && spec.term.kind === "when" && spec.term.guard.x.kind === "param"
@@ -1430,10 +2238,10 @@ const inferencesOf = (spec: CaseSpec, admitted: Admitted): ReadonlyArray<Inferen
 	return [
 		...(term?.sql === "exact integer" ? ["an exact integer" as const] : []),
 		...(term?.sql === "exact money" ? ["exact money" as const] : []),
-		...(term !== undefined && Str.startsWith("Infer<")(term.type)
+		...(term !== undefined && Str.startsWith("DomainOf<")(term.type)
 			? ["a contract kept" as const]
 			: []),
-		...(term !== undefined && contractOperand && !Str.startsWith("Infer<")(term.type)
+		...(term !== undefined && contractOperand && !Str.startsWith("DomainOf<")(term.type)
 			? ["a contract dropped" as const]
 			: []),
 		...(guardedBody ? ["a guarded partial operation" as const] : []),
@@ -1468,6 +2276,15 @@ const caseOf = ({ spec, reached }: Drawn): ComputeCase => {
 					: "refused: structurally"
 			)
 			break
+	}
+	if (Str.includes("Bits.of(")(expression)) {
+		uses.add("Bits")
+	}
+	if (rendering.lexical) {
+		uses.add("lexicalForm")
+	}
+	if (Str.includes(widened.text)(expression)) {
+		uses.add("widened")
 	}
 	if (Str.includes("Decimal.")(expression)) {
 		uses.add("Decimal")
@@ -1526,7 +2343,10 @@ export const computeCount = 400
 
 const computeLabel = "types/compute agreement"
 
-const caseGen: Gen<ComputeCase> = (source) => caseOf(drawnGen(source))
+const caseGen =
+	(root: Option.Option<Root>): Gen<ComputeCase> =>
+	(source) =>
+		caseOf(drawnGen(root)(source))
 
 /** The required pairs: every construct an admitted case and a refused case reach. */
 const reachedBy = (c: ComputeCase): ReadonlyArray<Reached<ComputeNote>> => [
@@ -1538,17 +2358,28 @@ const reachedBy = (c: ComputeCase): ReadonlyArray<Reached<ComputeNote>> => [
 	)
 ]
 
+/** The cases each root's stratum of the floor draws. */
+const rootCount = 12
+
 /**
- * The floor's witnesses: a quarter of the run's count, drawn under the label alone, the same in every run, and the
- * only cases whose constructs and verdicts meet the required situations (test/types/compute/compute.test.ts).
+ * The floor's witnesses: one stratum per construct, each drawn under its own label alone with the construct at its
+ * root, so the floor is the same in every run and every construct is drawn often enough to meet both verdicts; they are
+ * the only cases whose constructs and verdicts meet the required situations (test/types/compute/compute.test.ts).
  */
 export const computeWitnesses = () =>
-	floorPopulation(computeLabel, caseGen, computeCount, reachedBy)
+	Arr.map(roots, (root) =>
+		floorPopulation(
+			`${computeLabel}: ${rootName(root)}`,
+			caseGen(Option.some(root)),
+			rootCount,
+			reachedBy
+		)
+	)
 
 /** Every case the program holds: the floor's witnesses, then the label's stream under the run's seed. */
 const computeCases = (seed: number): ReadonlyArray<ComputeCase> => [
-	...computeWitnesses().values,
-	...sample(caseGen, rotatingSeed(seed, floorSeed(computeLabel)), computeCount)
+	...Arr.flatMap(computeWitnesses(), (stratum) => stratum.values),
+	...sample(caseGen(Option.none()), rotatingSeed(seed, floorSeed(computeLabel)), computeCount)
 ]
 
 /** The modules the program imports, each spelled as an import specifier relative to the program's directory. */
@@ -1559,6 +2390,7 @@ interface ComputeEntries {
 	readonly phantom: string
 	readonly field: string
 	readonly terms: string
+	readonly text: string
 	readonly agreement: string
 }
 
@@ -1569,6 +2401,7 @@ export const computeEntriesFrom = (entry: (path: string) => string): ComputeEntr
 	phantom: entry("packages/engine/src/types/core/phantom.ts"),
 	field: entry("packages/engine/src/types/fields/field.ts"),
 	terms: entry("packages/engine/src/types/query/terms.ts"),
+	text: entry("packages/engine/src/public/text.ts"),
 	agreement: entry("test/support/agreement/compute-schema.ts")
 })
 
@@ -1698,7 +2531,7 @@ export const computeModules = (
 	const cases = computeCases(seed)
 	const uses = new Set(Arr.flatMap(cases, (c) => [...c.uses]))
 	const fieldTypes = Arr.filter(
-		["Decimal", "Money", "Uuid", "CalendarDate", "Span", "Vector"] as const,
+		["Bits", "Decimal", "Money", "Uuid", "CalendarDate", "Span", "Vector"] as const,
 		(n) => uses.has(n)
 	)
 	return [
@@ -1711,23 +2544,29 @@ export const computeModules = (
 					...(Arr.isReadonlyArrayNonEmpty(fieldTypes)
 						? [
 								`import { ${Arr.join(
-									Arr.map(fieldTypes, (n) => (n === "Decimal" || n === "Money" ? n : `type ${n}`)),
+									Arr.map(fieldTypes, (n) =>
+										n === "Bits" || n === "Decimal" || n === "Money" ? n : `type ${n}`
+									),
 									", "
 								)} } from ${jsonText(entries.fields)}`
 							]
 						: []),
 					`import { type HeadOf, type ParamsOf, type ParamType, query, type Rule, v } from ${jsonText(entries.query)}`,
-					`import type { ${uses.has("Rostered") ? "Rostered, " : ""}SqlOfTerm, TypeOfTerm } from ${jsonText(entries.phantom)}`,
+					`import type { ${uses.has("DomainOf") ? "DomainOf, " : ""}${uses.has("Rostered") ? "Rostered, " : ""}SqlOfTerm, TypeOfTerm } from ${jsonText(entries.phantom)}`,
 					...(uses.has("Infer") ? [`import type { Infer } from ${jsonText(entries.field)}`] : []),
 					`import type { Aggregate } from ${jsonText(entries.terms)}`,
-					`import { Cell, Cells } from ${jsonText(entries.agreement)}`,
+					...(uses.has("lexicalForm")
+						? [`import { lexicalForm } from ${jsonText(entries.text)}`]
+						: []),
+					`import { Cell, Cells${uses.has("Bits") ? ", Tone" : ""} } from ${jsonText(entries.agreement)}`,
 					"",
 					"type Equals<A, B> = (<X>() => X extends A ? 1 : 2) extends <X>() => X extends B ? 1 : 2 ? true : false",
 					"type Expect<T extends true> = T",
+					...(uses.has("widened") ? [`declare const ${widened.text}: string`] : []),
 					"type R = Rule<typeof Cells>",
 					'const cellVars = () => v(Cell, "cell")',
 					"type CellVars = ReturnType<typeof cellVars>",
-					"export type AggregateHost<X> = X extends Aggregate<infer T> ? T : never",
+					"export type AggregateHost<X> = X extends Aggregate<infer T, never> ? T : never",
 					"",
 					...Arr.map(cases, blockOf)
 				],

@@ -2587,7 +2587,9 @@ class Lowering<R extends Refs> {
 
 	/**
 	 * The predicate a guard tests over its subject, and the interval it states where it states one: `<> 0`, `>= 0`,
-	 * `> 0`, `> '-Infinity' AND < 'Infinity'`, BETWEEN two literals of the subject's type, or a match of its pattern.
+	 * `> 0`, `> '-Infinity' AND < 'Infinity'`, BETWEEN two literals of the subject's type, or a match of its pattern. A
+	 * fact guard's constant is a value of the subject's value type, never of its contract: a guard tests any value its
+	 * subject's SQL type holds, and a contract need hold no zero, and a numeric typmod no infinity.
 	 */
 	guardPredicate(
 		guard: GuardDesc,
@@ -2596,6 +2598,8 @@ class Lowering<R extends Refs> {
 	): { readonly predicate: Lowered; readonly within: readonly [Exact, Exact] | undefined } {
 		const v = valueType(subject.nominal)
 		const compareTo = (literal: LiteralDesc): Lowered =>
+			this.literal(literal, this.adopt(v, "compare"), at)
+		const bounded = (literal: LiteralDesc): Lowered =>
 			this.literal(literal, this.adopt(subject.nominal, "compare"), at)
 		switch (guard.kind) {
 			case "nonzero":
@@ -2630,8 +2634,8 @@ class Lowering<R extends Refs> {
 				}
 			}
 			case "within": {
-				const lo = compareTo(guard.low)
-				const hi = compareTo(guard.high)
+				const lo = bounded(guard.low)
+				const hi = bounded(guard.high)
 				const low = lo.bounds === undefined ? undefined : pointOf(lo.bounds)
 				const high = hi.bounds === undefined ? undefined : pointOf(hi.bounds)
 				if (low === undefined || high === undefined) {

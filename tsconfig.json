@@ -192,7 +192,6 @@
 							"scripts/gen/allen/main.ts",
 							"test/pg/cli/config.child.ts",
 							"test/support/pg-global-setup.ts",
-							"test/types/api/fixtures/layer.ts",
 							"test/types/batch/global-setup.ts"
 						],
 						"options": {

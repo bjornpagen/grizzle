@@ -1,11 +1,11 @@
 import { describe, it } from "@effect/vitest"
-import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { noCoverage, required } from "@grizzle/testing/features"
-import { constant, element, subarray, weighted } from "@grizzle/testing/gen"
+import { drawn, explore } from "@grizzle/testing/explore"
+import { required } from "@grizzle/testing/features"
+import { array, boolean, constant, type Gen, int, subarray, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Order, Record as Rec } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec } from "effect"
 import type { CompileError, CompileReasonTag } from "#compiler/core/errors.ts"
 import type * as Result from "#compiler/core/result.ts"
 import type { PhysicalReason } from "#compiler/ir/products.ts"
@@ -15,15 +15,21 @@ import {
 	type Installation,
 	installOptions
 } from "#compiler/physical/install/compile.ts"
+import { queryOver, varsOver } from "#compiler/query/build/query.ts"
+import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
-import { assert, defined, refused, succeeded } from "#test/support/assert.ts"
+import { assert, defined, nonEmpty, refused, succeeded } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { pickFrom, pickGen } from "#test/support/pick.ts"
 import { owning } from "#test/support/policy.ts"
 import {
 	Board,
-	operatorsByPrefix,
 	orderedTasks,
 	planOf,
+	tasksForAccount,
+	titlesByPrefix,
+	topThree,
+	urgentAtLeast,
 	W,
 	workPrograms
 } from "#test/unit/workload/fixtures.ts"
@@ -35,8 +41,13 @@ import {
  * laws alone install or one of its own programs asks for, as installing each of those programs alone asks for it, and
  * the laws' own index where the whole workload's serving one is wider for programs the sub-workload drops: a law's
  * request lands on a wider index a program asks for, and on an index of its own without one (physical/indexes/engine.ts
- * planIndexes). It stands on every law the laws alone stand on. A workload that cannot install is refused with its
- * reason.
+ * planIndexes). It stands on every law the laws alone stand on.
+ *
+ * A workload that cannot install is refused with its reason. Each case draws the worked example or Board, a workload of
+ * drawn programs of its fixtures, and at most one defect: a workload compiled over the other schema, a path on a
+ * relation the schema does not store (MalformedDescription), or a prefix search over a drawn text field of the worked
+ * example, refused (UnrepresentableKey) exactly where its pattern bounds no length, the wildcard; the healthy workload
+ * installs.
  */
 
 const installWith = (
@@ -229,67 +240,218 @@ describe("the worked example's workload in the installation", () => {
 	)
 })
 
-/** A workload that cannot install: its reason and why. */
-interface Refused {
-	readonly why: string
-	readonly schema: unknown
-	readonly physical: () => WorkloadPhysical
-	readonly reason: CompileReasonTag
+/** Board's programs, which a workload over Board draws from. */
+const boardPrograms = {
+	orderedTasks,
+	tasksForAccount,
+	topThree,
+	urgentAtLeast,
+	titlesByPrefix
+} as const
+
+/** The worked example's text fields: each relation and field, and whether its pattern bounds it (none is the wildcard). */
+const workTexts: Arr.NonEmptyReadonlyArray<{
+	readonly relation: string
+	readonly field: string
+	readonly bounded: boolean
+}> = nonEmpty(
+	Arr.flatMap(defined(schemaDescOf(W.Work), "the worked example's Description").relations, (r) =>
+		r.kind === "relation"
+			? Arr.flatMap(Rec.toEntries(r.fields), ([field, decl]) =>
+					decl.type.kind === "text"
+						? [{ relation: r.name, field, bounded: decl.type.language.kind !== "every" }]
+						: []
+				)
+			: []
+	),
+	"the worked example's text fields"
+)
+
+/** A prefix search over a text field of the worked example: its field at least one bound and below another. */
+const prefixSearch = (relation: string, field: string) => {
+	const value = defined(
+		Option.getOrUndefined(
+			Arr.findFirst(
+				Rec.values(W.Work.relations),
+				(
+					x
+				): x is Extract<
+					(typeof W.Work.relations)[keyof typeof W.Work.relations],
+					{ readonly kind: "relation" }
+				> => x.kind === "relation" && x.name === relation
+			)
+		),
+		relation
+	)
+	return queryOver(W.Work).rule((r: RuleValue) => {
+		const vars = varsOver(value, "searched")
+		const fields: Readonly<Record<string, unknown>> = value.fields
+		const type = defined(Option.getOrUndefined(Rec.get(fields, field)), field)
+		return r
+			.match(value, vars)
+			.where(r.ge(vars[field], r.param("lo", type)), r.lt(vars[field], r.param("hi", type)))
+			.find(vars)
+	})
 }
 
-const refusals: Arr.NonEmptyReadonlyArray<Refused> = [
-	{
-		why: "a prefix search over an unbounded text field (ManualTask.operator is ^.*$, no byte bound), like a key",
-		schema: W.Work,
-		physical: () => planOf(W.Work, { operatorsByPrefix }),
-		reason: "UnrepresentableKey"
-	},
-	{
-		why: "a workload compiled against another schema installs on no other",
-		schema: W.Work,
-		physical: () => planOf(Board, { orderedTasks }),
-		reason: "MalformedDescription"
-	},
-	{
-		why: "an access path on a relation the schema does not store",
-		schema: Board,
-		physical: () => {
-			const plan = planOf(Board, { orderedTasks })
-			return {
-				...plan,
-				paths: [
-					{
-						relation: "Nowhere",
-						derived: false,
-						method: "btree",
-						keys: [{ field: "x", dir: "asc" }],
-						use: "range"
-					}
-				]
-			}
-		},
-		reason: "MalformedDescription"
+/** What a case does to an installable workload: nothing, or one way it cannot install. */
+type Defect =
+	| { readonly kind: "none" }
+	| { readonly kind: "a workload over another schema" }
+	| { readonly kind: "a path on a relation the schema does not store"; readonly name: number }
+	| { readonly kind: "a prefix search"; readonly field: number }
+
+interface InstallCase {
+	readonly work: boolean
+	/** The installed schema's programs the workload holds, by their picks. */
+	readonly programs: ReadonlyArray<number>
+	readonly defect: Defect
+}
+
+const installCaseGen: Gen<InstallCase> = (source) => {
+	const defect = source.draw(
+		weighted<Defect>([
+			[2, (): Defect => ({ kind: "none" })],
+			[1, (): Defect => ({ kind: "a workload over another schema" })],
+			[
+				1,
+				(s) => ({ kind: "a path on a relation the schema does not store", name: s.draw(int(0, 9)) })
+			],
+			[2, (s) => ({ kind: "a prefix search", field: s.draw(pickGen) })]
+		])
+	)
+	return {
+		work: defect.kind === "a prefix search" || source.draw(boolean),
+		programs: source.draw(array(pickGen, { min: 0, max: 3 })),
+		defect
 	}
-]
+}
+
+/** The programs of a schema's workload, by their picks among its fixtures'. */
+const programsOf = (
+	programs: Readonly<Record<string, unknown>>,
+	picks: ReadonlyArray<number>
+): Readonly<Record<string, unknown>> => {
+	const entries = nonEmpty(Rec.toEntries(programs), "a schema's programs")
+	return Rec.fromEntries(Arr.map(picks, (pick) => pickFrom(entries, pick)))
+}
+
+/** The schema a case installs, the physical workload it installs with, and the refusal the model expects, if any. */
+const installOf = (
+	c: InstallCase
+): {
+	readonly schema: unknown
+	readonly physical: WorkloadPhysical
+	readonly refusal: Option.Option<CompileReasonTag>
+} => {
+	const [installed, programs, other, otherPrograms] = c.work
+		? [W.Work, workPrograms, Board, boardPrograms]
+		: [Board, boardPrograms, W.Work, workPrograms]
+	const own = programsOf(programs, c.programs)
+	switch (c.defect.kind) {
+		case "none":
+			return { schema: installed, physical: planOf(installed, own), refusal: Option.none() }
+		case "a workload over another schema":
+			return {
+				schema: installed,
+				physical: planOf(other, programsOf(otherPrograms, c.programs)),
+				refusal: Option.some("MalformedDescription")
+			}
+		case "a path on a relation the schema does not store": {
+			const plan = planOf(installed, own)
+			return {
+				schema: installed,
+				physical: {
+					...plan,
+					paths: [
+						...plan.paths,
+						{
+							relation: `Nowhere${c.defect.name}`,
+							derived: false,
+							method: "btree",
+							keys: [{ field: "x", dir: "asc" }],
+							use: "range"
+						}
+					]
+				},
+				refusal: Option.some("MalformedDescription")
+			}
+		}
+		case "a prefix search": {
+			const text = pickFrom(workTexts, c.defect.field)
+			return {
+				schema: W.Work,
+				physical: planOf(W.Work, {
+					...programsOf(workPrograms, c.programs),
+					searched: prefixSearch(text.relation, text.field)
+				}),
+				refusal: text.bounded ? Option.none() : Option.some("UnrepresentableKey")
+			}
+		}
+	}
+}
+
+type InstallFeature =
+	| Defect["kind"]
+	| "admitted over Board"
+	| "a prefix search over a bounded text"
+	| "a prefix search over the wildcard"
 
 describe("a workload that cannot install", () => {
-	it.effect("is refused with its reason", (ctx) =>
-		searched(
-			ctx,
-			exhaust(
-				{
-					suite: "unit/workload/install-refused",
-					generator: element(refusals),
-					literal: Formatter.format,
-					limit: refusals.length,
-					coverage: noCoverage,
-					caseHang
-				},
-				(r) =>
-					Effect.sync(() => {
-						refused(installWith(r.schema, r.physical()), r.reason, r.why)
-					})
+	it.effect(
+		"is refused with its reason: another schema's, a path off its schema, an unbounded prefix search",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/workload/install-refused",
+						draw: drawn(installCaseGen),
+						literal: Formatter.format,
+						oracle: {
+							kind: "specification",
+							name: "a workload installs only on its own schema, with paths on relations it stores, and keys whose B-tree entry its patterns bound"
+						},
+						coverage: required<InstallFeature>(
+							[
+								"none",
+								"a workload over another schema",
+								"a path on a relation the schema does not store",
+								"a prefix search over a bounded text",
+								"a prefix search over the wildcard",
+								"admitted over Board"
+							],
+							{ cases: 80, sense: notesOnly }
+						),
+						kept: [],
+						runs: 40,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang
+					},
+					(c, k) =>
+						Effect.sync(() => {
+							k.note(c.defect.kind)
+							const { schema, physical, refusal } = installOf(c)
+							if (c.defect.kind === "a prefix search") {
+								k.note(
+									Option.isSome(refusal)
+										? "a prefix search over the wildcard"
+										: "a prefix search over a bounded text"
+								)
+							}
+							const installed = installWith(schema, physical)
+							if (Option.isSome(refusal)) {
+								refused(installed, refusal.value)
+								return
+							}
+							if (!c.work) {
+								k.note("admitted over Board")
+							}
+							succeeded(installed, "an installable workload installs")
+						})
+				)
 			)
-		)
 	)
 })

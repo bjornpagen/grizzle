@@ -1,11 +1,32 @@
 import { layer } from "@effect/vitest"
-import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { required, requiredInSpace } from "@grizzle/testing/features"
-import { array, constant, element, type Gen, map, weighted } from "@grizzle/testing/gen"
+import { drawn, explore } from "@grizzle/testing/explore"
+import { required } from "@grizzle/testing/features"
+import {
+	array,
+	boolean,
+	constant,
+	element,
+	type Gen,
+	int,
+	map,
+	oneOf,
+	subset,
+	weighted
+} from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Option, Order, pipe, Result, String as Str } from "effect"
+import {
+	Array as Arr,
+	Effect,
+	Formatter,
+	Option,
+	Order,
+	pipe,
+	Record as Rec,
+	Result,
+	String as Str
+} from "effect"
 import { Db } from "#adapter/public/db.ts"
 import { arraysEncoder, positionalColumns } from "#compiler/codec/recordset.ts"
 import { identity } from "#compiler/core/identity.ts"
@@ -43,7 +64,7 @@ import {
 } from "#test/support/compile.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { type Installed, installMigrated as install } from "#test/support/install-migrate.ts"
-import { type NamedRelation, namesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { namesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { checking } from "#test/support/policy.ts"
 import { headingRecord } from "#test/support/statement-rows.ts"
@@ -424,6 +445,116 @@ const markers = (o: Applied) => {
 	)
 }
 
+/** The relations the write programs write: one with a single vector payload, one with a vector and a bigint. */
+const writeRelations = { A, Note } as const
+
+type WrittenRelation = keyof typeof writeRelations
+
+const writtenRelations = nonEmpty(Rec.keys(writeRelations), "the written relations")
+
+/** Each written relation's table and the columns its stored rows are read by. */
+const tableOf: { readonly [R in WrittenRelation]: string } = { A: "a", Note: "note" }
+const columnsOf: { readonly [R in WrittenRelation]: string } = {
+	A: `"id"::text, "value"::text`,
+	Note: `"id"::text, "value"::text, "rank"::text`
+}
+
+/** A written fact: its key, its vector as drawn, and its rank where its relation has one. */
+interface WriteFact {
+	readonly id: Uuid
+	readonly value: Pair
+	readonly rank: Option.Option<bigint>
+}
+
+/** A ChangeSet member: an operation over drawn facts of one relation, their keys distinct. */
+interface WriteStep {
+	readonly relation: WrittenRelation
+	readonly op: WriteOp
+	readonly facts: Arr.NonEmptyReadonlyArray<WriteFact>
+}
+
+/** The ChangeSet operations, each as its builder adds a member. */
+const writeOps = {
+	insert: (c: ChangeSetValue, relation: unknown, facts: ReadonlyArray<unknown>) =>
+		c.insert(relation, facts),
+	delete: (c: ChangeSetValue, relation: unknown, facts: ReadonlyArray<unknown>) =>
+		c.delete(relation, facts),
+	put: (c: ChangeSetValue, relation: unknown, facts: ReadonlyArray<unknown>) =>
+		c.put(relation, facts)
+} as const
+
+type WriteOp = keyof typeof writeOps
+
+const writeOpNames = nonEmpty(Rec.keys(writeOps), "the ChangeSet operations")
+
+/**
+ * A program of steps: each a relation, an operation, and facts over a pool of three keys, a key written before as often
+ * repeated, its fact as it was or in its twin spelling, as drawn afresh; a fresh vector is a few values or their twins,
+ * a rank one of two values.
+ */
+const writeProgramGen: Gen<ReadonlyArray<WriteStep>> = (source) => {
+	const steps: Array<WriteStep> = []
+	const count = source.draw(int(1, 5))
+	for (let n = 0; n < count; n++) {
+		const relation = source.draw(element(writtenRelations))
+		const earlier = Arr.flatMap(steps, (step) => (step.relation === relation ? step.facts : []))
+		const keys = source.draw(subset(Arr.range(1, 3), { min: 1, max: 3 }))
+		const facts = Arr.map(keys, (key): WriteFact => {
+			const fresh: WriteFact = {
+				id: id(relation === "A" ? key : key + 10),
+				value: source.draw(oneOf([freshPair, map(freshPair, twinOf)])),
+				rank: relation === "Note" ? Option.some(BigInt(source.draw(int(1, 2)))) : Option.none()
+			}
+			const before = Arr.findLast(earlier, (f) => f.id === fresh.id)
+			return Option.isSome(before) && source.draw(boolean)
+				? source.draw(
+						oneOf([
+							constant(before.value),
+							constant({ ...before.value, value: twinOf(before.value.value) })
+						])
+					)
+				: fresh
+		})
+		steps.push({
+			relation,
+			op: source.draw(element(writeOpNames)),
+			facts: nonEmpty(facts, "a step's facts")
+		})
+	}
+	return steps
+}
+
+/** Two facts are one: the same key, one vector under vector equality, the same rank. */
+const sameFact = (a: WriteFact, b: WriteFact): boolean =>
+	a.id === b.id &&
+	same(a.value, b.value) &&
+	Option.getOrUndefined(a.rank) === Option.getOrUndefined(b.rank)
+
+/** A drawn fact as its relation's host fact. */
+const hostFact = (f: WriteFact): Readonly<Record<string, unknown>> =>
+	Option.match(f.rank, {
+		onNone: () => ({ id: f.id, value: vec(f.value[0], f.value[1]) }),
+		onSome: (rank) => ({ id: f.id, value: vec(f.value[0], f.value[1]), rank })
+	})
+
+/** The row a fact is stored as, read back. */
+const rowOf = (f: WriteFact): Array<string> => [
+	f.id,
+	components(vec(f.value[0], f.value[1])),
+	...Option.match(f.rank, { onNone: () => [], onSome: (rank) => [String(rank)] })
+]
+
+/** What a write program met. */
+type WriteFeature =
+	| "a fact inserted"
+	| "an exact repeat"
+	| "a twin spelling repeated"
+	| "a conflicting repeat refused"
+	| "a delete of the stored fact"
+	| "a delete of a differing fact"
+	| "a put displacing its occupant"
+	| "a put of the stored fact"
+
 layer(Substrate.layer)("vector equality as a world role", (it) => {
 	it.effect(
 		"a vector binding, a shared vector variable, an r.not and attachments correlated on a vector agree with vector equality in both artifacts",
@@ -623,132 +754,160 @@ layer(Substrate.layer)("vector equality as a world role", (it) => {
 	it.effect(
 		"ChangeSet inserts, repeats, conflicts, deletes and puts over vector fields run through the protocol",
 		(ctx) =>
-			Effect.gen(function* () {
-				const s = yield* Substrate
-				const installed = yield* install(Pairs, {
-					ambient: ordinarySession,
-					label: "vwrite",
-					logins: [pairsWorld.server],
-					extensions: []
-				})
-				const writer = yield* s.session({
-					...worldSession(installed.world(pairsWorld.app)),
-					label: "writer"
-				})
-				const names = namesOf(installed)
-				/** The facts the inserts inserted: every row of an insert, none raised. */
-				const insertedKeys = (o: Applied) => {
-					assert.ok(Arr.every(o.out, (x) => x.result.kind === "insert"))
-					return Arr.map(markers(o), (r) => defined(r[0], "an inserted marker's key"))
-				}
-				/**
-				 * A conflict witness raises the key law of the relation's primary key: 23000, the law's identity as the
-				 * constraint name (write/refusal.ts).
-				 */
-				const conflictOf = (o: Applied, relation: NamedRelation) => {
-					if (o.kind !== "refused") {
-						return assert.fail("the conflicting write raised nothing")
-					}
-					assert.equal(o.refused.code, "23000")
-					assert.equal(o.refused.constraint, names.primaryKeyLaw(relation))
-				}
-
-				/** A single vector payload: the DO SELECT predicate and the inserted marker are scalar comparisons. */
-				const a1 = { id: id(1), value: vec(0.6, 0.8) }
-				const a2 = { id: id(2), value: vec(0, 1) }
-				const inserted = yield* apply(writer, installed, changeSet().insert(A, [a1, a2]), {
-					A: [a1, a2]
-				})
-				assert.deepEqual(
-					Arr.map(inserted.out, (o) => o.result.kind),
-					["insert"]
-				)
-				assert.deepEqual(Arr.sort(insertedKeys(inserted), Order.String), [id(1), id(2)])
-				/** An exact repeat returns nothing; a conflicting repeat raises the key law. */
-				const repeat = yield* apply(writer, installed, changeSet().insert(A, [a1]), { A: [a1] })
-				assert.deepEqual(markers(repeat), [])
-				const clash = { id: id(1), value: vec(0.8, 0.6) }
-				const conflict = yield* apply(writer, installed, changeSet().insert(A, [clash]), {
-					A: [clash]
-				})
-				conflictOf(conflict, A)
-				const storedA = yield* stored(installed, "a", `"id"::text, "value"::text`)
-				assert.deepEqual(storedA, [
-					[id(1), components(a1.value)],
-					[id(2), components(a2.value)]
-				])
-
-				/** A vector and a bigint payload: both comparisons are row comparisons, spelled column by column. */
-				const n1 = { id: id(11), value: vec(1, 0), rank: 1n }
-				const noted = yield* apply(writer, installed, changeSet().insert(Note, [n1]), {
-					Note: [n1]
-				})
-				assert.deepEqual(insertedKeys(noted), [id(11)])
-				const appliedNote = yield* apply(writer, installed, changeSet().insert(Note, [n1]), {
-					Note: [n1]
-				})
-				assert.deepEqual(markers(appliedNote), [])
-				/** A repeat of the noted fact's key differing in its rank, or in its vector, conflicts. */
-				const clashings: Arr.NonEmptyReadonlyArray<
-					readonly [differs: "rank" | "vector", fact: typeof n1]
-				> = [
-					["rank", { ...n1, rank: 2n }],
-					["vector", { ...n1, value: vec(0, 1) }]
-				]
-				yield* searched(
-					ctx,
-					exhaust(
+			searched(
+				ctx,
+				Effect.gen(function* () {
+					const s = yield* Substrate
+					const installed = yield* install(Pairs, {
+						ambient: ordinarySession,
+						label: "vwrite",
+						logins: [pairsWorld.server],
+						extensions: []
+					})
+					const writer = yield* s.session({
+						...worldSession(installed.world(pairsWorld.app)),
+						label: "writer"
+					})
+					const names = namesOf(installed)
+					return yield* explore(
 						{
-							suite: "pg/vector/equality/clash",
-							generator: element(clashings),
-							literal: ([differs]: readonly [string, typeof n1]) => `differs in its ${differs}`,
-							limit: clashings.length,
-							coverage: requiredInSpace<`clash in its ${"rank" | "vector"}`>([
-								"clash in its rank",
-								"clash in its vector"
-							]),
+							suite: "pg/vector/equality/writes",
+							draw: drawn(writeProgramGen),
+							literal: Formatter.format,
+							oracle: {
+								kind: "second-implementation",
+								name: "a host model of each relation's facts under vector equality, binary32 components with -0 equal to 0"
+							},
+							coverage: required<WriteFeature>(
+								[
+									"a fact inserted",
+									"an exact repeat",
+									"a twin spelling repeated",
+									"a conflicting repeat refused",
+									"a delete of the stored fact",
+									"a delete of a differing fact",
+									"a put displacing its occupant",
+									"a put of the stored fact"
+								],
+								{ cases: 60, sense: notesOnly }
+							),
+							kept: [],
+							runs: 24,
+							shrink: completeShrink,
+							concurrency: 1,
+							steerEvery: 8,
 							caseHang
 						},
-						([differs, clashing], k) =>
+						(steps, k) =>
 							Effect.gen(function* () {
-								const out = yield* apply(writer, installed, changeSet().insert(Note, [clashing]), {
-									Note: [clashing]
-								})
-								conflictOf(out, Note)
-								k.note(`clash in its ${differs}`)
+								for (const relation of writtenRelations) {
+									yield* s.admin.query(`DELETE FROM ${names.table(writeRelations[relation])}`, [])
+								}
+								const model = new Map<WrittenRelation, Map<string, WriteFact>>(
+									Arr.map(writtenRelations, (relation) => [relation, new Map()])
+								)
+								for (const step of steps) {
+									const R = writeRelations[step.relation]
+									const facts = Arr.map(step.facts, hostFact)
+									const held = defined(model.get(step.relation), step.relation)
+									const occupants = Arr.map(step.facts, (f) => ({ f, stored: held.get(f.id) }))
+									const out = yield* apply(
+										writer,
+										installed,
+										writeOps[step.op](changeSet(), R, facts),
+										{ [step.relation]: facts }
+									)
+									switch (step.op) {
+										case "insert": {
+											const clashing = Arr.filter(
+												occupants,
+												({ f, stored }) => stored !== undefined && !sameFact(stored, f)
+											)
+											if (Arr.isReadonlyArrayNonEmpty(clashing)) {
+												k.note("a conflicting repeat refused")
+												if (out.kind !== "refused") {
+													return assert.fail("the conflicting write raised nothing")
+												}
+												assert.equal(out.refused.code, "23000")
+												assert.equal(out.refused.constraint, names.primaryKeyLaw(R))
+												break
+											}
+											assert.ok(Arr.every(out.out, (x) => x.result.kind === "insert"))
+											const fresh = Arr.filter(occupants, ({ stored }) => stored === undefined)
+											assert.deepEqual(
+												Arr.sort(
+													Arr.map(markers(out), (r) => defined(r[0], "an inserted marker's key")),
+													Order.String
+												),
+												Arr.sort(
+													Arr.map(fresh, ({ f }) => f.id),
+													Order.String
+												)
+											)
+											for (const { f, stored } of occupants) {
+												if (stored === undefined) {
+													k.note("a fact inserted")
+													held.set(f.id, f)
+												} else {
+													k.note(
+														spelledLit(stored.value) === spelledLit(f.value)
+															? "an exact repeat"
+															: "a twin spelling repeated"
+													)
+												}
+											}
+											break
+										}
+										case "delete": {
+											const removed = Arr.filter(
+												occupants,
+												({ f, stored }) => stored !== undefined && sameFact(stored, f)
+											)
+											assert.equal(markers(out).length, removed.length, "the facts deleted")
+											for (const { f, stored } of occupants) {
+												if (stored !== undefined && sameFact(stored, f)) {
+													k.note("a delete of the stored fact")
+													held.delete(f.id)
+												} else if (stored !== undefined) {
+													k.note("a delete of a differing fact")
+												}
+											}
+											break
+										}
+										case "put": {
+											const displaced = Arr.filter(
+												occupants,
+												({ f, stored }) => stored !== undefined && !sameFact(stored, f)
+											)
+											assert.equal(out.kind, "committed", "a put raised")
+											const [first] = out.out
+											assert.equal(first?.result.kind, "delete")
+											assert.equal(first?.rows.length, displaced.length, "the occupants displaced")
+											for (const { f, stored } of occupants) {
+												if (stored !== undefined) {
+													k.note(
+														sameFact(stored, f)
+															? "a put of the stored fact"
+															: "a put displacing its occupant"
+													)
+												}
+												held.set(f.id, f)
+											}
+											break
+										}
+									}
+									for (const relation of writtenRelations) {
+										const facts = Arr.sort(
+											[...defined(model.get(relation), relation).values()],
+											Order.mapInput(Order.String, (f: WriteFact) => f.id)
+										)
+										const rows = yield* stored(installed, tableOf[relation], columnsOf[relation])
+										assert.deepEqual(rows, Arr.map(facts, rowOf), `${relation} after ${step.op}`)
+									}
+								}
 							})
 					)
-				)
-
-				/** An exact delete compares every column; a fact differing only in its vector deletes nothing. */
-				const miss = { id: id(2), value: vec(1, 0) }
-				const kept = yield* apply(writer, installed, changeSet().delete(A, [miss]), { A: [miss] })
-				assert.deepEqual(markers(kept), [])
-				const removed = yield* apply(writer, installed, changeSet().delete(A, [a2]), { A: [a2] })
-				assert.equal(markers(removed).length, 1)
-
-				/** A put displaces the occupant whose vector differs, and an identical put displaces nothing. */
-				const moved = { id: id(11), value: vec(0, 1), rank: 1n }
-				const put = yield* apply(writer, installed, changeSet().put(Note, [moved]), {
-					Note: [moved]
 				})
-				assert.deepEqual(
-					Arr.map(put.out, (o) => o.result.kind),
-					["delete", "insert"]
-				)
-				assert.equal(put.out[0]?.rows.length, 1)
-				const again = yield* apply(writer, installed, changeSet().put(Note, [moved]), {
-					Note: [moved]
-				})
-				assert.deepEqual(again.out[0]?.rows, [])
-				const storedNotes = yield* stored(
-					installed,
-					"note",
-					`"id"::text, "value"::text, "rank"::text`
-				)
-				assert.deepEqual(storedNotes, [[id(11), components(moved.value), "1"]])
-				const storedIds = yield* stored(installed, "a", `"id"::text`)
-				assert.deepEqual(storedIds, [[id(1)]])
-			})
+			)
 	)
 })

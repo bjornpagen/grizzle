@@ -44,7 +44,7 @@ import {
 	spanOf
 } from "#compiler/ir/scalar.ts"
 import { admittedClosedId } from "#compiler/scalar/closed-id.ts"
-import { pgDescriptors } from "#compiler/scalar/pg.ts"
+import { floatOf, pgDescriptors } from "#compiler/scalar/pg.ts"
 import { carrierSql, type Described, describeField } from "#compiler/scalar/registry.ts"
 import { checkNumericTypmod } from "#compiler/scalar/values/decimal.ts"
 import { admitVectorDimensions } from "#compiler/scalar/vector.ts"
@@ -392,11 +392,11 @@ describe("typmod validation", () => {
 							const precision = passed(drawnPrecision)
 							if (!isInteger(precision) || precision < 1 || precision > 53) {
 								c.note("refused")
-								throwsRefused(() => pgDescriptors.float(precision), "MalformedDescription")
+								throwsRefused(() => floatOf(precision), "MalformedDescription")
 							} else {
 								c.note("admitted")
 								assert.equal(
-									pgDescriptors.float(precision),
+									floatOf(precision),
 									precision <= 24 ? pgDescriptors.real : pgDescriptors["double precision"]
 								)
 							}

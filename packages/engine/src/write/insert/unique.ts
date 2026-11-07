@@ -10,7 +10,6 @@ import {
 import * as Order from "#compiler/core/order.ts"
 import { fieldNames, type LawField, type RelationInfo } from "#compiler/ir/law.ts"
 import {
-	beyondPrimary,
 	columnReads,
 	keyWitness,
 	type PrimaryKeyObject,
@@ -219,7 +218,7 @@ export const generatedChecks = (
  * (`generatedChecks`). */
 export const relationUniques = (laws: RelationLaws): RelationUniques => {
 	const { primary, keys } = laws.uniques
-	const others = beyondPrimary(laws)
+	const others = laws.beyond
 	const complete = probeOrder(others, [primary])
 	return Object.freeze({
 		arbiter: primary,

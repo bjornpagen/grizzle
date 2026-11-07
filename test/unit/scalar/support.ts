@@ -17,7 +17,7 @@ import { Array as Arr, Option, Record as Rec } from "effect"
 import { integerRanges, vectorMaxDimensions } from "#compiler/ir/carriers.ts"
 import { numericMaxPrecision, numericMaxScale, numericMinScale } from "#compiler/ir/scalar.ts"
 import { admittedClosedId } from "#compiler/scalar/closed-id.ts"
-import { pgDescriptors } from "#compiler/scalar/pg.ts"
+import { floatOf, pgDescriptors } from "#compiler/scalar/pg.ts"
 import { isOwnedDescriptor } from "#compiler/scalar/registry.ts"
 import { uuidDescriptor } from "#compiler/scalar/uuid.ts"
 import { closed } from "#compiler/schema/api.ts"
@@ -59,7 +59,7 @@ export const spellings: Arr.NonEmptyReadonlyArray<Spelling> = nonEmpty(
 )
 
 /** The descriptor a spelling names. */
-const spelled = (name: Spelling) =>
+export const spelled = (name: Spelling) =>
 	defined(
 		Option.getOrUndefined(Option.liftPredicate(pgDescriptors[name], isOwnedDescriptor)),
 		`pg.${name} is a descriptor`
@@ -71,7 +71,7 @@ export const descriptorOf = (sketch: DescriptorSketch): unknown => {
 		case "spelling":
 			return spelled(sketch.name)
 		case "float":
-			return pgDescriptors.float(sketch.precision)
+			return floatOf(sketch.precision)
 		case "numeric":
 			return pgDescriptors.numeric(sketch.precision, sketch.scale)
 		case "vector":

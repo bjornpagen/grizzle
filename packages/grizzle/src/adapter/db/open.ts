@@ -1,11 +1,10 @@
-import { Array as Arr, Effect, Option, Result } from "effect"
+import { Array as Arr, Effect, Option, Record as Rec, Result } from "effect"
 import { admit } from "#adapter/admission/admit.ts"
 import { admissionExpectation } from "#adapter/admission/expectation.ts"
 import { type Claims, claimsOf, noClaims, type TypedContext } from "#adapter/db/claims.ts"
 import type { DbContext } from "#adapter/db/context.ts"
 import { makeDb } from "#adapter/db/db.ts"
 import { workloadHandles, workloadMissing } from "#adapter/db/workload.ts"
-import { fromEngine } from "#adapter/engine.ts"
 import { OpenError } from "#adapter/errors/execution.ts"
 import {
 	ClaimRefused,
@@ -77,11 +76,31 @@ const dbClaims = (
 	)
 }
 
-/** The token among a JavaScript caller's options: a string, or none. */
-const givenToken = <R>(
-	options: OpenOptions<R>
-): Result.Result<Option.Option<string>, OpenError> => {
-	const token: unknown = options.token
+/**
+ * Whether a value is an object that is no list: every property of one reads as some value, which unknown describes,
+ * so this claims no more than it checks.
+ */
+const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
+	typeof value === "object" && value !== null && !Arr.isArray(value)
+
+/**
+ * Db.open's options as a JavaScript caller passes them, read once at the boundary: the token they give, a string, or
+ * none. The options are an object whose properties read as data (query/build/host.ts hostArguments), and the token
+ * is their own property; no options, null, a list, a value that is no object, one whose reading throws or that holds
+ * a getter or a setter, and a token that is no string are each refused at stage schema. The types require the options
+ * and type the token, so only a JavaScript caller meets a refusal here.
+ */
+export const openToken = (options: unknown): Result.Result<Option.Option<string>, OpenError> => {
+	if (!isRecord(options)) {
+		return Result.fail(refusedOption("Db.open's options: an object, { token } or {}"))
+	}
+	const read = catchCompileError(() => {
+		hostArguments("Db.open", [options])
+	})
+	if (!read.ok) {
+		return Result.fail(new OpenError({ reason: read.error }))
+	}
+	const token: unknown = Rec.has(options, "token") ? options["token"] : undefined
 	if (token === undefined) {
 		return Result.succeed(Option.none())
 	}
@@ -97,8 +116,9 @@ const givenToken = <R>(
  * Opening acquires a database for a role reached through its login and admits it before it yields; it never installs
  * or changes a schema. In order:
  *
- * 1. The role. A value that is no role reached through its login (Web.roles.member) is OpenError{stage: "schema"}
- *    whose reason is the CompileError.
+ * 1. The role and the options. A value that is no role reached through its login (Web.roles.member) is
+ *    OpenError{stage: "schema"} whose reason is the CompileError, and so are options a JavaScript caller passes that are
+ *    no object read as data, or whose token is no string (openToken).
  * 2. The layer. The requirement DbLayer<R> names the role only as a type, so the layer of the role's login is resolved
  *    among the layers the context holds (pool/registry.ts dbSessions): a login whose layer is not provided is
  *    OpenError{stage: "role"}.
@@ -122,9 +142,6 @@ const givenToken = <R>(
  * Admission compares the ledger, the settings and the privileges with the snapshot the layer was given (DbConfig): no
  * snapshot is ever derived from the schema alone. The Db's workload handles (`db.workload`) are built here over the
  * programs the layer compiled for the role, each ChangeSet's for the contexts the Db's claims hold a fact of.
- *
- * The options are the caller's value, read once as data at the builder's boundary (query/build/host.ts
- * hostArguments): one whose reading throws, or that holds a getter or a setter, is refused at stage schema.
  */
 export const openDb = Effect.fn("openDb")(function* <R extends AnyRole, P>(
 	role: LoginRole<R, P>,
@@ -134,6 +151,7 @@ export const openDb = Effect.fn("openDb")(function* <R extends AnyRole, P>(
 	if (reached === undefined) {
 		return yield* refusedOption("a role reached through its login: Db.open(Web.roles.member, ...)")
 	}
+	const token = yield* Effect.fromResult(openToken(options))
 	const sessions = yield* dbSessions<R>(reached.login, reached.role.name)
 	/** The role as the layer holds it, parsed with its artifacts, contexts and programs when the layer was built. */
 	const held = Arr.findFirst(sessions.roles, (r) => r.value === reached.role)
@@ -145,15 +163,6 @@ export const openDb = Effect.fn("openDb")(function* <R extends AnyRole, P>(
 	const { schema, declared, artifacts, compile, theory, contexts, witness, bind, workload } =
 		held.value
 	const desc = schema.desc
-	yield* Effect.mapError(
-		fromEngine(
-			catchCompileError(() => {
-				hostArguments("Db.open", [options])
-			})
-		),
-		(reason) => new OpenError({ reason })
-	)
-	const token = yield* Effect.fromResult(givenToken(options))
 	const snapshot = sessions.snapshot
 	const claims = yield* dbClaims(sessions, contexts, token)
 	const pool = sessions.pool

@@ -20,10 +20,13 @@
  *   copies of its count and its own ends read what it fills;
  * - a column whose row's own columns read it back in a cycle, or that reads a column no fill that writes it reaches.
  *
- * Refused, as UnwritableRelation, a relation no write fills: a counted family's member that is also a sequence's
- * member, a tree's or its owner, since a sequence's members are written nested and a counted family's are rows of their
- * own; and sequences that nest each other in a cycle, an ordered family over its own relation among them, so no row of
- * the cycle is written first. A tree's own recursion is no cycle: each of its nodes is nested under its parent.
+ * Refused, as UnwritableRelation, a relation no write fills: sequences that nest each other in a cycle, an ordered
+ * family over its own relation among them, so no row of the cycle is written first. A tree's own recursion is no
+ * cycle: each of its nodes is nested under its parent.
+ *
+ * A counted family's member may also be a sequence's member, a tree's node or a sequence's owner. The walk fills such a
+ * row as it fills any row of its position, and the counted family's own fill completes it afterwards, from its owner's
+ * row and the stored family: the walk reads none of the columns a counted family fills, so it never waits on one.
  */
 import { familyKey } from "#compiler/analysis/theory/families.ts"
 import type { TheoryLaw } from "#compiler/analysis/theory/laws.ts"
@@ -84,8 +87,10 @@ export const layoutKey = (relation: string, position: FillPosition): string =>
 		? `${relation}\u0000top`
 		: `${relation}\u0000${position.kind}\u0000${familyKey(position.family.id)}`
 
-/** Every position a row of `relation` stands at: a tree's root, a family's member, or the ChangeSet's own when it is
- * no family's member. */
+/**
+ * Every position a row of `relation` stands at: a tree's root, a family's member, or the ChangeSet's own when it is no
+ * sequence's member, a counted family's member among them, which the ChangeSet writes as a row of its own.
+ */
 const positionsOf = (
 	families: ReadonlyArray<Family>,
 	relation: string
@@ -95,7 +100,7 @@ const positionsOf = (
 	return [
 		...(tree === undefined ? [] : [{ kind: "root", family: tree } as const]),
 		...memberOf.map((family) => ({ kind: "member", family }) as const),
-		...(memberOf.length === 0 ? [{ kind: "top" } as const] : [])
+		...(memberOf.some(isSequence) ? [] : [{ kind: "top" } as const])
 	]
 }
 
@@ -464,34 +469,6 @@ const unwritable = (
 ):
 	| { readonly relation: string; readonly family: Family; readonly cause: UnwritableCause }
 	| undefined => {
-	for (const c of families.filter((f) => !isSequence(f))) {
-		const member = families.find((s) => isSequence(s) && s.member.name === c.member.name)
-		if (member !== undefined) {
-			return {
-				relation: c.member.name,
-				family: c,
-				cause: {
-					kind: "countedAndSequence",
-					counted: named(c),
-					sequence: named(member),
-					role: "member"
-				}
-			}
-		}
-		const owner = families.find((s) => isSequence(s) && s.owner.name === c.member.name)
-		if (owner !== undefined) {
-			return {
-				relation: c.member.name,
-				family: c,
-				cause: {
-					kind: "countedAndSequence",
-					counted: named(c),
-					sequence: named(owner),
-					role: "owner"
-				}
-			}
-		}
-	}
 	const nests = families.filter((f) => isSequence(f) && !isTreeOf(f, f.owner.name))
 	/** The sequence a relation's rows are nested in, its tree's aside: a relation is a member of at most one. */
 	const nestedIn = (relation: string): Family | undefined =>

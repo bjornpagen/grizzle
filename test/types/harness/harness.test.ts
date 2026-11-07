@@ -1,21 +1,46 @@
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
+import { unreachedOf } from "@grizzle/testing/features"
 import { Effect } from "effect"
 import { assert } from "#test/support/assert.ts"
 import { checked } from "#test/types/batch/groups.ts"
+import { doorCount, doorRequired, doorWitnesses } from "#test/types/harness/door.ts"
+import {
+	vocabularyCount,
+	vocabularyRequired,
+	vocabularyWitnesses
+} from "#test/types/harness/vocabulary.ts"
 
-layer(NodeServices.layer, { excludeTestServices: true })("test harness types", (it) => {
-	it.effect("typechecks every fixture under tsgo with Effect diagnostics", () =>
-		Effect.gen(function* () {
-			const diagnostics = yield* checked("harness/fixtures")
-			assert.equal(diagnostics.output, "")
-		})
-	)
+layer(NodeServices.layer, { excludeTestServices: true })(
+	"the test harness's type contracts",
+	(it) => {
+		it.effect(
+			`over ${vocabularyCount} drawn vocabularies and the floor's, a required situation, a note, a pair and a kept case's reaches typecheck exactly when every name is of the closed vocabulary`,
+			() =>
+				Effect.gen(function* () {
+					const { expected, actual } = yield* checked("harness/vocabulary")
+					assert.deepEqual(actual, expected)
+				})
+		)
 
-	it.effect("fails each refusal with the diagnostic it names, and nothing else", () =>
-		Effect.gen(function* () {
-			const { expected, actual } = yield* checked("harness/disarmed")
-			assert.deepEqual(actual, expected)
+		it.effect(
+			`over ${doorCount} drawn types and values and the floor's, assert.equal and assert.deepEqual typecheck exactly when the expected value conforms to the actual's type`,
+			() =>
+				Effect.gen(function* () {
+					const { expected, actual } = yield* checked("harness/door")
+					assert.deepEqual(actual, expected)
+				})
+		)
+
+		it("the floor's witnesses reach every fault of both contracts and their admitted cases", () => {
+			assert.deepEqual(
+				[
+					...unreachedOf(vocabularyRequired, [vocabularyWitnesses().tally]),
+					...unreachedOf(doorRequired, [doorWitnesses().tally])
+				],
+				[],
+				"situations no floor witness reached"
+			)
 		})
-	)
-})
+	}
+)

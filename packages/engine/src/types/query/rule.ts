@@ -1,5 +1,5 @@
 import type { AllenMask } from "#compiler/allen/mask.ts"
-import type { Built, phantom, Phantom } from "#compiler/core/phantom.ts"
+import type { Built, delta, phantom, Phantom } from "#compiler/core/phantom.ts"
 import type { AvgSql, NumericSql, PlainHost, SumSql } from "#compiler/scalar/compute/tables.ts"
 import type { SqlTag } from "#compiler/scalar/registry.ts"
 import type { Span } from "#compiler/scalar/values/span.ts"
@@ -16,10 +16,13 @@ import type {
 	Carriers,
 	ComputedOrigin,
 	Facts as ProvedFacts,
+	HoldsNegation,
 	InputTerm,
 	Invariant,
 	LanguageOf,
 	Meets,
+	Negating,
+	NegatesIn,
 	OperandOrigin,
 	ParamOrigin,
 	ParamsContribution,
@@ -53,9 +56,12 @@ import type {
 	Negation,
 	Opaque,
 	Proofs,
+	Reading,
 	ReflexiveProof,
+	RuleBindings,
 	Shaped,
-	SoleMatch
+	SoleMatch,
+	Split
 } from "#compiler/types/evidence/evidence.ts"
 import type { Field, FieldBase, LiteralOf } from "#compiler/types/fields/field.ts"
 import type { BoundSource, ContextsOf, Finished } from "#compiler/types/query/query.ts"
@@ -91,7 +97,8 @@ type FinishedHead<S, Params, Sole, Facts, Cx, H extends Carriers> = Finished<
 		HeadKeys<S, OccurrencesOf<Facts>, H, StatedAt<Facts>>,
 		HeadValues<H, StatedAt<Facts>>,
 		HeadOrigins<H, OccurrencesOf<Facts>>,
-		ProofsAt<S, Sole, Facts, H>
+		ProofsAt<S, Sole, Facts, H>,
+		RuleBindings<S, OccurrencesOf<Facts>, StatedAt<Facts>, SplitsAt<Facts>>
 	>,
 	Simplify<Params & HeadParams<H>>,
 	S,
@@ -111,11 +118,33 @@ type Reads<Os extends ReadonlyArray<unknown>> = ComputedOrigin<OperandOrigin<Os[
  * folded by matching a query of them as the source.
  */
 type FoldKeyed<S, Os, X> =
-	X extends Aggregate<unknown>
+	X extends Aggregate<unknown, never>
 		? EveryMatchKeyed<S, Os> extends true
 			? unknown
 			: Refusal<"a fold reads each fact it matches once, by a key: bind a key of every source the rule matches, or match a query of the distinct values">
 		: unknown
+
+/**
+ * A span producer stands alone in its head, as the checker folds a head (check/checker.ts foldedOf): a producer yields
+ * facts per binding, which no aggregate beside it folds, and a head has at most one producer. Each producer of a head
+ * that breaks either is refused at its key, an aggregate's company first.
+ */
+type ProducerAlone<H, X> =
+	X extends Producer<unknown, never>
+		? [KeysOfKind<H, Aggregate<unknown, never>>] extends [never]
+			? IsUnion<KeysOfKind<H, Producer<unknown, never>>> extends true
+				? Refusal<"one span producer per head">
+				: unknown
+			: Refusal<"aggregate and span producer in one head: a producer yields facts per binding, an aggregate folds them">
+		: unknown
+
+/** The keys of a head whose terms are of kind X: never a term refused already, which is never and of every kind. */
+type KeysOfKind<H, X> = {
+	readonly [K in keyof H]-?: [H[K]] extends [never] ? never : H[K] extends X ? K : never
+}[keyof H]
+
+/** Whether U is a union of more than one member. */
+type IsUnion<U, All = U> = U extends unknown ? ([All] extends [U] ? false : true) : never
 
 type EveryMatchKeyed<S, Os> = Os extends readonly [infer M, ...infer Rest]
 	? MatchKeyed<S, M> extends true
@@ -129,8 +158,8 @@ type MatchKeyed<S, M> =
 			? true
 			: R extends AnyRelation | AnyClosed | AnyDerived | AnyWorld
 				? BindsAKey<KeysOf<S, R>, keyof B>
-				: "deltaOf" extends keyof R
-					? R extends { readonly deltaOf?: Invariant<infer D> }
+				: typeof delta extends keyof R
+					? R extends { readonly [delta]?: Invariant<infer D> | undefined }
 						? D extends AnyWorld
 							? [keyof HeadingOf<R>] extends [keyof B]
 								? true
@@ -180,7 +209,7 @@ type RequireLevel<S, R> =
 			: Refusal<"the query is not over a level of this query's schema">
 		: unknown
 
-export type RequireBound<R> =
+type RequireBound<R> =
 	R extends Phantom<{ readonly params: infer QP }>
 		? [keyof QP] extends [never]
 			? unknown
@@ -220,6 +249,15 @@ type PredicateParams<Ps> = Ps extends readonly [infer H, ...infer Rest]
 type AnyMemberParams<X> = UnionToIntersection<
 	X extends unknown ? ParamsContribution<ParamsOfTerm<X>> : never
 >
+/**
+ * The predicates of a position that holds no relational negation, each one that holds one refused: a disjunction's,
+ * whose negation would be no rule-level filter (Negating).
+ */
+type NoNegation<Ps> = {
+	readonly [I in keyof Ps]: true extends HoldsNegation<Ps[I]>
+		? Refusal<"relational negation is a rule-level filter, alone or in a top-level conjunction">
+		: unknown
+}
 /** A comparison records its operator and operands for the reflexive proof (../evidence/evidence.ts ReflexiveProof). */
 type Compared<Op extends ComparisonOp, A, B> = Compare<A, B> & Shaped<Comparison<Op, A, B>>
 
@@ -227,28 +265,37 @@ type Compared<Op extends ComparisonOp, A, B> = Compare<A, B> & Shaped<Comparison
  * What a rule records beyond its parameters and its pinned, sole and only states, for the evidence its find reads
  * (../evidence/evidence.ts): every occurrence it matched, in order, which the head's keys and origins are read from
  * (HeadKeys, HeadOrigins); what its filters state (evidence/evidence.ts Stating): a variable compared with r.eq against
- * a value fixed per binding is fixed, two variables compared are equal; and its filters in order, or UnknownFilters
- * once a where spreads an array of unknown length.
+ * a value fixed per binding is fixed, two variables compared are equal; its filters in order, or UnknownFilters
+ * once a where spreads an array of unknown length; and each filter that is one of several predicates, either of which
+ * may run, by what each states (Split), which the card reads one at a time (evidence/evidence.ts SplitPinned).
  */
-interface RuleFacts<Occurrences extends ReadonlyArray<unknown>, Stated, Filters = readonly []> {
+interface RuleFacts<Occurrences extends ReadonlyArray<unknown>, Stated, Filters, Splits> {
 	readonly occurrences: Occurrences
 	readonly stated: Stated
 	readonly filters: Filters
+	readonly splits: Splits
 }
 
 interface UnknownFilters {
 	readonly unknownFilters: true
 }
-export type NoFacts = RuleFacts<readonly [], never>
+export type NoFacts = RuleFacts<readonly [], never, readonly [], never>
 type AfterMatch<F, R, B> =
-	F extends RuleFacts<infer O extends ReadonlyArray<unknown>, infer St, infer Fl>
-		? RuleFacts<readonly [...O, SoleMatch<R, B>], St, Fl>
+	F extends RuleFacts<infer O extends ReadonlyArray<unknown>, infer St, infer Fl, infer Sp>
+		? RuleFacts<readonly [...O, SoleMatch<R, B>], St, Fl, Sp>
 		: never
 
 type AfterWhere<F, Ps> =
-	F extends RuleFacts<infer O extends ReadonlyArray<unknown>, infer St, infer Fl>
-		? RuleFacts<O, St | StatesOf<Ps>, FiltersAfter<Fl, Ps>>
+	F extends RuleFacts<infer O extends ReadonlyArray<unknown>, infer St, infer Fl, infer Sp>
+		? RuleFacts<O, St | StatesOf<Ps>, FiltersAfter<Fl, Ps>, Sp | SplitsOf<Ps>>
 		: never
+
+/** The filters at a tuple's positions that are each one of several predicates, by what each states (Split). */
+type SplitsOf<Ps> = Ps extends readonly [infer X, ...infer Rest]
+	? SplitAt<X> | SplitsOf<Rest>
+	: never
+type SplitAt<X> = [X] extends [UnionToIntersection<X>] ? never : Split<ReadingsOf<X>>
+type ReadingsOf<X> = X extends unknown ? Reading<StatesOf<readonly [X]>> : never
 
 type FiltersAfter<Fl, Ps> =
 	Fl extends ReadonlyArray<unknown>
@@ -261,6 +308,7 @@ type FiltersAfter<Fl, Ps> =
 
 /** What the rule's filters state of its variables by origin, each origin the one variable of its scope's field. */
 type StatedAt<F> = F extends { readonly stated: infer St } ? St : never
+type SplitsAt<F> = F extends { readonly splits: infer Sp } ? Sp : never
 type OccurrencesOf<F> = F extends { readonly occurrences: infer O extends ReadonlyArray<unknown> }
 	? O
 	: readonly []
@@ -324,7 +372,7 @@ export interface Rule<S, Params = unknown, Sole = "no match", Facts = NoFacts, C
 		AfterMatch<Facts, R, B>,
 		Cx | SourceContexts<R>
 	>
-	where<const Ps extends ReadonlyArray<Predicate>>(
+	where<const Ps extends ReadonlyArray<Predicate<never>>>(
 		...predicates: Ps
 	): Rule<
 		S,
@@ -335,18 +383,21 @@ export interface Rule<S, Params = unknown, Sole = "no match", Facts = NoFacts, C
 	>
 	/**
 	 * Each entry is checked where it stands (HeadTerm), never through H's constraint: an entry no head holds is refused
-	 * at its key, an aggregate over a rule whose matches bind no key of their sources too (FoldKeyed), and the query
-	 * keeps the head as written, so nothing built on it refuses again.
+	 * at its key, an aggregate over a rule whose matches bind no key of their sources too (FoldKeyed), a span producer
+	 * beside an aggregate or another producer too (ProducerAlone), and the query keeps the head as written, so nothing
+	 * built on it refuses again.
 	 */
 	find<const H extends Readonly<Record<string, unknown>>>(
 		head: H & {
-			readonly [K in keyof H]: HeadTerm & FoldKeyed<S, OccurrencesOf<Facts>, H[K]>
+			readonly [K in keyof H]: HeadTerm &
+				FoldKeyed<S, OccurrencesOf<Facts>, H[K]> &
+				ProducerAlone<H, H[K]>
 		}
 	): FinishedHead<S, Params, Sole, Facts, Cx, HeadTerms<H>>
 	/** A stage over the rule's own schema, so it carries S like the query it is part of. */
 	interior<Head, Ev extends Evidence, P2, IHead, Hc extends Carriers, Cx2>(
 		rule: (r: Rule<S>) => Finished<Head, Ev, P2, S, IHead, Hc, Cx2>
-	): BoundSource<S, Head, P2, Hc, Cx2>
+	): BoundSource<S, Head, P2, Hc, Cx2, Ev, never>
 
 	/** A scalar parameter of the descriptor's type and facts, which the caller binds by name; a term, first included. */
 	param<const Name extends string, H, Sql extends SqlTag, D, F extends ProvedFacts>(
@@ -406,24 +457,30 @@ export interface Rule<S, Params = unknown, Sole = "no match", Facts = NoFacts, C
 		values: ReadonlyArray<LiteralOf<LanguageOf<A>>>
 	): Predicate<P<A>, Reads<readonly [A]>> & Shaped<Opaque<readonly [A]>>
 	/** A conjunction states what each conjunct states; a disjunction states nothing. */
-	and<const Ps extends ReadonlyArray<Predicate>>(
+	and<const Ps extends ReadonlyArray<Predicate<never>>>(
 		...predicates: Ps
 	): Predicate<PredicateParams<Ps>, Reads<Ps>> &
 		Stating<StatesOf<Ps>> &
 		Shaped<Conjunction<Ps>> &
-		ReadsContexts<PredicateContexts<Ps>>
-	or<const Ps extends ReadonlyArray<Predicate>>(
-		...predicates: Ps
+		ReadsContexts<PredicateContexts<Ps>> &
+		NegatesIn<Ps>
+	/** A disjunction holds no relational negation: r.not is a rule-level filter (Negating). */
+	or<const Ps extends ReadonlyArray<Predicate<never>>>(
+		...predicates: Ps & NoNegation<Ps>
 	): Predicate<PredicateParams<Ps>, Reads<Ps>> &
 		Shaped<Disjunction<Ps>> &
 		ReadsContexts<PredicateContexts<Ps>>
-	/** Relational negation only. It reads a relation, no computation over its operands, so its origin is unknown. */
+	/**
+	 * Relational negation only. It reads a relation, no computation over its operands, so its origin is unknown, and it
+	 * stands only as a rule's filter, alone or in a conjunction that does (Negating).
+	 */
 	not<R extends Matchable, const B extends Partial<Bindings<HeadingOf<R>, CarriersOf<R>>>>(
 		relation: R & MatchCheck<S, R>,
 		bindings: B & NoExcess<B, HeadingOf<R>> & DeadConstants<B, HeadingOf<R>, CarriersOf<R>>
 	): Predicate<SourceParamsOf<R> & BindingParams<B>> &
 		Shaped<Negation> &
-		ReadsContexts<SourceContexts<R>>
+		ReadsContexts<SourceContexts<R>> &
+		Negating<true>
 
 	/**
 	 * The second span may be a parameter of the first span's type: a window is a span parameter.
@@ -440,20 +497,25 @@ export interface Rule<S, Params = unknown, Sole = "no match", Facts = NoFacts, C
 		point: Pt & FirstTerm<Pt>,
 		span: Sp
 	): Predicate<P<Pt> & P<Sp>, Reads<readonly [Pt, Sp]>> & Shaped<Opaque<readonly [Pt, Sp]>>
-	/** Zero or one fact, of the left span's type. */
+	/**
+	 * Zero or one fact, of the left span's type: it states it produces an intersection, which a rule pinned to one
+	 * binding yields at most one of (evidence/evidence.ts ProducedCard).
+	 */
 	intersection<A extends TermBase | FirstValue, X, PA, OA, V, L, B extends SpanOperand<X>>(
 		left: A & FirstTerm<A> & Term<X, PA, OA, "range", V, ProvedFacts, L>,
 		right: B
-	): Producer<V, PA & P<B>, X, L>
+	): Producer<V, PA & P<B>, X, L, ComputedOrigin<OA | OperandOrigin<B>>> & {
+		readonly produces: "intersection"
+	}
 	/** Zero, one, or two facts, of the left span's type. */
 	difference<A extends TermBase | FirstValue, X, PA, OA, V, L, B extends SpanOperand<X>>(
 		left: A & FirstTerm<A> & Term<X, PA, OA, "range", V, ProvedFacts, L>,
 		right: B
-	): Producer<V, PA & P<B>, X, L>
+	): Producer<V, PA & P<B>, X, L, ComputedOrigin<OA | OperandOrigin<B>>>
 	/** Maximal covered segments. */
 	pack<A extends TermBase | FirstValue, X, PA, OA, V, L>(
 		spans: A & FirstTerm<A> & Term<X, PA, OA, "range", V, ProvedFacts, L>
-	): Producer<V, PA, X, L>
+	): Producer<V, PA, X, L, ComputedOrigin<OA>>
 
 	/**
 	 * count is bigint; sum and mean take PostgreSQL's result type over their argument's SQL type

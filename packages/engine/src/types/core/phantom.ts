@@ -138,6 +138,18 @@ export interface Origin<
 }
 
 /**
+ * Where a variable of a source that is no relation came from: the field of a relation parameter, a query, a bound import,
+ * an interior stage or a recursive definition's self that `v` minted it over, and its scope N. Like an Origin it names
+ * one variable of its rule, so a filter fixes it and an equality relates it, and the source's own keys determine the
+ * variables a match of it binds (evidence/evidence.ts SourceKeys); but it names no relation, so no containment,
+ * alternatives law or relation key reads it, and an attachment's parent keeps no origin of it.
+ */
+export interface SourceOrigin<out F extends string = string, out N extends string = string> {
+	readonly sourceField: F
+	readonly scope: N
+}
+
+/**
  * A term the rule receives rather than binds: a parameter, a constant, or a parent variable inside `attach`. A key
  * bound entirely to inputs pins its occurrence to at most one fact per input binding.
  */
@@ -205,7 +217,11 @@ export interface TermBase extends Built {
  *   joins, comparisons and containments, and a covariant T would let inference widen `Term<Cents>` to `Term<bigint>`.
  * - P, the parameter map, is what the term needs bound before it can run: `unknown` for a variable or a constant,
  *   `{ account: Uuid }` for `r.param("account", uuid)`. Every combinator intersects the maps of its operands, so a
- *   rule's parameters are the union of the parameters its terms use.
+ *   rule's parameters are the union of the parameters its terms use. P is contravariant (ParamNeeds): a term that
+ *   needs more is the wider type, so where TypeScript reduces a union of terms to its widest members (a conditional's
+ *   branches, an array literal's elements) it keeps the one that needs more, and keeps both where neither needs all
+ *   the other does, and a rule reads every parameter any branch may need. A position that takes a term whatever it
+ *   needs states never, the widest map (ParamNeeds).
  * - O, the origin, says where a term came from: `Origin<"Task", "id", "task">` for `v(Task, "task").id`,
  *   `InputOrigin` for a parent variable inside `attach`, `ParamOrigin` for a parameter, `ConstantOrigin` for a typed
  *   constant, `LiteralOrigin` for a JavaScript value in a head, `ComputedOrigin` of the variables a Compute expression
@@ -232,7 +248,7 @@ export interface TermBase extends Built {
  */
 export interface Term<
 	in out T,
-	out P = unknown,
+	in P = unknown,
 	out O = unknown,
 	out Sql extends SqlTag = SqlTag,
 	out V = T,
@@ -244,7 +260,7 @@ export interface Term<
 		Domained<T>,
 		Proving<F>,
 		Languaged<L>,
-		Phantom<{ readonly type: Invariant<T>; readonly params: P; readonly origin: O }> {
+		Phantom<{ readonly type: Invariant<T>; readonly needs: ParamNeeds<P>; readonly origin: O }> {
 	readonly column: Column<V>
 	readonly sql: Sql
 }
@@ -258,7 +274,7 @@ export interface Term<
  * parent variable and a check's comparison each state the type they take through it, and a union's arms meet key by
  * key through it (ArmsMeet).
  */
-export type Meets<T, Sql extends SqlTag> = InputTerm<T, unknown, unknown, Sql> | ExactFamily<T, Sql>
+export type Meets<T, Sql extends SqlTag> = InputTerm<T, never, unknown, Sql> | ExactFamily<T, Sql>
 
 /** Whether A is B exactly: a plain number, bigint or Money, never a brand of one. */
 type IsExactly<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false
@@ -270,21 +286,21 @@ type IsExactly<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : fals
  */
 type ExactFamily<T, Sql extends SqlTag> = [Sql] extends ["exact integer"]
 	?
-			| InputTerm<number, unknown, unknown, "smallint" | "integer">
-			| InputTerm<bigint, unknown, unknown, "bigint">
+			| InputTerm<number, never, unknown, "smallint" | "integer">
+			| InputTerm<bigint, never, unknown, "bigint">
 	: [Sql] extends ["exact money"]
-		? InputTerm<Money, unknown, unknown, "money">
+		? InputTerm<Money, never, unknown, "money">
 		: [Sql] extends ["smallint" | "integer"]
 			? IsExactly<T, number> extends true
-				? InputTerm<bigint, unknown, unknown, "exact integer">
+				? InputTerm<bigint, never, unknown, "exact integer">
 				: never
 			: [Sql] extends ["bigint"]
 				? IsExactly<T, bigint> extends true
-					? InputTerm<bigint, unknown, unknown, "exact integer">
+					? InputTerm<bigint, never, unknown, "exact integer">
 					: never
 				: [Sql] extends ["money"]
 					? IsExactly<T, Money> extends true
-						? InputTerm<Money, unknown, unknown, "exact money">
+						? InputTerm<Money, never, unknown, "exact money">
 						: never
 					: never
 
@@ -367,6 +383,39 @@ type DefaultSqlOf<D> = D extends Retyped<unknown, infer S> ? S : never
 /** The facts a carrier's or a term's values are proved to have: none where it states none. */
 export type FactsOf<X> = X extends Proving<infer F extends Facts> ? F : Facts
 
+declare const declares: unique symbol
+
+/**
+ * A fact a contract declares of its values, one of its `proves`, as its domain carries it: the contract's type is the
+ * contract with its declaration, so a value of it has the fact wherever it is read, a column of a query's heading among
+ * them (ColumnFacts). A contract's domain holds one per declared fact, as a brand holds one per name, so a contract over
+ * a contract holds every level's, and BaseOf strips them whole.
+ */
+export interface Declares<in out K extends keyof Facts> {
+	readonly [declares]: { readonly [P in K]: K }
+}
+/** The facts a domain's contracts declare, each fact a key; never for a domain of no contract that declares one. */
+type DeclaredKeys<D> = D extends { readonly [declares]: infer M } ? keyof M & keyof Facts : never
+/** One Declares per fact, intersected, as a contract's domain holds them. */
+export type DeclaresAll<K extends keyof Facts> = UnionToIntersection<{ [F in K]: Declares<F> }[K]>
+/** The facts a domain's contracts declare, as facts: none, Facts, where none declares any. */
+type DeclaredOf<D> = [DeclaredKeys<D>] extends [never]
+	? Facts
+	: { readonly [F in DeclaredKeys<D>]: true }
+
+/**
+ * The facts a column of a query's heading carries, as a variable minted over it reads them: its type's (DeclaredOf),
+ * whatever the head term that delivers it proved, since a value read back from a column has exactly the facts its type
+ * declares, as the engine reads a heading column's facts off its type. A term, an aggregate and a producer are such a
+ * column; a relation's, a relation parameter's or a recursive row's descriptor states its own.
+ */
+export type ColumnFacts<X> = X extends
+	| TermBase
+	| { readonly aggregate: unknown }
+	| { readonly produces: unknown }
+	? DeclaredOf<DomainOf<X>>
+	: FactsOf<X>
+
 /**
  * A carrier's or a term's language, the one it states: every value of its type, which a JavaScript value standing at
  * the carrier, or opposite the term or a variable minted over the carrier, is one of. A JavaScript value's is its
@@ -379,8 +428,8 @@ export type LanguageOf<X> = X extends Languaged<infer L> ? L : never
  * columns that have it, of the domain, SQL type and language the arms that deliver it by a term state, a JavaScript
  * value taking theirs (Retyped), as the checker retypes a bare head literal by its position; a key only JavaScript
  * values deliver keeps their defaults. A JavaScript value outside the typed arms' language widens the key's language
- * to its default's, as the checker's common type widens a refined text to text. A fact holds of the union's key only
- * where every arm proves it.
+ * to its default's, as the checker's common type widens a refined text to text. A key's facts are its column type's
+ * (ColumnFacts): what the contract of the type its typed arms meet at declares, a JavaScript value's arm included.
  */
 export type UnionHeading<A, B> = {
 	readonly [K in keyof A | keyof B]: ConstantsAt<A, B, K> &
@@ -396,7 +445,7 @@ export type UnionHeading<A, B> = {
 					CarriedAt<A, K> | CarriedAt<B, K>,
 					TypedSqlAt<A, K> | TypedSqlAt<B, K>,
 					TypedAt<A, K> | TypedAt<B, K>,
-					FactsAt<A, K> | FactsAt<B, K>,
+					DeclaredOf<TypedAt<A, K> | TypedAt<B, K>>,
 					| TypedLanguageAt<A, K>
 					| TypedLanguageAt<B, K>
 					| WidenedLanguageAt<A, K, TypedLanguageAt<A, K> | TypedLanguageAt<B, K>>
@@ -434,7 +483,7 @@ export type ConstantValuesOf<X> =
 type CarriedAt<X, K> = K extends keyof X ? FieldHost<X[K]> : never
 type SqlAt<X, K> = K extends keyof X ? StatedSql<X[K]> : never
 type StatedAt<X, K> = K extends keyof X ? StatedDomain<X[K]> : never
-type FactsAt<X, K> = K extends keyof X ? FactsOf<X[K]> : never
+type FactsAt<X, K> = K extends keyof X ? ColumnFacts<X[K]> : never
 type LanguageAt<X, K> = K extends keyof X ? LanguageOf<X[K]> : never
 type TypedAt<X, K> = K extends keyof X
 	? IsRetyped<X[K]> extends true
@@ -465,9 +514,10 @@ type WidenedLanguageAt<X, K, L> = K extends keyof X
 
 /**
  * The record of terms schema/record.ts's mint makes over carriers F: each key's term of its carrier's domain and SQL
- * type (DomainOf, SqlOfCarrier), whose column delivers its carrier's values, whose values have its facts and whose
- * language is its, its origin read from Origins, a phantom. A key carried by nothing, a head entry find refused
- * (query/terms.ts HeadTerms), mints never, which stands wherever a term does: the refusal is its one diagnostic.
+ * type (DomainOf, SqlOfCarrier), whose column delivers its carrier's values, whose values have its column's facts
+ * (ColumnFacts) and whose language is its, its origin read from Origins, a phantom. A key carried by nothing, a head
+ * entry find refused (query/terms.ts HeadTerms), mints never, which stands wherever a term does: the refusal is its one
+ * diagnostic.
  */
 export type Minted<F, Origins> = {
 	readonly [K in keyof F]: [F[K]] extends [never]
@@ -478,7 +528,7 @@ export type Minted<F, Origins> = {
 				K extends keyof Origins ? Origins[K] : unknown,
 				SqlOfCarrier<F[K]>,
 				FieldHost<F[K]>,
-				FactsOf<F[K]>,
+				ColumnFacts<F[K]>,
 				LanguageOf<F[K]>
 			>
 }
@@ -490,12 +540,28 @@ export interface PredicateBase extends Built {
 }
 
 /**
+ * Whether a predicate holds a relational negation, r.not, which is a rule-level filter: it stands as one of a rule's
+ * filters, alone or inside a conjunction that stands there, and never inside a disjunction, a negation or a scalar
+ * expression (check/scan.ts splitWhere). r.not holds one (true), and a conjunction where some conjunct does
+ * (NegatesIn).
+ */
+export interface Negating<out B extends boolean> extends Built {
+	readonly [phantom]?: { readonly negates: B } | undefined
+}
+/** Whether some predicate of Ps holds a relational negation, as the conjunction of them does. */
+export type NegatesIn<Ps> = Negating<
+	Ps extends ReadonlyArray<infer X> ? (true extends HoldsNegation<X> ? true : false) : false
+>
+/** Whether a predicate, or some member of a union of predicates, holds a relational negation. */
+export type HoldsNegation<X> = X extends Phantom<{ readonly negates: true }> ? true : false
+
+/**
  * A non-null SQL Boolean expression, the parameters it needs, and its origin: a comparison, a connective or a span
  * predicate is a computation over its operands (ComputedOrigin), and a relational negation, which reads a relation,
  * has the unknown origin.
  */
-export interface Predicate<out P = unknown, out O = unknown>
-	extends PredicateBase, Phantom<{ readonly params: P; readonly origin: O }> {}
+export interface Predicate<in P = unknown, out O = unknown>
+	extends PredicateBase, Phantom<{ readonly needs: ParamNeeds<P>; readonly origin: O }> {}
 
 /**
  * Anything `match` consumes. SP is what the source contributes to the parameters of a rule that
@@ -589,6 +655,17 @@ type NameLetter = LowerLetter | Uppercase<LowerLetter>
 type NameDigit = "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9"
 
 /**
+ * What a term, predicate, aggregate or producer needs bound before it runs, its parameter map P, as its phantom carries
+ * it: contravariantly, so a value that needs more parameters is the wider type and one that needs none, P unknown, the
+ * narrowest. TypeScript reduces a union to its widest members where it infers one from several values (a conditional's
+ * branches, an array literal's elements), so the branch that needs more survives the reduction and neither of two
+ * branches that need different parameters is dropped: a rule's parameters hold every one any branch may need. A
+ * position that takes a value whatever parameters it needs states P never, the widest map: Meets, a where's predicates,
+ * a head's aggregates and producers.
+ */
+export type ParamNeeds<P> = (bound: P) => void
+
+/**
  * A parameter map as one contribution to a union fold (UnionToIntersection): never when it needs no parameter. A map
  * that needs none is unknown, the identity of intersection, and in a union unknown absorbs every other member, so a
  * fold over contributions drops it before it can erase its neighbours' parameters.
@@ -602,11 +679,19 @@ export type UnionToIntersection<U> = (U extends unknown ? (u: U) => void : never
 	: never
 
 /**
- * Strips a contract brand: a contract contributes its base. The spelling `E extends infer B & Brand.Brand<any> ? B :
- * E` resolves to E itself in TypeScript; Brand.Brand.Unbranded is the working spelling of the same intent.
+ * Strips a contract brand and the facts its domain declares (Declares): a contract contributes its base. The spelling
+ * `E extends infer B & Brand.Brand<any> ? B : E` resolves to E itself in TypeScript; Brand.Brand.Unbranded, which
+ * removes the brands it rebuilds from E's own keys, is the working spelling of the same intent, and Undeclared removes
+ * the declarations the same way.
  */
-export type BaseOf<E> =
+export type BaseOf<E> = Undeclared<
 	E extends Brand.Brand<infer K> ? (K extends string ? Brand.Brand.Unbranded<E> : E) : E
+>
+type Undeclared<E> = [DeclaredKeys<E>] extends [never]
+	? E
+	: E extends (infer U) & DeclaresAll<DeclaredKeys<E>>
+		? U
+		: E
 
 /**
  * The parts of a term, read from its phantom bundle: its domain, TypeOfTerm. ParamsOfTerm reads the parameter map of
@@ -618,8 +703,24 @@ export type TypeOfTerm<X> =
 export type ValueOfTerm<X> = X extends { readonly column: Column<infer V> } ? V : never
 /** The SQL type of a term: its `sql` member's type. */
 export type SqlOfTerm<X> = X extends TermBase ? X["sql"] : SqlTag
-export type ParamsOfTerm<X> =
-	X extends Phantom<infer B> ? (B extends { readonly params: infer P } ? P : unknown) : unknown
+export type ParamsOfTerm<X> = UnionToIntersection<
+	X extends unknown ? ParamsContribution<ParamsOfOne<X>> : never
+>
+/**
+ * The parameters one value needs: a term's, predicate's, aggregate's or producer's, read off the contravariant phantom
+ * it needs them through (ParamNeeds), or a query's, ordered query's, finished arm's or ChangeSet's, read off the map it
+ * carries. ParamsOfTerm folds a union of values, either of which may be the one that runs, by intersecting what each
+ * needs, as a contravariant inference does, so a JavaScript value or a parameterless term beside a parameter never
+ * erases the parameter.
+ */
+type ParamsOfOne<X> =
+	X extends Phantom<infer B>
+		? B extends { readonly needs: ParamNeeds<infer P> }
+			? P
+			: B extends { readonly params: infer P }
+				? P
+				: unknown
+		: unknown
 
 export type OriginOfTerm<X> =
 	X extends Phantom<infer B> ? (B extends { readonly origin: infer O } ? O : unknown) : unknown
@@ -752,8 +853,11 @@ export const typeRefusals = [
 	"a power's base proved nonnegative, and nonzero or its exponent nonnegative: guard it with Compute.when(Compute.positive(x), (x) => …, otherwise)",
 	"a program on a Db of a role matches only the contexts the role's relations read, whose facts its claims hold",
 	"a program over no level of the database's schema",
+	"a put or a delete names its rows by their key, and no fact states a key field grizzle writes: key the relation by fields its caller writes",
 	"a query entry is a query over the role's base",
 	"a radicand proved nonnegative: guard it with Compute.when(Compute.nonnegative(x), (x) => …, otherwise)",
+	"a recursion has at least one base arm and at least one recursive arm",
+	"a relation parameter binds a relation parameter of the importing rule, r.relation(name, heading)",
 	"a relation parameter has at least one field, as a relation does",
 	"a roster lists each handle once",
 	"a schema holds each relation under its own name",
@@ -765,10 +869,12 @@ export const typeRefusals = [
 	"a statement names a relation no level of the schema declares",
 	"a term first: a literal takes its place opposite a term, never first",
 	"a tree is a family of T over itself, on(T, parent, at), with drawn start and end",
+	"a tree is rewritten whole: insert its root with the whole tree nested",
 	"a tree's root field is a caller's field of its relation",
 	"a union's arms deliver each field at one type",
 	"a value proved finite: guard it with Compute.when(Compute.isFinite(x), (x) => …, otherwise)",
 	"a whole entry is a relation of the base under its own name",
+	"aggregate and span producer in one head: a producer yields facts per binding, an aggregate folds them",
 	"alternatives takes at least one arm",
 	"an Option needs a child the evidence proves at most one per parent",
 	"an accumulated field is of a value type: no span, vector or field of a writing of its own",
@@ -779,10 +885,14 @@ export const typeRefusals = [
 	"an arm's head delivers the row: each of its fields, at a type that meets the field's",
 	"an attached heterogeneous union; one attachment statement delivers one heading",
 	"an attachment on an arm of a union whose heading several arms share",
+	"an immutable owner's family is fixed when its owner is inserted: declare the owner mutable to change it",
 	"an ordered family's side is its owner's key, then its drawn index",
+	"an owner's put updates its row in place, which an immutable owner refuses: declare it mutable to put it",
 	"approximateNearest over one rule's projection; this source is a bounded subset, whose own order already selects among the rows",
+	"approximateNearest over one rule's projection; this source is a rule whose head produces spans, facts per binding rather than its projection",
 	"approximateNearest over one rule's projection; this source is a query with attachments",
 	"approximateNearest over one rule's projection; this source is a recursive relation",
+	"approximateNearest over one rule's projection; this source is an aggregate rule, whose output is a nonlinear fold rather than a distance of one stored vector",
 	"approximateNearest over one rule's projection; this source is a union of rules, which no single index orders",
 	"approximateNearest over one rule's projection; this source is another approximate search",
 	"arms of different headings share a field that holds a different constant in each",
@@ -791,17 +901,18 @@ export const typeRefusals = [
 	"no arm of the source delivers the bound constants",
 	"not a field of the arms the bindings select",
 	"one literal name",
+	"one span producer per head",
 	"one take over a union of several headings: each heading group is a statement of its own, which one take bounds and the merge across them keeps",
 	"page needs an ordered query",
 	"read-back names are distinct: the ChangeSets share a read-back name",
 	"read-back names are distinct: this ChangeSet already has a read-back of this name",
+	"relational negation is a rule-level filter, alone or in a top-level conjunction",
 	"the ChangeSets' schemas are not levels of one another",
 	"the arm's field is the parent's head field that holds its discriminator",
 	"the arm's handle is a value of the parent field's type",
 	"the arm's handle is one literal",
 	"the arm's handle is the handle the child is the arm of",
 	"the arm's key does not match the parent key",
-	"the bound source is not over a level of the query's schema",
 	"the monoid admits the step value's type: sum an exact number, or and twos a set, max an ordered value with a least one, concat a text",
 	"the one child needs a child the evidence proves exactly one per parent",
 	"the query is not over a level of this query's schema",

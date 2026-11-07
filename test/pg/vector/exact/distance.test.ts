@@ -1,22 +1,43 @@
 import { layer } from "@effect/vitest"
-import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { noCoverage, requiredInSpace } from "@grizzle/testing/features"
-import { array, element, filter, type Gen, int } from "@grizzle/testing/gen"
+import { drawn, explore } from "@grizzle/testing/explore"
+import { noCoverage, required } from "@grizzle/testing/features"
+import {
+	array,
+	boolean,
+	constant,
+	element,
+	filter,
+	type Gen,
+	int,
+	map,
+	oneOf
+} from "@grizzle/testing/gen"
 import { floorSeed, rotatingSeed } from "@grizzle/testing/random"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { sample } from "@grizzle/testing/source"
-import { float } from "@grizzle/testing/values"
+import { double, float } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
 import { runOfProcess } from "@grizzle/testing/vitest/run"
-import { Array as Arr, Effect, Formatter, Option, Order, pipe, String as Str } from "effect"
+import {
+	Array as Arr,
+	Effect,
+	Formatter,
+	Option,
+	Order,
+	pipe,
+	Record as Rec,
+	String as Str
+} from "effect"
 import { planIndexNames } from "#bench/harness/explain.ts"
+import { hnswPolicy } from "#compiler/check/approximate/policy.ts"
 import { indices } from "#compiler/core/array.ts"
 import type { Json } from "#compiler/core/canonical.ts"
 import type { CodecFault } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { ParamId } from "#compiler/core/ids.ts"
 import { jsonText, trusted } from "#compiler/core/trusted.ts"
-import { cosineNormMax, cosineNormMin } from "#compiler/ir/carriers.ts"
+import { cosineNormMax, cosineNormMin, vectorMaxDimensions } from "#compiler/ir/carriers.ts"
 import { emptyCodebook } from "#compiler/ir/codes.ts"
 import type { StatementSpec } from "#compiler/ir/products.ts"
 import { conservativeMeta } from "#compiler/ir/rel.ts"
@@ -26,8 +47,9 @@ import { conservativeInput, flight } from "#compiler/lower/conservative/types.ts
 import type { QueryTemplate } from "#compiler/program/compile.ts"
 import { pg, uuid, Vector, type Uuid } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
+import { normTolerance } from "#test/pg/vector/support.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { assert, contains, defined, lacks } from "#test/support/assert.ts"
+import { assert, contains, defined, lacks, nonEmpty } from "#test/support/assert.ts"
 import { compileTemplate, paramTexts, scalarsOnly, testCompile } from "#test/support/compile.ts"
 import * as search from "#test/support/fixtures/api/search.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
@@ -43,7 +65,6 @@ import { heading } from "#test/unit/ir/fixture.ts"
 import { Q, T } from "#test/unit/lower/conservative/fixtures.ts"
 
 const vectorType = (dims: number): ScalarType => scalarOf({ kind: "vector", dimensions: dims }, {})
-const codec4 = codecOf(vectorType(4), emptyCodebook)
 
 /** Vector columns at the three dimension counts the domain is argued for, each with its CHECK. */
 const Narrow = relation("Narrow", { id: uuid, value: pg.vector(4) }, ["id"])
@@ -275,19 +296,6 @@ const hostDistance = (a: Float32Array, b: Float32Array): number => {
 	return 1 - Math.max(-1, Math.min(1, dot / Math.sqrt(na * nb)))
 }
 
-/** One unit in the last place of a positive normal double. */
-const ulp = (x: number): number => 2 ** (Math.floor(Math.log2(x)) - 52)
-
-/**
- * How far the host norm may lie from vector_norm's: both sum the same n exact double squares (a binary32 square fits
- * a double), in index order on the host and in whatever order pgvector's -fassociative-math build vectorizes, so
- * each sum is within (n - 1) units of 2^-53 of the exact one, relatively; the square root halves that and adds half
- * an ulp on either side. A float32 accumulator or a square taken before widening errs by about 2^-24 per term, far
- * beyond this bound at every dimension count.
- */
-const normTolerance = (dimensions: number, norm: number): number =>
-	dimensions * 2 ** -53 * norm + ulp(norm)
-
 const expectNormAgrees = (v: Vector, native: number, label: string): void => {
 	const host = Vector.norm(v)
 	assert.equal(Number.isFinite(native) && native > 0, true, `${label}: vector_norm is ${native}`)
@@ -312,44 +320,233 @@ const compiled = (q: unknown, role: unknown, schema: string): QueryTemplate => {
 	return r.value
 }
 
-/** An account searched, and a probe searched with, by its place among the test's probes. */
-type ProbeFeature = `account ${"A" | "B"}` | `probe ${number}`
+/**
+ * A probe: a stored embedding by its place among the facts', any drawn vector of the cosine domain, or an axis at a
+ * bound of its norm.
+ */
+type ProbeSketch =
+	| { readonly kind: "stored"; readonly index: number }
+	| { readonly kind: "drawn"; readonly norm: number; readonly direction: DirectionSketch }
+	| {
+			readonly kind: "bound"
+			readonly axis: number
+			readonly greatest: boolean
+			readonly negative: boolean
+	  }
 
-/** The two accounts of the facts, by the letter a report names them. */
-const accounts: Arr.NonEmptyReadonlyArray<readonly [account: string, label: "A" | "B"]> = [
-	[accountA, "A"],
-	[accountB, "B"]
-]
+/** What a probe was, and whether its distances tied. */
+type ProbeFeature =
+	| "a stored embedding"
+	| "a drawn probe"
+	| "a probe at a norm bound"
+	| "a tie ordered by the key"
 
-/** The dimension counts the cosine domain is argued for, and the norms its pairs are scaled to. */
-const dimensionCounts = [4, 2000, 16000] as const
-type Dimensions = (typeof dimensionCounts)[number]
+/** The feature each kind of probe reaches. */
+const probeFeatureOf: { readonly [K in ProbeSketch["kind"]]: ProbeFeature } = {
+	stored: "a stored embedding",
+	drawn: "a drawn probe",
+	bound: "a probe at a norm bound"
+}
 
-/** A dimension count checked whole. */
-type DimensionFeature = `dimensions ${Dimensions}`
+const probeKinds = Rec.keys(probeFeatureOf)
 
-/** A vector relation and its dimension count. */
-type Width = readonly [relation: typeof Narrow | typeof Wide | typeof Widest, dims: Dimensions]
+/** Where a dimension count lies: few, at the HNSW index's limit, or at the storage limit. */
+type WidthFeature = "few dimensions" | "the HNSW limit" | "the storage limit"
 
-/** The vector relation of each dimension count, with its CHECK. */
-const widths: Arr.NonEmptyReadonlyArray<Width> = [
-	[Narrow, 4],
-	[Wide, 2000],
-	[Widest, 16000]
-]
+const widthFeatureOf = (dims: number): WidthFeature =>
+	dims === vectorMaxDimensions.value
+		? "the storage limit"
+		: dims === hnswPolicy.maxDimensions.value
+			? "the HNSW limit"
+			: "few dimensions"
 
-/** How far a CHECK case's norm lies from its bound, relatively: below, at and above it, near and far. */
-const nudges = [-(2 ** -20), -(2 ** -36), 0, 2 ** -36, 2 ** -20] as const
+/** A dimension count of each width: two to eight, or either limit. */
+const dimsOf: { readonly [W in WidthFeature]: Gen<number> } = {
+	"few dimensions": int(2, 8),
+	"the HNSW limit": constant(hnswPolicy.maxDimensions.value),
+	"the storage limit": constant(vectorMaxDimensions.value)
+}
 
-/** A width, a bound of the cosine domain and a nudge from it: the CHECK's space. */
-type CheckCase = readonly [width: Width, bound: number, nudge: number]
+const widthFeatures = Rec.keys(dimsOf)
 
-const checkCases: Gen<CheckCase> = (source) =>
-	[
-		source.draw(element(widths)),
-		source.draw(element([cosineNormMin.value, cosineNormMax.value])),
-		source.draw(element(nudges))
-	] as const
+const dimsGen: Gen<number> = oneOf(nonEmpty(Rec.values(dimsOf), "a generator per width"))
+
+/** A direction's component: a multiple of 2^-20 in [-1, 1], so a direction that is not zero has a length to scale by. */
+const gridComponent: Gen<number> = map(int(-(2 ** 20), 2 ** 20), (n) => n / 2 ** 20)
+
+/** A direction: every component drawn, or every 97th, the rest zero, which a sum over many dimensions meets. */
+interface DirectionSketch {
+	readonly sparse: boolean
+	readonly components: ReadonlyArray<number>
+}
+
+const directionGen =
+	(dims: number): Gen<DirectionSketch> =>
+	(source) => {
+		const sparse = dims > 8 && source.draw(boolean)
+		const count = sparse ? Math.ceil(dims / 97) : dims
+		return { sparse, components: source.draw(array(gridComponent, { min: count, max: count })) }
+	}
+
+/** A direction's components at `dims` dimensions, never all zero. */
+const directionOf = (dims: number, sketch: DirectionSketch): Array<number> => {
+	const direction = Arr.map(indices(dims), (i) =>
+		sketch.sparse
+			? i % 97 === 0
+				? (sketch.components[i / 97] ?? 0)
+				: 0
+			: (sketch.components[i] ?? 0)
+	)
+	return Arr.some(direction, (x) => x !== 0)
+		? direction
+		: Arr.map(direction, (_, i) => (i === 0 ? 1 : 0))
+}
+
+/**
+ * The vector of `dims` dimensions in a direction with host norm as close to `norm` as binary32 allows inside the
+ * domain.
+ */
+const scaled = (dims: number, norm: number, direction: ReadonlyArray<number>): Vector => {
+	const length = Math.sqrt(Arr.reduce(direction, 0, (a, x) => a + x * x))
+	for (let factor = norm / length; ; factor *= norm > 1 ? 1 - 2 ** -20 : 1 + 2 ** -20) {
+		const v = Vector.make(
+			Float32Array.from(direction, (x) => x * factor),
+			dims
+		)
+		if (Vector.inCosineDomain(v)) {
+			return v
+		}
+	}
+}
+
+/** A norm in the cosine domain: either bound, or any power of two between them. */
+const normGen: Gen<number> = oneOf([
+	constant(cosineNormMin.value),
+	constant(cosineNormMax.value),
+	map(double(Math.log2(cosineNormMin.value), Math.log2(cosineNormMax.value)), (e) => 2 ** e)
+])
+
+/** A vector of the domain: a norm and a direction. */
+interface VectorDraw {
+	readonly norm: number
+	readonly direction: DirectionSketch
+}
+
+/**
+ * A pair: two drawn vectors, whose distance is free; a vector and itself (0), its negation (2); or two axes at the two
+ * bounds (1).
+ */
+type PairDraw =
+	| { readonly kind: "free"; readonly a: VectorDraw; readonly b: VectorDraw }
+	| { readonly kind: "identical"; readonly a: VectorDraw }
+	| { readonly kind: "opposite"; readonly a: VectorDraw }
+	| { readonly kind: "orthogonal axes" }
+
+type PairFeature = WidthFeature | PairDraw["kind"]
+
+const vectorDrawGen =
+	(dims: number): Gen<VectorDraw> =>
+	(source) => ({ norm: source.draw(normGen), direction: source.draw(directionGen(dims)) })
+
+const pairDrawGen = (dims: number): Gen<PairDraw> =>
+	oneOf<PairDraw>([
+		(source) => ({
+			kind: "free",
+			a: source.draw(vectorDrawGen(dims)),
+			b: source.draw(vectorDrawGen(dims))
+		}),
+		map(vectorDrawGen(dims), (a): PairDraw => ({ kind: "identical", a })),
+		map(vectorDrawGen(dims), (a): PairDraw => ({ kind: "opposite", a })),
+		constant<PairDraw>({ kind: "orthogonal axes" })
+	])
+
+/** Pairs at a dimension count `dims` draws. */
+const pairsAt =
+	(dims: Gen<number>): Gen<{ readonly dims: number; readonly pairs: ReadonlyArray<PairDraw> }> =>
+	(source) => {
+		const n = source.draw(dims)
+		return { dims: n, pairs: source.draw(array(pairDrawGen(n), { min: 1, max: n > 8 ? 2 : 6 })) }
+	}
+
+const pairsGen = pairsAt(dimsGen)
+
+/** A pair's vectors, and the distance its construction fixes. */
+const pairOf = (
+	dims: number,
+	pair: PairDraw
+): { readonly a: Vector; readonly b: Vector; readonly distance: number | undefined } => {
+	const vectorOf = (v: VectorDraw) => scaled(dims, v.norm, directionOf(dims, v.direction))
+	const axis = (i: number, x: number) =>
+		Vector.make(
+			Float32Array.from(indices(dims), (j) => (j === i ? x : 0)),
+			dims
+		)
+	switch (pair.kind) {
+		case "free":
+			return { a: vectorOf(pair.a), b: vectorOf(pair.b), distance: undefined }
+		case "identical": {
+			const a = vectorOf(pair.a)
+			return { a, b: a, distance: 0 }
+		}
+		case "opposite": {
+			const a = vectorOf(pair.a)
+			return {
+				a,
+				b: Vector.make(
+					a.map((x) => -x),
+					dims
+				),
+				distance: 2
+			}
+		}
+		case "orthogonal axes":
+			return {
+				a: axis(0, cosineNormMin.value),
+				b: axis(dims - 1, cosineNormMax.value),
+				distance: 1
+			}
+	}
+}
+
+/** The relations of the widths, each a vector column with its CHECK. */
+const widthRelations = nonEmpty(Rec.values(Widths.relations), "the widths' relations")
+
+/**
+ * A CHECK case: a relation, a bound of the cosine domain, a relative nudge from it, none or a power of two below or
+ * above, and a direction.
+ */
+interface CheckCase {
+	readonly relation: number
+	readonly greatest: boolean
+	readonly nudge: number
+	readonly direction: DirectionSketch
+}
+
+type CheckFeature =
+	| WidthFeature
+	| "admitted away from the bounds"
+	| "refused away from the bounds"
+	| "decided near a bound"
+
+/** A CHECK case on the relation at `relations`' place. */
+const checkCaseOf =
+	(relations: Gen<number>): Gen<CheckCase> =>
+	(source) => {
+		const relation = source.draw(relations)
+		return {
+			relation,
+			greatest: source.draw(boolean),
+			nudge: source.draw(
+				oneOf([
+					constant(0),
+					(inner) => (inner.draw(boolean) ? -1 : 1) * 2 ** -inner.draw(int(16, 40))
+				])
+			),
+			direction: source.draw(directionGen(at(widthRelations, relation).fields.value.dimensions))
+		}
+	}
+
+const checkCaseGen = checkCaseOf(int(0, widthRelations.length - 1))
 
 /** The largest finite binary32 value. */
 const maxFloat32 = (2 - 2 ** -23) * 2 ** 127
@@ -396,89 +593,6 @@ layer(Substrate.layer)("exact cosine distance", (it) => {
 					const ordered = compiled(search.byDistance, worlds.searcher, installed.declared)
 					const scoredSpecs = Arr.appendAll(scored.optimized, scored.conservative)
 					const orderedSpecs = Arr.appendAll(ordered.optimized, ordered.conservative)
-					const next = random(draw, 0x9e37)
-					const probes: Arr.NonEmptyReadonlyArray<Vector> = [
-						Option.getOrThrowWith(
-							Arr.findFirst(f.embeddings, (e) => e.document === id(0xd, 1) && e.revision === 2n),
-							() => new Error("no stored embedding")
-						).value,
-						Vector.make(Float32Array.of(1, 0, 0, 0), 4),
-						Vector.make(Float32Array.of(next() - 0.5, next() - 0.5, next() - 0.5, next() - 0.5), 4),
-						Vector.make(Float32Array.of(cosineNormMin.value, 0, 0, 0), 4),
-						Vector.make(Float32Array.of(0, 0, -cosineNormMax.value, 0), 4)
-					]
-					const probeIndices = Arr.range(0, probes.length - 1)
-					let ties = 0
-					yield* exhaust(
-						{
-							suite: "pg/vector/exact/distance",
-							generator: (source) =>
-								[source.draw(element(accounts)), source.draw(element(probeIndices))] as const,
-							literal: ([[, label], index]) => `account ${label}, probe ${index}`,
-							limit: accounts.length * probes.length,
-							coverage: requiredInSpace<ProbeFeature>([
-								"account A",
-								"account B",
-								...Arr.map(probeIndices, (index): ProbeFeature => `probe ${index}`)
-							]),
-							caseHang
-						},
-						([[account, label], index], k) =>
-							Effect.gen(function* () {
-								const probe = at(probes, index)
-								const params = { account, vector: probe }
-								const { eligible } = yield* oracle(installed.schema, f, account, probe)
-								assert.ok(eligible.length > 10)
-								const expected = Arr.sort(eligible, byDistanceThenKey)
-								for (const [d, document, revision] of expected) {
-									const value = Number(d)
-									assert.equal(Number.isFinite(value) && value >= 0 && value <= 2, true)
-									const stored = Option.getOrThrowWith(
-										Arr.findFirst(
-											f.embeddings,
-											(e) => e.document === document && String(e.revision) === revision
-										),
-										() => new Error("no stored embedding")
-									)
-									assert.ok(Math.abs(value - hostDistance(stored.value, probe)) < 1e-6)
-								}
-								for (let i = 1; i < expected.length; i++) {
-									if (expected[i]?.[0] === expected[i - 1]?.[0]) {
-										ties++
-									}
-								}
-								for (const spec of scoredSpecs) {
-									/** Heading order is distance, document, revision (the checker's canonical column order). */
-									const rows = yield* runRaw(searcher, spec, params, "")
-									assert.deepEqual(sortedTexts(rows), sortedTexts(expected))
-									assert.equal(new Set(Arr.map(rows, (r) => Arr.join(r, "|"))).size, rows.length)
-								}
-								for (const spec of orderedSpecs) {
-									const rows = yield* runRaw(searcher, spec, params, "")
-									assert.deepEqual(
-										rows,
-										Arr.map(expected, (r) => [...r])
-									)
-								}
-								k.note(`account ${label}`)
-								k.note(`probe ${index}`)
-							})
-					)
-					assert.ok(ties >= probes.length)
-
-					yield* searcher.values("SET enable_seqscan = off", [])
-					const params = { account: accountA, vector: at(probes, 2) }
-					for (const spec of Arr.appendAll(scoredSpecs, orderedSpecs)) {
-						const [plan] = yield* runRaw(searcher, spec, params, "EXPLAIN (FORMAT JSON) ")
-						lacks(planIndexNames(defined(plan, "the EXPLAIN row")[0]), hnsw)
-					}
-					const [annPlan] = yield* searcher.values(
-						`EXPLAIN (FORMAT JSON) SELECT "document" FROM ${roleNamesOf(installed, worlds.searcher).view("DocumentEmbedding")} ORDER BY "value" OPERATOR("vector_ext".<=>) $1::text::"vector_ext"."vector"(4) LIMIT 5`,
-						[textOf(at(probes, 2))]
-					)
-					contains(planIndexNames(defined(annPlan, "the EXPLAIN row")[0]), hnsw)
-					yield* searcher.values("RESET enable_seqscan", [])
-
 					/**
 					 * approximateNearest's conservative form is the exact top-k of its source: here every
 					 * stored embedding scored against the probe, its five nearest by distance, then document and revision.
@@ -535,35 +649,141 @@ layer(Substrate.layer)("exact cosine distance", (it) => {
 						throw new Error(program.error.message)
 					}
 					const statement = flight(program.value.roots)[0]
-					return yield* exhaust(
+					const accounts = nonEmpty(
+						Arr.dedupe(Arr.map(f.documents, (d) => d.account)),
+						"the facts' accounts"
+					)
+					const probeOfKind: { readonly [K in ProbeSketch["kind"]]: Gen<ProbeSketch> } = {
+						stored: map(int(0, f.embeddings.length - 1), (index): ProbeSketch => ({
+							kind: "stored",
+							index
+						})),
+						drawn: (source): ProbeSketch => ({
+							kind: "drawn",
+							norm: source.draw(normGen),
+							direction: source.draw(directionGen(4))
+						}),
+						bound: (source): ProbeSketch => ({
+							kind: "bound",
+							axis: source.draw(int(0, 3)),
+							greatest: source.draw(boolean),
+							negative: source.draw(boolean)
+						})
+					}
+					const probeGen: Gen<ProbeSketch> = oneOf(
+						nonEmpty(Rec.values(probeOfKind), "a generator per probe kind")
+					)
+					const probeOf = (sketch: ProbeSketch): Vector => {
+						switch (sketch.kind) {
+							case "stored":
+								return at(f.embeddings, sketch.index).value
+							case "drawn":
+								return scaled(4, sketch.norm, directionOf(4, sketch.direction))
+							case "bound": {
+								const bound = sketch.greatest ? cosineNormMax.value : cosineNormMin.value
+								return Vector.make(
+									Float32Array.from(indices(4), (i) =>
+										i === sketch.axis ? (sketch.negative ? -bound : bound) : 0
+									),
+									4
+								)
+							}
+						}
+					}
+					return yield* explore(
 						{
-							suite: "pg/vector/exact/distance/nearest",
-							generator: element(probeIndices),
-							literal: (index: number) => `probe ${index}`,
-							limit: probes.length,
-							coverage: requiredInSpace<ProbeFeature>(
-								Arr.map(probeIndices, (index): ProbeFeature => `probe ${index}`)
+							suite: "pg/vector/exact/distance",
+							draw: drawn((source) => ({
+								account: source.draw(element(accounts)),
+								probe: source.draw(probeGen)
+							})),
+							literal: Formatter.format,
+							oracle: {
+								kind: "second-implementation",
+								name: "every stored embedding's native cosine_distance from a scan no index orders, the eligibility applied on the host"
+							},
+							coverage: required<ProbeFeature>(
+								[
+									"a stored embedding",
+									"a drawn probe",
+									"a probe at a norm bound",
+									"a tie ordered by the key"
+								],
+								{ cases: 16, sense: notesOnly }
 							),
+							kept: [],
+							runs: 12,
+							shrink: completeShrink,
+							concurrency: 1,
+							steerEvery: 4,
 							caseHang
 						},
-						(index, k) =>
+						({ account, probe: drawnProbe }, k) =>
 							Effect.gen(function* () {
-								const probe = at(probes, index)
-								const probeText = codec4.encode(probe)
-								if (!probeText.ok) {
-									throw new Error(probeText.error)
-								}
-								const rows = yield* s.admin.queryValues(
-									`SELECT t."distance"::text, t."document"::text, t."revision"::text FROM (${statement.sql.text}) AS t`,
-									[probeText.value]
+								const sketch = Option.getOrElse(
+									Option.flatMap(k.steering, (pending) =>
+										Option.map(
+											Arr.findFirst(probeKinds, (kind) => pending.has(probeFeatureOf[kind])),
+											(kind) => k.draw(probeOfKind[kind])
+										)
+									),
+									() => drawnProbe
 								)
-								const { all } = yield* oracle(installed.schema, f, accountA, probe)
+								k.note(probeFeatureOf[sketch.kind])
+								const probe = probeOf(sketch)
+								const params = { account, vector: probe }
+								const { eligible, all } = yield* oracle(installed.schema, f, account, probe)
+								assert.ok(eligible.length > 10)
+								const expected = Arr.sort(eligible, byDistanceThenKey)
+								for (const [d, document, revision] of expected) {
+									const value = Number(d)
+									assert.equal(Number.isFinite(value) && value >= 0 && value <= 2, true)
+									const stored = Option.getOrThrowWith(
+										Arr.findFirst(
+											f.embeddings,
+											(e) => e.document === document && String(e.revision) === revision
+										),
+										() => new Error("no stored embedding")
+									)
+									assert.ok(Math.abs(value - hostDistance(stored.value, probe)) < 1e-6)
+								}
+								if (Arr.some(expected, (r, i) => i > 0 && expected[i - 1]?.[0] === r[0])) {
+									k.note("a tie ordered by the key")
+								}
+								for (const spec of scoredSpecs) {
+									/** Heading order is distance, document, revision (the checker's canonical column order). */
+									const rows = yield* runRaw(searcher, spec, params, "")
+									assert.deepEqual(sortedTexts(rows), sortedTexts(expected))
+									assert.equal(new Set(Arr.map(rows, (r) => Arr.join(r, "|"))).size, rows.length)
+								}
+								for (const spec of orderedSpecs) {
+									const rows = yield* runRaw(searcher, spec, params, "")
+									assert.deepEqual(
+										rows,
+										Arr.map(expected, (r) => [...r])
+									)
+								}
+								yield* searcher.values("SET enable_seqscan = off", [])
+								for (const spec of Arr.appendAll(scoredSpecs, orderedSpecs)) {
+									const [plan] = yield* runRaw(searcher, spec, params, "EXPLAIN (FORMAT JSON) ")
+									lacks(planIndexNames(defined(plan, "the EXPLAIN row")[0]), hnsw)
+								}
+								const [annPlan] = yield* searcher.values(
+									`EXPLAIN (FORMAT JSON) SELECT "document" FROM ${roleNamesOf(installed, worlds.searcher).view("DocumentEmbedding")} ORDER BY "value" OPERATOR("vector_ext".<=>) $1::text::"vector_ext"."vector"(4) LIMIT 5`,
+									[textOf(probe)]
+								)
+								contains(planIndexNames(defined(annPlan, "the EXPLAIN row")[0]), hnsw)
+								yield* searcher.values("RESET enable_seqscan", [])
+								/** approximateNearest's conservative form: the exact top five of every stored embedding. */
+								const nearest = yield* s.admin.queryValues(
+									`SELECT t."distance"::text, t."document"::text, t."revision"::text FROM (${statement.sql.text}) AS t`,
+									[textOf(probe)]
+								)
 								const top = Arr.sort(all, byDistanceThenKey).slice(0, 5)
 								assert.deepEqual(
-									sortedTexts(Arr.map(rows, (r) => Arr.map(r, String))),
+									sortedTexts(Arr.map(nearest, (r) => Arr.map(r, String))),
 									sortedTexts(top)
 								)
-								k.note(`probe ${index}`)
 							})
 					)
 				})
@@ -571,126 +791,78 @@ layer(Substrate.layer)("exact cosine distance", (it) => {
 	)
 
 	it.effect(
-		"is finite and within [0, 2] across the admitted cosine domain, at 4, 2000 and 16000 dimensions",
+		"is finite and within [0, 2] across the admitted cosine domain, at few dimensions, the HNSW limit and the storage limit",
 		(ctx) =>
 			searched(
 				ctx,
 				Effect.gen(function* () {
 					const s = yield* Substrate
-					const draw = yield* runDraw
-					return yield* exhaust(
+					return yield* explore(
 						{
 							suite: "pg/vector/exact/cosine-domain",
-							generator: element(dimensionCounts),
-							literal: (dims: Dimensions) => `${dims} dimensions`,
-							limit: dimensionCounts.length,
-							coverage: requiredInSpace<DimensionFeature>(
-								Arr.map(dimensionCounts, (dims): DimensionFeature => `dimensions ${dims}`)
+							draw: drawn(pairsGen),
+							literal: Formatter.format,
+							oracle: {
+								kind: "specification",
+								name: "cosine distance lies in [0, 2], is 0, 2 and 1 for identical, opposite and orthogonal pairs, and vector_norm agrees with the host's"
+							},
+							coverage: required<PairFeature>(
+								[
+									"few dimensions",
+									"the HNSW limit",
+									"the storage limit",
+									"free",
+									"identical",
+									"opposite",
+									"orthogonal axes"
+								],
+								{ cases: 24, sense: notesOnly }
 							),
+							kept: [],
+							runs: 12,
+							shrink: completeShrink,
+							concurrency: 1,
+							steerEvery: 4,
 							caseHang
 						},
-						(dims, k) =>
+						(drawnPairs, k) =>
 							Effect.gen(function* () {
-								const next = random(draw, 0xc05e ^ dims)
-								/**
-								 * A vector of `dims` dimensions in a drawn direction with host norm as close to `norm` as
-								 * binary32 allows inside the domain; `sparse` keeps only every 97th component.
-								 */
-								const scaled = (norm: number, sparse: boolean): Vector => {
-									const direction = Arr.map(indices(dims), (i) =>
-										sparse && i % 97 !== 0 ? 0 : next() * 2 - 1
-									)
-									let length = Math.sqrt(Arr.reduce(direction, 0, (a, x) => a + x * x))
-									if (length === 0) {
-										direction[0] = 1
-										length = 1
-									}
-									for (
-										let factor = norm / length;
-										;
-										factor *= norm > 1 ? 1 - 2 ** -20 : 1 + 2 ** -20
-									) {
-										const v = Vector.make(
-											Float32Array.from(direction, (x) => x * factor),
-											dims
+								const { dims, pairs } = Option.getOrElse(
+									Option.flatMap(k.steering, (pending) =>
+										Option.map(
+											Arr.findFirst(widthFeatures, (feature) => pending.has(feature)),
+											(feature) => k.draw(pairsAt(dimsOf[feature]))
 										)
-										if (Vector.inCosineDomain(v)) {
-											return v
-										}
-									}
-								}
-								const negate = (v: Vector): Vector =>
-									Vector.make(
-										v.map((x) => -x),
-										v.length
-									)
-								/**
-								 * A pair, and the distance its construction fixes: identical (0), opposite (2), orthogonal (1),
-								 * or none.
-								 */
-								type Pair = {
-									readonly a: Vector
-									readonly b: Vector
-									readonly expect:
-										| { readonly kind: "fixed"; readonly distance: number }
-										| { readonly kind: "free" }
-								}
-								const free = { kind: "free" } as const
-								const fixed = (distance: number) => ({ kind: "fixed", distance }) as const
-								const pairs: Array<Pair> = []
-								const norms = [cosineNormMin.value, 2 ** -8, 1, 2 ** 8, cosineNormMax.value]
-								const sparse = dims > 4
-								const runs = dims === 16000 ? 2 : dims === 2000 ? 6 : 40
-								for (let r = 0; r < runs; r++) {
-									const na = at(norms, r % norms.length)
-									const nb = at(norms, (r * 3 + 1) % norms.length)
-									const a = scaled(na, sparse && r % 2 === 0)
-									const b = scaled(nb, sparse && r % 3 === 0)
-									pairs.push(
-										{ a, b, expect: free },
-										{ a, b: a, expect: fixed(0) },
-										{ a, b: negate(a), expect: fixed(2) }
-									)
-								}
-								/** Orthogonal axes at the two bounds. */
-								const axis = (i: number, x: number) =>
-									Vector.make(
-										Float32Array.from(indices(dims), (j) => (j === i ? x : 0)),
-										dims
-									)
-								pairs.push({
-									a: axis(0, cosineNormMin.value),
-									b: axis(dims - 1, cosineNormMax.value),
-									expect: fixed(1)
-								})
-								pairs.push({
-									a: scaled(cosineNormMin.value, false),
-									b: scaled(cosineNormMax.value, false),
-									expect: free
+									),
+									() => drawnPairs
+								)
+								k.note(widthFeatureOf(dims))
+								const built = Arr.map(pairs, (pair) => {
+									k.note(pair.kind)
+									return pairOf(dims, pair)
 								})
 								const payload = jsonText(
-									Arr.map(pairs, (p, ord) => ({ ord, a: textOf(p.a), b: textOf(p.b) }))
+									Arr.map(built, (p, ord) => ({ ord, a: textOf(p.a), b: textOf(p.b) }))
 								)
 								const rows = yield* s.admin.queryValues(
 									`SELECT "vector_ext"."cosine_distance"(r.a::"vector_ext"."vector", r.b::"vector_ext"."vector")::text, "vector_ext"."vector_norm"(r.a::"vector_ext"."vector")::text, "vector_ext"."vector_norm"(r.b::"vector_ext"."vector")::text FROM jsonb_to_recordset($1::text::jsonb) AS r(ord int4, a text, b text) ORDER BY r.ord`,
 									[payload]
 								)
-								assert.equal(rows.length, pairs.length, `${dims} dimensions`)
+								assert.equal(rows.length, built.length, `${dims} dimensions`)
 								for (const [i, row] of rows.entries()) {
 									const d = Number(row[0])
-									const p = at(pairs, i)
+									const p = at(built, i)
 									assert.equal(
 										Number.isFinite(d) && d >= 0 && d <= 2,
 										true,
 										`pair ${dims}:${i} gives ${String(row[0])}`
 									)
-									if (p.expect.kind === "fixed") {
-										assert.ok(Math.abs(d - p.expect.distance) < 1e-5, `pair ${dims}:${i}`)
+									if (p.distance !== undefined) {
+										assert.ok(Math.abs(d - p.distance) < 1e-5, `pair ${dims}:${i}`)
 									}
 									expectNormAgrees(p.a, Number(row[1]), `pair ${dims}:${i} a`)
 									expectNormAgrees(p.b, Number(row[2]), `pair ${dims}:${i} b`)
 								}
-								k.note(`dimensions ${dims}`)
 							})
 					)
 				})
@@ -698,13 +870,12 @@ layer(Substrate.layer)("exact cosine distance", (it) => {
 	)
 
 	it.effect(
-		"the CHECK admits exactly the native cosine domain, and the host agrees away from the bounds, at 4, 2000 and 16000 dimensions",
+		"the CHECK admits exactly the native cosine domain, and the host agrees away from the bounds, at few dimensions, the HNSW limit and the storage limit",
 		(ctx) =>
 			searched(
 				ctx,
 				Effect.gen(function* () {
 					const s = yield* Substrate
-					const draw = yield* runDraw
 					const world = fullWorld(Widths)
 					const installed = yield* install(Widths, {
 						ambient: ordinarySession,
@@ -717,83 +888,97 @@ layer(Substrate.layer)("exact cosine distance", (it) => {
 						...worldSession(installed.world(world.app)),
 						label: "writer"
 					})
-					const next = random(draw, 0xb0d5)
 					let n = 0
-					/** How many vectors away from the bounds each table admitted and refused, by its name. */
-					const tallies = new Map<string, { admitted: number; refused: number }>()
-					const checked = yield* exhaust(
+					return yield* explore(
 						{
 							suite: "pg/vector/exact/norm-check",
-							generator: checkCases,
-							literal: ([[relation], bound, nudge]: CheckCase) =>
-								`${relation.name} near ${bound} by ${nudge}`,
-							limit: widths.length * 2 * nudges.length,
-							coverage: requiredInSpace<DimensionFeature>(
-								Arr.map(widths, ([, dims]): DimensionFeature => `dimensions ${dims}`)
+							draw: drawn(checkCaseGen),
+							literal: Formatter.format,
+							oracle: {
+								kind: "postgresql",
+								name: "the column's CHECK, vector_norm between the bounds, against the host's norm and codec"
+							},
+							coverage: required<CheckFeature>(
+								[
+									"admitted away from the bounds",
+									"refused away from the bounds",
+									"few dimensions",
+									"the HNSW limit",
+									"the storage limit"
+								],
+								{ cases: 36, sense: notesOnly }
 							),
+							kept: [],
+							runs: 24,
+							shrink: completeShrink,
+							concurrency: 1,
+							steerEvery: 4,
 							caseHang
 						},
-						([[relation, dims], bound, nudge], k) =>
+						(drawnCheck, k) =>
 							Effect.gen(function* () {
-								const table = relation.name
+								const drawnCase = Option.getOrElse(
+									Option.flatMap(k.steering, (pending) =>
+										Option.map(
+											Arr.findFirstIndex(widthRelations, (r) =>
+												pending.has(widthFeatureOf(r.fields.value.dimensions))
+											),
+											(place) => k.draw(checkCaseOf(constant(place)))
+										)
+									),
+									() => drawnCheck
+								)
+								const relation = at(widthRelations, drawnCase.relation)
+								const dims = relation.fields.value.dimensions
+								k.note(widthFeatureOf(dims))
 								const constraint = names.normCheck(relation, "value")
-								const insert = (v: Vector) =>
-									writer.values(
-										`INSERT INTO ${names.table(relation)} ("id", "value") VALUES ($1::text::uuid, $2::text::"vector_ext"."vector"(${dims}))`,
-										[id(0xe, ++n), rawText(v)]
-									)
-								const tally = tallies.get(table) ?? { admitted: 0, refused: 0 }
-								tallies.set(table, tally)
-								for (let r = 0; r < 2; r++) {
-									const direction = Array.from({ length: dims }, () => next() * 2 - 1)
-									const length = Math.sqrt(Arr.reduce(direction, 0, (a, x) => a + x * x))
-									const factor = (bound * (1 + nudge)) / length
-									const v = Vector.make(
-										Float32Array.from(direction, (x) => x * factor),
-										dims
-									)
-									const [row] = yield* s.admin.queryValues(
-										`SELECT "vector_ext"."vector_norm"($1::text::"vector_ext"."vector"(${dims}))::text`,
-										[rawText(v)]
-									)
-									const native = Number(row?.[0])
-									const label = `${table} near ${bound} by ${nudge}`
-									expectNormAgrees(v, native, label)
-									/** The CHECK is vector_norm between the bounds: it admits exactly the native domain. */
-									const inside = native >= cosineNormMin.value && native <= cosineNormMax.value
-									if (inside) {
-										yield* insert(v)
-									} else {
-										const refused = yield* expectConstraint(insert(v), constraint, "23514")
-										assert.equal(refused.code, "23514")
-									}
-									/**
-									 * Away from the bounds by more than the summation rounding, the host decides alike, and the
-									 * codec refuses what the CHECK refuses before any SQL.
-									 */
-									const host = Vector.norm(v)
-									const tolerance = normTolerance(dims, host)
-									const margin = Math.min(
-										Math.abs(host - cosineNormMin.value),
-										Math.abs(host - cosineNormMax.value)
-									)
-									if (margin > 4 * tolerance) {
-										assert.equal(Vector.inCosineDomain(v), inside, label)
-										const encoded = codecOf(vectorType(dims), emptyCodebook).encode(v)
-										const expected: "admitted" | CodecFault = inside ? "admitted" : "vectorNorm"
-										assert.equal(encoded.ok ? "admitted" : encoded.error, expected, label)
-										tally[inside ? "admitted" : "refused"]++
-									}
+								const bound = drawnCase.greatest ? cosineNormMax.value : cosineNormMin.value
+								const direction = directionOf(dims, drawnCase.direction)
+								const length = Math.sqrt(Arr.reduce(direction, 0, (a, x) => a + x * x))
+								const factor = (bound * (1 + drawnCase.nudge)) / length
+								const v = Vector.make(
+									Float32Array.from(direction, (x) => x * factor),
+									dims
+								)
+								const insert = writer.values(
+									`INSERT INTO ${names.table(relation)} ("id", "value") VALUES ($1::text::uuid, $2::text::"vector_ext"."vector"(${dims}))`,
+									[id(0xe, ++n), rawText(v)]
+								)
+								const [row] = yield* s.admin.queryValues(
+									`SELECT "vector_ext"."vector_norm"($1::text::"vector_ext"."vector"(${dims}))::text`,
+									[rawText(v)]
+								)
+								const native = Number(row?.[0])
+								const label = `${relation.name} near ${bound} by ${drawnCase.nudge}`
+								expectNormAgrees(v, native, label)
+								/** The CHECK is vector_norm between the bounds: it admits exactly the native domain. */
+								const inside = native >= cosineNormMin.value && native <= cosineNormMax.value
+								if (inside) {
+									yield* insert
+								} else {
+									const refused = yield* expectConstraint(insert, constraint, "23514")
+									assert.equal(refused.code, "23514")
 								}
-								k.note(`dimensions ${dims}`)
+								/**
+								 * Away from the bounds by more than the summation rounding, the host decides alike, and the
+								 * codec refuses what the CHECK refuses before any SQL.
+								 */
+								const host = Vector.norm(v)
+								const margin = Math.min(
+									Math.abs(host - cosineNormMin.value),
+									Math.abs(host - cosineNormMax.value)
+								)
+								if (margin <= 4 * normTolerance(dims, host)) {
+									k.note("decided near a bound")
+									return
+								}
+								k.note(inside ? "admitted away from the bounds" : "refused away from the bounds")
+								assert.equal(Vector.inCosineDomain(v), inside, label)
+								const encoded = codecOf(vectorType(dims), emptyCodebook).encode(v)
+								const expected: "admitted" | CodecFault = inside ? "admitted" : "vectorNorm"
+								assert.equal(encoded.ok ? "admitted" : encoded.error, expected, label)
 							})
 					)
-					assert.equal(tallies.size, widths.length)
-					for (const [table, tally] of tallies) {
-						assert.ok(tally.admitted >= 4, table)
-						assert.ok(tally.refused >= 4, table)
-					}
-					return checked
 				})
 			)
 	)

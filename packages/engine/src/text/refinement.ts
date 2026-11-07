@@ -1,6 +1,4 @@
-import { everyProperty } from "#compiler/core/canonical.ts"
 import { type CompileError, unsupported } from "#compiler/core/errors.ts"
-import { ownedDigest } from "#compiler/core/fingerprint.ts"
 import { regexDfaMaxStates, regexDfaMaxWork } from "#compiler/core/limits.ts"
 import { childLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
@@ -8,12 +6,14 @@ import * as Result from "#compiler/core/result.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
 import { codePoints } from "#compiler/core/text.ts"
 import {
+	languageKey,
+	languageWithin,
 	type PatternCheck,
+	type PatternLanguage,
 	type RegexCheck,
-	RegexKey,
+	type RegexKey,
 	type TextBounds,
 	type TextInfo,
-	type TextLanguage,
 	textInfoOf
 } from "#compiler/ir/scalar.ts"
 import { admitPattern } from "#compiler/scalar/regex/admit.ts"
@@ -31,7 +31,7 @@ import {
 import { canonicalText, type LiveNode, type RegexNode } from "#compiler/scalar/regex/ir.ts"
 import type { Nfa } from "#compiler/scalar/regex/nfa.ts"
 import type { RegexFlags } from "#compiler/scalar/regex/parse.ts"
-import type { TextLookup } from "#compiler/scalar/registry.ts"
+import type { DescriptorLanguage, TextLookup } from "#compiler/scalar/registry.ts"
 import type { CreateDomain, Expr } from "#compiler/sql/ast.ts"
 import { and, binary, call, cUtf8Collation, le, lit, types } from "#compiler/sql/build.ts"
 import { printExpr } from "#compiler/sql/print.ts"
@@ -66,11 +66,9 @@ export interface TextRefinement {
 	 * keys.
 	 */
 	readonly key: string
-	/** SHA-256 of the key, the domain identity the snapshot records. */
-	readonly digest: string
+	/** SHA-256 of the key, the language's identity (ir/scalar.ts languageKey). */
+	readonly digest: RegexKey
 }
-
-const keyDigest = (key: string): string => ownedDigest("regex-language", key, everyProperty)
 
 /** The bounds a refinement proves on every member, where it proves them. */
 export const refinementBounds = (refinement: TextRefinement): TextBounds | undefined =>
@@ -232,24 +230,18 @@ const analyze = (
 	const are = toAre(language.ir)
 	const check = choose(ir, language.known, are)
 	const key = keyOf(ir, language.known)
-	return Result.ok(Object.freeze({ source, flags, ir, are, check, key, digest: keyDigest(key) }))
+	return Result.ok(Object.freeze({ source, flags, ir, are, check, key, digest: languageKey(key) }))
 }
-
-/**
- * The canonical wildcard every compiler-created text value carries unless a stronger pattern is proved: every representable value, empty and multiline included.
- */
-export const wildcardSource = "^.*$"
-export const wildcardFlags: RegexFlags = "su"
 
 /**
  * What a text descriptor carries of its analyzed pattern (ir/scalar.ts TextLanguage): a proved tautology admits every
  * value; any other pattern carries its language's key and its enforcement, with the bounds that proves.
  */
-const textLanguage = (refinement: TextRefinement): TextLanguage => {
+const textLanguage = (refinement: TextRefinement): PatternLanguage => {
 	const check = refinement.check
 	return check.kind === "tautology"
 		? Object.freeze({ kind: "every" })
-		: Object.freeze({ kind: "refined", key: RegexKey(refinement.digest), check })
+		: Object.freeze({ kind: "refined", key: refinement.digest, check })
 }
 
 /**
@@ -268,53 +260,14 @@ export const textInfo = (refinement: TextRefinement): TextInfo =>
 export const textLookup: TextLookup = (source, flags) =>
 	Result.map(analyzeText(source, flags, SourceLoc(`/${source}/${flags}`, [])), textLanguage)
 
-/** The tighter of a pattern's bounds and a byte bound's: a code point takes at least a byte. */
-const boundsWithin = (bounds: TextBounds | undefined, octets: number): TextBounds =>
-	bounds === undefined
-		? { length: octets, bytes: octets }
-		: { length: Math.min(bounds.length, octets), bytes: Math.min(bounds.bytes, octets) }
-
-/**
- * The language of a text of at most `octets` UTF-8 bytes whose pattern is `refinement` (str.bytes): the pattern's own
- * where its bounds prove every member fits, so the two spell one language; else its members of at most so many bytes,
- * enforced by `octet_length(VALUE) <= octets` beside the pattern's check, or alone for a tautology, under a key of its
- * own, the pattern's key with the bound.
- */
-const languageWithin = (refinement: TextRefinement, octets: number): TextLanguage => {
-	const check = refinement.check
-	if (check.kind !== "tautology" && check.bounds !== undefined && check.bounds.bytes <= octets) {
-		return textLanguage(refinement)
-	}
-	const cut: TextLanguage =
-		check.kind === "tautology"
-			? {
-					kind: "refined",
-					key: RegexKey(keyDigest(`octets<=${octets}`)),
-					check: {
-						kind: "octets",
-						octets,
-						check: undefined,
-						bounds: boundsWithin(undefined, octets)
-					}
-				}
-			: {
-					kind: "refined",
-					key: RegexKey(keyDigest(`${refinement.key}&octets<=${octets}`)),
-					check: { kind: "octets", octets, check, bounds: boundsWithin(check.bounds, octets) }
-				}
-	return Object.freeze(cut)
-}
-
 /**
  * The analyzed language of a pattern cut to `octets` UTF-8 bytes (languageWithin), a refusal located at the pattern:
  * what a str.bytes descriptor is admitted with.
  */
 export const textLookupWithin =
-	(octets: number): TextLookup =>
+	(octets: number): DescriptorLanguage =>
 	(source, flags) =>
-		Result.map(analyzeText(source, flags, SourceLoc(`/${source}/${flags}`, [])), (refinement) =>
-			languageWithin(refinement, octets)
-		)
+		Result.map(textLookup(source, flags), (pattern) => languageWithin(pattern, octets))
 
 /** A domain CHECK's VALUE. */
 export const domainValue: Expr = Object.freeze({ kind: "domainValue" })

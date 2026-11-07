@@ -43,7 +43,6 @@ import {
 } from "#compiler/query/build/scope.ts"
 
 import {
-	anywhere,
 	type DescribedOnly,
 	described,
 	headingOf,
@@ -68,6 +67,7 @@ import {
 } from "#compiler/query/build/terms.ts"
 import { predicateExpr, termExpr } from "#compiler/scalar/compute/term.ts"
 import type { SqlTag } from "#compiler/scalar/registry.ts"
+import { levelOf } from "#compiler/schema/level.ts"
 import { untypedLiteral } from "#compiler/schema/literal.ts"
 import {
 	fieldDescOf,
@@ -85,8 +85,6 @@ import {
 	sameHeadingRecord,
 	carrierUnion as unionCarriers
 } from "#compiler/schema/record.ts"
-import { schemaDescOf } from "#compiler/schema/schema.ts"
-import { roleDescOf } from "#compiler/schema/world.ts"
 import type { Carrier, Carriers, Term } from "#compiler/types/core/phantom.ts"
 import type { Evidence } from "#compiler/types/evidence/evidence.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
@@ -537,10 +535,10 @@ const takeOf = (k: unknown): TakeDesc => {
  * parameter or a literal. A relation parameter is bound to a relation parameter of the importing rule; a source of
  * any other kind has no binding form in the Description.
  */
-const bindQuery = <S, Head, SP, Hc extends Carriers, Cx>(
+const bindQuery = <S, Head, SP, Hc extends Carriers, Cx, Ev, Rd>(
 	state: QueryState<Hc>,
 	bindings: unknown
-): BoundSource<S, Head, SP, Hc, Cx> => {
+): BoundSource<S, Head, SP, Hc, Cx, Ev, Rd> => {
 	const label = "Query.bind"
 	if (!isPlainRecord(bindings)) {
 		throw malformed(
@@ -578,7 +576,7 @@ const bindQuery = <S, Head, SP, Hc extends Carriers, Cx>(
 		heading: state.heading,
 		carriers,
 		origin: noOrigin,
-		scope: anywhere,
+		scope: { kind: "written", over: state.schema.over },
 		label: "bound query"
 	})
 }
@@ -614,13 +612,14 @@ const querySchema = (schema: unknown, extra: ReadonlyArray<unknown>): SchemaInfo
 	if (extra.length > 0) {
 		throw malformed("query", "query(schema): one argument")
 	}
-	if (schemaDescOf(schema) === undefined && roleDescOf(schema) === undefined) {
+	const level = levelOf(schema)
+	if (level === undefined) {
 		throw malformed(
 			"query",
 			"a schema built by schema(...) or schema.extend(...), or a role built by role(...)"
 		)
 	}
-	return schemaInfo(schema)
+	return schemaInfo(schema, level)
 }
 
 /**

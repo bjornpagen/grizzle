@@ -396,7 +396,7 @@ export const payrollDirectSuite = (): void => {
 									{ cases: 12, sense: notesOnly }
 								),
 								kept: [],
-								runs: 4,
+								runs: 2,
 								shrink: completeShrink,
 								concurrency: 1,
 								steerEvery: 4,

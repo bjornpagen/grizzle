@@ -15,6 +15,7 @@ import { arm } from "#compiler/query/build/attach.ts"
 import { queryOver, type QueryValue, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import type { TypeRefusal } from "#compiler/types/core/phantom.ts"
+import { AccountTally, Tallies } from "#test/support/agreement/deliver-tally.ts"
 import { groupFields, recordType } from "#test/support/agreement/heading.ts"
 import { Deliver } from "#test/support/agreement/schema.ts"
 import { defined } from "#test/support/assert.ts"
@@ -46,7 +47,7 @@ import { messageOf } from "#test/support/message.ts"
  *
  * The floor's witnesses, the same in every run, reach every delivery admitted and refused, every arm refusal, both of
  * the engine's own refusals, every proof of the one child (a containment into an ordinary relation, into a closed one,
- * a composite one, a reflexive aggregate), a self-join parent and every shape of child.
+ * a composite one, a reflexive aggregate), a self-join parent, a derived parent and every shape of child.
  */
 
 type Rel =
@@ -58,7 +59,8 @@ type Rel =
 	| "Label"
 	| "TaskLabel"
 	| "PlanBudget"
-type Kind = "uuid" | "int" | "plan" | "kind" | "cents"
+	| "AccountTally"
+type Kind = "uuid" | "int" | "plan" | "kind" | "cents" | "count"
 
 interface Field {
 	readonly name: string
@@ -102,6 +104,10 @@ const fieldsOf: { readonly [R in Rel]: Arr.NonEmptyReadonlyArray<Field> } = {
 	PlanBudget: [
 		{ name: "plan", kind: "plan" },
 		{ name: "budget", kind: "cents" }
+	],
+	AccountTally: [
+		{ name: "account", kind: "uuid" },
+		{ name: "tasks", kind: "count" }
 	]
 }
 
@@ -114,7 +120,8 @@ const keyOf: { readonly [R in Rel]: Arr.NonEmptyReadonlyArray<string> } = {
 	TaskNote: ["task"],
 	Label: ["account", "label"],
 	TaskLabel: ["task", "label"],
-	PlanBudget: ["plan"]
+	PlanBudget: ["plan"],
+	AccountTally: ["account"]
 }
 
 /** The relations a parent matches, and those a child does: every relation, the closed one and Task's arms included. */
@@ -214,11 +221,21 @@ const headName = (scope: 0 | 1, field: Field): string =>
 /**
  * The proofs a child is drawn toward, so the floor reaches each: a containment from a parent's field into the child's
  * key, into an ordinary relation, a closed one or a composite key; a reflexive count over the parent's own relation;
- * a child keyed by the parent, which is at most one per parent; an arm of the alternatives law over Task; or a free
- * child. Each draws the parent's head the proof reads and the child the proof makes, then perturbs it: a filter, an
+ * a child keyed by the parent, which is at most one per parent; an arm of the alternatives law over Task; a child of
+ * Account keyed by a derived parent's account (./deliver-tally.ts), which no containment reaches, so its key proves at
+ * most one owner per tally and never exactly one; or a free child. Each draws the parent's head the proof reads and the child the proof makes, then perturbs it: a filter, an
  * order, a take, a second rule, a binding of its own, each of which the engine decides.
  */
-const intents = ["containment", "closed", "composite", "reflexive", "keyed", "arm", "free"] as const
+const intents = [
+	"containment",
+	"closed",
+	"composite",
+	"reflexive",
+	"keyed",
+	"arm",
+	"derived",
+	"free"
+] as const
 type Intent = (typeof intents)[number]
 
 /** The intents a case draws, an arm's and the containments' more often, whose refusals and proofs need the most draws. */
@@ -252,6 +269,13 @@ const planOf = (source: Source, intent: Intent): Plan => {
 			)
 		case "closed":
 			return { parent: "Account", heads: ["plan"], child: "PlanBudget", bound: [["plan", "plan"]] }
+		case "derived":
+			return {
+				parent: "AccountTally",
+				heads: ["account"],
+				child: "Account",
+				bound: [["id", "account"]]
+			}
 		case "composite":
 			return {
 				parent: "TaskLabel",
@@ -521,7 +545,7 @@ const parentSource = (parent: Parent): string => {
 		Arr.map(parent.head, (h) => `${h.name}: ${parentVar(h.scope, h.field.name)}`),
 		", "
 	)} }`
-	return `query(Deliver).rule((r) => { ${scopes}return r.match(${parent.rel}, ${own})${peer}.find(${head}) })`
+	return `query(${schemaName(parent.rel)}).rule((r) => { ${scopes}return r.match(${parent.rel}, ${own})${peer}.find(${head}) })`
 }
 
 /** A child's term, in the program: a parent's field, its own variable, or a literal. */
@@ -588,14 +612,20 @@ const statedSource = (stated: Stated): string => {
 	}
 }
 
-/** The relations of Deliver, by name, as the JavaScript view reads them. */
-const relations: Readonly<Record<Rel, unknown>> = Deliver.relations
+/** The relations of Deliver and its derived parent, by name, as the JavaScript view reads them. */
+const relations: Readonly<Record<Rel, unknown>> = { ...Deliver.relations, AccountTally }
+
+/** The schema a parent over a relation is a query over: Deliver, or its extension for its derived relation. */
+const schemaName = (rel: Rel): "Deliver" | "Tallies" =>
+	rel === "AccountTally" ? "Tallies" : "Deliver"
+
+const schemas = { Deliver, Tallies } as const
 
 const relationOf = (rel: Rel): unknown => relations[rel]
 
 /** The parent, built through the query builder's JavaScript view. */
 const builtParent = (parent: Parent): QueryValue =>
-	queryOver(Deliver).rule((r: RuleValue) => {
+	queryOver(schemas[schemaName(parent.rel)]).rule((r: RuleValue) => {
 		const own = varsOver(relationOf(parent.rel), "own")
 		const peer = parent.peer === undefined ? own : varsOver(relationOf(parent.rel), "peer")
 		const scope = (s: 0 | 1): Readonly<Record<string, unknown>> => (s === 0 ? own : peer)
@@ -933,6 +963,7 @@ export type AttachNote =
 	| "an ordered child"
 	| "a child taken once"
 	| "a child of two rules"
+	| "a derived parent"
 
 interface AttachCase {
 	readonly spec: AttachSpec
@@ -977,6 +1008,9 @@ const attachCaseGen: Gen<AttachCase> = (source) => {
 	}
 	if (spec.child.arms === "twice") {
 		notes.add("a child of two rules")
+	}
+	if (spec.parent.rel === "AccountTally") {
+		notes.add("a derived parent")
 	}
 	return { spec, verdict, notes }
 }
@@ -1041,13 +1075,15 @@ export interface AttachEntries {
 	readonly fields: string
 	readonly changeset: string
 	readonly schema: string
+	readonly tallies: string
 }
 
 export const attachEntriesFrom = (entry: (path: string) => string): AttachEntries => ({
 	query: entry("packages/engine/src/public/query.ts"),
 	fields: entry("packages/engine/src/public/fields.ts"),
 	changeset: entry("packages/engine/src/types/changeset/changeset.ts"),
-	schema: entry("test/support/agreement/schema.ts")
+	schema: entry("test/support/agreement/schema.ts"),
+	tallies: entry("test/support/agreement/deliver-tally.ts")
 })
 
 /** The statements of one case: the attachment, under its refusal's directive at its line, or its records asserted. */
@@ -1079,7 +1115,7 @@ const attachBlock = (c: AttachCase, i: number): ReadonlyArray<string> => {
 				close,
 				`export type h${i} = Expect<Equals<HeadOf<typeof a${i}>, ${c.verdict.admitted.head}>>`,
 				`export type m${i} = Expect<Equals<ImmediateHeadOf<typeof a${i}>, ${c.verdict.admitted.immediate}>>`,
-				`export const b${i} = (changes: ChangeSet<typeof Deliver, unknown, "Task">) => changes.read("rows", () => a${i})`,
+				`export const b${i} = (changes: ChangeSet<typeof ${schemaName(c.spec.parent.rel)}, unknown, "Task">) => changes.read("rows", () => a${i})`,
 				`export type r${i} = Expect<Equals<ReadsOf<ReturnType<typeof b${i}>>["rows"], ReadonlyArray<${c.verdict.admitted.immediate}>>>`,
 				""
 			]
@@ -1140,6 +1176,7 @@ export const attachModule = (entries: AttachEntries, seed: number): string => {
 			...some(["HeadOf", "ImmediateHeadOf"], entries.query, "import type"),
 			...some(["ChangeSet", "ReadsOf"], entries.changeset, "import type"),
 			...some(["Deliver"], entries.schema, "import"),
+			...some(["AccountTally", "Tallies"], entries.tallies, "import"),
 			"",
 			body
 		],

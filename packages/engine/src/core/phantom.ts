@@ -64,6 +64,9 @@ export declare const retyped: unique symbol
 /** The key a union carrier's constants' values ride under (types/core/phantom.ts Constants). */
 export declare const constants: unique symbol
 
+/** The key a delta source's relation rides under (types/changeset DeltaSource): a phantom, as `domain` is. */
+export declare const delta: unique symbol
+
 export const built: unique symbol = Symbol("grizzle.built")
 
 /** What a builder sets on every value it makes: the brand. */

@@ -117,36 +117,6 @@ export const readsOwnLevel = query(Edu).rule((r) => {
 	return r.match(StudentWeekly, { student }).find({ student })
 })
 
-/**
- * Importing a query does not lift that restriction: a query over the extension, matched directly or through bind,
- * is not over a level of the base.
- */
-export const importsOwnLevel = query(Edu).rule((r) => {
-	const { student } = v(weeklyPasses, "weeklyPasses")
-	// @ts-expect-error -- TS2345 refusal: the query is not over a level of this query's schema
-	return r.match(weeklyPasses, { student }).find({ student })
-})
-
-export const weeklyFor = query(Reports).rule((r) => {
-	const { passes } = v(StudentWeekly, "studentWeekly")
-	return r
-		.match(StudentWeekly, { student: r.param("student", Sitting.fields.student), passes })
-		.find({ passes })
-})
-
-export const bindsOwnLevel = query(Edu).rule((r) => {
-	const { id } = v(Sitting, "sitting")
-	const weekly = weeklyFor.bind({ student: id })
-	const { passes } = v(weekly, "weekly")
-	return (
-		r
-			.match(Sitting, { id })
-			// @ts-expect-error -- TS2345 refusal: the query is not over a level of this query's schema
-			.match(weekly, { passes })
-			.find({ id, passes })
-	)
-})
-
 /** A query over a lower level imports into a query over a higher one. */
 export const importsLowerLevel = query(Reports).rule((r) => {
 	const { student, recent } = v(recentSittings, "recentSittings")

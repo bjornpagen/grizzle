@@ -153,18 +153,21 @@ export const ledgerWrites = (plain: string) => {
 				])
 			]
 		: []
-	const short = ChangeSet.empty(Books).insert(Ledger, [
-		// @ts-expect-error -- TS2322: a text with fewer than four hyphens is no uuid
-		{ id: "0193d8f2", owner: ownerId, answer: "yes", grade: "pass" }
-	])
-	const unparsed = ChangeSet.empty(Books).insert(Ledger, [
-		// @ts-expect-error -- TS2322: a plain string is no uuid; Uuid.parse makes it one
-		{ id: plain, owner: ownerId, answer: "yes", grade: "pass" }
-	])
-	const crossed = ChangeSet.empty(Books).insert(Ledger, [
-		// @ts-expect-error -- TS2322: "yes" is Answer's, no value of Grade's pattern
-		{ id: ledgerId, owner: ownerId, answer: "yes", grade: "yes" }
-	])
+	const short = ChangeSet.empty(Books).insert(
+		Ledger,
+		// @ts-expect-error -- TS2345 refusal: a member fact is not a fact of the relation
+		[{ id: "0193d8f2", owner: ownerId, answer: "yes", grade: "pass" }]
+	)
+	const unparsed = ChangeSet.empty(Books).insert(
+		Ledger,
+		// @ts-expect-error -- TS2345 refusal: a member fact is not a fact of the relation
+		[{ id: plain, owner: ownerId, answer: "yes", grade: "pass" }]
+	)
+	const crossed = ChangeSet.empty(Books).insert(
+		Ledger,
+		// @ts-expect-error -- TS2345 refusal: a member fact is not a fact of the relation
+		[{ id: ledgerId, owner: ownerId, answer: "yes", grade: "yes" }]
+	)
 	return [written, fromParse, short, unparsed, crossed]
 }
 

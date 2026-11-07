@@ -52,6 +52,16 @@ How to upgrade:
 - **A union's keys no longer count a field a flag fixes to a literal under one branch and to a parameter under the
   other as telling its arms apart**, so `db.get` and a stated Option or one child refuse a query whose arms may both
   deliver that value. No codemod.
+- **`r.or` refuses a predicate that holds a relational negation**, an `r.not` alone or inside an `r.and`: "relational
+  negation is a rule-level filter, alone or in a top-level conjunction". The engine refused it when it compiled
+  (`UnsupportedOperation`); the types admitted it. Move the negation to the rule's filters. No codemod.
+- **A variable read from a column of a query's heading, through `v` over a query, a bound import or an interior stage,
+  or as an attachment's parent variable, has exactly the facts its column's type declares**, as the engine reads it:
+  a contract's `proves`, and nothing for a plain type. The types gave it the head term's own facts, so
+  `Compute.base(divisor)` or a cast of a nonzero contract into its base passed nonzero on through a plain column, and
+  `r.max(divisor)` or a conditional of a contract's type passed none. A contract's domain now carries the facts it
+  declares (`Declares<"nonzero">` beside its brand), so a `ParamType` of such a contract states its domain and its
+  host apart. No codemod.
 
 #### A delete that names two facts at one key is refused, a nested insert writes only members its role writes, and a family write the engine can't plan is a type error
 
@@ -70,7 +80,8 @@ How to upgrade:
   keyed by its drawn index; a delete of a member of an immutable owner's family; and a put of an immutable family
   owner. Each typechecked and failed at compile with `UnsupportedOperation` or `UnstatedKey`. Now the relation
   argument names the engine's reason in a `Refusal`. An insert of a counted member of an immutable owner, in a stratum
-  that inserts no owner, stays the engine's alone, since the types see no strata. No codemod.
+  that inserts no owner, and a ChangeSet that edits a family's members in more than one stratum stay the engine's
+  alone, since the types see no strata. No codemod.
 
 #### A concurrent change outside the installation, and a refined claim admission can't judge, fail closed
 
@@ -83,6 +94,10 @@ How to upgrade:
   `admission`.** Admission skipped such a claim of a pattern, admitting it unjudged, and died with a defect on such a
   claim of a contract; now both are `AdmissionFailed`, before admission sends anything. A Db's own claims always have
   their domains, so a correct installation never meets it. No codemod.
+- **`Db.open` refuses options that are no object with an `OpenError` at stage `schema`, before it looks up the
+  layer.** A JavaScript caller's `Db.open(role)` with no options, or with `null`, died reading their token with a
+  `TypeError`; now no options, `null`, a list or any other value that is no object is `MalformedDescription`, as a
+  token that is no string already was. The types require the options, so typed code never meets it. No codemod.
 
 #### A pattern whose anchors leave no match is refused, and a role's types cost linear time
 
@@ -142,6 +157,15 @@ How to upgrade:
   operand is a column, a parameter, a literal or a cast, whose facts are its type's; over a conditional or an
   operation's result it names the guard. No codemod: a refused divisor or radicand over a conditional takes the guard
   its refusal names.
+- **A Compute call's refusal names the engine's reason, in the engine's order.** First, a literal standing first, a
+  set value among them. Then each operand's type. Last, a partial operation's precondition, which the types now state
+  only where the operation takes every operand. So `Compute.mod(cell.int, Money.of(5n))`, `Compute.power(int, int)` and
+  `Compute.widthBucket(real, …)` are refused for their operand's type, and no longer for a divisor, a power's base or a
+  finite value. A refused call's result is `never`, so a call over it states nothing of its own. An ordering
+  (`lt`…`ge`, `between`, `least`, `greatest`) refuses a set. An exact decimal string literal states its facts: `"0"` is
+  no proved divisor and `"2.50"` is one. A guard keeps a constant subject's value. A match's pattern term meets its
+  subject's type, so a contract's text matches only its own. A conditional over a numeric delivers a Decimal for a
+  bigint or string branch. `Compute.literal` takes a set's descriptor, as the engine does. No codemod.
 
 #### A query's types no longer cost the size of its schema
 
@@ -165,10 +189,16 @@ How to upgrade:
   (`afterMembers`, `countedFill`, `cycle`, `unreached`). `grizzle generate` used to accept such a schema, and every
   nested insert then failed with `UnsupportedOperation at ChangeSet.insert`. No codemod: copy a column the owner fills
   before its members.
-- **A relation no write fills is `UnwritableRelation`** (new reason): a counted family's member that is also a
-  sequence's member, a tree's relation or a sequence's owner (`countedAndSequence`); ordered families that nest each
-  other (`nestingCycle`); a key holding a generated field (`generatedKey`). Each used to compile, and its writes were
+- **A relation no write fills is `UnwritableRelation`** (new reason): ordered families that nest each other
+  (`nestingCycle`); a key holding a generated field (`generatedKey`). Each used to compile, and its writes were
   refused.
+- **A counted family's member that is also an ordered family's member, a tree's node or a sequence's owner is
+  written.** Its rows are inserted nested, under their ordered family's owner, in their tree, or with their own
+  sequence's members nested under them, each stating its counted families' group keys; the nested write fills every
+  other column, and each counted family then appends the row to its stored group, as it appends a row inserted on its
+  own, its owner's count and ends with it. Such a schema used to compile and its writes to fail. No column a sequence
+  fills may read one a counted family fills on its member, its index, count or copies, any more than its count or ends
+  (`UnfillableField`, `countedFill` or `unreached`).
 - **Now written, where the first write used to be refused:** a counted family's copy of its owner's tree `end` or any
   other column a nested insert fills; a copy of a tree node's `end` along any owner axis; an insert of a tree that owns
   an ordered family; a predecessor or last copy of a generated field; appends to an immutable owner that is a tree
@@ -193,6 +223,13 @@ How to upgrade:
 
 #### A schema compiles once, a pattern is analyzed once, and key text is bounded by bytes
 
+- **A relation's unique objects beyond its primary key are decided once, as the law model is built**
+  (`RelationLaws.beyond`), comparing two guards by their predicates' canonical texts, each encoded once where its
+  object is built, and the law model specializes a schema once: the provisional pass that only settled which
+  containments are immediate is gone, its immediate laws read off the plans. No write compile, role probe or second
+  pass decides them again. A DbLayer build over one relation of k guarded keys took 1.75 CPU s at k = 64 and 6.06 s
+  at k = 128; it takes 0.23 s and 0.39 s, growing linearly in k (four relations of 32: 1.97 s, now 0.42 s). No
+  codemod.
 - **A text pattern is analyzed once, where `str.regex` admits it**, and every later reader uses the language the
   descriptor carries: a schema with one long pattern in 300 keys compiles in under a second, where it took 131 s.
   ScalarType digests change; regenerate. No codemod.

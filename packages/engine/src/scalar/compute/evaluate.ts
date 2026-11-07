@@ -877,7 +877,17 @@ export const literalMember = (
 	literal: TypedLiteral,
 	type: ScalarType,
 	regexMember: RegexMember
+): boolean | undefined => valueMember(literalValue(literal), type, regexMember)
+
+/**
+ * Whether a carrier value is a value of `type`'s refinements at every level (membership), or undefined where the
+ * evaluator cannot decide it: what the host judges a stored value against when a domain refused it.
+ */
+const valueMember = (
+	value: CarrierValue,
+	type: ScalarType,
+	regexMember: RegexMember
 ): boolean | undefined => {
-	const member = membership(literalValue(literal), type, regexMember)
+	const member = membership(value, type, regexMember)
 	return member.ok ? member.value : undefined
 }

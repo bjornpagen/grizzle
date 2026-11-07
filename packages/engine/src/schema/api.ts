@@ -302,7 +302,11 @@ export const key = <S extends Side<AnyRelation | Selection<AnyRelation>>>(
  */
 export const mutable = <R extends AnyRelation>(target: R): Mutable<R> => mutableBuilder<R>(target)
 
-export const check = <const Name extends string, R extends AnyRelation, Pr extends Predicate>(
+export const check = <
+	const Name extends string,
+	R extends AnyRelation,
+	Pr extends Predicate<never>
+>(
 	name: Name,
 	target: R,
 	predicate: (row: RowScalars<R>) => Pr & Parameterless<Pr>
@@ -330,7 +334,7 @@ export const pred = <const F extends string>(field: F): Pred<F> => predBuilder<F
  * select(R, (row) => predicate): the facts of R a row predicate over their own fields holds of, in the row-check
  * language, the one spelling of a selection.
  */
-export const select = <R extends AnyRelation | AnyClosed, Pr extends Predicate>(
+export const select = <R extends AnyRelation | AnyClosed, Pr extends Predicate<never>>(
 	target: R,
 	predicate: (row: RowScalars<R>) => Pr & Parameterless<Pr>
 ): Selection<R> => selectBuilder<R>(target, predicate)

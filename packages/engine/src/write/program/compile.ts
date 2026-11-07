@@ -325,10 +325,7 @@ const familyProgram = (frontend: WriteFrontend, w: WriteContext): FamilyProgram 
 		const nestedHere = frontend.nested.filter((n) => n.stratum === stratum)
 		const editedNames = edited.map((e) => e.edit.relation.name)
 		const inserted = [
-			...new Set([
-				...nestedHere.flatMap((n) => n.nesting.reached.map((r) => r.family.member.name)),
-				...editedNames
-			])
+			...new Set([...nestedHere.flatMap((n) => [...n.nesting.layouts.keys()]), ...editedNames])
 		]
 		const deepest = (names: ReadonlyArray<string>) =>
 			names.toSorted((a, b) => depthOf(b) - depthOf(a))

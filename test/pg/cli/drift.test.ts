@@ -52,7 +52,8 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * - a function a world reads changes its volatility;
  * - a role or the login is granted a table privilege, of PostgreSQL's, the snapshot does not grant;
  * - a role or the login stores a setting;
- * - a role or the login gains an attribute the snapshot denies it, of PostgreSQL's role attributes;
+ * - a role or the login gains an attribute the snapshot denies it, of PostgreSQL's role attributes the test's
+ *   administrator may set;
  * - one role becomes a member of the other;
  * - a table is created in a role's schema.
  *
@@ -135,13 +136,19 @@ const tablePrivileges = [
 	"MAINTAIN"
 ] as const
 
-/** PostgreSQL's role attributes the snapshot denies every login and role, each with the attribute that undoes it. */
-const deniedAttributes: Arr.NonEmptyReadonlyArray<readonly [string, string]> = [
+/**
+ * PostgreSQL's role attributes the snapshot denies a login or a role that the test's administrator may set, each with
+ * the attribute that undoes it: CREATEDB and CREATEROLE, which the administrator holds (scripts/pg/init.sh), and a
+ * login's INHERIT or a role's LOGIN, which it may set on any role it administers. REPLICATION, BYPASSRLS and SUPERUSER
+ * are set only by a role that holds them, which the administrator does not.
+ */
+const deniedAttributes = (
+	kind: "login" | "role"
+): Arr.NonEmptyReadonlyArray<readonly [string, string]> => [
 	["CREATEDB", "NOCREATEDB"],
 	["CREATEROLE", "NOCREATEROLE"],
-	["REPLICATION", "NOREPLICATION"],
-	["BYPASSRLS", "NOBYPASSRLS"]
-] as const
+	kind === "login" ? ["INHERIT", "NOINHERIT"] : ["LOGIN", "NOLOGIN"]
+]
 
 /** The rows a catalog read of text columns answers. */
 const textRows = (
@@ -264,7 +271,10 @@ const changeOf = (kind: Planted, [first, second, third]: Picks, n: Names) =>
 			}
 			case "a role's attribute": {
 				const role = pickFrom(roles, first)
-				const [attribute, undo] = pickFrom(deniedAttributes, second)
+				const [attribute, undo] = pickFrom(
+					deniedAttributes(role === n.login ? "login" : "role"),
+					second
+				)
 				const change: Change = {
 					plant: [`ALTER ROLE ${quoteIdent(role)} ${attribute}`],
 					undo: [`ALTER ROLE ${quoteIdent(role)} ${undo}`],
@@ -446,22 +456,34 @@ layer(Layer.merge(Substrate.layer, NodeServices.layer))(
 										const changes = yield* Effect.forEach(planted, ([kind, picks]) =>
 											changeOf(kind, picks, names)
 										)
-										const undo = Effect.orDie(
-											Effect.forEach(
-												Arr.reverse(Arr.flatMap(changes, (change) => change.undo)),
-												(sql) => substrate.admin.query(sql, []),
-												{ discard: true }
+										const made: Array<Change> = []
+										const plant = Effect.forEach(
+											changes,
+											(change) =>
+												Effect.andThen(
+													Effect.forEach(change.plant, (sql) => substrate.admin.query(sql, []), {
+														discard: true
+													}),
+													Effect.sync(() => {
+														made.push(change)
+													})
+												),
+											{ discard: true }
+										)
+										const undo = Effect.suspend(() =>
+											Effect.flatMap(
+												Effect.forEach(
+													Arr.reverse(Arr.flatMap(made, (change) => change.undo)),
+													(sql) => Effect.result(substrate.admin.query(sql, []))
+												),
+												(results) =>
+													Effect.orDie(
+														Effect.forEach(results, Effect.fromResult, { discard: true })
+													)
 											)
 										)
 										const drifted = yield* Effect.ensuring(
-											Effect.flatMap(
-												Effect.forEach(
-													Arr.flatMap(changes, (change) => change.plant),
-													(sql) => substrate.admin.query(sql, []),
-													{ discard: true }
-												),
-												() => run("drift")
-											),
+											Effect.flatMap(plant, () => run("drift")),
 											undo
 										)
 										if (changes.length === 0) {

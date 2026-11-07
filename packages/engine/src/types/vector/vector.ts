@@ -1,4 +1,11 @@
+import type { Phantom } from "#compiler/core/phantom.ts"
 import type { Vector } from "#compiler/scalar/values/vector.ts"
+import type {
+	ConstantOrigin,
+	LiteralOrigin,
+	Origin,
+	ParamOrigin
+} from "#compiler/types/core/phantom.ts"
 import type { Field } from "#compiler/types/fields/field.ts"
 
 export type { Vector } from "#compiler/scalar/values/vector.ts"
@@ -32,16 +39,37 @@ export interface VectorField<out N extends number> extends Field<Vector<N>, "vec
 }
 
 /**
- * The head fields an approximate search may rank by: `by` names a cosineDistance output, which is a double precision
- * number, over vectors of one dimension count.
+ * A cosine distance's two operands, by origin, beside the term's own phantoms: what an approximate search reads of a
+ * head field it ranks by (ApproximateNearestSpec). Compute.cosineDistance states it of its term.
  */
-type DistanceFieldsOf<Head> = {
-	[K in keyof Head]-?: Head[K] extends number ? K : never
-}[keyof Head] &
+export type Scored<A, B> = Phantom<{ readonly scored: readonly [A, B] }>
+
+/**
+ * The head fields an approximate search over one rule's head of carriers Hc may rank by, as the checker traces `by`
+ * (check/approximate/trace.ts): a cosineDistance output between a column of a matched relation and one query vector,
+ * a parameter or a constant, in either order. Any other number, a distance of two columns among them, ranks nothing.
+ */
+type DistanceFieldsOf<Hc> = {
+	readonly [K in keyof Hc]-?: Hc[K] extends Scored<infer A, infer B>
+		? OneColumn<A, B> extends true
+			? K
+			: never
+		: never
+}[keyof Hc] &
 	string
 
-/** A sealed candidate source of at most `take` facts, the nearest by `by`. */
-export interface ApproximateNearestSpec<Head> {
-	readonly by: DistanceFieldsOf<Head>
-	readonly take: number
+/** What a search's query vector is: a parameter, a JavaScript value or a typed constant, read once per execution. */
+type QueryVector = ParamOrigin | LiteralOrigin | ConstantOrigin
+
+/** Whether one operand of a distance is a column and the other a query vector. */
+type OneColumn<A, B> = [A, B] extends [Origin, QueryVector]
+	? true
+	: [A, B] extends [QueryVector, Origin]
+		? true
+		: false
+
+/** A sealed candidate source of at most `take` facts, the nearest by `by`, a distance field of the source's carriers. */
+export interface ApproximateNearestSpec<Hc, K extends number> {
+	readonly by: DistanceFieldsOf<Hc>
+	readonly take: K
 }

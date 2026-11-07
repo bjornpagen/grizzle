@@ -4,10 +4,10 @@ import type { Phantom } from "#compiler/core/phantom.ts"
 import type { SqlTag } from "#compiler/scalar/registry.ts"
 import type {
 	Carrier,
+	ColumnFacts,
 	ConstantOrigin,
 	DomainOf,
 	Facts,
-	FactsOf,
 	LanguageOf,
 	Meets,
 	ParamsOfEach,
@@ -381,7 +381,7 @@ export interface ClosedRelation<
 	) => ClosedRead<
 		DomainOf<Fields[P]>,
 		SqlOfCarrier<Fields[P]>,
-		FactsOf<Fields[P]>,
+		ColumnFacts<Fields[P]>,
 		LanguageOf<Fields[P]>
 	>
 	/**

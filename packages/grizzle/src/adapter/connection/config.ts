@@ -67,18 +67,20 @@ export const loginSettings: BlockSettings<{ readonly pool: PoolBounds }> = {
  */
 const ownSettings: ReadonlySet<string> = new Set(["driver", "password", "attachPool", "verify"])
 
+/** A connection block's own settings, every block's beside its extras' (BlockSettings). */
+export const connectionSettings = [
+	"driver",
+	"transport",
+	"database",
+	"password",
+	"connectTimeoutMs"
+] as const
+
 /** A transport's settings. */
-const transportSettings: ReadonlyArray<string> = [
-	"kind",
-	"host",
-	"port",
-	"open",
-	"ca",
-	"servername"
-]
+export const transportSettings = ["kind", "host", "port", "open", "ca", "servername"] as const
 
 /** A pool's settings. */
-const poolSettings: ReadonlyArray<string> = ["max", "min", "idleTimeoutMs"]
+export const poolSettings = ["max", "min", "idleTimeoutMs"] as const
 
 /**
  * The longest delay a Node timer keeps: pg's connect timeout and pg-pool's idle timeout are Node timers, and one longer
@@ -327,14 +329,7 @@ export const parseConnection = <E>(
 		return Result.fail(read.failure)
 	}
 	const { keys, plain, password, driver, transport: typedTransport } = read.success
-	const settings = [
-		"driver",
-		"transport",
-		"database",
-		"password",
-		"connectTimeoutMs",
-		...extras.settings
-	]
+	const settings = [...connectionSettings, ...extras.settings]
 	const extra = unknownKey(keys, settings, where)
 	if (Option.isSome(extra)) {
 		return Result.fail(extra.value)

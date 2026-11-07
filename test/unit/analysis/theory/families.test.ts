@@ -1,9 +1,18 @@
 import { describe, it } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { boolean, element, type Gen, int } from "@grizzle/testing/gen"
+import { type Case, drawn, exhaust, explore } from "@grizzle/testing/explore"
+import { required, requiredInSpace } from "@grizzle/testing/features"
+import { array, boolean, element, filter, type Gen, int, weighted } from "@grizzle/testing/gen"
+import {
+	type Corruption,
+	type CorruptedFeature,
+	corrupted,
+	corruptedFeature
+} from "@grizzle/testing/lsw"
+import { notesOnly } from "@grizzle/testing/sense"
+import { completeShrink } from "@grizzle/testing/shrink"
+import { bigint } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
 import {
 	familyShape,
 	type RidingPair,
@@ -11,21 +20,32 @@ import {
 	ridesOf,
 	treeShape
 } from "#compiler/analysis/theory/families.ts"
-import type { LawDetail } from "#compiler/analysis/theory/laws.ts"
+import type { LawDetail, TheoryLaw } from "#compiler/analysis/theory/laws.ts"
 import type { Theory } from "#compiler/analysis/theory/theory.ts"
-import type { ExprDesc, SideDesc, StatementDesc, TermDesc } from "#compiler/ir/desc.ts"
+import {
+	type CompareOp,
+	compareOps,
+	type ExprDesc,
+	type FieldDesc,
+	type LiteralDesc,
+	type SideDesc,
+	type StatementDesc,
+	type TermDesc
+} from "#compiler/ir/desc.ts"
 import type { AxisKind, AxisPair } from "#compiler/ir/family.ts"
 import type { NativeColumn } from "#compiler/ir/law.ts"
-import { assert, defined, refusalLoc, refused } from "#test/support/assert.ts"
+import { assert, defined, nonEmpty, refusalLoc, refused, succeeded } from "#test/support/assert.ts"
 import {
 	contained,
 	f,
+	type FixtureField,
 	on,
 	onWhere,
 	relation,
 	type SchemaDesc
 } from "#test/support/fixtures/ir/desc.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { pickFrom, pickGen } from "#test/support/pick.ts"
 import {
 	accumulatedOf,
 	decodedStatements,
@@ -49,11 +69,7 @@ import {
 const field = (name: string): TermDesc => ({ kind: "field", field: name })
 const pred = (name: string): TermDesc => ({ kind: "pred", field: name })
 const literal0: ExprDesc = { kind: "literal", value: 0n, type: undefined }
-const compare = (
-	op: "eq" | "ne" | "gt" | "lt" | "ge",
-	left: ExprDesc,
-	right: ExprDesc
-): ExprDesc => ({
+const compare = (op: CompareOp, left: ExprDesc, right: ExprDesc): ExprDesc => ({
 	kind: "compare",
 	op,
 	left,
@@ -99,14 +115,25 @@ const pairsText = (pairs: ReadonlyArray<AxisPair>): ReadonlyArray<string> =>
 type Rel = "O" | "F"
 
 /**
- * O(id, n drawn, k) owns F(fid, o, at drawn, w) by ordered(on(F, o, at), fin(O, n)): the box's schema. Its uuid
- * fields pair with uuid fields, its naturals and their preds with naturals.
+ * O(id, n drawn, k) owns F(fid, o, at drawn, w) by ordered(on(F, o, at), fin(O, n)): the box's schema, F with `was`, a
+ * natural accumulated from 0, where `was` holds. Its uuid fields pair with uuid fields, its naturals and their preds
+ * with naturals.
  */
-const ridingSchema = (statements: SchemaDesc["statements"]): SchemaDesc =>
+const ridingSchema = (was: boolean, statements: SchemaDesc["statements"]): SchemaDesc =>
 	schemaOf(
 		[
 			relation("O", { id: f.uuid, n: drawnNatural, k: natural }, ["id"]),
-			relation("F", { fid: f.uuid, o: f.uuid, at: drawnNatural, w: natural }, ["fid"])
+			relation(
+				"F",
+				{
+					fid: f.uuid,
+					o: f.uuid,
+					at: drawnNatural,
+					w: natural,
+					...(was ? { was: accumulatedOf(natural, 0n) } : {})
+				},
+				["fid"]
+			)
 		],
 		[
 			{
@@ -123,10 +150,11 @@ const uuidTerms: Readonly<Record<Rel, ReadonlyArray<TermDesc>>> = {
 	O: [field("id")],
 	F: [field("o"), field("fid")]
 }
-const naturalTerms: Readonly<Record<Rel, ReadonlyArray<TermDesc>>> = {
-	O: [field("n"), field("k"), pred("n")],
-	F: [field("at"), field("w"), pred("at")]
-}
+/** The natural terms of a relation of the box: F's `was` among them where F has it. */
+const naturalTerms = (rel: Rel, was: boolean): ReadonlyArray<TermDesc> =>
+	rel === "O"
+		? [field("n"), field("k"), pred("n")]
+		: [field("at"), field("w"), pred("at"), ...(was ? [field("was")] : [])]
 /** The selection a selected side of the box reads: one field fixed to 0. */
 const selectionOf: Readonly<Record<Rel, ExprDesc>> = {
 	O: compare("eq", fieldExpr("k"), literal0),
@@ -142,20 +170,61 @@ interface RideCase {
 	readonly pairs: ReadonlyArray<readonly [TermDesc, TermDesc]>
 }
 
+/** Every pair of two terms of one type from `left` to `right`. */
+const typedPairs = (
+	left: Rel,
+	right: Rel,
+	was: boolean
+): Arr.NonEmptyReadonlyArray<readonly [TermDesc, TermDesc]> =>
+	nonEmpty(
+		[
+			...Arr.flatMap(uuidTerms[left], (l) => Arr.map(uuidTerms[right], (r) => [l, r] as const)),
+			...Arr.flatMap(naturalTerms(left, was), (l) =>
+				Arr.map(naturalTerms(right, was), (r) => [l, r] as const)
+			)
+		],
+		"a typed pair"
+	)
+
 /** Every containment over the box's two relations with at most three pairs, each pair of two terms of one type. */
-const rideCase: Gen<RideCase> = (source) => {
-	const left = element(["F", "O"] as const)(source)
-	const right = element(["O", "F"] as const)(source)
-	const leftSelected = boolean(source)
-	const rightSelected = boolean(source)
-	const width = int(1, 3)(source)
-	const options: ReadonlyArray<readonly [TermDesc, TermDesc]> = [
-		...Arr.flatMap(uuidTerms[left], (l) => Arr.map(uuidTerms[right], (r) => [l, r] as const)),
-		...Arr.flatMap(naturalTerms[left], (l) => Arr.map(naturalTerms[right], (r) => [l, r] as const))
-	]
-	const pairs = Arr.makeBy(width, () => defined(options[source.pick(0, options.length - 1)]))
-	return { left, right, leftSelected, rightSelected, pairs }
-}
+const boxCase =
+	(was: boolean): Gen<RideCase> =>
+	(source) => {
+		const left = element(["F", "O"] as const)(source)
+		const right = element(["O", "F"] as const)(source)
+		const leftSelected = boolean(source)
+		const rightSelected = boolean(source)
+		const width = int(1, 3)(source)
+		const options = typedPairs(left, right, was)
+		const pairs = Arr.makeBy(width, () => defined(options[source.pick(0, options.length - 1)]))
+		return { left, right, leftSelected, rightSelected, pairs }
+	}
+
+/** The box over the fields of a family without accumulated fields. */
+const rideCase: Gen<RideCase> = boxCase(false)
+
+/** A containment of the box as its statement reads, so two equal statements, which are one, are one text. */
+const containmentText = (c: RideCase): string =>
+	`${c.left}${c.leftSelected ? " selected" : ""} ⊆ ${c.right}${c.rightSelected ? " selected" : ""}: ${Arr.join(
+		Arr.map(c.pairs, ([l, r]) => `${l.kind} ${l.field} → ${r.kind} ${r.field}`),
+		", "
+	)}`
+
+/** Whether no term of a side repeats. */
+const distinctTerms = (terms: ReadonlyArray<TermDesc>): boolean =>
+	new Set(Arr.map(terms, (t) => `${t.kind} ${t.field}`)).size === terms.length
+
+/** A side of the box: its relation's terms, over every fact or the box's selection of it. */
+const sideOf = (rel: Rel, selected: boolean, terms: ReadonlyArray<TermDesc>): SideDesc =>
+	selected ? onWhere(rel, terms, selectionOf[rel]) : on(rel, terms)
+
+/** The axis a containment law lowers onto, `own` for its own native. */
+const axisOf = (detail: LawDetail): string =>
+	detail.kind === "containment"
+		? detail.lowers.kind === "own"
+			? "own"
+			: detail.lowers.axis
+		: "none"
 
 /** An axis as §2.1's table states it over the box: its source's and target's relations and key terms. */
 interface AxisRule {
@@ -167,7 +236,7 @@ interface AxisRule {
 }
 
 /** The box's family's three axes, in §2.1's order: owner, predecessor, last. */
-const boxAxes: ReadonlyArray<AxisRule> = [
+const boxAxes: Arr.NonEmptyReadonlyArray<AxisRule> = [
 	{ axis: "owner", source: "F", target: "O", sourceKey: [field("o")], targetKey: [field("id")] },
 	{
 		axis: "predecessor",
@@ -241,7 +310,7 @@ type RideFeature =
 	| Extract<Verdict, { readonly kind: "own" }>["near"]
 
 describe("riding a family axis (§2.1)", () => {
-	const desc = ridingSchema([])
+	const desc = ridingSchema(false, [])
 	const t = theoryOf(desc)
 	const shape = familyShape(familyStatementOf(desc), relationsOf(t))
 	const fieldOf = (rel: Rel, name: string) =>
@@ -310,206 +379,261 @@ describe("riding a family axis (§2.1)", () => {
 			)
 	)
 
-	/** How a riding containment is spelled: an axis's shape exactly, or one near miss of it. */
-	type Spelling =
-		| "an owner copy"
-		| "a predecessor copy"
-		| "a last copy"
-		| "a restated lemma"
-		| "two copies of one pair"
-		| "a wrong selection"
-		| "a reordered key"
+	/**
+	 * A containment of the box aimed at an axis: its key pairs in order or reversed, then up to two typed pairs, each
+	 * side selected one draw in four. The uniform box draws an axis's key one case in thousands; these put every axis,
+	 * its near misses and two copies of one pair within a small search.
+	 */
+	const aimedCase =
+		(was: boolean): Gen<RideCase> =>
+		(source) => {
+			const axis = source.draw(element(boxAxes))
+			const key = Arr.zip(axis.sourceKey, axis.targetKey)
+			const options = typedPairs(axis.source, axis.target, was)
+			return {
+				left: axis.source,
+				right: axis.target,
+				leftSelected: source.draw(int(0, 3)) === 0,
+				rightSelected: source.draw(int(0, 3)) === 0,
+				pairs: [
+					...(source.draw(int(0, 3)) === 0 ? Arr.reverse(key) : key),
+					...Arr.map(source.draw(array(pickGen, { min: 0, max: 2 })), (pick) =>
+						pickFrom(options, pick)
+					)
+				]
+			}
+		}
+
+	/** A containment of the box, aimed at an axis or drawn from the whole box, its terms distinct on each side. */
+	const ridingCase = (was: boolean): Gen<RideCase> =>
+		filter(
+			weighted([
+				[1, boxCase(was)],
+				[3, aimedCase(was)]
+			]),
+			(c) =>
+				distinctTerms(Arr.map(c.pairs, ([l]) => l)) &&
+				distinctTerms(Arr.map(c.pairs, ([, r]) => r)),
+			16
+		)
+
+	/**
+	 * Two containments that ride one axis by construction, its key in order and no side selected, the second the first
+	 * with one more field pair after its own: two statements that share every pair the first carries, so two laws carry
+	 * each of them. The first fills `was` half the time where the axis's source holds it, and so the second does too.
+	 */
+	const extendedCases =
+		(was: boolean): Gen<ReadonlyArray<RideCase>> =>
+		(source) => {
+			const axis = source.draw(element(boxAxes))
+			const fieldPairs = nonEmpty(
+				Arr.filter(
+					typedPairs(axis.source, axis.target, was),
+					([l, r]) =>
+						l.kind === "field" &&
+						r.kind === "field" &&
+						!Arr.some(axis.sourceKey, (t) => sameTerm(t, l)) &&
+						!Arr.some(axis.targetKey, (t) => sameTerm(t, r))
+				),
+				"a field pair beside the axis's key"
+			)
+			const [filling, ...fillings] = Arr.filter(fieldPairs, ([l]) => l.field === "was")
+			const carried = Arr.map(source.draw(array(pickGen, { min: 1, max: 2 })), (pick) =>
+				pickFrom(fieldPairs, pick)
+			)
+			const first: RideCase = {
+				left: axis.source,
+				right: axis.target,
+				leftSelected: false,
+				rightSelected: false,
+				pairs: [
+					...Arr.zip(axis.sourceKey, axis.targetKey),
+					...carried,
+					...(filling !== undefined && source.draw(boolean)
+						? [pickFrom([filling, ...fillings], source.draw(pickGen))]
+						: [])
+				]
+			}
+			const second = {
+				...first,
+				pairs: [...first.pairs, pickFrom(fieldPairs, source.draw(pickGen))]
+			}
+			const distinct = (c: RideCase) =>
+				distinctTerms(Arr.map(c.pairs, ([l]) => l)) && distinctTerms(Arr.map(c.pairs, ([, r]) => r))
+			return Arr.filter([first, second], distinct)
+		}
+
+	type TheoryRideFeature =
+		| RideFeature
+		| "a pair two laws carry"
+		| "a key carried alone"
+		| "an accumulated field one statement fills"
+		| "an accumulated field no statement fills"
+		| "an accumulated field two statements fill"
 
 	it.effect(
-		"the theory lowers a riding containment onto its axis, its law on the pairs it carries",
+		"the theory lowers each containment onto the axis §2.1's rule names, its axes carrying exactly the riding pairs, and fills an accumulated field by exactly one",
 		(ctx) =>
 			searched(
 				ctx,
-				exhaust(
+				explore(
 					{
 						suite: "unit/analysis/theory/riding-theory",
-						generator: element([
-							"an owner copy",
-							"a predecessor copy",
-							"a last copy",
-							"a restated lemma",
-							"two copies of one pair",
-							"a wrong selection",
-							"a reordered key"
-						] as const),
 						literal: Formatter.format,
-						limit: 7,
-						box: "each spelling of a containment of an axis's shape, and its near misses",
-						oracle: { kind: "specification", name: "§2.1's table and merging rule" },
-						coverage: requiredInSpace<Spelling>([
-							"an owner copy",
-							"a predecessor copy",
-							"a last copy",
-							"a restated lemma",
-							"two copies of one pair",
-							"a wrong selection",
-							"a reordered key"
-						]),
-						caseHang
+						draw: drawn((source) => {
+							const was = source.draw(boolean)
+							return [
+								was,
+								source.draw(
+									weighted([
+										[2, array(ridingCase(was), { min: 1, max: 2 })],
+										[1, extendedCases(was)]
+									])
+								)
+							] as const
+						}),
+						runs: 200,
+						shrink: completeShrink,
+						coverage: required<TheoryRideFeature>(
+							[
+								"rides owner",
+								"rides predecessor",
+								"rides last",
+								"a wrong selection",
+								"a reordered key",
+								"a carried pred term",
+								"no axis",
+								"a pair two laws carry",
+								"a key carried alone",
+								"an accumulated field one statement fills",
+								"an accumulated field no statement fills",
+								"an accumulated field two statements fill"
+							],
+							{ cases: 2000, sense: notesOnly }
+						),
+						kept: [],
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang,
+						oracle: { kind: "specification", name: "§2.1's riding rule and §3.7's one filler" }
 					},
-					(spelling, k) =>
+					([was, cases], k) =>
 						Effect.sync(() => {
-							k.note(spelling)
-							const statements: ReadonlyArray<readonly [SideDesc, SideDesc]> = ((): ReadonlyArray<
-								readonly [SideDesc, SideDesc]
-							> => {
-								switch (spelling) {
-									case "an owner copy":
-										return [[on("F", ["o", "w"]), on("O", ["id", "k"])]]
-									case "a predecessor copy":
-										return [[on("F", ["o", pred("at"), "w"]), on("F", ["o", "at", "w"])]]
-									case "a last copy":
-										return [[on("O", ["id", pred("n"), "k"]), on("F", ["o", "at", "w"])]]
-									case "a restated lemma":
-										return [[on("F", ["o"]), on("O", ["id"])]]
-									case "two copies of one pair":
-										return [
-											[on("F", ["o", "w"]), on("O", ["id", "k"])],
-											[on("F", ["o", "w", "at"]), on("O", ["id", "k", "n"])]
-										]
-									case "a wrong selection":
-										return [[onWhere("F", ["o", "w"], selectionOf.F), on("O", ["id", "k"])]]
-									case "a reordered key":
-										return [[on("F", [pred("at"), "o", "w"]), on("F", ["at", "o", "w"])]]
-								}
-							})()
-							const theory = theoryOf(
-								ridingSchema(Arr.map(statements, ([l, r]) => contained(l, r)))
+							const verdicts = Arr.map(cases, ruleOf)
+							const carriedBy = (i: number): ReadonlyArray<readonly [TermDesc, TermDesc]> => {
+								const v = defined(verdicts[i])
+								return v.kind === "rides" ? Arr.drop(defined(cases[i]).pairs, v.width) : []
+							}
+							const result = theoryResult(
+								ridingSchema(
+									was,
+									Arr.map(cases, (c) =>
+										contained(
+											sideOf(
+												c.left,
+												c.leftSelected,
+												Arr.map(c.pairs, ([l]) => l)
+											),
+											sideOf(
+												c.right,
+												c.rightSelected,
+												Arr.map(c.pairs, ([, r]) => r)
+											)
+										)
+									)
+								)
 							)
+							const fills = new Set(
+								Arr.flatMap(cases, (c, i) =>
+									Arr.some(carriedBy(i), ([l]) => l.field === "was") ? [containmentText(c)] : []
+								)
+							)
+							if (was && fills.size !== 1) {
+								k.note(
+									fills.size === 0
+										? "an accumulated field no statement fills"
+										: "an accumulated field two statements fill"
+								)
+								assert.deepEqual(
+									Arr.takeRight(refusalLoc(refused(result, "MalformedDescription")).path, 2),
+									["fields", "was"],
+									"refused at the accumulated field"
+								)
+								return
+							}
+							if (was) {
+								k.note("an accumulated field one statement fills")
+							}
+							const theory = succeeded(result)
 							const family = defined(theory.families[0])
 							const containments = Arr.filter(
 								theory.laws,
 								(law) => law.detail.kind === "containment"
 							)
-							const lowers = Arr.map(containments, (law): LawDetail => law.detail)
-							const axisOf = (detail: LawDetail): string =>
-								detail.kind === "containment"
-									? detail.lowers.kind === "own"
-										? "own"
-										: detail.lowers.axis
-									: "none"
-							switch (spelling) {
-								case "an owner copy":
-								case "a predecessor copy":
-								case "a last copy": {
-									const axis: AxisKind =
-										spelling === "an owner copy"
-											? "owner"
-											: spelling === "a last copy"
-												? "last"
-												: "predecessor"
-									assert.deepEqual(
-										Arr.map(lowers, axisOf),
-										[axis],
-										`${spelling} rides the ${axis} axis`
-									)
-									const law = defined(containments[0]).id
-									const carried = family.axes[axis]
-									assert.deepEqual(
-										pairsText(carried),
-										[
-											spelling === "an owner copy"
-												? "w→k"
-												: spelling === "a last copy"
-													? "k→w"
-													: "w→w"
-										],
-										"the axis carries its pair"
-									)
-									assert.deepEqual(defined(carried[0]).laws, [law], "and its law")
-									return
+							const termsText = (terms: ReadonlyArray<TermDesc>): string =>
+								Arr.join(
+									Arr.map(terms, (t) => `${t.kind} ${t.field}`),
+									", "
+								)
+							const states = (detail: LawDetail, c: RideCase): boolean =>
+								detail.kind === "containment" &&
+								detail.from.relation === c.left &&
+								detail.to.relation === c.right &&
+								detail.from.selection.conjuncts.length > 0 === c.leftSelected &&
+								detail.to.selection.conjuncts.length > 0 === c.rightSelected &&
+								termsText(detail.from.terms) === termsText(Arr.map(c.pairs, ([l]) => l)) &&
+								termsText(detail.to.terms) === termsText(Arr.map(c.pairs, ([, r]) => r))
+							const lawOf = (i: number): TheoryLaw => {
+								const [law, ...more] = Arr.filter(containments, (l) =>
+									states(l.detail, defined(cases[i]))
+								)
+								assert.equal(more.length, 0, "each containment is one law")
+								return defined(law)
+							}
+							for (const [i, v] of verdicts.entries()) {
+								const law = lawOf(i)
+								if (v.kind === "own") {
+									k.note(v.near)
+									assert.equal(axisOf(law.detail), "own", "it keeps its own native")
+									continue
 								}
-								case "a restated lemma":
-									assert.deepEqual(Arr.map(lowers, axisOf), ["owner"], "it rides the owner axis")
-									assert.deepEqual(
-										pairsText(family.axes.owner),
-										[],
-										"carrying nothing beyond the key"
-									)
-									return
-								case "two copies of one pair": {
-									assert.deepEqual(
-										Arr.map(lowers, axisOf),
-										["owner", "owner"],
-										"both ride the owner axis"
-									)
-									const [shared] = family.axes.owner
-									const sharedLaws: ReadonlyArray<string> = Arr.sort(
-										Arr.map(defined(shared).laws, (law): string => law),
-										Order.String
-									)
-									assert.deepEqual(
-										pairsText(family.axes.owner),
-										["w→k", "at→n"],
-										"the pair they share once"
-									)
-									assert.deepEqual(
-										sharedLaws,
-										Arr.sort(
-											Arr.map(containments, (law): string => law.id),
-											Order.String
-										),
-										"stating both laws"
-									)
-									return
+								k.note(`rides ${v.axis}`)
+								if (carriedBy(i).length === 0) {
+									k.note("a key carried alone")
 								}
-								case "a wrong selection":
-								case "a reordered key":
-									assert.deepEqual(
-										Arr.map(lowers, axisOf),
-										["own"],
-										`${spelling} keeps its own native`
-									)
-									assert.deepEqual(
-										pairsText(family.axes.owner),
-										[],
-										"the owner axis carries nothing"
-									)
-									assert.deepEqual(
-										pairsText(family.axes.predecessor),
-										[],
-										"the predecessor axis carries nothing"
-									)
+								assert.equal(axisOf(law.detail), v.axis, `it rides the ${v.axis} axis`)
+							}
+							for (const axis of ["owner", "predecessor", "last"] as const) {
+								const expected = new Map<string, ReadonlySet<string>>()
+								for (const [i, v] of verdicts.entries()) {
+									if (v.kind !== "rides" || v.axis !== axis) {
+										continue
+									}
+									for (const [l, r] of carriedBy(i)) {
+										const pair = `${l.field}→${r.field}`
+										expected.set(pair, new Set([...(expected.get(pair) ?? []), lawOf(i).id]))
+									}
+								}
+								const carried = new Map(
+									Arr.map(family.axes[axis], (p) => [
+										`${columnText(p.from)}→${columnText(p.to)}`,
+										new Set<string>(p.laws)
+									])
+								)
+								if (Arr.some(family.axes[axis], (p) => p.laws.length > 1)) {
+									k.note("a pair two laws carry")
+								}
+								assert.deepEqual<ReadonlyMap<string, ReadonlySet<string>>>(
+									carried,
+									expected,
+									`the ${axis} axis carries exactly its riding containments' pairs, each with its laws`
+								)
 							}
 						})
 				)
 			)
 	)
 
-	/** A selection of a tree's member side: none, `start > 0` spelled four ways, or one that selects other rows. */
-	type TreeSelection =
-		| "none"
-		| "start > 0"
-		| "0 < start"
-		| "start <> 0"
-		| "0 <> start"
-		| "start >= 1"
-		| "start > 1"
-		| "at > 0"
-		| "start > 0 and at > 0"
-	const selections: Readonly<Record<TreeSelection, ReadonlyArray<ExprDesc>>> = {
-		none: [],
-		"start > 0": [compare("gt", fieldExpr("start"), literal0)],
-		"0 < start": [compare("lt", literal0, fieldExpr("start"))],
-		"start <> 0": [compare("ne", fieldExpr("start"), literal0)],
-		"0 <> start": [compare("ne", literal0, fieldExpr("start"))],
-		"start >= 1": [
-			compare("ge", fieldExpr("start"), { kind: "literal", value: 1n, type: undefined })
-		],
-		"start > 1": [
-			compare("gt", fieldExpr("start"), { kind: "literal", value: 1n, type: undefined })
-		],
-		"at > 0": [compare("gt", fieldExpr("at"), literal0)],
-		"start > 0 and at > 0": [
-			compare("gt", fieldExpr("start"), literal0),
-			compare("gt", fieldExpr("at"), literal0)
-		]
-	}
 	const treeDesc = schemaOf(
 		[
 			relation(
@@ -537,39 +661,87 @@ describe("riding a family axis (§2.1)", () => {
 		]
 	)
 
+	/** A comparison of a tree's drawn field with a small literal, either way round. */
+	interface Comparison {
+		readonly op: CompareOp
+		readonly field: "start" | "at"
+		readonly literal: bigint
+		readonly fieldLeft: boolean
+	}
+
+	const comparisonGen: Gen<Comparison> = (source) => ({
+		op: source.draw(element(compareOps)),
+		field: source.draw(boolean) ? "start" : "at",
+		literal: source.draw(bigint(0n, 2n)),
+		fieldLeft: source.draw(boolean)
+	})
+
+	const conjunctOf = (c: Comparison): ExprDesc => {
+		const literal: ExprDesc = { kind: "literal", value: c.literal, type: undefined }
+		return c.fieldLeft
+			? compare(c.op, fieldExpr(c.field), literal)
+			: compare(c.op, literal, fieldExpr(c.field))
+	}
+
+	/** Whether `l op r` holds of two integers. */
+	const holds = (op: CompareOp, l: bigint, r: bigint): boolean => {
+		switch (op) {
+			case "eq":
+				return l === r
+			case "ne":
+				return l !== r
+			case "lt":
+				return l < r
+			case "le":
+				return l <= r
+			case "gt":
+				return l > r
+			case "ge":
+				return l >= r
+		}
+	}
+
+	/**
+	 * Whether a selection selects exactly the tree's members, start above zero, over the naturals: start and at over
+	 * 0..3, past every literal the box draws.
+	 */
+	const selectsMembers = (conjuncts: ReadonlyArray<Comparison>): boolean =>
+		Arr.every(Arr.range(0, 3), (start) =>
+			Arr.every(Arr.range(0, 3), (at) => {
+				const value = (c: Comparison): bigint => BigInt(c.field === "start" ? start : at)
+				const selected = Arr.every(conjuncts, (c) =>
+					c.fieldLeft ? holds(c.op, value(c), c.literal) : holds(c.op, c.literal, value(c))
+				)
+				return selected === start > 0
+			})
+		)
+
 	it.effect(
-		"a tree's parent copy rides its owner axis exactly over the tree's members, start above zero",
+		"a tree's parent copy rides its owner axis exactly when its selection is one comparison of start with zero that selects the members",
 		(ctx) =>
 			searched(
 				ctx,
-				exhaust(
+				explore(
 					{
 						suite: "unit/analysis/theory/riding-tree",
-						generator: element([
-							"none",
-							"start > 0",
-							"0 < start",
-							"start <> 0",
-							"0 <> start",
-							"start >= 1",
-							"start > 1",
-							"at > 0",
-							"start > 0 and at > 0"
-						] as const),
 						literal: Formatter.format,
-						limit: 9,
-						box: "every spelling of start > 0 and its wrong selections",
+						draw: drawn(array(comparisonGen, { min: 0, max: 2 })),
+						runs: 300,
+						shrink: completeShrink,
+						coverage: required<"rides" | "a wrong selection" | "another spelling of the members">(
+							["rides", "a wrong selection", "another spelling of the members"],
+							{ cases: 1000, sense: notesOnly }
+						),
+						kept: [],
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang,
 						oracle: {
 							kind: "specification",
-							name: "§2.2: a tree's members are select(T, start > 0)"
-						},
-						coverage: requiredInSpace<"rides" | "a wrong selection">([
-							"rides",
-							"a wrong selection"
-						]),
-						caseHang
+							name: "§2.2: a tree's members are select(T, start > 0), evaluated over the naturals"
+						}
 					},
-					(selection, k) =>
+					(conjuncts, k) =>
 						Effect.sync(() => {
 							const tt = theoryOf(treeDesc)
 							const tree = treeShape(treeStatementOf(treeDesc), relationsOf(tt))
@@ -584,7 +756,7 @@ describe("riding a family axis (§2.1)", () => {
 								{
 									relation: "T",
 									selection: {
-										conjuncts: Arr.map(selections[selection], (predicate) => ({ predicate }))
+										conjuncts: Arr.map(conjuncts, (c) => ({ predicate: conjunctOf(c) }))
 									}
 								},
 								{ relation: "T", selection: { conjuncts: [] } },
@@ -599,329 +771,171 @@ describe("riding a family axis (§2.1)", () => {
 									}
 								]
 							)
-							const members = ["start > 0", "0 < start", "start <> 0", "0 <> start"]
-							if (Arr.contains(members, selection)) {
+							const [only, ...more] = conjuncts
+							const spelled =
+								only !== undefined &&
+								more.length === 0 &&
+								only.field === "start" &&
+								only.literal === 0n
+							const members = selectsMembers(conjuncts)
+							if (members && spelled) {
 								k.note("rides")
-								assert.equal(ride?.axis, "owner", `select(T, ${selection}) is the tree's members`)
+								assert.equal(ride?.axis, "owner", "the tree's members ride its owner axis")
 								return
 							}
-							k.note("a wrong selection")
-							assert.equal(ride, undefined, `select(T, ${selection}) is not the tree's members`)
+							k.note(members ? "another spelling of the members" : "a wrong selection")
+							assert.equal(ride, undefined, "any other selection rides no axis")
 						})
 				)
 			)
 	)
 })
 
-/** A family as the resolution box states it: its order, its group's width, or a tree. */
+/** The type of an owner's key fields and its members' group fields. */
+type KeyType = "uuid" | "bigint"
+
+/** A fold over a family: none, or a sum of F's x into O's total, its accumulators named on the step side or hidden. */
+type FoldCase = "no fold" | "named accumulators" | "hidden accumulators"
+
+/** A lawful family as the resolution box states it: its order, its group's width and key type and its fold, or a tree. */
 type FamilyCase =
-	| { readonly kind: "family"; readonly order: "ordered" | "counted"; readonly width: 1 | 2 }
+	| {
+			readonly kind: "family"
+			readonly order: "ordered" | "counted"
+			readonly width: number
+			readonly keyType: KeyType
+			readonly fold: FoldCase
+	  }
 	| { readonly kind: "tree" }
 
-/** The schema of a resolution case: O keyed by its group's width, F its members, or one tree relation T. */
-const familyCaseSchema = (c: FamilyCase): SchemaDesc => {
-	if (c.kind === "tree") {
-		return schemaOf(
-			[
-				relation(
-					"T",
-					{
-						id: f.uuid,
-						parent: f.uuid,
-						doc: f.uuid,
-						at: drawnNatural,
-						children: drawnNatural,
-						start: drawnNatural,
-						end: drawnNatural
-					},
-					["id"]
-				)
-			],
-			[
-				{
-					kind: "tree",
-					member: on("T", ["parent", "at"]),
-					slots: { owner: "T", count: "children" },
-					root: "doc"
-				}
-			]
-		)
+/** Every lawful case of the box: a counted family hides its accumulators, so only an ordered one names them. */
+const familyCaseGen: Gen<FamilyCase> = (source) => {
+	if (source.draw(boolean)) {
+		return { kind: "tree" }
 	}
-	const keys = c.width === 1 ? ["a"] : ["a", "b"]
-	const group = c.width === 1 ? ["ga"] : ["ga", "gb"]
-	return schemaOf(
-		[
-			relation("O", { a: f.uuid, b: f.uuid, n: drawnNatural }, keys),
+	const order = source.draw(boolean) ? "ordered" : "counted"
+	const fold = source.draw(int(0, order === "ordered" ? 2 : 1))
+	return {
+		kind: "family",
+		order,
+		width: source.draw(int(1, 3)),
+		keyType: source.draw(boolean) ? "bigint" : "uuid",
+		fold: fold === 0 ? "no fold" : fold === 1 ? "hidden accumulators" : "named accumulators"
+	}
+}
+
+const ownerKeys = ["a", "b", "c"] as const
+const groupFields = ["ga", "gb", "gc"] as const
+
+/** The field descriptor of a key type. */
+const keyField = (t: KeyType): FieldDesc => (t === "uuid" ? f.uuid : f.bigint)
+
+/**
+ * The parts of a family case's schema: O keyed by its group's width, F its members, a sum fold of F's x into O's total
+ * where it states one; or one tree relation T. A corruption edits these parts and builds the schema from them.
+ */
+interface Parts {
+	readonly relations: SchemaDesc["relations"]
+	readonly statements: SchemaDesc["statements"]
+}
+
+const treeRelation = (fields: Readonly<Record<string, FixtureField>>, key: ReadonlyArray<string>) =>
+	relation(
+		"T",
+		{
+			id: f.uuid,
+			parent: f.uuid,
+			doc: f.uuid,
+			at: drawnNatural,
+			children: drawnNatural,
+			start: drawnNatural,
+			end: drawnNatural,
+			...fields
+		},
+		key
+	)
+
+const treeStatement: SchemaDesc["statements"][number] = {
+	kind: "tree",
+	member: on("T", ["parent", "at"]),
+	slots: { owner: "T", count: "children" },
+	root: "doc"
+}
+
+/** A family case's group fields and its owner's key fields, in key order. */
+const keysOf = (c: Extract<FamilyCase, { readonly kind: "family" }>) =>
+	[Arr.take(groupFields, c.width), Arr.take(ownerKeys, c.width)] as const
+
+/** The relations and statements of a family case, the fold's accumulators starting at `start`, typed `step`. */
+const familyParts = (
+	c: Extract<FamilyCase, { readonly kind: "family" }>,
+	step: FieldDesc,
+	start: LiteralDesc
+): Parts => {
+	const [group, keys] = keysOf(c)
+	const folds = c.fold !== "no fold"
+	const named = c.fold === "named accumulators"
+	return {
+		relations: [
+			relation(
+				"O",
+				{
+					...Rec.fromEntries(Arr.map(keys, (k) => [k, keyField(c.keyType)] as const)),
+					n: drawnNatural,
+					...(folds ? { total: accumulatedOf(step, start) } : {})
+				},
+				keys
+			),
 			relation(
 				"F",
-				c.order === "ordered"
-					? { fid: f.uuid, ga: f.uuid, gb: f.uuid, at: drawnNatural }
-					: { fid: f.uuid, ga: f.uuid, gb: f.uuid },
+				{
+					fid: f.uuid,
+					...Rec.fromEntries(Arr.map(group, (g) => [g, keyField(c.keyType)] as const)),
+					...(c.order === "ordered" ? { at: drawnNatural } : {}),
+					...(folds ? { x: step } : {}),
+					...(named
+						? { before: accumulatedOf(step, start), after: accumulatedOf(step, start) }
+						: {})
+				},
 				["fid"]
 			)
 		],
-		[
+		statements: [
 			{
 				kind: "family",
 				order: c.order,
 				member: on("F", c.order === "ordered" ? [...group, "at"] : group),
 				slots: { owner: "O", count: "n" }
-			}
+			},
+			...(folds
+				? [
+						{
+							kind: "fold" as const,
+							family: { owner: "O", count: "n" },
+							monoid: "sum" as const,
+							step: on("F", named ? [...group, "x", "before", "after"] : [...group, "x"]),
+							end: on("O", [...keys, "total"])
+						}
+					]
+				: [])
 		]
-	)
+	}
 }
 
-describe("resolution", () => {
-	it.effect(
-		"each family and tree statement resolves to one Family IR, as its statement states it",
-		(ctx) =>
-			searched(
-				ctx,
-				exhaust(
-					{
-						suite: "unit/analysis/theory/resolution",
-						generator: element([
-							{ kind: "family", order: "ordered", width: 1 },
-							{ kind: "family", order: "ordered", width: 2 },
-							{ kind: "family", order: "counted", width: 1 },
-							{ kind: "family", order: "counted", width: 2 },
-							{ kind: "tree" }
-						] as const satisfies ReadonlyArray<FamilyCase>),
-						literal: Formatter.format,
-						limit: 5,
-						box: "ordered and counted families of group width 1 and 2, and a tree",
-						oracle: {
-							kind: "specification",
-							name: "the statement, read as the IR it names (§3.4)"
-						},
-						coverage: requiredInSpace<"ordered" | "counted" | "tree">([
-							"ordered",
-							"counted",
-							"tree"
-						]),
-						caseHang
-					},
-					(c, k) =>
-						Effect.sync(() => {
-							const t: Theory = theoryOf(familyCaseSchema(c))
-							const [family, ...more] = t.families
-							assert.equal(more.length, 0, "one family")
-							const fam = defined(family)
-							if (c.kind === "tree") {
-								k.note("tree")
-								assert.deepEqual(fam.id, { owner: "T", count: "children" }, "its slots")
-								assert.equal(fam.owner.name, "T", "it is its own owner")
-								assert.equal(fam.member.name, "T", "and its own member")
-								assert.deepEqual(
-									Arr.map(fam.group, (p) => [p.member.name, p.owner.name]),
-									[["parent", "id"]],
-									"its parent pairs with its key"
-								)
-								assert.equal(columnText(fam.index), "at", "its index is at")
-								if (fam.members.kind !== "tree") {
-									return assert.fail("a tree's members are every row but its root")
-								}
-								assert.deepEqual(
-									[fam.members.root.name, fam.members.start.name, fam.members.end.name],
-									["doc", "start", "end"],
-									"its root field and interval"
-								)
-								const law = lawOfShape(t, "tree").id
-								const ps = `‹${fam.members.parentStart}›`
-								assert.deepEqual(
-									pairsText(fam.axes.owner),
-									[`${ps}→start`, "doc→doc"],
-									"T3 and T0 ride the owner axis"
-								)
-								assert.deepEqual(
-									pairsText(fam.axes.predecessor),
-									["start→end"],
-									"T4 rides the predecessor"
-								)
-								assert.deepEqual(pairsText(fam.axes.last), ["end→end"], "T5 rides the last")
-								for (const p of [...fam.axes.owner, ...fam.axes.predecessor, ...fam.axes.last]) {
-									assert.deepEqual(p.laws, [law], "each states the tree's law")
-								}
-								return
-							}
-							k.note(c.order)
-							assert.deepEqual(fam.id, { owner: "O", count: "n" }, "its slots")
-							assert.equal(fam.owner.name, "O", "its owner")
-							assert.equal(fam.member.name, "F", "its member")
-							assert.equal(fam.count.name, "n", "its count")
-							assert.deepEqual(
-								Arr.map(fam.group, (p) => [p.member.name, p.owner.name]),
-								c.width === 1
-									? [["ga", "a"]]
-									: [
-											["ga", "a"],
-											["gb", "b"]
-										],
-								"its group pairs with its owner's key, in key order"
-							)
-							assert.equal(
-								fam.index.kind,
-								c.order === "ordered" ? "field" : "law",
-								"its index arm is its order's"
-							)
-							if (fam.index.kind === "field") {
-								assert.equal(fam.index.field.name, "at", "an ordered index is the side's last term")
-							}
-							assert.equal(fam.members.kind, "every", "its members are every fact")
-							assert.deepEqual(
-								[
-									fam.axes.owner.length,
-									fam.axes.predecessor.length,
-									fam.axes.last.length,
-									fam.folds.length
-								],
-								[0, 0, 0, 0],
-								"no statement carries anything"
-							)
-							assert.equal(
-								lawOfShape(t, "family").detail.kind,
-								"family",
-								"its law's detail is the family"
-							)
-						})
-				)
-			)
-	)
-})
+const partsOf = (c: FamilyCase): Parts =>
+	c.kind === "tree"
+		? { relations: [treeRelation({}, ["id"])], statements: [treeStatement] }
+		: familyParts(c, f.bigint, 0n)
 
-/** An accumulated field's carriers, as the accumulation box spells them. */
-type Carriers =
-	| "one carrier"
-	| "no carrier"
-	| "a second carrier"
-	| "a carrier off every axis"
-	| "a wrong selection"
-	| "a reordered key"
+const schemaOfParts = (parts: Parts): SchemaDesc => schemaOf(parts.relations, parts.statements)
 
-describe("accumulated copies (OPEN-F2 (b))", () => {
-	/** F's `was`, the predecessor's state, accumulated from 0 at slot 0, carried as `spelling` says. */
-	const copySchema = (spelling: Carriers): SchemaDesc => {
-		const copy = contained(on("F", ["o", pred("at"), "was"]), on("F", ["o", "at", "state"]))
-		const statements = ((): SchemaDesc["statements"] => {
-			switch (spelling) {
-				case "one carrier":
-					return [copy]
-				case "no carrier":
-					return []
-				case "a second carrier":
-					return [copy, contained(on("F", ["o", pred("at"), "was"]), on("F", ["o", "at", "other"]))]
-				case "a carrier off every axis":
-					return [contained(on("F", ["fid", "was"]), on("F", ["fid", "state"]))]
-				case "a wrong selection":
-					return [
-						contained(
-							onWhere("F", ["o", pred("at"), "was"], compare("eq", fieldExpr("state"), literal0)),
-							on("F", ["o", "at", "state"])
-						)
-					]
-				case "a reordered key":
-					return [contained(on("F", [pred("at"), "o", "was"]), on("F", ["at", "o", "state"]))]
-			}
-		})()
-		return schemaOf(
-			[
-				relation("O", { id: f.uuid, n: drawnNatural }, ["id"]),
-				relation(
-					"F",
-					{
-						fid: f.uuid,
-						o: f.uuid,
-						at: drawnNatural,
-						state: natural,
-						other: natural,
-						was: accumulatedOf(natural, 0n)
-					},
-					["fid"]
-				)
-			],
-			[
-				{
-					kind: "family",
-					order: "ordered",
-					member: on("F", ["o", "at"]),
-					slots: { owner: "O", count: "n" }
-				},
-				...statements
-			]
-		)
-	}
+/** Where a refusal is stated: a statement, or the field it names. */
+type RefusedAt = Readonly<{ kind: "statement" }> | Readonly<{ kind: "field"; field: string }>
 
-	it.effect(
-		"every accumulated field is filled by exactly one axis pair, and the theory refuses any other",
-		(ctx) =>
-			searched(
-				ctx,
-				exhaust(
-					{
-						suite: "unit/analysis/theory/accumulated",
-						generator: element([
-							"one carrier",
-							"no carrier",
-							"a second carrier",
-							"a carrier off every axis",
-							"a wrong selection",
-							"a reordered key"
-						] as const),
-						literal: Formatter.format,
-						limit: 6,
-						box: "one accumulated copy under each spelling of its carriers",
-						oracle: {
-							kind: "specification",
-							name: "§3.7: an accumulated field no statement names, or two name, is refused"
-						},
-						coverage: requiredInSpace<Carriers>([
-							"one carrier",
-							"no carrier",
-							"a second carrier",
-							"a carrier off every axis",
-							"a wrong selection",
-							"a reordered key"
-						]),
-						caseHang
-					},
-					(spelling, k) =>
-						Effect.sync(() => {
-							k.note(spelling)
-							const result = theoryResult(copySchema(spelling))
-							if (spelling === "one carrier") {
-								const t = theoryOf(copySchema(spelling))
-								const family = defined(t.families[0])
-								const fills = Arr.filter(
-									[...family.axes.owner, ...family.axes.predecessor, ...family.axes.last],
-									(p) => columnText(p.from) === "was"
-								)
-								assert.deepEqual(
-									pairsText(fills),
-									["was→state"],
-									"one axis pair fills it, from the predecessor's state"
-								)
-								assert.deepEqual(
-									pairsText(family.axes.predecessor),
-									["was→state"],
-									"on the predecessor axis"
-								)
-								return
-							}
-							const at = refusalLoc(
-								refused(result, "MalformedDescription", `${spelling} is refused`)
-							)
-							assert.deepEqual(
-								Arr.takeRight(at.path, 2),
-								["fields", "was"],
-								"at the accumulated field"
-							)
-						})
-				)
-			)
-	)
-})
+/** A corrupted schema as the theory is handed it, and where its refusal is stated. */
+type Refused = Readonly<{ schema: SchemaDesc; at: RefusedAt }>
 
-/** The refusals §3.7 names, each spelled by the smallest schema that makes it. */
+/** The refusals §3.7 and rows-first §4 name, each a corruption of a lawful family case. */
 type Refusal =
 	| "a start off the identity"
 	| "a carrier the monoid does not admit"
@@ -936,376 +950,384 @@ type Refusal =
 	| "a group key no caller writes"
 	| "a group key of another identity than its owner's key"
 
-describe("refusals (§3.7, rows-first §4)", () => {
-	/**
-	 * A sum fold over F's x into O's total, its accumulators, when the step side names them, and its end starting at
-	 * `start`.
-	 */
-	const sumFold = (order: "ordered" | "counted", start: bigint, pairs: boolean): SchemaDesc =>
-		schemaOf(
-			[
-				relation("O", { id: f.uuid, n: drawnNatural, total: accumulatedOf(f.bigint, start) }, [
-					"id"
-				]),
-				relation(
-					"F",
-					{
-						fid: f.uuid,
-						o: f.uuid,
-						x: f.bigint,
-						...(order === "ordered" ? { at: drawnNatural } : {}),
-						...(pairs
-							? { before: accumulatedOf(f.bigint, start), after: accumulatedOf(f.bigint, start) }
-							: {})
-					},
-					["fid"]
-				)
-			],
-			[
-				{
-					kind: "family",
-					order,
-					member: on("F", order === "ordered" ? ["o", "at"] : ["o"]),
-					slots: { owner: "O", count: "n" }
-				},
-				{
-					kind: "fold",
-					family: { owner: "O", count: "n" },
-					monoid: "sum",
-					step: on("F", pairs ? ["o", "x", "before", "after"] : ["o", "x"]),
-					end: on("O", ["id", "total"])
-				}
-			]
-		)
-	const refusalSchema = (r: Refusal): SchemaDesc => {
-		switch (r) {
-			case "a start off the identity":
-				return sumFold("ordered", 1n, true)
-			case "a carrier the monoid does not admit":
-				return schemaOf(
-					[
-						relation("O", { id: f.uuid, n: drawnNatural, total: accumulatedOf(f.pg("real"), 0) }, [
-							"id"
-						]),
-						relation("F", { fid: f.uuid, o: f.uuid, x: f.pg("real") }, ["fid"])
-					],
-					[
-						{
-							kind: "family",
-							order: "counted",
-							member: on("F", ["o"]),
-							slots: { owner: "O", count: "n" }
-						},
-						{
-							kind: "fold",
-							family: { owner: "O", count: "n" },
-							monoid: "sum",
-							step: on("F", ["o", "x"]),
-							end: on("O", ["id", "total"])
-						}
-					]
-				)
-			case "an accumulator pair over a counted family":
-				return sumFold("counted", 0n, true)
-			case "a tree keyed by two fields":
-				return schemaOf(
-					[
-						relation(
-							"T",
-							{
-								id: f.uuid,
-								id2: f.uuid,
-								parent: f.uuid,
-								doc: f.uuid,
-								at: drawnNatural,
-								children: drawnNatural,
-								start: drawnNatural,
-								end: drawnNatural
-							},
-							["id", "id2"]
-						)
-					],
-					[
-						{
-							kind: "tree",
-							member: on("T", ["parent", "at"]),
-							slots: { owner: "T", count: "children" },
-							root: "doc"
-						}
-					]
-				)
-			case "a tree with no drawn start":
-				return schemaOf(
-					[
-						relation(
-							"T",
-							{
-								id: f.uuid,
-								parent: f.uuid,
-								doc: f.uuid,
-								at: drawnNatural,
-								children: drawnNatural,
-								start: natural,
-								end: drawnNatural
-							},
-							["id"]
-						)
-					],
-					[
-						{
-							kind: "tree",
-							member: on("T", ["parent", "at"]),
-							slots: { owner: "T", count: "children" },
-							root: "doc"
-						}
-					]
-				)
-			case "a drawn field no statement names":
-				return schemaOf(
-					[
-						relation("O", { id: f.uuid, n: drawnNatural, stray: drawnNatural }, ["id"]),
-						relation("F", { fid: f.uuid, o: f.uuid, at: drawnNatural }, ["fid"])
-					],
-					[
-						{
-							kind: "family",
-							order: "ordered",
-							member: on("F", ["o", "at"]),
-							slots: { owner: "O", count: "n" }
-						}
-					]
-				)
-			case "a drawn field two families name":
-				return schemaOf(
-					[
-						relation("O", { id: f.uuid, n: drawnNatural }, ["id"]),
-						relation("F", { fid: f.uuid, o: f.uuid, at: drawnNatural }, ["fid"]),
-						relation("G", { gid: f.uuid, f: f.uuid }, ["gid"])
-					],
-					[
-						{
-							kind: "family",
-							order: "ordered",
-							member: on("F", ["o", "at"]),
-							slots: { owner: "O", count: "n" }
-						},
-						{
-							kind: "family",
-							order: "counted",
-							member: on("G", ["f"]),
-							slots: { owner: "F", count: "at" }
-						}
-					]
-				)
-			case "a relation in two ordered families":
-				return schemaOf(
-					[
-						relation("O", { id: f.uuid, n: drawnNatural, m: drawnNatural }, ["id"]),
-						relation("F", { fid: f.uuid, o: f.uuid, at: drawnNatural, at2: drawnNatural }, ["fid"])
-					],
-					[
-						{
-							kind: "family",
-							order: "ordered",
-							member: on("F", ["o", "at"]),
-							slots: { owner: "O", count: "n" }
-						},
-						{
-							kind: "family",
-							order: "ordered",
-							member: on("F", ["o", "at2"]),
-							slots: { owner: "O", count: "m" }
-						}
-					]
-				)
-			case "a relation in a tree and an ordered family":
-				return schemaOf(
-					[
-						relation("O", { id: f.uuid, n: drawnNatural }, ["id"]),
-						relation(
-							"T",
-							{
-								id: f.uuid,
-								parent: f.uuid,
-								doc: f.uuid,
-								o: f.uuid,
-								at: drawnNatural,
-								slot: drawnNatural,
-								children: drawnNatural,
-								start: drawnNatural,
-								end: drawnNatural
-							},
-							["id"]
-						)
-					],
-					[
-						{
-							kind: "tree",
-							member: on("T", ["parent", "at"]),
-							slots: { owner: "T", count: "children" },
-							root: "doc"
-						},
-						{
-							kind: "family",
-							order: "ordered",
-							member: on("T", ["o", "slot"]),
-							slots: { owner: "O", count: "n" }
-						}
-					]
-				)
-			case "a group key no caller writes":
-				return schemaOf(
-					[
-						relation("O", { id: f.bigint, n: drawnNatural }, ["id"]),
-						relation("G", { gid: f.uuid, o: f.bigserial }, ["gid"])
-					],
-					[
-						{
-							kind: "family",
-							order: "counted",
-							member: on("G", ["o"]),
-							slots: { owner: "O", count: "n" }
-						}
-					]
-				)
-			case "a group key of another identity than its owner's key":
-				return schemaOf(
-					[
-						relation("O", { id: f.uuid, n: drawnNatural }, ["id"]),
-						relation("G", { gid: f.uuid, o: f.bigint }, ["gid"])
-					],
-					[
-						{
-							kind: "family",
-							order: "counted",
-							member: on("G", ["o"]),
-							slots: { owner: "O", count: "n" }
-						}
-					]
-				)
-			case "one count counting two families":
-				return schemaOf(
-					[
-						relation("O", { id: f.uuid, n: drawnNatural }, ["id"]),
-						relation("F", { fid: f.uuid, o: f.uuid, at: drawnNatural }, ["fid"]),
-						relation("G", { gid: f.uuid, o: f.uuid }, ["gid"])
-					],
-					[
-						{
-							kind: "family",
-							order: "ordered",
-							member: on("F", ["o", "at"]),
-							slots: { owner: "O", count: "n" }
-						},
-						{
-							kind: "family",
-							order: "counted",
-							member: on("G", ["o"]),
-							slots: { owner: "O", count: "n" }
-						}
-					]
-				)
-		}
-	}
-	/** Where each refusal points: a statement, or the field it names. */
-	const refusedAtField: Readonly<Record<Refusal, string | undefined>> = {
-		"a start off the identity": undefined,
-		"a carrier the monoid does not admit": undefined,
-		"an accumulator pair over a counted family": undefined,
-		"a tree keyed by two fields": undefined,
-		"a tree with no drawn start": undefined,
-		"a drawn field no statement names": "stray",
-		"a drawn field two families name": "at",
-		"one count counting two families": undefined,
-		"a relation in two ordered families": undefined,
-		"a relation in a tree and an ordered family": undefined,
-		"a group key no caller writes": undefined,
-		"a group key of another identity than its owner's key": undefined
-	}
-	it.effect("refuses each named malformation as a MalformedDescription where it is stated", (ctx) =>
-		searched(
-			ctx,
-			exhaust(
-				{
-					suite: "unit/analysis/theory/refusals",
-					generator: element([
-						"a start off the identity",
-						"a carrier the monoid does not admit",
-						"an accumulator pair over a counted family",
-						"a tree keyed by two fields",
-						"a tree with no drawn start",
-						"a drawn field no statement names",
-						"a drawn field two families name",
-						"one count counting two families",
-						"a relation in two ordered families",
-						"a relation in a tree and an ordered family",
-						"a group key no caller writes",
-						"a group key of another identity than its owner's key"
-					] as const),
-					literal: Formatter.format,
-					limit: 12,
-					box: "each refusal §3.7 and rows-first §4 name, at its smallest schema",
-					oracle: { kind: "specification", name: "§3.7's and rows-first §4's refusals" },
-					coverage: requiredInSpace<"at a statement" | "at a field">([
-						"at a statement",
-						"at a field"
-					]),
-					caseHang
-				},
-				(r, k) =>
-					Effect.sync(() => {
-						const at = refusalLoc(
-							refused(theoryResult(refusalSchema(r)), "MalformedDescription", `${r} is refused`)
-						)
-						const fieldName = refusedAtField[r]
-						if (fieldName === undefined) {
-							k.note("at a statement")
-							assert.equal(at.path[0], "statements", `${r} is refused at its statement`)
-							return
-						}
-						k.note("at a field")
-						assert.deepEqual(
-							Arr.takeRight(at.path, 2),
-							["fields", fieldName],
-							`${r} is refused at ${fieldName}`
-						)
-					})
-			)
-		)
-	)
+const atStatement: RefusedAt = { kind: "statement" }
 
+/** One refusal, broken at the one site a case offers it: the corrupted schema, where it is refused, what it breaks. */
+const refusal = (
+	rule: Refusal,
+	applies: (c: FamilyCase) => Parts | undefined,
+	at: RefusedAt
+): Corruption<FamilyCase, Refused, Refusal> => ({
+	rule,
+	from: "wild",
+	weight: 1,
+	sites: (c) => {
+		const parts = applies(c)
+		if (parts === undefined) {
+			return []
+		}
+		const schema = schemaOfParts(parts)
+		return [
+			{
+				value: schema,
+				refusal: { schema, at },
+				at: c.kind === "tree" ? "a tree" : `a ${c.order} family`
+			}
+		]
+	}
+})
+
+/** The parts of a family case, but its relation `name` with `fields` added or replaced. */
+const withFields = (
+	parts: Parts,
+	name: string,
+	fields: Readonly<Record<string, FixtureField>>
+): Parts => ({
+	...parts,
+	relations: Arr.map(parts.relations, (r) =>
+		r.name === name && r.kind === "relation"
+			? relation(r.name, { ...r.fields, ...fields }, r.primaryKey)
+			: r
+	)
+})
+
+/** A family case's parts with more relations and statements. */
+const plus = (
+	parts: Parts,
+	relations: SchemaDesc["relations"],
+	statements: SchemaDesc["statements"]
+): Parts => ({
+	relations: [...parts.relations, ...relations],
+	statements: [...parts.statements, ...statements]
+})
+
+const refusals: Arr.NonEmptyReadonlyArray<Corruption<FamilyCase, Refused, Refusal>> = [
+	refusal(
+		"a start off the identity",
+		(c) => (c.kind === "family" && c.fold !== "no fold" ? familyParts(c, f.bigint, 1n) : undefined),
+		atStatement
+	),
+	refusal(
+		"a carrier the monoid does not admit",
+		(c) =>
+			c.kind === "family" && c.fold !== "no fold" ? familyParts(c, f.pg("real"), 0) : undefined,
+		atStatement
+	),
+	refusal(
+		"an accumulator pair over a counted family",
+		(c) =>
+			c.kind === "family" && c.order === "counted" && c.fold !== "no fold"
+				? (() => {
+						const parts = withFields(familyParts(c, f.bigint, 0n), "F", {
+							before: accumulatedOf(f.bigint, 0n),
+							after: accumulatedOf(f.bigint, 0n)
+						})
+						const [group] = keysOf(c)
+						return {
+							...parts,
+							statements: Arr.map(parts.statements, (st) =>
+								st.kind === "fold"
+									? { ...st, step: on("F", [...group, "x", "before", "after"]) }
+									: st
+							)
+						}
+					})()
+				: undefined,
+		atStatement
+	),
+	refusal(
+		"a tree keyed by two fields",
+		(c) =>
+			c.kind === "tree"
+				? { relations: [treeRelation({ id2: f.uuid }, ["id", "id2"])], statements: [treeStatement] }
+				: undefined,
+		atStatement
+	),
+	refusal(
+		"a tree with no drawn start",
+		(c) =>
+			c.kind === "tree"
+				? { relations: [treeRelation({ start: natural }, ["id"])], statements: [treeStatement] }
+				: undefined,
+		atStatement
+	),
+	refusal(
+		"a drawn field no statement names",
+		(c) => withFields(partsOf(c), c.kind === "tree" ? "T" : "O", { stray: drawnNatural }),
+		{ kind: "field", field: "stray" }
+	),
+	refusal(
+		"a drawn field two families name",
+		(c) =>
+			c.kind === "family" && c.order === "ordered"
+				? plus(
+						partsOf(c),
+						[relation("G", { gid: f.uuid, f: f.uuid }, ["gid"])],
+						[
+							{
+								kind: "family",
+								order: "counted",
+								member: on("G", ["f"]),
+								slots: { owner: "F", count: "at" }
+							}
+						]
+					)
+				: undefined,
+		{ kind: "field", field: "at" }
+	),
+	refusal(
+		"one count counting two families",
+		(c) => {
+			if (c.kind === "tree") {
+				return plus(
+					partsOf(c),
+					[relation("G", { gid: f.uuid, t: f.uuid }, ["gid"])],
+					[
+						{
+							kind: "family",
+							order: "counted",
+							member: on("G", ["t"]),
+							slots: { owner: "T", count: "children" }
+						}
+					]
+				)
+			}
+			const [group] = keysOf(c)
+			return plus(
+				partsOf(c),
+				[
+					relation(
+						"G",
+						{
+							gid: f.uuid,
+							...Rec.fromEntries(Arr.map(group, (g) => [g, keyField(c.keyType)] as const))
+						},
+						["gid"]
+					)
+				],
+				[
+					{
+						kind: "family",
+						order: "counted",
+						member: on("G", group),
+						slots: { owner: "O", count: "n" }
+					}
+				]
+			)
+		},
+		atStatement
+	),
+	refusal(
+		"a relation in two ordered families",
+		(c) => {
+			if (c.kind !== "family" || c.order !== "ordered") {
+				return undefined
+			}
+			const [group] = keysOf(c)
+			const parts = withFields(withFields(partsOf(c), "O", { m: drawnNatural }), "F", {
+				at2: drawnNatural
+			})
+			return plus(
+				parts,
+				[],
+				[
+					{
+						kind: "family",
+						order: "ordered",
+						member: on("F", [...group, "at2"]),
+						slots: { owner: "O", count: "m" }
+					}
+				]
+			)
+		},
+		atStatement
+	),
+	refusal(
+		"a relation in a tree and an ordered family",
+		(c) =>
+			c.kind === "tree"
+				? {
+						relations: [
+							relation("O", { id: f.uuid, n: drawnNatural }, ["id"]),
+							treeRelation({ o: f.uuid, slot: drawnNatural }, ["id"])
+						],
+						statements: [
+							treeStatement,
+							{
+								kind: "family",
+								order: "ordered",
+								member: on("T", ["o", "slot"]),
+								slots: { owner: "O", count: "n" }
+							}
+						]
+					}
+				: undefined,
+		atStatement
+	),
+	refusal(
+		"a group key no caller writes",
+		(c) =>
+			c.kind === "family" && c.keyType === "bigint"
+				? withFields(partsOf(c), "F", { ga: f.bigserial })
+				: undefined,
+		atStatement
+	),
+	refusal(
+		"a group key of another identity than its owner's key",
+		(c) =>
+			c.kind === "family"
+				? withFields(partsOf(c), "F", { ga: keyField(c.keyType === "uuid" ? "bigint" : "uuid") })
+				: undefined,
+		atStatement
+	)
+]
+
+type FamilyFeature = CorruptedFeature<Refusal> | "ordered" | "counted" | "tree" | FoldCase
+
+/**
+ * A lawful family resolves to one Family IR as its statement states it: its slots, its owner and member, its group
+ * paired with the owner's key in key order, its index by its order, a tree's root and interval and the pairs its
+ * formers ride, and a fold's monoid and planes, a named accumulator its field and a hidden one a drawn law column.
+ */
+const resolvesAsStated = (c: FamilyCase, t: Theory, k: Case<FamilyFeature>): void => {
+	const [family, ...more] = t.families
+	assert.equal(more.length, 0, "one family")
+	const fam = defined(family)
+	if (c.kind === "tree") {
+		k.note("tree")
+		assert.deepEqual(fam.id, { owner: "T", count: "children" }, "its slots")
+		assert.equal(fam.owner.name, "T", "it is its own owner")
+		assert.equal(fam.member.name, "T", "and its own member")
+		assert.deepEqual(
+			Arr.map(fam.group, (p) => [p.member.name, p.owner.name]),
+			[["parent", "id"]],
+			"its parent pairs with its key"
+		)
+		assert.equal(columnText(fam.index), "at", "its index is at")
+		if (fam.members.kind !== "tree") {
+			return assert.fail("a tree's members are every row but its root")
+		}
+		assert.deepEqual(
+			[fam.members.root.name, fam.members.start.name, fam.members.end.name],
+			["doc", "start", "end"],
+			"its root field and interval"
+		)
+		const law = lawOfShape(t, "tree").id
+		const ps = `‹${fam.members.parentStart}›`
+		assert.deepEqual(
+			pairsText(fam.axes.owner),
+			[`${ps}→start`, "doc→doc"],
+			"T3 and T0 ride the owner axis"
+		)
+		assert.deepEqual(pairsText(fam.axes.predecessor), ["start→end"], "T4 rides the predecessor")
+		assert.deepEqual(pairsText(fam.axes.last), ["end→end"], "T5 rides the last")
+		for (const p of [...fam.axes.owner, ...fam.axes.predecessor, ...fam.axes.last]) {
+			assert.deepEqual(p.laws, [law], "each states the tree's law")
+		}
+		return
+	}
+	k.note(c.order)
+	k.note(c.fold)
+	const [group, keys] = keysOf(c)
+	assert.deepEqual(fam.id, { owner: "O", count: "n" }, "its slots")
+	assert.equal(fam.owner.name, "O", "its owner")
+	assert.equal(fam.member.name, "F", "its member")
+	assert.equal(fam.count.name, "n", "its count")
+	assert.deepEqual<ReadonlyArray<ReadonlyArray<string>>>(
+		Arr.map(fam.group, (p) => [p.member.name, p.owner.name]),
+		Arr.map(Arr.zip(group, keys), ([g, key]) => [g, key]),
+		"its group pairs with its owner's key, in key order"
+	)
+	assert.equal(
+		fam.index.kind,
+		c.order === "ordered" ? "field" : "law",
+		"its index arm is its order's"
+	)
+	if (fam.index.kind === "field") {
+		assert.equal(fam.index.field.name, "at", "an ordered index is the side's last term")
+	}
+	assert.equal(fam.members.kind, "every", "its members are every fact")
+	assert.equal(lawOfShape(t, "family").detail.kind, "family", "its law's detail is the family")
+	if (c.fold === "no fold") {
+		assert.deepEqual(
+			[fam.axes.owner.length, fam.axes.predecessor.length, fam.axes.last.length, fam.folds.length],
+			[0, 0, 0, 0],
+			"no statement carries anything"
+		)
+		return
+	}
+	const [fold, ...otherFolds] = fam.folds
+	assert.equal(otherFolds.length, 0, "one fold")
+	assert.equal(defined(fold).monoid, "sum", "the fold is its family's")
+	assert.equal(
+		defined(defined(fold).planes[0]).before.kind,
+		c.fold === "named accumulators" ? "field" : "law",
+		"a named accumulator is its field, a hidden one a drawn law column"
+	)
+	assert.equal(lawOfShape(t, "fold").detail.kind, "fold", "its law is the fold")
+}
+
+describe("resolution and refusals (§3.4, §3.7, rows-first §4)", () => {
 	it.effect(
-		"admits the lawful neighbour of each fold refusal: a sum from 0, its pair over an ordered family",
+		"each lawful family and tree resolves to one Family IR as its statement states it, and each named malformation of one is refused where it is stated",
 		(ctx) =>
 			searched(
 				ctx,
 				exhaust(
 					{
-						suite: "unit/analysis/theory/refusals-control",
-						generator: element(["named accumulators", "hidden accumulators"] as const),
+						suite: "unit/analysis/theory/resolution",
+						generator: (source) => source.draw(corrupted(source.draw(familyCaseGen), refusals)),
 						literal: Formatter.format,
-						limit: 2,
-						box: "the sum fold of the refusals, from its identity, over an ordered family",
-						oracle: { kind: "specification", name: "§3.7's refusals, their nearest lawful input" },
-						coverage: requiredInSpace<"named accumulators" | "hidden accumulators">([
+						limit: 5000,
+						box: "ordered and counted families of group width 1 to 3 over uuid and bigint keys, with no fold, a hidden or a named sum, and a tree, each lawful or under each refusal it offers",
+						oracle: {
+							kind: "specification",
+							name: "the statement read as the IR it names (§3.4), and §3.7's refusals"
+						},
+						coverage: requiredInSpace<FamilyFeature>([
+							"live",
+							"ordered",
+							"counted",
+							"tree",
+							"no fold",
+							"hidden accumulators",
 							"named accumulators",
-							"hidden accumulators"
+							...Arr.map(refusals, (r): FamilyFeature => `${r.from} ${r.rule}`)
 						]),
 						caseHang
 					},
-					(spelling, k) =>
+					(drawnCase, k) =>
 						Effect.sync(() => {
-							k.note(spelling)
-							const t = theoryOf(sumFold("ordered", 0n, spelling === "named accumulators"))
-							const fold = defined(defined(t.families[0]).folds[0])
-							const plane = defined(fold.planes[0])
-							assert.equal(fold.monoid, "sum", "the fold is its family's")
-							assert.equal(
-								plane.before.kind,
-								spelling === "named accumulators" ? "field" : "law",
-								"a named accumulator is its field, a hidden one a drawn law column"
+							k.note(corruptedFeature(drawnCase))
+							if (drawnCase.kind === "live") {
+								resolvesAsStated(
+									drawnCase.value,
+									theoryOf(schemaOfParts(partsOf(drawnCase.value))),
+									k
+								)
+								return
+							}
+							const at = refusalLoc(
+								refused(
+									theoryResult(drawnCase.refusal.schema),
+									"MalformedDescription",
+									`${drawnCase.rule} is refused`
+								)
 							)
-							assert.equal(lawOfShape(t, "fold").detail.kind, "fold", "its law is the fold")
+							const stated = drawnCase.refusal.at
+							if (stated.kind === "statement") {
+								assert.equal(
+									at.path[0],
+									"statements",
+									`${drawnCase.rule} is refused at its statement`
+								)
+								return
+							}
+							assert.deepEqual(
+								Arr.takeRight(at.path, 2),
+								["fields", stated.field],
+								`${drawnCase.rule} is refused at ${stated.field}`
+							)
 						})
 				)
 			)

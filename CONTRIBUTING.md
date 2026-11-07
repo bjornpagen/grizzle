@@ -227,18 +227,18 @@ suite's residual risk. A longer search is a fuzz run, `pnpm fuzz <suite>`.
   (superlint `unchecked-vocabulary-literal`). A test asserts an error's tag, reason and fields, never its prose, never
   compares two values by their JSON text, and declares its features as a closed union: the library's `features` refuses
   `string` as its vocabulary.
-- **Every test case is a search.** superlint's `test-case-is-search` refuses, in `test/`, a test case whose body runs no
-  search: a test case is a call the checker resolves to a registrar's signature (`@effect/vitest`'s `it.effect`,
-  `it.live` and a layer's `it`, vitest's `it` and `test`, each with its modifiers and tables), and its body must name
-  `explore`, `exhaust` or `interleave` of `@grizzle/testing`, directly or through any function or constant of the
-  program's own source whose code does, transitively, resolved through the checker's symbols, never their spelling. A
-  commands program is searched by `explore`. A scaffold (`testCaseIsSearch.scaffolds`, each with its reason) is no way
-  to a search: it runs one around a scenario a person wrote, over draws that are not the case's inputs, as
-  `runSchedule` hands a hand schedule to the driver's script strategy. Its named exemptions, each with its reason, are
-  the README and SKILL mirror, the performance gates, the type batch's population runners and its cost gates
-  (`testCaseIsSearch.exempt`).
+- **Every test case is a search.** superlint's `test-case-is-search` refuses, in `test/` and the testing library's
+  `src`, a test case whose body runs no search: a test case is a call the checker resolves to a registrar's signature
+  (`@effect/vitest`'s `it.effect`, `it.live` and a layer's `it`, vitest's `it` and `test`, each with its modifiers and
+  tables), and its body must name `explore`, `exhaust` or `interleave` of `@grizzle/testing`, directly or through any
+  function or constant of the program's own source whose code does, transitively, resolved through the checker's
+  symbols, never their spelling. A commands program is searched by `explore`. A scaffold (`testCaseIsSearch.scaffolds`,
+  each with its reason) is no way to a search: it runs one around a scenario a person wrote, over draws that are not
+  the case's inputs, as `runSchedule` hands a hand schedule to the driver's script strategy. Its named exemptions, each
+  with its reason, are the README and SKILL mirror, the published-package gate, the performance gates, the type batch's
+  population runners and its cost gates (`testCaseIsSearch.exempt`).
   superlint's `no-case-list` refuses a search whose space is a list of cases: the `generator` of an `exhaust` or the
-  `draw` of an `explore` that is `element` over a list written in `test/` (an array literal, held by a constant or
+  `draw` of an `explore` that is `element` over a list written in those files (an array literal, held by a constant or
   computed from one by a call, outside the dictionary modules of `noCaseList.dictionaries`), `constant`'s one value, a
   `map`, `span`, `filter`, `drawn` or `sketched` of one, or a choice among them alone. Whether a drawn record's field
   is the verdict a case asserts takes the drawn value's flow through the generators and the property's branches,

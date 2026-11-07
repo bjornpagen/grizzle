@@ -9,7 +9,7 @@ import { str } from "#compiler/public/text.ts"
  * and a word of a few letters, spans of a contract and of an integer, vectors of two dimensions, a closed id and sets of
  * two rosters that share a member.
  */
-const Tone = closed("Tone", ["low", "high"])
+export const Tone = closed("Tone", ["low", "high"])
 const Shade = closed("Shade", ["low", "dark"])
 const Cents = contract("Cents", pg.bigint, (x) => x.ge(0n))
 const EpochDay = contract("EpochDay", pg.bigint)

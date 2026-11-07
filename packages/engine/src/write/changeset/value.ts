@@ -28,6 +28,7 @@ import { schemaInfo } from "#compiler/query/build/heading.ts"
 import { isOrderedValue, isQueryValue, labelledQueryDesc } from "#compiler/query/build/query.ts"
 import { buildLoc, isCallback } from "#compiler/query/build/scope.ts"
 import { queryState } from "#compiler/query/build/state.ts"
+import { isLevelOver, levelOf } from "#compiler/schema/level.ts"
 import { isPlainRecord, malformed, orThrow, requireName } from "#compiler/schema/protocol.ts"
 import { named, record } from "#compiler/schema/record.ts"
 import type {
@@ -42,8 +43,6 @@ import {
 	type BuiltOver,
 	builtOverOf,
 	higherOver,
-	isLevelOver,
-	levelOf,
 	overName
 } from "#compiler/write/changeset/levels.ts"
 import { type DeltaValue, delta, memberRelation } from "#compiler/write/delta/source.ts"
@@ -816,7 +815,7 @@ const addRead = <S, P, W extends string, Rd, const Name extends string, IHead>(
 	if (!isCallback(readBack)) {
 		throw malformed(label, "a read-back: a function from the change's Delta to a query")
 	}
-	const q = readBack(delta<S>(state.over, schemaInfo(state.schema)))
+	const q = readBack(delta<S>(state.over, schemaInfo(state.schema, state.over)))
 	if (!isQueryValue(q) && !isOrderedValue(q)) {
 		throw malformed(label, "a read-back callback that returns a query or an ordered query")
 	}

@@ -1,22 +1,35 @@
 import { layer } from "@effect/vitest"
-import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { noCoverage } from "@grizzle/testing/features"
-import { array, boolean, element, filter, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
+import { drawn, explore } from "@grizzle/testing/explore"
+import { noCoverage, required } from "@grizzle/testing/features"
+import {
+	array,
+	boolean,
+	constant,
+	element,
+	filter,
+	type Gen,
+	int,
+	map,
+	oneOf,
+	weighted
+} from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { double } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, pipe, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Option, pipe, Result, String as Str } from "effect"
 import { jsonText, trusted } from "#compiler/core/trusted.ts"
 import { vectorMaxDimensions } from "#compiler/ir/carriers.ts"
 import { compareSpan, makeSpan, spanText } from "#compiler/scalar/values/span.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
-import { assert, refused, succeeded } from "#test/support/assert.ts"
+import { exactVectorText, type InputVerdict, vectorInVerdict } from "#test/pg/vector/support.ts"
+import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { expectSqlstate } from "#test/support/substrate/expect.ts"
+import { pgErrorFields } from "#test/support/substrate/errors.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
-import { orderOf, type ValueFault } from "#test/unit/values/support.ts"
+import { orderOf } from "#test/unit/values/support.ts"
 
 /** A batch of up to `max` values, a case's one recordset. */
 const batchOf = <A>(values: Gen<A>, max: number): Gen<ReadonlyArray<A>> =>
@@ -37,19 +50,9 @@ const spec = {
 	caseHang
 } as const
 
-/** An exhaustive check's budget beside its suite and generator. */
-const exhaustive = {
-	literal: Formatter.format,
-	limit: 16,
-	coverage: noCoverage,
-	caseHang
-} as const
-
-/** One row of one and of two columns, trusted from what PostgreSQL answers. */
+/** One row of one column, trusted from what PostgreSQL answers. */
 const oneCellOf = (rows: unknown): readonly [readonly [unknown]] =>
 	trusted<readonly [readonly [unknown]]>(rows)
-const twoCellsOf = (rows: unknown): readonly [readonly [unknown, unknown]] =>
-	trusted<readonly [readonly [unknown, unknown]]>(rows)
 
 const pgFloatArray = (text: unknown): ReadonlyArray<number> => {
 	const inner = pipe(String(text), Str.slice(1, -1))
@@ -99,51 +102,87 @@ const float8ArrayText = (xs: ReadonlyArray<number>): string =>
 		","
 	)}}`
 
-/** The host's encode-time construction of the binary64 inputs once a Float32Array holds them. */
-const hostVector = (xs: ReadonlyArray<number>) => Vector.from(Float32Array.from(xs), xs.length)
-
-const ones = (n: number) => Array.from({ length: n }, () => 1)
-
 /** Every int4 span of bounds within -5..5, its lower bound below its upper. */
 const spanBounds = Arr.flatMap(Arr.range(-5, 4), (lower) =>
 	Arr.map(Arr.range(lower + 1, 5), (upper) => [lower, upper] as const)
 )
 
 /**
- * A refused input: the host fault, pgvector's SQLSTATE for the decimal text, and PostgreSQL's SQLSTATE for the binary64
- * value cast to real and then to vector. A component beyond binary32 range is infinity in a Float32Array, so the host
- * refuses float32 overflow as a non-finite component.
+ * A vector input: its first components, drawn, and its length, theirs or near the storage limit, the rest ones. A
+ * component is any binary64 across and past binary32's range, a rounding edge, NaN or an infinity.
  */
-interface Refusal {
-	readonly xs: ReadonlyArray<number>
-	readonly fault: ValueFault
-	readonly text: string
-	readonly binary: string
+interface InputSketch {
+	readonly head: Arr.NonEmptyReadonlyArray<number>
+	readonly length: number
 }
 
-const refusals: Arr.NonEmptyReadonlyArray<Refusal> = [
-	{ xs: [Number.NaN], fault: "vectorNonFinite", text: "22000", binary: "22000" },
-	{
-		xs: [Number.POSITIVE_INFINITY],
-		fault: "vectorNonFinite",
-		text: "22000",
-		binary: "22000"
-	},
-	{
-		xs: [1, Number.NEGATIVE_INFINITY],
-		fault: "vectorNonFinite",
-		text: "22000",
-		binary: "22000"
-	},
-	{ xs: [3.5e38], fault: "vectorNonFinite", text: "22003", binary: "22003" },
-	{ xs: [-1e39], fault: "vectorNonFinite", text: "22003", binary: "22003" },
-	{
-		xs: ones(vectorMaxDimensions.value + 1),
-		fault: "vectorDimensions",
-		text: "54000",
-		binary: "54000"
+/**
+ * The binary64 values cast to real and then to vector: float8_to_float4 refuses an overflow and an underflow to zero
+ * (22003) as it casts each in order, then pgvector's array_to_vector refuses a length past the limit (54000) and then a
+ * non-finite component (22000).
+ */
+const binaryVerdict = (xs: ReadonlyArray<number>): InputVerdict => {
+	for (const x of xs) {
+		const rounded = Math.fround(x)
+		if ((Number.isFinite(x) && !Number.isFinite(rounded)) || (x !== 0 && rounded === 0)) {
+			return "22003"
+		}
 	}
-]
+	if (xs.length > vectorMaxDimensions.value) {
+		return "54000"
+	}
+	return Arr.every(xs, Number.isFinite) ? "admitted" : "22000"
+}
+
+/** What a vector input reached. */
+type InputFeature =
+	| "admitted"
+	| "at the storage limit"
+	| "a component past binary32"
+	| "a non-finite component"
+	| "past the storage limit"
+	| "an underflow read as zero"
+
+/** A component of a vector input. */
+const inputComponent: Gen<number> = oneOf([
+	(source) => {
+		const negative = source.draw(boolean)
+		const m = source.draw(double(1, 2 - 2 ** -52))
+		const e = source.draw(int(-160, 135))
+		return (negative ? -1 : 1) * m * 2 ** e
+	},
+	element(roundingEdges),
+	element([
+		overflowTie,
+		-overflowTie,
+		2 ** -150,
+		Number.NaN,
+		Number.POSITIVE_INFINITY,
+		Number.NEGATIVE_INFINITY
+	])
+])
+
+const inputGen: Gen<InputSketch> = (source) => {
+	const head = nonEmpty(source.draw(array(inputComponent, { min: 1, max: 4 })), "a component")
+	return {
+		head,
+		length: source.draw(
+			weighted([
+				[3, constant(head.length)],
+				[1, int(vectorMaxDimensions.value - 1, vectorMaxDimensions.value + 1)]
+			])
+		)
+	}
+}
+
+/** A sketch's components: its head, then ones up to its length. */
+const inputOf = (sketch: InputSketch): ReadonlyArray<number> =>
+	Arr.appendAll(sketch.head, ones(Math.max(0, sketch.length - sketch.head.length)))
+
+const ones = (n: number) => Array.from({ length: n }, () => 1)
+
+/** The host's encode-time construction of the binary64 inputs once a Float32Array holds them. */
+const hostVector = (xs: ReadonlyArray<number>) => Vector.from(Float32Array.from(xs), xs.length)
 
 layer(Substrate.layer)("span and vector agreement with PostgreSQL", (it) => {
 	it.effect("orders spans as range_cmp does", (ctx) =>
@@ -183,12 +222,12 @@ layer(Substrate.layer)("span and vector agreement with PostgreSQL", (it) => {
 				Effect.gen(function* () {
 					const { session } = yield* Substrate
 					const db = yield* session(ownerSession())
-					const { extension, vectorType } = yield* vectorTypeOf(db)
+					const { vectorType } = yield* vectorTypeOf(db)
 					/**
 					 * Components drawn across the whole binary32 exponent range, subnormals included, with mantissas that are
 					 * arbitrary binary64 values so most of them need rounding. The float8-to-real cast raises on underflow and
 					 * on overflow (float8_to_float4), so the drawn magnitudes stay strictly between the binary32 underflow tie
-					 * 2^-150 and the overflow tie 2^128 - 2^103; both edges are pinned by the refusal test below.
+					 * 2^-150 and the overflow tie 2^128 - 2^103; the input search below draws past both.
 					 */
 					const magnitude = filter(
 						(source) => {
@@ -203,7 +242,7 @@ layer(Substrate.layer)("span and vector agreement with PostgreSQL", (it) => {
 					const components = array(oneOf([magnitude, element(roundingEdges)]), { min: 1, max: 12 })
 					const sameComponents = (pg: ReadonlyArray<number>, host: ReadonlyArray<number>) =>
 						pg.length === host.length && Arr.every(pg, (x, k) => x === host[k])
-					const explored = yield* explore(
+					return yield* explore(
 						{
 							...spec,
 							suite: "pg/values/carriers/vector-rounding",
@@ -245,115 +284,102 @@ layer(Substrate.layer)("span and vector agreement with PostgreSQL", (it) => {
 								assert.deepEqual(mismatches.slice(0, 5), [])
 							})
 					)
-					const [[signedZero, tie]] = yield* Effect.map(
-						db.values(
-							`SELECT ('[-0,1]'::${vectorType} OPERATOR(${extension}.=) $1::text::${vectorType})::text, ('[1.0000000596046448]'::${vectorType})::real[]::float8[]::text`,
-							[Vector.componentText(Vector.make(Float32Array.of(-0, 1), 2))]
-						),
-						twoCellsOf
-					)
-					assert.equal(signedZero, "true")
-					assert.deepEqual(pgFloatArray(tie), [1.0000001192092896])
-					assert.equal(Vector.componentText(Vector.make(Float32Array.of(1 + 2 ** -24), 1)), "[1]")
-					return explored
 				})
 			)
 	)
 
-	it.effect("refuses what pgvector refuses, the overflow tie included", (ctx) =>
-		searched(
-			ctx,
-			Effect.gen(function* () {
-				const { session } = yield* Substrate
-				const db = yield* session(ownerSession())
-				const { vectorType } = yield* vectorTypeOf(db)
-				assert.equal(Float32Array.of(overflowTie)[0], Number.POSITIVE_INFINITY)
-				refused(hostVector([overflowTie]), "vectorNonFinite")
-				yield* expectSqlstate(
-					db.values(`SELECT (($1::text::float8[]::real[])::${vectorType})::text`, [
-						float8ArrayText([overflowTie])
-					]),
-					"22003"
-				)
-				return yield* exhaust(
-					{
-						...exhaustive,
-						suite: "pg/values/carriers/vector-refusals",
-						generator: element(refusals)
-					},
-					({ xs, fault, text, binary }) =>
-						Effect.gen(function* () {
-							refused(hostVector(xs), fault)
-							yield* expectSqlstate(
-								db.values(`SELECT ($1::text::${vectorType})::text`, [
-									`[${Arr.join(Arr.map(xs, String), ",")}]`
-								]),
-								text
-							)
-							yield* expectSqlstate(
-								db.values(`SELECT (($1::text::float8[]::real[])::${vectorType})::text`, [
-									float8ArrayText(xs)
-								]),
-								binary
-							)
-						})
-				)
-			})
-		)
-	)
-
 	it.effect(
-		"admits the storage limit and a component that underflows as zero, which the cast to real refuses",
+		"refuses what pgvector refuses, by text and through real, reads every admitted component as its binary32 rounding, and the host refuses alike",
 		(ctx) =>
 			searched(
 				ctx,
 				Effect.gen(function* () {
 					const { session } = yield* Substrate
 					const db = yield* session(ownerSession())
-					const { extension, vectorType } = yield* vectorTypeOf(db)
-					/** The storage limit itself is admitted by both. */
-					const widest = succeeded(
-						Vector.admit(
-							Float32Array.from(ones(vectorMaxDimensions.value)),
-							vectorMaxDimensions.value
+					const { vectorType } = yield* vectorTypeOf(db)
+					/** PostgreSQL's answer to an input: the SQLSTATE it refused it with, or the value it read. */
+					const answer = (sql: string, text: string) =>
+						Effect.map(Effect.result(db.values(sql, [text])), (rows) =>
+							Result.isSuccess(rows)
+								? { verdict: "admitted" as const, read: oneCellOf(rows.success)[0][0] }
+								: {
+										verdict: defined(pgErrorFields(rows.failure), "a server error").code,
+										read: undefined
+									}
 						)
-					)
-					const [[dims]] = yield* Effect.map(
-						db.values(`SELECT ${extension}.vector_dims($1::text::${vectorType})::text`, [
-							Vector.componentText(widest)
-						]),
-						oneCellOf
-					)
-					assert.equal(Number(dims), vectorMaxDimensions.value)
-					yield* expectSqlstate(
-						db.values(`SELECT (($1::text::float8[]::real[])::${vectorType})::text`, [
-							float8ArrayText([1e-50])
-						]),
-						"22003"
-					)
-					return yield* exhaust(
+					return yield* explore(
 						{
-							...exhaustive,
-							suite: "pg/values/carriers/vector-underflow",
-							generator: element([1e-50, -1e-50, 1e-46])
+							suite: "pg/values/carriers/vector-input",
+							draw: drawn(inputGen),
+							literal: Formatter.format,
+							oracle: {
+								kind: "postgresql",
+								name: "pgvector's vector_in and array_to_vector, and float8_to_float4, against a model of their checks"
+							},
+							coverage: required<InputFeature>(
+								[
+									"admitted",
+									"at the storage limit",
+									"a component past binary32",
+									"a non-finite component",
+									"past the storage limit",
+									"an underflow read as zero"
+								],
+								{ cases: 60, sense: notesOnly }
+							),
+							kept: [],
+							runs: 60,
+							shrink: completeShrink,
+							concurrency: 1,
+							steerEvery: 8,
+							caseHang
 						},
-						(tiny) =>
+						(sketch, c) =>
 							Effect.gen(function* () {
-								assert.equal(
-									Vector.componentText(Vector.make(Float32Array.of(tiny, 1), 2)),
-									"[0,1]"
+								const xs = inputOf(sketch)
+								const expected = vectorInVerdict(xs, Option.none())
+								const text = yield* answer(
+									`SELECT (($1::text::${vectorType})::real[])::float8[]::text`,
+									exactVectorText(xs)
 								)
-								const [[read]] = yield* Effect.map(
-									db.values(`SELECT (($1::text::${vectorType})::real[])::float8[]::text`, [
-										`[${String(tiny)},1]`
-									]),
-									oneCellOf
+								assert.equal(text.verdict, expected, "the text input")
+								const binary = yield* answer(
+									`SELECT (($1::text::float8[]::real[])::${vectorType})::text`,
+									float8ArrayText(xs)
 								)
-								assert.deepEqual(
-									Arr.map(pgFloatArray(read), (x) => x === 0),
-									[true, false]
-								)
-								assert.equal(pgFloatArray(read)[1], 1)
+								assert.equal(binary.verdict, binaryVerdict(xs), "the input through real")
+								const host = hostVector(xs)
+								const hostRefuses =
+									!host.ok &&
+									(host.error.reason._tag === "vectorDimensions" ||
+										host.error.reason._tag === "vectorNonFinite")
+								assert.equal(hostRefuses, expected !== "admitted", "the host refuses alike")
+								switch (expected) {
+									case "admitted": {
+										c.note("admitted")
+										assert.deepEqual(
+											pgFloatArray(text.read),
+											Arr.map(xs, Math.fround),
+											"pgvector reads each component as its binary32 rounding"
+										)
+										if (xs.length === vectorMaxDimensions.value) {
+											c.note("at the storage limit")
+										}
+										if (Arr.some(xs, (x) => x !== 0 && Math.fround(x) === 0)) {
+											c.note("an underflow read as zero")
+										}
+										return
+									}
+									case "22003":
+										c.note("a component past binary32")
+										return
+									case "22000":
+										c.note("a non-finite component")
+										return
+									case "54000":
+										c.note("past the storage limit")
+										return
+								}
 							})
 					)
 				})

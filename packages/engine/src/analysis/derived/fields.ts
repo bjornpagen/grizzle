@@ -11,10 +11,11 @@ import {
 	languageOfText,
 	type NumericValueType,
 	type ScalarType,
-	typeLabel
+	typeLabel,
+	wildcardFlags,
+	wildcardSource
 } from "#compiler/ir/scalar.ts"
 import type { OwnedContract } from "#compiler/schema/own.ts"
-import { wildcardFlags, wildcardSource } from "#compiler/text/refinement.ts"
 
 /** Why a column type has no field descriptor: a contract the owned schema does not declare, or an exact value. */
 type Undescribed =
@@ -136,7 +137,7 @@ export const declaredDescOf = (
  * - a contract field, or its `min` or `max`, keeps its brand and its domain; its `sum` or `mean` has its base's result
  *   type;
  * - a regex-refined text field keeps its pattern; a computed text value whose pattern is not preserved has the
- *   canonical wildcard, `^.*$` under `su` (text/refinement.ts);
+ *   canonical wildcard, `^.*$` under `su` (ir/scalar.ts wildcardSource);
  * - a closed id keeps its roster;
  * - a serial field read through a definition is a plain integer of its width: generation is a property of the stored
  *   column, not of the value, and a materialized view has no identity column.

@@ -17,6 +17,7 @@ import type {
 	ParamsOfTerm,
 	Predicate,
 	Refusal,
+	SqlOfTerm,
 	Term,
 	TermBase,
 	TypeOfTerm,
@@ -47,9 +48,63 @@ type LiteralFacts<V extends number | bigint> = { readonly finite: true } & ([
 	: unknown) &
 	([Extract<`${V}`, `-${string}`>] extends [never] ? { readonly nonnegative: true } : unknown)
 
+type Digit = "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9"
+
+/** The sign of a run of digits, zero where every digit is, read past the digits Z already holds; unread at any other character. */
+type DigitsSign<S extends string, Z extends "zero" | "positive"> = S extends ""
+	? Z
+	: S extends `0${infer R}`
+		? DigitsSign<R, Z>
+		: S extends `${Exclude<Digit, "0">}${infer R}`
+			? DigitsSign<R, "positive">
+			: "unread"
+
+/** The sign of one or more digits: unread where there are none. */
+type SomeDigitsSign<S extends string> = S extends `${Digit}${string}`
+	? DigitsSign<S, "zero">
+	: "unread"
+
+/** The sign of an unsigned decimal's digits: digits, or digits, a point and digits. */
+type UnsignedSign<S extends string> = S extends `${infer I}.${infer F}`
+	? SomeDigitsSign<I> extends infer A
+		? SomeDigitsSign<F> extends infer B
+			? A extends "unread"
+				? "unread"
+				: B extends "unread"
+					? "unread"
+					: A extends "positive"
+						? "positive"
+						: B
+			: never
+		: never
+	: SomeDigitsSign<S>
+
 /**
- * Whether TypeScript sees a JavaScript value's facts: a number or bigint literal type, unbranded. A wider type (number,
- * bigint, a decimal string, a Decimal, a Money, a contract's branded value) has a value TypeScript cannot see.
+ * The sign of the value a string literal type spells as an exact decimal, as the engine reads its text
+ * (values/decimal.ts fromString): zero, positive or negative, for an optional sign, digits and an optional point with
+ * digits. Every other spelling, one the engine reads (an exponent, "NaN", a bare point) or refuses, is unread here, and
+ * its value is the engine's to judge; so is `string` and a template's, whose spelling no one literal fixes.
+ */
+type DecimalSign<S extends string> = S extends `-${infer R}`
+	? UnsignedSign<R> extends "positive"
+		? "negative"
+		: UnsignedSign<R>
+	: S extends `+${infer R}`
+		? UnsignedSign<R>
+		: UnsignedSign<S>
+
+/** What a decimal's text proves of its value: finite, nonzero unless it is zero, nonnegative unless it is negative. */
+type TextFacts<V extends string> = { readonly finite: true } & ([
+	Extract<DecimalSign<V>, "zero">
+] extends [never]
+	? { readonly nonzero: true }
+	: unknown) &
+	([Extract<DecimalSign<V>, "negative">] extends [never] ? { readonly nonnegative: true } : unknown)
+
+/**
+ * Whether TypeScript sees a JavaScript value's facts: a number or bigint literal type, or a string literal type spelling
+ * an exact decimal (DecimalSign), unbranded. A wider type (number, bigint, string, a Decimal, a Money, a contract's
+ * branded value) has a value TypeScript cannot see.
  */
 type Seen<V> = [V] extends [number | bigint]
 	? number extends V
@@ -59,16 +114,27 @@ type Seen<V> = [V] extends [number | bigint]
 			: [BaseOf<V>] extends [V]
 				? true
 				: false
-	: false
+	: [V] extends [string]
+		? [BaseOf<V>] extends [V]
+			? "unread" extends DecimalSign<V & string>
+				? false
+				: true
+			: false
+		: false
+
+/** The facts a value TypeScript sees proves: a number's or a bigint's (LiteralFacts), or a decimal text's (TextFacts). */
+type SeenFacts<V> = [V] extends [string]
+	? TextFacts<V & string>
+	: LiteralFacts<V & (number | bigint)>
 
 /**
- * Whether a JavaScript value V has the fact K: read off its literal type where TypeScript sees it (LiteralFacts), and
+ * Whether a JavaScript value V has the fact K: read off its literal type where TypeScript sees it (SeenFacts), and
  * otherwise admitted, a residue compilation decides from the value itself, which it always holds at compile time.
  */
 type ValueProves<V, K extends keyof Facts> = [V] extends [never]
 	? false
 	: Seen<V> extends true
-		? LiteralFacts<V & (number | bigint)> extends { readonly [P in K]-?: true }
+		? SeenFacts<V> extends { readonly [P in K]-?: true }
 			? true
 			: false
 		: true
@@ -76,9 +142,13 @@ type ValueProves<V, K extends keyof Facts> = [V] extends [never]
 /** Whether a JavaScript value TypeScript sees is negative: a literal type whose every value is below zero. */
 type Negative<V> =
 	Seen<V> extends true
-		? [Exclude<`${V & (number | bigint)}`, `-${string}`>] extends [never]
-			? true
-			: false
+		? [V] extends [string]
+			? [Exclude<DecimalSign<V & string>, "negative">] extends [never]
+				? true
+				: false
+			: [Exclude<`${V & (number | bigint)}`, `-${string}`>] extends [never]
+				? true
+				: false
 		: false
 
 /**
@@ -144,7 +214,7 @@ export type Holds<F extends Facts, V, K extends keyof Facts> = F extends {
  * under `guarded` the subject G as its Compute.when branch receives it, with the guard's facts proved
  * (scalar/compute/term.ts GuardValue).
  */
-export interface Guard<out G, out P = unknown, out O = unknown> extends Predicate<P, O> {
+export interface Guard<out G, in P = unknown, out O = unknown> extends Predicate<P, O> {
 	readonly [guarded]: G
 }
 
@@ -163,7 +233,7 @@ export interface Guard<out G, out P = unknown, out O = unknown> extends Predicat
  */
 export interface Scalar<
 	in out T,
-	out P = unknown,
+	in P = unknown,
 	out O = unknown,
 	out Sql extends SqlTag = SqlTag,
 	in out L = T
@@ -237,7 +307,7 @@ export type FirstTerm<A> = A extends FirstValue
 			IsHeadLiteral<A> extends true ? false : true,
 			"a term first: a literal takes its place opposite a term, never first"
 		>
-/** A JavaScript value written where a first operand belongs: a primitive, a Decimal, a Money, a vector or a span. */
+/** A JavaScript value written where a first operand belongs: a primitive, a Decimal, a Money, a vector, a span or a set. */
 export type FirstValue =
 	| string
 	| number
@@ -248,10 +318,129 @@ export type FirstValue =
 	| Vector
 	| Span<number>
 	| Span<bigint>
+	| ReadonlySet<string>
 export type FirstOrigin<O> = Requires<
 	[O] extends [LiteralOrigin] ? false : true,
 	"a term first: a literal takes its place opposite a term, never first"
 >
+
+/**
+ * Whether an operand is a refused call's result: never, which every Compute call the types refuse returns (Admitted).
+ * The engine builds a call's operands before the call, so it refuses the operand's call first, and a call over a
+ * refused operand states no refusal of its own: the operand's diagnostic is the one the engine names.
+ */
+type IsRefused<X> = [X] extends [never] ? true : false
+
+/** Whether any of a call's operands Os is a refused call's result. */
+export type AnyRefused<Os extends ReadonlyArray<unknown>> = true extends {
+	readonly [K in keyof Os]: IsRefused<Os[K]>
+}[number]
+	? true
+	: false
+
+/**
+ * Whether an operation over the SQL types F takes a first operand A: a term of one of them, never a refused call's
+ * result, a JavaScript value or a head literal.
+ */
+export type TakesFirst<A, F extends SqlTag> =
+	IsRefused<A> extends true
+		? false
+		: [A] extends [TermBase]
+			? IsHeadLiteral<A> extends true
+				? false
+				: [SqlOfTerm<A>] extends [F]
+					? true
+					: false
+			: false
+
+/**
+ * Whether a position P takes an operand B other than the first: B is one of P's, read off the argument itself (the
+ * position states P through Fit, so B is never replaced by P), and never a refused call's result.
+ */
+export type Takes<B, P> = IsRefused<B> extends true ? false : [B] extends [P] ? true : false
+
+/**
+ * An operand read as it is written, held to its position P: the operand itself where P takes it, so a template literal
+ * keeps its literal type, and P otherwise, whose mismatch is the operand's diagnostic. A position states P through
+ * NoInfer, so no type parameter is inferred from it.
+ */
+export type Fit<B, P> = [B] extends [P] ? B : P
+
+/** Whether a rest position P, a list of the operands it takes, takes a rest's operands Bs. */
+export type TakesRest<Bs extends ReadonlyArray<unknown>, P extends ReadonlyArray<unknown>> =
+	AnyRefused<Bs> extends true ? false : [Bs] extends [P] ? true : false
+
+/** Whether every check holds. */
+export type Every<Checks extends ReadonlyArray<boolean>> = false extends Checks[number]
+	? false
+	: true
+
+/**
+ * A first operand's own requirement, a term (FirstTerm), among the call's other operands Os: stated only where none is
+ * a refused call's result, whose diagnostic is the call's one.
+ */
+export type First<A, Os extends ReadonlyArray<unknown>> =
+	AnyRefused<Os> extends true ? unknown : FirstTerm<A>
+
+/**
+ * A requirement the engine judges once it has taken every operand's type, a partial operation's precondition or a
+ * cast's own admission: Requires<Cond, Message> where the operation takes every operand (Taken), and nothing where it
+ * does not, so an operand of another type gets its type refusal, which is the engine's reason, and never the
+ * precondition's.
+ */
+export type Precondition<
+	Taken extends boolean,
+	Cond extends boolean,
+	Message extends TypeRefusal
+> = [Taken] extends [true] ? Requires<Cond, Message> : unknown
+
+/**
+ * The result R of a call whose every operand its operation takes (Taken), and never for any other call, which the types
+ * refuse: never meets every position, so an operation over a refused call adds no diagnostic, and the refusal is the
+ * call's own. The result is read off a record by an index, never a conditional, so the catalogue's implementation,
+ * whose index is generic, meets R (public/compute.ts).
+ */
+export type Admitted<Taken extends boolean, R> = { readonly taken: R }[[Taken] extends [true]
+	? "taken"
+	: never]
+
+/**
+ * The literal-first refusal of the first of a call's later first operands that is no term, which the engine reaches
+ * before it reads any operand's type: what a first operand of another type states beside its type refusal, so the call's
+ * one diagnostic names the engine's reason.
+ */
+type LaterFirst<Later extends ReadonlyArray<unknown>> = Later extends readonly [
+	infer N,
+	...infer Rest
+]
+	? [N] extends [TermBase]
+		? LaterFirst<Rest>
+		: FirstTerm<N>
+	: unknown
+
+/** Whether a first operand is a term of a type an operation over F does not take: one whose type refusal is its own. */
+type OtherTerm<A, F extends SqlTag> = [A] extends [TermBase]
+	? TakesFirst<A, F> extends true
+		? false
+		: IsRefused<A> extends true
+			? false
+			: true
+	: false
+
+/**
+ * A first operand's own requirement among a call's several first operands, the engine reading each as a term before it
+ * reads any one's type: a term (First), and, of a term of a type an operation over F does not take, the literal-first
+ * refusal of a later first operand (LaterFirst), so the call's one diagnostic names the engine's reason.
+ */
+export type FirstAmong<
+	A,
+	F extends SqlTag,
+	Os extends ReadonlyArray<unknown>,
+	Later extends ReadonlyArray<unknown>
+> =
+	AnyRefused<Os> extends true
+		? unknown
+		: FirstTerm<A> & (OtherTerm<A, F> extends true ? LaterFirst<Later> : unknown)
 
 export type IsSpan<A> =
 	TypeOfTerm<A> extends { readonly start: unknown; readonly end: unknown } ? true : false

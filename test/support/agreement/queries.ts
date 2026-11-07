@@ -35,16 +35,22 @@ import {
 	admissionCells,
 	admissionModule,
 	admissionSize,
-	combinatorCells
+	combinatorCells,
+	scopeCells
 } from "#test/support/agreement/admission.ts"
-import { groupFields, paramsType, recordType } from "#test/support/agreement/heading.ts"
+import {
+	columnFacts,
+	groupFields,
+	paramsType,
+	recordType
+} from "#test/support/agreement/heading.ts"
 import {
 	Agree,
-	Cell,
 	Cents,
 	Item,
 	Note,
 	Owned,
+	Slot,
 	Stray,
 	Tag,
 	Tone,
@@ -78,8 +84,11 @@ import { messageOf } from "#test/support/message.ts"
  * binding of a name drawn from every relation's fields and a stranger; a match of Stray, which Agree does not hold; a
  * fold whose match keeps the keys it binds as drawn; a second arm of another heading whose fields are named as the
  * first's; a relation parameter of no field; Owned matched unbound; an Allen predicate over a term that is no span; a
- * head's cosine distance from Cell's vector to a vector of other dimensions, or to an integer, beside the same vector;
- * and a take ordered by a name drawn among the heading's and others. The engine decides each: where it refuses, the
+ * head's cosine distance from Slot's embedding to a vector of other dimensions, or to an integer, beside the same
+ * vector; an Allen predicate, a point's test or a producer over Slot's spans of two endpoint types, beside one of one;
+ * r.pack over a drawn variable; a span producer beside a second one or an aggregate; an approximate search ranking by
+ * a name drawn among the head's, its distance drawn to a query vector or to a column, or over a head that also counts
+ * or produces spans; and a take ordered by a name drawn among the heading's and others. The engine decides each: where it refuses, the
  * program states the refusal its reason is, at the fault's site (refusalOf), under the directive the type-test batch
  * disarms; where it admits, the program states every verdict as for a clean query. A name spelled through a `string`
  * is the one fault no engine sees, since every value a `string` holds at run time is a literal: the types refuse the
@@ -101,11 +110,21 @@ import { messageOf } from "#test/support/message.ts"
  * stands for a value of Item.cost: its type keeps its descriptor's whole host type, the one approximation of a typed
  * constant's value, so the evidence never reads it.
  *
+ * Slot's spans are variables like any other, of a kind per endpoint type, which only a span parameter stands for. A
+ * rule's span and vector constructs are drawn where every rule visits, each with the match of Slot it reads appended:
+ * an Allen predicate under a drawn mask and a point's test, each over a span variable and a span variable or parameter;
+ * one producer in the head (r.intersection, r.difference over the same operands, r.pack over a variable); a cosine
+ * distance from Slot's embedding to a vector parameter, a vector value or a column; and the embedding itself in the
+ * head. The vectors are no binding's draw, so no filter reads them. A query whose swarm keeps nearest is drawn in the
+ * shape an approximate search ranks, and searched (approximateNearest): one arm whose head holds no aggregate, no
+ * producer and a distance to a query vector, which the search ranks by; its records, parameters and evidence are the
+ * engine's, as every query's are.
+ *
  * A query no take closes and of one heading is also paged (pageOf): ordered by its first head field, as db.page
  * compiles it, its page is of that very ordered query (Page<records, typeof ordered>, whatever the types infer of its
  * parameters on the way), the query unordered is refused a page as the engine reads no stated order of it, and a page
  * request drawn valid, of a shape the runtime refuses, or with an anchor null or undefined is admitted exactly where the
- * runtime's request reader admits it (adapter/page/request.ts pageRequest).
+ * runtime's request reader admits it (adapter/page/request.ts pageRequest). An approximate search is no page's.
  *
  * The clean program is emitted twice, in the drawn order and in a second drawn order, as two modules, and a third
  * asserts every query's head and keys equal across the two: TypeScript's evaluation of the evidence must not depend on
@@ -158,7 +177,21 @@ export const agreementFeatures = [
 	"discriminant",
 	"heterogeneous",
 	"take",
-	"namedTake"
+	"namedTake",
+	"allen",
+	"pointIn",
+	"spanOperand",
+	"spanParam",
+	"producer",
+	"intersection",
+	"difference",
+	"pack",
+	"cosine",
+	"cosineParam",
+	"cosineVector",
+	"cosineColumns",
+	"vectorHead",
+	"nearest"
 ] as const
 export type AgreementFeature = (typeof agreementFeatures)[number]
 
@@ -179,7 +212,12 @@ export const agreementFaults = [
 	"allenTerm",
 	"cosineDims",
 	"cosineTerm",
-	"orderHidden"
+	"orderHidden",
+	"spanEndpoints",
+	"packTerm",
+	"producerHead",
+	"nearestBy",
+	"nearestSource"
 ] as const
 export type Fault = (typeof agreementFaults)[number]
 
@@ -193,10 +231,17 @@ export type AgreementNote =
 	| "get refused"
 	| "a key below the heading"
 	| "a variable two filters fix"
+	| "a flag whose readings each prove more than both state"
 	| "a contract in the head"
 	| "a page request admitted"
 	| "a page request refused"
 	| "an unordered page refused"
+	| "a span parameter opposite r.allen"
+	| "a span parameter opposite r.pointIn"
+	| "a producer over a span parameter"
+	| "a distance to a vector parameter"
+	| "a search get proves"
+	| "a contract's span refused against its base's"
 
 /** What a faulted case reached: its fault, and whether its site's drawn value was refused or admitted. */
 export type FaultNote = `${Fault} refused` | `${Fault} admitted`
@@ -209,7 +254,7 @@ export const agreementPairs: ReadonlyArray<readonly [AgreementNote, AgreementNot
 	["repeat", "get proved"]
 ]
 
-type Rel = "Item" | "Tag" | "Note"
+type Rel = "Item" | "Tag" | "Note" | "Slot"
 /**
  * A source a rule mints variables over: a relation of Agree, the rule's relation parameter (Rows), the import Owned, or
  * Stray, which Agree does not hold.
@@ -217,7 +262,10 @@ type Rel = "Item" | "Tag" | "Note"
 type Minted = Rel | "Rows" | "Owned" | "Stray"
 /** What a match reads: a source of variables, or Tones, the union of Item's facts by tone (./schema.ts). */
 type MatchSource = Minted | "Tones"
-type Kind = "uuid" | "int" | "code" | "cents"
+/** The kinds of value a JavaScript value or a contract's typed constant is written for. */
+type LiteralKind = "uuid" | "int" | "code" | "cents"
+/** A field's kind: a literal's, a span's of each endpoint type (integer, bigint, Cents) or a vector's. */
+type Kind = LiteralKind | "span" | "bigSpan" | "centsSpan" | "vector"
 
 interface Field {
 	readonly rel: Minted
@@ -225,15 +273,35 @@ interface Field {
 	readonly kind: Kind
 }
 
+/** A field of Item or Slot, whose descriptor a parameter is declared at. */
+interface ParamField extends Field {
+	readonly rel: "Item" | "Slot"
+}
+
+const itemFields: Arr.NonEmptyReadonlyArray<ParamField> = [
+	{ rel: "Item", name: "id", kind: "uuid" },
+	{ rel: "Item", name: "owner", kind: "uuid" },
+	{ rel: "Item", name: "n", kind: "int" },
+	{ rel: "Item", name: "m", kind: "int" },
+	{ rel: "Item", name: "tone", kind: "code" },
+	{ rel: "Item", name: "cost", kind: "cents" }
+]
+const slotFields: Arr.NonEmptyReadonlyArray<ParamField> = [
+	{ rel: "Slot", name: "item", kind: "uuid" },
+	{ rel: "Slot", name: "during", kind: "span" },
+	{ rel: "Slot", name: "budget", kind: "centsSpan" },
+	{ rel: "Slot", name: "raw", kind: "bigSpan" }
+]
+/** Slot's vectors, which no binding draws: a distance or a head reads them, through the match of Slot it appends. */
+const embeddingField: ParamField = { rel: "Slot", name: "embedding", kind: "vector" }
+const imageField: ParamField = { rel: "Slot", name: "image", kind: "vector" }
+/** Slot's span over integer ticks, the span a point's test reads, and its item. */
+const duringField: ParamField = { rel: "Slot", name: "during", kind: "span" }
+const slotItemField: ParamField = { rel: "Slot", name: "item", kind: "uuid" }
+
 const fieldsOf: { readonly [S in Minted]: Arr.NonEmptyReadonlyArray<Field> } = {
-	Item: [
-		{ rel: "Item", name: "id", kind: "uuid" },
-		{ rel: "Item", name: "owner", kind: "uuid" },
-		{ rel: "Item", name: "n", kind: "int" },
-		{ rel: "Item", name: "m", kind: "int" },
-		{ rel: "Item", name: "tone", kind: "code" },
-		{ rel: "Item", name: "cost", kind: "cents" }
-	],
+	Item: itemFields,
+	Slot: slotFields,
 	Tag: [
 		{ rel: "Tag", name: "item", kind: "uuid" },
 		{ rel: "Tag", name: "label", kind: "int" },
@@ -256,7 +324,7 @@ const fieldsOf: { readonly [S in Minted]: Arr.NonEmptyReadonlyArray<Field> } = {
 		{ rel: "Stray", name: "n", kind: "int" }
 	]
 }
-const rels: Arr.NonEmptyReadonlyArray<Rel> = ["Item", "Tag", "Note"]
+const rels: Arr.NonEmptyReadonlyArray<Rel> = ["Item", "Tag", "Note", "Slot"]
 /**
  * Each source's keys, by their fields (./schema.ts): a relation parameter's rows are a set, and so are an import's,
  * each keyed by its whole heading.
@@ -265,34 +333,58 @@ const keysOf: { readonly [S in Minted]: Arr.NonEmptyReadonlyArray<ReadonlyArray<
 	Item: [["id"], ["owner", "n"]],
 	Tag: [["item", "label"]],
 	Note: [["item"]],
+	Slot: [["item", "during"]],
 	Rows: [["id", "n"]],
 	Owned: [["id", "n"]],
 	Stray: [["id"]]
 }
 const allFields: Arr.NonEmptyReadonlyArray<Field> = Arr.flatMap(rels, (rel) => fieldsOf[rel])
-/** Item's field of each kind: the descriptor a parameter of that kind is declared at, wherever it stands. */
-const itemField = (kind: Kind): Field =>
+/** Every field a parameter is declared at. */
+const declared: Arr.NonEmptyReadonlyArray<ParamField> = [
+	...itemFields,
+	...slotFields,
+	embeddingField,
+	imageField
+]
+/**
+ * The field a parameter of each kind is declared at, wherever it stands: Item's field of the kind, and Slot's for a span
+ * or a vector.
+ */
+const paramField = (kind: Kind): ParamField =>
 	Option.getOrThrowWith(
-		Arr.findFirst(fieldsOf.Item, (f) => f.kind === kind),
-		() => new Error(`Item has no ${kind} field`)
+		Arr.findFirst(declared, (f) => f.kind === kind),
+		() => new Error(`no relation of Agree has a ${kind} field`)
+	)
+/** The descriptor a parameter standing for a field is declared at: the field's own, Item's or Slot's, else its kind's. */
+const declaredAt = (at: Field): ParamField =>
+	Option.getOrElse(
+		Arr.findFirst(declared, (f) => f.rel === at.rel && f.name === at.name),
+		() => paramField(at.kind)
 	)
 /** The integer field a parameter compared with a constant is typed by, where the rule binds no variable. */
-const integerField: Field = itemField("int")
+const integerField: Field = paramField("int")
 /** Item.tone, the field a rule's first match binds when it draws a constant of Tone by construction (Anchor). */
-const toneField: Field = itemField("code")
+const toneField: Field = paramField("code")
+/** Whether a kind is a span's. */
+const isSpan = (kind: Kind): boolean =>
+	kind === "span" || kind === "bigSpan" || kind === "centsSpan"
 
 /** Owned through the query builder's JavaScript view, whose bind the engine reads a drawn binding through. */
 const ownedImport: QueryValue = Owned
 
-/** The relations a match reads, as values, and Item's field descriptors, which every parameter is declared at. */
+/** The relations a match reads, as values, and Item's and Slot's field descriptors, which every parameter is declared at. */
 const relations: { readonly [R in Rel | "Stray" | "Tones"]: unknown } = {
 	Item,
 	Tag,
 	Note,
+	Slot,
 	Stray,
 	Tones
 }
-const descriptors: Readonly<Record<string, unknown>> = Item.fields
+const itemDescriptors: Readonly<Record<string, unknown>> = Item.fields
+const slotDescriptors: Readonly<Record<string, unknown>> = Slot.fields
+const descriptorOf = (f: ParamField): unknown =>
+	(f.rel === "Item" ? itemDescriptors : slotDescriptors)[f.name]
 
 /**
  * A variable v mints over a source's field, in the scope of the source's `copy`-th match in its rule: a self-join's two
@@ -305,10 +397,15 @@ interface Var {
 
 type Term =
 	| { readonly kind: "var"; readonly v: Var }
-	| { readonly kind: "param"; readonly name: string; readonly at: Field }
-	| { readonly kind: "literal"; readonly type: Exclude<Kind, "cents">; readonly value: number }
+	| { readonly kind: "param"; readonly name: string; readonly at: ParamField }
+	| {
+			readonly kind: "literal"
+			readonly type: Exclude<LiteralKind, "cents">
+			readonly value: number
+	  }
 	| { readonly kind: "constant"; readonly of: "integer" | "cents"; readonly value: number }
 	| { readonly kind: "handle"; readonly value: number }
+	| { readonly kind: "vector"; readonly dims: number }
 	| {
 			readonly kind: "arith"
 			readonly op: "add" | "sub" | "mul"
@@ -331,6 +428,26 @@ type Pred =
 	  }
 	| { readonly kind: "and" | "or"; readonly ps: readonly [Pred, Pred]; readonly via: Via }
 	| { readonly kind: "not"; readonly rel: Rel; readonly field: string; readonly t: Term }
+	| { readonly kind: "allen"; readonly left: Term; readonly mask: Mask; readonly right: Term }
+	| { readonly kind: "pointIn"; readonly point: Term; readonly span: Term }
+
+/** One of ALLEN's named masks: a basic relation or a named union of them. */
+type MaskName = Exclude<keyof typeof ALLEN, "complement" | "converse">
+
+/** An Allen mask as the program writes it: a named mask or a union of two, or the complement or converse of that. */
+interface Mask {
+	readonly names: readonly [MaskName] | readonly [MaskName, MaskName]
+	readonly op: "none" | "complement" | "converse"
+}
+
+/** ALLEN's named masks, read off the namespace. */
+const maskNames: Arr.NonEmptyReadonlyArray<MaskName> = Option.getOrThrowWith(
+	Arr.match(
+		Arr.filter(Rec.keys(ALLEN), (k): k is MaskName => k !== "complement" && k !== "converse"),
+		{ onEmpty: () => Option.none(), onNonEmpty: (names) => Option.some(names) }
+	),
+	() => new Error("ALLEN names no mask")
+)
 
 /** An aggregate a grouped head folds its matches by. */
 type Fold = "sum" | "min" | "max" | "mean"
@@ -340,6 +457,14 @@ type HeadTerm =
 	| { readonly kind: "literal"; readonly value: number | string }
 	| { readonly kind: "count" }
 	| { readonly kind: "fold"; readonly fold: Fold; readonly of: Term }
+	| {
+			readonly kind: "produce"
+			readonly fn: "intersection" | "difference"
+			readonly left: Term
+			readonly right: Term
+	  }
+	| { readonly kind: "pack"; readonly of: Term }
+	| { readonly kind: "cosine"; readonly of: Term; readonly to: Term }
 
 interface Match {
 	readonly rel: MatchSource
@@ -383,13 +508,6 @@ interface RuleSpec {
 	readonly owned: ReadonlyArray<OwnedBind>
 	/** A scope whose name is written otherwise than as its own literal (scopeOf), by its scope. */
 	readonly spellings: ReadonlyArray<readonly [string, Spelling]>
-	/** A bound variable an Allen predicate relates to itself, where a case plants allenTerm. */
-	readonly allen: Var | undefined
-	/**
-	 * What a head's cosine distance from Cell's vector is to, where a case plants a cosine fault: that very vector, a
-	 * vector of other dimensions, or an integer, which is no vector.
-	 */
-	readonly cosine: "vector" | "short" | "scalar" | undefined
 }
 
 /**
@@ -404,7 +522,10 @@ type PageRequestSpec = ReadonlyArray<readonly ["first" | "last" | "after" | "bef
 interface QuerySpec {
 	readonly arms: Arr.NonEmptyReadonlyArray<RuleSpec>
 	readonly take: 1 | 2 | "k" | undefined
-	/** A take's order field where a case plants orderHidden, drawn among names the heading may not hold. */
+	/**
+	 * A take's order field where a case plants orderHidden: half the time a name of the heading, otherwise one drawn among
+	 * names the heading may not hold.
+	 */
 	readonly hidden: string | undefined
 	readonly fault: Planted
 	/**
@@ -412,6 +533,14 @@ interface QuerySpec {
 	 * of two headings, which shares no field a page could order by.
 	 */
 	readonly request: PageRequestSpec | undefined
+	/** The approximate search that closes the query's arm, before its take, where the query states one. */
+	readonly nearest: Nearest | undefined
+}
+
+/** An approximate search: the head field it ranks by and the facts it takes. */
+interface Nearest {
+	readonly by: string
+	readonly take: 1 | 3
 }
 
 /** A form a draw may take: the construct it uses, and the part it draws. */
@@ -471,7 +600,7 @@ class Drawing {
 	param(at: Field): Term {
 		const name = `p${this.#params}`
 		this.#params += 1
-		return { kind: "param", name, at: at.rel === "Item" ? at : itemField(at.kind) }
+		return { kind: "param", name, at: declaredAt(at) }
 	}
 }
 
@@ -480,8 +609,8 @@ const sameVar = (a: Var, b: Var): boolean =>
 
 const varTerm = (v: Var): Term => ({ kind: "var", v })
 
-/** A value of a field's type written in the program: a JavaScript value, or a contract's typed constant. */
-const literalOf = (d: Drawing, kind: Kind): Term =>
+/** A value of a literal kind written in the program: a JavaScript value, or a contract's typed constant. */
+const literalOf = (d: Drawing, kind: LiteralKind): Term =>
 	kind === "cents"
 		? { kind: "constant", of: "cents", value: d.from([0, 1, 2, 3]) }
 		: { kind: "literal", type: kind, value: d.from([0, 1, 2, 3]) }
@@ -496,8 +625,24 @@ const handleOf = (d: Drawing): Term => ({ kind: "handle", value: d.from([0, 1, 2
 /** A value a field's binding fixes per binding: a parameter or a literal of the field's type. */
 const boundInputs = (d: Drawing, at: Field): Arr.NonEmptyReadonlyArray<Form<Term>> => [
 	["param", () => d.param(at)],
-	["literal", () => literalOf(d, at.kind)]
+	...literalForms(d, at.kind)
 ]
+
+/** The literal a field of a kind may be written as: none for a span or a vector, which only a parameter stands for. */
+const literalForms = (d: Drawing, kind: Kind): ReadonlyArray<Form<Term>> => {
+	switch (kind) {
+		case "uuid":
+		case "int":
+		case "code":
+		case "cents":
+			return [["literal", () => literalOf(d, kind)]]
+		case "span":
+		case "bigSpan":
+		case "centsSpan":
+		case "vector":
+			return []
+	}
+}
 
 /** A value fixed per binding: a parameter or a literal, or Compute over a constant and a parameter. */
 const inputOf = (d: Drawing, at: Field): Term => {
@@ -520,6 +665,10 @@ const inputOf = (d: Drawing, at: Field): Term => {
 			return d.choose([...plain, ["constantFilter", () => handleOf(d)]])
 		case "uuid":
 		case "cents":
+		case "span":
+		case "bigSpan":
+		case "centsSpan":
+		case "vector":
 			return d.choose(plain)
 	}
 }
@@ -600,7 +749,7 @@ const bindingForms = (
 			? [["foreignVar", () => varTerm({ field: d.from(foreign), copy: 0 })] as const]
 			: []),
 		["param", () => d.param(field)],
-		["literal", () => literalOf(d, field.kind)],
+		...literalForms(d, field.kind),
 		...(field.kind === "code" ? [["constantBinding", () => handleOf(d)] as const] : []),
 		["omit", () => undefined],
 		...(field.kind === "int" && Arr.isReadonlyArrayNonEmpty(ints)
@@ -822,7 +971,7 @@ const ownerOf = (d: Drawing, bound: ReadonlyArray<Var>): Term => {
 	const uuids = Arr.filter(bound, (b) => b.field.kind === "uuid" && b.field.rel !== "Owned")
 	return Arr.isReadonlyArrayNonEmpty(uuids) && d.from([0, 1]) === 0
 		? varTerm(d.from(uuids))
-		: d.choose(boundInputs(d, itemField("uuid")))
+		: d.choose(boundInputs(d, paramField("uuid")))
 }
 
 /** A drawn rule, and whether it is a pinned self-join, which no union's arm is. */
@@ -834,11 +983,13 @@ interface DrawnRule {
 /**
  * A rule: its matches, its filters and its head, over the variables its matches bind, its head fields named by
  * `prefix`. A second match may be a pinned self-join's (pinnedMatches), the rule's matches alone; any other rule's are
- * drawn, then its further matches (furtherMatches), and its last, under constantAtUnionSource, is Tones with a constant
- * bound at tone, a handle or its member's JavaScript value, which selects the arm holding it. A faulted case plants its
- * fault here, but for unionTypes, which its query plants.
+ * drawn, then its further matches (furtherMatches), then the match of Slot its span and vector constructs read
+ * (Planned), and its last, under constantAtUnionSource, is Tones with a constant bound at tone, a handle or its member's
+ * JavaScript value, which selects the arm holding it. A rule an approximate search ranks (`search`) holds a distance
+ * to a query vector and folds and produces nothing. A faulted case plants its fault here, but for unionTypes, which its
+ * query plants.
  */
-const drawRule = (d: Drawing, prefix: "h" | "g", rowsName: string): DrawnRule => {
+const drawRule = (d: Drawing, prefix: "h" | "g", rowsName: string, search: boolean): DrawnRule => {
 	const anchor = anchorOf(d)
 	const second = d.keep("secondMatch")
 	const pinned = second && d.keep("pinnedSelfJoin")
@@ -846,18 +997,39 @@ const drawRule = (d: Drawing, prefix: "h" | "g", rowsName: string): DrawnRule =>
 	const further = pinned
 		? { matches: [], bound: drawn.bound, rows: undefined, owned: [] }
 		: furtherMatches(d, drawn.matches, drawn.bound, rowsName)
+	const plan = planOf(d, search)
+	const slot = slottedOf(d, plan, [...drawn.matches, ...further.matches], further.bound)
 	const atUnion: ReadonlyArray<Match> =
 		!pinned && d.keep("constantAtUnionSource")
 			? [{ rel: "Tones", copy: 0, bindings: [["tone", tonesConstant(d)]] }]
 			: []
-	const filters = [...anchorFilters(d, anchor), ...filtersOver(d, further.bound)]
-	const flagged = flaggedOver(d, further.bound)
-	const head = headOver(d, further.bound, prefix)
-	const all = [...drawn.matches, ...further.matches, ...atUnion]
+	const endpoint =
+		d.fault === "spanEndpoints" && Arr.isReadonlyArrayNonEmpty(slot.spans)
+			? endpointOf(d, slot.spans, slot.bound)
+			: undefined
+	const filters = [
+		...anchorFilters(d, anchor),
+		...filtersOver(d, slot.bound),
+		...spanFilters(d, plan, slot.bound),
+		...(endpoint?.kind === "filter" ? [endpoint.p] : []),
+		...(d.fault === "allenTerm" && Arr.isReadonlyArrayNonEmpty(slot.bound)
+			? [allenOver(d.from(slot.bound))]
+			: [])
+	]
+	const flagged = flaggedOver(d, slot.bound)
+	const drawnHead = headOver(d, slot.bound, prefix, plan.fold)
+	const head = Arr.appendAll(
+		drawnHead,
+		Arr.map(
+			[...extrasOf(d, plan, slot), ...(endpoint?.kind === "head" ? [endpoint.h] : [])],
+			(h, i) => [`${prefix}${drawnHead.length + i}`, h] as const
+		)
+	)
+	const all = [...drawn.matches, ...further.matches, ...slot.matches, ...atUnion]
 	const folded = Arr.some(head, ([, h]) => h.kind === "count" || h.kind === "fold")
 	const matches: Arr.NonEmptyReadonlyArray<Match> = Arr.appendAll(
 		drawn.matches,
-		Arr.appendAll(further.matches, atUnion)
+		Arr.appendAll(further.matches, Arr.appendAll(slot.matches, atUnion))
 	)
 	const headless = further.rows !== undefined && !Arr.isReadonlyArrayNonEmpty(further.rows.heading)
 	const keyed: Arr.NonEmptyReadonlyArray<Match> =
@@ -872,21 +1044,340 @@ const drawRule = (d: Drawing, prefix: "h" | "g", rowsName: string): DrawnRule =>
 		head,
 		rows: further.rows,
 		owned: further.owned,
-		spellings: [],
-		allen:
-			d.fault === "allenTerm" && Arr.isReadonlyArrayNonEmpty(further.bound)
-				? d.from(further.bound)
-				: undefined,
-		cosine:
-			d.fault === "cosineDims"
-				? d.from(["vector", "short"] as const)
-				: d.fault === "cosineTerm"
-					? d.from(["vector", "scalar"] as const)
-					: undefined
+		spellings: []
 	}
 	return {
 		rule: d.fault === "clean" || all.length === 0 ? rule : spelled(d, rule),
 		pinned
+	}
+}
+
+/**
+ * What a cosine distance from Slot's embedding is to: a vector parameter, a vector value, Slot's image or the embedding
+ * itself; and, where a case plants a cosine fault, a vector of other dimensions or an integer, which is no vector.
+ */
+type CosineTo = "param" | "vector" | "image" | "self" | "short" | "integer"
+
+/**
+ * The span and vector constructs a rule holds, drawn where every rule visits: whether its head folds; an Allen predicate
+ * and a point's test; the one producer of its head; a cosine distance and what it is to; and the embedding in its head.
+ * A rule an approximate search ranks holds a distance to a query vector, and neither folds nor produces; a rule
+ * planting a cosine fault holds a distance to the fault's value, and one planting a fault of a producer or a span's
+ * endpoints folds nothing.
+ */
+interface Plan {
+	readonly fold: boolean
+	readonly allen: boolean
+	readonly pointIn: boolean
+	readonly producer: "intersection" | "difference" | "pack" | undefined
+	readonly cosine: CosineTo | undefined
+	readonly vectorHead: boolean
+}
+
+const planOf = (d: Drawing, search: boolean): Plan => {
+	const cosineFault = d.fault === "cosineDims" || d.fault === "cosineTerm"
+	const producing =
+		d.fault === "producerHead" || d.fault === "packTerm" || d.fault === "spanEndpoints"
+	const fold =
+		!search && !cosineFault && !producing && (d.fault === "unkeyedFold" || d.keep("aggregate"))
+	const allen = d.keep("allen")
+	const pointIn = d.keep("pointIn")
+	const producer =
+		!fold &&
+		!search &&
+		d.fault !== "packTerm" &&
+		d.fault !== "spanEndpoints" &&
+		(d.fault === "producerHead" || d.keep("producer"))
+			? d.choose<"intersection" | "difference" | "pack">([
+					["intersection", () => "intersection"],
+					["difference", () => "difference"],
+					["pack", () => "pack"]
+				])
+			: undefined
+	const cosine = ((): CosineTo | undefined => {
+		switch (d.fault) {
+			case "cosineDims":
+				return d.from(["self", "short"] as const)
+			case "cosineTerm":
+				return d.from(["self", "integer"] as const)
+			case "nearestBy":
+				return d.from(["param", "vector", "image", "self"] as const)
+			case "clean":
+			case "scopeName":
+			case "unnamedScope":
+			case "widenedName":
+			case "stranger":
+			case "stray":
+			case "unkeyedFold":
+			case "unionTypes":
+			case "emptyRelation":
+			case "unboundImport":
+			case "allenTerm":
+			case "orderHidden":
+			case "spanEndpoints":
+			case "packTerm":
+			case "producerHead":
+			case "nearestSource":
+				return search
+					? d.choose<CosineTo>([
+							["cosineParam", () => "param"],
+							["cosineVector", () => "vector"]
+						])
+					: !fold && d.keep("cosine")
+						? d.choose<CosineTo>([
+								["cosineParam", () => "param"],
+								["cosineVector", () => "vector"],
+								["cosineColumns", () => d.from(["image", "self"] as const)]
+							])
+						: undefined
+		}
+	})()
+	return { fold, allen, pointIn, producer, cosine, vectorHead: !fold && d.keep("vectorHead") }
+}
+
+/**
+ * A rule's match of Slot, if any: the matches, the variables bound once they are, the copy its vectors and spans are
+ * of, and the spans it binds to variables of its own.
+ */
+interface Slotted {
+	readonly matches: ReadonlyArray<Match>
+	readonly bound: ReadonlyArray<Var>
+	readonly copy: number
+	readonly spans: ReadonlyArray<Var>
+}
+
+/**
+ * The match of Slot a rule's span and vector constructs read, appended to `before` where its plan holds one: its item
+ * bound as any field, its span over integer ticks to its own variable, its other spans too where the case plants
+ * spanEndpoints, and its embedding, and its image where the distance is to it, to variables no other term reads, so no
+ * filter or second match reads a vector a search ranks by.
+ */
+const slottedOf = (
+	d: Drawing,
+	plan: Plan,
+	before: ReadonlyArray<Match>,
+	bound: ReadonlyArray<Var>
+): Slotted => {
+	const copy = nextCopy(before, "Slot")
+	const vectors = plan.cosine !== undefined || plan.vectorHead
+	const spanned =
+		plan.allen ||
+		plan.pointIn ||
+		plan.producer !== undefined ||
+		d.fault === "spanEndpoints" ||
+		d.fault === "packTerm" ||
+		d.fault === "nearestSource"
+	if (!vectors && !spanned) {
+		return { matches: [], bound, copy, spans: [] }
+	}
+	const item = bindingsOf(d, [slotItemField], copy, bound, undefined, [])
+	const own = (f: Field): readonly [string, Term] => [f.name, varTerm({ field: f, copy })] as const
+	const spans = Arr.filter(slotFields, (f) =>
+		d.fault === "spanEndpoints" ? isSpan(f.kind) : f.name === duringField.name
+	)
+	const vectorFields = [
+		...(vectors ? [embeddingField] : []),
+		...(plan.cosine === "image" ? [imageField] : [])
+	]
+	return {
+		matches: [
+			{
+				rel: "Slot",
+				copy,
+				bindings: [...item.bindings, ...Arr.map(spans, own), ...Arr.map(vectorFields, own)]
+			}
+		],
+		bound: Arr.reduce(spans, item.bound, (vs, f) => withVariable(vs, varTerm({ field: f, copy }))),
+		copy,
+		spans: Arr.map(spans, (f) => ({ field: f, copy }))
+	}
+}
+
+/** A span variable or a span parameter of `left`'s type, opposite it. */
+const oppositeOf = (d: Drawing, left: Var, bound: ReadonlyArray<Var>): Term =>
+	d.choose([
+		[
+			"spanOperand",
+			() => varTerm(d.from([left, ...Arr.filter(bound, (v) => v.field.kind === left.field.kind)]))
+		],
+		["spanParam", () => d.param(left.field)]
+	])
+
+/** An Allen mask drawn as the program writes one: one or two named masks, as they are, complemented or conversed. */
+const maskOf = (d: Drawing): Mask => ({
+	names: d.from([0, 1]) === 0 ? [d.from(maskNames)] : [d.from(maskNames), d.from(maskNames)],
+	op: d.from(["none", "complement", "converse"] as const)
+})
+
+/** An Allen predicate relating a variable to itself, which allenTerm plants over a drawn variable of any kind. */
+const allenOver = (v: Var): Pred => ({
+	kind: "allen",
+	left: varTerm(v),
+	mask: { names: ["overlaps"], op: "none" },
+	right: varTerm(v)
+})
+
+/**
+ * A rule's span predicates over its bound spans, as its plan holds them: an Allen predicate relating a span to a span
+ * of its type or a span parameter under a drawn mask, and a point's test of an integer variable or parameter in a span
+ * over integer ticks or a parameter of its type.
+ */
+const spanFilters = (d: Drawing, plan: Plan, bound: ReadonlyArray<Var>): ReadonlyArray<Pred> => {
+	const spans = Arr.filter(bound, (v) => isSpan(v.field.kind))
+	const ticks = Arr.filter(spans, (v) => v.field.kind === "span")
+	const ints = Arr.filter(bound, (v) => v.field.kind === "int")
+	const allen = ((): ReadonlyArray<Pred> => {
+		if (!plan.allen || !Arr.isReadonlyArrayNonEmpty(spans)) {
+			return []
+		}
+		const left = d.from(spans)
+		return [
+			{ kind: "allen", left: varTerm(left), mask: maskOf(d), right: oppositeOf(d, left, spans) }
+		]
+	})()
+	const pointIn = ((): ReadonlyArray<Pred> => {
+		if (!plan.pointIn || !Arr.isReadonlyArrayNonEmpty(ticks)) {
+			return []
+		}
+		const point =
+			Arr.isReadonlyArrayNonEmpty(ints) && d.from([0, 1]) === 0
+				? varTerm(d.from(ints))
+				: d.param(integerField)
+		return [{ kind: "pointIn", point, span: oppositeOf(d, d.from(ticks), ticks) }]
+	})()
+	return [...allen, ...pointIn]
+}
+
+/** A producer over a drawn span: intersection and difference with a span or span parameter of its type, pack alone. */
+const producerOf = (
+	d: Drawing,
+	fn: "intersection" | "difference" | "pack",
+	spans: Arr.NonEmptyReadonlyArray<Var>
+): HeadTerm => {
+	const left = d.from(spans)
+	return fn === "pack"
+		? { kind: "pack", of: varTerm(left) }
+		: { kind: "produce", fn, left: varTerm(left), right: oppositeOf(d, left, spans) }
+}
+
+/** What a cosine distance from the embedding of Slot's `copy`-th match is to. */
+const cosineTerm = (d: Drawing, to: CosineTo, copy: number): Term => {
+	switch (to) {
+		case "param":
+			return d.param(embeddingField)
+		case "vector":
+			return { kind: "vector", dims: 3 }
+		case "image":
+			return varTerm({ field: imageField, copy })
+		case "self":
+			return varTerm({ field: embeddingField, copy })
+		case "short":
+			return { kind: "vector", dims: 2 }
+		case "integer":
+			return { kind: "constant", of: "integer", value: 1 }
+	}
+}
+
+/**
+ * The head terms a rule's plan adds after its drawn head: its producer, its distance, its embedding; and the producer
+ * packTerm plants over a drawn variable, the second producer or the count producerHead plants beside its producer, and
+ * the count, the producer or nothing nearestSource plants beside a search's distance.
+ */
+const extrasOf = (d: Drawing, plan: Plan, slot: Slotted): ReadonlyArray<HeadTerm> => {
+	const spans = Arr.filter(slot.bound, (v) => isSpan(v.field.kind))
+	const embedding = varTerm({ field: embeddingField, copy: slot.copy })
+	const produced: ReadonlyArray<HeadTerm> =
+		plan.producer !== undefined && Arr.isReadonlyArrayNonEmpty(spans)
+			? [producerOf(d, plan.producer, spans)]
+			: []
+	const planted = ((): ReadonlyArray<HeadTerm> => {
+		if (d.fault === "packTerm" && Arr.isReadonlyArrayNonEmpty(slot.bound)) {
+			return [{ kind: "pack", of: varTerm(d.from(slot.bound)) }]
+		}
+		if (d.fault === "producerHead" && Arr.isReadonlyArrayNonEmpty(spans)) {
+			return [
+				d.from([0, 1]) === 0
+					? { kind: "count" }
+					: producerOf(d, d.from(["intersection", "difference", "pack"] as const), spans)
+			]
+		}
+		if (d.fault === "nearestSource" && Arr.isReadonlyArrayNonEmpty(spans)) {
+			switch (d.from(["count", "producer", "none"] as const)) {
+				case "count":
+					return [{ kind: "count" }]
+				case "producer":
+					return [producerOf(d, d.from(["intersection", "difference", "pack"] as const), spans)]
+				case "none":
+					return []
+			}
+		}
+		return []
+	})()
+	return [
+		...produced,
+		...(plan.cosine === undefined
+			? []
+			: [{ kind: "cosine", of: embedding, to: cosineTerm(d, plan.cosine, slot.copy) } as const]),
+		...(plan.vectorHead ? [{ kind: "term", t: embedding } as const] : []),
+		...planted
+	]
+}
+
+/**
+ * The construct spanEndpoints plants over Slot's spans, of three endpoint types: an Allen predicate or a producer over
+ * two, or a point's test of an integer in one, which the engine admits exactly where the types meet. The second span is
+ * half the time the first's partner, a span over Cents for one over its base bigint and back, the subtle pair, whose
+ * carriers agree and whose brands do not.
+ */
+type Endpoint =
+	| { readonly kind: "filter"; readonly p: Pred }
+	| { readonly kind: "head"; readonly h: HeadTerm }
+
+const endpointOf = (
+	d: Drawing,
+	spans: Arr.NonEmptyReadonlyArray<Var>,
+	bound: ReadonlyArray<Var>
+): Endpoint => {
+	const ints = Arr.filter(bound, (v) => v.field.kind === "int")
+	const first = d.from(spans)
+	const partner = Arr.filter(spans, (v) => v.field.kind === partnerKind(first.field.kind))
+	const left = varTerm(first)
+	const right = varTerm(
+		Arr.isReadonlyArrayNonEmpty(partner) && d.from([0, 1]) === 0 ? d.from(partner) : d.from(spans)
+	)
+	switch (d.from(["allen", "pointIn", "intersection", "difference"] as const)) {
+		case "allen":
+			return { kind: "filter", p: { kind: "allen", left, mask: maskOf(d), right } }
+		case "pointIn":
+			return {
+				kind: "filter",
+				p: {
+					kind: "pointIn",
+					point: Arr.isReadonlyArrayNonEmpty(ints) ? varTerm(d.from(ints)) : d.param(integerField),
+					span: right
+				}
+			}
+		case "intersection":
+			return { kind: "head", h: { kind: "produce", fn: "intersection", left, right } }
+		case "difference":
+			return { kind: "head", h: { kind: "produce", fn: "difference", left, right } }
+	}
+}
+
+/** The kind of span a span's endpoint type is nearest to: a span over Cents and one over bigint each other's. */
+const partnerKind = (kind: Kind): Kind => {
+	switch (kind) {
+		case "centsSpan":
+			return "bigSpan"
+		case "bigSpan":
+			return "centsSpan"
+		case "uuid":
+		case "int":
+		case "code":
+		case "cents":
+		case "span":
+		case "vector":
+			return kind
 	}
 }
 
@@ -967,6 +1458,11 @@ const spelled = (d: Drawing, rule: RuleSpec): RuleSpec => {
 			case "cosineDims":
 			case "cosineTerm":
 			case "orderHidden":
+			case "spanEndpoints":
+			case "packTerm":
+			case "producerHead":
+			case "nearestBy":
+			case "nearestSource":
 				return undefined
 		}
 	}
@@ -1139,11 +1635,11 @@ const foldsOver = (d: Drawing, bound: ReadonlyArray<Var>): ReadonlyArray<HeadTer
 const headOver = (
 	d: Drawing,
 	bound: ReadonlyArray<Var>,
-	prefix: "h" | "g"
+	prefix: "h" | "g",
+	fold: boolean
 ): Arr.NonEmptyReadonlyArray<readonly [string, HeadTerm]> => {
 	const ints = Arr.filter(bound, (b) => b.field.kind === "int")
-	const cosine = d.fault === "cosineDims" || d.fault === "cosineTerm"
-	if (!cosine && (d.fault === "unkeyedFold" || d.keep("aggregate"))) {
+	if (fold) {
 		const groups = groupsOver(d, bound)
 		const terms: Arr.NonEmptyReadonlyArray<HeadTerm> = [
 			{ kind: "count" },
@@ -1197,6 +1693,7 @@ const renamed = (
 			case "literal":
 			case "constant":
 			case "handle":
+			case "vector":
 				return t
 		}
 	}
@@ -1209,6 +1706,10 @@ const renamed = (
 				return { ...p, ps: [pred(p.ps[0]), pred(p.ps[1])] }
 			case "not":
 				return { ...p, t: term(p.t) }
+			case "allen":
+				return { ...p, left: term(p.left), right: term(p.right) }
+			case "pointIn":
+				return { ...p, point: term(p.point), span: term(p.span) }
 		}
 	}
 	const head = (h: HeadTerm): HeadTerm => {
@@ -1216,7 +1717,12 @@ const renamed = (
 			case "term":
 				return { kind: "term", t: term(h.t) }
 			case "fold":
+			case "pack":
 				return { ...h, of: term(h.of) }
+			case "produce":
+				return { ...h, left: term(h.left), right: term(h.right) }
+			case "cosine":
+				return { ...h, of: term(h.of), to: term(h.to) }
 			case "literal":
 			case "count":
 				return h
@@ -1273,8 +1779,12 @@ const literalDiscriminants: readonly [HeadTerm, HeadTerm] = [
  * once, but for unionTypes, whose fault is its second arm.
  */
 const drawQuery = (d: Drawing): QuerySpec => {
-	const { rule: first, pinned } = drawRule(d, "h", "rows")
-	const plain = d.fault === "clean" && !pinned
+	const search =
+		d.fault === "nearestBy" ||
+		d.fault === "nearestSource" ||
+		(d.fault === "clean" && d.keep("nearest"))
+	const { rule: first, pinned } = drawRule(d, "h", "rows", search)
+	const plain = d.fault === "clean" && !pinned && !search
 	const handled = plain && d.keep("handleDiscriminant")
 	if (handled) {
 		d.note("union")
@@ -1289,7 +1799,7 @@ const drawQuery = (d: Drawing): QuerySpec => {
 			: undefined
 	const second = (): RuleSpec =>
 		heterogeneous
-			? drawRule(d, d.fault === "unionTypes" ? "h" : "g", "rowsb").rule
+			? drawRule(d, d.fault === "unionTypes" ? "h" : "g", "rowsb", false).rule
 			: secondArm(first)
 	const arms: Arr.NonEmptyReadonlyArray<RuleSpec> = union
 		? tagged !== undefined
@@ -1307,9 +1817,30 @@ const drawQuery = (d: Drawing): QuerySpec => {
 	return {
 		arms,
 		take,
-		hidden: hiding ? d.from(["id", "owner", "nope", "h0"] as const) : undefined,
+		hidden: hiding
+			? d.from([0, 1]) === 0
+				? d.from(Arr.map(first.head, ([name]) => name))
+				: d.from(["id", "owner", "nope"] as const)
+			: undefined,
 		fault: d.fault,
-		request: take === undefined && !heterogeneous ? requestOf(d) : undefined
+		request: take === undefined && !heterogeneous && !search ? requestOf(d) : undefined,
+		nearest: search ? nearestOf(d, first) : undefined
+	}
+}
+
+/**
+ * The approximate search over a rule its draw made rankable: by its distance, or, where the case plants nearestBy, by its
+ * distance half the time and otherwise by a name drawn among its head's; taking one fact or three.
+ */
+const nearestOf = (d: Drawing, rule: RuleSpec): Nearest => {
+	const names = Arr.map(rule.head, ([name]) => name)
+	const distance = Arr.findFirst(rule.head, ([, h]) => h.kind === "cosine")
+	return {
+		by:
+			Option.isNone(distance) || (d.fault === "nearestBy" && d.from([0, 1]) === 0)
+				? d.from(names)
+				: distance.value[0],
+		take: d.from([1, 3] as const)
 	}
 }
 
@@ -1358,7 +1889,7 @@ const uuidOf = (value: number): string =>
 	`00000000-0000-4000-8000-${pipe(String(value), Str.padStart(12, "0"))}`
 
 /** The words that name the second and third scope of one source in a rule. */
-const ordinals = ["second", "third"] as const
+const ordinals = ["second", "third", "fourth"] as const
 
 /**
  * A variable's scope name, which the program also declares its variables under: its source's name in lower camel case
@@ -1368,7 +1899,7 @@ const ordinals = ["second", "third"] as const
 const scopeOf = (v: Var): string =>
 	v.copy === 0
 		? Str.uncapitalize(v.field.rel)
-		: `${defined(ordinals[v.copy - 1], "a third match at most")}${v.field.rel}`
+		: `${defined(ordinals[v.copy - 1], "a fourth match at most")}${v.field.rel}`
 
 /** The name a bound Owned of a scope is declared under. */
 const boundName = (scope: string): string => `${scope}Source`
@@ -1398,7 +1929,7 @@ class Rendering {
 			case "var":
 				return `${scopeOf(t.v)}.${t.v.field.name}`
 			case "param":
-				return `r.param(${jsonText(t.name)}, Item.fields.${t.at.name})`
+				return `r.param(${jsonText(t.name)}, ${t.at.rel}.fields.${t.at.name})`
 			case "literal":
 				return t.type === "int"
 					? String(t.value)
@@ -1410,6 +1941,8 @@ class Rendering {
 				return `Compute.literal(pg.integer, ${t.value})`
 			case "handle":
 				return `Tone.handle(${jsonText(toneOf(t.value))})`
+			case "vector":
+				return `Vector.make(Float32Array.of(${Arr.join(Arr.map(componentsOf(t.dims), String), ", ")}), ${t.dims})`
 			case "arith":
 				return `Compute.${t.op}(${this.term(t.a)}, ${this.term(t.b)})`
 			case "neg":
@@ -1420,13 +1953,19 @@ class Rendering {
 	}
 
 	pred(p: Pred): string {
-		if (p.kind === "not") {
-			return `r.not(${p.rel}, { ${p.field}: ${this.term(p.t)} })`
+		switch (p.kind) {
+			case "not":
+				return `r.not(${p.rel}, { ${p.field}: ${this.term(p.t)} })`
+			case "allen":
+				return `r.allen(${this.term(p.left)}, ${maskText(p.mask)}, ${this.term(p.right)})`
+			case "pointIn":
+				return `r.pointIn(${this.term(p.point)}, ${this.term(p.span)})`
+			case "cmp":
+				return `${p.via === "rule" ? "r" : "Compute"}.${p.op}(${this.term(p.a)}, ${this.term(p.b)})`
+			case "and":
+			case "or":
+				return `${p.via === "rule" ? "r" : "Compute"}.${p.kind}(${this.pred(p.ps[0])}, ${this.pred(p.ps[1])})`
 		}
-		const callee = p.via === "rule" ? "r" : "Compute"
-		return p.kind === "cmp"
-			? `${callee}.${p.op}(${this.term(p.a)}, ${this.term(p.b)})`
-			: `${callee}.${p.kind}(${this.pred(p.ps[0])}, ${this.pred(p.ps[1])})`
 	}
 
 	head(h: HeadTerm): string {
@@ -1439,6 +1978,12 @@ class Rendering {
 				return "r.count()"
 			case "fold":
 				return `r.${h.fold}(${this.term(h.of)})`
+			case "produce":
+				return `r.${h.fn}(${this.term(h.left)}, ${this.term(h.right)})`
+			case "pack":
+				return `r.pack(${this.term(h.of)})`
+			case "cosine":
+				return `Compute.cosineDistance(${this.term(h.of)}, ${this.term(h.to)})`
 		}
 	}
 
@@ -1478,27 +2023,15 @@ class Rendering {
 				: arm.flagged.kind === "either"
 					? [`flag ? ${this.pred(arm.flagged.ifTrue)} : ${this.pred(arm.flagged.ifFalse)}`]
 					: [`...Arr.filter([${this.pred(arm.flagged.p)}], () => flag)`]
-		const allen =
-			arm.allen === undefined
-				? []
-				: [
-						`r.allen(${this.term(varTerm(arm.allen))}, ALLEN.overlaps, ${this.term(varTerm(arm.allen))})`
-					]
-		const predicates = [...Arr.map(arm.filters, (p) => this.pred(p)), ...flagged, ...allen]
+		const predicates = [...Arr.map(arm.filters, (p) => this.pred(p)), ...flagged]
 		const filters = Arr.isReadonlyArrayNonEmpty(predicates)
 			? [`.where(${Arr.join(predicates, ", ")})`]
 			: []
-		const cosine =
-			arm.cosine === undefined
-				? []
-				: [`cos: Compute.cosineDistance(cell.vector, ${cosineText(arm.cosine)})`]
 		const head = `.find({ ${Arr.join(
-			[...Arr.map(arm.head, ([n, h]) => `${n}: ${this.head(h)}`), ...cosine],
+			Arr.map(arm.head, ([n, h]) => `${n}: ${this.head(h)}`),
 			", "
 		)} })`
-		const cells =
-			arm.cosine === undefined ? [] : [".match(Cell, { id: cell.id, vector: cell.vector })"]
-		const body = `r${Arr.join([...matches, ...cells, ...filters, head], "")}`
+		const body = `r${Arr.join([...matches, ...filters, head], "")}`
 		const variables = variablesOf(arm)
 		const rows: ReadonlyArray<Line> =
 			arm.rows === undefined
@@ -1531,9 +2064,6 @@ class Rendering {
 		return [
 			{ text: "\t.rule((r) => {", fault: second && this.#fault === "unionTypes" },
 			...rows,
-			...(arm.cosine === undefined
-				? []
-				: [{ text: '\t\tconst cell = v(Cell, "cell")', fault: false }]),
 			...declare(Arr.filter(variables, (v) => v.field.rel !== "Owned")),
 			...owned,
 			...declare(Arr.filter(variables, (v) => v.field.rel === "Owned")),
@@ -1552,7 +2082,13 @@ class Rendering {
 					return `${f.name}: pg.integer`
 				case "code":
 				case "cents":
-					return `${f.name}: Item.fields.${itemField(f.kind).name}`
+				case "span":
+				case "bigSpan":
+				case "centsSpan":
+				case "vector": {
+					const at = paramField(f.kind)
+					return `${f.name}: ${at.rel}.fields.${at.name}`
+				}
 			}
 		})
 		return Arr.isReadonlyArrayNonEmpty(entries) ? `{ ${Arr.join(entries, ", ")} }` : "{}"
@@ -1560,6 +2096,15 @@ class Rendering {
 
 	query(spec: QuerySpec): Arr.NonEmptyReadonlyArray<Line> {
 		const arms = Arr.flatMap(spec.arms, (arm, i) => this.rule(arm, i > 0))
+		const nearest: ReadonlyArray<Line> =
+			spec.nearest === undefined
+				? []
+				: [
+						{
+							text: `\t.approximateNearest({ by: ${jsonText(spec.nearest.by)}, take: ${spec.nearest.take} })`,
+							fault: this.#fault === "nearestBy" || this.#fault === "nearestSource"
+						}
+					]
 		const take =
 			spec.take === undefined
 				? []
@@ -1570,7 +2115,7 @@ class Rendering {
 						},
 						{ text: `\t.take(${jsonText(spec.take)})`, fault: false }
 					]
-		return [{ text: "query(Agree)", fault: false }, ...arms, ...take]
+		return [{ text: "query(Agree)", fault: false }, ...arms, ...nearest, ...take]
 	}
 }
 
@@ -1589,39 +2134,41 @@ const sourceText = (rel: MatchSource, copy: number, arm: RuleSpec): string => {
 		case "Item":
 		case "Tag":
 		case "Note":
+		case "Slot":
 		case "Stray":
 		case "Tones":
 			return rel
 	}
 }
 
-/** What a head's cosine distance is to, in the program. */
-const cosineText = (to: "vector" | "short" | "scalar"): string => {
-	switch (to) {
-		case "vector":
-			return "cell.vector"
-		case "short":
-			return "Vector.make(Float32Array.of(0.5, 1), 2)"
-		case "scalar":
-			return "Compute.literal(pg.integer, 1)"
-	}
+/** The components of a vector value of `dims` dimensions, each nonzero, so its norm is in the cosine domain. */
+const componentsOf = (dims: number): ReadonlyArray<number> => Arr.makeBy(dims, (i) => (i + 1) / 2)
+
+/** An Allen mask as the program writes it: its names joined by `|`, under ALLEN's complement or converse. */
+const maskText = (mask: Mask): string => {
+	const union = Arr.join(
+		Arr.map(mask.names, (n) => `ALLEN.${n}`),
+		" | "
+	)
+	return mask.op === "none" ? union : `ALLEN.${mask.op}(${union})`
 }
 
-/** What a head's cosine distance is to, through the JavaScript view, beside Cell's vector `vector`. */
-const cosineValue = (to: "vector" | "short" | "scalar", vector: unknown): unknown => {
-	switch (to) {
-		case "vector":
-			return vector
-		case "short":
-			return Vector.make(Float32Array.of(0.5, 1), 2)
-		case "scalar":
-			return computeCore.literal(pg.integer, 1)
+/** An Allen mask's value: its names' union, under ALLEN's complement or converse. */
+const maskValue = (mask: Mask): number => {
+	const union = Arr.reduce(mask.names, 0, (m, n) => m | ALLEN[n])
+	switch (mask.op) {
+		case "none":
+			return union
+		case "complement":
+			return ALLEN.complement(union)
+		case "converse":
+			return ALLEN.converse(union)
 	}
 }
 
 /**
  * The faults whose diagnostic is on the first arm's return line: a binding's, a match's, a fold's, an Allen
- * predicate's or a cosine distance's.
+ * predicate's, a cosine distance's, a span's endpoints', a pack's and a producer's.
  */
 const returnFaults: ReadonlySet<Planted> = new Set<Planted>([
 	"stranger",
@@ -1630,7 +2177,10 @@ const returnFaults: ReadonlySet<Planted> = new Set<Planted>([
 	"unboundImport",
 	"allenTerm",
 	"cosineDims",
-	"cosineTerm"
+	"cosineTerm",
+	"spanEndpoints",
+	"packTerm",
+	"producerHead"
 ])
 
 /**
@@ -1678,6 +2228,7 @@ const variablesOf = (arm: RuleSpec): ReadonlyArray<Var> => {
 			case "literal":
 			case "constant":
 			case "handle":
+			case "vector":
 				return
 		}
 	}
@@ -1695,6 +2246,14 @@ const variablesOf = (arm: RuleSpec): ReadonlyArray<Var> => {
 			case "not":
 				term(p.t)
 				return
+			case "allen":
+				term(p.left)
+				term(p.right)
+				return
+			case "pointIn":
+				term(p.point)
+				term(p.span)
+				return
 		}
 	}
 	for (const bind of arm.owned) {
@@ -1710,15 +2269,26 @@ const variablesOf = (arm: RuleSpec): ReadonlyArray<Var> => {
 	for (const p of [...arm.filters, ...flaggedPreds(arm.flagged)]) {
 		pred(p)
 	}
-	if (arm.allen !== undefined) {
-		term(varTerm(arm.allen))
-	}
 	for (const [, h] of arm.head) {
-		if (h.kind === "term") {
-			term(h.t)
-		}
-		if (h.kind === "fold") {
-			term(h.of)
+		switch (h.kind) {
+			case "term":
+				term(h.t)
+				break
+			case "fold":
+			case "pack":
+				term(h.of)
+				break
+			case "produce":
+				term(h.left)
+				term(h.right)
+				break
+			case "cosine":
+				term(h.of)
+				term(h.to)
+				break
+			case "literal":
+			case "count":
+				break
 		}
 	}
 	return [...seen.values()]
@@ -1739,23 +2309,83 @@ const flaggedPreds = (flagged: Flagged | undefined): ReadonlyArray<Pred> =>
 const flagVariants = (spec: QuerySpec): Arr.NonEmptyReadonlyArray<QuerySpec> => {
 	const resolved = (flag: boolean): QuerySpec => ({
 		...spec,
-		arms: Arr.map(spec.arms, (arm) => {
-			const f = arm.flagged
-			const extra: ReadonlyArray<Pred> =
-				f === undefined
-					? []
-					: f.kind === "either"
-						? [flag ? f.ifTrue : f.ifFalse]
-						: flag
-							? [f.p]
-							: []
-			return { ...arm, filters: [...arm.filters, ...extra], flagged: undefined }
-		})
+		arms: Arr.map(spec.arms, (arm) => resolvedArm(arm, flag))
 	})
 	return Arr.some(spec.arms, (arm) => arm.flagged !== undefined)
 		? [resolved(true), resolved(false)]
 		: [spec]
 }
+
+/** An arm with its flagged filter, if it states one, resolved as the flag's one value reads it. */
+const resolvedArm = (arm: RuleSpec, flag: boolean): RuleSpec => {
+	const f = arm.flagged
+	const extra: ReadonlyArray<Pred> =
+		f === undefined ? [] : f.kind === "either" ? [flag ? f.ifTrue : f.ifFalse] : flag ? [f.p] : []
+	return { ...arm, filters: [...arm.filters, ...extra], flagged: undefined }
+}
+
+/**
+ * The two readings of the i-th arm's flagged filter, one of two predicates, as the types read a proof by cases
+ * (evidence/evidence.ts SplitPinned): that arm's filter resolved as each value of the flag, every other arm's at what
+ * both its predicates state. Only a choice of two predicates splits: a spread array states nothing under either value
+ * that its absence does not.
+ */
+const splitReadings = (
+	spec: QuerySpec,
+	arm: RuleSpec,
+	i: number
+): readonly [QuerySpec, QuerySpec] => {
+	const shared = sharedReading(spec)
+	const reading = (flag: boolean): QuerySpec => ({
+		...shared,
+		arms: Arr.map(shared.arms, (other, j) => (j === i ? resolvedArm(arm, flag) : other))
+	})
+	return [reading(true), reading(false)]
+}
+
+/**
+ * A spec as the types read its flags, whichever value the flag takes: each flagged filter resolved to what both its
+ * predicates state (evidence/evidence.ts MustState). Two equalities that fix one variable leave it fixed, to the input
+ * both name where they name one, and otherwise to a parameter of the arm's own that no other filter names, a value the
+ * types do not name; two that fix different variables state nothing, and so does a spread array of unknown length.
+ */
+const sharedReading = (spec: QuerySpec): QuerySpec => ({
+	...spec,
+	arms: Arr.map(spec.arms, (arm, i) => {
+		const f = arm.flagged
+		const extra: ReadonlyArray<Pred> =
+			f === undefined || f.kind === "spread" ? [] : bothState(f.ifTrue, f.ifFalse, `shared${i}`)
+		return { ...arm, filters: [...arm.filters, ...extra], flagged: undefined }
+	})
+})
+
+/** What two predicates, either of which may run, both state: the variable both fix, where they fix one. */
+const bothState = (a: Pred, b: Pred, fresh: string): ReadonlyArray<Pred> => {
+	if (a.kind !== "cmp" || b.kind !== "cmp" || a.op !== "eq" || b.op !== "eq") {
+		return []
+	}
+	const [x, y] = [a.a, b.a]
+	if (x.kind !== "var" || y.kind !== "var" || !sameVar(x.v, y.v)) {
+		return []
+	}
+	return [
+		sameInput(a.b, b.b)
+			? a
+			: {
+					kind: "cmp",
+					op: "eq",
+					a: x,
+					b: { kind: "param", name: fresh, at: paramField(x.v.field.kind) },
+					via: "rule"
+				}
+	]
+}
+
+/** Whether two inputs name one value, as the types name a fixed variable's value: one literal, handle or parameter. */
+const sameInput = (x: Term, y: Term): boolean =>
+	(x.kind === "literal" && y.kind === "literal" && x.type === y.type && x.value === y.value) ||
+	(x.kind === "handle" && y.kind === "handle" && x.value === y.value) ||
+	(x.kind === "param" && y.kind === "param" && x.name === y.name)
 
 /** The rule a spec's arm states, built through the query builder's JavaScript view, as the engine compiles it. */
 const builtArm =
@@ -1779,6 +2409,7 @@ const builtArm =
 				case "Item":
 				case "Tag":
 				case "Note":
+				case "Slot":
 				case "Stray":
 				case "Tones":
 					return relations[rel]
@@ -1803,7 +2434,7 @@ const builtArm =
 				case "var":
 					return variable(t.v)
 				case "param":
-					return r.param(t.name, descriptors[t.at.name])
+					return r.param(t.name, descriptorOf(t.at))
 				case "literal":
 					return t.type === "int" ? t.value : t.type === "uuid" ? uuidOf(t.value) : toneOf(t.value)
 				case "constant":
@@ -1812,6 +2443,8 @@ const builtArm =
 						: computeCore.literal(pg.integer, t.value)
 				case "handle":
 					return Tone.handle(toneOf(t.value))
+				case "vector":
+					return Vector.make(Float32Array.from(componentsOf(t.dims)), t.dims)
 				case "arith": {
 					const a = term(t.a)
 					const b = term(t.b)
@@ -1830,6 +2463,12 @@ const builtArm =
 		const pred = (p: Pred): unknown => {
 			if (p.kind === "not") {
 				return r.not(relations[p.rel], { [p.field]: term(p.t) })
+			}
+			if (p.kind === "allen") {
+				return r.allen(term(p.left), maskValue(p.mask), term(p.right))
+			}
+			if (p.kind === "pointIn") {
+				return r.pointIn(term(p.point), term(p.span))
 			}
 			if (p.kind !== "cmp") {
 				const [x, y] = [pred(p.ps[0]), pred(p.ps[1])]
@@ -1865,6 +2504,14 @@ const builtArm =
 					return r.count()
 				case "fold":
 					return r[h.fold](term(h.of))
+				case "produce":
+					return h.fn === "intersection"
+						? r.intersection(term(h.left), term(h.right))
+						: r.difference(term(h.left), term(h.right))
+				case "pack":
+					return r.pack(term(h.of))
+				case "cosine":
+					return computeCore.cosineDistance(term(h.of), term(h.to))
 			}
 		}
 		for (const [copy, bind] of arm.owned.entries()) {
@@ -1878,31 +2525,11 @@ const builtArm =
 				Rec.fromEntries(Arr.map(m.bindings, ([f, t]) => [f, term(t)] as const))
 			)
 		)
-		const cell = varsOver(Cell, "cell")
-		const celled =
-			arm.cosine === undefined
-				? matched
-				: matched.match(Cell, { id: cell["id"], vector: cell["vector"] })
-		const allen =
-			arm.allen === undefined
-				? []
-				: [r.allen(variable(arm.allen), ALLEN.overlaps, variable(arm.allen))]
-		const predicates = [...Arr.map(arm.filters, pred), ...allen]
+		const predicates = Arr.map(arm.filters, pred)
 		const filtered = Arr.isReadonlyArrayNonEmpty(predicates)
-			? celled.where(...argumentsOf(predicates))
-			: celled
-		const cosine: ReadonlyArray<readonly [string, unknown]> =
-			arm.cosine === undefined
-				? []
-				: [
-						[
-							"cos",
-							computeCore.cosineDistance(cell["vector"], cosineValue(arm.cosine, cell["vector"]))
-						]
-					]
-		return filtered.find(
-			Rec.fromEntries([...Arr.map(arm.head, ([n, h]) => [n, head(h)] as const), ...cosine])
-		)
+			? matched.where(...argumentsOf(predicates))
+			: matched
+		return filtered.find(Rec.fromEntries(Arr.map(arm.head, ([n, h]) => [n, head(h)] as const)))
 	}
 
 /** The name a scope's v call passes: its spelling's literal, or the scope's own name, the value a `string` holds. */
@@ -1918,7 +2545,11 @@ const rowsDescriptor = (f: Field): unknown => {
 			return pg.integer
 		case "code":
 		case "cents":
-			return descriptors[itemField(f.kind).name]
+		case "span":
+		case "bigSpan":
+		case "centsSpan":
+		case "vector":
+			return descriptorOf(paramField(f.kind))
 	}
 }
 
@@ -1926,7 +2557,13 @@ const rowsDescriptor = (f: Field): unknown => {
 const built = (spec: QuerySpec): QueryValue => {
 	const [first, ...rest] = Arr.map(spec.arms, builtArm)
 	const union = Arr.reduce(rest, queryOver(Agree).rule(first), (q, arm) => q.rule(arm))
-	return spec.take === undefined ? union : union.orderBy([orderedBy(spec), "asc"]).take(spec.take)
+	const searched =
+		spec.nearest === undefined
+			? union
+			: union.approximateNearest({ by: spec.nearest.by, take: spec.nearest.take })
+	return spec.take === undefined
+		? searched
+		: searched.orderBy([orderedBy(spec), "asc"]).take(spec.take)
 }
 
 /**
@@ -1936,14 +2573,28 @@ const built = (spec: QuerySpec): QueryValue => {
  * record of each heading group, and its parameters, as ./heading.ts writes them.
  */
 interface Proved {
+	/** Whether get may read the query, and its cardinality, under what every reading of its flags states. */
 	readonly get: boolean
 	readonly card: Card
+	/** Whether the card rests on a proof by cases over one flagged filter's readings, what both state not pinning it. */
+	readonly split: boolean
+	/**
+	 * The cardinality every reading of its flags holds, each compiled alone, all flags read as one value (meetCard): its
+	 * card where it states no flagged filter. It is stronger than card only where the flags prove more read together
+	 * than any one of them read alone, a proof over several flags at once, which the types do not make.
+	 */
+	readonly readings: Card
 	/** The keys of each reading of the query, one where it states no flagged filter, two where it does. */
 	readonly keys: Arr.NonEmptyReadonlyArray<ReadonlyArray<ReadonlyArray<ReadonlyArray<string>>>>
 	readonly head: string
 	readonly params: string
 	/** Its page's verdicts, where the query is no take's: the order it pages by, and its request's refusal, if any. */
 	readonly page: PageVerdict | undefined
+	/**
+	 * The facts a variable read from each column of its heading has, by the column's type (./heading.ts columnFacts),
+	 * where the query is of one heading group.
+	 */
+	readonly facts: string | undefined
 }
 
 /** The engine's verdicts on a page of a query: the field it orders by, and the runtime's verdict on its request. */
@@ -1957,7 +2608,7 @@ interface PageVerdict {
 
 /** What the program states of a query the types must refuse: its diagnostic, and the refusal or prose it names. */
 interface Refused {
-	readonly code: "TS2322" | "TS2345" | "TS2379" | "TS2554"
+	readonly code: "TS2322" | "TS2345" | "TS2353" | "TS2379" | "TS2554"
 	readonly claim:
 		| { readonly kind: "refusal"; readonly refusal: TypeRefusal }
 		| { readonly kind: "prose"; readonly reason: string }
@@ -1998,9 +2649,9 @@ const named = (code: Refused["code"], refusal: TypeRefusal): Refused => ({
  */
 const refusalOf = (spec: QuerySpec, reason: CompileReason): Refused | undefined => {
 	const fault = spec.fault
-	const cosine = spec.arms[0].cosine
 	const label = "at" in reason && "label" in reason.at ? reason.at.label : ""
 	const malformed = reason._tag === "MalformedDescription"
+	const unsupported = reason._tag === "UnsupportedOperation"
 	switch (fault) {
 		case "scopeName":
 			return malformed && label === "v"
@@ -2015,7 +2666,9 @@ const refusalOf = (spec: QuerySpec, reason: CompileReason): Refused | undefined 
 				: undefined
 		case "stranger":
 			return malformed && Str.startsWith("r.match(")(label)
-				? named("TS2322", "not a field of the arms the bindings select")
+				? Arr.some(spec.arms[0].matches, strangerAlone)
+					? prose("TS2353", "a match's one binding names no field of its source")
+					: named("TS2322", "not a field of the arms the bindings select")
 				: undefined
 		case "stray":
 			return malformed && label === "r.match(Stray)"
@@ -2047,31 +2700,82 @@ const refusalOf = (spec: QuerySpec, reason: CompileReason): Refused | undefined 
 				? named("TS2345", "a span term is required")
 				: undefined
 		case "cosineDims":
+			return malformed && label === "Compute.cosineDistance"
+				? prose("TS2345", "cosine distance needs one dimension count")
+				: undefined
 		case "cosineTerm":
 			return malformed && label === "Compute.cosineDistance"
-				? {
-						code: "TS2345",
-						claim: {
-							kind: "prose",
-							reason:
-								cosine === "short"
-									? "cosine distance needs one dimension count"
-									: "cosine distance needs a vector term"
-						}
-					}
+				? prose("TS2345", "cosine distance needs a vector term")
 				: undefined
 		case "orderHidden":
 			return malformed && label === "Query.orderBy"
-				? {
-						code: "TS2322",
-						claim: { kind: "prose", reason: "the order names no field of the heading" }
-					}
+				? prose("TS2322", "the order names no field of the heading")
+				: undefined
+		case "spanEndpoints":
+			return malformed && Arr.contains(spanLabels, label)
+				? prose(
+						"TS2345",
+						label === "r.pointIn"
+							? "a point of the span's endpoint type"
+							: "two spans over one endpoint type"
+					)
+				: undefined
+		case "packTerm":
+			return malformed && label === "r.pack"
+				? prose("TS2345", "r.pack needs a span term")
+				: undefined
+		case "producerHead":
+			return unsupported && label === "rule"
+				? named(
+						"TS2322",
+						Arr.some(spec.arms[0].head, ([, h]) => h.kind === "count")
+							? "aggregate and span producer in one head: a producer yields facts per binding, an aggregate folds them"
+							: "one span producer per head"
+					)
+				: undefined
+		case "nearestBy":
+			return unsupported && label === "Query.approximateNearest"
+				? prose("TS2322", "by names a distance output, not a key field")
+				: undefined
+		case "nearestSource":
+			return unsupported && label === "Query.approximateNearest"
+				? named(
+						"TS2345",
+						Arr.some(spec.arms[0].head, ([, h]) => h.kind === "count")
+							? "approximateNearest over one rule's projection; this source is an aggregate rule, whose output is a nonlinear fold rather than a distance of one stored vector"
+							: "approximateNearest over one rule's projection; this source is a rule whose head produces spans, facts per binding rather than its projection"
+					)
 				: undefined
 		case "clean":
 		case "widenedName":
 			return undefined
 	}
 }
+
+/**
+ * Whether a match's one binding is a stranger's, a name no field of its source has: the binding shares no property with
+ * the source's bindings, all optional, so the types refuse it as an excess property of their own type rather than by
+ * the refusal they name beside a field.
+ */
+const strangerAlone = (m: Match): boolean => {
+	if (m.rel === "Tones") {
+		return false
+	}
+	const fields = fieldsOf[m.rel]
+	return (
+		Arr.length(m.bindings) === 1 &&
+		!Arr.some(m.bindings, ([name]) => Arr.some(fields, (f) => f.name === name))
+	)
+}
+
+/** A structural refusal the types state under its diagnostic, its prose naming what the program breaks. */
+const prose = (code: Refused["code"], reason: string): Refused => ({
+	code,
+	claim: { kind: "prose", reason }
+})
+
+/** The builder calls that take two spans, or a point and a span, of one endpoint type. */
+const spanLabels: ReadonlyArray<string> = ["r.allen", "r.pointIn", "r.intersection", "r.difference"]
 
 /** The refusal of a scope's name spelled through a `string`, which no engine sees (see the header). */
 const widened: Refused = named("TS2345", "one literal name")
@@ -2216,6 +2920,35 @@ const verdictOf = (spec: QuerySpec, source: string): Verdict => {
 	}
 	const all: Arr.NonEmptyReadonlyArray<QueryTemplate> = [first, ...rest]
 	const roots = Arr.map(all, (t) => t.analyzed.roots[0])
+	const shared = Arr.some(spec.arms, (arm) => arm.flagged !== undefined)
+		? Result.flatMap(
+				catchCompileError(() => built(sharedReading(spec))),
+				(q) => compileTemplate(q, undefined, testCompile)
+			)
+		: Result.ok(first)
+	if (!shared.ok) {
+		return failed(`what both readings of its flag state: ${messageOf(shared.error)}`)
+	}
+	const read = shared.value.analyzed.roots[0]
+	const readingOf = (reading: QuerySpec) => {
+		const compiled = Result.flatMap(
+			catchCompileError(() => built(reading)),
+			(q) => compileTemplate(q, undefined, testCompile)
+		)
+		if (!compiled.ok) {
+			return failed(`a reading of one flag: ${messageOf(compiled.error)}`)
+		}
+		const root = compiled.value.analyzed.roots[0]
+		return {
+			get: requireGet(root, SourceLoc("agreement", [])).ok,
+			pinned: root.meta.card !== "many"
+		}
+	}
+	const split = Arr.flatMap(spec.arms, (arm, i) =>
+		arm.flagged?.kind === "either" ? [Arr.map(splitReadings(spec, arm, i), readingOf)] : []
+	)
+	const splitGet = Arr.some(split, (readings) => Arr.every(readings, (r) => r.get))
+	const splitPinned = Arr.some(split, (readings) => Arr.every(readings, (r) => r.pinned))
 	const params = Arr.reduce(
 		Arr.flatMap(all, (t) => t.params),
 		[],
@@ -2225,14 +2958,29 @@ const verdictOf = (spec: QuerySpec, source: string): Verdict => {
 	return {
 		kind: "admitted",
 		proved: {
-			get: Arr.every(roots, (root) => requireGet(root, SourceLoc("agreement", [])).ok),
-			card: meetCard(Arr.map(roots, (root) => root.meta.card)),
+			get: requireGet(read, SourceLoc("agreement", [])).ok || splitGet,
+			card: read.meta.card === "many" && splitPinned ? "atMostOne" : read.meta.card,
+			split: read.meta.card === "many" && splitPinned,
+			readings: meetCard(Arr.map(roots, (root) => root.meta.card)),
 			keys: Arr.map(roots, (root) => Arr.map(root.meta.logicalKeys, classesInNameOrder)),
 			head: headOf(variants[0]),
+			facts: Arr.every(spec.arms, (arm) => sameHeadKeys(arm, spec.arms[0]))
+				? recordType(Arr.map(first.heading, (c) => [c.name, columnFacts(c.type)] as const))
+				: undefined,
 			params: paramsType(params),
 			page: spec.request === undefined ? undefined : pageOf(variants[0], spec.request)
 		}
 	}
+}
+
+/** Whether two arms head the same fields, of one heading group. */
+const sameHeadKeys = (a: RuleSpec, b: RuleSpec): boolean => {
+	const keys = (arm: RuleSpec) =>
+		Arr.sort(
+			Arr.map(arm.head, ([k]) => k),
+			Str.Order
+		)
+	return Arr.makeEquivalence(Str.Equivalence)(keys(a), keys(b))
 }
 
 /**
@@ -2273,9 +3021,19 @@ const caseOf = ({ spec, reached }: Drawn): AgreementCase => {
 	if (spec.fault !== "clean") {
 		notes.add(verdict.kind === "refused" ? `${spec.fault} refused` : `${spec.fault} admitted`)
 	}
+	if (
+		spec.fault === "spanEndpoints" &&
+		verdict.kind === "refused" &&
+		Arr.some(spec.arms, contractAgainstBase)
+	) {
+		notes.add("a contract's span refused against its base's")
+	}
 	if (verdict.kind === "admitted") {
 		const heading = Arr.length(spec.arms[0].head)
 		notes.add(verdict.proved.get ? "get proved" : "get refused")
+		if (verdict.proved.split) {
+			notes.add("a flag whose readings each prove more than both state")
+		}
 		if (Arr.some(verdict.proved.keys[0], (k) => k.length < heading)) {
 			notes.add("a key below the heading")
 		}
@@ -2289,12 +3047,66 @@ const caseOf = ({ spec, reached }: Drawn): AgreementCase => {
 				notes.add("an unordered page refused")
 			}
 		}
+		for (const note of spanNotes(spec)) {
+			notes.add(note)
+		}
+		if (spec.nearest !== undefined && verdict.proved.get) {
+			notes.add("a search get proves")
+		}
 	}
 	if (Arr.some(spec.arms, fixedTwice)) {
 		notes.add("a variable two filters fix")
 	}
 	return { spec, lines, source, verdict, notes }
 }
+
+/**
+ * What an admitted query's span and vector terms take a parameter at: opposite an Allen predicate or a point's test, as
+ * a producer's operand, and as a distance's query vector.
+ */
+/** Whether a span predicate or producer of an arm relates a span over Cents to a span over its base, bigint. */
+const contractAgainstBase = (arm: RuleSpec): boolean => {
+	const kinds = (a: Term, b: Term): boolean =>
+		a.kind === "var" &&
+		b.kind === "var" &&
+		new Set([a.v.field.kind, b.v.field.kind]).size === 2 &&
+		Arr.every([a.v.field.kind, b.v.field.kind], (k) => k === "centsSpan" || k === "bigSpan")
+	return (
+		Arr.some(arm.filters, (p) => p.kind === "allen" && kinds(p.left, p.right)) ||
+		Arr.some(arm.head, ([, h]) => h.kind === "produce" && kinds(h.left, h.right))
+	)
+}
+
+const spanNotes = (spec: QuerySpec): ReadonlyArray<AgreementNote> =>
+	Arr.flatMap(spec.arms, (arm) => [
+		...Arr.flatMap(arm.filters, (p): ReadonlyArray<AgreementNote> => {
+			switch (p.kind) {
+				case "allen":
+					return p.right.kind === "param" ? ["a span parameter opposite r.allen"] : []
+				case "pointIn":
+					return p.span.kind === "param" ? ["a span parameter opposite r.pointIn"] : []
+				case "cmp":
+				case "and":
+				case "or":
+				case "not":
+					return []
+			}
+		}),
+		...Arr.flatMap(arm.head, ([, h]): ReadonlyArray<AgreementNote> => {
+			switch (h.kind) {
+				case "produce":
+					return h.right.kind === "param" ? ["a producer over a span parameter"] : []
+				case "cosine":
+					return h.to.kind === "param" ? ["a distance to a vector parameter"] : []
+				case "term":
+				case "literal":
+				case "count":
+				case "fold":
+				case "pack":
+					return []
+			}
+		})
+	])
 
 /**
  * The variables a filter fixes: one an equality compares with a value fixed per binding, a parameter or a constant, and
@@ -2317,6 +3129,8 @@ const fixedBy = (p: Pred): ReadonlyArray<string> => {
 			return [...fixedBy(p.ps[0]), ...fixedBy(p.ps[1])]
 		case "or":
 		case "not":
+		case "allen":
+		case "pointIn":
 			return []
 	}
 }
@@ -2329,7 +3143,7 @@ const fixedTwice = (arm: RuleSpec): boolean => {
 
 /** A predicate with every conjunction's and disjunction's operands in the other order. */
 const swapped = (p: Pred): Pred =>
-	p.kind === "cmp" || p.kind === "not" ? p : { ...p, ps: [swapped(p.ps[1]), swapped(p.ps[0])] }
+	p.kind === "and" || p.kind === "or" ? { ...p, ps: [swapped(p.ps[1]), swapped(p.ps[0])] } : p
 
 /** A query with each rule's filters, and every connective's operands, in the other order. */
 const reordered = (spec: QuerySpec): QuerySpec => ({
@@ -2360,8 +3174,11 @@ const verdictText = (v: Verdict): string => {
 /** The queries the run's own stream draws. */
 export const agreementCount = 240
 
-/** The faulted queries the run's own stream draws, and the floor's witnesses of each fault. */
-export const faultCount = 104
+/**
+ * The faulted queries the run's own stream draws, and the floor's witnesses of them: eight per fault, so the floor's
+ * draws of each fault meet it refused and, where its site may hold a valid value, admitted.
+ */
+export const faultCount = 8 * agreementFaults.length
 
 /** The label both clean populations are drawn under. */
 const agreementLabel = "types/evidence agreement"
@@ -2513,7 +3330,10 @@ export const agreementModules = (
 		{ file: "index.ts", source: programOf(entries, cases, indices, true) },
 		{ file: "order.ts", source: programOf(entries, cases, order, false) },
 		{ file: "invariance.ts", source: invarianceOf(entries, cases) },
-		{ file: "admission.ts", source: admissionModule(entries, cells, combinatorCells()) },
+		{
+			file: "admission.ts",
+			source: admissionModule(entries, cells, combinatorCells(), scopeCells())
+		},
 		{
 			file: "faults.ts",
 			source: programOf(
@@ -2568,10 +3388,10 @@ const blockOf = (c: AgreementCase, i: number, paged: boolean): ReadonlyArray<str
 			]
 		}
 		case "admitted": {
-			const { get, card, keys, head, params, page } = c.verdict.proved
+			const { get, card, readings, keys, head, facts, params, page } = c.verdict.proved
 			const keyed = Arr.map(keys, keysType)
 			return [
-				`/** The engine ${get ? "proves" : "refuses"} get; its card: ${card}; its keys: ${Arr.join(keyed, "; under the other flag, ")}. */`,
+				`/** The engine ${get ? "proves" : "refuses"} get; its card: ${card}${readings === card ? "" : `, and ${readings} under each reading of its flag alone`}; its keys: ${Arr.join(keyed, "; under the other flag, ")}. */`,
 				...Arr.map(lines, (l) => l.text),
 				`export const g${i} = (db: DbOf<typeof Reader, unknown>) => (args: GetArg<typeof q${i}>) =>`,
 				...(get ? [] : [`\t// @ts-expect-error -- TS2345 refusal: ${getRefusal}`]),
@@ -2583,6 +3403,9 @@ const blockOf = (c: AgreementCase, i: number, paged: boolean): ReadonlyArray<str
 					(k, j) => `export type k${i}_${j} = Expect<Equals<Unproved<typeof q${i}, ${k}>, never>>`
 				),
 				`export type h${i} = Expect<Equals<HeadOf<typeof q${i}>, ${head}>>`,
+				...(facts === undefined
+					? []
+					: [`export type f${i} = Expect<Equals<Flat<HeadingFacts<typeof q${i}>>, ${facts}>>`]),
 				params === "unknown"
 					? `export type p${i} = Expect<Equals<keyof ParamsOf<typeof q${i}>, never>>`
 					: `export type p${i} = Expect<Equals<Flat<ParamsOf<typeof q${i}>>, ${params}>>`,
@@ -2665,7 +3488,9 @@ const assertions: ReadonlyArray<string> = [
 	"\t: false",
 	"/** The keys the types claim of Q that lie over none the engine proves. */",
 	"type Unproved<Q, E> = UnprovedOf<TypeKeys<Q>, E>",
-	"type UnprovedOf<K, E> = K extends ReadonlyArray<infer F> ? (true extends Over<F, E> ? never : K) : never"
+	"type UnprovedOf<K, E> = K extends ReadonlyArray<infer F> ? (true extends Over<F, E> ? never : K) : never",
+	"/** The facts a variable read from each column of a query's heading has. */",
+	'type HeadingFacts<Q extends Headed<Carriers>> = { readonly [K in keyof VarsOf<Q, "read">]: FactsOf<VarsOf<Q, "read">[K]> }'
 ]
 
 /**
@@ -2735,14 +3560,22 @@ const programOf = (
 			...some(["pg", "uuid", "Vector"], entries.fields, "import"),
 			...some(["Decimal", "Money", "Span", "Uuid"], entries.fields, "import type"),
 			...some(["query", "v"], entries.query, "import"),
-			...some(["EvidenceOfQuery", "HeadOf", "ParamsOf", "ParamType"], entries.query, "import type"),
+			...some(
+				["EvidenceOfQuery", "HeadOf", "ParamsOf", "ParamType", "VarsOf"],
+				entries.query,
+				"import type"
+			),
 			...some(["DbOf", "GetArg", "QueryResult"], entries.db, "import type"),
 			...some(["ReadError"], entries.errors, "import type"),
-			...some(["Rostered"], entries.phantom, "import type"),
+			...some(
+				["Carriers", "Declares", "Facts", "FactsOf", "Headed", "Rostered"],
+				entries.phantom,
+				"import type"
+			),
 			...some(["Page", "PageCursor"], entries.page, "import type"),
 			...some(["role"], entries.declare, "import"),
 			...some(
-				["Agree", "Cell", "Cents", "Item", "Note", "Owned", "Stray", "Tag", "Tone", "Tones"],
+				["Agree", "Cents", "Item", "Note", "Owned", "Slot", "Stray", "Tag", "Tone", "Tones"],
 				entries.schema,
 				"import"
 			),

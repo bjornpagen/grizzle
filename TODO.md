@@ -92,6 +92,26 @@ How the work runs:
 	  baseline's rows for every form.
 	- test/pg/program/templates is still an example test (W-physical).
 
+- **Everything parked "after the beta" is fixed for it** (owner, 2026-11-06: "all these known issues must be
+  fixed"). Lanes:
+	- F: a counted member that is also a sequence member, tree or sequence owner; a sequence member copying a sibling's
+	  fold end; refill on an owner's copied column (deferred axis key), so StaleDerivedRead and CascadedCopyAppend write.
+	- KEYS: rewrites' key claims on proofs; a projection drops a dependency on a dropped column; a lateral fixed column
+	  in both directions; linear minimal keys over k joined relations; a closed relation's identical columns as one
+	  class.
+	- OPEN: date spans; a relation parameter's pattern delivered; a CHECK refusal witnessed on the host; family rows
+	  ordered by pattern input; Written and AdditionIn public; a generated NOT NULL's 23502 names its law.
+	- CMP: isFinite over a typmod'd numeric contract; an octetLength guard narrows a byte bound.
+	- TESTLIB: a synchronous runaway is terminable; the type batch fails closed on a stall; the library's own example
+	  tests become searches.
+	- PERF: a guarded float binds its operands once per row; the 1M-row plans under roles, index-served; fixed-length's
+	  57014 and generated-1's heap settled.
+	- K: startup's repeated beyondPrimary (8 CPU s per build and per write on qti-pie's schema), then planClosed and
+	  the obligations order if still super-linear.
+	- Representation-first follow-ups, engine export narrowing and typed terms: a lane when one frees.
+	- Not code here: RDS IAM against a real RDS, a quiet-machine bench, the fallow upstream report, the PostgreSQL GA
+	  repin date, the superstarter and edullm copies.
+
 ### 3. No example-based test
 Owner 2026-11-06: example-based tests are banned. A test is an example when a person chose its inputs and wrote its
 verdict. A hand list run through `exhaust` or `element` counts.

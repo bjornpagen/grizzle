@@ -488,21 +488,6 @@ export default defineConfig(
 				})
 			},
 			{
-				files: ["test/types/harness/fixtures/kernel.ts"],
-				rules: active({
-					/** A refusal fixture's call is refused by construction: the value is the checker's error type. */
-					"typescript/no-unsafe-call": "off"
-				})
-			},
-			{
-				files: ["test/types/api/fixtures/channels.ts"],
-				rules: active({
-					/** A refusal fixture's read and return are refused by construction: the value is the checker's error type. */
-					"typescript/no-unsafe-member-access": "off",
-					"typescript/no-unsafe-return": "off"
-				})
-			},
-			{
 				files: ["test/types/examples/fixtures/readme.ts", "test/types/query/fixtures/language.ts"],
 				rules: active({
 					/** A refusal fixture's return is refused by construction: the value is the checker's error type. */

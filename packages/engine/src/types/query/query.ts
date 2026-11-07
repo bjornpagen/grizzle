@@ -16,6 +16,7 @@ import type {
 	IsRetyped,
 	LanguageOf,
 	Meets,
+	OperandOrigin,
 	ParamsContribution,
 	ParamsOfTerm,
 	ParamType,
@@ -24,7 +25,7 @@ import type {
 	Simplify,
 	Source,
 	SqlOfCarrier,
-	TermBase,
+	TypeRefusal,
 	UnionHeading,
 	UnionToIntersection
 } from "#compiler/types/core/phantom.ts"
@@ -36,10 +37,17 @@ import type {
 	UnionEvidence
 } from "#compiler/types/evidence/evidence.ts"
 import type { FieldBase, LiteralOf } from "#compiler/types/fields/field.ts"
-import type { RequireBound, Rule } from "#compiler/types/query/rule.ts"
-import type { NoExcess, ParentVars, VarsOf, VSource } from "#compiler/types/query/terms.ts"
+import type { Rule } from "#compiler/types/query/rule.ts"
+import type {
+	Aggregate,
+	NoExcess,
+	ParentVars,
+	Producer,
+	VarsOf,
+	VSource
+} from "#compiler/types/query/terms.ts"
 import type { FactOfFields } from "#compiler/types/schema/relation.ts"
-import type { AnySchema, IsLevelOf, LevelsOf } from "#compiler/types/schema/schema.ts"
+import type { AnySchema, LevelsOf } from "#compiler/types/schema/schema.ts"
 import type { ApproximateNearestSpec } from "#compiler/types/vector/vector.ts"
 
 /**
@@ -90,20 +98,20 @@ export interface QueryBuilder<S> {
 	>(
 		/**
 		 * The definition's facts are records of its row, decoded by the row's descriptors; every arm's head delivers the
-		 * row (ArmDelivers), checked at the arm once its head is inferred.
+		 * row (ArmDelivers), checked at the arm once its head is inferred; and each arm list holds an arm (SomeArm).
 		 */
 		name: string,
 		spec: {
 			readonly row: Row
 			readonly base: {
 				readonly [I in keyof Base]: (r: Rule<S>) => Base[I] & NoInfer<ArmDelivers<Base[I], Row>>
-			}
+			} & NoInfer<SomeArm<Base, Rec>>
 			readonly rec: {
 				readonly [I in keyof Rec]: (
 					r: Rule<S>,
 					self: SelfSource<Row>
 				) => Rec[I] & NoInfer<ArmDelivers<Rec[I], Row>>
-			}
+			} & NoInfer<SomeArm<Rec, Base>>
 		}
 	): Query<
 		S,
@@ -116,6 +124,18 @@ export interface QueryBuilder<S> {
 		readonly [UnionArm<Row, never, "recursive", false>]
 	>
 }
+
+/**
+ * The refusal of an empty arm list of a recursion, none for a list of arms: the fixed point starts from its base arms
+ * and grows by its recursive ones, so each list holds one at least. It refuses once the other list's arms are inferred
+ * (their tuple's length is known), so the call's first inference, which leaves the arms' callbacks for later, never
+ * fails on it, and the other list's arms are checked under the types they infer.
+ */
+type SomeArm<Arms, Other extends ReadonlyArray<unknown>> = Arms extends readonly []
+	? number extends Other["length"]
+		? unknown
+		: Refusal<"a recursion has at least one base arm and at least one recursive arm">
+	: unknown
 
 /**
  * A recursive definition's self, matched only in its recursive arms: a source of its row, whose fields are its heading.
@@ -243,7 +263,8 @@ export interface ReadBack {
 
 /**
  * What each parameter of a query may be bound to: a scalar parameter to a term that meets its type (Meets), an outer
- * parameter of it among them, or a JavaScript value of its language; a relation parameter to a source.
+ * parameter of it among them, or a JavaScript value of its language; a relation parameter to a source of its rows, a
+ * relation parameter of the importing rule (RelationBindings).
  */
 type BindingsFor<P> = {
 	readonly [K in keyof P]: P[K] extends ReadonlyArray<infer Row> | Stream.Stream<infer Row>
@@ -254,25 +275,28 @@ type BindingsFor<P> = {
 }
 
 /**
- * A relation parameter bound to a query, bound import or interior stage reads that source's schema, so it must be a
- * level of the imported query's schema; the importing rule's level check on the bound import then covers it too.
+ * A relation parameter is bound to a relation parameter of the importing rule, `r.relation(name, heading)`, the one
+ * source a Description holds as a binding (query/build/query.ts bindQuery): a query, a bound import, an interior stage
+ * or a recursive definition's self is refused, whatever schema it is over.
  */
-type BoundAtLevels<B, S> = {
-	readonly [K in keyof B]: B[K] extends Phantom<{ readonly schema: Invariant<infer QS> }>
-		? IsLevelOf<S, QS> extends true
-			? unknown
-			: Refusal<"the bound source is not over a level of the query's schema">
+type RelationBindings<B, P> = {
+	readonly [K in keyof B]: K extends keyof P
+		? P[K] extends ReadonlyArray<unknown> | Stream.Stream<unknown>
+			? IsRelationParameter<B[K]> extends true
+				? unknown
+				: Refusal<"a relation parameter binds a relation parameter of the importing rule, r.relation(name, heading)">
+			: unknown
 		: unknown
 }
-/** The contexts a binding object's bound sources read. */
-type BindContexts<B> = { [K in keyof B]-?: ContextsOf<B[K]> }[keyof B]
-/**
- * A relation parameter bound to a query consumes that query, so a parameterized one must be bound first, as for match:
- * `Q.bind({ ids: inner.bind({ ... }) })`. A scalar binding is a term, whose parameters the importing rule takes.
- */
-type BoundSources<B> = {
-	readonly [K in keyof B]: B[K] extends TermBase ? unknown : RequireBound<B[K]>
-}
+/** A relation parameter: a source over no schema that contributes its one name to the rule that matches it. */
+type IsRelationParameter<X> =
+	X extends Phantom<{ readonly schema: unknown }>
+		? false
+		: X extends Phantom<{ readonly sourceParams: infer SP }>
+			? IsOneLiteral<keyof SP>
+			: false
+/** The origins a binding object's terms read, on which the facts of the import it binds depend. */
+type BindReads<B> = { [K in keyof B]-?: OperandOrigin<B[K]> }[keyof B]
 
 /**
  * The parameters a binding object leaves to the importing rule: its terms' own, outer parameters among them, and what
@@ -450,21 +474,28 @@ export interface Query<
 		]
 	>
 	named(name: string): Query<S, Head, Ev, P, IHead, Hc, Cx, Arms>
-	/** The bound import keeps the query's schema, so matching it is checked against the importing rule's levels. */
+	/**
+	 * The bound import keeps the query's schema, so matching it is checked against the importing rule's levels, and its
+	 * evidence, whose keys a match of it reads, with what its bindings read.
+	 */
 	bind<const B extends BindingsFor<P>>(
-		bindings: B & NoExcess<B, P> & BoundAtLevels<B, S> & BoundSources<B>
-	): BoundSource<S, Head, BindParams<B>, Hc, Cx | BindContexts<B>>
+		bindings: B & NoExcess<B, P> & RelationBindings<B, P>
+	): BoundSource<S, Head, BindParams<B>, Hc, Cx, Ev, BindReads<B>>
 	/** An order over the columns the query delivers (DeliveredKeys): never a field only some arms have, or an attachment. */
 	orderBy(
 		...order: ReadonlyArray<readonly [DeliveredKeys<Head, Hc> & string, "asc" | "desc"]>
 	): Ordered<S, Head, Ev, P, IHead, Hc, Cx, Arms>
-	/** A search over one rule's projection, its source as the checker reads it (SearchSource). */
-	approximateNearest(
-		spec: ApproximateNearestSpec<Head> & SearchSource<AsOneArm<Arms, Head, Hc>>
+	/**
+	 * A search over one rule's projection, its source as the checker reads it (SearchSource), ranked by a distance of its
+	 * carriers. The search keeps a subset of its source's facts, at most `take` of them, so its evidence is a take's of
+	 * the source's (TakeEvidence), as the engine proves of the sealed node.
+	 */
+	approximateNearest<const K extends number>(
+		spec: SearchSource<AsOneArm<Arms, Head, Hc>, K>
 	): Query<
 		S,
 		Head,
-		Evidence.Unknown,
+		TakeEvidence<Ev, K>,
 		P,
 		IHead,
 		Hc,
@@ -564,12 +595,44 @@ interface SearchRefusals {
 	readonly attach: "approximateNearest over one rule's projection; this source is a query with attachments"
 	readonly approximate: "approximateNearest over one rule's projection; this source is another approximate search"
 	readonly recursive: "approximateNearest over one rule's projection; this source is a recursive relation"
+	readonly aggregate: "approximateNearest over one rule's projection; this source is an aggregate rule, whose output is a nonlinear fold rather than a distance of one stored vector"
+	readonly producer: "approximateNearest over one rule's projection; this source is a rule whose head produces spans, facts per binding rather than its projection"
 }
-type SearchSource<A extends AnyArm> = A["stage"] extends keyof SearchRefusals
-	? Refusal<SearchRefusals[A["stage"]]>
+/**
+ * What an approximate search over the arm A takes: a spec ranking by a distance of A's carriers and taking K facts
+ * (ApproximateNearestSpec), or, over a source no one index orders, the refusal the checker names.
+ */
+type SearchSource<A extends AnyArm, K extends number> = A["stage"] extends keyof SearchRefusals
+	? RefusedSearch<SearchRefusals[A["stage"]], K>
 	: [A["attached"]] extends [never]
-		? unknown
-		: Refusal<SearchRefusals["attach"]>
+		? HeadSearch<A["carriers"], K>
+		: RefusedSearch<SearchRefusals["attach"], K>
+
+/**
+ * A search over a rule's head of carriers Hc: refused over a head that folds or produces spans, whose node the checker
+ * reads as no projection of the rule (check/approximate/trace.ts sourceShape), and otherwise ranked by a distance of Hc.
+ */
+type HeadSearch<Hc, K extends number> = [CarriersOfKind<Hc, Aggregate<unknown, never>>] extends [
+	never
+]
+	? [CarriersOfKind<Hc, Producer<unknown, never>>] extends [never]
+		? ApproximateNearestSpec<Hc, K>
+		: RefusedSearch<SearchRefusals["producer"], K>
+	: RefusedSearch<SearchRefusals["aggregate"], K>
+
+/**
+ * The spec of a search over a source the checker refuses: its refusal, beside any by and take, so the argument as a
+ * whole is refused and its diagnostic prints the refusal, whatever it ranks by.
+ */
+type RefusedSearch<M extends TypeRefusal, K extends number> = Refusal<M> & {
+	readonly by: string
+	readonly take: K
+}
+
+/** The fields of a head of carriers whose terms are of kind X: never a term refused already, which is never. */
+type CarriersOfKind<Hc, X> = {
+	readonly [K in keyof Hc]-?: [Hc[K]] extends [never] ? never : Hc[K] extends X ? K : never
+}[keyof Hc]
 
 /**
  * A union of several headings delivered per heading group under a take already, which a second take or a page would
@@ -601,14 +664,20 @@ export type PageOf<Q> = Q extends Phantom<infer B> & Headed<infer Hc extends Car
 		: unknown
 	: unknown
 
-/** A source over S that holds its heading of carriers: a bound import or an interior stage, reading the contexts Cx. */
-export interface BoundSource<S, Head, SP, Hc, Cx = never> extends Built, Headed<Hc> {
+/**
+ * A source over S that holds its heading of carriers: a bound import or an interior stage, reading the contexts Cx. Ev
+ * is the evidence of the query it imports or the arm it stages, whose keys a match of it reads (evidence/evidence.ts
+ * SourceKeys), and Rd the origins its bindings read, on which the facts it holds depend.
+ */
+export interface BoundSource<S, Head, SP, Hc, Cx, Ev, Rd> extends Built, Headed<Hc> {
 	readonly [phantom]?:
 		| {
 				readonly heading: Head
 				readonly sourceParams: SP
 				readonly schema: Invariant<S>
 				readonly readsContexts: (read: Cx) => void
+				readonly evidence: Ev
+				readonly reads: Rd
 		  }
 		| undefined
 }

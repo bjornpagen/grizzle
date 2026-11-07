@@ -507,6 +507,7 @@
 		},
 		"testCaseIsSearch": {
 			"files": [
+				"packages/testing/src/",
 				"test/"
 			],
 			"registrars": [
@@ -554,9 +555,10 @@
 			"exempt": [
 				{
 					"files": [
-						"test/types/examples/blocks.test.ts"
+						"test/types/examples/blocks.test.ts",
+						"test/types/examples/examples.test.ts"
 					],
-					"reason": "The README's and SKILL.md's mirror: it holds every documented block to the fixture the type batch compiles, so the documentation is checked code; its blocks are the documentation, never inputs a person chose to test."
+					"reason": "The README's and SKILL.md's mirror: blocks.test.ts holds every documented block to its mirrored fixture, and examples.test.ts typechecks those fixtures and fails each refusal the README states with exactly the diagnostic it names, so the documentation is checked code; its blocks are the documentation, never inputs a person chose to test."
 				},
 				{
 					"files": [
@@ -577,18 +579,21 @@
 						"test/types/api/recursion.test.ts",
 						"test/types/api/workload.test.ts",
 						"test/types/changeset/changeset.test.ts",
+						"test/types/changeset/nesting.test.ts",
 						"test/types/compute/compute.test.ts",
 						"test/types/evidence/agreement.test.ts",
 						"test/types/evidence/attachments.test.ts",
 						"test/types/harness/harness.test.ts",
 						"test/types/regex/schema.test.ts",
 						"test/types/schema/agreement.test.ts",
+						"test/types/text/bytes.test.ts",
 						"test/types/text/regex.test.ts"
 					],
 					"reason": "The type batch's population runners: the population is drawn by the testing library's generators, or exhausts a box the source's own rosters define, and is printed as one program the batch typechecks at once, so no case can run a search per program; each case checks the drawn population against the engine as oracle, or that its floor's witnesses reach every requirement."
 				},
 				{
 					"files": [
+						"test/types/query/budget/refusals.test.ts",
 						"test/types/query/budget/scaling.test.ts",
 						"test/types/schema/budget/families.test.ts",
 						"test/types/schema/budget/scaling.test.ts"
@@ -599,6 +604,7 @@
 		},
 		"noCaseList": {
 			"files": [
+				"packages/testing/src/",
 				"test/"
 			],
 			"dictionaries": [

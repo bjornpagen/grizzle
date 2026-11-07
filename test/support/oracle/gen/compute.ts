@@ -834,10 +834,10 @@ const guardBound = (source: Carrier, to: FieldDesc, pick: number): number => {
 	return provesNarrowing(source, to, bound) ? bound : 9
 }
 
+/** A lowered term: its expression, which carries its own volatility, and its type. */
 export interface LoweredTerm {
 	readonly expr: ScalarExpr
 	readonly type: ScalarType
-	readonly stable: boolean
 }
 
 /**
@@ -884,8 +884,7 @@ export const buildTerm = (
 	}
 	return {
 		expr: lowered.value.expr,
-		type: lowered.value.actual,
-		stable: lowered.value.volatility === "stable"
+		type: lowered.value.actual
 	}
 }
 
@@ -911,8 +910,7 @@ export const storedColumn = (
 	}
 	return {
 		expr: lowered.value.expr,
-		type: lowered.value.actual,
-		stable: lowered.value.volatility === "stable"
+		type: lowered.value.actual
 	}
 }
 
@@ -934,7 +932,6 @@ export const buildCompare = (
 	}
 	return {
 		expr: lowered.value.expr,
-		type: lowered.value.actual,
-		stable: lowered.value.volatility === "stable"
+		type: lowered.value.actual
 	}
 }

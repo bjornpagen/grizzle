@@ -34,7 +34,9 @@ import type { DeclaredKey, HeadingColumn, KeySet } from "#compiler/ir/rel.ts"
  * - a fixed column is determined by nothing (a filter's equality with a value fixed per evaluation, a closed column of
  *   one value, a take's correlation, a semi-join's pair whose right column is fixed, an attachment's correlation);
  * - equal columns determine each other (a filter's equality, a region's equality or shared column, a correlated copy,
- *   a view's key column and a column its definition makes equal to it, two union columns every arm makes equal);
+ *   a view's key column and a column its definition makes equal to it, two union columns every arm makes equal, two
+ *   closed columns holding one value in every fact, a region's variable bound to a column its lateral source fixes to
+ *   a region column's value, and that column's variable);
  * - a correlated variable follows from the variables its expression reads;
  * - a match determines what it binds from its source's dependency;
  * - a projection closes over its input, its computed and constant outputs included;
@@ -65,7 +67,10 @@ export type FixedWitness =
 
 /**
  * What makes two columns equal. Two columns of a union are equal by `arms`: each arm's derivation, by equalities
- * alone, from the first to the second.
+ * alone, from the first to the second. Two columns of a closed relation are equal by `closedColumns` when every fact
+ * holds one value in both. A region's variable bound to a column its lateral source fixes to a region column's value
+ * equals that column's variable by `lateralFixed`: the occurrence, the source column, and the source's derivation from
+ * nothing that fixes it, whose first step naming its value names the region column.
  */
 export type EqualWitness =
 	| { readonly kind: "conjunct"; readonly expr: ExprId }
@@ -74,6 +79,13 @@ export type EqualWitness =
 	| { readonly kind: "correlatedCopy"; readonly index: number }
 	| { readonly kind: "viewMember" }
 	| { readonly kind: "arms"; readonly arms: NonEmptyReadonlyArray<Implication> }
+	| { readonly kind: "closedColumns" }
+	| {
+			readonly kind: "lateralFixed"
+			readonly occurrence: OccurrenceId
+			readonly column: string
+			readonly fixed: Implication
+	  }
 
 /** Why a node has at most one row. */
 export type AtMostOneWitness =
@@ -377,8 +389,8 @@ const atMostOneContext = (witness: AtMostOneWitness): EvidenceContext | undefine
 }
 
 /**
- * The context a rule holds in by itself: a closed relation's facts, a session's one fact and a membership's one row are
- * the query's own facts, which hold wherever it runs.
+ * The context a rule holds in by itself: a closed relation's facts (its distinct, fixed and equal columns), a session's
+ * one fact and a membership's one row are the query's own facts, which hold wherever it runs.
  */
 const ruleContext = (rule: Rule): EvidenceContext | undefined => {
 	switch (rule.rule) {
@@ -391,6 +403,7 @@ const ruleContext = (rule: Rule): EvidenceContext | undefined => {
 		case "fixed":
 			return rule.witness.kind === "closedValue" ? "queryLocal" : undefined
 		case "equal":
+			return rule.witness.kind === "closedColumns" ? "queryLocal" : undefined
 		case "correlated":
 		case "match":
 		case "projection":
@@ -454,6 +467,9 @@ const groundRule = (g: Collected, rule: Rule): void => {
 				for (const arm of rule.witness.arms) {
 					groundImplication(g, arm)
 				}
+			}
+			if (rule.witness.kind === "lateralFixed") {
+				groundImplication(g, rule.witness.fixed)
 			}
 			return
 		case "match":

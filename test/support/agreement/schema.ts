@@ -1,4 +1,4 @@
-import { closedId, contract, pg, uuid } from "#compiler/public/fields.ts"
+import { closedId, contract, pg, span, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	alternatives,
@@ -19,7 +19,8 @@ import { str } from "#compiler/public/text.ts"
  * key (Tag's item and label) and a one-to-one key over a reference (Note.item). Its uuid fields join one another and so
  * do its integer fields, so a drawn join may meet any key from any side; Item.tone is a roster's, which a handle or a
  * member's JavaScript value binds, fixes, heads and discriminates, and Item.cost a contract's, whose brand a variable,
- * a parameter and min and max keep and sum and mean read through. Tones, a union of Item's facts of two tones whose
+ * a parameter and min and max keep and sum and mean read through, and which declares its values nonnegative, a fact a
+ * variable read from a column of its type has and one of any other type lacks. Tones, a union of Item's facts of two tones whose
  * arms hold Tone's handles at tone, is the union source a drawn rule matches with a constant bound at tone; Owned, the
  * items of one owner, is the import a rule matches bound or, where a case plants the fault, unbound; Stray is a
  * relation Agree does not hold, which a rule's match names where a case plants that fault.
@@ -27,10 +28,16 @@ import { str } from "#compiler/public/text.ts"
  * Cell holds one column per constant kind the admission matrix draws: a JavaScript value of every carrier, Tone's
  * handles, typed integer constants and a contract's, and a finite refined text's members (grade); Shade, a second
  * roster sharing a member with Tone, gives the wrong-roster arm.
+ *
+ * Slot holds an item's spans and vectors, keyed by its item and span: during, a span over integer ticks, which Allen
+ * predicates, a point's test and the span producers read, and which a span parameter declared at it types; budget and
+ * raw, spans over Cents and over its bare base, which never meet; embedding, the vector a cosine distance scores and an
+ * approximate search ranks by, and image, a second vector of its dimensions, which a distance relates to it but no
+ * search ranks by.
  */
 export const Tone = closed("Tone", ["low", "mid", "high"])
 export const Shade = closed("Shade", ["low", "dark"])
-export const Cents = contract("Cents", pg.bigint, (x) => x.ge(0n))
+export const Cents = contract("Cents", pg.bigint, (x) => x.ge(0n), { proves: ["nonnegative"] })
 
 export const Item = relation(
 	"Item",
@@ -65,7 +72,20 @@ export const Cell = relation(
 	["id"]
 )
 
-export const Agree = schema("Agree", { Tone, Shade, Item, Tag, Note, Cell }, [
+export const Slot = relation(
+	"Slot",
+	{
+		item: uuid,
+		during: span(pg.integer),
+		budget: span(Cents),
+		raw: span(pg.bigint),
+		embedding: pg.vector(3),
+		image: pg.vector(3)
+	},
+	["item", "during"]
+)
+
+export const Agree = schema("Agree", { Tone, Shade, Item, Tag, Note, Cell, Slot }, [
 	key(on(Item, "owner", "n"))
 ])
 
@@ -83,6 +103,14 @@ export const Owned = query(Agree).rule((r) => {
 	const { id, n } = v(Item, "item")
 	return r.match(Item, { id, owner: r.param("owner", Item.fields.owner), n }).find({ id, n })
 })
+
+/**
+ * The schemas the admission agreement's scope cells match a query across (admission.ts scopeCells): AgreeAbove, an
+ * extension of Agree, whose levels are itself and Agree; and Apart, which holds Agree's Cell and its rosters but is no
+ * level of Agree, nor Agree of it, so a query over one reads relations the other holds and is still over no level of it.
+ */
+export const AgreeAbove = schema.extend(Agree, {}, [])
+export const Apart = schema("Apart", { Tone, Shade, Cell }, [])
 
 /**
  * The schema the attachment agreement draws its parents and children over (test/support/agreement/attachments.ts): a

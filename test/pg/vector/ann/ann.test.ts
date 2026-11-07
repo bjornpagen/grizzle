@@ -1,11 +1,11 @@
 import { layer } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
 import { required, requiredInSpace } from "@grizzle/testing/features"
-import { element, type Gen, int } from "@grizzle/testing/gen"
+import { boolean, element, type Gen, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec } from "effect"
 import { planIndexNames, planNodeTypes } from "#bench/harness/explain.ts"
 import { subtree } from "#compiler/check/approximate/trace.ts"
 import type { RelDag } from "#compiler/ir/rel.ts"
@@ -34,7 +34,7 @@ import {
 	vectorParam,
 	vectorText
 } from "#test/pg/vector/ann/support.ts"
-import { assert, contains, defined, lacks } from "#test/support/assert.ts"
+import { assert, contains, defined, lacks, nonEmpty } from "#test/support/assert.ts"
 import { paramTexts, scalarsOnly } from "#test/support/compile.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { has, shapeOf } from "#test/support/kernel/shape.ts"
@@ -133,39 +133,56 @@ const asTriple = (row: ReadonlyArray<string>): readonly [string, string, string]
 	return [document, revision, distance]
 }
 
+/** An account of the fixture, by the letter its size is listed under. */
+type AccountLabel = keyof typeof sizes
+
+/** Each of the fixture's accounts by its letter. */
+const accountOf: { readonly [L in AccountLabel]: string } = {
+	A: accountA,
+	B: accountB,
+	C: accountC
+}
+
 /** An account of the fixture and the letter a report names it by. */
-type Account = readonly [account: string, label: "A" | "B" | "C"]
+type Account = readonly [account: string, label: AccountLabel]
 
-const accountsABC: Arr.NonEmptyReadonlyArray<Account> = [
-	[accountA, "A"],
-	[accountB, "B"],
-	[accountC, "C"]
-]
+/** The fixture's accounts, every one its sizes list. */
+const accounts: Arr.NonEmptyReadonlyArray<Account> = Arr.map(
+	nonEmpty(Rec.keys(sizes), "the fixture's accounts"),
+	(label): Account => [accountOf[label], label]
+)
 
-/** An account searched, by its letter, or a probe number searched. */
-type SearchFeature = `account ${Account[1]}` | `probe ${number}`
+/** How many candidates a search requests. */
+const requested = 20
 
-/** An account of `among` searched with each probe number of `probes`. */
+/** The accounts with more documents than a request: those whose probes the recall floor is measured over. */
+const recalled = nonEmpty(
+	Arr.filter(accounts, ([, label]) => sizes[label] > requested),
+	"the accounts larger than a request"
+)
+
+/** An account searched, by its letter, or what a search came to. */
+type SearchFeature =
+	| `account ${AccountLabel}`
+	| "underfilled by a small account"
+	| "filled under the policy, underfilled by the default search"
+	| "a negated tag excluded"
+
+/** An account of `among` searched with a probe `probes` draws. */
 const probed =
 	(
 		among: Arr.NonEmptyReadonlyArray<Account>,
-		probes: Arr.NonEmptyReadonlyArray<number>
+		probes: Gen<number>
 	): Gen<readonly [Account, number]> =>
 	(source) =>
-		[source.draw(element(among)), source.draw(element(probes))] as const
-
-/** The accounts whose probes the recall floor is measured over: the two with more eligible facts than a request. */
-const recalled: Arr.NonEmptyReadonlyArray<readonly [string, "A" | "B"]> = [
-	[accountA, "A"],
-	[accountB, "B"]
-]
+		[source.draw(element(among)), source.draw(probes)] as const
 
 /** A case of the recall box: a probe of an account by its number, or account A's duplicate embedding. */
 type RecallProbe =
 	| { readonly kind: "duplicate" }
 	| {
 			readonly kind: "probe"
-			readonly account: readonly [string, "A" | "B"]
+			readonly account: Account
 			readonly seed: number
 	  }
 
@@ -173,7 +190,7 @@ type RecallProbe =
 const recallProbeGen =
 	(probes: number): Gen<RecallProbe> =>
 	(source) =>
-		source.draw(element(["probe", "duplicate"] as const)) === "duplicate"
+		source.draw(boolean)
 			? { kind: "duplicate" }
 			: {
 					kind: "probe",
@@ -181,7 +198,7 @@ const recallProbeGen =
 					seed: 10 + source.draw(int(0, probes - 1))
 				}
 
-type RecallFeature = "account A" | "account B" | "duplicate"
+type RecallFeature = `account ${AccountLabel}` | "duplicate"
 
 /**
  * A transaction's changes to account B's nearest candidates: how many of the nearest lose their current embedding, and
@@ -245,15 +262,22 @@ layer(Substrate.layer)("approximateNearest on PostgreSQL 19", (it) => {
 							(d) => d.id
 						)
 					)
-					const probes = [1, 2, 3] as const
 					return yield* exhaust(
 						{
 							suite: "vector/ann/candidates",
-							generator: probed(accountsABC, probes),
+							generator: probed(accounts, int(1, 3)),
 							literal: ([[, label], seed]: readonly [Account, number]) =>
 								`account ${label}, probe ${seed}`,
-							limit: accountsABC.length * probes.length,
-							coverage: requiredInSpace<SearchFeature>(["account A", "account B", "account C"]),
+							limit: accounts.length * 3,
+							box: "every account of the fixture, with each of its first three probes",
+							oracle: {
+								kind: "second-implementation",
+								name: "the exact baseline: the eligible relation scored with cosine_distance"
+							},
+							coverage: requiredInSpace<SearchFeature>([
+								...Arr.map(accounts, ([, label]): SearchFeature => `account ${label}`),
+								"underfilled by a small account"
+							]),
 							caseHang
 						},
 						([[account, label], seed], k) =>
@@ -262,7 +286,7 @@ layer(Substrate.layer)("approximateNearest on PostgreSQL 19", (it) => {
 								const rows = yield* run(session, c, { account, vector: vectorParam(vector) })
 								const exact = yield* exactScores(session, fx, account, vector)
 								const scores = new Map(Arr.map(exact, (r) => [key(r), r[2]]))
-								assert.ok(rows.length <= 20, label)
+								assert.ok(rows.length <= requested, label)
 								assert.equal(
 									new Set(Arr.map(rows, (r) => Arr.join(r, "|"))).size,
 									rows.length,
@@ -282,12 +306,9 @@ layer(Substrate.layer)("approximateNearest on PostgreSQL 19", (it) => {
 										`${label} score`
 									)
 								}
-								if (account === accountC) {
-									assert.ok(exact.length <= sizes.C)
-									assert.ok(rows.length < 20)
-									assert.ok(rows.length <= exact.length)
-								} else {
-									assert.ok(exact.length > 20)
+								assert.ok(rows.length <= exact.length, label)
+								if (exact.length < requested) {
+									k.note("underfilled by a small account")
 								}
 								k.note(`account ${label}`)
 							})
@@ -310,16 +331,20 @@ layer(Substrate.layer)("approximateNearest on PostgreSQL 19", (it) => {
 						(d) => d.account === accountB && Arr.some(d.embeddings, (e) => e.revision === d.current)
 					).length
 					assert.ok(eligible > 20)
-					const probes = [21, 22, 23] as const
 					return yield* exhaust(
 						{
 							suite: "vector/ann/policy",
-							generator: element(probes),
+							generator: int(21, 23),
 							literal: (seed: number) => `probe ${seed}`,
-							limit: probes.length,
-							coverage: requiredInSpace<SearchFeature>(
-								Arr.map(probes, (seed): SearchFeature => `probe ${seed}`)
-							),
+							limit: 3,
+							box: "the probes numbered 21 to 23 of the label-fixed population",
+							oracle: {
+								kind: "second-implementation",
+								name: "the exact baseline, and the same search under the default HNSW scan"
+							},
+							coverage: requiredInSpace<SearchFeature>([
+								"filled under the policy, underfilled by the default search"
+							]),
 							caseHang
 						},
 						(seed, k) =>
@@ -342,7 +367,7 @@ layer(Substrate.layer)("approximateNearest on PostgreSQL 19", (it) => {
 									assert.equal(exact.has(`${r[1]}/${r[2]}`), true)
 								}
 								assert.equal(keys.size, 20)
-								k.note(`probe ${seed}`)
+								k.note("filled under the policy, underfilled by the default search")
 							})
 					)
 				})
@@ -392,17 +417,24 @@ layer(Substrate.layer)("approximateNearest on PostgreSQL 19", (it) => {
 					contains(fanoutPlan.nodes, "Unique")
 					assert.equal(hnsw(fanoutPlan.indexes), true, Formatter.format(fanoutPlan))
 
-					const repeating: Arr.NonEmptyReadonlyArray<Account> = [
-						[accountA, "A"],
-						[accountC, "C"]
-					]
+					const repeating = nonEmpty(
+						Arr.filter(accounts, ([account]) => repeated(fx.facts, account).length > 0),
+						"the accounts with a repeated document"
+					)
 					return yield* exhaust(
 						{
 							suite: "vector/ann/fanout",
 							generator: element(repeating),
 							literal: ([, label]: Account) => `account ${label}`,
 							limit: repeating.length,
-							coverage: requiredInSpace<SearchFeature>(["account A", "account C"]),
+							box: "every account of the fixture with a document whose superseded revision repeats its current one",
+							oracle: {
+								kind: "second-implementation",
+								name: "the exact baseline of every distinct (document, distance)"
+							},
+							coverage: requiredInSpace<SearchFeature>(
+								Arr.map(repeating, ([, label]): SearchFeature => `account ${label}`)
+							),
 							caseHang
 						},
 						([account, label], k) =>
@@ -436,7 +468,7 @@ layer(Substrate.layer)("approximateNearest on PostgreSQL 19", (it) => {
 										`${label} ${document}`
 									)
 								}
-								if (account === accountC) {
+								if (sizes[label] < requested) {
 									assert.deepEqual(
 										Arr.sort(
 											Arr.map(rows, (r) => `${r[1]}|${r[0]}`),
@@ -473,13 +505,16 @@ layer(Substrate.layer)("approximateNearest on PostgreSQL 19", (it) => {
 							suite: "vector/ann/recall",
 							generator: recallProbeGen(probes),
 							literal: Formatter.format,
-							limit: 1 + 2 * probes,
-							box: "the probes numbered 10 to 19 of accounts A and B, and account A's duplicate embedding",
+							limit: 1 + recalled.length * probes,
+							box: "the probes numbered 10 to 19 of every account larger than a request, and account A's duplicate embedding",
 							oracle: {
 								kind: "second-implementation",
 								name: "the exact baseline: the eligible relation scored with cosine_distance"
 							},
-							coverage: requiredInSpace<RecallFeature>(["account A", "account B", "duplicate"]),
+							coverage: requiredInSpace<RecallFeature>([
+								...Arr.map(recalled, ([, label]): RecallFeature => `account ${label}`),
+								"duplicate"
+							]),
 							caseHang
 						},
 						(probe, k) =>
@@ -565,16 +600,18 @@ layer(Substrate.layer)("approximateNearest on PostgreSQL 19", (it) => {
 							(d) => d.id
 						)
 					)
-					const probes = [51, 52, 53] as const
 					return yield* exhaust(
 						{
 							suite: "vector/ann/negation",
-							generator: element(probes),
+							generator: int(51, 53),
 							literal: (seed: number) => `probe ${seed}`,
-							limit: probes.length,
-							coverage: requiredInSpace<SearchFeature>(
-								Arr.map(probes, (seed): SearchFeature => `probe ${seed}`)
-							),
+							limit: 3,
+							box: "the probes numbered 51 to 53",
+							oracle: {
+								kind: "second-implementation",
+								name: "the exact baseline with the gamma-tagged documents removed on the host"
+							},
+							coverage: requiredInSpace<SearchFeature>(["a negated tag excluded"]),
 							caseHang
 						},
 						(seed, k) =>
@@ -602,7 +639,7 @@ layer(Substrate.layer)("approximateNearest on PostgreSQL 19", (it) => {
 										`${document}/${revision}`
 									)
 								}
-								k.note(`probe ${seed}`)
+								k.note("a negated tag excluded")
 							})
 					)
 				})
@@ -733,17 +770,17 @@ layer(Substrate.layer)("approximateNearest on PostgreSQL 19", (it) => {
 					{
 						suite: "vector/ann/shared",
 						draw: drawn(
-							(source) => [source.draw(element(accountsABC)), source.draw(int(60, 99))] as const
+							(source) => [source.draw(element(accounts)), source.draw(int(60, 99))] as const
 						),
 						literal: Formatter.format,
 						oracle: {
 							kind: "second-implementation",
 							name: "the search's own candidates, filtered on the host as each rule reads them"
 						},
-						coverage: required<SearchFeature>(["account A", "account B", "account C"], {
-							cases: 12,
-							sense: notesOnly
-						}),
+						coverage: required<SearchFeature>(
+							Arr.map(accounts, ([, label]): SearchFeature => `account ${label}`),
+							{ cases: 12, sense: notesOnly }
+						),
 						kept: [],
 						runs: 8,
 						shrink: completeShrink,

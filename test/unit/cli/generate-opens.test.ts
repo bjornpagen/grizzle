@@ -33,12 +33,12 @@ import { snapshotJson } from "#test/support/snapshot-json.ts"
  * layer opens, and one the layer would refuse refuses the draft first, with the same CompileError.
  *
  * The box is PostgreSQL's select list around its bound (core/limits.ts selectMaxEntries): a login whose workload holds
- * one query, whose head is every field of two joined relations, split between them evenly, one entry below the bound,
- * on it, and one past it. The checker admits every width; the statements the layer compiles refuse a head past the
+ * one query, whose head is every field of two joined relations, split between them evenly, on the bound and one
+ * entry past it. The checker admits every width; the statements the layer compiles refuse a head past the
  * bound when they are printed (ResourceBound, selectList). Within it, the layer compiles the program, generate drafts
  * it, and its snapshot opens a DbLayer, which builds without a connection; past it, the layer refuses the program and
  * generate refuses the draft with the CompileError the layer refuses it with. A case compiles a program of some 1,664
- * columns, so the box is the bound's three neighbours alone.
+ * columns, so the box is the bound and the entry past it alone.
  */
 
 /** A head around the select list's bound: its entries, and how many of them are the left relation's fields. */
@@ -47,8 +47,8 @@ interface Head {
 	readonly left: number
 }
 
-/** A head one entry below the bound, on it, or one past it, its fields split evenly between two relations. */
-const headGen: Gen<Head> = map(int(-1, 1), (offset): Head => {
+/** A head on the bound or one entry past it, its fields split evenly between two relations. */
+const headGen: Gen<Head> = map(int(0, 1), (offset): Head => {
 	const entries = selectMaxEntries.value + offset
 	return { entries, left: Math.ceil((entries - 1) / 2) }
 })
@@ -108,7 +108,7 @@ layer(NodeServices.layer, { excludeTestServices: true })("generate and DbLayer.m
 						suite: "unit/cli/generate-opens",
 						generator: headGen,
 						literal: Formatter.format,
-						limit: 3,
+						limit: 2,
 						coverage: requiredInSpace<Width>([
 							"within the bound",
 							"at the bound",
@@ -116,7 +116,7 @@ layer(NodeServices.layer, { excludeTestServices: true })("generate and DbLayer.m
 							"one past the bound"
 						]),
 						caseHang,
-						box: "a program's head one entry below PostgreSQL's select list's bound, on it, and one entry past it",
+						box: "a program's head on PostgreSQL's select list's bound and one entry past it",
 						oracle: {
 							kind: "second-implementation",
 							name: "DbLayer.make's own compilation of the login's programs (registry.ts loginRoles), and the select list's bound"

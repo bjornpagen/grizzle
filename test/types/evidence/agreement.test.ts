@@ -34,7 +34,10 @@ import { typeRun } from "#test/types/batch/provided.ts"
  * 2. Order invariance: the same queries in a second drawn order, as a second module, and every query's head and keys
  *    asserted equal across the two, so TypeScript's evidence never depends on unrelated statements' order.
  * 3. Admission (test/support/agreement/admission.ts): every position a constant stands in against every constant
- *    kind, a self-join's second scope among them, the program admitting exactly what the engine admits.
+ *    kind, a self-join's second scope among them, the program admitting exactly what the engine admits; every
+ *    combinator over every shape of query; and the scope axis: a query matched, as it is and bound, over each level
+ *    against its rule's schema, a relation parameter bound to each kind of source, and a relational negation at each
+ *    place in a rule's filters.
  * 4. Faults: queries of the same generator, each planting one fault at a site whose drawn value the engine decides; a
  *    query it refuses is stated under the refusal its reason is, at the fault's site, and one it admits as a clean
  *    query is.
@@ -43,7 +46,8 @@ import { typeRun } from "#test/types/batch/provided.ts"
  *
  * The floor's witnesses (agreementWitnesses, faultWitnesses), the same in every run, reach every construct the
  * evidence types reason about, a constant in each position, both verdicts, a variable two filters fix, a contract in a
- * head and a self-join whose get the engine proves, which pinnedSelfJoin draws by construction, and every fault
+ * head, a self-join whose get the engine proves, which pinnedSelfJoin draws by construction, a span parameter opposite
+ * each span predicate and in a producer, a distance to a vector parameter and a search whose get the engine proves, and every fault
  * refused, each whose site may hold a valid value admitted too, so the program is never vacuous on any seed; the
  * admission matrix holds every position and kind by construction.
  */
@@ -57,12 +61,18 @@ const required: Situations<AgreementNote> = [
 	"a page request admitted",
 	"a page request refused",
 	"an unordered page refused",
+	"a span parameter opposite r.allen",
+	"a span parameter opposite r.pointIn",
+	"a producer over a span parameter",
+	"a distance to a vector parameter",
+	"a search get proves",
 	...agreementPairs
 ]
 
 /**
  * The faults whose site may hold a value the engine admits: a valid name, a field of the source, a key, one type, a
- * cosine distance to a vector of the same dimensions, an order by a field of the heading.
+ * cosine distance to a vector of the same dimensions, an order by a field of the heading, spans of one endpoint type,
+ * a pack of a span, a search by its distance to a query vector over a head that neither counts nor produces spans.
  */
 const admissible = [
 	"scopeName",
@@ -71,12 +81,17 @@ const admissible = [
 	"unionTypes",
 	"cosineDims",
 	"cosineTerm",
-	"orderHidden"
+	"orderHidden",
+	"spanEndpoints",
+	"packTerm",
+	"nearestBy",
+	"nearestSource"
 ] as const
 
-const faultsRequired: Situations<FaultNote> = [
+const faultsRequired: Situations<AgreementNote | FaultNote> = [
 	...Arr.map(agreementFaults, (fault): FaultNote => `${fault} refused`),
-	...Arr.map(admissible, (fault): FaultNote => `${fault} admitted`)
+	...Arr.map(admissible, (fault): FaultNote => `${fault} admitted`),
+	"a contract's span refused against its base's"
 ]
 
 layer(NodeServices.layer, { excludeTestServices: true })("the type/engine agreement", (it) => {

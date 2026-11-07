@@ -1,5 +1,7 @@
 import { sameOrder } from "#compiler/core/array.ts"
 import { nominal } from "#compiler/core/brand.ts"
+import { everyProperty } from "#compiler/core/canonical.ts"
+import { ownedDigest } from "#compiler/core/fingerprint.ts"
 import type { DeclaredName } from "#compiler/core/identity.ts"
 import { derived, type Limit, postgresSource, published } from "#compiler/core/limits.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
@@ -352,6 +354,59 @@ export const languageOfText = (text: TextInfo): TextLanguage =>
 /** The byte bound a text descriptor's language enforces beside its pattern's (octetsOf): none for an unrefined text. */
 export const languageOctets = (language: TextLanguage): number | undefined =>
 	language.kind === "every" ? undefined : octetsOf(language.check)
+
+/** The pattern of every text as grizzle spells it: what a byte bound over every text cuts, `str.regex("^.*$", "su")`. */
+export const wildcardSource = "^.*$"
+export const wildcardFlags: "u" | "su" = "su"
+
+/**
+ * A pattern's own language, before a byte bound cuts it: every text, or the language its pattern's check enforces,
+ * by its key. The text analysis proves one of a pattern (text/refinement.ts textLookup).
+ */
+export type PatternLanguage =
+	| { readonly kind: "every" }
+	| { readonly kind: "refined"; readonly key: RegexKey; readonly check: PatternCheck }
+
+/**
+ * The key of a language whose canonical text is `text`: its SHA-256 under the regex-language domain. A pattern's text
+ * is its canonical key (text/refinement.ts TextRefinement.key), and a cut's its pattern's key and its bound.
+ */
+export const languageKey = (text: string): RegexKey =>
+	RegexKey(ownedDigest("regex-language", text, everyProperty))
+
+/** The tighter of a pattern's bounds and a byte bound's: a code point takes at least a byte. */
+const boundsWithin = (bounds: TextBounds | undefined, octets: number): TextBounds =>
+	bounds === undefined
+		? { length: octets, bytes: octets }
+		: { length: Math.min(bounds.length, octets), bytes: Math.min(bounds.bytes, octets) }
+
+/**
+ * The language of a text of at most `octets` UTF-8 bytes whose pattern's own language is `pattern`, as str.bytes and a
+ * guard of a text's bytes state it: the pattern's own where its bounds prove every member fits, so the two spell one
+ * language, one key and one domain; else its members of at most so many bytes, enforced by `octet_length(VALUE) <=
+ * octets` beside the pattern's check, or alone for every text, keyed by the pattern's own key and the bound, so a
+ * language and a bound have one key however they are reached.
+ */
+export const languageWithin = (pattern: PatternLanguage, octets: number): TextLanguage => {
+	if (pattern.kind === "every") {
+		const every: TextLanguage = {
+			kind: "refined",
+			key: languageKey(`octets<=${octets}`),
+			check: { kind: "octets", octets, check: undefined, bounds: boundsWithin(undefined, octets) }
+		}
+		return Object.freeze(every)
+	}
+	const { check } = pattern
+	if (check.bounds !== undefined && check.bounds.bytes <= octets) {
+		return pattern
+	}
+	const cut: TextLanguage = {
+		kind: "refined",
+		key: languageKey(`${pattern.key}&octets<=${octets}`),
+		check: { kind: "octets", octets, check, bounds: boundsWithin(check.bounds, octets) }
+	}
+	return Object.freeze(cut)
+}
 
 /**
  * Every text descriptor carries regex metadata: a specific pattern or the canonical wildcard, and the bounds a specific

@@ -1,7 +1,8 @@
-import { Array as Arr, Option } from "effect"
+import { Array as Arr, Option, String as Str } from "effect"
 import type { Column } from "#compiler/core/decoder.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import type { ParamDecl } from "#compiler/ir/products.ts"
+import type { Fact } from "#compiler/ir/proof.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import { contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { carrierSql } from "#compiler/scalar/registry.ts"
@@ -15,7 +16,8 @@ import type { Carriers } from "#compiler/types/core/phantom.ts"
  * contract) and the values its decoder's column delivers (core/decoder.ts Column): a head literal's column delivers its
  * literals, a closed id's its handles, narrowed to a handle's own member where the column is a constant's, and every
  * other column its carrier's host values, under its contract's brand. Every text the agreement schemas declare has the
- * language of every string, so a text is a string.
+ * language of every string, so a text is a string. A span's host values are spans of its endpoint's, under the
+ * endpoint contract's brand, and a vector's are vectors of its dimension count.
  */
 
 /** A head literal's TypeScript literal type. */
@@ -69,11 +71,10 @@ const carrierHost = (type: ScalarType): string => {
 		case "code":
 			return handles(type.roster.handles)
 		case "range4":
-			return "Span<number>"
 		case "range8":
-			return "Span<bigint>"
+			return `Span<${branded(type.span.endpoint, carrierHost(type.span.endpoint))}>`
 		case "vector":
-			return "Vector"
+			return `Vector<${type.typmod.dims}>`
 		case "date":
 		case "bits":
 			throw new Error(`no agreement schema declares a ${type.carrier} field`)
@@ -130,7 +131,45 @@ export const groupFields = (
 		return [name, columnHost(column.type, carrier.column)] as const
 	})
 
-/** A parameter's entry in a query's parameter map, as the types state it (ParamType, a relation's rows). */
+/**
+ * The facts every value of a type has by its contracts' declarations, each contract level's (ir/scalar.ts
+ * ContractInfo.facts), sorted and each once: none for a type of no contract.
+ */
+const declaredFacts = (type: ScalarType): ReadonlyArray<Fact> => {
+	const facts = new Set<Fact>()
+	for (let c = contractOf(type); c !== undefined; c = contractOf(c.base)) {
+		for (const f of c.facts) {
+			facts.add(f)
+		}
+	}
+	return Arr.sort([...facts], Str.Order)
+}
+
+/**
+ * A type's identity as the types state it, a domain: its host under its contract's brand, with one Declares per fact its
+ * contracts declare (types/fields/field.ts Contract).
+ */
+const domainOf = (type: ScalarType, host: string): string =>
+	Arr.join(
+		[branded(type, host), ...Arr.map(declaredFacts(type), (f) => `Declares<${jsonText(f)}>`)],
+		" & "
+	)
+
+/**
+ * The facts a variable read from a column of the engine's type has, as the types state them (types/core/phantom.ts
+ * ColumnFacts): its contracts' declared facts, or Facts, nothing proved, where none declares any.
+ */
+export const columnFacts = (type: ScalarType): string => {
+	const facts = declaredFacts(type)
+	return Arr.isReadonlyArrayNonEmpty(facts)
+		? recordType(Arr.map(facts, (f) => [f, "true"] as const))
+		: "Facts"
+}
+
+/**
+ * A parameter's entry in a query's parameter map, as the types state it (ParamType, a relation's rows): its domain, its
+ * SQL type, and its language where the two differ, a roster's and a contract's that declares a fact.
+ */
 const paramEntry = (p: ParamDecl): string => {
 	if (p.kind === "relation") {
 		const row = recordType(
@@ -140,9 +179,12 @@ const paramEntry = (p: ParamDecl): string => {
 	}
 	const sql = jsonText(carrierSql[p.type.carrier])
 	const host = branded(p.type, carrierHost(p.type))
+	const domain = domainOf(p.type, carrierHost(p.type))
 	return p.type.carrier === "code"
 		? `ParamType<${host} & Rostered<${jsonText(p.type.roster.closed)}>, ${sql}, ${host}>`
-		: `ParamType<${host}, ${sql}>`
+		: domain === host
+			? `ParamType<${host}, ${sql}>`
+			: `ParamType<${domain}, ${sql}, ${host}>`
 }
 
 /** A query's parameter map as the types state it: unknown where it takes none. */
