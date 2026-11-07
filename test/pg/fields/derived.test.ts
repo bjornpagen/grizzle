@@ -7,6 +7,7 @@ import {
 	type Real,
 	refused,
 	runProgram,
+	type Step,
 	took,
 	type Verdict
 } from "@grizzle/testing/commands"
@@ -135,9 +136,10 @@ import { outputText } from "#test/support/wire.ts"
  * the expression reads no closed relation, and PostgreSQL is the judge of every refusal.
  *
  * Each case's commands are a swarm drawn per case (rule 7); the all-off draw is guarded by keeping `write`, which
- * applies in every state, always on. While no witness has added w over a row at a key Weight lacks, half the steered
- * cases are aimed at it (aimedRun). Bound: programs of three to eight steps over a roster of two to four handles after up
- * to two migrations of its history.
+ * applies in every state, always on. While no witness has added w over a row at a key Weight lacks, or written a row
+ * under one of the singleton expressions at a tier whose code is no position, half the steered cases are aimed at one of
+ * them (aimedRun). Bound: programs of three to eight steps, or an aimed write at each live handle, over a roster of two
+ * to four handles after up to two migrations of its history.
  */
 
 /** The roster the sets range over, the relation that holds them, and the closed relations its fields read. */
@@ -172,13 +174,14 @@ const setExprs = [
 const literalExprs: ReadonlyArray<SetExpr> = ["a ∪ L", "a ∩ L", "a − L"]
 
 /** The expressions that hold the singleton of the row's tier. */
-const singletonExprs: ReadonlyArray<Expr> = ["{tier}", "a ∪ {tier}", "Pair.row(tier) ∩ {tier}"]
+const singletonExprs = ["{tier}", "a ∪ {tier}", "Pair.row(tier) ∩ {tier}"] as const
 const weightExprs = ['Weight.at("w", tier)', 'Weight.at("v", tier)'] as const
 
 type CountExpr = (typeof countExprs)[number]
 type PairExpr = (typeof pairExprs)[number]
 type SetExpr = (typeof setExprs)[number]
 type WeightExpr = (typeof weightExprs)[number]
+type SingletonExpr = (typeof singletonExprs)[number]
 type Expr = CountExpr | PairExpr | SetExpr | WeightExpr
 
 /** A generated field as a command names it, with an expression of its kind. */
@@ -220,6 +223,8 @@ interface Model {
 	readonly tier: RosterState
 	readonly closedRows: ClosedRows
 	readonly rows: ReadonlyArray<Row>
+	/** The key the next row written takes: one past every key a row was written at, so no key is written twice. */
+	readonly nextId: number
 	readonly generated: Generated
 }
 
@@ -245,7 +250,9 @@ type Feature =
 	| "a roster with a hole"
 	| "a row written"
 	| "a row written under a literal set operand"
-	| "a row written under the singleton of a tier whose code is no position"
+	| "a row written under {tier} at a tier whose code is no position"
+	| "a row written under a ∪ {tier} at a tier whose code is no position"
+	| "a row written under Pair.row(tier) ∩ {tier} at a tier that pairs with itself and whose code is no position"
 	| "a write refused at an absent key"
 	| "an insert supplying a generated column refused"
 	| "an update of a generated column refused"
@@ -256,6 +263,17 @@ type Feature =
 	| "closed rows changed under a closed read"
 	| "closed rows refused at an absent key"
 	| "nothing drafted"
+
+/**
+ * What a row written under each singleton expression reaches, at a tier whose code is no position, where its value holds
+ * the tier's bit: always, but for it ∩ {tier} only where the tier pairs with itself (holdsTier).
+ */
+const singletonFeatures: Readonly<Record<SingletonExpr, Feature>> = {
+	"{tier}": "a row written under {tier} at a tier whose code is no position",
+	"a ∪ {tier}": "a row written under a ∪ {tier} at a tier whose code is no position",
+	"Pair.row(tier) ∩ {tier}":
+		"a row written under Pair.row(tier) ∩ {tier} at a tier that pairs with itself and whose code is no position"
+}
 
 const commandNames = Struct.keys<Record<keyof Params, unknown>>({
 	write: 0,
@@ -384,10 +402,10 @@ const machine = (initial: Model): Machine<Model, Params, Refusal> => ({
 				b: source.draw(liveSubsetGen(m.tier))
 			}),
 			judge: (m, p) => {
-				const row: Row = { id: m.rows.length, ...p }
+				const row: Row = { id: m.nextId, ...p }
 				return absentRows({ ...m, rows: [row] }).length > 0
 					? refused("absent key")
-					: accepted({ ...m, rows: [...m.rows, row] })
+					: accepted({ ...m, rows: [...m.rows, row], nextId: m.nextId + 1 })
 			}
 		},
 		supply: {
@@ -566,6 +584,7 @@ const initialOf = (
 	tier: history.state,
 	closedRows,
 	rows: [],
+	nextId: 0,
 	generated
 })
 
@@ -630,15 +649,79 @@ const lackingRunGen: Gen<Run> = (source) => {
 	}
 }
 
+/** The singleton expression `expr` as the generated field that holds it. */
+const singletonChoice = (expr: SingletonExpr): FieldChoice => {
+	switch (expr) {
+		case "{tier}":
+		case "a ∪ {tier}":
+			return { name: "s", expr }
+		case "Pair.row(tier) ∩ {tier}":
+			return { name: "p", expr }
+	}
+}
+
 /**
- * The run a witness makes: its drawn one, or, while no witness has added a closed read over rows at a key Weight lacks
- * (Case.steering), a run aimed at it half the time.
+ * A run aimed at a row written under the singleton expression `expr` at a tier whose code is no position: the roster
+ * migrates once at least, R declares `expr` from the start and w not, Pair pairs every live handle with itself, and the
+ * program writes a row at each live handle, so a row is written at every handle a hole before it shifted.
  */
-const aimedRun = (run: Run, c: Case<Feature>): Run =>
-	Option.exists(c.steering, (pending) => pending.has("an addition refused at an absent key")) &&
-	c.draw(boolean)
-		? c.draw(lackingRunGen)
-		: run
+const singletonRunGen =
+	(expr: SingletonExpr): Gen<Run> =>
+	(source) => {
+		const history = source.draw(
+			historyGen(tierName, { handles: { min: 2, max: 4 }, migrations: { min: 1, max: 2 } })
+		)
+		const live = liveOf(history.state)
+		const drawnRows = source.draw(closedRowsGen(history.state))
+		const closedRows: ClosedRows = {
+			weight: drawnRows.weight,
+			pair: [
+				...Arr.filter(drawnRows.pair, (x) => x.from !== x.to),
+				...Arr.map(live, (tier) => ({ from: tier, to: tier }))
+			]
+		}
+		const generated = withChoice(
+			{ ...source.draw(generatedGen), w: undefined },
+			singletonChoice(expr)
+		)
+		return {
+			history,
+			closedRows,
+			generated,
+			program: Arr.map(live, (tier): Step<Params> => ({
+				command: "write",
+				parameters: {
+					tier,
+					a: source.draw(liveSubsetGen(history.state)),
+					b: source.draw(liveSubsetGen(history.state))
+				}
+			}))
+		}
+	}
+
+/** What a steered case may be aimed at: an addition refused at an absent key, or a singleton expression's feature. */
+type Aim = "absent key" | SingletonExpr
+
+/** The feature each aim's run is aimed at. */
+const aimFeatures: Readonly<Record<Aim, Feature>> = {
+	"absent key": "an addition refused at an absent key",
+	...singletonFeatures
+}
+
+/**
+ * The run a witness makes: its drawn one, or, while some aim's feature no witness has reached (Case.steering), half the
+ * time a run aimed at one of them.
+ */
+const aimedRun = (run: Run, c: Case<Feature>): Run => {
+	const aims = Arr.filter(Struct.keys(aimFeatures), (aim) =>
+		Option.exists(c.steering, (unreached) => unreached.has(aimFeatures[aim]))
+	)
+	if (!Arr.isReadonlyArrayNonEmpty(aims) || !c.draw(boolean)) {
+		return run
+	}
+	const aim = c.draw(element(aims))
+	return c.draw(aim === "absent key" ? lackingRunGen : singletonRunGen(aim))
+}
 
 /**
  * The installation a case migrates: the declared name its schema is built under, the owner's session that reads it,
@@ -851,6 +934,20 @@ const comparable = (value: unknown): unknown => {
 /** Pair's completions of `from`: the handles it pairs `from` with. */
 const pairedWith = (rows: ClosedRows, from: string): ReadonlySet<string> =>
 	Object.freeze(new Set(Arr.flatMap(rows.pair, (x) => (x.from === from ? [x.to] : []))))
+
+/**
+ * Whether a singleton expression's value at `tier` holds the tier: always, but for it ∩ {tier} only where the tier pairs
+ * with itself.
+ */
+const holdsTier = (expr: SingletonExpr, tier: string, rows: ClosedRows): boolean => {
+	switch (expr) {
+		case "{tier}":
+		case "a ∪ {tier}":
+			return true
+		case "Pair.row(tier) ∩ {tier}":
+			return pairedWith(rows, tier).has(tier)
+	}
+}
 
 /** The naive model of a generated field's expression over a row: plain Sets of handles, their sizes and Weight's rows. */
 const naive = (expr: Expr, row: Row, rows: ClosedRows, marked: ReadonlySet<string>): unknown => {
@@ -1117,7 +1214,7 @@ const real = (
 						", "
 					)}) VALUES ($1::integer, $2::smallint, $3::text::bit(${wholeDigits(n)}), $4::text::bit(${wholeDigits(n)}))`,
 					[
-						before.rows.length,
+						before.nextId,
 						code(p.tier),
 						setText(n, Arr.map(p.a, code)),
 						setText(n, Arr.map(p.b, code))
@@ -1132,14 +1229,15 @@ const real = (
 				if (after.generated.s !== undefined && literalExprs.includes(after.generated.s)) {
 					note("a row written under a literal set operand")
 				}
-				if (
-					Arr.some(
-						[after.generated.s, after.generated.p],
-						(expr) => expr !== undefined && singletonExprs.includes(expr)
-					) &&
-					codeAt(after.tier, p.tier) !== liveOf(after.tier).indexOf(p.tier)
-				) {
-					note("a row written under the singleton of a tier whose code is no position")
+				if (codeAt(after.tier, p.tier) !== liveOf(after.tier).indexOf(p.tier)) {
+					for (const expr of singletonExprs) {
+						if (
+							(after.generated.s === expr || after.generated.p === expr) &&
+							holdsTier(expr, p.tier, after.closedRows)
+						) {
+							note(singletonFeatures[expr])
+						}
+					}
 				}
 				yield* sameAsModel(sys, after)
 				return took
@@ -1163,7 +1261,7 @@ const real = (
 					? `INSERT INTO ${tableOf(sys)} (${Arr.join(
 							Arr.map([...callerFields, p.name], (f) => columnOf(sys, f)),
 							", "
-						)}) VALUES (${before.rows.length}, 0::smallint, ${empty}, ${empty}, ${valueFor(n, p.name)})`
+						)}) VALUES (${before.nextId}, 0::smallint, ${empty}, ${empty}, ${valueFor(n, p.name)})`
 					: `UPDATE ${tableOf(sys)} SET ${columnOf(sys, p.name)} = ${valueFor(n, p.name)}`
 			note(
 				p.statement === "insert"
@@ -1280,7 +1378,9 @@ layer(Substrate.layer)("generated fields on PostgreSQL 19rc1", (it) => {
 								"a roster with a hole",
 								"a row written",
 								"a row written under a literal set operand",
-								"a row written under the singleton of a tier whose code is no position",
+								"a row written under {tier} at a tier whose code is no position",
+								"a row written under a ∪ {tier} at a tier whose code is no position",
+								"a row written under Pair.row(tier) ∩ {tier} at a tier that pairs with itself and whose code is no position",
 								"a write refused at an absent key",
 								"an insert supplying a generated column refused",
 								"an update of a generated column refused",
