@@ -16,6 +16,21 @@ How to upgrade:
 
 ### Breaking changes
 
+#### A TLS handshake's failure is stage tls, and a query naming an extension its role can't use is refused before any SQL
+
+- **Every failure the TLS handshake raises is `TlsRefused` at stage `tls`, told by when it happened, not by its code.**
+  A server that answered the SSLRequest with `S` and then refused the handshake with a TLS alert failed with Node's
+  `EPROTO`, which grizzle read as `SocketFailed` at stage `connect`; now any error the TLS socket raises before its
+  handshake completes is `TlsRefused { fault: { kind: "handshake", code } }`, a certificate the CA bundle does not verify
+  and a name it does not carry among them as before. A Node error after the handshake is `SocketFailed`, whatever its
+  code. No codemod.
+- **A read, page, explain, apply or workload program that names an extension's type in a schema the Db's role holds no
+  USAGE on is refused with `MissingCapability` before any SQL** (`USAGE on schema <schema>`), at stage `capability`, and
+  db.compile with its `CompileError`. A relation parameter carrying a vector on a role that reads and writes no vector
+  passed the capability check, the extension being installed, and failed at execute with PostgreSQL's 42501. Grants
+  are unchanged: a role holds USAGE on the vector extension's schema only when a relation it reads or writes holds a
+  vector. No codemod.
+
 #### A rule matches only a query over a level of its schema, and a query's types keep every parameter any branch needs
 
 - **A rule that matches a query, or a bound import of one, written over a schema that is none of the rule's levels is
@@ -43,9 +58,9 @@ How to upgrade:
 - **A delete listing two facts of one relation that share a key and differ elsewhere is `invariant-rejected` on that
   key's law before any SQL is sent**, as an insert's and a put's already were. Its witness is the key values. The types
   already refused such an array literal with literal keys. The engine judged deletions by identity alone, so it took
-  both facts as requests, though a key names one stored fact. Every declared key judges a stratum's deletions,
-  the primary key first, a span compared as a value, apart from its additions: a delete and an insert at one key are
-  still a replacement. No codemod.
+  both facts as requests, though a key names one stored fact. Every declared key whose fields a deletion states judges
+  a stratum's deletions, the primary key first, a span compared as a value, apart from its additions: a delete and an
+  insert at one key are still a replacement. No codemod.
 - **An insert of a sequence's owner, through a role whose write list leaves out a member relation its nesting reaches,
   is `OutsideRole` on that member when it compiles.** The types already refused it at `db.apply`. The engine checked
   only the owner, so the apply reached PostgreSQL and failed there, since a role holds nothing of a member relation it

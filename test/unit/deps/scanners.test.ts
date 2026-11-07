@@ -6,7 +6,6 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { isCUtf8 } from "#adapter/admission/expectation.ts"
-import { isTlsCode } from "#adapter/wire/session.ts"
 import { parseSqlstate } from "#compiler/core/sqlstate.ts"
 import { assert, nonEmpty } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -82,56 +81,5 @@ describe("scanners that replace a RegExp under src", () => {
 				)
 			)
 		})
-	)
-
-	it.effect(
-		"isTlsCode recognizes exactly Node's certificate codes and the /^ERR_(?:TLS|SSL)_/ prefixes, of a string",
-		(ctx) =>
-			Effect.gen(function* () {
-				const reference = regex("^ERR_(?:TLS|SSL)_")
-				/** Certificate verification codes Node reports, which carry no ERR_ prefix. */
-				const certificate = [
-					"CERT_HAS_EXPIRED",
-					"DEPTH_ZERO_SELF_SIGNED_CERT",
-					"HOSTNAME_MISMATCH"
-				] as const
-				const values = oneOf<unknown>([
-					textOf("ERR_TLSX", 10),
-					element([
-						"ERR_TLS_CERT_ALTNAME_INVALID",
-						"ERR_SSL_WRONG_VERSION_NUMBER",
-						"ERR_TLS",
-						"ECONNREFUSED",
-						"CERT_HAS",
-						...certificate
-					]),
-					element([42, true, null, undefined] as const)
-				])
-				yield* searched(
-					ctx,
-					explore(
-						{
-							suite: "unit/deps/scanners-3",
-							draw: drawn(values),
-							literal: Formatter.format,
-							coverage: noCoverage,
-							kept: [],
-							runs: numRuns,
-							shrink: completeShrink,
-							concurrency: 1,
-							steerEvery: 16,
-							caseHang
-						},
-						(value) =>
-							Effect.sync(() => {
-								assert.equal(
-									isTlsCode(value),
-									typeof value === "string" &&
-										(Arr.some(certificate, (code) => code === value) || reference.test(value))
-								)
-							})
-					)
-				)
-			})
 	)
 })

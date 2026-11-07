@@ -31,7 +31,6 @@ import {
 	characterOf,
 	constant,
 	element,
-	filter,
 	type Gen,
 	int,
 	map,
@@ -313,27 +312,74 @@ interface Listing {
 	readonly drops: ReadonlyArray<string>
 }
 
+/** A spelling of `name` as alike as its alias group allows: another of its group, or itself. */
+const alikeOf =
+	(name: string): Gen<string> =>
+	(source) =>
+		Option.match(
+			Arr.findFirst(groups, (group) => Arr.contains(group, name)),
+			{ onNone: () => name, onSome: (group) => source.draw(element(group)) }
+		)
+
+/** A side's spelling from its name and its second part: a relation, a field, a handle or a login. */
+type PoolForm = (name: string, second: string) => string
+
+/** The forms a pool's sides take, the second part a field's name or a handle's text. */
+const poolForms: Arr.NonEmptyReadonlyArray<PoolForm> = [
+	(name) => name,
+	(name, second) => `${name}.${second}`,
+	(name, second) => `${name}#${second}`,
+	(name) => `@${name}`
+]
+
 /**
- * A command line over a pool of three sides of one form, their names declared names or names of one alias group, their
- * handles of one or two letters: up to three renames between them and two drops of them.
+ * A command line over a pool of three sides of one form, their names declared names of three conversions, so no two
+ * are one name, each second part one or two letters: up to three renames, each from one side to another or from a side
+ * to itself, and up to two drops, each naming a side as pooled or respelled alike where its alias group allows.
  */
 const listingGen: Gen<Listing> = (source) => {
-	const group = source.draw(element(groups))
-	const name = weighted([
-		[1, map(dictionaryNameGen, (n) => n.declared)],
-		[2, element(group)]
+	const form = source.draw(element(poolForms))
+	const pool = nonEmpty(
+		Arr.map(
+			source.draw(uniqueArray(declaredGen, (n) => conversionOf(n), { min: 3, max: 3 }, 8)),
+			(name) => ({ name, second: source.draw(lettersGen) })
+		),
+		"the pool"
+	)
+	const pooledAt = (at: number) => defined(pool[at], "a pooled side")
+	const spelled =
+		(at: number): Gen<string> =>
+		(inner) => {
+			const side = pooledAt(at)
+			const name = inner.draw(
+				weighted<string>([
+					[3, constant(side.name)],
+					[1, alikeOf(side.name)]
+				])
+			)
+			return form(name, side.second)
+		}
+	const index = int(0, pool.length - 1)
+	const renamed: Gen<string> = weighted<string>([
+		[
+			4,
+			(inner) => {
+				const from = inner.draw(index)
+				const to = (from + inner.draw(int(1, pool.length - 1))) % pool.length
+				return `${inner.draw(spelled(from))}=${inner.draw(spelled(to))}`
+			}
+		],
+		[
+			1,
+			(inner) => {
+				const at = inner.draw(index)
+				return `${inner.draw(spelled(at))}=${inner.draw(spelled(at))}`
+			}
+		]
 	])
-	const form = source.draw(element(formsOf(name, lettersGen)))
-	const pool = nonEmpty(source.draw(array(form, { min: 3, max: 3 })), "the pool")
-	const sideAt = (at: number) => defined(pool[at], "a pooled side")
-	const renamed: Gen<string> = (inner) => {
-		const from = inner.draw(int(0, pool.length - 1))
-		const to = (from + inner.draw(int(1, pool.length - 1))) % pool.length
-		return `${sideAt(from)}=${sideAt(to)}`
-	}
 	return {
 		renames: source.draw(array(renamed, { min: 0, max: 3 })),
-		drops: source.draw(array(map(int(0, pool.length - 1), sideAt), { min: 0, max: 2 }))
+		drops: source.draw(array((inner) => inner.draw(spelled(inner.draw(index))), { min: 0, max: 2 }))
 	}
 }
 
@@ -372,19 +418,27 @@ const listingFeatures = (listing: Listing): ReadonlyArray<Listed> => {
 	return repeatsBy(sides, deepEquals) ? [ruling] : [ruling, "an alike repeat"]
 }
 
-/** How many draws a steered case makes for a command line that reaches a pending situation, before it gives up. */
-const aimAttempts = 32
+/** How many candidates a steered case draws for a command line that reaches a pending situation. */
+const aimCandidates = 32
 
 /**
  * The command line a case reads: the drawn one, or, where steering names situations no case has reached, the first of
- * up to `aimAttempts` draws that reaches one.
+ * up to `aimCandidates` further draws that reaches one, else the drawn one.
  */
 const aimedListing = (drawnListing: Listing, c: Case<Listed>): Listing =>
 	Option.match(c.steering, {
 		onNone: () => drawnListing,
 		onSome: (pending) => {
 			const reaches = (l: Listing) => Arr.some(listingFeatures(l), (f) => pending.has(f))
-			return reaches(drawnListing) ? drawnListing : c.draw(filter(listingGen, reaches, aimAttempts))
+			return reaches(drawnListing)
+				? drawnListing
+				: Option.getOrElse(
+						Arr.findFirst(
+							c.draw(array(listingGen, { min: aimCandidates, max: aimCandidates })),
+							reaches
+						),
+						() => drawnListing
+					)
 		}
 	})
 
@@ -399,15 +453,6 @@ interface RosterCase {
 	readonly rosters: Arr.NonEmptyReadonlyArray<string>
 	readonly renames: Arr.NonEmptyReadonlyArray<Renamed>
 }
-
-/** A spelling of `name` as alike as its alias group allows: another of its group, or itself. */
-const alikeOf =
-	(name: string): Gen<string> =>
-	(source) =>
-		Option.match(
-			Arr.findFirst(groups, (group) => Arr.contains(group, name)),
-			{ onNone: () => name, onSome: (group) => source.draw(element(group)) }
-		)
 
 /**
  * One or two rosters of different conversions, and one to three handle renames, each to one of them spelled alike or to

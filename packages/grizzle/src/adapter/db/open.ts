@@ -187,9 +187,9 @@ export const openDb = Effect.fn("openDb")(function* <R extends AnyRole, P>(
 		witness,
 		bind,
 		pool,
-		installedExtensions: admitted.extensions
+		...admitted.capabilities
 	}
-	const missing = workloadMissing(workload, admitted.extensions)
+	const missing = workloadMissing(workload, admitted.capabilities)
 	if (Option.isSome(missing)) {
 		return yield* new OpenError({
 			reason: new MissingCapability({ capability: missing.value })

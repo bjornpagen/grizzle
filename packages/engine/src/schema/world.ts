@@ -344,7 +344,7 @@ export const admitRole = (
 	const target = (relation: string, entry: string): void => {
 		const prior = targets.get(relation)
 		if (prior !== undefined) {
-			throw roleRefused(`${label} write`, { kind: "writeTwice", relation, entries: [entry, prior] })
+			throw roleRefused(`${label} write`, { kind: "writeTwice", relation, entries: [prior, entry] })
 		}
 		targets.set(relation, entry)
 	}

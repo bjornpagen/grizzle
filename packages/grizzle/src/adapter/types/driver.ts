@@ -81,21 +81,27 @@ export interface PgPoolClient extends PgClient {
 
 /**
  * A client's connection: the stream it writes a flight to, corked, and destroys; the Close of a server statement's
- * name; its `error` event, a failure of the client's own during startup; and its first ReadyForQuery, once the server
- * has answered the startup and sent its BackendKeyData.
+ * name; its `error` event, a failure of the client's own during startup; its `sslconnect`, once pg has upgraded its
+ * stream to TLS and the handshake has begun; and its first ReadyForQuery, once the server has answered the startup and
+ * sent its BackendKeyData.
  */
 interface PgConnection {
 	readonly stream: PgStream
 	close(message: { readonly type: "S"; readonly name: string }, more: boolean): void
 	on(event: "error", listener: () => void): unknown
-	once(event: "readyForQuery", listener: () => void): unknown
+	once(event: "readyForQuery" | "sslconnect", listener: () => void): unknown
 }
 
-/** The stream of a client's connection: the transport's socket, or the TLS socket over it once upgraded. */
+/**
+ * The stream of a client's connection: the transport's socket, or the TLS socket over it once upgraded, whose
+ * handshake ends with `secureConnect` and whose failures are its `error` events.
+ */
 interface PgStream {
 	cork(): void
 	uncork(): void
 	destroy(): unknown
+	once(event: "secureConnect", listener: () => void): unknown
+	prependListener(event: "error", listener: (error: unknown) => void): unknown
 }
 
 /** What grizzle builds pg's Pool with: its client class, and its bounds (DbConfig.pool). */

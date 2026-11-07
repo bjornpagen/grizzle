@@ -1,11 +1,13 @@
 import { Array as Arr, Effect, Option, Order, Result } from "effect"
 import {
 	type AdmissionExpectation,
+	type DbCapabilities,
 	databaseQuery,
 	extensionsQuery,
 	installedExtensions,
 	serverMismatches,
-	serverRows
+	serverRows,
+	usableSchemas
 } from "#adapter/admission/expectation.ts"
 
 import {
@@ -91,12 +93,13 @@ interface RefusedClaim {
 }
 
 /**
- * What admission found that the opened Db keeps: every installed extension, by name, with the schema it lives in; the
- * refined claims that are no value of their domains, in the order given; and the ledger's statements, whose fence it
- * admitted the Db behind and every transaction of the Db takes again (wire/batch.ts prologueOf).
+ * What admission found that the opened Db keeps: its capabilities, every installed extension, by name, with the schema
+ * it lives in, and the schemas the role holds USAGE on; the refined claims that are no value of their domains, in the
+ * order given; and the ledger's statements, whose fence it admitted the Db behind and every transaction of the Db takes
+ * again (wire/batch.ts prologueOf).
  */
 interface Admitted {
-	readonly extensions: ReadonlyMap<string, string>
+	readonly capabilities: DbCapabilities
 	readonly refusedClaims: ReadonlyArray<RefusedClaim>
 	readonly ledger: LedgerStatements
 }
@@ -439,9 +442,9 @@ type AdmissionRead = (typeof admissionReads)[number]
  * hold, and its claims with domains it may not hold. A statement the server or transport refuses is
  * OpenError{stage: "admission"} whose reason, AdmissionFailed, carries the failure.
  *
- * An admitted database yields the installed extensions and their schemas, against which a query's own capability
- * requirements are checked when it compiles (reader/reader.ts), and the claims PostgreSQL refused, which Db.open
- * refuses as ClaimRefused (../db/open.ts).
+ * An admitted database yields the installed extensions and their schemas, and the schemas the role holds USAGE on,
+ * against which a query's own capability requirements are checked when it compiles (reader/reader.ts), and the claims
+ * PostgreSQL refused, which Db.open refuses as ClaimRefused (../db/open.ts).
  *
  * Admits the database for `expectation`, the login and the role against the snapshot (see the header).
  */
@@ -604,5 +607,12 @@ export const admit = Effect.fn("admit")(function* (
 			refusedClaims.push({ context: j.claim.context, field: j.claim.field })
 		}
 	}
-	return { extensions: installedExtensions(server.extensions), refusedClaims, ledger }
+	return {
+		capabilities: {
+			installedExtensions: installedExtensions(server.extensions),
+			usableSchemas: usableSchemas(roleExpected)
+		},
+		refusedClaims,
+		ledger
+	}
 })

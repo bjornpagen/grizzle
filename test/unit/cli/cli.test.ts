@@ -1474,19 +1474,27 @@ const loadingNotes = (loading: Loading): ReadonlyArray<LoadingFeature> => {
 	}
 }
 
-/** How many draws a steered case makes for a loading that reaches a pending situation, before it gives up. */
-const aimAttempts = 32
+/** How many candidates a steered case draws for a loading that reaches a pending situation. */
+const aimCandidates = 32
 
 /**
  * The loading a case runs: the drawn one, or, where steering names situations no case has reached, the first of up to
- * `aimAttempts` draws that reaches one.
+ * `aimCandidates` further draws that reaches one, else the drawn one.
  */
 const aimedLoading = (drawnLoading: Loading, c: Case<LoadingFeature>): Loading =>
 	Option.match(c.steering, {
 		onNone: () => drawnLoading,
 		onSome: (pending) => {
 			const reaches = (loading: Loading) => Arr.some(loadingNotes(loading), (f) => pending.has(f))
-			return reaches(drawnLoading) ? drawnLoading : c.draw(filter(loadingGen, reaches, aimAttempts))
+			return reaches(drawnLoading)
+				? drawnLoading
+				: Option.getOrElse(
+						Arr.findFirst(
+							c.draw(array(loadingGen, { min: aimCandidates, max: aimCandidates })),
+							reaches
+						),
+						() => drawnLoading
+					)
 		}
 	})
 

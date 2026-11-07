@@ -1,4 +1,5 @@
 import { Array as Arr, Effect, Option, Result } from "effect"
+import type { DbCapabilities } from "#adapter/admission/expectation.ts"
 import {
 	changeFormMissing,
 	changeHandle,
@@ -154,19 +155,19 @@ const variantForms = (variants: ChangeVariants): ReadonlyArray<ChangeForm<unknow
 		: [...variantForms(variants.lacking), ...variantForms(variants.holding)]
 
 /**
- * The capability a role's workload needs that the admitted database lacks, if any: an extension a program's statements
- * name, installed nowhere or in another schema than its compiled names expect. Db.open checks it after admission, so a
- * handle never meets it.
+ * The capability a role's workload needs that the admitted Db lacks, if any: an extension a program's statements name,
+ * installed nowhere, in another schema than its compiled names expect, or in one the role holds no USAGE on. Db.open
+ * checks it after admission, so a handle never meets it.
  */
 export const workloadMissing = (
 	forms: ReadonlyArray<WorkloadForm>,
-	installed: ReadonlyMap<string, string>
+	capabilities: DbCapabilities
 ): Option.Option<string> => {
 	for (const w of forms) {
 		const missing =
 			w.kind === "change"
-				? Arr.map(variantForms(w.variants), (form) => changeFormMissing(form, installed))
-				: [readFormMissing(w.form, installed)]
+				? Arr.map(variantForms(w.variants), (form) => changeFormMissing(form, capabilities))
+				: [readFormMissing(w.form, capabilities)]
 		for (const m of missing) {
 			if (m !== undefined) {
 				return Option.some(m)

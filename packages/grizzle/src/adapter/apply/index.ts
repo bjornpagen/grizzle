@@ -1,4 +1,5 @@
 import { Array as Arr, Effect, Result, type Scope } from "effect"
+import type { DbCapabilities } from "#adapter/admission/expectation.ts"
 import {
 	capabilityRefusal,
 	type CompiledChange,
@@ -135,7 +136,7 @@ const applicable = (
 		if (Result.isFailure(compiled)) {
 			return compileFailure(compiled.failure)
 		}
-		const missing = missingCapability(compiled.success, ctx.installedExtensions)
+		const missing = missingCapability(compiled.success, ctx)
 		return missing === undefined ? Effect.succeed(compiled.success) : capabilityFailure(missing)
 	})
 
@@ -191,8 +192,8 @@ export const compileChangeForm = <R>(
 /** The capability a change form needs that the admitted database lacks, if any. */
 export const changeFormMissing = (
 	form: ChangeForm<unknown>,
-	installed: ReadonlyMap<string, string>
-): string | undefined => missingCapability(form.entry, installed)?.capability
+	capabilities: DbCapabilities
+): string | undefined => missingCapability(form.entry, capabilities)?.capability
 
 /** An apply of a handle whose Scope ended. */
 const applyReleased = (): TransportFailure => new TransportFailure({ reason: new HandleReleased() })
@@ -227,7 +228,7 @@ export const compileChange = <R>(
 		const form = yield* Effect.suspend(() =>
 			Effect.fromResult(compileChangeForm(ctx, changes, decoder, ctx.claims))
 		)
-		const missing = missingCapability(form.entry, ctx.installedExtensions)
+		const missing = missingCapability(form.entry, ctx)
 		if (missing !== undefined) {
 			return yield* Effect.fail(capabilityRefusal(missing))
 		}

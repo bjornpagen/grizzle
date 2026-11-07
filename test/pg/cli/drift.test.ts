@@ -2,7 +2,7 @@ import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { constant, filter, type Gen, weighted } from "@grizzle/testing/gen"
+import { array, constant, type Gen, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import {
@@ -327,19 +327,27 @@ const plantsFeatures = (plants: Plants): ReadonlyArray<DriftFeature> => {
 	]
 }
 
-/** How many draws a steered case makes for plants that reach a pending situation, before it gives up. */
-const aimAttempts = 32
+/** How many candidates a steered case draws for plants that reach a pending situation. */
+const aimCandidates = 32
 
 /**
  * The plants a case runs: the drawn ones, or, where steering names situations no case has reached, the first of up to
- * `aimAttempts` draws that reaches one.
+ * `aimCandidates` further draws that reaches one, else the drawn one.
  */
 const aimedPlants = (drawnPlants: Plants, c: Case<DriftFeature>): Plants =>
 	Option.match(c.steering, {
 		onNone: () => drawnPlants,
 		onSome: (pending) => {
 			const reaches = (p: Plants) => Arr.some(plantsFeatures(p), (f) => pending.has(f))
-			return reaches(drawnPlants) ? drawnPlants : c.draw(filter(plantsGen, reaches, aimAttempts))
+			return reaches(drawnPlants)
+				? drawnPlants
+				: Option.getOrElse(
+						Arr.findFirst(
+							c.draw(array(plantsGen, { min: aimCandidates, max: aimCandidates })),
+							reaches
+						),
+						() => drawnPlants
+					)
 		}
 	})
 

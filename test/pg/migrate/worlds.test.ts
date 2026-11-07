@@ -1,7 +1,7 @@
 import { layer } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { boolean, constant, element, filter, type Gen, map, subset } from "@grizzle/testing/gen"
+import { array, boolean, constant, element, type Gen, map, subset } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
@@ -271,19 +271,27 @@ const historyFeatures = (h: History): ReadonlyArray<WorldsFeature> => {
 	]
 }
 
-/** How many draws a steered case makes for a history that reaches a pending situation, before it gives up. */
-const aimAttempts = 32
+/** How many candidates a steered case draws for a history that reaches a pending situation. */
+const aimCandidates = 32
 
 /**
  * The history a case runs: the drawn one, or, where steering names situations no case has reached, the first of up
- * to `aimAttempts` draws that reaches one.
+ * to `aimCandidates` further draws that reaches one, else the drawn one.
  */
 const aimedHistory = (drawnHistory: History, c: Case<WorldsFeature>): History =>
 	Option.match(c.steering, {
 		onNone: () => drawnHistory,
 		onSome: (pending) => {
 			const reaches = (h: History) => Arr.some(historyFeatures(h), (f) => pending.has(f))
-			return reaches(drawnHistory) ? drawnHistory : c.draw(filter(historyGen, reaches, aimAttempts))
+			return reaches(drawnHistory)
+				? drawnHistory
+				: Option.getOrElse(
+						Arr.findFirst(
+							c.draw(array(historyGen, { min: aimCandidates, max: aimCandidates })),
+							reaches
+						),
+						() => drawnHistory
+					)
 		}
 	})
 

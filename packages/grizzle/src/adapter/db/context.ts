@@ -1,3 +1,4 @@
+import type { DbCapabilities } from "#adapter/admission/expectation.ts"
 import { type Frame, type Prologue, readFrame, writeFrame } from "#adapter/wire/batch.ts"
 import type { SessionPool } from "#adapter/wire/session.ts"
 import type { InstallationWitness } from "#adapter/witness/index.ts"
@@ -55,7 +56,7 @@ export interface RoleContext {
 	readonly bind: BindContext
 }
 
-export interface DbContext extends RoleContext {
+export interface DbContext extends RoleContext, DbCapabilities {
 	/**
 	 * What each of the Db's transactions begins with: the fence against the snapshot it was admitted at, then the role's
 	 * PostgreSQL name and the Db's claims setting (wire/batch.ts Prologue).
@@ -67,11 +68,6 @@ export interface DbContext extends RoleContext {
 	 */
 	readonly claims: ReadonlySet<string>
 	readonly pool: SessionPool
-	/**
-	 * The extensions admission found installed, by name, with the schema each lives in: a compiled template's
-	 * requirements are checked against them before any of its SQL is sent.
-	 */
-	readonly installedExtensions: ReadonlyMap<string, string>
 }
 
 /** The frame of every read of the Db, and of every write and refresh. */

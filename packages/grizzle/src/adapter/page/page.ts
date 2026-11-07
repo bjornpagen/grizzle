@@ -102,10 +102,7 @@ export const compilePageTemplate = (
 	if (Result.isFailure(compiled)) {
 		return compiled
 	}
-	const missing = missingExtension(
-		compiled.success.compiled.template.requirements,
-		ctx.installedExtensions
-	)
+	const missing = missingExtension(compiled.success.compiled.template.requirements, ctx)
 	if (missing !== undefined) {
 		return Result.fail(new ReadFailure({ reason: new MissingCapability({ capability: missing }) }))
 	}

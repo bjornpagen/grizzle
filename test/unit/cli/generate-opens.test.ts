@@ -1,17 +1,16 @@
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
-import { type Case, drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { filter, type Gen, int } from "@grizzle/testing/gen"
-import { notesOnly } from "@grizzle/testing/sense"
+import { type Case, exhaust } from "@grizzle/testing/explore"
+import { requiredInSpace } from "@grizzle/testing/features"
+import { type Gen, int, map } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Exit, Formatter, Layer, Option, Record as Rec, Result } from "effect"
+import { Array as Arr, Effect, Exit, Formatter, Layer, Record as Rec, Result } from "effect"
 import { fromEngine } from "#adapter/engine.ts"
 import { artifactsUnder, loginRoles } from "#adapter/pool/registry.ts"
 import { DbLayer } from "#adapter/public/layer.ts"
 import { compileSchema, resolveConfig } from "#cli/config.ts"
 import { draftSchema } from "#cli/generate.ts"
-import { selectMaxEntries, tableMaxColumns } from "#compiler/core/limits.ts"
+import { selectMaxEntries } from "#compiler/core/limits.ts"
 import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
@@ -33,34 +32,26 @@ import { snapshotJson } from "#test/support/snapshot-json.ts"
  * function the layer runs at startup (adapter/pool/registry.ts loginRoles), so a program generate admits is one the
  * layer opens, and one the layer would refuse refuses the draft first, with the same CompileError.
  *
- * The space is PostgreSQL's select list around its bound (core/limits.ts selectMaxEntries): a login whose workload
- * holds one query, whose head is every field of two joined relations, from two entries below the bound to two past it,
- * the entries split between the two relations at a drawn place, each relation within a table's columns. The checker
- * admits every width; the statements the layer compiles refuse a head past the bound when they are printed
- * (ResourceBound, selectList). Within it, the layer compiles the program, generate drafts it, and its snapshot opens a
- * DbLayer, which builds without a connection; past it, the layer refuses the program and generate refuses the draft
- * with the CompileError the layer refuses it with.
+ * The box is PostgreSQL's select list around its bound (core/limits.ts selectMaxEntries): a login whose workload holds
+ * one query, whose head is every field of two joined relations, split between them evenly, one entry below the bound,
+ * on it, and one past it. The checker admits every width; the statements the layer compiles refuse a head past the
+ * bound when they are printed (ResourceBound, selectList). Within it, the layer compiles the program, generate drafts
+ * it, and its snapshot opens a DbLayer, which builds without a connection; past it, the layer refuses the program and
+ * generate refuses the draft with the CompileError the layer refuses it with. A case compiles a program of some 1,664
+ * columns, so the box is the bound's three neighbours alone.
  */
 
-/** A head drawn around the select list's bound: its entries, and how many of them are the left relation's fields. */
+/** A head around the select list's bound: its entries, and how many of them are the left relation's fields. */
 interface Head {
 	readonly entries: number
 	readonly left: number
 }
 
-/** How far a head's width reaches from the bound, each way. */
-const reach = 2
-
-/**
- * A head's width within `reach` of the bound, and its fields split between two relations, each holding its key and at
- * most a table's columns.
- */
-const headGen: Gen<Head> = (source) => {
-	const entries = selectMaxEntries.value + source.draw(int(-reach, reach))
-	const fields = entries - 1
-	const most = tableMaxColumns.value - 1
-	return { entries, left: source.draw(int(Math.max(0, fields - most), Math.min(fields, most))) }
-}
+/** A head one entry below the bound, on it, or one past it, its fields split evenly between two relations. */
+const headGen: Gen<Head> = map(int(-1, 1), (offset): Head => {
+	const entries = selectMaxEntries.value + offset
+	return { entries, left: Math.ceil((entries - 1) / 2) }
+})
 
 type Width = "within the bound" | "at the bound" | "past the bound" | "one past the bound"
 
@@ -70,22 +61,6 @@ const widthsOf = (head: Head): ReadonlyArray<Width> => [
 	...(head.entries === selectMaxEntries.value ? ["at the bound" as const] : []),
 	...(head.entries === selectMaxEntries.value + 1 ? ["one past the bound" as const] : [])
 ]
-
-/** How many draws a steered case makes for a head that reaches a pending situation, before it gives up. */
-const aimAttempts = 32
-
-/**
- * The head a case compiles: the drawn one, or, where steering names situations no case has reached, the first of up to
- * `aimAttempts` draws that reaches one.
- */
-const aimedHead = (drawnHead: Head, c: Case<Width>): Head =>
-	Option.match(c.steering, {
-		onNone: () => drawnHead,
-		onSome: (pending) => {
-			const reaches = (head: Head) => Arr.some(widthsOf(head), (w) => pending.has(w))
-			return reaches(drawnHead) ? drawnHead : c.draw(filter(headGen, reaches, aimAttempts))
-		}
-	})
 
 /**
  * A relation keyed by `id`, with `count` boolean fields named `<prefix><i>` beside it: one byte each, so a row fits one
@@ -124,33 +99,31 @@ const file = `${repoRoot}app/grizzle.config.ts`
 
 layer(NodeServices.layer, { excludeTestServices: true })("generate and DbLayer.make", (it) => {
 	it.effect(
-		"compile a login's programs alike around the select list's bound: what generate drafts opens the layer, and what the layer refuses refuses the draft with the layer's own refusal",
+		"compile a login's programs alike at the select list's bound and beside it: what generate drafts opens the layer, and what the layer refuses refuses the draft with the layer's own refusal",
 		(ctx) =>
 			searched(
 				ctx,
-				explore(
+				exhaust(
 					{
 						suite: "unit/cli/generate-opens",
-						draw: drawn(headGen),
+						generator: headGen,
 						literal: Formatter.format,
-						coverage: required<Width>(
-							["within the bound", "at the bound", "past the bound", "one past the bound"],
-							{ cases: 12, sense: notesOnly }
-						),
-						kept: [],
-						runs: 4,
-						shrink: { kind: "bounded", candidates: 8 },
-						concurrency: 1,
-						steerEvery: 4,
+						limit: 3,
+						coverage: requiredInSpace<Width>([
+							"within the bound",
+							"at the bound",
+							"past the bound",
+							"one past the bound"
+						]),
 						caseHang,
+						box: "a program's head one entry below PostgreSQL's select list's bound, on it, and one entry past it",
 						oracle: {
 							kind: "second-implementation",
 							name: "DbLayer.make's own compilation of the login's programs (registry.ts loginRoles), and the select list's bound"
 						}
 					},
-					(drawnHead: Head, c: Case<Width>) =>
+					(head: Head, c: Case<Width>) =>
 						Effect.gen(function* () {
-							const head = aimedHead(drawnHead, c)
 							c.noteAll(widthsOf(head))
 							const within = head.entries <= selectMaxEntries.value
 							const pairs = pairsOf(head)

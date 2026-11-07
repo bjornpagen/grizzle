@@ -2,6 +2,7 @@ import { Array as Arr, Record as Rec, Result, String as Str } from "effect"
 import type { AdmissionMismatch, CatalogRowRefused } from "#adapter/errors/failures.ts"
 import { type CatalogQuery, catalogRow, catalogRows } from "#adapter/wire/statement.ts"
 import { derived, measured, published } from "#compiler/core/limits.ts"
+import type { RoleExpectation } from "#compiler/deploy/admission/roles.ts"
 import type { TemplateRequirements } from "#compiler/ir/products.ts"
 import { vectorExtension } from "#compiler/physical/vector/storage.ts"
 import type { SchemaArtifacts } from "#compiler/program/schema.ts"
@@ -338,19 +339,42 @@ export const serverMismatches = (
 }
 
 /**
- * The capability a compiled template needs and the admitted database lacks, as a CompileError capability text: the
- * first extension of the template's requirements that is not installed in the schema its compiled names place it in
- * (an absent capability found after admission). Undefined when every one is installed there.
+ * What an admitted Db's statements can name of what lies outside its own schemas: every installed extension, by name,
+ * with the schema it lives in, and the schemas the Db's role holds USAGE on, as the snapshot grants it and admission
+ * found the catalog grants it. A statement that names an extension's type needs both: the extension installed, and
+ * USAGE on its schema.
+ */
+export interface DbCapabilities {
+	readonly installedExtensions: ReadonlyMap<string, string>
+	readonly usableSchemas: ReadonlySet<string>
+}
+
+/** The schemas a role's expectation grants it USAGE on: those its statements may name a type or function of. */
+export const usableSchemas = (expected: RoleExpectation): ReadonlySet<string> =>
+	new Set(
+		Arr.flatMap(expected.privileges, (p) =>
+			p.family === "schema" && p.privilege === "USAGE" ? [p.name] : []
+		)
+	)
+
+/**
+ * The capability a compiled template needs and the admitted Db lacks, as a CompileError capability text: the first
+ * extension of the template's requirements that is not installed in the schema its compiled names place it in, or is
+ * installed in a schema the Db's role holds no USAGE on, where PostgreSQL would refuse the statement naming its type
+ * (an absent capability found after admission). Undefined when every one is installed there, usable by the role.
  */
 export const missingExtension = (
 	requirements: Pick<TemplateRequirements, "extensions" | "extensionSchemas">,
-	installed: ReadonlyMap<string, string>
+	capabilities: DbCapabilities
 ): string | undefined => {
 	for (const name of requirements.extensions) {
 		const schema = requirements.extensionSchemas[name]
-		const at = installed.get(name)
+		const at = capabilities.installedExtensions.get(name)
 		if (at === undefined || (schema !== undefined && at !== schema)) {
 			return schema === undefined ? `extension ${name}` : `extension ${name} in schema ${schema}`
+		}
+		if (!capabilities.usableSchemas.has(at)) {
+			return `USAGE on schema ${at}`
 		}
 	}
 	return undefined

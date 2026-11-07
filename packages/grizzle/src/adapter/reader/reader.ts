@@ -1,5 +1,5 @@
 import { Array as Arr, Effect, type Option, Record as Rec, Result, type Scope } from "effect"
-import { missingExtension } from "#adapter/admission/expectation.ts"
+import { type DbCapabilities, missingExtension } from "#adapter/admission/expectation.ts"
 import { type DbContext, dbReadFrame, type RoleContext } from "#adapter/db/context.ts"
 import { toResult } from "#adapter/engine.ts"
 import { type ReadError, ReadFailure } from "#adapter/errors/execution.ts"
@@ -301,10 +301,8 @@ const bindArtifacts = <A>(
  * heading or a stored relation needs, installed nowhere or in another schema than its compiled names expect. Found
  * before any of the template's SQL is sent.
  */
-const missingOf = (
-	compiled: ReadArtifacts,
-	installed: ReadonlyMap<string, string>
-): string | undefined => missingExtension(compiled.compiled.template.requirements, installed)
+const missingOf = (compiled: ReadArtifacts, capabilities: DbCapabilities): string | undefined =>
+	missingExtension(compiled.compiled.template.requirements, capabilities)
 
 /** How a read delivers its program's rows: every one, or the one row of a query proved at most one (run.ts). */
 type Delivery<A, X> = (
@@ -390,11 +388,11 @@ export const compileReadForm = <A>(
 /** The capability a read form needs that the admitted database lacks, if any: its template's, or its page's. */
 export const readFormMissing = (
 	form: ReadForm<unknown>,
-	installed: ReadonlyMap<string, string>
+	capabilities: DbCapabilities
 ): string | undefined =>
-	missingOf(form.bound.compiled, installed) ??
+	missingOf(form.bound.compiled, capabilities) ??
 	(form.page.kind === "compiled"
-		? missingExtension(form.page.page.compiled.template.requirements, installed)
+		? missingExtension(form.page.page.compiled.template.requirements, capabilities)
 		: undefined)
 
 /**
@@ -454,7 +452,7 @@ export const makeReader = <S>(ctx: DbContext, executor: ReadExecutor): Reader<S>
 			if (Result.isFailure(compiled)) {
 				return Effect.fail(new ReadFailure({ reason: compiled.failure }))
 			}
-			const missing = missingOf(compiled.success, ctx.installedExtensions)
+			const missing = missingOf(compiled.success, ctx)
 			if (missing !== undefined) {
 				return Effect.fail(
 					new ReadFailure({ reason: new MissingCapability({ capability: missing }) })
@@ -537,7 +535,7 @@ export const makeReader = <S>(ctx: DbContext, executor: ReadExecutor): Reader<S>
 			const form = yield* Effect.suspend(() =>
 				Effect.fromResult(compileReadForm(ctx, query, decoder))
 			)
-			const missing = readFormMissing(form, ctx.installedExtensions)
+			const missing = readFormMissing(form, ctx)
 			if (missing !== undefined) {
 				return yield* Effect.fail(unsupported(SourceLoc("db.compile", []), missing))
 			}

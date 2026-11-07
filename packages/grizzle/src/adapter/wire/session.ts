@@ -140,43 +140,6 @@ export type Password = ParsedConnection["password"]
  */
 export const noPassword: Redacted.Redacted = Redacted.make("")
 
-/** Node's x509 verification codes (node:tls, "X509 certificate error codes"), plus its own TLS error namespaces. */
-const certificateCodes: ReadonlySet<string> = new Set([
-	"UNABLE_TO_GET_ISSUER_CERT",
-	"UNABLE_TO_GET_CRL",
-	"UNABLE_TO_DECRYPT_CERT_SIGNATURE",
-	"UNABLE_TO_DECRYPT_CRL_SIGNATURE",
-	"UNABLE_TO_DECODE_ISSUER_PUBLIC_KEY",
-	"CERT_SIGNATURE_FAILURE",
-	"CRL_SIGNATURE_FAILURE",
-	"CERT_NOT_YET_VALID",
-	"CERT_HAS_EXPIRED",
-	"CRL_NOT_YET_VALID",
-	"CRL_HAS_EXPIRED",
-	"ERROR_IN_CERT_NOT_BEFORE_FIELD",
-	"ERROR_IN_CERT_NOT_AFTER_FIELD",
-	"ERROR_IN_CRL_LAST_UPDATE_FIELD",
-	"ERROR_IN_CRL_NEXT_UPDATE_FIELD",
-	"DEPTH_ZERO_SELF_SIGNED_CERT",
-	"SELF_SIGNED_CERT_IN_CHAIN",
-	"UNABLE_TO_GET_ISSUER_CERT_LOCALLY",
-	"UNABLE_TO_VERIFY_LEAF_SIGNATURE",
-	"CERT_CHAIN_TOO_LONG",
-	"CERT_REVOKED",
-	"INVALID_CA",
-	"PATH_LENGTH_EXCEEDED",
-	"INVALID_PURPOSE",
-	"CERT_UNTRUSTED",
-	"CERT_REJECTED",
-	"HOSTNAME_MISMATCH"
-])
-
-export const isTlsCode = (code: unknown): boolean =>
-	Predicate.isString(code) &&
-	(certificateCodes.has(code) ||
-		Str.startsWith("ERR_TLS_")(code) ||
-		Str.startsWith("ERR_SSL_")(code))
-
 /**
  * Where one session connects and as whom: the parsed connection (connection/config.ts ParsedConnection), its driver,
  * transport, database, password and connect timeout, the login role, and whose session it is: a login's, every session
@@ -470,14 +433,34 @@ const saidBy = (error: unknown): string =>
 		: Formatter.format(error)
 
 /**
- * The class of a failed connection attempt, from what pg reported (failures.ts ConnectRefusal): the CredentialError the
- * password function rejected with; an ErrorResponse, the server's refusal of the startup as it gave it; a Node error by
- * its code, a TLS code as TLS and any other as the socket's; pg's own failures that carry no code by their message; and
- * anything else pg ended the startup with as its own refusal, with pg's words.
+ * The errors the TLS upgrade of a client's connection raised before its handshake completed, each the very error pg then
+ * fails the attempt with: a TLS failure is told by when it happened, not by its code, so a certificate the CA bundle
+ * does not verify, a name it does not carry and a server that refuses the handshake are TLS alike. Each pool, and each
+ * owner's session, keeps its own, which its clients fill (sessionClient) and its attempts' ends read (attemptFailed).
  */
-const connectRefusalOf = (spec: SessionSpec, error: unknown): ConnectRefusal => {
+type Handshakes = WeakSet<object>
+
+/**
+ * The class of a failed connection attempt, from what pg reported (failures.ts ConnectRefusal): the CredentialError the
+ * password function rejected with; a Node error the TLS handshake raised, as TLS with its code; an ErrorResponse, the
+ * server's refusal of the startup as it gave it; any other Node error by its code, as the socket's; pg's own failures
+ * that carry no code by their message; and anything else pg ended the startup with as its own refusal, with pg's words.
+ */
+const connectRefusalOf = (
+	spec: SessionSpec,
+	handshakes: Handshakes,
+	error: unknown
+): ConnectRefusal => {
 	if (error instanceof CredentialError) {
 		return error
+	}
+	if (
+		Predicate.isObject(error) &&
+		handshakes.has(error) &&
+		Predicate.hasProperty(error, "code") &&
+		Predicate.isString(error.code)
+	) {
+		return new TlsRefused({ fault: { kind: "handshake", code: error.code } })
 	}
 	if (error instanceof spec.driver.DatabaseError) {
 		const answer = serverFailure(error)
@@ -486,9 +469,7 @@ const connectRefusalOf = (spec: SessionSpec, error: unknown): ConnectRefusal => 
 			: new StartupRefused({ error: answer.error })
 	}
 	if (Predicate.hasProperty(error, "code") && Predicate.isString(error.code)) {
-		return isTlsCode(error.code)
-			? new TlsRefused({ fault: { kind: "handshake", code: error.code } })
-			: new SocketFailed({ code: error.code })
+		return new SocketFailed({ code: error.code })
 	}
 	const said = saidBy(error)
 	const known = messageRefusals.get(said)
@@ -496,10 +477,14 @@ const connectRefusalOf = (spec: SessionSpec, error: unknown): ConnectRefusal => 
 }
 
 /** The end of a failed connection attempt: a defect of the password Effect is the operation's; any other its class. */
-const attemptFailed = (spec: SessionSpec, error: unknown): Effect.Effect<never, ConnectRefusal> =>
+const attemptFailed = (
+	spec: SessionSpec,
+	handshakes: Handshakes,
+	error: unknown
+): Effect.Effect<never, ConnectRefusal> =>
 	error instanceof PasswordDefect
 		? Effect.die(error.defect)
-		: Effect.fail(connectRefusalOf(spec, error))
+		: Effect.fail(connectRefusalOf(spec, handshakes, error))
 
 /**
  * The services a client's password Effect runs under: `current`, else its pool's or its caller's (`own`).
@@ -839,11 +824,14 @@ interface ClientHooks {
  * up, and under `own` after.
  *
  * The session is made at the first ReadyForQuery, by a listener the constructor adds before pg's own, so it is there
- * before pg calls back whoever asked for the client (ClientHooks.ready).
+ * before pg calls back whoever asked for the client (ClientHooks.ready). Once pg upgrades the connection to TLS, every
+ * error the TLS socket raises before its handshake completes joins `handshakes`, by a listener ahead of pg's, which
+ * fails the attempt with it.
  */
 const sessionClient = (
 	spec: SessionSpec,
 	attempt: AttemptServices,
+	handshakes: Handshakes,
 	hooks: ClientHooks
 ): new () => PgClient =>
 	class SessionClient extends spec.driver.Client {
@@ -852,6 +840,18 @@ const sessionClient = (
 			const socket = spec.transport.open()
 			super(clientConfig(spec, socket, passwordOf(spec, services)))
 			hooks.opened(this, socket)
+			this.connection.once("sslconnect", () => {
+				const secure = this.connection.stream
+				const handshake = { done: false }
+				secure.once("secureConnect", () => {
+					handshake.done = true
+				})
+				secure.prependListener("error", (error: unknown) => {
+					if (!handshake.done && Predicate.isObject(error)) {
+						handshakes.add(error)
+					}
+				})
+			})
 			this.connection.once("readyForQuery", () => {
 				services.current = services.own
 				hooks.ready(this, sessionOf(this, socket, spec))
@@ -879,20 +879,17 @@ export const connectSession = (
 			const services = yield* Effect.context()
 			const sockets: Array<PgSocket> = []
 			const sessions: Array<Session> = []
-			const SessionClient = sessionClient(
-				spec,
-				{ current: services, own: services },
-				{
-					opened: (_client, socket) => {
-						sockets.push(socket)
-					},
-					ready: (_client, session) => {
-						if (session !== undefined) {
-							sessions.push(session)
-						}
+			const handshakes: Handshakes = new WeakSet()
+			const SessionClient = sessionClient(spec, { current: services, own: services }, handshakes, {
+				opened: (_client, socket) => {
+					sockets.push(socket)
+				},
+				ready: (_client, session) => {
+					if (session !== undefined) {
+						sessions.push(session)
 					}
 				}
-			)
+			})
 			const client = new SessionClient()
 			const destroy = (): void => {
 				client.connection.stream.destroy()
@@ -902,7 +899,11 @@ export const connectSession = (
 			}
 			const connected = Effect.callback<void, ConnectRefusal>((resume) => {
 				client.connect((error: unknown) => {
-					resume(error === null || error === undefined ? Effect.void : attemptFailed(spec, error))
+					resume(
+						error === null || error === undefined
+							? Effect.void
+							: attemptFailed(spec, handshakes, error)
+					)
 				})
 				return Effect.sync(destroy)
 			})
@@ -1008,7 +1009,7 @@ interface AttemptOwner {
  * the ask once it has answered: a connected client keeps no lease's context.
  */
 const answerAttempt =
-	(spec: SessionSpec, attempt: Attempt, owner: AttemptOwner) =>
+	(spec: SessionSpec, handshakes: Handshakes, attempt: Attempt, owner: AttemptOwner) =>
 	(error: unknown, client: PgPoolClient | undefined): void => {
 		const waiter = attempt.waiter
 		attempt.waiter = nobody
@@ -1021,7 +1022,10 @@ const answerAttempt =
 			owner.settle(waiter.ask, { _tag: "connected", client })
 			return
 		}
-		owner.settle(waiter.ask, { _tag: "refused", failure: attemptFailed(spec, error) })
+		owner.settle(waiter.ask, {
+			_tag: "refused",
+			failure: attemptFailed(spec, handshakes, error)
+		})
 		owner.permitBack()
 	}
 
@@ -1080,9 +1084,10 @@ export const makePool = (config: PoolConfig): Effect.Effect<SessionPool, never, 
 		const sessions = new WeakMap<PgClient, Session>()
 		const live = new Set<Session>()
 		const wires = new Map<PgClient, PgSocket>()
+		const handshakes: Handshakes = new WeakSet()
 		const ReleasingPool = releasingPool(spec.driver.Pool)
 		const native = new ReleasingPool({
-			Client: sessionClient(spec, attemptServices, {
+			Client: sessionClient(spec, attemptServices, handshakes, {
 				opened: (client, socket) => {
 					wires.set(client, socket)
 					client.once("end", () => {
@@ -1146,7 +1151,7 @@ export const makePool = (config: PoolConfig): Effect.Effect<SessionPool, never, 
 			ask.state = { _tag: "connecting", attempt }
 			attemptServices.current = ask.services
 			const started = Result.try(() => {
-				native.connect(answerAttempt(spec, attempt, owner))
+				native.connect(answerAttempt(spec, handshakes, attempt, owner))
 			})
 			attemptServices.current = own
 			if (Result.isSuccess(started)) {

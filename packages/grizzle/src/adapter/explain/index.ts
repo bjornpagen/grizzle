@@ -145,7 +145,7 @@ const explainQuery = Effect.fn("explainQuery")(function* (
 	}
 	const read = compiled.value
 	const template = read.template
-	const missing = missingExtension(template.requirements, ctx.installedExtensions)
+	const missing = missingExtension(template.requirements, ctx)
 	if (missing !== undefined) {
 		return yield* new ReadFailure({ reason: new MissingCapability({ capability: missing }) })
 	}
@@ -178,7 +178,7 @@ const explainChangeSet = Effect.fn("explainChangeSet")(function* (
 		return yield* new ReadFailure({ reason: compiled.failure })
 	}
 	const entry = compiled.success
-	const missing = missingCapability(entry, ctx.installedExtensions)
+	const missing = missingCapability(entry, ctx)
 	if (missing !== undefined) {
 		return yield* new ReadFailure({ reason: missing })
 	}

@@ -55,12 +55,23 @@ const builtinCUtf8 =
 
 /**
  * A query whose relation parameter carries a vector, over Work, which stores none: its arrays name
- * vector_ext.vector(3), so the template requires the vector extension in the vector schema.
+ * vector_ext.vector(3), so the template requires the vector extension in the vector schema, and the role USAGE on it,
+ * which Work's roles, reading no vector, never hold.
  */
 const vectorProbe = query(W.Work).rule((r) => {
 	const wanted = r.relation("qs", { id: uuid, e: pg.vector(3) })
 	const { id, kind } = v(W.Task, "task")
 	return r.match(wanted, { id }).match(W.Task, { id, kind }).find({ id, kind })
+})
+
+/**
+ * The same probe over Search, whose role reads its embeddings' vectors and so holds USAGE on the vector schema: a
+ * database with pgvector answers it.
+ */
+const searchProbe = query(search.Search).rule((r) => {
+	const wanted = r.relation("qs", { id: uuid, e: pg.vector(3) })
+	const { id, title } = v(search.Document, "document")
+	return r.match(wanted, { id }).match(search.Document, { id, title }).find({ id, title })
 })
 
 /**
@@ -152,7 +163,8 @@ type OpenFeature =
 	| "refused at capability"
 	| "refused at settings"
 	| "a vector probe answered"
-	| "a vector probe refused before any SQL"
+	| "a vector probe refused, its extension absent"
+	| "a vector probe refused, its schema not the role's to use"
 	| "a task read"
 
 const openFeatures: Arr.NonEmptyReadonlyArray<OpenFeature> = [
@@ -165,7 +177,8 @@ const openFeatures: Arr.NonEmptyReadonlyArray<OpenFeature> = [
 	"refused at capability",
 	"refused at settings",
 	"a vector probe answered",
-	"a vector probe refused before any SQL",
+	"a vector probe refused, its extension absent",
+	"a vector probe refused, its schema not the role's to use",
 	"a task read"
 ]
 
@@ -221,10 +234,12 @@ const mismatchesOf = (c: OpenCase, loginRole: string, schema: string): ReadonlyA
  * AdmissionRefused holds every mismatch of the stages judged, at the first stage in admission's order, a libc
  * database's locale (PostgreSQL's spellings: provider 'c', a NULL datlocale read as the empty string), a schema's
  * extension the database lacks, a database without the schema's ledger, which holds its empty snapshot, and each role
- * default changed; an open with none is admitted. An admitted Search Db names its vector schema; an admitted Work Db
- * reads a task, present exactly where its facts were loaded, then a query whose relation parameter carries a vector,
- * answered where the database has pgvector and otherwise refused at its compile, before any SQL: execute and get
- * ReadFailure{capability} with MissingCapability, db.compile its CompileError, and the database's sessions as they were.
+ * default changed; an open with none is admitted. A query whose relation parameter carries a vector needs pgvector
+ * installed in the vector schema and its role's USAGE on that schema: an admitted Search Db, whose role reads vectors,
+ * names its vector schema and answers one; an admitted Work Db reads a task, present exactly where its facts were
+ * loaded, and is refused one at its compile, before any SQL, the extension absent from the builtin database and the
+ * schema not its role's to use in the other: execute and get ReadFailure{capability} with MissingCapability, db.compile
+ * its CompileError, and the database's sessions as they were.
  *
  * The opens a role, token or claims refuse, and the faultless opens of roles reading contexts, are the worlds model's
  * (test/pg/world-model); a password Effect's failure is the connection suite's.
@@ -306,42 +321,33 @@ export const openSuite = (): void => {
 																"a task is found exactly where the facts were loaded"
 															)
 															k.note("a task read")
-															if (hasVector) {
-																const rows = yield* Effect.orDie(
-																	Effect.flatMap(
-																		reader.execute(vectorProbe, { qs }),
-																		(r) => r.collect
-																	)
-																)
-																assert.equal(rows.length, 1, "the probe's one task")
-																k.note("a vector probe answered")
-															} else {
-																const activity = s.admin.queryValues(
-																	"SELECT a.pid::text, a.state, a.query, a.state_change::text FROM pg_catalog.pg_stat_activity AS a WHERE a.datname = $1::name AND a.usename = $2::name ORDER BY a.pid",
-																	[database, loginRole]
-																)
-																const before = yield* activity
-																const read = yield* Effect.flip(reader.execute(vectorProbe, { qs }))
-																assertInstanceOf(read, ReadFailure)
-																assertInstanceOf(read.reason, MissingCapability)
-																assert.equal(read.stage, "capability")
-																const got = yield* Effect.flip(reader.get(vectorProbe, { qs }))
-																assertInstanceOf(got, ReadFailure)
-																assertInstanceOf(got.reason, MissingCapability)
-																assert.equal(got.stage, "capability")
-																const compiled = yield* Effect.flip(
-																	Effect.scoped(db.compile(vectorProbe))
-																)
-																if (!isCompileError(compiled)) {
-																	return assert.fail(
-																		"the probe's compile fails with a CompileError"
-																	)
-																}
-																assert.equal(compiled.reason._tag, "UnsupportedOperation")
-																const after = yield* activity
-																assert.deepEqual(after, before)
-																k.note("a vector probe refused before any SQL")
+															const activity = s.admin.queryValues(
+																"SELECT a.pid::text, a.state, a.query, a.state_change::text FROM pg_catalog.pg_stat_activity AS a WHERE a.datname = $1::name AND a.usename = $2::name ORDER BY a.pid",
+																[database, loginRole]
+															)
+															const before = yield* activity
+															const read = yield* Effect.flip(reader.execute(vectorProbe, { qs }))
+															assertInstanceOf(read, ReadFailure)
+															assertInstanceOf(read.reason, MissingCapability)
+															assert.equal(read.stage, "capability")
+															const got = yield* Effect.flip(reader.get(vectorProbe, { qs }))
+															assertInstanceOf(got, ReadFailure)
+															assertInstanceOf(got.reason, MissingCapability)
+															assert.equal(got.stage, "capability")
+															const compiled = yield* Effect.flip(
+																Effect.scoped(db.compile(vectorProbe))
+															)
+															if (!isCompileError(compiled)) {
+																return assert.fail("the probe's compile fails with a CompileError")
 															}
+															assert.equal(compiled.reason._tag, "UnsupportedOperation")
+															const after = yield* activity
+															assert.deepEqual(after, before)
+															k.note(
+																hasVector
+																	? "a vector probe refused, its schema not the role's to use"
+																	: "a vector probe refused, its extension absent"
+															)
 															k.note("Work admitted")
 														})
 													).pipe(
@@ -357,14 +363,18 @@ export const openSuite = (): void => {
 																dbContext(db)?.artifacts.names.vectorSchema,
 																testTypeSchema("vector_ext")
 															)
-															const found = yield* Effect.orDie(
-																db.get(search.Document, {
-																	id: "00000000-0000-4000-8000-000000000001"
-																})
-															)
+															const found = yield* db.get(search.Document, {
+																id: "00000000-0000-4000-8000-000000000001"
+															})
 															assert.equal(found._tag, "None")
+															const probed = yield* Effect.flatMap(
+																db.execute(searchProbe, { qs }),
+																(r) => r.collect
+															)
+															assert.deepEqual(probed, [])
+															k.note("a vector probe answered")
 															k.note("Search admitted")
-														})
+														}).pipe(Effect.orDie)
 													).pipe(
 														withLayer(
 															Layer.fresh(

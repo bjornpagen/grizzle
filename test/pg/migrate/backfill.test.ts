@@ -21,15 +21,7 @@
 import { layer } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import {
-	boolean,
-	composition,
-	filter,
-	type Gen,
-	int,
-	parents,
-	shuffled
-} from "@grizzle/testing/gen"
+import { array, boolean, composition, type Gen, int, parents, shuffled } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec } from "effect"
@@ -437,12 +429,12 @@ const forestFeatures = (forest: Forest): ReadonlyArray<TreeFeature> => {
 	]
 }
 
-/** How many draws a steered case makes for a value that reaches a pending situation, before it gives up. */
-const aimAttempts = 32
+/** How many candidates a steered case draws for a value that reaches a pending situation. */
+const aimCandidates = 32
 
 /**
  * The value a case runs: the drawn one, or, where steering names situations no case has reached, the first of up to
- * `aimAttempts` draws of `generator` that reaches one.
+ * `aimCandidates` further draws of `generator` that reaches one, else the drawn one.
  */
 const aimed = <A, F extends string>(
 	drawnValue: A,
@@ -454,7 +446,15 @@ const aimed = <A, F extends string>(
 		onNone: () => drawnValue,
 		onSome: (pending) => {
 			const reaches = (value: A) => Arr.some(features(value), (f) => pending.has(f))
-			return reaches(drawnValue) ? drawnValue : c.draw(filter(generator, reaches, aimAttempts))
+			return reaches(drawnValue)
+				? drawnValue
+				: Option.getOrElse(
+						Arr.findFirst(
+							c.draw(array(generator, { min: aimCandidates, max: aimCandidates })),
+							reaches
+						),
+						() => drawnValue
+					)
 		}
 	})
 

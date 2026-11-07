@@ -10,7 +10,7 @@ import pgDriver from "pg"
 import { OpenError, type OpenStage } from "#adapter/errors/execution.ts"
 import { type ConnectRefusal, CredentialError } from "#adapter/errors/failures.ts"
 import { openMigrationSession } from "#adapter/migrate/session.ts"
-import { isTlsCode, makePool, noPassword, type Password } from "#adapter/wire/session.ts"
+import { makePool, noPassword, type Password } from "#adapter/wire/session.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { substrateLogin } from "#test/pg/adapter/support.ts"
 import { assert } from "#test/support/assert.ts"
@@ -60,8 +60,8 @@ const plantPaths: Gen<readonly [Plant, Path]> = (source) =>
 	] as const
 
 /**
- * What a failure's class reads as: its tag's word and the fact that tells it apart. A TLS handshake's code is Node's,
- * whichever one the TLS check recognizes.
+ * What a failure's class reads as: its tag's word and the fact that tells it apart. A TLS handshake's failure is told
+ * by when it happened, whatever Node's code for it.
  */
 const classOf = (refusal: ConnectRefusal): string => {
 	switch (refusal._tag) {
@@ -72,9 +72,7 @@ const classOf = (refusal: ConnectRefusal): string => {
 		case "StartupRefused":
 			return `server ${refusal.error.sqlstate}`
 		case "TlsRefused":
-			return refusal.fault.kind === "handshake"
-				? `tls handshake ${isTlsCode(refusal.fault.code) ? "verification" : refusal.fault.code}`
-				: `tls ${refusal.fault.kind}`
+			return `tls ${refusal.fault.kind}`
 		case "CredentialError":
 			return "credential"
 		case "ConnectionClosed":
@@ -100,7 +98,7 @@ const plantedClass: {
 	"a role over its connection limit": { fact: "server 53300", stage: "connect" },
 	"a wrong password": { fact: "server 28P01", stage: "authentication" },
 	"no such database": { fact: "server 3D000", stage: "connect" },
-	"a CA that is not the server's": { fact: "tls handshake verification", stage: "tls" },
+	"a CA that is not the server's": { fact: "tls handshake", stage: "tls" },
 	"a server that offers no TLS": { fact: "tls notOffered", stage: "tls" },
 	"a server that answers neither": { fact: "tls unanswered", stage: "tls" },
 	"a server that closes at once": { fact: "closed", stage: "connect" },
