@@ -872,8 +872,23 @@ const unaryAndBinary: Arr.NonEmptyReadonlyArray<
 ]
 
 /**
+ * The fields of a field's family (families), itself among them: the fields nearest it, of one family and mostly of
+ * another type, where an operation over both is refused, and itself, where it is admitted.
+ */
+const kinOf = (field: FieldName): Arr.NonEmptyReadonlyArray<FieldName> =>
+	Arr.dedupe(
+		Arr.prepend(
+			Arr.flatMap(Rec.values(families), (fields): ReadonlyArray<FieldName> =>
+				Arr.contains<FieldName>(fields, field) ? fields : []
+			),
+			field
+		)
+	)
+
+/**
  * An operand opposite `first`: the same field, a parameter of it, a JavaScript value, a typed literal of it, another
- * field, a computed term over it, or the base of a contract over its type, which keeps the facts the contract declares.
+ * field, of its family half the time (kinOf), so both verdicts are common, a computed term over it, or the base of a
+ * contract over its type, which keeps the facts the contract declares.
  */
 const otherOperand = (d: Drawing, first: Operand, depth: number): Operand => {
 	const field = fieldOf(first) ?? d.from(allFields)
@@ -887,7 +902,7 @@ const otherOperand = (d: Drawing, first: Operand, depth: number): Operand => {
 		case "typed operand":
 			return { kind: "typed", field, lit: litOf(d, field) }
 		case "other operand":
-			return { kind: "field", field: d.from(allFields) }
+			return { kind: "field", field: d.from(d.from([0, 1]) === 0 ? kinOf(field) : allFields) }
 		case "computed operand":
 			return { kind: "term", term: computedOver(d, field) }
 		case "based operand": {
@@ -2844,8 +2859,9 @@ const engineVerdict = (
 
 /**
  * The verdict the types are held to. The engine builds a whole case before it judges any value or precondition, so it
- * names a case's first refusal; the types judge each call, a when's branch (branchedVerdict) and a constant
- * (refutesConstant) among them, whose refusals are the case's where the engine names another first.
+ * names a case's first refusal; the types judge each call, a when's branch (branchedVerdict), a constant
+ * (refutesConstant) and a range's bound (refutesBound) among them, whose refusals are the case's where the engine names
+ * another first.
  */
 const verdictOf = (
 	spec: CaseSpec,
@@ -2853,7 +2869,7 @@ const verdictOf = (
 	uses: Set<Imported>
 ): Verdict => {
 	const judged = branchedVerdict(spec, fields, uses)
-	return refutesConstant(spec) &&
+	return (refutesConstant(spec) || refutesBound(spec, fields)) &&
 		!(
 			judged.kind === "refused" &&
 			judged.claim.kind === "refusal" &&
@@ -2880,6 +2896,81 @@ const refutesConstant = (spec: CaseSpec): boolean =>
 			contractTyped.has(o.field) &&
 			literalRefused(AsTyped, o.field, o.lit.value)
 	)
+
+/**
+ * Whether a case holds a range guard whose bound its subject's contract refuses where the types decide it
+ * (ContractAdmits): the guard, judged as a case of its own, is refused for that alone. Compute.within refuses the bound
+ * as its own call, and every call over it, a when's branch reading its subject among them, takes a refused call's
+ * result, which states no refusal of its own; the engine reaches the bound only once it has built every call. So the
+ * bound's refusal is the case's whatever the engine names first.
+ */
+const refutesBound = (spec: CaseSpec, fields: ReadonlySet<FieldName>): boolean =>
+	Arr.some(guardsOf(spec), (guard) => {
+		if (guard.kind !== "within") {
+			return false
+		}
+		const own = valueVerdict(
+			{ kind: "predicate", pred: { kind: "guard", guard } },
+			fields,
+			new Set()
+		)
+		return (
+			(own.kind === "refused" || own.kind === "contested") &&
+			own.claim.kind === "refusal" &&
+			own.claim.refusal === contractRefusal
+		)
+	})
+
+/** The guards a case holds, at every depth. */
+const guardsOf = (spec: CaseSpec): ReadonlyArray<GuardSpec> => {
+	const ofTerm = (t: TermSpec): ReadonlyArray<GuardSpec> => {
+		switch (t.kind) {
+			case "apply":
+				return Arr.flatMap(t.args, ofOperand)
+			case "cast":
+				return ofOperand(t.x)
+			case "endpoint":
+				return ofOperand(t.s)
+			case "cond":
+				return [...ofPred(t.p), ...ofOperand(t.whenTrue), ...ofOperand(t.otherwise)]
+			case "when":
+				return [...ofGuard(t.guard), ...ofTerm(t.body), ...ofOperand(t.otherwise)]
+		}
+	}
+	const ofOperand = (o: Operand): ReadonlyArray<GuardSpec> =>
+		o.kind === "term" ? ofTerm(o.term) : []
+	const ofGuard = (g: GuardSpec): ReadonlyArray<GuardSpec> => [
+		g,
+		...ofOperand(g.x),
+		...(g.kind === "matches" ? ofOperand(g.pattern) : [])
+	]
+	const ofPred = (p: PredSpec): ReadonlyArray<GuardSpec> => {
+		switch (p.kind) {
+			case "compare":
+				return [...ofOperand(p.a), ...ofOperand(p.b)]
+			case "between":
+				return [...ofOperand(p.a), ...ofOperand(p.low), ...ofOperand(p.high)]
+			case "in":
+				return ofOperand(p.a)
+			case "guard":
+				return ofGuard(p.guard)
+		}
+	}
+	switch (spec.kind) {
+		case "term":
+			return ofTerm(spec.term)
+		case "predicate":
+			return ofPred(spec.pred)
+		case "aggregate":
+			return ofOperand(spec.of)
+		case "value":
+		case "member":
+		case "bytes":
+		case "closed":
+		case "lexical":
+			return []
+	}
+}
 
 /**
  * A case's verdict before its constants (verdictOf), a when's read as the types read each call: the types judge each
@@ -3130,10 +3221,12 @@ const neutralBound = (
 /**
  * A case with every value the engine may refuse where the types admit its type read as its stand-in (standInAt), each
  * at the field it stands opposite: an operation's first operand's, a comparison's, a range's subject's, a typed
- * constant's own and a conditional's first branch's; and a match's pattern constant of a string, which the types read
- * as a text term whatever the string, as "x", a pattern in the grammar. None where nothing is replaced. A value a
- * contract's predicate refuses stands as written, whatever its sign: the case is read over the contracts as the types
- * read them instead (contractVerdict).
+ * constant's own and a conditional's first branch's; a match's pattern constant of a string, which the types read as a
+ * text term whatever the string, as "x", a pattern in the grammar; and a match's pattern, a lexical form among them,
+ * opposite a subject of no text, which the engine reads as a value of the subject's type before it refuses the subject,
+ * the refusal the types state whatever the pattern. None where nothing is replaced. A value a contract's predicate
+ * refuses stands as written, whatever its sign: the case is read over the contracts as the types read them instead
+ * (contractVerdict).
  */
 const standInsOf = (
 	spec: CaseSpec
@@ -3175,10 +3268,22 @@ const standInsOf = (
 				return { kind: "typed", field: o.field, lit: lit(o.lit, o.field) }
 			case "term":
 				return { kind: "term", term: term(o.term) }
+			case "lexical": {
+				const form: Lit = {
+					text: `lexicalForm(Cell.fields.${o.field})`,
+					value: hostLexical.lexicalForm(Cell.fields[o.field])
+				}
+				return Option.match(standInAt(form, anchor), {
+					onNone: () => o,
+					onSome: (standIn): Operand => {
+						notes.push(standIn.note)
+						return { kind: "literal", lit: standIn.lit }
+					}
+				})
+			}
 			case "field":
 			case "param":
 			case "guarded":
-			case "lexical":
 			case "heading":
 				return o
 		}
@@ -3196,15 +3301,20 @@ const standInsOf = (
 					high: bound(g.high, at, "high")
 				}
 			}
-			case "matches":
+			case "matches": {
+				const at = fieldOf(g.x)
 				return {
 					kind: "matches",
 					x: operand(g.x, undefined),
 					pattern:
 						g.pattern.kind === "typed"
 							? { kind: "typed", field: g.pattern.field, lit: patternLit(g.pattern.lit) }
-							: operand(g.pattern, undefined)
+							: operand(
+									g.pattern,
+									at !== undefined && Cell.fields[at].sql !== "text" ? at : undefined
+								)
 				}
+			}
 		}
 	}
 	const pred = (p: PredSpec): PredSpec => {
