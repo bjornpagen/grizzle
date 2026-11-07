@@ -19,6 +19,7 @@ import { assert } from "#test/support/assert.ts"
  * - Pick: at each kind it holds, a payload of a flag, an integer, a numeric(3, 1) in tenths, a text, a boolean, a double
  *   precision and a real;
  * - Wt: at each flag it holds, an integer weight;
+ * - Succ: at each flag it holds, a flag, so a flag read at a flag Pick reads NULL at is a read at a NULL key;
  * - Next: each flag's completions, empty for a flag it completes nowhere;
  * - Allowed: the flags each kind admits, the target of a selection's containment.
  *
@@ -30,6 +31,7 @@ export interface World {
 	readonly flags: number
 	readonly pick: ReadonlyArray<Payload | undefined>
 	readonly weight: ReadonlyArray<number | undefined>
+	readonly succ: ReadonlyArray<number | undefined>
 	readonly next: ReadonlyArray<ReadonlyArray<number>>
 	readonly allowed: ReadonlyArray<ReadonlyArray<number>>
 }
@@ -130,6 +132,8 @@ export type Term =
 	| { readonly t: "lit"; readonly literal: Literal }
 	| { readonly t: "at"; readonly field: PickField; readonly key: KindKey }
 	| { readonly t: "weight"; readonly flag: Term }
+	| { readonly t: "succ"; readonly flag: Term }
+	| { readonly t: "singleton"; readonly a: Term }
 	| { readonly t: "row"; readonly flag: Term }
 	| { readonly t: "arith"; readonly op: "add" | "sub" | "mul"; readonly a: Term; readonly b: Term }
 	| {
@@ -212,8 +216,11 @@ export const sortOf = (term: Term): Sort => {
 		case "narrow":
 		case "charLength":
 			return "int"
+		case "succ":
+			return "code"
 		case "row":
 		case "setop":
+		case "singleton":
 			return "set"
 		case "arith":
 			return sortOf(term.a) === "num" ? "num" : "exact"
@@ -253,6 +260,7 @@ export const readsClosed = (term: Term): boolean => {
 		case "at":
 		case "weight":
 		case "row":
+		case "succ":
 			return true
 		case "field":
 		case "lit":
@@ -261,6 +269,7 @@ export const readsClosed = (term: Term): boolean => {
 		case "unary":
 		case "charLength":
 		case "card":
+		case "singleton":
 			return readsClosed(term.a)
 		case "widen":
 		case "tofloat":
@@ -356,6 +365,7 @@ export const worldGen: Gen<World> = (s) => {
 			s.draw(boolean) ? s.draw(payloadGen(flags)) : undefined
 		),
 		weight: Arr.map(codes, () => (s.draw(boolean) ? s.draw(smallInt) : undefined)),
+		succ: Arr.map(codes, () => (s.draw(boolean) ? s.draw(int(0, flags - 1)) : undefined)),
 		next: Arr.map(codes, () => s.draw(subarray(codes))),
 		allowed: Arr.map(codesBelow(kinds), () => s.draw(subarray(codes)))
 	}
@@ -489,6 +499,13 @@ const leavesOf = (w: World, sort: Sort): ReadonlyArray<Weighted<Term>> => {
 	const rowLeaf: Gen<Term> = (s) => ({ t: "row", flag: s.draw(flagLeaf) })
 	const widthLeaf: Gen<Term> = () => ({ t: "endpoint", op: "width" })
 	const cardLeaf: Gen<Term> = (s) => ({ t: "card", a: s.draw(termGen(w, "set", 0, "check")) })
+	const baseFlag: Gen<Term> = oneOf<Term>([
+		() => ({ t: "field", field: "flag" }),
+		(s) => ({ t: "lit", literal: s.draw(literalGen(w, "code")) }),
+		(s) => ({ t: "at", field: "flag", key: s.draw(kindKeyGen(w)) })
+	])
+	const succLeaf: Gen<Term> = (s) => ({ t: "succ", flag: s.draw(baseFlag) })
+	const singletonLeaf: Gen<Term> = (s) => ({ t: "singleton", a: s.draw(flagLeaf) })
 	const options: ReadonlyArray<Weighted<Term> | undefined> = [
 		field === undefined ? undefined : [2, () => ({ t: "field", field })],
 		picked === undefined
@@ -496,6 +513,8 @@ const leavesOf = (w: World, sort: Sort): ReadonlyArray<Weighted<Term>> => {
 			: [3, (s) => ({ t: "at", field: picked, key: s.draw(kindKeyGen(w)) })],
 		sort === "int" ? [2, weightLeaf] : undefined,
 		sort === "set" ? [3, rowLeaf] : undefined,
+		sort === "set" ? [2, singletonLeaf] : undefined,
+		sort === "code" ? [2, succLeaf] : undefined,
 		sort === "exact" ? [1, widthLeaf] : undefined,
 		sort === "big" ? [2, cardLeaf] : undefined
 	]
@@ -615,6 +634,7 @@ const stepsOf = (
 			return [
 				cond,
 				(s) => ({ t: "row", flag: s.draw(sub("code")) }),
+				(s) => ({ t: "singleton", a: s.draw(sub("code")) }),
 				(s) => ({
 					t: "setop",
 					op: s.draw(element(["union", "intersection", "difference"] as const)),
@@ -915,6 +935,9 @@ export type Decision =
 	| "IN is unknown at a NULL subject"
 	| "a set read at a flag completed nowhere is empty"
 	| "a float quotient of NULL by zero is NULL"
+	| "a singleton of an id read at an absent key is NULL"
+	| "a singleton of an id read at a NULL key is NULL"
+	| "a singleton of an id an operation leaves NULL is NULL"
 
 /** What an evaluation notes of the nodes it evaluates. */
 export interface Trace {
@@ -1070,6 +1093,14 @@ const asText = (v: Val): string =>
 /** Truncated division and remainder, as PostgreSQL's div and mod over integers. */
 const divide = (op: "div" | "mod", a: bigint, d: bigint): bigint => (op === "div" ? a / d : a % d)
 
+/** Where a singleton's NULL id comes from: a read at a key its relation holds no row at, at a NULL key, or an operation. */
+const singletonOfNull = (w: World, item: Item, id: Term): Decision =>
+	id.t === "at" || (id.t === "succ" && evalTerm(w, item, id.flag, silent) !== null)
+		? "a singleton of an id read at an absent key is NULL"
+		: id.t === "succ"
+			? "a singleton of an id read at a NULL key is NULL"
+			: "a singleton of an id an operation leaves NULL is NULL"
+
 /** The model's value of a term over a row: SQL's, NULL included, each node noting what it reached. */
 export const evalTerm = (w: World, item: Item, term: Term, trace: Trace): Val | null => {
 	const ev = (t: Term): Val | null => evalTerm(w, item, t, trace)
@@ -1103,6 +1134,28 @@ export const evalTerm = (w: World, item: Item, term: Term, trace: Trace): Val | 
 				return null
 			}
 			return BigInt(weight)
+		}
+		case "succ": {
+			const flag = ev(term.flag)
+			if (flag === null) {
+				trace.source("a read at a NULL key")
+				return null
+			}
+			const to = w.succ[asNumber(flag)]
+			if (to === undefined) {
+				trace.source("a read at an absent key")
+				return null
+			}
+			return to
+		}
+		case "singleton": {
+			const a = ev(term.a)
+			if (a === null) {
+				trace.reached("set")
+				trace.decided(singletonOfNull(w, item, term.a))
+				return null
+			}
+			return 1 << asNumber(a)
 		}
 		case "row": {
 			const flag = ev(term.flag)
@@ -1445,6 +1498,10 @@ const termSql = (w: World, term: Term): string => {
 			return `(SELECT x.w FROM wt x WHERE x.flag = ${sql(term.flag)})`
 		case "row":
 			return `(SELECT x.bits FROM nxt x WHERE x.flag = ${sql(term.flag)})`
+		case "succ":
+			return `(SELECT x.target FROM succ x WHERE x.flag = ${sql(term.flag)})`
+		case "singleton":
+			return `set_bit(B'${maskBits(0, w.flags)}', ${sql(term.a)}, 1)`
 		case "arith":
 			return `((${sql(term.a)})::numeric ${term.op === "add" ? "+" : term.op === "sub" ? "-" : "*"} (${sql(term.b)})::numeric)`
 		case "unary": {
@@ -1628,6 +1685,12 @@ export const worldSql = (
 		Arr.flatMap(w.weight, (weight, flag) => (weight === undefined ? [] : [`(${flag}, ${weight})`])),
 		"0, 0"
 	)
+	const succ = valuesCte(
+		"succ",
+		"flag, target",
+		Arr.flatMap(w.succ, (target, flag) => (target === undefined ? [] : [`(${flag}, ${target})`])),
+		"0, 0"
+	)
 	const nxt = valuesCte(
 		"nxt",
 		"flag, bits",
@@ -1640,7 +1703,7 @@ export const worldSql = (
 		Arr.map(rows, ([id, item]) => itemSql(w, id, item)),
 		`0, 0, 0, B'${maskBits(0, w.flags)}', 0, 0, 0::numeric, ''::text, false, 0::float8, 0::real, int4range(0, 1)`
 	)
-	return `WITH ${pick}, ${wt}, ${nxt}, ${items} SELECT r.id::text, ${Arr.join(columns, ", ")} FROM items r ORDER BY r.id`
+	return `WITH ${pick}, ${wt}, ${succ}, ${nxt}, ${items} SELECT r.id::text, ${Arr.join(columns, ", ")} FROM items r ORDER BY r.id`
 }
 
 /** The world an aim draws under: its last kind held by no Pick row, so a read at it is NULL at every row. */
@@ -1648,6 +1711,31 @@ export const aimedWorld = (w: World): World => ({
 	...w,
 	pick: Arr.map(w.pick, (payload, kind) => (kind === w.kinds - 1 ? undefined : payload))
 })
+
+/**
+ * An aimed world with two kinds at least, the first held by Pick and the last not: a row written at every kind is on
+ * a selection that reads Pick at its own kind at the first, and unknown to it at the last, under one integer.
+ */
+export const twoKindWorld = (w: World): World => {
+	const kinds = Math.max(2, w.kinds)
+	const held: Payload = w.pick[0] ?? { flag: 0, n: 0, d: 0, t: "", b: false, x: 0, y: 0 }
+	return {
+		...w,
+		kinds,
+		pick: Arr.makeBy(kinds, (kind) =>
+			kind === kinds - 1 ? undefined : kind === 0 ? held : w.pick[kind]
+		),
+		allowed: Arr.makeBy(kinds, (kind) => w.allowed[kind] ?? [])
+	}
+}
+
+/** A selection that holds at a row whose kind Pick holds and is unknown at one it holds none at. */
+export const heldKindPred: Pred = {
+	p: "cmp",
+	op: "eq",
+	a: { t: "at", field: "n", key: { k: "own" } },
+	b: { t: "at", field: "n", key: { k: "own" } }
+}
 
 /** A term of a sort that is NULL at every row of an aimed world: a read at its last kind, or an operation over one. */
 const nullOf = (w: World, sort: Sort): Term => {
@@ -1814,6 +1902,8 @@ const aimedTermGen = (w: World, family: Family, v: Vocabulary): Gen<Term> => {
 					b: s.draw(termGen(w, "set", 1, v))
 				}),
 				() => ({ t: "card", a: nullOf(w, "set") }),
+				() => ({ t: "singleton", a: nullOf(w, "code") }),
+				() => ({ t: "singleton", a: { t: "succ", flag: nullOf(w, "code") } }),
 				(s) => ({
 					t: "settest",
 					op: s.draw(element(["subset", "disjoint"] as const)),
@@ -1879,6 +1969,36 @@ export const nullQuotientGen =
 			b: { t: "lit", literal: { sort, value: 0.5 } }
 		}
 	}
+
+/** Where a singleton's NULL id comes from, as an aim builds it. */
+export type NullIdSource = "absent key" | "NULL key" | "operation"
+
+/**
+ * A singleton's id NULL at every row of an aimed world, from `source`: Pick's flag at the absent kind, Succ's flag at
+ * that NULL, or greatest of two such reads.
+ */
+export const nullIdOf = (w: World, source: NullIdSource): Term => {
+	const absent = nullOf(w, "code")
+	switch (source) {
+		case "absent key":
+			return absent
+		case "NULL key":
+			return { t: "succ", flag: absent }
+		case "operation":
+			return { t: "extremum", op: "greatest", a: absent, b: { t: "succ", flag: absent } }
+	}
+}
+
+/**
+ * A predicate over a singleton of a NULL id: unequal to the set of the first flag, so it is unknown, and a singleton
+ * that read its NULL id as the empty set would make it true.
+ */
+export const nullSingletonPred = (w: World, source: NullIdSource): Pred => ({
+	p: "cmp",
+	op: "ne",
+	a: { t: "singleton", a: nullIdOf(w, source) },
+	b: { t: "lit", literal: { sort: "set", codes: [0] } }
+})
 
 /** A generated field's sort and term. */
 export interface Stored {

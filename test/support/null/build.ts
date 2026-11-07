@@ -47,7 +47,7 @@ const handlesOf = (n: number, h: (code: number) => string): NonEmptyReadonlyArra
 /** A numeric(3, 1) of `tenths` tenths. */
 export const decimalOf = (tenths: number): Decimal => Decimal.of(tenthsText(tenths))
 
-/** The world's rosters and closed relations, each holding the rows the world draws. */
+/** The world's rosters and closed relations, each holding the rows the world draws: Succ a flag's flag. */
 export const closedOf = (w: World) => {
 	const Kind = closed("Kind", handlesOf(w.kinds, kindOf))
 	const Flag = closed("Flag", handlesOf(w.flags, flagOf))
@@ -89,6 +89,14 @@ export const closedOf = (w: World) => {
 			weight === undefined ? [] : [{ flag: flagOf(flag), w: weight }]
 		)
 	)
+	const Succ = closed.relation(
+		"Succ",
+		{ flag: closedId(Flag), to: closedId(Flag) },
+		["flag"],
+		Arr.flatMap(w.succ, (to, flag) =>
+			to === undefined ? [] : [{ flag: flagOf(flag), to: flagOf(to) }]
+		)
+	)
 	const Next = closed.relation(
 		"Next",
 		{ from: closedId(Flag), to: closedId(Flag) },
@@ -105,7 +113,7 @@ export const closedOf = (w: World) => {
 			Arr.map(flags, (flag) => ({ kind: kindOf(kind), flag: flagOf(flag) }))
 		)
 	)
-	return { Kind, Flag, Pick, Wt, Next, Allowed }
+	return { Kind, Flag, Pick, Wt, Succ, Next, Allowed }
 }
 export type Closed = ReturnType<typeof closedOf>
 
@@ -249,6 +257,7 @@ export const buildTerm = (c: Closed, row: Row, term: Term): unknown => {
 	const b = (t: Term): unknown => buildTerm(c, row, t)
 	const pick: ClosedReads = c.Pick
 	const weight: ClosedReads = c.Wt
+	const succ: ClosedReads = c.Succ
 	const next: ClosedReads = c.Next
 	switch (term.t) {
 		case "field":
@@ -261,6 +270,10 @@ export const buildTerm = (c: Closed, row: Row, term: Term): unknown => {
 			return weight.at("w", b(term.flag))
 		case "row":
 			return next.row(b(term.flag))
+		case "succ":
+			return succ.at("to", b(term.flag))
+		case "singleton":
+			return C.singleton(b(term.a))
 		case "arith":
 		case "farith":
 			return C[term.op](b(term.a), b(term.b))

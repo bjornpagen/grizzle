@@ -73,9 +73,13 @@ import {
 	evalTerm,
 	type Family,
 	families,
+	heldKindPred,
 	type Item,
 	itemGen,
+	type NullIdSource,
+	nullIdOf,
 	nullQuotientGen,
+	nullSingletonPred,
 	parseAnswer,
 	parseTruth,
 	type Pred,
@@ -90,6 +94,7 @@ import {
 	termGen,
 	type Trace,
 	type Truth,
+	twoKindWorld,
 	truthSql,
 	type Val,
 	type World,
@@ -240,6 +245,9 @@ const situations: NonEmptyReadonlyArray<Reached<Feature>> = [
 	"IN is unknown at a NULL subject",
 	"a set read at a flag completed nowhere is empty",
 	"a float quotient of NULL by zero is NULL",
+	"a singleton of an id read at an absent key is NULL",
+	"a singleton of an id read at a NULL key is NULL",
+	"a singleton of an id an operation leaves NULL is NULL",
 	"a check refuses a row it leaves unknown",
 	"a check holds of a row through a NULL",
 	"a refusal names an unknown check and a false one together",
@@ -264,7 +272,10 @@ const aimed = (nc: NullCase, notes: Case<Feature>): NullCase => {
 	if (pending === undefined || !notes.draw(boolean)) {
 		return nc
 	}
-	const w = aimedWorld(nc.world)
+	const shares = pending.has(
+		"a key holds apart only its selection: an unknown row shares a selected value"
+	)
+	const w = shares ? twoKindWorld(nc.world) : aimedWorld(nc.world)
 	const missing = (position: Position): ReadonlyArray<Family> =>
 		Arr.filter(families, (family) => pending.has([family, position]))
 	const pred = (position: Position, drawnPred: Pred): Pred => {
@@ -281,6 +292,12 @@ const aimed = (nc: NullCase, notes: Case<Feature>): NullCase => {
 				)
 	}
 	const quotient = pending.has("a float quotient of NULL by zero is NULL")
+	const singletons: ReadonlyArray<readonly [Decision, NullIdSource]> = [
+		["a singleton of an id read at an absent key is NULL", "absent key"],
+		["a singleton of an id read at a NULL key is NULL", "NULL key"],
+		["a singleton of an id an operation leaves NULL is NULL", "operation"]
+	]
+	const [single] = Arr.filter(singletons, ([decision]) => pending.has(decision))
 	const [genFirst, ...genRest] = missing("generated")
 	const stored = (spec: GeneratedSpec): GeneratedSpec =>
 		genFirst === undefined
@@ -292,10 +309,24 @@ const aimed = (nc: NullCase, notes: Case<Feature>): NullCase => {
 	return {
 		...nc,
 		world: w,
-		checks: [pred("check", nc.checks[0]), pred("check", nc.checks[1]), nc.checks[2]],
+		checks: [
+			pred("check", nc.checks[0]),
+			pred("check", nc.checks[1]),
+			single === undefined ? nc.checks[2] : nullSingletonPred(w, single[1])
+		],
 		contained: pred("contained", nc.contained),
-		keyed: pred("key", nc.keyed),
-		generated: [stored(nc.generated[0]), stored(nc.generated[1]), nc.generated[2]],
+		keyed: shares ? heldKindPred : pred("key", nc.keyed),
+		generated: [
+			stored(nc.generated[0]),
+			stored(nc.generated[1]),
+			single === undefined
+				? nc.generated[2]
+				: {
+						sort: "set",
+						term: { t: "singleton", a: nullIdOf(w, single[1]) },
+						check: nc.generated[2].check
+					}
+		],
 		fold: pred("fold", nc.fold),
 		filter: quotient ? notes.draw(nullQuotientGen(w, ["ne"])) : pred("filter", nc.filter),
 		aggregate: quotient
@@ -990,6 +1021,7 @@ const keptWorld: World = {
 	flags: 2,
 	pick: [{ flag: 0, n: 1, d: 5, t: "a", b: true, x: 0.5, y: 0.5 }, undefined],
 	weight: [undefined, 1],
+	succ: [1, undefined],
 	next: [[1], []],
 	allowed: [[0], []]
 }

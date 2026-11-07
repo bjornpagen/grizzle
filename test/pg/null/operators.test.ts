@@ -102,6 +102,7 @@ const world: World = {
 		undefined
 	],
 	weight: [undefined, undefined],
+	succ: [undefined, undefined],
 	next: [[1], [0, 1]],
 	allowed: [[], [], []]
 }
@@ -188,6 +189,7 @@ type Operation =
 	| { readonly form: "cond" }
 	| { readonly form: "unary"; readonly op: "neg" | "abs" | "sign"; readonly sort: Sort }
 	| { readonly form: "tofloat"; readonly sort: "int" | "f4" }
+	| { readonly form: "singleton" }
 	| { readonly form: "rounding"; readonly op: Rounding; readonly scaled: boolean }
 
 /**
@@ -236,6 +238,7 @@ const operations: NonEmptyReadonlyArray<Operation> = [
 	{ form: "not" },
 	{ form: "concat" },
 	{ form: "cond" },
+	{ form: "singleton" },
 	...Arr.flatMap(compareOps, (op): ReadonlyArray<Operation> =>
 		Arr.map(
 			Arr.filter(sorts, (sort) => sort !== "set" || op === "eq" || op === "ne"),
@@ -291,6 +294,7 @@ const arityOf = (operation: Operation): 1 | 2 | 3 => {
 		case "unary":
 		case "tofloat":
 		case "rounding":
+		case "singleton":
 			return 1
 		case "between":
 		case "cond":
@@ -395,6 +399,8 @@ const expressionOf = ({ operation, slots }: OperatorCase): Expression => {
 			return term({ t: "unary", op: operation.op, a: slotTerm(operation.sort, a) })
 		case "tofloat":
 			return term({ t: "tofloat", e: slotTerm(operation.sort, a) })
+		case "singleton":
+			return term({ t: "singleton", a: slotTerm("code", a) })
 		case "rounding":
 			return { kind: "rounding", op: operation.op, scaled: operation.scaled, slot: a }
 	}
@@ -812,6 +818,7 @@ layer(Substrate.layer, { excludeTestServices: true })("each operation over NULL"
 								"greatest or least skips a NULL",
 								"BETWEEN is false with one bound unknown",
 								"IN is unknown at a NULL subject",
+								"a singleton of an id read at an absent key is NULL",
 								...Arr.map(
 									roundingPositions,
 									(position): Feature => `a ${position} refuses a rounding`
