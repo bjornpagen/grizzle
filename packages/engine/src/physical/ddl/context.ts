@@ -584,9 +584,12 @@ export class InstallBuilder {
 		const r = this.owned.relations[relation]
 		switch (r?.kind) {
 			case "relation":
-				return this.#tables.get(relation)
+				return this.table(relation)
 			case "closed":
-				return this.#types.get(this.names.rosterDomain(r.name).name)
+				return (
+					this.#types.get(this.names.rosterDomain(r.name).name) ??
+					missing(`physical: no domain of roster ${r.name}`)
+				)
 			case "derived":
 				return this.materializedView(relation)
 			case "closedRelation":
