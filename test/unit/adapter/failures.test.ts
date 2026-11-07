@@ -313,6 +313,7 @@ describe("the failure vocabulary", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/adapter/failure-vocabulary",
 						draw: drawn(reportGen),
 						literal: Formatter.format,

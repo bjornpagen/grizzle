@@ -21,6 +21,7 @@ describe("FieldId", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/core/ids-1",
 					draw: drawn(
 						(source) =>

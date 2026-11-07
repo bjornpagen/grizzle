@@ -1,5 +1,5 @@
 import { describe, it } from "@effect/vitest"
-import { assertSome, assertTrue, deepStrictEqual, strictEqual } from "@effect/vitest/utils"
+import { assertTrue, deepStrictEqual, strictEqual } from "@effect/vitest/utils"
 import { regex } from "arkregex"
 import {
 	Array as Arr,
@@ -9,6 +9,8 @@ import {
 	Option,
 	Order,
 	pipe,
+	Record as Rec,
+	Result,
 	Schema,
 	String as Str
 } from "effect"
@@ -18,6 +20,7 @@ import { type Coverage, noCoverage, required } from "#features.ts"
 import {
 	alphabet,
 	array,
+	characterOf,
 	clone,
 	composition,
 	constant,
@@ -32,25 +35,28 @@ import {
 	production,
 	proportional,
 	shuffled,
+	string,
 	subset,
 	unicodeScalar,
-	uniqueArray
+	uniqueArray,
+	type Weight,
+	weighted
 } from "#gen.ts"
 import {
 	type Corruption,
 	corrupted,
-	corruptedFeature,
 	type DrawnFeature,
 	drawnFeature,
 	lsw,
 	passed,
 	WILD_KINDS,
+	WILD_IS_DATA,
 	WildTouched,
 	wildOf
 } from "#lsw.ts"
-import { agree, exact, set } from "#oracle.ts"
+import { agree, exact, set, structuralHash } from "#oracle.ts"
 import { matching, PatternRefused } from "#pattern.ts"
-import { wordsOf } from "#random.ts"
+import { floorSeed, rotatingSeed, wordsOf } from "#random.ts"
 import { notesOnly } from "#sense.ts"
 import { completeShrink, shrink } from "#shrink.ts"
 import {
@@ -59,21 +65,24 @@ import {
 	generate,
 	prefixChooser,
 	randomChooser,
+	sample,
 	simplestChooser
 } from "#source.ts"
-import { keep, type Swarm, type SwarmWeight, swarm, swarmChoice, weightOf } from "#swarm.ts"
+import {
+	keep,
+	type Presence,
+	type Swarm,
+	type SwarmWeight,
+	swarm,
+	swarmChoice,
+	weightOf
+} from "#swarm.ts"
 import { bigint, double, doubleOrSpecial, float, uuid } from "#values.ts"
 import { searched } from "#vitest/searched.ts"
-
-const SEEDS = Arr.range(0, 3999)
 
 /** A case drawn fresh from one seed. */
 const fresh = <A>(generator: Gen<A>, seed: number): Generated<A> =>
 	generate(generator, randomChooser(wordsOf(seed)))
-
-/** One fresh case per seed, as a random search draws them. */
-const draws = <A>(generator: Gen<A>): ReadonlyArray<A> =>
-	Arr.map(SEEDS, (seed) => fresh(generator, seed).value)
 
 /** A list known to be non-empty, as its type says; a generator of at least one value draws it. */
 const nonEmpty = <A>(values: ReadonlyArray<A>): Arr.NonEmptyReadonlyArray<A> =>
@@ -157,16 +166,36 @@ describe("whole numbers", () => {
 			)
 		)
 	)
-
-	it("reach zero and both ends of a wide range in a random search", () => {
-		deepStrictEqual(neverDrawn(draws(int(-1_000_000, 1_000_000)), [-1_000_000, 0, 1_000_000]), [])
-	})
 })
 
 describe("bigints", () => {
-	it("enumerate a narrow range by distance from zero", () => {
-		deepStrictEqual(everyValue(bigint(-3n, 4n)), [0n, 1n, -1n, 2n, -2n, 3n, -3n, 4n])
-	})
+	it.effect("enumerate every range by distance from zero, the positive side first", (ctx) =>
+		searched(
+			ctx,
+			exhaust(
+				{
+					suite: "bigint order",
+					oracle: {
+						kind: "specification",
+						name: "bigint's order, int's: by distance from zero, the positive side first"
+					},
+					box: "every range of bigints within -5..5",
+					generator: smallBounds,
+					literal: Formatter.format,
+					limit: 100,
+					coverage: noCoverage,
+					caseHang: Duration.minutes(1)
+				},
+				([lo, hi]) =>
+					Effect.sync(() =>
+						deepStrictEqual(
+							everyValue(bigint(BigInt(lo), BigInt(hi))),
+							Arr.map(Arr.sort(Arr.range(lo, hi), byDistanceFromZero), BigInt)
+						)
+					)
+			)
+		)
+	)
 
 	it.effect("stay within their range, however wide", (ctx) =>
 		searched(
@@ -187,13 +216,6 @@ describe("bigints", () => {
 			)
 		)
 	)
-
-	it("reach zero and both ends of the 64-bit range in a random search", () => {
-		deepStrictEqual(
-			neverDrawn(draws(bigint(-(2n ** 63n), 2n ** 63n - 1n)), [-(2n ** 63n), 0n, 2n ** 63n - 1n]),
-			[]
-		)
-	})
 })
 
 describe("floating-point numbers", () => {
@@ -241,10 +263,6 @@ describe("floating-point numbers", () => {
 		)
 	)
 
-	it("reach -0, zero and both ends of their range in a random search", () => {
-		deepStrictEqual(neverDrawn(draws(double(-1, 1)), [-1, -0, 0, 1]), [])
-	})
-
 	it.effect(
 		"shrink a failing double drawn whole to the least whole number that still fails",
 		(ctx) =>
@@ -288,28 +306,120 @@ const CANONICAL_UUID = regex(
 	"^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
 )
 
-describe("doubles with special values", () => {
-	it("draws finite doubles in range most often, and every special value now and then", () => {
-		const drawnDoubles = draws(doubleOrSpecial(-1, 1))
-		deepStrictEqual(
-			neverDrawn(drawnDoubles, [
-				Number.NaN,
-				Number.POSITIVE_INFINITY,
-				Number.NEGATIVE_INFINITY,
-				-0
-			]),
-			[]
-		)
-		const finite = Arr.filter(
-			drawnDoubles,
-			(value) => Number.isFinite(value) && !Object.is(value, -0)
-		)
-		assertTrue(
-			Arr.every(finite, (value) => value >= -1 && value <= 1),
-			"every finite draw lies in its range"
-		)
-		assertTrue(finite.length > 3400, `nine draws in ten are finite, not ${finite.length} of 4000`)
-	})
+/**
+ * A generator whose values a random search must reach, the values code branches on: a range's ends, zero, -0 and the
+ * special doubles, with the least chance per draw its documented rates give each of them.
+ */
+type Reaching = Readonly<{
+	generator: Gen<unknown>
+	values: ReadonlyArray<unknown>
+	chance: number
+}>
+
+/** The kinds of generator the reach search draws. */
+const REACHING_KINDS = ["int", "bigint", "double", "double or special"] as const
+
+type ReachingKind = (typeof REACHING_KINDS)[number]
+
+/**
+ * The least chance a random search draws one of a wide decision's ends, or the value one step in from its high end: a
+ * draw leans to an end one time in eight, to either end equally, at a distance whose bit width is uniform over the
+ * range's own, so distance 0 has at least half of that width's chances and distance 1 a quarter.
+ */
+const leanedEnd = (span: number): number => 1 / (16 * (Math.floor(Math.log2(span + 1)) + 1))
+
+/** What a reach case draws besides its kind: a range's width and side, a bigint's bit width, a double's bound. */
+type ReachParameters = Readonly<{ width: number; side: number; bits: number; exponent: number }>
+
+const reachParameters: Gen<ReachParameters> = (source) => ({
+	width: source.draw(int(257, 2 ** 31 - 1)),
+	side: source.draw(int(0, 2)),
+	bits: source.draw(int(33, 70)),
+	exponent: source.draw(int(0, 20))
+})
+
+/** A wide generator of each kind, and what it reaches, by the drawn parameters. */
+const reaching = (
+	kind: ReachingKind,
+	{ width, side, bits, exponent }: ReachParameters
+): Reaching => {
+	switch (kind) {
+		case "int": {
+			const [lo, hi] = side === 0 ? [0, width] : side === 1 ? [-width, 0] : [-width, width]
+			return {
+				generator: int(lo, hi),
+				values: Arr.dedupe([0, lo, hi]),
+				chance: leanedEnd(hi - lo)
+			}
+		}
+		case "bigint": {
+			const lo = -(2n ** BigInt(bits))
+			const hi = 2n ** BigInt(bits) - 1n
+			return { generator: bigint(lo, hi), values: [lo, 0n, hi], chance: 1 / (8 * 2 * 33) }
+		}
+		case "double": {
+			const bound = 2 ** exponent
+			return {
+				generator: double(-bound, bound),
+				values: [-bound, -0, 0, bound],
+				chance: Math.min(
+					2 * bound + 1 <= 256 ? 1 / (4 * (2 * bound + 1)) : leanedEnd(2 * bound) / 4,
+					(3 / 4) * (1 / 8) * (1 / 33) * (1 / 4)
+				)
+			}
+		}
+		case "double or special":
+			return {
+				generator: doubleOrSpecial(-1, 1),
+				values: [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, -0],
+				chance: 1 / (10 * 4)
+			}
+	}
+}
+
+/** How many draws make a miss of any one value less likely than e^-30, about 10^-13. */
+const drawsFor = (chance: number): number => Math.ceil(30 / chance)
+
+describe("a random search", () => {
+	it.effect(
+		"reaches the ends of a wide range, zero, -0 and every special double, from any seed",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					searchOf(
+						"random reach",
+						{
+							kind: "specification",
+							name: "each generator's documented rates: a value they give a chance of p per draw is missed by 30/p draws with probability below 10^-13"
+						},
+						(source) => ({
+							kind: source.draw(element(REACHING_KINDS)),
+							seed: source.draw(seeds),
+							parameters: source.draw(reachParameters)
+						}),
+						required<ReachingKind>(REACHING_KINDS, { cases: 40, sense: notesOnly }),
+						8
+					),
+					({ kind, seed, parameters }, c) =>
+						Effect.sync(() => {
+							c.note(kind)
+							const { generator, values, chance } = reaching(kind, parameters)
+							deepStrictEqual(
+								neverDrawn(
+									sample(
+										generator,
+										rotatingSeed(seed, floorSeed("random reach")),
+										drawsFor(chance)
+									),
+									values
+								),
+								[]
+							)
+						})
+				)
+			)
+	)
 })
 
 describe("uuids", () => {
@@ -328,15 +438,20 @@ describe("uuids", () => {
 					Effect.sync(() => {
 						const value = c.draw(uuid(version))
 						assertTrue(CANONICAL_UUID.test(value), `${value} is a canonical UUID`)
-						strictEqual(pipe(value, Str.slice(14, 15)), `${version}`)
+						deepStrictEqual(
+							{
+								version: pipe(value, Str.slice(14, 15)),
+								simplest: generate(uuid(version), simplestChooser).value
+							},
+							{
+								version: `${version}`,
+								simplest: `00000000-0000-${version}000-8000-000000000000`
+							}
+						)
 					})
 			)
 		)
 	)
-
-	it("shrink a version 7 UUID to the epoch's", () => {
-		strictEqual(generate(uuid(7), simplestChooser).value, "00000000-0000-7000-8000-000000000000")
-	})
 })
 
 describe("collections", () => {
@@ -370,31 +485,60 @@ describe("collections", () => {
 		})
 	)
 
-	it.effect("never repeat a key in a unique array", (ctx) =>
-		searched(
-			ctx,
-			explore(
-				searchOf(
-					"unique array",
-					{ kind: "specification", name: "no two items share a key" },
-					uniqueArray(int(0, 5), (value) => value, { min: 0, max: 6 }, 40),
-					noCoverage,
-					200
-				),
-				(items) => Effect.sync(() => deepStrictEqual(Arr.dedupe(items), items))
+	it.effect(
+		"never repeat a key in a unique array, and give a case up when its keys run out before its length",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					searchOf(
+						"unique array",
+						{
+							kind: "specification",
+							name: "no two items share a key, the length within its bounds, and a length past the keys never drawn"
+						},
+						(source) => {
+							const keys = source.draw(int(1, 6))
+							const min = source.draw(int(0, 7))
+							return {
+								keys,
+								size: { min, max: source.draw(int(min, 7)) },
+								attempts: source.draw(int(1, 40)),
+								seed: source.draw(seeds)
+							}
+						},
+						required<"more items than keys" | "a case kept" | "a case given up">(
+							["more items than keys", "a case kept", "a case given up"],
+							{ cases: 200, sense: notesOnly }
+						),
+						200
+					),
+					({ keys, size, attempts, seed }, c) =>
+						Effect.sync(() => {
+							const drawnCase = fresh(
+								uniqueArray(int(0, keys - 1), (value) => value, size, attempts),
+								seed
+							)
+							const givenUp = drawnCase.tape.status === "discarded"
+							c.note(givenUp ? "a case given up" : "a case kept")
+							if (size.min > keys) {
+								c.note("more items than keys")
+							}
+							deepStrictEqual(
+								{
+									givenUp: size.min > keys ? givenUp : true,
+									distinct:
+										givenUp || Arr.dedupe(drawnCase.value).length === drawnCase.value.length,
+									sized:
+										givenUp ||
+										(drawnCase.value.length >= size.min && drawnCase.value.length <= size.max)
+								},
+								{ givenUp: true, distinct: true, sized: true }
+							)
+						})
+				)
 			)
-		)
 	)
-
-	it("give a case up when no new key is left", () => {
-		strictEqual(
-			fresh(
-				uniqueArray(int(0, 1), (value) => value, { min: 3, max: 3 }, 5),
-				1
-			).tape.status,
-			"discarded"
-		)
-	})
 
 	it.effect("draw a non-empty alphabet of every subset with each kept letter", (ctx) =>
 		Effect.gen(function* () {
@@ -426,20 +570,55 @@ describe("collections", () => {
 		})
 	)
 
-	it("make twins equal by structure that share no object", () => {
-		const [first, second] = fresh(
-			clone(
-				array(
-					map(int(0, 9), (value) => ({ value })),
-					{ min: 1, max: 4 }
+	it.effect("make twins equal by structure that share no object", (ctx) =>
+		searched(
+			ctx,
+			explore(
+				searchOf(
+					"clone",
+					{
+						kind: "specification",
+						name: "every twin equal to the first by structure, and no object of one reachable from another"
+					},
+					(source) => ({ count: source.draw(int(1, 4)), seed: source.draw(seeds) }),
+					required<"one twin" | "several twins">(["one twin", "several twins"], {
+						cases: 40,
+						sense: notesOnly
+					}),
+					100
 				),
-				2
-			),
-			3
-		).value
-		deepStrictEqual(first, second)
-		assertTrue(first !== second, "the twins are different arrays")
-	})
+				({ count, seed }, c) =>
+					Effect.sync(() => {
+						c.note(count === 1 ? "one twin" : "several twins")
+						const twins = fresh(
+							clone(
+								array(
+									map(array(int(0, 9), { min: 0, max: 3 }), (values) => ({ values })),
+									{ min: 0, max: 4 }
+								),
+								count
+							),
+							seed
+						).value
+						const objectsOf = (
+							twin: ReadonlyArray<Readonly<{ values: ReadonlyArray<number> }>>
+						) => [twin, ...Arr.flatMap(twin, (item) => [item, item.values])]
+						const owned = Arr.map(twins, (twin) => new Set<object>(objectsOf(twin)))
+						deepStrictEqual(
+							{
+								twins,
+								shared: Arr.some(owned, (objects, at) =>
+									Arr.some(Arr.drop(owned, at + 1), (later) =>
+										Arr.some(Arr.fromIterable(objects), (object) => later.has(object))
+									)
+								)
+							},
+							{ twins: Arr.makeBy(count, () => Arr.getUnsafe(twins, 0)), shared: false }
+						)
+					})
+			)
+		)
+	)
 
 	it.effect(
 		"draw production's constant five times in six exactly, and each small value an equal share of the rest",
@@ -475,38 +654,109 @@ describe("collections", () => {
 
 type Letter = "a" | "b" | "c"
 
+/** A feature's weight in a swarm: off, or present at one to three thirds. */
+const swarmWeightGen: Gen<SwarmWeight> = element([0, 1, 2, 3] as const)
+
 /**
  * The chance a swarm turns off a feature other than its forced one, from the omissions' definition: five-sixths,
  * half and one-sixth, each drawn a third of the time, so 1/2.
  */
 const OFF_RATE: Fraction = fraction(5n + 3n + 1n, 3n * 6n)
 
+/** A literal a mixed list may hold: a small whole number or a short string. */
+const mixedLiteral: Gen<number | string> = oneOf<number | string>([
+	int(0, 999),
+	string(characterOf(["a", "b", "z"]), { min: 0, max: 2 })
+])
+
 describe("an element", () => {
-	it("is one of a mixed list's own literals, every one in order when enumerated", () => {
-		const statuses: Gen<429 | 503 | "timeout"> = element([429, 503, "timeout"])
-		deepStrictEqual(everyValue(statuses), [429, 503, "timeout"])
-	})
+	it.effect("is one of its list's own literals, every place in order when enumerated", (ctx) =>
+		searched(
+			ctx,
+			explore(
+				searchOf(
+					"element order",
+					{ kind: "specification", name: "the list itself, each place once, in order" },
+					(source) => ({
+						first: source.draw(mixedLiteral),
+						rest: source.draw(array(mixedLiteral, { min: 0, max: 5 }))
+					}),
+					required<"one literal" | "numbers and strings mixed" | "a literal repeated">(
+						["one literal", "numbers and strings mixed", "a literal repeated"],
+						{ cases: 200, sense: notesOnly }
+					),
+					200
+				),
+				({ first, rest }, c) =>
+					Effect.sync(() => {
+						const list = Arr.prepend(rest, first)
+						if (list.length === 1) {
+							c.note("one literal")
+						}
+						if (
+							Arr.some(list, (item) => typeof item === "number") &&
+							Arr.some(list, (item) => typeof item === "string")
+						) {
+							c.note("numbers and strings mixed")
+						}
+						if (Arr.dedupe(list).length < list.length) {
+							c.note("a literal repeated")
+						}
+						deepStrictEqual(everyValue(element(list)), list)
+					})
+			)
+		)
+	)
 })
 
+/** The surrogate code points, which no scalar is, and the last scalar's index: the places unicodeScalar branches at. */
+const SURROGATE_FIRST = 0xd8_00
+
+const SURROGATE_COUNT = 0x8_00
+
+const LAST_SCALAR_INDEX = 0x10_ff_ff - SURROGATE_COUNT
+
+/** The indexes unicodeScalar's mapping turns at: the ends of the scalars below the surrogates and above them. */
+const SCALAR_TURNS = [0, SURROGATE_FIRST - 1, SURROGATE_FIRST, LAST_SCALAR_INDEX] as const
+
 describe("unicode scalars", () => {
-	it("draws every plane and never a surrogate", () => {
-		const points = Arr.map(draws(unicodeScalar), (character) =>
-			Option.getOrThrow(Str.codePointAt(0)(character))
-		)
-		deepStrictEqual(
-			Arr.filter(points, (point) => point >= 0xd800 && point <= 0xdfff),
-			[],
-			"no draw is a lone surrogate"
-		)
-		assertTrue(
-			Arr.some(points, (point) => point > 0xffff),
-			"some draws lie beyond the basic plane"
-		)
-		assertTrue(
-			Arr.some(points, (point) => point > 0xdfff && point <= 0xffff),
-			"some draws lie past the surrogates"
-		)
-	})
+	it.effect(
+		"map every index of their decision onto a scalar, in order, skipping the surrogates and reaching the last plane",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					searchOf(
+						"unicode scalars",
+						{
+							kind: "second-implementation",
+							name: "index i is the scalar i below the surrogates and i + 0x800 above them"
+						},
+						oneOf([int(0, LAST_SCALAR_INDEX), element(SCALAR_TURNS)]),
+						required<"below the surrogates" | "past the surrogates" | "beyond the basic plane">(
+							["below the surrogates", "past the surrogates", "beyond the basic plane"],
+							{ cases: 200, sense: notesOnly }
+						),
+						400
+					),
+					(index, c) =>
+						Effect.sync(() => {
+							const scalar = index < SURROGATE_FIRST ? index : index + SURROGATE_COUNT
+							c.note(
+								scalar < SURROGATE_FIRST
+									? "below the surrogates"
+									: scalar <= 0xff_ff
+										? "past the surrogates"
+										: "beyond the basic plane"
+							)
+							deepStrictEqual(
+								generate(unicodeScalar, forcedChooser(Float64Array.of(index), 1)).value,
+								String.fromCodePoint(scalar)
+							)
+						})
+				)
+			)
+	)
 })
 
 describe("computed weights", () => {
@@ -523,10 +773,12 @@ describe("computed weights", () => {
 							name: "each option's weight over the total, by exact enumeration"
 						},
 						array(oneOf([constant(0), int(1, 9), int(1, 300)]), { min: 1, max: 4 }),
-						required<"a weight of zero" | "a total past 256" | "no weight at all">(
-							["a weight of zero", "a total past 256", "no weight at all"],
-							{ cases: 200, sense: notesOnly }
-						),
+						required<
+							"a weight of zero" | "a total past 256" | "no weight at all" | "one weight alone"
+						>(["a weight of zero", "a total past 256", "no weight at all", "one weight alone"], {
+							cases: 200,
+							sense: notesOnly
+						}),
 						200
 					),
 					(weights, c) =>
@@ -541,42 +793,35 @@ describe("computed weights", () => {
 							if (total === 0) {
 								c.note("no weight at all")
 							}
+							const weighed = Arr.filter(weights, (weight) => weight > 0).length
+							if (weighed === 1) {
+								c.note("one weight alone")
+							}
 							const cases = everyCase(
 								proportional(
 									nonEmpty(Arr.map(weights, (weight, at) => [weight, constant(at)] as const))
 								)
 							)
 							deepStrictEqual(
-								Arr.map(weights, (_weight, at) => shareOf(cases, (drawnAt) => drawnAt === at)),
-								Arr.map(weights, (weight, at): Fraction =>
-									total === 0
-										? fraction(at === 0 ? 1n : 0n, 1n)
-										: fraction(BigInt(weight), BigInt(total))
-								)
+								{
+									shares: Arr.map(weights, (_weight, at) =>
+										shareOf(cases, (drawnAt) => drawnAt === at)
+									),
+									decides: Arr.map(cases, (drawnCase) => drawnCase.tape.length > 0)
+								},
+								{
+									shares: Arr.map(weights, (weight, at): Fraction =>
+										total === 0
+											? fraction(at === 0 ? 1n : 0n, 1n)
+											: fraction(BigInt(weight), BigInt(total))
+									),
+									decides: Arr.map(cases, () => weighed > 1)
+								}
 							)
 						})
 				)
 			)
 	)
-
-	it("draws its floor, and records no decision, when no option or only one has weight", () => {
-		const floor = generate(
-			proportional([
-				[0, constant("floor")],
-				[0, constant("other")]
-			]),
-			simplestChooser
-		)
-		deepStrictEqual([floor.value, floor.tape.length], ["floor", 0])
-		const alone = generate(
-			proportional([
-				[0, constant("off")],
-				[5, constant("alone")]
-			]),
-			simplestChooser
-		)
-		deepStrictEqual([alone.value, alone.tape.length], ["alone", 0])
-	})
 })
 
 describe("swarms", () => {
@@ -632,29 +877,65 @@ describe("swarms", () => {
 			)
 	)
 
-	it("keep a feature at a third, two thirds or every place, by its weight", () => {
-		deepStrictEqual(
-			[
-				everyValue(keep({ a: 1 }, "a")),
-				everyValue(keep({ a: 2 }, "a")),
-				everyValue(keep({ a: 3 }, "a")),
-				everyValue(keep({}, "a"))
-			],
-			[[false, false, true], [false, true, true], [true], [false]]
-		)
-	})
-
-	it("choose among the features that are on by weight, and the floor when none is", () => {
-		const someOn: Swarm<Letter> = { b: 1, c: 2 }
-		const noneOn: Swarm<Letter> = {}
-		deepStrictEqual(
-			[
-				everyValue(swarmChoice(someOn, ["a", "b", "c"])),
-				everyValue(swarmChoice(noneOn, ["a", "b"]))
-			],
-			[["b", "c", "c"], ["a"]]
-		)
-	})
+	it.effect(
+		"keep a feature at the third of its places its weight says, and choose among those on by weight, the floor when none is",
+		(ctx) =>
+			searched(
+				ctx,
+				exhaust(
+					{
+						suite: "swarm weights",
+						oracle: {
+							kind: "specification",
+							name: "keep's share weight/3 and a choice's share weight/total among those on, by exact enumeration"
+						},
+						box: "every weight of 0 to 3 for each of a, b and c, against every choice among an alphabet of them",
+						generator: (source) => ({
+							weights: {
+								a: source.draw(swarmWeightGen),
+								b: source.draw(swarmWeightGen),
+								c: source.draw(swarmWeightGen)
+							},
+							options: source.draw(alphabet<Letter>(["a", "b", "c"]))
+						}),
+						literal: Formatter.format,
+						limit: 2000,
+						coverage: noCoverage,
+						caseHang: Duration.minutes(1)
+					},
+					({ weights, options }) =>
+						Effect.sync(() => {
+							const drawnSwarm: Swarm<Letter> = Rec.filter(
+								weights,
+								(weight): weight is Presence => weight > 0
+							)
+							const on = Arr.filter(options, (option) => weights[option] > 0)
+							const total = Arr.reduce(on, 0, (sum, option) => sum + weights[option])
+							const choices = everyCase(swarmChoice(drawnSwarm, options))
+							deepStrictEqual(
+								{
+									kept: Arr.map(options, (feature) =>
+										shareOf(everyCase(keep(drawnSwarm, feature)), (kept) => kept)
+									),
+									chosen: Arr.map(options, (option) =>
+										shareOf(choices, (chosen) => chosen === option)
+									),
+									decides: Arr.map(choices, (choice) => choice.tape.length > 0)
+								},
+								{
+									kept: Arr.map(options, (feature) => fraction(BigInt(weights[feature]), 3n)),
+									chosen: Arr.map(options, (option, at) =>
+										total === 0
+											? fraction(at === 0 ? 1n : 0n, 1n)
+											: fraction(BigInt(weights[option] > 0 ? weights[option] : 0), BigInt(total))
+									),
+									decides: Arr.map(choices, () => on.length > 1)
+								}
+							)
+						})
+				)
+			)
+	)
 })
 
 /** Every strictly increasing or nondecreasing sequence of whole numbers of `lo..hi` of a length within `size`. */
@@ -751,7 +1032,7 @@ describe("constructive collections", () => {
 									["increasing", everyValue(increasing(lo, hi, strict))],
 									["model", ascendingModel(lo, hi, strict, 1)]
 								],
-								set(exact)
+								set(structuralHash, exact)
 							)
 							yield* agree(
 								[
@@ -761,7 +1042,7 @@ describe("constructive collections", () => {
 										width === 0 ? (size.min === 0 ? [[]] : []) : ascendingModel(lo, hi, size, 0)
 									]
 								],
-								set(exact)
+								set(structuralHash, exact)
 							)
 							const values = Arr.map(Arr.range(lo, Math.max(lo, hi)), (value) => `v${value}`).slice(
 								0,
@@ -777,7 +1058,7 @@ describe("constructive collections", () => {
 										)
 									]
 								],
-								set(exact)
+								set(structuralHash, exact)
 							)
 						})
 				)
@@ -810,7 +1091,7 @@ describe("constructive collections", () => {
 								["parents", trees],
 								["model", treesModel(nodes)]
 							],
-							set(exact)
+							set(structuralHash, exact)
 						)
 					})
 			)
@@ -845,7 +1126,7 @@ describe("constructive collections", () => {
 								["composition", everyValue(composition(total, parts))],
 								["model", compositionsModel(total, parts)]
 							],
-							set(exact)
+							set(structuralHash, exact)
 						)
 				)
 			)
@@ -913,34 +1194,68 @@ describe("live, stale and wild values", () => {
 		)
 	)
 
-	it.effect("hand the boundary a proxy that refuses every operation", () =>
-		Effect.gen(function* () {
-			const hostile = passed({ kind: "wild", wild: wildOf("proxy") })
-			const refused = yield* Effect.flip(
-				Effect.try({
-					try: () => String(hostile),
-					catch: (thrown) => Option.liftPredicate(thrown, Schema.is(WildTouched))
-				})
-			)
-			assertSome(refused, WildTouched.make({ kind: "proxy" }))
-		})
-	)
-
-	it.effect("hand the boundary an object whose property throws when read", () =>
-		Effect.gen(function* () {
-			const hostile = passed({ kind: "wild", wild: wildOf("throwing-getter") })
-			const refused = yield* Effect.flip(
-				Effect.try({
-					try: (): void => {
-						structuredClone(hostile)
+	it.effect(
+		"hand the boundary data of every kind but two, which refuse to have their properties read, each by its own kind",
+		(ctx) =>
+			searched(
+				ctx,
+				exhaust(
+					{
+						suite: "wild data",
+						oracle: {
+							kind: "second-implementation",
+							name: "a walk of the value's own property descriptors, which runs none of its code"
+						},
+						box: "the simplest wild value of every kind",
+						generator: map(element(WILD_KINDS), wildOf),
+						literal: Formatter.format,
+						limit: 32,
+						coverage: noCoverage,
+						caseHang: Duration.minutes(1)
 					},
-					catch: (thrown) => Option.liftPredicate(thrown, Schema.is(WildTouched))
-				})
+					(wildValue) =>
+						Effect.sync(() => {
+							const handed = passed({ kind: "wild", wild: wildValue })
+							const asData = Result.try(() => {
+								const target = new Object(handed)
+								return Arr.map(Reflect.ownKeys(target), (key): unknown => Reflect.get(target, key))
+							})
+							const touched = Option.flatMap(Result.getFailure(asData), (thrown) =>
+								Schema.is(WildTouched)(thrown) ? Option.some(thrown.kind) : Option.none()
+							)
+							deepStrictEqual(
+								{ data: WILD_IS_DATA[wildValue.kind], touched },
+								{
+									data: isData(handed),
+									touched: isData(handed) ? Option.none() : Option.some(wildValue.kind)
+								}
+							)
+						})
+				)
 			)
-			assertSome(refused, WildTouched.make({ kind: "throwing-getter" }))
-		})
 	)
 })
+
+/**
+ * Whether a value is data, judged without running any of its code: a primitive, or an object whose own properties are
+ * all data properties holding data, read through their descriptors. A proxy that refuses every operation refuses this
+ * reading too, and is no data.
+ */
+const isData = (value: unknown): boolean => {
+	if (typeof value !== "object" || value === null) {
+		return true
+	}
+	const descriptors = Result.try(() =>
+		Arr.map(Reflect.ownKeys(value), (key) => Reflect.getOwnPropertyDescriptor(value, key))
+	)
+	return (
+		Result.isSuccess(descriptors) &&
+		Arr.every(
+			descriptors.success,
+			(descriptor) => descriptor !== undefined && "value" in descriptor && isData(descriptor.value)
+		)
+	)
+}
 
 type Rule = "negative" | "unsorted" | "out of range"
 
@@ -948,12 +1263,17 @@ type Rule = "negative" | "unsorted" | "out of range"
 const withItem = (list: ReadonlyArray<number>, at: number, item: number) =>
 	Arr.map(list, (current, index) => (index === at ? item : current))
 
-/** Ways to break an ascending list of naturals: negate one item, swap two neighbours, or a rule no list can break. */
-const CORRUPTIONS: Arr.NonEmptyReadonlyArray<Corruption<ReadonlyArray<number>, Rule, Rule>> = [
+/**
+ * Ways to break an ascending list of naturals, at the drawn weights: negate one item, swap two neighbours, or a rule no
+ * list can break, which has no site in any list.
+ */
+const corruptionsOf = (
+	weights: Readonly<Record<Rule, Weight>>
+): Arr.NonEmptyReadonlyArray<Corruption<ReadonlyArray<number>, Rule, Rule>> => [
 	{
 		rule: "negative",
 		from: "wild",
-		weight: 3,
+		weight: weights.negative,
 		sites: (live) =>
 			Arr.map(live, (item, at) => ({
 				value: withItem(live, at, -item - 1),
@@ -964,7 +1284,7 @@ const CORRUPTIONS: Arr.NonEmptyReadonlyArray<Corruption<ReadonlyArray<number>, R
 	{
 		rule: "unsorted",
 		from: "stale",
-		weight: 1,
+		weight: weights.unsorted,
 		sites: (live) =>
 			Arr.map(Arr.drop(live, 1), (item, at) => ({
 				value: withItem(withItem(live, at, item), at + 1, Arr.getUnsafe(live, at)),
@@ -972,43 +1292,103 @@ const CORRUPTIONS: Arr.NonEmptyReadonlyArray<Corruption<ReadonlyArray<number>, R
 				at: `item ${at + 1}`
 			}))
 	},
-	{ rule: "out of range", from: "wild", weight: 5, sites: () => [] }
+	{ rule: "out of range", from: "wild", weight: weights["out of range"], sites: () => [] }
 ]
 
+/** How many sites each rule has in a list of `length` items: one per item, one per neighbouring pair, and none. */
+const sitesIn = (rule: Rule, length: number): number => {
+	switch (rule) {
+		case "negative":
+			return length
+		case "unsorted":
+			return Math.max(0, length - 1)
+		case "out of range":
+			return 0
+	}
+}
+
+const RULES = ["negative", "unsorted", "out of range"] as const satisfies ReadonlyArray<Rule>
+
+/** The weights a corruption is drawn at: one, a few and many times another's. */
+const RULE_WEIGHTS = [1, 2, 3, 5, 9] as const satisfies ReadonlyArray<Weight>
+
+const ruleWeight: Gen<Weight> = element(RULE_WEIGHTS)
+
 describe("corrupted artifacts", () => {
-	it("break every rule that has a site, and only those", () => {
-		deepStrictEqual(
-			Arr.dedupe(Arr.map(everyValue(corrupted([1, 2, 3], CORRUPTIONS)), corruptedFeature)),
-			["live", "wild negative", "stale unsorted"]
-		)
-	})
-
-	it("draw the live artifact one time in six, each rule with a site by its weight, and each of its sites equally", () => {
-		const cases = everyCase(corrupted([1, 2, 3], CORRUPTIONS))
-		deepStrictEqual(
-			[
-				shareOf(cases, (drawnCase) => drawnCase.kind === "live"),
-				shareOf(cases, (drawnCase) => corruptedFeature(drawnCase) === "wild negative"),
-				shareOf(cases, (drawnCase) => corruptedFeature(drawnCase) === "stale unsorted"),
-				shareOf(
-					cases,
-					(drawnCase) =>
-						drawnCase.kind !== "live" && drawnCase.rule === "negative" && drawnCase.at === "item 0"
+	it.effect(
+		"draw the live artifact one time in six, each rule with a site by its weight among those, each of its sites equally, and an artifact no rule has a site in live without a decision",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					searchOf(
+						"corrupted shares",
+						{
+							kind: "specification",
+							name: "corrupted's rates: 1/6 live, then each applicable rule by weight, each site equally, by exact enumeration"
+						},
+						(source) => ({
+							live: source.draw(increasing(0, 9, { min: 0, max: 4 })),
+							weights: {
+								negative: source.draw(ruleWeight),
+								unsorted: source.draw(ruleWeight),
+								"out of range": source.draw(ruleWeight)
+							}
+						}),
+						required<"no rule has a site" | "one rule has a site" | "two rules have sites">(
+							["no rule has a site", "one rule has a site", "two rules have sites"],
+							{ cases: 100, sense: notesOnly }
+						),
+						100
+					),
+					({ live, weights }, c) =>
+						Effect.sync(() => {
+							const applicable = Arr.filter(RULES, (rule) => sitesIn(rule, live.length) > 0)
+							c.note(
+								applicable.length === 0
+									? "no rule has a site"
+									: applicable.length === 1
+										? "one rule has a site"
+										: "two rules have sites"
+							)
+							const total = Arr.reduce(applicable, 0, (sum, rule) => sum + weights[rule])
+							const cases = everyCase(corrupted(live, corruptionsOf(weights)))
+							const siteShare = (rule: Rule, at: number): Fraction =>
+								Arr.contains(applicable, rule) && at < sitesIn(rule, live.length)
+									? fraction(
+											5n * BigInt(weights[rule]),
+											6n * BigInt(total) * BigInt(sitesIn(rule, live.length))
+										)
+									: fraction(0n, 1n)
+							const siteOf = (rule: Rule, at: number) => `item ${rule === "unsorted" ? at + 1 : at}`
+							deepStrictEqual(
+								{
+									live: shareOf(cases, (drawnCase) => drawnCase.kind === "live"),
+									sites: Arr.map(RULES, (rule) =>
+										Arr.map(Arr.range(0, 4), (at) =>
+											shareOf(
+												cases,
+												(drawnCase) =>
+													drawnCase.kind !== "live" &&
+													drawnCase.rule === rule &&
+													drawnCase.at === siteOf(rule, at)
+											)
+										)
+									),
+									decides: Arr.some(cases, (drawnCase) => drawnCase.tape.length > 0)
+								},
+								{
+									live: applicable.length === 0 ? fraction(1n, 1n) : fraction(1n, 6n),
+									sites: Arr.map(RULES, (rule) =>
+										Arr.map(Arr.range(0, 4), (at) => siteShare(rule, at))
+									),
+									decides: applicable.length > 0
+								}
+							)
+						})
 				)
-			],
-			[
-				fraction(1n, 6n),
-				fraction(5n * 3n, 6n * 4n),
-				fraction(5n, 6n * 4n),
-				fraction(5n * 3n, 6n * 4n * 3n)
-			]
-		)
-	})
-
-	it("draw an artifact no rule has a site in live, deciding nothing", () => {
-		const generated = generate(corrupted([], CORRUPTIONS), simplestChooser)
-		deepStrictEqual([generated.value, generated.tape.length], [{ kind: "live", value: [] }, 0])
-	})
+			)
+	)
 })
 
 /** The shapes of pattern a suite draws names and literals from. */
@@ -1048,16 +1428,19 @@ const writtenClass: Gen<WrittenClass> = (source) => ({
 	items: source.draw(array(classItem, { min: 1, max: 4 }))
 })
 
-/** The source of a class's one-character pattern. */
-const classSource = (written: WrittenClass): string =>
-	`^[${written.negated ? "^" : ""}${Arr.join(
+/** A class as its pattern writes it, brackets and all. */
+const classBody = (written: WrittenClass): string =>
+	`[${written.negated ? "^" : ""}${Arr.join(
 		Arr.map(written.items, ([low, high]) =>
 			low === high
 				? String.fromCodePoint(low)
 				: `${String.fromCodePoint(low)}-${String.fromCodePoint(high)}`
 		),
 		""
-	)}]$`
+	)}]`
+
+/** The source of a class's one-character pattern. */
+const classSource = (written: WrittenClass): string => `^${classBody(written)}$`
 
 /** The class written out: each member at the place it is first written, or, negated, the printable characters it
  * leaves, in order. */
@@ -1067,6 +1450,64 @@ const writtenOut = (written: WrittenClass): ReadonlyArray<string> => {
 		? Arr.filter(Arr.range(0x20, 0x7e), (point) => !Arr.contains(members, point))
 		: members
 	return Arr.map(points, (point) => String.fromCodePoint(point))
+}
+
+/**
+ * The constructs generation cannot honour, each one `matching` refuses rather than guess at: a repetition without a
+ * bound, a backreference, a word boundary and a Unicode property.
+ */
+const UNHONOURED = ["a+", "a*", "a{2,}", "(a)\\1", "\\bx", "\\p{L}"] as const
+
+/** One piece of a drawn pattern: a class repeated within bounds, a letter, an optional letter, or a construct refused. */
+type PatternPiece =
+	| Readonly<{ kind: "class"; written: WrittenClass; min: number; max: number }>
+	| Readonly<{ kind: "literal"; letter: string }>
+	| Readonly<{ kind: "option"; letter: string }>
+	| Readonly<{ kind: "unhonoured"; construct: (typeof UNHONOURED)[number] }>
+
+const patternPiece: Gen<PatternPiece> = weighted<PatternPiece>([
+	[
+		3,
+		(source) => {
+			const min = source.draw(int(0, 2))
+			return {
+				kind: "class",
+				written: source.draw(writtenClass),
+				min,
+				max: source.draw(int(min, 3))
+			}
+		}
+	],
+	[2, map(characterOf(["q", "r"]), (letter) => ({ kind: "literal", letter }))],
+	[1, map(characterOf(["x", "y"]), (letter) => ({ kind: "option", letter }))],
+	[1, map(element(UNHONOURED), (construct) => ({ kind: "unhonoured", construct }))]
+])
+
+/** A piece as the pattern writes it. */
+const pieceSource = (piece: PatternPiece): string => {
+	switch (piece.kind) {
+		case "class":
+			return `${classBody(piece.written)}{${piece.min},${piece.max}}`
+		case "literal":
+			return piece.letter
+		case "option":
+			return `${piece.letter}?`
+		case "unhonoured":
+			return piece.construct
+	}
+}
+
+/** The shortest string a piece matches, by the grammar: a class's first member at its least repetition, and no option. */
+const shortestOf = (piece: PatternPiece): string => {
+	switch (piece.kind) {
+		case "class":
+			return Str.repeat(piece.min)(Arr.getUnsafe(writtenOut(piece.written), 0))
+		case "literal":
+			return piece.letter
+		case "option":
+		case "unhonoured":
+			return ""
+	}
 }
 
 describe("a pattern", () => {
@@ -1125,30 +1566,54 @@ describe("a pattern", () => {
 			)
 	)
 
-	it("shrinks to its shortest string, each class at its first character", () => {
-		strictEqual(generate(matching(regex("^[A-Z][a-z]{1,8}$")), simplestChooser).value, "Aa")
-	})
-
-	it.effect("refuses a repetition without a bound, and what generation cannot honour", () =>
-		Effect.gen(function* () {
-			const refusals = yield* Effect.forEach(
-				[
-					regex("^a+$"),
-					regex("^(a)\\1$"),
-					regex("^\\bx$"),
-					regex("^[\t\n\r -\uD7FF\uE000-\uFFFD\u{10000}-\u{10FFFF}]*$", "u"),
-					regex("^\\p{L}{1,2}$", "u")
-				],
-				(pattern) =>
-					Effect.flip(
-						Effect.try({
-							try: () => matching(pattern),
-							catch: (thrown) => Option.liftPredicate(thrown, Schema.is(PatternRefused))
+	it.effect(
+		"generates from what it can honour, shortest first, each class at its first member, and refuses every pattern holding what it cannot",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					searchOf(
+						"pattern pieces",
+						{
+							kind: "specification",
+							name: "matching's grammar: bounded classes, literals and options shrink to their minimum, each class at the member it writes first; an unbounded repetition, a backreference, a boundary or a property is refused"
+						},
+						array(patternPiece, { min: 1, max: 3 }),
+						required<"refused" | "generated" | "a negated class" | "an option">(
+							["refused", "generated", "a negated class", "an option"],
+							{ cases: 200, sense: notesOnly }
+						),
+						200
+					),
+					(pieces, c) =>
+						Effect.sync(() => {
+							const source = `^${Arr.join(Arr.map(pieces, pieceSource), "")}$`
+							const unhonoured = Arr.some(pieces, (piece) => piece.kind === "unhonoured")
+							c.note(unhonoured ? "refused" : "generated")
+							if (Arr.some(pieces, (piece) => piece.kind === "class" && piece.written.negated)) {
+								c.note("a negated class")
+							}
+							if (Arr.some(pieces, (piece) => piece.kind === "option")) {
+								c.note("an option")
+							}
+							const pattern = regex.as(source, "u")
+							const generated = Result.try(() => generate(matching(pattern), simplestChooser).value)
+							deepStrictEqual(
+								{
+									refused:
+										Result.isFailure(generated) && Schema.is(PatternRefused)(generated.failure),
+									shortest: Result.getSuccess(generated)
+								},
+								{
+									refused: unhonoured,
+									shortest: unhonoured
+										? Option.none()
+										: Option.some(Arr.join(Arr.map(pieces, shortestOf), ""))
+								}
+							)
 						})
-					)
+				)
 			)
-			deepStrictEqual(Arr.map(refusals, Option.isSome), [true, true, true, true, true])
-		})
 	)
 })
 

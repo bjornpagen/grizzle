@@ -1,15 +1,15 @@
 import { Predicate } from "effect"
 import { ServerError } from "#adapter/errors/failures.ts"
 import type { PgDatabaseError } from "#adapter/types/driver.ts"
-import { admittedIdentifier } from "#compiler/core/identity.ts"
-import type {
-	ColumnIdent,
-	ConstraintName,
-	DomainName,
-	Identifier,
-	RelationIdent
-} from "#compiler/core/ids.ts"
-import { parseSqlstate } from "#compiler/core/sqlstate.ts"
+import {
+	admittedIdentifier,
+	type ColumnIdent,
+	type ConstraintName,
+	type DomainName,
+	type Identifier,
+	parseSqlstate,
+	type RelationIdent
+} from "#compiler/plan/common.ts"
 
 /**
  * An ErrorResponse as grizzle keeps it: the server's error, refused, after which the session goes on, or terminated,

@@ -217,6 +217,7 @@ const configurations = (ctx: TestContext) =>
 		ctx,
 		explore(
 			{
+				oracle: { kind: "unstated" },
 				suite: "cli/configurations",
 				draw: drawn(configGen),
 				literal: Formatter.format,

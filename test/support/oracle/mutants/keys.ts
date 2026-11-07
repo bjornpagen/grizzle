@@ -1,4 +1,4 @@
-import { exact, set } from "@grizzle/testing/oracle"
+import { exact, set, structuralHash } from "@grizzle/testing/oracle"
 import { Array as Arr, Option } from "effect"
 import { appendAll, indices } from "#compiler/core/array.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
@@ -32,7 +32,7 @@ export const immediateKeys: KeyOptions = { expressionsRetain: false }
 export const neverDrops = (): boolean => false
 
 /** Two keys are one key when they hold the same columns, in any order. */
-const sameKey = (a: KeySet, b: KeySet): boolean => Option.isNone(set(exact)(a, b))
+const sameKey = (a: KeySet, b: KeySet): boolean => Option.isNone(set(structuralHash, exact)(a, b))
 
 /** The keys with `key` among them, once. */
 const withKey = (keys: ReadonlyArray<KeySet>, key: KeySet): ReadonlyArray<KeySet> =>

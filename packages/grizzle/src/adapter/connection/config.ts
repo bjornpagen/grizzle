@@ -12,8 +12,8 @@ import {
 import { readHost } from "#adapter/engine.ts"
 import type { PgDriver, PgSocket } from "#adapter/types/driver.ts"
 import type { DbConnection, PoolBounds, Transport } from "#adapter/types/layer.ts"
-import { published } from "#compiler/core/limits.ts"
-import { hostArguments } from "#compiler/query/build/host.ts"
+import { type Limit, published } from "#compiler/plan/common.ts"
+import { hostArguments } from "#compiler/plan/read.ts"
 
 /**
  * A connection block, parsed once where it is given: the DbConfig DbLayer.make takes, and the migration connection
@@ -86,7 +86,7 @@ export const poolSettings = ["max", "min", "idleTimeoutMs"] as const
  * The longest delay a Node timer keeps: pg's connect timeout and pg-pool's idle timeout are Node timers, and one longer
  * is set to 1, so it fires at once.
  */
-export const timerMaxMs = published({
+export const timerMaxMs: Limit = published({
 	value: 2_147_483_647,
 	owner: "Node.js 26.13.0 timers",
 	unit: "milliseconds",

@@ -146,6 +146,8 @@ describe("the naming door", () => {
 					ctx,
 					exhaust(
 						{
+							box: { kind: "unstated" },
+							oracle: { kind: "unstated" },
 							suite: "unit/core/identity-installations",
 							generator: (source) =>
 								[
@@ -231,6 +233,8 @@ describe("the naming door", () => {
 					ctx,
 					exhaust(
 						{
+							box: { kind: "unstated" },
+							oracle: { kind: "unstated" },
 							suite: "unit/core/identity-declared-names",
 							generator: element<Drawn>(
 								nonEmpty(
@@ -315,6 +319,7 @@ describe("the naming door", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/core/identity-census",
 						draw: drawn((source) => ({
 							fields: source.draw(array(element(["a", "b", "c", "d", "e"]), { min: 1, max: 5 })),
@@ -391,6 +396,7 @@ describe("the naming door", () => {
 					ctx,
 					explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "unit/core/identity-temporaries",
 							draw: drawn((source) => ({
 								snapshot: source.draw(element<Fixture>(["shop", "ledger"])),

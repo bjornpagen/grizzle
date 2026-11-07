@@ -724,8 +724,9 @@ const endpoint = (fn: "lower" | "upper", range: SpanCarrier, point: IntCarrier):
  *   precision and every computed numeric carries the bound its making proved, a making past numericMaxIntegerDigits
  *   being ResourceBound where the value is made, so none reaches numeric's limit;
  * - a divisor (/, %, div, mod over numeric, the exact integers, the integers' %, money / money) is `nonzero`; numeric
- *   sqrt's radicand `nonnegative`; min_scale's operand `finite`; power its `powerDomain`; width_bucket its operand
- *   and bounds `finite`, facts their types state as min_scale's operand's are, then its `bucketDomain`;
+ *   sqrt's radicand `nonnegative`; min_scale's operand `finite`; power its base's sign, `powerDomain`, then its
+ *   result's range, `powerRange`; width_bucket its operand and bounds `finite`, facts their types state as min_scale's
+ *   operand's are, then its `bucketDomain`;
  * - money / money is double precision;
  * - comparisons: every carrier with equality has = and <>, every ordered carrier the four orderings;
  * - a set over a roster's union (bitor), intersection (bitand) and cardinality (bit_count(bit)), its difference, subset
@@ -831,7 +832,7 @@ const catalogOverloads = {
 		"power",
 		["numeric", "numeric"],
 		"numeric",
-		requires([{ kind: "powerDomain" }]),
+		requires([{ kind: "powerDomain" }, { kind: "powerRange" }]),
 		"displayScale"
 	),
 	"power(double precision,double precision)": fnCall(
@@ -839,7 +840,7 @@ const catalogOverloads = {
 		"power",
 		["float8", "float8"],
 		"float8",
-		requires([{ kind: "powerDomain" }]),
+		requires([{ kind: "powerDomain" }, { kind: "powerRange" }]),
 		"value"
 	),
 	"sqrt(numeric)": fnCall(

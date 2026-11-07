@@ -26,7 +26,7 @@ import type { CodecFault } from "#compiler/core/errors.ts"
 import { parseDeclaredName } from "#compiler/core/identity.ts"
 import type { CodeSlot } from "#compiler/ir/cells.ts"
 import { type Codebook, rosterCodec } from "#compiler/ir/codes.ts"
-import type { Roster, ScalarType } from "#compiler/ir/scalar.ts"
+import { Roster, type ScalarType } from "#compiler/ir/scalar.ts"
 import { capabilitiesOf } from "#compiler/scalar/registry.ts"
 import { compareValues } from "#compiler/scalar/values/identity.ts"
 import { assert, faulted, nonEmpty, succeeded } from "#test/support/assert.ts"
@@ -91,9 +91,9 @@ const installed = (live: number) => {
 	const codes = Array.from({ length: size }, (_, code): CodeSlot =>
 		isSet(live, code) ? { kind: "live", handle: handleOf(code) } : { kind: "hole" }
 	)
-	const roster: Roster = {
+	const roster = new Roster(
 		closed,
-		handles: nonEmpty(
+		nonEmpty(
 			Arr.map(
 				Arr.filter(
 					Arr.map(codes, (_, code) => code),
@@ -102,7 +102,7 @@ const installed = (live: number) => {
 				handleOf
 			)
 		)
-	}
+	)
 	const book: Codebook = { rosters: new Map([[closed, rosterCodec(closed, codes)]]) }
 	const code: ScalarType = {
 		carrier: "code",

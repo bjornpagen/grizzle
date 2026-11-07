@@ -86,6 +86,7 @@ layer(Substrate.isolatedLayer, { excludeTestServices: true })(
 					)
 					return yield* explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "pg/world-model/random",
 							/**
 							 * Random programs aim at nothing, the swarm's weights alone keeping them diverse: aimed at every required

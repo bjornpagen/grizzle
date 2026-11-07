@@ -1,5 +1,5 @@
 import type { Phantom } from "#compiler/core/phantom.ts"
-import type { ChangeSetAt } from "#compiler/types/changeset/changeset.ts"
+import type { ChangeSetAt, PlannedStrata } from "#compiler/types/changeset/changeset.ts"
 import type { OrderedAt, QueryAt } from "#compiler/types/query/query.ts"
 import type { AnyClosed, AnyRelation } from "#compiler/types/schema/relation.ts"
 import type { AnySchema, LevelsOf, RelationOf } from "#compiler/types/schema/schema.ts"
@@ -32,7 +32,7 @@ export type WorkloadConstructor = <
 	const Programs extends Record<string, ProgramAt<S, LevelsOf<S>>>
 >(
 	schema: S,
-	programs: Programs
+	programs: Programs & { readonly [K in keyof Programs]: PlannedStrata<Programs[K]> }
 ) => Workload<S, Programs>
 
 /**

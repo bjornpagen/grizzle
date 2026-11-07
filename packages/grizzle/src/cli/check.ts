@@ -22,18 +22,22 @@ import { readSchemaTree, type SchemaTree } from "#cli/files.ts"
 import { draftSchema } from "#cli/generate.ts"
 import { refusalText } from "#cli/refusals.ts"
 import { namedText, noDeclarations } from "#cli/renames.ts"
-import { compileReasonText } from "#compiler/core/errors.ts"
-import { lossDecisions, lossText, orderFolderFiles } from "#compiler/deploy/render/folder.ts"
+import { compileReasonText, looksLikeLiteralPack } from "#compiler/plan/common.ts"
 import {
+	accessDrift,
+	accessDriftText,
+	type DeploySnapshot,
 	findMarkers,
+	type Installation,
+	literalPackFault,
+	lossDecisions,
+	lossText,
 	noTransactionMarker,
+	orderFolderFiles,
+	type PackFault,
+	snapshotFileName,
 	splitStatements
-} from "#compiler/deploy/render/markers.ts"
-import { type DeploySnapshot, snapshotFileName } from "#compiler/deploy/snapshot/types.ts"
-import { literalPackFault, type PackFault } from "#compiler/physical/ddl/literal.ts"
-import type { Installation } from "#compiler/physical/install/compile.ts"
-import { accessDrift, accessDriftText } from "#compiler/program/workload/compile.ts"
-import { looksLikeLiteralPack } from "#compiler/sql/print.ts"
+} from "#compiler/plan/migration.ts"
 
 /** One finding: which refusal it is, where, what, and the fix. */
 interface CheckFinding {

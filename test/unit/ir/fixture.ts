@@ -9,7 +9,6 @@ import { type Codebook, firstCodebook } from "#compiler/ir/codes.ts"
 import { DecimalText } from "#compiler/ir/decimal.ts"
 import type { ExprSpec, ScalarExpr } from "#compiler/ir/expr.ts"
 import { type TypedLiteral, OpId, type ParamRole } from "#compiler/ir/expr.ts"
-import { rewriteClaim } from "#compiler/ir/keys.ts"
 import {
 	conservativeMeta,
 	type Heading,
@@ -21,6 +20,7 @@ import {
 import { rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { castOf } from "#compiler/scalar/compute/registry.ts"
 import { defined, succeeded } from "#test/support/assert.ts"
+import { statedKey } from "#test/support/fixtures/ir/build.ts"
 import { f } from "#test/support/fixtures/ir/desc.ts"
 import { foldInputOf } from "#test/support/fixtures/ir/fold.ts"
 import { anyNumeric, plainType, scalarOf, wildcardText } from "#test/support/fixtures/ir/scalar.ts"
@@ -360,7 +360,7 @@ export const everyKind = (supply: IdSupply): EveryKind => {
 		/**
 		 * A group's keys are a key of it, so the attachment correlated on account meets at most one total per parent.
 		 */
-		meta: { ...conservativeMeta, logicalKeys: [rewriteClaim(["account"], [])] },
+		meta: { ...conservativeMeta, logicalKeys: [statedKey(["account"])] },
 		loc: undefined
 	})
 	const booking = b.node({
@@ -517,6 +517,7 @@ export const everyKind = (supply: IdSupply): EveryKind => {
 		child: totals,
 		name: "totals",
 		correlation: [{ parent: "account", child: "account" }],
+		judged: "option",
 		delivered: "option",
 		heading: accountAmount,
 		order: undefined,

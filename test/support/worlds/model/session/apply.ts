@@ -4,6 +4,7 @@ import {
 	collide,
 	type HostLaw,
 	type HostOp,
+	isDrawn,
 	projection,
 	sameState,
 	sameValues,
@@ -15,6 +16,7 @@ import { entryRows, factKey, isMember } from "#test/support/worlds/model/host.ts
 import {
 	type Cell,
 	checkLaw,
+	factCells,
 	type RowFault,
 	rowFault
 } from "#test/support/worlds/model/session/domains.ts"
@@ -47,7 +49,8 @@ import type {
 	ReadBack,
 	ReadBackClass,
 	RoleSpec,
-	HostValue
+	HostValue,
+	Witness
 } from "#test/support/worlds/model/types.ts"
 
 type QueryWritten = Extract<Written, { readonly kind: "query" }>
@@ -347,11 +350,41 @@ const collisionsOf = (
 	})
 }
 
+/** A fact's stated values: every field but a serial one the identity draws. */
+const statedOf = (fact: HostFact): HostFact =>
+	Rec.fromEntries(Arr.filter(Rec.toEntries(fact), ([, value]) => !isDrawn(value)))
+
+/**
+ * The witness of a law domain's CHECK refusing a judged op's statement (README "Errors and outcomes"): the host judges
+ * the facts the op states, each a target fact with its fills, and names the first that breaks a law domain by the
+ * first key of its target it carries whole, in the terms its role relation wrote it in
+ * (packages/engine/src/write/program/witness.ts hostWitness). Any violating fact may be the first, so each one's key at
+ * every key it carries whole is allowed. A delete states no fact and a fact whose every key holds a drawn serial carries
+ * none whole, so neither shows a key.
+ */
+const domainWitness = (base: BaseSpec, j: Judged): Witness => {
+	if (j.op.kind === "delete") {
+		return { kind: "withheld" }
+	}
+	const target = j.written.target
+	const violating = Arr.filter(j.submitted, (fact) => {
+		const stated = statedOf(fact)
+		return rowFault(factCells(base, target, stated, Rec.keys(stated)))?.kind === "checks"
+	})
+	const keys = Arr.flatMap(violating, (fact) => {
+		const stated = statedOf(fact)
+		return Arr.flatMap(keysOf(base, target), (key) =>
+			Arr.every(key, (field) => stated[field] !== undefined) ? [keyIn(j.written, stated, key)] : []
+		)
+	})
+	return keys.length === 0 ? { kind: "withheld" } : { kind: "shown", keys }
+}
+
 /**
  * What a judged op's statement refuses itself: the CHECK of each law domain one of its values breaks, met as the
- * statement casts its input, before its row constraints, policies and triggers (a domain CHECK reports no key, so its
- * witness is withheld); else an inserted or put fact outside the entry, and each key at which a fact outside a query
- * entry collides with one it submits (collisionsOf).
+ * statement casts its input, before its row constraints, policies and triggers, its witness a violating fact's key
+ * (domainWitness); else an inserted or put fact outside the entry, and each key at which a fact outside a query entry
+ * collides with one it submits (collisionsOf).
  */
 const refusalsOf = (
 	state: ModelState,
@@ -360,11 +393,8 @@ const refusalsOf = (
 	j: Judged
 ): ReadonlyArray<ActionOutcome> => {
 	if (j.checks.length > 0) {
-		return Arr.map(j.checks, (law): ActionOutcome => ({
-			kind: "invariant-rejected",
-			law,
-			witness: { kind: "withheld" }
-		}))
+		const witness = domainWitness(state.install.base, j)
+		return Arr.map(j.checks, (law): ActionOutcome => ({ kind: "invariant-rejected", law, witness }))
 	}
 	const outside: ReadonlyArray<ActionOutcome> = j.outside
 		? [{ kind: "outside-world", relation: j.op.relation }]
@@ -678,8 +708,8 @@ const onHost = (refusal: ActionOutcome): Called => ({ kind: "host", refusals: [r
  *   facts the stratum's inserts and puts submit to one target, or two its deletes name, that agree on a key and differ
  *   elsewhere are `invariant-rejected` on that key's law (keyConflictOf); an input of any number of facts is admitted;
  * - an op holding a value its law domain's CHECK refuses (an integer past its contract's bounds, a text past its
- *   pattern), which the encoder admits, is `invariant-rejected` on that domain's CHECK law, its witness withheld, as
- *   its stratum's statement casts the value: before anything else the statement meets;
+ *   pattern), which the encoder admits, is `invariant-rejected` on that domain's CHECK law, its witness a violating
+ *   fact's key (domainWitness), as its stratum's statement casts the value: before anything else the statement meets;
  * - each fact through a query entry fills its fixed fields; an inserted or put fact the entry cannot hold is
  *   `outside-world`, a deleted one a no-op; an inserted or put fact whose key a fact outside the entry holds, or that
  *   collides with one at another key's unique index (an at-most-one over a side), is `invariant-rejected` on that

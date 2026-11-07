@@ -209,6 +209,7 @@ layer(Substrate.layer)("generated SQL on PostgreSQL 19", (it) => {
 					}
 					return yield* explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "pg/sql/generated",
 							draw: drawn(auditCaseGen(catalog)),
 							literal: Formatter.format,

@@ -532,18 +532,101 @@ describe("a state machine", () => {
 			})
 	)
 
-	it.effect("refuses a kept program whose step its harness cannot write", () =>
-		Effect.gen(function* () {
-			const refusedRun = yield* Effect.flip(
-				runProgram(QUEUE, realOf(ringBuffer("none")), [{ command: "peek", parameters: 0 }])
+	it.effect(
+		"runs a kept program to its end, or refuses it at its first step the model does not allow there",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "commands/inapplicable",
+						oracle: {
+							kind: "second-implementation",
+							name: "a bounded queue walked by hand: a peek applies only to a queue that holds something"
+						},
+						draw: drawn(anyProgram),
+						literal: Formatter.format,
+						coverage: required<"refused at the first step" | "refused later" | "ran to its end">(
+							["refused at the first step", "refused later", "ran to its end"],
+							{ cases: 200, sense: notesOnly }
+						),
+						kept: [],
+						runs: 200,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 50,
+						caseHang: Duration.minutes(1)
+					},
+					(steps, c) =>
+						Effect.gen(function* () {
+							const firstInapplicable = Arr.findFirst(
+								Arr.map(steps, (step, at) => ({ step, at, held: heldBefore(steps, at) })),
+								({ step, held }) => step.command === "peek" && held === 0
+							)
+							c.note(
+								Option.match(firstInapplicable, {
+									onNone: () => "ran to its end",
+									onSome: ({ at }) => (at === 0 ? "refused at the first step" : "refused later")
+								})
+							)
+							const ran = yield* Effect.exit(runProgram(QUEUE, realOf(ringBuffer("none")), steps))
+							deepStrictEqual(
+								{
+									ranToItsEnd: Exit.isSuccess(ran),
+									refusedAt: Option.map(Exit.findErrorOption(ran), (failure) =>
+										Schema.is(StepInapplicable)(failure) ? [failure.at, failure.command] : []
+									)
+								},
+								{
+									ranToItsEnd: Option.isNone(firstInapplicable),
+									refusedAt: Option.map(firstInapplicable, ({ at, step }) => [at, step.command])
+								}
+							)
+						})
+				)
 			)
-			deepStrictEqual(
-				Schema.is(StepInapplicable)(refusedRun) ? [refusedRun.at, refusedRun.command] : [],
-				[0, "peek"]
-			)
-		})
 	)
 })
+
+/** How many items the queue holds before step `at` of `steps`, walked by hand: a push adds one below capacity, a pop takes one when there is one. */
+const heldBefore = (steps: Program<QueueParameters>, at: number): number =>
+	Arr.reduce(Arr.take(steps, at), 0, (held, step) => {
+		switch (step.command) {
+			case "push":
+				return held < CAPACITY ? held + 1 : held
+			case "pop":
+				return held > 0 ? held - 1 : held
+			case "size":
+			case "peek":
+				return held
+		}
+	})
+
+/**
+ * A program of any of the queue's commands at any step, applicable or not, as a kept program may have drifted: a peek
+ * names a position the queue holds there when it holds one, and position 0 of an empty queue otherwise, the one step
+ * the model does not allow.
+ */
+const anyProgram: Gen<Program<QueueParameters>> = (source) => {
+	const length = source.draw(int(0, 8))
+	const steps: Array<Program<QueueParameters>[number]> = []
+	for (let at = 0; at < length; at += 1) {
+		const held = heldBefore(steps, at)
+		const command = source.draw(element(COMMANDS))
+		switch (command) {
+			case "push":
+				steps.push({ command, parameters: source.draw(int(0, 9)) })
+				break
+			case "pop":
+			case "size":
+				steps.push({ command, parameters: undefined })
+				break
+			case "peek":
+				steps.push({ command, parameters: source.draw(int(0, Math.max(0, held - 1))) })
+		}
+	}
+	return steps
+}
 
 /** A command's presence in a swarm, 0 when off. */
 const presenceOf = (mix: Swarm<QueueCommand>, command: QueueCommand): 0 | Presence =>

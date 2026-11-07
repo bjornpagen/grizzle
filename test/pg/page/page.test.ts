@@ -632,6 +632,7 @@ layer(Substrate.layer)("the page runtime through the readers", (it) => {
 						const pages = untyped(dbReader(db))
 						return yield* explore(
 							{
+								oracle: { kind: "unstated" },
 								suite: "pg/page/walks",
 								draw: drawn(walkSketchGen),
 								literal: Formatter.format,
@@ -930,6 +931,7 @@ layer(Substrate.layer)("the page runtime through the readers", (it) => {
 						const counted = untyped(makeReader(context, executor))
 						return yield* explore(
 							{
+								oracle: { kind: "unstated" },
 								/**
 								 * Refused before any SQL: no transaction opened, no statement sent.
 								 *

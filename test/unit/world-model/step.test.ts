@@ -213,6 +213,7 @@ describe("the worlds model's step", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/world-model/step",
 					draw: drawn(walkGen),
 					literal: Formatter.format,
@@ -359,6 +360,7 @@ describe("the worlds model's migration folders", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/world-model/folder files",
 						draw: drawn(migrationGen),
 						literal: Formatter.format,

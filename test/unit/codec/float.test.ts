@@ -188,6 +188,7 @@ describe("exact binary32 reading", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/codec/float-1714631201",
 					draw: drawn(float32),
 					literal: Formatter.format,
@@ -217,6 +218,7 @@ describe("exact binary32 reading", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/codec/float-midpoint",
 					draw: drawn((source) => ({
 						f: source.draw(float(minSubnormal, Math.fround(floatMax / 2))),
@@ -293,6 +295,7 @@ describe("exact binary32 reading", () => {
 					ctx,
 					explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "unit/codec/float-1918989417",
 							draw: drawn(decimal),
 							literal: Formatter.format,
@@ -381,6 +384,7 @@ describe("the float text grammar, scanned without RegExp", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/codec/float-7497063",
 						draw: drawn(texts),
 						literal: Formatter.format,
@@ -437,6 +441,7 @@ describe("double precision text", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/codec/float-6578796",
 					/** Every finite double, and now and then NaN or an infinity. */
 					draw: drawn(

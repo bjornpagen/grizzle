@@ -1,7 +1,10 @@
 import { Array as Arr, Effect, Stream } from "effect"
-import type { ChangeSetInput } from "#compiler/write/changeset/value.ts"
-import type { WriteFrontend } from "#compiler/write/frontend/compile.ts"
-import { type MemberFacts, memberSlots } from "#compiler/write/normalize/normalize.ts"
+import {
+	type ChangeSetInput,
+	type MemberFacts,
+	memberSlots,
+	type WriteFrontend
+} from "#compiler/plan/change.ts"
 
 /**
  * Each member slot the compiled ChangeSet reads with the ChangeSet value's input for it, in slot order. The program was

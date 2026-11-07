@@ -16,6 +16,7 @@ describe("the page compiler", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/page/bounded-union",
 					draw: drawn((source) => ({
 						take: source.draw(int(1, 50)),

@@ -109,6 +109,7 @@ layer(Substrate.layer)("float agreement with PostgreSQL", (it) => {
 					const db = yield* session(ownerSession())
 					return yield* explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "pg/values/float/rounding",
 							draw: drawn(batchOf(doubles, 10_000)),
 							literal: Formatter.format,
@@ -154,6 +155,7 @@ layer(Substrate.layer)("float agreement with PostgreSQL", (it) => {
 				const db = yield* session(ownerSession())
 				return yield* explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "pg/values/float/refusals",
 						draw: drawn(batchOf(doubles, 10_000)),
 						literal: Formatter.format,
@@ -226,6 +228,7 @@ layer(Substrate.layer)("float agreement with PostgreSQL", (it) => {
 						const source = "jsonb_to_recordset($1::text::jsonb) AS c(ord int4, v text)"
 						return yield* explore(
 							{
+								oracle: { kind: "unstated" },
 								suite: `pg/values/float/order-${type}`,
 								draw: drawn(batchOf(orderValue, 3000)),
 								literal: Formatter.format,

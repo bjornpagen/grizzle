@@ -51,13 +51,14 @@ import { messageOf } from "#test/support/message.ts"
 import {
 	canonicalRows,
 	type Comparison,
-	compareRuns,
+	compareRead,
 	printComparison,
 	printRun,
 	rawRowKey,
 	type Run,
 	type Labeled,
 	labeledStatements,
+	readRun,
 	type StatementRows
 } from "#test/support/oracle/compare.ts"
 import { largeFormPrograms } from "#test/support/oracle/forms.ts"
@@ -308,7 +309,7 @@ const layoutOf = (dag: RelDag, f: FusedAttachment) =>
 	Option.map(
 		Arr.findFirst(
 			topoOrder(dag),
-			(n): n is NodeOf<"Attach"> => n.kind === "Attach" && n.id === f.attach
+			(n): n is NodeOf<"Attach"> => n.kind === "Attach" && n.id === f.attach.id
 		),
 		() => {
 			const correlated = Arr.flatMap(f.layout.columns, (c) =>
@@ -582,7 +583,7 @@ export const delivered = (
 				types: columnTypes(heading),
 				codes,
 				unstated: { kind: "none" },
-				rows: Arr.map(raw, (r) => r.slice(0, width))
+				rows: s.fused.length === 0 ? raw : Arr.map(raw, (r) => r.slice(0, width))
 			}
 			statements.push(statement)
 			if (attach !== undefined) {
@@ -859,6 +860,7 @@ const runDifferential = (
 						isOrdered(query.dag.roots[0]),
 						names.codes
 					)
+					const baselineRead = readRun(baseline.run)
 					const optimizedDag = optimizedProgram.query.dag
 					const optimizedOrdered = isOrdered(optimizedDag.roots[0])
 					const forms: Array<{
@@ -878,7 +880,7 @@ const runDifferential = (
 						const run = yield* execute(session, c, f.roots, label)
 						const d = yield* delivered(optimizedDag, run, label, optimizedOrdered, names.codes)
 						fusedAttachments = Math.max(fusedAttachments, d.fusedAttachments)
-						const comparison = compareRuns(baseline.run, d.run)
+						const comparison = compareRead(baselineRead, readRun(d.run))
 						const order = orderProblems(baseline, d)
 						optimized.push(
 							comparison.equal && order.length === 0
@@ -908,7 +910,10 @@ const runDifferential = (
 							o.lowering.name
 						)
 						const d = yield* delivered(query.dag, run, o.lowering.name, false, names.codes)
-						otherRuns.push({ name: o.lowering.name, comparison: compareRuns(baseline.run, d.run) })
+						otherRuns.push({
+							name: o.lowering.name,
+							comparison: compareRead(baselineRead, readRun(d.run))
+						})
 					}
 					return {
 						/** The case as generated; the perturbation's report says how its facts ran. */

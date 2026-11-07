@@ -236,6 +236,7 @@ export const directWriterSuite = () =>
 					ctx,
 					explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "direct-writers",
 							draw: drawn(directRunGen),
 							literal: Formatter.format,

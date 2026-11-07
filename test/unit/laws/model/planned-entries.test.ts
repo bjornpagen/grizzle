@@ -275,6 +275,7 @@ describe("the law model's planned B-tree indexes", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/laws/model/planned-entries",
 						draw: drawn(sketchGen),
 						literal: Formatter.format,

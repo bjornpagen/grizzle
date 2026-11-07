@@ -68,6 +68,7 @@ export interface QueryTemplate extends ProgramArtifacts {
 	readonly programs: {
 		readonly optimized: OptimizedProgram<SpecifiedForm>
 		readonly conservative: ConservativeProgram
+		/** The checked query the conservative artifact lowers, each attachment judged (rel.ts Attach judged). */
 		readonly checked: LogicalQuery
 	}
 	/**
@@ -80,8 +81,9 @@ export interface QueryTemplate extends ProgramArtifacts {
 	}
 	/**
 	 * The checked query's DAG annotated under the template's evidence: its context, the schema's containments, its
-	 * relations' declared keys and its derived relations' inherited keys. The reader reads the root's cardinality and
-	 * every attachment's delivered type here (adapter/reader/analysis.ts).
+	 * relations' declared keys and its derived relations' inherited keys. The reader reads the root's cardinality here
+	 * (adapter/reader/eligibility.ts); every attachment's delivered type it judges is on the lowered programs' Attach
+	 * nodes (ir/rel.ts Attach judged).
 	 */
 	readonly analyzed: RootedDag
 }
@@ -237,7 +239,20 @@ export const compileQuery = (
 		return checkedQuery
 	}
 	const checked = checkedQuery.value
-	const conservativeArtifactOf = conservativeArtifact(checked, artifacts)
+	const analyzed = analyzeLogical(checked.dag, {
+		context,
+		containments: artifacts.laws.theory.evidence.containments,
+		keyedViews: true
+	})
+	if (!analyzed.ok) {
+		return analyzed
+	}
+	/**
+	 * The checked query with each attachment judged as the template's analysis judges it (rel.ts Attach judged): what
+	 * both lowerings take, so every Attach node of either program carries the delivered type the reader delivers.
+	 */
+	const judged: LogicalQuery = { ...checked, dag: analyzed.value.judged }
+	const conservativeArtifactOf = conservativeArtifact(judged, artifacts)
 	if (!conservativeArtifactOf.ok) {
 		return conservativeArtifactOf
 	}
@@ -247,17 +262,9 @@ export const compileQuery = (
 	 * checker's with the keys of the views it reads (logical/annotate.ts queryEvidence). The conservative artifact keeps
 	 * the checked DAG.
 	 */
-	const rewritten = optimizedInput(checked, queryEvidence)
+	const rewritten = optimizedInput(judged, queryEvidence)
 	if (!rewritten.ok) {
 		return rewritten
-	}
-	const analyzed = analyzeLogical(checked.dag, {
-		context,
-		containments: artifacts.laws.theory.evidence.containments,
-		keyedViews: true
-	})
-	if (!analyzed.ok) {
-		return analyzed
 	}
 	const lowered = lowerOptimized(rewritten.value, {
 		names: artifacts.reads,
@@ -329,7 +336,7 @@ export const compileQuery = (
 		programs: {
 			optimized: { ...optimized, roots: mapTree(specified.value, (run) => run.statement) },
 			conservative,
-			checked
+			checked: judged
 		},
 		runs: {
 			optimized: { delivery: optimized.delivery, roots: specified.value },

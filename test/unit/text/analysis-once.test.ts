@@ -114,6 +114,7 @@ describe("the text analysis", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/text/analysis-once",
 						draw: drawn(caseGen),
 						literal: Formatter.format,

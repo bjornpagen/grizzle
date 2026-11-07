@@ -304,6 +304,8 @@ describe("attachments: one search per execution, never one per parent", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/lower/vector/placements",
 						/**
 						 * Every parent with every child, the DAG's first search read by a root of its own as well where
@@ -459,6 +461,8 @@ describe("refusals in the lowering", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/lower/vector/traced",
 						generator: (source) =>
 							[

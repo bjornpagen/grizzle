@@ -106,6 +106,8 @@ describe("demand pruning", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/lower/rewrite/prune-fold",
 						literal: Formatter.format,
 						/**
@@ -308,6 +310,8 @@ describe("a pinned node keeps its form, and its inputs every column that form re
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/lower/rewrite/prune-pinned",
 						literal: Formatter.format,
 						generator: (source) =>

@@ -194,6 +194,7 @@ describe("splitting a no-transaction file into its statements, generated", () =>
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/deploy/split",
 					draw: drawn(fileGen),
 					literal: Formatter.format,

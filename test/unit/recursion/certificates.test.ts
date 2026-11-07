@@ -55,7 +55,8 @@ import {
 	Reference,
 	unobserved
 } from "#test/support/oracle/reference/evaluate.ts"
-import { valueKey } from "#test/support/oracle/reference/values.ts"
+import { Identities, type Interned } from "#test/support/oracle/reference/identity.ts"
+import { valueIdentity } from "#test/support/oracle/reference/values.ts"
 import { pickFrom, pickIndex } from "#test/support/pick.ts"
 import { checking, checkOptions } from "#test/support/policy.ts"
 import {
@@ -1110,21 +1111,20 @@ const statesPerVertex = (
 		Arr.findFirstIndex(states.heading, (c) => c.name === "node"),
 		() => new Error("a column the case's own heading holds")
 	)
-	const perVertex = new Map<string, Set<string>>()
+	const identities = new Identities()
+	const perVertex = new Map<Interned, Set<Interned>>()
 	for (const row of states.rows) {
-		const vertex = Formatter.format(row[node])
-		const state = Arr.join(
+		const nodeColumn = defined(states.heading[node], "the node column")
+		const vertex = identities.of(valueIdentity(defined(row[node], "a node value"), nodeColumn.type))
+		const state = identities.of(
 			Arr.flatMap(row, (v, i) =>
 				i === node
 					? []
-					: [
-							valueKey(
-								defined(v, "a state value"),
-								defined(states.heading[i], "a state column").type
-							)
-						]
-			),
-			"\u0000"
+					: valueIdentity(
+							defined(v, "a state value"),
+							defined(states.heading[i], "a state column").type
+						)
+			)
 		)
 		const known = perVertex.get(vertex)
 		if (known === undefined) {
@@ -1415,6 +1415,7 @@ describe("generated recursions against the termination proof rules", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/recursion/certificates",
 						draw: sketched(
 							(source) =>

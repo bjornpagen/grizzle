@@ -78,6 +78,8 @@ describe("the seen-state estimate", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/recursion/estimate",
 						generator: (source) =>
 							[
@@ -208,6 +210,8 @@ describe("the seen-state estimate", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/recursion/estimate-sets",
 						generator: int(1, 3),
 						literal: Formatter.format,

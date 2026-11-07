@@ -119,6 +119,8 @@ describe("the family lowering", () => {
 			ctx,
 			exhaust(
 				{
+					box: { kind: "unstated" },
+					oracle: { kind: "unstated" },
 					suite: "unit/support/families/lowering",
 					generator: boxGen,
 					literal: Formatter.format,
@@ -404,6 +406,7 @@ describe("family programs", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/support/families/programs",
 						draw: drawn(programs),
 						literal: Formatter.format,

@@ -11,10 +11,10 @@ import {
 import { page as pageRuntime } from "#adapter/page/index.ts"
 import { compiledPageTemplate, type PageSource } from "#adapter/page/page.ts"
 import type { PageRuntime } from "#adapter/page/template.ts"
-import { attachmentFacts } from "#adapter/reader/analysis.ts"
+import { attachmentHeads } from "#adapter/reader/analysis.ts"
 import { getEligibility } from "#adapter/reader/eligibility.ts"
 import type { ExecutionInputs } from "#adapter/reader/execution.ts"
-import { hostParams, readParams, unreadableArguments } from "#adapter/reader/params.ts"
+import { hostParams, readKeyValues, unreadableArguments } from "#adapter/reader/params.ts"
 import {
 	executionInputs,
 	type InputRefusal,
@@ -38,23 +38,31 @@ import type {
 } from "#adapter/types/db.ts"
 import { asReadFailure, type Flight, runFramed } from "#adapter/wire/batch.ts"
 import { mintNaming, nameStatements, type StatementNaming } from "#adapter/wire/naming.ts"
-import { bindGroups, type Row, type RowDecoder } from "#compiler/core/decoder.ts"
 import {
+	bindGroups,
 	type CompileError,
 	type CursorError,
+	type EmittedText,
+	Engine,
 	malformedDescription,
+	type ParamArg,
+	type ParamMap,
+	type Row,
+	type RowDecoder,
+	SourceLoc,
 	unsupported
-} from "#compiler/core/errors.ts"
-import { SourceLoc } from "#compiler/core/loc.ts"
-import * as Engine from "#compiler/core/result.ts"
-import { queryInput } from "#compiler/program/compile.ts"
-import type { CompiledTemplate } from "#compiler/program/template.ts"
-import { isOrderedValue, isQueryValue } from "#compiler/query/build/index.ts"
-import { keyLookup } from "#compiler/query/build/key.ts"
-import type { EmittedText } from "#compiler/sql/ast.ts"
-import type { ParamArg, ParamMap } from "#compiler/types/core/phantom.ts"
-import type { Page, PageRequest } from "#compiler/types/page/page.ts"
-import type { ParamsOf, QueryBase } from "#compiler/types/query/query.ts"
+} from "#compiler/plan/common.ts"
+import {
+	type CompiledTemplate,
+	isOrderedValue,
+	isQueryValue,
+	keyLookup,
+	type Page,
+	type PageRequest,
+	type ParamsOf,
+	type QueryBase,
+	queryInput
+} from "#compiler/plan/read.ts"
 
 /**
  * QueryReader, and the compiled reads of db.compile.
@@ -275,7 +283,7 @@ const compileArtifacts = (
 			program: templateProgram(
 				compiled.template,
 				compiled.selection.artifact,
-				attachmentFacts(compiled.template, compiled.desc),
+				attachmentHeads(compiled.desc),
 				role.artifacts.names.codes
 			),
 			codecs: paramCodecs(compiled.template.params, role.artifacts.names.codes)
@@ -512,10 +520,10 @@ export const makeReader = <S>(ctx: DbContext, executor: ReadExecutor): Reader<S>
 				)
 			}
 			/**
-			 * The key values off the caller's map, read once at the boundary (params.ts readParams): a map or a value
+			 * The key values off the caller's map, read once at the boundary (params.ts readKeyValues): a map or a value
 			 * whose reading throws encodes nothing.
 			 */
-			const bound = readParams(lookup.target.fields, params, unreadableArguments())
+			const bound = readKeyValues(lookup.target.fields, params, unreadableArguments())
 			if (Result.isFailure(bound)) {
 				return Effect.fail(bound.failure)
 			}

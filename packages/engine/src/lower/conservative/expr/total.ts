@@ -15,14 +15,13 @@ import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { ExactCarrier } from "#compiler/scalar/aggregate.ts"
 import { type FloatCarrier, nativeRange } from "#compiler/scalar/compute/native.ts"
 import { type IeeeOp, type NativeOp, nativeOp } from "#compiler/scalar/compute/registry.ts"
-import type { Expr, Select, TypeRef } from "#compiler/sql/ast.ts"
+import type { Expr, OperandSelect, Select, TypeRef } from "#compiler/sql/ast.ts"
 import {
 	and,
 	binary,
 	call,
 	cast,
 	col,
-	core,
 	eq,
 	exactNumericOfDouble,
 	ge,
@@ -321,10 +320,11 @@ const operandRow = (operands: NonEmptyReadonlyArray<Expr>): Select => ({
 /**
  * A rendering that names its operands several times, over operands rendered once: inline where every operand is an
  * atom, and otherwise as a scalar subquery that binds them once, (SELECT <form> FROM (SELECT a, b OFFSET 0) AS
- * __operands(c1, c2)), its columns the generated c<n> names every stage's columns take. Each compound operand's text
- * appears once, so nesting costs linear size and linear planning, never exponential (operandRow). Nothing in it reads a
- * row of its own: it is its operands' function. A window call is never an operand: bound, it would compute over the
- * binding's one row.
+ * __operands(c1, c2)), one row, its columns the generated c<n> names every stage's columns take. Each compound
+ * operand's text appears once, so nesting costs linear size and linear planning, never exponential (operandRow).
+ * Nothing in it reads a row of its own: it is its operands' function, so where a statement evaluates it for every row,
+ * the statement reads it as a LATERAL item of that row instead (lateral.ts bindLaterally). A window call is never an
+ * operand: bound, it would compute over the binding's one row.
  */
 const bindOperands = <F extends Expr | undefined>(
 	sqlArgs: NonEmptyReadonlyArray<Expr>,
@@ -341,7 +341,8 @@ const bindOperands = <F extends Expr | undefined>(
 	return {
 		kind: "subquery",
 		query: operandSelect(
-			core(
+			provedCore(
+				"oneRow",
 				[target(body)],
 				[
 					{
@@ -356,6 +357,16 @@ const bindOperands = <F extends Expr | undefined>(
 			)
 		)
 	}
+}
+
+/** Whether a query is an operation's operand binding (bindOperands): a core whose first FROM item is its operand row. */
+export const isOperandBinding = (query: OperandSelect): boolean => {
+	const body = query.body
+	if (body.kind !== "core") {
+		return false
+	}
+	const [row] = body.from
+	return row?.kind === "derived" && row.alias === operandsAlias
 }
 
 /**

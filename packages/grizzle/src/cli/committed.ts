@@ -12,10 +12,15 @@ import {
 	SnapshotUnreadable
 } from "#cli/errors.ts"
 import type { SchemaTree } from "#cli/files.ts"
-import type { CompileError } from "#compiler/core/errors.ts"
-import { folderTimestamp, isFolderName, type ReadMeta } from "#compiler/deploy/render/folder.ts"
-import { emptyFingerprint, emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
-import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
+import type { CompileError } from "#compiler/plan/common.ts"
+import {
+	type DeploySnapshot,
+	emptyFingerprint,
+	emptySnapshot,
+	folderTimestamp,
+	isFolderName,
+	type ReadMeta
+} from "#compiler/plan/migration.ts"
 
 /**
  * A schema's committed migration state as the command line reads it: its snapshot.json and its folders.

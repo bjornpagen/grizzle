@@ -166,6 +166,10 @@ const evaluated = (c: PowerCase): CatalogResult => {
 			{
 				precondition: { kind: "powerDomain" },
 				premises: [{ kind: "checked", operand: 0, by: "parameter" }]
+			},
+			{
+				precondition: { kind: "powerRange" },
+				premises: [{ kind: "checked", operand: 0, by: "parameter" }]
 			}
 		]
 	})
@@ -212,6 +216,7 @@ describe("the oracle's classes of evaluation", () => {
 				explore(
 					{
 						suite: "unit/compute/evaluation-power",
+						oracle: { kind: "specification", name: "the libm error model's two ends" },
 						draw: drawn(caseGen),
 						literal: Formatter.format,
 						coverage: required<PowerFeature>(["outcome claimed at both ends", "declined"], {
@@ -269,7 +274,9 @@ describe("the oracle's classes of evaluation", () => {
 			ctx,
 			exhaust(
 				{
+					box: { kind: "unstated" },
 					suite: "unit/compute/ieee-exact",
+					oracle: { kind: "specification", name: "IEEE 754's correctly rounded operations" },
 					generator: element(nonEmpty(nativeOps, "the registry's nodes")),
 					literal: Formatter.format,
 					/** The space is the registry's nodes, each once. */

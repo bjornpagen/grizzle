@@ -12,14 +12,15 @@ import {
 	type UnresolvedMarker
 } from "#adapter/migrate/errors.ts"
 import type { ParsedFile, ParsedFolder, ParsedTarget } from "#adapter/migrate/input.ts"
-import type { SchemaFingerprint } from "#compiler/core/ids.ts"
+import type { SchemaFingerprint } from "#compiler/plan/common.ts"
 import {
 	decideFolder,
+	findMarkers,
 	type LedgerState,
+	lossDecisions,
+	lossText,
 	type RecordedFolder
-} from "#compiler/deploy/ledger/ledger.ts"
-import { lossDecisions, lossText } from "#compiler/deploy/render/folder.ts"
-import { findMarkers } from "#compiler/deploy/render/markers.ts"
+} from "#compiler/plan/migration.ts"
 
 /**
  * A folder the apply runs: one no apply started, every file of it, or the partially applied one, resumed at the files it

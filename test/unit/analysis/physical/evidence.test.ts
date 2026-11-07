@@ -62,6 +62,8 @@ describe("catalogs", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/analysis/physical/catalog-scan",
 						generator: (source) =>
 							[

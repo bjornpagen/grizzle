@@ -1,11 +1,8 @@
 import { Array as Arr, Predicate, Record as Rec, Result } from "effect"
 import { type ReadError, ReadFailure } from "#adapter/errors/execution.ts"
 import { PageRequestRefused, type RequestFault } from "#adapter/errors/failures.ts"
-import { cursorError } from "#compiler/codec/cursor/fault.ts"
-import { catchCompileError } from "#compiler/core/canonical.ts"
-import { type CursorError } from "#compiler/core/errors.ts"
-import type { PageVariant } from "#compiler/lower/shapes/page/seek.ts"
-import { hostArguments } from "#compiler/query/build/host.ts"
+import { catchCompileError, type CursorError } from "#compiler/plan/common.ts"
+import { cursorError, hostArguments, type PageVariant } from "#compiler/plan/read.ts"
 
 /**
  * Page request validation.

@@ -10,15 +10,25 @@ import { type PageRuntime, pageTemplateFor } from "#adapter/page/template.ts"
 import { hostParams } from "#adapter/reader/params.ts"
 import type { ReadExecutor } from "#adapter/reader/reader.ts"
 import { executionInputs, type ParamCodecs, paramCodecs } from "#adapter/reader/relations.ts"
-import { bindGroups, type Row, type RowDecoder } from "#compiler/core/decoder.ts"
-import { CompileError, type CursorError, prose } from "#compiler/core/errors.ts"
-import { SourceLoc } from "#compiler/core/loc.ts"
-import * as Engine from "#compiler/core/result.ts"
-import { queryInput } from "#compiler/program/compile.ts"
-import type { CompiledTemplate } from "#compiler/program/template.ts"
-import { queryState } from "#compiler/query/build/state.ts"
-import type { ParamMap } from "#compiler/types/core/phantom.ts"
-import type { Page, PageCursor, PageEdge } from "#compiler/types/page/page.ts"
+import {
+	bindGroups,
+	CompileError,
+	type CursorError,
+	Engine,
+	type ParamMap,
+	prose,
+	type Row,
+	type RowDecoder,
+	SourceLoc
+} from "#compiler/plan/common.ts"
+import {
+	type CompiledTemplate,
+	type Page,
+	type PageCursor,
+	type PageEdge,
+	queryInput,
+	queryState
+} from "#compiler/plan/read.ts"
 
 /**
  * QueryReader.page and Compiled.page.

@@ -194,6 +194,7 @@ const provingCase = (c: QueryCase, picks: ReadonlyArray<number>): QueryCase => {
 					parent: f,
 					child: defined(k.to.fields[j])
 				})),
+				judged: "array",
 				delivered: "array",
 				heading: parent.heading,
 				order: headingOrder(child.heading),
@@ -576,6 +577,7 @@ const holdsOn = <S>(
 		ctx,
 		explore(
 			{
+				oracle: { kind: "unstated" },
 				suite,
 				draw: drawn(draw.generator),
 				literal: Formatter.format,
@@ -709,6 +711,7 @@ const idempotentOn = <S>(
 		ctx,
 		explore(
 			{
+				oracle: { kind: "unstated" },
 				suite,
 				draw: drawn(draw.generator),
 				literal: Formatter.format,

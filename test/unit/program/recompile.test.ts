@@ -55,6 +55,7 @@ describe("compiling again", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/program/recompile",
 						draw: drawn(caseGen),
 						literal: Formatter.format,

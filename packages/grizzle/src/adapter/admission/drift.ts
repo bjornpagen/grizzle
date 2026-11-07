@@ -25,30 +25,33 @@ import { toResult } from "#adapter/engine.ts"
 import type { CatalogRowRefused } from "#adapter/errors/failures.ts"
 import type { BatchOutcome, BatchStatement, Flight, Transaction } from "#adapter/wire/batch.ts"
 import { type CatalogQuery, catalogRow, catalogRows, outcomeRows } from "#adapter/wire/statement.ts"
-import { nominal } from "#compiler/core/brand.ts"
-import type { CompileError } from "#compiler/core/errors.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import { sha256Hex } from "#compiler/core/sha256.ts"
-import { type ManifestStatement, manifestStatements } from "#compiler/deploy/admission/manifest.ts"
-import {
-	defaultPrivilegesExpectations,
-	judgedSchemas,
-	manifestRoles,
-	roleExpectation
-} from "#compiler/deploy/admission/roles.ts"
-import type { LedgerState } from "#compiler/deploy/ledger/ledger.ts"
-import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
-import type { EmittedText, SqlStatement, TypeSchema } from "#compiler/sql/ast.ts"
-import * as C from "#compiler/sql/catalog.ts"
-import { emit, emitCatalog } from "#compiler/sql/emit.ts"
-import { emptyNameMap } from "#compiler/sql/naming.ts"
-import { quoteIdent } from "#compiler/sql/print.ts"
 import {
 	type AstHooks,
+	C,
+	defaultPrivilegesExpectations,
+	emptyNameMap,
 	identityHooks,
+	judgedSchemas,
+	manifestRoles,
+	type ManifestStatement,
+	manifestStatements,
+	roleExpectation,
 	transformCreateIndex,
 	transformStatement
-} from "#compiler/sql/transform.ts"
+} from "#compiler/plan/catalog.ts"
+import {
+	type CompileError,
+	emit,
+	emitCatalog,
+	type EmittedText,
+	nominal,
+	type NonEmptyReadonlyArray,
+	quoteIdent,
+	sha256Hex,
+	type SqlStatement,
+	type TypeSchema
+} from "#compiler/plan/common.ts"
+import type { DeploySnapshot, LedgerState } from "#compiler/plan/migration.ts"
 
 /**
  * The drift check: the installed schema against the target snapshot, judged by PostgreSQL, after `grizzle migrate`.

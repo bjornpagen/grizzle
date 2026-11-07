@@ -2,7 +2,7 @@ import { layer } from "@effect/vitest"
 import { drawn, exhaust } from "@grizzle/testing/explore"
 import { required, requiredInSpace } from "@grizzle/testing/features"
 import { array, constant, element, type Gen, int, map, oneOf, weighted } from "@grizzle/testing/gen"
-import { exact, ordered, set } from "@grizzle/testing/oracle"
+import { exact, ordered, set, structuralHash } from "@grizzle/testing/oracle"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -311,7 +311,7 @@ const predSql = (p: Pred): string => {
 
 const printPred = (p: Pred): string => pipe(predSql(p), Str.replaceAll('"', ""))
 
-const sameRowSet = set(ordered(exact))
+const sameRowSet = set(structuralHash, ordered(exact))
 
 /** The host value of a span of the carrier: JavaScript integers for int4range, bigints for int8range. */
 const spanHost = (carrier: RangeType, s: HalfOpen) =>
@@ -550,6 +550,8 @@ layer(Substrate.layer)("endpoint spellings of span relations on PostgreSQL 19", 
 					const db = yield* s.session({ ...ownerSession(), label: "owner" })
 					return yield* exhaust(
 						{
+							box: { kind: "unstated" },
+							oracle: { kind: "unstated" },
 							suite: "spans/endpoint-normal-form",
 							generator: exhaustiveCases,
 							literal: Formatter.format,

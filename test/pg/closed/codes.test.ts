@@ -25,7 +25,7 @@ import type { Declarations, Named } from "#compiler/deploy/diff/plan.ts"
 import { codebookOf } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import { type Codebook, codecOf, draftCodebook, noRenames } from "#compiler/ir/codes.ts"
-import type { ScalarType } from "#compiler/ir/scalar.ts"
+import { Roster, type ScalarType } from "#compiler/ir/scalar.ts"
 import { login } from "#compiler/program/workload/login.ts"
 import { bits, closedId, pg } from "#compiler/public/fields.ts"
 import {
@@ -670,10 +670,7 @@ layer(Substrate.layer)("closed ids as codes on PostgreSQL 19rc1", (it) => {
 						)
 						yield* applyNext(m, [next])
 						assert.deepEqual(
-							Arr.map(
-								patterns,
-								(s) => codecOf(next.codes, { closed: s.closed, handles: liveOf(s) }).names
-							),
+							Arr.map(patterns, (s) => codecOf(next.codes, new Roster(s.closed, liveOf(s))).names),
 							Arr.map(patterns, modelNames),
 							"the drafted codebook holds the model's codes"
 						)

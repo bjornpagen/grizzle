@@ -1,3 +1,4 @@
+import { nominal } from "#compiler/core/brand.ts"
 import { codeColumn } from "#compiler/core/decoder.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { hostRead } from "#compiler/core/host.ts"
@@ -28,7 +29,8 @@ import {
 	adoptedType,
 	lowerTerm,
 	noClosedRelations,
-	noParams
+	noParams,
+	withinGuards
 } from "#compiler/scalar/compute/lower.ts"
 
 import {
@@ -63,7 +65,7 @@ import {
 	termOf,
 	typedTermOf
 } from "#compiler/scalar/compute/term.ts"
-import { compatible, plainType } from "#compiler/scalar/compute/types.ts"
+import { compatible, isFloat, plainType } from "#compiler/scalar/compute/types.ts"
 import { matchPattern } from "#compiler/scalar/regex/admit.ts"
 import { replaceMap } from "#compiler/scalar/regex/whitespace.ts"
 import {
@@ -203,11 +205,20 @@ const describedField = (value: unknown, loc: SourceLoc): DescribedField => {
 	}
 }
 
-/** A checked Compute expression: what it records, and the type the overload resolution gave it. */
-interface Checked {
+declare const checkedBrand: unique symbol
+
+/**
+ * A checked Compute expression: what it records, and the type the overload resolution gave it. Minted only by Call's
+ * constructors, one per level of what a builder returns (finish, finishCarried, finishPlain), each after the build-mode
+ * lowering typed the call, so no builder states a type it did not check.
+ */
+type Checked = {
 	readonly expr: OpenExpr
 	readonly type: ScalarType
+	readonly [checkedBrand]: true
 }
+
+const mintChecked = nominal<{ readonly expr: OpenExpr; readonly type: ScalarType }, Checked>()
 
 /** A checked Compute expression whose value is the value of its first term, with that term's carrier. */
 interface CarriedChecked extends Checked {
@@ -364,12 +375,18 @@ class Call {
 		}
 	}
 
+	/** The call checked: `real` typed by the build-mode lowering of its placeholder `ph`. */
 	finish(real: OpenExpr, ph: ExprDesc): Checked {
 		const typed: Result.Result<Lowered, CompileError> = lowerTerm(ph, this.env())
 		if (!typed.ok) {
 			throw typed.error
 		}
-		return { expr: real, type: typed.value.nominal }
+		return mintChecked({ expr: real, type: typed.value.nominal })
+	}
+
+	/** finish of an expression whose value is its first term's, delivered through that term's carrier. */
+	finishCarried(real: OpenExpr, ph: ExprDesc, carrier: TermCarrier): CarriedChecked {
+		return { ...this.finish(real, ph), carrier }
 	}
 
 	/**
@@ -537,7 +554,7 @@ const variadic =
 			return malformed(captureLoc(`Compute.${fn}`, []), `at least one term for ${fn}`)
 		}
 		const { call, real, ph, carrier } = computeCall(fn, "term", xs)
-		return { ...call.finish(real, ph), carrier }
+		return call.finishCarried(real, ph, carrier)
 	}
 
 /**
@@ -552,7 +569,7 @@ const setOperation =
 			return malformed(captureLoc(`Compute.${fn}`, []), `two sets for ${fn}`)
 		}
 		const { call, real, ph, carrier } = computeCall(fn, "literal", [a, b])
-		return { ...call.finish(real, ph), carrier }
+		return call.finishCarried(real, ph, carrier)
 	}
 
 /** Compute.and and Compute.or, total: of no predicate the constant true and false, of one that predicate. */
@@ -582,11 +599,11 @@ const cond = (p: unknown, then: unknown, otherwise: unknown): CarriedChecked => 
 	const pred = call.predicate(p, "cond's condition")
 	const t = call.term(then, "cond's first branch, which types the conditional")
 	const e = call.operand(otherwise, t.type, "literal")
-	const checked = call.finish(
+	return call.finishCarried(
 		{ kind: "cond", pred: pred.real, onTrue: t.real, onFalse: e.real },
-		{ kind: "cond", pred: pred.ph, onTrue: t.ph, onFalse: e.ph }
+		{ kind: "cond", pred: pred.ph, onTrue: t.ph, onFalse: e.ph },
+		t.carrier
 	)
-	return { ...checked, carrier: t.carrier }
 }
 
 /** Zero as the host value of a subject's type, which a guard compares it with. */
@@ -649,8 +666,11 @@ interface GuardParts {
 }
 
 /**
- * A guard over one subject term: the predicate it tests (`<> 0`, `>= 0`, `> 0`, `> -Infinity AND < Infinity`), usable
- * wherever a predicate is, and the guard Compute.when reads to refine the subject inside its branch.
+ * A guard over one subject term: the predicate it tests of the subject's value (`<> 0`, `>= 0`, `> 0`, `> -Infinity
+ * AND < Infinity`), usable wherever a predicate is, and the guard Compute.when reads to refine the subject inside its
+ * branch. The comparison reads Compute.base(subject), so its constant is a value of the subject's value type, never
+ * of its contract: a guard tests any value its subject's SQL type holds, and a contract need hold no zero, and a
+ * numeric typmod no infinity.
  */
 const factGuard =
 	(kind: "nonzero" | "nonnegative" | "positive" | "finite") =>
@@ -660,9 +680,17 @@ const factGuard =
 		if (!hasProperties(subject)) {
 			return malformed(call.loc, "a term as a guard's subject")
 		}
-		const literal = (value: unknown): LiteralExpr => ({
+		if (kind === "finite" && baseOf(s.type).carrier !== "numeric" && !isFloat(s.type)) {
+			return malformed(
+				call.loc,
+				`Compute.isFinite over a numeric or float term, not ${typeLabel(s.type)}, which is finite by its type`
+			)
+		}
+		const value: OpenExpr = { kind: "base", arg: s.real }
+		const valuePh: ExprDesc = { kind: "base", arg: s.ph }
+		const literal = (constant: unknown): LiteralExpr => ({
 			kind: "literal",
-			value: call.literal(value, s.type),
+			value: call.literal(constant, s.type),
 			type: undefined
 		})
 		const comparisons = (): ReadonlyArray<readonly [CompareOp, LiteralExpr]> => {
@@ -684,13 +712,13 @@ const factGuard =
 		const real: ReadonlyArray<OpenExpr> = atoms.map(([op, right]) => ({
 			kind: "compare",
 			op,
-			left: s.real,
+			left: value,
 			right
 		}))
 		const ph: ReadonlyArray<ExprDesc> = atoms.map(([op, right]) => ({
 			kind: "compare",
 			op,
-			left: s.ph,
+			left: valuePh,
 			right
 		}))
 		const realTest = connectiveExpr("and", real)
@@ -712,6 +740,9 @@ const within = (subject: unknown, low: unknown, high: unknown): GuardParts => {
 	const s = call.term(subject, "Compute.within's subject")
 	if (!hasProperties(subject)) {
 		return malformed(call.loc, "a term as a guard's subject")
+	}
+	if (!withinGuards(baseOf(s.type).carrier)) {
+		return malformed(call.loc, `Compute.within over a number, not ${typeLabel(s.type)}`)
 	}
 	const lo = call.literal(low, s.type)
 	const hi = call.literal(high, s.type)
@@ -878,11 +909,11 @@ const when = (guard: unknown, branch: unknown, otherwise: unknown): CarriedCheck
 	const s = call.term(g.subject, "when's subject")
 	const t = call.term(branch, "when's branch, which types the conditional")
 	const e = call.operand(otherwise, t.type, "literal")
-	const checked = call.finish(
+	return call.finishCarried(
 		{ kind: "when", guard: g.guardTest.guard, subject: s.real, proved: t.real, otherwise: e.real },
-		{ kind: "when", guard: g.guardTest.guard, subject: s.ph, proved: t.ph, otherwise: e.ph }
+		{ kind: "when", guard: g.guardTest.guard, subject: s.ph, proved: t.ph, otherwise: e.ph },
+		t.carrier
 	)
-	return { ...checked, carrier: t.carrier }
 }
 
 /** A literal of a descriptor's type, built by `call`: the value is checked as a value of that type. */

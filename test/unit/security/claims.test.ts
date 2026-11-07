@@ -529,6 +529,7 @@ describe("the host claims decoder", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/security/claims",
 						draw: drawn((source) => ({ mode: source.draw(modeGen), raw: source.draw(drawGen) })),
 						literal: Formatter.format,

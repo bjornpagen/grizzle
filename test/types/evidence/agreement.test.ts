@@ -34,10 +34,13 @@ import { typeRun } from "#test/types/batch/provided.ts"
  * 2. Order invariance: the same queries in a second drawn order, as a second module, and every query's head and keys
  *    asserted equal across the two, so TypeScript's evidence never depends on unrelated statements' order.
  * 3. Admission (test/support/agreement/admission.ts): every position a constant stands in against every constant
- *    kind, a self-join's second scope among them, the program admitting exactly what the engine admits; every
- *    combinator over every shape of query; and the scope axis: a query matched, as it is and bound, over each level
- *    against its rule's schema, a relation parameter bound to each kind of source, and a relational negation at each
- *    place in a rule's filters.
+ *    kind, a parameter of the column's descriptor and of another's among them, a self-join's second scope among them,
+ *    the program admitting exactly what the engine admits; every combinator over every shape of query; and the scope
+ *    axis: a query matched, as it is and bound, over each level against its rule's schema, a relation parameter bound
+ *    to each kind of source, and a relational negation at each place in a rule's filters. Beside it, the argument axis
+ *    (test/support/agreement/arguments.ts): every shape of a query's parameters against every form of argument,
+ *    through every method that takes one, the program admitting exactly what the runtime's reading of an argument
+ *    admits.
  * 4. Faults: queries of the same generator, each planting one fault at a site whose drawn value the engine decides; a
  *    query it refuses is stated under the refusal its reason is, at the fault's site, and one it admits as a clean
  *    query is.
@@ -47,9 +50,11 @@ import { typeRun } from "#test/types/batch/provided.ts"
  * The floor's witnesses (agreementWitnesses, faultWitnesses), the same in every run, reach every construct the
  * evidence types reason about, a constant in each position, both verdicts, a variable two filters fix, a contract in a
  * head, a self-join whose get the engine proves, which pinnedSelfJoin draws by construction, a span parameter opposite
- * each span predicate and in a producer, a distance to a vector parameter and a search whose get the engine proves, and every fault
- * refused, each whose site may hold a valid value admitted too, so the program is never vacuous on any seed; the
- * admission matrix holds every position and kind by construction.
+ * each span predicate and in a producer, a distance to a vector parameter, a search whose get the engine proves, a
+ * closed relation, a roster and a derived relation matched, an extension's Db reading a base query and a base Db
+ * refused an extension's, a keyed get admitted through each kind of key position and with a name beside its key, and
+ * refused for a key field missing, alone or with a name in its place, and every fault refused, each whose site may hold a valid value admitted too, so the
+ * program is never vacuous on any seed; the admission matrix holds every position and kind by construction.
  */
 const required: Situations<AgreementNote> = [
 	...agreementFeatures,
@@ -66,6 +71,18 @@ const required: Situations<AgreementNote> = [
 	"a producer over a span parameter",
 	"a distance to a vector parameter",
 	"a search get proves",
+	"a closed relation matched",
+	"a roster matched",
+	"a derived relation's get proved",
+	"an extension's Db read a base query",
+	"a base Db refused an extension query",
+	"a keyed get admitted",
+	"a keyed get naming a field beside its key admitted",
+	"a keyed get missing a key field refused",
+	"a keyed get naming a field in a key field's place refused",
+	"a keyed get through a candidate key",
+	"a keyed get of a closed relation",
+	"a keyed get of a roster",
 	...agreementPairs
 ]
 

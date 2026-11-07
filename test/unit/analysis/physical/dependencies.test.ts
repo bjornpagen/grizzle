@@ -295,6 +295,7 @@ describe("a fragment's dependency table", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/analysis/physical/dependencies",
 						draw: drawn(specGen),
 						literal: Formatter.format,
@@ -489,6 +490,8 @@ describe("a rule region's dependency table", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/analysis/physical/region-constants",
 						generator: (source): Scan => ({
 							bound: source.draw(subarray(scanColumns)),

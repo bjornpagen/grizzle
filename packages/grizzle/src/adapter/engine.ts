@@ -1,7 +1,9 @@
 import { Effect, Function, Option, Result } from "effect"
-import type { OptionVocabulary } from "#compiler/core/decoder.ts"
-import { defect } from "#compiler/core/invariant.ts"
-import type { Result as EngineResult } from "#compiler/core/result.ts"
+import {
+	defect,
+	type OptionVocabulary,
+	type Result as EngineResult
+} from "#compiler/plan/common.ts"
 
 /**
  * The shell's bridge to the engine's vocabularies. The engine has no runtime Effect: its steps answer its own Result

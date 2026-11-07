@@ -1,12 +1,15 @@
 import { Option, Result } from "effect"
 import { readSnapshot } from "#adapter/boundary/snapshot.ts"
-import type { CompileError } from "#compiler/core/errors.ts"
-import * as Engine from "#compiler/core/result.ts"
-import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
-import type { SchemaDesc } from "#compiler/ir/desc.ts"
-import { admitSchemaDesc } from "#compiler/schema/admit.ts"
-import { type Owned, own } from "#compiler/schema/own.ts"
-import { schemaDescOf } from "#compiler/schema/schema.ts"
+import { admitSchemaDesc } from "#compiler/plan/catalog.ts"
+import {
+	type CompileError,
+	Engine,
+	own,
+	type Owned,
+	type SchemaDesc,
+	schemaDescOf
+} from "#compiler/plan/common.ts"
+import type { DeploySnapshot } from "#compiler/plan/migration.ts"
 
 /** Every registered snapshot, by itself. */
 const registered = new WeakMap<object, DeploySnapshot>()

@@ -13,7 +13,6 @@ import {
 	sameArgs
 } from "#compiler/ir/expr.ts"
 import { drive, Fold } from "#compiler/ir/fold.ts"
-import { claimedColumns } from "#compiler/ir/keys.ts"
 import {
 	type Cell,
 	type EditNode,
@@ -56,7 +55,7 @@ export const derivedMeta = (from: MetaSpec): MetaSpec => ({
 export const restrictMeta = (meta: MetaSpec, heading: Heading): MetaSpec => {
 	const names = new Set(heading.map((c) => c.name))
 	return {
-		logicalKeys: meta.logicalKeys.filter((k) => claimedColumns(k).every((c) => names.has(c))),
+		logicalKeys: meta.logicalKeys.filter((k) => k.key.every((c) => names.has(c))),
 		card: meta.card,
 		context: meta.context
 	}

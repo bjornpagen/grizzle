@@ -467,6 +467,8 @@ describe("installation size", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/laws/scaling",
 						generator: pointGen,
 						literal: Formatter.format,

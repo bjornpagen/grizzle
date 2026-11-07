@@ -340,15 +340,9 @@ export const ownedDesc = <K extends OwnedKind>(
 
 /**
  * A frozen shallow copy of an array or record a caller handed in, so a later mutation of the caller's value cannot
- * reach an owned description.
- */
-export const frozenArray = <A>(items: ReadonlyArray<A>): ReadonlyArray<A> =>
-	Object.freeze([...items])
-
-/**
- * The typed forms of frozenArray and frozenRecord, for the typed builders: the same copies, typed as what was copied.
- * A tuple's copy is typed `readonly [...T]`, which is T itself for every concrete tuple. A record's copy keeps its own
- * enumerable string-keyed members in order, as frozenRecord's Object.entries reads them.
+ * reach an owned description, typed as what was copied, for the typed builders. A tuple's copy is typed `readonly
+ * [...T]`, which is T itself for every concrete tuple. A record's copy keeps its own enumerable string-keyed members in
+ * order.
  */
 export const frozenTuple = <T extends ReadonlyArray<unknown>>(items: T): readonly [...T] => {
 	const copy: readonly [...T] = [...items]
@@ -363,54 +357,4 @@ export const frozenCopy = <T extends object>(record: T): T => {
 	}
 	Object.freeze(copy)
 	return copy
-}
-
-/**
- * A frozen copy of a record of records whose members are frozen copies too, typed as what was copied. Its keys follow
- * `order` (a closed relation's facts follow its roster), and any key `order` does not list follows them.
- */
-export const frozenCopies = <T extends Readonly<Record<string, object>>>(
-	record: T,
-	order: ReadonlyArray<string>
-): T => {
-	const copy = { ...record }
-	const members = new Map(Object.entries(copy))
-	for (const key of members.keys()) {
-		Reflect.deleteProperty(copy, key)
-	}
-	const keys = [
-		...order.filter((key) => members.has(key)),
-		...[...members.keys()].filter((key) => !order.includes(key))
-	]
-	for (const key of keys) {
-		const member = members.get(key)
-		if (member !== undefined) {
-			Object.defineProperty(copy, key, {
-				value: frozenCopy(member),
-				enumerable: true,
-				writable: true,
-				configurable: true
-			})
-		}
-	}
-	for (const key of Object.getOwnPropertySymbols(copy)) {
-		Reflect.deleteProperty(copy, key)
-	}
-	Object.freeze(copy)
-	return copy
-}
-
-export const frozenRecord = <A>(
-	record: Readonly<Record<string, A>>
-): Readonly<Record<string, A>> => {
-	const out: Record<string, A> = {}
-	for (const [key, value] of Object.entries(record)) {
-		Object.defineProperty(out, key, {
-			value,
-			enumerable: true,
-			writable: false,
-			configurable: false
-		})
-	}
-	return Object.freeze(out)
 }

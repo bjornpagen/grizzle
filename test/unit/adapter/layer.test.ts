@@ -616,6 +616,7 @@ describe("DbLayer.make", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/adapter/layer-config",
 						draw: drawn((source) => [source.draw(drawnGen), source.draw(faultGen)] as const),
 						literal: Formatter.format,
@@ -709,6 +710,7 @@ describe("DbLayer.make", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/adapter/layer-environment",
 						draw: drawn((source) => [source.draw(drawnGen), source.draw(environmentGen)] as const),
 						literal: Formatter.format,

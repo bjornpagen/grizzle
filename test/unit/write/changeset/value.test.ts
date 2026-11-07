@@ -1685,6 +1685,7 @@ describe("the level check", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/write/changeset/level-pairs",
 						draw: drawn(
 							(source) => [source.draw(element(levelSubjects)), source.draw(namedGen)] as const
@@ -1784,6 +1785,7 @@ describe("bind", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/write/changeset/bind-host-read",
 						draw: drawn(
 							lsw({

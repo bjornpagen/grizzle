@@ -1,4 +1,4 @@
-import { Array as Arr, Effect, Equal, Formatter, Option, Schema } from "effect"
+import { Array as Arr, Effect, Equal, Formatter, Hash, Option, Schema } from "effect"
 
 /**
  * How two answers may differ and still agree: a difference in words, or none. A test asserts exactly what its contract
@@ -29,36 +29,78 @@ export const ordered =
 		return Option.none()
 	}
 
-/** The first item of `values` that a later item repeats, by `item`, if one does. */
-const repeatOf = <A>(item: Equivalence<A>, values: ReadonlyArray<A>): Option.Option<A> =>
-	Arr.findFirst(values, (value, at) =>
-		Arr.some(Arr.drop(values, at + 1), (later) => Option.isNone(item(value, later)))
-	)
+/**
+ * The key of a set of items compared `exact`ly: Effect's structural hash, which Equal.equals keeps, so equal items have
+ * one key, arrays, records, Options and class instances included.
+ */
+export const structuralHash = (item: unknown): number => Hash.hash(item)
+
+/** Items grouped by their key, each group in the order its items come: what a set comparison compares within. */
+const groupsOf = <A>(
+	key: (item: A) => number,
+	values: ReadonlyArray<A>
+): ReadonlyMap<number, ReadonlyArray<A>> => {
+	const groups = new Map<number, Array<A>>()
+	for (const value of values) {
+		const at = key(value)
+		const group = groups.get(at)
+		if (group === undefined) {
+			groups.set(at, [value])
+		} else {
+			group.push(value)
+		}
+	}
+	return groups
+}
+
+/** The first item of `values` a later item of its own group repeats, by `item`, if one does. */
+const repeatOf = <A>(
+	item: Equivalence<A>,
+	values: ReadonlyArray<A>,
+	groups: ReadonlyMap<number, ReadonlyArray<A>>,
+	key: (item: A) => number
+): Option.Option<A> =>
+	Arr.findFirst(values, (value) => {
+		const group = groups.get(key(value)) ?? []
+		const at = group.indexOf(value)
+		return Arr.some(Arr.drop(group, at + 1), (later) => Option.isNone(item(value, later)))
+	})
+
+/** Whether `value` has an equal, by `item`, in the group of `groups` its key names. */
+const heldIn = <A>(
+	item: Equivalence<A>,
+	groups: ReadonlyMap<number, ReadonlyArray<A>>,
+	key: (item: A) => number,
+	value: A
+): boolean => Arr.some(groups.get(key(value)) ?? [], (other) => Option.isNone(item(value, other)))
 
 /**
  * The same items, in any order, each compared by `item`, where neither side holds an item twice: an answer that repeats
  * an item is not the set its contract names, so a repeat on either side is a difference, which names the repeated item,
- * and never folds away. It is the one unordered comparison: no answer is a multiset.
+ * and never folds away. It is the one unordered comparison: no answer is a multiset. `key` hashes an item consistently
+ * with `item`, so items `item` finds equal have one key (structuralHash is that key for `exact`, and for a row
+ * compared by its columns' own equality a hash of their canonical forms). Items are grouped by key and compared only
+ * within their group, so a comparison takes time linear in the answers when keys spread, and a repeat or a difference
+ * is found without comparing every pair.
  */
 export const set =
-	<A>(item: Equivalence<A>): Equivalence<ReadonlyArray<A>> =>
+	<A>(key: (item: NoInfer<A>) => number, item: Equivalence<A>): Equivalence<ReadonlyArray<A>> =>
 	(left, right) => {
+		const leftGroups = groupsOf(key, left)
+		const rightGroups = groupsOf(key, right)
 		const repeated = Arr.findFirst(
 			[
-				["left", left],
-				["right", right]
+				["left", left, leftGroups],
+				["right", right, rightGroups]
 			] as const,
-			([, values]) => Option.isSome(repeatOf(item, values))
+			([, values, groups]) => Option.isSome(repeatOf(item, values, groups, key))
 		)
 		return Option.match(repeated, {
 			onNone: () => {
-				const onlyLeft = Arr.filter(
-					left,
-					(value) => !Arr.some(right, (other) => Option.isNone(item(value, other)))
-				)
+				const onlyLeft = Arr.filter(left, (value) => !heldIn(item, rightGroups, key, value))
 				const onlyRight = Arr.filter(
 					right,
-					(value) => !Arr.some(left, (other) => Option.isNone(item(other, value)))
+					(value) => !heldIn((one, other) => item(other, one), leftGroups, key, value)
 				)
 				return Arr.isReadonlyArrayEmpty(onlyLeft) && Arr.isReadonlyArrayEmpty(onlyRight)
 					? Option.none()
@@ -66,9 +108,9 @@ export const set =
 							`only left: ${Formatter.format(onlyLeft)}; only right: ${Formatter.format(onlyRight)}`
 						)
 			},
-			onSome: ([side, values]) =>
+			onSome: ([side, values, groups]) =>
 				Option.map(
-					repeatOf(item, values),
+					repeatOf(item, values, groups, key),
 					(value) =>
 						`${side} holds ${Formatter.format(value)} more than once, and a set holds an item once`
 				)

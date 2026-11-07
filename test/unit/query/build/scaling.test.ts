@@ -179,6 +179,7 @@ describe("a query builder step reads only what it adds", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/query/build/step-reads",
 					/** A chain of one kind of step, two to four hundred long. */
 					draw: drawn((source) => ({
@@ -212,6 +213,7 @@ describe("a query builder step reads only what it adds", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/query/build/recognized",
 					draw: drawn(
 						(source) =>

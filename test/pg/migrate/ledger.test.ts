@@ -1177,6 +1177,7 @@ const ledgerSearch = Effect.gen(function* () {
 	)
 	return yield* explore(
 		{
+			oracle: { kind: "unstated" },
 			suite: "migrate/ledger",
 			draw: drawn(
 				program(

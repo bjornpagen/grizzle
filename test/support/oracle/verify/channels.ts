@@ -451,7 +451,7 @@ const attachmentsOf = (
 		})
 	}
 	for (const f of tree.statement.fused) {
-		out.set(f.attach, fusedShape(f))
+		out.set(f.attach.id, fusedShape(f))
 	}
 	return out
 }

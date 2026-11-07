@@ -95,6 +95,8 @@ describe("factoring transition arms into one feedback scan", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/recursion/factoring-equalities",
 						generator: subarray<Arm>(["b repeating a", "b fixed to a parameter"]),
 						literal: Formatter.format,

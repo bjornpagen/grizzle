@@ -443,6 +443,8 @@ describe("rebuilding from a Description", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/query/roundtrip-attached",
 						generator: (source) =>
 							[
@@ -520,6 +522,7 @@ describe("rebuilding from a Description", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/query/roundtrip-roster",
 						draw: drawn(
 							oneOf([
@@ -568,6 +571,7 @@ describe("generated queries", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/query/roundtrip-58",
 						draw: drawn(generated(work)),
 						literal: Formatter.format,
@@ -591,6 +595,7 @@ describe("generated queries", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/query/roundtrip-109",
 						draw: drawn(generated(spans)),
 						literal: Formatter.format,

@@ -1,10 +1,8 @@
 import { Array as Arr } from "effect"
 import { type ViolationClassifier, violationClassifier } from "#adapter/witness/classify.ts"
 import { type KeyLaws, keyLaws } from "#adapter/witness/keylaw.ts"
-import type { CheckedEntry } from "#compiler/analysis/schema.ts"
-import type { SchemaArtifacts } from "#compiler/program/schema.ts"
-import { entryKey } from "#compiler/write/frontend/entry.ts"
-import { type KeyDecoder, keyWitness, witnessDecoder } from "#compiler/write/program/outcome.ts"
+import { entryKey, type KeyDecoder, keyWitness, witnessDecoder } from "#compiler/plan/change.ts"
+import type { CheckedEntry, SchemaArtifacts } from "#compiler/plan/common.ts"
 
 /** The query entries a role's artifacts write through, by their targets: none for reality. */
 const writtenEntries = (
@@ -58,7 +56,8 @@ export const installationWitness = (
 	const laws = keyLaws({
 		names: artifacts.names,
 		constraintLaws: artifacts.constraintLaws,
-		theoryLaws: artifacts.theoryLaws
+		theoryLaws: artifacts.theoryLaws,
+		relations: [...checked.relations.values()]
 	})
 	/**
 	 * The WriteProgram's decoder over the whole schema: a refusal's key text decodes through its column's result

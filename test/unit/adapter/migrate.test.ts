@@ -402,6 +402,7 @@ describe("transaction control in a migration file", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/adapter/transaction-control",
 						draw: drawn(statementGen),
 						literal: Formatter.format,

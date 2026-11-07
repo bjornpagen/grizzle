@@ -297,12 +297,17 @@ export const createdIndexes = (schema: string) =>
 		return Arr.map(trusted<ReadonlyArray<readonly [name: string]>>(names), ([name]) => name)
 	})
 
-/** The runtime's own reader of `db` over the Db's pool, through an executor that records every statement it sends. */
+/**
+ * The runtime's own reader of `db` over the Db's pool, through an executor that records every statement it sends, and
+ * its compile of a query with the decoder the caller names (db.compile's), which compiles a query's Description against
+ * the Db's own world.
+ */
 export const recordingReader = (db: Parameters<typeof dbContext>[0]) => {
 	const ctx = dbContext(db)
 	if (ctx === undefined) {
 		return Effect.die(new Error("the Db has no runtime context"))
 	}
 	const { executor, counts } = countingExecutor(poolExecutor(ctx))
-	return Effect.succeed({ reader: untyped(makeReader(ctx, executor)), counts })
+	const reader = makeReader(ctx, executor)
+	return Effect.succeed({ reader: untyped(reader), compileWith: reader.compileWith, counts })
 }

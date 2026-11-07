@@ -281,6 +281,8 @@ describe("literal folding", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/lower/rewrite/simplify-literal-order",
 						literal: Formatter.format,
 						generator: (source) => [source.draw(literalPairs), source.draw(comparisons)] as const,
@@ -341,6 +343,8 @@ describe("literal folding", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/lower/rewrite/simplify-between-in",
 						literal: Formatter.format,
 						generator: forms,
@@ -444,6 +448,8 @@ describe("literal folding", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/lower/rewrite/simplify-frontier-folding",
 						literal: Formatter.format,
 						generator: shapes,
@@ -503,6 +509,8 @@ describe("finite folding", () => {
 			ctx,
 			exhaust(
 				{
+					box: { kind: "unstated" },
+					oracle: { kind: "unstated" },
 					suite: "unit/lower/rewrite/simplify-finite-fold",
 					literal: Formatter.format,
 					generator: (source) =>
@@ -562,6 +570,8 @@ describe("branch removal", () => {
 			ctx,
 			exhaust(
 				{
+					box: { kind: "unstated" },
+					oracle: { kind: "unstated" },
 					suite: "unit/lower/rewrite/simplify-empty",
 					literal: Formatter.format,
 					/**
@@ -664,6 +674,8 @@ describe("normalization", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/lower/rewrite/simplify-equality",
 						literal: Formatter.format,
 						generator: (source) => [source.draw(boolean), source.draw(boolean)] as const,
@@ -715,6 +727,8 @@ describe("merging", () => {
 			ctx,
 			exhaust(
 				{
+					box: { kind: "unstated" },
+					oracle: { kind: "unstated" },
 					suite: "unit/lower/rewrite/simplify-merge-filters",
 					literal: Formatter.format,
 					generator: boolean,
@@ -744,6 +758,8 @@ describe("merging", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/lower/rewrite/simplify-merge-projections",
 						literal: Formatter.format,
 						generator: (source) => [source.draw(boolean), source.draw(boolean)] as const,

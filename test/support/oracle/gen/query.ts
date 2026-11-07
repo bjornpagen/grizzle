@@ -2870,6 +2870,7 @@ class QueryResolver {
 			child: childNode,
 			name,
 			correlation,
+			judged: "array",
 			delivered: "array",
 			heading: parent.heading,
 			order: headingOrder(childNode.heading)

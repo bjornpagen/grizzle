@@ -64,6 +64,8 @@ describe("a DAG's roots", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/lower/rewrite/frame-root-position",
 						literal: Formatter.format,
 						/** Two or three roots, the one a rewrite replaces at any position among them. */
@@ -129,6 +131,7 @@ describe("determinism", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/lower/rewrite/frame-determinism",
 						literal: Formatter.format,
 						kept: [],
@@ -185,6 +188,7 @@ describe("determinism", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/lower/rewrite/frame-delivered",
 						literal: Formatter.format,
 						kept: [],
@@ -251,6 +255,7 @@ describe("determinism", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/lower/rewrite/frame-cold",
 						literal: Formatter.format,
 						kept: [],
@@ -315,6 +320,7 @@ describe("the worklist", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/lower/rewrite/frame-fixed-point",
 						literal: Formatter.format,
 						kept: [],

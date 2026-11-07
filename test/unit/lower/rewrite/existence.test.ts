@@ -171,6 +171,8 @@ describe("an existence-only match becomes a semi-join", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/lower/rewrite/existence-semi-join",
 						literal: Formatter.format,
 						generator: shapes,
@@ -225,6 +227,8 @@ describe("set comparisons need a physically unique left input", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/lower/rewrite/existence-set-comparison",
 						literal: Formatter.format,
 						generator: (source) => ({

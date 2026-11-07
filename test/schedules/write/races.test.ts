@@ -1263,6 +1263,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 					ctx,
 					explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "schedules/write/races",
 							draw: drawn(raceCaseGen),
 							literal: Formatter.format,

@@ -1,6 +1,5 @@
-import type { NodeId } from "#compiler/core/ids.ts"
 import { jsonStrings } from "#compiler/core/json-strings.ts"
-import type { Heading, HeadingColumn } from "#compiler/ir/rel.ts"
+import type { Heading, HeadingColumn, NodeOf } from "#compiler/ir/rel.ts"
 
 /** The index of `search` in `text` at or after `from`, or undefined when it does not occur there. */
 const indexFrom = (text: string, search: string, from: number): number | undefined => {
@@ -103,7 +102,8 @@ export interface FusedLayout {
  * by the value's decoder (core/decoder.ts attachment), as a pipelined attachment's are.
  */
 export interface FusedAttachment {
-	readonly attach: NodeId
+	/** The attachment it fuses, whose judged delivered type and correlation the reader reads. */
+	readonly attach: NodeOf<"Attach">
 	readonly name: string
 	readonly parentColumns: ReadonlyArray<string>
 	readonly layout: FusedLayout

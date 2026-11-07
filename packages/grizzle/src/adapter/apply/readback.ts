@@ -1,13 +1,12 @@
 import { Array as Arr, type Effect } from "effect"
 import type { UnreadableAnswer } from "#adapter/errors/failures.ts"
-import { analyzedAttachmentFacts, attachmentHeads } from "#adapter/reader/analysis.ts"
+import { attachmentHeads } from "#adapter/reader/analysis.ts"
 import type { ExecutionInputs } from "#adapter/reader/execution.ts"
 import type { InputRefusal } from "#adapter/reader/relations.ts"
 import { programFlight, type ReadProgram, readProgram } from "#adapter/reader/run.ts"
 import type { Flight } from "#adapter/wire/batch.ts"
-import type { AttachmentLayout, Layout, Row } from "#compiler/core/decoder.ts"
-import type { Codebook } from "#compiler/ir/codes.ts"
-import type { CompiledWrite } from "#compiler/write/program/compile.ts"
+import type { CompiledWrite } from "#compiler/plan/change.ts"
+import type { AttachmentLayout, Codebook, Layout, Row } from "#compiler/plan/common.ts"
 
 /**
  * Delivering a ChangeSet's read-backs.
@@ -84,11 +83,7 @@ const artifactReadBacks = (
 ): ReadBackRuns => {
 	const each = Arr.map(program.artifacts[kind].readBacks, (delivery): ReadBackRun => ({
 		name: delivery.name,
-		program: readProgram(
-			delivery.run,
-			analyzedAttachmentFacts(program.frontend.ir.dag, attachmentHeads(delivery.query)),
-			codes
-		)
+		program: readProgram(delivery.run, attachmentHeads(delivery.query), codes)
 	}))
 	return { runs: each, layout: readsLayout(each) }
 }

@@ -169,6 +169,8 @@ describe("languages and guarantees", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/check/refinement-lattice",
 						generator: (source) =>
 							[source.draw(element(pool)), source.draw(element(pool))] as const,
@@ -429,6 +431,8 @@ describe("union propagation", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/check/refinement-union",
 						generator: (source) =>
 							[source.draw(element(deliverers)), source.draw(element(deliverers))] as const,

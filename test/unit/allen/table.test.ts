@@ -90,6 +90,8 @@ describe("the generated Allen table", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/allen/table-entries",
 						generator: int(0, fullAllenMask),
 						literal: Formatter.format,
@@ -163,6 +165,8 @@ describe("the generated Allen table", () => {
 			ctx,
 			exhaust(
 				{
+					box: { kind: "unstated" },
+					oracle: { kind: "unstated" },
 					suite: "unit/allen/table-exact-cost",
 					generator: int(1, fullAllenMask),
 					literal: Formatter.format,
@@ -311,6 +315,8 @@ describe("the verification universe", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/allen/universe",
 						generator: items,
 						literal: Formatter.format,
@@ -362,6 +368,8 @@ describe("the verification universe", () => {
 			ctx,
 			exhaust(
 				{
+					box: { kind: "unstated" },
+					oracle: { kind: "unstated" },
 					suite: "unit/allen/universe-converse",
 					generator: typedPairs,
 					literal: Formatter.format,
@@ -404,6 +412,8 @@ describe("the exhaustive check against the brute-force classifier", () => {
 			ctx,
 			exhaust(
 				{
+					box: { kind: "unstated" },
+					oracle: { kind: "unstated" },
 					suite: "unit/allen/atom-sets",
 					generator: typedPairs,
 					literal: Formatter.format,
@@ -439,6 +449,8 @@ describe("the exhaustive check against the brute-force classifier", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/allen/table-universe",
 						generator: (source) =>
 							[source.draw(element(rangeTypes)), source.draw(int(0, fullAllenMask))] as const,

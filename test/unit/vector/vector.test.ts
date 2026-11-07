@@ -135,6 +135,7 @@ describe("the cosine domain", () => {
 					ctx,
 					explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "unit/vector/cosine-domain",
 							draw: sketched(bufferGen, (b) => b),
 							literal: Formatter.format,

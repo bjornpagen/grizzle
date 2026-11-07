@@ -323,6 +323,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 					ctx,
 					explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "schedules/spans/candidate-key-race",
 							draw: drawn(raceGen),
 							literal: Formatter.format,

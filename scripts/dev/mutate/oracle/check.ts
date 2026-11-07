@@ -51,6 +51,7 @@ export const firstFailure = <T, F extends string, E, R>({
 	const none: Coverage<F> = noCoverage
 	return explore(
 		{
+			oracle: { kind: "unstated" },
 			suite,
 			draw: drawn(generator),
 			literal: Formatter.format,

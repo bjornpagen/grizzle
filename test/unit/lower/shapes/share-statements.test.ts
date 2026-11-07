@@ -128,6 +128,8 @@ describe("sub-queries carried across a stratum's statements", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/lower/shapes/share-statements/carried",
 						literal: Formatter.format,
 						generator: int(1, 4),
@@ -162,6 +164,8 @@ describe("sub-queries repeated inside one statement", () => {
 			ctx,
 			exhaust(
 				{
+					box: { kind: "unstated" },
+					oracle: { kind: "unstated" },
 					suite: "unit/lower/shapes/share-statements/ctes",
 					literal: Formatter.format,
 					generator: int(1, 4),
@@ -252,6 +256,8 @@ describe("attachment statements fed from an earlier one", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/lower/shapes/share-statements/feeds",
 						literal: Formatter.format,
 						/** One to three attachments, each of one of the three filters. */

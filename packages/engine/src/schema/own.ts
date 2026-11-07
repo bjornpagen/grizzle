@@ -60,7 +60,7 @@ import {
 } from "#compiler/ir/desc.ts"
 import type { OwnedSchema } from "#compiler/ir/products.ts"
 import type { DeclaredKey } from "#compiler/ir/rel.ts"
-import type { Roster } from "#compiler/ir/scalar.ts"
+import { Roster } from "#compiler/ir/scalar.ts"
 import { isNaturalDesc } from "#compiler/scalar/natural.ts"
 import { type WritableEntry, writableEntry } from "#compiler/schema/entry.ts"
 import { keyLayout } from "#compiler/schema/representability.ts"
@@ -275,7 +275,7 @@ export const ownedIdentities = (owned: Owned): ReadonlyArray<Identity<IdentityKi
  */
 export const rostersOf = (owned: Owned): ReadonlyArray<Roster> =>
 	Object.values(owned.relations).flatMap((r) =>
-		r.kind === "closed" ? [{ closed: r.name, handles: r.desc.handles }] : []
+		r.kind === "closed" ? [new Roster(r.name, r.desc.handles)] : []
 	)
 
 /**
@@ -1448,13 +1448,6 @@ class Owner {
 				"field",
 				labeledChildLoc(entry.desc.loc, declared, `field ${name}.${declared}`)
 			)
-			if (decl.type.kind === "pg" && decl.type.type === "date") {
-				fail(
-					"UnsupportedOperation",
-					labeledChildLoc(entry.desc.loc, declared, `field ${name}.${declared}`),
-					"a date field is `date`, the builtin contract over PostgreSQL's date, whose domain holds only the days a CalendarDate spells; PostgreSQL's date bare holds infinities and years past 9999"
-				)
-			}
 			const named = identity.column(field)
 			const sequence = decl.writing.kind === "serial" ? identity.sequence(name, field) : undefined
 			fields[field] = {

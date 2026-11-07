@@ -15,6 +15,7 @@ import {
 	type WriteFrontend,
 	type WrittenRelation
 } from "#compiler/write/frontend/compile.ts"
+import type { FamilyAt } from "#compiler/write/frontend/schedule.ts"
 import { payloadOf, serialOutsideKey } from "#compiler/write/frontend/targets.ts"
 import { existingKeysProof, type MergeScope, mergeScopeProof } from "#compiler/write/put/proof.ts"
 
@@ -89,6 +90,8 @@ export type ChosenAction =
 export interface ChosenStratum {
 	readonly actions: ReadonlyArray<ChosenAction>
 	readonly outside: ReadonlyArray<OutsideWrite>
+	/** Where each of the stratum's family statements runs among its actions (frontend/schedule.ts FamilyAt). */
+	readonly family: ReadonlyArray<FamilyAt>
 }
 
 export interface ChosenTargets {
@@ -202,6 +205,7 @@ export const choosePutTargets = (frontend: WriteFrontend): ChosenTargets => {
 	const strata = ir.strata.map((stratum, s): ChosenStratum =>
 		Object.freeze({
 			outside: stratum.outside,
+			family: stratum.family,
 			actions: Object.freeze(
 				stratum.actions.map((action, a): ChosenAction => {
 					if (action.op !== "put") {
@@ -325,7 +329,8 @@ export const chosenIn = (chosen: ChosenTargets, at: Counterpart): ChosenTargets 
 						})
 					)
 				),
-				outside: Object.freeze(stratum.outside.map((write) => outsideIn(write, at)))
+				outside: Object.freeze(stratum.outside.map((write) => outsideIn(write, at))),
+				family: stratum.family
 			})
 		)
 	),

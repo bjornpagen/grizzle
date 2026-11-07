@@ -56,6 +56,7 @@ layer(Substrate.layer)("money agreement with PostgreSQL", (it) => {
 				const db = yield* monetarySession
 				return yield* explore(
 					{
+						oracle: { kind: "unstated" },
 						...spec,
 						suite: "pg/values/money/round-trip",
 						draw: drawn(batchOf(units, 5000)),
@@ -117,6 +118,7 @@ layer(Substrate.layer)("money agreement with PostgreSQL", (it) => {
 				])
 				return yield* explore(
 					{
+						oracle: { kind: "unstated" },
 						...spec,
 						suite: "pg/values/money/rounding",
 						draw: drawn(batchOf(value, 4000)),
@@ -165,6 +167,7 @@ layer(Substrate.layer)("money agreement with PostgreSQL", (it) => {
 				const source = "jsonb_to_recordset($1::text::jsonb) AS c(ord int4, v text)"
 				return yield* explore(
 					{
+						oracle: { kind: "unstated" },
 						...spec,
 						suite: "pg/values/money/order",
 						draw: drawn(batchOf(bigint(-50n, 50n), 500)),

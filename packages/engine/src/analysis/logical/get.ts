@@ -17,9 +17,9 @@ export const requireGet = (
 	root: RelNode,
 	loc: SourceLoc
 ): Result.Result<KeyProof, CompileError> => {
-	for (const k of root.meta.logicalKeys) {
-		if (k.kind === "proved" && k.proof.key.length === 0) {
-			return Result.ok(k.proof)
+	for (const proof of root.meta.logicalKeys) {
+		if (proof.key.length === 0) {
+			return Result.ok(proof)
 		}
 	}
 	return Result.err(

@@ -16,7 +16,7 @@ import { Array as Arr, Effect, Formatter, Order, Result } from "effect"
 import { parseDeclaredName } from "#compiler/core/identity.ts"
 import { ExprId } from "#compiler/core/ids.ts"
 import { builtExpr, OpId, type ScalarExpr } from "#compiler/ir/expr.ts"
-import type { Roster, ScalarType } from "#compiler/ir/scalar.ts"
+import { Roster, type ScalarType } from "#compiler/ir/scalar.ts"
 import { nativeOp } from "#compiler/scalar/compute/registry.ts"
 import { capabilitiesOf } from "#compiler/scalar/registry.ts"
 import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
@@ -48,10 +48,10 @@ const pairs: Gen<Pair> = (s) => ({
 
 type Situation = "an empty set" | "a strict subset" | "disjoint sets" | "overlapping sets"
 
-const roster: Roster = {
-	closed: succeeded(parseDeclaredName("Kind")),
-	handles: nonEmpty(Arr.makeBy(size, handleOf))
-}
+const roster = new Roster(
+	succeeded(parseDeclaredName("Kind")),
+	nonEmpty(Arr.makeBy(size, handleOf))
+)
 const set: ScalarType = { carrier: "bits", caps: capabilitiesOf("bits"), roster }
 const plain = (carrier: "bool" | "int8"): ScalarType => ({
 	carrier,

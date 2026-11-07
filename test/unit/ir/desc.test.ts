@@ -899,6 +899,7 @@ describe("Descriptions", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/ir/desc-combinator-order",
 						literal: Formatter.format,
 						draw: drawn(
@@ -1540,6 +1541,8 @@ describe("Descriptions", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/ir/desc-nesting",
 						literal: Formatter.format,
 						generator: oneOf<Nesting>([
@@ -1776,6 +1779,7 @@ describe("Descriptions", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/ir/desc-tagged-literals",
 						literal: Formatter.format,
 						draw: drawn(
@@ -1826,6 +1830,7 @@ describe("Descriptions", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/ir/desc-19",
 					literal: Formatter.format,
 					draw: drawn(exprsGen),
@@ -1901,6 +1906,7 @@ describe("Descriptions", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/ir/desc-empty-connective",
 						literal: Formatter.format,
 						draw: drawn(emptiedGen),

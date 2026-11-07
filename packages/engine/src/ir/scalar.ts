@@ -1,6 +1,11 @@
 import { sameOrder } from "#compiler/core/array.ts"
 import { nominal } from "#compiler/core/brand.ts"
-import { everyProperty } from "#compiler/core/canonical.ts"
+import {
+	type Canonicalizable,
+	canonicalTag,
+	everyProperty,
+	type TaggedValue
+} from "#compiler/core/canonical.ts"
 import { ownedDigest } from "#compiler/core/fingerprint.ts"
 import type { DeclaredName } from "#compiler/core/identity.ts"
 import { derived, type Limit, postgresSource, published } from "#compiler/core/limits.ts"
@@ -426,10 +431,24 @@ export type TextInfo =
  * codes' order and so comparison order. The name is the roster's whole link to its domain and codes: the naming door
  * mints the roster's domain from it (core/identity.ts identity.rosterDomain), and the installation's codebook holds its
  * codes (ir/codes.ts), which no type holds, since they depend on the codes the installation held before.
+ *
+ * Its canonical form is its name alone (core/canonical.ts Canonicalizable): one schema holds one roster of a name, whose
+ * handles its closed relation's description encodes once, so a type, a literal or a predicate over the roster names it
+ * by identity, its encoding the same size whatever the roster's.
  */
-export interface Roster {
+export class Roster implements Canonicalizable {
 	readonly closed: DeclaredName
 	readonly handles: NonEmptyReadonlyArray<string>
+
+	constructor(closed: DeclaredName, handles: NonEmptyReadonlyArray<string>) {
+		this.closed = closed
+		this.handles = Object.isFrozen(handles) ? handles : Object.freeze(handles)
+		Object.freeze(this)
+	}
+
+	[canonicalTag](): TaggedValue {
+		return { tag: "roster", payload: this.closed }
+	}
 }
 
 /** The integer carriers, a serial field's among them. */

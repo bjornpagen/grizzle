@@ -125,6 +125,8 @@ const interruptedStatement = Effect.gen(function* () {
 	const login = yield* substrateLogin(schema, "server", roleDefaults)
 	return yield* exhaust(
 		{
+			box: { kind: "unstated" },
+			oracle: { kind: "unstated" },
 			suite: "pg/adapter/pool/interrupted",
 			generator: interruptedCases,
 			literal: Formatter.format,
@@ -331,6 +333,7 @@ export const poolSuite = (): void => {
 						const reader = yield* substrateLogin(schema, "server", roleDefaults)
 						return yield* explore(
 							{
+								oracle: { kind: "unstated" },
 								suite: `pg/adapter/pool/retired`,
 								draw: drawn(sequenceGen),
 								literal: Formatter.format,

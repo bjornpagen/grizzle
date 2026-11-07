@@ -41,6 +41,7 @@ describe("base64url (RFC 4648 section 5)", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/cursor/primitives-16",
 					draw: drawn(bytes({ min: 0, max: 300 })),
 					literal: Formatter.format,
@@ -68,6 +69,7 @@ describe("base64url (RFC 4648 section 5)", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/cursor/primitives-17",
 					draw: drawn(
 						string(
@@ -122,6 +124,7 @@ describe("varints (unsigned LEB128, minimal form)", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/cursor/primitives-18",
 					draw: drawn(int(0, varintMax)),
 					literal: Formatter.format,
@@ -192,6 +195,8 @@ describe("varints (unsigned LEB128, minimal form)", () => {
 					ctx,
 					exhaust(
 						{
+							box: { kind: "unstated" },
+							oracle: { kind: "unstated" },
 							suite: "unit/cursor/varint-short",
 							generator: short,
 							literal: Formatter.format,
@@ -206,6 +211,7 @@ describe("varints (unsigned LEB128, minimal form)", () => {
 					ctx,
 					explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "unit/cursor/varint-long",
 							draw: drawn(
 								array(oneOf([int(0, 255), element([0x80, 0xff, 0x00, 0x7f])]), { min: 3, max: 6 })
@@ -230,6 +236,7 @@ describe("varints (unsigned LEB128, minimal form)", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/cursor/varint-write",
 					draw: drawn(int(0, varintMax)),
 					literal: Formatter.format,
@@ -261,6 +268,7 @@ describe("varints (unsigned LEB128, minimal form)", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/cursor/varint-field",
 						draw: drawn(
 							(source) =>
@@ -321,6 +329,7 @@ describe("strict UTF-8 (Unicode scalars, beyond the BMP included)", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/cursor/primitives-19",
 					draw: drawn(wellFormed),
 					literal: Formatter.format,
@@ -350,6 +359,7 @@ describe("strict UTF-8 (Unicode scalars, beyond the BMP included)", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/cursor/primitives-20",
 						/**
 						 * Overlong forms, surrogate code points, values above U+10FFFF and truncations are planted beside the

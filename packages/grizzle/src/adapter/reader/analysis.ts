@@ -1,28 +1,15 @@
 import { Array as Arr } from "effect"
-import { parentUse } from "#compiler/check/scan.ts"
-import type { NodeId } from "#compiler/core/ids.ts"
-import { defect } from "#compiler/core/invariant.ts"
-import { topoOrder } from "#compiler/ir/dag.ts"
-import type { AttachDesc, QueryDesc, QueryStageDesc } from "#compiler/ir/desc.ts"
-import type { NodeOf, RelDag } from "#compiler/ir/rel.ts"
-import type { QueryTemplate } from "#compiler/program/compile.ts"
-
-type Delivered = "array" | "option" | "one"
+import type { AttachDesc, QueryDesc, QueryStageDesc } from "#compiler/plan/common.ts"
+import { type NodeOf, parentUse } from "#compiler/plan/read.ts"
 
 /**
- * What a read needs from the logical analysis of its query.
+ * Where a read's statements are on its delivered spine, which its Description states.
  *
- * A compiled template carries its checked query, whose metadata is the checker's conservative claim: card many and
- * every attachment delivered as an array ("Delivered types start at ReadonlyArray; analysis/logical narrows them by
- * evidence", check/checker.ts). The read delivers what the evidence proves, as TypeScript types it (Attached<Child,
- * Ev>), so it reads the template's analyzed DAG (QueryTemplate.analyzed): the checked query annotated once, at compile,
- * under the schema's laws and the context the read runs in, exactly as analysis/logical does for every other consumer:
- *
- * - the root's normative cardinality, which get requires to be atMostOne or one (eligibility.ts);
- * - each attachment's delivered type: ReadonlyArray without evidence, Option when the child's bindings on the parent's
- *   variables cover a key of the child relation, the child is take(1), or it is an aggregate whose group the parent
- *   fixes, and the bare child when a containment proves exactly one; and its correlation, the child
- *   columns equated with parent columns.
+ * Each attachment's delivered type is the one the template's analysis judged under the context the read runs in, which
+ * every Attach node of a lowered program carries (rel.ts Attach judged), as TypeScript types it (Attached<Child, Ev>):
+ * ReadonlyArray without evidence, Option when the child's bindings on the parent's variables cover a key of the child
+ * relation, the child is take(1), or it is an aggregate whose group the parent fixes, and the bare child when a
+ * containment proves exactly one. Its correlation is the child columns equated with parent columns.
  *
  * An attachment delivers its child query's head: the checker adds a correlation column to the
  * child for each parent variable the child reads, delivered under a head key when one delivers that variable and under
@@ -102,63 +89,15 @@ export const attachmentHeads = (desc: QueryDesc): AttachmentScope => {
 	return root
 }
 
-export interface AttachmentFacts {
-	/**
-	 * The delivered type of an attachment, by the label of its Attach node: total over the attachments of the analyzed
-	 * DAG (QueryTemplate.analyzed, a write's analyzed DAG); a label it does not hold is a defect.
-	 */
-	readonly delivered: (attach: NodeId, name: string) => Delivered
-	/** The delivered spine's root, where a program's delivered statements are. */
-	readonly root: AttachmentScope
-	/**
-	 * The child columns of an attachment that its delivered child carries: every child column but the correlation
-	 * columns no head key delivers. `scope` is where the attachment `name` is on the delivered spine, none off it.
-	 */
-	readonly carried: (
-		attach: NodeId,
-		scope: AttachmentScope | undefined,
-		name: string,
-		column: string
-	) => boolean
-}
-
 /**
- * The attachment facts over an analyzed DAG and a Description's delivered spine. A lowered program names its
- * attachments by label, and the analyzed DAG is another form of the query, so each is read through the analyzed DAG's
- * Attach nodes by label, gathered by one walk when the facts are built.
+ * Whether an attachment's delivered child carries the child column `column`: every child column but the correlation
+ * columns no head key delivers. `scope` is where the attachment is on the delivered spine (attachmentHeads), none off
+ * it. The attachment is the lowered program's own Attach node, whose correlation is the checker's.
  */
-export const analyzedAttachmentFacts = (
-	analyzed: RelDag,
-	spine: AttachmentScope
-): AttachmentFacts => {
-	const attaches = new Map<NodeId, NodeOf<"Attach">>()
-	for (const node of topoOrder(analyzed)) {
-		if (node.kind === "Attach") {
-			attaches.set(node.id, node)
-		}
-	}
-	/**
-	 * The one site of the fact that every attachment a lowered program names is an Attach node of the analyzed DAG
-	 * under its label: the lowering names it by id and label, runtime values no TypeScript type ties to the DAG's nodes,
-	 * so a miss is a defect of the compiler.
-	 */
-	const attachNode = (id: NodeId, name: string): NodeOf<"Attach"> => {
-		const n = attaches.get(id)
-		if (n === undefined || n.name !== name) {
-			throw defect(`the attachment ${name} at ${id} of the analyzed DAG`)
-		}
-		return n
-	}
-	return {
-		delivered: (id, name) => attachNode(id, name).delivered,
-		root: spine,
-		carried: (id, scope, name, column) =>
-			!Arr.some(attachNode(id, name).correlation, (c) => c.child === column) ||
-			scope?.under.get(name)?.heads.has(column) === true
-	}
-}
-
-/** The attachment facts of a template's query, over its analyzed DAG and its Description's head keys: built once by the
- * compiled read or page template that holds them. */
-export const attachmentFacts = (template: QueryTemplate, desc: QueryDesc): AttachmentFacts =>
-	analyzedAttachmentFacts(template.analyzed, attachmentHeads(desc))
+export const carried = (
+	attach: NodeOf<"Attach">,
+	scope: AttachmentScope | undefined,
+	column: string
+): boolean =>
+	!Arr.some(attach.correlation, (c) => c.child === column) ||
+	scope?.under.get(attach.name)?.heads.has(column) === true

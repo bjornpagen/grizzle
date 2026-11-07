@@ -4,7 +4,7 @@ import { noCoverage } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, pipe, Result, String as Str } from "effect"
-import { attachmentFacts } from "#adapter/reader/analysis.ts"
+import { attachmentHeads } from "#adapter/reader/analysis.ts"
 import { formFor } from "#adapter/reader/execution.ts"
 import { executionInputs, paramCodecs } from "#adapter/reader/relations.ts"
 import { readExceeds, templateProgram } from "#adapter/reader/run.ts"
@@ -63,6 +63,8 @@ describe("a read's per-execution choice", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/page/choice-input",
 						generator: (source) =>
 							[
@@ -82,7 +84,7 @@ describe("a read's per-execution choice", () => {
 							const program = templateProgram(
 								template,
 								"optimized",
-								attachmentFacts(template, desc),
+								attachmentHeads(desc),
 								emptyCodebook
 							)
 							const facts = accounts(count)

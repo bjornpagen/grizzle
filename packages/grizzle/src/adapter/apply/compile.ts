@@ -7,14 +7,23 @@ import { MissingCapability } from "#adapter/errors/failures.ts"
 import { type ParamCodecs, paramCodecs } from "#adapter/reader/relations.ts"
 import { type StatementNaming, unnamedNaming } from "#adapter/wire/naming.ts"
 import type { ViolationClassifier } from "#adapter/witness/classify.ts"
-import type { BindContext } from "#compiler/core/decoder.ts"
-import { type CompileError, malformedDescription, unsupported } from "#compiler/core/errors.ts"
-import type { SchemaFingerprint } from "#compiler/core/ids.ts"
-import { SourceLoc } from "#compiler/core/loc.ts"
-import { levelSchema, parseSchemaInput } from "#compiler/program/schema.ts"
-import { type ParsedChangeSet, parseChangeSet } from "#compiler/write/changeset/value.ts"
-import type { WriteNames } from "#compiler/write/insert/statement.ts"
-import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
+import {
+	type CompiledWrite,
+	compileWrite,
+	parseChangeSet,
+	type ParsedChangeSet,
+	type WriteNames
+} from "#compiler/plan/change.ts"
+import {
+	type BindContext,
+	type CompileError,
+	levelSchema,
+	malformedDescription,
+	parseSchemaInput,
+	type SchemaFingerprint,
+	SourceLoc,
+	unsupported
+} from "#compiler/plan/common.ts"
 
 /**
  * Compiling a ChangeSet for a role.

@@ -234,6 +234,8 @@ describe("late payload fetch", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/lower/rewrite/late-fetch-proof",
 						literal: Formatter.format,
 						generator: shapes,
@@ -292,6 +294,7 @@ describe("late payload fetch", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/lower/rewrite/late-fetch-correlated",
 					draw: drawn(wideCaseGen),
 					literal: Formatter.format,

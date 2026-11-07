@@ -89,6 +89,7 @@ export const directSuite = <P>(family: Family<P>, cases: number, planted: Plante
 					)
 					return yield* explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: `laws/direct/${Str.replaceAll(regex("[^a-z0-9]+", "g"), "-")(family.label)}/${mode}`,
 							draw: drawn(directCaseGen(variants.length)),
 							literal: Formatter.format,

@@ -3,9 +3,9 @@ import { Array as Arr, Option } from "effect"
 import { makeIdSupply, type NodeId } from "#compiler/core/ids.ts"
 import { DagBuilder } from "#compiler/ir/builder.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
-import { rewriteClaim } from "#compiler/ir/keys.ts"
 import { conservativeMeta, type Heading, type MetaSpec, type VarDecl } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
+import { statedKey } from "#test/support/fixtures/ir/build.ts"
 import { validateDag } from "#test/support/oracle/dag-validate.ts"
 import type { QueryCase } from "#test/support/oracle/gen/case.ts"
 import { bool, compareParamType, int4, scalarOfSpec } from "#test/support/oracle/gen/domain.ts"
@@ -131,7 +131,7 @@ const wideSketchGen: Gen<WideSketch> = (source) => ({
 
 const keyed = (key: ReadonlyArray<string>): MetaSpec => ({
 	...conservativeMeta,
-	logicalKeys: [rewriteClaim(key, [])]
+	logicalKeys: [statedKey(key)]
 })
 
 const resolveWide = (s: WideSketch): QueryCase => {

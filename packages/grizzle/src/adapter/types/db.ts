@@ -1,56 +1,69 @@
 import type { Array as Arr, Effect, Option, Scope } from "effect"
 import type { ApplyError, OpenError, ReadError } from "#adapter/errors/execution.ts"
 import type { DbLayerService } from "#adapter/types/layer.ts"
-import type { RowDecoder } from "#compiler/core/decoder.ts"
-import type { CompileError, CursorError } from "#compiler/core/errors.ts"
-import type { Phantom } from "#compiler/core/phantom.ts"
 import type {
 	AnyChangeSet,
 	ChangeSet,
 	Law,
+	PlannedStrata,
 	Witness,
 	WritesOf
-} from "#compiler/types/changeset/changeset.ts"
-
+} from "#compiler/plan/change.ts"
 import type {
+	AnyClosed,
+	AnyRelation,
+	AnyRole,
+	CandidateKey,
 	Carriers,
+	CompileError,
+	CursorError,
+	Evidence,
 	Invariant,
+	KeyValues,
+	LevelsOf,
+	LoginRole,
+	OnlyParams,
 	ParamArg,
 	ParamValue,
-	Refusal
-} from "#compiler/types/core/phantom.ts"
-import type { Evidence } from "#compiler/types/evidence/evidence.ts"
-import type { Page, PageRequest } from "#compiler/types/page/page.ts"
+	Phantom,
+	ReadsContext,
+	RefreshListOf,
+	Refusal,
+	RowDecoder,
+	WithinRoleContexts,
+	WriteListOf
+} from "#compiler/plan/common.ts"
 import type {
 	ContextsOf,
 	EvidenceOfQuery,
 	Ordered,
 	OrderedBase,
+	Page,
 	PageOf,
+	PageRequest,
 	ParamsOf,
 	Query,
 	QueryBase,
 	UnionArms
-} from "#compiler/types/query/query.ts"
-import type { AnyClosed, AnyRelation } from "#compiler/types/schema/relation.ts"
-import type { LevelsOf } from "#compiler/types/schema/schema.ts"
-import type { CandidateKey, KeyValues } from "#compiler/types/schema/statements.ts"
-import type {
-	AnyRole,
-	LoginRole,
-	ReadsContext,
-	RefreshListOf,
-	WithinRoleContexts,
-	WriteListOf
-} from "#compiler/types/schema/world.ts"
+} from "#compiler/plan/read.ts"
 
 /**
- * Db.open's options for role R: `token` is what the layer's verify turns into the payload the role's contexts are
- * decoded from, once per Db, required exactly when the role's relations read a context. A Db opened without one has no
- * context facts. The snapshot is the layer's (DbConfig), since an application has exactly one.
+ * Db.open's options with a token: what the layer's verify turns into the payload the role's contexts are decoded from,
+ * once per Db.
+ */
+export interface TokenOptions {
+	readonly token: string
+}
+
+/** Db.open's options without a token, `{}`: a Db opened so has no context facts. It holds no key, so none is left out. */
+export type NoTokenOptions = Readonly<Record<string, never>>
+
+/**
+ * Db.open's options for role R: with a token, or, exactly when the role's relations read no context, without one. The
+ * snapshot is the layer's (DbConfig), since an application has exactly one.
  */
 export type OpenOptions<R> =
-	ReadsContext<R> extends true ? { readonly token: string } : { readonly token?: string }
+	ReadsContext<R> extends true ? TokenOptions : TokenOptions | NoTokenOptions
 
 /**
  * Db.open; packages/grizzle/src/adapter/db/open.ts implements it. It admits the database before it yields.
@@ -96,9 +109,13 @@ export interface DbOf<R, P> extends QueryReader<R> {
 	 */
 	readonly workload: WorkloadHandles<R, P>
 	/** Only ChangeSets whose writes lie within R's write list typecheck. */
-	apply<L extends LevelsOf<R>, P, W extends string, Reads, Cx extends string>(
-		changes: ChangeSet<L, P, W, Reads, Cx> & WithinWriteList<R, W> & WithinRoleContexts<R, Cx>,
-		params: NoInfer<ParamArg<P>>
+	apply<L extends LevelsOf<R>, P, W extends string, Reads, Cx extends string, C, const Arg>(
+		changes: C &
+			ChangeSet<L, P, W, Reads, Cx> &
+			WithinWriteList<R, W> &
+			WithinRoleContexts<R, Cx> &
+			PlannedStrata<C>,
+		params: NoInfer<ParamArg<P>> & Arg & NoInfer<OnlyParams<Arg, P>>
 	): Effect.Effect<ApplyOutcome<Reads>, ApplyError>
 	/**
 	 * A query, ordered query or ChangeSet compiled once, run with each call's parameters through its handle: its
@@ -125,15 +142,19 @@ export interface DbOf<R, P> extends QueryReader<R> {
 		W extends string,
 		Reads,
 		Cx extends string,
-		Arms extends UnionArms
+		Arms extends UnionArms,
+		C,
+		const Arg
 	>(
-		program: (
-			| Query<L, Head, Ev, P, IHead, Hc, Cx, Arms>
-			| Ordered<L, Head, Ev, P, IHead, Hc, Cx, Arms>
-			| ChangeSet<L, P, W, Reads, Cx>
-		) &
-			WithinRoleContexts<R, Cx>,
-		params: NoInfer<ParamArg<P>>
+		program: C &
+			(
+				| Query<L, Head, Ev, P, IHead, Hc, Cx, Arms>
+				| Ordered<L, Head, Ev, P, IHead, Hc, Cx, Arms>
+				| ChangeSet<L, P, W, Reads, Cx>
+			) &
+			WithinRoleContexts<R, Cx> &
+			PlannedStrata<C>,
+		params: NoInfer<ParamArg<P>> & Arg & NoInfer<OnlyParams<Arg, P>>
 	): Effect.Effect<ReadonlyArray<Plan>, ReadError>
 }
 
@@ -196,9 +217,9 @@ export interface QueryReader<S> {
 	 * Any query proved at most one row per parameter binding, with its parameters; or a keyed lookup, with the key's
 	 * values. The row is the target's decoder's: the query's heading, or the keyed relation's fact.
 	 */
-	get<X extends QueryBase | KeyTarget, A>(
+	get<X extends QueryBase | KeyTarget, A, const Arg>(
 		target: GetTarget<S, X, A>,
-		params: NoInfer<GetArg<X>>
+		params: NoInfer<GetArg<X>> & Arg & NoInfer<OnlyArg<Arg, X>>
 	): Effect.Effect<Option.Option<A>, ReadError>
 	execute<
 		L extends LevelsOf<S>,
@@ -208,22 +229,23 @@ export interface QueryReader<S> {
 		IHead,
 		Hc extends Carriers,
 		Cx extends string,
-		Arms extends UnionArms
+		Arms extends UnionArms,
+		const Arg
 	>(
 		query: (
 			| Query<L, Head, Ev, P, IHead, Hc, Cx, Arms>
 			| Ordered<L, Head, Ev, P, IHead, Hc, Cx, Arms>
 		) &
 			WithinRoleContexts<S, Cx>,
-		params: NoInfer<ParamArg<P>>
+		params: NoInfer<ParamArg<P>> & Arg & NoInfer<OnlyParams<Arg, P>>
 	): Effect.Effect<QueryResult<Head>, ReadError>
 	/**
 	 * A page of an ordered query Q over a level of S, with its parameters: its records are Q's, and its cursors are
 	 * Q's own, typed by the very query passed in.
 	 */
-	page<Q, A>(
+	page<Q, A, const Arg>(
 		query: PageTarget<S, Q, A>,
-		params: NoInfer<ParamArg<ParamsOf<Q>>>,
+		params: NoInfer<ParamArg<ParamsOf<Q>>> & Arg & NoInfer<OnlyParams<Arg, ParamsOf<Q>>>,
 		request: PageRequest
 	): Effect.Effect<Page<A, Q>, ReadError | CursorError>
 }
@@ -254,7 +276,8 @@ export type CompileTarget<S, X, A> = X &
 	ProgramDecoding<A> &
 	AtLevelOf<S, X> &
 	WithinRoleContexts<S, ProgramContexts<X>> &
-	CompiledWrites<S, X>
+	CompiledWrites<S, X> &
+	PlannedStrata<X>
 
 /**
  * The operations a compiled program allows: a query or ordered query reads, a ChangeSet applies, and a workload's key
@@ -282,6 +305,12 @@ type GetOp<X> = X extends AnyChangeSet
 type CompiledArg<X> = X extends KeyTarget ? GetArg<X> : ParamArg<ParamsOf<X>>
 
 /**
+ * An argument Arg of program X names only X's parameters (OnlyParams), a variable of a wider type as well as a literal;
+ * a key's values are read off by the key's fields, so a whole fact may hold them.
+ */
+type OnlyArg<Arg, X> = X extends KeyTarget ? unknown : OnlyParams<Arg, ParamsOf<X>>
+
+/**
  * A program compiled once, by db.compile or at startup as a workload program (`db.workload`), run with each call's
  * parameters, over records A (its rows, its read-backs, or a key's relation's facts). Exactly the operations its
  * program allows typecheck: execute for a query or ordered query, get for one proved at most one row per parameter
@@ -289,13 +318,19 @@ type CompiledArg<X> = X extends KeyTarget ? GetArg<X> : ParamArg<ParamsOf<X>>
  * query X.
  */
 export interface Compiled<S, X, A> extends Phantom<{ readonly schema: Invariant<S> }> {
-	execute(params: NoInfer<CompiledArg<X>> & ReadOp<X>): Effect.Effect<QueryResult<A>, ReadError>
-	get(params: NoInfer<CompiledArg<X>> & GetOp<X>): Effect.Effect<Option.Option<A>, ReadError>
-	page(
-		params: NoInfer<CompiledArg<X>> & PageOp<X>,
+	execute<const Arg>(
+		params: NoInfer<CompiledArg<X>> & ReadOp<X> & Arg & NoInfer<OnlyArg<Arg, X>>
+	): Effect.Effect<QueryResult<A>, ReadError>
+	get<const Arg>(
+		params: NoInfer<CompiledArg<X>> & GetOp<X> & Arg & NoInfer<OnlyArg<Arg, X>>
+	): Effect.Effect<Option.Option<A>, ReadError>
+	page<const Arg>(
+		params: NoInfer<CompiledArg<X>> & PageOp<X> & Arg & NoInfer<OnlyArg<Arg, X>>,
 		request: PageRequest
 	): Effect.Effect<Page<A, X>, ReadError | CursorError>
-	apply(params: NoInfer<CompiledArg<X>> & ApplyOp<X>): Effect.Effect<ApplyOutcome<A>, ApplyError>
+	apply<const Arg>(
+		params: NoInfer<CompiledArg<X>> & ApplyOp<X> & Arg & NoInfer<OnlyArg<Arg, X>>
+	): Effect.Effect<ApplyOutcome<A>, ApplyError>
 }
 
 /** The records a program's handle delivers: a query's rows, a ChangeSet's read-backs, a key's relation's facts. */

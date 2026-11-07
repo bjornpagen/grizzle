@@ -336,6 +336,8 @@ export const connectionSuite = (): void => {
 						const writer = yield* substrateLogin(schema, "server", roleDefaults)
 						return yield* exhaust(
 							{
+								box: { kind: "unstated" },
+								oracle: { kind: "unstated" },
 								suite: "adapter/tls",
 								generator: tlsConfigs,
 								literal: Formatter.format,

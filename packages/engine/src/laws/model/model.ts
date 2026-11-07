@@ -467,28 +467,43 @@ interface DeferralQuery {
 	readonly targetFields: ReadonlyArray<LawField>
 }
 
+/**
+ * The schema-wide deferral (`Recognizer.#deferral`): whether a foreign key lies on a cycle of the foreign keys that order
+ * a write's statements, and whether the rule defers a foreign key it decides, on such a cycle or into a replaceable
+ * target.
+ */
+interface Deferral {
+	readonly onCycle: (from: string, to: string) => boolean
+	readonly rule: (fk: DeferralQuery) => boolean
+}
+
 /** Whether a planned foreign key is installed deferrable: as its plan states, or as the schema-wide rule decides it. */
 const deferrable = (
 	n: Extract<NativePlan, { readonly kind: "ForeignKey" }>,
-	deferred: (fk: DeferralQuery) => boolean
-): boolean =>
-	n.deferral === "rule"
-		? deferred({
+	deferral: Deferral
+): boolean => {
+	switch (n.deferral) {
+		case "rule":
+			return deferral.rule({
 				relation: n.relation,
 				target: n.target,
 				targetFields: n.targetColumns.flatMap((c) => (c.kind === "field" ? [c.field] : []))
 			})
-		: n.deferral === "deferred"
+		case "cycle":
+			return deferral.onCycle(n.relation.name, n.target.name)
+		case "immediate":
+			return false
+		case "deferred":
+			return true
+	}
+}
 
 /**
  * The laws whose containment evidence holds at every statement: each a plan discharges by an immediate foreign key, a
  * ClosedCheck or a table CHECK of a containment, declared or generated. It reads the plans and the deferral alone, which
  * no evidence context changes, so a theory of any contexts decides it alike.
  */
-const immediateOf = (
-	plans: ReadonlyArray<LawPlan>,
-	deferred: (fk: DeferralQuery) => boolean
-): ReadonlySet<LawId> =>
+const immediateOf = (plans: ReadonlyArray<LawPlan>, deferred: Deferral): ReadonlySet<LawId> =>
 	new Set(
 		plans.flatMap((plan) =>
 			plan.natives.some(
@@ -1076,22 +1091,28 @@ class Specializer {
 	}
 
 	/**
-	 * Which foreign keys the schema-wide rule defers (see `compileLaws`): those on a cycle of the rule's own foreign keys
-	 * and PERIOD foreign keys, or into a replaceable target. A family axis fixes its own deferral and is no edge of the
-	 * cycle graph: a family's members are written only through its planner, which orders them.
+	 * The schema-wide deferral (see `compileLaws`). Its cycle graph holds every foreign key that orders a write's
+	 * statements: the rule's own, the PERIOD ones, and every family axis its family does not fix deferred, an owner axis
+	 * among them, which orders a family's members after their owner. A law's key can close a cycle with an owner axis, so
+	 * no order of the statements would keep both: every key on such a cycle is deferred, the owner axis whose deferral
+	 * is the cycle's among them, and the rule's too, which also defers a key into a replaceable target. The edges depend
+	 * on the plans alone, never on an evidence context.
 	 */
-	#deferral(plans: ReadonlyArray<LawPlan>): (fk: DeferralQuery) => boolean {
+	#deferral(plans: ReadonlyArray<LawPlan>): Deferral {
 		const edges = plans.flatMap((plan) =>
 			plan.natives.flatMap((n): ReadonlyArray<readonly [string, string]> =>
-				(n.kind === "ForeignKey" && n.deferral === "rule") || n.kind === "PeriodForeignKey"
+				(n.kind === "ForeignKey" && n.deferral !== "deferred") || n.kind === "PeriodForeignKey"
 					? [[n.relation.name, n.target.name]]
 					: []
 			)
 		)
 		const onCycle = cycleEdges(edges)
-		return (fk) =>
-			onCycle(fk.relation.name, fk.target.name) ||
-			fk.target.fields.some((c) => !fk.targetFields.includes(c))
+		return {
+			onCycle,
+			rule: (fk) =>
+				onCycle(fk.relation.name, fk.target.name) ||
+				fk.target.fields.some((c) => !fk.targetFields.includes(c))
+		}
 	}
 
 	/**
@@ -1158,7 +1179,7 @@ class Specializer {
 	#materialize(
 		n: PlacedNative,
 		plan: LawPlan,
-		deferred: (fk: DeferralQuery) => boolean,
+		deferred: Deferral,
 		renamed: (e: ScalarExpr) => ScalarExpr
 	): NativeObject {
 		const lawIds: NonEmptyReadonlyArray<LawId> = [plan.law.id]
@@ -1311,7 +1332,7 @@ class Specializer {
 					target: n.target,
 					targetColumns: n.targetColumns.map((c) => this.#column(c)),
 					targetSpan: this.#column(n.targetSpan),
-					deferrable: deferred({
+					deferrable: deferred.rule({
 						relation: n.relation,
 						target: n.target,
 						targetFields: n.targetColumns.flatMap((c) => (c.kind === "field" ? [c.field] : []))
@@ -1551,12 +1572,15 @@ const immediateLaws = (
  *   (identity.lawColumn) and lowered once over its table's row. The generated UNIQUE a reference needs is over exactly
  *   the target's columns, a constant selection's the target's fields then its selector fields. A generated unique
  *   whose column set is a declared key of the target is that key.
- * - Foreign key deferral: a family axis's is its own (the owner axis immediate unless its ON UPDATE CASCADE feeds its target, a tree's from its plain parent with no action and immediate, an
- *   ordered predecessor immediate, a counted predecessor and every last axis deferred). Any other foreign key, a
- *   PERIOD one included, is deferred exactly when a lawful final-state ChangeSet could break it in passing: when its
- *   target can be replaced at the referenced key, because the target has a field it does not reference as a plain
- *   column, so a put or a deletion and an addition at that key deletes the referenced row before inserting its
- *   replacement; or when it lies on a cycle of those foreign keys, where neither side can be inserted first. A PERIOD
+ * - Foreign key deferral: a family axis's is its own (the owner axis deferred where its ON UPDATE CASCADE feeds its
+ *   target, a tree's from its plain parent with no action and immediate, an ordered predecessor immediate, a counted
+ *   predecessor and every last axis deferred), but an owner axis otherwise immediate that lies on a cycle of the
+ *   foreign keys that order a write's statements is deferred, since a law's key closes that cycle with it. Any other
+ *   foreign key, a PERIOD one included, is deferred exactly when a lawful final-state ChangeSet could break it in
+ *   passing: when its target can be replaced at the referenced key, because the target has a field it does not
+ *   reference as a plain column, so a put or a deletion and an addition at that key deletes the referenced row before
+ *   inserting its replacement; or when it lies on a cycle of the foreign keys that order a write's statements, those
+ *   and every family axis its family does not fix deferred, where neither side can be inserted first. A PERIOD
  *   foreign key references its target's span as a period, never as a plain column, so it is always deferred: the
  *   facts covering a referenced span can be replaced by others that still cover it, a span cut or split, and the
  *   target's WITHOUT OVERLAPS key admits the replacements only once the facts they overlap are deleted. Any role

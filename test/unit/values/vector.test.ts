@@ -85,6 +85,7 @@ describe("Vector construction", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/values/vector-construction",
 						draw: drawn((source) => ({
 							buffer: source.draw(element(buffers)),
@@ -173,6 +174,7 @@ describe("Vector admission of a JavaScript caller's value", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/values/vector-wild",
 						draw: drawn(
 							lsw<Float32Array>({
@@ -256,6 +258,7 @@ describe("Vector in the canonical serializer", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/values/vector-payloads",
 					draw: drawn((source) => ({
 						xs: source.draw(array(finiteFloat, { min: 1, max: 4 })),
@@ -309,6 +312,7 @@ describe("Vector in the canonical serializer", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/values/vector-1",
 					draw: drawn(array(finiteFloat, { min: 1, max: 8 })),
 					literal: Formatter.format,

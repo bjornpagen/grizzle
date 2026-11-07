@@ -53,6 +53,7 @@ interface CaptureSketch {
 
 /** The keys of a node no type of it states. */
 const bareKeys = () => ({
+	parentRelationship: Option.none<string>(),
 	operation: Option.none<string>(),
 	joinType: Option.none<string>(),
 	strategy: Option.none<string>(),
@@ -102,6 +103,14 @@ const condition = element([
 	"((a)::text ~~ 'x%'::text)"
 ] as const)
 const relationGen = element(["t", "parent", "child", "edge"] as const)
+const relationshipGen = element([
+	"Outer",
+	"Inner",
+	"Member",
+	"Subquery",
+	"SubPlan",
+	"InitPlan"
+] as const)
 const indexGen = element(["t_pkey", "parent_k", "child_parent", "edge_src"] as const)
 
 const walGen = (captured: boolean): Gen<WalCounters> =>
@@ -121,6 +130,7 @@ const nodeOf =
 	(source) => ({
 		...bareKeys(),
 		nodeType,
+		parentRelationship: source.draw(optional(relationshipGen)),
 		startupCost: source.draw(figure),
 		totalCost: source.draw(figure),
 		planRows: source.draw(small),
@@ -147,7 +157,6 @@ const noiseGen: Gen<Json> = (source) =>
 				"Parallel Aware": source.draw(boolean),
 				"Async Capable": false,
 				Disabled: false,
-				"Parent Relationship": "Outer",
 				"Shared I/O Read Time": 0.0,
 				"Temp I/O Write Time": 0.0,
 				"WAL Buffers Full": 0
@@ -485,6 +494,7 @@ const planOf = (s: Sketch): PlanNode => ({ ...s.fields, children: Arr.map(s.chil
 /** The plan tree without figures a reader of an unanalyzed plan must return for a sketch. */
 export const estimatedOf = (s: Sketch): EstimatedNode => ({
 	nodeType: s.fields.nodeType,
+	parentRelationship: s.fields.parentRelationship,
 	operation: s.fields.operation,
 	joinType: s.fields.joinType,
 	strategy: s.fields.strategy,
@@ -546,6 +556,7 @@ const printedNode = (s: Sketch, edit: NodeEdit): Json => {
 	return edit(s, {
 		...s.noise,
 		"Node Type": f.nodeType,
+		...some("Parent Relationship", f.parentRelationship),
 		...some("Operation", f.operation),
 		...some("Join Type", f.joinType),
 		...some("Strategy", f.strategy),

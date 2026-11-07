@@ -118,7 +118,7 @@ export const printObjectName = (name: ObjectName): string =>
 const inCatalog = (name: string): string => printObjectName({ schema: "pg_catalog", name })
 
 /** A pg_catalog type as it names pg_catalog's type under every search_path (sql/ast.ts catalogSpelling). */
-export const printCatalogType = (name: CatalogTypeName): string => {
+const printCatalogType = (name: CatalogTypeName): string => {
 	switch (catalogSpelling[name]) {
 		case "keyword":
 			return name
@@ -1258,7 +1258,7 @@ const plBlock = (out: Lines, block: PlBlock): void => {
  * The dollar-quote tag for a body's lines: `$$` unless a line holds it, then `$gz$`, `$gz1$`, …. No tag holds a
  * newline, so an occurrence in the joined body lies inside one line.
  */
-export const dollarQuoteTag = (body: ReadonlyArray<string>): string => {
+const dollarQuoteTag = (body: ReadonlyArray<string>): string => {
 	const free = (tag: string): boolean => !body.some((line) => line.includes(tag))
 	if (free("$$")) {
 		return "$$"
@@ -1932,7 +1932,7 @@ const writeDo = (out: Lines, block: DoBlock): void => {
 }
 
 /** A statement of the catalog language (sql/catalog.ts), written into `out`: a read on one line, a DO block nested. */
-export const writeCatalogStatement = (out: Lines, statement: CatalogStatement): void => {
+const writeCatalogStatement = (out: Lines, statement: CatalogStatement): void => {
 	switch (statement.kind) {
 		case "catalogSelect":
 			return out.line(catalogSelectText(statement))

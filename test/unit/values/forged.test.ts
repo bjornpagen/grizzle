@@ -43,6 +43,7 @@ describe("a forged carrier instance", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/values/forged",
 						draw: drawn(forgedCases(carriers)),
 						literal: Formatter.format,

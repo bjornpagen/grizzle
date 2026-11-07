@@ -67,6 +67,7 @@ describe("generated query cases", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/oracle-gen/query-valid",
 						draw: drawn(queryCaseGen(defaultGenConfig)),
 						literal: Formatter.format,
@@ -172,6 +173,7 @@ describe("generated query cases", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/oracle-gen/query-plain",
 						draw: drawn(queryCaseGen(plain)),
 						literal: Formatter.format,
@@ -210,6 +212,7 @@ describe("generated query cases", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/oracle-gen/query-acyclic",
 						draw: drawn(queryCaseGen(acyclic)),
 						literal: Formatter.format,

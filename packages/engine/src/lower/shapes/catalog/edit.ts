@@ -1,7 +1,7 @@
 import { appendAll } from "#compiler/core/array.ts"
 import { Refusal } from "#compiler/core/canonical.ts"
 import { allocatedKinds, ExprId, NodeId, OccurrenceId, ScopeId, VarId } from "#compiler/core/ids.ts"
-import { cellFold, finishCells, topoOrder } from "#compiler/ir/dag.ts"
+import { cellFold, type FinishedCells, finishCells, topoOrder } from "#compiler/ir/dag.ts"
 import { builtExpr, type ExprSpec, exprClosure, type ScalarExpr } from "#compiler/ir/expr.ts"
 import type { Fold } from "#compiler/ir/fold.ts"
 import {
@@ -63,7 +63,9 @@ export interface EditMark {
  * the target's last node, so every consumer and every expression that names its columns stays valid unchanged (a
  * column reference names the node whose heading supplies it). The target's other nodes and expressions are new,
  * under labels no existing one uses. Logical metadata is normative and an equivalence rewrite does not change it, so a
- * redefined cell keeps its own; a new node states what it proves or claims nothing (rel.ts conservativeMeta).
+ * redefined cell keeps its own; a new node claims nothing (rel.ts conservativeMeta): a rewrite reads any node's keys
+ * from a fresh analysis of the cells (context.ts CatalogContext.propsOf), and the pass analyzes the DAG it edited again
+ * once it is done (rewrite.ts), so every node claims what the analysis proves of it.
  *
  * A rewrite is all or nothing: an attempt marks the editor first (mark) and rolls every redefinition and addition since
  * back when its recognizer gives up halfway (undo), through an undo log of each redefined cell's previous body. Fresh
@@ -184,14 +186,19 @@ export class CatalogEditor<R extends Roots = Roots> {
 	}
 
 	/**
-	 * The DAG the cells the roots reach hold now (ir/dag.ts finishCells): every structural field computed. A cycle a
-	 * rewrite made through the cells is that rewrite's refusal.
+	 * The DAG the cells the roots reach hold now, and the node each cell stands as (ir/dag.ts finishCells): every
+	 * structural field computed. A cycle a rewrite made through the cells is that rewrite's refusal.
 	 */
-	build(): ValidDag<R> {
+	finished(): FinishedCells<R> {
 		const done = finishCells(this.base.roots, (root) => this.#cellOf.of(root))
 		if (!done.ok) {
 			throw new Refusal(done.error)
 		}
-		return done.value.dag
+		return done.value
+	}
+
+	/** The DAG the cells the roots reach hold now (finished). */
+	build(): ValidDag<R> {
+		return this.finished().dag
 	}
 }

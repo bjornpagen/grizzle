@@ -171,6 +171,7 @@ describe("refusals with location and reason", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/text/parse-7168364",
 						draw: drawn(array(unit, { min: 0, max: 9 })),
 						literal: Formatter.format,
@@ -199,6 +200,7 @@ describe("refusals with location and reason", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/text/parse-text",
 					draw: drawn((source) => ({
 						before: source.draw(lowercase(8)),
@@ -262,6 +264,7 @@ describe("refusals with location and reason", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/text/regex-flags",
 						draw: drawn(
 							(source) =>
@@ -374,6 +377,8 @@ describe("nesting", () => {
 			ctx,
 			exhaust(
 				{
+					box: { kind: "unstated" },
+					oracle: { kind: "unstated" },
 					suite: "unit/text/parse-depth",
 					literal: Formatter.format,
 					generator: (source) => ({

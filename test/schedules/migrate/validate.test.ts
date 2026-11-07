@@ -603,6 +603,7 @@ layer(Substrate.layer, { excludeTestServices: true })("a migration's Validate ph
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "schedules/migrate/validate violating rows",
 						draw: drawn(violationsGen),
 						literal: Formatter.format,
@@ -809,6 +810,8 @@ layer(Substrate.layer, { excludeTestServices: true })("a migration's Validate ph
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "schedules/migrate/validate racing writers",
 						generator: racingGen,
 						literal: Formatter.format,

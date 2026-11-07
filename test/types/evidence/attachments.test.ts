@@ -17,9 +17,9 @@ import { typeRun } from "#test/types/batch/provided.ts"
  * The attachment agreement (test/support/agreement/attachments.ts), one program the type batch checks: every drawn
  * attachment's stated delivery admitted exactly where the engine proves it, and an arm exactly where the alternatives
  * law makes it, each refusal under its directive at its argument, and each admitted attachment's records, of a snapshot
- * read and of a read-back, the engine's decoded heading under the delivery stated. A read-back's delivery is one the
- * engine proves in the transaction context, and the floor's witnesses reach every delivery, refusal, proof and shape,
- * a derived parent's among them.
+ * read and of a read-back, the engine's decoded heading under the delivery stated, a nested attachment's within its
+ * child's records. A read-back's delivery is one the engine proves in the transaction context, and the floor's
+ * witnesses reach every delivery, refusal, proof and shape, a derived parent's and a nested attachment's among them.
  */
 const required: Situations<AttachNote> = [
 	...Arr.map(attachRefusals, (refusal): AttachNote => `refused: ${refusal}`),
@@ -36,7 +36,9 @@ const required: Situations<AttachNote> = [
 	"an ordered child",
 	"a child taken once",
 	"a child of two rules",
-	"a derived parent"
+	"a derived parent",
+	"a nested attachment admitted",
+	"a nested attachment refused"
 ]
 
 layer(NodeServices.layer, { excludeTestServices: true })("the attachment agreement", (it) => {

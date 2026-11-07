@@ -15,7 +15,7 @@ import {
 	String as Str
 } from "effect"
 import { rowOptions } from "#adapter/engine.ts"
-import { attachmentFacts } from "#adapter/reader/analysis.ts"
+import { attachmentHeads } from "#adapter/reader/analysis.ts"
 import { templateProgram } from "#adapter/reader/run.ts"
 import {
 	type AttachmentLayout,
@@ -27,7 +27,11 @@ import { type CompileError, isCompileError } from "#compiler/core/errors.ts"
 import { formatLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
 import { codeNames } from "#compiler/ir/codes.ts"
+import { topoOrder } from "#compiler/ir/dag.ts"
 import { toQueryDescription } from "#compiler/ir/describe.ts"
+import type { NodeOf } from "#compiler/ir/rel.ts"
+import type { StatementTree } from "#compiler/lower/conservative/types.ts"
+import type { SpecifiedStatement } from "#compiler/lower/template.ts"
 import type { QueryTemplate } from "#compiler/program/compile.ts"
 import { queryInput } from "#compiler/program/compile.ts"
 import { queryOver as query, varsOver as v } from "#compiler/query/build/query.ts"
@@ -185,21 +189,49 @@ interface Compiled {
 	}>
 }
 
+/** Every Attach node a program's statement trees name: each attached statement's, and each fused attachment's. */
+const lowered = (
+	roots: ReadonlyArray<StatementTree<SpecifiedStatement>>
+): ReadonlyArray<NodeOf<"Attach">> =>
+	Arr.flatMap(roots, (tree) => [
+		...Arr.map(tree.statement.statement.fused, (f) => f.attach),
+		...Arr.flatMap(tree.attachments, (a) => [a.attach, ...lowered([a])])
+	])
+
+/**
+ * Each attachment of both lowered programs carries the delivered type the template's analysis judged (ir/rel.ts Attach
+ * judged): the analyzed DAG's Attach node under the same label, which the reader read before the lowerings carried it.
+ */
+const judgedAsAnalyzed = (template: QueryTemplate): void => {
+	const analyzed = new Map(
+		Arr.flatMap(topoOrder(template.analyzed), (n) =>
+			n.kind === "Attach" ? [[n.id, n.delivered] as const] : []
+		)
+	)
+	for (const artifact of artifactNames) {
+		for (const attach of lowered(template.runs[artifact].roots)) {
+			const label = `${artifact} ${attach.name} at ${attach.id}`
+			assert.equal(attach.judged, defined(analyzed.get(attach.id), label), label)
+		}
+	}
+}
+
 const compiled = (c: ProgramCase, value: SchemaValue, query: unknown): Compiled => {
 	const template = ok(
 		compileTemplate(query, value, testCompile),
 		"a generated query does not compile",
 		c
 	)
+	judgedAsAnalyzed(template)
 	const desc = ok(queryInput(query), "the builder refuses a generated query", c).desc
-	const facts = attachmentFacts(template, desc)
+	const spine = attachmentHeads(desc)
 	const codes = succeeded(codebookFor(schemaInputOf(value), firstCodes))
 	return {
 		template,
 		bind: { options: rowOptions, names: codeNames(codes) },
 		layouts: Arr.map(artifactNames, (artifact) => ({
 			artifact,
-			layouts: templateProgram(template, artifact, facts, codes).layouts
+			layouts: templateProgram(template, artifact, spine, codes).layouts
 		}))
 	}
 }
@@ -1062,6 +1094,7 @@ describe("typed rows at bind", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/program/delivered",
 						draw: drawn((source) => [source.draw(caseSketchGen), source.draw(plantGen)] as const),
 						literal: Formatter.format,
@@ -1097,6 +1130,7 @@ describe("typed rows at bind", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/program/delivered-layouts",
 						draw: drawn(caseSketchGen),
 						literal: Formatter.format,
@@ -1125,6 +1159,7 @@ describe("typed rows at bind", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/program/delivered-rebuilt",
 						draw: drawn(caseSketchGen),
 						literal: Formatter.format,
@@ -1151,6 +1186,7 @@ describe("typed rows at bind", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/program/delivered-mixed",
 					draw: drawn(caseSketchGen),
 					literal: Formatter.format,

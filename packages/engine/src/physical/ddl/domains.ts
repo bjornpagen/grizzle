@@ -245,7 +245,7 @@ export const addTextDomains = (
  * or none. Read with placeholder names, it is the contract's definition (`definitionDigest`), which its domain is named
  * by, so the one statement both names and installs it.
  */
-export const contractDomainDdl = (
+const contractDomainDdl = (
 	names: PhysicalNames,
 	contract: { readonly name: string; readonly base: ScalarType; readonly check: DomainCheck },
 	target: { readonly schema: string; readonly name: string; readonly constraint: string }

@@ -1,13 +1,19 @@
 import { Array as Arr, Order, String as Str } from "effect"
 import { textArray } from "#adapter/admission/roles.ts"
-import { concatNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import { sqlstates } from "#compiler/core/sqlstate.ts"
-import { refreshStatement } from "#compiler/physical/derived/objects.ts"
-import type { EmittedText, Expr, ObjectName } from "#compiler/sql/ast.ts"
-import { lit, types } from "#compiler/sql/build.ts"
-import * as C from "#compiler/sql/catalog.ts"
-import { emitCatalog, emitText } from "#compiler/sql/emit.ts"
-import { emptyNameMap, isDecimal } from "#compiler/sql/naming.ts"
+import { C, emptyNameMap, isDecimal, refreshStatement } from "#compiler/plan/catalog.ts"
+import {
+	concatNonEmpty,
+	emitCatalog,
+	type EmittedText,
+	emitText,
+	type Expr,
+	lit,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray,
+	type ObjectName,
+	sqlstates,
+	types
+} from "#compiler/plan/common.ts"
 
 /**
  * Plain or CONCURRENTLY: which refresh statement each view takes.

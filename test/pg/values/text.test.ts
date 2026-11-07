@@ -58,6 +58,7 @@ layer(Substrate.layer)("text agreement with PostgreSQL", (it) => {
 					const source = "jsonb_to_recordset($1::text::jsonb) AS c(ord int4, v text)"
 					return yield* explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "pg/values/text/order",
 							draw: drawn(array(text, { min: 1, max: 4000 })),
 							literal: Formatter.format,

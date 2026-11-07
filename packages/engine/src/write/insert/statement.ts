@@ -1,8 +1,5 @@
 import { resultTextCasts } from "#compiler/codec/scalar.ts"
-import { Refusal } from "#compiler/core/canonical.ts"
-import { CompileError, type ProseTag, prose } from "#compiler/core/errors.ts"
 import type { ConstraintName, ParamId } from "#compiler/core/ids.ts"
-import { SourceLoc } from "#compiler/core/loc.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { LawField, RelationInfo } from "#compiler/ir/law.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
@@ -272,13 +269,6 @@ export const writeContext = (dag: ValidDag, options: WriteContextOptions): Write
 	}
 }
 
-const writeRefusal = (tag: ProseTag, at: string, capability: string): Refusal =>
-	new Refusal(CompileError.make(prose(tag, SourceLoc("write lowering", [at]), capability)))
-
-export const refuseWrite = (tag: ProseTag, at: string, capability: string): never => {
-	throw writeRefusal(tag, at, capability)
-}
-
 /** What a builder builds of one statement: its AST, result, role and skipped input, and for a write of facts its
  * RETURNING. */
 export interface Built<R extends WriteResult> {
@@ -400,7 +390,7 @@ export const keyFirst = (relation: RelationInfo): NonEmptyReadonlyArray<LawField
 
 /** Whether a statement writes a field's column: every field but one PostgreSQL generates from its row, which no
  * INSERT, UPDATE or MERGE lists (428C9) and no addition's facts carry; it is read back with the rest. */
-export const isWritten = (field: LawField): boolean => field.writing.kind !== "generated"
+const isWritten = (field: LawField): boolean => field.writing.kind !== "generated"
 
 /**
  * The fields an addition writes, key first (`keyFirst`): every field but a generated one (`isWritten`). The primary

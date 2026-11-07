@@ -11,13 +11,13 @@ import {
 	type ValuedFlag
 } from "#cli/errors.ts"
 import { DeclarationRefused, noDeclarations, parseDeclarations } from "#cli/renames.ts"
-import type { Declarations } from "#compiler/deploy/diff/plan.ts"
 import {
+	type Declarations,
 	type FolderNaming,
-	type MigrationName,
 	maxMigrationNameLength,
+	type MigrationName,
 	parseMigrationName
-} from "#compiler/deploy/render/folder.ts"
+} from "#compiler/plan/migration.ts"
 
 /**
  * The command line of the `grizzle` bin.

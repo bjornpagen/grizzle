@@ -1,0 +1,271 @@
+import { layer } from "@effect/vitest"
+import { drawn, explore } from "@grizzle/testing/explore"
+import { required } from "@grizzle/testing/features"
+import { array, codePoint, element, type Gen, int, oneOf, string } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
+import { searched } from "@grizzle/testing/vitest"
+import { Array as Arr, Effect, Formatter, Option, pipe, Result, String as Str } from "effect"
+import { Db } from "#adapter/public/db.ts"
+import { ChangeSet, type Law } from "#compiler/public/changeset.ts"
+import { Compute } from "#compiler/public/compute.ts"
+import { closedId, contract, generated, pg, Uuid, uuid } from "#compiler/public/fields.ts"
+import { check, closed, relation, schema } from "#compiler/public/schema.ts"
+import { str } from "#compiler/public/text.ts"
+import { installed } from "#test/pg/reads/support.ts"
+import { assert, succeeded } from "#test/support/assert.ts"
+import { namesOf } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
+import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
+import { Substrate } from "#test/support/substrate/substrate.ts"
+import { withLayer } from "#test/support/with-layer.ts"
+
+const tiers = ["bronze", "silver", "gold"] as const
+type TierHandle = (typeof tiers)[number]
+
+/** Each tier's rate, as the closed relation Rate holds it: gold holds none, so a gold account's rate is NULL. */
+const rates: Readonly<Record<TierHandle, number | undefined>> = {
+	bronze: 100,
+	silver: 500,
+	gold: undefined
+}
+
+const Tier = closed("Tier", tiers)
+const Rate = closed.relation(
+	"Rate",
+	{ tier: closedId(Tier), rate: pg.integer },
+	["tier"],
+	[
+		{ tier: "bronze", rate: 100 },
+		{ tier: "silver", rate: 500 }
+	]
+)
+const Units = contract("Units", pg.integer, (x) => x.le(1000))
+const Account = relation.generated(
+	"Account",
+	{ id: uuid, tier: closedId(Tier), units: Units, code: str.regex("^[a-z]{1,8}$", "u") },
+	["id"],
+	(r) => ({ rate: generated(pg.integer, Rate.at("rate", r.tier)) })
+)
+const positive = check("Positive", Account, (x) => x.gt(x.units, 0))
+const withinRate = check("WithinRate", Account, (x) => x.le(Compute.base(x.units), x.rate))
+const Accounts = schema("Accounts", { Tier, Rate, Account }, [positive, withinRate])
+
+/** Every law a stated account can break, as an outcome names it. */
+const lawOf = {
+	positive: { kind: "check", relation: "Account", name: "Positive" },
+	withinRate: { kind: "check", relation: "Account", name: "WithinRate" },
+	units: { kind: "contract", contract: "Units" },
+	code: { kind: "pattern", source: "^[a-z]{1,8}$", flags: "u" },
+	rate: { kind: "generated", relation: "Account", field: "rate" }
+} as const satisfies Readonly<Record<string, Law>>
+type Broken = keyof typeof lawOf
+
+/** An account as a case draws it, its id its position's. */
+interface Stated {
+	readonly tier: TierHandle
+	readonly units: number
+	readonly code: string
+}
+
+/** A code inside the pattern about half the time: lowercase letters, or printable ASCII of any length up to twelve. */
+const codeGen: Gen<string> = oneOf([
+	string(codePoint(0x61, 0x7a), { min: 1, max: 8 }),
+	string(codePoint(0x20, 0x7e), { min: 0, max: 12 })
+])
+
+const statedGen: Gen<Stated> = (source) => ({
+	tier: source.draw(element(tiers)),
+	units: source.draw(oneOf([int(-3, 0), int(1, 120), int(400, 1000), int(1001, 1100)])),
+	code: source.draw(codeGen)
+})
+
+/** A case: one write of one to four accounts, inserted or put. */
+interface Case {
+	readonly op: "insert" | "put"
+	readonly accounts: ReadonlyArray<Stated>
+}
+
+const caseGen: Gen<Case> = (source) => ({
+	op: source.draw(element(["insert", "put"] as const)),
+	accounts: source.draw(array(statedGen, { min: 1, max: 4 }))
+})
+
+const idOf = (n: number): Uuid =>
+	succeeded(
+		Uuid.parse(`00000000-0000-4000-8000-${pipe((0x7000 + n).toString(16), Str.padStart(12, "0"))}`),
+		"a version 4 uuid's text"
+	)
+
+/** The rule an outcome's law is, among the accounts' rules; undefined for any other law. */
+const brokenOf = (law: Law): Broken | undefined => {
+	switch (law.kind) {
+		case "check":
+			return law.relation !== "Account"
+				? undefined
+				: law.name === "Positive"
+					? "positive"
+					: law.name === "WithinRate"
+						? "withinRate"
+						: undefined
+		case "contract":
+			return law.contract === "Units" ? "units" : undefined
+		case "pattern":
+			return law.source === lawOf.code.source && law.flags === lawOf.code.flags ? "code" : undefined
+		case "generated":
+			return law.relation === "Account" && law.field === "rate" ? "rate" : undefined
+		case "primaryKey":
+		case "key":
+		case "contained":
+		case "coverage":
+		case "family":
+		case "tree":
+		case "fold":
+			return undefined
+	}
+}
+
+/** Whether a code is in ^[a-z]{1,8}$: one to eight ASCII lowercase letters. */
+const isCode = (code: string): boolean =>
+	code.length >= 1 &&
+	code.length <= 8 &&
+	Arr.every(Arr.range(0, code.length - 1), (i) =>
+		Option.exists(Str.charCodeAt(code, i), (unit) => unit >= 0x61 && unit <= 0x7a)
+	)
+
+/** The laws an account breaks, by the model: each rule restated over its fields alone. */
+const brokenBy = (a: Stated): ReadonlySet<Broken> => {
+	const out = new Set<Broken>()
+	const rate = rates[a.tier]
+	if (rate === undefined) {
+		out.add("rate")
+	}
+	if (a.units > 1000) {
+		out.add("units")
+	}
+	if (a.units <= 0) {
+		out.add("positive")
+	}
+	if (rate !== undefined && a.units <= 1000 && a.units > rate) {
+		out.add("withinRate")
+	}
+	if (!isCode(a.code)) {
+		out.add("code")
+	}
+	return out
+}
+
+type Feature = `refused by ${Broken}` | "accepted" | "witnessed among several breaking accounts"
+
+/**
+ * A native refusal witnessed on the host, against PostgreSQL 19.
+ *
+ * Accounts holds, on one relation, every native refusal the host judges a stated fact against: a row CHECK over a
+ * written field (Positive), a row CHECK over a generated field (WithinRate, units at most the rate), a contract's domain
+ * (Units, at most 1000), a pattern's domain (^[a-z]{1,8}$), and a generated column's NOT NULL (rate, Rate.at("rate",
+ * tier), which Rate holds no row of for gold). Each case writes one to four accounts, inserted or put, each drawn inside
+ * or outside each rule.
+ *
+ * The oracle is the rules restated over the drawn fields: a write none of whose accounts breaks a rule is accepted;
+ * any other is invariant-rejected naming one law, one of those its accounts break, as PostgreSQL met first, and its
+ * witness the key of an account that breaks that law, never `unreported`: every account is stated, so the host holds
+ * it.
+ */
+export const hostWitnessSuite = (): void => {
+	layer(Substrate.layer)("a native refusal witnessed on the host, against PostgreSQL 19", (it) => {
+		it.effect(
+			"a refused write names one law its accounts break and the key of an account that breaks it",
+			(ctx) =>
+				searched(
+					ctx,
+					Effect.gen(function* () {
+						const s = yield* Substrate
+						const o = yield* installed(Accounts, {}, { label: "real", extensions: [] })
+						const group = installationGroup(namesOf(o.installed))
+						return yield* Effect.gen(function* () {
+							const db = yield* Db.open(o.server.roles.app, {})
+							return yield* explore(
+								{
+									suite: "laws/witness/host",
+									draw: drawn(caseGen),
+									literal: Formatter.format,
+									oracle: {
+										kind: "specification",
+										name: "each account's rules restated over its drawn fields, and a witness naming an account that breaks the law"
+									},
+									kept: [],
+									runs: 60,
+									shrink: { kind: "bounded", candidates: 100 },
+									concurrency: 1,
+									steerEvery: 16,
+									coverage: required<Feature>(
+										[
+											"refused by rate",
+											"refused by units",
+											"refused by positive",
+											"refused by withinRate",
+											"refused by code",
+											"accepted",
+											"witnessed among several breaking accounts"
+										],
+										{ cases: 60, sense: notesOnly }
+									),
+									caseHang
+								},
+								(k, c) =>
+									Effect.gen(function* () {
+										yield* replaceRows(s.admin, group, [])
+										const facts = Arr.map(k.accounts, (a, i) => ({
+											id: idOf(i),
+											tier: a.tier,
+											units: Units(a.units),
+											code: a.code
+										}))
+										const base = ChangeSet.empty(o.schema)
+										const change =
+											k.op === "insert" ? base.insert(Account, facts) : base.put(Account, facts)
+										const applied = yield* Effect.result(db.apply(change, {}))
+										assert.ok(Result.isSuccess(applied), "the write is an outcome")
+										const outcome = applied.success
+										const broken = Arr.map(k.accounts, brokenBy)
+										if (Arr.every(broken, (b) => b.size === 0)) {
+											assert.equal(outcome.kind, "accepted")
+											c.note("accepted")
+											return
+										}
+										if (outcome.kind !== "invariant-rejected") {
+											return assert.fail(
+												`a write that breaks a rule is refused, not ${outcome.kind}`
+											)
+										}
+										assert.equal(outcome.laws.length, 1, "one law")
+										const [law] = outcome.laws
+										const named = brokenOf(law)
+										if (named === undefined) {
+											return assert.fail("the law is one of the accounts' rules")
+										}
+										assert.deepEqual(law, lawOf[named])
+										const witness = outcome.witness
+										if (witness.kind !== "key") {
+											return assert.fail("every account is stated, so the host witnesses it")
+										}
+										assert.equal(witness.relation, "Account")
+										const at = Arr.findFirstIndex(facts, (f) => f.id === witness.values["id"])
+										if (Option.isNone(at)) {
+											return assert.fail("the witness is a stated account's key")
+										}
+										assert.ok(
+											broken[at.value]?.has(named) === true,
+											"the witnessed account breaks the law"
+										)
+										c.note(`refused by ${named}`)
+										if (Arr.filter(broken, (b) => b.has(named)).length > 1) {
+											c.note("witnessed among several breaking accounts")
+										}
+									})
+							)
+						}).pipe(Effect.scoped, withLayer(o.layer))
+					}).pipe(Effect.scoped)
+				)
+		)
+	})
+}

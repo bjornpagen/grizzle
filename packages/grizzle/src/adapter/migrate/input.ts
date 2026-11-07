@@ -7,12 +7,17 @@ import {
 	stopped
 } from "#adapter/migrate/errors.ts"
 import type { MigrationText } from "#adapter/wire/batch.ts"
-import { sha256Hex } from "#compiler/core/sha256.ts"
-import { compareCodePoints } from "#compiler/core/text.ts"
-import { isFolderName, orderFolderFiles, type ReadMeta } from "#compiler/deploy/render/folder.ts"
-import { isNoTransaction, splitStatements } from "#compiler/deploy/render/markers.ts"
-import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
-import { lex, type Token } from "#compiler/sql/lexer.ts"
+import { compareCodePoints, sha256Hex } from "#compiler/plan/common.ts"
+import {
+	type DeploySnapshot,
+	isFolderName,
+	isNoTransaction,
+	lex,
+	orderFolderFiles,
+	type ReadMeta,
+	splitStatements,
+	type Token
+} from "#compiler/plan/migration.ts"
 
 /**
  * What `grizzle migrate` is given, checked before it connects.

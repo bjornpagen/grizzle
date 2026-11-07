@@ -1,4 +1,4 @@
-import { exact, ordered, set } from "@grizzle/testing/oracle"
+import { exact, ordered, set, structuralHash } from "@grizzle/testing/oracle"
 import { Array as Arr, Formatter, Option } from "effect"
 import { messageOf } from "#test/support/message.ts"
 import type {
@@ -64,7 +64,8 @@ const outcomeIs =
 	}
 
 /** Rows as a set that fails on a repeated row, each row cell by cell. */
-const sameRowSet = (a: TextRows, b: TextRows): boolean => Option.isNone(set(ordered(exact))(a, b))
+const sameRowSet = (a: TextRows, b: TextRows): boolean =>
+	Option.isNone(set(structuralHash, ordered(exact))(a, b))
 
 /**
  * Expectations of a direct step's outcome, and printing outcomes.

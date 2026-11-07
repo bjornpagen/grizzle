@@ -465,7 +465,7 @@ interface FolderToApply {
  * is partially applied, and resumes first (`partialFirst`); it sorts before the latest applied folder (`sortsBefore`);
  * or it starts from another snapshot than the database's latest applied target (`source`).
  */
-export type FolderRefusal =
+type FolderRefusal =
 	| {
 			readonly kind: "moved"
 			readonly source: SchemaFingerprint

@@ -43,6 +43,7 @@ describe("a containment's reverse index", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/laws/model/reverse-index",
 						draw: drawn(reverseCaseGen),
 						literal: Formatter.format,

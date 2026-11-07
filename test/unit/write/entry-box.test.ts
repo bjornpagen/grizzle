@@ -246,6 +246,8 @@ describe("the write front end over its small box", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/write/entry-box",
 						generator: pointGen,
 						literal: Formatter.format,

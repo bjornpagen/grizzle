@@ -1527,6 +1527,7 @@ export const raceSuite = <P>(h: HistoryFamily<P>): void => {
 				)
 				return yield* explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: `races/${Str.replaceAll(regex("[^a-z0-9]+", "g"), "-")(h.family.label)}`,
 						draw: drawn(raceCaseGen(variants.length, windows, skewStartsOf(h, variants))),
 						literal: Formatter.format,

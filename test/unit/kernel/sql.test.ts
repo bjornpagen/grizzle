@@ -331,6 +331,7 @@ describe("generated queries", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/kernel/sqlgen-audit",
 						draw: drawn(selectGen(catalog)),
 						literal: Formatter.format,
@@ -367,6 +368,7 @@ describe("generated queries", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/kernel/shape-renaming",
 					draw: drawn(selectGen(catalog)),
 					literal: Formatter.format,
@@ -401,6 +403,7 @@ describe("generated statements", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/kernel/statement-audit",
 						draw: drawn(statementGen(statementCatalog)),
 						literal: Formatter.format,
@@ -523,6 +526,7 @@ describe("the one-hole walker", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/kernel/root-hole",
 					draw: drawn(statementGen(statementCatalog)),
 					literal: Formatter.format,
@@ -547,6 +551,7 @@ describe("the one-hole walker", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/kernel/one-hole",
 						draw: drawn(selectGen(catalog)),
 						literal: Formatter.format,

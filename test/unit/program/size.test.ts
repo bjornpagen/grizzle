@@ -143,6 +143,8 @@ describe("compiled size", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/program/size",
 						generator: int(1, 3),
 						literal: Formatter.format,

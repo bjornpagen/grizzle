@@ -268,6 +268,7 @@ const exploration = (
 ): Effect.Effect<Explored, SearchFailure, Substrate | Run> =>
 	explore(
 		{
+			oracle: { kind: "unstated" },
 			suite,
 			draw: drawn(caseSketchGen),
 			literal: Formatter.format,

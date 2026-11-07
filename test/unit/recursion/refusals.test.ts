@@ -208,6 +208,8 @@ describe("arm heads", () => {
 					ctx,
 					exhaust(
 						{
+							box: { kind: "unstated" },
+							oracle: { kind: "unstated" },
 							suite: "unit/recursion/arm-heads",
 							generator: (source) => [source.draw(heads), source.draw(heads)] as const,
 							literal: Formatter.format,
@@ -447,6 +449,8 @@ describe("the state heading", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/recursion/state-heading",
 						generator: filter(
 							(source) =>
@@ -764,6 +768,8 @@ describe("the feedback's shape", () => {
 					ctx,
 					exhaust(
 						{
+							box: { kind: "unstated" },
+							oracle: { kind: "unstated" },
 							suite: "unit/recursion/feedback-shape",
 							generator: (source) =>
 								[
@@ -913,6 +919,8 @@ describe("r.pack over a recursive arm", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/recursion/pack",
 						generator: boolean,
 						literal: Formatter.format,
@@ -969,6 +977,8 @@ describe("unbounded computed state", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/recursion/unbounded-counter",
 						generator: (source) =>
 							[
@@ -1056,6 +1066,8 @@ describe("unbounded computed state", () => {
 					ctx,
 					exhaust(
 						{
+							box: { kind: "unstated" },
+							oracle: { kind: "unstated" },
 							suite: "unit/recursion/computed-cycle",
 							generator: (source) => [source.draw(terms), source.draw(terms)] as const,
 							literal: Formatter.format,
@@ -1175,6 +1187,8 @@ describe("unbounded computed state through a correlated import", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/recursion/import-laundering",
 						generator: (source) =>
 							[

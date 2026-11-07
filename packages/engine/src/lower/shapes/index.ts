@@ -40,6 +40,7 @@ import {
 } from "#compiler/lower/conservative/deliver.ts"
 import { conservativeLowerers } from "#compiler/lower/conservative/dispatch.ts"
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
+import { bindLaterally } from "#compiler/lower/conservative/expr/lateral.ts"
 import {
 	type AttachedTree,
 	type ConservativeParamSlot,
@@ -650,7 +651,7 @@ const fusedDescription = (
 	spine: ReadonlyArray<RelNode>,
 	heading: Heading
 ): FusedAttachment => ({
-	attach: attach.id,
+	attach,
 	name: attach.name,
 	parentColumns: parentColumnsOf(cx, attach, spine, heading).map((c) => c.name),
 	layout: fusedLayout(attach, attach.child.heading, attach.parent.heading)
@@ -753,7 +754,7 @@ export class OptimizedDelivery<
 						: { ...shaped.with, ctes: extendNonEmpty(logged, shaped.with.ctes) }
 			}
 		}
-		const renamed = renameToPublicHeading(shaped, output.names)
+		const renamed = renameToPublicHeading(bindLaterally(shaped, this.cx.supply), output.names)
 		if (!renamed.ok) {
 			throw new Refusal(renamed.error)
 		}

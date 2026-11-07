@@ -1,14 +1,21 @@
 import { Array as Arr, Order, Predicate, Result } from "effect"
 import { toResult } from "#adapter/engine.ts"
-import { catchCompileError } from "#compiler/core/canonical.ts"
-import { CompileError, malformedDescription } from "#compiler/core/errors.ts"
-import { SourceLoc } from "#compiler/core/loc.ts"
-import { descText, type QueryDesc, type RoleDesc, type SchemaDesc } from "#compiler/ir/desc.ts"
-import type { SchemaArtifacts } from "#compiler/program/schema.ts"
-import { hostArguments } from "#compiler/query/build/host.ts"
-import { ownedKind } from "#compiler/schema/protocol.ts"
-import { admitDerived, derivedDraftOf } from "#compiler/schema/relation.ts"
-import type { ObjectName } from "#compiler/sql/ast.ts"
+import {
+	admitDerived,
+	catchCompileError,
+	CompileError,
+	derivedDraftOf,
+	descText,
+	malformedDescription,
+	type ObjectName,
+	ownedKind,
+	type QueryDesc,
+	type RoleDesc,
+	type SchemaArtifacts,
+	type SchemaDesc,
+	SourceLoc
+} from "#compiler/plan/common.ts"
+import { hostArguments } from "#compiler/plan/read.ts"
 
 /**
  * Which views one db.refresh call refreshes, and in which order.

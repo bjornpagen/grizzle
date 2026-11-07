@@ -21,14 +21,17 @@ import type {
 	QueryResult,
 	WorkloadHandles
 } from "#adapter/types/db.ts"
-import type { RowDecoder } from "#compiler/core/decoder.ts"
-import { type CompileError, type CursorError, malformedDescription } from "#compiler/core/errors.ts"
-import { SourceLoc } from "#compiler/core/loc.ts"
-import { builtMark } from "#compiler/core/phantom.ts"
-import { isOrderedValue, isQueryValue } from "#compiler/query/build/index.ts"
-import type { ParamMap } from "#compiler/types/core/phantom.ts"
-import type { Page } from "#compiler/types/page/page.ts"
-import { isChangeSetValue } from "#compiler/write/changeset/value.ts"
+import { isChangeSetValue } from "#compiler/plan/change.ts"
+import {
+	builtMark,
+	type CompileError,
+	type CursorError,
+	malformedDescription,
+	type ParamMap,
+	type RowDecoder,
+	SourceLoc
+} from "#compiler/plan/common.ts"
+import { isOrderedValue, isQueryValue, type Page } from "#compiler/plan/read.ts"
 
 /**
  * What a JavaScript caller passes as a ChangeSet and is none: the refusal db.apply compiles it to.

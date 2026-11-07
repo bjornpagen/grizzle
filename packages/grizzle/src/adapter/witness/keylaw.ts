@@ -1,16 +1,17 @@
 import { Array as Arr } from "effect"
+import type { InstallNames } from "#compiler/plan/catalog.ts"
+import type { Law, TableRelation } from "#compiler/plan/change.ts"
 import type {
 	ColumnIdent,
 	ConstraintName,
+	ConstraintOwner,
 	DomainName,
 	LawId,
-	RelationIdent
-} from "#compiler/core/ids.ts"
-import type { RosterCodec } from "#compiler/ir/codes.ts"
-import type { ConstraintOwner } from "#compiler/ir/products.ts"
-import type { InstallNames } from "#compiler/physical/ddl/names.ts"
-import type { DescribedLaw } from "#compiler/physical/install/compile.ts"
-import type { SchemaArtifacts } from "#compiler/program/schema.ts"
+	RelationIdent,
+	RosterCodec,
+	SchemaArtifacts
+} from "#compiler/plan/common.ts"
+import type { DescribedLaw } from "#compiler/plan/migration.ts"
 
 /** The names a violation reports, as the wire admitted them (wire/failure.ts serverFailure). */
 interface ReportedNames {
@@ -76,6 +77,12 @@ export interface KeyLaws {
 	readonly raised: ReadonlyMap<ConstraintName, DescribedLaw>
 	/** The roster domain `domain` is, the installation's; undefined for any other domain. */
 	readonly rosterDomainOf: (domain: DomainName) => RosterDomain | undefined
+	/**
+	 * The generated field a column of a table is, as an outcome names its law (types/changeset Law `generated`): what
+	 * a NOT NULL violation on it, which only its generation expression's NULL raises, breaks; undefined for any other
+	 * column.
+	 */
+	readonly generatedOf: (table: RelationIdent, column: ColumnIdent) => Law | undefined
 }
 
 /** A column a domain types, and the law that column's field states of it: its contract's, or its refinement's. */
@@ -115,6 +122,8 @@ interface KeyLawInput {
 	readonly constraintLaws: SchemaArtifacts["constraintLaws"]
 	/** Every law of the theory, described (physical/install Installation.theoryLaws). */
 	readonly theoryLaws: SchemaArtifacts["theoryLaws"]
+	/** The stored relations, whose generated fields a NOT NULL violation names. */
+	readonly relations: ReadonlyArray<TableRelation>
 }
 
 /** The laws of one kind of owner's constraint, under `owner`, created empty on its first constraint. */
@@ -155,6 +164,18 @@ export const keyLaws = (input: KeyLawInput): KeyLaws => {
 			]
 		)
 	)
+	const generated = new Map(
+		Arr.map(input.relations, (r) => [
+			r.ident,
+			new Map(
+				Arr.flatMap(r.fields, (f): ReadonlyArray<readonly [ColumnIdent, Law]> =>
+					f.writing.kind === "generated"
+						? [[f.column, Object.freeze({ kind: "generated", relation: r.name, field: f.name })]]
+						: []
+				)
+			)
+		])
+	)
 	return {
 		schema: input.names.schema,
 		lawsOf: (constraint, owner) =>
@@ -165,6 +186,7 @@ export const keyLaws = (input: KeyLawInput): KeyLaws => {
 		raised: new Map(
 			Arr.map(input.theoryLaws, (l): readonly [ConstraintName, DescribedLaw] => [l.law, l])
 		),
-		rosterDomainOf: (domain) => rosters.get(domain)
+		rosterDomainOf: (domain) => rosters.get(domain),
+		generatedOf: (table, column) => generated.get(table)?.get(column)
 	}
 }

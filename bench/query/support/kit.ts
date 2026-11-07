@@ -13,7 +13,7 @@ import {
 } from "effect"
 import { rowOptions } from "#adapter/engine.ts"
 import { type ReadError, ReadFailure } from "#adapter/errors/execution.ts"
-import { type AttachmentFacts, attachmentFacts } from "#adapter/reader/analysis.ts"
+import { type AttachmentScope, attachmentHeads } from "#adapter/reader/analysis.ts"
 import type { HostParams } from "#adapter/reader/execution.ts"
 import { executionInputs, paramCodecs } from "#adapter/reader/relations.ts"
 import { programFlight, templateProgram } from "#adapter/reader/run.ts"
@@ -347,7 +347,7 @@ export interface Compiled {
 	readonly decoder: RowDecoder<unknown>
 	readonly desc: QueryDesc
 	readonly artifacts: SchemaArtifacts
-	readonly facts: AttachmentFacts
+	readonly spine: AttachmentScope
 	/** The first compilation, and the compilations of the same query after it. */
 	readonly compileFirstMs: number
 	readonly compileWarmMs: Summary
@@ -417,7 +417,7 @@ export const compile = <S>(
 		decoder: query.rows,
 		desc,
 		artifacts,
-		facts: attachmentFacts(compiled.template, desc),
+		spine: attachmentHeads(desc),
 		compileFirstMs,
 		compileWarmMs: summarize(warm)
 	}
@@ -571,7 +571,7 @@ export const deliver = Effect.fn("deliver")(
 		if (Result.isFailure(inputs)) {
 			return yield* deliveryFailed(new ReadFailure({ reason: inputs.failure }))
 		}
-		const program = templateProgram(compiled.compiled.template, artifact, compiled.facts, codes)
+		const program = templateProgram(compiled.compiled.template, artifact, compiled.spine, codes)
 		const read = unwrap(
 			bindGroups(compiled.decoder, program.layouts, {
 				options: rowOptions,

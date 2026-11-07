@@ -6,7 +6,8 @@ import type { SentRow } from "#test/pg/oracle/public/cells.ts"
 import { defined } from "#test/support/assert.ts"
 import type { Nested } from "#test/support/oracle/public/answer.ts"
 import type { ParentColumn, Query, Root } from "#test/support/oracle/public/program.ts"
-import { valueKey } from "#test/support/oracle/reference/values.ts"
+import { Identities, type Interned } from "#test/support/oracle/reference/identity.ts"
+import { valueIdentity } from "#test/support/oracle/reference/values.ts"
 
 /**
  * How the suite reads the adapter's delivered rows and their texts, and the planted defects that prove it can fail.
@@ -62,15 +63,15 @@ const restitch = (
 	let current = rows
 	for (const [a, attachment] of q.attachments.entries()) {
 		const positions = keyPositions(q, attachment.child)
-		const identity = (row: Nested) =>
-			Arr.join(
-				Arr.map(positions, (i) =>
-					valueKey(
+		const identities = new Identities()
+		const identity = (row: Nested): Interned =>
+			identities.of(
+				Arr.flatMap(positions, (i) =>
+					valueIdentity(
 						defined(row.values[i], `the parent value ${i}`),
 						defined(q.heading[i], `the column ${i}`).type
 					)
-				),
-				"\u0000"
+				)
 			)
 		const sentAt = (k: number): SentRow => defined(sent[k], `the sent row ${k}`)
 		const spelling = (k: number) =>
@@ -84,7 +85,7 @@ const restitch = (
 				"\u0000"
 			)
 		const kept = new Map<
-			string,
+			Interned,
 			{
 				readonly spelling: string
 				readonly children: ReadonlyArray<Nested>

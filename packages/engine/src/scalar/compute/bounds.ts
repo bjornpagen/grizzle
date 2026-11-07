@@ -43,6 +43,13 @@ const maxExact = (a: Exact, b: Exact): Exact => (compareExact(a, b) >= 0 ? a : b
 /** x - y, exactly. */
 export const minus = (x: Exact, y: Exact): Exact => addExact(x, negExact(y))
 
+/** The greatest integer at most `x`. */
+export const floorOfExact = (x: Exact): bigint => {
+	const unit = pow10(x.scale)
+	const quotient = x.units / unit
+	return x.units < 0n && quotient * unit !== x.units ? quotient - 1n : quotient
+}
+
 /** 10^digits, exactly, a negative count of digits a fraction: 10^-3 is 1 at scale 3. */
 export const tenTo = (digits: number): Exact =>
 	digits >= 0 ? { units: pow10(digits), scale: 0 } : { units: 1n, scale: -digits }

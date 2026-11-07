@@ -25,6 +25,7 @@ describe("real normalization", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/values/float-1",
 					draw: drawn(anyDouble),
 					literal: Formatter.format,
@@ -61,6 +62,7 @@ describe("PostgreSQL's float order", () => {
 				])
 				return yield* explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/values/float-2",
 						draw: drawn(
 							(source) => [source.draw(value), source.draw(value), source.draw(value)] as const

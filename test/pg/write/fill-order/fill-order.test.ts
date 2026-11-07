@@ -1,5 +1,5 @@
 import { layer } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
+import { type Case, drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
 import { filter, type Gen } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
@@ -13,6 +13,7 @@ import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, unorderedEqual } from "#test/support/assert.ts"
 import {
+	besides,
 	buildFill,
 	type FillSpec,
 	type FollowUp,
@@ -25,6 +26,8 @@ import {
 	instanceFacts,
 	instanceGen,
 	mutableOrDrawn,
+	type Planted,
+	plantedGen,
 	relationName,
 	sourceClassOf,
 	verdictOf,
@@ -66,7 +69,8 @@ type ClusterSituation =
 	| "a counted member that is an ordered family's"
 	| "a counted member that is a tree's node"
 	| "a counted member that owns a sequence"
-	| "a copy along a counted family of a leaving column"
+	| "a copy along a counted family of a column after a sequence"
+	| "a copy of a sibling sequence's end"
 	| "a predecessor copy"
 	| "a last copy"
 	| "an owner copy along a sequence"
@@ -83,7 +87,8 @@ const situations: Arr.NonEmptyReadonlyArray<ClusterSituation> = [
 	"a counted member that is an ordered family's",
 	"a counted member that is a tree's node",
 	"a counted member that owns a sequence",
-	"a copy along a counted family of a leaving column",
+	"a copy along a counted family of a column after a sequence",
+	"a copy of a sibling sequence's end",
 	"a predecessor copy",
 	"a last copy",
 	"an owner copy along a sequence",
@@ -109,8 +114,13 @@ const shapesOf = (spec: FillSpec): ReadonlyArray<ClusterSituation> => {
 			...(copy.axis === "owner" && family.kind !== "counted"
 				? (["an owner copy along a sequence"] as const)
 				: []),
-			...(family.kind === "counted" && sourceClassOf(spec, j) === "leaving"
-				? (["a copy along a counted family of a leaving column"] as const)
+			...(family.kind === "counted" && sourceClassOf(spec, j) === "after another family"
+				? (["a copy along a counted family of a column after a sequence"] as const)
+				: []),
+			...(family.kind !== "counted" &&
+			copy.axis === "owner" &&
+			sourceClassOf(spec, j) === "after another family"
+				? (["a copy of a sibling sequence's end"] as const)
 				: []),
 			...(family.kind === "counted" && copy.source.kind === "end"
 				? (["a counted member's copy of a tree node's end"] as const)
@@ -160,28 +170,76 @@ const shapesOf = (spec: FillSpec): ReadonlyArray<ClusterSituation> => {
  * drawn, an instance of it, and a follow-up over the stored instance where one is drawn and the reference finds it
  * written.
  */
-const caseGen: Gen<{
+const caseGen: Gen<ClusterCase> = (source) =>
+	source.draw(
+		caseOver(
+			filter(
+				mutableOrDrawn(fillSpecGen({ relations: 4, families: 4, copies: 3 })),
+				(s) => verdictOf(s).kind === "admitted" && Arr.some(s.families, (f) => f.kind !== "tree"),
+				16
+			)
+		)
+	)
+
+/** An admitted drawn specification beside a planted one (fill.ts `besides`, `plantedGen`). */
+const plantedBeside =
+	(planted: Planted): Gen<FillSpec> =>
+	(source) =>
+		besides(
+			source.draw(
+				filter(
+					mutableOrDrawn(fillSpecGen({ relations: 3, families: 3, copies: 2 })),
+					(s) => verdictOf(s).kind === "admitted",
+					16
+				)
+			),
+			source.draw(plantedGen(planted))
+		)
+
+/** A case of the suite: an admitted specification, an instance of it, and a written follow-up over it or none. */
+interface ClusterCase {
 	readonly spec: FillSpec
 	readonly rows: ReadonlyArray<InstanceRow>
 	readonly followUp: Option.Option<FollowUp>
-}> = (source) => {
-	const spec = source.draw(
-		filter(
-			mutableOrDrawn(fillSpecGen({ relations: 4, families: 4, copies: 3 })),
-			(s) => verdictOf(s).kind === "admitted" && Arr.some(s.families, (f) => f.kind !== "tree"),
-			16
+}
+
+/** A case over a specification `specs` draws, its instance drawn, and its follow-up where the reference writes it. */
+const caseOver =
+	(specs: Gen<FillSpec>): Gen<ClusterCase> =>
+	(source) => {
+		const spec = source.draw(specs)
+		const rows = source.draw(instanceGen(spec))
+		const followUp = Option.filter(
+			source.draw(followUpGen(spec, rows)),
+			(f) =>
+				writesVerdict(
+					spec,
+					Arr.map(followUpMembers(spec, rows, f), (m) => ({ relation: m.relation, op: m.op }))
+				).kind === "written"
 		)
-	)
-	const rows = source.draw(instanceGen(spec))
-	const followUp = Option.filter(
-		source.draw(followUpGen(spec, rows)),
-		(f) =>
-			writesVerdict(
-				spec,
-				Arr.map(followUpMembers(spec, rows, f), (m) => ({ relation: m.relation, op: m.op }))
-			).kind === "written"
-	)
-	return { spec, rows, followUp }
+		return { spec, rows, followUp }
+	}
+
+/** The situations a drawn specification reaches only now and then, each with the shape a witness plants to reach it
+ * while it is pending (fill.ts `plantedGen`, admitted by the reference as planted). */
+const aims: ReadonlyArray<readonly [ClusterSituation, Planted]> = [
+	["a tree owning an ordered family", "tree with an ordered family"],
+	["a tree owning a counted family", "tree with a counted family"],
+	["a counted member's copy of a tree node's end", "counted copy of a tree's end"],
+	["a counted family of nested owners", "counted family of a nested owner"],
+	["a counted member that is an ordered family's", "counted ordered member"],
+	["a counted member that is a tree's node", "counted tree node"],
+	["a counted member that owns a sequence", "counted sequence owner"],
+	["a copy along a counted family of a column after a sequence", "counted copy of an end"],
+	["a copy of a sibling sequence's end", "sibling's end"],
+	["an owner put in place beside an append to its family", "mutable owner"]
+]
+
+/** The case a witness runs: its drawn one, or, while a situation `aims` plants is pending, a planted one. */
+const aimedCase = (drawnCase: ClusterCase, c: Case<ClusterSituation>): ClusterCase => {
+	const pending = Option.getOrUndefined(c.steering)
+	const aim = Arr.findFirst(aims, ([situation]) => pending?.has(situation) === true)
+	return Option.isNone(aim) ? drawnCase : c.draw(caseOver(plantedBeside(aim.value[1])))
 }
 
 layer(Substrate.layer, { excludeTestServices: true })("the fill order on the cluster", (it) => {
@@ -207,8 +265,9 @@ layer(Substrate.layer, { excludeTestServices: true })("the fill order on the clu
 							name: "the reference writer (test/support/families/fill.ts writtenRows)"
 						}
 					},
-					({ spec, rows, followUp }, c) =>
+					(drawnCase, c) =>
 						Effect.gen(function* () {
+							const { spec, rows, followUp } = aimedCase(drawnCase, c)
 							const built = buildFill(spec)
 							const declared = built.rename("Fill")
 							const done = yield* installMigrated(declared, {

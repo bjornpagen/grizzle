@@ -103,6 +103,8 @@ describe("derived relation view columns", () => {
 					ctx,
 					exhaust(
 						{
+							box: { kind: "unstated" },
+							oracle: { kind: "unstated" },
 							suite: "unit/derived/head-identifiers",
 							generator: space,
 							literal: Formatter.format,

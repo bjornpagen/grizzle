@@ -96,6 +96,8 @@ describe("the attachment fusion rule", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/lower/shapes/attach/fusion",
 						literal: Formatter.format,
 						/** Every correlated column, every set of the other columns as further child fields, both parents. */
@@ -286,6 +288,7 @@ describe("the fused attachment codec", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/lower/shapes/attach/fused-texts",
 						literal: Formatter.format,
 						kept: [],
@@ -353,6 +356,7 @@ describe("the fused attachment codec", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/lower/shapes/attach/array-text",
 					literal: Formatter.format,
 					kept: [],

@@ -115,6 +115,7 @@ describe("derived field inference", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/derived/fields",
 						draw: drawn(caseSketchGen),
 						literal: Formatter.format,

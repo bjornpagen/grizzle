@@ -391,6 +391,7 @@ describe("PL/pgSQL through the line sink", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/sql/pl-width",
 						draw: drawn(blockSketch),
 						literal: Formatter.format,
@@ -456,6 +457,7 @@ describe("dollar quoting", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/sql/dollar-tag",
 						draw: drawn(plBlockGen),
 						literal: Formatter.format,
@@ -515,6 +517,7 @@ describe("a commented alternative", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/sql/commented",
 						draw: drawn(commentable),
 						literal: Formatter.format,
@@ -616,6 +619,7 @@ describe("identifiers, types and literals", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/sql/quote-ident",
 					draw: drawn(nameGen),
 					literal: Formatter.format,
@@ -648,6 +652,7 @@ describe("identifiers, types and literals", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/sql/float-literal",
 						/**
 						 * The finite doubles, every scale as likely, and the specials, which a finite draw never holds and -0 which it

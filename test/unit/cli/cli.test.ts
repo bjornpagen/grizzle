@@ -523,6 +523,7 @@ describe("the command line, generated", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/cli/grammar",
 						draw: drawn(spelledGen),
 						literal: Formatter.format,
@@ -551,6 +552,7 @@ describe("the command line, generated", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/cli/grammar-faults",
 						draw: drawn((source): Fault => source.draw(faultsOf(source.draw(spelledGen)))),
 						literal: Formatter.format,
@@ -584,6 +586,7 @@ describe("the command line, generated", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/cli/grammar-help",
 					draw: drawn((source): ReadonlyArray<string> => {
 						const argv = source.draw(

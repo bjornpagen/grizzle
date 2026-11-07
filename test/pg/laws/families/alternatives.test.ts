@@ -66,6 +66,8 @@ layer(Substrate.layer, { excludeTestServices: true })(
 					ctx,
 					exhaust(
 						{
+							box: { kind: "unstated" },
+							oracle: { kind: "unstated" },
 							suite: "laws/alternatives/armed-handles",
 							literal: Formatter.format,
 							generator: element(armedHandles),

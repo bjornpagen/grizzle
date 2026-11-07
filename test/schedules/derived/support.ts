@@ -623,6 +623,7 @@ export const derivedRaceSuite = (spec: {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: spec.suite,
 						draw: drawn(spec.draw),
 						literal: Formatter.format,

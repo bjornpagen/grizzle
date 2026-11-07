@@ -187,18 +187,23 @@ const deliveredAt = (c: SelectCore, e: Expr): Expr | undefined => {
 	return Option.isSome(at) ? targets[at.value]?.expr : undefined
 }
 
-/** Whether a source holds at most one row: a context source, or a derived table whose query is a set of constant rows. */
+/**
+ * Whether a source holds at most one row: a context source, or a derived table whose query is one set core of constant
+ * rows or of a shape that shows one row (oneRowShape), as an operation's operand binding read laterally does (total.ts
+ * bindOperands).
+ */
 const atMostOneRow = (s: FromSource): boolean =>
 	s.kind === "context" ||
 	(s.kind === "derived" &&
 		isSetQuery(s.query) &&
 		s.query.body.kind === "core" &&
-		Arr.every(s.query.body.targets, (t) => t.expr.kind === "literal"))
+		(Arr.every(s.query.body.targets, (t) => t.expr.kind === "literal") ||
+			oneRowShape(s.query.body)))
 
 /**
  * Whether a core shows by its own shape that it holds at most one row: no FROM; a FROM of sources of at most one row
- * each, a context source or a set of constant rows; aggregates and no GROUP BY; or a GROUP BY of constants, each a
- * literal a derived table of its FROM delivers, one group at most.
+ * each, a context source, a set of constant rows or a derived table of one row by its own shape; aggregates and no
+ * GROUP BY; or a GROUP BY of constants, each a literal a derived table of its FROM delivers, one group at most.
  */
 const oneRowShape = (c: SelectCore): boolean => {
 	const aggregates = Arr.some(c.targets, (t) => anyCall(t.expr, isAggregate))

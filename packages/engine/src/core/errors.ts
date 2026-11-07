@@ -27,6 +27,7 @@ import {
 import type { DeclaredName } from "#compiler/core/identity.ts"
 import type { ConstraintName, LawId } from "#compiler/core/ids.ts"
 import { formatLoc, formatPath, prefixedLoc, type SourceLoc } from "#compiler/core/loc.ts"
+import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 
 /** A path inside a value: object keys and array indices. */
 type Path = ReadonlyArray<string | number>
@@ -172,7 +173,8 @@ const boundText = (bound: CompileBound): string => {
 /**
  * What a partial operation needs of its operands beyond their types (scalar/compute/registry.ts Precondition, by
  * kind): a nonzero divisor, a nonnegative radicand, a finite operand, a value that fits its target, a contract that
- * holds, a text inside a refinement's language, power's domain, width_bucket's domain, a parse's lexical form.
+ * holds, a text inside a refinement's language, power's base's sign and its result's range, width_bucket's domain, a
+ * parse's lexical form.
  */
 export type PreconditionKind =
 	| "nonzero"
@@ -182,15 +184,19 @@ export type PreconditionKind =
 	| "contract"
 	| "language"
 	| "powerDomain"
+	| "powerRange"
 	| "bucketDomain"
 	| "lexical"
 
 /**
  * The test a PartialOperation's guard puts in Compute.when over its operand, which fits the operand's type: over a
- * number, Compute.nonzero, Compute.nonnegative, Compute.isFinite, or Compute.within between the bounds the operation is
- * defined within; over a text, Compute.matches against the target's pattern or its lexical form; and, where no Compute
- * test proves the precondition of the operand's type (a contract's predicate over a text, a boolean, a uuid or a
- * date), none: a value of the target's own type, a parameter its binding checks or a literal its admission judges.
+ * number, Compute.nonzero, Compute.nonnegative, Compute.positive, Compute.isFinite, or Compute.within between the bounds
+ * the operation is defined within; over a text, Compute.matches against the target's pattern or its lexical form, or a
+ * bound on its UTF-8 bytes at the target's str.bytes bound, Compute.within(Compute.octetLength(x), 0, bytes), where
+ * octetLength stands;
+ * and, where no Compute test proves the precondition of the operand's type (a contract's predicate over a text, a
+ * boolean, a uuid or a date), none: a value of the target's own type, a parameter its binding checks or a literal its
+ * admission judges.
  * Where a fact precondition's operand is of a contract whose predicate implies the fact but does not declare it, the
  * remedy is no guard but the declaration: the fact added to that contract's `proves`, since a contract's facts are
  * exactly the ones it declares.
@@ -198,9 +204,11 @@ export type PreconditionKind =
 export type GuardTest =
 	| { readonly kind: "nonzero" }
 	| { readonly kind: "nonnegative" }
+	| { readonly kind: "positive" }
 	| { readonly kind: "isFinite" }
 	| { readonly kind: "within" }
 	| { readonly kind: "matches"; readonly pattern: "target" | "lexicalForm" }
+	| { readonly kind: "octets"; readonly bytes: number }
 	| { readonly kind: "typed" }
 	| { readonly kind: "proves"; readonly contract: string }
 
@@ -232,7 +240,9 @@ const preconditionText = (kind: PreconditionKind, operand: string): string => {
 		case "language":
 			return `${operand}'s language lies inside its target's pattern`
 		case "powerDomain":
-			return `${operand} lies where power is defined and in range`
+			return `${operand} is never negative, and never zero or raised to no negative power`
+		case "powerRange":
+			return `power over ${operand} stays inside its result's range`
 		case "bucketDomain":
 			return `${operand} lies where width_bucket is defined`
 		case "lexical":
@@ -350,6 +360,10 @@ const duplicateText = (duplicate: Duplicate): string => {
  *   relation or by an edit of a family it owns or is a member of, and the cascade carries the change on into `copies`,
  *   in order; the value `reader`, which a family draws from the last of them only when its row is written, reads it,
  *   so the change would leave that value stale (write/family/redraw.ts).
+ * - `UnorderableStratum`: a stratum's writes `cycle`, each of which an immediate key or foreign key between them must
+ *   run before the next, and the last before the first (write/frontend/schedule.ts), so no order of the stratum's
+ *   statements keeps every key at every statement: an action's insert, put or delete, or a family statement's insert,
+ *   update in place or delete of a member's rows, or count of an owner's.
  * - `UndeclaredDrop`: a migration drops `dropped`, which the previous installation holds and the schema no longer
  *   declares, and no declaration of the draft (`--rename`, `--drop`) names it.
  */
@@ -513,6 +527,14 @@ export type CompileReason =
 			readonly copies: ReadonlyArray<ColumnName>
 			readonly reader: DerivedReader
 	  }
+	| {
+			readonly _tag: "UnorderableStratum"
+			readonly at: SourceLoc
+			readonly cycle: NonEmptyReadonlyArray<{
+				readonly relation: string
+				readonly op: "insert" | "put" | "delete" | "update" | "count"
+			}>
+	  }
 export type CompileReasonTag = CompileReason["_tag"]
 
 /** The reasons whose one fact is a sentence: built by prose (a check's or builder's refusal helper). */
@@ -548,7 +570,7 @@ const droppedText = (d: Dropped): string => {
  * A fold reads each fact its rule matches once, by a key, so a match that binds no key of its source would fold a
  * projection of its facts: name the key to bind, and the form that folds distinct values.
  */
-export const foldOverProjectionText = (source: string, key: ReadonlyArray<string>): string =>
+const foldOverProjectionText = (source: string, key: ReadonlyArray<string>): string =>
 	`a fold reads each fact it matches once, by its key, and this match of ${source} binds none of its keys: bind (${key.join(", ")}) in the match, or, to fold distinct values, match a query of them as the source`
 
 /**
@@ -658,6 +680,8 @@ export const compileReasonText = (reason: CompileReason): string => {
 			return `${reason.op === "put" ? "a put of" : "an insert into"} ${reason.member} appends to the family ${reason.family.owner}.${reason.family.count}, whose copy ${reason.copy} reads ${reason.owner}'s ${reason.through}, which ${reason.owner} copies from ${reason.changed}; the same stratum ${reason.by === "put" ? "puts" : "edits a family of"} ${reason.changed}, whose change reaches ${reason.owner} by cascade only after the family's rows are drawn from ${reason.owner} as the read found it: change ${reason.changed} in a ChangeSet applied before this one`
 		case "StaleDerivedRead":
 			return staleDerivedReadText(reason)
+		case "UnorderableStratum":
+			return `the stratum's ${reason.cycle.map((w) => `${w.op} of ${w.relation}`).join(", then ")} must each run before the next, and the last before the first, by the immediate keys and foreign keys between them, so no order of its statements keeps them all: write one of them in another stratum (ChangeSet.sequence)`
 		case "UndeclaredDrop": {
 			const spelled = droppedText(reason.dropped)
 			return `${spelled} is dropped but not declared: declare it with --drop ${spelled}, or --rename it`

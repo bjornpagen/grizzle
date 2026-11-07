@@ -347,6 +347,7 @@ describe("shapes", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/ir/shape-broken",
 						literal: Formatter.format,
 						draw: drawn((source) => ({
@@ -397,6 +398,7 @@ describe("shapes", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/ir/shape-conform",
 						literal: Formatter.format,
 						draw: drawn((source) => ({
@@ -491,6 +493,7 @@ describe("shapes", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/ir/shape-idempotent",
 					literal: Formatter.format,
 					draw: drawn(liveGen),
@@ -530,6 +533,7 @@ describe("shapes", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/ir/shape-record-keys",
 					literal: Formatter.format,
 					draw: drawn(
@@ -573,6 +577,7 @@ describe("shapes", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/ir/shape-unreadable",
 					literal: Formatter.format,
 					draw: drawn((source) => ({
@@ -623,6 +628,8 @@ describe("shapes", () => {
 			ctx,
 			exhaust(
 				{
+					box: { kind: "unstated" },
+					oracle: { kind: "unstated" },
 					suite: "unit/ir/shape-defect-escapes",
 					literal: Formatter.format,
 					generator: (source) =>
@@ -689,6 +696,7 @@ describe("shapes", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/ir/shape-refinements",
 						literal: Formatter.format,
 						draw: drawn((source) => ({

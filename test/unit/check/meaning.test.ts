@@ -277,6 +277,7 @@ describe("the builder and the checker", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/check/meaning",
 						draw: drawn(caseSketchGen),
 						literal: Formatter.format,

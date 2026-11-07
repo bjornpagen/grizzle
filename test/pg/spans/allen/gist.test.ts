@@ -259,6 +259,7 @@ FROM generate_series(0, ${size.rooms * size.perRoom - 1}) AS i`,
 					const installs = new Map(installedSizes)
 					return yield* explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "spans/allen-gist",
 							draw: drawn(planSketchGen),
 							literal: Formatter.format,

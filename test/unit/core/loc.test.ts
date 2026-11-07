@@ -145,6 +145,7 @@ describe("stack frame parsing", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/core/loc-frames",
 						draw: drawn(array(oneOf<Frame | string>([frameGen, noSiteGen]), { min: 1, max: 8 })),
 						literal: Formatter.format,
@@ -258,6 +259,7 @@ describe("call-site capture", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/core/loc-capture",
 						draw: drawn((source) => ({
 							label: source.draw(string(codePoint(0x20, 0x7e), { min: 0, max: 8 })),
@@ -353,6 +355,7 @@ describe("SourceLoc", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/core/loc-structure",
 						draw: drawn(
 							(source) =>
@@ -434,6 +437,7 @@ describe("SourceLoc", () => {
 					ctx,
 					explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "unit/core/loc-within",
 							draw: drawn((source) => ({
 								label: source.draw(string(codePoint(0x20, 0x7e), { min: 0, max: 6 })),

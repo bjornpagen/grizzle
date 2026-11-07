@@ -18,7 +18,8 @@ import {
 	type RelationValue
 } from "#test/support/oracle/reference/evaluate.ts"
 import { RecordingReference } from "#test/support/oracle/reference/evaluations.ts"
-import { type Row, rowKey } from "#test/support/oracle/reference/values.ts"
+import { Identities, type Interned } from "#test/support/oracle/reference/identity.ts"
+import { type Row, rowIdentity } from "#test/support/oracle/reference/values.ts"
 
 /**
  * Shared helpers for the physical analysis tests: running the analysis, and a fragment evaluator that computes the rows
@@ -205,10 +206,11 @@ export const uniqueOn = (
 	rows: ReadonlyArray<Row>,
 	columns: ReadonlyArray<string>
 ): boolean => {
-	const seen = new Set<string>()
+	const identities = new Identities()
+	const seen = new Set<Interned>()
 	for (const row of rows) {
 		const p = projectTo(heading, columns, row)
-		const k = rowKey(p.row, p.heading)
+		const k = identities.of(rowIdentity(p.row, p.heading))
 		if (seen.has(k)) {
 			return false
 		}

@@ -1,7 +1,9 @@
 import { keyEvidence } from "#compiler/analysis/physical/evidence.ts"
+import { Refusal } from "#compiler/core/canonical.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
+import { assembledDag } from "#compiler/ir/dag.ts"
 import type { EvidenceCatalog, Grounds } from "#compiler/ir/evidence.ts"
-import { claimedKeyIn } from "#compiler/ir/keys.ts"
+import { keyIn } from "#compiler/ir/keys.ts"
 import {
 	type Cell,
 	type EditRefs,
@@ -12,6 +14,8 @@ import {
 	type VarDecl
 } from "#compiler/ir/rel.ts"
 import { sameScalarType } from "#compiler/ir/scalar.ts"
+import { analyzeLogical, queryEvidence } from "#compiler/logical/annotate.ts"
+import type { Props } from "#compiler/logical/props.ts"
 import { columnRefs } from "#compiler/lower/optimize/demand/editor.ts"
 import type { CatalogEditor } from "#compiler/lower/shapes/catalog/edit.ts"
 
@@ -40,8 +44,8 @@ export interface CatalogOptions {
 
 /**
  * A key a rewrite relies on, with the grounds the rewrite's certificate records: a stored relation's declared key on
- * its installed constraint, a stage's logical key on its KeyProof's grounds, or a key a rewrite claims of a node it
- * built on that node. It carries no derivation (ir/keys.ts KeyProof says why).
+ * its installed constraint, or a stage's logical key on its KeyProof's grounds, a node a rewrite built among them. It
+ * carries no derivation (ir/keys.ts KeyProof says why).
  */
 export interface KeyGrounds extends Grounds {
 	readonly key: KeySet
@@ -122,23 +126,52 @@ export class CatalogContext {
 	}
 
 	/**
+	 * The logical properties of `cell` as the cells stand now: a fresh analysis (logical/annotate.ts analyzeLogical) of
+	 * the DAG the roots reach when they reach `cell`, so a node under an attachment is read relative to its parent; else,
+	 * a node a rewrite is still building, of the cells it reaches alone. It runs under the evidence the optimized input is
+	 * annotated with (lower/optimize/pipeline.ts optimizedInput, queryEvidence), so a node a rewrite built is keyed by
+	 * what the analysis proves of it, as every other node is.
+	 */
+	propsOf(cell: Cell): Props {
+		const finished = this.ed.finished()
+		const node = finished.node(cell)
+		const analysis = analyzeLogical(
+			this.ed.reachable().has(cell) ? finished.dag : assembledDag([node] as const),
+			queryEvidence
+		)
+		if (!analysis.ok) {
+			throw new Refusal(analysis.error)
+		}
+		return analysis.value.of(node).props
+	}
+
+	/**
+	 * The keys of the rows `cell` holds: a stored relation's declared keys, its primary key first, or the minimal keys the
+	 * analysis proves of any other node (propsOf).
+	 */
+	keysOf(cell: Cell): ReadonlyArray<KeySet> {
+		const node = cell.current
+		return node.kind === "Base"
+			? [node.primaryKey, ...node.keys]
+			: this.propsOf(cell).keys.map((proof) => proof.key)
+	}
+
+	/**
 	 * A key of `source` the columns `covered` contain, with the evidence that makes it hold: a stored relation's declared
 	 * key through its installed constraint, which holds at every statement (analysis/physical/evidence.ts keyEvidence);
-	 * or a stage's logical key, on the premises and in the context its proof rests on, as a world relation's keys are its
-	 * definition's, which no constraint of its view installs; or a key a rewrite claims of a node it built, which rests on
-	 * that node. A logical key is read through its classes: the columns `covered` holds of each (ir/keys.ts keyIn).
+	 * or a logical key the analysis proves of it now (propsOf), a node a rewrite built included, on the premises and in
+	 * the context its proof rests on, as a world relation's keys are its definition's, which no constraint of its view
+	 * installs. A logical key is read through its classes: the columns `covered` holds of each (ir/keys.ts keyIn).
 	 */
 	keyWithin(sourceCell: Cell, covered: ReadonlySet<string>): KeyGrounds | undefined {
 		const source = sourceCell.current
 		if (source.kind === "Base" && source.relationKind !== "world") {
 			return this.#declaredKeyWithin(source, covered)
 		}
-		for (const claimed of source.meta.logicalKeys) {
-			const key = claimedKeyIn(claimed, (c) => covered.has(c))
+		for (const proof of this.propsOf(sourceCell).keys) {
+			const key = keyIn(proof, (c) => covered.has(c))
 			if (key !== undefined) {
-				return claimed.kind === "proved"
-					? { key, premises: claimed.proof.premises, context: claimed.proof.context }
-					: { key, premises: [{ kind: "node", node: sourceCell.id }], context: "queryLocal" }
+				return { key, premises: proof.premises, context: proof.context }
 			}
 		}
 		return undefined

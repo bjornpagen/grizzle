@@ -143,6 +143,8 @@ const exhaustUpTo = (
 	const installs = new Map(Arr.map(among, (variant) => [variant, installed(variant)] as const))
 	return exhaust(
 		{
+			box: { kind: "unstated" },
+			oracle: { kind: "unstated" },
 			suite: `unit/lower/rewrite/universe-${grammar.name}-${operators}`,
 			generator: (source) =>
 				[source.draw(element(among)), source.draw(plansUpTo(grammar, operators))] as const,

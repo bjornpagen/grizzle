@@ -62,7 +62,7 @@ const columnsOf = (
  * The table and its columns are the installation's own names (Installed.names), the authority the lowerings emit, so a
  * test never spells or re-derives one. A row grizzle stored that the strict reader refuses is a defect, never a value,
  * and so is a NULL cell: no field of an installed relation is nullable. The rows come in the server's order, which a
- * heap does not fix: callers compare them by `find`/`filter`, or as sets (@grizzle/testing/oracle `set(exact)`,
+ * heap does not fix: callers compare them by `find`/`filter`, or as sets (@grizzle/testing/oracle `set(structuralHash, exact)`,
  * which fails on a repeated row), never by position.
  *
  * Every stored row of `relation` in `installed`, read as the owner.

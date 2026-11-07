@@ -123,6 +123,7 @@ describe("the worked example's workload in the installation", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/workload/install-sub",
 						/**
 						 * The empty workload most sub-workloads never are, weighted in and planted: one case in three, since the

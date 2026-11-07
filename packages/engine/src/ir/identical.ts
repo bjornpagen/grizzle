@@ -219,6 +219,7 @@ const identicalPrecondition = (a: Precondition, b: Precondition): boolean => {
 		case "contract":
 		case "language":
 		case "powerDomain":
+		case "powerRange":
 		case "bucketDomain":
 		case "lexical":
 			return b.kind === a.kind

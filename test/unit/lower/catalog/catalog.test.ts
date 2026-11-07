@@ -197,6 +197,8 @@ describe("R26: the lexicographic comparison in any spelling", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/lower/catalog/lexicographic-spellings",
 						literal: Formatter.format,
 						generator: (source) =>
@@ -344,6 +346,8 @@ describe("R26 and R41: the self-match's own conditions", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/lower/catalog/self-match-conditions",
 						literal: Formatter.format,
 						generator: selfMatchShapes,
@@ -419,6 +423,8 @@ describe("R29 and R30: percentiles", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/lower/catalog/discrete-percentile",
 						literal: Formatter.format,
 						generator: (source) =>
@@ -465,6 +471,8 @@ describe("R29 and R30: percentiles", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/lower/catalog/continuous-percentile",
 						literal: Formatter.format,
 						generator: (source) =>
@@ -498,6 +506,8 @@ describe("R31: the mode", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/lower/catalog/mode",
 						literal: Formatter.format,
 						generator: (source) =>
@@ -593,6 +603,8 @@ describe("R27 and R42: neighbors under the parent-set policy", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/lower/catalog/neighbor-parents",
 						literal: Formatter.format,
 						generator: (source) => [source.draw(neighbors), source.draw(policies)] as const,
@@ -627,6 +639,8 @@ describe("R27 and R42: neighbors under the parent-set policy", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/lower/catalog/as-of-edits",
 						literal: Formatter.format,
 						generator: (source) =>
@@ -732,6 +746,8 @@ describe("R28: shares", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/lower/catalog/share",
 						literal: Formatter.format,
 						generator: shares,
@@ -787,6 +803,8 @@ describe("determinism and the catalog pass", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/lower/catalog/determinism",
 						literal: Formatter.format,
 						generator: compositions,

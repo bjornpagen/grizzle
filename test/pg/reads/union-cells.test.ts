@@ -13,7 +13,7 @@ import {
 	shuffled,
 	weighted
 } from "@grizzle/testing/gen"
-import { type Equivalence, set } from "@grizzle/testing/oracle"
+import { type Equivalence, set, structuralHash } from "@grizzle/testing/oracle"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -377,7 +377,7 @@ const distinctRecords = (records: ReadonlyArray<unknown>): ReadonlyArray<unknown
 const armsAlone = (arms: ReadonlyArray<ReadonlyArray<unknown>>): ReadonlyArray<unknown> => {
 	for (const delivered of arms) {
 		assert.deepEqual(
-			set(sameRecord)(delivered, distinctRecords(delivered)),
+			set(structuralHash, sameRecord)(delivered, distinctRecords(delivered)),
 			Option.none(),
 			`an arm alone delivered ${printRecords(delivered)}`
 		)
@@ -534,6 +534,7 @@ layer(Substrate.layer)("union cells", (it) => {
 							Effect.flatMap(rows.execute(q, {}), (result) => result.collect)
 						return yield* explore(
 							{
+								oracle: { kind: "unstated" },
 								suite: "pg/reads/union-cells",
 								draw: drawn(caseGen),
 								literal: Formatter.format,
@@ -585,7 +586,7 @@ layer(Substrate.layer)("union cells", (it) => {
 										const second = yield* records(queryOver(Cells).rule(b))
 										const alone = armsAlone([first, second])
 										assert.deepEqual(
-											set(sameRecord)(delivered, alone),
+											set(structuralHash, sameRecord)(delivered, alone),
 											Option.none(),
 											`the union delivered ${printRecords(delivered)}; its arms alone ${printRecords(alone)}`
 										)
@@ -596,7 +597,7 @@ layer(Substrate.layer)("union cells", (it) => {
 									const armRecords = yield* Effect.forEach(arms, (arm) => records(unionOf([arm])))
 									const alone = armsAlone(armRecords)
 									assert.deepEqual(
-										set(sameRecord)(union, alone),
+										set(structuralHash, sameRecord)(union, alone),
 										Option.none(),
 										`the union delivered ${printRecords(union)}; its arms alone ${printRecords(alone)}`
 									)

@@ -1,0 +1,44 @@
+DRAFT: github.com/microsoft/TypeScript issue, its headings those of the bug template. Not filed. The sections marked OPEN
+need a captured stall (NOTES.txt 3).
+
+Title: tsc (TypeScript 7) never finishes a check, idle at 0% CPU, on a program with a type error
+
+### Search Terms
+
+tsc hang, 0% CPU, deadlock, never finishes, stuck, goroutine, checker, TypeScript 7, native
+
+### Version & Regression Information
+
+- This is the behaviour in 7.1.0-beta. OPEN: the version of the compiler that reproduces it unpatched
+  (`npx -p typescript@next tsc --v`), and whether 7.0 stalls too.
+
+### Playground Link
+
+None: the stall needs the compiler's process, not the language service.
+
+### Code
+
+OPEN: the fewest files and the tsconfig that still stall, shrunk from the program the stalled check was given.
+
+### Actual behavior
+
+`tsc -p tsconfig.json` on the program never ends. The process stays alive with no output and its CPU time stops
+growing: read every second with `ps -o time=`, it does not move for as long as it is watched. A check of a similar size
+without the error makes CPU progress at every 100 ms reading and ends in seconds.
+
+Sent SIGQUIT, the process prints every goroutine's stack and exits. OPEN: attach that dump (dump.txt). The goroutines it
+shows blocked, and where:
+
+  OPEN
+
+### Expected behavior
+
+The check ends and prints the program's diagnostics, as it does for the same program with the error fixed.
+
+### Additional information about the issue
+
+- Platform: macOS on arm64. `tsc` is started through the npm launcher (node bin/tsc), which replaces itself with the
+  native binary (process.execve). The binary reports Go 1.27.3.
+- Checkers: OPEN. Whether it stalls with the default four checkers, with `--checkers 1`, and with `--singleThreaded`.
+- Found by a test harness that runs one large program of type-test fixtures. The harness now stops a check whose CPU
+  time does not move for 30 s and asks it for the goroutine dump above, so the stall no longer hangs the run.

@@ -426,6 +426,13 @@ const normGen: Gen<number> = oneOf([
 	map(double(Math.log2(cosineNormMin.value), Math.log2(cosineNormMax.value)), (e) => 2 ** e)
 ])
 
+/**
+ * A norm well inside the cosine domain, any power of two from 2^-20 to 2^20. pgvector sums a cosine's squares in
+ * binary32, so a probe near the least norm has a finite distance but not one near the host's binary64 distance; the
+ * bounds themselves are probed by the axes, whose one square is exact.
+ */
+const ordinaryNormGen: Gen<number> = map(double(-20, 20), (e) => 2 ** e)
+
 /** A vector of the domain: a norm and a direction. */
 interface VectorDraw {
 	readonly norm: number
@@ -660,7 +667,7 @@ layer(Substrate.layer)("exact cosine distance", (it) => {
 						})),
 						drawn: (source): ProbeSketch => ({
 							kind: "drawn",
-							norm: source.draw(normGen),
+							norm: source.draw(ordinaryNormGen),
 							direction: source.draw(directionGen(4))
 						}),
 						bound: (source): ProbeSketch => ({
@@ -990,6 +997,7 @@ layer(Substrate.layer)("exact cosine distance", (it) => {
 				const s = yield* Substrate
 				return yield* explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "pg/vector/exact/norm",
 						draw: drawn(array(binary32Vector, { min: 1, max: 100 })),
 						literal: Formatter.format,

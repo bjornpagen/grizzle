@@ -63,28 +63,38 @@ import {
 } from "#adapter/wire/batch.ts"
 import type { SessionPool } from "#adapter/wire/session.ts"
 import { type CatalogQuery as CatalogQueryOf, catalogRows } from "#adapter/wire/statement.ts"
-import { catchCompileError } from "#compiler/core/canonical.ts"
-import { malformedDescription } from "#compiler/core/errors.ts"
-import { identifierOf } from "#compiler/core/identity.ts"
-import { SourceLoc } from "#compiler/core/loc.ts"
-import { sqlstates } from "#compiler/core/sqlstate.ts"
-import { manifestStatements } from "#compiler/deploy/admission/manifest.ts"
-import { roleExpectation } from "#compiler/deploy/admission/roles.ts"
-import { snapshotMismatch } from "#compiler/deploy/admission/target.ts"
-import { type LedgerStatements, ledgerStatements } from "#compiler/deploy/ledger/ledger.ts"
-import { emptyFingerprint } from "#compiler/deploy/snapshot/build.ts"
-import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
-import type { RoleDesc } from "#compiler/ir/desc.ts"
-import { contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
-import { structuralRegex } from "#compiler/physical/ddl/domains.ts"
-import { ledgerTableName } from "#compiler/physical/ddl/ledger.ts"
-import { type InstallNames, loginIdentity, missing } from "#compiler/physical/ddl/names.ts"
-import type { SchemaArtifacts } from "#compiler/program/schema.ts"
-import type { OwnedLogin } from "#compiler/schema/own.ts"
-import type { ObjectName } from "#compiler/sql/ast.ts"
-import * as C from "#compiler/sql/catalog.ts"
-import { emitCatalog } from "#compiler/sql/emit.ts"
-import { printObjectName } from "#compiler/sql/print.ts"
+import {
+	C,
+	type InstallNames,
+	loginIdentity,
+	manifestStatements,
+	missing,
+	roleExpectation,
+	snapshotMismatch,
+	structuralRegex
+} from "#compiler/plan/catalog.ts"
+import {
+	catchCompileError,
+	contractOf,
+	emitCatalog,
+	identifierOf,
+	malformedDescription,
+	type ObjectName,
+	type OwnedLogin,
+	printObjectName,
+	type RoleDesc,
+	type ScalarType,
+	type SchemaArtifacts,
+	SourceLoc,
+	sqlstates
+} from "#compiler/plan/common.ts"
+import {
+	type DeploySnapshot,
+	emptyFingerprint,
+	ledgerStatements,
+	type LedgerStatements,
+	ledgerTableName
+} from "#compiler/plan/migration.ts"
 
 /** A claim PostgreSQL refused: its context and field. */
 interface RefusedClaim {

@@ -25,6 +25,7 @@ describe("unquoteLiteral", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/oracle-install/capture-1",
 					/** Any Unicode scalar value, never a lone surrogate. */
 					draw: drawn(string(unicodeScalar, { min: 0, max: 10 })),

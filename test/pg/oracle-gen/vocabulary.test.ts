@@ -322,6 +322,8 @@ layer(Substrate.layer)("the generators against PostgreSQL 19", (it) => {
 				yield* s.admin.query(rosterDomainSql(schema, "K0", 3), [])
 				return yield* exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "oracle-gen/value-classes",
 						generator: element(generatedTypes),
 						literal: Formatter.format,
@@ -363,6 +365,7 @@ layer(Substrate.layer)("the generators against PostgreSQL 19", (it) => {
 				const s = yield* Substrate
 				return yield* explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "oracle-gen/facts",
 						draw: drawn(queryCaseGen(defaultGenConfig)),
 						literal: Formatter.format,

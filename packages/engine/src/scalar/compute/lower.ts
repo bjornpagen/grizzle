@@ -75,6 +75,8 @@ import {
 	contractOf,
 	type ContractInfo,
 	isRefined,
+	languageOctets,
+	languageWithin,
 	numericBoundOf,
 	numericMaxDisplayScale,
 	numericMaxFractionDigits,
@@ -88,7 +90,9 @@ import {
 	type RegexRef,
 	type TextInfo,
 	textOf,
-	typeLabel
+	typeLabel,
+	wildcardFlags,
+	wildcardSource
 } from "#compiler/ir/scalar.ts"
 import {
 	absBounds,
@@ -100,6 +104,7 @@ import {
 	exactOfDecimal,
 	exactOfDouble,
 	type FactSet,
+	floorOfExact,
 	factPremise,
 	finiteEnds,
 	finitePremise,
@@ -892,9 +897,8 @@ const mapText = <R extends Refs>(
 				`a text literal as translate's ${which}, which states its map when the schema compiles, not a ${desc.kind}`
 			)
 
-/** The guard a refusal names, for the precondition it lacks. */
 /** Whether Compute.within guards a value of `carrier`: a number's, the numeric family (scalar/compute/tables.ts). */
-const withinGuards = (carrier: Carrier): boolean => {
+export const withinGuards = (carrier: Carrier): boolean => {
 	switch (carrier) {
 		case "int2":
 		case "int4":
@@ -930,7 +934,8 @@ const withinGuards = (carrier: Carrier): boolean => {
 const guardTest = (
 	precondition: PreconditionKind,
 	operand: Lowered | undefined,
-	target: ScalarType
+	target: ScalarType,
+	mode: LowerEnv["mode"]
 ): GuardTest => {
 	switch (precondition) {
 		case "nonzero":
@@ -945,22 +950,52 @@ const guardTest = (
 				: { kind: "proves", contract: contract.name }
 		}
 		case "fits":
-		case "powerDomain":
+		case "powerRange":
 		case "bucketDomain":
 			return { kind: "within" }
+		case "powerDomain":
+			return { kind: "positive" }
 		case "contract":
 			return operand !== undefined && withinGuards(valueType(operand.nominal).carrier)
 				? { kind: "within" }
 				: { kind: "typed" }
-		case "language": {
-			const refinement = refinementOf(target)
-			return refinement !== undefined && octetsOf(refinement.check) !== undefined
-				? { kind: "typed" }
-				: { kind: "matches", pattern: "target" }
-		}
+		case "language":
+			return languageRemedy(operand, target, mode)
 		case "lexical":
 			return { kind: "matches", pattern: "lexicalForm" }
 	}
+}
+
+/**
+ * The remedy of a cast into a regex-refined text whose operand's language is not proved inside the target's: where the
+ * operand's bytes are within the target's str.bytes bound, or it has none, its pattern is the shortfall, which
+ * Compute.matches of the target's pattern remedies. Where its bytes are the shortfall, a bound on them at the target's
+ * bound, Compute.within(Compute.octetLength(x), 0, bytes), remedies it once its pattern lies inside the target's, and
+ * the match first where it does not; a byte bound stands only where octetLength does, so in a query only a value of the
+ * target's type remedies it.
+ */
+const languageRemedy = (
+	operand: Lowered | undefined,
+	target: ScalarType,
+	mode: LowerEnv["mode"]
+): GuardTest => {
+	const refinement = refinementOf(target)
+	const octets = refinement === undefined ? undefined : octetsOf(refinement.check)
+	const text = operand === undefined ? undefined : textOf(operand.nominal)
+	if (refinement === undefined || octets === undefined || text === undefined) {
+		return { kind: "matches", pattern: "target" }
+	}
+	if (text.byteBound !== undefined && text.byteBound <= octets) {
+		return { kind: "matches", pattern: "target" }
+	}
+	if (mode === "query") {
+		return { kind: "typed" }
+	}
+	const inner =
+		text.regex === "wildcard" ? { source: wildcardSource, flags: wildcardFlags } : text.regex
+	return patternIncludes(inner, refinement).kind === "included"
+		? { kind: "octets", bytes: octets }
+		: { kind: "matches", pattern: "target" }
 }
 
 /** The Compute test that proves each fact of its subject. */
@@ -1027,6 +1062,8 @@ const guardOf = (
 			return { remedy, text: when(`Compute.nonzero(${operand})`) }
 		case "nonnegative":
 			return { remedy, text: when(`Compute.nonnegative(${operand})`) }
+		case "positive":
+			return { remedy, text: when(`Compute.positive(${operand})`) }
 		case "isFinite":
 			return { remedy, text: when(`Compute.isFinite(${operand})`) }
 		case "within":
@@ -1044,6 +1081,11 @@ const guardOf = (
 						remedy,
 						text: `a text whose type proves the target's lexical form, str.regex(lexicalForm(<target>)) or a refinement of it, or ${when(`Compute.matches(${operand}, lexicalForm(<target>))`)}`
 					}
+		case "octets":
+			return {
+				remedy,
+				text: `Compute.when(Compute.within(Compute.octetLength(${operand}), 0, ${remedy.bytes}), () => ${operation}, <your value>)`
+			}
 		case "typed":
 			return {
 				remedy,
@@ -1380,7 +1422,7 @@ class Lowering<R extends Refs> {
 					operand: text,
 					guard: guardOf(
 						precondition.kind,
-						guardTest(precondition.kind, named, target),
+						guardTest(precondition.kind, named, target, this.env.mode),
 						text,
 						operation
 					)
@@ -1446,7 +1488,15 @@ class Lowering<R extends Refs> {
 				const premises =
 					base === undefined || exponent === undefined
 						? undefined
-						: powerPremises(base, exponent, target)
+						: powerSignPremises(base, exponent)
+				return premises === undefined ? refuse(0) : { precondition, premises }
+			}
+			case "powerRange": {
+				const [base, exponent] = args
+				const premises =
+					base === undefined || exponent === undefined
+						? undefined
+						: powerRangePremises(base, exponent, target)
 				return premises === undefined ? refuse(0) : { precondition, premises }
 			}
 			case "bucketDomain": {
@@ -2543,7 +2593,7 @@ class Lowering<R extends Refs> {
 		const guard = this.guardPredicate(desc.guard, subject, here)
 		const guarded = new Lowering(this.env, [
 			...this.#guards,
-			...this.whenGuard(desc.guard, subject, guard.within, here)
+			...this.whenGuard(desc.guard, desc.subject, subject, guard.within, here)
 		])
 		const onTrue = guarded.term(desc.proved, childLoc(here, "proved"))
 		const onFalse = this.operand(desc.otherwise, onTrue, "compare", childLoc(here, "otherwise"))
@@ -2551,38 +2601,98 @@ class Lowering<R extends Refs> {
 	}
 
 	/**
-	 * What a guard gives its subject inside its branch: a numeric guard its facts and refined interval; a match the
-	 * language of its pattern, the type str.regex(pattern) declares, which compilation reads off the descriptor. A
-	 * builder proves nothing, so in its branch the subject keeps its type.
+	 * What a guard gives its subject inside its branch: a numeric guard its facts and refined interval, and where its
+	 * subject is a text's byte count, Compute.octetLength(x), that text within the interval's high end of bytes as well
+	 * (bytesGuard); a match the language of its pattern within the subject's own byte bound, the type
+	 * str.bytes(bound, str.regex(pattern)) declares, or str.regex(pattern) where the subject has none. A builder proves
+	 * nothing, so in its branch the subject keeps its type.
 	 */
 	whenGuard(
 		guard: GuardDesc,
+		subjectDesc: ExprDesc<Located, R>,
 		subject: Lowered,
 		within: readonly [Exact, Exact] | undefined,
 		at: SourceLoc
 	): ReadonlyArray<WhenGuard> {
+		const env = this.env
 		if (guard.kind !== "matches") {
-			return [
-				{
-					kind: "facts",
-					subject: subject.expr,
-					refinement: guardRefinement(guard, within),
-					facts: guardFacts(guard, within)
-				}
-			]
+			const facts: WhenGuard = {
+				kind: "facts",
+				subject: subject.expr,
+				refinement: guardRefinement(guard, within),
+				facts: guardFacts(guard, within)
+			}
+			if (
+				env.mode === "build" ||
+				within === undefined ||
+				subjectDesc.kind !== "compute" ||
+				subjectDesc.fn !== "octetLength"
+			) {
+				return [facts]
+			}
+			const text = this.term(argOf(subjectDesc, 0, at), childLoc(at, "subject", 0))
+			const bytes = this.bytesGuard(text, within[1], env.patternLanguage, at)
+			return bytes === undefined ? [facts] : [facts, bytes]
 		}
-		if (this.env.mode === "build") {
+		if (env.mode === "build") {
 			return []
 		}
-		const type = unwrap(
-			this.computedText(
-				guard.pattern,
-				matchFlags,
-				this.env.patternLanguage,
-				childLoc(at, "pattern")
-			)
+		const type = this.textWithin(
+			guard.pattern,
+			matchFlags,
+			textOf(subject.nominal)?.byteBound,
+			env.patternLanguage,
+			childLoc(at, "pattern")
 		)
 		return [{ kind: "language", subject: subject.expr, type }]
+	}
+
+	/**
+	 * What a bound on a text's byte count gives the text inside the guard's branch: its pattern's language within
+	 * `high` bytes, none below zero, the type str.bytes(high, its pattern) declares; nothing where its type already
+	 * bounds it so. A wildcard text's pattern is every text's, `^.*$` under `su`.
+	 */
+	bytesGuard(
+		text: Lowered,
+		high: Exact,
+		analyze: TextLookup,
+		at: SourceLoc
+	): WhenGuard | undefined {
+		const info = textOf(text.nominal)
+		const ceiling = floorOfExact(high)
+		const octets = ceiling < 0n ? 0 : Number(ceiling)
+		if (info === undefined || (info.byteBound !== undefined && info.byteBound <= octets)) {
+			return undefined
+		}
+		const pattern =
+			info.regex === "wildcard" ? { source: wildcardSource, flags: wildcardFlags } : info.regex
+		return {
+			kind: "language",
+			subject: text.expr,
+			type: this.textWithin(pattern.source, pattern.flags, octets, analyze, at)
+		}
+	}
+
+	/**
+	 * Text of `source`'s language within `octets` UTF-8 bytes, typed as str.bytes(octets, str.regex(source)) declares it,
+	 * or as str.regex(source) does where no bound is given: the pattern analyzed by `analyze`, the text analysis, and
+	 * cut by ir/scalar.ts languageWithin, so a language and a bound have the one type a declaration of them has.
+	 */
+	textWithin(
+		source: string,
+		flags: "u" | "su",
+		octets: number | undefined,
+		analyze: TextLookup,
+		at: SourceLoc
+	): ScalarType {
+		const pattern = unwrap(analyze(source, flags))
+		const language = octets === undefined ? pattern : languageWithin(pattern, octets)
+		return unwrap(
+			this.env.fieldType(
+				{ kind: "text", source, flags, bytes: languageOctets(language), language },
+				at
+			)
+		)
 	}
 
 	/**
@@ -2634,6 +2744,13 @@ class Lowering<R extends Refs> {
 				}
 			}
 			case "within": {
+				if (!withinGuards(v.carrier)) {
+					return stop(
+						"MalformedDescription",
+						at,
+						`Compute.within over a number, not ${typeLabel(subject.nominal)}`
+					)
+				}
 				const lo = bounded(guard.low)
 				const hi = bounded(guard.high)
 				const low = lo.bounds === undefined ? undefined : pointOf(lo.bounds)
@@ -3742,26 +3859,33 @@ const comparisonDecided = (
 const magnitude = (e: Exact): number => Math.abs(Number(e.units) / 10 ** e.scale)
 
 /**
- * power's premises: its base never below zero (a fact, so no negative base meets a fractional exponent), its base
- * never zero or its exponent never below zero (a fact, so zero meets no negative power), and both operands' finite
- * intervals, small enough that the result stays in range, as powerInRange states over numeric and double precision.
+ * power's sign premises, the facts its TypeScript type states: its base never below zero, so no negative base meets a
+ * fractional exponent, and its base never zero or its exponent never below zero, so zero meets no negative power.
  */
-const powerPremises = (
+const powerSignPremises = (
 	base: Lowered,
-	exponent: Lowered,
-	target: ScalarType
+	exponent: Lowered
 ): NonEmptyReadonlyArray<OperandPremise> | undefined => {
 	const nonnegative = factPremise(0, "nonnegative", base.facts)
 	const nonzero =
 		factPremise(0, "nonzero", base.facts) ?? factPremise(1, "nonnegative", exponent.facts)
+	return nonnegative === undefined || nonzero === undefined ? undefined : [nonnegative, nonzero]
+}
+
+/**
+ * power's range premises, which only the bound domain decides: both operands' finite intervals, small enough that the
+ * result stays in range, as powerInRange states over numeric and double precision.
+ */
+const powerRangePremises = (
+	base: Lowered,
+	exponent: Lowered,
+	target: ScalarType
+): NonEmptyReadonlyArray<OperandPremise> | undefined => {
 	const b = base.bounds === undefined ? undefined : finitePremise(0, base.bounds)
 	const e = exponent.bounds === undefined ? undefined : finitePremise(1, exponent.bounds)
-	if (nonnegative === undefined || nonzero === undefined || b === undefined || e === undefined) {
-		return undefined
-	}
-	return powerInRange(b.low, b.high, e.low, e.high, target)
-		? [nonnegative, nonzero, b, e]
-		: undefined
+	return b === undefined || e === undefined || !powerInRange(b.low, b.high, e.low, e.high, target)
+		? undefined
+		: [b, e]
 }
 
 /**
@@ -3810,7 +3934,7 @@ const powerExpLimit: Limit = derived({
 })
 
 /**
- * Whether power over these intervals stays inside its result carrier, as powerPremises states. Over double precision
+ * Whether power over these intervals stays inside its result carrier, as powerRangePremises states. Over double precision
  * a zero exponent, a base exactly zero, or a result's binary exponent, |e · log2 |b||, at most binary64's greatest over
  * every end of the intervals, so the result is finite (dpow raises 22003 on an infinite result of finite operands)
  * and, binary64's least subnormal exponent lying further from zero, never rounds to zero (it raises 22003 on a zero
@@ -4156,6 +4280,7 @@ export const intervalCastProof = (
 			case "contract":
 			case "language":
 			case "powerDomain":
+			case "powerRange":
 			case "bucketDomain":
 			case "lexical":
 				return undefined

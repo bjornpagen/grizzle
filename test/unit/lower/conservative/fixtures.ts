@@ -9,7 +9,6 @@ import {
 	type ScalarExpr,
 	type TypedLiteral
 } from "#compiler/ir/expr.ts"
-import { rewriteClaim } from "#compiler/ir/keys.ts"
 import type { LogicalQuery, ParamDecl } from "#compiler/ir/products.ts"
 import type {
 	AggregateCallOver,
@@ -27,6 +26,7 @@ import { conservativeMeta, headingOrder } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import type { Uuid } from "#compiler/public/fields.ts"
 import { defined } from "#test/support/assert.ts"
+import { statedKey } from "#test/support/fixtures/ir/build.ts"
 import { closed, f, relation, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import { foldInputOf } from "#test/support/fixtures/ir/fold.ts"
 import { anyNumeric, plainType, scalarOf, wildcardText } from "#test/support/fixtures/ir/scalar.ts"
@@ -534,6 +534,7 @@ export class Q {
 			child,
 			name,
 			correlation: Arr.map(correlation, ([p, c]) => ({ parent: p, child: c })),
+			judged: delivered,
 			heading: parent.heading
 		} as const
 		if (delivered !== "array") {
@@ -594,7 +595,7 @@ export const keyed = (
 	card: "many" | "atMostOne" | "one"
 ): MetaSpec => ({
 	...conservativeMeta,
-	logicalKeys: [rewriteClaim(key, [])],
+	logicalKeys: [statedKey(key)],
 	card
 })
 

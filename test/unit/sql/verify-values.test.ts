@@ -95,6 +95,7 @@ describe("the audit's checks of values, generated", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/sql/audit-identifiers",
 					draw: drawn(oneOf([unitsGen(8), matching(regex("^[a-zé]{28,36}$"))])),
 					literal: Formatter.format,
@@ -127,6 +128,7 @@ describe("the audit's checks of values, generated", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/sql/audit-text-literals",
 					draw: drawn(unitsGen(6)),
 					literal: Formatter.format,
@@ -158,6 +160,7 @@ describe("the audit's checks of values, generated", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/sql/audit-decimals",
 						draw: drawn(
 							oneOf([
@@ -207,6 +210,8 @@ describe("the audit's checks of values, generated", () => {
 			ctx,
 			exhaust(
 				{
+					box: { kind: "unstated" },
+					oracle: { kind: "unstated" },
 					suite: "unit/sql/audit-integers",
 					generator: integerGen,
 					literal: Formatter.format,
@@ -242,6 +247,8 @@ describe("the audit's checks of values, generated", () => {
 			ctx,
 			exhaust(
 				{
+					box: { kind: "unstated" },
+					oracle: { kind: "unstated" },
 					suite: "unit/sql/audit-numeric-typmods",
 					generator: typmodGen,
 					literal: Formatter.format,

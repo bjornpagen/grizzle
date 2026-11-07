@@ -134,7 +134,9 @@ const pick = (fact: HostFact, fields: ReadonlyArray<string>): HostFact =>
 /**
  * The most a refusal's witness may show (README "Errors and outcomes"): the key values of the violating facts, never a payload
  * column; of those, only the keys the caller submitted, in the fields it wrote them in, and the keys of relations its
- * role holds whole. A native violation PostgreSQL reports only in prose shows none. The observed witness may show fewer.
+ * role holds whole. A row check's names its facts by their relation's primary key, as the host judges the facts a
+ * ChangeSet states; a containment or coverage PostgreSQL reports only in prose shows none. The observed witness may
+ * show fewer.
  */
 export const witnessFor = (
 	host: HostSchema,
@@ -143,7 +145,7 @@ export const witnessFor = (
 	submitted: ReadonlyArray<Submitted>
 ): Witness => {
 	const law = lawNamed(host, violation)
-	const witnessed = law === undefined ? undefined : witnessOf(law)
+	const witnessed = law === undefined ? undefined : witnessOf(law, host)
 	if (witnessed === undefined || witnessed.kind === "unnamed") {
 		return { kind: "withheld" }
 	}

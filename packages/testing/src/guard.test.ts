@@ -1,21 +1,19 @@
 import { describe, it } from "@effect/vitest"
 import { deepStrictEqual, strictEqual } from "@effect/vitest/utils"
-import { Array as Arr, Deferred, Duration, Effect, Formatter, Option, Schema } from "effect"
+import { Array as Arr, Duration, Effect, Exit, Formatter, Option } from "effect"
 import { drawn, explore } from "#explore.ts"
-import { awaitFact } from "#fact.ts"
 import { required } from "#features.ts"
-import { array, element, type Gen, int } from "#gen.ts"
+import { array, boolean, element, type Gen, int } from "#gen.ts"
 import {
 	closed,
 	guardHook,
-	LayerHung,
 	type Meter,
 	opened,
 	startedAt,
 	waitingOnShared,
 	workedBy
 } from "#guard.ts"
-import { liveMillis } from "#live.ts"
+import { liveSleep } from "#live.ts"
 import { notesOnly } from "#sense.ts"
 import { searched } from "#vitest/searched.ts"
 
@@ -83,10 +81,81 @@ const notes = (steps: ReadonlyArray<Step>, note: (feature: MeterFeature) => void
 	note(depth > 0 ? "a wait still open at the end" : "work after the last wait")
 }
 
-/** The live clock has moved `millis` past `from`: a fact a concurrent fiber polls, never a sleep. */
-const passed = (from: number, millis: number) =>
-	awaitFact(
-		Effect.map(liveMillis, (now) => (now - from > millis ? Option.some(now) : Option.none()))
+/** How a planted hook ends once its waits are over: with its value, with its own failure, or never, on its own work. */
+type HookEnd = "builds" | "fails" | "hangs"
+
+/**
+ * A planted hook: its budget, its waits for a shared resource one after another, each lasting longer than the budget
+ * on the live clock and some nested in a second wait, and how it ends. Its own work between them is a fiber's handful
+ * of steps, far inside any budget, except a hook that hangs, whose own work never ends.
+ */
+type HookPlan = Readonly<{
+	budgetMillis: number
+	waits: ReadonlyArray<Readonly<{ millis: number; nested: boolean }>>
+	end: HookEnd
+}>
+
+const HOOK_ENDS = ["builds", "fails", "hangs"] as const satisfies ReadonlyArray<HookEnd>
+
+const hookPlan: Gen<HookPlan> = (source) => {
+	const budgetMillis = source.draw(int(300, 500))
+	return {
+		budgetMillis,
+		waits: source.draw(
+			array(
+				(inner) => ({
+					millis: inner.draw(int(budgetMillis, 2 * budgetMillis)),
+					nested: inner.draw(boolean)
+				}),
+				{ min: 0, max: 2 }
+			)
+		),
+		end: source.draw(element(HOOK_ENDS))
+	}
+}
+
+type HookFeature =
+	| "a wait nested in another"
+	| "waits past the budget in all"
+	| "a hook that builds"
+	| "a hook that fails"
+	| "a hook that hangs"
+
+const hookEndFeature = (end: HookEnd): HookFeature => {
+	switch (end) {
+		case "builds":
+			return "a hook that builds"
+		case "fails":
+			return "a hook that fails"
+		case "hangs":
+			return "a hook that hangs"
+	}
+}
+
+/** What a planted hook that builds returns. */
+const BUILT = 7
+
+/** A planted hook: each wait a sleep on the live clock marked as a wait for a shared resource, then its end. */
+const plantedHook = (plan: HookPlan): Effect.Effect<number, string> =>
+	Effect.andThen(
+		Effect.forEach(
+			plan.waits,
+			(wait) =>
+				wait.nested
+					? liveSleep(Duration.millis(wait.millis)).pipe(waitingOnShared, waitingOnShared)
+					: liveSleep(Duration.millis(wait.millis)).pipe(waitingOnShared),
+			{ discard: true }
+		),
+		(): Effect.Effect<number, string> => {
+			switch (plan.end) {
+				case "builds":
+					return Effect.succeed(BUILT)
+				case "fails":
+					return Effect.fail("refused")
+				case "hangs":
+					return Effect.never
+			}
+		}
 	)
 
 describe("a guarded hook", () => {
@@ -131,50 +200,75 @@ describe("a guarded hook", () => {
 	)
 
 	it.effect(
-		"fails with LayerHung, its label, budget and work, once a hung hook's own work outruns the budget",
-		() =>
-			Effect.gen(function* () {
-				const hung = yield* Effect.flip(
-					guardHook({ label: "a hung build", budgetMillis: 30 })(Effect.never)
+		"ends a guarded hook as it ends, whatever it waits on others for, and with LayerHung once its own work outruns the budget",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "guard/hook",
+						oracle: {
+							kind: "specification",
+							name: "the hook's own exit, or LayerHung with its label and budget when its own work never ends"
+						},
+						draw: drawn(hookPlan),
+						literal: Formatter.format,
+						coverage: required<HookFeature>(
+							[
+								"a wait nested in another",
+								"waits past the budget in all",
+								"a hook that builds",
+								"a hook that fails",
+								"a hook that hangs"
+							],
+							{ cases: 24, sense: notesOnly }
+						),
+						kept: [],
+						runs: 6,
+						shrink: { kind: "bounded", candidates: 8 },
+						concurrency: 1,
+						steerEvery: 6,
+						caseHang: Duration.minutes(1)
+					},
+					(plan, c) =>
+						Effect.gen(function* () {
+							if (Arr.some(plan.waits, (wait) => wait.nested)) {
+								c.note("a wait nested in another")
+							}
+							if (Arr.reduce(plan.waits, 0, (sum, wait) => sum + wait.millis) > plan.budgetMillis) {
+								c.note("waits past the budget in all")
+							}
+							c.note(hookEndFeature(plan.end))
+							const label = `a planted ${plan.end}`
+							const exit = yield* Effect.exit(
+								guardHook({ label, budgetMillis: plan.budgetMillis })(plantedHook(plan))
+							)
+							const failure = Exit.findErrorOption(exit)
+							deepStrictEqual(
+								{
+									value: Exit.isSuccess(exit) ? Option.some(exit.value) : Option.none(),
+									own: Option.filter(failure, (failed) => typeof failed === "string"),
+									hung: Option.flatMap(failure, (failed) =>
+										typeof failed === "string"
+											? Option.none()
+											: Option.some({
+													label: failed.label,
+													budgetMillis: failed.budgetMillis,
+													past: failed.workedMillis > failed.budgetMillis
+												})
+									)
+								},
+								{
+									value: plan.end === "builds" ? Option.some(BUILT) : Option.none(),
+									own: plan.end === "fails" ? Option.some("refused") : Option.none(),
+									hung:
+										plan.end === "hangs"
+											? Option.some({ label, budgetMillis: plan.budgetMillis, past: true })
+											: Option.none()
+								}
+							)
+						})
 				)
-				deepStrictEqual(
-					{ tag: hung._tag, label: hung.label, budgetMillis: hung.budgetMillis },
-					{ tag: "LayerHung", label: "a hung build", budgetMillis: 30 }
-				)
-				strictEqual(
-					hung.workedMillis > hung.budgetMillis ? "past its budget" : "within it",
-					"past its budget"
-				)
-			})
-	)
-
-	it.effect(
-		"passes a hook that waits on a shared resource for three times its budget, then builds",
-		() =>
-			Effect.gen(function* () {
-				const released = yield* Deferred.make<void>()
-				const started = yield* liveMillis
-				yield* Effect.forkChild(
-					Effect.andThen(passed(started, 90), Deferred.succeed(released, undefined))
-				)
-				const built = yield* Deferred.await(released).pipe(
-					waitingOnShared,
-					waitingOnShared,
-					Effect.as("built"),
-					guardHook({ label: "a build behind a lease", budgetMillis: 30 })
-				)
-				strictEqual(built, "built")
-			})
-	)
-
-	it.effect("ends as the hook ends: its value, or its own failure", () =>
-		Effect.gen(function* () {
-			const guarded = guardHook({ label: "a build", budgetMillis: 1000 })
-			const guardedValue = yield* guarded(Effect.succeed(7))
-			strictEqual(guardedValue, 7)
-			const refused = yield* Effect.flip(guarded(Effect.fail("refused")))
-			strictEqual(refused, "refused")
-			strictEqual(Schema.is(LayerHung)(refused) ? "hung" : "its own", "its own")
-		})
+			)
 	)
 })

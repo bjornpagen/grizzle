@@ -16,13 +16,13 @@ import type {
 	Carriers,
 	ComputedOrigin,
 	Facts as ProvedFacts,
-	HoldsNegation,
 	InputTerm,
 	Invariant,
 	LanguageOf,
 	Meets,
-	Negating,
 	NegatesIn,
+	NegationFreeEach,
+	Negating,
 	OperandOrigin,
 	ParamOrigin,
 	ParamsContribution,
@@ -81,7 +81,13 @@ import type {
 	ResultOf
 } from "#compiler/types/query/terms.ts"
 import type { AnyClosed, AnyRelation, HeadingOf, NameOf } from "#compiler/types/schema/relation.ts"
-import type { IsLevelOf, IsRelationOf, KeysOf } from "#compiler/types/schema/schema.ts"
+import type {
+	IsLevelOf,
+	IsRelationOf,
+	KeysOf,
+	RelationsOf,
+	UnderName
+} from "#compiler/types/schema/schema.ts"
 import type { AnyContext, AnyWorld } from "#compiler/types/schema/world.ts"
 
 type T<A> = TypeOfTerm<A>
@@ -249,15 +255,6 @@ type PredicateParams<Ps> = Ps extends readonly [infer H, ...infer Rest]
 type AnyMemberParams<X> = UnionToIntersection<
 	X extends unknown ? ParamsContribution<ParamsOfTerm<X>> : never
 >
-/**
- * The predicates of a position that holds no relational negation, each one that holds one refused: a disjunction's,
- * whose negation would be no rule-level filter (Negating).
- */
-type NoNegation<Ps> = {
-	readonly [I in keyof Ps]: true extends HoldsNegation<Ps[I]>
-		? Refusal<"relational negation is a rule-level filter, alone or in a top-level conjunction">
-		: unknown
-}
 /** A comparison records its operator and operands for the reflexive proof (../evidence/evidence.ts ReflexiveProof). */
 type Compared<Op extends ComparisonOp, A, B> = Compare<A, B> & Shaped<Comparison<Op, A, B>>
 
@@ -341,6 +338,29 @@ type ParamTerm<Name extends string, H, Sql extends SqlTag, D, F extends ProvedFa
 /** What r.relation takes as a heading: a heading of fields C, or a relation, whose heading C is. */
 export type RelationHeading<C> = C | { readonly kind: "relation"; readonly heading: C }
 
+/**
+ * What r.relation takes as a heading: a heading of fields C, or a relation named N, whose heading C is. A heading of
+ * fields names no relation, so N is no literal there.
+ */
+type ParamHeading<C, N> = C | { readonly kind: "relation"; readonly name: N; readonly heading: C }
+
+/**
+ * The refusal a relation parameter's relation carries: none for a heading of fields, whose N is no literal, or a
+ * relation of the schema S by its name N and heading C, as the schema resolves the name the Description records.
+ */
+type ParamRelationOf<S, N extends string, C> = string extends N
+	? unknown
+	: 0 extends 1 & S
+		? unknown
+		: ParamRelationAt<UnderName<RelationsOf<S>, N>, C>
+
+/** The refusal of a relation parameter's relation R, the schema's of its name: none where R is a relation of heading C. */
+type ParamRelationAt<R, C> = [R] extends [never]
+	? Refusal<"the relation is not in this query's schema">
+	: [R] extends [{ readonly kind: "relation"; readonly heading: C }]
+		? unknown
+		: Refusal<"the relation is not in this query's schema">
+
 /** The refusal a relation parameter's heading carries: none for a heading of at least one field, as a relation has. */
 export type ParamFields<C> = [keyof C] extends [never]
 	? Refusal<"a relation parameter has at least one field, as a relation does">
@@ -404,10 +424,13 @@ export interface Rule<S, Params = unknown, Sole = "no match", Facts = NoFacts, C
 		name: Name,
 		type: Field<H, Sql, D, F>
 	): ParamTerm<Name, H, Sql, D, F>
-	/** A relation-valued parameter over a heading of fields, or over a relation, whose heading it takes. */
-	relation<const Name extends string, C extends Record<string, FieldBase>>(
+	/**
+	 * A relation-valued parameter over a heading of fields, or over a relation of the rule's schema, whose heading it
+	 * takes; the Description names the relation, which the schema resolves.
+	 */
+	relation<const Name extends string, C extends Record<string, FieldBase>, N extends string>(
 		name: Name,
-		heading: RelationHeading<C> & ParamFields<C>
+		heading: ParamHeading<C, N> & ParamFields<C> & ParamRelationOf<S, N, C>
 	): ParamSource<Name, C>
 
 	/**
@@ -466,7 +489,7 @@ export interface Rule<S, Params = unknown, Sole = "no match", Facts = NoFacts, C
 		NegatesIn<Ps>
 	/** A disjunction holds no relational negation: r.not is a rule-level filter (Negating). */
 	or<const Ps extends ReadonlyArray<Predicate<never>>>(
-		...predicates: Ps & NoNegation<Ps>
+		...predicates: Ps & NegationFreeEach<Ps>
 	): Predicate<PredicateParams<Ps>, Reads<Ps>> &
 		Shaped<Disjunction<Ps>> &
 		ReadsContexts<PredicateContexts<Ps>>

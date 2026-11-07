@@ -174,6 +174,7 @@ describe("the Description boundary's defaults", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/ir/defaults",
 						literal: Formatter.format,
 						draw: drawn((source) => source.draw(queryGen(2))),

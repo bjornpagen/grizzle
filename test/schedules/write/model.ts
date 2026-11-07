@@ -1,4 +1,4 @@
-import { exact, set } from "@grizzle/testing/oracle"
+import { exact, set, structuralHash } from "@grizzle/testing/oracle"
 import { Array as Arr, Formatter, Option, Order } from "effect"
 import type { TransientTag } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
@@ -74,7 +74,7 @@ const withFacts = (state: State, relation: Rel, facts: ReadonlyArray<Fact>): Sta
 })
 
 const sameFacts = (a: ReadonlyArray<Fact>, b: ReadonlyArray<Fact>): boolean =>
-	Option.isNone(set(exact)(a, b))
+	Option.isNone(set(structuralHash, exact)(a, b))
 
 const sameState = (a: State, b: State): boolean =>
 	Arr.every(relationNames, (r) => sameFacts(a[r], b[r]))

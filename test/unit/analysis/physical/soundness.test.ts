@@ -181,6 +181,7 @@ describe("every physical claim holds on the delivered rows", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/analysis/physical/soundness-plain",
 					draw: drawn(queryCaseGen(defaultGenConfig)),
 					literal: Formatter.format,
@@ -205,6 +206,7 @@ describe("every physical claim holds on the delivered rows", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/analysis/physical/soundness-distinct",
 					draw: drawn(queryCaseGen(defaultGenConfig)),
 					literal: Formatter.format,
@@ -231,6 +233,7 @@ describe("every physical claim holds on the delivered rows", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/analysis/physical/soundness-population",
 						draw: drawn(
 							(source) =>
@@ -271,6 +274,7 @@ describe("every physical claim holds on the delivered rows", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/analysis/physical/soundness-roots",
 						draw: drawn(rootedCases),
 						literal: Formatter.format,
@@ -302,6 +306,7 @@ describe("every physical claim holds on the delivered rows", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/analysis/physical/soundness-noninjective",
 					draw: drawn(noninjectiveKeyCaseGen),
 					literal: Formatter.format,
@@ -335,6 +340,7 @@ describe("neither analysis reads the order of a filter's conjuncts", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/analysis/physical/conjunct-order",
 					draw: drawn(queryCaseGen(soundnessGenConfig)),
 					literal: Formatter.format,

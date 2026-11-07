@@ -249,6 +249,7 @@ describe("Decimal parsing", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/values/decimal-spelling",
 					draw: drawn(spellingGen),
 					literal: Formatter.format,
@@ -278,6 +279,7 @@ describe("Decimal parsing", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/values/decimal-corrupted",
 					draw: drawn((source) => ({
 						spelling: source.draw(spellingGen),
@@ -309,6 +311,7 @@ describe("Decimal parsing", () => {
 			Effect.gen(function* () {
 				const explored = yield* explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/values/decimal-limits",
 						draw: drawn((source) => ({
 							limit: source.draw(element(["display scale", "integer digits", "exponent"] as const)),
@@ -369,6 +372,7 @@ describe("Decimal parsing", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/values/decimal-1",
 					draw: drawn(decimalGen),
 					literal: Formatter.format,
@@ -409,6 +413,7 @@ describe("Decimal parsing", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/values/decimal-2",
 						draw: drawn(
 							(source) =>
@@ -449,6 +454,7 @@ describe("Decimal identity and order", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/values/decimal-3",
 					draw: drawn(
 						(source) =>
@@ -485,6 +491,7 @@ describe("Decimal in the canonical serializer", () => {
 			Effect.gen(function* () {
 				yield* explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/values/decimal-19182",
 						draw: drawn(decimalGen),
 						literal: Formatter.format,
@@ -512,6 +519,7 @@ describe("Decimal in the canonical serializer", () => {
 				)
 				return yield* explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/values/decimal-19183",
 						draw: drawn(
 							oneOf<string>([
@@ -554,6 +562,7 @@ describe("numeric(p, s) normalization", () => {
 					])
 					return yield* explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "unit/values/numeric-typmod",
 							draw: drawn((source) => [source.draw(entry), source.draw(entry)] as const),
 							literal: Formatter.format,
@@ -599,6 +608,7 @@ describe("numeric(p, s) normalization", () => {
 				})
 				return yield* explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/values/decimal-4",
 						draw: drawn((source) => [source.draw(decimalGen), source.draw(typmod)] as const),
 						literal: Formatter.format,
@@ -644,6 +654,7 @@ describe("Decimal admission of a JavaScript caller's value", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/values/decimal-wild",
 						draw: drawn(lsw<string>({ live: decimalText, stale: Option.none(), wild: WILD_KINDS })),
 						literal: Formatter.format,

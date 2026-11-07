@@ -51,11 +51,8 @@ import type { ConnectionPool, PoolBounds } from "#adapter/types/layer.ts"
 import type { BatchOutcome, SentText, Transaction } from "#adapter/wire/batch.ts"
 import { type ServerAnswer, serverFailure } from "#adapter/wire/failure.ts"
 import { releasingPool } from "#adapter/wire/releasing-pool.ts"
-import { sha256Hex } from "#compiler/core/sha256.ts"
-import { loginStartupOptions } from "#compiler/physical/ddl/roles.ts"
-import type { EmittedText } from "#compiler/sql/ast.ts"
-import { emitText } from "#compiler/sql/emit.ts"
-import { emptyNameMap } from "#compiler/sql/naming.ts"
+import { emptyNameMap, loginStartupOptions } from "#compiler/plan/catalog.ts"
+import { type EmittedText, emitText, sha256Hex } from "#compiler/plan/common.ts"
 
 /**
  * Sessions: clients of the caller's node-postgres (DbConnection.driver, types/driver.ts PgDriver) in pipeline mode,

@@ -289,6 +289,7 @@ export const roundTripSuite = (): void => {
 							const reader = dbReader(db)
 							return yield* explore(
 								{
+									oracle: { kind: "unstated" },
 									suite: "adapter/round-trips reads",
 									draw: drawn(readCallsGen),
 									literal: Formatter.format,
@@ -409,6 +410,7 @@ export const roundTripSuite = (): void => {
 							const tasks = [t1, t4, t5] as const
 							return yield* explore(
 								{
+									oracle: { kind: "unstated" },
 									suite: "adapter/round-trips writes",
 									draw: drawn(writeCallsGen),
 									literal: Formatter.format,
@@ -523,6 +525,7 @@ export const roundTripSuite = (): void => {
 							const { db, tap } = yield* tapped(opened, installation.as(fixture.server))
 							return yield* explore(
 								{
+									oracle: { kind: "unstated" },
 									suite: "adapter/round-trips refresh",
 									draw: drawn(refreshesGen),
 									literal: Formatter.format,

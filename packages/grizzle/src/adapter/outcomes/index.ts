@@ -8,12 +8,22 @@ import {
 } from "#adapter/errors/execution.ts"
 import type { ServerError } from "#adapter/errors/failures.ts"
 import type { ApplyOutcome } from "#adapter/types/db.ts"
-import { rosterDomainDefect, type ViolationClassifier } from "#adapter/witness/classify.ts"
-import { sqlstates } from "#compiler/core/sqlstate.ts"
-import type { FamilyId } from "#compiler/ir/law.ts"
-import type { Law, Witness } from "#compiler/types/changeset/changeset.ts"
-import type { RelationCounts } from "#compiler/write/delta/net.ts"
-import type { UniqueAbort, WriteStep } from "#compiler/write/program/artifact.ts"
+import {
+	rosterDomainDefect,
+	type ViolationClassifier,
+	type WrittenAt
+} from "#adapter/witness/classify.ts"
+import type {
+	FamilyId,
+	Law,
+	Refuser,
+	RelationCounts,
+	StatementAt,
+	UniqueAbort,
+	Witness,
+	WriteStep
+} from "#compiler/plan/change.ts"
+import { sqlstates } from "#compiler/plan/common.ts"
 
 /**
  * Mapping what a write transaction's statements and its COMMIT reported onto grizzle's outcomes and errors.
@@ -47,7 +57,9 @@ import type { UniqueAbort, WriteStep } from "#compiler/write/program/artifact.ts
  *   contract domain or a text refinement domain, 23P01 on a span key) is `invariant-rejected` with the laws its
  *   constraint name maps to through the installation's
  *   key-law map, narrowed by the relations the failing statement writes where a shared domain's columns decide them,
- *   its witness `unreported`, because a native violation reports its key only in its message.
+ *   and a 23502 on a generated column the generated field's law; a native violation reports its key only in its
+ *   message, so its witness is the host's, the key of a fact the ChangeSet states for the failing statement that breaks
+ *   it (write/program/witness.ts hostWitness), or `unreported` where it states none.
  *   The law model's map (laws/model constraintToLaw) is part of the installation's, which adds the constraints
  *   installer extensions name, such as span storage.
  * - A 23514 on one of the installation's roster domains, a code domain or a bits domain, is grizzle's own defect:
@@ -100,6 +112,11 @@ interface ClassifyContext {
 	/** The installation's decoder of integrity violations (packages/grizzle/src/adapter/witness installationWitness), the layer's. */
 	readonly violation: ViolationClassifier
 	readonly origin: FailureOrigin
+	/**
+	 * The host's witness of a native refusal at a statement, over the facts the application's ChangeSet states for it
+	 * (write/program/witness.ts hostWitness).
+	 */
+	readonly witness: (at: StatementAt, refuser: Refuser) => Witness
 }
 
 /**
@@ -117,28 +134,39 @@ const uniqueAbortsAt = (origin: FailureOrigin): ReadonlyArray<UniqueAbort> => {
 }
 
 /**
- * The stored relations the statement at `origin` writes, by declared name: a write statement's relation, a family
- * statement's, a single statement's parts'; none for any other step, which writes no stored relation, or for a
- * read-back or the COMMIT.
+ * Where the statement at `origin` stands, its stratum and the stored relations it writes by declared name: a write
+ * statement's relation, a family statement's, a single statement's parts'; undefined for any other step, which writes
+ * no stored relation, or for a read-back or the COMMIT.
  */
-const writtenAt = (origin: FailureOrigin): ReadonlyArray<string> => {
+const statementAt = (origin: FailureOrigin): StatementAt | undefined => {
 	if (origin.kind !== "statement") {
-		return []
+		return undefined
 	}
 	const step = origin.step
 	switch (step.kind) {
 		case "write":
 		case "family":
-			return [step.relation]
+			return { stratum: step.stratum, relations: [step.relation] }
 		case "single":
-			return Arr.map(step.parts, (p) => p.step.relation)
+			return { stratum: step.stratum, relations: Arr.map(step.parts, (p) => p.step.relation) }
 		case "carrier":
 		case "analyze":
 		case "advance":
 		case "readBack":
 		case "check":
-			return []
+			return undefined
 	}
+}
+
+/** The unreported witness: a refusal where the ChangeSet states no fact, at a COMMIT, a read-back or a carrier. */
+const unreported: Witness = Object.freeze({ kind: "unreported" })
+
+/** What the statement at `origin` wrote, as the classifier reads it (WrittenAt). */
+const writtenAt = (context: ClassifyContext): WrittenAt => {
+	const at = statementAt(context.origin)
+	return at === undefined
+		? { relations: [], witness: () => unreported }
+		: { relations: at.relations, witness: (refuser) => context.witness(at, refuser) }
 }
 
 /** What a write's step does, as a defect names the statement that raised it. */
@@ -222,7 +250,7 @@ export const classifyServerError = (failure: ServerError, context: ClassifyConte
 	if (transient !== undefined) {
 		return { kind: "failed", error: transient }
 	}
-	const violation = context.violation(failure, writtenAt(context.origin))
+	const violation = context.violation(failure, writtenAt(context))
 	if (violation === undefined) {
 		return { kind: "failed", error: new ExecutionFailure({ reason: failure }) }
 	}

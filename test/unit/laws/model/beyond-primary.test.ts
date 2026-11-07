@@ -203,6 +203,7 @@ describe("the objects beyond a primary key and the immediate laws", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/laws/model/beyond-primary",
 						draw: drawn(caseGen),
 						literal: Formatter.format,

@@ -1,7 +1,7 @@
 import type { NodeId } from "#compiler/core/ids.ts"
 import { OpId } from "#compiler/ir/expr.ts"
 import type { OperandPremise, OperationProof } from "#compiler/ir/proof.ts"
-import type { Cell, EditRefs, KindOver } from "#compiler/ir/rel.ts"
+import { type Cell, conservativeMeta, type EditRefs, type KindOver } from "#compiler/ir/rel.ts"
 import {
 	bindingsByVar,
 	boundColumns,
@@ -20,7 +20,6 @@ import {
 	plain,
 	required
 } from "#compiler/lower/shapes/catalog/exprs.ts"
-import { keysOfRows, metaWithKeys, plainKeys } from "#compiler/lower/shapes/catalog/ordinal.ts"
 import { bigintSumType } from "#compiler/scalar/aggregate.ts"
 
 /**
@@ -160,7 +159,7 @@ const groupedShare = (cx: CatalogContext, cell: Cell, region: Region): ShareResu
 		out,
 		rule: "R28",
 		heading: [...heading, { name: out, type: bigintSumType }],
-		meta: metaWithKeys(plainKeys([grouped.keys])),
+		meta: conservativeMeta,
 		filter: undefined,
 		frame: undefined,
 		loc: undefined
@@ -273,7 +272,7 @@ const keyedShare = (cx: CatalogContext, cell: Cell, region: Region): ShareResult
 		out,
 		rule: "R28",
 		heading: [...heading, { name: out, type: plain.int8 }],
-		meta: metaWithKeys(keysOfRows(x)),
+		meta: conservativeMeta,
 		filter: undefined,
 		frame: undefined,
 		loc: undefined

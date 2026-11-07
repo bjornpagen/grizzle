@@ -36,7 +36,7 @@ import {
 	type RosterRenames,
 	unservedRoster
 } from "#compiler/ir/codes.ts"
-import type { Roster } from "#compiler/ir/scalar.ts"
+import { Roster } from "#compiler/ir/scalar.ts"
 import { assert, defined, failed, nonEmpty, succeeded, throwsDefect } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 
@@ -153,10 +153,8 @@ const applied = (model: Model, command: Exclude<Command, { readonly kind: "reord
 }
 
 /** The roster a model declares: its live handles in code order, which is declared order. */
-const rosterOf = (closed: DeclaredName, handles: ReadonlyArray<string>): Roster => ({
-	closed,
-	handles: nonEmpty(handles)
-})
+const rosterOf = (closed: DeclaredName, handles: ReadonlyArray<string>): Roster =>
+	new Roster(closed, nonEmpty(handles))
 
 const slotsOf = (model: Model): ReadonlyArray<CodeSlot> =>
 	Arr.map(model.slots, (slot): CodeSlot =>

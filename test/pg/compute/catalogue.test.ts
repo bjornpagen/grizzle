@@ -689,6 +689,7 @@ const justified = (precondition: PreconditionKind, read: ReadonlyArray<Operand>)
 		case "contract":
 		case "language":
 		case "powerDomain":
+		case "powerRange":
 		case "bucketDomain":
 		case "lexical":
 			return true
@@ -940,6 +941,7 @@ layer(Substrate.layer)("the Compute catalogue against PostgreSQL 19", (it) => {
 					)
 					return yield* explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "pg/compute/catalogue",
 							draw: drawn(operandsGen),
 							literal: Formatter.format,

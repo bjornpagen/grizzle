@@ -21,9 +21,10 @@ import type { InstallSpec, WorldFeature } from "#test/support/worlds/model/types
  * bookings, events and talks, the keeper's rooms, big rooms' openings and talk rooms), and through whole entries; and
  * every write through an entry over a mutable relation keyed WITHOUT OVERLAPS and over a pure set, mutable and
  * immutable, inserts, deletes and puts what the worlds model says. The model judges each outcome: the refusal's law, its
- * witness (the keys the writer submitted, and those of relations its role holds whole, at most), and the state every
- * accepted write leaves, read back as the owner. Reads walk a world's span fields, and chain which rooms adjoin which by
- * a recursive query. Beside the model, a shown witness carries only what the writer submitted or holds whole
+ * witness (the keys the writer submitted, and those of relations its role holds whole, at most: a key's, a row check's
+ * and a domain's at a stated fact the host judges, none of a containment's, a coverage's or an alternatives law's),
+ * and the state every accepted write leaves, read back as the owner. Reads walk a world's span fields, and chain which
+ * rooms adjoin which by a recursive query. Beside the model, a shown witness carries only what the writer submitted or holds whole
  * (drive/acting.ts witnessesShowTheirOwn).
  */
 const focus: Focus = ["open-db", "apply", "read", "close", "direct-begin", "direct", "direct-end"]
@@ -39,16 +40,16 @@ const installs: Gen<InstallSpec> = weighted([
 
 /**
  * What the population must reach: each law family refusing a write through a query entry, its witness as the README
- * allows it (a key's the keys submitted, every other law's withheld); a key and a no-overlap key refusing a write
- * through whole entries too; an accepted insert, delete and put through a query entry over a mutable relation keyed
- * WITHOUT OVERLAPS, over a mutable pure set and over an immutable one, and a put through a whole entry over a mutable
- * one keyed WITHOUT OVERLAPS; and a span read through a world.
+ * allows it (a key's, a row check's and a domain's a stated fact's key, every other law's withheld); a key and a
+ * no-overlap key refusing a write through whole entries too; an accepted insert, delete and put through a query entry
+ * over a mutable relation keyed WITHOUT OVERLAPS, over a mutable pure set and over an immutable one, and a put through
+ * a whole entry over a mutable one keyed WITHOUT OVERLAPS; and a span read through a world.
  */
 const required: Situations<WorldFeature> = [
 	"law:key:entry:shown",
 	"law:span-key:entry:shown",
-	"law:check:entry:withheld",
-	"law:domain:entry:withheld",
+	"law:check:entry:shown",
+	"law:domain:entry:shown",
 	"law:contained:entry:withheld",
 	"law:covered:entry:withheld",
 	"law:alternatives:entry:withheld",

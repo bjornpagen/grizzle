@@ -312,7 +312,7 @@ export interface WriteProgram extends ProgramArtifacts {
  * - write target: The key a ChangeSet's statement matches written facts on: exact deletion, put occupants, the
  *   insert arbiter.
  */
-export const accessUses = [
+const accessUses = [
 	"key lookup",
 	"equality lookup",
 	"join key",

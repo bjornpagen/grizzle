@@ -1,36 +1,39 @@
 import { Array as Arr, Effect, Result } from "effect"
 import { UnreadableAnswer } from "#adapter/errors/failures.ts"
-import type { AttachmentFacts, AttachmentScope } from "#adapter/reader/analysis.ts"
+import { type AttachmentScope, carried } from "#adapter/reader/analysis.ts"
 import type { InputRefusal, RelationInputs } from "#adapter/reader/relations.ts"
 import { sentAnswer, type BatchStatement } from "#adapter/wire/batch.ts"
-import { scalarCodec } from "#compiler/codec/scalar.ts"
-import { type AttachmentLayout, type Layout, type Row, rowText } from "#compiler/core/decoder.ts"
-import type { ParamId } from "#compiler/core/ids.ts"
-import { defect, defined } from "#compiler/core/invariant.ts"
-import type { Codebook } from "#compiler/ir/codes.ts"
-import type { StatementSpec } from "#compiler/ir/products.ts"
-import type { NodeOf } from "#compiler/ir/rel.ts"
-import { columnPosition } from "#compiler/lower/conservative/context.ts"
 import {
+	type AttachmentLayout,
+	type Codebook,
+	defect,
+	defined,
+	type EmittedText,
+	type Layout,
+	type ParamId,
+	type Row,
+	rowText,
+	type StatementSpec
+} from "#compiler/plan/common.ts"
+import {
+	type Arrival,
 	type AttachedTree,
+	columnPosition,
 	type ConservativeParamSlot,
 	type DeclaredParamSlot,
+	type FusedAttachment,
+	type FusedStatement,
+	fusedTexts,
+	type FusedTexts,
 	keyColumns,
+	type NodeOf,
+	scalarCodec,
+	type StatementForms,
+	statementOutput,
 	type StatementOutput,
 	type StatementRoots,
-	type StatementTree,
-	statementOutput
-} from "#compiler/lower/conservative/types.ts"
-
-import {
-	type FusedAttachment,
-	type FusedTexts,
-	fusedTexts
-} from "#compiler/lower/shapes/attach/decode.ts"
-
-import type { Arrival, FusedStatement, StatementForms } from "#compiler/lower/shapes/index.ts"
-
-import type { EmittedText } from "#compiler/sql/ast.ts"
+	type StatementTree
+} from "#compiler/plan/read.ts"
 
 /**
  * One statement execution and the Rows it delivers: what reads, read-backs, pages and db.explain share.
@@ -331,12 +334,8 @@ type Under =
 			readonly scope: AttachmentScope | undefined
 	  }
 
-/** The public columns of a statement's rows and their positions, where `under` places it, which `facts` describes. */
-const columnsOf = (
-	statement: LoweredStatement,
-	under: Under,
-	facts: AttachmentFacts
-): ReadonlyMap<string, number> => {
+/** The public columns of a statement's rows and their positions, where `under` places it. */
+const columnsOf = (statement: LoweredStatement, under: Under): ReadonlyMap<string, number> => {
 	const output = outputOf(statement)
 	if (under.kind === "root") {
 		return new Map(Arr.map(statement.heading, (column, i) => [column.name, output.own(i)]))
@@ -344,9 +343,7 @@ const columnsOf = (
 	const { attach, scope } = under
 	return new Map(
 		Arr.flatMap(statement.heading, (column, i) =>
-			facts.carried(attach.id, scope, attach.name, column.name)
-				? [[column.name, output.own(i)] as const]
-				: []
+			carried(attach, scope, column.name) ? [[column.name, output.own(i)] as const] : []
 		)
 	)
 }
@@ -374,15 +371,12 @@ const recordOf = <Run extends Arrived>(
 	tree: StatementTree<Run>,
 	under: Under,
 	scope: AttachmentScope | undefined,
-	facts: AttachmentFacts,
 	codes: Codebook
 ): StatementRecord<Run> => {
 	const run = tree.statement
 	const statement = run.statement
 	const output = outputOf(statement)
-	const attached = Arr.map(tree.attachments, (child) =>
-		attachedOf(child, output, scope, facts, codes)
-	)
+	const attached = Arr.map(tree.attachments, (child) => attachedOf(child, output, scope, codes))
 	const attachments = new Map<string, AttachmentLayout>()
 	for (const a of attached) {
 		attachments.set(a.name, { ...a.layout, slot: attachments.size })
@@ -394,13 +388,13 @@ const recordOf = <Run extends Arrived>(
 				{
 					columns: new Map(
 						Arr.flatMap(f.layout.columns, ({ column }, i) =>
-							facts.carried(f.attach, scope, f.name, column.name) ? [[column.name, i] as const] : []
+							carried(f.attach, scope, column.name) ? [[column.name, i] as const] : []
 						)
 					),
 					attachments: new Map()
 				}
 			],
-			proved: facts.delivered(f.attach, f.name)
+			proved: f.attach.judged
 		})
 		return {
 			position: output.fusedAt(j),
@@ -424,7 +418,7 @@ const recordOf = <Run extends Arrived>(
 			children: Arr.map(attached, (a) => a.plan),
 			fused
 		},
-		layout: { columns: columnsOf(statement, under, facts), attachments }
+		layout: { columns: columnsOf(statement, under), attachments }
 	}
 }
 
@@ -436,7 +430,6 @@ const attachedOf = <Run extends Arrived>(
 	tree: AttachedTree<Run>,
 	parent: StatementOutput<FusedAttachment>,
 	scope: AttachmentScope | undefined,
-	facts: AttachmentFacts,
 	codes: Codebook
 ): Attached<Run> => {
 	const { attach } = tree
@@ -444,7 +437,6 @@ const attachedOf = <Run extends Arrived>(
 		tree,
 		{ kind: "attachment", attach, scope },
 		scope?.under.get(attach.name),
-		facts,
 		codes
 	)
 	const parentKey = keyColumns(tree.statement.statement.role)
@@ -458,7 +450,7 @@ const attachedOf = <Run extends Arrived>(
 			})),
 			child: Arr.map(parentKey, (c, at) => ({ at, cell: scalarCodec(c.type, codes).cellText }))
 		},
-		layout: { layouts: [record.layout], proved: facts.delivered(attach.id, attach.name) }
+		layout: { layouts: [record.layout], proved: attach.judged }
 	}
 }
 
@@ -471,18 +463,16 @@ const recordsUnder = <Run>(
 ]
 
 /**
- * The records of a program's statements, each run by its `run`, whose attachments `facts` describes, under the
- * installation's codes `codes`: its delivered ones, each with the records of the attachment statements under its rows,
- * and all of them in flight order.
+ * The records of a program's statements, each run by its `run`, on the delivered spine `spine` (attachmentHeads), under
+ * the installation's codes `codes`: its delivered ones, each with the records of the attachment statements under its
+ * rows, and all of them in flight order.
  */
 export const programRecords = <Run extends Arrived>(
 	roots: StatementRoots<Run>,
-	facts: AttachmentFacts,
+	spine: AttachmentScope,
 	codes: Codebook
 ): ProgramRecords<Run> => {
-	const delivered = Arr.map(roots, (tree) =>
-		recordOf(tree, { kind: "root" }, facts.root, facts, codes)
-	)
+	const delivered = Arr.map(roots, (tree) => recordOf(tree, { kind: "root" }, spine, codes))
 	return { records: Arr.flatten(Arr.map(delivered, recordsUnder)), delivered }
 }
 

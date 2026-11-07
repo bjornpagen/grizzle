@@ -48,7 +48,7 @@ const wholeHeadingKey = (
 	whole: WholeKey,
 	heading: NonEmptyReadonlyArray<DeclaredColumn>
 ): NonEmptyReadonlyArray<InheritedKey<DeclaredColumn>> | undefined =>
-	whole.kind === "set" ? [{ columns: heading, proof: whole.key }] : undefined
+	whole.kind === "set" ? [{ columns: heading, proof: whole.key, alternatives: [] }] : undefined
 
 /**
  * The analysis of one query entry over its base's checked schema.
@@ -112,7 +112,7 @@ export const analyzeWorld = (
 		return declared
 	}
 	const { props } = analyzed.of(root)
-	const inherited = inheritedKeys(declared.value, props.keys, () => true)
+	const inherited = inheritedKeys(declared.value, props.keys, props.prove, () => true)
 	/** A definition of one heading group is a set, so its whole heading is always a key. */
 	const keys = isNonEmpty(inherited) ? inherited : wholeHeadingKey(props.whole(), declared.value)
 	if (keys === undefined) {
@@ -145,7 +145,13 @@ export const analyzeWorld = (
 				fields: mapNonEmpty(k.columns, (c) => c.name),
 				premises: k.proof.premises,
 				context: k.proof.context,
-				members: classMembers(k.proof)
+				members: classMembers(k.proof),
+				alternatives: k.alternatives.map((a) => ({
+					of: a.of,
+					columns: a.columns,
+					premises: k.proof.premises,
+					context: k.proof.context
+				}))
 			}))
 		}
 	})

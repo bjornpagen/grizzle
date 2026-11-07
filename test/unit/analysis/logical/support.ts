@@ -6,12 +6,7 @@ import type { LawId } from "#compiler/core/ids.ts"
 import * as Result from "#compiler/core/result.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import { literalDescShape } from "#compiler/ir/desc.ts"
-import {
-	type ClaimedKey,
-	claimedColumns,
-	claimedMembers,
-	type KeyProof
-} from "#compiler/ir/keys.ts"
+import { classMembers, type KeyProof, keyWith } from "#compiler/ir/keys.ts"
 
 import type { Case } from "@grizzle/testing/explore"
 import type {
@@ -39,7 +34,8 @@ import {
 	unobserved
 } from "#test/support/oracle/reference/evaluate.ts"
 import { RecordingReference } from "#test/support/oracle/reference/evaluations.ts"
-import { equal, type Row, valueKey } from "#test/support/oracle/reference/values.ts"
+import { Identities, type Interned } from "#test/support/oracle/reference/identity.ts"
+import { equal, type Row, valueIdentity } from "#test/support/oracle/reference/values.ts"
 import { ownedInput } from "#test/support/policy.ts"
 import type { HostFacts } from "#test/unit/analysis/theory/support.ts"
 
@@ -144,16 +140,16 @@ export const logicalEnv = (t: Theory): LogicalEnv => ({
 export const analyze = (dag: ValidDag, env: LogicalEnv): ValidDag =>
 	succeeded(analyzeLogical(dag, env)).dag
 
-const keyOf = (heading: Heading, row: Row, key: KeySet): string =>
-	Arr.join(
-		Arr.map(key, (name) => {
+/** A row's identity on `key`'s columns, interned in `identities`, so rows equal on the key share it. */
+const keyOf = (identities: Identities, heading: Heading, row: Row, key: KeySet): Interned =>
+	identities.of(
+		Arr.flatMap(key, (name) => {
 			const i = Option.getOrThrowWith(
 				Arr.findFirstIndex(heading, (h) => h.name === name),
 				() => new Error("a column the case's own heading holds")
 			)
-			return valueKey(defined(row[i]), defined(heading[i]).type)
-		}),
-		"\u0000"
+			return valueIdentity(defined(row[i]), defined(heading[i]).type)
+		})
 	)
 
 const columnAt = (heading: Heading, row: Row, name: string) => {
@@ -188,15 +184,18 @@ export type Soundness =
 const unsound = (why: string): Soundness => ({ kind: "unsound", why })
 
 /**
- * The keys a claimed key states: its columns, and each of its members put in place of the key column it stands for,
- * which is a key of the same class.
+ * The keys a proof states one step from its columns: its columns, each of its members put in place of the column it
+ * stands for, which is a key of the same class, and each alternative of a factor put in place of that factor's
+ * columns. Every other key it states is such steps taken together, each sound when every step is, which the key
+ * kernel checks of each.
  */
-const claimedVariants = (k: ClaimedKey): ReadonlyArray<KeySet> => {
-	const key = claimedColumns(k)
-	return [
-		key,
-		...Arr.map(claimedMembers(k), (m) => Arr.map(key, (c) => (c === m.of ? m.column : c)))
-	]
+const claimedVariants = (k: KeyProof): ReadonlyArray<KeySet> => {
+	const swapped = (columns: KeySet) =>
+		Arr.flatMap(classMembers(k), (m) =>
+			columns.includes(m.of) ? [Arr.map(columns, (c) => (c === m.of ? m.column : c))] : []
+		)
+	const alternatives = Arr.map(k.alternatives, (a) => keyWith(k, a))
+	return [k.key, ...swapped(k.key), ...alternatives, ...Arr.flatMap(alternatives, swapped)]
 }
 
 /**
@@ -216,16 +215,11 @@ export const logicalUnsound = (
 	const kernel = new KeyKernel(dag, env)
 	const nodes = topoOrder(dag)
 	for (const node of nodes) {
-		for (const claimed of node.meta.logicalKeys) {
-			if (claimed.kind !== "proved") {
-				return unsound(
-					`${node.id} (${node.kind}) claims [${Arr.join(claimed.key, ", ")}] with no proof`
-				)
-			}
-			const [fault] = kernel.check(claimed.proof)
+		for (const proof of node.meta.logicalKeys) {
+			const [fault] = kernel.check(proof)
 			if (fault !== undefined) {
 				return unsound(
-					`${node.id} (${node.kind}) proves [${Arr.join(claimed.proof.key, ", ")}], which the kernel refuses: ${fault}`
+					`${node.id} (${node.kind}) proves [${Arr.join(proof.key, ", ")}], which the kernel refuses: ${fault}`
 				)
 			}
 		}
@@ -264,7 +258,10 @@ export const logicalUnsound = (
 				return unsound(`${node.id} (${node.kind}) claims one and has ${rows.length} rows`)
 			}
 			for (const key of logicalKeys) {
-				if (new Set(Arr.map(rows, (row) => keyOf(heading, row, key))).size !== rows.length) {
+				const identities = new Identities()
+				if (
+					new Set(Arr.map(rows, (row) => keyOf(identities, heading, row, key))).size !== rows.length
+				) {
 					return unsound(`${node.id} (${node.kind}) claims the key [${Arr.join(key, ", ")}]`)
 				}
 			}
@@ -305,8 +302,10 @@ export const logicalUnsound = (
 				)
 			}
 			for (const key of childKeys) {
+				const identities = new Identities()
 				if (
-					new Set(Arr.map(matched, (row) => keyOf(child.heading, row, key))).size !== matched.length
+					new Set(Arr.map(matched, (row) => keyOf(identities, child.heading, row, key))).size !==
+					matched.length
 				) {
 					return unsound(
 						`${a.child.id}, the child of ${a.name}, claims the key [${Arr.join(key, ", ")}] per parent`
@@ -328,12 +327,11 @@ export const kernelRefusesCorruptions = (dag: RelDag, env: KernelEnv): Soundness
 	const kernel = new KeyKernel(dag, env)
 	const nodes = topoOrder(dag)
 	for (const node of nodes) {
-		for (const claimed of node.meta.logicalKeys) {
-			if (claimed.kind !== "proved" || claimed.proof.basis.kind !== "rows") {
+		for (const proof of node.meta.logicalKeys) {
+			const basis = proof.basis
+			if (basis.kind !== "rows") {
 				continue
 			}
-			const proof = claimed.proof
-			const basis = claimed.proof.basis
 			const steps = basis.implication.steps
 			const other = Arr.findFirst(nodes, (n) => n.id !== proof.node)
 			const corrupted: ReadonlyArray<readonly [string, KeyProof]> = [

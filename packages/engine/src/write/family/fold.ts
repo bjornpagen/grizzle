@@ -27,10 +27,9 @@ import { layoutKey } from "#compiler/analysis/theory/fill.ts"
  * PostgreSQL generates them by, so the host's copies agree with PostgreSQL's columns.
  *
  * The fill is one iterative depth-first walk over the nesting, so any depth walks, in each row's stages: on entering it,
- * its entering columns; then the members of each sequence it owns; on leaving it, its leaving columns; then the members
- * of each counted family it owns nested under it; on settling it, its settling columns. The fill order states each
- * column's stage and admits no column whose source a later stage fills, so every column a rule reads is filled when it
- * is read.
+ * its entering columns; then the members of each sequence it owns, in its layout's order, and after each sequence's
+ * members the columns that wait on it; on settling it, its settling columns. The fill order states each column's stage
+ * and admits no column whose source a later stage fills, so every column a rule reads is filled when it is read.
  */
 import { carrierSpecOf } from "#compiler/codec/scalar.ts"
 import { defect } from "#compiler/core/invariant.ts"
@@ -38,14 +37,8 @@ import { maxStringLength } from "#compiler/core/limits.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import { predicateTable, type ScalarExpr, type TypedLiteral } from "#compiler/ir/expr.ts"
-import {
-	baseLiteral,
-	type Family,
-	type FamilyFold,
-	isSequence,
-	isTreeOf
-} from "#compiler/ir/family.ts"
-import type { FillLayout, FillOrder, FillPosition, FillRule, FillStage } from "#compiler/ir/fill.ts"
+import { baseLiteral, type Family, type FamilyFold, isTreeOf } from "#compiler/ir/family.ts"
+import type { FillLayout, FillOrder, FillPosition, FillRule } from "#compiler/ir/fill.ts"
 import type { FamilyId, LawRelation, NativeColumn } from "#compiler/ir/law.ts"
 import {
 	type EvalLeaves,
@@ -177,12 +170,17 @@ interface Column {
 	readonly written: boolean
 }
 
-/** A relation's columns at one position, by key and by the stage that fills each, and the families its rows own. */
+/**
+ * A relation's columns at one position, by key and by the stage that fills each, the columns waiting on a sequence by
+ * that sequence's key, and the families its rows own.
+ */
 interface Layout {
 	readonly relation: LawRelation
 	readonly columns: ReadonlyMap<ColumnKey, Column>
-	readonly stages: { readonly [S in FillStage]: ReadonlyArray<Column> }
-	/** The families its rows own, sequences first: the order the walk fills their members in. */
+	readonly entering: ReadonlyArray<Column>
+	readonly after: ReadonlyMap<string, ReadonlyArray<Column>>
+	readonly settling: ReadonlyArray<Column>
+	/** The families its rows own, its sequences first: the order the walk fills their members in. */
 	readonly owns: ReadonlyArray<Family>
 }
 
@@ -234,11 +232,9 @@ const hostRule = (rule: FillRule, spec: CarrierSpec): Rule => {
 /** A fill order's layout as the host fills it, under the installation's codes. */
 const hostLayout = (layout: FillLayout, codes: Codebook): Layout => {
 	const columns = new Map<ColumnKey, Column>()
-	const stages: { readonly [S in FillStage]: Array<Column> } = {
-		entering: [],
-		leaving: [],
-		settling: []
-	}
+	const entering: Array<Column> = []
+	const after = new Map<string, Array<Column>>()
+	const settling: Array<Column> = []
 	for (const c of layout.columns) {
 		const spec = carrierSpecOf(c.type, codes)
 		const column: Column = {
@@ -249,9 +245,21 @@ const hostLayout = (layout: FillLayout, codes: Codebook): Layout => {
 			written: c.rule.kind !== "generated"
 		}
 		columns.set(column.key, column)
-		stages[c.stage].push(column)
+		switch (c.stage.kind) {
+			case "entering":
+				entering.push(column)
+				break
+			case "after": {
+				const key = familyKey(c.stage.family.id)
+				after.set(key, [...(after.get(key) ?? []), column])
+				break
+			}
+			case "settling":
+				settling.push(column)
+				break
+		}
 	}
-	return { relation: layout.relation, columns, stages, owns: layout.owns }
+	return { relation: layout.relation, columns, entering, after, settling, owns: layout.owns }
 }
 
 /**
@@ -268,7 +276,7 @@ export const baseOf = (
 }
 
 /** A carrier value as the evaluator holds it, from a codec's host value: integers as bigint, spans of bigints. */
-const evalValue = (spec: CarrierSpec, value: unknown): CarrierValue | undefined => {
+export const evalValue = (spec: CarrierSpec, value: unknown): CarrierValue | undefined => {
 	switch (spec.carrier) {
 		case "int2":
 		case "int4":
@@ -738,8 +746,6 @@ interface Frame {
 	/** The family it is filling, and the next member of it. */
 	family: number
 	member: number
-	/** Whether its leaving stage is filled: after its sequences' members, before its counted families'. */
-	left: boolean
 	/** The last member of that family filled so far. */
 	previous: Row | undefined
 	/** Each of its families' filled members, at its place among the node's families. */
@@ -751,10 +757,10 @@ interface Frame {
 /** Every column of a stage of a row filled, in any order: each fills what it reads first. */
 const fillStage = (
 	row: Row,
-	stage: FillStage,
+	stage: ReadonlyArray<Column>,
 	evaluate: HostEvaluator
 ): Result.Result<void, FillRefusal> => {
-	for (const column of row.layout.stages[stage]) {
+	for (const column of stage) {
 		const v = valueOf(row, column.key, evaluate)
 		if (!v.ok) {
 			return Result.err(v.error)
@@ -864,7 +870,6 @@ export const filler = (fill: FillOrder, codes: Codebook, evaluate: HostEvaluator
 		families: resolved(node, row.layout),
 		family: 0,
 		member: 0,
-		left: false,
 		previous: undefined,
 		filled: node.families.map((g) => {
 			const family = byKey.get(familyKey(g.family))
@@ -894,26 +899,23 @@ export const filler = (fill: FillOrder, codes: Codebook, evaluate: HostEvaluator
 			at: 0,
 			tree: tree === undefined ? undefined : intervalOf(root, 0, 0)
 		})
-		const entered = fillStage(first, "entering", evaluate)
+		const entered = fillStage(first, first.layout.entering, evaluate)
 		if (!entered.ok) {
 			return Result.err(entered.error)
 		}
 		const stack: Array<Frame> = [frameOf(first, root, tree === undefined ? undefined : { next: 1 })]
 		for (let frame = stack.at(-1); frame !== undefined; frame = stack.at(-1)) {
 			const current = frame.families[frame.family]
-			if (current !== undefined && !frame.left && !isSequence(current.family)) {
-				const left = fillStage(frame.row, "leaving", evaluate)
-				if (!left.ok) {
-					return Result.err(left.error)
-				}
-				frame.left = true
-				continue
-			}
 			if (current !== undefined) {
 				const node = current.members[frame.member]
 				if (node === undefined) {
+					const id = familyKey(current.family.id)
 					if (frame.previous !== undefined) {
-						frame.row.last.set(familyKey(current.family.id), frame.previous)
+						frame.row.last.set(id, frame.previous)
+					}
+					const waited = fillStage(frame.row, frame.row.layout.after.get(id) ?? [], evaluate)
+					if (!waited.ok) {
+						return Result.err(waited.error)
 					}
 					frame.family += 1
 					frame.member = 0
@@ -939,21 +941,14 @@ export const filler = (fill: FillOrder, codes: Codebook, evaluate: HostEvaluator
 						tree: start === undefined ? undefined : intervalOf(node, start, treeOf(frame.row).start)
 					}
 				)
-				const filled = fillStage(row, "entering", evaluate)
+				const filled = fillStage(row, row.layout.entering, evaluate)
 				if (!filled.ok) {
 					return Result.err(filled.error)
 				}
 				stack.push(frameOf(row, node, counter))
 				continue
 			}
-			if (!frame.left) {
-				const left = fillStage(frame.row, "leaving", evaluate)
-				if (!left.ok) {
-					return Result.err(left.error)
-				}
-				frame.left = true
-			}
-			const settled = fillStage(frame.row, "settling", evaluate)
+			const settled = fillStage(frame.row, frame.row.layout.settling, evaluate)
 			if (!settled.ok) {
 				return Result.err(settled.error)
 			}

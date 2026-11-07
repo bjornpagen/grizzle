@@ -23,17 +23,16 @@ import {
 	runFramedTwice,
 	type Transaction
 } from "#adapter/wire/batch.ts"
-import { malformedDescription } from "#compiler/core/errors.ts"
-import { SourceLoc } from "#compiler/core/loc.ts"
-import * as Engine from "#compiler/core/result.ts"
-import { flight } from "#compiler/lower/conservative/types.ts"
-import { queryInput } from "#compiler/program/compile.ts"
-import { isOrderedValue, isQueryValue } from "#compiler/query/build/index.ts"
-import type { EmittedText } from "#compiler/sql/ast.ts"
-import { explainOf } from "#compiler/sql/emit.ts"
-import type { ParamMap } from "#compiler/types/core/phantom.ts"
-import { isChangeSetValue } from "#compiler/write/changeset/value.ts"
-import type { Chunks } from "#compiler/write/program/bind.ts"
+import { type Chunks, isChangeSetValue } from "#compiler/plan/change.ts"
+import {
+	type EmittedText,
+	Engine,
+	explainOf,
+	malformedDescription,
+	type ParamMap,
+	SourceLoc
+} from "#compiler/plan/common.ts"
+import { flight, isOrderedValue, isQueryValue, queryInput } from "#compiler/plan/read.ts"
 
 /**
  * One statement the program would run: planned by EXPLAIN (FORMAT JSON) with its placeholder texts, or, for a carrier's

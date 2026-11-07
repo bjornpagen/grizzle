@@ -98,6 +98,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "pg/reads/bind-literal",
 						draw: drawn(
 							(source) =>

@@ -7,7 +7,7 @@ import type {
 	DbLayerOf,
 	DbLayerService
 } from "#adapter/types/layer.ts"
-import type { AnyLogin } from "#compiler/types/schema/world.ts"
+import type { AnyLogin } from "#compiler/plan/common.ts"
 
 /**
  * Public barrel: DbLayer and DbConfig, the connection of one login with its driver, transport, credentials, pool and

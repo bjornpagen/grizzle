@@ -18,8 +18,7 @@ import {
 	TreeRefused,
 	TreeUnread
 } from "#cli/errors.ts"
-import { type MigrationFolder, metaFileName } from "#compiler/deploy/render/folder.ts"
-import { snapshotFileName } from "#compiler/deploy/snapshot/types.ts"
+import { metaFileName, type MigrationFolder, snapshotFileName } from "#compiler/plan/migration.ts"
 
 /**
  * The migrations directory on disk.

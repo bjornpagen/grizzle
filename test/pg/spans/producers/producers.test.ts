@@ -1,7 +1,7 @@
 import { layer } from "@effect/vitest"
 import { drawn } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { exact, ordered, set } from "@grizzle/testing/oracle"
+import { exact, ordered, set, structuralHash } from "@grizzle/testing/oracle"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -345,7 +345,7 @@ layer(Substrate.layer)("span producers on PostgreSQL 19", (it) => {
 			Arr.map(tupleShapes, (shape): ProducerFeature => `tuple:${kind}:${shape}:rows`)
 		)
 	]
-	const sameRowSet = set(ordered(exact))
+	const sameRowSet = set(structuralHash, ordered(exact))
 
 	it.effect(`agree with each other and the reference on ${cases} generated span queries`, (ctx) =>
 		searched(

@@ -109,7 +109,7 @@ const holdsProjection = (context: Context, node: AnyNode): boolean => {
  */
 export const noOrderedUnordered = refusal(
 	"unordered",
-	"This compares the iteration order of an unordered collection, which its contract does not promise. Compare it as a set with agree(…, set(exact)), which also fails on a repeated item.",
+	"This compares the iteration order of an unordered collection, which its contract does not promise. Compare it as a set with agree(…, set(structuralHash, exact)), which also fails on a repeated item.",
 	(context, refuse) => ({
 		CallExpression: (node) => {
 			if (

@@ -246,6 +246,7 @@ describe("a contract's facts", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/compute/contract-facts",
 						draw: drawn(caseGen),
 						literal: Formatter.format,

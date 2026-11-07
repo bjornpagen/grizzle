@@ -39,33 +39,46 @@ import type {
 import type { PrologueStatements } from "#adapter/wire/batch.ts"
 import { makePool, type SessionPool, serverStatement } from "#adapter/wire/session.ts"
 import { installationWitness } from "#adapter/witness/index.ts"
-import { catchRefusal } from "#compiler/core/canonical.ts"
-import type { BindContext } from "#compiler/core/decoder.ts"
-import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
-import { SourceLoc } from "#compiler/core/loc.ts"
-import * as Engine from "#compiler/core/result.ts"
-import { ledgerStatements } from "#compiler/deploy/ledger/ledger.ts"
-import { codebookOf } from "#compiler/deploy/snapshot/build.ts"
-import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
-import { type Codebook, codeNames, unservedRoster } from "#compiler/ir/codes.ts"
-import type { LoginDesc, RoleDesc } from "#compiler/ir/desc.ts"
-import { type InstallBasis, installBasis } from "#compiler/physical/install/compile.ts"
 import {
-	type BuiltSchema,
+	type AnyLogin,
+	type AnyWorkload,
 	baseArtifacts,
+	type BindContext,
+	type BuiltSchema,
+	catchRefusal,
+	type Codebook,
+	codeNames,
+	type CompileError,
+	Engine,
+	type LoginDesc,
+	loginDescOf,
+	malformedDescription,
+	own,
+	ownBuiltLogin,
+	type Owned,
+	ownedEntry,
+	type OwnedLogin,
 	parseBuiltSchema,
 	parseSchemaInput,
+	queryUses,
 	roleArtifacts,
-	type SchemaArtifacts
-} from "#compiler/program/schema.ts"
-import { templateFor } from "#compiler/program/template.ts"
-import { accessDrift, accessDriftText, loginAccess } from "#compiler/program/workload/compile.ts"
-import { type Owned, type OwnedLogin, own, ownBuiltLogin, rostersOf } from "#compiler/schema/own.ts"
-import { ownedEntry } from "#compiler/schema/protocol.ts"
-import { queryUses } from "#compiler/schema/walk.ts"
-import { loginDescOf } from "#compiler/schema/world.ts"
-import type { AnyWorkload } from "#compiler/types/db/workload.ts"
-import type { AnyLogin } from "#compiler/types/schema/world.ts"
+	type RoleDesc,
+	rostersOf,
+	type SchemaArtifacts,
+	SourceLoc,
+	unservedRoster
+} from "#compiler/plan/common.ts"
+import {
+	accessDrift,
+	accessDriftText,
+	codebookOf,
+	type DeploySnapshot,
+	installBasis,
+	type InstallBasis,
+	ledgerStatements,
+	loginAccess
+} from "#compiler/plan/migration.ts"
+import { templateFor } from "#compiler/plan/read.ts"
 
 /**
  * The DbLayer service: one login's connection settings, its verify, its snapshot, its workloads compiled, and its one

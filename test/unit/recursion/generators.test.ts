@@ -38,6 +38,7 @@ describe("graph-shaped recursive generators", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "recursion/generators-shapes",
 						draw: drawn(graphSketchGen),
 						literal: Formatter.format,
@@ -158,6 +159,7 @@ describe("graph-shaped recursive generators", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "recursion/generators-bag-termination",
 						draw: sketched(recursiveCaseSketchGen, (sketch) =>
 							resolveRecursiveCase(sketch, limits, "unmutated")

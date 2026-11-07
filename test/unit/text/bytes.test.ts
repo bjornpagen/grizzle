@@ -54,6 +54,7 @@ describe("str.bytes meets", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/text/bytes",
 						draw: drawn(meetCaseGen),
 						literal: Formatter.format,

@@ -111,6 +111,8 @@ export const commitSuite = (): void => {
 								const db = yield* Db.open(o.server.roles.app, {})
 								return yield* exhaust(
 									{
+										box: { kind: "unstated" },
+										oracle: { kind: "unstated" },
 										suite: "adapter/commit",
 										generator: concurrents,
 										literal: Formatter.format,

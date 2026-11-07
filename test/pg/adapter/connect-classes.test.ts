@@ -312,6 +312,8 @@ layer(Substrate.layer)("a connection failure states its class", (it) => {
 
 					const exhausted = yield* exhaust(
 						{
+							box: { kind: "unstated" },
+							oracle: { kind: "unstated" },
 							suite: "adapter/connect-classes",
 							generator: plantPaths,
 							literal: ([plant, path]) => `${plant} through ${path}`,

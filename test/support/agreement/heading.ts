@@ -1,11 +1,15 @@
 import { Array as Arr, Option, String as Str } from "effect"
 import type { Column } from "#compiler/core/decoder.ts"
+import { SourceLoc } from "#compiler/core/loc.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import type { ParamDecl } from "#compiler/ir/products.ts"
 import type { Fact } from "#compiler/ir/proof.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
-import { contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
+import { contractOf, type RegexRef, type ScalarType } from "#compiler/ir/scalar.ts"
+import { admitPattern } from "#compiler/scalar/regex/admit.ts"
+import { longest, membersWithin } from "#compiler/scalar/regex/dfa.ts"
 import { carrierSql } from "#compiler/scalar/registry.ts"
+import { languageOf } from "#compiler/text/refinement.ts"
 import type { Carriers } from "#compiler/types/core/phantom.ts"
 
 /**
@@ -15,8 +19,8 @@ import type { Carriers } from "#compiler/types/core/phantom.ts"
  * A column's host type is read off what the engine knows of it: the scalar type the checker gives it (its carrier and
  * contract) and the values its decoder's column delivers (core/decoder.ts Column): a head literal's column delivers its
  * literals, a closed id's its handles, narrowed to a handle's own member where the column is a constant's, and every
- * other column its carrier's host values, under its contract's brand. Every text the agreement schemas declare has the
- * language of every string, so a text is a string. A span's host values are spans of its endpoint's, under the
+ * other column its carrier's host values, under its contract's brand. A text is a string, but one whose refinement's
+ * language is finite, whose values are its members. A span's host values are spans of its endpoint's, under the
  * endpoint contract's brand, and a vector's are vectors of its dimension count.
  */
 
@@ -67,7 +71,7 @@ const carrierHost = (type: ScalarType): string => {
 		case "uuid":
 			return "Uuid"
 		case "text":
-			return "string"
+			return type.text.regex === "wildcard" ? "string" : textHost(type.text.regex)
 		case "code":
 			return handles(type.roster.handles)
 		case "range4":
@@ -80,6 +84,35 @@ const carrierHost = (type: ScalarType): string => {
 			throw new Error(`no agreement schema declares a ${type.carrier} field`)
 	}
 }
+
+/**
+ * The host values of a refined text: the members of a finite language, as the engine's text analysis proves it
+ * (text/refinement.ts languageOf, its minimal automaton acyclic), and every string for any other.
+ */
+const textHost = (regex: RegexRef): string => {
+	const admitted = admitPattern(regex.source, regex.flags, SourceLoc("heading", []))
+	if (!admitted.ok) {
+		throw new Error(`the engine refuses a pattern it admitted: /${regex.source}/${regex.flags}`)
+	}
+	const language = languageOf(admitted.value.ir, admitted.value.nfa)
+	if (language.kind === "empty" || language.known.kind === "structure") {
+		return "string"
+	}
+	const dfa = language.known.dfa
+	if (longest(dfa) === undefined) {
+		return "string"
+	}
+	const members = membersWithin(dfa, 1, memberWeight)
+	if (members === undefined || !Arr.isReadonlyArrayNonEmpty(members)) {
+		throw new Error(
+			`no agreement schema declares a finite text of so many members: /${regex.source}/`
+		)
+	}
+	return handles(members)
+}
+
+/** The weight a finite text's members are listed within: each member's bytes and one more, far above any declared. */
+const memberWeight = 4096
 
 /** A host type under its contract's brand, where the type is a contract's. */
 const branded = (type: ScalarType, host: string): string => {

@@ -64,7 +64,7 @@ import {
 	type RegexCheck,
 	type RegexRef,
 	RegexKey,
-	type Roster,
+	Roster,
 	rosterOf,
 	type ScalarType,
 	type SpanCarrier,
@@ -216,9 +216,25 @@ const declaredNameShape: S.Shape<DeclaredName> = S.plain({
 	}
 })
 
-const rosterShape: S.Shape<Roster> = S.struct({
+const rosterParts = S.struct({
 	closed: declaredNameShape,
 	handles: S.nonEmptyUniqueStrings("roster handles")
+})
+
+/**
+ * A roster as its constructor built it (ir/scalar.ts Roster), whose parts are a declared name and distinct handles,
+ * answered as it is: its canonical form names it alone, so no plain object stands for one.
+ */
+const rosterShape: S.Shape<Roster> = S.plain({
+	expected: "a roster, a closed relation's name and its handles",
+	parse: function* (value, path) {
+		if (!(value instanceof Roster)) {
+			return S.refuse(path, "a roster, a closed relation's name and its handles")
+		}
+		yield* rosterParts.parse({ closed: value.closed, handles: value.handles }, path)
+		path.asIs.add(value)
+		return value
+	}
 })
 
 const wireShape: S.Shape<WireScalarType> = S.lazy("a scalar type", () =>
@@ -576,6 +592,7 @@ const preconditionShape: S.Shape<Precondition> = S.tagged("kind", {
 	fits: S.struct({}),
 	contract: S.struct({}),
 	powerDomain: S.struct({}),
+	powerRange: S.struct({}),
 	bucketDomain: S.struct({})
 })
 

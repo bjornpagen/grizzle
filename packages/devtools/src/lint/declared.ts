@@ -82,10 +82,12 @@ export const missingAliasMessage = (option: string, declared: DeclaredAlias): st
 export type DeclaredValue = Readonly<{ module: string; name: string }>
 
 /** The declared values a rule reads, as the linted file's program holds them: the symbol each finally names, an
- * import alias resolved, and the values the program does not hold, which the rule reports as a misconfigured option. */
+ * import alias resolved; the values whose module the program holds but does not export them; and the values whose
+ * module the program does not hold. */
 export type DeclaredValues<A> = Readonly<{
 	found: ReadonlyArray<Readonly<{ declared: A; symbol: NativeSymbol }>>
-	missing: ReadonlyArray<A>
+	unexported: ReadonlyArray<A>
+	unheld: ReadonlyArray<A>
 }>
 
 /** The symbol an exported value finally names, the alias resolved when the module re-exports it. */
@@ -117,13 +119,14 @@ export const declaredValuesOf = <A extends DeclaredValue>(
 			]
 		)
 	)
-	const resolved = Arr.map(input.declared, (declared) => ({
-		declared,
-		symbol: Option.flatMap(
-			Option.flatten(Option.fromUndefinedOr(modules.get(declared.module))),
-			(module) => valueSymbolOf(checker, module, declared.name)
-		)
-	}))
+	const resolved = Arr.map(input.declared, (declared) => {
+		const module = Option.flatten(Option.fromUndefinedOr(modules.get(declared.module)))
+		return {
+			declared,
+			held: Option.isSome(module),
+			symbol: Option.flatMap(module, (held) => valueSymbolOf(checker, held, declared.name))
+		}
+	})
 	return {
 		found: Arr.filterMap(resolved, ({ declared, symbol }) =>
 			Option.match(symbol, {
@@ -131,12 +134,25 @@ export const declaredValuesOf = <A extends DeclaredValue>(
 				onSome: (value) => Result.succeed({ declared, symbol: value })
 			})
 		),
-		missing: Arr.filterMap(resolved, ({ declared, symbol }) =>
-			Option.isNone(symbol) ? Result.succeed(declared) : Result.failVoid
+		unexported: Arr.filterMap(resolved, ({ declared, held, symbol }) =>
+			held && Option.isNone(symbol) ? Result.succeed(declared) : Result.failVoid
+		),
+		unheld: Arr.filterMap(resolved, ({ declared, held }) =>
+			held ? Result.failVoid : Result.succeed(declared)
 		)
 	}
 }
 
-/** The report text for a declared value the program does not hold. */
+/** The report text for a declared value the linted file's program does not hold. */
 export const missingValueMessage = (option: string, declared: DeclaredValue): string =>
 	`The superlint option ${option} names the value ${declared.name} of ${declared.module}, which this file's program does not hold.`
+
+/** The report text for a declared value whose module the linted file's program holds without exporting it. */
+export const unexportedValueMessage = (option: string, declared: DeclaredValue): string =>
+	`The superlint option ${option} names the value ${declared.name} of ${declared.module}, which that module does not export.`
+
+/** Every declared value the program lacks: its module unheld, or the value unexported. */
+export const lackedValuesOf = <A>(values: DeclaredValues<A>): ReadonlyArray<A> => [
+	...values.unexported,
+	...values.unheld
+]

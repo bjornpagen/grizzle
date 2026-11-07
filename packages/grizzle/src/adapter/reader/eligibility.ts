@@ -1,9 +1,7 @@
 import { Result } from "effect"
 import { toResult } from "#adapter/engine.ts"
-import { requireGet } from "#compiler/analysis/logical/get.ts"
-import type { CompileError } from "#compiler/core/errors.ts"
-import { SourceLoc } from "#compiler/core/loc.ts"
-import type { QueryTemplate } from "#compiler/program/compile.ts"
+import { type CompileError, SourceLoc } from "#compiler/plan/common.ts"
+import { type QueryTemplate, requireGet } from "#compiler/plan/read.ts"
 
 /**
  * get eligibility at run time.

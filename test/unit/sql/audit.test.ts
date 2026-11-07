@@ -384,6 +384,7 @@ describe("every Live statement", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/sql/audit-live",
 						draw: drawn(liveSketchGen),
 						literal: Formatter.format,
@@ -439,6 +440,7 @@ describe("every statement a generated write program places", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/sql/audit-written",
 						draw: drawn(writtenSketchGen),
 						literal: Formatter.format,
@@ -494,6 +496,7 @@ describe("a statement broken at one site", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/sql/audit-breaks",
 						draw: drawn(breakCaseGen(breakSketchGen, statementBreaks.length)),
 						literal: Formatter.format,
@@ -560,6 +563,7 @@ describe("a statement broken at one site", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/sql/audit-faithful",
 						draw: drawn(breakCaseGen(liveSketchGen, faithfulRewrites.length)),
 						literal: Formatter.format,
@@ -620,6 +624,7 @@ describe("a printed statement broken at one token", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/sql/audit-text-breaks",
 					draw: drawn(breakCaseGen(breakSketchGen, textBreaks.length)),
 					literal: Formatter.format,
@@ -700,6 +705,8 @@ describe("a write program's ANALYZE", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/sql/carrier-program",
 						generator: array(programStepGen, { min: 0, max: 3 }),
 						literal: Formatter.format,

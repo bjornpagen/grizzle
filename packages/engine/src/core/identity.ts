@@ -563,7 +563,7 @@ export interface IdentityValue {
 }
 
 /** A field a selection fixes, and the literal it equals. */
-export interface Selector {
+interface Selector {
 	readonly field: string
 	readonly value: IdentityValue
 }
@@ -581,7 +581,7 @@ export interface KeySide {
 }
 
 /** One key of an access index: its field, direction and operator class. */
-export interface IndexKey {
+interface IndexKey {
 	readonly field: string
 	readonly dir: "asc" | "desc"
 	readonly opclass: "default" | "vectorCosine"
@@ -885,6 +885,15 @@ export const identity = Object.freeze({
 			[relation, field],
 			[relation, "norm", field],
 			`cosine norm check of ${relation}.${field}`,
+			hashed
+		),
+	/** A date column's range CHECK: the days a CalendarDate spells. */
+	dateCheck: (relation: string, field: string): Identity<"dateCheck"> =>
+		mint(
+			"dateCheck",
+			[relation, field],
+			[relation, "range", field],
+			`date range check of ${relation}.${field}`,
 			hashed
 		),
 	/** A contract's, text domain's, roster's or set's domain's CHECK, `check` in its domain's constraint namespace. */

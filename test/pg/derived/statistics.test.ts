@@ -212,6 +212,7 @@ layer(Substrate.layer)("extended statistics on derived relations", (it) => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "derived/statistics",
 						draw: drawn(sketchGen),
 						literal: Formatter.format,

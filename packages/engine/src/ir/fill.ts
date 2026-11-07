@@ -4,8 +4,11 @@
  * (analysis/theory/fill.ts), and refuses there every column no write can fill; the host's filler (write/family/fold.ts)
  * fills by it, so the two never disagree.
  *
- * A write fills a row in stages. The nested walk enters the row (`entering`), walks the members of every sequence it
- * owns, an ordered family's or its tree's, and leaves it (`leaving`); then each counted family it owns fills its own
+ * A write fills a row in stages. The nested walk enters the row (`entering`), then walks the members of each sequence
+ * it owns, an ordered family's or its tree's, one family after another in the order its layout states (`owns`), and
+ * once a family's members are filled it fills the row's columns that wait on that family (`after`): its fold's ends,
+ * its last copies, and every column that reads them. A member of a later family may copy such a column of its owner,
+ * which is why the order puts the family it waits on first. Then each counted family the row owns fills its own
  * members, which are rows of their own, and the row's ends of that family's folds (`settling`). A row's counted
  * families fill independently of one another, each from the row as the walk left it: a column one counted family
  * fills is read by no other family's fill and by nothing the walk fills.
@@ -84,8 +87,15 @@ export type FillRule =
 	  }
 	| { readonly kind: "generated"; readonly expr: ScalarExpr }
 
-/** When a write fills a column of its row, in its row's stages (the module's header). */
-export type FillStage = "entering" | "leaving" | "settling"
+/**
+ * When a write fills a column of its row, in its row's stages (the module's header): on entering the row; once the walk
+ * has filled the members of `family`, the last of the sequences the row owns that the column waits on, by its layout's
+ * order; or when a counted family the row owns settles it.
+ */
+export type FillStage =
+	| { readonly kind: "entering" }
+	| { readonly kind: "after"; readonly family: Family }
+	| { readonly kind: "settling" }
 
 /** Who fills a column: the nested walk, or a counted family's own fill, whose columns nothing else reads. */
 export type FillWriter =
@@ -109,7 +119,10 @@ export interface FillLayout {
 	readonly relation: LawRelation
 	readonly position: FillPosition
 	readonly columns: ReadonlyArray<FillColumn>
-	/** The families its rows own, sequences first, in the law model's order: the order the walk fills them in. */
+	/**
+	 * The families its rows own in the order the walk fills them: its sequences first, each after every sequence a column
+	 * its members copy waits on, else in the law model's order; then its counted families.
+	 */
 	readonly owns: ReadonlyArray<Family>
 }
 

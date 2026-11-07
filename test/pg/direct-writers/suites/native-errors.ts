@@ -250,6 +250,7 @@ export const nativeErrorsSuite = (): void =>
 							/** Back to the starting state, written whole (substrate/replace.ts). */
 							const explored = yield* explore(
 								{
+									oracle: { kind: "unstated" },
 									suite: "direct-writers/native-errors",
 									draw: drawn(array(insertGen, { min: 1, max: 3 })),
 									literal: Formatter.format,

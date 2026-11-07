@@ -1297,6 +1297,7 @@ const register = (it: Vitest.MethodsNonLive<Substrate>, spec: EducationSuite): v
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: spec.suite,
 						draw: drawn(
 							programCaseGen(

@@ -279,6 +279,8 @@ describe("a ChangeSet builder step reads only what it adds", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/write/changeset/step-reads",
 						generator: (source) =>
 							[
@@ -308,6 +310,7 @@ describe("a ChangeSet builder step reads only what it adds", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/write/changeset/assembled",
 					draw: drawn((source) =>
 						Arr.map(source.draw(array(int(0, 10), { min: 1, max: 12 })), (kind) =>

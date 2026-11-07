@@ -1,5 +1,5 @@
 import { type Equivalence, ordered, set } from "@grizzle/testing/oracle"
-import { Array as Arr, Option, Record as Rec, Result } from "effect"
+import { Array as Arr, Hash, Option, Record as Rec, Result } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import * as Engine from "#compiler/core/result.ts"
@@ -32,7 +32,13 @@ import {
 	type ReferenceInput,
 	unobserved
 } from "#test/support/oracle/reference/evaluate.ts"
-import { equal, ReferenceUnsupported, type Row } from "#test/support/oracle/reference/values.ts"
+import type { Identity } from "#test/support/oracle/reference/identity.ts"
+import {
+	equal,
+	indexIdentity,
+	ReferenceUnsupported,
+	type Row
+} from "#test/support/oracle/reference/values.ts"
 import { ledgerSchema, type Q, type RelationSpec } from "#test/unit/lower/conservative/fixtures.ts"
 
 /**
@@ -111,6 +117,32 @@ const rowEquivalence =
 			? Option.none()
 			: Option.some("a row has no natively equal row")
 
+/** An identity's hash, atom by atom, so equal identities hash alike. */
+const identityHash = (identity: Identity): number =>
+	Arr.reduce(identity, Hash.number(identity.length), (hash, atom) =>
+		Hash.combine(hash, Hash.hash(atom))
+	)
+
+/**
+ * A row's hash on `heading`, consistent with rowEquivalence: each column by its value's index identity
+ * (reference/values.ts indexIdentity), which decides equality exactly as comparison does, and a column whose value has
+ * none hashes alike with every other such value, so comparison alone decides it.
+ */
+const rowHash =
+	(heading: Heading) =>
+	(row: Row): number =>
+		Arr.reduce(heading, Hash.number(row.length), (hash, c, i) =>
+			Hash.combine(
+				hash,
+				Option.match(
+					Option.flatMap(Option.fromUndefinedOr(row[i]), (value) =>
+						Option.fromUndefinedOr(indexIdentity(value, c.type))
+					),
+					{ onNone: () => 0, onSome: identityHash }
+				)
+			)
+		)
+
 /**
  * One statement against another: the same label, the same heading names in order, and the same set of rows under the
  * reference's native equality per column (reference/values.ts equal), neither side holding a row twice: the reference
@@ -125,7 +157,7 @@ const statementEquivalence: Equivalence<ExpectedStatement> = (left, right) => {
 			`${left.label}: the heading (${headingNames(left)}) is not (${headingNames(right)})`
 		)
 	}
-	const difference = set(rowEquivalence(left.heading))(left.rows, right.rows)
+	const difference = set(rowHash(left.heading), rowEquivalence(left.heading))(left.rows, right.rows)
 	return Option.map(difference, (found) => `${left.label}: ${found}`)
 }
 

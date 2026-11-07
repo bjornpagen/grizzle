@@ -124,6 +124,10 @@
 				"patterns": ["packages/engine/src/public/**"]
 			},
 			{
+				"name": "plan",
+				"patterns": ["packages/engine/src/plan/**"]
+			},
+			{
 				"name": "adapter",
 				"patterns": ["packages/grizzle/src/adapter/**"]
 			},
@@ -272,6 +276,26 @@
 				"allow": ["allen", "core", "program", "query", "scalar", "schema", "text", "types", "write"]
 			},
 			{
+				"from": "plan",
+				"allow": [
+					"analysis",
+					"check",
+					"codec",
+					"core",
+					"deploy",
+					"ir",
+					"lower",
+					"physical",
+					"program",
+					"query",
+					"scalar",
+					"schema",
+					"sql",
+					"types",
+					"write"
+				]
+			},
+			{
 				"from": "adapter",
 				"allow": [
 					"analysis",
@@ -283,6 +307,7 @@
 					"logical",
 					"lower",
 					"physical",
+					"plan",
 					"program",
 					"query",
 					"scalar",
@@ -300,6 +325,7 @@
 					"deploy",
 					"ir",
 					"physical",
+					"plan",
 					"program",
 					"schema",
 					"sql",
@@ -328,9 +354,161 @@
 			]
 		}
 	},
+	// The engine modules the plan facades re-export from (packages/engine/src/plan) share these names with other modules:
+	// each facade re-exports a name explicitly from the one module it names, so no name resolves ambiguously through
+	// them, and renaming same-named builders and types apart would make worse code.
+	"ignoreExports": [
+		{ "file": "packages/engine/src/codec/recordset.ts", "exports": ["RelationSpec"] },
+		{ "file": "packages/engine/src/core/canonical.ts", "exports": ["Refusal"] },
+		{
+			"file": "packages/engine/src/core/decoder.ts",
+			"exports": ["Column", "Delivered", "Delivery", "Layout", "Part", "columnAt"]
+		},
+		{
+			"file": "packages/engine/src/core/errors.ts",
+			"exports": ["Artifact", "GuardTest", "TransientReason", "within"]
+		},
+		{
+			"file": "packages/engine/src/core/identity.ts",
+			"exports": ["DeclaredName", "Part", "SpanCheck"]
+		},
+		{ "file": "packages/engine/src/core/invariant.ts", "exports": ["defined"] },
+		{ "file": "packages/engine/src/core/limits.ts", "exports": ["derived"] },
+		{ "file": "packages/engine/src/core/record.ts", "exports": ["isList"] },
+		{ "file": "packages/engine/src/deploy/diff/plan.ts", "exports": ["Action", "Step"] },
+		{ "file": "packages/engine/src/deploy/render/folder.ts", "exports": ["Spelled"] },
+		{ "file": "packages/engine/src/deploy/render/generate.ts", "exports": ["DraftInput"] },
+		{ "file": "packages/engine/src/ir/codes.ts", "exports": ["codecOf", "noRenames"] },
+		{
+			"file": "packages/engine/src/ir/desc.ts",
+			"exports": ["CompareOp", "Spelled", "compareOps", "everyFact"]
+		},
+		{ "file": "packages/engine/src/ir/family.ts", "exports": ["Family"] },
+		{ "file": "packages/engine/src/ir/law.ts", "exports": ["DomainCheck", "LawSide"] },
+		{ "file": "packages/engine/src/ir/products.ts", "exports": ["StatementRole"] },
+		{
+			"file": "packages/engine/src/ir/rel.ts",
+			"exports": [
+				"AggregateFn",
+				"AggregateSpec",
+				"Cell",
+				"Context",
+				"Delivered",
+				"Delta",
+				"FrameBound",
+				"Heading",
+				"Occurrence",
+				"OrderKey"
+			]
+		},
+		{
+			"file": "packages/engine/src/ir/scalar.ts",
+			"exports": [
+				"Capability",
+				"Carrier",
+				"baseOf",
+				"carriers",
+				"rosterOf",
+				"spanCarrierOf",
+				"textOf"
+			]
+		},
+		{
+			"file": "packages/engine/src/lower/conservative/context.ts",
+			"exports": ["columnType", "refuse"]
+		},
+		{
+			"file": "packages/engine/src/lower/conservative/types.ts",
+			"exports": ["KeyColumn", "StatementRole"]
+		},
+		{ "file": "packages/engine/src/lower/shapes/index.ts", "exports": ["asDelivered"] },
+		{ "file": "packages/engine/src/lower/shapes/take/index.ts", "exports": ["RelationInput"] },
+		{
+			"file": "packages/engine/src/physical/ddl/names.ts",
+			"exports": ["ColumnType", "columnType"]
+		},
+		{ "file": "packages/engine/src/program/schema.ts", "exports": ["BuiltSchema"] },
+		{ "file": "packages/engine/src/program/workload/value.ts", "exports": ["workload"] },
+		{ "file": "packages/engine/src/scalar/values/identity.ts", "exports": ["compareValues"] },
+		{
+			"file": "packages/engine/src/schema/protocol.ts",
+			"exports": ["PredicateValue", "predicateValue"]
+		},
+		{ "file": "packages/engine/src/schema/relation.ts", "exports": ["NamedRelation", "derived"] },
+		{ "file": "packages/engine/src/schema/world.ts", "exports": ["loginRoleOf"] },
+		{
+			"file": "packages/engine/src/sql/ast.ts",
+			"exports": ["Call", "FrameBound", "IndexKey", "KeyColumn"]
+		},
+		{
+			"file": "packages/engine/src/sql/build.ts",
+			"exports": [
+				"and",
+				"asc",
+				"cast",
+				"columnKey",
+				"countStar",
+				"cte",
+				"derived",
+				"eq",
+				"exists",
+				"gt",
+				"join",
+				"ne",
+				"not",
+				"notExists",
+				"or",
+				"param",
+				"select",
+				"setOperation"
+			]
+		},
+		{
+			"file": "packages/engine/src/sql/catalog.ts",
+			"exports": [
+				"and",
+				"cast",
+				"countStar",
+				"cte",
+				"eq",
+				"exists",
+				"gt",
+				"join",
+				"ne",
+				"not",
+				"notExists",
+				"or",
+				"param",
+				"select"
+			]
+		},
+		{ "file": "packages/engine/src/sql/naming.ts", "exports": ["freshNames"] },
+		{
+			"file": "packages/engine/src/types/changeset/changeset.ts",
+			"exports": ["Delta", "LawSide", "Member", "Stratum", "Witness", "Written"]
+		},
+		{
+			"file": "packages/engine/src/types/core/phantom.ts",
+			"exports": ["Carrier", "DeclaredName", "Literal", "Refusal", "Source", "SourceOrigin", "Term"]
+		},
+		{ "file": "packages/engine/src/types/evidence/evidence.ts", "exports": ["Evidence"] },
+		{
+			"file": "packages/engine/src/types/query/query.ts",
+			"exports": ["AttachedHeads", "Ordered", "Query"]
+		},
+		{ "file": "packages/engine/src/types/schema/statements.ts", "exports": ["Ordered", "TermOf"] },
+		{ "file": "packages/engine/src/types/schema/world.ts", "exports": ["Context"] },
+		{ "file": "packages/engine/src/write/changeset/value.ts", "exports": ["MemberOp"] },
+		{ "file": "packages/engine/src/write/delta/net.ts", "exports": ["netStrata", "outcomeKind"] },
+		{ "file": "packages/engine/src/write/family/order.ts", "exports": ["Plan"] },
+		{ "file": "packages/engine/src/write/program/outcome.ts", "exports": ["keyWitness"] }
+	],
 	// use and useRelation: fallow does not follow union narrowing, and ParamCell's methods are called on the narrowed
 	// BindValue in check/checker.ts. release: fallow does not type a for-of binding, and SessionPool.release calls
-	// SessionStatements.release on each open session it iterates in adapter/wire/session.ts makePool.
+	// SessionStatements.release on each open session it iterates in adapter/wire/session.ts makePool. retype, scalar,
+	// relation and member: union narrowing again, the lowering's StatementParams and WriteParams methods called on the
+	// placeholders a statement's narrowed kind holds (lower/conservative/context.ts). _tag: KeyConflict's tag, read
+	// through the error unions that discriminate on it.
 	"usedClassMembers": [
 		"discriminantSpine",
 		"use",
@@ -338,6 +516,11 @@
 		"freshVar",
 		"freshOccurrence",
 		"freshScope",
-		"release"
+		"release",
+		"retype",
+		"scalar",
+		"relation",
+		"member",
+		"_tag"
 	]
 }

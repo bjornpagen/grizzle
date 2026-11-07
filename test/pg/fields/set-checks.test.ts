@@ -85,9 +85,14 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							const db = yield* Db.open(o.server.roles.app, {})
 							return yield* exhaust(
 								{
+									box: { kind: "unstated" },
 									suite: "pg/fields/set-checks",
 									generator: element(allSets),
 									literal: Formatter.format,
+									oracle: {
+										kind: "specification",
+										name: "the checks' set algebra restated over each set of the roster's handles"
+									},
 									limit: allSets.length,
 									coverage: requiredInSpace<Situation>([
 										"accepted",
@@ -138,7 +143,11 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										assert.equal(outcome.laws.length, 1, "one CHECK fails, and its law is named")
 										const [law] = outcome.laws
 										containsEqual(broken, law, "the refusing check is one the set breaks")
-										assert.deepEqual(outcome.witness, { kind: "unreported" })
+										assert.deepEqual(outcome.witness, {
+											kind: "key",
+											relation: "R",
+											values: { id: 1 }
+										})
 										c.note(deepEquals(law, apartLaw) ? "refused by Apart" : "refused by Within")
 									})
 							)

@@ -594,8 +594,9 @@ runs it again, it sees the other's debit, and it comes back as an outcome you ma
 ```
 
 `laws` is never empty: it names the rule the failing constraint states, or each rule of one that carries several
-([Errors and outcomes](#errors-and-outcomes)). A row check's witness is `unreported`: PostgreSQL states the failing row
-only in its message, which grizzle never reads.
+([Errors and outcomes](#errors-and-outcomes)). The witness is `unreported` here: `WithinGrant` reads `spent`, which
+grizzle fills on the grant from its debits, so no grant the ChangeSet states breaks it. A row check over a row you
+state names that row's key.
 
 ### 6. Books that always balance
 
@@ -1314,7 +1315,7 @@ becomes one PostgreSQL schema.
 | `pg.smallint`, `pg.integer`                        | smallint, integer                             | `number`                                                            |
 | `pg.bigint`                                        | bigint                                        | `bigint`                                                            |
 | `natural`                                          | bigint, behind a domain that checks `>= 0`    | `bigint`                                                            |
-| `date`                                             | date, behind a domain that checks 0001-01-01 … 9999-12-31 | `CalendarDate`, its ISO 8601 text `"YYYY-MM-DD"`        |
+| `date`                                             | date, its column checked to 0001-01-01 … 9999-12-31 | `CalendarDate`, its ISO 8601 text `"YYYY-MM-DD"`              |
 | `pg.numeric(p, s)`                                 | numeric(p, s)                                 | `Decimal`, exact, no display scale                                  |
 | `pg.real`, `pg["double precision"]`, `pg.float(p)` | real, double precision                        | `number`                                                            |
 | `pg.money`                                         | money                                         | `Money`                                                             |
@@ -1333,8 +1334,9 @@ constructor, `Cents(500n)`, which brands it without checking it: the database ch
 count: the builtin contract `natural` over `pg.bigint`, unbranded, and the one type a rule's `pred` reads
 ([Rules](#rules)). Its domain refuses a negative value, an outcome on the law
 `{ kind: "contract", contract: "natural" }`, and another contract under its name is refused. `date` is a calendar day
-of the proleptic Gregorian calendar: the builtin contract `date` over PostgreSQL's date, whose domain admits the days
-from 0001-01-01 to 9999-12-31, so no column holds an infinity or a year its text could not spell. Its value is its ISO
+of the proleptic Gregorian calendar: PostgreSQL's date, a plain type as `pg.integer` is, so `Compute.base` of a date
+is the date itself. Every date column carries a CHECK of the days from 0001-01-01 to 9999-12-31, so no column holds an
+infinity or a year its text could not spell, whoever writes it; it is the type's range, no rule an outcome names. Its value is its ISO
 8601 text, `"2024-02-29"`, one text per day, ordered as the calendar is; every login pins `DateStyle` to ISO, so
 PostgreSQL writes it the same way. Dates compare, and `min` and `max` them, and a key or index may hold one.
 
@@ -1371,7 +1373,8 @@ index entry.
 
 ### How a field is written
 
-Every field says who writes it, and an insert or a put takes exactly the fields its caller writes, `Written<R>`:
+Every field says who writes it, and an insert or a put takes exactly the fields its caller writes, `Written<R>`, which
+grizzle exports beside `AdditionIn<S, R>`, R's addition in S with its sequences' members nested at its count fields:
 
 - **The caller**, the default: a field declared by its type alone, `title: Title`.
 - **PostgreSQL**, as a STORED generated column:
@@ -1379,7 +1382,9 @@ Every field says who writes it, and an insert or a put takes exactly the fields 
   caller writes alone: no generated column, which PostgreSQL's generation expression never reads, and no drawn or
   accumulated field, which grizzle writes on the host, by type and, for a JavaScript caller, by `GeneratedRefused`
   (`readsUnwritten`) when the schema is compiled. The term is of the declared type exactly, with no implicit cast. It
-  may read closed relations ([Closed relations](#closed-relations)).
+  may read closed relations ([Closed relations](#closed-relations)); a term with no value at a row, a closed read
+  `C.at` at a key its relation holds no row at, refuses the row, `invariant-rejected` on
+  `{ kind: "generated", relation, field }`.
 - **grizzle, drawn:** `drawn(natural)`, a family's count or index, and a tree's `start` and `end`
   ([Families](#families)).
 - **grizzle, accumulated:** `accumulated(type, start)`, a fold's end or accumulator, or a copy along a family's axis,
@@ -1614,10 +1619,12 @@ never narrowed into its column's type unproved.
   its row is written.
 - **An immutable owner's family is fixed when the owner is inserted.** Declare `mutable(Owner)` for a family that
   changes later, or an owner you put: a delete of a member of an immutable owner's family, and a put of an immutable
-  owner, are type errors, and from JavaScript refused when the ChangeSet compiles. So is an insert of a member of an
-  immutable owner's family in a stratum that inserts no such owner, which the types, seeing no strata, admit; and a
-  ChangeSet that writes a family's members in more than one stratum, since each stratum's edits are planned from one
-  read before the ChangeSet's writes.
+  owner, are type errors, and from JavaScript refused when the ChangeSet compiles. A ChangeSet's type holds its strata,
+  so two more are type errors too: an insert of a member of an immutable owner's family in a stratum that inserts no
+  such owner, refused where the ChangeSet is compiled (`db.apply`, `db.compile`, `db.explain`, a workload), since a
+  later insert or a union may still add the owner; and a ChangeSet that writes a family's members in more than one
+  stratum, refused at the call that makes the second, since each stratum's edits are planned from one read before the
+  ChangeSet's writes.
 
 ## Permissions
 
@@ -1854,6 +1861,11 @@ which compilation reads as text of the pattern's language, and over a pattern te
 regex engine widens its subject to four bytes for every byte before it matches, so a query matches only a text whose
 pattern bounds it within 268,435,454 bytes; a check, a law's selection or a generated field matches any text.
 `Compute.startsWith(a, b)` and `Compute.endsWith(a, b)` test a prefix and a suffix, by characters.
+A text's bytes have a guard too, `Compute.within` over its `Compute.octetLength`:
+`Compute.when(Compute.within(Compute.octetLength(x), 0, 64), () => Compute.cast(x, Name), "")`, with `Name` a
+`str.bytes(64, pattern)` whose pattern holds x's, reads `x` inside the branch as at most 64 UTF-8 bytes of its own
+pattern, so a text of no byte bound casts into it; like `octetLength`, it stands in checks, contract predicates and
+generated fields.
 
 A text parses into a typed value: `Compute.cast(lexical, T)` is PostgreSQL's own cast from text into an integer type,
 `pg.numeric(p, s)`, `pg["double precision"]`, `pg.boolean` or `date`, read as XML Schema reads `xs:integer`,
@@ -1985,6 +1997,12 @@ ChangeSet.empty(Blog)               a write over a schema, or over a role: Chang
   this change added and removed.
 - **`ChangeSet.union(a, b)`** applies both as one change; **`ChangeSet.sequence(a, b)`** applies `b` after `a`, in the
   same transaction.
+- **A stratum's statements run in one order every immediate key keeps.** Its inserts, puts and deletes, and the
+  statements that write its families' members and count their owners, are ordered by every immediate foreign key
+  between them: a referenced row is added before the rows that name it and removed after them, so a family's
+  members are deleted before their owner and a row that names a member is inserted after it. A stratum those keys
+  order in a cycle is refused when the ChangeSet compiles (`UnorderableStratum`): write one of its writes in another
+  stratum, `ChangeSet.sequence`.
 - **`db.apply(changes, params)`** answers `accepted` (with each table's counts and the read-backs), `no-change`,
   `invariant-rejected` or `outside-world`. An input holds any number of rows: each travels as one array per column.
 
@@ -2177,15 +2195,20 @@ channel as a tagged class.
   not say which failed, each of them: a family's foreign key carries every containment merged into it, and one domain
   serves every contract and pattern of the same definition.
 - The witness is `{ kind: "key", relation, values }`, the key values of one row that breaks the rule, never another
-  column; or `{ kind: "unreported" }`, for a constraint PostgreSQL raises itself (a foreign key, a row check, a
-  contract or a pattern), whose key it states only in its message. A key, over a table or over a side of one, that
-  grizzle's own write statement finds broken, by two rows you submitted or by a stored row inside or outside your
-  role's view, names the key you submitted, in the fields you wrote it in.
+  column; or `{ kind: "unreported" }`. A key, over a table or over a side of one, that grizzle's own write statement
+  finds broken, by two rows you submitted or by a stored row inside or outside your role's view, names the key you
+  submitted, in the fields you wrote it in. A rule PostgreSQL refuses itself, a row check, a contract, a pattern or a
+  generated field, states its row only in its message, which grizzle never reads, so grizzle judges, on the host, the
+  rows the refused statement wrote that your ChangeSet states (an inserted or put row, a query entry's row, a nested
+  member) by the rule over their fields: the witness is the key of the first that breaks it, in the fields you wrote it
+  in. It is `unreported` for a foreign key, and where no row you stated breaks the rule: a row only PostgreSQL computes,
+  a query's, or one whose rule reads a value grizzle fills on a family, a rule over what the host does not evaluate,
+  or a row whose key PostgreSQL draws.
 - `outside-world` names the role's table a row cannot belong to.
 
 A value its contract or pattern refuses passes the encoder, which checks only the base type, and is refused by its
 domain's CHECK as the statement casts it, before the row's constraints and row-level security: `invariant-rejected` on
-the contract's or pattern's rule, witness `unreported`.
+the contract's or pattern's rule, its witness the key of the row you stated that holds the value.
 
 <details>
 <summary>Every rule an outcome can name</summary>
@@ -2202,6 +2225,7 @@ the contract's or pattern's rule, witness `unreported`.
 | `fold`       | `family`, its slots; `monoid`; `step` and `end`, sides                                                   |
 | `contract`   | `contract`                                                                                               |
 | `pattern`    | `source`, `flags`: one rule for every spelling of the same language                                      |
+| `generated`  | `relation`, `field`: a generated field whose term has no value at a row, a closed read at a key its relation lacks |
 
 A side is its `relation`, its `terms` in the order the rule pairs them, each `{ kind: "field", field }` or
 `{ kind: "pred", field }`, and its `selection`, `{ conjuncts }`: each conjunct a row predicate in its canonical form
@@ -2301,7 +2325,10 @@ write (`op`) of `member` that changes a stored row's column (`changed`: its `rel
 `owner` or `member`), which the cascade carries into `copies`, read by `reader` (`{ kind, family, relation, column }`,
 a fold, a predecessor, a last or a tree's copy) drawn only when its row is written; `UnfillableField`, the `relation`'s
 `field`, the `law` that fills it, the `source` column it reads along `axis` of its `family`, and why that column is
-filled `later`; `UnwritableRelation`, the `relation` no write fills and its `cause`; `UnstatedKey`, a put
+filled `later`; `UnwritableRelation`, the `relation` no write fills and its `cause`; `UnorderableStratum`, the
+`cycle` of a stratum's writes (`{ relation, op }`, an insert, a put or a delete, or a family's insert, update or
+delete of its members' rows or count of its owners) that immediate keys order each before the next and the last
+before the first, so no order of the stratum's statements keeps them all; `UnstatedKey`, a put
 or a delete (`op`) of a `relation` whose `key` (`{ kind, fields }`, its primary key or a declared one a put compares)
 holds fields grizzle writes (`unstated`); `UndeclaredDrop`, the name a migration would drop, which no `--drop` or
 `--rename` declares; and the remaining rules, a `capability` sentence.
@@ -2446,7 +2473,7 @@ app. Log in as a login, `SET ROLE` to one of its roles, set the claims in the tr
 | 23514               | a row check, a family's CHECK or a rule over a closed relation, each named by its rule; a value its contract or pattern refuses, or a code or set its roster's domain refuses, as the statement casts it, before row-level security and the row's constraints |
 | 23505               | at the statement: a duplicate key, over a table or over a side of one, an exact repeat included; or a key a concurrent transaction committed after this one's snapshot, which is retryable |
 | 23P01               | an overlap under a no-overlap key, at the statement; or a span a concurrent transaction committed after this one's snapshot, which is retryable               |
-| 23503               | a foreign key, a containment between sides included: at COMMIT when it is deferred (a family's key as its proof needs: a counted family's predecessor key, every last-slot key, and an owner key a cascade feeds; any other whose target has a field that is not one of the columns it references, or that lies on a cycle of foreign keys), at the statement otherwise |
+| 23503               | a foreign key, a containment between sides included: at COMMIT when it is deferred (a family's key as its proof needs: a counted family's predecessor key, every last-slot key, and an owner key a cascade feeds; any key that lies on a cycle of the foreign keys that order a write's statements, a family's owner key among them, as a containment from an owner into its members closes one; and any other whose target has a field that is not one of the columns it references), at the statement otherwise |
 | 40001, 40P01        | a serialization failure or a deadlock: run the transaction again                                                                                             |
 
 - **The claims setting** is readable exactly when it has the shape a `Db` writes: empty, or a JSON object with no key
@@ -2564,14 +2591,14 @@ workflows, whose rules are worth declaring and whose users see different slices 
   paths, 8 anchors, and 8,192 for anchors times positions. The measures sit inside PostgreSQL's limit, so a pattern
   past one may still compile there. A counted repetition's bound is at most 255, PostgreSQL's limit. Every pattern a
   `Compute.matches` term can take is bounded the same way, each value of a closed relation's dictionary included.
-- **A parameter's value of a pattern is delivered only through that pattern's domain.** A query delivers a value it
-  cannot prove inside its pattern, a parameter's, cast to the pattern's domain, which PostgreSQL checks for every
-  delivered row; a literal is proved as it is compiled and needs none. The installation holds a domain only for a
-  pattern something it installs declares: a stored field, a closed relation's field, a derived table's column, a
-  role's view column or a context field. So a query that delivers a parameter's value, or a relation parameter's
-  field, of any other pattern is refused with `UnsupportedOperation` when it is compiled, naming the parameter and the
-  pattern: declare a field of that pattern on a stored relation, or type the parameter by a pattern a stored field
-  declares.
+- **A parameter's value is checked against its contract and pattern at bind**, before any SQL: one outside them is
+  refused with `EncodingFailure` (`refinedValue`). Its refinement travels with it, so a query delivers a parameter's
+  value, or a relation parameter's field, of any pattern as it was bound, whether or not a stored field declares the
+  pattern. A value the query computes, which no bind checks, is delivered through its pattern's domain where it cannot
+  be proved inside the pattern, and the installation holds a domain only for a pattern something it installs declares
+  (a stored field, a closed relation's field, a derived table's column, a role's view column or a context field): a
+  computed value of any other pattern is refused with `UnsupportedOperation` when the query is compiled, naming the
+  pattern.
 - **PostgreSQL keeps the last 32 regular expressions a backend compiled** (`MAX_CACHED_RES`). A match over a
   dictionary of more patterns, over rows that cycle through them, compiles a pattern per row. Measured on 19rc1 (an
   Apple M-series laptop under load), 200,000 rows matched over dictionaries of 1 to 178 value-domain patterns, median

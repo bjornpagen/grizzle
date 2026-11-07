@@ -302,6 +302,7 @@ describe("a failure's message", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/kernel/tagged-message",
 						draw: drawn((source): TaggedSketch => ({
 							stage: source.draw(word),
@@ -361,6 +362,7 @@ describe("a failure's message", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/kernel/no-error-message",
 					draw: drawn(endGen),
 					literal: Formatter.format,

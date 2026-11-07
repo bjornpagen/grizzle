@@ -183,6 +183,7 @@ describe("the add-wins transition", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/oracle/addwins-24932",
 						draw: drawn((source) => [source.draw(taskState), source.draw(strata)] as const),
 						literal: Formatter.format,
@@ -239,6 +240,7 @@ describe("build-order independence", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/oracle/addwins-28530",
 					draw: drawn(
 						(source) =>
@@ -306,6 +308,7 @@ describe("put", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/oracle/addwins-28789",
 						draw: drawn(
 							(source) =>
@@ -466,6 +469,7 @@ describe("counts across strata, netted over the per-stratum changes", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/oracle/addwins-6516340",
 						draw: drawn(
 							oneOf<readonly [ReadonlyArray<TaskFact>, ReadonlyArray<ReadonlyArray<Member>>]>([
@@ -578,6 +582,7 @@ describe("generated additions", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/oracle/addwins-generated",
 						draw: drawn(caseGen),
 						literal: Formatter.format,

@@ -146,6 +146,7 @@ describe("every declared parameter admitted at the read boundary", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/adapter/reader-eliminated-parameter",
 						draw: drawn(pinnedReadGen),
 						literal: Formatter.format,

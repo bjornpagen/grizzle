@@ -1,11 +1,15 @@
 import { Result } from "effect"
 import { toResult } from "#adapter/engine.ts"
-import { decode, fromJson, noRevivers } from "#compiler/core/canonical.ts"
-import { type CompileError, malformedArtifact } from "#compiler/core/errors.ts"
-import { isRecord } from "#compiler/core/record.ts"
-import { trusted } from "#compiler/core/trusted.ts"
-import { snapshotFingerprint } from "#compiler/deploy/snapshot/build.ts"
-import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
+import {
+	type CompileError,
+	decode,
+	fromJson,
+	isRecord,
+	malformedArtifact,
+	noRevivers,
+	trusted
+} from "#compiler/plan/common.ts"
+import { type DeploySnapshot, snapshotFingerprint } from "#compiler/plan/migration.ts"
 
 /**
  * The snapshot a revived JSON value is: the value itself, trusted once its recorded fingerprint is the digest of its

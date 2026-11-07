@@ -340,6 +340,7 @@ describe("the fresh installation", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/physical/install-order",
 					draw: drawn(generatedGen),
 					literal: Formatter.format,
@@ -424,6 +425,7 @@ describe("the fresh installation", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/physical/install-declaration-order",
 						/** A generated schema and a permutation of its relations and one of its statements. */
 						draw: drawn((source) => {
@@ -469,6 +471,7 @@ describe("the fresh installation", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/physical/install-identifiers",
 						draw: drawn(namesGen),
 						literal: Formatter.format,

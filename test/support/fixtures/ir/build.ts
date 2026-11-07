@@ -19,7 +19,7 @@ import {
 } from "#compiler/allen/atoms.ts"
 import { allenFormula } from "#compiler/allen/lower.ts"
 import { AllenMask } from "#compiler/allen/mask.ts"
-import { makeIdSupply, type NodeId, ParamId } from "#compiler/core/ids.ts"
+import { makeIdSupply, NodeId, ParamId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type * as Result from "#compiler/core/result.ts"
 import { DagBuilder, type ReservedNode } from "#compiler/ir/builder.ts"
@@ -33,7 +33,7 @@ import {
 	type ScalarExpr,
 	type TypedLiteral
 } from "#compiler/ir/expr.ts"
-import { rewriteClaim } from "#compiler/ir/keys.ts"
+import type { KeyProof } from "#compiler/ir/keys.ts"
 import {
 	type AggregateSpecOver,
 	type CompletedOrder,
@@ -366,12 +366,29 @@ export const plainRegion: RegionOptions = {
 	equalities: []
 }
 
+/** The node a fixture's stated key names, which no fixture builds: a stated key has no node it was proved over. */
+const statedNode = NodeId("stated")
+
+/**
+ * A key a fixture states of a node it builds, where a test hands a lowering the keys the logical analysis would prove:
+ * a proof whose derivation is the statement alone, on no premise, over the node `stated`, which no key kernel reads.
+ */
+export const statedKey = (key: KeySet): KeyProof => ({
+	node: statedNode,
+	key,
+	basis: { kind: "rows", implication: { node: statedNode, from: key, steps: [] } },
+	members: [],
+	alternatives: [],
+	premises: [],
+	context: "queryLocal"
+})
+
 export const keyed = (
 	keys: ReadonlyArray<KeySet>,
 	card: "many" | "atMostOne" | "one"
 ): MetaSpec => ({
 	...conservativeMeta,
-	logicalKeys: Arr.map(keys, (k) => rewriteClaim(k, [])),
+	logicalKeys: Arr.map(keys, statedKey),
 	card
 })
 
@@ -883,6 +900,7 @@ export class Ir {
 			child,
 			name,
 			correlation: Arr.map(correlation, ([p, c]) => ({ parent: p, child: c })),
+			judged: delivered,
 			heading: parent.heading,
 			loc: undefined,
 			meta: conservativeMeta

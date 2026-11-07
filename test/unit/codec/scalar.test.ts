@@ -434,6 +434,7 @@ describe("each carrier's codec", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/codec/scalar-forms",
 						draw: drawn((source) => {
 							const name = source.draw(element(carriedNames))
@@ -512,6 +513,7 @@ describe("integer and span text, scanned without RegExp", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/codec/scalar-6909556",
 						draw: drawn(texts),
 						literal: Formatter.format,
@@ -562,6 +564,7 @@ describe("integer and span text, scanned without RegExp", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/codec/scalar-7565409",
 						draw: drawn(texts),
 						literal: Formatter.format,
@@ -605,6 +608,7 @@ describe("vectors", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/codec/scalar-3",
 						draw: drawn(array(float(-bound, bound), { min: 3, max: 3 })),
 						literal: Formatter.format,

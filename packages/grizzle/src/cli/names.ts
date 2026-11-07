@@ -3,7 +3,7 @@ import { committedSnapshot } from "#cli/committed.ts"
 import type { ResolvedConfig } from "#cli/config.ts"
 import type { CliError } from "#cli/errors.ts"
 import { readSchemaTree } from "#cli/files.ts"
-import { printCommentTarget } from "#compiler/sql/print.ts"
+import { printCommentTarget } from "#compiler/plan/common.ts"
 
 /**
  * `grizzle names`: the mapping a direct SQL writer reads, from each configured schema's committed snapshot, offline.

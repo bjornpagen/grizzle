@@ -180,6 +180,8 @@ describe("the kind table", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/lower/conservative/kinds",
 						literal: Formatter.format,
 						generator: (source) =>
@@ -372,6 +374,8 @@ describe("heterogeneous unions", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/lower/conservative/heterogeneous",
 						literal: Formatter.format,
 						generator: consumers,
@@ -464,6 +468,8 @@ describe("heterogeneous unions", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/lower/conservative/union-attachments",
 						literal: Formatter.format,
 						/** One to three arms of one heading group, `attached` holding a bit per arm whose parent carries tasks. */
@@ -556,6 +562,8 @@ describe("regions", () => {
 			ctx,
 			exhaust(
 				{
+					box: { kind: "unstated" },
+					oracle: { kind: "unstated" },
 					suite: "unit/lower/conservative/outer-references",
 					literal: Formatter.format,
 					/**
@@ -656,6 +664,7 @@ describe("take bound parameters", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/lower/conservative/bound-param-type",
 						literal: Formatter.format,
 						kept: [],

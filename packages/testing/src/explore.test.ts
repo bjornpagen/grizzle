@@ -1,9 +1,11 @@
+import { createHook } from "node:async_hooks"
 import { describe, it } from "@effect/vitest"
 import { assertTrue, deepStrictEqual, strictEqual } from "@effect/vitest/utils"
 import {
 	Array as Arr,
 	Duration,
 	Effect,
+	Exit,
 	Formatter,
 	Option,
 	Order,
@@ -39,7 +41,8 @@ import {
 	tallyOf
 } from "#features.ts"
 import { array, boolean, constant, element, filter, type Gen, int } from "#gen.ts"
-import { agree, by, equivalence, exact, ordered, set } from "#oracle.ts"
+import { liveMillis } from "#live.ts"
+import { agree, by, equivalence, exact, ordered, type Side, set, structuralHash } from "#oracle.ts"
 import { floorSeed } from "#random.ts"
 import type { Replay, ReplayCase } from "#replay.ts"
 import { notesOnly } from "#sense.ts"
@@ -598,41 +601,111 @@ describe("the residual", () => {
 	)
 })
 
+/** The comparisons an oracle's sides are judged by: in order, as sets, through a projection, or within a tolerance. */
+const COMPARISONS = ["ordered", "set", "by first item", "within one"] as const
+
+type Comparison = (typeof COMPARISONS)[number]
+
+/** A side's answer: a few small whole numbers. */
+type Answer = ReadonlyArray<number>
+
+const answerGen: Gen<Answer> = array(int(0, 3), { min: 0, max: 3 })
+
+/** Each comparison as the library spells it. */
+const equivalenceOf = (comparison: Comparison) => {
+	switch (comparison) {
+		case "ordered":
+			return ordered<number>(exact)
+		case "set":
+			return set<number>(structuralHash, exact)
+		case "by first item":
+			return by((answer: Answer) => Option.fromUndefinedOr(answer[0]), exact)
+		case "within one":
+			return by(
+				(answer: Answer) => Arr.reduce(answer, 0, (sum, item) => sum + item),
+				equivalence((left: number, right: number) => Math.abs(left - right) <= 1, String)
+			)
+	}
+}
+
+/**
+ * Whether two answers agree under a comparison, from its definition: the same items in the same order; the same items
+ * in any order, neither side repeating one; the same first item, or none on both; sums at most one apart.
+ */
+const agreesOf = (comparison: Comparison, left: Answer, right: Answer): boolean => {
+	const distinct = (answer: Answer) => new Set(answer).size === answer.length
+	const sum = (answer: Answer) => Arr.reduce(answer, 0, (total, item) => total + item)
+	switch (comparison) {
+		case "ordered":
+			return left.length === right.length && Arr.every(left, (item, at) => item === right[at])
+		case "set":
+			return (
+				distinct(left) &&
+				distinct(right) &&
+				Arr.every(left, (item) => Arr.contains(right, item)) &&
+				Arr.every(right, (item) => Arr.contains(left, item))
+			)
+		case "by first item":
+			return left[0] === right[0]
+		case "within one":
+			return Math.abs(sum(left) - sum(right)) <= 1
+	}
+}
+
 describe("agree", () => {
-	it.effect("agrees on what the equivalence promises, and names the difference otherwise", () =>
-		Effect.gen(function* () {
-			yield* agree(
-				[
-					["model", [1, 2, 3]],
-					["system", [3, 1, 2]]
-				],
-				set(exact)
-			)
-			yield* agree(
-				[
-					["model", { id: 1, at: "now" }],
-					["system", { id: 1, at: "later" }]
-				],
-				by((row: { id: number; at: string }) => row.id, exact)
-			)
-			yield* agree(
-				[
-					["model", 4],
-					["system", 4.000_000_1]
-				],
-				equivalence((left: number, right: number) => Math.abs(left - right) < 1e-3, String)
-			)
-			const ordering = yield* Effect.flip(
-				agree(
-					[
-						["model", [1, 2]],
-						["system", [2, 1]]
-					],
-					ordered(exact)
+	it.effect(
+		"passes exactly when every side agrees with the first under its comparison, and names the first side that does not",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						...searchOf(
+							"agree",
+							(source) => ({
+								comparison: source.draw(element(COMPARISONS)),
+								first: source.draw(answerGen),
+								rest: source.draw(array(answerGen, { min: 0, max: 3 }))
+							}),
+							required<Comparison | "agreed" | "disagreed" | "a later side disagreed">(
+								[...COMPARISONS, "agreed", "disagreed", "a later side disagreed"],
+								{ cases: 400, sense: notesOnly }
+							),
+							300,
+							1
+						),
+						oracle: {
+							kind: "second-implementation",
+							name: "each comparison's definition, side by side against the first"
+						}
+					},
+					({ comparison, first, rest }, c) =>
+						Effect.gen(function* () {
+							c.note(comparison)
+							const head: Side<Answer> = ["side 0", first]
+							const sides = Arr.prepend(
+								Arr.map(rest, (answer, at): Side<Answer> => [`side ${at + 1}`, answer]),
+								head
+							)
+							const dissenting = Arr.findFirstIndex(
+								rest,
+								(answer) => !agreesOf(comparison, first, answer)
+							)
+							c.note(Option.isSome(dissenting) ? "disagreed" : "agreed")
+							if (Option.exists(dissenting, (at) => at > 0)) {
+								c.note("a later side disagreed")
+							}
+							const judged = yield* Effect.exit(agree(sides, equivalenceOf(comparison)))
+							deepStrictEqual(
+								Option.map(Exit.findErrorOption(judged), (disagreement) => [
+									disagreement.first,
+									disagreement.second
+								]),
+								Option.map(dissenting, (at) => ["side 0", `side ${at + 1}`])
+							)
+						})
 				)
 			)
-			deepStrictEqual([ordering.first, ordering.second], ["model", "system"])
-		})
 	)
 })
 
@@ -1201,6 +1274,160 @@ describe("replay fidelity", () => {
 									Option.some("kept")
 								)
 							}
+						})
+				)
+			)
+	)
+})
+
+/** The kinds of synchronous property the inline gate runs: none of them ever yields to the event loop. */
+const SYNC_PROPERTIES = ["void", "sync", "steps"] as const
+
+type SyncProperty = (typeof SYNC_PROPERTIES)[number]
+
+/** A property of each kind, every one synchronous. */
+const syncProperty = (kind: SyncProperty) => (value: number) => {
+	switch (kind) {
+		case "void":
+			return Effect.void
+		case "sync":
+			return Effect.sync(() => value * 2)
+		case "steps":
+			return Effect.gen(function* () {
+				const doubled = yield* Effect.succeed(value * 2)
+				yield* Effect.sync(() => doubled + 1)
+			})
+	}
+}
+
+/**
+ * The timers and the event-loop hops a run of `effect` makes: the Timeout and Immediate resources Node creates while it
+ * runs, read through an async hook, which sees every one whatever schedules it.
+ */
+const scheduledBy = <A, E>(effect: Effect.Effect<A, E>) =>
+	Effect.gen(function* () {
+		const made = { timers: 0, hops: 0 }
+		const hook = createHook({
+			init: (_id, type) => {
+				if (type === "Timeout") {
+					made.timers += 1
+				}
+				if (type === "Immediate") {
+					made.hops += 1
+				}
+			}
+		})
+		yield* Effect.acquireUseRelease(
+			Effect.sync(() => hook.enable()),
+			() => effect,
+			() => Effect.sync(() => hook.disable())
+		)
+		return made
+	})
+
+/** 2100-01-01T00:00:00Z, in milliseconds since the epoch: a deadline no run reaches. */
+const YEAR_2100 = 4_102_444_800_000
+
+/** An exhaustion of `cases` values whose property is synchronous, under a deadline an hour away, so its cut is armed. */
+const syncExhaustion = (kind: SyncProperty, cases: number, seed: number) =>
+	exhaust(
+		{
+			suite: `inline ${kind}`,
+			oracle: {
+				kind: "specification",
+				name: "a synchronous property, for counting what its run schedules"
+			},
+			box: "every value below the drawn count",
+			generator: int(0, cases - 1),
+			literal: Formatter.format,
+			limit: cases,
+			coverage: noCoverage,
+			caseHang: Duration.minutes(1)
+		},
+		syncProperty(kind)
+	).pipe(
+		Effect.provideService(
+			Run,
+			Run.of({
+				seed,
+				source: "environment",
+				replay: Option.none(),
+				fuzz: Option.none(),
+				deadline: { kind: "at", millis: YEAR_2100 }
+			})
+		)
+	)
+
+/**
+ * The timers and event-loop hops a synchronous case may make, at most, beside the search's own: one in four cases. The
+ * runtime yields to other fibers every 2,048 operations, which a case's run takes a few hundred of, and the test
+ * process arms a timer of its own now and then; a case run in a fiber of its own hops once and arms two timers.
+ */
+const SCHEDULED_PER_CASE = 0.25
+
+/**
+ * How long one case of a trivial synchronous property may take, in microseconds of wall time, the runner's own cost.
+ *
+ * @limitKind measured
+ * @owner the choice-stream testing library (explore's case runner)
+ * @unit microseconds
+ * @scope one case of an exhaustion whose property is a synchronous Effect of a few steps, in one test process
+ * @evidence this suite re-measures it on every run; the figures below come from five exhaustions of 5,000 cases each,
+ * the runner before and after cases ran inline, and from an async hook counting the timers and immediates of
+ * exhaustions of 256, 512 and 1,024 cases
+ * @observed 2026-11-06, 20:40 to 20:50 CST
+ * @environment macOS (Darwin 27.0.0, an arm64 virtual machine) on 10 cores, Node 26.13.0, effect 4.1.2; load average
+ * about 50 from other sessions
+ * @workload `exhaust` over int(0, n − 1) with a property of two synchronous steps, under a deadline an hour away
+ * @result inline: 63 to 208 µs a case (the first exhaustion of a process the slowest), one timer a search and an
+ * immediate every 80 cases; the per-case fork it replaced: 320 to 499 µs a case, two timers and an immediate each
+ * @decision 1,000 µs is about five times the slowest inline case seen, for loads beyond the one measured, and still
+ * fails a runner that costs a millisecond a case, as the per-case fork did downstream (0.6 ms); the count gate
+ * beside it is what tells a per-case fork or timer exactly
+ * @revalidate an effect, Node or V8 upgrade; a change to runCase or the watchdog; a trivial case slower than 200 µs on a
+ * quiet machine
+ */
+const TRIVIAL_CASE_MICROS = 1000
+
+describe("a synchronous case", () => {
+	it.effect(
+		"runs inline: a search of twice the cases arms no timer per case, and hops to the event loop only for the runtime's own yields",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						...searchOf(
+							"inline cases",
+							(source) => ({
+								kind: source.draw(element(SYNC_PROPERTIES)),
+								cases: source.draw(int(128, 512))
+							}),
+							required<SyncProperty>(SYNC_PROPERTIES, { cases: 12, sense: notesOnly }),
+							6,
+							1
+						),
+						oracle: {
+							kind: "specification",
+							name: "a case that runs to its end synchronously forks no fiber the event loop must run and arms no timer"
+						}
+					},
+					({ kind, cases }, c) =>
+						Effect.gen(function* () {
+							c.note(kind)
+							const { seed } = yield* Run
+							const once = yield* scheduledBy(syncExhaustion(kind, cases, seed))
+							const began = yield* liveMillis
+							const twice = yield* scheduledBy(syncExhaustion(kind, 2 * cases, seed))
+							const ended = yield* liveMillis
+							deepStrictEqual(
+								{
+									timersWithin: twice.timers - once.timers <= SCHEDULED_PER_CASE * cases,
+									hopsWithin: twice.hops - once.hops <= SCHEDULED_PER_CASE * cases,
+									fastEnough: ((ended - began) * 1000) / (2 * cases) <= TRIVIAL_CASE_MICROS
+								},
+								{ timersWithin: true, hopsWithin: true, fastEnough: true }
+							)
 						})
 				)
 			)

@@ -207,6 +207,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 						const code = (kind: KindHandle): number => names.code(Kind, kind)
 						return yield* explore(
 							{
+								oracle: { kind: "unstated" },
 								suite: "oracle/union-take",
 								draw: drawn(caseGen),
 								literal: Formatter.format,

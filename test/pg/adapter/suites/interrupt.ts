@@ -334,6 +334,7 @@ const interruptCases = Effect.gen(function* () {
 	)
 	return yield* explore(
 		{
+			oracle: { kind: "unstated" },
 			suite: `pg/adapter/interrupt`,
 			draw: drawn(caseSketchGen),
 			literal: Formatter.format,

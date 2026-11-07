@@ -6,7 +6,12 @@ import {
 	type Symbol as NativeSymbol,
 	SymbolFlags
 } from "typescript/sync"
-import { declaredValuesOf, missingValueMessage } from "#lint/declared.ts"
+import {
+	declaredValuesOf,
+	lackedValuesOf,
+	missingValueMessage,
+	unexportedValueMessage
+} from "#lint/declared.ts"
 import type { SuperlintOptions } from "#lint/options.ts"
 import { isAtAny, isOwnSourcePath, isPackagePath } from "#lint/paths.ts"
 import type { Start } from "#lint/types.ts"
@@ -356,8 +361,10 @@ const reachOf = (checker: Checker) => {
  * `exhaust`, `interleave`, whose kept cases, floor and streams, or enumeration, choose the inputs and whose oracle gives
  * the verdict), directly or through any function, in any module of the program's own source, whose code does,
  * transitively. A scaffold the options name, with its reason, is no way to one: it runs a search around a scenario a
- * person wrote, over draws that are not the case's inputs (planted schedules draw the keys a hand-written race runs
- * on), so a case that reaches a search only through a scaffold is an example.
+ * person wrote, over draws that are not the case's inputs (a hand schedule run through the driver's script strategy),
+ * so a case that reaches a search only through a scaffold is an example. A scaffold whose module the program does not
+ * hold is out of every reach there and does not apply; superlint holds every scaffold's module to exist when it reads
+ * the options, so a misspelled one still fails.
  *
  * A test case is a call the checker resolves to a signature of an installed package's declaration the options name as
  * a registrar (`@effect/vitest`'s `Test`, the signature `it.effect`, `it.live` and a layer's `it.effect` share;
@@ -401,11 +408,11 @@ export const testCaseIsSearch: Start = ({ checker }) => {
 			),
 			scaffolds: new Set(Arr.map(scaffolds.found, ({ symbol }) => symbol.id)),
 			misconfigured: [
-				...Arr.map(values.missing, (missing) =>
+				...Arr.map(lackedValuesOf(values), (missing) =>
 					missingValueMessage("testCaseIsSearch.searches", missing)
 				),
-				...Arr.map(scaffolds.missing, (missing) =>
-					missingValueMessage("testCaseIsSearch.scaffolds", missing)
+				...Arr.map(scaffolds.unexported, (missing) =>
+					unexportedValueMessage("testCaseIsSearch.scaffolds", missing)
 				)
 			]
 		}

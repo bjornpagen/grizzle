@@ -1,6 +1,6 @@
 import type { FlightStatement } from "#adapter/wire/batch.ts"
 import { type ServerStatement, serverStatement } from "#adapter/wire/session.ts"
-import type { EmittedText } from "#compiler/sql/ast.ts"
+import type { EmittedText } from "#compiler/plan/common.ts"
 
 /**
  * The server statements of one compiled program, by the SQL text each runs: what the program's flights run named.

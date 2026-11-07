@@ -248,6 +248,7 @@ layer(Substrate.layer)("key representability against PostgreSQL's B-tree item li
 					const session = yield* s.admin.pin
 					return yield* explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "oracle/representability",
 							draw: drawn(keyGen),
 							literal: Formatter.format,

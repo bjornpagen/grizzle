@@ -65,6 +65,7 @@ describe("row checks over the field registry and Compute", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/schema/row-check-compose",
 						draw: drawn((source) => ({
 							composed: source.draw(
@@ -122,6 +123,7 @@ describe("row checks over the field registry and Compute", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/schema/row-check-refused",
 						draw: drawn((source) => ({
 							refused: source.draw(

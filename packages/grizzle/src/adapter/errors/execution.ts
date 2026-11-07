@@ -34,13 +34,14 @@ import {
 	UnseenOccupant
 } from "#adapter/errors/failures.ts"
 
-import type {
-	CompileError,
-	EncodingFailure,
-	TransientReason as EngineTransientReason
-} from "#compiler/core/errors.ts"
-import type { SchemaFingerprint } from "#compiler/core/ids.ts"
-import { sqlstateClass, sqlstates } from "#compiler/core/sqlstate.ts"
+import {
+	type CompileError,
+	type EncodingFailure,
+	type SchemaFingerprint,
+	sqlstateClass,
+	sqlstates,
+	type TransientReason as EngineTransientReason
+} from "#compiler/plan/common.ts"
 
 /**
  * The execution errors: exactly what the public API's error channels name, each a Data.TaggedError carried in

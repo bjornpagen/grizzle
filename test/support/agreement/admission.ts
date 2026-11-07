@@ -10,6 +10,7 @@ import { Decimal, Money, pg, uuid, Vector } from "#compiler/public/fields.ts"
 import { schema } from "#compiler/public/schema.ts"
 import { queryOver, type QueryValue, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
+import { paramTerm } from "#compiler/query/build/terms.ts"
 import { computeCore, handleTerm } from "#compiler/scalar/compute/builders.ts"
 import { check } from "#compiler/schema/api.ts"
 import type { TypeRefusal } from "#compiler/types/core/phantom.ts"
@@ -126,9 +127,10 @@ export type AdmissionPosition = (typeof admissionPositions)[number]
 
 /**
  * Every kind of constant: a JavaScript value of each carrier, a roster's handle, a typed Compute.literal and a
- * contract's, an uppercase uuid, which the builder canonicalizes, and a finite refined text's member, and the
- * ill-typed: another roster's handle, a contract's constant at its base, a handle off its roster, a text that is no
- * uuid's spelling at a uuid, another pattern's member at a refined text.
+ * contract's, an uppercase uuid, which the builder canonicalizes, a finite refined text's member, and a parameter of
+ * the column's own descriptor; and the ill-typed: another roster's handle, a contract's constant at its base, a handle
+ * off its roster, a text that is no uuid's spelling at a uuid, another pattern's member at a refined text, and a
+ * parameter of another column's descriptor, a term of its own type that adopts nothing from its uses.
  */
 const constantKinds = [
 	"text",
@@ -148,7 +150,9 @@ const constantKinds = [
 	"uuidUpper",
 	"notUuid",
 	"language",
-	"otherLanguage"
+	"otherLanguage",
+	"param",
+	"otherParam"
 ] as const
 export type ConstantKind = (typeof constantKinds)[number]
 
@@ -161,6 +165,22 @@ interface Constant {
 	readonly value: () => unknown
 	readonly column: Column
 }
+
+/**
+ * The builder's parameter as a JavaScript caller reaches it, with any descriptor: a drawn column's, whose type is the
+ * union of every column's.
+ */
+const hostParam: {
+	term(name: string, descriptor: unknown, label: string): unknown
+} = { term: paramTerm }
+
+/** A parameter of the descriptor of Cell's column `descriptor`, named for it, meeting the column `column`. */
+const parameterOf = (descriptor: Column, column: Column): Constant => ({
+	source: `r.param("k_${descriptor}", Cell.fields.${descriptor})`,
+	value: () =>
+		hostParam.term(`k_${descriptor}`, Cell.fields[descriptor], `r.param(k_${descriptor})`),
+	column
+})
 
 const vector =
 	(scale: number): (() => unknown) =>
@@ -274,6 +294,18 @@ const constantOf = (kind: ConstantKind, pick: number): Constant => {
 			const v = of(["yes", "no"])
 			return { source: jsonText(v), value: () => v, column: "grade" }
 		}
+		case "param": {
+			const column = of(["integer", "uuid", "cents", "tone", "text"] as const)
+			return parameterOf(column, column)
+		}
+		case "otherParam": {
+			const [descriptor, column] = of<readonly [Column, Column]>([
+				["uuid", "cents"],
+				["shade", "tone"],
+				["cents", "bigint"]
+			])
+			return parameterOf(descriptor, column)
+		}
 	}
 }
 
@@ -327,6 +359,8 @@ const isJavaScriptValue = (kind: ConstantKind): boolean => {
 		case "wrongRoster":
 		case "contractAtBase":
 		case "offRoster":
+		case "param":
+		case "otherParam":
 			return false
 	}
 }
@@ -964,8 +998,9 @@ const valued: ReadonlyArray<ConstantKind> = [
 ]
 
 /**
- * The kinds a position draws: every kind, but where a head holds the constant only those a head holds, and where the
- * verdict turns on two constants being one value only those whose value the types carry (see the header).
+ * The kinds a position draws: every kind, but where a head holds the constant only those a head holds, where the
+ * verdict turns on two constants being one value only those whose value the types carry (see the header), and in a
+ * check's predicate, which is no rule's and so has no r.param to declare one, no parameter.
  */
 const kindsAt = (position: AdmissionPosition): ReadonlyArray<ConstantKind> => {
 	switch (position) {
@@ -997,10 +1032,11 @@ const kindsAt = (position: AdmissionPosition): ReadonlyArray<ConstantKind> => {
 		case "attachParent":
 		case "selfJoinAttachParent":
 		case "pageOrderKey":
-		case "checkRow":
 		case "paramBinding":
 		case "computedBinding":
 			return constantKinds
+		case "checkRow":
+			return Arr.filter(constantKinds, (k) => k !== "param" && k !== "otherParam")
 	}
 }
 
@@ -1497,15 +1533,20 @@ const scopeVerdict = (
 type ScopeAxis = "level" | "binding" | "negation"
 
 /**
- * Where a relational negation stands in a rule's filters: alone, in a conjunction there, in a conjunction of one, in a
- * disjunction, or in a conjunction inside a disjunction.
+ * Where a relational negation stands in a rule's filters: alone, in a conjunction there, the rule's or Compute's, in a
+ * conjunction of one, in a disjunction, the rule's or Compute's, in a conjunction inside a disjunction, under Compute.not,
+ * or as a conditional's test.
  */
 const negationPlaces = [
 	"filter",
 	"conjunction",
+	"computeConjunction",
 	"nestedConjunction",
 	"disjunction",
-	"conjunctionInDisjunction"
+	"computeDisjunction",
+	"conjunctionInDisjunction",
+	"computeNegation",
+	"conditionalTest"
 ] as const
 type NegationPlace = (typeof negationPlaces)[number]
 
@@ -1539,6 +1580,26 @@ const negationAt = (
 			return {
 				source: "r.or(r.and(r.not(Note, { item: id })), r.eq(n, 1))",
 				value: (r, id, n) => r.or(r.and(negation(r, id)), r.eq(n, 1))
+			}
+		case "computeConjunction":
+			return {
+				source: "Compute.and(r.not(Note, { item: id }), r.eq(n, 1))",
+				value: (r, id, n) => computeCore.and(negation(r, id), r.eq(n, 1))
+			}
+		case "computeDisjunction":
+			return {
+				source: "Compute.or(r.not(Note, { item: id }), r.eq(n, 1))",
+				value: (r, id, n) => computeCore.or(negation(r, id), r.eq(n, 1))
+			}
+		case "computeNegation":
+			return {
+				source: "Compute.not(r.not(Note, { item: id }))",
+				value: (r, id) => computeCore.not(negation(r, id))
+			}
+		case "conditionalTest":
+			return {
+				source: "r.eq(Compute.cond(r.not(Note, { item: id }), n, 0), 1)",
+				value: (r, id, n) => r.eq(computeCore.cond(negation(r, id), n, 0), 1)
 			}
 	}
 }
@@ -1649,9 +1710,9 @@ export const admissionModule = (
 			`import { query, v } from ${jsonText(entries.query)}`,
 			`import type { DbOf } from ${jsonText(entries.db)}`,
 			`import { check, role } from ${jsonText(entries.declare)}`,
-			`import { Agree, AgreeAbove, Apart, Cell, Cents, Item, Note, Shade, Tone } from ${jsonText(entries.schema)}`,
+			`import { Agree, AgreeAbove, Apart, agreeEntries, Cell, Cents, Item, Note, Shade, Tone } from ${jsonText(entries.schema)}`,
 			"",
-			'const Reader = role(Agree, "reader", Agree.relations)',
+			'const Reader = role(Agree, "reader", agreeEntries)',
 			byIdsSource,
 			"",
 			...Arr.flatMap(cells, (c) => [

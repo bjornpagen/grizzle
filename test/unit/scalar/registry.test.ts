@@ -51,7 +51,7 @@ import {
 	numericBoundOf,
 	type NumericValueType,
 	RegexKey,
-	type Roster,
+	Roster,
 	rosterOf,
 	type ScalarType,
 	sameScalarType,
@@ -273,7 +273,7 @@ const registryBuild = (t: ScalarType): ScalarType =>
 /** The roster an environment holds under the declared name `name`, as the registry builds a closedId's. */
 const envRoster = (env: ScalarEnv, name: string): Roster => {
 	const closed = parsedName(name)
-	return { closed, handles: defined(env.roster(closed), name) }
+	return new Roster(closed, defined(env.roster(closed), name))
 }
 
 /** The roster the registry resolves `t`'s closedId by: its own, or none. */
@@ -290,6 +290,8 @@ describe("scalarTypeOf: a FieldDesc to its ScalarType", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/scalar/fixtures-are-registry",
 						generator: element(fixtureTypes),
 						literal: Formatter.format,
@@ -365,6 +367,7 @@ describe("scalarTypeOf: a FieldDesc to its ScalarType", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/scalar/roster-env",
 						draw: drawn((source) => ({
 							name: source.draw(matching(regex("^[A-Z][a-z]{1,6}$"))),
@@ -390,7 +393,7 @@ describe("scalarTypeOf: a FieldDesc to its ScalarType", () => {
 					({ name, other, handles }) =>
 						Effect.sync(() => {
 							const listed = nonEmpty(handles, "a drawn roster of at least one handle")
-							const held = { closed: parsedName(name), handles: listed }
+							const held = new Roster(parsedName(name), listed)
 							const env = {
 								kind: "builder",
 								roster: (n: string) => (n === name ? listed : undefined)
@@ -421,6 +424,7 @@ describe("scalarTypeOf: a FieldDesc to its ScalarType", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/scalar/text-env",
 						draw: drawn((source) => ({
 							source: source.draw(element(["^.*$", "^[a-z]*$", "^.+$", ""])),
@@ -457,6 +461,7 @@ describe("scalarTypeOf: a FieldDesc to its ScalarType", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/scalar/predicate-env",
 					draw: drawn((source) => ({
 						name: source.draw(matching(regex("^[A-Z][a-z]{1,8}$"))),
@@ -766,6 +771,7 @@ describe("scalarTypeOf builds each type from its content", () => {
 					ctx,
 					explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "unit/scalar/content",
 							/** Two environments and up to eight readings under them, each Description read under both. */
 							draw: drawn(
@@ -1107,6 +1113,7 @@ describe("literalDescFor: literal operands adopt the base's host type", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/scalar/literal-desc",
 						/**
 						 * Planted: a live vector of two finite components at vector(2), which the drawn buffers are a few times
@@ -1284,6 +1291,7 @@ describe("describeField", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/scalar/describe-field",
 						draw: drawn(boundaryCaseGen),
 						literal: Formatter.format,

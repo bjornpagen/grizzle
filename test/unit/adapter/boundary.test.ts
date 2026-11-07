@@ -252,6 +252,7 @@ describe("the public boundary", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/adapter/boundary-page",
 						draw: drawn(pageCaseGen),
 						literal: Formatter.format,
@@ -321,6 +322,7 @@ describe("the public boundary", () => {
 					type DoorFeature = DrawnFeature<never>
 					return yield* explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "unit/adapter/boundary-schema",
 							draw: drawn(
 								lsw<typeof Shop>({

@@ -280,6 +280,8 @@ layer(Substrate.layer)("the migration model's foreign key types", (it) => {
 					const session = yield* s.session({ ...ownerSession(), label: "foreign key types" })
 					return yield* exhaust(
 						{
+							box: { kind: "unstated" },
+							oracle: { kind: "unstated" },
 							suite: "pg/migrate/foreign-key-types",
 							generator: keyCaseGen,
 							literal: ([way, from, to]) => `${way}: ${from.name} → ${to.name}`,

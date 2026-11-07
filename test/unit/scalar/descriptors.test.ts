@@ -35,7 +35,12 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import { binary64Precision } from "#compiler/ir/carriers.ts"
 import { decodeDesc, type FieldDesc } from "#compiler/ir/desc.ts"
 import { decodeScalarType } from "#compiler/ir/scalar-shape.ts"
-import { numericMaxPrecision, numericMaxScale, numericMinScale } from "#compiler/ir/scalar.ts"
+import {
+	numericMaxPrecision,
+	numericMaxScale,
+	numericMinScale,
+	Roster
+} from "#compiler/ir/scalar.ts"
 import {
 	contractOf,
 	rosterOf,
@@ -283,6 +288,7 @@ describe("typmod validation", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/scalar/descriptors-7239021",
 						draw: drawn(
 							(source) =>
@@ -410,6 +416,7 @@ describe("typmod validation", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/scalar/vector-dims",
 					draw: drawn(
 						(source) =>
@@ -494,6 +501,7 @@ describe("typmod validation", () => {
 					ctx,
 					explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "unit/scalar/span-width",
 							draw: drawn(
 								(source) =>
@@ -647,6 +655,7 @@ describe("closedId", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/scalar/closed-id",
 					draw: drawn((source) => ({
 						name: source.draw(matching(regex("^[A-Z][a-z]{1,8}$"))),
@@ -681,10 +690,7 @@ describe("closedId", () => {
 							descOf(field),
 							succeeded(describeField(admittedClosedId(roster), SourceLoc("again", []))).desc
 						)
-						assert.deepEqual(rosterOf(scalarOf(field)), {
-							closed: parsedName(name),
-							handles: listed
-						})
+						assert.deepEqual(rosterOf(scalarOf(field)), new Roster(parsedName(name), listed))
 						assert.equal(identityOf(admittedClosedId(roster)), identityOf(field))
 						if (other !== name) {
 							assert.equal(
@@ -777,6 +783,7 @@ describe("closedId", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/scalar/closed-id-forgeries",
 					draw: drawn((source) => source.draw(corrupted(source.draw(closedGen), forgeries))),
 					literal: Formatter.format,
@@ -801,10 +808,10 @@ describe("closedId", () => {
 						}
 						const field = admittedClosedId(forged.value)
 						assert.equal(field.roster, forged.value)
-						assert.deepEqual(rosterOf(scalarOf(field)), {
-							closed: parsedName(forged.value.name),
-							handles: forged.value.handles
-						})
+						assert.deepEqual(
+							rosterOf(scalarOf(field)),
+							new Roster(parsedName(forged.value.name), forged.value.handles)
+						)
 					})
 			)
 		)

@@ -19,6 +19,7 @@ import type { Decimal } from "#compiler/scalar/values/decimal.ts"
 import type { Span } from "#compiler/scalar/values/span.ts"
 import type {
 	Admitted,
+	AnyRefused,
 	CastAdmitted,
 	Every,
 	First,
@@ -47,6 +48,9 @@ import type {
 	InputTerm,
 	LanguageOf,
 	Meets,
+	NegatesIn,
+	NegationFree,
+	NegationFreeEach,
 	OperandOrigin,
 	ParamsOfEach,
 	ParamsOfTerm,
@@ -594,7 +598,7 @@ export interface ComputeApi {
 		L,
 		const Otherwise
 	>(
-		p: C & First<C, [A, Otherwise]>,
+		p: C & First<C, [A, Otherwise]> & NegationFree<C>,
 		then: A & First<A, [C, Otherwise]> & Term<X, PT, OT, S, V, Facts, L>,
 		otherwise: Fit<Otherwise, NoInfer<Operand<X, S, L>>>
 	): Admitted<
@@ -733,13 +737,19 @@ export interface ComputeApi {
 		Every<[TakesFirst<A, NumericSql>, Takes<Lo, LiteralOf<L>>, Takes<Hi, LiteralOf<L>>]>,
 		GuardOver<X, PA, OA, S, V, FA, L, LX, WithinFacts<Lo, Hi>>
 	>
-	not<Q extends PredicateBase>(p: Q): Predicate<P<Q>, ComputedOrigin<O<Q>>>
-	/** A conjunction states what each conjunct states, as the rule's does; a disjunction states nothing. */
+	/** A negation holds no relational negation, which is a rule-level filter (Negating). */
+	not<Q extends PredicateBase>(p: Q & NegationFree<Q>): Predicate<P<Q>, ComputedOrigin<O<Q>>>
+	/**
+	 * A conjunction states what each conjunct states, as the rule's does, and holds a relational negation where one of
+	 * them does; a disjunction states nothing and holds none.
+	 */
 	and<const Qs extends ReadonlyArray<PredicateBase>>(
 		...ps: Qs
-	): Predicate<ParamsOfEach<Qs>, ComputedOrigin<O<Qs[number]>>> & Stating<StatesOf<Qs>>
+	): Predicate<ParamsOfEach<Qs>, ComputedOrigin<O<Qs[number]>>> &
+		Stating<StatesOf<Qs>> &
+		NegatesIn<Qs>
 	or<const Qs extends ReadonlyArray<PredicateBase>>(
-		...ps: Qs
+		...ps: Qs & NegationFreeEach<Qs>
 	): Predicate<ParamsOfEach<Qs>, ComputedOrigin<O<Qs[number]>>>
 	/**
 	 * In a rule's where, an equality between a variable and a value fixed per binding fixes the variable, and one between
@@ -778,10 +788,19 @@ export interface ComputeApi {
 		Every<[TakesFirst<A, OrderedSql>, Takes<Lo, Opposite<A>>, Takes<Hi, Opposite<A>>]>,
 		Predicate<P<A> & P<Lo> & P<Hi>, ComputedOrigin<O<A> | O<Lo> | O<Hi>>>
 	>
-	in<A extends TermBase | FirstValue>(
+	/**
+	 * The list is read as it is written (Fit), every member a value of the first operand's language, so a member of
+	 * another type refuses the list as one argument; over a refused first operand it states nothing.
+	 */
+	in<A extends TermBase | FirstValue, const Vs>(
 		a: A & FirstTerm<A>,
-		values: ReadonlyArray<LiteralOf<LanguageOf<A>>>
-	): Admitted<TakesFirst<A, SqlTag>, Predicate<P<A>, ComputedOrigin<O<A>>>>
+		values: AnyRefused<[A]> extends true
+			? Vs
+			: Fit<Vs, NoInfer<ReadonlyArray<LiteralOf<LanguageOf<A>>>>>
+	): Admitted<
+		Every<[TakesFirst<A, SqlTag>, Takes<Vs, ReadonlyArray<LiteralOf<LanguageOf<A>>>>]>,
+		Predicate<P<A>, ComputedOrigin<O<A>>>
+	>
 
 	/**
 	 * A span's endpoints, of its endpoint descriptor's type, contract included, and its width, the plain value of the

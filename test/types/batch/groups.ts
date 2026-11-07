@@ -266,9 +266,8 @@ export const typeGroups: ReadonlyArray<Group> = [
 		}
 	},
 	{
-		owner: "test/types/schema/schema.test.ts",
+		owner: "test/types/schema/budget/refusals.test.ts",
 		units: {
-			...fixtureUnits("schema", ["support.ts"]),
 			"schema/budget": {
 				kind: "program",
 				dir: "test/types/schema",
@@ -286,8 +285,11 @@ export const typeGroups: ReadonlyArray<Group> = [
 	},
 	{
 		owner: "test/types/skeleton/skeleton.test.ts",
+		units: fixtureUnits("skeleton", ["support.ts"])
+	},
+	{
+		owner: "test/types/skeleton/budget/refusals.test.ts",
 		units: {
-			...fixtureUnits("skeleton", ["support.ts"]),
 			"skeleton/budget": {
 				kind: "program",
 				dir: "test/types/skeleton",

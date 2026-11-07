@@ -379,6 +379,7 @@ export const familySuite = <P>(family: Family<P>, cases: number, reach: Reach): 
 					)
 					return yield* explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: `laws/${Str.replaceAll(regex("[^a-z0-9]+", "g"), "-")(family.label)}/${mode}`,
 							draw: drawn(familyCaseGen(variants.length)),
 							literal: Formatter.format,

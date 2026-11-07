@@ -9,6 +9,7 @@ import type { OpId } from "#compiler/ir/expr.ts"
 import type { Pass } from "#compiler/ir/pass.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import type { Cell, RelKind, Roots, ValidDag } from "#compiler/ir/rel.ts"
+import { analyzeLogical, queryEvidence } from "#compiler/logical/annotate.ts"
 import {
 	CatalogContext,
 	type CatalogOptions,
@@ -123,6 +124,19 @@ const families: ReadonlyArray<{
 	{ name: "ordinal", kinds: ["Group"], run: tryOrdinal }
 ]
 
+/**
+ * An edited DAG annotated again (logical/annotate.ts analyzeLogical) under the evidence the optimized input is annotated
+ * with (lower/optimize/pipeline.ts optimizedInput): every node a rewrite built keyed by what the analysis proves of it,
+ * as every other node is.
+ */
+const annotated = <R extends Roots>(dag: ValidDag<R>): ValidDag<R> => {
+	const analysis = analyzeLogical(dag, queryEvidence)
+	if (!analysis.ok) {
+		throw new Refusal(analysis.error)
+	}
+	return analysis.value.dag
+}
+
 /** Which rules an entry applied at a node, or why it was not applied: the inspectable record of the pass. */
 type CatalogDecision =
 	| { readonly node: NodeId; readonly entry: string; readonly applied: ReadonlyArray<string> }
@@ -151,7 +165,8 @@ export interface CatalogResult<R extends Roots = Roots> {
  * rests on, the context it needs, the preserved heading, and the native comparisons the recognized predicate uses.
  * The conservative lowering, which runs no pass, applies none.
  *
- * A DAG no rewrite edited is the valid DAG it was; an edited one is assembled and validated again.
+ * A DAG no rewrite edited is the valid DAG it was; an edited one is assembled, validated and annotated again, so no node
+ * claims a key the logical analysis does not prove of it.
  *
  * The compile-target catalog.
  *
@@ -228,7 +243,7 @@ export const rewriteCatalog = <R extends Roots>(
 			}
 		}
 		return {
-			dag: decisions.some((d) => "applied" in d) ? ed.build() : dag,
+			dag: decisions.some((d) => "applied" in d) ? annotated(ed.build()) : dag,
 			certificates,
 			decisions
 		}

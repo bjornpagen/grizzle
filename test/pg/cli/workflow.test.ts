@@ -1184,6 +1184,7 @@ layer(Layer.merge(Substrate.layer, NodeServices.layer))(
 					ctx,
 					explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "cli/workflow",
 							draw: drawn(
 								program(workflow, { min: 0, max: 14 }, fullSwarm(Struct.keys(workflow.commands)))

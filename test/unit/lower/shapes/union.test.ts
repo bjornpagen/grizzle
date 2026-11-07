@@ -202,6 +202,8 @@ describe("attachments on heading groups", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/lower/shapes/union/attachments",
 						literal: Formatter.format,
 						generator: (source) =>
@@ -239,6 +241,8 @@ describe("the bounded union consumed inside a statement", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/lower/shapes/union/arm-bounded",
 						literal: Formatter.format,
 						generator: (source) =>
@@ -366,6 +370,7 @@ describe("the runtime merge of heading groups", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/lower/shapes/union/merge",
 						literal: Formatter.format,
 						kept: [],
@@ -474,6 +479,7 @@ describe("the runtime merge of heading groups", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/lower/shapes/union/decimal-order",
 					literal: Formatter.format,
 					kept: [],
@@ -531,6 +537,8 @@ describe("the runtime merge of heading groups", () => {
 			ctx,
 			exhaust(
 				{
+					box: { kind: "unstated" },
+					oracle: { kind: "unstated" },
 					suite: "unit/lower/shapes/union/untyped-order",
 					literal: Formatter.format,
 					generator: (source) =>

@@ -146,6 +146,8 @@ describe("bit strings at a word's edges", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/codec/bits-edges",
 						generator: edges,
 						literal: Formatter.format,
@@ -193,6 +195,8 @@ describe("bit strings at a word's edges", () => {
 			ctx,
 			exhaust(
 				{
+					box: { kind: "unstated" },
+					oracle: { kind: "unstated" },
 					suite: "unit/codec/bits-blocks",
 					generator: blocks,
 					literal: Formatter.format,
@@ -280,6 +284,7 @@ describe("bit strings on the host", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/codec/bits-read",
 						draw: drawn(texts),
 						literal: Formatter.format,
@@ -345,6 +350,7 @@ describe("bit strings on the host", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/codec/bits-add",
 						draw: drawn((source): Additions => {
 							const text = source.draw(texts)
@@ -424,6 +430,7 @@ describe("bit strings on the host", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/codec/bits-combine",
 						draw: drawn((source): Combining => {
 							const combination = source.draw(element<Combination>(["or", "and", "andNot"]))
@@ -531,6 +538,8 @@ describe("bit strings on the host", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/codec/bits-cell-placement",
 						generator: oneHots,
 						literal: Formatter.format,
@@ -571,6 +580,7 @@ describe("bit strings on the host", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/codec/bits-cell",
 						draw: drawn((source): Cells => {
 							const width = source.draw(oneOf([element([1, 2, 5, 8, 31, 32]), int(1, 32)]))

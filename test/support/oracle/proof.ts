@@ -38,12 +38,12 @@ import { patternIncludes } from "#compiler/scalar/regex/inclusion.ts"
 /**
  * Whether a proof's premises establish its precondition: the proof kernel, which re-checks the kept proofs a lowering
  * builds (ir/proof.ts PreconditionProof). A fact precondition holds by a premise of that fact on its operand, or by an
- * interval premise on it whose every value has the fact (bounds.ts premiseHas); fits, contract, powerDomain and
- * bucketDomain hold by interval premises the caller's `judge` reads, with the arithmetic scalar/compute/lower.ts writes
- * once for each, fits over the values but NaN and the others over intervals that hold no NaN; lexical by a language
- * premise whose language the judge finds inside the target's form again, or a literal it parses; a contract into a
- * regex-refined text with no contract by a language premise whose language it finds inside the target's again. A proof no premise of the
- * needed kind supports is no proof.
+ * interval premise on it whose every value has the fact (bounds.ts premiseHas); powerDomain by fact premises of power's
+ * sign; fits, contract, powerRange and bucketDomain by interval premises the caller's `judge` reads, with the
+ * arithmetic scalar/compute/lower.ts writes once for each, fits over the values but NaN and the others over intervals
+ * that hold no NaN; lexical by a language premise whose language the judge finds inside the target's form again, or a
+ * literal it parses; a contract into a regex-refined text with no contract by a language premise whose language it
+ * finds inside the target's again. A proof no premise of the needed kind supports is no proof.
  */
 const checkProof = (
 	proof: PreconditionProof,
@@ -65,6 +65,7 @@ const checkProof = (
 		case "contract":
 		case "language":
 		case "powerDomain":
+		case "powerRange":
 		case "bucketDomain":
 		case "lexical":
 			return judge(p, proof.premises)
@@ -144,22 +145,26 @@ const proofHolds = (
 				)
 			}
 			case "powerDomain": {
-				const b = finite(0)
-				const e = finite(1)
 				const facts = Arr.filter(
 					premises,
 					(p): p is Extract<OperandPremise, { readonly kind: "fact" }> => p.kind === "fact"
 				)
 				return (
-					b !== undefined &&
-					e !== undefined &&
 					Arr.some(facts, (p) => p.fact === "nonnegative" && p.operand === 0) &&
 					Arr.some(
 						facts,
 						(p) =>
 							(p.fact === "nonzero" && p.operand === 0) ||
 							(p.fact === "nonnegative" && p.operand === 1)
-					) &&
+					)
+				)
+			}
+			case "powerRange": {
+				const b = finite(0)
+				const e = finite(1)
+				return (
+					b !== undefined &&
+					e !== undefined &&
 					powerInRange(b.low, b.high, e.low, e.high, node.type)
 				)
 			}

@@ -179,6 +179,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							const db = yield* Db.open(o.server.roles.app, {})
 							return yield* explore(
 								{
+									oracle: { kind: "unstated" },
 									suite: "pg/write/take-form",
 									/** Few parents and more than the threshold, each half of the drawn cases. */
 									draw: drawn(

@@ -231,6 +231,7 @@ layer(Substrate.layer)("boundary values through the page runtime", (it) => {
 						const pages = untyped(dbReader(db))
 						return yield* explore(
 							{
+								oracle: { kind: "unstated" },
 								/** The pages at the drawn sizes concatenate to D, with exact flags. */
 								suite: "pg/page/values",
 								draw: drawn(valuesCaseGen),

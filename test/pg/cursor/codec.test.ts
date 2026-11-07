@@ -310,6 +310,7 @@ layer(Substrate.layer)("the cursor codec against PostgreSQL's order", (it) => {
 				const { db, names } = yield* setup
 				return yield* explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "cursor/codec",
 						draw: drawn(batches),
 						literal: Formatter.format,

@@ -1,8 +1,8 @@
 import { describe, it } from "@effect/vitest"
-import { deepStrictEqual, strictEqual } from "@effect/vitest/utils"
+import { deepStrictEqual } from "@effect/vitest/utils"
 import { Array as Arr, Duration, Effect, Formatter, Option, Order, String as Str } from "effect"
 import { everyCase, everyValue, fraction, shareOf } from "#chance.fixtures.ts"
-import { count } from "#enumerate.ts"
+import { type Counted, count } from "#enumerate.ts"
 import { drawn, type Exploration, explore, type Oracle } from "#explore.ts"
 import { type Coverage, noCoverage, required } from "#features.ts"
 import {
@@ -25,7 +25,15 @@ import { between, biased, caseSeed, floorSeed, rotatingSeed, wordsOf } from "#ra
 import { type Drawn, type ReplayCase, replayOf, replayTokenOf } from "#replay.ts"
 import { notesOnly } from "#sense.ts"
 import { completeShrink } from "#shrink.ts"
-import { forcedChooser, type Generated, generate, randomChooser, sample } from "#source.ts"
+import {
+	forcedChooser,
+	type Generated,
+	generate,
+	prefixChooser,
+	randomChooser,
+	sample,
+	simplestChooser
+} from "#source.ts"
 import { tokenOf, valuesFromToken } from "#tape.ts"
 import { searched } from "#vitest/searched.ts"
 
@@ -263,11 +271,45 @@ describe("a tape", () => {
 			)
 	)
 
-	it("finishes a replay that runs out on simplest values, and says so", () => {
-		const replay = generate(composite, forcedChooser(new Float64Array(0), 0))
-		strictEqual(replay.tape.status, "overrun")
-		deepStrictEqual(replay.value, { bound: 0, items: [], flag: false })
-	})
+	it.effect(
+		"finishes a replay that runs out on simplest values, and says so exactly when it ran out",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					searchOf(
+						"replay runs out",
+						{
+							kind: "second-implementation",
+							name: "the same prefix continued by the simplest chooser, as an enumeration continues it"
+						},
+						(source) => {
+							const seed = source.draw(int(0, 0xffff_ffff))
+							return { seed, kept: source.draw(int(0, fresh(composite, seed).tape.length)) }
+						},
+						required<"an empty prefix" | "a cut tape" | "the whole tape">(
+							["an empty prefix", "a cut tape", "the whole tape"],
+							{ cases: 100, sense: notesOnly }
+						)
+					),
+					({ seed, kept }, c) =>
+						Effect.sync(() => {
+							const original = fresh(composite, seed)
+							const whole = kept === original.tape.length
+							c.note(kept === 0 ? "an empty prefix" : whole ? "the whole tape" : "a cut tape")
+							const replay = generate(composite, forcedChooser(original.tape.values, kept))
+							const continued = generate(
+								composite,
+								prefixChooser(original.tape.values, kept, simplestChooser)
+							)
+							deepStrictEqual(
+								{ value: replay.value, status: replay.tape.status },
+								{ value: continued.value, status: whole ? "complete" : "overrun" }
+							)
+						})
+				)
+			)
+	)
 })
 
 describe("a weighted choice", () => {
@@ -341,53 +383,232 @@ describe("the random chooser", () => {
 	)
 })
 
+/** A generator's shape, small enough to enumerate by hand: a range of whole numbers, a collection of a shape, or a pair. */
+type Shape =
+	| Readonly<{ kind: "int"; lo: number; hi: number }>
+	| Readonly<{ kind: "array"; item: Shape; min: number; max: number }>
+	| Readonly<{ kind: "pair"; first: Shape; second: Shape }>
+
+/** A value of a shape. */
+type Shaped = number | ReadonlyArray<Shaped>
+
+/** A range of whole numbers within -3..3. */
+const rangeShape: Gen<Readonly<{ kind: "int"; lo: number; hi: number }>> = (source) => {
+	const lo = source.draw(int(-3, 3))
+	return { kind: "int", lo, hi: source.draw(int(lo, 3)) }
+}
+
+/** A shape at most `depth` levels deep: at each level a range, a collection of up to two items, or a pair. */
+const shapeOf = (depth: number): Gen<Shape> =>
+	depth === 0
+		? rangeShape
+		: oneOf<Shape>([
+				rangeShape,
+				(source) => {
+					const min = source.draw(int(0, 2))
+					return {
+						kind: "array",
+						item: source.draw(shapeOf(depth - 1)),
+						min,
+						max: source.draw(int(min, 2))
+					}
+				},
+				(source) => ({
+					kind: "pair",
+					first: source.draw(shapeOf(depth - 1)),
+					second: source.draw(shapeOf(depth - 1))
+				})
+			])
+
+/** The generator a shape describes. */
+const generatorOf = (shape: Shape): Gen<Shaped> => {
+	switch (shape.kind) {
+		case "int":
+			return int(shape.lo, shape.hi)
+		case "array":
+			return array(generatorOf(shape.item), { min: shape.min, max: shape.max })
+		case "pair": {
+			const first = generatorOf(shape.first)
+			const second = generatorOf(shape.second)
+			return (source) => [source.draw(first), source.draw(second)]
+		}
+	}
+}
+
+/** By distance from zero, the positive side first: int's order, as its specification states it. */
+const byDistanceFromZero = Order.mapInput(
+	Order.Number,
+	(value: number) => Math.abs(value) * 2 + (value < 0 ? 1 : 0)
+)
+
+/** Every sequence of `length` values of `items`, the first position outermost. */
+const sequences = (
+	items: ReadonlyArray<Shaped>,
+	length: number
+): ReadonlyArray<ReadonlyArray<Shaped>> =>
+	length === 0
+		? [[]]
+		: Arr.flatMap(items, (first) =>
+				Arr.map(sequences(items, length - 1), (rest) => [first, ...rest])
+			)
+
+/**
+ * Every value of a shape, in the order the library's specification gives: a range by distance from zero, the positive
+ * side first; a collection by its length, shortest first, then its items, the first outermost; a pair with its first
+ * value outermost.
+ */
+const enumerationOf = (shape: Shape): ReadonlyArray<Shaped> => {
+	switch (shape.kind) {
+		case "int":
+			return Arr.sort(Arr.range(shape.lo, shape.hi), byDistanceFromZero)
+		case "array": {
+			const items = enumerationOf(shape.item)
+			return Arr.flatMap(Arr.range(shape.min, shape.max), (length) => sequences(items, length))
+		}
+		case "pair": {
+			const seconds = enumerationOf(shape.second)
+			return Arr.flatMap(enumerationOf(shape.first), (first) =>
+				Arr.map(seconds, (second) => [first, second])
+			)
+		}
+	}
+}
+
+/** What `count` must answer for a space of `cases` under `limit`. */
+const countedOf = (cases: number, limit: number): Counted =>
+	cases > limit ? { kind: "beyond", limit } : { kind: "within", cases }
+
+type EnumerationFeature =
+	| "a range across zero"
+	| "a range below zero"
+	| "a collection that may be empty"
+	| "a collection of collections"
+	| "a pair"
+	| "a space beyond its limit"
+	| "a space within its limit"
+
 describe("enumeration", () => {
-	it("yields every case once, smallest first, the first decision outermost", () => {
-		deepStrictEqual(
-			everyValue((source) => [source.draw(int(0, 2)), source.draw(int(0, 1))]),
-			[
-				[0, 0],
-				[0, 1],
-				[1, 0],
-				[1, 1],
-				[2, 0],
-				[2, 1]
-			]
-		)
-	})
+	it.effect(
+		"yields every case of a generator once, in its specified order, and counts them against a limit",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					searchOf(
+						"enumeration order",
+						{
+							kind: "second-implementation",
+							name: "each shape's values listed from its specification: int's order, collections by length, the first decision outermost"
+						},
+						(source) => {
+							const shape = source.draw(shapeOf(2))
+							return { shape, limit: source.draw(int(0, 2 * enumerationOf(shape).length)) }
+						},
+						required<EnumerationFeature>(
+							[
+								"a range across zero",
+								"a range below zero",
+								"a collection that may be empty",
+								"a collection of collections",
+								"a pair",
+								"a space beyond its limit",
+								"a space within its limit"
+							],
+							{ cases: 400, sense: notesOnly }
+						)
+					),
+					({ shape, limit }, c) =>
+						Effect.sync(() => {
+							const noteShape = (inner: Shape, nested: boolean): void => {
+								switch (inner.kind) {
+									case "int":
+										if (inner.lo < 0 && inner.hi > 0) {
+											c.note("a range across zero")
+										}
+										if (inner.hi < 0) {
+											c.note("a range below zero")
+										}
+										return
+									case "array":
+										if (inner.min === 0) {
+											c.note("a collection that may be empty")
+										}
+										if (nested) {
+											c.note("a collection of collections")
+										}
+										noteShape(inner.item, true)
+										return
+									case "pair":
+										c.note("a pair")
+										noteShape(inner.first, false)
+										noteShape(inner.second, false)
+								}
+							}
+							noteShape(shape, false)
+							const expected = enumerationOf(shape)
+							c.note(
+								expected.length > limit ? "a space beyond its limit" : "a space within its limit"
+							)
+							deepStrictEqual(
+								{
+									values: everyValue(generatorOf(shape)),
+									counted: count(generatorOf(shape), limit)
+								},
+								{ values: expected, counted: countedOf(expected.length, limit) }
+							)
+						})
+				)
+			)
+	)
 
-	it("yields every length of a collection with every item", () => {
-		deepStrictEqual(everyValue(array(boolean, { min: 0, max: 2 })), [
-			[],
-			[false],
-			[true],
-			[false, false],
-			[false, true],
-			[true, false],
-			[true, true]
-		])
-	})
-
-	it("refuses a space larger than its limit before any property runs", () => {
-		deepStrictEqual(count(array(int(0, 9), { min: 0, max: 3 }), 100), {
-			kind: "beyond",
-			limit: 100
-		})
-		deepStrictEqual(count(array(int(0, 9), { min: 0, max: 3 }), 1111), {
-			kind: "within",
-			cases: 1111
-		})
-	})
-
-	it("does not count a case a filter discarded", () => {
-		deepStrictEqual(
-			count(
-				filter(int(0, 9), (n) => n % 2 === 0, 1),
-				100
-			),
-			{ kind: "within", cases: 5 }
-		)
-	})
+	it.effect(
+		"counts the cases a filter keeps, after each failed attempt, and never one it discards",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					searchOf(
+						"filtered count",
+						{
+							kind: "specification",
+							name: "a filter of a attempts keeps, for each k < a, every tape of k failing attempts and a kept one"
+						},
+						(source) => {
+							const range = source.draw(rangeShape)
+							return {
+								range,
+								divisor: source.draw(int(1, 4)),
+								attempts: source.draw(int(1, 3))
+							}
+						},
+						required<"every value kept" | "some value discarded" | "a second attempt">(
+							["every value kept", "some value discarded", "a second attempt"],
+							{ cases: 200, sense: notesOnly }
+						)
+					),
+					({ range, divisor, attempts }, c) =>
+						Effect.sync(() => {
+							const keep = (value: number) => value % divisor === 0
+							const values = Arr.range(range.lo, range.hi)
+							const kept = Arr.filter(values, keep).length
+							const failing = values.length - kept
+							c.note(failing === 0 ? "every value kept" : "some value discarded")
+							if (attempts > 1 && failing > 0 && kept > 0) {
+								c.note("a second attempt")
+							}
+							const cases = Arr.reduce(
+								Arr.range(0, attempts - 1),
+								0,
+								(sum, failed) => sum + failing ** failed * kept
+							)
+							deepStrictEqual(
+								count(filter(int(range.lo, range.hi), keep, attempts), Number.MAX_SAFE_INTEGER),
+								{ kind: "within", cases }
+							)
+						})
+				)
+			)
+	)
 })
 
 describe("sampling", () => {

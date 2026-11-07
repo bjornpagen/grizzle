@@ -33,25 +33,30 @@ import type { GenParam } from "#test/support/oracle/gen/query.ts"
 import type { GenSchema } from "#test/support/oracle/gen/schema.ts"
 import { aggregate } from "#test/support/oracle/reference/aggregate.ts"
 import {
+	type Atom,
+	Identities,
+	type Identity,
+	type Interned
+} from "#test/support/oracle/reference/identity.ts"
+import {
 	asBigint,
 	asDecimal,
 	asSpan,
 	coerce,
 	compare,
+	decidedKeys,
 	Declined,
 	type DeclineReason,
-	decidedKeys,
 	distinctRows,
 	equal,
-	indexKey,
-	joinedKey,
+	indexIdentity,
 	literalOf,
 	outcomeOf,
 	referenceUnsupported,
 	type Row,
 	type Value,
 	valueAt,
-	valueKey
+	valueIdentity
 } from "#test/support/oracle/reference/values.ts"
 
 /** A value as the double precision an ordered-set aggregate interpolates it as: an integer or a numeric cast to float8. */
@@ -284,26 +289,30 @@ const distinctNames = (layout: Layout): boolean => layout.positions.size === lay
  * A candidate index over a set of rows: the rows by the identity of one value, in their order; none when some value
  * has no identity that agrees with native equality, so only the nested loop decides.
  */
-type RowIndex = Option.Option<ReadonlyMap<string, ReadonlyArray<Row>>>
+type RowIndex = Option.Option<ReadonlyMap<Interned, ReadonlyArray<Row>>>
 
 const indexRows = (
 	rows: ReadonlyArray<Row>,
 	width: number,
 	column: number,
-	type: ScalarType
+	type: ScalarType,
+	identities: Identities
 ): RowIndex => {
-	const index = new Map<string, Array<Row>>()
+	const index = new Map<Interned, Array<Row>>()
 	for (const row of rows) {
 		const key =
 			row.length < width
 				? Option.none()
-				: Option.flatMap(Arr.get(row, column), (v) => Option.fromUndefinedOr(indexKey(v, type)))
+				: Option.flatMap(Arr.get(row, column), (v) =>
+						Option.fromUndefinedOr(indexIdentity(v, type))
+					)
 		if (Option.isNone(key)) {
 			return Option.none()
 		}
-		const bucket = index.get(key.value)
+		const token = identities.of(key.value)
+		const bucket = index.get(token)
 		if (bucket === undefined) {
-			index.set(key.value, [row])
+			index.set(token, [row])
 		} else {
 			bucket.push(row)
 		}
@@ -316,13 +325,18 @@ const candidates = (
 	rows: ReadonlyArray<Row>,
 	index: RowIndex,
 	probe: Value,
-	type: ScalarType
+	type: ScalarType,
+	identities: Identities
 ): ReadonlyArray<Row> =>
 	Option.match(index, {
 		onNone: () => rows,
 		onSome: (byKey) => {
-			const key = indexKey(probe, type)
-			return key === undefined ? rows : (byKey.get(key) ?? [])
+			const key = indexIdentity(probe, type)
+			if (key === undefined) {
+				return rows
+			}
+			const token = identities.find(key)
+			return token === undefined ? [] : (byKey.get(token) ?? [])
 		}
 	})
 
@@ -549,28 +563,29 @@ const pairKey = (
 	row: Row,
 	pairs: ExistencePlan["pairs"],
 	at: (p: ExistencePlan["pairs"][number]) => number
-): Option.Option<string> =>
+): Option.Option<Identity> =>
 	Option.map(
 		Option.all(
 			Arr.map(pairs, (p) =>
-				Option.flatMap(Arr.get(row, at(p)), (v) => Option.fromUndefinedOr(indexKey(v, p.type)))
+				Option.flatMap(Arr.get(row, at(p)), (v) => Option.fromUndefinedOr(indexIdentity(v, p.type)))
 			)
 		),
-		joinedKey
+		(parts): Identity => Arr.flatten(parts)
 	)
 
-/** The identities of a right side's rows on an existence test's columns, or none when one has none. */
+/** The identities of a right side's rows on an existence test's columns, interned, or none when one has none. */
 const existenceKeys = (
 	rows: ReadonlyArray<Row>,
-	plan: ExistencePlan
-): Option.Option<ReadonlySet<string>> =>
+	plan: ExistencePlan,
+	identities: Identities
+): Option.Option<ReadonlySet<Interned>> =>
 	Option.map(
 		Option.all(
 			Arr.map(rows, (r) =>
 				r.length < plan.rightWidth ? Option.none() : pairKey(r, plan.pairs, (p) => p.right)
 			)
 		),
-		(all): ReadonlySet<string> => new Set(all)
+		(all): ReadonlySet<Interned> => new Set(Arr.map(all, (key) => identities.of(key)))
 	)
 
 /** The nodes of a subtree through data inputs, `root` included. */
@@ -663,7 +678,7 @@ const isClosed = (root: RelNode): boolean => {
  * reads its row through its heading's column positions instead of being copied into a map, a scope extends its outer
  * scope instead of copying it, and a region occurrence or an existence test over a stable set (a closed node's, or the
  * recursion state a SelfRef reads) looks its candidate rows up in a hash index on the native-equality identity of one
- * join value (values.ts indexKey), built from that set as the region or the test is evaluated. An index only skips the
+ * join value (values.ts indexIdentity), built from that set as the region or the test is evaluated. An index only skips the
  * rows the nested loop would reject at that value before anything else could happen to them: the rows it does visit it
  * visits in the same order through the same checks, so results, their order, every decline observed and every refusal
  * are the nested loop's. Wherever the identity is not known to agree with native equality for the values at hand, or a
@@ -678,6 +693,8 @@ export class Reference {
 	readonly #settled = new Map<RelNode, Result.Result<RelationValue, unknown>>()
 	/** The current state of each Recursive node being iterated, as the relation its SelfRef denotes. */
 	readonly #state = new Map<NodeId, RelationValue>()
+	/** The identities this evaluation keys rows and values by, interned once each (identity.ts). */
+	readonly identities = new Identities()
 
 	protected constructor(dag: RelDag, input: ReferenceInput) {
 		this.dag = dag
@@ -739,7 +756,7 @@ export class Reference {
 		return {
 			...layoutOf(node.heading),
 			rows: this.deduplicates(node)
-				? distinctRows(rows, node.heading, `${node.kind} ${node.id}`)
+				? distinctRows(rows, node.heading, `${node.kind} ${node.id}`, this.identities)
 				: rows
 		}
 	}
@@ -915,24 +932,30 @@ export class Reference {
 	}
 
 	/**
-	 * The identity of a term over what it reads in `scope`: its expression, and each column's and parameter's value,
-	 * by native equality, which every reading is a function of (values.ts).
+	 * The identity of a term over what it reads in `scope`: its expression, and each column's and parameter's value by
+	 * native equality (values.ts valueIdentity), which every reading is a function of, each read tagged by its kind and
+	 * named before its value.
 	 */
-	readsOf(root: ScalarExpr, scope: Bindings, param: (pid: ParamId) => Value | undefined): string {
-		const parts: Array<string> = [root.id]
+	readsOf(root: ScalarExpr, scope: Bindings, param: (pid: ParamId) => Value | undefined): Identity {
+		const parts: Array<Atom> = [root.id]
 		for (const expr of exprClosure([root])) {
 			if (expr.kind === "column") {
 				const v = stated(
 					scope.get(expr.column.node)?.get(expr.column.name),
 					`the column ${expr.column.name}`
 				)
-				parts.push(`${expr.column.node}.${expr.column.name}=${valueKey(v, expr.type)}`)
+				appendAll(parts, [
+					"column",
+					expr.column.node,
+					expr.column.name,
+					...valueIdentity(v, expr.type)
+				])
 			} else if (expr.kind === "param") {
 				const v = stated(param(expr.param), `a value for the parameter ${expr.param}`)
-				parts.push(`$${expr.param}=${valueKey(v, expr.type)}`)
+				appendAll(parts, ["param", expr.param, ...valueIdentity(v, expr.type)])
 			}
 		}
-		return joinedKey(parts)
+		return parts
 	}
 
 	/** The truth of a predicate; a predicate over an unstated value has none the reference states. */
@@ -1008,9 +1031,10 @@ export class Reference {
 				const decided = decidedKeys(
 					[...left.rows, ...projected],
 					left.heading,
-					`${node.kind} ${node.id}`
+					`${node.kind} ${node.id}`,
+					this.identities
 				)
-				const keyAt = (i: number): string => {
+				const keyAt = (i: number): Interned => {
 					const key = decided[i]
 					if (key === undefined) {
 						throw new Error(`no key for row ${i} of ${node.id}`)
@@ -1087,11 +1111,12 @@ export class Reference {
 			}
 			return 0
 		}
-		const partitions = new Map<string, Array<Row>>()
+		const partitions = new Map<Interned, Array<Row>>()
 		const partitionKeys = decidedKeys(
 			Arr.map(input.rows, (row) => Arr.map(partition, (i) => valueAt(row, i))),
 			Arr.map(partition, (i) => columnAt(heading, i)),
-			`a partition of ${node.id}`
+			`a partition of ${node.id}`,
+			this.identities
 		)
 		for (const [r, row] of input.rows.entries()) {
 			const key = partitionKeys[r]
@@ -1229,9 +1254,10 @@ export class Reference {
 		const groupKeys = decidedKeys(
 			Arr.map(input.rows, (row) => Arr.map(keyIndexes, (i) => valueAt(row, i))),
 			Arr.map(keyIndexes, (i) => columnAt(input.heading, i)),
-			`a group of ${node.id}`
+			`a group of ${node.id}`,
+			this.identities
 		)
-		const groups = new Map<string, Array<Row>>()
+		const groups = new Map<Interned, Array<Row>>()
 		for (const [r, row] of input.rows.entries()) {
 			const key = defined(groupKeys[r], `the group key of row ${r} of ${node.id}`)
 			const rows = groups.get(key)
@@ -1375,7 +1401,7 @@ export class Reference {
 			plan,
 			index: Option.flatMap(plan.probe, (probe) =>
 				Option.flatMap(this.#stableRows(plan.source), (rows) =>
-					indexRows(rows, plan.width, probe.index, probe.type)
+					indexRows(rows, plan.width, probe.index, probe.type, this.identities)
 				)
 			)
 		}))
@@ -1409,7 +1435,7 @@ export class Reference {
 					const value = values.get(probe.var)
 					return value === undefined
 						? source.rows
-						: candidates(source.rows, index, value, probe.type)
+						: candidates(source.rows, index, value, probe.type, this.identities)
 				}
 			})
 			for (const row of rows) {
@@ -1540,7 +1566,9 @@ export class Reference {
 		if (Option.isSome(planned)) {
 			const plan = planned.value
 			const matches = this.closed(node.right)
-				? Option.flatMap(this.#settledSet(node.right), (right) => existenceKeys(right.rows, plan))
+				? Option.flatMap(this.#settledSet(node.right), (right) =>
+						existenceKeys(right.rows, plan, this.identities)
+					)
 				: Option.none()
 			return Arr.filter(left.rows, (row) => {
 				const tuple = tupleOf(left, row)
@@ -1549,7 +1577,10 @@ export class Reference {
 					Option.flatMap(matches, (keys) =>
 						Option.map(
 							pairKey(row, plan.pairs, (p) => p.left),
-							(probe) => keys.has(probe)
+							(probe) => {
+								const token = this.identities.find(probe)
+								return token !== undefined && keys.has(token)
+							}
 						)
 					),
 					{
@@ -1639,7 +1670,7 @@ export class Reference {
 		tuples: ReadonlyArray<Row>,
 		heading: Heading
 	): ReadonlyArray<Row> {
-		return distinctRows(tuples, heading, `the bound tuples of ${node.id}`)
+		return distinctRows(tuples, heading, `the bound tuples of ${node.id}`, this.identities)
 	}
 
 	group(node: NodeOf<"Group">, scope: Bindings): ReadonlyArray<Row> {
@@ -1655,9 +1686,14 @@ export class Reference {
 		const keyHeading: Heading = Arr.map(node.keys, (k) =>
 			columnAt(heading, columnIndex(heading, k, node.id))
 		)
-		const groups = new Map<string, { key: Row; members: Array<Row> }>()
+		const groups = new Map<Interned, { key: Row; members: Array<Row> }>()
 		const projected = Arr.map(tuples, (t) => project(heading, keyHeading, t, node.id))
-		const groupKeys = decidedKeys(projected, keyHeading, `a group key of ${node.id}`)
+		const groupKeys = decidedKeys(
+			projected,
+			keyHeading,
+			`a group key of ${node.id}`,
+			this.identities
+		)
 		for (const [i, t] of tuples.entries()) {
 			const key = projected[i]
 			const k = groupKeys[i]
@@ -1715,9 +1751,10 @@ export class Reference {
 		let state = distinctRows(
 			cast(this.eval(node.base, scope)),
 			node.heading,
-			`the base of ${node.id}`
+			`the base of ${node.id}`,
+			this.identities
 		)
-		const seen = new Map<string, number>()
+		const seen = new Map<Interned, number>()
 		for (let i = 0; ; i++) {
 			if (i >= maxIterations) {
 				throw referenceUnsupported(`a recursion of more than ${maxIterations} steps`)
@@ -1729,8 +1766,13 @@ export class Reference {
 			 * The state and the step keyed together, so a step row told apart from a state row by declined terms alone
 			 * is refused rather than kept as fresh.
 			 */
-			const keys = decidedKeys([...state, ...step], node.heading, `the state of ${node.id}`)
-			const keyAt = (j: number): string => {
+			const keys = decidedKeys(
+				[...state, ...step],
+				node.heading,
+				`the state of ${node.id}`,
+				this.identities
+			)
+			const keyAt = (j: number): Interned => {
 				const key = keys[j]
 				if (key === undefined) {
 					throw new Error(`no key for row ${j} of the state of ${node.id}`)
@@ -1739,11 +1781,11 @@ export class Reference {
 			}
 			/** Each key's row by its index in the state and fresh rows. */
 			const rows: Array<Row> = [...state]
-			const keyed: ReadonlyArray<readonly [string, number]> = Arr.map(
+			const keyed: ReadonlyArray<readonly [Interned, number]> = Arr.map(
 				[...state.keys()],
 				(j) => [keyAt(j), j] as const
 			)
-			const unrecorded: ReadonlyArray<readonly [string, number]> = Arr.filter(
+			const unrecorded: ReadonlyArray<readonly [Interned, number]> = Arr.filter(
 				keyed,
 				([k]) => !seen.has(k)
 			)

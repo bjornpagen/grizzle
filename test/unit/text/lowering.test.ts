@@ -160,6 +160,7 @@ describe("constraint loops (scalar/regex/ir.ts repeat)", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/text/assertion-loops",
 					draw: drawn(
 						(source) =>
@@ -217,6 +218,7 @@ describe("reading a printed ARE back", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/text/lowering-18081",
 						draw: drawn((source) => [source.draw(familyPattern), source.draw(flagsGen)] as const),
 						literal: Formatter.format,
@@ -286,6 +288,7 @@ describe("reading a printed ARE back", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/text/are-verdict",
 					draw: drawn(nestedPattern),
 					literal: Formatter.format,
@@ -409,6 +412,7 @@ describe("the enforcement of a finite language", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/text/finite-form",
 						draw: drawn((source) => {
 							const family = source.draw(element(families))

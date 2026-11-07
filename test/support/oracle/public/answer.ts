@@ -1,5 +1,5 @@
 import { type Equivalence, exact, ordered, type Side, set } from "@grizzle/testing/oracle"
-import { Array as Arr, Formatter, Option, Predicate, Record, Result } from "effect"
+import { Array as Arr, Formatter, Hash, Option, Predicate, Record, Result } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import { VectorText } from "#compiler/ir/carriers.ts"
@@ -15,7 +15,8 @@ import type {
 	Query,
 	StatedDelivery
 } from "#test/support/oracle/public/program.ts"
-import { Declined, type Value, valueKey } from "#test/support/oracle/reference/values.ts"
+import { sameIdentity } from "#test/support/oracle/reference/identity.ts"
+import { Declined, type Value, valueIdentity } from "#test/support/oracle/reference/values.ts"
 
 /**
  * The columns and attachments a delivered row carries, each attachment in its stated delivery, and delivered in order
@@ -166,13 +167,13 @@ export const answersReport = (
 
 /**
  * Whether two values are one exactly: a double by Object.is, so a delivered -0 is no 0, and every other value by its
- * canonical text (reference/values.ts valueKey): a Decimal by its one text, as `equals` compares it, Money by its minor
- * units, a span by its endpoints, a vector by its components, a declined value by its identity.
+ * identity (reference/values.ts valueIdentity): a Decimal by its one text, as `equals` compares it, Money by its minor
+ * units, a span by its endpoints, a vector by its components, a declined value by its reading's identity.
  */
 const sameValue = (a: Value, b: Value, type: ScalarType): boolean =>
 	typeof a === "number" && typeof b === "number"
 		? Object.is(a, b)
-		: valueKey(a, type) === valueKey(b, type)
+		: sameIdentity(valueIdentity(a, type), valueIdentity(b, type))
 
 const value =
 	(column: Column): Equivalence<Value> =>
@@ -217,6 +218,26 @@ const unstated = (left: Declines, right: Declines): Declines => ({
 })
 
 /**
+ * A row's hash, consistent with nestedEquivalence over the same skip: its columns but those `skip` holds, a double by its
+ * value and every other value by its identity under native equality (sameValue), and none of its attachments, which
+ * the equivalence compares apart.
+ */
+const nestedHash =
+	(shape: Shape, skip: Declines) =>
+	(row: Nested): number =>
+		Arr.reduce(shape.columns, Hash.number(row.values.length), (hash, column, i) => {
+			const cell = row.values[i]
+			return skip.columns.has(i) || cell === undefined
+				? hash
+				: Hash.combine(
+						hash,
+						typeof cell === "number"
+							? Hash.number(cell)
+							: Hash.hash(valueIdentity(cell, column.type))
+					)
+		})
+
+/**
  * Two rows of one shape, exactly: every column's value one value (sameValue), but for the columns `skip` holds, and
  * every attachment's children as a set, or in order for a child that ends in a take. Every side delivers each value in
  * its one form, so equal is identical, and anything a plan, a storage order or a stored spelling could change is a
@@ -229,7 +250,12 @@ const nestedEquivalence = (shape: Shape, skip: Declines): Equivalence<Nested> =>
 			a.shape,
 			defined(skip.attachments[i], `the declines of ${a.name}`)
 		)
-		return { name: a.name, rows: a.inOrder ? ordered(child) : set(child) }
+		return {
+			name: a.name,
+			rows: a.inOrder
+				? ordered(child)
+				: set(nestedHash(a.shape, defined(skip.attachments[i], `the declines of ${a.name}`)), child)
+		}
 	})
 	return (a, b) => {
 		for (const [i, equal] of columns.entries()) {
@@ -284,7 +310,7 @@ export const answerEquivalence =
 				? unstated(declinesOf(shape, left.success), declinesOf(shape, right.success))
 				: declinesOf(shape, [])
 		const rows = nestedEquivalence(shape, skip)
-		return result(inOrder ? ordered(rows) : set(rows), exact)(left, right)
+		return result(inOrder ? ordered(rows) : set(nestedHash(shape, skip), rows), exact)(left, right)
 	}
 
 const endpoint = (x: unknown): bigint | undefined =>

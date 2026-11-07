@@ -174,7 +174,14 @@ const writeSteps = (
 	if (!realized.ok) {
 		throw new Error(realized.error.message)
 	}
-	return Arr.flatMap(realized.value.steps, (s) => (s.kind === "readBack" ? [] : [s.statement]))
+	return Arr.flatMap(realized.value.steps, (s) => {
+		if (s.kind === "family") {
+			throw new Error(
+				"a vector schema owns no family, so its realization holds no family statement"
+			)
+		}
+		return s.kind === "readBack" ? [] : [s.statement]
+	})
 }
 
 /** One statement's result kind and the raw text rows it returned. */

@@ -194,6 +194,7 @@ layer(Substrate.layer)("span and vector agreement with PostgreSQL", (it) => {
 				const span = map(element(spanBounds), ([a, b]) => succeeded(makeSpan("int4", a, b)))
 				return yield* explore(
 					{
+						oracle: { kind: "unstated" },
 						...spec,
 						suite: "pg/values/carriers/span-order",
 						draw: drawn(batchOf(span, 600))
@@ -244,6 +245,7 @@ layer(Substrate.layer)("span and vector agreement with PostgreSQL", (it) => {
 						pg.length === host.length && Arr.every(pg, (x, k) => x === host[k])
 					return yield* explore(
 						{
+							oracle: { kind: "unstated" },
 							...spec,
 							suite: "pg/values/carriers/vector-rounding",
 							draw: drawn(batchOf(components, 1000))
@@ -398,6 +400,7 @@ layer(Substrate.layer)("span and vector agreement with PostgreSQL", (it) => {
 				)
 				return yield* explore(
 					{
+						oracle: { kind: "unstated" },
 						...spec,
 						suite: "pg/values/carriers/vector-order",
 						draw: drawn(batchOf(vector, 400))

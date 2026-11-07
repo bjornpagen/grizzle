@@ -572,6 +572,7 @@ layer(Substrate.layer, { excludeTestServices: true })("the public reader at its 
 						.orderBy(["id", "asc"])
 					return yield* explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "pg/reads/boundary",
 							/** Up to twelve commands, so a case can compile, dispose and execute a stale handle among its other calls. */
 							draw: drawn(

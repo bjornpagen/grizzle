@@ -260,6 +260,7 @@ describe("the optimized lowering of checked public programs", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/lower/public-programs",
 					draw: drawn(caseSketchGen),
 					literal: Formatter.format,
@@ -299,6 +300,8 @@ describe("the optimized lowering of checked public programs", () => {
 			ctx,
 			exhaust(
 				{
+					box: { kind: "unstated" },
+					oracle: { kind: "unstated" },
 					suite: "unit/lower/public-programs-planted",
 					generator: plantedGen,
 					literal: Formatter.format,
@@ -325,6 +328,7 @@ describe("the optimized lowering of checked public programs", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/lower/public-programs-roster",
 						draw: drawn((source) => {
 							/** Two to four distinct handles: one, and the first three of the others drawn besides it. */

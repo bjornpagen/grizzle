@@ -2,7 +2,7 @@ import { describe, it, layer } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
 import { noCoverage, required, requiredInSpace } from "@grizzle/testing/features"
 import { array, element, type Gen, int } from "@grizzle/testing/gen"
-import { exact, ordered, set } from "@grizzle/testing/oracle"
+import { exact, ordered, set, structuralHash } from "@grizzle/testing/oracle"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -148,6 +148,7 @@ describe("the span reference on the host", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "spans/coverage-host",
 					draw: drawn(array(smallSpanGen, { min: 0, max: 6 })),
 					literal: Formatter.format,
@@ -275,6 +276,7 @@ describe("the span generators", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "spans/generators",
 					draw: drawn(spanCaseGen(defaultSpanCaseLimits)),
 					literal: Formatter.format,
@@ -345,7 +347,7 @@ const tableMaskPredicate: MaskPredicate = (mask, left, right) =>
 		printExpr(col(right.table, right.column))
 	)
 
-const sameRowSet = set(ordered(exact))
+const sameRowSet = set(structuralHash, ordered(exact))
 
 const sameRows = (
 	label: string,

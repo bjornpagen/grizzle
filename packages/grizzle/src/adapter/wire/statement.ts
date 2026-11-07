@@ -5,7 +5,7 @@
 import { Result } from "effect"
 import { CatalogRowRefused } from "#adapter/errors/failures.ts"
 import { sentAnswer, type BatchOutcome } from "#adapter/wire/batch.ts"
-import type { EmittedText } from "#compiler/sql/ast.ts"
+import type { EmittedText } from "#compiler/plan/common.ts"
 
 /**
  * A catalog statement and the one reading of its rows: each row is parsed once, where its flight answers, into what it

@@ -56,12 +56,9 @@ import {
 } from "#adapter/migrate/session.ts"
 import { type ApartAnswer, sentAnswer, type BatchStatement } from "#adapter/wire/batch.ts"
 import type { CatalogQuery } from "#adapter/wire/statement.ts"
-import type { SchemaFingerprint } from "#compiler/core/ids.ts"
-import type { LedgerStatements } from "#compiler/deploy/ledger/ledger.ts"
-import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
-import type { EmittedText } from "#compiler/sql/ast.ts"
-import * as C from "#compiler/sql/catalog.ts"
-import { emitCatalog } from "#compiler/sql/emit.ts"
+import { C } from "#compiler/plan/catalog.ts"
+import { emitCatalog, type EmittedText, type SchemaFingerprint } from "#compiler/plan/common.ts"
+import type { DeploySnapshot, LedgerStatements } from "#compiler/plan/migration.ts"
 
 /**
  * `grizzle migrate`: the apply runner.

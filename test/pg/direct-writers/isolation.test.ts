@@ -34,7 +34,7 @@ import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
-import { exact, ordered, set } from "@grizzle/testing/oracle"
+import { exact, ordered, set, structuralHash } from "@grizzle/testing/oracle"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Result, String as Str } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
@@ -300,7 +300,7 @@ const runPoint = (
 		return { kind: "ran", committed: Result.isSuccess(ended) }
 	})
 
-const rowsAgree = set(ordered(exact))
+const rowsAgree = set(structuralHash, ordered(exact))
 
 layer(Substrate.isolatedLayer, { excludeTestServices: true })(
 	"every write to a grizzle table runs at SERIALIZABLE",
@@ -365,6 +365,8 @@ layer(Substrate.isolatedLayer, { excludeTestServices: true })(
 						]
 						return yield* exhaust(
 							{
+								box: { kind: "unstated" },
+								oracle: { kind: "unstated" },
 								suite: "pg/direct-writers/isolation",
 								generator: box,
 								literal: Formatter.format,

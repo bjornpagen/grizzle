@@ -234,6 +234,7 @@ layer(Substrate.layer)("printed SQL on PostgreSQL 19", (it) => {
 					const s = yield* Substrate
 					return yield* explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "pg/sql/relational",
 							draw: sketched(relationalSketchGen, resolveRelational),
 							literal: Formatter.format,
@@ -372,6 +373,7 @@ layer(Substrate.layer)("printed SQL on PostgreSQL 19", (it) => {
 					const s = yield* Substrate
 					return yield* explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "pg/sql/evaluated",
 							draw: drawn(array(evaluatedGen, { min: 1, max: 40 })),
 							literal: Formatter.format,
@@ -422,6 +424,7 @@ layer(Substrate.layer)("printed SQL on PostgreSQL 19", (it) => {
 					const s = yield* Substrate
 					return yield* explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "pg/sql/set-trees",
 							draw: drawn(setCaseGen),
 							literal: Formatter.format,
@@ -457,6 +460,7 @@ layer(Substrate.layer)("printed SQL on PostgreSQL 19", (it) => {
 					const s = yield* Substrate
 					return yield* explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "pg/sql/aggregates",
 							draw: drawn(aggregateCaseGen),
 							literal: Formatter.format,
@@ -493,6 +497,7 @@ layer(Substrate.layer)("printed SQL on PostgreSQL 19", (it) => {
 					let made = 0
 					return yield* explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "pg/sql/raise",
 							draw: drawn(raiseGen),
 							literal: Formatter.format,
@@ -613,6 +618,7 @@ layer(Substrate.layer)("printed SQL on PostgreSQL 19", (it) => {
 					Arr.every(Arr.fromIterable(d), (c) => c === "0" || c === "-" || c === ".")
 				return yield* explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "pg/sql/literals",
 						draw: drawn(literalsGen),
 						literal: Formatter.format,

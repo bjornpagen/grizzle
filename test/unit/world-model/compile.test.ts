@@ -134,6 +134,7 @@ describe("the worlds model's compile rules", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/world-model/compile",
 					draw: drawn(installGen(docsBase)),
 					literal: Formatter.format,

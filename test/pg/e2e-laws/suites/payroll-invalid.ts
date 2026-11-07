@@ -74,8 +74,9 @@ interface Case {
 	/** The law the outcome names. */
 	readonly law: LawId
 	/**
-	 * The witnesses the outcome may carry, its one: `unreported` for a native violation PostgreSQL states only in its
-	 * message. Several only where the ChangeSet submits several facts that collide at once, and the refusal names the
+	 * The witnesses the outcome may carry, its one: a key, or `unreported` for a foreign key's violation, which
+	 * PostgreSQL states only in its message; a check's, a contract's or a pattern's names the stated fact the host
+	 * finds breaking it. Several only where the ChangeSet submits several facts that collide at once, and the refusal names the
 	 * one its statement meets first, in the plan's order.
 	 */
 	readonly witnesses: Arr.NonEmptyReadonlyArray<Witness>
@@ -229,7 +230,8 @@ const fromStateA: Arr.NonEmptyReadonlyArray<Case> = [
 		changes: (p) =>
 			p.attempt(p.w.server.roles.hr, p.cs().put(P.ReportsTo, [{ employee: bo, manager: bo }])),
 		law: L.lawOf(check("NotOwnManager", P.ReportsTo, (x) => x.ne(x.employee, x.manager))),
-		witnesses: [unreported]
+		/** The put states the row the check refuses, so the host names its key. */
+		witnesses: [{ kind: "key", relation: "ReportsTo", values: { employee: bo } }]
 	},
 	{
 		change: "insert ReportsTo { employee: ada, manager: <no employee> }",
@@ -257,7 +259,7 @@ const fromStateA: Arr.NonEmptyReadonlyArray<Case> = [
 			}
 		},
 		law: L.textDomain(P.Employee, "code").law,
-		witnesses: [unreported]
+		witnesses: [{ kind: "key", relation: "Employee", values: { id: fresh(3) } }]
 	},
 	{
 		change: "insert an Employee with its TaxProfile whose name is 301 characters",
@@ -273,7 +275,7 @@ const fromStateA: Arr.NonEmptyReadonlyArray<Case> = [
 					.insert(P.TaxProfile, [{ employee: fresh(4), filing: "single", extra: cents(0n) }])
 			),
 		law: L.contract("LegalName").law,
-		witnesses: [unreported]
+		witnesses: [{ kind: "key", relation: "Employee", values: { id: fresh(4) } }]
 	},
 	{
 		change: 'put TaxProfile { employee: bo, filing: "joint", extra: Cents(-1n) }',
@@ -284,7 +286,7 @@ const fromStateA: Arr.NonEmptyReadonlyArray<Case> = [
 				p.cs().put(P.TaxProfile, [{ employee: bo, filing: "joint", extra: cents(-1n) }])
 			),
 		law: L.contract("Cents").law,
-		witnesses: [unreported]
+		witnesses: [{ kind: "key", relation: "TaxProfile", values: { employee: bo } }]
 	},
 	{
 		change: "insert Employment { employee: ada, during: [t5, t12) }",
@@ -458,9 +460,9 @@ const fromStateA: Arr.NonEmptyReadonlyArray<Case> = [
 					{ account: "000123456789", amount: 200n, remainder: true }
 				])(p)
 			),
-		/** A row check on the line itself: fin.md §6, "source equal to target". */
+		/** A row check on the line itself: fin.md §6, "source equal to target". The host names the stated line. */
 		law: netWithinGross,
-		witnesses: [unreported]
+		witnesses: [{ kind: "key", relation: "PayLine", values: { id: fresh(12) } }]
 	},
 	{
 		change: "add an off-cycle PayLine with deposits and no OffCycleReason",
@@ -764,6 +766,8 @@ const runCase = (p: Payroll, c: Case) => runGrizzle(c, c.law, c.changes(p))
 const everyRow = (suite: string, p: Payroll, rows: Arr.NonEmptyReadonlyArray<Case>) =>
 	exhaust(
 		{
+			box: { kind: "unstated" },
+			oracle: { kind: "unstated" },
 			suite: `e2e-laws/payroll-invalid/${suite}`,
 			generator: element(rows),
 			literal: (c: Case) => Formatter.format(c.change),

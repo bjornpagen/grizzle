@@ -16,6 +16,7 @@ describe("Money", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/values/money-1",
 					draw: drawn(bigint(int8Min.value, int8Max.value)),
 					literal: Formatter.format,

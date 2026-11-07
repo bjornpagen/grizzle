@@ -274,6 +274,7 @@ layer(Substrate.layer)("the search policy as login defaults", (it) => {
 					const s = yield* Substrate
 					return yield* explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "pg/physical/search-policy",
 							draw: drawn(caseGen),
 							literal: Formatter.format,

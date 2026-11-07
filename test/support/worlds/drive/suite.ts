@@ -1497,6 +1497,7 @@ export const programTests = (it: Vitest.MethodsNonLive<Substrate>, spec: Program
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: spec.suite,
 					draw: drawn(programCaseGen(spec.installs, worldDraws(spec), spec.steps)),
 					literal: Formatter.format,

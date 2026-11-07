@@ -344,6 +344,7 @@ describe("a stratum's change is a set difference", () => {
 					ctx,
 					explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "unit/write/changeset/lagging-sequence",
 							draw: drawn(laggingGen),
 							literal: Formatter.format,
@@ -520,6 +521,7 @@ describe("relation identity", () => {
 					ctx,
 					explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "unit/write/relation-identity",
 							draw: drawn(
 								(source) =>

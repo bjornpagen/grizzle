@@ -1525,6 +1525,7 @@ describe("generated queries round-trip through their descriptions", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/check/roundtrip",
 						draw: drawn(drawnCase),
 						literal: Formatter.format,

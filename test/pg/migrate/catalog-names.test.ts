@@ -223,6 +223,8 @@ layer(Substrate.layer)("objects named like PostgreSQL's own types", (it) => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "pg/migrate/catalog-names",
 						generator: caseGen,
 						literal: literalOf,

@@ -16,6 +16,16 @@ How to upgrade:
 
 ### Breaking changes
 
+#### `date` is a plain type, not a contract
+
+- **`date` is PostgreSQL's date, a plain scalar type as `pg.integer` is.** It was the builtin contract `date` over
+  PostgreSQL's date, so `Compute.base(day)` was another type than `day`: `Compute.greatest(day, Compute.base(day))` was
+  refused ("contract date over date never meets date") where the types admitted it. Now the base of a date is the date
+  itself. A date column is `pg_catalog.date NOT NULL` with a CHECK of the days from 0001-01-01 to 9999-12-31, named at
+  the naming door, which holds every writer to the days a `CalendarDate` spells; it is the type's range, no law, so the
+  contract law `{ kind: "contract", contract: "date" }` is gone. Regenerate: the snapshot and the installation change.
+  No codemod.
+
 #### A fold over a counted family ends at its members' values when its owner is inserted with them
 
 - **A counted family's `Monoid.or` or `Monoid.twos` end is its members' sets when the owner is inserted in the same
@@ -28,6 +38,91 @@ How to upgrade:
   every count and end as its host value from the fill to the statement that writes it, and writes its text once,
   there. No codemod.
 
+#### A guard over a contract is admitted whatever its domain holds, a text's bytes have a guard, power's precondition splits in two, and a set literal keeps its roster
+
+- **`Compute.isFinite`, `Compute.nonzero`, `Compute.nonnegative` and `Compute.positive` over a term of a contract are
+  admitted whatever constants the contract's domain holds.** A guard compared its subject with a literal of the
+  subject's contract, so `Compute.isFinite(rate)` over `contract("Rate", pg.numeric(7, 6), …)` was refused, since
+  numeric(7,6) holds no infinity, and `Compute.nonzero(d)` over a contract that keeps zero out was `ContractLiteral`.
+  A guard now compares its subject's value with a constant of the value's own type. A numeric with a typmod holds NaN
+  but no infinity, so `Compute.isFinite` over one is the test that the value is not NaN. No codemod.
+- **`Compute.within(Compute.octetLength(x), low, high)` guards a text's bytes.** Inside its branch compilation reads
+  `x` as `str.bytes(high, x's pattern)` reads it, so a cast of a text of no byte bound into a `str.bytes(n, pattern)`
+  type is admitted under a guard whose high end is at most n; it stands where `octetLength` does, in checks, contract
+  predicates and generated fields. A cast refused for its byte bound names that guard, `remedy: { kind: "octets",
+  bytes: n }`, where its operand's pattern lies inside the target's; in a query it names a value of the target's type.
+  A match's branch keeps its subject's byte bound, so a match inside a byte guard, or a byte guard inside a match,
+  proves both. No codemod.
+- **power's precondition is two, `powerDomain`, its base's sign, and `powerRange`, its result's range.** A power whose
+  base is proved never negative and never zero, or raised to no negative power, but whose result may pass its type's
+  range is refused with `precondition: "powerRange"` and `Compute.within` as its guard; one whose sign is unproved is
+  `powerDomain`, whose guard is now `Compute.positive` (`remedy: { kind: "positive" }`). Code that matched
+  `precondition === "powerDomain"` for a range matches `"powerRange"`. No codemod.
+- **`Compute.within(x, low, high)` takes a number alone.** Over a text, a uuid or a date it was admitted as a
+  predicate, a BETWEEN, and refused as Compute.when's guard; it is now `MalformedDescription` wherever it stands, as
+  the types already refused it. Write `Compute.between(x, low, high)` for the predicate. No codemod.
+- **A set made by `Bits.of(X, …)` is a value of X's sets alone.** It now holds its roster, and
+  `Compute.literal(F, Bits.of(Tone, ["low"]))` at a field over another roster that also has a `"low"` handle, which was
+  admitted by its names, is `MalformedDescription`, as a closed relation's fact holding it is; bound to a parameter or
+  written in a fact it is `EncodingFailure` with the reason `bitsMember`. A plain `Set` of a JavaScript caller states no
+  roster and is admitted by its names as before. No codemod.
+
+#### A float operation reads its operands once per row
+
+- **A float operation whose operand is itself an operation, a cast or a call reads its operands from a LATERAL item of
+  its row, not from a subquery PostgreSQL runs again for every row.** Its IEEE 754 form names each operand several
+  times, so it bound them in a scalar subquery, a SubPlan run once per row, and a float sum or mean ran its subquery
+  once for each time the rounding of the total names the sum: `r.sum(Compute.add(Compute.mul(x, y), z))` over a
+  million rows took 96 s. Wherever a statement evaluates the binding for every row (its WHERE, its delivered columns,
+  an aggregate's or a running total's arguments), the binding is now a LATERAL derived table of that row, which
+  PostgreSQL pulls up into the row, and that sum takes 13 s. Only a form's exact path, which its fast test spares
+  every operand inside the native range, stays a subquery, run for the rows that take it. Values are unchanged. No
+  codemod.
+
+#### A refused check names the row you stated, a generated field's NULL names its law, a parameter of any pattern is delivered, and Written and AdditionIn are public
+
+- **A row check, a contract, a pattern or a generated field that PostgreSQL refuses names the row you stated that
+  breaks it.** The witness was `{ kind: "unreported" }` for every refusal PostgreSQL raises itself, because it states
+  the failing row only in its message, which grizzle never reads. Now the host judges the rows the refused statement
+  wrote that the ChangeSet states (an inserted or put fact, a query entry's fact, a nested row) by the rule over their
+  fields and the generated fields PostgreSQL computes from them, and the witness is `{ kind: "key", relation, values }`,
+  the key of the first that breaks it, in the words you stated it in. It stays `unreported` for a foreign key, and
+  where you stated no such row: a row only PostgreSQL computes (a query's, or one whose rule reads a value grizzle
+  fills on a family, such as a fold's end), a rule over what the host does not evaluate, and a generated addition whose
+  key PostgreSQL draws. A program that matched `witness.kind === "unreported"` for a check matches the key. No codemod.
+- **A generated field whose term has no value refuses the write as `invariant-rejected` naming the field**, the new law
+  `{ kind: "generated", relation, field }`: a closed read `C.at` at a key its relation holds no row at is NULL, which
+  the generated column's NOT NULL refuses (23502). It was an `ExecutionFailure` naming no law. Its witness is the key of
+  the stated row whose term has no value. A program that switches over `law.kind` gains `"generated"`. No codemod.
+- **A parameter of a pattern no stored field declares is delivered.** A query that delivered a parameter's value of
+  such a pattern, a relation parameter's field or a scalar parameter, was refused with `UnsupportedOperation`, since the
+  installation holds no domain of the pattern to cast it to. A parameter's value is checked against its contract and
+  pattern at bind (`EncodingFailure` with `refinedValue`), as a stored column's domain checks it, so its refinement
+  travels with it: the value is delivered as it was bound, with no cast, whatever its pattern. No codemod.
+- **`Written<R>` and `AdditionIn<S, R>` are exported** from `@bjornpagen/grizzle` and `@bjornpagen/grizzle-engine`:
+  a fact of R as its caller writes it, and R's addition in S, its sequences' members nested at its count fields. No
+  codemod.
+
+#### Keys and dependencies are proved by one closure over every attribute a node reads, and independent keys are one proof
+
+- **A projection, a group, a produce and a match keep every dependency of what they read.** A node that does not
+  deliver a column of its input now keeps it as a hidden attribute of its rows, so the input's dependencies are
+  carried whole, and whether some columns determine others is one closure over them. A dependency whose determinants
+  held a column the projection dropped was lost: a query projecting away the column that joins two relations no longer
+  knew that the first relation's key determines the second's fields through it, and proved a wider key. No codemod.
+- **A lateral source's column fixed to a region column equals that column both ways.** A variable bound to a column
+  that a lateral source's filter fixes to a variable of the region was determined by that variable but did not
+  determine it, so a key holding the bound variable in its place was not proved. No codemod.
+- **k joined relations of two declared keys each are one proof of k alternatives, never 2^k keys.** A node's minimal
+  keys are one proof over the independent factors of its dependencies: its key holds one minimal key of each factor,
+  and its alternatives are each factor's others, every minimal key a choice among them. The analysis's work, and the
+  keys a query, an order or a derived relation reads, grow linearly in k, where they grew exponentially. A derived
+  relation keeps a unique index on its first key and on each key one alternative away from it, k + 1 where it kept
+  2^k, and a Base over its view states the other keys through the alternatives. Format and state: a derived relation's
+  indexes change where its definition is a product of several factors with alternatives; regenerate (step 3 above).
+  No codemod.
+- **A closed relation's columns of one type holding one value in every fact are one class.** Each stands for the other
+  in a key, so a key over one of them is proved over the other too. No codemod.
 
 #### A TLS handshake's failure is stage tls, and a query naming an extension its role can't use is refused before any SQL
 
@@ -60,14 +155,15 @@ How to upgrade:
   `flag ? r.eq(x, r.param("p", f)) : Compute.eq(x, "…")` left `p` out of `ParamsOf`, since TypeScript reduced the
   union to the branch that needed less; a term's parameters are now contravariant in its type, so the branch that
   needs more is the one kept. A call that omitted such a parameter is now a type error naming it. A position that takes
-  a term whatever parameters it needs is written `AnyParams` (`Predicate<AnyParams>`, `Aggregate<unknown,
-  AnyParams>`); `Predicate` alone is one that needs none. No codemod.
+  a term whatever parameters it needs is written with `never` parameters (`Predicate<never>`, `Aggregate<unknown,
+  never>`); `Predicate` alone is one that needs none. No codemod.
 - **A union's keys no longer count a field a flag fixes to a literal under one branch and to a parameter under the
   other as telling its arms apart**, so `db.get` and a stated Option or one child refuse a query whose arms may both
   deliver that value. No codemod.
-- **`r.or` refuses a predicate that holds a relational negation**, an `r.not` alone or inside an `r.and`: "relational
-  negation is a rule-level filter, alone or in a top-level conjunction". The engine refused it when it compiled
-  (`UnsupportedOperation`); the types admitted it. Move the negation to the rule's filters. No codemod.
+- **`r.or`, `Compute.or`, `Compute.not` and a conditional's test refuse a predicate that holds a relational
+  negation**, an `r.not` alone or inside a conjunction: "relational negation is a rule-level filter, alone or in a
+  top-level conjunction". The engine refused it when it compiled (`UnsupportedOperation`); the types admitted it. Move
+  the negation to the rule's filters, alone or in a conjunction there. No codemod.
 - **A variable read from a column of a query's heading, through `v` over a query, a bound import or an interior stage,
   or as an attachment's parent variable, has exactly the facts its column's type declares**, as the engine reads it:
   a contract's `proves`, and nothing for a plain type. The types gave it the head term's own facts, so
@@ -75,6 +171,10 @@ How to upgrade:
   `r.max(divisor)` or a conditional of a contract's type passed none. A contract's domain now carries the facts it
   declares (`Declares<"nonzero">` beside its brand), so a `ParamType` of such a contract states its domain and its
   host apart. No codemod.
+- **`r.relation(name, Relation)` refuses a relation that is not the rule's schema's**, by its name and heading: "the
+  relation is not in this query's schema". The Description names the relation, which the engine resolves in the
+  schema and refused when the rule matched the parameter (`MalformedDescription`); the types admitted any relation.
+  Declare the relation in the schema, or give the parameter its heading of fields. No codemod.
 
 #### A delete that names two facts at one key is refused, a nested insert writes only members its role writes, and a family write the engine can't plan is a type error
 
@@ -92,9 +192,24 @@ How to upgrade:
   a put or delete of a tree's row; one of a row whose key holds a field grizzle writes, such as a sequence's member
   keyed by its drawn index; a delete of a member of an immutable owner's family; and a put of an immutable family
   owner. Each typechecked and failed at compile with `UnsupportedOperation` or `UnstatedKey`. Now the relation
-  argument names the engine's reason in a `Refusal`. An insert of a counted member of an immutable owner, in a stratum
-  that inserts no owner, and a ChangeSet that edits a family's members in more than one stratum stay the engine's
-  alone, since the types see no strata. No codemod.
+  argument names the engine's reason in a `Refusal`. No codemod.
+- **A ChangeSet's type holds its strata** (a sixth type parameter of `ChangeSet`, which `ChangeSet.empty`, `union` and
+  `sequence` track), so two refusals the engine made when it compiled are type errors. An insert of a member of an
+  immutable owner's family in a stratum that inserts no such owner is refused where the ChangeSet is compiled:
+  `db.apply`, `db.compile`, `db.explain` and a workload. A ChangeSet that writes a family's members in more than one
+  stratum is refused at the call that makes the second such stratum. A type that names `ChangeSet` with five
+  arguments or fewer still accepts every ChangeSet. No codemod.
+- **A fact that is no fact of its relation is one refusal**, "a member fact is not a fact of the relation", whatever
+  is wrong with it: a missing field, a value of another type, or a field its relation lacks. `insert`, `delete` and
+  `put` infer their facts as written and refuse them in one place, where a missing field or a mistyped value failed
+  with TS2322, TS2741 or TS2345 by the literal's shape. No codemod.
+- **A parameter map naming no parameter of its program is refused** with an `EncodingFailure` (`factShape`, naming no
+  parameter) before any SQL, by every read and by `db.apply` and a compiled ChangeSet's apply. The runtime ignored such
+  a key, so a misspelled parameter bound nothing. The types refuse it too, for a variable of a wider type as well as a
+  literal: every parameter argument (`execute`, `get` of a query, `page`, `db.apply`, `db.explain`, a compiled
+  handle's operations and `ChangeSet.bind`) is inferred as its own type, and an extra key is TS2345 "a parameter map
+  names only its program's parameters", where a literal's excess property was TS2353 or TS2322. A key's `get` still
+  reads only the key's fields, so a whole fact names its key. Remove the extra key. No codemod.
 
 #### A concurrent change outside the installation, and a refined claim admission can't judge, fail closed
 
@@ -110,7 +225,9 @@ How to upgrade:
 - **`Db.open` refuses options that are no object with an `OpenError` at stage `schema`, before it looks up the
   layer.** A JavaScript caller's `Db.open(role)` with no options, or with `null`, died reading their token with a
   `TypeError`; now no options, `null`, a list or any other value that is no object is `MalformedDescription`, as a
-  token that is no string already was. The types require the options, so typed code never meets it. No codemod.
+  token that is no string already was. The types require the options, so typed code never meets it. Their type is
+  one of two shapes, `TokenOptions` (`{ token }`) or, for a role whose relations read no context, `NoTokenOptions`
+  (`{}`), never an optional `token`; every `Db.open` call typechecks as it did. No codemod.
 
 #### A pattern whose anchors leave no match is refused, and a role's types cost linear time
 
@@ -178,7 +295,8 @@ How to upgrade:
   (`lt`…`ge`, `between`, `least`, `greatest`) refuses a set. An exact decimal string literal states its facts: `"0"` is
   no proved divisor and `"2.50"` is one. A guard keeps a constant subject's value. A match's pattern term meets its
   subject's type, so a contract's text matches only its own. A conditional over a numeric delivers a Decimal for a
-  bigint or string branch. `Compute.literal` takes a set's descriptor, as the engine does. No codemod.
+  bigint or string branch. `Compute.literal` takes a set's descriptor, as the engine does. A `Compute.within` low bound
+  TypeScript cannot see, a Decimal or a string-typed value, is the engine's to judge, as a divisor's is. No codemod.
 
 #### A query's types no longer cost the size of its schema
 
@@ -196,6 +314,20 @@ How to upgrade:
   typed by that very query, and an unordered query is refused as "page needs an ordered query". No codemod.
 
 #### A schema no write can fill is refused when it compiles
+
+- **A law's foreign key that closes a cycle with a family's owner key is deferred, and so is that owner key.** A
+  containment from an owner, or a selection of it, into its members, or a mirror of the two, made a cycle with the
+  family's owner axis, but the deferral rule never counted a family's keys, so both stayed immediate and a ChangeSet
+  inserting the owner with its members failed with 23503. Every foreign key that orders a write's statements is now
+  an edge of the cycle the rule looks for. A stratum whose writes immediate keys still order in a cycle, such as a
+  deletion and an insertion of one relation around a put of another that references it, is refused when the
+  ChangeSet compiles (`UnorderableStratum`, new reason, naming the writes in the order each must precede the next),
+  where the schedule used to drop one of the cycle's orderings and the write to fail at the server. No codemod: write
+  one of those writes in another stratum (`ChangeSet.sequence`).
+- **A stratum's family statements run where its immediate keys need them, among its own inserts, puts and deletes.**
+  They all ran after the stratum's other statements, so an owner deleted beside its members, or a row whose key names
+  a family's member inserted beside that member, failed with 23503. One schedule now orders both by every foreign key
+  between them, and refuses with `UnorderableStratum` where none exists. No codemod.
 
 - **A field grizzle fills that reads a column its source fills after it is `UnfillableField`** (new reason), at the
   law that states it, naming the field, the law, the column it reads, the axis and why that column is later
@@ -236,6 +368,14 @@ How to upgrade:
 
 #### A schema compiles once, a pattern is analyzed once, and key text is bounded by bytes
 
+- **A closed id names its roster by identity.** A roster's canonical form is its closed relation's name alone
+  (`Roster` in ir/scalar.ts), its handles encoded once, with the schema's closed relation, so a closed-id literal, a
+  closed-id column and a closed read encode at the same size whatever the roster's: a guard over a roster of 5,000
+  handles encoded in 81,691 characters, and one reading a closed relation of its rows in 161,282; both now take
+  1,661 and 1,222 at any size. Every digest, law identity and snapshot record that holds a closed id's type changes:
+  regenerate. No codemod.
+- **An installation's objects are ordered with n log n comparisons**, from a heap of the ready objects, where every
+  step re-sorted them all: 400 relations took 1,053,545 comparisons, now 27,959, in the same order. No codemod.
 - **A relation's unique objects beyond its primary key are decided once, as the law model is built**
   (`RelationLaws.beyond`), comparing two guards by their predicates' canonical texts, each encoded once where its
   object is built, and the law model specializes a schema once: the provisional pass that only settled which

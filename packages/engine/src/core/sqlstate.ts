@@ -60,6 +60,8 @@ export const sqlstates = {
 	exclusionViolation: brand("23P01"),
 	checkViolation: brand("23514"),
 	foreignKeyViolation: brand("23503"),
+	/** A NULL in a NOT NULL column: grizzle writes none, so only a generated column's NULL expression raises it. */
+	notNullViolation: brand("23502"),
 	/** A subquery used as an expression returned more than one row. */
 	cardinalityViolation: brand("21000"),
 	/** The isolation guard's refusal of a write in a transaction below SERIALIZABLE (physical/ddl/isolation.ts). */

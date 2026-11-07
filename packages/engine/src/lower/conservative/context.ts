@@ -717,6 +717,16 @@ export class LowerContext {
 	}
 
 	/**
+	 * The type a declared parameter's placeholder of `t` carries: its refinement's domain where the installation names
+	 * one, and otherwise, for a text pattern no stored field declares, its base. Every value of a declared parameter is
+	 * checked against its refinements at bind (codec/scalar.ts refinedMember), so its refinement travels with it.
+	 */
+	paramTypeRef(t: ScalarType): TypeRef {
+		const p = this.physicalType(t)
+		return p.kind === "type" ? p.ref : this.baseTypeRef(t)
+	}
+
+	/**
 	 * The type with every refinement dropped: a contract's base, unrefined text. Input arrays, VALUES lists, literals
 	 * and recursive state are cast to it; a value checked at compile time or already stored
 	 * needs no domain check again.

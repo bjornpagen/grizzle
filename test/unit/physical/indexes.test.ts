@@ -465,6 +465,7 @@ describe("the index request engine", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/physical/index-engine",
 						draw: sketched(engineGen, (x) => x),
 						literal: Formatter.format,
@@ -692,6 +693,8 @@ describe("the access index name", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/physical/index-name-injective",
 						generator: (source) =>
 							[

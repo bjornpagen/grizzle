@@ -4,7 +4,7 @@ import { appendAll } from "#compiler/core/array.ts"
 import { ExprId, NodeId, VarId } from "#compiler/core/ids.ts"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { sortedUnique, type TableExpr } from "#compiler/ir/expr.ts"
-import { claimedColumns, claimedKeyIn, rewriteClaim } from "#compiler/ir/keys.ts"
+import { keyIn } from "#compiler/ir/keys.ts"
 import type { Exact } from "#compiler/ir/proof.ts"
 import {
 	type DagTable,
@@ -24,6 +24,7 @@ import {
 } from "#compiler/ir/rel.ts"
 import { baseOf, type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
 import { fitRange } from "#compiler/scalar/compute/lower.ts"
+import { statedKey } from "#test/support/fixtures/ir/build.ts"
 import { f as field } from "#test/support/fixtures/ir/desc.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { scalarTypes } from "#test/unit/ir/fixture.ts"
@@ -240,7 +241,7 @@ const totalOver = (dag: DagTable, input: NodeId, ordered: ReadonlyArray<string>)
 	const holds = (c: string) => covered.has(c)
 	return (
 		Arr.every(node.heading, (c) => covered.has(c.name)) ||
-		Arr.some(node.meta.logicalKeys, (k) => claimedKeyIn(k, holds) !== undefined) ||
+		Arr.some(node.meta.logicalKeys, (k) => keyIn(k, holds) !== undefined) ||
 		Arr.some(declared, (key) => Arr.every(key, holds))
 	)
 }
@@ -280,7 +281,7 @@ const keyBound = (child: TableNode, correlated: ReadonlyArray<string>): boolean 
 	const declared = child.kind === "Base" ? [child.primaryKey, ...child.keys] : []
 	const holds = (c: string) => bound.has(c)
 	return (
-		Arr.some(child.meta.logicalKeys, (k) => claimedKeyIn(k, holds) !== undefined) ||
+		Arr.some(child.meta.logicalKeys, (k) => keyIn(k, holds) !== undefined) ||
 		Arr.some(declared, (key) => Arr.every(key, holds))
 	)
 }
@@ -1401,10 +1402,7 @@ const orders: ReadonlyArray<DagCorruption> = [
 						...n,
 						meta: {
 							...n.meta,
-							logicalKeys: [
-								...n.meta.logicalKeys,
-								rewriteClaim([freshName(n.heading, "ghost")], [])
-							]
+							logicalKeys: [...n.meta.logicalKeys, statedKey([freshName(n.heading, "ghost")])]
 						}
 					}),
 					atNode(n.id, "meta", "logicalKeys", n.meta.logicalKeys.length),
@@ -1428,10 +1426,7 @@ const orders: ReadonlyArray<DagCorruption> = [
 							...n,
 							meta: {
 								...n.meta,
-								logicalKeys: [
-									...n.meta.logicalKeys,
-									rewriteClaim(Arr.reverse([...claimedColumns(claimed)]), [])
-								]
+								logicalKeys: [...n.meta.logicalKeys, statedKey(Arr.reverse([...claimed.key]))]
 							}
 						}),
 						atNode(n.id, "meta", "logicalKeys", n.meta.logicalKeys.length),
@@ -1448,15 +1443,13 @@ const orders: ReadonlyArray<DagCorruption> = [
 			Arr.map(
 				Arr.filter(
 					nodesOf(dag),
-					(n) =>
-						n.meta.card === "many" &&
-						!Arr.some(n.meta.logicalKeys, (k) => claimedColumns(k).length === 0)
+					(n) => n.meta.card === "many" && !Arr.some(n.meta.logicalKeys, (k) => k.key.length === 0)
 				),
 				(n) =>
 					site(
 						withNode(dag, n.id, {
 							...n,
-							meta: { ...n.meta, logicalKeys: [...n.meta.logicalKeys, rewriteClaim([], [])] }
+							meta: { ...n.meta, logicalKeys: [...n.meta.logicalKeys, statedKey([])] }
 						}),
 						atNode(n.id, "meta", "logicalKeys", n.meta.logicalKeys.length),
 						n.kind
@@ -2112,14 +2105,14 @@ export const liveVariants = (dag: DagTable): ReadonlyArray<LiveVariant> => [
 		if (first === undefined) {
 			return []
 		}
-		const key = claimedColumns(first)
+		const key = first.key
 		const extra = Arr.findFirst(n.heading, (c) => !key.includes(c.name))
 		if (Option.isNone(extra)) {
 			return []
 		}
 		const superkey: KeySet = [...key, extra.value.name]
 		const claimed = Arr.some(
-			Arr.map(n.meta.logicalKeys, claimedColumns),
+			Arr.map(n.meta.logicalKeys, (k) => k.key),
 			(k) => k.length === superkey.length && Arr.every(superkey, (c) => k.includes(c))
 		)
 		return claimed
@@ -2129,7 +2122,7 @@ export const liveVariants = (dag: DagTable): ReadonlyArray<LiveVariant> => [
 						at: "a superkey claimed",
 						value: withNode(dag, n.id, {
 							...n,
-							meta: { ...n.meta, logicalKeys: [...n.meta.logicalKeys, rewriteClaim(superkey, [])] }
+							meta: { ...n.meta, logicalKeys: [...n.meta.logicalKeys, statedKey(superkey)] }
 						})
 					}
 				]

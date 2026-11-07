@@ -133,6 +133,7 @@ describe("the EXPLAIN readers", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/bench/plan-readers",
 						draw: drawn((source) => ({ plan: source.draw(planGen), text: source.draw(boolean) })),
 						literal: Formatter.format,
@@ -194,6 +195,7 @@ describe("the EXPLAIN readers", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/bench/plan-readers-malformed",
 					draw: drawn((source) => ({
 						plan: source.draw(planGen),

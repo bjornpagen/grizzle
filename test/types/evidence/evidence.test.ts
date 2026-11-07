@@ -79,6 +79,8 @@ layer(NodeServices.layer, { excludeTestServices: true })("evidence types", (it) 
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "types/evidence deliveries",
 						generator: (source) => ({
 							name: source.draw(element(queryNames)),

@@ -517,6 +517,7 @@ describe("pattern byte bounds", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/schema/pattern-byte-bound",
 						draw: drawn(patternSketchGen),
 						literal: Formatter.format,
@@ -801,6 +802,7 @@ describe("length bounds", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/schema/length-bound",
 						draw: drawn((source) => ({
 							conjuncts: source.draw(nonEmpty(lengthConjunctGen, 3)),
@@ -1565,6 +1567,7 @@ describe("keyTextBytes", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/schema/key-text-bytes",
 						draw: drawn(budgetCaseGen),
 						literal: Formatter.format,
@@ -1625,6 +1628,7 @@ describe("B-tree entries (nbtree.h BTMaxItemSize)", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/schema/btree-entry",
 						draw: drawn((source) => ({
 							fields: source.draw(nonEmpty(keyFieldGen, 4)),
@@ -1707,6 +1711,7 @@ describe("B-tree entries (nbtree.h BTMaxItemSize)", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/schema/key-width",
 						draw: drawn((source) => ({
 							width: source.draw(int(postgresIndexMaxKeys - 3, postgresIndexMaxKeys + 3)),
@@ -1782,6 +1787,7 @@ describe("GiST entries for span keys (gist.c gistSplit)", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/schema/span-key-layout",
 						/** Planted: the span between two scalar fields, which the drawn positions reach a few times a run. */
 						draw: sketched(
@@ -1919,6 +1925,7 @@ describe("GiST entries for span keys (gist.c gistSplit)", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/schema/gist-entry",
 						/**
 						 * Planted: two text datums of 3,000 bytes, past a GiST page, which the drawn datums reach a few times a run.
@@ -2046,6 +2053,7 @@ describe("a vector field is a key field like any other: every vector has one for
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/schema/vector-keys",
 						draw: drawn(vectorKeySketchGen),
 						literal: Formatter.format,

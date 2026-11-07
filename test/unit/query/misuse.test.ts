@@ -970,6 +970,7 @@ describe("the query builder's untyped core", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/query/misuse",
 						draw: drawn(caseGen),
 						literal: Formatter.format,
@@ -1102,6 +1103,8 @@ describe("named scopes", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/query/named-scopes",
 						generator: twoScopes,
 						literal: (c) =>

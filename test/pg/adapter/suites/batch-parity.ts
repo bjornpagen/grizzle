@@ -185,6 +185,7 @@ export const batchParitySuite = (): void => {
 						/** The first and the last statement saw one transaction. */
 						const explored = yield* explore(
 							{
+								oracle: { kind: "unstated" },
 								suite: `pg/adapter/batch-parity/one-round-trip`,
 								draw: drawn(array(stepGen, { min: 1, max: 10 })),
 								literal: Formatter.format,
@@ -265,6 +266,7 @@ export const batchParitySuite = (): void => {
 						})
 						return yield* explore(
 							{
+								oracle: { kind: "unstated" },
 								/**
 								 * Nothing committed. The statements before the refused one ran, since the sequence they
 								 * advanced is not transactional, and the ones after it did not.
@@ -465,6 +467,7 @@ export const batchParitySuite = (): void => {
 						const run = namesOf(tapped.session)
 						return yield* explore(
 							{
+								oracle: { kind: "unstated" },
 								suite: `pg/adapter/batch-parity/names`,
 								draw: drawn(steps),
 								literal: Formatter.format,

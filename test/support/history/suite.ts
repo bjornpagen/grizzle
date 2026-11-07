@@ -406,6 +406,7 @@ export const historySuite = <P>(h: HistoryFamily<P>): void => {
 					const installs = yield* Effect.forEach(variants, (p) => installChecked(h, p))
 					return yield* explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: `history/${label}/${mode}`,
 							draw: drawn(historyCaseGen(variants.length)),
 							literal: Formatter.format,
@@ -476,6 +477,8 @@ export const historySuite = <P>(h: HistoryFamily<P>): void => {
 						const observer = yield* exploreEnv(s)
 						return yield* exhaust(
 							{
+								box: { kind: "unstated" },
+								oracle: { kind: "unstated" },
 								suite: `history/${label}/${mode}/below-serializable`,
 								generator: element(nonEmptyList(plantedBelow(env), "the planted writers")),
 								literal: Formatter.format,

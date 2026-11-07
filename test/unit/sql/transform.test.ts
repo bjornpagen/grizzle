@@ -56,6 +56,7 @@ describe("the SQL AST traversals", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/sql/transform-leaf",
 						draw: drawn(statementGen(sqlCatalog)),
 						literal: Formatter.format,

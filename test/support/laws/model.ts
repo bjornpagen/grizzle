@@ -1,4 +1,4 @@
-import { type Equivalence, exact, ordered, set } from "@grizzle/testing/oracle"
+import { type Equivalence, exact, ordered, set, structuralHash } from "@grizzle/testing/oracle"
 import { Array as Arr, Option, Order, Record as Rec } from "effect"
 import type { LawId } from "#compiler/core/ids.ts"
 
@@ -341,7 +341,7 @@ export interface Violator {
 export interface Violation {
 	readonly law: LawId
 	readonly immediate: boolean
-	/** The facts a witness may name; empty for a native violation, whose witness carries no key. */
+	/** The facts a witness may name; empty for a foreign key's violation, whose witness carries no key. */
 	readonly violators: ReadonlyArray<Violator>
 }
 
@@ -512,7 +512,7 @@ const deletedAtOneKey = (
 			Arr.some(deleted, (g, j) => i !== j && projection(f, fields) === projection(g, fields))
 		)
 		return Arr.isReadonlyArrayNonEmpty(bad)
-			? [{ law: law.law, immediate: true, violators: violatorsOf(law, bad) }]
+			? [{ law: law.law, immediate: true, violators: violatorsOf(law, bad, schema) }]
 			: []
 	})
 
@@ -543,15 +543,18 @@ export type Witnessed =
 
 /**
  * A key's or a span key's witness names the refused fact by the law's own key fields, as a write statement's refusal
- * raises them (packages/engine/src/write/refusal.ts): a candidate key's by its fields, never by the primary key.
+ * raises them (packages/engine/src/write/refusal.ts): a candidate key's by its fields, never by the primary key. A row
+ * check's names the fact that breaks it by its relation's primary key, as the host judges the facts a ChangeSet states
+ * (packages/engine/src/write/program/witness.ts); a containment's and a coverage's name none.
  */
-export const witnessOf = (law: HostLaw): Witnessed => {
+export const witnessOf = (law: HostLaw, schema: HostSchema): Witnessed => {
 	switch (law.kind) {
 		case "key":
 			return { kind: "keyed", relation: law.relation, key: law.fields }
 		case "spanKey":
 			return { kind: "keyed", relation: law.relation, key: [...law.scalars, law.span] }
 		case "check":
+			return { kind: "keyed", relation: law.relation, key: relationOf(schema, law.relation).key }
 		case "contained":
 		case "covered":
 			return { kind: "unnamed" }
@@ -561,9 +564,10 @@ export const witnessOf = (law: HostLaw): Witnessed => {
 /** The violating facts `bad` of `law`, each named as the law's witness names it; none for a native violation. */
 export const violatorsOf = (
 	law: HostLaw,
-	bad: ReadonlyArray<HostFact>
+	bad: ReadonlyArray<HostFact>,
+	schema: HostSchema
 ): ReadonlyArray<Violator> => {
-	const witness = witnessOf(law)
+	const witness = witnessOf(law, schema)
 	return witness.kind === "unnamed"
 		? []
 		: Arr.map(bad, (f) => ({ relation: witness.relation, values: valuesAt(f, witness.key) }))
@@ -582,7 +586,7 @@ const violationOf = (
 			: Option.some({
 					law: law.law,
 					immediate: isImmediate(schema, law),
-					violators: violatorsOf(law, bad)
+					violators: violatorsOf(law, bad, schema)
 				})
 	switch (law.kind) {
 		case "key": {
@@ -745,7 +749,7 @@ export const stateRows = (schema: HostSchema, state: HostState): StateRows =>
  * The difference between two states' rows, none when every relation holds the same rows, in any order, each once: a
  * relation holds each fact once, so a repeated row on either side is a difference.
  */
-export const rowsDifference: Equivalence<StateRows> = ordered(set(ordered(exact)))
+export const rowsDifference: Equivalence<StateRows> = ordered(set(structuralHash, ordered(exact)))
 
 /** A row's order: its value texts, field by field. */
 const rowOrder: Order.Order<ReadonlyArray<string>> = Arr.makeOrder(Order.String)

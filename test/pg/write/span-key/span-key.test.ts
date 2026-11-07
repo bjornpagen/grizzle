@@ -331,6 +331,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							const db = yield* Db.open(o.server.roles.app, {})
 							return yield* explore(
 								{
+									oracle: { kind: "unstated" },
 									suite: "write/span-key",
 									draw: drawn(spanCaseGen),
 									literal: Formatter.format,

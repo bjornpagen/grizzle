@@ -1,0 +1,165 @@
+/**
+ * What every plan is spelled in: the engine's errors and results, identifiers and names, descriptions and scalar
+ * types, the SQL AST and its printed text, the schema the plans compile against, and the public types the shell's
+ * signatures name.
+ */
+export type { CheckedEntry } from "#compiler/analysis/schema.ts"
+export { nominal } from "#compiler/core/brand.ts"
+export {
+	canonicalEquals,
+	catchCompileError,
+	catchRefusal,
+	decode,
+	everyProperty,
+	fromJson,
+	noRevivers
+} from "#compiler/core/canonical.ts"
+export {
+	type AttachmentLayout,
+	type BindContext,
+	bindGroups,
+	type Layout,
+	type OptionVocabulary,
+	type Row,
+	type RowDecoder,
+	rowText
+} from "#compiler/core/decoder.ts"
+export {
+	CompileError,
+	compileReasonText,
+	type CursorError,
+	type EncodingFailure,
+	isCompileError,
+	malformedArtifact,
+	malformedDescription,
+	prose,
+	type TransientReason,
+	unsupported
+} from "#compiler/core/errors.ts"
+export {
+	admittedIdentifier,
+	conversionOf,
+	declaredAlike,
+	type DeclaredName,
+	identifierOf,
+	parseDeclaredName
+} from "#compiler/core/identity.ts"
+export {
+	type ColumnIdent,
+	type ConstraintName,
+	type DomainName,
+	type Identifier,
+	type LawId,
+	type ParamId,
+	type RelationIdent,
+	SchemaFingerprint
+} from "#compiler/core/ids.ts"
+export { defect, defined } from "#compiler/core/invariant.ts"
+export {
+	derived,
+	handleMaxBytes,
+	type Limit,
+	maxStringLength,
+	measured,
+	messageMaxBytes,
+	published
+} from "#compiler/core/limits.ts"
+export { SourceLoc } from "#compiler/core/loc.ts"
+export { concatNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+export { builtMark, type Phantom, type phantom } from "#compiler/core/phantom.ts"
+export { hasProperties, isList, isRecord } from "#compiler/core/record.ts"
+export * as Engine from "#compiler/core/result.ts"
+export type { Result } from "#compiler/core/result.ts"
+export { sha256Hex, utf8Length } from "#compiler/core/sha256.ts"
+export { parseSqlstate, type Sqlstate, sqlstateClass, sqlstates } from "#compiler/core/sqlstate.ts"
+export { compareCodePoints } from "#compiler/core/text.ts"
+export { jsonText, trusted, trustedJson } from "#compiler/core/trusted.ts"
+export {
+	type Codebook,
+	codeNames,
+	draftCodebook,
+	type HandleRenames,
+	type RosterCodec,
+	type RosterRenames,
+	unservedRoster
+} from "#compiler/ir/codes.ts"
+export {
+	type AttachDesc,
+	type ContextDesc,
+	descText,
+	type FieldDesc,
+	type LoginDesc,
+	type QueryDesc,
+	type QueryStageDesc,
+	type RoleDesc,
+	type SchemaDesc
+} from "#compiler/ir/desc.ts"
+export type {
+	ArrayTexts,
+	ConstraintOwner,
+	Encoder,
+	LiteralBound,
+	ParamDecl,
+	RelationParamDecl,
+	StatementSpec,
+	TemplateRequirements
+} from "#compiler/ir/products.ts"
+export { type Carrier, contractOf, type Roster, type ScalarType } from "#compiler/ir/scalar.ts"
+export {
+	baseArtifacts,
+	type BuiltSchema,
+	levelSchema,
+	parseBuiltSchema,
+	parseSchemaInput,
+	roleArtifacts,
+	type SchemaArtifacts,
+	type SchemaInput
+} from "#compiler/program/schema.ts"
+export {
+	own,
+	ownBuiltLogin,
+	type Owned,
+	type OwnedLogin,
+	type OwnedRole,
+	rostersOf,
+	schemaInstallation
+} from "#compiler/schema/own.ts"
+export { ownedEntry, ownedKind } from "#compiler/schema/protocol.ts"
+export { admitDerived, derivedDraftOf } from "#compiler/schema/relation.ts"
+export { schemaDescOf } from "#compiler/schema/schema.ts"
+export { queryUses } from "#compiler/schema/walk.ts"
+export { loginDescOf, loginRoleOf } from "#compiler/schema/world.ts"
+export type { EmittedText, Expr, ObjectName, SqlStatement, TypeSchema } from "#compiler/sql/ast.ts"
+export { lit, types } from "#compiler/sql/build.ts"
+export { emit, emitCatalog, emitText, explainOf } from "#compiler/sql/emit.ts"
+export {
+	looksLikeLiteralPack,
+	printCommentTarget,
+	printObjectName,
+	quoteIdent
+} from "#compiler/sql/print.ts"
+export type {
+	Carriers,
+	Invariant,
+	OnlyParams,
+	ParamArg,
+	ParamMap,
+	ParamValue,
+	Refusal
+} from "#compiler/types/core/phantom.ts"
+export type { AnyWorkload } from "#compiler/types/db/workload.ts"
+export type { Evidence } from "#compiler/types/evidence/evidence.ts"
+export type { AnyClosed, AnyRelation } from "#compiler/types/schema/relation.ts"
+export type { AnySchema, LevelsOf } from "#compiler/types/schema/schema.ts"
+export type { CandidateKey, KeyValues } from "#compiler/types/schema/statements.ts"
+export type {
+	AnyLogin,
+	AnyRole,
+	LoginReadsContext,
+	LoginRole,
+	ReadsContext,
+	RefreshListOf,
+	RolesOf,
+	WithinRoleContexts,
+	WriteListOf
+} from "#compiler/types/schema/world.ts"

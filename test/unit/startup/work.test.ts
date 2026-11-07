@@ -361,6 +361,8 @@ layer(NodeServices.layer, { excludeTestServices: true })("startup work", (it) =>
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/startup/work",
 						generator: pointGen,
 						literal: Formatter.format,

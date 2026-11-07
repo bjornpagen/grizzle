@@ -236,9 +236,10 @@ const club = (
  * change through db.apply must be refused with the law the host names and the witness the host names: a native
  * violation at its statement (a candidate key, a selected side's UNIQUE, a table CHECK, a contract domain, a
  *   text refinement domain), each drawn over values of its own, is raised under the constraint the naming door names
- *   for its law, and db.apply reports the law with no key, although PostgreSQL's DETAIL carries the key or the whole
- *   row in prose; except where the insert protocol refuses the change in its own rows, probing a unique object besides
- *   its arbiter, whose witness is the requested fact at the object's fields.
+ *   for its law, and db.apply reports the law and the key of the fact it states that breaks it: a unique object's
+ *   refusal, which the insert protocol finds in its own rows, probing a unique object besides its arbiter, names the
+ *   requested fact at the object's fields; a CHECK's and a domain's, which PostgreSQL states only in prose, the host
+ *   names, judging the stated club (write/program/witness.ts).
  *
  * The expected outcome is stated from the drawn values alone; the classifier that maps a server error to it is never
  * read. The oracle is the specification turned into a checker: each kind's constraint, read through the naming door.
@@ -338,7 +339,12 @@ export const witnessSuite = (): void => {
 													: k.kind === "a contract domain"
 														? seats.constraint
 														: undefined,
-											expected: refusedBy(o.installed, law, { kind: "unreported" }),
+											/** The club the ChangeSet states is the row that breaks the law, which the host names. */
+											expected: refusedBy(o.installed, law, {
+												kind: "key",
+												relation: "Club",
+												values: { region: k.club.region, number: k.club.number, code: k.club.code }
+											}),
 											/**
 											 * Outside the contract or the refinement through the unchecked brand constructor, or a
 											 * code of this language read as any string: only PostgreSQL checks them.
@@ -358,6 +364,10 @@ export const witnessSuite = (): void => {
 									suite: "laws/witness/native",
 									draw: drawn(nativeCaseGen),
 									literal: Formatter.format,
+									oracle: {
+										kind: "postgresql",
+										name: "each kind's constraint, read through the naming door, as PostgreSQL raises it, and the outcome db.apply must report"
+									},
 									kept: [],
 									runs: 60,
 									shrink: { kind: "bounded", candidates: 100 },

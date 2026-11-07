@@ -955,6 +955,7 @@ const checked = <S, T, F extends string, E, R>(
 ): Effect.Effect<Explored, SearchFailure, SearchRun | Exclude<R, Scope.Scope>> =>
 	explore(
 		{
+			oracle: { kind: "unstated" },
 			suite: options.suite,
 			draw: sketched(
 				(source): readonly [S, Conditions] => [

@@ -323,6 +323,7 @@ export const exploreWrite = (
 ): Effect.Effect<Explored, SearchFailure, Run | Substrate> =>
 	explore(
 		{
+			oracle: { kind: "unstated" },
 			suite: s.suite,
 			draw: drawn(perturbedRunGen),
 			literal: Formatter.format,

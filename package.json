@@ -568,6 +568,12 @@
 				},
 				{
 					"files": [
+						"packages/testing/src/engine.bench.ts"
+					],
+					"reason": "The testing library's engine bench: it measures what generating, replaying, enumerating, shrinking and exploring cost, a performance measure, never a verdict a person wrote."
+				},
+				{
+					"files": [
 						"test/pg/bench/"
 					],
 					"reason": "The performance gates: each measures a workload against its gate, a performance property, never a verdict a person wrote."
@@ -596,7 +602,9 @@
 						"test/types/query/budget/refusals.test.ts",
 						"test/types/query/budget/scaling.test.ts",
 						"test/types/schema/budget/families.test.ts",
-						"test/types/schema/budget/scaling.test.ts"
+						"test/types/schema/budget/refusals.test.ts",
+						"test/types/schema/budget/scaling.test.ts",
+						"test/types/skeleton/budget/refusals.test.ts"
 					],
 					"reason": "The type layer's cost gates: each typechecks programs generated at growing sizes in the batch and holds their types and instantiations linear in the size, a performance property, and the largest program's refusals to the directives it was generated with, never a verdict a person wrote."
 				}
@@ -605,6 +613,9 @@
 		"noCaseList": {
 			"files": [
 				"packages/testing/src/",
+				"test/"
+			],
+			"cases": [
 				"test/"
 			],
 			"dictionaries": [

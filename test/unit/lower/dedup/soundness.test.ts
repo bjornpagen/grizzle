@@ -4,7 +4,7 @@ import { noCoverage, required } from "@grizzle/testing/features"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Order, Result } from "effect"
+import { Array as Arr, Effect, Formatter, Result } from "effect"
 import { NodeId } from "#compiler/core/ids.ts"
 import { nodesByLabel, relNode, rooted } from "#compiler/ir/dag.ts"
 import type { EvidenceCatalog, TemplateContext } from "#compiler/ir/evidence.ts"
@@ -36,7 +36,8 @@ import {
 	type ReferenceInput,
 	unobserved
 } from "#test/support/oracle/reference/evaluate.ts"
-import { ReferenceUnsupported, rowKey } from "#test/support/oracle/reference/values.ts"
+import { Identities, type Interned } from "#test/support/oracle/reference/identity.ts"
+import { ReferenceUnsupported, rowIdentity } from "#test/support/oracle/reference/values.ts"
 import { verifyMultiplicity } from "#test/support/oracle/verify/multiplicity.ts"
 import { FragmentReference, uniqueOn } from "#test/unit/analysis/physical/support.ts"
 import { present } from "#test/unit/lower/support.ts"
@@ -111,12 +112,16 @@ const sound = (dag: RelDag, input: ReferenceInput, env: Env, c: Case<DedupFeatur
 					throw new Error(`repeated rows delivered at ${root.id}`)
 				}
 				const expected = reference.eval(root, noBindings)
-				const keys = (rows: typeof delivered.rows) =>
-					Arr.sort(
-						Arr.map(rows, (r) => rowKey(r, delivered.heading)),
-						Order.String
-					)
-				assert.deepEqual(keys(delivered.rows), keys(expected.rows))
+				const identities = new Identities()
+				const counts = (rows: typeof delivered.rows): ReadonlyMap<Interned, number> => {
+					const out = new Map<Interned, number>()
+					for (const r of rows) {
+						const key = identities.of(rowIdentity(r, delivered.heading))
+						out.set(key, (out.get(key) ?? 0) + 1)
+					}
+					return out
+				}
+				assert.deepEqual(counts(delivered.rows), counts(expected.rows))
 			}
 			for (const o of plan.analysis.obligations) {
 				if (o.edge.consumer.kind === "result" || !fragments.closed(o.edge.input)) {
@@ -163,6 +168,7 @@ describe("placement delivers the reference set with no repeats", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/lower/dedup/soundness-1",
 					literal: Formatter.format,
 					kept: [],
@@ -200,6 +206,7 @@ describe("placement delivers the reference set with no repeats", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/lower/dedup/soundness-2",
 					literal: Formatter.format,
 					kept: [],
@@ -233,6 +240,7 @@ describe("placement delivers the reference set with no repeats", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/lower/dedup/soundness-3",
 					literal: Formatter.format,
 					kept: [],
@@ -279,6 +287,7 @@ describe("placement delivers the reference set with no repeats", () => {
 						ctx,
 						explore(
 							{
+								oracle: { kind: "unstated" },
 								suite: `unit/lower/dedup/soundness-4-${i}`,
 								literal: Formatter.format,
 								kept: [],
@@ -311,6 +320,7 @@ describe("placement delivers the reference set with no repeats", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/lower/dedup/soundness-5",
 					literal: Formatter.format,
 					kept: [],

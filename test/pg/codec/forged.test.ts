@@ -50,6 +50,7 @@ layer(Substrate.layer)("forged carrier inputs against PostgreSQL", (it) => {
 					const db = yield* session(ownerSession())
 					return yield* explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "codec/forged",
 							draw: drawn(forgedCases(judged)),
 							literal: Formatter.format,

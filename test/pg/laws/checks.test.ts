@@ -327,6 +327,7 @@ const batch = array(caseGen, { min: cases, max: cases })
  */
 const rowChecks = explore(
 	{
+		oracle: { kind: "unstated" },
 		suite: "laws/row-checks",
 		draw: drawn(batch),
 		literal: Formatter.format,

@@ -4,7 +4,7 @@ import type { ReadError } from "#adapter/errors/execution.ts"
 import { pageEdges } from "#adapter/page/execute.ts"
 import { type PageRequestValue, pageRequest } from "#adapter/page/request.ts"
 import { type PageArtifactName, type PageRuntime, pageTemplateFor } from "#adapter/page/template.ts"
-import { attachmentFacts } from "#adapter/reader/analysis.ts"
+import { attachmentHeads } from "#adapter/reader/analysis.ts"
 import type { SentRuns, StatementRun } from "#adapter/reader/execution.ts"
 import {
 	type CompiledReadValue,
@@ -335,7 +335,7 @@ const checkRead =
 		const program = templateProgram(
 			prepared.template,
 			prepared.selection.artifact,
-			attachmentFacts(prepared.template, desc),
+			attachmentHeads(desc),
 			codes
 		)
 		const statements = Arr.map(

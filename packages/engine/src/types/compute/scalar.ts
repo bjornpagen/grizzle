@@ -153,24 +153,17 @@ type Negative<V> =
 
 /**
  * What Compute.within proves of its subject from its bounds Lo and Hi, as compilation reads them (lower.ts guardFacts):
- * finite; nonnegative where the low bound is; nonzero where the low bound is above zero or the high one below it. A
- * bound TypeScript cannot see proves nothing beyond finiteness here, though compilation reads its value.
+ * finite; nonnegative where the low bound is; nonzero where the low bound is above zero or the high one below it. A low
+ * bound TypeScript cannot see is a residue compilation decides from its value, as a divisor's is (ValueProves); a high
+ * bound proves nonzero only where TypeScript sees it below zero.
  */
 export type WithinFacts<Lo, Hi> = { readonly finite: true } & (ValueProves<
 	Lo,
 	"nonnegative"
 > extends true
-	? Seen<Lo> extends true
-		? { readonly nonnegative: true }
-		: unknown
+	? { readonly nonnegative: true }
 	: unknown) &
-	((
-		Seen<Lo> extends true
-			? ValueProves<Lo, "nonnegative"> extends true
-				? ValueProves<Lo, "nonzero">
-				: false
-			: false
-	) extends true
+	((ValueProves<Lo, "nonnegative"> extends true ? ValueProves<Lo, "nonzero"> : false) extends true
 		? { readonly nonzero: true }
 		: Negative<Hi> extends true
 			? { readonly nonzero: true }
@@ -361,10 +354,10 @@ export type Takes<B, P> = IsRefused<B> extends true ? false : [B] extends [P] ? 
 
 /**
  * An operand read as it is written, held to its position P: the operand itself where P takes it, so a template literal
- * keeps its literal type, and P otherwise, whose mismatch is the operand's diagnostic. A position states P through
- * NoInfer, so no type parameter is inferred from it.
+ * keeps its literal type, and the operand at P otherwise, whose mismatch is the operand's one diagnostic, an
+ * argument's. A position states P through NoInfer, so no type parameter is inferred from it.
  */
-export type Fit<B, P> = [B] extends [P] ? B : P
+export type Fit<B, P> = [B] extends [P] ? B : B & P
 
 /** Whether a rest position P, a list of the operands it takes, takes a rest's operands Bs. */
 export type TakesRest<Bs extends ReadonlyArray<unknown>, P extends ReadonlyArray<unknown>> =

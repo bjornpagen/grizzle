@@ -30,6 +30,7 @@ describe("row multisets", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/oracle-runner/compare-1",
 						draw: drawn((source) => [source.draw(rows), source.draw(rows)] as const),
 						literal: Formatter.format,
@@ -190,6 +191,7 @@ describe("canonical cell keyed sets", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/oracle-runner/compare-canonical",
 						draw: drawn(pairGen),
 						literal: Formatter.format,

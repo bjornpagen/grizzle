@@ -4,9 +4,17 @@ import { required } from "@grizzle/testing/features"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec, Result } from "effect"
+import {
+	Array as Arr,
+	Effect,
+	Formatter,
+	Layer,
+	Option,
+	Order,
+	Record as Rec,
+	Result
+} from "effect"
 import type { TestContext } from "vitest"
-import { parsePlanTree, planNodes } from "#bench/harness/explain.ts"
 /**
  * The platform's plans at volume: every workload read is planned through an index, and law maintenance never scans the
  * relation it counts.
@@ -15,13 +23,15 @@ import { parsePlanTree, planNodes } from "#bench/harness/explain.ts"
  * transactions for tens of seconds (100,000-fact db.apply batches and db.refresh, 20 to 59 s each in a sampled
  * default-tier run), and SSI retains every transaction that commits meanwhile, which summarizes other files' own.
  *
- * The platform installs with its workload's access paths, as its first migration drafts them, and loads a volume
- * platform (test/support/platform/generate.ts volumePlatform) through db.apply in batches within the input limit, then
- * VACUUM ANALYZE. Its sizes: a thousand organizations under resellers, five thousand workspaces with ten thousand keys,
- * ten models on four providers repriced monthly, six months of calendar, and 100,000 usage events (about half a million
- * usage facts). Each case draws, per read, which of the platform's
- * entities and windows it reads (the busiest workspace, key, organization and grant, or another), runs every workload read
- * through the runtime with a counting executor, and EXPLAINs each statement the runtime sent with its parameters:
+ * The platform installs with its workload's access paths, as its first migration drafts them, beside an org tenant's
+ * login (tenantOf), and loads a volume platform (test/support/platform/generate.ts volumePlatform) through db.apply in
+ * batches within the input limit, then VACUUM ANALYZE. Its sizes: a thousand organizations under resellers, five
+ * thousand workspaces with ten thousand keys, ten models on four providers repriced monthly, six months of calendar, and
+ * 100,000 usage events (about half a million usage facts). Each case draws, per read, which of the platform's entities
+ * and windows it reads (the busiest workspace, key, organization and grant, or another), opens the tenant's Db with a
+ * token naming the drawn organization, so every read goes through the tenant's security-barrier views of its own
+ * organization over relations under row-level security, runs every workload read through the runtime as the tenant with
+ * a counting executor, and EXPLAINs each statement the runtime sent with its parameters:
  *
  * - a read is one statement for its rows and one for each attachment it declares, at every depth: over exact parents
  *   every attachment is a statement of its own in the read's flight (R36, lower/shapes/attach chooseAttachment);
@@ -47,14 +57,25 @@ import { parsePlanTree, planNodes } from "#bench/harness/explain.ts"
  * PostgreSQL finds cheaper), which counts as used. The engine's own serving rule is never consulted: a copy of it would
  * agree with it.
  */
+import { Db } from "#adapter/public/db.ts"
+import { parsePlanTree, planNodes } from "#bench/harness/explain.ts"
 import { appendAll } from "#compiler/core/array.ts"
+import type { RowDecoder } from "#compiler/core/decoder.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import type { QueryDesc, QueryStageDesc, RuleDesc } from "#compiler/ir/desc.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
 import { queryInput } from "#compiler/program/compile.ts"
-import type { Uuid } from "#compiler/public/fields.ts"
+import { type Uuid, uuid } from "#compiler/public/fields.ts"
+import { query, v } from "#compiler/public/query.ts"
+import { context, login, role } from "#compiler/public/schema.ts"
+import { isOrderedValue, isQueryValue } from "#compiler/query/build/index.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
-import { loadPlatform, type OpenedPlatform, openPlatform } from "#test/pg/e2e-platform/support.ts"
+import type { ParamMap } from "#compiler/types/core/phantom.ts"
+import {
+	loadPlatform,
+	type OpenedPlatform,
+	openPlatformWith
+} from "#test/pg/e2e-platform/support.ts"
 import { directSql, literal } from "#test/schedules/platform/support.ts"
 import { assert } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
@@ -79,6 +100,7 @@ import {
 import type { DirectStatement, RelationName } from "#test/support/platform/laws.ts"
 import { platformSpan } from "#test/support/platform/model.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { loginLayer, tokenOf } from "#test/support/worlds.ts"
 
 const volume = (events: number): VolumeSizes => ({
 	months: 6,
@@ -136,15 +158,324 @@ const declaredAttachments = (q: QueryDesc): number => {
  * an attachment fuses. invoicePreview is seven: the invoice, its lines, each line's usage and plan detail, its
  * refunds, its payment and its dispute.
  */
-const statementsOf = (query: unknown): number => {
-	const input = queryInput(query)
+const statementsOf = (read: unknown): number => {
+	const input = queryInput(read)
 	if (!input.ok) {
 		return assert.fail("a workload read's query value")
 	}
 	return 1 + declaredAttachments(input.value.desc)
 }
 
+/** A workload read's Description: what the tenant's Db compiles against the tenant's own world, by relation name. */
+const descriptionOf = (read: unknown): QueryDesc => {
+	const input = queryInput(read)
+	return input.ok ? input.value.desc : assert.fail("a workload read's query value")
+}
+
+/** A workload read's own rows decoder, which reads the tenant's rows of it: the tenant's relations keep every field. */
+const rowsOf = (read: unknown): RowDecoder<unknown> =>
+	isQueryValue(read) || isOrderedValue(read)
+		? read.rows
+		: assert.fail("a workload read's query value")
+
 const unit = (t: bigint) => ({ start: P.Instant(t), end: P.Instant(t + 1n) })
+
+/**
+ * The platform's org tenant over `world`, the platform built under a name (P.platformAt): a token's Tenant claim names one
+ * organization, and the tenant reads every relation of it through a query entry its claim filters, each keeping the
+ * relation's name and every field, along the relation's path to the organization: its workspaces, their keys and
+ * the keys' usage, charges, costs, debits and limits, its grants, invoices with their lines, payments and refunds, and
+ * its subscriptions with their segments, beside the catalogue every organization reads whole (rosters, providers,
+ * models, routes, prices, rate cards, days and months). It writes its workspaces, keys and revocations through those
+ * entries, so each of those relations is under row-level security. A read of the platform's workload, its Description
+ * compiled against the tenant's world (program/compile.ts querySchema), reads the tenant's views by the relations' names.
+ */
+const tenantOf = (world: ReturnType<typeof P.platformAt>) => {
+	const billing = world.Billing
+	const Tenant = context("Tenant", { org: uuid })
+	const { Org, ParentOrg, Workspace, ApiKey, Revocation, ApiKeyActive, UsageEvent, UsageCharge } = P
+	const { EventCharge, ProviderCost, CreditGrant, CreditDebit, WorkspaceLimit, Invoice } = P
+	const { InvoiceLine, UsageLine, PlanLine, Payment, Voiding, Dispute, Refund } = P
+	const { Subscription, Segment, Allocation } = P
+	const { DailySpend } = billing.relations
+	const orgsEntry = query(billing).rule((r) => {
+		const { id } = v(Org, "org")
+		return r.match(Org, { id }).match(Tenant, { org: id }).find({ id })
+	})
+	const parentsEntry = query(billing).rule((r) => {
+		const { child, parent } = v(ParentOrg, "parentOrg")
+		return r
+			.match(ParentOrg, { child, parent })
+			.match(Tenant, { org: child })
+			.find({ child, parent })
+	})
+	const workspacesEntry = query(billing).rule((r) => {
+		const { id, org } = v(Workspace, "workspace")
+		return r.match(Workspace, { id, org }).match(Tenant, { org }).find({ id, org })
+	})
+	const keysEntry = query(billing).rule((r) => {
+		const { id, workspace, state } = v(ApiKey, "apiKey")
+		const { org } = v(Workspace, "workspace")
+		return r
+			.match(ApiKey, { id, workspace, state })
+			.match(Workspace, { id: workspace, org })
+			.match(Tenant, { org })
+			.find({ id, workspace, state })
+	})
+	const revocationsEntry = query(billing).rule((r) => {
+		const { key, at } = v(Revocation, "revocation")
+		const { workspace } = v(ApiKey, "apiKey")
+		const { org } = v(Workspace, "workspace")
+		return r
+			.match(Revocation, { key, at })
+			.match(ApiKey, { id: key, workspace })
+			.match(Workspace, { id: workspace, org })
+			.match(Tenant, { org })
+			.find({ key, at })
+	})
+	const activeEntry = query(billing).rule((r) => {
+		const { key, during } = v(ApiKeyActive, "apiKeyActive")
+		const { workspace } = v(ApiKey, "apiKey")
+		const { org } = v(Workspace, "workspace")
+		return r
+			.match(ApiKeyActive, { key, during })
+			.match(ApiKey, { id: key, workspace })
+			.match(Workspace, { id: workspace, org })
+			.match(Tenant, { org })
+			.find({ key, during })
+	})
+	const eventsEntry = query(billing).rule((r) => {
+		const { id, key, model, provider, during } = v(UsageEvent, "usageEvent")
+		const { workspace } = v(ApiKey, "apiKey")
+		const { org } = v(Workspace, "workspace")
+		return r
+			.match(UsageEvent, { id, key, model, provider, during })
+			.match(ApiKey, { id: key, workspace })
+			.match(Workspace, { id: workspace, org })
+			.match(Tenant, { org })
+			.find({ id, key, model, provider, during })
+	})
+	const usageChargesEntry = query(billing).rule((r) => {
+		const { event, kind, model, priced, tokens, amount, credited, debits, debited } = v(
+			UsageCharge,
+			"usageCharge"
+		)
+		const { key } = v(UsageEvent, "usageEvent")
+		const { workspace } = v(ApiKey, "apiKey")
+		const { org } = v(Workspace, "workspace")
+		return r
+			.match(UsageCharge, { event, kind, model, priced, tokens, amount, credited, debits, debited })
+			.match(UsageEvent, { id: event, key })
+			.match(ApiKey, { id: key, workspace })
+			.match(Workspace, { id: workspace, org })
+			.match(Tenant, { org })
+			.find({ event, kind, model, priced, tokens, amount, credited, debits, debited })
+	})
+	const eventChargesEntry = query(billing).rule((r) => {
+		const { event, workspace, month, amount, charges, charged } = v(EventCharge, "eventCharge")
+		const { org } = v(Workspace, "workspace")
+		return r
+			.match(EventCharge, { event, workspace, month, amount, charges, charged })
+			.match(Workspace, { id: workspace, org })
+			.match(Tenant, { org })
+			.find({ event, workspace, month, amount, charges, charged })
+	})
+	const costsEntry = query(billing).rule((r) => {
+		const { event, amount } = v(ProviderCost, "providerCost")
+		const { key } = v(UsageEvent, "usageEvent")
+		const { workspace } = v(ApiKey, "apiKey")
+		const { org } = v(Workspace, "workspace")
+		return r
+			.match(ProviderCost, { event, amount })
+			.match(UsageEvent, { id: event, key })
+			.match(ApiKey, { id: key, workspace })
+			.match(Workspace, { id: workspace, org })
+			.match(Tenant, { org })
+			.find({ event, amount })
+	})
+	const grantsEntry = query(billing).rule((r) => {
+		const { id, org, amount, valid, debits, debited } = v(CreditGrant, "creditGrant")
+		return r
+			.match(CreditGrant, { id, org, amount, valid, debits, debited })
+			.match(Tenant, { org })
+			.find({ id, org, amount, valid, debits, debited })
+	})
+	const debitsEntry = query(billing).rule((r) => {
+		const { grant, event, kind, amount, during } = v(CreditDebit, "creditDebit")
+		const { org } = v(CreditGrant, "creditGrant")
+		return r
+			.match(CreditDebit, { grant, event, kind, amount, during })
+			.match(CreditGrant, { id: grant, org })
+			.match(Tenant, { org })
+			.find({ grant, event, kind, amount, during })
+	})
+	const limitsEntry = query(billing).rule((r) => {
+		const { workspace, month, cap, charges, spent } = v(WorkspaceLimit, "workspaceLimit")
+		const { org } = v(Workspace, "workspace")
+		return r
+			.match(WorkspaceLimit, { workspace, month, cap, charges, spent })
+			.match(Workspace, { id: workspace, org })
+			.match(Tenant, { org })
+			.find({ workspace, month, cap, charges, spent })
+	})
+	const invoicesEntry = query(billing).rule((r) => {
+		const { id, org, period, amount, state, lines, billed, refunds, refunded } = v(
+			Invoice,
+			"invoice"
+		)
+		return r
+			.match(Invoice, { id, org, period, amount, state, lines, billed, refunds, refunded })
+			.match(Tenant, { org })
+			.find({ id, org, period, amount, state, lines, billed, refunds, refunded })
+	})
+	const linesEntry = query(billing).rule((r) => {
+		const { id, invoice, source, amount, allocations, allocated } = v(InvoiceLine, "invoiceLine")
+		const { org } = v(Invoice, "invoice")
+		return r
+			.match(InvoiceLine, { id, invoice, source, amount, allocations, allocated })
+			.match(Invoice, { id: invoice, org })
+			.match(Tenant, { org })
+			.find({ id, invoice, source, amount, allocations, allocated })
+	})
+	const usageLinesEntry = query(billing).rule((r) => {
+		const { line, model, kind, tokens } = v(UsageLine, "usageLine")
+		const { invoice } = v(InvoiceLine, "invoiceLine")
+		const { org } = v(Invoice, "invoice")
+		return r
+			.match(UsageLine, { line, model, kind, tokens })
+			.match(InvoiceLine, { id: line, invoice })
+			.match(Invoice, { id: invoice, org })
+			.match(Tenant, { org })
+			.find({ line, model, kind, tokens })
+	})
+	const planLinesEntry = query(billing).rule((r) => {
+		const { line, subscription } = v(PlanLine, "planLine")
+		const { invoice } = v(InvoiceLine, "invoiceLine")
+		const { org } = v(Invoice, "invoice")
+		return r
+			.match(PlanLine, { line, subscription })
+			.match(InvoiceLine, { id: line, invoice })
+			.match(Invoice, { id: invoice, org })
+			.match(Tenant, { org })
+			.find({ line, subscription })
+	})
+	const paymentsEntry = query(billing).rule((r) => {
+		const { invoice, charge } = v(Payment, "payment")
+		const { org } = v(Invoice, "invoice")
+		return r
+			.match(Payment, { invoice, charge })
+			.match(Invoice, { id: invoice, org })
+			.match(Tenant, { org })
+			.find({ invoice, charge })
+	})
+	const voidingsEntry = query(billing).rule((r) => {
+		const { invoice, at } = v(Voiding, "voiding")
+		const { org } = v(Invoice, "invoice")
+		return r
+			.match(Voiding, { invoice, at })
+			.match(Invoice, { id: invoice, org })
+			.match(Tenant, { org })
+			.find({ invoice, at })
+	})
+	const disputesEntry = query(billing).rule((r) => {
+		const { invoice, at } = v(Dispute, "dispute")
+		const { org } = v(Invoice, "invoice")
+		return r
+			.match(Dispute, { invoice, at })
+			.match(Invoice, { id: invoice, org })
+			.match(Tenant, { org })
+			.find({ invoice, at })
+	})
+	const refundsEntry = query(billing).rule((r) => {
+		const { id, invoice, amount, reason, at } = v(Refund, "refund")
+		const { org } = v(Invoice, "invoice")
+		return r
+			.match(Refund, { id, invoice, amount, reason, at })
+			.match(Invoice, { id: invoice, org })
+			.match(Tenant, { org })
+			.find({ id, invoice, amount, reason, at })
+	})
+	const subscriptionsEntry = query(billing).rule((r) => {
+		const { id, org } = v(Subscription, "subscription")
+		return r.match(Subscription, { id, org }).match(Tenant, { org }).find({ id, org })
+	})
+	const segmentsEntry = query(billing).rule((r) => {
+		const { subscription, during, monthlyPrice } = v(Segment, "segment")
+		const { org } = v(Subscription, "subscription")
+		return r
+			.match(Segment, { subscription, during, monthlyPrice })
+			.match(Subscription, { id: subscription, org })
+			.match(Tenant, { org })
+			.find({ subscription, during, monthlyPrice })
+	})
+	const allocationsEntry = query(billing).rule((r) => {
+		const { line, subscription, during, amount } = v(Allocation, "allocation")
+		const { invoice } = v(InvoiceLine, "invoiceLine")
+		const { org } = v(Invoice, "invoice")
+		return r
+			.match(Allocation, { line, subscription, during, amount })
+			.match(InvoiceLine, { id: line, invoice })
+			.match(Invoice, { id: invoice, org })
+			.match(Tenant, { org })
+			.find({ line, subscription, during, amount })
+	})
+	const spendEntry = query(billing).rule((r) => {
+		const { workspace, day, amount } = v(DailySpend, "dailySpend")
+		const { org } = v(Workspace, "workspace")
+		return r
+			.match(DailySpend, { workspace, day, amount })
+			.match(Workspace, { id: workspace, org })
+			.match(Tenant, { org })
+			.find({ workspace, day, amount })
+	})
+	const whole = billing.relations
+	const tenant = role(
+		billing,
+		"tenant",
+		{
+			TokenKind: whole.TokenKind,
+			KeyState: whole.KeyState,
+			InvoiceState: whole.InvoiceState,
+			LineSource: whole.LineSource,
+			RefundReason: whole.RefundReason,
+			Provider: whole.Provider,
+			Model: whole.Model,
+			Route: whole.Route,
+			ProviderPrice: whole.ProviderPrice,
+			RateCard: whole.RateCard,
+			RateTier: whole.RateTier,
+			Day: whole.Day,
+			Month: whole.Month,
+			Org: orgsEntry,
+			ParentOrg: parentsEntry,
+			Workspace: workspacesEntry,
+			ApiKey: keysEntry,
+			Revocation: revocationsEntry,
+			ApiKeyActive: activeEntry,
+			UsageEvent: eventsEntry,
+			UsageCharge: usageChargesEntry,
+			EventCharge: eventChargesEntry,
+			ProviderCost: costsEntry,
+			CreditGrant: grantsEntry,
+			CreditDebit: debitsEntry,
+			WorkspaceLimit: limitsEntry,
+			Invoice: invoicesEntry,
+			InvoiceLine: linesEntry,
+			UsageLine: usageLinesEntry,
+			PlanLine: planLinesEntry,
+			Payment: paymentsEntry,
+			Voiding: voidingsEntry,
+			Dispute: disputesEntry,
+			Refund: refundsEntry,
+			Subscription: subscriptionsEntry,
+			Segment: segmentsEntry,
+			Allocation: allocationsEntry,
+			DailySpend: spendEntry
+		},
+		{ write: ["Workspace", "ApiKey", "Revocation"] }
+	)
+	return { tenants: login(billing, "tenants", [tenant]) }
+}
 
 /** The entities a read is asked about, busiest first: what each pick chooses among. */
 interface Entities {
@@ -206,7 +537,7 @@ const pickOf = <A>(values: ReadonlyArray<A>, pick: number, absent: A): A =>
 interface Probe {
 	readonly name: string
 	readonly query: unknown
-	readonly params: Readonly<Record<string, unknown>>
+	readonly params: ParamMap
 }
 
 /** Every workload read with its parameters for one pick. */
@@ -724,7 +1055,8 @@ const planSuite = (events: number, runs: number) => (ctx: TestContext) =>
 		ctx,
 		Effect.gen(function* () {
 			const s = yield* Substrate
-			const o = yield* openPlatform("platform_plans")
+			const o = yield* openPlatformWith("platform_plans", (world) => [tenantOf(world).tenants])
+			const { tenants } = tenantOf(o.schema)
 			const p = buildPlatform(volumePlatform(volume(events)))
 			yield* o.withDb((db) =>
 				Effect.andThen(
@@ -758,6 +1090,7 @@ const planSuite = (events: number, runs: number) => (ctx: TestContext) =>
 			const explored = yield* explore(
 				{
 					suite: `pg/e2e-platform/plans ${events}`,
+					oracle: { kind: "unstated" },
 					draw: drawn(pickGen),
 					literal: Formatter.format,
 					kept: [],
@@ -777,34 +1110,43 @@ const planSuite = (events: number, runs: number) => (ctx: TestContext) =>
 					)
 				},
 				(pick, cx) =>
-					o.withDb((db) =>
-						Effect.gen(function* () {
-							cx.note(
-								pickIndex(pick, 3) === 0 ? "a read by the busiest entities" : "a read by another"
-							)
-							cx.note(pickIndex(pick, 2) === 0 ? "a week's window" : "a whole month's window")
-							const { reader, counts } = yield* recordingReader(db)
-							const problems: Array<string> = []
-							for (const pr of probes(e, pick)) {
-								const before = counts.sent.length
-								yield* (yield* reader.execute(pr.query, pr.params)).collect
-								const sent = counts.sent.slice(before)
-								const expected = statementsOf(pr.query)
-								if (sent.length !== expected) {
-									problems.push(`${pr.name}: ${sent.length} statements, not ${expected}`)
-								}
-								const judged = yield* sentProblems(s.admin, pr.name, sent, judge)
-								appendAll(problems, judged.problems)
-								for (const index of judged.read) {
-									used.add(index)
-								}
-							}
-							assert.deepEqual(
-								problems,
-								[],
-								"every read is its rows' statement and its attachments', each planned through its indexes"
-							)
+					Effect.gen(function* () {
+						cx.note(
+							pickIndex(pick, 3) === 0 ? "a read by the busiest entities" : "a read by another"
+						)
+						cx.note(pickIndex(pick, 2) === 0 ? "a week's window" : "a whole month's window")
+						const db = yield* Db.open(tenants.roles.tenant, {
+							token: tokenOf({ org: pickOf(e.orgs, pick, uid(0xdead, 2)) })
 						})
+						const { compileWith, counts } = yield* recordingReader(db)
+						const problems: Array<string> = []
+						for (const pr of probes(e, pick)) {
+							const before = counts.sent.length
+							const read = yield* compileWith(descriptionOf(pr.query), () => rowsOf(pr.query))
+							yield* (yield* read.execute(pr.params)).collect
+							const sent = counts.sent.slice(before)
+							const expected = statementsOf(pr.query)
+							if (sent.length !== expected) {
+								problems.push(`${pr.name}: ${sent.length} statements, not ${expected}`)
+							}
+							const judged = yield* sentProblems(s.admin, pr.name, sent, judge)
+							appendAll(problems, judged.problems)
+							for (const index of judged.read) {
+								used.add(index)
+							}
+						}
+						assert.deepEqual(
+							problems,
+							[],
+							"every read is its rows' statement and its attachments', each planned through its indexes"
+						)
+					}).pipe(
+						Effect.scoped,
+						(body) =>
+							Effect.flatMap(Layer.build(loginLayer(o.installed, tenants)), (context) =>
+								Effect.provideContext(body, context)
+							),
+						Effect.scoped
 					)
 			)
 			/** Law maintenance. */

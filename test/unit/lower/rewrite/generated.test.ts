@@ -186,6 +186,7 @@ const exploreSteered = (
 ) =>
 	explore(
 		{
+			oracle: { kind: "unstated" },
 			suite,
 			draw: drawn(sketchGen),
 			literal: Formatter.format,
@@ -213,6 +214,7 @@ const exploreCases = (
 ) =>
 	explore(
 		{
+			oracle: { kind: "unstated" },
 			suite,
 			draw: drawn(cases),
 			literal: Formatter.format,
@@ -428,6 +430,7 @@ describe("each rewrite pass preserves the delivered result on generated cases", 
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/lower/rewrite/pass-alone",
 					draw: drawn((source) => ({
 						pass: source.draw(element(passNames)),

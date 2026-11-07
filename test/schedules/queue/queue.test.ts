@@ -313,6 +313,7 @@ layer(Substrate.layer, { excludeTestServices: true })("the work queue's races", 
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "schedules/queue/queue",
 					draw: drawn(raceGen),
 					literal: Formatter.format,

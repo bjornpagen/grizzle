@@ -25,7 +25,7 @@ import { Array as Arr, Effect, Formatter, Option, Result, String as Str } from "
 import { rowOptions } from "#adapter/engine.ts"
 import { pageEdges } from "#adapter/page/execute.ts"
 import { pageRuntimeOf } from "#adapter/page/template.ts"
-import { attachmentFacts } from "#adapter/reader/analysis.ts"
+import { attachmentHeads } from "#adapter/reader/analysis.ts"
 import { answerOf, type SentRuns } from "#adapter/reader/execution.ts"
 import { deliveredRows, templateProgram } from "#adapter/reader/run.ts"
 import {
@@ -173,6 +173,8 @@ describe("an attachment's delivery", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/adapter/answers-deliveries",
 						generator: deliveryCases,
 						literal: Formatter.format,
@@ -324,12 +326,7 @@ describe("a statement's rows", () => {
 				const template = succeeded(compileTemplate(postsWithComments, Blog, testCompile))
 				const desc = succeeded(queryInput(postsWithComments)).desc
 				const codes = succeeded(codebookFor(schemaInputOf(Blog), firstCodes))
-				const program = templateProgram(
-					template,
-					"conservative",
-					attachmentFacts(template, desc),
-					codes
-				)
+				const program = templateProgram(template, "conservative", attachmentHeads(desc), codes)
 				const root = defined(
 					Arr.findFirst(program.records, (r) => r.run.statement.role.kind !== "attachment").pipe(
 						Option.getOrUndefined
@@ -355,6 +352,7 @@ describe("a statement's rows", () => {
 					ctx,
 					explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "unit/adapter/answers-rows",
 							draw: drawn(stitchCases),
 							literal: Formatter.format,
@@ -497,7 +495,7 @@ describe("a page's candidates", () => {
 						params: compiled.query.params,
 						query: "unit/adapter/answers-page",
 						generation: { schema: "answers", extensions: {} },
-						facts: attachmentFacts(compiled.query, desc),
+						spine: attachmentHeads(desc),
 						codes
 					})
 				)
@@ -512,6 +510,7 @@ describe("a page's candidates", () => {
 					ctx,
 					explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "unit/adapter/answers-page",
 							draw: drawn(pageCases),
 							literal: Formatter.format,

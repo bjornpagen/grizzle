@@ -5,7 +5,7 @@
  * its definition visits: reading columns by position, and looking a stable source's candidate rows up by the identity
  * of one join value. NestedLoops refuses every plan, so the reference evaluates each region and existence test by the
  * nested loops of its definition; on the oracle populations, both readings agree on every delivered row in order, on
- * every decline the reference observes, and on every refusal. The hash identity they rely on, indexKey, agrees with
+ * every decline the reference observes, and on every refusal. The hash identity they rely on, indexIdentity, agrees with
  * native comparison wherever it gives one.
  *
  * An enum handle outside its roster compares equal to every other such handle.
@@ -60,7 +60,14 @@ import {
 } from "#test/support/oracle/reference/evaluate.ts"
 
 import { caseHang } from "#test/support/limits.ts"
-import { equal, indexKey, rowKey, type Value } from "#test/support/oracle/reference/values.ts"
+import { type Identity, sameIdentity } from "#test/support/oracle/reference/identity.ts"
+import {
+	type DeclineReason,
+	equal,
+	indexIdentity,
+	rowIdentity,
+	type Value
+} from "#test/support/oracle/reference/values.ts"
 
 class NestedLoops extends Reference {
 	static nested(dag: RelDag, input: ReferenceInput): NestedLoops {
@@ -76,12 +83,18 @@ class NestedLoops extends Reference {
 	}
 }
 
+/** One thing the reference makes of a case: a relation's rows by their identities, a decline, or what stops it. */
+type TranscriptEntry =
+	| { readonly kind: "rows"; readonly label: string; readonly rows: ReadonlyArray<Identity> }
+	| { readonly kind: "declined"; readonly reason: DeclineReason }
+	| { readonly kind: "stop"; readonly what: string }
+
 /**
  * Everything the reference makes of a case, in order: the root's rows, each delivered statement's rows, every decline,
  * and the refusal or defect that stops it.
  */
-const transcript = (c: QueryCase, nested: boolean): string => {
-	const lines: Array<string> = []
+const transcript = (c: QueryCase, nested: boolean): ReadonlyArray<TranscriptEntry> => {
+	const lines: Array<TranscriptEntry> = []
 	const input: ReferenceInput = {
 		schema: c.schema,
 		facts: c.facts,
@@ -89,33 +102,31 @@ const transcript = (c: QueryCase, nested: boolean): string => {
 		observer: {
 			...unobserved,
 			decline: (reason) => {
-				lines.push(`declined ${reason}`)
+				lines.push({ kind: "declined", reason })
 			}
 		}
 	}
 	const ref = nested ? NestedLoops.nested(c.query.dag, input) : Reference.of(c.query.dag, input)
 	const ran = Result.try(() => {
 		const rel = ref.eval(c.query.dag.roots[0], noBindings)
-		lines.push(
-			`root ${Arr.join(
-				Arr.map(rel.rows, (r) => rowKey(r, rel.heading)),
-				" "
-			)}`
-		)
+		lines.push({
+			kind: "rows",
+			label: "root",
+			rows: Arr.map(rel.rows, (r) => rowIdentity(r, rel.heading))
+		})
 		for (const s of expectedStatements(ref, c.query.dag.roots[0])) {
-			lines.push(
-				`${s.label} ${Arr.join(
-					Arr.map(s.rows, (r) => rowKey(r, s.heading)),
-					" "
-				)}`
-			)
+			lines.push({
+				kind: "rows",
+				label: s.label,
+				rows: Arr.map(s.rows, (r) => rowIdentity(r, s.heading))
+			})
 		}
 	})
 	if (Result.isFailure(ran)) {
 		const e = ran.failure
-		lines.push(`stop ${Error.isError(e) ? `${e.name} ${e.message}` : String(e)}`)
+		lines.push({ kind: "stop", what: Error.isError(e) ? `${e.name} ${e.message}` : String(e) })
 	}
-	return Arr.join(lines, "\n")
+	return lines
 }
 
 /**
@@ -125,6 +136,7 @@ const transcript = (c: QueryCase, nested: boolean): string => {
 const agree = (suite: string, generator: Gen<QueryCase>) =>
 	explore(
 		{
+			oracle: { kind: "unstated" },
 			suite,
 			draw: drawn(generator),
 			literal: Formatter.format,
@@ -138,7 +150,7 @@ const agree = (suite: string, generator: Gen<QueryCase>) =>
 		},
 		(c) =>
 			Effect.sync(() => {
-				assert.equal(transcript(c, false), transcript(c, true))
+				assert.deepEqual(transcript(c, false), transcript(c, true))
 			})
 	)
 
@@ -205,7 +217,7 @@ describe("the reference evaluator's plans", () => {
 	)
 })
 
-describe("indexKey", () => {
+describe("indexIdentity", () => {
 	const int2 = scalarOfSpec({ carrier: "int2" })
 	const text = scalarOfSpec({ carrier: "text" })
 	const uuid = scalarOfSpec({ carrier: "uuid" })
@@ -305,8 +317,8 @@ describe("indexKey", () => {
 					},
 					([type, own, a, b], c) =>
 						Effect.sync(() => {
-							const ka = indexKey(a, type)
-							const kb = indexKey(b, type)
+							const ka = indexIdentity(a, type)
+							const kb = indexIdentity(b, type)
 							const label = `${Formatter.format(a)} and ${Formatter.format(b)} as ${type.carrier}`
 							if (Arr.some(own, (v) => v === a)) {
 								assert.notEqual(ka, undefined, `${Formatter.format(a)} as ${type.carrier}`)
@@ -320,8 +332,9 @@ describe("indexKey", () => {
 								return
 							}
 							if (kb !== undefined) {
-								assert.equal(ka === kb, equal(a, b, type), label)
-								c.note(ka === kb ? "one identity" : "two identities")
+								const one = sameIdentity(ka, kb)
+								assert.equal(one, equal(a, b, type), label)
+								c.note(one ? "one identity" : "two identities")
 							}
 						})
 				)

@@ -54,6 +54,7 @@ describe("describeQuery, queryFromDescription and lowerQuery", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/program/describe-roundtrip",
 						draw: drawn(caseSketchGen),
 						literal: Formatter.format,
@@ -117,6 +118,7 @@ describe("describeQuery, queryFromDescription and lowerQuery", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/program/describe-schema",
 						draw: drawn(named),
 						literal: Formatter.format,

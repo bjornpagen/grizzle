@@ -141,6 +141,8 @@ layer(Substrate.layer)("every step of grizzle migrate is one flight", (it) => {
 				const owner = substrate.owner.role
 				return yield* exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "migrate/flights",
 						generator: historyGen,
 						literal: Formatter.format,

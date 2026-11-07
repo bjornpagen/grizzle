@@ -12,19 +12,17 @@ import type { ParsedFile, ParsedFolder } from "#adapter/migrate/input.ts"
 import { apartRow } from "#adapter/migrate/session.ts"
 import type { ApartAnswer, BatchStatement } from "#adapter/wire/batch.ts"
 import type { CatalogQuery } from "#adapter/wire/statement.ts"
-import { rowText } from "#compiler/core/decoder.ts"
-import { SchemaFingerprint } from "#compiler/core/ids.ts"
+import { C } from "#compiler/plan/catalog.ts"
+import { emitCatalog, rowText, SchemaFingerprint } from "#compiler/plan/common.ts"
 import {
+	emptyFingerprint,
 	type LedgerRow,
-	type LedgerState,
-	type LedgerStatements,
 	ledgerState,
-	ledgerStatements
-} from "#compiler/deploy/ledger/ledger.ts"
-import { emptyFingerprint } from "#compiler/deploy/snapshot/build.ts"
-import { ledgerTableName } from "#compiler/physical/ddl/ledger.ts"
-import * as C from "#compiler/sql/catalog.ts"
-import { emitCatalog } from "#compiler/sql/emit.ts"
+	type LedgerState,
+	ledgerStatements,
+	type LedgerStatements,
+	ledgerTableName
+} from "#compiler/plan/migration.ts"
 
 const relations = C.from("pg_class", "c")
 const namespaces = C.from("pg_namespace", "n")

@@ -641,6 +641,8 @@ describe("violation queries mean what their laws say", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/analysis/logical/row-check-violations",
 						generator: (source) =>
 							[source.draw(manager), source.draw(manager), source.draw(manager)] as const,
@@ -698,6 +700,8 @@ describe("violation queries mean what their laws say", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/analysis/logical/candidate-key-violations",
 						generator: (source) =>
 							[
@@ -970,6 +974,7 @@ describe("law identities", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/analysis/logical/law-ids-position",
 						draw: drawn(
 							(source) =>

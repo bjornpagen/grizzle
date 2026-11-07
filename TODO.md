@@ -11,9 +11,10 @@ dimension.
 How the work runs:
 - Owner 2026-11-06: approved; work autonomously to the end, deciding along the way, and hand the owner the one-line
   publish command. The test inventory (3.2) is written into this file, and wave 2 starts from it.
-- Main reads the code and the tests itself and integrates. At most four coding lanes run at once, in the main checkout,
-  on main, with no branches. Lanes write code only: no repository typecheck, no test runs, no git. A lane may check a
-  standalone program of its own under ~/.cache/grizzle-release/, such as a type-cost probe.
+- Main reads the code and the tests itself and integrates. Up to twenty lanes run at once (owner 2026-11-06), in the
+  main checkout, on main, with no branches, each owning named files. Lanes run no git. A lane runs only the targeted
+  suites that show its guard passing and its planted bugs caught, one background run at a time; planted bugs live in a
+  scratch copy under ~/.cache/grizzle-release/ with its own install.
 - Main typechecks the integrated tree once, fixes what it reports, and typechecks once more. Then it commits and pushes.
   A push needs only a clean typecheck.
 - Every tier runs together once all the coding is in, using half the machine. `pnpm test` runs first, then
@@ -67,10 +68,16 @@ How the work runs:
 	- a delete listing two facts that share a key with different payloads: the types refuse it, the engine admits it.
 	  The engine refuses it too, as it does for an insert and a put (W-typesD).
 - **Changing an owner's column that a family's derived value reads through a copy** (a fold step, a predecessor or last
-  copy, a copy of a copy) fails at execution: the cascade updates the copy, but the per-row CHECK or NO ACTION key fires
-  before the derived value is refilled. Lane W-fill: a typed refusal when the ChangeSet compiles, only where the
-  ChangeSet changes such a column, plus a pg follow-up (owner puts and edits with appends, judged by the reference
-  writer) and the span-keyed owner put.
+  copy, a copy of a copy) is refused today (StaleDerivedRead, CascadedCopyAppend). Lane REFILL, on F's design: every
+  stale path is refilled members-first, ahead of the change that would cascade into it, as a node of the unified
+  schedule; the axes it writes around are deferred by schema analysis; one read flight locates the groups. Only a change
+  sourced from a query stays refused. Guard: fill-order's follow-up writes every case and the stored rows equal the
+  reference writer's; planted bug: a refill out of members-first order.
+- **An absent key in a closed read raises a domain CHECK** (qti-pie, defect 3): `C.row` of an absent `C.at` casts NULL to
+  the set's bits domain, whose `IS TRUE` CHECK raises 23514 before the law's three-valued logic can hold, so every
+  lawful row of such a relation is refused. Lane CROW: the contract (C.at reads NULL, C.row the empty set, the law
+  decides) over every domain that refuses NULL. Guard: a pg search over every read form, carrier and position, the
+  downstream shape kept; planted bugs: IS TRUE on a NULL cast, a C.row reading NULL.
 - **@grizzle/testing `matching()` refuses after expanding every class** (qti-pie, low): an unbounded `*`, `+` or
   `{n,}` is refused only after the pattern's classes are built, 2.8-4.3 s for XML's Char class. Decide the refusal
   from the repetition structure first. Test: a count of class expansions for refused patterns, 0. Planted bug:
@@ -82,33 +89,21 @@ How the work runs:
 	  bound, Account's take plan in plans, the wildcard literal's column type, and the bits migrations;
 	- the worlds rules suite (24 cases, the first to write coverage and alternatives laws through a Db);
 	- test/pg/fields/set-padding, test/pg/package/consumer and the CLI drift suite.
-- **To settle on 5433 at the gate** (W-gg's investigations):
-	- recursion/oracle/fixed-length's 57014: the hypothesis is a Gather on the inner side of a nested loop over the
-	  recursive term, under the perturbation's hash and merge joins off, relaunching workers per work-table row. Replay
-	  the token and read pg_stat_database parallel_workers_launched before and after, with EXPLAIN (ANALYZE, VERBOSE,
-	  SETTINGS). If confirmed, the perturbation stops drawing that combination.
-	- optimized/generated-1's heap: OptimizedRun now keeps a form's rows only when they differ. Measure each form's
-	  statements with count(*), count(DISTINCT t) and sum(octet_length(t::text)). compareRuns still re-reads the
-	  baseline's rows for every form.
-	- test/pg/program/templates is still an example test (W-physical).
+- **test/pg/program/templates is still an example test** (W-physical).
 
 - **Everything parked "after the beta" is fixed for it** (owner, 2026-11-06: "all these known issues must be
-  fixed"). Lanes:
-	- F: a counted member that is also a sequence member, tree or sequence owner; a sequence member copying a sibling's
-	  fold end; refill on an owner's copied column (deferred axis key), so StaleDerivedRead and CascadedCopyAppend write.
+  fixed"). What remains, by lane:
+	- REFILL: refill on an owner's copied column (above).
 	- KEYS: rewrites' key claims on proofs; a projection drops a dependency on a dropped column; a lateral fixed column
 	  in both directions; linear minimal keys over k joined relations; a closed relation's identical columns as one
 	  class.
-	- OPEN: date spans; a relation parameter's pattern delivered; a CHECK refusal witnessed on the host; family rows
-	  ordered by pattern input; Written and AdditionIn public; a generated NOT NULL's 23502 names its law.
-	- CMP: isFinite over a typmod'd numeric contract; an octetLength guard narrows a byte bound.
-	- TESTLIB: a synchronous runaway is terminable; the type batch fails closed on a stall; the library's own example
-	  tests become searches.
-	- PERF: a guarded float binds its operands once per row; the 1M-row plans under roles, index-served; fixed-length's
-	  57014 and generated-1's heap settled.
-	- K: startup's repeated beyondPrimary (8 CPU s per build and per write on qti-pie's schema), then planClosed and
-	  the obligations order if still super-linear.
-	- Representation-first follow-ups, engine export narrowing and typed terms: a lane when one frees.
+	- OPEN: date spans; family rows ordered by pattern input (after FOLD's brands).
+	- FOLD: host values only inside the engine, ParamText/OutputText brands, every encode/decode round trip deleted.
+	- PERF: the 1M-row plans under roles, index-served.
+	- REP: regex membership from one compile-scoped pattern table (the four re-parse sites folded into one admittedNode,
+	  a parse-count gate); variant-typed page slots, after FOLD's brands; fact identity as a text tuple in a TupleMap,
+	  after FOLD's brands; every joined-text value key in the test models and write/family/draw.ts textsKey; then
+	  scripts/dev/golden/* goes, with its .fallowrc.json entry and capture.ts's line in oxlint.config.ts.
 	- Not code here: RDS IAM against a real RDS, a quiet-machine bench, the fallow upstream report, the PostgreSQL GA
 	  repin date, the superstarter and edullm copies.
 
@@ -236,69 +231,26 @@ What stays:
 - **TODO:** this section is deleted, and the beta's follow-ups are listed below.
 
 ## After the beta
-- **Representation-first follow-ups.** Once they are done, scripts/dev/golden/* goes, with its .fallowrc.json entry and
-  capture.ts's line in oxlint.config.ts's no-dynamic-imports block.
-	- Regex membership without the one named site: DAG headings and expression types carry resolved types IR-wide.
-	- An analysis field on the IR's Attach node, projected out of the digest as Delta keys are. The lowerings then read
-	  the analyzed facts instead of matching three DAGs by Attach id.
-	- Variant-typed page slots and a total size encoder (pageBinding), carried through the page compile, the kits,
-	  Delivery<Own> and the shell.
-	- install/comments.ts mintedName: SQL AST names carry identities.
-	- ir/scalar-shape.ts sameOptional compares by canonical text, until ExprTable has structural equality.
-	- scalar/values/identity.ts builds row-identity strings as Map keys.
-	- gen/query.ts's #canFail and #stable side tables fold into typed generator terms.
-	- The oracle's value-identity string keys become structural identity, if a native structural map ever beats them.
+Owner 2026-11-06: no known bug or limitation is parked here. What stays is work outside this repository's code, or
+not a defect.
 - **fallow:** unused-class-member doesn't follow union narrowing, so check/params.ts ParamCell.use and useRelation need
   a usedClassMembers entry. Report it upstream, then drop the entry once fallow is fixed.
 - **Test layout:** tests move into packages/*/test, with their mutate and fallow paths and the docs.
-- **Engine exports:** narrow the engine's internal exports to compiled outputs: the read plan, the change plan, the
-  migration plan and the expected catalog.
-- **Keys:**
-	- lowering rewrites' key claims rest on certificates, not KeyProofs;
-	- a projection drops a dependency whose determinants include a column it drops;
-	- a lateral source column fixed to a region column gives only one direction;
-	- k joined relations with two declared keys each still give 2^k minimal keys;
-	- a closed relation's identical-valued columns aren't detected as one class.
-- **A counted family member that is also a sequence member, a tree or a sequence owner:** README promised it, but the
-  writer never supported it. From the beta on, the schema compile refuses it (UnwritableRelation countedAndSequence).
-  Writing it means one fill order that interleaves the counted edit and the sequence walk.
-- **A sequence member copying the fold end of a sibling sequence of the same owner** is refused at compile
-  (UnfillableField). Writing it needs per-family stages in the walk.
-- **Refill a family when its owner's copied column changes,** so a ChangeSet that changes it writes rather than being
-  refused. This needs that axis's foreign key deferred (law-model planning). The same reading of ancestor keys would
-  let `CascadedCopyAppend` write instead of refusing.
-- **Typed terms:** a CheckedExpr brand with per-level constructors, at about 40 builder sites.
-- **Performance:**
-	- A guarded float form costs a SubPlan per row (lower/conservative/expr/total.ts bindOperands). Bind the operands
-	  once per row with a LATERAL, behind a float-sum gate written first.
-	- Performance under roles: the 1M-row plan suites read through world views and row security, every read
-	  index-served.
-	- `bench:full` on a quiet machine.
+- **`bench:full` on a quiet machine.**
 - **Sweeps under conflicting key orders,** the residues no plan avoids, which the serving judge excuses
   (test/pg/physical/serving.ts residueOf).
 	- GiST's cost model is blind to column position: upstream/gist-costestimate-column-position, for PostgreSQL 20.
 	- The partial B-tree sweep is PostgreSQL being right.
-- **The beta's open items:**
-	- `date` has no span carrier;
-	- a relation parameter whose pattern no stored column carries can't be delivered;
-	- witness a CHECK refusal on the host;
-	- order a family statement's rows by their pattern input, for PostgreSQL's 32-regex cache;
-	- make Written and AdditionIn public;
-	- run RDS IAM against RDS.
-- **The testing library:**
-	- A synchronous runaway (a backtracking RegExp, a pure loop) blocks the case's hang guard and Vitest's timeout
-	  alike. Decide whether property cases run in a terminable worker, or document that the code under test bounds its
-	  own work.
-	- The type batch's tsc stalled at 0% CPU on a type error. Reproduce it, report it upstream, and make the batch fail
-	  closed on a stall.
-- **The testing library's own example tests** (packages/testing/src: idioms, core, consumer, guard, blocking,
-  adapter and others) are converted in superstarter first, then copied, together with the test-case lint rule.
+- **RDS IAM** against a real RDS.
 - **Cross-repo, outside school hours for edullm:** grizzle's packages/testing differs from superstarter's in 43 files,
-  though each repository's copy is meant to be byte-identical. Reconcile them. Then copy the library into edullm, with
-  the no-spread-argument rule and the shared lint standard.
+  though each repository's copy is meant to be byte-identical. Reconcile them, the library's searches-only tests and
+  the test-case lint rule included. Then copy the library into edullm, with the no-spread-argument rule and the shared
+  lint standard.
 - **PostgreSQL 19 GA (2026-11-19):** repin. The relcache patch is rebased and kept until a release includes it.
 
 ## Upstream, for the owner to file
 - upstream/plpgsql-lineno-rescan: PL/pgSQL rescans the source on every location-to-line lookup.
 - upstream/gist-costestimate-column-position: a pgsql-hackers reply to BUG #15408, for PostgreSQL 20.
 - upstream/relcache-planned-check-and-generation, written in section 1.
+- upstream/tsgo-zero-cpu-stall: tsgo at 0% CPU on a type error, unreproduced so far. Reproduce it without the
+  effect-tsgo patch first, then file at microsoft/TypeScript (typescript-go was archived on 2026-09-01).

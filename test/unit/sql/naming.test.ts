@@ -142,6 +142,7 @@ describe("outermost-only public renaming", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/sql/rename",
 						draw: drawn(renamedGen),
 						literal: Formatter.format,

@@ -40,14 +40,12 @@ import {
 import { Fold } from "#compiler/ir/fold.ts"
 import {
 	type AtMostOneWitness,
-	type ClaimedKey,
-	claimedColumns,
-	claimedKeyIn,
 	type Dependency,
 	type EqualWitness,
 	type FixedWitness,
 	type Implication,
 	type KeyProof,
+	keyIn,
 	type Rule,
 	type ViewKey
 } from "#compiler/ir/keys.ts"
@@ -562,7 +560,7 @@ class Checker {
 		const { meta, heading } = node
 		const seen: Array<ReadonlySet<string>> = []
 		for (const [i, claimed] of meta.logicalKeys.entries()) {
-			const key = claimedColumns(claimed)
+			const key = claimed.key
 			this.requireColumns([...path, "logicalKeys", i], heading, key, "a logical key column")
 			if (key.length === 0 && meta.card === "many") {
 				this.report(
@@ -935,7 +933,7 @@ class Checker {
 		const holds = (c: string) => covered.has(c)
 		if (
 			Arr.every(input.heading, (c) => covered.has(c.name)) ||
-			Arr.some(input.meta.logicalKeys, (k) => claimedKeyIn(k, holds) !== undefined) ||
+			Arr.some(input.meta.logicalKeys, (k) => keyIn(k, holds) !== undefined) ||
 			Arr.some(declared, (k) => Arr.every(k, holds))
 		) {
 			return
@@ -994,7 +992,7 @@ class Checker {
 		const declared = child.kind === "Base" ? [child.primaryKey, ...child.keys] : []
 		const holds = (c: string) => bound.has(c)
 		const keyBound =
-			Arr.some(child.meta.logicalKeys, (k) => claimedKeyIn(k, holds) !== undefined) ||
+			Arr.some(child.meta.logicalKeys, (k) => keyIn(k, holds) !== undefined) ||
 			Arr.some(declared, (k) => Arr.every(k, holds))
 		if (node.delivered === "one" && card !== "one") {
 			this.report(
@@ -1694,6 +1692,9 @@ const keyProofShape: S.Shape<KeyProof> = S.lazy("a key proof", () =>
 		members: S.array(
 			S.struct({ of: S.nonEmptyString, column: S.nonEmptyString, determines: implicationShape })
 		),
+		alternatives: S.array(
+			S.struct({ of: keySetShape, columns: keySetShape, determines: implicationShape })
+		),
 		basis: S.tagged("kind", {
 			rows: S.struct({ implication: implicationShape }),
 			union: S.struct({
@@ -1716,16 +1717,15 @@ const viewKeyShape: S.Shape<ViewKey> = S.struct({
 	fields: S.nonEmptyUniqueStrings("view key columns"),
 	premises: S.array(premiseShape),
 	context: evidenceContextShape,
-	members: S.array(S.struct({ of: S.nonEmptyString, column: S.nonEmptyString }))
-})
-
-/** The shape of a claimed key, as a node's metadata records it (rel.ts NodeMeta). */
-const claimedKeyShape: S.Shape<ClaimedKey> = S.tagged("kind", {
-	proved: S.struct({ proof: keyProofShape }),
-	rewrite: S.struct({
-		key: keySetShape,
-		members: S.array(S.struct({ of: S.nonEmptyString, column: S.nonEmptyString }))
-	})
+	members: S.array(S.struct({ of: S.nonEmptyString, column: S.nonEmptyString })),
+	alternatives: S.array(
+		S.struct({
+			of: keySetShape,
+			columns: keySetShape,
+			premises: S.array(premiseShape),
+			context: evidenceContextShape
+		})
+	)
 })
 
 const fixedWitnessShape: S.Shape<FixedWitness> = S.tagged("kind", {
@@ -1774,8 +1774,10 @@ const ruleShape: S.Shape<Rule> = S.tagged("rule", {
 	distinct: S.struct({}),
 	produced: S.struct({ input: keyProofShape }),
 	ranked: S.struct({}),
+	numbered: S.struct({}),
 	agreed: S.struct({ arms: S.nonEmptyArray(implicationShape) }),
-	unionKey: S.struct({ proof: keyProofShape })
+	unionKey: S.struct({ proof: keyProofShape }),
+	viewAlternative: S.struct({ premises: S.array(premiseShape), context: evidenceContextShape })
 })
 
 const dependencyShape: S.Shape<Dependency> = S.struct({
@@ -1786,7 +1788,7 @@ const dependencyShape: S.Shape<Dependency> = S.struct({
 
 const nodeMetaShape: S.Shape<NodeMeta> = S.struct({
 	paramDeps: S.uniqueIds("parameter dependencies", S.branded(ParamId, S.nonEmptyString)),
-	logicalKeys: S.array(claimedKeyShape),
+	logicalKeys: S.array(keyProofShape),
 	card: S.literalsShape(["many", "atMostOne", "one"]),
 	reads: S.uniqueStrings("relation names", S.nonEmptyString),
 	context: evidenceContextShape
@@ -1857,7 +1859,8 @@ const attachFields = {
 	parent: nodeIdShape,
 	child: nodeIdShape,
 	name: S.nonEmptyString,
-	correlation: S.array(S.struct({ parent: S.nonEmptyString, child: S.nonEmptyString }))
+	correlation: S.array(S.struct({ parent: S.nonEmptyString, child: S.nonEmptyString })),
+	judged: S.literalsShape(["array", "option", "one"])
 } as const
 
 /** A producer decodes by the producer it names; the two of two spans read one shape. */

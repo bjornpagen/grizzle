@@ -365,6 +365,8 @@ describe("every lowering admits exactly positive linear feedback over a hashable
 			ctx,
 			exhaust(
 				{
+					box: { kind: "unstated" },
+					oracle: { kind: "unstated" },
 					suite: "unit/lower/feedback/admission",
 					/** The hop's counter depth: one hop, a few, and more. */
 					generator: (source) =>

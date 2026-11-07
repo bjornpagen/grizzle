@@ -26,14 +26,18 @@ import {
 	fixedColumn,
 	groupKeeps,
 	groupKey,
+	hiddenAttribute,
 	type Implication,
 	implication,
+	isHidden,
+	type KeyAlternative,
 	type KeyMember,
 	type KeyProof,
-	keyClasses,
+	keyAlternative,
 	keyIn,
 	keyMember,
 	keyWithin,
+	listedKeys,
 	matchBinds,
 	producedFact,
 	projectionCloses,
@@ -43,6 +47,8 @@ import {
 	unionKey,
 	unionKeyDetermines,
 	type ViewKey,
+	numberedRow,
+	viewAlternative,
 	windowValue
 } from "#compiler/ir/keys.ts"
 
@@ -66,6 +72,7 @@ import {
 	closure,
 	covers,
 	derivation,
+	independentFactors,
 	inHeadingOrder,
 	minimalKeys
 } from "#compiler/logical/closure.ts"
@@ -143,11 +150,19 @@ export interface Props {
 	 */
 	readonly attachment: NodeOf<"Attach"> | undefined
 	readonly columns: ReadonlyArray<string>
-	/** The dependencies the node states over its heading, its own and those it carries from its inputs. */
+	/**
+	 * The attributes of its rows it does not deliver, its inputs' columns and hidden attributes it reads and does not
+	 * name in its heading (ir/keys.ts hiddenAttribute): its dependencies range over them beside its heading, so its
+	 * inputs' dependencies are embedded whole, and whether some columns determine others is one closure.
+	 */
+	readonly hidden: ReadonlyArray<string>
+	/** The dependencies the node states over its attributes, its own and those it carries from its inputs. */
 	readonly dependencies: ReadonlyArray<Dependency>
 	/**
-	 * Its minimal keys over its classes of equal columns, each a proof over the classes' representatives, in key order:
-	 * another column of a key column's class stands for it (KeyProof members).
+	 * Its minimal keys over its classes of equal columns and its independent factors: for rows of one heading group one
+	 * proof, whose key holds one minimal key of each factor over the classes' representatives and whose alternatives are
+	 * each factor's other minimal keys (KeyProof alternatives), another column of a class standing for its
+	 * representative (members); for rows of several, each key a proof of its own.
 	 */
 	readonly keys: ReadonlyArray<KeyProof>
 	/**
@@ -359,15 +374,22 @@ const equalityOperands = (e: ScalarExpr): readonly [ScalarExpr, ScalarExpr] | un
 		: undefined
 }
 
-/** A node's columns and the dependencies it states, which its closures read, with its reading and attachment, which say
- * what value each step fixes a column to. */
+/** A node's columns, its hidden attributes and the dependencies it states, which its closures read, with its reading
+ * and attachment, which say what value each step fixes a column to. */
 interface Table {
 	readonly node: { readonly id: NodeId }
 	readonly reading: PropsReading
 	readonly attachment: NodeOf<"Attach"> | undefined
 	readonly columns: ReadonlyArray<string>
+	readonly hidden: ReadonlyArray<string>
 	readonly dependencies: ReadonlyArray<Dependency>
 }
+
+/** A node's attributes: its heading, then its hidden attributes. */
+const attributesOf = (props: Pick<Table, "columns" | "hidden">): ReadonlyArray<string> => [
+	...props.columns,
+	...props.hidden
+]
 
 /** A value a fixed column holds that names it: a literal, a parameter or an outer column. */
 type Named = Exclude<Fixed, { readonly kind: "expr" }>
@@ -389,13 +411,12 @@ const namedOf = (f: Fixed): Named | undefined => (f.kind === "expr" ? undefined 
  * step names it.
  */
 const closureOf = (props: Table, start: Iterable<string>): Closure<Named> => {
-	const columns = new Set(props.columns)
-	const given = [...start].filter((c) => columns.has(c))
+	const attributes = attributesOf(props)
 	return closure(
 		props.node.id,
-		columns,
+		new Set(attributes),
 		props.dependencies,
-		inHeadingOrder(props.columns, given),
+		inHeadingOrder(attributes, start),
 		(d, column, named) => namedOf(stepValue(props, d, column, (c) => named.get(c)))
 	)
 }
@@ -405,13 +426,12 @@ const closureOf = (props: Table, start: Iterable<string>): Closure<Named> => {
  * derivation holds only the steps the key needs to determine the heading, whatever values they name.
  */
 const coverOf = (props: Table, start: Iterable<string>): Closure<never> => {
-	const columns = new Set(props.columns)
-	const given = [...start].filter((c) => columns.has(c))
+	const attributes = attributesOf(props)
 	return closure<never>(
 		props.node.id,
-		columns,
+		new Set(attributes),
 		props.dependencies,
-		inHeadingOrder(props.columns, given),
+		inHeadingOrder(attributes, start),
 		() => undefined
 	)
 }
@@ -570,11 +590,13 @@ const stepSource = (props: Table, d: Dependency, column: string): StepSource => 
 		case "agreed":
 			return node.kind === "Union" ? { kind: "arms", arms: unionArms(node.groups) } : opaque
 		case "declared":
+		case "viewAlternative":
 		case "group":
 		case "atMostOne":
 		case "distinct":
 		case "produced":
 		case "ranked":
+		case "numbered":
 		case "unionKey":
 			return opaque
 	}
@@ -731,8 +753,13 @@ const regionLocals = (region: NodeId, reading: ReadingOf<"MatchRegion">): Readon
 const determinantsOf = (props: Props): ReadonlyArray<KeySet> => {
 	const seen = new Set<string>()
 	const out: Array<KeySet> = []
-	for (const d of [[], ...props.dependencies.map((x) => x.from), ...props.keys.map((k) => k.key)]) {
-		const text = inHeadingOrder(props.columns, d).join("\u0000")
+	const attributes = attributesOf(props)
+	for (const d of [
+		[],
+		...props.dependencies.map((x) => x.from),
+		...props.keys.flatMap((k) => [k.key, ...k.alternatives.map((a) => a.columns)])
+	]) {
+		const text = inHeadingOrder(attributes, d).join("\u0001")
 		if (!seen.has(text)) {
 			seen.add(text)
 			out.push(d)
@@ -755,9 +782,9 @@ const classOf = (
 
 /**
  * How two columns of a node are known equal in every row: by equalities alone, each step an equal dependency, a
- * projection's copies of input columns equal so, or a kept input's columns equal so, which a union reads in every arm
- * (ir/keys.ts); or by determination, a group's keys of one input class, a match's variables bound to one source class,
- * a correlated variable copying another.
+ * projection's copies of input columns equal so, a kept input's columns equal so, or a group's keys of input columns
+ * equal so, every group's key values being one input row's, which a union reads in every arm (ir/keys.ts); or by
+ * determination, a match's variables bound to one source class, a correlated variable copying another.
  */
 type EqualBy = "equalities" | "determination"
 
@@ -917,30 +944,41 @@ const keptEqualities = (input: Props, kept: (column: string) => boolean): Readon
 	)
 
 /**
- * The dependencies a node keeps from an input whose rows it keeps, over the input columns it carries under the same
- * names (`carried`): each input determinant whose columns the carried columns stand for (carried, fixed, of a class a
- * carried column stands for, or determined by columns standing so, standingFor), determining the carried columns of
- * the closure in the input of the carried columns standing for it, by `rule`.
+ * The dependencies a node keeps from an input whose rows it keeps, or whose rows determine its own: each input
+ * determinant, over the input's attributes, determining the rest of its closure in the input, every attribute under
+ * the name `nameOf` gives it at the node (its own, a column the node delivers it as, or a hidden attribute's), by
+ * `rule`. No input attribute is dropped, so the node's closure of any of them is the input's.
  */
 const carried = (
 	input: Props,
-	carriedColumn: (column: string) => boolean,
+	nameOf: (attribute: string) => string,
 	rule: (from: KeySet, to: KeySet, input: Implication) => Dependency
-): ReadonlyArray<Dependency> => {
-	const standing = standingFor(
-		input,
-		new Map(input.columns.filter(carriedColumn).map((c) => [c, c]))
-	)
-	return determinantsOf(input).flatMap((d) => {
-		const from = outputsOf(standing, d)
-		if (from === undefined) {
-			return []
-		}
-		const reached = closureOf(input, from)
-		const to = [...reached.columns.keys()].filter((c) => carriedColumn(c) && !from.includes(c))
-		return to.length === 0 ? [] : [rule(from, to, derivation(reached, to))]
+): ReadonlyArray<Dependency> =>
+	determinantsOf(input).flatMap((d) => {
+		const reached = closureOf(input, d)
+		const to = [...reached.columns.keys()].filter((c) => !d.includes(c))
+		return to.length === 0 ? [] : [rule(d.map(nameOf), to.map(nameOf), derivation(reached, to))]
 	})
-}
+
+/** The name every attribute of an input keeps at a node keeping its rows under the input's own names. */
+const sameName = (attribute: string): string => attribute
+
+/**
+ * The name a node that delivers some of its input's columns under their names gives each input attribute: a delivered
+ * column its own, any other column a hidden attribute of the input's label, a hidden attribute its own.
+ */
+const hiddenUnless =
+	(input: Props, delivered: (column: string) => boolean) =>
+	(attribute: string): string =>
+		delivered(attribute) || isHidden(attribute)
+			? attribute
+			: hiddenAttribute(input.node.id, attribute)
+
+/** The hidden attributes of a node naming its input's attributes by `nameOf`: those it does not deliver. */
+const hiddenOf = (input: Props, nameOf: (attribute: string) => string): ReadonlyArray<string> =>
+	attributesOf(input)
+		.map(nameOf)
+		.filter((a) => isHidden(a))
 
 /** What a node's own rule says beyond its dependencies. */
 interface Rest {
@@ -959,6 +997,8 @@ interface Rest {
 	 * equal by an input's classes or by copying columns of one.
 	 */
 	readonly equal: ReadonlyArray<Equality>
+	/** The attributes of its rows it does not deliver (Props.hidden). */
+	readonly hidden: ReadonlyArray<string>
 }
 
 /**
@@ -1038,28 +1078,41 @@ type Subject = Pick<Props, "node" | "reading" | "attachment">
  * class, and another column of the class in its place gives another, so the representatives' minimal keys under the
  * dependencies, each read through the classes, are every minimal key, one per class key. k pairs of equal columns
  * over a key of their first columns give one key, where every choice of a column per pair would give 2^k.
+ *
+ * Rows of one heading group have one proof over the independent factors of their dependencies (closure.ts
+ * independentFactors), read over the attributes the whole heading determines, hidden ones included, since an attribute
+ * no key reaches determines nothing a key needs: each factor's minimal keys over its representatives, found under the
+ * factor's own dependencies, a set of them a key of the factor when its closure holds every attribute of the factor.
+ * The first of each is in the proof's key and the others are its alternatives, so k independent relations of two keys
+ * each are one proof of k alternatives, never 2^k proofs.
  */
 const finish = (subject: Subject, dependencies: ReadonlyArray<Dependency>, rest: Rest): Props => {
 	const { node } = subject
 	const columns = node.heading.map((c) => c.name)
-	const heading = new Set(columns)
+	const attributes = new Set([...columns, ...rest.hidden])
 	const table: Table = {
 		node,
 		reading: subject.reading,
 		attachment: subject.attachment,
 		columns,
-		dependencies: dependencies.filter((d) => d.from.every((c) => heading.has(c)))
+		hidden: rest.hidden,
+		dependencies: dependencies.filter((d) => d.from.every((c) => attributes.has(c)))
 	}
 	const forest = forestOf(columns, rest.equal)
 	const classes = classesIn(columns, forest)
-	/** Each other column of a key column's class, in heading order, with its path to the key column. */
-	const membersOf = (key: KeySet): ReadonlyArray<KeyMember> =>
-		key.flatMap((k) =>
-			columns.flatMap((m) => {
-				const path = m === k || key.includes(m) ? undefined : pathOf({ node, forest }, m, k)
+	/**
+	 * Each other column of the classes of `cs`, in heading order, with its path to the column it stands for. A hidden
+	 * attribute is of no class.
+	 */
+	const membersOf = (cs: ReadonlyArray<string>): ReadonlyArray<KeyMember> => {
+		const held = new Set(cs)
+		return cs.flatMap((k) =>
+			(classes.get(k) ?? []).flatMap((m) => {
+				const path = held.has(m) ? undefined : pathOf({ node, forest }, m, k)
 				return path === undefined ? [] : [keyMember(k, m, path.derivation)]
 			})
 		)
+	}
 	/**
 	 * The closure of `key` and the key it reaches: the whole heading, or the first kept input's key it covers for rows
 	 * of several heading groups; undefined where it reaches none.
@@ -1075,7 +1128,7 @@ const finish = (subject: Subject, dependencies: ReadonlyArray<Dependency>, rest:
 	/** The proof of `key` from the key its closure reaches. */
 	const proofOf = (key: KeySet, reach: Reach): KeyProof =>
 		reach.kind === "rows"
-			? rowsKey(node.id, key, derivation(reach.reached, columns), membersOf(key))
+			? rowsKey(node.id, key, derivation(reach.reached, columns), membersOf(key), [])
 			: keyWithin(
 					node.id,
 					key,
@@ -1094,27 +1147,79 @@ const finish = (subject: Subject, dependencies: ReadonlyArray<Dependency>, rest:
 			? { kind: "set", key: proofOf(columns, { kind: "rows", reached: coverOf(table, columns) }) }
 			: { kind: "groups" }
 	const representatives = columns.filter((c) => classes.get(c)?.[0] === c)
-	/** The representatives of the classes of the heading's columns among `cs`. */
-	const represented = (cs: Iterable<string>): KeySet =>
-		inHeadingOrder(
-			representatives,
-			[...cs].flatMap((c) => {
-				const members = classes.get(c)
-				return members === undefined ? [] : [members[0]]
-			})
-		)
-	const seeds =
-		rest.discriminant.length === 0 ? [representatives] : rest.inner.map((k) => represented(k.key))
+	/** The representatives of the classes of the attributes among `cs`, a hidden attribute standing for itself. */
+	const represented = (cs: Iterable<string>): KeySet => {
+		const out = new Set<string>()
+		for (const c of cs) {
+			const members = classes.get(c)
+			out.add(members === undefined ? c : members[0])
+		}
+		return [...out]
+	}
 	const exchange = table.dependencies.map((d) => ({
 		from: represented(d.from),
 		to: new Set(represented(d.to))
 	}))
-	const keys = minimalKeys(
-		representatives,
-		seeds,
-		(cs) => reachOf(inHeadingOrder(columns, cs)),
-		exchange
-	).map(({ key, witness }) => proofOf(key, witness))
+	/** The keys of rows of several heading groups: each kept input's key minimized and exchanged, one proof each. */
+	const withinKeys = (): ReadonlyArray<KeyProof> =>
+		minimalKeys(
+			representatives,
+			rest.inner.map((k) => represented(k.key)),
+			(cs) => reachOf(inHeadingOrder(columns, cs)),
+			exchange
+		).map(({ key, witness }) => proofOf(key, witness))
+	/** The one proof of the minimal keys of rows of one heading group, over its independent factors. */
+	const productKey = (): KeyProof => {
+		const reachable = coverOf(table, columns).columns
+		const stated = table.dependencies.flatMap((d, i) => {
+			const e = exchange[i]
+			return e === undefined || !d.from.every((c) => reachable.has(c))
+				? []
+				: [
+						{
+							d,
+							from: e.from,
+							to: [...e.to].filter((c) => reachable.has(c) && !e.from.includes(c))
+						}
+					]
+		})
+		const { factors, factorOf } = independentFactors(
+			[...representatives, ...rest.hidden.filter((h) => reachable.has(h))],
+			stated
+		)
+		const chosen: Array<string> = []
+		const alternatives: Array<KeyAlternative> = []
+		for (const [i, factor] of factors.entries()) {
+			const within = (c: string) => factorOf.get(c) === i
+			/** The factor's dependencies: those reading only its attributes, a class's equalities among them. */
+			const inFactor = stated.filter((x) => x.from.every(within))
+			const deps = inFactor.map((x) => x.d)
+			const closes = (cs: Iterable<string>): Closure<never> =>
+				closure<never>(node.id, attributes, deps, cs, () => undefined)
+			const delivered = factor.filter((c) => !isHidden(c))
+			const [first, ...others] = minimalKeys(
+				delivered,
+				[delivered],
+				(cs) => (covers(closes(cs), factor) ? true : undefined),
+				inFactor.map((x) => ({ from: x.from, to: new Set(x.to.filter(within)) }))
+			).map((k) => k.key)
+			/** Every factor's delivered columns determine it, so its search finds a key: the first, or those columns. */
+			const key = first ?? delivered
+			appendAll(chosen, key)
+			for (const other of others) {
+				alternatives.push(keyAlternative(key, other, derivation(closes(other), key)))
+			}
+		}
+		const key = inHeadingOrder(columns, chosen)
+		return rowsKey(
+			node.id,
+			key,
+			derivation(coverOf(table, key), columns),
+			membersOf([...key, ...alternatives.flatMap((a) => a.columns)]),
+			alternatives
+		)
+	}
+	const keys = rest.discriminant.length === 0 ? [productKey()] : withinKeys()
 	const atMostOne = keys.some((k) => k.key.length === 0)
 	return {
 		...table,
@@ -1151,7 +1256,8 @@ const keptRest = (
 	context,
 	discriminant: input.discriminant,
 	inner: innerOf(input),
-	equal: keptEqualities(input, (c) => node.heading.some((h) => h.name === c))
+	equal: keptEqualities(input, (c) => node.heading.some((h) => h.name === c)),
+	hidden: input.hidden
 })
 
 /** Dependencies a node states, and the equalities among them. */
@@ -1198,11 +1304,19 @@ const filterDependencies = (node: ReadingOf<"Filter">): Stated => {
 }
 
 /**
- * A view's dependencies: each of its keys determines the row, and each member of a key's class and the key column it
- * stands for determine each other, both columns of the view's heading.
+ * A view's dependencies: each of its keys determines the row, each alternative of a key's factor determines the fields
+ * it stands for, and each member of a key's class and the key column it stands for determine each other, both columns
+ * of the view's heading.
  */
 const viewDependencies = (keys: ReadonlyArray<ViewKey>, all: KeySet): Stated => {
-	const out: Array<Dependency> = keys.map((k) => declaredKey(k.fields, all, k.premises, k.context))
+	const out: Array<Dependency> = [
+		...keys.map((k) => declaredKey(k.fields, all, k.premises, k.context)),
+		...keys.flatMap((k) =>
+			k.alternatives.flatMap((a) =>
+				[...a.of, ...a.columns].every((c) => all.includes(c)) ? [viewAlternative(a)] : []
+			)
+		)
+	]
 	const equal: Array<Equality> = []
 	for (const m of keys.flatMap((k) => k.members)) {
 		if (
@@ -1227,11 +1341,15 @@ const viewDependencies = (keys: ReadonlyArray<ViewKey>, all: KeySet): Stated => 
 export const logicalPropsOf = (node: RelNode, reading: PropsReading, env: PropsEnv): Props => {
 	const subject: Subject = { node, reading, attachment: undefined }
 	const all = node.heading.map((c) => c.name)
-	/** The rest of a node's props that delivers its rows as one group, with no discriminant and no inner group. */
-	const oneGroup = (rest: Omit<Rest, "discriminant" | "inner">): Rest => ({
+	/**
+	 * The rest of a node's props that delivers its rows as one group, with no discriminant and no inner group, and no
+	 * attribute it does not deliver unless it states them.
+	 */
+	const oneGroup = (rest: Omit<Rest, "discriminant" | "inner" | "hidden">): Rest => ({
 		...rest,
 		discriminant: [],
-		inner: []
+		inner: [],
+		hidden: []
 	})
 	switch (reading.kind) {
 		case "Base": {
@@ -1367,7 +1485,7 @@ export const logicalPropsOf = (node: RelNode, reading: PropsReading, env: PropsE
 			const input = reading.input
 			const filtered = filterDependencies(reading)
 			const rest = keptRest(reading, input, input.context)
-			return finish(subject, [...carried(input, () => true, rowsKeep), ...filtered.dependencies], {
+			return finish(subject, [...carried(input, sameName, rowsKeep), ...filtered.dependencies], {
 				...rest,
 				exactlyOne: false,
 				equal: [...rest.equal, ...filtered.equal]
@@ -1380,7 +1498,7 @@ export const logicalPropsOf = (node: RelNode, reading: PropsReading, env: PropsE
 		case "Difference": {
 			const left = reading.left
 			const right = reading.right
-			const deps: Array<Dependency> = [...carried(left, () => true, rowsKeep)]
+			const deps: Array<Dependency> = [...carried(left, sameName, rowsKeep)]
 			if (reading.kind === "SemiJoin") {
 				/** A left column paired with a right column the right side fixes is fixed too, by the pair. */
 				const rightFixed = closureOf(right, [])
@@ -1408,11 +1526,14 @@ export const logicalPropsOf = (node: RelNode, reading: PropsReading, env: PropsE
 		case "Intersect": {
 			const left = reading.left
 			const right = reading.right
-			const deps = [...carried(left, () => true, rowsKeep), ...carried(right, () => true, rowsKeep)]
+			/** The right's rows are the left's, column for column; its hidden attributes are its own rows' others. */
+			const rightName = (a: string) => (isHidden(a) ? hiddenAttribute(right.node.id, a) : a)
+			const deps = [...carried(left, sameName, rowsKeep), ...carried(right, rightName, rowsKeep)]
 			const rest = keptRest(reading, left, strongest([left.context, right.context]))
 			return finish(subject, deps, {
 				...rest,
-				equal: [...rest.equal, ...keptEqualities(right, (c) => all.includes(c))]
+				equal: [...rest.equal, ...keptEqualities(right, (c) => all.includes(c))],
+				hidden: [...rest.hidden, ...right.hidden.map(rightName)]
 			})
 		}
 		case "Union":
@@ -1422,7 +1543,7 @@ export const logicalPropsOf = (node: RelNode, reading: PropsReading, env: PropsE
 			const input = reading.input
 			const locals = new Set([input.node.id])
 			const deps: Array<Dependency> = [
-				...carried(input, () => true, rowsKeep),
+				...carried(input, sameName, rowsKeep),
 				...reading.correlation.flatMap((c, index) =>
 					fixedOf(c.expr, locals) !== undefined
 						? [fixedColumn(c.column, { kind: "takeCorrelation", index })]
@@ -1445,14 +1566,10 @@ export const logicalPropsOf = (node: RelNode, reading: PropsReading, env: PropsE
 			 * Only the group key is carried from the input; an aggregate output may reuse the name of an input column
 			 * that is not a key, and carries none of its facts.
 			 */
-			const deps = [
-				...carried(input, (c) => groupKeys.includes(c), groupKeeps),
-				groupKey(groupKeys, all)
-			]
-			return finish(
-				subject,
-				deps,
-				oneGroup({
+			const nameOf = hiddenUnless(input, (c) => groupKeys.includes(c))
+			const deps = [...carried(input, nameOf, groupKeeps), groupKey(groupKeys, all)]
+			return finish(subject, deps, {
+				...oneGroup({
 					exactlyOne: input.card === "one",
 					/** An aggregate output carries none of the facts of an input column it may share a name with. */
 					provenance: (c) => (groupKeys.includes(c) ? provenanceOf(input, c) : []),
@@ -1461,10 +1578,11 @@ export const logicalPropsOf = (node: RelNode, reading: PropsReading, env: PropsE
 						input,
 						(c) => groupKeys.includes(c),
 						(from, to, path) => groupKeeps([from], [to], path),
-						() => "determination"
+						(by) => by
 					)
-				})
-			)
+				}),
+				hidden: hiddenOf(input, nameOf)
+			})
 		}
 		case "Produce": {
 			const input = reading.input
@@ -1481,31 +1599,32 @@ export const logicalPropsOf = (node: RelNode, reading: PropsReading, env: PropsE
 						: input.prove(within)
 				return p === undefined ? [] : [producedFact(intersection ? p.key : [...p.key, out], all, p)]
 			})
-			const deps: Array<Dependency> = [...carried(input, inCarried, rowsKeep), ...produced]
-			return finish(
-				subject,
-				deps,
-				oneGroup({
+			const nameOf = hiddenUnless(input, inCarried)
+			const deps: Array<Dependency> = [...carried(input, nameOf, rowsKeep), ...produced]
+			return finish(subject, deps, {
+				...oneGroup({
 					exactlyOne: false,
 					provenance: (c) => (inCarried(c) ? provenanceOf(input, c) : []),
 					context: input.context,
 					equal: keptEqualities(input, inCarried)
-				})
-			)
+				}),
+				hidden: hiddenOf(input, nameOf)
+			})
 		}
 		case "ApproximateNearest":
 		case "OrderedResult":
 		case "Window": {
 			const input = reading.kind === "ApproximateNearest" ? reading.source : reading.input
-			const deps: Array<Dependency> = [
-				...carried(input, (c) => input.columns.includes(c), rowsKeep)
-			]
+			const deps: Array<Dependency> = [...carried(input, sameName, rowsKeep)]
 			if (reading.kind === "ApproximateNearest" && reading.take === 1n) {
 				deps.push(atMostOneRow(all, { kind: "nearestOne" }))
 			}
 			const windowOut = reading.kind === "Window" ? reading.out : undefined
 			if (windowOut !== undefined) {
 				deps.push(windowValue(input.columns, windowOut))
+			}
+			if (reading.kind === "Window" && reading.fn === "rowNumber") {
+				deps.push(numberedRow(reading.partition, reading.out, all))
 			}
 			return finish(subject, deps, {
 				...keptRest(reading, input, input.context),
@@ -1518,14 +1637,10 @@ export const logicalPropsOf = (node: RelNode, reading: PropsReading, env: PropsE
 		case "Forbid": {
 			const input = reading.kind === "Attach" ? reading.parent : reading.violation
 			const others = reading.kind === "Attach" ? [reading.child] : []
-			return finish(
-				subject,
-				carried(input, () => true, rowsKeep),
-				{
-					...keptRest(reading, input, strongest([input.context, ...others.map((o) => o.context)])),
-					exactlyOne: input.card === "one"
-				}
-			)
+			return finish(subject, carried(input, sameName, rowsKeep), {
+				...keptRest(reading, input, strongest([input.context, ...others.map((o) => o.context)])),
+				exactlyOne: input.card === "one"
+			})
 		}
 	}
 }
@@ -1547,7 +1662,9 @@ const regionProps = (subject: Subject, node: ReadingOf<"MatchRegion">, env: Prop
 	const region = subject.node.id
 	const deps: Array<Dependency> = []
 	/** Each binding's variable with the facts its column was read from, in occurrence and binding order. */
-	const bound: Array<{ readonly v: string; readonly provenance: ReadonlyArray<Provenance> }> = []
+	const bound = new Map<string, Array<Provenance>>()
+	/** The source attributes the region binds to no variable of its heading, each under its occurrence. */
+	const hidden: Array<string> = []
 	const locals = regionLocals(region, node)
 	const bySource = Map.groupBy(node.occurrences, (o) => o.source.node.id)
 	/**
@@ -1582,13 +1699,14 @@ const regionProps = (subject: Subject, node: ReadingOf<"MatchRegion">, env: Prop
 		const varsAt = new Map<string, Array<string>>()
 		for (const b of o.bindings) {
 			const v = b.var.name
-			bound.push({
-				v,
-				provenance:
-					sourceNode.kind === "Base"
-						? [{ scan: o.id, relation: sourceNode.relation, field: b.column }]
-						: provenanceOf(src, b.column)
-			})
+			const facts = bound.get(v) ?? []
+			appendAll(
+				facts,
+				sourceNode.kind === "Base"
+					? [{ scan: o.id, relation: sourceNode.relation, field: b.column }]
+					: provenanceOf(src, b.column)
+			)
+			bound.set(v, facts)
 			if (!heading.has(v)) {
 				continue
 			}
@@ -1627,6 +1745,12 @@ const regionProps = (subject: Subject, node: ReadingOf<"MatchRegion">, env: Prop
 				equal.push(stated)
 			}
 		}
+		/** A source attribute bound to no variable of the heading: a hidden attribute of the region, by its occurrence. */
+		const hide = (c: string) => hiddenAttribute(o.id, c)
+		appendAll(
+			hidden,
+			attributesOf(src).flatMap((c) => (varsAt.has(c) ? [] : [hide(c)]))
+		)
 		const reads = lateral.length === 0 ? [] : varsOf(lateral)
 		if (reads === undefined) {
 			continue
@@ -1640,9 +1764,10 @@ const regionProps = (subject: Subject, node: ReadingOf<"MatchRegion">, env: Prop
 		)
 		const srcFixed = new Set(fixedColumns(src))
 		/**
-		 * What a determinant's source column is given by in the region: the variable bound to it, the variables its
-		 * constant follows from, nothing for a column fixed in the source, or a column of its class the scan binds,
-		 * which stands for it; undefined when none of these holds.
+		 * What a determinant's source attribute is given by in the region: the variable bound to it, the variables its
+		 * constant follows from, nothing for an attribute fixed in the source, a column of its class the scan binds, which
+		 * stands for it, or else its own hidden attribute; undefined only for a constant reading a region column no
+		 * variable is equal to.
 		 */
 		const givenBy = (
 			c: string
@@ -1663,7 +1788,7 @@ const regionProps = (subject: Subject, node: ReadingOf<"MatchRegion">, env: Prop
 			const member = classOf(src, c).find((m) => varsAt.has(m))
 			const memberVar = member === undefined ? undefined : varsAt.get(member)?.[0]
 			return member === undefined || memberVar === undefined
-				? undefined
+				? { given: [c], from: [hide(c)] }
 				: { given: [member], from: [memberVar] }
 		}
 		for (const d of determinantsOf(src)) {
@@ -1674,8 +1799,8 @@ const regionProps = (subject: Subject, node: ReadingOf<"MatchRegion">, env: Prop
 			const given = givens.flatMap((g) => g.given)
 			const from = new Set<string>([...reads, ...givens.flatMap((g) => g.from)])
 			const reached = closureOf(src, given)
-			const targets = [...reached.columns.keys()].filter((c) => varsAt.has(c))
-			const to = targets.flatMap((c) => varsAt.get(c) ?? []).filter((v) => !from.has(v))
+			const targets = [...reached.columns.keys()]
+			const to = targets.flatMap((c) => varsAt.get(c) ?? [hide(c)]).filter((v) => !from.has(v))
 			if (to.length > 0) {
 				deps.push(matchBinds([...from], [...new Set(to)], o.id, derivation(reached, targets)))
 			}
@@ -1717,11 +1842,12 @@ const regionProps = (subject: Subject, node: ReadingOf<"MatchRegion">, env: Prop
 	return finish(subject, deps, {
 		exactlyOne: false,
 		/** A variable no occurrence binds, a correlated one, is read from no fact of the region. */
-		provenance: (c) => bound.flatMap((b) => (b.v === c ? b.provenance : [])),
+		provenance: (c) => bound.get(c) ?? [],
 		context: strongest(contexts),
 		discriminant: [],
 		inner: [],
-		equal
+		equal,
+		hidden
 	})
 }
 
@@ -1764,85 +1890,13 @@ const sourceEqualities = (
 	return out
 }
 
-/** The outputs standing for every column of `d`, each once, or undefined when one has none. */
-const outputsOf = (
-	resolved: ReadonlyMap<string, ReadonlyArray<string>>,
-	d: ReadonlyArray<string>
-): ReadonlyArray<string> | undefined => {
-	const out = new Set<string>()
-	for (const c of d) {
-		const outs = resolved.get(c)
-		if (outs === undefined) {
-			return undefined
-		}
-		for (const o of outs) {
-			out.add(o)
-		}
-	}
-	return [...out]
-}
-
 /**
- * The outputs standing for each input column a projection's determinants can name, by the copies `copies` (each input
- * column's first copying output): a column fixed in the input needs none; a copied column, or one of a class with a
- * copied column, its copy; and a dropped column, the outputs standing for the columns of an input determinant, or of a
- * copied column, whose closure in the input reaches it. The dropped columns are resolved as a closure is reached, round
- * by round until none is added, each by the first determinant whose columns are all resolved, so a chain of dropped
- * columns, each determined by columns the projection keeps or by columns resolved before it, is resolved whatever its
- * order, and a cycle of dropped columns no kept column determines stays unresolved.
- */
-const standingFor = (
-	input: Props,
-	copies: ReadonlyMap<string, string>
-): ReadonlyMap<string, ReadonlyArray<string>> => {
-	const resolved = new Map<string, ReadonlyArray<string>>()
-	for (const c of fixedColumns(input)) {
-		resolved.set(c, [])
-	}
-	for (const c of input.columns) {
-		const copy = classOf(input, c)
-			.map((m) => copies.get(m))
-			.find((out) => out !== undefined)
-		if (!resolved.has(c) && copy !== undefined) {
-			resolved.set(c, [copies.get(c) ?? copy])
-		}
-	}
-	const determinants = determinantsOf(input)
-	const dropped = new Set(determinants.flat().filter((c) => !resolved.has(c)))
-	if (dropped.size === 0) {
-		return resolved
-	}
-	const candidates = [...determinants, ...[...copies.keys()].map((c) => [c])].map((d) => ({
-		d,
-		reached: coverOf(input, d).columns
-	}))
-	for (let changed = true; changed;) {
-		changed = false
-		for (const c of dropped) {
-			if (resolved.has(c)) {
-				continue
-			}
-			for (const { d, reached } of candidates) {
-				const outs = d.includes(c) || !reached.has(c) ? undefined : outputsOf(resolved, d)
-				if (outs === undefined) {
-					continue
-				}
-				resolved.set(c, outs)
-				changed = true
-				break
-			}
-		}
-	}
-	return resolved
-}
-
-/**
- * A projection closes over its input: each input determinant whose columns the output stands for (copied, of a class
- * with a copied column, fixed, or dropped and determined by columns standing so, standingFor), with each column put as
- * the outputs standing for it, and each copying output alone, determines the outputs whose values its closure in the
- * input reaches, a copy of a reached column, or a computed or constant output reading only reached columns. So a
- * dependency whose determinants include a dropped column holds over the columns that determine it, and two copies of
- * one column, or of equal columns, determine each other.
+ * A projection closes over its input: every input attribute is an attribute here, a copied column under its first
+ * copy's name and every other one hidden (ir/keys.ts hiddenAttribute), so each input determinant, every attribute named
+ * here, and each copying output alone, determines the attributes whose values its closure in the input reaches: a copy
+ * of a reached column, a hidden attribute reached, or a computed or constant output reading only reached columns. No
+ * dependency is dropped with a column the projection drops, and two copies of one column, or of equal columns,
+ * determine each other.
  */
 const projectProps = (subject: Subject, node: ReadingOf<"ProjectSet">): Props => {
 	const input = node.input
@@ -1864,62 +1918,63 @@ const projectProps = (subject: Subject, node: ReadingOf<"ProjectSet">): Props =>
 		}
 		reads.set(o.name, readColumns(o.expr, inputId))
 	}
-	const standing = standingFor(input, copies)
-	/** The images of the input's determinants, each column standing as it resolves, then each copying output alone. */
-	const images = determinantsOf(input).flatMap((d): ReadonlyArray<ReadonlyArray<string>> => {
-		const from = outputsOf(standing, d)
-		return from === undefined ? [] : [from]
-	})
+	/** Each input attribute's name here: the output copying it first, or a hidden attribute. */
+	const nameOf = (a: string): string =>
+		copies.get(a) ?? (isHidden(a) ? a : hiddenAttribute(inputId, a))
+	/** Each name here of an input attribute, but a copy's: the attribute it names. */
+	const hiddenFrom = new Map(
+		attributesOf(input).flatMap((a) => (copies.has(a) ? [] : [[nameOf(a), a] as const]))
+	)
+	/** The input attributes an attribute here reads: a copy's column, a computed output's, a hidden one's own. */
+	const readsOf = (o: string): ReadonlyArray<string> => {
+		const col = copyOf.get(o) ?? hiddenFrom.get(o)
+		return col !== undefined ? [col] : (reads.get(o) ?? [])
+	}
+	const here = [...all, ...hiddenFrom.keys()]
+	/** The images of the input's determinants, every attribute named here, then each copying output alone. */
 	const deps: Array<Dependency> = []
 	const seen = new Set<string>()
-	for (const from of [...images, ...[...copyOf.keys()].map((o) => [o])]) {
-		const ordered = inHeadingOrder(all, from)
-		const text = ordered.join("\u0000")
+	for (const from of [
+		...determinantsOf(input).map((d) => d.map(nameOf)),
+		...[...copyOf.keys()].map((o) => [o])
+	]) {
+		const ordered = inHeadingOrder(here, from)
+		const text = ordered.join("\u0001")
 		if (seen.has(text)) {
 			continue
 		}
 		seen.add(text)
-		const given = ordered.flatMap((o) => {
-			const col = copyOf.get(o)
-			return col === undefined ? [] : [col]
-		})
-		const reached = closureOf(input, given)
-		const to = all.filter((o) => {
-			if (ordered.includes(o)) {
-				return false
-			}
-			const col = copyOf.get(o)
-			return col !== undefined
-				? reached.columns.has(col)
-				: (reads.get(o) ?? []).every((c) => reached.columns.has(c))
-		})
-		if (to.length === 0) {
-			continue
+		const reached = closureOf(
+			input,
+			ordered.flatMap((o) => readsOf(o))
+		)
+		const to = here.filter(
+			(o) => !ordered.includes(o) && readsOf(o).every((c) => reached.columns.has(c))
+		)
+		if (to.length > 0) {
+			deps.push(projectionCloses(ordered, to, derivation(reached, to.flatMap(readsOf))))
 		}
-		const needed = to.flatMap((o) => {
-			const col = copyOf.get(o)
-			return col !== undefined ? [col] : (reads.get(o) ?? [])
-		})
-		deps.push(projectionCloses(ordered, to, derivation(reached, needed)))
 	}
 	/**
 	 * Copies of columns of one input class are equal, each two by the input's path between the columns they copy, none for
-	 * copies of one column.
+	 * copies of one column; copies of columns of two classes are never equal, so only the copies of one class are paired.
 	 */
-	const copying = [...copyOf]
 	const equal: Array<Equality> = []
-	for (const [i, [x, cx]] of copying.entries()) {
-		for (const [y, cy] of copying.slice(i + 1)) {
-			const there = cx === cy ? sameColumn(inputId, cx) : pathOf(input, cx, cy)
-			const back = cx === cy ? sameColumn(inputId, cx) : pathOf(input, cy, cx)
-			if (there !== undefined && back !== undefined) {
-				equal.push({
-					a: x,
-					b: y,
-					by: there.by,
-					there: projectionCloses([x], [y], there.derivation),
-					back: projectionCloses([y], [x], back.derivation)
-				})
+	const byClass = Map.groupBy(copyOf, ([, c]) => input.classes.get(c)?.[0] ?? c)
+	for (const copying of byClass.values()) {
+		for (const [i, [x, cx]] of copying.entries()) {
+			for (const [y, cy] of copying.slice(i + 1)) {
+				const there = cx === cy ? sameColumn(inputId, cx) : pathOf(input, cx, cy)
+				const back = cx === cy ? sameColumn(inputId, cx) : pathOf(input, cy, cx)
+				if (there !== undefined && back !== undefined) {
+					equal.push({
+						a: x,
+						b: y,
+						by: there.by,
+						there: projectionCloses([x], [y], there.derivation),
+						back: projectionCloses([y], [x], back.derivation)
+					})
+				}
 			}
 		}
 	}
@@ -1933,7 +1988,8 @@ const projectProps = (subject: Subject, node: ReadingOf<"ProjectSet">): Props =>
 		context: input.context,
 		discriminant: [],
 		inner: [],
-		equal
+		equal,
+		hidden: [...hiddenFrom.keys()]
 	})
 }
 
@@ -2052,23 +2108,19 @@ const unionProps = (subject: Subject, node: ReadingOf<"Union">): Props => {
 	}
 	const separators = all.filter((c) => arms.every((a) => literalAt(a, c) !== undefined))
 	/**
-	 * Each arm key within the heading, by any columns of its classes, with the separators: the minimization keeps the
-	 * columns of its classes every arm proves. Then the whole heading: minimizing it from the end finds a key that holds a
+	 * Each key an arm lists (its proof's key and each key one alternative away, ir/keys.ts listedKeys) within the heading,
+	 * by any columns of its classes, with the separators: the minimization keeps the columns of its classes every arm
+	 * proves. Then the whole heading: minimizing it from the end finds a key that holds a
 	 * different key of each arm beside the separators, which no one arm's key reaches.
 	 */
 	const candidates: Array<ReadonlyArray<string>> = [
 		...arms.flatMap((a) =>
 			a.keys.flatMap((k) =>
-				keyIn(k, (c) => all.includes(c)) === undefined
-					? []
-					: [
-							[
-								...keyClasses(k)
-									.flat()
-									.filter((c) => all.includes(c)),
-								...separators
-							]
-						]
+				listedKeys(k).flatMap((classes) =>
+					classes.every((members) => members.some((c) => all.includes(c)))
+						? [[...classes.flat().filter((c) => all.includes(c)), ...separators]]
+						: []
+				)
 			)
 		),
 		all
@@ -2083,7 +2135,8 @@ const unionProps = (subject: Subject, node: ReadingOf<"Union">): Props => {
 		context: strongest(arms.map((a) => a.context)),
 		discriminant,
 		inner: single ? [] : unionKeys,
-		equal
+		equal,
+		hidden: []
 	}
 	return finish(
 		subject,
@@ -2117,6 +2170,7 @@ export const relativeProps = (child: Props, attach: NodeOf<"Attach">): Props =>
 				by: edge.by,
 				there: edge.down,
 				back: edge.up
-			}))
+			})),
+			hidden: child.hidden
 		}
 	)

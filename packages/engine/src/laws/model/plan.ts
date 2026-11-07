@@ -381,10 +381,14 @@ export interface CheckPredicate {
 }
 
 /**
- * How a planned foreign key is deferred: by the schema-wide rule (on a cycle of the rule's foreign keys, or into a
- * replaceable target), or as its family axis fixes it.
+ * How a planned foreign key is deferred:
+ * - `rule`: by the schema-wide rule, deferred on a cycle of the foreign keys that order a write's statements or into a
+ *   replaceable target (laws/model/model.ts compileLaws);
+ * - `cycle`: a family's owner axis, which its family's writes order, its members after their owner: deferred exactly
+ *   when it lies on a cycle of the foreign keys that order a write's statements, which a law's key can close with it;
+ * - `immediate`, `deferred`: as its family axis fixes it.
  */
-export type ForeignKeyDeferral = "rule" | "immediate" | "deferred"
+export type ForeignKeyDeferral = "rule" | "cycle" | "immediate" | "deferred"
 
 /** A native object as planned: the frozen NativeObject kinds, with a law column still symbolic, a foreign key's deferral
  * still to decide, and a generated CHECK still to lower. */
@@ -1644,7 +1648,7 @@ class FamilyPlanner {
 							{ relation: member, base: extendNonEmpty(group, [copy]) },
 							{ relation: owner, base: ownerTargets },
 							"cascade",
-							this.#recognizer.cascadeFed(owner, ownerTargetColumns) ? "deferred" : "immediate"
+							this.#recognizer.cascadeFed(owner, ownerTargetColumns) ? "deferred" : "cycle"
 						)
 					: this.#axis(
 							"owner",

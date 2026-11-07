@@ -6,19 +6,25 @@ import {
 	type RosterDomain,
 	reportedOwner
 } from "#adapter/witness/keylaw.ts"
-import type { DomainName, RelationIdent } from "#compiler/core/ids.ts"
-import { defect } from "#compiler/core/invariant.ts"
-import { sqlstateClass, sqlstates } from "#compiler/core/sqlstate.ts"
-import { jsonText } from "#compiler/core/trusted.ts"
-import type { DescribedLaw } from "#compiler/physical/install/compile.ts"
-import type { Law, Witness } from "#compiler/types/changeset/changeset.ts"
-import type { KeyDecoder } from "#compiler/write/program/outcome.ts"
 import {
 	type ConcurrentChange,
+	type KeyDecoder,
+	type Law,
 	type LawDetail,
 	readChangeDetail,
-	readLawDetail
-} from "#compiler/write/refusal.ts"
+	readLawDetail,
+	type Refuser,
+	type Witness
+} from "#compiler/plan/change.ts"
+import {
+	defect,
+	type DomainName,
+	jsonText,
+	type RelationIdent,
+	sqlstateClass,
+	sqlstates
+} from "#compiler/plan/common.ts"
+import type { DescribedLaw } from "#compiler/plan/migration.ts"
 
 /**
  * The ErrorResponse fields a violation is classified by: the identity fields PostgreSQL reports and grizzle controls
@@ -27,7 +33,7 @@ import {
  */
 type ViolationFields = Pick<
 	ServerError,
-	"sqlstate" | "constraint" | "schema" | "table" | "dataType" | "detail"
+	"sqlstate" | "constraint" | "schema" | "table" | "column" | "dataType" | "detail"
 >
 
 /**
@@ -57,7 +63,14 @@ type ViolationFields = Pick<
  *   constraint, through the key-law map (keylaw.ts). The map holds native objects only, each under its table or
  *   domain, so a native violation is read under its owner alone. PostgreSQL
  *   states the violating key of a native violation only in its message and DETAIL prose, which for a CHECK holds the
- *   whole failing row with each value cut at 64 bytes, so the witness is `unreported`: the classifier reads neither.
+ *   whole failing row with each value cut at 64 bytes, and the classifier reads neither: the witness is the host's
+ *   (WrittenAt witness, write/program/witness.ts hostWitness), the key of a fact the ChangeSet states for the failing
+ *   statement that breaks what refused it, the table constraint or the domain's columns among the statement's tables,
+ *   or `unreported` where it states none.
+ * - SQLSTATE 23502 on a generated column of the installation's: grizzle writes no NULL, so only the column's generation
+ *   expression is NULL there, a closed read at a key its relation holds no row at, and the outcome names the generated
+ *   field's law (types/changeset Law `generated`) with the host's witness of the stated fact whose term has no value.
+ *   A 23502 on any other column, or one reporting no column, is no law outcome.
  *   The outcome names exactly the laws the violation breaks wherever what grizzle controls decides them, and every law
  *   the violated object discharges where it cannot:
  *   - one law, for an object that discharges one: a key, a table CHECK, a contract's or a refinement's own domain;
@@ -101,12 +114,19 @@ export type Violation =
 	| { readonly kind: "defect"; readonly domain: DomainName; readonly roster: RosterDomain }
 
 /**
- * The hook: a violation's law outcome, or undefined when it is not one, raised by a statement that writes the stored
- * relations `written`, by declared name (none for a COMMIT, a read-back or a statement into a carrier).
+ * What the failing statement wrote: the stored relations it writes, by declared name (none for a COMMIT, a read-back
+ * or a statement into a carrier), and the host's witness of a native refusal there, judged over the facts the
+ * ChangeSet states for it (write/program/witness.ts hostWitness): unreported where it states none.
  */
+export interface WrittenAt {
+	readonly relations: ReadonlyArray<string>
+	readonly witness: (refuser: Refuser) => Witness
+}
+
+/** The hook: a violation's law outcome, or undefined when it is not one, raised by a statement that wrote `written`. */
 export type ViolationClassifier = (
 	failure: ViolationFields,
-	written: ReadonlyArray<string>
+	written: WrittenAt
 ) => Violation | undefined
 
 /** A roster's live codes as its domains admit them, each with its handle, and its holes: `0 "a", 2 "c"; holes 1`. */
@@ -142,9 +162,6 @@ export const rosterDomainDefect = (
 		`grizzle writes only live handles, and ${carrier === "code" ? "the code" : "the bits"} domain ${violation.domain} of roster ${codec.roster} admits ${admits}, yet ${at} raised 23514 on it`
 	)
 }
-
-/** The witness of a violation whose key PostgreSQL states only in its message. */
-const unreportedWitness: Witness = Object.freeze({ kind: "unreported" })
 
 /**
  * The rejection of `law` by a write statement's refusal, from its DETAIL; undefined when the DETAIL names a relation,
@@ -189,6 +206,30 @@ const nativeLaws = (
 }
 
 /**
+ * A NOT NULL violation's law outcome: on a generated column of the installation's, the generated field's law, which
+ * only its generation expression's NULL, a closed read at a key its relation holds no row at, breaks, since grizzle
+ * writes no NULL; undefined on any other column, or none.
+ */
+const generatedViolation = (
+	laws: KeyLaws,
+	owner: ReturnType<typeof reportedOwner>,
+	column: ViolationFields["column"],
+	written: WrittenAt
+): Violation | undefined => {
+	if (owner?.kind !== "table" || column === undefined) {
+		return undefined
+	}
+	const law = laws.generatedOf(owner.name, column)
+	return law === undefined
+		? undefined
+		: {
+				kind: "rejected",
+				laws: [law],
+				witness: written.witness({ kind: "generated", table: owner.name, column })
+			}
+}
+
+/**
  * The classifier of one installation's violations (see the header), whose stored relations, by declared name, are
  * `stored`.
  */
@@ -217,6 +258,9 @@ export const violationClassifier =
 				return { kind: "defect", domain: owner.name, roster }
 			}
 		}
+		if (failure.sqlstate === sqlstates.notNullViolation) {
+			return generatedViolation(laws, owner, failure.column, written)
+		}
 		const constraint = failure.constraint
 		if (constraint === undefined) {
 			return undefined
@@ -241,9 +285,17 @@ export const violationClassifier =
 		if (native === undefined) {
 			return undefined
 		}
+		const broken = nativeLaws(
+			native,
+			new Set(Arr.map(written.relations, (relation) => laws.tableOf(relation)))
+		)
 		return {
 			kind: "rejected",
-			laws: nativeLaws(native, new Set(Arr.map(written, (relation) => laws.tableOf(relation)))),
-			witness: unreportedWitness
+			laws: broken,
+			witness: written.witness(
+				owner.kind === "table"
+					? { kind: "constraint", owner: owner.name, name: constraint }
+					: { kind: "domain", laws: broken, uses: native.uses }
+			)
 		}
 	}

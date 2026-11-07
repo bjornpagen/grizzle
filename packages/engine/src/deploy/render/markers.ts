@@ -172,17 +172,6 @@ export const splitStatements = (text: string): ReadonlyArray<string> => {
 	return out
 }
 
-/** A statement from its first token as PostgreSQL's scanner reads it: without its leading whitespace and
- * comments of both kinds, otherwise as written. A statement the scanner cannot read keeps the text from where it stops.
- * meta.json records each drafted statement in this form, which a person reading it recognizes in the file. */
-export const fromFirstToken = (statement: string): string => {
-	const { tokens, error } = lex(statement)
-	const [first] = tokens
-	const from =
-		first !== undefined ? first.start : error !== undefined ? error.offset : statement.length
-	return statement.slice(from).trim()
-}
-
 /** A token of a statement as PostgreSQL's scanner reads it, in the form two statements are compared in: an unquoted
  * word by its ASCII uppercase form, since PostgreSQL folds an unquoted word's case, keyword or name; a quoted
  * identifier and a string constant by their content, the string with its prefix, so a doubled quote and its escape
@@ -250,10 +239,6 @@ const placeholderUpper = placeholderToken.toUpperCase()
 
 /** Whether a drafted token is the placeholder token, a hole the reviewer's value fills. */
 const isHole = (t: StatementToken): boolean => t.kind === "word" && t.upper === placeholderUpper
-
-/** Whether a drafted statement holds a hole, which more than one written statement fills. */
-export const hasPlaceholder = (tokens: ReadonlyArray<StatementToken>): boolean =>
-	tokens.some((t) => isHole(t))
 
 /** Whether tokens nest their parentheses and brackets, as a value's do. */
 const balanced = (tokens: ReadonlyArray<StatementToken>): boolean => {

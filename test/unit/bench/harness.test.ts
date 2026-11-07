@@ -1043,6 +1043,7 @@ layer(NodeServices.layer, { excludeTestServices: true })(
 					ctx,
 					exhaust(
 						{
+							oracle: { kind: "unstated" },
 							suite: "unit/bench/record-of",
 							generator: (source) =>
 								[

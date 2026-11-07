@@ -1,6 +1,6 @@
 import { Array as Arr, Effect, Option, Result } from "effect"
 import { UnreadableAnswer } from "#adapter/errors/failures.ts"
-import type { AttachmentFacts } from "#adapter/reader/analysis.ts"
+import type { AttachmentScope } from "#adapter/reader/analysis.ts"
 import {
 	answerOf,
 	type ExecutionInputs,
@@ -20,23 +20,37 @@ import {
 } from "#adapter/reader/execution.ts"
 import type { InputRefusal } from "#adapter/reader/relations.ts"
 import type { BatchStatement, Flight } from "#adapter/wire/batch.ts"
-import { carrierSpecOf, scalarCodec } from "#compiler/codec/scalar.ts"
-import { type Layout, type Row, rowText } from "#compiler/core/decoder.ts"
-import type { ParamId } from "#compiler/core/ids.ts"
-import { defined } from "#compiler/core/invariant.ts"
-import type { Codebook } from "#compiler/ir/codes.ts"
-import type { CompletedOrder, Heading, TakeBound } from "#compiler/ir/rel.ts"
-import type { Carrier } from "#compiler/ir/scalar.ts"
-import { columnPosition, columnType } from "#compiler/lower/conservative/context.ts"
-import type { GroupMerge, ProgramDelivery } from "#compiler/lower/conservative/types.ts"
-import { mapTree, type StatementRoots } from "#compiler/lower/conservative/types.ts"
-import type { FusedStatement, RelationChoice } from "#compiler/lower/shapes/index.ts"
-import { runsLargeForm } from "#compiler/lower/shapes/take/index.ts"
-import { mergeHeadingGroups } from "#compiler/lower/shapes/union/index.ts"
-import type { SpecifiedStatement } from "#compiler/lower/template.ts"
-import type { QueryTemplate } from "#compiler/program/compile.ts"
-import type { CompiledTemplate } from "#compiler/program/template.ts"
-import { type CarrierHost, compareValues } from "#compiler/scalar/values/identity.ts"
+import {
+	type Carrier,
+	type Codebook,
+	defined,
+	type Layout,
+	type ParamId,
+	type Row,
+	rowText
+} from "#compiler/plan/common.ts"
+import {
+	type CarrierHost,
+	carrierSpecOf,
+	columnPosition,
+	columnType,
+	compareValues,
+	type CompiledTemplate,
+	type CompletedOrder,
+	type FusedStatement,
+	type GroupMerge,
+	type Heading,
+	mapTree,
+	mergeHeadingGroups,
+	type ProgramDelivery,
+	type QueryTemplate,
+	type RelationChoice,
+	runsLargeForm,
+	scalarCodec,
+	type SpecifiedStatement,
+	type StatementRoots,
+	type TakeBound
+} from "#compiler/plan/read.ts"
 
 /**
  * Running one compiled query template and delivering its public result.
@@ -293,26 +307,26 @@ const deliveredLayouts = (delivery: DeliveryPlan): Arr.NonEmptyReadonlyArray<Lay
 	Arr.map(delivery.groups, (g) => g.record.layout)
 
 /**
- * The program of a read source whose attachments `facts` describes, its statements run by `runs`, its rows read under
- * the installation's codes `codes`.
+ * The program of a read source on the delivered spine `spine` (analysis.ts attachmentHeads), its statements run by
+ * `runs`, its rows read under the installation's codes `codes`.
  */
 const sourceProgram = (
 	source: ReadSource,
 	runs: StatementRoots<ReadRun>,
-	facts: AttachmentFacts,
+	spine: AttachmentScope,
 	codes: Codebook
 ): ReadProgram => {
-	const { records, delivered } = programRecords(runs, facts, codes)
+	const { records, delivered } = programRecords(runs, spine, codes)
 	const delivery = deliveryPlan(source.delivery, delivered, codes)
 	return { records, delivery, layouts: deliveredLayouts(delivery) }
 }
 
-/** The program of a read source whose attachments `facts` describes, under the installation's codes `codes`. */
+/** The program of a read source on the delivered spine `spine`, under the installation's codes `codes`. */
 export const readProgram = (
 	source: ReadSource,
-	facts: AttachmentFacts,
+	spine: AttachmentScope,
 	codes: Codebook
-): ReadProgram => sourceProgram(source, readStatements(source), facts, codes)
+): ReadProgram => sourceProgram(source, readStatements(source), spine, codes)
 
 /** One artifact of a compiled query template. */
 type ArtifactName = CompiledTemplate["selection"]["artifact"]
@@ -334,13 +348,13 @@ export const templateStatements = (
 export const templateProgram = (
 	template: QueryTemplate,
 	artifact: ArtifactName,
-	facts: AttachmentFacts,
+	spine: AttachmentScope,
 	codes: Codebook
 ): ReadProgram =>
 	sourceProgram(
 		templateSource(template, artifact),
 		templateStatements(template, artifact),
-		facts,
+		spine,
 		codes
 	)
 

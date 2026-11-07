@@ -57,6 +57,7 @@ import {
 	type StoredIndexRequest,
 	type WorkloadAccess
 } from "#compiler/ir/products.ts"
+import { Roster } from "#compiler/ir/scalar.ts"
 import { isolationFunctionIdent } from "#compiler/physical/ddl/isolation.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { namedIdent } from "#compiler/physical/obligations/graph.ts"
@@ -117,14 +118,6 @@ const storedRequest = (r: AccessIndexRequest): StoredIndexRequest => ({
 export const isEmptySnapshot = (s: DeploySnapshot): boolean =>
 	s.fingerprint === emptyFingerprint(s.schema)
 
-/**
- * Every property of a type but its rosters' handles: a type's recorded identity names each roster by its name, since a
- * roster's handles are its codes, which the roster's own record holds, and its columns keep their type when it grows.
- */
-const rostersByName: EncodeOptions = {
-	omit: (key, _value, path) => key === "handles" && path.at(-1) === "roster"
-}
-
 /** A digest the snapshot records, of a value the compiler built: its failure is a kernel refusal. */
 const recordedDigest = (domain: string, value: unknown, options: EncodeOptions): string => {
 	const d = digest(domain, value, options)
@@ -161,7 +154,7 @@ const theoryOf = (installation: Installation): SnapshotTheory => {
 		return {
 			name: f.name,
 			column: f.column,
-			type: recordedDigest("scalar-type", f.type, rostersByName),
+			type: recordedDigest("scalar-type", f.type, everyProperty),
 			writing: writingOf(declared.writing)
 		}
 	}
@@ -206,8 +199,7 @@ const theoryOf = (installation: Installation): SnapshotTheory => {
 							ident: o.ident,
 							mutable: false,
 							level: o.level,
-							codes: codecOf(installation.names.codes, { closed: o.name, handles: o.desc.handles })
-								.codes
+							codes: codecOf(installation.names.codes, new Roster(o.name, o.desc.handles)).codes
 						}
 					]
 				]

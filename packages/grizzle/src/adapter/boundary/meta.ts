@@ -1,15 +1,19 @@
 import { Result } from "effect"
 import { toResult } from "#adapter/engine.ts"
-import { decode, noRevivers } from "#compiler/core/canonical.ts"
-import { type CompileError, malformedArtifact } from "#compiler/core/errors.ts"
-import { isRecord } from "#compiler/core/record.ts"
-import { trusted } from "#compiler/core/trusted.ts"
 import {
-	type MigrationMeta,
+	type CompileError,
+	decode,
+	isRecord,
+	malformedArtifact,
+	noRevivers,
+	trusted
+} from "#compiler/plan/common.ts"
+import {
 	metaSeal,
-	type ReadMeta,
-	readDecodedMeta
-} from "#compiler/deploy/render/folder.ts"
+	type MigrationMeta,
+	readDecodedMeta,
+	type ReadMeta
+} from "#compiler/plan/migration.ts"
 
 /** The refusal of a meta.json grizzle did not write as it stands. */
 const unsealed = (): CompileError =>

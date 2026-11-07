@@ -838,6 +838,7 @@ describe("the worlds model's host semantics", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						...budget,
 						suite: "unit/world-model/host",
 						draw: drawn(caseGen),
@@ -886,6 +887,7 @@ describe("the worlds model's host semantics", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						...budget,
 						suite: "unit/world-model/host membership",
 						draw: drawn(worldGen),
@@ -934,6 +936,7 @@ describe("the worlds model's host semantics", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						...budget,
 						suite: "unit/world-model/host get keys",
 						draw: drawn(installGen(docsBase)),

@@ -148,6 +148,7 @@ layer(InitializedCluster.layer)("Db.open errors through the public API", (it) =>
 					const cluster = yield* InitializedCluster
 					return yield* explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "api-errors/open",
 							draw: drawn(schemaSketchGen),
 							literal: Formatter.format,

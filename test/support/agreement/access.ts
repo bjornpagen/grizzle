@@ -19,6 +19,8 @@ import type { AnyRole, EntryValue } from "#compiler/types/schema/world.ts"
 import {
 	Account,
 	AccountNames,
+	accountIds,
+	accountSeats,
 	Org,
 	Reports,
 	Session,
@@ -30,6 +32,7 @@ import {
 	taskPlain,
 	taskSession,
 	taskStaged,
+	Tier,
 	Work
 } from "#test/support/agreement/access-schema.ts"
 import { defined } from "#test/support/assert.ts"
@@ -55,7 +58,11 @@ import { compileTemplate, testArtifacts, testCompile } from "#test/support/compi
  *   the engine reads its argument as a role reached through a login (schema/world.ts loginRoleOf);
  * - Db.open given no options, null, a token, or a token of another type than text typechecks exactly when Db.open's
  *   boundary reads them (db/open.ts openToken), refusing what a JavaScript caller passes at stage schema: no options
- *   at the call's arity (TS2554), null as the argument (TS2345), and another token at the token (TS2322).
+ *   at the call's arity (TS2554), null as the argument (TS2345), and another token at the token (TS2322);
+ * - a program over the base, reading its ordinary relations alone or the closed relation's rows too, executed on a
+ *   role's Db typechecks exactly when the engine compiles it for the role: a role holding every relation of the base
+ *   whole but the closed one, whose rows every role reads, runs it, and a role holding one only through a query entry
+ *   refuses it (OutsideRole).
  *
  * The places a Task entry reads a context are every place a definition can: a match of Org or of Session, Org under
  * a negation, in an interior stage and through an imported query, or none. Each refusal stands under
@@ -85,6 +92,11 @@ type ContextName = (typeof contextNames)[number]
 /** What Db.open is given: a role reached through its login, the role value itself, or the schema. */
 const openers = ["login role", "role value", "schema"] as const
 type Opener = (typeof openers)[number]
+
+/** A program over the base: one reading its ordinary relations alone, and one matching the closed relation too. */
+const basePrograms = ["accountIds", "accountSeats"] as const
+type BaseProgram = (typeof basePrograms)[number]
+const baseValues: { readonly [P in BaseProgram]: object } = { accountIds, accountSeats }
 
 /** Db.open's options as a caller may give them: none, null, a token, or a token of another type than text. */
 const optionForms = ["omitted", "null", "a token", "a token of another type"] as const
@@ -149,6 +161,8 @@ interface AccessSpec {
 	readonly opener: Opener
 	/** What Db.open of its first role is given as options. */
 	readonly options: OptionForm
+	/** A program over the base a role's Db executes: its role, and whether it matches the closed relation. */
+	readonly base: { readonly role: number; readonly program: BaseProgram }
 }
 
 /** What a case reached: each role's place and every verdict. */
@@ -160,6 +174,7 @@ export type AccessNote =
 	| `refresh ${"admitted" | "refused"}`
 	| `${Opener} ${"admitted" | "refused"}`
 	| `options ${OptionForm} ${"admitted" | "refused"}`
+	| `base ${BaseProgram} ${"admitted" | "refused"}`
 	| "two roles"
 	| "over an extension"
 
@@ -189,12 +204,20 @@ const specGen: Gen<AccessSpec> = (source) => {
 			names: coin(source, 2) ? [first] : [first, ...Arr.filter(derivedNames, (n) => n !== first)]
 		},
 		opener: source.draw(element(openers)),
-		options: source.draw(element(optionForms))
+		options: source.draw(element(optionForms)),
+		base: {
+			role: source.draw(int(0, count - 1)),
+			program: source.draw(element(basePrograms))
+		}
 	}
 }
 
-/** A role's entries: Account whole, Task at its place, and over Reports both derived relations whole. */
+/**
+ * A role's entries: Tier and Account whole, Task at its place, and over Reports both derived relations whole. The
+ * closed relation is no role's entry: every role reads its rows.
+ */
 const roleEntries = (spec: AccessSpec, r: RoleSpec): ReadonlyArray<readonly [string, string]> => [
+	["Tier", "Tier"],
 	["Account", "Account"],
 	["Task", taskEntry[r.place][0]],
 	...(spec.level === "Reports" ? Arr.map(derivedNames, (d) => [d, d] as const) : [])
@@ -203,6 +226,7 @@ const roleEntries = (spec: AccessSpec, r: RoleSpec): ReadonlyArray<readonly [str
 /** A role, built by the public role(...) as the program builds it. */
 const builtRole = (spec: AccessSpec, r: RoleSpec): AnyRole => {
 	const values: Readonly<Record<string, EntryValue>> = {
+		Tier,
 		Account,
 		...(spec.level === "Reports" ? derivedValues : {})
 	}
@@ -262,6 +286,8 @@ interface AccessVerdict {
 	readonly opener: boolean
 	/** Whether Db.open's boundary reads the drawn options (db/open.ts openToken). */
 	readonly options: boolean
+	/** Whether the engine compiles the program over the base for the role (OutsideRole for a partial role). */
+	readonly base: boolean
 }
 
 const verdictOf = (spec: AccessSpec): AccessVerdict => {
@@ -297,7 +323,12 @@ const verdictOf = (spec: AccessSpec): AccessVerdict => {
 		program: program.ok,
 		refresh: EffectResult.isSuccess(refresh),
 		opener: loginRoleOf(opened) !== undefined,
-		options: EffectResult.isSuccess(openToken(optionValues[spec.options].value))
+		options: EffectResult.isSuccess(openToken(optionValues[spec.options].value)),
+		base: compileTemplate(
+			baseValues[spec.base.program],
+			defined(values[spec.base.role], "the base program's role"),
+			testCompile
+		).ok
 	}
 }
 
@@ -320,6 +351,7 @@ const caseGen: Gen<AccessCase> = (source) => {
 	notes.add(`refresh ${verdict.refresh ? "admitted" : "refused"}`)
 	notes.add(`${spec.opener} ${verdict.opener ? "admitted" : "refused"}`)
 	notes.add(`options ${spec.options} ${verdict.options ? "admitted" : "refused"}`)
+	notes.add(`base ${spec.base.program} ${verdict.base ? "admitted" : "refused"}`)
 	if (spec.roles.length > 1) {
 		notes.add("two roles")
 	}
@@ -328,6 +360,9 @@ const caseGen: Gen<AccessCase> = (source) => {
 	}
 	return { spec, verdict, notes }
 }
+
+/** The refusal a program over the base takes on a Db of a role that holds no relation of it whole. */
+const baseRefusal: TypeRefusal = "a program over no level of the database's schema"
 
 const contextRefusal: TypeRefusal =
 	"a program on a Db of a role matches only the contexts the role's relations read, whose facts its claims hold"
@@ -402,6 +437,9 @@ const blockOf = (c: AccessCase, i: number): ReadonlyArray<string> => {
 		`export const w${i} = Db.open(${openerSource(spec, i)}, { token: "token" })`,
 		...(verdict.options ? [] : [optionDirective(spec.options)]),
 		`export const u${i} = Db.open(L${i}.roles.${spec.roles[0].name}${optionValues[spec.options].source})`,
+		`export const b${i} = (db: DbOf<typeof ${defined(roleIds[spec.base.role], "the base program's role")}, unknown>) =>`,
+		...(verdict.base ? [] : [`\t// @ts-expect-error -- TS2345 refusal: ${baseRefusal}`]),
+		`\tdb.execute(${spec.base.program}, {})`,
 		programSource(programRole, spec.program.context, i),
 		`export const x${i} = (db: DbOf<typeof ${programRole}, unknown>) =>`,
 		...(verdict.program ? [] : [`\t// @ts-expect-error -- TS2345 refusal: ${contextRefusal}`]),
@@ -444,6 +482,10 @@ export const accessRequired: Situations<AccessNote> = [
 	"options null refused",
 	"options a token admitted",
 	"options a token of another type refused",
+	"base accountIds admitted",
+	"base accountIds refused",
+	"base accountSeats admitted",
+	"base accountSeats refused",
 	"two roles",
 	"over an extension"
 ]
@@ -485,6 +527,9 @@ export const accessModule = (entries: AccessEntries, seed: number): string => {
 	const body = Arr.join(Arr.flatMap(accessCases(seed), blockOf), "\n")
 	const read = identifiers(body)
 	const schemaNames = [
+		"Tier",
+		"accountIds",
+		"accountSeats",
 		"Account",
 		"Task",
 		"Work",

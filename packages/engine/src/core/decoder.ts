@@ -366,7 +366,7 @@ export const columnAt = (layout: Layout, key: string): number =>
  * and the shell's assembly keeps, and a group is one of the statement's heading groups. It is a runtime length, which
  * no TypeScript type of an array carries, so a miss is a defect.
  */
-export const rowSlot = <A>(members: ReadonlyArray<A>, position: number): A => {
+const rowSlot = <A>(members: ReadonlyArray<A>, position: number): A => {
 	const member = members[position]
 	if (member === undefined) {
 		throw defect(`a positional row holds its layout's member ${position}`)

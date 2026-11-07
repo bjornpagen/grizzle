@@ -69,6 +69,7 @@ describe("text validation", () => {
 					const positions = ["first", "middle", "last"] as const
 					return yield* explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "unit/values/text-validation",
 							draw: drawn(plantedTextGen),
 							literal: Formatter.format,
@@ -128,6 +129,7 @@ describe("code point order", () => {
 				}
 				return yield* explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/values/text-2",
 						draw: drawn((source) => [source.draw(text), source.draw(text)] as const),
 						literal: Formatter.format,

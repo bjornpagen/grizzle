@@ -23,7 +23,7 @@ import { defaultPool, poolFor, rowsOn } from "#test/pg/adapter/support.ts"
 import { Item, Seat, Shop, Stock, uuidOf } from "#test/pg/reads/shop.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert, assertVariant, defined, nonEmpty, unorderedEqual } from "#test/support/assert.ts"
-import { exactValue } from "#test/support/equivalence.ts"
+import { exactValue, valueHash } from "#test/support/equivalence.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { a1, a2, t2, t4, tMissing, workFacts } from "#test/support/fixtures/golden/work.ts"
 import { caseHang, testIdleTimeout } from "#test/support/limits.ts"
@@ -322,6 +322,7 @@ export const explainSuite = (): void => {
 							} as const
 							return yield* explore(
 								{
+									oracle: { kind: "unstated" },
 									...budget,
 									suite: "reads/explain queries",
 									draw: drawn(queryCaseGen),
@@ -383,6 +384,7 @@ export const explainSuite = (): void => {
 							const { db, tap } = yield* tapped(opened, o.installed.as(o.server))
 							return yield* explore(
 								{
+									oracle: { kind: "unstated" },
 									...budget,
 									/** Nothing executed: no fact written, the sequence not advanced. */
 									suite: "reads/explain changesets",
@@ -618,7 +620,7 @@ export const explainSuite = (): void => {
 							)
 						}).pipe(Effect.scoped, withLayer(o.layer))
 						const after = yield* tableState(o.installed, W.TaskNote)
-						assert.deepEqual(set(exactValue)(after, before), Option.none())
+						assert.deepEqual(set(valueHash, exactValue)(after, before), Option.none())
 						return explored
 					}).pipe(Effect.scoped)
 				)

@@ -1,17 +1,17 @@
 import { Array as Arr, Option, pipe, String as Str } from "effect"
 import type { CatalogQuery } from "#adapter/wire/statement.ts"
 import {
+	C,
 	databaseSettings,
 	type DefaultGrant,
 	type DefaultPrivilegesExpectation,
 	type ExpectedPolicy,
-	type PrivilegeFamily,
 	privilegeFamilies,
+	type PrivilegeFamily,
 	privilegeFamilyNames,
 	type RoleExpectation
-} from "#compiler/deploy/admission/roles.ts"
-import * as C from "#compiler/sql/catalog.ts"
-import { emitCatalog } from "#compiler/sql/emit.ts"
+} from "#compiler/plan/catalog.ts"
+import { emitCatalog } from "#compiler/plan/common.ts"
 
 /**
  * The settings, privileges, attributes, memberships, members, policies and row security statements both admissions

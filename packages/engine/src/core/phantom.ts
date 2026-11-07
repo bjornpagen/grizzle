@@ -39,7 +39,7 @@ export interface Domained<out D> {
 }
 
 /** The key the facts a carrier's values are proved to have ride under: a phantom, as `domain` is. */
-export declare const proved: unique symbol
+declare const proved: unique symbol
 
 /** What a carrier or a term states beside its domain: the facts its values are proved to have. */
 export interface Proving<out F> {

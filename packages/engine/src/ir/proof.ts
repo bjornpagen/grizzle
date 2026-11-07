@@ -19,15 +19,17 @@ export type OperandIndex = 0 | 1 | 2 | 3
  *   rounds it; NaN passes a typmod, and a cast that NaN would fail into an integer or money also requires `finite`;
  * - `contract`: the value satisfies the contract a domain cast enters;
  * - `language`: the text a domain cast enters a regex-refined text with lies in the refinement's language;
- * - `powerDomain`: power's result stays inside its carrier's range;
+ * - `powerDomain`: power's base is never below zero, and never zero or its exponent never below zero, the facts a
+ *   term's TypeScript type states;
+ * - `powerRange`: power's result over those operands stays inside its carrier's range;
  * - `bucketDomain`: width_bucket's bounds differ and its count lies in 1..2147483646;
  * - `lexical`: a text a parse reads is a member of its target's lexical form (scalar/lexical.ts), so the target's input
  *   function reads it without raising, to the value XML Schema's lexical mapping gives it.
  *
- * nonzero, nonnegative and finite are facts a term's TypeScript type states (Facts), exactly; fits, contract,
- * powerDomain and bucketDomain rest on numeric bounds no TypeScript type can state, which the lowering's bound domain
- * proves (scalar/compute/bounds.ts); language and lexical rest on the operand's text refinement, whose language the
- * lowering proves included in the target's pattern or form (scalar/regex/inclusion.ts).
+ * nonzero, nonnegative and finite are facts a term's TypeScript type states (Facts), exactly, and powerDomain rests on
+ * them; fits, contract, powerRange and bucketDomain rest on numeric bounds no TypeScript type can state, which the
+ * lowering's bound domain proves (scalar/compute/bounds.ts); language and lexical rest on the operand's text
+ * refinement, whose language the lowering proves included in the target's pattern or form (scalar/regex/inclusion.ts).
  */
 export type Precondition =
 	| { readonly kind: "nonzero"; readonly operand: OperandIndex }
@@ -37,6 +39,7 @@ export type Precondition =
 	| { readonly kind: "contract" }
 	| { readonly kind: "language" }
 	| { readonly kind: "powerDomain" }
+	| { readonly kind: "powerRange" }
 	| { readonly kind: "bucketDomain" }
 	| { readonly kind: "lexical" }
 

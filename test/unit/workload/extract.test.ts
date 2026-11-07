@@ -76,6 +76,7 @@ describe("the workload plan", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/workload/extract-planned",
 						draw: drawn(workloadGen),
 						literal: Formatter.format,
@@ -205,6 +206,7 @@ describe("mergeStatistics", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/workload/extract-merge",
 						draw: drawn(array(statisticsGen, { min: 0, max: 6 })),
 						literal: Formatter.format,

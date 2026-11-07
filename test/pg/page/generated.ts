@@ -28,7 +28,7 @@ import { maxStringLength } from "#compiler/core/limits.ts"
 import { formatLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
-import { nodesByLabel, relNode, rooted, topoOrder } from "#compiler/ir/dag.ts"
+import { relNode, rooted, topoOrder } from "#compiler/ir/dag.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { LogicalQuery, ParamDecl, StatementSpec } from "#compiler/ir/products.ts"
 import {
@@ -85,6 +85,7 @@ import {
 import { factSet, inputText, oracleCheck, PropertyFailed } from "#test/support/oracle/runner.ts"
 import { loweringViolations } from "#test/support/oracle/verify/index.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
+import { everyColumnCarried } from "#test/support/spine.ts"
 import { statementSql } from "#test/support/sql.ts"
 import { headingRecord } from "#test/support/statement-rows.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -1252,28 +1253,13 @@ export const generatedSuite = (artifact: PageArtifactName): void => {
 				})
 			}
 			const template = page.value
-			const labelled = nodesByLabel(query.dag)
 			const runtime = pageRuntimeOf({
 				page: template,
 				params: query.params,
 				codes,
 				query: `generated ${Formatter.format(ordered.stated)} ${o.c.query.dag.roots[0].id}`,
 				generation: { schema: schema, extensions: {} },
-				/**
-				 * The conservative claims of the checked DAG, which are sound (reader/analysis.ts): each attachment
-				 * delivered as its Attach node states, and every child column carried.
-				 */
-				facts: {
-					delivered: (attach) => {
-						const node = labelled.get(attach)
-						if (node?.kind !== "Attach") {
-							throw new Error(`the delivery of ${attach}, no Attach node of the checked DAG`)
-						}
-						return node.delivered
-					},
-					root: { under: new Map() },
-					carried: () => true
-				}
+				spine: everyColumnCarried(query.dag)
 			})
 			if (Result.isFailure(runtime)) {
 				return yield* new PropertyFailed({

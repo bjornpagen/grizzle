@@ -99,6 +99,8 @@ describe("the complete bound tuple survives fusion", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/lower/rewrite/fuse-bound-tuple",
 						literal: Formatter.format,
 						generator: (source) =>
@@ -184,6 +186,8 @@ describe("fixed columns in R01 fusion", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/lower/rewrite/fuse-fixed-columns",
 						literal: Formatter.format,
 						generator: (source) => [source.draw(uses), source.draw(uses)] as const,

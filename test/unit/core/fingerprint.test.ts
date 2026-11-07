@@ -130,6 +130,7 @@ describe("fingerprints", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/core/fingerprint-parts",
 					draw: drawn(
 						(source) => [source.draw(contentGen), source.draw(element(changes))] as const
@@ -176,6 +177,7 @@ describe("fingerprints", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/core/fingerprint-domain",
 						draw: drawn(
 							(source) =>

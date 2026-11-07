@@ -52,8 +52,9 @@ import { descOf, regex, wildcard } from "#test/unit/schema/support.ts"
  * - Over the derived oracle's generated schemas (drawn levels, aggregates, take forms): every relation's keys keep
  *   those rules, a level is one above the derived relations it reads, and queries over a relation see its keys.
  * - Over generated joins of relations keyed by primary and candidate keys, each matched once, their heads in a drawn
- *   order: the keys are exactly the minimal sets of head columns whose closure, under each relation's keys bound whole,
- *   holds the head, each in the head's order.
+ *   order: every key the view indexes is a minimal set of head columns whose closure, under each relation's keys bound
+ *   whole, holds the head, in the head's order, and the keys the view states, each key's factors chosen among its
+ *   alternatives, are exactly those minimal sets.
  * - Over generated definitions of one relation of drawn field types (uuid, integer, bounded and wildcard text, vectors
  *   of drawn dimensions): a plain head in a drawn order, possibly empty; a grouped count; a global aggregate; a head
  *   with an attachment; a union of two heading groups; and a head of a drawn number of integer columns around
@@ -324,6 +325,38 @@ const minimalKeys = (
 		keys,
 		(k) =>
 			!Arr.some(keys, (other) => other.length < k.length && Arr.every(other, (x) => k.includes(x)))
+	)
+}
+
+/**
+ * Every key a view states (ir/keys.ts ViewKey): of each of its keys, one minimal key of each factor, its alternatives
+ * grouped by the fields they stand for, the key's own fields among them, each in heading order.
+ */
+const viewStated = (
+	keys: ReadonlyArray<{
+		readonly fields: ReadonlyArray<string>
+		readonly alternatives: ReadonlyArray<{
+			readonly of: ReadonlyArray<string>
+			readonly columns: ReadonlyArray<string>
+		}>
+	}>
+): ReadonlyArray<ReadonlyArray<string>> => {
+	const stated = Arr.flatMap(keys, (k) => {
+		const factors = Arr.map(
+			Arr.dedupeWith(
+				Arr.map(k.alternatives, (a) => a.of),
+				(x, y) => deepEquals(x, y)
+			),
+			(of) => [of, ...Arr.flatMap(k.alternatives, (a) => (deepEquals(a.of, of) ? [a.columns] : []))]
+		)
+		const rest = Arr.filter(k.fields, (f) => !Arr.some(k.alternatives, (a) => a.of.includes(f)))
+		return Arr.reduce(factors, [rest], (chosen: ReadonlyArray<ReadonlyArray<string>>, factor) =>
+			Arr.flatMap(chosen, (key) => Arr.map(factor, (alternative) => [...key, ...alternative]))
+		)
+	})
+	return Arr.dedupeWith(
+		Arr.map(stated, (k) => Arr.sort(k, Order.String)),
+		(x, y) => deepEquals(x, y)
 	)
 }
 
@@ -723,6 +756,7 @@ describe("derived relation keys", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/derived/keys",
 						draw: drawn(caseSketchGen),
 						literal: Formatter.format,
@@ -781,7 +815,7 @@ describe("derived relation keys", () => {
 	)
 
 	it.effect(
-		"are exactly the minimal sets of head columns a join's keys determine the head by, through every relation it matches",
+		"state exactly the minimal sets of head columns a join's keys determine the head by, through every relation it matches",
 		(ctx) =>
 			searched(
 				ctx,
@@ -833,9 +867,16 @@ describe("derived relation keys", () => {
 								).relations["D"]
 							)
 							keyRules(d)
+							const minimal = Arr.map(expected, (k) => Arr.map(k, headName))
+							assert.ok(
+								Arr.every(d.keys, (k) =>
+									Arr.some(minimal, (m) => deepEquals<ReadonlyArray<string>>(m, k.fields))
+								),
+								"every key the view indexes is a minimal key of the join"
+							)
 							unorderedEqual(
-								Arr.map(d.keys, (k): ReadonlyArray<string> => k.fields),
-								Arr.map(expected, (k) => Arr.map(k, headName))
+								viewStated(d.read.keys),
+								Arr.map(minimal, (k) => Arr.sort(k, Order.String))
 							)
 							const reached = joinFeatures(j, expected)
 							c.noteAll(reached)

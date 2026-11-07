@@ -95,6 +95,7 @@ describe("selectArtifact", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/program/context-select",
 					draw: drawn(caseGen),
 					literal: Formatter.format,
@@ -156,6 +157,8 @@ describe("a template", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/program/context-templates",
 						generator: readGen,
 						literal: Formatter.format,

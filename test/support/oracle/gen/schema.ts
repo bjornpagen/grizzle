@@ -8,7 +8,7 @@ import {
 	oneOf,
 	weighted
 } from "@grizzle/testing/gen"
-import { exact, set } from "@grizzle/testing/oracle"
+import { exact, set, structuralHash } from "@grizzle/testing/oracle"
 import { fullSwarm, keep, type Swarm, weightOf } from "@grizzle/testing/swarm"
 import { Array as Arr, Option, Record as Rec } from "effect"
 import { type DeclaredName, parseDeclaredName } from "#compiler/core/identity.ts"
@@ -457,7 +457,7 @@ const maskColumns = (mask: number, width: number): ReadonlyArray<number> => {
 
 /** Two keys are one key when they hold the same columns, in any order. */
 const sameKey = (a: ReadonlyArray<string>, b: ReadonlyArray<string>): boolean =>
-	Option.isNone(set(exact)(a, b))
+	Option.isNone(set(structuralHash, exact)(a, b))
 
 /**
  * Resolves a sketch to a schema under the case's data swarm, drawing the swarm's thinning decisions from the case's

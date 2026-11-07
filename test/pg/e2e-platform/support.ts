@@ -28,6 +28,7 @@ import { ChangeSet } from "#compiler/public/changeset.ts"
 import { irLiteral } from "#compiler/scalar/compute/literal.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
+import type { AnyLogin } from "#compiler/types/schema/world.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { compileTemplate, compileTestWorkload, testCompile } from "#test/support/compile.ts"
@@ -41,6 +42,7 @@ import {
 	expectedStatements
 } from "#test/support/oracle/reference/deliver.ts"
 import { Reference, unobserved } from "#test/support/oracle/reference/evaluate.ts"
+import { Identities } from "#test/support/oracle/reference/identity.ts"
 import { distinctRows, equal, type Row, type Value } from "#test/support/oracle/reference/values.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { loadOrder, noFacts, type PlatformFacts } from "#test/support/platform/generate.ts"
@@ -104,6 +106,20 @@ export const openPlatform = (
 	OpenedPlatform,
 	CompileError | SqlError | TransactionRolledBack,
 	Substrate | Scope.Scope
+> => openPlatformWith(label, () => [])
+
+/**
+ * openPlatform, installing `also`'s logins beside billing's: the logins a suite reads the platform through besides
+ * billing, built by `also` over the declared platform to install and, by the suite, over the installed one
+ * (OpenedPlatform's `schema`) to open.
+ */
+export const openPlatformWith = (
+	label: string,
+	also: (world: PlatformWorld) => ReadonlyArray<AnyLogin>
+): Effect.Effect<
+	OpenedPlatform,
+	CompileError | SqlError | TransactionRolledBack,
+	Substrate | Scope.Scope
 > =>
 	Effect.gen(function* () {
 		const s = yield* Substrate
@@ -111,7 +127,7 @@ export const openPlatform = (
 		const installed = yield* install(declared.Billing, {
 			ambient: ordinarySession,
 			label,
-			logins: [declared.server],
+			logins: [declared.server, ...also(declared)],
 			extensions: [workloadExtension(workloadPlan)]
 		})
 		const schema = P.platformAt(installed.declared)
@@ -670,7 +686,7 @@ export const flattened = (
 			)
 			return {
 				...statement,
-				rows: distinctRows(values, statement.heading, statement.label)
+				rows: distinctRows(values, statement.heading, statement.label, new Identities())
 			}
 		}
 		const path = Str.split(statement.label, "/")
@@ -707,7 +723,7 @@ export const flattened = (
 		delivered.set(statement.label, children)
 		return {
 			...statement,
-			rows: distinctRows(out, statement.heading, statement.label)
+			rows: distinctRows(out, statement.heading, statement.label, new Identities())
 		}
 	})
 }

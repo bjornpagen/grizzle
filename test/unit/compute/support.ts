@@ -11,7 +11,14 @@ import type { ExprDesc, FieldDesc, LiteralDesc, Spelled } from "#compiler/ir/des
 import { describeOp, type ExprSpec, type ScalarExpr, type TypedLiteral } from "#compiler/ir/expr.ts"
 import type { BuilderScope, OpenExpr } from "#compiler/ir/open.ts"
 import type { Fact } from "#compiler/ir/proof.ts"
-import { baseOf, type Carrier, contractOf, rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
+import {
+	baseOf,
+	type Carrier,
+	contractOf,
+	Roster,
+	rosterOf,
+	type ScalarType
+} from "#compiler/ir/scalar.ts"
 import { defaultOps } from "#compiler/lower/conservative/expr/ops.ts"
 import { ieeeForm } from "#compiler/lower/conservative/expr/total.ts"
 import { spellExpr } from "#compiler/query/build/walk.ts"
@@ -74,7 +81,7 @@ const rosters: ReadonlyMap<string, NonEmptyReadonlyArray<string>> = new Map<
 
 /** The codes a fresh installation gives the declared rosters, which a handle literal renders as. */
 const testCodes: Codebook = firstCodebook(
-	Arr.map([...rosters], ([closed, handles]) => ({ closed: parsedName(closed), handles }))
+	Arr.map([...rosters], ([closed, handles]) => new Roster(parsedName(closed), handles))
 )
 
 /**

@@ -851,6 +851,7 @@ layer(Substrate.layer)("the platform's laws refuse exactly what they forbid", (i
 					const platform = yield* openPlatform("platform_laws")
 					return yield* explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "pg/e2e-platform/laws",
 							draw: drawn(lawSketchGen),
 							literal: Formatter.format,

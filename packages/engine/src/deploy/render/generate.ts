@@ -65,7 +65,7 @@ interface GenerateInput extends DraftInput {
 
 /** What a draft changes: nothing, so the folder holds no file and the snapshot is the previous one; or the schema or
  * workload. */
-export type DraftChange = "none" | "schema"
+type DraftChange = "none" | "schema"
 
 /** A draft whose folder is `F`: what it changes, its folder, the folder's decision record, the new snapshot and its text,
  * and the plan the folder's files render. */

@@ -202,6 +202,7 @@ describe("relation", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/schema/relation-constructor",
 						draw: drawn((source) => {
 							const name = source.draw(wordGen)
@@ -414,6 +415,7 @@ describe("closed", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/schema/roster-constructor",
 						draw: drawn((source) => {
 							const handles = rosterOf(
@@ -532,6 +534,7 @@ describe("closed", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/schema/closed-relation-constructor",
 						draw: drawn((source) => {
 							const handles = rosterOf(
@@ -982,6 +985,7 @@ describe("literals take their field's value", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/schema/literal-rule",
 						draw: drawn((source) => ({
 							case: source.draw(caseGen),
@@ -1149,6 +1153,7 @@ describe("statements", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/schema/field-lists",
 						/** Every site with every defect, each pair drawn about a fifteenth of the time. */
 						draw: drawn((source) => ({
@@ -1264,6 +1269,7 @@ describe("statements", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/schema/law-sides",
 					draw: drawn((source) => ({
 						statement: source.draw(element<SideStatement>(["contained", "mirrors"])),
@@ -1575,6 +1581,7 @@ describe("statements", () => {
 					ctx,
 					explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "unit/schema/check-constructor",
 							draw: drawn((source) => ({
 								predicate: source.draw(predicateGen(2)),
@@ -1673,6 +1680,7 @@ describe("alternatives", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/schema/alternatives-constructor",
 						draw: drawn((source) => ({
 							handles: source.draw(
@@ -1885,6 +1893,7 @@ describe("schema and schema.extend", () => {
 					ctx,
 					explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "unit/schema/schema-constructor",
 							draw: drawn((source) => ({
 								entries: source.draw(
@@ -1999,6 +2008,7 @@ describe("schema and schema.extend", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/schema/derived-levels",
 						draw: drawn((source) => ({
 							levels: source.draw(

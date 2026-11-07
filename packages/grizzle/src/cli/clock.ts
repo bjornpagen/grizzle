@@ -1,5 +1,5 @@
 import { Array as Arr, DateTime, Option, Order, Record as Rec, String as Str } from "effect"
-import { timestampLength, timestampWidths } from "#compiler/deploy/render/folder.ts"
+import { timestampLength, timestampWidths } from "#compiler/plan/migration.ts"
 
 type TimestampField = keyof typeof timestampWidths
 

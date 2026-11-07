@@ -92,6 +92,7 @@ describe("access indexes over one column list in several directions", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/physical/index-directions",
 						draw: drawn(caseGen),
 						literal: Formatter.format,

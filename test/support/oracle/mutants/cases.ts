@@ -205,23 +205,70 @@ const unionGen =
 export const taggedUnionRoot = plain(unionGen(true))
 export const untaggedUnionRoot = plain(unionGen(false))
 
-/** An existence test over a bounded projection at the root: the bound observes multiplicity beneath the EXISTS (I7). */
-export const existsOverTakeRoot = plain((source) => ({
-	tag: "semi",
-	left: source.draw(sub(1)),
-	right: {
+/** The take's bound, order and parameter of an existence test over a bounded projection: k of 2 or 3. */
+const takeOver =
+	(input: QuerySketch): Gen<QuerySketch> =>
+	(source) => ({
 		tag: "take",
-		input: source.draw(projectGen),
+		input,
 		rotate: source.draw(int(0, 7)),
 		dirs: source.draw(array(boolean, { min: 0, max: 4 })),
 		stated: undrawn,
 		k: source.draw(element([1, 2] as const)),
 		param: source.draw(boolean),
 		lateral: undrawn
-	},
+	})
+
+/** A bounded projection of any generated query under EXISTS, joined on one or two columns of any left side. */
+const existsOverAnyTake: Gen<QuerySketch> = (source) => ({
+	tag: "semi",
+	left: source.draw(sub(1)),
+	right: source.draw(takeOver(source.draw(projectGen))),
 	on: source.draw(array(int(0, 15), { min: 1, max: 2 })),
 	shared: undrawn
-}))
+})
+
+/** One occurrence of the relation `pick` names, its first column bound to a fresh variable and every other `rest`. */
+const firstColumnOf = (pick: number, rest: number): OccurrenceSketch => ({
+	source: { tag: "relation", pick },
+	columns: Arr.makeBy(6, (i) => ({ mode: i === 0 ? 0 : rest, pick: 0, value: { cls: 0, sp: 0 } }))
+})
+
+/**
+ * The second-value witness itself: the facts of one relation that match, on its first column, the bounded projection
+ * of that column over the relation's product with itself. Every value of the projection repeats once per fact, so
+ * without the DISTINCT beneath the EXISTS the bound's k rows are copies of the first value, and the facts of the
+ * second value, which the left side holds, lose their witness.
+ */
+const existsOverRepeatedTake: Gen<QuerySketch> = (source) => {
+	const pick = source.draw(int(0, 3))
+	return {
+		tag: "semi",
+		left: { tag: "match", occurrences: [firstColumnOf(pick, 7)], equalities: [], lateral: undrawn },
+		right: source.draw(
+			takeOver({
+				tag: "project",
+				input: {
+					tag: "match",
+					occurrences: [firstColumnOf(pick, 0), firstColumnOf(pick, 0)],
+					equalities: [],
+					lateral: undrawn
+				},
+				out: [{ literal: false, pick: 0, value: { cls: 0, sp: 0 }, term: undrawn }]
+			})
+		),
+		on: [0],
+		shared: undrawn
+	}
+}
+
+/**
+ * An existence test over a bounded projection at the root: the bound observes multiplicity beneath the EXISTS (I7).
+ * Half the cases are the second-value witness itself, which the mutant fails wherever the relation holds two values of
+ * its first column; the rest bound a projection of any generated query, whose left side seldom shares the projection's
+ * type, repeats and values at once.
+ */
+export const existsOverTakeRoot = plain(oneOf([existsOverAnyTake, existsOverRepeatedTake]))
 
 /** A recursive closure at the root, over any generated edge query; acyclic edges for the UNION ALL mutant (I8). */
 export const closureRoot = (acyclic: boolean) => {

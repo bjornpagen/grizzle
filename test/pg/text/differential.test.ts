@@ -374,6 +374,7 @@ layer(Substrate.layer)(
 						ctx,
 						explore(
 							{
+								oracle: { kind: "unstated" },
 								suite: `text/differential/${family.name}`,
 								draw: drawn(familyCase),
 								literal: Formatter.format,
@@ -492,6 +493,7 @@ layer(Substrate.layer)(
 					const db = yield* s.session(ownerSession())
 					return yield* explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "text/differential/nested",
 							draw: drawn(nestedPattern),
 							literal: Formatter.format,

@@ -237,6 +237,7 @@ describe("Compute builders", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/compute/builder-typing",
 					draw: drawn(
 						oneOf<BuilderCase>([
@@ -415,6 +416,7 @@ describe("a JavaScript caller's operands", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/compute/wild-operands",
 						draw: drawn(boundaryCaseGen),
 						literal: Formatter.format,

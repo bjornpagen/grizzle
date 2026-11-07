@@ -457,6 +457,7 @@ describe("the session pool", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/adapter/pool",
 						draw: drawn(sequenceGen),
 						literal: Formatter.format,

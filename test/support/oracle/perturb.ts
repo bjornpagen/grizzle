@@ -21,6 +21,16 @@ import type { GenRelation, GenSchema } from "#test/support/oracle/gen/schema.ts"
  * or merge join can run, as vector's, or every join once hash and merge joins are off too) falls back to a plain nested
  * loop that runs its inner side again for every outer row, and such joins nested in each other's inner sides multiply
  * their rows. Turning hash and merge joins off forces the nested loop, materialized.
+ *
+ * The parallel setup cost is never drawn at zero. Zero states that launching workers costs nothing, so PostgreSQL puts
+ * a Gather wherever a parallel scan is the cheaper one, on a nested loop's inner side too, and launches its workers
+ * again each time the nested loop rescans it, once per outer row: the joins of one generated fixed-length case over
+ * seven vertices relaunched one Gather's worker 2,187 times, 20 s, and ran past 30 s with the hash join off too, its
+ * leader waiting on ParallelFinish while pg_stat_database's parallel_workers_launched kept rising, and a larger outer
+ * side has no bound short of its test's deadline. A Gather rescanned per row delivers the rows one Gather does, so the
+ * plan holds no case a lowering could fail. Parallel plans are still drawn: debug_parallel_query = regress
+ * runs every eligible query in a worker beneath one Gather, and forcedParallel keeps the zero setup cost for partial
+ * aggregates over a relation no nested loop rescans.
  */
 const plannerSettings = [
 	"enable_hashjoin = off",
@@ -28,12 +38,12 @@ const plannerSettings = [
 	"enable_sort = off",
 	"debug_parallel_query = regress",
 	"plan_cache_mode = force_generic_plan",
-	"parallel_setup_cost = 0",
 	"parallel_tuple_cost = 0",
 	"min_parallel_table_scan_size = 0"
 ] as const
 
-export type PlannerSetting = (typeof plannerSettings)[number]
+/** A setting a perturbation holds: a drawn one, or the zero parallel setup cost only a stated perturbation holds. */
+export type PlannerSetting = (typeof plannerSettings)[number] | "parallel_setup_cost = 0"
 
 /**
  * Plan perturbation of the differential oracles. Generated inputs stay small and tricky; the diversity of plans comes
@@ -43,9 +53,9 @@ export type PlannerSetting = (typeof plannerSettings)[number]
  *
  * - a random subset of planner settings, each set with SET LOCAL in the case's transaction after its facts are loaded
  *   and analyzed: the hash and merge joins and the explicit sort turned off one by one, debug_parallel_query =
- *   regress, which plans every eligible query in parallel, the parallel setup and tuple costs and the smallest
- *   parallel scan at zero, so a parallel plan scans even a small table in workers and aggregates partially, and
- *   plan_cache_mode = force_generic_plan, which plans every parameterized statement without its parameter values;
+ *   regress, which plans every eligible query in parallel, the parallel tuple cost and the smallest parallel scan at
+ *   zero, and plan_cache_mode = force_generic_plan, which plans every parameterized statement without its parameter
+ *   values (plannerSettings: never a zero setup cost);
  * - a fact multiplier: the stored facts repeated under fresh keys, so row counts scale while every value stays small.
  *
  * A correct lowering returns the same values under every plan and every scale, which grizzle delivers in one form, so

@@ -123,6 +123,7 @@ const agree = (
 					: []
 			return yield* explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: `catalog/${label}`,
 					draw: drawn(factsGen),
 					literal: Formatter.format,

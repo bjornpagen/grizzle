@@ -192,6 +192,8 @@ layer(Substrate.layer, { excludeTestServices: true })("writers below SERIALIZABL
 						`SELECT ${o.names.column(r, "id")}::text, ${o.names.column(r, "label")}::text FROM ${o.names.table(r)}`
 					return yield* exhaust(
 						{
+							box: { kind: "unstated" },
+							oracle: { kind: "unstated" },
 							suite: "schedules/write/below",
 							generator: belowCaseGen,
 							literal: Formatter.format,

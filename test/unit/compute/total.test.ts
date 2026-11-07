@@ -469,6 +469,7 @@ describe("the ContractLiteral check", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/compute/contract-literal",
 						draw: drawn((source) => ({
 							n: source.draw(bigint(-1000n, 1000n)),

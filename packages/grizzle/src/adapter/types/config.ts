@@ -1,6 +1,5 @@
 import type { DbConnection } from "#adapter/types/layer.ts"
-import type { AnySchema } from "#compiler/types/schema/schema.ts"
-import type { AnyLogin } from "#compiler/types/schema/world.ts"
+import type { AnyLogin, AnySchema } from "#compiler/plan/common.ts"
 
 /**
  * Where the migration identity connects: exactly a DbLayer's connection (its driver, transport, database, password and

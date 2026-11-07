@@ -160,6 +160,7 @@ const explorePlans = Effect.gen(function* () {
 			})
 		return yield* explore(
 			{
+				oracle: { kind: "unstated" },
 				/**
 				 * The task table is read through an index, never sequentially, and nothing is deduplicated.
 				 *

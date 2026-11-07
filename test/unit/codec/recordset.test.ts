@@ -148,6 +148,7 @@ describe("relation normalization", () => {
 					ctx,
 					explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "unit/codec/recordset-refusals",
 							draw: drawn((source) => ({
 								facts: source.draw(uniqueArray(readingFact, (r) => r.id, { min: 0, max: 4 }, 20)),
@@ -229,6 +230,7 @@ describe("relation normalization", () => {
 					ctx,
 					explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "unit/codec/recordset-fixed-width",
 							/** A width of 15 is one draw in thirty, about ten times a run: planted, at a negative start. */
 							draw: sketched(
@@ -288,6 +290,7 @@ describe("relation normalization", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/codec/recordset-1919247219",
 						draw: drawn(
 							(source) =>
@@ -367,6 +370,7 @@ describe("relation normalization", () => {
 					ctx,
 					explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "unit/codec/recordset-1852797549",
 							draw: drawn(array(fact, { min: 0, max: 12 })),
 							literal: Formatter.format,
@@ -459,6 +463,7 @@ describe("relation normalization", () => {
 					ctx,
 					explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "unit/codec/recordset-1935892844",
 							draw: drawn(
 								(source) => [source.draw(caseGen), source.draw(int(0, 2 ** 31 - 1))] as const
@@ -506,6 +511,7 @@ describe("relation normalization", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/codec/arrays-literal",
 						draw: drawn((source) => {
 							const width = source.draw(int(0, 4))
@@ -693,6 +699,7 @@ describe("the arrays of every field type", () => {
 					ctx,
 					explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "unit/codec/arrays-every-type",
 							draw: drawn(array(factGen, { min: 0, max: 8 })),
 							literal: Formatter.format,

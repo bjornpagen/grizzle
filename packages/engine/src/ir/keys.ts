@@ -1,6 +1,7 @@
+import { appendAll } from "#compiler/core/array.ts"
 import { compareText } from "#compiler/core/canonical.ts"
 import type { ExprId, NodeId, OccurrenceId } from "#compiler/core/ids.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import {
 	type EvidenceContext,
 	type Grounds,
@@ -18,10 +19,14 @@ import type { DeclaredKey, HeadingColumn, KeySet } from "#compiler/ir/rel.ts"
  * (logical/props.ts) is the search that finds them; a small kernel independent of it (test/support/keys/kernel.ts)
  * re-checks every derivation the compiler emits, in tests, by reading each rule's side condition off the DAG alone.
  *
- * A node states dependencies over its own heading: `from` determines `to`, by one rule. A derivation that some columns
- * determine others at a node (an Implication) is the dependencies applied in order, each one's determinants known by
- * then. A key is a set of columns that determines the whole heading of a node whose rows are distinct tuples of it (one
- * heading group), or a proved key of a node of several heading groups.
+ * A node states dependencies over its attributes: its heading, and the hidden attributes of its rows it does not
+ * deliver, each an attribute of an input it reads, named by where it comes from (hiddenAttribute): `from` determines
+ * `to`, by one rule. So a node embeds its inputs' dependencies whole, renamed, never a projection of them onto its
+ * heading, which can need exponentially many dependencies: whether some columns determine others at a node is one
+ * closure. A derivation that some attributes determine others at a node (an Implication) is the dependencies applied
+ * in order, each one's determinants known by then. A key is a set of heading columns that determines the whole heading
+ * of a node whose rows are distinct tuples of it (one heading group), or a proved key of a node of several heading
+ * groups; a hidden attribute is never in a key.
  *
  * A key is over classes of equal columns. Columns equal in every row of a node, each determining the other, are one
  * class, and its first column in heading order is the class's representative. A minimal key holds at most one column of
@@ -30,7 +35,8 @@ import type { DeclaredKey, HeadingColumn, KeySet } from "#compiler/ir/rel.ts"
  * determines the key column it stands for. k pairs of equal columns are one key, not 2^k.
  *
  * The rules:
- * - a declared key determines the row (a stored relation's primary key or key(), a Delta's, a view's inherited key);
+ * - a declared key determines the row (a stored relation's primary key or key(), a Delta's, a view's inherited key),
+ *   and a view's alternative columns the key fields they stand for;
  * - a fixed column is determined by nothing (a filter's equality with a value fixed per evaluation, a closed column of
  *   one value, a take's correlation, a semi-join's pair whose right column is fixed, an attachment's correlation);
  * - equal columns determine each other (a filter's equality, a region's equality or shared column, a correlated copy,
@@ -46,7 +52,7 @@ import type { DeclaredKey, HeadingColumn, KeySet } from "#compiler/ir/rel.ts"
  *   one, a false conjunct);
  * - a closed column distinct across its facts determines the fact;
  * - a produced fact is determined by its input's carried key, and the produced span when there may be several;
- * - a window's input row determines its value;
+ * - a window's input row determines its value, and a row number within its partition, with the partition, the row;
  * - a union column every arm fixes alike is fixed, two union columns equal in every arm are equal, and a union keeps
  *   what every arm proves where a discriminant tells any two arms apart.
  *
@@ -54,8 +60,21 @@ import type { DeclaredKey, HeadingColumn, KeySet } from "#compiler/ir/rel.ts"
  * the other in every arm is not enough, since the arms may map one column's value to different values of the other. So
  * each arm's derivation that they are equal steps by equalities alone, from one column to the other: an equal
  * dependency of the arm, two outputs of a projection copying one input column or columns its input derives equal so,
- * or a kept input's columns its input derives equal so.
+ * a kept input's columns its input derives equal so, or a group's key columns its input derives equal so, every
+ * group's key values being one input row's.
  */
+
+/**
+ * The name a node gives an attribute of its input it does not deliver under a name of its own: `scope` (the input's
+ * label, or a region's occurrence) and the attribute. A projection, a group and a produce keep their input's hidden
+ * attributes under their names, rows being their input's; a region names every source attribute it does not bind by its
+ * occurrence, since two occurrences of one source are two rows. No declared name holds the separator.
+ */
+export const hiddenAttribute = (scope: string, attribute: string): string =>
+	`${scope}\u0000${attribute}`
+
+/** Whether an attribute is hidden: no column of a heading, an input's attribute a node holds without delivering it. */
+export const isHidden = (attribute: string): boolean => attribute.includes("\u0000")
 
 /** What fixes a column per evaluation. */
 export type FixedWitness =
@@ -115,8 +134,14 @@ export type Rule =
 	| { readonly rule: "distinct" }
 	| { readonly rule: "produced"; readonly input: KeyProof }
 	| { readonly rule: "ranked" }
+	| { readonly rule: "numbered" }
 	| { readonly rule: "agreed"; readonly arms: NonEmptyReadonlyArray<Implication> }
 	| { readonly rule: "unionKey"; readonly proof: KeyProof }
+	| {
+			readonly rule: "viewAlternative"
+			readonly premises: ReadonlyArray<Premise>
+			readonly context: EvidenceContext
+	  }
 
 /** A dependency a node states over its heading: `from` determines `to`, by `rule`. */
 export interface Dependency {
@@ -158,32 +183,51 @@ export type KeyBasis =
  * A proved key of node `node` of the checked DAG, in heading order: its derivation (`basis`, built rule by rule by the
  * constructors below) and the grounds the derivation rests on, collected from it once. The logical analysis builds it
  * (logical/props.ts), the consumers of a key take it (unique-index emission, db.get, db.page, attach deliveries, put
- * proofs), and the test kernel re-checks its derivation.
+ * proofs, the lowering's rewrites), and the test kernel re-checks its derivation.
  *
- * Two other key values exist, each for an exact reason. A lowering rewrite's KeyGrounds (lower/shapes/catalog) has no
- * derivation because two of its three sources have none: a stored relation's declared key rests on its installed
- * constraint, and a key a rewrite claims of a node it built rests on that rewrite's certificate. A JustifiedKey
- * (analysis/physical/fds.ts) is a key of a lowered SQL fragment, proved over the fragment's physical dependencies,
- * whose Justification adds what only that claim depends on: multiplicity reasons, native equality operators,
- * coercions and outer columns.
+ * A proof states every key of a product of independent factors at once (logical/closure.ts independentFactors): `key` holds
+ * one minimal key of each factor, and each of `alternatives` another minimal key of one factor, the columns it puts
+ * in place of that factor's key columns. One choice per factor, each column then any column of its class (members),
+ * is a key, so k factors of two minimal keys each are one proof of k alternatives, never 2^k proofs.
+ *
+ * Another key value exists, for an exact reason: a JustifiedKey (analysis/physical/fds.ts) is a key of a lowered SQL
+ * fragment, proved over the fragment's physical dependencies, whose Justification adds what only that claim depends
+ * on: multiplicity reasons, native equality operators, coercions and outer columns.
  */
 export interface KeyProof extends Grounds {
 	readonly node: NodeId
 	readonly key: KeySet
 	readonly basis: KeyBasis
 	/**
-	 * The other columns of the key columns' classes, by key column and then in heading order: each one, put in place of
-	 * the key column it stands for, gives a key of the same class. Its derivation is its grounds' too.
+	 * The other columns of the classes of the key's columns and of its alternatives' columns, by the column they stand
+	 * for and then in heading order: each one, put in place of the column it stands for, gives a key of the same class.
+	 * Its derivation is its grounds' too.
 	 */
 	readonly members: ReadonlyArray<KeyMember>
+	/**
+	 * The other minimal keys of the key's factors, each with the factor's key columns it stands for: alternatives of one
+	 * factor stand for the same columns, and two factors' columns are disjoint. Their derivations are the grounds' too.
+	 */
+	readonly alternatives: ReadonlyArray<KeyAlternative>
 }
 
-/** A column equal to a key column of a proof's node: it determines that key column, so it can stand for it. */
+/** A column equal to a column of a proof's keys: it determines that column, so it can stand for it. */
 export interface KeyMember {
-	/** The key column it stands for. */
+	/** The column it stands for: a key column or an alternative's. */
 	readonly of: string
 	readonly column: string
 	/** The derivation, at the proof's node, that `column` determines `of`. */
+	readonly determines: Implication
+}
+
+/**
+ * Another minimal key of one factor of a proof's key: columns of the node, none of the key's, that determine the
+ * factor's key columns `of`, so the key with them in place of `of` is a key.
+ */
+export interface KeyAlternative {
+	readonly of: KeySet
+	readonly columns: KeySet
+	/** The derivation, at the proof's node, that `columns` determine `of`. */
 	readonly determines: Implication
 }
 
@@ -205,6 +249,17 @@ export interface ClassMember {
 export interface ViewKey extends Grounds {
 	readonly fields: DeclaredKey
 	readonly members: ReadonlyArray<ClassMember>
+	/**
+	 * The other minimal keys of the key's factors, each with the fields it stands for, as its definition's proof lists them
+	 * (KeyProof alternatives): what the definition derives of every row holds of every fact, on the derivation's grounds.
+	 */
+	readonly alternatives: ReadonlyArray<ViewAlternative>
+}
+
+/** Columns of a view that determine some of a key's fields, on the grounds of the definition's derivation. */
+export interface ViewAlternative extends Grounds {
+	readonly of: KeySet
+	readonly columns: KeySet
 }
 
 /**
@@ -216,22 +271,34 @@ export interface ViewRead {
 	readonly keys: ReadonlyArray<ViewKey>
 }
 
+/** Each column a member stands for, with the members standing for it, in their order. */
+const standIns = (
+	members: ReadonlyArray<ClassMember>
+): ReadonlyMap<string, ReadonlyArray<string>> => {
+	const out = new Map<string, Array<string>>()
+	for (const m of members) {
+		const held = out.get(m.of)
+		if (held === undefined) {
+			out.set(m.of, [m.column])
+		} else {
+			held.push(m.column)
+		}
+	}
+	return out
+}
+
 /**
- * The columns of the class of keys of `key` and `members` that `holds` holds, the key's own column or else its first
- * member, for every key column; undefined when some key column has neither. The key's own columns, the same list, when
- * it holds them all.
+ * The columns of `key` that `holds` holds, each the key's own column or else its first member it holds; undefined when
+ * some column has neither.
  */
 const classKeyIn = (
 	key: KeySet,
-	members: ReadonlyArray<ClassMember>,
+	members: ReadonlyMap<string, ReadonlyArray<string>>,
 	holds: (column: string) => boolean
 ): KeySet | undefined => {
-	if (key.every(holds)) {
-		return key
-	}
 	const out: Array<string> = []
 	for (const k of key) {
-		const stand = holds(k) ? k : members.find((m) => m.of === k && holds(m.column))?.column
+		const stand = holds(k) ? k : members.get(k)?.find(holds)
 		if (stand === undefined) {
 			return undefined
 		}
@@ -240,58 +307,86 @@ const classKeyIn = (
 	return out
 }
 
-/** The key of a proof's class whose columns `holds` holds: each key column, or else its first member it holds. */
-export const keyIn = (proof: KeyProof, holds: (column: string) => boolean): KeySet | undefined =>
-	classKeyIn(proof.key, proof.members, holds)
+/**
+ * A proof's factors in key order: each factor's key columns, then its alternatives' columns. A key column of no
+ * alternative's factor is a factor alone, its one minimal key itself.
+ */
+const factorsOf = (
+	proof: Pick<KeyProof, "key" | "alternatives">
+): ReadonlyArray<NonEmptyReadonlyArray<KeySet>> => {
+	const byFirst = new Map<string, [KeySet, ...Array<KeySet>]>()
+	for (const a of proof.alternatives) {
+		const [first] = a.of
+		const factor = first === undefined ? undefined : byFirst.get(first)
+		if (factor !== undefined) {
+			factor.push(a.columns)
+		} else if (first !== undefined) {
+			byFirst.set(first, [a.of, a.columns])
+		}
+	}
+	const inFactor = new Set([...byFirst.values()].flatMap(([of]) => of))
+	return proof.key.flatMap((k): ReadonlyArray<NonEmptyReadonlyArray<KeySet>> => {
+		const factor = byFirst.get(k)
+		return factor !== undefined ? [factor] : inFactor.has(k) ? [] : [[[k]]]
+	})
+}
 
-/** The key of a claimed key's class whose columns `holds` holds (keyIn). */
-export const claimedKeyIn = (
-	k: ClaimedKey,
-	holds: (column: string) => boolean
-): KeySet | undefined =>
-	k.kind === "proved" ? keyIn(k.proof, holds) : classKeyIn(k.key, k.members, holds)
+/**
+ * A key of a proof whose columns `holds` holds: of each factor, its first minimal key whose columns, each itself or a
+ * column of its class, `holds` holds; undefined when some factor has none.
+ */
+export const keyIn = (proof: KeyProof, holds: (column: string) => boolean): KeySet | undefined => {
+	const members = standIns(proof.members)
+	const out: Array<string> = []
+	for (const factor of factorsOf(proof)) {
+		const found = factor.map((k) => classKeyIn(k, members, holds)).find((k) => k !== undefined)
+		if (found === undefined) {
+			return undefined
+		}
+		appendAll(out, found)
+	}
+	return out
+}
 
 /** A key over classes of equal columns: each class's columns, its key column first. */
 export type KeyClasses = ReadonlyArray<NonEmptyReadonlyArray<string>>
 
 /**
- * A proof's key over its classes: each key column with its members, the key column first. One column of each class,
- * together, are a key.
+ * A proof's keys over its factors and classes: each factor's minimal keys, its key's own first, each over its classes.
+ * One minimal key of each factor, one column of each of its classes, together, are a key.
  */
-export const keyClasses = (proof: KeyProof): KeyClasses => classesOfKey(proof.key, proof.members)
+export type KeyFactors = ReadonlyArray<NonEmptyReadonlyArray<KeyClasses>>
 
-const classesOfKey = (key: KeySet, members: ReadonlyArray<ClassMember>): KeyClasses =>
-	key.map((k): NonEmptyReadonlyArray<string> => [
-		k,
-		...members.flatMap((m) => (m.of === k ? [m.column] : []))
-	])
+const classesOf = (key: KeySet, members: ReadonlyMap<string, ReadonlyArray<string>>): KeyClasses =>
+	key.map((k): NonEmptyReadonlyArray<string> => [k, ...(members.get(k) ?? [])])
 
-/** A proof's members without their derivations, as a view's or a rewrite's key states them. */
-export const classMembers = (proof: KeyProof): ReadonlyArray<ClassMember> =>
-	proof.members.map((m) => Object.freeze({ of: m.of, column: m.column }))
+/** A proof's keys over its factors and classes (KeyFactors). */
+export const keyFactors = (proof: KeyProof): KeyFactors => {
+	const members = standIns(proof.members)
+	return factorsOf(proof).map((factor) => mapNonEmpty(factor, (k) => classesOf(k, members)))
+}
 
-/** The members a claimed key states. */
-export const claimedMembers = (k: ClaimedKey): ReadonlyArray<ClassMember> =>
-	k.kind === "proved" ? classMembers(k.proof) : k.members
+/** The key with an alternative of one of its factors in place of that factor's key columns, in key order then its own. */
+export const keyWith = (proof: Pick<KeyProof, "key">, alternative: KeyAlternative): KeySet => [
+	...proof.key.filter((c) => !alternative.of.includes(c)),
+	...alternative.columns
+]
 
 /**
- * A key a node's metadata claims: one the logical analysis proved, with its proof; or one a lowering rewrite states of a
- * node it builds by construction (a row number within its partition, a group it forms, the rows it keeps), which the
- * rewrite's certificate justifies, over the classes of equal columns of the rows it keeps (its members).
+ * The keys a proof lists one by one: its key, and each key one alternative away from it, each over its classes. Every
+ * other key of the proof chooses among their factors.
  */
-export type ClaimedKey =
-	| { readonly kind: "proved"; readonly proof: KeyProof }
-	| { readonly kind: "rewrite"; readonly key: KeySet; readonly members: ReadonlyArray<ClassMember> }
+export const listedKeys = (proof: KeyProof): NonEmptyReadonlyArray<KeyClasses> => {
+	const members = standIns(proof.members)
+	return [
+		classesOf(proof.key, members),
+		...proof.alternatives.map((a) => classesOf(keyWith(proof, a), members))
+	]
+}
 
-/** The columns a claimed key is: a proof's, its classes' representatives. */
-export const claimedColumns = (k: ClaimedKey): KeySet => (k.kind === "proved" ? k.proof.key : k.key)
-
-/** A proved key as a node's metadata claims it. */
-export const provedClaim = (proof: KeyProof): ClaimedKey => Object.freeze({ kind: "proved", proof })
-
-/** A key a lowering rewrite states of a node it builds, with the members of its classes among `members`. */
-export const rewriteClaim = (key: KeySet, members: ReadonlyArray<ClassMember>): ClaimedKey =>
-	Object.freeze({ kind: "rewrite", key, members: members.filter((m) => key.includes(m.of)) })
+/** A proof's members without their derivations, as a view's key states them. */
+export const classMembers = (proof: KeyProof): ReadonlyArray<ClassMember> =>
+	proof.members.map((m) => Object.freeze({ of: m.of, column: m.column }))
 
 const dependency = (from: KeySet, to: KeySet, rule: Rule): Dependency =>
 	Object.freeze({ from, to, rule })
@@ -303,6 +398,14 @@ export const declaredKey = (
 	premises: ReadonlyArray<Premise>,
 	context: EvidenceContext
 ): Dependency => dependency(key, heading, { rule: "declared", premises, context })
+
+/** A view's alternative columns determine the key fields they stand for, on its definition's grounds. */
+export const viewAlternative = (alternative: ViewAlternative): Dependency =>
+	dependency(alternative.columns, alternative.of, {
+		rule: "viewAlternative",
+		premises: alternative.premises,
+		context: alternative.context
+	})
 
 /** A fixed column is determined by nothing. */
 export const fixedColumn = (column: string, witness: FixedWitness): Dependency =>
@@ -355,6 +458,10 @@ export const producedFact = (from: KeySet, heading: KeySet, input: KeyProof): De
 export const windowValue = (inputHeading: KeySet, out: string): Dependency =>
 	dependency(inputHeading, [out], { rule: "ranked" })
 
+/** A row number within its partition, with the partition, determines the row it numbers. */
+export const numberedRow = (partition: KeySet, out: string, heading: KeySet): Dependency =>
+	dependency([...partition, out], heading, { rule: "numbered" })
+
 /** A union column every arm fixes alike is fixed. */
 export const armsAgree = (column: string, arms: NonEmptyReadonlyArray<Implication>): Dependency =>
 	dependency([], [column], { rule: "agreed", arms })
@@ -395,6 +502,7 @@ const atMostOneContext = (witness: AtMostOneWitness): EvidenceContext | undefine
 const ruleContext = (rule: Rule): EvidenceContext | undefined => {
 	switch (rule.rule) {
 		case "declared":
+		case "viewAlternative":
 			return rule.context
 		case "distinct":
 			return "queryLocal"
@@ -412,6 +520,7 @@ const ruleContext = (rule: Rule): EvidenceContext | undefined => {
 		case "kept":
 		case "produced":
 		case "ranked":
+		case "numbered":
 		case "agreed":
 		case "unionKey":
 			return undefined
@@ -453,6 +562,7 @@ const groundRule = (g: Collected, rule: Rule): void => {
 	}
 	switch (rule.rule) {
 		case "declared":
+		case "viewAlternative":
 			for (const p of rule.premises) {
 				g.premises.set(premiseText(p), p)
 			}
@@ -496,6 +606,7 @@ const groundRule = (g: Collected, rule: Rule): void => {
 		case "atMostOne":
 		case "distinct":
 		case "ranked":
+		case "numbered":
 			return
 	}
 }
@@ -505,11 +616,15 @@ const proved = (
 	node: NodeId,
 	key: KeySet,
 	basis: KeyBasis,
-	members: ReadonlyArray<KeyMember>
+	members: ReadonlyArray<KeyMember>,
+	alternatives: ReadonlyArray<KeyAlternative>
 ): KeyProof => {
 	const g: Collected = { premises: new Map(), contexts: [], seen: new Set() }
 	for (const m of members) {
 		groundImplication(g, m.determines)
+	}
+	for (const a of alternatives) {
+		groundImplication(g, a.determines)
 	}
 	switch (basis.kind) {
 		case "rows":
@@ -536,7 +651,8 @@ const proved = (
 		premises: Object.freeze(premises),
 		context: strongest(g.contexts),
 		basis,
-		members: Object.freeze([...members])
+		members: Object.freeze([...members]),
+		alternatives: Object.freeze([...alternatives])
 	})
 }
 
@@ -544,13 +660,21 @@ const proved = (
 export const keyMember = (of: string, column: string, determines: Implication): KeyMember =>
 	Object.freeze({ of, column, determines })
 
+/** Another minimal key of a factor: `columns` stand for the factor's key columns `of`, `determines` deriving them. */
+export const keyAlternative = (
+	of: KeySet,
+	columns: KeySet,
+	determines: Implication
+): KeyAlternative => Object.freeze({ of, columns, determines })
+
 /** A key of a node of one heading group: `key` determines its heading. */
 export const rowsKey = (
 	node: NodeId,
 	key: KeySet,
 	determines: Implication,
-	members: ReadonlyArray<KeyMember>
-): KeyProof => proved(node, key, { kind: "rows", implication: determines }, members)
+	members: ReadonlyArray<KeyMember>,
+	alternatives: ReadonlyArray<KeyAlternative>
+): KeyProof => proved(node, key, { kind: "rows", implication: determines }, members, alternatives)
 
 /**
  * A key of a union: every arm proves it, and every two arms are told apart on it. It lists no members: the union's keys
@@ -561,7 +685,7 @@ export const unionKey = (
 	key: KeySet,
 	arms: NonEmptyReadonlyArray<KeyProof>,
 	separations: ReadonlyArray<Separation>
-): KeyProof => proved(node, key, { kind: "union", arms, separations }, [])
+): KeyProof => proved(node, key, { kind: "union", arms, separations }, [], [])
 
 /** A key of a node of several heading groups: `key` determines `inner`, a key of it or of the input it keeps. */
 export const keyWithin = (
@@ -570,4 +694,4 @@ export const keyWithin = (
 	determines: Implication,
 	inner: KeyProof,
 	members: ReadonlyArray<KeyMember>
-): KeyProof => proved(node, key, { kind: "within", implication: determines, inner }, members)
+): KeyProof => proved(node, key, { kind: "within", implication: determines, inner }, members, [])

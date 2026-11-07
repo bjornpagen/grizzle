@@ -178,6 +178,7 @@ describe("the write oracle's judgement", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/oracle/write-judge",
 					draw: drawn(
 						(source) =>

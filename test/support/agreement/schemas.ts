@@ -55,6 +55,7 @@ import {
 	generatedRelation,
 	relation,
 	relationDescOf,
+	slotField,
 	writingOf
 } from "#compiler/schema/relation.ts"
 import { admitSchema, schema } from "#compiler/schema/schema.ts"
@@ -167,6 +168,8 @@ const schemaConstructs = [
 	"closedRelationProbe",
 	"closedReadProbe",
 	"castProbe",
+	"generatedProbe",
+	"slotKeyProbe",
 	"slotSideProbe",
 	"slotContainmentProbe",
 	"valueProbe",
@@ -177,8 +180,9 @@ type SchemaConstruct = (typeof schemaConstructs)[number]
 /**
  * The forms of a construct whose inferences no other form asserts, each noted where it is drawn: the slots pack's
  * mirror and selected key, each side a slot side probe writes, each law a slot containment probe states, each aggregate
- * a derived head reads, each place a law names a derived relation, each derived definition the engine admits, and fin
- * over a key field and over an accumulated one.
+ * a derived head reads, each place a law names a derived relation, each derived definition the engine admits, fin
+ * over a key field and over an accumulated one, a closed relation keyed by one, two or three closed ids, its rows with
+ * one stated twice, a role over a base declaring one, and a concat fold valid and over a number.
  */
 const schemaForms = [
 	"slotsMirrors",
@@ -206,7 +210,14 @@ const schemaForms = [
 	"derivedBoundImport",
 	"derivedDiscriminated",
 	"finOfKey",
-	"finOfAccumulated"
+	"finOfAccumulated",
+	"closedKeyOne",
+	"closedKeyTwo",
+	"closedKeyThree",
+	"closedRepeatedRow",
+	"concatFold",
+	"concatMismatch",
+	"roleBesideClosed"
 ] as const
 type SchemaForm = (typeof schemaForms)[number]
 
@@ -276,7 +287,10 @@ const schemaFaults = [
 	"atShort",
 	"atMissing",
 	"atSwapped",
+	"atKey",
+	"atWrongHandle",
 	"rowShort",
+	"rowWhole",
 	"echoRoster",
 	"predNotNatural",
 	"predUndeclared",
@@ -284,7 +298,26 @@ const schemaFaults = [
 	"predOfPred",
 	"selectedUndeclared",
 	"keyOverClosed",
+	"lookAlikeDescriptor",
+	"setPrimaryKey",
+	"setKey",
+	"conflictingRow",
+	"generatedReadsGenerated",
+	"generatedReadsAccumulated",
+	"generatedReadsDrawn",
+	"generatedWrongType",
+	"generatedTwiceNamed",
+	"generatedKey",
+	"finOverClosedNotNatural",
+	"slotOverOrdinary",
+	"slotNotClosed",
+	"familyOverClosed",
+	"closedKeyNotClosed",
+	"closedFifthArgument",
+	"crossSet",
 	"countedSide",
+	"concatCounted",
+	"concatHidden",
 	"finOverDerived",
 	"emptyHead",
 	"headingGroups"
@@ -320,7 +353,7 @@ const declared: { readonly [C in DeclaredClass]: Expected } = {
 type SchemaNote = SchemaConstruct | SchemaForm | SchemaFault | DeclaredClass | TypeRefusal
 
 /** A diagnostic's code. */
-type Code = "TS2322" | "TS2345" | "TS2554" | "TS2555" | "TS2739" | "TS2741"
+type Code = "TS2322" | "TS2339" | "TS2345" | "TS2554" | "TS2555" | "TS2739" | "TS2741"
 
 /** What a directive claims of its diagnostic: a structural refusal's reason, or the refusal grizzle's type names. */
 type Claimed =
@@ -680,6 +713,107 @@ const refusals: { readonly [F in SchemaFault]: Refusing } = {
 			"key takes a side of an ordinary relation; a closed relation is keyed by its declaration"
 		)
 	},
+	setPrimaryKey: {
+		engine: { tag: "UnrepresentableKey" },
+		code: "TS2322",
+		claim: prose("a primary key lists no set")
+	},
+	setKey: {
+		engine: { tag: "UnrepresentableKey" },
+		code: "TS2345",
+		claim: named("a key lists no set: a set's bit string is too wide for an index entry")
+	},
+	conflictingRow: {
+		engine: { tag: "MalformedDescription" },
+		code: "TS2345",
+		claim: named(
+			"two facts of one relation share a key with different values; a key names one fact"
+		)
+	},
+	generatedReadsGenerated: {
+		engine: { tag: "MalformedDescription" },
+		code: "TS2339",
+		claim: prose("the row holds the written fields only, so no generated field reads another")
+	},
+	generatedReadsAccumulated: {
+		engine: { tag: "GeneratedRefused" },
+		code: "TS2339",
+		claim: prose("the row holds the fields its caller writes, never one grizzle accumulates")
+	},
+	generatedReadsDrawn: {
+		engine: { tag: "GeneratedRefused" },
+		code: "TS2339",
+		claim: prose("the row holds the fields its caller writes, never one grizzle draws")
+	},
+	generatedWrongType: {
+		engine: { tag: "GeneratedRefused" },
+		code: "TS2345",
+		claim: prose("a generated field's term is of its declared type exactly, at its own position")
+	},
+	generatedTwiceNamed: {
+		engine: { tag: "MalformedDescription" },
+		code: "TS2322",
+		claim: named("a generated field is named apart from the relation's written fields")
+	},
+	generatedKey: {
+		engine: { tag: "MalformedDescription" },
+		code: "TS2322",
+		claim: prose("the primary key names written fields")
+	},
+	finOverClosedNotNatural: {
+		engine: { tag: "MalformedDescription" },
+		code: "TS2345",
+		claim: prose("fin over a closed relation names a natural field, and label is a closed id")
+	},
+	slotOverOrdinary: {
+		engine: { tag: "MalformedDescription" },
+		code: "TS2345",
+		claim: prose("a slot reads a closed relation's fin, and Owner is an ordinary relation")
+	},
+	slotNotClosed: {
+		engine: { tag: "MalformedDescription" },
+		code: "TS2741",
+		claim: prose("a slot is a closed id, and pg.integer lacks a closed id's roster")
+	},
+	familyOverClosed: {
+		engine: { tag: "MalformedDescription" },
+		code: "TS2345",
+		claim: named("an ordered family's side is its owner's key, then its drawn index")
+	},
+	closedKeyNotClosed: {
+		engine: { tag: "MalformedDescription" },
+		code: "TS2322",
+		claim: prose("a closed relation's key fields are closed ids")
+	},
+	closedFifthArgument: {
+		engine: { tag: "MalformedDescription" },
+		code: "TS2345",
+		claim: prose("a closed relation takes four arguments, a fifth typed never")
+	},
+	crossSet: {
+		engine: { tag: "MalformedDescription" },
+		code: "TS2345",
+		claim: prose("a set over one roster is never a set over another")
+	},
+	lookAlikeDescriptor: {
+		engine: { tag: "MalformedDescription" },
+		code: "TS2741",
+		claim: prose("a look-alike lacks the brand of a builder's descriptor")
+	},
+	concatCounted: {
+		engine: { tag: "MalformedDescription" },
+		code: "TS2345",
+		claim: named(
+			"a fold over a counted family combines in a commutative monoid: concat folds an ordered family or a tree"
+		)
+	},
+	concatHidden: {
+		engine: { tag: "MalformedDescription" },
+		code: "TS2345",
+		claim: named(
+			"a concat fold names its (before, after) pair after its value: its law reads each member's running value"
+		)
+	},
 	countedSide: {
 		engine: { tag: "MalformedDescription" },
 		code: "TS2345",
@@ -723,6 +857,21 @@ const refusals: { readonly [F in SchemaFault]: Refusing } = {
 		engine: { tag: "MalformedDescription" },
 		code: "TS2554",
 		claim: prose("C.row takes every key field but the last")
+	},
+	atKey: {
+		engine: { tag: "MalformedDescription" },
+		code: "TS2345",
+		claim: prose("C.at reads a payload field, never a key field")
+	},
+	atWrongHandle: {
+		engine: { tag: "MalformedDescription" },
+		code: "TS2345",
+		claim: prose("a key value is a handle of its field's roster")
+	},
+	rowWhole: {
+		engine: { tag: "MalformedDescription" },
+		code: "TS2554",
+		claim: prose("C.row takes every key field but the last, never the whole key")
 	},
 	echoRoster: {
 		engine: { tag: "MalformedDescription" },
@@ -796,6 +945,7 @@ const reasonKey = (reason: CompileReason): string => {
 		case "QueriedOwnerAppend":
 		case "CascadedCopyAppend":
 		case "StaleDerivedRead":
+		case "UnorderableStratum":
 		case "MissingDiscriminant":
 		case "AttachedParentUnbound":
 		case "AttachedPage":
@@ -932,6 +1082,7 @@ type Start =
 	| { readonly kind: "bigint"; readonly value: bigint }
 	| { readonly kind: "handle"; readonly roster: string; readonly handle: string }
 	| { readonly kind: "noHandles"; readonly roster: string }
+	| { readonly kind: "text"; readonly value: string }
 
 /** How a field is written: by its caller, drawn by grizzle, or accumulated from its start. */
 type WritingSpec =
@@ -1062,8 +1213,11 @@ const extraForm: { readonly [K in DerivedExtra["kind"]]: SchemaForm } = {
 	literal: "derivedLiteral"
 }
 
+/** Where a law names the derived relation: its containment's left side, its right side, or a mirror. */
+type DerivedSide = "left" | "right" | "mirrors"
+
 /** The form each place a law names the derived relation is noted as. */
-const sideForm: { readonly [K in "left" | "right" | "mirrors"]: SchemaForm } = {
+const sideForm: { readonly [K in DerivedSide]: SchemaForm } = {
 	left: "derivedLeft",
 	right: "derivedRight",
 	mirrors: "derivedMirrors"
@@ -1227,15 +1381,22 @@ const publicValue = (v: PublicValue): unknown => {
 }
 
 /**
- * A closed relation of the base, Rule: its key of two closed ids, k1 and k2, over one roster of the base or both, its payload, an
- * integer w and a drawn x, and a row for every key. When drawn beside it, Gen is a relation whose generated fields
- * PostgreSQL writes from its written ones: Rule's w at the row's own closed ids, and its depth plus one as a bigint,
- * which the engine proves fits.
+ * A closed relation of the base, Rule: its key of one to three closed ids, k1 through kn, over one roster of the base
+ * or both, its payload, an integer w and a drawn x, and a row for every key. When drawn beside it, Gen is a relation
+ * whose generated fields PostgreSQL writes from its written ones: Rule's w at the row's own closed ids, and its depth
+ * plus one as a bigint, which the engine proves fits.
  */
 interface ClosedSpec {
-	readonly key: readonly [RosterSpec, RosterSpec]
+	readonly key: Arr.NonEmptyReadonlyArray<RosterSpec>
 	readonly payload: Payload
 	readonly generated: boolean
+}
+
+/** The form a closed relation of each key arity is noted as. */
+const closedArityForm: { readonly [A in 1 | 2 | 3]: SchemaForm } = {
+	1: "closedKeyOne",
+	2: "closedKeyTwo",
+	3: "closedKeyThree"
 }
 
 /** The drawn payload field's type. */
@@ -1258,9 +1419,18 @@ const payloadValue = (p: Payload): readonly [string, unknown] => {
 	}
 }
 
-/** Every key of a closed relation over two rosters: each pair of their handles. */
-const closedKeys = (c: ClosedSpec): ReadonlyArray<readonly [string, string]> =>
-	Arr.flatMap(c.key[0].handles, (a) => Arr.map(c.key[1].handles, (b) => [a, b] as const))
+/** A closed relation's key fields, k1 through kn, one per closed id of its key. */
+const closedKeyNames = (c: ClosedSpec): Arr.NonEmptyReadonlyArray<string> =>
+	Arr.map(c.key, (_roster, i) => `k${i + 1}`)
+
+/** Every key of a closed relation: each tuple of its key rosters' handles, in key order. */
+const closedKeys = (c: ClosedSpec): ReadonlyArray<Arr.NonEmptyReadonlyArray<string>> =>
+	Arr.reduce(
+		Arr.tailNonEmpty(c.key),
+		Arr.map(Arr.headNonEmpty(c.key).handles, (h): Arr.NonEmptyReadonlyArray<string> => [h]),
+		(keys: ReadonlyArray<Arr.NonEmptyReadonlyArray<string>>, roster) =>
+			Arr.flatMap(keys, (k) => Arr.map(roster.handles, (h) => Arr.append(k, h)))
+	)
 /** One case's drawing: its swarm over the constructs, the source its decisions come from, and what it reached. */
 class Drawing {
 	readonly #source: Source
@@ -1925,9 +2095,10 @@ const rolesOf = (
 
 /** A case's base: its rosters, contracts, relations, statements, family, alternatives, derived relation and roles. */
 const baseOf = (d: Drawing): Base => {
-	const closedKey = d.upTo(2) === 0 ? undefined : d.from(["one", "two"] as const)
+	const closedArity = d.upTo(2) === 0 ? undefined : d.from([1, 2, 3] as const)
+	const closedApart = closedArity !== undefined && closedArity > 1 && d.upTo(1) === 1
 	const rosters: Arr.NonEmptyReadonlyArray<RosterSpec> =
-		closedKey === "two" || d.keep("secondRoster") ? rosterPool : [rosterPool[0]]
+		closedApart || d.keep("secondRoster") ? rosterPool : [rosterPool[0]]
 	const contracts = contractsOf(d, rosters)
 	const own = Arr.map(Arr.take(relationNames, 1 + d.upTo(2)), (name) =>
 		relationOf(d, name, rosters, contracts)
@@ -1998,18 +2169,26 @@ const baseOf = (d: Drawing): Base => {
 	}
 	const sameRoster = d.from(rosters)
 	const closedSpec: ClosedSpec | undefined =
-		closedKey === undefined
+		closedArity === undefined
 			? undefined
 			: {
-					key:
-						closedKey === "two"
-							? [Arr.headNonEmpty(rosterPool), Arr.lastNonEmpty(rosterPool)]
-							: [sameRoster, sameRoster],
+					key: closedApart
+						? [
+								Arr.headNonEmpty(rosterPool),
+								Arr.lastNonEmpty(rosterPool),
+								...(closedArity === 3 ? [d.from(rosterPool)] : [])
+							]
+						: Arr.map(Arr.range(1, closedArity), () => sameRoster),
 					payload: d.from(["smallint", "bigint", "text"] as const),
 					generated: d.keep("generated")
 				}
-	if (closedSpec !== undefined) {
+	const roles = rolesOf(d, ordinary, derivedSpec)
+	if (closedArity !== undefined) {
 		d.note("closedRelation")
+		d.note(closedArityForm[closedArity])
+		if (Arr.isReadonlyArrayNonEmpty(roles)) {
+			d.note("roleBesideClosed")
+		}
 	}
 	return {
 		rosters,
@@ -2024,7 +2203,7 @@ const baseOf = (d: Drawing): Base => {
 		family: pack === undefined ? undefined : pack.family,
 		alternatives: alternation === undefined ? undefined : alternation.alternatives,
 		derived: derivedSpec,
-		roles: rolesOf(d, ordinary, derivedSpec),
+		roles,
 		closedRelation: closedSpec,
 		slots,
 		publics: [d.from(publicValues), d.from(publicValues)],
@@ -2042,46 +2221,74 @@ type RosterValue = ReturnType<typeof closed<string, Arr.NonEmptyReadonlyArray<st
 /** Rule, the base's closed relation, built as a JavaScript caller builds it: a row of every key. */
 const closedValue = (c: ClosedSpec, rosters: ReadonlyMap<string, RosterValue>) => {
 	const [, payload] = payloadValue(c.payload)
+	const names = closedKeyNames(c)
+	const fields: Readonly<Record<string, FieldBase>> = {
+		...closedIdFields(c, rosters),
+		w: pgDescriptors.integer,
+		x: fieldValue(payloadType(c.payload), rosters, new Map())
+	}
 	return closedRelation(
 		"Rule",
-		{
-			k1: closedId(got(rosters, c.key[0].name)),
-			k2: closedId(got(rosters, c.key[1].name)),
-			w: pgDescriptors.integer,
-			x: fieldValue(payloadType(c.payload), rosters, new Map())
-		},
-		["k1", "k2"],
-		Arr.map(closedKeys(c), ([k1, k2]) => ({ k1, k2, w: 1, x: payload })),
+		fields,
+		names,
+		Arr.map(closedKeys(c), (k) => ({ ...Rec.fromEntries(Arr.zip(names, k)), w: 1, x: payload })),
 		[]
 	)
 }
 
+/** A closed relation's key fields as fields of a relation: k1 through kn, each a closed id of its roster. */
+const closedIdFields = (
+	c: ClosedSpec,
+	rosters: ReadonlyMap<string, RosterValue>
+): Readonly<Record<string, FieldBase>> =>
+	Rec.fromEntries(
+		Arr.zip(
+			closedKeyNames(c),
+			Arr.map(c.key, (r) => closedId(got(rosters, r.name)))
+		)
+	)
+
 /** Rule's value, with its closed reads. */
 type ClosedValue = ReturnType<typeof closedValue>
 
-/** C.at(field, k…) as a JavaScript caller calls it: the key values whatever they are, which the read admits. */
-const closedRead = (
-	rule: ClosedValue,
-	field: string,
-	key: readonly [unknown] | readonly [unknown, unknown]
+/**
+ * A call of a closed read as a JavaScript caller makes it, each of its at most four arguments in its place: a field and
+ * a key of up to three closed ids.
+ */
+const closedCall = (
+	read: Parameters<typeof Reflect.apply>[0],
+	rule: unknown,
+	args: ReadonlyArray<unknown>
 ): unknown => {
-	const read: unknown =
-		key.length === 1
-			? Reflect.apply(rule.at, rule, [field, key[0]])
-			: Reflect.apply(rule.at, rule, [field, key[0], key[1]])
-	return read
+	const [a, b, c, e] = args
+	switch (args.length) {
+		case 0:
+			return Reflect.apply(read, rule, [])
+		case 1:
+			return Reflect.apply(read, rule, [a])
+		case 2:
+			return Reflect.apply(read, rule, [a, b])
+		case 3:
+			return Reflect.apply(read, rule, [a, b, c])
+		case 4:
+			return Reflect.apply(read, rule, [a, b, c, e])
+		default:
+			throw new Error(`a closed read of ${args.length} arguments, more than a key of three holds`)
+	}
 }
+
+/** C.at(field, k…) as a JavaScript caller calls it: the key values whatever they are, which the read admits. */
+const closedRead = (rule: ClosedValue, field: string, key: ReadonlyArray<unknown>): unknown =>
+	closedCall(rule.at, rule, Arr.prepend(key, field))
 
 /** C.row(k…) as a JavaScript caller calls it. */
-const closedRow = (rule: ClosedValue, prefix: readonly [] | readonly [unknown]): unknown => {
-	const read: unknown =
-		prefix.length === 0
-			? Reflect.apply(rule.row, rule, [])
-			: Reflect.apply(rule.row, rule, [prefix[0]])
-	return read
-}
+const closedRow = (rule: ClosedValue, prefix: ReadonlyArray<unknown>): unknown =>
+	closedCall(rule.row, rule, prefix)
 
-/** Gen, its generated fields read off its row: Rule's w at its closed ids, and its depth plus one. */
+/**
+ * Gen, its generated fields read off its row: Rule's w at its closed ids, the set of Rule's last key field its other
+ * closed ids complete, and its depth plus one.
+ */
 const generatedValue = (
 	c: ClosedSpec,
 	rule: ClosedValue,
@@ -2089,17 +2296,24 @@ const generatedValue = (
 ): AnyRelation =>
 	generatedRelation(
 		"Gen",
-		{
-			id: uuidDescriptor,
-			k1: closedId(got(rosters, c.key[0].name)),
-			k2: closedId(got(rosters, c.key[1].name)),
-			depth: pgDescriptors.integer
-		},
+		{ id: uuidDescriptor, ...closedIdFields(c, rosters), depth: pgDescriptors.integer },
 		["id"],
 		(row: Readonly<Record<string, unknown>>) => ({
 			weight: generatedField(
 				pgDescriptors.integer,
-				closedRead(rule, "w", [row["k1"], row["k2"]]),
+				closedRead(
+					rule,
+					"w",
+					Arr.map(closedKeyNames(c), (k) => row[k])
+				),
+				[]
+			),
+			flags: generatedField(
+				bits(got(rosters, Arr.lastNonEmpty(c.key).name)),
+				closedRow(
+					rule,
+					Arr.map(Arr.initNonEmpty(closedKeyNames(c)), (k) => row[k])
+				),
 				[]
 			),
 			next: generatedField(
@@ -2190,6 +2404,8 @@ const startValue = (s: Start, rosters: ReadonlyMap<string, RosterValue>): unknow
 			return s.handle
 		case "noHandles":
 			return bitsOf(got(rosters, s.roster), [], [])
+		case "text":
+			return s.value
 	}
 }
 
@@ -2628,6 +2844,14 @@ const literalTypeOf = (value: unknown): string => {
 	}
 }
 
+/** A closed id's handles under the brand of each contract its type is, innermost first, as hostOfScalar brands. */
+const brandedHandles = (type: ScalarType, handles: string): string => {
+	const contract = contractOf(type)
+	return contract === undefined
+		? handles
+		: `(${brandedHandles(contract.base, handles)}) & Brand.Brand<${jsonText(contract.name)}>`
+}
+
 /**
  * The host type of a column the engine types `type` and decodes by `column` (core/decoder.ts Column): a constant's
  * column delivers its literals, a closed id's the handles it may deliver, under its contract's brand, and every other
@@ -2637,13 +2861,11 @@ const columnHost = (type: ScalarType, column: Column<unknown>, ids: Ids): string
 	switch (column.kind) {
 		case "constant":
 			return Arr.join(Arr.dedupe(Arr.map(column.values, literalTypeOf)), " | ")
-		case "code": {
-			const handles = Arr.join(Arr.dedupe(Arr.map(column.handles, literalTypeOf)), " | ")
-			const contract = contractOf(type)
-			return contract === undefined
-				? handles
-				: `(${handles}) & Brand.Brand<${jsonText(contract.name)}>`
-		}
+		case "code":
+			return brandedHandles(
+				type,
+				Arr.join(Arr.dedupe(Arr.map(column.handles, literalTypeOf)), " | ")
+			)
 		case "convert":
 		case "text":
 		case "bits":
@@ -2677,11 +2899,7 @@ const compiledColumns = (query: unknown): Columns => {
 }
 
 /** A projection of every field of a relation: what its query's head delivers, which is its fact. */
-const projectionOf = (
-	schemaValue: AnySchema,
-	value: AnyRelation | RosterValue,
-	fields: ReadonlyArray<string>
-) =>
+const projectionOf = (schemaValue: AnySchema, value: unknown, fields: ReadonlyArray<string>) =>
 	queryOver(schemaValue).rule((rule: RuleValue) => {
 		const vars = varsOver(value, "fact")
 		const bound = Rec.fromEntries(Arr.map(fields, (f) => [f, vars[f]] as const))
@@ -2730,7 +2948,7 @@ const valueVerdict = (r: Result.Result<unknown, ValueFault>): Verdict =>
 const building = (build: () => unknown): Verdict => engineVerdict(catchCompileError(build))
 
 /** A build, then a compilation of what it built: the first refusal of either. */
-const compiling = (build: () => AnySchema): Verdict =>
+const compiling = (build: () => unknown): Verdict =>
 	engineVerdict(
 		Result.flatMap(catchCompileError(build), (built) => testArtifacts(built, testCompile))
 	)
@@ -2788,6 +3006,8 @@ const startSource = (s: Start, ids: Ids): string => {
 			return jsonText(s.handle)
 		case "noHandles":
 			return `Fi.Bits.of(${ids(s.roster)}, [])`
+		case "text":
+			return jsonText(s.value)
 	}
 }
 
@@ -2865,15 +3085,31 @@ const ordinaryOf = (base: Base): Arr.NonEmptyReadonlyArray<RelationSpec> => {
 	return Arr.isReadonlyArrayNonEmpty(own) ? own : [base.relations[0]]
 }
 
-/** A relation's primary key, as the program writes it: drawn whole, or with one planted fault. */
+/**
+ * A relation's primary key, as the program writes it: drawn whole, or with one planted fault, among them a set field
+ * beside the drawn ones as the primary key, or as a key statement's side.
+ */
 const keyProbe = (d: Drawing, base: Base): Probe => {
 	const spec = relationOf(d, "Probe", base.rosters, base.contracts)
 	const fault = d.from<SchemaFault | undefined>([
 		undefined,
 		"emptyKey",
 		"undeclaredKeyField",
-		"repeatedKeyField"
+		"repeatedKeyField",
+		"setPrimaryKey",
+		"setKey"
 	])
+	const roster = d.from(base.rosters)
+	const declared: RelationSpec =
+		fault === "setPrimaryKey" || fault === "setKey"
+			? {
+					...spec,
+					fields: [
+						...spec.fields,
+						{ name: "set", type: { kind: "bits", roster: roster.name }, writing: callerWriting }
+					]
+				}
+			: spec
 	const key: ReadonlyArray<string> =
 		fault === "emptyKey"
 			? []
@@ -2881,25 +3117,55 @@ const keyProbe = (d: Drawing, base: Base): Probe => {
 				? ["nope"]
 				: fault === "repeatedKeyField"
 					? [...spec.key, spec.key[0]]
-					: spec.key
+					: fault === "setPrimaryKey"
+						? ["set"]
+						: spec.key
+	const relationValueOf = (env: Env) =>
+		relation(
+			declared.name,
+			Rec.fromEntries(
+				Arr.map(
+					declared.fields,
+					(f) => [f.name, fieldDescriptor(f, env.rosters, env.contracts)] as const
+				)
+			),
+			key,
+			[]
+		)
 	return {
 		construct: "keyProbe",
 		refused: fault,
-		text: (ids) => oneLine(relationSource(spec, ids, quoted(key))),
-		judge: (env) =>
-			building(() =>
-				relation(
-					spec.name,
-					Rec.fromEntries(
-						Arr.map(
-							spec.fields,
-							(f) => [f.name, fieldDescriptor(f, env.rosters, env.contracts)] as const
+		text: (ids, own) =>
+			fault === "setKey"
+				? {
+						head: [`export const ${own}_Probe = ${relationSource(declared, ids, quoted(key))}`],
+						line: `export const ${own} = Sc.key(Sc.on(${own}_Probe, "set"))`,
+						tail: []
+					}
+				: oneLine(relationSource(declared, ids, quoted(key))),
+		judge: (env) => {
+			if (fault === "setKey") {
+				return compiling(() => {
+					const probe = relationValueOf(env)
+					return schema(
+						"P",
+						{ ...Rec.fromEntries([...env.rosters]), Probe: probe },
+						[keyBuilder(onBuilder(probe, ["set"]))],
+						[]
+					)
+				})
+			}
+			return fault === "setPrimaryKey"
+				? compiling(() =>
+						schema(
+							"P",
+							{ ...Rec.fromEntries([...env.rosters]), Probe: relationValueOf(env) },
+							[],
+							[]
 						)
-					),
-					key,
-					[]
-				)
-			)
+					)
+				: building(() => relationValueOf(env))
+		}
 	}
 }
 
@@ -3380,22 +3646,23 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 	}
 	const r = relationNamed(base.relations, spec.over)
 	const valid = d.from<DerivedValid>(["overLevels", "boundImport", "discriminated"])
-	const fault =
+	const [fault, side] =
 		d.upTo(2) === 0
-			? undefined
-			: d.from<DerivedFault>([
-					"parameterizedDefinition",
-					"derivedAtOwnLevel",
-					"derivedInRoot",
-					"keyOverDerived",
-					"sideOverDerived",
-					"checkOverDerived",
-					"selectOverDerived",
-					"finOverDerived",
-					"emptyHead",
-					"headingGroups"
+			? ([undefined, "left"] as const)
+			: d.from<readonly [DerivedFault, DerivedSide]>([
+					["parameterizedDefinition", "left"],
+					["derivedAtOwnLevel", "left"],
+					["derivedInRoot", "left"],
+					["keyOverDerived", "left"],
+					["sideOverDerived", "left"],
+					["sideOverDerived", "right"],
+					["sideOverDerived", "mirrors"],
+					["checkOverDerived", "left"],
+					["selectOverDerived", "left"],
+					["finOverDerived", "left"],
+					["emptyHead", "left"],
+					["headingGroups", "left"]
 				])
-	const side = d.from(["left", "right", "mirrors"] as const)
 	if (fault === "sideOverDerived") {
 		d.note(sideForm[side])
 	}
@@ -3890,43 +4157,68 @@ const literalProbe = (d: Drawing, base: Base): Probe => {
 	}
 }
 /** A fold a family probe states: its monoid, the member's value type, its ends, a pair, and the fault it plants. */
-type FoldFault = "countedPair" | "monoidMismatch" | "endPlanes" | "finNotDrawn"
+type FoldFault =
+	| "countedPair"
+	| "monoidMismatch"
+	| "endPlanes"
+	| "finNotDrawn"
+	| "concatCounted"
+	| "concatHidden"
 
 /**
  * A family of its own with one fold: an owner O with its drawn count and the fold's ends, a member M with its group,
  * an ordered member's drawn index, the step's value and, over an ordered family, sometimes a (before, after) pair.
  * Valid, or with one planted fault: a counted family's fold naming the pair, a monoid over a value it does not combine,
- * an end of the wrong planes, a count field that is not drawn: the owner's key, or an accumulated natural.
+ * an end of the wrong planes, a count field that is not drawn: the owner's key, or an accumulated natural; a concat
+ * fold of text over its named (before, after) pair, over a counted family or with its pair hidden a planted fault.
  */
 const familyProbe = (d: Drawing, base: Base): Probe => {
 	const roster = d.from(base.rosters)
-	const fault = d.from<FoldFault | "treeParentType" | "countedSide" | undefined>([
+	const drawn = d.from<FoldFault | "treeParentType" | "countedSide" | "concatFold" | undefined>([
 		undefined,
 		undefined,
+		"concatFold",
 		"countedPair",
 		"monoidMismatch",
 		"endPlanes",
 		"finNotDrawn",
+		"concatCounted",
+		"concatHidden",
 		"treeParentType",
 		"countedSide"
 	])
+	const fault = drawn === "concatFold" ? undefined : drawn
 	if (fault === "treeParentType") {
 		return treeProbe(d)
 	}
 	if (fault === "countedSide") {
 		return countedSideProbe()
 	}
-	const order = fault === "countedPair" ? "counted" : d.from(["ordered", "counted"] as const)
+	const order =
+		fault === "countedPair" || fault === "concatCounted"
+			? "counted"
+			: fault === "concatHidden" || drawn === "concatFold"
+				? "ordered"
+				: d.from(["ordered", "counted"] as const)
 	const monoid =
 		fault === "countedPair"
 			? "sum"
-			: fault === "monoidMismatch"
-				? d.from(["sum", "or"] as const)
-				: fault === "endPlanes"
-					? d.from(["sum", "twos"] as const)
-					: order === "counted"
-						? d.from(["count", "sum"] as const)
-						: d.from(orderedMonoids)
+			: fault === "concatCounted" || fault === "concatHidden" || drawn === "concatFold"
+				? "concat"
+				: fault === "monoidMismatch"
+					? d.from(["sum", "or", "concat"] as const)
+					: fault === "endPlanes"
+						? d.from(["sum", "twos"] as const)
+						: order === "counted"
+							? d.from(["count", "sum"] as const)
+							: d.from(orderedMonoids)
+	if (monoid === "concat" && fault === undefined) {
+		d.note("concatFold")
+	}
+	if (monoid === "concat" && fault === "monoidMismatch") {
+		d.note("concatMismatch")
+	}
+	const text: FieldType = { kind: "text", pattern: { source: "^[a-z]{0,16}$", flags: "u" } }
 	const set: FieldType = { kind: "bits", roster: roster.name }
 	const closedType: FieldType = { kind: "closedId", roster: roster.name }
 	const sumType: FieldType = {
@@ -3934,12 +4226,16 @@ const familyProbe = (d: Drawing, base: Base): Probe => {
 		spelling: order === "counted" ? "integer" : d.from(["bigint", "integer"] as const)
 	}
 	const zero = (t: FieldType): Start =>
-		t.kind === "pg" && t.spelling === "integer"
-			? { kind: "integer", value: 0 }
-			: { kind: "bigint", value: 0n }
+		t.kind === "text"
+			? { kind: "text", value: "" }
+			: t.kind === "pg" && t.spelling === "integer"
+				? { kind: "integer", value: 0 }
+				: { kind: "bigint", value: 0n }
 	const noHandles: Start = { kind: "noHandles", roster: roster.name }
 	const value: FieldType | undefined = (() => {
 		switch (monoid) {
+			case "concat":
+				return fault === "monoidMismatch" ? { kind: "pg", spelling: "bigint" } : text
 			case "sum":
 				return fault === "monoidMismatch" ? { kind: "pg", spelling: "double precision" } : sumType
 			case "count":
@@ -3992,12 +4288,16 @@ const familyProbe = (d: Drawing, base: Base): Probe => {
 						]
 			case "max":
 				return [[closedType, { kind: "handle", roster: roster.name, handle: roster.handles[0] }]]
+			case "concat":
+				return [[text, { kind: "text", value: "" }]]
 		}
 	})()
 	const pair =
 		value !== undefined &&
-		monoid === "sum" &&
-		(fault === "countedPair" || (fault === undefined && order === "ordered" && d.upTo(1) === 1))
+		((monoid === "sum" &&
+			(fault === "countedPair" ||
+				(fault === undefined && order === "ordered" && d.upTo(1) === 1))) ||
+			(monoid === "concat" && fault !== "concatHidden" && fault !== "concatCounted"))
 	const valueField: ReadonlyArray<FieldSpec> =
 		value === undefined ? [] : [{ name: "v", type: value, writing: callerWriting }]
 	const pairFields: ReadonlyArray<FieldSpec> = pair
@@ -4190,6 +4490,12 @@ type FieldCall =
 	  }
 	| { readonly kind: "numeric"; readonly arguments: 1 | 2 }
 	| { readonly kind: "typmod"; readonly of: "float" | "numeric" | "vector"; readonly text: boolean }
+	| { readonly kind: "lookAlike" }
+	| { readonly kind: "crossSet"; readonly roster: RosterSpec }
+
+/** A plain object with a uuid descriptor's sql and column, which no builder made. */
+const lookAlikeSource =
+	'{ sql: "uuid", column: { kind: "convert", convert: (text: string) => text } } as const'
 
 const fieldCallSource = (call: FieldCall, ids: Ids): string => {
 	switch (call.kind) {
@@ -4214,6 +4520,10 @@ const fieldCallSource = (call: FieldCall, ids: Ids): string => {
 					return `Fi.pg.vector(${first(3)})`
 			}
 		}
+		case "lookAlike":
+			return `Sc.relation("LookAlike", { id: ${lookAlikeSource} }, ["id"])`
+		case "crossSet":
+			return `Fi.accumulated(Fi.bits(${ids(call.roster.name)}), Fi.Bits.of(Sc.closed("Other", [${quoted(call.roster.handles)}]), []))`
 	}
 }
 
@@ -4258,13 +4568,30 @@ const fieldCallValue = (call: FieldCall, env: Env): unknown => {
 				}
 			}
 		}
+		case "crossSet":
+			return accumulatedField(
+				bits(got(env.rosters, call.roster.name)),
+				bitsOf(closed("Other", call.roster.handles, []), [], []),
+				[]
+			)
+		case "lookAlike": {
+			const made: unknown = Reflect.apply(relation, undefined, [
+				"LookAlike",
+				{ id: { sql: "uuid", column: { kind: "convert", convert: (text: string) => text } } },
+				["id"],
+				[]
+			])
+			return made
+		}
 	}
 }
 
 /**
  * A field constructor: drawn over a natural or another type, accumulated over a value type or a field of a writing of
  * its own, its start of its type or not, a contract over a value domain or a serial, a span over an integer endpoint
- * or another, its width of its endpoint's host type or not, numeric with its scale or without.
+ * or another, its width of its endpoint's host type or not, numeric with its scale or without, a typmod of its type or
+ * a text, a relation over a plain object shaped like a descriptor, which no builder made, and an accumulated set
+ * starting at a set over another roster of the same spellings.
  */
 const fieldProbe = (d: Drawing, base: Base): Probe => {
 	const roster = d.from(base.rosters)
@@ -4375,7 +4702,9 @@ const fieldProbe = (d: Drawing, base: Base): Probe => {
 		{
 			fault: "argumentKind",
 			call: { kind: "typmod", of: d.from(["float", "numeric", "vector"] as const), text: true }
-		}
+		},
+		{ fault: "lookAlikeDescriptor", call: { kind: "lookAlike" } },
+		{ fault: "crossSet", call: { kind: "crossSet", roster } }
 	]
 	const fault = d.from(Arr.dedupe(Arr.map(forms, (f) => f.fault)))
 	const ofFault = Arr.filter(forms, (f) => f.fault === fault)
@@ -4388,46 +4717,104 @@ const fieldProbe = (d: Drawing, base: Base): Probe => {
 	}
 }
 
-/** A closed relation over a roster's handles, a row for each, every field stated or, a planted fault, one left out. */
+/** How a closed relation probe states its relation: valid, its first row repeated, or with one planted fault. */
+type ClosedRelationForm =
+	| "valid"
+	| "repeatedRow"
+	| "rowMissingField"
+	| "conflictingRow"
+	| "closedKeyNotClosed"
+	| "closedFifthArgument"
+
+/**
+ * A closed relation over a roster's handles, a row for each, keyed by its closed id k and holding a payload v; valid,
+ * its first row stated twice, which is one row; or a planted fault: a row leaving v out, a second row at the first's
+ * key with another v, a key naming v, a fifth argument.
+ */
 const closedRelationProbe = (d: Drawing, base: Base): Probe => {
 	const roster = d.from(base.rosters)
-	const missing = d.upTo(1) === 1
-	const value = d.from<readonly [FieldType, string, unknown]>([
-		[{ kind: "pg", spelling: "integer" }, "1", 1],
-		[{ kind: "pg", spelling: "bigint" }, "1n", 1n],
-		[{ kind: "text", pattern: { source: "^.*$", flags: "su" } }, '"a"', "a"]
+	const form = d.from<ClosedRelationForm>([
+		"valid",
+		"repeatedRow",
+		"rowMissingField",
+		"conflictingRow",
+		"closedKeyNotClosed",
+		"closedFifthArgument"
 	])
-	const [type, source, host] = value
-	const rows = Arr.map(roster.handles, (h, i) =>
-		missing && i === 0 ? { k: h } : { k: h, v: host }
-	)
+	if (form === "repeatedRow") {
+		d.note("closedRepeatedRow")
+	}
+	const value = d.from<readonly [FieldType, string, unknown, string, unknown]>([
+		[{ kind: "pg", spelling: "integer" }, "1", 1, "2", 2],
+		[{ kind: "pg", spelling: "bigint" }, "1n", 1n, "2n", 2n],
+		[{ kind: "text", pattern: { source: "^.*$", flags: "su" } }, '"a"', "a", '"b"', "b"]
+	])
+	const [payload, source, host, otherSource, otherHost] = value
+	const type = payload
+	const first = Arr.headNonEmpty(roster.handles)
+	type Row = readonly [string, "missing" | "value" | "other"]
+	const rows: ReadonlyArray<Row> = [
+		...Arr.map(roster.handles, (h, i): Row => [
+			h,
+			form === "rowMissingField" && i === 0 ? "missing" : "value"
+		]),
+		...(form === "repeatedRow" ? [[first, "value"] as const] : []),
+		...(form === "conflictingRow" ? [[first, "other"] as const] : [])
+	]
+	const fault: SchemaFault | undefined =
+		form === "valid" || form === "repeatedRow" ? undefined : form
 	return {
 		construct: "closedRelationProbe",
-		refused: missing ? "rowMissingField" : undefined,
-		text: (ids, own) =>
-			oneLine(
-				`export const ${own} = Sc.closed.relation("Probe", { k: Fi.closedId(${ids(roster.name)}), v: ${fieldSource(type, ids)} }, ["k"], [${Arr.join(
-					Arr.map(roster.handles, (h, i) =>
-						missing && i === 0 ? `{ k: ${jsonText(h)} }` : `{ k: ${jsonText(h)}, v: ${source} }`
-					),
-					", "
-				)}])`
-			),
+		refused: fault,
+		text: (ids, own) => {
+			const cell = (state: Row[1]): string => {
+				switch (state) {
+					case "missing":
+						return ""
+					case "value":
+						return `, v: ${source}`
+					case "other":
+						return `, v: ${otherSource}`
+				}
+			}
+			const stated = Arr.join(
+				Arr.map(rows, ([h, state]) => `{ k: ${jsonText(h)}${cell(state)} }`),
+				", "
+			)
+			const key = form === "closedKeyNotClosed" ? '["v"]' : '["k"]'
+			const fifth = form === "closedFifthArgument" ? ', { pack: "hex" } as const' : ""
+			return {
+				head: [],
+				line: `export const ${own} = Sc.closed.relation("Probe", { k: Fi.closedId(${ids(roster.name)}), v: ${fieldSource(type, ids)} }, ${key}, [${stated}]${fifth})`,
+				tail: []
+			}
+		},
 		judge: (env) =>
-			building(() =>
-				admitClosedRelation(
+			building(() => {
+				const valueOf = (state: Row[1]) => {
+					switch (state) {
+						case "missing":
+							return {}
+						case "value":
+							return { v: host }
+						case "other":
+							return { v: otherHost }
+					}
+				}
+				return admitClosedRelation(
 					"Probe",
 					{
 						k: closedId(got(env.rosters, roster.name)),
 						v: fieldValue(type, env.rosters, env.contracts)
 					},
-					["k"],
-					rows,
-					[]
+					form === "closedKeyNotClosed" ? ["v"] : ["k"],
+					Arr.map(rows, ([h, state]) => ({ k: h, ...valueOf(state) })),
+					form === "closedFifthArgument" ? [{ pack: "hex" }] : []
 				)
-			)
+			})
 	}
 }
+
 /** The names a base's TypeScript declares beside its relations: its schema, its extension, its statements. */
 const statementId = (i: number): string => `s${i}`
 
@@ -4474,29 +4861,43 @@ const familySources = (f: FamilySpec, ids: Ids): ReadonlyArray<readonly [string,
  * full key and C.row at a key prefix, declared so their types may be named.
  */
 const closedDeclarations = (c: ClosedSpec, ids: Ids): ReadonlyArray<readonly [string, string]> => {
-	const [k1, k2] = c.key
+	const names = closedKeyNames(c)
 	const [payload] = payloadValue(c.payload)
 	const rows = Arr.map(
 		closedKeys(c),
-		([a, b]) => `{ k1: ${jsonText(a)}, k2: ${jsonText(b)}, w: 1, x: ${payload} }`
+		(k) =>
+			`{ ${Arr.join(
+				Arr.zipWith(names, k, (name, h) => `${name}: ${jsonText(h)}`),
+				", "
+			)}, w: 1, x: ${payload} }`
 	)
-	const [h1, h2] = [k1.handles[0], k2.handles[0]]
+	const idFields = Arr.join(
+		Arr.zipWith(names, c.key, (name, r) => `${name}: Fi.closedId(${ids(r.name)})`),
+		", "
+	)
+	const first = Arr.map(c.key, (r) => jsonText(Arr.headNonEmpty(r.handles)))
 	return [
 		[
 			"Rule",
-			`Sc.closed.relation("Rule", { k1: Fi.closedId(${ids(k1.name)}), k2: Fi.closedId(${ids(k2.name)}), w: Fi.pg.integer, x: ${fieldSource(payloadType(c.payload), ids)} }, ["k1", "k2"], [${Arr.join(rows, ", ")}])`
+			`Sc.closed.relation("Rule", { ${idFields}, w: Fi.pg.integer, x: ${fieldSource(payloadType(c.payload), ids)} }, [${quoted(names)}], [${Arr.join(rows, ", ")}])`
 		],
 		...(c.generated
 			? [
 					[
 						"Gen",
-						`Sc.relation.generated("Gen", { id: Fi.uuid, k1: Fi.closedId(${ids(k1.name)}), k2: Fi.closedId(${ids(k2.name)}), depth: Fi.pg.integer }, ["id"], (r) => ({ weight: Fi.generated(Fi.pg.integer, ${ids("Rule")}.at("w", r.k1, r.k2)), next: Fi.generated(Fi.pg.bigint, Cp.Compute.cast(Cp.Compute.add(r.depth, 1), Fi.pg.bigint)) }))`
+						`Sc.relation.generated("Gen", { id: Fi.uuid, ${idFields}, depth: Fi.pg.integer }, ["id"], (r) => ({ weight: Fi.generated(Fi.pg.integer, ${ids("Rule")}.at("w", ${Arr.join(
+							Arr.map(names, (name) => `r.${name}`),
+							", "
+						)})), flags: Fi.generated(Fi.bits(${ids(Arr.lastNonEmpty(c.key).name)}), ${ids("Rule")}.row(${Arr.join(
+							Arr.map(Arr.initNonEmpty(names), (name) => `r.${name}`),
+							", "
+						)})), next: Fi.generated(Fi.pg.bigint, Cp.Compute.cast(Cp.Compute.add(r.depth, 1), Fi.pg.bigint)) }))`
 					] as const
 				]
 			: []),
-		["at", `${ids("Rule")}.at("w", ${jsonText(h1)}, ${jsonText(h2)})`],
-		["xat", `${ids("Rule")}.at("x", ${jsonText(h1)}, ${jsonText(h2)})`],
-		["row", `${ids("Rule")}.row(${jsonText(h1)})`]
+		["at", `${ids("Rule")}.at("w", ${Arr.join(first, ", ")})`],
+		["xat", `${ids("Rule")}.at("x", ${Arr.join(first, ", ")})`],
+		["row", `${ids("Rule")}.row(${Arr.join(Arr.initNonEmpty(first), ", ")})`]
 	]
 }
 
@@ -4806,13 +5207,18 @@ const baseAssertions = (
 		base.closedRelation === undefined || env.closedRelation === undefined
 			? []
 			: closedAssertions(base.closedRelation, env.closedRelation, base, ids)
-	const rosterFacts = Arr.map(base.rosters, (r) =>
+	const rosterFacts = Arr.flatMap(base.rosters, (r) => [
 		expect(
 			`fact_${r.name}`,
 			`Sc.Fact<typeof ${ids(r.name)}>`,
 			objectType([["id", literalUnion(r.handles)]])
+		),
+		expect(
+			`keys_${r.name}`,
+			`Sc.KeysOf<typeof ${ids("S")}, typeof ${ids(r.name)}>`,
+			tupleType(["id"])
 		)
-	)
+	])
 	const keyValues = Arr.flatMap(base.statements, (s, i) => {
 		if (
 			s.kind !== "key" ||
@@ -4913,10 +5319,19 @@ const closedAssertions = (
 			`Sc.Fact<typeof ${ids("Rule")}>`,
 			objectType(Arr.map(fields, ([name, f]) => [name, hostOfDesc(f, base, ids)] as const))
 		),
+		expect(
+			"keys_Rule",
+			`Sc.KeysOf<typeof ${ids("S")}, typeof ${ids("Rule")}>`,
+			tupleType(desc.key)
+		),
 		expect("at", `Ph.TypeOfTerm<typeof ${ids("at")}>`, hostOfDesc(fieldDesc("w"), base, ids)),
 		expect("at_sql", `Ph.SqlOfTerm<typeof ${ids("at")}>`, jsonText(sqlOfDesc(fieldDesc("w")))),
 		expect("xat", `Ph.TypeOfTerm<typeof ${ids("xat")}>`, hostOfDesc(fieldDesc("x"), base, ids)),
-		expect("row", `Ph.TypeOfTerm<typeof ${ids("row")}>`, `Ff.Bits<typeof ${ids(c.key[1].name)}>`)
+		expect(
+			"row",
+			`Ph.TypeOfTerm<typeof ${ids("row")}>`,
+			`Ff.Bits<typeof ${ids(Arr.lastNonEmpty(c.key).name)}>`
+		)
 	]
 }
 
@@ -5172,9 +5587,40 @@ const projectionAssertion = (base: Base, env: Env, ids: Ids): ReadonlyArray<stri
 	const fields = Arr.map(declsOf(value), ([field]) => field)
 	const heading = compiledHeading(projectionOf(env.schema, value, fields), ids)
 	return [
-		`export const ${ids("projection")} = Q.query(${ids("S")}).rule((r) => { const { ${Arr.join(fields, ", ")} } = Q.v(${ids(r.name)}, "fact"); return r.match(${ids(r.name)}, { ${Arr.join(fields, ", ")} }).find({ ${Arr.join(fields, ", ")} }) })`,
-		`export type ${ids("t_projection")} = Expect<Equals<Q.HeadOf<typeof ${ids("projection")}>, ${objectType(heading)}>>`
+		...projectionLines("projection", r.name, fields, heading, ids),
+		...(base.closedRelation === undefined || env.closedRelation === undefined
+			? []
+			: closedProjection(base.closedRelation, env.closedRelation, env, ids))
 	]
+}
+
+/** A query projecting a source's fields, and its head asserted equal to the heading the engine compiles it to. */
+const projectionLines = (
+	name: string,
+	source: string,
+	fields: ReadonlyArray<string>,
+	heading: ReadonlyArray<readonly [string, string]>,
+	ids: Ids
+): ReadonlyArray<string> => [
+	`export const ${ids(name)} = Q.query(${ids("S")}).rule((r) => { const { ${Arr.join(fields, ", ")} } = Q.v(${ids(source)}, "fact"); return r.match(${ids(source)}, { ${Arr.join(fields, ", ")} }).find({ ${Arr.join(fields, ", ")} }) })`,
+	`export type ${ids(`t_${name}`)} = Expect<Equals<Q.HeadOf<typeof ${ids(name)}>, ${objectType(heading)}>>`
+]
+
+/** A query over the base matching its closed relation Rule, a closed read among a rule's matches. */
+const closedProjection = (
+	c: ClosedSpec,
+	rule: ClosedValue,
+	env: Env,
+	ids: Ids
+): ReadonlyArray<string> => {
+	const fields = [...closedKeyNames(c), "w", "x"]
+	return projectionLines(
+		"closedProjection",
+		"Rule",
+		fields,
+		compiledHeading(projectionOf(env.schema, rule, fields), ids),
+		ids
+	)
 }
 
 /**
@@ -5443,60 +5889,86 @@ const contractNameProbe = (d: Drawing): Probe => {
 	}
 }
 
-/** How a closed-read probe reads Rule: valid, or with one planted fault. */
+/** How a closed-read probe reads Rule, valid or with one planted fault: the key or prefix it passes. */
 type ClosedReadForm =
-	| { readonly fault: "atShort" | "atMissing" | "atSwapped" | undefined; readonly read: "at" }
-	| { readonly fault: "rowShort" | undefined; readonly read: "row" }
+	| {
+			readonly fault: "atShort" | "atMissing" | "atSwapped" | "atKey" | "atWrongHandle" | undefined
+			readonly read: "at"
+			readonly key: ReadonlyArray<string>
+	  }
+	| {
+			readonly fault: "rowShort" | "rowWhole" | undefined
+			readonly read: "row"
+			readonly prefix: ReadonlyArray<string>
+	  }
 	| { readonly fault: "echoRoster" | undefined; readonly read: "generated" }
 
 /**
- * A read of the base's closed relation: C.at of a payload field at a full key, C.row at a key prefix, or a generated
- * field reading C.at at its row's closed ids; valid, or with one planted fault: a key short of a field, a payload field
- * Rule does not declare, a key's values out of order, a row of no prefix, a closed id of another roster whose handles
- * have Rule's key roster's spellings. The engine's closed reads and generated relations are the oracle.
+ * A read of the base's closed relation, at its key of one to three closed ids: C.at of a payload field at a full key,
+ * C.row at a key prefix, or a generated field reading C.at at its row's closed ids; valid, or with one planted fault: a
+ * key short of a field, a payload field Rule does not declare, a key field read as a payload, a key value of no handle,
+ * its first two key values swapped, a row's prefix short of a field or the whole key, a closed id of another roster whose handles have Rule's first key roster's spellings. The engine's closed
+ * reads and generated relations are the oracle.
  */
 const closedReadProbe = (d: Drawing, base: Base): Probe | undefined => {
 	const c = base.closedRelation
 	if (c === undefined) {
 		return undefined
 	}
-	const [k1, k2] = c.key
-	const apart = Arr.filter(k1.handles, (h) => !Arr.contains(k2.handles, h))
+	const names = closedKeyNames(c)
+	const [k1, ...rest] = c.key
+	const second = Arr.isReadonlyArrayNonEmpty(rest) ? Arr.headNonEmpty(rest) : undefined
+	const apart =
+		second === undefined ? [] : Arr.filter(k1.handles, (h) => !Arr.contains(second.handles, h))
 	const h1 = d.from(Arr.isReadonlyArrayNonEmpty(apart) ? apart : k1.handles)
-	const h2 = d.from(k2.handles)
-	const swappable = !Arr.contains(k1.handles, h2) || !Arr.contains(k2.handles, h1)
+	const others = Arr.map(rest, (r) => d.from(r.handles))
+	const full: Arr.NonEmptyReadonlyArray<string> = [h1, ...others]
+	const swapped: ReadonlyArray<ClosedReadForm> = Arr.match(Arr.zip(rest, others), {
+		onEmpty: () => [],
+		onNonEmpty: ([[r2, h2], ...tail]) =>
+			!Arr.contains(k1.handles, h2) || !Arr.contains(r2.handles, h1)
+				? [{ fault: "atSwapped", read: "at", key: [h2, h1, ...Arr.map(tail, ([, h]) => h)] }]
+				: []
+	})
+	const prefix = Arr.initNonEmpty(full)
 	const form = d.from<ClosedReadForm>([
-		{ fault: undefined, read: "at" },
-		{ fault: "atShort", read: "at" },
-		{ fault: "atMissing", read: "at" },
-		...(swappable ? [{ fault: "atSwapped", read: "at" } as const] : []),
-		{ fault: undefined, read: "row" },
-		{ fault: "rowShort", read: "row" },
+		{ fault: undefined, read: "at", key: full },
+		{ fault: "atShort", read: "at", key: prefix },
+		{ fault: "atMissing", read: "at", key: full },
+		{ fault: "atKey", read: "at", key: full },
+		{ fault: "atWrongHandle", read: "at", key: Arr.prepend(Arr.tailNonEmpty(full), "Nope") },
+		...swapped,
+		{ fault: undefined, read: "row", prefix },
+		{ fault: "rowWhole", read: "row", prefix: full },
+		...(Arr.isReadonlyArrayNonEmpty(prefix)
+			? [{ fault: "rowShort", read: "row", prefix: Arr.initNonEmpty(prefix) } as const]
+			: []),
 		{ fault: undefined, read: "generated" },
 		{ fault: "echoRoster", read: "generated" }
 	])
 	const field = d.from(["w", "x"] as const)
-	const key: readonly [string] | readonly [string, string] =
-		form.fault === "atShort" ? [h1] : form.fault === "atSwapped" ? [h2, h1] : [h1, h2]
-	const read = form.fault === "atMissing" ? "nope" : field
+	const read = form.fault === "atMissing" ? "nope" : form.fault === "atKey" ? "k1" : field
+	const echoNames = Arr.tailNonEmpty(names)
 	return {
 		construct: "closedReadProbe",
 		refused: form.fault,
 		text: (ids, own) => {
 			switch (form.read) {
 				case "at":
-					return oneLine(
-						`export const ${own} = ${ids("Rule")}.at(${jsonText(read)}, ${quoted(key)})`
-					)
+					return oneLine(`export const ${own} = ${ids("Rule")}.at(${quoted([read, ...form.key])})`)
 				case "row":
-					return oneLine(
-						`export const ${own} = ${ids("Rule")}.row(${form.fault === "rowShort" ? "" : jsonText(h1)})`
-					)
+					return oneLine(`export const ${own} = ${ids("Rule")}.row(${quoted(form.prefix)})`)
 				case "generated": {
 					const roster = form.fault === "echoRoster" ? `${own}_Echo` : ids(k1.name)
+					const restFields = Arr.zipWith(
+						echoNames,
+						rest,
+						(name, r) => `, ${name}: Fi.closedId(${ids(r.name)})`
+					)
+					const reads = Arr.map(echoNames, (name) => `, r.${name}`)
 					return {
 						head: [`export const ${own}_Echo = Sc.closed("Echo", [${quoted(k1.handles)}])`],
-						line: `export const ${own} = Sc.relation.generated("Echoed", { id: Fi.uuid, echo: Fi.closedId(${roster}), k2: Fi.closedId(${ids(k2.name)}) }, ["id"], (r) => ({ w: Fi.generated(Fi.pg.integer, ${ids("Rule")}.at("w", r.echo, r.k2)) }))`,
+						line: `export const ${own} = Sc.relation.generated("Echoed", { id: Fi.uuid, echo: Fi.closedId(${roster})${Arr.join(restFields, "")} }, ["id"], (r) => ({ w: Fi.generated(Fi.pg.integer, ${ids("Rule")}.at("w", r.echo${Arr.join(reads, "")})) }))`,
 						tail: []
 					}
 				}
@@ -5509,9 +5981,9 @@ const closedReadProbe = (d: Drawing, base: Base): Probe | undefined => {
 			)
 			switch (form.read) {
 				case "at":
-					return building(() => closedRead(rule, read, key))
+					return building(() => closedRead(rule, read, form.key))
 				case "row":
-					return building(() => closedRow(rule, form.fault === "rowShort" ? [] : [h1]))
+					return building(() => closedRow(rule, form.prefix))
 				case "generated":
 					return compiling(() => {
 						const echo = closed("Echo", k1.handles, [])
@@ -5520,19 +5992,327 @@ const closedReadProbe = (d: Drawing, base: Base): Probe | undefined => {
 							{
 								id: uuidDescriptor,
 								echo: closedId(form.fault === "echoRoster" ? echo : got(env.rosters, k1.name)),
-								k2: closedId(got(env.rosters, k2.name))
+								...Rec.fromEntries(
+									Arr.zipWith(echoNames, rest, (name, r) => [
+										name,
+										closedId(got(env.rosters, r.name))
+									])
+								)
 							},
 							["id"],
 							(row: Readonly<Record<string, unknown>>) => ({
 								w: generatedField(
 									pgDescriptors.integer,
-									closedRead(rule, "w", [row["echo"], row["k2"]]),
+									closedRead(
+										rule,
+										"w",
+										Arr.prepend(
+											Arr.map(echoNames, (name) => row[name]),
+											row["echo"]
+										)
+									),
 									[]
 								)
 							}),
 							[]
 						)
 						return schema("P", { ...env.members, Echo: echo, Echoed: echoed }, [...env.core], [])
+					})
+			}
+		}
+	}
+}
+
+/** How a generated probe states its generated fields: reading its caller's fields, or with one planted fault. */
+type GeneratedForm =
+	| "readsCaller"
+	| "generatedReadsGenerated"
+	| "generatedReadsAccumulated"
+	| "generatedReadsDrawn"
+	| "generatedWrongType"
+	| "generatedTwiceNamed"
+	| "generatedKey"
+
+/**
+ * A relation with generated fields over its caller's id, depth and set w. Valid, a generated set reading w; or a
+ * planted fault: a generated field reading another, an accumulated set or a drawn count declared beside w, a term of a
+ * type other than its field's, a generated field named as a written one, a primary key naming a generated field. The engine's compilation of a schema holding it is the oracle.
+ */
+const generatedProbe = (d: Drawing, base: Base): Probe => {
+	const roster = d.from(base.rosters)
+	const form = d.from<GeneratedForm>([
+		"readsCaller",
+		"generatedReadsGenerated",
+		"generatedReadsAccumulated",
+		"generatedReadsDrawn",
+		"generatedWrongType",
+		"generatedTwiceNamed",
+		"generatedKey"
+	])
+	const nextSource =
+		"Fi.generated(Fi.pg.bigint, Cp.Compute.cast(Cp.Compute.add(r.depth, 1), Fi.pg.bigint))"
+	const callbackSource = (set: string): string => {
+		switch (form) {
+			case "readsCaller":
+				return `{ g: Fi.generated(${set}, Cp.Compute.union(r.w, r.w)) }`
+			case "generatedReadsGenerated":
+				return `{ next: ${nextSource}, twice: Fi.generated(Fi.pg.bigint, Cp.Compute.add(r.next, 1n)) }`
+			case "generatedReadsAccumulated":
+				return `{ g: Fi.generated(${set}, r.acc) }`
+			case "generatedReadsDrawn":
+				return "{ m: Fi.generated(Fi.pg.bigint, Cp.Compute.add(r.n, 1n)) }"
+			case "generatedWrongType":
+				return "{ label: Fi.generated(Fi.pg.bigint, r.depth) }"
+			case "generatedTwiceNamed":
+				return "{ depth: Fi.generated(Fi.pg.integer, r.depth) }"
+			case "generatedKey":
+				return `{ next: ${nextSource} }`
+		}
+	}
+	return {
+		construct: "generatedProbe",
+		refused: form === "readsCaller" ? undefined : form,
+		text: (ids, own) => {
+			const set = `Fi.bits(${ids(roster.name)})`
+			return oneLine(
+				`export const ${own} = Sc.relation.generated("Generated", { id: Fi.uuid, depth: Fi.pg.integer, w: ${set}${form === "generatedReadsAccumulated" ? `, acc: Fi.accumulated(${set}, Fi.Bits.of(${ids(roster.name)}, []))` : ""}${form === "generatedReadsDrawn" ? ", n: Fi.drawn(Fi.natural)" : ""} }, [${form === "generatedKey" ? '"next"' : '"id"'}], (r) => (${callbackSource(set)}))`
+			)
+		},
+		judge: (env) =>
+			compiling(() => {
+				const rosterValue = got(env.rosters, roster.name)
+				const set = fieldValue({ kind: "bits", roster: roster.name }, env.rosters, env.contracts)
+				const next = (row: Readonly<Record<string, unknown>>) =>
+					generatedField(
+						pgDescriptors.bigint,
+						computeCore.cast(computeCore.add(row["depth"], 1), pgDescriptors.bigint),
+						[]
+					)
+				const callback = (
+					row: Readonly<Record<string, unknown>>
+				): Readonly<Record<string, unknown>> => {
+					switch (form) {
+						case "readsCaller":
+							return { g: generatedField(set, computeCore.union(row["w"], row["w"]), []) }
+						case "generatedReadsGenerated":
+							return {
+								next: next(row),
+								twice: generatedField(pgDescriptors.bigint, computeCore.add(row["next"], 1n), [])
+							}
+						case "generatedReadsAccumulated":
+							return { g: generatedField(set, row["acc"], []) }
+						case "generatedReadsDrawn":
+							return { m: generatedField(pgDescriptors.bigint, computeCore.add(row["n"], 1n), []) }
+						case "generatedWrongType":
+							return { label: generatedField(pgDescriptors.bigint, row["depth"], []) }
+						case "generatedTwiceNamed":
+							return { depth: generatedField(pgDescriptors.integer, row["depth"], []) }
+						case "generatedKey":
+							return { next: next(row) }
+					}
+				}
+				const made: unknown = Reflect.apply(generatedRelation, undefined, [
+					"Generated",
+					{
+						id: uuidDescriptor,
+						depth: pgDescriptors.integer,
+						w: set,
+						...(form === "generatedReadsAccumulated"
+							? { acc: accumulatedField(set, bitsOf(rosterValue, [], []), []) }
+							: {}),
+						...(form === "generatedReadsDrawn" ? { n: drawnField(naturalDescriptor, []) } : {})
+					},
+					[form === "generatedKey" ? "next" : "id"],
+					callback,
+					[]
+				])
+				const built: unknown = Reflect.apply(schema, undefined, [
+					"P",
+					{ ...Rec.fromEntries([...env.rosters]), Generated: made },
+					[],
+					[]
+				])
+				return built
+			})
+	}
+}
+
+/** How a slot key probe states its laws: a closed relation keyed by slots, or with one planted fault. */
+type SlotKeyForm =
+	| "slotted"
+	| "finOverClosedNotNatural"
+	| "slotOverOrdinary"
+	| "slotNotClosed"
+	| "familyOverClosed"
+
+/**
+ * A closed relation Model over a roster of versions, each version's count of positions drawn, and Follow, a closed
+ * relation keyed by a version and two slots of its count, slot(closedId(Position), fin(Model, "positions")), a row at
+ * the first and last position of every version; Step reads Follow's row of a version and a from slot, a set over
+ * Position. Or a planted fault: fin over Model's closed id label, a slot over an ordinary relation's count, a slot of no
+ * closed id, an ordered family counted by Model's fin. The engine's builders and compilation are the oracle.
+ */
+const slotKeyProbe = (d: Drawing): Probe => {
+	const form = d.from<SlotKeyForm>([
+		"slotted",
+		"finOverClosedNotNatural",
+		"slotOverOrdinary",
+		"slotNotClosed",
+		"familyOverClosed"
+	])
+	const positions = ["p0", "p1", "p2"] as const
+	const versions = [
+		["v0", d.from([1, 2, 3] as const)],
+		["v1", d.from([1, 2, 3] as const)]
+	] as const
+	const lastOf: { readonly [C in 1 | 2 | 3]: (typeof positions)[number] } = {
+		1: "p0",
+		2: "p1",
+		3: "p2"
+	}
+	return {
+		construct: "slotKeyProbe",
+		refused: form === "slotted" ? undefined : form,
+		text: (_ids, own) => {
+			const head = [
+				`export const ${own}_Version = Sc.closed("Version", ["v0", "v1"])`,
+				`export const ${own}_Position = Sc.closed("Position", [${quoted(positions)}])`,
+				`export const ${own}_Model = Sc.closed.relation("Model", { version: Fi.closedId(${own}_Version), positions: Fi.natural, label: Fi.closedId(${own}_Version) }, ["version"], [${Arr.join(
+					Arr.map(
+						versions,
+						([v, n]) => `{ version: ${jsonText(v)}, positions: ${n}n, label: "v0" }`
+					),
+					", "
+				)}])`
+			]
+			const slot = `Fi.slot(Fi.closedId(${own}_Position), Sc.fin(${own}_Model, "positions"))`
+			switch (form) {
+				case "slotted":
+					return {
+						head,
+						line: `export const ${own} = Sc.closed.relation("Follow", { version: Fi.closedId(${own}_Version), from: ${slot}, to: ${slot} }, ["version", "from", "to"], [${Arr.join(
+							Arr.map(
+								versions,
+								([v, n]) => `{ version: ${jsonText(v)}, from: "p0", to: ${jsonText(lastOf[n])} }`
+							),
+							", "
+						)}])`,
+						tail: [
+							`export const ${own}_Step = Sc.relation.generated("Step", { id: Fi.pg.integer, version: Fi.closedId(${own}_Version), from: Fi.closedId(${own}_Position) }, ["id"], (r) => ({ next: Fi.generated(Fi.bits(${own}_Position), ${own}.row(r.version, r.from)) }))`,
+							`export const ${own}_Slotted = Sc.schema("Slotted", { Version: ${own}_Version, Position: ${own}_Position, Model: ${own}_Model, Follow: ${own}, Step: ${own}_Step }, [])`,
+							`export type ${own}_key = Expect<Equals<(typeof ${own})["key"], readonly ["version", "from", "to"]>>`,
+							`export type ${own}_next = Expect<Equals<Sc.Fact<typeof ${own}_Step>["next"], Ff.Bits<typeof ${own}_Position>>>`
+						]
+					}
+				case "finOverClosedNotNatural":
+					return { head, line: `export const ${own} = Sc.fin(${own}_Model, "label")`, tail: [] }
+				case "slotOverOrdinary":
+					return {
+						head: [
+							...head,
+							`export const ${own}_Owner = Sc.relation("Owner", { id: Fi.pg.integer, n: Fi.drawn(Fi.natural) }, ["id"])`
+						],
+						line: `export const ${own} = Fi.slot(Fi.closedId(${own}_Position), Sc.fin(${own}_Owner, "n"))`,
+						tail: []
+					}
+				case "slotNotClosed":
+					return {
+						head,
+						line: `export const ${own} = Fi.slot(Fi.pg.integer, Sc.fin(${own}_Model, "positions"))`,
+						tail: []
+					}
+				case "familyOverClosed":
+					return {
+						head: [
+							...head,
+							`export const ${own}_Member = Sc.relation("Member", { version: Fi.closedId(${own}_Version), at: Fi.drawn(Fi.natural) }, ["version", "at"])`
+						],
+						line: `export const ${own} = Sc.ordered(Sc.on(${own}_Member, "version", "at"), Sc.fin(${own}_Model, "positions"))`,
+						tail: []
+					}
+			}
+		},
+		judge: () => {
+			const version = closed("Version", ["v0", "v1"], [])
+			const position = closed("Position", positions, [])
+			const model = closedRelation(
+				"Model",
+				{
+					version: closedId(version),
+					positions: naturalDescriptor,
+					label: closedId(version)
+				},
+				["version"],
+				Arr.map(versions, ([v, n]) => ({ version: v, positions: BigInt(n), label: "v0" as const })),
+				[]
+			)
+			/** Follow keyed by two slots of Model's count `count`, and Step reading its rows, compiled. */
+			const slotted = (count: "positions" | "label") =>
+				compiling(() => {
+					const slot = () => slotField(closedId(position), finBuilder(model, count), [])
+					const follow = closedRelation(
+						"Follow",
+						{ version: closedId(version), from: slot(), to: slot() },
+						["version", "from", "to"],
+						Arr.map(versions, ([v, n]) => ({ version: v, from: "p0" as const, to: lastOf[n] })),
+						[]
+					)
+					const step = generatedRelation(
+						"Step",
+						{ id: pgDescriptors.integer, version: closedId(version), from: closedId(position) },
+						["id"],
+						(row: Readonly<Record<string, unknown>>) => ({
+							next: generatedField(
+								bits(position),
+								closedCall(follow.row, follow, [row["version"], row["from"]]),
+								[]
+							)
+						}),
+						[]
+					)
+					return schema(
+						"Slotted",
+						{ Version: version, Position: position, Model: model, Follow: follow, Step: step },
+						[],
+						[]
+					)
+				})
+			switch (form) {
+				case "slotted":
+					return slotted("positions")
+				case "finOverClosedNotNatural":
+					return slotted("label")
+				case "slotOverOrdinary":
+					return building(() => {
+						const owner = relation(
+							"Owner",
+							{ id: pgDescriptors.integer, n: drawnField(naturalDescriptor, []) },
+							["id"],
+							[]
+						)
+						return slotField(closedId(position), finBuilder(owner, "n"), [])
+					})
+				case "slotNotClosed":
+					return building(() => {
+						const made: unknown = Reflect.apply(slotField, undefined, [
+							pgDescriptors.integer,
+							finBuilder(model, "positions"),
+							[]
+						])
+						return made
+					})
+				case "familyOverClosed":
+					return building(() => {
+						const member = relation(
+							"Member",
+							{ version: closedId(version), at: drawnField(naturalDescriptor, []) },
+							["version", "at"],
+							[]
+						)
+						return orderedBuilder(
+							onBuilder(member, ["version", "at"]),
+							finBuilder(model, "positions")
+						)
 					})
 			}
 		}
@@ -5788,6 +6568,8 @@ const probeMakers: ReadonlyArray<
 	["contractNameProbe", (d) => contractNameProbe(d)],
 	["closedReadProbe", closedReadProbe],
 	["castProbe", (d) => castProbe(d)],
+	["generatedProbe", generatedProbe],
+	["slotKeyProbe", (d) => slotKeyProbe(d)],
 	["slotSideProbe", slotSideProbe],
 	["slotContainmentProbe", slotContainmentProbe]
 ]

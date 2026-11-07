@@ -104,6 +104,11 @@ type JoinFilter =
  */
 interface NodeKeys {
 	readonly nodeType: string
+	/**
+	 * How the node feeds its parent: Outer, Inner, Member, Subquery, or SubPlan and InitPlan for a subquery expression's
+	 * plan, which its parent runs once per evaluation of the expression; none on the root.
+	 */
+	readonly parentRelationship: Option.Option<string>
 	readonly operation: Option.Option<string>
 	readonly joinType: Option.Option<string>
 	/** An Aggregate's or a SetOp's strategy: Plain, Sorted, Hashed or Mixed. */
@@ -340,6 +345,7 @@ const joinFilterOf = (condition: Option.Option<string>): JoinFilter =>
 
 const nodeKeys = (o: Json): NodeKeys => ({
 	nodeType: str(o, "Node Type"),
+	parentRelationship: optStr(o, "Parent Relationship"),
 	operation: optStr(o, "Operation"),
 	joinType: optStr(o, "Join Type"),
 	strategy: optStr(o, "Strategy"),

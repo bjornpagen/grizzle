@@ -12,7 +12,14 @@ import {
 import { nativeEqualityKey, type ScalarExpr } from "#compiler/ir/expr.ts"
 import type { Fold } from "#compiler/ir/fold.ts"
 import { comparedValue } from "#compiler/ir/injective.ts"
-import type { Dependency, Implication, KeyProof, Rule } from "#compiler/ir/keys.ts"
+import {
+	type Dependency,
+	hiddenAttribute,
+	type Implication,
+	isHidden,
+	type KeyProof,
+	type Rule
+} from "#compiler/ir/keys.ts"
 import type { KeySet, NodeOf, RelDag, RelNode } from "#compiler/ir/rel.ts"
 import { sameScalarType } from "#compiler/ir/scalar.ts"
 import { nativeOp } from "#compiler/scalar/compute/registry.ts"
@@ -87,11 +94,13 @@ const ruleParts = (rule: Rule): ReadonlyArray<KeyProof | Implication> => {
 		case "unionKey":
 			return [rule.proof]
 		case "declared":
+		case "viewAlternative":
 		case "correlated":
 		case "group":
 		case "atMostOne":
 		case "distinct":
 		case "ranked":
+		case "numbered":
 			return []
 	}
 }
@@ -101,7 +110,10 @@ const partsBeneath = (part: KeyProof | Implication): ReadonlyArray<KeyProof | Im
 	if ("steps" in part) {
 		return Arr.flatMap(part.steps, (s) => ruleParts(s.rule))
 	}
-	const members = Arr.map(part.members, (m) => m.determines)
+	const members = [
+		...Arr.map(part.members, (m) => m.determines),
+		...Arr.map(part.alternatives, (a) => a.determines)
+	]
 	switch (part.basis.kind) {
 		case "rows":
 			return [part.basis.implication, ...members]
@@ -138,6 +150,90 @@ export class KeyKernel {
 
 	#heading(n: RelNode): ReadonlyArray<string> {
 		return Arr.map(n.heading, (c) => c.name)
+	}
+
+	/** Each node's hidden attributes, read once: the kernel's own traversal state. */
+	readonly #hiddenOf = new Map<RelNode, ReadonlyArray<string>>()
+
+	/** A node's attributes: its heading, then its hidden attributes. */
+	#attributes(n: RelNode): ReadonlyArray<string> {
+		return [...this.#heading(n), ...this.#hidden(n)]
+	}
+
+	/**
+	 * The attributes of a node's rows it does not deliver, read off the DAG alone (ir/keys.ts hiddenAttribute): a kept
+	 * input's, the right side's of an intersection under its label, a projection's, a group's and a produce's input
+	 * attributes it does not deliver, and a region's source attributes no variable of its heading is bound to, under
+	 * the occurrence. A source and a union have none.
+	 */
+	#hidden(n: RelNode): ReadonlyArray<string> {
+		const held = this.#hiddenOf.get(n)
+		if (held !== undefined) {
+			return held
+		}
+		const hide = (input: RelNode, delivered: (a: string) => boolean) =>
+			Arr.flatMap(this.#attributes(input), (a) =>
+				delivered(a) ? [] : [isHidden(a) ? a : hiddenAttribute(input.id, a)]
+			)
+		const out = ((): ReadonlyArray<string> => {
+			switch (n.kind) {
+				case "Base":
+				case "Closed":
+				case "Context":
+				case "Delta":
+				case "InputSet":
+				case "Recursive":
+				case "SelfRef":
+				case "Union":
+					return []
+				case "ProjectSet": {
+					const copied = new Set(
+						Arr.flatMap(n.out, (o) => {
+							const c = this.#columnOf(o.expr, n.input.id)
+							return c === undefined ? [] : [c]
+						})
+					)
+					return hide(n.input, (a) => copied.has(a))
+				}
+				case "Group":
+				case "OrderedSetAggregate":
+					return hide(n.input, (a) => n.keys.includes(a))
+				case "Produce":
+					return hide(n.input, (a) => n.carried.includes(a))
+				case "MatchRegion": {
+					const heading = new Set(this.#heading(n))
+					return Arr.flatMap(n.occurrences, (o) =>
+						Arr.flatMap(this.#attributes(o.source), (a) =>
+							Arr.some(o.bindings, (b) => b.column === a && heading.has(b.var.name))
+								? []
+								: [hiddenAttribute(o.id, a)]
+						)
+					)
+				}
+				case "Intersect":
+					return [
+						...this.#hidden(n.left),
+						...Arr.map(this.#hidden(n.right), (h) => hiddenAttribute(n.right.id, h))
+					]
+				case "Filter":
+				case "Take":
+				case "OrderedResult":
+				case "Window":
+					return this.#hidden(n.input)
+				case "SemiJoin":
+				case "AntiJoin":
+				case "Difference":
+					return this.#hidden(n.left)
+				case "ApproximateNearest":
+					return this.#hidden(n.source)
+				case "Attach":
+					return this.#hidden(n.parent)
+				case "Forbid":
+					return this.#hidden(n.violation)
+			}
+		})()
+		this.#hiddenOf.set(n, out)
+		return out
 	}
 
 	/** The conjuncts of a predicate: the operands of its top-level `and`s. */
@@ -341,11 +437,40 @@ export class KeyKernel {
 				break
 			}
 		}
+		/** The key column each factor's first column stands at, by its alternatives' `of`. */
+		const factorOf = new Map<string, ReadonlyArray<string>>()
+		for (const a of p.alternatives) {
+			const stands = `${at}: alternative [${Arr.join(a.columns, ", ")}] for [${Arr.join(a.of, ", ")}]`
+			appendAll(faults, checked.implication(a.determines))
+			if (a.of.length === 0 || !within(a.of, p.key) || !within(a.columns, heading)) {
+				faults.push(`${stands}: not heading columns standing for key columns`)
+			}
+			const claimed = Arr.flatMap(a.of, (c) => {
+				const f = factorOf.get(c)
+				return f === undefined ? [] : [f]
+			})
+			if (Arr.some(claimed, (f) => !sameSet(f, a.of))) {
+				faults.push(`${stands}: a factor overlapping another`)
+			}
+			for (const c of a.of) {
+				factorOf.set(c, a.of)
+			}
+			if (
+				a.determines.node !== p.node ||
+				!sameSet(a.determines.from, a.columns) ||
+				!within(a.of, this.#derived(a.determines))
+			) {
+				faults.push(`${stands}: its derivation does not derive the key columns from it`)
+			}
+		}
+		const standable = new Set([...p.key, ...Arr.flatMap(p.alternatives, (a) => a.columns)])
 		for (const m of p.members) {
 			const stands = `${at}: member ${m.column} for ${m.of}`
 			appendAll(faults, checked.implication(m.determines))
-			if (!p.key.includes(m.of) || p.key.includes(m.column) || !heading.includes(m.column)) {
-				faults.push(`${stands}: not a heading column outside the key standing for a key column`)
+			if (!standable.has(m.of) || p.key.includes(m.column) || !heading.includes(m.column)) {
+				faults.push(
+					`${stands}: not a heading column outside the key standing for a column of the key or an alternative`
+				)
 			}
 			if (
 				m.determines.node !== p.node ||
@@ -388,9 +513,12 @@ export class KeyKernel {
 		readonly input: RelNode
 		readonly columns: ReadonlyArray<string>
 		readonly discriminating: boolean
+		/** The name each input attribute has at the node. */
+		readonly name: (attribute: string) => string
 	}> {
+		const same = (a: string) => a
 		const all = (input: RelNode, discriminating: boolean) => [
-			{ input, columns: this.#heading(input), discriminating }
+			{ input, columns: this.#heading(input), discriminating, name: same }
 		]
 		switch (n.kind) {
 			case "Filter":
@@ -403,16 +531,37 @@ export class KeyKernel {
 			case "AntiJoin":
 			case "Difference":
 				return all(n.left, true)
-			case "Intersect":
-				return [...all(n.left, true), ...all(n.right, false)]
+			case "Intersect": {
+				const right = n.right
+				return [
+					...all(n.left, true),
+					{
+						input: right,
+						columns: this.#heading(right),
+						discriminating: false,
+						name: (a: string) => (isHidden(a) ? hiddenAttribute(right.id, a) : a)
+					}
+				]
+			}
 			case "ApproximateNearest":
 				return all(n.source, true)
 			case "Attach":
 				return all(n.parent, true)
 			case "Forbid":
 				return all(n.violation, true)
-			case "Produce":
-				return [{ input: n.input, columns: n.carried, discriminating: false }]
+			case "Produce": {
+				const input = n.input
+				const carried = n.carried
+				return [
+					{
+						input,
+						columns: carried,
+						discriminating: false,
+						name: (a: string) =>
+							carried.includes(a) || isHidden(a) ? a : hiddenAttribute(input.id, a)
+					}
+				]
+			}
 			case "Base":
 			case "Closed":
 			case "Context":
@@ -439,10 +588,10 @@ export class KeyKernel {
 		if (n === undefined) {
 			return [`a derivation at ${i.node}, no node of the DAG`]
 		}
-		const heading = this.#heading(n)
+		const attributes = this.#attributes(n)
 		const faults: Array<string> = []
-		if (!within(i.from, heading)) {
-			faults.push(`${i.node}: a derivation from columns outside the heading`)
+		if (!within(i.from, attributes)) {
+			faults.push(`${i.node}: a derivation from attributes the node does not have`)
 		}
 		const reached = new Set(i.from)
 		for (const step of i.steps) {
@@ -450,8 +599,8 @@ export class KeyKernel {
 			if (!within(step.from, reached)) {
 				faults.push(`${at}: a step before its determinants are known`)
 			}
-			if (!within(step.to, heading)) {
-				faults.push(`${at}: a step determining columns outside the heading`)
+			if (!within(step.to, attributes)) {
+				faults.push(`${at}: a step determining attributes the node does not have`)
 			}
 			appendAll(
 				faults,
@@ -471,6 +620,26 @@ export class KeyKernel {
 		switch (r.rule) {
 			case "declared":
 				return this.#declared(n, d, r)
+			case "viewAlternative": {
+				const alternatives =
+					n.kind === "Base" && n.relationKind !== "relation" && this.#env.keyedViews
+						? Arr.flatMap(n.view, (k) => k.alternatives)
+						: []
+				return Arr.some(
+					alternatives,
+					(a) =>
+						sameSet(a.columns, d.from) &&
+						sameSet(a.of, d.to) &&
+						a.context === r.context &&
+						a.premises.length === r.premises.length &&
+						Arr.every(a.premises, (q, i) => {
+							const x = r.premises[i]
+							return x !== undefined && samePremise(q, x)
+						})
+				)
+					? []
+					: ["no alternative of a key of the view"]
+			}
 			case "fixed":
 				return d.from.length === 0 && d.to.length === 1
 					? this.#fixed(n, d.to[0] ?? "", r.witness, checked)
@@ -505,23 +674,31 @@ export class KeyKernel {
 					within(d.to, heading)
 					? []
 					: ["not the group key determining the group"]
-			case "grouped":
-				return (n.kind === "Group" || n.kind === "OrderedSetAggregate") &&
-					r.input.node === n.input.id &&
-					within(d.from, n.keys) &&
-					within(d.to, n.keys) &&
-					within(r.input.from, d.from) &&
-					within(d.to, this.#derived(r.input))
+			case "grouped": {
+				if (n.kind !== "Group" && n.kind !== "OrderedSetAggregate") {
+					return ["a group's dependency outside a group"]
+				}
+				const input = n.input
+				const keys = n.keys
+				const name = (a: string) =>
+					keys.includes(a) || isHidden(a) ? a : hiddenAttribute(input.id, a)
+				const attributes = [...keys, ...this.#hidden(n)]
+				return r.input.node === input.id &&
+					within(d.from, attributes) &&
+					within(d.to, attributes) &&
+					within(Arr.map(r.input.from, name), d.from) &&
+					within(d.to, Arr.map([...this.#derived(r.input)], name))
 					? [...checked.implication(r.input)]
-					: ["not an input dependency among the group key"]
+					: ["not an input dependency among the group key and what it determines"]
+			}
 			case "kept": {
 				const kept = Option.getOrUndefined(
 					Arr.findFirst(this.#keptInputs(n), (k) => k.input.id === r.input.node)
 				)
 				return kept !== undefined &&
-					within(r.input.from, d.from) &&
-					within(d.to, this.#derived(r.input)) &&
-					within(d.to, kept.columns)
+					within(Arr.map(r.input.from, kept.name), d.from) &&
+					within(d.to, Arr.map([...this.#derived(r.input)], kept.name)) &&
+					within(d.to, this.#attributes(n))
 					? [...checked.implication(r.input)]
 					: ["not a dependency of an input whose rows the node keeps"]
 			}
@@ -559,6 +736,13 @@ export class KeyKernel {
 					? [...checked.proof(r.input)]
 					: ["not the carried key and its span"]
 			}
+			case "numbered":
+				return n.kind === "Window" &&
+					n.fn === "rowNumber" &&
+					sameSet(d.from, [...n.partition, n.out]) &&
+					within(heading, d.to)
+					? []
+					: ["not a row number with its partition determining the row"]
 			case "ranked": {
 				if (n.kind !== "Window") {
 					return ["a window value outside a window"]
@@ -849,7 +1033,8 @@ export class KeyKernel {
 	/**
 	 * The faults of `i` as a derivation that `b` equals `a` in every row of its node, by equalities alone: from `a`, one
 	 * column to the next, each step an equal dependency, two outputs of a projection copying one input column or columns
-	 * its input derivation makes equal, or a kept input's columns its derivation makes equal, ending at `b`. That one
+	 * its input derivation makes equal, a kept input's columns its derivation makes equal, or two key columns of a group
+	 * its input derivation makes equal, every group's key values one input row's, ending at `b`. That one
 	 * column determines another is no equality: two arms of a union may each determine b from a, differently.
 	 */
 	#equalChain(i: Implication, a: string, b: string): ReadonlyArray<string> {
@@ -898,16 +1083,23 @@ export class KeyKernel {
 			}
 			case "kept":
 				return this.#equalChain(r.input, x, y)
+			case "grouped":
+				return (n.kind === "Group" || n.kind === "OrderedSetAggregate") &&
+					n.keys.includes(x) &&
+					n.keys.includes(y)
+					? this.#equalChain(r.input, x, y)
+					: ["an equality through a group's columns outside its key"]
 			case "declared":
+			case "viewAlternative":
 			case "fixed":
 			case "correlated":
 			case "match":
 			case "group":
-			case "grouped":
 			case "atMostOne":
 			case "distinct":
 			case "produced":
 			case "ranked":
+			case "numbered":
 			case "agreed":
 			case "unionKey":
 				return [`a ${r.rule} step, which is no equality`]
@@ -931,12 +1123,14 @@ export class KeyKernel {
 		const faults: Array<string> = [...checked.implication(source)]
 		const from = new Set(d.from)
 		for (const c of source.from) {
-			const bound = Arr.some(o.bindings, (b) => b.column === c && from.has(b.var.name))
+			const bound =
+				Arr.some(o.bindings, (b) => b.column === c && from.has(b.var.name)) ||
+				from.has(hiddenAttribute(o.id, c))
 			const constant = Option.getOrUndefined(Arr.findFirst(o.constants, (k) => k.column === c))
 			const reads = constant === undefined ? undefined : this.#regionVars(n, constant.expr)
 			if (!bound && (reads === undefined || !within(reads, from))) {
 				faults.push(
-					`source column ${c} neither bound to a determinant nor fixed by a constant reading only them`
+					`source attribute ${c} neither bound to a determinant, hidden among them, nor fixed by a constant reading only them`
 				)
 			}
 		}
@@ -953,9 +1147,18 @@ export class KeyKernel {
 			}
 		}
 		const reached = this.#derived(source)
+		const hidden = new Set(
+			Arr.flatMap([...reached], (c) => {
+				const h = hiddenAttribute(o.id, c)
+				return this.#hidden(n).includes(h) ? [h] : []
+			})
+		)
 		for (const v of d.to) {
-			if (!Arr.some(o.bindings, (b) => b.var.name === v && reached.has(b.column))) {
-				faults.push(`variable ${v} bound to no column the source derivation reaches`)
+			if (
+				!hidden.has(v) &&
+				!Arr.some(o.bindings, (b) => b.var.name === v && reached.has(b.column))
+			) {
+				faults.push(`${v} neither bound to nor hiding an attribute the source derivation reaches`)
 			}
 		}
 		return faults
@@ -974,13 +1177,25 @@ export class KeyKernel {
 			const out = Option.getOrUndefined(Arr.findFirst(n.out, (x) => x.name === o))
 			return out === undefined ? undefined : this.#columnOf(out.expr, n.input.id)
 		}
+		const copied = new Set(
+			Arr.flatMap(n.out, (o) => {
+				const c = this.#columnOf(o.expr, n.input.id)
+				return c === undefined ? [] : [c]
+			})
+		)
+		/** Each hidden attribute here, with the input attribute it is. */
+		const hiddenFrom = new Map(
+			Arr.flatMap(this.#attributes(n.input), (a) =>
+				copied.has(a) ? [] : [[isHidden(a) ? a : hiddenAttribute(n.input.id, a), a] as const]
+			)
+		)
 		const copies = Arr.flatMap(d.from, (o) => {
-			const c = copyOf(o)
+			const c = copyOf(o) ?? hiddenFrom.get(o)
 			return c === undefined ? [] : [c]
 		})
 		const faults: Array<string> = [...checked.implication(input)]
 		if (!within(input.from, copies)) {
-			faults.push("an input derivation from columns no determinant copies")
+			faults.push("an input derivation from attributes no determinant copies or hides")
 		}
 		const reached = this.#derived(input)
 		const readsIn = (root: ScalarExpr): ReadonlyArray<string> => {
@@ -995,6 +1210,13 @@ export class KeyKernel {
 			return [...out]
 		}
 		for (const o of d.to) {
+			const hides = hiddenFrom.get(o)
+			if (hides !== undefined) {
+				if (!reached.has(hides)) {
+					faults.push(`hidden ${o} of an attribute the input derivation does not reach`)
+				}
+				continue
+			}
 			const out = Option.getOrUndefined(Arr.findFirst(n.out, (x) => x.name === o))
 			if (out === undefined) {
 				faults.push(`no output ${o}`)
@@ -1114,11 +1336,13 @@ export class KeyKernel {
 				return this.#value(first, column) ?? { kind: "opaque" }
 			}
 			case "declared":
+			case "viewAlternative":
 			case "group":
 			case "atMostOne":
 			case "distinct":
 			case "produced":
 			case "ranked":
+			case "numbered":
 			case "unionKey":
 				return { kind: "opaque" }
 		}
@@ -1199,6 +1423,7 @@ export class KeyKernel {
 				const r = s.rule
 				switch (r.rule) {
 					case "declared":
+					case "viewAlternative":
 						Arr.forEach(r.premises, addPremise)
 						contexts.push(r.context)
 						break
@@ -1253,11 +1478,13 @@ export class KeyKernel {
 					case "correlated":
 					case "group":
 					case "ranked":
+					case "numbered":
 						break
 				}
 			}
 		}
 		Arr.forEach(p.members, (m) => fromImplication(m.determines))
+		Arr.forEach(p.alternatives, (a) => fromImplication(a.determines))
 		switch (p.basis.kind) {
 			case "rows":
 				fromImplication(p.basis.implication)

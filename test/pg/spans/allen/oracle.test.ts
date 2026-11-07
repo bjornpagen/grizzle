@@ -1,7 +1,7 @@
 import { layer } from "@effect/vitest"
 import { drawn } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { exact, ordered, set } from "@grizzle/testing/oracle"
+import { exact, ordered, set, structuralHash } from "@grizzle/testing/oracle"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -60,7 +60,7 @@ const installEvery = (endpoint: SpanEndpointKind) =>
 		)
 	)
 
-const sameRowSet = set(ordered(exact))
+const sameRowSet = set(structuralHash, ordered(exact))
 
 layer(Substrate.layer)("generated span queries against the reference", (it) => {
 	it.effect(

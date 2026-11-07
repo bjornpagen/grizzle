@@ -270,6 +270,7 @@ const cutLeases = Effect.gen(function* () {
 	const reader = yield* substrateLogin(schema, "server", roleDefaults)
 	return yield* explore(
 		{
+			oracle: { kind: "unstated" },
 			suite: "serverless/pool interleavings",
 			draw: drawn(interleavingGen),
 			literal: Formatter.format,
@@ -449,6 +450,8 @@ layer(Substrate.layer)("a lease's wait for a pooled session", (it) => {
 					const reader = yield* substrateLogin(schema, "server", roleDefaults)
 					return yield* exhaust(
 						{
+							box: { kind: "unstated" },
+							oracle: { kind: "unstated" },
 							suite: "serverless/pool waiter",
 							generator: waiters,
 							literal: Formatter.format,

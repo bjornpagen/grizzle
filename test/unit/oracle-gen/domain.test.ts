@@ -105,6 +105,8 @@ describe("generated scalar types", () => {
 					ctx,
 					exhaust(
 						{
+							box: { kind: "unstated" },
+							oracle: { kind: "unstated" },
 							suite: "unit/oracle-gen/domain-types",
 							/**
 							 * Every type, computed numerics included, with and without its edge classes, each key kept as a span or
@@ -188,6 +190,7 @@ describe("value domains", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/oracle-gen/domain-spelling",
 						draw: drawn(
 							(source) =>

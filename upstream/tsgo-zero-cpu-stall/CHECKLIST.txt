@@ -1,0 +1,38 @@
+CHECKLIST: TypeScript's contribution policy, applied to a tsgo check that stalls at 0% CPU
+
+Outcome: a bug report for github.com/microsoft/TypeScript, once a stall is reproduced. Nothing has been sent.
+
+A. GATES BEFORE REPORTING
+  [x] Read the FAQ first: a check that never ends at 0% CPU is not a question the FAQ answers.
+      https://github.com/microsoft/TypeScript/blob/main/CONTRIBUTING.md
+  [~] Search for duplicates, closed issues included, and search for synonyms ("hang", "freeze", "deadlock", "stuck",
+      "0% CPU", "never finishes").
+      https://github.com/microsoft/TypeScript/blob/main/CONTRIBUTING.md
+      - Done on 2026-11-06 for the archived tracker: microsoft/typescript-go#3335 ("tsgo --build hangs on storybook
+        tsconfig", a possible regression of #2678) is the nearest. That report does not say whether the hang is at 0%
+        CPU, and its program is a --build of ~100 story files, not a single program with a type error.
+      - The other matches are not a stall: #3692 (500% CPU for minutes), #2125 (unbounded memory), #3081 (a stack
+        overflow in multi-threaded mode).
+      - Open: search microsoft/TypeScript itself once the dump names the blocked function, by the topmost function
+        names of the blocked goroutines.
+  [ ] Reproduce on the current release or nightly: `npx -p typescript@next tsc`, unpatched (NOTES.txt 3).
+      https://github.com/microsoft/TypeScript/blob/main/CONTRIBUTING.md ("try out the nightly build")
+  [ ] Rule out Effect's tsgo patch: reproduce without `effect-tsgo patch`. If only the patched binary stalls, report
+      to github.com/Effect-TS/tsgo instead.
+
+B. REPORT CONTENT (https://github.com/microsoft/TypeScript/blob/main/CONTRIBUTING.md, "Required information")
+  [ ] The version: `tsc --v` of the compiler that stalls. The patched one prints 7.1.0-beta+effect-tsgo.0.67.1.
+  [ ] An isolated reproduction: one tsconfig and the fewest files that still stall, shrunk from the batch's program.
+  [ ] Expected and actual behaviour: the check ends with its diagnostics; actually it stays at 0% CPU, with no output
+      and no exit (EVIDENCE.txt 2 shows a healthy check never idles longer than 0.25 s).
+  [ ] The goroutine dump: the CompilerStalled's message, every goroutine's stack from SIGQUIT (EVIDENCE.txt 3 shows a
+      healthy one). Attach it as a file; it holds file paths, so review it first.
+  [ ] Platform: macOS on arm64, Node 26.13.0 as the launcher (process.execve), Go 1.27.3 as the binary reports.
+  [ ] The checker count. The batch runs the default (4); try --checkers 1 and --singleThreaded too, and say which ones
+      stall.
+
+C. ETIQUETTE
+  [x] No automated or generated summary comments. The archived tracker blocked them, and the report is the owner's,
+      written by hand.
+  [ ] The author is the owner's GitHub account; the report quotes no grizzle-internal path beyond what the
+      reproduction needs.

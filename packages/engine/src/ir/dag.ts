@@ -29,7 +29,6 @@ import {
 	withArgs
 } from "#compiler/ir/expr.ts"
 import { drive, Fold } from "#compiler/ir/fold.ts"
-import { claimedColumns } from "#compiler/ir/keys.ts"
 import {
 	type Cell,
 	type DagTable,
@@ -532,7 +531,7 @@ export const cellFold = (made: (cell: Cell) => void): Fold<RelNode, Cell> =>
  * `roots` in order; undefined when the cells' edges are acyclic. Cells are the one form whose edges can close a cycle,
  * since a rewrite redefines them in place.
  */
-export const cellCycle = (roots: ReadonlyArray<Cell>): Cell | undefined => {
+const cellCycle = (roots: ReadonlyArray<Cell>): Cell | undefined => {
 	const state = new Map<Cell, "open" | "done">()
 	for (const root of roots) {
 		if (state.has(root)) {
@@ -806,10 +805,7 @@ class Numbering<A extends string> {
  * when first needed), so a sub-query's digest numbers the enclosing nodes it reads; a name `context` does not hold is
  * MalformedDescription. Each expression's dependencies are renamed with it.
  */
-export const normalizeWithin = (
-	context: RelDag,
-	roots: Roots
-): Result.Result<DagTable, CompileError> =>
+const normalizeWithin = (context: RelDag, roots: Roots): Result.Result<DagTable, CompileError> =>
 	catchRefusal(() => {
 		const n = new Numbering("n", NodeId)
 		const e = new Numbering("e", ExprId)
@@ -916,7 +912,7 @@ const claimedForm = (normal: DagTable): unknown => ({
 			id,
 			{
 				...digestedFields(node),
-				meta: { ...node.meta, logicalKeys: node.meta.logicalKeys.map(claimedColumns) }
+				meta: { ...node.meta, logicalKeys: node.meta.logicalKeys.map((k) => k.key) }
 			}
 		])
 	),
@@ -925,11 +921,16 @@ const claimedForm = (normal: DagTable): unknown => ({
 
 /**
  * A node's own fields as its digest reads them: a Delta's without its keys, and a view Base's without the keys the
- * checker stamped on it, each its relation's, named already.
+ * checker stamped on it, each its relation's, named already; an Attach's without the delivered type its template's
+ * analysis judged, which no SQL reads (rel.ts Attach judged).
  */
 const digestedFields = (node: TableNode): object => {
 	if (node.kind === "Delta") {
 		const { keys: _relations, ...digested } = node
+		return digested
+	}
+	if (node.kind === "Attach") {
+		const { judged: _judged, ...digested } = node
 		return digested
 	}
 	if (node.kind === "Base" && node.relationKind !== "relation") {

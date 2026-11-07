@@ -204,7 +204,7 @@ export const positionalValue = (number: number): ValuePlaceholder => ({
 })
 
 /** Whether u is a finite double other than -0: the finite float arm's whole domain, and lit.float's one way to make one. */
-export const isFiniteFloat = (u: unknown): u is FiniteFloat =>
+const isFiniteFloat = (u: unknown): u is FiniteFloat =>
 	typeof u === "number" && Number.isFinite(u) && !Object.is(u, -0)
 
 /** A finite double other than -0 is a float literal; NaN, either infinity and -0 are spelled as specials. */

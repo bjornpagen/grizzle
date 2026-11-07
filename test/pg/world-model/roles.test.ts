@@ -481,6 +481,7 @@ layer(Substrate.layer, { excludeTestServices: true })("the worlds model: roles",
 						const admitted = new Set<string>()
 						return yield* exhaust(
 							{
+								box: { kind: "unstated" },
 								suite: "pg/world-model/roles",
 								generator: shapes,
 								literal: Formatter.format,

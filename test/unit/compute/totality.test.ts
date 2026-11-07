@@ -297,6 +297,7 @@ describe("totality", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/compute/totality-refusal",
 						draw: drawn(literalCaseGen),
 						literal: Formatter.format,
@@ -380,6 +381,7 @@ describe("totality", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/compute/totality-guards",
 						draw: drawn((source) => {
 							const form = source.draw(element(guarded))

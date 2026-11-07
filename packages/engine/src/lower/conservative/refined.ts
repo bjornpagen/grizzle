@@ -114,16 +114,25 @@ interface Claim {
 	readonly base: TypeRef
 }
 
-/** The placeholder a declared parameter's value fills, by its number, as the query names the parameter: a scalar
- * parameter by its name, a relation parameter's field array `<parameter>.<field>`; none for a placeholder a lowering
- * allocates itself. */
-const parameterOf = (slot: ConservativeParamSlot): ReadonlyArray<readonly [number, string]> => {
+/** A declared parameter's value as its placeholder carries it: the name the query declares it by, a relation
+ * parameter's field as `<parameter>.<field>`, and the type its bind checks every value against (codec/scalar.ts
+ * refinedMember), which is what its value is proved to be. */
+interface Supplied {
+	readonly name: string
+	readonly type: ScalarType
+}
+
+/** The placeholder a declared parameter's value fills, by its number (Supplied); none for a placeholder a lowering
+ * allocates itself, or a ChangeSet member's, which no bind checks against its refinements. */
+const parameterOf = (slot: ConservativeParamSlot): ReadonlyArray<readonly [number, Supplied]> => {
 	switch (slot.kind) {
 		case "scalar":
-			return [[slot.number, slot.param]]
+			return [[slot.number, { name: slot.param, type: slot.type }]]
 		case "relation": {
 			const field = slot.part.kind === "column" ? slot.columns[slot.part.index] : undefined
-			return field === undefined ? [] : [[slot.number, `${slot.param}.${field.name}`]]
+			return field === undefined
+				? []
+				: [[slot.number, { name: `${slot.param}.${field.name}`, type: field.type }]]
 		}
 		case "member":
 		case "page":
@@ -133,8 +142,8 @@ const parameterOf = (slot: ConservativeParamSlot): ReadonlyArray<readonly [numbe
 
 export class Tracer {
 	readonly #stored: ReadonlyMap<string, ScalarType>
-	/** Each declared parameter's placeholder, by its number, as the query names it: a relation parameter's by field. */
-	readonly #parameters: ReadonlyMap<number, string>
+	/** Each declared parameter's placeholder, by its number (Supplied). */
+	readonly #parameters: ReadonlyMap<number, Supplied>
 
 	constructor(
 		stored: ReadonlyMap<string, ScalarType>,
@@ -144,10 +153,18 @@ export class Tracer {
 		this.#parameters = new Map(slots.flatMap(parameterOf))
 	}
 
-	/** The verdict of a value the placeholder `number` fills: a declared parameter's, or unproved. */
-	#supplied(number: number): Verdict {
-		const name = this.#parameters.get(number)
-		return name === undefined ? "unproved" : { kind: "parameter", name }
+	/**
+	 * The verdict of a value the placeholder `number` fills: a declared parameter's is proved where the type its bind
+	 * checked every value against guarantees the claim, and named otherwise; any other placeholder's is unproved.
+	 */
+	#supplied(number: number, claim: Claim): Verdict {
+		const supplied = this.#parameters.get(number)
+		if (supplied === undefined) {
+			return "unproved"
+		}
+		return guarantees(supplied.type, claim.type)
+			? "proved"
+			: { kind: "parameter", name: supplied.name }
 	}
 
 	/** The verdicts of the values output position `position` of `select` delivers. */
@@ -181,7 +198,7 @@ export class Tracer {
 	expr(e: Expr, scope: Scope, claim: Claim): ReadonlyArray<Verdict> {
 		switch (e.kind) {
 			case "param":
-				return [isDomain(e.type, claim) ? "proved" : this.#supplied(e.slot.number)]
+				return [isDomain(e.type, claim) ? "proved" : this.#supplied(e.slot.number, claim)]
 			case "literal":
 				return [isDomain(e.type, claim) || admittedLiteral(e, claim) ? "proved" : "unproved"]
 			case "cast":
@@ -285,7 +302,7 @@ export class Tracer {
 					item.source.kind === "columns"
 						? item.source.columns.find((c) => c.definition.name === column)
 						: undefined
-				return [array === undefined ? "unproved" : this.#supplied(array.array.number)]
+				return [array === undefined ? "unproved" : this.#supplied(array.array.number, claim)]
 			}
 			case "enclosing":
 			case "function":
@@ -415,7 +432,8 @@ export const claimOf = (cx: LowerContext, column: HeadingColumn): Claim => ({
 /**
  * The domain a refined value must be cast to: none when every definition of it is proved, else its claim's domain. A
  * refinement with no domain to cast to, a text pattern no stored field declares, is refused, naming the delivered
- * column, the pattern and the parameters whose values the trace could not prove inside it, and saying what to do. A
+ * column, the pattern and what the trace could not prove inside it, and saying what to do: a value the query computes,
+ * or a parameter whose declared type does not guarantee the pattern, since one whose type does is proved by its bind. A
  * contract's domain is always named, so only a pattern meets the refusal.
  */
 export const castDomain = (
@@ -463,11 +481,16 @@ export const castDomain = (
  *
  * - proved: a stored column of a non-derived relation whose declared type guarantees the refinement (the domain's
  *   validated CHECK is immediate evidence), a placeholder or literal typed by the domain, a text literal the
- *   pattern's automaton admits on the host, or a cast into it. A core whose WHERE is false delivers nothing and
- *   defines no value. min, max, LEAST, GREATEST and CASE deliver one of their operands' values, and a cast to the base type relabels
- *   without changing the value, so each is proved when its operands are;
- * - unproved: anything else, an array column of a relation parameter, a base-typed placeholder or literal, a
- *   base-typed recursive state column, a derived relation's column, or a definition the trace does not follow.
+ *   pattern's automaton admits on the host, or a cast into it; and a declared parameter's value, a scalar parameter's
+ *   placeholder or a relation parameter's field array, whose declared type guarantees the refinement: its bind checks
+ *   every value against its type's contract and pattern before any SQL (codec/scalar.ts refinedMember), as a stored
+ *   column's domain checks it, so its refinement travels with it whether or not the installation names a domain of it.
+ *   A core whose WHERE is false delivers nothing and defines no value. min, max, LEAST, GREATEST and CASE deliver one
+ *   of their operands' values, and a cast to the base type relabels without changing the value, so each is proved
+ *   when its operands are;
+ * - unproved: anything else, a parameter whose declared type does not guarantee the refinement, a base-typed
+ *   placeholder or literal of no declared parameter, a base-typed recursive state column, a derived relation's column,
+ *   or a definition the trace does not follow.
  *
  * Both deliveries use it: the optimized one in shapes/refined, and the conservative one here (refineConservative), in
  * two steps before emission.

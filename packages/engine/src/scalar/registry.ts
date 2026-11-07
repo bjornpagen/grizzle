@@ -31,13 +31,14 @@ import {
 	type NumericBound,
 	type NumericTypmod,
 	type PatternLanguage,
-	type Roster,
+	Roster,
 	type ScalarType,
 	type SpanCarrier,
 	type TextLanguage,
 	textInfoOf,
 	typeLabel
 } from "#compiler/ir/scalar.ts"
+import { statedRoster } from "#compiler/scalar/values/bits.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { describeFault } from "#compiler/scalar/values/fault.ts"
 import { unreadableFault } from "#compiler/scalar/values/identity.ts"
@@ -640,12 +641,7 @@ const rosterAt = (
 			malformedDescription(loc, `a closed relation named ${JSON.stringify(closed)}`)
 		)
 	}
-	return Result.ok(
-		Object.freeze({
-			closed: name.value,
-			handles: Object.isFrozen(handles) ? handles : Object.freeze(handles)
-		})
-	)
+	return Result.ok(new Roster(name.value, handles))
 }
 
 /** A plain value type of `carrier`: no typmod, refinement or contract. */
@@ -848,7 +844,7 @@ const hostLiteral = (base: ScalarType, value: unknown): Result.Result<LiteralDes
 				? Result.ok(value)
 				: Result.err("codeHandle")
 		case "bits":
-			return bitsLiteral(value, base.roster.handles)
+			return bitsLiteral(value, base.roster)
 		case "range4":
 		case "range8": {
 			if (!hasProperties(value) || isList(value)) {
@@ -878,24 +874,26 @@ const hostLiteral = (base: ScalarType, value: unknown): Result.Result<LiteralDes
 /**
  * A set's literal: a Set whose members are each a handle of the roster, as its handles in the roster's declared order,
  * so one set has one literal. A value that is no Set, or holds a member that is no string, is bitsType; a string the
- * roster does not hold is bitsMember.
+ * roster does not hold, or a set Bits.of made over another roster, whose handles are that roster's whatever their
+ * names, is bitsMember.
  */
-const bitsLiteral = (
-	value: unknown,
-	roster: ReadonlyArray<string>
-): Result.Result<LiteralDesc, ValueFault> => {
+const bitsLiteral = (value: unknown, roster: Roster): Result.Result<LiteralDesc, ValueFault> => {
 	if (!(value instanceof Set)) {
 		return Result.err("bitsType")
+	}
+	const stated = statedRoster(value)
+	if (stated !== undefined && stated !== roster.closed) {
+		return Result.err("bitsMember")
 	}
 	const members: ReadonlyArray<unknown> = Array.from(value)
 	if (!members.every((member) => typeof member === "string")) {
 		return Result.err("bitsType")
 	}
-	if (!members.every((member) => roster.includes(member))) {
+	if (!members.every((member) => roster.handles.includes(member))) {
 		return Result.err("bitsMember")
 	}
 	return Result.ok({
-		handles: Object.freeze(roster.filter((handle) => members.includes(handle)))
+		handles: Object.freeze(roster.handles.filter((handle) => members.includes(handle)))
 	})
 }
 

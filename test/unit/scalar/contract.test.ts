@@ -84,6 +84,7 @@ describe("contract identity", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/scalar/contract-identity",
 						draw: drawn((source) => ({
 							kind: source.draw(
@@ -260,6 +261,7 @@ describe("contract admission", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/scalar/contract-admission",
 						draw: drawn((source) => ({
 							name: source.draw(

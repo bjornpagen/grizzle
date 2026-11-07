@@ -139,6 +139,8 @@ describe("the schema a query compiles against", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/program/schema-input-levels",
 						/** The query's schema, then the schema the caller names: every ordered pair of the four. */
 						generator: (source) => [source.draw(subjects), source.draw(subjects)] as const,
@@ -227,6 +229,8 @@ describe("the artifacts of a schema", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/program/schema-input-artifacts",
 						/** Each fixture schema, each ordered pair of its inputs, and each naming: 4 * 9 * 4. */
 						generator: (source) =>
@@ -551,6 +555,7 @@ describe("a level is its content, not its name", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/program/schema-input-content",
 						draw: drawn(contentSketchGen),
 						literal: Formatter.format,
@@ -697,6 +702,7 @@ describe("a schema the decoder refuses", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/program/schema-input-decoder",
 						draw: drawn(liveSketchGen),
 						literal: Formatter.format,

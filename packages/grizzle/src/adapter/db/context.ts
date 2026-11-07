@@ -2,13 +2,15 @@ import type { DbCapabilities } from "#adapter/admission/expectation.ts"
 import { type Frame, type Prologue, readFrame, writeFrame } from "#adapter/wire/batch.ts"
 import type { SessionPool } from "#adapter/wire/session.ts"
 import type { InstallationWitness } from "#adapter/witness/index.ts"
-import type { BindContext } from "#compiler/core/decoder.ts"
-import type { CompileError } from "#compiler/core/errors.ts"
-import type * as Engine from "#compiler/core/result.ts"
-import type { RoleDesc } from "#compiler/ir/desc.ts"
-import type { QueryInput } from "#compiler/program/compile.ts"
-import type { SchemaArtifacts, SchemaInput } from "#compiler/program/schema.ts"
-import type { CompiledTemplate, ExecutionRequest } from "#compiler/program/template.ts"
+import type {
+	BindContext,
+	CompileError,
+	Engine,
+	RoleDesc,
+	SchemaArtifacts,
+	SchemaInput
+} from "#compiler/plan/common.ts"
+import type { CompiledTemplate, ExecutionRequest, QueryInput } from "#compiler/plan/read.ts"
 
 /**
  * What every operation of one opened database shares.

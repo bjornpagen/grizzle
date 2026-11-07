@@ -148,6 +148,7 @@ describe("the text bound", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/core/lines-text",
 						draw: drawn((s) => ({
 							unit: s.draw(oneOf([constant("  "), constant("\t"), constant("")])),
@@ -201,6 +202,7 @@ describe("the text bound", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/core/lines-longest",
 						draw: drawn((s) => ({
 							width: s.draw(element([2 ** 20, 2 ** 22, 2 ** 24] as const)),
@@ -255,6 +257,7 @@ describe("the text bound", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/core/lines-enclosed",
 						draw: drawn((s) => ({
 							open: s.draw(oneOf([constant(""), constant("["), constant("{"), piece])),

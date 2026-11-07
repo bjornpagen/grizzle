@@ -149,6 +149,7 @@ describe("the comparator digest", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/cursor/comparator-digest",
 					draw: drawn((source) => ({
 						/** Each field once, as an order states it. */
@@ -210,6 +211,7 @@ describe("the query and generation digests", () => {
 					ctx,
 					explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "unit/cursor/generation-digest",
 							draw: drawn((source) => ({
 								schema: source.draw(name),

@@ -108,12 +108,12 @@ export interface ReadLoss {
 }
 
 /** A step of the record, read. */
-export type ReadStep =
+type ReadStep =
 	| { readonly kind: "statement"; readonly statement: Spelled }
 	| ReadLoss
 	| { readonly kind: "confirm"; readonly statements: NonEmptyReadonlyArray<Spelled> }
 
-export interface ReadFile {
+interface ReadFile {
 	readonly name: string
 	readonly steps: ReadonlyArray<ReadStep>
 }

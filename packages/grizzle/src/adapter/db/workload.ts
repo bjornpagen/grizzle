@@ -9,7 +9,7 @@ import {
 import type { DbContext, RoleContext } from "#adapter/db/context.ts"
 import { type CompiledOps, changeOps, readOps, typedCompiled } from "#adapter/db/db.ts"
 import type { ReadError } from "#adapter/errors/execution.ts"
-import { readParams, unreadableArguments } from "#adapter/reader/params.ts"
+import { readKeyValues, unreadableArguments } from "#adapter/reader/params.ts"
 import {
 	compileReadForm,
 	poolExecutor,
@@ -17,16 +17,17 @@ import {
 	readFormMissing,
 	readHandle
 } from "#adapter/reader/reader.ts"
-import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
-import { SourceLoc } from "#compiler/core/loc.ts"
-import { levelSchema } from "#compiler/program/schema.ts"
-import { workloadState } from "#compiler/program/workload/value.ts"
-import { keyQuery } from "#compiler/query/build/key.ts"
-import type { OwnedRole } from "#compiler/schema/own.ts"
-import type { ParamMap } from "#compiler/types/core/phantom.ts"
-import type { AnyWorkload } from "#compiler/types/db/workload.ts"
-import type { ChangeSetValue } from "#compiler/write/changeset/value.ts"
-import { fillContexts } from "#compiler/write/frontend/entry.ts"
+import { type ChangeSetValue, fillContexts } from "#compiler/plan/change.ts"
+import {
+	type AnyWorkload,
+	type CompileError,
+	levelSchema,
+	malformedDescription,
+	type OwnedRole,
+	type ParamMap,
+	SourceLoc
+} from "#compiler/plan/common.ts"
+import { keyQuery, workloadState } from "#compiler/plan/read.ts"
 
 /**
  * A ChangeSet of a role's workloads compiled for every set of the contexts its compilation depends on (fillContexts)
@@ -177,7 +178,7 @@ export const workloadMissing = (
 	return Option.none()
 }
 
-/** A key's get: the caller's values read once at the boundary (reader/params.ts readParams), then the lookup's get. */
+/** A key's get: the caller's values read once at the boundary (reader/params.ts readKeyValues), then the lookup's get. */
 const keyOps = (
 	ctx: DbContext,
 	fields: ReadonlyArray<string>,
@@ -187,7 +188,7 @@ const keyOps = (
 	return {
 		...read,
 		get: (values: ParamMap): Effect.Effect<Option.Option<unknown>, ReadError> => {
-			const bound = readParams(fields, values, unreadableArguments())
+			const bound = readKeyValues(fields, values, unreadableArguments())
 			return Result.isFailure(bound) ? Effect.fail(bound.failure) : read.get(bound.success)
 		}
 	}

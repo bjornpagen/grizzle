@@ -551,6 +551,8 @@ describe("the worlds generators", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/world-model/invalid-kinds",
 						generator: element(everyInvalidKind),
 						literal: Formatter.format,
@@ -596,6 +598,7 @@ describe("the worlds generators", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/world-model/generate-actions",
 						draw: drawn((source) => {
 							const state = source.draw(stateGen)
@@ -642,6 +645,7 @@ describe("the worlds generators", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/world-model/generate-realities",
 						draw: drawn((source) => {
 							const { base, state } = source.draw(element(bases))
@@ -706,6 +710,7 @@ describe("the worlds generators", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/world-model/generate-installs",
 						draw: drawn((source) => {
 							const base = source.draw(element([docsBase, educationBase]))
@@ -775,6 +780,7 @@ describe("the worlds generators", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/world-model/generate-forced",
 						draw: drawn((source) => {
 							const state = source.draw(stateGen)
@@ -839,6 +845,7 @@ describe("the worlds generators", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/world-model/generate-box",
 						draw: drawn((source) => ({
 							reality: source.draw(element(realities)),

@@ -439,6 +439,7 @@ layer(Substrate.layer)("post-apply admission refuses drift", (it) => {
 				const m = yield* openMigrator(substrate, substrate.owner)
 				return yield* explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "migrate/hand-edits",
 						draw: drawn(editGen),
 						literal: Formatter.format,

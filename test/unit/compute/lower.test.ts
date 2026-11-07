@@ -128,6 +128,7 @@ describe("lowering in query mode", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/compute/untyped-leaves",
 						draw: drawn((source) => ({
 							form: source.draw(
@@ -422,6 +423,7 @@ describe("a conversion into a contract", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/compute/cast-into-contract",
 					/**
 					 * Planted: the conversions of one contract column each that the drawn conditionals reach about one case
@@ -665,6 +667,7 @@ describe("a combination of two compatible terms", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/compute/common-type",
 						draw: drawn(caseGen),
 						literal: Formatter.format,

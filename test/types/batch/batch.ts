@@ -17,12 +17,12 @@ import {
 	Stream,
 	String as Str
 } from "effect"
-import { ChildProcess } from "effect/process"
 import { jsonText, trustedJson } from "#compiler/core/trusted.ts"
 import { defined } from "#test/support/assert.ts"
 import { testTimeout } from "#test/support/limits.ts"
 import { messageOf } from "#test/support/message.ts"
 import { scopedTempDir } from "#test/support/temp.ts"
+import { type CompilerStalled, compiled, type Ran } from "#test/types/batch/compiler.ts"
 import {
 	type Diagnostic,
 	type Directive,
@@ -90,6 +90,20 @@ class BatchDiagnosticUnowned extends Data.TaggedError("BatchDiagnosticUnowned")<
 }> {
 	override get message(): string {
 		return `tsgo reported a diagnostic in ${this.file}, which no unit of the type-test batch owns: ${this.line}`
+	}
+}
+
+/**
+ * The compiler checking one of the batch's programs stalled: `config` is the program's tsconfig, `units` the units it
+ * held, whose every check the stall fails, and `stall` what the stall guard saw and the goroutines it dumped.
+ */
+class BatchStalled extends Data.TaggedError("BatchStalled")<{
+	readonly config: string
+	readonly units: ReadonlyArray<string>
+	readonly stall: CompilerStalled
+}> {
+	override get message(): string {
+		return `the type-test batch's ${this.config}, holding ${Arr.join(this.units, ", ")}, stalled: ${this.stall.message}`
 	}
 }
 
@@ -269,43 +283,8 @@ const place = (root: string, spec: UnitSpec, seed: number) =>
 		}
 	})
 
-/** What a tsgo run reported: its exit status and everything it printed. */
-interface Ran {
-	readonly status: number
-	readonly stdout: string
-	readonly stderr: string
-}
-
 /** What a program with no file reports: nothing, a clean exit. */
 const nothingRan: Ran = { status: 0, stdout: "", stderr: "" }
-
-/**
- * The patched TypeScript 7 compiler, run to completion as a child process of the scope: its launcher replaces itself
- * with the native binary (process.execve), so interrupting the run kills the compiler itself. It runs in `root`, which
- * it reads from PWD where PWD names the same directory, so PWD is `root` too: a path it prints relative to its working
- * directory is relative to `root`.
- */
-const tsc = (root: string, args: ReadonlyArray<string>) =>
-	Effect.scoped(
-		Effect.gen(function* () {
-			const path = yield* Path.Path
-			const handle = yield* ChildProcess.make(
-				process.execPath,
-				[path.join(root, "node_modules/typescript/bin/tsc"), ...args],
-				{ cwd: root, env: { PWD: root }, extendEnv: true, stdin: "ignore" }
-			)
-			const [stdout, stderr, status] = yield* Effect.all(
-				[
-					Stream.mkString(Stream.decodeText(handle.stdout)),
-					Stream.mkString(Stream.decodeText(handle.stderr)),
-					handle.exitCode
-				],
-				{ concurrency: "unbounded" }
-			)
-			const ran: Ran = { status, stdout, stderr }
-			return ran
-		})
-	)
 
 /** "test/types/page/fixtures/page.ts(12,3): error TS2345: ..." -> its path, line, category and code. */
 const diagnosticLine = regex(
@@ -560,8 +539,12 @@ const buildBatchOn = (spelled: string, groups: ReadonlyArray<Group>, seed: numbe
 						})
 						yield* fs.writeFileString(path.join(batch, config), tsconfig)
 						const ran = yield* Effect.timeout(
-							tsc(root, ["--pretty", "false", "-p", path.join(batch, config)]),
+							compiled(root, ["--pretty", "false", "-p", path.join(batch, config)]),
 							hangGuard
+						).pipe(
+							Effect.catchTag("CompilerStalled", (stall) =>
+								Effect.fail(new BatchStalled({ config, units: [...placed.keys()], stall }))
+							)
 						)
 						return yield* attribute(ran, root, held, placed)
 					}),

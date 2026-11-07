@@ -91,6 +91,7 @@ describe("a generated suite's cases", () => {
 							const check = yield* Effect.forkChild(
 								explore(
 									{
+										oracle: { kind: "unstated" },
 										suite: "unit/oracle-runner/case-interrupted-inner",
 										draw: drawn(int(0, 2 ** 31 - 1)),
 										literal: Formatter.format,

@@ -4,8 +4,9 @@
  * admits for it, with its precondition left unproved.
  *
  * The oracle: the refusal is PartialOperation of exactly the planted kind; its guard's test is one Compute writes over
- * the operand's type (a number's Compute.nonzero, Compute.nonnegative, Compute.isFinite or Compute.within; a text's
- * Compute.matches; over any other type no Compute test, a value of the target's own type); and, where that guard alone
+ * the operand's type (a number's Compute.nonzero, Compute.nonnegative, Compute.positive, Compute.isFinite or
+ * Compute.within; a text's Compute.matches or a bound on its bytes; over any other type no Compute test, a value of the
+ * target's own type); and, where that guard alone
  * proves the precondition, the term with the named guard written around it, or its operand a parameter of the target's
  * type, is admitted. Everything is read off the error's fields, never its prose.
  *
@@ -49,6 +50,7 @@ const kinds: Arr.NonEmptyReadonlyArray<PreconditionKind> = [
 	"contract",
 	"language",
 	"powerDomain",
+	"powerRange",
 	"bucketDomain",
 	"lexical"
 ]
@@ -149,11 +151,25 @@ const minScale = (operand: TestOperand): Plant => ({
 	}
 })
 
-/** The operand to its own power, whose domain no one guard of the base proves. */
+/** The operand to its own power, whose sign Compute.positive proves and whose range it does not. */
 const power = (operand: TestOperand): Plant => ({
 	operand,
 	faulty: (x) => Compute.power(x, x),
 	mended: { kind: "beyond one guard" }
+})
+
+/**
+ * The operand to its own power under Compute.positive, its sign proved and its range not, guarded by Compute.within
+ * between one and two, which proves both.
+ */
+const powerRange = (operand: TestOperand, one: LiteralDesc, two: LiteralDesc): Plant => ({
+	operand,
+	faulty: (x) => Compute.when(Compute.positive(x), (y: ScalarTerm) => Compute.power(y, y), one),
+	mended: {
+		kind: "guarded",
+		term: (x) =>
+			Compute.when(Compute.within(x, one, two), (y: ScalarTerm) => Compute.power(y, y), one)
+	}
 })
 
 /** The planted faults of each precondition kind, over each operand type the registry admits for its operation. */
@@ -195,6 +211,10 @@ const plants: { readonly [K in PreconditionKind]: Arr.NonEmptyReadonlyArray<Plan
 		}
 	],
 	powerDomain: [power(testPg.numeric), power(testPg.double)],
+	powerRange: [
+		powerRange(testPg.numeric, Decimal.of("1"), Decimal.of("2")),
+		powerRange(testPg.double, 1, 2)
+	],
 	bucketDomain: [
 		{
 			operand: testPg.numeric,
@@ -236,9 +256,9 @@ const writable = (carrier: Carrier): ReadonlyArray<GuardTest["kind"]> => {
 		case "money":
 		case "exactInteger":
 		case "exactMoney":
-			return ["nonzero", "nonnegative", "isFinite", "within"]
+			return ["nonzero", "nonnegative", "positive", "isFinite", "within"]
 		case "text":
-			return ["matches"]
+			return ["matches", "octets", "typed"]
 		case "bool":
 		case "uuid":
 		case "date":
@@ -278,7 +298,12 @@ describe("a partial operation's refusal", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
 						suite: "unit/compute/guards",
+						oracle: {
+							kind: "specification",
+							name: "the planted precondition and the guards Compute writes over its operand's type"
+						},
 						generator: (source) =>
 							[source.draw(element(kinds)), source.draw(int(0, widest - 1))] as const,
 						literal: Formatter.format,

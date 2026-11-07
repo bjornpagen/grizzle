@@ -2,8 +2,7 @@ import type { Effect, Layer, Redacted } from "effect"
 import type { OpenError } from "#adapter/errors/execution.ts"
 import type { CredentialError, TokenError } from "#adapter/errors/failures.ts"
 import type { PgDriver, PgSocket } from "#adapter/types/driver.ts"
-import type { phantom } from "#compiler/core/phantom.ts"
-import type { AnyLogin, LoginReadsContext, RolesOf } from "#compiler/types/schema/world.ts"
+import type { AnyLogin, LoginReadsContext, RolesOf, phantom } from "#compiler/plan/common.ts"
 
 /**
  * The connection layer. Types only: packages/grizzle/src/adapter implements DbLayer. A platform's credentials (an RDS IAM token, a

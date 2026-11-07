@@ -296,6 +296,7 @@ layer(NodeServices.layer, { excludeTestServices: true })(
 					ctx,
 					explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "unit/cli/tamper",
 							draw: drawn((source): ReadonlyArray<Case> =>
 								Arr.map(kinds, (kind) => ({ ...source.draw(shapeGen), kind }))

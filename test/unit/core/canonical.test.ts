@@ -328,6 +328,7 @@ describe("the canonical text", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/core/canonical-text",
 					draw: drawn(
 						(source) =>
@@ -377,6 +378,7 @@ describe("the canonical text", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/core/canonical-2",
 						draw: drawn(value),
 						literal: Formatter.format,
@@ -576,6 +578,7 @@ describe("a value outside the model", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/core/canonical-outside",
 						draw: drawn(
 							(source) =>
@@ -663,6 +666,8 @@ describe("a value outside the model", () => {
 					ctx,
 					exhaust(
 						{
+							box: { kind: "unstated" },
+							oracle: { kind: "unstated" },
 							suite: "unit/core/canonical-nesting",
 							/** No container, one, and a nesting a recursion would overflow the small stack at, each container and direction. */
 							generator: (source) =>
@@ -695,6 +700,8 @@ describe("a value outside the model", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/core/canonical-cycle",
 						/** A cycle through one container, two, and one a recursion would overflow the small stack on, back to its first or last. */
 						generator: (source) => {
@@ -791,6 +798,7 @@ describe("the omitted members", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/core/canonical-omitted",
 						draw: drawn(
 							(source) =>
@@ -878,6 +886,7 @@ describe("the omitted members", () => {
 					ctx,
 					explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "unit/core/canonical-memo",
 							draw: drawn(
 								(source) =>
@@ -960,6 +969,7 @@ describe("canonical comparison", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/core/canonical-compare",
 						/**
 						 * Planted: two equal arrays that are distinct objects, which the drawn members repeat a few times a run.

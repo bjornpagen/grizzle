@@ -1,5 +1,5 @@
 import { array, type Gen, int, map } from "@grizzle/testing/gen"
-import { exact, set } from "@grizzle/testing/oracle"
+import { exact, set, structuralHash } from "@grizzle/testing/oracle"
 import { keep, type Swarm, swarm as swarmOf, weightOf } from "@grizzle/testing/swarm"
 import { Array as Arr, Option, String as Str } from "effect"
 import { identifierOf } from "#compiler/core/identity.ts"
@@ -150,7 +150,7 @@ export const isImmediate = (group: WGroup, c: WContainment): boolean =>
 
 /** Two column lists name one key when they hold the same columns, in any order. */
 const sameColumns = (a: ReadonlyArray<string>, b: ReadonlyArray<string>): boolean =>
-	Option.isNone(set(exact)(a, b))
+	Option.isNone(set(structuralHash, exact)(a, b))
 
 /** Whether a containment references its target's candidate key rather than its primary key. */
 export const intoCandidateKey = (group: WGroup, c: WContainment): boolean =>

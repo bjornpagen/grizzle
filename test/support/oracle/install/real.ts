@@ -10,6 +10,7 @@ import {
 	baseOf,
 	type ContractInfo,
 	contractOf,
+	Roster,
 	type ScalarType,
 	spanOf
 } from "#compiler/ir/scalar.ts"
@@ -213,9 +214,7 @@ const build = (input: unknown, options: RealPlanOptions): RealInstallPlan => {
 	const tables: Record<string, OracleTable> = {}
 	for (const r of Rec.values(owned.relations)) {
 		if (r.kind === "closed") {
-			rosters[r.name] = installedRoster(
-				codecOf(options.codes, { closed: r.name, handles: r.desc.handles })
-			)
+			rosters[r.name] = installedRoster(codecOf(options.codes, new Roster(r.name, r.desc.handles)))
 			continue
 		}
 		if (r.kind !== "relation") {

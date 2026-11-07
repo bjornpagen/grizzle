@@ -40,6 +40,8 @@ describe("the share key", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/lower/shapes/share/key",
 						literal: Formatter.format,
 						generator: (source) =>

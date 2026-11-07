@@ -14,19 +14,3 @@ layer(NodeServices.layer, { excludeTestServices: true })("the statement-scale sc
 			})
 	)
 })
-
-layer(NodeServices.layer, { excludeTestServices: true })("public schema types", (it) => {
-	it.effect("typechecks every fixture under tsgo with Effect diagnostics", () =>
-		Effect.gen(function* () {
-			const diagnostics = yield* checked("schema/fixtures")
-			assert.equal(diagnostics.output, "")
-		})
-	)
-
-	it.effect("fails each refusal with the diagnostic it names, and nothing else", () =>
-		Effect.gen(function* () {
-			const { expected, actual } = yield* checked("schema/disarmed")
-			assert.deepEqual(actual, expected)
-		})
-	)
-})

@@ -239,6 +239,7 @@ const checkBatch = (batch: ReadonlyArray<BytesCase>, note: SearchCase<BytesFeatu
 
 const bytesSearch = explore(
 	{
+		oracle: { kind: "unstated" },
 		suite: "text/bytes",
 		draw: drawn(array(caseGen, { min: cases, max: cases })),
 		literal: Formatter.format,

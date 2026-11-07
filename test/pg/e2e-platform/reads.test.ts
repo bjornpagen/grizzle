@@ -655,6 +655,7 @@ layer(Substrate.layer)(
 					const platform = yield* openPlatform("platform_reads")
 					return yield* explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "pg/e2e-platform/reads",
 							draw: drawn(readsSketchGen),
 							literal: Formatter.format,

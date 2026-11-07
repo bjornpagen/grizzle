@@ -84,6 +84,8 @@ describe("the relations' places", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/allen/places",
 						generator: typedPairs,
 						literal: Formatter.format,
@@ -133,6 +135,8 @@ describe("the endpoint masks", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/allen/endpoint-masks",
 						generator: typedPairs,
 						literal: Formatter.format,

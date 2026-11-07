@@ -71,12 +71,15 @@ const readerIn = (l: Family, column: NativeColumn): DerivedReader | undefined =>
 /**
  * The first value among `families` drawn from a column a write of `relation` by `op` changes on rows already stored,
  * with the change and the columns the cascade carries it into; none when every value such a change reaches is drawn
- * again: see the module's header.
+ * again: see the module's header. `edited` are the families of `relation` the write edits: every one it is a member
+ * of, a tree's aside, for its own write, and its counted families alone for a nested write's row, whose sequences the
+ * nested walk fills with their fresh owners.
  */
 export const staleRead = (
 	families: ReadonlyArray<Family>,
 	relation: RelationInfo,
-	op: "insert" | "put" | "delete"
+	op: "insert" | "put" | "delete",
+	edited: ReadonlyArray<Family>
 ): StaleRead | undefined => {
 	const seen = new Set<string>()
 	/**
@@ -149,7 +152,7 @@ export const staleRead = (
 			)
 		})
 	}
-	for (const h of families) {
+	for (const h of edited) {
 		if (h.member.name === relation.name && h.members.kind !== "tree") {
 			changes.push({
 				owner: h.owner,

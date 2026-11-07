@@ -88,6 +88,7 @@ describe("minimal keys", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/analysis/logical/minimal-keys",
 					draw: drawn(tableGen),
 					literal: Formatter.format,
@@ -221,6 +222,7 @@ describe("keys over classes of equal columns", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/analysis/logical/class-keys",
 						draw: drawn(classedGen),
 						literal: Formatter.format,
@@ -379,6 +381,8 @@ describe("keys over classes of equal columns", () => {
 interface UnionArm {
 	readonly copies: ReadonlyArray<number>
 	readonly equalities: ReadonlyArray<readonly [number, number]>
+	/** Whether the arm groups its filtered rows by every column before it projects them. */
+	readonly grouped: boolean
 }
 
 interface UnionCase {
@@ -397,7 +401,8 @@ const unionCaseGen: Gen<UnionCase> = (source) => {
 					copies: arm.draw(array(column, { min: width, max: width })),
 					equalities: arm.draw(
 						array((pair) => [pair.draw(column), pair.draw(column)] as const, { min: 0, max: 3 })
-					)
+					),
+					grouped: arm.draw(boolean)
 				}),
 				{ min: 2, max: 3 }
 			)
@@ -410,6 +415,7 @@ type UnionFeature =
 	| "an equality some arm lacks"
 	| "an equality every arm holds by copying one column"
 	| "an equality every arm holds by its filter"
+	| "an equality every arm holds through its group"
 	| "three arms"
 
 /** The worlds model's case: each of two rules copies org into the head fields org and org_again. */
@@ -419,8 +425,8 @@ const copiedTwice: Kept<UnionCase, UnionFeature> = {
 	sketch: {
 		width: 2,
 		arms: [
-			{ copies: [0, 0], equalities: [] },
-			{ copies: [0, 0], equalities: [] }
+			{ copies: [0, 0], equalities: [], grouped: false },
+			{ copies: [0, 0], equalities: [], grouped: false }
 		]
 	},
 	reaches: ["an equality every arm holds", "an equality every arm holds by copying one column"]
@@ -452,6 +458,7 @@ describe("keys of a union", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/analysis/logical/union-class-keys",
 					draw: drawn(unionCaseGen),
 					literal: Formatter.format,
@@ -467,6 +474,7 @@ describe("keys of a union", () => {
 							"an equality some arm lacks",
 							"an equality every arm holds by copying one column",
 							"an equality every arm holds by its filter",
+							"an equality every arm holds through its group",
 							"three arms"
 						],
 						{ cases: 300, sense: notesOnly }
@@ -500,8 +508,11 @@ describe("keys of a union", () => {
 												q.op("and", [all, e])
 											)
 										)
+							const grouped = arm.grouped
+								? q.group(filtered, columns, columns, [], conservativeMeta)
+								: filtered
 							const node = q.project(
-								filtered,
+								grouped,
 								[
 									["tag", q.lit(i, int4)],
 									...Arr.map(indices(drawnCase.width), (j) => [name(j), name(copyOf(j))] as const)
@@ -532,6 +543,9 @@ describe("keys of a union", () => {
 									}
 									if (Arr.every(arms, (a) => a.copyOf(x) !== a.copyOf(y))) {
 										c.note("an equality every arm holds by its filter")
+										if (Arr.every(drawnCase.arms, (a) => a.grouped)) {
+											c.note("an equality every arm holds through its group")
+										}
 									}
 								} else if (Arr.some(arms, (a) => a.classOf(x) === a.classOf(y))) {
 									c.note("an equality some arm lacks")
@@ -645,6 +659,7 @@ describe("the key kernel's union equalities", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/analysis/logical/forged-union-equalities",
 						draw: sketched(mappingsGen, ([head, tail]) => [head, ...tail] as const),
 						literal: Formatter.format,

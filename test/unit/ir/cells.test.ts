@@ -241,6 +241,8 @@ describe("the row-major index", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/ir/cells-index",
 						generator: shapes,
 						literal: Formatter.format,
@@ -600,6 +602,8 @@ describe("a relation's string of cells", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/ir/cells-relations",
 						generator: box,
 						literal: Formatter.format,
@@ -728,6 +732,7 @@ describe("a relation's string of cells", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/ir/cells-rows",
 						draw: drawn(statement),
 						literal: Formatter.format,
@@ -781,6 +786,7 @@ describe("a cell's width", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/ir/cells-width",
 					draw: drawn(
 						array(
@@ -900,6 +906,8 @@ describe("a roster's codes", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/ir/cells-roster-holes",
 						generator: patterns,
 						literal: Formatter.format,
@@ -1097,6 +1105,7 @@ describe("a roster's codes", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/ir/cells-roster",
 						draw: drawn(history),
 						literal: Formatter.format,
@@ -1247,6 +1256,8 @@ describe("a side", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/ir/cells-side",
 						generator: headings,
 						literal: Formatter.format,
@@ -1312,6 +1323,8 @@ describe("an open-typed field's dictionary", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/ir/cells-dictionary",
 						generator: columns,
 						literal: Formatter.format,
@@ -1442,6 +1455,8 @@ describe("a constant's digest", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/ir/cells-digest",
 						generator: small,
 						literal: Formatter.format,

@@ -357,6 +357,7 @@ const flightSuite = Effect.gen(function* () {
 
 	return yield* explore(
 		{
+			oracle: { kind: "unstated" },
 			suite: "pg/adapter/flight",
 			draw: sketched(caseGen(space), expressible),
 			literal: Formatter.format,

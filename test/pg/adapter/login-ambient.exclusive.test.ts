@@ -478,6 +478,7 @@ layer(Substrate.layer)("a login under hostile database defaults", (it) => {
 						}).pipe(withLayer(Layer.fresh(o.layer)))
 					return yield* explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "pg/adapter/login-ambient",
 							draw: drawn(caseGen),
 							literal: Formatter.format,

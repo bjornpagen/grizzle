@@ -216,6 +216,7 @@ describe("host NFA membership equals ECMAScript", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/text/membership-families",
 						draw: drawn(familyCaseGen),
 						literal: Formatter.format,
@@ -270,6 +271,7 @@ describe("host NFA membership equals ECMAScript", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/text/membership-5129793",
 					draw: drawn(patternSketchGen),
 					literal: Formatter.format,
@@ -330,6 +332,7 @@ describe("host NFA membership equals ECMAScript", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/text/membership-admitted",
 						draw: drawn(
 							(source) =>
@@ -373,6 +376,7 @@ describe("every claimed fact holds on the samples", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/text/membership-4604227",
 					draw: drawn(caseGen),
 					literal: Formatter.format,
@@ -430,6 +434,7 @@ describe("every claimed fact holds on the samples", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/text/membership-4932953",
 					draw: drawn((source) => {
 						const family = source.draw(element(families))

@@ -70,6 +70,7 @@ describe("the relations a statement reads and writes (sql/access.ts)", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/sql/access",
 						draw: drawn(accessCaseGen),
 						literal: Formatter.format,
@@ -182,6 +183,7 @@ describe("the ANALYZE statement", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/sql/analyze-carriers",
 						draw: drawn(array(namedGen, { min: 1, max: 3 })),
 						literal: Formatter.format,

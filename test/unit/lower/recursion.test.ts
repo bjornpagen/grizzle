@@ -180,6 +180,8 @@ describe("the form a recursion lowers to (packages/engine/src/lower/shapes/recur
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/lower/recursion/form",
 						/** Walks bounded at every depth from none to several hops. */
 						generator: int(0, 6),

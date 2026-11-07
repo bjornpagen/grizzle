@@ -130,7 +130,8 @@ const groupRows = (
 			)
 		}),
 		group.heading,
-		`heading group ${index} of ${union.id}`
+		`heading group ${index} of ${union.id}`,
+		ref.identities
 	)
 	if (take === undefined) {
 		return { heading: group.heading, rows }
@@ -177,7 +178,8 @@ const parentKeysOf = (
 			Arr.map(heading, (c) => valueAt(row, columnIndex(parent.heading, c.name, attach.id)))
 		),
 		heading,
-		`the parent keys of ${attach.id}`
+		`the parent keys of ${attach.id}`,
+		ref.identities
 	)
 	const layout = layoutOf(heading)
 	return {
@@ -239,11 +241,11 @@ const attachmentOf = (
 			role: "attachment",
 			parentKeyWidth: keyHeading.length,
 			heading,
-			rows: distinctRows(out, heading, `the statement of ${attach.id}`)
+			rows: distinctRows(out, heading, `the statement of ${attach.id}`, ref.identities)
 		},
 		delivered: {
 			heading: child.heading,
-			rows: distinctRows(children, child.heading, `the children of ${attach.id}`)
+			rows: distinctRows(children, child.heading, `the children of ${attach.id}`, ref.identities)
 		}
 	}
 }

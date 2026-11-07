@@ -52,6 +52,7 @@ describe("the EXECUTE grants of a role", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/physical/executes",
 						draw: drawn(executesWorldGen),
 						literal: Formatter.format,

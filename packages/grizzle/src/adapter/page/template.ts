@@ -1,6 +1,6 @@
 import { Array as Arr, Record as Rec, Result } from "effect"
 import { toResult } from "#adapter/engine.ts"
-import { type AttachmentFacts, attachmentFacts } from "#adapter/reader/analysis.ts"
+import { type AttachmentScope, attachmentHeads } from "#adapter/reader/analysis.ts"
 import {
 	programRecords,
 	type RunStatement,
@@ -8,52 +8,53 @@ import {
 	type StatementRecord
 } from "#adapter/reader/execution.ts"
 import { type GroupOrder, groupOrder } from "#adapter/reader/run.ts"
+import { vectorExpectations } from "#compiler/plan/catalog.ts"
 import {
-	type CursorCodec,
-	cursorCodec,
-	cursorTokenMaxLength
-} from "#compiler/codec/cursor/codec.ts"
-import type { CursorGeneration } from "#compiler/codec/cursor/identity.ts"
-import { type ScalarCodec, scalarCodec } from "#compiler/codec/scalar.ts"
-import { type Layout, rowText } from "#compiler/core/decoder.ts"
-import type { CompileError } from "#compiler/core/errors.ts"
-import { SourceLoc } from "#compiler/core/loc.ts"
-import * as Engine from "#compiler/core/result.ts"
-import type { Codebook } from "#compiler/ir/codes.ts"
-import type { QueryDesc } from "#compiler/ir/desc.ts"
-import type { ParamDecl, StatementSpec } from "#compiler/ir/products.ts"
-import type { Heading } from "#compiler/ir/rel.ts"
-import type { Carrier } from "#compiler/ir/scalar.ts"
-import { columnPosition } from "#compiler/lower/conservative/context.ts"
+	type Carrier,
+	type Codebook,
+	type CompileError,
+	Engine,
+	type Layout,
+	type ParamDecl,
+	type QueryDesc,
+	rowText,
+	type SchemaArtifacts,
+	SourceLoc,
+	type StatementSpec
+} from "#compiler/plan/common.ts"
 import {
-	type PageStatementSlot,
-	type StatementRoots,
-	traverseTree
-} from "#compiler/lower/conservative/types.ts"
-import type { FusedStatement, ShapeChoice } from "#compiler/lower/shapes/index.ts"
-
-import {
+	type CarrierHost,
+	columnPosition,
+	compareValues,
 	compilePageOf,
+	cursorCodec,
+	type CursorCodec,
+	type CursorGeneration,
+	cursorTokenMaxLength,
+	type FusedStatement,
+	type Heading,
 	type PageArtifact,
+	type PageComparator,
+	type PageDirection,
 	type PageProbeProgram,
 	type PageProgram,
+	pageQueryFingerprint,
 	type PageRequestProgram,
 	type PageStatement,
+	type PageStatementSlot,
+	pageStatementSlotOf,
 	type PageTemplate,
-	statedOrderOf
-} from "#compiler/lower/shapes/page/compile.ts"
-import type {
-	PageComparator,
-	PageDirection,
-	PageVariant,
-	ProbeKind
-} from "#compiler/lower/shapes/page/seek.ts"
-import { pageStatementSlotOf, statementSpec } from "#compiler/lower/template.ts"
-import { vectorExpectations } from "#compiler/physical/vector/admission.ts"
-import type { QueryTemplate } from "#compiler/program/compile.ts"
-import type { SchemaArtifacts } from "#compiler/program/schema.ts"
-import { pageQueryFingerprint } from "#compiler/program/workload/fingerprint.ts"
-import { type CarrierHost, compareValues } from "#compiler/scalar/values/identity.ts"
+	type PageVariant,
+	type ProbeKind,
+	type QueryTemplate,
+	scalarCodec,
+	type ScalarCodec,
+	type ShapeChoice,
+	statedOrderOf,
+	type StatementRoots,
+	statementSpec,
+	traverseTree
+} from "#compiler/plan/read.ts"
 
 /**
  * The page runtime template of an ordered query.
@@ -191,11 +192,8 @@ interface PageRuntimeParts {
 	 */
 	readonly query: string
 	readonly generation: CursorGeneration
-	/**
-	 * The delivered attachment types the analysis proved, and the columns each delivered child carries
-	 * (reader/analysis.ts).
-	 */
-	readonly facts: AttachmentFacts
+	/** The delivered spine, whose attachments' children carry the columns their head keys name (reader/analysis.ts). */
+	readonly spine: AttachmentScope
 }
 
 /** The form of a page statement: each page placeholder is the page's, every other one a declared parameter's. */
@@ -303,7 +301,7 @@ interface ArtifactParts {
 	readonly heading: Heading
 	readonly comparators: ReadonlyArray<PageComparator>
 	readonly values: ReadonlyArray<ScalarCodec>
-	readonly facts: AttachmentFacts
+	readonly spine: AttachmentScope
 	readonly codes: Codebook
 }
 
@@ -317,7 +315,7 @@ const runArtifact = (
 				const program = artifact.requests[v]
 				const { records, delivered } = programRecords(
 					yield* specsOf(program, parts.codes),
-					parts.facts,
+					parts.spine,
 					parts.codes
 				)
 				const delivery = pageDelivery(
@@ -371,7 +369,7 @@ export const pageRuntimeOf = (parts: PageRuntimeParts): Result.Result<PageRuntim
 			heading: page.heading,
 			comparators: page.comparators,
 			values,
-			facts: parts.facts,
+			spine: parts.spine,
 			codes: parts.codes
 		}
 		const optimized = yield* runArtifact(page.optimized, shared)
@@ -439,7 +437,7 @@ export const pageTemplateFor = (
 			codes: artifacts.names.codes,
 			query,
 			generation: cursorGeneration(artifacts),
-			facts: attachmentFacts(template, desc)
+			spine: attachmentHeads(desc)
 		})
 	})
 }

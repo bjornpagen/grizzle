@@ -234,6 +234,7 @@ describe("the obligation graph", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/physical/obligation-order",
 					draw: drawn(graphGen),
 					literal: Formatter.format,
@@ -405,6 +406,7 @@ describe("the obligation graph", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/physical/obligation-reasons",
 					draw: drawn((source) => ({
 						own: source.draw(array(element(reasonPool), { min: 0, max: 3 })),

@@ -219,6 +219,8 @@ layer(Substrate.layer, { excludeTestServices: true })(
 					})
 					return yield* exhaust(
 						{
+							box: { kind: "unstated" },
+							oracle: { kind: "unstated" },
 							suite: "platform/planted",
 							generator: pointGen,
 							literal: Formatter.format,

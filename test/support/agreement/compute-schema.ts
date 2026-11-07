@@ -1,4 +1,6 @@
+import { Compute } from "#compiler/public/compute.ts"
 import { bits, closedId, contract, date, pg, span, uuid } from "#compiler/public/fields.ts"
+import { query, v } from "#compiler/public/query.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 
@@ -49,3 +51,26 @@ export const Cell = relation(
 )
 
 export const Cells = schema("Cells", { Tone, Shade, Cell }, [])
+
+/**
+ * Cell's divisor read back through a query's heading, one column per kind of head term that delivers it: the variable
+ * itself, its base, its cast into an integer, a conditional, LEAST and GREATEST of Divisor terms, its least and greatest
+ * value and its sum, each grouped by its cell. A variable read from a column has the facts its column's type declares,
+ * whatever the head term proved (compute.ts's heading operand): Divisor's nonzero where the column is of Divisor, none
+ * where it is of a plain integer.
+ */
+export const Heads = query(Cells).rule((r) => {
+	const cell = v(Cell, "cell")
+	return r.match(Cell, { id: cell.id, divisor: cell.divisor, int: cell.int }).find({
+		id: cell.id,
+		divisor: cell.divisor,
+		base: Compute.base(cell.divisor),
+		cast: Compute.cast(cell.divisor, Cell.fields.int),
+		cond: Compute.cond(Compute.gt(cell.int, 0), cell.divisor, cell.divisor),
+		least: Compute.least(cell.divisor, cell.divisor),
+		greatest: Compute.greatest(cell.divisor, cell.divisor),
+		min: r.min(cell.divisor),
+		max: r.max(cell.divisor),
+		sum: r.sum(cell.divisor)
+	})
+})

@@ -130,6 +130,8 @@ describe("a query over a derived relation", () => {
 					ctx,
 					exhaust(
 						{
+							box: { kind: "unstated" },
+							oracle: { kind: "unstated" },
 							suite: "unit/program/derived-evidence",
 							generator: space,
 							literal: Formatter.format,

@@ -234,6 +234,7 @@ layer(Substrate.layer, { excludeTestServices: true })("ApplyError through the pu
 						const { db, tap } = yield* tappedDb(untapped, o.installed.as(o.server))
 						return yield* explore(
 							{
+								oracle: { kind: "unstated" },
 								/**
 								 * A builder refuses what it cannot read with a CompileError: a typed refusal before any SQL.
 								 */

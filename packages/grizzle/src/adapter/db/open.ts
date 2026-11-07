@@ -16,13 +16,16 @@ import { type DbSessions, dbSessions } from "#adapter/pool/registry.ts"
 import type { DbConstructor, DbOf, OpenOptions, WorkloadHandles } from "#adapter/types/db.ts"
 import type { DbLayerService, Verify } from "#adapter/types/layer.ts"
 import { prologueOf } from "#adapter/wire/batch.ts"
-import { catchCompileError } from "#compiler/core/canonical.ts"
-import { malformedDescription } from "#compiler/core/errors.ts"
-import { defect } from "#compiler/core/invariant.ts"
-import { SourceLoc } from "#compiler/core/loc.ts"
-import { hostArguments } from "#compiler/query/build/host.ts"
-import { loginRoleOf } from "#compiler/schema/world.ts"
-import type { AnyRole, LoginRole } from "#compiler/types/schema/world.ts"
+import {
+	type AnyRole,
+	catchCompileError,
+	defect,
+	type LoginRole,
+	loginRoleOf,
+	malformedDescription,
+	SourceLoc
+} from "#compiler/plan/common.ts"
+import { hostArguments } from "#compiler/plan/read.ts"
 
 const openLoc = SourceLoc("Db.open", [])
 

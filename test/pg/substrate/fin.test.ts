@@ -863,6 +863,8 @@ layer(Substrate.layer)("the fin lemmas of fin.md §5.2 on PostgreSQL 19rc1", (it
 					]
 					return yield* exhaust(
 						{
+							box: { kind: "unstated" },
+							oracle: { kind: "unstated" },
 							suite: "substrate/fin-states",
 							generator: stateGen,
 							literal: Formatter.format,
@@ -934,6 +936,8 @@ layer(Substrate.layer)("the fin lemmas of fin.md §5.2 on PostgreSQL 19rc1", (it
 					)
 					return yield* exhaust(
 						{
+							box: { kind: "unstated" },
+							oracle: { kind: "unstated" },
 							suite: "substrate/fin-mutations",
 							generator: mutationGen,
 							literal: Formatter.format,
@@ -977,6 +981,8 @@ layer(Substrate.layer)("the fin lemmas of fin.md §5.2 on PostgreSQL 19rc1", (it
 					)
 					return yield* exhaust(
 						{
+							box: { kind: "unstated" },
+							oracle: { kind: "unstated" },
 							suite: "substrate/fin-row-order",
 							generator: orderGen,
 							literal: Formatter.format,
@@ -1023,6 +1029,8 @@ layer(Substrate.layer)("the fin lemmas of fin.md §5.2 on PostgreSQL 19rc1", (it
 					const seats = yield* seatsOf(REWRITE_LOWERINGS)
 					return yield* exhaust(
 						{
+							box: { kind: "unstated" },
+							oracle: { kind: "unstated" },
 							suite: "substrate/fin-rewrites",
 							generator: rewriteGen,
 							literal: Formatter.format,
@@ -1084,6 +1092,8 @@ layer(Substrate.layer)("the fin lemmas of fin.md §5.2 on PostgreSQL 19rc1", (it
 					const seats = yield* seatsOf(CYCLE_LOWERINGS)
 					return yield* exhaust(
 						{
+							box: { kind: "unstated" },
+							oracle: { kind: "unstated" },
 							suite: "substrate/fin-cycle",
 							generator: cycleGen,
 							literal: Formatter.format,
@@ -1248,6 +1258,7 @@ layer(Substrate.layer)("the fin lemmas of fin.md §5.2 on PostgreSQL 19rc1", (it
 							)
 					return yield* explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "substrate/fin-programs",
 							draw: drawn(programsGen),
 							literal: Formatter.format,

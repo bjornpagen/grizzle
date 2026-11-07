@@ -79,6 +79,8 @@ layer(Substrate.layer)("no server-side deadlines", (it) => {
 					const max = 3
 					const exhausted = yield* exhaust(
 						{
+							box: { kind: "unstated" },
+							oracle: { kind: "unstated" },
 							suite: "serverless/deadlines",
 							generator: modes,
 							literal: Formatter.format,

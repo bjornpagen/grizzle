@@ -34,18 +34,21 @@ import type { ConstraintName, LawId } from "#compiler/core/ids.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { codeOf, draftCodebook, firstCodebook, noRenames } from "#compiler/ir/codes.ts"
 import type { LawField } from "#compiler/ir/law.ts"
+import { Roster } from "#compiler/ir/scalar.ts"
 import {
 	parseSchemaInput,
 	type SchemaArtifacts,
 	schemaArtifacts
 } from "#compiler/program/schema.ts"
-import { bits, closedId, contract, pg, uuid } from "#compiler/public/fields.ts"
+import { Compute } from "#compiler/public/compute.ts"
+import { bits, closedId, contract, generated, pg, uuid } from "#compiler/public/fields.ts"
 import { check, closed, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { own, rostersOf } from "#compiler/schema/own.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
 import type { KeyHost, Law, Witness } from "#compiler/types/changeset/changeset.ts"
 import type { UniqueAbort, WriteStep } from "#compiler/write/program/artifact.ts"
+import type { Refuser, StatementAt } from "#compiler/write/program/witness.ts"
 import { type ConcurrentChangeTag, encodeRefusalDetail } from "#compiler/write/refusal.ts"
 import { awkwardCode, Clubs } from "#test/pg/laws/outcomes/schemas.ts"
 import { assert, defined, nonEmpty, succeeded, unorderedEqual } from "#test/support/assert.ts"
@@ -88,7 +91,7 @@ const Kind = closed("Kind", ["leaf", "branch", "root"])
 const Seats = contract("Seats", pg.integer, (x) => x.le(500))
 const Count = contract("Count", pg.integer, (x) => x.ge(0))
 const Tally = contract("Tally", pg.integer, (x) => x.ge(0))
-const Node = relation(
+const Node = relation.generated(
 	"Node",
 	{
 		id: uuid,
@@ -98,7 +101,8 @@ const Node = relation(
 		count: Count,
 		label: str.regex("^.{1,20}$", "su")
 	},
-	["id"]
+	["id"],
+	(r) => ({ spare: generated(pg.integer, Compute.base(r.seats)) })
 )
 const Tag = relation("Tag", { id: uuid, tally: Tally }, ["id"])
 const Rosters = schema("RosterDomains", { Kind, Node, Tag }, [
@@ -112,10 +116,11 @@ const rostersArtifacts = succeeded(
 		codes: succeeded(
 			draftCodebook(
 				firstCodebook([
-					{
-						closed: defined(rostersOf(rostersOwned)[0], "Rosters declares Kind").closed,
-						handles: ["leaf", "gone", "branch"]
-					}
+					new Roster(defined(rostersOf(rostersOwned)[0], "Rosters declares Kind").closed, [
+						"leaf",
+						"gone",
+						"branch"
+					])
 				]),
 				noRenames,
 				rostersOf(rostersOwned)
@@ -284,12 +289,16 @@ type OwnerSketch =
 	| "a bits domain at a width the installation lacks"
 	| "none"
 
+/** The column a report names, of the table it reports: a generated field's, another field's, or none. */
+type ColumnSketch = "a generated column of the table" | "another column of the table" | "none"
+
 interface ReportSketch {
 	readonly installation: InstallationName
 	readonly sqlstate: string
 	readonly constraint: ConstraintSketch
 	readonly schema: SchemaSketch
 	readonly owner: OwnerSketch
+	readonly column: ColumnSketch
 	readonly detail: DetailSketch
 	readonly origin: OriginSketch
 }
@@ -307,7 +316,7 @@ const sqlstateDictionary: Arr.NonEmptyReadonlyArray<string> = [
 	sqlstates.grizzleOutsideWorld,
 	sqlstates.grizzleDeliveredType,
 	sqlstates.insufficientPrivilege,
-	"23502",
+	sqlstates.notNullViolation,
 	"22012",
 	"XX000"
 ]
@@ -378,6 +387,12 @@ const ownerGen: Gen<OwnerSketch> = weighted<OwnerSketch>([
 	[1, constant("none")]
 ])
 
+const columnGen: Gen<ColumnSketch> = element<ColumnSketch>([
+	"a generated column of the table",
+	"another column of the table",
+	"none"
+])
+
 const refusalGen: Gen<DetailSketch> = (inner) => ({
 	kind: "a refusal",
 	relation: inner.draw(pick),
@@ -427,7 +442,21 @@ const reportGen: Gen<ReportSketch> = weighted<ReportSketch>([
 			constraint: source.draw(constraintGen),
 			schema: source.draw(schemaGen),
 			owner: source.draw(ownerGen),
+			column: source.draw(columnGen),
 			detail: source.draw(detailGen),
+			origin: source.draw(originGen)
+		})
+	],
+	[
+		2,
+		(source) => ({
+			installation: source.draw(installationGen),
+			sqlstate: sqlstates.notNullViolation,
+			constraint: { kind: "none" },
+			schema: source.draw(element<SchemaSketch>(["the installation's", "another"])),
+			owner: "another table of the installation",
+			column: source.draw(columnGen),
+			detail: { kind: "none" },
 			origin: source.draw(originGen)
 		})
 	],
@@ -446,6 +475,7 @@ const reportGen: Gen<ReportSketch> = weighted<ReportSketch>([
 			constraint: { kind: "an installed constraint", pick: source.draw(pick) },
 			schema: "the installation's",
 			owner: "the constraint's own",
+			column: "none",
 			detail: source.draw(detailGen),
 			origin: source.draw(originGen)
 		})
@@ -458,6 +488,7 @@ const reportGen: Gen<ReportSketch> = weighted<ReportSketch>([
 			constraint: { kind: "a law's identity", pick: source.draw(pick) },
 			schema: source.draw(element<SchemaSketch>(["the installation's", "none"])),
 			owner: "none",
+			column: "none",
 			detail: source.draw(refusalGen),
 			origin: source.draw(originGen)
 		})
@@ -470,6 +501,7 @@ const reportGen: Gen<ReportSketch> = weighted<ReportSketch>([
 			constraint: source.draw(constraintGen),
 			schema: source.draw(schemaGen),
 			owner: source.draw(ownerGen),
+			column: "none",
 			detail: source.draw(changeGen),
 			origin: source.draw(originGen)
 		})
@@ -482,6 +514,7 @@ const reportGen: Gen<ReportSketch> = weighted<ReportSketch>([
 			constraint: { kind: "an installed constraint", pick: source.draw(pick) },
 			schema: source.draw(schemaGen),
 			owner: source.draw(ownerGen),
+			column: "none",
 			detail: constant<DetailSketch>({ kind: "none" })(source),
 			origin: {
 				...source.draw(originGen),
@@ -603,7 +636,7 @@ const originOf = (
 type Meaning =
 	| {
 			readonly kind: "rejected"
-			readonly laws: ReadonlyArray<LawId>
+			readonly laws: ReadonlyArray<Law>
 			readonly witness: Witness
 	  }
 	| { readonly kind: "outside"; readonly relation: string }
@@ -633,6 +666,8 @@ type WitnessFeature =
 	| "a shared domain's every law"
 	| "rejected at a refused key"
 	| "a refused key holding a closed id"
+	| "rejected under a generated column"
+	| "execution: a NOT NULL on no generated column"
 	| "a concurrent change"
 	| "outside an entry"
 	| "SerializationFailure"
@@ -650,6 +685,31 @@ type WitnessFeature =
 	| "execution: another class"
 	| "execution: a bits domain the installation lacks"
 	| `execution: a concurrent change at ${Exclude<ChangeAt, "a stored relation">}`
+
+/** What refused a statement, as the host's witness is asked about it: its kind and the objects it names. */
+const refuserText = (refuser: Refuser): string => {
+	switch (refuser.kind) {
+		case "constraint":
+			return `constraint ${refuser.owner} ${refuser.name}`
+		case "domain":
+			return `domain ${Arr.join(
+				Arr.map(refuser.uses, (u) => `${u.table}.${u.column}`),
+				","
+			)}`
+		case "generated":
+			return `generated ${refuser.table}.${refuser.column}`
+	}
+}
+
+/**
+ * The host's witness as the classifier is handed it: a key naming where it was asked, the statement's stratum and
+ * relations, and what refused, so every call the classifier makes of it shows in the outcome.
+ */
+const hostWitnessOf = (at: StatementAt, refuser: string): Witness => ({
+	kind: "key",
+	relation: "Host",
+	values: { at: `${at.stratum}:${Arr.join(at.relations, ",")}`, refuser }
+})
 
 describe("a server error at a write", () => {
 	it.effect(
@@ -693,6 +753,8 @@ describe("a server error at a write", () => {
 								"a shared domain's every law",
 								"rejected at a refused key",
 								"a refused key holding a closed id",
+								"rejected under a generated column",
+								"execution: a NOT NULL on no generated column",
 								"a concurrent change",
 								"outside an entry",
 								"SerializationFailure",
@@ -896,6 +958,27 @@ describe("a server error at a write", () => {
 										)
 								}
 							})()
+							/** The column the report names, of the table it reports, as the sketch draws it. */
+							const reportedColumn = ((): string | undefined => {
+								const table = reportedOwner.table
+								const relation = Arr.findFirst(
+									stored,
+									(r) => table !== undefined && names.relation(r.name).name === table
+								).pipe(Option.getOrUndefined)
+								if (relation === undefined || sketch.column === "none") {
+									return undefined
+								}
+								const other = Arr.findFirst(relation.fields, (f) => f.writing.kind !== "generated")
+								const generatedField = Arr.findFirst(
+									relation.fields,
+									(f) => f.writing.kind === "generated"
+								)
+								const chosenField =
+									sketch.column === "a generated column of the table"
+										? Option.orElse(generatedField, () => other)
+										: other
+								return Option.isSome(chosenField) ? chosenField.value.column : undefined
+							})()
 							const reported: Reported = {
 								...nothingReported,
 								sqlstate: sketch.sqlstate,
@@ -907,6 +990,7 @@ describe("a server error at a write", () => {
 											? `${schemaName}_elsewhere`
 											: undefined,
 								table: reportedOwner.table,
+								column: reportedColumn,
 								dataType: reportedOwner.dataType,
 								detail
 							}
@@ -926,8 +1010,22 @@ describe("a server error at a write", () => {
 							const failure: ServerError = serverError(reported)
 							const classified = classifyServerError(failure, {
 								violation: installationWitness(artifacts).classify,
-								origin
+								origin,
+								witness: (at, refuser) => hostWitnessOf(at, refuserText(refuser))
 							})
+							/** Where the host's witness is asked: a statement that writes stored relations, none elsewhere. */
+							const at: StatementAt | undefined =
+								origin.kind === "statement" &&
+								(origin.step.kind === "write" ||
+									origin.step.kind === "single" ||
+									origin.step.kind === "family")
+									? { stratum: origin.step.stratum, relations: written }
+									: undefined
+							/** The witness the rules give a native refusal by `refuser`: the host's, at a statement alone. */
+							const hostWitness = (refuser: string): Witness =>
+								at === undefined ? { kind: "unreported" } : hostWitnessOf(at, refuser)
+							const described = (law: LawId): Law =>
+								defined(artifacts.described.get(law), "a described law")
 							/** The rules, restated. */
 							const meaning = ((): Meaning => {
 								const state = reported.sqlstate
@@ -1006,6 +1104,27 @@ describe("a server error at a write", () => {
 								) {
 									return { kind: "defect" }
 								}
+								if (state === sqlstates.notNullViolation) {
+									const table = owner?.kind === "table" ? owner.name : undefined
+									const relation = Arr.findFirst(
+										stored,
+										(r) => table !== undefined && names.relation(r.name).name === table
+									).pipe(Option.getOrUndefined)
+									const field =
+										relation === undefined
+											? undefined
+											: Arr.findFirst(
+													relation.fields,
+													(f) => f.writing.kind === "generated" && f.column === reported.column
+												).pipe(Option.getOrUndefined)
+									return relation === undefined || field === undefined
+										? { kind: "execution" }
+										: {
+												kind: "rejected",
+												laws: [{ kind: "generated", relation: relation.name, field: field.name }],
+												witness: hostWitness(`generated ${table}.${field.column}`)
+											}
+								}
 								if (reported.constraint === undefined) {
 									return { kind: "execution" }
 								}
@@ -1024,7 +1143,7 @@ describe("a server error at a write", () => {
 									const relation = defined(stored[d.relation % stored.length], "a relation")
 									return {
 										kind: "rejected",
-										laws: [law.value.law],
+										laws: [described(law.value.law)],
 										witness: {
 											kind: "key",
 											relation: relation.name,
@@ -1058,18 +1177,25 @@ describe("a server error at a write", () => {
 								const narrowed = Arr.filter(n.laws, (l) => coerced.has(l.law))
 								return {
 									kind: "rejected",
-									laws: Arr.map(narrowed.length > 0 ? narrowed : n.laws, (l) => l.law),
-									witness: { kind: "unreported" }
+									laws: Arr.map(narrowed.length > 0 ? narrowed : n.laws, (l) => l.described),
+									witness: hostWitness(
+										n.kind === "constraint"
+											? `constraint ${n.owner} ${n.name}`
+											: `domain ${Arr.join(
+													Arr.map(n.uses, (u) => `${u.table}.${u.column}`),
+													","
+												)}`
+									)
 								}
 							})()
-							const described = (law: LawId): Law =>
-								defined(artifacts.described.get(law), "a described law")
 							switch (meaning.kind) {
 								case "rejected": {
 									assert.ok(classified.kind === "rejected", `rejected, not ${classified.kind}`)
-									unorderedEqual(classified.laws, Arr.map(meaning.laws, described), "the laws")
+									unorderedEqual(classified.laws, meaning.laws, "the laws")
 									assert.deepEqual(classified.witness, meaning.witness)
-									if (meaning.witness.kind === "key") {
+									if (reported.sqlstate === sqlstates.notNullViolation) {
+										k.note("rejected under a generated column")
+									} else if (reported.sqlstate === sqlstates.integrityConstraintViolation) {
 										k.note("rejected at a refused key")
 										if (
 											Arr.some(
@@ -1151,15 +1277,17 @@ describe("a server error at a write", () => {
 											? "execution: another class"
 											: reported.schema !== undefined && reported.schema !== schemaName
 												? "execution: another schema"
-												: reported.constraint === undefined
-													? "execution: no constraint"
-													: state === sqlstates.integrityConstraintViolation
-														? sketch.detail.kind === "a refusal"
-															? "execution: a refused key no relation holds"
-															: "execution: a refusal without its DETAIL"
-														: sketch.owner === "a bits domain at a width the installation lacks"
-															? "execution: a bits domain the installation lacks"
-															: "execution: a constraint its owner lacks"
+												: state === sqlstates.notNullViolation
+													? "execution: a NOT NULL on no generated column"
+													: reported.constraint === undefined
+														? "execution: no constraint"
+														: state === sqlstates.integrityConstraintViolation
+															? sketch.detail.kind === "a refusal"
+																? "execution: a refused key no relation holds"
+																: "execution: a refusal without its DETAIL"
+															: sketch.owner === "a bits domain at a width the installation lacks"
+																? "execution: a bits domain the installation lacks"
+																: "execution: a constraint its owner lacks"
 									)
 									return
 								}

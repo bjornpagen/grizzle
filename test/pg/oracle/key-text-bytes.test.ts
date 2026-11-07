@@ -229,6 +229,7 @@ layer(Substrate.layer)(
 					ctx,
 					explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "oracle/key-text-bytes",
 							draw: drawn(caseGen),
 							literal: Formatter.format,

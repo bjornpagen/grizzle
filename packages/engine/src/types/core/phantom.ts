@@ -457,7 +457,7 @@ export type UnionHeading<A, B> = {
  * What a union carrier states when every arm holds a constant at its key: the constants' values, which tell the arms
  * apart (a discriminant, query.ts ArmsMeet).
  */
-export interface Constants<out V> {
+interface Constants<out V> {
 	readonly [constants]?: V | undefined
 }
 type ConstantsAt<A, B, K> = [ConstantValuesAt<A, K>] extends [never]
@@ -552,8 +552,22 @@ export interface Negating<out B extends boolean> extends Built {
 export type NegatesIn<Ps> = Negating<
 	Ps extends ReadonlyArray<infer X> ? (true extends HoldsNegation<X> ? true : false) : false
 >
-/** Whether a predicate, or some member of a union of predicates, holds a relational negation. */
-export type HoldsNegation<X> = X extends Phantom<{ readonly negates: true }> ? true : false
+/**
+ * Whether a predicate, or some member of a union of predicates, holds a relational negation: its phantom states it, as
+ * Negating<true> does. A predicate whose phantom states nothing of it, a PredicateBase among them, holds none.
+ */
+export type HoldsNegation<X> =
+	X extends Phantom<infer B> ? (B extends { readonly negates: true } ? true : false) : false
+/**
+ * A predicate at a place where a relational negation would be no rule-level filter (a disjunction, a negation, a
+ * scalar expression's test): refused where it holds one (Negating).
+ */
+export type NegationFree<X> =
+	true extends HoldsNegation<X>
+		? Refusal<"relational negation is a rule-level filter, alone or in a top-level conjunction">
+		: unknown
+/** Each predicate of a list at such a place (NegationFree). */
+export type NegationFreeEach<Ps> = { readonly [I in keyof Ps]: NegationFree<Ps[I]> }
 
 /**
  * A non-null SQL Boolean expression, the parameters it needs, and its origin: a comparison, a connective or a span
@@ -801,6 +815,36 @@ export type ParamArg<P> = [keyof P] extends [never]
 	: { readonly [K in keyof P]: ArgumentOf<P[K]> } & { readonly [K in keyof P]: ParamValue }
 
 /**
+ * Whether a parameter argument A names only the parameters of its program's map P: the runtime reads a parameter map
+ * by its program's declared names and refuses any other key (adapter/reader/params.ts readParams), so the types refuse
+ * one for every argument, a variable of a wider type as well as a literal, where an excess-property check reaches a
+ * literal alone. A is the argument's own type, inferred apart from P; one that is no object is no map, which ParamArg
+ * refuses by itself.
+ */
+export type OnlyParams<A, P> = [A] extends [object]
+	? [Exclude<NamedKeys<A>, keyof P>] extends [never]
+		? unknown
+		: Refusal<"a parameter map names only its program's parameters">
+	: unknown
+
+/**
+ * The keys a type names, its index signatures left out: a map typed by an index signature names no key the runtime
+ * could meet beyond what ParamArg admits at that signature (a parameterless program's `{ readonly [key: string]: never }`
+ * holds no key at all), so only a named key can be one outside the program's parameters.
+ */
+type NamedKeys<A> = keyof {
+	readonly [
+		K in keyof A as string extends K
+			? never
+			: number extends K
+				? never
+				: symbol extends K
+					? never
+					: K
+	]: A[K]
+}
+
+/**
  * A predicate that reads no parameter: a row check and a contract predicate are part of the schema, evaluated by
  * PostgreSQL with nothing bound. Predicate is covariant in P, so `Predicate` alone would admit a predicate that
  * needs parameters; the callback's own predicate type is read and refused instead.
@@ -822,6 +866,7 @@ export type Invariant<A> = (value: A) => A
  */
 export const typeRefusals = [
 	"PostgreSQL has no cast between these types that Compute admits",
+	"a ChangeSet writes a family's members in one stratum: each stratum's edits are planned from one read before the ChangeSet's writes",
 	"a ChangeSet writes only relations its role's write list names",
 	"a ChangeSet writes only the ordinary relations of its schema and the world relations its role writes",
 	"a closed relation's field is a closed id, or a value of a type that is no serial, span, set or vector",
@@ -850,6 +895,7 @@ export const typeRefusals = [
 	"a member's head writes each field at its type: an exact value re-enters a plain field only by Compute.cast",
 	"a new field name for the attachment",
 	"a page over a bounded heterogeneous union: a group statement cannot tell which of its rows are among the union's first k",
+	"a parameter map names only its program's parameters",
 	"a power's base proved nonnegative, and nonzero or its exponent nonnegative: guard it with Compute.when(Compute.positive(x), (x) => …, otherwise)",
 	"a program on a Db of a role matches only the contexts the role's relations read, whose facts its claims hold",
 	"a program over no level of the database's schema",
@@ -886,6 +932,7 @@ export const typeRefusals = [
 	"an attached heterogeneous union; one attachment statement delivers one heading",
 	"an attachment on an arm of a union whose heading several arms share",
 	"an immutable owner's family is fixed when its owner is inserted: declare the owner mutable to change it",
+	"an immutable owner's family takes an append only beside an insert of its owner in the same stratum: insert the owner with it, or declare it mutable",
 	"an ordered family's side is its owner's key, then its drawn index",
 	"an owner's put updates its row in place, which an immutable owner refuses: declare it mutable to put it",
 	"approximateNearest over one rule's projection; this source is a bounded subset, whose own order already selects among the rows",

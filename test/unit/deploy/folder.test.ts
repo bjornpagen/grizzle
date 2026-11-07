@@ -201,6 +201,7 @@ describe("migration folders, generated", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/deploy/folder-names",
 					draw: drawn(folderNameGen),
 					literal: Formatter.format,
@@ -228,6 +229,7 @@ describe("migration folders, generated", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/deploy/folder-build",
 						draw: drawn((source) => [source.draw(timestampGen), source.draw(wordsGen)] as const),
 						literal: Formatter.format,
@@ -282,6 +284,7 @@ describe("migration folders, generated", () => {
 					)
 					return yield* explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "unit/deploy/folder-files",
 							draw: drawn(namesGen),
 							literal: Formatter.format,
@@ -622,6 +625,7 @@ describe("meta.json, generated", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/deploy/meta",
 						draw: drawn((source): readonly [MigrationMeta, Fault] => {
 							const meta = source.draw(metaGen)

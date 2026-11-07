@@ -34,7 +34,7 @@ import {
 	snapshotOf
 } from "#test/pg/derived/oracle/harness.ts"
 import { assert, failureOf, unorderedEqual } from "#test/support/assert.ts"
-import { exactValue, identicalValue } from "#test/support/equivalence.ts"
+import { exactValue, identicalValue, valueHash } from "#test/support/equivalence.ts"
 import { CurrentRestorage } from "#test/support/oracle/gen/restorage.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
@@ -327,7 +327,7 @@ export const derivedCase = (
 			const secondRead = yield* readEvery
 			const second = new Map(secondRead)
 			for (const name of order) {
-				const difference = set(identicalValue)(readOf(second, name), readOf(first, name))
+				const difference = set(valueHash, identicalValue)(readOf(second, name), readOf(first, name))
 				if (Option.isSome(difference)) {
 					return assert.fail(
 						`the second reading: ${name}, refreshed over its facts with one value respelled under the complement plan, reads otherwise: ${difference.value}`

@@ -1,7 +1,7 @@
 import { describe, it } from "@effect/vitest"
-import { drawn, exhaust, explore } from "@grizzle/testing/explore"
+import { type Case, drawn, exhaust, explore } from "@grizzle/testing/explore"
 import { required, requiredInSpace } from "@grizzle/testing/features"
-import { element, type Gen } from "@grizzle/testing/gen"
+import { element, filter, type Gen } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { boundedShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -19,6 +19,7 @@ import { assert, deepEquals, defined } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import {
 	type Axis,
+	besides,
 	buildFill,
 	copyNamed,
 	countedFilled,
@@ -32,6 +33,8 @@ import {
 	type InstanceRow,
 	mutableOrDrawn,
 	insertedRelations,
+	type Planted,
+	plantedGen,
 	instanceFacts,
 	instanceGen,
 	relationName,
@@ -57,8 +60,8 @@ import { descOf, parsedOf } from "#test/unit/write/changeset/fixtures.ts"
  * fills by it.
  *
  * Over drawn schemas of relations, trees, ordered and counted families nested in each other, folds over them, copies
- * riding their owner, predecessor and last axes and reading entering columns, leaving columns, fold ends, counts and
- * other copies, and keys over generated fields (test/support/families/fill.ts):
+ * riding their owner, predecessor and last axes and reading entering columns, columns that wait on a sequence's
+ * members, fold ends, counts and other copies, and keys over generated fields (test/support/families/fill.ts):
  *
  * - **The schema compiles exactly where the reference model admits it** (fill.ts `verdictOf`, a second implementation of
  *   the fill order over the specification's own names), and a refusal is the one the model names: UnwritableRelation
@@ -100,7 +103,9 @@ type FillSituation =
 	| "admitted: a counted member that is an ordered family's"
 	| "admitted: a counted member that is a tree's node"
 	| "admitted: a counted member that owns a sequence"
-	| "admitted: a copy along a counted family of a leaving column"
+	| "admitted: a copy along a counted family of a column after a sequence"
+	| "admitted: a copy of a sibling sequence's end"
+	| "refused: copies of each other's ends along sibling sequences"
 	| "admitted: a copy of a tree's end"
 	| "admitted: a nesting three deep"
 	| "written: a follow-up over the stored instance"
@@ -199,12 +204,30 @@ const ruleAdmits = (spec: FillSpec, r: number, op: "insert" | "put" | "delete"):
 		(f) => f.member === r && f.kind !== "tree" && !defined(spec.relations[f.owner]).mutable
 	)
 	const owns = Arr.some(families, (f) => f.owner === r)
+	/** The relations an insert of r writes: r, and every sequence's member its nesting reaches. */
+	const written = new Set([r])
+	for (const at of written) {
+		for (const f of families) {
+			if (f.owner === at && f.kind !== "counted") {
+				written.add(f.member)
+			}
+		}
+	}
+	const nestedFixed = Arr.some(
+		families,
+		(f) =>
+			f.kind === "counted" &&
+			f.member !== r &&
+			written.has(f.member) &&
+			!written.has(f.owner) &&
+			!defined(spec.relations[f.owner]).mutable
+	)
 	const nestsUnderMember =
 		Arr.some(families, (f) => f.member === r) &&
 		Arr.some(families, (f) => f.owner === r && f.kind !== "counted")
 	switch (op) {
 		case "insert":
-			return !ordered && !immutableOwner
+			return !ordered && !immutableOwner && !nestedFixed
 		case "put":
 			return !tree && !nestsUnderMember && (!owns || defined(spec.relations[r]).mutable)
 		case "delete":
@@ -270,6 +293,13 @@ const property = (
 				if (reason.axis !== "row") {
 					assert.equal(reason.axis, named.axis, "the copy's axis")
 					assert.deepEqual(reason.source, named.source, "the column the copy reads")
+				}
+				if (
+					reason.later.kind === "afterMembers" &&
+					reason.axis === "owner" &&
+					sourceClassOf(spec, refused.value.copy) === "after another family"
+				) {
+					note("refused: copies of each other's ends along sibling sequences")
 				}
 				note(
 					reason.later.kind === "afterMembers"
@@ -440,8 +470,16 @@ const property = (
 		}
 		for (const [j, copy] of spec.copies.entries()) {
 			const family = defined(spec.families[copy.family])
-			if (family.kind === "counted" && sourceClassOf(spec, j) === "leaving") {
-				note("admitted: a copy along a counted family of a leaving column")
+			const sourceClass = sourceClassOf(spec, j)
+			if (family.kind === "counted" && sourceClass === "after another family") {
+				note("admitted: a copy along a counted family of a column after a sequence")
+			}
+			if (
+				family.kind !== "counted" &&
+				copy.axis === "owner" &&
+				sourceClass === "after another family"
+			) {
+				note("admitted: a copy of a sibling sequence's end")
 			}
 			if (copy.source.kind === "end") {
 				note("admitted: a copy of a tree's end")
@@ -474,7 +512,9 @@ const fillSituations: Arr.NonEmptyReadonlyArray<FillSituation> = [
 	"admitted: a counted member that is an ordered family's",
 	"admitted: a counted member that is a tree's node",
 	"admitted: a counted member that owns a sequence",
-	"admitted: a copy along a counted family of a leaving column",
+	"admitted: a copy along a counted family of a column after a sequence",
+	"admitted: a copy of a sibling sequence's end",
+	"refused: copies of each other's ends along sibling sequences",
 	"admitted: a copy of a tree's end",
 	"admitted: a nesting three deep",
 	"written: a follow-up over the stored instance"
@@ -484,14 +524,62 @@ const fillSituations: Arr.NonEmptyReadonlyArray<FillSituation> = [
  * A drawn specification, its relations all made mutable or left as drawn, an instance of it, and a follow-up over the
  * stored instance or none: a follow-up needs a mutable owner, which a relation is only now and then as drawn.
  */
-const caseGen: Gen<{
-	readonly spec: FillSpec
-	readonly rows: ReadonlyArray<InstanceRow>
-	readonly followUp: Option.Option<FollowUp>
-}> = (source) => {
+const caseGen: Gen<FillCase> = (source) => {
 	const spec = source.draw(mutableOrDrawn(fillSpecGen({ relations: 4, families: 4, copies: 3 })))
 	const rows = source.draw(instanceGen(spec))
 	return { spec, rows, followUp: source.draw(followUpGen(spec, rows)) }
+}
+
+/** A case of the drawn schemas' suite: a specification, an instance of it, and a follow-up over it or none. */
+interface FillCase {
+	readonly spec: FillSpec
+	readonly rows: ReadonlyArray<InstanceRow>
+	readonly followUp: Option.Option<FollowUp>
+}
+
+/**
+ * A case over a planted specification (fill.ts `plantedGen`) beside an admitted drawn one (`besides`), with an instance
+ * and a follow-up drawn as any case's.
+ */
+const plantedCaseGen =
+	(planted: Planted): Gen<FillCase> =>
+	(source) => {
+		const base = source.draw(
+			filter(
+				mutableOrDrawn(fillSpecGen({ relations: 3, families: 3, copies: 2 })),
+				(s) => verdictOf(s).kind === "admitted",
+				16
+			)
+		)
+		const spec = besides(base, source.draw(plantedGen(planted)))
+		const rows = source.draw(instanceGen(spec))
+		return { spec, rows, followUp: source.draw(followUpGen(spec, rows)) }
+	}
+
+/** The situations a drawn specification reaches only now and then, each with the shape a witness plants to reach it
+ * while it is pending. */
+const aims: ReadonlyArray<readonly [FillSituation, Planted]> = [
+	[
+		"admitted: a copy along a counted family of a column after a sequence",
+		"counted copy of an end"
+	],
+	["admitted: a copy of a sibling sequence's end", "sibling's end"],
+	["refused: copies of each other's ends along sibling sequences", "siblings' ends"],
+	["admitted: a counted member that is an ordered family's", "counted ordered member"],
+	["admitted: a counted member that is a tree's node", "counted tree node"],
+	["admitted: a counted member that owns a sequence", "counted sequence owner"],
+	["admitted: a tree owning an ordered family", "tree with an ordered family"],
+	["admitted: a tree owning a counted family", "tree with a counted family"],
+	["admitted: a counted family of nested owners", "counted family of a nested owner"],
+	["admitted: a copy of a tree's end", "copy of a tree's end"],
+	["admitted: a nesting three deep", "nesting three deep"]
+]
+
+/** The case a witness runs: its drawn one, or, while a situation `aims` plants is pending, a planted one. */
+const aimedCase = (drawnCase: FillCase, c: Case<FillSituation>): FillCase => {
+	const pending = Option.getOrUndefined(c.steering)
+	const aim = Arr.findFirst(aims, ([situation]) => pending?.has(situation) === true)
+	return Option.isNone(aim) ? drawnCase : c.draw(plantedCaseGen(aim.value[1]))
 }
 
 /**
@@ -654,19 +742,20 @@ type BoxSituation = `${Axis} copy along ${"a sequence" | "a counted family"} of 
 
 const boxSituations: Arr.NonEmptyReadonlyArray<BoxSituation> = [
 	"owner copy along a sequence of entering: filled",
-	"owner copy along a sequence of leaving: refused",
+	"owner copy along a sequence of after its own family: refused",
+	"owner copy along a sequence of after another family: filled",
 	"owner copy along a sequence of counted count: refused",
 	"owner copy along a sequence of counted end: refused",
 	"owner copy along a counted family of entering: filled",
-	"owner copy along a counted family of leaving: filled",
+	"owner copy along a counted family of after another family: filled",
 	"owner copy along a counted family of counted count: refused",
 	"owner copy along a counted family of counted end: refused",
 	"predecessor copy along a sequence of entering: filled",
-	"predecessor copy along a sequence of leaving: filled",
+	"predecessor copy along a sequence of after another family: filled",
 	"predecessor copy along a sequence of counted count: refused",
 	"predecessor copy along a sequence of counted end: refused",
 	"last copy along a sequence of entering: filled",
-	"last copy along a sequence of leaving: filled",
+	"last copy along a sequence of after another family: filled",
 	"last copy along a sequence of counted count: refused",
 	"last copy along a sequence of counted end: refused"
 ]
@@ -824,6 +913,76 @@ const staleSituations: Arr.NonEmptyReadonlyArray<FillSituation> = [
 	"refused: a stale tree copy"
 ]
 
+/**
+ * The sibling box: an owner R0 of two sequences, a tree on R0 or an ordered family of R1, then an ordered family of R2,
+ * each ending in a fold or in a last copy of its members' `v`, and a copy along one sequence's owner axis of the
+ * other's end, or along each one's of the other's. The walk fills the sequence whose end a copy reads first, so one
+ * copy is filled, and two that read each other's end are refused, since no order fills either sequence first.
+ */
+interface Siblings {
+	readonly first: "tree" | "ordered"
+	readonly end: "fold" | "last copy"
+	readonly reads:
+		| "the first reads the second"
+		| "the second reads the first"
+		| "each reads the other"
+}
+
+const siblingsGen: Gen<Siblings> = (source) => ({
+	first: source.draw(element(["tree", "ordered"] as const)),
+	end: source.draw(element(["fold", "last copy"] as const)),
+	reads: source.draw(
+		element([
+			"the first reads the second",
+			"the second reads the first",
+			"each reads the other"
+		] as const)
+	)
+})
+
+/** The specification of a sibling shape (`Siblings`). */
+const siblingsSpec = (shape: Siblings): FillSpec => {
+	const relation = { generated: false, mutable: false, key: false }
+	const fold = shape.end === "fold" ? "sum" : "none"
+	const lasts: ReadonlyArray<FillSpec["copies"][number]> =
+		shape.end === "last copy"
+			? [
+					{ family: 0, axis: "last", source: { kind: "caller" } },
+					{ family: 1, axis: "last", source: { kind: "caller" } }
+				]
+			: []
+	const endOf = (f: number): Source =>
+		shape.end === "fold" ? { kind: "fold", family: f } : { kind: "copy", copy: f }
+	const reads = (f: number, other: number): FillSpec["copies"][number] => ({
+		family: f,
+		axis: "owner",
+		source: endOf(other)
+	})
+	return {
+		relations: [relation, relation, relation],
+		families: [
+			shape.first === "tree"
+				? { kind: "tree", owner: 0, member: 0, fold }
+				: { kind: "ordered", owner: 0, member: 1, fold },
+			{ kind: "ordered", owner: 0, member: 2, fold }
+		],
+		copies: [
+			...lasts,
+			...(shape.reads === "the second reads the first" ? [] : [reads(0, 1)]),
+			...(shape.reads === "the first reads the second" ? [] : [reads(1, 0)])
+		]
+	}
+}
+
+/** A sibling shape's situation: what reads what, and whether the reference's walk fills it. */
+type SiblingSituation = `${Siblings["reads"]}: ${"filled" | "refused"}`
+
+const siblingSituations: Arr.NonEmptyReadonlyArray<SiblingSituation> = [
+	"the first reads the second: filled",
+	"the second reads the first: filled",
+	"each reads the other: refused"
+]
+
 describe("the fill order: a schema generate accepts is one every write of fills", () => {
 	it.effect(
 		"drawn schemas compile exactly where the reference model admits them, and then write",
@@ -835,7 +994,7 @@ describe("the fill order: a schema generate accepts is one every write of fills"
 						suite: "unit/write/fill-order",
 						draw: drawn(caseGen),
 						literal: Formatter.format,
-						coverage: required<FillSituation>(fillSituations, { cases: 480, sense: notesOnly }),
+						coverage: required<FillSituation>(fillSituations, { cases: 240, sense: notesOnly }),
 						kept: [],
 						runs: 100,
 						shrink: boundedShrink(400),
@@ -847,7 +1006,10 @@ describe("the fill order: a schema generate accepts is one every write of fills"
 							name: "the reference model of the fill order and the reference writer (families/fill.ts)"
 						}
 					},
-					({ spec, rows, followUp }, c) => property(spec, rows, followUp, (s) => c.note(s))
+					(drawnCase, c) => {
+						const { spec, rows, followUp } = aimedCase(drawnCase, c)
+						return property(spec, rows, followUp, (s) => c.note(s))
+					}
 				)
 			)
 	)
@@ -917,6 +1079,36 @@ describe("the fill order: a schema generate accepts is one every write of fills"
 								return
 							}
 							yield* property(spec, fullInstance(spec), Option.none(), (s) => c.note(s))
+						})
+				)
+			)
+	)
+
+	it.effect(
+		"a copy of a sibling sequence's end is filled after that sibling, and two that read each other's are refused",
+		(ctx) =>
+			searched(
+				ctx,
+				exhaust(
+					{
+						suite: "unit/write/fill-order-siblings",
+						generator: siblingsGen,
+						literal: Formatter.format,
+						limit: 12,
+						box: "an owner of a tree or an ordered family and an ordered family, each ending in a fold or a last copy, with a copy along one's owner axis of the other's end, or along each one's",
+						oracle: {
+							kind: "second-implementation",
+							name: "the reference model of the fill order and the reference writer (families/fill.ts)"
+						},
+						coverage: requiredInSpace<SiblingSituation>(siblingSituations),
+						caseHang
+					},
+					(shape, c) =>
+						Effect.gen(function* () {
+							const spec = siblingsSpec(shape)
+							const refused = verdictOf(spec).kind !== "admitted"
+							c.note(`${shape.reads}: ${refused ? "refused" : "filled"}`)
+							yield* property(spec, fullInstance(spec), Option.none(), () => undefined)
 						})
 				)
 			)

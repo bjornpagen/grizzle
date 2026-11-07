@@ -32,6 +32,8 @@ import { regex } from "arkregex"
 const everyType = <E, R>(suite: string, property: (type: RangeType) => Effect.Effect<void, E, R>) =>
 	exhaust(
 		{
+			box: { kind: "unstated" },
+			oracle: { kind: "unstated" },
 			suite,
 			generator: element(rangeTypes),
 			literal: Formatter.format,

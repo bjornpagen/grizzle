@@ -133,6 +133,7 @@ layer(Substrate.layer)("selected-source span coverage at the int8 limits", (it) 
 					const visit = install.table("Visit")
 					return yield* explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "spans/selected-coverage-limits",
 							draw: drawn(coverSketchGen),
 							literal: Formatter.format,

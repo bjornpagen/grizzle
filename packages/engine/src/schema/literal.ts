@@ -3,6 +3,7 @@ import * as Result from "#compiler/core/result.ts"
 import { validateText } from "#compiler/core/text.ts"
 import { toCalendarDate } from "#compiler/ir/date.ts"
 import type { FieldDesc, LiteralDesc } from "#compiler/ir/desc.ts"
+import { statedRoster } from "#compiler/scalar/values/bits.ts"
 import { Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 import { describeFault } from "#compiler/scalar/values/fault.ts"
 import { toDouble, toReal } from "#compiler/scalar/values/float.ts"
@@ -63,16 +64,21 @@ const integerKind = (desc: FieldDesc): "int2" | "int4" | "int8" | undefined => {
 }
 
 /**
- * A set over a roster as its literal: its handles in the roster's declared order, each once. `roster` is the roster's
- * handles when the host descriptor carries them; undefined keeps the set's own order, which the checker holds to the
- * roster's.
+ * A set over the roster named `closed` as its literal: its handles in the roster's declared order, each once. `roster`
+ * is the roster's handles when the host descriptor carries them; undefined keeps the set's own order, which the checker
+ * holds to the roster's. A set Bits.of made over another roster is bitsMember, whatever its handles' names.
  */
 const bitsLiteral = (
 	value: unknown,
+	closed: string,
 	roster: ReadonlyArray<string> | undefined
 ): Result.Result<LiteralDesc, ValueFault> => {
 	if (!(value instanceof Set)) {
 		return Result.err("bitsType")
+	}
+	const stated = statedRoster(value)
+	if (stated !== undefined && stated !== closed) {
+		return Result.err("bitsMember")
 	}
 	const members: ReadonlyArray<unknown> = [...value]
 	const handles: Array<string> = []
@@ -185,7 +191,7 @@ export const literalResult = (
 			}
 			return Result.ok(value)
 		case "bits":
-			return bitsLiteral(value, roster)
+			return bitsLiteral(value, desc.roster, roster)
 		case "span":
 			return span(desc.endpoint, value)
 		case "vector":

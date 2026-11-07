@@ -41,6 +41,7 @@ import {
 	type ScalarEnv,
 	scalarTypeOf
 } from "#compiler/scalar/registry.ts"
+import { RosterSet } from "#compiler/scalar/values/bits.ts"
 import { describeFault } from "#compiler/scalar/values/fault.ts"
 import { literalFor } from "#compiler/schema/literal.ts"
 import {
@@ -884,7 +885,8 @@ const mintBits = <C>() => nominal<ReadonlySet<HandleOf<C>>, Bits<C>>()
 /**
  * Bits.of(roster, handles): the set of `handles`, a fresh Set branded by the roster, which the caller owns: a Set
  * cannot be frozen, and every boundary that admits one copies it. Each handle is one of the roster's, each once: a
- * JavaScript caller's other value is MalformedDescription.
+ * JavaScript caller's other value is MalformedDescription. The set states its roster (scalar/values/bits.ts RosterSet),
+ * so a literal or a parameter at another roster's field refuses it whatever its handles' names.
  */
 export const bitsOf = <C extends AnyRoster>(
 	roster: C,
@@ -908,7 +910,7 @@ export const bitsOf = <C extends AnyRoster>(
 		}
 		members.add(h)
 	}
-	return mintBits<C>()(members)
+	return mintBits<C>()(new RosterSet(roster.name, members))
 }
 
 /** The admission core of derived(...): the definition checked and recorded, as relation's is. */

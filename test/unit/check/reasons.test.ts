@@ -318,6 +318,7 @@ describe("a literal at a typed slot", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/check/reasons-literal",
 						draw: drawn(slotGen),
 						literal: Formatter.format,

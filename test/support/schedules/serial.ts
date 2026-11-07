@@ -1,5 +1,5 @@
 import type * as Interleave from "@grizzle/testing/interleave"
-import { exact, ordered, set } from "@grizzle/testing/oracle"
+import { exact, ordered, set, structuralHash } from "@grizzle/testing/oracle"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec, Result } from "effect"
 import type { ApplyError, TransientFailure } from "#adapter/errors/execution.ts"
 import { defined } from "#test/support/assert.ts"
@@ -112,7 +112,7 @@ const transientCode = (outcome: StepOutcome): TransientCode | undefined =>
 		? outcome.fields.code
 		: undefined
 
-const sameRows = set(ordered(exact))
+const sameRows = set(structuralHash, ordered(exact))
 
 /** Two outcomes alike: rows as a set with the same count, or the same SQLSTATE on the same constraint. */
 const sameOutcome = (a: StepOutcome, b: StepOutcome): boolean => {

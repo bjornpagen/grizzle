@@ -1052,6 +1052,7 @@ class Translation {
 					child: child.node,
 					name: a.name,
 					correlation: child.correlation,
+					judged: "array",
 					delivered: "array",
 					heading: current.heading,
 					order: headingOrder(child.node.heading)

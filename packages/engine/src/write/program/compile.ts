@@ -9,7 +9,7 @@ import type { Codebook } from "#compiler/ir/codes.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { ChangeSetDesc } from "#compiler/ir/desc.ts"
 import { type Family, isTreeOf } from "#compiler/ir/family.ts"
-import type { RelationInfo } from "#compiler/ir/law.ts"
+import type { FamilyId, RelationInfo } from "#compiler/ir/law.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type {
 	CountRule,
@@ -73,8 +73,8 @@ import {
 	type WriteWorld
 } from "#compiler/write/entry/precheck.ts"
 
-import { relationDepths } from "#compiler/write/family/compose.ts"
 import type { EditTarget } from "#compiler/write/family/edit.ts"
+import { familyKey } from "#compiler/write/family/fold.ts"
 import {
 	countStatement,
 	type FamilySql,
@@ -93,6 +93,7 @@ import {
 	type WrittenRelation
 } from "#compiler/write/frontend/compile.ts"
 import type { EntryClaims } from "#compiler/write/frontend/entry.ts"
+import type { FamilyNode } from "#compiler/write/frontend/schedule.ts"
 import { distinctByEvidence, type WriteInput } from "#compiler/write/insert/input.ts"
 import { buildInsert, buildSpanClassify } from "#compiler/write/insert/protocol.ts"
 import {
@@ -254,10 +255,13 @@ interface ArtifactBuilder {
 
 const newBuilder = (codes: Codebook): ArtifactBuilder => ({ statements: [], codes })
 
-/** A stratum's family statements, built once over the installed names, in the order they run (`familyProgram`). */
+/** One family statement of a stratum, built once over the installed names (`familyProgram`), which the plan's step of
+ * its node places where the stratum's schedule runs it. */
 interface FamilyPlacement {
 	readonly stratum: number
-	readonly statements: ReadonlyArray<{ readonly step: FamilyStep; readonly sql: FamilySql }>
+	readonly node: FamilyNode
+	readonly step: FamilyStep
+	readonly sql: FamilySql
 }
 
 /** A stratum's edits of one member relation as the program runs them: its slots, its row layout and families, and each
@@ -275,15 +279,14 @@ interface FamilyProgram {
 }
 
 /**
- * A program's family statements (write/family/statements.ts), built once over the installed names: per stratum, the
- * rows of every member relation its nested writes reach and its edits write, and the counts of its edited relations'
- * families, in the order compose.ts composes them: deletes and updates deepest relation first, then counts, then
- * inserts shallowest relation first. A nested write's owners are inserted by the changeset, so it deletes nothing and
- * counts nothing: a sequence's count rides its owner's own row.
+ * A program's family statements (write/family/statements.ts), built once over the installed names: each family
+ * statement the schedule placed among a stratum's writes (frontend/schedule.ts FamilyNode), the rows of a member
+ * relation its nested writes reach or its edits write, or the counts of an edited relation's family. A nested write's
+ * owners are inserted by the changeset, so it deletes nothing and counts nothing: a sequence's count rides its owner's
+ * own row.
  */
 const familyProgram = (frontend: WriteFrontend, w: WriteContext): FamilyProgram => {
 	const all = frontend.laws.families
-	const depthOf = relationDepths(all)
 	/** Every stored relation of the schema, beyond the role's world: a family's read and its count statement name its
 	 * owner, which a member's writer reads and counts through exactly the columns its installation grants it (the
 	 * owner's key, count, ends and copies), whether or not its world holds the owner. */
@@ -317,114 +320,70 @@ const familyProgram = (frontend: WriteFrontend, w: WriteContext): FamilyProgram 
 			reads
 		})
 	})
-	const strata = [
-		...new Set([...frontend.nested.map((n) => n.stratum), ...edits.map((e) => e.edit.stratum)])
-	].toSorted((a, b) => a - b)
-	const placements = strata.map((stratum): FamilyPlacement => {
-		const edited = edits.filter((e) => e.edit.stratum === stratum)
-		const nestedHere = frontend.nested.filter((n) => n.stratum === stratum)
-		const editedNames = edited.map((e) => e.edit.relation.name)
-		const inserted = [
-			...new Set([...nestedHere.flatMap((n) => [...n.nesting.layouts.keys()]), ...editedNames])
-		]
-		const deepest = (names: ReadonlyArray<string>) =>
-			names.toSorted((a, b) => depthOf(b) - depthOf(a))
-		const statements: Array<{ readonly step: FamilyStep; readonly sql: FamilySql }> = []
-		const add = (sql: FamilySql, target: FamilyStep["target"]): void => {
+	const info = (name: string) =>
+		defined(frontend.schema.relations.get(name), `the family relation ${name}`)
+	const familyOf = (id: FamilyId): Family =>
+		defined(
+			all.find((f) => familyKey(f.id) === familyKey(id)),
+			`the family ${id.owner}.${id.count} a count statement counts`
+		)
+	const placements = frontend.ir.strata.flatMap((stratum, s) =>
+		stratum.family.map(({ node }): FamilyPlacement => {
+			const sql: FamilySql =
+				node.kind === "owners"
+					? unwrap(countStatement(familyOf(node.family), w, stored))
+					: unwrap(rowStatement(info(node.relation), layoutOf(node.relation), node.statement, w))
 			const step: FamilyStep = {
 				kind: "family",
-				stratum,
-				target,
+				stratum: s,
+				target:
+					node.kind === "owners"
+						? { kind: "owners", family: node.family }
+						: { kind: "rows", relation: node.relation },
 				statement: sql.kind,
 				relation: sql.result.relation,
 				result: sql.result
 			}
-			statements.push(Object.freeze({ step: Object.freeze(step), sql }))
-		}
-		const info = (name: string) =>
-			defined(frontend.schema.relations.get(name), `the family relation ${name}`)
-		for (const kind of ["delete", "update"] as const) {
-			for (const name of deepest(editedNames)) {
-				const layout = layoutOf(name)
-				if (kind === "update" && !layout.columns.some((c) => c.settable)) {
-					continue
-				}
-				add(unwrap(rowStatement(info(name), layout, kind, w)), { kind: "rows", relation: name })
-			}
-		}
-		for (const e of edited) {
-			for (const { family } of e.reads) {
-				add(unwrap(countStatement(family, w, stored)), {
-					kind: "owners",
-					family: family.id
-				})
-			}
-		}
-		for (const name of deepest(inserted).toReversed()) {
-			add(unwrap(rowStatement(info(name), layoutOf(name), "insert", w)), {
-				kind: "rows",
-				relation: name
-			})
-		}
-		return Object.freeze({ stratum, statements: Object.freeze(statements) })
-	})
+			return Object.freeze({ stratum: s, node, step: Object.freeze(step), sql })
+		})
+	)
 	return { placements, edits }
 }
 
+/** Whether two family statements of a stratum are one: their kind, their relation and statement or their family. */
+const sameNode = (a: FamilyNode, b: FamilyNode): boolean =>
+	a.kind === "owners"
+		? b.kind === "owners" && familyKey(a.family) === familyKey(b.family)
+		: b.kind === "rows" && a.relation === b.relation && a.statement === b.statement
+
 /**
- * Places each nested write's family statements of the strata before `before`, or of every stratum, after the
- * statements placed so far, each after its own earlier ones and those `deps` gives: every statement of its stratum's
- * own follows its owner's insert.
+ * Places the family statement of `node` in `stratum`, after the statements placed so far and those `deps` gives it.
  */
-const placeFamilies = (
+const placeFamily = (
 	b: ArtifactBuilder,
-	pending: Array<FamilyPlacement>,
-	before: number | "all",
+	placements: ReadonlyArray<FamilyPlacement>,
+	stratum: number,
+	node: FamilyNode,
 	deps: (step: FamilyStep) => ReadonlyArray<number>
 ): void => {
-	for (let i = 0; i < pending.length;) {
-		const placement = pending[i]
-		if (placement === undefined || (before !== "all" && placement.stratum >= before)) {
-			i += 1
-			continue
-		}
-		pending.splice(i, 1)
-		for (const { step, sql } of placement.statements) {
-			placeSpec(
-				b,
-				step,
-				Object.freeze({
-					sql: sql.sql.text,
-					paramSlots: Object.freeze([]),
-					heading: resultHeading(sql.result),
-					role: "member",
-					dependsOn: Object.freeze([...deps(step)])
-				}),
-				sql.ast,
-				sql.sql.nameMap,
-				oneForm
-			)
-		}
-	}
-}
-
-/** The stratum a plan step runs in, none for a delta carrier around the strata and a read-back. */
-const planStratum = (step: PlanStep): number | undefined => {
-	switch (step.kind) {
-		case "createCarrier":
-			return step.stratum
-		case "fillMember":
-		case "fillShare":
-		case "single":
-		case "check":
-			return step.stratum
-		case "write":
-		case "advance":
-		case "classify":
-			return step.action.stratum
-		case "readBack":
-			return undefined
-	}
+	const { step, sql } = defined(
+		placements.find((p) => p.stratum === stratum && sameNode(p.node, node)),
+		"a family statement the schedule placed, built once"
+	)
+	placeSpec(
+		b,
+		step,
+		Object.freeze({
+			sql: sql.sql.text,
+			paramSlots: Object.freeze([]),
+			heading: resultHeading(sql.result),
+			role: "member",
+			dependsOn: Object.freeze([...deps(step)])
+		}),
+		sql.ast,
+		sql.sql.nameMap,
+		oneForm
+	)
 }
 
 /** A statement placed at the next position: its step, its spec, its audited AST and its forms. */
@@ -692,16 +651,17 @@ const optimizedPlacement = (
 			actionDeps(step.action)
 		]
 	}
-	/** The nested writes' family statements, each placed after every statement of its stratum. */
-	const families = [...familyProgram(frontend, w).placements]
+	/** The family statements, each placed where its stratum's schedule runs it (plan step `family`). */
+	const families = familyProgram(frontend, w).placements
 	const familyDeps = (step: FamilyStep): ReadonlyArray<number> =>
 		tracker.add(step.target.kind === "owners" ? [`relation:${step.relation}`] : [], [
 			`relation:${step.relation}`
 		])
 	for (const step of plan.steps) {
-		const stratum = planStratum(step)
-		placeFamilies(b, families, stratum ?? (step.kind === "readBack" ? "all" : 0), familyDeps)
 		switch (step.kind) {
+			case "family":
+				placeFamily(b, families, step.stratum, step.node, familyDeps)
+				break
 			case "createCarrier": {
 				const deps = tracker.add([], [`carrier:${step.carrier.name}`])
 				placed(
@@ -960,7 +920,6 @@ const optimizedPlacement = (
 			}
 		}
 	}
-	placeFamilies(b, families, "all", familyDeps)
 	return b
 }
 
@@ -1033,21 +992,22 @@ const abortsOf = (step: PlannedWrite): AbortKind => {
 	}
 }
 
-/** The conservative artifact: the conservative realization's steps, every statement after the one before it, and each
- * stratum's nested writes' family statements after its own. */
+/** The conservative artifact: the conservative realization's steps, every statement after the one before it, each family
+ * statement where its stratum's schedule runs it. */
 const conservativeArtifact = (
 	write: ConservativeWrite,
 	codes: Codebook,
 	placements: ReadonlyArray<FamilyPlacement>
 ): WriteArtifact => {
 	const b = newBuilder(codes)
-	const families = [...placements]
 	const after = (): ReadonlyArray<number> =>
 		b.statements.length === 0 ? [] : [b.statements.length - 1]
 	for (const step of write.steps) {
-		placeFamilies(b, families, step.kind === "readBack" ? "all" : (step.stratum ?? 0), after)
 		const previous = after()
 		switch (step.kind) {
+			case "family":
+				placeFamily(b, placements, step.stratum, step.node, after)
+				break
 			case "readBack":
 				placeReadBack(b, step.read, deliveredAsOptimized(step.program), previous)
 				break
@@ -1115,7 +1075,6 @@ const conservativeArtifact = (
 			}
 		}
 	}
-	placeFamilies(b, families, "all", after)
 	return finish(b, write.carriers)
 }
 

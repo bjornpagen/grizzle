@@ -18,6 +18,7 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
+import type { PreconditionKind } from "#compiler/core/errors.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import type { ExprDesc } from "#compiler/ir/desc.ts"
 import {
@@ -74,10 +75,15 @@ const baseField = (base: Decimal): TestField | undefined => {
 		: testPg.numericOf(precision, scale)
 }
 
+/** Whether a refusal's precondition is power's: its base's sign (powerDomain) or its result's range (powerRange). */
+const powerPrecondition = (kind: PreconditionKind): boolean =>
+	kind === "powerDomain" || kind === "powerRange"
+
 /**
  * What a case reached: a value both sides agree on; a power compilation refuses, its literal operands outside the
- * domain and range it proves (PartialOperation, precondition powerDomain: zero to a negative power, a negative base, a
- * result past numeric's digits); and a result that underflows to zero at its display scale, on both sides.
+ * domain and range it proves (PartialOperation, precondition powerDomain: zero to a negative power, a negative base;
+ * powerRange: a result past numeric's digits); and a result that underflows to zero at its display scale, on both
+ * sides.
  */
 type PowerFeature = "value agreement" | "refused at compilation" | "underflow to zero"
 
@@ -329,6 +335,7 @@ layer(Substrate.layer)("numeric power against PostgreSQL 19", (it) => {
 				)
 				return yield* explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "pg/compute/power",
 						draw: drawn(
 							array(
@@ -372,7 +379,10 @@ layer(Substrate.layer)("numeric power against PostgreSQL 19", (it) => {
 								)
 								if (!lowered.ok) {
 									const reason = lowered.error.reason
-									if (reason._tag !== "PartialOperation" || reason.precondition !== "powerDomain") {
+									if (
+										reason._tag !== "PartialOperation" ||
+										!powerPrecondition(reason.precondition)
+									) {
 										throw new Error(`power(${a}, ${b}): ${String(lowered.error)}`)
 									}
 									refused++
@@ -424,6 +434,7 @@ layer(Substrate.layer)("numeric power against PostgreSQL 19", (it) => {
 					yield* installEvaluator(db, s)
 					return yield* explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "pg/compute/power/guarded",
 							draw: drawn(array(guardedPowerGen, { min: 1, max: 200 })),
 							literal: Formatter.format,
@@ -475,7 +486,7 @@ layer(Substrate.layer)("numeric power against PostgreSQL 19", (it) => {
 									if (!lowered.ok) {
 										const reason = lowered.error.reason
 										assert.ok(
-											reason._tag === "PartialOperation" && reason.precondition === "powerDomain",
+											reason._tag === "PartialOperation" && powerPrecondition(reason.precondition),
 											`${Formatter.format(g)}: ${String(lowered.error)}`
 										)
 										c.note("guarded power refused")

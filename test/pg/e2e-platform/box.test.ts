@@ -242,6 +242,8 @@ layer(Substrate.layer)("tiny platforms, exhausted", (it) => {
 						yield* applyFacts(db, staticFacts)
 						return yield* exhaust(
 							{
+								box: { kind: "unstated" },
+								oracle: { kind: "unstated" },
 								suite: "pg/e2e-platform/box",
 								generator: box,
 								literal: Formatter.format,

@@ -26,6 +26,7 @@ describe("str.regex", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/text/field",
 						draw: drawn((source) => ({
 							source: source.draw(patternOver(source.draw(element(families)).alphabet)),

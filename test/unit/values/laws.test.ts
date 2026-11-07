@@ -305,6 +305,7 @@ describe("the value carriers' laws", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/values/laws-equality",
 						draw: drawn(pairGen),
 						literal: Formatter.format,
@@ -355,6 +356,7 @@ describe("the value carriers' laws", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/values/laws-frozen",
 						draw: drawn(constructedGen),
 						literal: Formatter.format,
@@ -399,6 +401,7 @@ describe("the value carriers' laws", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/values/laws-revival",
 					draw: drawn(offeredGen),
 					literal: Formatter.format,

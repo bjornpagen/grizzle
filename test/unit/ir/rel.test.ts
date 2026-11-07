@@ -41,6 +41,7 @@ describe("the RelNode family", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/ir/rel-structural-map",
 						literal: Formatter.format,
 						draw: drawn(dags),
@@ -97,6 +98,7 @@ describe("the RelNode family", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/ir/rel-kept-rows",
 					literal: Formatter.format,
 					draw: drawn(dags),

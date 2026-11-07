@@ -164,6 +164,7 @@ describe("workload(schema, programs)", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/workload/value-desc",
 						/** Planted: Work's one ChangeSet program, which its drawn workloads hold a few times a run. */
 						draw: drawn(workloadGen),
@@ -241,6 +242,7 @@ describe("workload(schema, programs)", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/workload/value-renamed",
 						draw: drawn(
 							filter(matching(regex("^[A-Z][A-Za-z0-9]{0,8}$")), (name) => name !== "Work", 100)
@@ -300,6 +302,7 @@ describe("workload(schema, programs)", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/workload/value-checker",
 						draw: drawn(nameGen),
 						literal: Formatter.format,
@@ -597,6 +600,7 @@ describe("workload()'s signature", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/workload/value-unreadable",
 						draw: drawn((source) => ({
 							site: source.draw(element<UnreadableSite>(["programs record", "program"])),
@@ -709,6 +713,7 @@ describe("page query fingerprints", () => {
 					ctx,
 					explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "unit/workload/value-fingerprint",
 							draw: drawn(sides),
 							literal: Formatter.format,

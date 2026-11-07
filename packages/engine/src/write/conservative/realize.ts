@@ -24,6 +24,7 @@ import {
 import { buildDisplacingDelete, buildExactDelete } from "#compiler/write/delete/exact.ts"
 import { buildEntryCheck, type EntryCheck, outsideProbes } from "#compiler/write/entry/precheck.ts"
 import type { WriteFrontend, WrittenRelation } from "#compiler/write/frontend/compile.ts"
+import type { FamilyNode } from "#compiler/write/frontend/schedule.ts"
 import { payloadOf } from "#compiler/write/frontend/targets.ts"
 import { type RereadInput, unproved, type WriteInput } from "#compiler/write/insert/input.ts"
 import { buildInsert, buildSpanClassify, insertShape } from "#compiler/write/insert/protocol.ts"
@@ -56,7 +57,8 @@ import { buildSequenceAdvances, explicitSerials } from "#compiler/write/serial/a
  *   or deletion, whose rows are its changes (`changeTags`), the classification after an insert into a span primary key,
  *   or a sequence advance after explicit serial values;
  * - `readBack`, a read-back's conservative lowering;
- * - `check`, a query entry's check of an addition's facts. */
+ * - `check`, a query entry's check of an addition's facts;
+ * - `family`, a family statement of a stratum, where its schedule runs it among the stratum's actions. */
 type ConservativeStep =
 	| {
 			readonly kind: "carrier"
@@ -78,6 +80,7 @@ type ConservativeStep =
 			readonly statement: WriteStatement<EntryCheckResult>
 			readonly stratum: number
 	  }
+	| { readonly kind: "family"; readonly stratum: number; readonly node: FamilyNode }
 
 /** A delta's two sides: a relation's by state comparison, or a world relation's empty delta, created and never filled. */
 interface DeltaCarriers {
@@ -143,7 +146,7 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 		return [{ relation, snapshot, names }]
 	})
 
-	for (const [s, { actions, outside }] of ir.strata.entries()) {
+	for (const [s, { actions, outside, family }] of ir.strata.entries()) {
 		const check = (input: WriteInput, entryCheck: EntryCheck) =>
 			steps.push(
 				Object.freeze({
@@ -189,7 +192,18 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 			}
 			return { action, input: reads.slot.input }
 		})
+		/** The stratum's family statements that run before the action at `index`, each once. */
+		const familyRun = new Set<number>()
+		const familyBefore = (index: number): void => {
+			for (const [f, at] of family.entries()) {
+				if (at.at <= index && !familyRun.has(f)) {
+					familyRun.add(f)
+					steps.push(Object.freeze({ kind: "family", stratum: s, node: at.node }))
+				}
+			}
+		}
 		for (const [i, { action, input }] of placed.entries()) {
+			familyBefore(i)
 			const relation = action.info.relation
 			const statement = (
 				built:
@@ -255,6 +269,7 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 				}
 			}
 		}
+		familyBefore(Number.POSITIVE_INFINITY)
 	}
 
 	/** 3. The deltas by state comparison. */

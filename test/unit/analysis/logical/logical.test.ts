@@ -7,7 +7,6 @@ import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
 import { provisionalTheory } from "#compiler/analysis/theory/theory.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
-import { claimedColumns } from "#compiler/ir/keys.ts"
 import {
 	conservativeMeta,
 	type NodeOf,
@@ -240,6 +239,8 @@ describe("the delivered type of an attachment", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/analysis/logical/bare-approval",
 						generator: cases,
 						literal: Formatter.format,
@@ -443,6 +444,8 @@ describe("the delivered type of an attachment", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/analysis/logical/bare-ordinal",
 						generator: variants,
 						literal: Formatter.format,
@@ -611,7 +614,10 @@ describe("the delivered type of an attachment", () => {
 										c.note("a shared child keeps its evidence")
 										const meta = analysis.of(notes).node.meta
 										matchesObject(meta, { card: "many" })
-										assert.deepEqual(Arr.map(meta.logicalKeys, claimedColumns), [["task"]])
+										assert.deepEqual(
+											Arr.map(meta.logicalKeys, (k) => k.key),
+											[["task"]]
+										)
 									}
 								}
 							}

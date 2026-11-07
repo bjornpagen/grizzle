@@ -35,7 +35,8 @@ import type {
 	ChangeSetConstructor,
 	ChangeSet as ChangeSetOf,
 	Delta,
-	ReadName
+	ReadName,
+	Strata
 } from "#compiler/types/changeset/changeset.ts"
 import type { ParamMap, ParamValue, Simplify } from "#compiler/types/core/phantom.ts"
 import type { Decoders, OrderedBase, QueryBase } from "#compiler/types/query/query.ts"
@@ -650,14 +651,14 @@ const distinctReads = (
  * its result is the value of the state it makes, whose phantoms are the ones the signature names (each builder below
  * takes them from its contextual result type), and whose decoder is this one, or for read this one merged with the new
  * read-back's. */
-const make = <S, P, W extends string, Rd>(
+const make = <S, P, W extends string, Rd, St extends Strata>(
 	schema: unknown,
 	over: BuiltOver,
 	strata: ReadonlyArray<ReadonlyArray<MemberState>>,
 	reads: ReadonlyArray<ReadBackState>,
 	boundParams: ReadonlyMap<string, BoundParam>,
 	decoder: RowDecoder<Rd>
-): ChangeSetOf<S, P, W, Rd> & SchemaMember => {
+): ChangeSetOf<S, P, W, Rd, never, St> & SchemaMember => {
 	const scope = canonicalBindings({ strata, reads, bound: boundParams })
 	const canonical = Object.freeze(scope.strata)
 	const bound: ReadonlyMap<string, BoundParam> = scope.bound
@@ -672,7 +673,7 @@ const make = <S, P, W extends string, Rd>(
 		desc,
 		inputs
 	})
-	const value: ChangeSetOf<S, P, W, Rd> & SchemaMember = {
+	const value: ChangeSetOf<S, P, W, Rd, never, St> & SchemaMember = {
 		...builtMark,
 		schema,
 		reads: decoder,
@@ -777,13 +778,13 @@ const memberState = (
 	throw malformed(label, "a member: an array of facts, a Stream of facts, or a query")
 }
 
-const addMember = <S, P, W extends string, Rd>(
+const addMember = <S, P, W extends string, Rd, St extends Strata>(
 	state: ChangeSetState,
 	decoder: RowDecoder<Rd>,
 	op: MemberOp,
 	relation: unknown,
 	facts: MemberInput
-): ChangeSetOf<S, P, W, Rd> & SchemaMember => {
+): ChangeSetOf<S, P, W, Rd, never, St> & SchemaMember => {
 	const label = `ChangeSet.${op}`
 	const name = memberRelation(relation, state.over, label)
 	const loc = buildLoc(`${op} ${name}`, [])
@@ -801,12 +802,12 @@ type WithRead<Rd, Name extends string, IHead> = Simplify<
 	Rd & { readonly [K in Name]: ReadonlyArray<IHead> }
 >
 
-const addRead = <S, P, W extends string, Rd, const Name extends string, IHead>(
+const addRead = <S, P, W extends string, Rd, const Name extends string, IHead, St extends Strata>(
 	state: ChangeSetState,
 	decoder: RowDecoder<Rd>,
 	nameArg: ReadName<Name, Rd>,
 	readBack: (delta: Delta<S>) => Decoders<unknown, IHead>
-): ChangeSetOf<S, P, W, WithRead<Rd, Name, IHead>> & SchemaMember => {
+): ChangeSetOf<S, P, W, WithRead<Rd, Name, IHead>, never, St> & SchemaMember => {
 	const label = "ChangeSet.read"
 	const name = requireName(nameArg, label, "a read-back name")
 	if (state.reads.some((r) => r.name === name)) {
@@ -855,11 +856,11 @@ const absent = (value: unknown): boolean => value === undefined || value === nul
  * refuses it, and nothing after the read runs the caller's code.
  *
  * A free name is no private one, so the bound parameter keeps its name until make() makes it canonical. */
-const bindParams = <S, W extends string, Rd>(
+const bindParams = <S, W extends string, Rd, St extends Strata>(
 	state: ChangeSetState,
 	decoder: RowDecoder<Rd>,
 	params: ParamMap
-): ChangeSetOf<S, unknown, W, Rd> & SchemaMember => {
+): ChangeSetOf<S, unknown, W, Rd, never, St> & SchemaMember => {
 	const label = "ChangeSet.bind"
 	const read = hostRead(
 		malformed(label, "a record of parameter values whose reading throws nothing"),
@@ -936,10 +937,10 @@ const higher = (
 }
 
 /** ChangeSet.empty(S). */
-const emptyOf = <S>(
+const emptyOf = <S, St extends Strata>(
 	schema: unknown,
 	extra: ReadonlyArray<unknown>
-): ChangeSetOf<S> & SchemaMember => {
+): ChangeSetOf<S, unknown, never, unknown, never, St> & SchemaMember => {
 	if (extra.length > 0) {
 		throw malformed("ChangeSet.empty", "ChangeSet.empty(schema): one argument")
 	}
@@ -950,7 +951,7 @@ const emptyOf = <S>(
 			"a schema built by schema(...) or schema.extend(...), or a role built by role(...)"
 		)
 	}
-	return make<S, unknown, never, unknown>(
+	return make<S, unknown, never, unknown, St>(
 		schema,
 		over,
 		[[]],
@@ -983,11 +984,11 @@ const combined = <R1, R2>(
 }
 
 /** ChangeSet.union(a, b): the commutative combination, strata position by position. */
-const unionOf = <S, P, W extends string, R1, R2>(
+const unionOf = <S, P, W extends string, R1, R2, St extends Strata>(
 	a: ReadsMember<R1>,
 	b: ReadsMember<R2>,
 	extra: ReadonlyArray<unknown>
-): ChangeSetOf<S, P, W, Simplify<R1 & R2>> & SchemaMember => {
+): ChangeSetOf<S, P, W, Simplify<R1 & R2>, never, St> & SchemaMember => {
 	const label = "ChangeSet.union"
 	const { top, x, y, bound, decoder } = combined(label, a, b, extra)
 	const n = Math.max(x.strata.length, y.strata.length)
@@ -999,11 +1000,11 @@ const unionOf = <S, P, W extends string, R1, R2>(
 }
 
 /** ChangeSet.sequence(a, b): b evaluated against the state a produced, its strata after a's. */
-const sequenceOf = <S, P, W extends string, R1, R2>(
+const sequenceOf = <S, P, W extends string, R1, R2, St extends Strata>(
 	a: ReadsMember<R1>,
 	b: ReadsMember<R2>,
 	extra: ReadonlyArray<unknown>
-): ChangeSetOf<S, P, W, Simplify<R1 & R2>> & SchemaMember => {
+): ChangeSetOf<S, P, W, Simplify<R1 & R2>, never, St> & SchemaMember => {
 	const label = "ChangeSet.sequence"
 	const { top, x, y, bound, decoder } = combined(label, a, b, extra)
 	const reads = distinctReads(label, [...x.reads, ...y.reads])

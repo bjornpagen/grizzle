@@ -1,5 +1,5 @@
 import { type Equivalence, equivalence } from "@grizzle/testing/oracle"
-import { Array as Arr, Equal, Formatter, Record as Rec } from "effect"
+import { Array as Arr, Equal, Formatter, Hash, Order, Record as Rec } from "effect"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 
 /** Whether an object is a plain record: of Object's prototype or none. */
@@ -60,3 +60,25 @@ export const identicalValue: Equivalence<unknown> = equivalence(
 	sameValueBy((left, right) => Object.is(left, right)),
 	Formatter.format
 )
+
+/**
+ * A delivered value's hash, consistent with exactValue and identicalValue, so a set comparison groups by it: a Decimal
+ * by its one text, which equal Decimals share; arrays and plain records by their items, a record's in key order; every
+ * other value by Effect's structural hash, which Equal.equals keeps, and two doubles Object.is finds one share too.
+ */
+export const valueHash = (value: unknown): number => {
+	if (value instanceof Decimal) {
+		return Hash.string(value.text)
+	}
+	if (Arr.isArray(value)) {
+		return Arr.reduce(value, Hash.string("array"), (hash, item) =>
+			Hash.combine(hash, valueHash(item))
+		)
+	}
+	if (typeof value === "object" && value !== null && isPlainRecord(value)) {
+		return Arr.reduce(Arr.sort(Rec.keys(value), Order.String), Hash.string("record"), (hash, key) =>
+			Hash.combine(Hash.combine(hash, Hash.string(key)), valueHash(value[key]))
+		)
+	}
+	return Hash.hash(value)
+}

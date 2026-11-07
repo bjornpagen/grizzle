@@ -27,7 +27,7 @@ import { generateMigrations, type SchemaGenerateReport } from "#cli/generate.ts"
 import { drift, migrate } from "#cli/migrate.ts"
 import { names } from "#cli/names.ts"
 import { cliStageFix, migrateStageFix, refusalText } from "#cli/refusals.ts"
-import { metaFileName } from "#compiler/deploy/render/folder.ts"
+import { metaFileName } from "#compiler/plan/migration.ts"
 
 /**
  * The exit statuses a command line's report carries: 0 when the command succeeded, 1 when it was refused or failed, 2

@@ -475,7 +475,7 @@ type NativeBody =
  * the rows it finds; or, where no run is bounded, a hash index on one column, whose entry is a 4-byte hash code and
  * which serves the probe's equality on it, PostgreSQL's hash index holding one column.
  */
-export type ReverseIndexOn =
+type ReverseIndexOn =
 	| { readonly method: "btree" | "gist"; readonly columns: NonEmptyReadonlyArray<NativeColumn> }
 	| { readonly method: "hash"; readonly columns: readonly [NativeColumn] }
 
@@ -483,7 +483,7 @@ export type ReverseIndexOn =
  * What a row CHECK enforces: a declared row check, its name and the identity ownership named its constraint by, or a
  * CHECK the law model generates for a law, named for its table and that law at the naming door.
  */
-export type TableCheckOrigin =
+type TableCheckOrigin =
 	| { readonly kind: "declared"; readonly name: string; readonly named: Identity<"check"> }
 	| { readonly kind: "generated"; readonly law: LawId }
 
@@ -526,27 +526,6 @@ export type DomainCheckTerm =
 	| { readonly kind: "predicate"; readonly predicate: ExprTable }
 
 export type NativeKind = NativeObject["kind"]
-
-/**
- * The fixed text encoding of a law's DETAIL: its tag, the relation, then the key columns in order, which a refusal's
- * reader converts through.
- */
-export interface DetailCodec {
-	readonly relation: TableRelation
-	readonly keys: NonEmptyReadonlyArray<LawField>
-}
-
-/** A DETAIL codec by name, as a digest and the runtime's decoder read it. */
-export interface NamedDetailCodec {
-	readonly relation: string
-	readonly keys: NonEmptyReadonlyArray<string>
-}
-
-/** The codec's names, which its digest and the runtime's decoder read. */
-export const namedDetail = (d: DetailCodec): NamedDetailCodec => ({
-	relation: d.relation.name,
-	keys: mapNonEmpty(d.keys, (k) => k.name)
-})
 
 /** What a law lowers to: the native objects the database enforces it by, every law's whole lowering. */
 export interface LawLowering {

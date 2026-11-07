@@ -472,6 +472,8 @@ const exhaustUpTo = (
 		ctx,
 		exhaust(
 			{
+				box: { kind: "unstated" },
+				oracle: { kind: "unstated" },
 				suite: `unit/analysis/small/claims-${grammar.name}-${among.length}-${operators}`,
 				generator: space(grammar, among, operators),
 				literal: ([inst, plan]) =>

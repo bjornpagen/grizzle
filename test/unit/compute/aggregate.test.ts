@@ -105,6 +105,8 @@ describe("R24 conditional aggregates", () => {
 					ctx,
 					exhaust(
 						{
+							box: { kind: "unstated" },
+							oracle: { kind: "unstated" },
 							suite: "unit/compute/conditional-aggregate",
 							generator: oneOf([
 								(source) =>
@@ -217,6 +219,8 @@ describe("the overload registry", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/compute/registry-vocabulary",
 						generator: words,
 						literal: Formatter.format,
@@ -294,6 +298,8 @@ describe("min, max, LEAST and GREATEST", () => {
 			ctx,
 			exhaust(
 				{
+					box: { kind: "unstated" },
+					oracle: { kind: "unstated" },
 					suite: "unit/compute/returns-input",
 					generator: (source) =>
 						[

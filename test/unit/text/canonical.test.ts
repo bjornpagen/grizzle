@@ -85,6 +85,7 @@ describe("the canonical text and order", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/text/canonical",
 						draw: drawn((source) => [source.draw(anyPattern), source.draw(flagsGen)] as const),
 						literal: Formatter.format,

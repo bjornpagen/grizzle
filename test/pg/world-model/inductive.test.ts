@@ -511,6 +511,7 @@ layer(Substrate.isolatedLayer, { excludeTestServices: true })(
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "pg/world-model/inductive",
 						draw: drawn(caseGen),
 						literal: Formatter.format,

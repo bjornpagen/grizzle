@@ -284,16 +284,16 @@ export interface Stating<in Statements> extends Built {
  * A variable, by origin key, fixed per binding to Value: one literal, a parameter by name (ParamValue), a parent's field
  * by its origin (ParentValue), or unknown, a value the types do not name, such as a computation over inputs.
  */
-export interface Fixed<out Key extends string, out Value> {
+interface Fixed<out Key extends string, out Value> {
 	readonly fixed: Key
 	readonly value: Value
 }
 
-export interface ParamValue<out Name> {
+interface ParamValue<out Name> {
 	readonly param: Name
 }
 
-export interface ParentValue<out O> {
+interface ParentValue<out O> {
 	readonly parent: O
 }
 

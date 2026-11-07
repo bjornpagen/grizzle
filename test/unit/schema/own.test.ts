@@ -234,6 +234,7 @@ describe("the owned product", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/schema/fingerprint",
 						draw: drawn((source) => ({
 							relationOrder: source.draw(
@@ -378,6 +379,7 @@ describe("conflicting declarations", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/schema/conflicts",
 						draw: drawn((source) => ({
 							conflict: source.draw(element(conflicts)),
@@ -476,6 +478,7 @@ describe("closed relations", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/schema/closed-handles",
 						draw: drawn((source) => ({
 							site: source.draw(element(handleSites)),
@@ -627,6 +630,7 @@ describe("closed relations", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/schema/handle-name-bytes",
 						draw: drawn((source) => ({
 							accented: source.draw(int(0, 31)),
@@ -736,6 +740,8 @@ describe("LawOnDerived", () => {
 					ctx,
 					exhaust(
 						{
+							box: { kind: "unstated" },
+							oracle: { kind: "unstated" },
 							suite: "unit/schema/law-on-derived",
 							generator: space,
 							literal: Formatter.format,
@@ -907,6 +913,7 @@ describe("scope and structure", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/schema/structure",
 						draw: drawn((source) => ({
 							structure: source.draw(element(structures)),

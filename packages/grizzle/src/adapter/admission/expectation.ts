@@ -1,13 +1,15 @@
 import { Array as Arr, Record as Rec, Result, String as Str } from "effect"
 import type { AdmissionMismatch, CatalogRowRefused } from "#adapter/errors/failures.ts"
 import { type CatalogQuery, catalogRow, catalogRows } from "#adapter/wire/statement.ts"
-import { derived, measured, published } from "#compiler/core/limits.ts"
-import type { RoleExpectation } from "#compiler/deploy/admission/roles.ts"
-import type { TemplateRequirements } from "#compiler/ir/products.ts"
-import { vectorExtension } from "#compiler/physical/vector/storage.ts"
-import type { SchemaArtifacts } from "#compiler/program/schema.ts"
-import * as C from "#compiler/sql/catalog.ts"
-import { emitCatalog } from "#compiler/sql/emit.ts"
+import { C, type RoleExpectation, vectorExtension } from "#compiler/plan/catalog.ts"
+import {
+	derived,
+	emitCatalog,
+	measured,
+	published,
+	type SchemaArtifacts,
+	type TemplateRequirements
+} from "#compiler/plan/common.ts"
 
 /**
  * C.UTF-8 under any spelling of that locale: "C.", then "UTF" with an optional "-", then "8", ASCII letters in either

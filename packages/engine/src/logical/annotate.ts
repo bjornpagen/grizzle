@@ -13,13 +13,7 @@ import {
 } from "#compiler/ir/dag.ts"
 import { samePremise, strongest, type TemplateContext } from "#compiler/ir/evidence.ts"
 import { drive, Fold } from "#compiler/ir/fold.ts"
-import {
-	type ClaimedKey,
-	type KeyProof,
-	keyClasses,
-	keyIn,
-	provedClaim
-} from "#compiler/ir/keys.ts"
+import { type KeyProof, keyFactors, keyIn } from "#compiler/ir/keys.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import {
 	type AttachDelivery,
@@ -78,16 +72,25 @@ export const checkerEvidence: LogicalEnv = Object.freeze({
  */
 export const queryEvidence: LogicalEnv = Object.freeze({ ...checkerEvidence, keyedViews: true })
 
-/** A node's logical properties, and the node annotated with the metadata they summarize. */
+/**
+ * A node's logical properties, the node annotated with the metadata they summarize, and the node itself with its
+ * attachments judged and nothing else restated (LogicalAnalysis judged).
+ */
 export interface Annotated {
 	readonly props: Props
 	readonly node: RelNode
+	readonly judged: RelNode
 }
 
 /** The logical analysis of a DAG. */
 export interface LogicalAnalysis<R extends Roots = Roots> {
 	/** The DAG annotated: every node's logical metadata computed, every attachment's delivered type judged. */
 	readonly dag: ValidDag<R>
+	/**
+	 * The DAG analyzed, nothing restated but each attachment's judged delivered type (rel.ts Attach judged): the
+	 * analysis's judgment beside the claims the DAG states, which a lowering of it keeps.
+	 */
+	readonly judged: ValidDag<R>
 	/**
 	 * A node of the analyzed DAG (the one analyzeLogical was given): its properties, and its annotated counterpart in
 	 * `dag`. An attachment's exclusive child's are its revision relative to the parent.
@@ -114,18 +117,13 @@ const sameProof = (k: KeyProof, other: KeyProof): boolean =>
 		return q !== undefined && samePremise(p, q)
 	})
 
-/** Whether two claimed key lists claim the same keys, each proof proving the same as the other's. */
-const sameClaims = (a: ReadonlyArray<ClaimedKey>, b: ReadonlyArray<ClaimedKey>): boolean =>
+/** Whether two key lists claim the same keys, each proof proving the same as the other's. */
+const sameClaims = (a: ReadonlyArray<KeyProof>, b: ReadonlyArray<KeyProof>): boolean =>
 	a === b ||
 	(a.length === b.length &&
 		a.every((k, i) => {
 			const other = b[i]
-			return (
-				other !== undefined &&
-				(k.kind === "proved"
-					? other.kind === "proved" && sameProof(k.proof, other.proof)
-					: other.kind === "rewrite" && sameOrder(k.key, other.key))
-			)
+			return other !== undefined && sameProof(k, other)
 		}))
 
 /** Whether two metadata records make the same claims: the structural fields are the constructor's, never claimed. */
@@ -134,7 +132,7 @@ const sameMeta = (a: MetaSpec, b: MetaSpec): boolean =>
 
 /** The claims the analysis makes of a node: its proved keys, its cardinality and the context they hold in. */
 const claimsOf = (props: Props): MetaSpec => ({
-	logicalKeys: props.keys.map(provedClaim),
+	logicalKeys: props.keys,
 	card: props.card,
 	context: props.context
 })
@@ -174,7 +172,7 @@ export const orderSubjectOf = (
 	admits: (proof: KeyProof) => boolean
 ): OrderSubject => ({
 	heading: node.heading,
-	keys: props.keys.filter(admits).map(keyClasses),
+	keys: props.keys.filter(admits).map(keyFactors),
 	fixed: [...new Set([...fixed, ...fixedColumns(props)])],
 	discriminant: props.discriminant,
 	loc: SourceLoc(`node ${node.id}`, [])
@@ -202,7 +200,11 @@ const reviseChild = (
 	value: Annotated,
 	relative: Props
 ): RelNode => {
-	const revision: Annotated = { props: relative, node: withClaims(value.node, claimsOf(relative)) }
+	const revision: Annotated = {
+		props: relative,
+		node: withClaims(value.node, claimsOf(relative)),
+		judged: value.judged
+	}
 	revised.set(child, revision)
 	return revision.node
 }
@@ -241,6 +243,13 @@ class Annotator<R extends Roots> {
 				mapNode<ValueRefs<Annotated>, ValueRefs<RelNode>>(values, keptRefs),
 				(a) => a.node
 			)
+			const twins = drive(
+				mapNode<ValueRefs<Annotated>, ValueRefs<RelNode>>(values, keptRefs),
+				(a) => a.judged
+			)
+			const unjudged = unchangedEdges(node, twins)
+				? node
+				: relNode(node.id, { ...twins, meta: metaSpecOf(node.meta) })
 			const props = logicalPropsOf(node, reading, propsEnv)
 			if (inputs.kind === "Base" && inputs.relationKind !== "relation") {
 				const [primaryKey, ...keys] = (env.keyedViews ? inputs.view : []).map((k) => k.fields)
@@ -248,15 +257,16 @@ class Annotator<R extends Roots> {
 					primaryKey !== undefined &&
 					!(sameOrder(inputs.primaryKey, primaryKey) && sameKeySets(inputs.keys, keys))
 				const body = primaryKey !== undefined && restated ? { ...inputs, primaryKey, keys } : inputs
-				return { props, node: rebuilt(node, body, restated, claimsOf(props)) }
+				return { props, node: rebuilt(node, body, restated, claimsOf(props)), judged: unjudged }
 			}
 			if (
 				node.kind !== "Attach" ||
 				reading.kind !== "Attach" ||
 				inputs.kind !== "Attach" ||
-				values.kind !== "Attach"
+				values.kind !== "Attach" ||
+				twins.kind !== "Attach"
 			) {
-				return { props, node: rebuilt(node, inputs, false, claimsOf(props)) }
+				return { props, node: rebuilt(node, inputs, false, claimsOf(props)), judged: unjudged }
 			}
 			/** The attachment's delivered shape rests on the child's evidence too. */
 			const d = delivery(node, reading, {
@@ -289,11 +299,16 @@ class Annotator<R extends Roots> {
 			const annotation: Props = { ...props, context: strongest([props.context, childMeta.context]) }
 			return {
 				props: annotation,
-				node: rebuilt(node, { ...inputs, child, ...judged }, restated, claimsOf(annotation))
+				node: rebuilt(node, { ...inputs, child, ...judged }, restated, claimsOf(annotation)),
+				judged:
+					twins.judged === judged.delivered
+						? unjudged
+						: relNode(node.id, { ...twins, judged: judged.delivered, meta: metaSpecOf(node.meta) })
 			}
 		})
 		const dag = assembledDag(mapRoots(this.dag.roots, (root) => fold.of(root).node))
-		return { dag, of: (node) => revised.get(node) ?? fold.of(node) }
+		const judged = assembledDag(mapRoots(this.dag.roots, (root) => fold.of(root).judged))
+		return { dag, judged, of: (node) => revised.get(node) ?? fold.of(node) }
 	}
 }
 
@@ -327,6 +342,32 @@ export const withLogicalMeta = <R extends Roots>(
 			: relNode(node.id, { ...body, meta: metaSpecOf(annotated.meta) })
 	})
 	return assembledDag(mapRoots(dag.roots, (root) => restated.of(root)))
+}
+
+/** A DAG with its attachments judged, and the counterpart there of each node of the DAG it was judged from. */
+export interface JudgedDag<R extends Roots> {
+	readonly dag: ValidDag<R>
+	readonly of: (node: RelNode) => RelNode
+}
+
+/**
+ * `dag`, a DAG an analysis restated, with every attachment's judged delivered type (rel.ts Attach judged) the delivered
+ * type the analysis restated it to, and nothing else restated: a write's read-backs, which its lowering takes as their
+ * analysis restated them, so that analysis judged each attachment's delivered type there.
+ */
+export const judgedAsDelivered = <R extends Roots>(dag: ValidDag<R>): JudgedDag<R> => {
+	const judged = new Fold<RelNode, RelNode>(function* (node) {
+		const body = yield* edgeValues<RelNode>(node)
+		const meta = metaSpecOf(node.meta)
+		if (body.kind === "Attach" && body.judged !== body.delivered) {
+			return relNode(node.id, { ...body, judged: body.delivered, meta })
+		}
+		return unchangedEdges(node, body) ? node : relNode(node.id, { ...body, meta })
+	})
+	return {
+		dag: assembledDag(mapRoots(dag.roots, (root) => judged.of(root))),
+		of: (node) => judged.of(node)
+	}
 }
 
 /**

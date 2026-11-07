@@ -7,13 +7,12 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Record as Rec, Result } from "effect"
 import { pageRuntimeOf } from "#adapter/page/template.ts"
-import type { AttachmentFacts } from "#adapter/reader/analysis.ts"
 import { indices } from "#compiler/core/array.ts"
 import { NodeId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { nodesByLabel, relNode, rooted } from "#compiler/ir/dag.ts"
+import { relNode, rooted } from "#compiler/ir/dag.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
-import type { CompletedOrder, OrderKey, RelDag } from "#compiler/ir/rel.ts"
+import type { CompletedOrder, OrderKey } from "#compiler/ir/rel.ts"
 import { contractOf, numericTypmodOf, sameScalarType, textOf } from "#compiler/ir/scalar.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { conservativeInput, flight, statementOutput } from "#compiler/lower/conservative/types.ts"
@@ -46,6 +45,7 @@ import {
 import { schemaCodes } from "#test/support/oracle/gen/schema.ts"
 import { rootedCaseGen } from "#test/support/oracle/mutants/cases.ts"
 import { checkedLowering } from "#test/support/oracle/verify/index.ts"
+import { everyColumnCarried } from "#test/support/spine.ts"
 
 /**
  * The page compiler and the page runtime template are total on generated ordered queries, without a database.
@@ -325,31 +325,6 @@ const orderedQuery = (o: OrderedCase): OrderedQuery | undefined => {
 }
 
 /**
- * Each attachment delivered as its Attach node in the DAGs under test claims (the optimized and the checked DAG share
- * their Attach nodes' ids), every child column carried: the conservative claims, which are sound (reader/analysis.ts).
- */
-const claimedFacts = (dags: ReadonlyArray<RelDag>): AttachmentFacts => {
-	const labelled = Arr.map(dags, (dag) => nodesByLabel(dag))
-	return {
-		delivered: (attach, name) => {
-			const claims = Arr.flatMap(labelled, (nodes) => {
-				const node = nodes.get(attach)
-				return node?.kind === "Attach" && node.name === name ? [node.delivered] : []
-			})
-			const [claim, ...others] = claims
-			if (claim === undefined || Arr.some(others, (other) => other !== claim)) {
-				throw new Error(
-					`the attachment ${name} at ${attach} has the claims [${Arr.join(claims, ", ")}]`
-				)
-			}
-			return claim
-		},
-		root: { under: new Map() },
-		carried: () => true
-	}
-}
-
-/**
  * The registry's rule on every statement a page compiles: a plain-carrier, contract-free, non-serial, typmod-free
  * column is its carrier's plain type, and a contract-free wildcard text the wildcard text (scalar/compute/types.ts).
  */
@@ -393,6 +368,7 @@ describe("the page compiler and the page runtime template", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/page/runtime-total",
 						draw: drawn(orderedSketchGen),
 						literal: Formatter.format,
@@ -484,7 +460,7 @@ describe("the page compiler and the page runtime template", () => {
 								params: query.params,
 								query: "unit/page/runtime-total",
 								generation: { schema: "oracle", extensions: {} },
-								facts: claimedFacts([optimized.value.query.dag, query.dag]),
+								spine: everyColumnCarried(query.dag),
 								codes
 							})
 							if (Result.isFailure(runtime)) {

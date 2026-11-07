@@ -400,6 +400,8 @@ describe("the writable-entry rule", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/world-model/classify",
 						generator: shapes,
 						literal: Formatter.format,

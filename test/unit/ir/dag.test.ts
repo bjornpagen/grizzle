@@ -235,6 +235,7 @@ describe("traversals of generated DAGs", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/ir/traversals",
 						literal: Formatter.format,
 						draw: drawn(generatedDags),
@@ -470,6 +471,7 @@ describe("dagDigest", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/ir/dag-182",
 						literal: Formatter.format,
 						draw: drawn(
@@ -504,6 +506,7 @@ describe("dagDigest", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/ir/dag-57",
 					literal: Formatter.format,
 					draw: drawn(string(codePoint(0x20, 0x7e), { min: 0, max: 4 })),
@@ -533,6 +536,7 @@ describe("dagDigest", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/ir/dag-digest-invariance",
 					literal: Formatter.format,
 					draw: drawn(labelled),
@@ -571,6 +575,7 @@ describe("dagDigest", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/ir/dag-digest-sensitivity",
 					literal: Formatter.format,
 					draw: drawn(labelled),
@@ -701,6 +706,7 @@ const build = (yFirst: boolean) => {
 		child,
 		name: "probe",
 		correlation: [{ parent: "x", child: "x" }],
+		judged: "array",
 		delivered: "array",
 		heading: heading(["x", scalarTypes.uuid], ["y", scalarTypes.uuid]),
 		order: headingOrder(child.heading),
@@ -776,6 +782,7 @@ describe("normalizeDag", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/ir/dag-normal-form",
 						literal: Formatter.format,
 						draw: drawn(
@@ -833,6 +840,8 @@ describe("normalizeDag", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/ir/dag-free-vars",
 						literal: Formatter.format,
 						generator: boolean,
@@ -893,6 +902,8 @@ describe("normalizeDag", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/ir/dag-contract-allocation",
 						literal: Formatter.format,
 						generator: (source) =>

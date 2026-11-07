@@ -334,6 +334,7 @@ describe("the encoders", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/codec/wild",
 						draw: drawn(caseGen),
 						literal: Formatter.format,
@@ -397,6 +398,7 @@ describe("the encoders", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/codec/wild-slot",
 					draw: drawn(
 						(source) =>
@@ -453,6 +455,7 @@ describe("admission reads a value once", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/codec/wild-unstable",
 					draw: drawn((source) => [source.draw(int32), source.draw(int32)] as const),
 					literal: Formatter.format,
@@ -525,6 +528,7 @@ describe("fact identity", () => {
 					ctx,
 					explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "unit/codec/wild-fact",
 							draw: drawn(factGen),
 							literal: Formatter.format,
@@ -586,6 +590,7 @@ describe("the tuple converter", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/codec/wild-rows",
 						draw: drawn(rowCaseGen),
 						literal: Formatter.format,

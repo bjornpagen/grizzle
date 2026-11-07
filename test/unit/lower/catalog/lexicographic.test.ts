@@ -381,6 +381,7 @@ describe("the lexicographic recognizer", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/lower/catalog/lexicographic-oracle",
 						draw: drawn(caseGen),
 						literal: Formatter.format,
@@ -421,6 +422,7 @@ describe("the lexicographic recognizer", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/lower/catalog/lexicographic-wide",
 						draw: drawn((source) => {
 							const pairs = source.draw(int(7, 10))
@@ -470,6 +472,7 @@ describe("the lexicographic recognizer", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/lower/catalog/lexicographic-deep",
 						draw: drawn(deepGen),
 						literal: Formatter.format,

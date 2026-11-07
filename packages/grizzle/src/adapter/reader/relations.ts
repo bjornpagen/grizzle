@@ -1,24 +1,33 @@
 import { Array as Arr, Predicate, Result } from "effect"
 import { type InputTooLarge, literalBound } from "#adapter/errors/failures.ts"
 import type { ExecutionInputs, HostParams } from "#adapter/reader/execution.ts"
-import { encodeFailure, slotPlace } from "#compiler/codec/fault.ts"
+import {
+	type ArrayTexts,
+	canonicalEquals,
+	type Codebook,
+	type Encoder,
+	type EncodingFailure,
+	everyProperty,
+	maxStringLength,
+	type ParamDecl,
+	type ParamId,
+	type RelationParamDecl,
+	type ScalarType
+} from "#compiler/plan/common.ts"
 import {
 	arrayTexts,
+	encodeFailure,
 	type NormalizedRelation,
+	type NormalRows,
 	normalRows,
+	paramEncoder,
 	parameterNormalizer,
 	positionalColumns,
-	type RelationSpec
-} from "#compiler/codec/recordset.ts"
-import { paramEncoder } from "#compiler/codec/scalar.ts"
-import { canonicalEquals, everyProperty } from "#compiler/core/canonical.ts"
-import type { EncodingFailure } from "#compiler/core/errors.ts"
-import type { ParamId } from "#compiler/core/ids.ts"
-import { maxStringLength } from "#compiler/core/limits.ts"
-import type { Codebook } from "#compiler/ir/codes.ts"
-import type { ArrayTexts, Encoder, ParamDecl, RelationParamDecl } from "#compiler/ir/products.ts"
-import type { ScalarType } from "#compiler/ir/scalar.ts"
-import type { RelationColumn } from "#compiler/lower/conservative/types.ts"
+	type RelationColumn,
+	type RelationNormalizer,
+	type RelationSpec,
+	slotPlace
+} from "#compiler/plan/read.ts"
 
 /**
  * A read's inputs made ready for one execution: every declared parameter admitted.
@@ -82,11 +91,14 @@ const specOver = (
 })
 
 /** The normalizer of a relation input over `columns`: a relation parameter's, which refuses a value outside its refinements. */
-const normalizerOver = (decl: RelationParamDecl, columns: SlotColumns, codes: Codebook) =>
-	parameterNormalizer(specOver(decl, columns, codes))
+const normalizerOver = (
+	decl: RelationParamDecl,
+	columns: SlotColumns,
+	codes: Codebook
+): RelationNormalizer => parameterNormalizer(specOver(decl, columns, codes))
 
 /** The rows of a relation input's normal facts over `columns`, as normalizerOver's heading writes them. */
-const rowsOver = (decl: RelationParamDecl, columns: SlotColumns, codes: Codebook) =>
+const rowsOver = (decl: RelationParamDecl, columns: SlotColumns, codes: Codebook): NormalRows =>
 	normalRows(specOver(decl, columns, codes))
 
 const sameColumns = (a: SlotColumns, b: SlotColumns): boolean =>

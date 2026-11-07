@@ -299,6 +299,7 @@ layer(Substrate.layer)("the lowering shapes on PostgreSQL 19", (it) => {
 					const otherInserts = Arr.flatMap(others, (r) => factInserts(schema, r))
 					return yield* explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "pg/lower-shapes/conditional",
 							draw: drawn(conditionalCaseGen),
 							literal: Formatter.format,

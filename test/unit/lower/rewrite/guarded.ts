@@ -212,6 +212,7 @@ export const guardSearch = <F extends string>(spec: {
 }) =>
 	explore(
 		{
+			oracle: { kind: "unstated" },
 			suite: spec.suite,
 			draw: drawn(queryCaseSketchGen(guardPopulation)),
 			literal: Formatter.format,

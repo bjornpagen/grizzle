@@ -424,6 +424,7 @@ describe("the checker's parameter, member and bound rules", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/check/semantics-take-bound",
 						draw: drawn(
 							oneOf<number | string>([

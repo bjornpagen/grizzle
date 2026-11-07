@@ -1319,6 +1319,7 @@ layer(Substrate.layer)("rename histories on PostgreSQL", (it) => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "pg/migrate/histories",
 						draw: drawn(program(machine, historySize, everyCommand)),
 						literal: Formatter.format,

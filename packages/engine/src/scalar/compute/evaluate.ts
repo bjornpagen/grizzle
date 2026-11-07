@@ -883,7 +883,7 @@ export const literalMember = (
  * Whether a carrier value is a value of `type`'s refinements at every level (membership), or undefined where the
  * evaluator cannot decide it: what the host judges a stored value against when a domain refused it.
  */
-const valueMember = (
+export const valueMember = (
 	value: CarrierValue,
 	type: ScalarType,
 	regexMember: RegexMember

@@ -158,6 +158,7 @@ export const worldRaceSuite = <C>(spec: {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: `worlds/${spec.file}`,
 						draw: drawn(spec.draw),
 						literal: Formatter.format,

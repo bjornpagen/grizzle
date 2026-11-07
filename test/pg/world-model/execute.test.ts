@@ -323,6 +323,7 @@ layer(Substrate.layer, { excludeTestServices: true })("the worlds model: the lea
 					const host = hostSchemaOf(docsInstall.base, world.names)
 					return yield* explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "pg/world-model/leak-scan",
 							draw: drawn(caseGen(host)),
 							literal: Formatter.format,

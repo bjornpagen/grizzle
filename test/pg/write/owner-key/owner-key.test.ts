@@ -235,6 +235,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							})
 							return yield* explore(
 								{
+									oracle: { kind: "unstated" },
 									suite: "write/owner-key",
 									draw: drawn(ownerCaseGen),
 									literal: Formatter.format,

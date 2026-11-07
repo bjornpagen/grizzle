@@ -4,15 +4,20 @@
  *
  * Each relation a family reaches is laid out at every position a row of it can stand at: written by the ChangeSet
  * itself, a tree's root, or a family's member. Each column grizzle writes there gets its rule (how it is filled), the
- * columns of its own row it reads, its writer (the nested walk, or a counted family's own fill) and its stage, the
- * latest of its own and its reads': a copy along a sequence's last axis, a fold's end over it among them, is filled on
- * leaving the row, after its members; a counted family's end on settling it, after the counted family's own members;
- * every other column on entering it. A tree's interval is drawn on entering, its end its start plus its subtree's size,
- * which the nesting's shape gives before any member is filled.
+ * columns of its own row it reads, its writer (the nested walk, or a counted family's own fill) and what it waits on,
+ * its own and its reads': a copy along a sequence's last axis, a fold's end over it among them, waits on that
+ * sequence's members; a counted family's end on that family's settling, after its own members; any other column on
+ * nothing, filled on entering its row. A tree's interval is drawn on entering, its end its start plus its subtree's
+ * size, which the nesting's shape gives before any member is filled.
+ *
+ * The walk fills a row's sequences one after another, and a member of one may copy a column of its owner that waits on
+ * another: the walk fills that one first. So each layout orders its sequences, every one after each sequence the
+ * copies its members take wait on, else in the law model's order, and a column's stage is after the last sequence it
+ * waits on in that order (ir/fill.ts FillStage).
  *
  * Refused, as UnfillableField, a column that reads a source its write fills after it:
- * - along a sequence's owner axis, an owner's column filled on leaving it: the walk fills a sequence's members between
- *   their owner's entering and leaving;
+ * - along a sequence's owner axis, an owner's column that waits on that sequence's own members, or on a sequence the
+ *   walk can fill only after this one, since the copies its members take wait on this one's (`afterMembers`);
  * - along a counted family's owner axis, the owner's end of that family's own fold: a counted family's members are
  *   filled after their owner's row is written whole, but before their own family's ends;
  * - anywhere, a column a counted family fills (its count and its ends) read by the walk or by another family's fill:
@@ -46,7 +51,6 @@ import {
 	isTreeOf
 } from "#compiler/ir/family.ts"
 import type {
-	FillColumn,
 	FillLayout,
 	FillOrder,
 	FillPosition,
@@ -104,20 +108,44 @@ const positionsOf = (
 	]
 }
 
-/** The order of the stages a row is filled in. */
-const stageRank: { readonly [S in FillStage]: number } = { entering: 0, leaving: 1, settling: 2 }
+/**
+ * Every position at which the walk fills a row of `relation`, the rows a member's copy along an owner axis reads: every
+ * position it stands at but a counted family's member's, which the walk never fills, since that family's own fill
+ * completes the row the walk left.
+ */
+const walkPositionsOf = (
+	families: ReadonlyArray<Family>,
+	relation: string
+): ReadonlyArray<FillPosition> =>
+	positionsOf(families, relation).filter((p) => p.kind !== "member" || isSequence(p.family))
 
-const latest = (a: FillStage, b: FillStage): FillStage => (stageRank[a] >= stageRank[b] ? a : b)
+/**
+ * What a column of a row waits on before a write fills it: the sequences the row owns whose members the walk must fill
+ * first, by family key, and whether a counted family the row owns must settle it first.
+ */
+interface Waits {
+	readonly after: ReadonlyMap<string, Family>
+	readonly settling: boolean
+}
 
-/** A column as the layout first lays it out: its stage before its reads are known. */
+/** Nothing: a column filled on entering its row. */
+const waitsNothing: Waits = { after: new Map(), settling: false }
+
+/** Every wait of both. */
+const both = (a: Waits, b: Waits): Waits => ({
+	after: new Map([...a.after, ...b.after]),
+	settling: a.settling || b.settling
+})
+
+/** A column as the layout first lays it out: its waits by its rule alone, before its reads are known. */
 interface Entry {
 	readonly column: NativeColumn
 	readonly name: string
 	readonly type: ScalarType
 	readonly rule: FillRule
 	readonly writer: FillWriter
-	/** Its stage by its rule alone: leaving for a sequence's last copy, settling for a counted family's, else entering. */
-	readonly own: FillStage
+	/** A sequence's last copy waits on that sequence's members, a counted family's on its settling, any other nothing. */
+	readonly own: Waits
 }
 
 /** Who fills a family's columns: the walk a sequence's, the family's own fill a counted family's. */
@@ -192,8 +220,12 @@ const entriesAt = (
 		rule: FillRule,
 		writer: FillWriter
 	): void => {
-		const own: FillStage =
-			rule.kind === "last" ? (isSequence(rule.family) ? "leaving" : "settling") : "entering"
+		const own: Waits =
+			rule.kind !== "last"
+				? waitsNothing
+				: isSequence(rule.family)
+					? { after: new Map([[familyKey(rule.family.id), rule.family]]), settling: false }
+					: { after: new Map(), settling: true }
 		entries.set(keyOf(column), { column, name: nameOf(column), type, rule, writer, own })
 	}
 	const walk: FillWriter = { kind: "walk" }
@@ -364,14 +396,31 @@ const readLater = (writer: FillWriter, read: FillWriter): FilledLater | undefine
 		? undefined
 		: { kind: "countedFill", family: named(read.family) }
 
-/** One relation's layout at one position: its columns' stages, or the first refusal its own row gives. */
-const layoutAt = (
+/** A column of a draft layout: its entry, the row's own columns it reads, and everything it waits on. */
+interface DraftColumn {
+	readonly entry: Entry
+	readonly reads: ReadonlyArray<NativeColumn>
+	readonly waits: Waits
+}
+
+/**
+ * One relation's layout at one position before the walk's order of its sequences is known: each column with
+ * everything it waits on, by key, in the order a refusal meets them.
+ */
+interface Draft {
+	readonly relation: LawRelation
+	readonly position: FillPosition
+	readonly columns: ReadonlyMap<string, DraftColumn>
+}
+
+/** One relation's draft layout at one position: its columns' waits, or the first refusal its own row gives. */
+const draftAt = (
 	families: ReadonlyArray<Family>,
 	relation: LawRelation,
 	position: FillPosition
-): Result.Result<FillLayout, Unfillable> => {
+): Result.Result<Draft, Unfillable> => {
 	const entries = entriesAt(families, relation, position)
-	const stages = new Map<string, FillStage>()
+	const waited = new Map<string, Waits>()
 	const visiting = new Set<string>()
 	const refusal = (entry: Entry, read: NativeColumn, why: FilledLater): Unfillable => ({
 		relation: relation.name,
@@ -381,8 +430,8 @@ const layoutAt = (
 		source: { relation: relation.name, column: nameOf(read) },
 		later: why
 	})
-	const stageOf = (key: string): Result.Result<FillStage, Unfillable> => {
-		const known = stages.get(key)
+	const waitsOf = (key: string): Result.Result<Waits, Unfillable> => {
+		const known = waited.get(key)
 		if (known !== undefined) {
 			return Result.ok(known)
 		}
@@ -391,7 +440,7 @@ const layoutAt = (
 			throw defect(`a column ${key} of ${relation.name} its layout holds`)
 		}
 		visiting.add(key)
-		let stage = entry.own
+		let waits = entry.own
 		for (const read of readsOfRule(relation, entry.rule)) {
 			const readKey = keyOf(read)
 			const target = entries.get(readKey)
@@ -405,63 +454,129 @@ const layoutAt = (
 			if (why !== undefined) {
 				return Result.err(refusal(entry, read, why))
 			}
-			const s = stageOf(readKey)
-			if (!s.ok) {
-				return s
+			const w = waitsOf(readKey)
+			if (!w.ok) {
+				return w
 			}
-			stage = latest(stage, s.value)
+			waits = both(waits, w.value)
 		}
 		visiting.delete(key)
-		stages.set(key, stage)
-		return Result.ok(stage)
+		waited.set(key, waits)
+		return Result.ok(waits)
 	}
-	const columns: Array<FillColumn> = []
+	const columns = new Map<string, DraftColumn>()
 	for (const [key, entry] of entries) {
-		const stage = stageOf(key)
-		if (!stage.ok) {
-			return stage
+		const waits = waitsOf(key)
+		if (!waits.ok) {
+			return waits
 		}
-		columns.push(
-			Object.freeze({
-				column: entry.column,
-				name: entry.name,
-				type: entry.type,
-				rule: entry.rule,
-				reads: readsOfRule(relation, entry.rule),
-				stage: stage.value,
-				writer: entry.writer
-			})
-		)
+		columns.set(key, { entry, reads: readsOfRule(relation, entry.rule), waits: waits.value })
 	}
-	const owned = families.filter((f) => f.owner.name === relation.name)
-	return Result.ok(
-		Object.freeze({
-			relation,
-			position,
-			columns: Object.freeze(columns),
-			owns: Object.freeze([...owned.filter(isSequence), ...owned.filter((f) => !isSequence(f))])
-		})
-	)
+	return Result.ok({ relation, position, columns })
 }
 
 /**
- * Why a member's copy along `family`'s owner axis may not read its owner's column `target`: none when it may. A
- * sequence's members are filled on entering their owner, after its entering columns; a counted family's after its
- * owner's row is written whole, and its own count, which it knows before its members, but before its own ends.
+ * The order the walk fills the sequences `owned` of a row in at one position: each after every sequence `before` puts
+ * before it, by family key, else in the law model's order. `before` holds no cycle: fillOrder refuses the copy that
+ * would close one.
  */
-const ownerLater = (family: Family, target: FillColumn): FilledLater | undefined => {
-	if (target.writer.kind === "counted") {
-		if (!sameFamily(target.writer.family, family)) {
-			return { kind: "countedFill", family: named(target.writer.family) }
+const walkOrder = (
+	owned: ReadonlyArray<Family>,
+	before: ReadonlyMap<string, ReadonlySet<string>>
+): ReadonlyArray<Family> => {
+	const placed = new Set<string>()
+	const order: Array<Family> = []
+	while (order.length < owned.length) {
+		const next = owned.find(
+			(f) =>
+				!placed.has(familyKey(f.id)) &&
+				[...(before.get(familyKey(f.id)) ?? [])].every((g) => placed.has(g))
+		)
+		if (next === undefined) {
+			throw defect("the walk's order of a row's sequences holds no cycle")
 		}
-		return target.rule.kind === "count" ? undefined : { kind: "afterMembers" }
+		placed.add(familyKey(next.id))
+		order.push(next)
 	}
-	return isSequence(family) && target.stage !== "entering" ? { kind: "afterMembers" } : undefined
+	return order
+}
+
+/** A draft layout's columns at their stages, its sequences in the walk's order `order`: see the module's header. */
+const layoutOf = (
+	families: ReadonlyArray<Family>,
+	draft: Draft,
+	order: ReadonlyArray<Family>
+): FillLayout => {
+	const rank = (f: Family): number => order.findIndex((g) => sameFamily(f, g))
+	const stageOf = (waits: Waits): FillStage => {
+		if (waits.settling) {
+			return { kind: "settling" }
+		}
+		let last: Family | undefined
+		for (const f of waits.after.values()) {
+			if (last === undefined || rank(f) > rank(last)) {
+				last = f
+			}
+		}
+		return last === undefined ? { kind: "entering" } : { kind: "after", family: last }
+	}
+	const counted = families.filter((f) => f.owner.name === draft.relation.name && !isSequence(f))
+	return Object.freeze({
+		relation: draft.relation,
+		position: draft.position,
+		columns: Object.freeze(
+			[...draft.columns.values()].map(({ entry, reads, waits }) =>
+				Object.freeze({
+					column: entry.column,
+					name: entry.name,
+					type: entry.type,
+					rule: entry.rule,
+					reads,
+					stage: stageOf(waits),
+					writer: entry.writer
+				})
+			)
+		),
+		owns: Object.freeze([...order, ...counted])
+	})
+}
+
+/**
+ * Why a member's copy along `family`'s owner axis may not read its owner's column `target` (`later`), or the sequences
+ * of the owner whose members the walk fills before `family`'s so that it may (`after`). A sequence's members are filled
+ * once the walk reaches their family: after the owner's entering columns and the columns that wait on the sequences it
+ * walks first, never one that waits on their own family's members. A counted family's are filled after their owner's
+ * row is written whole, its own count among it, which it knows before its members, but before its own ends.
+ */
+const ownerLater = (
+	family: Family,
+	target: DraftColumn
+):
+	| { readonly kind: "later"; readonly later: FilledLater }
+	| { readonly kind: "after"; readonly families: ReadonlyArray<Family> } => {
+	const writer = target.entry.writer
+	if (writer.kind === "counted") {
+		if (!sameFamily(writer.family, family)) {
+			return { kind: "later", later: { kind: "countedFill", family: named(writer.family) } }
+		}
+		return target.entry.rule.kind === "count"
+			? { kind: "after", families: [] }
+			: { kind: "later", later: { kind: "afterMembers" } }
+	}
+	if (!isSequence(family)) {
+		return { kind: "after", families: [] }
+	}
+	return target.waits.after.has(familyKey(family.id)) || target.waits.settling
+		? { kind: "later", later: { kind: "afterMembers" } }
+		: { kind: "after", families: [...target.waits.after.values()] }
 }
 
 /** Whether a read across rows of a column `target` fills is one a column of `family`'s fill may make. */
-const acrossLater = (family: Family, target: FillColumn): FilledLater | undefined =>
-	readLater(isSequence(family) ? { kind: "walk" } : { kind: "counted", family }, target.writer)
+const acrossLater = (family: Family, target: DraftColumn): FilledLater | undefined =>
+	readLater(
+		isSequence(family) ? { kind: "walk" } : { kind: "counted", family },
+		target.entry.writer
+	)
 
 /** The first relation, by the order families are stated in, that no write fills: see the module's header. */
 const unwritable = (
@@ -553,81 +668,111 @@ export const fillOrder = (
 		relations.set(f.owner.name, f.owner)
 		relations.set(f.member.name, f.member)
 	}
-	const layouts = new Map<string, FillLayout>()
+	const drafts = new Map<string, Draft>()
 	for (const [name, relation] of relations) {
 		for (const position of positionsOf(families, name)) {
-			const built = layoutAt(families, relation, position)
+			const built = draftAt(families, relation, position)
 			if (!built.ok) {
 				return refused(built.error)
 			}
-			layouts.set(layoutKey(name, position), built.value)
+			drafts.set(layoutKey(name, position), built.value)
 		}
 	}
 	const columnAt = (relation: string, position: FillPosition, to: NativeColumn) => {
-		const layout = layouts.get(layoutKey(relation, position))
-		if (layout === undefined) {
+		const draft = drafts.get(layoutKey(relation, position))
+		if (draft === undefined) {
 			throw defect(`the layout of ${relation} at a position it stands at`)
 		}
-		return layout.columns.find((c) => keyOf(c.column) === keyOf(to))
+		return draft.columns.get(keyOf(to))
 	}
-	for (const layout of layouts.values()) {
-		for (const c of layout.columns) {
-			const rule = c.rule
-			const across = (
-				axis: "owner" | "predecessor" | "last",
-				family: Family,
-				law: LawId,
-				source: { readonly relation: string; readonly position: FillPosition },
-				to: NativeColumn,
-				why: (target: FillColumn) => FilledLater | undefined
-			): Result.Result<void, Unfillable> => {
-				const target = columnAt(source.relation, source.position, to)
-				const filled = target === undefined ? { kind: "unreached" as const } : why(target)
-				return filled === undefined
-					? Result.ok(undefined)
-					: Result.err({
-							relation: layout.relation.name,
-							field: c.name,
-							law,
-							axis,
-							family,
-							source: { relation: source.relation, column: nameOf(to) },
-							later: filled
-						})
+	/** Each layout's sequences the walk fills before each of its sequences, by layout key and then family key: what the
+	 * copies its members take of it wait on. */
+	const before = new Map<string, Map<string, Set<string>>>()
+	/** Whether, in the layout at `at`, the walk must fill `from`'s members before `to`'s, through the order so far. */
+	const precedes = (at: string, from: string, to: string): boolean => {
+		const order = before.get(at)
+		const seen = new Set<string>()
+		const pending = [to]
+		for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
+			if (next === from) {
+				return true
 			}
-			const checks: ReadonlyArray<Result.Result<void, Unfillable>> =
-				rule.kind === "ownerCopy"
-					? positionsOf(families, rule.family.owner.name).map((position) =>
-							across(
-								"owner",
-								rule.family,
-								rule.law,
-								{ relation: rule.family.owner.name, position },
-								rule.to,
-								(target) => ownerLater(rule.family, target)
-							)
-						)
-					: rule.kind === "predecessor" || rule.kind === "last"
-						? [
-								across(
-									rule.kind,
-									rule.family,
-									rule.law,
-									{
-										relation: rule.family.member.name,
-										position: { kind: "member", family: rule.family }
-									},
-									rule.to,
-									(target) => acrossLater(rule.family, target)
-								)
-							]
-						: []
-			for (const check of checks) {
-				if (!check.ok) {
-					return refused(check.error)
+			for (const g of order?.get(next) ?? []) {
+				if (!seen.has(g)) {
+					seen.add(g)
+					pending.push(g)
 				}
 			}
 		}
+		return false
+	}
+	for (const draft of drafts.values()) {
+		for (const { entry } of draft.columns.values()) {
+			const rule = entry.rule
+			const refusal = (
+				axis: "owner" | "predecessor" | "last",
+				family: Family,
+				law: LawId,
+				source: { readonly relation: string; readonly to: NativeColumn },
+				later: FilledLater
+			): Unfillable => ({
+				relation: draft.relation.name,
+				field: entry.name,
+				law,
+				axis,
+				family,
+				source: { relation: source.relation, column: nameOf(source.to) },
+				later
+			})
+			if (rule.kind === "ownerCopy") {
+				const owner = rule.family.owner.name
+				const source = { relation: owner, to: rule.to }
+				for (const position of walkPositionsOf(families, owner)) {
+					const target = columnAt(owner, position, rule.to)
+					const read =
+						target === undefined
+							? ({ kind: "later", later: { kind: "unreached" } } as const)
+							: ownerLater(rule.family, target)
+					if (read.kind === "later") {
+						return refused(refusal("owner", rule.family, rule.law, source, read.later))
+					}
+					const at = layoutKey(owner, position)
+					const to = familyKey(rule.family.id)
+					for (const g of read.families) {
+						const from = familyKey(g.id)
+						if (precedes(at, to, from)) {
+							return refused(
+								refusal("owner", rule.family, rule.law, source, { kind: "afterMembers" })
+							)
+						}
+						const order = before.get(at) ?? new Map<string, Set<string>>()
+						const after = order.get(to) ?? new Set<string>()
+						after.add(from)
+						order.set(to, after)
+						before.set(at, order)
+					}
+				}
+			}
+			if (rule.kind === "predecessor" || rule.kind === "last") {
+				const member = rule.family.member.name
+				const target = columnAt(member, { kind: "member", family: rule.family }, rule.to)
+				const later =
+					target === undefined ? { kind: "unreached" as const } : acrossLater(rule.family, target)
+				if (later !== undefined) {
+					return refused(
+						refusal(rule.kind, rule.family, rule.law, { relation: member, to: rule.to }, later)
+					)
+				}
+			}
+		}
+	}
+	const layouts = new Map<string, FillLayout>()
+	for (const [key, draft] of drafts) {
+		const owned = families.filter((f) => f.owner.name === draft.relation.name && isSequence(f))
+		layouts.set(
+			key,
+			layoutOf(families, draft, walkOrder(owned, before.get(key) ?? new Map<string, Set<string>>()))
+		)
 	}
 	return Result.ok(Object.freeze({ families, layouts }))
 }

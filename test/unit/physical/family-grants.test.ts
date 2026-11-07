@@ -657,6 +657,7 @@ describe("a member writer's hold on its family's owner", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/physical/family-grants",
 						draw: drawn(worldGen),
 						literal: Formatter.format,

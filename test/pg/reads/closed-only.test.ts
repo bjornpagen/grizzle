@@ -67,6 +67,7 @@ layer(Substrate.layer, { excludeTestServices: true })("a schema of closed relati
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "reads/closed-only",
 					draw: drawn(plansCaseGen),
 					literal: Formatter.format,

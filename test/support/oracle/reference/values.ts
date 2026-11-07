@@ -8,9 +8,15 @@ import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { literalValue } from "#compiler/scalar/compute/evaluate.ts"
 import type { CarrierValue } from "#compiler/scalar/compute/literal.ts"
 import { Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
-import { canonicalZero, floatText } from "#compiler/scalar/values/float.ts"
+import { canonicalZero } from "#compiler/scalar/values/float.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { type CatalogResult, compareCarried } from "#test/support/oracle/evaluate/catalog.ts"
+import {
+	Identities,
+	type Identity,
+	type Interned,
+	sameIdentity
+} from "#test/support/oracle/reference/identity.ts"
 
 /**
  * Why the reference states no value: a closed union, so a new way to give up is a type change, and each is a named,
@@ -38,10 +44,10 @@ export const declineReasons: Arr.NonEmptyReadonlyArray<DeclineReason> = [
  * (ReferenceUnsupported). The frontier reads a declined column by the same rule (frontier.ts mustEval).
  */
 export class Declined {
-	readonly identity: string
+	readonly identity: Identity
 	readonly reason: DeclineReason
 
-	constructor(identity: string, reason: DeclineReason) {
+	constructor(identity: Identity, reason: DeclineReason) {
 		this.identity = identity
 		this.reason = reason
 	}
@@ -99,7 +105,6 @@ export const asSpan = (v: Value): { readonly start: bigint; readonly end: bigint
  */
 const asVector = (v: Value): VectorText =>
 	typeof v === "object" && "vector" in v ? v.vector : wrongCarrier(v, "a vector")
-const vectorText = (v: Value): string => asVector(v).toString()
 
 /** The item at index i of a list the caller built to that length; a missing one is a defect of the evaluator. */
 const elementOf = <A>(items: ReadonlyArray<A>, i: number): A => {
@@ -166,17 +171,12 @@ const setMembers = (v: Value, handles: ReadonlyArray<string>): ReadonlyArray<str
 export const literalOf = (literal: TypedLiteral, type: ScalarType): Value =>
 	coerce(literalValue(literal), type)
 
-/** A declined term's identity; undefined for any other value. */
-const identityOf = (v: Value): string | undefined =>
-	v instanceof Declined ? v.identity : undefined
-
 /**
  * PostgreSQL's comparison of two values of one type. Two declined values compare equal only as one reading over equal
  * reads; any other comparison of a declined value is unknown.
  */
 export const compare = (a: Value, b: Value, type: ScalarType): -1 | 0 | 1 => {
-	const identity = identityOf(a)
-	if (identity !== undefined && identity === identityOf(b)) {
+	if (a instanceof Declined && b instanceof Declined && sameIdentity(a.identity, b.identity)) {
 		return 0
 	}
 	if (a instanceof Declined || b instanceof Declined) {
@@ -192,12 +192,14 @@ export const compare = (a: Value, b: Value, type: ScalarType): -1 | 0 | 1 => {
 export const equal = (a: Value, b: Value, type: ScalarType): boolean => compare(a, b, type) === 0
 
 /**
- * A value's identity under native equality, as text: its canonical text, since every value is in its one form; a
- * declined term's, its reading's over its reads.
+ * A value's identity under native equality: its kind ("value" or "declined") and its atoms, each value in its one form,
+ * so a stated value's atoms are its own (a numeric by its one text, a float by its number, a set by its members in roster
+ * order after their count, a vector by its components after its dimensions); a declined term's, its reading's over its
+ * reads (Declined identity), after its length.
  */
-export const valueKey = (v: Value, type: ScalarType): string => {
+export const valueIdentity = (v: Value, type: ScalarType): Identity => {
 	if (v instanceof Declined) {
-		return `u${v.identity}`
+		return ["declined", v.identity.length, ...v.identity]
 	}
 	const base = baseOf(type)
 	switch (base.carrier) {
@@ -205,34 +207,35 @@ export const valueKey = (v: Value, type: ScalarType): string => {
 		case "int4":
 		case "int8":
 		case "exactInteger":
-			return asBigint(v).toString()
+			return ["value", asBigint(v)]
 		case "numeric":
-			return `d${asDecimal(v).text}`
+			return ["value", asDecimal(v).text]
 		case "float4":
 		case "float8":
-			return `f${floatText(asNumber(v))}`
+			return ["value", asNumber(v)]
 		case "money":
 		case "exactMoney":
-			return `m${asMoney(v).minorUnits.toString()}`
+			return ["value", asMoney(v).minorUnits]
 		case "bool":
-			return v === true ? "t" : "f"
+			return ["value", v === true]
 		case "uuid":
 		case "date":
 		case "text":
 		case "code":
-			return `x${asString(v)}`
-		case "bits":
-			return `b${Arr.join(
-				Arr.map(setMembers(v, base.roster.handles), (h) => `${h.length}:${h}`),
-				""
-			)}`
+			return ["value", asString(v)]
+		case "bits": {
+			const members = setMembers(v, base.roster.handles)
+			return ["value", members.length, ...members]
+		}
 		case "range4":
 		case "range8": {
 			const { start, end } = asSpan(v)
-			return `s${start},${end}`
+			return ["value", start, end]
 		}
-		case "vector":
-			return `v${vectorText(v)}`
+		case "vector": {
+			const components = asVector(v).components
+			return ["value", components.length, ...components]
+		}
 	}
 }
 
@@ -241,9 +244,9 @@ export const valueKey = (v: Value, type: ScalarType): string => {
  * hash lookups: the value is its type's carrier, and the type's comparison is 0 for exactly the values of one identity.
  * Otherwise undefined, and only comparison decides: a value of another carrier, whose comparison refuses, and a closed
  * id's handle outside its roster, which compares equal to every other such handle. A set is equal exactly to the set
- * of its members. A vector holds the one zero, so pgvector's order is 0 exactly between vectors of one canonical text.
+ * of its members. A vector holds the one zero, so pgvector's order is 0 exactly between vectors of one identity.
  */
-export const indexKey = (v: Value, type: ScalarType): string | undefined => {
+export const indexIdentity = (v: Value, type: ScalarType): Identity | undefined => {
 	if (v instanceof Declined) {
 		return undefined
 	}
@@ -253,70 +256,66 @@ export const indexKey = (v: Value, type: ScalarType): string | undefined => {
 		case "int4":
 		case "int8":
 		case "exactInteger":
-			return typeof v === "bigint" ? v.toString() : undefined
+			return typeof v === "bigint" ? valueIdentity(v, type) : undefined
 		case "numeric":
-			return v instanceof Decimal ? valueKey(v, type) : undefined
+			return v instanceof Decimal ? valueIdentity(v, type) : undefined
 		case "float4":
 		case "float8":
-			return typeof v === "number" ? valueKey(v, type) : undefined
+			return typeof v === "number" ? valueIdentity(v, type) : undefined
 		case "money":
 		case "exactMoney":
-			return v instanceof Money ? valueKey(v, type) : undefined
+			return v instanceof Money ? valueIdentity(v, type) : undefined
 		case "bool":
-			return typeof v === "boolean" ? valueKey(v, type) : undefined
+			return typeof v === "boolean" ? valueIdentity(v, type) : undefined
 		case "uuid":
 		case "date":
 		case "text":
-			return typeof v === "string" ? valueKey(v, type) : undefined
+			return typeof v === "string" ? valueIdentity(v, type) : undefined
 		case "code":
 			return typeof v === "string" && base.roster.handles.includes(v)
-				? valueKey(v, type)
+				? valueIdentity(v, type)
 				: undefined
 		case "bits":
-			return v instanceof Set ? valueKey(v, type) : undefined
+			return v instanceof Set ? valueIdentity(v, type) : undefined
 		case "range4":
 		case "range8":
-			return typeof v === "object" && "start" in v ? valueKey(v, type) : undefined
+			return typeof v === "object" && "start" in v ? valueIdentity(v, type) : undefined
 		case "vector":
-			return typeof v === "object" && "vector" in v ? valueKey(v, type) : undefined
+			return typeof v === "object" && "vector" in v ? valueIdentity(v, type) : undefined
 	}
 }
 
-/**
- * Identities joined into one, each length-prefixed, so no part's text runs into the next: a declined value's identity
- * holds the separators a plain join would use.
- */
-export const joinedKey = (parts: ReadonlyArray<string>): string =>
-	Arr.join(
-		Arr.map(parts, (p) => `${p.length}:${p}`),
-		""
-	)
-
-export const rowKey = (row: Row, heading: Heading): string =>
-	joinedKey(Arr.map(heading, (c, i) => valueKey(valueAt(row, i), c.type)))
+/** A row's identity on `heading`: its values' identities in column order, each self-delimiting. */
+export const rowIdentity = (row: Row, heading: Heading): Identity =>
+	Arr.flatMap(heading, (c, i) => valueIdentity(valueAt(row, i), c.type))
 
 /**
- * The identity of each row on `heading`, where the reference decides it: two rows that agree on every column no row of
- * `rows` leaves declined and differ in a column some row leaves declined may or may not be one row in PostgreSQL, which
- * the reference refuses to judge (a declined value from one expression and a stated one, or declined values from two,
- * are equal or not as PostgreSQL computes them). Every hash-equality site of the evaluator keys its rows through it.
+ * The identity of each row on `heading`, interned in `identities`, where the reference decides it: two rows that agree
+ * on every column no row of `rows` leaves declined and differ in a column some row leaves declined may or may not be one
+ * row in PostgreSQL, which the reference refuses to judge (a declined value from one expression and a stated one, or
+ * declined values from two, are equal or not as PostgreSQL computes them). Every hash-equality site of the evaluator
+ * keys its rows through it.
  */
 export const decidedKeys = (
 	rows: ReadonlyArray<Row>,
 	heading: Heading,
-	at: string
-): ReadonlyArray<string> => {
-	const keys = Arr.map(rows, (row) => rowKey(row, heading))
+	at: string,
+	identities: Identities
+): ReadonlyArray<Interned> => {
+	const keys = Arr.map(rows, (row) => identities.of(rowIdentity(row, heading)))
 	const open = new Set(
 		Arr.filter(indices(heading.length), (i) => Arr.some(rows, (row) => declined(valueAt(row, i))))
 	)
 	if (open.size === 0) {
 		return keys
 	}
-	const decided = new Map<string, string>()
+	const partials = new Identities()
+	const decided = new Map<Interned, Interned>()
 	for (const [r, row] of rows.entries()) {
-		const partial = joinedKey(
-			Arr.map(heading, (c, i) => (open.has(i) ? "?" : valueKey(valueAt(row, i), c.type)))
+		const partial = partials.of(
+			Arr.flatMap(heading, (c, i): Identity =>
+				open.has(i) ? ["open"] : valueIdentity(valueAt(row, i), c.type)
+			)
 		)
 		const key = elementOf(keys, r)
 		const other = decided.get(partial)
@@ -335,10 +334,11 @@ export const decidedKeys = (
 export const distinctRows = (
 	rows: ReadonlyArray<Row>,
 	heading: Heading,
-	at: string
+	at: string,
+	identities: Identities
 ): ReadonlyArray<Row> => {
-	const keys = decidedKeys(rows, heading, at)
-	const seen = new Set<string>()
+	const keys = decidedKeys(rows, heading, at, identities)
+	const seen = new Set<Interned>()
 	const out: Array<Row> = []
 	for (const [r, row] of rows.entries()) {
 		const key = elementOf(keys, r)

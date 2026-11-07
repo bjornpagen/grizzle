@@ -45,7 +45,7 @@ export interface FixedField<F> {
 export type HeadStanding = "free" | "claimFixed" | "keyed"
 
 /** A head field of a writable entry: the field of T it writes, as `F` refers to it, and its standing. */
-export interface HeadField<F> {
+interface HeadField<F> {
 	readonly field: F
 	readonly kind: HeadStanding
 }

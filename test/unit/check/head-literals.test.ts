@@ -380,6 +380,7 @@ describe("head literal typing", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/check/head-literals",
 						draw: drawn(array(armGen, { min: 1, max: 4 })),
 						literal: Formatter.format,

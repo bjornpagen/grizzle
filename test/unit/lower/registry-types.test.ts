@@ -62,6 +62,7 @@ describe("the scalar types of lowered statements", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/lower/registry-types",
 						draw: drawn(
 							queryCaseGen({

@@ -27,9 +27,7 @@ import { rejectedOutcome } from "#adapter/outcomes/index.ts"
 import { programTexts, whileLive } from "#adapter/reader/reader.ts"
 import type { ApplyOutcome } from "#adapter/types/db.ts"
 import { mintNaming } from "#adapter/wire/naming.ts"
-import type { RowDecoder } from "#compiler/core/decoder.ts"
-import { type CompileError } from "#compiler/core/errors.ts"
-import type { ParamMap } from "#compiler/types/core/phantom.ts"
+import type { CompileError, ParamMap, RowDecoder } from "#compiler/plan/common.ts"
 
 export { type CompiledChange, compiledWrite, missingCapability } from "#adapter/apply/compile.ts"
 /**

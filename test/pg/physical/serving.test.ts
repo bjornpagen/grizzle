@@ -1792,6 +1792,7 @@ const workloadSuite = (runs: number) => (ctx: TestContext) =>
 		ctx,
 		explore(
 			{
+				oracle: { kind: "unstated" },
 				suite: "pg/physical/serving-workload",
 				draw: drawn(caseSketchGen),
 				literal: Formatter.format,
@@ -1819,6 +1820,7 @@ const requestSuite = (runs: number) => (ctx: TestContext) =>
 		ctx,
 		explore(
 			{
+				oracle: { kind: "unstated" },
 				suite: "pg/physical/serving-requests",
 				draw: drawn(intentsGen),
 				literal: Formatter.format,
@@ -1853,6 +1855,7 @@ const sharedSuite = (runs: number) => (ctx: TestContext) =>
 		ctx,
 		explore(
 			{
+				oracle: { kind: "unstated" },
 				suite: "pg/physical/serving-shared",
 				draw: drawn(sharedSetGen),
 				literal: Formatter.format,

@@ -29,7 +29,7 @@ import type * as Result from "#compiler/core/result.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import { rooted } from "#compiler/ir/dag.ts"
 import type { ChangeSetDesc, MemberDesc } from "#compiler/ir/desc.ts"
-import { isSequence, isTreeOf } from "#compiler/ir/family.ts"
+import { type Family, isSequence, isTreeOf } from "#compiler/ir/family.ts"
 import type { LawField, RelationInfo } from "#compiler/ir/law.ts"
 import type { LogicalQuery, ParamDecl } from "#compiler/ir/products.ts"
 import type { Heading, HeadingColumn, RelNode, ValidDag } from "#compiler/ir/rel.ts"
@@ -49,7 +49,11 @@ import {
 import { derivedKeyConstraints } from "#compiler/laws/model/catalog.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
 import { keyWitness } from "#compiler/laws/model/uniques.ts"
-import { analyzeLogical, type LogicalAnalysis } from "#compiler/logical/annotate.ts"
+import {
+	analyzeLogical,
+	judgedAsDelivered,
+	type LogicalAnalysis
+} from "#compiler/logical/annotate.ts"
 import { everyParentTakes } from "#compiler/lower/shapes/take/decorrelate.ts"
 import { regexMember } from "#compiler/scalar/regex/nfa.ts"
 import { queryUses } from "#compiler/schema/walk.ts"
@@ -68,6 +72,7 @@ import {
 	type SerialDraw
 } from "#compiler/write/frontend/entry.ts"
 
+import { relationDepths } from "#compiler/write/family/compose.ts"
 import { fixedSentence } from "#compiler/write/family/edit.ts"
 import {
 	closedLeaf,
@@ -78,8 +83,11 @@ import {
 } from "#compiler/write/family/fold.ts"
 import { type Nesting, nestingOf } from "#compiler/write/family/nesting.ts"
 import { staleRead } from "#compiler/write/family/redraw.ts"
+import { memberFamilies, rowLayout } from "#compiler/write/family/statements.ts"
 import {
 	canonicalActionOrder,
+	type FamilyAt,
+	type FamilyNode,
 	type ImmediateReference,
 	scheduleStratum
 } from "#compiler/write/frontend/schedule.ts"
@@ -109,7 +117,7 @@ export interface FrontendOptions {
  * every fact omits all of `serial`, the member's fields carrying a serial field it may leave out (generated), or none
  * (complete); `drawn` is the generated class, the target's serial fields its identity draws, which every statement
  * of the class reads. A generated class of no field is the unit relation: it holds the one empty fact or none. */
-export type InsertClasses<A> =
+type InsertClasses<A> =
 	| { readonly kind: "unclassed"; readonly complete: A }
 	| {
 			readonly kind: "classed"
@@ -340,7 +348,8 @@ const queriesIn = (drafted: Drafted, dag: ValidDag, at: Counterpart): WriteQueri
 								})
 							)
 						),
-						outside: Object.freeze(stratum.outside.map((write) => outsideIn(write, at)))
+						outside: Object.freeze(stratum.outside.map((write) => outsideIn(write, at))),
+						family: stratum.family
 					})
 				)
 			),
@@ -372,6 +381,8 @@ export type Counterpart = (node: RelNode) => RelNode
  * (OutsideWrite). */
 export interface WriteStratum extends Stratum<ActionInfo> {
 	readonly outside: ReadonlyArray<OutsideWrite>
+	/** Where each of the stratum's family statements runs among its actions (schedule.ts FamilyAt). */
+	readonly family: ReadonlyArray<FamilyAt>
 }
 
 /** The WriteIR of a write's front end, each stratum with its refused additions. */
@@ -810,14 +821,15 @@ const compile = (
 		families.some((f) => f.owner.name === name && isSequence(f))
 	/** An insert into `name` writes rows of every sequence member its nesting reaches, which a role holds nothing of
 	 * unless its write list names it (physical/ddl/roles.ts grants a member's writer a hold on its owner, never an owner's
-	 * writer one on its members): each is OutsideRole where the role's write list leaves it out. */
+	 * writer one on its members): each is OutsideRole where the role's write list leaves it out. `name` itself is the
+	 * target targetOf admitted, by its own name or through a query entry the write list names in its place. */
 	const refuseNestedOutsideRole = (name: string, loc: SourceLoc): void => {
 		const world = checked.world
 		if (world.kind === "reality") {
 			return
 		}
 		for (const reached of insertedBy(name)) {
-			if (!world.writes.has(reached)) {
+			if (reached !== name && !world.writes.has(reached)) {
 				throw new Refusal(
 					CompileError.make({
 						_tag: "OutsideRole",
@@ -879,6 +891,7 @@ const compile = (
 			readonly relation: RelationInfo
 			readonly op: MemberDesc["op"]
 			readonly loc: SourceLoc
+			readonly edited: ReadonlyArray<Family>
 		},
 		members: ReadonlyArray<CheckedMember>
 	): void => {
@@ -900,7 +913,7 @@ const compile = (
 					  )
 					? "family"
 					: undefined
-		for (const f of families) {
+		for (const f of member.edited) {
 			if (f.member.name !== member.relation.name || isTreeOf(f, f.member.name)) {
 				continue
 			}
@@ -1197,6 +1210,8 @@ const compile = (
 			refuseMovedFilter(m, writtenNames)
 			/** A nested insert writes, besides its own relation's rows, every counted member's its nesting reaches, each
 			 * an insert of its own relation as far as its counted families are concerned. */
+			/** The counted members a nested insert writes: each edits only its counted families, since its sequences are the
+			 * walk's, under their fresh owners. */
 			const nestedCounted =
 				m.op === "insert" && nests(m.relation.name)
 					? countedReached(m.relation).flatMap((name) =>
@@ -1204,11 +1219,16 @@ const compile = (
 						)
 					: []
 			for (const w of [
-				m,
-				...nestedCounted.map((relation) => ({ relation, op: m.op, loc: m.loc }))
+				{ relation: m.relation, op: m.op, loc: m.loc, edited: families },
+				...nestedCounted.map((relation) => ({
+					relation,
+					op: m.op,
+					loc: m.loc,
+					edited: families.filter((f) => !isSequence(f))
+				}))
 			]) {
 				refuseCascadedCopy(w, members)
-				const stale = staleRead(families, w.relation, w.op)
+				const stale = staleRead(families, w.relation, w.op, w.edited)
 				if (stale !== undefined) {
 					throw new Refusal(
 						CompileError.make({
@@ -1712,26 +1732,93 @@ const compile = (
 	const structural = glue.build([...new Set([...sourceRoots, ...readBacks.map((r) => r.root)])])
 	const references: ReadonlyArray<ImmediateReference> = laws.natives.flatMap((n) =>
 		n.object.kind === "ForeignKey" && !n.object.deferrable
-			? [{ from: n.object.relation.name, to: n.object.target.name }]
+			? [
+					{
+						from: n.object.relation.name,
+						to: n.object.target.name,
+						cascade: n.object.onUpdate === "cascade"
+					}
+				]
 			: []
 	)
+	/** Each relation's depth among the families, which orders a stratum's family statements among themselves. */
+	const depthOf = relationDepths(families)
+	/**
+	 * A stratum's family statements, in the order the family planner runs them among themselves (write/family/
+	 * compose.ts): every edited relation's deletes, then its updates in place, deepest relation first; then the counts of
+	 * every family of an edited relation; then the inserts of every relation a family write writes, its nested writes'
+	 * and its edits', shallowest first. The schedule places them among the stratum's actions.
+	 */
+	const familyNodesOf = (stratum: number): ReadonlyArray<FamilyNode> => {
+		const edited = [...new Set(edits.filter((e) => e.stratum === stratum).map((e) => e.relation))]
+		const inserted = [
+			...new Set([
+				...nestedWrites
+					.filter((n) => n.stratum === stratum)
+					.flatMap((n) => [...n.nesting.layouts.keys()]),
+				...edited
+			])
+		]
+		const deepest = (names: ReadonlyArray<string>) =>
+			names.toSorted((a, b) => depthOf(b) - depthOf(a))
+		const settable = (name: string): boolean =>
+			rowLayout(writtenOf(name, at), families).columns.some((c) => c.settable)
+		return [
+			...deepest(edited).map((relation): FamilyNode => ({
+				kind: "rows",
+				relation,
+				statement: "delete"
+			})),
+			...deepest(edited)
+				.filter(settable)
+				.map((relation): FamilyNode => ({ kind: "rows", relation, statement: "update" })),
+			...edited.flatMap((relation) =>
+				memberFamilies(relation, families)
+					.filter((f) => !isTreeOf(f, relation))
+					.map((f): FamilyNode => ({ kind: "owners", family: f.id, relation: f.owner.name }))
+			),
+			...deepest(inserted)
+				.toReversed()
+				.map((relation): FamilyNode => ({ kind: "rows", relation, statement: "insert" }))
+		]
+	}
 
-	/** 4. Schedule, with the final sources. */
-	const strata = placedByStratum.map(({ built, outside }): WriteStratum =>
-		Object.freeze({
+	/** 4. Schedule, with the final sources: a stratum whose actions an immediate key orders in a cycle is refused,
+	 * since no order of its statements keeps every key at every statement. */
+	const strata = placedByStratum.map(({ built, outside }, stratum): WriteStratum => {
+		const schedule = scheduleStratum(
+			canonicalActionOrder(
+				built.map((b) => ({ ...b, pureSet: payloadOf(b.info.relation).kind === "pureSet" }))
+			),
+			familyNodesOf(stratum),
+			references
+		)
+		if (schedule.kind === "cycle") {
+			throw new Refusal(
+				CompileError.make({
+					_tag: "UnorderableStratum",
+					at,
+					cycle: mapNonEmpty(schedule.cycle, (w) =>
+						w.kind === "action"
+							? { relation: w.action.action.relation, op: w.action.action.op }
+							: {
+									relation: w.node.relation,
+									op: w.node.kind === "owners" ? "count" : w.node.statement
+								}
+					)
+				})
+			)
+		}
+		return Object.freeze({
 			actions: Object.freeze(
-				scheduleStratum(
-					canonicalActionOrder(
-						built.map((b) => ({ ...b, pureSet: payloadOf(b.info.relation).kind === "pureSet" }))
-					),
-					references
-				).map(({ scheduled, dependsOn }): Action<ActionInfo> =>
+				schedule.actions.map(({ scheduled, dependsOn }): Action<ActionInfo> =>
 					Object.freeze({ ...scheduled.action, dependsOn, info: scheduled.info })
 				)
 			),
-			outside
+			outside,
+			family: Object.freeze(schedule.family)
 		})
-	)
+	})
 
 	/** 5. Evidence: the transaction context. */
 	const analyzed = (structure: ValidDag): LogicalAnalysis =>
@@ -1744,7 +1831,10 @@ const compile = (
 			})
 		)
 	const analysis = analyzed(structural)
-	const dag = analysis.dag
+	/** The analyzed DAG, each attachment judged at the delivered type the analysis restated it to (rel.ts Attach
+	 * judged), which the read-backs' reader delivers. */
+	const judged = judgedAsDelivered(analysis.dag)
+	const dag = judged.dag
 	const reads: ReadonlyArray<ReadBack> = readBacks.map((r) =>
 		Object.freeze({
 			name: r.name,
@@ -1917,7 +2007,7 @@ const compile = (
 		params: Object.freeze([...userParams.map((p) => p.id), ...slotParams])
 	}
 	/** The queries over the analyzed DAG, each node the frontend built read as its annotated counterpart. */
-	const queries = queriesIn(drafted, dag, (node) => analysis.of(node).node)
+	const queries = queriesIn(drafted, dag, (node) => judged.of(analysis.of(node).node))
 	/** The DAG the optimized artifact lowers: every take correlated through bind restated with its correlation explicit,
 	 * as a query's is, so the take policy sees its parent set, and analyzed alike. The rewrite reads the analyzed DAG's
 	 * roots, every described source and read-back, and keeps every node's label; each node the queries name is read as
@@ -1930,13 +2020,14 @@ const compile = (
 		}
 		const takes = unwrap(everyParentTakes({ dag: rooted(roots), params: userParams }))
 		const again = analyzed(takes.query.dag)
-		const restate: Counterpart = (node) => again.of(takes.node(node)).node
+		const againJudged = judgedAsDelivered(again.dag)
+		const restate: Counterpart = (node) => againJudged.of(again.of(takes.node(node)).node)
 		const named: Drafted = {
 			strata: queries.ir.strata,
 			reads: queries.ir.reads,
 			params: queries.ir.params
 		}
-		return { restated: queriesIn(named, again.dag, restate), restate }
+		return { restated: queriesIn(named, againJudged.dag, restate), restate }
 	})()
 
 	return Object.freeze({

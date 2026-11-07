@@ -8,9 +8,8 @@ import type {
 	ServerError,
 	UnreadableAnswer
 } from "#adapter/errors/failures.ts"
-import { type CompileError, compileReasonText } from "#compiler/core/errors.ts"
-import { sqlstates } from "#compiler/core/sqlstate.ts"
-import type { findMarkers } from "#compiler/deploy/render/markers.ts"
+import { type CompileError, compileReasonText, sqlstates } from "#compiler/plan/common.ts"
+import type { findMarkers } from "#compiler/plan/migration.ts"
 
 /**
  * The failure of `grizzle migrate` and `grizzle drift`.

@@ -263,6 +263,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 					ctx,
 					explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "worlds/fence",
 							draw: drawn(caseGen),
 							literal: Formatter.format,

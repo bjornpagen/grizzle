@@ -62,6 +62,8 @@ layer(Substrate.layer)("a guard over a parameter on PostgreSQL 19", (it) => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "pg/compute/guard-param",
 						literal: Formatter.format,
 						generator: (source) =>

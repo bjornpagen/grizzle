@@ -1,6 +1,7 @@
-import { uuid } from "#compiler/public/fields.ts"
+import { closedId, pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
+	closed,
 	contained,
 	context,
 	derived,
@@ -14,16 +15,43 @@ import { str } from "#compiler/public/text.ts"
 
 /**
  * The values the access agreement (test/support/agreement/access.ts) draws its worlds from, which its generated
- * program imports by name: Work, an account's tasks; Reports, an extension of it holding two derived relations a role
+ * program imports by name: Work, an account's tasks and its tier, whose seats a closed relation states; Reports, an extension of it holding two derived relations a role
  * may refresh; two contexts, Org, a claimed organisation's id, and Session, a token's subject; Task as a query entry
  * reading a context at every place a definition can, or none; and two logins the DbConfig agreement
  * (test/support/agreement/dbconfig.ts) configures, one whose role reads no context and one whose role reads Session.
  */
-export const Account = relation("Account", { id: uuid, name: str.regex("^[a-z]{1,32}$") }, ["id"])
+export const Tier = closed("Tier", ["Free", "Pro"])
+const TierInfo = closed.relation(
+	"TierInfo",
+	{ tier: closedId(Tier), seats: pg.integer },
+	["tier"],
+	[
+		{ tier: "Free", seats: 1 },
+		{ tier: "Pro", seats: 5 }
+	]
+)
+export const Account = relation(
+	"Account",
+	{ id: uuid, name: str.regex("^[a-z]{1,32}$"), tier: closedId(Tier) },
+	["id"]
+)
 export const Task = relation("Task", { id: uuid, account: uuid }, ["id"])
-export const Work = schema("Work", { Account, Task }, [
+export const Work = schema("Work", { Tier, TierInfo, Account, Task }, [
 	contained(on(Task, "account"), on(Account, "id"))
 ])
+
+/** A program over the base reading its ordinary relations alone. */
+export const accountIds = query(Work).rule((r) => {
+	const { id } = v(Account, "account")
+	return r.match(Account, { id }).find({ id })
+})
+
+/** A program over the base matching the closed relation's rows, which every role reads. */
+export const accountSeats = query(Work).rule((r) => {
+	const { id, tier } = v(Account, "account")
+	const { seats } = v(TierInfo, "info")
+	return r.match(Account, { id, tier }).match(TierInfo, { tier, seats }).find({ id, seats })
+})
 
 export const TaskTally = derived(
 	"TaskTally",
@@ -99,9 +127,9 @@ export const taskImported = query(Work).rule((r) => {
 })
 
 /** A role of Work reading no context, and the login that holds it. */
-const Reader = role(Work, "reader", { Account, Task })
+const Reader = role(Work, "reader", { Tier, Account, Task })
 export const PlainLogin = login(Work, "plain", [Reader])
 
 /** A role of Work whose Task entry reads Session, and the login that holds it. */
-const Member = role(Work, "member", { Account, Task: taskSession })
+const Member = role(Work, "member", { Tier, Account, Task: taskSession })
 export const WebLogin = login(Work, "web", [Member])

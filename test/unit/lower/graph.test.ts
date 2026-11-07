@@ -111,6 +111,7 @@ describe("carried state columns (shapes/attach-recursive/carried.ts)", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/lower/graph/carried",
 						draw: drawn(recursiveCaseGen({ ...defaultRecursiveLimits, consumers: ["state"] })),
 						literal: Formatter.format,
@@ -427,6 +428,8 @@ describe("proved root pushdown (graph.seedPushdown)", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/lower/graph/pushdown",
 						generator: (source) =>
 							[
@@ -492,6 +495,7 @@ describe("proved root pushdown (graph.seedPushdown)", () => {
 				Effect.andThen(
 					explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "unit/lower/graph/origin-filter",
 							draw: originFilterCases.draw,
 							kept: [...originFilterCases.kept, restatedRoots],
@@ -531,6 +535,7 @@ describe("proved root pushdown (graph.seedPushdown)", () => {
 					),
 					explore(
 						{
+							oracle: { kind: "unstated" },
 							/**
 							 * Planted: walks read by a minimum length, which the forms and consumers drawn freely pair about one
 							 * case in fifteen, so one drawn case in four pairs them.

@@ -335,6 +335,7 @@ describe("admitValue", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/values/admission",
 						draw: drawn(
 							oneOf(
@@ -477,6 +478,7 @@ describe("factIdentity", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/values/fact-identity",
 						draw: drawn((source) => ({
 							fact: source.draw(factGen),
@@ -550,6 +552,7 @@ describe("factIdentity", () => {
 				const values = new Map(Rec.toEntries(fact))
 				return yield* explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/values/identity-1",
 						/** Every order of the fact's keys: a subarray of them all. */
 						draw: drawn(
@@ -611,6 +614,7 @@ describe("factIdentity", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/values/fact-refusals",
 						draw: drawn((source) => ({
 							fact: source.draw(factGen),

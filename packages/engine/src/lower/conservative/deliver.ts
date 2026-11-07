@@ -17,6 +17,7 @@ import {
 	StatementParams
 } from "#compiler/lower/conservative/context.ts"
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
+import { bindLaterally } from "#compiler/lower/conservative/expr/lateral.ts"
 import { refineConservative } from "#compiler/lower/conservative/refined.ts"
 import { completedOrderItems } from "#compiler/lower/conservative/take/order.ts"
 import {
@@ -477,7 +478,10 @@ export class Delivery<Own extends PageParamSlot = never> {
 	): ConservativeStatement<DeclaredParamSlot | Own> {
 		const output = statementOutput(statement.role, rows, [])
 		const renamed = renameToPublicHeading(
-			refineConservative(this.cx, query, output.heading, rows.length === 0),
+			bindLaterally(
+				refineConservative(this.cx, query, output.heading, rows.length === 0),
+				this.cx.supply
+			),
 			output.names
 		)
 		if (!renamed.ok) {

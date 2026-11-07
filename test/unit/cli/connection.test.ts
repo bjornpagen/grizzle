@@ -298,6 +298,7 @@ describe("the configuration's connection, generated", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/cli/connection-agreement",
 					draw: drawn(drawnGen),
 					literal: Formatter.format,
@@ -330,6 +331,7 @@ describe("the configuration's connection, generated", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/cli/connection-role-faults",
 						draw: drawn((source) => [source.draw(drawnGen), source.draw(roleFaultGen)] as const),
 						literal: Formatter.format,
@@ -369,6 +371,7 @@ describe("the migration's process environment, generated", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/cli/owner-environment",
 						draw: drawn((source): OwnerEnvironment => ({
 							PGOPTIONS: source.draw(variableGen),

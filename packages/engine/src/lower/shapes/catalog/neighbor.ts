@@ -45,10 +45,6 @@ import {
 } from "#compiler/lower/shapes/catalog/exprs.ts"
 import { lexicographicOrder } from "#compiler/lower/shapes/catalog/lexicographic.ts"
 import {
-	keysOfRows,
-	metaWithKeys,
-	plainKeys,
-	type RowKeys,
 	type OrderKeyOf,
 	restrict,
 	runningFrame,
@@ -601,7 +597,6 @@ const successorRows = (
 	readonly lead: ReadonlyMap<string, string>
 	readonly nodes: ReadonlyArray<Cell>
 } => {
-	const keys = keysOfRows(t.q.current)
 	const delivered = [
 		...new Set([...t.columns.values()].flatMap((c) => (c.kind === "own" ? [c.column] : [])))
 	].filter((c) => !t.group.some((g) => g.q === c))
@@ -634,7 +629,7 @@ const successorRows = (
 		rule: "R27" as const,
 		stem: "__has_next"
 	}
-	const chain = windowChain(cx, t.q, partition, order, [...leadSpecs, presence], keys)
+	const chain = windowChain(cx, t.q, partition, order, [...leadSpecs, presence])
 	const presenceOut = required(chain.outs[chain.outs.length - 1], "the presence window's output")
 	const rows = cx.ed.node({
 		kind: "Filter",
@@ -646,7 +641,7 @@ const successorRows = (
 			litExpr(cx.ed, { kind: "int", value: 1n }, plain.int8)
 		),
 		heading: headingOf(chain.last),
-		meta: metaWithKeys(keys),
+		meta: conservativeMeta,
 		loc: undefined
 	})
 	const lead = new Map(
@@ -724,7 +719,6 @@ const carriedParents = (
 			readonly rank: string
 		}
 		readonly delivered: ReadonlyArray<string>
-		readonly keys: RowKeys
 	}
 ): { readonly rows: Cell; readonly field: ReadonlyMap<string, string> } => {
 	const ed = cx.ed
@@ -781,7 +775,7 @@ const carriedParents = (
 			name: n,
 			type: required(vars.get(n), `the variable ${n}`).type
 		})),
-		meta: metaWithKeys(spec.keys),
+		meta: conservativeMeta,
 		loc: undefined
 	})
 	return { rows, field }
@@ -797,15 +791,16 @@ const numberedParents = (
 	parentRows: Cell
 ): { readonly rows: Cell; readonly position: string; readonly nodes: ReadonlyArray<Cell> } => {
 	const source = parentRows.current
-	const keys = keysOfRows(source)
 	const ordered = required(
-		keys.keys.find(
-			(k) =>
-				k.length > 0 &&
-				k.every(
-					(c) => source.heading.find((h) => h.name === c)?.type.caps.includes("ordering") === true
-				)
-		),
+		cx
+			.keysOf(parentRows)
+			.find(
+				(k) =>
+					k.length > 0 &&
+					k.every(
+						(c) => source.heading.find((h) => h.name === c)?.type.caps.includes("ordering") === true
+					)
+			),
 		"parent rows with a key of ordered columns"
 	)
 	const numbered = windowChain(
@@ -824,8 +819,7 @@ const numberedParents = (
 				rule: "R42",
 				stem: "__p_pos"
 			}
-		],
-		keys
+		]
 	)
 	return {
 		rows: numbered.last,
@@ -859,7 +853,6 @@ const asOfPass = (
 	readonly nodes: ReadonlyArray<Cell>
 } => {
 	const ed = cx.ed
-	const qKeys = keysOfRows(t.q.current)
 	const nodes: Array<Cell> = []
 	const numbered = carry ? numberedParents(cx, parentRows) : undefined
 	if (numbered !== undefined) {
@@ -884,8 +877,7 @@ const asOfPass = (
 		cx,
 		t.q,
 		t.qConstants,
-		t.qConditions.map((c) => rebase(ed, c, qRef(t.q))),
-		qKeys
+		t.qConditions.map((c) => rebase(ed, c, qRef(t.q)))
 	)
 	if (qf !== t.q) {
 		nodes.push(qf)
@@ -912,8 +904,7 @@ const asOfPass = (
 				rule: "R42",
 				stem: "__q_rank"
 			}
-		],
-		qKeys
+		]
 	)
 	appendAll(nodes, ranked.nodes)
 	const qr = ranked.last
@@ -963,7 +954,7 @@ const asOfPass = (
 			{ name: rank, expr: colExpr(ed, qr, qRank, plain.int8) }
 		],
 		heading,
-		meta: metaWithKeys(plainKeys([[...g, rank]])),
+		meta: conservativeMeta,
 		loc: undefined
 	})
 	const pCols = [...gs, ...ks].map((x) => ({ name: x.name, column: parentColumn(x.parent) }))
@@ -985,7 +976,7 @@ const asOfPass = (
 			}
 		],
 		heading,
-		meta: metaWithKeys(plainKeys(numbered === undefined ? [[...g, ...k]] : [[rank]])),
+		meta: conservativeMeta,
 		loc: undefined
 	})
 	const union = ed.node({
@@ -1031,8 +1022,7 @@ const asOfPass = (
 				rule: "R42",
 				stem: "carried"
 			}
-		],
-		plainKeys([[...g, ...k, side, rank]])
+		]
 	)
 	appendAll(nodes, carried.nodes)
 	const w = carried.last
@@ -1055,7 +1045,7 @@ const asOfPass = (
 			)
 		]),
 		heading: headingOf(w),
-		meta: metaWithKeys(plainKeys(numbered === undefined ? [[...g, ...k]] : [[rank]])),
+		meta: conservativeMeta,
 		loc: undefined
 	})
 	nodes.push(parents)
@@ -1068,8 +1058,7 @@ const asOfPass = (
 			parents: numbered,
 			window: { rows: parents, group: g, rank, carried: carriedOut },
 			q: { rows: qr, group, rank: qRank },
-			delivered,
-			keys: keysOfRows(parentRows.current)
+			delivered
 		})
 		nodes.push(final.rows)
 		return { rows: final.rows, groupColumn: [], comparedColumn: [], field: final.field, nodes }
@@ -1116,7 +1105,7 @@ const asOfPass = (
 			name: n,
 			type: required(vars.get(n), `the variable ${n}`).type
 		})),
-		meta: metaWithKeys(plainKeys([[...g, ...k]])),
+		meta: conservativeMeta,
 		loc: undefined
 	})
 	nodes.push(a)

@@ -35,6 +35,7 @@ describe("scanners that replace a RegExp under src", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/deps/scanners-1",
 						draw: drawn(texts),
 						literal: Formatter.format,
@@ -62,6 +63,7 @@ describe("scanners that replace a RegExp under src", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/deps/scanners-2",
 						draw: drawn(textOf("09AZaz_ ٠", 7)),
 						literal: Formatter.format,

@@ -6,20 +6,10 @@ import type { Grounds } from "#compiler/ir/evidence.ts"
 import type { ColumnRef, ScalarExpr } from "#compiler/ir/expr.ts"
 import { integerLiteral, OpId, sortedOps } from "#compiler/ir/expr.ts"
 import {
-	type ClassMember,
-	claimedColumns,
-	claimedMembers,
-	rewriteClaim
-} from "#compiler/ir/keys.ts"
-
-import {
 	type Cell,
 	conservativeMeta,
-	type EditNode,
 	type EditRefs,
-	type KeySet,
 	type KindOver,
-	type MetaSpec,
 	type WindowFn,
 	type WindowFrame
 } from "#compiler/ir/rel.ts"
@@ -266,48 +256,12 @@ const sameConstant = (x: ScalarExpr, y: ScalarExpr): boolean => {
 	return false
 }
 
-/**
- * Keys a rewrite claims of a node it builds, over the classes of equal columns of its rows: a member stands for the key
- * column it names in each key holding that column.
- */
-export interface RowKeys {
-	readonly keys: ReadonlyArray<KeySet>
-	readonly members: ReadonlyArray<ClassMember>
-}
-
-/** Keys of rows of no class of several columns. */
-export const plainKeys = (keys: ReadonlyArray<KeySet>): RowKeys => ({ keys, members: [] })
-
-/**
- * The keys a new node over `source`'s rows keeps, as the rewrite claims them of it: the source's own (a Filter and a
- * Window keep their input's), with their classes' members, a stored relation's declared keys.
- */
-export const keysOfRows = (source: EditNode): RowKeys =>
-	source.kind === "Base"
-		? plainKeys([source.primaryKey, ...source.keys])
-		: {
-				keys: source.meta.logicalKeys.map(claimedColumns),
-				members: source.meta.logicalKeys.flatMap(claimedMembers)
-			}
-
-/** The metadata of a node a rewrite builds, claiming `rows`' keys of it by construction, each once. */
-export const metaWithKeys = (rows: RowKeys): MetaSpec => {
-	const distinct: Array<KeySet> = []
-	for (const k of rows.keys) {
-		if (!distinct.some((d) => d.length === k.length && d.every((c) => k.includes(c)))) {
-			distinct.push(k)
-		}
-	}
-	return { ...conservativeMeta, logicalKeys: distinct.map((k) => rewriteClaim(k, rows.members)) }
-}
-
 /** A Filter over `input` restricting `column = expr` for each constant, plus `conditions` already over its columns. */
 export const restrict = (
 	cx: CatalogContext,
 	input: Cell,
 	constants: ReadonlyArray<{ readonly column: string; readonly expr: ScalarExpr }>,
-	conditions: ReadonlyArray<ScalarExpr>,
-	keys: RowKeys
+	conditions: ReadonlyArray<ScalarExpr>
 ): Cell => {
 	if (constants.length === 0 && conditions.length === 0) {
 		return input
@@ -325,7 +279,7 @@ export const restrict = (
 		input,
 		pred: andExpr(cx.ed, [...preds, ...conditions]),
 		heading,
-		meta: metaWithKeys(keys),
+		meta: conservativeMeta,
 		loc: undefined
 	})
 }
@@ -349,8 +303,7 @@ export const windowChain = (
 	input: Cell,
 	partition: ReadonlyArray<string>,
 	order: ReadonlyArray<OrderKeyOf>,
-	specs: ReadonlyArray<WindowSpecOf>,
-	keys: RowKeys
+	specs: ReadonlyArray<WindowSpecOf>
 ): {
 	readonly last: Cell
 	readonly outs: ReadonlyArray<string>
@@ -365,7 +318,6 @@ export const windowChain = (
 			heading.map((h) => h.name),
 			spec.stem
 		)
-		const extra: Array<KeySet> = spec.fn === "rowNumber" ? [[...partition, out]] : []
 		const id = cx.ed.node({
 			kind: "Window",
 			input: current,
@@ -379,7 +331,7 @@ export const windowChain = (
 			out,
 			rule: spec.rule,
 			heading: [...heading, { name: out, type: spec.type }],
-			meta: metaWithKeys({ keys: [...keys.keys, ...extra], members: keys.members }),
+			meta: conservativeMeta,
 			loc: undefined
 		})
 		outs.push(out)
@@ -414,7 +366,6 @@ const rewriteSelfMatch = (
 	m: SelfMatch
 ): { readonly rules: ReadonlyArray<CatalogRule>; readonly outputs: ReadonlyArray<NodeId> } => {
 	const group = m.group.node
-	const keys = keysOfRows(m.source.current)
 	/** Second-occurrence and group fields, as source columns of the window's input. */
 	const toSource =
 		(input: Cell) =>
@@ -425,7 +376,7 @@ const rewriteSelfMatch = (
 			const c = m.secondColumn.get(ref.name)
 			return c === undefined ? undefined : { node: input.id, name: c }
 		}
-	const pre = restrict(cx, m.source, m.shared, [], keys)
+	const pre = restrict(cx, m.source, m.shared, [])
 	/** `cast`: the window counts in bigint, and the fold's own type is another one. */
 	const specs: Array<WindowSpecOf & { readonly agg: string; readonly cast: boolean }> = []
 	for (const agg of group.aggs) {
@@ -505,7 +456,7 @@ const rewriteSelfMatch = (
 		})
 	}
 	demand(specs.length > 0, "a fold to rewrite")
-	const chain = windowChain(cx, pre, m.partition, m.order, specs, keys)
+	const chain = windowChain(cx, pre, m.partition, m.order, specs)
 	/** First-occurrence conditions, over the chain's columns. */
 	const last = chain.last
 	const firstRef = (ref: ColumnRef): ColumnRef | undefined => {
@@ -516,7 +467,7 @@ const rewriteSelfMatch = (
 		return c === undefined ? undefined : { node: last.id, name: c }
 	}
 	const conditions = m.firstConditions.map((c) => rebase(cx.ed, c, firstRef))
-	const post = restrict(cx, last, m.firstConstants, conditions, keys)
+	const post = restrict(cx, last, m.firstConstants, conditions)
 	const postHeading = post.current.heading
 	const out = group.heading.map((h) => {
 		const window = [...specs.entries()].find(([, spec]) => spec.agg === h.name)

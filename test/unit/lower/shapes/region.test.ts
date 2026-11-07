@@ -207,6 +207,7 @@ describe("a region past the collapse limit is an explicit JOIN chain", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/lower/region-chain",
 						literal: Formatter.format,
 						kept: keptPaths,

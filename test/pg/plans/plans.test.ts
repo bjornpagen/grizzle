@@ -462,6 +462,7 @@ layer(Substrate.layer)("plan properties of the optimized lowering", (it) => {
 					const entry = relation("Entry")
 					return yield* explore(
 						{
+							oracle: { kind: "unstated" },
 							/** R20: rows read proportional to parents times k, take(2) and at most one more row per parent. */
 							suite: "pg/plans/lateral-take",
 							/** One to eight distinct accounts of the fixture. */
@@ -588,6 +589,7 @@ layer(Substrate.layer)("plan properties of the optimized lowering", (it) => {
 					}
 					return yield* explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "pg/plans/relparam-probe",
 							/** Ids of the fixture's items, repeats included, and ids past it that name no item. */
 							draw: drawn(array(int(0, sizes.items + 999), { min: 1, max: 12 })),
@@ -707,6 +709,7 @@ layer(Substrate.layer)("plan properties of the optimized lowering", (it) => {
 					})
 					return yield* explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "pg/plans/partial-index",
 							draw: drawn(partialCase),
 							literal: Formatter.format,

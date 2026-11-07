@@ -47,26 +47,47 @@ import {
 } from "#adapter/wire/batch.ts"
 import { nameStatements } from "#adapter/wire/naming.ts"
 import type { Session } from "#adapter/wire/session.ts"
-import { encodeFailure, factPlace, slotPlace } from "#compiler/codec/fault.ts"
-import { bindGroups, type Row, type RowDecoder } from "#compiler/core/decoder.ts"
-import { type CompileError, type EncodingFailure } from "#compiler/core/errors.ts"
-import type { FamilyId } from "#compiler/ir/law.ts"
-import type { LiteralBound, ParamDecl } from "#compiler/ir/products.ts"
-import type { Law, Witness } from "#compiler/types/changeset/changeset.ts"
-import type { ParamMap, ParamValue } from "#compiler/types/core/phantom.ts"
-import { inForce } from "#compiler/write/family/order.ts"
-import type { ArtifactStatement, WriteArtifact } from "#compiler/write/program/artifact.ts"
 import {
-	type BoundWrite,
+	type ArtifactStatement,
 	bindWrite,
+	type BoundWrite,
 	type Chunks,
+	type FamilyId,
 	type FamilyRowBound,
-	type Raw
-} from "#compiler/write/program/bind.ts"
-import { interpretRows } from "#compiler/write/program/outcome.ts"
+	hostWitness,
+	inForce,
+	interpretRows,
+	type Law,
+	type Raw,
+	type Refuser,
+	type StatementAt,
+	type Witness,
+	type WriteArtifact
+} from "#compiler/plan/change.ts"
+import {
+	bindGroups,
+	type CompileError,
+	type EncodingFailure,
+	type LiteralBound,
+	type ParamDecl,
+	type ParamMap,
+	type ParamValue,
+	type Row,
+	type RowDecoder
+} from "#compiler/plan/common.ts"
+import { encodeFailure, factPlace, slotPlace } from "#compiler/plan/read.ts"
 
 /** The rows of a statement the flight did not send. */
 const noRows: Raw = []
+
+/**
+ * What a write's failure is classified with: the installation's violation classifier, the layer's, and the host's
+ * witness of a native refusal over the facts this application states (write/program/witness.ts hostWitness).
+ */
+interface WitnessContext {
+	readonly violation: WriteEntry["violation"]
+	readonly witness: (at: StatementAt, refuser: Refuser) => Witness
+}
 
 /**
  * One application's inputs, ready for its transaction: its bound write, and its read-backs' execution inputs, whose
@@ -297,7 +318,7 @@ const statementOrigin = (sent: ReadonlyArray<SentStatement>, index: number): Fai
 const flightFailure = <R>(
 	failure: FlightFailure,
 	sent: ReadonlyArray<SentStatement>,
-	context: { readonly violation: WriteEntry["violation"] }
+	context: WitnessContext
 ): Effect.Effect<ApplyOutcome<R>, ApplyError> => {
 	switch (failure._tag) {
 		case "BatchRefused":
@@ -398,7 +419,10 @@ export const runWrite = <R>(
 	Effect.gen(function* () {
 		const program = entry.program
 		const artifact = program.artifacts[kind]
-		const context = { violation: entry.violation }
+		const context: WitnessContext = {
+			violation: entry.violation,
+			witness: (at, refuser) => hostWitness(program.frontend, inputs.bound.normalized, at, refuser)
+		}
 		const readBackFlights = yield* Effect.mapError(
 			Effect.forEach(reads.runs.runs, (run) => readBackFlight(run, inputs)),
 			inputApplyError

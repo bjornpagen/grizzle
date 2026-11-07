@@ -238,9 +238,10 @@ suite's residual risk. A longer search is a fuzz run, `pnpm fuzz <suite>`.
   with its reason, are the README and SKILL mirror, the published-package gate, the performance gates, the type batch's
   population runners and its cost gates (`testCaseIsSearch.exempt`).
   superlint's `no-case-list` refuses a search whose space is a list of cases: the `generator` of an `exhaust` or the
-  `draw` of an `explore` that is `element` over a list written in those files (an array literal, held by a constant or
-  computed from one by a call, outside the dictionary modules of `noCaseList.dictionaries`), `constant`'s one value, a
-  `map`, `span`, `filter`, `drawn` or `sketched` of one, or a choice among them alone. Whether a drawn record's field
+  `draw` of an `explore` that is `element` over a list written in the tests (an array literal of a test file or of
+  `test/`, held by a constant or computed from one by a call, outside the dictionary modules of
+  `noCaseList.dictionaries`; a list any other module writes is a roster its source declares), `constant`'s one value,
+  a `map`, `span`, `filter`, `drawn` or `sketched` of one, or a choice among them alone. Whether a drawn record's field
   is the verdict a case asserts takes the drawn value's flow through the generators and the property's branches,
   which no syntactic reading decides, so the rule refuses the written list itself: a space is a box its bounds define,
   a dictionary or a roster the source declares. Both rules are pending: the gate leaves them out until the tree's
@@ -355,6 +356,15 @@ Tests that inject such faults are not written.
    (`test/support/substrate/barrier.ts`) or the concurrency driver's, observes a fact (a lock wait in pg_locks, a
    backend gone from pg_stat_activity, a message on the wire) with no deadline; a wait that never ends is a hang, which
    the case's hang guard (`caseHang`) reports.
+
+**A synchronous runaway ends its test process.** Node 26 cannot stop synchronous JavaScript inside a thread without
+aborting the process. Termination, by a `vm` timeout or by the inspector's `Runtime.terminateExecution`, skips the
+`finally` of every async scope it unwinds, and every Effect fiber resume enters one, so Node then finds its async-hook
+stack corrupted. So a case is terminable only with its process. A case that yields is its hang guard's to stop, with
+CaseHung. A case that holds the main thread past the moment its guard would stop it (its hang limit, or its search's cut
+if that comes first) and the watchdog's grace (`WATCHDOG_GRACE_MILLIS`, packages/testing/src/live.ts) ends its process.
+The watchdog prints the case's hang report, with its replay token, on stderr; packages/testing/src/blocking.test.ts
+holds it to that. Replay the token to reproduce the case alone.
 
 **The testing library** (`packages/testing`, `@grizzle/testing`) holds the generic testing primitives on Effect and
 Vitest: a choice-stream engine, where every case is a tape of bounded choices that one generator searches at random,
@@ -491,3 +501,7 @@ text match. A type batch's population judges its requirements on `floorPopulatio
   names that refusal. The README's and `packages/grizzle/skills/grizzle/SKILL.md`'s `ts` blocks are checked code: each
   is mirrored line for line in `test/types/examples/fixtures/readme.ts` or `skill.ts`, which the batch typechecks, and
   `test/types/examples/blocks.test.ts` holds every block to its fixture, so an edit to a block alone fails.
+  Every tsgo check the batch and the scaling tests run is under a stall guard (test/types/batch/compiler.ts). A check
+  whose process tree makes no CPU progress for `stallWindow` fails with CompilerStalled, carrying the goroutine dump
+  tsgo prints on SIGQUIT. The batch's BatchStalled names the program's units, so a stalled compiler fails every check it
+  holds, never hangs it.

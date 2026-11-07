@@ -170,6 +170,7 @@ layer(Layer.merge(Substrate.layer, NodeServices.layer))(
 						}
 						return yield* explore(
 							{
+								oracle: { kind: "unstated" },
 								suite: "pg/adapter/login-environment",
 								draw: drawn(caseGen),
 								literal: Formatter.format,

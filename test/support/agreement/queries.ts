@@ -14,19 +14,23 @@ import {
 } from "effect"
 import { pageRequest } from "#adapter/page/request.ts"
 import { requireGet } from "#compiler/analysis/logical/get.ts"
+import { cursorCodec, cursorTokenMaxLength } from "#compiler/codec/cursor/codec.ts"
 import { catchCompileError } from "#compiler/core/canonical.ts"
 import type { CompileReason } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
-import { type ClaimedKey, claimedColumns, claimedMembers } from "#compiler/ir/keys.ts"
+import { type KeyClasses, type KeyProof, keyFactors } from "#compiler/ir/keys.ts"
 import type { ParamDecl } from "#compiler/ir/products.ts"
 import type { Card } from "#compiler/ir/rel.ts"
+import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { compilePage, statedOrderOf } from "#compiler/lower/shapes/page/compile.ts"
 import { type QueryTemplate, queryInput } from "#compiler/program/compile.ts"
+import { parseSchemaInput } from "#compiler/program/schema.ts"
 import { ALLEN } from "#compiler/public/allen.ts"
 import { pg, uuid, Vector } from "#compiler/public/fields.ts"
-import { queryOver, type QueryValue, varsOver } from "#compiler/query/build/query.ts"
+import { keyLookup } from "#compiler/query/build/key.ts"
+import { isQueryValue, queryOver, type QueryValue, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import type { TypeRefusal } from "#compiler/types/core/phantom.ts"
@@ -38,6 +42,7 @@ import {
 	combinatorCells,
 	scopeCells
 } from "#test/support/agreement/admission.ts"
+import { argumentCells, argumentModule } from "#test/support/agreement/arguments.ts"
 import {
 	columnFacts,
 	groupFields,
@@ -46,18 +51,28 @@ import {
 } from "#test/support/agreement/heading.ts"
 import {
 	Agree,
+	Batch,
+	byOwner,
+	Cell,
 	Cents,
 	Item,
+	ItemTones,
 	Note,
 	Owned,
+	OwnerCounts,
+	Reader,
+	Reporter,
+	Rollup,
 	Slot,
 	Stray,
 	Tag,
 	Tone,
-	Tones
+	Tones,
+	ToneWeight
 } from "#test/support/agreement/schema.ts"
 import { defined } from "#test/support/assert.ts"
-import { compileTemplate, testArtifacts, testCompile } from "#test/support/compile.ts"
+import { codebookFor, compileTemplate, testArtifacts, testCompile } from "#test/support/compile.ts"
+import type { GrizzleErrorTag } from "#test/support/error-tags.ts"
 import { admittedNames, refusedNames } from "#test/support/kernel/dict.ts"
 import { argumentsOf } from "#test/support/list.ts"
 import { messageOf } from "#test/support/message.ts"
@@ -83,16 +98,17 @@ import { messageOf } from "#test/support/message.ts"
  * (Fault): a scope's name drawn from the declared-name dictionary, or left out, or spelled through a `string`; a
  * binding of a name drawn from every relation's fields and a stranger; a match of Stray, which Agree does not hold; a
  * fold whose match keeps the keys it binds as drawn; a second arm of another heading whose fields are named as the
- * first's; a relation parameter of no field; Owned matched unbound; an Allen predicate over a term that is no span; a
- * head's cosine distance from Slot's embedding to a vector of other dimensions, or to an integer, beside the same
- * vector; an Allen predicate, a point's test or a producer over Slot's spans of two endpoint types, beside one of one;
- * r.pack over a drawn variable; a span producer beside a second one or an aggregate; an approximate search ranking by
- * a name drawn among the head's, its distance drawn to a query vector or to a column, or over a head that also counts
- * or produces spans; and a take ordered by a name drawn among the heading's and others. The engine decides each: where it refuses, the
- * program states the refusal its reason is, at the fault's site (refusalOf), under the directive the type-test batch
- * disarms; where it admits, the program states every verdict as for a clean query. A name spelled through a `string`
- * is the one fault no engine sees, since every value a `string` holds at run time is a literal: the types refuse the
- * widening of every name the engine admits, so two scopes never share a type.
+ * first's; a relation parameter of no field, or one taking its heading from Stray; Owned matched unbound; an Allen
+ * predicate over a term that is no span; a head's cosine distance from Slot's embedding to a vector of other
+ * dimensions, or to an integer, beside the same vector; an Allen predicate, a point's test or a producer over Slot's
+ * spans of two endpoint types, beside one of one; r.pack over a drawn variable; a span producer beside a second one
+ * or an aggregate; an approximate search ranking by a name drawn among the head's, its distance drawn to a query
+ * vector or to a column, or over a head that also counts or produces spans; and a take ordered by a name drawn among
+ * the heading's and others. The engine decides each: where it refuses, the program states the refusal its reason is,
+ * at the fault's site (refusalOf), under the directive the type-test batch disarms; where it admits, the program
+ * states every verdict as for a clean query. A name spelled through a `string` is the one fault no engine sees, since
+ * every value a `string` holds at run time is a literal: the types refuse the widening of every name the engine
+ * admits, so two scopes never share a type.
  *
  * Each case first draws a swarm over the constructs (@grizzle/testing/swarm), then its query construct by construct:
  * the swarm turns constructs off for a whole case and thins the rest, so the forms that crowd others out are left out
@@ -120,11 +136,26 @@ import { messageOf } from "#test/support/message.ts"
  * producer and a distance to a query vector, which the search ranks by; its records, parameters and evidence are the
  * engine's, as every query's are.
  *
+ * A rule's sources are Agree's relations, its roster Tone and its closed relation ToneWeight, and Rollup's derived
+ * relations, keyed as their definitions prove; a query matching or negating a derived relation is over Rollup
+ * (schemaOf). Each case reads through the Db of a full role, Reader over Agree or Reporter over Rollup, which reads its
+ * query exactly where the runtime's compilation against the role does (readsThrough): Reporter reads queries over Agree,
+ * and Reader refuses one over Rollup, its get and execute under their directives. Each clean case also states a keyed
+ * get (keyedOf): through a relation's primary key, Item's candidate key, the closed relation's key or the roster's id,
+ * its values named exactly the key's fields, those and one more, all but one, or all but one and one more in its
+ * place, admitted exactly where the names hold the engine's key fields (query/build/key.ts keyLookup), as the runtime
+ * reads them, its row the keyed relation's decoded fact.
+ *
  * A query no take closes and of one heading is also paged (pageOf): ordered by its first head field, as db.page
  * compiles it, its page is of that very ordered query (Page<records, typeof ordered>, whatever the types infer of its
- * parameters on the way), the query unordered is refused a page as the engine reads no stated order of it, and a page
- * request drawn valid, of a shape the runtime refuses, or with an anchor null or undefined is admitted exactly where the
- * runtime's request reader admits it (adapter/page/request.ts pageRequest). An approximate search is no page's.
+ * parameters on the way), its error channel ReadError | CursorError, the query unordered is refused a page as the
+ * engine reads no stated order of it, and a page request drawn valid, of a shape the runtime refuses, or with an anchor
+ * null, undefined or a plain string is admitted exactly where the runtime admits it: its shape where its request reader
+ * does (adapter/page/request.ts pageRequest), and a plain string's anchor where the page's cursor codec decodes it
+ * (adapter/page/template.ts pageRuntimeOf). Each page is also read through a compiled handle of the ordered query,
+ * its type and verdict the same. A cursor anchor is another query's, a module's PageCursor<unknown>, which the types and
+ * the request reader admit and the page's codec refuses by the query it was made for: a declared class, the request's
+ * shape admitted. An approximate search is no page's.
  *
  * The clean program is emitted twice, in the drawn order and in a second drawn order, as two modules, and a third
  * asserts every query's head and keys equal across the two: TypeScript's evaluation of the evidence must not depend on
@@ -167,7 +198,9 @@ export const agreementFeatures = [
 	"handleDiscriminant",
 	"constantAtUnionSource",
 	"relationParam",
+	"rowsRelation",
 	"boundImport",
+	"interiorStage",
 	"aggregate",
 	"groupTerm",
 	"sum",
@@ -191,7 +224,8 @@ export const agreementFeatures = [
 	"cosineVector",
 	"cosineColumns",
 	"vectorHead",
-	"nearest"
+	"nearest",
+	"reporterDb"
 ] as const
 export type AgreementFeature = (typeof agreementFeatures)[number]
 
@@ -208,6 +242,7 @@ export const agreementFaults = [
 	"unkeyedFold",
 	"unionTypes",
 	"emptyRelation",
+	"strayRows",
 	"unboundImport",
 	"allenTerm",
 	"cosineDims",
@@ -242,6 +277,18 @@ export type AgreementNote =
 	| "a distance to a vector parameter"
 	| "a search get proves"
 	| "a contract's span refused against its base's"
+	| "a closed relation matched"
+	| "a roster matched"
+	| "a derived relation's get proved"
+	| "an extension's Db read a base query"
+	| "a base Db refused an extension query"
+	| "a keyed get admitted"
+	| "a keyed get naming a field beside its key admitted"
+	| "a keyed get missing a key field refused"
+	| "a keyed get naming a field in a key field's place refused"
+	| "a keyed get through a candidate key"
+	| "a keyed get of a closed relation"
+	| "a keyed get of a roster"
 
 /** What a faulted case reached: its fault, and whether its site's drawn value was refused or admitted. */
 export type FaultNote = `${Fault} refused` | `${Fault} admitted`
@@ -254,16 +301,21 @@ export const agreementPairs: ReadonlyArray<readonly [AgreementNote, AgreementNot
 	["repeat", "get proved"]
 ]
 
-type Rel = "Item" | "Tag" | "Note" | "Slot"
+type Rel = "Item" | "Tag" | "Note" | "Slot" | "Tone" | "ToneWeight" | "ItemTones" | "OwnerCounts"
+/** Rollup's derived relations, which a query matching or negating one is over Rollup to read. */
+type DerivedRel = "ItemTones" | "OwnerCounts"
 /**
- * A source a rule mints variables over: a relation of Agree, the rule's relation parameter (Rows), the import Owned, or
- * Stray, which Agree does not hold.
+ * A source a rule mints variables over: a relation of Agree, its roster Tone and its closed relation ToneWeight, a
+ * derived relation of Rollup, the rule's relation parameter (Rows), the import Owned, or Stray, which Agree does not
+ * hold.
  */
-type Minted = Rel | "Rows" | "Owned" | "Stray"
+type Minted = Rel | "Rows" | "Owned" | "Stage" | "Stray"
 /** What a match reads: a source of variables, or Tones, the union of Item's facts by tone (./schema.ts). */
 type MatchSource = Minted | "Tones"
-/** The kinds of value a JavaScript value or a contract's typed constant is written for. */
-type LiteralKind = "uuid" | "int" | "code" | "cents"
+/**
+ * The kinds of value a JavaScript value or a contract's typed constant is written for: big is a plain bigint, a count's.
+ */
+type LiteralKind = "uuid" | "int" | "code" | "cents" | "big"
 /** A field's kind: a literal's, a span's of each endpoint type (integer, bigint, Cents) or a vector's. */
 type Kind = LiteralKind | "span" | "bigSpan" | "centsSpan" | "vector"
 
@@ -273,12 +325,14 @@ interface Field {
 	readonly kind: Kind
 }
 
-/** A field of Item or Slot, whose descriptor a parameter is declared at. */
-interface ParamField extends Field {
-	readonly rel: "Item" | "Slot"
+/** A field of Item, Slot or Cell, whose descriptor a parameter is declared at. */
+interface ParamField {
+	readonly rel: "Item" | "Slot" | "Cell"
+	readonly name: string
+	readonly kind: Kind
 }
 
-const itemFields: Arr.NonEmptyReadonlyArray<ParamField> = [
+const itemFields: Arr.NonEmptyReadonlyArray<Field> = [
 	{ rel: "Item", name: "id", kind: "uuid" },
 	{ rel: "Item", name: "owner", kind: "uuid" },
 	{ rel: "Item", name: "n", kind: "int" },
@@ -286,22 +340,36 @@ const itemFields: Arr.NonEmptyReadonlyArray<ParamField> = [
 	{ rel: "Item", name: "tone", kind: "code" },
 	{ rel: "Item", name: "cost", kind: "cents" }
 ]
-const slotFields: Arr.NonEmptyReadonlyArray<ParamField> = [
+const slotFields: Arr.NonEmptyReadonlyArray<Field> = [
 	{ rel: "Slot", name: "item", kind: "uuid" },
 	{ rel: "Slot", name: "during", kind: "span" },
 	{ rel: "Slot", name: "budget", kind: "centsSpan" },
 	{ rel: "Slot", name: "raw", kind: "bigSpan" }
 ]
 /** Slot's vectors, which no binding draws: a distance or a head reads them, through the match of Slot it appends. */
-const embeddingField: ParamField = { rel: "Slot", name: "embedding", kind: "vector" }
-const imageField: ParamField = { rel: "Slot", name: "image", kind: "vector" }
+const embeddingField: Field = { rel: "Slot", name: "embedding", kind: "vector" }
+const imageField: Field = { rel: "Slot", name: "image", kind: "vector" }
 /** Slot's span over integer ticks, the span a point's test reads, and its item. */
-const duringField: ParamField = { rel: "Slot", name: "during", kind: "span" }
-const slotItemField: ParamField = { rel: "Slot", name: "item", kind: "uuid" }
+const duringField: Field = { rel: "Slot", name: "during", kind: "span" }
+const slotItemField: Field = { rel: "Slot", name: "item", kind: "uuid" }
 
 const fieldsOf: { readonly [S in Minted]: Arr.NonEmptyReadonlyArray<Field> } = {
 	Item: itemFields,
 	Slot: slotFields,
+	Tone: [{ rel: "Tone", name: "id", kind: "code" }],
+	ToneWeight: [
+		{ rel: "ToneWeight", name: "tone", kind: "code" },
+		{ rel: "ToneWeight", name: "weight", kind: "cents" }
+	],
+	ItemTones: [
+		{ rel: "ItemTones", name: "id", kind: "uuid" },
+		{ rel: "ItemTones", name: "tone", kind: "code" },
+		{ rel: "ItemTones", name: "owner", kind: "uuid" }
+	],
+	OwnerCounts: [
+		{ rel: "OwnerCounts", name: "owner", kind: "uuid" },
+		{ rel: "OwnerCounts", name: "items", kind: "big" }
+	],
 	Tag: [
 		{ rel: "Tag", name: "item", kind: "uuid" },
 		{ rel: "Tag", name: "label", kind: "int" },
@@ -319,36 +387,56 @@ const fieldsOf: { readonly [S in Minted]: Arr.NonEmptyReadonlyArray<Field> } = {
 		{ rel: "Owned", name: "id", kind: "uuid" },
 		{ rel: "Owned", name: "n", kind: "int" }
 	],
+	Stage: [
+		{ rel: "Stage", name: "id", kind: "uuid" },
+		{ rel: "Stage", name: "n", kind: "int" }
+	],
 	Stray: [
 		{ rel: "Stray", name: "id", kind: "uuid" },
 		{ rel: "Stray", name: "n", kind: "int" }
 	]
 }
-const rels: Arr.NonEmptyReadonlyArray<Rel> = ["Item", "Tag", "Note", "Slot"]
+const rels: Arr.NonEmptyReadonlyArray<Rel> = [
+	"Item",
+	"Tag",
+	"Note",
+	"Slot",
+	"Tone",
+	"ToneWeight",
+	"ItemTones",
+	"OwnerCounts"
+]
 /**
- * Each source's keys, by their fields (./schema.ts): a relation parameter's rows are a set, and so are an import's,
- * each keyed by its whole heading.
+ * Each source's keys, by their fields (./schema.ts): a roster's by its id, a closed relation's and a derived relation's
+ * those their declaration and definition state, a relation parameter's rows are a set, and so are an import's, each
+ * keyed by its whole heading.
  */
 const keysOf: { readonly [S in Minted]: Arr.NonEmptyReadonlyArray<ReadonlyArray<string>> } = {
 	Item: [["id"], ["owner", "n"]],
 	Tag: [["item", "label"]],
 	Note: [["item"]],
 	Slot: [["item", "during"]],
+	Tone: [["id"]],
+	ToneWeight: [["tone"]],
+	ItemTones: [["id"]],
+	OwnerCounts: [["owner"]],
 	Rows: [["id", "n"]],
 	Owned: [["id", "n"]],
+	Stage: [["id", "n"]],
 	Stray: [["id"]]
 }
 const allFields: Arr.NonEmptyReadonlyArray<Field> = Arr.flatMap(rels, (rel) => fieldsOf[rel])
-/** Every field a parameter is declared at. */
+/** Every field a parameter is declared at: Item's, Slot's, and Cell's plain bigint. */
 const declared: Arr.NonEmptyReadonlyArray<ParamField> = [
-	...itemFields,
-	...slotFields,
-	embeddingField,
-	imageField
+	...Arr.map(itemFields, (f): ParamField => ({ rel: "Item", name: f.name, kind: f.kind })),
+	...Arr.map(slotFields, (f): ParamField => ({ rel: "Slot", name: f.name, kind: f.kind })),
+	{ rel: "Slot", name: embeddingField.name, kind: "vector" },
+	{ rel: "Slot", name: imageField.name, kind: "vector" },
+	{ rel: "Cell", name: "bigint", kind: "big" }
 ]
 /**
- * The field a parameter of each kind is declared at, wherever it stands: Item's field of the kind, and Slot's for a span
- * or a vector.
+ * The field a parameter of each kind is declared at, wherever it stands: Item's field of the kind, Slot's for a span or
+ * a vector, and Cell's for a plain bigint.
  */
 const paramField = (kind: Kind): ParamField =>
 	Option.getOrThrowWith(
@@ -361,10 +449,16 @@ const declaredAt = (at: Field): ParamField =>
 		Arr.findFirst(declared, (f) => f.rel === at.rel && f.name === at.name),
 		() => paramField(at.kind)
 	)
+/** Item's field of a kind. */
+const itemField = (kind: Kind): Field =>
+	Option.getOrThrowWith(
+		Arr.findFirst(itemFields, (f) => f.kind === kind),
+		() => new Error(`Item has no ${kind} field`)
+	)
 /** The integer field a parameter compared with a constant is typed by, where the rule binds no variable. */
-const integerField: Field = paramField("int")
+const integerField: Field = itemField("int")
 /** Item.tone, the field a rule's first match binds when it draws a constant of Tone by construction (Anchor). */
-const toneField: Field = paramField("code")
+const toneField: Field = itemField("code")
 /** Whether a kind is a span's. */
 const isSpan = (kind: Kind): boolean =>
 	kind === "span" || kind === "bigSpan" || kind === "centsSpan"
@@ -378,13 +472,19 @@ const relations: { readonly [R in Rel | "Stray" | "Tones"]: unknown } = {
 	Tag,
 	Note,
 	Slot,
+	Tone,
+	ToneWeight,
+	ItemTones,
+	OwnerCounts,
 	Stray,
 	Tones
 }
-const itemDescriptors: Readonly<Record<string, unknown>> = Item.fields
-const slotDescriptors: Readonly<Record<string, unknown>> = Slot.fields
-const descriptorOf = (f: ParamField): unknown =>
-	(f.rel === "Item" ? itemDescriptors : slotDescriptors)[f.name]
+const descriptorsOf: { readonly [R in ParamField["rel"]]: Readonly<Record<string, unknown>> } = {
+	Item: Item.fields,
+	Slot: Slot.fields,
+	Cell: Cell.fields
+}
+const descriptorOf = (f: ParamField): unknown => descriptorsOf[f.rel][f.name]
 
 /**
  * A variable v mints over a source's field, in the scope of the source's `copy`-th match in its rule: a self-join's two
@@ -487,14 +587,31 @@ type Flagged =
 	| { readonly kind: "either"; readonly ifTrue: Pred; readonly ifFalse: Pred }
 	| { readonly kind: "spread"; readonly p: Pred }
 
-/** A rule's relation parameter, which every match of Rows reads: its name and heading. */
-interface RowsDecl {
-	readonly name: string
-	readonly heading: ReadonlyArray<Field>
-}
+/**
+ * A rule's relation parameter, which every match of Rows reads: its name, and its heading, stated as fields, or as a
+ * relation whose heading Rows' fields name, Batch, of Agree, or Stray, which Agree does not hold, where a case plants
+ * that fault (r.relation(name, Relation)).
+ */
+type RowsDecl =
+	| { readonly kind: "fields"; readonly name: string; readonly heading: ReadonlyArray<Field> }
+	| { readonly kind: "relation"; readonly name: string; readonly relation: "Batch" | "Stray" }
+
+/** The fields a relation parameter's heading holds: those it states, or its relation's, which Rows' fields name. */
+const rowsHeading = (rows: RowsDecl): ReadonlyArray<Field> =>
+	rows.kind === "fields" ? rows.heading : fieldsOf.Rows
 
 /** Owned's parameter under one of its matches: bound to a term, or unbound where a case plants that fault. */
 type OwnedBind = { readonly kind: "bound"; readonly owner: Term } | { readonly kind: "unbound" }
+
+/**
+ * An interior stage under one of its matches, the id and n of Item's facts (r.interior): their owner bound to a
+ * parameter the stage declares, which joins the rule's parameters, to a literal, or free. It reads no variable of the
+ * rule, whose stage it is.
+ */
+type StageOwner =
+	| { readonly kind: "param"; readonly name: string }
+	| { readonly kind: "literal"; readonly value: number }
+	| { readonly kind: "free" }
 
 interface RuleSpec {
 	readonly matches: Arr.NonEmptyReadonlyArray<Match>
@@ -506,16 +623,19 @@ interface RuleSpec {
 	readonly rows: RowsDecl | undefined
 	/** Owned's binding under each of its matches, by the match's copy. */
 	readonly owned: ReadonlyArray<OwnedBind>
+	/** Each interior stage's owner, by its match's copy. */
+	readonly stages: ReadonlyArray<StageOwner>
 	/** A scope whose name is written otherwise than as its own literal (scopeOf), by its scope. */
 	readonly spellings: ReadonlyArray<readonly [string, Spelling]>
 }
 
 /**
  * A page request a case states over its ordered query: each control property it holds, by its value. A size is 2; an
- * anchor is a cursor, null or undefined. Each request plants at most one fault: a shape the runtime refuses (both
- * sizes, no size, both anchors, an anchor of the other direction), or an anchor that is no cursor.
+ * anchor is a cursor, null, undefined or a plain string, a `string` no cursor codec made. Each request plants at most
+ * one fault: a shape the runtime refuses (both sizes, no size, both anchors, an anchor of the other direction), or an
+ * anchor that is no cursor.
  */
-type RequestValue = "size" | "cursor" | "null" | "undefined"
+type RequestValue = "size" | "cursor" | "null" | "undefined" | "string"
 type PageRequestSpec = ReadonlyArray<readonly ["first" | "last" | "after" | "before", RequestValue]>
 
 /** One query: its arms (a union when two), the take that closes it, if any, and the fault it plants. */
@@ -535,6 +655,26 @@ interface QuerySpec {
 	readonly request: PageRequestSpec | undefined
 	/** The approximate search that closes the query's arm, before its take, where the query states one. */
 	readonly nearest: Nearest | undefined
+	/** The role whose Db the query's reads go through: the full role over Agree, or over Rollup. */
+	readonly db: "Reader" | "Reporter"
+	/** The keyed get a clean case states beside its query. */
+	readonly keyed: KeyedGet | undefined
+}
+
+/**
+ * A key position a keyed get reads through: a relation's primary key, Item's candidate key byOwner, the closed
+ * relation's key and the roster's id.
+ */
+const keyTargets = ["Item", "Tag", "Note", "Slot", "Cell", "ToneWeight", "Tone", "byOwner"] as const
+type KeyTarget = (typeof keyTargets)[number]
+
+/**
+ * A keyed get: its key position, and its values' names, the key's fields, those and one name more, all but one of them,
+ * or all but one and one name more in its place.
+ */
+interface KeyedGet {
+	readonly target: KeyTarget
+	readonly shape: "key" | "beside" | "short" | "instead"
 }
 
 /** An approximate search: the head field it ranks by and the facts it takes. */
@@ -597,10 +737,15 @@ class Drawing {
 		return this.#source.draw(element(options))
 	}
 
-	param(at: Field): Term {
+	/** A parameter name no other draw of the query takes. */
+	paramName(): string {
 		const name = `p${this.#params}`
 		this.#params += 1
-		return { kind: "param", name, at: declaredAt(at) }
+		return name
+	}
+
+	param(at: Field): Term {
+		return { kind: "param", name: this.paramName(), at: declaredAt(at) }
 	}
 }
 
@@ -635,6 +780,7 @@ const literalForms = (d: Drawing, kind: Kind): ReadonlyArray<Form<Term>> => {
 		case "int":
 		case "code":
 		case "cents":
+		case "big":
 			return [["literal", () => literalOf(d, kind)]]
 		case "span":
 		case "bigSpan":
@@ -665,6 +811,7 @@ const inputOf = (d: Drawing, at: Field): Term => {
 			return d.choose([...plain, ["constantFilter", () => handleOf(d)]])
 		case "uuid":
 		case "cents":
+		case "big":
 		case "span":
 		case "bigSpan":
 		case "centsSpan":
@@ -912,6 +1059,7 @@ interface Further {
 	readonly bound: ReadonlyArray<Var>
 	readonly rows: RowsDecl | undefined
 	readonly owned: ReadonlyArray<OwnedBind>
+	readonly stages: ReadonlyArray<StageOwner>
 }
 
 const furtherMatches = (
@@ -920,12 +1068,15 @@ const furtherMatches = (
 	bound: ReadonlyArray<Var>,
 	rowsName: string
 ): Further => {
-	const rows = d.fault === "emptyRelation" ? false : d.keep("relationParam")
+	const rows =
+		d.fault === "emptyRelation" || d.fault === "strayRows" ? false : d.keep("relationParam")
 	const owned = d.fault === "unboundImport" || d.keep("boundImport")
+	const staged = d.keep("interiorStage")
 	const stray = d.fault === "stray"
 	const sources: ReadonlyArray<MatchSource> = [
-		...(rows || d.fault === "emptyRelation" ? ["Rows" as const] : []),
+		...(rows || d.fault === "emptyRelation" || d.fault === "strayRows" ? ["Rows" as const] : []),
 		...(owned ? ["Owned" as const] : []),
+		...(staged ? ["Stage" as const] : []),
 		...(stray ? ["Stray" as const] : [])
 	]
 	const start: Further = {
@@ -933,11 +1084,16 @@ const furtherMatches = (
 		bound,
 		rows:
 			d.fault === "emptyRelation"
-				? { name: rowsName, heading: [] }
-				: rows
-					? { name: rowsName, heading: fieldsOf.Rows }
-					: undefined,
-		owned: []
+				? { kind: "fields", name: rowsName, heading: [] }
+				: d.fault === "strayRows"
+					? { kind: "relation", name: rowsName, relation: "Stray" }
+					: rows
+						? d.keep("rowsRelation")
+							? { kind: "relation", name: rowsName, relation: "Batch" }
+							: { kind: "fields", name: rowsName, heading: fieldsOf.Rows }
+						: undefined,
+		owned: [],
+		stages: []
 	}
 	return Arr.reduce(sources, start, (drawn: Further, source): Further => {
 		const binds: ReadonlyArray<OwnedBind> =
@@ -949,19 +1105,30 @@ const furtherMatches = (
 							: { kind: "bound", owner: ownerOf(d, drawn.bound) }
 					]
 				: drawn.owned
+		const stages: ReadonlyArray<StageOwner> =
+			source === "Stage" ? [...drawn.stages, stageOwnerOf(d)] : drawn.stages
 		const minted: Minted = source === "Tones" ? "Item" : source
 		const copy = nextCopy([...before, ...drawn.matches], source)
 		const fields =
-			source === "Rows" && drawn.rows !== undefined ? drawn.rows.heading : fieldsOf[minted]
+			source === "Rows" && drawn.rows !== undefined ? rowsHeading(drawn.rows) : fieldsOf[minted]
 		const bindings = bindingsOf(d, fields, copy, drawn.bound, undefined, [])
 		return {
 			matches: [...drawn.matches, { rel: source, copy, bindings: bindings.bindings }],
 			bound: bindings.bound,
 			rows: drawn.rows,
-			owned: binds
+			owned: binds,
+			stages
 		}
 	})
 }
+
+/** An interior stage's owner: a parameter of the stage, a literal, or free. */
+const stageOwnerOf = (d: Drawing): StageOwner =>
+	d.from<() => StageOwner>([
+		() => ({ kind: "param", name: d.paramName() }),
+		() => ({ kind: "literal", value: d.from([0, 1, 2, 3]) }),
+		() => ({ kind: "free" })
+	])()
 
 /**
  * Owned's owner: a uuid variable of the rule bound before it, or a value fixed per binding; never a variable of Owned's
@@ -971,7 +1138,7 @@ const ownerOf = (d: Drawing, bound: ReadonlyArray<Var>): Term => {
 	const uuids = Arr.filter(bound, (b) => b.field.kind === "uuid" && b.field.rel !== "Owned")
 	return Arr.isReadonlyArrayNonEmpty(uuids) && d.from([0, 1]) === 0
 		? varTerm(d.from(uuids))
-		: d.choose(boundInputs(d, paramField("uuid")))
+		: d.choose(boundInputs(d, itemField("uuid")))
 }
 
 /** A drawn rule, and whether it is a pinned self-join, which no union's arm is. */
@@ -995,7 +1162,7 @@ const drawRule = (d: Drawing, prefix: "h" | "g", rowsName: string, search: boole
 	const pinned = second && d.keep("pinnedSelfJoin")
 	const drawn = pinned ? pinnedMatches(d, anchor) : drawnMatches(d, anchor, second)
 	const further = pinned
-		? { matches: [], bound: drawn.bound, rows: undefined, owned: [] }
+		? { matches: [], bound: drawn.bound, rows: undefined, owned: [], stages: [] }
 		: furtherMatches(d, drawn.matches, drawn.bound, rowsName)
 	const plan = planOf(d, search)
 	const slot = slottedOf(d, plan, [...drawn.matches, ...further.matches], further.bound)
@@ -1031,7 +1198,8 @@ const drawRule = (d: Drawing, prefix: "h" | "g", rowsName: string, search: boole
 		drawn.matches,
 		Arr.appendAll(further.matches, Arr.appendAll(slot.matches, atUnion))
 	)
-	const headless = further.rows !== undefined && !Arr.isReadonlyArrayNonEmpty(further.rows.heading)
+	const headless =
+		further.rows !== undefined && !Arr.isReadonlyArrayNonEmpty(rowsHeading(further.rows))
 	const keyed: Arr.NonEmptyReadonlyArray<Match> =
 		folded && d.fault !== "unkeyedFold"
 			? Arr.map(matches, (m) => (m.rel === "Rows" && headless ? m : keyedMatch(m)))
@@ -1044,6 +1212,7 @@ const drawRule = (d: Drawing, prefix: "h" | "g", rowsName: string, search: boole
 		head,
 		rows: further.rows,
 		owned: further.owned,
+		stages: further.stages,
 		spellings: []
 	}
 	return {
@@ -1111,6 +1280,7 @@ const planOf = (d: Drawing, search: boolean): Plan => {
 			case "unkeyedFold":
 			case "unionTypes":
 			case "emptyRelation":
+			case "strayRows":
 			case "unboundImport":
 			case "allenTerm":
 			case "orderHidden":
@@ -1326,7 +1496,7 @@ const extrasOf = (d: Drawing, plan: Plan, slot: Slotted): ReadonlyArray<HeadTerm
 /**
  * The construct spanEndpoints plants over Slot's spans, of three endpoint types: an Allen predicate or a producer over
  * two, or a point's test of an integer in one, which the engine admits exactly where the types meet. The second span is
- * half the time the first's partner, a span over Cents for one over its base bigint and back, the subtle pair, whose
+ * three times in four the first's partner, a span over Cents for one over its base bigint and back, the subtle pair, whose
  * carriers agree and whose brands do not.
  */
 type Endpoint =
@@ -1343,7 +1513,9 @@ const endpointOf = (
 	const partner = Arr.filter(spans, (v) => v.field.kind === partnerKind(first.field.kind))
 	const left = varTerm(first)
 	const right = varTerm(
-		Arr.isReadonlyArrayNonEmpty(partner) && d.from([0, 1]) === 0 ? d.from(partner) : d.from(spans)
+		Arr.isReadonlyArrayNonEmpty(partner) && d.from([0, 1, 2, 3]) !== 0
+			? d.from(partner)
+			: d.from(spans)
 	)
 	switch (d.from(["allen", "pointIn", "intersection", "difference"] as const)) {
 		case "allen":
@@ -1375,6 +1547,7 @@ const partnerKind = (kind: Kind): Kind => {
 		case "int":
 		case "code":
 		case "cents":
+		case "big":
 		case "span":
 		case "vector":
 			return kind
@@ -1453,6 +1626,7 @@ const spelled = (d: Drawing, rule: RuleSpec): RuleSpec => {
 			case "unkeyedFold":
 			case "unionTypes":
 			case "emptyRelation":
+			case "strayRows":
 			case "unboundImport":
 			case "allenTerm":
 			case "cosineDims":
@@ -1678,7 +1852,7 @@ const secondArm = (arm: RuleSpec): RuleSpec => ({ ...arm, ...renamed(arm) })
 
 const renamed = (
 	arm: RuleSpec
-): Pick<RuleSpec, "matches" | "filters" | "flagged" | "head" | "rows" | "owned"> => {
+): Pick<RuleSpec, "matches" | "filters" | "flagged" | "head" | "rows" | "owned" | "stages"> => {
 	const term = (t: Term): Term => {
 		switch (t.kind) {
 			case "param":
@@ -1744,7 +1918,8 @@ const renamed = (
 		rows: arm.rows === undefined ? undefined : { ...arm.rows, name: `${arm.rows.name}b` },
 		owned: Arr.map(arm.owned, (o) =>
 			o.kind === "bound" ? { kind: "bound", owner: term(o.owner) } : o
-		)
+		),
+		stages: Arr.map(arm.stages, (o) => (o.kind === "param" ? { ...o, name: `${o.name}b` } : o))
 	}
 }
 
@@ -1824,7 +1999,15 @@ const drawQuery = (d: Drawing): QuerySpec => {
 			: undefined,
 		fault: d.fault,
 		request: take === undefined && !heterogeneous && !search ? requestOf(d) : undefined,
-		nearest: search ? nearestOf(d, first) : undefined
+		nearest: search ? nearestOf(d, first) : undefined,
+		db: d.keep("reporterDb") ? "Reporter" : "Reader",
+		keyed:
+			d.fault === "clean"
+				? {
+						target: d.from(keyTargets),
+						shape: d.from(["key", "beside", "short", "instead"] as const)
+					}
+				: undefined
 	}
 }
 
@@ -1857,13 +2040,15 @@ const requestOf = (d: Drawing): PageRequestSpec => {
 		[size, "size"],
 		[anchor, value]
 	]
-	switch (d.from(["valid", "valid", "shape", "null", "undefined"] as const)) {
+	switch (d.from(["valid", "valid", "shape", "null", "undefined", "string"] as const)) {
 		case "valid":
 			return d.from([[[size, "size"]], anchored("cursor")] as const)
 		case "null":
 			return anchored("null")
 		case "undefined":
 			return anchored("undefined")
+		case "string":
+			return anchored("string")
 		case "shape":
 			return d.from<PageRequestSpec>([
 				[
@@ -1910,6 +2095,21 @@ const rowsConst = "rowsParam"
 /** The scope Owned's `copy`-th match mints its variables in. */
 const ownedScope = (copy: number): string => scopeOf({ field: fieldsOf.Owned[0], copy })
 
+/** The name the interior stage of a rule's `copy`-th match of Stage is declared under, as a bound Owned's is. */
+const stageConst = (copy: number): string => boundName(scopeOf({ field: fieldsOf.Stage[0], copy }))
+
+/** An interior stage's owner binding in the program, a property of Item's bindings: none where it is free. */
+const stageOwnerText = (owner: StageOwner): string => {
+	switch (owner.kind) {
+		case "param":
+			return ` owner: r.param(${jsonText(owner.name)}, Item.fields.owner),`
+		case "literal":
+			return ` owner: ${jsonText(uuidOf(owner.value))},`
+		case "free":
+			return ""
+	}
+}
+
 /** A line of a rendered query, and whether it is the line its planted fault's diagnostic is on. */
 interface Line {
 	readonly text: string
@@ -1931,9 +2131,16 @@ class Rendering {
 			case "param":
 				return `r.param(${jsonText(t.name)}, ${t.at.rel}.fields.${t.at.name})`
 			case "literal":
-				return t.type === "int"
-					? String(t.value)
-					: jsonText(t.type === "uuid" ? uuidOf(t.value) : toneOf(t.value))
+				switch (t.type) {
+					case "int":
+						return String(t.value)
+					case "big":
+						return `${t.value}n`
+					case "uuid":
+						return jsonText(uuidOf(t.value))
+					case "code":
+						return jsonText(toneOf(t.value))
+				}
 			case "constant":
 				if (t.of === "cents") {
 					return `Compute.literal(Cents, ${t.value}n)`
@@ -2038,8 +2245,8 @@ class Rendering {
 				? []
 				: [
 						{
-							text: `\t\tconst ${rowsConst} = r.relation(${jsonText(arm.rows.name)}, ${this.heading(arm.rows.heading)})`,
-							fault: this.#fault === "emptyRelation"
+							text: `\t\tconst ${rowsConst} = r.relation(${jsonText(arm.rows.name)}, ${arm.rows.kind === "fields" ? this.heading(arm.rows.heading) : arm.rows.relation})`,
+							fault: this.#fault === "emptyRelation" || this.#fault === "strayRows"
 						}
 					]
 		const declare = (vs: ReadonlyArray<Var>): ReadonlyArray<Line> =>
@@ -2057,6 +2264,10 @@ class Rendering {
 					]
 				: []
 		)
+		const stages: ReadonlyArray<Line> = Arr.map(arm.stages, (owner, copy) => ({
+			text: `\t\tconst ${stageConst(copy)} = r.interior((r) => { const inner = v(Item, "inner"); return r.match(Item, { id: inner.id,${stageOwnerText(owner)} n: inner.n }).find({ id: inner.id, n: inner.n }) })`,
+			fault: false
+		}))
 		const returned: Line = {
 			text: `\t\treturn ${body}`,
 			fault: !second && returnFaults.has(this.#fault)
@@ -2064,6 +2275,7 @@ class Rendering {
 		return [
 			{ text: "\t.rule((r) => {", fault: second && this.#fault === "unionTypes" },
 			...rows,
+			...stages,
 			...declare(Arr.filter(variables, (v) => v.field.rel !== "Owned")),
 			...owned,
 			...declare(Arr.filter(variables, (v) => v.field.rel === "Owned")),
@@ -2082,6 +2294,7 @@ class Rendering {
 					return `${f.name}: pg.integer`
 				case "code":
 				case "cents":
+				case "big":
 				case "span":
 				case "bigSpan":
 				case "centsSpan":
@@ -2115,18 +2328,21 @@ class Rendering {
 						},
 						{ text: `\t.take(${jsonText(spec.take)})`, fault: false }
 					]
-		return [{ text: "query(Agree)", fault: false }, ...arms, ...nearest, ...take]
+		return [{ text: `query(${schemaOf(spec)})`, fault: false }, ...arms, ...nearest, ...take]
 	}
 }
 
 /**
  * What a match of `rel` reads in the program, its `copy`-th of it: a relation's name, the rule's declared relation
- * parameter, Owned's binding under that match, or Owned itself where that match leaves it unbound.
+ * parameter, Owned's binding under that match, Owned itself where that match leaves it unbound, or the interior stage
+ * the rule describes for it.
  */
 const sourceText = (rel: MatchSource, copy: number, arm: RuleSpec): string => {
 	switch (rel) {
 		case "Rows":
 			return rowsConst
+		case "Stage":
+			return stageConst(copy)
 		case "Owned": {
 			const bind = arm.owned[copy]
 			return bind === undefined || bind.kind === "unbound" ? "Owned" : boundName(ownedScope(copy))
@@ -2135,6 +2351,10 @@ const sourceText = (rel: MatchSource, copy: number, arm: RuleSpec): string => {
 		case "Tag":
 		case "Note":
 		case "Slot":
+		case "Tone":
+		case "ToneWeight":
+		case "ItemTones":
+		case "OwnerCounts":
 		case "Stray":
 		case "Tones":
 			return rel
@@ -2396,20 +2616,40 @@ const builtArm =
 				? undefined
 				: r.relation(
 						arm.rows.name,
-						Rec.fromEntries(Arr.map(arm.rows.heading, (f) => [f.name, rowsDescriptor(f)] as const))
+						arm.rows.kind === "fields"
+							? Rec.fromEntries(
+									Arr.map(arm.rows.heading, (f) => [f.name, rowsDescriptor(f)] as const)
+								)
+							: arm.rows.relation === "Batch"
+								? Batch
+								: Stray
 					)
+		const stages = Arr.map(arm.stages, (owner) =>
+			r.interior((inner: RuleValue) => {
+				const vars = varsOver(Item, "inner")
+				return inner
+					.match(Item, { id: vars["id"], ...stageOwnerValue(inner, owner), n: vars["n"] })
+					.find({ id: vars["id"], n: vars["n"] })
+			})
+		)
 		const minted = new Map<string, Readonly<Record<string, unknown>>>()
 		const bound = new Map<number, unknown>()
 		const sourceOf = (rel: MatchSource, copy: number): unknown => {
 			switch (rel) {
 				case "Rows":
 					return rows
+				case "Stage":
+					return stages[copy]
 				case "Owned":
 					return bound.get(copy) ?? ownedImport
 				case "Item":
 				case "Tag":
 				case "Note":
 				case "Slot":
+				case "Tone":
+				case "ToneWeight":
+				case "ItemTones":
+				case "OwnerCounts":
 				case "Stray":
 				case "Tones":
 					return relations[rel]
@@ -2436,7 +2676,16 @@ const builtArm =
 				case "param":
 					return r.param(t.name, descriptorOf(t.at))
 				case "literal":
-					return t.type === "int" ? t.value : t.type === "uuid" ? uuidOf(t.value) : toneOf(t.value)
+					switch (t.type) {
+						case "int":
+							return t.value
+						case "big":
+							return BigInt(t.value)
+						case "uuid":
+							return uuidOf(t.value)
+						case "code":
+							return toneOf(t.value)
+					}
 				case "constant":
 					return t.of === "cents"
 						? computeCore.literal(Cents, BigInt(t.value))
@@ -2525,12 +2774,28 @@ const builtArm =
 				Rec.fromEntries(Arr.map(m.bindings, ([f, t]) => [f, term(t)] as const))
 			)
 		)
-		const predicates = Arr.map(arm.filters, pred)
-		const filtered = Arr.isReadonlyArrayNonEmpty(predicates)
-			? matched.where(...argumentsOf(predicates))
-			: matched
+		const filtered = Arr.reduce(
+			Arr.chunksOf(Arr.map(arm.filters, pred), 8),
+			matched,
+			(rule, predicates) => rule.where(...argumentsOf(predicates))
+		)
 		return filtered.find(Rec.fromEntries(Arr.map(arm.head, ([n, h]) => [n, head(h)] as const)))
 	}
+
+/** An interior stage's owner binding through the JavaScript view of its rule `inner`: none where it is free. */
+const stageOwnerValue = (
+	inner: RuleValue,
+	owner: StageOwner
+): Readonly<Record<string, unknown>> => {
+	switch (owner.kind) {
+		case "param":
+			return { owner: inner.param(owner.name, Item.fields.owner) }
+		case "literal":
+			return { owner: uuidOf(owner.value) }
+		case "free":
+			return {}
+	}
+}
 
 /** The name a scope's v call passes: its spelling's literal, or the scope's own name, the value a `string` holds. */
 const scopeName = (spelling: Option.Option<Spelling>, scope: string): string =>
@@ -2545,6 +2810,7 @@ const rowsDescriptor = (f: Field): unknown => {
 			return pg.integer
 		case "code":
 		case "cents":
+		case "big":
 		case "span":
 		case "bigSpan":
 		case "centsSpan":
@@ -2553,10 +2819,43 @@ const rowsDescriptor = (f: Field): unknown => {
 	}
 }
 
+/** Whether a source is one of Rollup's derived relations. */
+const isDerived = (rel: MatchSource): rel is DerivedRel =>
+	rel === "ItemTones" || rel === "OwnerCounts"
+
+/** Whether a predicate negates a derived relation, at any depth of its connectives. */
+const negatesDerived = (p: Pred): boolean => {
+	switch (p.kind) {
+		case "not":
+			return isDerived(p.rel)
+		case "and":
+		case "or":
+			return negatesDerived(p.ps[0]) || negatesDerived(p.ps[1])
+		case "cmp":
+		case "allen":
+		case "pointIn":
+			return false
+	}
+}
+
+/** The schema a query is over: Rollup where an arm matches or negates a derived relation, which only Rollup holds. */
+const schemaOf = (spec: QuerySpec): "Agree" | "Rollup" =>
+	Arr.some(
+		spec.arms,
+		(arm) =>
+			Arr.some(arm.matches, (m) => isDerived(m.rel)) ||
+			Arr.some([...arm.filters, ...flaggedPreds(arm.flagged)], negatesDerived)
+	)
+		? "Rollup"
+		: "Agree"
+
+/** The schema value a query is built over. */
+const schemaValue = (spec: QuerySpec): unknown => (schemaOf(spec) === "Rollup" ? Rollup : Agree)
+
 /** The query a spec states, built through the query builder's JavaScript view, as the engine compiles it. */
 const built = (spec: QuerySpec): QueryValue => {
 	const [first, ...rest] = Arr.map(spec.arms, builtArm)
-	const union = Arr.reduce(rest, queryOver(Agree).rule(first), (q, arm) => q.rule(arm))
+	const union = Arr.reduce(rest, queryOver(schemaValue(spec)).rule(first), (q, arm) => q.rule(arm))
 	const searched =
 		spec.nearest === undefined
 			? union
@@ -2595,6 +2894,11 @@ interface Proved {
 	 * where the query is of one heading group.
 	 */
 	readonly facts: string | undefined
+	/**
+	 * Whether the Db of the case's role reads the query, as the runtime compiles it against the role (program/schema.ts
+	 * levelSchema): a full role reads queries over its schema and over every level below it, and no other.
+	 */
+	readonly reads: boolean
 }
 
 /** The engine's verdicts on a page of a query: the field it orders by, and the runtime's verdict on its request. */
@@ -2620,19 +2924,19 @@ type Verdict =
 	| { readonly kind: "refused"; readonly refused: Refused }
 
 /**
- * A claimed key over its classes, each key column with the columns its members state equal to it, each class in name
- * order, the classes by their first names.
+ * Every key a key proof states, each over its classes: one minimal key of each of its factors (ir/keys.ts keyFactors),
+ * each class its column and the columns its members state equal to it, in name order, the classes by their first
+ * names.
  */
-const classesInNameOrder = (k: ClaimedKey): ReadonlyArray<ReadonlyArray<string>> => {
-	const members = claimedMembers(k)
-	return Arr.sort(
-		Arr.map(claimedColumns(k), (column) =>
-			Arr.sort(
-				[column, ...Arr.flatMap(members, (m) => (m.of === column ? [m.column] : []))],
-				Str.Order
-			)
-		),
-		Arr.makeOrder(Str.Order)
+const keysInNameOrder = (k: KeyProof): ReadonlyArray<ReadonlyArray<ReadonlyArray<string>>> => {
+	const keys = Arr.reduce(keyFactors(k), [[]], (chosen: ReadonlyArray<KeyClasses>, alternatives) =>
+		Arr.flatMap(chosen, (key) => Arr.map(alternatives, (a): KeyClasses => [...key, ...a]))
+	)
+	return Arr.map(keys, (classes) =>
+		Arr.sort(
+			Arr.map(classes, (c) => Arr.sort(c, Str.Order)),
+			Arr.makeOrder(Str.Order)
+		)
 	)
 }
 
@@ -2690,6 +2994,10 @@ const refusalOf = (spec: QuerySpec, reason: CompileReason): Refused | undefined 
 		case "emptyRelation":
 			return malformed && Str.startsWith("r.relation(")(label)
 				? named("TS2345", "a relation parameter has at least one field, as a relation does")
+				: undefined
+		case "strayRows":
+			return malformed && Str.startsWith("r.match(parameter ")(label)
+				? named("TS2345", "the relation is not in this query's schema")
 				: undefined
 		case "unboundImport":
 			return malformed && "path" in reason.at && reason.at.path[0] === "bindings"
@@ -2787,7 +3095,7 @@ const widened: Refused = named("TS2345", "one literal name")
 const headOf = (spec: QuerySpec): string =>
 	Arr.join(
 		Arr.map(spec.arms, (arm) => {
-			const q: QueryValue = queryOver(Agree).rule(builtArm(arm))
+			const q: QueryValue = queryOver(schemaValue(spec)).rule(builtArm(arm))
 			const template = compileTemplate(q, undefined, testCompile)
 			if (!template.ok) {
 				throw new Error(
@@ -2800,7 +3108,10 @@ const headOf = (spec: QuerySpec): string =>
 		" | "
 	)
 
-/** A request's value as the runtime reads it: a size, a cursor's token, null or undefined. */
+/** The plain string a request's anchor is, which no cursor codec made. */
+const plainToken = "not a cursor"
+
+/** A request's value as the runtime reads it: a size, a cursor's token, null, undefined or a plain string. */
 const requestValue = (value: RequestValue): unknown => {
 	switch (value) {
 		case "size":
@@ -2811,18 +3122,26 @@ const requestValue = (value: RequestValue): unknown => {
 			return null
 		case "undefined":
 			return undefined
+		case "string":
+			return plainToken
 	}
 }
 
 /**
- * The refusal the types state of a page request the runtime refuses (adapter/page/request.ts pageRequest): an anchor
- * that is null or no string, which an anchor's property refuses, an explicitly undefined one under
- * exactOptionalPropertyTypes, and any other shape the request's argument refuses.
+ * The refusal the types state of a page request the runtime refuses: of its shape (adapter/page/request.ts
+ * pageRequest), an anchor that is null or no string, which an anchor's property refuses, an explicitly undefined one
+ * under exactOptionalPropertyTypes, and any other shape the request's argument refuses; and of a shape it admits, a
+ * plain string's anchor the page's cursor codec refuses (`decodes`).
  */
-const requestRefusal = (request: PageRequestSpec): Refused | undefined => {
+const requestRefusal = (
+	request: PageRequestSpec,
+	decodes: (token: string) => boolean
+): Refused | undefined => {
 	const value = Rec.fromEntries(Arr.map(request, ([k, v]) => [k, requestValue(v)] as const))
 	if (EffectResult.isSuccess(pageRequest(value))) {
-		return undefined
+		return Arr.some(request, ([, v]) => v === "string") && !decodes(plainToken)
+			? { code: "TS2322", claim: { kind: "prose", reason: "a plain string is no cursor" } }
+			: undefined
 	}
 	const values = Arr.map(request, ([, v]) => v)
 	return Arr.contains(values, "null")
@@ -2847,7 +3166,7 @@ const pageOf = (spec: QuerySpec, request: PageRequestSpec): PageVerdict => {
 			Result.flatMap(
 				compileTemplate(ordered, undefined, { ...testCompile, read: "page" }),
 				(template) =>
-					Result.flatMap(testArtifacts(Agree, testCompile), (artifacts) =>
+					Result.flatMap(testArtifacts(schemaValue(spec), testCompile), (artifacts) =>
 						Result.flatMap(queryInput(ordered), (input) =>
 							Result.flatMap(statedOrderOf(input.desc, SourceLoc("query", [])), (stated) =>
 								compilePage({
@@ -2864,6 +3183,24 @@ const pageOf = (spec: QuerySpec, request: PageRequestSpec): PageVerdict => {
 	if (!paged.ok) {
 		throw new Error(`the engine refuses a page of a drawn query: ${messageOf(paged.error)}`)
 	}
+	const codec = Result.flatMap(
+		Result.flatMap(parseSchemaInput(schemaValue(spec)), (input) =>
+			codebookFor(input, testCompile.codes)
+		),
+		(codes) =>
+			cursorCodec(
+				{
+					query: "the drawn query",
+					comparators: paged.value.comparators,
+					generation: { schema: "the agreement schema", extensions: {} }
+				},
+				cursorTokenMaxLength,
+				codes
+			)
+	)
+	if (!codec.ok) {
+		throw new Error(`the engine makes no cursor codec of a drawn page: ${messageOf(codec.error)}`)
+	}
 	const unordered = Result.flatMap(
 		catchCompileError(() => built(spec)),
 		(q) =>
@@ -2872,7 +3209,7 @@ const pageOf = (spec: QuerySpec, request: PageRequestSpec): PageVerdict => {
 	return {
 		by,
 		request,
-		refused: requestRefusal(request),
+		refused: requestRefusal(request, (token) => codec.value.decode(token).ok),
 		unordered: unordered.ok ? undefined : "page needs an ordered query"
 	}
 }
@@ -2962,14 +3299,149 @@ const verdictOf = (spec: QuerySpec, source: string): Verdict => {
 			card: read.meta.card === "many" && splitPinned ? "atMostOne" : read.meta.card,
 			split: read.meta.card === "many" && splitPinned,
 			readings: meetCard(Arr.map(roots, (root) => root.meta.card)),
-			keys: Arr.map(roots, (root) => Arr.map(root.meta.logicalKeys, classesInNameOrder)),
+			keys: Arr.map(roots, (root) => Arr.flatMap(root.meta.logicalKeys, keysInNameOrder)),
 			head: headOf(variants[0]),
 			facts: Arr.every(spec.arms, (arm) => sameHeadKeys(arm, spec.arms[0]))
 				? recordType(Arr.map(first.heading, (c) => [c.name, columnFacts(c.type)] as const))
 				: undefined,
 			params: paramsType(params),
-			page: spec.request === undefined ? undefined : pageOf(variants[0], spec.request)
+			page: spec.request === undefined ? undefined : pageOf(variants[0], spec.request),
+			reads: readsThrough(spec, failed)
 		}
+	}
+}
+
+/**
+ * Whether the Db of a query's role reads it: the query compiled against the role as the runtime compiles a read, which
+ * refuses a query over no level of the role's schema before any SQL, and compiles any other as over its own schema.
+ */
+const readsThrough = (spec: QuerySpec, failed: (what: string) => never): boolean => {
+	const role = spec.db === "Reader" ? Reader : Reporter
+	const compiled = Result.flatMap(
+		catchCompileError(() => built(spec)),
+		(q) => compileTemplate(q, role, testCompile)
+	)
+	if (compiled.ok) {
+		return true
+	}
+	const reason = compiled.error.reason
+	const label = "at" in reason && "label" in reason.at ? reason.at.label : ""
+	return reason._tag === "MalformedDescription" && label === "compile"
+		? false
+		: failed(`a read through ${spec.db}: ${messageOf(compiled.error)}`)
+}
+
+/** The refusal a get through a Db reading no level of a query's schema names, once its card admits a get. */
+const levelRefusal = "a program over no level of the database's schema"
+
+/**
+ * The engine's verdict on a keyed get: its key position's fields (query/build/key.ts keyLookup), the names its values
+ * state, whether they are exactly the key's, and the record the keyed relation's facts decode to, the keyed lookup's
+ * heading as ./heading.ts writes it.
+ */
+interface KeyedVerdict {
+	readonly target: KeyTarget
+	readonly shape: KeyedGet["shape"]
+	readonly record: string
+	readonly admitted: boolean
+	readonly fact: string
+}
+
+/** The value of each key position, as the program and the engine read it. */
+const keyValues: { readonly [K in KeyTarget]: unknown } = {
+	Item,
+	Tag,
+	Note,
+	Slot,
+	Cell,
+	ToneWeight,
+	Tone,
+	byOwner
+}
+
+/** A value of a key field's type, written in the program: a uuid, an integer, Tone's first member, a span of ticks. */
+const keyValueText = (type: ScalarType): string => {
+	switch (type.carrier) {
+		case "uuid":
+			return jsonText(uuidOf(1))
+		case "int4":
+			return "1"
+		case "code":
+			return jsonText(Arr.getUnsafe(type.roster.handles, 0))
+		case "range4":
+			return "{ start: 0, end: 1 }"
+		case "int2":
+		case "int8":
+		case "numeric":
+		case "float4":
+		case "float8":
+		case "money":
+		case "bool":
+		case "date":
+		case "text":
+		case "bits":
+		case "range8":
+		case "vector":
+		case "exactInteger":
+		case "exactMoney":
+			throw new Error(`no key of the agreement schema has a ${type.carrier} field`)
+	}
+}
+
+/**
+ * A keyed get's verdict: its values named as its shape says, each a value of its field's type, and one name beside the
+ * key a field of the relation outside it or, where it has none, a name no field has; admitted exactly where the names
+ * hold every key field, as the runtime reads them (adapter/reader/params.ts readKeyValues), each key field's value
+ * bound to the keyed lookup's parameter, and any other name read by none.
+ */
+const keyedOf = (k: KeyedGet): KeyedVerdict => {
+	const lookup = keyLookup(Agree, keyValues[k.target])
+	if (lookup === undefined || !isQueryValue(lookup.query)) {
+		throw new Error(`the engine reads no key through ${k.target}`)
+	}
+	const q = lookup.query
+	const template = compileTemplate(q, undefined, testCompile)
+	if (!template.ok) {
+		throw new Error(
+			`the engine refuses the keyed lookup of ${k.target}: ${messageOf(template.error)}`
+		)
+	}
+	const heading = template.value.heading
+	const key = lookup.target.fields
+	const outside = Arr.filter(
+		Arr.map(heading, (c) => c.name),
+		(name) => !Arr.contains(key, name)
+	)
+	const stranger = Arr.isReadonlyArrayNonEmpty(outside) ? outside[0] : "nope"
+	const names = ((): ReadonlyArray<string> => {
+		switch (k.shape) {
+			case "key":
+				return key
+			case "beside":
+				return [...key, stranger]
+			case "short":
+				return key.slice(1)
+			case "instead":
+				return [...key.slice(1), stranger]
+		}
+	})()
+	const valueOf = (name: string): string =>
+		Option.match(
+			Arr.findFirst(heading, (c) => c.name === name),
+			{ onNone: () => "0", onSome: (c) => (Arr.contains(key, name) ? keyValueText(c.type) : "0") }
+		)
+	const keys = defined(q.rows.headings[0], "the keyed lookup's one heading group")
+	return {
+		target: k.target,
+		shape: k.shape,
+		record: Arr.isReadonlyArrayNonEmpty(names)
+			? `{ ${Arr.join(
+					Arr.map(names, (name) => `${name}: ${valueOf(name)}`),
+					", "
+				)} }`
+			: "{}",
+		admitted: Arr.every(key, (field) => Arr.contains(names, field)),
+		fact: recordType(groupFields(keys, q.heading, heading))
 	}
 }
 
@@ -2992,6 +3464,7 @@ interface AgreementCase {
 	readonly lines: Arr.NonEmptyReadonlyArray<Line>
 	readonly source: string
 	readonly verdict: Verdict
+	readonly keyed: KeyedVerdict | undefined
 	readonly notes: ReadonlySet<AgreementNote | FaultNote>
 }
 
@@ -3053,17 +3526,77 @@ const caseOf = ({ spec, reached }: Drawn): AgreementCase => {
 		if (spec.nearest !== undefined && verdict.proved.get) {
 			notes.add("a search get proves")
 		}
+		for (const note of sourceNotes(spec, verdict.proved)) {
+			notes.add(note)
+		}
 	}
 	if (Arr.some(spec.arms, fixedTwice)) {
 		notes.add("a variable two filters fix")
 	}
-	return { spec, lines, source, verdict, notes }
+	const keyed = spec.keyed === undefined ? undefined : keyedOf(spec.keyed)
+	for (const note of keyed === undefined ? [] : keyedNotes(keyed)) {
+		notes.add(note)
+	}
+	return { spec, lines, source, verdict, keyed, notes }
 }
 
 /**
- * What an admitted query's span and vector terms take a parameter at: opposite an Allen predicate or a point's test, as
- * a producer's operand, and as a distance's query vector.
+ * What an admitted query's sources and Db reach: a closed relation and a roster matched, a get proved over a derived
+ * relation, an extension's Db reading a query over its base, and a base Db refusing a query over its extension.
  */
+const sourceNotes = (spec: QuerySpec, proved: Proved): ReadonlyArray<AgreementNote> => {
+	const matched = (rel: MatchSource): boolean =>
+		Arr.some(spec.arms, (arm) => Arr.some(arm.matches, (m) => m.rel === rel))
+	const rollup = schemaOf(spec) === "Rollup"
+	return [
+		...(matched("ToneWeight") ? ["a closed relation matched" as const] : []),
+		...(matched("Tone") ? ["a roster matched" as const] : []),
+		...(rollup && proved.get ? ["a derived relation's get proved" as const] : []),
+		...(!rollup && spec.db === "Reporter" && proved.reads
+			? ["an extension's Db read a base query" as const]
+			: []),
+		...(rollup && spec.db === "Reader" && !proved.reads
+			? ["a base Db refused an extension query" as const]
+			: [])
+	]
+}
+
+/**
+ * What a keyed get reaches: admitted, the kind of key position it reads through, and whether a name beside the key's
+ * rode along; refused, what its values' names break, a key field missing, alone or with a name in its place.
+ */
+const keyedNotes = (k: KeyedVerdict): ReadonlyArray<AgreementNote> => {
+	if (k.admitted) {
+		const admitted: AgreementNote =
+			k.shape === "beside"
+				? "a keyed get naming a field beside its key admitted"
+				: "a keyed get admitted"
+		switch (k.target) {
+			case "byOwner":
+				return [admitted, "a keyed get through a candidate key"]
+			case "ToneWeight":
+				return [admitted, "a keyed get of a closed relation"]
+			case "Tone":
+				return [admitted, "a keyed get of a roster"]
+			case "Item":
+			case "Tag":
+			case "Note":
+			case "Slot":
+			case "Cell":
+				return [admitted]
+		}
+	}
+	switch (k.shape) {
+		case "short":
+			return ["a keyed get missing a key field refused"]
+		case "instead":
+			return ["a keyed get naming a field in a key field's place refused"]
+		case "key":
+		case "beside":
+			return []
+	}
+}
+
 /** Whether a span predicate or producer of an arm relates a span over Cents to a span over its base, bigint. */
 const contractAgainstBase = (arm: RuleSpec): boolean => {
 	const kinds = (a: Term, b: Term): boolean =>
@@ -3077,6 +3610,10 @@ const contractAgainstBase = (arm: RuleSpec): boolean => {
 	)
 }
 
+/**
+ * What an admitted query's span and vector terms take a parameter at: opposite an Allen predicate or a point's test, as
+ * a producer's operand, and as a distance's query vector.
+ */
 const spanNotes = (spec: QuerySpec): ReadonlyArray<AgreementNote> =>
 	Arr.flatMap(spec.arms, (arm) => [
 		...Arr.flatMap(arm.filters, (p): ReadonlyArray<AgreementNote> => {
@@ -3246,6 +3783,7 @@ export interface AgreementEntries {
 	readonly fields: string
 	readonly db: string
 	readonly errors: string
+	readonly plan: string
 	readonly phantom: string
 	readonly page: string
 	readonly allen: string
@@ -3281,6 +3819,7 @@ export const agreementEntriesFrom = (entry: (path: string) => string): Agreement
 	fields: entry("packages/engine/src/public/fields.ts"),
 	db: entry("packages/grizzle/src/adapter/types/db.ts"),
 	errors: entry("packages/grizzle/src/adapter/errors/execution.ts"),
+	plan: entry("packages/engine/src/plan/common.ts"),
 	phantom: entry("packages/engine/src/types/core/phantom.ts"),
 	page: entry("packages/engine/src/types/page/page.ts"),
 	allen: entry("packages/engine/src/public/allen.ts"),
@@ -3334,6 +3873,7 @@ export const agreementModules = (
 			file: "admission.ts",
 			source: admissionModule(entries, cells, combinatorCells(), scopeCells())
 		},
+		{ file: "arguments.ts", source: argumentModule(entries, argumentCells()) },
 		{
 			file: "faults.ts",
 			source: programOf(
@@ -3384,19 +3924,24 @@ const blockOf = (c: AgreementCase, i: number, paged: boolean): ReadonlyArray<str
 			return [
 				`/** The engine refuses the case's ${c.spec.fault}. */`,
 				...Arr.flatMap(lines, (l, j) => (j === at.value ? [directive, l.text] : [l.text])),
+				...keyedLines(c.keyed, i),
 				""
 			]
 		}
 		case "admitted": {
-			const { get, card, readings, keys, head, facts, params, page } = c.verdict.proved
+			const { get, card, readings, keys, head, facts, params, page, reads } = c.verdict.proved
 			const keyed = Arr.map(keys, keysType)
+			const db = `(db: DbOf<typeof ${c.spec.db}, unknown>) => (args: GetArg<typeof q${i}>) =>`
 			return [
-				`/** The engine ${get ? "proves" : "refuses"} get; its card: ${card}${readings === card ? "" : `, and ${readings} under each reading of its flag alone`}; its keys: ${Arr.join(keyed, "; under the other flag, ")}. */`,
+				`/** The engine ${get ? "proves" : "refuses"} get; its card: ${card}${readings === card ? "" : `, and ${readings} under each reading of its flag alone`}; its keys: ${Arr.join(keyed, "; under the other flag, ")}; ${c.spec.db}'s Db ${reads ? "reads" : "refuses"} it. */`,
 				...Arr.map(lines, (l) => l.text),
-				`export const g${i} = (db: DbOf<typeof Reader, unknown>) => (args: GetArg<typeof q${i}>) =>`,
-				...(get ? [] : [`\t// @ts-expect-error -- TS2345 refusal: ${getRefusal}`]),
+				`export const g${i} = ${db}`,
+				...(get && reads
+					? []
+					: [`\t// @ts-expect-error -- TS2345 refusal: ${get ? levelRefusal : getRefusal}`]),
 				`\tdb.get(q${i}, args)`,
-				`export const e${i} = (db: DbOf<typeof Reader, unknown>) => (args: GetArg<typeof q${i}>) =>`,
+				`export const e${i} = ${db}`,
+				...(reads ? [] : [`\t// @ts-expect-error -- TS2345: ${noLevel}`]),
 				`\tdb.execute(q${i}, args)`,
 				...Arr.map(
 					keyed,
@@ -3410,61 +3955,128 @@ const blockOf = (c: AgreementCase, i: number, paged: boolean): ReadonlyArray<str
 					? `export type p${i} = Expect<Equals<keyof ParamsOf<typeof q${i}>, never>>`
 					: `export type p${i} = Expect<Equals<Flat<ParamsOf<typeof q${i}>>, ${params}>>`,
 				`export type c${i} = Expect<Equals<EvidenceOfQuery<typeof q${i}>["card"], ${jsonText(card)}>>`,
-				`export type x${i} = Expect<Equals<ReturnType<ReturnType<typeof e${i}>>, Effect.Effect<QueryResult<${head}>, ReadError>>>`,
-				...(get
+				...(reads
 					? [
-							`export type y${i} = Expect<Equals<ReturnType<ReturnType<typeof g${i}>>, Effect.Effect<Option.Option<${head}>, ReadError>>>`
+							`export type x${i} = Expect<Equals<ReturnType<ReturnType<typeof e${i}>>, Effect.Effect<QueryResult<${head}>, ReadError>>>`,
+							...(get
+								? [
+										`export type y${i} = Expect<Equals<ReturnType<ReturnType<typeof g${i}>>, Effect.Effect<Option.Option<${head}>, ReadError>>>`
+									]
+								: []),
+							...(paged && page !== undefined ? pageLines(i, head, page, c.spec.db) : [])
 						]
 					: []),
-				...(paged && page !== undefined ? pageLines(i, head, page) : []),
+				...keyedLines(c.keyed, i),
 				""
 			]
 		}
 	}
 }
 
+/** The prose of a read refused because its query is over no level of the Db's schema. */
+const noLevel = "a query over no level of the Db's schema"
+
+/**
+ * A case's keyed get, through Reader's Db: its values as a record, under the directive of what the types refuse where
+ * they miss a field of the engine's key, and otherwise its row asserted the keyed relation's decoded fact.
+ */
+const keyedLines = (k: KeyedVerdict | undefined, i: number): ReadonlyArray<string> => {
+	if (k === undefined) {
+		return []
+	}
+	return [
+		`export const kg${i} = (db: DbOf<typeof Reader, unknown>) =>`,
+		...(k.admitted ? [] : ["\t// @ts-expect-error -- TS2345: a keyed get names every key field"]),
+		`\tdb.get(${k.target}, ${k.record})`,
+		...(k.admitted
+			? [
+					`export type kr${i} = Expect<Equals<ReturnType<typeof kg${i}>, Effect.Effect<Option.Option<${k.fact}>, ReadError>>>`
+				]
+			: [])
+	]
+}
+
 /** A page request in the program: its control properties, each a size, the module's cursor, null or undefined. */
 const requestText = (request: PageRequestSpec): string =>
 	Arr.isReadonlyArrayNonEmpty(request)
 		? `{ ${Arr.join(
-				Arr.map(request, ([k, v]) => `${k}: ${v === "size" ? "2" : v}`),
+				Arr.map(request, ([k, v]) => `${k}: ${requestValueText(v)}`),
 				", "
 			)} }`
 		: "{}"
 
+/** A request's value in the program: a size, the module's cursor, null, undefined, or the module's plain string. */
+const requestValueText = (value: RequestValue): string => {
+	switch (value) {
+		case "size":
+			return "2"
+		case "cursor":
+			return "cursor"
+		case "null":
+			return "null"
+		case "undefined":
+			return "undefined"
+		case "string":
+			return "plainToken"
+	}
+}
+
 /**
- * A case's pages: its query ordered by the page's field, a page of it whose type is the page of that very query, and a
- * page under the drawn request, under its refusal's directive where the runtime refuses it.
+ * A case's pages: its query ordered by the page's field, a page of it whose type is the page of that very query with
+ * the error channel ReadError | CursorError, and a page under the drawn request, under its refusal's directive where
+ * the runtime refuses it; each read through db.page and through a handle db.compile compiled of the ordered query.
  */
-const pageLines = (i: number, head: string, page: PageVerdict): ReadonlyArray<string> => [
-	`export const o${i} = q${i}.orderBy([${jsonText(page.by)}, "asc"])`,
-	`export const w${i} = (db: DbOf<typeof Reader, unknown>) => (args: GetArg<typeof q${i}>) => db.page(o${i}, args, { first: 2 })`,
-	`export type s${i} = Expect<Equals<Effect.Success<ReturnType<ReturnType<typeof w${i}>>>, Page<${head}, typeof o${i}>>>`,
-	`export const u${i} = (db: DbOf<typeof Reader, unknown>) => (args: GetArg<typeof q${i}>) =>`,
-	`	db.page(`,
-	`		o${i},`,
-	`		args,`,
-	...(page.refused === undefined
-		? []
-		: [
-				page.refused.claim.kind === "refusal"
-					? `		// @ts-expect-error -- ${page.refused.code} refusal: ${page.refused.claim.refusal}`
-					: `		// @ts-expect-error -- ${page.refused.code}: ${page.refused.claim.reason}`
-			]),
-	`		${requestText(page.request)}`,
-	`	)`,
-	...(page.unordered === undefined
-		? []
-		: [
-				`export const v${i} = (db: DbOf<typeof Reader, unknown>) => (args: GetArg<typeof q${i}>) =>`,
-				`	// @ts-expect-error -- TS2345 refusal: ${page.unordered}`,
-				`	db.page(q${i}, args, { first: 2 })`
-			])
-]
+const pageLines = (
+	i: number,
+	head: string,
+	page: PageVerdict,
+	role: QuerySpec["db"]
+): ReadonlyArray<string> => {
+	const directive =
+		page.refused === undefined
+			? []
+			: [
+					page.refused.claim.kind === "refusal"
+						? `		// @ts-expect-error -- ${page.refused.code} refusal: ${page.refused.claim.refusal}`
+						: `		// @ts-expect-error -- ${page.refused.code}: ${page.refused.claim.reason}`
+				]
+	const paged = `Effect.Effect<Page<${head}, typeof o${i}>, ReadError | CursorError>`
+	return [
+		`export const o${i} = q${i}.orderBy([${jsonText(page.by)}, "asc"])`,
+		`export const w${i} = (db: DbOf<typeof ${role}, unknown>) => (args: GetArg<typeof q${i}>) => db.page(o${i}, args, { first: 2 })`,
+		`export type s${i} = Expect<Equals<ReturnType<ReturnType<typeof w${i}>>, ${paged}>>`,
+		`export const u${i} = (db: DbOf<typeof ${role}, unknown>) => (args: GetArg<typeof q${i}>) =>`,
+		`	db.page(`,
+		`		o${i},`,
+		`		args,`,
+		...directive,
+		`		${requestText(page.request)}`,
+		`	)`,
+		`export const ch${i} = (db: DbOf<typeof ${role}, unknown>) => db.compile(o${i})`,
+		`export const cp${i} = (handle: Effect.Success<ReturnType<typeof ch${i}>>) => (args: GetArg<typeof q${i}>) =>`,
+		`	handle.page(`,
+		`		args,`,
+		...directive,
+		`		${requestText(page.request)}`,
+		`	)`,
+		`export const cf${i} = (handle: Effect.Success<ReturnType<typeof ch${i}>>) => (args: GetArg<typeof q${i}>) => handle.page(args, { first: 2 })`,
+		`export type ct${i} = Expect<Equals<ReturnType<ReturnType<typeof cf${i}>>, ${paged}>>`,
+		...(page.unordered === undefined
+			? []
+			: [
+					`export const v${i} = (db: DbOf<typeof ${role}, unknown>) => (args: GetArg<typeof q${i}>) =>`,
+					`	// @ts-expect-error -- TS2345 refusal: ${page.unordered}`,
+					`	db.page(q${i}, args, { first: 2 })`
+				])
+	]
+}
 
 /** The identifiers a module's body names, which its imports are read off. */
 const identifiers = (body: string): ReadonlySet<string> =>
 	new Set(Str.split(body, regex("[^A-Za-z0-9_$]+")))
+
+/** The error a page's cursor fails with, whose class a page's error channel names. */
+const cursorErrorTag: GrizzleErrorTag = "CursorError"
 
 /** The helpers an assertion of a case's verdicts reads. */
 const assertions: ReadonlyArray<string> = [
@@ -3509,12 +4121,6 @@ const programOf = (
 	const read = identifiers(Arr.join(blocks, "\n"))
 	const body = Arr.join(
 		[
-			...(read.has("Reader")
-				? [
-						"/** The role every drawn get reads through: the whole schema. */",
-						'const Reader = role(Agree, "reader", Agree.relations)'
-					]
-				: []),
 			...(read.has("anyName")
 				? [
 						"/** A scope's name spelled through a string, which the types refuse. */",
@@ -3525,6 +4131,12 @@ const programOf = (
 				? [
 						"/** A cursor of another query, which a page request takes as any query's. */",
 						"declare const cursor: PageCursor<unknown>"
+					]
+				: []),
+			...(read.has("plainToken")
+				? [
+						"/** A plain string no cursor codec made, which no page request takes. */",
+						"declare const plainToken: string"
 					]
 				: []),
 			...(read.has("flag")
@@ -3567,6 +4179,7 @@ const programOf = (
 			),
 			...some(["DbOf", "GetArg", "QueryResult"], entries.db, "import type"),
 			...some(["ReadError"], entries.errors, "import type"),
+			...some([cursorErrorTag], entries.plan, "import type"),
 			...some(
 				["Carriers", "Declares", "Facts", "FactsOf", "Headed", "Rostered"],
 				entries.phantom,
@@ -3575,7 +4188,27 @@ const programOf = (
 			...some(["Page", "PageCursor"], entries.page, "import type"),
 			...some(["role"], entries.declare, "import"),
 			...some(
-				["Agree", "Cents", "Item", "Note", "Owned", "Slot", "Stray", "Tag", "Tone", "Tones"],
+				[
+					"Agree",
+					"Batch",
+					"byOwner",
+					"Cell",
+					"Cents",
+					"Item",
+					"ItemTones",
+					"Note",
+					"Owned",
+					"OwnerCounts",
+					"Reader",
+					"Reporter",
+					"Rollup",
+					"Slot",
+					"Stray",
+					"Tag",
+					"Tone",
+					"Tones",
+					"ToneWeight"
+				],
 				entries.schema,
 				"import"
 			),

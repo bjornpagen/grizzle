@@ -182,6 +182,7 @@ const populationSuite = (runs: number) => (ctx: TestContext) =>
 		ctx,
 		explore(
 			{
+				oracle: { kind: "unstated" },
 				suite: "pg/physical/world-serving",
 				draw: drawn(caseGen),
 				literal: Formatter.format,

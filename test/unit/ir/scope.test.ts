@@ -458,6 +458,7 @@ const withReaders = (d: DagTable, plants: ReadonlyArray<ReaderPlant>): DagTable 
 						child: site.child.id,
 						name: "attached",
 						correlation: [],
+						judged: "array",
 						delivered: "array",
 						order: { keys: [] }
 					}
@@ -578,6 +579,7 @@ const sketchedNode = (
 				child: second ?? first,
 				name: "attached",
 				correlation: [],
+				judged: "array",
 				delivered: "array",
 				order: { keys: [] }
 			}
@@ -804,6 +806,7 @@ describe("a node's scope", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/ir/scope",
 						literal: Formatter.format,
 						draw: drawn(population),

@@ -202,9 +202,6 @@ export interface AnySchema extends Built {
 	readonly statements: ReadonlyArray<Statement>
 }
 
-/** The schema S extends, never for a root schema. */
-export type BaseSchemaOf<S> = S extends Phantom<{ readonly extends: infer B }> ? B : never
-
 /** A derived relation whose definition is a query over one of the levels L. */
 export type DerivedAt<L> = L extends unknown
 	? Derived<string, QueryOver<L> & Headed<Carriers>>

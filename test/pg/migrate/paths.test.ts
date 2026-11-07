@@ -359,6 +359,7 @@ layer(Substrate.layer)("generated migration paths on PostgreSQL", (it) => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "pg/migrate/paths",
 						draw: drawn(pathDrawGen),
 						literal: Formatter.format,
@@ -384,6 +385,7 @@ layer(Substrate.layer)("generated migration paths on PostgreSQL", (it) => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "pg/migrate/intents",
 						draw: drawn(legalIntentSketchGen),
 						literal: Formatter.format,

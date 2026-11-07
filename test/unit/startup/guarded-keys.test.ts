@@ -16,13 +16,13 @@
  *   ready object at each step grew with their number squared: over r relations with no law between them, every table
  *   ready at once, its comparisons at 2r are at most linear's bound over those at r.
  *
- * The boxes are exhausted: k at 6, 8 and 10, and r at 20, 30 and 40, each against twice it.
+ * The boxes are exhausted: k even from 6 to 10, and r from 20 to 40 by tens, each against twice it.
  */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { element } from "@grizzle/testing/gen"
+import { noCoverage } from "@grizzle/testing/features"
+import { int, map } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, FileSystem, Formatter, Layer, Record as Rec } from "effect"
 import { DbLayer } from "#adapter/public/layer.ts"
@@ -140,10 +140,8 @@ const stepsAt = (k: number) =>
 
 const stepNames: ReadonlyArray<keyof Steps> = ["generate", "layer"]
 
-/** The numbers of guarded keys the box holds, each measured against twice it. */
-const ks = [6, 8, 10] as const
-
-type Point = `k=${(typeof ks)[number]}`
+/** The box of guarded keys: k even, from 6 to 10, each measured against twice it. */
+const keysGen = map(int(3, 5), (half) => 2 * half)
 
 layer(NodeServices.layer, { excludeTestServices: true })("guarded keys at startup", (it) => {
 	it.effect(
@@ -153,16 +151,17 @@ layer(NodeServices.layer, { excludeTestServices: true })("guarded keys at startu
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/startup/guarded-keys",
-						generator: element(ks),
+						generator: keysGen,
 						literal: Formatter.format,
-						limit: ks.length,
-						coverage: requiredInSpace<Point>(["k=6", "k=8", "k=10"]),
+						limit: 3,
+						coverage: noCoverage,
 						caseHang
 					},
-					(k, c) =>
+					(k) =>
 						Effect.gen(function* () {
-							c.note(`k=${k}`)
 							const small = yield* stepsAt(k)
 							const large = yield* stepsAt(2 * k)
 							const at = `k at ${k} against ${2 * k}`
@@ -216,10 +215,8 @@ const orderedAt = (r: number) =>
 		return counts.compareKeys
 	})
 
-/** The numbers of relations the order's box holds, each measured against twice it. */
-const rs = [20, 30, 40] as const
-
-type Width = `r=${(typeof rs)[number]}`
+/** The box of relations the order holds: r from 20 to 40 by tens, each measured against twice it. */
+const relationsGen = map(int(2, 4), (tens) => 10 * tens)
 
 layer(NodeServices.layer, { excludeTestServices: true })("the install order", (it) => {
 	it.effect("compares its objects n log n times, linearly in r within the bound", (ctx) =>
@@ -227,16 +224,17 @@ layer(NodeServices.layer, { excludeTestServices: true })("the install order", (i
 			ctx,
 			exhaust(
 				{
+					box: { kind: "unstated" },
+					oracle: { kind: "unstated" },
 					suite: "unit/startup/install-order",
-					generator: element(rs),
+					generator: relationsGen,
 					literal: Formatter.format,
-					limit: rs.length,
-					coverage: requiredInSpace<Width>(["r=20", "r=30", "r=40"]),
+					limit: 3,
+					coverage: noCoverage,
 					caseHang
 				},
-				(r, c) =>
+				(r) =>
 					Effect.gen(function* () {
-						c.note(`r=${r}`)
 						const small = yield* orderedAt(r)
 						const large = yield* orderedAt(2 * r)
 						assert.ok(

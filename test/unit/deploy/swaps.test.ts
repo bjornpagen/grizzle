@@ -325,6 +325,7 @@ describe("keys over a retyped field, and key swaps", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/deploy/swaps",
 						draw: drawn(caseGen),
 						literal: Formatter.format,

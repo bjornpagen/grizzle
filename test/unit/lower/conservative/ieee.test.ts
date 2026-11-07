@@ -233,6 +233,7 @@ describe("IEEE 754 forms", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/lower/conservative/ieee-linear",
 						draw: drawn(caseGen),
 						literal: Formatter.format,

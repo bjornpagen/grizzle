@@ -529,7 +529,7 @@ export const role = <
 const logins = new WeakMap<object, AnyLogin>()
 
 /** The login a role value is in, undefined for a value no login took. */
-export const loginOfRole = (value: unknown): AnyLogin | undefined =>
+const loginOfRole = (value: unknown): AnyLogin | undefined =>
 	hasProperties(value) ? logins.get(value) : undefined
 
 /**

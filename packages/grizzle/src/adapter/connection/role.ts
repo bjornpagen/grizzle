@@ -1,9 +1,7 @@
 import { Result } from "effect"
 import { LoginNameRefused } from "#adapter/errors/failures.ts"
-import { identifierOf } from "#compiler/core/identity.ts"
-import { fittedLogin } from "#compiler/physical/ddl/names.ts"
-import type { SchemaArtifacts } from "#compiler/program/schema.ts"
-import type { OwnedLogin } from "#compiler/schema/own.ts"
+import { fittedLogin } from "#compiler/plan/catalog.ts"
+import { identifierOf, type OwnedLogin, type SchemaArtifacts } from "#compiler/plan/common.ts"
 
 /**
  * The PostgreSQL roles a Db's sessions take.

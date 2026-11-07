@@ -143,7 +143,7 @@ const rowViolations = (
 		if ((law.kind === "key" || law.kind === "spanKey") && law.relation === relation) {
 			return selected(fact, law.selection) &&
 				Arr.some(others, (g) => selected(g, law.selection) && collide(law, fact, g))
-				? [{ law: law.law, immediate: true, violators: violatorsOf(law, [fact]) }]
+				? [{ law: law.law, immediate: true, violators: violatorsOf(law, [fact], host) }]
 				: []
 		}
 		if (law.kind === "check" && law.relation === relation) {

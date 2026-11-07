@@ -63,12 +63,6 @@ const real = plain("real", convertColumn(convertByCarrier.float4({ carrier: "flo
 const money = plain("money", convertColumn(convertByCarrier.money({ carrier: "money" })))
 const boolean = plain("boolean", convertColumn(convertByCarrier.bool({ carrier: "bool" })))
 
-/**
- * PostgreSQL's date, the date contract's base (scalar/date.ts): no field is declared over it bare, since a bare date
- * column holds the infinities and dates past 9999 that no CalendarDate is, so it is no member of the pg namespace.
- */
-export const pgDate = plain("date", convertColumn(convertByCarrier.date({ carrier: "date" })))
-
 const isInteger = (value: unknown): value is number =>
 	typeof value === "number" && Number.isInteger(value)
 

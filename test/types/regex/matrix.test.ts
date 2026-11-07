@@ -144,6 +144,8 @@ layer(NodeServices.layer, { excludeTestServices: true })("ArkRegex inference mat
 			ctx,
 			exhaust(
 				{
+					box: { kind: "unstated" },
+					oracle: { kind: "unstated" },
 					suite: "types/regex matrix",
 					generator: element<Row>(nonEmpty(rows, "the matrix's rows")),
 					literal: (row) => Formatter.format(row.name),

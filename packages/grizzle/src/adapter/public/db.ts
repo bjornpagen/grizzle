@@ -10,17 +10,11 @@ import type { DbOf } from "#adapter/types/db.ts"
  * The cursor pagination types: an application names a Page in its own signatures and
  * turns a cursor string from its caller back into an `after` or `before`. packages/engine/src/types/page holds them.
  */
-export type {
-	Page,
-	PageCursor,
-	PageEdge,
-	PageInfo,
-	PageRequest
-} from "#compiler/types/page/page.ts"
+export type { Page, PageCursor, PageEdge, PageInfo, PageRequest } from "#compiler/plan/read.ts"
 
 import { DbValue } from "#adapter/db/open.ts"
 
-export type { OpenOptions } from "#adapter/types/db.ts"
+export type { NoTokenOptions, OpenOptions, TokenOptions } from "#adapter/types/db.ts"
 
 export const Db: typeof DbValue = DbValue
 export type Db<R, P> = DbOf<R, P>

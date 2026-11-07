@@ -271,6 +271,7 @@ layer(Substrate.layer)("span storage", (it) => {
 					}
 					return yield* explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "spans/storage/shape",
 							draw: drawn(arb),
 							kept: [],
@@ -352,6 +353,7 @@ layer(Substrate.layer)("span storage", (it) => {
 					const arb: Gen<HalfOpen> = (source) => source.draw(placed(source.draw(widths)))
 					return yield* explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "spans/storage/width",
 							draw: drawn(arb),
 							kept: [],
@@ -429,6 +431,7 @@ layer(Substrate.layer)("span storage", (it) => {
 					const arb = spanOf(endpoint)
 					return yield* explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "spans/storage/endpoints",
 							draw: drawn(arb),
 							kept: [],
@@ -516,6 +519,7 @@ layer(Substrate.layer)("span storage", (it) => {
 					})
 					return yield* explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "spans/storage/bound",
 							draw: drawn(arb),
 							kept: [],

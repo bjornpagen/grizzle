@@ -10,7 +10,14 @@ import {
 import { binary64DecimalDigits, binary64Precision, canonicalZero } from "#compiler/ir/carriers.ts"
 import type { ColumnRef, ScalarExpr } from "#compiler/ir/expr.ts"
 import { OpId } from "#compiler/ir/expr.ts"
-import type { Cell, EditRefs, KindOver, OccurrenceOver, VarDecl } from "#compiler/ir/rel.ts"
+import {
+	type Cell,
+	conservativeMeta,
+	type EditRefs,
+	type KindOver,
+	type OccurrenceOver,
+	type VarDecl
+} from "#compiler/ir/rel.ts"
 import { baseOf } from "#compiler/ir/scalar.ts"
 import { conjuncts } from "#compiler/logical/props.ts"
 import {
@@ -36,12 +43,7 @@ import {
 	sameExpr
 } from "#compiler/lower/shapes/catalog/exprs.ts"
 
-import {
-	metaWithKeys,
-	plainKeys,
-	type SelfMatch,
-	selfMatch
-} from "#compiler/lower/shapes/catalog/ordinal.ts"
+import { type SelfMatch, selfMatch } from "#compiler/lower/shapes/catalog/ordinal.ts"
 
 const pageLayout = "https://www.postgresql.org/docs/19/storage-page-layout.html"
 
@@ -536,7 +538,7 @@ export const tryPercentile = (cx: CatalogContext, cell: Cell): PercentileResult 
 			outs,
 			rule: "R29",
 			heading: [...keysHeading, ...outs.map((o) => ({ name: o, type: valueType }))],
-			meta: metaWithKeys(plainKeys([keys])),
+			meta: conservativeMeta,
 			loc: undefined
 		})
 		const out = head.out.map((o) => {
@@ -631,7 +633,7 @@ export const tryPercentile = (cx: CatalogContext, cell: Cell): PercentileResult 
 		outs: [freshColumn(keys, "__p")],
 		rule: "R30",
 		heading: [...keysHeading, { name: freshColumn(keys, "__p"), type: plain.float8 }],
-		meta: metaWithKeys(plainKeys([keys])),
+		meta: conservativeMeta,
 		loc: undefined
 	})
 	const outName = freshColumn(keys, "__p")

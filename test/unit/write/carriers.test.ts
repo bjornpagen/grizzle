@@ -65,6 +65,7 @@ describe("a program's carriers", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/write/carrier-names",
 						literal: Formatter.format,
 						/**

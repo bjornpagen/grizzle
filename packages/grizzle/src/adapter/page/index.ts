@@ -1,8 +1,8 @@
 import type { Effect } from "effect"
 import type { ReadError } from "#adapter/errors/execution.ts"
 import { type PageRun, runPage } from "#adapter/page/page.ts"
-import type { CursorError } from "#compiler/core/errors.ts"
-import type { Page } from "#compiler/types/page/page.ts"
+import type { CursorError } from "#compiler/plan/common.ts"
+import type { Page } from "#compiler/plan/read.ts"
 
 /**
  * The cursor-pagination runtime: QueryReader.page and Compiled.page.

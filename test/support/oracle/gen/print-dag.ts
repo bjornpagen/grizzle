@@ -3,7 +3,6 @@ import { canonicalTag } from "#compiler/core/canonical.ts"
 import { type NodeScope, nodeScopes, postorder, topoOrder } from "#compiler/ir/dag.ts"
 import { decimalPayload } from "#compiler/ir/decimal.ts"
 import { describeOp, exprClosure, type ScalarExpr, type TypedLiteral } from "#compiler/ir/expr.ts"
-import { claimedColumns } from "#compiler/ir/keys.ts"
 import {
 	type CompletedOrder,
 	exprsOf,
@@ -281,7 +280,7 @@ const printMeta = (n: RelNode, scope: NodeScope): string => {
 	if (m.logicalKeys.length > 0) {
 		parts.push(
 			`keys${Arr.join(
-				Arr.map(m.logicalKeys, (k) => list(claimedColumns(k))),
+				Arr.map(m.logicalKeys, (k) => list(k.key)),
 				""
 			)}`
 		)

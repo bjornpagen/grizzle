@@ -37,8 +37,10 @@ const invalid = (body: string, messageId: string, count: number): RuleTester.Inv
 
 tester.run("no-ordered-unordered", plugin.rules["no-ordered-unordered"], {
 	valid: [
-		valid('agree([["set", [...new Set(ids)]], ["list", ids]], set(exact))'),
-		valid('agree([["keys", Object.keys(record)], ["expected", ["a", "b"]]], set(exact))'),
+		valid('agree([["set", [...new Set(ids)]], ["list", ids]], set(structuralHash, exact))'),
+		valid(
+			'agree([["keys", Object.keys(record)], ["expected", ["a", "b"]]], set(structuralHash, exact))'
+		),
 		valid("deepStrictEqual(Arr.sort([...new Set(ids)], Order.Number), [1, 2, 3])"),
 		valid("const items = [1, 2]\ndeepStrictEqual([...items], [1, 2])"),
 		valid("deepStrictEqual(Arr.fromIterable(chunk), [1, 2])"),

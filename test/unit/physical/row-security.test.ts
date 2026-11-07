@@ -313,6 +313,8 @@ describe("row security", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/physical/row-security",
 						generator: pointGen,
 						literal: Formatter.format,

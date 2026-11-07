@@ -181,6 +181,8 @@ describe("every entry point a mask reaches", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/allen/entry-points",
 						generator: given,
 						literal: Formatter.format,

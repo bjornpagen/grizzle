@@ -51,6 +51,7 @@ describe("utf8", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/core/utf8-well-formed",
 						draw: drawn(
 							string(
@@ -88,6 +89,7 @@ describe("utf8", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/core/utf8-generalized",
 						draw: drawn(utf16),
 						literal: Formatter.format,
@@ -117,6 +119,7 @@ describe("sha256Hex", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/core/sha256-text",
 					draw: drawn(utf16),
 					literal: Formatter.format,

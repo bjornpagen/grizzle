@@ -495,6 +495,7 @@ layer(Substrate.layer)("aggregates against the exact reference on PostgreSQL 19"
 						})
 					return yield* explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "pg/compute/accumulation",
 							draw: drawn(caseGen),
 							literal: Formatter.format,

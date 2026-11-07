@@ -304,6 +304,8 @@ describe("a flight", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/adapter/flight-small",
 						generator: smallCases,
 						literal: Formatter.format,
@@ -324,6 +326,7 @@ describe("a flight", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/adapter/flight",
 					draw: drawn(caseGen(space)),
 					literal: Formatter.format,
@@ -476,6 +479,7 @@ describe("joined flights", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/adapter/batch-2",
 						draw: drawn(array(int(0, 3), { min: 0, max: 5 })),
 						literal: Formatter.format,

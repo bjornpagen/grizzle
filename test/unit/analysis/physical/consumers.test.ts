@@ -59,6 +59,7 @@ describe("the observation ends of a node", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/analysis/physical/observation-ends",
 					draw: drawn(queryCaseGen(defaultGenConfig)),
 					literal: Formatter.format,

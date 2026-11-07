@@ -104,6 +104,7 @@ layer(Substrate.layer)("numeric agreement with PostgreSQL", (it) => {
 				const db = yield* session(ownerSession())
 				return yield* explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "pg/values/numeric/parse",
 						draw: drawn(caseBatch),
 						literal: Formatter.format,
@@ -142,6 +143,7 @@ layer(Substrate.layer)("numeric agreement with PostgreSQL", (it) => {
 					const db = yield* session(ownerSession())
 					return yield* explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "pg/values/numeric/coercion",
 							draw: drawn(caseBatch),
 							literal: Formatter.format,
@@ -224,6 +226,7 @@ layer(Substrate.layer)("numeric agreement with PostgreSQL", (it) => {
 				])
 				return yield* explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "pg/values/numeric/order",
 						draw: drawn(array(value, { min: 1, max: 3000 })),
 						literal: Formatter.format,

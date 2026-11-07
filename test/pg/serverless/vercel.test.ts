@@ -132,6 +132,8 @@ layer(Substrate.layer, { excludeTestServices: true })("the session pool on Verce
 					})
 					const exhausted = yield* exhaust(
 						{
+							box: { kind: "unstated" },
+							oracle: { kind: "unstated" },
 							/**
 							 * Vercel warns ("Pool release event triggered outside of request scope") only where both variables are set and the
 							 * request context offers no waitUntil; the runtime played here always offers one, so the one wait handed over

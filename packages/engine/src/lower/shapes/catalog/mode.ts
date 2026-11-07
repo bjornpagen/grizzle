@@ -1,7 +1,7 @@
 import type { NodeId } from "#compiler/core/ids.ts"
 import type { ColumnRef } from "#compiler/ir/expr.ts"
 import { OpId } from "#compiler/ir/expr.ts"
-import type { Cell } from "#compiler/ir/rel.ts"
+import { type Cell, conservativeMeta } from "#compiler/ir/rel.ts"
 import type { CatalogContext } from "#compiler/lower/shapes/catalog/context.ts"
 import {
 	columnsRead,
@@ -10,7 +10,6 @@ import {
 	rebase,
 	required
 } from "#compiler/lower/shapes/catalog/exprs.ts"
-import { metaWithKeys, plainKeys } from "#compiler/lower/shapes/catalog/ordinal.ts"
 
 interface ModeResult {
 	readonly inputs: ReadonlyArray<NodeId>
@@ -106,7 +105,7 @@ export const tryMode = (cx: CatalogContext, cell: Cell): ModeResult => {
 		outs: [value],
 		rule: "R31",
 		heading: [{ name: value, type: valueColumn.type }],
-		meta: { ...metaWithKeys(plainKeys([[]])), card: "atMostOne" },
+		meta: conservativeMeta,
 		loc: undefined
 	})
 	const toMode = (ref: ColumnRef): ColumnRef | undefined =>

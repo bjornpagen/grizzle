@@ -12,12 +12,20 @@ import {
 	SchemaEntryRefused,
 	SettingRefused
 } from "#cli/errors.ts"
-import type { CompileError } from "#compiler/core/errors.ts"
-import { declaredAlike, identifierOf, parseDeclaredName } from "#compiler/core/identity.ts"
-import { SourceLoc } from "#compiler/core/loc.ts"
-import { isList } from "#compiler/core/record.ts"
-import { type BuiltSchema, parseBuiltSchema } from "#compiler/program/schema.ts"
-import { type Owned, type OwnedLogin, own, schemaInstallation } from "#compiler/schema/own.ts"
+import {
+	type BuiltSchema,
+	type CompileError,
+	declaredAlike,
+	identifierOf,
+	isList,
+	own,
+	type Owned,
+	type OwnedLogin,
+	parseBuiltSchema,
+	parseDeclaredName,
+	schemaInstallation,
+	SourceLoc
+} from "#compiler/plan/common.ts"
 
 /**
  * The configuration file: what the command line manages, a lean config.

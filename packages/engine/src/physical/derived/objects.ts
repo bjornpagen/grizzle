@@ -295,7 +295,7 @@ const textColumnUses = (analysis: DerivedAnalysis): ReadonlyArray<TextColumnUse>
  *
  * Each object's reason is the enforcement of its declaration: the derived relation or its inherited key. No law names
  * a derived relation, so none carries a law reason. */
-export const derivedRelationExtension = (): InstallExtension => {
+const derivedRelationExtension = (): InstallExtension => {
 	const extension = (b: InstallBuilder): Result.Result<InstallContribution, CompileError> =>
 		catchRefusal(() => {
 			const analysis = derivedAnalysis(b.checked)

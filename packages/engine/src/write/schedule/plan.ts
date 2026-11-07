@@ -14,6 +14,7 @@ import { type WriteCarrier, CarrierSupply, typesDigest } from "#compiler/write/c
 import { type DeleteAnchor, deleteAnchor } from "#compiler/write/delete/anchor.ts"
 import type { CheckNames } from "#compiler/write/entry/precheck.ts"
 import type { WriteFrontend, WrittenRelation } from "#compiler/write/frontend/compile.ts"
+import type { FamilyAt, FamilyNode } from "#compiler/write/frontend/schedule.ts"
 import { payloadOf } from "#compiler/write/frontend/targets.ts"
 import {
 	type InputProof,
@@ -112,7 +113,9 @@ export type PlannedWrite = {
  * - `classify`, the classification after an insert into a span primary key, of an insertion or of a put's insert half,
  *   `span` the key's span field;
  * - `readBack`, a read-back after the last stratum;
- * - `check`, a query entry's check of an addition's facts, `input`. */
+ * - `check`, a query entry's check of an addition's facts, `input`;
+ * - `family`, a family statement of the stratum (frontend/schedule.ts FamilyNode), where its schedule runs it among
+ *   the stratum's writes. */
 export type PlanStep =
 	| {
 			readonly kind: "createCarrier"
@@ -162,6 +165,7 @@ export type PlanStep =
 			readonly input: WriteInput
 			readonly check: PlannedCheck
 	  }
+	| { readonly kind: "family"; readonly stratum: number; readonly node: FamilyNode }
 
 export interface WritePlan {
 	readonly steps: ReadonlyArray<PlanStep>
@@ -518,6 +522,7 @@ const sourceInput = (action: ChosenAction, evidence: PlanEvidence): WriteInput =
 const sequentialSteps = (
 	stratum: number,
 	drafted: ReadonlyArray<ActionDraft>,
+	family: ReadonlyArray<FamilyAt>,
 	shares: ReadonlyArray<CarriedShare>,
 	supply: CarrierSupply,
 	evidence: PlanEvidence
@@ -559,19 +564,36 @@ const sequentialSteps = (
 		steps.push({ kind: "fillMember", carrier, node: reads.node, stratum })
 		return { kind: "reread", draft, input: { kind: "carrier", carrier, proof } }
 	}
+	/** The family statements that run before the action at `index`, which its member's statement then reads after. */
+	const familyBefore = (index: number): ReadonlyArray<FamilyAt> =>
+		family.filter((f) => f.at <= index)
 	const placed = drafted.map((draft) => {
+		for (const f of familyBefore(draft.at.index)) {
+			written.add(f.node.relation)
+		}
 		const p = placeAction(draft)
 		if (draft.steps.some(isWriteStep)) {
 			written.add(draft.action.info.relation.name)
 		}
 		return p
 	})
+	const familyPlaced = new Set<FamilyAt>()
+	const familySteps = (upTo: number): ReadonlyArray<PlanStep> =>
+		family.flatMap((f): ReadonlyArray<PlanStep> => {
+			if (f.at > upTo || familyPlaced.has(f)) {
+				return []
+			}
+			familyPlaced.add(f)
+			return [{ kind: "family", stratum, node: f.node }]
+		})
 	for (const p of placed) {
+		appendAll(steps, familySteps(p.draft.at.index))
 		const except = placed
 			.filter((q) => p.draft.excepts.includes(q.draft.at.index))
 			.map((q) => q.input)
 		appendAll(steps, placedSteps(p, except))
 	}
+	appendAll(steps, familySteps(Number.POSITIVE_INFINITY))
 	return steps
 }
 
@@ -660,7 +682,7 @@ export const planWrite = (
 		return seen
 	})
 
-	for (const [s, { actions, outside }] of chosen.strata.entries()) {
+	for (const [s, { actions, outside, family }] of chosen.strata.entries()) {
 		for (const refused of outside) {
 			const reads = refused.reads
 			steps.push({
@@ -704,7 +726,11 @@ export const planWrite = (
 			(share) =>
 				!share.copies.some((copy) => reached.some((nodes, t) => t !== s && nodes.has(copy)))
 		)
-		const realization = realizationOf(drafted)
+		/** A stratum one statement realizes runs its family statements after that statement, whose snapshot is the
+		 * stratum's starting state, so one whose schedule runs a family statement before any of its actions is realized
+		 * sequentially, its members carried where an earlier statement wrote what they read. */
+		const before = family.some((f) => f.at < actions.length)
+		const realization: Realization = before ? { kind: "sequential" } : realizationOf(drafted)
 		switch (realization.kind) {
 			case "single":
 				steps.push({
@@ -715,9 +741,13 @@ export const planWrite = (
 						plannedWrite(draft, step, sourceInput(draft.action, evidence), [])
 					)
 				})
+				appendAll(
+					steps,
+					family.map((f): PlanStep => ({ kind: "family", stratum: s, node: f.node }))
+				)
 				break
 			case "sequential":
-				appendAll(steps, sequentialSteps(s, drafted, shares, supply, evidence))
+				appendAll(steps, sequentialSteps(s, drafted, family, shares, supply, evidence))
 				break
 		}
 	}

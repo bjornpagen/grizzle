@@ -44,7 +44,7 @@ type ProgramValue =
  * admitted. Its Description is what the migration generator plans: a key's is its lookup's, built over the workload's
  * schema.
  */
-export type WorkloadProgram = { readonly name: string } & (
+type WorkloadProgram = { readonly name: string } & (
 	| ProgramValue
 	| { readonly kind: "key"; readonly target: KeyPosition; readonly desc: QueryProgramDesc }
 )

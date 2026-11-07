@@ -52,12 +52,28 @@ const subsetsOf = <A>(items: ReadonlyArray<A>): ReadonlyArray<ReadonlyArray<A>> 
 		...Arr.map(sets, (set) => [...set, item])
 	])
 
-/** A subject of the order completion, read from an ORDER BY, with no fixed column and no discriminant unless stated. */
+/**
+ * A subject of the order completion, read from an ORDER BY, with no fixed column and no discriminant unless stated, each
+ * key one factor of one minimal key.
+ */
 const subject = (
 	heading: ReadonlyArray<HeadingColumn>,
 	keys: ReadonlyArray<KeyClasses>,
 	stated: Pick<OrderSubject, "fixed" | "discriminant">
-): OrderSubject => ({ heading, keys, loc: SourceLoc("orderBy", []), ...stated })
+): OrderSubject => ({
+	heading,
+	keys: Arr.map(keys, (k) => [[k]] as const),
+	loc: SourceLoc("orderBy", []),
+	...stated
+})
+
+/** Every key a subject states: one minimal key of each of a key's factors, together. */
+const keysOf = (s: OrderSubject): ReadonlyArray<KeyClasses> =>
+	Arr.flatMap(s.keys, (factors) =>
+		Arr.reduce(factors, [[]], (keys: ReadonlyArray<KeyClasses>, alternatives) =>
+			Arr.flatMap(keys, (k) => Arr.map(alternatives, (a): KeyClasses => [...k, ...a]))
+		)
+	)
 
 /**
  * What the completion policy gives, written from its statement (logical/order.ts) by search rather than by key: the
@@ -86,7 +102,7 @@ const specOrder = (s: OrderSubject, user: ReadonlyArray<OrderKey>): Spec => {
 	}
 	const fixed = new Set(s.fixed)
 	const covered = (extra: ReadonlyArray<string>) =>
-		Arr.some(s.keys, (key) =>
+		Arr.some(keysOf(s), (key) =>
 			Arr.every(key, (members) =>
 				Arr.some(members, (c) => ordered.has(c) || fixed.has(c) || extra.includes(c))
 			)
@@ -106,7 +122,7 @@ const specOrder = (s: OrderSubject, user: ReadonlyArray<OrderKey>): Spec => {
 		names,
 		(c) => !ordered.has(c) && !fixed.has(c) && !discriminant.includes(c)
 	)
-	const narrow = Arr.filter(s.keys, (key) => key.length < names.length)
+	const narrow = Arr.filter(keysOf(s), (key) => key.length < names.length)
 	const reaches = (extra: ReadonlyArray<string>) =>
 		Arr.some(narrow, (key) =>
 			Arr.every(key, (members) =>
@@ -255,7 +271,7 @@ const rowsOf = (
 			(k) =>
 				Arr.some(s.fixed, (c) => at(k, c) !== at(r, c)) ||
 				Arr.every(r, (v, i) => k[i] === v) ||
-				Arr.some(s.keys, (key) => Arr.every(key, ([c]) => at(k, c) === at(r, c)))
+				Arr.some(keysOf(s), (key) => Arr.every(key, ([c]) => at(k, c) === at(r, c)))
 		)
 		if (!clash) {
 			kept.push(r)
@@ -284,6 +300,7 @@ describe("completing an order", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/analysis/logical/order-completion",
 						draw: drawn(caseGen),
 						literal: Formatter.format,
@@ -509,6 +526,8 @@ describe("completing an order over a union of different headings", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/analysis/logical/union-order",
 						generator: (source) =>
 							[

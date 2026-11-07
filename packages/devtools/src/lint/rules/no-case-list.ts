@@ -1,10 +1,11 @@
 import { Array as Arr, Option } from "effect"
 import * as ts from "typescript/ast"
 import { type Symbol as NativeSymbol, SymbolFlags } from "typescript/sync"
-import { declaredValuesOf, missingValueMessage } from "#lint/declared.ts"
+import { declaredValuesOf, lackedValuesOf, missingValueMessage } from "#lint/declared.ts"
 import type { Draws, SuperlintOptions } from "#lint/options.ts"
 import { isAtAny } from "#lint/paths.ts"
 import type { RuleContext, Start } from "#lint/types.ts"
+import { isTestFile } from "#preset.ts"
 import type { Report } from "#shared/finding.ts"
 import { relativeTo } from "#shared/repository.ts"
 
@@ -60,8 +61,9 @@ const propertyNameOf = (name: ts.PropertyName): Option.Option<string> =>
  * list holds. In the files the options name, for every call of a search they name (`exhaust`, `explore`), the space its
  * spec holds (`generator`, `draw`) is refused when it is a case list:
  *
- * - `element` over a list written in the tests: an array literal of the files the options name, outside the
- *   dictionaries, which hold the values the code branches on; held by a constant, or computed from one by a call
+ * - `element` over a list written in the tests: an array literal of a test file, or of the files the options name as
+ *   cases, outside the dictionaries, which hold the values the code branches on (any other module's list is a roster
+ *   its source declares); held by a constant, or computed from one by a call
  *   (`nonEmpty(cases)`, `Arr.filter(cases, …)`); an array literal of spreads alone writes nothing of its own;
  * - `constant`, one value, which is one case;
  * - a generator that draws one value for each of another's (`map`, `span`, `filter`, `drawn`, `sketched`) over a case
@@ -104,10 +106,10 @@ export const noCaseList: Start = ({ checker }) => {
 				])
 			),
 			misconfigured: [
-				...Arr.map(searches.missing, (missing) =>
+				...Arr.map(lackedValuesOf(searches), (missing) =>
 					missingValueMessage("noCaseList.searches", missing)
 				),
-				...Arr.map(generators.missing, (missing) =>
+				...Arr.map(lackedValuesOf(generators), (missing) =>
 					missingValueMessage("noCaseList.generators", missing)
 				)
 			]
@@ -123,7 +125,7 @@ const visitOf = (
 	namedOf: (fileName: string, options: NoCaseList) => Named
 ): ((node: ts.Node) => ReadonlyArray<Report>) => {
 	const { sourceFile, checker, semantics, options, root } = context
-	const { files } = options.noCaseList
+	const { files, cases } = options.noCaseList
 	const dictionaries = Arr.flatMap(
 		options.noCaseList.dictionaries,
 		(dictionary) => dictionary.files
@@ -160,7 +162,11 @@ const visitOf = (
 	}
 	const isWritten = (list: ts.ArrayLiteralExpression): boolean => {
 		const file = list.getSourceFile().fileName
-		return isAtAny(root, files, file) && !isAtAny(root, dictionaries, file)
+		return (
+			isAtAny(root, files, file) &&
+			(isTestFile(file) || isAtAny(root, cases, file)) &&
+			!isAtAny(root, dictionaries, file)
+		)
 	}
 	/** The list written in the tests that an expression is, holds or is computed from. */
 	const writtenListOf = (

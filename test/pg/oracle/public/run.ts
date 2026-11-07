@@ -13,7 +13,8 @@ import {
 	type Scope
 } from "effect"
 import { type ReferenceObserver, unobserved } from "#test/support/oracle/reference/evaluate.ts"
-import { valueKey } from "#test/support/oracle/reference/values.ts"
+import { type Identity, sameIdentity } from "#test/support/oracle/reference/identity.ts"
+import { valueIdentity } from "#test/support/oracle/reference/values.ts"
 
 import {
 	type ApplyError,
@@ -711,15 +712,21 @@ const noteTakes = (q: Query<ParentColumn>, rows: ReadonlyArray<Nested>, note: No
 				note("an attached take of two children or more")
 				const [first] = bound.order
 				const at = Arr.findFirstIndex(a.child.heading, (c) => c.name === first.column.name)
-				const keyAt = (child: Nested): string | undefined => {
+				const keyAt = (child: Nested): Identity | undefined => {
 					const v = Option.isSome(at) ? child.values[at.value] : undefined
-					return v === undefined ? undefined : valueKey(v, first.column.type)
+					return v === undefined ? undefined : valueIdentity(v, first.column.type)
+				}
+				/** Whether two children hold one identity at the key's column, or neither holds one. */
+				const tiedAt = (x: Nested, y: Nested): boolean => {
+					const a = keyAt(x)
+					const b = keyAt(y)
+					return a === undefined || b === undefined ? a === b : sameIdentity(a, b)
 				}
 				if (
 					first.dir === "desc" &&
 					Arr.some(children, (child, k) => {
 						const before = children[k - 1]
-						return before !== undefined && keyAt(before) !== keyAt(child)
+						return before !== undefined && !tiedAt(before, child)
 					})
 				) {
 					note("an attached take delivered descending")
@@ -741,21 +748,22 @@ const noteRootTake = (q: Root, rows: ReadonlyArray<Nested>, note: Note): void =>
 		return
 	}
 	note("a root take of two rows or more")
-	/** A row's value at a key's column by its identity under native equality (valueKey). */
-	const identityAt = (row: Nested, key: OrderKey): string | undefined =>
+	/** A row's value at a key's column by its identity under native equality (valueIdentity). */
+	const identityAt = (row: Nested, key: OrderKey): Identity | undefined =>
 		Option.match(
 			Arr.findFirstIndex(q.heading, (c) => c.name === key.column.name),
 			{
 				onNone: () => undefined,
 				onSome: (i) => {
 					const v = row.values[i]
-					return v === undefined ? undefined : valueKey(v, key.column.type)
+					return v === undefined ? undefined : valueIdentity(v, key.column.type)
 				}
 			}
 		)
 	const tied = (a: Nested, b: Nested, key: OrderKey): boolean => {
 		const x = identityAt(a, key)
-		return x !== undefined && x === identityAt(b, key)
+		const y = identityAt(b, key)
+		return x !== undefined && y !== undefined && sameIdentity(x, y)
 	}
 	const [first] = bound.order
 	const adjacent = Arr.zip(rows, Arr.drop(rows, 1))

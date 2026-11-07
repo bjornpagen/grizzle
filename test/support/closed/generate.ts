@@ -41,7 +41,7 @@ import { type DeclaredName, parseDeclaredName } from "#compiler/core/identity.ts
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { CodeSlot, RosterCodes } from "#compiler/ir/cells.ts"
 import { type Codebook, rosterCodec, type RosterCodec } from "#compiler/ir/codes.ts"
-import type { Roster } from "#compiler/ir/scalar.ts"
+import { Roster } from "#compiler/ir/scalar.ts"
 
 /** How a handle is spelled: a plain word, or a spelling an array literal, an identifier or a byte bound must keep. */
 const SPELLINGS = ["plain", "awkward"] as const
@@ -170,10 +170,7 @@ export const codesOf = (state: RosterState): RosterCodes =>
 	)
 
 /** The roster as a closed id's type holds it: its name and its live handles in code order. */
-export const rosterOf = (state: RosterState): Roster => ({
-	closed: state.closed,
-	handles: liveOf(state)
-})
+export const rosterOf = (state: RosterState): Roster => new Roster(state.closed, liveOf(state))
 
 /** The codec of the model's codes, built by the engine's constructor, which only packages them. */
 export const codecFor = (state: RosterState): RosterCodec =>

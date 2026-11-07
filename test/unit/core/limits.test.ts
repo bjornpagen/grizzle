@@ -180,6 +180,8 @@ describe("a constant's length", () => {
 			ctx,
 			exhaust(
 				{
+					box: { kind: "unstated" },
+					oracle: { kind: "unstated" },
 					suite: "unit/core/limits-constant",
 					generator: int(constantMaxBits.value - 8, constantMaxBits.value + 8),
 					literal: Formatter.format,
@@ -222,6 +224,8 @@ describe("a heap page", () => {
 			ctx,
 			exhaust(
 				{
+					box: { kind: "unstated" },
+					oracle: { kind: "unstated" },
 					suite: "unit/core/limits-align",
 					generator: roundings,
 					literal: Formatter.format,

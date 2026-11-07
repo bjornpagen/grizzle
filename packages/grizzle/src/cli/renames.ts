@@ -24,15 +24,16 @@
 import { Array as Arr, Data, Formatter, Option, Result, String as Str } from "effect"
 import {
 	conversionOf,
-	type DeclaredName,
 	declaredAlike,
-	parseDeclaredName
-} from "#compiler/core/identity.ts"
-import { handleMaxBytes } from "#compiler/core/limits.ts"
-import { utf8Length } from "#compiler/core/sha256.ts"
-import type { Declarations, Named, Rename } from "#compiler/deploy/diff/plan.ts"
-import type { HandleRenames, RosterRenames } from "#compiler/ir/codes.ts"
-import type { Roster } from "#compiler/ir/scalar.ts"
+	type DeclaredName,
+	handleMaxBytes,
+	type HandleRenames,
+	parseDeclaredName,
+	type Roster,
+	type RosterRenames,
+	utf8Length
+} from "#compiler/plan/common.ts"
+import type { Declarations, Named, Rename } from "#compiler/plan/migration.ts"
 
 /** The sign a login's name follows, which no declared name holds. */
 const loginSign = "@"

@@ -167,7 +167,7 @@ export const closedSearchPath = ["pg_catalog", "pg_temp"] as const
 /**
  * The spellings of a double no persisted number holds: JSON has no NaN or infinity, and canonical JSON writes -0 as 0.
  */
-export const floatSpecials = ["NaN", "Infinity", "-Infinity", "-0"] as const
+const floatSpecials = ["NaN", "Infinity", "-Infinity", "-0"] as const
 type FloatSpecial = (typeof floatSpecials)[number]
 /** A finite double other than -0. Only lit.float (build.ts) makes one. */
 export type FiniteFloat = number & { readonly [finiteFloatBrand]: true }
@@ -195,7 +195,7 @@ export type LiteralValue =
 	| { readonly kind: "text"; readonly value: string }
 	| { readonly kind: "bits"; readonly hex: string }
 
-export const binaryOperators = [
+const binaryOperators = [
 	"=",
 	"<>",
 	"<",
@@ -697,15 +697,6 @@ export type SetOperand = SelectCore | OperandSelect
 /** A set arm: a set core, or a parenthesized query whose rows are a set. */
 export type SetArm = SetCore | Select
 
-/**
- * Why a UNION ALL repeats no row: its arms are sets told apart pairwise by a discriminant column whose values its
- * builder fixes apart, a literal in each arm or a column of literals no other arm holds (`disjoint`); the physical
- * analysis proved them unique and disjoint (`certified`, R17.unionAll); or it is the body of a query whose LIMIT is 1,
- * at most one row of any arms (`oneRow`). Or `operand`, a UNION ALL that stands only as an operand, as an operand core
- * does.
- */
-export type UnionAllRows = "disjoint" | "certified" | "oneRow" | "operand"
-
 /** At least two arms combined by one operator, left to right: `a op b op c` is `(a op b) op c`. */
 export type SetOperation =
 	| {
@@ -855,8 +846,6 @@ export type InsertTarget =
 				readonly rows: NonEmptyReadonlyArray<ReadonlyArray<Expr>>
 			}
 	  }
-
-export type InsertSource = InsertTarget["source"]
 
 /** An INSERT target whose source is a VALUES list, its columns at least one. */
 export type ValuesTarget = Extract<InsertTarget, { readonly source: { readonly kind: "values" } }>
@@ -1373,7 +1362,7 @@ export interface AlterDatabaseDefault {
  * `hnsw.*` name is a placeholder until the vector library is loaded in the session that stores it. Every other
  * setting is the database owner's.
  */
-export const textParameters = [
+const textParameters = [
 	"extra_float_digits",
 	"DateStyle",
 	"lc_monetary",
@@ -1384,7 +1373,7 @@ export const textParameters = [
 export type TextParameter = (typeof textParameters)[number]
 
 /** Every role-level setting Publish stores for a login: its search_path, and the settings of one text value. */
-export const configurationParameters = ["search_path", ...textParameters] as const
+const configurationParameters = ["search_path", ...textParameters] as const
 export type ConfigurationParameter = (typeof configurationParameters)[number]
 
 /** A login default of one text value: its parameter, and the value it stores. */
@@ -1437,7 +1426,7 @@ export interface AlterRole {
 	readonly action: AlterRoleAction
 }
 
-export const privileges = [
+const privileges = [
 	"SELECT",
 	"INSERT",
 	"UPDATE",
@@ -1477,7 +1466,7 @@ export interface Revoke {
 }
 
 /** The privileges PostgreSQL grants on columns that a role's write of a query entry holds on its table's columns. */
-export const columnPrivileges = ["SELECT", "INSERT", "UPDATE"] as const
+const columnPrivileges = ["SELECT", "INSERT", "UPDATE"] as const
 export type ColumnPrivilege = (typeof columnPrivileges)[number]
 
 /**

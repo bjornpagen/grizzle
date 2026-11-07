@@ -287,6 +287,11 @@ export default defineConfig(
 				rules: active({ "oxc/no-barrel-file": "off" })
 			},
 			{
+				/** The engine's internal exports are its compiled outputs, each one module that re-exports what the shell reads of it. */
+				files: ["packages/engine/src/plan/*.ts"],
+				rules: active({ "oxc/no-barrel-file": "off" })
+			},
+			{
 				files: ["packages/engine/src/types/**"],
 				rules: active({
 					/** The type layer declares the public API's signatures, whose optional and defaulted parameters are the API. */

@@ -484,6 +484,7 @@ describe("literals", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/ir/literal-rules",
 					literal: Formatter.format,
 					/**
@@ -590,6 +591,7 @@ describe("literals", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/ir/scalar-81",
 						literal: Formatter.format,
 						draw: drawn(
@@ -821,6 +823,8 @@ describe("contract predicates", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/ir/contract-predicates",
 						literal: Formatter.format,
 						generator: oneOf<PredicateCase>([
@@ -873,6 +877,7 @@ describe("money and vector values", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/ir/scalar-131",
 						literal: Formatter.format,
 						draw: drawn(bigint(-(2n ** 63n), 2n ** 63n - 1n)),
@@ -900,6 +905,7 @@ describe("money and vector values", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/ir/scalar-133",
 						literal: Formatter.format,
 						draw: drawn(
@@ -945,6 +951,7 @@ describe("money and vector values", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/ir/scalar-177",
 						literal: Formatter.format,
 						draw: drawn(array(float(-floatMax, floatMax), { min: 1, max: 8 })),
@@ -1010,6 +1017,7 @@ describe("money and vector values", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/ir/scalar-179",
 						literal: Formatter.format,
 						draw: drawn(near),
@@ -1069,6 +1077,7 @@ describe("decimals", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/ir/decimal-payloads",
 						literal: Formatter.format,
 						draw: drawn(texts),

@@ -59,6 +59,7 @@ import {
 } from "#compiler/core/identity.ts"
 import { handleMaxBytes } from "#compiler/core/limits.ts"
 import type { Named, Rename } from "#compiler/deploy/diff/plan.ts"
+import { Roster } from "#compiler/ir/scalar.ts"
 import { assert, deepEquals, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { aliasGroups, dictionaryNameGen, refusedNames } from "#test/support/kernel/dict.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -682,7 +683,7 @@ describe("the rename declaration reader", () => {
 							const schema = Arr.map(r.rosters, (name) => parsedName(name))
 							const resolved = rosterRenames(
 								declared,
-								Arr.map(schema, (closed) => ({ closed, handles: ["n0"] }))
+								Arr.map(schema, (closed) => new Roster(closed, ["n0"]))
 							)
 							const expected = new Map<DeclaredName, Map<string, string>>()
 							for (const [at, to] of r.renames.entries()) {

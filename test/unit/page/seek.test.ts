@@ -219,6 +219,8 @@ describe("the seek predicate", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/page/seek",
 						generator: (source) => {
 							const m = source.draw(element([0, 1, 2, 3]))
@@ -279,6 +281,7 @@ describe("variants and probes", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/page/anchor-probe",
 					draw: drawn((source) =>
 						source.draw(
@@ -353,6 +356,7 @@ describe("variants and probes", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/page/reverse",
 						draw: drawn(array(element(["asc" as const, "desc" as const]), { min: 1, max: 4 })),
 						literal: Formatter.format,

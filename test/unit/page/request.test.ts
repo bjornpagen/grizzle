@@ -168,6 +168,7 @@ describe("page requests", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/page/request",
 						draw: drawn(requestCaseGen),
 						literal: Formatter.format,

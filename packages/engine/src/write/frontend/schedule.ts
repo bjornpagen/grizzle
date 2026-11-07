@@ -1,5 +1,7 @@
-import { headNonEmpty, isNonEmpty } from "#compiler/core/nonempty.ts"
+import { defect } from "#compiler/core/invariant.ts"
+import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Order from "#compiler/core/order.ts"
+import type { FamilyId } from "#compiler/ir/law.ts"
 import type { ActionCore } from "#compiler/ir/write.ts"
 
 /** An action in execution order, with the positions of the earlier actions it depends on. */
@@ -7,6 +9,43 @@ interface ScheduledAction<A> {
 	readonly scheduled: A
 	readonly dependsOn: ReadonlyArray<number>
 }
+
+/**
+ * One of a stratum's family statements, as the schedule orders it among the stratum's actions: the rows of a member
+ * relation a family write deletes, updates in place or inserts (`rows`), or the counts and ends of a family's owners
+ * (`owners`), which update the owner relation's rows (write/family/order.ts FamilyStatement).
+ */
+export type FamilyNode =
+	| {
+			readonly kind: "rows"
+			readonly relation: string
+			readonly statement: "delete" | "update" | "insert"
+	  }
+	| { readonly kind: "owners"; readonly family: FamilyId; readonly relation: string }
+
+/** A family statement in the stratum's order: `at`, the number of the stratum's actions that run before it. */
+export interface FamilyAt {
+	readonly node: FamilyNode
+	readonly at: number
+}
+
+/** A write the schedule places: one of the stratum's actions, or one of its family statements. */
+export type Write<A> =
+	| { readonly kind: "action"; readonly action: A }
+	| { readonly kind: "family"; readonly node: FamilyNode }
+
+/**
+ * A stratum's schedule: its actions in execution order, and where each of its family statements runs among them; or a
+ * cycle of its writes, each of which an immediate key or foreign key must run before the next, and the last before the
+ * first, which no order keeps.
+ */
+export type Schedule<A> =
+	| {
+			readonly kind: "ordered"
+			readonly actions: ReadonlyArray<ScheduledAction<A>>
+			readonly family: ReadonlyArray<FamilyAt>
+	  }
+	| { readonly kind: "cycle"; readonly cycle: NonEmptyReadonlyArray<Write<A>> }
 
 /**
  * What the schedule reads of an action: what it does, and whether its relation is a pure set, whose every field its
@@ -17,10 +56,15 @@ interface Scheduled {
 	readonly pureSet: boolean
 }
 
-/** An immediate reference: facts of `from` name facts of `to` at every statement. */
+/**
+ * An immediate reference: facts of `from` name facts of `to` at every statement; `cascade` where an update of the
+ * referenced facts carries itself into the referencing ones (ON UPDATE CASCADE), so only a deletion removes what they
+ * reference.
+ */
 export interface ImmediateReference {
 	readonly from: string
 	readonly to: string
+	readonly cascade: boolean
 }
 
 /** The phase of an action on its own relation. */
@@ -47,8 +91,8 @@ export const canonicalActionOrder = <A extends Scheduled>(
 
 /** Orders one stratum's actions, given in canonical order (canonicalActionOrder): each in execution order with the
  * positions of the earlier actions it depends on. Each action is a vertex holding the actions an edge orders before it;
- * the next action is the first in canonical order whose predecessors are all placed, or, on a cycle, the first
- * remaining, whose edges from remaining actions are dropped.
+ * the next action is the first in canonical order whose predecessors are all placed. Where none is, the remaining
+ * actions hold a cycle no order keeps, and the schedule is that cycle: no edge is ever dropped.
  *
  * b references a: a's additions before b's, b's removals before a's.
  *
@@ -68,31 +112,32 @@ export const canonicalActionOrder = <A extends Scheduled>(
  *   each statement, so P's additions precede C's, and C's removals precede P's. A deferred reference tolerates any
  *   order until COMMIT, so it orders nothing. A put is both a removal and an addition, but a pure set's put displaces
  *   nothing and is an addition alone, and an immediate foreign key's target is a pure set under the deferral rule (a
- *   reference into a relation that has a field outside the referenced columns is deferred): so C's put follows P's,
- *   and where the two rules would still order two actions both ways, the edge that closes the cycle is dropped.
+ *   reference into a relation that has a field outside the referenced columns is deferred): so C's put follows P's.
+ *   Where the rules still order actions in a cycle, as a deletion and an insertion of one relation around a put of
+ *   another that references it, no order keeps every key at every statement, and that cycle is the schedule.
  *
  * The actions are numbered in a canonical order (relation, then the phases above, then member order), sorted
  * topologically with that order breaking ties, and each action's dependsOn lists the earlier actions an edge orders
  * before it. */
 export const scheduleStratum = <A extends Scheduled>(
 	actions: ReadonlyArray<A>,
+	family: ReadonlyArray<FamilyNode>,
 	references: ReadonlyArray<ImmediateReference>
-): ReadonlyArray<ScheduledAction<A>> => {
+): Schedule<A> => {
 	interface Vertex {
-		readonly scheduled: A
+		readonly write: Write<A>
 		readonly follows: Set<Vertex>
 	}
-	const vertices: ReadonlyArray<Vertex> = actions.map((scheduled) => ({
-		scheduled,
-		follows: new Set<Vertex>()
-	}))
-	for (const x of vertices) {
-		for (const y of vertices) {
+	const vertexOf = (write: Write<A>): Vertex => ({ write, follows: new Set<Vertex>() })
+	const plain = actions.map((action) => ({ action, vertex: vertexOf({ kind: "action", action }) }))
+	const statements = family.map((node) => vertexOf({ kind: "family", node }))
+	for (const { action: xa, vertex: x } of plain) {
+		for (const { action: ya, vertex: y } of plain) {
 			if (x === y) {
 				continue
 			}
-			const a = x.scheduled.action
-			const b = y.scheduled.action
+			const a = xa.action
+			const b = ya.action
 			if (a.relation === b.relation) {
 				if (phaseOf(a) < phaseOf(b)) {
 					y.follows.add(x)
@@ -102,28 +147,164 @@ export const scheduleStratum = <A extends Scheduled>(
 			if (!references.some((r) => r.from === b.relation && r.to === a.relation)) {
 				continue
 			}
-			if (adds(x.scheduled) && adds(y.scheduled)) {
+			if (adds(xa) && adds(ya)) {
 				y.follows.add(x)
 			}
-			if (removes(x.scheduled) && removes(y.scheduled)) {
+			if (removes(xa) && removes(ya)) {
 				x.follows.add(y)
 			}
 		}
 	}
-	const order: Array<Vertex> = []
-	const placed = new Set<Vertex>()
-	for (let remaining = vertices; isNonEmpty(remaining);) {
-		const first = headNonEmpty(remaining)
-		const ready = remaining.find((v) => [...v.follows].every((u) => placed.has(u)))
-		const next = ready ?? first
-		order.push(next)
-		placed.add(next)
-		remaining = remaining.filter((v) => v !== next)
+	for (const [i, y] of statements.entries()) {
+		const before = statements[i - 1]
+		if (before !== undefined) {
+			y.follows.add(before)
+		}
 	}
-	return order.map((v, at) => ({
-		scheduled: v.scheduled,
-		dependsOn: Object.freeze(
-			order.slice(0, at).flatMap((u, position) => (v.follows.has(u) ? [position] : []))
+	for (const { vertex: x } of plain) {
+		for (const y of statements) {
+			const a = effectOf(x.write)
+			const b = effectOf(y.write)
+			for (const r of references) {
+				if (r.to === a.relation && r.from === b.relation) {
+					order(x, a, y, b, r)
+				}
+				if (r.to === b.relation && r.from === a.relation) {
+					order(y, b, x, a, r)
+				}
+			}
+		}
+	}
+	const sequence: Array<Vertex> = []
+	const placed = new Set<Vertex>()
+	for (
+		let remaining: ReadonlyArray<Vertex> = [...plain.map((p) => p.vertex), ...statements];
+		isNonEmpty(remaining);
+	) {
+		const ready = remaining.find((v) => [...v.follows].every((u) => placed.has(u)))
+		if (ready === undefined) {
+			return { kind: "cycle", cycle: cycleAmong(remaining, placed) }
+		}
+		sequence.push(ready)
+		placed.add(ready)
+		remaining = remaining.filter((v) => v !== ready)
+	}
+	const ordered = sequence.flatMap((v) => (v.write.kind === "action" ? [v] : []))
+	return {
+		kind: "ordered",
+		actions: ordered.map((v, at) => ({
+			scheduled: actionOf(v.write),
+			dependsOn: Object.freeze(
+				ordered.slice(0, at).flatMap((u, position) => (v.follows.has(u) ? [position] : []))
+			)
+		})),
+		family: sequence.flatMap((v, i) =>
+			v.write.kind === "family"
+				? [
+						{
+							node: v.write.node,
+							at: sequence.slice(0, i).filter((u) => u.write.kind === "action").length
+						}
+					]
+				: []
 		)
-	}))
+	}
+}
+
+/** A placed write's action, which an action vertex holds. */
+const actionOf = <A>(write: Write<A>): A => {
+	if (write.kind !== "action") {
+		throw defect("an action vertex holds an action")
+	}
+	return write.action
+}
+
+/**
+ * What a write does to its relation's facts as a reference sees them: whether it adds facts that reference or are
+ * referenced, and whether it removes them, as the source of a reference and as its target. A put of a relation with a
+ * payload displaces the occupant of each key it writes, and an update in place, a family's or its owners' counts,
+ * changes the facts it updates; as a target, either removes what is referenced only where no cascade carries the
+ * change into the referencing facts.
+ */
+interface Effect {
+	readonly relation: string
+	readonly adds: boolean
+	readonly removes: boolean
+	readonly updates: boolean
+}
+
+const effectOf = <A extends Scheduled>(write: Write<A>): Effect => {
+	if (write.kind === "action") {
+		const { action } = write
+		return {
+			relation: action.action.relation,
+			adds: adds(action),
+			removes: action.action.op === "delete",
+			updates: action.action.op === "put" && !action.pureSet
+		}
+	}
+	const node = write.node
+	if (node.kind === "owners") {
+		return { relation: node.relation, adds: true, removes: false, updates: true }
+	}
+	switch (node.statement) {
+		case "delete":
+			return { relation: node.relation, adds: false, removes: true, updates: false }
+		case "update":
+			return { relation: node.relation, adds: true, removes: false, updates: true }
+		case "insert":
+			return { relation: node.relation, adds: true, removes: false, updates: false }
+	}
+}
+
+/**
+ * Orders a write `target` of the referenced relation and a write `source` of the referencing one by the reference `r`:
+ * the target's additions before the source's, and the source's removals before the target's, a target's update a
+ * removal unless `r` cascades it, a source's update a removal of the references it changes.
+ */
+const order = <V extends { readonly follows: Set<V> }>(
+	targetVertex: V,
+	target: Effect,
+	sourceVertex: V,
+	source: Effect,
+	r: ImmediateReference
+): void => {
+	if (target.adds && source.adds) {
+		sourceVertex.follows.add(targetVertex)
+	}
+	const targetRemoves = target.removes || (target.updates && !r.cascade)
+	const sourceRemoves = source.removes || source.updates
+	if (targetRemoves && sourceRemoves) {
+		targetVertex.follows.add(sourceVertex)
+	}
+}
+
+/**
+ * A cycle among `remaining`, every one of which follows an action not yet `placed`, in the order they must run: from the
+ * first remaining, each step goes back to an unplaced action it follows, until one is met again, and the actions from
+ * that one on, reversed, each must run before the next.
+ */
+const cycleAmong = <A>(
+	remaining: NonEmptyReadonlyArray<{
+		readonly write: Write<A>
+		readonly follows: ReadonlySet<unknown>
+	}>,
+	placed: ReadonlySet<unknown>
+): NonEmptyReadonlyArray<Write<A>> => {
+	type Vertex = (typeof remaining)[number]
+	const walked: Array<Vertex> = []
+	for (let at: Vertex | undefined = remaining[0]; at !== undefined;) {
+		const seen = walked.indexOf(at)
+		if (seen >= 0) {
+			const [first, ...rest] = walked.slice(seen).toReversed()
+			if (first === undefined) {
+				break
+			}
+			return [first.write, ...rest.map((v) => v.write)]
+		}
+		walked.push(at)
+		const from: Vertex = at
+		at = remaining.find((v) => from.follows.has(v) && !placed.has(v))
+	}
+	throw defect("every remaining action follows an unplaced one, so the walk back meets one again")
 }

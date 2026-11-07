@@ -142,6 +142,7 @@ layer(Substrate.layer)("a role's EXECUTE grants on PostgreSQL 19", (it) => {
 					const owner = yield* substrate.session({ ...ownerSession(), label: "executes owner" })
 					return yield* explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "pg/physical/executes",
 							draw: drawn(executesWorldGen),
 							literal: Formatter.format,

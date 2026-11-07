@@ -20,8 +20,7 @@ import {
 import type { RefreshTarget } from "#adapter/refresh/targets.ts"
 import { type BatchStatement, type FlightFailure, runFramed } from "#adapter/wire/batch.ts"
 import type { Session } from "#adapter/wire/session.ts"
-import { sqlstates } from "#compiler/core/sqlstate.ts"
-import type { EmittedText } from "#compiler/sql/ast.ts"
+import { type EmittedText, sqlstates } from "#compiler/plan/common.ts"
 
 /** One refresh statement an attempt ran. */
 interface RefreshStatement {

@@ -270,6 +270,8 @@ layer(Substrate.layer, { excludeTestServices: true })("db.refresh", (it) => {
 						const model = new Set<View>()
 						return yield* exhaust(
 							{
+								box: { kind: "unstated" },
+								oracle: { kind: "unstated" },
 								suite: "derived/refresh",
 								generator: calls,
 								literal: Formatter.format,

@@ -13,7 +13,7 @@ import type { SourceLoc } from "#compiler/core/loc.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { EvidenceContext, Premise } from "#compiler/ir/evidence.ts"
 import type { CatalogOpId, ScalarExpr, TableExpr, TypedLiteral } from "#compiler/ir/expr.ts"
-import type { ClaimedKey, ViewKey } from "#compiler/ir/keys.ts"
+import type { KeyProof, ViewKey } from "#compiler/ir/keys.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 
 export const relKinds = [
@@ -66,12 +66,12 @@ export type DeclaredKey = NonEmptyReadonlyArray<string>
 export interface MetaSpec {
 	/**
 	 * The keys relative to the node's inputs, parameters and, inside an attachment, the parent's variables, each a
-	 * distinct set of heading columns (ir/keys.ts ClaimedKey): the logical analysis's minimal keys, each with its proof,
-	 * or a lowering rewrite's claim of a node it builds; the empty key, at most one row, only on a node of card atMostOne
-	 * or one. A proof is a value about the DAG its analysis ran over: a rename or a rewrite of the DAG carries the claim
+	 * distinct set of heading columns: the logical analysis's minimal keys, each with its proof (ir/keys.ts KeyProof),
+	 * a node a rewrite builds as much as one the checker built; the empty key, at most one row, only on a node of card
+	 * atMostOne or one. A proof is a value about the DAG its analysis ran over: a rename or a rewrite of the DAG carries the claim
 	 * and leaves the proof describing the nodes it was proved for, which the key kernel checks it against.
 	 */
-	readonly logicalKeys: ReadonlyArray<ClaimedKey>
+	readonly logicalKeys: ReadonlyArray<KeyProof>
 	readonly card: Card
 	/** The minimum evidence context the node's evidence requires. */
 	readonly context: EvidenceContext
@@ -233,7 +233,7 @@ export interface HeadingGroupOver<N> {
 export type HeadingGroup = HeadingGroupOver<RelNode>
 
 /** The aggregates a Group computes: the public ones (count, sum, mean as avg, min, max) and the boolean folds. */
-export const aggregateFns = ["count", "sum", "avg", "min", "max", "boolAnd", "boolOr"] as const
+const aggregateFns = ["count", "sum", "avg", "min", "max", "boolAnd", "boolOr"] as const
 export type AggregateFn = (typeof aggregateFns)[number]
 
 /** The exact number of arguments of each aggregate: count(*) has none, every other one. */
@@ -344,6 +344,9 @@ type OrderedSetFn = (typeof orderedSetFns)[number]
 export type AttachDelivery =
 	| { readonly delivered: "option" | "one"; readonly order: undefined }
 	| { readonly delivered: "array"; readonly order: CompletedOrder }
+
+/** The delivered type of an attachment: an array, an option, or the bare child. */
+export type Delivered = AttachDelivery["delivered"]
 
 /** The order of a heading ascending, column by column: total over any set of its rows, which its whole heading keys. */
 export const headingOrder = (heading: Heading): CompletedOrder => ({
@@ -622,6 +625,13 @@ export type Attach<R extends RefKinds> = NodeCommon<R> & {
 	readonly name: string
 	/** Parent heading columns equated with child heading columns. */
 	readonly correlation: ReadonlyArray<{ readonly parent: string; readonly child: string }>
+	/**
+	 * The delivered type the template's analysis judges (logical/annotate.ts judgedAttachments), under the context it
+	 * runs in: what the reader delivers, as TypeScript types it. It is the analysis's, kept apart from `delivered`, the
+	 * lowering's claim, which may be wider, and out of the DAG's digest (dag.ts digestedFields), since no SQL reads it.
+	 * The checker states its own claim, an array, until the analysis judges it.
+	 */
+	readonly judged: Delivered
 } & AttachDelivery
 
 export interface Forbid<R extends RefKinds> extends NodeCommon<R> {

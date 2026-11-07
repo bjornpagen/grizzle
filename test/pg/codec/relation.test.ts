@@ -132,6 +132,7 @@ layer(Substrate.layer)("relation inputs against PostgreSQL", (it) => {
 				}))
 				return yield* explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "codec/relation/partition",
 						/**
 						 * A batch of cases is one jsonb_to_recordset round trip, so a failing batch shrinks to its failing
@@ -243,6 +244,7 @@ layer(Substrate.layer)("relation inputs against PostgreSQL", (it) => {
 					)
 					return yield* explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "codec/relation/set",
 							/** Facts that collide, so the encoder has equal facts spelled apart to deduplicate. */
 							draw: drawn(collidingFactsGen(40)),

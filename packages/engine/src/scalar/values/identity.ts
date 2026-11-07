@@ -8,6 +8,7 @@ import { compareCodePoints, validateText } from "#compiler/core/text.ts"
 import { codeOf, handlesText, type RosterCodec } from "#compiler/ir/codes.ts"
 import { type CalendarDate, toCalendarDate } from "#compiler/ir/date.ts"
 import type { Carrier } from "#compiler/ir/scalar.ts"
+import { statedRoster } from "#compiler/scalar/values/bits.ts"
 import { Decimal, type NumericTypmod, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 import { compareFloat, floatText, toDouble, toReal } from "#compiler/scalar/values/float.ts"
 import { toInt2, toInt4, toInt8 } from "#compiler/scalar/values/integer.ts"
@@ -151,8 +152,9 @@ const admitHandle = (value: unknown, roster: RosterCodec): Result.Result<string,
 
 /**
  * A set of a roster's handles, read once into a fresh Set grizzle alone holds, so a later change to the caller's Set
- * changes no admitted value: a Set whose members are strings, each a handle the roster holds live. A Set cannot be
- * frozen (Object.freeze leaves its members writable), so the copy is what keeps the admitted value fixed.
+ * changes no admitted value: a Set whose members are strings, each a handle the roster holds live, and which, where it
+ * states its roster (Bits.of's), states this one. A Set cannot be frozen (Object.freeze leaves its members writable), so
+ * the copy is what keeps the admitted value fixed.
  */
 const admitHandles = (
 	value: unknown,
@@ -160,6 +162,10 @@ const admitHandles = (
 ): Result.Result<ReadonlySet<string>, ValueFault> => {
 	if (!(value instanceof Set)) {
 		return Result.err("bitsType")
+	}
+	const stated = statedRoster(value)
+	if (stated !== undefined && stated !== roster.roster) {
+		return Result.err("bitsMember")
 	}
 	const handles = new Set<string>()
 	for (const member of value) {

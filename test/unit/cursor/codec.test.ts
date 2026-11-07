@@ -244,6 +244,7 @@ describe("boundary values round-trip exactly", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/cursor/codec-1601",
 						/**
 						 * The doubles' and reals' edges are drawn beside the rest of their range: both zeros, NaN, the infinities,
@@ -329,6 +330,7 @@ describe("boundary values round-trip exactly", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/cursor/codec-1602",
 						draw: drawn(
 							(source) =>
@@ -375,6 +377,7 @@ describe("boundary values round-trip exactly", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/cursor/codec-1603",
 						draw: drawn(
 							oneOf([
@@ -428,6 +431,7 @@ describe("boundary values round-trip exactly", () => {
 					ctx,
 					explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "unit/cursor/codec-typmod",
 							draw: drawn((source) => ({
 								typmod: source.draw(element([0 as const, 1 as const])),
@@ -490,6 +494,7 @@ describe("boundary values round-trip exactly", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/cursor/codec-1604",
 						/** Supplementary-plane, noncharacter and decomposed scalars are drawn beside strings of any scalar. */
 						draw: drawn(
@@ -526,6 +531,7 @@ describe("boundary values round-trip exactly", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/cursor/codec-carriers",
 						draw: drawn(carrierCaseGen),
 						literal: Formatter.format,
@@ -640,6 +646,7 @@ describe("boundary values round-trip exactly", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/cursor/codec-1605",
 						draw: drawn((source) => [source.draw(decimalGen), source.draw(decimalGen)] as const),
 						literal: Formatter.format,
@@ -906,6 +913,8 @@ describe("validation before any SQL, in order", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/cursor/validation-order",
 						generator: plantings,
 						literal: Formatter.format,
@@ -988,6 +997,7 @@ describe("validation before any SQL, in order", () => {
 					ctx,
 					explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "unit/cursor/codec-total",
 							draw: drawn(
 								oneOf([
@@ -1041,6 +1051,8 @@ describe("validation before any SQL, in order", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/cursor/header-bytes",
 						generator: (source) =>
 							[source.draw(int(0, headerBytes - 1)), source.draw(element([1, 0x80]))] as const,
@@ -1131,6 +1143,7 @@ describe("the layout over untrusted bytes", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/cursor/layout-untrusted",
 						draw: drawn(layoutCaseGen),
 						literal: Formatter.format,
@@ -1262,6 +1275,7 @@ describe("size limits (the codec's byte bound)", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/cursor/codec-1607",
 						draw: drawn((source) => {
 							const maxBytes = source.draw(drawnBound)
@@ -1314,6 +1328,7 @@ describe("size limits (the codec's byte bound)", () => {
 					ctx,
 					explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "unit/cursor/oversized-before-write",
 							draw: drawn(drawnBound),
 							literal: Formatter.format,
@@ -1365,6 +1380,7 @@ describe("size limits (the codec's byte bound)", () => {
 					ctx,
 					explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "unit/cursor/build-limit",
 							draw: drawn((source) => ({
 								maxBytes: source.draw(int(16, drawnBoundMax)),
@@ -1441,6 +1457,7 @@ describe("per-value byte bounds behind the static token bound", () => {
 		assertNot(tokenMax, "unbounded")
 		return explore(
 			{
+				oracle: { kind: "unstated" },
 				suite: `unit/cursor/codec-bytes-${id}`,
 				/** Each carrier's extreme values, whose texts are its longest, are planted beside the drawn ones. */
 				draw: drawn(

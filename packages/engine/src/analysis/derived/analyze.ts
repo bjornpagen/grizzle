@@ -21,7 +21,13 @@ import { labeledChildLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { InferredFieldDesc } from "#compiler/ir/desc.ts"
-import { classMembers, type KeyProof, type ViewKey, type ViewRead } from "#compiler/ir/keys.ts"
+import {
+	classMembers,
+	type KeyAlternative,
+	type KeyProof,
+	type ViewKey,
+	type ViewRead
+} from "#compiler/ir/keys.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import { type Card, type HeadingColumn, keptRowsOf, type RelNode } from "#compiler/ir/rel.ts"
 import { analyzeLogical, queryEvidence } from "#compiler/logical/annotate.ts"
@@ -61,6 +67,8 @@ export interface DerivedRelationAnalysis {
 interface DerivedKey extends DerivedKeyLayout {
 	readonly index: ConstraintName
 	readonly proof: KeyProof
+	/** The other minimal keys of its factors the definition proves (analysis/logical/derived.ts InheritedKey). */
+	readonly alternatives: ReadonlyArray<KeyAlternative>
 }
 
 /**
@@ -72,7 +80,13 @@ const viewKeysOf = (relation: string, keys: ReadonlyArray<DerivedKey>): Readonly
 		fields: k.fields,
 		premises: [derivedKeyPremise(relation, k.fields)],
 		context: "immediate",
-		members: classMembers(k.proof)
+		members: classMembers(k.proof),
+		alternatives: k.alternatives.map((a) => ({
+			of: a.of,
+			columns: a.columns,
+			premises: k.proof.premises,
+			context: k.proof.context
+		}))
 	}))
 
 /** A derived relation as ownership resolved it. */
@@ -221,7 +235,7 @@ export const analyzeDerivedRelation = (
 		return described
 	}
 	const columns = described.value
-	const keySets = inheritedKeys(columns, props.keys, oneColumnKeyRepresentable)
+	const keySets = inheritedKeys(columns, props.keys, props.prove, oneColumnKeyRepresentable)
 	/** At most one fact: any one field is a key, and the first representable one was chosen (keys.ts). */
 	const oneFact = props.keys.some((k) => k.key.length === 0)
 	if (oneFact) {
@@ -256,7 +270,8 @@ export const analyzeDerivedRelation = (
 		keys.push({
 			...layout.value,
 			index: identifierOf(identity.derivedKey(name, k)),
-			proof: key.proof
+			proof: key.proof,
+			alternatives: key.alternatives
 		})
 	}
 	return Result.ok({

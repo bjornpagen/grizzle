@@ -30,35 +30,32 @@ import {
 } from "#cli/errors.ts"
 import { readSchemaTree, writeFolder, writeSnapshotFile } from "#cli/files.ts"
 import { rosterRenames } from "#cli/renames.ts"
-import type { CompileError } from "#compiler/core/errors.ts"
-import * as Engine from "#compiler/core/result.ts"
-import type { AbandonedSchema, Declarations } from "#compiler/deploy/diff/plan.ts"
+import { type CompileError, draftCodebook, Engine, rostersOf } from "#compiler/plan/common.ts"
 import {
-	type FolderNaming,
-	lossText,
-	type MigrationFolder
-} from "#compiler/deploy/render/folder.ts"
-import {
+	type AbandonedSchema,
+	codebookUnder,
+	compileWorkload,
+	completeInstallOptions,
 	customMigration,
-	type MigrationDraft,
+	type Declarations,
+	type DeploySnapshot,
 	type DraftInput,
 	draftMigration,
+	findMarkers,
+	type FolderNaming,
+	generateMigration,
 	type GenerateResult,
-	generateMigration
-} from "#compiler/deploy/render/generate.ts"
-import { findMarkers } from "#compiler/deploy/render/markers.ts"
-import { codebookUnder, isEmptySnapshot, noWorkload } from "#compiler/deploy/snapshot/build.ts"
-import { type DeploySnapshot, snapshotFileName } from "#compiler/deploy/snapshot/types.ts"
-import { draftCodebook } from "#compiler/ir/codes.ts"
-import { workloadExtension } from "#compiler/physical/access/extension.ts"
-import { completeInstallOptions } from "#compiler/physical/complete.ts"
-import {
 	type Installation,
 	installationOver,
-	installBasis
-} from "#compiler/physical/install/compile.ts"
-import { compileWorkload } from "#compiler/program/workload/compile.ts"
-import { rostersOf } from "#compiler/schema/own.ts"
+	installBasis,
+	isEmptySnapshot,
+	lossText,
+	type MigrationDraft,
+	type MigrationFolder,
+	noWorkload,
+	snapshotFileName,
+	workloadExtension
+} from "#compiler/plan/migration.ts"
 
 interface GenerateOptions {
 	readonly mode: GenerateMode

@@ -1,5 +1,6 @@
 import { appendAll } from "#compiler/core/array.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
+import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { type Dependency, type Implication, implication } from "#compiler/ir/keys.ts"
 import type { KeySet } from "#compiler/ir/rel.ts"
 
@@ -208,4 +209,119 @@ export const minimalKeys = <W>(
 	)
 	const order = keyOrder(columns)
 	return antichain.toSorted((a, b) => order(a.key, b.key))
+}
+
+/**
+ * The independent factors of a table's minimal keys: the columns that can stand in a minimal key, partitioned so that
+ * no dependency joins two parts, each part with the dependencies within it. Every minimal key of the table is one
+ * minimal key of each factor together, and every such choice is one (a product), so the factors state 2^k keys in 2k
+ * when each of k factors has two.
+ *
+ * The columns that can stand in a minimal key are found by pruning: a column some dependency determines and no
+ * dependency still standing reads is never in a minimal key, since a key holding it determines it from its other
+ * columns, its value reaching nothing a later step needs; a dependency whose every determined column was pruned stands
+ * no longer, and the columns it read are judged again, until none is pruned. What remains splits into the connected
+ * parts of the standing dependencies, each joining its determinants with the columns it determines among them; a
+ * column no dependency touches is a factor alone, in every key. A start determines the heading exactly when it holds a
+ * key of every factor, under that factor's dependencies alone, since the pruned columns follow from the factors in the
+ * reverse of the order they were pruned in.
+ *
+ * Linear in the table's size: each dependency is retired once, each column pruned once.
+ */
+export const independentFactors = (
+	columns: ReadonlyArray<string>,
+	dependencies: ReadonlyArray<{ readonly from: KeySet; readonly to: KeySet }>
+): {
+	readonly factors: ReadonlyArray<NonEmptyReadonlyArray<string>>
+	readonly factorOf: ReadonlyMap<string, number>
+} => {
+	/** Each column's standing dependencies reading it, and the dependencies determining it. */
+	const readers = new Map<string, number>()
+	const determiners = new Map<string, Array<number>>()
+	/** Each dependency's determined columns not yet pruned; zero once it stands no longer. */
+	const standing = dependencies.map((d) => d.to.length)
+	for (const [i, d] of dependencies.entries()) {
+		if (d.to.length === 0) {
+			continue
+		}
+		for (const c of d.from) {
+			readers.set(c, (readers.get(c) ?? 0) + 1)
+		}
+		for (const c of d.to) {
+			const by = determiners.get(c) ?? []
+			by.push(i)
+			determiners.set(c, by)
+		}
+	}
+	const pruned = new Set<string>()
+	const queue = columns.filter((c) => determiners.has(c) && !readers.has(c))
+	for (let c = queue.pop(); c !== undefined; c = queue.pop()) {
+		if (pruned.has(c)) {
+			continue
+		}
+		pruned.add(c)
+		for (const i of determiners.get(c) ?? []) {
+			const left = (standing[i] ?? 0) - 1
+			standing[i] = left
+			if (left > 0) {
+				continue
+			}
+			for (const r of dependencies[i]?.from ?? []) {
+				const reading = (readers.get(r) ?? 0) - 1
+				readers.set(r, reading)
+				if (reading === 0 && determiners.has(r)) {
+					queue.push(r)
+				}
+			}
+		}
+	}
+	/** Union-find over the columns that remain, by the standing dependencies. */
+	const parent = new Map<string, string>()
+	const find = (c: string): string => {
+		const path: Array<string> = []
+		let at = c
+		for (let up = parent.get(at); up !== undefined; up = parent.get(at)) {
+			path.push(at)
+			at = up
+		}
+		for (const below of path) {
+			parent.set(below, at)
+		}
+		return at
+	}
+	for (const [i, d] of dependencies.entries()) {
+		if ((standing[i] ?? 0) === 0) {
+			continue
+		}
+		const [first, ...rest] = [...d.from, ...d.to.filter((c) => !pruned.has(c))]
+		if (first === undefined) {
+			continue
+		}
+		for (const c of rest) {
+			const a = find(first)
+			const b = find(c)
+			if (a !== b) {
+				parent.set(b, a)
+			}
+		}
+	}
+	const factors: Array<[string, ...Array<string>]> = []
+	const factorOf = new Map<string, number>()
+	const byRoot = new Map<string, number>()
+	for (const c of columns) {
+		if (pruned.has(c)) {
+			continue
+		}
+		const root = find(c)
+		const at = byRoot.get(root)
+		if (at === undefined) {
+			byRoot.set(root, factors.length)
+			factorOf.set(c, factors.length)
+			factors.push([c])
+		} else {
+			factorOf.set(c, at)
+			factors[at]?.push(c)
+		}
+	}
+	return { factors, factorOf }
 }

@@ -184,6 +184,8 @@ layer(Substrate.isolatedLayer, { excludeTestServices: true })(
 						})
 					const exhausted = yield* exhaust(
 						{
+							box: { kind: "unstated" },
+							oracle: { kind: "unstated" },
 							suite: "pg/world-model/exhaustive",
 							generator: element(knownNonEmpty(box, "the small box's transitions")),
 							literal: Formatter.format,

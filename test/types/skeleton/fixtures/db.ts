@@ -59,8 +59,6 @@ export const opened = Db.open(Server.roles.writer, {})
 export type Opened = Expect<
 	Equals<typeof opened, Effect.Effect<Writer, OpenError, DbLayer<typeof WriterRole>>>
 >
-// @ts-expect-error -- TS2554: Db.open needs its options
-export const omitted = Db.open(Server.roles.writer)
 export const layer = DbLayer.make({
 	driver: pgDriver,
 	transport: {

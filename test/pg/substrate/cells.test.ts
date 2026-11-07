@@ -445,6 +445,8 @@ layer(Substrate.layer)("the law of erasure's templates of fin.md §17 on Postgre
 					const fn = qualified(schema, "packed")
 					return yield* exhaust(
 						{
+							box: { kind: "unstated" },
+							oracle: { kind: "unstated" },
 							suite: "substrate/cells-pack",
 							generator: packGen,
 							literal: Formatter.format,
@@ -499,6 +501,8 @@ layer(Substrate.layer)("the law of erasure's templates of fin.md §17 on Postgre
 					const fn = qualified(schema, "packed")
 					return yield* exhaust(
 						{
+							box: { kind: "unstated" },
+							oracle: { kind: "unstated" },
 							suite: "substrate/cells-key-law",
 							generator: keyLawGen,
 							literal: Formatter.format,
@@ -574,6 +578,8 @@ layer(Substrate.layer)("the law of erasure's templates of fin.md §17 on Postgre
 					const db = yield* s.session({ ...ownerSession(), label: "writer" })
 					return yield* exhaust(
 						{
+							box: { kind: "unstated" },
+							oracle: { kind: "unstated" },
 							suite: "substrate/cells-domain",
 							generator: digitGen,
 							literal: Formatter.format,
@@ -686,6 +692,8 @@ layer(Substrate.layer)("the law of erasure's templates of fin.md §17 on Postgre
 					const bits = fromText(fText)
 					return yield* exhaust(
 						{
+							box: { kind: "unstated" },
+							oracle: { kind: "unstated" },
 							suite: "substrate/cells-application",
 							generator: readGen,
 							literal: Formatter.format,
@@ -770,6 +778,8 @@ layer(Substrate.layer)("the law of erasure's templates of fin.md §17 on Postgre
 						`CREATE FUNCTION ${name(fn)}() RETURNS bit varying LANGUAGE sql IMMUTABLE PARALLEL SAFE RETURN B'${rosterBits(live)}'::bit varying`
 					return yield* exhaust(
 						{
+							box: { kind: "unstated" },
+							oracle: { kind: "unstated" },
 							suite: "substrate/cells-repoint",
 							generator: repointGen,
 							literal: Formatter.format,
@@ -902,6 +912,8 @@ layer(Substrate.layer)("the law of erasure's templates of fin.md §17 on Postgre
 					}
 					return yield* exhaust(
 						{
+							box: { kind: "unstated" },
+							oracle: { kind: "unstated" },
 							suite: "substrate/cells-restrict",
 							generator: restrictGen,
 							literal: Formatter.format,

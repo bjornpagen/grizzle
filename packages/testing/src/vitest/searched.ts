@@ -1,6 +1,6 @@
 import { Array as Arr, Effect, Option } from "effect"
 import type { TestContext } from "vitest"
-import type { Exhausted, Explored, Oracle, Run } from "#explore.ts"
+import type { Box, Exhausted, Explored, Oracle, Run } from "#explore.ts"
 import { Run as RunService } from "#explore.ts"
 import { RISK_BOUND_MISS, type Residual } from "#features.ts"
 import { EXHAUSTED, ORACLE, RESIDUAL } from "#vitest/reporter.ts"
@@ -13,22 +13,20 @@ const RISK_DIGITS = 4
 const UNSEEN_DIGITS = 1
 
 /** A search's oracle as its report line prints it, and its absence named, so a suite that states none shows. */
-const oracleText = (oracle: Option.Option<Oracle>): string => {
-	const stated = Option.getOrElse(oracle, (): Oracle => ({ kind: "unstated" }))
-	switch (stated.kind) {
+const oracleText = (oracle: Oracle): string => {
+	switch (oracle.kind) {
 		case "unstated":
 			return "oracle not stated"
 		case "second-implementation":
 		case "specification":
 		case "universal":
 		case "postgresql":
-			return `oracle: ${stated.kind}, ${stated.name}`
+			return `oracle: ${oracle.kind}, ${oracle.name}`
 	}
 }
 
-/** The kind of a search's oracle, as the report counts it. */
-const oracleKind = (oracle: Option.Option<Oracle>): Oracle["kind"] =>
-	Option.match(oracle, { onNone: () => "unstated", onSome: (stated) => stated.kind })
+/** An exhaustion's box as its report line prints it, and its absence named. */
+const boxText = (box: Box): string => (typeof box === "string" ? box : "a box not stated")
 
 /** The rated features of an exploration, each with how many of its independent cases reached it, after a semicolon. */
 const ratesText = (explored: Explored): string =>
@@ -80,7 +78,7 @@ const residualLine = (explored: Explored) =>
 
 /** The line a passing exhaustion leaves on its test: a proof inside its box, its cases and the limit, and its oracle. */
 const exhaustedLine = (exhausted: Exhausted) =>
-	`${exhausted.suite}: a proof inside ${Option.getOrElse(exhausted.box, () => "a box not stated")}, ${exhausted.cases} cases within a limit of ${exhausted.limit}; ${oracleText(exhausted.oracle)}`
+	`${exhausted.suite}: a proof inside ${boxText(exhausted.box)}, ${exhausted.cases} cases within a limit of ${exhausted.limit}; ${oracleText(exhausted.oracle)}`
 
 /** The annotation a passing search leaves on its test: an exploration's residual, or an exhaustion's proof. */
 const annotationOf = (
@@ -114,9 +112,7 @@ export const searched = <A extends Explored | Exhausted, E, R>(
 			const { message, type, body } = annotationOf(result)
 			return Effect.andThen(
 				Effect.promise(() => ctx.annotate(message, type, { body })),
-				Effect.promise(() =>
-					ctx.annotate(result.suite, ORACLE, { body: oracleKind(result.oracle) })
-				)
+				Effect.promise(() => ctx.annotate(result.suite, ORACLE, { body: result.oracle.kind }))
 			)
 		}),
 		Effect.provideServiceEffect(RunService, runOfTest(ctx))

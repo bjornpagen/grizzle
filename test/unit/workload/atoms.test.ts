@@ -55,6 +55,8 @@ describe("Allen masks", () => {
 					ctx,
 					exhaust(
 						{
+							box: { kind: "unstated" },
+							oracle: { kind: "unstated" },
 							suite: "unit/workload/atoms-allen",
 							generator: int(1, allenMaskMax),
 							literal: Formatter.format,

@@ -416,6 +416,7 @@ layer(Substrate.layer)("natural and pred against PostgreSQL", (it) => {
 					const substrate = yield* Substrate
 					return yield* explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "laws/projections/domains",
 							draw: drawn(caseGen),
 							literal: Formatter.format,

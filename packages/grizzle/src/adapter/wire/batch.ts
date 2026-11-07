@@ -51,12 +51,14 @@ import {
 	type Session,
 	unnamed
 } from "#adapter/wire/session.ts"
-import type { SchemaFingerprint } from "#compiler/core/ids.ts"
-import { defect } from "#compiler/core/invariant.ts"
-import { messageMaxBytes } from "#compiler/core/limits.ts"
-import { sqlstates } from "#compiler/core/sqlstate.ts"
-import type { EmittedText } from "#compiler/sql/ast.ts"
-import type { BindFrame } from "#compiler/write/family/order.ts"
+import type { BindFrame } from "#compiler/plan/change.ts"
+import {
+	defect,
+	type EmittedText,
+	messageMaxBytes,
+	type SchemaFingerprint,
+	sqlstates
+} from "#compiler/plan/common.ts"
 
 /** A statement of a reviewed migration file, minted where migrate/input.ts splits a file into its statements. */
 export type MigrationText = string & Brand.Brand<"MigrationText">

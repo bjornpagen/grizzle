@@ -103,6 +103,7 @@ const cases = 32
  */
 const reverseProbes = explore(
 	{
+		oracle: { kind: "unstated" },
 		suite: "laws/reverse-probe",
 		draw: drawn(array(reverseCaseGen, { min: cases, max: cases })),
 		literal: Formatter.format,

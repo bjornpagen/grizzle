@@ -299,6 +299,8 @@ describe("castInjective", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/analysis/physical/cast-injective",
 						generator: (source) =>
 							[source.draw(element(types)), source.draw(element(types))] as const,

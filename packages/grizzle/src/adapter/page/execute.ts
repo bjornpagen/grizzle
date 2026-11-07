@@ -26,14 +26,16 @@ import {
 import type { InputRefusal } from "#adapter/reader/relations.ts"
 import type { GroupOrder } from "#adapter/reader/run.ts"
 import type { BatchStatement, Flight } from "#adapter/wire/batch.ts"
-import type { ScalarCodec } from "#compiler/codec/scalar.ts"
-import { type Row, rowText } from "#compiler/core/decoder.ts"
-import { defect } from "#compiler/core/invariant.ts"
-import type { PageParamSlot, PageStatementSlot } from "#compiler/lower/conservative/types.ts"
-import type { ShapeChoice } from "#compiler/lower/shapes/index.ts"
-import type { ProbeKind } from "#compiler/lower/shapes/page/seek.ts"
-import { runsLargeForm } from "#compiler/lower/shapes/take/index.ts"
-import { mergeHeadingGroups } from "#compiler/lower/shapes/union/index.ts"
+import { defect, type Row, rowText } from "#compiler/plan/common.ts"
+import {
+	mergeHeadingGroups,
+	type PageParamSlot,
+	type PageStatementSlot,
+	type ProbeKind,
+	runsLargeForm,
+	type ScalarCodec,
+	type ShapeChoice
+} from "#compiler/plan/read.ts"
 
 type Raw = ReadonlyArray<ReadonlyArray<string>>
 

@@ -22,6 +22,7 @@ describe("value faults", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/values/fault-secrets",
 					draw: drawn((source) => ({
 						secret: source.draw(matching(regex("^[1-9]\\d{5,11}$"))),

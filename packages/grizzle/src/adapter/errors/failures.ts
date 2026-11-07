@@ -1,18 +1,16 @@
 import { type Array as Arr, Data } from "effect"
 import type { StartupVariable } from "#adapter/connection/environment.ts"
-import type { CompileError } from "#compiler/core/errors.ts"
+import type { Family, Law, Unsendable } from "#compiler/plan/change.ts"
 import type {
 	ColumnIdent,
+	CompileError,
 	ConstraintName,
 	DomainName,
 	Identifier,
-	RelationIdent
-} from "#compiler/core/ids.ts"
-import type { Sqlstate } from "#compiler/core/sqlstate.ts"
-import type { Family } from "#compiler/ir/family.ts"
-import type { LiteralBound } from "#compiler/ir/products.ts"
-import type { Law } from "#compiler/types/changeset/changeset.ts"
-import type { Unsendable } from "#compiler/write/family/order.ts"
+	LiteralBound,
+	RelationIdent,
+	Sqlstate
+} from "#compiler/plan/common.ts"
 
 /**
  * The reasons of grizzle's errors, and the wire's own classification of a flight's failure.

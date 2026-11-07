@@ -149,6 +149,8 @@ describe("contract domains by definition (W6.Q10)", () => {
 			ctx,
 			exhaust(
 				{
+					box: { kind: "unstated" },
+					oracle: { kind: "unstated" },
 					suite: "unit/physical/domain-dedup",
 					generator: pairGen,
 					literal: Formatter.format,

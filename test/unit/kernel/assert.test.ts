@@ -296,6 +296,7 @@ describe("the assertion door", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						...spec,
 						suite: "unit/kernel/unordered-equal",
 						draw: drawn((source) => ({
@@ -342,6 +343,7 @@ describe("the assertion door", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						...spec,
 						suite: "unit/kernel/refused",
 						draw: drawn(plantedGen(proseTags)),
@@ -393,6 +395,7 @@ describe("the assertion door", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					...spec,
 					suite: "unit/kernel/faulted",
 					draw: drawn(plantedGen(valueFaultWords)),
@@ -428,6 +431,7 @@ describe("the assertion door", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						...spec,
 						suite: "unit/kernel/refused-at",
 						draw: drawn((source) => ({
@@ -471,6 +475,7 @@ describe("the assertion door", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						...spec,
 						suite: "unit/kernel/matches-option",
 						draw: drawn((source) => ({
@@ -526,6 +531,7 @@ describe("the assertion door", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						...spec,
 						suite: "unit/kernel/throws-refused",
 						draw: drawn((source) => ({

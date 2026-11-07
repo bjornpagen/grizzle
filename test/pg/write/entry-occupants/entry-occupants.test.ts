@@ -242,6 +242,7 @@ layer(Substrate.layer)("a query entry's write meets every unique object of its t
 							const db = yield* Db.open(desk.roles.holder, { token: tokenOf({ sub: "u_ann" }) })
 							return yield* explore(
 								{
+									oracle: { kind: "unstated" },
 									suite: "pg/write/entry-occupants",
 									draw: drawn(caseGen),
 									literal: Formatter.format,

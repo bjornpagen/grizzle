@@ -1151,6 +1151,7 @@ class GraphQueryBuilder {
 			child: child.node,
 			name,
 			correlation: Arr.map(correlation, ([p, c]) => ({ parent: p, child: c })),
+			judged: "array",
 			delivered: "array",
 			heading: parent.heading,
 			order: headingOrder(child.node.heading)

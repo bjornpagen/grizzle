@@ -550,6 +550,7 @@ describe("roster and closed constants", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/physical/constants",
 						draw: drawn(worldGen),
 						literal: Formatter.format,

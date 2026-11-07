@@ -195,6 +195,8 @@ describe("the complete proof", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/lower/rewrite/eliminate-proof",
 						literal: Formatter.format,
 						generator: (source) => ({

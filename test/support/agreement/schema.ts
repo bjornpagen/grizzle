@@ -4,9 +4,11 @@ import {
 	alternatives,
 	closed,
 	contained,
+	derived,
 	key,
 	on,
 	relation,
+	role,
 	schema
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -23,7 +25,9 @@ import { str } from "#compiler/public/text.ts"
  * variable read from a column of its type has and one of any other type lacks. Tones, a union of Item's facts of two tones whose
  * arms hold Tone's handles at tone, is the union source a drawn rule matches with a constant bound at tone; Owned, the
  * items of one owner, is the import a rule matches bound or, where a case plants the fault, unbound; Stray is a
- * relation Agree does not hold, which a rule's match names where a case plants that fault.
+ * relation Agree does not hold, which a rule's match or relation parameter names where a case plants that fault.
+ * Batch, a relation of Stray's heading that Agree holds, is the relation a rule's relation parameter takes its heading
+ * from (r.relation(name, Batch)); its rows are a set, keyed by their whole heading, not by Batch's key.
  *
  * Cell holds one column per constant kind the admission matrix draws: a JavaScript value of every carrier, Tone's
  * handles, typed integer constants and a contract's, and a finite refined text's members (grade); Shade, a second
@@ -34,6 +38,14 @@ import { str } from "#compiler/public/text.ts"
  * raw, spans over Cents and over its bare base, which never meet; embedding, the vector a cosine distance scores and an
  * approximate search ranks by, and image, a second vector of its dimensions, which a distance relates to it but no
  * search ranks by.
+ *
+ * ToneWeight is a closed relation, a weight of Cents for two of Tone's three members, keyed by its tone: a rule matches
+ * it as any relation, and every role reads its rows, so it is no role's entry. Tone itself, a roster, is a source of its
+ * one field, id. byOwner names Item's candidate key, which a keyed get reads through as it reads a primary key.
+ *
+ * Rollup extends Agree with two derived relations, each keyed by what its definition proves: ItemTones, a projection of
+ * Item keyed by its id, and OwnerCounts, the count of each owner's items, keyed by the owner. A query over Rollup reads
+ * them and Agree's relations alike; a Db over a role of Agree reads no query over Rollup.
  */
 export const Tone = closed("Tone", ["low", "mid", "high"])
 export const Shade = closed("Shade", ["low", "dark"])
@@ -51,6 +63,7 @@ export const Tag = relation("Tag", { item: uuid, label: pg.integer, w: pg.intege
 ])
 export const Note = relation("Note", { item: uuid, k: pg.integer }, ["item"])
 export const Stray = relation("Stray", { id: uuid, n: pg.integer }, ["id"])
+export const Batch = relation("Batch", { id: uuid, n: pg.integer }, ["id"])
 
 export const Cell = relation(
 	"Cell",
@@ -85,9 +98,53 @@ export const Slot = relation(
 	["item", "during"]
 )
 
-export const Agree = schema("Agree", { Tone, Shade, Item, Tag, Note, Cell, Slot }, [
-	key(on(Item, "owner", "n"))
-])
+export const ToneWeight = closed.relation(
+	"ToneWeight",
+	{ tone: closedId(Tone), weight: Cents },
+	["tone"],
+	[
+		{ tone: "low", weight: Cents(1n) },
+		{ tone: "mid", weight: Cents(2n) }
+	]
+)
+
+export const byOwner = key(on(Item, "owner", "n"))
+
+export const Agree = schema(
+	"Agree",
+	{ Tone, Shade, Item, Tag, Note, Batch, Cell, Slot, ToneWeight },
+	[byOwner]
+)
+
+/** Agree's entries a full role holds whole: every relation and roster but the closed relation. */
+const agreeEntries = Object.freeze({ Tone, Shade, Item, Tag, Note, Batch, Cell, Slot })
+
+/** The full role over Agree every drawn read goes through, but where a case reads through Reporter. */
+export const Reader = role(Agree, "reader", agreeEntries)
+
+export const ItemTones = derived(
+	"ItemTones",
+	query(Agree).rule((r) => {
+		const { id, tone, owner } = v(Item, "item")
+		return r.match(Item, { id, tone, owner }).find({ id, tone, owner })
+	})
+)
+
+export const OwnerCounts = derived(
+	"OwnerCounts",
+	query(Agree).rule((r) => {
+		const { id, owner } = v(Item, "item")
+		return r.match(Item, { id, owner }).find({ owner, items: r.count() })
+	})
+)
+
+export const Rollup = schema.extend(Agree, { ItemTones, OwnerCounts }, [])
+
+/** Rollup's entries a full role holds whole: Agree's and the derived relations. */
+const rollupEntries = Object.freeze({ ...agreeEntries, ItemTones, OwnerCounts })
+
+/** The full role over Rollup, which reads queries over Rollup and over Agree, a level of it. */
+export const Reporter = role(Rollup, "reporter", rollupEntries)
 
 export const Tones = query(Agree)
 	.rule((r) => {

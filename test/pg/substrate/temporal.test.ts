@@ -284,6 +284,8 @@ layer(Substrate.layer)("coverage's temporal lowering of fin.md §7 on PostgreSQL
 					const target = qualified(seat.schema, "target")
 					return yield* exhaust(
 						{
+							box: { kind: "unstated" },
+							oracle: { kind: "unstated" },
 							suite: "substrate/temporal-key",
 							generator: keyGen,
 							literal: Formatter.format,
@@ -361,6 +363,8 @@ layer(Substrate.layer)("coverage's temporal lowering of fin.md §7 on PostgreSQL
 					const seats = [yield* seatOf("immediate"), yield* seatOf("deferred")]
 					return yield* exhaust(
 						{
+							box: { kind: "unstated" },
+							oracle: { kind: "unstated" },
 							suite: "substrate/temporal-cover",
 							generator: coverGen,
 							literal: Formatter.format,
@@ -451,6 +455,8 @@ layer(Substrate.layer)("coverage's temporal lowering of fin.md §7 on PostgreSQL
 					const seats = [yield* seatOf("immediate"), yield* seatOf("deferred")]
 					return yield* exhaust(
 						{
+							box: { kind: "unstated" },
+							oracle: { kind: "unstated" },
 							suite: "substrate/temporal-change",
 							generator: changeGen,
 							literal: Formatter.format,

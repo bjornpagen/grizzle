@@ -30,7 +30,7 @@ import { parseDeclaredName } from "#compiler/core/identity.ts"
 import { type MonoidName, monoidNames } from "#compiler/ir/desc.ts"
 import { literalProblem, type TypedLiteral } from "#compiler/ir/expr.ts"
 import { type CombineBuild, type MonoidSpec, monoidSpecs } from "#compiler/ir/monoid.ts"
-import { type Roster, type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
+import { Roster, type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
 import { naturalDescriptor } from "#compiler/scalar/natural.ts"
 import { capabilitiesOf } from "#compiler/scalar/registry.ts"
 import { assert, nonEmpty, succeeded, throwsDefect } from "#test/support/assert.ts"
@@ -49,10 +49,7 @@ const natural: ScalarType = {
 	}
 }
 /** A roster of five codes whose code 2 is a hole: live handles h0, h1, h3, h4 in code order. */
-const roster: Roster = {
-	closed: succeeded(parseDeclaredName("Kind")),
-	handles: nonEmpty(["h0", "h1", "h3", "h4"])
-}
+const roster = new Roster(succeeded(parseDeclaredName("Kind")), nonEmpty(["h0", "h1", "h3", "h4"]))
 const set: ScalarType = { carrier: "bits", caps: capabilitiesOf("bits"), roster }
 const code: ScalarType = {
 	carrier: "code",

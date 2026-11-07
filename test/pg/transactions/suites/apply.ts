@@ -212,6 +212,8 @@ export const applySuite = () => {
 							}
 							return yield* exhaust(
 								{
+									box: { kind: "unstated" },
+									oracle: { kind: "unstated" },
 									suite: "transactions/apply",
 									generator: space,
 									literal: Formatter.format,

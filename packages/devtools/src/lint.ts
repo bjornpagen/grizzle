@@ -42,8 +42,8 @@ import { workspaceConfigs } from "#shared/workspace.ts"
  * Superlint: the repository's opinionated type-aware rules that oxlint has no rule for. It lints the package in the
  * working directory: each workspace package's `superlint` task runs it in the package, and the repository root's runs
  * it at the root, where it also holds every tsconfig to REJECTED_DIAGNOSTICS, the shared base to the installed
- * @effect/tsgo's diagnostics, and refuses a JavaScript file. The repository's own names come from
- * the `superlint` field of its root package.json. Explicit paths lint the files at or under them (a file
+ * @effect/tsgo's diagnostics, and refuses a JavaScript file. The repository's own names come from the `superlint`
+ * field of its root package.json, whose scaffold modules must exist. Explicit paths lint the files at or under them (a file
  * the tsconfig excludes is added to the program); `--fixtures` runs every rule against its fixtures instead, and
  * `--pending` runs the pending rules beside the rest (rules/index.ts). Exit status 1 means findings, 2 that the linter
  * itself failed.
@@ -86,6 +86,21 @@ const projectOptions = Effect.gen(function* () {
 				Arr.map(unknown, (exception) => exception.rule),
 				", "
 			)}`
+		})
+	}
+	const scaffoldModules = Arr.dedupe(
+		Arr.map(decoded.superlint.testCaseIsSearch.scaffolds, (scaffold) => scaffold.module)
+	)
+	const absent = yield* Effect.filter(scaffoldModules, (module) =>
+		fs
+			.exists(`${root}/${module}`)
+			.pipe(
+				Effect.mapBoth({ onFailure: inspectionFailure(module), onSuccess: (exists) => !exists })
+			)
+	)
+	if (Arr.isReadonlyArrayNonEmpty(absent)) {
+		return yield* DevtoolFailure.make({
+			detail: `${manifest} names scaffold modules the repository does not hold: ${Arr.join(absent, ", ")}`
 		})
 	}
 	return decoded.superlint

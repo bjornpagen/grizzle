@@ -1,6 +1,6 @@
 import { Array as Arr, Formatter, Result } from "effect"
 import { carrierSpecOf } from "#compiler/codec/scalar.ts"
-import { appendAll, indices } from "#compiler/core/array.ts"
+import { appendAll } from "#compiler/core/array.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { NodeOf } from "#compiler/ir/rel.ts"
 import {
@@ -147,35 +147,6 @@ export const canonicalRows = (s: StatementRows): ReadonlyArray<RawRow> => {
 	return Arr.map(s.rows, (row) => Arr.map(texts, (text, i) => text(cellAt(row, i))))
 }
 
-/** The rows at `indexes` of a statement, each keeping the columns `keep` admits, every cell its canonical text. */
-const readRows = (
-	s: StatementRows,
-	indexes: ReadonlyArray<number>,
-	keep: (column: string) => boolean
-): ReadonlyArray<RawRow> => {
-	const kept = Arr.flatMap(s.columns, (c, i) => (keep(c) ? [i] : []))
-	const texts = Arr.map(kept, (i) => {
-		const type = s.types[i]
-		if (type === undefined) {
-			throw new Error(`${s.label}: no type for column ${i}`)
-		}
-		return canonicalCell(type, s.codes)
-	})
-	return Arr.map(indexes, (r) => {
-		const row = s.rows[r]
-		if (row === undefined) {
-			throw new Error(`${s.label}: no row ${r}`)
-		}
-		return Arr.map(kept, (i, j) => {
-			const text = texts[j]
-			if (text === undefined) {
-				throw new Error(`${s.label}: no reader for column ${i}`)
-			}
-			return text(cellAt(row, i))
-		})
-	})
-}
-
 export interface Run {
 	readonly name: string
 	readonly statements: ReadonlyArray<StatementRows>
@@ -254,36 +225,20 @@ export const rawRowKey = (row: RawRow): string =>
 		"\u0000"
 	)
 
+/** Adds one row to a multiset keyed by rawRowKey. */
+const counted = (into: Map<string, RowCount>, row: RawRow): void => {
+	const key = rawRowKey(row)
+	const seen = into.get(key)
+	into.set(key, { row, count: (seen?.count ?? 0) + 1 })
+}
+
 /** The multiset of rows: each distinct row with its count, keyed by rawRowKey. */
 export const rowMultiset = (rows: ReadonlyArray<RawRow>): ReadonlyMap<string, RowCount> => {
 	const out = new Map<string, RowCount>()
 	for (const row of rows) {
-		const key = rawRowKey(row)
-		const seen = out.get(key)
-		out.set(key, { row, count: (seen?.count ?? 0) + 1 })
+		counted(out, row)
 	}
 	return out
-}
-
-/**
- * The rows a statement repeats as values (canonicalRows), each with how many times past the first, in a deterministic
- * order: none for a set. Only rows that state every column are compared, since an unstated cell holds no value two
- * rows could share.
- */
-const repeatsOf = (side: RunSide, s: StatementRows): ReadonlyArray<StatementRepeat> => {
-	const rows = canonicalRows(s)
-	const stated =
-		s.unstated.kind === "some"
-			? Arr.flatMap(s.unstated.complete, (i) => {
-					const row = rows[i]
-					return row === undefined ? [] : [row]
-				})
-			: rows
-	return Arr.flatMap(
-		Arr.sort(rowMultiset(stated).entries(), byKey),
-		([, entry]: readonly [string, RowCount]): ReadonlyArray<StatementRepeat> =>
-			entry.count > 1 ? [{ side, label: s.label, row: entry.row, count: entry.count - 1 }] : []
-	)
 }
 
 const byKey = (a: readonly [string, RowCount], b: readonly [string, RowCount]): -1 | 0 | 1 =>
@@ -372,51 +327,173 @@ const typeDifferences = (
  *
  * Compares two runs of one case (left is the baseline).
  */
-export const compareRuns = (left: Run, right: Run): Comparison => {
+export const compareRuns = (left: Run, right: Run): Comparison =>
+	compareRead(readRun(left), readRun(right))
+
+/**
+ * A statement's rows read once as values (canonicalCell), every comparison of it reads: each distinct row of the
+ * columns it states with its count, and each distinct row of its rows that state every column, the same multiset for a
+ * statement that leaves no cell unstated. Reading a run once lets one baseline be compared with any number of runs
+ * without reading its rows again.
+ */
+interface ReadStatement {
+	readonly statement: StatementRows
+	/** The columns it states in every row, in heading order. */
+	readonly stated: ReadonlyArray<string>
+	/** Its rows projected onto `stated`, as values, each distinct row with its count. */
+	readonly projected: ReadonlyMap<string, RowCount>
+	/** Its rows that state every column, as values, each distinct row with its count. */
+	readonly complete: ReadonlyMap<string, RowCount>
+}
+
+/** A run read once (readRun): its statements' rows as values. */
+export interface ReadRun {
+	readonly name: string
+	readonly statements: ReadonlyArray<ReadStatement>
+}
+
+/** One statement read once: each row's cells read as values in one pass over its rows. */
+const readStatement = (s: StatementRows): ReadStatement => {
+	const unstated = new Set(unstatedColumns(s))
+	const texts = Arr.map(s.columns, (_, i) => {
+		const type = s.types[i]
+		if (type === undefined) {
+			throw new Error(`${s.label}: no type for column ${i}`)
+		}
+		return canonicalCell(type, s.codes)
+	})
+	const statedAt = Arr.flatMap(s.columns, (c, i) => (unstated.has(c) ? [] : [i]))
+	const valueAt = (row: RawRow, i: number): string => {
+		const text = texts[i]
+		if (text === undefined) {
+			throw new Error(`${s.label}: no reader for column ${i}`)
+		}
+		return text(cellAt(row, i))
+	}
+	const projected = new Map<string, RowCount>()
+	const complete = new Map<string, RowCount>()
+	const completeRows = s.unstated.kind === "some" ? new Set(s.unstated.complete) : undefined
+	for (const [r, row] of s.rows.entries()) {
+		counted(
+			projected,
+			Arr.map(statedAt, (i) => valueAt(row, i))
+		)
+		if (completeRows?.has(r) === true) {
+			counted(
+				complete,
+				Arr.map(s.columns, (_, i) => valueAt(row, i))
+			)
+		}
+	}
+	return {
+		statement: s,
+		stated: Arr.map(statedAt, (i) => columnAt(s.columns, i)),
+		projected,
+		complete: completeRows === undefined ? projected : complete
+	}
+}
+
+/** The column of a heading at `i`; a missing one is a defect of the run. */
+const columnAt = (columns: ReadonlyArray<string>, i: number): string => {
+	const column = columns[i]
+	if (column === undefined) {
+		throw new Error(`a heading holds no column ${i}`)
+	}
+	return column
+}
+
+/** A run read once: each statement's rows as values (ReadStatement). */
+export const readRun = (run: Run): ReadRun => ({
+	name: run.name,
+	statements: Arr.map(run.statements, readStatement)
+})
+
+/** A statement's projected rows projected further onto `keep`, a subset of the columns it states, counts summed. */
+const projectOnto = (
+	read: ReadStatement,
+	keep: (column: string) => boolean
+): ReadonlyMap<string, RowCount> => {
+	if (Arr.every(read.stated, keep)) {
+		return read.projected
+	}
+	const kept = Arr.flatMap(read.stated, (c, i) => (keep(c) ? [i] : []))
+	const out = new Map<string, RowCount>()
+	for (const entry of read.projected.values()) {
+		const row = Arr.map(kept, (i) => cellAt(entry.row, i))
+		const key = rawRowKey(row)
+		const seen = out.get(key)
+		out.set(key, { row, count: (seen?.count ?? 0) + entry.count })
+	}
+	return out
+}
+
+/** The rows a statement repeats as values, among its rows that state every column, in a deterministic order. */
+const repeatsIn = (side: RunSide, read: ReadStatement): ReadonlyArray<StatementRepeat> =>
+	Arr.flatMap(
+		Arr.sort(read.complete.entries(), byKey),
+		([, entry]: readonly [string, RowCount]): ReadonlyArray<StatementRepeat> =>
+			entry.count > 1
+				? [{ side, label: read.statement.label, row: entry.row, count: entry.count - 1 }]
+				: []
+	)
+
+/**
+ * Compares two runs read once (readRun), left the baseline: what compareRuns states, reading no row again, so a
+ * baseline read once is compared with each of many runs while only that run's rows are read.
+ */
+export const compareRead = (left: ReadRun, right: ReadRun): Comparison => {
 	const structural: Array<StructuralDifference> = []
 	const diffs: Array<StatementDiff> = []
-	const rightByLabel = new Map(Arr.map(right.statements, (s) => [s.label, s]))
-	const leftLabels = new Set(Arr.map(left.statements, (s) => s.label))
+	const rightByLabel = new Map(Arr.map(right.statements, (s) => [s.statement.label, s]))
+	const leftLabels = new Set(Arr.map(left.statements, (s) => s.statement.label))
 	for (const l of left.statements) {
-		const r = rightByLabel.get(l.label)
+		const label = l.statement.label
+		const r = rightByLabel.get(label)
 		if (r === undefined) {
-			structural.push({ kind: "missing", side: right.name, label: l.label })
+			structural.push({ kind: "missing", side: right.name, label })
 			continue
 		}
-		if (!sameColumns(l.columns, r.columns)) {
-			structural.push({ kind: "heading", label: l.label, left: l.columns, right: r.columns })
+		if (!sameColumns(l.statement.columns, r.statement.columns)) {
+			structural.push({
+				kind: "heading",
+				label,
+				left: l.statement.columns,
+				right: r.statement.columns
+			})
 			continue
 		}
-		appendAll(structural, typeDifferences(l, r))
-		const unstated = new Set([...unstatedColumns(l), ...unstatedColumns(r)])
-		const all = (s: StatementRows) => Arr.map(indices(s.rows.length), (i) => i)
+		appendAll(structural, typeDifferences(l.statement, r.statement))
+		const unstated = new Set([...unstatedColumns(l.statement), ...unstatedColumns(r.statement)])
 		const stated = (column: string) => !unstated.has(column)
-		const projected = compareMultisets(readRows(l, all(l), stated), readRows(r, all(r), stated))
+		const lp = projectOnto(l, stated)
+		const rp = projectOnto(r, stated)
 		/** Each fully stated row of a side leaving some cell unstated, which the other side does not hold as often. */
-		const complete = (side: StatementRows, other: StatementRows): ReadonlyArray<RowCount> =>
-			side.unstated.kind === "some"
-				? compareMultisets(
-						readRows(side, side.unstated.complete, () => true),
-						readRows(other, all(other), () => true)
-					).missing
-				: []
+		const complete = (side: ReadStatement, other: ReadStatement): ReadonlyArray<RowCount> => {
+			if (side.statement.unstated.kind === "none") {
+				return []
+			}
+			if (other.statement.unstated.kind === "some") {
+				throw new Error(`${label}: both runs leave a cell unstated`)
+			}
+			return excess(side.complete, other.complete)
+		}
 		const diff: StatementDiff = {
-			label: l.label,
-			missing: [...projected.missing, ...complete(l, r)],
-			extra: [...projected.extra, ...complete(r, l)]
+			label,
+			missing: [...excess(lp, rp), ...complete(l, r)],
+			extra: [...excess(rp, lp), ...complete(r, l)]
 		}
 		if (diff.missing.length > 0 || diff.extra.length > 0) {
 			diffs.push(diff)
 		}
 	}
 	for (const r of right.statements) {
-		if (!leftLabels.has(r.label)) {
-			structural.push({ kind: "missing", side: left.name, label: r.label })
+		if (!leftLabels.has(r.statement.label)) {
+			structural.push({ kind: "missing", side: left.name, label: r.statement.label })
 		}
 	}
 	const repeated = [
-		...Arr.flatMap(left.statements, (s) => repeatsOf("left", s)),
-		...Arr.flatMap(right.statements, (s) => repeatsOf("right", s))
+		...Arr.flatMap(left.statements, (s) => repeatsIn("left", s)),
+		...Arr.flatMap(right.statements, (s) => repeatsIn("right", s))
 	]
 	return {
 		equal: structural.length === 0 && diffs.length === 0 && repeated.length === 0,

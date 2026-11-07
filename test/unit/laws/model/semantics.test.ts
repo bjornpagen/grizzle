@@ -36,6 +36,7 @@ describe("a schema that states no law", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/laws/model/no-law",
 						draw: sketched(
 							array(

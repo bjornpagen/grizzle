@@ -304,6 +304,7 @@ layer(Substrate.layer)("oracle and real installer", (it) => {
 				const substrate = yield* Substrate
 				return yield* explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "physical/oracle",
 						draw: drawn(
 							schemaSketchGen({ ...defaultSchemaLimits, extended: true, keys: "spanKeys" })

@@ -59,6 +59,7 @@ describe("the query kit's keyed numeric agreement", () => {
 			ctx,
 			explore(
 				{
+					oracle: { kind: "unstated" },
 					suite: "unit/bench/within",
 					draw: drawn(
 						(source) =>
@@ -159,6 +160,7 @@ describe("the query kit's delivered agreement", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/bench/delivered-agree",
 						draw: drawn(
 							(source) =>

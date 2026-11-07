@@ -1,0 +1,100 @@
+EVIDENCE: tsgo-zero-cpu-stall
+
+Environment, for every section: macOS (Darwin 27.0.0, an arm64 virtual machine) on 10 cores; Node 26.13.0; TypeScript
+7.1.0-beta as pnpm install patches it (`tsc --version`: 7.1.0-beta+effect-tsgo.0.67.1), whose binary reports Go 1.27.3;
+load average 41 to 59 from other sessions throughout. Measured 2026-11-06, 19:20 to 19:45 CST.
+
+1. The stall itself.
+   No record exists (NOTES.txt 1): no date, run, unit, ps listing, sample or dump. This file holds what a healthy check
+   looks like and what tsgo answers when asked for its goroutines, so the next stall can be told apart and read.
+
+2. A healthy check always makes CPU progress.
+   The sampler below spawns the compiler, reads its process tree's CPU time with `ps -A -o pid=,ppid=,time=` every
+   interval, and reports the longest stretch with no progress, along with every stretch where the sampler itself fell
+   behind its interval (gaps: [moment ms, length ms]).
+
+   Programs, each the batch's own compiler options (noEmit, noErrorTruncation, customConditions grizzle-source, no
+   plugins), extending packages/devtools/tsconfig.base.json and tsconfig.base.json:
+   - "engine": every file of packages/engine/src;
+   - "fixtures": the 18 fixture files under test/types/*/fixtures, which load the src type graph every batch loads.
+
+   At 250 ms:
+     engine    wall 3,828 ms, CPU 5.27 s, 15 samples, longest without progress 251 ms (one interval)
+     fixtures  wall 13,020 ms, CPU 11.91 s, 51 samples, longest without progress 251 ms (one interval)
+   At 100 ms, three runs of fixtures:
+     {"cmd":"false -p <scratch>/fixtures/tsconfig.json","code":0,"signal":null,"wallMs":18139,"cpuCs":1251,"samples":139,"longestNoProgressMs":101,"gaps":[[3190,316],[4518,150],[6087,213],[6602,205],[6909,306],[7328,210],[7841,746],[8587,158],[8847,280],[11056,473],[11529,200],[11841,361],[13865,153],[14532,336],[14868,353],[15623,594],[16217,250],[16872,317],[17592,156]],"maxDeltaCs":48,"load":"{ 49.10 52.56 58.60 }"}
+     {"cmd":"false -p <scratch>/fixtures/tsconfig.json","code":0,"signal":null,"wallMs":23659,"cpuCs":1252,"samples":158,"longestNoProgressMs":0,"gaps":[[1296,231],[2737,322],[3282,222],[3934,771],[4705,343],[5049,265],[5415,316],[5731,412],[6569,342],[6911,376],[7287,653],[7940,894],[8834,226],[9061,221],[9282,293],[9685,396],[10080,424],[10504,322],[10826,215],[11244,202],[11446,338],[11784,289],[12942,220],[13466,313],[13779,152],[13930,275],[14206,201],[15033,186],[15451,238],[15688,258],[17257,159],[18735,307]],"maxDeltaCs":54,"load":"{ 53.08 53.27 58.69 }"}
+     {"cmd":"false -p <scratch>/fixtures/tsconfig.json","code":0,"signal":null,"wallMs":13489,"cpuCs":1080,"samples":126,"longestNoProgressMs":0,"gaps":[[2598,201],[3001,225],[4133,214],[8185,241],[9235,200]],"maxDeltaCs":57,"load":"{ 52.85 53.20 58.57 }"}
+   The longest stretch without progress was 101 ms, one sampling interval. The sampler fell behind by up to 894 ms
+   under load, but the compiler had progressed across every such stretch (the "gaps"). The largest progress in one
+   interval was 0.57 s of CPU, four checkers at once.
+
+   The sampler (Node, run as `node cpusample.mjs <interval ms> node node_modules/typescript/bin/tsc --pretty false -p
+   <tsconfig>`):
+
+     // Runs a command, samples its process tree's CPU time with ps every intervalMs, and prints the longest stretch with no CPU progress.
+     import { spawn, execFileSync } from "node:child_process"
+     const [intervalMs, ...cmd] = process.argv.slice(2)
+     const interval = Number(intervalMs)
+     const centis = (t) => {
+     	const m = /^(?:(\d+)-)?(?:(\d+):)?(\d+):(\d+)(?:\.(\d+))?$/.exec(t.trim())
+     	if (!m) throw new Error("bad time " + t)
+     	const [, d, h, mi, s, f] = m
+     	return ((Number(d ?? 0) * 24 + Number(h ?? 0)) * 60 + Number(mi)) * 6000 + Number(s) * 100 + Number((f ?? "0").padEnd(2, "0").slice(0, 2))
+     }
+     const treeCpu = (root) => {
+     	const out = execFileSync("ps", ["-A", "-o", "pid=,ppid=,time="], { encoding: "utf8" })
+     	const rows = out.trim().split("\n").map((l) => l.trim().split(/\s+/))
+     	const kids = new Map()
+     	const cpu = new Map()
+     	for (const [pid, ppid, time] of rows) { cpu.set(Number(pid), centis(time)); const k = kids.get(Number(ppid)) ?? []; k.push(Number(pid)); kids.set(Number(ppid), k) }
+     	let total = 0; const stack = [root]; let found = false
+     	while (stack.length) { const p = stack.pop(); if (cpu.has(p)) { found = true; total += cpu.get(p) } for (const c of kids.get(p) ?? []) stack.push(c) }
+     	return found ? total : undefined
+     }
+     const t0 = performance.now()
+     const child = spawn(cmd[0], cmd.slice(1), { stdio: ["ignore", "ignore", "inherit"] })
+     let last = 0, lastProgress = performance.now(), longest = 0, samples = 0, deltas = [], gaps = [], exited = false
+     const timer = setInterval(() => {
+     	const now = performance.now()
+     	if (exited) return
+     	const c = treeCpu(child.pid)
+     	if (c === undefined || exited) return
+     	samples++
+     	deltas.push(c - last)
+     	if (c > last) { if (now - lastProgress > interval * 1.5) gaps.push([Math.round(lastProgress - t0), Math.round(now - lastProgress)]); last = c; lastProgress = now } else { longest = Math.max(longest, now - lastProgress) }
+     }, interval)
+     child.on("exit", (code, signal) => {
+     	exited = true
+     	clearInterval(timer)
+     	const wall = performance.now() - t0
+     	console.log(JSON.stringify({ cmd: cmd.slice(-3).join(" "), code, signal, wallMs: Math.round(wall), cpuCs: last, samples, longestNoProgressMs: Math.round(longest), gaps, maxDeltaCs: Math.max(...deltas.slice(1)), load: execFileSync("sysctl", ["-n", "vm.loadavg"], { encoding: "utf8" }).trim() }))
+     })
+
+3. tsgo at 0% CPU, and its answer to SIGQUIT.
+   - `tsc --watch` on a one-file program checks it once, then waits for changes. Read every 500 ms for 12 s, its CPU
+     time went 0.27 s, 0.42 s, and then 0.42 to 0.43 s for the remaining 10.5 s. It is a tsgo process held at 0% CPU,
+     the planted stall test/types/batch/batch.test.ts uses.
+   - SIGQUIT ends it with exit status 2 and every goroutine's stack on stderr: 23 goroutines for the watch-mode process.
+   - The same signal sent 4 s into a healthy check of "engine" printed 25 goroutines. Their states:
+       1 cleanup wait, 1 finalizer wait, 1 force gc (idle), 1 GC scavenge wait, 1 GC sweep wait,
+       4 GC worker (active), 6 GC worker (idle), 1 GOMAXPROCS updater (idle), 1 idle, 4 running, 1 select,
+       1 select (locked to thread), 1 sync.WaitGroup.Wait (goroutine 1, the main one), 1 syscall.
+     Its head:
+       SIGQUIT: quit
+       PC=0x180e9050c m=0 sigcode=0
+       
+       goroutine 0 gp=0x10197e800 m=0 mp=0x10197f720 [idle]:
+       runtime.pthread_cond_wait(0x10197fc88, 0x10197fc48)
+       	/opt/hostedtoolcache/go/1.27.3/x64/src/runtime/sys_darwin.go:470 +0x20 fp=0x16fda68c0 sp=0x16fda6890 pc=0x1000c0e80
+       runtime.semasleep(0xffffffffffffffff)
+       	/opt/hostedtoolcache/go/1.27.3/x64/src/runtime/os_darwin.go:72 +0x9c fp=0x16fda6920 sp=0x16fda68c0 pc=0x10009d5ac
+       runtime.notesleep(0x10197f878)
+       	/opt/hostedtoolcache/go/1.27.3/x64/src/runtime/lock_sema.go:62 +0xac fp=0x16fda6950 sp=0x16fda6920 pc=0x10006fc2c
+       runtime.mPark(...)
+       	/opt/hostedtoolcache/go/1.27.3/x64/src/runtime/proc.go:1985
+   - A stalled check's dump should show no checker "running": the main goroutine in sync.WaitGroup.Wait and every
+     checker blocked. That is what to read the next dump for.
+
+4. Searches, 2026-11-06.
+   - Web search for a tsgo hang at 0% CPU on a type error: no exact match (CHECKLIST.txt A).

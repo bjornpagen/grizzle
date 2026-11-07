@@ -389,7 +389,7 @@ export const maxAllocSize = published({
  * The most bytes a character of a UTF-8 database takes, pg_database_encoding_max_length() there: the widest UTF-8
  * sequence PostgreSQL reads, which translate allocates for each byte of its operand.
  */
-export const utf8EncodingMaxBytes = published({
+const utf8EncodingMaxBytes = published({
 	value: 4,
 	owner: "PostgreSQL 19rc1",
 	unit: "bytes",
@@ -402,7 +402,7 @@ export const utf8EncodingMaxBytes = published({
 })
 
 /** A varlena's header, VARHDRSZ, which translate's result allocation counts beside its characters. */
-export const varlenaHeaderBytes = published({
+const varlenaHeaderBytes = published({
 	value: 4,
 	owner: "PostgreSQL 19rc1",
 	unit: "bytes",
@@ -432,7 +432,7 @@ export const translateMaxBytes = derived({
  * The bytes of one pg_wchar, the wide character PostgreSQL's regex engine reads a text as: an unsigned int, 32 bits on
  * every platform PostgreSQL 19 builds on.
  */
-export const pgWcharBytes = published({
+const pgWcharBytes = published({
 	value: 4,
 	owner: "PostgreSQL 19rc1",
 	unit: "bytes",
@@ -663,37 +663,6 @@ export const cellMaxCodes = derived({
 	from: [int4Max],
 	derivation: `bittoint4 reads a cell's bits as uint32 and returns it as int32, refusing more than 32 bits: "if (VARBITLEN(arg) > sizeof(result) * BITS_PER_BYTE)" and "PG_RETURN_INT32(result)" (${postgresSource}/src/backend/utils/adt/varbit.c#L1593, verified 2026-11-05); the greatest cell, 1 + (codes - 1), is at most the greatest integer`,
 	compute: ([max]) => max.value
-})
-
-/**
- * MaxAttrSize, the longest declared size of a data field of char(n) and similar types: for bit(n) and bit varying(n),
- * the bytes their declared length comes to at most.
- */
-const maxAttrSize = published({
-	value: 10 * 1024 * 1024,
-	owner: "PostgreSQL 19rc1",
-	unit: "bytes",
-	scope:
-		"the declared size of one data field of char(n) and similar types, bit(n) and bit varying(n) among them",
-	constraint: "compile-time constant",
-	source: `${postgresSource}/src/include/access/htup_details.h#L626`,
-	quote: "#define MaxAttrSize\t\t(10 * 1024 * 1024)",
-	verified: "2026-11-05"
-})
-
-/**
- * The longest length a bit(n) or bit varying(n) type may declare, and so the most bits of one set column, which holds a
- * bit for each code of its roster: PostgreSQL refuses a longer type modifier, "length for type %s cannot exceed %d". A
- * constant is a bit varying with no declared length, so constantMaxBits bounds it instead.
- */
-export const bitColumnMaxBits = derived({
-	owner: "PostgreSQL 19rc1",
-	unit: "bits",
-	scope:
-		"the declared length n of one bit(n) or bit varying(n) type: a set column's, a cell's cast",
-	from: [maxAttrSize, bitsPerByte],
-	derivation: `MaxAttrSize in bits, the longest length the type modifier of bit and bit varying admits: "if (*tl > (MaxAttrSize * BITS_PER_BYTE))" (${postgresSource}/src/backend/utils/adt/varbit.c#L112, verified 2026-11-05)`,
-	compute: ([attr, bits]) => attr.value * bits.value
 })
 
 /**

@@ -7,6 +7,7 @@ import {
 	Effect,
 	Formatter,
 	Option,
+	Order,
 	Record as Rec,
 	Result,
 	String as Str
@@ -196,6 +197,42 @@ const programOf = (statements: ReadonlyArray<Statement>) =>
 		"\n"
 	)}\n}\n`
 
+/** The files a family case lists, some under sql/, which the family applies to, and some elsewhere. */
+const FAMILY_FILES = ["sql/print.ts", "sql/plan.ts", "src/other.ts", "lib/text.ts"] as const
+
+/**
+ * A family case: files of distinct names, each declaring a few string literals, "a" (a site the family's rule finds) or
+ * "c" (none), and how many copies of the one rule the family holds.
+ */
+const familyCase = (source: Parameters<Gen<unknown>>[0]) => ({
+	files: Arr.map(source.draw(shuffled(FAMILY_FILES, { min: 1, max: 3 })), (name) => ({
+		name,
+		literals: source.draw(array(element(["a", "c"] as const), { min: 0, max: 3 }))
+	})),
+	rules: source.draw(int(1, 3))
+})
+
+/** A file declaring each literal in order, one declaration a line. */
+const literalsText = (literals: ReadonlyArray<string>): string =>
+	Arr.join(
+		Arr.map(literals, (literal, at) => `export const name${at} = "${literal}"\n`),
+		""
+	)
+
+/** A family whose `copies` rules each propose the same edit: every "a" literal becomes "b", in the files `applies` names. */
+const renamingFamily = (applies: (file: string) => boolean, copies: number): Family<"rename"> => {
+	const rule: Family<"rename">["rules"][number] = (node, site) => {
+		if (site.source.kind !== node.kind && site.slice(node) === `"a"`) {
+			site.add("rename", site.span(node), `"b"`)
+		}
+	}
+	return {
+		operators: ["rename"],
+		applies,
+		rules: Arr.makeBy(copies, () => rule)
+	}
+}
+
 layer(NodeServices.layer)("source mutation", (it) => {
 	it.effect(
 		"yields exactly the mutants each statement names, each at its own text, place, id and function",
@@ -257,40 +294,102 @@ layer(NodeServices.layer)("source mutation", (it) => {
 			)
 	)
 
-	it.effect("adds a family's mutants in the files it applies to, each edit once", () =>
-		Effect.gen(function* () {
-			const renaming: Family<"rename"> = {
-				operators: ["rename"],
-				applies: (file) => Str.startsWith("sql/")(file),
-				rules: [
-					(node, site) => {
-						if (site.source.kind !== node.kind && site.slice(node) === `"a"`) {
-							site.add("rename", site.span(node), `"b"`)
-						}
+	it.effect(
+		"adds a family's mutants at each of its sites in the files it applies to, each edit once however many rules propose it",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "family mutants",
+						oracle: {
+							kind: "second-implementation",
+							name: 'each "a" literal of each file the family applies to, replaced by "b" alone'
+						},
+						draw: drawn(familyCase),
+						literal: Formatter.format,
+						coverage: required<
+							| "a file the family skips"
+							| "a site in a file it applies to"
+							| "several sites in one file"
+							| "a rule proposed twice"
+						>(
+							[
+								"a file the family skips",
+								"a site in a file it applies to",
+								"several sites in one file",
+								"a rule proposed twice"
+							],
+							{ cases: 60, sense: notesOnly }
+						),
+						kept: [],
+						runs: 40,
+						shrink: { kind: "bounded", candidates: 40 },
+						concurrency: 1,
+						steerEvery: 10,
+						caseHang: Duration.minutes(1)
 					},
-					(node, site) => {
-						if (site.source.kind !== node.kind && site.slice(node) === `"a"`) {
-							site.add("rename", site.span(node), `"b"`)
-						}
-					}
-				]
-			}
-			const text = `export const name = "a"\n`
-			const mutants = yield* mutantsOf(
-				[
-					{ file: "sql/print.ts", text },
-					{ file: "src/other.ts", text }
-				],
-				[renaming]
+					({ files, rules }, c) =>
+						Effect.gen(function* () {
+							const applies = (file: string) => Str.startsWith("sql/")(file)
+							const sources = Arr.map(files, (file) => ({
+								file: file.name,
+								text: literalsText(file.literals)
+							}))
+							const expected = Arr.flatMap(files, (file) =>
+								applies(file.name)
+									? Arr.flatMap(file.literals, (literal, at) =>
+											literal === "a"
+												? [
+														[
+															file.name,
+															literalsText(
+																Arr.map(file.literals, (other, place) =>
+																	place === at ? "b" : other
+																)
+															)
+														] as const
+													]
+												: []
+										)
+									: []
+							)
+							if (Arr.some(files, (file) => !applies(file.name))) {
+								c.note("a file the family skips")
+							}
+							if (Arr.isReadonlyArrayNonEmpty(expected)) {
+								c.note("a site in a file it applies to")
+							}
+							if (
+								Arr.some(
+									files,
+									(file) =>
+										applies(file.name) && Arr.filter(file.literals, (l) => l === "a").length > 1
+								)
+							) {
+								c.note("several sites in one file")
+							}
+							if (rules > 1) {
+								c.note("a rule proposed twice")
+							}
+							const mutants = yield* mutantsOf(sources, [renamingFamily(applies, rules)])
+							const byPlace = Order.combine(
+								Order.mapInput(Order.String, (entry: readonly [string, string]) => entry[0]),
+								Order.mapInput(Order.String, (entry: readonly [string, string]) => entry[1])
+							)
+							deepStrictEqual(
+								Arr.sort(
+									Arr.map(
+										Arr.filter(mutants, (mutant) => mutant.operator === "rename"),
+										(mutant) => [mutant.file, applied(mutant)] as const
+									),
+									byPlace
+								),
+								Arr.sort(expected, byPlace)
+							)
+						})
+				)
 			)
-			deepStrictEqual(
-				Arr.map(
-					Arr.filter(mutants, (mutant) => mutant.operator === "rename"),
-					(mutant) => [mutant.file, applied(mutant)]
-				),
-				[["sql/print.ts", `export const name = "b"\n`]]
-			)
-		})
 	)
 
 	it.effect(

@@ -141,6 +141,8 @@ describe("shared nodes", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/lower/conservative/sharing",
 						generator: (source) =>
 							[source.draw(element(placements)), source.draw(int(3, 4))] as const,

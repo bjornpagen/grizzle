@@ -1,6 +1,6 @@
 import { Array as Arr, Result } from "effect"
 import type { Plan } from "#adapter/types/db.ts"
-import { trustedJson } from "#compiler/core/trusted.ts"
+import { trustedJson } from "#compiler/plan/common.ts"
 
 /**
  * Reading PostgreSQL's EXPLAIN (FORMAT JSON) as the public Plan.

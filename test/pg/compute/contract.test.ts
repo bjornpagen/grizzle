@@ -303,6 +303,7 @@ const contractSearch = (f: Fixture) =>
 		const target = `"${s}"."${Str.toLowerCase(f.name)}"`
 		return yield* explore(
 			{
+				oracle: { kind: "unstated" },
 				suite: `pg/compute/contract/${f.name}`,
 				draw: drawn(array(f.values, { min: 1, max: f.batch })),
 				literal: Formatter.format,
@@ -415,6 +416,7 @@ layer(Substrate.layer)("contract predicates against PostgreSQL 19 domains", (it)
 						`${source.draw(int(-1, 1))}.${pipe(String(source.draw(int(0, 99999999))), Str.padStart(8, "0"))}`
 					return yield* explore(
 						{
+							oracle: { kind: "unstated" },
 							suite: "pg/compute/contract/rounding",
 							draw: drawn(array(literal, { min: 1, max: 300 })),
 							literal: Formatter.format,

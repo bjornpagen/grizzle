@@ -1517,6 +1517,7 @@ export class Checker {
 				child: child.node,
 				name: desc.name,
 				correlation,
+				judged: "array",
 				delivered: "array",
 				order: this.complete(stated, childHeading, fixed),
 				heading
@@ -1535,6 +1536,7 @@ export class Checker {
 						child: child.node,
 						name: desc.name,
 						correlation,
+						judged: "array",
 						delivered: "array",
 						order,
 						heading

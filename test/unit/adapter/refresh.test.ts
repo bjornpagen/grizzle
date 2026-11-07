@@ -464,6 +464,7 @@ describe("plain or CONCURRENTLY", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/adapter/text-array",
 						draw: drawn(
 							array(
@@ -539,6 +540,8 @@ describe("plain or CONCURRENTLY", () => {
 				ctx,
 				exhaust(
 					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
 						suite: "unit/adapter/refresh-position",
 						generator: detailGen,
 						literal: Formatter.format,

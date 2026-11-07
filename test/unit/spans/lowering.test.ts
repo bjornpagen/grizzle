@@ -80,6 +80,7 @@ describe("span parameters and windows", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/spans/point-in-params",
 						draw: drawn(
 							uniqueArray(
@@ -195,6 +196,7 @@ describe("span parameters and windows", () => {
 				ctx,
 				explore(
 					{
+						oracle: { kind: "unstated" },
 						suite: "unit/spans/fixed-width-binding",
 						draw: drawn((source) => ({
 							start: source.draw(int(-1000, 1000)),

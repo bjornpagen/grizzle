@@ -447,13 +447,12 @@ export const scanInput = (
  * check stays: an elision fires only with its evidence. */
 export const keyUniqueByEvidence = (node: RelNode, relation: RelationInfo): KeyUniqueness => {
 	const key = relation.primaryKey
-	for (const k of node.meta.logicalKeys) {
+	for (const proof of node.meta.logicalKeys) {
 		if (
-			k.kind === "proved" &&
-			contextAdmits("transaction", k.proof.context) &&
-			keyIn(k.proof, (f) => key.includes(f) && castKeeps(node.heading, relation, f)) !== undefined
+			contextAdmits("transaction", proof.context) &&
+			keyIn(proof, (f) => key.includes(f) && castKeeps(node.heading, relation, f)) !== undefined
 		) {
-			return { kind: "proved", proof: k.proof }
+			return { kind: "proved", proof }
 		}
 	}
 	return { kind: "unproved" }

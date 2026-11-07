@@ -174,12 +174,14 @@ export const SuperlintOptions = Schema.Struct({
 		scaffolds: Schema.Array(Scaffolds),
 		exempt: Schema.Array(Exemption)
 	}),
-	/** Where a search's space is never a list of cases: the files read, where a list written is a list of cases; the
-	 * dictionaries among them, whose lists are the values the code branches on, never verdicts, each set with its
-	 * reason; the searches, with the property of their spec that holds the space; and the generators, each with what it
-	 * draws. */
+	/** Where a search's space is never a list of cases: the files whose searches are read; the files among them where
+	 * every list written is a list of cases, beside the test files, whose lists always are (elsewhere a list is a roster
+	 * the source declares); the dictionaries, whose lists are the values the code branches on, never verdicts, each set
+	 * with its reason; the searches, with the property of their spec that holds the space; and the generators, each with
+	 * what it draws. */
 	noCaseList: Schema.Struct({
 		files: Paths,
+		cases: Paths,
 		dictionaries: Schema.Array(Exemption),
 		searches: Schema.Array(SearchSpace),
 		generators: Schema.Array(Schema.Struct({ module: Schema.String, names: Names, draws: Draws }))
@@ -414,6 +416,13 @@ export const FIXTURE_OPTIONS: SuperlintOptions = {
 	},
 	noCaseList: {
 		files: [
+			"no-case-list/violating.ts",
+			"no-case-list/clean.ts",
+			"no-case-list/cases.ts",
+			"no-case-list/dictionary.ts",
+			"no-case-list/roster.ts"
+		],
+		cases: [
 			"no-case-list/violating.ts",
 			"no-case-list/clean.ts",
 			"no-case-list/cases.ts",

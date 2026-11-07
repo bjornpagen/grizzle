@@ -2,11 +2,14 @@ import { Array as Arr, Effect, Record as Rec, Result, Stream } from "effect"
 import { readHost } from "#adapter/engine.ts"
 import { ReadFailure } from "#adapter/errors/execution.ts"
 import type { HostParams } from "#adapter/reader/execution.ts"
-import { encodeFailure, factPlace, slotPlace } from "#compiler/codec/fault.ts"
-import { hasProperties, isList } from "#compiler/core/record.ts"
-import type { ParamDecl } from "#compiler/ir/products.ts"
-
-import type { ParamMap, ParamValue } from "#compiler/types/core/phantom.ts"
+import {
+	hasProperties,
+	isList,
+	type ParamDecl,
+	type ParamMap,
+	type ParamValue
+} from "#compiler/plan/common.ts"
+import { encodeFailure, factPlace, slotPlace } from "#compiler/plan/read.ts"
 
 /**
  * A read's parameter values as the statements' encoders take them.
@@ -38,13 +41,14 @@ export const unreadableArguments = (): ReadFailure =>
 type ParamValues = Readonly<Record<string, ParamValue>>
 
 /**
- * The values of the parameters `names` off a JavaScript caller's map, read once at the boundary
- * (core/host.ts hostRead): each a data property's value, or what its getter returns called once, and
- * nothing else of the map, so every later read is of the copy. An argument that is no record (undefined, null, any
- * other primitive, a function or an array, none of which ParamArg admits) is `fault`, whether or not the program
- * declares a parameter, and so is a map whose reading throws (a refusing proxy). Each value stays opaque here, to be
- * read at its own boundary: a scalar by its codec's admitter, a relation's facts by the relation normalizer, a Stream
- * by relationStreams.
+ * The values of the parameters `names` off a JavaScript caller's map of a program's parameters, read once at the
+ * boundary (core/host.ts hostRead): each a data property's value, or what its getter returns called once, and nothing
+ * else of the map, so every later read is of the copy. An argument that is no record (undefined, null, any other
+ * primitive, a function or an array, none of which ParamArg admits) is `fault`, whether or not the program declares a
+ * parameter; so is a map whose reading throws (a refusing proxy), and a map with a key that names none of the
+ * program's parameters, which ParamArg refuses too: a parameter the caller meant and misspelled fails closed instead of
+ * binding nothing. Each value stays opaque here, to be read at its own boundary: a scalar by its codec's admitter, a
+ * relation's facts by the relation normalizer, a Stream by relationStreams.
  */
 export const readParams = <F>(
 	names: ReadonlyArray<string>,
@@ -55,15 +59,39 @@ export const readParams = <F>(
 		if (typeof params !== "object" || !hasProperties(params) || isList(params)) {
 			return Result.fail(fault)
 		}
-		const values: Record<string, ParamValue> = {}
-		for (const name of names) {
-			const value = params[name]
-			if (value !== undefined) {
-				values[name] = value
-			}
+		if (Arr.some(Rec.keys<string, ParamValue>(params), (key) => !names.includes(key))) {
+			return Result.fail(fault)
 		}
-		return Result.succeed(values)
+		return Result.succeed(valuesAt(names, params))
 	})
+
+/**
+ * A key's values off a JavaScript caller's record, read once at the boundary as readParams reads a map: the values at
+ * the key's `fields` and nothing else of it, so a whole fact of the key's relation names its key. An argument that is
+ * no record, or whose reading throws, is `fault`.
+ */
+export const readKeyValues = <F>(
+	fields: ReadonlyArray<string>,
+	values: ParamMap,
+	fault: F
+): Result.Result<ParamValues, F> =>
+	readHost(fault, () =>
+		typeof values !== "object" || !hasProperties(values) || isList(values)
+			? Result.fail(fault)
+			: Result.succeed(valuesAt(fields, values))
+	)
+
+/** The values of a record at `names`, each a data property's value or what its getter returns, absent ones left out. */
+const valuesAt = (names: ReadonlyArray<string>, record: ParamMap): ParamValues => {
+	const values: Record<string, ParamValue> = {}
+	for (const name of names) {
+		const value = record[name]
+		if (value !== undefined) {
+			values[name] = value
+		}
+	}
+	return values
+}
 
 /** A declared relation parameter whose value is a Stream, with its Stream. */
 interface RelationStream {

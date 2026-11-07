@@ -3,6 +3,7 @@ import { element, type Gen } from "@grizzle/testing/gen"
 import { floorSeed, rotatingSeed } from "@grizzle/testing/random"
 import { sample, type Source } from "@grizzle/testing/source"
 import { keep, type Swarm, swarm, swarmChoice } from "@grizzle/testing/swarm"
+import { regex } from "arkregex"
 import { Array as Arr, Option, Record as Rec, Result, String as Str } from "effect"
 import { CompileError, type CompileReason } from "#compiler/core/errors.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
@@ -11,16 +12,18 @@ import type { ParamDecl } from "#compiler/ir/products.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import { contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { Compute } from "#compiler/public/compute.ts"
-import { Bits, Decimal, Money } from "#compiler/public/fields.ts"
-import { lexicalForm } from "#compiler/public/text.ts"
+import { Bits, Decimal, Money, uuid } from "#compiler/public/fields.ts"
+import { relation, schema } from "#compiler/public/schema.ts"
+import { lexicalForm, str } from "#compiler/public/text.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { guarded, typedTermOf } from "#compiler/scalar/compute/term.ts"
 import { meets } from "#compiler/scalar/compute/types.ts"
 import { carrierSql } from "#compiler/scalar/registry.ts"
-import { Cell, Cells, Tone } from "#test/support/agreement/compute-schema.ts"
-import { compileTemplate, testCompile } from "#test/support/compile.ts"
+import { generatedField } from "#compiler/schema/relation.ts"
+import { Cell, Cells, Heads, Tone } from "#test/support/agreement/compute-schema.ts"
+import { compileTemplate, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { messageOf } from "#test/support/message.ts"
 
 /**
@@ -216,6 +219,7 @@ const computeFeatures = [
 	"Decimal member",
 	"parts member",
 	"literal first",
+	"byte guard",
 	"foreign operand",
 	...otherKinds
 ] as const
@@ -262,9 +266,47 @@ export const computeInferences = [
 ] as const
 type Inference = (typeof computeInferences)[number]
 
+/**
+ * A case that reads a column of Heads through a query's heading (a heading operand), whose facts are its column type's:
+ * admitted where the type declares the fact an operation needs, refused where it is a plain integer's.
+ */
+const headingNote = "a column read through a heading"
+type HeadingNote = typeof headingNote
+
+/**
+ * What a byte guard case reached, by the engine's verdict on its check: its cast admitted within the guard's high bound,
+ * the guard reaching past the target's bytes, and the cast with no guard, each of the last two a decided language,
+ * which the types admit since a byte bound is no type.
+ */
+const byteNotes = [
+	"a cast within its byte guard",
+	"a byte guard past its target",
+	"a byte cast unguarded"
+] as const
+type ByteNote = (typeof byteNotes)[number]
+
+/** What a byte guard case reached (byteNotes): none for any other case. */
+const byteNotesOf = (spec: CaseSpec, verdict: Verdict): ReadonlyArray<ByteNote> => {
+	if (spec.kind !== "bytes") {
+		return []
+	}
+	const language = verdict.kind === "decided" && verdict.note === engineDecides.language
+	return spec.guard.kind === "within"
+		? verdict.kind === "admitted"
+			? ["a cast within its byte guard"]
+			: language
+				? ["a byte guard past its target"]
+				: []
+		: language
+			? ["a byte cast unguarded"]
+			: []
+}
+
 /** What a case reached: its constructs, the engine's verdict, the Refusal it names and what its types infer. */
 export type ComputeNote =
 	| ComputeFeature
+	| HeadingNote
+	| ByteNote
 	| "admitted"
 	| "refused"
 	| "refused: structurally"
@@ -280,6 +322,35 @@ type Operand =
 	| { readonly kind: "guarded" }
 	| { readonly kind: "lexical"; readonly field: FieldName }
 	| { readonly kind: "term"; readonly term: TermSpec }
+	| { readonly kind: "heading"; readonly column: HeadColumn }
+
+/**
+ * A column of Heads (./compute-schema.ts), Cell's divisor read back through a query's heading, by the kind of head term
+ * that delivers it, and the field of Cell of its column's type, which a division by it divides.
+ */
+const headColumns = [
+	"divisor",
+	"base",
+	"cast",
+	"cond",
+	"least",
+	"greatest",
+	"min",
+	"max",
+	"sum"
+] as const
+type HeadColumn = (typeof headColumns)[number]
+const headFields: { readonly [C in HeadColumn]: FieldName } = {
+	divisor: "divisor",
+	base: "int",
+	cast: "int",
+	cond: "divisor",
+	least: "divisor",
+	greatest: "divisor",
+	min: "divisor",
+	max: "divisor",
+	sum: "big"
+}
 
 type TermSpec =
 	| { readonly kind: "apply"; readonly fn: Fn; readonly args: Arr.NonEmptyReadonlyArray<Operand> }
@@ -326,6 +397,23 @@ type CaseSpec =
 	| { readonly kind: "aggregate"; readonly fn: AggregateFn; readonly of: Operand }
 	| { readonly kind: "value"; readonly ctor: ValueCtor; readonly lit: Lit }
 	| { readonly kind: "member"; readonly holder: Holder; readonly name: string }
+	| {
+			readonly kind: "bytes"
+			readonly text: TextField
+			readonly target: number
+			readonly guard: ByteGuard
+	  }
+
+/** A text field of Cell a byte guard's case reads. */
+type TextField = (typeof families.text)[number]
+
+/**
+ * What stands around a byte guard case's cast into a str.bytes target: the one byte guard,
+ * Compute.within(Compute.octetLength(x), low, high), whose branch carries x's byte bound narrowed to high, or nothing.
+ */
+type ByteGuard =
+	| { readonly kind: "within"; readonly low: number; readonly high: number }
+	| { readonly kind: "none" }
 
 /** The operations each family is the home of: a first operand is drawn from them four times in five. */
 const homes: { readonly [F in Fn]: Arr.NonEmptyReadonlyArray<Family> } = {
@@ -678,20 +766,34 @@ const aimedOperands: {
 	]
 }
 
-/** An integer, or the contract itself, divided by the base or the value of a contract that declares nonzero. */
-const provedDivisor = (d: Drawing): Arr.NonEmptyReadonlyArray<Operand> =>
-	d.from([0, 1]) === 0
-		? [
+/**
+ * An integer, or the contract itself, divided by the base or the value of a contract that declares nonzero, or a field
+ * of a column's type divided by that column of Heads read back through a query's heading, whose facts are its type's.
+ */
+const provedDivisor = (d: Drawing): Arr.NonEmptyReadonlyArray<Operand> => {
+	switch (d.from([0, 1, 2])) {
+		case 0:
+			return [
 				{ kind: "field", field: "int" },
 				{
 					kind: "term",
 					term: { kind: "apply", fn: "base", args: [{ kind: "field", field: "divisor" }] }
 				}
 			]
-		: [
+		case 1:
+			return [
 				{ kind: "field", field: "divisor" },
 				{ kind: "field", field: "divisor" }
 			]
+		default: {
+			const column = d.from(headColumns)
+			return [
+				{ kind: "field", field: headFields[column] },
+				{ kind: "heading", column }
+			]
+		}
+	}
+}
 
 /**
  * A numeric operand proved finite: a typed constant of a numeric field, or the numeric of an integer, whose value is
@@ -1052,12 +1154,14 @@ const castAims = ["narrowing", "contract", "parse", "related"] as const
 type CastAim = (typeof castAims)[number]
 
 /**
- * A term's root: a cast under its aim, a when of one branch, or any other term construct. Each aim and branch is a
- * root of its own, so the floor draws each often enough to meet what it aims at.
+ * A term's root: a cast under its aim, a when of one branch, a division by a column read through a heading (its facts
+ * its column type's, so admitted or refused as the type declares nonzero), or any other term construct. Each aim and
+ * branch is a root of its own, so the floor draws each often enough to meet what it aims at.
  */
 type TermRoot =
 	| { readonly kind: "cast"; readonly aim: CastAim }
 	| { readonly kind: "when"; readonly branch: Branch }
+	| { readonly kind: "heading" }
 	| { readonly kind: "term"; readonly root: Exclude<TermKind, "cast" | "when"> }
 
 /** A term's root of a construct the swarm chose: a cast's aim and a when's branch drawn. */
@@ -1072,6 +1176,7 @@ const termRootOf = (d: Drawing, kind: TermKind): TermRoot =>
 const termRoots: Arr.NonEmptyReadonlyArray<TermRoot> = [
 	...Arr.map(castAims, (aim): TermRoot => ({ kind: "cast", aim })),
 	...Arr.map(branches, (branch): TermRoot => ({ kind: "when", branch })),
+	{ kind: "heading" },
 	...Arr.flatMap(termKinds, (root): ReadonlyArray<TermRoot> =>
 		root === "cast" || root === "when" ? [] : [{ kind: "term", root }]
 	)
@@ -1084,6 +1189,8 @@ const termRootName = (root: TermRoot): { readonly feature: TermKind; readonly na
 			return { feature: "cast", name: `cast: ${root.aim}` }
 		case "when":
 			return { feature: "when", name: `when: ${root.branch}` }
+		case "heading":
+			return { feature: "div", name: headingNote }
 		case "term":
 			return { feature: root.root, name: root.root }
 	}
@@ -1097,6 +1204,19 @@ const termOf = (d: Drawing, root: TermRoot): TermSpec => {
 	switch (root.kind) {
 		case "cast":
 			return castOf(d, root.aim)
+		case "heading": {
+			const fn = d.from(["div", "mod"] as const)
+			const column = d.from(headColumns)
+			d.note(fn)
+			return {
+				kind: "apply",
+				fn,
+				args: [
+					{ kind: "field", field: headFields[column] },
+					{ kind: "heading", column }
+				]
+			}
+		}
 		case "when": {
 			const guard = lexicalGuard(
 				d,
@@ -1170,6 +1290,7 @@ type Root =
 	| { readonly kind: "aggregate"; readonly root: AggregateFn }
 	| { readonly kind: "value"; readonly root: ValueCtor }
 	| { readonly kind: "member"; readonly root: MemberFeature }
+	| { readonly kind: "bytes"; readonly root: "byte guard" }
 
 /**
  * Every construct, each a root. The floor draws its witnesses root by root (computeWitnesses), so each construct is
@@ -1180,7 +1301,8 @@ const roots: Arr.NonEmptyReadonlyArray<Root> = [
 	...Arr.map(predKinds, (root): Root => ({ kind: "predicate", root })),
 	...Arr.map(aggregates, (root): Root => ({ kind: "aggregate", root })),
 	...Arr.map(values, (root): Root => ({ kind: "value", root })),
-	...Arr.map(memberFeatures, (root): Root => ({ kind: "member", root }))
+	...Arr.map(memberFeatures, (root): Root => ({ kind: "member", root })),
+	{ kind: "bytes", root: "byte guard" }
 ]
 
 /** The name of a root's stratum. */
@@ -1199,6 +1321,8 @@ const caseAt = (d: Drawing, root: Root): CaseSpec => {
 			return { kind: "aggregate", fn: root.root, of: firstOperand(d, aggregateHomes, 1) }
 		case "value":
 			return { kind: "value", ctor: root.root, lit: d.from(lits) }
+		case "bytes":
+			return bytesOf(d)
 		case "member": {
 			const holder = holderOf[root.root]
 			return {
@@ -1213,10 +1337,79 @@ const caseAt = (d: Drawing, root: Root): CaseSpec => {
 	}
 }
 
+/**
+ * A cast of a text field into a str.bytes target of n bytes, a generated field's term, which a check compiles: under the
+ * byte guard three times in four, its high bound drawn about n, or unguarded. The bounds and targets are a dictionary
+ * of the byte counts the narrowing branches on: none, one, and a short and a longer text's.
+ */
+const bytesOf = (d: Drawing): CaseSpec => ({
+	kind: "bytes",
+	text: d.from(families.text),
+	target: d.from([0, 1, 4, 8]),
+	guard:
+		d.from([0, 1, 2, 3]) < 3
+			? { kind: "within", low: d.from([0, 1]), high: d.from([0, 1, 2, 4, 5, 8, 9, 12]) }
+			: { kind: "none" }
+})
+
+/** The target a byte guard case casts into, as the program and the engine spell it. */
+const bytesTargetText = (n: number): string => `str.bytes(${n}, str.regex("^.*$", "su"))`
+
+/** A byte guard case's schema: Texts, whose generated field is the case's cast, under its guard or not. */
+const bytesSchemaText = (spec: Extract<CaseSpec, { readonly kind: "bytes" }>): string => {
+	const target = bytesTargetText(spec.target)
+	const cast = `Compute.cast(r.text, ${target})`
+	const term =
+		spec.guard.kind === "within"
+			? `Compute.when(Compute.within(Compute.octetLength(r.text), ${spec.guard.low}, ${spec.guard.high}), () => ${cast}, "")`
+			: cast
+	return `schema("Bytes", { Texts: relation.generated("Texts", { id: uuid, text: Cell.fields.${spec.text} }, ["id"], (r) => ({ stored: generated(${target}, ${term}) })) }, [])`
+}
+
+/** The engine's reading of a byte guard case: the same schema, built by the public constructors and Compute's core. */
+const bytesSchema = (spec: Extract<CaseSpec, { readonly kind: "bytes" }>): unknown => {
+	const target = str.bytes(spec.target, str.regex("^.*$", "su"))
+	const guard = spec.guard
+	return schema(
+		"Bytes",
+		{
+			Texts: relation.generated(
+				"Texts",
+				{ id: uuid, text: Cell.fields[spec.text] },
+				["id"],
+				(r) => ({
+					stored: generatedField(
+						target,
+						guard.kind === "within"
+							? computeCore.when(
+									computeCore.within(computeCore.octetLength(r.text), guard.low, guard.high),
+									() => computeCore.cast(r.text, target),
+									""
+								)
+							: computeCore.cast(r.text, target),
+						[]
+					)
+				})
+			)
+		},
+		[]
+	)
+}
+
 /** One case: its kind under the swarm, then its parts. */
 const caseOver = (d: Drawing): CaseSpec => {
 	switch (
-		d.from(["term", "term", "term", "term", "predicate", "aggregate", "value", "member"] as const)
+		d.from([
+			"term",
+			"term",
+			"term",
+			"term",
+			"predicate",
+			"aggregate",
+			"value",
+			"member",
+			"bytes"
+		] as const)
 	) {
 		case "term":
 			return caseAt(d, { kind: "term", root: termRootOf(d, d.choose(termKinds)) })
@@ -1228,6 +1421,8 @@ const caseOver = (d: Drawing): CaseSpec => {
 			return caseAt(d, { kind: "value", root: d.choose(values) })
 		case "member":
 			return caseAt(d, { kind: "member", root: d.choose(memberFeatures) })
+		case "bytes":
+			return caseAt(d, { kind: "bytes", root: "byte guard" })
 	}
 }
 
@@ -1236,6 +1431,7 @@ class Rendering {
 	usesRule = false
 	lexical = false
 	usesCell = false
+	usesHead = false
 	readonly fields = new Set<FieldName>()
 
 	operand(o: Operand): string {
@@ -1258,6 +1454,9 @@ class Rendering {
 				return `lexicalForm(Cell.fields.${o.field})`
 			case "term":
 				return this.term(o.term)
+			case "heading":
+				this.usesHead = true
+				return `head.${o.column}`
 		}
 	}
 
@@ -1371,11 +1570,18 @@ const applied = (fn: Fn, args: ReadonlyArray<unknown>): unknown => {
 class Building {
 	readonly #r: RuleValue
 	readonly #cell: Readonly<Record<string, unknown>>
+	readonly #head: Readonly<Record<string, unknown>>
 	readonly #guarded: unknown
 
-	constructor(r: RuleValue, cell: Readonly<Record<string, unknown>>, guarded: unknown) {
+	constructor(
+		r: RuleValue,
+		cell: Readonly<Record<string, unknown>>,
+		head: Readonly<Record<string, unknown>>,
+		guarded: unknown
+	) {
 		this.#r = r
 		this.#cell = cell
+		this.#head = head
 		this.#guarded = guarded
 	}
 
@@ -1395,6 +1601,8 @@ class Building {
 				return hostLexical.lexicalForm(Cell.fields[o.field])
 			case "term":
 				return this.term(o.term)
+			case "heading":
+				return this.#head[o.column]
 		}
 	}
 
@@ -1414,7 +1622,7 @@ class Building {
 			case "when":
 				return computeCore.when(
 					this.guard(t.guard),
-					(g: unknown) => new Building(this.#r, this.#cell, g).term(t.body),
+					(g: unknown) => new Building(this.#r, this.#cell, this.#head, g).term(t.body),
 					this.operand(t.otherwise)
 				)
 		}
@@ -1509,6 +1717,7 @@ const claimOf = (reason: CompileReason): Claim => {
 type Imported =
 	| "DomainOf"
 	| "lexicalForm"
+	| "bytes"
 	| "widened"
 	| "Bits"
 	| "Decimal"
@@ -1520,17 +1729,13 @@ type Imported =
 	| "Infer"
 	| "Rostered"
 
-/**
- * The field of Cell each contract is the type of, a calendar date's among them, through which the program names the
- * contract's host type.
- */
+/** The field of Cell each contract is the type of, through which the program names the contract's host type. */
 const contractFields: Readonly<Record<string, FieldName>> = {
 	Cents: "cents",
 	EpochDay: "epoch",
 	Rate: "rate",
 	Divisor: "divisor",
-	Body: "body",
-	date: "day"
+	Body: "body"
 }
 
 /**
@@ -1621,7 +1826,8 @@ interface Admitted {
 /**
  * What the engine decides that no type states, so the types admit a case the engine refuses for it: a precondition
  * compilation alone proves (a value fitting its target's range, a contract holding of a value, a text inside a
- * pattern's language or a lexical form, a value inside width_bucket's domain), a text function's place in a query
+ * pattern's language or a lexical form, a value inside width_bucket's domain, a power's result inside its type's
+ * range), a text function's place in a query
  * (a concatenation beside an equation, a translation of a long text, a length outside a predicate), the digits of an
  * exact decimal's text, and the values of a pattern term the build must see.
  */
@@ -1631,6 +1837,7 @@ const engineDecides = {
 	language: "decided: a language",
 	lexical: "decided: a lexical form",
 	bucketDomain: "decided: a bucket's domain",
+	powerRange: "decided: a power's range",
 	placement: "decided: a text function's place",
 	digits: "decided: a decimal's digits",
 	pattern: "decided: a pattern's values",
@@ -1642,6 +1849,8 @@ const computeDecided: Arr.NonEmptyReadonlyArray<DecidedNote> = [
 	"decided: a fit",
 	"decided: a contract",
 	"decided: a lexical form",
+	"decided: a language",
+	"decided: a power's range",
 	"decided: a text function's place",
 	"decided: a decimal's digits",
 	"decided: a pattern's values",
@@ -1665,7 +1874,8 @@ const decidedBy = (thrown: unknown): DecidedNote | undefined => {
 			reason.precondition === "contract" ||
 			reason.precondition === "language" ||
 			reason.precondition === "lexical" ||
-			reason.precondition === "bucketDomain"
+			reason.precondition === "bucketDomain" ||
+			reason.precondition === "powerRange"
 			? engineDecides[reason.precondition]
 			: undefined
 	}
@@ -1749,13 +1959,8 @@ const outOf = (heading: Heading, uses: Set<Imported>): string | undefined =>
 		)
 	)
 
-/** The diagnostic a refused construct raises: an IN list's member is an element of an array, every other an argument. */
-const codeOf = (spec: CaseSpec): string =>
-	spec.kind === "predicate" && spec.pred.kind === "in" && spec.pred.a.kind !== "literal"
-		? "TS2322"
-		: spec.kind === "member"
-			? "TS2339"
-			: "TS2345"
+/** The diagnostic a refused construct raises: a member read's TS2339, and every other an argument's, a list's included. */
+const codeOf = (spec: CaseSpec): string => (spec.kind === "member" ? "TS2339" : "TS2345")
 
 /** A query of Cells over the case, built by the engine's reading, with the term it built where it built one. */
 const engineQuery = (
@@ -1763,15 +1968,26 @@ const engineQuery = (
 	fields: ReadonlySet<FieldName>
 ): { readonly query: unknown; readonly term: () => unknown } => {
 	const holder: Array<unknown> = []
+	const columns = headColumnsOf(spec)
 	const query = queryOver(Cells).rule((r: RuleValue) => {
 		const cell = varsOver(Cell, "cell")
-		const building = new Building(r, cell, undefined)
-		const matched = r.match(
+		const head = varsOver(Heads, "head")
+		const building = new Building(r, cell, head, undefined)
+		const cells = r.match(
 			Cell,
 			Rec.fromEntries(
 				Arr.map(["id", ...Arr.filter([...fields], (f) => f !== "id")], (f) => [f, cell[f]] as const)
 			)
 		)
+		const matched = Arr.isReadonlyArrayNonEmpty(columns)
+			? cells.match(
+					Heads,
+					Rec.fromEntries([
+						["id", cell["id"]] as const,
+						...Arr.map(columns, (c) => [c, head[c]] as const)
+					])
+				)
+			: cells
 		switch (spec.kind) {
 			case "term": {
 				const term = building.term(spec.term)
@@ -1829,6 +2045,15 @@ const engineVerdict = (
 			return Result.isFailure(made)
 				? decidedOr(made.failure, undefined, code)
 				: { kind: "admitted", admitted: { term: undefined, out: undefined, params: [] } }
+		}
+		case "bytes": {
+			const compiled = Result.try(() => testArtifacts(bytesSchema(spec), testCompile))
+			if (Result.isFailure(compiled)) {
+				return decidedOr(compiled.failure, undefined, code)
+			}
+			return compiled.success.ok
+				? { kind: "admitted", admitted: { term: undefined, out: undefined, params: [] } }
+				: decidedOr(compiled.success.error, undefined, code)
 		}
 		case "member":
 			return hasMember(spec.holder, spec.name)
@@ -1917,8 +2142,9 @@ const branchField = (
 	Result.try(() =>
 		queryOver(Cells).rule((r: RuleValue) => {
 			const cell = varsOver(Cell, "cell")
-			const subject = guardSubject(new Building(r, cell, undefined).guard(when.guard))
-			const typed = typedTermOf(new Building(r, cell, subject).term(when.body))
+			const head = varsOver(Heads, "head")
+			const subject = guardSubject(new Building(r, cell, head, undefined).guard(when.guard))
+			const typed = typedTermOf(new Building(r, cell, head, subject).term(when.body))
 			if (typed !== undefined) {
 				for (const field of allFields) {
 					const own = typedTermOf(cell[field])
@@ -1939,7 +2165,9 @@ const branchField = (
  * number where an integer does, a string that spells no exact decimal where a numeric does, a string of a date's shape
  * that is no date. Where the engine refuses a case that writes such a value, the types are held to its verdict on the
  * case with each a stand-in the engine reads, of the facts the types read (standInsOf): admitted, the refusal is the
- * value's, which the engine alone decides; refused, it is the refusal the types see.
+ * value's, which the engine alone decides; refused, it is the refusal the types see. A range guard's bound the types
+ * cannot see is read by them as no value the engine reads (neutralBound), so a case that writes one is judged by its
+ * stand-ins whatever the engine says of it as written.
  */
 const valueVerdict = (
 	spec: CaseSpec,
@@ -1947,23 +2175,27 @@ const valueVerdict = (
 	uses: Set<Imported>
 ): Verdict => {
 	const written = engineVerdict(spec, fields, uses)
-	if (
-		written.kind === "admitted" ||
-		(written.kind === "refused" && written.claim.kind === "refusal")
-	) {
-		return written
-	}
 	return Option.match(standInsOf(spec), {
 		onNone: () => written,
 		onSome: (read) => {
+			if (
+				!read.strict &&
+				(written.kind === "admitted" ||
+					(written.kind === "refused" && written.claim.kind === "refusal"))
+			) {
+				return written
+			}
 			const standing = engineVerdict(read.spec, fields, uses)
-			return standing.kind === "admitted"
-				? {
+			if (standing.kind !== "admitted") {
+				return standing
+			}
+			return written.kind === "admitted"
+				? written
+				: {
 						kind: "decided",
 						note: written.kind === "decided" ? written.note : read.note,
 						term: standing.admitted.term
 					}
-				: standing
 		}
 	})
 }
@@ -1971,8 +2203,8 @@ const valueVerdict = (
 /**
  * A value the engine may refuse where the types admit its type, at a field of Cell the value stands opposite, and the
  * stand-in the engine reads there, of the facts the types read: 1 for a fractional number at an integer, which the
- * types read as finite, nonzero and nonnegative, as they read the residue of a string that spells no exact decimal at a
- * numeric, "1"; and a date for a date's shape.
+ * types read as finite, nonzero and nonnegative; Decimal.of("1") for a string that spells no exact decimal at a
+ * numeric, a value TypeScript sees no more than it sees that string; and a date for a date's shape.
  */
 const standInAt = (
 	l: Lit,
@@ -1991,7 +2223,10 @@ const standInAt = (
 		return Option.some({ lit: { text: "1", value: 1 }, note: engineDecides.integral })
 	}
 	if (sql === "numeric" && typeof value === "string" && !Decimal.fromString(value).ok) {
-		return Option.some({ lit: { text: '"1"', value: "1" }, note: engineDecides.digits })
+		return Option.some({
+			lit: { text: 'Decimal.of("1")', value: Decimal.of("1") },
+			note: engineDecides.digits
+		})
 	}
 	return sql === "date" &&
 		typeof value === "string" &&
@@ -2004,6 +2239,47 @@ const standInAt = (
 		: Option.none()
 }
 
+/** An exact decimal's text as the types read one (scalar.ts DecimalSign): a sign, digits, and a point with digits. */
+const decimalText = regex("^[+-]?[0-9]+(\\.[0-9]+)?$")
+
+/**
+ * A range guard's bound the types cannot see, read as the types read it: a string that spells no decimal the types
+ * read, a Decimal or a string-typed value at a numeric subject, a Money at a money subject. A low bound of them is a
+ * residue (WithinFacts), every fact admitted, and a high one proves nothing, though the engine reads each value, so the
+ * case is judged with a low end that proves every fact and a high end above zero, both inside every numeric field's
+ * domain, Rate's included.
+ */
+const neutralBound = (
+	l: Lit,
+	anchor: FieldName | undefined,
+	end: "low" | "high"
+): Option.Option<Lit> => {
+	if (anchor === undefined) {
+		return Option.none()
+	}
+	const value = l.value
+	const sql = Cell.fields[anchor].sql
+	if (
+		sql === "numeric" &&
+		(l === widened ||
+			(typeof value === "string" && !decimalText.test(value)) ||
+			value instanceof Decimal)
+	) {
+		return Option.some(
+			end === "low"
+				? { text: 'Decimal.of("0.5")', value: Decimal.of("0.5") }
+				: { text: 'Decimal.of("1")', value: Decimal.of("1") }
+		)
+	}
+	return sql === "money" && value instanceof Money
+		? Option.some(
+				end === "low"
+					? { text: "Money.of(1n)", value: Money.of(1n) }
+					: { text: "Money.of(100n)", value: Money.of(100n) }
+			)
+		: Option.none()
+}
+
 /**
  * A case with every value the engine may refuse where the types admit its type read as its stand-in (standInAt), each
  * at the field it stands opposite: an operation's first operand's, a comparison's, a range's subject's, a typed
@@ -2012,14 +2288,27 @@ const standInAt = (
  */
 const standInsOf = (
 	spec: CaseSpec
-): Option.Option<{ readonly spec: CaseSpec; readonly note: DecidedNote }> => {
+): Option.Option<{
+	readonly spec: CaseSpec
+	readonly note: DecidedNote
+	readonly strict: boolean
+}> => {
 	const notes: Array<DecidedNote> = []
+	const strict: Array<Lit> = []
 	const lit = (l: Lit, anchor: FieldName | undefined): Lit =>
 		Option.match(standInAt(l, anchor), {
 			onNone: () => l,
 			onSome: (standIn) => {
 				notes.push(standIn.note)
 				return standIn.lit
+			}
+		})
+	const bound = (l: Lit, anchor: FieldName | undefined, end: "low" | "high"): Lit =>
+		Option.match(neutralBound(l, anchor, end), {
+			onNone: () => lit(l, anchor),
+			onSome: (neutral) => {
+				strict.push(neutral)
+				return neutral
 			}
 		})
 	const patternLit = (l: Lit): Lit => {
@@ -2041,6 +2330,7 @@ const standInsOf = (
 			case "param":
 			case "guarded":
 			case "lexical":
+			case "heading":
 				return o
 		}
 	}
@@ -2053,8 +2343,8 @@ const standInsOf = (
 				return {
 					kind: "within",
 					x: operand(g.x, undefined),
-					low: lit(g.low, at),
-					high: lit(g.high, at)
+					low: bound(g.low, at, "low"),
+					high: bound(g.high, at, "high")
 				}
 			}
 			case "matches":
@@ -2134,10 +2424,17 @@ const standInsOf = (
 				return { kind: "aggregate", fn: spec.fn, of: operand(spec.of, undefined) }
 			case "value":
 			case "member":
+			case "bytes":
 				return spec
 		}
 	})()
-	return Option.map(Arr.head(notes), (note) => ({ spec: read, note }))
+	return Arr.isReadonlyArrayNonEmpty(notes) || Arr.isReadonlyArrayNonEmpty(strict)
+		? Option.some({
+				spec: read,
+				note: Option.getOrElse(Arr.head(notes), () => engineDecides.literal),
+				strict: Arr.isReadonlyArrayNonEmpty(strict)
+			})
+		: Option.none()
 }
 
 /** One drawn case: its source lines, the engine's verdict, the names it imports and what it reached. */
@@ -2147,6 +2444,8 @@ interface ComputeCase {
 	readonly usesRule: boolean
 	readonly usesCell: boolean
 	readonly fields: ReadonlySet<FieldName>
+	/** The columns of Heads it reads through a query's heading, which its rule matches. */
+	readonly columns: ReadonlyArray<HeadColumn>
 	readonly verdict: Verdict
 	readonly uses: ReadonlySet<Imported>
 	readonly notes: ReadonlySet<ComputeNote>
@@ -2166,6 +2465,10 @@ const drawnGen =
 		const spec = Option.isSome(root) ? caseAt(d, root.value) : caseOver(d)
 		return { spec, reached: d.reached }
 	}
+
+/** The columns of Heads a case reads through a query's heading, each once. */
+const headColumnsOf = (spec: CaseSpec): ReadonlyArray<HeadColumn> =>
+	Arr.dedupe(Arr.flatMap(operandsOf(spec), (o) => (o.kind === "heading" ? [o.column] : [])))
 
 /** The operands a case reads, at every depth. */
 const operandsOf = (spec: CaseSpec): ReadonlyArray<Operand> => {
@@ -2208,6 +2511,7 @@ const operandsOf = (spec: CaseSpec): ReadonlyArray<Operand> => {
 			return ofOperand(spec.of)
 		case "value":
 		case "member":
+		case "bytes":
 			return []
 	}
 }
@@ -2257,6 +2561,12 @@ const caseOf = ({ spec, reached }: Drawn): ComputeCase => {
 	const uses = new Set<Imported>()
 	const verdict = verdictOf(spec, rendering.fields, uses)
 	const notes = new Set<ComputeNote>(reached)
+	if (Arr.isReadonlyArrayNonEmpty(headColumnsOf(spec))) {
+		notes.add(headingNote)
+	}
+	for (const note of byteNotesOf(spec, verdict)) {
+		notes.add(note)
+	}
 	switch (verdict.kind) {
 		case "admitted":
 			notes.add("admitted")
@@ -2283,6 +2593,9 @@ const caseOf = ({ spec, reached }: Drawn): ComputeCase => {
 	if (rendering.lexical) {
 		uses.add("lexicalForm")
 	}
+	if (spec.kind === "bytes") {
+		uses.add("bytes")
+	}
 	if (Str.includes(widened.text)(expression)) {
 		uses.add("widened")
 	}
@@ -2298,6 +2611,7 @@ const caseOf = ({ spec, reached }: Drawn): ComputeCase => {
 		usesRule: rendering.usesRule,
 		usesCell: rendering.usesCell,
 		fields: rendering.fields,
+		columns: headColumnsOf(spec),
 		verdict,
 		uses,
 		notes
@@ -2315,6 +2629,8 @@ const expressionOf = (rendering: Rendering, spec: CaseSpec): string => {
 			return rendering.aggregate(spec.fn, spec.of)
 		case "value":
 			return `${spec.ctor}(${spec.lit.text})`
+		case "bytes":
+			return bytesSchemaText(spec)
 		case "member":
 			return spec.holder === "Compute"
 				? `Compute.${spec.name}`
@@ -2326,16 +2642,23 @@ const expressionOf = (rendering: Rendering, spec: CaseSpec): string => {
 
 /**
  * The situations the floor's witnesses reach beside the verdicts, Refusals, decisions and inferences: every construct,
- * each admitted but a literal standing first, and each refused.
+ * each admitted but a literal standing first, and each refused but the byte guard, whose casts the types always admit;
+ * a column read through a heading both ways; and each byte guard situation (byteNotes).
  */
 export const computeRequired: ReadonlyArray<Reached<ComputeNote>> = [
 	...computeFeatures,
 	...computeDecided,
+	[headingNote, "admitted"],
+	[headingNote, "refused"],
+	...byteNotes,
 	...Arr.map(
 		Arr.filter(computeFeatures, (f) => f !== "literal first"),
 		(f) => [f, "admitted"] as const
 	),
-	...Arr.map(computeFeatures, (f) => [f, "refused"] as const)
+	...Arr.map(
+		Arr.filter(computeFeatures, (f) => f !== "byte guard"),
+		(f) => [f, "refused"] as const
+	)
 ]
 
 /** The cases the run's own stream draws. */
@@ -2352,7 +2675,7 @@ const caseGen =
 const reachedBy = (c: ComputeCase): ReadonlyArray<Reached<ComputeNote>> => [
 	...c.notes,
 	...Arr.flatMap([...c.notes], (n): ReadonlyArray<Reached<ComputeNote>> =>
-		Arr.contains(computeFeatures, n)
+		Arr.contains(computeFeatures, n) || n === headingNote
 			? [[n, c.verdict.kind === "refused" ? "refused" : "admitted"]]
 			: []
 	)
@@ -2391,6 +2714,7 @@ interface ComputeEntries {
 	readonly field: string
 	readonly terms: string
 	readonly text: string
+	readonly schema: string
 	readonly agreement: string
 }
 
@@ -2402,8 +2726,15 @@ export const computeEntriesFrom = (entry: (path: string) => string): ComputeEntr
 	field: entry("packages/engine/src/types/fields/field.ts"),
 	terms: entry("packages/engine/src/types/query/terms.ts"),
 	text: entry("packages/engine/src/public/text.ts"),
+	schema: entry("packages/engine/src/public/schema.ts"),
 	agreement: entry("test/support/agreement/compute-schema.ts")
 })
+
+/** The names a program imports from the text barrel: lexicalForm for a match's lexical pattern, str for a byte target. */
+const textImportNames = (uses: ReadonlySet<Imported>): ReadonlyArray<string> => [
+	...(uses.has("lexicalForm") ? ["lexicalForm"] : []),
+	...(uses.has("bytes") ? ["str"] : [])
+]
 
 /** The directive above a refused case's expression, which the type-test batch disarms. */
 const directiveOf = (verdict: Verdict): ReadonlyArray<string> => {
@@ -2468,19 +2799,31 @@ const blockOf = (c: ComputeCase, i: number): string => {
 				],
 				"\n"
 			)
+		case "bytes":
+			return Arr.join([`export const t${i} = () =>`, ...directive, `\t${c.expression}`, ""], "\n")
 		case "term":
 		case "predicate":
 		case "aggregate": {
-			const signature = `(${c.usesRule ? "r" : "_r"}: R, ${c.usesCell ? "cell" : "_cell"}: CellVars)`
-			const used = `t${i}(r, cell)`
+			const reads = Arr.isReadonlyArrayNonEmpty(c.columns)
+			const signature = `(${c.usesRule ? "r" : "_r"}: R, ${c.usesCell ? "cell" : "_cell"}: CellVars${reads ? ", head: HeadVars" : ""})`
+			const used = reads ? `t${i}(r, cell, head)` : `t${i}(r, cell)`
 			const bindings = Arr.join(
 				Arr.map(["id", ...Arr.filter([...c.fields], (f) => f !== "id")], (f) => `${f}: cell.${f}`),
 				", "
 			)
+			const minted = reads
+				? `const cell = v(Cell, "cell")\n\tconst head = v(Heads, "head")`
+				: `const cell = v(Cell, "cell")`
+			const matched = reads
+				? `r.match(Cell, { ${bindings} }).match(Heads, { id: cell.id, ${Arr.join(
+						Arr.map(c.columns, (col) => `${col}: head.${col}`),
+						", "
+					)} })`
+				: `r.match(Cell, { ${bindings} })`
 			const query =
 				c.spec.kind === "predicate"
-					? `export const q${i} = query(Cells).rule((r) => {\n\tconst cell = v(Cell, "cell")\n\treturn r.match(Cell, { ${bindings} }).where(${used}).find({ id: cell.id })\n})`
-					: `export const q${i} = query(Cells).rule((r) => {\n\tconst cell = v(Cell, "cell")\n\treturn r.match(Cell, { ${bindings} }).find({ out: ${used} })\n})`
+					? `export const q${i} = query(Cells).rule((r) => {\n\t${minted}\n\treturn ${matched}.where(${used}).find({ id: cell.id })\n})`
+					: `export const q${i} = query(Cells).rule((r) => {\n\t${minted}\n\treturn ${matched}.find({ out: ${used} })\n})`
 			const term =
 				verdict.kind === "admitted"
 					? verdict.admitted.term
@@ -2555,10 +2898,16 @@ export const computeModules = (
 					`import type { ${uses.has("DomainOf") ? "DomainOf, " : ""}${uses.has("Rostered") ? "Rostered, " : ""}SqlOfTerm, TypeOfTerm } from ${jsonText(entries.phantom)}`,
 					...(uses.has("Infer") ? [`import type { Infer } from ${jsonText(entries.field)}`] : []),
 					`import type { Aggregate } from ${jsonText(entries.terms)}`,
-					...(uses.has("lexicalForm")
-						? [`import { lexicalForm } from ${jsonText(entries.text)}`]
+					...(Arr.isReadonlyArrayNonEmpty(textImportNames(uses))
+						? [`import { ${Arr.join(textImportNames(uses), ", ")} } from ${jsonText(entries.text)}`]
 						: []),
-					`import { Cell, Cells${uses.has("Bits") ? ", Tone" : ""} } from ${jsonText(entries.agreement)}`,
+					...(uses.has("bytes")
+						? [
+								`import { relation, schema } from ${jsonText(entries.schema)}`,
+								`import { generated, uuid } from ${jsonText(entries.fields)}`
+							]
+						: []),
+					`import { Cell, Cells, Heads${uses.has("Bits") ? ", Tone" : ""} } from ${jsonText(entries.agreement)}`,
 					"",
 					"type Equals<A, B> = (<X>() => X extends A ? 1 : 2) extends <X>() => X extends B ? 1 : 2 ? true : false",
 					"type Expect<T extends true> = T",
@@ -2566,6 +2915,8 @@ export const computeModules = (
 					"type R = Rule<typeof Cells>",
 					'const cellVars = () => v(Cell, "cell")',
 					"type CellVars = ReturnType<typeof cellVars>",
+					'const headVars = () => v(Heads, "head")',
+					"type HeadVars = ReturnType<typeof headVars>",
 					"export type AggregateHost<X> = X extends Aggregate<infer T, never> ? T : never",
 					"",
 					...Arr.map(cases, blockOf)

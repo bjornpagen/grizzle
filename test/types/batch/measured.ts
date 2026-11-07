@@ -1,8 +1,8 @@
 import { Array as Arr, Effect, FileSystem, Path, String as Str } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { assert, defined } from "#test/support/assert.ts"
-import { run } from "#test/support/process.ts"
 import { scopedTempDir } from "#test/support/temp.ts"
+import { compiled } from "#test/types/batch/compiler.ts"
 import { disarm } from "#test/types/batch/directives.ts"
 import { type BudgetEntries, entriesFrom } from "#test/types/query/budget/generate.ts"
 
@@ -99,20 +99,15 @@ export const measuredProgram = (
 					files: ["index.ts"]
 				})
 			)
-			const ran = yield* run(
-				process.execPath,
-				[
-					path.join(root, "node_modules/typescript/bin/tsc"),
-					"--pretty",
-					"false",
-					"--extendedDiagnostics",
-					"--checkers",
-					"1",
-					"-p",
-					path.join(programDir, "tsconfig.json")
-				],
-				{ cwd: root, env: { PWD: root } }
-			)
+			const ran = yield* compiled(root, [
+				"--pretty",
+				"false",
+				"--extendedDiagnostics",
+				"--checkers",
+				"1",
+				"-p",
+				path.join(programDir, "tsconfig.json")
+			])
 			const program = path.relative(root, path.join(programDir, "index.ts"))
 			const errors: Array<ProgramError> = []
 			const unattributed: Array<string> = []
