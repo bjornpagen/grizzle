@@ -461,20 +461,30 @@ const renamedSnapshot = (
 				: []
 		}
 	)
-	const firstAsides = movers.map(([, r]): Aside => {
-		const name = holderOf(previous, schema, r)
-		return r.kind === "relation"
-			? relationAside(previous, "table", name, { kind: "declared" }, temporaries)
-			: { kind: "domain", name, cause: { kind: "declared" }, to: asideName(temporaries, name.name) }
+	const moving = movers.map(([name, r]) => {
+		const holder = holderOf(previous, schema, r)
+		const first: Aside =
+			r.kind === "relation"
+				? relationAside(previous, "table", holder, { kind: "declared" }, temporaries)
+				: {
+						kind: "domain",
+						name: holder,
+						cause: { kind: "declared" },
+						to: asideName(temporaries, holder.name)
+					}
+		return { name, r, first }
 	})
+	const firstAsides = moving.map((m) => m.first)
 	const aside = setAside(previous, firstAsides)
 	/** Each renamed relation from its aside name to the target's, with the parts the target declares alike. */
-	const secondAsides = movers.flatMap(([name, r], i): ReadonlyArray<Aside> => {
+	const secondAsides = moving.flatMap(({ name, r, first }): ReadonlyArray<Aside> => {
 		const to = renamed.get(name)
-		const first = firstAsides[i]
-		const now = to === undefined ? undefined : heldIn(after, to)
-		if (first === undefined || now === undefined) {
+		if (to === undefined) {
 			return []
+		}
+		const now = heldIn(after, to)
+		if (now === undefined) {
+			throw defect(`the target holds ${to}, which applyDeclarations checked each rename to name`)
 		}
 		const from: ObjectName = { schema, name: first.to }
 		const into: ObjectName = { schema, name: now.ident }

@@ -11,6 +11,7 @@ import {
 	identity
 } from "#compiler/core/identity.ts"
 import type { ConstraintName, DomainName } from "#compiler/core/ids.ts"
+import { defined } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { mapNonEmpty, sortNonEmpty } from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
@@ -165,19 +166,20 @@ export const planTextDomains = (
 			known.uses.push(u)
 		}
 	}
-	for (const name of Object.keys(theory.relations).toSorted(compareStrings)) {
-		const r = theory.relations[name]
-		const o = owned.relations[name]
-		if (r === undefined || o === undefined) {
-			continue
-		}
+	for (const [name, r] of Object.entries(theory.relations).toSorted(([a], [b]) =>
+		compareStrings(a, b)
+	)) {
+		const o = defined(owned.relations[name], "ownership holds every relation of the theory")
 		const table = o.kind === "closedRelation" ? conversionOf(o.name) : o.ident
 		for (const c of r.fields) {
 			const regex = structuralRegex(c.type)
-			const field = o.fields[c.name]
-			if (regex === undefined || field === undefined) {
+			if (regex === undefined) {
 				continue
 			}
+			const field = defined(
+				o.fields[c.name],
+				"ownership holds every field of the theory's relations"
+			)
 			use(regex, { table, column: field.column }, true)
 		}
 	}
