@@ -441,7 +441,10 @@ const settled = (s: FoldSchema, state: State, w: Write): State =>
 	Arr.isReadonlyArrayNonEmpty(brokenOf(s, rowsAfter(s, state, w))) ? state : applied(s, state, w)
 
 /** A tree's node keys, the root's first. */
-const nodeIds = (node: Node): ReadonlyArray<number> => [node.id, ...Arr.flatMap(node.children, nodeIds)]
+const nodeIds = (node: Node): ReadonlyArray<number> => [
+	node.id,
+	...Arr.flatMap(node.children, nodeIds)
+]
 
 /** The rows a write states, by relation and key: its owners and members, or every node of its trees. */
 const statedRows = (s: FoldSchema, w: Write): ReadonlyArray<readonly [string, number]> => {
@@ -664,7 +667,9 @@ const judgeRefused = (
 			`the refusal names a rule its rows break, not ${Formatter.format(law)}`
 		)
 	}
-	const named = Arr.filter(broken, (b) => Arr.some(outcome.refused.laws, (law) => deepEquals(b.law, law)))
+	const named = Arr.filter(broken, (b) =>
+		Arr.some(outcome.refused.laws, (law) => deepEquals(b.law, law))
+	)
 	const stated = statedRows(s, w)
 	const statedBroken = Arr.filter(named, (b) =>
 		Arr.some(stated, ([relation, id]) => relation === b.relation && id === b.id)
@@ -693,16 +698,19 @@ const judgeRefused = (
 /** The steps of a concat family's member: its plain cell's piece, and the token its refined cell's piece doubles. */
 const concatSteps = (piece: string, token: string): Readonly<Record<string, string>> =>
 	Rec.fromEntries(
-		Arr.flatMap(groupOf(schemas.ordered, "concat").cells, (c): ReadonlyArray<readonly [string, string]> => {
-			switch (c.step.kind) {
-				case "none":
-					return []
-				case "written":
-					return [[c.step.field, piece]]
-				case "doubled":
-					return [[c.step.token, token]]
+		Arr.flatMap(
+			groupOf(schemas.ordered, "concat").cells,
+			(c): ReadonlyArray<readonly [string, string]> => {
+				switch (c.step.kind) {
+					case "none":
+						return []
+					case "written":
+						return [[c.step.field, piece]]
+					case "doubled":
+						return [[c.step.token, token]]
+				}
 			}
-		})
+		)
 	)
 
 /**
@@ -850,8 +858,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										const broken = brokenOf(o.s, rowsAfter(o.s, state, w))
 										if (Arr.isReadonlyArrayNonEmpty(broken)) {
 											const named = judgeRefused(o.s, w, broken, outcome)
-											const kept =
-												w.kind === "trees" ? treesRows(o.s, []) : storedRows(o.s, state)
+											const kept = w.kind === "trees" ? treesRows(o.s, []) : storedRows(o.s, state)
 											for (const r of storedRelations(o.s)) {
 												const stored = yield* tableState(o.done, r)
 												unorderedEqual<ModelRow>(

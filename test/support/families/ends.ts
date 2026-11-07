@@ -129,7 +129,8 @@ const textField = str.regex("^[a-c]{0,8}$")
 const piecesSource = "^[ab]{0,16}$"
 
 /** Whether a monoid over a plane folds a refined cell beside the plane's own: concat over text. */
-const refines = (monoid: MonoidName, p: PlaneKind): boolean => monoid === "concat" && p.kind === "text"
+const refines = (monoid: MonoidName, p: PlaneKind): boolean =>
+	monoid === "concat" && p.kind === "text"
 
 /** The rule a refined cell's accumulators' domain refuses a value on, as an outcome names it. */
 export const piecesLaw: Law = { kind: "pattern", source: piecesSource, flags: "u" }
