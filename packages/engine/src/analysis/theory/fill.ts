@@ -45,6 +45,7 @@ import { CompileError } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
+import { lastNonEmpty } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import { predicateTable, type ScalarExpr } from "#compiler/ir/expr.ts"
 import {
@@ -368,7 +369,7 @@ const entriesAt = (
 		for (const [p, plane] of fold.planes.entries()) {
 			set(
 				plane.after,
-				familyColumnType(f, plane.after) ?? plane.end.type,
+				typeOf(plane.after),
 				{
 					kind: "after",
 					family: f,
@@ -639,7 +640,7 @@ const unwritable = (
 	const nestedIn = (relation: string): Family | undefined =>
 		nests.find((f) => f.member.name === relation)
 	for (const start of nests) {
-		const cycle: Array<Family> = [start]
+		const cycle: [Family, ...Array<Family>] = [start]
 		const seen = new Set<string>()
 		for (let at = start.owner.name; at !== start.member.name;) {
 			const up = nestedIn(at)
@@ -650,7 +651,7 @@ const unwritable = (
 			cycle.push(up)
 			at = up.owner.name
 		}
-		const closed = cycle.at(-1)?.owner.name === start.member.name
+		const closed = lastNonEmpty(cycle).owner.name === start.member.name
 		if (closed) {
 			return {
 				relation: start.member.name,

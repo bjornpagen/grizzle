@@ -5,7 +5,6 @@ import {
 	metColumn,
 	refuse,
 	type SelfJoin,
-	unwrapOr,
 	type ViolationBuilder
 } from "#compiler/analysis/theory/build.ts"
 import {
@@ -30,11 +29,12 @@ import {
 	type TreeStatement,
 	treeShape
 } from "#compiler/analysis/theory/families.ts"
+import { unwrap } from "#compiler/check/fail.ts"
 import { combineRule } from "#compiler/check/fold.ts"
 import { compareText, ownedText, withoutSourceLocs } from "#compiler/core/canonical.ts"
 import { type Identity, identifierOf } from "#compiler/core/identity.ts"
 import type { Identifier } from "#compiler/core/ids.ts"
-import { defect } from "#compiler/core/invariant.ts"
+import { defect, defined } from "#compiler/core/invariant.ts"
 import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import {
 	headNonEmpty,
@@ -1321,7 +1321,7 @@ export class Normalizer {
 					kind: "compare",
 					op: "eq",
 					left: based(after),
-					right: combined[i] ?? headNonEmpty(combined)
+					right: defined(combined[i], "a monoid's combine gives one value per plane")
 				}))
 			)
 			const kept = connectiveExpr(
@@ -1330,7 +1330,7 @@ export class Normalizer {
 					kind: "compare",
 					op: "eq",
 					left: based(after),
-					right: befores[i] ?? headNonEmpty(befores)
+					right: defined(befores[i], "a visible fold's planes each have a before")
 				}))
 			)
 			const selects = connectiveExpr("and", fold.where)
@@ -1457,7 +1457,8 @@ export class Normalizer {
 			const witness: NonEmptyReadonlyArray<HeadingColumn> = [lead, ...rest]
 			const group = mapNonEmpty(
 				witness,
-				(_, j) => (resolved[j] ?? headNonEmpty(resolved)).from.column
+				(_, j) =>
+					defined(resolved[j], "a containment's witness reads its pairs' first columns").from.column
 			)
 			return b.union([
 				witnessed(b, own, witness),
@@ -1758,7 +1759,7 @@ const lowerTotal = (
 	loc: SourceLoc,
 	leaf: LowerEnv["leaf"]
 ) =>
-	unwrapOr(
+	unwrap(
 		Result.map(
 			lowerPredicate(predicate, {
 				...env.lowerEnv,
@@ -1857,7 +1858,7 @@ const lowerTermTotal = (
 	loc: SourceLoc,
 	leaf: LowerEnv["leaf"]
 ): ScalarExpr =>
-	unwrapOr(
+	unwrap(
 		Result.map(
 			lowerTerm(term, {
 				...env.lowerEnv,
@@ -1915,8 +1916,8 @@ const pairsMet = (
 	right: (pair: ResolvedPair) => string
 ): NonEmptyReadonlyArray<Met> =>
 	mapNonEmpty(pairs, (pair, i) => {
-		const left = from[i] ?? headNonEmpty(from)
-		const target = to[i] ?? headNonEmpty(to)
+		const left = defined(from[i], "a side's rows hold one value per pair")
+		const target = defined(to[i], "a side's rows hold one value per pair")
 		return metColumn(meetType(left.type, target.type), termText(pair.from), right(pair))
 	})
 
@@ -1929,7 +1930,13 @@ const projected = (
 ): RelNode =>
 	b.project(
 		rows,
-		columns.map((c, i) => [c.name, b.as(values[i] ?? headNonEmpty(values), c.type)] as const)
+		columns.map(
+			(c, i) =>
+				[
+					c.name,
+					b.as(defined(values[i], "a projection's values pair with its columns"), c.type)
+				] as const
+		)
 	)
 
 /** A source projection with no matching target fact; the witness is the source projection. */
@@ -2003,8 +2010,14 @@ const coverageViolation = (
 		loc
 	)
 	const met = pairsMet(pairs, source.values, target.values, (p) => termText(p.from))
-	const paired = mapNonEmpty(pairs, (pair, i) => ({ pair, met: met[i] ?? headNonEmpty(met) }))
-	const span = (paired.find((m) => m.pair === spanPair.pair) ?? headNonEmpty(paired)).met
+	const paired = mapNonEmpty(pairs, (pair, i) => ({
+		pair,
+		met: defined(met[i], "a coverage law meets each of its pairs")
+	}))
+	const span = defined(
+		paired.find((m) => m.pair === spanPair.pair),
+		"a coverage law's span pair is one of its pairs"
+	).met
 	const sources = projected(
 		b,
 		source.rows,
@@ -2106,11 +2119,10 @@ const projectedKeyViolation = (
 ): RelNode => {
 	const r = side.rel
 	const { filtered } = clashes(b, env, side, loc)
-	const guarded = mapNonEmpty(side.terms, guardedTerm)
 	return b.project(
 		filtered,
-		mapNonEmpty(side.terms, (t, i) => {
-			const term = (guarded[i] ?? headNonEmpty(guarded)).term
+		mapNonEmpty(side.terms, (t) => {
+			const term = guardedTerm(t).term
 			return [termText(t), lowerTermTotal(b, env, term, loc, rowLeaf(r, filtered))] as const
 		})
 	)
@@ -2138,7 +2150,10 @@ const witnessed = (
 
 /** Two sides' terms paired by position: a lemma's sides are of one width. */
 const zipped = (from: ResolvedSide, to: ResolvedSide): NonEmptyReadonlyArray<ResolvedPair> =>
-	mapNonEmpty(from.terms, (t, j) => ({ from: t, to: to.terms[j] ?? headNonEmpty(to.terms) }))
+	mapNonEmpty(from.terms, (t, j) => ({
+		from: t,
+		to: defined(to.terms[j], "a lemma's sides are of one width")
+	}))
 
 /** A lemma containment's violation between two resolved sides of one width. */
 const lemma = (
@@ -2179,7 +2194,11 @@ const pinViolation = (
 		off,
 		mapNonEmpty(
 			witness,
-			(w, j) => [w.name, b.as(b.col(off, group[j] ?? headNonEmpty(group)), w.type)] as const
+			(w, j) =>
+				[
+					w.name,
+					b.as(b.col(off, defined(group[j], "a pin's group pairs with its witness")), w.type)
+				] as const
 		)
 	)
 }
@@ -2201,7 +2220,14 @@ const rowViolation = (
 		refused,
 		mapNonEmpty(
 			witness,
-			(w, j) => [w.name, b.as(b.col(refused, fields[j] ?? headNonEmpty(fields)), w.type)] as const
+			(w, j) =>
+				[
+					w.name,
+					b.as(
+						b.col(refused, defined(fields[j], "a row law's fields pair with its witness")),
+						w.type
+					)
+				] as const
 		)
 	)
 }
@@ -2261,7 +2287,7 @@ const aggregateArms = (
 	const overload =
 		aggregate === "count" || x === undefined
 			? countOverload()
-			: unwrapOr(unaryOverload(aggregate, x.type, loc))
+			: unwrap(unaryOverload(aggregate, x.type, loc))
 	const value: HeadingColumn = { name: "aggregate#", type: overload.result }
 	const grouped = b.group(facts, members.rel.fields, groupFields, [
 		{
@@ -2275,7 +2301,7 @@ const aggregateArms = (
 	])
 	const keyFields = owner.terms.slice(0, groupFields.length)
 	const met = mapNonEmpty(groupFields, (g, j) => {
-		const k = keyFields[j] ?? headNonEmpty(owner.terms)
+		const k = defined(keyFields[j], "an aggregate's owner side holds a key term per group field")
 		return metColumn(meetType(k.column.type, g.type), `key#${j}`, `key#${j}`)
 	})
 	const groups = b.project(grouped, [
@@ -2283,7 +2309,10 @@ const aggregateArms = (
 			(m, j) =>
 				[
 					m.right.name,
-					b.as(b.col(grouped, groupFields[j] ?? headNonEmpty(groupFields)), m.right.type)
+					b.as(
+						b.col(grouped, defined(groupFields[j], "an aggregate meets each of its group fields")),
+						m.right.type
+					)
 				] as const
 		),
 		[value.name, b.col(grouped, value)] as const
@@ -2296,7 +2325,11 @@ const aggregateArms = (
 	const end: HeadingColumn = { name: "end#", type: endValue.type }
 	const owners = b.project(ownerRows.rows, [
 		...met.map(
-			(m, j) => [m.left.name, b.as(ownerRows.values[j] ?? endValue, m.left.type)] as const
+			(m, j) =>
+				[
+					m.left.name,
+					b.as(defined(ownerRows.values[j], "an aggregate's owner side holds its key"), m.left.type)
+				] as const
 		),
 		[end.name, endValue] as const
 	])
@@ -2311,6 +2344,9 @@ const aggregateArms = (
 	const off = b.filter(empty, b.op("ne", [b.col(empty, end), b.typed(identityLiteral, end.type)]))
 	return [unequal, off]
 }
+
+/** The invariant a family's slot sides hold: both lead with the group, member and owner side alike. */
+const slotGroup = "a family's slot sides lead with one group"
 
 /**
  * A member whose index is past its owner's count: the members over (g…, i) joined with the owners over (k…, n) on the
@@ -2334,16 +2370,20 @@ const pastCount = (
 	const met = members.values
 		.slice(0, width)
 		.map((v, j) =>
-			metColumn(meetType(v.type, (owners.values[j] ?? count).type), `key#${j}`, `key#${j}`)
+			metColumn(meetType(v.type, defined(owners.values[j], slotGroup).type), `key#${j}`, `key#${j}`)
 		)
 	const i: HeadingColumn = { name: "index#", type: index.type }
 	const n: HeadingColumn = { name: "count#", type: count.type }
 	const left = b.project(members.rows, [
-		...met.map((m, j) => [m.left.name, b.as(members.values[j] ?? index, m.left.type)] as const),
+		...met.map(
+			(m, j) => [m.left.name, b.as(defined(members.values[j], slotGroup), m.left.type)] as const
+		),
 		[i.name, index] as const
 	])
 	const right = b.project(owners.rows, [
-		...met.map((m, j) => [m.right.name, b.as(owners.values[j] ?? count, m.right.type)] as const),
+		...met.map(
+			(m, j) => [m.right.name, b.as(defined(owners.values[j], slotGroup), m.right.type)] as const
+		),
 		[n.name, count] as const
 	])
 	const joined = b.join(
@@ -2407,7 +2447,9 @@ const treeArms = (
 	loc: SourceLoc
 ): ReadonlyArray<RelNode> => {
 	const w = (node: RelNode): RelNode => witnessed(b, node, witness)
-	const key = mapNonEmpty(witness, (_, j) => t.primaryFields[j] ?? headNonEmpty(t.primaryFields))
+	const key = mapNonEmpty(witness, (_, j) =>
+		defined(t.primaryFields[j], "a tree's witness is its primary key")
+	)
 	return [
 		w(lemma(b, env, s.rootCopy, loc)),
 		clashViolation(b, env, s.order, key, witness, loc),
@@ -2438,7 +2480,13 @@ const clashViolation = (
 			(wc, j) =>
 				[
 					wc.name,
-					b.as(b.col(filtered, join.pair(fields[j] ?? headNonEmpty(fields)).left), wc.type)
+					b.as(
+						b.col(
+							filtered,
+							join.pair(defined(fields[j], "a clash's fields pair with its witness")).left
+						),
+						wc.type
+					)
 				] as const
 		)
 	)
@@ -2549,13 +2597,19 @@ const twoMembers = (
 		mapNonEmpty(
 			met,
 			(m, j) =>
-				[m.left.name, b.as(owners.values[j] ?? headNonEmpty(owners.values), m.left.type)] as const
+				[
+					m.left.name,
+					b.as(defined(owners.values[j], "a plane's owners pair with its witness"), m.left.type)
+				] as const
 		)
 	)
 	const twice = b.project(
 		pairs,
 		mapNonEmpty(met, (m, j) => {
-			const column = pairs.heading[j] ?? headNonEmpty(witness)
+			const column = defined(
+				pairs.heading[j],
+				"a key's clashing pairs lead with its witness columns"
+			)
 			return [m.right.name, b.as(b.col(pairs, column), m.right.type)] as const
 		})
 	)

@@ -4,7 +4,6 @@ import { type LawId, makeIdSupply } from "#compiler/core/ids.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import type * as Result from "#compiler/core/result.ts"
 import { DagBuilder } from "#compiler/ir/builder.ts"
 import type { LiteralDesc } from "#compiler/ir/desc.ts"
 import type { CatalogOpId, ExprSpec, TypedLiteral, ScalarExpr } from "#compiler/ir/expr.ts"
@@ -52,13 +51,6 @@ const refusal = (tag: ProseTag, loc: SourceLoc, capability: string): Refusal =>
 /** Throws the refusal: a function declaration, so control flow knows a call never returns. */
 export function refuse(tag: ProseTag, loc: SourceLoc, capability: string): never {
 	throw refusal(tag, loc, capability)
-}
-
-export const unwrapOr = <A>(result: Result.Result<A, CompileError>): A => {
-	if (!result.ok) {
-		throw new Refusal(result.error)
-	}
-	return result.value
 }
 
 const plainCarriers: ReadonlyArray<PlainCarrier> = [

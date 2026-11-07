@@ -25,6 +25,7 @@ import {
 } from "#compiler/core/identity.ts"
 
 import { type ConstraintName, FieldId, type LawId } from "#compiler/core/ids.ts"
+import { defined } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -584,7 +585,7 @@ class Builder {
 			)
 		})
 		for (const [reader, read] of reads) {
-			deps.get(reader)?.add(read)
+			defined(deps.get(reader), "a law's side reads a relation of the theory").add(read)
 		}
 		return Object.freeze(
 			Object.fromEntries(

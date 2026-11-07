@@ -363,16 +363,16 @@ export const closureOf = (
 		}
 		const at = stack.indexOf(key)
 		if (at >= 0) {
-			const [first, ...rest] = stack.slice(at)
 			const closing = paths.find(
 				(p) =>
 					p.change.kind === "refill" &&
 					familyKey(p.change.family.id) === stack.at(-1) &&
 					familyKey(p.reader.family.id) === key
 			)
-			if (first !== undefined && closing !== undefined) {
-				cycles.push({ path: closing, refills: [familyOf(first), ...rest.map(familyOf)] })
-			}
+			cycles.push({
+				path: defined(closing, "a refill cycle closes by the path that reached its first family"),
+				refills: [familyOf(key), ...stack.slice(at + 1).map(familyOf)]
+			})
 			return
 		}
 		stack.push(key)
