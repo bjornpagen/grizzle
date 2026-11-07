@@ -1386,9 +1386,9 @@ pattern needs no counted repetition to be a key's. A key's entry is laid out
 as PostgreSQL lays it out: exactly through its fixed-width fields in key order, then each datum at its widest padding
 from the first text, numeric, set, range or vector on.
 
-Two bounds a call is refused by before it is sent are exported beside it: `messageMaxBytes`, the longest message
-PostgreSQL reads (1,073,741,822 bytes), and `maxStringLength`, the longest string V8 builds (536,870,888 UTF-16 code
-units). Each is a `Limit`: its `.value` is the number, and it carries its owner, unit, scope and the source the number
+Three bounds a call is refused by before it is sent are exported beside it: `messageMaxBytes`, the longest message
+PostgreSQL reads (1,073,741,822 bytes), `maxStringLength`, the longest string V8 builds (536,870,888 UTF-16 code
+units), and `bytesMaxLength`, the most bytes a `bytes` value holds (268,435,443). Each is a `Limit`: its `.value` is the number, and it carries its owner, unit, scope and the source the number
 is read from, so code that splits an input across calls (`InputTooLarge`,
 [Errors and outcomes](#errors-and-outcomes)) reads the bound instead of restating it.
 
