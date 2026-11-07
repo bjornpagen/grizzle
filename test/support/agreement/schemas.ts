@@ -184,7 +184,8 @@ type SchemaConstruct = (typeof schemaConstructs)[number]
  * mirror and selected key, each side a slot side probe writes, each law a slot containment probe states, each aggregate
  * a derived head reads, each place a law names a derived relation, each derived definition the engine admits, fin
  * over a key field and over an accumulated one, a closed relation keyed by one, two or three closed ids, its rows with
- * one stated twice, a role over a base declaring one, and a concat fold valid and over a number.
+ * one stated twice, a role over a base declaring one, a concat fold valid and over a number, a fold whose accumulators
+ * are another refinement of its step's carrier, and generated fields whose terms are another refinement of theirs.
  */
 const schemaForms = [
 	"slotsMirrors",
@@ -224,6 +225,8 @@ const schemaForms = [
 	"negationParam",
 	"concatFold",
 	"concatMismatch",
+	"refinedFold",
+	"refinedGenerated",
 	"roleBesideClosed"
 ] as const
 type SchemaForm = (typeof schemaForms)[number]
@@ -322,6 +325,7 @@ const schemaFaults = [
 	"generatedReadsAccumulated",
 	"generatedReadsDrawn",
 	"generatedWrongType",
+	"generatedContract",
 	"generatedTwiceNamed",
 	"generatedKey",
 	"finOverClosedNotNatural",
@@ -334,6 +338,7 @@ const schemaFaults = [
 	"countedSide",
 	"concatCounted",
 	"concatHidden",
+	"contractEnd",
 	"finOverDerived",
 	"emptyHead",
 	"headingGroups",
@@ -812,7 +817,14 @@ const refusals: { readonly [F in SchemaFault]: Refusing } = {
 	generatedWrongType: {
 		engine: { tag: "GeneratedRefused" },
 		code: "TS2345",
-		claim: prose("a generated field's term is of its declared type exactly, at its own position")
+		claim: prose(
+			"a generated field's term is of its declared type but for the pattern and byte bound its column's domain checks, at its own position"
+		)
+	},
+	generatedContract: {
+		engine: { tag: "GeneratedRefused" },
+		code: "TS2345",
+		claim: prose("a contract is a type of its own, so a bigint term fills no Tally field")
 	},
 	generatedTwiceNamed: {
 		engine: { tag: "MalformedDescription" },
@@ -877,6 +889,11 @@ const refusals: { readonly [F in SchemaFault]: Refusing } = {
 		claim: named(
 			"a concat fold names its (before, after) pair after its value: its law reads each member's running value"
 		)
+	},
+	contractEnd: {
+		engine: { tag: "MalformedDescription" },
+		code: "TS2345",
+		claim: named("a fold's end names one accumulated field of the owner per plane")
 	},
 	countedSide: {
 		engine: { tag: "MalformedDescription" },
@@ -1145,10 +1162,11 @@ type Width =
 	| { readonly host: "number"; readonly value: number }
 	| { readonly host: "bigint"; readonly value: bigint }
 
-/** An accumulated field's start, a value of its type at its axis's base. */
+/** An accumulated field's start, a value of its type at its axis's base: a branded contract's by its constructor. */
 type Start =
 	| { readonly kind: "integer"; readonly value: number }
 	| { readonly kind: "bigint"; readonly value: bigint }
+	| { readonly kind: "branded"; readonly contract: string; readonly value: bigint }
 	| { readonly kind: "handle"; readonly roster: string; readonly handle: string }
 	| { readonly kind: "noHandles"; readonly roster: string }
 	| { readonly kind: "text"; readonly value: string }
@@ -2468,6 +2486,7 @@ const startValue = (s: Start, rosters: ReadonlyMap<string, RosterValue>): unknow
 	switch (s.kind) {
 		case "integer":
 		case "bigint":
+		case "branded":
 			return s.value
 		case "handle":
 			return s.handle
@@ -3072,6 +3091,8 @@ const startSource = (s: Start, ids: Ids): string => {
 			return `${s.value}`
 		case "bigint":
 			return `${s.value}n`
+		case "branded":
+			return `${ids(s.contract)}(${s.value}n)`
 		case "handle":
 			return jsonText(s.handle)
 		case "noHandles":
@@ -4316,6 +4337,10 @@ type FoldFault =
 	| "finNotDrawn"
 	| "concatCounted"
 	| "concatHidden"
+	| "contractEnd"
+
+/** The contract a fold's end is declared at where it plants contractEnd: one over bigint, of its own name. */
+const tallyName = "Tally"
 
 /**
  * A family of its own with one fold: an owner O with its drawn count and the fold's ends, a member M with its group,
@@ -4323,23 +4348,30 @@ type FoldFault =
  * Valid, or with one planted fault: a counted family's fold naming the pair, a monoid over a value it does not combine,
  * an end of the wrong planes, a count field that is not drawn: the owner's key, or an accumulated natural; a concat
  * fold of text over its named (before, after) pair, over a counted family or with its pair hidden a planted fault.
+ * A refined fold is a concat whose accumulators are of another pattern than its step's, which their domains judge;
+ * contractEnd plants a sum's end of a contract over its bigint step, a type of its own.
  */
 const familyProbe = (d: Drawing, base: Base): Probe => {
 	const roster = d.from(base.rosters)
-	const drawn = d.from<FoldFault | "treeParentType" | "countedSide" | "concatFold" | undefined>([
+	const drawn = d.from<
+		FoldFault | "treeParentType" | "countedSide" | "concatFold" | "refinedFold" | undefined
+	>([
 		undefined,
 		undefined,
 		"concatFold",
+		"refinedFold",
 		"countedPair",
 		"monoidMismatch",
 		"endPlanes",
 		"finNotDrawn",
 		"concatCounted",
 		"concatHidden",
+		"contractEnd",
 		"treeParentType",
 		"countedSide"
 	])
-	const fault = drawn === "concatFold" ? undefined : drawn
+	const fault = drawn === "concatFold" || drawn === "refinedFold" ? undefined : drawn
+	const refined = drawn === "refinedFold"
 	if (fault === "treeParentType") {
 		return treeProbe(d)
 	}
@@ -4347,15 +4379,15 @@ const familyProbe = (d: Drawing, base: Base): Probe => {
 		return countedSideProbe()
 	}
 	const order =
-		fault === "countedPair" || fault === "concatCounted"
+		fault === "countedPair" || fault === "concatCounted" || fault === "contractEnd"
 			? "counted"
-			: fault === "concatHidden" || drawn === "concatFold"
+			: fault === "concatHidden" || drawn === "concatFold" || refined
 				? "ordered"
 				: d.from(["ordered", "counted"] as const)
 	const monoid =
-		fault === "countedPair"
+		fault === "countedPair" || fault === "contractEnd"
 			? "sum"
-			: fault === "concatCounted" || fault === "concatHidden" || drawn === "concatFold"
+			: fault === "concatCounted" || fault === "concatHidden" || drawn === "concatFold" || refined
 				? "concat"
 				: fault === "monoidMismatch"
 					? d.from(["sum", "or", "concat"] as const)
@@ -4364,8 +4396,11 @@ const familyProbe = (d: Drawing, base: Base): Probe => {
 						: order === "counted"
 							? d.from(["count", "sum"] as const)
 							: d.from(orderedMonoids)
-	if (monoid === "concat" && fault === undefined) {
+	if (monoid === "concat" && fault === undefined && !refined) {
 		d.note("concatFold")
+	}
+	if (refined) {
+		d.note("refinedFold")
 	}
 	if (monoid === "concat" && fault === "monoidMismatch") {
 		d.note("concatMismatch")
@@ -4375,8 +4410,25 @@ const familyProbe = (d: Drawing, base: Base): Probe => {
 	const closedType: FieldType = { kind: "closedId", roster: roster.name }
 	const sumType: FieldType = {
 		kind: "pg",
-		spelling: order === "counted" ? "integer" : d.from(["bigint", "integer"] as const)
+		spelling:
+			fault === "contractEnd"
+				? "bigint"
+				: order === "counted"
+					? "integer"
+					: d.from(["bigint", "integer"] as const)
 	}
+	/** An accumulator's type: the step's, a text of another pattern, or the planted contract. */
+	const accumulatorOf = (t: FieldType): FieldType =>
+		fault === "contractEnd"
+			? { kind: "contract", name: tallyName }
+			: refined && t.kind === "text"
+				? { kind: "text", pattern: { source: "^[a-c]{0,32}$", flags: "u" } }
+				: t
+	/** An accumulator's start, the identity at its type: a branded contract's through its constructor. */
+	const startOf = (t: FieldType, identity: Start): Start =>
+		t.kind === "contract" && identity.kind === "bigint"
+			? { kind: "branded", contract: t.name, value: identity.value }
+			: identity
 	const zero = (t: FieldType): Start =>
 		t.kind === "text"
 			? { kind: "text", value: "" }
@@ -4404,7 +4456,7 @@ const familyProbe = (d: Drawing, base: Base): Probe => {
 	if (fault === "finNotDrawn") {
 		d.note(finOfAccumulated ? "finOfAccumulated" : "finOfKey")
 	}
-	const ends: ReadonlyArray<readonly [FieldType, Start]> = (() => {
+	const stepEnds: ReadonlyArray<readonly [FieldType, Start]> = (() => {
 		if (fault === "finNotDrawn") {
 			return finOfAccumulated ? [[{ kind: "natural" }, { kind: "bigint", value: 0n }]] : []
 		}
@@ -4444,6 +4496,10 @@ const familyProbe = (d: Drawing, base: Base): Probe => {
 				return [[text, { kind: "text", value: "" }]]
 		}
 	})()
+	const ends = Arr.map(stepEnds, ([type, start]): readonly [FieldType, Start] => {
+		const accumulator = accumulatorOf(type)
+		return [accumulator, startOf(accumulator, start)]
+	})
 	const pair =
 		value !== undefined &&
 		((monoid === "sum" &&
@@ -4452,12 +4508,22 @@ const familyProbe = (d: Drawing, base: Base): Probe => {
 			(monoid === "concat" && fault !== "concatHidden" && fault !== "concatCounted"))
 	const valueField: ReadonlyArray<FieldSpec> =
 		value === undefined ? [] : [{ name: "v", type: value, writing: callerWriting }]
-	const pairFields: ReadonlyArray<FieldSpec> = pair
-		? [
-				{ name: "before", type: value, writing: { kind: "accumulated", start: zero(value) } },
-				{ name: "after", type: value, writing: { kind: "accumulated", start: zero(value) } }
-			]
-		: []
+	const pairType = value === undefined ? undefined : accumulatorOf(value)
+	const pairFields: ReadonlyArray<FieldSpec> =
+		pair && value !== undefined && pairType !== undefined
+			? [
+					{
+						name: "before",
+						type: pairType,
+						writing: { kind: "accumulated", start: startOf(pairType, zero(value)) }
+					},
+					{
+						name: "after",
+						type: pairType,
+						writing: { kind: "accumulated", start: startOf(pairType, zero(value)) }
+					}
+				]
+			: []
 	const endNames = Arr.map(ends, (_end, i) => `e${i}`)
 	const owner: RelationSpec = {
 		name: "O",
@@ -4497,8 +4563,12 @@ const familyProbe = (d: Drawing, base: Base): Probe => {
 		construct: "familyProbe",
 		refused: fault,
 		text: (ids, own) => {
-			const mine = (name: string) => (name === "O" || name === "M" ? `${own}_${name}` : ids(name))
+			const mine = (name: string) =>
+				name === "O" || name === "M" || name === tallyName ? `${own}_${name}` : ids(name)
 			const declarations = [
+				...(fault === "contractEnd"
+					? [`export const ${own}_${tallyName} = Fi.contract(${jsonText(tallyName)}, Fi.pg.bigint)`]
+					: []),
 				`export const ${own}_O = ${relationSource(owner, mine, quoted(owner.key))}`,
 				`export const ${own}_M = ${relationSource(member, mine, quoted(member.key))}`
 			]
@@ -4512,9 +4582,16 @@ const familyProbe = (d: Drawing, base: Base): Probe => {
 		},
 		judge: (env) =>
 			compiling(() => {
+				const contracts: ReadonlyMap<string, FieldBase> =
+					fault === "contractEnd"
+						? new Map<string, FieldBase>([
+								...env.contracts,
+								[tallyName, admitContract(tallyName, pgDescriptors.bigint, [])]
+							])
+						: env.contracts
 				const relations = new Map([
-					["O", relationValue(owner, env.rosters, env.contracts)],
-					["M", relationValue(member, env.rosters, env.contracts)]
+					["O", relationValue(owner, env.rosters, contracts)],
+					["M", relationValue(member, env.rosters, contracts)]
 				])
 				const slots = finBuilder(got(relations, "O"), count)
 				const family =
@@ -6187,35 +6264,52 @@ const closedReadProbe = (d: Drawing, base: Base): Probe | undefined => {
 /** How a generated probe states its generated fields: reading its caller's fields, or with one planted fault. */
 type GeneratedForm =
 	| "readsCaller"
+	| "refinedGenerated"
 	| "generatedReadsGenerated"
 	| "generatedReadsAccumulated"
 	| "generatedReadsDrawn"
 	| "generatedWrongType"
+	| "generatedContract"
 	| "generatedTwiceNamed"
 	| "generatedKey"
 
+/** The caller's text a refined generated field concatenates, and the refinement of its carrier the field declares. */
+const wordPattern = "^[a-z]{0,4}$"
+const doubledPattern = "^[a-c]{0,8}$"
+
 /**
- * A relation with generated fields over its caller's id, depth and set w. Valid, a generated set reading w; or a
- * planted fault: a generated field reading another, an accumulated set or a drawn count declared beside w, a term of a
- * type other than its field's, a generated field named as a written one, a primary key naming a generated field. The engine's compilation of a schema holding it is the oracle.
+ * A relation with generated fields over its caller's id, depth and set w. Valid, a generated set reading w, or a
+ * concatenation of the caller's word, a text of no pattern, into a field of a pattern, which the field's domain judges;
+ * or a planted fault: a generated field reading another, an accumulated set or a drawn count declared beside w, a term
+ * of a type other than its field's, a bigint term into a contract over bigint, a generated field named as a written
+ * one, a primary key naming a generated field. The engine's compilation of a schema holding it is the oracle.
  */
 const generatedProbe = (d: Drawing, base: Base): Probe => {
 	const roster = d.from(base.rosters)
 	const form = d.from<GeneratedForm>([
 		"readsCaller",
+		"refinedGenerated",
 		"generatedReadsGenerated",
 		"generatedReadsAccumulated",
 		"generatedReadsDrawn",
 		"generatedWrongType",
+		"generatedContract",
 		"generatedTwiceNamed",
 		"generatedKey"
 	])
-	const nextSource =
-		"Fi.generated(Fi.pg.bigint, Cp.Compute.cast(Cp.Compute.add(r.depth, 1), Fi.pg.bigint))"
-	const callbackSource = (set: string): string => {
+	if (form === "refinedGenerated") {
+		d.note("refinedGenerated")
+	}
+	const successorSource = "Cp.Compute.cast(Cp.Compute.add(r.depth, 1), Fi.pg.bigint)"
+	const nextSource = `Fi.generated(Fi.pg.bigint, ${successorSource})`
+	const callbackSource = (set: string, tally: string): string => {
 		switch (form) {
 			case "readsCaller":
 				return `{ g: Fi.generated(${set}, Cp.Compute.union(r.w, r.w)) }`
+			case "refinedGenerated":
+				return `{ t: Fi.generated(Tx.str.regex(${jsonText(doubledPattern)}), Cp.Compute.concat(r.word, r.word)) }`
+			case "generatedContract":
+				return `{ c: Fi.generated(${tally}, ${successorSource}) }`
 			case "generatedReadsGenerated":
 				return `{ next: ${nextSource}, twice: Fi.generated(Fi.pg.bigint, r.next) }`
 			case "generatedReadsAccumulated":
@@ -6232,29 +6326,49 @@ const generatedProbe = (d: Drawing, base: Base): Probe => {
 	}
 	return {
 		construct: "generatedProbe",
-		refused: form === "readsCaller" ? undefined : form,
+		refused: form === "readsCaller" || form === "refinedGenerated" ? undefined : form,
 		text: (ids, own) => {
 			const set = `Fi.bits(${ids(roster.name)})`
-			return oneLine(
-				`export const ${own} = Sc.relation.generated("Generated", { id: Fi.uuid, depth: Fi.pg.integer, w: ${set}${form === "generatedReadsAccumulated" ? `, acc: Fi.accumulated(${set}, Fi.Bits.of(${ids(roster.name)}, []))` : ""}${form === "generatedReadsDrawn" ? ", n: Fi.drawn(Fi.natural)" : ""} }, [${form === "generatedKey" ? '"next"' : '"id"'}], (r) => (${callbackSource(set)}))`
-			)
+			const tally = `${own}_${tallyName}`
+			return {
+				head:
+					form === "generatedContract"
+						? [`export const ${tally} = Fi.contract(${jsonText(tallyName)}, Fi.pg.bigint)`]
+						: [],
+				line: `export const ${own} = Sc.relation.generated("Generated", { id: Fi.uuid, depth: Fi.pg.integer, w: ${set}${form === "refinedGenerated" ? `, word: Tx.str.regex(${jsonText(wordPattern)})` : ""}${form === "generatedReadsAccumulated" ? `, acc: Fi.accumulated(${set}, Fi.Bits.of(${ids(roster.name)}, []))` : ""}${form === "generatedReadsDrawn" ? ", n: Fi.drawn(Fi.natural)" : ""} }, [${form === "generatedKey" ? '"next"' : '"id"'}], (r) => (${callbackSource(set, tally)}))`,
+				tail: []
+			}
 		},
 		judge: (env) =>
 			compiling(() => {
 				const rosterValue = got(env.rosters, roster.name)
 				const set = fieldValue({ kind: "bits", roster: roster.name }, env.rosters, env.contracts)
+				const successor = (row: Readonly<Record<string, unknown>>) =>
+					computeCore.cast(computeCore.add(row["depth"], 1), pgDescriptors.bigint)
 				const next = (row: Readonly<Record<string, unknown>>) =>
-					generatedField(
-						pgDescriptors.bigint,
-						computeCore.cast(computeCore.add(row["depth"], 1), pgDescriptors.bigint),
-						[]
-					)
+					generatedField(pgDescriptors.bigint, successor(row), [])
 				const callback = (
 					row: Readonly<Record<string, unknown>>
 				): Readonly<Record<string, unknown>> => {
 					switch (form) {
 						case "readsCaller":
 							return { g: generatedField(set, computeCore.union(row["w"], row["w"]), []) }
+						case "refinedGenerated":
+							return {
+								t: generatedField(
+									regexField(doubledPattern, []),
+									computeCore.concat(row["word"], row["word"]),
+									[]
+								)
+							}
+						case "generatedContract":
+							return {
+								c: generatedField(
+									admitContract(tallyName, pgDescriptors.bigint, []),
+									successor(row),
+									[]
+								)
+							}
 						case "generatedReadsGenerated":
 							return {
 								next: next(row),
@@ -6278,6 +6392,7 @@ const generatedProbe = (d: Drawing, base: Base): Probe => {
 						id: uuidDescriptor,
 						depth: pgDescriptors.integer,
 						w: set,
+						...(form === "refinedGenerated" ? { word: regexField(wordPattern, []) } : {}),
 						...(form === "generatedReadsAccumulated"
 							? { acc: accumulatedField(set, bitsOf(rosterValue, [], []), []) }
 							: {}),

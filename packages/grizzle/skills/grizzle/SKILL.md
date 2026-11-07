@@ -460,9 +460,11 @@ The command line's own refusals, by stage:
   way, such as `str.regex("^(?:[^ \\t\\n\\r]+(?: [^ \\t\\n\\r]+)*)?$", "su")` for any text. A query's
   `Compute.matches` and `Compute.collapse`, like its translate, need a pattern that bounds the subject's length:
   PostgreSQL's regex engine widens its subject fourfold. Fold an ordered family's texts with `Monoid.concat`, naming its
-  `(before, after)` pair, and write each member's separator into its own step value; type the step and the
-  accumulators by a bounded pattern, `str.regex("^.{0,64}$", "su")`, since the family's axes key each running text
-  and an unbounded one is UnrepresentableKey.
+  `(before, after)` pair, and write each member's separator into its own step value; type the accumulators by a
+  bounded pattern, `str.regex("^.{0,64}$", "su")`, since the family's axes key each running text and an unbounded one
+  is UnrepresentableKey. The step may be any text, a generated piece at a byte bound among them,
+  `generated(T, Compute.concat(…))` for a refined `T`: a generated field and each accumulator is of its type but for
+  its own pattern and byte bound, which its domain checks, refusing a write whose value lies outside it.
 - Write a `str.regex` or `Compute.matches` pattern in JavaScript's syntax under `u`, with no lookahead or lookbehind,
   `\p{…}` or `\P{…}`, `\s` or `\S`, `\b` or `\B`, backreference, named group, inline modifier, lazy quantifier or
   repetition bound above 255, and with some text it matches. TypeScript accepts each of these, but the relation,

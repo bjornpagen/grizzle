@@ -375,10 +375,14 @@ type Evaluated =
 	| { readonly kind: "null" }
 	| { readonly kind: "unknown" }
 
-/** The judge of one installation's stated rows on the host. */
+/**
+ * The judge of one installation's stated rows on the host: an expression's value over a row, a host value as the
+ * evaluator holds it at a type, and whether a value is a member of a type.
+ */
 interface Judge {
 	readonly evaluate: (relation: TableRelation, expr: ScalarExpr, row: JudgedRow) => Evaluated
-	readonly member: (value: unknown, type: ScalarType) => boolean | undefined
+	readonly carried: (value: unknown, type: ScalarType) => CarrierValue | undefined
+	readonly member: (value: CarrierValue, type: ScalarType) => boolean | undefined
 }
 
 /** The judge of a write's facts by its law model's compiled patterns (LawModel.patterns), parsing none per fact. */
@@ -441,11 +445,28 @@ const judgeOf = (frontend: WriteFrontend): Judge => {
 	}
 	return {
 		evaluate,
-		member: (value, type) => {
-			const carried = evalValue(carrierSpecOf(type, codes), value)
-			return carried === undefined ? undefined : valueMember(carried, type, patterns)
-		}
+		carried: (value, type) => evalValue(carrierSpecOf(type, codes), value),
+		member: (value, type) => valueMember(value, type, patterns)
 	}
+}
+
+/**
+ * A stated row's field as a domain's CHECK reads it: the host's value of a field the ChangeSet states or its write
+ * fills, and a generated field's value as PostgreSQL generates it from the row, NULL included, which every domain
+ * admits; none where the host does not hold or cannot evaluate it.
+ */
+const domainValue = (
+	judge: Judge,
+	relation: TableRelation,
+	row: JudgedRow,
+	field: LawField
+): Evaluated => {
+	if (field.writing.kind === "generated") {
+		return judge.evaluate(relation, field.writing.expr, row)
+	}
+	const host = hostField(row, field)
+	const carried = host === undefined ? undefined : judge.carried(host, field.type)
+	return carried === undefined ? { kind: "unknown" } : { kind: "value", value: carried }
 }
 
 /** A row CHECK's verdict, as `CHECK ((p) IS TRUE)` judges it: FALSE and NULL break it. */
@@ -464,7 +485,7 @@ const checked = (e: Evaluated): Verdict => {
  * Whether a value breaks one level of its type, the level `at`, as that level's domain or endpoint CHECK judges it: it
  * is a value of every level below `at` and not of `at`. A value outside a lower level is that level's refusal.
  */
-const breaksLevel = (judge: Judge, value: unknown, at: ScalarType): Verdict => {
+const breaksLevel = (judge: Judge, value: CarrierValue, at: ScalarType): Verdict => {
 	const below = contractOf(at)?.base
 	const inner = below === undefined ? true : judge.member(value, below)
 	const whole = judge.member(value, at)
@@ -652,9 +673,10 @@ const lawChecks = (
 							laws: [{ law, described: contractLaw(contract.name) }],
 							verdict: (row) =>
 								firstBreak(
-									endpointsOf(hostField(row, field)).map((endpoint) =>
-										breaksLevel(judge, endpoint, level)
-									)
+									endpointsOf(hostField(row, field)).map((endpoint) => {
+										const carried = judge.carried(endpoint, level)
+										return carried === undefined ? "unjudged" : breaksLevel(judge, carried, level)
+									})
 								)
 						}
 					]
@@ -775,8 +797,15 @@ const verdictOf = (
 						if (!refuser.laws.some((law) => levelStates(level, law))) {
 							return []
 						}
-						const value = hostField(row, field)
-						return [value === undefined ? "unjudged" : breaksLevel(judge, value, level)]
+						const value = domainValue(judge, relation, row, field)
+						switch (value.kind) {
+							case "value":
+								return [breaksLevel(judge, value.value, level)]
+							case "null":
+								return ["holds"]
+							case "unknown":
+								return ["unjudged"]
+						}
 					})
 				})
 			)
@@ -810,7 +839,8 @@ const verdictOf = (
  * - a span's endpoint CHECK of a contract: a fact whose span has an endpoint inside every level below the contract
  *   and outside the contract;
  * - a domain's CHECK, a contract's or a pattern's: a fact whose field, among the columns the domain types in the
- *   statement's tables, holds a value inside every level below the law's and outside the law's own;
+ *   statement's tables, holds a value inside every level below the law's and outside the law's own, a generated field
+ *   the value PostgreSQL generates into its domain from the row (domainValue);
  * - a generated column's NOT NULL: a fact at which its generation expression is NULL, by a closed read at a key its
  *   relation holds no row at.
  *

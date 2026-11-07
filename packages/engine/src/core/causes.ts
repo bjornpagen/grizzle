@@ -470,7 +470,7 @@ export const loginRuleText = (rule: LoginRule): string => {
  * generation expression reads, as PostgreSQL's never does; it reads `read`, a field grizzle draws or accumulates on
  * the host (`writing`), which no generation expression reads either; it reads an input beyond its own row, `input` the
  * description kind of the first in expression order; or its type `expression` is not the field's declared `declared`
- * (each a type label), with no implicit cast.
+ * (each a type label) but for what the column's domain checks, with no implicit cast.
  */
 export type GeneratedRule =
 	| { readonly kind: "readsGenerated"; readonly read: string }
@@ -506,7 +506,7 @@ export const generatedRuleText = (rule: GeneratedRule): string => {
 		case "notRowLocal":
 			return `reads ${rowInputWords[rule.input]}; a generation expression reads its own row and closed relations only`
 		case "type":
-			return `its expression is ${rule.expression}, not its declared ${rule.declared}: PostgreSQL types a generation expression by its column, with no implicit cast`
+			return `its expression is ${rule.expression}, not its declared ${rule.declared}: a generation expression is of its column's type, but for the pattern and byte bound its column's domain checks, with no implicit cast`
 	}
 }
 

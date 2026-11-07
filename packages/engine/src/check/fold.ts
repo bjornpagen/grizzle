@@ -1,12 +1,13 @@
 import { canonicalEquals, everyProperty } from "#compiler/core/canonical.ts"
 import { compileReasonText, malformedDescription } from "#compiler/core/errors.ts"
+import { defined } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { ExprDesc } from "#compiler/ir/desc.ts"
 import type { LawField } from "#compiler/ir/law.ts"
 import type { CombineFn, MonoidSpec } from "#compiler/ir/monoid.ts"
-import { type ScalarType, sameScalarType, typeLabel } from "#compiler/ir/scalar.ts"
+import { type ScalarType, sameUnrefined, typeLabel, unrefined } from "#compiler/ir/scalar.ts"
 import {
 	exprEmitter,
 	lowerPredicate,
@@ -43,7 +44,9 @@ export interface FoldTyping {
  *   none, or one (before, after) pair per plane;
  * - its ends: one per plane;
  * - every accumulator and end: an accumulated field (desc.ts Writing) of the plane's type, x's (natural for count, which
- *   counts), with no implicit cast, starting at the monoid's identity on that type, plane by plane.
+ *   counts), but for its own text refinement (scalar.ts sameUnrefined), with no implicit cast, starting at the
+ *   monoid's identity on the plane, plane by plane. The step's values, and so the running values, need not lie in an
+ *   accumulator's pattern or byte bound: its column's domain refuses one outside it, an outcome on that pattern's rule.
  */
 export const foldRule = (monoid: MonoidSpec, fold: FoldTyping): string | undefined => {
 	const x = fold.step
@@ -78,14 +81,14 @@ export const foldRule = (monoid: MonoidSpec, fold: FoldTyping): string | undefin
 	}
 	const identity = monoid.identity(plane)
 	const accumulator = (f: LawField, i: number): string | undefined => {
-		if (!sameScalarType(f.type, plane)) {
-			return `a ${monoid.name} fold's accumulator of its plane's type ${typeLabel(plane)}; ${f.name} is ${typeLabel(f.type)}`
+		if (!sameUnrefined(f.type, plane)) {
+			return `a ${monoid.name} fold's accumulator of its plane's type ${typeLabel(unrefined(plane))}, at any pattern or byte bound; ${f.name} is ${typeLabel(f.type)}`
 		}
 		if (f.writing.kind !== "accumulated") {
 			return `a fold's accumulator is an accumulated field, filled on the host; ${f.name} is written by ${f.writing.kind}`
 		}
-		const start = identity[i]
-		if (start === undefined || !canonicalEquals(f.writing.start, start, everyProperty)) {
+		const start = defined(identity[i], "a monoid's identity holds one value per plane")
+		if (!canonicalEquals(f.writing.start, start, everyProperty)) {
 			return `a fold's accumulator starts at its monoid's identity; ${f.name} starts elsewhere`
 		}
 		return undefined
@@ -119,12 +122,14 @@ const one: ExprDesc = { kind: "literal", value: 1n, type: undefined }
  * Why the CHECK that proves a fold's after over a plane of type `plane` is no total predicate, as the refusal's
  * sentence, or undefined when it is one: every after, named or hidden, is a drawn law column the host fills, proved by
  * `(after = combine(befores, x)) IS TRUE` (fin.md §4.3), typed in "check" mode as a row check is, each before, after
- * and x a column of the plane's type. The comparison widens both sides into exact arithmetic where the combine computes
+ * and x a column of the plane's type with no text refinement (scalar.ts unrefined), which each of them refines on its
+ * own. The comparison widens both sides into exact arithmetic where the combine computes
  * there (count's and sum's `+`), so nothing narrows; the combine applies Compute's operations (ir/monoid.ts CombineFn),
  * each of which a check admits only where the host evaluates it, as it must to fill the after.
  */
 export const combineRule = (monoid: MonoidSpec, plane: ScalarType): string | undefined => {
 	const loc = SourceLoc(`fold ${monoid.name}`, [])
+	const carrier = unrefined(plane)
 	const patterns = new CompilePatterns()
 	const befores: NonEmptyReadonlyArray<ExprDesc> =
 		monoid.planes === 2 ? [operand, operand] : [operand]
@@ -140,7 +145,7 @@ export const combineRule = (monoid: MonoidSpec, plane: ScalarType): string | und
 				mode: "check",
 				loc,
 				emit: exprEmitter(`fold ${monoid.name}`),
-				leaf: () => Result.ok({ kind: "value", args: [], type: plane, nonNull: "storage" }),
+				leaf: () => Result.ok({ kind: "value", args: [], type: carrier, nonNull: "storage" }),
 				params: noParams,
 				fieldType: () =>
 					Result.err(malformedDescription(loc, "no descriptor: a combine reads its planes alone")),

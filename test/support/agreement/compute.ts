@@ -313,12 +313,14 @@ type FamilyNote = (typeof familyNotes)[number] | (typeof exactLiteralNotes)[numb
 /**
  * What a byte guard case reached, by the engine's verdict on its check: its cast admitted within the guard's high bound,
  * the guard reaching past the target's bytes, and the cast with no guard, each of the last two a decided language,
- * which the types admit since a byte bound is no type.
+ * which the types admit since a byte bound is no type; and the text stored uncast, admitted by both, since a value
+ * enters its column at its carrier and the column's domain judges the bound.
  */
 const byteNotes = [
 	"a cast within its byte guard",
 	"a byte guard past its target",
-	"a byte cast unguarded"
+	"a byte cast unguarded",
+	"a text stored uncast"
 ] as const
 type ByteNote = (typeof byteNotes)[number]
 
@@ -328,6 +330,9 @@ const byteNotesOf = (spec: CaseSpec, verdict: Verdict): ReadonlyArray<ByteNote> 
 		return []
 	}
 	const language = verdict.kind === "decided" && verdict.note === engineDecides.language
+	if (spec.guard.kind === "uncast") {
+		return verdict.kind === "admitted" ? ["a text stored uncast"] : []
+	}
 	return spec.guard.kind === "within"
 		? verdict.kind === "admitted"
 			? ["a cast within its byte guard"]
@@ -635,6 +640,7 @@ type TunedGuard =
 type ByteGuard =
 	| { readonly kind: "within"; readonly low: number; readonly high: number }
 	| { readonly kind: "none" }
+	| { readonly kind: "uncast" }
 
 /** The operations each family is the home of: a first operand is drawn from them four times in five. */
 const homes: { readonly [F in Fn]: Arr.NonEmptyReadonlyArray<Family> } = {
@@ -1810,18 +1816,24 @@ const caseAt = (d: Drawing, root: Root): CaseSpec => {
 
 /**
  * A cast of a text field into a str.bytes target of n bytes, a generated field's term, which a check compiles: under the
- * byte guard three times in four, its high bound drawn about n, or unguarded. The bounds and targets are a dictionary
- * of the byte counts the narrowing branches on: none, one, and a short and a longer text's.
+ * byte guard three times in five, its high bound drawn about n, unguarded, or no cast at all, the text itself, which
+ * the target's domain judges. The bounds and targets are a dictionary of the byte counts the narrowing branches on:
+ * none, one, and a short and a longer text's.
  */
-const bytesOf = (d: Drawing): CaseSpec => ({
-	kind: "bytes",
-	text: d.from(families.text),
-	target: d.from([0, 1, 4, 8]),
-	guard:
-		d.from([0, 1, 2, 3]) < 3
-			? { kind: "within", low: d.from([0, 1]), high: d.from([0, 1, 2, 4, 5, 8, 9, 12]) }
-			: { kind: "none" }
-})
+const bytesOf = (d: Drawing): CaseSpec => {
+	const way = d.from([0, 1, 2, 3, 4])
+	return {
+		kind: "bytes",
+		text: d.from(families.text),
+		target: d.from([0, 1, 4, 8]),
+		guard:
+			way < 3
+				? { kind: "within", low: d.from([0, 1]), high: d.from([0, 1, 2, 4, 5, 8, 9, 12]) }
+				: way === 3
+					? { kind: "none" }
+					: { kind: "uncast" }
+	}
+}
 
 /** The target a byte guard case casts into, as the program and the engine spell it. */
 const bytesTargetText = (n: number): string => `str.bytes(${n}, str.regex("^.*$", "su"))`
@@ -1833,7 +1845,9 @@ const bytesSchemaText = (spec: Extract<CaseSpec, { readonly kind: "bytes" }>): s
 	const term =
 		spec.guard.kind === "within"
 			? `Compute.when(Compute.within(Compute.octetLength(r.text), ${spec.guard.low}, ${spec.guard.high}), () => ${cast}, "")`
-			: cast
+			: spec.guard.kind === "uncast"
+				? "r.text"
+				: cast
 	return `schema("Bytes", { Texts: relation.generated("Texts", { id: uuid, text: Cell.fields.${spec.text} }, ["id"], (r) => ({ stored: generated(${target}, ${term}) })) }, [])`
 }
 
@@ -1857,7 +1871,9 @@ const bytesSchema = (spec: Extract<CaseSpec, { readonly kind: "bytes" }>): unkno
 									() => computeCore.cast(r.text, target),
 									""
 								)
-							: computeCore.cast(r.text, target),
+							: guard.kind === "uncast"
+								? r.text
+								: computeCore.cast(r.text, target),
 						[]
 					)
 				})

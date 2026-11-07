@@ -900,6 +900,35 @@ export const baseOf = (t: ScalarType): ScalarType => {
 	return contract === undefined ? t : baseOf(contract.base)
 }
 
+/** The text of every value: the canonical wildcard, which proves no bound. */
+const everyText: TextInfo = Object.freeze({
+	regex: "wildcard",
+	lengthBound: undefined,
+	byteBound: undefined
+})
+
+/**
+ * A type without the refinement its column's domain alone enforces, which the TypeScript type of its values leaves
+ * unnamed: a text's pattern and byte bound, leaving the text of every value. Every other part of a type is its values'
+ * own: a contract, natural among them, whose identity the field classes keep (analysis/theory/classes.ts), a numeric
+ * typmod, which rounds, an integer width, a roster, a span's endpoint and width, and a vector's dimensions.
+ *
+ * A value enters a stored column of type `t` at `unrefined(t)`, whoever writes it, the caller, PostgreSQL's generation
+ * or grizzle's fill, and the column's domain refuses one outside `t`, an outcome on that pattern's rule.
+ */
+export const unrefined = (t: ScalarType): ScalarType =>
+	t.carrier === "text" && t.contract === undefined && t.text.regex !== "wildcard"
+		? Object.freeze({ ...t, text: everyText })
+		: t
+
+/**
+ * Whether two types differ only in what a column's domain enforces (unrefined): a value of either enters a stored
+ * column of the other, its domain the judge.
+ */
+export const sameUnrefined = (a: ScalarType, b: ScalarType): boolean =>
+	sameScalarType(unrefined(a), unrefined(b))
+
+
 /**
  * Whether a value of this type is refined beyond its base: a contract, or text with a specific pattern. A comparison
  * parameter is never cast to such a type.

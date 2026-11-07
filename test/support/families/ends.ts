@@ -11,23 +11,29 @@
  *   that fill whole hex digits and widths that pad the last one;
  * - every family kind: a counted family folds the commutative monoids only, its accumulators hidden; an ordered family
  *   and a tree fold every monoid, concat's pair named as its law needs and the pairs of a set of even width named too,
- *   the rest hidden.
+ *   the rest hidden;
+ * - beside concat over text, a refined cell, whose accumulators are of another pattern than its step's, which only
+ *   their domains judge: its pieces texts of at most three bytes PostgreSQL generates by doubling a caller's token, its
+ *   accumulators the text of a and b of at most sixteen letters. A write whose piece outgrows its bound, or whose
+ *   running values or ends break the pattern, is refused on that rule, and the model's state stays as it was.
  *
  * One family's predecessor axis carries every plane of its folds within one UNIQUE, so each monoid folds a family of
  * its own: a member relation per monoid under one owner (counted, ordered), its count field `n_<monoid>`, or a tree
  * relation per monoid. Values are exact: an integer in its own unit, numeric(8, 2) in hundredths, money in cents, a
  * closed id as its code and a set as the bit mask of its codes, text as itself.
  */
-import { element, type Gen, int, string } from "@grizzle/testing/gen"
+import { constant, element, type Gen, int, string, weighted } from "@grizzle/testing/gen"
 import { Array as Arr, Option, Record as Rec } from "effect"
 import { int2Min, int4Min, int8Min } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { type MonoidName, monoidNames } from "#compiler/ir/desc.ts"
 import { monoidSpecs } from "#compiler/ir/monoid.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
+import type { Law } from "#compiler/public/changeset.ts"
 import { bits, closedId, natural, pg } from "#compiler/public/fields.ts"
 import { schema, type Statement } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
+import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { describeFieldOrThrow } from "#compiler/scalar/registry.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
@@ -36,6 +42,8 @@ import {
 	bitsOf,
 	closed,
 	drawnField,
+	generatedField,
+	generatedRelation,
 	relation
 } from "#compiler/schema/relation.ts"
 import {
@@ -48,7 +56,7 @@ import {
 	orderedBuilder,
 	treeBuilder
 } from "#compiler/schema/statements.ts"
-import type { FieldBase } from "#compiler/types/fields/field.ts"
+import type { FieldBase, GeneratedField } from "#compiler/types/fields/field.ts"
 import type { AnyRelation, AnyRoster } from "#compiler/types/schema/relation.ts"
 import { assert, defined, nonEmpty } from "#test/support/assert.ts"
 
@@ -114,6 +122,37 @@ const setRoster = (rosters: Rosters, width: number): AnyRoster =>
 /** Text of at most eight letters: a concat's pieces and running texts, bounded so the family's axes key them. */
 const textField = str.regex("^[a-c]{0,8}$")
 
+/**
+ * The pattern of a refined cell's accumulators, another than its pieces': the text of a and b of at most sixteen
+ * letters, so a running value holding c, or longer, breaks the pattern's rule (ir/scalar.ts unrefined).
+ */
+const piecesSource = "^[ab]{0,16}$"
+
+/** Whether a monoid over a plane folds a refined cell beside the plane's own: concat over text. */
+const refines = (monoid: MonoidName, p: PlaneKind): boolean => monoid === "concat" && p.kind === "text"
+
+/** The rule a refined cell's accumulators' domain refuses a value on, as an outcome names it. */
+export const piecesLaw: Law = { kind: "pattern", source: piecesSource, flags: "u" }
+
+/** The rule a refined cell's piece's domain refuses a value on: its byte bound over every text. */
+export const pieceLaw: Law = { kind: "pattern", source: "^.*$", flags: "su" }
+
+/** The most bytes a refined cell's piece holds. */
+const pieceBytes = 3
+
+/** Whether a stored host value lies in a refined cell's accumulators' pattern, as its domain judges it. */
+const lies = (v: unknown): boolean =>
+	typeof v === "string" && v.length <= 16 && Arr.every([...v], (ch) => ch === "a" || ch === "b")
+
+/** Whether a stored host value fits a refined cell's piece, as its domain judges it: its letters are ASCII. */
+const fits = (v: unknown): boolean => typeof v === "string" && v.length <= pieceBytes
+
+/** A refined cell's token, the caller's text PostgreSQL doubles into its piece: at most two letters from a to c. */
+const tokenField = str.regex("^[a-c]{0,2}$")
+
+/** A refined cell's piece, the token doubled: a text of any pattern of at most three bytes, keyText's form. */
+const pieceField = str.bytes(pieceBytes, str.regex("^.*$", "su"))
+
 /** A plane kind's field. */
 const fieldOf = (rosters: Rosters, p: PlaneKind): FieldBase => {
 	switch (p.kind) {
@@ -149,21 +188,49 @@ export type Value = bigint | string
 export type Planes = Arr.NonEmptyReadonlyArray<Value>
 
 /**
- * A fold of the space: its monoid over one plane kind, its member's step field (none for count, which steps by one),
- * its owner's end field per plane, and its member's (before, after) fields per plane where it names them.
+ * A cell's step field: none for count, which steps by one; a field its caller writes; or a field PostgreSQL generates
+ * by doubling the caller's token, a refined cell's piece.
+ */
+export type StepField =
+	| { readonly kind: "none" }
+	| { readonly kind: "written"; readonly field: string }
+	| { readonly kind: "doubled"; readonly field: string; readonly token: string }
+
+/**
+ * A fold of the space: its monoid over one plane kind, whether its accumulators are of another pattern than its step's
+ * (refined), its member's step field, its owner's end field per plane, and its member's (before, after) fields per
+ * plane where it names them.
  */
 export interface Cell {
 	readonly monoid: MonoidName
 	readonly plane: PlaneKind
-	readonly step: string | undefined
+	readonly refined: boolean
+	readonly step: StepField
 	readonly ends: Arr.NonEmptyReadonlyArray<string>
 	readonly pairs: ReadonlyArray<{ readonly before: string; readonly after: string }>
 }
 
-/** A cell's name in situations: its monoid and its plane. */
-export type CellLabel = `${MonoidName} over ${PlaneLabel}`
+/** A cell's name in situations: its monoid, its plane, and whether its accumulators are of another pattern. */
+export type CellLabel =
+	| `${MonoidName} over ${PlaneLabel}`
+	| `${MonoidName} over ${PlaneLabel} into another pattern`
 
-export const cellLabel = (c: Cell): CellLabel => `${c.monoid} over ${planeLabel(c.plane)}`
+export const cellLabel = (c: Cell): CellLabel =>
+	c.refined
+		? `${c.monoid} over ${planeLabel(c.plane)} into another pattern`
+		: `${c.monoid} over ${planeLabel(c.plane)}`
+
+/** The field a member's steps record holds a cell's value at: its written step, or the token PostgreSQL doubles. */
+export const stepKeyOf = (c: Cell): string | undefined => {
+	switch (c.step.kind) {
+		case "none":
+			return undefined
+		case "written":
+			return c.step.field
+		case "doubled":
+			return c.step.token
+	}
+}
 
 /** Whether a family of `kind` names a cell's accumulators: concat's always, a set's of even width outside a counted
  * family, never a counted family's, whose order is hidden. */
@@ -179,21 +246,29 @@ const cellsOf = (kind: FamilyKind): ReadonlyArray<Arr.NonEmptyReadonlyArray<Cell
 		if (kind === "counted" && !spec.commutative) {
 			return []
 		}
-		const cells = Arr.map(
+		const cells = Arr.flatMap(
 			Arr.filter(planeKinds, (p) => spec.admits(typeOf(p))),
-			(p): Cell => {
-				const label = `${monoid}_${planeLabel(p)}`
-				const planes = Arr.range(0, spec.planes - 1)
-				return {
-					monoid,
-					plane: p,
-					step: spec.step === "none" ? undefined : `x_${planeLabel(p)}`,
-					ends: nonEmpty(Arr.map(planes, (i) => `e_${label}_${i}`)),
-					pairs: namesPairs(kind, monoid, p)
-						? Arr.map(planes, (i) => ({ before: `b_${label}_${i}`, after: `a_${label}_${i}` }))
-						: []
-				}
-			}
+			(p: PlaneKind): ReadonlyArray<Cell> =>
+				Arr.map(refines(monoid, p) ? [false, true] : [false], (refined): Cell => {
+					const key = refined ? `${planeLabel(p)}_refined` : planeLabel(p)
+					const label = `${monoid}_${key}`
+					const planes = Arr.range(0, spec.planes - 1)
+					return {
+						monoid,
+						plane: p,
+						refined,
+						step:
+							spec.step === "none"
+								? { kind: "none" }
+								: refined
+									? { kind: "doubled", field: `x_${key}`, token: `t_${key}` }
+									: { kind: "written", field: `x_${key}` },
+						ends: nonEmpty(Arr.map(planes, (i) => `e_${label}_${i}`)),
+						pairs: namesPairs(kind, monoid, p)
+							? Arr.map(planes, (i) => ({ before: `b_${label}_${i}`, after: `a_${label}_${i}` }))
+							: []
+					}
+				})
 		)
 		return Arr.isReadonlyArrayNonEmpty(cells) ? [cells] : []
 	})
@@ -303,6 +378,22 @@ export const hostOf = (p: PlaneKind, v: Value): unknown => {
 	}
 }
 
+/**
+ * A refined cell's tokens, the letters and lengths its pieces' bound and its accumulators' pattern branch on: none or
+ * one of a and b, whose piece fits its bound and keeps every running value inside the pattern; and where the write may
+ * break them, c, which breaks the pattern wherever it is folded, or two letters, whose piece outgrows its bound.
+ */
+const tokenGen = (breaking: boolean): Gen<Value> => {
+	const lying = string(element(["a", "b"]), { min: 0, max: 1 })
+	return breaking
+		? weighted([
+				[2, lying],
+				[1, constant("c")],
+				[1, string(element(["a", "b"]), { min: 2, max: 2 })]
+			])
+		: lying
+}
+
 /** The step values of a plane kind: a box of small units per carrier, every subset of a set's roster, short texts. */
 const stepGen = (p: PlaneKind): Gen<Value> => {
 	switch (p.kind) {
@@ -354,6 +445,10 @@ const schemaOf = (
 /** A field and its name. */
 type Named = readonly [name: string, field: FieldBase]
 
+/** A cell's accumulators' field: its plane's own, or a refined cell's other pattern. */
+const accumulatorFieldOf = (rosters: Rosters, c: Cell): FieldBase =>
+	c.refined ? str.regex(piecesSource) : fieldOf(rosters, c.plane)
+
 /** A cell's accumulated fields, each named for one plane, starting at that plane's identity. */
 const accumulators = (
 	rosters: Rosters,
@@ -364,7 +459,7 @@ const accumulators = (
 	return Arr.map(names, ([name, plane]): Named => [
 		name,
 		accumulatedField(
-			fieldOf(rosters, c.plane),
+			accumulatorFieldOf(rosters, c),
 			startOf(rosters, c, defined(identity[plane], "a plane's identity")),
 			[]
 		)
@@ -376,13 +471,21 @@ const startOf = (rosters: Rosters, c: Cell, v: Value): unknown =>
 	c.plane.kind === "bits" ? bitsOf(setRoster(rosters, c.plane.width), [], []) : hostOf(c.plane, v)
 
 /**
- * The member fields a group's cells read and name: every step field and every named accumulator. A group is one
- * monoid's, whose cells are each over a plane of their own, so no two cells share a step field.
+ * The member fields a group's cells read and name that its caller writes or grizzle accumulates: every written step
+ * field, every token a piece doubles, and every named accumulator. A group is one monoid's, whose cells are each over a
+ * plane and a pattern of their own, so no two cells share a step field.
  */
 const memberFields = (rosters: Rosters, cells: ReadonlyArray<Cell>): ReadonlyArray<Named> => [
-	...Arr.flatMap(cells, (c): ReadonlyArray<Named> =>
-		c.step === undefined ? [] : [[c.step, fieldOf(rosters, c.plane)]]
-	),
+	...Arr.flatMap(cells, (c): ReadonlyArray<Named> => {
+		switch (c.step.kind) {
+			case "none":
+				return []
+			case "written":
+				return [[c.step.field, fieldOf(rosters, c.plane)]]
+			case "doubled":
+				return [[c.step.token, tokenField]]
+		}
+	}),
 	...Arr.flatMap(cells, (c) =>
 		accumulators(
 			rosters,
@@ -407,9 +510,41 @@ const endFields = (rosters: Rosters, cells: ReadonlyArray<Cell>): ReadonlyArray<
 
 /** A cell's step side's terms after its group: its step field and its named accumulators. */
 const stepTerms = (c: Cell): ReadonlyArray<string> => [
-	...(c.step === undefined ? [] : [c.step]),
+	...(c.step.kind === "none" ? [] : [c.step.field]),
 	...Arr.flatMap(c.pairs, (p) => [p.before, p.after])
 ]
+
+/** The pieces a group's cells fold that PostgreSQL generates over a member's row: each token doubled. */
+const piecesOf = (
+	cells: ReadonlyArray<Cell>,
+	row: Readonly<Record<string, unknown>>
+): Readonly<Record<string, GeneratedField<FieldBase>>> =>
+	Rec.fromEntries(
+		Arr.flatMap(cells, (c): ReadonlyArray<readonly [string, GeneratedField<FieldBase>]> =>
+			c.step.kind === "doubled"
+				? [
+						[
+							c.step.field,
+							generatedField(
+								pieceField,
+								computeCore.concat(row[c.step.token], row[c.step.token]),
+								[]
+							)
+						]
+					]
+				: []
+		)
+	)
+
+/** A member relation of `fields`, keyed by its id, and the pieces its cells generate where any doubles a token. */
+const memberRelation = (
+	name: string,
+	fields: ReadonlyArray<Named>,
+	cells: ReadonlyArray<Cell>
+): AnyRelation =>
+	Arr.some(cells, (c) => c.step.kind === "doubled")
+		? generatedRelation(name, Rec.fromEntries(fields), ["id"], (row) => piecesOf(cells, row), [])
+		: relation(name, Rec.fromEntries(fields), ["id"], [])
 
 /**
  * The schema of a family kind: for a counted or an ordered family, one mutable owner `Owner` (id, label, a count per
@@ -444,12 +579,7 @@ export const foldSchema = (kind: FamilyKind): FoldSchema => {
 					]
 		return {
 			monoid,
-			member: relation(
-				`${kind === "tree" ? "T" : "M"}_${monoid}`,
-				Rec.fromEntries(fields),
-				["id"],
-				[]
-			),
+			member: memberRelation(`${kind === "tree" ? "T" : "M"}_${monoid}`, fields, cells),
 			count: kind === "tree" ? "children" : `n_${monoid}`,
 			cells
 		}
@@ -546,29 +676,65 @@ export const emptyState: State = { owners: [], members: new Map() }
 export const membersOf = (state: State, monoid: MonoidName): ReadonlyArray<MemberState> =>
 	state.members.get(monoid) ?? []
 
-/** A member's step values, drawn for each step field of its group. */
+/**
+ * A cell's step values as a member's steps record holds them, its step's or the token its piece doubles, over its whole
+ * plane, a refined cell's outside its accumulators' pattern too where `breaking` holds.
+ */
+export const stepValueGen = (c: Cell, breaking: boolean): Gen<Value> =>
+	c.refined ? tokenGen(breaking) : stepGen(c.plane)
+
+/**
+ * A member's step values, drawn for each field of its group a step reads that its caller writes, a refined cell's
+ * outside its accumulators' pattern too where `breaking` holds.
+ */
 export const stepsGen =
-	(g: Group): Gen<Steps> =>
+	(g: Group, breaking: boolean): Gen<Steps> =>
 	(source) =>
 		Rec.fromEntries(
-			Arr.flatMap(g.cells, (c): ReadonlyArray<readonly [string, Value]> =>
-				c.step === undefined ? [] : [[c.step, source.draw(stepGen(c.plane))]]
-			)
+			Arr.flatMap(g.cells, (c): ReadonlyArray<readonly [string, Value]> => {
+				const key = stepKeyOf(c)
+				return key === undefined ? [] : [[key, source.draw(stepValueGen(c, breaking))]]
+			})
 		)
 
 /** A member's value at a step field. */
 const stepAt = (steps: Steps, field: string): Value =>
 	defined(Rec.has(steps, field) ? steps[field] : undefined, `the step ${field}`)
 
-/** A cell's step value of a member: none for count. */
-export const stepOf = (c: Cell, steps: Steps): Value | undefined =>
-	c.step === undefined ? undefined : stepAt(steps, c.step)
+/** A cell's step value of a member, as its fold reads it: none for count, and a piece its token doubled. */
+export const stepOf = (c: Cell, steps: Steps): Value | undefined => {
+	switch (c.step.kind) {
+		case "none":
+			return undefined
+		case "written":
+			return stepAt(steps, c.step.field)
+		case "doubled": {
+			const token = String(stepAt(steps, c.step.token))
+			return `${token}${token}`
+		}
+	}
+}
 
-/** A member's step fields as host values, each under its field's name. */
+/** A member's fields its caller writes for its steps, as host values, each under its field's name. */
 const stepEntries = (g: Group, steps: Steps): ReadonlyArray<readonly [string, unknown]> =>
-	Arr.flatMap(g.cells, (c): ReadonlyArray<readonly [string, unknown]> =>
-		c.step === undefined ? [] : [[c.step, hostOf(c.plane, stepAt(steps, c.step))]]
+	Arr.flatMap(g.cells, (c): ReadonlyArray<readonly [string, unknown]> => {
+		switch (c.step.kind) {
+			case "none":
+				return []
+			case "written":
+				return [[c.step.field, hostOf(c.plane, stepAt(steps, c.step.field))]]
+			case "doubled":
+				return [[c.step.token, String(stepAt(steps, c.step.token))]]
+		}
+	})
+
+/** A member's stored step fields: those its caller writes, and each piece PostgreSQL generates from its token. */
+const storedStepEntries = (g: Group, steps: Steps): ReadonlyArray<readonly [string, unknown]> => [
+	...stepEntries(g, steps),
+	...Arr.flatMap(g.cells, (c): ReadonlyArray<readonly [string, unknown]> =>
+		c.step.kind === "doubled" ? [[c.step.field, String(stepOf(c, steps))]] : []
 	)
+]
 
 /** A fact's step fields as host values. */
 export const stepFacts = (g: Group, steps: Steps): Readonly<Record<string, unknown>> =>
@@ -648,7 +814,7 @@ export const storedRows = (
 								["id", m.id],
 								["o", m.owner],
 								...(s.kind === "ordered" ? [["at", BigInt(slot)] as const] : []),
-								...stepEntries(g, m.steps),
+								...storedStepEntries(g, m.steps),
 								...Arr.flatMap(f.cells, ({ c, folded }) =>
 									Arr.isReadonlyArrayNonEmpty(c.pairs)
 										? runningEntries(c, defined(folded.running[slot], "a member's running values"))
@@ -703,7 +869,7 @@ export const treeRows = (g: Group, trees: ReadonlyArray<Node>): ReadonlyArray<Mo
 				["children", BigInt(node.children.length)],
 				["start", BigInt(start)],
 				["end", BigInt(next)],
-				...stepEntries(g, node.steps),
+				...storedStepEntries(g, node.steps),
 				...Arr.flatMap(folds, ({ c, folded }) => [
 					...planeEntries(c, c.ends, folded.end),
 					...(Arr.isReadonlyArrayNonEmpty(c.pairs) ? runningEntries(c, running(c)) : [])
@@ -720,6 +886,54 @@ export const treeRows = (g: Group, trees: ReadonlyArray<Node>): ReadonlyArray<Mo
 	}
 	return out
 }
+
+/**
+ * A stored row whose value breaks a rule of its refined cell, its accumulators' pattern or its piece's bound: the
+ * cell, the rule, the row's relation and its key.
+ */
+export interface Broken {
+	readonly cell: Cell
+	readonly law: Law
+	readonly relation: string
+	readonly id: unknown
+}
+
+/**
+ * The rows of `rows`, by relation, whose refined cells' values break a rule, as the cells' domains judge them: a
+ * member's piece outside its bound, and an owner's ends (a tree node's, on its own row) or a member's named running
+ * values outside the accumulators' pattern.
+ */
+export const brokenOf = (
+	s: FoldSchema,
+	rows: ReadonlyMap<string, ReadonlyArray<ModelRow>>
+): ReadonlyArray<Broken> =>
+	Arr.flatMap(s.groups, (g) =>
+		Arr.flatMap(g.cells, (c) => {
+			if (!c.refined) {
+				return []
+			}
+			const running = Arr.flatMap(c.pairs, (p) => [p.before, p.after])
+			const breaking = (
+				relation: string,
+				fields: ReadonlyArray<string>,
+				law: Law,
+				holds: (v: unknown) => boolean
+			): ReadonlyArray<Broken> =>
+				Arr.flatMap(rows.get(relation) ?? [], (row) =>
+					Arr.some(fields, (f) => !holds(row[f])) ? [{ cell: c, law, relation, id: row["id"] }] : []
+				)
+			const piece = c.step.kind === "doubled" ? [c.step.field] : []
+			return [
+				...breaking(g.member.name, piece, pieceLaw, fits),
+				...(s.kind === "tree"
+					? breaking(g.member.name, [...c.ends, ...running], piecesLaw, lies)
+					: [
+							...breaking(s.owner.name, c.ends, piecesLaw, lies),
+							...breaking(g.member.name, running, piecesLaw, lies)
+						])
+			]
+		})
+	)
 
 /** A tree's insert fact: its steps and its children nested at `children`, the root naming its tree by `doc`. */
 export const treeFact = (g: Group, node: Node, root: boolean): ModelRow =>

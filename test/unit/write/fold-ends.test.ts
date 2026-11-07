@@ -36,6 +36,7 @@ import {
 	type PlaneKind,
 	type Steps,
 	stepFacts,
+	stepKeyOf,
 	stepOf,
 	stepsGen,
 	times,
@@ -268,9 +269,10 @@ const insertedOfBox = (b: BoxCase): readonly [Group, Inserted] => {
 				member: {
 					owner: 1,
 					steps: Rec.fromEntries(
-						Arr.flatMap(g.cells, (other) =>
-							other.step === undefined ? [] : [[other.step, other === c ? v : zero(other)] as const]
-						)
+						Arr.flatMap(g.cells, (other) => {
+							const key = stepKeyOf(other)
+							return key === undefined ? [] : [[key, other === c ? v : zero(other)] as const]
+						})
 					)
 				}
 			}))
@@ -288,7 +290,7 @@ const insertedGen: Gen<Inserted> = (source) => {
 				times(owners, (o) =>
 					times(source.draw(int(0, 6)), () => ({
 						monoid: g.monoid,
-						member: { owner: o + 1, steps: source.draw(stepsGen(g)) }
+						member: { owner: o + 1, steps: source.draw(stepsGen(g, true)) }
 					}))
 				)
 			)

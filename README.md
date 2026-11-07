@@ -1407,10 +1407,15 @@ grizzle exports beside `AdditionIn<S, R>`, R's addition in S with its sequences'
   `relation.generated(name, written, primaryKey, (r) => ({ f: generated(type, term) }))`. `r` holds the fields its
   caller writes alone: no generated column, which PostgreSQL's generation expression never reads, and no drawn or
   accumulated field, which grizzle writes on the host, by type and, for a JavaScript caller, by `GeneratedRefused`
-  (`readsUnwritten`) when the schema is compiled. The term is of the declared type exactly, with no implicit cast. It
-  may read closed relations ([Closed relations](#closed-relations)); a term with no value at a row, a closed read
-  `C.at` at a key its relation holds no row at, refuses the row, `invariant-rejected` on
-  `{ kind: "generated", relation, field }`.
+  (`readsUnwritten`) when the schema is compiled. The term is of the declared type but for a text's pattern and byte
+  bound: a text of any pattern or bound fills a refined text, as
+  `generated(Ids, Compute.concat(row.head, row.tail))` does. The field's domain checks every value PostgreSQL
+  generates, as it checks a value you write, and refuses a row whose term lies outside it, `invariant-rejected` on the
+  pattern's rule. Another integer width, numeric typmod or contract, `natural` among them, is a type of its own, and
+  grizzle casts nothing implicitly, so such a term is `GeneratedRefused` (`type`) when the schema is compiled: write
+  the `Compute.cast` it needs. The term may read closed relations ([Closed relations](#closed-relations)); a term with
+  no value at a row, a closed read `C.at` at a key its relation holds no row at, refuses the row,
+  `invariant-rejected` on `{ kind: "generated", relation, field }`.
 - **grizzle, drawn:** `drawn(natural)`, a family's count or index, and a tree's `start` and `end`
   ([Families](#families)).
 - **grizzle, accumulated:** `accumulated(type, start)`, a fold's end or accumulator, or a copy along a family's axis,
@@ -1604,12 +1609,17 @@ A family is a rule over rows the caller writes: each owner's members, counted by
   monoid into the owner's `end` fields, each `accumulated`. The monoids are `Monoid.count`; `Monoid.sum`, exact, over an
   integer type or a numeric, never a float or money; `Monoid.or` and `Monoid.twos` over sets, `twos` with two planes,
   the handles seen once and those seen twice; `Monoid.max`; and `Monoid.concat` over text, its free monoid, each step
-  after the running text. Each starts at its identity, which an empty family's end holds. A fold over an ordered
-  family may name each member's running `before` and `after` too; one over a counted family names only its step value
+  after the running text. Each starts at its identity, which an empty family's end holds. Its accumulators and ends are
+  of its step value's type but for a text's pattern and byte bound, each its own: concat's pieces may be any text,
+  generated or written, and its accumulators a pattern of the text they spell. Each one's domain checks every value
+  grizzle fills into it, so a running value or an end outside its pattern refuses the write, `invariant-rejected` on
+  that pattern's rule. Another integer width, numeric typmod or contract is a type of its own: such a fold is
+  `MalformedDescription` when the schema is compiled. A fold over an ordered family may name each member's running
+  `before` and `after` too; one over a counted family names only its step value
   and its end, since a running value would show the hidden order. concat depends on that order, so it folds only an
   ordered family or a tree, by its named pair. A separator belongs to the step, never to the monoid, which would have
   no identity: write each member's token with the separator before it, but at index 0, and the end is the tokens
-  joined by it. The family's axes key each running text, so its pieces and accumulators are text of a bounded pattern
+  joined by it. The family's axes key each running text, so its accumulators are text of a bounded pattern
   ([Limits](#limits)).
 
 A relation is a member of at most one ordered family or tree, which orders it, and of any number of counted families,
@@ -2288,7 +2298,10 @@ channel as a tagged class.
 
 A value its contract or pattern refuses passes the encoder, which checks only the base type, and is refused by its
 domain's CHECK as the statement casts it, before the row's constraints and row-level security: `invariant-rejected` on
-the contract's or pattern's rule, its witness the key of the row you stated that holds the value.
+the contract's or pattern's rule, its witness the key of the row you stated that holds the value. So is a value
+PostgreSQL generates into a refined field, and one grizzle fills into a fold's accumulator or end: the witness is the
+key of the row you stated whose generated or filled value breaks it, and `unreported` where that row is one only a
+refill writes, such as a stored owner whose family the write appends to.
 
 <details>
 <summary>Every rule an outcome can name</summary>

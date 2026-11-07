@@ -10,12 +10,16 @@ import { Array as Arr, Effect, Formatter, Layer, Option, Record as Rec } from "e
 import { apply } from "#adapter/apply/index.ts"
 import { dbContext } from "#adapter/db/context.ts"
 import { Db } from "#adapter/public/db.ts"
+import type { ApplyOutcome } from "#adapter/types/db.ts"
 import type { MonoidName } from "#compiler/ir/desc.ts"
+import type { AnyRelation } from "#compiler/types/schema/relation.ts"
 import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
 import { cleared, seatOfInstalled } from "#test/pg/fin/installed.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, deepEquals, defined, nonEmpty, unorderedEqual } from "#test/support/assert.ts"
 import {
+	type Broken,
+	brokenOf,
 	type Cell,
 	type CellLabel,
 	cellLabel,
@@ -31,6 +35,7 @@ import {
 	type ModelRow,
 	type Node,
 	type OwnerState,
+	pieceLaw,
 	type State,
 	stepFacts,
 	stepsGen,
@@ -65,9 +70,19 @@ import { fullWorld, loginLayer } from "#test/support/worlds.ts"
  * The oracle is the model: each owner's count and every end, each ordered member's slot and named running values, each
  * tree node's drawn fields and its fold of its children, held against every stored row of every relation after each
  * write. Coverage requires every (monoid, plane) cell of each kind under each of its write forms, reached by an accepted
- * write that touched that cell's family and whose stored rows matched. The kept case is the downstream report's: a
- * counted Monoid.or over a set of three codes, the owner and its members {a} and {b} inserted separately, whose end was
- * written as the empty set.
+ * write that touched that cell's family and whose stored rows matched.
+ *
+ * A refined cell's accumulators are of another pattern than its step's (ends.ts): concat's pieces, texts of at most
+ * three bytes PostgreSQL generates by doubling a caller's token, folded into the text of a and b. A write may draw a
+ * token holding c, or one of two letters, and a write whose model rows hold a piece outside its bound or a running
+ * value or an end outside the pattern is refused on a rule they break and changes nothing: its witness is the key of a
+ * row the write states whose value breaks that rule, or `unreported` where no row it states does, as when a delete
+ * re-places the members after it. Coverage requires the refined cell of each kind that folds it refused by each rule.
+ *
+ * Two cases are kept. The downstream report's: a counted Monoid.or over a set of three codes, the owner and its members
+ * {a} and {b} inserted separately, whose end was written as the empty set. And the downstream shape that once needed
+ * host-written copies: a concat over pieces PostgreSQL generates at a byte bound, folded into a pattern its
+ * accumulators declare, accepted, and refused once a piece holds a letter outside the pattern.
  */
 
 type CountedForm =
@@ -90,7 +105,14 @@ type TreeForm = "a tree inserted whole" | "several trees in one ChangeSet"
 
 type Form = CountedForm | OrderedForm | TreeForm
 
-type Situation = `${CellLabel} in a ${FamilyKind} family, ${Form}`
+/** What a write whose model rows break a refined cell's rule reached: its accumulators' pattern, or its piece's bound. */
+type Refused = "refused by its pattern" | "refused by its piece's bound"
+
+/** The situation a broken rule reaches. */
+const refusedBy = (b: Broken): Refused =>
+	deepEquals(b.law, pieceLaw) ? "refused by its piece's bound" : "refused by its pattern"
+
+type Situation = `${CellLabel} in a ${FamilyKind} family, ${Form | Refused}`
 
 const formsOf = (kind: FamilyKind): Arr.NonEmptyReadonlyArray<Form> => {
 	switch (kind) {
@@ -238,13 +260,17 @@ interface Keys {
 	member: number
 }
 
-/** New members of every monoid's family under `owners`, at most `most` per owner and family, their keys fresh. */
+/**
+ * New members of every monoid's family under `owners`, at most `most` per owner and family, their keys fresh, a refined
+ * cell's steps outside its refinement too where `breaking` holds.
+ */
 const newMembersGen =
 	(
 		s: FoldSchema,
 		owners: Arr.NonEmptyReadonlyArray<number>,
 		keys: Keys,
-		most: number
+		most: number,
+		breaking: boolean
 	): Gen<ReadonlyArray<Stated>> =>
 	(source) =>
 		Arr.flatMap(s.groups, (g) =>
@@ -253,11 +279,14 @@ const newMembersGen =
 					keys.member += 1
 					return {
 						monoid: g.monoid,
-						member: { id: keys.member, owner, steps: source.draw(stepsGen(g)) }
+						member: { id: keys.member, owner, steps: source.draw(stepsGen(g, breaking)) }
 					}
 				})
 			)
 		)
+
+/** Whether a write's refined steps may break their refinement: one write in six. */
+const breakingGen: Gen<boolean> = (source) => source.draw(int(0, 5)) === 0
 
 const writeKinds = ["create", "append", "remove", "restep", "move", "relabel"] as const
 
@@ -279,7 +308,7 @@ const storedPick =
 
 /** Whether a write form reaches a cell: a step's put reaches only a cell whose fold steps by a value. */
 const reaches = (cell: Cell, form: Form): boolean =>
-	form !== "a member's step put" || cell.step !== undefined
+	form !== "a member's step put" || cell.step.kind !== "none"
 
 /** One write of a counted or an ordered family, drawn from the state it applies to; none where its pick is empty. */
 const writeGen =
@@ -291,6 +320,7 @@ const writeGen =
 			: "create"
 		const ownerOf = (): number =>
 			defined(stored[source.draw(int(0, stored.length - 1))], "a stored owner")
+		const breaking = source.draw(breakingGen)
 		switch (kind) {
 			case "create": {
 				const owners = nonEmpty(
@@ -300,10 +330,10 @@ const writeGen =
 					})
 				)
 				const ids = nonEmpty(Arr.map(owners, (o) => o.id))
-				return { kind, owners, members: source.draw(newMembersGen(s, ids, keys, 4)) }
+				return { kind, owners, members: source.draw(newMembersGen(s, ids, keys, 4, breaking)) }
 			}
 			case "append": {
-				const members = source.draw(newMembersGen(s, [ownerOf()], keys, 3))
+				const members = source.draw(newMembersGen(s, [ownerOf()], keys, 3, breaking))
 				return Arr.isReadonlyArrayNonEmpty(members) ? { kind, members } : undefined
 			}
 			case "relabel": {
@@ -311,7 +341,8 @@ const writeGen =
 				return {
 					kind,
 					owner,
-					members: s.kind === "counted" ? source.draw(newMembersGen(s, [owner.id], keys, 2)) : []
+					members:
+						s.kind === "counted" ? source.draw(newMembersGen(s, [owner.id], keys, 2, breaking)) : []
 				}
 			}
 			case "remove":
@@ -322,7 +353,7 @@ const writeGen =
 						state,
 						Arr.map(
 							Arr.filter(s.groups, (g) =>
-								kind === "restep" ? Arr.some(g.cells, (c) => c.step !== undefined) : true
+								kind === "restep" ? Arr.some(g.cells, (c) => c.step.kind !== "none") : true
 							),
 							(g) => g.monoid
 						)
@@ -338,7 +369,10 @@ const writeGen =
 						case "restep":
 							return {
 								monoid: p.monoid,
-								member: { ...p.member, steps: source.draw(stepsGen(groupOf(s, p.monoid))) }
+								member: {
+									...p.member,
+									steps: source.draw(stepsGen(groupOf(s, p.monoid), breaking))
+								}
 							}
 						case "move":
 							return { monoid: p.monoid, member: { ...p.member, owner: ownerOf() } }
@@ -349,28 +383,96 @@ const writeGen =
 		}
 	}
 
-/** A tree of at most `depth` levels below its root, each node of at most three children, its keys fresh. */
+/**
+ * A tree of at most `depth` levels below its root, each node of at most three children, its keys fresh, a refined
+ * cell's steps outside its refinement too where `breaking` holds.
+ */
 const nodeGen =
-	(g: Group, keys: Keys, depth: number): Gen<Node> =>
+	(g: Group, keys: Keys, depth: number, breaking: boolean): Gen<Node> =>
 	(source) => {
 		keys.member += 1
 		const id = keys.member
-		const steps = source.draw(stepsGen(g))
+		const steps = source.draw(stepsGen(g, breaking))
 		const children = times(depth === 0 ? 0 : source.draw(int(0, 3)), () =>
-			source.draw(nodeGen(g, keys, depth - 1))
+			source.draw(nodeGen(g, keys, depth - 1, breaking))
 		)
 		return { id, steps, children }
 	}
+
+/** The model's rows of a tree schema after a write of trees: each group's trees, numbered and folded. */
+const treesRows = (
+	s: FoldSchema,
+	trees: ReadonlyArray<{ readonly monoid: MonoidName; readonly root: Node }>
+): ReadonlyMap<string, ReadonlyArray<ModelRow>> =>
+	new Map(
+		Arr.map(s.groups, (g) => [
+			g.member.name,
+			treeRows(
+				g,
+				Arr.map(
+					Arr.filter(trees, (t) => t.monoid === g.monoid),
+					(t) => t.root
+				)
+			)
+		])
+	)
+
+/** The relations a schema stores: a tree's nodes, or an owner and its families' members. */
+const storedRelations = (s: FoldSchema): ReadonlyArray<AnyRelation> =>
+	s.kind === "tree"
+		? Arr.map(s.groups, (g) => g.member)
+		: [s.owner, ...Arr.map(s.groups, (g) => g.member)]
+
+/** The model's rows after a write, were it accepted: the trees it inserts, or the state it leaves. */
+const rowsAfter = (
+	s: FoldSchema,
+	state: State,
+	w: Write
+): ReadonlyMap<string, ReadonlyArray<ModelRow>> =>
+	w.kind === "trees" ? treesRows(s, w.trees) : storedRows(s, applied(s, state, w))
+
+/** The state a write leaves: the state after it, or the state before where its rows break a refinement, which refuses it. */
+const settled = (s: FoldSchema, state: State, w: Write): State =>
+	Arr.isReadonlyArrayNonEmpty(brokenOf(s, rowsAfter(s, state, w))) ? state : applied(s, state, w)
+
+/** A tree's node keys, the root's first. */
+const nodeIds = (node: Node): ReadonlyArray<number> => [node.id, ...Arr.flatMap(node.children, nodeIds)]
+
+/** The rows a write states, by relation and key: its owners and members, or every node of its trees. */
+const statedRows = (s: FoldSchema, w: Write): ReadonlyArray<readonly [string, number]> => {
+	const members = (stated: ReadonlyArray<Stated>) =>
+		Arr.map(stated, (m) => [groupOf(s, m.monoid).member.name, m.member.id] as const)
+	switch (w.kind) {
+		case "create":
+			return [...Arr.map(w.owners, (o) => [s.owner.name, o.id] as const), ...members(w.members)]
+		case "append":
+		case "restep":
+		case "move":
+			return members(w.members)
+		case "relabel":
+			return [[s.owner.name, w.owner.id], ...members(w.members)]
+		case "remove":
+			return []
+		case "trees":
+			return Arr.flatMap(w.trees, (t) =>
+				Arr.map(nodeIds(t.root), (id) => [groupOf(s, t.monoid).member.name, id] as const)
+			)
+	}
+}
 
 const caseGen: Gen<Sketch> = (source) => {
 	const kind = source.draw(swarmChoice(source.draw(swarm(familyKinds)), familyKinds))
 	const s = schemas[kind]
 	const keys: Keys = { owner: 0, member: 0 }
 	if (kind === "tree") {
+		const breaking = source.draw(breakingGen)
 		const trees = nonEmpty(
 			Arr.flatten(
 				times(source.draw(int(1, 2)), () =>
-					Arr.map(s.groups, (g) => ({ monoid: g.monoid, root: source.draw(nodeGen(g, keys, 2)) }))
+					Arr.map(s.groups, (g) => ({
+						monoid: g.monoid,
+						root: source.draw(nodeGen(g, keys, 2, breaking))
+					}))
 				)
 			)
 		)
@@ -383,7 +485,7 @@ const caseGen: Gen<Sketch> = (source) => {
 		const w = source.draw(writeGen(s, state, keys, kinds))
 		if (w !== undefined) {
 			writes.push(w)
-			state = applied(s, state, w)
+			state = settled(s, state, w)
 		}
 	}
 	return { kind, writes: nonEmpty(writes) }
@@ -503,19 +605,139 @@ const formsTouched = (s: FoldSchema, w: Write): ReadonlyArray<readonly [MonoidNa
 	}
 }
 
-/** Every situation the search requires: each cell of each kind under each of the kind's write forms. */
-const situations: Arr.NonEmptyReadonlyArray<Situation> = nonEmpty(
-	Arr.flatMap(familyKinds, (kind) =>
-		Arr.flatMap(schemas[kind].groups, (g) =>
-			Arr.flatMap(g.cells, (c) =>
-				Arr.map(
-					Arr.filter(formsOf(kind), (f) => reaches(c, f)),
-					(f): Situation => `${cellLabel(c)} in a ${kind} family, ${f}`
-				)
+/** Each cell of each kind under each of the kind's write forms. */
+const formSituations: ReadonlyArray<Situation> = Arr.flatMap(familyKinds, (kind) =>
+	Arr.flatMap(schemas[kind].groups, (g) =>
+		Arr.flatMap(g.cells, (c) =>
+			Arr.map(
+				Arr.filter(formsOf(kind), (f) => reaches(c, f)),
+				(f): Situation => `${cellLabel(c)} in a ${kind} family, ${f}`
 			)
 		)
 	)
 )
+
+/** Each refined cell of each kind that folds it, refused by each of its rules. */
+const refusalSituations: ReadonlyArray<Situation> = Arr.flatMap(familyKinds, (kind) =>
+	Arr.flatMap(schemas[kind].groups, (g) =>
+		Arr.flatMap(
+			Arr.filter(g.cells, (c) => c.refined),
+			(c: Cell) =>
+				Arr.map(
+					["refused by its pattern", "refused by its piece's bound"] as const,
+					(r): Situation => `${cellLabel(c)} in a ${kind} family, ${r}`
+				)
+		)
+	)
+)
+
+/** Every situation the search requires: each cell under each write form, and each refined cell refused by each rule. */
+const situations: Arr.NonEmptyReadonlyArray<Situation> = nonEmpty(
+	Arr.appendAll(formSituations, refusalSituations)
+)
+
+/**
+ * A refused write's outcome, as the model judges it: `invariant-rejected` naming only rules its rows break, a piece's
+ * bound or the accumulators' pattern, its witness the key of a row the write states whose value breaks a rule it names,
+ * or `unreported` where the write states none (the rule broken at a row only a refill writes). The rules it names are
+ * returned.
+ */
+const judgeRefused = (
+	s: FoldSchema,
+	w: Write,
+	broken: Arr.NonEmptyReadonlyArray<Broken>,
+	outcome: ApplyOutcome<unknown>
+): ReadonlyArray<Broken> => {
+	if (outcome.kind !== "invariant-rejected") {
+		return assert.fail(
+			`a write whose rows break ${Formatter.format(Arr.map(broken, (b) => b.law))} is refused, not ${outcome.kind}: ${Formatter.format(w)}`
+		)
+	}
+	for (const law of outcome.refused.laws) {
+		assert.ok(
+			Arr.some(broken, (b) => deepEquals(b.law, law)),
+			`the refusal names a rule its rows break, not ${Formatter.format(law)}`
+		)
+	}
+	const named = Arr.filter(broken, (b) => Arr.some(outcome.refused.laws, (law) => deepEquals(b.law, law)))
+	const stated = statedRows(s, w)
+	const statedBroken = Arr.filter(named, (b) =>
+		Arr.some(stated, ([relation, id]) => relation === b.relation && id === b.id)
+	)
+	const witness = outcome.witness
+	if (witness.kind === "unreported") {
+		assert.ok(
+			!Arr.isReadonlyArrayNonEmpty(statedBroken),
+			`a refusal at a row the write states, ${Formatter.format(statedBroken)}, names its key`
+		)
+		return named
+	}
+	assert.ok(
+		Arr.some(
+			statedBroken,
+			(b) =>
+				b.relation === witness.relation &&
+				Rec.keys(witness.values).length === 1 &&
+				witness.values["id"] === b.id
+		),
+		`the witness ${Formatter.format(witness)} is a stated row whose value breaks a rule the refusal names: ${Formatter.format(statedBroken)}`
+	)
+	return named
+}
+
+/** The steps of a concat family's member: its plain cell's piece, and the token its refined cell's piece doubles. */
+const concatSteps = (piece: string, token: string): Readonly<Record<string, string>> =>
+	Rec.fromEntries(
+		Arr.flatMap(groupOf(schemas.ordered, "concat").cells, (c): ReadonlyArray<readonly [string, string]> => {
+			switch (c.step.kind) {
+				case "none":
+					return []
+				case "written":
+					return [[c.step.field, piece]]
+				case "doubled":
+					return [[c.step.token, token]]
+			}
+		})
+	)
+
+/**
+ * The downstream shape that once needed host-written copies, kept: an ordered concat over pieces PostgreSQL generates
+ * at a byte bound, folded into accumulators of another pattern. One owner and its pieces "aa" and "bb" are accepted,
+ * its end "aabb"; a second owner whose piece "cc" lies outside the pattern is refused on it, and a third whose piece
+ * "abab" outgrows its bound is refused on the bound.
+ */
+const pieces: Kept<Sketch, Situation> = {
+	note: "an ordered concat of generated byte-bounded pieces into another pattern, accepted and refused",
+	sketch: {
+		kind: "ordered",
+		writes: [
+			{
+				kind: "create",
+				owners: [{ id: 1, label: 0 }],
+				members: [
+					{ monoid: "concat", member: { id: 1, owner: 1, steps: concatSteps("a", "a") } },
+					{ monoid: "concat", member: { id: 2, owner: 1, steps: concatSteps("b", "b") } }
+				]
+			},
+			{
+				kind: "create",
+				owners: [{ id: 2, label: 0 }],
+				members: [{ monoid: "concat", member: { id: 3, owner: 2, steps: concatSteps("c", "c") } }]
+			},
+			{
+				kind: "create",
+				owners: [{ id: 3, label: 0 }],
+				members: [{ monoid: "concat", member: { id: 4, owner: 3, steps: concatSteps("a", "ab") } }]
+			}
+		]
+	},
+	draws: "",
+	reaches: [
+		"concat over text into another pattern in a ordered family, an owner inserted with its members nested",
+		"concat over text into another pattern in a ordered family, refused by its pattern",
+		"concat over text into another pattern in a ordered family, refused by its piece's bound"
+	]
+}
 
 /**
  * The downstream report's case, kept: one owner and its two members of the counted Monoid.or family, inserted
@@ -601,7 +823,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								draw: drawn(caseGen),
 								literal: Formatter.format,
 								coverage: required<Situation>(situations, { cases: 160, sense: notesOnly }),
-								kept: [downstream],
+								kept: [downstream, pieces],
 								runs: 16,
 								shrink: boundedShrink(40),
 								concurrency: 1,
@@ -620,6 +842,24 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									for (const w of sketch.writes) {
 										const changes = changeSetOf(o.s, o.value, w)
 										const outcome = yield* apply(o.dbc, changes, changes.reads, {})
+										const broken = brokenOf(o.s, rowsAfter(o.s, state, w))
+										if (Arr.isReadonlyArrayNonEmpty(broken)) {
+											const named = judgeRefused(o.s, w, broken, outcome)
+											const kept =
+												w.kind === "trees" ? treesRows(o.s, []) : storedRows(o.s, state)
+											for (const r of storedRelations(o.s)) {
+												const stored = yield* tableState(o.done, r)
+												unorderedEqual<ModelRow>(
+													stored,
+													kept.get(r.name) ?? [],
+													`${r.name}'s rows after a refused ${Formatter.format(w)}`
+												)
+											}
+											for (const b of named) {
+												c.note(`${cellLabel(b.cell)} in a ${sketch.kind} family, ${refusedBy(b)}`)
+											}
+											continue
+										}
 										const next = applied(o.s, state, w)
 										assert.equal(
 											outcome.kind,
@@ -644,7 +884,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 											}
 										} else {
 											const expected = storedRows(o.s, state)
-											for (const r of [o.s.owner, ...Arr.map(o.s.groups, (g) => g.member)]) {
+											for (const r of storedRelations(o.s)) {
 												const stored = yield* tableState(o.done, r)
 												unorderedEqual<ModelRow>(
 													stored,
