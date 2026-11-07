@@ -776,7 +776,7 @@ const grizzleOutcome = (names: Names, o: ApplyOutcome<unknown>): Effect.Effect<S
 	}
 	return Effect.succeed({
 		kind: "invariant-rejected",
-		laws: Arr.map(o.laws, names.reported),
+		laws: Arr.map(o.refused.laws, names.reported),
 		keys: o.witness.kind === "key" ? hostKeys([o.witness]) : []
 	})
 }

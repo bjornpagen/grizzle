@@ -1,8 +1,10 @@
 import { scalarCodec } from "#compiler/codec/scalar.ts"
 import * as Order from "#compiler/core/order.ts"
 import { compareCodePoints } from "#compiler/core/text.ts"
+import { type ReadonlyTupleMap, TupleMap } from "#compiler/core/tuple-map.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
+import type { FactIdentity } from "#compiler/scalar/values/identity.ts"
 
 /** Strings by code point. */
 const codePointOrder = (a: string, b: string) => {
@@ -22,8 +24,8 @@ interface Tagged<T> {
 
 /** One stratum's actual change to one relation, by fact identity. */
 export interface StratumChange {
-	readonly added: ReadonlyMap<string, Tagged<AddedTag>>
-	readonly removed: ReadonlyMap<string, Tagged<RemovedTag>>
+	readonly added: ReadonlyTupleMap<FactIdentity, Tagged<AddedTag>>
+	readonly removed: ReadonlyTupleMap<FactIdentity, Tagged<RemovedTag>>
 }
 
 interface Counts {
@@ -34,8 +36,8 @@ interface Counts {
 
 export interface NettedRelation {
 	/** delta.added(R) and delta.removed(R), by fact identity, each fact with the tag of the change that survived. */
-	readonly added: ReadonlyMap<string, Tagged<AddedTag>>
-	readonly removed: ReadonlyMap<string, Tagged<RemovedTag>>
+	readonly added: ReadonlyTupleMap<FactIdentity, Tagged<AddedTag>>
+	readonly removed: ReadonlyTupleMap<FactIdentity, Tagged<RemovedTag>>
 	readonly counts: Counts
 }
 
@@ -43,13 +45,13 @@ export interface NettedRelation {
 export type ChangeRow =
 	| {
 			readonly side: "added"
-			readonly identity: string
+			readonly identity: FactIdentity
 			readonly fact: Fact
 			readonly tag: AddedTag
 	  }
 	| {
 			readonly side: "removed"
-			readonly identity: string
+			readonly identity: FactIdentity
 			readonly fact: Fact
 			readonly tag: RemovedTag
 	  }
@@ -61,8 +63,8 @@ export type ChangeRow =
  * unchanged for it, as psql leaves it after the DELETE and the INSERT. A fact both an insert and a put requested is
  * counted once, under put; a removal a delete member requested is a delete even where a put also displaced it. */
 export const stratumChange = (rows: Iterable<ChangeRow>): StratumChange => {
-	const added = new Map<string, Tagged<AddedTag>>()
-	const removed = new Map<string, Tagged<RemovedTag>>()
+	const added = new TupleMap<FactIdentity, Tagged<AddedTag>>()
+	const removed = new TupleMap<FactIdentity, Tagged<RemovedTag>>()
 	for (const row of rows) {
 		if (row.side === "added") {
 			const seen = added.get(row.identity)
@@ -85,8 +87,8 @@ export const stratumChange = (rows: Iterable<ChangeRow>): StratumChange => {
 }
 
 const countOf = (
-	added: ReadonlyMap<string, Tagged<AddedTag>>,
-	removed: ReadonlyMap<string, Tagged<RemovedTag>>
+	added: ReadonlyTupleMap<FactIdentity, Tagged<AddedTag>>,
+	removed: ReadonlyTupleMap<FactIdentity, Tagged<RemovedTag>>
 ): Counts => {
 	let insert = 0n
 	let put = 0n
@@ -136,8 +138,8 @@ const countOf = (
  * Facts are compared by fact identity (`identity.ts`): equal exactly when PostgreSQL's equality holds on
  * every field. relationIdentity gives the identity function of a relation's heading. */
 export const netStrata = (steps: ReadonlyArray<StratumChange>): NettedRelation => {
-	const added = new Map<string, Tagged<AddedTag>>()
-	const removed = new Map<string, Tagged<RemovedTag>>()
+	const added = new TupleMap<FactIdentity, Tagged<AddedTag>>()
+	const removed = new TupleMap<FactIdentity, Tagged<RemovedTag>>()
 	for (const step of steps) {
 		for (const [identity, change] of step.removed) {
 			if (added.has(identity)) {
@@ -193,24 +195,14 @@ export const outcomeCounts = (
 	}))
 
 /** The identity function of a heading's facts as a write statement's rows convert them: each field's canonical text in
- * field-name order, written as factIdentity writes it (`identity.ts`). The rows are PostgreSQL's output,
- * converted by the fields' own codecs under the installation's codes, so nothing is admitted again. */
-export const relationIdentity = (heading: Heading, codes: Codebook): ((fact: Fact) => string) => {
+ * field-name order, as factIdentity gives it (`identity.ts`). The rows are PostgreSQL's output, converted by the
+ * fields' own codecs under the installation's codes, so nothing is admitted again. */
+export const relationIdentity = (
+	heading: Heading,
+	codes: Codebook
+): ((fact: Fact) => FactIdentity) => {
 	const fields = heading
 		.map((column) => ({ name: column.name, codec: scalarCodec(column.type, codes) }))
 		.toSorted(Order.mapInput(codePointOrder, (field: { readonly name: string }) => field.name))
-		.map((field, i) => ({
-			...field,
-			prefix: `${i === 0 ? "[" : ","}[${JSON.stringify(field.name)},`
-		}))
-	if (fields.length === 0) {
-		return () => "[]"
-	}
-	return (fact) => {
-		let identity = ""
-		for (const field of fields) {
-			identity += `${field.prefix}${JSON.stringify(field.codec.text(fact[field.name]))}]`
-		}
-		return `${identity}]`
-	}
+	return (fact) => Object.freeze(fields.map((field) => field.codec.text(fact[field.name])))
 }

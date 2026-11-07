@@ -48,6 +48,7 @@ import { maxStringLength, messageMaxBytes } from "#compiler/core/limits.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
+import type { ReadonlyTupleMap, ReadonlyTupleSet } from "#compiler/core/tuple-map.ts"
 import type { ParamText } from "#compiler/core/wire.ts"
 import type { FamilyId } from "#compiler/ir/law.ts"
 import {
@@ -63,32 +64,32 @@ import {
 import { byPatternInput } from "#compiler/write/family/pattern-order.ts"
 
 /**
- * One member relation's rows of a write, each kind a set by its key's text (draw.ts textsKey), so no row is written
- * twice by one kind: those deleted by key, its trees deleted whole by their root fields' texts, its kept rows a refill
- * rewrites in place ahead of the change it draws (analysis/theory/refill.ts), its other kept rows updated in place, and
- * its new and re-placed rows inserted, in the order they go: a sequence's members in ascending slot order per owner, a
- * tree's in pre-order.
+ * One member relation's rows of a write, each kind a set by its key's texts, compared element by element
+ * (core/tuple-map.ts), so no row is written twice by one kind: those deleted by key, its trees deleted whole by their
+ * root fields' texts, its kept rows a refill rewrites in place ahead of the change it draws (analysis/theory/refill.ts),
+ * its other kept rows updated in place, and its new and re-placed rows inserted, in the order they go: a sequence's
+ * members in ascending slot order per owner, a tree's in pre-order.
  */
 export interface RelationWrite {
 	readonly relation: string
-	readonly deletes: ReadonlyMap<string, MemberKey>
-	readonly trees: ReadonlyMap<string, Owner>
-	readonly refills: ReadonlyMap<string, Row>
-	readonly updates: ReadonlyMap<string, Row>
-	readonly inserts: ReadonlyMap<string, Row>
+	readonly deletes: ReadonlyTupleSet<MemberKey>
+	readonly trees: ReadonlyTupleSet<Owner>
+	readonly refills: ReadonlyTupleMap<MemberKey, Row>
+	readonly updates: ReadonlyTupleMap<MemberKey, Row>
+	readonly inserts: ReadonlyTupleMap<MemberKey, Row>
 }
 
-/** One family's owners whose count or ends change, each set by one count statement (draw.ts Recount), by its key's
- * text. */
+/** One family's owners whose count or ends change, each set by one count statement (draw.ts Recount), by its group key
+ * texts. */
 export interface OwnerWrite {
 	readonly family: FamilyId
-	readonly recounts: ReadonlyMap<string, Recount>
+	readonly recounts: ReadonlyTupleMap<Owner, Recount>
 	/**
-	 * The recounts' groups the read found stored, by key text: each one's count is a statement of its own, never carried
-	 * by an insert row of its owner, which at a stored key is the owner's exact repeat or the key law's refusal. Every
-	 * other group is fresh, its owner inserted by the stratum, whose insert row may carry its count and ends.
+	 * The recounts' groups the read found stored: each one's count is a statement of its own, never carried by an insert
+	 * row of its owner, which at a stored key is the owner's exact repeat or the key law's refusal. Every other group is
+	 * fresh, its owner inserted by the stratum, whose insert row may carry its count and ends.
 	 */
-	readonly stored: ReadonlySet<string>
+	readonly stored: ReadonlyTupleSet<Owner>
 }
 
 /**
@@ -325,11 +326,11 @@ export const planRelation = (
 		) && [...write.refills.keys()].every((k) => !write.updates.has(k)),
 		"a row updated in place is neither deleted nor inserted, and is refilled or updated, not both"
 	)
-	const deletes = cut([...write.deletes.values()], keyTexts, transport)
+	const deletes = cut([...write.deletes], keyTexts, transport)
 	if (!deletes.ok) {
 		return Result.err(unsendable("delete", deletes.error))
 	}
-	const trees = cut([...write.trees.values()], (t: Owner): ReadonlyArray<ParamText> => t, transport)
+	const trees = cut([...write.trees], (t: Owner): ReadonlyArray<ParamText> => t, transport)
 	if (!trees.ok) {
 		return Result.err(unsendable("deleteTree", trees.error))
 	}

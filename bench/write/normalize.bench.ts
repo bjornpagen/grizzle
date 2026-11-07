@@ -64,7 +64,7 @@ const outcomeText = (o: ObservedApply): string =>
 	`${
 		o.value.kind === "invariant-rejected"
 			? `invariant-rejected ${Arr.join(
-					Arr.map(o.value.laws, (l) => l.kind),
+					Arr.map(o.value.refused.laws, (l) => l.kind),
 					", "
 				)}`
 			: o.value.kind
@@ -274,7 +274,7 @@ export default defineGate({
 					equivalence(
 						"two facts with one key and different payloads are refused with the key law, never PostgreSQL's error",
 						sameKey.value.kind === "invariant-rejected" &&
-							Arr.every(sameKey.value.laws, (l) => reported(l) === itemKey) &&
+							Arr.every(sameKey.value.refused.laws, (l) => reported(l) === itemKey) &&
 							(sameKeyWire.kind === "none" ||
 								(sameKeyWire.failure.sqlstate !== "21000" &&
 									sameKeyWire.failure.sqlstate !== "23505")),

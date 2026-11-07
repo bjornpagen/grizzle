@@ -18,6 +18,7 @@ import { emit } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
 import { ALIAS_CODE } from "#test/support/closed/generate.ts"
 import { type OracleState, oracleState, type SequenceState } from "#test/support/oracle/addwins.ts"
+import { factSetOf } from "#test/support/oracle/delta.ts"
 import { literalFor } from "#test/support/oracle/install/literal.ts"
 import type { OracleTable } from "#test/support/oracle/install/model.ts"
 import { elementAt } from "#test/support/oracle/pick.ts"
@@ -669,7 +670,8 @@ const predict = (
 	const relations = new Map(
 		Arr.map(
 			group.relations,
-			(r) => [r.name, new Map(Arr.map(factsOf(r), (f) => [identityOf(r, f), f]))] as const
+			(r) =>
+				[r.name, factSetOf(Arr.map(factsOf(r), (f) => [[identityOf(r, f)], f] as const))] as const
 		)
 	)
 	return { kind: "commits", state: { relations, sequences: held.sequences } }
@@ -872,7 +874,7 @@ export type DirectFeature =
 /** The identities of `r`'s facts among `relations`, as the model spells them. */
 const identitiesIn = (
 	r: WRelation,
-	relations: ReadonlyMap<string, ReadonlyMap<string, Fact>>
+	relations: ReadonlyMap<string, { readonly values: () => Iterable<Fact> }>
 ): ReadonlyArray<string> =>
 	Arr.map([...(relations.get(r.name)?.values() ?? [])], (f) => identityOf(r, f))
 
@@ -880,7 +882,7 @@ const identitiesIn = (
 const firstChanged = (
 	group: WGroup,
 	want: (r: WRelation) => ReadonlySet<string>,
-	relations: ReadonlyMap<string, ReadonlyMap<string, Fact>>
+	relations: ReadonlyMap<string, { readonly values: () => Iterable<Fact> }>
 ): Option.Option<WRelation> =>
 	Arr.findFirst(group.relations, (r) => {
 		const wanted = want(r)
@@ -1009,7 +1011,7 @@ export const runDirectCase = (
 			const committed = predicted.state
 			const changed = firstChanged(
 				group,
-				(r) => new Set(committed.relations.get(r.name)?.keys() ?? []),
+				(r) => new Set(identitiesIn(r, committed.relations)),
 				state.relations
 			)
 			if (Option.isSome(changed)) {

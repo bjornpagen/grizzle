@@ -1,7 +1,8 @@
-import { Array as Arr, Effect, Option, Order, Record, type Scope, String as Str } from "effect"
+import { Array as Arr, Effect, Option, Record, type Scope, String as Str } from "effect"
 import { appendAll } from "#compiler/core/array.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { defined } from "#test/support/assert.ts"
+import { sameIdentity, valueIdentityOrder } from "#test/support/kernel/identity.ts"
 import {
 	type HostSchema,
 	rowsDifference,
@@ -531,9 +532,15 @@ interface Stored {
 	readonly derived: Readonly<Record<string, ReadonlyArray<HostFact>>>
 }
 
-/** The facts' canonical keys, sorted, so two derived relations' facts compare as sets. */
-const factKeys = (facts: ReadonlyArray<HostFact>): string =>
-	Arr.join(Arr.sort(Arr.map(facts, factKey), Order.String), "\n")
+/** Whether two derived relations' facts are one set of facts, each by its identity. */
+const sameFacts = (a: ReadonlyArray<HostFact>, b: ReadonlyArray<HostFact>): boolean => {
+	const keys = (facts: ReadonlyArray<HostFact>) =>
+		Arr.sort(Arr.map(facts, factKey), valueIdentityOrder)
+	const [x, y] = [keys(a), keys(b)]
+	return (
+		x.length === y.length && Arr.every(x, (k, i) => sameIdentity(k, defined(y[i], "a fact's key")))
+	)
+}
 
 /** A derived relation's facts: the model and the read-back both hold every derived relation of the base. */
 const derivedFacts = (
@@ -558,8 +565,7 @@ const storedDifference = (
 				Arr.findFirst(
 					state.install.base.derived,
 					(d) =>
-						factKeys(derivedFacts(state.derived, d.name)) !==
-						factKeys(derivedFacts(stored.derived, d.name))
+						!sameFacts(derivedFacts(state.derived, d.name), derivedFacts(stored.derived, d.name))
 				),
 				(d) => `${d.name} holds other facts`
 			)

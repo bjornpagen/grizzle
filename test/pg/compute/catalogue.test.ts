@@ -22,10 +22,10 @@ import type { CompileError, PreconditionKind } from "#compiler/core/errors.ts"
 import { integerRanges } from "#compiler/ir/carriers.ts"
 import type { LiteralDesc } from "#compiler/ir/desc.ts"
 import type { OpenExpr } from "#compiler/ir/open.ts"
-import { type Carrier, typeLabel } from "#compiler/ir/scalar.ts"
+import { type Carrier, numericTypmodOf, typeLabel } from "#compiler/ir/scalar.ts"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
 import type { ScalarTerm } from "#compiler/scalar/compute/term.ts"
-import { Decimal, type FiniteDecimal } from "#compiler/scalar/values/decimal.ts"
+import { Decimal, type FiniteDecimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import {
 	caseChunk,
@@ -181,8 +181,13 @@ const boundaryOperands = (c: Gate): ReadonlyArray<Operand> => [
 /** The display scale numeric(1000, s) holds at most, NUMERIC_MAX_SCALE. */
 const maxPaddedScale = 1000
 
-/** A numeric operand padded by `digits` fraction digits past its least scale; NaN and the infinities as they are. */
-const numericOperand = (value: Decimal, digits: number, boundary: string): Operand => {
+/**
+ * A numeric operand as its numeric(1000, 20) slot holds it, `given` rounded to the slot's scale, so a drawn value
+ * below half a unit of the slot's last place is the zero a refusal sees; padded by `digits` fraction digits past that
+ * value's least scale; NaN as it is.
+ */
+const numericOperand = (given: Decimal, digits: number, boundary: string): Operand => {
+	const value = succeeded(normalizeNumeric(given, numericTypmodOf(fields.numeric.scalar)))
 	const p = value.parts
 	if (digits === 0 || p.kind !== "finite") {
 		return plainOperand(value, boundary)
@@ -639,11 +644,30 @@ const boundarySituations: ReadonlyArray<BoundarySituation> = Arr.flatMap(gateCar
 	)
 )
 
-/** Every entry with a numeric operand, read padded, and every float entry, read at -0. */
+/** Whether a cast into `target` needs its operand proved finite: into an integer or money (types/compute FiniteCast). */
+const needsFinite = (target: TestField): boolean => {
+	const c = target.scalar.carrier
+	return c === "int2" || c === "int4" || c === "int8" || c === "money"
+}
+
+/** The float entries no -0 operand agrees through: the casts that need it proved finite, which no negated term is. */
+const finiteCastEntries: ReadonlySet<string> = new Set(
+	Arr.flatMap(["float8", "float4"] as const, (c) =>
+		Arr.map(
+			Arr.filter(castTargets, ([, target]) => needsFinite(target)),
+			([name]) => `cast:${typeLabel(fields[c].scalar)}->${name}`
+		)
+	)
+)
+
+/** Every entry with a numeric operand, read padded, and every float entry but finiteCastEntries, read at -0. */
 const spelledSituations: ReadonlyArray<SpelledSituation> = [
 	...Arr.map(entriesOf("numeric"), (e): SpelledSituation => `padded ${e}`),
 	...Arr.map(
-		Arr.filter([...entriesOf("float8"), ...entriesOf("float4")], (e) => !declinedEntries.has(e)),
+		Arr.filter(
+			[...entriesOf("float8"), ...entriesOf("float4")],
+			(e) => !declinedEntries.has(e) && !finiteCastEntries.has(e)
+		),
 		(e): SpelledSituation => `negative zero ${e}`
 	)
 ]
@@ -673,18 +697,25 @@ const isSpecial = (x: LiteralDesc): boolean =>
 	(x instanceof Decimal && !x.isFinite()) || (typeof x === "object" && "float" in x)
 
 /**
- * Whether a refusal is the operands' values': a nonzero precondition over a zero operand, a nonnegative one over a
- * negative operand, a finite one over NaN or an infinity. The others rest on magnitudes compilation bounds (a
- * narrowing's range, a power's, a bucket's, a digit bound), whose refusals are the residues it decides from intervals.
+ * Whether an operand's term states no fact of its value: the -0 spelling reads it through Compute.neg, whose result has
+ * only its type's facts (types/compute/compute.ts neg), and a float's type states none.
+ */
+const statesNoFact = (o: Operand): boolean => o.spelling.kind === "negative zero"
+
+/**
+ * Whether a refusal is the operands': a fact precondition over an operand whose term states no fact (statesNoFact), or
+ * over a value without the fact: nonzero over zero, nonnegative over a negative value, finite over NaN or an infinity.
+ * The others rest on magnitudes compilation bounds (a narrowing's range, a power's, a bucket's, a digit bound), whose
+ * refusals are the residues it decides from intervals.
  */
 const justified = (precondition: PreconditionKind, read: ReadonlyArray<Operand>): boolean => {
 	switch (precondition) {
 		case "nonzero":
-			return Arr.some(read, (o) => isZero(o.value))
+			return Arr.some(read, (o) => statesNoFact(o) || isZero(o.value))
 		case "nonnegative":
-			return Arr.some(read, (o) => isNegative(o.value))
+			return Arr.some(read, (o) => statesNoFact(o) || isNegative(o.value))
 		case "finite":
-			return Arr.some(read, (o) => isSpecial(o.value))
+			return Arr.some(read, (o) => statesNoFact(o) || isSpecial(o.value))
 		case "fits":
 		case "contract":
 		case "language":
@@ -975,15 +1006,6 @@ layer(Substrate.layer)("the Compute catalogue against PostgreSQL 19", (it) => {
 						(operands, c) =>
 							Effect.gen(function* () {
 								const all = yield* buildCases(operands)
-								const ran = Arr.flatMap(all, (k) => (k.built.kind === "case" ? [k] : []))
-								const cases = Arr.flatMap(ran, (k) =>
-									k.built.kind === "case" ? [k.built.evalCase] : []
-								)
-								const answers: ReadonlyArray<PgAnswer> = yield* runCases(db, s, cases, caseChunk)
-								assert.equal(answers.length, cases.length)
-								const result = compareAnswers(cases, answers)
-								assert.deepEqual(result.mismatches.slice(0, 10), [])
-								assert.equal(result.typedOnly, 0)
 								const unjustified = Arr.flatMap(all, (k) =>
 									k.built.kind === "refused" && !justified(k.built.precondition, k.read)
 										? [
@@ -995,6 +1017,15 @@ layer(Substrate.layer)("the Compute catalogue against PostgreSQL 19", (it) => {
 										: []
 								)
 								assert.deepEqual(unjustified.slice(0, 10), [])
+								const ran = Arr.flatMap(all, (k) => (k.built.kind === "case" ? [k] : []))
+								const cases = Arr.flatMap(ran, (k) =>
+									k.built.kind === "case" ? [k.built.evalCase] : []
+								)
+								const answers: ReadonlyArray<PgAnswer> = yield* runCases(db, s, cases, caseChunk)
+								assert.equal(answers.length, cases.length)
+								const result = compareAnswers(cases, answers)
+								assert.deepEqual(result.mismatches.slice(0, 10), [])
+								assert.equal(result.typedOnly, 0)
 								const agreed = new Map(
 									Arr.map(ran, (k, i) => [k, result.agreed[i] === true] as const)
 								)

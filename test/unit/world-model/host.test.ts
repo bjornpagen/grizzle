@@ -28,6 +28,7 @@ import type { FinishedValue, RuleValue } from "#compiler/query/build/rule.ts"
 import { irLiteral } from "#compiler/scalar/compute/literal.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
+import { sameIdentity } from "#test/support/kernel/identity.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { isDrawn, isSpan } from "#test/support/laws/model.ts"
 import { canonicalFacts } from "#test/support/oracle/gen/facts.ts"
@@ -644,7 +645,7 @@ const unionShape: Gen<Shape> = (source) => {
 	const relation = source.draw(element(ordinaryNames))
 	const all = allFactsOf(relation)
 	const first = source.draw(element(all))
-	const others = Arr.filter(all, (f) => factKey(f) !== factKey(first))
+	const others = Arr.filter(all, (f) => !sameIdentity(factKey(f), factKey(first)))
 	const second = source.draw(element(knownNonEmpty(others, `a second fact of ${relation}`)))
 	return { kind: "union", relation, facts: [first, second] }
 }
@@ -683,7 +684,10 @@ const withShape = (reality: HostState, shape: Shape): HostState => {
 		return reality
 	}
 	const held = reality.get(shape.relation) ?? []
-	const added = Arr.filter(shape.facts, (f) => !Arr.some(held, (g) => factKey(g) === factKey(f)))
+	const added = Arr.filter(
+		shape.facts,
+		(f) => !Arr.some(held, (g) => sameIdentity(factKey(g), factKey(f)))
+	)
 	return new Map([...reality, [shape.relation, [...held, ...added]] as const])
 }
 

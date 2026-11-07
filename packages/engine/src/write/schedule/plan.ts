@@ -103,7 +103,8 @@ export type PlannedWrite = {
 
 /** One step of a write plan:
  * - `createCarrier`, a carrier created in a stratum, or with no stratum a delta carrier before them;
- * - `fillMember`, a member's carrier, filled from its node;
+ * - `fillMember`, a member's carrier, filled from its node: the facts its action writes into `relation`, cast into its
+ *   columns' types;
  * - `fillShare`, the carrier of a sub-query several statements of the stratum read, filled from the share's copy;
  * - a write action's statement;
  * - `single`, a stratum's write actions as one statement over one snapshot (see `planWrite`): each sub-query several of
@@ -126,6 +127,8 @@ export type PlanStep =
 			readonly kind: "fillMember"
 			readonly carrier: WriteCarrier
 			readonly node: RelNode
+			/** The relation its action writes, by declared name, whose columns type the carrier. */
+			readonly relation: string
 			readonly stratum: number
 	  }
 	| {
@@ -561,7 +564,7 @@ const sequentialSteps = (
 		const heading = action.op === "delete" ? compareHeading(fields) : factHeading(fields)
 		const carrier = supply.next(heading, undefined)
 		steps.push({ kind: "createCarrier", carrier, stratum })
-		steps.push({ kind: "fillMember", carrier, node: reads.node, stratum })
+		steps.push({ kind: "fillMember", carrier, node: reads.node, relation: relation.name, stratum })
 		return { kind: "reread", draft, input: { kind: "carrier", carrier, proof } }
 	}
 	/** The family statements that run before the action at `index`, which its member's statement then reads after. */

@@ -29,6 +29,7 @@ import {
 import type { DbOf } from "#adapter/types/db.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import type { LawId } from "#compiler/core/ids.ts"
+import { type ReadonlyTupleMap, TupleMap, TupleSet } from "#compiler/core/tuple-map.ts"
 import { codecOf, codeOf } from "#compiler/ir/codes.ts"
 import type { Family } from "#compiler/ir/family.ts"
 import type { NativeColumn } from "#compiler/ir/law.ts"
@@ -36,6 +37,11 @@ import { login, role } from "#compiler/public/schema.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { defined, nonEmpty } from "#test/support/assert.ts"
 import * as P from "#test/support/fixtures/api/platform.ts"
+import {
+	sameIdentity,
+	type ValueIdentity,
+	valueIdentityOrder
+} from "#test/support/kernel/identity.ts"
 import {
 	installationNamesOf,
 	installationOf,
@@ -62,7 +68,7 @@ import {
 	type State,
 	spanValue,
 	stateOf,
-	hostValueKey
+	keyAtoms
 } from "#test/support/platform/laws.ts"
 import type { SpanV } from "#test/support/platform/model.ts"
 import {
@@ -235,7 +241,7 @@ export const answerOf = (outcome: ApplyOutcome<unknown>): Answer => {
 		case "invariant-rejected":
 			return {
 				kind: outcome.kind,
-				laws: Arr.map(outcome.laws, (law) => platformNames.reported(law))
+				laws: Arr.map(outcome.refused.laws, (law) => platformNames.reported(law))
 			}
 		case "outside-world":
 			return { kind: outcome.kind, relation: outcome.relation }
@@ -733,18 +739,13 @@ export const directSql = (
 	statements: ReadonlyArray<DirectStatement>
 ): ReadonlyArray<string> => {
 	const families = directFamilies(names)
-	const keyText = (row: PlatformRow, fields: ReadonlyArray<string>): string =>
-		Arr.join(
-			Arr.map(fields, (f) => hostValueKey(row[f])),
-			"|"
-		)
-	const groupOf = (f: DirectFamily, member: PlatformRow): string =>
-		keyText(
+	const groupOf = (f: DirectFamily, member: PlatformRow): ValueIdentity =>
+		keyAtoms(
 			member,
 			Arr.map(f.group, (g) => g.member)
 		)
-	const ownerKeyOf = (f: DirectFamily, owner: PlatformRow): string =>
-		keyText(
+	const ownerKeyOf = (f: DirectFamily, owner: PlatformRow): ValueIdentity =>
+		keyAtoms(
 			owner,
 			Arr.map(f.group, (g) => g.owner)
 		)
@@ -754,9 +755,12 @@ export const directSql = (
 	const own = new Map(
 		Arr.map(
 			families,
-			(f): readonly [DirectFamily, ReadonlyMap<string, ReadonlyArray<PlatformRow>>] => {
-				const owners = new Set(Arr.map(inserted(f.owner), (o) => ownerKeyOf(f, o)))
-				const groups = new Map<string, Array<PlatformRow>>()
+			(f): readonly [DirectFamily, ReadonlyTupleMap<ValueIdentity, ReadonlyArray<PlatformRow>>] => {
+				const owners = new TupleSet<ValueIdentity>()
+				for (const o of inserted(f.owner)) {
+					owners.add(ownerKeyOf(f, o))
+				}
+				const groups = new TupleMap<ValueIdentity, Array<PlatformRow>>()
 				for (const m of inserted(f.member)) {
 					const g = groupOf(f, m)
 					if (!owners.has(g)) {
@@ -766,14 +770,18 @@ export const directSql = (
 					groups.set(g, members)
 					members.push(m)
 				}
-				const byKey = Order.mapInput(Order.String, (m: PlatformRow) =>
-					keyText(m, primaryKeyOf[f.member])
+				const byKey = Order.mapInput(valueIdentityOrder, (m: PlatformRow) =>
+					keyAtoms(m, primaryKeyOf[f.member])
 				)
-				return [f, new Map(Arr.map([...groups], ([g, ms]) => [g, Arr.sort(ms, byKey)]))]
+				const sorted = new TupleMap<ValueIdentity, ReadonlyArray<PlatformRow>>()
+				for (const [g, ms] of groups) {
+					sorted.set(g, Arr.sort(ms, byKey))
+				}
+				return [f, sorted]
 			}
 		)
 	)
-	const ownGroup = (f: DirectFamily, g: string): ReadonlyArray<PlatformRow> | undefined =>
+	const ownGroup = (f: DirectFamily, g: ValueIdentity): ReadonlyArray<PlatformRow> | undefined =>
 		own.get(f)?.get(g)
 	const table = (relation: RelationName): string => tableOf(names, relation)
 	const column = (relation: RelationName, field: string): string => columnOf(names, relation, field)
@@ -812,11 +820,11 @@ export const directSql = (
 		/** One update per stored owner the statement appends to, by family and group. */
 		const appends: Array<{
 			readonly f: DirectFamily
-			readonly group: string
+			readonly group: ValueIdentity
 			readonly alias: string
 		}> = []
-		const appendTo = (f: DirectFamily, group: string): string => {
-			const found = Arr.findFirst(appends, (a) => a.f === f && a.group === group)
+		const appendTo = (f: DirectFamily, group: ValueIdentity): string => {
+			const found = Arr.findFirst(appends, (a) => a.f === f && sameIdentity(a.group, group))
 			if (Option.isSome(found)) {
 				return found.value.alias
 			}
@@ -824,8 +832,8 @@ export const directSql = (
 			appends.push({ f, group, alias })
 			return alias
 		}
-		const appended = (f: DirectFamily, group: string): ReadonlyArray<PlatformRow> =>
-			Arr.filter(facts, (m) => groupOf(f, m) === group)
+		const appended = (f: DirectFamily, group: ValueIdentity): ReadonlyArray<PlatformRow> =>
+			Arr.filter(facts, (m) => sameIdentity(groupOf(f, m), group))
 		const memberValues = (row: PlatformRow): ReadonlyArray<string> =>
 			Arr.flatMap(memberFamilies(relation), (f) => {
 				const group = groupOf(f, row)

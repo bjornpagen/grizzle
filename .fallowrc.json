@@ -14,7 +14,6 @@
 		"bench/**/main.ts",
 		"bench/cold/probe.ts",
 		"scripts/build.ts",
-		"scripts/dev/golden/*.ts",
 		"scripts/dev/mutate/main.ts",
 		"scripts/dev/mutate/vitest.config.ts",
 		"scripts/dev/mutate/reporter.ts",

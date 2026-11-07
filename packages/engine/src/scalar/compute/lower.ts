@@ -1181,6 +1181,14 @@ class Lowering<R extends Refs> {
 		return this.env.mode === "check"
 	}
 
+	/**
+	 * The bounds of a numeric operand, which settle gives every value of a carrier with a numeric domain, its type's where
+	 * nothing more is proved; a value of any other carrier is no number here.
+	 */
+	boundsOf(x: Lowered, at: SourceLoc): Bounds {
+		return x.bounds ?? stop("MalformedDescription", at, `a number, not ${typeLabel(x.nominal)}`)
+	}
+
 	/** The type a bare literal adopts opposite a term of type t (adoptedType). */
 	adopt(t: ScalarType, role: Role): ScalarType {
 		return adoptedType(t, role)
@@ -1190,7 +1198,9 @@ class Lowering<R extends Refs> {
 	 * A lowered node with what is proved of it: the bounds and facts its type gives every value unless the caller states
 	 * what its computation proves, beside which it keeps its SQL type's own facts (carrierFacts), then refined by each
 	 * enclosing Compute.when guard whose subject this node is, a match
-	 * retyping it as text of its pattern's language. A numeric bound past numeric's numericMaxIntegerDigits is
+	 * retyping it as text of its pattern's language. Bounds a computation does not prove are its type's own, so every
+	 * value of a carrier with a numeric domain stands with bounds, and a guard narrows it whatever its operands proved;
+	 * only a carrier with none (boundsOfType) stands without. A numeric bound past numeric's numericMaxIntegerDigits is
 	 * ResourceBound: every numeric expression's is known. A builder types its term and refuses only what is malformed;
 	 * the bound is compilation's, a typed refusal of the compile.
 	 */
@@ -1200,7 +1210,7 @@ class Lowering<R extends Refs> {
 		proved: { readonly bounds: Bounds | undefined; readonly facts: FactSet } | undefined
 	): Lowered {
 		let nominal = stated
-		let bounds = proved === undefined ? boundsOfType(nominal) : proved.bounds
+		let bounds = proved?.bounds ?? boundsOfType(nominal)
 		let facts: FactSet =
 			proved === undefined
 				? factsOfType(nominal)
@@ -1833,17 +1843,25 @@ class Lowering<R extends Refs> {
 
 	/**
 	 * The result type of a fixed-result operation: an exact overload's exact type, or an exact carrier's own, bounded by
-	 * its result's digits; a numeric result a computed numeric of its result's bounds; a text result text of no pattern,
-	 * which every text meets; any other overload's registered result.
+	 * its result's digits, which numeric operands always prove (settle); a numeric result a computed numeric of its
+	 * result's bounds; a text result text of no pattern, which every text meets; any other overload's registered result.
 	 */
 	resultType(op: FixedOp, bounds: Bounds | undefined): ScalarType {
-		const digits = bounds?.digits ?? 0
+		const digits = (): number =>
+			(
+				bounds ??
+				stop(
+					"MalformedDescription",
+					this.env.loc,
+					`numeric operands of ${op.fn}, whose exact result has the digits they bound`
+				)
+			).digits
 		if (op.totality.kind === "exact") {
-			return exactType(op.totality.yields === "integer" ? "exactInteger" : "exactMoney", digits)
+			return exactType(op.totality.yields === "integer" ? "exactInteger" : "exactMoney", digits())
 		}
 		const r = op.result
 		return r === "exactInteger" || r === "exactMoney"
-			? exactType(r, digits)
+			? exactType(r, digits())
 			: r === "numeric"
 				? numericOf(bounds)
 				: r === "text"
@@ -2364,7 +2382,9 @@ class Lowering<R extends Refs> {
 
 	/**
 	 * C.at(field, t…): payload field `field` of the closed relation at the key its terms are, one per key field in key
-	 * order, of that field's type. A key the relation holds no tuple at reads NULL, which its reader refuses.
+	 * order, of that field's type, with its bounds and facts as any value of that type has them: every row's payload is
+	 * admitted by it, and a key the relation holds no tuple at reads NULL, which its reader refuses. The rows are not
+	 * read: the TypeScript types type the read by its field alone, and a row's change is data, never a new type.
 	 */
 	closedAt(
 		desc: Extract<ExprDesc<Located, R>, { readonly kind: "closedAt" }>,
@@ -2391,18 +2411,14 @@ class Lowering<R extends Refs> {
 		if (first === undefined) {
 			return stop("MalformedDescription", here, "a key term for each key field")
 		}
-		return this.emitProved(
-			{
-				kind: "closedAt",
-				relation: desc.relation,
-				field: desc.field,
-				args: [first.expr, ...rest.map((a) => a.expr)],
-				type: payload.type,
-				nonNull: "absentRefused"
-			},
-			undefined,
-			noFacts
-		)
+		return this.emit({
+			kind: "closedAt",
+			relation: desc.relation,
+			field: desc.field,
+			args: [first.expr, ...rest.map((a) => a.expr)],
+			type: payload.type,
+			nonNull: "absentRefused"
+		})
 	}
 
 	/**
@@ -3339,7 +3355,7 @@ class Lowering<R extends Refs> {
 			const a = this.widenExact(a0, "exactInteger", at)
 			const b = this.widenExact(b0, "exactInteger", at)
 			const op = this.overload("div", [a.actual, b.actual], at)
-			const bounds = ofDigits(a.bounds?.digits ?? 0, 0, { infinite: false, nan: false })
+			const bounds = ofDigits(this.boundsOf(a, at).digits, 0, { infinite: false, nan: false })
 			return this.nativeJudged(
 				op,
 				[a, b],
@@ -3482,9 +3498,11 @@ class Lowering<R extends Refs> {
 		const a = widen ? this.widenExact(a0, "exactInteger", at) : a0
 		const b = widen ? this.widenExact(b0, "exactInteger", at) : b0
 		const op = this.overload(fn, [valueType(a.nominal), valueType(b.nominal)], at)
-		const da = a.bounds?.digits ?? 0
-		const db = b.bounds?.digits ?? 0
-		const scale = Math.max(a.bounds?.scale ?? 0, b.bounds?.scale ?? 0)
+		const ba = this.boundsOf(a, at)
+		const bb = this.boundsOf(b, at)
+		const da = ba.digits
+		const db = bb.digits
+		const scale = Math.max(ba.scale, bb.scale)
 		const bounds = ofDigits(fn === "gcd" ? Math.max(da, db) : da + db + scale, scale, {
 			infinite: false,
 			nan: valueType(a.nominal).carrier === "numeric"

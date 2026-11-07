@@ -1,15 +1,25 @@
 import type { CheckedEntry, RoleWorld } from "#compiler/analysis/schema.ts"
+import { contractLaw } from "#compiler/analysis/theory/description.ts"
 import { carrierSpecOf } from "#compiler/codec/scalar.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
-import type { ColumnIdent, ConstraintName, RelationIdent } from "#compiler/core/ids.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import type { ColumnIdent, ConstraintName, LawId, RelationIdent } from "#compiler/core/ids.ts"
+import {
+	concatNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray,
+	sortNonEmpty
+} from "#compiler/core/nonempty.ts"
 import type { Split } from "#compiler/ir/cells.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import { predicateTable, type ScalarExpr, type TypedLiteral } from "#compiler/ir/expr.ts"
 import type { LawField, NativeOf, RelationInfo, TableRelation } from "#compiler/ir/law.ts"
 import { baseOf, contractOf, type ScalarType, spanOf, textOf } from "#compiler/ir/scalar.ts"
-import type { DomainUse } from "#compiler/laws/model/model.ts"
+import type {
+	ConstraintLawOf,
+	ConstraintNativeKind,
+	DomainUse
+} from "#compiler/laws/model/model.ts"
 import {
 	compareValues,
 	type EvalLeaves,
@@ -46,12 +56,42 @@ export type Refuser =
 
 /**
  * What a refused statement states, as the host reads it: a write of stored relations, by declared name, at its stratum,
- * which states every fact the ChangeSet adds or puts into them there; or a query entry's precheck, which casts the
- * entry's own stated facts into its target's types before any statement writes them.
+ * which states every fact the ChangeSet adds or puts into them there, an action's statement and the fill of its
+ * member's carrier, which casts those facts into the relation's types (artifact.ts CarrierCasts); a query entry's
+ * precheck, which casts the entry's own stated facts into its target's types before any statement writes them; or a
+ * statement that states no fact the ChangeSet states: another carrier's, an ANALYZE, a serial advance, a read-back,
+ * a family's stored-suffix read or the COMMIT.
  */
 export type StatementAt =
 	| { readonly kind: "write"; readonly stratum: number; readonly relations: ReadonlyArray<string> }
 	| { readonly kind: "precheck"; readonly stratum: number; readonly entry: string }
+	| { readonly kind: "unstated" }
+
+/**
+ * Which laws a refusal names, as the host decides them (README "Errors and outcomes"):
+ * - every: a table CHECK's refusal of a fact the ChangeSet states: every law of its table's law-stating CHECKs the
+ *   fact breaks, in the theory's order of laws (its primary keys', then its statements' in canonical order), whichever
+ *   of them PostgreSQL tried first;
+ * - first: a table CHECK's refusal where no stated fact breaks it: the laws of the CHECK PostgreSQL tried first, which
+ *   it orders by the CHECKs' installed names, an order no version keeps;
+ * - object: any other refusal: the laws its one object discharges, which the classifier names.
+ */
+export type RefusedLaws =
+	| { readonly kind: "every"; readonly laws: NonEmptyReadonlyArray<Law> }
+	| { readonly kind: "first" }
+	| { readonly kind: "object" }
+
+const refusedFirst: RefusedLaws = Object.freeze({ kind: "first" })
+const refusedByObject: RefusedLaws = Object.freeze({ kind: "object" })
+
+/**
+ * What the host makes of a refused statement: the witness of the first fact it states that breaks what refused it, or
+ * `unreported`, and which laws the refusal names (RefusedLaws).
+ */
+export interface HostJudgement {
+	readonly witness: Witness
+	readonly laws: RefusedLaws
+}
 
 /** One fact a statement states, as the host judges it: its relation's fields, and its witness in its caller's words. */
 interface StatedFact {
@@ -211,8 +251,9 @@ const precheckGroups = (
 	frontend.slots.filter((group) => group.stratum === at.stratum && group.facts.name === at.entry)
 
 /**
- * The stored relations a refused statement writes or casts its facts into, by declared name: a write's own, and a query
- * entry's precheck's target, whose types the precheck casts the entry's facts into.
+ * The stored relations a refused statement writes or casts its facts into, by declared name: a write's own, a query
+ * entry's precheck's target, whose types the precheck casts the entry's facts into, and none of a statement that
+ * states no fact.
  */
 export const statementRelations = (
 	frontend: WriteFrontend,
@@ -223,6 +264,8 @@ export const statementRelations = (
 			return at.relations
 		case "precheck":
 			return [...new Set(precheckGroups(frontend, at).map((group) => group.relation.name))]
+		case "unstated":
+			return []
 	}
 }
 
@@ -257,6 +300,8 @@ const statedFacts = (
 							(stated) => [relation, stated] as const
 						)
 			})
+		case "unstated":
+			return []
 	}
 }
 
@@ -398,31 +443,6 @@ const closedContainment = (
 	return "breaks"
 }
 
-/** The span fields of `relation` whose endpoint CHECK of contract `contract` is the constraint `name`, each with the
- * level of its endpoint type that contract is. */
-const endpointLevels = (
-	relation: RelationInfo,
-	name: ConstraintName
-): ReadonlyArray<{ readonly field: LawField; readonly level: ScalarType }> =>
-	relation.fields.flatMap((field) => {
-		const span = spanOf(baseOf(field.type))
-		if (span === undefined) {
-			return []
-		}
-		return levels(span.endpoint).flatMap((level) => {
-			const contract = contractOf(level)
-			return contract !== undefined &&
-				identifierOf(
-					identity.spanCheck(relation.name, field.name, {
-						kind: "endpoint",
-						contract: contract.name
-					})
-				) === name
-				? [{ field, level }]
-				: []
-		})
-	})
-
 /** A span's endpoints as the host holds them, each an endpoint value. */
 const endpointsOf = (value: unknown): ReadonlyArray<unknown> =>
 	typeof value === "object" && value !== null && "start" in value && "end" in value
@@ -457,6 +477,149 @@ const firstBreak = (verdicts: ReadonlyArray<Verdict>): Verdict =>
 			? "holds"
 			: "unjudged"
 
+/**
+ * A CHECK of a table that states laws, as the host judges it: its installed name, the laws it states, each with its
+ * description, and its verdict on one fact of its table.
+ */
+interface LawCheck {
+	readonly name: ConstraintName
+	readonly laws: NonEmptyReadonlyArray<ConstraintLawOf>
+	readonly verdict: (fact: HostFact) => Verdict
+}
+
+/** The law CHECK a table constraint of the law model is, if it is a CHECK: a row CHECK or a containment into a closed
+ * relation. */
+const checkOf = (
+	frontend: WriteFrontend,
+	judge: Judge,
+	name: ConstraintName,
+	laws: NonEmptyReadonlyArray<ConstraintLawOf>,
+	native: NativeOf<ConstraintNativeKind>
+): ReadonlyArray<LawCheck> => {
+	switch (native.kind) {
+		case "TableCheck":
+			return [
+				{
+					name,
+					laws,
+					verdict: (fact) => checked(judge.evaluate(native.relation, native.predicate, fact))
+				}
+			]
+		case "ClosedCheck":
+			return [
+				{
+					name,
+					laws,
+					verdict: (fact) => closedContainment(judge, native, fact, frontend.codes)
+				}
+			]
+		case "PrimaryKey":
+		case "Unique":
+		case "WithoutOverlaps":
+		case "ForeignKey":
+		case "PeriodForeignKey":
+			return []
+	}
+}
+
+/**
+ * Every CHECK of `relation`'s table that states laws: its row CHECKs and its containments into closed relations, the
+ * law model's (frontend.laws.constraints), and its spans' endpoint CHECKs of a contract, which state the contract's
+ * law. Its span shape, width and date range CHECKs state none: the codec refuses what they would before any SQL.
+ */
+const lawChecks = (
+	frontend: WriteFrontend,
+	judge: Judge,
+	relation: RelationInfo
+): ReadonlyArray<LawCheck> => {
+	const model = frontend.laws.constraints.flatMap((c): ReadonlyArray<LawCheck> => {
+		if (c.kind !== "constraint" || c.owner !== relation.ident) {
+			return []
+		}
+		const native = frontend.laws.natives.find(
+			(n) => n.namespace === "constraint" && n.owner === c.owner && identifierOf(n.named) === c.name
+		)
+		return native?.namespace === "constraint"
+			? checkOf(frontend, judge, c.name, c.laws, native.object)
+			: []
+	})
+	const endpoints = relation.fields.flatMap((field): ReadonlyArray<LawCheck> => {
+		const span = spanOf(baseOf(field.type))
+		if (span === undefined) {
+			return []
+		}
+		return levels(span.endpoint).flatMap((level): ReadonlyArray<LawCheck> => {
+			const contract = contractOf(level)
+			const law =
+				contract === undefined
+					? undefined
+					: frontend.laws.natives
+							.flatMap((n) =>
+								n.namespace === "domain" && n.object.name === contract.name ? n.object.lawIds : []
+							)
+							.at(0)
+			return contract === undefined || law === undefined
+				? []
+				: [
+						{
+							name: identifierOf(
+								identity.spanCheck(relation.name, field.name, {
+									kind: "endpoint",
+									contract: contract.name
+								})
+							),
+							laws: [{ law, described: contractLaw(contract.name) }],
+							verdict: (fact) =>
+								firstBreak(
+									endpointsOf(fact[field.name]).map((endpoint) =>
+										breaksLevel(judge, endpoint, level)
+									)
+								)
+						}
+					]
+		})
+	})
+	return [...model, ...endpoints]
+}
+
+/**
+ * A law CHECK's verdict on a fact, as PostgreSQL meets it: a row whose generated field's NOT NULL refuses it never
+ * reaches its CHECKs (generatedNotNulls).
+ */
+const checkVerdict = (
+	judge: Judge,
+	relation: RelationInfo,
+	check: LawCheck,
+	fact: HostFact
+): Verdict => {
+	const notNulls = generatedNotNulls(judge, relation, fact)
+	return notNulls === "hold" ? check.verdict(fact) : notNulls === "refuse" ? "holds" : "unjudged"
+}
+
+/**
+ * The laws a fact breaks among its table's law CHECKs, `refusing` the one PostgreSQL reported among them: each once, in
+ * the theory's order of laws, so neither the order PostgreSQL tries CHECKs in nor their installed names decide it.
+ */
+const brokenLaws = (
+	frontend: WriteFrontend,
+	refusing: LawCheck,
+	broken: ReadonlyArray<LawCheck>
+): NonEmptyReadonlyArray<Law> => {
+	const order = (law: LawId): number => frontend.laws.theory.laws.findIndex((l) => l.id === law)
+	const [head, ...rest] = concatNonEmpty(
+		broken.flatMap((c) => c.laws),
+		refusing.laws
+	)
+	const once: NonEmptyReadonlyArray<ConstraintLawOf> = [
+		head,
+		...rest.filter((l, i) => l.law !== head.law && rest.findIndex((m) => m.law === l.law) === i)
+	]
+	return mapNonEmpty(
+		sortNonEmpty(once, (a, b) => order(a.law) - order(b.law)),
+		(l) => l.described
+	)
+}
+
 /** Whether one level of a type is what `law` states: a contract's level its contract law, a refined text level its
  * pattern law, compared by spelling. */
 const levelStates = (level: ScalarType, law: Law): boolean => {
@@ -476,10 +639,10 @@ const levelStates = (level: ScalarType, law: Law): boolean => {
 
 /** How the host judges a fact of `relation` against `refuser`. */
 const verdictOf = (
-	frontend: WriteFrontend,
 	judge: Judge,
 	relation: RelationInfo,
 	refuser: Refuser,
+	checks: ReadonlyArray<LawCheck>,
 	fact: HostFact
 ): Verdict => {
 	switch (refuser.kind) {
@@ -514,36 +677,8 @@ const verdictOf = (
 			if (relation.ident !== refuser.owner) {
 				return "unjudged"
 			}
-			const notNulls = generatedNotNulls(judge, relation, fact)
-			if (notNulls !== "hold") {
-				return notNulls === "refuse" ? "holds" : "unjudged"
-			}
-			const native = frontend.laws.natives.find(
-				(n) =>
-					n.namespace === "constraint" &&
-					n.owner === refuser.owner &&
-					identifierOf(n.named) === refuser.name
-			)
-			if (native?.namespace === "constraint") {
-				const object = native.object
-				switch (object.kind) {
-					case "TableCheck":
-						return checked(judge.evaluate(object.relation, object.predicate, fact))
-					case "ClosedCheck":
-						return closedContainment(judge, object, fact, frontend.codes)
-					case "PrimaryKey":
-					case "Unique":
-					case "WithoutOverlaps":
-					case "ForeignKey":
-					case "PeriodForeignKey":
-						return "unjudged"
-				}
-			}
-			return firstBreak(
-				endpointLevels(relation, refuser.name).flatMap(({ field, level }) =>
-					endpointsOf(fact[field.name]).map((endpoint) => breaksLevel(judge, endpoint, level))
-				)
-			)
+			const check = checks.find((c) => c.name === refuser.name)
+			return check === undefined ? "unjudged" : checkVerdict(judge, relation, check, fact)
 		}
 	}
 }
@@ -576,17 +711,37 @@ const verdictOf = (
  * filled values, a fact whose law reads what the host cannot evaluate, or one stated with no whole key, as a generated
  * addition's identity is drawn), the witness is `unreported`.
  */
-export const hostWitness = (
+export const hostJudgement = (
 	frontend: WriteFrontend,
 	normalized: Normalized,
 	at: StatementAt,
 	refuser: Refuser
-): Witness => {
+): HostJudgement => {
 	const judge = judgeOf(frontend)
+	const table =
+		refuser.kind === "constraint"
+			? frontend.written.find((r) => r.ident === refuser.owner)
+			: undefined
+	const checks = table === undefined ? [] : lawChecks(frontend, judge, table)
+	const refusing =
+		refuser.kind === "constraint" ? checks.find((c) => c.name === refuser.name) : undefined
 	for (const [relation, stated] of statedFacts(frontend, normalized, at)) {
-		if (verdictOf(frontend, judge, relation, refuser, stated.fact) === "breaks") {
-			return stated.witness
+		if (verdictOf(judge, relation, refuser, checks, stated.fact) === "breaks") {
+			return {
+				witness: stated.witness,
+				laws:
+					refusing === undefined
+						? refusedByObject
+						: {
+								kind: "every",
+								laws: brokenLaws(
+									frontend,
+									refusing,
+									checks.filter((c) => checkVerdict(judge, relation, c, stated.fact) === "breaks")
+								)
+							}
+			}
 		}
 	}
-	return unreported
+	return { witness: unreported, laws: refusing === undefined ? refusedByObject : refusedFirst }
 }

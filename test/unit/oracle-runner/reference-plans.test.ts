@@ -59,7 +59,7 @@ import {
 	unobserved
 } from "#test/support/oracle/reference/evaluate.ts"
 
-import { type Identity, sameIdentity } from "#test/support/kernel/identity.ts"
+import { type ValueIdentity, sameIdentity } from "#test/support/kernel/identity.ts"
 import { caseHang } from "#test/support/limits.ts"
 import {
 	type DeclineReason,
@@ -85,7 +85,7 @@ class NestedLoops extends Reference {
 
 /** One thing the reference makes of a case: a relation's rows by their identities, a decline, or what stops it. */
 type TranscriptEntry =
-	| { readonly kind: "rows"; readonly label: string; readonly rows: ReadonlyArray<Identity> }
+	| { readonly kind: "rows"; readonly label: string; readonly rows: ReadonlyArray<ValueIdentity> }
 	| { readonly kind: "declined"; readonly reason: DeclineReason }
 	| { readonly kind: "stop"; readonly what: string }
 

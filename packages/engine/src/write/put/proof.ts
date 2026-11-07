@@ -109,10 +109,10 @@ const provesKeys = (
 	relation: RelationInfo,
 	values: ReadonlyMap<string, KeyValue>
 ): boolean => {
-	const asked = new Map<RelNode, TupleMap<string, KeyQuestion>>()
+	const asked = new Map<RelNode, TupleMap<ReadonlyArray<string>, KeyQuestion>>()
 	const question = (node: RelNode, vs: ReadonlyMap<string, KeyValue>): KeyQuestion => {
 		const key = questionKey(vs)
-		const byNode = asked.get(node) ?? new TupleMap<string, KeyQuestion>()
+		const byNode = asked.get(node) ?? new TupleMap<ReadonlyArray<string>, KeyQuestion>()
 		asked.set(node, byNode)
 		const known = byNode.get(key)
 		if (known !== undefined) {

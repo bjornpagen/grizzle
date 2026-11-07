@@ -18,7 +18,8 @@ import type { Session } from "#adapter/wire/session.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { isRecord } from "#compiler/core/record.ts"
-import { factIdentity } from "#compiler/scalar/values/identity.ts"
+import { TupleMap } from "#compiler/core/tuple-map.ts"
+import { type FactIdentity, factIdentity } from "#compiler/scalar/values/identity.ts"
 import type { Law } from "#compiler/types/changeset/changeset.ts"
 import type { ParamMap } from "#compiler/types/core/phantom.ts"
 import type { ChangeSetValue } from "#compiler/write/changeset/value.ts"
@@ -26,7 +27,7 @@ import type { PutChoice } from "#compiler/write/put/choose.ts"
 import type { AmbientSession } from "#test/support/ambient.ts"
 import { type Installed, installMigrated as install } from "#test/support/install-migrate.ts"
 import { namesOf, reportedLawId } from "#test/support/kernel/naming.ts"
-import type { Fact, OracleState } from "#test/support/oracle/addwins.ts"
+import type { Fact, FactSet, OracleState } from "#test/support/oracle/addwins.ts"
 import { factStatements } from "#test/support/oracle/install/load.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import { type Perturbation, perturbedContext } from "#test/support/oracle/perturb.ts"
@@ -266,7 +267,7 @@ export const resetGroup = (
 
 export interface GroupState {
 	/** Relation to its facts, identity to fact. */
-	readonly relations: ReadonlyMap<string, ReadonlyMap<string, Fact>>
+	readonly relations: ReadonlyMap<string, FactSet>
 	/** `<relation>.<field>` to the identity sequence's last_value and is_called. */
 	readonly sequences: ReadonlyMap<
 		string,
@@ -275,12 +276,9 @@ export interface GroupState {
 }
 
 /** A relation's stored rows as facts by identity; a row that is no admissible fact, or a repeated fact, is a defect. */
-const storedFacts = (
-	r: WRelation,
-	rows: ReadonlyArray<ReadonlyArray<unknown>>
-): ReadonlyMap<string, Fact> => {
+const storedFacts = (r: WRelation, rows: ReadonlyArray<ReadonlyArray<unknown>>): FactSet => {
 	const heading = Arr.map(r.columns, (c) => ({ name: c.name, spec: typeInfo[c.kind].spec }))
-	const facts = new Map<string, Fact>()
+	const facts = new TupleMap<FactIdentity, Fact>()
 	for (const row of rows) {
 		const fact = Rec.fromEntries(
 			Arr.map(r.columns, (c, i) => [c.name, typeInfo[c.kind].parse(String(row[i]))] as const)
@@ -304,7 +302,7 @@ export const readGroup = (
 ): Effect.Effect<GroupState, SqlError, Substrate> =>
 	Effect.gen(function* () {
 		const s = yield* Substrate
-		const relations = new Map<string, ReadonlyMap<string, Fact>>()
+		const relations = new Map<string, FactSet>()
 		const sequences = new Map<string, { readonly lastValue: bigint; readonly isCalled: boolean }>()
 		for (const r of group.relations) {
 			const columns = Arr.join(
@@ -556,7 +554,7 @@ const outcomeOf = (described: ReadonlyMap<LawId, Law>, o: ApplyOutcome<unknown>)
 		case "invariant-rejected":
 			return {
 				kind: o.kind,
-				laws: Arr.map(o.laws, (law) => reportedLawId(described, law)),
+				laws: Arr.map(o.refused.laws, (law) => reportedLawId(described, law)),
 				witness: o.witness
 			}
 		case "outside-world":

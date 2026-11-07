@@ -114,7 +114,7 @@ import {
 } from "#compiler/write/insert/statement.ts"
 import { readsDrawn } from "#compiler/write/insert/unique.ts"
 import { withCarrierAnalysis } from "#compiler/write/program/analyze.ts"
-import type { FamilyStep } from "#compiler/write/program/artifact.ts"
+import { castsNothing, type FamilyStep } from "#compiler/write/program/artifact.ts"
 import {
 	type ArtifactForms,
 	byStratum,
@@ -707,7 +707,8 @@ const optimizedPlacement = (
 						kind: "carrier",
 						carrier: step.carrier.name,
 						step: "create",
-						stratum: step.stratum
+						stratum: step.stratum,
+						casts: castsNothing
 					})
 				)
 				break
@@ -725,7 +726,8 @@ const optimizedPlacement = (
 						kind: "carrier",
 						carrier: step.carrier.name,
 						step: "fill",
-						stratum: step.stratum
+						stratum: step.stratum,
+						casts: { kind: "member", relation: step.relation, stratum: step.stratum }
 					})
 				)
 				break
@@ -743,7 +745,8 @@ const optimizedPlacement = (
 						kind: "carrier",
 						carrier: step.carrier.name,
 						step: "fill",
-						stratum: step.stratum
+						stratum: step.stratum,
+						casts: castsNothing
 					})
 				)
 				sharing.carry(share, {
@@ -1056,7 +1059,8 @@ const conservativeArtifact = (
 						kind: "carrier",
 						carrier: result.carrier,
 						step: result.step,
-						stratum: step.stratum
+						stratum: step.stratum,
+						casts: step.casts
 					},
 					previous
 				)

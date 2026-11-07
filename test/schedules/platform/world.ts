@@ -37,7 +37,7 @@ import {
 	type PlatformRow,
 	rowsIn,
 	type State,
-	hostValueKey
+	sameHostValue
 } from "#test/support/platform/laws.ts"
 import { pricedAt, type SpanV, platformSpan } from "#test/support/platform/model.ts"
 
@@ -318,8 +318,7 @@ export const capWrite = (from: bigint, to: bigint): Write => ({
 })
 
 const sameKey = (row: PlatformRow, cap: Addition<typeof P.WorkspaceLimit>): boolean =>
-	hostValueKey(row["workspace"]) === hostValueKey(cap.workspace) &&
-	hostValueKey(row["month"]) === hostValueKey(cap.month)
+	sameHostValue(row["workspace"], cap.workspace) && sameHostValue(row["month"], cap.month)
 
 /**
  * The workspace's caps replaced by `caps`: the fixture's setCaps, one MERGE putting each given month's cap and
@@ -535,7 +534,7 @@ export const spentIn = (s: State): bigint =>
 	Arr.reduce(
 		Arr.filter(
 			rowsIn(s, "EventCharge"),
-			(f) => f["workspace"] === ids.workspace && hostValueKey(f["month"]) === hostValueKey(monthNo)
+			(f) => f["workspace"] === ids.workspace && sameHostValue(f["month"], monthNo)
 		),
 		0n,
 		(sum, f) => sum + amountOf(f, "amount")
@@ -546,7 +545,7 @@ export const capIn = (s: State): Option.Option<bigint> =>
 	Option.map(
 		Arr.findFirst(
 			rowsIn(s, "WorkspaceLimit"),
-			(f) => f["workspace"] === ids.workspace && hostValueKey(f["month"]) === hostValueKey(monthNo)
+			(f) => f["workspace"] === ids.workspace && sameHostValue(f["month"], monthNo)
 		),
 		(limit) => amountOf(limit, "cap")
 	)

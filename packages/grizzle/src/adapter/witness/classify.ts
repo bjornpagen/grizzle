@@ -8,11 +8,14 @@ import {
 } from "#adapter/witness/keylaw.ts"
 import {
 	type ConcurrentChange,
+	type HostJudgement,
 	type KeyDecoder,
 	type Law,
 	type LawDetail,
 	readChangeDetail,
 	readLawDetail,
+	type Refused,
+	type RefusedLaws,
 	type Refuser,
 	type Witness
 } from "#compiler/plan/change.ts"
@@ -64,9 +67,12 @@ type ViolationFields = Pick<
  *   domain, so a native violation is read under its owner alone. PostgreSQL
  *   states the violating key of a native violation only in its message and DETAIL prose, which for a CHECK holds the
  *   whole failing row with each value cut at 64 bytes, and the classifier reads neither: the witness is the host's
- *   (WrittenAt witness, write/program/witness.ts hostWitness), the key of a fact the ChangeSet states for the failing
+ *   (WrittenAt judge, write/program/witness.ts hostJudgement), the key of a fact the ChangeSet states for the failing
  *   statement that breaks what refused it, the table constraint or the domain's columns among the statement's tables,
- *   or `unreported` where it states none.
+ *   or `unreported` where it states none. A table CHECK's refusal of a stated fact names `every` law of that table's
+ *   CHECKs the fact breaks, in the schema's canonical order, whichever PostgreSQL tried first; where no stated fact
+ *   breaks it, the outcome names the CHECK PostgreSQL reported, `first`, since PostgreSQL tries a table's CHECKs in
+ *   the order of their names.
  * - SQLSTATE 23502 on a generated column of the installation's: grizzle writes no NULL, so only the column's generation
  *   expression is NULL there, a closed read at a key its relation holds no row at, and the outcome names the generated
  *   field's law (types/changeset Law `generated`) with the host's witness of the stated fact whose term has no value.
@@ -106,7 +112,7 @@ type ViolationFields = Pick<
 export type Violation =
 	| {
 			readonly kind: "rejected"
-			readonly laws: Arr.NonEmptyReadonlyArray<Law>
+			readonly refused: Refused
 			readonly witness: Witness
 	  }
 	| { readonly kind: "outside"; readonly relation: string }
@@ -114,13 +120,14 @@ export type Violation =
 	| { readonly kind: "defect"; readonly domain: DomainName; readonly roster: RosterDomain }
 
 /**
- * What the failing statement wrote: the stored relations it writes, by declared name (none for a COMMIT, a read-back
- * or a statement into a carrier), and the host's witness of a native refusal there, judged over the facts the
- * ChangeSet states for it (write/program/witness.ts hostWitness): unreported where it states none.
+ * What the failing statement wrote: the stored relations it writes or casts its facts into, by declared name (none for
+ * a COMMIT, a read-back or a statement that states no fact), and the host's judgement of a native refusal there, over
+ * the facts the ChangeSet states for it (write/program/witness.ts hostJudgement): the witness of the first that breaks
+ * the refuser, or unreported where none does, and which laws the refusal names.
  */
 export interface WrittenAt {
 	readonly relations: ReadonlyArray<string>
-	readonly witness: (refuser: Refuser) => Witness
+	readonly judge: (refuser: Refuser) => HostJudgement
 }
 
 /** The hook: a violation's law outcome, or undefined when it is not one, raised by a statement that wrote `written`. */
@@ -173,7 +180,9 @@ const refusalRejection = (
 	decoder: KeyDecoder
 ): Violation | undefined => {
 	const witness = decoder.fromRefusal(refusal.relation, refusal.key)
-	return witness === undefined ? undefined : { kind: "rejected", laws: [law.described], witness }
+	return witness === undefined
+		? undefined
+		: { kind: "rejected", refused: { kind: "every", laws: [law.described] }, witness }
 }
 
 /**
@@ -206,6 +215,22 @@ const nativeLaws = (
 }
 
 /**
+ * The laws a native refusal names, as the host judged it (write/program/witness.ts RefusedLaws): every law of its
+ * table's CHECKs the stated row breaks; the CHECK PostgreSQL reported first, `broken`, where no stated row breaks it;
+ * and `broken`, the laws its one object discharges, for any other refusal.
+ */
+const refusedBy = (laws: RefusedLaws, broken: Arr.NonEmptyReadonlyArray<Law>): Refused => {
+	switch (laws.kind) {
+		case "every":
+			return { kind: "every", laws: laws.laws }
+		case "first":
+			return { kind: "first", laws: broken }
+		case "object":
+			return { kind: "every", laws: broken }
+	}
+}
+
+/**
  * A NOT NULL violation's law outcome: on a generated column of the installation's, the generated field's law, which
  * only its generation expression's NULL, a closed read at a key its relation holds no row at, breaks, since grizzle
  * writes no NULL; undefined on any other column, or none.
@@ -224,8 +249,8 @@ const generatedViolation = (
 		? undefined
 		: {
 				kind: "rejected",
-				laws: [law],
-				witness: written.witness({ kind: "generated", table: owner.name, column })
+				refused: { kind: "every", laws: [law] },
+				witness: written.judge({ kind: "generated", table: owner.name, column }).witness
 			}
 }
 
@@ -289,13 +314,10 @@ export const violationClassifier =
 			native,
 			new Set(Arr.map(written.relations, (relation) => laws.tableOf(relation)))
 		)
-		return {
-			kind: "rejected",
-			laws: broken,
-			witness: written.witness(
-				owner.kind === "table"
-					? { kind: "constraint", owner: owner.name, name: constraint }
-					: { kind: "domain", laws: broken, uses: native.uses }
-			)
-		}
+		const judged = written.judge(
+			owner.kind === "table"
+				? { kind: "constraint", owner: owner.name, name: constraint }
+				: { kind: "domain", laws: broken, uses: native.uses }
+		)
+		return { kind: "rejected", refused: refusedBy(judged.laws, broken), witness: judged.witness }
 	}

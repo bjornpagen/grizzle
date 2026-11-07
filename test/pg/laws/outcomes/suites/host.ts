@@ -250,8 +250,13 @@ export const hostWitnessSuite = (): void => {
 												`a write that breaks a rule is refused, not ${outcome.kind}`
 											)
 										}
-										assert.equal(outcome.laws.length, 1, "one law")
-										const [law] = outcome.laws
+										assert.equal(
+											outcome.refused.kind,
+											"every",
+											"every account is stated, so the host judges the refused one"
+										)
+										assert.equal(outcome.refused.laws.length, 1, "one law")
+										const [law] = outcome.refused.laws
 										const named = brokenOf(law)
 										if (named === undefined) {
 											return assert.fail("the law is one of the accounts' rules")

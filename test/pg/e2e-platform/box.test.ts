@@ -217,7 +217,7 @@ const recordFacts = (r: P.UsageRecord): PlatformFacts => ({
 
 const decided = (db: PlatformDb, f: PlatformFacts): Effect.Effect<string, ApplyError> =>
 	Effect.map(db.apply(insertAll(f), {}), (o) =>
-		o.kind === "invariant-rejected" ? `refused by ${Formatter.format(o.laws)}` : o.kind
+		o.kind === "invariant-rejected" ? `refused by ${Formatter.format(o.refused.laws)}` : o.kind
 	)
 
 layer(Substrate.layer)("tiny platforms, exhausted", (it) => {

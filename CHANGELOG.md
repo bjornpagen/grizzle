@@ -16,6 +16,24 @@ How to upgrade:
 
 ### Breaking changes
 
+#### A refused check names every rule its row breaks, and says when it can name only PostgreSQL's first
+
+- **`invariant-rejected` carries `refused` in place of `laws`: `{ kind: "every", laws }` or `{ kind: "first", laws }`.**
+  A row that broke two checks of one table named whichever PostgreSQL tried first, and PostgreSQL tries a table's
+  checks in the order of their installed names, so the rule an outcome named moved between versions of grizzle with no
+  change in what the schema says. Now grizzle evaluates every check of that table on the row you stated, on the host,
+  and names `every` rule it breaks, each once, in the schema's canonical order of rules, whichever PostgreSQL tried
+  first. Where the refused row is one only PostgreSQL computes, which no ChangeSet states (a query's, or one grizzle
+  fills on a family), grizzle cannot evaluate it, and the outcome says so: `first`, the rules of the check PostgreSQL
+  reported. Every other refusal is `every`, with the laws it named before. Codemod: `outcome.laws` →
+  `outcome.refused.laws`; an outcome a program builds, `{ kind: "invariant-rejected", laws, witness }` →
+  `{ kind: "invariant-rejected", refused: { kind: "every", laws }, witness }`; a program that relied on the one rule a
+  row check named reads `refused.kind` first.
+- **A value a query entry's addition casts into a contract or pattern names the row you stated.** The entry's facts are
+  carried into a table typed by its target's columns before they are written, so the domain's check refused them
+  there, and the witness was `unreported`; a whole entry's write named the key. Now the carrier's fill states what it
+  casts, and the witness is the key you submitted, in the entry's fields, as the README says. No codemod.
+
 #### A row's identity is its texts, never one text joined from them, so a nested write's content may sum past JavaScript's longest string
 
 - **A nested insert whose texts sum past JavaScript's longest string (V8's 536,870,888 UTF-16 code units) is written,
@@ -23,10 +41,16 @@ How to upgrade:
   by one signature text that held every row it nests, each spelled after its length, so an owner inserted with seven
   members of 80,000,000 characters each was refused while six were accepted. Each of these identities is now a tuple
   of its texts, in a map that walks a tuple one element at a time (`core/tuple-map.ts`): a nested row's identity and
-  key, a nested fact's signature (its rows as the set holds them), a same-key check's key, a read's row identity and
-  attachment key, a closed relation's key, and a closed side's rows. An identity's size is its arity, whatever its
+  key, a nested fact's signature (its rows as the set holds them), a family write's member and group keys (its reads,
+  its edits, its counts and the rows it holds while it plans), a same-key check's key, a read's row identity and
+  attachment key, a closed relation's key, a closed side's rows, and a ChangeSet's bound value, keyed by its canonical
+  text's tokens (`core/canonical.ts` canonicalTokens), never that text. An identity's size is its arity, whatever its
   texts' lengths, and no hash stands in for a text, so two different rows are never one. Orders that were the joined
   text's are kept exactly, so generated SQL is unchanged.
+- **Two binds of one name to equal values whose texts sum past JavaScript's longest string are one private parameter.**
+  Before, such a value had no canonical text, so it was keyed as a Stream is, equal to no other, and the two binds stayed
+  two parameters. Values are still named in their canonical texts' order, so every other ChangeSet's names are
+  unchanged.
 - **Two nested facts at one key that differ only in the owner's own fields are refused by its key law.** Before, the
   second was dropped silently whenever both nested the same members. Before: `insert(Owner, [{ id, title: "x",
   members }, { id, title: "y", members }])` wrote the first. After: it is `invariant-rejected` by Owner's primary key

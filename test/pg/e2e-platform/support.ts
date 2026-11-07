@@ -211,7 +211,7 @@ export const applyFacts = (db: PlatformDb, f: PlatformFacts) =>
 		if (outcome.kind === "invariant-rejected") {
 			return yield* Effect.die(
 				new LoadRefused({
-					reason: `the load was refused by ${Formatter.format(outcome.laws)}: ${Formatter.format(outcome.witness)}`
+					reason: `the load was refused by ${Formatter.format(outcome.refused.laws)}: ${Formatter.format(outcome.witness)}`
 				})
 			)
 		}

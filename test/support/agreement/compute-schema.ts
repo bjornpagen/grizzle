@@ -1,5 +1,5 @@
 import { Compute } from "#compiler/public/compute.ts"
-import { bits, closedId, contract, date, pg, span, uuid } from "#compiler/public/fields.ts"
+import { bits, closedId, contract, Decimal, date, pg, span, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -56,6 +56,45 @@ const cellOver = (rate: typeof Rate) =>
 
 /** Cell over Rate, the relation the population's programs read. */
 export const Cell = cellOver(Rate)
+
+/**
+ * Tuning, the closed relation a closed read's case reads at a row's tone: a payload of each integer field of Cell, its
+ * numeric, and its contracts over an integer, Cents, which declares nonnegative, and Divisor, which declares nonzero,
+ * each of its field's type, at both tones.
+ */
+export const Tuning = closed.relation(
+	"Tuning",
+	{
+		tone: closedId(Tone),
+		small: Cell.fields.small,
+		int: Cell.fields.int,
+		big: Cell.fields.big,
+		dec: Cell.fields.dec,
+		cents: Cents,
+		divisor: Divisor
+	},
+	["tone"],
+	[
+		{
+			tone: "low",
+			small: 3,
+			int: 2,
+			big: 1_000_000_000_000n,
+			dec: Decimal.of("12.50"),
+			cents: Cents(0n),
+			divisor: Divisor(3)
+		},
+		{
+			tone: "high",
+			small: -7,
+			int: -3,
+			big: -5n,
+			dec: Decimal.of("-99999999.99"),
+			cents: Cents(42n),
+			divisor: Divisor(-2)
+		}
+	]
+)
 
 export const Cells = schema("Cells", { Tone, Shade, Cell }, [])
 

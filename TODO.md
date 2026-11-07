@@ -48,19 +48,16 @@ How the work runs:
   schedule; the axes it writes around are deferred by schema analysis; one read flight locates the groups. Only a change
   sourced from a query stays refused. Guard: fill-order's follow-up writes every case and the stored rows equal the
   reference writer's; planted bug: a refill out of members-first order.
-- **A fold step's selection that reads an absent closed key refuses a lawful write** (found by CROW after 0e4454d): the
-  host evaluator has no NULL, and the combine CHECK is not three-valued. Lane CROW: NULL as a value in evaluate.ts
-  (Kleene AND/OR, strict elsewhere), `CASE WHEN φ` in the combine, the witness judge exact. Guard: absent reads in fold
-  steps and selections on host and server; planted bug.
-- **A nested write's identity concatenates every member's content** (qti-pie, defect 4): past V8's string limit the
-  write dies in the host. Lane TKEY: rows identified by tuples of interned texts (core/tuple-map.ts), every value-text
-  key in the engine cut; guard, kept case and planted bugs pass. The family key text (edit/decode/order/state/bind)
-  follows once REFILL frees those files.
-- **A near-limit numeric power takes seconds in the test's host port of numeric.c** (power.test.ts never finished).
-  Lane CMP: the port on PostgreSQL's NBASE digit arrays, a yield per pair, a work-count gate.
-- **Regex types beyond TypeScript's representable union** (`[ab]{255}`): TS2590 after 20 s where the engine admits it.
-  Lane W-typesA: the exact union up to TypeScript's own limit, the pattern's RegexText widening past it, decided by a
-  saturating count in the scan; a regex scaling dimension in the type batch.
+- **A refused CHECK names whichever law PostgreSQL tried first,** by constraint-name (hash) order, so the reported law
+  moves between versions (qti-pie). Lane OPEN: the outcome carries `refused: { every } | { first }`, every law the
+  stated row breaks in canonical order; the carrier step states what its fill casts, so a query entry's domain refusal
+  is witnessed. Guard: the every suite under two namings, the rules suite's law:domain:entry:shown.
+- **Arithmetic over a closed read carries no bounds** (GEN-NULL): `within` proves nothing over it and a cast is refused;
+  "no bound" read as 0 digits. Lane CMP: every numeric value carries at least its type's bounds, a closed read its
+  payload type's bounds and facts. Guard: the compute population draws closed reads under arithmetic and narrowing.
+- **Aimed searches at tonight's bug clusters:** GEN-FAM (family writer and schedule at the import's scale, judged by the
+  reference writer and the law model) and GEN-NULL (NULL as a value in every position, judged by PostgreSQL and the
+  host evaluator). Every bug they find is fixed at the root before the beta.
 - **README limits the downstream census found:** the str.regex grammar (no lookaround, no \p), and that a generated
   NOT NULL column's 23502 fails the write as ExecutionFailure naming no law.
 - **Watch first at the gate** (lanes' own risk notes for suites that have never run on 5433):
@@ -72,14 +69,9 @@ How the work runs:
 
 - **Everything parked "after the beta" is fixed for it** (owner, 2026-11-06: "all these known issues must be
   fixed"). What remains, by lane:
-	- REFILL: refill on an owner's copied column (above).
+	- REFILL: refill on an owner's copied column (above), and the ordered replace of a member that owns a family.
 	- OPEN: date spans; family rows ordered by pattern input (after FOLD's brands).
-	- FOLD: host values only inside the engine, ParamText/OutputText brands, every encode/decode round trip deleted.
-	- PERF: the 1M-row plans under roles, index-served.
-	- REP: regex membership from one compile-scoped pattern table (the four re-parse sites folded into one admittedNode,
-	  a parse-count gate); variant-typed page slots, after FOLD's brands; fact identity as a text tuple in a TupleMap,
-	  after FOLD's brands; every joined-text value key in the test models and write/family/draw.ts textsKey; then
-	  scripts/dev/golden/* goes, with its .fallowrc.json entry and capture.ts's line in oxlint.config.ts.
+	- REP: the test models' joined-text value keys.
 	- Not code here: RDS IAM against a real RDS, a quiet-machine bench, the fallow upstream report, the PostgreSQL GA
 	  repin date, the superstarter and edullm copies.
 

@@ -882,6 +882,21 @@ export type Witness =
 	| { readonly kind: "unreported" }
 
 /**
+ * Which laws an `invariant-rejected` outcome names, and how grizzle decided them:
+ *
+ * - `every`: what grizzle decides refused the write. For a CHECK that refused a row the ChangeSet states, every rule of
+ *   that row's table's CHECKs the row breaks, each once, in the schema's canonical order of its rules (its primary
+ *   keys', then its statements' in canonical order), whichever CHECK PostgreSQL tried first; for any other rule, the
+ *   rules its one PostgreSQL object discharges.
+ * - `first`: a CHECK that refused a row the ChangeSet does not state, a row only PostgreSQL computes, as a query's: the
+ *   rules of the CHECK PostgreSQL tried first, which it orders by the CHECKs' installed names, an order no version of
+ *   grizzle keeps. The row may break others too.
+ */
+export type Refused =
+	| { readonly kind: "every"; readonly laws: readonly [Law, ...Array<Law>] }
+	| { readonly kind: "first"; readonly laws: readonly [Law, ...Array<Law>] }
+
+/**
  * A law as the schema states it, which an `invariant-rejected` outcome names: an application matches on it directly.
  *
  * - `primaryKey`: a relation's primary key, by its fields (a span field makes it a nonoverlap key);

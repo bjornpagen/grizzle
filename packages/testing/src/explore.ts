@@ -591,6 +591,23 @@ const keepNothing = (): void => undefined
 /** Keeps a case's whole tape: an enumeration steps from it, and a shrink compares it. */
 const keepTape = (recorded: Recording): Tape => recorded.tape()
 
+/**
+ * A window's cases, `concurrency` at once, in index order. A case starts inline, so its property's synchronous work runs
+ * on the fiber that starts it; a concurrent window forks each case's fiber and only then holds it among the fibers an
+ * interruption of the search reaches, so each concurrent case starts on a turn of its own, once its fiber is held, and
+ * an interruption its own work causes reaches it. A window of one case at a time forks nothing and starts each inline.
+ */
+const windowOf = <B, R>(
+	indices: ReadonlyArray<number>,
+	runOne: (index: number) => Effect.Effect<B, never, R>,
+	concurrency: number
+): Effect.Effect<Array<B>, never, R> =>
+	concurrency === 1
+		? Effect.forEach(indices, runOne)
+		: Effect.forEach(indices, (index) => Effect.andThen(Effect.yieldNow, runOne(index)), {
+				concurrency
+			})
+
 /** How a case's fiber ended, as its run settles it: its own settlement, or a failure of the fiber itself. */
 const settledOf = (exit: Exit.Exit<Settled>): Settled =>
 	Exit.isSuccess(exit) ? exit.value : { kind: "failed", cause: exit.cause }
@@ -601,7 +618,11 @@ type Blocked<S> = (sketch: Option.Option<S>, tape: Tape) => string
 /**
  * Runs one case on a recorder from the pool: generates its sketch from the chooser, resolves it, and runs the property
  * in its own scope and fiber, raced against the hang guard and the search's deadline, so a case's finalizers always
- * run, a hung case's included, for as long as HUNG_CLEANUP_GRACE allows (live.ts). A case the deadline cuts is stopped
+ * run, a hung case's included, for as long as HUNG_CLEANUP_GRACE allows (live.ts). The case's fiber starts inline, so
+ * a property that runs to its end synchronously arms no guard and never waits on the event loop; from its start until
+ * the race that guards it, the search is uninterruptible, so an interruption of the search that arrives in between,
+ * from the case's own synchronous work included, reaches the race and stops the case rather than leaving it running
+ * detached. A case the deadline cuts is stopped
  * without waiting on its cleanup, which runs on while the search reports, and a case begun once the search is due to
  * stop is cut before its property runs. The property's own draws continue the same tape, so they replay and shrink with
  * the case, and it steers as `under` says. The tape is copied out only for a failed, hung or cut case and for what
@@ -738,41 +759,43 @@ const runRecorded = <S, T, F extends string, E, R, K>(
 						: { kind: "failed", cause: exit.cause }
 				})
 			)
-		return Effect.gen(function* () {
-			const began = yield* liveMillis
-			if (cutting.kind === "at" && began >= cutting.moment) {
-				return finish({ kind: "cut" })
-			}
-			const running = yield* Effect.forkDetach(settled, { startImmediately: true })
-			const ranThrough = running.pollUnsafe()
-			if (ranThrough !== undefined) {
-				const settledNow = settledOf(ranThrough)
-				return finish(settledNow)
-			}
-			const guards: ReadonlyArray<Effect.Effect<Settled>> = [
-				Effect.map(Fiber.await(running), settledOf),
-				Effect.as(liveSleepUntil(began + Duration.toMillis(Duration.fromInputUnsafe(caseHang))), {
-					kind: "hung"
-				} as const),
-				...(cutting.kind === "at" ? [Effect.as(cutting.reached, { kind: "cut" } as const)] : [])
-			]
-			const ended = yield* Effect.raceAllFirst(guards).pipe(
-				Effect.onInterrupt(() => stopHung(running))
-			)
-			switch (ended.kind) {
-				case "hung":
-					yield* stopHung(running)
-					break
-				case "cut":
-					yield* abandon(running)
-					break
-				case "passed":
-				case "discarded":
-				case "failed":
-					break
-			}
-			return finish(ended)
-		})
+		return Effect.uninterruptibleMask((restore) =>
+			Effect.gen(function* () {
+				const began = yield* liveMillis
+				if (cutting.kind === "at" && began >= cutting.moment) {
+					return finish({ kind: "cut" })
+				}
+				const running = yield* Effect.forkDetach(settled, { startImmediately: true })
+				const ranThrough = running.pollUnsafe()
+				if (ranThrough !== undefined) {
+					const settledNow = settledOf(ranThrough)
+					return finish(settledNow)
+				}
+				const guards: ReadonlyArray<Effect.Effect<Settled>> = [
+					Effect.map(Fiber.await(running), settledOf),
+					Effect.as(liveSleepUntil(began + Duration.toMillis(Duration.fromInputUnsafe(caseHang))), {
+						kind: "hung"
+					} as const),
+					...(cutting.kind === "at" ? [Effect.as(cutting.reached, { kind: "cut" } as const)] : [])
+				]
+				const ended = yield* restore(Effect.raceAllFirst(guards)).pipe(
+					Effect.onInterrupt(() => stopHung(running))
+				)
+				switch (ended.kind) {
+					case "hung":
+						yield* stopHung(running)
+						break
+					case "cut":
+						yield* abandon(running)
+						break
+					case "passed":
+					case "discarded":
+					case "failed":
+						break
+				}
+				return finish(ended)
+			})
+		)
 	})
 
 const hex = (seed: number) => `0x${Str.padStart(8, "0")((seed >>> 0).toString(16))}`
@@ -1463,7 +1486,7 @@ export const explore = <S, T, F extends string, E, R>(
 					const steering = [floorTally.tally(), mutated.tally.tally()]
 					const under = steeredBy(situations, steering)
 					const pick = seeds.picker(steering)
-					const window = yield* Effect.forEach(
+					const window = yield* windowOf(
 						indices,
 						(index) => {
 							const words = wordsOf(caseSeed(mutated.stream, index))
@@ -1479,7 +1502,7 @@ export const explore = <S, T, F extends string, E, R>(
 							)
 							return seedOf(chooser, under, sense)
 						},
-						{ concurrency: sense.concurrent ? spec.concurrency : 1 }
+						sense.concurrent ? spec.concurrency : 1
 					)
 					for (const [offset, caseRun] of settlingOrder(window)) {
 						const where = `${mutatedLabel(mutated)} (seed ${hex(mutated.stream)}), case ${Arr.getUnsafe(indices, offset)}`
@@ -1507,10 +1530,10 @@ export const explore = <S, T, F extends string, E, R>(
 							windowStart,
 							Math.min(windowStart + spec.steerEvery, floorCases) - 1
 						)
-						const window = yield* Effect.forEach(
+						const window = yield* windowOf(
 							indices,
 							(index) => runOne(randomChooser(wordsOf(caseSeed(floor, index))), under),
-							{ concurrency: spec.concurrency }
+							spec.concurrency
 						)
 						for (const [offset, caseRun] of settlingOrder(window)) {
 							const where = `the floor stream (seed ${hex(floor)}), case ${windowStart + offset}`
@@ -1651,10 +1674,10 @@ export const explore = <S, T, F extends string, E, R>(
 					windowStart,
 					Math.min(windowStart + spec.steerEvery, spec.runs) - 1
 				)
-				const window = yield* Effect.forEach(
+				const window = yield* windowOf(
 					indices,
 					(index) => caseOf(randomChooser(wordsOf(caseSeed(rotating, index))), unsteered),
-					{ concurrency: spec.concurrency }
+					spec.concurrency
 				)
 				for (const [offset, caseRun] of settlingOrder(window)) {
 					yield* settle(

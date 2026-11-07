@@ -28,7 +28,7 @@ import { defect, defined, invariant } from "#compiler/core/invariant.ts"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import { compareCodePoints, compareTextTuples } from "#compiler/core/text.ts"
-import { TupleMap } from "#compiler/core/tuple-map.ts"
+import { type ReadonlyTupleMap, TupleMap } from "#compiler/core/tuple-map.ts"
 import type { ParamText } from "#compiler/core/wire.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import { type Family, isSequence, isTreeOf } from "#compiler/ir/family.ts"
@@ -36,7 +36,7 @@ import type { FillOrder } from "#compiler/ir/fill.ts"
 import type { LawField, LawRelation, RelationInfo } from "#compiler/ir/law.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import { encodeAddition, type NestedAddition } from "#compiler/write/changeset/value.ts"
-import { type MemberKey, type Row, textsKey } from "#compiler/write/family/draw.ts"
+import type { MemberKey, Row } from "#compiler/write/family/draw.ts"
 import {
 	type ColumnKey,
 	columnKey,
@@ -268,8 +268,11 @@ type Signed = ParamText | NestedRow
  * relation's rows keep the order they are inserted in: each owner's members in slot order, a tree's nodes in pre-order.
  */
 export interface NestedSet {
-	readonly tops: Map<string, TupleMap<ParamText, TupleMap<Signed, NestedFact>>>
-	readonly rows: Map<string, TupleMap<ParamText, TupleMap<ParamText, NestedRow>>>
+	readonly tops: Map<
+		string,
+		TupleMap<ReadonlyArray<ParamText>, TupleMap<ReadonlyArray<Signed>, NestedFact>>
+	>
+	readonly rows: Map<string, TupleMap<MemberKey, TupleMap<ReadonlyArray<ParamText>, NestedRow>>>
 }
 
 /** A stratum's nested writes before any fact: no fact and no row. */
@@ -305,7 +308,9 @@ export const nestedRows = (
 	const sequences = nesting.families.filter(isSequence)
 	const tops: Array<NestedFact> = []
 	const relation = nesting.relation.name
-	const byKey = into.tops.get(relation) ?? new TupleMap<ParamText, TupleMap<Signed, NestedFact>>()
+	const byKey =
+		into.tops.get(relation) ??
+		new TupleMap<ReadonlyArray<ParamText>, TupleMap<ReadonlyArray<Signed>, NestedFact>>()
 	into.tops.set(relation, byKey)
 	const keyFields = nesting.relation.keyNames.find((k) => k.primary)?.fields ?? []
 	for (const fact of facts) {
@@ -334,17 +339,18 @@ export const nestedRows = (
 				: []
 		for (const [reached, list] of rowsOf(nesting, root)) {
 			const known =
-				into.rows.get(reached) ?? new TupleMap<ParamText, TupleMap<ParamText, NestedRow>>()
+				into.rows.get(reached) ??
+				new TupleMap<MemberKey, TupleMap<ReadonlyArray<ParamText>, NestedRow>>()
 			into.rows.set(reached, known)
 			for (const row of list) {
-				const identities = known.get(row.key) ?? new TupleMap<ParamText, NestedRow>()
+				const identities = known.get(row.key) ?? new TupleMap<ReadonlyArray<ParamText>, NestedRow>()
 				known.set(row.key, identities)
 				const held = identities.get(row.identity) ?? row
 				identities.set(row.identity, held)
 				signature.push(held)
 			}
 		}
-		const signatures = byKey.get(key) ?? new TupleMap<Signed, NestedFact>()
+		const signatures = byKey.get(key) ?? new TupleMap<ReadonlyArray<Signed>, NestedFact>()
 		byKey.set(key, signatures)
 		if (signatures.has(signature)) {
 			continue
@@ -398,22 +404,19 @@ export const nestedConflict = (
 }
 
 /** A nested set with no conflict as its rows: each member relation's, by key, in the order they are inserted. */
-export const nestedRowsOf = (set: NestedSet): ReadonlyMap<string, ReadonlyMap<string, NestedRow>> =>
+export const nestedRowsOf = (
+	set: NestedSet
+): ReadonlyMap<string, ReadonlyTupleMap<MemberKey, NestedRow>> =>
 	new Map(
-		[...set.rows].map(([relation, byKey]) => [
-			relation,
-			new Map(
-				[...byKey.values()].map((identities) => {
-					invariant(
-						identities.size === 1,
-						"a nested set with no conflict holds one row at each key"
-					)
-					const [row] = identities.values()
-					const held = defined(row, "the row at a key")
-					return [textsKey(held.key), held] as const
-				})
-			)
-		])
+		[...set.rows].map(([relation, byKey]) => {
+			const rows = new TupleMap<MemberKey, NestedRow>()
+			for (const [key, identities] of byKey) {
+				invariant(identities.size === 1, "a nested set with no conflict holds one row at each key")
+				const [row] = identities.values()
+				rows.set(key, defined(row, "the row at a key"))
+			}
+			return [relation, rows] as const
+		})
 	)
 
 /** A value's text in its column's carrier, as the transport writes it. */

@@ -15,7 +15,7 @@ import {
 } from "#adapter/witness/classify.ts"
 import type {
 	FamilyId,
-	Law,
+	Refused,
 	RelationCounts,
 	StatementAt,
 	UniqueAbort,
@@ -30,7 +30,7 @@ import { sqlstates } from "#compiler/plan/common.ts"
  * Two kinds of result leave a write transaction, and they stay distinct:
  *
  * - an outcome value: `accepted` or `no-change`, with counts and reads, released only after COMMIT succeeded;
- *   `invariant-rejected` with the laws it broke (types/changeset Law) and its witness, or `outside-world` naming
+ *   `invariant-rejected` with the laws it broke, decided as types/changeset Refused says, and its witness, or `outside-world` naming
  *   the query entry an addition wrote outside of, each reported only after the failing transaction rolled back;
  * - a failure in the error channel: TransientFailure when a concurrent transaction's work met the transaction, the
  *   one retryable error, or an operational failure: EncodingFailure, TransportFailure, ExecutionFailure, or
@@ -82,7 +82,7 @@ import { sqlstates } from "#compiler/plan/common.ts"
 export type Classified =
 	| {
 			readonly kind: "rejected"
-			readonly laws: Arr.NonEmptyReadonlyArray<Law>
+			readonly refused: Refused
 			readonly witness: Witness
 	  }
 	| { readonly kind: "outside"; readonly relation: string }
@@ -133,15 +133,19 @@ const uniqueAbortsAt = (origin: FailureOrigin): ReadonlyArray<UniqueAbort> => {
 	return step.kind === "write" || step.kind === "single" ? step.uniqueAborts : []
 }
 
+/** A statement that states no fact the ChangeSet states. */
+const unstated: StatementAt = Object.freeze({ kind: "unstated" })
+
 /**
  * What the statement at `origin` states, as the host reads it: a write statement's relation, a family statement's, a
- * single statement's parts', each at its stratum; a query entry's precheck, which casts the entry's facts into its
- * target's types; undefined for a carrier's statement, an ANALYZE or a serial advance, which state no fact the
- * ChangeSet states, for a read-back, or for the COMMIT.
+ * single statement's parts', each at its stratum; the fill of an action's member's carrier, which casts the facts the
+ * action writes into its relation's types (CarrierCasts); a query entry's precheck, which casts the entry's facts into
+ * its target's types; nothing for another carrier's statement, an ANALYZE or a serial advance, a read-back, a family's
+ * stored-suffix read, or the COMMIT.
  */
-const statementAt = (origin: FailureOrigin): StatementAt | undefined => {
+const statementAt = (origin: FailureOrigin): StatementAt => {
 	if (origin.kind !== "statement") {
-		return undefined
+		return unstated
 	}
 	const step = origin.step
 	switch (step.kind) {
@@ -157,21 +161,19 @@ const statementAt = (origin: FailureOrigin): StatementAt | undefined => {
 		case "check":
 			return { kind: "precheck", stratum: step.stratum, entry: step.entry }
 		case "carrier":
+			return step.casts.kind === "member"
+				? { kind: "write", stratum: step.casts.stratum, relations: [step.casts.relation] }
+				: unstated
 		case "analyze":
 		case "advance":
 		case "readBack":
-			return undefined
+			return unstated
 	}
 }
 
-/** The unreported witness: a refusal where the ChangeSet states no fact, at a COMMIT, a read-back or a carrier. */
-const unreported: Witness = Object.freeze({ kind: "unreported" })
-
 /** What the statement at `origin` wrote, as the classifier reads it (WrittenAt). */
-const writtenAt = (context: ClassifyContext): WrittenAt => {
-	const at = statementAt(context.origin)
-	return at === undefined ? { relations: [], witness: () => unreported } : context.statement(at)
-}
+const writtenAt = (context: ClassifyContext): WrittenAt =>
+	context.statement(statementAt(context.origin))
 
 /** What a write's step does, as a defect names the statement that raised it. */
 const stepText = (step: WriteStep): string => {
@@ -293,10 +295,8 @@ export const committedOutcome = <R>(
 		: Object.freeze({ kind, reads })
 
 /** The outcome value of a rejected application. */
-export const rejectedOutcome = <R>(
-	laws: Arr.NonEmptyReadonlyArray<Law>,
-	witness: Witness
-): ApplyOutcome<R> => Object.freeze({ kind: "invariant-rejected", laws, witness })
+export const rejectedOutcome = <R>(refused: Refused, witness: Witness): ApplyOutcome<R> =>
+	Object.freeze({ kind: "invariant-rejected", refused, witness })
 
 /** The outcome value of an application a query entry refused: a fact its addition requested is outside the entry. */
 export const outsideOutcome = <R>(relation: string): ApplyOutcome<R> =>

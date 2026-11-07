@@ -1,5 +1,7 @@
 import { Array as Arr, Option, Record as Rec } from "effect"
 import type { ConstraintName, LawId } from "#compiler/core/ids.ts"
+import type { ReadonlyTupleSet } from "#compiler/core/tuple-map.ts"
+import type { FactIdentity } from "#compiler/scalar/values/identity.ts"
 import type { ParamMap } from "#compiler/types/core/phantom.ts"
 import {
 	type AddWinsOutcome,
@@ -12,6 +14,7 @@ import {
 	oracleState,
 	type SequenceState
 } from "#test/support/oracle/addwins.ts"
+import { identitySetOf } from "#test/support/oracle/delta.ts"
 import { elementAt, entryOf } from "#test/support/oracle/pick.ts"
 import {
 	evaluateSource,
@@ -119,7 +122,7 @@ export type Expected =
  */
 export interface GeneratedDraws {
 	readonly fields: ReadonlyArray<{ readonly field: string; readonly before: SequenceState }>
-	readonly generated: ReadonlySet<string>
+	readonly generated: ReadonlyTupleSet<FactIdentity>
 }
 
 /**
@@ -667,7 +670,7 @@ const generatedDraws = (
 				field: col.name,
 				before: entryOf(sequences, `${target.name}.${col.name}`, "the sequences")
 			})),
-			generated: outcome.generated.get(target.name) ?? new Set()
+			generated: outcome.generated.get(target.name) ?? identitySetOf([])
 		})
 	}
 	return out

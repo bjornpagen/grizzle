@@ -356,7 +356,7 @@ export const armSwitchSuite = (): void => {
 											}
 											if (kind === "automatic") {
 												assert.ok(outcome.kind === "invariant-rejected", outcome.kind)
-												assert.deepEqual(outcome.laws, [names.described(automaticArm)])
+												assert.deepEqual(outcome.refused.laws, [names.described(automaticArm)])
 												assert.deepEqual(outcome.witness, { kind: "unreported" })
 												unchanged()
 												c.note(`${w.form} ${kind} rejected`)
@@ -398,7 +398,7 @@ export const armSwitchSuite = (): void => {
 												return
 											}
 											assert.ok(outcome.kind === "invariant-rejected", outcome.kind)
-											assert.deepEqual(outcome.laws, [
+											assert.deepEqual(outcome.refused.laws, [
 												{
 													kind: "primaryKey",
 													relation: "ManualTask",

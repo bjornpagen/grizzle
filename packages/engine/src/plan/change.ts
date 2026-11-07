@@ -10,6 +10,7 @@ export type {
 	ChangeSet,
 	Law,
 	PlannedStrata,
+	Refused,
 	Strata,
 	Witness,
 	WritesOf
@@ -48,7 +49,9 @@ export {
 	witnessDecoder
 } from "#compiler/write/program/outcome.ts"
 export {
-	hostWitness,
+	type HostJudgement,
+	hostJudgement,
+	type RefusedLaws,
 	type Refuser,
 	type StatementAt,
 	statementRelations

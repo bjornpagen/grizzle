@@ -144,7 +144,7 @@ const closedKey = (source: NodeOf<"Closed">, fields: ReadonlyArray<string>): boo
 	if (positions.some((at) => at < 0)) {
 		return false
 	}
-	const tuples = new TupleMap<EqualityKey, ReadonlyArray<TypedLiteral>>()
+	const tuples = new TupleMap<ReadonlyArray<EqualityKey>, ReadonlyArray<TypedLiteral>>()
 	for (const row of source.rows) {
 		tuples.set(
 			positions.map((at) => nativeEqualityKey(closedCell(row, at))),

@@ -22,7 +22,14 @@ import { guarded, typedTermOf } from "#compiler/scalar/compute/term.ts"
 import { meets } from "#compiler/scalar/compute/types.ts"
 import { carrierSql } from "#compiler/scalar/registry.ts"
 import { generatedField } from "#compiler/schema/relation.ts"
-import { AsTyped, Cell, Cells, Heads, Tone } from "#test/support/agreement/compute-schema.ts"
+import {
+	AsTyped,
+	Cell,
+	Cells,
+	Heads,
+	Tone,
+	Tuning
+} from "#test/support/agreement/compute-schema.ts"
 import { compileTemplate, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { messageOf } from "#test/support/message.ts"
 
@@ -30,7 +37,8 @@ import { messageOf } from "#test/support/message.ts"
  * The Compute population: terms, predicates, aggregates and host values drawn over one relation of every carrier
  * (Cell, ./compute-schema.ts), each read twice, as TypeScript source for one program the type tier checks and through
  * the engine's JavaScript view (computeCore, the query builder, compileTemplate), which builds and compiles it as the
- * runtime does.
+ * runtime does. A byte guard's case and a closed read's case stand in a generated field of a schema of their own, a
+ * closed read under arithmetic, Compute.within and a cast where it stands (a query's head delivers none).
  * The engine is the oracle:
  *
  * - a case typechecks exactly when the engine builds and compiles it: a refused case stands under a directive, which the
@@ -220,6 +228,7 @@ const computeFeatures = [
 	"parts member",
 	"literal first",
 	"byte guard",
+	"closed read",
 	"lexical form",
 	"foreign operand",
 	...otherKinds
@@ -459,9 +468,54 @@ type CaseSpec =
 			readonly target: number
 			readonly guard: ByteGuard
 	  }
+	| {
+			readonly kind: "closed"
+			readonly value: TunedValue
+			readonly to: TunedTarget
+			readonly guard: TunedGuard
+	  }
 
 /** A text field of Cell a byte guard's case reads. */
 type TextField = (typeof families.text)[number]
+
+/**
+ * The fields of Cell Tuning (./compute-schema.ts) holds a payload of at each tone, of one type each: its integers, its
+ * numeric and the contracts over an integer, one that declares nonnegative and one nonzero.
+ */
+const tunedFields = ["small", "int", "big", "dec", "cents", "divisor"] as const
+type TunedField = (typeof tunedFields)[number]
+
+/** The fields a closed read's case casts into: the integers, which narrow, and the numeric, which bounds digits. */
+const tunedTargets = ["small", "int", "big", "dec"] as const
+type TunedTarget = (typeof tunedTargets)[number]
+
+/** An operand of a closed read's case: a field of the row, or Tuning's payload of that field at the row's tone. */
+interface TunedOperand {
+	readonly read: "field" | "closed"
+	readonly field: TunedField
+}
+
+/**
+ * The value a closed read's case casts, which reads Tuning once at least: an operand, its negation or magnitude, or
+ * two operands' sum, difference, product or quotient.
+ */
+type TunedValue =
+	| { readonly kind: "operand"; readonly x: TunedOperand }
+	| { readonly kind: "unary"; readonly fn: "neg" | "abs"; readonly x: TunedOperand }
+	| {
+			readonly kind: "binary"
+			readonly fn: "add" | "sub" | "mul" | "div"
+			readonly a: TunedOperand
+			readonly b: TunedOperand
+	  }
+
+/**
+ * What stands around a closed read's cast: Compute.within over its value, whose branch casts the guarded value, or
+ * nothing.
+ */
+type TunedGuard =
+	| { readonly kind: "within"; readonly low: bigint; readonly high: bigint }
+	| { readonly kind: "none" }
 
 /**
  * What stands around a byte guard case's cast into a str.bytes target: the one byte guard,
@@ -1517,6 +1571,7 @@ type Root =
 	| { readonly kind: "value"; readonly root: ValueCtor }
 	| { readonly kind: "member"; readonly root: MemberFeature }
 	| { readonly kind: "bytes"; readonly root: "byte guard" }
+	| { readonly kind: "closed"; readonly root: "closed read" }
 	| { readonly kind: "lexical"; readonly root: "lexical form" }
 
 /**
@@ -1530,6 +1585,7 @@ const roots: Arr.NonEmptyReadonlyArray<Root> = [
 	...Arr.map(values, (root): Root => ({ kind: "value", root })),
 	...Arr.map(memberFeatures, (root): Root => ({ kind: "member", root })),
 	{ kind: "bytes", root: "byte guard" },
+	{ kind: "closed", root: "closed read" },
 	{ kind: "lexical", root: "lexical form" }
 ]
 
@@ -1551,6 +1607,8 @@ const caseAt = (d: Drawing, root: Root): CaseSpec => {
 			return { kind: "value", ctor: root.root, lit: d.from(lits) }
 		case "bytes":
 			return bytesOf(d)
+		case "closed":
+			return closedOf(d)
 		case "lexical":
 			return { kind: "lexical", field: d.from(allFields) }
 		case "member": {
@@ -1626,6 +1684,184 @@ const bytesSchema = (spec: Extract<CaseSpec, { readonly kind: "bytes" }>): unkno
 	)
 }
 
+/**
+ * A cast of a value over Tuning's payload at the row's tone into an integer or the numeric, a generated field's term,
+ * where a closed read stands, under Compute.within half the time. The value reads Tuning once at least, the other
+ * operand of a sum, difference, product or quotient its own field three times in four, read off the row or Tuning; the
+ * bounds are a dictionary of ranges an integer's and a product's values meet or pass.
+ */
+const closedOf = (d: Drawing): CaseSpec => {
+	const field = d.from(tunedFields)
+	const read: TunedOperand = { read: "closed", field }
+	const other = (): TunedOperand => ({
+		read: d.from(["field", "closed"] as const),
+		field: d.from([0, 1, 2, 3]) < 3 ? field : d.from(tunedFields)
+	})
+	const value = ((): TunedValue => {
+		switch (d.from(["operand", "unary", "binary", "binary", "binary"] as const)) {
+			case "operand":
+				return { kind: "operand", x: read }
+			case "unary":
+				return { kind: "unary", fn: d.from(["neg", "abs"] as const), x: read }
+			case "binary": {
+				const b = other()
+				const [x, y] = d.from([0, 1]) === 0 ? [read, b] : [b, read]
+				return { kind: "binary", fn: d.from(["add", "sub", "mul", "div"] as const), a: x, b: y }
+			}
+		}
+	})()
+	const [low, high] = d.from(
+		plainInteger(value) ? integerRanges : [...integerRanges, [-(10n ** 15n), 10n ** 15n] as const]
+	)
+	return {
+		kind: "closed",
+		value,
+		to: d.from(tunedTargets),
+		guard: d.from([0, 1]) === 0 ? { kind: "within", low, high } : { kind: "none" }
+	}
+}
+
+/** The ranges a closed read's guard bounds its value by that a smallint's values meet or pass. */
+const integerRanges: Arr.NonEmptyReadonlyArray<readonly [bigint, bigint]> = [
+	[-1000n, 1000n],
+	[0n, 9n],
+	[-32768n, 32767n]
+]
+
+/**
+ * Whether a closed read's value is a smallint's or an integer's own, which a JavaScript number bounds; every other
+ * value, a bigint, an exact integer or a numeric, a bigint bounds.
+ */
+const plainInteger = (v: TunedValue): boolean =>
+	v.kind === "operand" && (v.x.field === "small" || v.x.field === "int" || v.x.field === "divisor")
+
+/** A bound of a closed read's guard, as the program spells it and as the engine reads it, of its value's host type. */
+const tunedBound = (v: TunedValue, n: bigint): Lit =>
+	plainInteger(v) ? { text: `${n}`, value: Number(n) } : { text: `${n}n`, value: n }
+
+/**
+ * The programs that a closed read standing without bounds refused, a product within a range cast into an integer and
+ * a sum cast into a bigint: every run holds them.
+ */
+const closedKept: ReadonlyArray<Extract<CaseSpec, { readonly kind: "closed" }>> = [
+	{
+		kind: "closed",
+		value: {
+			kind: "binary",
+			fn: "mul",
+			a: { read: "field", field: "int" },
+			b: { read: "closed", field: "int" }
+		},
+		to: "int",
+		guard: { kind: "within", low: -1000n, high: 1000n }
+	},
+	{
+		kind: "closed",
+		value: {
+			kind: "binary",
+			fn: "add",
+			a: { read: "field", field: "int" },
+			b: { read: "closed", field: "int" }
+		},
+		to: "big",
+		guard: { kind: "none" }
+	}
+]
+
+/**
+ * The fields of the relation a closed read's case generates over: an id, the tone Tuning is keyed by, and each tuned
+ * field.
+ */
+const tunedRelationText = `{ id: uuid, tone: Cell.fields.tone${Arr.join(
+	Arr.map(tunedFields, (f) => `, ${f}: Cell.fields.${f}`),
+	""
+)} }`
+
+/** An operand of a closed read's case as the program spells it, over the row `cell`. */
+const tunedOperandText = (o: TunedOperand): string =>
+	o.read === "closed" ? `Tuning.at(${jsonText(o.field)}, cell.tone)` : `cell.${o.field}`
+
+/** A closed read's case's value as the program spells it. */
+const tunedValueText = (v: TunedValue): string => {
+	switch (v.kind) {
+		case "operand":
+			return tunedOperandText(v.x)
+		case "unary":
+			return `Compute.${v.fn}(${tunedOperandText(v.x)})`
+		case "binary":
+			return `Compute.${v.fn}(${tunedOperandText(v.a)}, ${tunedOperandText(v.b)})`
+	}
+}
+
+/** A closed read's case's schema: Rows, whose generated field casts its value, under its guard or not. */
+const closedSchemaText = (spec: Extract<CaseSpec, { readonly kind: "closed" }>): string => {
+	const cast = (x: string): string => `Compute.cast(${x}, Cell.fields.${spec.to})`
+	const value = tunedValueText(spec.value)
+	const term =
+		spec.guard.kind === "within"
+			? `Compute.when(Compute.within(${value}, ${tunedBound(spec.value, spec.guard.low).text}, ${tunedBound(spec.value, spec.guard.high).text}), (g) => ${cast("g")}, cell.${spec.to})`
+			: cast(value)
+	return `schema("Tuned", { Tone, Tuning, Rows: relation.generated("Rows", ${tunedRelationText}, ["id"], (cell) => ({ out: generated(Cell.fields.${spec.to}, ${term}) })) }, [])`
+}
+
+/**
+ * The engine's reading of a closed read's case: the same schema, built by the public constructors and Compute's core.
+ */
+const closedSchema = (spec: Extract<CaseSpec, { readonly kind: "closed" }>): unknown => {
+	const guard = spec.guard
+	const target = Cell.fields[spec.to]
+	return schema(
+		"Tuned",
+		{
+			Tone,
+			Tuning,
+			Rows: relation.generated(
+				"Rows",
+				{
+					id: uuid,
+					tone: Cell.fields.tone,
+					small: Cell.fields.small,
+					int: Cell.fields.int,
+					big: Cell.fields.big,
+					dec: Cell.fields.dec,
+					cents: Cell.fields.cents,
+					divisor: Cell.fields.divisor
+				},
+				["id"],
+				(cell) => {
+					const operand = (o: TunedOperand): unknown =>
+						o.read === "closed" ? Tuning.at(o.field, cell.tone) : cell[o.field]
+					const v = spec.value
+					const value =
+						v.kind === "operand"
+							? operand(v.x)
+							: v.kind === "unary"
+								? applied(v.fn, [operand(v.x)])
+								: applied(v.fn, [operand(v.a), operand(v.b)])
+					return {
+						out: generatedField(
+							target,
+							guard.kind === "within"
+								? computeCore.when(
+										computeCore.within(
+											value,
+											tunedBound(v, guard.low).value,
+											tunedBound(v, guard.high).value
+										),
+										(g: unknown) => computeCore.cast(g, target),
+										cell[spec.to]
+									)
+								: computeCore.cast(value, target),
+							[]
+						)
+					}
+				}
+			)
+		},
+		[]
+	)
+}
+
 /** One case: its kind under the swarm, then its parts. */
 const caseOver = (d: Drawing): CaseSpec => {
 	switch (
@@ -1639,6 +1875,7 @@ const caseOver = (d: Drawing): CaseSpec => {
 			"value",
 			"member",
 			"bytes",
+			"closed",
 			"lexical"
 		] as const)
 	) {
@@ -1654,6 +1891,8 @@ const caseOver = (d: Drawing): CaseSpec => {
 			return caseAt(d, { kind: "member", root: d.choose(memberFeatures) })
 		case "bytes":
 			return caseAt(d, { kind: "bytes", root: "byte guard" })
+		case "closed":
+			return caseAt(d, { kind: "closed", root: "closed read" })
 		case "lexical":
 			return caseAt(d, { kind: "lexical", root: "lexical form" })
 	}
@@ -1971,6 +2210,7 @@ type Imported =
 	| "DomainOf"
 	| "lexicalForm"
 	| "bytes"
+	| "closed"
 	| "widened"
 	| "Bits"
 	| "Decimal"
@@ -2366,8 +2606,11 @@ const engineVerdict = (
 				? decidedOr(form.failure, undefined, code)
 				: { kind: "admitted", admitted: { term: undefined, out: undefined, params: [] } }
 		}
-		case "bytes": {
-			const compiled = Result.try(() => testArtifacts(bytesSchema(spec), testCompile))
+		case "bytes":
+		case "closed": {
+			const compiled = Result.try(() =>
+				testArtifacts(spec.kind === "bytes" ? bytesSchema(spec) : closedSchema(spec), testCompile)
+			)
 			if (Result.isFailure(compiled)) {
 				return decidedOr(compiled.failure, undefined, code)
 			}
@@ -2840,6 +3083,7 @@ const standInsOf = (
 			case "value":
 			case "member":
 			case "bytes":
+			case "closed":
 			case "lexical":
 				return spec
 		}
@@ -2928,6 +3172,7 @@ const operandsOf = (spec: CaseSpec): ReadonlyArray<Operand> => {
 		case "value":
 		case "member":
 		case "bytes":
+		case "closed":
 		case "lexical":
 			return []
 	}
@@ -3022,6 +3267,9 @@ const caseOf = ({ spec, reached }: Drawn): ComputeCase => {
 	if (spec.kind === "bytes") {
 		uses.add("bytes")
 	}
+	if (spec.kind === "closed") {
+		uses.add("closed")
+	}
 	if (Str.includes(widened.text)(expression)) {
 		uses.add("widened")
 	}
@@ -3057,6 +3305,8 @@ const expressionOf = (rendering: Rendering, spec: CaseSpec): string => {
 			return `${spec.ctor}(${spec.lit.text})`
 		case "bytes":
 			return bytesSchemaText(spec)
+		case "closed":
+			return closedSchemaText(spec)
 		case "lexical":
 			return `lexicalForm(Cell.fields.${spec.field})`
 		case "member":
@@ -3136,6 +3386,7 @@ export const computeWitnesses = () =>
 
 /** Every case the program holds: the floor's witnesses, then the label's stream under the run's seed. */
 const computeCases = (seed: number): ReadonlyArray<ComputeCase> => [
+	...Arr.map(closedKept, (spec) => caseOf({ spec, reached: new Set(["closed read"]) })),
 	...Arr.flatMap(computeWitnesses(), (stratum) => stratum.values),
 	...sample(caseGen(Option.none()), rotatingSeed(seed, floorSeed(computeLabel)), computeCount)
 ]
@@ -3235,6 +3486,7 @@ const blockOf = (c: ComputeCase, i: number): string => {
 				"\n"
 			)
 		case "bytes":
+		case "closed":
 		case "lexical":
 			return Arr.join([`export const t${i} = () =>`, ...directive, `\t${c.expression}`, ""], "\n")
 		case "term":
@@ -3339,13 +3591,13 @@ export const computeModules = (
 					...(Arr.isReadonlyArrayNonEmpty(textImportNames(uses))
 						? [`import { ${Arr.join(textImportNames(uses), ", ")} } from ${jsonText(entries.text)}`]
 						: []),
-					...(uses.has("bytes")
+					...(uses.has("bytes") || uses.has("closed")
 						? [
 								`import { relation, schema } from ${jsonText(entries.schema)}`,
 								`import { generated, uuid } from ${jsonText(entries.fields)}`
 							]
 						: []),
-					`import { Cell, Cells, Heads${uses.has("Bits") ? ", Tone" : ""} } from ${jsonText(entries.agreement)}`,
+					`import { Cell, Cells, Heads${uses.has("Bits") || uses.has("closed") ? ", Tone" : ""}${uses.has("closed") ? ", Tuning" : ""} } from ${jsonText(entries.agreement)}`,
 					"",
 					"type Equals<A, B> = (<X>() => X extends A ? 1 : 2) extends <X>() => X extends B ? 1 : 2 ? true : false",
 					"type Expect<T extends true> = T",

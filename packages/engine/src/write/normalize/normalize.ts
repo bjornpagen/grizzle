@@ -7,8 +7,8 @@ import type { LawId, ParamId } from "#compiler/core/ids.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
-import { compareCodePoints, compareTextTuples } from "#compiler/core/text.ts"
-import { TupleMap } from "#compiler/core/tuple-map.ts"
+import { compareTextTuples } from "#compiler/core/text.ts"
+import { type ReadonlyTupleMap, TupleMap } from "#compiler/core/tuple-map.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import { type CalendarDate, dayNumber } from "#compiler/ir/date.ts"
 import type { LawField } from "#compiler/ir/law.ts"
@@ -20,10 +20,13 @@ import {
 	admittedText,
 	type Carrier,
 	type CarrierHost,
-	type CarrierSpec
+	type CarrierSpec,
+	compareFactIdentities,
+	type FactIdentity
 } from "#compiler/scalar/values/identity.ts"
 import type { Span } from "#compiler/scalar/values/span.ts"
 import type { KeyHost, Law } from "#compiler/types/changeset/changeset.ts"
+import type { MemberKey } from "#compiler/write/family/draw.ts"
 import {
 	type NestedFact,
 	type NestedRow,
@@ -59,9 +62,11 @@ export const refilledSlot = (
 	slot: NormalizedSlot,
 	facts: (fact: { readonly [field: string]: unknown }) => { readonly [field: string]: unknown }
 ): NormalizedSlot => {
-	const normal = slot.slot.normalForm(
-		new Map(slot.entries.map((e) => [e.identity, { fact: Object.freeze(facts(e.fact)) }] as const))
-	)
+	const refilled = new TupleMap<FactIdentity, { readonly fact: Fact }>()
+	for (const e of slot.entries) {
+		refilled.set(e.identity, { fact: Object.freeze(facts(e.fact)) })
+	}
+	const normal = slot.slot.normalForm(refilled)
 	return Object.freeze({ ...keyNormalized(normal), slot: slot.slot, count: normal.facts.length })
 }
 
@@ -83,7 +88,7 @@ export interface Normalized {
 	readonly slots: ReadonlyMap<ParamId, NormalizedSlot>
 	/** Each stratum's nested rows, by reached member relation, a set by key (nesting.ts NestedSet), in the order they
 	 * are inserted. */
-	readonly nested: ReadonlyMap<number, ReadonlyMap<string, ReadonlyMap<string, NestedRow>>>
+	readonly nested: ReadonlyMap<number, ReadonlyMap<string, ReadonlyTupleMap<MemberKey, NestedRow>>>
 }
 
 export type Normalization = Normalized | KeyRefusal
@@ -103,8 +108,8 @@ interface Entry<I> {
 	readonly fact: Fact
 }
 
-/** An admitted fact, its identity the codec's (codec/recordset.ts), one text. */
-type FactEntry = Entry<string>
+/** An admitted fact, its identity the codec's (codec/recordset.ts): each field's canonical text in field-name order. */
+type FactEntry = Entry<FactIdentity>
 
 /** A nested row, its identity its filled columns' texts (write/family/nesting.ts NestedRow). */
 type RowEntry = Entry<ReadonlyArray<string>>
@@ -171,7 +176,10 @@ const routed = (
 }
 
 /** Each admitted entry of `entries` into `set`, the first of each identity kept. */
-const collect = (set: Map<string, FactEntry>, entries: ReadonlyArray<FactEntry>): void => {
+const collect = (
+	set: TupleMap<FactIdentity, FactEntry>,
+	entries: ReadonlyArray<FactEntry>
+): void => {
 	for (const e of entries) {
 		if (!set.has(e.identity)) {
 			set.set(e.identity, e)
@@ -358,7 +366,7 @@ const keyConflictIn = <I>(
 	for (const key of facts.host.keys) {
 		const { fields } = key
 		const keyTexts = keyTextsOf(fields)
-		const seen = new TupleMap<string, Entry<I>>()
+		const seen = new TupleMap<ReadonlyArray<string>, Entry<I>>()
 		for (const e of onKey(key)) {
 			const k = keyTexts(e.fact)
 			const prior = seen.get(k)
@@ -398,7 +406,7 @@ const sameKey = <I>(
 			? complete
 			: [...complete, ...generated]
 		const groups = new TupleMap<
-			string,
+			ReadonlyArray<string>,
 			Array<{ readonly entry: Entry<I>; readonly span: HostSpan }>
 		>()
 		for (const e of onKey) {
@@ -485,11 +493,14 @@ export const normalizeChangeSet = (
 	const nested = new Map<number, NestedSet>()
 	const reached = new Map<number, Map<string, SlotFacts>>()
 	for (const { stratum, facts: relation, inputs: enumerated } of frontend.slots) {
-		const sets: Record<"insert" | "generated" | "put" | "delete", Map<string, FactEntry>> = {
-			insert: new Map(),
-			generated: new Map(),
-			put: new Map(),
-			delete: new Map()
+		const sets: Record<
+			"insert" | "generated" | "put" | "delete",
+			TupleMap<FactIdentity, FactEntry>
+		> = {
+			insert: new TupleMap(),
+			generated: new TupleMap(),
+			put: new TupleMap(),
+			delete: new TupleMap()
 		}
 		const slotOf = new Map<keyof typeof sets, MemberSlot>()
 		/** The serial fields of the group's classed input, which exclude its generated facts from the keys that read
@@ -589,13 +600,13 @@ export const normalizeChangeSet = (
 			sameKey(
 				stratum,
 				relation,
-				compareCodePoints,
+				compareFactIdentities,
 				serial,
-				sorted(compareCodePoints, [...sets.put.values(), ...sets.insert.values()]),
-				sorted(compareCodePoints, sets.generated.values())
+				sorted(compareFactIdentities, [...sets.put.values(), ...sets.insert.values()]),
+				sorted(compareFactIdentities, sets.generated.values())
 			) ??
-			keyConflictIn(stratum, relation, compareCodePoints, (key) =>
-				key.stated ? sorted(compareCodePoints, sets.delete.values()) : []
+			keyConflictIn(stratum, relation, compareFactIdentities, (key) =>
+				key.stated ? sorted(compareFactIdentities, sets.delete.values()) : []
 			)
 		if (refused !== undefined) {
 			return Result.ok(refused)
@@ -615,7 +626,7 @@ export const normalizeChangeSet = (
 	}
 	/** Each stratum's nested rows by relation, judged as the stratum's additions of that relation (step 3): a row its
 	 * set holds once at its key may still share another declared key with another row. */
-	const rows = new Map<number, ReadonlyMap<string, ReadonlyMap<string, NestedRow>>>()
+	const rows = new Map<number, ReadonlyMap<string, ReadonlyTupleMap<MemberKey, NestedRow>>>()
 	for (const [stratum, set] of nested) {
 		const factsOf = (name: string): SlotFacts =>
 			defined(

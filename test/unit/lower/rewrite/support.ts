@@ -16,7 +16,7 @@ import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { conservativeInput, type ConservativeProgram } from "#compiler/lower/conservative/types.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { ownedFixture } from "#test/support/evidence.ts"
-import type { Identity } from "#test/support/kernel/identity.ts"
+import type { ValueIdentity } from "#test/support/kernel/identity.ts"
 import { standInNames } from "#test/support/kernel/naming.ts"
 import { validateDag } from "#test/support/oracle/dag-validate.ts"
 import type { QueryCase } from "#test/support/oracle/gen/case.ts"
@@ -118,7 +118,7 @@ const rowEquivalence =
 			: Option.some("a row has no natively equal row")
 
 /** An identity's hash, atom by atom, so equal identities hash alike. */
-const identityHash = (identity: Identity): number =>
+const identityHash = (identity: ValueIdentity): number =>
 	Arr.reduce(identity, Hash.number(identity.length), (hash, atom) =>
 		Hash.combine(hash, Hash.hash(atom))
 	)

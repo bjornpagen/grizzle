@@ -101,7 +101,7 @@ type Applied = ApplyOutcome<Readonly<Record<string, never>>>
 /** The refusal by `law` alone, as the installation describes it, with `witness`: no law of Clubs merges into another. */
 const refusedBy = (at: Installed, law: LawId, witness: Witness): Applied => ({
 	kind: "invariant-rejected",
-	laws: [namesOf(at).described(law)],
+	refused: { kind: "every", laws: [namesOf(at).described(law)] },
 	witness
 })
 

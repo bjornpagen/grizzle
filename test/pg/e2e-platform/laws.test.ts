@@ -149,7 +149,7 @@ const decided = (outcome: ApplyOutcome<unknown>): Decided => {
 		case "invariant-rejected":
 			return {
 				kind: outcome.kind,
-				laws: Arr.map(outcome.laws, (law) => platformNames.reported(law))
+				laws: Arr.map(outcome.refused.laws, (law) => platformNames.reported(law))
 			}
 		case "outside-world":
 			return { kind: outcome.kind, relation: outcome.relation }

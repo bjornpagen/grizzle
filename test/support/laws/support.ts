@@ -187,7 +187,7 @@ const partlyMet = (state: HostState, law: HostLaw, key: WitnessKey): boolean =>
  * as several, a restated containment), the states before the step and after it, and the key its witness names, a key's
  * alone: every other law is a native constraint whose violation names no fact.
  */
-export interface Refused {
+export interface HostRefusal {
 	readonly laws: Arr.NonEmptyReadonlyArray<HostLaw>
 	readonly before: HostState
 	readonly after: HostState
@@ -201,13 +201,13 @@ export interface Refused {
 export interface LawShape {
 	readonly feature: string
 	readonly declares: (law: HostLaw, host: HostSchema) => boolean
-	readonly shows: (r: Refused, law: HostLaw, host: HostSchema) => boolean
+	readonly shows: (r: HostRefusal, law: HostLaw, host: HostSchema) => boolean
 }
 
 const always = (): boolean => true
 
 /** Whether a step wrote a relation: its facts after differ from its facts before. */
-const wrote = (r: Refused, relation: string): boolean => {
+const wrote = (r: HostRefusal, relation: string): boolean => {
 	const before = r.before.get(relation) ?? []
 	const after = r.after.get(relation) ?? []
 	return (
@@ -219,7 +219,7 @@ const wrote = (r: Refused, relation: string): boolean => {
 /** The side of a containment from a selected source, its source or its target, a refused step wrote alone. */
 const wroteAlone =
 	(side: "source" | "target") =>
-	(r: Refused, law: HostLaw): boolean =>
+	(r: HostRefusal, law: HostLaw): boolean =>
 		isSelectedContainment(law) &&
 		(side === "source"
 			? wrote(r, law.source.relation) && !wrote(r, law.target.relation)
@@ -229,7 +229,7 @@ const wroteAlone =
  * Whether a source fact the containment selects after the step stood under the same key outside its selection: its law
  * column went from NULL to its value.
  */
-const switchedIn = (r: Refused, law: HostLaw, host: HostSchema): boolean => {
+const switchedIn = (r: HostRefusal, law: HostLaw, host: HostSchema): boolean => {
 	if (!isSelectedContainment(law)) {
 		return false
 	}
@@ -246,7 +246,7 @@ const switchedIn = (r: Refused, law: HostLaw, host: HostSchema): boolean => {
 }
 
 /** Whether a target fact kept its key and moved: its fields the containment pairs changed. */
-const targetMoved = (r: Refused, law: HostLaw, host: HostSchema): boolean => {
+const targetMoved = (r: HostRefusal, law: HostLaw, host: HostSchema): boolean => {
 	if (!isSelectedContainment(law)) {
 		return false
 	}
@@ -289,7 +289,7 @@ export const lawShapes = [
 	{
 		feature: "refused by a candidate span key over unequal spans",
 		declares: (law: HostLaw, host: HostSchema) => isCandidateSpanKey(host, law),
-		shows: (r: Refused, law: HostLaw) => overlapsUnequally(r.after, law)
+		shows: (r: HostRefusal, law: HostLaw) => overlapsUnequally(r.after, law)
 	},
 	{
 		feature: "refused by a selected containment after a write of its sources alone",
@@ -314,7 +314,10 @@ export const lawShapes = [
 ] as const satisfies ReadonlyArray<LawShape>
 
 /** What a refusal notes: the one rule its case notes by and a planted case is found by (plantedRefusal). */
-export const refusalFeatures = (host: HostSchema, r: Refused): ReadonlyArray<RefusalFeature> => {
+export const refusalFeatures = (
+	host: HostSchema,
+	r: HostRefusal
+): ReadonlyArray<RefusalFeature> => {
 	const [law] = r.laws
 	const kind: RefusalFeature = `refused by a ${law.kind}`
 	const shown = Arr.map(
@@ -1253,7 +1256,7 @@ interface PlantedSteps {
  * name (once naming none, for a native violation).
  */
 export interface PlantedCase extends PlantedSteps {
-	readonly refusals: Arr.NonEmptyReadonlyArray<Refused>
+	readonly refusals: Arr.NonEmptyReadonlyArray<HostRefusal>
 }
 
 /** Every ordered pair of the facts a law's source side may hold. */
@@ -1284,7 +1287,7 @@ const fromOf = (law: HostLaw): string => defined(needs(law)[0], `${law.law}'s ne
 export const plantedRefusal = (
 	host: HostSchema,
 	domains: Domains,
-	reaches: (r: Refused) => boolean
+	reaches: (r: HostRefusal) => boolean
 ): PlantedCase | undefined => {
 	const accepted = (steps: CaseSketch): HostState | undefined => {
 		let state = emptyState(host)
@@ -1300,7 +1303,7 @@ export const plantedRefusal = (
 	const refusals = (
 		before: HostState,
 		step: StepSketch
-	): Arr.NonEmptyReadonlyArray<Refused> | undefined => {
+	): Arr.NonEmptyReadonlyArray<HostRefusal> | undefined => {
 		const ops = resolveStep(host, domains, before, step)
 		const e = expect(host, before, ops)
 		if (e.kind !== "invariant-rejected") {
@@ -1315,14 +1318,14 @@ export const plantedRefusal = (
 			return undefined
 		}
 		const after = transition(host, before, ops)
-		const refusal = (witness: WitnessKey | undefined): Refused => ({
+		const refusal = (witness: WitnessKey | undefined): HostRefusal => ({
 			laws: laws.success,
 			before,
 			after,
 			witness
 		})
 		const [named, ...rest] = only.violators
-		const each: Arr.NonEmptyReadonlyArray<Refused> =
+		const each: Arr.NonEmptyReadonlyArray<HostRefusal> =
 			named === undefined ? [refusal(undefined)] : [refusal(named), ...Arr.map(rest, refusal)]
 		return Arr.every(each, reaches) ? each : undefined
 	}
@@ -1569,7 +1572,7 @@ const mismatch = (
 	if (outcome.kind !== "invariant-rejected") {
 		return `expected a refusal by one of ${Formatter.format(Arr.map(expected.violations, (v) => v.law))}, got ${Formatter.format(outcome)}`
 	}
-	const laws = Arr.map(outcome.laws, session.reported)
+	const laws = Arr.map(outcome.refused.laws, session.reported)
 	const violation = Arr.findFirst(expected.violations, (v) => laws.includes(v.law))
 	if (Option.isNone(violation)) {
 		return `refused by ${Arr.join(laws, ", ")}, none of which the final state violates; violated: ${Formatter.format(expected.violations)}`
@@ -1625,7 +1628,7 @@ const outcomeFeatures = (
 			const after = transition(host, state, ops)
 			const violated = Arr.map(violations(host, after), (v) => v.law)
 			return Result.map(
-				refusingLaws(host, Arr.map(outcome.laws, session.reported), violated),
+				refusingLaws(host, Arr.map(outcome.refused.laws, session.reported), violated),
 				(laws) =>
 					refusalFeatures(host, {
 						laws,

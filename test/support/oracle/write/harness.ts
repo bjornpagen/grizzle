@@ -16,7 +16,8 @@ import { type InputFailure, hostInputs } from "#adapter/apply/run.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import { type CompileError, EncodingFailure } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
-import { factIdentity } from "#compiler/scalar/values/identity.ts"
+import { type ReadonlyTupleSet, TupleMap } from "#compiler/core/tuple-map.ts"
+import { type FactIdentity, factIdentity } from "#compiler/scalar/values/identity.ts"
 import type { ParamMap } from "#compiler/types/core/phantom.ts"
 import type { PutChoice } from "#compiler/write/put/choose.ts"
 import type { AmbientFeature } from "#test/support/ambient.ts"
@@ -28,6 +29,7 @@ import {
 	type OracleState,
 	type SequenceState
 } from "#test/support/oracle/addwins.ts"
+import { type FactSet, factSetOf, identitySetOf } from "#test/support/oracle/delta.ts"
 import { CurrentRestorage } from "#test/support/oracle/gen/restorage.ts"
 import {
 	complementOf,
@@ -279,7 +281,7 @@ export type WriteOracleFeature =
 	| "facts reordered on a second reading"
 	| "a fact respelled on a second reading"
 
-const identityOf = (group: WGroup, relation: string, fact: unknown): string => {
+const identityOf = (group: WGroup, relation: string, fact: unknown): FactIdentity => {
 	const r = relationIn(group, relation)
 	const admitted = factIdentity(
 		Arr.map(r.columns, (c) => ({ name: c.name, spec: typeInfo[c.kind].spec })),
@@ -297,8 +299,10 @@ const identityOf = (group: WGroup, relation: string, fact: unknown): string => {
 const printSet = (facts: Iterable<Fact>): string =>
 	`[${Arr.join(Arr.map([...facts], printFact), ", ")}]`
 
-const sameIdentities = (a: ReadonlySet<string>, b: ReadonlySet<string>): boolean =>
-	a.size === b.size && Arr.every([...a], (x) => b.has(x))
+const sameIdentities = (
+	a: ReadonlyTupleSet<FactIdentity>,
+	b: ReadonlyTupleSet<FactIdentity>
+): boolean => a.size === b.size && Arr.every([...a], (x) => b.has(x))
 
 const printOutcome = (o: Result.Result<WriteOutcome, unknown>): string => {
 	if (Result.isFailure(o)) {
@@ -339,7 +343,7 @@ const printOutcome = (o: Result.Result<WriteOutcome, unknown>): string => {
  * A pairing of the oracle's generated facts with the committed ones (see the header): for each relation the change
  * generates into, the oracle's generated fact identity to the committed fact it is renamed to.
  */
-type Renaming = ReadonlyMap<string, ReadonlyMap<string, Fact>>
+type Renaming = ReadonlyMap<string, FactSet>
 
 /** The pairing where nothing is renamed: an outcome the change applied none of. */
 const noRenaming: Renaming = new Map()
@@ -360,11 +364,11 @@ interface Paired {
 const pairByFields = (
 	r: WRelation,
 	others: ReadonlyArray<string>,
-	expected: ReadonlyArray<readonly [string, Fact]>,
+	expected: ReadonlyArray<readonly [FactIdentity, Fact]>,
 	committed: ReadonlyArray<Fact>
-): { readonly pairs: ReadonlyMap<string, Fact>; readonly unpaired: number } => {
+): { readonly pairs: FactSet; readonly unpaired: number } => {
 	const pool = [...committed]
-	const pairs = new Map<string, Fact>()
+	const pairs = new TupleMap<FactIdentity, Fact>()
 	for (const [id, fact] of expected) {
 		const i = Arr.findFirstIndex(pool, (f) => keyOf(r, others, f) === keyOf(r, others, fact))
 		if (Option.isSome(i)) {
@@ -382,7 +386,7 @@ const pairGenerated = (
 	got: GroupState
 ): Paired => {
 	const problems: Array<string> = []
-	const out = new Map<string, ReadonlyMap<string, Fact>>()
+	const out = new Map<string, FactSet>()
 	for (const [relation, d] of draws) {
 		const r = relationIn(group, relation)
 		const serial = new Set(Arr.map(d.fields, (f) => f.field))
@@ -390,19 +394,16 @@ const pairGenerated = (
 			Arr.filter(r.columns, (c) => !serial.has(c.name)),
 			(c) => c.name
 		)
-		const wanted = [...(want.relations.get(relation) ?? new Map<string, Fact>())]
+		const wanted = [...(want.relations.get(relation) ?? factSetOf([]))]
 		const expected = Arr.filter(wanted, ([id]) => d.generated.has(id))
-		const plain = new Set(
+		const plain = identitySetOf(
 			Arr.map(
 				Arr.filter(wanted, ([id]) => !d.generated.has(id)),
 				([id]) => id
 			)
 		)
 		const committed = Arr.map(
-			Arr.filter(
-				[...(got.relations.get(relation) ?? new Map<string, Fact>())],
-				([id]) => !plain.has(id)
-			),
+			Arr.filter([...(got.relations.get(relation) ?? factSetOf([]))], ([id]) => !plain.has(id)),
 			([, f]) => f
 		)
 		appendAll(
@@ -430,10 +431,10 @@ const renamedIdentities = (
 	group: WGroup,
 	renaming: Renaming,
 	relation: string,
-	facts: ReadonlyMap<string, Fact>
-): ReadonlySet<string> => {
+	facts: FactSet
+): ReadonlyTupleSet<FactIdentity> => {
 	const pairs = renaming.get(relation)
-	return new Set(
+	return identitySetOf(
 		Arr.map([...facts.keys()], (id) => {
 			const renamed = pairs?.get(id)
 			return renamed === undefined ? id : identityOf(group, relation, renamed)
@@ -492,13 +493,10 @@ const withoutParent = (row: Fact): Fact =>
 	Rec.fromEntries(Arr.filter(Rec.toEntries(row), ([k]) => k !== parentSlot))
 
 /** The facts a read-back defines over an applied outcome: the final state's facts of its relation, or its delta's. */
-const expectedReadFacts = (
-	want: AppliedOutcome,
-	read: WChangeSet["reads"][number]
-): ReadonlyMap<string, Fact> =>
+const expectedReadFacts = (want: AppliedOutcome, read: WChangeSet["reads"][number]): FactSet =>
 	read.source === "state"
-		? (want.state.relations.get(read.relation) ?? new Map())
-		: (want.delta.get(read.relation)?.[read.source] ?? new Map())
+		? (want.state.relations.get(read.relation) ?? factSetOf([]))
+		: (want.delta.get(read.relation)?.[read.source] ?? factSetOf([]))
 
 /** The target fact `facts` hold at a row's contained fields, by its positional key. */
 const parentOf = (
@@ -673,12 +671,12 @@ export const judgeWrite = (
 	const problems: Array<string> = []
 	const stateIs = (want: OracleState, label: string, renaming: Renaming) => {
 		for (const r of group.relations) {
-			const got = new Set(state.relations.get(r.name)?.keys() ?? [])
+			const got = identitySetOf(state.relations.get(r.name)?.keys() ?? [])
 			const exp = renamedIdentities(
 				group,
 				renaming,
 				r.name,
-				want.relations.get(r.name) ?? new Map()
+				want.relations.get(r.name) ?? factSetOf([])
 			)
 			if (!sameIdentities(got, exp)) {
 				problems.push(
@@ -751,13 +749,13 @@ export const judgeWrite = (
 		}
 		const rows = read.parent.kind === "one" ? Arr.map(delivered, withoutParent) : delivered
 		const ids = Arr.map(rows, (row) => identityOf(group, read.relation, row))
-		if (new Set(ids).size !== ids.length) {
+		if (identitySetOf(ids).size !== ids.length) {
 			problems.push(`read-back ${read.name} repeats a row: ${printSet(rows)}`)
 		}
 		const expectedFacts = expectedReadFacts(want, read)
 		if (
 			!sameIdentities(
-				new Set(ids),
+				identitySetOf(ids),
 				renamedIdentities(group, renaming, read.relation, expectedFacts)
 			)
 		) {
@@ -1418,12 +1416,16 @@ export const runCase = (
 					"lagging identical netted"
 				)
 				noteIf(
-					Arr.some(
-						generated,
-						(id) =>
-							!initial.has(id) &&
-							storedKeys.has(keyOf(r, r.primaryKey, entryOf(final, id, "the generated facts")))
-					),
+					Arr.some(generated, (id) => {
+						if (initial.has(id)) {
+							return false
+						}
+						const fact = final.get(id)
+						if (fact === undefined) {
+							throw new Error(`the generated facts hold no (${Arr.join(id, ", ")})`)
+						}
+						return storedKeys.has(keyOf(r, r.primaryKey, fact))
+					}),
 					"lagging differing"
 				)
 			}

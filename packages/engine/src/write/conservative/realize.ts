@@ -45,6 +45,7 @@ import {
 	type WriteStatement,
 	writeContext
 } from "#compiler/write/insert/statement.ts"
+import { type CarrierCasts, castsNothing } from "#compiler/write/program/artifact.ts"
 import { buildUpdateFrom, type PutStatement } from "#compiler/write/put/statement.ts"
 import { deltaSourceIn } from "#compiler/write/readback/lower.ts"
 import { breachGuard } from "#compiler/write/refusal.ts"
@@ -64,6 +65,8 @@ type ConservativeStep =
 			readonly kind: "carrier"
 			readonly statement: WriteStatement<CarrierResult>
 			readonly stratum: number | undefined
+			/** What the statement casts into a stored relation's types (CarrierCasts). */
+			readonly casts: CarrierCasts
 	  }
 	| {
 			readonly kind: "action"
@@ -122,13 +125,24 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 	const carry = (
 		carrier: WriteCarrier,
 		source: Parameters<typeof buildFillCarrier>[2],
-		stratum: number | undefined
+		stratum: number | undefined,
+		casts: CarrierCasts
 	) => {
 		steps.push(
-			Object.freeze({ kind: "carrier", statement: buildCreateCarrier(w, carrier), stratum })
+			Object.freeze({
+				kind: "carrier",
+				statement: buildCreateCarrier(w, carrier),
+				stratum,
+				casts: castsNothing
+			})
 		)
 		steps.push(
-			Object.freeze({ kind: "carrier", statement: buildFillCarrier(w, carrier, source), stratum })
+			Object.freeze({
+				kind: "carrier",
+				statement: buildFillCarrier(w, carrier, source),
+				stratum,
+				casts
+			})
 		)
 	}
 
@@ -142,7 +156,7 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 		const { relation, via } = named
 		const snapshot = relationCarrier(supply, relation)
 		const names = via.kind === "entry" ? options.names : options.reads
-		carry(snapshot, { kind: "relation", relation, names }, undefined)
+		carry(snapshot, { kind: "relation", relation, names }, undefined, castsNothing)
 		return [{ relation, snapshot, names }]
 	})
 
@@ -186,7 +200,11 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 				)
 				const heading = action.op === "delete" ? compareHeading(fields) : factHeading(fields)
 				const carrier = supply.next(heading, undefined)
-				carry(carrier, { kind: "member", node: reads.node }, s)
+				carry(carrier, { kind: "member", node: reads.node }, s, {
+					kind: "member",
+					relation: info.relation.name,
+					stratum: s
+				})
 				const input: RereadInput = { kind: "carrier", carrier, proof: unproved }
 				return { action, input }
 			}
@@ -276,9 +294,19 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 	const deltas: Record<string, DeltaCarriers> = {}
 	for (const { relation, snapshot, names } of snapshots) {
 		const added = relationCarrier(supply, relation)
-		carry(added, { kind: "difference", side: "added", relation, names, snapshot }, undefined)
+		carry(
+			added,
+			{ kind: "difference", side: "added", relation, names, snapshot },
+			undefined,
+			castsNothing
+		)
 		const removed = relationCarrier(supply, relation)
-		carry(removed, { kind: "difference", side: "removed", relation, names, snapshot }, undefined)
+		carry(
+			removed,
+			{ kind: "difference", side: "removed", relation, names, snapshot },
+			undefined,
+			castsNothing
+		)
 		deltas[relation.name] = Object.freeze({ added, removed })
 	}
 	for (const named of frontend.deltas) {
@@ -291,7 +319,8 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 				Object.freeze({
 					kind: "carrier",
 					statement: buildCreateCarrier(w, carrier),
-					stratum: undefined
+					stratum: undefined,
+					casts: castsNothing
 				})
 			)
 			return carrier

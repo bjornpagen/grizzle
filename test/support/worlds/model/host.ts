@@ -1,6 +1,9 @@
 import { Array as Arr, Option, Order, Record as Rec } from "effect"
+import { appendAll } from "#compiler/core/array.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
+import { TupleMap } from "#compiler/core/tuple-map.ts"
+import { type Atom, sameIdentity, type ValueIdentity } from "#test/support/kernel/identity.ts"
 import {
 	everyFact,
 	fieldsEqual,
@@ -183,39 +186,47 @@ const comparisonHolds = (
 	}
 }
 
-/** A value's identity text: its kind and its spelling, so values of two kinds never share one. */
-const valueKey = (v: HostValue): string => {
+/**
+ * A value's identity: its kind, then its atoms, a span's two ends, so values of two kinds never share one and the atoms
+ * of several values in a fact are self-delimiting (kernel/identity.ts).
+ */
+const valueAtoms = (v: HostValue): ValueIdentity => {
 	if (isSpan(v)) {
-		return `r${v.start},${v.end}`
+		return ["r", v.start, v.end]
 	}
 	if (isDrawn(v)) {
-		return `d${v.draw}`
+		return ["d", v.draw]
 	}
 	if (typeof v === "string") {
-		return `s${v}`
+		return ["s", v]
 	}
-	return typeof v === "number" ? `n${v}` : `b${String(v)}`
+	return typeof v === "number" ? ["n", v] : ["b", v]
 }
 
 const framed = (text: string): string => `${text.length}:${text}`
 
-/** A fact's identity: every field and its value, the fields in one order, each part length-framed. */
-export const factKey = (fact: HostFact): string => {
-	let key = ""
+/** A fact's identity: every field's name and value, the fields in one order. */
+export const factKey = (fact: HostFact): ValueIdentity => {
+	const atoms: Array<Atom> = []
 	for (const field of Arr.sort(Rec.keys(fact), Order.String)) {
 		const value = own(fact, field)
 		if (value === undefined) {
 			throw new Error(`the worlds model reads the field ${field}, which is absent`)
 		}
-		key += `${framed(field)}${framed(valueKey(value))}`
+		atoms.push(field)
+		appendAll(atoms, valueAtoms(value))
 	}
-	return key
+	return atoms
 }
 
 /** The facts, each once, in the order they first appear. */
-const distinct = (facts: ReadonlyArray<HostFact>): ReadonlyArray<HostFact> => [
-	...new Map(Arr.map(facts, (f) => [factKey(f), f] as const)).values()
-]
+const distinct = (facts: ReadonlyArray<HostFact>): ReadonlyArray<HostFact> => {
+	const byKey = new TupleMap<ValueIdentity, HostFact>()
+	for (const f of facts) {
+		byKey.set(factKey(f), f)
+	}
+	return [...byKey.values()]
+}
 
 /** A closed roster's facts: one per member, the member under `id`. */
 const rosterFacts = (closed: ClosedSpec): ReadonlyArray<HostFact> =>
@@ -739,8 +750,9 @@ const oneRuleFaults = (base: BaseSpec, rule: Rule): ReadonlyArray<RuleFault> => 
 	]
 }
 
-const headFields = (rule: Rule): string =>
-	Arr.join(Arr.map(Arr.sort(Rec.keys(rule.head), Order.String), framed), "")
+/** A rule head's fields, in one order. */
+const headFields = (rule: Rule): ReadonlyArray<string> =>
+	Arr.sort(Rec.keys(rule.head), Order.String)
 
 /**
  * What makes a rule set no query grizzle builds, none when it is one: what a generator of rules checks at
@@ -751,9 +763,8 @@ export const ruleFaults = (
 	rules: Arr.NonEmptyReadonlyArray<Rule>
 ): ReadonlyArray<RuleFault> => {
 	const [first] = rules
-	const heads: ReadonlyArray<RuleFault> = Arr.every(
-		rules,
-		(r) => headFields(r) === headFields(first)
+	const heads: ReadonlyArray<RuleFault> = Arr.every(rules, (r) =>
+		sameIdentity(headFields(r), headFields(first))
 	)
 		? []
 		: [{ kind: "heads-differ" }]

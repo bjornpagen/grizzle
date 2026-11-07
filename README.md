@@ -588,15 +588,15 @@ runs it again, it sees the other's debit, and it comes back as an outcome you ma
 ```text
 {
   kind: "invariant-rejected",
-  laws: [{ kind: "check", relation: "Grant", name: "WithinGrant" }],
+  refused: { kind: "first", laws: [{ kind: "check", relation: "Grant", name: "WithinGrant" }] },
   witness: { kind: "unreported" }
 }
 ```
 
-`laws` is never empty: it names the rule the failing constraint states, or each rule of one that carries several
-([Errors and outcomes](#errors-and-outcomes)). The witness is `unreported` here: `WithinGrant` reads `spent`, which
-grizzle fills on the grant from its debits, so no grant the ChangeSet states breaks it. A row check over a row you
-state names that row's key.
+`refused.laws` is never empty ([Errors and outcomes](#errors-and-outcomes)). It is `first` and the witness
+`unreported` here: `WithinGrant` reads `spent`, which grizzle fills on the grant from its debits, so no grant the
+ChangeSet states breaks it, and the check PostgreSQL tried first is all grizzle knows. A row check over a row you state
+names that row's key, and `every` rule of its table the row breaks.
 
 ### 6. Books that always balance
 
@@ -2205,11 +2205,20 @@ channel as a tagged class.
 
 **Outcomes** come from `db.apply` and a compiled ChangeSet's `apply`:
 
-- `invariant-rejected` carries `laws`, the rules as your schema states them, never empty, and `witness`, which says
-  what broke them. Match on a law directly: `{ kind: "check", relation: "Grant", name: "WithinGrant" }`. `laws` holds
-  the one rule the failing constraint states, or, where one PostgreSQL object discharges several and its report does
-  not say which failed, each of them: a family's foreign key carries every containment merged into it, and one domain
-  serves every contract and pattern of the same definition.
+- `invariant-rejected` carries `refused`, the rules as your schema states them, never empty, and how grizzle decided
+  them, and `witness`, which says what broke them. Match on a law directly:
+  `{ kind: "check", relation: "Grant", name: "WithinGrant" }`. `refused` is one of two:
+  - `{ kind: "every", laws }`: every rule grizzle decides refused the write. A row check that refused a row you stated
+    names every rule of that row's table's checks the row breaks, each once, in your schema's canonical order of rules
+    (its primary keys', then its statements' in canonical order, the order its snapshot lists them, which depends on
+    what the schema says, never on how you wrote it), whichever check PostgreSQL tried first. Any other rule is the one
+    the failing constraint states, or, where one PostgreSQL object discharges several and its report does not say which
+    failed, each of them: a family's foreign key carries every containment merged into it, and one domain serves every
+    contract and pattern of the same definition.
+  - `{ kind: "first", laws }`: a row check that refused a row only PostgreSQL computes, which no ChangeSet states (a
+    query's, or one grizzle fills on a family): the rules of the check PostgreSQL tried first. PostgreSQL tries a
+    table's checks in the order of their installed names, which no version of grizzle keeps, so the row may break
+    others too, and another version may name another of them.
 - The witness is `{ kind: "key", relation, values }`, the key values of one row that breaks the rule, never another
   column; or `{ kind: "unreported" }`. A key, over a table or over a side of one, that grizzle's own write statement
   finds broken, by two rows you submitted or by a stored row inside or outside your role's view, names the key you
@@ -2790,7 +2799,7 @@ whether a suite reaches what it requires never depends on it.
 - `test/`: the unit, pg, schedules and types tiers, and their support in `test/support/`.
 - `bench/`: performance gates.
 - `scripts/pg/`: the pinned PostgreSQL build, cluster, doctor and patches.
-- `scripts/dev/`: the mutation tester, the golden SQL capture and the profiler.
+- `scripts/dev/`: the mutation tester and the profiler.
 - `packages/devtools/`: the lint tooling: the oxlint preset and plugin, superlint and the tsconfig base.
 - `packages/testing/`: `@grizzle/testing`, the choice-stream testing library every test runs on, and `pnpm fuzz`'s
   script.

@@ -55,7 +55,7 @@ import {
 	type Chunks,
 	type FamilyId,
 	type FamilyRowBound,
-	hostWitness,
+	hostJudgement,
 	inForce,
 	interpretRows,
 	type Law,
@@ -83,8 +83,8 @@ const noRows: Raw = []
 
 /**
  * What a write's failure is classified with: the installation's violation classifier, the layer's, and what a refused
- * statement wrote: its relations and the host's witness of a native refusal over the facts this application states
- * (write/program/witness.ts statementRelations, hostWitness).
+ * statement wrote: its relations and the host's judgement of a native refusal over the facts this application states
+ * (write/program/witness.ts statementRelations, hostJudgement).
  */
 interface WitnessContext {
 	readonly violation: WriteEntry["violation"]
@@ -280,7 +280,7 @@ export const hostInputs = (
 const outcomeOf = <R>(classified: Classified): Effect.Effect<ApplyOutcome<R>, ApplyError> => {
 	switch (classified.kind) {
 		case "rejected":
-			return Effect.succeed(rejectedOutcome(classified.laws, classified.witness))
+			return Effect.succeed(rejectedOutcome(classified.refused, classified.witness))
 		case "outside":
 			return Effect.succeed(outsideOutcome(classified.relation))
 		case "failed":
@@ -425,7 +425,7 @@ export const runWrite = <R>(
 			violation: entry.violation,
 			statement: (at) => ({
 				relations: statementRelations(program.frontend, at),
-				witness: (refuser) => hostWitness(program.frontend, inputs.bound.normalized, at, refuser)
+				judge: (refuser) => hostJudgement(program.frontend, inputs.bound.normalized, at, refuser)
 			})
 		}
 		const readBackFlights = yield* Effect.mapError(

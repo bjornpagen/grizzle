@@ -98,13 +98,19 @@ interface OverloadCommon {
 }
 
 /**
- * An overload's result over its argument: a type of the argument's, or a computed numeric whose bound is a function
+ * An overload's result over its argument: a type of the argument's; an exact sum, an exact integer or exact money whose
+ * digits are the argument's (types.ts familyDigits) widened by the rows; or a computed numeric whose bound is a function
  * of the argument's once converted into numeric exactly (types.ts exactNumericBound).
  */
 type Entry =
 	| {
 			readonly kind: "typed"
 			readonly result: (arg: ScalarType) => ScalarType
+			readonly lowering: AggregateLowering
+	  }
+	| {
+			readonly kind: "exact"
+			readonly carrier: "exactInteger" | "exactMoney"
 			readonly lowering: AggregateLowering
 	  }
 	| {
@@ -119,11 +125,11 @@ type Entry =
  */
 const rowDigits = int8Digits
 
-/** An exact sum's result over `arg`: an exact integer or exact money, its bound its argument's widened by the rows. */
-const exactSumOf =
-	(carrier: "exactInteger" | "exactMoney") =>
-	(arg: ScalarType): ScalarType =>
-		exactType(carrier, (familyDigits(valueType(arg)) ?? 0) + rowDigits.value)
+/** An exact sum into `carrier`, an exact integer or exact money of its argument's digits widened by the rows. */
+const exactSumOf = (
+	carrier: "exactInteger" | "exactMoney",
+	lowering: AggregateLowering
+): Entry => ({ kind: "exact", carrier, lowering })
 
 const plainResult = (carrier: "int8" | "float4" | "float8") => (): ScalarType => plainType(carrier)
 
@@ -166,10 +172,15 @@ const resultOf = (
 	loc: SourceLoc
 ): Result.Result<ScalarType, CompileError> => {
 	if (entry.kind === "typed") {
-		const result = entry.result(arg)
-		return result.carrier === "exactInteger" || result.carrier === "exactMoney"
-			? withinNumeric(result, result.digits, loc)
-			: Result.ok(result)
+		return Result.ok(entry.result(arg))
+	}
+	if (entry.kind === "exact") {
+		const digits = familyDigits(arg)
+		if (digits === undefined) {
+			return Result.err(unsupported(loc, `an exact sum over ${typeLabel(arg)}`))
+		}
+		const total = digits + rowDigits.value
+		return withinNumeric(exactType(entry.carrier, total), total, loc)
 	}
 	const b = exactNumericBound(arg)
 	if (b === undefined) {
@@ -244,9 +255,9 @@ const sumOverloads: Readonly<Partial<Record<Carrier, Entry>>> = {
 	numeric: numericSum,
 	float4: typed(plainResult("float4"), exactSum("float4")),
 	float8: typed(plainResult("float8"), exactSum("float8")),
-	money: typed(exactSumOf("exactMoney"), exactSum("money")),
-	exactInteger: typed(exactSumOf("exactInteger"), native),
-	exactMoney: typed(exactSumOf("exactMoney"), native)
+	money: exactSumOf("exactMoney", exactSum("money")),
+	exactInteger: exactSumOf("exactInteger", native),
+	exactMoney: exactSumOf("exactMoney", native)
 }
 
 const avgOverloads: Readonly<Partial<Record<Carrier, Entry>>> = {

@@ -235,9 +235,12 @@ const afterBegin = (
 	)
 }
 
-/** What a direct writer's statements and COMMIT note: their op features and the world objects they meet. */
+/**
+ * What a direct writer's statements and COMMIT note: their op features, the world objects they meet, and the SQLSTATE a
+ * hand-set claim its field refuses meets where a statement reads it.
+ */
 const directReach = (feature: WorldFeature): boolean =>
-	startingWith("op:direct:", "op:direct-end:", "object:")(feature)
+	startingWith("op:direct:", "op:direct-end:", "object:", "claim-refused:")(feature)
 
 /** A live BEGIN aimed on every draw at `targets`, read of its outcome through `read`, among the box's BEGINs. */
 const aimedBegin = (

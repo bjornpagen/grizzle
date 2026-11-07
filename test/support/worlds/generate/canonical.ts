@@ -1,4 +1,6 @@
 import { Array as Arr, Order, Record as Rec } from "effect"
+import { appendAll } from "#compiler/core/array.ts"
+import { type Atom, type ValueIdentity, valueIdentityOrder } from "#test/support/kernel/identity.ts"
 import { factKey } from "#test/support/worlds/model/host.ts"
 import type {
 	ClaimsSetting,
@@ -11,27 +13,36 @@ import type {
 } from "#test/support/worlds/model/types.ts"
 
 /**
- * A model state's canonical form: one text per state, equal only when two states are one state. Every part is a
- * length-framed atom, so concatenation is injective whatever characters a value holds; sets (a relation's facts, a
- * session's context facts, the relations of a state) are sorted, sequences (sessions, connections) keep their order.
- * The installation, its names, its host schema and each catalog perturbation are interned by object identity: two equal
- * ones held as two objects only cost a state explored twice, never two states taken for one.
+ * A model state's canonical form: one identity per state (kernel/identity.ts), equal atom for atom only when two states
+ * are one state. Every variable-length part is its length followed by its items, so the atoms of the parts in sequence
+ * are self-delimiting whatever a value holds; sets (a relation's facts, a session's context facts, the relations of a
+ * state) are sorted, sequences (sessions, connections) keep their order. The installation, its names, its host schema
+ * and each catalog perturbation are interned by object identity: two equal ones held as two objects only cost a state
+ * explored twice, never two states taken for one.
  */
+type Writer = Array<Atom>
 
-/** A text as an atom: its length, a colon, the text. */
-const atom = (text: string): string => `${text.length}:${text}`
+/** `items` as a list: its length, then each item as `write` writes it. */
+const list = <A>(
+	out: Writer,
+	items: ReadonlyArray<A>,
+	write: (out: Writer, item: A) => void
+): void => {
+	out.push(items.length)
+	for (const item of items) {
+		write(out, item)
+	}
+}
+
+/** An identity as a list of its atoms. */
+const identity = (out: Writer, atoms: ValueIdentity): void => {
+	out.push(atoms.length)
+	appendAll(out, atoms)
+}
 
 /** A set of facts' canonical form: their identities sorted. */
-const factsKey = (facts: ReadonlyArray<HostFact>): string =>
-	atom(
-		Arr.join(
-			Arr.sort(
-				Arr.map(facts, (fact) => atom(factKey(fact))),
-				Order.String
-			),
-			""
-		)
-	)
+const facts = (out: Writer, set: ReadonlyArray<HostFact>): void =>
+	list(out, Arr.sort(Arr.map(set, factKey), valueIdentityOrder), identity)
 
 const byName = Order.mapInput(
 	Order.String,
@@ -39,112 +50,122 @@ const byName = Order.mapInput(
 )
 
 /** Relations of facts by name, as sets: names sorted, each relation's facts a set. */
-const relationsKey = (entries: ReadonlyArray<readonly [string, ReadonlyArray<HostFact>]>): string =>
-	atom(
-		Arr.join(
-			Arr.map(Arr.sort(entries, byName), ([name, facts]) => `${atom(name)}${factsKey(facts)}`),
-			""
-		)
+const relations = (
+	out: Writer,
+	entries: ReadonlyArray<readonly [string, ReadonlyArray<HostFact>]>
+): void =>
+	list(out, Arr.sort(entries, byName), (o, [name, set]) => {
+		o.push(name)
+		facts(o, set)
+	})
+
+const reality = (out: Writer, state: HostState): void => relations(out, [...state.entries()])
+
+const contextFacts = (out: Writer, set: ContextFacts): void =>
+	relations(
+		out,
+		Arr.map(Rec.toEntries(set), ([name, fact]) => [name, [fact]] as const)
 	)
 
-const realityKey = (reality: HostState): string => relationsKey([...reality.entries()])
-
-const contextFactsKey = (facts: ContextFacts): string =>
-	relationsKey(Arr.map(Rec.toEntries(facts), ([name, fact]) => [name, [fact]] as const))
-
-const claimsSettingKey = (setting: ClaimsSetting): string => {
+const claimsSetting = (out: Writer, setting: ClaimsSetting): void => {
 	switch (setting.kind) {
 		case "facts":
-			return `f${atom(setting.scope)}${contextFactsKey(setting.facts)}`
+			out.push("f", setting.scope)
+			contextFacts(out, setting.facts)
+			return
 		case "malformed":
-			return `m${atom(setting.scope)}${atom(setting.text)}`
+			out.push("m", setting.scope, setting.text)
+			return
 	}
 }
 
-const sessionKey = (session: ModelSession): string => {
-	switch (session.kind) {
+const session = (out: Writer, s: ModelSession): void => {
+	switch (s.kind) {
 		case "db":
-			return Arr.join(
-				[
-					"d",
-					atom(session.login),
-					atom(session.role),
-					contextFactsKey(session.facts),
-					atom(String(session.connection)),
-					atom(String(session.snapshot.version))
-				],
-				""
-			)
-		case "direct": {
-			const current = session.current.kind === "login" ? "l" : `r${atom(session.current.role)}`
-			const claims =
-				session.claims.kind === "none" ? "n" : `s${claimsSettingKey(session.claims.setting)}`
-			return `x${atom(session.login)}${current}${claims}${atom(session.isolation)}${atom(session.transaction)}${realityKey(session.view)}`
-		}
+			out.push("d", s.login, s.role)
+			contextFacts(out, s.facts)
+			out.push(s.connection, s.snapshot.version)
+			return
+		case "direct":
+			out.push("x", s.login)
+			if (s.current.kind === "login") {
+				out.push("l")
+			} else {
+				out.push("r", s.current.role)
+			}
+			if (s.claims.kind === "none") {
+				out.push("n")
+			} else {
+				out.push("s")
+				claimsSetting(out, s.claims.setting)
+			}
+			out.push(s.isolation, s.transaction)
+			reality(out, s.view)
+			return
 		case "closed":
-			return `c${atom(session.was)}`
+			out.push("c", s.was)
+			return
 	}
 }
 
-const connectionKey = (connection: ConnectionState): string => {
-	const leftover = connection.leftover
+const connection = (out: Writer, c: ConnectionState): void => {
+	const leftover = c.leftover
 	switch (leftover.kind) {
 		case "clean":
-			return `${atom(connection.login)}c`
+			out.push(c.login, "c")
+			return
 		case "role":
-			return `${atom(connection.login)}r${atom(leftover.role)}`
+			out.push(c.login, "r", leftover.role)
+			return
 		case "claims":
-			return `${atom(connection.login)}s${atom(leftover.text)}`
+			out.push(c.login, "s", leftover.text)
+			return
 	}
 }
 
 const byLogin = Order.mapInput(Order.String, (entry: readonly [string, number]) => entry[0])
 
 /** The version each login was created at, by login: names sorted. */
-const loginsCreatedKey = (created: Readonly<Record<string, number>>): string =>
-	atom(
-		Arr.join(
-			Arr.map(
-				Arr.sort(Rec.toEntries(created), byLogin),
-				([login, version]) => `${atom(login)}${atom(String(version))}`
-			),
-			""
-		)
-	)
+const loginsCreated = (out: Writer, created: Readonly<Record<string, number>>): void =>
+	list(out, Arr.sort(Rec.toEntries(created), byLogin), (o, [login, version]) => {
+		o.push(login, version)
+	})
 
 /**
  * The canonical form of a model state, for one exploration: it interns the objects its states hold by identity,
  * numbering each in the order it meets them, so two states have one form only among the forms of one exploration.
  */
-export const canonicalForms = (): ((state: ModelState) => string) => {
+export const canonicalForms = (): ((state: ModelState) => ValueIdentity) => {
 	const identities = new WeakMap<object, number>()
 	let minted = 0
-	const identityOf = (value: object): string => {
+	const identityOf = (out: Writer, value: object): void => {
 		const known = identities.get(value)
 		if (known !== undefined) {
-			return atom(String(known))
+			out.push(known)
+			return
 		}
 		minted++
 		identities.set(value, minted)
-		return atom(String(minted))
+		out.push(minted)
 	}
-	return (state) =>
-		Arr.join(
-			[
-				identityOf(state.install),
-				identityOf(state.names),
-				identityOf(state.host),
-				atom(String(state.version)),
-				loginsCreatedKey(state.loginsCreated),
-				realityKey(state.reality),
-				relationsKey(Rec.toEntries(state.derived)),
-				atom(Arr.join(Arr.map(state.sessions, sessionKey), "")),
-				atom(Arr.join(Arr.map(state.connections, connectionKey), "")),
-				atom(Arr.join(Arr.map(state.tampered, identityOf), "")),
-				state.migrations.kind === "applied"
-					? "a"
-					: `p${atom(state.migrations.ledger)}${atom(Arr.join(Arr.map(state.migrations.folders, identityOf), ""))}`
-			],
-			""
-		)
+	return (state) => {
+		const out: Writer = []
+		identityOf(out, state.install)
+		identityOf(out, state.names)
+		identityOf(out, state.host)
+		out.push(state.version)
+		loginsCreated(out, state.loginsCreated)
+		reality(out, state.reality)
+		relations(out, Rec.toEntries(state.derived))
+		list(out, state.sessions, session)
+		list(out, state.connections, connection)
+		list(out, state.tampered, identityOf)
+		if (state.migrations.kind === "applied") {
+			out.push("a")
+		} else {
+			out.push("p", state.migrations.ledger)
+			list(out, state.migrations.folders, identityOf)
+		}
+		return out
+	}
 }

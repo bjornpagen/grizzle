@@ -494,7 +494,7 @@ const noRows: ReadonlyArray<Row> = Object.freeze([])
  * every delivered statement, an attachment's and a fused child array's included, is a set by its compiled proof.
  */
 const repeats = (rows: OutputRows, identity: RowIdentity): boolean => {
-	const seen = new TupleMap<string, ReadonlyArray<OutputText>>()
+	const seen = new TupleMap<ReadonlyArray<string>, ReadonlyArray<OutputText>>()
 	for (const texts of rows) {
 		const one = identity(texts)
 		if (seen.has(one)) {
@@ -535,14 +535,14 @@ export const rowsOf = <Run>(
 	}
 	const grouped: Array<{
 		readonly child: ChildPlan<Run>
-		readonly groups: TupleMap<string, Array<Row>>
+		readonly groups: TupleMap<ReadonlyArray<string>, Array<Row>>
 	}> = []
 	for (const child of plan.children) {
 		const childRows = rowsOf(child.record, sent, runOf(child.record, sent), 0)
 		if (Result.isFailure(childRows)) {
 			return childRows
 		}
-		const groups = new TupleMap<string, Array<Row>>()
+		const groups = new TupleMap<ReadonlyArray<string>, Array<Row>>()
 		for (const row of childRows.success) {
 			const key = keyOf(row.texts, child.child)
 			const known = groups.get(key)

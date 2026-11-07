@@ -2,9 +2,11 @@ import { Array as Arr, Option, Order, Record as Rec } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { compareCodePoints } from "#compiler/core/text.ts"
+import { type ReadonlyTupleSet, TupleMap } from "#compiler/core/tuple-map.ts"
 import {
 	admittedText,
 	type CarrierSpec,
+	type FactIdentity,
 	factIdentity,
 	type HeadingField
 } from "#compiler/scalar/values/identity.ts"
@@ -15,6 +17,9 @@ import {
 	type Counts,
 	type Fact,
 	type FactSet,
+	factSetOf,
+	identityOrder,
+	identitySetOf,
 	netCounts,
 	outcomeKind,
 	type RelationDelta,
@@ -124,15 +129,15 @@ const admit = (relation: OracleRelation, heading: ReadonlyArray<HeadingField>, f
 
 const sequenceKey = (relation: string, field: string): string => `${relation}.${field}`
 
-/** The identities of a relation's facts in code point order, for deterministic iteration. */
-const sortedEntries = (facts: FactSet): ReadonlyArray<readonly [string, Fact]> =>
+/** The identities of a relation's facts in their canonical order, for deterministic iteration. */
+const sortedEntries = (facts: FactSet): ReadonlyArray<readonly [FactIdentity, Fact]> =>
 	Arr.sort(
 		facts,
-		Order.mapInput(compareCodePoints, ([identity]: readonly [string, Fact]) => identity)
+		Order.mapInput(identityOrder, ([identity]: readonly [FactIdentity, Fact]) => identity)
 	)
 
 export const factsOf = (state: OracleState, relation: string): ReadonlyArray<Fact> =>
-	Arr.map(sortedEntries(state.relations.get(relation) ?? new Map()), ([, fact]) => fact)
+	Arr.map(sortedEntries(state.relations.get(relation) ?? factSetOf([])), ([, fact]) => fact)
 
 /** A key value that more than one fact holds. */
 interface KeyViolation {
@@ -170,14 +175,15 @@ const selectedBy = (relation: OracleRelation, key: OracleProjectedKey, fact: Fac
  */
 const keyViolations = (schema: OracleSchema, state: OracleState): ReadonlyArray<KeyViolation> =>
 	Arr.flatMap(schema.relations, (relation) => {
-		const all = sortedEntries(state.relations.get(relation.name) ?? new Map())
-		const keyed: ReadonlyArray<readonly [OracleKey, ReadonlyArray<readonly [string, Fact]>]> = [
-			...Arr.map(allKeys(relation), (key) => [key, all] as const),
-			...Arr.map(
-				relation.projectedKeys,
-				(key) => [key, Arr.filter(all, ([, fact]) => selectedBy(relation, key, fact))] as const
-			)
-		]
+		const all = sortedEntries(state.relations.get(relation.name) ?? factSetOf([]))
+		const keyed: ReadonlyArray<readonly [OracleKey, ReadonlyArray<readonly [FactIdentity, Fact]>]> =
+			[
+				...Arr.map(allKeys(relation), (key) => [key, all] as const),
+				...Arr.map(
+					relation.projectedKeys,
+					(key) => [key, Arr.filter(all, ([, fact]) => selectedBy(relation, key, fact))] as const
+				)
+			]
 		return Arr.flatMap(keyed, ([key, facts]) => duplicateKeys(relation, key, facts))
 	})
 
@@ -188,7 +194,7 @@ const keyViolations = (schema: OracleSchema, state: OracleState): ReadonlyArray<
 const duplicateKeys = (
 	relation: OracleRelation,
 	key: OracleKey,
-	facts: ReadonlyArray<readonly [string, Fact]>
+	facts: ReadonlyArray<readonly [FactIdentity, Fact]>
 ): ReadonlyArray<KeyViolation> => {
 	const seen = new Map<string, number>()
 	const first = new Map<string, Fact>()
@@ -246,7 +252,7 @@ export const oracleState = (
 	const relations = new Map<string, FactSet>()
 	const seqs = new Map<string, SequenceState>()
 	for (const relation of schema.relations) {
-		const set = new Map<string, Fact>()
+		const set = new TupleMap<FactIdentity, Fact>()
 		for (const fact of facts[relation.name] ?? []) {
 			const admitted = admit(relation, relation.heading, fact)
 			if (set.has(admitted.identity)) {
@@ -356,7 +362,7 @@ export interface AppliedOutcome {
 	 * Per relation, the identities of the final state's facts that generated additions made: their serial values are
 	 * this calculator's draws, which a realization may draw otherwise.
 	 */
-	readonly generated: ReadonlyMap<string, ReadonlySet<string>>
+	readonly generated: ReadonlyMap<string, ReadonlyTupleSet<FactIdentity>>
 }
 
 interface RejectedOutcome {
@@ -408,13 +414,13 @@ const drawer = (
 	draws: Draws
 ): ((
 	s: SequenceState,
-	id: string,
+	id: FactIdentity,
 	field: string
 ) => { readonly value: bigint; readonly next: SequenceState }) => {
 	if (draws.kind === "sequences") {
 		return nextval
 	}
-	const byPartial = new Map(
+	const byPartial = factSetOf(
 		Arr.map(draws.facts.get(relation.name) ?? [], (fact) => {
 			const partial = Rec.fromEntries(
 				Arr.filter(Rec.toEntries(fact), ([f]) => !relation.serial.includes(f))
@@ -425,7 +431,9 @@ const drawer = (
 	return (s, id, field) => {
 		const fact = byPartial.get(id)
 		if (fact === undefined) {
-			throw new Error(`${relation.name}: no fact given for the generated addition ${id}`)
+			throw new Error(
+				`${relation.name}: no fact given for the generated addition (${Arr.join(id, ", ")})`
+			)
 		}
 		const value = integerOf(fact[field], field)
 		return { value, next: advancePast(s, value) }
@@ -443,12 +451,12 @@ const advancePast = (s: SequenceState, value: bigint): SequenceState =>
 
 /** One stratum's transition of one relation, before key checking. */
 interface RelationStep {
-	readonly after: Map<string, Fact>
-	readonly insert: ReadonlyArray<string>
-	readonly put: ReadonlyArray<string>
-	readonly delete: ReadonlyArray<string>
+	readonly after: TupleMap<FactIdentity, Fact>
+	readonly insert: ReadonlyArray<FactIdentity>
+	readonly put: ReadonlyArray<FactIdentity>
+	readonly delete: ReadonlyArray<FactIdentity>
 	/** The facts its generated additions made, a subset of `insert`. */
-	readonly generated: ReadonlyArray<string>
+	readonly generated: ReadonlyArray<FactIdentity>
 }
 
 /**
@@ -509,7 +517,7 @@ export const applyAddWins = (
 	const attributed = new Map<string, Array<AttributedChange>>(Arr.map(writes, (name) => [name, []]))
 	const traces: Array<ReadonlyMap<string, RelationDelta>> = []
 	/** Every fact a generated addition made, by relation; those still present in the final state are reported. */
-	const drawn = new Map<string, Set<string>>()
+	const drawn = new Map<string, ReadonlyTupleSet<FactIdentity>>()
 	let state = initial
 	for (let index = 0; index < changes.strata.length; index++) {
 		const stratum = elementAt(changes.strata, index, "the ChangeSet's strata")
@@ -523,7 +531,7 @@ export const applyAddWins = (
 		}
 		for (const [name, step] of steps) {
 			relations.set(name, step.after)
-			drawn.set(name, new Set([...(drawn.get(name) ?? []), ...step.generated]))
+			drawn.set(name, identitySetOf([...(drawn.get(name) ?? []), ...step.generated]))
 		}
 		state = { relations, sequences }
 		const violations = keyViolations(schema, state)
@@ -538,15 +546,15 @@ export const applyAddWins = (
 		}
 		const trace = new Map<string, RelationDelta>()
 		for (const name of writes) {
-			const from = before.relations.get(name) ?? new Map()
-			const to = relations.get(name) ?? new Map()
+			const from = before.relations.get(name) ?? factSetOf([])
+			const to = relations.get(name) ?? factSetOf([])
 			trace.set(name, stateDelta(from, to))
 			/** Each stratum's change is attributed to that stratum's own members only. */
 			const step = steps.get(name)
 			const requested = {
-				insert: new Set(step?.insert ?? []),
-				put: new Set(step?.put ?? []),
-				delete: new Set(step?.delete ?? [])
+				insert: identitySetOf(step?.insert ?? []),
+				put: identitySetOf(step?.put ?? []),
+				delete: identitySetOf(step?.delete ?? [])
 			}
 			attributed.get(name)?.push(attributeStratum(from, to, requested))
 		}
@@ -564,16 +572,16 @@ export const applyAddWins = (
 				[
 					name,
 					stateDelta(
-						initial.relations.get(name) ?? new Map(),
-						state.relations.get(name) ?? new Map()
+						initial.relations.get(name) ?? factSetOf([]),
+						state.relations.get(name) ?? factSetOf([])
 					)
 				] as const
 		)
 	)
 	const generated = new Map(
 		Arr.map([...drawn], ([name, ids]) => {
-			const present = state.relations.get(name) ?? new Map()
-			return [name, new Set(Arr.filter([...ids], (id) => present.has(id)))] as const
+			const present = state.relations.get(name) ?? factSetOf([])
+			return [name, identitySetOf(Arr.filter([...ids], (id) => present.has(id)))] as const
 		})
 	)
 	return { kind: outcomeKind(counts), state, counts, delta, strata: traces, generated }
@@ -595,10 +603,10 @@ const transition = (
 	const serial = relation.serial
 	const serialSet = new Set(serial)
 	const partialHeading = Arr.filter(relation.heading, (h) => !serialSet.has(h.name))
-	const inserts = new Map<string, Fact>()
-	const generated = new Map<string, Fact>()
-	const puts = new Map<string, Fact>()
-	const deletes = new Map<string, Fact>()
+	const inserts = new TupleMap<FactIdentity, Fact>()
+	const generated = new TupleMap<FactIdentity, Fact>()
+	const puts = new TupleMap<FactIdentity, Fact>()
+	const deletes = new TupleMap<FactIdentity, Fact>()
 	for (const member of stratum) {
 		if (member.relation !== relation.name) {
 			continue
@@ -621,7 +629,7 @@ const transition = (
 			target.set(admitted.identity, admitted.fact)
 		}
 	}
-	const current = before.relations.get(relation.name) ?? new Map<string, Fact>()
+	const current = before.relations.get(relation.name) ?? factSetOf([])
 	/** put's described deletion: the current occupants at the put facts' primary keys. */
 	const putKeys = new Set(
 		Arr.map([...puts.values()], (f) => keyIdentity(relation, relation.primaryKey.fields, f))
@@ -629,8 +637,8 @@ const transition = (
 	const displaced = Arr.filter([...current], ([, f]) =>
 		putKeys.has(keyIdentity(relation, relation.primaryKey.fields, f))
 	)
-	const removals = new Set([...deletes.keys(), ...Arr.map(displaced, ([id]) => id)])
-	const after = new Map<string, Fact>()
+	const removals = identitySetOf([...deletes.keys(), ...Arr.map(displaced, ([id]) => id)])
+	const after = new TupleMap<FactIdentity, Fact>()
 	for (const [id, fact] of current) {
 		if (!removals.has(id)) {
 			after.set(id, fact)
@@ -654,13 +662,13 @@ const transition = (
 	 * field and repeat no fact of the state before the stratum or of the state they join, or with the values given for
 	 * it.
 	 */
-	const generatedIds: Array<string> = []
+	const generatedIds: Array<FactIdentity> = []
 	const serialKeys = Arr.filter(allKeys(relation), (k) =>
 		Arr.some(k.fields, (f) => serialSet.has(f))
 	)
 	const draw = drawer(relation, partialHeading, draws)
 	/** The generated addition `id` with its serial values drawn, again while they collide and the sequences draw them. */
-	const drawGenerated = (id: string, partial: Fact): ReturnType<typeof admit> => {
+	const drawGenerated = (id: FactIdentity, partial: Fact): ReturnType<typeof admit> => {
 		for (;;) {
 			const fact: Record<string, unknown> = { ...partial }
 			for (const field of serial) {

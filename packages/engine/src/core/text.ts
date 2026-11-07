@@ -121,7 +121,7 @@ const quotedAt = (text: string, i: number): string =>
  * comparison decides. `units` is compareCodePoints for code point order, or core/order.ts compareStrings for UTF-16
  * code unit order. A well-formed text holds no lone surrogate, which JSON.stringify would escape.
  */
-const compareQuoted =
+export const compareQuoted =
 	(units: (a: string, b: string) => number) =>
 	(a: string, b: string): number => {
 		const n = Math.min(a.length, b.length)

@@ -12,6 +12,7 @@ import { isSourceLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
+import { compareQuoted } from "#compiler/core/text.ts"
 
 export const canonicalFormat = "grizzle-canonical"
 
@@ -521,6 +522,159 @@ export const encode = (
 	value: unknown,
 	options: EncodeOptions
 ): Result.Result<string, CompileError> => encodeWalk(value, options)
+
+/** The canonical text's opening bracket of an array. */
+const arrayOpen: unique symbol = Symbol("[")
+/** The canonical text's closing bracket of an array. */
+const arrayClose: unique symbol = Symbol("]")
+/** The canonical text's opening brace of an object. */
+const objectOpen: unique symbol = Symbol("{")
+/** The canonical text's closing brace of an object. */
+const objectClose: unique symbol = Symbol("}")
+/** The canonical text's separator of two items or members. */
+const itemSeparator: unique symbol = Symbol(",")
+/** The canonical text's colon between a member's key and its value. */
+const keyColon: unique symbol = Symbol(":")
+
+/** A punctuation token of the canonical text. */
+type Punctuation =
+	| typeof arrayOpen
+	| typeof arrayClose
+	| typeof objectOpen
+	| typeof objectClose
+	| typeof itemSeparator
+	| typeof keyColon
+
+/**
+ * One token of a value's canonical text, as JSON's grammar reads it: a string (a value already escaped, or an object
+ * key), a number, a boolean, or punctuation. A value's tokens spelled in order are its canonical text (`encode`), so
+ * two values hold one token list exactly when they hold one text, and a list is as long as the value has scalars and
+ * containers, never as long as its strings: no text is joined.
+ */
+export type CanonicalToken = string | number | boolean | Punctuation
+
+/** A punctuation token's text. */
+const punctuationText = (token: Punctuation): string => {
+	switch (token) {
+		case arrayOpen:
+			return "["
+		case arrayClose:
+			return "]"
+		case objectOpen:
+			return "{"
+		case objectClose:
+			return "}"
+		case itemSeparator:
+			return ","
+		case keyColon:
+			return ":"
+	}
+}
+
+/** A token list built bottom up: a token, or a list of them, flattened once at the root (`flattenTokens`). */
+type TokenTree = CanonicalToken | ReadonlyArray<TokenTree>
+
+const isTokenList = (tree: TokenTree): tree is ReadonlyArray<TokenTree> => Array.isArray(tree)
+
+/** A list's parts with a separator between every two. */
+const separated = (parts: ReadonlyArray<TokenTree>): ReadonlyArray<TokenTree> =>
+	parts.flatMap((part, i) => (i === 0 ? [part] : [itemSeparator, part]))
+
+/** The fold that writes a value's canonical tokens: the canonical text's, token by token, never one text. */
+const tokenFold: Fold<TokenTree> = {
+	scalar: (value) => value,
+	array: (items) => [arrayOpen, separated(items), arrayClose],
+	object: (members) => [
+		objectOpen,
+		separated(members.map(([key, form]): TokenTree => [key, keyColon, form])),
+		objectClose
+	]
+}
+
+/** A token tree's tokens in order, flattened on a stack on the heap, so no nesting deepens the call stack. */
+const flattenTokens = (tree: TokenTree): ReadonlyArray<CanonicalToken> => {
+	const out: Array<CanonicalToken> = []
+	const stack: Array<{ readonly parts: ReadonlyArray<TokenTree>; at: number }> = [
+		{ parts: [tree], at: 0 }
+	]
+	for (let top = stack.at(-1); top !== undefined; top = stack.at(-1)) {
+		const part = top.parts[top.at]
+		if (part === undefined) {
+			stack.pop()
+			continue
+		}
+		top.at += 1
+		if (isTokenList(part)) {
+			stack.push({ parts: part, at: 0 })
+		} else {
+			out.push(part)
+		}
+	}
+	return out
+}
+
+/**
+ * The canonical tokens of a value (`CanonicalToken`): its canonical text's, refused as `encode` refuses, but never for
+ * its length, since no text is built. A key over a value's identity is its tokens, in a TupleMap.
+ */
+export const canonicalTokens = (
+	value: unknown,
+	options: EncodeOptions
+): Result.Result<ReadonlyArray<CanonicalToken>, CompileError> =>
+	catchRefusal(() =>
+		value === undefined
+			? refuseValue([], "a value, not undefined")
+			: flattenTokens(new Walk(options, tokenFold).of(value))
+	)
+
+/** A scalar token's text: a number's or a boolean's as JSON.stringify writes it, a punctuation token's its own. */
+const scalarText = (token: number | boolean | Punctuation): string =>
+	typeof token === "symbol" ? punctuationText(token) : JSON.stringify(token)
+
+/** The first UTF-16 code unit of a token's text: a string's opening quote, or a scalar text's first. */
+const firstUnit = (token: CanonicalToken): string =>
+	typeof token === "string" ? '"' : scalarText(token).charAt(0)
+
+const quotedOrder = compareQuoted(compareStrings)
+
+/**
+ * The UTF-16 code unit order of two token lists' canonical texts (`encode`), without spelling them: equal tokens are
+ * skipped, two strings are ordered as JSON string literals (core/text.ts compareQuoted), and any other two tokens by
+ * their texts, which are short. Only a number's text can be another's prefix, and a number is followed by punctuation
+ * or the end, neither of which a number's text continues with, so the unit after the shorter one decides.
+ */
+export const compareCanonicalTokens = (
+	a: ReadonlyArray<CanonicalToken>,
+	b: ReadonlyArray<CanonicalToken>
+): number => {
+	for (let i = 0; ; i++) {
+		const x = a[i]
+		const y = b[i]
+		if (x === undefined || y === undefined) {
+			return x === undefined ? (y === undefined ? 0 : -1) : 1
+		}
+		if (x === y) {
+			continue
+		}
+		if (typeof x === "string" && typeof y === "string") {
+			return quotedOrder(x, y)
+		}
+		if (typeof x === "string" || typeof y === "string") {
+			return compareStrings(firstUnit(x), firstUnit(y))
+		}
+		const xs = scalarText(x)
+		const ys = scalarText(y)
+		if (ys.startsWith(xs)) {
+			const after = a[i + 1]
+			return after === undefined ? -1 : compareStrings(firstUnit(after), ys.charAt(xs.length))
+		}
+		if (xs.startsWith(ys)) {
+			const after = b[i + 1]
+			return after === undefined ? 1 : compareStrings(xs.charAt(ys.length), firstUnit(after))
+		}
+		return compareStrings(xs, ys)
+	}
+}
 
 /** Decoders for extension tags, for example `{ d: Decimal.fromCanonical }`. "n" (bigint) is built in. */
 export type Revivers = {

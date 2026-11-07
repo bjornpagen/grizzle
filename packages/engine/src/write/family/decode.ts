@@ -7,17 +7,19 @@ import { encodeFailure, slotPlace } from "#compiler/codec/fault.ts"
 import { scalarReader } from "#compiler/codec/read.ts"
 import type { EncodingFailure } from "#compiler/core/errors.ts"
 import * as Result from "#compiler/core/result.ts"
+import { TupleMap } from "#compiler/core/tuple-map.ts"
 import type { OutputText } from "#compiler/core/wire.ts"
 import type { Family } from "#compiler/ir/family.ts"
 import type { LawField } from "#compiler/ir/law.ts"
 import { admitValue } from "#compiler/scalar/values/identity.ts"
-import { textsKey } from "#compiler/write/family/draw.ts"
+import type { MemberKey, Owner } from "#compiler/write/family/draw.ts"
 import {
 	type EditTarget,
 	type FillContext,
 	groupOf,
 	groupOfOwner,
 	keyOf,
+	membersByGroup,
 	specOf,
 	type StoredFamily,
 	type StoredGroup,
@@ -40,11 +42,11 @@ export const decodeRead = (
 	shape: ReadShape,
 	rows: ReadonlyArray<ReadonlyArray<OutputText>>
 ): Result.Result<StoredFamily, EncodingFailure> => {
-	const owners = new Map<
-		string,
+	const owners = new TupleMap<
+		Owner,
 		{ readonly values: Map<ColumnKey, unknown>; readonly count: number }
 	>()
-	const members = new Map<string, StoredMember>()
+	const members = new TupleMap<MemberKey, StoredMember>()
 	const failure = encodeFailure("factShape", slotPlace(target.relation.name))
 	const read = (
 		type: LawField["type"],
@@ -73,8 +75,10 @@ export const decodeRead = (
 				values.set(fieldKey(f.name), v.value)
 			}
 			const count = values.get(fieldKey(family.count.name))
-			const group = textsKey(groupOfOwner(ctx, family, values))
-			owners.set(group, { values, count: typeof count === "bigint" ? Number(count) : 0 })
+			owners.set(groupOfOwner(ctx, family, values), {
+				values,
+				count: typeof count === "bigint" ? Number(count) : 0
+			})
 			continue
 		}
 		const values = new Map<ColumnKey, unknown>()
@@ -86,44 +90,39 @@ export const decodeRead = (
 			values.set(c.key, v.value)
 		}
 		const slot = values.get(columnKey(family.index))
-		const key = textsKey(keyOf(ctx, target.layout, values))
+		const key = keyOf(ctx, target.layout, values)
 		if (!members.has(key)) {
 			members.set(key, {
 				key,
 				slot: typeof slot === "bigint" ? Number(slot) : -1,
-				group: textsKey(groupOf(ctx, family, values)),
+				group: groupOf(ctx, family, values),
 				values
 			})
 		}
 	}
-	const groups = new Map<string, StoredGroup>()
+	const byGroup = membersByGroup(members.values())
+	const groups = new TupleMap<Owner, StoredGroup>()
 	for (const [group, o] of owners) {
-		groups.set(group, {
-			owner: o.values,
-			count: o.count,
-			members: [...members.values()]
-				.filter((m) => m.group === group)
-				.toSorted((a, b) => a.slot - b.slot)
-		})
+		groups.set(group, { owner: o.values, count: o.count, members: byGroup.get(group) ?? [] })
 	}
 	return Result.ok({ groups, members })
 }
 
 /**
  * A chain read's rows decoded (statements.ts chainReadSql), every read of the chain's (order.ts planRead) as one set:
- * each row set's rows by relation and key text, a refilled tree's nodes among them, each every column of its row
+ * each row set's rows by relation and key, a refilled tree's nodes among them, each every column of its row
  * layout; and a refilled family's stored suffixes at the chain's end, as a family's read decodes them (`decodeRead`).
  * A text the codec does not read is the read's EncodingFailure.
  */
 export interface ChainRows {
 	readonly rows: ReadonlyArray<{
 		readonly relation: string
-		readonly key: string
+		readonly key: MemberKey
 		readonly values: Values
 	}>
 	readonly end:
 		| { readonly kind: "suffix"; readonly family: Family; readonly stored: StoredFamily }
-		| { readonly kind: "tree"; readonly family: Family; readonly keys: ReadonlyArray<string> }
+		| { readonly kind: "tree"; readonly family: Family; readonly keys: ReadonlyArray<MemberKey> }
 		| { readonly kind: "rows" }
 }
 
@@ -136,7 +135,7 @@ export const decodeChain = (
 	const sets = new Map(shape.rows.map((r) => [r.tag, r] as const))
 	const out: Array<ChainRows["rows"][number]> = []
 	const ends: Array<ReadonlyArray<OutputText>> = []
-	const nodes: Array<string> = []
+	const nodes: Array<MemberKey> = []
 	const end = shape.end
 	for (const row of rows) {
 		const [tag, ...cells] = row
@@ -164,7 +163,7 @@ export const decodeChain = (
 			}
 			values.set(c.key, value.value)
 		}
-		const key = textsKey(keyOf(ctx, set.layout, values))
+		const key = keyOf(ctx, set.layout, values)
 		out.push({ relation: set.relation.name, key, values })
 		if (tag === "t") {
 			nodes.push(key)

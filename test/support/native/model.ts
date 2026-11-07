@@ -1,7 +1,9 @@
 import { Array as Arr, Option, Result } from "effect"
+import { appendAll } from "#compiler/core/array.ts"
 import { identifierOf } from "#compiler/core/identity.ts"
 import type { ColumnIdent, LawId, RelationIdent } from "#compiler/core/ids.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { TupleSet } from "#compiler/core/tuple-map.ts"
 import {
 	builtExpr,
 	type LiveArgs,
@@ -14,6 +16,7 @@ import type { DomainCheckTerm, LawField, NativeColumn, NativeKind } from "#compi
 import { baseOf, contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { LawModel, NamedNative } from "#compiler/laws/model/model.ts"
 import type { CarrierValue } from "#compiler/scalar/compute/literal.ts"
+import { type Atom, type ValueIdentity, sameIdentity } from "#test/support/kernel/identity.ts"
 import { type EvalEnv, evaluate } from "#test/support/oracle/evaluate/catalog.ts"
 import { patternMember } from "#test/support/oracle/reference/evaluate.ts"
 
@@ -496,41 +499,45 @@ const spanOf = (v: CarrierValue): SpanValue => {
 }
 
 /**
- * A value's text as an equality key: PostgreSQL's equality on the carriers the model evaluates, integers, booleans,
- * text, UUIDs and integer ranges, which compare by value. Any other carrier is a defect of the test that wrote it.
+ * A value's identity under PostgreSQL's equality on the carriers the model evaluates, integers, booleans, text, UUIDs
+ * and integer ranges, which compare by value: its kind, then its atoms, a range's two ends, so the atoms of several
+ * values in a row are self-delimiting (kernel/identity.ts). Any other carrier is a defect of the test that wrote it.
  */
-const valueKey = (v: CarrierValue): string => {
+const valueAtoms = (v: CarrierValue): ValueIdentity => {
 	if (typeof v === "bigint") {
-		return `i${v}`
+		return ["i", v]
 	}
 	if (typeof v === "boolean") {
-		return v ? "t" : "f"
+		return ["b", v]
 	}
 	if (typeof v === "string") {
-		return `s${v.length}:${v}`
+		return ["s", v]
 	}
 	if (typeof v === "object" && "start" in v) {
-		return `r${v.start}:${v.end}`
+		return ["r", v.start, v.end]
 	}
 	throw new Error("the native model compares integers, booleans, text, UUIDs and ranges only")
 }
 
-/** The columns' values as one key, or none when one of them is NULL: such a row is outside every key and reference. */
-const keyOf = (g: Generated, columns: ReadonlyArray<ColumnRead>): Option.Option<string> => {
-	const parts: Array<string> = []
+/**
+ * The columns' values as one key, each value's atoms in column order, or none when one of them is NULL: such a row is
+ * outside every key and reference.
+ */
+const keyOf = (g: Generated, columns: ReadonlyArray<ColumnRead>): Option.Option<ValueIdentity> => {
+	const parts: Array<Atom> = []
 	for (const c of columns) {
 		const cell = cellOf(g, c)
 		if (cell.kind === "null") {
 			return Option.none()
 		}
-		parts.push(valueKey(cell.value))
+		appendAll(parts, valueAtoms(cell.value))
 	}
-	return Option.some(Arr.join(parts, "\u0000"))
+	return Option.some(parts)
 }
 
 /** Whether two rows' keys are one key, neither NULL anywhere. */
-const sameKey = (a: Option.Option<string>, b: Option.Option<string>): boolean =>
-	Option.isSome(a) && Option.isSome(b) && a.value === b.value
+const sameKey = (a: Option.Option<ValueIdentity>, b: Option.Option<ValueIdentity>): boolean =>
+	Option.isSome(a) && Option.isSome(b) && sameIdentity(a.value, b.value)
 
 /** A column's span, or none where it is NULL. */
 const spanAt = (g: Generated, c: ColumnRead): Option.Option<SpanValue> => {
@@ -679,9 +686,13 @@ const checkIn = (
 			return duplicates.length === 0 && !empty ? holds : { kind: "broken", duplicates }
 		}
 		case "ForeignKey": {
-			const referenced = new Set(
-				Arr.flatMap(rows(c.target), (g) => Option.toArray(keyOf(g, c.targetColumns)))
-			)
+			const referenced = new TupleSet<ValueIdentity>()
+			for (const g of rows(c.target)) {
+				const k = keyOf(g, c.targetColumns)
+				if (Option.isSome(k)) {
+					referenced.add(k.value)
+				}
+			}
 			return brokenIf(
 				!Arr.every(rows(c.relation), (g) =>
 					Option.match(keyOf(g, c.columns), {
@@ -702,7 +713,7 @@ const checkIn = (
 					}
 					const spans = Arr.flatMap(targets, (t) => {
 						const at = keyOf(t, c.targetColumns)
-						return Option.isSome(at) && at.value === k.value
+						return Option.isSome(at) && sameIdentity(at.value, k.value)
 							? Option.toArray(spanAt(t, c.targetSpan))
 							: []
 					})
@@ -786,7 +797,7 @@ export interface NullUse {
 const sameCell = (a: Cell, b: Cell): boolean =>
 	a.kind === "null"
 		? b.kind === "null"
-		: b.kind === "value" && valueKey(a.value) === valueKey(b.value)
+		: b.kind === "value" && sameIdentity(valueAtoms(a.value), valueAtoms(b.value))
 
 export const nullUseOf = (installation: NativeInstallation, state: NativeState): NullUse => {
 	const rows = (relation: string) => generatedRows(installation, state, relation)
@@ -865,7 +876,7 @@ export type TransactionVerdict =
 const matches = (row: NativeRow, match: NativeMatch): boolean =>
 	Arr.every([...match], ([column, v]) => {
 		const held = row.get(column)
-		return held !== undefined && valueKey(held) === valueKey(v)
+		return held !== undefined && sameIdentity(valueAtoms(held), valueAtoms(v))
 	})
 
 /** A row with the given columns set. */
@@ -907,7 +918,7 @@ const updated = (
 		for (const [before, after] of changes) {
 			const old = keyOf(before, c.targetColumns)
 			const now = keyOf(after, c.targetColumns)
-			if (Option.isNone(old) || (Option.isSome(now) && now.value === old.value)) {
+			if (Option.isNone(old) || (Option.isSome(now) && sameIdentity(now.value, old.value))) {
 				continue
 			}
 			const values = Arr.map(c.targetColumns, (t) => cellOf(after, t))
@@ -916,7 +927,10 @@ const updated = (
 				installation,
 				cascaded,
 				c.relation,
-				(row) => Option.getOrUndefined(keyOf(generated(source, row), c.columns)) === old.value,
+				(row) =>
+					Option.exists(keyOf(generated(source, row), c.columns), (k) =>
+						sameIdentity(k, old.value)
+					),
 				(row) =>
 					withSet(
 						row,

@@ -12,7 +12,7 @@ import { canonicalZero } from "#compiler/scalar/values/float.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import {
 	Identities,
-	type Identity,
+	type ValueIdentity,
 	type Interned,
 	sameIdentity
 } from "#test/support/kernel/identity.ts"
@@ -44,10 +44,10 @@ export const declineReasons: Arr.NonEmptyReadonlyArray<DeclineReason> = [
  * (ReferenceUnsupported). The frontier reads a declined column by the same rule (frontier.ts mustEval).
  */
 export class Declined {
-	readonly identity: Identity
+	readonly identity: ValueIdentity
 	readonly reason: DeclineReason
 
-	constructor(identity: Identity, reason: DeclineReason) {
+	constructor(identity: ValueIdentity, reason: DeclineReason) {
 		this.identity = identity
 		this.reason = reason
 	}
@@ -63,7 +63,7 @@ export class Declined {
  * in, cast to or read through a column of a numeric(p, s) type is coerced as PostgreSQL's typmod coercion does, so
  * 1.234 stored in numeric(5,2) is 1.23.
  *
- * Identity is native equality, which for the one form is identity: 1.0 and 1.00 are one Decimal, -0 is 0, NaN = NaN.
+ * ValueIdentity is native equality, which for the one form is identity: 1.0 and 1.00 are one Decimal, -0 is 0, NaN = NaN.
  * A collapse (DISTINCT, UNION, GROUP BY, a join variable, min and max) keeps one of natively equal values, which are
  * identical, so which one it keeps is unobservable and the reference states every collapse exactly.
  */
@@ -197,7 +197,7 @@ export const equal = (a: Value, b: Value, type: ScalarType): boolean => compare(
  * order after their count, a vector by its components after its dimensions); a declined term's, its reading's over its
  * reads (Declined identity), after its length.
  */
-export const valueIdentity = (v: Value, type: ScalarType): Identity => {
+export const valueIdentity = (v: Value, type: ScalarType): ValueIdentity => {
 	if (v instanceof Declined) {
 		return ["declined", v.identity.length, ...v.identity]
 	}
@@ -247,7 +247,7 @@ export const valueIdentity = (v: Value, type: ScalarType): Identity => {
  * id's handle outside its roster, which compares equal to every other such handle. A set is equal exactly to the set
  * of its members. A vector holds the one zero, so pgvector's order is 0 exactly between vectors of one identity.
  */
-export const indexIdentity = (v: Value, type: ScalarType): Identity | undefined => {
+export const indexIdentity = (v: Value, type: ScalarType): ValueIdentity | undefined => {
 	if (v instanceof Declined) {
 		return undefined
 	}
@@ -288,7 +288,7 @@ export const indexIdentity = (v: Value, type: ScalarType): Identity | undefined 
 }
 
 /** A row's identity on `heading`: its values' identities in column order, each self-delimiting. */
-export const rowIdentity = (row: Row, heading: Heading): Identity =>
+export const rowIdentity = (row: Row, heading: Heading): ValueIdentity =>
 	Arr.flatMap(heading, (c, i) => valueIdentity(valueAt(row, i), c.type))
 
 /**
@@ -315,7 +315,7 @@ export const decidedKeys = (
 	const decided = new Map<Interned, Interned>()
 	for (const [r, row] of rows.entries()) {
 		const partial = partials.of(
-			Arr.flatMap(heading, (c, i): Identity =>
+			Arr.flatMap(heading, (c, i): ValueIdentity =>
 				open.has(i) ? ["open"] : valueIdentity(valueAt(row, i), c.type)
 			)
 		)

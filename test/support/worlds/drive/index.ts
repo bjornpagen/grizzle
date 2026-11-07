@@ -9,6 +9,8 @@ import {
 	Record as Rec,
 	String as Str
 } from "effect"
+import { TupleSet } from "#compiler/core/tuple-map.ts"
+import type { ValueIdentity } from "#test/support/kernel/identity.ts"
 import { sameValues, valueText } from "#test/support/laws/model.ts"
 import type { RealWorld } from "#test/support/worlds/execute/index.ts"
 import { featuresOf } from "#test/support/worlds/features.ts"
@@ -377,7 +379,7 @@ const lacking = (
 
 /** The facts that repeat a fact before them, each fact by every field and its value. */
 const repeats = (facts: ReadonlyArray<HostFact>): ReadonlyArray<HostFact> => {
-	const seen = new Set<string>()
+	const seen = new TupleSet<ValueIdentity>()
 	return Arr.filter(facts, (fact) => {
 		const key = factKey(fact)
 		const again = seen.has(key)

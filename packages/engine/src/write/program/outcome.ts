@@ -2,6 +2,7 @@ import { scalarReader } from "#compiler/codec/read.ts"
 import type { OutputText } from "#compiler/core/wire.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { RelationInfo } from "#compiler/ir/law.ts"
+import type { FactIdentity } from "#compiler/scalar/values/identity.ts"
 import { isVector } from "#compiler/scalar/values/vector.ts"
 import type { KeyHost, Witness } from "#compiler/types/changeset/changeset.ts"
 import {
@@ -43,7 +44,7 @@ interface WriteChanges {
  * (delta/net.ts relationIdentity). */
 export interface WrittenOutcome {
 	readonly relation: RelationInfo
-	readonly identity: (fact: Fact) => string
+	readonly identity: (fact: Fact) => FactIdentity
 }
 
 /** A written relation with its facts' identity, a closed id's and a set's values read by the installation's codes. */
@@ -132,9 +133,9 @@ const changesConverter = (result: WriteStepResult, codes: Codebook): ChangesConv
 const stepIdentity = (
 	counts: boolean,
 	result: WriteStepResult,
-	identity: (fact: Fact) => string,
+	identity: (fact: Fact) => FactIdentity,
 	codes: Codebook
-): ((fact: Fact) => string) =>
+): ((fact: Fact) => FactIdentity) =>
 	counts && result.kind === "update"
 		? relationIdentity(result.columns.slice(0, result.fields.length), codes)
 		: identity

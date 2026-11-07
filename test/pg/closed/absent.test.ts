@@ -761,10 +761,10 @@ const verdict = (
 	if (outcome.kind !== "invariant-rejected") {
 		return assert.fail(`${where} is unlawful, so refused, not ${outcome.kind}`)
 	}
-	assert.equal(outcome.laws.length, 1, `${where} breaks one law`)
+	assert.equal(outcome.refused.laws.length, 1, `${where} breaks one law`)
 	assert.ok(
-		Arr.every(outcome.laws, (law) => namesLaw(law, relation)),
-		`${where} is refused by ${relation}'s law, not ${Formatter.format(outcome.laws)}`
+		Arr.every(outcome.refused.laws, (law) => namesLaw(law, relation)),
+		`${where} is refused by ${relation}'s law, not ${Formatter.format(outcome.refused.laws)}`
 	)
 }
 

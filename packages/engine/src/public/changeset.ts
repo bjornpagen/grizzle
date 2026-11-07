@@ -33,6 +33,7 @@ export type {
 	Law,
 	LawSide,
 	Member,
+	Refused,
 	Witness,
 	WritableOf,
 	Written

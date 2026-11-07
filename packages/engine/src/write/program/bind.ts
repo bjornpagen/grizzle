@@ -12,6 +12,7 @@ import { defect, defined } from "#compiler/core/invariant.ts"
 import { maxStringLength } from "#compiler/core/limits.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
+import { type ReadonlyTupleMap, TupleMap, TupleSet } from "#compiler/core/tuple-map.ts"
 import type { OutputText, ParamText } from "#compiler/core/wire.ts"
 import { type Family, isTreeOf } from "#compiler/ir/family.ts"
 import type { FamilyId, RelationInfo } from "#compiler/ir/law.ts"
@@ -23,7 +24,7 @@ import type { Law, Witness } from "#compiler/types/changeset/changeset.ts"
 import { isIterable } from "#compiler/write/defined.ts"
 import { compose, type RelationPlanAt, relationDepths } from "#compiler/write/family/compose.ts"
 import { decodeChain, decodeRead } from "#compiler/write/family/decode.ts"
-import { type Owner, type Recount, textsKey } from "#compiler/write/family/draw.ts"
+import type { MemberKey, Owner, Recount, Row } from "#compiler/write/family/draw.ts"
 import {
 	callerValues,
 	countRows,
@@ -38,7 +39,7 @@ import {
 	groupOfOwner,
 	keyOf,
 	mergeStored,
-	ownerText,
+	ownerGroup,
 	ownersOf,
 	planEdits,
 	type ReadKeys,
@@ -329,7 +330,7 @@ export const bindWrite = (
 			return Result.ok(out)
 		}
 	const values = valuesOver(factsOf)
-	const noRows: ReadonlyMap<string, ReadonlyMap<string, NestedRow>> = new Map()
+	const noRows: ReadonlyMap<string, ReadonlyTupleMap<MemberKey, NestedRow>> = new Map()
 	/** Each relation's depth among the families, which orders a stratum's relations' statements. */
 	const depthOf = relationDepths(frontend.laws.families)
 	/** A member relation's row no statement carries even alone, as the first family it is a member of names it. */
@@ -345,7 +346,7 @@ export const bindWrite = (
 	 * as its counted families' appends in the stratum left them, each row in its relation's row layout. */
 	const nestedPlans = (
 		stratum: number,
-		nested: ReadonlyMap<string, ReadonlyMap<string, NestedRow>>
+		nested: ReadonlyMap<string, ReadonlyTupleMap<MemberKey, NestedRow>>
 	): Result.Result<ReadonlyArray<RelationPlanAt>, FamilyRowBound> => {
 		const relations: Array<RelationPlanAt> = []
 		for (const [relation, rows] of nested) {
@@ -354,16 +355,18 @@ export const bindWrite = (
 				frontend.schema.relations.get(relation),
 				`the stored relation ${relation}, a nested write's`
 			)
+			const inserts = new TupleMap<MemberKey, Row>()
+			for (const [key, r] of rows) {
+				inserts.set(key, rowOfValues(ctx.codes, layout, r.values))
+			}
 			const planned = planRelation(
 				{
 					relation,
-					deletes: new Map(),
-					trees: new Map(),
-					refills: new Map(),
-					updates: new Map(),
-					inserts: new Map(
-						[...rows].map(([key, r]) => [key, rowOfValues(ctx.codes, layout, r.values)] as const)
-					)
+					deletes: new TupleSet<MemberKey>(),
+					trees: new TupleSet<Owner>(),
+					refills: new TupleMap<MemberKey, Row>(),
+					updates: new TupleMap<MemberKey, Row>(),
+					inserts
 				},
 				inputs.transport,
 				patternPositions(info, frontend.laws.natives, layout)
@@ -394,7 +397,7 @@ export const bindWrite = (
 	interface BoundEdit {
 		readonly program: EditProgram
 		readonly changes: RelationChanges
-		readonly owners: (family: Family) => ReadonlyMap<string, Values>
+		readonly owners: (family: Family) => ReadonlyTupleMap<Owner, Values>
 		readonly reads: ReadonlyArray<{
 			readonly family: Family
 			readonly shape: ReadShape
@@ -415,8 +418,8 @@ export const bindWrite = (
 				...(normalized.nested.get(edit.stratum)?.get(target.relation.name)?.values() ?? [])
 			].map((r) => r.values)
 		}
-		const known = new Map<string, ReadonlyMap<string, Values>>()
-		const owners = (family: Family): ReadonlyMap<string, Values> => {
+		const known = new Map<string, ReadonlyTupleMap<Owner, Values>>()
+		const owners = (family: Family): ReadonlyTupleMap<Owner, Values> => {
 			const id = familyKey(family.id)
 			const had = known.get(id)
 			if (had !== undefined) {
@@ -499,10 +502,13 @@ export const bindWrite = (
 						reads.push({
 							family: read.kind === "groups" ? read.groups.family.id : read.family.id,
 							sql: sql.sql.text,
-							params: [
-								...readLiterals(relation, part.keys, widths.key),
-								...readLiterals(relation, part.groups, widths.group)
-							]
+							params:
+								root.kind === "put"
+									? readLiterals(relation, part.keys, widths.key)
+									: [
+											...readLiterals(relation, part.keys, widths.key),
+											...readLiterals(relation, part.groups, widths.group)
+										]
 						})
 					}
 				}
@@ -525,7 +531,7 @@ export const bindWrite = (
 		target: EditTarget,
 		owners: ReadonlyArray<OwnerWrite>,
 		refilled: Map<ParamId, NormalizedSlot>,
-		nested: Map<string, Map<string, NestedRow>>
+		nested: Map<string, TupleMap<MemberKey, NestedRow>>
 	): ReadonlyArray<OwnerWrite> =>
 		owners.flatMap((write) => {
 			const family = defined(
@@ -539,21 +545,25 @@ export const bindWrite = (
 				k.fields.some((f) => drawnFields.includes(f.name))
 			)
 			const slots = keyed ? [] : ownerSlots(stratum, family.owner.name)
-			const kept = new Map(write.recounts)
+			const kept = new TupleMap<Owner, Recount>()
+			for (const [group, recount] of write.recounts) {
+				kept.set(group, recount)
+			}
 			for (const slot of slots) {
 				const current = refilled.get(slot) ?? factsOf(slot)
-				const byGroup = new Map<string, ReadonlyMap<string, unknown>>()
-				for (const [text, recount] of write.recounts) {
-					if (!write.stored.has(text) && ownersOf(ctx, family, current.facts).has(text)) {
-						byGroup.set(text, recountValues(family, recount))
-						kept.delete(text)
+				const inserted = ownersOf(ctx, family, current.facts)
+				const byGroup = new TupleMap<Owner, ReadonlyMap<string, unknown>>()
+				for (const [group, recount] of write.recounts) {
+					if (!write.stored.has(group) && inserted.has(group)) {
+						byGroup.set(group, recountValues(family, recount))
+						kept.delete(group)
 					}
 				}
 				if (byGroup.size > 0) {
 					refilled.set(
 						slot,
 						refilledSlot(current, (fact) => {
-							const drawnValues = byGroup.get(ownerText(ctx, family, fact))
+							const drawnValues = byGroup.get(ownerGroup(ctx, family, fact))
 							return drawnValues === undefined
 								? fact
 								: Object.fromEntries([...Object.entries(fact), ...drawnValues])
@@ -564,11 +574,11 @@ export const bindWrite = (
 			const rows = keyed ? undefined : nested.get(family.owner.name)
 			if (rows !== undefined) {
 				for (const [key, row] of rows) {
-					const text = ownerText(ctx, family, row.fact)
-					const recount = kept.get(text)
-					if (recount !== undefined && !write.stored.has(text)) {
+					const group = ownerGroup(ctx, family, row.fact)
+					const recount = kept.get(group)
+					if (recount !== undefined && !write.stored.has(group)) {
 						rows.set(key, recountedRow(family, row, recount))
-						kept.delete(text)
+						kept.delete(group)
 					}
 				}
 			}
@@ -647,34 +657,37 @@ export const bindWrite = (
 					.map((e) => e.program.target.relation.name)
 			)
 			const nested = new Map(
-				[...(normalized.nested.get(stratum) ?? noRows)].flatMap(([relation, relationRows]) =>
-					editedHere.has(relation) ? [] : [[relation, new Map(relationRows)] as const]
-				)
+				[...(normalized.nested.get(stratum) ?? noRows)].flatMap(([relation, relationRows]) => {
+					if (editedHere.has(relation)) {
+						return []
+					}
+					const copy = new TupleMap<MemberKey, NestedRow>()
+					for (const [key, row] of relationRows) {
+						copy.set(key, row)
+					}
+					return [[relation, copy] as const]
+				})
 			)
 			const refill = refills.find((r) => r.program.stratum === stratum)
-			/** Every row the stratum's reads found, by relation and key text. */
+			/** Every row the stratum's reads found, by relation and key. */
 			const stored: RowState = new Map()
 			/** Each family's stored suffixes, by family key, every read of it as one set. */
 			const suffixes = new Map<string, StoredFamily>()
-			/** An owner's key text in its row layout's key order, from its group texts in the family's group order. */
-			const ownerKeyText = (family: Family, owner: Owner): string => {
-				const layout = rowLayout(family.owner, families)
-				return textsKey(
-					mapNonEmpty(layout.key, (c) =>
-						defined(
-							owner[family.group.findIndex((g) => fieldKey(g.owner.name) === c.key)],
-							`the owner's key field ${c.key} in its group`
-						)
+			/** An owner's key texts in its row layout's key order, from its group texts in the family's group order. */
+			const ownerKey = (family: Family, owner: Owner): MemberKey =>
+				mapNonEmpty(rowLayout(family.owner, families).key, (c) =>
+					defined(
+						owner[family.group.findIndex((g) => fieldKey(g.owner.name) === c.key)],
+						`the owner's key field ${c.key} in its group`
 					)
 				)
-			}
 			const holdFamily = (family: Family, read: StoredFamily): void => {
 				suffixes.set(familyKey(family.id), mergeStored(suffixes.get(familyKey(family.id)), read))
 				for (const g of read.groups.values()) {
 					holdRow(
 						stored,
 						family.owner.name,
-						textsKey(keyOf(ctx, rowLayout(family.owner, families), g.owner)),
+						keyOf(ctx, rowLayout(family.owner, families), g.owner),
 						g.owner
 					)
 				}
@@ -699,7 +712,7 @@ export const bindWrite = (
 				}
 			}
 			/** Each refilled tree's nodes its reads found whole, by family key. */
-			const treeNodes = new Map<string, Set<string>>()
+			const treeNodes = new Map<string, TupleSet<MemberKey>>()
 			for (const read of refill?.reads ?? []) {
 				const decoded = decodeChain(
 					ctx,
@@ -718,7 +731,7 @@ export const bindWrite = (
 						holdFamily(end.family, end.stored)
 						break
 					case "tree": {
-						const keys = treeNodes.get(familyKey(end.family.id)) ?? new Set<string>()
+						const keys = treeNodes.get(familyKey(end.family.id)) ?? new TupleSet<MemberKey>()
 						for (const key of end.keys) {
 							keys.add(key)
 						}
@@ -751,25 +764,25 @@ export const bindWrite = (
 						writeRow(
 							current,
 							root.relation,
-							textsKey(factKey(ctx, layout, fact)),
+							factKey(ctx, layout, fact),
 							callerValues(root.relation, fact)
 						)
 					}
 				}
 			}
 			const noChange: RelationChanges = { inserts: [], puts: [], deletes: [], nested: [] }
-			/** The owners of `family` the stratum changes, by group text, each with the columns it changes of it. */
-			const changedOwners = (family: Family): ReadonlyMap<string, Values> => {
+			/** The owners of `family` the stratum changes, by group texts, each with the columns it changes of it. */
+			const changedOwners = (family: Family): ReadonlyTupleMap<Owner, Values> => {
 				const layout = rowLayout(family.owner, families)
-				return new Map(
-					[...rowsOf(current, family.owner.name)].flatMap(([key, row]) => {
-						const was = rowOf(stored, family.owner.name, key)
-						const delta = was === undefined ? new Map() : changedColumns(ctx, layout, was, row)
-						return delta.size > 0
-							? [[textsKey(groupOfOwner(ctx, family, row)), delta] as const]
-							: []
-					})
-				)
+				const changed = new TupleMap<Owner, Values>()
+				for (const [key, row] of rowsOf(current, family.owner.name)) {
+					const was = rowOf(stored, family.owner.name, key)
+					const delta = was === undefined ? new Map() : changedColumns(ctx, layout, was, row)
+					if (delta.size > 0) {
+						changed.set(groupOfOwner(ctx, family, row), delta)
+					}
+				}
+				return changed
 			}
 			/** Each pass draws from what the one before left, so each unit's values are final one pass after every value it
 			 * draws from is: the units and trees close no cycle a refill could not order (analysis/theory/refill.ts). */
@@ -802,7 +815,9 @@ export const bindWrite = (
 							recounted: changedOwners(family)
 						}),
 						{
-							current: refreshed ? rowsOf(current, relation.name) : new Map<string, Values>(),
+							current: refreshed
+								? rowsOf(current, relation.name)
+								: new TupleMap<MemberKey, Values>(),
 							refilled: (family) => refilledFamilies.has(familyKey(family.id))
 						}
 					)
@@ -811,7 +826,7 @@ export const bindWrite = (
 					}
 					done.push({ target, edited: edited.value })
 					const written = edited.value.rows
-					for (const key of written.deletes.keys()) {
+					for (const key of written.deletes) {
 						dropRow(current, relation.name, key)
 					}
 					for (const row of [
@@ -819,7 +834,7 @@ export const bindWrite = (
 						...written.updates.values(),
 						...written.inserts.values()
 					]) {
-						holdRow(current, relation.name, textsKey(row.key), row.values)
+						holdRow(current, relation.name, row.key, row.values)
 					}
 					for (const write of edited.value.owners) {
 						const family = defined(
@@ -830,7 +845,7 @@ export const bindWrite = (
 							writeRow(
 								current,
 								family.owner,
-								ownerKeyText(family, recount.owner),
+								ownerKey(family, recount.owner),
 								new Map(
 									[...recountValues(family, recount)].map(
 										([name, v]) => [fieldKey(name), v] as const
@@ -842,13 +857,16 @@ export const bindWrite = (
 				}
 				for (const tree of trees) {
 					const keys = [...(treeNodes.get(familyKey(tree.id)) ?? [])]
-					const nodesOf = (state: RowState): ReadonlyMap<string, Values> =>
-						new Map(
-							keys.flatMap((key) => {
-								const row = rowOf(state, tree.member.name, key)
-								return row === undefined ? [] : [[key, row] as const]
-							})
-						)
+					const nodesOf = (state: RowState): ReadonlyTupleMap<MemberKey, Values> => {
+						const nodes = new TupleMap<MemberKey, Values>()
+						for (const key of keys) {
+							const row = rowOf(state, tree.member.name, key)
+							if (row !== undefined) {
+								nodes.set(key, row)
+							}
+						}
+						return nodes
+					}
 					const drawn = refillTree(ctx, tree, nodesOf(stored), nodesOf(current))
 					if (!drawn.ok) {
 						return drawn
@@ -859,14 +877,14 @@ export const bindWrite = (
 				}
 				plannedUnits = done
 			}
-			/** The rows of each relation a refill rewrites, by relation and key text, each with every value as the stratum
+			/** The rows of each relation a refill rewrites, by relation and key, each with every value as the stratum
 			 * leaves it: an owner's count and ends among them, which its count statement then leaves out. A tree's nodes are
 			 * every node whose values its refill changes. */
-			const refillRows = new Map<string, Map<string, FilledRow>>()
+			const refillRows = new Map<string, TupleMap<MemberKey, FilledRow>>()
 			for (const tree of trees) {
 				const name = tree.member.name
 				const layout = rowLayout(tree.member, families)
-				const nodes = refillRows.get(name) ?? new Map<string, FilledRow>()
+				const nodes = refillRows.get(name) ?? new TupleMap<MemberKey, FilledRow>()
 				for (const key of treeNodes.get(familyKey(tree.id)) ?? []) {
 					const was = rowOf(stored, name, key)
 					const now = rowOf(current, name, key)
@@ -883,7 +901,10 @@ export const bindWrite = (
 			}
 			const rewritten = plannedUnits.map(({ target, edited }): EditedTarget => {
 				const name = target.relation.name
-				const rewrites = new Map(refillRows.get(name) ?? [])
+				const rewrites = new TupleMap<MemberKey, FilledRow>()
+				for (const [key, row] of refillRows.get(name) ?? []) {
+					rewrites.set(key, row)
+				}
 				for (const [key, row] of edited.rows.refills) {
 					rewrites.set(key, { key: row.key, values: rowOf(current, name, key) ?? row.values })
 				}
@@ -919,9 +940,10 @@ export const bindWrite = (
 						target.families.find((f) => familyKey(f.family.id) === familyKey(owner.family)),
 						"an edited relation's family"
 					).family
-					const carriedByRefill = refillRows.get(family.owner.name) ?? new Map<string, FilledRow>()
+					const carriedByRefill =
+						refillRows.get(family.owner.name) ?? new TupleMap<MemberKey, FilledRow>()
 					const recounted = [...owner.recounts.values()].filter(
-						(r) => !carriedByRefill.has(ownerKeyText(family, r.owner))
+						(r) => !carriedByRefill.has(ownerKey(family, r.owner))
 					)
 					if (recounted.length === 0) {
 						continue
@@ -938,16 +960,16 @@ export const bindWrite = (
 				}
 			}
 			for (const tree of trees) {
-				const nodes = refillRows.get(tree.member.name) ?? new Map<string, FilledRow>()
+				const nodes = refillRows.get(tree.member.name) ?? new TupleMap<MemberKey, FilledRow>()
 				if (nodes.size === 0 || units.some((u) => u.target.relation.name === tree.member.name)) {
 					continue
 				}
 				const rowsPlanned = planRows(tree.member, rowLayout(tree.member, families), {
 					relation: tree.member.name,
-					deletes: new Map(),
+					deletes: new TupleSet<MemberKey>(),
 					refills: nodes,
-					updates: new Map(),
-					inserts: new Map()
+					updates: new TupleMap<MemberKey, FilledRow>(),
+					inserts: new TupleMap<MemberKey, FilledRow>()
 				})
 				if (!rowsPlanned.ok) {
 					return rowsPlanned

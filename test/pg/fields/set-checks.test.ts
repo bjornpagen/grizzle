@@ -140,8 +140,12 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										if (outcome.kind !== "invariant-rejected") {
 											return assert.fail(`a refusal by a check, not ${outcome.kind}`)
 										}
-										assert.equal(outcome.laws.length, 1, "one CHECK fails, and its law is named")
-										const [law] = outcome.laws
+										assert.equal(
+											outcome.refused.laws.length,
+											1,
+											"one CHECK fails, and its law is named"
+										)
+										const [law] = outcome.refused.laws
 										containsEqual(broken, law, "the refusing check is one the set breaks")
 										assert.deepEqual(outcome.witness, {
 											kind: "key",

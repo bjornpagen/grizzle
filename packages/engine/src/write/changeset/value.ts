@@ -1,6 +1,11 @@
 import type { Stream } from "effect"
 import { indices } from "#compiler/core/array.ts"
-import { encode, everyProperty } from "#compiler/core/canonical.ts"
+import {
+	type CanonicalToken,
+	canonicalTokens,
+	compareCanonicalTokens,
+	everyProperty
+} from "#compiler/core/canonical.ts"
 import { attachment, merge, type RecordField, type RowDecoder } from "#compiler/core/decoder.ts"
 import type { ValueFault } from "#compiler/core/errors.ts"
 import { hostRead } from "#compiler/core/host.ts"
@@ -10,6 +15,7 @@ import * as Order from "#compiler/core/order.ts"
 import { type Built, builtMark } from "#compiler/core/phantom.ts"
 import { hasProperties, isList } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
+import { TupleMap } from "#compiler/core/tuple-map.ts"
 import {
 	type ChangeSetDesc,
 	decodeDesc,
@@ -96,10 +102,14 @@ interface ReadBackState {
 }
 
 /**
- * What tells two values bound under one name apart: the value's canonical text, read once when bind takes it, or
- * opaque for a value that has none, a Stream, which is equal to no other value and has no canonical order.
+ * What tells two values bound under one name apart: the value's canonical tokens (core/canonical.ts canonicalTokens),
+ * read once when bind takes it, its canonical text's tokens and never that text, so a value whose texts sum past the
+ * longest string is keyed as any other; or opaque for a value that has none, a Stream, which is equal to no other value
+ * and has no canonical order.
  */
-type BoundKey = { readonly kind: "text"; readonly text: string } | { readonly kind: "opaque" }
+type BoundKey =
+	| { readonly kind: "tokens"; readonly tokens: ReadonlyArray<CanonicalToken> }
+	| { readonly kind: "opaque" }
 
 /** A parameter bind closed: the name it had when bound, its value, and the value's key. */
 interface BoundParam {
@@ -110,18 +120,18 @@ interface BoundParam {
 
 /** The key of a bound value (`BoundKey`). */
 const boundKey = (value: ParamValue): BoundKey => {
-	const text = encode(value, everyProperty)
-	return text.ok ? { kind: "text", text: text.value } : { kind: "opaque" }
+	const tokens = canonicalTokens(value, everyProperty)
+	return tokens.ok ? { kind: "tokens", tokens: tokens.value } : { kind: "opaque" }
 }
 
-/** Private parameters by origin, then by key: every text in code-unit order, then the opaque ones as the sort found
- * them. */
+/** Private parameters by origin, then by key: every canonical text in code-unit order (compareCanonicalTokens), then
+ * the opaque ones as the sort found them. */
 const boundOrder: Order.Comparator<BoundParam> = Order.combineAll([
 	Order.mapInput(Order.compareStrings, (p: BoundParam) => p.origin),
 	(a: BoundParam, b: BoundParam) =>
-		a.key.kind === "text" && b.key.kind === "text"
-			? Order.compareStrings(a.key.text, b.key.text)
-			: Order.compareNumbers(a.key.kind === "text" ? 0 : 1, b.key.kind === "text" ? 0 : 1)
+		a.key.kind === "tokens" && b.key.kind === "tokens"
+			? compareCanonicalTokens(a.key.tokens, b.key.tokens)
+			: Order.compareNumbers(a.key.kind === "tokens" ? 0 : 1, b.key.kind === "tokens" ? 0 : 1)
 ])
 
 interface ChangeSetState {
@@ -600,18 +610,18 @@ const canonicalBindings = (scope: Scope): Scope => {
 	}
 	const merges = new Map<string, string>()
 	const kept = new Map<string, BoundParam>()
-	/** The kept private parameter of each origin and key text, by name. */
-	const keyed = new Map<string, Map<string, string>>()
+	/** The kept private parameter of each origin and key, by name. */
+	const keyed = new Map<string, TupleMap<ReadonlyArray<CanonicalToken>, string>>()
 	for (const [name, param] of scope.bound) {
 		if (param.key.kind === "opaque") {
 			kept.set(name, param)
 			continue
 		}
-		const texts = keyed.get(param.origin) ?? new Map<string, string>()
-		keyed.set(param.origin, texts)
-		const same = texts.get(param.key.text)
+		const keys = keyed.get(param.origin) ?? new TupleMap<ReadonlyArray<CanonicalToken>, string>()
+		keyed.set(param.origin, keys)
+		const same = keys.get(param.key.tokens)
 		if (same === undefined) {
-			texts.set(param.key.text, name)
+			keys.set(param.key.tokens, name)
 			kept.set(name, param)
 		} else {
 			merges.set(name, same)

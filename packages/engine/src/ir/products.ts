@@ -26,9 +26,12 @@ import type { CarrierName } from "#compiler/sql/naming.ts"
  */
 export type Encoder = (value: unknown) => Result.Result<ParamText, EncodingFailure>
 
-/** An admitted fact (scalar/values/identity.ts) with its identity, factIdentity's over the input's heading. */
+/**
+ * An admitted fact (scalar/values/identity.ts) with its identity, factIdentity's over the input's heading: each field's
+ * canonical text in field-name order (FactIdentity).
+ */
 export interface IdentifiedFact {
-	readonly identity: string
+	readonly identity: ReadonlyArray<string>
 	readonly fact: { readonly [field: string]: unknown }
 }
 

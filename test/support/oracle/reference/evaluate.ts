@@ -32,7 +32,7 @@ import { accepts } from "#test/support/fixtures/ir/scalar.ts"
 import {
 	type Atom,
 	Identities,
-	type Identity,
+	type ValueIdentity,
 	type Interned
 } from "#test/support/kernel/identity.ts"
 import { evaluate } from "#test/support/oracle/evaluate/catalog.ts"
@@ -579,14 +579,14 @@ const pairKey = (
 	row: Row,
 	pairs: ExistencePlan["pairs"],
 	at: (p: ExistencePlan["pairs"][number]) => number
-): Option.Option<Identity> =>
+): Option.Option<ValueIdentity> =>
 	Option.map(
 		Option.all(
 			Arr.map(pairs, (p) =>
 				Option.flatMap(Arr.get(row, at(p)), (v) => Option.fromUndefinedOr(indexIdentity(v, p.type)))
 			)
 		),
-		(parts): Identity => Arr.flatten(parts)
+		(parts): ValueIdentity => Arr.flatten(parts)
 	)
 
 /** The identities of a right side's rows on an existence test's columns, interned, or none when one has none. */
@@ -952,7 +952,11 @@ export class Reference {
 	 * native equality (values.ts valueIdentity), which every reading is a function of, each read tagged by its kind and
 	 * named before its value.
 	 */
-	readsOf(root: ScalarExpr, scope: Bindings, param: (pid: ParamId) => Value | undefined): Identity {
+	readsOf(
+		root: ScalarExpr,
+		scope: Bindings,
+		param: (pid: ParamId) => Value | undefined
+	): ValueIdentity {
 		const parts: Array<Atom> = [root.id]
 		for (const expr of exprClosure([root])) {
 			if (expr.kind === "column") {

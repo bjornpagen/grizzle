@@ -44,18 +44,6 @@ export interface CountRow {
 	readonly drawn: Member
 }
 
-/**
- * Texts as one text that two lists share exactly when they are equal, each text after its length: a key's, by which a
- * relation's rows are a set, or a row's, its identity.
- */
-export const textsKey = (texts: ReadonlyArray<string>): string => {
-	let out = ""
-	for (const t of texts) {
-		out = `${out}${t.length}:${t}`
-	}
-	return out
-}
-
 /** A row's texts: its key, then its other columns. */
 export const rowTexts = (row: Row): ReadonlyArray<ParamText> => [...row.key, ...row.columns]
 

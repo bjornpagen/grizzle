@@ -36,11 +36,19 @@
  * owner's bound are refused there by that law; every other law is checked on the state the transaction leaves, at
  * COMMIT or at SET CONSTRAINTS ALL IMMEDIATE.
  */
-import { Array as Arr, Order, Record as Rec } from "effect"
+import { Array as Arr, Formatter, Order, Record as Rec } from "effect"
+import { appendAll } from "#compiler/core/array.ts"
 import type { LawId } from "#compiler/core/ids.ts"
+import {
+	type ReadonlyTupleMap,
+	type ReadonlyTupleSet,
+	TupleMap,
+	TupleSet
+} from "#compiler/core/tuple-map.ts"
 import { contained, on, type Statement, select } from "#compiler/public/schema.ts"
 import { defined } from "#test/support/assert.ts"
 import * as P from "#test/support/fixtures/api/platform.ts"
+import { type Atom, sameIdentity, type ValueIdentity } from "#test/support/kernel/identity.ts"
 import type { LawNames } from "#test/support/kernel/naming.ts"
 import { loadOrder, type PlatformFacts } from "#test/support/platform/generate.ts"
 import { coveredBy, overlaps, type SpanV, platformSpan } from "#test/support/platform/model.ts"
@@ -58,22 +66,30 @@ export const rowsIn = (s: State, relation: RelationName): ReadonlyArray<Platform
 	s.get(relation) ?? []
 
 /**
- * A host value's identity: a uuid, enum label or text; an integer, whichever host type carries it; a span by its
- * bounds. Any other value is a defect of the suite that wrote it.
+ * A host value's identity: a uuid, enum label or text; an integer, whichever host type carries it, as a bigint; a span
+ * by its bounds. Its kind comes first, so the atoms of several values in a row are self-delimiting
+ * (kernel/identity.ts). Any other value is a defect of the suite that wrote it.
  */
-export const hostValueKey = (v: unknown): string => {
+const hostValueAtoms = (v: unknown): ValueIdentity => {
 	if (typeof v === "string") {
-		return `s${v}`
+		return ["s", v]
 	}
-	if (typeof v === "bigint" || typeof v === "number") {
-		return `n${v}`
+	if (typeof v === "bigint") {
+		return ["n", v]
+	}
+	if (typeof v === "number") {
+		return ["n", Number.isInteger(v) ? BigInt(v) : v]
 	}
 	if (typeof v === "boolean") {
-		return `b${v}`
+		return ["b", v]
 	}
 	const s = spanValue(v)
-	return `r${s.start},${s.end}`
+	return ["r", s.start, s.end]
 }
+
+/** Whether two host values are one value (hostValueAtoms). */
+export const sameHostValue = (a: unknown, b: unknown): boolean =>
+	sameIdentity(hostValueAtoms(a), hostValueAtoms(b))
 
 /** A span value's bounds. */
 export const spanValue = (v: unknown): SpanV => {
@@ -101,21 +117,36 @@ const amountValue = (v: unknown): bigint => {
 	throw new Error(`no integer: ${String(v)}`)
 }
 
-const tupleKey = (row: PlatformRow, fields: ReadonlyArray<string>): string =>
-	Arr.join(
-		Arr.map(fields, (f) => hostValueKey(row[f])),
-		"|"
-	)
+/** A row's values at `fields`, each value's atoms in field order. */
+export const keyAtoms = (row: PlatformRow, fields: ReadonlyArray<string>): ValueIdentity => {
+	const atoms: Array<Atom> = []
+	for (const f of fields) {
+		appendAll(atoms, hostValueAtoms(row[f]))
+	}
+	return atoms
+}
 
-/** A fact's identity: every field's value. */
-const rowKey = (row: PlatformRow): string =>
-	Arr.join(
-		Arr.map(Arr.sort(Rec.keys(row), Order.String), (f) => `${f}=${hostValueKey(row[f])}`),
-		";"
-	)
+/** A fact's identity: every field's name and value, fields in name order. */
+const rowKey = (row: PlatformRow): ValueIdentity => {
+	const atoms: Array<Atom> = []
+	for (const f of Arr.sort(Rec.keys(row), Order.String)) {
+		atoms.push(f)
+		appendAll(atoms, hostValueAtoms(row[f]))
+	}
+	return atoms
+}
 
-const keySet = (rows: ReadonlyArray<PlatformRow>): ReadonlySet<string> =>
-	new Set(Arr.map(rows, rowKey))
+/** The set of `keys`, each once. */
+const tupleSetOf = (keys: Iterable<ValueIdentity>): ReadonlyTupleSet<ValueIdentity> => {
+	const set = new TupleSet<ValueIdentity>()
+	for (const k of keys) {
+		set.add(k)
+	}
+	return set
+}
+
+const keySet = (rows: ReadonlyArray<PlatformRow>): ReadonlyTupleSet<ValueIdentity> =>
+	tupleSetOf(Arr.map(rows, rowKey))
 
 /** Where two states differ, relation by relation as sets of facts, or undefined when they agree. */
 const stateDifference = (a: State, b: State): string | undefined => {
@@ -125,7 +156,13 @@ const stateDifference = (a: State, b: State): string | undefined => {
 		const missing = Arr.filter([...left], (k) => !right.has(k))
 		const extra = Arr.filter([...right], (k) => !left.has(k))
 		if (missing.length > 0 || extra.length > 0) {
-			return `${relation}: only in the first [${Arr.join(missing, " / ")}], only in the second [${Arr.join(extra, " / ")}]`
+			return `${relation}: only in the first [${Arr.join(
+				Arr.map(missing, (k) => Formatter.format(k)),
+				" / "
+			)}], only in the second [${Arr.join(
+				Arr.map(extra, (k) => Formatter.format(k)),
+				" / "
+			)}]`
 		}
 	}
 	return undefined
@@ -187,16 +224,16 @@ const rowsOf = (s: State, at: Side): ReadonlyArray<PlatformRow> =>
 
 /** Two rows of `rows` agreeing on `fields` (span keys: overlapping on `spanField` too). */
 const keyBroken = (rows: ReadonlyArray<PlatformRow>, fields: ReadonlyArray<string>): boolean =>
-	new Set(Arr.map(rows, (row) => tupleKey(row, fields))).size !== rows.length
+	tupleSetOf(Arr.map(rows, (row) => keyAtoms(row, fields))).size !== rows.length
 
 const spanKeyBroken = (
 	rows: ReadonlyArray<PlatformRow>,
 	scalars: ReadonlyArray<string>,
 	spanField: string
 ): boolean => {
-	const groups = new Map<string, Array<SpanV>>()
+	const groups = new TupleMap<ValueIdentity, Array<SpanV>>()
 	for (const row of rows) {
-		const k = tupleKey(row, scalars)
+		const k = keyAtoms(row, scalars)
 		const spans = groups.get(k) ?? []
 		groups.set(k, spans)
 		spans.push(spanValue(row[spanField]))
@@ -207,8 +244,8 @@ const spanKeyBroken = (
 }
 
 const containBroken = (s: State, source: Side, target: Side): boolean => {
-	const held = new Set(Arr.map(rowsOf(s, target), (row) => tupleKey(row, target.fields)))
-	return Arr.some(rowsOf(s, source), (row) => !held.has(tupleKey(row, source.fields)))
+	const held = tupleSetOf(Arr.map(rowsOf(s, target), (row) => keyAtoms(row, target.fields)))
+	return Arr.some(rowsOf(s, source), (row) => !held.has(keyAtoms(row, source.fields)))
 }
 
 /** The source's last field and the target's are the spans; the fields before them pair the facts. */
@@ -216,9 +253,9 @@ const coverBroken = (s: State, source: Side, target: Side): boolean => {
 	const scalars = (at: Side) => at.fields.slice(0, -1)
 	const spanField = (at: Side) =>
 		defined(at.fields[at.fields.length - 1], `${at.relation}'s span field`)
-	const spans = new Map<string, Array<SpanV>>()
+	const spans = new TupleMap<ValueIdentity, Array<SpanV>>()
 	for (const row of rowsOf(s, target)) {
-		const k = tupleKey(row, scalars(target))
+		const k = keyAtoms(row, scalars(target))
 		const list = spans.get(k) ?? []
 		spans.set(k, list)
 		list.push(spanValue(row[spanField(target)]))
@@ -226,7 +263,7 @@ const coverBroken = (s: State, source: Side, target: Side): boolean => {
 	return Arr.some(
 		rowsOf(s, source),
 		(row) =>
-			!coveredBy(spans.get(tupleKey(row, scalars(source))) ?? [], spanValue(row[spanField(source)]))
+			!coveredBy(spans.get(keyAtoms(row, scalars(source))) ?? [], spanValue(row[spanField(source)]))
 	)
 }
 
@@ -257,18 +294,21 @@ const counted = (
  * Each owner's sum of its members' `value`, by the owner's key: a sum over the members' facts, each counted once, an
  * owner no member names absent (its sum is zero).
  */
-const sumsOf = (s: State, f: Counted, value: string): ReadonlyMap<string, bigint> => {
-	const sums = new Map<string, bigint>()
+const sumsOf = (s: State, f: Counted, value: string): ReadonlyTupleMap<ValueIdentity, bigint> => {
+	const sums = new TupleMap<ValueIdentity, bigint>()
 	for (const row of rowsIn(s, f.member)) {
-		const k = tupleKey(row, f.group)
+		const k = keyAtoms(row, f.group)
 		sums.set(k, (sums.get(k) ?? 0n) + amountValue(row[value]))
 	}
 	return sums
 }
 
 /** The family's sums, read at one owner fact. */
-const sumAt = (sums: ReadonlyMap<string, bigint>, f: Counted, owner: PlatformRow): bigint =>
-	sums.get(tupleKey(owner, f.key)) ?? 0n
+const sumAt = (
+	sums: ReadonlyTupleMap<ValueIdentity, bigint>,
+	f: Counted,
+	owner: PlatformRow
+): bigint => sums.get(keyAtoms(owner, f.key)) ?? 0n
 
 /** A relation's primary key: its fields, or its scalar fields and its span field. */
 type PrimaryKey =
@@ -552,9 +592,9 @@ export const withDrawn = (s: State): ReadonlyMap<RelationName, ReadonlyArray<Pla
 			const tallies = Arr.map(
 				Arr.filter(platformFamilies, (f) => f.owner === relation),
 				(f) => {
-					const counts = new Map<string, bigint>()
+					const counts = new TupleMap<ValueIdentity, bigint>()
 					for (const m of rowsIn(s, f.member)) {
-						const k = tupleKey(m, f.group)
+						const k = keyAtoms(m, f.group)
 						counts.set(k, (counts.get(k) ?? 0n) + 1n)
 					}
 					return { f, counts, sums: sumsOf(s, f, f.sum.step) }
@@ -565,7 +605,7 @@ export const withDrawn = (s: State): ReadonlyMap<RelationName, ReadonlyArray<Pla
 				Arr.map(rowsIn(s, relation), (row) =>
 					Arr.reduce(tallies, row, (out: PlatformRow, { f, counts, sums }): PlatformRow => ({
 						...out,
-						[f.count]: counts.get(tupleKey(row, f.key)) ?? 0n,
+						[f.count]: counts.get(keyAtoms(row, f.key)) ?? 0n,
 						[f.sum.end]: sumAt(sums, f, row)
 					}))
 				)
@@ -927,13 +967,13 @@ const applied = (s: State, ops: ReadonlyArray<PlatformOp>): State => {
 			)
 		const deleted = keySet(of("delete"))
 		const key = keyFieldsOf(relation)
-		const putKeys = new Set(Arr.map(of("put"), (f) => tupleKey(f, key)))
+		const putKeys = tupleSetOf(Arr.map(of("put"), (f) => keyAtoms(f, key)))
 		const kept = Arr.filter(
 			rowsIn(s, relation),
-			(row) => !deleted.has(rowKey(row)) && !putKeys.has(tupleKey(row, key))
+			(row) => !deleted.has(rowKey(row)) && !putKeys.has(keyAtoms(row, key))
 		)
-		const rows = new Map(Arr.map(kept, (row): [string, PlatformRow] => [rowKey(row), row]))
-		for (const row of [...of("insert"), ...of("put")]) {
+		const rows = new TupleMap<ValueIdentity, PlatformRow>()
+		for (const row of [...kept, ...of("insert"), ...of("put")]) {
 			rows.set(rowKey(row), row)
 		}
 		out = withRows(out, relation, [...rows.values()])
@@ -975,8 +1015,8 @@ const statementRows = (
 			return [...rows, ...statement.facts]
 		case "put": {
 			const key = keyFieldsOf(statement.relation)
-			const at = new Set(Arr.map(statement.facts, (f) => tupleKey(f, key)))
-			return [...Arr.filter(rows, (row) => !at.has(tupleKey(row, key))), ...statement.facts]
+			const at = tupleSetOf(Arr.map(statement.facts, (f) => keyAtoms(f, key)))
+			return [...Arr.filter(rows, (row) => !at.has(keyAtoms(row, key))), ...statement.facts]
 		}
 	}
 }

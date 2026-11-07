@@ -4,8 +4,8 @@ import type { DbLayerService } from "#adapter/types/layer.ts"
 import type {
 	AnyChangeSet,
 	ChangeSet,
-	Law,
 	PlannedStrata,
+	Refused,
 	Witness,
 	WritesOf
 } from "#compiler/plan/change.ts"
@@ -352,10 +352,13 @@ export type WorkloadHandles<R, P> = { readonly [K in keyof P]: Compiled<R, P[K],
 
 /**
  * What db.apply and a compiled ChangeSet's apply answer: the ChangeSet was accepted, with each written relation's counts
- * and the read-backs; it changed nothing; laws rejected it, with the witness; or a fact it inserts or puts lies outside
- * the written world relation. A rejection names one law wherever what grizzle controls decides which, and the laws one
- * native object discharges together where it cannot, as a family's axis foreign key does every containment merged
- * into it (packages/grizzle/src/adapter/witness/classify.ts).
+ * and the read-backs; it changed nothing; laws rejected it, `refused` saying which and how grizzle decided them
+ * (types/changeset Refused), with the witness; or a fact it inserts or puts lies outside the written world relation. A
+ * rejection names `every` law grizzle decides refused it: each rule of a table's CHECKs a row you stated breaks, the
+ * one law of any other object grizzle's statement or PostgreSQL names, or the laws one native object discharges
+ * together where it cannot tell them apart, as a family's axis foreign key does every containment merged into it; and
+ * the `first` CHECK PostgreSQL reported where the refused row is one only PostgreSQL computes
+ * (packages/grizzle/src/adapter/witness/classify.ts).
  */
 export type ApplyOutcome<Reads> =
 	| {
@@ -371,7 +374,7 @@ export type ApplyOutcome<Reads> =
 	| { readonly kind: "no-change"; readonly reads: Reads }
 	| {
 			readonly kind: "invariant-rejected"
-			readonly laws: Arr.NonEmptyReadonlyArray<Law>
+			readonly refused: Refused
 			readonly witness: Witness
 	  }
 	| { readonly kind: "outside-world"; readonly relation: string }

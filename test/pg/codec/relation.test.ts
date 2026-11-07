@@ -11,11 +11,16 @@ import { Array as Arr, Effect, Formatter, Option, Record as Rec, String as Str }
 import { arraysEncoder, positionalColumns, type RelationSpec } from "#compiler/codec/recordset.ts"
 import { compareCodePoints } from "#compiler/core/text.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
+import { TupleMap } from "#compiler/core/tuple-map.ts"
 import { emptyCodebook } from "#compiler/ir/codes.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { anyNumeric, plainType, wildcardText } from "#compiler/scalar/compute/types.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
-import { factIdentity, type HeadingField } from "#compiler/scalar/values/identity.ts"
+import {
+	type FactIdentity,
+	factIdentity,
+	type HeadingField
+} from "#compiler/scalar/values/identity.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -178,7 +183,7 @@ layer(Substrate.layer)("relation inputs against PostgreSQL", (it) => {
 								pg.set(key, [...(pg.get(key) ?? []), String(group)])
 							}
 							for (const [k, facts] of cases.entries()) {
-								const groups = new Map<string, Array<number>>()
+								const groups = new TupleMap<FactIdentity, Array<number>>()
 								for (const [ord, fact] of facts.entries()) {
 									const { identity } = succeeded(factIdentity(heading, fact))
 									groups.set(identity, [...(groups.get(identity) ?? []), ord])

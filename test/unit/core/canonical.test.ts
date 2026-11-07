@@ -34,9 +34,12 @@ import {
 import { indices } from "#compiler/core/array.ts"
 import {
 	type Canonicalizable,
+	type CanonicalToken,
 	canonicalEquals,
 	canonicalSort,
 	canonicalTag,
+	canonicalTokens,
+	compareCanonicalTokens,
 	decode,
 	encode,
 	everyProperty,
@@ -51,6 +54,7 @@ import {
 import type { CompileError } from "#compiler/core/errors.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
+import { TupleMap } from "#compiler/core/tuple-map.ts"
 import {
 	artifactRefusal,
 	assert,
@@ -1026,6 +1030,157 @@ describe("canonical comparison", () => {
 									refused(canonicalSort(withOutside, everyProperty), "MalformedDescription")
 								).path,
 								[place]
+							)
+						})
+				)
+			)
+	)
+})
+
+/**
+ * A leaf two drawn values often share: strings that JSON escapes or that a tag reads, strings one of which begins
+ * another, numbers whose texts begin one another, booleans and bigints.
+ */
+const nearLeaf = oneOf<unknown>([
+	element([
+		"",
+		"a",
+		"ab",
+		'"',
+		"\\",
+		"\n",
+		"\u0001",
+		"~",
+		"~n:1",
+		"1",
+		" ",
+		"!",
+		"\u{e000}",
+		"\u{1f600}"
+	]),
+	element([0, 1, 12, 10, -1, 1.5, 1e21, 2 ** 53]),
+	boolean,
+	element([0n, 1n, -12n])
+])
+
+/** A value of few small parts nested at most `depth` deep, so two drawn values often share a prefix or are equal. */
+const nearValueAt = (depth: number): Gen<unknown> => {
+	if (depth === 0) {
+		return nearLeaf
+	}
+	const inner = nearValueAt(depth - 1)
+	return oneOf<unknown>([
+		nearLeaf,
+		array(inner, { min: 0, max: 3 }),
+		map(
+			uniqueArray(
+				(source): readonly [string, unknown] => [
+					source.draw(element(["", "a", "b", "~", "1"])),
+					source.draw(inner)
+				],
+				([k]) => k,
+				{ min: 0, max: 3 },
+				20
+			),
+			build
+		)
+	])
+}
+
+/** A token's text, as the format's specification spells it: a punctuation token its own, any other JSON's. */
+const tokenText = (token: CanonicalToken): string =>
+	typeof token === "symbol"
+		? defined(token.description, "a punctuation token's text")
+		: jsonText(token)
+
+/** Where two token lists first differ, by what stands there. */
+type TokenFeature =
+	| "equal texts"
+	| "two strings"
+	| "two numbers"
+	| "two numbers, one's text beginning the other's"
+	| "a string and another token"
+	| "two other tokens"
+
+/** What stands where two token lists first differ. */
+const firstDifference = (
+	a: ReadonlyArray<CanonicalToken>,
+	b: ReadonlyArray<CanonicalToken>
+): TokenFeature => {
+	const at = Arr.findFirstIndex(a, (x, i) => x !== b[i])
+	const i = Option.getOrElse(at, () => a.length)
+	const x = a[i]
+	const y = b[i]
+	if (x === undefined || y === undefined) {
+		return "equal texts"
+	}
+	if (typeof x === "string" && typeof y === "string") {
+		return "two strings"
+	}
+	if (typeof x === "number" && typeof y === "number") {
+		const xs = jsonText(x)
+		const ys = jsonText(y)
+		return Str.startsWith(ys)(xs) || Str.startsWith(xs)(ys)
+			? "two numbers, one's text beginning the other's"
+			: "two numbers"
+	}
+	return typeof x === "string" || typeof y === "string"
+		? "a string and another token"
+		: "two other tokens"
+}
+
+describe("canonical tokens", () => {
+	it.effect(
+		"spell the canonical text, are one list exactly when the texts are one, and order as the texts do by code unit",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						oracle: {
+							kind: "specification",
+							name: "the specified canonical text (RFC 8785 over the JSON form), its spelling, its equality and its UTF-16 code unit order"
+						},
+						suite: "unit/core/canonical-tokens",
+						draw: drawn(
+							(source) => [source.draw(nearValueAt(2)), source.draw(nearValueAt(2))] as const
+						),
+						literal: Formatter.format,
+						coverage: required<TokenFeature>(
+							[
+								"equal texts",
+								"two strings",
+								"two numbers",
+								"two numbers, one's text beginning the other's",
+								"a string and another token",
+								"two other tokens"
+							],
+							{ cases: 3000, sense: notesOnly }
+						),
+						kept: [],
+						runs: 3000,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang
+					},
+					([a, b], c) =>
+						Effect.sync(() => {
+							const ta = succeeded(canonicalTokens(a, everyProperty))
+							const tb = succeeded(canonicalTokens(b, everyProperty))
+							const sa = specified(a)
+							const sb = specified(b)
+							c.note(firstDifference(ta, tb))
+							assert.equal(Arr.join(Arr.map(ta, tokenText), ""), sa, "the tokens spell the text")
+							assert.equal(
+								new TupleMap<ReadonlyArray<CanonicalToken>, true>().set(ta, true).has(tb),
+								sa === sb,
+								"two token lists are one exactly when their texts are"
+							)
+							assert.equal(
+								Math.sign(compareCanonicalTokens(ta, tb)),
+								Math.sign(Order.String(sa, sb)),
+								"the tokens order as their texts by code unit"
 							)
 						})
 				)

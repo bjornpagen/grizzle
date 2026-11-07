@@ -12,9 +12,11 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
+import { TupleMap } from "#compiler/core/tuple-map.ts"
 import { emptyCodebook } from "#compiler/ir/codes.ts"
 import { anyNumeric, plainType } from "#compiler/scalar/compute/types.ts"
 import { assert } from "#test/support/assert.ts"
+import type { ValueIdentity } from "#test/support/kernel/identity.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { compareMultisets, compareRuns, type Run } from "#test/support/oracle/compare.ts"
 import { at } from "#test/support/oracle/pick.ts"
@@ -180,8 +182,10 @@ const runOf = (name: string, rows: ReadonlyArray<Row>): Run => ({
 })
 
 /** The oracle's identity of a row: its cells' value classes, which read no spelling. */
-const valueKey = (row: Row): string =>
-	`${row[0].cls % numericClasses.length}/${row[1].cls % floatClasses.length}`
+const valueKey = (row: Row): ValueIdentity => [
+	row[0].cls % numericClasses.length,
+	row[1].cls % floatClasses.length
+]
 
 describe("canonical cell keyed sets", () => {
 	it.effect(
@@ -214,7 +218,7 @@ describe("canonical cell keyed sets", () => {
 					({ left, right }, c) =>
 						Effect.sync(() => {
 							const count = (rows: ReadonlyArray<Row>) =>
-								Arr.reduce(rows, new Map<string, number>(), (m, row) =>
+								Arr.reduce(rows, new TupleMap<ValueIdentity, number>(), (m, row) =>
 									m.set(valueKey(row), (m.get(valueKey(row)) ?? 0) + 1)
 								)
 							const a = count(left)

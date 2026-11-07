@@ -545,8 +545,10 @@ layer(Substrate.layer, { excludeTestServices: true })(
 											if (outcome.kind === "invariant-rejected") {
 												const laws = Arr.map(broken, lawOf)
 												assert.ok(
-													Arr.some(outcome.laws, (law) => laws.includes(names.reported(law))),
-													`${label}: refused by ${Formatter.format(outcome.laws)}, a law the model finds broken`
+													Arr.some(outcome.refused.laws, (law) =>
+														laws.includes(names.reported(law))
+													),
+													`${label}: refused by ${Formatter.format(outcome.refused.laws)}, a law the model finds broken`
 												)
 											}
 											n.note("an unlawful write refused with a law it breaks")

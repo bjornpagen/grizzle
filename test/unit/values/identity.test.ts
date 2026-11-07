@@ -520,7 +520,7 @@ describe("factIdentity", () => {
 								if (rewrite === "digits below the scale" && digit >= 5) {
 									return
 								}
-								assert.equal(
+								assert.deepEqual(
 									succeeded(factIdentity(heading, rewritten)).identity,
 									admitted.identity,
 									rewrite
@@ -534,7 +534,7 @@ describe("factIdentity", () => {
 										: change === "another span"
 											? { ...fact, during: { start: fact.during.start, end: fact.during.end + 1n } }
 											: { ...fact, ratio: Math.fround(fact.ratio) === 0 ? 1 : -fact.ratio }
-								assert.notEqual(
+								assert.notDeepEqual(
 									succeeded(factIdentity(heading, changedFact)).identity,
 									admitted.identity,
 									change
@@ -573,7 +573,7 @@ describe("factIdentity", () => {
 							for (const key of order) {
 								shuffled[key] = values.get(key)
 							}
-							assert.equal(
+							assert.deepEqual(
 								succeeded(factIdentity(heading, shuffled)).identity,
 								succeeded(factIdentity(heading, fact)).identity
 							)

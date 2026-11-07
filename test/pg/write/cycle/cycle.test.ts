@@ -191,9 +191,9 @@ layer(Substrate.layer, { excludeTestServices: true })("plain foreign keys on a c
 											return assert.fail(`a refusal by a reference, not ${outcome.kind}`)
 										}
 										assert.ok(
-											outcome.laws.length > 0 &&
+											outcome.refused.laws.length > 0 &&
 												Arr.every(
-													outcome.laws,
+													outcome.refused.laws,
 													(law) =>
 														(brokenA && deepEquals(law, laws.a)) ||
 														(brokenB && deepEquals(law, laws.b))

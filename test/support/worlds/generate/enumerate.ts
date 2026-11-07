@@ -1,5 +1,8 @@
 import { WILD_KINDS } from "@grizzle/testing/lsw"
 import { Array as Arr, Option, Order, Record as Rec, String as Str } from "effect"
+import { appendAll } from "#compiler/core/array.ts"
+import { TupleMap, TupleSet } from "#compiler/core/tuple-map.ts"
+import { type Atom, type ValueIdentity } from "#test/support/kernel/identity.ts"
 import {
 	projection,
 	sortedRowsOrder,
@@ -951,14 +954,25 @@ const orderedApplies = (
 	})
 }
 
-/** An op's identity in the box: its relation, kind and facts. */
-const opKey = (op: EntryOp): string =>
-	`${op.relation}:${op.kind}:${op.facts.length}:${Arr.join(Arr.map(op.facts.slice(0, 4), factKey), ";")}`
+/** An op's identity in the box: its relation, kind and fact count, and its first four facts, each its atoms' count first. */
+const opKey = (op: EntryOp): ValueIdentity => {
+	const atoms: Array<Atom> = [op.relation, op.kind, op.facts.length]
+	for (const fact of op.facts.slice(0, 4)) {
+		const key = factKey(fact)
+		atoms.push(key.length)
+		appendAll(atoms, key)
+	}
+	return atoms
+}
 
 /** Ops, each once by its identity. */
-const distinctOps = (ops: ReadonlyArray<EntryOp>): ReadonlyArray<EntryOp> => [
-	...new Map(Arr.map(ops, (op) => [opKey(op), op] as const)).values()
-]
+const distinctOps = (ops: ReadonlyArray<EntryOp>): ReadonlyArray<EntryOp> => {
+	const byKey = new TupleMap<ValueIdentity, EntryOp>()
+	for (const op of ops) {
+		byKey.set(opKey(op), op)
+	}
+	return [...byKey.values()]
+}
 
 /** The role refs a direct writer names in the box: each of its login's roles, then one of each invalid kind. */
 const directRoleRefs = (state: ModelState, login: string): ReadonlyArray<RoleRef> => {
@@ -990,8 +1004,9 @@ interface ClaimSite {
 /**
  * The claims settings a direct writer tries in the box, each once: each choice of its role's claims (another user's
  * among them) for the transaction, each other context its role reads alone, the first also for the session, malformed
- * claims at each scope, a claims document one of whose claims its field refuses (refusedClaimSettings), and a context
- * its role does not read; as its login, empty claims besides.
+ * claims at each scope, a claims document one of whose claims its field refuses (refusedClaimSettings, over every
+ * context the role reads, past the box's scope too, so each field's refusal is a start), and a context its role does
+ * not read; as its login, empty claims besides.
  */
 const directClaims = (
 	state: ModelState,
@@ -1069,7 +1084,10 @@ const directClaims = (
 			: [{ kind: "facts" as const, facts: first, scope: "session" as const }]),
 		{ kind: "malformed", text: "{", scope: "transaction" },
 		{ kind: "malformed", text: "{", scope: "session" },
-		...refusedClaimSettings(contexts, state.names.codes),
+		...Option.match(role, {
+			onNone: (): ReadonlyArray<ClaimsSetting> => [],
+			onSome: (r) => refusedClaimSettings(contextsRead(state.install.base, r), state.names.codes)
+		}),
 		...Arr.map(unread, (c): ClaimsSetting => ({
 			kind: "facts",
 			facts: {
@@ -2018,7 +2036,7 @@ export const exploreBox = (
 	const transitions: Array<BoxTransition> = []
 	const canonicalOf = canonicalForms()
 	for (const [start, state] of starts.entries()) {
-		const seen = new Set<string>([canonicalOf(state)])
+		const seen = new TupleSet<ValueIdentity>().add(canonicalOf(state))
 		let frontier: ReadonlyArray<{
 			readonly state: ModelState
 			readonly trail: ReadonlyArray<BoxStep>

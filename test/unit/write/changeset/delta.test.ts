@@ -20,7 +20,11 @@ import { uuid } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, String as Str } from "effect"
 import { scalarCodec } from "#compiler/codec/scalar.ts"
-import { factIdentity } from "#compiler/scalar/values/identity.ts"
+import {
+	compareFactIdentities,
+	type FactIdentity,
+	factIdentity
+} from "#compiler/scalar/values/identity.ts"
 import {
 	type ChangeRow,
 	netStrata,
@@ -37,7 +41,10 @@ import {
 	type AttributedChange,
 	attributeStratum,
 	type Fact,
+	factSetOf,
 	type FactSet,
+	identityOrder,
+	identitySetOf,
 	netCounts as oracleNetCounts,
 	netStrata as oracleNetStrata,
 	outcomeKind as oracleOutcomeKind,
@@ -107,10 +114,30 @@ const sequences: Gen<{
 	}
 }
 
-const setOf = (ids: ReadonlyArray<string>): FactSet => new Map(Arr.map(ids, (id) => [id, fact(id)]))
+/** The model's facts of `ids`, each identified by its one text `[id]`. */
+const setOf = (ids: ReadonlyArray<string>): FactSet =>
+	factSetOf(Arr.map(ids, (id) => [[id], fact(id)] as const))
+
+/** The model's id of an identity, which the model writes as the one text `[id]`. */
+const modelId = (identity: FactIdentity): string => defined(identity[0], "a model fact's one text")
+
+/** A fact set's or a change's identities, in canonical order. */
+const identitiesOf = (keys: Iterable<FactIdentity>): ReadonlyArray<FactIdentity> =>
+	Arr.sort(keys, identityOrder)
+
+/** A change's entries, by identity in canonical order. */
+const entriesOf = <V>(
+	entries: Iterable<readonly [FactIdentity, V]>
+): ReadonlyArray<readonly [FactIdentity, V]> =>
+	Arr.sort(
+		entries,
+		Order.mapInput(identityOrder, ([identity]: readonly [FactIdentity, V]) => identity)
+	)
+
 /** What a step says of a fact of the universe: one entry per fact, by position. */
-const tagsOf = <T>(tags: ReadonlyArray<T>, id: string): T =>
-	defined(
+const tagsOf = <T>(tags: ReadonlyArray<T>, identity: FactIdentity): T => {
+	const id = modelId(identity)
+	return defined(
 		Option.getOrUndefined(
 			Option.flatMap(
 				Arr.findFirstIndex(universe, (u) => u === id),
@@ -119,6 +146,7 @@ const tagsOf = <T>(tags: ReadonlyArray<T>, id: string): T =>
 		),
 		`the tags of ${id}`
 	)
+}
 
 /** Code point order, by the code points themselves. */
 const byCodePoints: Order.Order<string> = Order.mapInput(
@@ -201,7 +229,7 @@ describe("netting", () => {
 												Arr.map(tagsOf(st.added, id), (tag): ChangeRow => ({
 													side: "added",
 													identity: id,
-													fact: fact(id),
+													fact: fact(modelId(id)),
 													tag
 												}))
 											),
@@ -209,7 +237,7 @@ describe("netting", () => {
 												Arr.map(tagsOf(st.removed, id), (tag): ChangeRow => ({
 													side: "removed",
 													identity: id,
-													fact: fact(id),
+													fact: fact(modelId(id)),
 													tag
 												}))
 											)
@@ -223,27 +251,30 @@ describe("netting", () => {
 									}
 									const change = stratumChange(rows)
 									const attributed = attributeStratum(before, after, {
-										insert: new Set(
+										insert: identitySetOf(
 											Arr.filter([...d.added.keys()], (id) =>
 												tagsOf(st.added, id).includes("insert")
 											)
 										),
-										put: new Set(
+										put: identitySetOf(
 											Arr.filter([...d.added.keys()], (id) => tagsOf(st.added, id).includes("put"))
 										),
-										delete: new Set(
+										delete: identitySetOf(
 											Arr.filter([...d.removed.keys()], (id) =>
 												tagsOf(st.removed, id).includes("delete")
 											)
 										)
 									})
-									const tagged: AttributedChange = {
-										added: new Map(Arr.map([...change.added], ([id, row]) => [id, row.tag])),
-										removed: new Map(Arr.map([...change.removed], ([id, row]) => [id, row.tag]))
-									}
 									assert.deepEqual(
-										tagged,
-										attributed,
+										{
+											added: entriesOf(
+												Arr.map([...change.added], ([id, row]) => [id, row.tag] as const)
+											),
+											removed: entriesOf(
+												Arr.map([...change.removed], ([id, row]) => [id, row.tag] as const)
+											)
+										},
+										{ added: entriesOf(attributed.added), removed: entriesOf(attributed.removed) },
 										"a stratum's change is its set difference, each fact once under the count rules' tag"
 									)
 									theirs.push(attributed)
@@ -259,12 +290,12 @@ describe("netting", () => {
 								const whole = stateDelta(start, before)
 								for (const side of ["added", "removed"] as const) {
 									assert.deepEqual(
-										Arr.sort([...netted[side].keys()], Order.String),
-										Arr.sort([...oracle[side].keys()], Order.String)
+										identitiesOf(netted[side].keys()),
+										identitiesOf(oracle[side].keys())
 									)
 									assert.deepEqual(
-										Arr.sort([...netted[side].keys()], Order.String),
-										Arr.sort([...whole[side].keys()], Order.String),
+										identitiesOf(netted[side].keys()),
+										identitiesOf(whole[side].keys()),
 										"the netted delta is the state difference"
 									)
 								}
@@ -339,7 +370,7 @@ describe("a stratum's change is a set difference", () => {
 				}
 				const identity = relationIdentity(ticket.heading, codesOf(Ledger))
 				const factSet = (facts: Iterable<Fact>): FactSet =>
-					new Map(Arr.map([...facts], (f) => [identity(f), f]))
+					factSetOf(Arr.map([...facts], (f) => [identity(f), f] as const))
 				yield* searched(
 					ctx,
 					explore(
@@ -429,24 +460,24 @@ describe("a stratum's change is a set difference", () => {
 									]
 									const change = stratumChange(rows)
 									/** The oracle: S' = (S \ D) ∪ A, and the stratum's change is its set difference with S. */
-									const after = new Map(
+									const after = factSetOf(
 										Arr.filter([...state], ([id]) => !deleted.has(id)).concat([...added])
 									)
 									const delta = stateDelta(state, after)
 									assert.deepEqual(
-										Arr.sort([...change.added.keys()], Order.String),
-										Arr.sort([...delta.added.keys()], Order.String),
+										identitiesOf(change.added.keys()),
+										identitiesOf(delta.added.keys()),
 										`stratum ${s} added`
 									)
 									assert.deepEqual(
-										Arr.sort([...change.removed.keys()], Order.String),
-										Arr.sort([...delta.removed.keys()], Order.String),
+										identitiesOf(change.removed.keys()),
+										identitiesOf(delta.removed.keys()),
 										`stratum ${s} removed`
 									)
 									if (s === 0) {
 										const old = identity(planted)
 										const drawnBack = identity({ id: lagging ? k : k + 1n, note: generatedNote })
-										const identical = old === drawnBack
+										const identical = compareFactIdentities(old, drawnBack) === 0
 										assert.equal(
 											identical
 												? change.added.has(old) || change.removed.has(old)
@@ -465,9 +496,9 @@ describe("a stratum's change is a set difference", () => {
 									mine.push(change)
 									theirs.push(
 										attributeStratum(state, after, {
-											insert: new Set(added.keys()),
-											put: new Set(),
-											delete: new Set(deleted.keys())
+											insert: identitySetOf(added.keys()),
+											put: identitySetOf([]),
+											delete: identitySetOf(deleted.keys())
 										})
 									)
 									deltas.push(delta)
@@ -476,16 +507,16 @@ describe("a stratum's change is a set difference", () => {
 								const netted = netStrata(mine)
 								const whole = stateDelta(factSet(start), state)
 								assert.deepEqual(
-									Arr.sort([...netted.added.keys()], Order.String),
-									Arr.sort([...whole.added.keys()], Order.String)
+									identitiesOf(netted.added.keys()),
+									identitiesOf(whole.added.keys())
 								)
 								assert.deepEqual(
-									Arr.sort([...netted.removed.keys()], Order.String),
-									Arr.sort([...whole.removed.keys()], Order.String)
+									identitiesOf(netted.removed.keys()),
+									identitiesOf(whole.removed.keys())
 								)
 								assert.deepEqual(
-									Arr.sort([...netted.added.keys()], Order.String),
-									Arr.sort([...oracleNetStrata(deltas).added.keys()], Order.String)
+									identitiesOf(netted.added.keys()),
+									identitiesOf(oracleNetStrata(deltas).added.keys())
 								)
 								assert.deepEqual(
 									outcomeCounts(
@@ -552,7 +583,7 @@ describe("relation identity", () => {
 							Effect.sync(() => {
 								const written = { note: text, task }
 								const admitted = factIdentity(fields, written)
-								assert.equal(admitted.ok && admitted.value.identity, id(written))
+								assert.deepEqual(admitted.ok ? admitted.value.identity : undefined, id(written))
 							})
 					)
 				)

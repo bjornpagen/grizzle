@@ -436,13 +436,12 @@ export default defineConfig(
 			{
 				files: [
 					"test/types/batch/global-setup.ts",
-					"scripts/dev/golden/capture.ts",
 					"bench/cold/probe.ts",
 					"bench/harness/runner.ts",
 					"test/unit/deps/runtime-probe.ts"
 				],
 				rules: active({
-					/** The type tier's global setup loads the type-test batch only for a run with type tests, the golden capture loads the modules it is pointed at, the cold probe times a first load, the bench runner loads the bench files it runs, and the runtime probe loads each module under its trap. */
+					/** The type tier's global setup loads the type-test batch only for a run with type tests, the cold probe times a first load, the bench runner loads the bench files it runs, and the runtime probe loads each module under its trap. */
 					"devtools/no-dynamic-imports": "off"
 				})
 			},

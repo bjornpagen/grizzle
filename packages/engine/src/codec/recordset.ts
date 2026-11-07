@@ -16,7 +16,7 @@ import type { EncodingFailure, EncodingPlace } from "#compiler/core/errors.ts"
 import { maxStringLength } from "#compiler/core/limits.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
-import { compareCodePoints } from "#compiler/core/text.ts"
+import { type ReadonlyTupleMap, TupleMap } from "#compiler/core/tuple-map.ts"
 import type { ParamText } from "#compiler/core/wire.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type {
@@ -29,6 +29,8 @@ import type {
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import {
 	admitFact,
+	compareFactIdentities,
+	type FactIdentity,
 	type HeadingField,
 	type HeadingPlan,
 	headingPlan,
@@ -146,18 +148,18 @@ type Fact = { readonly [field: string]: unknown }
 const mintNormal = nominal<Pick<NormalFacts, "heading" | "facts" | "entries">, NormalFacts>()
 
 /**
- * The one mint of normal facts: the facts of `byIdentity` under `heading`, keyed by their fact identities, which a Map
- * holds once each, so the facts are distinct by construction, put in code point order of their identities here, and
- * frozen.
+ * The one mint of normal facts: the facts of `byIdentity` under `heading`, keyed by their fact identities, which a
+ * TupleMap holds once each, so the facts are distinct by construction, put in the canonical order of their identities
+ * here (compareFactIdentities), and frozen.
  */
 const normalFacts = (
-	byIdentity: ReadonlyMap<string, { readonly fact: Fact }>,
+	byIdentity: ReadonlyTupleMap<FactIdentity, { readonly fact: Fact }>,
 	heading: string
 ): NormalFacts => {
 	const entries = Array.from(byIdentity, ([identity, { fact }]): IdentifiedFact =>
 		Object.freeze({ identity, fact })
 	)
-	entries.sort((a, b) => compareCodePoints(a.identity, b.identity))
+	entries.sort((a, b) => compareFactIdentities(a.identity, b.identity))
 	return mintNormal(
 		Object.freeze({
 			heading,
@@ -169,10 +171,12 @@ const normalFacts = (
 
 /**
  * Admitted facts as normal facts over a heading, keyed by their fact identities: each fact was admitted by
- * factIdentity over that heading, its key is its identity, and it is frozen. The Map holds each identity once, so the
- * facts are a set by construction, and the normal form puts them in identity order itself.
+ * factIdentity over that heading, its key is its identity, and it is frozen. The TupleMap holds each identity once, so
+ * the facts are a set by construction, and the normal form puts them in identity order itself.
  */
-export type NormalForm = (byIdentity: ReadonlyMap<string, { readonly fact: Fact }>) => NormalFacts
+export type NormalForm = (
+	byIdentity: ReadonlyTupleMap<FactIdentity, { readonly fact: Fact }>
+) => NormalFacts
 
 /**
  * Relation-valued inputs: the array encoder and the Stream collector.
@@ -188,10 +192,10 @@ export type NormalForm = (byIdentity: ReadonlyMap<string, { readonly fact: Fact 
  * - it refuses any null member and any null field (nullValue);
  * - it deduplicates complete facts by fact identity (values/identity.ts factIdentity: numeric 1.0 = 1.00, NaN = NaN,
  *   -0 = +0, uuid case), so the input is a set without a DISTINCT;
- * - it encodes canonically: facts in code point order of their identities, every column's array in that order, every
- *   element the quoted canonical text of its value (scalar.ts, `arrayElement`), so equal inputs give byte-identical
- *   parameters whatever their order, and NaN, the infinities and money's numeric text reach the element type's input
- *   function exactly.
+ * - it encodes canonically: facts in the canonical order of their identities (compareFactIdentities), every column's
+ *   array in that order, every element the quoted canonical text of its value (scalar.ts, `arrayElement`), so equal
+ *   inputs give byte-identical parameters whatever their order, and NaN, the infinities and money's numeric text reach
+ *   the element type's input function exactly.
  *
  * Each array's element type is its column's base type; money's is numeric and the statement converts it with ::money.
  *
@@ -217,7 +221,7 @@ const normalizerOf = (s: BuiltSpec): RelationNormalizer => {
 	const { columns } = s
 	const ownHeading = headingText(s.plan)
 	const normalize: RelationNormalizer = (facts) => {
-		const byIdentity = new Map<string, { readonly fact: Fact }>()
+		const byIdentity = new TupleMap<FactIdentity, { readonly fact: Fact }>()
 		for (const fact of facts) {
 			if (fact === null || fact === undefined) {
 				return Result.err(encodeFailure("nullValue", placeOf(s, undefined)))

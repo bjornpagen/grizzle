@@ -340,7 +340,7 @@ layer(Substrate.layer)("a query entry's write meets every unique object of its t
 												)} and answered ${outcome.kind}`
 											)
 										}
-										const [law, ...more] = Arr.map(outcome.laws, (l) => names.reported(l))
+										const [law, ...more] = Arr.map(outcome.refused.laws, (l) => names.reported(l))
 										assert.deepEqual(more, [], "a key's refusal names its one law")
 										const object = Option.getOrThrowWith(
 											Arr.findFirst(met, (o) => lawOf[o.name] === law),

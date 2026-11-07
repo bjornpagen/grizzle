@@ -223,6 +223,7 @@ type OriginKind =
 	| "a single statement"
 	| "a family statement"
 	| "a carrier's create"
+	| "a member's carrier fill"
 	| "an ANALYZE"
 	| "a serial advance"
 	| "a read-back step"
@@ -332,6 +333,7 @@ const originGen: Gen<OriginSketch> = (source) => ({
 			"a single statement",
 			"a family statement",
 			"a carrier's create",
+			"a member's carrier fill",
 			"an ANALYZE",
 			"a serial advance",
 			"a read-back step",
@@ -605,8 +607,25 @@ const originOf = (
 			)
 		case "a carrier's create":
 			return statement(
-				{ kind: "carrier", carrier: "Carrier", step: "create", stratum: undefined },
+				{
+					kind: "carrier",
+					carrier: "Carrier",
+					step: "create",
+					stratum: undefined,
+					casts: { kind: "none" }
+				},
 				[]
+			)
+		case "a member's carrier fill":
+			return statement(
+				{
+					kind: "carrier",
+					carrier: "Carrier",
+					step: "fill",
+					stratum: 0,
+					casts: { kind: "member", relation: first, stratum: 0 }
+				},
+				[first]
 			)
 		case "an ANALYZE":
 			return statement({ kind: "analyze", carriers: ["Carrier"], stratum: 0 }, [])
@@ -711,6 +730,8 @@ const atText = (at: StatementAt): string => {
 			return `${at.stratum}:${Arr.join(at.relations, ",")}`
 		case "precheck":
 			return `${at.stratum}:precheck ${at.entry}`
+		case "unstated":
+			return "unstated"
 	}
 }
 
@@ -1026,12 +1047,19 @@ describe("a server error at a write", () => {
 								origin,
 								statement: (at) => ({
 									relations: written,
-									witness: (refuser) => hostWitnessOf(at, refuserText(refuser))
+									judge: (refuser) => ({
+										witness:
+											at.kind === "unstated"
+												? { kind: "unreported" }
+												: hostWitnessOf(at, refuserText(refuser)),
+										laws: { kind: "object" }
+									})
 								})
 							})
 							/**
-							 * Where the host's witness is asked: a statement that writes stored relations, or a query entry's
-							 * precheck, which casts its facts into its target; none elsewhere.
+							 * Where the host's witness is asked: a statement that writes stored relations, a member's carrier
+							 * fill, which casts its action's facts into its relation, or a query entry's precheck, which casts its
+							 * facts into its target; none elsewhere.
 							 */
 							const at: StatementAt | undefined =
 								origin.kind !== "statement"
@@ -1040,9 +1068,19 @@ describe("a server error at a write", () => {
 										  origin.step.kind === "single" ||
 										  origin.step.kind === "family"
 										? { kind: "write", stratum: origin.step.stratum, relations: written }
-										: origin.step.kind === "check"
-											? { kind: "precheck", stratum: origin.step.stratum, entry: origin.step.entry }
-											: undefined
+										: origin.step.kind === "carrier" && origin.step.casts.kind === "member"
+											? {
+													kind: "write",
+													stratum: origin.step.casts.stratum,
+													relations: [origin.step.casts.relation]
+												}
+											: origin.step.kind === "check"
+												? {
+														kind: "precheck",
+														stratum: origin.step.stratum,
+														entry: origin.step.entry
+													}
+												: undefined
 							/** The witness the rules give a native refusal by `refuser`: the host's, at a statement alone. */
 							const hostWitness = (refuser: string): Witness =>
 								at === undefined ? { kind: "unreported" } : hostWitnessOf(at, refuser)
@@ -1213,7 +1251,12 @@ describe("a server error at a write", () => {
 							switch (meaning.kind) {
 								case "rejected": {
 									assert.ok(classified.kind === "rejected", `rejected, not ${classified.kind}`)
-									unorderedEqual(classified.laws, meaning.laws, "the laws")
+									assert.equal(
+										classified.refused.kind,
+										"every",
+										"laws the host does not narrow, every one"
+									)
+									unorderedEqual(classified.refused.laws, meaning.laws, "the laws")
 									assert.deepEqual(classified.witness, meaning.witness)
 									if (reported.sqlstate === sqlstates.notNullViolation) {
 										k.note("rejected under a generated column")

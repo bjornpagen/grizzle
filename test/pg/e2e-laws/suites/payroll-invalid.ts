@@ -753,7 +753,7 @@ const runGrizzle = (c: Case, law: LawId, attempt: Attempt) =>
 	Effect.gen(function* () {
 		const outcome = yield* attempt.outcome
 		assert.ok(outcome.kind === "invariant-rejected", `${c.change}: ${text(outcome)}`)
-		assert.deepEqual(outcome.laws, [L.described(law)], c.change)
+		assert.deepEqual(outcome.refused.laws, [L.described(law)], c.change)
 		containsEqual(c.witnesses, outcome.witness, c.change)
 	})
 

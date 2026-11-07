@@ -375,7 +375,9 @@ layer(Substrate.layer, { excludeTestServices: true })(
 											if (outcome.kind !== "invariant-rejected") {
 												return assert.fail(`a refusal by the span key, not ${outcome.kind}`)
 											}
-											assert.deepEqual(outcome.laws, [names.described(names.primaryKeyLaw(R))])
+											assert.deepEqual(outcome.refused.laws, [
+												names.described(names.primaryKeyLaw(R))
+											])
 											const witness = outcome.witness
 											if (witness.kind !== "key") {
 												return assert.fail(`a witness key, not ${witness.kind}`)

@@ -6,8 +6,10 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { boundedShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec, String as Str } from "effect"
+import { TupleMap } from "#compiler/core/tuple-map.ts"
 import type { Family } from "#compiler/ir/family.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
+import type { MemberKey, Owner } from "#compiler/write/family/draw.ts"
 import {
 	type EditTarget,
 	type Edited,
@@ -15,7 +17,8 @@ import {
 	foldRecounts,
 	ownersOf,
 	planEdits,
-	recountValues
+	recountValues,
+	type Values
 } from "#compiler/write/family/edit.ts"
 import { columnKey, familyKey, fieldKey } from "#compiler/write/family/fold.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
@@ -118,9 +121,9 @@ const filledOf = (c: Inserted, g: Group): Edited => {
 			(family) => ({
 				stated: ownersOf(ctx, family, ownerFacts),
 				plain: true,
-				recounted: new Map()
+				recounted: new TupleMap<Owner, Values>()
 			}),
-			{ current: new Map(), refilled: () => false }
+			{ current: new TupleMap<MemberKey, Values>(), refilled: () => false }
 		)
 	)
 	return defined(foldRecounts([{ target, edited }])[0], "the edited relation")

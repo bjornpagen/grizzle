@@ -83,6 +83,18 @@ export const changeTags = (
 	}
 }
 
+/**
+ * What a carrier's statement casts into a stored relation's types: an action's member, which its fill writes into a
+ * carrier typed by the action's relation's columns, so the fill casts the facts the action writes, a domain's CHECK
+ * among the casts; nothing for a carrier's creation, a shared sub-query's fill, a snapshot or a delta.
+ */
+export type CarrierCasts =
+	| { readonly kind: "member"; readonly relation: string; readonly stratum: number }
+	| { readonly kind: "none" }
+
+/** The carrier statement that casts nothing a ChangeSet states. */
+export const castsNothing: CarrierCasts = Object.freeze({ kind: "none" })
+
 export type WriteStep =
 	| {
 			readonly kind: "write"
@@ -102,6 +114,8 @@ export type WriteStep =
 			readonly step: "create" | "fill"
 			/** Its stratum, none for a carrier around the strata. */
 			readonly stratum: number | undefined
+			/** What its statement casts into a stored relation's types (CarrierCasts). */
+			readonly casts: CarrierCasts
 	  }
 	| {
 			readonly kind: "analyze"

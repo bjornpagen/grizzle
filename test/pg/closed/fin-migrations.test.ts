@@ -32,6 +32,7 @@ import { closed, contained, fin, on, relation, schema } from "#compiler/public/s
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { assert, defined, nonEmpty } from "#test/support/assert.ts"
 import { migrated } from "#test/support/installed.ts"
+import { sameIdentity, type ValueIdentity } from "#test/support/kernel/identity.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
@@ -248,15 +249,20 @@ type FinFeature =
 	| "a probe refused"
 	| "a count grown under stored probes"
 
-/** The pairs of a stage's rows, as codes, in order. */
-const rowKey = (s: Stage): string =>
-	Arr.join(
-		Arr.sort(
-			Arr.map(s.rows, (r) => `${r.parent}:${r.at}`),
-			Order.String
-		),
-		","
-	)
+/** The order of rows by their codes: parent, then slot. */
+const rowOrder: Order.Order<Row> = Order.combine(
+	Order.mapInput(Order.Number, (r: Row) => r.parent),
+	Order.mapInput(Order.Number, (r: Row) => r.at)
+)
+
+/** The pairs of a stage's rows, as codes, in order: each row's parent and slot. */
+const rowPairs = (s: Stage): ValueIdentity => {
+	const pairs: Array<number> = []
+	for (const r of Arr.sort(s.rows, rowOrder)) {
+		pairs.push(r.parent, r.at)
+	}
+	return pairs
+}
 
 const finCase = (h: History, c: Case<FinFeature>) =>
 	Effect.gen(function* () {
@@ -359,8 +365,8 @@ const finCase = (h: History, c: Case<FinFeature>) =>
 			c.note(change.kind)
 			const was = defined(observed[v - 1], "the version before")
 			const before = defined(stages[v - 1], "the stage before")
-			const space = (s: Stage) => `${rowKey(s)}|${s.counts[0]},${s.counts[1]}`
-			const product = (s: Stage) => `${rowKey(s)}|${s.positions.length}`
+			const space = (s: Stage): ValueIdentity => [...rowPairs(s), s.counts[0], s.counts[1]]
+			const product = (s: Stage): ValueIdentity => [...rowPairs(s), s.positions.length]
 			if (change.kind === "a count grows") {
 				if (admitted.length > 0) {
 					c.note("a count grown under stored probes")
@@ -371,14 +377,14 @@ const finCase = (h: History, c: Case<FinFeature>) =>
 				)
 			}
 			assert.equal(
-				Arr.join(now.step, ",") === Arr.join(was.step, ","),
-				space(stage) === space(before),
+				sameIdentity(now.step, was.step),
+				sameIdentity(space(stage), space(before)),
 				`version ${v}: Step's constants stand exactly when Last's rows and the counts do`
 			)
 			if (change.kind !== "a position renamed") {
 				assert.equal(
-					Arr.join(now.stepProduct, ",") === Arr.join(was.stepProduct, ","),
-					product(stage) === product(before),
+					sameIdentity(now.stepProduct, was.stepProduct),
+					sameIdentity(product(stage), product(before)),
 					`version ${v}: StepProduct's constants stand exactly when the rows and Position's size do`
 				)
 			}

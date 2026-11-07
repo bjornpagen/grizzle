@@ -12,7 +12,7 @@ import {
 	Result,
 	type Scope
 } from "effect"
-import { type Identity, sameIdentity } from "#test/support/kernel/identity.ts"
+import { type ValueIdentity, sameIdentity } from "#test/support/kernel/identity.ts"
 import { type ReferenceObserver, unobserved } from "#test/support/oracle/reference/evaluate.ts"
 import { valueIdentity } from "#test/support/oracle/reference/values.ts"
 
@@ -713,7 +713,7 @@ const noteTakes = (q: Query<ParentColumn>, rows: ReadonlyArray<Nested>, note: No
 				note("an attached take of two children or more")
 				const [first] = bound.order
 				const at = Arr.findFirstIndex(a.child.heading, (c) => c.name === first.column.name)
-				const keyAt = (child: Nested): Identity | undefined => {
+				const keyAt = (child: Nested): ValueIdentity | undefined => {
 					const v = Option.isSome(at) ? child.values[at.value] : undefined
 					return v === undefined ? undefined : valueIdentity(v, first.column.type)
 				}
@@ -750,7 +750,7 @@ const noteRootTake = (q: Root, rows: ReadonlyArray<Nested>, note: Note): void =>
 	}
 	note("a root take of two rows or more")
 	/** A row's value at a key's column by its identity under native equality (valueIdentity). */
-	const identityAt = (row: Nested, key: OrderKey): Identity | undefined =>
+	const identityAt = (row: Nested, key: OrderKey): ValueIdentity | undefined =>
 		Option.match(
 			Arr.findFirstIndex(q.heading, (c) => c.name === key.column.name),
 			{

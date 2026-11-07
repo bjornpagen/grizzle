@@ -1,40 +1,45 @@
 /** A TupleMap as its readers take it. */
-export interface ReadonlyTupleMap<E, V> extends Iterable<readonly [ReadonlyArray<E>, V]> {
+export interface ReadonlyTupleMap<K extends ReadonlyArray<unknown>, V> extends Iterable<
+	readonly [K, V]
+> {
 	readonly size: number
-	get(key: ReadonlyArray<E>): V | undefined
-	has(key: ReadonlyArray<E>): boolean
-	keys(): IterableIterator<ReadonlyArray<E>>
+	get(key: K): V | undefined
+	has(key: K): boolean
+	keys(): IterableIterator<K>
 	values(): IterableIterator<V>
 }
 
 /** An entry: its key as it was first set, and its value. */
-interface Slot<E, V> {
-	readonly key: ReadonlyArray<E>
+interface Slot<K, V> {
+	readonly key: K
 	value: V
 }
 
 /** One position of the trie: the next element's nodes, and the entry of the key that ends here, none where none does. */
-interface Trie<E, V> {
-	readonly children: Map<E, Trie<E, V>>
-	slot: Slot<E, V> | undefined
+interface Trie<K extends ReadonlyArray<unknown>, V> {
+	readonly children: Map<K[number], Trie<K, V>>
+	slot: Slot<K, V> | undefined
 }
 
-const trie = <E, V>(): Trie<E, V> => ({ children: new Map(), slot: undefined })
+const trie = <K extends ReadonlyArray<unknown>, V>(): Trie<K, V> => ({
+	children: new Map(),
+	slot: undefined
+})
 
 /**
  * A map keyed by tuples, structurally: two keys are one exactly when they hold equal elements in order, each pair equal
  * as a native Map compares its keys (SameValueZero), whatever array holds them. A key walks a trie, one Map step per
  * element, so no key is ever joined into one text: a key costs its arity in steps, never its elements' lengths in
- * characters, and no hash stands in for an element, so no two keys are ever merged. Iteration is in insertion order and
- * an entry set again keeps its place, as a Map's does.
+ * characters, and no hash stands in for an element, so no two keys are ever merged. Iteration is in insertion order,
+ * each key as it was first set, and an entry set again keeps its place, as a Map's does.
  */
-export class TupleMap<E, V> implements ReadonlyTupleMap<E, V> {
-	readonly #root: Trie<E, V> = trie()
-	readonly #slots = new Set<Slot<E, V>>()
+export class TupleMap<K extends ReadonlyArray<unknown>, V> implements ReadonlyTupleMap<K, V> {
+	readonly #root: Trie<K, V> = trie()
+	readonly #slots = new Set<Slot<K, V>>()
 
 	/** The trie node `key` ends at, none where no key passes it. */
-	#found(key: ReadonlyArray<E>): Trie<E, V> | undefined {
-		let node: Trie<E, V> | undefined = this.#root
+	#found(key: K): Trie<K, V> | undefined {
+		let node: Trie<K, V> | undefined = this.#root
 		for (const element of key) {
 			node = node.children.get(element)
 			if (node === undefined) {
@@ -45,11 +50,11 @@ export class TupleMap<E, V> implements ReadonlyTupleMap<E, V> {
 	}
 
 	/** The trie node `key` ends at, each node on its way made where none is. */
-	#reached(key: ReadonlyArray<E>): Trie<E, V> {
+	#reached(key: K): Trie<K, V> {
 		let node = this.#root
 		for (const element of key) {
 			const child = node.children.get(element)
-			const next = child ?? trie<E, V>()
+			const next = child ?? trie<K, V>()
 			if (child === undefined) {
 				node.children.set(element, next)
 			}
@@ -62,18 +67,18 @@ export class TupleMap<E, V> implements ReadonlyTupleMap<E, V> {
 		return this.#slots.size
 	}
 
-	get(key: ReadonlyArray<E>): V | undefined {
+	get(key: K): V | undefined {
 		return this.#found(key)?.slot?.value
 	}
 
-	has(key: ReadonlyArray<E>): boolean {
+	has(key: K): boolean {
 		return this.#found(key)?.slot !== undefined
 	}
 
-	set(key: ReadonlyArray<E>, value: V): this {
+	set(key: K, value: V): this {
 		const node = this.#reached(key)
 		if (node.slot === undefined) {
-			const slot: Slot<E, V> = { key, value }
+			const slot: Slot<K, V> = { key, value }
 			node.slot = slot
 			this.#slots.add(slot)
 		} else {
@@ -83,7 +88,7 @@ export class TupleMap<E, V> implements ReadonlyTupleMap<E, V> {
 	}
 
 	/** Removes the entry of `key`: whether there was one. */
-	delete(key: ReadonlyArray<E>): boolean {
+	delete(key: K): boolean {
 		const node = this.#found(key)
 		const slot = node?.slot
 		if (node === undefined || slot === undefined) {
@@ -94,7 +99,7 @@ export class TupleMap<E, V> implements ReadonlyTupleMap<E, V> {
 		return true
 	}
 
-	*keys(): IterableIterator<ReadonlyArray<E>> {
+	*keys(): IterableIterator<K> {
 		for (const slot of this.#slots) {
 			yield slot.key
 		}
@@ -106,9 +111,45 @@ export class TupleMap<E, V> implements ReadonlyTupleMap<E, V> {
 		}
 	}
 
-	*[Symbol.iterator](): IterableIterator<readonly [ReadonlyArray<E>, V]> {
+	*[Symbol.iterator](): IterableIterator<readonly [K, V]> {
 		for (const slot of this.#slots) {
 			yield [slot.key, slot.value]
 		}
+	}
+}
+
+/** A TupleSet as its readers take it. */
+export interface ReadonlyTupleSet<K extends ReadonlyArray<unknown>> extends Iterable<K> {
+	readonly size: number
+	has(key: K): boolean
+}
+
+/**
+ * A set of tuples, structurally, as TupleMap keys its entries: two tuples are one exactly when they hold equal elements
+ * in order. Iteration is in insertion order, each tuple as it was first added.
+ */
+export class TupleSet<K extends ReadonlyArray<unknown>> implements ReadonlyTupleSet<K> {
+	readonly #entries = new TupleMap<K, true>()
+
+	get size(): number {
+		return this.#entries.size
+	}
+
+	has(key: K): boolean {
+		return this.#entries.has(key)
+	}
+
+	add(key: K): this {
+		this.#entries.set(key, true)
+		return this
+	}
+
+	/** Removes `key`: whether it was a member. */
+	delete(key: K): boolean {
+		return this.#entries.delete(key)
+	}
+
+	[Symbol.iterator](): IterableIterator<K> {
+		return this.#entries.keys()
 	}
 }

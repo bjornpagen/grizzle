@@ -1552,6 +1552,7 @@ export type Planted =
 	| "siblings' ends"
 	| "stepped copy"
 	| "re-placed owner"
+	| "generated copy"
 
 /** A specification holding the shape `planted` (`Planted`), its relations' flags, its folds and its kinds drawn. */
 export const plantedGen =
@@ -1710,12 +1711,26 @@ export const plantedGen =
 					copies: [{ family: 0, axis: "owner", source: { kind: "caller" } }],
 					steps: [{ family: 0, copy: 0 }]
 				}
+			case "generated copy":
+				return {
+					relations: [{ ...relations[0], generated: true }, relationGen(), relationGen()],
+					families: [
+						{
+							kind: source.draw(boolean) ? "counted" : "ordered",
+							owner: 0,
+							member: 1,
+							fold: fold()
+						}
+					],
+					copies: [{ family: 0, axis: "owner", source: { kind: "generated" } }],
+					steps: []
+				}
 			case "re-placed owner":
 				return {
 					relations: [
 						{ ...relations[0], mutable: true },
 						{ ...relationGen(), mutable: true },
-						relationGen()
+						{ ...relationGen(), mutable: true }
 					],
 					families: [
 						{ kind: "ordered", owner: 0, member: 1, fold: fold() },
@@ -1815,8 +1830,10 @@ const ownsSequence = (spec: FillSpec, r: number): boolean =>
  * that owns no row of one of its ordered families (`removed`), or none; and puts a member at the end of one ordered
  * family it owns, whose member owns no sequence, is mutable where it owns a family and names a row of the owner of
  * every counted family it is a member of, every such owner mutable: a new one (`appended`), or a stored one of another
- * owner's group (`moved`), its relation mutable, or none. A deletion or a move re-places every member after it in its
- * group, and a moved member keeps the rows it owns. Each new row's id follows the instance's.
+ * owner's group (`moved`), its relation mutable, or none. Half the time, where an owner's row holds a stored member of
+ * such a family, the follow-up is around such a row and deletes a member, moves one or both, and appends none. A
+ * deletion or a move re-places every member after it in its group, and a moved member keeps the rows it owns. Each new
+ * row's id follows the instance's largest.
  */
 export interface FollowUp {
 	readonly owner: number
@@ -1922,12 +1939,28 @@ export const followUpGen =
 			owners,
 			(r) => Arr.isReadonlyArrayNonEmpty(countedOf(r)) || Arr.isReadonlyArrayNonEmpty(orderedOf(r))
 		)
-		const chosen = Arr.isReadonlyArrayNonEmpty(appending) ? appending : owners
+		/** The owners with a stored member in an ordered family a follow-up may delete or move: half the time the
+		 * follow-up is around one of them, and deletes or moves such a member instead of appending one. */
+		const reordering = Arr.filter(owners, (r) =>
+			Arr.some(reorderedOf(r), (k) => Arr.some(rows, (x) => membershipIn(x, k) !== undefined))
+		)
+		const reorders = Arr.isReadonlyArrayNonEmpty(reordering) && source.draw(boolean)
+		const chosen = reorders
+			? reordering
+			: Arr.isReadonlyArrayNonEmpty(appending)
+				? appending
+				: owners
 		if (!Arr.isReadonlyArrayNonEmpty(chosen)) {
 			return Option.none()
 		}
 		const owner = defined(chosen[source.draw(int(0, chosen.length - 1))], "an owner")
-		const candidates = rowsOf(owner)
+		/** The id after every row's of the instance, whose ids need not run unbroken. */
+		const firstId = Arr.reduce(rows, 0, (most, r) => Math.max(most, r.id)) + 1
+		/** The owner's rows, those with a member a follow-up may delete or move where it was drawn among `reordering`. */
+		const holding = Arr.filter(rowsOf(owner), (r) =>
+			Arr.some(reorderedOf(owner), (k) => Arr.some(rows, (x) => membershipIn(x, k)?.owner === r.id))
+		)
+		const candidates = reorders ? holding : rowsOf(owner)
 		const row = defined(candidates[source.draw(int(0, candidates.length - 1))], "an owner's row")
 		/** A new row's memberships of the counted families of `member`, each owner drawn among its rows but `fixed`'s,
 		 * which is the chosen row. */
@@ -1956,7 +1989,7 @@ export const followUpGen =
 					for (let i = source.draw(int(0, 2)); i > 0; i -= 1) {
 						made.push({
 							relation: member,
-							id: rows.length + 1 + made.length,
+							id: firstId + made.length,
 							v: BigInt(source.draw(int(-2, 3))),
 							memberOf: countedMemberships(member, k)
 						})
@@ -1968,11 +2001,13 @@ export const followUpGen =
 		/** Whether a row of the instance is a member of the row `id` owns. */
 		const ownsRows = (id: number): boolean =>
 			Arr.some(rows, (x) => Arr.some(x.memberOf, (m) => m.owner === id))
-		/** A stored member of one of `reordered` drawn among the rows `where` keeps, or none. */
+		/** A stored member of one of `reordered` drawn among the rows `where` keeps, or none: always where the owner was
+		 * drawn among `reordering`, else half the time. */
 		const storedMember = (
-			where: (x: InstanceRow, family: number) => boolean
+			where: (x: InstanceRow, family: number) => boolean,
+			pick: (candidates: Arr.NonEmptyReadonlyArray<InstanceRow>, family: number) => InstanceRow
 		): Option.Option<FollowUpMove> => {
-			if (!Arr.isReadonlyArrayNonEmpty(reordered) || !source.draw(boolean)) {
+			if (!Arr.isReadonlyArrayNonEmpty(reordered) || (!reorders && !source.draw(boolean))) {
 				return Option.none()
 			}
 			const family = defined(
@@ -1981,14 +2016,18 @@ export const followUpGen =
 			)
 			const candidates = Arr.filter(rows, (x) => where(x, family))
 			return Arr.isReadonlyArrayNonEmpty(candidates)
-				? Option.some({
-						id: defined(candidates[source.draw(int(0, candidates.length - 1))], "a member").id,
-						family
-					})
+				? Option.some({ id: pick(candidates, family).id, family })
 				: Option.none()
 		}
+		/** The removed member: the first of the row's members that owns no row, which re-places the most after it. */
 		const removed = storedMember(
-			(x, family) => membershipIn(x, family)?.owner === row.id && !ownsRows(x.id)
+			(x, family) => membershipIn(x, family)?.owner === row.id && !ownsRows(x.id),
+			(candidates, family) =>
+				Arr.reduce(candidates, candidates[0], (first, x) =>
+					(membershipIn(x, family)?.slot ?? 0) < (membershipIn(first, family)?.slot ?? 0)
+						? x
+						: first
+				)
 		)
 		/** The slot after the last member of `family` the row keeps. */
 		const end = (family: number): number =>
@@ -1996,13 +2035,13 @@ export const followUpGen =
 			(Option.exists(removed, (m) => m.family === family) ? 1 : 0)
 		const ordered = orderedOf(owner)
 		const appended: Option.Option<InstanceRow> =
-			Arr.isReadonlyArrayNonEmpty(ordered) && source.draw(boolean)
+			!reorders && Arr.isReadonlyArrayNonEmpty(ordered) && source.draw(boolean)
 				? (() => {
 						const g = defined(ordered[source.draw(int(0, ordered.length - 1))], "an ordered family")
 						const member = familyAt(spec, g).member
 						return Option.some({
 							relation: member,
-							id: rows.length + 1 + inserted.length,
+							id: firstId + inserted.length,
 							v: BigInt(source.draw(int(-2, 3))),
 							memberOf: [
 								{ family: g, owner: row.id, slot: end(g) },
@@ -2013,10 +2052,14 @@ export const followUpGen =
 				: Option.none()
 		const moved = Option.isSome(appended)
 			? Option.none()
-			: storedMember((x, family) => {
-					const m = membershipIn(x, family)
-					return m !== undefined && m.owner !== row.id
-				})
+			: storedMember(
+					(x, family) => {
+						const m = membershipIn(x, family)
+						return m !== undefined && m.owner !== row.id
+					},
+					(candidates) =>
+						defined(candidates[source.draw(int(0, candidates.length - 1))], "a member")
+				)
 		return Option.isNone(put) &&
 			inserted.length === 0 &&
 			Option.isNone(removed) &&
@@ -2024,6 +2067,88 @@ export const followUpGen =
 			Option.isNone(moved)
 			? Option.none()
 			: Option.some({ owner, row: row.id, put, inserted, removed, appended, moved })
+	}
+
+/**
+ * A follow-up aimed at a stale value: a put of the first row of `owner` with a new `v`, and nothing else; none where
+ * the instance holds no row of it.
+ */
+export const ownerPutGen =
+	(rows: ReadonlyArray<InstanceRow>, owner: number): Gen<Option.Option<FollowUp>> =>
+	(source) =>
+		Option.map(
+			Arr.findFirst(rows, (r) => r.relation === owner),
+			(row): FollowUp => ({
+				owner,
+				row: row.id,
+				put: Option.some(row.v + BigInt(source.draw(int(1, 3)))),
+				inserted: [],
+				removed: Option.none(),
+				appended: Option.none(),
+				moved: Option.none()
+			})
+		)
+
+/**
+ * A follow-up aimed at a re-placed owner, over the ordered family `family`, drawing nothing: the deletion of a group's
+ * first member that owns no row where a later member owns one, which re-places it; else the move of a member that owns
+ * a row to the end of another owner's group; none where the instance holds neither.
+ */
+export const replacingGen =
+	(
+		spec: FillSpec,
+		rows: ReadonlyArray<InstanceRow>,
+		family: number
+	): Gen<Option.Option<FollowUp>> =>
+	() => {
+		const owner = familyAt(spec, family).owner
+		const ownsRows = (id: number): boolean =>
+			Arr.some(rows, (x) => Arr.some(x.memberOf, (m) => m.owner === id))
+		const slotOf = (x: InstanceRow): number => membershipIn(x, family)?.slot ?? 0
+		const owners = Arr.filter(rows, (r) => r.relation === owner)
+		const [deletion] = Arr.flatMap(owners, (o) => {
+			const group = Arr.sort(
+				Arr.filter(rows, (x) => membershipIn(x, family)?.owner === o.id),
+				Order.mapInput(Order.Number, slotOf)
+			)
+			const free = Arr.findFirstIndex(group, (x) => !ownsRows(x.id))
+			if (
+				Option.isNone(free) ||
+				!Arr.some(Arr.drop(group, free.value + 1), (x) => ownsRows(x.id))
+			) {
+				return []
+			}
+			return Arr.map(Arr.take(Arr.drop(group, free.value), 1), (x) => ({ row: o.id, id: x.id }))
+		})
+		if (deletion !== undefined) {
+			return Option.some({
+				owner,
+				row: deletion.row,
+				put: Option.none(),
+				inserted: [],
+				removed: Option.some({ id: deletion.id, family }),
+				appended: Option.none(),
+				moved: Option.none()
+			})
+		}
+		const mover = Arr.findFirst(
+			rows,
+			(x) => membershipIn(x, family) !== undefined && ownsRows(x.id)
+		)
+		return Option.flatMap(mover, (m) =>
+			Option.map(
+				Arr.findFirst(owners, (o) => o.id !== membershipIn(m, family)?.owner),
+				(o): FollowUp => ({
+					owner,
+					row: o.id,
+					put: Option.none(),
+					inserted: [],
+					removed: Option.none(),
+					appended: Option.none(),
+					moved: Option.some({ id: m.id, family })
+				})
+			)
+		)
 	}
 
 /**

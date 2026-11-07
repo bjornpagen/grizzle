@@ -935,13 +935,13 @@ const grizzleAnswer = (
 ): GrizzleAnswer => {
 	switch (value.kind) {
 		case "invariant-rejected": {
-			const [law, ...more] = value.laws
+			const [law, ...more] = value.refused.laws
 			return more.length === 0
 				? { kind: "invariant-rejected", law: reportedLawId(described, law) }
 				: {
 						kind: "failed",
-						what: `a refusal naming ${Arr.length(value.laws)} laws: ${Arr.join(
-							Arr.map(value.laws, (l) => reportedLawId(described, l)),
+						what: `a refusal naming ${Arr.length(value.refused.laws)} laws: ${Arr.join(
+							Arr.map(value.refused.laws, (l) => reportedLawId(described, l)),
 							", "
 						)}`
 					}

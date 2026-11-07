@@ -434,7 +434,7 @@ export default defineGate({
 						conflict:
 							conflict.value.kind === "invariant-rejected"
 								? `invariant-rejected ${Arr.join(
-										Arr.map(conflict.value.laws, (l) => l.kind),
+										Arr.map(conflict.value.refused.laws, (l) => l.kind),
 										", "
 									)}`
 								: conflict.value.kind,
@@ -576,7 +576,7 @@ export default defineGate({
 					equivalence(
 						"a committed different payload is a conflict, invariant-rejected with the key law",
 						conflict.value.kind === "invariant-rejected" &&
-							Arr.every(conflict.value.laws, (l) => reported(l) === itemKey),
+							Arr.every(conflict.value.refused.laws, (l) => reported(l) === itemKey),
 						outcomeText(conflict)
 					),
 					equivalence(

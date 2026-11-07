@@ -31,8 +31,10 @@ import {
 import { scalarCodec } from "#compiler/codec/scalar.ts"
 import { EncodingFailure } from "#compiler/core/errors.ts"
 import * as Result from "#compiler/core/result.ts"
+import { TupleMap } from "#compiler/core/tuple-map.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import type { FactIdentity } from "#compiler/scalar/values/identity.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
 import { readArrayLiteral } from "#test/support/arrays.ts"
@@ -403,9 +405,14 @@ describe("relation normalization", () => {
 						(facts) =>
 							Effect.sync(() => {
 								const normal = succeeded(normalize(facts))
-								const marked = normalForm(heading)(
-									new Map(Arr.map(normal.entries, (e) => [e.identity, { fact: e.fact }] as const))
-								)
+								const byIdentity = new TupleMap<
+									FactIdentity,
+									{ readonly fact: { readonly [field: string]: unknown } }
+								>()
+								for (const e of normal.entries) {
+									byIdentity.set(e.identity, { fact: e.fact })
+								}
+								const marked = normalForm(heading)(byIdentity)
 								const written = succeeded(rows(marked))
 								assert.equal(written.facts, marked.facts)
 								assert.deepEqual(written.rows, succeeded(again(facts)).rows)

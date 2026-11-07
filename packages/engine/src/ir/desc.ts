@@ -1943,7 +1943,7 @@ const relationDescShape: S.Shape<RelationDesc> = admittedOr(
 					if (!slotted.every((at, i) => at >= 0 && at > (slotted[i - 1] ?? -1))) {
 						return false
 					}
-					const keys = new TupleMap<string, Readonly<Record<string, LiteralDesc>>>()
+					const keys = new TupleMap<ReadonlyArray<string>, Readonly<Record<string, LiteralDesc>>>()
 					for (const row of c.rows) {
 						const own = Object.keys(row).toSorted(compareStrings)
 						if (own.length !== fields.length || !own.every((f, i) => f === fields[i])) {

@@ -942,7 +942,7 @@ const closedProps = (node: NodeOf<"Closed">, cx: RuleContext): PhysicalProps => 
 	const facts = withReason(justify({ premises: [nodePremise(node.id)], context: "queryLocal" }), [
 		"finiteFacts"
 	])
-	const rowKeys = new TupleMap<EqualityKey, ReadonlyArray<TypedLiteral>>()
+	const rowKeys = new TupleMap<ReadonlyArray<EqualityKey>, ReadonlyArray<TypedLiteral>>()
 	for (const r of rows) {
 		rowKeys.set(
 			r.map((v) => nativeEqualityKey(v)),

@@ -5,6 +5,7 @@ import { constant } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Record, String as Str } from "effect"
+import { type ReadonlyTupleSet, TupleSet } from "#compiler/core/tuple-map.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert } from "#test/support/assert.ts"
 import {
@@ -12,6 +13,7 @@ import {
 	importAccount,
 	personName
 } from "#test/support/fixtures/education/index.ts"
+import type { ValueIdentity } from "#test/support/kernel/identity.ts"
 import { sameValue } from "#test/support/laws/model.ts"
 import type { Substrate } from "#test/support/substrate/substrate.ts"
 import {
@@ -575,8 +577,13 @@ interface Change {
 }
 
 /** The canonical keys of facts, for set comparison. */
-const keys = (facts: ReadonlyArray<HostFact>): ReadonlySet<string> =>
-	new Set(Arr.map(facts, factKey))
+const keys = (facts: ReadonlyArray<HostFact>): ReadonlyTupleSet<ValueIdentity> => {
+	const set = new TupleSet<ValueIdentity>()
+	for (const f of facts) {
+		set.add(factKey(f))
+	}
+	return set
+}
 
 /** The facts `after` holds that `before` lacks, as added, and the ones it lost, as removed. */
 const changesOf = (before: HostState, after: HostState): ReadonlyArray<Change> =>

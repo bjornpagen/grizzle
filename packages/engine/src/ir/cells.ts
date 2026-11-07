@@ -522,7 +522,7 @@ export interface Heading {
 export interface CellSide<V> {
 	readonly key: NonEmptyReadonlyArray<string>
 	readonly payload: ReadonlyArray<string>
-	readonly rows: ReadonlyTupleMap<string, Split<V>>
+	readonly rows: ReadonlyTupleMap<ReadonlyArray<string>, Split<V>>
 }
 
 /**
@@ -561,12 +561,12 @@ export const sideOf = <V>(
 		key: keyAt.map((position) => cell(row, position)),
 		payload: payloadAt.map((position) => cell(row, position))
 	}))
-	const keyed = new TupleMap<string, Split<V>>()
+	const keyed = new TupleMap<ReadonlyArray<string>, Split<V>>()
 	for (const row of split) {
 		keyed.set(row.key.map(text), row)
 	}
 	const order = compareQuotedTuples(compareStrings)
-	const rowsInOrder = new TupleMap<string, Split<V>>()
+	const rowsInOrder = new TupleMap<ReadonlyArray<string>, Split<V>>()
 	for (const [k, row] of [...keyed].toSorted(([a], [b]) => order(a, b))) {
 		rowsInOrder.set(k, row)
 	}

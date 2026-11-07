@@ -1,4 +1,6 @@
 import { Array as Arr, Record as Rec } from "effect"
+import { TupleMap } from "#compiler/core/tuple-map.ts"
+import type { ValueIdentity } from "#test/support/kernel/identity.ts"
 import { sameValue, sameValues } from "#test/support/laws/model.ts"
 import { factKey } from "#test/support/worlds/model/host.ts"
 import { relationSpecOf, roleEntryOf } from "#test/support/worlds/model/session/state.ts"
@@ -125,7 +127,7 @@ export const reachedPairs = (
 	to: string
 ): ReadonlyArray<HostFact> => {
 	const steps = steppedPairs(rows, from, to)
-	const pairs = new Map<string, HostFact>()
+	const pairs = new TupleMap<ValueIdentity, HostFact>()
 	/** Whether a pair is new, which it then joins the pairs reached. */
 	const fresh = (pair: HostFact): boolean => {
 		const key = factKey(pair)

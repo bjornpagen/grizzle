@@ -4,7 +4,7 @@ import { hostRead } from "#compiler/core/host.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import { int8Max, int8Min } from "#compiler/core/limits.ts"
 import * as Result from "#compiler/core/result.ts"
-import { compareCodePoints, validateText } from "#compiler/core/text.ts"
+import { compareCodePoints, compareQuotedTuples, validateText } from "#compiler/core/text.ts"
 import { codeOf, handlesText, type RosterCodec } from "#compiler/ir/codes.ts"
 import { type CalendarDate, toCalendarDate } from "#compiler/ir/date.ts"
 import type { Carrier } from "#compiler/ir/scalar.ts"
@@ -345,8 +345,9 @@ const canonicalTexts: CanonicalTexts = {
  * - `compareValues` is PostgreSQL's B-tree order for the type: float and numeric total orders with NaN last, text in
  *   code point order, uuid by bytes, closed ids by code, which is roster order, spans by start then end, vectors as
  *   vector_cmp, and sets by their bit strings, an order internal to the host, since a set has no ordering.
- * - `factIdentity` admits a whole fact against its heading and gives it one text, so two facts are the same fact
- *   exactly when their texts are equal: the identity ChangeSet normalization and exact-repeat checks use.
+ * - `factIdentity` admits a whole fact against its heading and gives it its identity, each field's canonical text in
+ *   field-name order, so two facts are the same fact exactly when their identities are equal element by element: the
+ *   identity ChangeSet normalization and exact-repeat checks use, a key of a TupleMap (core/tuple-map.ts).
  *
  * The carrier names are the scalar IR's, imported from ir/scalar.ts so the two cannot drift.
  *
@@ -436,11 +437,26 @@ interface FactFault {
 	readonly field: string | undefined
 }
 
+/**
+ * A fact's identity: each field's canonical text, in field-name order, so two facts of one heading are one fact exactly
+ * when their identities are equal element by element, which a TupleMap keys by (core/tuple-map.ts). No text is joined
+ * into another, so an identity costs its fields' own texts and no more.
+ */
+export type FactIdentity = ReadonlyArray<string>
+
+/**
+ * The canonical order of fact identities of one heading: the code point order of the JSON text of their
+ * [field, canonicalText] pairs in field-name order, the order normal facts are in (codec/recordset.ts), read field by
+ * field without spelling the JSON (core/text.ts compareQuotedTuples). Every canonical text is well-formed.
+ */
+export const compareFactIdentities: (a: FactIdentity, b: FactIdentity) => number =
+	compareQuotedTuples(compareCodePoints)
+
 interface AdmittedFact {
 	/** The admitted values, by field name, frozen. */
 	readonly fact: { readonly [field: string]: unknown }
-	/** The fact's identity: equal exactly for the same fact. */
-	readonly identity: string
+	/** The fact's identity, frozen: equal element by element exactly for the same fact. */
+	readonly identity: FactIdentity
 }
 
 const fieldOrder = (a: HeadingField, b: HeadingField): number => compareCodePoints(a.name, b.name)
@@ -456,16 +472,12 @@ const isPlainRecord = (value: unknown): value is { readonly [field: string]: unk
 
 /**
  * What admitting a fact reads of its heading, worked out once per heading rather than once per fact (the relation
- * codec plans its heading when it is built, codec/recordset.ts): its fields in name order, the JSON text before each
- * field's canonical text in the identity, and whether a name repeats.
+ * codec plans its heading when it is built, codec/recordset.ts): its fields in name order, and whether a name repeats.
  */
 export interface HeadingPlan {
 	readonly fields: ReadonlyArray<HeadingField>
-	/**
-	 * Each field in name order up to the first whose name repeats the one before, with `[["name",` before its text for
-	 * the first field and `,["name",` for the others.
-	 */
-	readonly entries: ReadonlyArray<{ readonly field: HeadingField; readonly prefix: string }>
+	/** Each field in name order up to the first whose name repeats the one before. */
+	readonly entries: ReadonlyArray<HeadingField>
 	/** Whether the heading repeats a name: a fact of it is refused once its entries before the repeat are admitted. */
 	readonly names: "distinct" | "repeated"
 }
@@ -475,10 +487,7 @@ export const headingPlan = (heading: ReadonlyArray<HeadingField>): HeadingPlan =
 	const repeat = firstIndex(fields, (f, i) => i > 0 && fields[i - 1]?.name === f.name)
 	return {
 		fields,
-		entries: (repeat === undefined ? fields : fields.slice(0, repeat)).map((field, i) => ({
-			field,
-			prefix: `${i === 0 ? "[" : ","}[${JSON.stringify(field.name)},`
-		})),
+		entries: repeat === undefined ? fields : fields.slice(0, repeat),
 		names: repeat === undefined ? "distinct" : "repeated"
 	}
 }
@@ -501,8 +510,7 @@ const ownField = (fact: object, name: string): Result.Result<unknown, FactFault>
 /**
  * Admits a fact against its heading: a plain object whose own keys are exactly the heading's field names, each value
  * admitted by its carrier. Its shape and each field are read once (hostRead), and only the admitted values are kept.
- * The identity is the JSON text of the [field, canonicalText] pairs in field-name order, written directly rather than
- * through an array of pairs.
+ * The identity is each field's canonical text in field-name order (FactIdentity).
  *
  * A per-fact hot path: the heading's plan is worked out once per heading, and each fact costs one pass over its
  * fields with no per-field closure, tuple or Option beyond the field's own read.
@@ -535,8 +543,8 @@ export const admitFact = (
 	/** A prototype-less object, so assigning "__proto__" defines an ordinary property. */
 	const kept: Record<string, unknown> = {}
 	Reflect.setPrototypeOf(kept, null)
-	let identity = ""
-	for (const { field, prefix } of entries) {
+	const identity: Array<string> = []
+	for (const field of entries) {
 		const read = ownField(fact, field.name)
 		if (!read.ok) {
 			return Result.err(read.error)
@@ -546,13 +554,10 @@ export const admitFact = (
 			return Result.err({ fault: value.error, field: field.name })
 		}
 		kept[field.name] = value.value
-		identity += `${prefix}${JSON.stringify(canonicalText(field.spec, value.value))}]`
+		identity.push(canonicalText(field.spec, value.value))
 	}
 	if (names === "repeated") {
 		return Result.err({ fault: "factShape", field: undefined })
 	}
-	return Result.ok({
-		fact: Object.freeze(kept),
-		identity: entries.length === 0 ? "[]" : `${identity}]`
-	})
+	return Result.ok({ fact: Object.freeze(kept), identity: Object.freeze(identity) })
 }

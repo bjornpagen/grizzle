@@ -424,8 +424,14 @@ export interface ClosedRows {
  * from them.
  */
 export const closedLeaf = (closed: ReadonlyMap<string, ClosedRows>): EvalLeaves["closed"] => {
-	const cells = new Map<string, ReadonlyTupleMap<CarrierValue, ReadonlyArray<TypedLiteral>>>()
-	const prefixes = new Map<string, ReadonlyTupleMap<CarrierValue, ReadonlySet<string>>>()
+	const cells = new Map<
+		string,
+		ReadonlyTupleMap<ReadonlyArray<CarrierValue>, ReadonlyArray<TypedLiteral>>
+	>()
+	const prefixes = new Map<
+		string,
+		ReadonlyTupleMap<ReadonlyArray<CarrierValue>, ReadonlySet<string>>
+	>()
 	return (relation, field, args) => {
 		const c = closed.get(relation)
 		if (c === undefined) {
@@ -434,7 +440,7 @@ export const closedLeaf = (closed: ReadonlyMap<string, ClosedRows>): EvalLeaves[
 		if (field !== undefined) {
 			let index = cells.get(relation)
 			if (index === undefined) {
-				const built = new TupleMap<CarrierValue, ReadonlyArray<TypedLiteral>>()
+				const built = new TupleMap<ReadonlyArray<CarrierValue>, ReadonlyArray<TypedLiteral>>()
 				for (const row of c.rows) {
 					built.set(row.slice(0, c.key).map(literalValue), row)
 				}
@@ -451,7 +457,7 @@ export const closedLeaf = (closed: ReadonlyMap<string, ClosedRows>): EvalLeaves[
 		}
 		let index = prefixes.get(relation)
 		if (index === undefined) {
-			const built = new TupleMap<CarrierValue, Set<string>>()
+			const built = new TupleMap<ReadonlyArray<CarrierValue>, Set<string>>()
 			for (const row of c.rows) {
 				const last = row[c.key - 1]
 				const value = last === undefined ? undefined : literalValue(last)

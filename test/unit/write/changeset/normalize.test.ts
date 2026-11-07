@@ -14,6 +14,7 @@ import type { CodecFault } from "#compiler/core/errors.ts"
 import { hasProperties } from "#compiler/core/record.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { key, on, relation, schema } from "#compiler/public/schema.ts"
+import type { FactIdentity } from "#compiler/scalar/values/identity.ts"
 import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
 import type {
 	EnumeratedInput,
@@ -34,6 +35,7 @@ import {
 	type OracleSchema,
 	oracleState
 } from "#test/support/oracle/addwins.ts"
+import { identityOrder } from "#test/support/oracle/delta.ts"
 import { codesOf, compiled, cs, parsedOf } from "#test/unit/write/changeset/fixtures.ts"
 
 /** Pair(k, v, c): primary key k, candidate key c. Gen(id serial, k, w): primary key id, candidate key k. Unit(id
@@ -271,9 +273,9 @@ const sameOutcome = (a: AddWinsOutcome, b: AddWinsOutcome): void => {
 		Arr.sort(
 			Arr.map(
 				[...o.state.relations],
-				([r, s]) => [r, Arr.sort([...s.keys()], Order.String)] as const
+				([r, s]) => [r, Arr.sort([...s.keys()], identityOrder)] as const
 			),
-			Order.mapInput(Order.String, ([r]: readonly [string, ReadonlyArray<string>]) => r)
+			Order.mapInput(Order.String, ([r]: readonly [string, ReadonlyArray<FactIdentity>]) => r)
 		)
 	assert.deepEqual(facts(a), facts(b))
 }
