@@ -96,6 +96,7 @@ export const inlineWorlds = (query: QueryDesc, role: OwnedRole): QueryDesc => {
 			case "compute":
 				return { ...e, args: e.args.map(expr) }
 			case "closedAt":
+			case "closedHas":
 				return { ...e, args: mapNonEmpty(e.args, expr) }
 			case "closedRow":
 				return { ...e, args: e.args.map(expr) }
@@ -136,6 +137,7 @@ export const inlineWorlds = (query: QueryDesc, role: OwnedRole): QueryDesc => {
 			case "var":
 			case "closedAt":
 			case "closedRow":
+			case "closedHas":
 				return expr(t)
 		}
 	}

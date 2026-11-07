@@ -2028,6 +2028,8 @@ class Lowering<R extends Refs> {
 				return this.closedAt(desc, at)
 			case "closedRow":
 				return this.closedRow(desc, at)
+			case "closedHas":
+				return this.closedHas(desc, at)
 			case "allen":
 			case "pointIn":
 			case "absent": {
@@ -2268,6 +2270,7 @@ class Lowering<R extends Refs> {
 			case "or":
 			case "not":
 			case "closedRow":
+			case "closedHas":
 			case "allen":
 			case "pointIn":
 			case "absent":
@@ -2491,7 +2494,7 @@ class Lowering<R extends Refs> {
 	 * The closed relation `relation` a read `read` applies, or its refusal: UnsupportedOperation where the expression
 	 * applies none, with the reason, and MalformedDescription for a name that is no closed relation's.
 	 */
-	closedHeading(read: "C.at" | "C.row", relation: string, at: SourceLoc): ClosedHeading {
+	closedHeading(read: "C.at" | "C.row" | "C.has", relation: string, at: SourceLoc): ClosedHeading {
 		const { closed } = this.env
 		if (closed.kind === "none") {
 			return stop("UnsupportedOperation", at, `${read} here: ${closed.why}`)
@@ -2502,31 +2505,54 @@ class Lowering<R extends Refs> {
 		)
 	}
 
-	/** Each of `args` as the key field it stands at: a bare literal adopts its type, a term meets it. */
-	keyTerms(
-		args: ReadonlyArray<ExprDesc<Located, R>>,
+	/**
+	 * Argument `i` of a closed read, `d`, as the key field it stands at: a bare literal adopts its type, a term meets it.
+	 * A read states one argument per key field it fixes, so an argument past the key is refused.
+	 */
+	keyTerm(
+		d: ExprDesc<Located, R>,
+		i: number,
 		key: ReadonlyArray<ClosedField>,
 		at: SourceLoc
-	): ReadonlyArray<Lowered> {
-		return args.map((d, i) => {
-			const field = key[i]
-			const here = childLoc(at, i)
-			if (field === undefined) {
-				return stop("MalformedDescription", here, "a term per key field, and no more")
-			}
-			if (d.kind === "literal" && d.type === undefined) {
-				return this.literal(d.value, field.type, here)
-			}
-			const term = this.lower(d, here)
-			if (!meets(field.type, term.nominal)) {
-				return stop(
-					"MalformedDescription",
-					here,
-					`a term of key field ${field.name}'s type ${typeLabel(field.type)}, not ${typeLabel(term.nominal)}`
-				)
-			}
-			return this.convert(term, field.type, here)
-		})
+	): Lowered {
+		const field = key[i]
+		const here = childLoc(at, i)
+		if (field === undefined) {
+			return stop("MalformedDescription", here, "a term per key field, and no more")
+		}
+		if (d.kind === "literal" && d.type === undefined) {
+			return this.literal(d.value, field.type, here)
+		}
+		const term = this.lower(d, here)
+		if (!meets(field.type, term.nominal)) {
+			return stop(
+				"MalformedDescription",
+				here,
+				`a term of key field ${field.name}'s type ${typeLabel(field.type)}, not ${typeLabel(term.nominal)}`
+			)
+		}
+		return this.convert(term, field.type, here)
+	}
+
+	/**
+	 * A full key of the closed relation `heading` reads, C.at's and C.has's arguments `args`: one term per key field, in
+	 * key order (keyTerm), so nonempty as the key is.
+	 */
+	fullKey(
+		read: "C.at" | "C.has",
+		relation: string,
+		args: NonEmptyReadonlyArray<ExprDesc<Located, R>>,
+		heading: ClosedHeading,
+		at: SourceLoc
+	): NonEmptyReadonlyArray<ScalarExpr> {
+		if (args.length !== heading.key.length) {
+			return stop(
+				"MalformedDescription",
+				at,
+				`${heading.key.length} key terms for ${relation}.${read === "C.at" ? "at" : "has"}, one per key field`
+			)
+		}
+		return mapNonEmpty(args, (d, i) => this.keyTerm(d, i, heading.key, at).expr)
 	}
 
 	/**
@@ -2541,13 +2567,6 @@ class Lowering<R extends Refs> {
 	): Lowered {
 		const here = childLoc(at, "at")
 		const heading = this.closedHeading("C.at", desc.relation, here)
-		if (desc.args.length !== heading.key.length) {
-			return stop(
-				"MalformedDescription",
-				here,
-				`${heading.key.length} key terms for ${desc.relation}.at, one per key field`
-			)
-		}
 		const payload = heading.payload.find((f) => f.name === desc.field)
 		if (payload === undefined) {
 			return stop(
@@ -2556,17 +2575,33 @@ class Lowering<R extends Refs> {
 				`a payload field of ${desc.relation} named ${JSON.stringify(desc.field)}`
 			)
 		}
-		const [first, ...rest] = this.keyTerms(desc.args, heading.key, here)
-		if (first === undefined) {
-			return stop("MalformedDescription", here, "a key term for each key field")
-		}
 		return this.emit({
 			kind: "closedAt",
 			relation: desc.relation,
 			field: desc.field,
-			args: [first.expr, ...rest.map((a) => a.expr)],
+			args: this.fullKey("C.at", desc.relation, desc.args, heading, here),
 			type: payload.type,
 			nonNull: "absentRefused"
+		})
+	}
+
+	/**
+	 * C.has(t…): whether the closed relation holds a tuple at the key its terms are, one per key field in key order, a
+	 * boolean: false at a key it holds no tuple at, so absence is a truth value, and NULL only at a NULL key term. It
+	 * reads the relation's key set alone, never a payload.
+	 */
+	closedHas(
+		desc: Extract<ExprDesc<Located, R>, { readonly kind: "closedHas" }>,
+		at: SourceLoc
+	): Lowered {
+		const here = childLoc(at, "has")
+		const heading = this.closedHeading("C.has", desc.relation, here)
+		return this.emit({
+			kind: "closedHas",
+			relation: desc.relation,
+			args: this.fullKey("C.has", desc.relation, desc.args, heading, here),
+			type: plainType("bool"),
+			nonNull: "strict"
 		})
 	}
 
@@ -2596,7 +2631,7 @@ class Lowering<R extends Refs> {
 				`a set over a roster: ${desc.relation}'s last key field ${open.name} is ${typeLabel(open.type)}, no closed id`
 			)
 		}
-		const args = this.keyTerms(desc.args, heading.key, here)
+		const args = desc.args.map((d, i) => this.keyTerm(d, i, heading.key, here))
 		return this.emitProved(
 			{
 				kind: "closedRow",

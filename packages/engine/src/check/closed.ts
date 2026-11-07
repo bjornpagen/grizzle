@@ -3,9 +3,9 @@ import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import type { ClosedHeading, ClosedRelations } from "#compiler/scalar/compute/lower.ts"
 
 /**
- * A closed relation as C.at and C.row read it: its key fields, its primary fields in key order, which an application's
- * terms meet one by one, and its payload, every other field of its heading, one of which C.at reads, with each row's
- * value there, which a Compute.matches pattern reading it can be.
+ * A closed relation as C.at, C.row and C.has read it: its key fields, its primary fields in key order, which an
+ * application's terms meet one by one, and its payload, every other field of its heading, one of which C.at reads,
+ * with each row's value there, which a Compute.matches pattern reading it can be.
  */
 const closedHeading = (closed: ClosedRelation): ClosedHeading => {
 	const key = closed.relation.primaryFields

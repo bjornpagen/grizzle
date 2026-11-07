@@ -425,10 +425,10 @@ export type ExprSpecOver<R extends ArgKinds> = { readonly type: ScalarType } & (
 	  }
 	| {
 			/**
-			 * Whether the closed relation `relation` holds a tuple at the key its arguments are, one per key field in key
-			 * order: a boolean, false at a key it holds no tuple at, never NULL of itself. No author writes it: the closed
-			 * rewrite (lower/optimize/closed) states with it an occurrence of the relation's full facts that only tests
-			 * membership, and it lowers to one bit of the relation's installed key set.
+			 * C.has(t…): whether the closed relation `relation` holds a tuple at the key its arguments are, one per key field
+			 * in key order: a boolean, false at a key it holds no tuple at, never NULL of itself, so a law branches on a
+			 * key's absence. The closed rewrite (lower/optimize/closed) also states with it an occurrence of the relation's
+			 * full facts that only tests membership. It lowers to one bit of the relation's installed key set.
 			 */
 			readonly kind: "closedHas"
 			readonly relation: string

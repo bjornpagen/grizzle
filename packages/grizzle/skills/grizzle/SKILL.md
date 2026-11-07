@@ -475,6 +475,10 @@ The command line's own refusals, by stage:
   `Compute.difference`, `Compute.cardinality`, `Compute.subset`, `Compute.disjoint` and `Compute.singleton`, and no
   complement. Test a closed id's membership in a set as `Compute.subset(Compute.singleton(id), set)`:
   `Compute.singleton(id)` is the set of the id's one handle, and a NULL id gives a NULL set.
+- A closed relation read at a key no row holds: `C.at(field, k…)` is NULL there, which a check refuses, and
+  `C.has(k…)` is false there, so say what holds where the key is absent with `has`, never with a null-object row:
+  `Compute.or(Compute.not(C.has(k…)), φ(C.at(field, k…)))`, or a value there,
+  `Compute.cond(C.has(k…), C.at(field, k…), d)`. Every closed read is NULL where a key value is NULL.
 - A `bytes` field, a `Uint8Array`, is written and read back whole and nothing more: never in a key, a rule's side, a
   filter, a parameter, a `Compute` call, a contract, or a generated or accumulated field.
 - Every numeric field declares its precision and scale, `pg.numeric(p, s)`; there is no bare `pg.numeric`. A sum,

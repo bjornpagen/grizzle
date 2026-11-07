@@ -113,7 +113,8 @@ import { withLayer } from "#test/support/with-layer.ts"
  * Each case draws a world of closed relations over two rosters, some keys held by no row (language.ts World), rows of
  * every open relation, and an expression for each position, drawn by construction over every operator family
  * (comparisons, BETWEEN, IN, AND, OR and NOT, exact and IEEE 754 arithmetic, greatest and least, casts, text, sets,
- * span endpoints, conditionals and guards) over every sort (integers, numerics, texts, closed ids, sets, booleans and
+ * span endpoints, conditionals, guards and a closed relation's presence, C.has, false at a key no row holds) over
+ * every sort (integers, numerics, texts, closed ids, sets, booleans and
  * both floats, NaN and the infinities among them) and every NULL source (a closed read at an absent key, at a NULL
  * key, nested). Float arithmetic stands in a query alone, as grizzle admits it nowhere else. A span is never NULL, since
  * no closed relation holds one (closed.relation refuses a span field): its endpoints meet a NULL only beside a NULL
@@ -248,6 +249,7 @@ const situations: NonEmptyReadonlyArray<Reached<Feature>> = [
 	"a singleton of an id read at an absent key is NULL",
 	"a singleton of an id read at a NULL key is NULL",
 	"a singleton of an id an operation leaves NULL is NULL",
+	"a presence of a key no row holds is false",
 	"a check refuses a row it leaves unknown",
 	"a check holds of a row through a NULL",
 	"a refusal names an unknown check and a false one together",

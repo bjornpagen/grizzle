@@ -384,6 +384,7 @@ const withLiterals = (e: ExprDesc, vars: Readonly<Record<string, LeafBinding>>):
 		case "and":
 		case "or":
 		case "closedAt":
+		case "closedHas":
 			return { ...e, args: mapNonEmpty(e.args, go) }
 		case "closedRow":
 			return { ...e, args: Arr.map(e.args, go) }

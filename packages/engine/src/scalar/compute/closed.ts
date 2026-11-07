@@ -1,11 +1,13 @@
 import { malformedDescription } from "#compiler/core/errors.ts"
 import { captureLoc, type SourceLoc } from "#compiler/core/loc.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { OpenExpr } from "#compiler/ir/open.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { scalarTerm } from "#compiler/scalar/compute/builders.ts"
 import {
 	predicateExpr,
+	type PredicateValue,
+	predicateValue,
 	type ScalarTerm,
 	type TermCarrier,
 	typedTermOf
@@ -23,8 +25,8 @@ export interface ClosedValueTyping {
 /**
  * What the closed reads of one closed relation are typed by, which its builder resolved from the relation's own field
  * descriptors: its name; each key field in key order, its name and the declared type an argument at its position meets
- * or a handle literal there is of; each field's declared type; the payload fields, the ones C.at reads; and the set
- * C.row delivers, over the last key field's roster.
+ * or a handle literal there is of, which C.at and C.has read in full and C.row but its last; each field's declared
+ * type; the payload fields, the ones C.at reads; and the set C.row delivers, over the last key field's roster.
  */
 export interface ClosedReadTyping {
 	readonly relation: string
@@ -65,22 +67,37 @@ const keyArgument = (
 	return { kind: "literal", value: literal.value, type: undefined }
 }
 
-/** The arguments of a read over the key positions `positions`, one each, in key order. */
-const keyArguments = (
+/** A read whose arguments are not one per key position it reads, refused with the count it needs. */
+const miscounted = (loc: SourceLoc, what: string, positions: number): never =>
+	refuse(loc, `${what}: ${positions} key value(s), one per key field in key order`)
+
+/** C.row's arguments, its key prefix: one per key field but the last, in key order (keyArgument). */
+const prefixArguments = (
 	args: ReadonlyArray<unknown>,
-	positions: ReadonlyArray<{ readonly field: string; readonly type: ScalarType }>,
+	prefix: ReadonlyArray<{ readonly field: string; readonly type: ScalarType }>,
 	loc: SourceLoc,
 	what: string
-): ReadonlyArray<OpenExpr> => {
-	if (args.length !== positions.length) {
-		return refuse(loc, `${what}: ${positions.length} key value(s), one per key field in key order`)
-	}
-	return positions.map((p, i) => keyArgument(args[i], p, loc))
-}
+): ReadonlyArray<OpenExpr> =>
+	args.length === prefix.length
+		? prefix.map((p, i) => keyArgument(args[i], p, loc))
+		: miscounted(loc, what, prefix.length)
 
 /**
- * C.at(field, k…)'s key: `field` a payload field of `closed`, and `args` one value per key field in key order, each
- * checked against its field (keyArgument).
+ * A full key of `closed`, the arguments C.at and C.has read it at: one per key field in key order, each checked against
+ * its field (keyArgument), as many as the key, which is nonempty, so the key read is too.
+ */
+const fullKey = (
+	closed: ClosedReadTyping,
+	args: ReadonlyArray<unknown>,
+	loc: SourceLoc,
+	what: string
+): NonEmptyReadonlyArray<OpenExpr> =>
+	args.length === closed.key.length
+		? mapNonEmpty(closed.key, (p, i) => keyArgument(args[i], p, loc))
+		: miscounted(loc, what, closed.key.length)
+
+/**
+ * C.at(field, k…)'s key: `field` a payload field of `closed`, and `args` its full key (fullKey).
  */
 export const closedAtKey = (
 	closed: ClosedReadTyping,
@@ -94,10 +111,21 @@ export const closedAtKey = (
 			`a payload field of ${closed.relation}, a field beside its key, first; ${JSON.stringify(field)} is none`
 		)
 	}
-	const [first, ...rest] = keyArguments(args, closed.key, loc, `${closed.relation}.at`)
-	return first === undefined
-		? refuse(loc, `${closed.relation}.at: a key of one field at least`)
-		: [first, ...rest]
+	return fullKey(closed, args, loc, `${closed.relation}.at`)
+}
+
+/**
+ * C.has(k…): the predicate that `closed` holds a row at the key k…, its full key (fullKey). A key no row holds is
+ * false, never NULL, so a law states what holds where the key is absent: `or(not(C.has(k…)), φ(C.at(f, k…)))`, or a
+ * value there, `Compute.cond(C.has(k…), C.at(f, k…), d)`. A NULL key value is NULL, as at C.at and C.row.
+ */
+export const closedHasPredicate = (
+	closed: ClosedReadTyping,
+	args: ReadonlyArray<unknown>
+): PredicateValue => {
+	const what = `${closed.relation}.has`
+	const key = fullKey(closed, args, captureLoc(what, []), what)
+	return predicateValue({ kind: "closedHas", relation: closed.relation, args: key })
 }
 
 /**
@@ -135,7 +163,7 @@ export const closedRowTerm = (
 	args: ReadonlyArray<unknown>
 ): ScalarTerm<unknown, "bits"> => {
 	const loc = captureLoc(`${closed.relation}.row`, [])
-	const exprs = keyArguments(
+	const exprs = prefixArguments(
 		args,
 		closed.key.slice(0, -1),
 		loc,

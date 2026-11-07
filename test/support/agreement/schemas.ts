@@ -306,6 +306,10 @@ const schemaFaults = [
 	"atWrongHandle",
 	"rowShort",
 	"rowWhole",
+	"hasShort",
+	"hasField",
+	"hasWrongHandle",
+	"hasSwapped",
 	"echoRoster",
 	"predNotNatural",
 	"predUndeclared",
@@ -1015,6 +1019,26 @@ const refusals: { readonly [F in SchemaFault]: Refusing } = {
 		engine: { tag: "MalformedDescription" },
 		code: "TS2554",
 		claim: prose("C.row takes every key field but the last, never the whole key")
+	},
+	hasShort: {
+		engine: { tag: "MalformedDescription" },
+		code: "TS2554",
+		claim: prose("C.has takes one key value per key field")
+	},
+	hasField: {
+		engine: { tag: "MalformedDescription" },
+		code: "TS2554",
+		claim: prose("C.has takes the key alone, never a payload field before it")
+	},
+	hasWrongHandle: {
+		engine: { tag: "MalformedDescription" },
+		code: "TS2345",
+		claim: prose("a key value of C.has is a handle of its field's roster")
+	},
+	hasSwapped: {
+		engine: { tag: "MalformedDescription" },
+		code: "TS2345",
+		claim: prose("a key value of C.has is of its own key field's roster, in key order")
 	},
 	echoRoster: {
 		engine: { tag: "MalformedDescription" },
@@ -2428,6 +2452,10 @@ const closedRead = (rule: ClosedValue, field: string, key: ReadonlyArray<unknown
 /** C.row(k…) as a JavaScript caller calls it. */
 const closedRow = (rule: ClosedValue, prefix: ReadonlyArray<unknown>): unknown =>
 	closedCall(rule.row, rule, prefix)
+
+/** C.has(k…) as a JavaScript caller calls it. */
+const closedHas = (rule: ClosedValue, key: ReadonlyArray<unknown>): unknown =>
+	closedCall(rule.has, rule, key)
 
 /**
  * Gen, its generated fields read off its row: Rule's w at its closed ids, the set of Rule's last key field its other
@@ -6237,13 +6265,20 @@ type ClosedReadForm =
 			readonly read: "row"
 			readonly prefix: ReadonlyArray<string>
 	  }
+	| {
+			readonly fault: "hasShort" | "hasField" | "hasWrongHandle" | "hasSwapped" | undefined
+			readonly read: "has"
+			readonly key: ReadonlyArray<string>
+	  }
 	| { readonly fault: "echoRoster" | undefined; readonly read: "generated" }
 
 /**
  * A read of the base's closed relation, at its key of one to three closed ids: C.at of a payload field at a full key,
- * C.row at a key prefix, or a generated field reading C.at at its row's closed ids; valid, or with one planted fault: a
- * key short of a field, a payload field Rule does not declare, a key field read as a payload, a key value of no handle,
- * its first two key values swapped, a row's prefix short of a field or the whole key, a closed id of another roster whose handles have Rule's first key roster's spellings. The engine's closed
+ * C.row at a key prefix, C.has at a full key, or a generated field reading C.at at its row's closed ids; valid, or with
+ * one planted fault: a key short of a field, a payload field Rule does not declare, a key field read as a payload, a
+ * key value of no handle, its first two key values swapped, a row's prefix short of a field or the whole key, a
+ * presence's key short of a field, led by a payload field, holding a value of no handle or its first two values
+ * swapped, a closed id of another roster whose handles have Rule's first key roster's spellings. The engine's closed
  * reads and generated relations are the oracle.
  */
 const closedReadProbe = (d: Drawing, base: Base): Probe | undefined => {
@@ -6261,10 +6296,15 @@ const closedReadProbe = (d: Drawing, base: Base): Probe | undefined => {
 	const full: Arr.NonEmptyReadonlyArray<string> = [h1, ...others]
 	const swapped: ReadonlyArray<ClosedReadForm> = Arr.match(Arr.zip(rest, others), {
 		onEmpty: () => [],
-		onNonEmpty: ([[r2, h2], ...tail]) =>
-			!Arr.contains(k1.handles, h2) || !Arr.contains(r2.handles, h1)
-				? [{ fault: "atSwapped", read: "at", key: [h2, h1, ...Arr.map(tail, ([, h]) => h)] }]
+		onNonEmpty: ([[r2, h2], ...tail]) => {
+			const key = [h2, h1, ...Arr.map(tail, ([, h]) => h)]
+			return !Arr.contains(k1.handles, h2) || !Arr.contains(r2.handles, h1)
+				? [
+						{ fault: "atSwapped", read: "at", key },
+						{ fault: "hasSwapped", read: "has", key }
+					]
 				: []
+		}
 	})
 	const prefix = Arr.initNonEmpty(full)
 	const form = d.from<ClosedReadForm>([
@@ -6279,6 +6319,10 @@ const closedReadProbe = (d: Drawing, base: Base): Probe | undefined => {
 		...(Arr.isReadonlyArrayNonEmpty(prefix)
 			? [{ fault: "rowShort", read: "row", prefix: Arr.initNonEmpty(prefix) } as const]
 			: []),
+		{ fault: undefined, read: "has", key: full },
+		{ fault: "hasShort", read: "has", key: prefix },
+		{ fault: "hasField", read: "has", key: Arr.prepend(full, "w") },
+		{ fault: "hasWrongHandle", read: "has", key: Arr.prepend(Arr.tailNonEmpty(full), "Nope") },
 		{ fault: undefined, read: "generated" },
 		{ fault: "echoRoster", read: "generated" }
 	])
@@ -6294,6 +6338,8 @@ const closedReadProbe = (d: Drawing, base: Base): Probe | undefined => {
 					return oneLine(`export const ${own} = ${ids("Rule")}.at(${quoted([read, ...form.key])})`)
 				case "row":
 					return oneLine(`export const ${own} = ${ids("Rule")}.row(${quoted(form.prefix)})`)
+				case "has":
+					return oneLine(`export const ${own} = ${ids("Rule")}.has(${quoted(form.key)})`)
 				case "generated": {
 					const roster = form.fault === "echoRoster" ? `${own}_Echo` : ids(k1.name)
 					const restFields = Arr.zipWith(
@@ -6320,6 +6366,8 @@ const closedReadProbe = (d: Drawing, base: Base): Probe | undefined => {
 					return building(() => closedRead(rule, read, form.key))
 				case "row":
 					return building(() => closedRow(rule, form.prefix))
+				case "has":
+					return building(() => closedHas(rule, form.key))
 				case "generated":
 					return compiling(() => {
 						const echo = closed("Echo", k1.handles, [])

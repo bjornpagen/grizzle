@@ -207,6 +207,7 @@ const exprVars = (e: ExprDesc, into: Set<string>): void => {
 		case "or":
 		case "closedAt":
 		case "closedRow":
+		case "closedHas":
 			for (const a of e.args) {
 				exprVars(a, into)
 			}

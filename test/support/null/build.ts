@@ -18,6 +18,7 @@ import { computeCore as C } from "#compiler/scalar/compute/builders.ts"
 import { type SqlValue, sqlNull } from "#compiler/scalar/compute/evaluate.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import {
+	type HasKey,
 	type Item,
 	type ListLiteral,
 	type Literal,
@@ -119,11 +120,12 @@ export type Closed = ReturnType<typeof closedOf>
 
 /**
  * A closed relation's reads as a JavaScript caller makes them, over terms known only at run time: C.at of a payload
- * field at key terms, and C.row of a key prefix. Each relation's typed reads are these, read by method.
+ * field at key terms, C.row of a key prefix, and C.has of a key. Each relation's typed reads are these, read by method.
  */
 interface ClosedReads {
 	at(field: string, ...key: ReadonlyArray<unknown>): unknown
 	row(...prefix: ReadonlyArray<unknown>): unknown
+	has(...key: ReadonlyArray<unknown>): unknown
 }
 
 /** The fields of every open relation's row (language.ts Item), under the world's rosters. */
@@ -318,6 +320,21 @@ export const buildTerm = (c: Closed, row: Row, term: Term): unknown => {
 	}
 }
 
+/** A presence, C.has of its relation at its key terms, built as a JavaScript caller builds it, over a row. */
+const buildPresence = (c: Closed, row: Row, key: HasKey): unknown => {
+	const pick: ClosedReads = c.Pick
+	const weight: ClosedReads = c.Wt
+	const next: ClosedReads = c.Next
+	switch (key.rel) {
+		case "pick":
+			return pick.has(key.key.k === "own" ? row["kind"] : kindOf(key.key.code))
+		case "wt":
+			return weight.has(buildTerm(c, row, key.flag))
+		case "next":
+			return next.has(buildTerm(c, row, key.from), buildTerm(c, row, key.to))
+	}
+}
+
 /** A predicate built through grizzle's untyped Compute, over a row. */
 export const buildPred = (c: Closed, row: Row, pred: Pred): unknown => {
 	switch (pred.p) {
@@ -331,6 +348,8 @@ export const buildPred = (c: Closed, row: Row, pred: Pred): unknown => {
 			)
 		case "in":
 			return C.in(buildTerm(c, row, pred.a), Arr.map(pred.values, listValue))
+		case "has":
+			return buildPresence(c, row, pred.key)
 		case "and":
 		case "or":
 			return C[pred.p](buildPred(c, row, pred.args[0]), buildPred(c, row, pred.args[1]))

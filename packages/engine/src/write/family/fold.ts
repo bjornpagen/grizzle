@@ -418,12 +418,12 @@ export interface ClosedRows {
 }
 
 /**
- * The closed reads the host evaluates a generation expression's C.at and C.row by, over the closed relations `closed`
- * holds, by name: C.at's cell is the field's value at the row whose key is its arguments, NULL where no row is; C.row's
- * set is a fresh Set of the last key field's value of every row whose key begins with its arguments. Each relation is
- * indexed by key on its first read, each key the tuple of its values: a closed relation's key is closed ids, whose
- * values are their handles, texts a Map compares by content, so a key is its values themselves, never one text joined
- * from them.
+ * The closed reads the host evaluates a generation expression's C.at, C.row and C.has by, over the closed relations
+ * `closed` holds, by name: C.at's cell is the field's value at the row whose key is its arguments, NULL where no row is;
+ * C.row's set is a fresh Set of the last key field's value of every row whose key begins with its arguments; C.has is
+ * whether a row's key is its arguments, false where none is. Each relation is indexed by key on its first read, which
+ * C.at and C.has share, each key the tuple of its values: a closed relation's key is closed ids, whose values are their
+ * handles, texts a Map compares by content, so a key is its values themselves, never one text joined from them.
  */
 export const closedLeaf = (closed: ReadonlyMap<string, ClosedRows>): EvalLeaves["closed"] => {
 	const cells = new Map<
@@ -434,47 +434,63 @@ export const closedLeaf = (closed: ReadonlyMap<string, ClosedRows>): EvalLeaves[
 		string,
 		ReadonlyTupleMap<ReadonlyArray<CarrierValue>, ReadonlySet<string>>
 	>()
-	return (relation, field, args) => {
-		const c = closed.get(relation)
+	const keyed = (
+		relation: string,
+		c: ClosedRows
+	): ReadonlyTupleMap<ReadonlyArray<CarrierValue>, ReadonlyArray<TypedLiteral>> => {
+		const held = cells.get(relation)
+		if (held !== undefined) {
+			return held
+		}
+		const built = new TupleMap<ReadonlyArray<CarrierValue>, ReadonlyArray<TypedLiteral>>()
+		for (const row of c.rows) {
+			built.set(row.slice(0, c.key).map(literalValue), row)
+		}
+		cells.set(relation, built)
+		return built
+	}
+	const completed = (
+		relation: string,
+		c: ClosedRows
+	): ReadonlyTupleMap<ReadonlyArray<CarrierValue>, ReadonlySet<string>> => {
+		const held = prefixes.get(relation)
+		if (held !== undefined) {
+			return held
+		}
+		const built = new TupleMap<ReadonlyArray<CarrierValue>, Set<string>>()
+		for (const row of c.rows) {
+			const last = row[c.key - 1]
+			const value = last === undefined ? undefined : literalValue(last)
+			if (typeof value !== "string") {
+				continue
+			}
+			const prefix = row.slice(0, c.key - 1).map(literalValue)
+			const set = built.get(prefix) ?? new Set<string>()
+			set.add(value)
+			built.set(prefix, set)
+		}
+		prefixes.set(relation, built)
+		return built
+	}
+	return (read, args) => {
+		const c = closed.get(read.relation)
 		if (c === undefined) {
 			return undefined
 		}
-		if (field !== undefined) {
-			let index = cells.get(relation)
-			if (index === undefined) {
-				const built = new TupleMap<ReadonlyArray<CarrierValue>, ReadonlyArray<TypedLiteral>>()
-				for (const row of c.rows) {
-					built.set(row.slice(0, c.key).map(literalValue), row)
+		switch (read.kind) {
+			case "closedAt": {
+				const row = keyed(read.relation, c).get(args)
+				if (row === undefined) {
+					return sqlNull
 				}
-				index = built
-				cells.set(relation, index)
+				const cell = row[c.heading.findIndex((h) => h.name === read.field)]
+				return cell === undefined ? undefined : literalValue(cell)
 			}
-			const column = c.heading.findIndex((h) => h.name === field)
-			const row = index.get(args)
-			if (row === undefined) {
-				return sqlNull
-			}
-			const cell = row[column]
-			return cell === undefined ? undefined : literalValue(cell)
+			case "closedHas":
+				return keyed(read.relation, c).has(args)
+			case "closedRow":
+				return new Set(completed(read.relation, c).get(args) ?? [])
 		}
-		let index = prefixes.get(relation)
-		if (index === undefined) {
-			const built = new TupleMap<ReadonlyArray<CarrierValue>, Set<string>>()
-			for (const row of c.rows) {
-				const last = row[c.key - 1]
-				const value = last === undefined ? undefined : literalValue(last)
-				if (typeof value !== "string") {
-					continue
-				}
-				const prefix = row.slice(0, c.key - 1).map(literalValue)
-				const set = built.get(prefix) ?? new Set<string>()
-				set.add(value)
-				built.set(prefix, set)
-			}
-			index = built
-			prefixes.set(relation, index)
-		}
-		return new Set(index.get(args) ?? [])
 	}
 }
 

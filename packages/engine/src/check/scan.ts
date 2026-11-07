@@ -111,6 +111,7 @@ const exprLeaves = <P extends object, T>(
 			return
 		case "closedAt":
 		case "closedRow":
+		case "closedHas":
 			for (const a of e.args) {
 				exprLeaves(a, into)
 			}

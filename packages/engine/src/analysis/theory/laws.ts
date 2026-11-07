@@ -1766,6 +1766,7 @@ const mentions = (e: ExprDesc, field: string): boolean => {
 			return mentions(e.point, field) || mentions(e.span, field)
 		case "closedAt":
 		case "closedRow":
+		case "closedHas":
 			return e.args.some((a) => mentions(a, field))
 		case "var":
 		case "value":

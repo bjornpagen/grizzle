@@ -272,6 +272,7 @@ class Structure {
 				return
 			case "closedAt":
 			case "closedRow":
+			case "closedHas":
 				for (const [i, a] of e.args.entries()) {
 					sub(a, i)
 				}

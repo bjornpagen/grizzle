@@ -358,6 +358,16 @@ export type ExprDesc<L = Located, R extends Refs = Spelled> =
 			readonly relation: string
 			readonly args: ReadonlyArray<ExprDesc<L, R>>
 	  }
+	| {
+			/**
+			 * C.has(t…): whether closed relation `relation` holds a fact whose key is `args`, one term per key field in key
+			 * order. A key no fact holds is false, never NULL, so absence is a truth value a predicate branches on; a NULL
+			 * key term is NULL, as at every other read.
+			 */
+			readonly kind: "closedHas"
+			readonly relation: string
+			readonly args: NonEmptyReadonlyArray<ExprDesc<L, R>>
+	  }
 
 /** The boolean field descriptor, the one a connective's unit is typed by. */
 export const booleanField: { readonly kind: "pg"; readonly type: "boolean" } = Object.freeze({
@@ -723,6 +733,7 @@ export const conjunctsOf = (predicate: ExprDesc): ReadonlyArray<ExprDesc> => {
 		case "absent":
 		case "closedAt":
 		case "closedRow":
+		case "closedHas":
 			return [predicate]
 	}
 }
@@ -1244,6 +1255,7 @@ class ParamWalk<P extends object> {
 			case "absent":
 				return { ...e, source: this.source(e.source), bindings: this.bindings(e.bindings) }
 			case "closedAt":
+			case "closedHas":
 				return { ...e, args: mapNonEmpty(e.args, (a) => this.expr(a)) }
 			case "closedRow":
 				return { ...e, args: e.args.map((a) => this.expr(a)) }
@@ -1543,6 +1555,10 @@ const exprCases = {
 	closedRow: S.struct({
 		relation: name,
 		args: S.array(S.lazy("an expression", () => exprDescShape))
+	}),
+	closedHas: S.struct({
+		relation: name,
+		args: S.nonEmptyArray(S.lazy("an expression", () => exprDescShape))
 	})
 } as const
 

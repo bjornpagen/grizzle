@@ -62,7 +62,8 @@ import { withLayer } from "#test/support/with-layer.ts"
  * A closed read at an absent key is judged by the rule that reads it, never refused by a cast, on PostgreSQL 19rc1.
  *
  * The documented contract: `C.at` at a key its closed relation holds no row at reads NULL, `C.row` of a prefix the
- * relation completes nowhere reads the empty set and of a NULL prefix NULL, and the rule's three-valued logic decides.
+ * relation completes nowhere reads the empty set and of a NULL prefix NULL, `C.has` of a key no row holds is false and
+ * of a NULL key value NULL, and the rule's three-valued logic decides.
  * A row check holds where its predicate is true, a selection keeps the rows it is true of, and a generated field's
  * NULL term is refused by its column's NOT NULL. Every domain admits NULL, so no cast to a roster's, a set's, a
  * contract's or a pattern's domain refuses a read first.
@@ -73,12 +74,16 @@ import { withLayer } from "#test/support/with-layer.ts"
  * whose row of a flag is its completions, empty for a flag it completes nowhere; FlagW, a flag's integer weight,
  * holding a drawn subset of the flags; and Allowed, a set of (kind, flag) pairs. A read is Pick.at of a payload field
  * at the row's kind, or FlagRel.row, FlagW.at or `Compute.singleton` at the row's own flag or, nested, at
- * Pick.at("flag", kind), or the union of FlagRel.row at the own flag with such a singleton. Its positions:
+ * Pick.at("flag", kind), or the union of FlagRel.row at the own flag with such a singleton, or a `Compute.cond` over
+ * `C.has` of Pick.at at the row's kind or of FlagW.at at a flag, its literal where the key is absent or NULL. A
+ * presence is `C.has` of Pick at the row's kind, of FlagW at a flag, of Allowed at the kind and a flag, or of FlagRel
+ * at two flags, each flag the own or the picked one, so a key value is NULL in every key position. Its positions:
  *
  * - two row checks, each a drawn predicate: a read equal to the row's field of its type or to a literal, the
  *   downstream `Compute.subset(FlagRel.row(…), flags)` equal to true, a flag's membership in a set,
- *   `Compute.subset(Compute.singleton(flag), set)` of the own or picked flag in the row's flags or a FlagRel.row, the
- *   kind equal or unequal to a handle, and AND, OR and NOT of them;
+ *   `Compute.subset(Compute.singleton(flag), set)` of the own or picked flag in the row's flags or a FlagRel.row, a
+ *   presence, the kind equal or unequal to a handle, and AND, OR and NOT of them, the guard
+ *   `or(not(C.has(k…)), φ(C.at(…, k…)))` among them;
  * - a containment of a selection's (kind, flag) into Allowed, under a drawn predicate: a table CHECK whose guard is
  *   the selection;
  * - a key over a selection's integer, under a drawn predicate: a law column `CASE WHEN φ THEN n END`, which grizzle's
@@ -86,8 +91,8 @@ import { withLayer } from "#test/support/with-layer.ts"
  *   selection keeps and one it leaves unknown share their integer;
  * - a generated field of each read, each its own relation: a closed id, an integer, a numeric, a text, a contract and
  *   a refined text read by Pick.at; a set and an integer read by FlagRel.row and FlagW.at at the own and at the picked
- *   flag; the singleton of the own and of the picked flag; and the union of the own flag's FlagRel.row with the picked
- *   flag's singleton;
+ *   flag; the singleton of the own and of the picked flag; the union of the own flag's FlagRel.row with the picked
+ *   flag's singleton; and the conditionals over `C.has`, which store their literal where the key is absent or NULL;
  * - a fold, the sum of an ordered family's integers under a drawn selection of its members. On the host, grizzle's
  *   writer fills it: an owner with every row nested as its members, a stored owner one member put at a time at its
  *   end, and a refill past the first owner's deleted first member; each owner's total must be the sum over the members the
@@ -107,13 +112,17 @@ import { withLayer } from "#test/support/with-layer.ts"
  * check and a generated set the contract stores empty; a host evaluator that reads a closed read at an absent key as
  * unsupported refuses a fold write whose selection it leaves unknown; a fold CHECK that steps where `NOT φ` fails,
  * not where φ holds, refuses the host's fill of such a member; a singleton whose bit is set at its code plus one, or
- * counted from the right, stores another set and decides a membership otherwise; and a singleton of a NULL id read as
+ * counted from the right, stores another set and decides a membership otherwise; a singleton of a NULL id read as
  * the empty set, on the host or in PostgreSQL, decides a membership the contract leaves unknown and stores a set where
- * the contract refuses the row.
+ * the contract refuses the row; a C.has read as NULL at an absent key, on the host or in PostgreSQL, refuses the
+ * guard's row the contract holds and skips a fold's member its negation makes true; and a C.has of a NULL key value read
+ * as false holds a negated presence the contract leaves unknown.
  *
  * The world's Flag has one to five handles, so a set over it is a whole number of hex digits (four flags) or padded,
  * and a singleton meets the first and the last code; the downstream shape a diagonal closed relation once spelled, a
- * row's own flag in FlagRel.row of the flag its kind picks, is a kept case, at a kind Pick holds and at one it lacks.
+ * row's own flag in FlagRel.row of the flag its kind picks, is a kept case, at a kind Pick holds and at one it lacks;
+ * so is the downstream count bound, a payload compared only where `C.has` holds the key, and the conditional that reads
+ * a payload where the key is held and a literal where it is not.
  */
 
 /** A Pick row's payload: a flag's code, an integer, a numeric in tenths, a text, a Units value and a Short text. */
@@ -162,12 +171,31 @@ type PickField = (typeof pickFields)[number]
 const flagSources = ["own", "picked"] as const
 type FlagSource = (typeof flagSources)[number]
 
+/** The Pick fields a conditional over `C.has` reads, each with the literal it takes where Pick holds no row. */
+const orFields = ["n", "flag"] as const
+type OrField = (typeof orFields)[number]
+
+/** The literal a conditional over `C.has` takes where the key is absent or NULL: no payload a world draws is it. */
+const orInteger = 9
+
 type Read =
 	| { readonly kind: "at"; readonly field: PickField }
 	| { readonly kind: "row"; readonly of: FlagSource }
 	| { readonly kind: "weight"; readonly of: FlagSource }
 	| { readonly kind: "single"; readonly of: FlagSource }
 	| { readonly kind: "joined"; readonly of: FlagSource }
+	| { readonly kind: "atOr"; readonly field: OrField }
+	| { readonly kind: "weightOr"; readonly of: FlagSource }
+
+/**
+ * The key a presence reads: Pick's at the row's kind; FlagW's at a flag; Allowed's at the kind and a flag; FlagRel's at
+ * two flags. Each flag is the row's own, or the one its kind picks, NULL where Pick holds no row at the kind.
+ */
+type HasKey =
+	| { readonly relation: "Pick" }
+	| { readonly relation: "FlagW"; readonly of: FlagSource }
+	| { readonly relation: "Allowed"; readonly of: FlagSource }
+	| { readonly relation: "FlagRel"; readonly from: FlagSource; readonly to: FlagSource }
 
 /** The set a membership tests a flag against: the row's flags, or FlagRel.row at the own or the picked flag. */
 type Within = { readonly kind: "flags" } | { readonly kind: "row"; readonly of: FlagSource }
@@ -181,6 +209,7 @@ type Pred =
 	| { readonly kind: "eq"; readonly read: Read; readonly against: Against }
 	| { readonly kind: "subset"; readonly of: FlagSource }
 	| { readonly kind: "member"; readonly of: FlagSource; readonly within: Within }
+	| { readonly kind: "has"; readonly key: HasKey }
 	| { readonly kind: "kind"; readonly ne: boolean; readonly handle: number }
 	| { readonly kind: "and" | "or"; readonly args: readonly [Pred, Pred] }
 	| { readonly kind: "not"; readonly arg: Pred }
@@ -242,7 +271,20 @@ const readGen: Gen<Read> = oneOf<Read>([
 	(s) => ({ kind: "row", of: s.draw(element(flagSources)) }),
 	(s) => ({ kind: "weight", of: s.draw(element(flagSources)) }),
 	(s) => ({ kind: "single", of: s.draw(element(flagSources)) }),
-	(s) => ({ kind: "joined", of: s.draw(element(flagSources)) })
+	(s) => ({ kind: "joined", of: s.draw(element(flagSources)) }),
+	(s) => ({ kind: "atOr", field: s.draw(element(orFields)) }),
+	(s) => ({ kind: "weightOr", of: s.draw(element(flagSources)) })
+])
+
+const hasKeyGen: Gen<HasKey> = oneOf<HasKey>([
+	() => ({ relation: "Pick" }),
+	(s) => ({ relation: "FlagW", of: s.draw(element(flagSources)) }),
+	(s) => ({ relation: "Allowed", of: s.draw(element(flagSources)) }),
+	(s) => ({
+		relation: "FlagRel",
+		from: s.draw(element(flagSources)),
+		to: s.draw(element(flagSources))
+	})
 ])
 
 const withinGen: Gen<Within> = oneOf<Within>([
@@ -277,16 +319,39 @@ const literalGen = (w: World, read: Read): Gen<Value> => {
 		case "joined":
 			return subarray(codesBelow(w.flags))
 		case "weight":
-			return smallInt
+		case "weightOr":
+			return oneOf<Value>([smallInt, () => orInteger])
+		case "atOr":
+			return read.field === "n" ? oneOf<Value>([smallInt, () => orInteger]) : int(0, w.flags - 1)
 	}
 }
 
 /**
  * A leaf: a read compared, a FlagRel.row within the flags, a membership, the downstream membership of the own flag in
- * FlagRel.row of the flag its kind picks, NULL at a kind Pick lacks, or the kind compared with a handle.
+ * FlagRel.row of the flag its kind picks, NULL at a kind Pick lacks, a presence or its negation, the guard that
+ * compares Pick's payload only where Pick holds the row's kind, or the kind compared with a handle.
  */
 const leafGen = (w: World): Gen<Pred> =>
 	oneOf<Pred>([
+		(s) => ({ kind: "has", key: s.draw(hasKeyGen) }),
+		(s) => ({ kind: "not", arg: { kind: "has", key: s.draw(hasKeyGen) } }),
+		(s) => {
+			const field = s.draw(element(pickFields))
+			const read: Read = { kind: "at", field }
+			return {
+				kind: "or",
+				args: [
+					{ kind: "not", arg: { kind: "has", key: { relation: "Pick" } } },
+					{
+						kind: "eq",
+						read,
+						against: s.draw(boolean)
+							? { kind: "field" }
+							: { kind: "literal", value: s.draw(literalGen(w, read)) }
+					}
+				]
+			}
+		},
 		(s) => {
 			const read = s.draw(readGen)
 			return {
@@ -362,9 +427,47 @@ const either = (a: Truth, b: Truth): Truth => not(both(not(a), not(b)))
 const flagFrom = (w: World, keys: Keys, of: FlagSource): number | undefined =>
 	of === "own" ? keys.flag : w.pick[keys.kind]?.flag
 
+/**
+ * Whether a presence's relation holds its key at a row: undefined, NULL, where a key value is NULL, a flag picked at a
+ * kind Pick holds no row at.
+ */
+const heldOf = (w: World, keys: Keys, key: HasKey): boolean | undefined => {
+	switch (key.relation) {
+		case "Pick":
+			return w.pick[keys.kind] !== undefined
+		case "FlagW": {
+			const flag = flagFrom(w, keys, key.of)
+			return flag === undefined ? undefined : w.weight[flag] !== undefined
+		}
+		case "Allowed": {
+			const flag = flagFrom(w, keys, key.of)
+			return flag === undefined ? undefined : w.allowed[keys.kind]?.includes(flag) === true
+		}
+		case "FlagRel": {
+			const from = flagFrom(w, keys, key.from)
+			const to = flagFrom(w, keys, key.to)
+			return from === undefined || to === undefined
+				? undefined
+				: w.next[from]?.includes(to) === true
+		}
+	}
+}
+
 /** A read's value over a row, undefined where it is NULL: at an absent key, or at a NULL argument. */
 const readOf = (w: World, keys: Keys, read: Read): Value | undefined => {
 	switch (read.kind) {
+		case "atOr": {
+			const payload = w.pick[keys.kind]
+			return payload !== undefined
+				? payload[read.field]
+				: read.field === "n"
+					? orInteger
+					: w.flags - 1
+		}
+		case "weightOr": {
+			const flag = flagFrom(w, keys, read.of)
+			return (flag === undefined ? undefined : w.weight[flag]) ?? orInteger
+		}
 		case "at":
 			return w.pick[keys.kind]?.[read.field]
 		case "row": {
@@ -392,12 +495,14 @@ const readOf = (w: World, keys: Keys, read: Read): Value | undefined => {
 const fieldOf = (item: Item, read: Read): Value => {
 	switch (read.kind) {
 		case "at":
+		case "atOr":
 			return item[read.field]
 		case "row":
 		case "single":
 		case "joined":
 			return item.flags
 		case "weight":
+		case "weightOr":
 			return item.n
 	}
 }
@@ -436,6 +541,10 @@ const truth = (w: World, item: Item, p: Pred): Truth => {
 			const { flag, set } = membershipOf(w, item, p)
 			return flag === undefined || set === undefined ? "unknown" : truthOf(set.includes(flag))
 		}
+		case "has": {
+			const held = heldOf(w, item, p.key)
+			return held === undefined ? "unknown" : truthOf(held)
+		}
 		case "kind":
 			return truthOf((item.kind === p.handle) !== p.ne)
 		case "and":
@@ -454,6 +563,7 @@ const membershipsOf = (p: Pred): ReadonlyArray<Extract<Pred, { readonly kind: "m
 			return [p]
 		case "eq":
 		case "subset":
+		case "has":
 		case "kind":
 			return []
 		case "and":
@@ -476,6 +586,7 @@ const readsOf = (p: Pred): ReadonlyArray<Read> => {
 				{ kind: "single", of: p.of },
 				...(p.within.kind === "row" ? [{ kind: "row", of: p.within.of } as const] : [])
 			]
+		case "has":
 		case "kind":
 			return []
 		case "and":
@@ -483,6 +594,41 @@ const readsOf = (p: Pred): ReadonlyArray<Read> => {
 			return [...readsOf(p.args[0]), ...readsOf(p.args[1])]
 		case "not":
 			return readsOf(p.arg)
+	}
+}
+
+/** Every presence a predicate negates directly, `not(C.has(k…))`. */
+const negatedPresencesOf = (p: Pred): ReadonlyArray<HasKey> => {
+	switch (p.kind) {
+		case "not":
+			return p.arg.kind === "has" ? [p.arg.key] : negatedPresencesOf(p.arg)
+		case "eq":
+		case "subset":
+		case "member":
+		case "has":
+		case "kind":
+			return []
+		case "and":
+		case "or":
+			return [...negatedPresencesOf(p.args[0]), ...negatedPresencesOf(p.args[1])]
+	}
+}
+
+/** Every presence a predicate states. */
+const presencesOf = (p: Pred): ReadonlyArray<HasKey> => {
+	switch (p.kind) {
+		case "has":
+			return [p.key]
+		case "eq":
+		case "subset":
+		case "member":
+		case "kind":
+			return []
+		case "and":
+		case "or":
+			return [...presencesOf(p.args[0]), ...presencesOf(p.args[1])]
+		case "not":
+			return presencesOf(p.arg)
 	}
 }
 
@@ -513,12 +659,23 @@ const generatedReads = {
 	GenWeightPicked: { kind: "weight", of: "picked" },
 	GenSingleOwn: { kind: "single", of: "own" },
 	GenSinglePicked: { kind: "single", of: "picked" },
-	GenJoinedPicked: { kind: "joined", of: "picked" }
+	GenJoinedPicked: { kind: "joined", of: "picked" },
+	GenOrN: { kind: "atOr", field: "n" },
+	GenOrFlag: { kind: "atOr", field: "flag" },
+	GenOrWeightPicked: { kind: "weightOr", of: "picked" }
 } as const satisfies Readonly<Record<string, Read>>
 type Generated = keyof typeof generatedReads
 
-/** The generated relations whose read is never NULL: each reads the row's own flag alone. */
-type NeverNull = "GenRowOwn" | "GenSingleOwn"
+/**
+ * The generated relations whose read is never NULL: each reads the row's own flag alone, or takes its literal where
+ * its presence is false or NULL.
+ */
+const neverNull = ["GenRowOwn", "GenSingleOwn", "GenOrN", "GenOrFlag", "GenOrWeightPicked"] as const
+type NeverNull = (typeof neverNull)[number]
+
+/** Whether a generated relation's read may be NULL: it is none of neverNull. */
+const nullable = (name: Generated): name is Exclude<Generated, NeverNull> =>
+	!Arr.some(neverNull, (n) => n === name)
 
 /** The case's schema: its rosters, closed relations, the relations its rules hold, and the generated relations. */
 const schemaOf = (c: AbsentCase) => {
@@ -593,6 +750,23 @@ const schemaOf = (c: AbsentCase) => {
 	const flagTerm = (r: ItemRow, of: FlagSource) => (of === "own" ? r.flag : Pick.at("flag", r.kind))
 	const joinedTerm = (r: ItemRow, of: FlagSource) =>
 		Compute.union(FlagRel.row(r.flag), Compute.singleton(flagTerm(r, of)))
+	const presence = (r: ItemRow, key: HasKey): Predicate => {
+		switch (key.relation) {
+			case "Pick":
+				return Pick.has(r.kind)
+			case "FlagW":
+				return FlagW.has(flagTerm(r, key.of))
+			case "Allowed":
+				return Allowed.has(r.kind, flagTerm(r, key.of))
+			case "FlagRel":
+				return FlagRel.has(flagTerm(r, key.from), flagTerm(r, key.to))
+		}
+	}
+	const orN = (r: ItemRow) => Compute.cond(Pick.has(r.kind), Pick.at("n", r.kind), orInteger)
+	const orFlag = (r: ItemRow) =>
+		Compute.cond(Pick.has(r.kind), Pick.at("flag", r.kind), flagOf(w.flags - 1))
+	const orWeight = (r: ItemRow, of: FlagSource) =>
+		Compute.cond(FlagW.has(flagTerm(r, of)), FlagW.at("w", flagTerm(r, of)), orInteger)
 	const eqAt = (r: ItemRow, field: PickField, literal: Value | undefined): Predicate => {
 		switch (field) {
 			case "flag":
@@ -637,6 +811,12 @@ const schemaOf = (c: AbsentCase) => {
 					joinedTerm(r, read.of),
 					typeof literal === "object" ? Bits.of(Flag, Arr.map(literal, flagOf)) : r.flags
 				)
+			case "atOr":
+				return read.field === "n"
+					? r.eq(orN(r), typeof literal === "number" ? literal : r.n)
+					: r.eq(orFlag(r), typeof literal === "number" ? flagOf(literal) : r.flag)
+			case "weightOr":
+				return r.eq(orWeight(r, read.of), typeof literal === "number" ? literal : r.n)
 		}
 	}
 	const predicate = (p: Pred, r: ItemRow): Predicate => {
@@ -653,6 +833,8 @@ const schemaOf = (c: AbsentCase) => {
 					),
 					true
 				)
+			case "has":
+				return presence(r, p.key)
 			case "kind":
 				return p.ne ? r.ne(r.kind, kindOf(p.handle)) : r.eq(r.kind, kindOf(p.handle))
 			case "and":
@@ -725,6 +907,25 @@ const schemaOf = (c: AbsentCase) => {
 			g: generated(
 				bits(Flag),
 				Compute.union(FlagRel.row(r.flag), Compute.singleton(Pick.at("flag", r.kind)))
+			)
+		})),
+		GenOrN: relation.generated("GenOrN", genFields, ["id"], (r) => ({
+			g: generated(pg.integer, Compute.cond(Pick.has(r.kind), Pick.at("n", r.kind), orInteger))
+		})),
+		GenOrFlag: relation.generated("GenOrFlag", genFields, ["id"], (r) => ({
+			g: generated(
+				closedId(Flag),
+				Compute.cond(Pick.has(r.kind), Pick.at("flag", r.kind), flagOf(w.flags - 1))
+			)
+		})),
+		GenOrWeightPicked: relation.generated("GenOrWeightPicked", genFields, ["id"], (r) => ({
+			g: generated(
+				pg.integer,
+				Compute.cond(
+					FlagW.has(Pick.at("flag", r.kind)),
+					FlagW.at("w", Pick.at("flag", r.kind)),
+					orInteger
+				)
 			)
 		}))
 	}
@@ -804,6 +1005,17 @@ type Feature =
 	| "a containment's selection reads a membership"
 	| "a key's selection reads a membership"
 	| "a fold's selection reads a membership"
+	| "a check finds a key held"
+	| "a check finds a key absent"
+	| "a check leaves a presence unknown at a NULL key value"
+	| "a check leaves a negated presence unknown at a NULL key value"
+	| "a check holds of a row at a key its presence finds absent"
+	| "a containment's selection reads a presence"
+	| "a key's selection reads a presence"
+	| "a fold's selection reads a presence"
+	| "a conditional stores its payload at a held key"
+	| "a conditional stores its literal at an absent key"
+	| "a conditional stores its literal at a NULL key value"
 	| `${Exclude<Generated, NeverNull>} refused by its NOT NULL`
 	| "a generated set stored empty"
 	| "a singleton stored at the first code"
@@ -847,6 +1059,17 @@ const situations: NonEmptyReadonlyArray<Feature> = [
 	"a containment's selection reads a membership",
 	"a key's selection reads a membership",
 	"a fold's selection reads a membership",
+	"a check finds a key held",
+	"a check finds a key absent",
+	"a check leaves a presence unknown at a NULL key value",
+	"a check leaves a negated presence unknown at a NULL key value",
+	"a check holds of a row at a key its presence finds absent",
+	"a containment's selection reads a presence",
+	"a key's selection reads a presence",
+	"a fold's selection reads a presence",
+	"a conditional stores its payload at a held key",
+	"a conditional stores its literal at an absent key",
+	"a conditional stores its literal at a NULL key value",
 	"a singleton stored at the first code",
 	"a singleton stored at the last code",
 	"a singleton stored over a roster of whole hex digits",
@@ -1002,6 +1225,22 @@ const absentCase = (c: AbsentCase, notes: Case<Feature>) =>
 										: "a check finds a membership false"
 						)
 					}
+					const held = Arr.map(presencesOf(pred), (key) => heldOf(w, item, key))
+					for (const presence of held) {
+						notes.note(
+							presence === undefined
+								? "a check leaves a presence unknown at a NULL key value"
+								: presence
+									? "a check finds a key held"
+									: "a check finds a key absent"
+						)
+					}
+					if (t === "true" && Arr.some(held, (presence) => presence === false)) {
+						notes.note("a check holds of a row at a key its presence finds absent")
+					}
+					if (Arr.some(negatedPresencesOf(pred), (key) => heldOf(w, item, key) === undefined)) {
+						notes.note("a check leaves a negated presence unknown at a NULL key value")
+					}
 				}
 			}
 			if (membershipsOf(c.contained).length > 0) {
@@ -1012,6 +1251,15 @@ const absentCase = (c: AbsentCase, notes: Case<Feature>) =>
 			}
 			if (membershipsOf(c.folded).length > 0) {
 				notes.note("a fold's selection reads a membership")
+			}
+			if (presencesOf(c.contained).length > 0) {
+				notes.note("a containment's selection reads a presence")
+			}
+			if (presencesOf(c.keyed).length > 0) {
+				notes.note("a key's selection reads a presence")
+			}
+			if (presencesOf(c.folded).length > 0) {
+				notes.note("a fold's selection reads a presence")
 			}
 			for (const [id, item] of c.items.entries()) {
 				const t = truth(w, item, c.contained)
@@ -1067,8 +1315,21 @@ const absentCase = (c: AbsentCase, notes: Case<Feature>) =>
 						)
 					)
 					verdict(applied, name, value !== undefined, where(name, id))
+					if (read.kind === "atOr" || read.kind === "weightOr") {
+						const held =
+							read.kind === "atOr"
+								? heldOf(w, item, { relation: "Pick" })
+								: heldOf(w, item, { relation: "FlagW", of: read.of })
+						notes.note(
+							held === undefined
+								? "a conditional stores its literal at a NULL key value"
+								: held
+									? "a conditional stores its payload at a held key"
+									: "a conditional stores its literal at an absent key"
+						)
+					}
 					if (value === undefined) {
-						if (name !== "GenRowOwn" && name !== "GenSingleOwn") {
+						if (nullable(name)) {
 							notes.note(`${name} refused by its NOT NULL`)
 						}
 					} else {
@@ -1212,7 +1473,7 @@ layer(Substrate.layer, { excludeTestServices: true })("a closed read at an absen
 					literal: Formatter.format,
 					oracle: {
 						kind: "specification",
-						name: "the documented contract over the world's rows: C.at NULL at an absent key, C.row empty where nothing completes its prefix and NULL at a NULL prefix, Kleene's three-valued logic, a selection holding where it is true, and a generated field's NULL refused by its NOT NULL"
+						name: "the documented contract over the world's rows: C.at NULL at an absent key, C.row empty where nothing completes its prefix and NULL at a NULL prefix, C.has false at an absent key and NULL at a NULL key value, Kleene's three-valued logic, a selection holding where it is true, and a generated field's NULL refused by its NOT NULL"
 					},
 					coverage: required<Feature>(situations, { cases: 64, sense: notesOnly }),
 					kept: [
@@ -1301,6 +1562,72 @@ layer(Substrate.layer, { excludeTestServices: true })("a closed read at an absen
 								"a singleton stored at the first code",
 								"a singleton stored at the last code",
 								"a singleton stored over a padded roster"
+							]
+						},
+						{
+							note: "downstream, absence stated by C.has: Kind {a, b} and Flag {x, y}, Pick holds only a → (x, n 1), FlagW only x; Checked0 is the count bound, or(not(Pick.has(kind)), eq(Pick.at(n, kind), n)), which holds of kind b at any n and refuses kind a's n 2; Checked1 negates a guarded comparison, not(and(Pick.has(kind), eq(Pick.at(flag, kind), x))), true at kind b; the selections read presences, FlagW's at the picked flag NULL at kind b; and the conditionals store Pick's payload at kind a and their literal at kind b, the picked weight's at its NULL key",
+							sketch: {
+								world: {
+									kinds: 2,
+									flags: 2,
+									pick: [{ flag: 0, n: 1, d: 0, t: "", u: 0, p: "a" }, undefined],
+									next: [[0], [1]],
+									weight: [2, undefined],
+									allowed: [[0], [0, 1]]
+								},
+								checks: [
+									{
+										kind: "or",
+										args: [
+											{ kind: "not", arg: { kind: "has", key: { relation: "Pick" } } },
+											{ kind: "eq", read: { kind: "at", field: "n" }, against: { kind: "field" } }
+										]
+									},
+									{
+										kind: "not",
+										arg: {
+											kind: "and",
+											args: [
+												{ kind: "has", key: { relation: "Pick" } },
+												{
+													kind: "eq",
+													read: { kind: "at", field: "flag" },
+													against: { kind: "literal", value: 0 }
+												}
+											]
+										}
+									}
+								],
+								contained: { kind: "has", key: { relation: "FlagW", of: "picked" } },
+								keyed: {
+									kind: "not",
+									arg: { kind: "has", key: { relation: "Allowed", of: "own" } }
+								},
+								folded: {
+									kind: "or",
+									args: [
+										{ kind: "not", arg: { kind: "has", key: { relation: "Pick" } } },
+										{ kind: "eq", read: { kind: "at", field: "n" }, against: { kind: "field" } }
+									]
+								},
+								items: [
+									{ kind: 0, flag: 0, flags: [0], n: 1, d: 0, t: "", u: 0, p: "a" },
+									{ kind: 0, flag: 1, flags: [], n: 2, d: 0, t: "", u: 0, p: "a" },
+									{ kind: 1, flag: 1, flags: [1], n: 3, d: 0, t: "", u: 0, p: "a" }
+								]
+							},
+							draws: "",
+							reaches: [
+								"a check finds a key held",
+								"a check finds a key absent",
+								"a check holds of a row at a key its presence finds absent",
+								"a check refuses a row it finds false",
+								"a containment's selection reads a presence",
+								"a key's selection reads a presence",
+								"a fold's selection reads a presence",
+								"a conditional stores its payload at a held key",
+								"a conditional stores its literal at an absent key",
+								"a conditional stores its literal at a NULL key value"
 							]
 						}
 					],

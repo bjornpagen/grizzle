@@ -136,6 +136,12 @@ export const spellExpr = (e: OpenExpr, s: Spellings): ExprDesc => {
 			}
 		case "closedRow":
 			return { kind: "closedRow", relation: e.relation, args: e.args.map((a) => spellExpr(a, s)) }
+		case "closedHas":
+			return {
+				kind: "closedHas",
+				relation: e.relation,
+				args: mapNonEmpty(e.args, (a) => spellExpr(a, s))
+			}
 	}
 }
 

@@ -537,6 +537,7 @@ const canonicalPredicate = (expr: ExprDesc): ExprDesc => {
 		case "absent":
 		case "closedAt":
 		case "closedRow":
+		case "closedHas":
 			return expr
 	}
 }
@@ -603,6 +604,7 @@ const fieldRefs = (expr: ExprDesc, out: Set<string>): Set<string> => {
 		case "or":
 		case "closedAt":
 		case "closedRow":
+		case "closedHas":
 			for (const a of expr.args) {
 				fieldRefs(a, out)
 			}
@@ -1262,6 +1264,7 @@ class Owner {
 			case "absent":
 			case "closedAt":
 			case "closedRow":
+			case "closedHas":
 				return
 		}
 	}

@@ -11,6 +11,7 @@ import type {
 	LanguageOf,
 	Meets,
 	ParamsOfEach,
+	Predicate,
 	Refusal,
 	Rostered,
 	SqlOfCarrier,
@@ -316,7 +317,7 @@ export type PayloadFieldOf<Fields, Key extends ReadonlyArray<string>> = Exclude<
  */
 export type KeyArgOf<F> = Meets<DomainOf<F>, SqlOfCarrier<F>> | LanguageOf<F>
 
-/** C.at's key: one argument per key field, in key order. */
+/** C.at's and C.has's key: one argument per key field, in key order. */
 export type KeyTerms<Fields, Key extends ReadonlyArray<string>> = {
 	readonly [I in keyof Key]: Key[I] extends keyof Fields ? KeyArgOf<Fields[Key[I]]> : never
 }
@@ -398,6 +399,15 @@ export interface ClosedRelation<
 	readonly row: <const A extends KeyPrefixTerms<Fields, Key>>(
 		...prefix: A & ParameterlessKey<A>
 	) => ClosedRead<Bits<LastKeyRoster<Fields, Key>>, "bits", Facts, Bits<LastKeyRoster<Fields, Key>>>
+	/**
+	 * C.has(k…): whether a row holds the key k…, one argument per key field in key order, as C.at's key. It is a
+	 * predicate, false where no row holds the key, so a law states what holds there by its own connectives:
+	 * `or(not(C.has(k…)), φ(C.at(f, k…)))`, or a value, `Compute.cond(C.has(k…), C.at(f, k…), d)`. A NULL key value is
+	 * NULL, as at every closed read.
+	 */
+	readonly has: <const A extends KeyTerms<Fields, Key>>(
+		...key: A & ParameterlessKey<A>
+	) => Predicate
 }
 
 /** Any closed relation of either form: a roster, which introduces handles, or a closed relation, which relates them. */

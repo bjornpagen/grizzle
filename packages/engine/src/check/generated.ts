@@ -34,6 +34,7 @@ const subterms = (e: ExprDesc): ReadonlyArray<ExprDesc> => {
 		case "or":
 		case "closedAt":
 		case "closedRow":
+		case "closedHas":
 			return e.args
 		case "cast":
 		case "base":
@@ -72,6 +73,7 @@ const foreignKind = (e: ExprDesc): ForeignKind | undefined => {
 		case "or":
 		case "closedAt":
 		case "closedRow":
+		case "closedHas":
 		case "cast":
 		case "base":
 		case "not":
@@ -112,14 +114,14 @@ const fieldReads = (e: ExprDesc, out: Set<string>): Set<string> => {
 	return out
 }
 
-/** Every closed relation `e` applies, by C.at or C.row, each once, in the order its description states them. */
+/** Every closed relation `e` reads, by C.at, C.row or C.has, each once, in the order its description states them. */
 export const closedReadNames = (e: ExprDesc): ReadonlyArray<string> => {
 	const out = new Set<string>()
 	const visit = (x: ExprDesc): void => {
 		for (const s of subterms(x)) {
 			visit(s)
 		}
-		if (x.kind === "closedAt" || x.kind === "closedRow") {
+		if (x.kind === "closedAt" || x.kind === "closedRow" || x.kind === "closedHas") {
 			out.add(x.relation)
 		}
 	}

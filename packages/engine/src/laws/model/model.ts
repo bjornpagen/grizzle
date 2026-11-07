@@ -1566,6 +1566,7 @@ const baseLeaves = (
 			case "pointIn":
 				return { ...d, point: walk(d.point), span: walk(d.span) }
 			case "closedAt":
+			case "closedHas":
 				return { ...d, args: mapNonEmpty(d.args, walk) }
 			case "closedRow":
 				return { ...d, args: d.args.map(walk) }

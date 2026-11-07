@@ -399,6 +399,7 @@ export const lengthBound = (measure: LengthMeasure, predicate: ExprDesc): number
 		case "absent":
 		case "closedAt":
 		case "closedRow":
+		case "closedHas":
 			return Number.POSITIVE_INFINITY
 	}
 }

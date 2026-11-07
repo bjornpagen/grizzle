@@ -1476,16 +1476,21 @@ says which flags each kind admits, and at what weight.
 It has no table. The migration installs it as content-addressed IMMUTABLE constants, a bit string indexed by its key's
 codes and an array of each open-typed field's values, which PostgreSQL folds into every statement that reads them.
 Every rule that reads one from an open row is a table CHECK on that row's table, named by its rule: a containment of a
-row's `(kind, flag)` into `Allowed` is one substring read of the row's own codes. Two terms read it in a row check, a
+row's `(kind, flag)` into `Allowed` is one substring read of the row's own codes. Three reads stand in a row check, a
 selection or a generated field's term: `Allowed.at("weight", kind, flag)`, the payload field at that key, NULL where
-no row holds the key; and `Allowed.row(kind)`, the set of the last key field's handles that complete the prefix, empty
-where none does and NULL where the prefix is, for the set algebra above. The rule judges a NULL by SQL's three-valued
-logic: a row check refuses a row its condition leaves unknown, and holds of one where another arm of an `or` holds; a
-selection keeps only the rows its condition is true of; and a generated field's NULL term is refused by its column's
-NOT NULL. Every domain admits NULL, so no cast to a contract, a pattern, a roster or a set refuses a read first. A rule
-over closed relations alone is checked once, by PostgreSQL, in the migration that installs them: a violating row
-refuses the migration, and nothing is left behind. A containment from a closed relation into an open one is refused:
-it would require rows of an open relation, which belong in a closed relation of their own.
+no row holds the key; `Allowed.row(kind)`, the set of the last key field's handles that complete the prefix, empty
+where none does, for the set algebra above; and `Allowed.has(kind, flag)`, a predicate, true where a row holds the key
+and false where none does, one bit of the key set. Each read is NULL where a key value is NULL. So a rule says what
+holds where a key is absent with `has`, and no row has to stand for the absence:
+`Compute.or(Compute.not(Allowed.has(kind, flag)), Compute.ge(Allowed.at("weight", kind, flag), 1))` holds of every
+pair `Allowed` lacks, and `Compute.cond(Allowed.has(kind, flag), Allowed.at("weight", kind, flag), 0)` is the weight,
+0 where there is none. The rule judges a NULL by SQL's three-valued logic: a row check refuses a row its condition
+leaves unknown, and holds of one where another arm of an `or` holds; a selection keeps only the rows its condition is
+true of; and a generated field's NULL term is refused by its column's NOT NULL. Every domain admits NULL, so no cast
+to a contract, a pattern, a roster or a set refuses a read first. A rule over closed relations alone is checked once,
+by PostgreSQL, in the migration that installs them: a violating row refuses the migration, and nothing is left
+behind. A containment from a closed relation into an open one is refused: it would require rows of an open relation,
+which belong in a closed relation of their own.
 
 A key field may hold slots instead of every code of its roster. `slot(closedId(Position), fin(Model, "positions"))` is
 a closed id of `Position` whose codes, for each owner, run from 0 below that owner's count: `fin(O, "n")` over a closed

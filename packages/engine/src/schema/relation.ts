@@ -37,6 +37,7 @@ import {
 	type ClosedReadTyping,
 	closedAtKey,
 	closedAtTerm,
+	closedHasPredicate,
 	closedRowTerm
 } from "#compiler/scalar/compute/closed.ts"
 import { termExpr } from "#compiler/scalar/compute/term.ts"
@@ -841,7 +842,7 @@ const closedReadTyping = (
 
 /**
  * closed.relation(name, fields, key, rows): a closed relation. Its value holds frozen copies of its fields, key and rows;
- * its `fact` is the decoder of its rows' fields, and its heading its fields. `at` and `row` are its closed reads
+ * its `fact` is the decoder of its rows' fields, and its heading its fields. `at`, `row` and `has` are its closed reads
  * (scalar/compute/closed.ts), typed by its own descriptors.
  */
 export const closedRelation = <
@@ -877,7 +878,8 @@ export const closedRelation = <
 					field
 				]
 			},
-			row: (...args: ReadonlyArray<unknown>) => closedRowTerm(typing, args)
+			row: (...args: ReadonlyArray<unknown>) => closedRowTerm(typing, args),
+			has: (...args: ReadonlyArray<unknown>) => closedHasPredicate(typing, args)
 		},
 		"closedRelation",
 		admitted.desc,

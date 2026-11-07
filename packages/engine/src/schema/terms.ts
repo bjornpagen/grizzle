@@ -372,6 +372,7 @@ export const foreignInput = <R extends Refs>(expr: ExprDesc<Located, R>): string
 			return firstForeign([expr.point, expr.span])
 		case "closedAt":
 		case "closedRow":
+		case "closedHas":
 			return firstForeign(expr.args)
 	}
 }

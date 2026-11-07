@@ -204,8 +204,8 @@ export const lowerExpr = (cx: LowerContext, expr: ScalarExpr, env: Env): Expr =>
 
 /**
  * A closed read as its relation's installed constants answer it (sql/constants.ts closedRead), its arguments the codes
- * of the key fields it fixes, in key order, as SQL: C.at's payload field, C.row's completions, or has(k…), the closed
- * rewrite's membership test (lower/optimize/closed). Every argument is a code its column's roster domain proves below
+ * of the key fields it fixes, in key order, as SQL: C.at's payload field, C.row's completions, or C.has's membership
+ * test, which the closed rewrite (lower/optimize/closed) also states. Every argument is a code its column's roster domain proves below
  * its roster's size, and a slot code past its owner's count reads the first cell past the string, so no index aliases
  * a neighbour's and an index past the string reads absent.
  */

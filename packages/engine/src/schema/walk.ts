@@ -187,6 +187,7 @@ class Collector {
 			case "var":
 			case "closedAt":
 			case "closedRow":
+			case "closedHas":
 				this.expr(h)
 		}
 	}
@@ -254,6 +255,7 @@ class Collector {
 				return
 			case "closedAt":
 			case "closedRow":
+			case "closedHas":
 				this.relations.add(e.relation)
 				for (const a of e.args) {
 					this.expr(a)

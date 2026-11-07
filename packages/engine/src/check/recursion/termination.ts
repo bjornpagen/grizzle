@@ -197,6 +197,7 @@ const stateReads = (e: ResolvedExpr | ResolvedHead, b: Bindings): ReadonlyArray<
 		case "or":
 		case "closedAt":
 		case "closedRow":
+		case "closedHas":
 			return e.args.flatMap(sub)
 		case "cast":
 		case "base":

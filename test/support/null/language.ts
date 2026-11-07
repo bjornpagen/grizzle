@@ -183,9 +183,20 @@ export type Term =
 	  }
 	| { readonly t: "endpoint"; readonly op: "lower" | "upper" | "width" }
 
-/** A predicate: a comparison, BETWEEN, IN over a list of literals, and AND, OR and NOT. */
+/**
+ * The key a presence reads, `C.has`: Pick's at a kind, never NULL; Wt's at a flag term; Next's at two flag terms. A
+ * flag term is NULL where it reads a closed relation at an absent or a NULL key, so a key value is NULL in each key
+ * position of a one-field and a two-field key.
+ */
+export type HasKey =
+	| { readonly rel: "pick"; readonly key: KindKey }
+	| { readonly rel: "wt"; readonly flag: Term }
+	| { readonly rel: "next"; readonly from: Term; readonly to: Term }
+
+/** A predicate: a comparison, BETWEEN, IN over a list of literals, a presence, and AND, OR and NOT. */
 export type Pred =
 	| { readonly p: "cmp"; readonly op: CompareOp; readonly a: Term; readonly b: Term }
+	| { readonly p: "has"; readonly key: HasKey }
 	| { readonly p: "between"; readonly a: Term; readonly lo: Term; readonly hi: Term }
 	| { readonly p: "in"; readonly a: Term; readonly values: NonEmptyReadonlyArray<ListLiteral> }
 	| { readonly p: "and" | "or"; readonly args: readonly [Pred, Pred] }
@@ -300,6 +311,8 @@ const predReadsClosed = (pred: Pred): boolean => {
 			return readsClosed(pred.a) || readsClosed(pred.lo) || readsClosed(pred.hi)
 		case "in":
 			return readsClosed(pred.a)
+		case "has":
+			return true
 		case "and":
 		case "or":
 			return predReadsClosed(pred.args[0]) || predReadsClosed(pred.args[1])
@@ -781,9 +794,20 @@ const concatCompareGen =
 const queryArms = (w: World, depth: number, v: Vocabulary): ReadonlyArray<Weighted<Pred>> =>
 	v === "query" ? [[1, concatCompareGen(w, depth)]] : []
 
-/** A comparison, BETWEEN or IN whose terms are at most `depth` deep. */
+/** A presence's key, its flag terms at most `depth` deep. */
+const hasKeyGen = (w: World, depth: number, v: Vocabulary): Gen<HasKey> => {
+	const flag = termGen(w, "code", depth, v)
+	return oneOf<HasKey>([
+		(s) => ({ rel: "pick", key: s.draw(kindKeyGen(w)) }),
+		(s) => ({ rel: "wt", flag: s.draw(flag) }),
+		(s) => ({ rel: "next", from: s.draw(flag), to: s.draw(flag) })
+	])
+}
+
+/** A comparison, BETWEEN, IN or a presence whose terms are at most `depth` deep. */
 const comparisonGen = (w: World, depth: number, v: Vocabulary): Gen<Pred> =>
 	weighted([
+		[1, (s): Pred => ({ p: "has", key: s.draw(hasKeyGen(w, depth, v)) })],
 		[
 			4,
 			(s): Pred => {
@@ -914,7 +938,8 @@ export const families = [
 	"set",
 	"span",
 	"cond",
-	"guard"
+	"guard",
+	"presence"
 ] as const
 export type Family = (typeof families)[number]
 
@@ -938,6 +963,7 @@ export type Decision =
 	| "a singleton of an id read at an absent key is NULL"
 	| "a singleton of an id read at a NULL key is NULL"
 	| "a singleton of an id an operation leaves NULL is NULL"
+	| "a presence of a key no row holds is false"
 
 /** What an evaluation notes of the nodes it evaluates. */
 export interface Trace {
@@ -1352,9 +1378,46 @@ export const evalTerm = (w: World, item: Item, term: Term, trace: Trace): Val | 
 }
 
 /** The model's truth of a predicate over a row: Kleene's, each node noting what it reached. */
+/**
+ * A presence's truth at a row: NULL where a key value is NULL, else whether its relation holds the key, false where
+ * none does.
+ */
+const heldOf = (w: World, item: Item, key: HasKey, trace: Trace): Truth => {
+	const code = (t: Term): number | null => {
+		const v = evalTerm(w, item, t, trace)
+		return v === null ? null : asNumber(v)
+	}
+	const unknown = (): Truth => {
+		trace.reached("presence")
+		trace.source("a read at a NULL key")
+		return null
+	}
+	const decided = (held: boolean): Truth => {
+		if (!held) {
+			trace.decided("a presence of a key no row holds is false")
+		}
+		return held
+	}
+	switch (key.rel) {
+		case "pick":
+			return decided(w.pick[key.key.k === "own" ? item.kind : key.key.code] !== undefined)
+		case "wt": {
+			const flag = code(key.flag)
+			return flag === null ? unknown() : decided(w.weight[flag] !== undefined)
+		}
+		case "next": {
+			const from = code(key.from)
+			const to = code(key.to)
+			return from === null || to === null ? unknown() : decided(w.next[from]?.includes(to) === true)
+		}
+	}
+}
+
 export const evalPred = (w: World, item: Item, pred: Pred, trace: Trace): Truth => {
 	const ev = (t: Term): Val | null => evalTerm(w, item, t, trace)
 	switch (pred.p) {
+		case "has":
+			return heldOf(w, item, pred.key, trace)
 		case "cmp": {
 			const a = ev(pred.a)
 			const b = ev(pred.b)
@@ -1569,9 +1632,31 @@ const compareSql: Readonly<Record<CompareOp, string>> = {
 	ge: ">="
 }
 
+/**
+ * A presence in plain SQL from its meaning alone: NULL where a key value is NULL, else whether its relation's rows hold
+ * the key, Next's as the bit of the key's last flag among its first flag's completions.
+ */
+const hasSql = (w: World, key: HasKey): string => {
+	switch (key.rel) {
+		case "pick":
+			return `(EXISTS (SELECT FROM pick p WHERE p.kind = ${key.key.k === "own" ? "r.kind" : `${key.key.code}`}))`
+		case "wt": {
+			const flag = termSql(w, key.flag)
+			return `(CASE WHEN (${flag}) IS NULL THEN NULL ELSE EXISTS (SELECT FROM wt x WHERE x.flag = (${flag})) END)`
+		}
+		case "next": {
+			const from = termSql(w, key.from)
+			const to = termSql(w, key.to)
+			return `(CASE WHEN (${from}) IS NULL OR (${to}) IS NULL THEN NULL ELSE EXISTS (SELECT FROM nxt x WHERE x.flag = (${from}) AND get_bit(x.bits, (${to})) = 1) END)`
+		}
+	}
+}
+
 /** A predicate in plain SQL. */
 const predSql = (w: World, pred: Pred): string => {
 	switch (pred.p) {
+		case "has":
+			return hasSql(w, pred.key)
 		case "cmp":
 			return `((${termSql(w, pred.a)}) ${compareSql[pred.op]} (${termSql(w, pred.b)}))`
 		case "between":
@@ -1790,7 +1875,10 @@ const nullCompare =
 	(s) =>
 		s.draw(comparedWith(w, nullOf(w, s.draw(element(comparedSorts))), v))
 
-/** A predicate in which a node of `family` meets a NULL operand at every row of an aimed world. */
+/**
+ * A predicate in which a node of `family` meets a NULL operand at every row of an aimed world. A presence of a NULL
+ * key stands under NOT, where one read as false would hold.
+ */
 export const aimedPredGen = (w: World, family: Family, v: Vocabulary): Gen<Pred> => {
 	switch (family) {
 		case "compare":
@@ -1816,6 +1904,17 @@ export const aimedPredGen = (w: World, family: Family, v: Vocabulary): Gen<Pred>
 					a: nullOf(w, sort),
 					values: [s.draw(value), ...s.draw(arrayOf(value, 2))]
 				}
+			}
+		case "presence":
+			return (s) => {
+				const absent = nullOf(w, "code")
+				const other = s.draw(termGen(w, "code", 1, v))
+				const keys: NonEmptyReadonlyArray<HasKey> = [
+					{ rel: "wt", flag: absent },
+					{ rel: "next", from: absent, to: other },
+					{ rel: "next", from: other, to: absent }
+				]
+				return { p: "not", arg: { p: "has", key: s.draw(element(keys)) } }
 			}
 		case "connective":
 			return (s) => {
@@ -1939,6 +2038,7 @@ const aimedTermGen = (w: World, family: Family, v: Vocabulary): Gen<Term> => {
 		case "in":
 		case "connective":
 		case "not":
+		case "presence":
 			return (s) => ({
 				t: "cond",
 				p: s.draw(aimedPredGen(w, family, v)),

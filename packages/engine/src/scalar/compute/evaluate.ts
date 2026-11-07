@@ -10,6 +10,7 @@ import {
 	describeOp,
 	type ExprTable,
 	type TableExpr,
+	type TableExprOf,
 	type TypedLiteral
 } from "#compiler/ir/expr.ts"
 import {
@@ -73,21 +74,25 @@ type EvalResult = Result.Result<CarrierValue, EvalStop>
 type SqlResult = Result.Result<SqlValue, EvalStop>
 
 /**
+ * A closed read as the closed relations answer it: the read's own node, its kind, its relation and C.at's field, without
+ * its operands, whose values the evaluation reads first. Its kind is the read, so no reader spells the three again.
+ */
+export type ClosedReadNode =
+	| Pick<TableExprOf<"closedAt">, "kind" | "relation" | "field">
+	| Pick<TableExprOf<"closedRow" | "closedHas">, "kind" | "relation">
+
+/**
  * What an evaluated expression's leaves read: a contract predicate's VALUE, a row's columns, each by its name, its
  * value, NULL, or undefined where the row holds none, which the evaluation then refuses as unsupported; and the closed
- * relations a closed read applies: `closed(relation, field, args)` is C.at's cell, the value of `field` at the key
- * `args`, NULL where the relation holds no tuple at the key, and with no field C.row's set, the completions of the key
- * prefix `args`, empty where none completes it; undefined where the reader holds no closed relation, which the
- * evaluation refuses as unsupported.
+ * relations a closed read applies, `closed(read, args)` at its key values `args`, none of them NULL: C.at's cell, the
+ * value of its field at the key, NULL where the relation holds no tuple there; C.row's set, the completions of the key
+ * prefix, empty where none completes it; C.has's truth, whether a tuple holds the key, false where none does; and
+ * undefined where the reader holds no closed relation, which the evaluation refuses as unsupported.
  */
 export interface EvalLeaves {
 	readonly value: CarrierValue | undefined
 	readonly column: (ref: ColumnRef) => SqlValue | undefined
-	readonly closed: (
-		relation: string,
-		field: string | undefined,
-		args: ReadonlyArray<CarrierValue>
-	) => SqlValue | undefined
+	readonly closed: (read: ClosedReadNode, args: ReadonlyArray<CarrierValue>) => SqlValue | undefined
 }
 
 /** Whether a value is a value of its type, not NULL. */
@@ -758,12 +763,9 @@ export const evaluateTable = (
 					? connective(op.fn, expr.args)
 					: applied(op, expr.args)
 			}
-			case "closedHas":
-				return unsupported(
-					`the membership test of the closed relation ${expr.relation}, which only a query's closed rewrite states`
-				)
 			case "closedAt":
-			case "closedRow": {
+			case "closedRow":
+			case "closedHas": {
 				const values: Array<SqlValue> = []
 				for (const a of expr.args) {
 					const v = run(a)
@@ -776,11 +778,7 @@ export const evaluateTable = (
 				if (args.length < values.length) {
 					return Result.ok(sqlNull)
 				}
-				const read = leaves.closed(
-					expr.relation,
-					expr.kind === "closedAt" ? expr.field : undefined,
-					args
-				)
+				const read = leaves.closed(expr, args)
 				return read === undefined
 					? unsupported(`a read of the closed relation ${expr.relation}`)
 					: Result.ok(read)

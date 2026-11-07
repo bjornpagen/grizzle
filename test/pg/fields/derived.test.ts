@@ -45,7 +45,7 @@ import {
 	relation,
 	schema
 } from "#compiler/public/schema.ts"
-import { evaluateTable } from "#compiler/scalar/compute/evaluate.ts"
+import { type ClosedReadNode, evaluateTable } from "#compiler/scalar/compute/evaluate.ts"
 import type { CarrierValue } from "#compiler/scalar/compute/literal.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { ownLogin } from "#compiler/schema/own.ts"
@@ -1024,25 +1024,21 @@ const hostRow = (row: Row): ReadonlyMap<string, CarrierValue> =>
  */
 const closedReader =
 	(rows: ClosedRows) =>
-	(
-		relation: string,
-		field: string | undefined,
-		args: ReadonlyArray<CarrierValue>
-	): CarrierValue | undefined => {
+	(read: ClosedReadNode, args: ReadonlyArray<CarrierValue>): CarrierValue | undefined => {
 		const [key] = args
 		if (typeof key !== "string") {
 			return undefined
 		}
-		if (relation === pairName && field === undefined) {
+		if (read.relation === pairName && read.kind === "closedRow") {
 			return pairedWith(rows, key)
 		}
 		const weighed = Arr.findFirst(rows.weight, (x) => x.tier === key)
-		if (relation !== weightName || Option.isNone(weighed)) {
+		if (read.relation !== weightName || read.kind !== "closedAt" || Option.isNone(weighed)) {
 			return undefined
 		}
-		return field === "w"
+		return read.field === "w"
 			? BigInt(weighed.value.w)
-			: field === "v"
+			: read.field === "v"
 				? BigInt(weighed.value.v)
 				: undefined
 	}
