@@ -22,7 +22,7 @@ library, with the tests, benches and scripts at its root:
   agent skill the package ships.
 - **`packages/devtools`** (`@grizzle/devtools`) is grizzle's lint tooling: the oxlint preset (`src/preset.ts`, with the
   `REJECTED` and `REJECTED_DIAGNOSTICS` maps), the oxlint plugin, superlint, the tsconfig base and each rule's fixtures,
-  which the gate's `fixtures:superlint` and `fixtures:oxlint` tasks check.
+  which `pnpm check`'s `fixtures:superlint` and `fixtures:oxlint` tasks check.
 - **`packages/testing`** (`@grizzle/testing`) is the choice-stream testing library every test runs on: generators,
   `explore`, `exhaust` and `commands`, the shrinker, the Vitest adapter, the test rules' oxlint plugin, `pnpm fuzz`'s
   script and the source-mutation tester (`scripts/mutate.ts`). Its own suite and bench (`src/*.test.ts`, `src/engine.bench.ts`) are its `test` and `bench`.
@@ -35,8 +35,8 @@ library, with the tests, benches and scripts at its root:
 ## Development environment
 
 Everything runs natively on one macOS machine through Homebrew. There is no Docker, no container image and no hosted
-CI. The git hook lefthook installs (`lefthook.yml`) is the CI: pre-commit runs `pnpm check`, except during a merge or a
-rebase, and only refuses a failing commit; it never formats or stages a file.
+CI and no commit gate: `lefthook.yml` installs no hook. The typecheck and lint, `pnpm check`, run by hand before a
+release.
 
 - **Toolchain:** `brew install node pnpm meson ninja pkgconf bison flex openssl@3 lz4 zstd readline`. You need
   Node 26 or later, and pnpm at the version `packageManager` pins; `pnpm install` patches TypeScript 7.1 beta for
@@ -82,23 +82,38 @@ rebase, and only refuses a failing commit; it never formats or stages a file.
     - `admin`, as the bootstrap superuser over the socket;
     - `reset`, which drops test databases and roles.
 
-Every connection to the cluster, the tests' included, is verify-full TLS over TCP. Nothing keeps a PID file: child
-processes are owned by an `AbortSignal`, `await using` or a `DisposableStack`.
+Every TCP connection to the cluster, the tests' included, is verify-full TLS. The bootstrap superuser alone connects
+over the local socket, by peer authentication: `pnpm pg admin` and the tests' superuser sessions
+(`test/support/substrate/substrate.ts`). Nothing keeps a PID file: child processes are owned by an `AbortSignal`,
+`await using` or a `DisposableStack`.
+
+## How changes land
+
+Everyone commits and pushes straight to `main`. There are no branches, no integrator and no commit gate.
+
+- A commit holds only its author's files, named by pathspec: `git commit -- <files>`. Never `git add -A`, `git add .`
+  or `git commit -a`: other people's work in progress shares the tree.
+- If `.git/index.lock` exists, another commit is in flight: wait until it is gone and commit again. Never delete it.
+- The typecheck and lint, `pnpm check`, run by hand before a release. `sh scripts/dev/check-commit.sh` runs them on
+  exactly what the index holds, so work in progress elsewhere in the tree neither fails nor passes it. Tests need not
+  be green to push; their failures are tracked and fixed.
+- There is no changelog. The commit message is the record: one plain sentence that says what is now true, and a short
+  body.
 
 ## Commands
 
 | Command                          | What it does                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pnpm typecheck`                 | `effect-tsgo tsrs -b`: tsrs, the Rust TypeScript 7.1 checker, Effect-patched by `@effect/tsgo`, over three projects joined by project references: `packages/engine/tsconfig.json`, the engine, which emits its declarations into `packages/engine/types`; `packages/grizzle/tsconfig.json`, the shell, against the engine's declarations, emitting its own into `packages/grizzle/types`; and `tsconfig.json`, test, bench, scripts and `oxlint.config.ts`, against both packages' declarations. Each package's `typecheck` task runs `tsrs -b` on its own project, after the projects it references. The declarations and the build info are gitignored. The three tsconfigs extend the dev tools' `tsconfig.base.json`, the compiler's strictness and the Effect language service with all 130 of its diagnostics listed, and the root's `tsconfig.base.json`, grizzle's module settings. The engine's project clears the plugins, so the service never compiles the engine; the shell's project and `tsconfig.json` restate the plugin to add their per-file `overrides`, and root superlint holds each restatement to the base. Every Effect diagnostic fails it, suggestions included. The two package projects are composite, which needs incremental build info; `tsconfig.json` builds without it. The dev tools and the testing library check on their own with `--noEmit`, the testing library's tsconfig extending `tsconfig.json`. |
+| `pnpm typecheck`                 | `effect-tsgo tsrs -b`: tsrs, the Rust TypeScript 7.1 checker, Effect-patched by `@effect/tsgo`, over three projects joined by project references: `packages/engine/tsconfig.json`, the engine, which emits its declarations into `packages/engine/types`; `packages/grizzle/tsconfig.json`, the shell, against the engine's declarations, emitting its own into `packages/grizzle/types`; and `tsconfig.json`, test, bench, scripts and `oxlint.config.ts`, against both packages' declarations. Each package's `typecheck` task runs `tsrs -b` on its own project, after the projects it references. The declarations and the build info are gitignored. The three tsconfigs extend the dev tools' `tsconfig.base.json`, the compiler's strictness and the Effect language service with every diagnostic it does not deprecate listed, and the root's `tsconfig.base.json`, grizzle's module settings. The engine's project clears the plugins, so the service never compiles the engine; the shell's project and `tsconfig.json` restate the plugin to add their per-file `overrides`, and root superlint holds each restatement to the base. Every Effect diagnostic fails it, suggestions included. The two package projects are composite, which needs incremental build info; `tsconfig.json` builds without it. The dev tools and the testing library check on their own with `--noEmit`, the testing library's tsconfig extending `tsconfig.json`. |
 | `pnpm format`                    | oxfmt's check over the repository, with `.oxfmtrc.json`, whose ignore list leaves markdown alone. `pnpm format:write` rewrites the files.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `pnpm superlint`                 | superlint (`packages/devtools/src/lint.ts`), the type-aware rules on TypeScript 7's native API, over the tooling project (test, bench, scripts). At the root it also holds every tsconfig's Effect diagnostics to `REJECTED_DIAGNOSTICS`. Each package's `superlint` task lints that package's own program. grizzle's names for the rules (the files and emitted-text type `sql-text-assertion` reads, the vocabularies `unchecked-vocabulary-literal` guards, the limits module, vocabularies and scopes `limit-evidence` reads, the files, sources and sanctioned reader `no-environment` reads, the registrars, searches and exempt files `test-case-is-search` reads, the searches, generators and dictionaries `no-case-list` reads) and its exceptions are the `superlint` field of the root `package.json`. `pnpm superlint <files or dirs>` lints those alone.                                                                                                                                                                                                                                                                                                                                                                                             |
+| `pnpm superlint`                 | superlint (`packages/devtools/src/lint.ts`), the type-aware rules on TypeScript 7's native API, over the tooling project (test, bench, scripts). At the root it also holds every tsconfig's Effect diagnostics to `REJECTED_DIAGNOSTICS`. Each package's `superlint` task lints that package's own program. grizzle's names for the rules (the files and emitted-text type `sql-text-assertion` reads, the vocabularies `unchecked-vocabulary-literal` guards, the limits module, vocabularies and scopes `limit-evidence` reads, the files, sources and sanctioned reader `no-environment` reads, the registrars, searches, scaffolds and exempt files `test-case-is-search` reads, the searches, generators and dictionaries `no-case-list` reads) and its exceptions are the `superlint` field of the root `package.json`. `pnpm superlint <files or dirs>` lints those alone.                                                                                                                                                                                                                                                                                                                                                                                  |
 | `pnpm oxlint`                    | oxlint, type-aware through tsgolint, over `test`, `bench`, `scripts` and `oxlint.config.ts`; each package's `oxlint` task lints that package. `oxlint.config.ts` is the dev tools' `lintConfig` with grizzle's lists: its restricted imports, its Effect-free files (`packages/engine/**`), the plugin's names (the import doors, the naming door's brands, the test helpers, the naming rule's markers) and its per-file exceptions, each with its reason. The test rules hold in the preset's test files, `*.test.ts`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `pnpm dead-code`                 | fallow (`.fallowrc.json`): unused files, exports and dependencies.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `pnpm architecture`              | fallow (`.fallowrc.json`): the layering of `src` as `boundaries` zones and the zones each may import, and import cycles.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `pnpm test`                      | The tests that need no network, the `unit` and `types` tiers, the testing library's own suite included, on Vitest (`vitest.config.ts`). `pnpm test <files or dirs>` runs only those; `-t <pattern>` filters by name. Flags follow the command directly (`pnpm test --maxWorkers=2`), never after `--`, which pnpm passes on and Vitest then reads what follows as files.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `pnpm test:network`              | The tests that talk to the local cluster, the `pg` and `schedules` tiers (`vitest.network.config.ts`), behind the global setup described below.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `pnpm fuzz <suite> [fuzztime]`   | Both test runs with one suite fuzzed, as `go test -fuzz` does: for the fuzz time (`30s`, `5m`, `1000x`) or until a case fails. Its corpus is the gitignored `.vitest/testing/`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| `pnpm check`                     | The gate, which the pre-commit hook runs: `turbo run` over each package's tasks and the root's, at `"concurrency": "100%"` (`turbo.json`), ordered by turbo's graph and cached, so a warm run replays what did not change. Each package's `typecheck`, `superlint` and `oxlint`; the dev tools' `fixtures:superlint` and `fixtures:oxlint`; and the root's `typecheck`, `superlint`, `oxlint`, `format`, `dead-code`, `architecture` and `dedupe` (`pnpm dedupe --check`). Tests are not in the gate: `pnpm test` runs them.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `pnpm check`                     | The typecheck and lint, run by hand before a release (`sh scripts/dev/check-commit.sh` runs it on exactly what the index holds): `turbo run` over each package's tasks and the root's, at `"concurrency": "100%"` (`turbo.json`), ordered by turbo's graph and cached, so a warm run replays what did not change. Each package's `typecheck`, `superlint` and `oxlint`; the dev tools' `fixtures:superlint` and `fixtures:oxlint`; and the root's `typecheck`, `superlint`, `oxlint`, `format`, `dead-code`, `architecture` and `dedupe` (`pnpm dedupe --check`). Tests are not in it: `pnpm test` runs them.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `pnpm mutate`                    | The mutation tester for `packages/engine/src` and `packages/grizzle/src/adapter`, a measurement and never a gate. Use `--sample N` for a seeded sample. The full run takes about a day.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `pnpm bench`                     | The performance gates in `bench/`, separate from `pnpm check`. `pnpm bench:full` runs them at full scale, for a quiet machine, and writes the gate listing to `bench/results/GATES.md`. `pnpm bench cold` measures cold starts, `pnpm bench dfa` the text analysis's subset construction under its two limits, and `pnpm bench compile` a generated large schema's builders, generate, check, migrate's work before it connects and DbLayer.make, at a scale and at twice it (`--quick` for a small one), both with no database.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 
@@ -186,7 +201,7 @@ suite's residual risk. A longer search is a fuzz run, `pnpm fuzz <suite>`.
   caller who leaves a key out states nothing, so absence is a variant the type names (superlint
   `no-optional-public-input`). Public is what a package's `exports` map publishes, but its `./internal/` subpaths; an
   input is any type a caller hands it through those modules, as a parameter of an exported function or constructor,
-  of a method of what one returns, or a callback's return, read off the checker's types. The rule is pending: the gate
+  of a method of what one returns, or a callback's return, read off the checker's types. The rule is pending: `pnpm check`
   leaves it out until the tree's violations are fixed, and `superlint --pending`, in a package, runs it beside the rest.
 - **The engine is pure.** It is the Effect-free code of `oxlint.config.ts`. Its `no-restricted-imports` refuses a
   runtime load of `effect` or `@effect/*` in `packages/engine` (an `import type` passes, through `allowTypeImports`),
@@ -241,8 +256,13 @@ suite's residual risk. A longer search is a fuzz run, `pnpm fuzz <suite>`.
   symbols, never their spelling. A commands program is searched by `explore`. A scaffold (`testCaseIsSearch.scaffolds`,
   each with its reason) is no way to a search: it runs one around a scenario a person wrote, over draws that are not
   the case's inputs, as `runSchedule` hands a hand schedule to the driver's script strategy. Its named exemptions, each
-  with its reason, are the README and SKILL mirror, the published-package gate, the performance gates, the type batch's
-  population runners and its cost gates (`testCaseIsSearch.exempt`).
+  with its reason, are the README and SKILL mirror, the published-package gate, the performance gates and the testing
+  library's engine bench, the type batch's population runners and its cost gates (`testCaseIsSearch.exempt`). A
+  type-test file goes on the population runners' exemption only when its cases read a population the type batch
+  typechecks as one program (a group of `test/types/batch/groups.ts`, read through `checked`). The batch's global setup
+  draws the population, by the testing library's generators or by exhausting a box of the source's own rosters, and
+  typechecks it at once, so no case can run a search per program. Each case holds the population to the engine as
+  oracle, or holds that its floor's witnesses reach every requirement. Every other file runs its search in its cases.
   superlint's `no-case-list` refuses a search whose space is a list of cases: the `generator` of an `exhaust` or the
   `draw` of an `explore` that is `element` over a list written in the tests (an array literal of a test file or of
   `test/`, held by a constant or computed from one by a call, outside the dictionary modules of
@@ -344,10 +364,17 @@ Tests that inject such faults are not written.
    catches. Merge or delete near-duplicates. No test at all beats a ceremonial one.
 2. **An oracle, then search; never an example.** A test is an example when a person chose its inputs and wrote its
    verdict, and examples are banned (owner, 2026-11-06): a hand list run through `exhaust`, `explore` or `element` is
-   one. A test searches against an oracle: generated inputs, a box its bounds define, the kept cases its failures left,
-   and dictionaries of the values the code branches on, never of verdicts. What runs no search is named, with its
-   reason: the README and SKILL mirror, the performance gates, and the type batch's runners, which check a generated
-   population (superlint `test-case-is-search` and `no-case-list`).
+   one. `pnpm check` refuses them: superlint's `test-case-is-search` refuses a case that runs no search, and
+   `no-case-list` a search whose space is a written list of cases. What stays:
+   - a search against an oracle, over generated inputs;
+   - a box exhausted, each axis drawn on its own from its bounds, its values or a roster the source declares, the
+     verdict the oracle's;
+   - kept cases, the shrunk failures a search left, replayed through its own property;
+   - dictionaries of the values the code branches on, never of verdicts;
+   - the README and SKILL mirrors, which hold the documentation to checked code.
+
+   What runs no search in its cases is named in `testCaseIsSearch.exempt`, each with its reason (see "Every test case
+   is a search" above).
 3. **Small, tricky inputs from explicit distributions.** Generators draw few rows and short values, valid by
    construction, from a randomly chosen subset of features (swarm testing), with dictionaries of the values the code
    branches on. Plan diversity comes from perturbing the planner and drawing the thresholds a deciding function takes
@@ -422,11 +449,11 @@ text match. A type batch's population judges its requirements on `floorPopulatio
   session of the login that has taken on its role (`worldSession`, `worldPsql`). A schedule's direct actors take on
   their role through a login of their own, so a grizzle writer's actor is the one backend of its login.
 - **The connection lease:** every process that opens test connections first takes one of the cluster's leases
-  (`test/support/substrate/shared.ts`), advisory-lock slots sized from `max_connections`, each covering 12
-  connections. Any number of runs, copies of the tree and benches share one cluster; a process with no free slot
-  waits in the server. That wait is queueing, not a hang: a hook has no time limit in the network tier
-  (`vitest.network.config.ts`), so a file the runner starts beyond the free slots waits its turn whatever it takes, and
-  each case's own hang guard is what stops a case that hangs.
+  (`test/support/substrate/shared.ts`), advisory-lock slots sized from `max_connections`, each covering a test's pool,
+  one connection per core, and the three sessions its substrate holds. Any number of runs, copies of the tree and
+  benches share one cluster; a process with no free slot waits in the server. That wait is queueing, not a hang: a
+  file the runner starts beyond the free slots waits its turn, its hook bounded only by the test timeout
+  (`testTimeout`, `test/support/limits.ts`), and each case's own hang guard is what stops a case that hangs.
 
 **The oracles:**
 
@@ -443,6 +470,15 @@ text match. A type batch's population judges its requirements on `floorPopulatio
   does not admit, such as a longer text read into a shorter field. Every artifact is held to its position invariants,
   and no statement updates an immutable relation's rows in place. A TransientFailure is legitimate only where the
   model's collisions allow one, and every flight must begin SERIALIZABLE.
+- **The NULL search** (`test/pg/null`): every scalar operation over operands that are each NULL or one of two values,
+  exhausted (`operators.test.ts`), and drawn expressions in every position a rule or a query reads one: row checks,
+  containments, keys, generated fields, folds, filters, aggregates and heads (`positions.test.ts`). The oracle is
+  PostgreSQL evaluating each expression written in plain SQL from its meaning alone; grizzle's host evaluator, the
+  scalar language's model, and what grizzle stores and returns must agree with it.
+- **The comparison rewrites** (`test/pg/closed/null-rewrites.test.ts`): every form the lowering decides a comparison
+  by, such as a concatenation's equation by its lengths or `ends_with` by `right`, in a row check, a generated field, a
+  containment, a key and a query's filter. The oracle is the comparison's plain meaning restated over the drawn values:
+  NULL at a NULL operand, and Kleene's AND, OR and NOT.
 - **The history checker** (`test/support/history`): generated concurrent writers, run in an order a PCT schedule
   chooses, so a history is seeded, shrinkable and replayable. It's checked after the fact:
     - every law must hold on the committed state;
@@ -468,7 +504,22 @@ text match. A type batch's population judges its requirements on `floorPopulatio
   counted families, folds, the plans and edits grizzle's apply sends, and the tree theorem over an exhaustive box of
   forests over two root values, all on PostgreSQL. The oracle is the families model, the theorem a family's
   constraints hold (`theorem.ts`) with the moment PostgreSQL checks each one, and for trees a direct pre-order
-  numbering (`tree.ts`). `capacity-table.test.ts` holds every row of fin.md §6's table to its native law.
+  numbering (`tree.ts`). `capacity-table.test.ts` holds each capacity shape (at most, at least or exactly one, a count
+  in a range or at least a field, a weight, a duration, a counted selection, a source equal to its target) to its native
+  law over a box of states.
+- **The fill order** (`test/unit/write/fill-order.test.ts`, `test/pg/write/fill-order`): drawn schemas of trees,
+  ordered and counted families nested in each other, folds and copies. A schema compiles exactly where the reference
+  model (`test/support/families/fill.ts` `verdictOf`) admits it, refused for the cause it names, and on PostgreSQL its
+  first insert and a drawn follow-up store exactly the reference writer's rows (`writtenRows`).
+- **The family swarm** (`test/pg/write/swarm/families.test.ts`): schemas of up to 24 relations with every family kind,
+  cycles of families, copies of copies and fold ends, and ChangeSets of up to three strata and 150 facts and more, run
+  through `db.apply`. Its oracle (`oracle.ts`) never consults grizzle's writer: the stored rows are the reference
+  writer's, a refusal names only laws the law model finds broken, and a compile refusal is one the reference justifies.
+- **The entry-owner box** (`test/support/families/entry-owner.ts`): a family's owner written through a role's query
+  entry, over every head, filter, op and fact. Without PostgreSQL (`test/unit/write/entry-owner.test.ts`) the box's
+  specification is the oracle: a role is refused exactly when its entry's filter reads a family field, and every other
+  write compiles and binds. On PostgreSQL (`test/pg/write/entry-owner`), drawn stored states and one write through an
+  entry are judged by a model of the entry over the family.
 - **The law model** (`test/unit/laws`): the native constraints mean what the laws mean, so over every state of the
   boxes the installation accepts a state exactly when the host model finds every law holds (`native.test.ts`); each
   law shape's model in `model/`; and an installation's objects, its total and its snapshot grow at most linearly in
@@ -486,13 +537,25 @@ text match. A type batch's population judges its requirements on `floorPopulatio
   and every open session's connection probe as the model expects, and the model's state keeps every invariant. Its
   suites: random programs over a documents base, guided by block coverage of the worlds code, an exhaustive small box,
   and inductive single steps from drawn states (`test/pg/world-model`); concurrent races (`test/schedules/worlds`); and
-  the school system's installation (`test/pg/education`).
+  the school system's installation (`test/pg/education`). The rules suite (`test/pg/world-model/rules.test.ts`) meets
+  every law family the README's Rules lists with writes through partial worlds, and holds every shown witness to
+  values the writer submitted or holds whole. The leak scan every suite's "no hidden value" rests on is itself searched
+  (`test/pg/world-model/execute.test.ts`): a hidden value planted in a real refusal must be reported in the field that
+  spells it.
 - **The protocol tap** (`test/support/wire-tap.ts`): a session whose every message, both ways, a test reads off the
   wire, on grizzle's public transport: its sockets are in memory, its server end answers the SSLRequest and terminates
   verify-full TLS with the tap's own CA (`test/support/memory-tls.ts`), and the tap carries the plaintext over its own
   verified TLS to the cluster. The wire suite (`test/pg/adapter/suites/batch-parity.ts`) holds a flight to one round trip, atomicity, its
   failures and cancellation, and the round-trip suite (`test/pg/adapter/suites/round-trips.ts`) holds every public
   call to one round trip.
+- **Stopped searches** (`test/pg/substrate/stopped.test.ts`): a search whose cases allocate drawn schemas, roles and
+  sessions is stopped by its deadline's cut, its hang guard or an interruption, wherever its cases stand. Once it
+  returns, the shared database holds nothing a clean one does not, and no role a case set out to create exists.
+- **Startup work** (`test/unit/startup`): the calls a schema's build, `grizzle generate`, `check`, `migrate`, `drift`
+  and DbLayer.make make to the schema's encoding and compilation, read off V8's call counts
+  (`test/support/kernel/calls.ts`) and never timed. Each whole-schema pass runs once, migrate and drift compile nothing
+  before they connect, and every count grows at most linearly from n to 2n. `pnpm bench compile` times the same work
+  over a large generated schema; its record is information, never a verdict.
 - **The mutation tester** (`pnpm mutate`, `scripts/dev/mutate`): it breaks rewrites, proofs, guards, runtime decisions
   and, with its `sql-world` operators, the SQL that installs and enters a world, in `packages/engine/src` and
   `packages/grizzle/src/adapter`, and checks that some test notices: first the unit project, then a seeded subset of
@@ -510,3 +573,11 @@ text match. A type batch's population judges its requirements on `floorPopulatio
   whose process tree makes no CPU progress for `stallWindow` fails with CompilerStalled, carrying the goroutine dump
   tsgo prints on SIGQUIT. The batch's BatchStalled names the program's units, so a stalled compiler fails every check it
   holds, never hangs it.
+- **The type/engine agreements** (`test/support/agreement`): drawn schemas, ChangeSets, workloads, roles' access,
+  computations, recursion and configurations, each population rendered as one TypeScript program the type batch
+  checks, and built through the engine. The engine is the oracle (for a configuration, the reader DbLayer.make runs):
+  a program typechecks exactly when the engine admits it, each refusal under a directive naming its diagnostic, and
+  every type the program infers equals what the engine describes. A generated program imports every repository name
+  through its prelude (`test/support/programs`, read by `test/support/prelude.ts`), real export statements fallow
+  reads as an entry, so fallow counts each name a population reads as used, and the compiler checks that each one
+  exists.
