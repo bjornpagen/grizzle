@@ -1965,10 +1965,13 @@ const runStep =
 			const planned =
 				flights.kind === "write"
 					? Result.ok(flights.chunks)
-					: flights.writes(
-							Arr.map(flights.reads, (r) =>
-								outputRows(readRows(db, defined(familyOfStep(r.family), "a read's family")))
-							)
+					: Result.map(
+							flights.writes(
+								Arr.map(flights.reads, (r) =>
+									outputRows(readRows(db, defined(familyOfStep(r.family), "a read's family")))
+								)
+							),
+							(written) => written.chunks
 						)
 			if (!planned.ok) {
 				assert.ok(

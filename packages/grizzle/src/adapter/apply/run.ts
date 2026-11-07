@@ -421,11 +421,13 @@ export const runWrite = <R>(
 	Effect.gen(function* () {
 		const program = entry.program
 		const artifact = program.artifacts[kind]
+		/** The rows the ChangeSet states as the plan of the write statements sent fills them: none filled before them. */
+		let stated = inputs.bound.unplanned
 		const context: WitnessContext = {
 			violation: entry.violation,
 			statement: (at) => ({
 				relations: statementRelations(program.frontend, at),
-				judge: (refuser) => hostJudgement(program.frontend, inputs.bound.normalized, at, refuser)
+				judge: (refuser) => hostJudgement(program.frontend, stated, at, refuser)
 			})
 		}
 		const readBackFlights = yield* Effect.mapError(
@@ -453,6 +455,7 @@ export const runWrite = <R>(
 			FlightFailure | EncodingFailure | CompileError
 		>
 		if (flights.kind === "write") {
+			stated = flights.stated
 			const one = closing(flights.chunks, [])
 			if (Result.isFailure(one)) {
 				return yield* Effect.fail(inputApplyError(one.failure))
@@ -478,8 +481,13 @@ export const runWrite = <R>(
 					(outcomes) => {
 						sent = read
 						const filled = flights.writes(Arr.map(outcomes, (o) => o.rows))
+						if (filled.ok) {
+							stated = filled.value.stated
+						}
 						return Effect.fromResult(
-							filled.ok ? closing(filled.value, read) : Result.fail(valuesFailure(filled.error))
+							filled.ok
+								? closing(filled.value.chunks, read)
+								: Result.fail(valuesFailure(filled.error))
 						)
 					}
 				)

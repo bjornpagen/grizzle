@@ -21,7 +21,9 @@ import {
 	tree
 } from "#compiler/public/schema.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
+import { fieldKey } from "#compiler/write/family/fold.ts"
 import { inForce } from "#compiler/write/family/order.ts"
+import { inputSlots } from "#compiler/write/frontend/compile.ts"
 import type { WriteNames } from "#compiler/write/insert/statement.ts"
 import { bindWrite } from "#compiler/write/program/bind.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
@@ -229,22 +231,24 @@ describe("a nested write through the program", () => {
 									"every family step follows its stratum's own statements"
 								)
 							}
-							const slot = defined(bound.normalized.slots.values().next().value, "the owner's slot")
-							const tops = Arr.map(slot.facts, (fact) => fact)
+							const group = defined(program.frontend.slots[0], "the owner's slot group")
+							const [input] = group.inputs
+							const [slot] = inputSlots(input)
+							const tops = bound.flights.stated.slot(group, input, slot)
 							for (const doc of docs) {
 								const top = defined(
-									Option.getOrUndefined(Arr.findFirst(tops, (t) => t["id"] === doc.id)),
+									Option.getOrUndefined(Arr.findFirst(tops, (t) => t.stated["id"] === doc.id)),
 									"each owner's own row"
 								)
-								assert.equal(
-									top["lines"],
-									BigInt(doc.lines.length),
-									"the owner's count is its family's length"
+								assert.deepEqual(
+									top.filled(fieldKey("lines")),
+									{ kind: "filled", value: BigInt(doc.lines.length) },
+									"the owner's count, as the write fills it, is its family's length"
 								)
-								assert.equal(
-									top["total"],
-									Arr.reduce(doc.lines, 0n, (s, l) => s + l.qty),
-									"the owner's end is its members' sum"
+								assert.deepEqual(
+									top.filled(fieldKey("total")),
+									{ kind: "filled", value: Arr.reduce(doc.lines, 0n, (s, l) => s + l.qty) },
+									"the owner's end, as the write fills it, is its members' sum"
 								)
 								if (doc.lines.length === 0) {
 									c.note("an empty family")

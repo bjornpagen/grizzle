@@ -235,7 +235,7 @@ const explainChangeSet = Effect.fn("explainChangeSet")(function* (
 		const rows = Arr.flatMap(outcomes, (outcome, at) => (at % 2 === 1 ? [outcome.rows] : []))
 		const filled = flights.writes(rows)
 		return filled.ok
-			? explainedOf(filled.value)
+			? explainedOf(filled.value.chunks)
 			: Result.fail(new ReadFailure({ reason: valuesFailure(filled.error) }))
 	})
 })

@@ -15,7 +15,7 @@ import { str } from "#compiler/public/text.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { type NestedSet, nestedRows, nestedSet } from "#compiler/write/family/nesting.ts"
 import { inForce } from "#compiler/write/family/order.ts"
-import type { EnumeratedInput } from "#compiler/write/frontend/compile.ts"
+import { type EnumeratedInput, inputSlots } from "#compiler/write/frontend/compile.ts"
 import type { MemberFacts } from "#compiler/write/normalize/normalize.ts"
 import { bindWrite } from "#compiler/write/program/bind.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
@@ -299,12 +299,11 @@ describe("a nested write's identities", () => {
 								"write",
 								"a nested write reads nothing first: every group it writes is its own new owner's"
 							)
-							const owners = defined(
-								bound.normalized.slots.values().next().value,
-								"the owners' slot"
-							)
+							const group = defined(program.frontend.slots[0], "the owners' slot group")
+							const [input] = group.inputs
+							const [slot] = inputSlots(input)
 							assert.equal(
-								owners.facts.length,
+								bound.flights.stated.slot(group, input, slot).length,
 								distinct.length,
 								"each distinct Owner is written once"
 							)

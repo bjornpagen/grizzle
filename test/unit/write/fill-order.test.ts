@@ -10,12 +10,14 @@ import { collectInputs } from "#adapter/apply/collect.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
+import * as Result from "#compiler/core/result.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { role } from "#compiler/schema/world.ts"
 import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
 import { inForce } from "#compiler/write/family/order.ts"
+import { normalizeChangeSet } from "#compiler/write/normalize/normalize.ts"
 import { bindWrite } from "#compiler/write/program/bind.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
 import { assert, deepEquals, defined, succeeded } from "#test/support/assert.ts"
@@ -569,7 +571,7 @@ const property = (
 		const writes =
 			flights.kind === "write"
 				? { ok: true as const, value: flights.chunks }
-				: flights.writes(Arr.map(flights.reads, () => []))
+				: Result.map(flights.writes(Arr.map(flights.reads, () => [])), (written) => written.chunks)
 		if (!writes.ok) {
 			return assert.fail(
 				`the instance's family writes plan from reads that find nothing stored, not ${Formatter.format(writes.error)}`
@@ -584,7 +586,11 @@ const property = (
 		}
 		const expected = writtenRows(spec, rows)
 		const byUuid = new Map(Arr.map(rows, (row) => [uuidOfRow(row.id), row] as const))
-		for (const byRelation of bound.value.normalized.nested.values()) {
+		const normalized = succeeded(normalizeChangeSet(program.value.frontend, members))
+		if (normalized.kind !== "normalized") {
+			return assert.fail(`the instance normalizes, not ${Formatter.format(normalized)}`)
+		}
+		for (const byRelation of normalized.nested.values()) {
 			for (const [name, nested] of byRelation) {
 				for (const row of nested.values()) {
 					const id = row.fact["id"]

@@ -70,9 +70,9 @@ type ViolationFields = Pick<
  *   (WrittenAt judge, write/program/witness.ts hostJudgement), the key of a fact the ChangeSet states for the failing
  *   statement that breaks what refused it, the table constraint or the domain's columns among the statement's tables,
  *   or `unreported` where it states none. A table CHECK's refusal of a stated fact names `every` law of that table's
- *   CHECKs the fact breaks, in the schema's canonical order, whichever PostgreSQL tried first; where no stated fact
- *   breaks it, the outcome names the CHECK PostgreSQL reported, `first`, since PostgreSQL tries a table's CHECKs in
- *   the order of their names.
+ *   CHECKs the fact, as its write fills it, breaks, in the schema's canonical order, whichever PostgreSQL tried first;
+ *   where no stated fact breaks it, or the host leaves one of those CHECKs unjudged, the outcome names the CHECK
+ *   PostgreSQL reported, `first`, since PostgreSQL tries a table's CHECKs in the order of their names.
  * - SQLSTATE 23502 on a generated column of the installation's: grizzle writes no NULL, so only the column's generation
  *   expression is NULL there, a closed read at a key its relation holds no row at, and the outcome names the generated
  *   field's law (types/changeset Law `generated`) with the host's witness of the stated fact whose term has no value.
@@ -216,8 +216,9 @@ const nativeLaws = (
 
 /**
  * The laws a native refusal names, as the host judged it (write/program/witness.ts RefusedLaws): every law of its
- * table's CHECKs the stated row breaks; the CHECK PostgreSQL reported first, `broken`, where no stated row breaks it;
- * and `broken`, the laws its one object discharges, for any other refusal.
+ * table's CHECKs the stated row breaks; the CHECK PostgreSQL reported first, `broken`, where no stated row breaks it or
+ * the host leaves one of its table's CHECKs unjudged; and `broken`, the laws its one object discharges, for any other
+ * refusal.
  */
 const refusedBy = (laws: RefusedLaws, broken: Arr.NonEmptyReadonlyArray<Law>): Refused => {
 	switch (laws.kind) {

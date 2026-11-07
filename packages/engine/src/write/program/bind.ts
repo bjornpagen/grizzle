@@ -5,7 +5,7 @@ import {
 	parameterNormalizer,
 	positionalColumns
 } from "#compiler/codec/recordset.ts"
-import { paramEncoder } from "#compiler/codec/scalar.ts"
+import { carrierSpecOf, paramEncoder } from "#compiler/codec/scalar.ts"
 import type { CompileError, EncodingFailure } from "#compiler/core/errors.ts"
 import type { LawId, ParamId } from "#compiler/core/ids.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
@@ -14,8 +14,8 @@ import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/c
 import * as Result from "#compiler/core/result.ts"
 import { type ReadonlyTupleMap, TupleMap, TupleSet } from "#compiler/core/tuple-map.ts"
 import type { OutputText, ParamText } from "#compiler/core/wire.ts"
-import { type Family, isTreeOf } from "#compiler/ir/family.ts"
-import type { FamilyId, RelationInfo } from "#compiler/ir/law.ts"
+import { type Family, isSequence, isTreeOf } from "#compiler/ir/family.ts"
+import type { FamilyId, LawField, RelationInfo } from "#compiler/ir/law.ts"
 import type { LiteralBound, WriteSlot } from "#compiler/ir/products.ts"
 import type { RelationChoice } from "#compiler/lower/shapes/index.ts"
 import { runsLargeForm } from "#compiler/lower/shapes/take/index.ts"
@@ -50,7 +50,7 @@ import {
 	type StoredFamily,
 	type Values
 } from "#compiler/write/family/edit.ts"
-import { familyKey, fieldKey } from "#compiler/write/family/fold.ts"
+import { type ColumnKey, familyKey, fieldKey, literalHost } from "#compiler/write/family/fold.ts"
 import { type NestedRow, rowOfValues } from "#compiler/write/family/nesting.ts"
 import {
 	type FamilyStatement,
@@ -83,11 +83,10 @@ import {
 	type RowLayout,
 	rowLayout
 } from "#compiler/write/family/statements.ts"
-import type { EnumeratedInput } from "#compiler/write/frontend/compile.ts"
+import type { EnumeratedInput, MemberSlot, SlotGroup } from "#compiler/write/frontend/compile.ts"
 import type { FamilyNode } from "#compiler/write/frontend/schedule.ts"
 import {
 	type MemberFacts,
-	type Normalized,
 	type NormalizedSlot,
 	normalizeChangeSet,
 	refilledSlot
@@ -100,6 +99,7 @@ import {
 } from "#compiler/write/program/artifact.ts"
 import type { CompiledWrite, EditProgram, RefillProgram } from "#compiler/write/program/compile.ts"
 import { keyWitness } from "#compiler/write/program/outcome.ts"
+import type { FilledColumn, JudgedRow, StatedRows } from "#compiler/write/program/witness.ts"
 
 interface BindInputs {
 	/** The facts each member slot of the ChangeSet value supplies (`collectInputs`). */
@@ -124,7 +124,11 @@ export type Raw = ReadonlyArray<ReadonlyArray<OutputText>>
 
 export interface BoundWrite {
 	readonly kind: "bound"
-	readonly normalized: Normalized
+	/**
+	 * The rows the ChangeSet states before its plan is drawn, every column its write fills unfilled: what a refusal the
+	 * read flight meets judges, which states none of them.
+	 */
+	readonly unplanned: StatedRows
 	/** The positions of each artifact the runtime may skip: their enumerated member holds no fact. */
 	readonly skip: (artifact: WriteArtifact) => ReadonlySet<number>
 	/** The form of a statement of an artifact this application sends (`sentForm`). */
@@ -173,14 +177,44 @@ export interface ReadStatement {
  *   meets 40001 at one of the two, and grizzle does not retry.
  */
 export type Flights =
-	| { readonly kind: "write"; readonly chunks: Chunks }
+	| ({ readonly kind: "write" } & PlanWrites)
 	| {
 			readonly kind: "read"
 			readonly reads: NonEmptyReadonlyArray<ReadStatement>
 			readonly writes: (
 				rows: ReadonlyArray<Raw>
-			) => Result.Result<Chunks, EncodingFailure | FamilyRowBound | CompileError>
+			) => Result.Result<PlanWrites, EncodingFailure | FamilyRowBound | CompileError>
 	  }
+
+/**
+ * An application's write statements under one plan: each statement's executions (`Chunks`), and the rows the ChangeSet
+ * states as that plan fills them (write/program/witness.ts StatedRows), which a refusal of one of them judges.
+ */
+export interface PlanWrites {
+	readonly chunks: Chunks
+	readonly stated: StatedRows
+}
+
+/**
+ * What one stratum's plan leaves: each counted family's recounts, by family key, the count and ends each owner whose
+ * members the stratum changes ends at; and every row its reads found and its writes leave, by relation and key.
+ */
+interface StratumFill {
+	readonly recounts: ReadonlyMap<string, ReadonlyTupleMap<Owner, Recount>>
+	readonly rows: RowState
+}
+
+/**
+ * The plan an application's stated rows are judged at: its strata's fills, a stratum absent filling nothing; or none,
+ * before the plan is drawn or where it is refused, when no write statement is sent.
+ */
+type Fill =
+	| { readonly kind: "planned"; readonly strata: ReadonlyMap<number, StratumFill> }
+	| { readonly kind: "unplanned" }
+
+const unfilled: FilledColumn = Object.freeze({ kind: "unfilled" })
+
+const unplannedFill: Fill = Object.freeze({ kind: "unplanned" })
 
 type BindResult =
 	| BoundWrite
@@ -367,6 +401,137 @@ export const bindWrite = (
 	const ctx: FillContext = { codes: frontend.codes, evaluate: frontend.evaluate }
 	const factsAt = (slot: ParamId | undefined): ReadonlyArray<Fact> =>
 		slot === undefined ? [] : factsOf(slot).facts
+	/** The counted family whose count or end `column` of `relation`, its owner, is, with that field. */
+	const ownedColumn = (
+		relation: RelationInfo,
+		column: ColumnKey
+	): { readonly family: Family; readonly field: LawField } | undefined => {
+		for (const family of frontend.laws.families) {
+			if (family.owner.name !== relation.name || isSequence(family)) {
+				continue
+			}
+			for (const field of [family.count, ...endColumns(family)]) {
+				if (fieldKey(field.name) === column) {
+					return { family, field }
+				}
+			}
+		}
+		return undefined
+	}
+	/** An owner's count or end of `family` while the family is empty: the count 0, each end at its start. */
+	const emptyOf = (family: Family, field: LawField): FilledColumn => {
+		if (field.name === family.count.name) {
+			return { kind: "filled", value: 0n }
+		}
+		switch (field.writing.kind) {
+			case "accumulated":
+				return {
+					kind: "filled",
+					value: literalHost(carrierSpecOf(field.type, frontend.codes), field.writing.start)
+				}
+			case "caller":
+			case "drawn":
+			case "serial":
+			case "generated":
+				throw defect(
+					`the end ${family.owner.name}.${field.name} of a counted family, an accumulated field`
+				)
+		}
+	}
+	/**
+	 * A row of `relation` the ChangeSet states in `stratum`, as its write fills it (witness.ts JudgedRow): `columns` its
+	 * columns as normalization holds them, `op` how its statement writes it, `key` its primary key's texts where they
+	 * are known, and `walked` whether a nesting's walk filled `columns`. It states its caller's and serial fields; every
+	 * other column is, in turn, a count or an end its stratum's recount draws, the value the plan's rows hold at its key,
+	 * an owner's count or end at its empty family's where its stratum inserts it and unfilled where a put keeps the stored
+	 * one, the walk's value, and otherwise unfilled.
+	 */
+	const judgedRow = (
+		fill: Fill,
+		stratum: number,
+		relation: RelationInfo,
+		columns: Values,
+		op: "insert" | "put" | "delete",
+		key: MemberKey | undefined,
+		walked: boolean
+	): JudgedRow => {
+		const stated = Object.freeze(
+			Object.fromEntries(
+				relation.fields.flatMap((f) => {
+					const value = columns.get(fieldKey(f.name))
+					return (f.writing.kind === "caller" || f.writing.kind === "serial") && value !== undefined
+						? [[f.name, value] as const]
+						: []
+				})
+			)
+		)
+		if (fill.kind === "unplanned" || key === undefined) {
+			return { stated, filled: () => unfilled }
+		}
+		const at = fill.strata.get(stratum)
+		return {
+			stated,
+			filled: (column) => {
+				const owned = ownedColumn(relation, column)
+				const recount =
+					owned === undefined
+						? undefined
+						: at?.recounts
+								.get(familyKey(owned.family.id))
+								?.get(groupOfOwner(ctx, owned.family, columns))
+				if (owned !== undefined && recount !== undefined) {
+					return {
+						kind: "filled",
+						value: recountValues(owned.family, recount).get(owned.field.name)
+					}
+				}
+				const held = at === undefined ? undefined : rowOf(at.rows, relation.name, key)
+				if (held?.has(column) === true) {
+					return { kind: "filled", value: held.get(column) }
+				}
+				if (owned !== undefined) {
+					return op === "insert" ? emptyOf(owned.family, owned.field) : unfilled
+				}
+				return walked && columns.has(column)
+					? { kind: "filled", value: columns.get(column) }
+					: unfilled
+			}
+		}
+	}
+	/**
+	 * The rows the ChangeSet states as `fill` fills them (witness.ts StatedRows): a slot's facts, a query entry's in its
+	 * own words and none of its columns filled, since its fields are not its target's; and a stratum's nested rows.
+	 */
+	const statedRowsOf = (fill: Fill): StatedRows => ({
+		slot: (group: SlotGroup, input: EnumeratedInput, slot: MemberSlot) => {
+			const facts = factsOf(slot.slot).facts
+			const relation = group.relation
+			if (group.facts.name !== relation.name) {
+				return facts.map((fact): JudgedRow => ({ stated: fact, filled: () => unfilled }))
+			}
+			const layout = rowLayout(relation, frontend.laws.families)
+			const op = input.kind === "single" ? input.act.op : "insert"
+			return facts.map((fact) => {
+				const columns = new Map(
+					Object.entries(fact).map(([name, v]) => [fieldKey(name), v] as const)
+				)
+				const whole = relation.primaryFields.every((f) => columns.has(fieldKey(f.name)))
+				return judgedRow(
+					fill,
+					group.stratum,
+					relation,
+					columns,
+					op,
+					whole ? keyOf(ctx, layout, columns) : undefined,
+					input.kind === "nested"
+				)
+			})
+		},
+		nested: (stratum: number, relation: RelationInfo) =>
+			[...(normalized.nested.get(stratum)?.get(relation.name)?.values() ?? [])].map((row) =>
+				judgedRow(fill, stratum, relation, row.values, "insert", row.key, true)
+			)
+	})
 	/** The facts a stratum may insert of `relation`, by every slot of its that inserts (`insertSlots`) but a generated
 	 * addition's, whose key does not exist yet, so no member names it, and every row of it a nested write of the
 	 * stratum fills, a tree's nodes and a sequence's members, with every column the walk drew. An owner among them is
@@ -637,6 +802,7 @@ export const bindWrite = (
 		]
 		const out = new Map<number, Plan>()
 		const refilled = new Map<ParamId, NormalizedSlot>()
+		const fills = new Map<number, StratumFill>()
 		const families = frontend.laws.families
 		for (const stratum of strata) {
 			/** The stratum's nested rows but those an edit of their relation plans with its own changes. */
@@ -900,6 +1066,17 @@ export const bindWrite = (
 				refillRows.set(name, rewrites)
 				return { target, edited: { ...edited, rows: { ...edited.rows, refills: rewrites } } }
 			})
+			const recounts = new Map<string, TupleMap<Owner, Recount>>()
+			for (const { edited } of rewritten) {
+				for (const write of edited.owners) {
+					const into = recounts.get(familyKey(write.family)) ?? new TupleMap<Owner, Recount>()
+					for (const [group, recount] of write.recounts) {
+						into.set(group, recount)
+					}
+					recounts.set(familyKey(write.family), into)
+				}
+			}
+			fills.set(stratum, { recounts, rows: current })
 			const editedPlans: Array<RelationPlanAt> = []
 			const counts: Array<Phase<"count">> = []
 			const planRows = (
@@ -978,7 +1155,7 @@ export const bindWrite = (
 			}
 			out.set(stratum, plan)
 		}
-		return Result.ok({ plans: out, slots: refilled })
+		return Result.ok({ plans: out, slots: refilled, fills })
 	}
 	/** A planned statement's arrays: its rows' texts, column by column, each array within the longest string. */
 	const arraysOf = (
@@ -1031,22 +1208,30 @@ export const bindWrite = (
 			return Result.ok(out)
 		}
 	}
+	/** The write statements under a plan: their chunks, and the stated rows as the plan fills them, none where it is
+	 * refused, which sends no write statement. */
+	const writtenOf = (
+		plans: Result.Result<Planned, EncodingFailure | FamilyRowBound | CompileError>
+	): PlanWrites => ({
+		chunks: chunksOf(plans),
+		stated: statedRowsOf(plans.ok ? { kind: "planned", strata: plans.value.fills } : unplannedFill)
+	})
 	const flights: Flights =
 		unreadable !== undefined
-			? { kind: "write", chunks: chunksOf(Result.err(unreadable)) }
+			? { kind: "write", ...writtenOf(Result.err(unreadable)) }
 			: isNonEmpty(reads)
 				? {
 						kind: "read",
 						reads,
 						writes: (rows) => {
 							const plans = planned(rows)
-							return plans.ok ? Result.ok(chunksOf(plans)) : plans
+							return plans.ok ? Result.ok(writtenOf(plans)) : plans
 						}
 					}
-				: { kind: "write", chunks: chunksOf(planned([])) }
+				: { kind: "write", ...writtenOf(planned([])) }
 	return Result.ok({
 		kind: "bound",
-		normalized,
+		unplanned: statedRowsOf(unplannedFill),
 		skip,
 		form,
 		values,
@@ -1097,8 +1282,10 @@ const placedFor = (node: FamilyNode, statement: FamilyStatement): boolean =>
 			node.statement === statement.kind &&
 			node.relation === statement.relation
 
-/** Each stratum's plan, and each owner insert slot whose facts carry the counts and ends its members' appends draw. */
+/** Each stratum's plan, each owner insert slot whose facts carry the counts and ends its members' appends draw, and
+ * what each stratum's plan leaves (`StratumFill`). */
 interface Planned {
 	readonly plans: ReadonlyMap<number, Plan>
 	readonly slots: ReadonlyMap<ParamId, NormalizedSlot>
+	readonly fills: ReadonlyMap<number, StratumFill>
 }
