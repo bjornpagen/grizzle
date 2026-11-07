@@ -13,15 +13,35 @@ interface ScheduledAction<A> {
 /**
  * One of a stratum's family statements, as the schedule orders it among the stratum's actions: the rows of a member
  * relation a family write deletes, updates in place or inserts (`rows`), or the counts and ends of a family's owners
- * (`owners`), which update the owner relation's rows (write/family/order.ts FamilyStatement).
+ * (`owners`), the owner relation `relation` of the member relation `member`, which update the owner's rows
+ * (write/family/order.ts FamilyStatement). An update in place and a count change only the columns `changes` names, by
+ * key (write/family/fold.ts ColumnKey), each generated column that reads one of them among them.
  */
 export type FamilyNode =
 	| {
 			readonly kind: "rows"
 			readonly relation: string
-			readonly statement: "delete" | "update" | "insert"
+			readonly statement: "delete" | "insert"
 	  }
-	| { readonly kind: "owners"; readonly family: FamilyId; readonly relation: string }
+	| {
+			readonly kind: "rows"
+			readonly relation: string
+			readonly statement: "update"
+			readonly changes: ReadonlyArray<string>
+	  }
+	| {
+			readonly kind: "owners"
+			readonly family: FamilyId
+			readonly relation: string
+			readonly member: string
+			readonly changes: ReadonlyArray<string>
+	  }
+
+/** A family of the schema as the schedule orders its statements: its owner relation and its member relation. */
+export interface FamilyPair {
+	readonly owner: string
+	readonly member: string
+}
 
 /** A family statement in the stratum's order: `at`, the number of the stratum's actions that run before it. */
 export interface FamilyAt {
@@ -57,14 +77,16 @@ interface Scheduled {
 }
 
 /**
- * An immediate reference: facts of `from` name facts of `to` at every statement; `cascade` where an update of the
- * referenced facts carries itself into the referencing ones (ON UPDATE CASCADE), so only a deletion removes what they
- * reference.
+ * An immediate reference: facts of `from` name facts of `to` at every statement, by the columns `fromColumns` and
+ * `toColumns`, each by key (write/family/fold.ts ColumnKey); `cascade` where an update of the referenced facts carries
+ * itself into the referencing ones (ON UPDATE CASCADE), so only a deletion removes what they reference.
  */
 export interface ImmediateReference {
 	readonly from: string
 	readonly to: string
 	readonly cascade: boolean
+	readonly fromColumns: ReadonlyArray<string>
+	readonly toColumns: ReadonlyArray<string>
 }
 
 /** The phase of an action on its own relation. */
@@ -116,12 +138,34 @@ export const canonicalActionOrder = <A extends Scheduled>(
  *   Where the rules still order actions in a cycle, as a deletion and an insertion of one relation around a put of
  *   another that references it, no order keeps every key at every statement, and that cycle is the schedule.
  *
+ * Family statements are ordered by the same keys, and among themselves only where the family planner's rows require
+ * it, never into one order across the stratum's families, which no key requires and which closed cycles through keys
+ * that hold none:
+ * - one member relation's deletion, update in place and insertion, in that order: a counted removal frees its slot by
+ *   the deletion before the update moves the last member into it, and a re-placed row is deleted before it is
+ *   inserted again, the family's (group, index) key being immediate;
+ * - a family's count after its member's and its owner's deletions and updates, and before their insertions: the count
+ *   falls only once every kept member below the new count holds a slot below it (`CHECK (i < ‹n›)`, which the owner
+ *   axis's cascade of the count reaches), a moved member's update writes its copies from the owner as the read found
+ *   it, before the count's cascade, an owner's own update in place is planned before its counts, and a new member
+ *   carries the new count;
+ * - a member's deletion and update before its owner's, and the owner's insertion before the member's: the member
+ *   references its owner along the owner axis, and a member's update writes its copies from its owner as the read
+ *   found it, before the owner's own update cascades its new values;
+ * - one family relation's insertion before the insertion of a family relation an immediate key names it from, and
+ *   the deletion of the naming one first.
+ * Against an action, a family statement adds, removes and changes facts as the keys see them: an insertion adds, a
+ * deletion removes, and an update in place or a count adds and changes facts only at the columns it changes
+ * (FamilyNode `changes`), so a key over other columns orders nothing; and an action runs before the family statements
+ * of its own relation, whose planner reads the stratum's own writes of an owner as landed.
+ *
  * The actions are numbered in a canonical order (relation, then the phases above, then member order), sorted
  * topologically with that order breaking ties, and each action's dependsOn lists the earlier actions an edge orders
- * before it. */
+ * before it; family statements follow the actions in the order given, where nothing places them earlier. */
 export const scheduleStratum = <A extends Scheduled>(
 	actions: ReadonlyArray<A>,
 	family: ReadonlyArray<FamilyNode>,
+	pairs: ReadonlyArray<FamilyPair>,
 	references: ReadonlyArray<ImmediateReference>
 ): Schedule<A> => {
 	interface Vertex {
@@ -130,7 +174,7 @@ export const scheduleStratum = <A extends Scheduled>(
 	}
 	const vertexOf = (write: Write<A>): Vertex => ({ write, follows: new Set<Vertex>() })
 	const plain = actions.map((action) => ({ action, vertex: vertexOf({ kind: "action", action }) }))
-	const statements = family.map((node) => vertexOf({ kind: "family", node }))
+	const statements = family.map((node) => ({ node, vertex: vertexOf({ kind: "family", node }) }))
 	for (const { action: xa, vertex: x } of plain) {
 		for (const { action: ya, vertex: y } of plain) {
 			if (x === y) {
@@ -155,22 +199,64 @@ export const scheduleStratum = <A extends Scheduled>(
 			}
 		}
 	}
-	for (const [i, y] of statements.entries()) {
-		const before = statements[i - 1]
-		if (before !== undefined) {
-			y.follows.add(before)
+	/** The family statement `step` of `relation` (a member relation's rows), none where the stratum has none. */
+	const rowsOf = (relation: string, step: "delete" | "update" | "insert"): Vertex | undefined =>
+		statements.find(
+			({ node }) => node.kind === "rows" && node.relation === relation && node.statement === step
+		)?.vertex
+	const before = (first: Vertex | undefined, then: Vertex | undefined): void => {
+		if (first !== undefined && then !== undefined && first !== then) {
+			then.follows.add(first)
 		}
 	}
-	for (const { vertex: x } of plain) {
-		for (const y of statements) {
-			const a = effectOf(x.write)
-			const b = effectOf(y.write)
+	for (const { node, vertex } of statements) {
+		if (node.kind === "rows") {
+			if (node.statement === "update") {
+				before(rowsOf(node.relation, "delete"), vertex)
+				before(vertex, rowsOf(node.relation, "insert"))
+			}
+			if (node.statement === "delete") {
+				before(vertex, rowsOf(node.relation, "insert"))
+			}
+			continue
+		}
+		before(rowsOf(node.relation, "delete"), vertex)
+		before(rowsOf(node.relation, "update"), vertex)
+		before(vertex, rowsOf(node.relation, "insert"))
+		before(rowsOf(node.member, "delete"), vertex)
+		before(rowsOf(node.member, "update"), vertex)
+		before(vertex, rowsOf(node.member, "insert"))
+	}
+	for (const pair of pairs) {
+		if (pair.owner === pair.member) {
+			continue
+		}
+		before(rowsOf(pair.member, "delete"), rowsOf(pair.owner, "delete"))
+		before(rowsOf(pair.member, "update"), rowsOf(pair.owner, "update"))
+		before(rowsOf(pair.owner, "insert"), rowsOf(pair.member, "insert"))
+	}
+	for (const r of references) {
+		if (r.from === r.to) {
+			continue
+		}
+		before(rowsOf(r.to, "insert"), rowsOf(r.from, "insert"))
+		before(rowsOf(r.from, "delete"), rowsOf(r.to, "delete"))
+	}
+	for (const { action, vertex: x } of plain) {
+		for (const { node, vertex: y } of statements) {
+			const a = action.action.relation
+			if (a === node.relation) {
+				y.follows.add(x)
+			}
 			for (const r of references) {
-				if (r.to === a.relation && r.from === b.relation) {
-					order(x, a, y, b, r)
+				if (r.from === r.to) {
+					continue
 				}
-				if (r.to === b.relation && r.from === a.relation) {
-					order(y, b, x, a, r)
+				if (r.to === a && r.from === node.relation) {
+					order(x, actionEffect(action), y, familyEffect(node, r.fromColumns), r)
+				}
+				if (r.to === node.relation && r.from === a) {
+					order(y, familyEffect(node, r.toColumns), x, actionEffect(action), r)
 				}
 			}
 		}
@@ -178,7 +264,10 @@ export const scheduleStratum = <A extends Scheduled>(
 	const sequence: Array<Vertex> = []
 	const placed = new Set<Vertex>()
 	for (
-		let remaining: ReadonlyArray<Vertex> = [...plain.map((p) => p.vertex), ...statements];
+		let remaining: ReadonlyArray<Vertex> = [
+			...plain.map((p) => p.vertex),
+			...statements.map((s) => s.vertex)
+		];
 		isNonEmpty(remaining);
 	) {
 		const ready = remaining.find((v) => [...v.follows].every((u) => placed.has(u)))
@@ -220,41 +309,36 @@ const actionOf = <A>(write: Write<A>): A => {
 }
 
 /**
- * What a write does to its relation's facts as a reference sees them: whether it adds facts that reference or are
- * referenced, and whether it removes them, as the source of a reference and as its target. A put of a relation with a
- * payload displaces the occupant of each key it writes, and an update in place, a family's or its owners' counts,
- * changes the facts it updates; as a target, either removes what is referenced only where no cascade carries the
- * change into the referencing facts.
+ * What a write does to the facts a reference names, at the reference's columns: whether it adds facts there, removes
+ * them, or updates them in place.
  */
 interface Effect {
-	readonly relation: string
 	readonly adds: boolean
 	readonly removes: boolean
 	readonly updates: boolean
 }
 
-const effectOf = <A extends Scheduled>(write: Write<A>): Effect => {
-	if (write.kind === "action") {
-		const { action } = write
-		return {
-			relation: action.action.relation,
-			adds: adds(action),
-			removes: action.action.op === "delete",
-			updates: action.action.op === "put" && !action.pureSet
-		}
+/** An action's effect: an insertion adds, a deletion removes, a put adds, and a put of a relation with a payload also
+ * updates, displacing the occupant of each key it writes. */
+const actionEffect = (action: Scheduled): Effect => ({
+	adds: adds(action),
+	removes: action.action.op === "delete",
+	updates: action.action.op === "put" && !action.pureSet
+})
+
+/**
+ * A family statement's effect at a reference's `columns` on its relation: an insertion adds and a deletion removes;
+ * an update in place and a count add and update there only where they change one of those columns, and leave the
+ * reference alone otherwise.
+ */
+const familyEffect = (node: FamilyNode, columns: ReadonlyArray<string>): Effect => {
+	if (node.kind === "rows" && node.statement !== "update") {
+		return node.statement === "insert"
+			? { adds: true, removes: false, updates: false }
+			: { adds: false, removes: true, updates: false }
 	}
-	const node = write.node
-	if (node.kind === "owners") {
-		return { relation: node.relation, adds: true, removes: false, updates: true }
-	}
-	switch (node.statement) {
-		case "delete":
-			return { relation: node.relation, adds: false, removes: true, updates: false }
-		case "update":
-			return { relation: node.relation, adds: true, removes: false, updates: true }
-		case "insert":
-			return { relation: node.relation, adds: true, removes: false, updates: false }
-	}
+	const touched = node.changes.some((c) => columns.includes(c))
+	return { adds: touched, removes: false, updates: touched }
 }
 
 /**

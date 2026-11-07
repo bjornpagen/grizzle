@@ -77,17 +77,19 @@ import { fixedSentence } from "#compiler/write/family/edit.ts"
 import {
 	closedLeaf,
 	type ClosedRows,
+	columnKey,
 	type HostEvaluator,
 	hostEvaluator,
 	literalHost
 } from "#compiler/write/family/fold.ts"
 import { type Nesting, nestingOf } from "#compiler/write/family/nesting.ts"
 import { staleRead } from "#compiler/write/family/redraw.ts"
-import { memberFamilies, rowLayout } from "#compiler/write/family/statements.ts"
+import { endColumns, memberFamilies, rowLayout } from "#compiler/write/family/statements.ts"
 import {
 	canonicalActionOrder,
 	type FamilyAt,
 	type FamilyNode,
+	type FamilyPair,
 	type ImmediateReference,
 	scheduleStratum
 } from "#compiler/write/frontend/schedule.ts"
@@ -1736,10 +1738,37 @@ const compile = (
 					{
 						from: n.object.relation.name,
 						to: n.object.target.name,
-						cascade: n.object.onUpdate === "cascade"
+						cascade: n.object.onUpdate === "cascade",
+						fromColumns: n.object.columns.map(columnKey),
+						toColumns: n.object.targetColumns.map(columnKey)
 					}
 				]
 			: []
+	)
+	/**
+	 * The columns of `relation` PostgreSQL generates, by key: its generated fields, and every law column of it a foreign
+	 * key names that no family draws on its rows, a selected side's term or a pred term. Each reads the row's other
+	 * columns, so an update of the row may change it whichever of them it writes.
+	 */
+	const generatedOf = (relation: string): ReadonlyArray<string> => {
+		const drawn = new Set(rowLayout(writtenOf(relation, at), families).columns.map((c) => c.key))
+		return [
+			...writtenOf(relation, at).fields.flatMap((f) =>
+				f.writing.kind === "generated" ? [columnKey({ kind: "field", field: f })] : []
+			),
+			...laws.natives.flatMap((n) =>
+				n.object.kind === "ForeignKey"
+					? [
+							...(n.object.relation.name === relation ? n.object.columns : []),
+							...(n.object.target.name === relation ? n.object.targetColumns : [])
+						].flatMap((c) => (c.kind === "law" && !drawn.has(columnKey(c)) ? [columnKey(c)] : []))
+					: []
+			)
+		]
+	}
+	/** The families of the schema as the schedule orders their statements, a tree's aside: each owner and member. */
+	const pairs: ReadonlyArray<FamilyPair> = families.flatMap((f) =>
+		isTreeOf(f, f.member.name) ? [] : [{ owner: f.owner.name, member: f.member.name }]
 	)
 	/** Each relation's depth among the families, which orders a stratum's family statements among themselves. */
 	const depthOf = relationDepths(families)
@@ -1761,21 +1790,42 @@ const compile = (
 		]
 		const deepest = (names: ReadonlyArray<string>) =>
 			names.toSorted((a, b) => depthOf(b) - depthOf(a))
-		const settable = (name: string): boolean =>
-			rowLayout(writtenOf(name, at), families).columns.some((c) => c.settable)
+		/** The columns an update in place of `name` sets. */
+		const settable = (name: string): ReadonlyArray<string> =>
+			rowLayout(writtenOf(name, at), families).columns.flatMap((c) => (c.settable ? [c.key] : []))
 		return [
 			...deepest(edited).map((relation): FamilyNode => ({
 				kind: "rows",
 				relation,
 				statement: "delete"
 			})),
-			...deepest(edited)
-				.filter(settable)
-				.map((relation): FamilyNode => ({ kind: "rows", relation, statement: "update" })),
+			...deepest(edited).flatMap((relation): ReadonlyArray<FamilyNode> => {
+				const set = settable(relation)
+				return isNonEmpty(set)
+					? [
+							{
+								kind: "rows",
+								relation,
+								statement: "update",
+								changes: [...set, ...generatedOf(relation)]
+							}
+						]
+					: []
+			}),
 			...edited.flatMap((relation) =>
 				memberFamilies(relation, families)
 					.filter((f) => !isTreeOf(f, relation))
-					.map((f): FamilyNode => ({ kind: "owners", family: f.id, relation: f.owner.name }))
+					.map((f): FamilyNode => ({
+						kind: "owners",
+						family: f.id,
+						relation: f.owner.name,
+						member: f.member.name,
+						changes: [
+							columnKey({ kind: "field", field: f.count }),
+							...endColumns(f).map((field) => columnKey({ kind: "field", field })),
+							...generatedOf(f.owner.name)
+						]
+					}))
 			),
 			...deepest(inserted)
 				.toReversed()
@@ -1791,6 +1841,7 @@ const compile = (
 				built.map((b) => ({ ...b, pureSet: payloadOf(b.info.relation).kind === "pureSet" }))
 			),
 			familyNodesOf(stratum),
+			pairs,
 			references
 		)
 		if (schedule.kind === "cycle") {

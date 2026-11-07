@@ -328,6 +328,13 @@ How to upgrade:
   They all ran after the stratum's other statements, so an owner deleted beside its members, or a row whose key names
   a family's member inserted beside that member, failed with 23503. One schedule now orders both by every foreign key
   between them, and refuses with `UnorderableStratum` where none exists. No codemod.
+- **Family statements are ordered among themselves only where a family requires it.** The single schedule chained every
+  family statement of a stratum into one total order, which no key required, so a large stratum's few real key edges
+  closed a cycle through it and a lawful ChangeSet was refused with `UnorderableStratum`. A family update or count also
+  counted against every key of its relation, even one over columns it never writes. Now one member relation's
+  delete, update and insert, a family's count against its member's and owner's writes, the owner axis, and an
+  immediate key between two family relations are the only orders, and a family update or count meets a key only at
+  the columns it changes. No codemod.
 
 - **A field grizzle fills that reads a column its source fills after it is `UnfillableField`** (new reason), at the
   law that states it, naming the field, the law, the column it reads, the axis and why that column is later

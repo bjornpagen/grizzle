@@ -1,14 +1,23 @@
 import { describe, it } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { boolean, element, type Gen, subarray } from "@grizzle/testing/gen"
+import { drawn, exhaust, explore } from "@grizzle/testing/explore"
+import { required, requiredInSpace } from "@grizzle/testing/features"
+import { boolean, element, type Gen, int, subarray } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
+import { boundedShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter } from "effect"
+import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
 import { ParamId } from "#compiler/core/ids.ts"
 import type { ActionCore } from "#compiler/ir/write.ts"
 import { completeClass } from "#compiler/ir/write.ts"
-import { canonicalActionOrder, scheduleStratum } from "#compiler/write/frontend/schedule.ts"
-import { assert } from "#test/support/assert.ts"
+import {
+	canonicalActionOrder,
+	type FamilyNode,
+	type FamilyPair,
+	type ImmediateReference,
+	scheduleStratum,
+	type Write
+} from "#compiler/write/frontend/schedule.ts"
+import { assert, defined } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 
 /**
@@ -236,6 +245,413 @@ type Situation =
 	| "both put, the source named first"
 	| "both put, the target named first"
 
+/**
+ * A generated stratum at an import's scale: up to 24 relations, families between them, each an owner and a member, and
+ * the stratum's writes: plain actions of the relations no family has as a member, a deletion, a put or an insertion
+ * each, and family statements of the members it edits, their deletions, updates in place and insertions, and the
+ * counts of every family of an edited member, so an owner of several families takes several counts. Its immediate
+ * references are each family's owner axis, where drawn immediate, cascading and naming the member's group, count copy
+ * and a copy of the owner's `a`, and laws' keys between any two relations, naming columns drawn from each side.
+ *
+ * The box before this one draws two relations and plain actions alone, so no family statement ever met a search: the
+ * total order the family statements used to keep among themselves, which together with a key between a plain action
+ * and a family statement closed cycles no key requires, refused an import of 152 inserts beside updates and counts.
+ */
+interface Stratum {
+	readonly actions: ReadonlyArray<StratumAction>
+	readonly family: ReadonlyArray<FamilyNode>
+	readonly pairs: ReadonlyArray<FamilyPair>
+	readonly references: ReadonlyArray<ImmediateReference>
+}
+
+/** A plain action of a generated stratum, by its relation and operation, its relation a pure set or not. */
+interface StratumAction {
+	readonly action: ActionCore
+	readonly pureSet: boolean
+}
+
+const relationName = (r: number): string => `R${String(r)}`
+
+const stratumGen: Gen<Stratum> = (source) => {
+	const n = source.draw(int(2, 24))
+	const families = Arr.makeBy(source.draw(int(0, n)), (k) => {
+		const owner = source.draw(int(0, n - 2))
+		return { k, owner, member: source.draw(int(owner + 1, n - 1)) }
+	})
+	const members = new Set(Arr.map(families, (f) => f.member))
+	const ownAxis = Arr.flatMap(families, (f): ReadonlyArray<ImmediateReference> =>
+		source.draw(boolean)
+			? [
+					{
+						from: relationName(f.member),
+						to: relationName(f.owner),
+						cascade: true,
+						fromColumns: [`field:g${String(f.k)}`, `law:n${String(f.k)}`, `field:c${String(f.k)}`],
+						toColumns: ["field:id", `field:n${String(f.k)}`, "field:a"]
+					}
+				]
+			: []
+	)
+	const columnsOf = (r: number): ReadonlyArray<string> => [
+		"field:id",
+		"field:a",
+		"field:b",
+		...Arr.flatMap(families, (f) =>
+			f.owner === r ? [`field:n${String(f.k)}`, `field:e${String(f.k)}`] : []
+		),
+		...Arr.flatMap(families, (f) => (f.member === r ? [`field:c${String(f.k)}`] : []))
+	]
+	const laws = Arr.makeBy(source.draw(int(0, n)), (): ImmediateReference => {
+		const from = source.draw(int(0, n - 1))
+		const to = source.draw(int(0, n - 1))
+		const fromColumns = source.draw(subarray(columnsOf(from)))
+		const toColumns = source.draw(subarray(columnsOf(to)))
+		return {
+			from: relationName(from),
+			to: relationName(to),
+			cascade: false,
+			fromColumns: Arr.isReadonlyArrayNonEmpty(fromColumns) ? fromColumns : ["field:a"],
+			toColumns: Arr.isReadonlyArrayNonEmpty(toColumns) ? toColumns : ["field:id"]
+		}
+	})
+	const actions: Array<StratumAction> = []
+	const family: Array<FamilyNode> = []
+	const counts: Array<FamilyNode> = []
+	const inserts: Array<FamilyNode> = []
+	const updates: Array<FamilyNode> = []
+	for (let r = 0; r < n; r += 1) {
+		const relation = relationName(r)
+		if (!members.has(r)) {
+			const pureSet = source.draw(boolean)
+			const source_ = { kind: "enumerated", slot: ParamId(`${relation} member`) } as const
+			for (const op of source.draw(subarray(["delete", "put", "insert"] as const))) {
+				actions.push({
+					pureSet,
+					action:
+						op === "insert"
+							? { op, serial: completeClass, relation, source: source_ }
+							: { op, relation, source: source_ }
+				})
+			}
+			continue
+		}
+		if (!source.draw(boolean)) {
+			continue
+		}
+		if (source.draw(boolean)) {
+			family.push({ kind: "rows", relation, statement: "delete" })
+		}
+		const changes = source.draw(subarray(columnsOf(r)))
+		if (Arr.isReadonlyArrayNonEmpty(changes)) {
+			updates.push({ kind: "rows", relation, statement: "update", changes })
+		}
+		for (const f of families) {
+			if (f.member === r) {
+				counts.push({
+					kind: "owners",
+					family: { owner: relationName(f.owner), count: `n${String(f.k)}` },
+					relation: relationName(f.owner),
+					member: relation,
+					changes: [`field:n${String(f.k)}`, `field:e${String(f.k)}`]
+				})
+			}
+		}
+		if (source.draw(boolean)) {
+			inserts.push({ kind: "rows", relation, statement: "insert" })
+		}
+	}
+	return {
+		actions,
+		family: [...family, ...updates, ...counts, ...inserts],
+		pairs: Arr.map(families, (f) => ({
+			owner: relationName(f.owner),
+			member: relationName(f.member)
+		})),
+		references: [...ownAxis, ...laws]
+	}
+}
+
+/** A write of a stratum by its number: an action's position among its actions, a family statement's after them. */
+const writeId = <A>(stratum: Stratum, w: Write<A>): number =>
+	w.kind === "action"
+		? defined(
+				Option.getOrUndefined(Arr.findFirstIndex(stratum.actions, (a) => a === w.action)),
+				"an action of the stratum"
+			)
+		: stratum.actions.length +
+			defined(
+				Option.getOrUndefined(Arr.findFirstIndex(stratum.family, (f) => f === w.node)),
+				"a family statement of the stratum"
+			)
+
+const edgeKey = (from: number, to: number): string => `${String(from)}>${String(to)}`
+
+const edgeOf = (key: string): readonly [number, number] => {
+	const [from, to] = Str.split(key, ">")
+	return [Number(defined(from, "an edge's first")), Number(defined(to, "an edge's second"))]
+}
+
+/** The phase of a plain action on its own relation: deletions, then puts, then insertions. */
+const plainPhase = { delete: 0, put: 1, insert: 2 } as const
+
+/**
+ * Every order a stratum's writes require, edge by edge, stated apart from the schedule:
+ * - a referenced fact is added before a fact that names it, and a naming fact removed before the fact it names: an
+ *   insertion or a put adds, a deletion or a put of a relation with a payload removes; a family's insertion adds and
+ *   its deletion removes, and its update in place or count adds and changes facts only at the columns it changes, a
+ *   change a removal only where no cascade carries it;
+ * - one relation's plain deletion, put and insertion run in that order, and its plain actions before its family
+ *   statements;
+ * - a member's deletion, update and insertion run in that order; a family's count after its member's and its owner's
+ *   deletions and updates and before their insertions; a member's deletion and update before its owner's, and its
+ *   owner's insertion before its own; and a family insertion before the family insertion that names it, and a family
+ *   deletion that names before the one it names. Nothing else orders family statements among themselves: two families'
+ *   statements of unrelated relations, an owner's counts of several families among them, run in any order.
+ */
+const requiredEdges = (stratum: Stratum): ReadonlySet<string> => {
+	const edges = new Set<string>()
+	const add = (from: number | undefined, to: number | undefined): void => {
+		if (from !== undefined && to !== undefined && from !== to && from >= 0 && to >= 0) {
+			edges.add(edgeKey(from, to))
+		}
+	}
+	const plains = Arr.map(stratum.actions, (a, i) => ({ a, id: i }))
+	const families = Arr.map(stratum.family, (f, i) => ({ f, id: stratum.actions.length + i }))
+	const rowsOf = (relation: string, statement: "delete" | "update" | "insert") =>
+		Arr.findFirst(
+			families,
+			({ f }) => f.kind === "rows" && f.relation === relation && f.statement === statement
+		).pipe(
+			Option.map((x) => x.id),
+			Option.getOrUndefined
+		)
+	const plainAdds = (a: StratumAction) => a.action.op !== "delete"
+	const plainRemoves = (a: StratumAction) =>
+		a.action.op === "delete" || (a.action.op === "put" && !a.pureSet)
+	for (const x of plains) {
+		for (const y of plains) {
+			const a = x.a.action
+			const b = y.a.action
+			if (x.id === y.id) {
+				continue
+			}
+			if (a.relation === b.relation) {
+				if (plainPhase[a.op] < plainPhase[b.op]) {
+					add(x.id, y.id)
+				}
+				continue
+			}
+			if (Arr.some(stratum.references, (r) => r.from === b.relation && r.to === a.relation)) {
+				if (plainAdds(x.a) && plainAdds(y.a)) {
+					add(x.id, y.id)
+				}
+				if (plainRemoves(x.a) && plainRemoves(y.a)) {
+					add(y.id, x.id)
+				}
+			}
+		}
+	}
+	for (const { f, id } of families) {
+		if (f.kind === "rows") {
+			if (f.statement !== "delete") {
+				add(rowsOf(f.relation, "delete"), id)
+			}
+			if (f.statement !== "insert") {
+				add(id, rowsOf(f.relation, "insert"))
+			}
+			continue
+		}
+		for (const relation of [f.relation, f.member]) {
+			add(rowsOf(relation, "delete"), id)
+			add(rowsOf(relation, "update"), id)
+			add(id, rowsOf(relation, "insert"))
+		}
+	}
+	for (const p of stratum.pairs) {
+		if (p.owner === p.member) {
+			continue
+		}
+		add(rowsOf(p.member, "delete"), rowsOf(p.owner, "delete"))
+		add(rowsOf(p.member, "update"), rowsOf(p.owner, "update"))
+		add(rowsOf(p.owner, "insert"), rowsOf(p.member, "insert"))
+	}
+	for (const r of stratum.references) {
+		if (r.from === r.to) {
+			continue
+		}
+		add(rowsOf(r.to, "insert"), rowsOf(r.from, "insert"))
+		add(rowsOf(r.from, "delete"), rowsOf(r.to, "delete"))
+	}
+	/** A family statement's additions and changes at a reference's columns. */
+	const touches = (f: FamilyNode, columns: ReadonlyArray<string>) =>
+		f.kind === "rows" && f.statement !== "update"
+			? { adds: f.statement === "insert", removes: f.statement === "delete", changes: false }
+			: (() => {
+					const at = Arr.some(f.changes, (c) => columns.includes(c))
+					return { adds: at, removes: false, changes: at }
+				})()
+	for (const x of plains) {
+		for (const { f, id } of families) {
+			if (x.a.action.relation === f.relation) {
+				add(x.id, id)
+			}
+			for (const r of stratum.references) {
+				if (r.from === r.to) {
+					continue
+				}
+				if (r.to === x.a.action.relation && r.from === f.relation) {
+					const t = touches(f, r.fromColumns)
+					if (plainAdds(x.a) && t.adds) {
+						add(x.id, id)
+					}
+					if (
+						(x.a.action.op === "delete" || (plainRemoves(x.a) && !r.cascade)) &&
+						(t.removes || t.changes)
+					) {
+						add(id, x.id)
+					}
+				}
+				if (r.to === f.relation && r.from === x.a.action.relation) {
+					const t = touches(f, r.toColumns)
+					if (t.adds && plainAdds(x.a)) {
+						add(id, x.id)
+					}
+					if ((t.removes || (t.changes && !r.cascade)) && plainRemoves(x.a)) {
+						add(x.id, id)
+					}
+				}
+			}
+		}
+	}
+	return edges
+}
+
+/** Whether `edges` over a stratum's writes close a cycle. */
+const hasCycle = (stratum: Stratum, edges: ReadonlySet<string>): boolean => {
+	const writes = stratum.actions.length + stratum.family.length
+	const next = new Map<number, Array<number>>()
+	for (const edge of edges) {
+		const [from, to] = edgeOf(edge)
+		next.set(from, [...(next.get(from) ?? []), to])
+	}
+	const state = new Map<number, "open" | "done">()
+	const visit = (at: number): boolean => {
+		state.set(at, "open")
+		for (const to of next.get(at) ?? []) {
+			const seen = state.get(to)
+			if (seen === "open" || (seen === undefined && visit(to))) {
+				return true
+			}
+		}
+		state.set(at, "done")
+		return false
+	}
+	return Arr.some(Arr.range(0, writes - 1), (w) => state.get(w) === undefined && visit(w))
+}
+
+/**
+ * The import's shape the schedule once refused: R2, inserted by the stratum's own action, names R0 by an immediate key
+ * over R0's count, as a containment from R2 into a selection of R0 by its count does, and owns a counted family of R3,
+ * whose update in place the stratum plans; R0's counted family of R1 takes an insert and so a count. A total order of the family statements put the update before every count, the count of R0 before R2's
+ * insert, and R2's insert before the update of its member: a cycle no key requires.
+ */
+const importShape: Stratum = {
+	actions: [
+		{
+			pureSet: false,
+			action: {
+				op: "insert",
+				serial: completeClass,
+				relation: "R2",
+				source: { kind: "enumerated", slot: ParamId("R2 member") }
+			}
+		}
+	],
+	family: [
+		{ kind: "rows", relation: "R3", statement: "update", changes: ["field:c1"] },
+		{
+			kind: "owners",
+			family: { owner: "R0", count: "n0" },
+			relation: "R0",
+			member: "R1",
+			changes: ["field:n0", "field:e0"]
+		},
+		{
+			kind: "owners",
+			family: { owner: "R2", count: "n1" },
+			relation: "R2",
+			member: "R3",
+			changes: ["field:n1", "field:e1"]
+		},
+		{ kind: "rows", relation: "R1", statement: "insert" }
+	],
+	pairs: [
+		{ owner: "R0", member: "R1" },
+		{ owner: "R2", member: "R3" }
+	],
+	references: [
+		{
+			from: "R1",
+			to: "R0",
+			cascade: true,
+			fromColumns: ["field:g0", "law:n0", "field:c0"],
+			toColumns: ["field:id", "field:n0", "field:a"]
+		},
+		{
+			from: "R3",
+			to: "R2",
+			cascade: true,
+			fromColumns: ["field:g1", "law:n1", "field:c1"],
+			toColumns: ["field:id", "field:n1", "field:a"]
+		},
+		{
+			from: "R2",
+			to: "R0",
+			cascade: false,
+			fromColumns: ["field:a"],
+			toColumns: ["field:id", "field:n0"]
+		}
+	]
+}
+
+type StratumSituation =
+	| "ordered"
+	| "refused: a required cycle"
+	| "several counts of one relation"
+	| "counts, updates and inserts together"
+	| "a reference from a plain relation into a family member"
+	| "a family member's reference into a plain relation"
+
+const stratumSituations: Arr.NonEmptyReadonlyArray<StratumSituation> = [
+	"ordered",
+	"refused: a required cycle",
+	"several counts of one relation",
+	"counts, updates and inserts together",
+	"a reference from a plain relation into a family member",
+	"a family member's reference into a plain relation"
+]
+
+/** The shapes a generated stratum holds. */
+const stratumShapes = (stratum: Stratum): ReadonlyArray<StratumSituation> => {
+	const owners = Arr.flatMap(stratum.family, (f) => (f.kind === "owners" ? [f.relation] : []))
+	const familyRelations = new Set(Arr.map(stratum.family, (f) => f.relation))
+	const plainRelations = new Set(Arr.map(stratum.actions, (a) => a.action.relation))
+	const has = (statement: "update" | "insert") =>
+		Arr.some(stratum.family, (f) => f.kind === "rows" && f.statement === statement)
+	return [
+		...(new Set(owners).size < owners.length ? (["several counts of one relation"] as const) : []),
+		...(owners.length > 0 && has("update") && has("insert")
+			? (["counts, updates and inserts together"] as const)
+			: []),
+		...(Arr.some(stratum.references, (r) => plainRelations.has(r.from) && familyRelations.has(r.to))
+			? (["a reference from a plain relation into a family member"] as const)
+			: []),
+		...(Arr.some(stratum.references, (r) => familyRelations.has(r.from) && plainRelations.has(r.to))
+			? (["a family member's reference into a plain relation"] as const)
+			: [])
+	]
+}
+
 describe("a stratum's schedule", () => {
 	it.effect(
 		"keeps an immediate foreign key into a pure set at every statement, or names a cycle no order keeps",
@@ -281,7 +697,16 @@ describe("a stratum's schedule", () => {
 									}))
 								),
 								[],
-								[{ from: nameOf(shape, "C"), to: nameOf(shape, "P"), cascade: false }]
+								[],
+								[
+									{
+										from: nameOf(shape, "C"),
+										to: nameOf(shape, "P"),
+										cascade: false,
+										fromColumns: ["field:p"],
+										toColumns: ["field:id"]
+									}
+								]
 							)
 							if (schedule.kind === "ordered") {
 								const order = Arr.map(schedule.actions, ({ scheduled }) => scheduled)
@@ -328,6 +753,102 @@ describe("a stratum's schedule", () => {
 										: "both put, the target named first"
 								)
 							}
+						})
+				)
+			)
+	)
+
+	it.effect(
+		"orders every generated stratum exactly when the writes' required order holds no cycle, and keeps every required order",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/write/schedule-strata",
+						draw: drawn(stratumGen),
+						literal: Formatter.format,
+						coverage: required<StratumSituation>(stratumSituations, {
+							cases: 400,
+							sense: notesOnly
+						}),
+						kept: [
+							{
+								note: "an import's shape: a plain owner inserted beside its family's member updated, and the count of another owner the plain owner names",
+								sketch: importShape,
+								draws: "",
+								reaches: [
+									"ordered",
+									"counts, updates and inserts together",
+									"a reference from a plain relation into a family member"
+								]
+							}
+						],
+						runs: 300,
+						shrink: boundedShrink(400),
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang,
+						oracle: {
+							kind: "second-implementation",
+							name: "the required order of a stratum's writes, stated edge by edge from the keys and the family planner's rules"
+						}
+					},
+					(stratum, c) =>
+						Effect.sync(() => {
+							c.noteAll(stratumShapes(stratum))
+							const required = requiredEdges(stratum)
+							const cyclic = hasCycle(stratum, required)
+							const schedule = scheduleStratum(
+								canonicalActionOrder(stratum.actions),
+								stratum.family,
+								stratum.pairs,
+								stratum.references
+							)
+							if (schedule.kind === "cycle") {
+								assert.ok(
+									cyclic,
+									"the schedule refuses only a stratum whose required order has a cycle"
+								)
+								const cycle = Arr.map(schedule.cycle, (w) => writeId(stratum, w))
+								for (const [i, at] of cycle.entries()) {
+									const next = defined(cycle[(i + 1) % cycle.length], "a cycle's next write")
+									assert.ok(
+										required.has(edgeKey(at, next)),
+										`the cycle's ${String(at)} before ${String(next)} is required`
+									)
+								}
+								c.note("refused: a required cycle")
+								return
+							}
+							assert.ok(
+								!cyclic,
+								"the schedule orders every stratum whose required order has no cycle"
+							)
+							const position = new Map<number, number>()
+							let next = 0
+							for (let i = 0; i <= schedule.actions.length; i += 1) {
+								for (const f of schedule.family) {
+									if (f.at === i) {
+										position.set(writeId(stratum, { kind: "family", node: f.node }), next)
+										next += 1
+									}
+								}
+								const action = schedule.actions[i]
+								if (action !== undefined) {
+									position.set(writeId(stratum, { kind: "action", action: action.scheduled }), next)
+									next += 1
+								}
+							}
+							for (const edge of required) {
+								const [from, to] = edgeOf(edge)
+								assert.ok(
+									defined(position.get(from), "a placed write") <
+										defined(position.get(to), "a placed write"),
+									`the required order ${String(from)} before ${String(to)} holds`
+								)
+							}
+							c.note("ordered")
 						})
 				)
 			)
