@@ -1,4 +1,5 @@
 import { identifierOf, identity } from "#compiler/core/identity.ts"
+import { defined } from "#compiler/core/invariant.ts"
 import {
 	constantDigestOf,
 	constantOfLiteral,
@@ -149,18 +150,26 @@ const relationAt = (
 			continue
 		}
 		const codes = cell === undefined ? undefined : keyCodesAt(c.key, cell, valuesOf)
+		/** A closed id's handle by the installation's codes; a fin slot's index, which no roster names. */
 		const handleOf = (field: string, code: bigint): string => {
-			const type = desc.fields[field]
-			const roster = type?.kind === "closedId" ? type.roster : undefined
-			const codec = [...installation.names.codes.rosters].find(([name]) => name === roster)?.[1]
-			return codec?.names[Number(code)] ?? String(code)
+			const type = defined(desc.fields[field], "a closed relation declares each of its key fields")
+			if (type.kind !== "closedId") {
+				return String(code)
+			}
+			const codec = defined(
+				[...installation.names.codes.rosters.values()].find((held) => held.roster === type.roster),
+				"the codebook holds every roster"
+			)
+			return defined(codec.names[Number(code)], "a key code below its roster's size")
 		}
 		return {
 			relation: desc.name,
 			key:
 				codes === undefined
 					? undefined
-					: desc.key.map((field, i) => handleOf(field, codes[i] ?? -1n))
+					: desc.key.map((field, i) =>
+							handleOf(field, defined(codes[i], "a code of each key field"))
+						)
 		}
 	}
 	return undefined

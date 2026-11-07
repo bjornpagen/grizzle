@@ -284,7 +284,8 @@ const keyFieldsOf = (key: PlannedKey): NonEmptyReadonlyArray<KeyField> =>
 	key.kind === "product" ? key.fields : extendNonEmpty(key.owner, key.block)
 
 /** The handle a code spells in a refusal: a live handle, or a hole's empty name. */
-const codeName = (codec: RosterCodec, code: number): string => codec.names[code] ?? ""
+const codeName = (codec: RosterCodec, code: number): string =>
+	defined(codec.names[code], "a code below its roster's size")
 
 /** The digits of `index` in the mixed-radix space of `sizes`, the first most significant. */
 const digitsOf = (

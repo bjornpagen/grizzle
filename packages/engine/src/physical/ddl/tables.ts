@@ -12,6 +12,7 @@ import {
 	type NonEmptyReadonlyArray
 } from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
+import { codecOf } from "#compiler/ir/codes.ts"
 import type { ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
 import type {
 	IndexRows,
@@ -234,10 +235,7 @@ const setUniqueBound = (
 		const base = baseOf(field.type)
 		const datum =
 			base.carrier === "bits"
-				? setDatumBound(
-						[...b.names.codes.rosters].find(([name]) => name === base.roster.closed)?.[1]?.size ??
-							base.roster.handles.length
-					)
+				? setDatumBound(codecOf(b.names.codes, base.roster).size)
 				: datumBound(field.desc)
 		const name = column.kind === "field" ? column.field.name : column.column
 		if (datum === undefined) {

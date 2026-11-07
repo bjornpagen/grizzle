@@ -13,7 +13,7 @@ import { digest, ownedDigest } from "#compiler/core/fingerprint.ts"
 import { type DeclaredName, parseDeclaredName } from "#compiler/core/identity.ts"
 import type { SchemaFingerprint } from "#compiler/core/ids.ts"
 import { SchemaFingerprint as toSchemaFingerprint } from "#compiler/core/ids.ts"
-import { defect } from "#compiler/core/invariant.ts"
+import { defect, defined } from "#compiler/core/invariant.ts"
 import { maxStringLength } from "#compiler/core/limits.ts"
 import { type Lines, textOf } from "#compiler/core/lines.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -191,7 +191,7 @@ const theoryOf = (installation: Installation): SnapshotTheory => {
 		level: t.level,
 		fields: t.fields.map((f) => fieldOf(t.name, f)),
 		primaryKey: t.primaryKey,
-		attnums: created.get(t.ident) ?? t.fields.length
+		attnums: defined(created.get(t.ident), "every stored relation is installed as a table")
 	})
 	/** A derived relation's or a roster's record, from its ownership; a stored relation's is its theory handle's. */
 	const ownedRecord = (

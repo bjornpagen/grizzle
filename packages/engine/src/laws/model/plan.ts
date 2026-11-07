@@ -956,7 +956,7 @@ export class Recognizer {
 			case "fold": {
 				const planned = this.#familyPlan(d.family, loc)
 				return done([
-					...(planned.folds[d.fold] ?? []),
+					...(planned.folds[d.fold] ?? missing(`the columns of fold ${d.fold} of its family`)),
 					planned.axes.predecessor.foreignKey,
 					planned.axes.last.foreignKey,
 					...this.#axisNatives(planned, ["predecessor", "last"]),
@@ -2067,8 +2067,12 @@ class FamilyPlanner {
 		if (column.kind !== "drawn" || column.draws.kind !== "before") {
 			return undefined
 		}
-		const plane = this.#family.folds[column.draws.fold]?.planes[column.draws.plane]
-		return plane === undefined ? undefined : { start: plane.identity, type: plane.end.type }
+		const plane =
+			this.#family.folds[column.draws.fold]?.planes[column.draws.plane] ??
+			missing(
+				`plane ${column.draws.plane} of fold ${column.draws.fold}, a drawn column of its own family`
+			)
+		return { start: plane.identity, type: plane.end.type }
 	}
 
 	/**

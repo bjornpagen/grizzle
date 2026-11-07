@@ -4,7 +4,12 @@ import { bitsColumn, codeColumn } from "#compiler/core/decoder.ts"
 import { defined } from "#compiler/core/invariant.ts"
 import { handleMaxBytes } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import {
+	isNonEmpty,
+	lastNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { builtMark } from "#compiler/core/phantom.ts"
 import { hasProperties, isList } from "#compiler/core/record.ts"
@@ -813,7 +818,7 @@ const closedReadTyping = (
 	}
 	const types = new Map(Object.entries(described).map(([field, d]) => [field, d.scalar] as const))
 	const payload = new Set(Object.keys(described).filter((field) => !desc.key.includes(field)))
-	const last = desc.key[desc.key.length - 1] ?? desc.key[0]
+	const last = lastNonEmpty(desc.key)
 	const lastDesc = typeOf(last).desc
 	const handles = rosterHandlesOf(descriptors[last])
 	if (lastDesc.kind !== "closedId" || handles === undefined || !isNonEmpty(handles)) {

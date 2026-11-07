@@ -3,6 +3,7 @@ import type { KeyFault } from "#compiler/core/causes.ts"
 import { CompileError, type ProseTag, prose } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
 import type { ConstraintName, IndexName, LawId } from "#compiler/core/ids.ts"
+import { defined } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import {
 	extendNonEmpty,
@@ -1055,7 +1056,7 @@ const createIndex = (b: InstallBuilder, planned: Planned, draft: Draft): Planned
 					datums.value.map((d, i) => ({
 						name: d.field,
 						datum: d.datum,
-						nullable: keys[i]?.column.kind === "law"
+						nullable: defined(keys[i], "a datum per key").column.kind === "law"
 					}))
 				)
 				if (!entry.ok) {

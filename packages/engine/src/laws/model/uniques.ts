@@ -186,7 +186,7 @@ const spanObject = (
 	span: NativeColumn,
 	lawColumns: LawColumns,
 	named: Named
-): UniqueObject | undefined => {
+): Extract<UniqueObject, { readonly kind: "span" }> | undefined => {
 	const c = compared(relation, [span, ...scalars], lawColumns)
 	if (c === undefined) {
 		return undefined
@@ -266,7 +266,7 @@ const uniqueOf = (n: NamedNative, lawColumns: LawColumns): ReadonlyArray<Placed>
 				return []
 			}
 			const object = spanObject(o.relation, o.key.scalars, o.span, lawColumns, named)
-			if (object?.kind !== "span") {
+			if (object === undefined) {
 				return []
 			}
 			/** A declared span key is a key of its relation; one over a projected side holds apart only its side's rows. */

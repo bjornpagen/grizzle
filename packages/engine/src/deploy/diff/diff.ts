@@ -899,9 +899,12 @@ class Differ {
 			table: ObjectName,
 			columns: ReadonlyArray<string>
 		): ReadonlyArray<Replacement> => {
-			const fates = this.keptTables.get(tableIdent(table))?.fates
+			const kept = this.keptTables.get(tableIdent(table))
+			if (kept === undefined) {
+				return []
+			}
 			return columns.flatMap((c) => {
-				const how = fates?.get(c)?.kind
+				const how = columnFate(kept, c).kind
 				return how === "converted" || how === "redefined" ? [how] : []
 			})
 		}
@@ -2460,20 +2463,18 @@ const fieldChangesOf = (
 	old: ReadonlyArray<ColumnDef>,
 	create: ReadonlyArray<ColumnDef>
 ): ReadonlyMap<string, FieldChange> => {
-	const own = new Map(
-		create.flatMap((c): ReadonlyArray<readonly [string, FieldChange]> => {
-			const b = old.find((x) => x.name === c.name)
-			return b === undefined ? [] : [[c.name, fieldChange(b, c)]]
-		})
-	)
+	const shared = create.flatMap((c) => {
+		const b = old.find((x) => x.name === c.name)
+		return b === undefined ? [] : [{ column: c, change: fieldChange(b, c) }]
+	})
+	const own = new Map(shared.map(({ column, change }) => [column.name, change] as const))
 	return new Map(
-		[...own].map(([name, change]): readonly [string, FieldChange] => {
-			const c = create.find((x) => x.name === name)
-			const reads = c === undefined ? [] : generationColumns(c)
-			return change.kind !== "rewritten" && reads.some((r) => own.get(r)?.kind === "converted")
-				? [name, { kind: "rewritten" }]
-				: [name, change]
-		})
+		shared.map(({ column, change }): readonly [string, FieldChange] =>
+			change.kind !== "rewritten" &&
+			generationColumns(column).some((r) => own.get(r)?.kind === "converted")
+				? [column.name, { kind: "rewritten" }]
+				: [column.name, change]
+		)
 	)
 }
 

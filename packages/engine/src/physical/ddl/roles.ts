@@ -1272,10 +1272,9 @@ const addRole = (
 		appendAll(grants, plan.grants)
 		appendAll(after, [
 			b.table(relation),
-			...serialFields(w.relation).flatMap((f) => {
-				const fn = advance.get(relation)?.get(f)
-				return fn === undefined ? [] : [fn]
-			})
+			...serialFields(w.relation).map((f) =>
+				defined(advance.get(relation)?.get(f), "every serial field has its advance function")
+			)
 		])
 		const functions = plan.functions.map((fn) =>
 			b.add(fn.spec, [b.schemaNode, ...readsOf(b, fn.spec.ddl)])
