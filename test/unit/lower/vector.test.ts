@@ -1,7 +1,7 @@
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
-import { element } from "@grizzle/testing/gen"
+import { boolean, element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
@@ -24,9 +24,10 @@ import { flight } from "#compiler/lower/conservative/types.ts"
 import type { OptimizedProgram } from "#compiler/lower/optimize/pipeline.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { queryInput } from "#compiler/program/compile.ts"
-import { Compute } from "#compiler/public/compute.ts"
 import { uuid } from "#compiler/public/fields.ts"
-import { query, v } from "#compiler/public/query.ts"
+import { type QueryValue, queryOver, varsOver } from "#compiler/query/build/query.ts"
+import type { RuleValue } from "#compiler/query/build/rule.ts"
+import { compute } from "#compiler/scalar/compute/builders.ts"
 import type { OperandSelect, SqlStatement } from "#compiler/sql/ast.ts"
 import {
 	type AstHooks,
@@ -59,13 +60,14 @@ const kept = (node: RelNode, inputs: NodeOver<ValueRefs<RelNode>>): RelNode =>
  * placements that would run it more often. The indexed statements run on PostgreSQL in test/pg/vector/ann, which
  * checks their plans; here a search is counted on the AST as a query ranked by the cosine distance.
  *
- * The rule, over a planted space of placements (the checker builds only some of them; the others are hand-built DAGs
- * the lowering must refuse on its own): a search is admitted exactly when one execution computes it once, outside any
- * per-row subquery, so the program holds one search per search node, none under a sublink; a search that a statement
- * of its own would compute again (a child read by its parent too, an attachment of a child over candidates), that a
- * root reads beside the child, or whose own source reads the parent variable (one search per parent), is refused as
- * UnsupportedOperation, by the checker or by the lowering. A search in a derived relation's definition is refused, and
- * the lowering traces the search again on the DAG it lowers, refusing a score that is no longer the cosine distance.
+ * The rule, over every placement of a search a parent and its child make (the checker builds only some of them; the
+ * others are hand-built DAGs the lowering must refuse on its own): a program the lowering admits computes each search
+ * node once, in one statement and outside any sublink, which runs per row of the query around it; a search whose own
+ * source reads the parent variable would run once per parent, and is refused; every refusal is UnsupportedOperation,
+ * by the checker or by the lowering. The placements must reach both: a search the parent delivers or only its child
+ * reads is admitted, and one a statement of its own would compute again (an attachment of a child over candidates, a
+ * root reading it beside the child) is refused. A search in a derived relation's definition is refused, and the lowering traces the search
+ * again on the DAG it lowers, refusing a score that is no longer the cosine distance.
  */
 
 const ownedSearch = owning(Search)
@@ -168,28 +170,227 @@ const searchUnderAttach = (q: LogicalQuery): LogicalQuery => {
 	return { ...q, dag }
 }
 
-const documents = query(Search).rule((r) => {
-	const { id } = v(Document, "document")
-	return r.match(Document, { id }).find({ id })
-})
+/** Who delivers the parents: the documents, a parent of no search, or the candidates, a search itself. */
+type Parent = "documents" | "candidates"
 
 /**
- * The documents, each with the distance of its own candidate: a search only the child reads, its parent variable bound
- * in the child's rule above it.
+ * The child each parent row has: its document's account and title, the same with the account's current revisions
+ * attached below it, its own candidate's distance (a search only the child reads), or the distances of its document's
+ * own embeddings, whose source binds the parent's document or compares it, wrapped in a search by hand, since the
+ * checker never builds a search over a correlated source.
  */
-const childSearch = documents.attach(
-	"near",
-	(parent) =>
-		query(Search).rule((r) => {
-			const near = candidates.bind({
-				account: r.param("account", uuid),
-				vector: r.param("vector", DocumentEmbedding.fields.value)
+type Child =
+	| "titled"
+	| "titled, with an attachment of its own"
+	| "its own candidate"
+	| "a search over a source that binds the parent"
+	| "a search over a source that compares the parent"
+
+/** Which field of the parent's rows names its document. */
+const documentField = (parent: Parent): string => (parent === "documents" ? "id" : "document")
+
+/**
+ * The fixture's candidates (fixtures/api/search.ts), built by the runtime builder, so a placement composes them with
+ * the parents and children it draws: the approximate nearest of an account's current embeddings to a vector.
+ */
+const searchCandidates = queryOver(Search)
+	.rule((r: RuleValue) => {
+		const { document, revision, value } = varsOver(DocumentEmbedding, "documentEmbedding")
+		return r
+			.match(DocumentEmbedding, { document, revision, value })
+			.match(DocumentCurrent, { document, revision })
+			.match(Document, { id: document, account: r.param("account", Document.fields.account) })
+			.find({
+				document,
+				revision,
+				distance: compute.cosineDistance(value, r.param("vector", DocumentEmbedding.fields.value))
 			})
-			const { distance } = v(near, "near")
-			return r.match(near, { document: parent.id, distance }).find({ distance })
-		}),
-	"array"
-)
+	})
+	.approximateNearest({ by: "distance", take: 20 })
+
+/** The candidates of a parameter's account and vector, bound in a rule. */
+const candidatesIn = (r: RuleValue) =>
+	searchCandidates.bind({
+		account: r.param("account", uuid),
+		vector: r.param("vector", DocumentEmbedding.fields.value)
+	})
+
+const childQuery = (child: Child, document: unknown): QueryValue => {
+	switch (child) {
+		case "titled":
+		case "titled, with an attachment of its own": {
+			const titled = queryOver(Search).rule((r: RuleValue) => {
+				const { account, title } = varsOver(Document, "document")
+				return r.match(Document, { id: document, account, title }).find({ account, title })
+			})
+			return child === "titled"
+				? titled
+				: titled.attach(
+						"current",
+						(d: Readonly<Record<string, unknown>>) =>
+							queryOver(Search).rule((r: RuleValue) => {
+								const { document: current, revision } = varsOver(DocumentCurrent, "documentCurrent")
+								return r
+									.match(DocumentCurrent, { document: current, revision })
+									.match(Document, { id: current, account: d["account"] })
+									.find({ document: current, revision })
+							}),
+						"array"
+					)
+		}
+		case "its own candidate":
+			return queryOver(Search).rule((r: RuleValue) => {
+				const near = candidatesIn(r)
+				const { distance } = varsOver(near, "near")
+				return r.match(near, { document, distance }).find({ distance })
+			})
+		case "a search over a source that binds the parent":
+		case "a search over a source that compares the parent":
+			return queryOver(Search).rule((r: RuleValue) => {
+				const {
+					document: embedded,
+					revision,
+					value
+				} = varsOver(DocumentEmbedding, "documentEmbedding")
+				const distance = compute.cosineDistance(
+					value,
+					r.param("vector", DocumentEmbedding.fields.value)
+				)
+				return child === "a search over a source that binds the parent"
+					? r.match(DocumentEmbedding, { document, revision, value }).find({ revision, distance })
+					: r
+							.match(DocumentEmbedding, { document: embedded, revision, value })
+							.where(r.eq(embedded, document))
+							.find({ revision, distance })
+			})
+	}
+}
+
+/** The parents, each with its child attached, delivered as an option of one row or an array. */
+const placed = (parent: Parent, child: Child): QueryValue => {
+	const parents =
+		parent === "documents"
+			? queryOver(Search).rule((r: RuleValue) => {
+					const { id } = varsOver(Document, "document")
+					return r.match(Document, { id }).find({ id })
+				})
+			: searchCandidates
+	return parents.attach(
+		"near",
+		(p: Readonly<Record<string, unknown>>) => childQuery(child, p[documentField(parent)]),
+		child === "titled" || child === "titled, with an attachment of its own" ? "option" : "array"
+	)
+}
+
+/** The searches of a DAG, each node once. */
+const searchesOf = (q: LogicalQuery): number =>
+	Arr.filter(topoOrder(q.dag), (n) => n.kind === "ApproximateNearest").length
+
+/** Where a placement's searches sit. */
+type PlacementShape =
+	| "a search the parent delivers"
+	| "a search only the child reads"
+	| "a search over a source that reads the parent"
+	| "a search a root reads again"
+
+/** What a placement reaches: where its searches sit, and whether the lowering admitted it, each shape paired with it. */
+type PlacementFeature = PlacementShape | "admitted" | "refused"
+
+describe("attachments: one search per execution, never one per parent", () => {
+	it.effect(
+		"admits a placement only where one execution computes each search once, outside any per-row subquery",
+		(ctx) =>
+			searched(
+				ctx,
+				exhaust(
+					{
+						suite: "unit/lower/vector/placements",
+						/**
+						 * Every parent with every child, the DAG's first search read by a root of its own as well where
+						 * drawn, so a statement of its own would compute it again; a search over a source correlated with
+						 * the parent is no root's, its outer reference out of scope there.
+						 */
+						generator: (source) => ({
+							parent: source.draw(element<Parent>(["documents", "candidates"])),
+							child: source.draw(
+								element<Child>([
+									"titled",
+									"titled, with an attachment of its own",
+									"its own candidate",
+									"a search over a source that binds the parent",
+									"a search over a source that compares the parent"
+								])
+							),
+							again: source.draw(boolean)
+						}),
+						literal: Formatter.format,
+						limit: 20,
+						coverage: requiredInSpace<PlacementFeature>([
+							["a search the parent delivers", "admitted"],
+							["a search only the child reads", "admitted"],
+							["a search the parent delivers", "refused"],
+							["a search over a source that reads the parent", "refused"],
+							["a search a root reads again", "refused"]
+						]),
+						caseHang
+					},
+					({ parent, child, again }, c) =>
+						Effect.sync(() => {
+							const perParent =
+								child === "a search over a source that binds the parent" ||
+								child === "a search over a source that compares the parent"
+							const shapes: Array<PlacementShape> = []
+							if (parent === "candidates") {
+								shapes.push("a search the parent delivers")
+							} else if (child === "its own candidate") {
+								shapes.push("a search only the child reads")
+							}
+							if (perParent) {
+								shapes.push("a search over a source that reads the parent")
+							}
+							const reached = (outcome: "admitted" | "refused") => {
+								c.note(outcome)
+								for (const shape of shapes) {
+									c.pair(shape, outcome)
+								}
+							}
+							const checkedPlacement = checkedResult(placed(parent, child))
+							if (!checkedPlacement.ok) {
+								refused(checkedPlacement, "UnsupportedOperation", `${parent}, ${child}`)
+								reached("refused")
+								return
+							}
+							const wrapped = perParent
+								? searchUnderAttach(checkedPlacement.value)
+								: checkedPlacement.value
+							const readAgain = again && !perParent && searchesOf(wrapped) > 0
+							const shaped = readAgain ? searchAlsoOutside(wrapped) : wrapped
+							if (readAgain) {
+								shapes.push("a search a root reads again")
+							}
+							const program = lowered(shaped, "query")
+							if (!program.ok || perParent) {
+								refused(program, "UnsupportedOperation", `${parent}, ${child}`)
+								reached("refused")
+								return
+							}
+							const statements = flight(program.value.roots)
+							assert.equal(
+								Arr.reduce(statements, 0, (n, st) => n + searchesIn(st.ast)),
+								searchesOf(shaped),
+								"each search computed once"
+							)
+							assert.equal(
+								Arr.reduce(statements, 0, (n, st) => n + searchesPerRow(st.ast)),
+								0,
+								"no search under a sublink"
+							)
+							reached("admitted")
+						})
+				)
+			)
+	)
+})
 
 /**
  * The checked DAG of `q` with its one search a root of the DAG as well: the search an attachment's child reads, read
@@ -206,191 +407,6 @@ const searchAlsoOutside = (q: LogicalQuery): LogicalQuery => {
 	const [root, ...others] = q.dag.roots
 	return { ...q, dag: validateDag(rooted([root, ...others, search])) }
 }
-
-/**
- * Each document with the distances of its own embeddings to the query vector, ranked: the child's own source reads the
- * parent variable, by binding it or by comparing it, so a search over it would run once per parent.
- */
-const perParent = (reads: "binds" | "compares") =>
-	documents.attach(
-		"near",
-		(parent) =>
-			query(Search).rule((r) => {
-				const { document, revision, value } = v(DocumentEmbedding, "documentEmbedding")
-				const distance = Compute.cosineDistance(
-					value,
-					r.param("vector", DocumentEmbedding.fields.value)
-				)
-				return reads === "binds"
-					? r
-							.match(DocumentEmbedding, { document: parent.id, revision, value })
-							.find({ revision, distance })
-					: r
-							.match(DocumentEmbedding, { document, revision, value })
-							.where(r.eq(document, parent.id))
-							.find({ revision, distance })
-			}),
-		"array"
-	)
-
-/** Each candidate's document account and title: a child over candidates, of two fields. */
-const candidatesTitled = candidates.attach(
-	"doc",
-	(c) =>
-		query(Search).rule((r) => {
-			const { account, title } = v(Document, "document")
-			return r.match(Document, { id: c.document, account, title }).find({ account, title })
-		}),
-	"option"
-)
-
-/**
- * The same, with the current revisions of that account's documents attached to the child: a child with an attachment
- * of its own, which must be a statement of its own and would compute the candidates again.
- */
-const candidatesNested = candidates.attach(
-	"doc",
-	(c) =>
-		query(Search)
-			.rule((r) => {
-				const { account, title } = v(Document, "document")
-				return r.match(Document, { id: c.document, account, title }).find({ account, title })
-			})
-			.attach(
-				"current",
-				(d) =>
-					query(Search).rule((r) => {
-						const { document, revision } = v(DocumentCurrent, "documentCurrent")
-						return r
-							.match(DocumentCurrent, { document, revision })
-							.match(Document, { id: document, account: d.account })
-							.find({ document, revision })
-					}),
-				"array"
-			),
-	"option"
-)
-
-/** One search read by the child and by its parent, two statements. */
-const childAndParent = query(Search)
-	.rule((r) => {
-		const near = candidates.bind({
-			account: r.param("account", uuid),
-			vector: r.param("vector", DocumentEmbedding.fields.value)
-		})
-		const { document, distance } = v(near, "near")
-		return r.match(near, { document, distance }).find({ document, distance })
-	})
-	.attach(
-		"again",
-		(parent) =>
-			query(Search).rule((r) => {
-				const near = candidates.bind({
-					account: r.param("account", uuid),
-					vector: r.param("vector", DocumentEmbedding.fields.value)
-				})
-				const { distance } = v(near, "near")
-				return r.match(near, { document: parent.document, distance }).find({ distance })
-			}),
-		"array"
-	)
-
-/** Where a search sits relative to an attachment, and whether one execution computes it once. */
-type Placement =
-	| "candidates delivered, a child joined to each"
-	| "a search only the child reads"
-	| "candidates delivered, a child with an attachment of its own"
-	| "a search the child and its parent read"
-	| "a search the child reads and a root delivers"
-	| "a search over a child's source that binds the parent"
-	| "a search over a child's source that compares the parent"
-
-const placements: Readonly<
-	Record<
-		Placement,
-		{ readonly once: boolean; readonly query: () => Result.Result<LogicalQuery, CompileError> }
-	>
-> = {
-	"candidates delivered, a child joined to each": {
-		once: true,
-		query: () => checkedResult(candidatesTitled)
-	},
-	"a search only the child reads": { once: true, query: () => checkedResult(childSearch) },
-	"candidates delivered, a child with an attachment of its own": {
-		once: false,
-		query: () => checkedResult(candidatesNested)
-	},
-	"a search the child and its parent read": {
-		once: false,
-		query: () => checkedResult(childAndParent)
-	},
-	/** Hand-built: the checker refuses this placement over the whole query first. */
-	"a search the child reads and a root delivers": {
-		once: false,
-		query: () => Result.map(checkedResult(childSearch), searchAlsoOutside)
-	},
-	/** Hand-built: the child wrapped in a search, which the checker never builds over a correlated source. */
-	"a search over a child's source that binds the parent": {
-		once: false,
-		query: () => Result.map(checkedResult(perParent("binds")), searchUnderAttach)
-	},
-	"a search over a child's source that compares the parent": {
-		once: false,
-		query: () => Result.map(checkedResult(perParent("compares")), searchUnderAttach)
-	}
-}
-
-const placementNames: Arr.NonEmptyReadonlyArray<Placement> = [
-	"candidates delivered, a child joined to each",
-	"a search only the child reads",
-	"candidates delivered, a child with an attachment of its own",
-	"a search the child and its parent read",
-	"a search the child reads and a root delivers",
-	"a search over a child's source that binds the parent",
-	"a search over a child's source that compares the parent"
-]
-
-describe("attachments: one search per execution, never one per parent", () => {
-	it.effect(
-		"admits exactly the placements one execution computes once, each search once and outside any per-row subquery",
-		(ctx) =>
-			searched(
-				ctx,
-				exhaust(
-					{
-						suite: "unit/lower/vector/placements",
-						generator: element(placementNames),
-						literal: Formatter.format,
-						limit: 8,
-						coverage: requiredInSpace<"admitted" | "refused">(["admitted", "refused"]),
-						caseHang
-					},
-					(placement, c) =>
-						Effect.sync(() => {
-							const { once, query: built } = placements[placement]
-							const program = Result.flatMap(built(), (q) => lowered(q, "query"))
-							if (!once) {
-								refused(program, "UnsupportedOperation", placement)
-								c.note("refused")
-								return
-							}
-							const statements = flight(succeeded(program, placement).roots)
-							assert.equal(
-								Arr.reduce(statements, 0, (n, s) => n + searchesIn(s.ast)),
-								1,
-								placement
-							)
-							assert.equal(
-								Arr.reduce(statements, 0, (n, s) => n + searchesPerRow(s.ast)),
-								0,
-								placement
-							)
-							c.note("admitted")
-						})
-				)
-			)
-	)
-})
 
 /**
  * The candidates' distance replaced by a literal: the DAG no longer ranks by the cosine distance, though its search

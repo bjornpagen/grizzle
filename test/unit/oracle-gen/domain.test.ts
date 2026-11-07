@@ -5,7 +5,7 @@ import { boolean, element, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
 /**
  * The generators' scalar types, value domains and spelling rule (test/support/oracle/gen/domain.ts): every generated
@@ -61,14 +61,22 @@ const types: Arr.NonEmptyReadonlyArray<ScalarType> = Arr.appendAll(
 	computed
 )
 
-/** Whether a numeric class lies within a computed numeric's bound: below 10^digits, at most `scale` fraction digits. */
+/**
+ * Whether a numeric class lies within a computed numeric's bound: its magnitude below 10^digits and its value a multiple
+ * of 10^-scale, a negative digits or scale read exactly (bounds.ts tenTo): the value is its coefficient over 10^minScale,
+ * so it is below 10^digits exactly when 10^digits times 10^minScale exceeds the coefficient.
+ */
 const withinBound = (literal: TypedLiteral, bound: NumericBound): boolean => {
 	if (literal.kind !== "numeric" || literal.value.parts.kind !== "finite") {
 		return true
 	}
 	const p = literal.value.parts
-	const whole = p.coefficient / 10n ** BigInt(p.minScale)
-	return p.minScale <= bound.scale && (whole === 0n || Str.length(whole.toString()) <= bound.digits)
+	const shift = bound.digits + p.minScale
+	const below = shift >= 0 ? p.coefficient < 10n ** BigInt(shift) : p.coefficient === 0n
+	const multiple =
+		p.minScale <= bound.scale ||
+		(p.minScale === 0 && p.coefficient % 10n ** BigInt(-bound.scale) === 0n)
+	return below && multiple
 }
 
 /**

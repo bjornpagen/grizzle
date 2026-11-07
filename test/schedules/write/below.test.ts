@@ -26,15 +26,7 @@ import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { Item, Note, type Opened, open } from "#test/schedules/write/support.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { type DirectActor, openActors } from "#test/support/schedules/actors.ts"
-import {
-	begin,
-	beginBelow,
-	check,
-	commit,
-	complete,
-	schedule,
-	sql
-} from "#test/support/schedules/build.ts"
+import { begin, beginBelow, check, commit, schedule, sql } from "#test/support/schedules/build.ts"
 import { meets, misses, ok, rolledBack, rowSet } from "#test/support/schedules/match.ts"
 import { runSchedule } from "#test/support/schedules/runner.ts"
 import { type Expectation, type ScheduleOutcome } from "#test/support/schedules/types.ts"
@@ -235,10 +227,9 @@ layer(Substrate.layer, { excludeTestServices: true })("writers below SERIALIZABL
 												? privilegeRefusal
 												: expected.kind === "guard"
 													? guardRefusal(o, c)
-													: ok(),
-											complete
+													: ok()
 										),
-										commit("w", expected.kind === "applies" ? ok() : rolledBack(), complete),
+										commit("w", expected.kind === "applies" ? ok() : rolledBack()),
 										check(rowsOf(Item), rowSet(c.target === "Item" ? written : stored)),
 										check(rowsOf(Note), rowSet(c.target === "Note" ? written : stored))
 									]),

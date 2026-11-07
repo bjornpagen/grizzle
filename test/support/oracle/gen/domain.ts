@@ -699,8 +699,11 @@ const typmodText = (type: ScalarType): string => {
 
 /**
  * A numeric class inside a computed numeric's bound, by construction: its fraction cut to the bound's scale and its
- * integer part to the bound's integer digits, the sign kept, so the value is one the type proves (kernel/strict.ts
- * withinBound); NaN and the infinities, which a computed numeric holds, as they are, and every other literal itself.
+ * magnitude cut below 10^digits, the sign kept, so the value is one the type proves (kernel/strict.ts withinBound);
+ * NaN and the infinities, which a computed numeric holds, as they are, and every other literal itself. A negative
+ * digits or scale is read exactly, as bounds.ts tenTo reads it: at scale s the value is a count of units of 10^-s, the
+ * bound 10^digits is 10^(digits + s) units, and a bound below one unit holds zero alone; a negative scale counts units
+ * of 10^-scale, a whole number.
  */
 const withinNumericBound = (literal: TypedLiteral, bound: NumericBound): TypedLiteral => {
 	if (literal.kind !== "numeric" || literal.value.parts.kind !== "finite") {
@@ -709,12 +712,12 @@ const withinNumericBound = (literal: TypedLiteral, bound: NumericBound): TypedLi
 	const p = literal.value.parts
 	const scale = Math.min(p.minScale, bound.scale)
 	const units = p.coefficient / 10n ** BigInt(p.minScale - scale)
-	const whole = units / 10n ** BigInt(scale)
-	const kept =
-		whole === 0n || Str.length(whole.toString()) <= bound.digits
-			? units
-			: units % 10n ** BigInt(bound.digits + scale)
-	const value = Decimal.fromParts(p.negative, kept, scale)
+	const boundUnits = bound.digits + scale
+	const kept = boundUnits < 0 ? 0n : units % 10n ** BigInt(boundUnits)
+	const value =
+		scale >= 0
+			? Decimal.fromParts(p.negative, kept, scale)
+			: Decimal.fromParts(p.negative, kept * 10n ** BigInt(-scale), 0)
 	if (!value.ok) {
 		throw new Error(
 			`a numeric class within the bound (${bound.digits}, ${bound.scale}) is a Decimal`

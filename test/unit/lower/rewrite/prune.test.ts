@@ -217,9 +217,10 @@ const stageOver = (q: Q, stage: Stage): RelNode => {
 
 /**
  * Who reads the stage: the closure of Edge's recursive step (Edge's closure from every source, its step region
- * matching the stage as its second source and delivering [src, dst := a]), a root region, or a region that is neither.
+ * matching the stage as its second source and delivering [src, dst := a]), a root region, or a region that is neither,
+ * its dead variable in its heading or outside its named heading.
  */
-type Reader = "recursive step" | "root region" | "unpinned region"
+type Reader = "recursive step" | "root region" | "unpinned region" | "unpinned named region"
 
 interface Read {
 	readonly dag: RelDag
@@ -237,8 +238,11 @@ const readBy = (stageKind: Stage, reader: Reader): Read => {
 		})
 		return { dag: q.build(region).dag, region, stage }
 	}
-	if (reader === "unpinned region") {
-		const region = q.region([{ source: stage, bind: { a: "mid", b: "w" }, constants: {} }])
+	if (reader === "unpinned region" || reader === "unpinned named region") {
+		const region = q.regionWith([{ source: stage, bind: { a: "mid", b: "w" }, constants: {} }], {
+			...plainRegion,
+			heading: reader === "unpinned region" ? { kind: "bound" } : { kind: "named", names: ["mid"] }
+		})
 		return {
 			dag: q.build(q.project(region, [["mid", "mid"]], conservativeMeta)).dag,
 			region,
@@ -309,9 +313,16 @@ describe("a pinned node keeps its form, and its inputs every column that form re
 						generator: (source) =>
 							[
 								source.draw(element<Stage>(["projection", "filter", "region"])),
-								source.draw(element<Reader>(["recursive step", "root region", "unpinned region"]))
+								source.draw(
+									element<Reader>([
+										"recursive step",
+										"root region",
+										"unpinned region",
+										"unpinned named region"
+									])
+								)
 							] as const,
-						limit: 9,
+						limit: 12,
 						coverage: requiredInSpace<`${Reader} over a ${Stage}`>([
 							"recursive step over a projection",
 							"recursive step over a filter",
@@ -321,7 +332,10 @@ describe("a pinned node keeps its form, and its inputs every column that form re
 							"root region over a region",
 							"unpinned region over a projection",
 							"unpinned region over a filter",
-							"unpinned region over a region"
+							"unpinned region over a region",
+							"unpinned named region over a projection",
+							"unpinned named region over a filter",
+							"unpinned named region over a region"
 						]),
 						caseHang
 					},
@@ -354,57 +368,5 @@ describe("a pinned node keeps its form, and its inputs every column that form re
 						})
 				)
 			)
-	)
-})
-
-describe("a dead binding outside a named heading", () => {
-	it.effect(
-		"prunes a region's dead variable outside its named heading, the measure falling",
-		(ctx) => {
-			type Passes = "prune" | "the relational rewrites"
-			return searched(
-				ctx,
-				exhaust(
-					{
-						suite: "unit/lower/rewrite/prune-outside-heading",
-						literal: Formatter.format,
-						generator: element<Passes>(["prune", "the relational rewrites"]),
-						limit: 2,
-						coverage: requiredInSpace<Passes>(["prune", "the relational rewrites"]),
-						caseHang
-					},
-					(passes, c) =>
-						Effect.sync(() => {
-							c.note(passes)
-							const q = new Q()
-							const region = q.regionWith(
-								[
-									{
-										source: q.base(Posting, conservativeMeta),
-										bind: { id: "id", amount: "amount" },
-										constants: {}
-									}
-								],
-								{ ...plainRegion, heading: { kind: "named", names: ["id"] } }
-							)
-							const query = queryOf(
-								q.build(q.project(region, [["id", "id"]], conservativeMeta)).dag,
-								[]
-							)
-							const ran = succeeded(
-								runPasses(
-									query,
-									passes === "prune" ? [prunePass] : [relationalRewrites],
-									passContext({ catalog: ledgerCatalog, evidence: "snapshot" })
-								)
-							)
-							contains(rulesOf(ran.certificates), "prune.heading")
-							assert.deepEqual(bindingsOf(ran.query.dag, region), [["id"]])
-							deliversAlikeOn(postings, [Posting], [], query, ran.query)
-							lowersConservatively(ran.query, emptyCodebook)
-						})
-				)
-			)
-		}
 	)
 })

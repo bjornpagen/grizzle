@@ -538,17 +538,28 @@ export const strictReader = (
 }
 
 /**
- * Whether a computed numeric's value is one its type proves: a finite value below 10^digits with at most `scale`
- * fraction digits, every value PostgreSQL computes for the expression, so a database run's cell past the bound is a
- * bound the compiler proved and PostgreSQL broke; NaN and the infinities carry no digits.
+ * The least scale of a finite value of `coefficient` at `minScale`: its own where it has a fraction, and an integer's
+ * trailing zeros below scale 0, so 500 is a multiple of 10^2, scale -2.
+ */
+const leastScale = (coefficient: bigint, minScale: number): number =>
+	minScale > 0 || coefficient % 10n !== 0n ? minScale : leastScale(coefficient / 10n, minScale - 1)
+
+/**
+ * Whether a computed numeric's value is one its type proves: a finite value below 10^digits, a multiple of 10^-scale,
+ * every value PostgreSQL computes for the expression, so a database run's cell past the bound is a bound the compiler
+ * proved and PostgreSQL broke; NaN and the infinities carry no digits. A negative digits or scale is read exactly, as
+ * bounds.ts tenTo reads it: a value is below 10^d exactly when its coefficient's digits less its scale are at most d,
+ * so 0.00042 is below 10^-3, and 500 is a multiple of 10^2.
  */
 const withinBound = (value: Decimal, bound: NumericBound): boolean => {
 	const p = value.parts
 	if (p.kind !== "finite" || p.coefficient === 0n) {
 		return true
 	}
-	const digits = Math.max(0, p.coefficient.toString().length - p.minScale)
-	return digits <= bound.digits && p.minScale <= bound.scale
+	return (
+		p.coefficient.toString().length - p.minScale <= bound.digits &&
+		leastScale(p.coefficient, p.minScale) <= bound.scale
+	)
 }
 
 /**

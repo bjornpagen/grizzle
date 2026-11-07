@@ -14,7 +14,6 @@ import {
 } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, Result } from "effect"
-import { checkQuery } from "#compiler/check/index.ts"
 import { catchRefusal, encode, everyProperty } from "#compiler/core/canonical.ts"
 import type { CertificateRule } from "#compiler/ir/certificate.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
@@ -40,13 +39,12 @@ import {
 import { plainType } from "#compiler/scalar/compute/types.ts"
 import * as Q from "#test/pg/catalog/queries.ts"
 import { checkedQuery, lab, labOptions } from "#test/pg/catalog/support.ts"
-import { assert, refused, succeeded } from "#test/support/assert.ts"
+import { assert, succeeded } from "#test/support/assert.ts"
 import { catalogDispatch } from "#test/support/compile.ts"
 import type { AuthoredExprDesc as ExprDesc, QueryDesc } from "#test/support/fixtures/ir/desc.ts"
 import { localVectorSchema, productionNames } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { schemaCodes, schemaDesc } from "#test/support/oracle/gen/schema.ts"
-import { checking, checkOptions } from "#test/support/policy.ts"
+import { schemaCodes } from "#test/support/oracle/gen/schema.ts"
 import * as D from "#test/unit/check/dsl.ts"
 
 /**
@@ -703,36 +701,6 @@ describe("R27 and R42: neighbors under the parent-set policy", () => {
 				)
 			)
 		}
-	)
-
-	it.effect(
-		"refuses to check an as-of comparing the bigint amount with the parent's integer day",
-		(ctx) =>
-			searched(
-				ctx,
-				exhaust(
-					{
-						suite: "unit/lower/catalog/as-of-mixed-types",
-						literal: Formatter.format,
-						generator: modes,
-						limit: 3,
-						coverage: requiredInSpace<"le" | "lt" | "ge">(["le", "lt", "ge"]),
-						caseHang
-					},
-					(mode, c) =>
-						Effect.sync(() => {
-							c.note(mode)
-							refused(
-								checkQuery(
-									checking(schemaDesc(lab)),
-									Q.boundAsOf(mode, [], "amount"),
-									checkOptions("query")
-								),
-								"MalformedDescription"
-							)
-						})
-				)
-			)
 	)
 })
 

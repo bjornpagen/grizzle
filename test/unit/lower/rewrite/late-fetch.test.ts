@@ -1,17 +1,18 @@
 import { describe, it } from "@effect/vitest"
 import { assertNone } from "@effect/vitest/utils"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
+import { drawn, exhaust, explore } from "@grizzle/testing/explore"
+import { required, requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
+import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { emptyCodebook } from "#compiler/ir/codes.ts"
-import { nodesByLabel } from "#compiler/ir/dag.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { conservativeMeta, type RelDag } from "#compiler/ir/rel.ts"
 import { lateFetchPass } from "#compiler/lower/optimize/late-fetch/index.ts"
 import { assert, lacks, succeeded } from "#test/support/assert.ts"
-import { keyConstraintName } from "#test/support/evidence.ts"
+import { genCatalog, keyConstraintName } from "#test/support/evidence.ts"
 import {
 	Account,
 	asc,
@@ -24,7 +25,11 @@ import {
 } from "#test/unit/lower/conservative/fixtures.ts"
 
 import { caseHang } from "#test/support/limits.ts"
+import { schemaCodes } from "#test/support/oracle/gen/schema.ts"
 import {
+	agrees,
+	caseQuery,
+	lowerConservatively,
 	passContext,
 	deliversAlikeOn,
 	factSubsets,
@@ -37,6 +42,7 @@ import {
 	rulesOf,
 	runPasses
 } from "#test/unit/lower/rewrite/support.ts"
+import { wideCaseGen } from "#test/unit/lower/rewrite/wide.ts"
 
 /**
  * R06: delay expensive payload work explicitly when legal. A take over wide payload
@@ -281,69 +287,50 @@ describe("late payload fetch", () => {
 			)
 	)
 
-	it.effect("refuses a correlated take: its rows are selected per outer row", (ctx) =>
+	it.effect("refuses a correlated take, whose rows are selected per outer row", (ctx) =>
 		searched(
 			ctx,
-			exhaust(
+			explore(
 				{
 					suite: "unit/lower/rewrite/late-fetch-correlated",
+					draw: drawn(wideCaseGen),
 					literal: Formatter.format,
-					generator: element<Evidence>(["snapshot", "transaction"]),
-					limit: 2,
-					coverage: requiredInSpace<Evidence>(["snapshot", "transaction"]),
+					coverage: required<"fetched" | "a correlated take held back">(
+						["fetched", "a correlated take held back"],
+						{ cases: 200, sense: notesOnly }
+					),
+					kept: [],
+					runs: 200,
+					shrink: completeShrink,
+					concurrency: 1,
+					steerEvery: 16,
 					caseHang
 				},
-				(evidence, c) =>
+				(q, c) =>
 					Effect.sync(() => {
-						c.note(evidence)
-						const q = new Q()
-						const outerId = q.b.reserve()
-						const region = q.region([
-							{
-								source: q.base(Account, conservativeMeta),
-								bind: { id: "id", name: "name" },
-								constants: {}
-							}
-						])
-						const stage = q.project(
-							region,
-							[
-								["id", "id"],
-								["name", "name"]
-							],
-							keyed(["id"], "many")
-						)
-						const take = q.take(
-							stage,
-							asc("id"),
-							{ kind: "literal", k: 1n },
-							[{ column: "id", expr: outerCol(q, outerId, "acct", T.uuid) }],
-							keyed(["id"], "many")
-						)
-						const outer = q.regionWith(
-							[
-								{
-									source: q.base(Posting, conservativeMeta),
-									bind: { id: "pid", account: "acct" },
-									constants: {}
-								},
-								{ source: take, bind: { id: "acct", name: "name" }, constants: {} }
-							],
-							{ ...plainRegion, id: { kind: "reserved", id: outerId } }
-						)
-						const dag = q.build(
-							q.project(
-								outer,
-								[
-									["pid", "pid"],
-									["name", "name"]
-								],
-								conservativeMeta
+						const input = caseQuery(q)
+						const correlated = Arr.some(nodesOf(input.dag, "Take"), (t) => t.correlation.length > 0)
+						for (const evidence of [
+							"snapshot",
+							"transaction"
+						] as const satisfies ReadonlyArray<Evidence>) {
+							const ran = succeeded(
+								runPasses(
+									input,
+									[lateFetchPass],
+									passContext({ catalog: genCatalog(q.schema), evidence })
+								)
 							)
-						).dag
-						const ran = fetchedUnder(dag, evidence)
-						lacks(rulesOf(ran.certificates), "R06.lateFetch")
-						assert.equal(nodesByLabel(ran.query.dag).get(take.id)?.kind, "Take")
+							agrees(q, ran.query)
+							succeeded(lowerConservatively(ran.query, schemaCodes(q.schema)))
+							const fetched = Arr.contains(rulesOf(ran.certificates), "R06.lateFetch")
+							if (correlated) {
+								assert.equal(fetched, false)
+								c.note("a correlated take held back")
+							} else if (fetched) {
+								c.note("fetched")
+							}
+						}
 					})
 			)
 		)

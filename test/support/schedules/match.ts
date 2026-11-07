@@ -42,21 +42,9 @@ export const describeOutcome = (outcome: ScheduleOutcome): string => {
 	}
 }
 
-/** A verdict in words, for failure reports. */
-export const describeVerdict = (verdict: Verdict): string => {
-	switch (verdict._tag) {
-		case "Meets":
-			return `meets ${verdict.shown}`
-		case "Misses":
-			return `misses (${verdict.why}) ${verdict.shown}`
-	}
-}
-
-/** A step's outcome in words: a direct outcome, an operation's verdict, or an interruption. */
+/** A step's outcome in words: a direct outcome, or an interruption. */
 export const describeStepOutcome = (outcome: StepOutcome): string => {
 	switch (outcome._tag) {
-		case "Judged":
-			return describeVerdict(outcome.verdict)
 		case "Interrupted":
 			return "interrupted where it waited on a lock"
 		case "Ok":
@@ -75,28 +63,19 @@ const outcomeIs =
 		return holds(outcome) ? meets(shown) : misses(shown, `expected ${what}`)
 	}
 
-/** Rows in order, cell by cell; and rows as a set that fails on a repeated row, each row cell by cell. */
-type Rows = ReadonlyArray<ReadonlyArray<string | null>>
-const sameRows = (a: Rows, b: Rows): boolean => Option.isNone(ordered(ordered(exact))(a, b))
-const sameRowSet = (a: Rows, b: Rows): boolean => Option.isNone(set(ordered(exact))(a, b))
-
-/** Success, its rows unchecked. */
-export const ok = (): Expectation<ScheduleOutcome> =>
-	outcomeIs("ok", (outcome) => outcome._tag === "Ok")
+/** Rows as a set that fails on a repeated row, each row cell by cell. */
+const sameRowSet = (a: TextRows, b: TextRows): boolean => Option.isNone(set(ordered(exact))(a, b))
 
 /**
- * Expectations of a direct step's outcome, the combinator over any expectation, and printing outcomes.
+ * Expectations of a direct step's outcome, and printing outcomes.
  *
  * Rows compare cell by cell, through the testing library's equivalences; a row set holds each row once, so no
  * comparison goes through a text rendering of the values.
  *
- * Success with exactly these text rows, in order. `rows()` is success with no rows.
+ * Success, its rows unchecked.
  */
-export const rows = (...expected: TextRows): Expectation<ScheduleOutcome> =>
-	outcomeIs(
-		`rows ${printRows(expected)}`,
-		(outcome) => outcome._tag === "Ok" && sameRows(outcome.rows, expected)
-	)
+export const ok = (): Expectation<ScheduleOutcome> =>
+	outcomeIs("ok", (outcome) => outcome._tag === "Ok")
 
 /** Success with these text rows in any order, each as many times. */
 export const rowSet = (expected: TextRows): Expectation<ScheduleOutcome> =>
@@ -108,33 +87,3 @@ export const rowSet = (expected: TextRows): Expectation<ScheduleOutcome> =>
 /** COMMIT answered with ROLLBACK because the transaction had already failed. */
 export const rolledBack = (): Expectation<ScheduleOutcome> =>
 	outcomeIs("rolled back", (outcome) => outcome._tag === "RolledBack")
-
-/** The first option the result meets; a miss names why each option missed. */
-export const anyOf = <A>(...options: Arr.NonEmptyReadonlyArray<Expectation<A>>): Expectation<A> =>
-	firstMet(options)
-
-/** anyOf over a list of options. */
-export const firstMet =
-	<A>(options: Arr.NonEmptyReadonlyArray<Expectation<A>>): Expectation<A> =>
-	(actual) => {
-		const [first, ...rest] = options
-		const missed = first(actual)
-		if (missed._tag === "Meets") {
-			return missed
-		}
-		const whys = [missed.why]
-		for (const option of rest) {
-			const verdict = option(actual)
-			if (verdict._tag === "Meets") {
-				return verdict
-			}
-			whys.push(verdict.why)
-		}
-		return misses(
-			missed.shown,
-			`none of ${options.length} options: ${Arr.join(
-				Arr.map(whys, (why, i) => `(${i + 1}) ${why}`),
-				"; "
-			)}`
-		)
-	}

@@ -1,99 +1,67 @@
 /**
- * Levels: a level chain publishes in one commit.
+ * Levels: a call naming a level chain publishes every view it names in one commit.
  *
- * - One call naming a level chain publishes every named view in one commit: a reader between its two statements sees
- *   neither refreshed, and after it both.
+ * Property: every race of one db.refresh call meeting a raw refresher's lock, beside a reader that reads every view in
+ * one statement, in every order of its moves, is explained by its serial reference
+ * (test/support/schedules/serial.ts): the call, the holder's and the reader's transactions, each run alone from the
+ * race's initial state in an order that respects real time, show what they showed in the run, the reader's rows of
+ * every view at once, and leave its state. So a reader never sees one view of a call refreshed and another not. The
+ * races draw the views refreshed over one base and the base changed since, the view the holder holds and how it ends,
+ * and the call, which names that view or a level above it.
  *
- * What a reader sees of a view is the host model of its definition over the sittings it was refreshed at.
+ * The kept race is the window the race was first planted for: a call naming the whole chain, parked by the holder at
+ * WeekBusy after it refreshed the levels below, while the reader reads.
  */
 
-import { layer } from "@effect/vitest"
-import { Effect } from "effect"
+import { constant, type Gen } from "@grizzle/testing/gen"
 import {
-	addSitting,
-	busyRows,
-	freshSql,
-	initial,
+	callGen,
+	type DerivedRace,
+	derivedRaceSuite,
+	endGen,
+	heldGen,
+	initialGen,
+	initialSats,
 	labelsGen,
-	open,
-	refreshSql,
-	type Sat,
-	sat,
-	studentTotals,
-	totalRows,
-	weekBusy,
-	weekly,
-	weeklyRows
+	sat
 } from "#test/schedules/derived/support.ts"
-import { openActors } from "#test/support/schedules/actors.ts"
-import {
-	awaits,
-	begin,
-	blocksOn,
-	check,
-	complete,
-	rollback,
-	schedule,
-	sql
-} from "#test/support/schedules/build.ts"
-import { exactly, refreshed, retriedOp } from "#test/support/schedules/grizzle.ts"
-import { ok, rowSet, rows } from "#test/support/schedules/match.ts"
-import { planted } from "#test/support/schedules/planted.ts"
-import { runSchedule } from "#test/support/schedules/runner.ts"
-import { type Step } from "#test/support/schedules/types.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
 
-const fresh = rows(["true"])
+const raceGen: Gen<DerivedRace> = (source) => {
+	const initial = source.draw(initialGen(constant(true)))
+	const view = source.draw(heldGen(initial))
+	return {
+		labels: source.draw(labelsGen),
+		initial,
+		holder: { kind: "holds", view, end: source.draw(endGen) },
+		calls: [source.draw(callGen(view, initial))],
+		writer: { kind: "none" },
+		reader: true
+	}
+}
 
-layer(Substrate.layer, { excludeTestServices: true })("db.refresh across levels", (it) => {
-	it.effect(
-		"one call publishes a level chain in one commit; a reader sees neither level before it",
-		planted("levels/one commit", labelsGen, ["one commit"], (labels) =>
-			Effect.gen(function* () {
-				const o = yield* open(labels)
-				const s = yield* Substrate
-				yield* o.refresh("refresher", "StudentWeekly", "StudentTotal", "WeekBusy")
-				const actors = {
-					direct: yield* openActors(s, {
-						holder: { kind: "raw", as: o.direct.holder },
-						writer: { kind: "psql", as: o.direct.writer },
-						reader: { kind: "raw", as: o.direct.reader }
-					}),
-					grizzle: { refresher: o.refreshers.refresher }
-				}
-				/** What the reader sees of every view refreshed over `sats`. */
-				const reads = (sats: ReadonlyArray<Sat>): ReadonlyArray<Step<"reader", never, never>> => [
-					sql("reader", weekly(o, o.seen.reader), rowSet(weeklyRows(labels, sats)), complete),
-					sql("reader", studentTotals(o, o.seen.reader), rowSet(totalRows(labels, sats)), complete),
-					sql("reader", weekBusy(o, o.seen.reader), rowSet(busyRows(labels, sats)), complete)
-				]
-				const newcomer = sat(40, 6, 7, true)
-				return [
-					yield* runSchedule(
-						o.env,
-						schedule("one commit", [
-							sql("writer", addSitting(o, newcomer), ok(), complete),
-							begin("holder"),
-							sql("holder", refreshSql(o, "WeekBusy", true), ok(), complete),
-							retriedOp(
-								"refresher",
-								"db.refresh(WeekBusy, StudentTotal, StudentWeekly)",
-								o.refresh("refresher", "WeekBusy", "StudentTotal", "StudentWeekly"),
-								refreshed(exactly()),
-								blocksOn("holder")
-							),
-							...reads(initial),
-							rollback("holder"),
-							awaits("refresher", complete),
-							...reads([...initial, newcomer]),
-							check(freshSql(o, "StudentWeekly"), fresh),
-							check(freshSql(o, "StudentTotal"), fresh),
-							check(freshSql(o, "WeekBusy"), fresh)
-						]),
-						actors
-					)
-				]
-			})
-		)
-	)
+derivedRaceSuite({
+	file: "db.refresh across levels",
+	test: "every race of a level chain's refresh and a reader of every view is serializable",
+	suite: "schedules/derived/levels",
+	draw: raceGen,
+	required: ["a call waited", "reader committed"],
+	kept: [
+		{
+			note: "one commit: the call names WeekBusy, StudentTotal and StudentWeekly, and waits on the holder at WeekBusy after refreshing the level below, while the reader reads every view",
+			sketch: {
+				labels: { student: 0, sitting: 0, week: 0 },
+				initial: {
+					kind: "populated",
+					viewed: initialSats,
+					stored: [...initialSats, sat(40, 6, 7, true)]
+				},
+				holder: { kind: "holds", view: "WeekBusy", end: "rollback" },
+				calls: [["WeekBusy", "StudentTotal", "StudentWeekly"]],
+				writer: { kind: "none" },
+				reader: true
+			},
+			draws: "",
+			reaches: ["a read while a call waited", "reader committed"]
+		}
+	]
 })

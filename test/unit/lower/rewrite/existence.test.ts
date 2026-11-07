@@ -2,7 +2,7 @@ import { describe, it } from "@effect/vitest"
 import { assertNone } from "@effect/vitest/utils"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
-import { constant, element, type Gen, oneOf } from "@grizzle/testing/gen"
+import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import type { CertificateRule } from "#compiler/ir/certificate.ts"
@@ -15,7 +15,7 @@ import { conservativeMeta, type RelDag } from "#compiler/ir/rel.ts"
 import { relationalRewrites } from "#compiler/lower/optimize/demand/phases.ts"
 import { existencePass } from "#compiler/lower/optimize/existence/index.ts"
 import { prunePass } from "#compiler/lower/optimize/prune/index.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { assert, contains, succeeded } from "#test/support/assert.ts"
 import { keyConstraintName } from "#test/support/evidence.ts"
 import {
 	Account as AccountRelation,
@@ -29,14 +29,13 @@ import {
 } from "#test/unit/lower/conservative/fixtures.ts"
 
 import { caseHang } from "#test/support/limits.ts"
+import { guardSearch, scopedStay } from "#test/unit/lower/rewrite/guarded.ts"
 import {
 	passContext,
 	deliversAlikeOn,
 	factSubsets,
 	ledgerCatalog,
 	lowersConservatively,
-	nodesOf,
-	outerCol,
 	queryOf,
 	type Ran,
 	rulesOf,
@@ -72,10 +71,11 @@ const databases = factSubsets({
 })
 
 /**
- * The Account occurrence of a posting's match: existence only (it binds its id, which the posting binds too), the same
- * with its name fixed, or binding its name, which the query delivers: a witness of its own.
+ * The Account occurrence of a posting's match: existence only (it binds its id, which the posting binds too), or the
+ * same with its name fixed. One that binds a witness of its own, which the query delivers, is never touched: a semi-join's
+ * right side delivers nothing, so the generated pass-alone search (generated.test.ts) would see the witness go.
  */
-type Account = "existence only" | "with a constant" | "delivers its witness"
+type Account = "existence only" | "with a constant"
 /**
  * Who reads the region: a projection onto the posting's id, with the region's heading every bound variable or the id
  * alone (the shared account outside it), the query delivering that region as it is, or a fold over the complete bound
@@ -107,7 +107,7 @@ const matched = (account: Account, reader: Reader) => {
 				}
 			: {
 					source: q.base(AccountRelation, conservativeMeta),
-					bind: account === "delivers its witness" ? { id: "acct", name: "name" } : { id: "acct" },
+					bind: { id: "acct" },
 					constants: {}
 				}
 	]
@@ -137,14 +137,7 @@ const matched = (account: Account, reader: Reader) => {
 		reader === "projection"
 			? q.region(occurrences)
 			: q.regionWith(occurrences, { ...plainRegion, heading: { kind: "named", names: ["id"] } })
-	const delivered: ReadonlyArray<readonly [string, string]> =
-		account === "delivers its witness"
-			? [
-					["id", "id"],
-					["name", "name"]
-				]
-			: [["id", "id"]]
-	return { dag: q.build(q.project(region, delivered, conservativeMeta)).dag, group: [] }
+	return { dag: q.build(q.project(region, [["id", "id"]], conservativeMeta)).dag, group: [] }
 }
 
 const rewritten = (dag: RelDag, passes: ReadonlyArray<Pass<LogicalQuery, LogicalQuery>>): Ran => {
@@ -157,21 +150,18 @@ const rewritten = (dag: RelDag, passes: ReadonlyArray<Pass<LogicalQuery, Logical
 	return ran
 }
 
-const shapes: Gen<readonly [Account, Reader]> = oneOf<readonly [Account, Reader]>([
-	(source) =>
-		[
-			source.draw(element<Account>(["existence only", "with a constant"])),
-			source.draw(
-				element<Reader>([
-					"projection",
-					"projection, shared variable outside the heading",
-					"root, shared variable outside the heading",
-					"fold"
-				])
-			)
-		] as const,
-	constant<readonly [Account, Reader]>(["delivers its witness", "projection"])
-])
+const shapes: Gen<readonly [Account, Reader]> = (source) =>
+	[
+		source.draw(element<Account>(["existence only", "with a constant"])),
+		source.draw(
+			element<Reader>([
+				"projection",
+				"projection, shared variable outside the heading",
+				"root, shared variable outside the heading",
+				"fold"
+			])
+		)
+	] as const
 
 describe("an existence-only match becomes a semi-join", () => {
 	it.effect(
@@ -184,7 +174,7 @@ describe("an existence-only match becomes a semi-join", () => {
 						suite: "unit/lower/rewrite/existence-semi-join",
 						literal: Formatter.format,
 						generator: shapes,
-						limit: 9,
+						limit: 8,
 						coverage: requiredInSpace<`${Account} under a ${Reader}`>([
 							"existence only under a projection",
 							"existence only under a projection, shared variable outside the heading",
@@ -193,8 +183,7 @@ describe("an existence-only match becomes a semi-join", () => {
 							"with a constant under a projection",
 							"with a constant under a projection, shared variable outside the heading",
 							"with a constant under a root, shared variable outside the heading",
-							"with a constant under a fold",
-							"delivers its witness under a projection"
+							"with a constant under a fold"
 						]),
 						caseHang
 					},
@@ -204,10 +193,7 @@ describe("an existence-only match becomes a semi-join", () => {
 							const { dag, group } = matched(account, reader)
 							const ran = rewritten(dag, [prunePass, existencePass])
 							rewritten(dag, [relationalRewrites])
-							assert.equal(
-								rulesOf(ran.certificates).includes("R02.semiJoin"),
-								account !== "delivers its witness"
-							)
+							contains(rulesOf(ran.certificates), "R02.semiJoin")
 							for (const g of group) {
 								const after = nodesByLabel(ran.query.dag).get(g.id)
 								assert.deepEqual(after?.kind === "Group" ? after.bound.columns : [], [
@@ -307,128 +293,29 @@ describe("set comparisons need a physically unique left input", () => {
 	)
 })
 
-/**
- * An occurrence whose source reads another scope: a region correlated with the outer region's label, or the Account
- * scan another occurrence's source reads laterally.
- */
-type Scope = "a correlated source" | "a source read laterally"
-
 describe("scope", () => {
 	it.effect(
-		"an occurrence over a correlated source, or whose source an expression reads laterally, stays in its region",
+		"an occurrence over a correlated source, or whose source another occurrence reads laterally, stays in its region",
 		(ctx) =>
 			searched(
 				ctx,
-				exhaust(
-					{
-						suite: "unit/lower/rewrite/existence-scope",
-						literal: Formatter.format,
-						generator: element<Scope>(["a correlated source", "a source read laterally"]),
-						limit: 2,
-						coverage: requiredInSpace<Scope>(["a correlated source", "a source read laterally"]),
-						caseHang
-					},
-					(scope, c) =>
-						Effect.sync(() => {
-							c.note(scope)
-							const q = new Q()
-							if (scope === "a correlated source") {
-								const outerId = q.b.reserve()
-								const correlated = q.regionWith(
-									[
-										{
-											source: q.base(AccountRelation, conservativeMeta),
-											bind: { id: "acct", name: "name" },
-											constants: {}
-										}
-									],
-									{
-										...plainRegion,
-										correlated: [
-											{ name: "name", type: T.text, expr: outerCol(q, outerId, "label", T.text) }
-										],
-										heading: { kind: "named", names: ["acct"] }
-									}
-								)
-								const outerRegion = q.regionWith(
-									[
-										{
-											source: q.base(AccountRelation, conservativeMeta),
-											bind: { id: "other", name: "label" },
-											constants: {}
-										},
-										{
-											source: q.base(Posting, conservativeMeta),
-											bind: { id: "id", account: "acct" },
-											constants: {}
-										},
-										{ source: correlated, bind: { acct: "acct" }, constants: {} }
-									],
-									{ ...plainRegion, id: { kind: "reserved", id: outerId } }
-								)
-								const ran = rewritten(
-									q.build(q.project(outerRegion, [["id", "id"]], conservativeMeta)).dag,
-									[existencePass]
-								)
-								const outer = Arr.findFirst(
-									nodesOf(ran.query.dag, "MatchRegion"),
-									(r) => r.id === outerId
-								)
-								assert.equal(
-									Option.exists(outer, (r) =>
-										Arr.some(r.occurrences, (o) => o.source.id === correlated.id)
-									),
-									true
-								)
-								return
-							}
-							const accounts = q.base(AccountRelation, conservativeMeta)
-							const reader = q.regionWith(
-								[
-									{
-										source: q.base(Posting, conservativeMeta),
-										bind: { id: "pid", account: "acct" },
-										constants: {}
-									}
-								],
-								{
-									...plainRegion,
-									correlated: [
-										{ name: "acct", type: T.uuid, expr: outerCol(q, accounts.id, "id", T.uuid) }
-									]
-								}
-							)
-							const region = q.region([
-								{
-									source: q.base(Posting, conservativeMeta),
-									bind: { id: "id", account: "acct" },
-									constants: {}
-								},
-								{ source: accounts, bind: { id: "acct" }, constants: {} },
-								{ source: reader, bind: { pid: "pid" }, constants: {} }
-							])
-							const ran = rewritten(
-								q.build(
-									q.project(
-										region,
-										[
-											["id", "id"],
-											["pid", "pid"]
-										],
-										conservativeMeta
-									)
-								).dag,
-								[existencePass]
-							)
-							const r = nodesByLabel(ran.query.dag).get(region.id)
-							assert.equal(
-								r?.kind === "MatchRegion"
-									? Arr.some(r.occurrences, (o) => o.source.id === accounts.id)
-									: false,
-								true
-							)
-						})
-				)
+				guardSearch<"a scoped occurrence stayed in its region">({
+					suite: "unit/lower/rewrite/existence-scope",
+					passes: [existencePass],
+					evidence: "snapshot",
+					runs: 150,
+					situations: [
+						"an occurrence over a correlated source",
+						"an occurrence whose source another occurrence reads laterally",
+						"a scoped occurrence stayed in its region",
+						"R02.semiJoin"
+					],
+					holds: (_q, input, ran, c) => {
+						if (scopedStay(input.dag, ran.query.dag) > 0) {
+							c.note("a scoped occurrence stayed in its region")
+						}
+					}
+				})
 			)
 	)
 })

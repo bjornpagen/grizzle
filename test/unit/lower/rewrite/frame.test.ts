@@ -7,7 +7,7 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
 import { noCoverage, required, requiredInSpace } from "@grizzle/testing/features"
-import { element } from "@grizzle/testing/gen"
+import { int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -38,7 +38,7 @@ import { pushdownPass } from "#compiler/lower/optimize/pushdown/index.ts"
 import { semiPushdownPass } from "#compiler/lower/optimize/pushdown/semi.ts"
 import { simplifyPass } from "#compiler/lower/optimize/simplify/index.ts"
 import { catalogPass } from "#compiler/lower/shapes/catalog/rewrite.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { genCatalog } from "#test/support/evidence.ts"
 import { standInNames } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -53,6 +53,9 @@ import {
 	runPasses
 } from "#test/unit/lower/rewrite/support.ts"
 
+/** Where the rewritten root sits among a DAG's roots: first, the query's own, or after it. */
+type RootPosition = "the query's root" | "a later root"
+
 describe("a DAG's roots", () => {
 	it.effect(
 		"a root stays at its position among the DAG's roots when a rewrite replaces it, the query's root first",
@@ -63,35 +66,44 @@ describe("a DAG's roots", () => {
 					{
 						suite: "unit/lower/rewrite/frame-root-position",
 						literal: Formatter.format,
-						generator: element<"first" | "second">(["first", "second"]),
-						limit: 2,
-						coverage: requiredInSpace<"first" | "second">(["first", "second"]),
+						/** Two or three roots, the one a rewrite replaces at any position among them. */
+						generator: (source) => {
+							const roots = source.draw(int(2, 3))
+							return { roots, at: source.draw(int(0, roots - 1)) }
+						},
+						limit: 5,
+						coverage: requiredInSpace<RootPosition>(["the query's root", "a later root"]),
 						caseHang
 					},
-					(at, c) =>
+					({ roots, at }, c) =>
 						Effect.sync(() => {
-							c.note(at)
+							c.note(at === 0 ? "the query's root" : "a later root")
 							const q = new Q()
 							const occurrence = () => ({
 								source: q.base(Posting, conservativeMeta),
 								bind: { id: "id", account: "account" },
 								constants: {}
 							})
-							const other = q.project(q.region([occurrence()]), [["id", "id"]], conservativeMeta)
-							const result = q.filter(
-								q.region([occurrence()]),
-								q.lit({ kind: "bool", value: true }, T.bool)
+							/** Each other root a projection of its own region, which simplification keeps. */
+							const built: Rooted = Arr.makeBy(roots, (i) =>
+								i === at
+									? q.filter(q.region([occurrence()]), q.lit({ kind: "bool", value: true }, T.bool))
+									: q.project(q.region([occurrence()]), [["id", "id"]], conservativeMeta)
 							)
-							const roots: Rooted = at === "first" ? [result, other] : [other, result]
 							const ran = succeeded(
 								simplifyPass.run(
-									{ dag: q.b.build(roots), params: [] },
+									{ dag: q.b.build(built), params: [] },
 									passContext({ catalog: ledgerCatalog, evidence: "snapshot" })
 								)
 							)
-							const replaced = ran.dag.roots[at === "first" ? 0 : 1]
-							assert.equal(ran.dag.roots[at === "first" ? 1 : 0]?.id, other.id)
-							assert.equal(replaced?.kind, "MatchRegion")
+							assert.equal(ran.dag.roots.length, roots)
+							for (const [i, root] of ran.dag.roots.entries()) {
+								if (i === at) {
+									assert.equal(root.kind, "MatchRegion")
+								} else {
+									assert.equal(root.id, defined(built[i], "the root as built").id)
+								}
+							}
 						})
 				)
 			)

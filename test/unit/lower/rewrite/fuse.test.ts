@@ -17,23 +17,17 @@ import {
 import { fusePass } from "#compiler/lower/optimize/fuse/index.ts"
 import { simplifyPass } from "#compiler/lower/optimize/simplify/index.ts"
 import { assert, contains, succeeded } from "#test/support/assert.ts"
-import {
-	Account,
-	Posting,
-	plainRegion,
-	Q,
-	T,
-	uuidOf
-} from "#test/unit/lower/conservative/fixtures.ts"
+import { Account, Posting, Q, T, uuidOf } from "#test/unit/lower/conservative/fixtures.ts"
 
 import { caseHang } from "#test/support/limits.ts"
+import { guardSearch, scopedStay } from "#test/unit/lower/rewrite/guarded.ts"
 import {
 	passContext,
 	deliversAlikeOn,
 	factSubsets,
 	ledgerCatalog,
 	lowersConservatively,
-	outerCol,
+	nodesOf,
 	queryOf,
 	type Ran,
 	rulesOf,
@@ -239,167 +233,41 @@ describe("fixed columns in R01 fusion", () => {
 	)
 })
 
-/**
- * What the imported stage holds or how it is read: a plain projection, a filter of a column, a filter of a computed
- * value, an aggregate, a region correlated with the outer region, or a stage whose column a later source reads
- * laterally.
- */
-type Chain =
-	| "a projection"
-	| "a plain filter"
-	| "a computed filter"
-	| "an aggregate boundary"
-	| "a correlated inner region"
-	| "a stage read laterally"
-
-/** The outer region matching the imported stage beside the accounts, under the chain drawn. */
-const chained = (chain: Chain): RelDag => {
-	const q = new Q()
-	if (chain === "a correlated inner region") {
-		const outerId = q.b.reserve()
-		const inner = q.regionWith(
-			[
-				{
-					source: q.base(Posting, conservativeMeta),
-					bind: { id: "id", account: "account" },
-					constants: {}
-				}
-			],
-			{
-				...plainRegion,
-				correlated: [{ name: "account", type: T.uuid, expr: outerCol(q, outerId, "acct", T.uuid) }]
-			}
-		)
-		const imported = q.project(inner, [["id", "id"]], conservativeMeta)
-		const outer = q.regionWith(
-			[
-				{ source: q.base(Account, conservativeMeta), bind: { id: "acct" }, constants: {} },
-				{ source: imported, bind: { id: "task" }, constants: {} }
-			],
-			{ ...plainRegion, id: { kind: "reserved", id: outerId } }
-		)
-		return q.build(q.project(outer, [["task", "task"]], conservativeMeta)).dag
-	}
-	if (chain === "a stage read laterally") {
-		const imported = q.project(
-			q.region([
-				{
-					source: q.base(Account, conservativeMeta),
-					bind: { id: "id", name: "name" },
-					constants: {}
-				}
-			]),
-			[
-				["id", "id"],
-				["name", "name"]
-			],
-			conservativeMeta
-		)
-		const later = q.regionWith(
-			[
-				{
-					source: q.base(Account, conservativeMeta),
-					bind: { id: "other", name: "same" },
-					constants: {}
-				}
-			],
-			{
-				...plainRegion,
-				correlated: [{ name: "same", type: T.text, expr: outerCol(q, imported.id, "name", T.text) }]
-			}
-		)
-		const outer = q.region([
-			{ source: imported, bind: { id: "acct" }, constants: {} },
-			{ source: later, bind: { other: "other" }, constants: {} }
-		])
-		return q.build(
-			q.project(
-				outer,
-				[
-					["acct", "acct"],
-					["other", "other"]
-				],
-				conservativeMeta
-			)
-		).dag
-	}
-	const inner = postings(q)
-	const imported =
-		chain === "an aggregate boundary"
-			? q.group(
-					inner,
-					["id", "account", "amount"],
-					["account"],
-					[{ name: "total", fn: "sum", op: "sum(bigint)", args: ["amount"], type: T.numeric }],
-					conservativeMeta
-				)
-			: q.project(
-					chain === "a projection"
-						? inner
-						: q.filter(
-								inner,
-								chain === "a plain filter"
-									? q.op("int8gt", [q.col(inner, "amount"), q.int(5, T.int8)], T.bool)
-									: q.op(
-											"int8gt",
-											[
-												q.op("int8pl", [q.col(inner, "amount"), q.int(1, T.int8)], T.int8),
-												q.int(5, T.int8)
-											],
-											T.bool
-										)
-							),
-					[["account", "account"]],
-					conservativeMeta
-				)
-	const outer = q.region([
-		{ source: imported, bind: { account: "acct" }, constants: {} },
-		{ source: q.base(Account, conservativeMeta), bind: { id: "acct", name: "name" }, constants: {} }
-	])
-	return q.build(q.project(outer, [["name", "name"]], conservativeMeta)).dag
-}
-
 describe("boundaries and refusals", () => {
 	it.effect(
-		"fuses a chain of projections and filters, and nothing that would change scope",
+		"fuses no stage across an aggregate boundary, and none an expression correlates or another occurrence reads laterally",
 		(ctx) =>
 			searched(
 				ctx,
-				exhaust(
-					{
-						suite: "unit/lower/rewrite/fuse-boundaries",
-						literal: Formatter.format,
-						generator: element<Chain>([
-							"a projection",
-							"a plain filter",
-							"a computed filter",
-							"an aggregate boundary",
-							"a correlated inner region",
-							"a stage read laterally"
-						]),
-						limit: 6,
-						coverage: requiredInSpace<Chain>([
-							"a projection",
-							"a plain filter",
-							"a computed filter",
-							"an aggregate boundary",
-							"a correlated inner region",
-							"a stage read laterally"
-						]),
-						caseHang
-					},
-					(chain, c) =>
-						Effect.sync(() => {
-							c.note(chain)
-							const ran = fused(chained(chain))
-							assert.equal(
-								rulesOf(ran.certificates).includes("R01.fusion"),
-								chain === "a projection" ||
-									chain === "a plain filter" ||
-									chain === "a computed filter"
+				guardSearch<"a group kept its bound tuple" | "a scoped stage kept">({
+					suite: "unit/lower/rewrite/fuse-boundaries",
+					passes: [fusePass],
+					evidence: "snapshot",
+					runs: 150,
+					situations: [
+						"R01.fusion",
+						"a region over a group",
+						"an occurrence over a correlated source",
+						"an occurrence whose source another occurrence reads laterally",
+						"a group kept its bound tuple",
+						"a scoped stage kept"
+					],
+					holds: (_q, input, ran, c) => {
+						const after = nodesByLabel(ran.query.dag)
+						for (const group of nodesOf(input.dag, "Group")) {
+							const kept = after.get(group.id)
+							assert.deepEqual(
+								kept?.kind === "Group" ? kept.bound.columns : [],
+								group.bound.columns,
+								`the group ${group.id}`
 							)
-						})
-				)
+							c.note("a group kept its bound tuple")
+						}
+						if (scopedStay(input.dag, ran.query.dag) > 0) {
+							c.note("a scoped stage kept")
+						}
+					}
+				})
 			)
 	)
 })

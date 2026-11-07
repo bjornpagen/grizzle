@@ -38,7 +38,7 @@ import { caseHang } from "#test/support/limits.ts"
 import { loadOrder } from "#test/support/platform/generate.ts"
 import type { RelationName } from "#test/support/platform/laws.ts"
 import { openActors } from "#test/support/schedules/actors.ts"
-import { beginBelow, complete, rollback, schedule, sql } from "#test/support/schedules/build.ts"
+import { beginBelow, rollback, schedule, sql } from "#test/support/schedules/build.ts"
 import { describeOutcome, meets, misses } from "#test/support/schedules/match.ts"
 import { openRig } from "#test/support/schedules/rig.ts"
 import { runSchedule } from "#test/support/schedules/runner.ts"
@@ -237,8 +237,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										sql(
 											p.writer,
 											statementSql(names, relation, p.statement),
-											refusedWith(refusal, names, relation),
-											complete
+											refusedWith(refusal, names, relation)
 										),
 										rollback(p.writer)
 									]),

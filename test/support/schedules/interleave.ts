@@ -21,12 +21,7 @@ import {
 	textOfValue
 } from "#test/support/schedules/actors.ts"
 import { describeStepOutcome } from "#test/support/schedules/match.ts"
-import type {
-	DirectAction,
-	ScheduleOutcome,
-	StepOutcome,
-	Verdict
-} from "#test/support/schedules/types.ts"
+import type { DirectAction, ScheduleOutcome, StepOutcome } from "#test/support/schedules/types.ts"
 import { type LockWait, lockWaitOf } from "#test/support/substrate/barrier.ts"
 import { connect } from "#test/support/substrate/session.ts"
 import type { SubstrateShape, TextRows } from "#test/support/substrate/substrate.ts"
@@ -473,9 +468,8 @@ const performAll = (
 		return last
 	})
 
-/** Whether an outcome is a success: an Ok step, or a judged operation (whose verdict is its expectation's business). */
-const isSuccess = (outcome: StepOutcome): boolean =>
-	outcome._tag === "Ok" || outcome._tag === "Judged"
+/** Whether an outcome is a success: an Ok step. */
+const isSuccess = (outcome: StepOutcome): boolean => outcome._tag === "Ok"
 
 const isDeadlockVictim = (outcome: StepOutcome): boolean =>
 	outcome._tag === "PgError" && outcome.fields.code === "40P01"
@@ -1102,16 +1096,5 @@ export const opStep = (
 		onSuccess: (): StepOutcome => succeeded,
 		onFailure: failureOutcome
 	}),
-	footprint
-})
-
-/** A grizzle operation step whose result its own expectation judges: its outcome is the verdict. */
-export const judgedStep = (
-	label: string,
-	verdict: Effect.Effect<Verdict>,
-	footprint: Footprint
-): OpStep => ({
-	label,
-	outcome: Effect.map(verdict, (v): StepOutcome => ({ _tag: "Judged", verdict: v })),
 	footprint
 })

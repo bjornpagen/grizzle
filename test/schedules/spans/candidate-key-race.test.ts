@@ -1,55 +1,61 @@
 /**
- * An exact repeat beside a concurrent identical insert, at a span candidate key: an exclusion that raises 23P01.
+ * Races at a span candidate key: an apply of a Booking racing direct writers of Booking, at its span key, its other
+ * candidate key and its primary key.
  *
  * Booking(id, room, during, ref) is keyed by id, with the span candidate key (room, during), a UNIQUE ... WITHOUT
  * OVERLAPS that PostgreSQL enforces as an exclusion constraint, and the candidate key ref. The insert protocol probes
- * both under its snapshot, so a 23P01 at the span key can only come from an occupant that snapshot did not see: the
- * apply's attempt fails once (its reason PostgreSQL's mechanism), and the retry's arbiter finds the committed fact
- * equal, a repeat, or its probe finds an overlapping one, the span key law with the requested fact at the key as the
- * witness.
+ * every key under its snapshot, so a refusal at a key can only come from an occupant that snapshot did not see: the
+ * attempt fails as a TransientFailure, and the retry finds the committed fact equal, a repeat, or another at the key,
+ * that key's law.
  *
  * An exclusion constraint inserts the row's entry before it checks, so a second writer of an overlapping fact waits on
  * the apply's entry while the apply waits on its own, a deadlock: the window one writer opens at a plain candidate key
- * cannot be opened here. The repeat schedule opens it with two. The owner rebuilds ref's key and then the primary key,
- * so PostgreSQL inserts into the span key's index first, then ref's, then the primary key's. A blocker holds an
- * uncommitted fact at the requested ref in another room. The direct writer inserts exactly the fact the apply requests:
- * its span entry is checked and kept, and it waits at that ref on the blocker before it reaches the primary key. The
- * apply's arbiter pre-check finds no fact at its id, and its span entry waits on the writer's. The blocker rolls back;
- * the writer completes and commits, and the apply's exclusion check meets the committed fact: 23P01 on an exact repeat.
+ * cannot be opened by one here. Two open it: the owner rebuilds ref's key and then the primary key, so PostgreSQL inserts
+ * into the span key's index first, then ref's, then the primary key's; a blocker holds an uncommitted fact at the
+ * requested ref in another room; a direct writer inserting the requested fact keeps its span entry and waits at that
+ * ref on the blocker before it reaches the primary key; and the apply's span entry waits on the writer's.
  *
- * The control: an overlapping different fact committed while the apply waits at the span key retries the same way and
- * is refused by the retry's probe.
+ * Property: every run of a race, in every order of its moves, is explained by its serial reference
+ * (test/support/schedules/serial.ts): the apply (retried after each TransientFailure until it answers), the direct
+ * writer's and the blocker's transactions, each run alone from the race's initial state in an order that respects
+ * real time, show what they showed in the run (the apply's outcome, each statement's SQLSTATE on its constraint) and
+ * leave its state. The races draw the requested fact, an insert or a put of it, an initial fact, the direct writer's
+ * fact and the blocker's, each standing to the requested one as a dictionary of what the keys branch on says (the same
+ * fact, overlapping it in its room, at its ref, at its id, or apart), and how the blocker ends.
  *
- * The ids, rooms, refs and spans are drawn.
+ * The kept races are the windows the races were first planted for: an identical insert, and an identical put,
+ * committed by the direct writer while the apply waits at the span key, each a repeat, no-change; and an overlapping
+ * fact committed while the apply waits at the span key, the span key's law.
  */
 
 import { layer } from "@effect/vitest"
-import { type Gen, int } from "@grizzle/testing/gen"
-import { Array as Arr, Effect } from "effect"
-import { Db } from "#adapter/public/db.ts"
+import { type Case, drawn, explore } from "@grizzle/testing/explore"
+import { required } from "@grizzle/testing/features"
+import { boolean, element, type Gen, int } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
+import { searched } from "@grizzle/testing/vitest"
+import { Array as Arr, Effect, Formatter, type Scope } from "effect"
+import type { OpenError } from "#adapter/errors/execution.ts"
+import { type ApplyOutcome, Db } from "#adapter/public/db.ts"
+import type { CompileError, TransientTag } from "#compiler/core/errors.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg, span } from "#compiler/public/fields.ts"
 import { key, login, on, relation, role, schema } from "#compiler/public/schema.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { threeKeys, twoKeys } from "#test/schedules/write/support.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
-import { openActors } from "#test/support/schedules/actors.ts"
-import {
-	awaits,
-	begin,
-	blocksOn,
-	check,
-	commit,
-	complete,
-	rollback,
-	schedule,
-	sql
-} from "#test/support/schedules/build.ts"
-import { applied, refusals, retriedOp } from "#test/support/schedules/grizzle.ts"
-import { ok, rows } from "#test/support/schedules/match.ts"
-import { planted } from "#test/support/schedules/planted.ts"
+import { caseHang } from "#test/support/limits.ts"
+import type { SqlError } from "#test/support/pg.ts"
+import { openActors, textOfValue } from "#test/support/schedules/actors.ts"
+import { every, everyRelation } from "#test/support/schedules/interleave.ts"
 import { openRig } from "#test/support/schedules/rig.ts"
-import { runSchedule } from "#test/support/schedules/runner.ts"
+import {
+	type Explained,
+	type RaceTxn,
+	runSerialRace,
+	type SerialRaceFailed
+} from "#test/support/schedules/serial.ts"
+import type { PsqlProcessError, TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 const Booking = relation(
@@ -61,6 +67,7 @@ const bookingSpan = key(on(Booking, "room", "during"))
 const bookingRef = key(on(Booking, "ref"))
 const relations = { Booking }
 const statements = [bookingSpan, bookingRef]
+
 /**
  * The schema under its installed name with its worlds: the full role `app` the grizzle writer opens, in the login
  * `server`, and the full role `direct` the direct actors take on, in the login `psql`.
@@ -78,43 +85,6 @@ const renamed = (name: string) => {
 	}
 }
 
-const setup = Effect.gen(function* () {
-	const s = yield* Substrate
-	const rig = yield* openRig("Bookings", renamed)
-	const names = namesOf(rig.installed)
-	const booking = names.table(Booking)
-	for (const [law, kind, definition] of [
-		[names.lawOf(bookingRef), "Unique", `UNIQUE (${names.column(Booking, "ref")})`],
-		[names.primaryKeyLaw(Booking), "PrimaryKey", `PRIMARY KEY (${names.column(Booking, "id")})`]
-	] as const) {
-		const constraint = quoteIdent(names.constraintOf(law, kind))
-		yield* rig.owner([
-			`ALTER TABLE ${booking} DROP CONSTRAINT ${constraint}, ADD CONSTRAINT ${constraint} ${definition}`
-		])
-	}
-	const app = yield* rig.writer("app", (context) =>
-		Db.open(rig.worlds.server.roles.app, {}).pipe(Effect.provideContext(context))
-	)
-	const direct = yield* openActors(s, {
-		direct: { kind: "raw", as: rig.direct },
-		blocker: { kind: "raw", as: rig.direct }
-	})
-	const columns = ["id", "room", "during", "ref"] as const
-	const listed = Arr.map(columns, (c) => names.column(Booking, c))
-	return {
-		rig,
-		names,
-		app,
-		booking,
-		columns: Arr.join(listed, ", "),
-		state: `SELECT ${Arr.join(
-			Arr.map(listed, (c) => `${c}::text`),
-			", "
-		)} FROM ${booking} ORDER BY ${names.column(Booking, "id")}`,
-		actors: { direct, grizzle: { app: app.actor } }
-	}
-})
-
 interface Booked {
 	readonly id: number
 	readonly room: number
@@ -122,9 +92,24 @@ interface Booked {
 	readonly ref: number
 }
 
-const spanText = (b: Booked) => `[${b.during.start},${b.during.end})`
-const values = (b: Booked) => `(${b.id}, ${b.room}, '${spanText(b)}', ${b.ref})`
-const stateRow = (b: Booked) => [String(b.id), String(b.room), spanText(b), String(b.ref)]
+/** A race: the requested fact and how the apply writes it, the initial facts, the direct writer's fact and the blocker. */
+interface BookingRace {
+	readonly requested: Booked
+	readonly how: "insert" | "put"
+	readonly initial: ReadonlyArray<Booked>
+	readonly direct: Booked
+	readonly blocker:
+		| { readonly kind: "none" }
+		| { readonly kind: "inserts"; readonly fact: Booked; readonly end: "commit" | "rollback" }
+}
+
+/** What a race reached: the apply waited, met a refusal and each reason, its answer, and how each direct writer ended. */
+type BookingFeature =
+	| "the apply waited"
+	| "the apply refused"
+	| `refused: ${TransientTag}`
+	| `the apply ${ApplyOutcome<unknown>["kind"]}`
+	| `${"direct" | "blocker"} ${"committed" | "rolled back" | "aborted" | "failed"}`
 
 /** A span: where it starts, and its width. */
 const spanGen: Gen<Booked["during"]> = (source) => {
@@ -132,148 +117,274 @@ const spanGen: Gen<Booked["during"]> = (source) => {
 	return { start, end: start + source.draw(int(1, 99)) }
 }
 
-/** The requested booking, the blocker's and the overlapping one a case runs on. */
-interface Bookings {
+/** How a fact stands to the requested one, the dictionary of what the keys branch on. */
+const standings = [
+	"the same fact",
+	"overlapping in its room",
+	"at its ref",
+	"at its id",
+	"apart"
+] as const
+
+/** The values a race's facts are drawn among: the requested fact, other ids, another room and another ref. */
+interface Values {
 	readonly requested: Booked
-	readonly blocker: Booked
-	readonly overlapping: Booked
+	readonly ids: readonly [number, number]
+	readonly room: number
+	readonly ref: number
 }
 
-/**
- * The requested booking; the blocker's, at its ref in another room and at another id; and an overlapping one in its
- * room at another id and ref, the control's.
- */
-const bookingsGen: Gen<Bookings> = (source) => {
-	const [id, blockerId, otherId] = source.draw(threeKeys)
+const valuesGen: Gen<Values> = (source) => {
+	const [id, first, second] = source.draw(threeKeys)
 	const [room, otherRoom] = source.draw(twoKeys)
 	const [ref, otherRef] = source.draw(twoKeys)
-	const during = source.draw(spanGen)
-	const blocked = source.draw(spanGen)
-	/** Where the overlapping span starts within the requested one, and its width. */
-	const offset = source.draw(int(0, 2 ** 31 - 1))
-	const width = source.draw(int(1, 99))
-	const start = during.start + (offset % (during.end - during.start))
 	return {
-		requested: { id, room, during, ref },
-		blocker: { id: blockerId, room: otherRoom, during: blocked, ref },
-		overlapping: { id: otherId, room, during: { start, end: start + width }, ref: otherRef }
+		requested: { id, room, during: source.draw(spanGen), ref },
+		ids: [first, second],
+		room: otherRoom,
+		ref: otherRef
 	}
 }
 
+/** A fact standing to the requested one as drawn. */
+const relatedGen =
+	(x: Values): Gen<Booked> =>
+	(source) => {
+		const other = source.draw(element(x.ids))
+		switch (source.draw(element(standings))) {
+			case "the same fact":
+				return x.requested
+			case "overlapping in its room": {
+				const width = x.requested.during.end - x.requested.during.start
+				const start = x.requested.during.start + (source.draw(int(0, 2 ** 31 - 1)) % width)
+				return {
+					id: other,
+					room: x.requested.room,
+					during: { start, end: start + source.draw(int(1, 99)) },
+					ref: x.ref
+				}
+			}
+			case "at its ref":
+				return { id: other, room: x.room, during: source.draw(spanGen), ref: x.requested.ref }
+			case "at its id":
+				return { id: x.requested.id, room: x.room, during: source.draw(spanGen), ref: x.ref }
+			case "apart":
+				return { id: other, room: x.room, during: source.draw(spanGen), ref: x.ref }
+		}
+	}
+
+const raceGen: Gen<BookingRace> = (source) => {
+	const x = source.draw(valuesGen)
+	return {
+		requested: x.requested,
+		how: source.draw(element(["insert", "put"])),
+		initial: source.draw(boolean) ? [source.draw(relatedGen(x))] : [],
+		direct: source.draw(relatedGen(x)),
+		blocker: source.draw(boolean)
+			? {
+					kind: "inserts",
+					fact: source.draw(relatedGen(x)),
+					end: source.draw(element(["commit", "rollback"]))
+				}
+			: { kind: "none" }
+	}
+}
+
+const spanText = (b: Booked) => `[${b.during.start},${b.during.end})`
+const values = (b: Booked) => `(${b.id}, ${b.room}, '${spanText(b)}', ${b.ref})`
+
+/** The features one explained run reached (see BookingFeature). */
+const featuresOf = (e: Explained<ApplyOutcome<unknown>>): ReadonlyArray<BookingFeature> => {
+	const waited = Arr.some(e.run.moves, (m) => m.session === "app" && m.observed._tag === "Waited")
+	return [
+		...(waited ? ["the apply waited" as const] : []),
+		...Arr.flatMap([...e.ends], ([session, end]): ReadonlyArray<BookingFeature> => {
+			switch (end.kind) {
+				case "answered":
+					return [
+						`the apply ${end.retried.answered.kind}`,
+						...(end.retried.refused.length > 0 ? ["the apply refused" as const] : []),
+						...Arr.map(end.retried.refused, (reason): BookingFeature => `refused: ${reason}`)
+					]
+				case "committed":
+				case "rolled back":
+				case "aborted":
+				case "failed":
+					return session === "direct" || session === "blocker" ? [`${session} ${end.kind}`] : []
+			}
+		})
+	]
+}
+
 /**
- * The planted repeat: an identical `how` committed by a direct writer while the apply of the same fact waits at the span
- * key is no-change.
+ * Installs Booking with the owner's rebuilt key order (see the header), opens the apply's writer and the two direct
+ * writers, and runs the race, every run judged by its serial reference.
  */
-const identicalRepeat = (how: "insert" | "put") =>
-	planted(
-		`span candidate key race/${how}`,
-		bookingsGen,
-		[`identical ${how} at the span key`],
-		(b) =>
-			Effect.gen(function* () {
-				const x = yield* setup
-				const changes =
-					how === "insert"
-						? ChangeSet.empty(x.rig.worlds.schema).insert(Booking, [b.requested])
-						: ChangeSet.empty(x.rig.worlds.schema).put(Booking, [b.requested])
-				return [
-					yield* runSchedule(
-						x.rig.env,
-						schedule(`identical ${how} at the span key`, [
-							begin("blocker"),
-							sql(
-								"blocker",
-								`INSERT INTO ${x.booking} (${x.columns}) VALUES ${values(b.blocker)}`,
-								ok(),
-								complete
-							),
-							begin("direct"),
-							sql(
-								"direct",
-								`INSERT INTO ${x.booking} (${x.columns}) VALUES ${values(b.requested)}`,
-								ok(),
-								blocksOn("blocker")
-							),
-							retriedOp(
-								"app",
-								`apply ${how}`,
-								x.app.db.apply(changes, {}),
-								applied({ kind: "no-change", calls: refusals(1) }),
-								blocksOn("direct")
-							),
-							rollback("blocker"),
-							awaits("direct", complete),
-							commit("direct", ok(), complete),
-							awaits("app", complete),
-							check(x.state, rows(stateRow(b.requested)))
-						]),
-						x.actors
-					)
-				]
-			})
-	)
+const runRace = (
+	race: BookingRace,
+	c: Case<BookingFeature>
+): Effect.Effect<
+	void,
+	CompileError | SqlError | TransactionRolledBack | OpenError | PsqlProcessError | SerialRaceFailed,
+	Substrate | Scope.Scope
+> =>
+	Effect.gen(function* () {
+		const s = yield* Substrate
+		const rig = yield* openRig("Bookings", renamed)
+		const names = namesOf(rig.installed)
+		const booking = names.table(Booking)
+		for (const [law, kind, definition] of [
+			[names.lawOf(bookingRef), "Unique", `UNIQUE (${names.column(Booking, "ref")})`],
+			[names.primaryKeyLaw(Booking), "PrimaryKey", `PRIMARY KEY (${names.column(Booking, "id")})`]
+		] as const) {
+			const constraint = quoteIdent(names.constraintOf(law, kind))
+			yield* rig.owner([
+				`ALTER TABLE ${booking} DROP CONSTRAINT ${constraint}, ADD CONSTRAINT ${constraint} ${definition}`
+			])
+		}
+		const app = yield* rig.writer("app", (context) =>
+			Db.open(rig.worlds.server.roles.app, {}).pipe(Effect.provideContext(context))
+		)
+		const direct = yield* openActors(s, {
+			direct: { kind: "raw", as: rig.direct },
+			blocker: { kind: "raw", as: rig.direct }
+		})
+		const listed = Arr.map(["id", "room", "during", "ref"] as const, (f) =>
+			names.column(Booking, f)
+		)
+		const insert = (b: Booked) =>
+			`INSERT INTO ${booking} (${Arr.join(listed, ", ")}) VALUES ${values(b)}`
+		const changes =
+			race.how === "insert"
+				? ChangeSet.empty(rig.worlds.schema).insert(Booking, [race.requested])
+				: ChangeSet.empty(rig.worlds.schema).put(Booking, [race.requested])
+		const blocker: ReadonlyArray<RaceTxn<ApplyOutcome<unknown>>> =
+			race.blocker.kind === "none"
+				? []
+				: [
+						{
+							kind: "direct",
+							session: "blocker",
+							statements: [{ sql: insert(race.blocker.fact), footprint: everyRelation }],
+							end: race.blocker.end
+						}
+					]
+		const apply: RaceTxn<ApplyOutcome<unknown>> = {
+			kind: "grizzle",
+			session: "app",
+			label: `apply ${race.how}`,
+			call: app.db.apply(changes, {}),
+			footprint: everyRelation
+		}
+		yield* runSerialRace(
+			rig.env,
+			{ direct, grizzle: { app: app.actor } },
+			{
+				name: `an apply ${race.how} at the span key`,
+				txns: [
+					apply,
+					{
+						kind: "direct",
+						session: "direct",
+						statements: [{ sql: insert(race.direct), footprint: everyRelation }],
+						end: "commit"
+					},
+					...blocker
+				],
+				reset: rig.replace(Arr.map(race.initial, insert)),
+				state: Effect.map(
+					rig.env.observer.queryValues(
+						`SELECT ${Arr.join(
+							Arr.map(listed, (column) => `${column}::text`),
+							", "
+						)} FROM ${booking}`,
+						[]
+					),
+					(rows) => Arr.map(rows, (row) => Arr.map(row, textOfValue))
+				)
+			},
+			every,
+			(e) => c.noteAll(featuresOf(e))
+		)
+	})
+
+/** The cases of the rotating stream; its floor runs a quarter of them. */
+const runs = 8
+
+const requested: Booked = { id: 1, room: 1, during: { start: 0, end: 10 }, ref: 1 }
 
 layer(Substrate.layer, { excludeTestServices: true })(
-	"an exact repeat beside a concurrent identical insert, at a span candidate key",
+	"races at a span candidate key, an apply beside direct writers",
 	(it) => {
 		it.effect(
-			"an identical insert committed while the apply waits at the span key is no-change",
-			identicalRepeat("insert")
-		)
-
-		it.effect(
-			"an identical put committed while the apply waits at the span key is no-change",
-			identicalRepeat("put")
-		)
-
-		it.effect(
-			"an overlapping fact committed while the apply waits at the span key is the span key's law",
-			planted(
-				"span candidate key race/control",
-				bookingsGen,
-				["overlapping fact at the span key"],
-				(b) =>
-					Effect.gen(function* () {
-						const x = yield* setup
-						return [
-							yield* runSchedule(
-								x.rig.env,
-								schedule("overlapping fact at the span key", [
-									begin("direct"),
-									sql(
-										"direct",
-										`INSERT INTO ${x.booking} (${x.columns}) VALUES ${values(b.overlapping)}`,
-										ok(),
-										complete
-									),
-									retriedOp(
-										"app",
-										"apply insert",
-										x.app.db.apply(
-											ChangeSet.empty(x.rig.worlds.schema).insert(Booking, [b.requested]),
-											{}
-										),
-										applied({
-											kind: "invariant-rejected",
-											calls: refusals(1),
-											law: x.names.described(x.names.lawOf(bookingSpan)),
-											witness: {
-												kind: "key",
-												relation: Booking.name,
-												values: { room: b.requested.room, during: b.requested.during }
-											}
-										}),
-										blocksOn("direct")
-									),
-									commit("direct", ok(), complete),
-									awaits("app", complete),
-									check(x.state, rows(stateRow(b.overlapping)))
-								]),
-								x.actors
-							)
-						]
-					})
-			)
+			"every race of an apply and direct writers at a span candidate key is serializable",
+			(ctx) =>
+				searched(
+					ctx,
+					explore(
+						{
+							suite: "schedules/spans/candidate-key-race",
+							draw: drawn(raceGen),
+							literal: Formatter.format,
+							coverage: required<BookingFeature>(["the apply waited", "the apply refused"], {
+								cases: runs,
+								sense: notesOnly
+							}),
+							kept: [
+								{
+									note: "an identical insert committed while the apply waits at the span key: the blocker holds the requested ref in another room, the direct writer's span entry waits there, and the apply's waits on it, so its exclusion check meets the committed repeat",
+									sketch: {
+										requested,
+										how: "insert",
+										initial: [],
+										direct: requested,
+										blocker: {
+											kind: "inserts",
+											fact: { id: 2, room: 2, during: { start: 0, end: 10 }, ref: 1 },
+											end: "rollback"
+										}
+									},
+									draws: "",
+									reaches: ["the apply waited", "the apply refused", "the apply no-change"]
+								},
+								{
+									note: "an identical put committed while the apply waits at the span key, the same window",
+									sketch: {
+										requested,
+										how: "put",
+										initial: [],
+										direct: requested,
+										blocker: {
+											kind: "inserts",
+											fact: { id: 2, room: 2, during: { start: 0, end: 10 }, ref: 1 },
+											end: "rollback"
+										}
+									},
+									draws: "",
+									reaches: ["the apply waited", "the apply refused", "the apply no-change"]
+								},
+								{
+									note: "an overlapping fact committed while the apply waits at the span key: the retry's probe finds it, the span key's law",
+									sketch: {
+										requested,
+										how: "insert",
+										initial: [],
+										direct: { id: 3, room: 1, during: { start: 5, end: 15 }, ref: 2 },
+										blocker: { kind: "none" }
+									},
+									draws: "",
+									reaches: ["the apply waited", "the apply refused", "the apply invariant-rejected"]
+								}
+							],
+							runs,
+							shrink: { kind: "bounded", candidates: 40 },
+							concurrency: 1,
+							steerEvery: runs,
+							caseHang
+						},
+						(race, c) => Effect.scoped(runRace(race, c))
+					)
+				)
 		)
 	}
 )

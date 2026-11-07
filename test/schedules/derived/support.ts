@@ -1,63 +1,74 @@
-import { type Gen, int } from "@grizzle/testing/gen"
-import { Array as Arr, Effect, Layer, Option, pipe, type Scope, String as Str } from "effect"
+import { layer } from "@effect/vitest"
+import { type Case, drawn, explore, type Kept } from "@grizzle/testing/explore"
+import { required, type Situations } from "@grizzle/testing/features"
+import { boolean, element, type Gen, int, subarray } from "@grizzle/testing/gen"
+import { pctSchedule } from "@grizzle/testing/interleave"
+import { notesOnly } from "@grizzle/testing/sense"
+import { searched } from "@grizzle/testing/vitest"
+import { Array as Arr, Effect, Formatter, Layer, pipe, type Scope, String as Str } from "effect"
 import type { ApplyError, OpenError } from "#adapter/errors/execution.ts"
 import { Db } from "#adapter/public/db.ts"
-import type { CompileError } from "#compiler/core/errors.ts"
+import { appendAll } from "#compiler/core/array.ts"
+import type { CompileError, TransientTag } from "#compiler/core/errors.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { pg, uuid, type Uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { derived, login, relation, role, schema } from "#compiler/public/schema.ts"
-import { quoteIdent } from "#compiler/sql/print.ts"
 import {
 	installDerived,
 	type Opened,
 	type OracleFixtureFailed
 } from "#test/pg/derived/oracle/harness.ts"
+import { defined } from "#test/support/assert.ts"
+import { replaceMigrated } from "#test/support/install-migrate.ts"
 import { type Names, namesOf, roleNamesOf } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { argumentsOf } from "#test/support/list.ts"
 import type { SqlError } from "#test/support/pg.ts"
-import { type GrizzleActor, grizzleActor } from "#test/support/schedules/actors.ts"
-import { type ExploreEnv, exploreEnv } from "#test/support/schedules/interleave.ts"
-import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
-import type { SubstrateWorld } from "#test/support/substrate/session.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import {
+	type GrizzleActor,
+	grizzleActor,
+	openActors,
+	textOfValue
+} from "#test/support/schedules/actors.ts"
+import {
+	type ExploreEnv,
+	every,
+	exploreEnv,
+	relationsFootprint,
+	type Strategy
+} from "#test/support/schedules/interleave.ts"
+import {
+	type Explained,
+	type RaceTxn,
+	runSerialRace,
+	type SerialRaceFailed,
+	type SessionEnd
+} from "#test/support/schedules/serial.ts"
+import type { PsqlProcessError, TransactionRolledBack } from "#test/support/substrate/errors.ts"
+import { Substrate, type TextRows } from "#test/support/substrate/substrate.ts"
 import { loginLayer } from "#test/support/worlds.ts"
 
 const derivedNames = ["StudentWeekly", "StudentTotal", "WeekBusy"] as const
-type DerivedName = (typeof derivedNames)[number]
+export type DerivedName = (typeof derivedNames)[number]
 
 /**
- * Shared setup for the db.refresh schedules.
+ * The derived levels the db.refresh races run on, under the declared name `name`, with its worlds.
  *
- * The fixture is a shape of derived levels over one base relation, Sitting: two derived relations at level 1,
- * StudentWeekly (sittings and passes per student and week) and StudentTotal (sittings per student), and WeekBusy at
- * level 2 (students per week, over StudentWeekly). It installs under a fresh schema name with these roles:
+ * The shape is one base relation, Sitting, and three derived relations: StudentWeekly (sittings and passes per student
+ * and week) and StudentTotal (sittings per student) at level 1, and WeekBusy (students per week, over StudentWeekly) at
+ * level 2. Its roles:
  *
  * - `refresher` and `refresher2`, two grizzle refreshers in the login `server`, each a Db opened through a DbLayer of
- *   its own exactly as an application opens one. A grizzle actor's steps are db.refresh operations; the barrier watches
- *   the backend of the one session its Db's pool holds (the harness's `grizzleActor`), resolved one Db at a time, since
- *   both are sessions of one login;
+ *   its own exactly as an application opens one, whose actor is the one session its Db's pool holds;
  * - in the login `psql`, which direct sessions log in as before they take on their role:
- *   - `holder`, a third refresher that a raw session takes on: inside an open transaction its
- *     REFRESH MATERIALIZED VIEW CONCURRENTLY holds the view's EXCLUSIVE lock, which is how a schedule parks a grizzle
- *     refresh behind another refresher at a point it chooses;
+ *   - `holder`, a third refresher that a raw session takes on: inside its open transaction a REFRESH MATERIALIZED VIEW
+ *     holds the view's lock, so the grizzle refreshers that meet it wait with snapshots taken before they waited;
  *   - `writer`, a direct SQL writer of Sitting, which also reads StudentWeekly;
  *   - `reader`, which reads the views.
  *
- * A world role reads a derived relation through its own view of it, in its own schema (`seen`); the holder refreshes,
- * and the judge reads, the installation's materialized view (`view`).
- *
- * grizzle makes one attempt per call, so a refresh step retries a TransientFailure on the caller's side, as an
- * application does (the harness's `retriedOp`), and its judge states the refusal history; a refresh run alone, before
- * a schedule, meets no concurrent transaction and so no refusal, and runs once. What a refresh must leave is
- * each named view fresh (`freshSql`), never the statements it ran, and what a reader sees of a view is the host model
- * of its definition over the sittings of the snapshot the view was refreshed at (`weeklyRows`, `totalRows`,
- * `busyRows`).
- *
- * A schedule's sittings are a fixed shape, the one its window needs, relabeled by drawn labels (`labelsGen`): where the
- * students' and sittings' uuids start and how far the weeks shift. Each schedule is a planted property over them.
- *
- * The derived-levels shape under the declared name `name`, with its worlds (see the header).
+ * A world role reads a derived relation through its own view of it, in its own schema; the holder refreshes the
+ * installation's materialized view.
  */
 const build = (name: string) => {
 	const Sitting = relation(
@@ -123,7 +134,7 @@ export interface Labels {
 	readonly week: number
 }
 
-/** The uuids' last group holds 48 bits; a schedule numbers its students and sittings below 0x100. */
+/** The uuids' last group holds 48 bits; a race numbers its students and sittings below 0x100. */
 export const labelsGen: Gen<Labels> = (source) => ({
 	student: source.draw(int(0, 0xffff_ffff)),
 	sitting: source.draw(int(0, 0xffff_ffff)),
@@ -133,7 +144,7 @@ export const labelsGen: Gen<Labels> = (source) => ({
 const uuidOf = (n: number): Uuid =>
 	`00000000-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`
 
-/** A sitting of the shape: its number, its student's number, its week before the shift, and whether it passed. */
+/** A sitting: its number, its student's number, its week before the shift, and whether it passed. */
 export interface Sat {
 	readonly n: number
 	readonly who: number
@@ -149,249 +160,541 @@ export const sat = (n: number, who: number, week: number, passed: boolean): Sat 
 })
 
 /** Student 1 sat twice in week 1 (one pass) and once in week 2; student 2 once in week 1. */
-export const initial: ReadonlyArray<Sat> = [
+export const initialSats: ReadonlyArray<Sat> = [
 	sat(1, 1, 1, true),
 	sat(2, 1, 1, false),
 	sat(3, 1, 2, true),
 	sat(4, 2, 1, true)
 ]
 
-/** The labeled values of a shape's numbers. */
+/**
+ * The views and the base before a race: the views never refreshed, the base holding `stored`; or the views refreshed
+ * over `viewed`, and the base changed to `stored` since.
+ */
+export type Initial =
+	| { readonly kind: "unpopulated"; readonly stored: ReadonlyArray<Sat> }
+	| {
+			readonly kind: "populated"
+			readonly viewed: ReadonlyArray<Sat>
+			readonly stored: ReadonlyArray<Sat>
+	  }
+
+/** The raw refresher: none, or the view its transaction refreshes and so holds the lock of, and how it ends. */
+export type Holder =
+	| { readonly kind: "none" }
+	| { readonly kind: "holds"; readonly view: DerivedName; readonly end: "commit" | "rollback" }
+
+/** What the base writer's statement does: add sittings, or drop one. */
+export type Change =
+	| { readonly kind: "add"; readonly sats: Arr.NonEmptyReadonlyArray<Sat> }
+	| { readonly kind: "drop"; readonly sat: Sat }
+
+/** The base writer: none, or one transaction that may first read StudentWeekly, then makes its change, and commits. */
+export type Writer =
+	| { readonly kind: "none" }
+	| { readonly kind: "writes"; readonly reads: boolean; readonly change: Change }
+
+/** A grizzle refresher's one db.refresh call: the derived relations it names, in the order it names them. */
+export type Call = Arr.NonEmptyReadonlyArray<DerivedName>
+
+/**
+ * A race of refreshes: the drawn labels, the initial state, the raw refresher, the grizzle refreshers' calls (the
+ * second refresher's, when there are two), the base writer, and whether a reader reads every view in one transaction.
+ */
+export interface DerivedRace {
+	readonly labels: Labels
+	readonly initial: Initial
+	readonly holder: Holder
+	readonly calls: readonly [Call] | readonly [Call, Call]
+	readonly writer: Writer
+	readonly reader: boolean
+}
+
+/** The labeled values of a race's numbers. */
 const labeled = (labels: Labels) => ({
 	student: (n: number) => uuidOf(labels.student + n),
 	sitting: (n: number) => uuidOf(labels.sitting + n),
 	week: (w: number) => labels.week + w
 })
 
-type Row = ReadonlyArray<string>
+/** What a derived relation's definition reads: Sitting at level 1, StudentWeekly at level 2. */
+const inputOf = (name: DerivedName): string => (name === "WeekBusy" ? "StudentWeekly" : "Sitting")
 
 /**
- * The host model of each view as the text rows its query (`weekly`, `studentTotals`, `weekBusy`) reads: StudentWeekly
- * counts each student's sittings and passes per week, StudentTotal each student's sittings, and WeekBusy the students
- * StudentWeekly holds per week.
+ * What a race reached: a call that waited on another session's lock, the two calls in flight together, each refusal
+ * reason a call met, how each direct session ended, a reader's read issued while a call waited, and the strategy.
  */
-const grouped = <T, K>(
-	items: ReadonlyArray<T>,
-	keyOf: (item: T) => K,
-	same: (a: K, b: K) => boolean
-) => {
-	const groups: Array<{ readonly key: K; readonly members: Array<T> }> = []
-	for (const item of items) {
-		const key = keyOf(item)
-		const group = Arr.findFirst(groups, (g) => same(g.key, key))
-		if (Option.isSome(group)) {
-			group.value.members.push(item)
-		} else {
-			groups.push({ key, members: [item] })
-		}
+export type DerivedFeature =
+	| "a call waited"
+	| "two calls in flight together"
+	| "refused: SerializationFailure"
+	| "refused: Deadlock"
+	| "refused: ConcurrentRefresh"
+	| `${"holder" | "writer" | "reader"} ${"committed" | "rolled back" | "aborted" | "failed"}`
+	| "a read while a call waited"
+	| "every order"
+	| "pct"
+
+/** A refusal reason a call met, as a feature; a reason no refresh meets is none. */
+const refusedFeature = (reason: TransientTag): ReadonlyArray<DerivedFeature> => {
+	switch (reason) {
+		case "SerializationFailure":
+			return ["refused: SerializationFailure"]
+		case "Deadlock":
+			return ["refused: Deadlock"]
+		case "ConcurrentRefresh":
+			return ["refused: ConcurrentRefresh"]
+		case "PutTargetConflict":
+		case "GeneratedSerialUnique":
+		case "SpanKeyChange":
+		case "UnseenOccupant":
+		case "StaleStatement":
+			return []
 	}
-	return groups
 }
 
-export const weeklyRows = (labels: Labels, sats: ReadonlyArray<Sat>): ReadonlyArray<Row> => {
-	const l = labeled(labels)
-	return Arr.map(
-		grouped(
-			sats,
-			(s) => [s.who, s.week] as const,
-			(a, b) => a[0] === b[0] && a[1] === b[1]
-		),
-		(g) => [
-			l.student(g.key[0]),
-			String(l.week(g.key[1])),
-			String(g.members.length),
-			String(Arr.filter(g.members, (s) => s.passed).length)
-		]
-	)
+const endWord = (end: SessionEnd<void>): "committed" | "rolled back" | "aborted" | "failed" => {
+	switch (end.kind) {
+		case "committed":
+		case "answered":
+			return "committed"
+		case "rolled back":
+			return "rolled back"
+		case "aborted":
+			return "aborted"
+		case "failed":
+			return "failed"
+	}
 }
 
-export const totalRows = (labels: Labels, sats: ReadonlyArray<Sat>): ReadonlyArray<Row> =>
-	Arr.map(
-		grouped(
-			sats,
-			(s) => s.who,
-			(a, b) => a === b
-		),
-		(g) => [labeled(labels).student(g.key), String(g.members.length)]
+const directSessions = ["holder", "writer", "reader"] as const
+
+/** The features one explained run reached (see DerivedFeature). */
+const featuresOf = (e: Explained<void>): ReadonlyArray<DerivedFeature> => {
+	const calls = Arr.filter(
+		e.run.moves,
+		(m) => m.session === "refresher" || m.session === "refresher2"
 	)
-
-export const busyRows = (labels: Labels, sats: ReadonlyArray<Sat>): ReadonlyArray<Row> =>
-	Arr.map(
-		grouped(
-			Arr.map(
-				grouped(
-					sats,
-					(s) => [s.who, s.week] as const,
-					(a, b) => a[0] === b[0] && a[1] === b[1]
-				),
-				(g) => g.key[1]
-			),
-			(week) => week,
-			(a, b) => a === b
-		),
-		(g) => [String(labeled(labels).week(g.key)), String(g.members.length)]
+	const waitedCalls = Arr.filter(calls, (m) => m.observed._tag === "Waited")
+	const [first, second] = [e.run.spans["refresher"], e.run.spans["refresher2"]]
+	const together =
+		first !== undefined &&
+		second !== undefined &&
+		first.start < second.end &&
+		second.start < first.end
+	const readWhileWaiting = Arr.some(
+		Arr.filter(e.run.moves, (m) => m.session === "reader"),
+		(read) =>
+			Arr.some(
+				waitedCalls,
+				(call) =>
+					call.issued < read.issued &&
+					(call.result._tag === "Unfinished" || read.issued < call.result.at)
+			)
 	)
+	const refusals = Arr.flatMap([...e.ends.values()], (end) =>
+		end.kind === "answered" ? end.retried.refused : []
+	)
+	return [
+		...(waitedCalls.length > 0 ? ["a call waited" as const] : []),
+		...(together ? ["two calls in flight together" as const] : []),
+		...(readWhileWaiting ? ["a read while a call waited" as const] : []),
+		...Arr.flatMap(refusals, refusedFeature),
+		...Arr.flatMap(directSessions, (session) => {
+			const end = e.ends.get(session)
+			return end === undefined ? [] : [`${session} ${endWord(end)}` as const]
+		})
+	]
+}
 
-/** The two grizzle refreshers. */
-export type Refresher = "refresher" | "refresher2"
-
-/** A derived relation's view as one reader reads it, schema-qualified and quoted. */
-type ViewOf = (name: DerivedName) => string
-
-export interface Fixture {
-	readonly labels: Labels
+/** An opened race installation: its names, its observer, its direct roles and the grizzle refreshers. */
+interface Fixture {
 	readonly opened: Opened
 	readonly f: ReturnType<typeof build>
 	readonly env: ExploreEnv
-	/** The installation's names of the base relation and the derived relations. */
 	readonly names: Names
-	/** The materialized view of a derived relation and the base table, schema-qualified and quoted. */
-	readonly view: ViewOf
-	readonly sittings: string
-	/** The direct roles, as a direct actor takes each on. */
-	readonly direct: {
-		readonly holder: SubstrateWorld
-		readonly writer: SubstrateWorld
-		readonly reader: SubstrateWorld
-	}
-	/** The view each direct reader reads a derived relation through: its role's own, schema-qualified and quoted. */
-	readonly seen: { readonly writer: ViewOf; readonly reader: ViewOf }
-	/** The grizzle refreshers as schedule actors, each resolved once. */
-	readonly refreshers: { readonly [I in Refresher]: GrizzleActor }
-	/** A refresher's refresh operation: one call. */
+	readonly refreshers: { readonly refresher: GrizzleActor; readonly refresher2: GrizzleActor }
 	readonly refresh: (
-		refresher: Refresher,
-		...relations: ReadonlyArray<DerivedName>
+		refresher: "refresher" | "refresher2",
+		call: Call
 	) => Effect.Effect<void, ApplyError>
-	readonly owner: (...sql: ReadonlyArray<string>) => Effect.Effect<void, SqlError>
 }
 
-/** Installs the fixture with the initial sittings, labeled, and opens the two grizzle refreshers. */
-export const open = (
-	labels: Labels
-): Effect.Effect<
+/** Installs the shape with no sitting, and opens the two grizzle refreshers and the observer. */
+const open: Effect.Effect<
 	Fixture,
 	OracleFixtureFailed | CompileError | SqlError | TransactionRolledBack | OpenError,
 	Substrate | Scope.Scope
-> =>
-	Effect.gen(function* () {
-		const s = yield* Substrate
-		const l = labeled(labels)
-		const facts = {
-			Sitting: Arr.map(initial, (x) => ({
+> = Effect.gen(function* () {
+	const s = yield* Substrate
+	const declared = build("Edu")
+	const opened = yield* installDerived(declared.Reports, { Sitting: [] }, "dsched", [
+		declared.server,
+		declared.psql
+	])
+	const f = build(opened.installed.declared)
+	const server = opened.installed.as(f.server).role
+	const refresherContext = yield* Layer.build(loginLayer(opened.installed, f.server))
+	const refresherDb = yield* Db.open(f.server.roles.refresher, {}).pipe(
+		Effect.provideContext(refresherContext)
+	)
+	const first = yield* grizzleActor("refresher", server, [])
+	const refresher2Context = yield* Layer.build(loginLayer(opened.installed, f.server))
+	const refresher2Db = yield* Db.open(f.server.roles.refresher2, {}).pipe(
+		Effect.provideContext(refresher2Context)
+	)
+	const refreshers = {
+		refresher: first,
+		refresher2: yield* grizzleActor("refresher2", server, [first.pid])
+	}
+	const values = {
+		StudentWeekly: f.StudentWeekly,
+		StudentTotal: f.StudentTotal,
+		WeekBusy: f.WeekBusy
+	}
+	return {
+		opened,
+		f,
+		env: yield* exploreEnv(s),
+		names: namesOf(opened.installed),
+		refreshers,
+		refresh: (refresher, call) => {
+			const named = Arr.map(call, (r) => values[r])
+			const db = refresher === "refresher" ? refresherDb : refresher2Db
+			return db.refresh(Arr.headNonEmpty(named), ...argumentsOf(Arr.tailNonEmpty(named)))
+		}
+	}
+})
+
+/** The SQL a race's sessions and its state read run, over one installation, for one race's labels. */
+const sqlOf = (o: Fixture, labels: Labels) => {
+	const l = labeled(labels)
+	const column = (field: "id" | "student" | "week" | "passed") => o.names.column(o.f.Sitting, field)
+	const sittings = o.names.table(o.f.Sitting)
+	const writerView = (name: DerivedName) => roleNamesOf(o.opened.installed, o.f.writer).view(name)
+	const readerView = (name: DerivedName) => roleNamesOf(o.opened.installed, o.f.reader).view(name)
+	const weekly = (view: string) =>
+		`SELECT 'StudentWeekly'::text AS "relation", "r1".${o.names.column(o.f.StudentWeekly, "student")}::text AS "a", "r1".${o.names.column(o.f.StudentWeekly, "week")}::text AS "b", "r1".${o.names.column(o.f.StudentWeekly, "sittings")}::text AS "c", "r1".${o.names.column(o.f.StudentWeekly, "passes")}::text AS "d" FROM ${view} AS "r1"`
+	const totals = (view: string) =>
+		`SELECT 'StudentTotal'::text AS "relation", "r1".${o.names.column(o.f.StudentTotal, "student")}::text AS "a", NULL::text AS "b", "r1".${o.names.column(o.f.StudentTotal, "total")}::text AS "c", NULL::text AS "d" FROM ${view} AS "r1"`
+	const busy = (view: string) =>
+		`SELECT 'WeekBusy'::text AS "relation", NULL::text AS "a", "r1".${o.names.column(o.f.WeekBusy, "week")}::text AS "b", "r1".${o.names.column(o.f.WeekBusy, "students")}::text AS "c", NULL::text AS "d" FROM ${view} AS "r1"`
+	const readOf: Readonly<Record<DerivedName, (view: string) => string>> = {
+		StudentWeekly: weekly,
+		StudentTotal: totals,
+		WeekBusy: busy
+	}
+	const values = (sats: Arr.NonEmptyReadonlyArray<Sat>) =>
+		Arr.join(
+			Arr.map(
+				sats,
+				(x) =>
+					`('${l.sitting(x.n)}'::uuid, '${l.student(x.who)}'::uuid, ${l.week(x.week)}::int4, ${x.passed}::bool)`
+			),
+			", "
+		)
+	const insert = (sats: Arr.NonEmptyReadonlyArray<Sat>) =>
+		`INSERT INTO ${sittings} (${column("id")}, ${column("student")}, ${column("week")}, ${column("passed")}) VALUES ${values(sats)}`
+	return {
+		facts: (sats: ReadonlyArray<Sat>) => ({
+			Sitting: Arr.map(sats, (x) => ({
 				id: l.sitting(x.n),
 				student: l.student(x.who),
 				week: l.week(x.week),
 				passed: x.passed
 			}))
-		}
-		const declared = build("Edu")
-		const opened = yield* installDerived(declared.Reports, facts, "dsched", [
-			declared.server,
-			declared.psql
-		])
-		const f = build(opened.installed.declared)
-		const server = opened.installed.as(f.server).role
-		/**
-		 * Each refresher's Db through a DbLayer of its own, as an application opens it, and its actor: the one session
-		 * of the login beside the refreshers resolved before it.
-		 */
-		const refresherContext = yield* Layer.build(loginLayer(opened.installed, f.server))
-		const refresherDb = yield* Db.open(f.server.roles.refresher, {}).pipe(
-			Effect.provideContext(refresherContext)
+		}),
+		change: (change: Change): string =>
+			change.kind === "add"
+				? insert(change.sats)
+				: `DELETE FROM ${sittings} WHERE ${column("id")} = '${l.sitting(change.sat.n)}'::uuid`,
+		writerRead: weekly(writerView("StudentWeekly")),
+		readerRead: Arr.join(
+			Arr.map(derivedNames, (name) => readOf[name](readerView(name))),
+			" UNION ALL "
+		),
+		refresh: (name: DerivedName, how: "concurrently" | "plain" | "with no data") =>
+			how === "concurrently"
+				? `REFRESH MATERIALIZED VIEW CONCURRENTLY ${o.opened.view(name)}`
+				: how === "plain"
+					? `REFRESH MATERIALIZED VIEW ${o.opened.view(name)}`
+					: `REFRESH MATERIALIZED VIEW ${o.opened.view(name)} WITH NO DATA`,
+		populated: (name: DerivedName) =>
+			`SELECT c.relispopulated::text FROM pg_catalog.pg_class AS c WHERE c.oid = '${o.opened.view(name)}'::regclass`,
+		viewRows: (name: DerivedName) => readOf[name](o.opened.view(name)),
+		sittings: `SELECT 'Sitting'::text, "r1".${column("id")}::text, "r1".${column("student")}::text, "r1".${column("week")}::text, "r1".${column("passed")}::text FROM ${sittings} AS "r1"`
+	}
+}
+
+/** A grizzle call's reach: each named view, and what its definition reads. */
+const callFootprint = (call: Call) =>
+	relationsFootprint(Arr.flatMap(call, (name) => [name, inputOf(name)]))
+
+/** The moves a race makes when every move runs: a direct transaction's statements and its end, a call's one move. */
+const movesOfRace = (txns: ReadonlyArray<RaceTxn<void>>): number =>
+	Arr.reduce(txns, 0, (sum, t) => sum + (t.kind === "direct" ? t.statements.length + 1 : 1))
+
+/** The largest race explored in every order; a larger one runs in the order a drawn PCT schedule gives. */
+const everyOrderMoves = 6
+
+/** The text rows of a query on the observer. */
+const textRows = (o: Fixture, sql: string): Effect.Effect<TextRows, SqlError> =>
+	Effect.map(o.env.observer.queryValues(sql, []), (rows) =>
+		Arr.map(rows, (row) => Arr.map(row, textOfValue))
+	)
+
+/**
+ * Runs one race on a fresh installation, every run judged by its serial reference (runSerialRace): the holder's
+ * transaction, each call (retried after each TransientFailure until it answers), the writer's and the reader's
+ * transactions, each placed in a serial order that respects real time, must show what they showed in the run, and
+ * the state the run left (Sitting, and each view's rows or its being unpopulated) must be that order's.
+ */
+const runDerivedRace = (
+	race: DerivedRace,
+	c: Case<DerivedFeature>
+): Effect.Effect<
+	void,
+	| OracleFixtureFailed
+	| CompileError
+	| SqlError
+	| TransactionRolledBack
+	| OpenError
+	| PsqlProcessError
+	| SerialRaceFailed,
+	Substrate | Scope.Scope
+> =>
+	Effect.gen(function* () {
+		const s = yield* Substrate
+		const o = yield* open
+		const sql = sqlOf(o, race.labels)
+		const direct = yield* openActors(s, {
+			holder: { kind: "raw", as: o.opened.installed.world(o.f.holder) },
+			writer: { kind: "raw", as: o.opened.installed.world(o.f.writer) },
+			reader: { kind: "raw", as: o.opened.installed.world(o.f.reader) }
+		})
+		const owner = (statements: ReadonlyArray<string>) =>
+			Effect.forEach(statements, (x) => s.admin.query(x, []), { discard: true })
+		const reset = Effect.provideService(
+			Effect.gen(function* () {
+				switch (race.initial.kind) {
+					case "unpopulated":
+						yield* replaceMigrated(o.opened.installed, sql.facts(race.initial.stored))
+						yield* owner(Arr.map(derivedNames, (name) => sql.refresh(name, "with no data")))
+						return
+					case "populated":
+						yield* replaceMigrated(o.opened.installed, sql.facts(race.initial.viewed))
+						yield* owner(Arr.map(derivedNames, (name) => sql.refresh(name, "plain")))
+						yield* replaceMigrated(o.opened.installed, sql.facts(race.initial.stored))
+						return
+				}
+			}),
+			Substrate,
+			s
 		)
-		const first = yield* grizzleActor("refresher", server, [])
-		const refresher2Context = yield* Layer.build(loginLayer(opened.installed, f.server))
-		const refresher2Db = yield* Db.open(f.server.roles.refresher2, {}).pipe(
-			Effect.provideContext(refresher2Context)
-		)
-		const refreshers = {
-			refresher: first,
-			refresher2: yield* grizzleActor("refresher2", server, [first.pid])
-		}
-		const env = yield* exploreEnv(s)
-		const values = {
-			StudentWeekly: f.StudentWeekly,
-			StudentTotal: f.StudentTotal,
-			WeekBusy: f.WeekBusy
-		}
-		const refresh = (
-			refresher: Refresher,
-			...relations: Arr.NonEmptyReadonlyArray<DerivedName>
-		) => {
-			const named = Arr.map(relations, (r) => values[r])
-			switch (refresher) {
-				case "refresher":
-					return refresherDb.refresh(
-						Arr.headNonEmpty(named),
-						...argumentsOf(Arr.tailNonEmpty(named))
-					)
-				case "refresher2":
-					return refresher2Db.refresh(
-						Arr.headNonEmpty(named),
-						...argumentsOf(Arr.tailNonEmpty(named))
-					)
+		const state = Effect.gen(function* () {
+			const sittings = yield* textRows(o, sql.sittings)
+			const rows: Array<ReadonlyArray<string | null>> = [...sittings]
+			for (const name of derivedNames) {
+				const [flag] = yield* textRows(o, sql.populated(name))
+				if (defined(flag, `${name}'s catalog row`)[0] === "true") {
+					const viewed = yield* textRows(o, sql.viewRows(name))
+					appendAll(rows, viewed)
+				} else {
+					rows.push([`${name} unpopulated`])
+				}
 			}
+			return rows
+		})
+		const holder: ReadonlyArray<RaceTxn<void>> =
+			race.holder.kind === "none"
+				? []
+				: [
+						{
+							kind: "direct",
+							session: "holder",
+							statements: [
+								{
+									sql: sql.refresh(
+										race.holder.view,
+										race.initial.kind === "populated" ? "concurrently" : "plain"
+									),
+									footprint: relationsFootprint([race.holder.view, inputOf(race.holder.view)])
+								}
+							],
+							end: race.holder.end
+						}
+					]
+		const [firstCall, secondCall] = race.calls
+		const first: RaceTxn<void> = {
+			kind: "grizzle",
+			session: "refresher",
+			label: `db.refresh(${Arr.join(firstCall, ", ")})`,
+			call: o.refresh("refresher", firstCall),
+			footprint: callFootprint(firstCall)
 		}
-		const names = namesOf(opened.installed)
-		return {
-			labels,
-			opened,
-			f,
-			env,
-			names,
-			view: (name) => opened.view(name),
-			sittings: names.table(f.Sitting),
-			direct: {
-				holder: opened.installed.world(f.holder),
-				writer: opened.installed.world(f.writer),
-				reader: opened.installed.world(f.reader)
-			},
-			seen: {
-				writer: (name) => roleNamesOf(opened.installed, f.writer).view(name),
-				reader: (name) => roleNamesOf(opened.installed, f.reader).view(name)
-			},
-			refreshers,
-			refresh,
-			owner: (...sql) => Effect.forEach(sql, (x) => s.admin.query(x, []), { discard: true })
-		}
+		const second: ReadonlyArray<RaceTxn<void>> =
+			secondCall === undefined
+				? []
+				: [
+						{
+							kind: "grizzle",
+							session: "refresher2",
+							label: `db.refresh(${Arr.join(secondCall, ", ")})`,
+							call: o.refresh("refresher2", secondCall),
+							footprint: callFootprint(secondCall)
+						}
+					]
+		const writer: ReadonlyArray<RaceTxn<void>> =
+			race.writer.kind === "none"
+				? []
+				: [
+						{
+							kind: "direct",
+							session: "writer",
+							statements: Arr.append(
+								race.writer.reads
+									? [{ sql: sql.writerRead, footprint: relationsFootprint(["StudentWeekly"]) }]
+									: [],
+								{ sql: sql.change(race.writer.change), footprint: relationsFootprint(["Sitting"]) }
+							),
+							end: "commit"
+						}
+					]
+		const reader: ReadonlyArray<RaceTxn<void>> = race.reader
+			? [
+					{
+						kind: "direct",
+						session: "reader",
+						statements: [{ sql: sql.readerRead, footprint: relationsFootprint(derivedNames) }],
+						end: "commit"
+					}
+				]
+			: []
+		const txns: Arr.NonEmptyReadonlyArray<RaceTxn<void>> = [
+			first,
+			...second,
+			...holder,
+			...writer,
+			...reader
+		]
+		const moves = movesOfRace(txns)
+		const strategy: Strategy =
+			moves <= everyOrderMoves
+				? every
+				: {
+						kind: "pct",
+						schedule: c.draw(
+							pctSchedule(
+								Arr.map(txns, (t) => t.session),
+								3,
+								moves
+							)
+						),
+						nature: c
+					}
+		c.note(strategy.kind === "every" ? "every order" : "pct")
+		yield* runSerialRace(
+			o.env,
+			{ direct, grizzle: o.refreshers },
+			{ name: "a race of refreshes", txns, reset, state },
+			strategy,
+			(e) => c.noteAll(featuresOf(e))
+		)
 	})
 
-/**
- * `SELECT 't'` when the view holds exactly its definition's rows (its conservative lowering), 'f' otherwise: the
- * definition holds each row once, so a view holding a row twice, or missing one, or holding another, differs from it.
- */
-export const freshSql = (o: Fixture, name: DerivedName): string => {
-	const { sql, columns } = o.opened.definition(name)
-	const stored = `SELECT ${Arr.join(o.opened.columns(name), ", ")} FROM ${o.view(name)} AS "r1"`
-	const defined = `SELECT ${Arr.join(
-		Arr.map(columns, (c) => `"r1".${quoteIdent(c.name)}`),
-		", "
-	)} FROM (${sql}) AS "r1"`
-	return `SELECT (count(*) = 0)::text AS "fresh" FROM ((${stored} EXCEPT ALL ${defined}) UNION ALL (${defined} EXCEPT ALL ${stored})) AS "d"`
-}
-
-export const refreshSql = (o: Fixture, name: DerivedName, concurrently: boolean): string =>
-	`REFRESH MATERIALIZED VIEW${concurrently ? " CONCURRENTLY" : ""} ${o.view(name)}`
-
-export const addSitting = (o: Fixture, x: Sat): string => {
-	const l = labeled(o.labels)
-	const column = (field: "id" | "student" | "week" | "passed") => o.names.column(o.f.Sitting, field)
-	return `INSERT INTO ${o.sittings} (${column("id")}, ${column("student")}, ${column("week")}, ${column("passed")}) VALUES ('${l.sitting(x.n)}'::uuid, '${l.student(x.who)}'::uuid, ${l.week(x.week)}::int4, ${x.passed}::bool)`
-}
-
-export const dropSitting = (o: Fixture, x: Sat): string =>
-	`DELETE FROM ${o.sittings} WHERE ${o.names.column(o.f.Sitting, "id")} = '${labeled(o.labels).sitting(x.n)}'::uuid`
+/** The cases of each race suite's rotating stream; its floor runs a quarter of them. */
+const derivedRuns = 4
 
 /**
- * The text rows of each view read through `view`, as its host model states them (`weeklyRows`, `totalRows`,
- * `busyRows`).
+ * A suite of refresh races: its races drawn from `draw`, the kept races replayed first, and the situations its floor
+ * and steered cases must reach.
  */
-export const studentTotals = (o: Fixture, view: ViewOf): string =>
-	`SELECT "r1".${o.names.column(o.f.StudentTotal, "student")}::text, "r1".${o.names.column(o.f.StudentTotal, "total")}::text FROM ${view("StudentTotal")} AS "r1"`
+export const derivedRaceSuite = (spec: {
+	readonly file: string
+	readonly test: string
+	readonly suite: string
+	readonly draw: Gen<DerivedRace>
+	readonly required: Situations<DerivedFeature>
+	readonly kept: ReadonlyArray<Kept<DerivedRace, DerivedFeature>>
+}): void => {
+	layer(Substrate.layer, { excludeTestServices: true })(spec.file, (it) => {
+		it.effect(spec.test, (ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: spec.suite,
+						draw: drawn(spec.draw),
+						literal: Formatter.format,
+						coverage: required<DerivedFeature>(spec.required, {
+							cases: derivedRuns,
+							sense: notesOnly
+						}),
+						kept: spec.kept,
+						runs: derivedRuns,
+						shrink: { kind: "bounded", candidates: 20 },
+						concurrency: 1,
+						steerEvery: derivedRuns,
+						caseHang
+					},
+					(race, c) => Effect.scoped(runDerivedRace(race, c))
+				)
+			)
+		)
+	})
+}
 
-export const weekBusy = (o: Fixture, view: ViewOf): string =>
-	`SELECT "r1".${o.names.column(o.f.WeekBusy, "week")}::text, "r1".${o.names.column(o.f.WeekBusy, "students")}::text FROM ${view("WeekBusy")} AS "r1"`
+/** The sittings a race draws among: numbers 1 to 6, students 1 to 3, weeks 1 and 2. */
+const satGen =
+	(n: number): Gen<Sat> =>
+	(source) =>
+		sat(n, source.draw(int(1, 3)), source.draw(int(1, 2)), source.draw(boolean))
 
-export const weekly = (o: Fixture, view: ViewOf): string =>
-	`SELECT "r1".${o.names.column(o.f.StudentWeekly, "student")}::text, "r1".${o.names.column(o.f.StudentWeekly, "week")}::text, "r1".${o.names.column(o.f.StudentWeekly, "sittings")}::text, "r1".${o.names.column(o.f.StudentWeekly, "passes")}::text FROM ${view("StudentWeekly")} AS "r1"`
+const satsGen: Gen<ReadonlyArray<Sat>> = (source) =>
+	Arr.map(source.draw(subarray([1, 2, 3, 4, 5, 6])), (n) => source.draw(satGen(n)))
+
+/** A change of the base: one or two sittings numbered 7 and 8 added, or one of `stored` dropped. */
+export const changeGen =
+	(stored: ReadonlyArray<Sat>): Gen<Change> =>
+	(source) => {
+		const [first, ...rest] = stored
+		const add: Change = {
+			kind: "add",
+			sats: [source.draw(satGen(7)), ...(source.draw(boolean) ? [source.draw(satGen(8))] : [])]
+		}
+		return first === undefined || source.draw(boolean)
+			? add
+			: { kind: "drop", sat: source.draw(element([first, ...rest])) }
+	}
+
+/** The initial state: unpopulated views, or views refreshed over one drawn base and the base drawn again. */
+export const initialGen =
+	(populated: Gen<boolean>): Gen<Initial> =>
+	(source) =>
+		source.draw(populated)
+			? { kind: "populated", viewed: source.draw(satsGen), stored: source.draw(satsGen) }
+			: { kind: "unpopulated", stored: source.draw(satsGen) }
+
+/**
+ * A call that meets the view `held`: it names `held` or, for WeekBusy, what WeekBusy reads, beside other views drawn;
+ * over unpopulated views a call naming WeekBusy names StudentWeekly too, which it reads.
+ */
+export const callGen =
+	(held: DerivedName, initial: Initial): Gen<Call> =>
+	(source) => {
+		const named: Call = [
+			held,
+			...source.draw(subarray(Arr.filter(derivedNames, (name) => name !== held)))
+		]
+		return initial.kind === "unpopulated" &&
+			named.includes("WeekBusy") &&
+			!named.includes("StudentWeekly")
+			? [...named, "StudentWeekly"]
+			: named
+	}
+
+/** The view a holder holds: any view over populated views, a level 1 view over unpopulated ones. */
+export const heldGen = (initial: Initial): Gen<DerivedName> =>
+	initial.kind === "populated" ? element(derivedNames) : element(["StudentWeekly", "StudentTotal"])
+
+export const endGen: Gen<"commit" | "rollback"> = element(["commit", "rollback"])

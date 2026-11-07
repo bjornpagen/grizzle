@@ -1,7 +1,7 @@
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { element } from "@grizzle/testing/gen"
+import { noCoverage } from "@grizzle/testing/features"
+import { int } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
 import { isList, isRecord } from "#compiler/core/record.ts"
@@ -21,9 +21,8 @@ import { caseHang } from "#test/support/limits.ts"
  * same query attaching 2n, compiled as a Db compiles them, the 2n one at 200 attachments. Each artifact's statements,
  * counted as AST nodes (a structural property, never printed text), grow by at most 2 + ε from n to 2n: every
  * attachment statement computes its parent's rows again, so one that also computed its sibling attachments would grow
- * by 4 there. Exhausted over the attachment's two deliveries: a child of one field, which the optimized artifact fuses
- * into its parent statement, and one of five, past the fusion rule's bound, which it pipelines as a statement of its
- * own.
+ * by 4 there. Every attachment over exact parents is a statement of its own in both artifacts (shapes/attach
+ * chooseAttachment), so the space is the children's own fields, one to three, which widen every statement alike.
  */
 
 /** The bound on growth from n to 2n: linear, with ε for the parts that do not grow. */
@@ -32,11 +31,8 @@ const linear = 2.5
 /** How many relations the smaller query attaches; the larger attaches twice as many. */
 const attachments = 100
 
-type Child = "fused" | "pipelined"
-
-/** A child's own fields beside its key and its parent's: one, which fuses, or five, which do not. */
-const childFields = (child: Child): ReadonlyArray<string> =>
-	child === "fused" ? ["a"] : ["a", "b", "c", "d", "e"]
+/** A child's `width` own fields beside its key and its parent's. */
+const childFields = (width: number): ReadonlyArray<string> => Arr.makeBy(width, (i) => `f${i}`)
 
 /** A relation built at run time: its type is the widest the relation constructor gives. */
 type RelationValue = Relation<
@@ -83,9 +79,9 @@ const matchAll = (
 /** A root relation's rows with `n` relations attached, each child matching its own relation on the parent's id. */
 const attached = (
 	n: number,
-	child: Child
+	width: number
 ): { readonly query: QueryValue; readonly schema: unknown } => {
-	const fields = childFields(child)
+	const fields = childFields(width)
 	const root = keyedRelation("Root", [], ["rank"])
 	const kids = Arr.makeBy(n, (i) => keyedRelation(`Kid${i}`, ["parent"], fields))
 	const declared: Record<string, RelationValue> = { Root: root }
@@ -124,12 +120,15 @@ const nodes = (v: unknown): number =>
 const total = (statements: ReadonlyArray<{ readonly ast: Select }>): number =>
 	Arr.reduce(statements, 0, (n, s) => n + nodes(s.ast))
 
-/** The AST nodes of each artifact's statements, a query of `n` attachments compiled as a Db compiles it. */
-const sizesOf = (n: number, child: Child) => {
-	const { query, schema: value } = attached(n, child)
+/**
+ * The AST nodes of each artifact's statements, a query of `n` attachments of `width` fields compiled as a Db compiles
+ * it.
+ */
+const sizesOf = (n: number, width: number) => {
+	const { query, schema: value } = attached(n, width)
 	const template = succeeded(
 		compileTemplate(query, value, testCompile),
-		`${n} ${child} attachments`
+		`${n} attachments of ${width} fields`
 	)
 	const conservative = flight(template.programs.conservative.roots)
 	const optimized = flight(template.programs.optimized.roots)
@@ -145,17 +144,17 @@ describe("compiled size", () => {
 				exhaust(
 					{
 						suite: "unit/program/size",
-						generator: element<Child>(["fused", "pipelined"]),
+						generator: int(1, 3),
 						literal: Formatter.format,
-						limit: 2,
-						coverage: requiredInSpace<Child>(["fused", "pipelined"]),
+						limit: 3,
+						coverage: noCoverage,
 						caseHang
 					},
-					(child, c) =>
+					(width) =>
 						Effect.sync(() => {
-							const small = sizesOf(attachments, child)
-							const large = sizesOf(2 * attachments, child)
-							const at = `${child} children at ${attachments} against ${2 * attachments}`
+							const small = sizesOf(attachments, width)
+							const large = sizesOf(2 * attachments, width)
+							const at = `children of ${width} fields at ${attachments} against ${2 * attachments}`
 							assert.ok(
 								large.conservative <= linear * small.conservative,
 								`${at}: the conservative artifact grows from ${small.conservative} to ${large.conservative} nodes`
@@ -164,7 +163,6 @@ describe("compiled size", () => {
 								large.optimized <= linear * small.optimized,
 								`${at}: the optimized artifact grows from ${small.optimized} to ${large.optimized} nodes`
 							)
-							c.note(child)
 						})
 				)
 			)

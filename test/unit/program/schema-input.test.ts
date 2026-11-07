@@ -36,9 +36,7 @@ import {
 } from "#test/support/compile.ts"
 import { Employer, Payroll, Reporting } from "#test/support/fixtures/api/payroll.ts"
 import { Account, Reports, Work } from "#test/support/fixtures/api/work.ts"
-import * as P from "#test/support/fixtures/ir/payroll.ts"
-import * as Q from "#test/support/fixtures/ir/queue.ts"
-import * as W from "#test/support/fixtures/ir/work.ts"
+import { decodedSchema } from "#test/support/fixtures/ir/desc.ts"
 import {
 	type Admitted,
 	admittedSchemaNames,
@@ -47,6 +45,14 @@ import {
 } from "#test/support/kernel/dict.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
+import type { Spelling } from "#test/support/oracle/gen/domain.ts"
+import {
+	defaultSchemaLimits,
+	fullDataSwarm,
+	resolveSchema,
+	schemaDesc,
+	schemaSketchGen
+} from "#test/support/oracle/gen/schema.ts"
 import { pickGen, pickFrom } from "#test/support/pick.ts"
 
 /**
@@ -71,8 +77,9 @@ import { pickGen, pickFrom } from "#test/support/pick.ts"
  *   schema the compilation names, or the declared ones. The space is exhaustive over the four fixture schemas, every
  *   ordered pair of their inputs and four namings.
  * - A schema value the decoder refuses is refused with the decoder's own path, by parseSchemaInput and by a workload
- *   compiled against it, never by a generic "a schema value or SchemaDesc". The values are the IR fixtures' schemas,
- *   each broken at one site of one decoder rule (a corruption, @grizzle/testing/lsw), and the path is the site's.
+ *   compiled against it, never by a generic "a schema value or SchemaDesc". The values are generated schemas (the
+ *   differential oracle's, gen/schema.ts), each broken at one site of one decoder rule (a corruption,
+ *   @grizzle/testing/lsw), and the path is the site's.
  *
  * The refusal a compilation answers, which a case must reach: its reason and location.
  */
@@ -673,7 +680,14 @@ const corruptions: Arr.NonEmptyReadonlyArray<Corruption<SchemaDesc, string, Deco
 	}
 ]
 
-const lives: Arr.NonEmptyReadonlyArray<SchemaDesc> = [W.WorkDesc, Q.Queue, P.PayrollDesc]
+/**
+ * The live schemas a corruption breaks: the differential oracle's generated schemas, relations, rosters, keys, mutable
+ * relations and containments, each the Description its public constructors record (gen/schema.ts schemaDesc).
+ */
+const liveSketchGen = schemaSketchGen({ ...defaultSchemaLimits, containments: "often" })
+
+/** The spelling a live schema's rosters and fields are drawn under. */
+const spelling: Spelling = { mode: "drawn", edge: false }
 
 describe("a schema the decoder refuses", () => {
 	it.effect(
@@ -684,7 +698,7 @@ describe("a schema the decoder refuses", () => {
 				explore(
 					{
 						suite: "unit/program/schema-input-decoder",
-						draw: drawn(element(lives)),
+						draw: drawn(liveSketchGen),
 						literal: Formatter.format,
 						coverage: required<CorruptedFeature<DecoderRule>>(
 							[
@@ -705,8 +719,11 @@ describe("a schema the decoder refuses", () => {
 						steerEvery: 16,
 						caseHang
 					},
-					(live, c) =>
+					(sketch, c) =>
 						Effect.sync(() => {
+							const live = decodedSchema(
+								schemaDesc(c.draw(resolveSchema(sketch, spelling, fullDataSwarm)))
+							)
 							const broken = c.draw(corrupted(live, corruptions))
 							c.note(corruptedFeature(broken))
 							/** A login's workload of no program over the schema: its one question is the schema. */

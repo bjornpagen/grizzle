@@ -1,106 +1,81 @@
 /**
- * Refresh under concurrent base writes is correct.
+ * Refresh under concurrent base writes: every race of a db.refresh call and a direct writer of the base, meeting a raw
+ * refresher's lock, is serializable.
  *
- * db.refresh runs one transaction, so every level's definition reads one snapshot of the base relations and a higher
- * level reads the lower levels as this transaction just refreshed them. A raw `holder`
- * refresher parks the call between its two levels by holding WeekBusy's lock, so a base write commits while the call
- * has refreshed StudentWeekly and not yet WeekBusy: a direct writer that read StudentWeekly before the call's commit
- * and wrote a sitting the call's definition read is the other half of a cycle, so it commits first, the call fails
- * with 40001, retries from the current base, and publishes both levels with the write.
+ * db.refresh runs one transaction, so every level's definition reads one snapshot of the base and a higher level reads
+ * the lower levels as the call just refreshed them. A raw `holder` refresher holds one view's lock, so a call can be
+ * parked between its levels while a base write commits; a writer that read StudentWeekly before the call's commit and
+ * wrote a sitting the call's definition read is the other half of a cycle, which SERIALIZABLE breaks.
  *
- * What a reader sees of a view is the host model of its definition over the sittings it was refreshed at.
+ * Property: every run, in every order of the race's moves, is explained by its serial reference
+ * (test/support/schedules/serial.ts): the call, the holder's and the writer's transactions, each run alone from the
+ * race's initial state in an order that respects real time, show what they showed in the run (the writer's read of
+ * StudentWeekly row for row) and leave its state, the base and every view. The races draw the views populated or not,
+ * the base changed since, the view the holder holds and how it ends, the call, which names that view or a level above
+ * it, and the writer's read (over populated views) and change.
+ *
+ * The kept race is the window the race was first planted for: the call parked between StudentWeekly and WeekBusy by
+ * the holder, while a writer reads StudentWeekly and adds a sitting of a student the call read.
  */
 
-import { layer } from "@effect/vitest"
-import { Effect } from "effect"
+import { boolean, type Gen } from "@grizzle/testing/gen"
 import {
-	addSitting,
-	busyRows,
-	freshSql,
-	initial,
+	callGen,
+	changeGen,
+	type DerivedRace,
+	derivedRaceSuite,
+	endGen,
+	heldGen,
+	initialGen,
+	initialSats,
 	labelsGen,
-	open,
-	refreshSql,
-	sat,
-	weekBusy,
-	weekly,
-	weeklyRows
+	sat
 } from "#test/schedules/derived/support.ts"
-import { openActors } from "#test/support/schedules/actors.ts"
-import {
-	awaits,
-	begin,
-	blocksOn,
-	check,
-	commit,
-	complete,
-	rollback,
-	schedule,
-	sql
-} from "#test/support/schedules/build.ts"
-import { exactly, refreshed, retriedOp } from "#test/support/schedules/grizzle.ts"
-import { ok, rowSet, rows } from "#test/support/schedules/match.ts"
-import { planted } from "#test/support/schedules/planted.ts"
-import { runSchedule } from "#test/support/schedules/runner.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
 
-const fresh = rows(["true"])
-
-layer(Substrate.layer, { excludeTestServices: true })(
-	"db.refresh under concurrent base writes",
-	(it) => {
-		it.effect(
-			"a writer that read the view and wrote what the call read commits first; the call retries with it",
-			planted("base writes/writer in a cycle", labelsGen, ["writer in a cycle"], (labels) =>
-				Effect.gen(function* () {
-					const o = yield* open(labels)
-					const s = yield* Substrate
-					yield* o.refresh("refresher", "StudentWeekly", "WeekBusy")
-					const actors = {
-						direct: yield* openActors(s, {
-							holder: { kind: "raw", as: o.direct.holder },
-							writer: { kind: "raw", as: o.direct.writer }
-						}),
-						grizzle: { refresher: o.refreshers.refresher }
-					}
-					const before = sat(30, 5, 4, true)
-					const during = sat(31, 5, 4, false)
-					const all = [...initial, before, during]
-					return [
-						yield* runSchedule(
-							o.env,
-							schedule("writer in a cycle", [
-								sql("writer", addSitting(o, before), ok(), complete),
-								begin("holder"),
-								sql("holder", refreshSql(o, "WeekBusy", true), ok(), complete),
-								retriedOp(
-									"refresher",
-									"db.refresh(StudentWeekly, WeekBusy)",
-									o.refresh("refresher", "StudentWeekly", "WeekBusy"),
-									refreshed(exactly("SerializationFailure")),
-									blocksOn("holder")
-								),
-								begin("writer"),
-								sql(
-									"writer",
-									weekly(o, o.seen.writer),
-									rowSet(weeklyRows(labels, initial)),
-									complete
-								),
-								sql("writer", addSitting(o, during), ok(), complete),
-								commit("writer", ok(), complete),
-								rollback("holder"),
-								awaits("refresher", complete),
-								check(freshSql(o, "StudentWeekly"), fresh),
-								check(freshSql(o, "WeekBusy"), fresh),
-								check(weekly(o, o.view), rowSet(weeklyRows(labels, all))),
-								check(weekBusy(o, o.view), rowSet(busyRows(labels, all)))
-							]),
-							actors
-						)
-					]
-				})
-			)
-		)
+const raceGen: Gen<DerivedRace> = (source) => {
+	const initial = source.draw(initialGen(boolean))
+	const view = source.draw(heldGen(initial))
+	return {
+		labels: source.draw(labelsGen),
+		initial,
+		holder: { kind: "holds", view, end: source.draw(endGen) },
+		calls: [source.draw(callGen(view, initial))],
+		writer: {
+			kind: "writes",
+			reads: initial.kind === "populated" && source.draw(boolean),
+			change: source.draw(changeGen(initial.stored))
+		},
+		reader: false
 	}
-)
+}
+
+derivedRaceSuite({
+	file: "db.refresh under concurrent base writes",
+	test: "every race of a refresh and a base writer meeting a raw refresher is serializable",
+	suite: "schedules/derived/base-writes",
+	draw: raceGen,
+	required: ["a call waited", "writer committed"],
+	kept: [
+		{
+			note: "a writer in a cycle: the call is parked between StudentWeekly and WeekBusy by the holder, the writer reads StudentWeekly and adds a sitting of student 5, which the call read; the writer commits first and the call retries with it",
+			sketch: {
+				labels: { student: 0, sitting: 0, week: 0 },
+				initial: {
+					kind: "populated",
+					viewed: initialSats,
+					stored: [...initialSats, sat(30, 5, 4, true)]
+				},
+				holder: { kind: "holds", view: "WeekBusy", end: "rollback" },
+				calls: [["StudentWeekly", "WeekBusy"]],
+				writer: {
+					kind: "writes",
+					reads: true,
+					change: { kind: "add", sats: [sat(31, 5, 4, false)] }
+				},
+				reader: false
+			},
+			draws: "",
+			reaches: ["a call waited", "refused: SerializationFailure", "writer committed"]
+		}
+	]
+})

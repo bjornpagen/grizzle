@@ -1,16 +1,10 @@
 import { boolean, type Gen, int as intGen, map, option, uniqueArray } from "@grizzle/testing/gen"
 import { Array as Arr, Option } from "effect"
-import { makeIdSupply } from "#compiler/core/ids.ts"
+import { makeIdSupply, type NodeId } from "#compiler/core/ids.ts"
 import { DagBuilder } from "#compiler/ir/builder.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { rewriteClaim } from "#compiler/ir/keys.ts"
-import {
-	conservativeMeta,
-	type Heading,
-	type MetaSpec,
-	type RelNode,
-	type VarDecl
-} from "#compiler/ir/rel.ts"
+import { conservativeMeta, type Heading, type MetaSpec, type VarDecl } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { validateDag } from "#test/support/oracle/dag-validate.ts"
 import type { QueryCase } from "#test/support/oracle/gen/case.ts"
@@ -36,7 +30,9 @@ import { present } from "#test/unit/lower/support.ts"
  * satisfies, so the installed column holds exactly the values the unrefined field holds. The stage is a region over
  * Doc, optionally joined to Ref, optionally filtered and optionally renamed; the take orders by score in either
  * direction, then a key, so its order is complete and ties in score are common, or, in a share of the
- * cases R06 must refuse, by the payload itself; the root is the take or a projection of it.
+ * cases R06 must refuse, by the payload itself; the root is the take or a projection of it. In another share R06 must
+ * refuse, the take is correlated: a region over Ref reads it, each Ref fact ranking only the documents its doc names,
+ * so the take's rows are selected per outer tuple, and the root is that region or a projection of it.
  */
 const wideText: ScalarType = compareParamType(scalarOfSpec({ carrier: "text" }))
 
@@ -99,6 +95,8 @@ interface WideSketch {
 	readonly orderBody: boolean
 	readonly k: number
 	readonly project: boolean
+	/** The take ranks per Ref fact, the documents its doc names: rows selected per outer tuple, which R06 refuses. */
+	readonly correlated: boolean
 }
 
 /** Up to six facts of one relation over ids 0..7, each id at most once. */
@@ -127,7 +125,8 @@ const wideSketchGen: Gen<WideSketch> = (source) => ({
 	descending: source.draw(boolean),
 	orderBody: source.draw(map(intGen(0, 3), (n) => n === 0)),
 	k: source.draw(intGen(1, 3)),
-	project: source.draw(boolean)
+	project: source.draw(boolean),
+	correlated: source.draw(map(intGen(0, 3), (n) => n === 0))
 })
 
 const keyed = (key: ReadonlyArray<string>): MetaSpec => ({
@@ -137,10 +136,10 @@ const keyed = (key: ReadonlyArray<string>): MetaSpec => ({
 
 const resolveWide = (s: WideSketch): QueryCase => {
 	const b = new DagBuilder(makeIdSupply())
-	const column = (node: RelNode, name: string, type: ScalarType) =>
+	const column = (node: NodeId, name: string, type: ScalarType) =>
 		b.expr({
 			kind: "column",
-			column: { node: node.id, name },
+			column: { node, name },
 			args: [],
 			type,
 			nonNull: "storage"
@@ -209,7 +208,7 @@ const resolveWide = (s: WideSketch): QueryCase => {
 			kind: "op",
 			op: definedOpOf("int4ge"),
 			args: [
-				column(stage, "score", int4),
+				column(stage.id, "score", int4),
 				b.expr({
 					kind: "literal",
 					value: int(s.filter),
@@ -236,7 +235,7 @@ const resolveWide = (s: WideSketch): QueryCase => {
 		const input = stage
 		const out = Arr.map(heading, (c) => ({
 			name: rename(c.name),
-			expr: column(input, c.name, c.type)
+			expr: column(input.id, c.name, c.type)
 		}))
 		heading = Arr.map(heading, (c) => ({ name: rename(c.name), type: c.type }))
 		stage = b.node({
@@ -248,6 +247,12 @@ const resolveWide = (s: WideSketch): QueryCase => {
 			loc: undefined
 		})
 	}
+	const outer = b.reserve()
+	const outerVars = {
+		ref: { id: b.ids.var(), name: "ref", type: int4 },
+		d: { id: b.ids.var(), name: "d", type: int4 },
+		body: { id: b.ids.var(), name: "doc_body", type: wideText }
+	}
 	const take = b.node({
 		kind: "Take",
 		input: stage,
@@ -258,27 +263,66 @@ const resolveWide = (s: WideSketch): QueryCase => {
 			]
 		},
 		bound: { kind: "literal", k: BigInt(s.k) },
-		correlation: [],
+		correlation: s.correlated ? [{ column: rename("id"), expr: column(outer, "d", int4) }] : [],
 		heading,
 		meta: keyed([rename(key)]),
 		loc: undefined
 	})
+	const read = s.correlated
+		? b.define(outer, {
+				kind: "MatchRegion",
+				scope: b.ids.scope(),
+				vars: [outerVars.ref, outerVars.d, outerVars.body],
+				occurrences: [
+					{
+						id: b.ids.occurrence(),
+						source: base(Ref),
+						bindings: [
+							{ column: "id", var: outerVars.ref },
+							{ column: "doc", var: outerVars.d }
+						],
+						constants: []
+					},
+					{
+						id: b.ids.occurrence(),
+						source: take,
+						bindings: [
+							{ column: rename("id"), var: outerVars.d },
+							{ column: rename("body"), var: outerVars.body }
+						],
+						constants: []
+					}
+				],
+				equalities: [],
+				correlated: [],
+				heading: [
+					{ name: "ref", type: int4 },
+					{ name: "d", type: int4 },
+					{ name: "doc_body", type: wideText }
+				],
+				meta: conservativeMeta,
+				loc: undefined
+			})
+		: take
+	const delivered: ReadonlyArray<readonly [string, ScalarType]> = s.correlated
+		? [
+				["ref", int4],
+				["doc_body", wideText]
+			]
+		: [
+				[rename("id"), int4],
+				[rename("body"), wideText]
+			]
 	const root = s.project
 		? b.node({
 				kind: "ProjectSet",
-				input: take,
-				out: Arr.map([rename("id"), rename("body")], (name) => ({
-					name,
-					expr: column(take, name, name === rename("body") ? wideText : int4)
-				})),
-				heading: [
-					{ name: rename("id"), type: int4 },
-					{ name: rename("body"), type: wideText }
-				],
+				input: read,
+				out: Arr.map(delivered, ([name, type]) => ({ name, expr: column(read.id, name, type) })),
+				heading: Arr.map(delivered, ([name, type]) => ({ name, type })),
 				loc: undefined,
 				meta: conservativeMeta
 			})
-		: take
+		: read
 	return {
 		schema: wideSchema,
 		facts: canonicalFacts({

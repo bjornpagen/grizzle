@@ -1,7 +1,7 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
 import { noCoverage, requiredInSpace } from "@grizzle/testing/features"
-import { element, filter, map, oneOf } from "@grizzle/testing/gen"
+import { element, filter, int, map, oneOf } from "@grizzle/testing/gen"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
@@ -31,7 +31,7 @@ import type { OperandSelect, Select } from "#compiler/sql/ast.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
 import { breachGuard } from "#compiler/write/refusal.ts"
-import { assert, nonEmpty, refused, succeeded, throwsDefect } from "#test/support/assert.ts"
+import { assert, nonEmpty, refused, succeeded } from "#test/support/assert.ts"
 import { closed, decodedSchema, f, relation } from "#test/support/fixtures/ir/desc.ts"
 import {
 	installationOf,
@@ -42,7 +42,6 @@ import {
 } from "#test/support/kernel/naming.ts"
 import { featureCount, has, shapeOf } from "#test/support/kernel/shape.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { validateDag } from "#test/support/oracle/dag-validate.ts"
 import { defaultGenConfig, type QueryCase, queryCaseGen } from "#test/support/oracle/gen/case.ts"
 import { genParamDecls } from "#test/support/oracle/gen/query.ts"
 import { schemaCodes } from "#test/support/oracle/gen/schema.ts"
@@ -50,10 +49,9 @@ import { auditStatementViolations, auditTextViolations } from "#test/support/ora
 import { everyKind, fixtureCodes } from "#test/unit/ir/fixture.ts"
 import {
 	Account,
-	asc,
 	Posting,
-	plainRegion,
 	Q,
+	type RelationSpec,
 	T,
 	Task
 } from "#test/unit/lower/conservative/fixtures.ts"
@@ -460,197 +458,162 @@ describe("heterogeneous unions", () => {
 
 	it.effect(
 		"refuse an attachment on an arm of a group of several arms, and deliver one on a lone arm",
-		(ctx) =>
-			searched(
+		(ctx) => {
+			type ArmFeature = "a lone arm attached" | "an arm of several attached" | "no arm attached"
+			return searched(
 				ctx,
 				exhaust(
 					{
 						suite: "unit/lower/conservative/union-attachments",
 						literal: Formatter.format,
-						generator: element<"a lone arm" | "an arm of several">([
-							"a lone arm",
-							"an arm of several"
-						]),
-						limit: 2,
-						coverage: requiredInSpace<"a lone arm" | "an arm of several">([
-							"a lone arm",
-							"an arm of several"
+						/** One to three arms of one heading group, `attached` holding a bit per arm whose parent carries tasks. */
+						generator: (source) => {
+							const arms = source.draw(int(1, 3))
+							return { arms, attached: source.draw(int(0, 2 ** arms - 1)) }
+						},
+						limit: 14,
+						coverage: requiredInSpace<ArmFeature>([
+							"a lone arm attached",
+							"an arm of several attached",
+							"no arm attached"
 						]),
 						caseHang
 					},
-					(arm, c) =>
+					({ arms, attached }, c) =>
 						Effect.sync(() => {
 							const q = new Q()
-							const accounts = q.project(
-								q.region([
-									{ source: q.base(Account, conservativeMeta), bind: { id: "id" }, constants: {} }
-								]),
-								[["id", "id"]],
-								conservativeMeta
-							)
-							const posted = q.project(
-								q.region([
-									{
-										source: q.base(Posting, conservativeMeta),
-										bind: { account: "id" },
-										constants: {}
-									}
-								]),
-								[["id", "id"]],
-								conservativeMeta
-							)
-							const child = q.project(
-								q.region([
-									{
-										source: q.base(Task, conservativeMeta),
-										bind: { account: "account" },
-										constants: {}
-									}
-								]),
-								[["account", "account"]],
-								conservativeMeta
-							)
-							const attached = q.attach(
-								accounts,
-								child,
-								"tasks",
-								[["id", "account"]],
-								"array",
-								undefined
-							)
-							const r = lowered(
-								q.build(
-									arm === "a lone arm" ? q.union([attached], []) : q.union([attached, posted], [])
+							const ids = (relation: RelationSpec, column: string) =>
+								q.project(
+									q.region([
+										{
+											source: q.base(relation, conservativeMeta),
+											bind: { [column]: "id" },
+											constants: {}
+										}
+									]),
+									[["id", "id"]],
+									conservativeMeta
 								)
+							const isAttached = (arm: number) => (attached & (1 << arm)) !== 0
+							const built = Arr.makeBy(arms, (arm) =>
+								isAttached(arm)
+									? q.attach(
+											ids(Account, "id"),
+											q.project(
+												q.region([
+													{
+														source: q.base(Task, conservativeMeta),
+														bind: { account: "account" },
+														constants: {}
+													}
+												]),
+												[["account", "account"]],
+												conservativeMeta
+											),
+											"tasks",
+											[["id", "account"]],
+											"array",
+											undefined
+										)
+									: ids(Posting, "account")
 							)
-							if (arm === "a lone arm") {
-								assert.equal(
-									Arr.filter(flight(succeeded(r).roots), (s) => s.role.kind === "attachment")
-										.length,
-									1
-								)
+							const r = lowered(q.build(q.union(built, [])))
+							const carrying = Arr.filter(
+								Arr.makeBy(arms, (arm) => arm),
+								isAttached
+							).length
+							if (carrying === 0) {
+								c.note("no arm attached")
 							} else {
-								refused(r, "UnsupportedOperation")
+								c.note(arms === 1 ? "a lone arm attached" : "an arm of several attached")
 							}
-							c.note(arm)
+							if (carrying > 0 && arms > 1) {
+								refused(r, "UnsupportedOperation")
+								return
+							}
+							assert.equal(
+								Arr.filter(flight(succeeded(r).roots), (s) => s.role.kind === "attachment").length,
+								carrying
+							)
 						})
 				)
 			)
+		}
 	)
 })
 
 /**
- * Outer references: an expression reading a column of another node, resolved to the occurrence or the region in scope
- * that reads it. Planted: the checker states every reference in scope and to one occurrence. A reference no scope binds
- * on its way to the root, a correlated take read outside its region, is a defect of the code that built the DAG: the
- * checker never builds one, and the strict re-reader (test/support/oracle/dag-validate.ts checkRootScopes) refuses it,
- * so it is never lowered; one to a source two occurrences share is refused by the lowering.
+ * Outer references: a constant of a region's occurrence reading a column of another occurrence's source, resolved to the
+ * occurrence that reads it. The checker states every reference to a source one occurrence reads; one to a source two
+ * occurrences share names no occurrence alone, and the lowering refuses it. A correlated take's reference to its
+ * region's variable is the generated soundness population's, which the conservative oracle lowers on PostgreSQL.
  */
-type Reference =
-	| "a constant reading a source one occurrence reads"
-	| "a constant reading a source two occurrences share"
-	| "a correlated take read inside its region"
-	| "a correlated take read outside its region"
-
-const referenceQuery = (reference: Reference): LogicalQuery => {
-	const q = new Q()
-	if (
-		reference === "a constant reading a source one occurrence reads" ||
-		reference === "a constant reading a source two occurrences share"
-	) {
-		const projected = (relation: typeof Posting) =>
-			q.project(
-				q.region([
-					{
-						source: q.base(relation, conservativeMeta),
-						bind: { account: "account", amount: "amount" },
-						constants: {}
-					}
-				]),
-				[
-					["account", "account"],
-					["amount", "amount"]
-				],
-				conservativeMeta
-			)
-		const postings = projected(Posting)
-		const other =
-			reference === "a constant reading a source two occurrences share" ? postings : projected(Task)
-		return q.build(
-			q.region([
-				{ source: postings, bind: { account: "x", amount: "a" }, constants: {} },
-				{ source: other, bind: { account: "y" }, constants: { amount: q.col(postings, "amount") } }
-			])
-		)
-	}
-	const tasks = q.region([
-		{
-			source: q.base(Task, conservativeMeta),
-			bind: { id: "id", account: "account", amount: "amount" },
-			constants: {}
-		}
-	])
-	const outer = q.b.reserve()
-	const acct = q.b.expr({
-		kind: "column",
-		column: { node: outer, name: "acct" },
-		args: [],
-		type: T.uuid,
-		nonNull: "storage"
-	})
-	const top = q.take(
-		tasks,
-		asc("amount", "id"),
-		{ kind: "literal", k: 1n },
-		[{ column: "account", expr: acct }],
-		conservativeMeta
-	)
-	const region = q.regionWith(
-		[
-			{ source: q.base(Account, conservativeMeta), bind: { id: "acct" }, constants: {} },
-			{ source: top, bind: { id: "task", account: "acct" }, constants: {} }
-		],
-		{ ...plainRegion, id: { kind: "reserved", id: outer } }
-	)
-	return q.build(reference === "a correlated take read inside its region" ? region : top)
-}
+type Resolution = "resolved" | "refused"
 
 describe("regions", () => {
-	it.effect("resolve an outer reference only to a node in scope that one occurrence reads", (ctx) =>
+	it.effect("resolve an outer reference only to a source one occurrence reads", (ctx) =>
 		searched(
 			ctx,
 			exhaust(
 				{
 					suite: "unit/lower/conservative/outer-references",
 					literal: Formatter.format,
-					generator: element<Reference>([
-						"a constant reading a source one occurrence reads",
-						"a constant reading a source two occurrences share",
-						"a correlated take read inside its region",
-						"a correlated take read outside its region"
-					]),
-					limit: 4,
-					coverage: requiredInSpace<"resolved" | "refused" | "a defect">([
-						"resolved",
-						"refused",
-						"a defect"
-					]),
+					/**
+					 * Two or three occurrences, each over the postings' or the tasks' projection of (account, amount), one
+					 * node each however many occurrences read it; the last fixes its amount to the amount of the source the
+					 * `read`th earlier occurrence reads.
+					 */
+					generator: (source) => {
+						const count = source.draw(int(2, 3))
+						return {
+							sources: Arr.makeBy(count, () => source.draw(int(0, 1))),
+							read: source.draw(int(0, count - 2))
+						}
+					},
+					limit: 20,
+					coverage: requiredInSpace<Resolution>(["resolved", "refused"]),
 					caseHang
 				},
-				(reference, c) =>
+				({ sources, read }, c) =>
 					Effect.sync(() => {
-						if (reference === "a correlated take read outside its region") {
-							throwsDefect(() => validateDag(referenceQuery(reference).dag), reference)
-							c.note("a defect")
-							return
-						}
-						const r = lowered(referenceQuery(reference))
-						if (reference === "a constant reading a source two occurrences share") {
-							refused(r, "MalformedDescription", reference)
-							c.note("refused")
-						} else {
-							succeeded(r, reference)
+						const q = new Q()
+						const projected = (relation: RelationSpec) =>
+							q.project(
+								q.region([
+									{
+										source: q.base(relation, conservativeMeta),
+										bind: { account: "account", amount: "amount" },
+										constants: {}
+									}
+								]),
+								[
+									["account", "account"],
+									["amount", "amount"]
+								],
+								conservativeMeta
+							)
+						const projections = [projected(Posting), projected(Task)] as const
+						const sourceOf = (pick: number) => (pick === 0 ? projections[0] : projections[1])
+						const target = sourceOf(present(sources[read], "the read occurrence's source"))
+						const last = sources.length - 1
+						const r = lowered(
+							q.build(
+								q.region(
+									Arr.map(sources, (pick, i) => ({
+										source: sourceOf(pick),
+										bind: { account: `a${i}` },
+										constants: i === last ? { amount: q.col(target, "amount") } : {}
+									}))
+								)
+							)
+						)
+						const readers = Arr.filter(sources, (pick) => sourceOf(pick) === target).length
+						if (readers === 1) {
+							succeeded(r)
 							c.note("resolved")
+						} else {
+							refused(r, "MalformedDescription")
+							c.note("refused")
 						}
 					})
 			)

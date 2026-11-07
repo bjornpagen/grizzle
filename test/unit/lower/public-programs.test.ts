@@ -1,11 +1,11 @@
 import { describe, it } from "@effect/vitest"
 import { type Case, drawn, exhaust, explore } from "@grizzle/testing/explore"
 import { required, requiredInSpace } from "@grizzle/testing/features"
-import { boolean, element, filter, subarray } from "@grizzle/testing/gen"
+import { boolean, element, filter, type Gen, int, oneOf, subarray } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter } from "effect"
+import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
@@ -25,6 +25,8 @@ import { schemaCatalog } from "#compiler/program/schema.ts"
 import { closedId, pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
+import { queryOver, varsOver } from "#compiler/query/build/query.ts"
+import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { testArtifacts, testCompile } from "#test/support/compile.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -35,6 +37,7 @@ import { caseSketchGen, resolveCase } from "#test/support/oracle/public/generate
 import { printCase } from "#test/support/oracle/public/print.ts"
 import { checkedLowering } from "#test/support/oracle/verify/index.ts"
 import { checking, checkOptions } from "#test/support/policy.ts"
+import { present } from "#test/unit/lower/support.ts"
 
 /**
  * The optimized lowering of checked public programs builds only DAGs the validator admits.
@@ -158,61 +161,98 @@ const lowersValid = (
 }
 
 /**
- * The planted reads: takes over a projection the demand pass narrows to an identity, ordered by a key of the projection
- * alone, by it and a column, and by a column the filter reads; and the attachment of a child projecting nothing over two
- * scans, an Option of the unit relation per parent.
+ * The reads the generator's orders over every column rarely bring to an identity: takes over a projection of Item the
+ * demand pass narrows to an identity, and an attachment whose child projects nothing over its scans of Stop, the unit
+ * relation per parent.
  */
 const Item = relation("Item", { id: uuid, x: pg.integer, y: pg.integer }, ["id"])
 const Items = schema("Items", { Item }, [])
 const Route = closed("Route", ["Red", "Green", "Blue"])
 const Stop = relation("Stop", { route: closedId(Route) }, ["route"])
 const Routes = schema("Routes", { Route, Stop }, [])
-const planted: Arr.NonEmptyReadonlyArray<{
-	readonly name: string
-	readonly schema: unknown
-	readonly read: unknown
-}> = [
-	{
-		name: "a take by the key of a projection of one column",
-		schema: Items,
-		read: query(Items)
-			.rule((r) => {
-				const { id, x } = v(Item, "item")
-				return r.match(Item, { id, x }).find({ id })
-			})
-			.orderBy(["id", "asc"])
-			.take(1)
-	},
-	{
-		name: "a take by the key of a filtered projection of two columns",
-		schema: Items,
-		read: query(Items)
-			.rule((r) => {
-				const { id, x } = v(Item, "item")
-				return r.match(Item, { id, x }).where(r.lt(x, 3)).find({ id, x })
-			})
-			.orderBy(["x", "desc"], ["id", "asc"])
-			.take(2)
-	},
-	{
-		name: "an Option of a child projecting nothing over two scans",
-		schema: Routes,
-		read: query(Routes)
-			.rule((r) => {
-				const { route } = v(Stop, "stop")
-				return r.match(Stop, { route }).find({ route })
-			})
-			.attach(
-				"stops",
-				(p) =>
-					query(Routes).rule((r) => {
-						const { route } = v(Stop, "stop")
-						return r.match(Stop, { route: p.route }).match(Stop, { route }).find({})
-					}),
-				"array"
-			)
-	}
+
+/**
+ * A take of the first `k` items, each finding its id and x and y where drawn, filtered on x where drawn, ordered by the
+ * `first`th column it finds in either direction, then by its key; or the routes, each with the child of `scans` scans
+ * of Stop, the first on the parent's route, finding nothing.
+ */
+type PlantedRead =
+	| {
+			readonly kind: "take"
+			readonly x: boolean
+			readonly y: boolean
+			readonly filtered: boolean
+			readonly first: number
+			readonly descending: boolean
+			readonly k: number
+	  }
+	| { readonly kind: "child"; readonly scans: number }
+
+/** The columns a planted take finds: the key, then x and y where drawn. */
+const foundOf = (x: boolean, y: boolean): ReadonlyArray<"id" | "x" | "y"> => [
+	"id",
+	...(x ? ["x" as const] : []),
+	...(y ? ["y" as const] : [])
 ]
+
+const plantedGen: Gen<PlantedRead> = oneOf<PlantedRead>([
+	(source) => {
+		const x = source.draw(boolean)
+		const y = source.draw(boolean)
+		return {
+			kind: "take",
+			x,
+			y,
+			filtered: source.draw(boolean),
+			first: source.draw(int(0, foundOf(x, y).length - 1)),
+			descending: source.draw(boolean),
+			k: source.draw(int(1, 3))
+		}
+	},
+	(source) => ({ kind: "child", scans: source.draw(int(1, 3)) })
+])
+
+/** A planted read and the schema it is built over. */
+const plantedRead = (p: PlantedRead): { readonly schema: unknown; readonly read: unknown } => {
+	if (p.kind === "child") {
+		return {
+			schema: Routes,
+			read: queryOver(Routes)
+				.rule((r: RuleValue) => {
+					const { route } = varsOver(Stop, "stop")
+					return r.match(Stop, { route }).find({ route })
+				})
+				.attach(
+					"stops",
+					(parent: Readonly<Record<string, unknown>>) =>
+						queryOver(Routes).rule((r: RuleValue) =>
+							Arr.reduce(
+								Arr.makeBy(p.scans - 1, (i) => varsOver(Stop, `stop${i}`)),
+								r.match(Stop, { route: parent["route"] }),
+								(matched, { route }) => matched.match(Stop, { route })
+							).find({})
+						),
+					"array"
+				)
+		}
+	}
+	const found = foundOf(p.x, p.y)
+	const first = present(found[p.first], "the first order column")
+	const items = queryOver(Items).rule((r: RuleValue) => {
+		const vars = varsOver(Item, "item")
+		const matched = r.match(Item, vars)
+		return (p.filtered ? matched.where(r.lt(vars["x"], 3)) : matched).find(
+			Rec.fromEntries(Arr.map(found, (name) => [name, vars[name]]))
+		)
+	})
+	const leading = [first, p.descending ? "desc" : "asc"]
+	return {
+		schema: Items,
+		read: (first === "id" ? items.orderBy(leading) : items.orderBy(leading, ["id", "asc"])).take(
+			p.k
+		)
+	}
+}
 
 describe("the optimized lowering of checked public programs", () => {
 	it.effect("builds no DAG that breaks a rule for a generated read", (ctx) =>
@@ -260,9 +300,9 @@ describe("the optimized lowering of checked public programs", () => {
 			exhaust(
 				{
 					suite: "unit/lower/public-programs-planted",
-					generator: element(planted),
+					generator: plantedGen,
 					literal: Formatter.format,
-					limit: planted.length,
+					limit: 128,
 					coverage: requiredInSpace<IdentityFeature>([
 						"an option or bare child over an identity projection's input",
 						"a take over an identity projection's input"
@@ -271,7 +311,8 @@ describe("the optimized lowering of checked public programs", () => {
 				},
 				(p, n) =>
 					Effect.sync(() => {
-						lowersValid(p.schema, p.read, n, () => p.name)
+						const { schema: planted, read } = plantedRead(p)
+						lowersValid(planted, read, n, () => Formatter.format(p))
 					})
 			)
 		)

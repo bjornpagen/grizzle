@@ -1,147 +1,292 @@
 /**
- * The payroll example's concurrency window no generated race plants: an exact repeat at a span primary key waiting on
- * an identical insert in flight. The single-law races of the payroll laws (the deposits' amount and count, the
- * approvers' count, the approved shifts' timesheet, ceiling and employment) are the law families' generated races
- *.
+ * The payroll example's race at a span primary key: a grizzle insert of a Leave racing a direct writer's Leave for the
+ * same employee. The single-law races of the payroll laws (the deposits' amount and count, the approvers' count, the
+ * approved shifts' timesheet, ceiling and employment) are the law families' generated races.
  *
  * Reporting installs completely under a fresh schema name with its login, and the facts of the state after onboard,
- * logShifts and draftRun (stateA). The actors are a psql child `h` that has
- * taken on the role `hr` through its login and the grizzle writer `g`, a Db of `hr` over the worlds rebuilt under the
- * installed name, whose operation is a db.apply of a ChangeSet over Payroll there. Every table and column a schedule
- * names comes from the installation (`names`). The leave reason the writers write is drawn.
+ * logShifts and draftRun (stateA). The actors are a psql child `h` that has taken on the role `hr` through its login,
+ * and the grizzle writer `g`, a Db of `hr` over the worlds rebuilt under the installed name. Leave is keyed by
+ * (employee, during), a span primary key, so a Leave the writer inserts in flight at an overlapping span holds the
+ * insert's entry until it ends.
+ *
+ * Property: every run of a race, in every order of its moves, is explained by its serial reference
+ * (test/support/schedules/serial.ts): the insert (retried after each TransientFailure until it answers) and the direct
+ * writer's transaction, each run alone from stateA in an order that respects real time, show what they showed in the
+ * run (the insert's outcome, the writer's SQLSTATE on its constraint) and leave its Leave facts. The races draw ada's
+ * requested Leave inside her employment, the writer's Leave standing to it as a dictionary of what the key branches on
+ * says (the same Leave, the same span for another reason, an overlapping span, or apart), and how the writer ends.
+ *
+ * The kept race is the window the race was first planted for: the span key's exact repeat, the insert waiting on an
+ * identical Leave in flight, which commits, so the insert's retry finds the repeat, no-change.
  */
 
 import { layer } from "@effect/vitest"
-import { element } from "@grizzle/testing/gen"
-import { Effect, Layer, type Scope } from "effect"
+import { type Case, drawn, explore, type Kept } from "@grizzle/testing/explore"
+import { required } from "@grizzle/testing/features"
+import { constant, element, type Gen, int, weighted } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
+import { searched } from "@grizzle/testing/vitest"
+import { Array as Arr, Effect, Formatter, Layer, type Scope } from "effect"
 import type { OpenError } from "#adapter/errors/execution.ts"
-import { Db } from "#adapter/public/db.ts"
-import type { CompileError } from "#compiler/core/errors.ts"
+import { type ApplyOutcome, Db } from "#adapter/public/db.ts"
+import type { CompileError, TransientTag } from "#compiler/core/errors.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import type { PayrollInstalled, PayrollWorlds } from "#test/pg/e2e-laws/payroll.ts"
+import type { PayrollInstalled } from "#test/pg/e2e-laws/payroll.ts"
 import { openFixture } from "#test/pg/e2e-laws/support.ts"
 import { defined } from "#test/support/assert.ts"
-import { type ClosedField, closedField } from "#test/support/closed/stored.ts"
+import { closedField } from "#test/support/closed/stored.ts"
 import { Instant } from "#test/support/fixtures/api/contracts.ts"
 import * as P from "#test/support/fixtures/api/payroll.ts"
-import { ada, stateA, t5, t9 } from "#test/support/fixtures/golden/payroll.ts"
-import { type Names, namesOf } from "#test/support/kernel/naming.ts"
+import { ada, stateA, t0 } from "#test/support/fixtures/golden/payroll.ts"
+import { replaceMigrated } from "#test/support/install-migrate.ts"
+import { namesOf } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import type { SqlError } from "#test/support/pg.ts"
-import { type Actors, grizzleActor, openActors } from "#test/support/schedules/actors.ts"
+import { grizzleActor, openActors, textOfValue } from "#test/support/schedules/actors.ts"
+import { every, everyRelation, exploreEnv } from "#test/support/schedules/interleave.ts"
 import {
-	awaits,
-	begin,
-	blocksOn,
-	check,
-	commit,
-	complete,
-	schedule,
-	sql
-} from "#test/support/schedules/build.ts"
-import { applied, refusals, retriedOp } from "#test/support/schedules/grizzle.ts"
-import { exploreEnv } from "#test/support/schedules/interleave.ts"
-import { ok, rows } from "#test/support/schedules/match.ts"
-import { planted } from "#test/support/schedules/planted.ts"
-import { runSchedule, type ScheduleFailed } from "#test/support/schedules/runner.ts"
-import { type Schedule, type Trace } from "#test/support/schedules/types.ts"
+	type Explained,
+	runSerialRace,
+	type SerialRaceFailed
+} from "#test/support/schedules/serial.ts"
 import type { PsqlProcessError, TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
-const range = (start: bigint, end: bigint): string => `int8range(${start}, ${end})`
-const span = (start: bigint, end: bigint) => ({ start: Instant(start), end: Instant(end) })
+const day = 86_400_000_000n
 
-interface Rig {
-	readonly s: PayrollInstalled
-	/** The installation's names of Payroll's relations. */
-	readonly names: Names
-	/** A leave reason as the literal its column stores: its handle's code under the installation's codes. */
-	readonly reason: ClosedField
-	readonly hr: Db<PayrollWorlds["hr"], unknown>
-	readonly run: (
-		schedule: Schedule<"h", "g", "h" | "g">
-	) => Effect.Effect<Trace, ScheduleFailed | SqlError>
+type Reason = "vacation" | "sick" | "unpaid"
+
+/** A Leave of ada's: its span in days since t0, inside her employment, [t0, t0 + 9 days), and its reason. */
+interface Leave {
+	readonly start: number
+	readonly end: number
+	readonly reason: Reason
 }
 
-const openPayroll: Effect.Effect<
-	Rig,
-	CompileError | SqlError | TransactionRolledBack | OpenError | PsqlProcessError,
-	Substrate | Scope.Scope
-> = Effect.gen(function* () {
-	const substrate = yield* Substrate
-	const f = yield* openFixture(P.Reporting, [P.reportingWorlds(P.Payroll).server], {
-		facts: stateA,
-		after: []
-	})
-	const s: PayrollInstalled = f.rebuilt(P.Payroll)
-	const worlds = P.reportingWorlds(s)
-	const serverContext = yield* Layer.build(f.layer(worlds.server))
-	const hr = yield* Db.open(worlds.server.roles.hr, {}).pipe(Effect.provideContext(serverContext))
-	const psql = yield* openActors(substrate, {
-		h: { kind: "psql", as: f.installed.world(worlds.hr) }
-	})
-	/** The grizzle writer's login is the psql child's too: its backend is the one the child does not run. */
-	const psqlPid = yield* Effect.orDie(psql.h.pid)
-	const g = yield* grizzleActor("g", f.installed.as(worlds.server).role, [psqlPid])
-	const actors: Actors<"h", "g"> = { direct: psql, grizzle: { g } }
-	const env = yield* exploreEnv(substrate)
+/** A race: the Leave the insert requests, the direct writer's Leave, and how the writer's transaction ends. */
+interface LeaveRace {
+	readonly requested: Leave
+	readonly direct: Leave
+	readonly end: "commit" | "rollback"
+}
+
+/** What a race reached: the insert waited, met a refusal and each reason, its answer, and how the writer ended. */
+type LeaveFeature =
+	| "the insert waited"
+	| "the insert refused"
+	| `refused: ${TransientTag}`
+	| `the insert ${ApplyOutcome<unknown>["kind"]}`
+	| `the writer ${"committed" | "rolled back" | "aborted" | "failed"}`
+
+const reasons = ["vacation", "sick", "unpaid"] as const
+
+/** Each reason's others. */
+const otherReasons: Readonly<Record<Reason, readonly [Reason, Reason]>> = {
+	vacation: ["sick", "unpaid"],
+	sick: ["vacation", "unpaid"],
+	unpaid: ["vacation", "sick"]
+}
+
+/** A requested Leave, ending a day before the employment does, so a span apart from it always fits after it. */
+const leaveGen: Gen<Leave> = (source) => {
+	const start = source.draw(int(0, 7))
+	return { start, end: source.draw(int(start + 1, 8)), reason: source.draw(element(reasons)) }
+}
+
+/** How the writer's Leave stands to the requested one, the dictionary of what the span key branches on. */
+const standings = [
+	"the same Leave",
+	"the same span for another reason",
+	"an overlapping span",
+	"a span apart"
+] as const
+
+/** The writer's Leave, standing to the requested one as drawn. */
+const standingGen =
+	(requested: Leave): Gen<Leave> =>
+	(source) => {
+		switch (source.draw(element(standings))) {
+			case "the same Leave":
+				return requested
+			case "the same span for another reason":
+				return { ...requested, reason: source.draw(element(otherReasons[requested.reason])) }
+			case "an overlapping span":
+				return {
+					start: requested.start,
+					end: source.draw(int(requested.start + 1, 9)),
+					reason: source.draw(element(reasons))
+				}
+			case "a span apart":
+				return {
+					start: requested.end,
+					end: source.draw(int(requested.end + 1, 9)),
+					reason: source.draw(element(reasons))
+				}
+		}
+	}
+
+const raceGen: Gen<LeaveRace> = (source) => {
+	const requested = source.draw(leaveGen)
 	return {
-		s,
-		names: namesOf(f.installed),
-		reason: defined(
+		requested,
+		direct: source.draw(standingGen(requested)),
+		end: source.draw(
+			weighted<"commit" | "rollback">([
+				[2, constant("commit")],
+				[1, constant("rollback")]
+			])
+		)
+	}
+}
+
+const instantOf = (days: number) => Instant(t0 + BigInt(days) * day)
+
+/** The features one explained run reached (see LeaveFeature). */
+const featuresOf = (e: Explained<ApplyOutcome<unknown>>): ReadonlyArray<LeaveFeature> => {
+	const waited = Arr.some(e.run.moves, (m) => m.session === "g" && m.observed._tag === "Waited")
+	return [
+		...(waited ? ["the insert waited" as const] : []),
+		...Arr.flatMap([...e.ends.values()], (end): ReadonlyArray<LeaveFeature> => {
+			switch (end.kind) {
+				case "answered":
+					return [
+						`the insert ${end.retried.answered.kind}`,
+						...(end.retried.refused.length > 0 ? ["the insert refused" as const] : []),
+						...Arr.map(end.retried.refused, (reason): LeaveFeature => `refused: ${reason}`)
+					]
+				case "committed":
+				case "rolled back":
+				case "aborted":
+				case "failed":
+					return [`the writer ${end.kind}`]
+			}
+		})
+	]
+}
+
+/** Opens the payroll fixture at stateA, its insert's Db and its two actors, and runs the race. */
+const runRace = (
+	race: LeaveRace,
+	c: Case<LeaveFeature>
+): Effect.Effect<
+	void,
+	CompileError | SqlError | TransactionRolledBack | OpenError | PsqlProcessError | SerialRaceFailed,
+	Substrate | Scope.Scope
+> =>
+	Effect.gen(function* () {
+		const substrate = yield* Substrate
+		const f = yield* openFixture(P.Reporting, [P.reportingWorlds(P.Payroll).server], {
+			facts: stateA,
+			after: []
+		})
+		const s: PayrollInstalled = f.rebuilt(P.Payroll)
+		const worlds = P.reportingWorlds(s)
+		const serverContext = yield* Layer.build(f.layer(worlds.server))
+		const hr = yield* Db.open(worlds.server.roles.hr, {}).pipe(Effect.provideContext(serverContext))
+		const direct = yield* openActors(substrate, {
+			h: { kind: "psql", as: f.installed.world(worlds.hr) }
+		})
+		const psqlPid = yield* Effect.orDie(direct.h.pid)
+		const g = yield* grizzleActor("g", f.installed.as(worlds.server).role, [psqlPid])
+		const env = yield* exploreEnv(substrate)
+		const names = namesOf(f.installed)
+		const leave = names.table(P.Leave)
+		const column = (field: "employee" | "during" | "reason") => names.column(P.Leave, field)
+		const reason = defined(
 			closedField(f.installed.installation, P.Leave.name, "reason"),
 			"Leave's reason, a closed id"
-		),
-		hr,
-		run: (sched) => runSchedule(env, sched, actors)
-	} satisfies Rig
-})
+		)
+		yield* runSerialRace(
+			env,
+			{ direct, grizzle: { g } },
+			{
+				name: "a Leave insert beside a direct writer's Leave",
+				txns: [
+					{
+						kind: "grizzle",
+						session: "g",
+						label: "insert ada's leave",
+						call: hr.apply(
+							ChangeSet.empty(s).insert(P.Leave, [
+								{
+									employee: ada,
+									during: {
+										start: instantOf(race.requested.start),
+										end: instantOf(race.requested.end)
+									},
+									reason: race.requested.reason
+								}
+							]),
+							{}
+						),
+						footprint: everyRelation
+					},
+					{
+						kind: "direct",
+						session: "h",
+						statements: [
+							{
+								sql: `INSERT INTO ${leave} (${column("employee")}, ${column("during")}, ${column("reason")}) VALUES ('${ada}', int8range(${instantOf(race.direct.start)}, ${instantOf(race.direct.end)}), ${reason.literal(race.direct.reason)})`,
+								footprint: everyRelation
+							}
+						],
+						end: race.end
+					}
+				],
+				reset: Effect.provideService(replaceMigrated(f.installed, stateA), Substrate, substrate),
+				state: Effect.map(
+					env.observer.queryValues(
+						`SELECT ${column("employee")}::text, ${column("during")}::text, ${column("reason")}::text FROM ${leave}`,
+						[]
+					),
+					(rows) => Arr.map(rows, (row) => Arr.map(row, textOfValue))
+				)
+			},
+			every,
+			(e) => c.noteAll(featuresOf(e))
+		)
+	})
+
+/** The cases of the rotating stream; its floor runs a quarter of them. */
+const runs = 8
+
+const kept: ReadonlyArray<Kept<LeaveRace, LeaveFeature>> = [
+	{
+		note: "the span key's exact repeat: the insert waits on an identical Leave in flight, which commits, so its exclusion check meets the repeat and its retry is no-change",
+		sketch: {
+			requested: { start: 5, end: 9, reason: "vacation" },
+			direct: { start: 5, end: 9, reason: "vacation" },
+			end: "commit"
+		},
+		draws: "",
+		reaches: ["the insert waited", "the insert refused", "the insert no-change"]
+	}
+]
 
 layer(Substrate.layer, { excludeTestServices: true })(
-	"the payroll example's concurrency schedules over the payroll fixture",
+	"the payroll example's races at a span primary key",
 	(it) => {
-		it.effect(
-			"the span key's exact repeat, a Leave insert waiting on an identical one in flight, is no-change",
-			planted(
-				"payroll/span key repeat",
-				element(["vacation", "sick", "unpaid"] as const),
-				["an identical Leave in flight"],
-				(reason) =>
-					Effect.gen(function* () {
-						const r = yield* openPayroll
-						const leave = r.names.table(P.Leave)
-						const employee = r.names.column(P.Leave, "employee")
-						return [
-							yield* r.run(
-								schedule("an identical Leave in flight", [
-									begin("h"),
-									sql(
-										"h",
-										`INSERT INTO ${leave} (${employee}, ${r.names.column(P.Leave, "during")}, ${r.names.column(P.Leave, "reason")}) VALUES ('${ada}', ${range(t5, t9)}, ${r.reason.literal(reason)})`,
-										ok(),
-										complete
-									),
-									retriedOp(
-										"g",
-										"insert ada's leave",
-										r.hr.apply(
-											ChangeSet.empty(r.s).insert(P.Leave, [
-												{ employee: ada, during: span(t5, t9), reason }
-											]),
-											{}
-										),
-										applied({ kind: "no-change", calls: refusals(1) }),
-										blocksOn("h")
-									),
-									commit("h", ok(), complete),
-									awaits("g", complete),
-									check(
-										`SELECT count(*)::text FROM ${leave} WHERE ${employee} = '${ada}'`,
-										rows(["1"])
-									)
-								])
-							)
-						]
-					})
+		it.effect("every race of a Leave insert and a direct writer's Leave is serializable", (ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "schedules/laws/payroll",
+						draw: drawn(raceGen),
+						literal: Formatter.format,
+						coverage: required<LeaveFeature>(["the insert waited", "the insert refused"], {
+							cases: runs,
+							sense: notesOnly
+						}),
+						kept,
+						runs,
+						shrink: { kind: "bounded", candidates: 40 },
+						concurrency: 1,
+						steerEvery: runs,
+						caseHang
+					},
+					(race, c) => Effect.scoped(runRace(race, c))
+				)
 			)
 		)
 	}

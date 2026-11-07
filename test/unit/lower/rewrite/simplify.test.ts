@@ -549,69 +549,111 @@ describe("finite folding", () => {
 	})
 })
 
+/** What branch removal removed: an empty region, an empty union arm, an anti-join's empty right side, or everything. */
+type Removed =
+	| "an empty region"
+	| "an empty union arm"
+	| "an empty anti-join right side"
+	| "every input empty"
+
 describe("branch removal", () => {
-	it.effect("an empty input is removed, whatever evaluations it drops", (ctx) => {
-		type Site = "region" | "union arm" | "anti-join right side"
-		return searched(
+	it.effect("an empty input is removed, whatever evaluations it drops", (ctx) =>
+		searched(
 			ctx,
 			exhaust(
 				{
 					suite: "unit/lower/rewrite/simplify-empty",
 					literal: Formatter.format,
-					generator: element<Site>(["region", "union arm", "anti-join right side"]),
-					limit: 3,
-					coverage: requiredInSpace<`${Site} removed`>([
-						"region removed",
-						"union arm removed",
-						"anti-join right side removed"
+					/**
+					 * One to three arms, each a projection of the postings or of a region over the empty relation, one arm
+					 * the root itself and more a union of them; `vacuous` holds a bit per empty arm, and `anti` subtracts an
+					 * empty right side from them.
+					 */
+					generator: (source) => {
+						const arms = source.draw(int(1, 3))
+						return {
+							arms,
+							vacuous: source.draw(int(0, 2 ** arms - 1)),
+							anti: source.draw(boolean)
+						}
+					},
+					limit: 28,
+					coverage: requiredInSpace<Removed>([
+						"an empty region",
+						"an empty union arm",
+						"an empty anti-join right side",
+						"every input empty"
 					]),
 					caseHang
 				},
-				(site, c) =>
+				({ arms, vacuous, anti }, c) =>
 					Effect.sync(() => {
 						const q = new Q()
-						const p = postings(q)
-						const checked = q.filter(p, predicate(q, p))
-						const vacuous = q.project(
-							q.region([
-								{ source: checked, bind: { id: "id", account: "account" }, constants: {} },
-								{
-									source: q.closed("Nothing", [{ name: "account", type: T.uuid }], []),
-									bind: { account: "account" },
-									constants: {}
-								}
-							]),
-							[["id", "id"]],
-							conservativeMeta
+						const empty = () => {
+							const p = postings(q)
+							return q.project(
+								q.region([
+									{
+										source: q.filter(p, predicate(q, p)),
+										bind: { id: "id", account: "account" },
+										constants: {}
+									},
+									{
+										source: q.closed("Nothing", [{ name: "account", type: T.uuid }], []),
+										bind: { account: "account" },
+										constants: {}
+									}
+								]),
+								[["id", "id"]],
+								conservativeMeta
+							)
+						}
+						const isEmpty = (arm: number) => (vacuous & (1 << arm)) !== 0
+						const built = Arr.makeBy(arms, (arm) =>
+							isEmpty(arm) ? empty() : q.project(postings(q), [["id", "id"]], conservativeMeta)
 						)
-						const live = () => q.project(postings(q), [["id", "id"]], conservativeMeta)
-						const root =
-							site === "region"
-								? vacuous
-								: site === "union arm"
-									? q.union([live(), vacuous], [])
-									: q.anti(live(), vacuous, [["id", "id"]])
-						const ran = simplified(q.build(root).dag)
-						c.note(`${site} removed`)
-						assert.equal(rulesOf(ran.certificates).includes("simplify.empty"), true)
+						const [first] = built
+						const left = arms === 1 ? first : q.union(built, [])
+						const ran = simplified(q.build(anti ? q.anti(left, empty(), [["id", "id"]]) : left).dag)
 						const dag = ran.query.dag
-						if (site === "union arm") {
+						const [root] = dag.roots
+						const live = Arr.filter(
+							Arr.makeBy(arms, (arm) => arm),
+							(arm) => !isEmpty(arm)
+						).length
+						assert.equal(
+							rulesOf(ran.certificates).includes("simplify.empty"),
+							vacuous !== 0 || anti
+						)
+						if (vacuous !== 0) {
+							c.note(arms === 1 ? "an empty region" : "an empty union arm")
+						}
+						if (anti) {
+							c.note("an empty anti-join right side")
+						}
+						if (live === 0) {
+							c.note("every input empty")
+							assert.ok(root.kind === "Closed" && root.rows.length === 0, "the empty relation")
+							return
+						}
+						assert.deepEqual(
+							Arr.filter(nodesOf(dag, "Closed"), (n) => n.rows.length === 0),
+							[]
+						)
+						if (arms > 1) {
 							assert.equal(
 								Arr.flatMap(nodesOf(dag, "Union"), (n) => Arr.flatMap(n.groups, (g) => g.arms))
 									.length,
-								1
+								live
 							)
 						}
-						if (site === "anti-join right side") {
+						if (anti) {
 							assert.equal(nodesOf(dag, "AntiJoin").length, 0)
-						}
-						if (site === "region") {
-							assert.equal(ran.query.dag.roots[0].kind, "Closed")
 						}
 					})
 			)
 		)
-	})
+	)
 })
 
 describe("normalization", () => {

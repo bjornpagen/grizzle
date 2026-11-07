@@ -1,7 +1,8 @@
 import { describe, it } from "@effect/vitest"
-import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { noCoverage } from "@grizzle/testing/features"
+import { drawn, explore } from "@grizzle/testing/explore"
+import { noCoverage, required } from "@grizzle/testing/features"
 import { array, element, int } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
@@ -23,8 +24,8 @@ import { caseHang } from "#test/support/limits.ts"
  * A query builder step reads only what it adds. A stage's Description holds its input stage, its earlier arms, an
  * attachment's child and an imported query as the Descriptions they already are (shape.ts recognized), so the step
  * builds a fixed number of containers whatever the query's size, where a decode of the whole would copy every one.
- * The count is taken at four sizes for each step kind. The Description is the one the whole decode gives, the old path,
- * kept here as the oracle.
+ * The count is taken at every step of a chain of one drawn step kind and a drawn length. The Description is the one the
+ * whole decode gives, the old path, kept here as the oracle.
  */
 
 /** The arrays and plain objects reachable from `value`, added to `into`. */
@@ -173,28 +174,33 @@ const built = (
 }
 
 describe("a query builder step reads only what it adds", () => {
-	it.effect("builds a fixed number of containers a step, at 50, 100, 200 and 400", (ctx) =>
+	it.effect("builds a fixed number of containers a step, whatever the chain's length", (ctx) =>
 		searched(
 			ctx,
-			exhaust(
+			explore(
 				{
 					suite: "unit/query/build/step-reads",
-					generator: element(
-						Arr.flatMap(stepKinds, (kind) =>
-							Arr.map([50, 100, 200, 400] as const, (n) => [kind, n] as const)
-						)
-					),
+					/** A chain of one kind of step, two to four hundred long. */
+					draw: drawn((source) => ({
+						kind: source.draw(element(stepKinds)),
+						steps: source.draw(int(2, 400))
+					})),
 					literal: Formatter.format,
-					limit: 16,
-					coverage: noCoverage,
+					coverage: required<StepKind>(stepKinds, { cases: 16, sense: notesOnly }),
+					kept: [],
+					runs: 16,
+					shrink: completeShrink,
+					concurrency: 1,
+					steerEvery: 16,
 					caseHang
 				},
-				([kind, n]) =>
+				({ kind, steps }, c) =>
 					Effect.sync(() => {
-						const steps = counts(kind, n)
-						const first = defined(steps[0], "the first step")
-						for (const [i, step] of steps.entries()) {
-							assert.equal(step, first, `step ${i + 1} of ${n}`)
+						c.note(kind)
+						const counted = counts(kind, steps)
+						const first = defined(counted[0], "the first step")
+						for (const [i, step] of counted.entries()) {
+							assert.equal(step, first, `step ${i + 1} of ${steps}`)
 						}
 					})
 			)

@@ -13,22 +13,33 @@
  *   value; a text pattern narrowed, which types the field by the narrowed pattern's domain, converted and refused the
  *   same way by that domain's CHECK; and a closed payload outside the narrowed pattern, written into Publish's
  *   validation of the closed facts by the reviewer, refused there with 23514 by the same CHECK, the folder as drafted
- *   then completing;
- * - a writer racing the migration cannot slip a violation past a selected side's foreign key: a violating row a writer
- *   commits while the migration waits for it is seen by the foreign key's validation, 23503; the refused migration's
- *   Structure file stays applied, so the foreign key it added NOT VALID refuses the next violation at its commit, 23503;
- *   and a writer that arrives while the migration holds its lock waits until the foreign key is installed, then meets it
- *   at its commit, 23503, the key deferred.
+ *   then completing. The rows' keys and values are drawn;
+ * - a writer racing the migration cannot slip a violation past a selected side's foreign key. The migration to the
+ *   selected side's containment, drafted for an installation of v1 holding one worker, races two direct writers, each
+ *   inserting one active assignment, of the stored worker or of a worker none holds: its Structure file adds the
+ *   foreign key NOT VALID under its locks, which a writer's open insert holds the migration behind and a later writer
+ *   waits on, and its validation sees every row committed before it. The property is the law itself, over every point
+ *   of that box and every order of the five moves (each writer's insert and COMMIT, and the migration's apply): the
+ *   migration succeeds only if no violating row was committed, and is refused otherwise, by the foreign key's
+ *   validation with 23503 on the law; a lawful writer commits; a violating writer commits only before the law, and is
+ *   refused by it with 23503 otherwise, always when it begins after the migration ended, never when it ended before
+ *   the migration began; the rows are exactly the committed writers' and the stored worker, never deleted; and a
+ *   transient abort, of a writer or the migration, has a concurrent cause. Each case installs afresh, since a
+ *   migration applies once, and the order is drawn decision by decision from the case, which the exhaustion
+ *   enumerates.
  *
  * The migrations are drafted by generateMigration from the installed snapshot and applied by applyOnSession, exactly as
  * `grizzle migrate` applies them, as the database owner; each folder is applied with the same files every time,
- * so a resumed apply finds the files it already ran unchanged. The rows' keys and values are drawn.
+ * so a resumed apply finds the files it already ran unchanged.
  */
 
 import { layer } from "@effect/vitest"
-import { filter, type Gen, int } from "@grizzle/testing/gen"
+import { drawn, exhaust, explore } from "@grizzle/testing/explore"
+import { noCoverage, requiredInSpace } from "@grizzle/testing/features"
+import { element, filter, type Gen, int } from "@grizzle/testing/gen"
 import { matching } from "@grizzle/testing/pattern"
 import type { Source } from "@grizzle/testing/source"
+import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Result, String as Str } from "effect"
 import { applyOnSession } from "#adapter/migrate/apply.ts"
 import type { MigrateError, MigrationPlace, ServerReport } from "#adapter/migrate/errors.ts"
@@ -70,25 +81,28 @@ import {
 	parsedSchemaName,
 	type TextDomainNames
 } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { draftCodes, fromSnapshot, generate, noDeclarations } from "#test/support/migrate/kit.ts"
 import { owning } from "#test/support/policy.ts"
 import { type GrizzleActor, openActors } from "#test/support/schedules/actors.ts"
 import {
-	awaits,
-	begin,
-	blocksOn,
-	check as checkRows,
-	commit,
-	complete,
-	op,
-	schedule,
-	sql
-} from "#test/support/schedules/build.ts"
-import { exploreEnv } from "#test/support/schedules/interleave.ts"
-import { describeOutcome, meets, misses, ok, rows } from "#test/support/schedules/match.ts"
-import { planted } from "#test/support/schedules/planted.ts"
-import { runSchedule } from "#test/support/schedules/runner.ts"
-import type { Expectation, ScheduleOutcome } from "#test/support/schedules/types.ts"
+	allowed,
+	everyRelation,
+	exploreEnv,
+	exploreInterleavings,
+	type Interleaving,
+	interleaveStep,
+	refusedJudgment,
+	runawayInterleavings,
+	type Txn
+} from "#test/support/schedules/interleave.ts"
+import {
+	describeOutcome,
+	describeStepOutcome,
+	meets,
+	misses
+} from "#test/support/schedules/match.ts"
+import type { Expectation, ScheduleOutcome, StepOutcome } from "#test/support/schedules/types.ts"
 import { reportedOwnerOf } from "#test/support/substrate/errors.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { fullWorld } from "#test/support/worlds.ts"
@@ -199,12 +213,8 @@ const withWorld = (
 const backendOf = (rows: ReadonlyArray<ReadonlyArray<string>>): number =>
 	Number(defined(rows[0]?.[0], "pg_backend_pid's row"))
 
-/** The migrate apply's result as a step's expectation: it succeeded, or a foreign key's validation refused it. */
+/** The migrate apply's result. */
 type Migrated = Result.Result<unknown, MigrateError>
-const migrated: Expectation<Migrated> = (actual) => {
-	const shown = Formatter.format(actual)
-	return Result.isSuccess(actual) ? meets(shown) : misses(shown, "expected the apply to succeed")
-}
 
 /** A foreign key installed under `schema` whose law is `refusing`, as the installation's laws map its constraint. */
 interface ForeignKeyLaw {
@@ -363,6 +373,167 @@ const domainCheck =
  * closed facts. */
 const narrowedPayload = (text: string): string => Str.replaceAll("'grd'", "'grounds'")(text)
 
+/** What a racing writer inserts: an active assignment naming the stored worker, or one naming a worker none holds. */
+type WriterKind = "lawful" | "violating"
+
+/** The box the race exhausts: each racing writer's assignment. */
+interface Racing {
+	readonly w1: WriterKind
+	readonly w2: WriterKind
+}
+
+const writerKinds = ["lawful", "violating"] as const
+
+const racingGen: Gen<Racing> = (source) => ({
+	w1: source.draw(element(writerKinds)),
+	w2: source.draw(element(writerKinds))
+})
+
+/** Every order of the race's five moves, over each of the box's four points. */
+const racingCases = 4 * 30
+
+/** The stored worker's id, the id no worker holds, and each writer's assignment's id. */
+const storedWorker = 1
+const missingWorker = 2
+const assignmentOf: Readonly<Record<"w1" | "w2", number>> = { w1: 1, w2: 2 }
+
+/**
+ * What a race reached: how the migration ended, a migration that waited on a writer and a writer that waited on the
+ * migration, and a violation committed before the law or refused by it.
+ */
+type RacingFeature =
+	| "the migration succeeded"
+	| "the migration refused by the law"
+	| "the migration aborted"
+	| "the migration waited on a writer"
+	| "a writer waited on the migration"
+	| "a violation committed before the law"
+	| "a violation refused by the law"
+
+const transient = (code: string): boolean => code === "40001" || code === "40P01"
+
+/** How the migration ended: it succeeded, the law refused it, it was aborted as a transient failure, or otherwise. */
+const migrationEnd = (
+	fk: ForeignKeyLaw,
+	migrated: Migrated
+): "succeeded" | "refused by the law" | "aborted" | undefined => {
+	if (Result.isSuccess(migrated)) {
+		return "succeeded"
+	}
+	if (refusedBy(fk)(migrated)._tag === "Meets") {
+		return "refused by the law"
+	}
+	const server = migrated.failure.server
+	return server.by === "server" && transient(server.error.sqlstate) ? "aborted" : undefined
+}
+
+/**
+ * The law's judgment of one run (see the racing test): what it reached, or why the run broke the law.
+ */
+const judgeRacing = (
+	k: Racing,
+	fk: ForeignKeyLaw,
+	migrated: Migrated,
+	run: Interleaving,
+	stored: { readonly assignments: ReadonlyArray<string>; readonly workers: ReadonlyArray<string> }
+): Result.Result<ReadonlyArray<RacingFeature>, string> => {
+	const reached: Array<RacingFeature> = []
+	const spanOf = (session: string) => defined(run.spans[session], `${session}'s span`)
+	const overlapsAnother = (session: string): boolean =>
+		Arr.some(
+			Arr.filter(["w1", "w2", "m"] as const, (other) => other !== session),
+			(other) =>
+				spanOf(other).start < spanOf(session).end && spanOf(session).start < spanOf(other).end
+		)
+	const migration = migrationEnd(fk, migrated)
+	if (migration === undefined) {
+		return Result.fail(`the migration failed otherwise: ${Formatter.format(migrated)}`)
+	}
+	if (migration === "aborted" && !overlapsAnother("m")) {
+		return Result.fail("the migration was aborted beside no writer")
+	}
+	reached.push(`the migration ${migration}`)
+	const committed: Array<string> = []
+	for (const w of ["w1", "w2"] as const) {
+		const result = defined(run.results[w], `${w}'s result`)
+		const violating = k[w] === "violating"
+		const after = spanOf(w).start > spanOf("m").end && migration !== "aborted"
+		const before = spanOf(w).end < spanOf("m").start
+		switch (result._tag) {
+			case "Committed":
+				if (violating && after) {
+					return Result.fail(`${w} committed a violation after the migration installed the law`)
+				}
+				committed.push(String(assignmentOf[w]))
+				if (violating) {
+					reached.push("a violation committed before the law")
+				}
+				break
+			case "RolledBack":
+				return Result.fail(`${w}'s COMMIT answered ROLLBACK`)
+			case "Failed": {
+				const failure = result.failure
+				if (failure._tag !== "PgError") {
+					return Result.fail(`${w} failed with ${describeStepOutcome(failure)}`)
+				}
+				if (transient(failure.fields.code)) {
+					if (!overlapsAnother(w)) {
+						return Result.fail(`${w} was aborted beside no other session`)
+					}
+					break
+				}
+				if (!violating || committedPast(fk)(failure)._tag !== "Meets") {
+					return Result.fail(`${w} failed with ${describeStepOutcome(failure)}`)
+				}
+				if (before) {
+					return Result.fail(`${w} met the law before the migration began`)
+				}
+				reached.push("a violation refused by the law")
+				break
+			}
+		}
+		if (violating && after && result._tag !== "Failed") {
+			return Result.fail(`${w} arrived after the migration and was not refused by the law`)
+		}
+	}
+	if (
+		!unordered(stored.assignments, committed) ||
+		!unordered(stored.workers, [String(storedWorker)])
+	) {
+		return Result.fail(
+			`the rows are not what the committed writers left: assignments ${Formatter.format(stored.assignments)}, workers ${Formatter.format(stored.workers)}`
+		)
+	}
+	const violated = Arr.some(
+		["w1", "w2"] as const,
+		(w) => k[w] === "violating" && committed.includes(String(assignmentOf[w]))
+	)
+	if (migration === "succeeded" && violated) {
+		return Result.fail("the migration installed the law over a violating row a writer committed")
+	}
+	if (migration === "refused by the law" && !violated) {
+		return Result.fail("the migration was refused by the law over no violating row")
+	}
+	if (Arr.some(run.moves, (m) => m.session === "m" && m.observed._tag === "Waited")) {
+		reached.push("the migration waited on a writer")
+	}
+	if (
+		Arr.some(
+			run.moves,
+			(m) => m.session !== "m" && m.observed._tag === "Waited" && m.observed.on.includes("m")
+		)
+	) {
+		reached.push("a writer waited on the migration")
+	}
+	return Result.succeed(reached)
+}
+
+/** Two lists of texts that hold the same items. */
+const unordered = (a: ReadonlyArray<string>, b: ReadonlyArray<string>): boolean =>
+	a.length === b.length && Arr.every(a, (x) => b.includes(x))
+
+const succeededStep: StepOutcome = { _tag: "Ok", rows: [], rowCount: 0 }
+
 layer(Substrate.layer, { excludeTestServices: true })("a migration's Validate phase", (it) => {
 	/** A value of the name field, and keys apart from one another by construction: a first key and positive gaps. */
 	const labelGen = matching(regex("^[a-z]{0,8}$"))
@@ -378,10 +549,6 @@ layer(Substrate.layer, { excludeTestServices: true })("a migration's Validate ph
 	const apart4: Gen<readonly [number, number, number, number]> = (source) => {
 		const [k, a, b] = source.draw(apart3)
 		return [k, a, b, b + source.draw(gap)]
-	}
-	const apart5: Gen<readonly [number, number, number, number, number]> = (source) => {
-		const [k, a, b, c] = source.draw(apart4)
-		return [k, a, b, c, c + source.draw(gap)]
 	}
 	const threeLabels: Gen<readonly [string, string, string]> = (source) => [
 		source.draw(labelGen),
@@ -426,306 +593,333 @@ layer(Substrate.layer, { excludeTestServices: true })("a migration's Validate ph
 	}
 	const refusalName = (r: Refusing): string => `${r.law} over ${r.over}`
 
+	/** The cases of the violating rows' rotating stream: each installs its version and applies until every law refused. */
+	const violatingRuns = 4
+
 	it.effect(
 		"over violating rows every kind of law refuses with its identity and leaves the rows intact",
-		planted("validate/violating rows", violationsGen, [], (v) =>
-			Effect.gen(function* () {
-				const [first, second, missing, later] = v.workers
-				const [shared, renamed, fixedName] = v.names
-				const [negative, positive] = v.hours
-				const [negativeAssignment, orphanAssignment] = v.assignments
-				const [desk, coded, laterDesk] = v.desks
-				const x = yield* prepare(tightened, (names) => [
-					`INSERT INTO ${names.table(Worker)} (${workerColumns(names)}) VALUES (${first}, '${shared}'), (${second}, '${shared}')`,
-					`INSERT INTO ${names.table(Assignment)} (${assignmentColumns(names)}) VALUES (${negativeAssignment}, ${first}, true, ${negative}, 1), (${orphanAssignment}, ${missing}, false, ${positive}, ${v.rate})`,
-					`INSERT INTO ${names.table(Badge)} (${names.column(Badge, "id")}, ${names.column(Badge, "desk")}, ${names.column(Badge, "issued")}) VALUES (${v.badge}, ${desk}, true)`,
-					`INSERT INTO ${names.table(Desk)} (${deskColumns(names)}) VALUES (${coded}, '${v.code}')`
-				])
-				const { names } = x
-				const worker = names.table(Worker)
-				/** The laws of the tightened version, which is not installed yet. */
-				const next = tightened(x.done.schema)
-				/**
-				 * A table's law by what PostgreSQL names: its constraint or its key's index under the table PostgreSQL
-				 * reports, which the tightened version's laws map to it (a candidate key's unique index fails its build in
-				 * Indexes with 23505).
-				 */
-				const tightenedLaws = lawNamesOf(next).model.constraintToLaw
-				const reportsLaw =
-					(id: LawId) =>
-					(server: ServerReport): boolean => {
-						if (server.by !== "server" || server.error.constraint === undefined) {
-							return false
-						}
-						const owner = reportedOwner(server.error, names.schema)
-						return (
-							owner !== undefined &&
-							constraintLaw(tightenedLaws, owner, server.error.constraint) === id
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "schedules/migrate/validate violating rows",
+						draw: drawn(violationsGen),
+						literal: Formatter.format,
+						coverage: noCoverage,
+						kept: [],
+						runs: violatingRuns,
+						shrink: { kind: "bounded", candidates: 20 },
+						concurrency: 1,
+						steerEvery: violatingRuns,
+						caseHang
+					},
+					(v) =>
+						Effect.scoped(
+							Effect.gen(function* () {
+								const [first, second, missing, later] = v.workers
+								const [shared, renamed, fixedName] = v.names
+								const [negative, positive] = v.hours
+								const [negativeAssignment, orphanAssignment] = v.assignments
+								const [desk, coded, laterDesk] = v.desks
+								const x = yield* prepare(tightened, (names) => [
+									`INSERT INTO ${names.table(Worker)} (${workerColumns(names)}) VALUES (${first}, '${shared}'), (${second}, '${shared}')`,
+									`INSERT INTO ${names.table(Assignment)} (${assignmentColumns(names)}) VALUES (${negativeAssignment}, ${first}, true, ${negative}, 1), (${orphanAssignment}, ${missing}, false, ${positive}, ${v.rate})`,
+									`INSERT INTO ${names.table(Badge)} (${names.column(Badge, "id")}, ${names.column(Badge, "desk")}, ${names.column(Badge, "issued")}) VALUES (${v.badge}, ${desk}, true)`,
+									`INSERT INTO ${names.table(Desk)} (${deskColumns(names)}) VALUES (${coded}, '${v.code}')`
+								])
+								const { names } = x
+								const worker = names.table(Worker)
+								/** The laws of the tightened version, which is not installed yet. */
+								const next = tightened(x.done.schema)
+								/**
+								 * A table's law by what PostgreSQL names: its constraint or its key's index under the table PostgreSQL
+								 * reports, which the tightened version's laws map to it (a candidate key's unique index fails its build in
+								 * Indexes with 23505).
+								 */
+								const tightenedLaws = lawNamesOf(next).model.constraintToLaw
+								const reportsLaw =
+									(id: LawId) =>
+									(server: ServerReport): boolean => {
+										if (server.by !== "server" || server.error.constraint === undefined) {
+											return false
+										}
+										const owner = reportedOwner(server.error, names.schema)
+										return (
+											owner !== undefined &&
+											constraintLaw(tightenedLaws, owner, server.error.constraint) === id
+										)
+									}
+								/**
+								 * The narrowed pattern's domain, which types the desk's code and FloorCode's payload in the next version:
+								 * one domain, since a pattern has one domain whatever uses it, and a closed relation has no table to name
+								 * it by, its payload cast to the domain in Publish's validation of its facts, so Desk's column names it.
+								 */
+								const codeDomain = x.nextNames.textDomain(Desk, "code")
+								const floorDomain = codeDomain
+								/** The tightened contract's domain, which types the assignment's rate in the next version. */
+								const rateDomain = x.nextNames.contract("Rate")
+								if (rateDomain.kind !== "checked") {
+									return assert.fail("the tightened contract Rate checks its predicate")
+								}
+								/**
+								 * The reviewer writes Ground's payload out of the narrowed pattern into Publish's validation of the
+								 * closed facts; restoring the folder as drafted is the fix. The file the edit changes is the one
+								 * validating the closed facts.
+								 */
+								const drafted = x.drafted
+								const payloadFiles = Arr.filter(
+									drafted.files,
+									(file) => narrowedPayload(file.text) !== file.text
+								)
+								assert.equal(
+									payloadFiles.length,
+									1,
+									"Publish validates FloorCode's payloads in one file"
+								)
+								const payloadFile = defined(
+									payloadFiles[0],
+									"the file validating FloorCode's payloads"
+								).name
+								/** Whether a refusal is in the file validating the closed facts. */
+								const inPayloadFile = (place: MigrationPlace): boolean =>
+									(place.kind === "file" || place.kind === "statement") &&
+									place.file === payloadFile
+								/** The reviewer's data step for each law, which the migration never performs itself. */
+								const fixes: ReadonlyArray<Refusing> = [
+									{
+										law: lawIdOf(next, workerName),
+										over: "rows",
+										reports: reportsLaw(lawIdOf(next, workerName)),
+										fix: `UPDATE ${worker} SET ${names.column(Worker, "name")} = '${renamed}' WHERE ${names.column(Worker, "id")} = ${second}`
+									},
+									{
+										law: lawIdOf(next, nonNegative),
+										over: "rows",
+										reports: reportsLaw(lawIdOf(next, nonNegative)),
+										fix: `UPDATE ${names.table(Assignment)} SET ${names.column(Assignment, "hours")} = ${positive} WHERE ${names.column(Assignment, "id")} = ${negativeAssignment}`
+									},
+									{
+										law: lawIdOf(next, assignmentWorker),
+										over: "rows",
+										reports: reportsLaw(lawIdOf(next, assignmentWorker)),
+										fix: `INSERT INTO ${worker} (${workerColumns(names)}) VALUES (${missing}, '${fixedName}')`
+									},
+									{
+										law: lawIdOf(next, issuedDesk),
+										over: "rows",
+										reports: reportsLaw(lawIdOf(next, issuedDesk)),
+										fix: `INSERT INTO ${names.table(Desk)} (${deskColumns(names)}) VALUES (${desk}, 'abc')`
+									},
+									{
+										law: rateDomain.law,
+										over: "rows",
+										reports: (server, place) =>
+											domainCheck(rateDomain)(server) && !inPayloadFile(place),
+										fix: `UPDATE ${names.table(Assignment)} SET ${names.column(Assignment, "rate")} = 100 WHERE ${names.column(Assignment, "id")} = ${orphanAssignment}`
+									},
+									{
+										law: codeDomain.law,
+										over: "rows",
+										reports: (server, place) =>
+											domainCheck(codeDomain)(server) && !inPayloadFile(place),
+										fix: `UPDATE ${names.table(Desk)} SET ${names.column(Desk, "code")} = 'abc' WHERE ${names.column(Desk, "id")} = ${coded}`
+									}
+								]
+								const payloads = Arr.map(x.target.folders, (f): FolderSource =>
+									f === drafted
+										? {
+												...f,
+												files: Arr.map(f.files, (file) => ({
+													...file,
+													text: narrowedPayload(file.text)
+												}))
+											}
+										: f
+								)
+								const payload: Refusing = {
+									law: floorDomain.law,
+									over: "a payload",
+									reports: (server, place) =>
+										domainCheck(floorDomain)(server) && inPayloadFile(place),
+									fix: "restore the folder as drafted"
+								}
+								let target: MigrationTarget = { snapshot: x.target.snapshot, folders: payloads }
+								const refused: Array<string> = []
+								for (let round = 0; round <= fixes.length + 1; round++) {
+									const before = yield* x.contents
+									const result = yield* Effect.result(applyOnSession(x.migrator, [target]))
+									if (result._tag === "Success") {
+										break
+									}
+									const e = result.failure
+									const server = e.server
+									const found = Option.getOrThrowWith(
+										Arr.findFirst([...fixes, payload], (f) => f.reports(server, e.place)),
+										() =>
+											new Error(
+												`refused by no law this data violates: ${Formatter.format(server)}: ${e.message}`
+											)
+									)
+									assert.ok(
+										!refused.includes(refusalName(found)),
+										`refused by a law this data violates, once: ${Formatter.format(server)}: ${e.message}`
+									)
+									refused.push(refusalName(found))
+									const contents = yield* x.contents
+									assert.deepEqual(
+										contents,
+										before,
+										`the refusal by ${refusalName(found)} left the rows intact`
+									)
+									if (found === payload) {
+										target = x.target
+									} else {
+										yield* x.owner(found.fix)
+									}
+								}
+								unorderedEqual(
+									refused,
+									Arr.map([...fixes, payload], refusalName),
+									"every law refused once where the data violates it"
+								)
+								yield* Effect.result(applyOnSession(x.migrator, [x.target]))
+								const violation = yield* Effect.result(
+									x.owner(
+										`INSERT INTO ${worker} (${workerColumns(names)}) VALUES (${later}, '${shared}')`
+									)
+								)
+								assert.equal(violation._tag, "Failure", "the candidate key is installed")
+								const narrowed = yield* Effect.result(
+									x.owner(
+										`INSERT INTO ${names.table(Desk)} (${deskColumns(names)}) VALUES (${laterDesk}, '${v.code}')`
+									)
+								)
+								assert.equal(narrowed._tag, "Failure", "the narrowed pattern is installed")
+							})
 						)
-					}
-				/**
-				 * The narrowed pattern's domain, which types the desk's code and FloorCode's payload in the next version:
-				 * one domain, since a pattern has one domain whatever uses it, and a closed relation has no table to name
-				 * it by, its payload cast to the domain in Publish's validation of its facts, so Desk's column names it.
-				 */
-				const codeDomain = x.nextNames.textDomain(Desk, "code")
-				const floorDomain = codeDomain
-				/** The tightened contract's domain, which types the assignment's rate in the next version. */
-				const rateDomain = x.nextNames.contract("Rate")
-				if (rateDomain.kind !== "checked") {
-					return assert.fail("the tightened contract Rate checks its predicate")
-				}
-				/**
-				 * The reviewer writes Ground's payload out of the narrowed pattern into Publish's validation of the
-				 * closed facts; restoring the folder as drafted is the fix. The file the edit changes is the one
-				 * validating the closed facts.
-				 */
-				const drafted = x.drafted
-				const payloadFiles = Arr.filter(
-					drafted.files,
-					(file) => narrowedPayload(file.text) !== file.text
 				)
-				assert.equal(payloadFiles.length, 1, "Publish validates FloorCode's payloads in one file")
-				const payloadFile = defined(
-					payloadFiles[0],
-					"the file validating FloorCode's payloads"
-				).name
-				/** Whether a refusal is in the file validating the closed facts. */
-				const inPayloadFile = (place: MigrationPlace): boolean =>
-					(place.kind === "file" || place.kind === "statement") && place.file === payloadFile
-				/** The reviewer's data step for each law, which the migration never performs itself. */
-				const fixes: ReadonlyArray<Refusing> = [
-					{
-						law: lawIdOf(next, workerName),
-						over: "rows",
-						reports: reportsLaw(lawIdOf(next, workerName)),
-						fix: `UPDATE ${worker} SET ${names.column(Worker, "name")} = '${renamed}' WHERE ${names.column(Worker, "id")} = ${second}`
-					},
-					{
-						law: lawIdOf(next, nonNegative),
-						over: "rows",
-						reports: reportsLaw(lawIdOf(next, nonNegative)),
-						fix: `UPDATE ${names.table(Assignment)} SET ${names.column(Assignment, "hours")} = ${positive} WHERE ${names.column(Assignment, "id")} = ${negativeAssignment}`
-					},
-					{
-						law: lawIdOf(next, assignmentWorker),
-						over: "rows",
-						reports: reportsLaw(lawIdOf(next, assignmentWorker)),
-						fix: `INSERT INTO ${worker} (${workerColumns(names)}) VALUES (${missing}, '${fixedName}')`
-					},
-					{
-						law: lawIdOf(next, issuedDesk),
-						over: "rows",
-						reports: reportsLaw(lawIdOf(next, issuedDesk)),
-						fix: `INSERT INTO ${names.table(Desk)} (${deskColumns(names)}) VALUES (${desk}, 'abc')`
-					},
-					{
-						law: rateDomain.law,
-						over: "rows",
-						reports: (server, place) => domainCheck(rateDomain)(server) && !inPayloadFile(place),
-						fix: `UPDATE ${names.table(Assignment)} SET ${names.column(Assignment, "rate")} = 100 WHERE ${names.column(Assignment, "id")} = ${orphanAssignment}`
-					},
-					{
-						law: codeDomain.law,
-						over: "rows",
-						reports: (server, place) => domainCheck(codeDomain)(server) && !inPayloadFile(place),
-						fix: `UPDATE ${names.table(Desk)} SET ${names.column(Desk, "code")} = 'abc' WHERE ${names.column(Desk, "id")} = ${coded}`
-					}
-				]
-				const payloads = Arr.map(x.target.folders, (f): FolderSource =>
-					f === drafted
-						? {
-								...f,
-								files: Arr.map(f.files, (file) => ({ ...file, text: narrowedPayload(file.text) }))
-							}
-						: f
-				)
-				const payload: Refusing = {
-					law: floorDomain.law,
-					over: "a payload",
-					reports: (server, place) => domainCheck(floorDomain)(server) && inPayloadFile(place),
-					fix: "restore the folder as drafted"
-				}
-				let target: MigrationTarget = { snapshot: x.target.snapshot, folders: payloads }
-				const refused: Array<string> = []
-				for (let round = 0; round <= fixes.length + 1; round++) {
-					const before = yield* x.contents
-					const result = yield* Effect.result(applyOnSession(x.migrator, [target]))
-					if (result._tag === "Success") {
-						break
-					}
-					const e = result.failure
-					const server = e.server
-					const found = Option.getOrThrowWith(
-						Arr.findFirst([...fixes, payload], (f) => f.reports(server, e.place)),
-						() =>
-							new Error(
-								`refused by no law this data violates: ${Formatter.format(server)}: ${e.message}`
-							)
-					)
-					assert.ok(
-						!refused.includes(refusalName(found)),
-						`refused by a law this data violates, once: ${Formatter.format(server)}: ${e.message}`
-					)
-					refused.push(refusalName(found))
-					const contents = yield* x.contents
-					assert.deepEqual(
-						contents,
-						before,
-						`the refusal by ${refusalName(found)} left the rows intact`
-					)
-					if (found === payload) {
-						target = x.target
-					} else {
-						yield* x.owner(found.fix)
-					}
-				}
-				unorderedEqual(
-					refused,
-					Arr.map([...fixes, payload], refusalName),
-					"every law refused once where the data violates it"
-				)
-				yield* Effect.result(applyOnSession(x.migrator, [x.target]))
-				const violation = yield* Effect.result(
-					x.owner(`INSERT INTO ${worker} (${workerColumns(names)}) VALUES (${later}, '${shared}')`)
-				)
-				assert.equal(violation._tag, "Failure", "the candidate key is installed")
-				const narrowed = yield* Effect.result(
-					x.owner(
-						`INSERT INTO ${names.table(Desk)} (${deskColumns(names)}) VALUES (${laterDesk}, '${v.code}')`
-					)
-				)
-				assert.equal(narrowed._tag, "Failure", "the narrowed pattern is installed")
-				return []
-			})
-		)
+			)
 	)
-
-	/**
-	 * The stored worker; the workers a violation names; the worker a writer inserts while the migration holds its locks,
-	 * and the one the late assignment names, which none holds; the stored and the arriving worker's names; and the
-	 * assignments' keys.
-	 */
-	const raceGen = (source: Source) => ({
-		workers: source.draw(apart5),
-		names: source.draw(threeLabels),
-		assignments: source.draw(apart3),
-		hours: source.draw(int(0, 999))
-	})
 
 	it.effect(
 		"a writer racing the migration cannot slip a violation past a selected side's foreign key",
-		planted(
-			"validate/racing writer",
-			raceGen,
-			[
-				"a violation committed while the migration waits is refused by its validation",
-				"a writer arriving during the migration waits for the law and meets it"
-			],
-			(v) =>
-				Effect.gen(function* () {
-					const [stored, fixed, second, arriving, never] = v.workers
-					const [storedName, arrivingName] = v.names
-					const [firstAssignment, secondAssignment, lateAssignment] = v.assignments
-					/**
-					 * An installation of v1 holding the stored worker, the migration to the selected side's containment
-					 * drafted for it, its two direct writers and its migrator as the schedules' actors. Each schedule runs
-					 * on one of its own, so each migration starts at its Structure file.
-					 */
-					const racing = Effect.gen(function* () {
-						const x = yield* prepare(staffed, (names) => [
-							`INSERT INTO ${names.table(Worker)} (${workerColumns(names)}) VALUES (${stored}, '${storedName}')`
-						])
-						const { names } = x
-						const law: ForeignKeyLaw = {
-							laws: lawNamesOf(staffed(x.done.schema)).model.constraintToLaw,
-							schema: names.schema,
-							refusing: lawIdOf(staffed(x.done.schema), staffing)
-						}
-						const direct = yield* openActors(x.s, {
-							w1: { kind: "psql", as: x.writer },
-							w2: { kind: "psql", as: x.writer }
-						})
-						const pid = yield* Effect.map(
-							Effect.orDie(
-								statementRows(x.migrator, "SELECT pg_catalog.pg_backend_pid()::text", [])
-							),
-							backendOf
-						)
-						const m: GrizzleActor = { name: "m", role: x.s.owner.role, pid }
-						const assignment = names.table(Assignment)
-						return {
-							x,
-							law,
-							actors: { direct, grizzle: { m } },
-							apply: applyOnSession(x.migrator, [x.target]),
-							assignment,
-							insertAssignment: (id: number, worker: number) =>
-								`INSERT INTO ${assignment} (${assignmentColumns(names)}) VALUES (${id}, ${worker}, true, ${v.hours}, 1)`
-						}
-					})
-					const first = yield* racing
-					const env = yield* exploreEnv(first.x.s)
-
-					/**
-					 * A violating row a writer commits while the migration waits for it is seen by the foreign key's
-					 * validation; the refused migration's Structure file stays applied, so the foreign key it added NOT
-					 * VALID refuses the next violation at its commit.
-					 */
-					const committed = yield* runSchedule(
-						env,
-						schedule(
-							"a violation committed while the migration waits is refused by its validation",
-							[
-								begin("w1"),
-								sql("w1", first.insertAssignment(firstAssignment, fixed), ok(), complete),
-								op("m", "migrate apply", first.apply, refusedBy(first.law), blocksOn("w1")),
-								commit("w1", ok(), complete),
-								awaits("m", complete),
-								checkRows(`SELECT count(*)::text FROM ${first.assignment}`, rows(["1"])),
-								sql(
-									"w2",
-									first.insertAssignment(secondAssignment, second),
-									committedPast(first.law),
-									complete
-								)
-							]
-						),
-						first.actors
-					)
-
-					/**
-					 * A writer that arrives while the migration's Structure file holds its locks waits until the foreign
-					 * key is installed, then meets it at its commit, the key deferred; the migration's concurrent index
-					 * build waits for that writer's transaction to end, and then the migration completes.
-					 */
-					const fresh = yield* racing
-					const arrived = yield* runSchedule(
-						env,
-						schedule("a writer arriving during the migration waits for the law and meets it", [
-							begin("w1"),
-							sql(
-								"w1",
-								`INSERT INTO ${fresh.x.names.table(Worker)} (${workerColumns(fresh.x.names)}) VALUES (${arriving}, '${arrivingName}')`,
-								ok(),
-								complete
-							),
-							op("m", "migrate apply", fresh.apply, migrated, blocksOn("w1")),
-							begin("w2"),
-							sql("w2", fresh.insertAssignment(lateAssignment, never), ok(), blocksOn("m")),
-							commit("w1", ok(), complete),
-							awaits("w2", complete),
-							commit("w2", committedPast(fresh.law), complete),
-							awaits("m", complete),
-							checkRows(
-								`SELECT count(*)::text FROM ${fresh.assignment} WHERE ${fresh.x.names.column(Assignment, "worker")} = ${never}`,
-								rows(["0"])
-							)
+		(ctx) =>
+			searched(
+				ctx,
+				exhaust(
+					{
+						suite: "schedules/migrate/validate racing writers",
+						generator: racingGen,
+						literal: Formatter.format,
+						limit: racingCases,
+						coverage: requiredInSpace<RacingFeature>([
+							"the migration succeeded",
+							"the migration refused by the law",
+							"the migration waited on a writer",
+							"a writer waited on the migration",
+							"a violation committed before the law",
+							"a violation refused by the law"
 						]),
-						fresh.actors
-					)
-					return [committed, arrived]
-				})
-		)
+						caseHang
+					},
+					(k, c) =>
+						Effect.scoped(
+							Effect.gen(function* () {
+								const x = yield* prepare(staffed, (names) => [
+									`INSERT INTO ${names.table(Worker)} (${workerColumns(names)}) VALUES (${storedWorker}, 'a')`
+								])
+								const { names } = x
+								const fk: ForeignKeyLaw = {
+									laws: lawNamesOf(staffed(x.done.schema)).model.constraintToLaw,
+									schema: names.schema,
+									refusing: lawIdOf(staffed(x.done.schema), staffing)
+								}
+								const direct = yield* openActors(x.s, {
+									w1: { kind: "raw", as: x.writer },
+									w2: { kind: "raw", as: x.writer }
+								})
+								const pid = yield* Effect.map(
+									Effect.orDie(
+										statementRows(x.migrator, "SELECT pg_catalog.pg_backend_pid()::text", [])
+									),
+									backendOf
+								)
+								const m: GrizzleActor = { name: "m", role: x.s.owner.role, pid }
+								const env = yield* exploreEnv(x.s)
+								const assignment = names.table(Assignment)
+								const insertOf = (w: "w1" | "w2") =>
+									`INSERT INTO ${assignment} (${assignmentColumns(names)}) VALUES (${assignmentOf[w]}, ${k[w] === "lawful" ? storedWorker : missingWorker}, true, 8, 1)`
+								const migrated = new Map<"m", Migrated>()
+								const txns: ReadonlyArray<Txn> = [
+									...Arr.map(["w1", "w2"] as const, (w): Txn => ({
+										kind: "direct",
+										session: w,
+										steps: [interleaveStep(insertOf(w), everyRelation)],
+										end: "commit",
+										after: undefined
+									})),
+									{
+										kind: "grizzle",
+										session: "m",
+										steps: [
+											{
+												label: "migrate apply",
+												outcome: Effect.map(
+													Effect.result(applyOnSession(x.migrator, [x.target])),
+													(r) => {
+														migrated.set("m", r)
+														return succeededStep
+													}
+												),
+												footprint: everyRelation
+											}
+										],
+										after: undefined
+									}
+								]
+								const ids = (sql: string) =>
+									Effect.map(env.observer.queryValues(sql, []), (rows) =>
+										Arr.map(rows, (row) => String(row[0]))
+									)
+								yield* exploreInterleavings(
+									env,
+									{ direct, grizzle: { m } },
+									{
+										name: "a migration racing two writers",
+										txns,
+										reset: Effect.void,
+										state: { _tag: "Unread" },
+										model: (run) =>
+											Effect.gen(function* () {
+												const stored = {
+													assignments: yield* ids(
+														`SELECT ${names.column(Assignment, "id")}::text FROM ${assignment}`
+													),
+													workers: yield* ids(
+														`SELECT ${names.column(Worker, "id")}::text FROM ${names.table(Worker)}`
+													)
+												}
+												const judged = judgeRacing(
+													k,
+													fk,
+													defined(migrated.get("m"), "the migration's result"),
+													run,
+													stored
+												)
+												if (Result.isFailure(judged)) {
+													return refusedJudgment(judged.failure)
+												}
+												c.noteAll(judged.success)
+												return allowed
+											}),
+										maxInterleavings: runawayInterleavings
+									},
+									{ kind: "drawn", nature: c }
+								)
+							})
+						)
+				)
+			)
 	)
 })

@@ -2,7 +2,7 @@ import { describe, it } from "@effect/vitest"
 import { assertNone } from "@effect/vitest/utils"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
-import { element } from "@grizzle/testing/gen"
+import { boolean, element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import type { EvidenceCatalog, ExistenceConstraint } from "#compiler/ir/evidence.ts"
@@ -10,10 +10,9 @@ import { type TypedLiteral, OpId } from "#compiler/ir/expr.ts"
 import { conservativeMeta, type RelDag } from "#compiler/ir/rel.ts"
 import { eliminatePass } from "#compiler/lower/optimize/eliminate/index.ts"
 import { prunePass } from "#compiler/lower/optimize/prune/index.ts"
-import { assert, defined, lacks, succeeded, unorderedEqual } from "#test/support/assert.ts"
+import { assert, defined, succeeded, unorderedEqual } from "#test/support/assert.ts"
 import { keyConstraintName, ownedFixture } from "#test/support/evidence.ts"
 import { contained, on, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
-import { wild } from "#test/support/kernel/naming.ts"
 import {
 	Account,
 	ledgerSchema,
@@ -31,13 +30,12 @@ import {
 	type HandFacts,
 	nodesOf,
 	queryOf,
-	rulesOf,
 	runPasses
 } from "#test/unit/lower/rewrite/support.ts"
 
 /**
  * R03: eliminate a relation only with a complete proof. The gate's counterexamples:
- * absent witnesses (no containment, a key outside the matched fields), duplicate referring facts, deferred laws inside a
+ * absent witnesses (no containment, no key of its target), duplicate referring facts, deferred laws inside a
  * transaction, a match that filters or delivers payload; and the certificate's premises, the installed constraints the
  * elimination rests on.
  */
@@ -67,7 +65,8 @@ const fk: ExistenceConstraint = defined(installedFk, "the ledger's installed con
 
 /**
  * The candidate facts: two postings of account 10 with one amount (duplicate referring facts), one of account 11, one
- * of account 13, which no account holds, and two accounts.
+ * of account 13, which no account holds, and three accounts, two of them of id 10, which only a catalog with no key of
+ * Account admits.
  */
 const postingFacts: ReadonlyArray<ReadonlyArray<TypedLiteral>> = [
 	[u(1), u(10), i8(5)],
@@ -78,7 +77,8 @@ const postingFacts: ReadonlyArray<ReadonlyArray<TypedLiteral>> = [
 
 const accountFacts: ReadonlyArray<ReadonlyArray<TypedLiteral>> = [
 	[u(10), text("a")],
-	[u(11), text("b")]
+	[u(11), text("b")],
+	[u(10), text("c")]
 ]
 
 /**
@@ -103,22 +103,34 @@ const uuidAt = (fact: ReadonlyArray<TypedLiteral>, column: number): ReadonlyArra
 
 /**
  * Every database of the candidate facts the context may see under the installation: a posting with no account only
- * where no constraint the context relies on forbids it (absent, or deferred inside a transaction).
+ * where no constraint the context relies on forbids it (absent, or deferred inside a transaction), and two accounts of
+ * one id only where the catalog holds no key of Account.
  */
-const seenDatabases = (containment: Containment, evidence: Evidence): ReadonlyArray<HandFacts> =>
+const seenDatabases = (
+	containment: Containment,
+	evidence: Evidence,
+	keyed: boolean
+): ReadonlyArray<HandFacts> =>
 	Arr.filter(factSubsets({ Posting: postingFacts, Account: accountFacts }), (db) => {
-		const ids = new Set(
-			Arr.flatMap(defined(db["Account"], "the account facts"), (f) => uuidAt(f, 0))
-		)
+		const accountIds = Arr.flatMap(defined(db["Account"], "the account facts"), (f) => uuidAt(f, 0))
+		const ids = new Set(accountIds)
 		const dangling = Arr.some(defined(db["Posting"], "the posting facts"), (f) =>
 			Arr.some(uuidAt(f, 1), (a) => !ids.has(a))
 		)
 		return (
-			!dangling ||
-			containment === "none" ||
-			(containment === "deferred" && evidence === "transaction")
+			(!keyed || ids.size === accountIds.length) &&
+			(!dangling ||
+				containment === "none" ||
+				(containment === "deferred" && evidence === "transaction"))
 		)
 	})
+
+/** The installed catalog with no constraint of Account's key: existence then proves no at-most-one. */
+const unkeyed: EvidenceCatalog = {
+	...installed,
+	keyConstraint: (relation, columns, role) =>
+		relation === "Account" ? undefined : installed.keyConstraint(relation, columns, role)
+}
 
 /**
  * Posting joined with the account it names, delivering only posting columns, unless the match delivers the account's
@@ -172,11 +184,12 @@ type EliminateFeature =
 	| `eliminated in ${Evidence}`
 	| `eliminated on ${"immediate" | "committedSnapshot"} evidence`
 	| "held back: no admitted containment"
+	| "held back: no key of the target"
 	| "held back: the match does more than match a key"
 
 describe("the complete proof", () => {
 	it.effect(
-		"an Account match goes exactly when an admitted containment and key prove it neither filters nor multiplies",
+		"an Account match goes exactly when an admitted containment and a key of its target prove it neither filters nor multiplies",
 		(ctx) =>
 			searched(
 				ctx,
@@ -189,27 +202,32 @@ describe("the complete proof", () => {
 							evidence: source.draw(element<Evidence>(["snapshot", "transaction"])),
 							match: source.draw(
 								element<Match>(["key match", "fixes a column", "delivers payload"])
-							)
+							),
+							keyed: source.draw(boolean)
 						}),
-						limit: 18,
+						limit: 36,
 						coverage: requiredInSpace<EliminateFeature>([
 							"eliminated in snapshot",
 							"eliminated in transaction",
 							"eliminated on immediate evidence",
 							"eliminated on committedSnapshot evidence",
 							"held back: no admitted containment",
+							"held back: no key of the target",
 							"held back: the match does more than match a key"
 						]),
 						caseHang
 					},
-					({ containment, evidence, match }, c) =>
+					({ containment, evidence, match, keyed }, c) =>
 						Effect.sync(() => {
-							const catalog = { ...installed, containments: containmentsOf[containment] }
+							const catalog = {
+								...(keyed ? installed : unkeyed),
+								containments: containmentsOf[containment]
+							}
 							const ran = eliminated(
 								keyMatch(match),
 								catalog,
 								evidence,
-								seenDatabases(containment, evidence)
+								seenDatabases(containment, evidence, keyed)
 							)
 							const containmentAdmitted =
 								containment === "immediate" ||
@@ -217,10 +235,12 @@ describe("the complete proof", () => {
 							const found = Arr.findFirst(ran.certificates, (x) => x.rule === "R03.elimination")
 							if (!containmentAdmitted) {
 								c.note("held back: no admitted containment")
+							} else if (!keyed) {
+								c.note("held back: no key of the target")
 							} else if (match !== "key match") {
 								c.note("held back: the match does more than match a key")
 							}
-							if (!(containmentAdmitted && match === "key match")) {
+							if (!(containmentAdmitted && keyed && match === "key match")) {
 								assertNone(found)
 								return
 							}
@@ -246,51 +266,6 @@ describe("the complete proof", () => {
 								Arr.map(nodesOf(ran.query.dag, "MatchRegion"), (r) => r.occurrences.length),
 								[1]
 							)
-						})
-				)
-			)
-	)
-
-	it.effect(
-		"refuses a containment whose target fields hold no key: existence without at most one",
-		(ctx) =>
-			searched(
-				ctx,
-				exhaust(
-					{
-						suite: "unit/lower/rewrite/eliminate-no-key",
-						literal: Formatter.format,
-						generator: element<Evidence>(["snapshot", "transaction"]),
-						limit: 2,
-						coverage: requiredInSpace<Evidence>(["snapshot", "transaction"]),
-						caseHang
-					},
-					(evidence, c) =>
-						Effect.sync(() => {
-							c.note(evidence)
-							const q = new Q()
-							const region = q.region([
-								{
-									source: q.base(Account, conservativeMeta),
-									bind: { id: "acct", name: "who" },
-									constants: {}
-								},
-								{ source: q.base(Account, conservativeMeta), bind: { name: "who" }, constants: {} }
-							])
-							const dag = q.build(q.project(region, [["acct", "acct"]], conservativeMeta)).dag
-							const byName: ExistenceConstraint = {
-								...fk,
-								from: { relation: "Account", fields: ["name"] },
-								to: { relation: "Account", fields: ["name"] },
-								enforcement: { kind: "constraint", name: wild.constraint("account_fk_name") }
-							}
-							const ran = eliminated(
-								dag,
-								{ ...installed, containments: [byName] },
-								evidence,
-								seenDatabases("immediate", evidence)
-							)
-							lacks(rulesOf(ran.certificates), "R03.elimination")
 						})
 				)
 			)

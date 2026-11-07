@@ -1,12 +1,12 @@
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
-import { element, int } from "@grizzle/testing/gen"
+import { int } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { conservativeMeta, type RelNode } from "#compiler/ir/rel.ts"
-import { flight } from "#compiler/lower/conservative/types.ts"
+import type { Arrival, Sent } from "#compiler/lower/shapes/index.ts"
 import { shareKey } from "#compiler/lower/shapes/share/index.ts"
 import {
 	planStatementShares,
@@ -14,8 +14,9 @@ import {
 	statementCtes
 } from "#compiler/lower/shapes/share/statements.ts"
 import { pg } from "#compiler/public/fields.ts"
-import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
+import { type QueryValue, queryOver, varsOver } from "#compiler/query/build/query.ts"
+import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { assert, succeeded, unorderedEqual } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
 import { asc, Q, T, Task } from "#test/unit/lower/conservative/fixtures.ts"
@@ -32,8 +33,8 @@ import { present } from "#test/unit/lower/support.ts"
  * - n statements each reading `pick` carry it once, its every copy read through the carrier, exactly when n is more
  *   than one; the highest shared sub-query is chosen, so `first`, which pick reads, is never carried beside it;
  * - a statement reading r copies of an unbounded union computes it once as a CTE exactly when r is more than one;
- * - two attachments of one parent over the same sub-query are computed once, the later fed from the earlier; over
- *   different sub-queries each is sent.
+ * - an attachment of a parent is fed the rows of the first earlier attachment of that parent computing its sub-query,
+ *   and every other is sent, the sent statements answering in the order the program holds them.
  */
 
 /**
@@ -183,8 +184,8 @@ describe("sub-queries repeated inside one statement", () => {
 })
 
 /**
- * Two attachments of one parent over five fields each, so neither is fused: the same sub-query twice, or the second
- * filtered by another parameter.
+ * Attachments of one parent over five fields each, so none is fused, each its jobs unfiltered, those past a least `a`,
+ * or those below a most `b`: two attachments of one filter compute one sub-query, under one parameter.
  */
 const Account = relation("Account", { id: pg.bigint, region: pg.integer }, ["id"])
 const Job = relation(
@@ -194,42 +195,58 @@ const Job = relation(
 )
 const Jobs = schema("Jobs", { Account, Job }, [])
 
-const accounts = query(Jobs).rule((r) => {
-	const { id, region } = v(Account, "account")
+/** The accounts of a region a parameter names. */
+const accounts = queryOver(Jobs).rule((r: RuleValue) => {
+	const { id, region } = varsOver(Account, "account")
 	return r
 		.match(Account, { id, region })
 		.where(r.eq(region, r.param("region", pg.integer)))
 		.find({ id })
 })
-type Second = "the same sub-query" | "a different sub-query"
 
-const twice = (second: Second) =>
-	accounts
-		.attach(
-			"jobs",
-			(p) =>
-				query(Jobs).rule((r) => {
-					const { id, a, b, c, d } = v(Job, "job")
-					return r.match(Job, { id, account: p.id, a, b, c, d }).find({ id, a, b, c, d })
-				}),
-			"array"
-		)
-		.attach(
-			"again",
-			(p) =>
-				query(Jobs).rule((r) => {
-					const { id, a, b, c, d } = v(Job, "job")
-					const jobs = r.match(Job, { id, account: p.id, a, b, c, d })
-					return second === "the same sub-query"
+/** The accounts with one attachment per filter of `filters` (0 none, 1 a least `a`, 2 a most `b`), in order. */
+const attachedJobs = (filters: ReadonlyArray<number>): QueryValue =>
+	Arr.reduce(filters, accounts, (q, filter, i) =>
+		q.attach(
+			`jobs${i}`,
+			(p: Readonly<Record<string, unknown>>) =>
+				queryOver(Jobs).rule((r: RuleValue) => {
+					const { id, a, b, c, d } = varsOver(Job, "job")
+					const jobs = r.match(Job, { id, account: p["id"], a, b, c, d })
+					return filter === 0
 						? jobs.find({ id, a, b, c, d })
-						: jobs.where(r.gt(a, r.param("least", pg.integer))).find({ id, a, b, c, d })
+						: filter === 1
+							? jobs.where(r.gt(a, r.param("least", pg.integer))).find({ id, a, b, c, d })
+							: jobs.where(r.lt(b, r.param("most", pg.integer))).find({ id, a, b, c, d })
 				}),
 			"array"
 		)
+	)
+
+/**
+ * The fixed rule as the oracle: the parent's statement is sent first; each attachment, in the order the program holds
+ * them, is fed the rows of the first earlier attachment of its filter, and is sent otherwise, the sent statements
+ * answering in that order.
+ */
+const expectedArrivals = (filters: ReadonlyArray<number>): ReadonlyArray<Arrival> => {
+	const arrivals: Array<Arrival> = [{ kind: "sent", answer: 0 }]
+	const firstOf = new Map<number, Sent>()
+	for (const filter of filters) {
+		const feeder = firstOf.get(filter)
+		if (feeder === undefined) {
+			const sent: Sent = { kind: "sent", answer: firstOf.size + 1 }
+			firstOf.set(filter, sent)
+			arrivals.push(sent)
+		} else {
+			arrivals.push({ kind: "fed", feeder })
+		}
+	}
+	return arrivals
+}
 
 describe("attachment statements fed from an earlier one", () => {
 	it.effect(
-		"feed the later attachment from the earlier exactly when both compute one sub-query and two reads share",
+		"feed a later attachment from the first earlier one computing its sub-query, and send every other",
 		(ctx) =>
 			searched(
 				ctx,
@@ -237,25 +254,39 @@ describe("attachment statements fed from an earlier one", () => {
 					{
 						suite: "unit/lower/shapes/share-statements/feeds",
 						literal: Formatter.format,
-						generator: element<Second>(["the same sub-query", "a different sub-query"]),
-						limit: 2,
+						/** One to three attachments, each of one of the three filters. */
+						generator: (source) => {
+							const count = source.draw(int(1, 3))
+							return Arr.makeBy(count, () => source.draw(int(0, 2)))
+						},
+						limit: 39,
 						coverage: requiredInSpace<"fed" | "sent">(["fed", "sent"]),
 						caseHang
 					},
-					(second, c) =>
+					(filters, c) =>
 						Effect.sync(() => {
-							const optimized = succeeded(compileTemplate(twice(second), Jobs, testCompile))
+							const optimized = succeeded(compileTemplate(attachedJobs(filters), Jobs, testCompile))
 								.programs.optimized
-							const roles = Arr.map(flight(optimized.roots), (s) => s.role.kind)
-							assert.deepEqual(roles, ["main", "attachment", "attachment"])
-							const fed = second === "the same sub-query"
-							assert.deepEqual(
-								Arr.flatMap(flight(optimized.roots), (s, i) =>
-									s.arrival.kind === "fed" ? [[i, s.arrival.feeder.answer]] : []
-								),
-								fed ? [[2, 1]] : []
+							const [main] = optimized.roots
+							const filterOf = new Map<string, number>(
+								Arr.map(filters, (filter, i) => [`jobs${i}`, filter])
 							)
-							c.note(fed ? "fed" : "sent")
+							assert.equal(main.attachments.length, filters.length)
+							const arrivals: ReadonlyArray<Arrival> = [
+								main.statement.arrival,
+								...Arr.map(main.attachments, (a) => a.statement.arrival)
+							]
+							assert.deepEqual(
+								arrivals,
+								expectedArrivals(
+									Arr.map(main.attachments, (a) =>
+										present(filterOf.get(a.attach.name), `the filter of ${a.attach.name}`)
+									)
+								)
+							)
+							for (const arrival of Arr.drop(arrivals, 1)) {
+								c.note(arrival.kind)
+							}
 						})
 				)
 			)
