@@ -380,7 +380,8 @@ const fromStateA: Arr.NonEmptyReadonlyArray<Case> = [
 					.insert(P.TaxProfile, [{ employee: fresh(7), filing: "single", extra: cents(0n) }])
 			),
 		law: atLeastOneApprover,
-		witnesses: [unreported]
+		/** The inserted employer holds its family empty, so the host judges its count 0 and names it. */
+		witnesses: [{ kind: "key", relation: "Employer", values: { id: fresh(6) } }]
 	},
 	{
 		change: "add a PayLine with net 1 and no deposits",
@@ -391,7 +392,7 @@ const fromStateA: Arr.NonEmptyReadonlyArray<Case> = [
 				freshLine(10, { gross: 1n, net: 1n, offCycle: false }, [])(p)
 			),
 		law: depositsSumToNet,
-		witnesses: [unreported]
+		witnesses: [{ kind: "key", relation: "PayLine", values: { id: fresh(11) } }]
 	},
 	{
 		change: "add a PayLine with net 300 whose two deposits sum to 299",
@@ -405,7 +406,7 @@ const fromStateA: Arr.NonEmptyReadonlyArray<Case> = [
 				])(p)
 			),
 		law: depositsSumToNet,
-		witnesses: [unreported]
+		witnesses: [{ kind: "key", relation: "PayLine", values: { id: fresh(21) } }]
 	},
 	{
 		change: "add a PayLine with five 1-cent deposits",
@@ -429,7 +430,7 @@ const fromStateA: Arr.NonEmptyReadonlyArray<Case> = [
 				)(p)
 			),
 		law: atMostFourDeposits,
-		witnesses: [unreported]
+		witnesses: [{ kind: "key", relation: "PayLine", values: { id: fresh(23) } }]
 	},
 	{
 		change: "add a PayLine with two remainder deposits",
@@ -462,7 +463,7 @@ const fromStateA: Arr.NonEmptyReadonlyArray<Case> = [
 			),
 		/** A row check on the line itself: fin.md §6, "source equal to target". The host names the stated line. */
 		law: netWithinGross,
-		witnesses: [{ kind: "key", relation: "PayLine", values: { id: fresh(12) } }]
+		witnesses: [{ kind: "key", relation: "PayLine", values: { id: fresh(13) } }]
 	},
 	{
 		change: "add an off-cycle PayLine with deposits and no OffCycleReason",
@@ -517,11 +518,14 @@ const fromStateA: Arr.NonEmptyReadonlyArray<Case> = [
 					}
 				])
 			),
-		/** The containment into the closed relation LevyRate, a table CHECK over its constant, reports its own law. */
+		/**
+		 * The containment into the closed relation LevyRate, a table CHECK over its constant, reports its own law, and
+		 * the host names the put row no LevyRate row meets.
+		 */
 		law: L.lawOf(
 			contained(on(P.LevyLine, "levy", "employeeRate"), on(LevyRate, "levy", "employeeRate"))
 		),
-		witnesses: [unreported]
+		witnesses: [{ kind: "key", relation: "LevyLine", values: { line: l1, levy: "SocialSecurity" } }]
 	},
 	{
 		change: 'as clerk, put run1 with stage: "approved" alone',
