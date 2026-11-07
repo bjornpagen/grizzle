@@ -2314,6 +2314,13 @@ an IN list's values a set), in canonical order, and none for a side that reads e
 
 </details>
 
+`lawsOf(schema)` lists every statement of a schema, in the order you declared it, its base's first, each with the
+rules an outcome names when that statement is broken: a key's, a check's, a containment's, a family's, a tree's or a
+fold's one rule, a mirrors' two containments, an alternatives statement's containments, and none for `mutable`. It
+compiles the schema's rules once per call, so call it once and keep the list. `sameLaw(a, b)` says whether two rules
+are one, so `refused.laws.some((law) => entry.laws.some((rule) => sameLaw(law, rule)))` says whether a refusal names a
+statement's rule.
+
 **Errors**, by operation:
 
 | Operation                 | Fails with                                                                                                         |

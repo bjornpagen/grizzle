@@ -28,6 +28,7 @@ export {
 	select,
 	tree
 } from "#compiler/schema/api.ts"
+export { lawsOf, type StatementLaws } from "#compiler/program/laws.ts"
 export { login } from "#compiler/program/workload/login.ts"
 export type { AnyDerived, Derived, NoParams } from "#compiler/types/derived/derived.ts"
 export type {

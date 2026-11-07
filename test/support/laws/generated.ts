@@ -2,6 +2,7 @@ import { Array as Arr, Effect, Option, Record as Rec, type Scope } from "effect"
 import type { OpenError } from "#adapter/errors/execution.ts"
 import { identity } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
+import { sameLaw } from "#compiler/public/changeset.ts"
 import { closedId, Decimal, Money, pg, span } from "#compiler/public/fields.ts"
 import {
 	type AnyRelation,
@@ -11,17 +12,20 @@ import {
 	closed,
 	contained,
 	key,
+	lawsOf,
 	mirrors,
 	on,
 	relation,
+	type Statement,
 	schema,
 	select
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
+import { expansionDescOf } from "#compiler/schema/statements.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import type { Law } from "#compiler/types/changeset/changeset.ts"
 import { changeSetOver } from "#compiler/write/changeset/value.ts"
-import { defined } from "#test/support/assert.ts"
+import { defined, unorderedEqual } from "#test/support/assert.ts"
 import { namedText } from "#test/support/closed/stored.ts"
 import type { Installed } from "#test/support/install-migrate.ts"
 import {
@@ -620,6 +624,59 @@ const hostOf = (p: BoxParams): HostSchema => ({
 const encodingOf = (r: Rel, field: string): Encoding => r.encodings[field] ?? "plain"
 
 /**
+ * The laws the naming door names for a statement (kernel/naming.ts): a mirrors' two containments, an alternatives law's
+ * arm and reverse containments, each once, none for a mutable, and any other statement's one law.
+ */
+const namedLaws = (laws: LawNames, statement: Statement): ReadonlyArray<LawId> => {
+	switch (statement.kind) {
+		case "mirrors":
+			return Arr.map(
+				defined(expansionDescOf(statement), "a mirrors' expansion").statements,
+				laws.lawOfDesc
+			)
+		case "alternatives": {
+			const named = laws.alternativesOf(statement)
+			return Arr.dedupe([...Rec.values(named.arms), ...Rec.values(named.reverse)])
+		}
+		case "mutable":
+			return []
+		case "key":
+		case "check":
+		case "contained":
+		case "ordered":
+		case "counted":
+		case "tree":
+		case "fold":
+			return [laws.lawOf(statement)]
+	}
+}
+
+/**
+ * Every statement of a point's schema has, by lawsOf (public/schema.ts), exactly the laws the naming door names for it,
+ * read back through the installation's described laws. The host's laws are the naming door's, and every refusal is
+ * judged by them, so a refusal by a statement's law names what lawsOf names for that statement. Of the installation's
+ * laws, sameLaw (public/changeset.ts) finds each such law one with exactly the one it reads back to.
+ */
+const lawsAgree = (value: AnySchema, described: ReadonlyMap<LawId, Law>): void => {
+	const laws = lawNamesOf(value)
+	for (const entry of lawsOf(value)) {
+		const ids = Arr.map(entry.laws, (law) => reportedLawId(described, law))
+		unorderedEqual(
+			ids,
+			namedLaws(laws, entry.statement),
+			`the laws lawsOf names for a ${entry.statement.kind} statement`
+		)
+		for (const [i, law] of entry.laws.entries()) {
+			unorderedEqual(
+				Arr.flatMap([...described], ([id, d]) => (sameLaw(law, d) ? [id] : [])),
+				Arr.of(defined(ids[i], "the law's id")),
+				`the installation's laws sameLaw finds one with a ${law.kind} law lawsOf names`
+			)
+		}
+	}
+}
+
+/**
  * The session of `app` on an installation: its ChangeSets built at run time over the relation values by name, each
  * value at its field's carrier, and the state read back as the host spells it.
  */
@@ -630,6 +687,7 @@ const boxSession = (
 	Effect.gen(function* () {
 		const s = yield* Substrate
 		const value = boxSchema(p, installed.declared)
+		lawsAgree(value, installed.installation.described)
 		const { db } = yield* openWriter({ installed, schema: value })
 		const host = hostOf(p)
 		const q = quoteIdent(installed.schema)

@@ -11,6 +11,8 @@ import { apply } from "#adapter/apply/index.ts"
 import { dbContext } from "#adapter/db/context.ts"
 import { Db } from "#adapter/public/db.ts"
 import type { LawId } from "#compiler/core/ids.ts"
+import { lawsOf, type Statement, type StatementLaws } from "#compiler/public/schema.ts"
+import type { Law } from "#compiler/types/changeset/changeset.ts"
 import { caseGen, stepsGen } from "#test/pg/write/swarm/case.ts"
 import { changeSetOf, membershipIn, putsOf } from "#test/pg/write/swarm/changes.ts"
 import {
@@ -60,14 +62,16 @@ import { fullWorld, loginLayer } from "#test/support/worlds.ts"
  *   writer's rows (test/support/families/fill.ts writtenRows) and the plain rows the ChangeSet leaves;
  * - an unlawful one is invariant-rejected naming only laws its rows break, by the law model's judgement
  *   (test/support/laws/model.ts) of every law at the end and every immediate law at the end of each stratum, two facts
- *   at one key the key's, a member naming no owner its family's;
+ *   at one key the key's, a member naming no owner its family's; each statement's law is the one lawsOf names for it
+ *   (public/schema.ts), read back through the installation's described laws, so a refusal by a family, tree, fold,
+ *   key, check or containment names exactly the law lawsOf names for its statement, and lawsOf names none of a mutable;
  * - a refusal when it compiles is justified by the oracle's own statement: StaleDerivedRead where the reference finds
  *   a refill of an immutable relation's rows or a put from a query leaving a value stale (fill.ts writesVerdict), and
  *   UnorderableStratum where every order of its cycle is one the stratum's writes require (oracle.ts justified).
  *
  * Its kept cases are the seven downstream defects' shapes; planted in a scratch copy, the total chain of a stratum's
- * family statements, the pair rule's edges on a deferred owner axis, and a nested fact's signature without its own
- * texts each fail the search.
+ * family statements, the pair rule's edges on a deferred owner axis, a nested fact's signature without its own texts,
+ * and lawsOf leaving out one statement kind's laws each fail the search.
  */
 
 /** What the search reached: shapes written, refusals justified, and the downstream defects' shapes. */
@@ -282,6 +286,24 @@ const storesExactly = (
 			unorderedEqual(stored, rows, `${name}'s rows after ${what}, as the oracle states them`)
 		}
 	})
+
+/**
+ * The one law lawsOf names for a statement the swarm's schema declares, each of which states one law: its entry, by the
+ * statement value itself.
+ */
+const soleLaw = (stated: ReadonlyArray<StatementLaws<Statement>>, statement: Statement): Law => {
+	const [entry, ...again] = Arr.filter(stated, (e) => e.statement === statement)
+	if (entry === undefined || again.length > 0) {
+		throw new Error(`lawsOf lists a ${statement.kind} statement ${String(again.length + 1)} times`)
+	}
+	const [law, ...more] = entry.laws
+	if (law === undefined || more.length > 0) {
+		throw new Error(
+			`lawsOf names ${String(entry.laws.length)} laws for a ${statement.kind} statement, which states one`
+		)
+	}
+	return law
+}
 
 /** The case a witness runs: its drawn one, or, while a situation `aims` reaches is pending, an aimed one. */
 const aimedCase = (drawnCase: SwarmCase, c: Case<Situation>): SwarmCase => {
@@ -1230,8 +1252,14 @@ layer(Substrate.layer, { excludeTestServices: true })("the family writer under a
 							const value = built.rename(done.schema)
 							const names = namesOf(done)
 							const lawNames = lawNamesOf(value)
+							const ofStatements = lawsOf(value)
+							for (const entry of ofStatements) {
+								if (entry.statement.kind === "mutable") {
+									assert.deepEqual(entry.laws, [], "lawsOf names no law of a mutable")
+								}
+							}
 							const laws: Laws = {
-								of: (s) => lawNames.lawOf(s),
+								of: (s) => names.reported(soleLaw(ofStatements, s)),
 								primaryKey: (name) => lawNames.primaryKeyLaw({ name })
 							}
 							const host = hostSchema(spec, built, laws)
