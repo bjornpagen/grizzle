@@ -775,7 +775,7 @@ CREATE FUNCTION "invoices"."__invoice_state_names_yhl4rhbevp"() RETURNS "pg_cata
 LANGUAGE sql IMMUTABLE PARALLEL SAFE
 RETURN '{"open","paid","void"}'::"pg_catalog"."name"[];
 
-CREATE DOMAIN "invoices"."invoice_state" AS smallint CONSTRAINT "check" CHECK ((("invoices"."__invoice_state_names_yhl4rhbevp"())[VALUE + 1] <> ''::"pg_catalog"."name") IS TRUE);
+CREATE DOMAIN "invoices"."invoice_state" AS smallint CONSTRAINT "check" CHECK (VALUE IS NULL OR (("invoices"."__invoice_state_names_yhl4rhbevp"())[VALUE + 1] <> ''::"pg_catalog"."name") IS TRUE);
 
 CREATE TABLE "invoices"."invoice" (
   "id" "pg_catalog"."uuid" NOT NULL,
@@ -1429,12 +1429,15 @@ It has no table. The migration installs it as content-addressed IMMUTABLE consta
 codes and an array of each open-typed field's values, which PostgreSQL folds into every statement that reads them.
 Every rule that reads one from an open row is a table CHECK on that row's table, named by its rule: a containment of a
 row's `(kind, flag)` into `Allowed` is one substring read of the row's own codes. Two terms read it in a row check, a
-selection or a generated field's term: `Allowed.at("weight", kind, flag)`, the payload field at that key, absent where
-no row holds the key, so a row check over it refuses that row; and `Allowed.row(kind)`, the set of the last key
-field's handles that complete the prefix, for the set algebra above. A rule over closed relations alone is checked
-once, by PostgreSQL, in the migration that installs them: a violating row refuses the migration, and nothing is left
-behind. A containment from a closed relation into an open one is refused: it would require rows of an open relation,
-which belong in a closed relation of their own.
+selection or a generated field's term: `Allowed.at("weight", kind, flag)`, the payload field at that key, NULL where
+no row holds the key; and `Allowed.row(kind)`, the set of the last key field's handles that complete the prefix, empty
+where none does and NULL where the prefix is, for the set algebra above. The rule judges a NULL by SQL's three-valued
+logic: a row check refuses a row its condition leaves unknown, and holds of one where another arm of an `or` holds; a
+selection keeps only the rows its condition is true of; and a generated field's NULL term is refused by its column's
+NOT NULL. Every domain admits NULL, so no cast to a contract, a pattern, a roster or a set refuses a read first. A rule
+over closed relations alone is checked once, by PostgreSQL, in the migration that installs them: a violating row
+refuses the migration, and nothing is left behind. A containment from a closed relation into an open one is refused:
+it would require rows of an open relation, which belong in a closed relation of their own.
 
 A key field may hold slots instead of every code of its roster. `slot(closedId(Position), fin(Model, "positions"))` is
 a closed id of `Position` whose codes, for each owner, run from 0 below that owner's count: `fin(O, "n")` over a closed

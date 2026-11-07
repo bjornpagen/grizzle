@@ -437,26 +437,14 @@ const firstFault = (stages: ReadonlyArray<Answer>): Answer => {
 }
 
 /**
- * The column kinds a domain whose CHECK refuses NULL types: a refined text's bounded pattern (oracle/write/domain.ts
- * fieldOf), whose CHECK is `(<membership>) IS TRUE` (packages/engine/src/physical/ddl/domains.ts), and a closed id's
- * roster domain, whose CHECK is `(<names>[VALUE + 1] <> '') IS TRUE` (packages/engine/src/physical/ddl/constants.ts),
- * since a NULL code names no handle.
- */
-const refusesNull = (kind: TypeKind): boolean =>
-	kind === "text" || kind === "text6" || kind === "code"
-
-/**
  * Whether an inserted row leaves a field NULL: a field the INSERT does not list, an identity column apart. PostgreSQL
- * coerces each such NULL to its column's type as it builds the row, so a refined text's or a closed id's domain refuses
- * it, 23514, before any column's NOT NULL is checked, 23502.
+ * coerces each such NULL to its column's type as it builds the row, which every domain admits, a refined text's and a
+ * closed id's included (`VALUE IS NULL OR (...) IS TRUE`), so its column's NOT NULL refuses it, 23502.
  */
-const nullField = (relation: WRelation, fact: Fact): Answer => {
-	const left = Arr.filter(relation.columns, (c) => !isSerialKind(c.kind) && !Rec.has(fact, c.name))
-	if (Arr.some(left, (c) => refusesNull(c.kind))) {
-		return error("23514", nothing)
-	}
-	return left.length > 0 ? error("23502", nothing) : ok
-}
+const nullField = (relation: WRelation, fact: Fact): Answer =>
+	Arr.some(relation.columns, (c) => !isSerialKind(c.kind) && !Rec.has(fact, c.name))
+		? error("23502", nothing)
+		: ok
 
 const identityOf = (relation: WRelation, fact: Fact): string =>
 	keyOf(
@@ -926,9 +914,9 @@ const firstChanged = (
  *   statement trigger that fires whatever rows the statement matches, 25000 naming the table; then a refined text past
  *   its bound or a code outside its roster's live codes, 23514, by its domain's CHECK as the row is built, so never by
  *   an UPDATE that matches no row;
- * - a field left out of an INSERT, an identity column apart, is NULL, at the statement: a refined text's domain refuses
- *   it by its CHECK, `(<membership>) IS TRUE`, and a closed id's roster domain by its CHECK, `(<names>[VALUE + 1] <> '')
- *   IS TRUE`, 23514, as the row is built, and every other column by its NOT NULL, 23502: no field is nullable. An INSERT that leaves out a relation's one field is DEFAULT VALUES;
+ * - a field left out of an INSERT, an identity column apart, is NULL, at the statement, which every domain admits, so
+ *   its column's NOT NULL refuses it, 23502: no field is nullable. An INSERT that leaves out a relation's one field is
+ *   DEFAULT VALUES;
  * - a fact at an occupied primary key, candidate key or projected key is 23505 at the statement, an exact repeat
  *   included, under the constraint of one of the violated laws, as the installation names them;
  * - an immediate foreign key (into a pure set) is 23503 at its statement, a deferred one at COMMIT, or at the SET

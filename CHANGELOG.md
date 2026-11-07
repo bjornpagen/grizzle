@@ -16,6 +16,21 @@ How to upgrade:
 
 ### Breaking changes
 
+#### Every domain admits NULL, so a closed read at an absent key is judged by its rule, never refused by a cast
+
+- **A domain's CHECK is `CHECK (VALUE IS NULL OR (<predicate>) IS TRUE)`, a roster's, a set's, a contract's and a
+  pattern's alike; a column's NOT NULL refuses a NULL stored.** It was `CHECK ((<predicate>) IS TRUE)`, which refused
+  NULL, so every NULL expression of a domain's type raised 23514 naming the domain before the rule could judge it:
+  `Self.row(Pick.at("flag", kind))` at a kind `Pick` holds no row at cast NULL to the set's bits domain, so a check
+  `or(ne(kind, "a"), eq(Compute.subset(Self.row(Pick.at("flag", kind)), flags), true))` refused every row of kind
+  `b`, grizzle's own writes included, which it holds; a generated closed id, set, contract or pattern field reading an
+  absent key was refused by its domain (a contract's or a pattern's named as that law) instead of by its NOT NULL as the
+  generated field's law; a law column over a set outside its selection was refused; and a direct writer's INSERT
+  that leaves out a closed id's or a refined text's field is now 23502 by its NOT NULL, not 23514 by its domain. A
+  containment from a selection into a closed relation now holds where the selection is unknown, `NOT (φ) IS TRUE OR
+  member`, as a key over the selection already did: a row is on a selection only where its condition is true.
+  Regenerate: every domain's CHECK and every such containment's CHECK changes. No codemod.
+
 #### `date` is a plain type, not a contract
 
 - **`date` is PostgreSQL's date, a plain scalar type as `pg.integer` is.** It was the builtin contract `date` over

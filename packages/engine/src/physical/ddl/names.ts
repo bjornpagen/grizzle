@@ -465,9 +465,9 @@ const collated = (type: TypeRef): ColumnType => ({
 
 /**
  * The type of a column a law adds (a constant tag, a partial term): its type's base, the fixed collation for text, and
- * never a domain. A domain's CHECK is `(<predicate>) IS TRUE`, which refuses the null a partial term holds outside its
- * selection, and a law column holds only values its type already admits: a field's own, which that field's column
- * checked, or the law model's literal of the field's type.
+ * never a contract's, a pattern's or a roster's domain. A law column holds only values its type already admits: a
+ * field's own, which that field's column checked, or the law model's literal of the field's type; and NULL outside its
+ * selection, which every domain admits too (sql/print.ts), a set's bits domain, its base, included.
  */
 export const lawColumnType = (names: PhysicalNames, t: ScalarType): ColumnType =>
 	collated(baseTypeRef(names, t))

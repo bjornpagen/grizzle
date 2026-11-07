@@ -259,14 +259,15 @@ export type ClosedRead =
 
 /**
  * A closed read over its relation's installed constants, its arguments the codes of the key fields it fixes, in key
- * order, as SQL, and `type` the type its value is cast to: a closed id's or a set's domain.
+ * order, as SQL, and `type` the type its value is cast to: a closed id's code or a set's domain.
  *
  * - C.at(field, k…): the cell at k…'s index in the relation's string of cells; its payload code is NULLIF(cell, 0) - 1,
  *   so a key the relation holds no tuple at reads NULL, never a code; `field`'s coordinate of that code is a closed
  *   id's code, cast to `type`, or an open-typed value read through its dictionary at code + 1.
  * - C.row(k…): the completions of the prefix k… (completions), cast to `type`, the set over the last key field's
  *   roster, which pads the run, its roster's codes or a slot's owner's count, with 0s to the set's width, so its holes
- *   and padding are 0.
+ *   and padding are 0: a prefix the relation completes nowhere reads the empty set, and a NULL code in it NULL, which
+ *   the set's domain admits as every domain does (sql/print.ts).
  * - has(k…): the one bit of the relation's key set at k…'s index, read as the integer 1 exactly where the relation holds
  *   a tuple there.
  *

@@ -1178,11 +1178,11 @@ export interface RenameConstraint {
 
 export interface DomainConstraint {
 	readonly name: string
-	/** Over VALUE; prints as CHECK ((<predicate>) IS TRUE). */
+	/** Over a present VALUE; prints as CHECK (VALUE IS NULL OR (<predicate>) IS TRUE), so the domain admits NULL. */
 	readonly predicate: Expr
 }
 
-/** A domain carries no NOT NULL; the column does. */
+/** A domain carries no NOT NULL and admits NULL; the column refuses it. */
 export interface CreateDomain {
 	readonly kind: "createDomain"
 	readonly name: ObjectName

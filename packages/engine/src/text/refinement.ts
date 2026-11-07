@@ -301,8 +301,8 @@ const octetsTest = (octets: number, value: Expr): Expr =>
 	le(call("octet_length", [value]), lit.int(octets, types.integer))
 
 /**
- * The membership predicate over `value` (domainValue inside a domain CHECK), without the IS TRUE wrapper, which the
- * printer adds to every CHECK: a pattern's, or a byte bound's test before the pattern's, so PostgreSQL's regex engine
+ * The membership predicate over `value` (domainValue inside a domain CHECK), without the wrapper the printer adds to
+ * every CHECK: a pattern's, or a byte bound's test before the pattern's, so PostgreSQL's regex engine
  * never reads a value past the bound.
  */
 export const membership = (check: RegexCheck, value: Expr): Expr => {
@@ -319,8 +319,8 @@ export const membership = (check: RegexCheck, value: Expr): Expr => {
 
 /**
  * The UTF-8 bytes a check's predicate over VALUE prints in, what choose compares two equivalent checks by. Every CHECK
- * prints its predicate in one place whatever its form, alone inside `CHECK ((...) IS TRUE)` or as a term of a
- * contract's conjunction, so the predicates' bytes order the statements as the statements' own bytes do.
+ * prints its predicate in one place whatever its form, alone inside `CHECK (VALUE IS NULL OR (...) IS TRUE)` or as a
+ * term of a contract's conjunction, so the predicates' bytes order the statements as the statements' own bytes do.
  */
 const predicateBytes = (check: PatternCheck): number =>
 	utf8Length(printExpr(patternMembership(check, domainValue)))
@@ -328,7 +328,7 @@ const predicateBytes = (check: PatternCheck): number =>
 /**
  * The compiler-owned structural domain of a nontrivial refinement:
  * `CREATE DOMAIN <schema>.__text_<slug> AS text COLLATE pg_catalog.pg_c_utf8 CONSTRAINT __text_<slug>__check
- * CHECK ((...) IS TRUE)`, with no NOT NULL.
+ * CHECK (VALUE IS NULL OR (...) IS TRUE)`, with no NOT NULL.
  */
 export const textDomainDdl = (
 	check: RegexCheck,

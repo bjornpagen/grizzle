@@ -135,12 +135,13 @@ interface TextDomainPlan {
  *
  * A text refinement that is neither a tautology nor wrapped in a contract is a structural domain shared by every field
  * whose pattern recognizes the same values: `CREATE DOMAIN <schema>.<domain> AS text COLLATE pg_catalog.pg_c_utf8
- * CONSTRAINT <check> CHECK ((<membership>) IS TRUE)`. A closed relation's refined text payload counts as a use, which
- * the closed facts' validation casts to its domain. A column an installer extension types by a pattern, a derived
- * relation's view column, is a use too (`TextColumnUse`). A context field an installed role reads has the domain of its
- * refined type whether a column carries it or not, since Db.open's admission validates each claim against it. The
- * domains come in the order of their first use in canonical order, a stored column's before an extra's, and each CHECK
- * is spelled from that first use, so it follows one rule whatever order the relations are met in. */
+ * CONSTRAINT <check> CHECK (VALUE IS NULL OR (<membership>) IS TRUE)`. A closed relation's refined text payload counts
+ * as a use, which the closed facts' validation casts to its domain. A column an installer extension types by a
+ * pattern, a derived relation's view column, is a use too (`TextColumnUse`). A context field an installed role reads
+ * has the domain of its refined type whether a column carries it or not, since Db.open's admission validates each
+ * claim against it. The domains come in the order of their first use in canonical order, a stored column's before an
+ * extra's, and each CHECK is spelled from that first use, so it follows one rule whatever order the relations are met
+ * in. */
 export const planTextDomains = (
 	owned: Owned,
 	theory: Theory,
@@ -312,7 +313,7 @@ const addContractDomain = (
  * contract's domain, a closed id's roster domain, or the unrefined base type, `text COLLATE pg_catalog.pg_c_utf8` for a
  * text base. Its CHECK is the law model's (`DomainCheck`): `check`, the pattern test and the predicate as one
  * conjunction, or none for a brand-only contract over an unrefined base. No domain carries NOT NULL; every column does.
- * The CHECK's IS TRUE wrapper is the printer's. */
+ * The CHECK's wrapper, `VALUE IS NULL OR (...) IS TRUE`, is the printer's, so the domain admits NULL. */
 export const addContractDomains = (b: InstallBuilder): ReadonlyArray<ObjectName> => {
 	const domains = b.natives
 		.flatMap((n) => (n.namespace === "domain" ? [n] : []))

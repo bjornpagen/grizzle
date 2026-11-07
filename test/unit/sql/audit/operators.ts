@@ -105,6 +105,7 @@ export const auditRuleReason: {
 	uncastParam: "UnsupportedOperation",
 	untypedLiteral: "UnsupportedOperation",
 	checkWithoutIsTrue: "UnsupportedOperation",
+	domainCheckRefusingNull: "UnsupportedOperation",
 	caseWithoutElse: "UnsupportedOperation",
 	identifier: "MalformedDescription",
 	literal: "MalformedDescription",
@@ -2322,6 +2323,28 @@ export const textBreaks: Arr.NonEmptyReadonlyArray<TextBreak> = [
 					outerClose !== undefined &&
 					closing(tokens, i + 1) === innerClose + 3
 					? [`${Str.slice(0, is.start)(text)}${Str.slice(outerClose.start)(text)}`]
+					: []
+			})
+		}
+	},
+	{
+		name: "a domain CHECK without its NULL",
+		rule: "domainCheckRefusingNull",
+		variants: (text) => {
+			const tokens = tokensOf(text)
+			return Arr.flatMap(tokens, (t, i) => {
+				const value = tokens[i + 2]
+				const inner = tokens[i + 6]
+				return word(t) === "CHECK" &&
+					isPunct(tokens[i + 1], "(") &&
+					word(value) === "VALUE" &&
+					word(tokens[i + 3]) === "IS" &&
+					word(tokens[i + 4]) === "NULL" &&
+					word(tokens[i + 5]) === "OR" &&
+					value !== undefined &&
+					inner !== undefined &&
+					isPunct(inner, "(")
+					? [`${Str.slice(0, value.start)(text)}${Str.slice(inner.start)(text)}`]
 					: []
 			})
 		}

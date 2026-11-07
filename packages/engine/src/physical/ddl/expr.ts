@@ -240,8 +240,11 @@ export const lowerPersistent = (
 
 /**
  * A closed read over its relation's installed constants (sql/constants.ts closedRead): C.at's payload field, C.row's
- * completions or a membership test at the key its arguments name, cast to its type's domain. An absent key reads NULL
- * for C.at, which a CHECK's IS TRUE and a generated column's NOT NULL refuse, and the empty set for C.row.
+ * completions or a membership test at the key its arguments name, cast to its type's base. An absent key reads NULL
+ * for C.at and the empty set for C.row, and a NULL argument reads NULL. A NULL is judged by the expression's
+ * three-valued logic: a CHECK refuses its row only where the whole predicate is not true, a selection keeps a row only
+ * where it is true, and a generated column's NOT NULL refuses a NULL term. Every domain admits NULL (sql/print.ts), so
+ * no cast refuses it first.
  */
 const closedReadOf = (
 	names: PhysicalNames,

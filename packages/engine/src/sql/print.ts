@@ -28,6 +28,7 @@ import {
 	type Cte,
 	type CteBody,
 	type Delete,
+	type DomainConstraint,
 	type Expr,
 	type ForeignKeyColumn,
 	type FrameBound,
@@ -93,8 +94,9 @@ const statementTextLoc = SourceLoc("SQL statement text", [])
  *
  * One AST prints to one text, byte for byte, in every process: the printer reads nothing but its input and uses no
  * locale-sensitive formatting. It quotes every identifier, prints every parameter as `$n::type` and
- * every literal typed, wraps every CHECK as `CHECK ((<predicate>) IS TRUE)`, and parenthesizes by
- * PostgreSQL's operator precedence so the printed text parses back to the tree it came from.
+ * every literal typed, wraps a table's CHECK as `CHECK ((<predicate>) IS TRUE)` and a domain's as
+ * `CHECK (VALUE IS NULL OR (<predicate>) IS TRUE)`, and parenthesizes by PostgreSQL's operator precedence so the
+ * printed text parses back to the tree it came from.
  *
  * Layout. The insert protocol (write/insert/protocol.ts) is the reference, and the printer reproduces its layout:
  * - a statement's own clauses go on separate lines: the outermost SELECT's FROM, WHERE, GROUP BY, HAVING, ORDER BY,
@@ -611,8 +613,17 @@ const regclassText = (relation: ObjectName): string =>
 
 export const printExpr = (e: Expr): string => expr(e).text
 
-/** The CHECK wrapper every CHECK carries, domain CHECKs included. */
+/** A table's CHECK, `CHECK ((<predicate>) IS TRUE)`: a row its predicate leaves false or unknown is refused. */
 const printCheck = (predicate: Expr): string => `CHECK ((${printExpr(predicate)}) IS TRUE)`
+
+/**
+ * A domain's CHECK, `CHECK (VALUE IS NULL OR (<predicate>) IS TRUE)`: NULL is a value of every domain, as of every
+ * type, and a column's NOT NULL refuses it, so an expression of the domain's type that reads NULL (a closed read at an
+ * absent key, a law column outside its selection) is cast to the domain as NULL, and a present value is admitted only
+ * where the predicate is true.
+ */
+const printDomainCheck = (constraint: DomainConstraint): string =>
+	`CONSTRAINT ${quoteIdent(constraint.name)} CHECK (VALUE IS NULL OR (${printExpr(constraint.predicate)}) IS TRUE)`
 
 const printTarget = (target: Target): string =>
 	target.alias === undefined
@@ -1107,7 +1118,7 @@ const printAlterTableAction = (action: AlterTableAction): string => {
 const printAlterDomainAction = (action: AlterDomainAction): string => {
 	switch (action.kind) {
 		case "addConstraint":
-			return `ADD CONSTRAINT ${quoteIdent(action.constraint.name)} ${printCheck(action.constraint.predicate)}${action.notValid ? " NOT VALID" : ""}`
+			return `ADD ${printDomainCheck(action.constraint)}${action.notValid ? " NOT VALID" : ""}`
 		case "validateConstraint":
 			return `VALIDATE CONSTRAINT ${quoteIdent(action.name)}`
 		case "dropConstraint":
@@ -1528,7 +1539,7 @@ export const writeStatement = (out: Lines, statement: SqlStatement): void => {
 				parts.push(`COLLATE ${printObjectName(statement.collation)}`)
 			}
 			for (const c of statement.constraints) {
-				parts.push(`CONSTRAINT ${quoteIdent(c.name)} ${printCheck(c.predicate)}`)
+				parts.push(printDomainCheck(c))
 			}
 			return out.line(parts.join(" "))
 		}

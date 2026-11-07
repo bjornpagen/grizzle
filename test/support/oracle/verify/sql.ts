@@ -81,6 +81,7 @@ type AuditRule =
 	| "uncastParam"
 	| "untypedLiteral"
 	| "checkWithoutIsTrue"
+	| "domainCheckRefusingNull"
 	| "caseWithoutElse"
 	| "emptyList"
 
@@ -105,6 +106,7 @@ const disciplineRules: ReadonlySet<AuditRule> = new Set<AuditRule>([
 	"uncastParam",
 	"untypedLiteral",
 	"checkWithoutIsTrue",
+	"domainCheckRefusingNull",
 	"caseWithoutElse"
 ])
 
@@ -2863,8 +2865,9 @@ export interface StatementAudit {
  * - The text audit lexes the printed text (lexer.ts) and refuses, wherever they occur outside identifiers, strings,
  *   dollar bodies and comments: NULL (other than a column constraint's NOT NULL in table DDL), IS [NOT] NULL, ISNULL,
  *   NOTNULL, IS UNKNOWN, outer joins, SELECT * and RETURNING *, SKIP LOCKED, an uncast parameter,
- *   an untyped literal outside the positions SQL syntax requires a bare string, a CHECK not of the form
- *   CHECK ((...) IS TRUE), a CASE expression without ELSE, and a COLLATE naming any collation but
+ *   an untyped literal outside the positions SQL syntax requires a bare string, a table CHECK not of the form
+ *   CHECK ((...) IS TRUE), a domain CHECK not of the form CHECK (VALUE IS NULL OR (...) IS TRUE), whose VALUE IS NULL
+ *   is the one null test admitted, a CASE expression without ELSE, and a COLLATE naming any collation but
  *   pg_catalog.pg_c_utf8. NULLIF, a closed read's absence that IS TRUE or NOT NULL around it refuses, and COALESCE, the
  *   pack's absent cell, are admitted. A PL/pgSQL body is audited the same way. The AST cannot express most of what the text audit
  *   refuses, and the printer's output must pass it.
@@ -3004,6 +3007,7 @@ const isInt4Constant = (text: string): boolean => {
 type StatementShape =
 	| "createTable"
 	| "alterTable"
+	| "domain"
 	| "settings"
 	| "function"
 	| "do"
@@ -3023,6 +3027,9 @@ const statementShape = (tokens: ReadonlyArray<Token>): StatementShape => {
 	}
 	if (w(0) === "ALTER" && w(1) === "TABLE") {
 		return "alterTable"
+	}
+	if ((w(0) === "CREATE" || w(0) === "ALTER") && w(1) === "DOMAIN") {
+		return "domain"
 	}
 	if (w(0) === "ALTER" && w(1) === "ROLE") {
 		return "settings"
@@ -3075,6 +3082,39 @@ const notNullPredecessors: ReadonlySet<string> = new Set([
 	"FALSE",
 	Str.toUpperCase(placeholderToken)
 ])
+
+/**
+ * Whether the CHECK at `i` is a domain's, `CHECK (VALUE IS NULL OR (<predicate>) IS TRUE)`: NULL is a value of every
+ * domain, which a column's NOT NULL refuses, and a present value is admitted only where the predicate is true.
+ */
+const isDomainCheck = (tokens: ReadonlyArray<Token>, i: number): boolean => {
+	const outerClose = isPunct(tokens[i + 1], "(") ? matchingParen(tokens, i + 1) : Option.none()
+	const innerClose = isPunct(tokens[i + 6], "(") ? matchingParen(tokens, i + 6) : Option.none()
+	return (
+		Option.isSome(outerClose) &&
+		Option.isSome(innerClose) &&
+		isWord(tokens[i + 2], "VALUE") &&
+		isWord(tokens[i + 3], "IS") &&
+		isWord(tokens[i + 4], "NULL") &&
+		isWord(tokens[i + 5], "OR") &&
+		isWord(tokens[innerClose.value + 1], "IS") &&
+		isWord(tokens[innerClose.value + 2], "TRUE") &&
+		innerClose.value + 3 === outerClose.value
+	)
+}
+
+/** Whether NULL at `i` is a domain CHECK's own null test, the `VALUE IS NULL` that opens it (`isDomainCheck`). */
+const isDomainNullTest = (
+	tokens: ReadonlyArray<Token>,
+	i: number,
+	shape: StatementShape
+): boolean =>
+	shape === "domain" &&
+	isWord(tokens[i - 1], "IS") &&
+	isWord(tokens[i - 2], "VALUE") &&
+	isPunct(tokens[i - 3], "(") &&
+	isWord(tokens[i - 4], "CHECK") &&
+	isDomainCheck(tokens, i - 4)
 
 /**
  * Whether NULL at `i` ends a column constraint NOT NULL: in table DDL, at the column-definition level (inside the
@@ -3304,9 +3344,11 @@ class TextAuditor {
 	 * NOT NULL is a column constraint in table DDL; anywhere else, IS NOT NULL and DROP NOT NULL included,
 	 * NULL is a NULL.
 	 *
-	 * CHECK ((<predicate>) IS TRUE) and nothing else. A policy's WITH CHECK (<predicate>) is no constraint: row
-	 * security admits a row only when the predicate is true, so NULL refuses it already, and an IS TRUE around
-	 * the predicate would only hide it from the planner's index quals.
+	 * A table's CHECK ((<predicate>) IS TRUE) and a domain's CHECK (VALUE IS NULL OR (<predicate>) IS TRUE), and
+	 * nothing else: a table refuses a row its predicate leaves unknown, and a domain admits NULL, which a column's NOT
+	 * NULL refuses, so its VALUE IS NULL is the one null test the audit admits. A policy's WITH CHECK (<predicate>)
+	 * is no constraint: row security admits a row only when the predicate is true, so NULL refuses it already, and an
+	 * IS TRUE around the predicate would only hide it from the planner's index quals.
 	 *
 	 * The CASE of END CASE closes a statement; it opens nothing.
 	 *
@@ -3327,7 +3369,7 @@ class TextAuditor {
 		const next = tokens[i + 1]
 		switch (t.upper) {
 			case "NULL":
-				if (!isColumnNotNull(tokens, depths, i, shape)) {
+				if (!isColumnNotNull(tokens, depths, i, shape) && !isDomainNullTest(tokens, i, shape)) {
 					this.report("null", t.start, "NULL")
 				}
 				return cases
@@ -3366,6 +3408,16 @@ class TextAuditor {
 				return cases
 			case "CHECK": {
 				if (isWord(prev, "WITH")) {
+					return cases
+				}
+				if (shape === "domain") {
+					if (!isDomainCheck(tokens, i)) {
+						this.report(
+							"domainCheckRefusingNull",
+							t.start,
+							"a domain CHECK not of the form CHECK (VALUE IS NULL OR (...) IS TRUE)"
+						)
+					}
 					return cases
 				}
 				const outer = i + 1

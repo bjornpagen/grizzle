@@ -880,14 +880,19 @@ const setRosters = (b: InstallBuilder): ReadonlySet<DeclaredName> => {
  *
  * - its names constant, `<roster>__names__<digest>() RETURNS name[] RETURN '{"h0","h1","",…}'::name[]`, code c's handle
  *   at subscript c + 1 and a hole the empty name;
- * - its domain, `CREATE DOMAIN <roster> AS smallint CONSTRAINT check CHECK (((N())[VALUE + 1] <> ''::name) IS TRUE)`,
- *   which admits exactly the live codes: a code past either end reads NULL, and a hole the empty name;
+ * - its domain, `CREATE DOMAIN <roster> AS smallint CONSTRAINT check CHECK (VALUE IS NULL OR ((N())[VALUE + 1] <>
+ *   ''::name) IS TRUE)`, which admits exactly the live codes: a code past either end reads NULL, and a hole the empty
+ *   name;
  * - for a roster some set is typed over (`setRosters`), its live-codes constant,
  *   `<roster>__live__<digest>() RETURNS bit varying RETURN X'<hex>'::bit varying`, the set of its live codes at the
  *   width of a set over it (ir/codes.ts liveHex), and its bits domain, `CREATE DOMAIN <roster>__bits__<n> AS bit(n)
- *   CONSTRAINT check CHECK (((VALUE & L()) = VALUE) IS TRUE)`, n every code the roster has minted rounded up to whole hex
- *   digits (RosterCodec.width), which admits only the live codes' bits: a hole's bit and every padding bit are 0 in L, so
- *   a set that sets one is refused.
+ *   CONSTRAINT check CHECK (VALUE IS NULL OR ((VALUE & L()) = VALUE) IS TRUE)`, n every code the roster has minted
+ *   rounded up to whole hex digits (RosterCodec.width), which admits only the live codes' bits: a hole's bit and every
+ *   padding bit are 0 in L, so a set that sets one is refused.
+ *
+ * Each domain admits NULL, the printer's wrapper of every domain CHECK (sql/print.ts), so a closed read at an absent key,
+ * C.row's NULL prefix or a law column outside its selection is NULL of the domain's type, which the law's three-valued
+ * logic judges, and a column's NOT NULL, never the domain, refuses a NULL stored.
  *
  * A changed roster is a new names constant (and live constant), and its domains' CHECKs re-point at them, keeping their
  * names; a grown one whose width passes a whole hex digit has a bits domain of the new width.
@@ -1021,8 +1026,10 @@ const addBits = (
 /**
  * A containment into a closed relation's side as the table CHECK that holds it, after its constants, which it adds:
  * the side's string of cells as a closed relation of its own, with its key's owner functions where its key is a
- * dependent sum, read at the index its key gives the row's key columns (sql/constants.ts cellOfKey), `NOT guard OR
- * member`, the guard the source side's selection, each conjunct lowered over the row by `lower`.
+ * dependent sum, read at the index its key gives the row's key columns (sql/constants.ts cellOfKey), `NOT (guard) IS
+ * TRUE OR member`, the guard the source side's selection, each conjunct lowered over the row by `lower`. A row is on
+ * the side only where its selection is true: one the selection leaves unknown, by a closed read at an absent key, is
+ * off it as one it leaves false is, so the containment holds vacuously there, as a law column's `CASE WHEN` reads it.
  *
  * The guard is C2's RowGuard, the one representation of a selection over a row. An installed CHECK lowers it by the
  * persistent lowering (physical/ddl/expr.ts lowerPersistent), as every row CHECK and law column's guard is, so a
@@ -1104,7 +1111,7 @@ export const closedMembership = (
 	const guards = check.guard.map((g) => lower(g.predicate))
 	return {
 		predicate: isNonEmpty(guards)
-			? { kind: "or", args: [{ kind: "not", expr: and(guards) }, member] }
+			? { kind: "or", args: [{ kind: "not", expr: { kind: "isTrue", expr: and(guards) } }, member] }
 			: member,
 		constants
 	}
