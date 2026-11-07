@@ -777,7 +777,7 @@ const kept: ReadonlyArray<Kept<SwarmCase, Situation>> = [
 		reaches: ["a cycle of families written"]
 	},
 	{
-		note: "CHANGELOG: an ordered member's delete re-places the next, which owns a counted member copying its index along an owner axis",
+		note: "an ordered member's delete re-places the next, which owns a counted member copying its index along an owner axis",
 		sketch: {
 			spec: {
 				fill: {
