@@ -18,10 +18,10 @@
  *   allows there, with that native's SQLSTATE, reporting the tree's law (the identity, the relation's primary key).
  *
  * Each case's transaction is checked as its COMMIT would check it and rolled back: SET CONSTRAINTS ALL IMMEDIATE runs
- * every deferred check at that statement, a refusal there is the commit's, and no row stays to clear. One case in 32,
- * which its own text chooses, ends by a real COMMIT instead, its rows read and then cleared: every box requires both
- * ends, and a refusal at a real COMMIT where the box meets one, so the search itself shows a real COMMIT never decides
- * otherwise than the checked end.
+ * every deferred check at that statement, a refusal there is the commit's, and no row stays to clear. Half the cases
+ * the model refuses at commit, and one case in 32 of the rest, which the case's own text chooses, end by a real COMMIT
+ * instead, its rows read and then cleared: every box requires both ends, and, where it meets a refusal at commit, one
+ * through each end, so the search itself shows a real COMMIT never decides otherwise than the checked end.
  *
  * The boxes are GT's (test/pg/substrate/tree.ts), so there is one generator, each named in its test, every row's r over
  * two values: every state of at most two rows with every field over its range and one past it; every forest shape of
@@ -235,12 +235,19 @@ interface Judged {
 type End = "checked" | "commit"
 
 /**
- * One case in 32 ends by a real COMMIT, the case's own text choosing it, so every box meets both ends and an exhaustion
- * replays the same choice: a COMMIT's clearing TRUNCATE costs about six checked cases, so this adds a fifth to a box's
- * time, and each box that meets a refusal at commit still requires one through a real COMMIT.
+ * The end of a case, which its own text chooses, so an exhaustion replays the same choice: half the cases grizzle's
+ * model refuses at commit end by a real COMMIT, which a refusal leaves nothing to clear, and the other half by the
+ * checked end, so each end meets the refusals at commit a box holds; of every other case one in 32 ends by a real
+ * COMMIT, whose clearing TRUNCATE costs about six checked cases, a fifth more of a box's time.
  */
-const endOf = (statements: ReadonlyArray<ReadonlyArray<TreeRow>>): End =>
-	fnv1a32(Formatter.format(statements)) % 32 === 0 ? "commit" : "checked"
+const endOf = (statements: Arr.NonEmptyReadonlyArray<Arr.NonEmptyReadonlyArray<TreeRow>>): End => {
+	const digest = fnv1a32(Formatter.format(statements))
+	const model = treePredicted(grizzleTree, [], statements)
+	return (model.kind === "refused" && model.moment.kind === "commit" ? digest % 2 : digest % 32) ===
+		0
+		? "commit"
+		: "checked"
+}
 
 /** A transaction ended by a real COMMIT, its rows read and then cleared, as a checked one reports it. */
 const committedOf = (
@@ -381,6 +388,7 @@ type StateFeature =
 	| "a case ended by COMMIT"
 	| "a case ended by SET CONSTRAINTS and ROLLBACK"
 	| "a case refused at a real COMMIT"
+	| "a case refused at its checked commit"
 
 /**
  * Judges one case on every seat at once: each against the model; grizzle's against the theorem, where a commit of a
@@ -467,9 +475,11 @@ const judgeCase = (
 				}
 				if (Option.exists(j.moment, (m) => m.kind === "commit")) {
 					note("grizzle refused at commit")
-					if (end === "commit") {
-						note("a case refused at a real COMMIT")
-					}
+					note(
+						end === "commit"
+							? "a case refused at a real COMMIT"
+							: "a case refused at its checked commit"
+					)
 				}
 				if (j.committed && Arr.dedupe(Arr.map(rows, (r) => r.root)).length > 1) {
 					note("grizzle committed a forest of two trees")
@@ -539,6 +549,7 @@ layer(Substrate.layer)(
 									"grizzle refused last axis",
 									"grizzle refused at commit",
 									"a case refused at a real COMMIT",
+									"a case refused at its checked commit",
 									"grizzle refused no root",
 									"grizzle refused two roots",
 									"grizzle refused a family",
@@ -584,6 +595,7 @@ layer(Substrate.layer)(
 									"grizzle refused last axis",
 									"grizzle refused at commit",
 									"a case refused at a real COMMIT",
+									"a case refused at its checked commit",
 									"grizzle refused a cycle",
 									"grizzle refused no root",
 									"grizzle refused two roots",
@@ -635,6 +647,7 @@ layer(Substrate.layer)(
 									"grizzle refused last axis",
 									"grizzle refused at commit",
 									"a case refused at a real COMMIT",
+									"a case refused at its checked commit",
 									"grizzle refused a row under another tree",
 									"grizzle refused an interval",
 									"without r's copy killed",

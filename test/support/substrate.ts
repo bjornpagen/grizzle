@@ -43,6 +43,16 @@ export const refusalOf = <A, E, R>(
 type Refused = Extract<Attempted, { readonly kind: "refused" }>
 
 /**
+ * `effect`, run in `session`'s open transaction: a failure that is no refusal ends the transaction with ROLLBACK before
+ * it goes on, so no failure leaves the session inside a transaction PostgreSQL aborted, where every later statement,
+ * the next case's BEGIN among them, is refused with 25P02 and the failure a search reports is that, not its own.
+ */
+const inTransaction = <A, E>(
+	session: RawSession,
+	effect: Effect.Effect<A, E>
+): Effect.Effect<A, E> => Effect.onError(effect, () => Effect.ignore(session.rollback))
+
+/**
  * BEGIN and each of `statements` in order: the refusal of the first PostgreSQL refuses, the transaction rolled back, or
  * none, the transaction still open.
  */
@@ -52,18 +62,23 @@ const opened = (
 ): Effect.Effect<Option.Option<Refused>, SqlError> =>
 	Effect.gen(function* () {
 		yield* session.begin
-		for (const [index, sql] of statements.entries()) {
-			const refused = yield* refusalOf(session.query(sql, []))
-			if (Option.isSome(refused)) {
-				yield* session.rollback
-				return Option.some({
-					kind: "refused",
-					moment: { kind: "statement", index },
-					fields: refused.value
-				} satisfies Refused)
-			}
-		}
-		return Option.none()
+		return yield* inTransaction(
+			session,
+			Effect.gen(function* () {
+				for (const [index, sql] of statements.entries()) {
+					const refused = yield* refusalOf(session.query(sql, []))
+					if (Option.isSome(refused)) {
+						yield* session.rollback
+						return Option.some({
+							kind: "refused",
+							moment: { kind: "statement", index },
+							fields: refused.value
+						} satisfies Refused)
+					}
+				}
+				return Option.none()
+			})
+		)
 	})
 
 /**
@@ -80,7 +95,7 @@ export const attempt = (
 		if (Option.isSome(refusedAt)) {
 			return refusedAt.value
 		}
-		const refused = yield* refusalOf(session.commit)
+		const refused = yield* inTransaction(session, refusalOf(session.commit))
 		return Option.match(refused, {
 			onNone: (): Attempted => ({ kind: "committed" }),
 			onSome: (fields): Attempted => ({ kind: "refused", moment: { kind: "commit" }, fields })
@@ -107,18 +122,23 @@ export const attemptChecked = <A>(
 		if (Option.isSome(refusedAt)) {
 			return refusedAt.value
 		}
-		const refused = yield* refusalOf(session.query("SET CONSTRAINTS ALL IMMEDIATE", []))
-		if (Option.isSome(refused)) {
-			yield* session.rollback
-			return {
-				kind: "refused",
-				moment: { kind: "commit" },
-				fields: refused.value
-			} satisfies Refused
-		}
-		const found = yield* Effect.onError(read, () => Effect.ignore(session.rollback))
-		yield* session.rollback
-		return { kind: "committed", read: found }
+		return yield* inTransaction(
+			session,
+			Effect.gen(function* () {
+				const refused = yield* refusalOf(session.query("SET CONSTRAINTS ALL IMMEDIATE", []))
+				if (Option.isSome(refused)) {
+					yield* session.rollback
+					return {
+						kind: "refused",
+						moment: { kind: "commit" },
+						fields: refused.value
+					} satisfies Refused
+				}
+				const found = yield* read
+				yield* session.rollback
+				return { kind: "committed", read: found } satisfies Checked<A>
+			})
+		)
 	})
 
 /** A moment as a report reads it. */
