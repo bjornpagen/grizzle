@@ -1,4 +1,4 @@
-import { Array as Arr, Record as Rec } from "effect"
+import { Array as Arr } from "effect"
 import { accessEntriesFrom, accessModule } from "#test/support/agreement/access.ts"
 import { attachEntriesFrom, attachModule } from "#test/support/agreement/attachments.ts"
 import { changeSetEntriesFrom, changeSetModules } from "#test/support/agreement/changesets.ts"
@@ -9,6 +9,7 @@ import { recursionEntriesFrom, recursionModule } from "#test/support/agreement/r
 import { schemaEntriesFrom, schemaModules } from "#test/support/agreement/schemas.ts"
 import { workloadEntriesFrom, workloadModule } from "#test/support/agreement/workloads.ts"
 import { bytesProgram } from "#test/support/text/bytes.ts"
+import { surfaceEntriesFrom, surfaceModule } from "#test/types/api/surface.ts"
 import { checkUnit, type Group, type UnitSpec } from "#test/types/batch/batch.ts"
 import { nestingCases, nestingSource } from "#test/types/changeset/nesting.ts"
 import { doorModule } from "#test/types/harness/door.ts"
@@ -18,7 +19,7 @@ import {
 	generateQuerySource,
 	largestQuerySize
 } from "#test/types/query/budget/generate.ts"
-import { programSource } from "#test/types/regex/program.ts"
+import { regexEntriesFrom, regexModules } from "#test/types/regex/agreement.ts"
 import { regexSchemaPatterns, regexSchemaSource } from "#test/types/regex/schema.ts"
 import {
 	generateStatementSource,
@@ -90,6 +91,19 @@ export const typeGroups: ReadonlyArray<Group> = [
 		}
 	},
 	{
+		owner: "test/types/api/surface.test.ts",
+		units: {
+			"api/surface": {
+				kind: "program",
+				dir: "test/types/api",
+				prefix: ".surface-",
+				disarm: false,
+				heavy: false,
+				source: (entry) => [{ file: "index.ts", source: surfaceModule(surfaceEntriesFrom(entry)) }]
+			}
+		}
+	},
+	{
 		owner: "test/types/api/workload.test.ts",
 		units: {
 			"api/workload": {
@@ -146,10 +160,6 @@ export const typeGroups: ReadonlyArray<Group> = [
 		}
 	},
 	{
-		owner: "test/types/evidence/evidence.test.ts",
-		units: fixtureUnits("evidence", ["support.ts"])
-	},
-	{
 		owner: "test/types/evidence/agreement.test.ts",
 		units: {
 			"evidence/agreement": {
@@ -201,11 +211,6 @@ export const typeGroups: ReadonlyArray<Group> = [
 			}
 		}
 	},
-	{ owner: "test/types/page/page.test.ts", units: fixtureUnits("page", ["support.ts"]) },
-	{
-		owner: "test/types/query/query.test.ts",
-		units: fixtureUnits("query", ["support.ts"])
-	},
 	{
 		owner: "test/types/query/budget/refusals.test.ts",
 		units: {
@@ -237,20 +242,17 @@ export const typeGroups: ReadonlyArray<Group> = [
 		}
 	},
 	{
-		owner: "test/types/regex/matrix.test.ts",
-		units: Rec.fromEntries(
-			Arr.map([false, true], (disarm): readonly [string, UnitSpec] => [
-				disarm ? "regex/matrix-disarmed" : "regex/matrix",
-				{
-					kind: "program",
-					dir: "test/types/regex",
-					prefix: ".matrix-",
-					disarm,
-					heavy: false,
-					source: (entry) => [{ file: "index.ts", source: programSource(entriesFrom(entry)) }]
-				}
-			])
-		)
+		owner: "test/types/regex/agreement.test.ts",
+		units: {
+			"regex/agreement": {
+				kind: "program",
+				dir: "test/types/regex",
+				prefix: ".agreement-",
+				disarm: true,
+				heavy: false,
+				source: (entry, seed) => regexModules(regexEntriesFrom(entry), seed)
+			}
+		}
 	},
 	{
 		owner: "test/types/schema/agreement.test.ts",

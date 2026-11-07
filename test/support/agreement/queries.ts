@@ -28,7 +28,7 @@ import { compilePage, statedOrderOf } from "#compiler/lower/shapes/page/compile.
 import { type QueryTemplate, queryInput } from "#compiler/program/compile.ts"
 import { parseSchemaInput } from "#compiler/program/schema.ts"
 import { ALLEN } from "#compiler/public/allen.ts"
-import { pg, uuid, Vector } from "#compiler/public/fields.ts"
+import { date, pg, uuid, Vector } from "#compiler/public/fields.ts"
 import { keyLookup } from "#compiler/query/build/key.ts"
 import { isQueryValue, queryOver, type QueryValue, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
@@ -126,10 +126,12 @@ import { messageOf } from "#test/support/message.ts"
  * stands for a value of Item.cost: its type keeps its descriptor's whole host type, the one approximation of a typed
  * constant's value, so the evidence never reads it.
  *
- * Slot's spans are variables like any other, of a kind per endpoint type, which only a span parameter stands for. A
- * rule's span and vector constructs are drawn where every rule visits, each with the match of Slot it reads appended:
- * an Allen predicate under a drawn mask and a point's test, each over a span variable and a span variable or parameter;
- * one producer in the head (r.intersection, r.difference over the same operands, r.pack over a variable); a cosine
+ * Slot's spans are variables like any other, of a kind per endpoint type (integer, bigint, Cents and calendar dates),
+ * which only a span parameter stands for. A rule's span and vector constructs are drawn where every rule visits, each
+ * with the match of Slot it reads appended, its span of dates and its date where the swarm keeps dateSpan: an Allen
+ * predicate under a drawn mask, and a point's test of a value of a span's endpoint type, each over a span variable and a
+ * span variable or parameter; one producer in the head (r.intersection, r.difference over the same operands, r.pack
+ * over a variable); a span's width (Compute.width), a count of days over dates and an exact integer otherwise; a cosine
  * distance from Slot's embedding to a vector parameter, a vector value or a column; and the embedding itself in the
  * head. The vectors are no binding's draw, so no filter reads them. A query whose swarm keeps nearest is drawn in the
  * shape an approximate search ranks, and searched (approximateNearest): one arm whose head holds no aggregate, no
@@ -225,7 +227,9 @@ export const agreementFeatures = [
 	"cosineColumns",
 	"vectorHead",
 	"nearest",
-	"reporterDb"
+	"reporterDb",
+	"dateSpan",
+	"width"
 ] as const
 export type AgreementFeature = (typeof agreementFeatures)[number]
 
@@ -278,6 +282,12 @@ export type AgreementNote =
 	| "a search get proves"
 	| "a contract's span refused against its base's"
 	| "a closed relation matched"
+	| "r.allen over date spans"
+	| "a date's point test"
+	| "a producer over date spans"
+	| "a date span parameter"
+	| "a width in days"
+	| "a width over integer endpoints"
 	| "a roster matched"
 	| "a derived relation's get proved"
 	| "an extension's Db read a base query"
@@ -313,11 +323,14 @@ type Minted = Rel | "Rows" | "Owned" | "Stage" | "Stray"
 /** What a match reads: a source of variables, or Tones, the union of Item's facts by tone (./schema.ts). */
 type MatchSource = Minted | "Tones"
 /**
- * The kinds of value a JavaScript value or a contract's typed constant is written for: big is a plain bigint, a count's.
+ * The kinds of value a JavaScript value or a contract's typed constant is written for: big is a plain bigint, a count's,
+ * and date a calendar date, written as its ISO text.
  */
-type LiteralKind = "uuid" | "int" | "code" | "cents" | "big"
-/** A field's kind: a literal's, a span's of each endpoint type (integer, bigint, Cents) or a vector's. */
-type Kind = LiteralKind | "span" | "bigSpan" | "centsSpan" | "vector"
+type LiteralKind = "uuid" | "int" | "code" | "cents" | "big" | "date"
+/** A span's kind, by its endpoint type: integer, bigint, Cents, or calendar dates. */
+type SpanKind = "span" | "bigSpan" | "centsSpan" | "dateSpan"
+/** A field's kind: a literal's, a span's or a vector's. */
+type Kind = LiteralKind | SpanKind | "vector"
 
 interface Field {
 	readonly rel: Minted
@@ -344,13 +357,17 @@ const slotFields: Arr.NonEmptyReadonlyArray<Field> = [
 	{ rel: "Slot", name: "item", kind: "uuid" },
 	{ rel: "Slot", name: "during", kind: "span" },
 	{ rel: "Slot", name: "budget", kind: "centsSpan" },
-	{ rel: "Slot", name: "raw", kind: "bigSpan" }
+	{ rel: "Slot", name: "raw", kind: "bigSpan" },
+	{ rel: "Slot", name: "day", kind: "date" },
+	{ rel: "Slot", name: "when", kind: "dateSpan" }
 ]
 /** Slot's vectors, which no binding draws: a distance or a head reads them, through the match of Slot it appends. */
 const embeddingField: Field = { rel: "Slot", name: "embedding", kind: "vector" }
 const imageField: Field = { rel: "Slot", name: "image", kind: "vector" }
-/** Slot's span over integer ticks, the span a point's test reads, and its item. */
+/** Slot's span over integer ticks, its span of dates and its date, and its item. */
 const duringField: Field = { rel: "Slot", name: "during", kind: "span" }
+const whenField: Field = { rel: "Slot", name: "when", kind: "dateSpan" }
+const dayField: Field = { rel: "Slot", name: "day", kind: "date" }
 const slotItemField: Field = { rel: "Slot", name: "item", kind: "uuid" }
 
 const fieldsOf: { readonly [S in Minted]: Arr.NonEmptyReadonlyArray<Field> } = {
@@ -459,9 +476,37 @@ const itemField = (kind: Kind): Field =>
 const integerField: Field = itemField("int")
 /** Item.tone, the field a rule's first match binds when it draws a constant of Tone by construction (Anchor). */
 const toneField: Field = itemField("code")
+/** A field of a kind some relation of the schema holds, which a parameter of the kind is declared at. */
+const fieldOfKind = (kind: Kind): Field =>
+	Option.getOrThrowWith(
+		Arr.findFirst(allFields, (f) => f.kind === kind),
+		() => new Error(`no relation of the schema has a ${kind} field`)
+	)
 /** Whether a kind is a span's. */
 const isSpan = (kind: Kind): boolean =>
-	kind === "span" || kind === "bigSpan" || kind === "centsSpan"
+	kind === "span" || kind === "bigSpan" || kind === "centsSpan" || kind === "dateSpan"
+
+/** The kind of a span's endpoints, which a point it holds is of: none for a kind that is no span's. */
+const pointKind = (kind: Kind): Kind | undefined => {
+	switch (kind) {
+		case "span":
+			return "int"
+		case "bigSpan":
+			return "big"
+		case "centsSpan":
+			return "cents"
+		case "dateSpan":
+			return "date"
+		case "uuid":
+		case "int":
+		case "code":
+		case "cents":
+		case "big":
+		case "date":
+		case "vector":
+			return undefined
+	}
+}
 
 /** Owned through the query builder's JavaScript view, whose bind the engine reads a drawn binding through. */
 const ownedImport: QueryValue = Owned
@@ -565,6 +610,7 @@ type HeadTerm =
 	  }
 	| { readonly kind: "pack"; readonly of: Term }
 	| { readonly kind: "cosine"; readonly of: Term; readonly to: Term }
+	| { readonly kind: "width"; readonly of: Term; readonly span: SpanKind }
 
 interface Match {
 	readonly rel: MatchSource
@@ -781,10 +827,12 @@ const literalForms = (d: Drawing, kind: Kind): ReadonlyArray<Form<Term>> => {
 		case "code":
 		case "cents":
 		case "big":
+		case "date":
 			return [["literal", () => literalOf(d, kind)]]
 		case "span":
 		case "bigSpan":
 		case "centsSpan":
+		case "dateSpan":
 		case "vector":
 			return []
 	}
@@ -812,9 +860,11 @@ const inputOf = (d: Drawing, at: Field): Term => {
 		case "uuid":
 		case "cents":
 		case "big":
+		case "date":
 		case "span":
 		case "bigSpan":
 		case "centsSpan":
+		case "dateSpan":
 		case "vector":
 			return d.choose(plain)
 	}
@@ -1241,6 +1291,10 @@ interface Plan {
 	readonly producer: "intersection" | "difference" | "pack" | undefined
 	readonly cosine: CosineTo | undefined
 	readonly vectorHead: boolean
+	/** Whether the rule's match of Slot binds its span of dates and its date, so its span constructs may read them. */
+	readonly dates: boolean
+	/** Whether the head holds a span's width, upper minus lower, in its endpoint type's unit. */
+	readonly width: boolean
 }
 
 const planOf = (d: Drawing, search: boolean): Plan => {
@@ -1302,7 +1356,16 @@ const planOf = (d: Drawing, search: boolean): Plan => {
 						: undefined
 		}
 	})()
-	return { fold, allen, pointIn, producer, cosine, vectorHead: !fold && d.keep("vectorHead") }
+	return {
+		fold,
+		allen,
+		pointIn,
+		producer,
+		cosine,
+		vectorHead: !fold && d.keep("vectorHead"),
+		dates: d.keep("dateSpan"),
+		width: !fold && d.keep("width")
+	}
 }
 
 /**
@@ -1334,6 +1397,8 @@ const slottedOf = (
 		plan.allen ||
 		plan.pointIn ||
 		plan.producer !== undefined ||
+		plan.dates ||
+		plan.width ||
 		d.fault === "spanEndpoints" ||
 		d.fault === "packTerm" ||
 		d.fault === "nearestSource"
@@ -1343,7 +1408,10 @@ const slottedOf = (
 	const item = bindingsOf(d, [slotItemField], copy, bound, undefined, [])
 	const own = (f: Field): readonly [string, Term] => [f.name, varTerm({ field: f, copy })] as const
 	const spans = Arr.filter(slotFields, (f) =>
-		d.fault === "spanEndpoints" ? isSpan(f.kind) : f.name === duringField.name
+		d.fault === "spanEndpoints"
+			? isSpan(f.kind)
+			: f.name === duringField.name ||
+				(plan.dates && (f.name === whenField.name || f.name === dayField.name))
 	)
 	const vectorFields = [
 		...(vectors ? [embeddingField] : []),
@@ -1389,13 +1457,11 @@ const allenOver = (v: Var): Pred => ({
 
 /**
  * A rule's span predicates over its bound spans, as its plan holds them: an Allen predicate relating a span to a span
- * of its type or a span parameter under a drawn mask, and a point's test of an integer variable or parameter in a span
- * over integer ticks or a parameter of its type.
+ * of its type or a span parameter under a drawn mask, and a point's test of a variable or parameter of a span's
+ * endpoint type, an integer, a bigint, Cents or a date, in that span or a parameter of its type.
  */
 const spanFilters = (d: Drawing, plan: Plan, bound: ReadonlyArray<Var>): ReadonlyArray<Pred> => {
 	const spans = Arr.filter(bound, (v) => isSpan(v.field.kind))
-	const ticks = Arr.filter(spans, (v) => v.field.kind === "span")
-	const ints = Arr.filter(bound, (v) => v.field.kind === "int")
 	const allen = ((): ReadonlyArray<Pred> => {
 		if (!plan.allen || !Arr.isReadonlyArrayNonEmpty(spans)) {
 			return []
@@ -1406,14 +1472,20 @@ const spanFilters = (d: Drawing, plan: Plan, bound: ReadonlyArray<Var>): Readonl
 		]
 	})()
 	const pointIn = ((): ReadonlyArray<Pred> => {
-		if (!plan.pointIn || !Arr.isReadonlyArrayNonEmpty(ticks)) {
+		if (!plan.pointIn || !Arr.isReadonlyArrayNonEmpty(spans)) {
 			return []
 		}
+		const span = d.from(spans)
+		const of = pointKind(span.field.kind)
+		if (of === undefined) {
+			return []
+		}
+		const points = Arr.filter(bound, (v) => v.field.kind === of)
 		const point =
-			Arr.isReadonlyArrayNonEmpty(ints) && d.from([0, 1]) === 0
-				? varTerm(d.from(ints))
-				: d.param(integerField)
-		return [{ kind: "pointIn", point, span: oppositeOf(d, d.from(ticks), ticks) }]
+			Arr.isReadonlyArrayNonEmpty(points) && d.from([0, 1]) === 0
+				? varTerm(d.from(points))
+				: d.param(fieldOfKind(of))
+		return [{ kind: "pointIn", point, span: oppositeOf(d, span, spans) }]
 	})()
 	return [...allen, ...pointIn]
 }
@@ -1446,6 +1518,43 @@ const cosineTerm = (d: Drawing, to: CosineTo, copy: number): Term => {
 		case "integer":
 			return { kind: "constant", of: "integer", value: 1 }
 	}
+}
+
+/** A span's width over a drawn bound span, where the plan holds one: in days over dates, an exact integer otherwise. */
+const widthOf = (d: Drawing, plan: Plan, spans: ReadonlyArray<Var>): ReadonlyArray<HeadTerm> => {
+	if (!plan.width || !Arr.isReadonlyArrayNonEmpty(spans)) {
+		return []
+	}
+	const span = d.from(spans)
+	const kind = spanKindOf(span.field.kind)
+	return kind === undefined ? [] : [{ kind: "width", of: varTerm(span), span: kind }]
+}
+
+/** A kind as a span's kind, where it is one. */
+const spanKindOf = (kind: Kind): SpanKind | undefined => {
+	switch (kind) {
+		case "span":
+		case "bigSpan":
+		case "centsSpan":
+		case "dateSpan":
+			return kind
+		case "uuid":
+		case "int":
+		case "code":
+		case "cents":
+		case "big":
+		case "date":
+		case "vector":
+			return undefined
+	}
+}
+
+/** The endpoint descriptor of a span kind, which Compute.width takes beside the span: its source and its value. */
+const endpointDescriptors: { readonly [K in SpanKind]: readonly [string, unknown] } = {
+	span: ["pg.integer", pg.integer],
+	bigSpan: ["pg.bigint", pg.bigint],
+	centsSpan: ["Cents", Cents],
+	dateSpan: ["date", date]
 }
 
 /**
@@ -1485,6 +1594,7 @@ const extrasOf = (d: Drawing, plan: Plan, slot: Slotted): ReadonlyArray<HeadTerm
 	})()
 	return [
 		...produced,
+		...widthOf(d, plan, spans),
 		...(plan.cosine === undefined
 			? []
 			: [{ kind: "cosine", of: embedding, to: cosineTerm(d, plan.cosine, slot.copy) } as const]),
@@ -1548,7 +1658,9 @@ const partnerKind = (kind: Kind): Kind => {
 		case "code":
 		case "cents":
 		case "big":
+		case "date":
 		case "span":
+		case "dateSpan":
 		case "vector":
 			return kind
 	}
@@ -1561,9 +1673,10 @@ const strangerNames: Arr.NonEmptyReadonlyArray<string> = [
 ]
 
 /**
- * A rule's matches with one binding more, at a match other than Tones: a name drawn among every relation's fields and a
- * stranger's, bound where it names a field of the source to that field's own variable, and otherwise to a literal. The
- * engine decides whether the source has the field.
+ * A rule's matches with one binding more, at a match other than Tones: a name drawn half the time among the source's
+ * own fields the match leaves unbound, and otherwise among every relation's fields and a stranger's, bound where it
+ * names a field of the source to that field's own variable, and otherwise to a literal. The engine decides whether the
+ * source has the field.
  */
 const strangerOf = (
 	d: Drawing,
@@ -1579,7 +1692,12 @@ const strangerOf = (
 		if (!Arr.isReadonlyArrayNonEmpty(free)) {
 			return m
 		}
-		const name = d.from(free)
+		const own = Arr.filter(
+			Arr.map(fieldsOf[m.rel], (f) => f.name),
+			(n) => !Arr.contains(named, n)
+		)
+		const name =
+			Arr.isReadonlyArrayNonEmpty(own) && d.from([0, 1]) === 0 ? d.from(own) : d.from(free)
 		const field = Arr.findFirst(fieldsOf[m.rel], (f) => f.name === name)
 		const term: Term = Option.isSome(field)
 			? varTerm({ field: field.value, copy: m.copy })
@@ -1897,6 +2015,8 @@ const renamed = (
 				return { ...h, left: term(h.left), right: term(h.right) }
 			case "cosine":
 				return { ...h, of: term(h.of), to: term(h.to) }
+			case "width":
+				return { ...h, of: term(h.of) }
 			case "literal":
 			case "count":
 				return h
@@ -2070,6 +2190,9 @@ const requestOf = (d: Drawing): PageRequestSpec => {
 	}
 }
 
+/** A calendar date a literal of index `value` names, in January 2026. */
+const dateOf = (value: number): string => `2026-01-${pipe(String(value + 1), Str.padStart(2, "0"))}`
+
 const uuidOf = (value: number): string =>
 	`00000000-0000-4000-8000-${pipe(String(value), Str.padStart(12, "0"))}`
 
@@ -2136,6 +2259,8 @@ class Rendering {
 						return String(t.value)
 					case "big":
 						return `${t.value}n`
+					case "date":
+						return jsonText(dateOf(t.value))
 					case "uuid":
 						return jsonText(uuidOf(t.value))
 					case "code":
@@ -2191,6 +2316,8 @@ class Rendering {
 				return `r.pack(${this.term(h.of)})`
 			case "cosine":
 				return `Compute.cosineDistance(${this.term(h.of)}, ${this.term(h.to)})`
+			case "width":
+				return `Compute.width(${this.term(h.of)}, ${endpointDescriptors[h.span][0]})`
 		}
 	}
 
@@ -2295,9 +2422,11 @@ class Rendering {
 				case "code":
 				case "cents":
 				case "big":
+				case "date":
 				case "span":
 				case "bigSpan":
 				case "centsSpan":
+				case "dateSpan":
 				case "vector": {
 					const at = paramField(f.kind)
 					return `${f.name}: ${at.rel}.fields.${at.name}`
@@ -2506,6 +2635,9 @@ const variablesOf = (arm: RuleSpec): ReadonlyArray<Var> => {
 				term(h.of)
 				term(h.to)
 				break
+			case "width":
+				term(h.of)
+				break
 			case "literal":
 			case "count":
 				break
@@ -2681,6 +2813,8 @@ const builtArm =
 							return t.value
 						case "big":
 							return BigInt(t.value)
+						case "date":
+							return dateOf(t.value)
 						case "uuid":
 							return uuidOf(t.value)
 						case "code":
@@ -2761,6 +2895,8 @@ const builtArm =
 					return r.pack(term(h.of))
 				case "cosine":
 					return computeCore.cosineDistance(term(h.of), term(h.to))
+				case "width":
+					return computeCore.width(term(h.of), endpointDescriptors[h.span][1])
 			}
 		}
 		for (const [copy, bind] of arm.owned.entries()) {
@@ -2811,9 +2947,11 @@ const rowsDescriptor = (f: Field): unknown => {
 		case "code":
 		case "cents":
 		case "big":
+		case "date":
 		case "span":
 		case "bigSpan":
 		case "centsSpan":
+		case "dateSpan":
 		case "vector":
 			return descriptorOf(paramField(f.kind))
 	}
@@ -2866,10 +3004,10 @@ const built = (spec: QuerySpec): QueryValue => {
 }
 
 /**
- * What the engine proves of a query's root: whether get may read it, its cardinality, and its minimal keys, each over
- * its classes of equal columns (ir/keys.ts keyClasses): one column of each class, together, are a key. Each class is in
- * name order, and a key's classes by their first names. And the query as the types see it: its records, the decoded
- * record of each heading group, and its parameters, as ./heading.ts writes them.
+ * What the engine proves of a query's root: whether get may read it, its cardinality, and its minimal keys, every key
+ * its proofs state (ir/keys.ts keyFactors), each over its classes of equal columns: one column of each class, together,
+ * are a key. Each class is in name order, and a key's classes by their first names. And the query as the types see it:
+ * its records, the decoded record of each heading group, and its parameters, as ./heading.ts writes them.
  */
 interface Proved {
 	/** Whether get may read the query, and its cardinality, under what every reading of its flags states. */
@@ -3381,6 +3519,7 @@ const keyValueText = (type: ScalarType): string => {
 		case "text":
 		case "bits":
 		case "range8":
+		case "rangeDate":
 		case "vector":
 		case "exactInteger":
 		case "exactMoney":
@@ -3619,9 +3758,21 @@ const spanNotes = (spec: QuerySpec): ReadonlyArray<AgreementNote> =>
 		...Arr.flatMap(arm.filters, (p): ReadonlyArray<AgreementNote> => {
 			switch (p.kind) {
 				case "allen":
-					return p.right.kind === "param" ? ["a span parameter opposite r.allen"] : []
+					return [
+						...(p.right.kind === "param" ? ["a span parameter opposite r.allen" as const] : []),
+						...(isDates(p.left) ? ["r.allen over date spans" as const] : []),
+						...(isDates(p.right) && p.right.kind === "param"
+							? ["a date span parameter" as const]
+							: [])
+					]
 				case "pointIn":
-					return p.span.kind === "param" ? ["a span parameter opposite r.pointIn"] : []
+					return [
+						...(p.span.kind === "param" ? ["a span parameter opposite r.pointIn" as const] : []),
+						...(isDates(p.span) ? ["a date's point test" as const] : []),
+						...(isDates(p.span) && p.span.kind === "param"
+							? ["a date span parameter" as const]
+							: [])
+					]
 				case "cmp":
 				case "and":
 				case "or":
@@ -3632,18 +3783,32 @@ const spanNotes = (spec: QuerySpec): ReadonlyArray<AgreementNote> =>
 		...Arr.flatMap(arm.head, ([, h]): ReadonlyArray<AgreementNote> => {
 			switch (h.kind) {
 				case "produce":
-					return h.right.kind === "param" ? ["a producer over a span parameter"] : []
+					return [
+						...(h.right.kind === "param" ? ["a producer over a span parameter" as const] : []),
+						...(isDates(h.left) ? ["a producer over date spans" as const] : []),
+						...(isDates(h.right) && h.right.kind === "param"
+							? ["a date span parameter" as const]
+							: [])
+					]
+				case "pack":
+					return isDates(h.of) ? ["a producer over date spans"] : []
 				case "cosine":
 					return h.to.kind === "param" ? ["a distance to a vector parameter"] : []
+				case "width":
+					return [h.span === "dateSpan" ? "a width in days" : "a width over integer endpoints"]
 				case "term":
 				case "literal":
 				case "count":
 				case "fold":
-				case "pack":
 					return []
 			}
 		})
 	])
+
+/** Whether a term is a span of dates: a variable of one, or a parameter declared at one. */
+const isDates = (t: Term): boolean =>
+	(t.kind === "var" && t.v.field.kind === "dateSpan") ||
+	(t.kind === "param" && t.at.kind === "dateSpan")
 
 /**
  * The variables a filter fixes: one an equality compares with a value fixed per binding, a parameter or a constant, and
@@ -4169,8 +4334,8 @@ const programOf = (
 			...some(["Brand", "Effect", "Option", "Stream"], "effect", "import type"),
 			...some(["Compute"], entries.compute, "import"),
 			...some(["ALLEN"], entries.allen, "import"),
-			...some(["pg", "uuid", "Vector"], entries.fields, "import"),
-			...some(["Decimal", "Money", "Span", "Uuid"], entries.fields, "import type"),
+			...some(["date", "pg", "uuid", "Vector"], entries.fields, "import"),
+			...some(["CalendarDate", "Decimal", "Money", "Span", "Uuid"], entries.fields, "import type"),
 			...some(["query", "v"], entries.query, "import"),
 			...some(
 				["EvidenceOfQuery", "HeadOf", "ParamsOf", "ParamType", "VarsOf"],

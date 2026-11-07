@@ -47,6 +47,7 @@ const carrierTypes = (vectorSchema: string): Readonly<Record<Carrier, string>> =
 	bits: "bit",
 	range4: "int4range",
 	range8: "int8range",
+	rangeDate: "daterange",
 	vector: `${vectorSchema}.vector`,
 	exactInteger: "numeric",
 	exactMoney: "numeric"
@@ -55,7 +56,8 @@ const carrierTypes = (vectorSchema: string): Readonly<Record<Carrier, string>> =
 /** The polymorphic input type PostgreSQL resolves an operator class or aggregate over, for the generic carriers. */
 const polymorphic: Partial<Record<Carrier, string>> = {
 	range4: "anyrange",
-	range8: "anyrange"
+	range8: "anyrange",
+	rangeDate: "anyrange"
 }
 
 /**

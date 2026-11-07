@@ -14,7 +14,7 @@ import {
 	type NumericBound,
 	numericBoundOf,
 	numericTypmodOf,
-	type Roster,
+	Roster,
 	rosterOf,
 	type ScalarType,
 	type StorageCarrier,
@@ -196,7 +196,8 @@ export const scalarOfSpec = (spec: TypeSpec): ScalarType => {
 		specDesc(spec),
 		{
 			kind: "builder",
-			roster: (name) => (roster?.closed === name ? roster.handles : noRosters(name))
+			roster: (name) =>
+				roster?.closed === name ? new Roster(name, roster.handles) : noRosters(name)
 		},
 		SourceLoc("a generated field", [])
 	)
@@ -304,6 +305,11 @@ const carrierDraws: { readonly [C in StorageCarrier]: CarrierDraw } = {
 		kind: "undrawn",
 		reason:
 			"a date's comparisons, codec and text are judged by its parse's differential over every boundary of the date form, on its own installation"
+	},
+	rangeDate: {
+		kind: "undrawn",
+		reason:
+			"a date span's relations, memberships and algebra are those of a span over its day numbers, judged against PostgreSQL's daterange operators on its own installation"
 	},
 	bits: {
 		kind: "undrawn",
@@ -811,6 +817,7 @@ export const twinSpellings: { readonly [C in Carrier]: TwinSpellings } = {
 	bits: canonicalOnly,
 	range4: canonicalOnly,
 	range8: canonicalOnly,
+	rangeDate: canonicalOnly,
 	vector: {
 		kind: "twins",
 		of: (literal) =>

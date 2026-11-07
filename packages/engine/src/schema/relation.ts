@@ -26,6 +26,7 @@ import {
 	type SlotsDesc,
 	type Writing
 } from "#compiler/ir/desc.ts"
+import { Roster as RosterValue } from "#compiler/ir/scalar.ts"
 import { handleTerm } from "#compiler/scalar/compute/builders.ts"
 import {
 	type ClosedReadTyping,
@@ -821,7 +822,7 @@ const closedReadTyping = (
 	const roster = lastDesc.roster
 	const env: ScalarEnv = {
 		kind: "builder",
-		roster: (n) => (n === roster ? handles : undefined)
+		roster: (n) => (n === roster ? new RosterValue(n, handles) : undefined)
 	}
 	const set = orThrow(scalarTypeOf({ kind: "bits", roster }, env, SourceLoc(label, [])))
 	return {

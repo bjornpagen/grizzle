@@ -1,6 +1,8 @@
+import type { DeclaredName } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
+import { Roster } from "#compiler/ir/scalar.ts"
 import type { SchemaInfo } from "#compiler/query/build/scope.ts"
 import { type Typing, typed, untyped } from "#compiler/scalar/compute/term.ts"
 import { commonType, compatible } from "#compiler/scalar/compute/types.ts"
@@ -103,7 +105,10 @@ export const schemaInfo = (value: unknown, over: WrittenOver): SchemaInfo => {
 		over,
 		env: Object.freeze({
 			kind: "builder",
-			roster: (name: string) => rosters.get(name)
+			roster: (name: DeclaredName) => {
+				const handles = rosters.get(name)
+				return handles === undefined ? undefined : new Roster(name, handles)
+			}
 		})
 	})
 }

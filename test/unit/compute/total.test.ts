@@ -17,7 +17,7 @@ import { Money } from "#compiler/scalar/values/money.ts"
 import { textLookup } from "#compiler/text/refinement.ts"
 import { assert, refused, succeeded } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { patternMember } from "#test/support/oracle/reference/evaluate.ts"
+import { referencePatterns } from "#test/support/oracle/reference/evaluate.ts"
 import {
 	baseParams,
 	testContract,
@@ -42,7 +42,7 @@ import {
 const options = {
 	loc: SourceLoc("test", []),
 	fieldType: (d: Parameters<typeof scalarOfDesc>[0]) => Result.ok(scalarOfDesc(d)),
-	regexMember: patternMember,
+	patterns: referencePatterns(),
 	patternLanguage: textLookup
 }
 

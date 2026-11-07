@@ -97,6 +97,7 @@ import type {
 	StatedDelivery,
 	Var
 } from "#test/support/oracle/public/program.ts"
+import { outputText } from "#test/support/wire.ts"
 
 /**
  * Typed rows at bind: a query's decoder binds to the layouts of its compiled program only where every field it delivers
@@ -676,7 +677,7 @@ const mixedRead = (
 						"a cell"
 					)
 				}
-				return read({ group: g, texts, children: [] })
+				return read({ group: g, texts: Arr.map(texts, outputText), children: [] })
 			})
 		})
 		const decoded = succeeded(mixedRows(root, rows), `a mixed root's decoded rows (${artifact})`)

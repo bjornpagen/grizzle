@@ -101,7 +101,8 @@ export const declaredDescOf = (
 		case "bits":
 			return Result.ok({ kind: "bits", roster: type.roster.closed })
 		case "range4":
-		case "range8": {
+		case "range8":
+		case "rangeDate": {
 			const endpoint = declaredDescOf(type.span.endpoint, contracts)
 			if (!endpoint.ok) {
 				return endpoint

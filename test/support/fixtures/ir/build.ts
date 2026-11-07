@@ -50,7 +50,7 @@ import {
 	type ValidDag,
 	type VarDecl
 } from "#compiler/ir/rel.ts"
-import { baseOf, type ScalarType, spanCarrierOf } from "#compiler/ir/scalar.ts"
+import { baseOf, Roster, type ScalarType, spanCarrierOf } from "#compiler/ir/scalar.ts"
 import { type AggregateName, countOverload, unaryOverload } from "#compiler/scalar/aggregate.ts"
 import {
 	definedIdOf,
@@ -180,6 +180,7 @@ const literalOf = (value: LiteralDesc, type: ScalarType): TypedLiteral => {
 		case "money":
 		case "range4":
 		case "range8":
+		case "rangeDate":
 		case "vector":
 		case "exactInteger":
 		case "exactMoney":
@@ -196,7 +197,7 @@ export class SchemaModel {
 	readonly fixture: OwnedFixture
 	readonly desc: SchemaDesc
 	readonly relations: ReadonlyMap<string, SchemaRelation>
-	readonly #rosters = new Map<string, Arr.NonEmptyReadonlyArray<string>>()
+	readonly #rosters = new Map<string, Roster>()
 
 	constructor(fixture: OwnedFixture, derived: Readonly<Record<string, DerivedShape>>) {
 		this.fixture = fixture
@@ -204,7 +205,7 @@ export class SchemaModel {
 		const owned = Rec.values(fixture.owned.relations)
 		for (const r of owned) {
 			if (r.kind === "closed") {
-				this.#rosters.set(r.name, r.desc.handles)
+				this.#rosters.set(r.name, new Roster(r.name, r.desc.handles))
 			}
 		}
 		const relations = new Map<string, SchemaRelation>()

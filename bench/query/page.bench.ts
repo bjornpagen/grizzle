@@ -50,6 +50,7 @@ import {
 } from "#bench/query/support/plans.ts"
 import type { BinaryOperator } from "#compiler/sql/ast.ts"
 import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
+import { paramText } from "#test/support/wire.ts"
 
 /**
  * R05: native row seeks for eligible orders.
@@ -131,7 +132,7 @@ export default defineGate({
 			const account = BigInt(1 + Math.floor(options.accounts / 3))
 			const page = compile(fx, byAmount, pageReading)
 			const pages = pageRuntime(page)
-			const boundary = ["50000", "0"]
+			const boundary = [paramText("50000"), paramText("0")]
 			const call = { variant: "after", size: pageSize, boundary } as const
 			const after = yield* deliverPage(runtime, pages, "optimized", { account }, call)
 			const afterConservative = yield* deliverPage(
@@ -185,7 +186,11 @@ export default defineGate({
 			const genericSeekPlan = serverStatementPlanOf(seek, "generic", 0)
 			const dropped = compile(fx, amountsOf, pageReading)
 			const droppedPages = pageRuntime(dropped)
-			const droppedCall = { variant: "after", size: pageSize, boundary: ["50000"] } as const
+			const droppedCall = {
+				variant: "after",
+				size: pageSize,
+				boundary: [paramText("50000")]
+			} as const
 			const droppedOptimized = yield* deliverPage(
 				runtime,
 				droppedPages,

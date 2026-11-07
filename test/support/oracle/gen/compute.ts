@@ -35,7 +35,7 @@ import {
 	type PlainCarrier,
 	plainType
 } from "#compiler/scalar/compute/types.ts"
-import { regexMember } from "#compiler/scalar/regex/nfa.ts"
+import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { bareEnv, scalarTypeOf } from "#compiler/scalar/registry.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
@@ -415,6 +415,7 @@ const numberLiteral = (carrier: Carrier, n: number): LiteralDesc => {
 		case "bits":
 		case "range4":
 		case "range8":
+		case "rangeDate":
 		case "vector":
 			return n
 	}
@@ -772,7 +773,7 @@ const lowerEnv = (heading: Heading, hooks: LowerHooks): LowerEnv => ({
 			? Result.err(refusal(SourceLoc("a generated cast", []), "a generated cast target"))
 			: Result.ok(t)
 	},
-	regexMember,
+	patterns: new CompilePatterns(),
 	patternLanguage: textLookup,
 	extension: noExtension,
 	closed: noClosedRelations("a generated term reads no closed relation")

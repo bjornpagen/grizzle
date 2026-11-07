@@ -918,6 +918,7 @@ export const typeRefusals = [
 	"a tree is rewritten whole: insert its root with the whole tree nested",
 	"a tree's root field is a caller's field of its relation",
 	"a union's arms deliver each field at one type",
+	"a value its contract refuses: it lacks a fact the contract declares",
 	"a value proved finite: guard it with Compute.when(Compute.isFinite(x), (x) => …, otherwise)",
 	"a whole entry is a relation of the base under its own name",
 	"aggregate and span producer in one head: a producer yields facts per binding, an aggregate folds them",

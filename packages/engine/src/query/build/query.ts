@@ -363,7 +363,12 @@ export const queryOf = <
 				)
 			}
 			checkDelivery(delivery, heading, label)
-			const attached = runAttach(n, (scope) => child(parentVars(scope, heading, carriers)), label)
+			const attached = runAttach(
+				n,
+				(scope) => child(parentVars(scope, heading, carriers)),
+				label,
+				state.schema.over
+			)
 			return next(
 				{ kind: "attach", input: stage, attach: attached.desc },
 				pending,

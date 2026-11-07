@@ -24,6 +24,7 @@ import * as search from "#test/support/fixtures/api/search.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { schemaNameGen } from "#test/support/kernel/dict.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { paramText } from "#test/support/wire.ts"
 import { codecOf } from "#test/unit/codec/support.ts"
 
 const dims = search.DocumentVector.dimensions
@@ -201,10 +202,12 @@ describe("the cosine domain", () => {
 								}
 								assert.equal(
 									succeeded(codec.encode(refined)),
-									`[${Arr.join(
-										Arr.map([...buffer], (x) => String(Object.is(x, -0) ? 0 : x)),
-										","
-									)}]`
+									paramText(
+										`[${Arr.join(
+											Arr.map([...buffer], (x) => String(Object.is(x, -0) ? 0 : x)),
+											","
+										)}]`
+									)
 								)
 								if (!zeroedAfter) {
 									return

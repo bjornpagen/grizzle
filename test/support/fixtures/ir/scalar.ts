@@ -14,6 +14,7 @@ import {
 	type Carrier,
 	type DeclaredType,
 	numericBoundOf,
+	Roster,
 	type ScalarType,
 	sameScalarType
 } from "#compiler/ir/scalar.ts"
@@ -41,7 +42,10 @@ export const scalarOf = (
 ): DeclaredType => {
 	const env: ScalarEnv = {
 		kind: "builder",
-		roster: (closed) => rosters[closed]
+		roster: (closed) => {
+			const handles = rosters[closed]
+			return handles === undefined ? undefined : new Roster(closed, handles)
+		}
 	}
 	const t = scalarTypeOf(desc, env, SourceLoc("a test fixture's scalar type", []))
 	if (!t.ok) {
@@ -99,6 +103,7 @@ const exactWidening = (
 		case "numeric":
 		case "range4":
 		case "range8":
+		case "rangeDate":
 		case "text":
 		case "uuid":
 		case "date":

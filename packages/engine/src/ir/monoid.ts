@@ -89,6 +89,7 @@ const summable = (t: ScalarType): boolean => {
 		case "bits":
 		case "range4":
 		case "range8":
+		case "rangeDate":
 		case "vector":
 		case "exactInteger":
 		case "exactMoney":
@@ -118,6 +119,7 @@ const bounded = (t: ScalarType): boolean => {
 		case "bits":
 		case "range4":
 		case "range8":
+		case "rangeDate":
 		case "vector":
 		case "exactInteger":
 		case "exactMoney":
@@ -163,6 +165,7 @@ const zeroOf = (t: ScalarType): TypedLiteral => {
 		case "bits":
 		case "range4":
 		case "range8":
+		case "rangeDate":
 		case "vector":
 		case "exactInteger":
 		case "exactMoney":
@@ -195,6 +198,7 @@ const leastOf = (t: ScalarType): TypedLiteral => {
 		case "bits":
 		case "range4":
 		case "range8":
+		case "rangeDate":
 		case "vector":
 		case "exactInteger":
 		case "exactMoney":

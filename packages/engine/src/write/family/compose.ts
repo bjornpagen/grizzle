@@ -7,7 +7,7 @@
  * relation no family has as a member is at depth 0, a member of a family whose owner is at depth d at d + 1 or more):
  *
  * - every relation's deletes first, deepest first: a member is deleted before an owner it references;
- * - then every relation's updates in place, deepest first;
+ * - then every relation's refills, deepest first, and its updates in place, deepest first;
  * - then every family's counts;
  * - then every relation's inserts, shallowest first: a member is inserted only after its owners.
  *
@@ -28,8 +28,8 @@ const byDepth = (
 ): ReadonlyArray<RelationPlanAt> =>
 	plans.toSorted((a, b) => (order === "deepest" ? b.depth - a.depth : a.depth - b.depth))
 
-/** One changeset's family writes as one plan: deletes and updates deepest first, then counts, then inserts shallowest
- * first. */
+/** One changeset's family writes as one plan: deletes, refills and updates deepest first, then counts, then inserts
+ * shallowest first. */
 export const compose = (
 	relations: ReadonlyArray<RelationPlanAt>,
 	counts: ReadonlyArray<Phase<"count">>
@@ -38,8 +38,9 @@ export const compose = (
 	return [
 		deepest.flatMap((p) => p.plan[0]),
 		deepest.flatMap((p) => p.plan[1]),
+		deepest.flatMap((p) => p.plan[2]),
 		counts.flat(),
-		byDepth(relations, "shallowest").flatMap((p) => p.plan[2])
+		byDepth(relations, "shallowest").flatMap((p) => p.plan[3])
 	]
 }
 

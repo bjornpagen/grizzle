@@ -1,6 +1,6 @@
 import type { NodeId } from "#compiler/core/ids.ts"
 import type { RangeOpCode, ScalarExpr } from "#compiler/ir/expr.ts"
-import { baseOf } from "#compiler/ir/scalar.ts"
+import { baseOf, isSpanCarrier } from "#compiler/ir/scalar.ts"
 import { nativeOp } from "#compiler/scalar/compute/registry.ts"
 
 export type Atom =
@@ -50,7 +50,7 @@ const spanOperatorCodes: ReadonlySet<RangeOpCode> = new Set([
 
 const isSpanType = (e: ScalarExpr): boolean => {
 	const c = baseOf(e.type).carrier
-	return c === "range4" || c === "range8"
+	return isSpanCarrier(c)
 }
 
 /** What the expression `e` is relative to the local node, which its column references name by its label. A cast of a parameter, or an operation over parameters and outer values,

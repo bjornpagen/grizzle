@@ -30,6 +30,7 @@ import { defect } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { isList } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
+import type { ParamText } from "#compiler/core/wire.ts"
 import {
 	integerRanges,
 	moneyDigits,
@@ -55,7 +56,7 @@ interface DecodedCursor<Cs extends ReadonlyArray<CursorComparator>> {
 	/** The boundary values, the decoded host values of the comparators' carriers. */
 	readonly values: CursorTuple<Cs>
 	/** Each value's canonical text, the seek predicate's parameter text (bound untyped and cast to the base type). */
-	readonly texts: ReadonlyArray<string>
+	readonly texts: ReadonlyArray<ParamText>
 }
 
 export interface CursorSpec<Cs extends ReadonlyArray<CursorComparator>> {
@@ -94,6 +95,12 @@ export interface CursorCodec<Cs extends ReadonlyArray<CursorComparator>> {
 	 * outside the comparators' types is refused as encode refuses it.
 	 */
 	readonly admit: (tuple: unknown) => Result.Result<string, CursorError>
+	/**
+	 * The one check of a caller's token, foreign input parsed where it enters: its tuple holds exactly one value per
+	 * comparator, in comparator order, each read at its comparator's type. The page compiler allocates one boundary
+	 * placeholder per comparator, at its position (lower/shapes/page/seek.ts BoundarySlots), so an anchored request binds
+	 * each from the decoded texts at that position and checks nothing again (adapter/page/execute.ts anchoredBinding).
+	 */
 	readonly decode: (token: unknown) => Result.Result<DecodedCursor<Cs>, CursorError>
 }
 
@@ -187,6 +194,8 @@ export const cursorValueMaxBytes = (type: ScalarType): number | "unbounded" => {
 			return rangeMaxText("int4")
 		case "range8":
 			return rangeMaxText("int8")
+		case "rangeDate":
+			return rangeDelimiters + dateTextLength + dateTextLength
 		case "vector": {
 			const { dims } = type.typmod
 			return vectorDelimiters + dims * floatMaxText + Math.max(dims - 1, 0)
@@ -227,6 +236,8 @@ export const cursorValueMinBytes = (type: ScalarType): number => {
 		case "range4":
 		case "range8":
 			return "[0,1)".length
+		case "rangeDate":
+			return rangeDelimiters + dateTextLength + dateTextLength
 		case "vector": {
 			const { dims } = type.typmod
 			return vectorDelimiters + dims + Math.max(dims - 1, 0)
@@ -421,7 +432,7 @@ export const cursorCodec = <const Cs extends ReadonlyArray<CursorComparator>>(
 			return Result.err(cursorError("cursorMalformed"))
 		}
 		const values: Array<unknown> = []
-		const texts: Array<string> = []
+		const texts: Array<ParamText> = []
 		let i = 0
 		for (const reader of readers) {
 			const valueBytes = fields.tuple[i]

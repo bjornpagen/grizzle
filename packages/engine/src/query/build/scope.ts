@@ -1,12 +1,36 @@
+import { CompileError } from "#compiler/core/errors.ts"
 import { captureLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import type { InteriorDesc } from "#compiler/ir/desc.ts"
 import type { VarRef } from "#compiler/ir/open.ts"
 import type { ScalarEnv } from "#compiler/scalar/registry.ts"
-import type { WrittenOver } from "#compiler/schema/level.ts"
+import { isLevelOver, type WrittenOver } from "#compiler/schema/level.ts"
+import { malformed } from "#compiler/schema/protocol.ts"
 
 /** A builder location: the label, the path under it (empty at the label itself) and the user's call site. */
 export const buildLoc = (label: string, path: ReadonlyArray<string | number>): SourceLoc =>
 	captureLoc(label, path)
+
+/**
+ * Refuses a query written over `written` that a rule or query over `over` reads, where it is no level of `over`'s
+ * schema: a match's or a negation's source (rule.ts) and an attachment's child (attach.ts runAttach), ForeignLevel. A
+ * query rebuilt from its Description alone is written over no schema, so no level holds it or is held by it.
+ */
+export const requireLevel = (written: WrittenOver, over: WrittenOver, label: string): void => {
+	if (written.kind === "description" || over.kind === "description") {
+		throw malformed(
+			label,
+			"a query, and the rule or query that reads it, written over a schema: a query rebuilt from its Description alone names none, so no level holds it or is held by it"
+		)
+	}
+	if (!isLevelOver(written, over)) {
+		throw CompileError.make({
+			_tag: "ForeignLevel",
+			at: buildLoc(label, []),
+			written: written.desc.name,
+			over: over.desc.name
+		})
+	}
+}
 
 /**
  * What a query knows about the schema it is written over: the schema value, when the query was built by query(S), what

@@ -179,6 +179,39 @@ export interface Literal<out V> {
 /** The JavaScript value type a constant states (Literal), and never for any other term. */
 type LiteralValueOf<B> = B extends Literal<infer V> ? (unknown extends V ? never : V) : never
 
+/** Whether a contract's values have the fact K (F) and a JavaScript value TypeScript sees, of facts G, lacks it. */
+type Lacks<F, G, K extends keyof Facts> = F extends { readonly [P in K]-?: true }
+	? G extends { readonly [P in K]-?: true }
+		? false
+		: true
+	: false
+
+/**
+ * Whether a contract whose values have the facts F refuses a JavaScript value V that TypeScript sees: V lacks one of
+ * them, a zero where the contract declares nonzero, a negative value where it declares nonnegative. A contract declares
+ * only facts its predicate implies, which compilation verifies, so its predicate refuses V (ContractLiteral). A value
+ * TypeScript cannot see, and one outside bounds its predicate states, which no type carries, is compilation's to judge.
+ */
+export type Refutes<F, V> =
+	Seen<V> extends true
+		? true extends
+				| Lacks<F, SeenFacts<V>, "nonzero">
+				| Lacks<F, SeenFacts<V>, "nonnegative">
+				| Lacks<F, SeenFacts<V>, "finite">
+			? true
+			: false
+		: false
+
+/**
+ * A JavaScript value's own requirement where a contract whose values have the facts F reads it: its contract's refusal
+ * where the types decide it (Refutes), stated only where the call takes the value's type (Taken).
+ */
+export type ContractAdmits<Taken extends boolean, F, V> = [Taken] extends [true]
+	? Refutes<F, V> extends true
+		? Refusal<"a value its contract refuses: it lacks a fact the contract declares">
+		: unknown
+	: unknown
+
 /**
  * Whether an operand, a term or a JavaScript value, is proved to have the fact K: a term by its facts (a contract's
  * declared facts, a guard's inside its branch) or, a constant, by its value; a JavaScript value by its value

@@ -2,6 +2,7 @@ import { type Column, convertColumn } from "#compiler/core/decoder.ts"
 import { malformedDescription, unsupported } from "#compiler/core/errors.ts"
 import { int4Max, int8Max } from "#compiler/core/limits.ts"
 import { captureLoc, SourceLoc } from "#compiler/core/loc.ts"
+import { dayNumber, lastCalendarDate } from "#compiler/ir/date.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import { baseOf } from "#compiler/ir/scalar.ts"
 import {
@@ -13,8 +14,21 @@ import {
 import { convertSpan } from "#compiler/scalar/values/convert.ts"
 import type { Span } from "#compiler/scalar/values/span.ts"
 
-/** The width as the caller gave it, admitted, or the refusal: a positive value of the endpoint's base type. */
-const widthOf = (carrier: "int4" | "int8", width: unknown): number | bigint => {
+/**
+ * The width as the caller gave it, admitted, or the refusal: a positive value of the endpoint's base type, a count of
+ * days over date, at most the days from 0001-01-01 to 9999-12-31.
+ */
+const widthOf = (carrier: "int4" | "int8" | "date", width: unknown): number | bigint => {
+	if (carrier === "date") {
+		const most = dayNumber(lastCalendarDate)
+		if (typeof width !== "number" || !Number.isInteger(width) || width < 1 || width > most) {
+			throw malformedDescription(
+				captureLoc("span width", []),
+				`a span width over date: a JavaScript integer count of days 1-${most}`
+			)
+		}
+		return width
+	}
 	if (carrier === "int4") {
 		if (
 			typeof width !== "number" ||
@@ -61,19 +75,20 @@ interface SpanParts {
 }
 
 /**
- * span(endpoint, width?): a bounded half-open extent over an integer endpoint.
+ * span(endpoint, width?): a bounded half-open extent over an integer or a date endpoint.
  *
  * Span support is a separately admitted capability: an endpoint is a descriptor whose type has the
- * registry's spanEndpoint capability, which is exactly pg.integer, pg.bigint and contracts over them, aliases
+ * registry's spanEndpoint capability, which is exactly pg.integer, pg.bigint, date and contracts over them, aliases
  * included. Every other endpoint is refused with a capability diagnostic naming the endpoint type, the operation and
  * the missing capability: smallint (int4range plus endpoint bounds would be required), numeric, the
  * floats, money, and the serial family, a generation declaration and no value type, which is refused by its writing
  * (registry.ts serialNameOf) because its type is its integer's. There is no slow mode and no custom range type.
  *
- * The span lowers to int4range over an integer endpoint and int8range over a bigint one; a contract
- * endpoint keeps the base range, and its endpoints are branded. The optional width fixes the extent's
+ * The span lowers to int4range over an integer endpoint, int8range over a bigint one and daterange over a date; a
+ * contract endpoint keeps the base range, and its endpoints are branded. The optional width fixes the extent's
  * length, upper - lower, a positive value of the endpoint's base type: a JavaScript integer
- * up to int4Max over integer, a bigint up to int8Max over bigint (ir/carriers.ts).
+ * up to int4Max over integer, a bigint up to int8Max over bigint (ir/carriers.ts), a JavaScript integer count of days
+ * over date.
  *
  * The span's column reads range_out's "[start,end)" once and converts each endpoint with the endpoint descriptor's own
  * column, so a span over a contract delivers its branded endpoints: span(Cents) yields Span<Cents>.
@@ -106,7 +121,10 @@ export const spanParts = (endpoint: unknown, rest: ReadonlyArray<unknown>): Span
 	if (!unchecked.ok) {
 		throw unchecked.error
 	}
-	const given = width === undefined ? undefined : widthOf(base === "int4" ? "int4" : "int8", width)
+	const given =
+		width === undefined
+			? undefined
+			: widthOf(base === "int4" ? "int4" : base === "date" ? "date" : "int8", width)
 	return {
 		endpoint: described,
 		width: given,

@@ -24,6 +24,7 @@ import { compareStrings } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
 import { sha256Hex } from "#compiler/core/sha256.ts"
 import { isValidText } from "#compiler/core/text.ts"
+import { TupleMap } from "#compiler/core/tuple-map.ts"
 import {
 	isMoneyPayload,
 	isVectorPayload,
@@ -31,9 +32,10 @@ import {
 	vectorMaxDimensions,
 	vectorTag
 } from "#compiler/ir/carriers.ts"
+import type { CalendarDate } from "#compiler/ir/date.ts"
 import { decimalTag, isDecimalPayload } from "#compiler/ir/decimal.ts"
 import { type Fact, factNames, factsSorted } from "#compiler/ir/proof.ts"
-import { textLanguageShape } from "#compiler/ir/scalar-shape.ts"
+import { calendarDateShape, textLanguageShape } from "#compiler/ir/scalar-shape.ts"
 import {
 	languageOctets,
 	type NumericBound,
@@ -59,7 +61,12 @@ export type LiteralDesc =
 	| boolean
 	| bigint
 	| Canonicalizable
-	| { readonly span: { readonly start: number | bigint; readonly end: number | bigint } }
+	| {
+			readonly span: {
+				readonly start: number | bigint | CalendarDate
+				readonly end: number | bigint | CalendarDate
+			}
+	  }
 	| { readonly float: "NaN" | "Infinity" | "-Infinity" }
 	| { readonly handles: ReadonlyArray<string> }
 
@@ -1233,7 +1240,8 @@ export const renameQueryParams = (q: QueryDesc, rename: ReadonlyMap<string, stri
 const name = S.refine(S.nonEmptyString, isValidText, "a nonempty storable string")
 const loc = { loc: S.sourceLoc } as const
 
-const integerOrBigint = S.unionShape(S.integer, S.bigint)
+/** A span literal's endpoint: an integer's or a bigint's, or a date's text. */
+const spanEndpointShape = S.unionShape(S.integer, S.bigint, calendarDateShape)
 
 const decimalShape = S.canonicalTagged(
 	decimalTag,
@@ -1261,7 +1269,7 @@ export const literalDescShape: S.Shape<LiteralDesc> = S.unionShape(
 	decimalShape,
 	moneyShape,
 	vectorShape,
-	S.struct({ span: S.struct({ start: integerOrBigint, end: integerOrBigint }) }),
+	S.struct({ span: S.struct({ start: spanEndpointShape, end: spanEndpointShape }) }),
 	S.struct({ float: S.literalsShape(["NaN", "Infinity", "-Infinity"]) }),
 	S.struct({ handles: S.uniqueStrings("a set's handles", S.nonEmptyString) })
 )
@@ -1817,15 +1825,15 @@ const closedFieldAdmits = (desc: FieldDesc): boolean => {
 }
 
 /**
- * The text that tells two rows' keys apart: their key fields' values, in key order, when each is a handle, the one
+ * The values that tell two rows' keys apart: their key fields' values, in key order, when each is a handle, the one
  * value a closed id holds; undefined when one is not.
  */
-const rowKeyText = (
+const rowKeyValues = (
 	key: NonEmptyReadonlyArray<string>,
 	row: Readonly<Record<string, LiteralDesc>>
-): string | undefined => {
+): ReadonlyArray<string> | undefined => {
 	const values = key.map((f) => row[f])
-	return values.every((v): v is string => typeof v === "string") ? values.join("\u0000") : undefined
+	return values.every((v): v is string => typeof v === "string") ? values : undefined
 }
 
 declare const admittedBrand: unique symbol
@@ -1935,17 +1943,17 @@ const relationDescShape: S.Shape<RelationDesc> = admittedOr(
 					if (!slotted.every((at, i) => at >= 0 && at > (slotted[i - 1] ?? -1))) {
 						return false
 					}
-					const keys = new Set<string>()
+					const keys = new TupleMap<string, Readonly<Record<string, LiteralDesc>>>()
 					for (const row of c.rows) {
 						const own = Object.keys(row).toSorted(compareStrings)
 						if (own.length !== fields.length || !own.every((f, i) => f === fields[i])) {
 							return false
 						}
-						const text = rowKeyText(c.key, row)
-						if (text === undefined || keys.has(text)) {
+						const values = rowKeyValues(c.key, row)
+						if (values === undefined || keys.has(values)) {
 							return false
 						}
-						keys.add(text)
+						keys.set(values, row)
 					}
 					return true
 				},

@@ -44,6 +44,7 @@ import {
 	type RuleDesc,
 	textDesc
 } from "#test/support/fixtures/ir/desc.ts"
+import { Identities, type Interned } from "#test/support/kernel/identity.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { canonicalFacts, type GenFacts } from "#test/support/oracle/gen/facts.ts"
 import type { GenParam } from "#test/support/oracle/gen/query.ts"
@@ -55,7 +56,6 @@ import {
 	Reference,
 	unobserved
 } from "#test/support/oracle/reference/evaluate.ts"
-import { Identities, type Interned } from "#test/support/oracle/reference/identity.ts"
 import { valueIdentity } from "#test/support/oracle/reference/values.ts"
 import { pickFrom, pickIndex } from "#test/support/pick.ts"
 import { checking, checkOptions } from "#test/support/policy.ts"
@@ -957,6 +957,7 @@ const filler = (type: ScalarType, i: number): TypedLiteral => {
 		case "float8":
 		case "range4":
 		case "range8":
+		case "rangeDate":
 		case "vector":
 		case "exactInteger":
 		case "exactMoney":

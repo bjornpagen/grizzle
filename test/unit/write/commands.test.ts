@@ -74,6 +74,7 @@ import { type FoldMonoid, folded } from "#test/support/families/fold.ts"
 import { lawNamesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { checking, owning } from "#test/support/policy.ts"
+import { outputRows } from "#test/support/wire.ts"
 import { descOf, parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 
 /**
@@ -1966,7 +1967,7 @@ const runStep =
 					? Result.ok(flights.chunks)
 					: flights.writes(
 							Arr.map(flights.reads, (r) =>
-								readRows(db, defined(familyOfStep(r.family), "a read's family"))
+								outputRows(readRows(db, defined(familyOfStep(r.family), "a read's family")))
 							)
 						)
 			if (!planned.ok) {

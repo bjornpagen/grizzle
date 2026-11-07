@@ -19,10 +19,8 @@ import * as Result from "#compiler/core/result.ts"
 import type { Family } from "#compiler/ir/family.ts"
 import type { LawField, LawRelation, RelationInfo } from "#compiler/ir/law.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
-import { regexMember } from "#compiler/scalar/regex/nfa.ts"
 import { admittedText, admitValue } from "#compiler/scalar/values/identity.ts"
 import { builtinType } from "#compiler/sql/build.ts"
-import { textsKey } from "#compiler/write/family/draw.ts"
 import {
 	closedLeaf,
 	type ColumnKey,
@@ -33,6 +31,7 @@ import {
 	hostEvaluator
 } from "#compiler/write/family/fold.ts"
 import { rowLayout } from "#compiler/write/family/statements.ts"
+import { Identities, type Interned } from "#test/support/kernel/identity.ts"
 import {
 	type ColumnType,
 	type InstallPlan,
@@ -112,6 +111,7 @@ const lawColumnType = (type: ScalarType): ColumnType | undefined => {
 		case "bits":
 		case "range4":
 		case "range8":
+		case "rangeDate":
 		case "vector":
 		case "exactInteger":
 		case "exactMoney":
@@ -127,7 +127,7 @@ export const familyRows = (
 	plan: InstallPlan,
 	facts: Readonly<Record<string, ReadonlyArray<Readonly<Record<string, unknown>>>>>
 ): Result.Result<ReadonlyMap<string, FilledRelation>, CompileError> => {
-	const { order, closed } = plan.fill
+	const { order, closed, patterns } = plan.fill
 	const families = order.families
 	const codes = plan.codes
 	const relations = new Map<string, RelationInfo>()
@@ -151,12 +151,14 @@ export const familyRows = (
 		Arr.filter(families, (f) => f.owner.name === relation)
 	const textOf = (field: LawField, value: unknown): string =>
 		admittedText(carrierSpecOf(field.type, codes), value)
+	/** Facts' identities and groups' keys, interned: each its texts in order, never one text joined from them. */
+	const identities = new Identities()
 	/** Each relation's facts admitted, an exact repeat of a fact once, as facts are a set. */
 	const admitted = new Map<string, ReadonlyArray<Admitted>>()
 	for (const [name, relation] of relations) {
 		const fields = writtenFields(relation)
 		const names = Arr.map(fields, (f) => f.name)
-		const seen = new Set<string>()
+		const seen = new Set<Interned>()
 		const list: Array<Admitted> = []
 		const given = Rec.has(facts, name) ? (facts[name] ?? []) : []
 		for (const [index, fact] of given.entries()) {
@@ -181,7 +183,7 @@ export const familyRows = (
 				}
 				values.set(field.name, value.value)
 			}
-			const identity = textsKey(Arr.map(fields, (f) => textOf(f, values.get(f.name))))
+			const identity = identities.of(Arr.map(fields, (f) => textOf(f, values.get(f.name))))
 			if (!seen.has(identity)) {
 				seen.add(identity)
 				list.push({ values, location })
@@ -190,15 +192,15 @@ export const familyRows = (
 		admitted.set(name, list)
 	}
 	const factsOf = (relation: string): ReadonlyArray<Admitted> => admitted.get(relation) ?? []
-	/** The text of a fact's group in `family`: its member side's, or its owner side's key, which a member's names. */
-	const groupText = (family: Family, side: "member" | "owner", fact: Admitted): string =>
-		textsKey(Arr.map(family.group, (g) => textOf(g[side], fact.values.get(g[side].name))))
-	const groups = new Map<Family, ReadonlyMap<string, ReadonlyArray<Admitted>>>()
+	/** A fact's group in `family`, interned: its member side's, or its owner side's key, which a member's names. */
+	const groupOf = (family: Family, side: "member" | "owner", fact: Admitted): Interned =>
+		identities.of(Arr.map(family.group, (g) => textOf(g[side], fact.values.get(g[side].name))))
+	const groups = new Map<Family, ReadonlyMap<Interned, ReadonlyArray<Admitted>>>()
 	for (const f of families) {
-		const byOwner = new Map<string, Array<Admitted>>()
+		const byOwner = new Map<Interned, Array<Admitted>>()
 		for (const m of factsOf(f.member.name)) {
-			const text = groupText(f, "member", m)
-			byOwner.set(text, [...(byOwner.get(text) ?? []), m])
+			const group = groupOf(f, "member", m)
+			byOwner.set(group, [...(byOwner.get(group) ?? []), m])
 		}
 		groups.set(f, byOwner)
 	}
@@ -217,14 +219,14 @@ export const familyRows = (
 			),
 			families: Arr.map(owned(relation.name), (g) => ({
 				family: g.id,
-				members: Arr.map(groups.get(g)?.get(groupText(g, "owner", fact)) ?? [], (m) => {
+				members: Arr.map(groups.get(g)?.get(groupOf(g, "owner", fact)) ?? [], (m) => {
 					placed.add(m)
 					return nodeOf(g.member, g, m)
 				})
 			}))
 		}
 	}
-	const fill = filler(order, codes, hostEvaluator(codes, closedLeaf(closed), regexMember))
+	const fill = filler(order, codes, hostEvaluator(codes, closedLeaf(closed), patterns))
 	const rows = new Map<string, Array<ReadonlyMap<ColumnKey, unknown>>>()
 	const collect = (node: FilledNode): void => {
 		rows.set(node.relation, [...(rows.get(node.relation) ?? []), node.values])

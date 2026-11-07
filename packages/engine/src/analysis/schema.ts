@@ -45,7 +45,7 @@ import {
 	type TheoryRelation
 } from "#compiler/ir/law.ts"
 import { closedCell, type DeclaredKey } from "#compiler/ir/rel.ts"
-import { type ScalarType, sameScalarType, typeLabel } from "#compiler/ir/scalar.ts"
+import { Roster, type ScalarType, sameScalarType, typeLabel } from "#compiler/ir/scalar.ts"
 import { admitLiteral, refined } from "#compiler/scalar/compute/evaluate.ts"
 import { admittedLiteral } from "#compiler/scalar/compute/literal.ts"
 import {
@@ -58,7 +58,7 @@ import {
 import { binaryCoercion } from "#compiler/scalar/compute/registry.ts"
 import { contractPredicateTable } from "#compiler/scalar/compute/total.ts"
 import { isNaturalDesc } from "#compiler/scalar/natural.ts"
-import { regexMember } from "#compiler/scalar/regex/nfa.ts"
+import { CompilePatterns, type PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
 import { type ScalarEnv, scalarTypeOf } from "#compiler/scalar/registry.ts"
 import type { WritableEntry } from "#compiler/schema/entry.ts"
 import type {
@@ -344,7 +344,7 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 	readonly #held: ReadonlyMap<string, BaseRelation>
 	/** A role's query entries, by name. */
 	readonly #worlds: ReadonlyMap<string, WorldRelation>
-	readonly #rosters = new Map<string, NonEmptyReadonlyArray<string>>()
+	readonly #rosters = new Map<string, Roster>()
 
 	/**
 	 * Reality holds its stored relations: its rosters and closed relations first, which a generated field's expression
@@ -358,7 +358,7 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 		this.world = world
 		for (const r of Object.values(owned.relations)) {
 			if (r.desc.kind === "closed") {
-				this.#rosters.set(r.name, r.desc.handles)
+				this.#rosters.set(r.name, new Roster(r.name, r.desc.handles))
 			}
 		}
 		const relations = new Map<string, RelationInfo>()
@@ -425,13 +425,14 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 		const ownedStored = ownedRelations
 			.flatMap((o): ReadonlyArray<OwnedStored> => (o.kind === "derived" ? [] : [o]))
 			.toSorted(byName)
+		const patterns = new CompilePatterns()
 		const closedInfos = ownedStored.flatMap((r) =>
-			r.kind === "relation" ? [] : [this.#closedInfo(r)]
+			r.kind === "relation" ? [] : [this.#closedInfo(r, patterns)]
 		)
 		const readable = closedInfos.filter((c) => !this.#rosters.has(c.name))
 		this.closedReads = closedReads(readable)
 		const ordinaryInfos = ownedStored.flatMap((r) =>
-			r.kind === "relation" ? [this.#ordinaryInfo(r, readable)] : []
+			r.kind === "relation" ? [this.#ordinaryInfo(r, readable, patterns)] : []
 		)
 		for (const info of [...closedInfos, ...ordinaryInfos].toSorted(byName)) {
 			hold(info, true)
@@ -469,11 +470,12 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 	 */
 	#lawFields(
 		r: OwnedStored,
-		writing: (field: OwnedField, type: ScalarType, loc: SourceLoc) => FieldWriting
+		writing: (field: OwnedField, type: ScalarType, loc: SourceLoc) => FieldWriting,
+		patterns: PatternAutomata
 	): NonEmptyReadonlyArray<LawField> {
 		const typed = Object.values(r.fields).map((f, position) => {
 			const at = childLoc(r.loc, "fields", f.name)
-			return { f, position, at, type: this.fieldType(f.desc, at) }
+			return { f, position, at, type: this.#typeOf(f.desc, at, patterns) }
 		})
 		const fields = typed
 			.toSorted(mapInput(compareStrings, (t) => t.f.name))
@@ -500,7 +502,11 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 	 * only then is any field typed: so the refusal of a relation whose generated fields read one another names the least
 	 * generated field that reads one and the least one it reads, whatever their types.
 	 */
-	#ordinaryInfo(r: OwnedOrdinary, readable: ReadonlyArray<ClosedRelation>): RelationInfo {
+	#ordinaryInfo(
+		r: OwnedOrdinary,
+		readable: ReadonlyArray<ClosedRelation>,
+		patterns: PatternAutomata
+	): RelationInfo {
 		const name = r.name
 		const loc = r.loc
 		const generated = new Set<string>(
@@ -527,12 +533,16 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 				const field = r.fields[f]
 				return field === undefined || isGenerated(f)
 					? undefined
-					: this.fieldType(field.desc, childLoc(loc, "fields", f))
+					: this.#typeOf(field.desc, childLoc(loc, "fields", f), patterns)
 			},
 			closed: closedReadsAmong(this.closedReads, below),
 			above: (c) => readable.some((x) => x.name === c) && !below.some((x) => x.name === c)
 		}
-		const declared = this.#lawFields(r, (f, type, at) => this.#writing(r, f, type, at, row))
+		const declared = this.#lawFields(
+			r,
+			(f, type, at) => this.#writing(r, f, type, at, row, patterns),
+			patterns
+		)
 		const keyed = keyedBy(name, loc, declared)
 		/** A declared key's handles and its one span field, refused for two as ownership's representability already does. */
 		const keyName = (k: OwnedKey): KeyName => {
@@ -579,7 +589,8 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 		f: OwnedField,
 		type: ScalarType,
 		at: SourceLoc,
-		row: GenerationRow
+		row: GenerationRow,
+		patterns: PatternAutomata
 	): FieldWriting {
 		const w = f.writing
 		switch (w.kind) {
@@ -606,10 +617,10 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 				}
 				return {
 					kind: "accumulated",
-					start: this.literal(w.start, type, childLoc(at, "writing", "start"))
+					start: this.literal(w.start, type, childLoc(at, "writing", "start"), patterns)
 				}
 			case "generated":
-				return this.#generated(r, f.name, w.expr, type, row)
+				return this.#generated(r, f.name, w.expr, type, row, patterns)
 		}
 	}
 
@@ -624,7 +635,8 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 		field: string,
 		expr: ExprDesc,
 		declared: ScalarType,
-		row: GenerationRow
+		row: GenerationRow,
+		patterns: PatternAutomata
 	): FieldWriting {
 		const loc = generatedLoc(r, field)
 		const above = closedReadNames(expr).find(row.above)
@@ -658,9 +670,9 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 					})
 				},
 				params: noParams,
-				fieldType: (d, l) => catchRefusal(() => this.queryFieldType(d, l, seen)),
+				fieldType: (d, l) => catchRefusal(() => this.queryFieldType(d, l, seen, patterns)),
 				closed: row.closed,
-				regexMember,
+				patterns,
 				patternLanguage: textLookup
 			})
 		)
@@ -691,10 +703,10 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 	 * Its heading is its key fields, then its payload in canonical order; its theory rows list the same literals in
 	 * declared field order.
 	 */
-	#closedInfo(r: Exclude<OwnedStored, OwnedOrdinary>): ClosedRelation {
+	#closedInfo(r: Exclude<OwnedStored, OwnedOrdinary>, patterns: PatternAutomata): ClosedRelation {
 		const name = r.name
 		const loc = r.loc
-		const declared = this.#lawFields(r, () => callerWriting)
+		const declared = this.#lawFields(r, () => callerWriting, patterns)
 		const keyed = keyedBy(name, loc, declared)
 		const desc = r.desc
 		const primaryFields = desc.kind === "closed" ? keyed(["id"]) : keyed(desc.key)
@@ -708,7 +720,7 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 				if (value === undefined) {
 					return fail("MalformedDescription", loc, `row ${i} of ${name} with a value of ${f.name}`)
 				}
-				return this.#admittedCell(value, f.type, childLoc(loc, "rows", i, f.name))
+				return this.#admittedCell(value, f.type, childLoc(loc, "rows", i, f.name), patterns)
 			})
 		)
 		const relation: ClosedTheoryRelation = {
@@ -726,7 +738,9 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 			loc,
 			rows,
 			slots:
-				desc.kind === "closed" ? [] : desc.slots.map((slot) => this.#slot(slot, primaryFields, loc))
+				desc.kind === "closed"
+					? []
+					: desc.slots.map((slot) => this.#slot(slot, primaryFields, loc, patterns))
 		}
 		return {
 			kind: "closed",
@@ -743,7 +757,12 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 	 * relation's first key fields (schema/own.ts), so each owner's key values are literals of those fields' types, and its
 	 * count is O's natural n.
 	 */
-	#slot(slot: KeySlotDesc, key: NonEmptyReadonlyArray<LawField>, loc: SourceLoc): ClosedSlot {
+	#slot(
+		slot: KeySlotDesc,
+		key: NonEmptyReadonlyArray<LawField>,
+		loc: SourceLoc,
+		patterns: PatternAutomata
+	): ClosedSlot {
 		const declared = this.owned.relations[slot.fin.owner]
 		if (declared?.kind !== "closedRelation") {
 			return fail(
@@ -758,7 +777,9 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 			own: defined(key[i], "an owner's key pairs with the relation's first key fields")
 		}))
 		const countType = defined(
-			this.#lawFields(declared, () => callerWriting).find((f) => f.name === slot.fin.count),
+			this.#lawFields(declared, () => callerWriting, patterns).find(
+				(f) => f.name === slot.fin.count
+			),
 			"a slot's count is a field of its owner"
 		).type
 		return {
@@ -770,11 +791,12 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 				const count = this.#admittedCell(
 					defined(row[slot.fin.count], "a row's count"),
 					countType,
-					at
+					at,
+					patterns
 				)
 				return {
 					owner: mapNonEmpty(fields, (f) =>
-						this.#admittedCell(defined(row[f.field], "a row's key value"), f.own.type, at)
+						this.#admittedCell(defined(row[f.field], "a row's key value"), f.own.type, at, patterns)
 					),
 					count:
 						count.kind === "int" ? count.value : fail("MalformedDescription", at, "a natural count")
@@ -808,21 +830,35 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 		)
 	}
 
-	readonly #env: ScalarEnv = {
-		kind: "schema",
-		roster: (name) => this.#rosters.get(name),
-		contractPredicate: (predicate, base, contract, facts): Result.Result<ExprTable, CompileError> =>
-			contractPredicateTable(predicate, base, contract, facts, {
-				loc: SourceLoc(`contract ${contract}`, []),
-				fieldType: (d, at) => scalarTypeOf(d, this.#env, at),
-				regexMember,
-				patternLanguage: textLookup
-			})
+	/** The descriptor registry's reading of the schema, its contracts' predicates typed by `patterns`. */
+	#env(patterns: PatternAutomata): ScalarEnv {
+		const env: ScalarEnv = {
+			kind: "schema",
+			roster: (name) => this.#rosters.get(name),
+			contractPredicate: (
+				predicate,
+				base,
+				contract,
+				facts
+			): Result.Result<ExprTable, CompileError> =>
+				contractPredicateTable(predicate, base, contract, facts, {
+					loc: SourceLoc(`contract ${contract}`, []),
+					fieldType: (d, at) => scalarTypeOf(d, env, at),
+					patterns,
+					patternLanguage: textLookup
+				})
+		}
+		return env
 	}
 
-	/** The ScalarType of a schema descriptor. */
+	/** The ScalarType of a descriptor, by the admitted patterns of the caller's compile. */
+	#typeOf(desc: FieldDesc, loc: SourceLoc, patterns: PatternAutomata): ScalarType {
+		return unwrap(scalarTypeOf(desc, this.#env(patterns), loc))
+	}
+
+	/** The ScalarType of a schema descriptor, typed as a compile of its own. */
 	fieldType(desc: FieldDesc, loc: SourceLoc): ScalarType {
-		return unwrap(scalarTypeOf(desc, this.#env, loc))
+		return this.#typeOf(desc, loc, new CompilePatterns())
 	}
 
 	/**
@@ -832,10 +868,16 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 	 * Construction checks the literal's host kind and gives it the value its field stores: a JavaScript number for a
 	 * bigint or numeric type, a non-integer or out-of-range integer, or a numeric(p, s) overflow is a malformed literal
 	 * whatever contract the type carries (MalformedDescription). Only a well-formed literal
-	 * that the contract's predicate or the regex refinement refuses is ContractLiteral.
+	 * that the contract's predicate or the regex refinement refuses is ContractLiteral, judged by `patterns`, the admitted
+	 * patterns of the caller's compile.
 	 */
-	literal(value: LiteralDesc, type: ScalarType, loc: SourceLoc): TypedLiteral {
-		const admitted = admitLiteral(value, type, { kind: "refinements", regexMember })
+	literal(
+		value: LiteralDesc,
+		type: ScalarType,
+		loc: SourceLoc,
+		patterns: PatternAutomata
+	): TypedLiteral {
+		const admitted = admitLiteral(value, type, { kind: "refinements", patterns })
 		if (!admitted.ok) {
 			return fail(admitted.error.reason, loc, admitted.error.capability)
 		}
@@ -848,8 +890,13 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 	 * admittedLiteral). Only the type's refinements, a contract's predicate and a pattern, which only a schema reads, are
 	 * judged here (ContractLiteral).
 	 */
-	#admittedCell(value: LiteralDesc, type: ScalarType, loc: SourceLoc): TypedLiteral {
-		const judged = refined(admittedLiteral(value, type), type, regexMember)
+	#admittedCell(
+		value: LiteralDesc,
+		type: ScalarType,
+		loc: SourceLoc,
+		patterns: PatternAutomata
+	): TypedLiteral {
+		const judged = refined(admittedLiteral(value, type), type, patterns)
 		if (!judged.ok) {
 			return fail(judged.error.reason, loc, judged.error.capability)
 		}
@@ -857,18 +904,20 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 	}
 
 	/** Whether a literal is a value of `type`: one `literal` admits at it rather than refuses. */
-	admits(value: LiteralDesc, type: ScalarType): boolean {
-		return admitLiteral(value, type, { kind: "refinements", regexMember }).ok
+	admits(value: LiteralDesc, type: ScalarType, patterns: PatternAutomata): boolean {
+		return admitLiteral(value, type, { kind: "refinements", patterns }).ok
 	}
 
 	/**
 	 * A descriptor a query carries. Its closedIds name the schema's rosters, and a contract it names is the schema's
-	 * contract of that name, or one the same query declares once (`seen`), with one descriptor.
+	 * contract of that name, or one the same query declares once (`seen`), with one descriptor; typed by `patterns`, the
+	 * admitted patterns of the caller's compile.
 	 */
 	queryFieldType(
 		desc: FieldDesc,
 		loc: SourceLoc,
-		seen: Map<string, { text: string; loc: SourceLoc }>
+		seen: Map<string, { text: string; loc: SourceLoc }>,
+		patterns: PatternAutomata
 	): ScalarType {
 		nestedFields(desc, (d) => {
 			if (d.kind !== "contract") {
@@ -897,7 +946,7 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 				})
 			}
 		})
-		return this.fieldType(desc, loc)
+		return this.#typeOf(desc, loc, patterns)
 	}
 }
 

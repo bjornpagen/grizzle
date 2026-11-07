@@ -209,7 +209,7 @@ const loads: ReadonlyArray<
  */
 const field = await import("#compiler/text/field.ts")
 const parse = await import("#compiler/scalar/regex/parse.ts")
-const nfa = await import("#compiler/scalar/regex/nfa.ts")
+const programPatterns = (await import("#compiler/scalar/regex/patterns.ts")).ProgramPatterns.of
 const refinement = await import("#compiler/text/refinement.ts")
 const loc = await import("#compiler/core/loc.ts")
 const generators = await import("#test/unit/text/generators.ts")
@@ -235,11 +235,11 @@ const admittedChecks: ReadonlyArray<ReadonlyArray<boolean>> = Arr.flatMap(
 			if (check.kind !== "tautology") {
 				refinement.membership(check, refinement.domainValue)
 			}
-			return [
-				regex === "wildcard"
-					? []
-					: Arr.map(probes(family.alphabet), (value) => nfa.regexMember(regex, value))
-			]
+			if (regex === "wildcard") {
+				return [[]]
+			}
+			const automata = programPatterns([regex])
+			return [Arr.map(probes(family.alphabet), (value) => automata.member(regex, value))]
 		})
 )
 /** A flags word the description boundary refuses never reaches the analysis. */
@@ -261,7 +261,8 @@ const refused = Arr.filter(
 ).length
 
 /** The text codecs: every carrier's conversion of PostgreSQL's output texts. */
-const codec = await import("#compiler/codec/scalar.ts")
+const reader = await import("#compiler/codec/read.ts")
+const wire = await import("#test/support/wire.ts")
 const values: Readonly<typeof import("#compiler/scalar/values/float.ts")> =
 	await import("#compiler/scalar/values/float.ts")
 const codecSupport = await import("#test/unit/codec/support.ts")
@@ -290,8 +291,8 @@ const codecTexts: ReadonlyArray<readonly [keyof typeof codecTypes, ReadonlyArray
 	["embedding", ["[1,2,3,4]"]]
 ]
 const codecsDecoded = Arr.flatMap(codecTexts, ([name, texts]) => {
-	const built = codec.scalarCodec(codecTypes[name], codecSupport.kindCodes)
-	return Arr.map(texts, (t) => built.convert(t))
+	const built = reader.scalarReader(codecTypes[name], codecSupport.kindCodes)
+	return Arr.map(texts, (t) => built.convert(wire.outputText(t)))
 }).length
 
 const floatsDecoded = Arr.map(["1.5", "-0", "3.4028235e+38", "1e-45", "1e+00"], (t) => {

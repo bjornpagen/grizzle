@@ -9,12 +9,11 @@ import { hostRead } from "#compiler/core/host.ts"
 import { type DeclaredName, parseDeclaredName } from "#compiler/core/identity.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import { captureLoc, childLoc, SourceLoc } from "#compiler/core/loc.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { type Built, built, builtMark } from "#compiler/core/phantom.ts"
 import { hasProperties, isList } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
 import { validateText } from "#compiler/core/text.ts"
-import { toCalendarDate } from "#compiler/ir/date.ts"
+import { type CalendarDate, toCalendarDate } from "#compiler/ir/date.ts"
 import { decodeDesc, type ExprDesc, type FieldDesc, type LiteralDesc } from "#compiler/ir/desc.ts"
 import type { ExprTable } from "#compiler/ir/expr.ts"
 import type { Fact } from "#compiler/ir/proof.ts"
@@ -27,11 +26,12 @@ import {
 	type ContractBase,
 	type ContractInfo,
 	type DeclaredType,
+	isDateType,
 	languageOctets,
 	type NumericBound,
 	type NumericTypmod,
 	type PatternLanguage,
-	Roster,
+	type Roster,
 	type ScalarType,
 	type SpanCarrier,
 	type TextLanguage,
@@ -135,6 +135,7 @@ export const nativeCapabilities = {
 	/** No min or max over a range; GiST is range_ops, the operator class every Allen atom uses. */
 	range4: ["equality", "expressionIndex", "gist", "hashing", "ordering", "storage"],
 	range8: ["equality", "expressionIndex", "gist", "hashing", "ordering", "storage"],
+	rangeDate: ["equality", "expressionIndex", "gist", "hashing", "ordering", "storage"],
 	/**
 	 * pgvector's B-tree vector_ops gives equality and vector_cmp order; there is no hash or GiST class,
 	 * and its sum and avg are not language aggregates. vectorDistance is cosine_distance over the cosine domain.
@@ -166,7 +167,7 @@ const spanEndpointDetail = (t: ScalarType): string => {
 	if (base.carrier === "money") {
 		return "is money, for which no span is admitted"
 	}
-	return "is not an admitted span endpoint; spans are over integer, bigint and contracts over them"
+	return "is not an admitted span endpoint; spans are over integer, bigint, date and contracts over them"
 }
 
 /** The PostgreSQL type names of descriptors, the `sql` member of each. */
@@ -186,6 +187,7 @@ export const carrierSql = {
 	bits: "bits",
 	range4: "range",
 	range8: "range",
+	rangeDate: "range",
 	vector: "vector",
 	exactInteger: "exact integer",
 	exactMoney: "exact money"
@@ -501,10 +503,11 @@ export const serialNameOf = (described: Described): string | undefined => {
 }
 
 /**
- * The handles of a closed relation by its declared name: a closedId desc names its roster only (ir/desc.ts), which the
- * registry parses as a declared name before it asks.
+ * The roster of a closed relation by its declared name: a closedId desc names its roster only (ir/desc.ts), which the
+ * registry parses as a declared name before it asks. An environment answers with one roster value for each closed
+ * relation it holds, so its handles' digest is taken where the environment makes it, never for each field it types.
  */
-type RosterLookup = (name: DeclaredName) => NonEmptyReadonlyArray<string> | undefined
+type RosterLookup = (name: DeclaredName) => Roster | undefined
 
 /**
  * The analyzed language of a text pattern, before any byte bound cuts it: the text analysis's (text/refinement.ts
@@ -626,8 +629,8 @@ const scalarAt = (
 }
 
 /**
- * The roster a closed id or a set names, by the closed relation's declared name, its handles frozen: a name the
- * declared-name rule refuses, or no closed relation's, is MalformedDescription.
+ * The roster a closed id or a set names, by the closed relation's declared name, as its environment holds it: a name
+ * the declared-name rule refuses, or no closed relation's, is MalformedDescription.
  */
 const rosterAt = (
 	closed: string,
@@ -635,13 +638,10 @@ const rosterAt = (
 	loc: SourceLoc
 ): Result.Result<Roster, CompileError> => {
 	const name = parseDeclaredName(closed)
-	const handles = name.ok ? env.roster(name.value) : undefined
-	if (!name.ok || handles === undefined) {
-		return Result.err(
-			malformedDescription(loc, `a closed relation named ${JSON.stringify(closed)}`)
-		)
-	}
-	return Result.ok(new Roster(name.value, handles))
+	const roster = name.ok ? env.roster(name.value) : undefined
+	return roster === undefined
+		? Result.err(malformedDescription(loc, `a closed relation named ${JSON.stringify(closed)}`))
+		: Result.ok(roster)
 }
 
 /** A plain value type of `carrier`: no typmod, refinement or contract. */
@@ -670,14 +670,24 @@ export const numericValue = (bound: NumericBound): ScalarType =>
 	})
 
 /**
- * A span over `endpoint`: range4 over integer and range8 over bigint, through contracts, refused with a
- * capability diagnostic for any other endpoint.
+ * A span over `endpoint`: range4 over integer, range8 over bigint and rangeDate over date, through contracts, refused
+ * with a capability diagnostic for any other endpoint.
  */
 export const spanType = (
 	endpoint: ScalarType,
 	width: bigint | undefined,
 	loc: SourceLoc
 ): Result.Result<Extract<ScalarType, { readonly carrier: SpanCarrier }>, CompileError> => {
+	if (isDateType(endpoint)) {
+		return Result.ok(
+			Object.freeze({
+				carrier: "rangeDate",
+				caps: capabilitiesOf("rangeDate"),
+				contract: undefined,
+				span: Object.freeze({ endpoint, width })
+			})
+		)
+	}
 	if (endpoint.carrier !== "int4" && endpoint.carrier !== "int8") {
 		return Result.err(
 			capabilityError(loc, "spanEndpoint", `${typeLabel(endpoint)} ${spanEndpointDetail(endpoint)}`)
@@ -717,7 +727,10 @@ export const contractType = (
 		withContract(info.base, info)
 	)
 
-/** The contract `name` over `base` with `predicate`'s table: a contract over a set is refused. */
+/**
+ * The contract `name` over `base` with `predicate`'s table, frozen with a frozen copy of its facts, so it holds no
+ * array its caller made: a contract over a set is refused.
+ */
 const contractOver = (
 	name: DeclaredName,
 	base: DeclaredType,
@@ -733,7 +746,7 @@ const contractOver = (
 			)
 		)
 	}
-	return Result.ok(Object.freeze({ name, base, predicate, facts }))
+	return Result.ok(Object.freeze({ name, base, predicate, facts: Object.freeze([...facts]) }))
 }
 
 /**
@@ -846,7 +859,8 @@ const hostLiteral = (base: ScalarType, value: unknown): Result.Result<LiteralDes
 		case "bits":
 			return bitsLiteral(value, base.roster)
 		case "range4":
-		case "range8": {
+		case "range8":
+		case "rangeDate": {
 			if (!hasProperties(value) || isList(value)) {
 				return Result.err("spanType")
 			}
@@ -855,8 +869,12 @@ const hostLiteral = (base: ScalarType, value: unknown): Result.Result<LiteralDes
 				return Result.err("spanType")
 			}
 			const { start, end } = value
-			const ok = (x: unknown): x is number | bigint =>
-				base.carrier === "range4" ? isSafeInteger(x) : typeof x === "bigint"
+			const ok = (x: unknown): x is number | bigint | CalendarDate =>
+				base.carrier === "range4"
+					? isSafeInteger(x)
+					: base.carrier === "range8"
+						? typeof x === "bigint"
+						: toCalendarDate(x).ok
 			if (!ok(start) || !ok(end)) {
 				return Result.err("spanEndpoint")
 			}

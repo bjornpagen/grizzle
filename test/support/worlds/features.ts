@@ -1862,6 +1862,47 @@ const lawsOf = (
 }
 
 /**
+ * A row check refused with a shown witness where a fact the ChangeSet states through a whole entry leaves out a field of
+ * the check's relation's primary key, an identity the database draws: the witness names that fact by another declared
+ * key (README "Errors and outcomes").
+ */
+const declaredKeysOf = (
+	state: ModelState,
+	action: Action,
+	actor: Actor,
+	observation: Observation
+): ReadonlyArray<WorldFeature> => {
+	if (
+		action.kind !== "apply" ||
+		actor.kind !== "role" ||
+		observation.kind !== "invariant-rejected" ||
+		observation.witness.kind !== "shown"
+	) {
+		return []
+	}
+	const base = state.install.base
+	const law = Option.getOrUndefined(
+		Arr.findFirst(state.host.laws, (l) => l.law === observation.law)
+	)
+	if (law?.kind !== "check") {
+		return []
+	}
+	const primary = Option.match(Option.fromUndefinedOr(relationSpecOf(base, law.relation)), {
+		onNone: (): ReadonlyArray<string> => [],
+		onSome: (spec) => spec.key
+	})
+	const leavesOut = Arr.some(
+		opsOf(action),
+		(op) =>
+			op.kind !== "delete" &&
+			writtenNamed(base, actor.role, op.relation)?.kind === "whole" &&
+			writtenNamed(base, actor.role, op.relation)?.target === law.relation &&
+			Arr.some(op.facts, (fact) => Arr.some(primary, (field) => fact[field] === undefined))
+	)
+	return leavesOut ? ["law:check:declared-key"] : []
+}
+
+/**
  * The shapes of relation an accepted ChangeSet through a Db wrote (WriteShape), each op by its relation's mutability,
  * the path it took (a query entry or a whole one) and its kind: a relation keyed WITHOUT OVERLAPS, and a pure set.
  */
@@ -1948,6 +1989,7 @@ export const featuresOf = (
 		...connectionsOf(state, action, observation),
 		...pathsOf(state, action, observation),
 		...lawsOf(state, action, actor, observation),
+		...declaredKeysOf(state, action, actor, observation),
 		...writesOf(state, action, actor, observation),
 		...claimRefusalsOf(state, action, observation),
 		...(action.kind === "migrate"

@@ -7,11 +7,12 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { builtMark, type Phantom } from "#compiler/core/phantom.ts"
 import * as Result from "#compiler/core/result.ts"
+import type { OutputText } from "#compiler/core/wire.ts"
 
-/** A column's conversion of its cell's text. */
+/** A column's conversion of its cell's text, PostgreSQL's output. */
 interface ConvertColumn<out A> {
 	readonly kind: "convert"
-	readonly convert: (text: string) => A
+	readonly convert: (text: OutputText) => A
 }
 
 /**
@@ -60,7 +61,7 @@ interface TextColumn<out A> extends Phantom<{ readonly host: A }> {
 interface ConstantColumn<out A> {
 	readonly kind: "constant"
 	readonly values: NonEmptyReadonlyArray<A>
-	readonly convert: (text: string) => unknown
+	readonly convert: (text: OutputText) => unknown
 	readonly equal: (literal: unknown, host: unknown) => boolean
 }
 
@@ -76,7 +77,7 @@ export interface Columned<out A> {
 	readonly column: Column<A>
 }
 
-export const convertColumn = <A>(convert: (text: string) => A): Column<A> =>
+export const convertColumn = <A>(convert: (text: OutputText) => A): Column<A> =>
 	Object.freeze({ kind: "convert", convert })
 
 /** A closed id's column over roster `roster`, which may deliver `handles`. */
@@ -120,7 +121,7 @@ export const brandColumn = <A, B>(base: Column<A>, brand: (value: A) => B): Colu
 
 const constants = <A>(
 	values: NonEmptyReadonlyArray<A>,
-	convert: (text: string) => unknown,
+	convert: (text: OutputText) => unknown,
 	equal: (literal: unknown, host: unknown) => boolean
 ): Column<A> => Object.freeze({ kind: "constant", values, convert, equal })
 
@@ -130,7 +131,7 @@ const constants = <A>(
  */
 export const constantColumn = <A>(
 	value: A,
-	convert: (text: string) => unknown,
+	convert: (text: OutputText) => unknown,
 	equal: (literal: unknown, host: unknown) => boolean
 ): Column<A> => constants([value], convert, equal)
 
@@ -139,7 +140,7 @@ export const constantColumn = <A>(
  * the fact that such a cell is one of the literals: the statement writes only those literals in that column, a runtime
  * set no type of a text carries.
  */
-export const constantOf = <A>(column: ConstantColumn<A>): ((text: string) => A) => {
+export const constantOf = <A>(column: ConstantColumn<A>): ((text: OutputText) => A) => {
 	const { values, convert, equal } = column
 	return (text) => {
 		const host = convert(text)
@@ -212,7 +213,7 @@ export const unionColumn = <A, B>(a: Column<A>, b: Column<B>): Column<A | B> => 
  */
 export interface Row {
 	readonly group: number
-	readonly texts: ReadonlyArray<string>
+	readonly texts: ReadonlyArray<OutputText>
 	readonly children: ReadonlyArray<ReadonlyArray<Row>>
 }
 
@@ -375,11 +376,11 @@ const rowSlot = <A>(members: ReadonlyArray<A>, position: number): A => {
 }
 
 /** The text at a position of a positional row from PostgreSQL (rowSlot). */
-export const rowText = (texts: ReadonlyArray<string>, position: number): string =>
+export const rowText = (texts: ReadonlyArray<OutputText>, position: number): OutputText =>
 	rowSlot(texts, position)
 
 /** The cell at a position of its layout, which bound the reader. */
-export const cellAt = (row: Row, position: number): string => rowText(row.texts, position)
+export const cellAt = (row: Row, position: number): OutputText => rowText(row.texts, position)
 
 /**
  * The children of one row under an attachment the analysis proves delivers at most one, held to that proof: a second

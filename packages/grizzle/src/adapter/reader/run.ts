@@ -25,10 +25,12 @@ import {
 	type Codebook,
 	defined,
 	type Layout,
+	type OutputText,
 	type ParamId,
 	type Row,
 	rowText
 } from "#compiler/plan/common.ts"
+import { scalarReader } from "#compiler/plan/decode.ts"
 import {
 	type CarrierHost,
 	carrierSpecOf,
@@ -46,7 +48,6 @@ import {
 	type QueryTemplate,
 	type RelationChoice,
 	runsLargeForm,
-	scalarCodec,
 	type SpecifiedStatement,
 	type StatementRoots,
 	type TakeBound
@@ -105,7 +106,7 @@ type OrderValue = CarrierHost[Carrier]
 type OrderKey = ReadonlyArray<OrderValue>
 
 /** How a heading group reads a row's key from its statement's texts. */
-type KeyReader = (texts: ReadonlyArray<string>) => OrderKey
+type KeyReader = (texts: ReadonlyArray<OutputText>) => OrderKey
 
 /**
  * An order over a heterogeneous union's heading groups: each group, in group order, with its reading of a row's key
@@ -209,7 +210,7 @@ export const groupOrder = <G>(
 		return {
 			column: k.column,
 			spec: carrierSpecOf(type, codes),
-			convert: scalarCodec(type, codes).convert,
+			convert: scalarReader(type, codes).convert,
 			sign: k.dir === "desc" ? -1 : 1
 		}
 	})

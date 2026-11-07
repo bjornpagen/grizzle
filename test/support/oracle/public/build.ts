@@ -163,6 +163,8 @@ const paramDescriptor = (param: Param, roster: RosterValue): FieldBase => {
 			return span(pg.integer)
 		case "range8":
 			return span(pg.bigint)
+		case "rangeDate":
+			return span(date)
 		case "vector":
 			return pg.vector(vectorDimensions)
 		case "exactInteger":

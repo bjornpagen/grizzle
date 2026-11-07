@@ -35,7 +35,9 @@ import { carrierSpecOf } from "#compiler/codec/scalar.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import { maxStringLength } from "#compiler/core/limits.ts"
 import * as Result from "#compiler/core/result.ts"
+import { type ReadonlyTupleMap, TupleMap } from "#compiler/core/tuple-map.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
+import { dateOfDayNumber, dayNumber, toCalendarDate } from "#compiler/ir/date.ts"
 import { predicateTable, type ScalarExpr, type TypedLiteral } from "#compiler/ir/expr.ts"
 import { baseLiteral, type Family, type FamilyFold, isTreeOf } from "#compiler/ir/family.ts"
 import type { FillLayout, FillOrder, FillPosition, FillRule } from "#compiler/ir/fill.ts"
@@ -45,10 +47,11 @@ import {
 	type EvalStop,
 	evaluateTable,
 	literalValue,
-	type RegexMember
+	sqlNull
 } from "#compiler/scalar/compute/evaluate.ts"
 import type { CarrierValue } from "#compiler/scalar/compute/literal.ts"
 import * as N from "#compiler/scalar/compute/numeric.ts"
+import type { PatternReads } from "#compiler/scalar/regex/patterns.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { admitValue, type CarrierSpec, compareValues } from "#compiler/scalar/values/identity.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
@@ -93,7 +96,9 @@ export interface FilledNode {
 /**
  * The host's evaluation of an expression over one row of `relation`, a generated field's generation expression or a
  * fold step's selection: `read` gives each field the row holds by its name, as its codec's host value, undefined where
- * the row holds none; the result is the codec's host value of the expression's type, or why the host has none.
+ * the row holds none; the result is the codec's host value of the expression's type, NULL (sqlNull) where the
+ * expression is, as a closed read at a key its relation holds no row at leaves it, or why the host has none. A
+ * selection holds only where its value is true: NULL, unknown, holds of no row.
  */
 export type HostEvaluator = (
 	relation: LawRelation,
@@ -103,8 +108,9 @@ export type HostEvaluator = (
 
 /**
  * Why a nesting cannot be filled: an expression the host cannot evaluate over a row (its stop, as the evaluator gives
- * it); or a fold's after or a copy outside its column's carrier, which PostgreSQL would refuse; each at its row, by the
- * path of count fields and member positions from the nesting's root, and its column.
+ * it); a generated field a fill reads that is NULL, a closed read at a key its relation holds no row at, which its
+ * column's NOT NULL refuses; or a fold's after or a copy outside its column's carrier, which PostgreSQL would refuse;
+ * each at its row, by the path of count fields and member positions from the nesting's root, and its column.
  */
 export type FillRefusal = {
 	readonly path: ReadonlyArray<string | number>
@@ -112,6 +118,7 @@ export type FillRefusal = {
 	readonly column: string
 } & (
 	| { readonly kind: "evaluation"; readonly stop: EvalStop }
+	| { readonly kind: "null" }
 	| { readonly kind: "range"; readonly family: FamilyId }
 )
 
@@ -275,7 +282,10 @@ export const baseOf = (
 	return base === undefined ? { kind: "none" } : { kind: "base", value: literalHost(spec, base) }
 }
 
-/** A carrier value as the evaluator holds it, from a codec's host value: integers as bigint, spans of bigints. */
+/**
+ * A carrier value as the evaluator holds it, from a codec's host value: integers as bigint, spans of bigints, a date
+ * span's endpoints as their day numbers.
+ */
 export const evalValue = (spec: CarrierSpec, value: unknown): CarrierValue | undefined => {
 	switch (spec.carrier) {
 		case "int2":
@@ -285,6 +295,16 @@ export const evalValue = (spec: CarrierSpec, value: unknown): CarrierValue | und
 			return isSpan(value) && typeof value.start === "number" && typeof value.end === "number"
 				? { start: BigInt(value.start), end: BigInt(value.end) }
 				: undefined
+		case "rangeDate": {
+			if (!isSpan(value)) {
+				return undefined
+			}
+			const start = toCalendarDate(value.start)
+			const end = toCalendarDate(value.end)
+			return start.ok && end.ok
+				? { start: BigInt(dayNumber(start.value)), end: BigInt(dayNumber(end.value)) }
+				: undefined
+		}
 		case "vector":
 			return undefined
 		case "int8":
@@ -318,7 +338,10 @@ const isCarrierValue = (value: unknown): value is CarrierValue =>
 	value instanceof Set ||
 	isSpan(value)
 
-/** A codec's host value of a carrier from the evaluator's: smallint's and integer's numbers, a range4's endpoints. */
+/**
+ * A codec's host value of a carrier from the evaluator's: smallint's and integer's numbers, a range4's endpoints, a
+ * date span's endpoints as the dates their day numbers are.
+ */
 const hostValue = (spec: CarrierSpec, value: CarrierValue): unknown => {
 	switch (spec.carrier) {
 		case "int2":
@@ -327,6 +350,10 @@ const hostValue = (spec: CarrierSpec, value: CarrierValue): unknown => {
 		case "range4":
 			return isSpan(value) && typeof value.start === "bigint" && typeof value.end === "bigint"
 				? { start: Number(value.start), end: Number(value.end) }
+				: value
+		case "rangeDate":
+			return isSpan(value) && typeof value.start === "bigint" && typeof value.end === "bigint"
+				? { start: dateOfDayNumber(value.start), end: dateOfDayNumber(value.end) }
 				: value
 		case "int8":
 		case "numeric":
@@ -352,11 +379,12 @@ export const literalHost = (spec: CarrierSpec, literal: TypedLiteral): unknown =
 	hostValue(spec, literalValue(literal))
 
 /**
- * The host evaluator over the closed relations `closed` answers and the text package's regex membership: a row's field
- * read through its relation's carrier, and the result back as the expression type's host value.
+ * The host evaluator over the closed relations `closed` answers and the compiled program's admitted patterns
+ * (scalar/regex/patterns.ts ProgramPatterns): a row's field read through its relation's carrier, and the result back as
+ * the expression type's host value.
  */
 export const hostEvaluator =
-	(codes: Codebook, closed: EvalLeaves["closed"], regexMember: RegexMember): HostEvaluator =>
+	(codes: Codebook, closed: EvalLeaves["closed"], patterns: PatternReads): HostEvaluator =>
 	(relation, expr, read) => {
 		const table = predicateTable(expr)
 		const specOf = new Map(
@@ -367,12 +395,16 @@ export const hostEvaluator =
 			column: (ref) => {
 				const spec = specOf.get(ref.name)
 				const value = read(ref.name)
-				return spec === undefined || value === undefined ? undefined : evalValue(spec, value)
+				return spec === undefined || value === undefined
+					? undefined
+					: value === sqlNull
+						? sqlNull
+						: evalValue(spec, value)
 			},
 			closed
 		}
-		return Result.map(evaluateTable(table.exprs, table.root, leaves, regexMember), (v) =>
-			hostValue(carrierSpecOf(expr.type, codes), v)
+		return Result.map(evaluateTable(table.exprs, table.root, leaves, patterns), (v) =>
+			v === sqlNull ? sqlNull : hostValue(carrierSpecOf(expr.type, codes), v)
 		)
 	}
 
@@ -383,27 +415,17 @@ export interface ClosedRows {
 	readonly rows: ReadonlyArray<ReadonlyArray<TypedLiteral>>
 }
 
-/** A key's text in an index of closed rows: each component's text, length first, so no two keys share one. */
-const keyText = (values: ReadonlyArray<CarrierValue>): string =>
-	values
-		.map((v) => {
-			const t =
-				typeof v === "object"
-					? JSON.stringify(v, (_, x: unknown) => (typeof x === "bigint" ? `${x}n` : x))
-					: `${typeof v}:${String(v)}`
-			return `${t.length}:${t}`
-		})
-		.join("")
-
 /**
  * The closed reads the host evaluates a generation expression's C.at and C.row by, over the closed relations `closed`
- * holds, by name: C.at's cell is the field's value at the row whose key is its arguments, none where no row is; C.row's
+ * holds, by name: C.at's cell is the field's value at the row whose key is its arguments, NULL where no row is; C.row's
  * set is a fresh Set of the last key field's value of every row whose key begins with its arguments. Each relation is
- * indexed by key on its first read.
+ * indexed by key on its first read, each key the tuple of its values: a closed relation's key is closed ids, whose
+ * values are their handles, texts a Map compares by content, so a key is its values themselves, never one text joined
+ * from them.
  */
 export const closedLeaf = (closed: ReadonlyMap<string, ClosedRows>): EvalLeaves["closed"] => {
-	const cells = new Map<string, ReadonlyMap<string, ReadonlyArray<TypedLiteral>>>()
-	const prefixes = new Map<string, ReadonlyMap<string, ReadonlySet<string>>>()
+	const cells = new Map<string, ReadonlyTupleMap<CarrierValue, ReadonlyArray<TypedLiteral>>>()
+	const prefixes = new Map<string, ReadonlyTupleMap<CarrierValue, ReadonlySet<string>>>()
 	return (relation, field, args) => {
 		const c = closed.get(relation)
 		if (c === undefined) {
@@ -412,26 +434,31 @@ export const closedLeaf = (closed: ReadonlyMap<string, ClosedRows>): EvalLeaves[
 		if (field !== undefined) {
 			let index = cells.get(relation)
 			if (index === undefined) {
-				index = new Map(
-					c.rows.map((row) => [keyText(row.slice(0, c.key).map(literalValue)), row] as const)
-				)
+				const built = new TupleMap<CarrierValue, ReadonlyArray<TypedLiteral>>()
+				for (const row of c.rows) {
+					built.set(row.slice(0, c.key).map(literalValue), row)
+				}
+				index = built
 				cells.set(relation, index)
 			}
 			const column = c.heading.findIndex((h) => h.name === field)
-			const row = index.get(keyText(args))
-			const cell = row?.[column]
+			const row = index.get(args)
+			if (row === undefined) {
+				return sqlNull
+			}
+			const cell = row[column]
 			return cell === undefined ? undefined : literalValue(cell)
 		}
 		let index = prefixes.get(relation)
 		if (index === undefined) {
-			const built = new Map<string, Set<string>>()
+			const built = new TupleMap<CarrierValue, Set<string>>()
 			for (const row of c.rows) {
 				const last = row[c.key - 1]
 				const value = last === undefined ? undefined : literalValue(last)
 				if (typeof value !== "string") {
 					continue
 				}
-				const prefix = keyText(row.slice(0, c.key - 1).map(literalValue))
+				const prefix = row.slice(0, c.key - 1).map(literalValue)
 				const set = built.get(prefix) ?? new Set<string>()
 				set.add(value)
 				built.set(prefix, set)
@@ -439,7 +466,7 @@ export const closedLeaf = (closed: ReadonlyMap<string, ClosedRows>): EvalLeaves[
 			index = built
 			prefixes.set(relation, index)
 		}
-		return new Set(index.get(keyText(args)) ?? [])
+		return new Set(index.get(args) ?? [])
 	}
 }
 
@@ -581,6 +608,7 @@ const refusalAt = (
 	column: Column,
 	refusal:
 		| { readonly kind: "evaluation"; readonly stop: EvalStop }
+		| { readonly kind: "null" }
 		| { readonly kind: "range"; readonly family: FamilyId }
 ): FillRefusal => ({
 	path: pathOf(row),
@@ -712,9 +740,11 @@ const ruleValue = (
 		}
 		case "generated": {
 			const v = evaluate(row.layout.relation, rule.expr, readerOf(row, evaluate))
-			return v.ok
-				? Result.ok(v.value)
-				: Result.err(refusalAt(row, column, { kind: "evaluation", stop: v.error }))
+			return !v.ok
+				? Result.err(refusalAt(row, column, { kind: "evaluation", stop: v.error }))
+				: v.value === sqlNull
+					? Result.err(refusalAt(row, column, { kind: "null" }))
+					: Result.ok(v.value)
 		}
 	}
 }

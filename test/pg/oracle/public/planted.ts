@@ -1,13 +1,14 @@
 import { Array as Arr } from "effect"
-import { scalarCodec } from "#compiler/codec/scalar.ts"
+import { scalarReader } from "#compiler/codec/read.ts"
 import { type Codebook, emptyCodebook, firstCodebook } from "#compiler/ir/codes.ts"
 import { rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { SentRow } from "#test/pg/oracle/public/cells.ts"
 import { defined } from "#test/support/assert.ts"
+import { Identities, type Interned } from "#test/support/kernel/identity.ts"
 import type { Nested } from "#test/support/oracle/public/answer.ts"
 import type { ParentColumn, Query, Root } from "#test/support/oracle/public/program.ts"
-import { Identities, type Interned } from "#test/support/oracle/reference/identity.ts"
 import { valueIdentity } from "#test/support/oracle/reference/values.ts"
+import { outputText } from "#test/support/wire.ts"
 
 /**
  * How the suite reads the adapter's delivered rows and their texts, and the planted defects that prove it can fail.
@@ -139,8 +140,11 @@ export const freshCodesOf = (type: ScalarType): Codebook => {
 export type Conversion = (type: ScalarType) => (text: string) => unknown
 
 /** The library's conversion (packages/engine/src/scalar/values/convert.ts). */
-export const asConverted: Conversion = (type) => scalarCodec(type, freshCodesOf(type)).convert
+export const asConverted: Conversion = (type) => {
+	const reader = scalarReader(type, freshCodesOf(type))
+	return (text) => reader.convert(outputText(text))
+}
 
 /** A boolean conversion that misreads every text but `f`: true where PostgreSQL wrote false, and false for true. */
 export const boolByF: Conversion = (type) =>
-	type.carrier === "bool" ? (text) => text === "f" : scalarCodec(type, freshCodesOf(type)).convert
+	type.carrier === "bool" ? (text) => text === "f" : asConverted(type)

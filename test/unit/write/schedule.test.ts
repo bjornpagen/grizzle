@@ -14,6 +14,7 @@ import {
 	type FamilyNode,
 	type FamilyPair,
 	type ImmediateReference,
+	type RefillOrder,
 	scheduleStratum,
 	type Write
 } from "#compiler/write/frontend/schedule.ts"
@@ -256,13 +257,21 @@ type Situation =
  * The box before this one draws two relations and plain actions alone, so no family statement ever met a search: the
  * total order the family statements used to keep among themselves, which together with a key between a plain action
  * and a family statement closed cycles no key requires, refused an import of 152 inserts beside updates and counts.
+ *
+ * A member it edits may take a refill too (analysis/theory/refill.ts), its rows rewritten in place ahead of a change, with
+ * the order its refills require (`RefillOrder`): each refill before every put of a plain relation it is drawn ahead
+ * of, and before or after a family statement of the stratum.
  */
 interface Stratum {
 	readonly actions: ReadonlyArray<StratumAction>
 	readonly family: ReadonlyArray<FamilyNode>
 	readonly pairs: ReadonlyArray<FamilyPair>
 	readonly references: ReadonlyArray<ImmediateReference>
+	readonly refills: RefillOrder
 }
+
+/** A stratum with no refill. */
+const noRefills: RefillOrder = { precedes: [], edges: [] }
 
 /** A plain action of a generated stratum, by its relation and operation, its relation a pure set or not. */
 interface StratumAction {
@@ -332,6 +341,7 @@ const stratumGen: Gen<Stratum> = (source) => {
 	const counts: Array<FamilyNode> = []
 	const inserts: Array<FamilyNode> = []
 	const updates: Array<FamilyNode> = []
+	const refilled: Array<FamilyNode> = []
 	for (let r = 0; r < n; r += 1) {
 		const relation = relationName(r)
 		if (!members.has(r)) {
@@ -358,6 +368,10 @@ const stratumGen: Gen<Stratum> = (source) => {
 		if (Arr.isReadonlyArrayNonEmpty(changes)) {
 			updates.push({ kind: "rows", relation, statement: "update", changes })
 		}
+		const rewritten = source.draw(subarray(columnsOf(r)))
+		if (Arr.isReadonlyArrayNonEmpty(rewritten) && source.draw(boolean)) {
+			refilled.push({ kind: "rows", relation, statement: "refill", changes: rewritten })
+		}
 		for (const f of families) {
 			if (f.member === r) {
 				counts.push({
@@ -373,9 +387,32 @@ const stratumGen: Gen<Stratum> = (source) => {
 			inserts.push({ kind: "rows", relation, statement: "insert" })
 		}
 	}
+	const statements = [...family, ...refilled, ...updates, ...counts, ...inserts]
+	const plainPuts = Arr.dedupe(
+		Arr.flatMap(actions, (a) => (a.action.op === "put" ? [a.action.relation] : []))
+	)
+	const pick = <A>(xs: Arr.NonEmptyReadonlyArray<A>): A =>
+		defined(xs[source.draw(int(0, xs.length - 1))], "a drawn element")
+	const refills: RefillOrder = {
+		precedes: Arr.flatMap(refilled, (node) =>
+			Arr.isReadonlyArrayNonEmpty(plainPuts) && source.draw(boolean)
+				? [{ node, relation: pick(plainPuts) }]
+				: []
+		),
+		edges: Arr.flatMap(refilled, (node) => {
+			const others = Arr.filter(statements, (f) => f !== node)
+			return Arr.isReadonlyArrayNonEmpty(others) && source.draw(boolean)
+				? [
+						source.draw(boolean)
+							? { before: node, after: pick(others) }
+							: { before: pick(others), after: node }
+					]
+				: []
+		})
+	}
 	return {
 		actions,
-		family: [...family, ...updates, ...counts, ...inserts],
+		family: statements,
 		pairs: Arr.map(families, (f) => ({
 			family: { owner: relationName(f.owner), count: `n${String(f.k)}` },
 			owner: relationName(f.owner),
@@ -383,7 +420,8 @@ const stratumGen: Gen<Stratum> = (source) => {
 			immediate: f.immediate,
 			...axisOf(f)
 		})),
-		references: [...ownAxis, ...laws]
+		references: [...ownAxis, ...laws],
+		refills
 	}
 }
 
@@ -420,12 +458,16 @@ const plainPhase = { delete: 0, put: 1, insert: 2 } as const
  *   statements;
  * - a member's deletion, update and insertion run in that order; a family's count after its member's and its owner's
  *   deletions and updates and before its owner's insertions, and before its member's where the owner axis is
- *   immediate; a member's update before its owner's where the one changes a column the owner axis cascades into and
- *   the other one it reads; and a family insertion before the family insertion that names it by an immediate key, and
- *   a family deletion that names before the one it names, so an owner's insertion before its members' where the owner
- *   axis is immediate and in no order where it is deferred. Nothing else orders family statements among themselves:
- *   two families' statements of unrelated relations, an owner's counts of several families among them, run in any
- *   order.
+ *   immediate; a member's update before its owner's update or refill where the one changes a column the owner axis
+ *   cascades into and the other one it reads; and a family insertion before the family insertion that names it by an
+ *   immediate key, and a family deletion that names before the one it names, so an owner's insertion before its
+ *   members' where the owner axis is immediate and in no order where it is deferred. Nothing else orders family
+ *   statements among themselves: two families' statements of unrelated relations, an owner's counts of several families
+ *   among them, run in any order;
+ * - a refill, an update in place of the rows a change leaves stale, after its relation's deletion, which frees the
+ *   slots it moves members into, and before every count of a family its relation owns or is a member of, as an update
+ *   is; before every put of a relation its refills' order says it is drawn ahead of, and before or after each family
+ *   statement that order names. A refill changes facts at its columns as an update in place does.
  */
 const requiredEdges = (stratum: Stratum): ReadonlySet<string> => {
 	const edges = new Set<string>()
@@ -436,7 +478,7 @@ const requiredEdges = (stratum: Stratum): ReadonlySet<string> => {
 	}
 	const plains = Arr.map(stratum.actions, (a, i) => ({ a, id: i }))
 	const families = Arr.map(stratum.family, (f, i) => ({ f, id: stratum.actions.length + i }))
-	const rowsOf = (relation: string, statement: "delete" | "update" | "insert") =>
+	const rowsOf = (relation: string, statement: "delete" | "refill" | "update" | "insert") =>
 		Arr.findFirst(
 			families,
 			({ f }) => f.kind === "rows" && f.relation === relation && f.statement === statement
@@ -472,6 +514,10 @@ const requiredEdges = (stratum: Stratum): ReadonlySet<string> => {
 	}
 	for (const { f, id } of families) {
 		if (f.kind === "rows") {
+			if (f.statement === "refill") {
+				add(rowsOf(f.relation, "delete"), id)
+				continue
+			}
 			if (f.statement !== "delete") {
 				add(rowsOf(f.relation, "delete"), id)
 			}
@@ -480,11 +526,12 @@ const requiredEdges = (stratum: Stratum): ReadonlySet<string> => {
 			}
 			continue
 		}
-		add(rowsOf(f.relation, "delete"), id)
-		add(rowsOf(f.relation, "update"), id)
+		for (const relation of [f.relation, f.member]) {
+			add(rowsOf(relation, "delete"), id)
+			add(rowsOf(relation, "refill"), id)
+			add(rowsOf(relation, "update"), id)
+		}
 		add(id, rowsOf(f.relation, "insert"))
-		add(rowsOf(f.member, "delete"), id)
-		add(rowsOf(f.member, "update"), id)
 		const counted = f.family
 		if (
 			Arr.some(
@@ -495,23 +542,43 @@ const requiredEdges = (stratum: Stratum): ReadonlySet<string> => {
 			add(id, rowsOf(f.member, "insert"))
 		}
 	}
-	/** The update in place of `relation`, where the stratum holds one, and the columns it changes. */
-	const updateOf = (relation: string) =>
+	/** A family statement's number, by its identity: its kind, its relation and statement, or its family. */
+	const statementOf = (node: FamilyNode): number | undefined =>
+		Arr.findFirst(families, ({ f }) =>
+			node.kind === "owners"
+				? f.kind === "owners" &&
+					f.family.owner === node.family.owner &&
+					f.family.count === node.family.count
+				: f.kind === "rows" && f.relation === node.relation && f.statement === node.statement
+		).pipe(
+			Option.map((x) => x.id),
+			Option.getOrUndefined
+		)
+	for (const p of stratum.refills.precedes) {
+		for (const x of plains) {
+			if (x.a.action.relation === p.relation && x.a.action.op === "put") {
+				add(statementOf(p.node), x.id)
+			}
+		}
+	}
+	for (const e of stratum.refills.edges) {
+		add(statementOf(e.before), statementOf(e.after))
+	}
+	/** The statement `statement` of `relation`, where the stratum holds one, with its number. */
+	const nodeOf = (relation: string, statement: "refill" | "update") =>
 		Arr.findFirst(
 			families,
-			({ f }) => f.kind === "rows" && f.relation === relation && f.statement === "update"
+			({ f }) => f.kind === "rows" && f.relation === relation && f.statement === statement
 		).pipe(Option.getOrUndefined)
 	for (const p of stratum.pairs) {
-		const member = updateOf(p.member)
-		const owner = updateOf(p.owner)
-		if (
-			p.owner !== p.member &&
-			member !== undefined &&
-			owner !== undefined &&
-			changesAny(member.f, p.fromColumns) &&
-			changesAny(owner.f, p.toColumns)
-		) {
-			add(member.id, owner.id)
+		const member = nodeOf(p.member, "update")
+		if (p.owner === p.member || member === undefined || !changesAny(member.f, p.fromColumns)) {
+			continue
+		}
+		for (const owner of [nodeOf(p.owner, "refill"), nodeOf(p.owner, "update")]) {
+			if (owner !== undefined && changesAny(owner.f, p.toColumns)) {
+				add(member.id, owner.id)
+			}
 		}
 	}
 	for (const r of stratum.references) {
@@ -522,13 +589,13 @@ const requiredEdges = (stratum: Stratum): ReadonlySet<string> => {
 		add(rowsOf(r.from, "delete"), rowsOf(r.to, "delete"))
 	}
 	/** A family statement's additions and changes at a reference's columns. */
-	const touches = (f: FamilyNode, columns: ReadonlyArray<string>) =>
-		f.kind === "rows" && f.statement !== "update"
-			? { adds: f.statement === "insert", removes: f.statement === "delete", changes: false }
-			: (() => {
-					const at = Arr.some(f.changes, (c) => columns.includes(c))
-					return { adds: at, removes: false, changes: at }
-				})()
+	const touches = (f: FamilyNode, columns: ReadonlyArray<string>) => {
+		if (f.kind === "rows" && (f.statement === "insert" || f.statement === "delete")) {
+			return { adds: f.statement === "insert", removes: f.statement === "delete", changes: false }
+		}
+		const at = changesAny(f, columns)
+		return { adds: at, removes: false, changes: at }
+	}
 	for (const x of plains) {
 		for (const { f, id } of families) {
 			if (x.a.action.relation === f.relation) {
@@ -567,7 +634,7 @@ const requiredEdges = (stratum: Stratum): ReadonlySet<string> => {
 
 /** Whether a family statement that changes rows in place changes one of `columns`. */
 const changesAny = (f: FamilyNode, columns: ReadonlyArray<string>): boolean =>
-	(f.kind === "owners" || f.statement === "update") &&
+	(f.kind === "owners" || f.statement === "refill" || f.statement === "update") &&
 	Arr.some(f.changes, (c) => columns.includes(c))
 
 /** Whether `edges` over a stratum's writes close a cycle. */
@@ -647,6 +714,7 @@ const importShape: Stratum = {
 			toColumns: ["field:id", "field:n1", "field:a"]
 		}
 	],
+	refills: noRefills,
 	references: [
 		{
 			from: "R1",
@@ -710,7 +778,8 @@ const familyCycle: Stratum = {
 			toColumns: ["field:id", "field:n1", "field:a"]
 		}
 	],
-	references: []
+	references: [],
+	refills: noRefills
 }
 
 type StratumSituation =
@@ -720,6 +789,8 @@ type StratumSituation =
 	| "counts, updates and inserts together"
 	| "a reference from a plain relation into a family member"
 	| "a family member's reference into a plain relation"
+	| "a refill drawn ahead of a plain put"
+	| "a refill ordered against another family statement"
 	| "a cycle of families"
 
 const stratumSituations: Arr.NonEmptyReadonlyArray<StratumSituation> = [
@@ -729,6 +800,8 @@ const stratumSituations: Arr.NonEmptyReadonlyArray<StratumSituation> = [
 	"counts, updates and inserts together",
 	"a reference from a plain relation into a family member",
 	"a family member's reference into a plain relation",
+	"a refill drawn ahead of a plain put",
+	"a refill ordered against another family statement",
 	"a cycle of families"
 ]
 
@@ -762,6 +835,12 @@ const stratumShapes = (stratum: Stratum): ReadonlyArray<StratumSituation> => {
 			: []),
 		...(Arr.some(stratum.references, (r) => familyRelations.has(r.from) && plainRelations.has(r.to))
 			? (["a family member's reference into a plain relation"] as const)
+			: []),
+		...(Arr.isReadonlyArrayNonEmpty(stratum.refills.precedes)
+			? (["a refill drawn ahead of a plain put"] as const)
+			: []),
+		...(Arr.isReadonlyArrayNonEmpty(stratum.refills.edges)
+			? (["a refill ordered against another family statement"] as const)
 			: []),
 		...(familiesCycle(stratum.pairs) ? (["a cycle of families"] as const) : [])
 	]
@@ -821,7 +900,8 @@ describe("a stratum's schedule", () => {
 										fromColumns: ["field:p"],
 										toColumns: ["field:id"]
 									}
-								]
+								],
+								noRefills
 							)
 							if (schedule.kind === "ordered") {
 								const order = Arr.map(schedule.actions, ({ scheduled }) => scheduled)
@@ -924,7 +1004,8 @@ describe("a stratum's schedule", () => {
 								canonicalActionOrder(stratum.actions),
 								stratum.family,
 								stratum.pairs,
-								stratum.references
+								stratum.references,
+								stratum.refills
 							)
 							if (schedule.kind === "cycle") {
 								assert.ok(

@@ -21,6 +21,7 @@ import {
 	type AdmissionStage
 } from "#adapter/errors/failures.ts"
 import { Db } from "#adapter/public/db.ts"
+import type { OutputRows } from "#compiler/core/wire.ts"
 import { emptyFingerprint } from "#compiler/deploy/snapshot/build.ts"
 import { ledgerTableName } from "#compiler/physical/ddl/ledger.ts"
 import { bareDatabase, installed } from "#test/pg/reads/support.ts"
@@ -31,6 +32,7 @@ import { workFacts } from "#test/support/fixtures/golden/work.ts"
 import { installMigratedIn as installIn } from "#test/support/install-migrate.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
+import { outputText } from "#test/support/wire.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 import { loginLayerIn } from "#test/support/worlds.ts"
 
@@ -50,13 +52,13 @@ const refusalStage = (mismatches: ReadonlyArray<AdmissionMismatch>): AdmissionSt
 	Arr.isReadonlyArrayNonEmpty(mismatches) ? new AdmissionRefused({ mismatches }).stage : undefined
 
 /** Every cell as the wire delivers it: text. */
-const texts = (rows: ReadonlyArray<ReadonlyArray<unknown>>): ReadonlyArray<ReadonlyArray<string>> =>
+const texts = (rows: ReadonlyArray<ReadonlyArray<unknown>>): OutputRows =>
 	Arr.map(rows, (row) =>
 		Arr.map(row, (cell) => {
 			if (typeof cell !== "string") {
 				throw new Error(`a cell delivered as ${typeof cell}, not as text`)
 			}
-			return cell
+			return outputText(cell)
 		})
 	)
 

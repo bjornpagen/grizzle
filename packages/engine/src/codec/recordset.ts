@@ -3,7 +3,13 @@
  * of its facts here, so the per-fact work is native loops with no closure or Option per element.
  */
 import { encodeFailure, factPlace, slotPlace } from "#compiler/codec/fault.ts"
-import { refinedMember, type ScalarCodec, scalarCodec } from "#compiler/codec/scalar.ts"
+import {
+	countParam,
+	refinedMember,
+	type ScalarCodec,
+	scalarCodec,
+	textParam
+} from "#compiler/codec/scalar.ts"
 import { nominal } from "#compiler/core/brand.ts"
 import { canonicalTextOf } from "#compiler/core/canonical.ts"
 import type { EncodingFailure, EncodingPlace } from "#compiler/core/errors.ts"
@@ -11,6 +17,7 @@ import { maxStringLength } from "#compiler/core/limits.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
 import { compareCodePoints } from "#compiler/core/text.ts"
+import type { ParamText } from "#compiler/core/wire.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type {
 	ArrayTexts,
@@ -71,7 +78,7 @@ export interface RelationSpec {
 /** A normalized relation input: its normal facts and their text rows. */
 export interface NormalizedRelation extends NormalFacts {
 	/** Each fact's text forms in column order: the elements its arrays carry for it. */
-	readonly rows: ReadonlyArray<ReadonlyArray<string>>
+	readonly rows: ReadonlyArray<ReadonlyArray<ParamText>>
 	readonly count: number
 }
 
@@ -121,8 +128,8 @@ const placeOf = (spec: BuiltSpec, field: string | undefined): EncodingPlace => {
 const rowOf = (
 	columns: ReadonlyArray<BuiltColumn>,
 	fact: { readonly [field: string]: unknown }
-): ReadonlyArray<string> => {
-	const row: Array<string> = []
+): ReadonlyArray<ParamText> => {
+	const row: Array<ParamText> = []
 	for (const column of columns) {
 		row.push(column.codec.text(fact[column.field]))
 	}
@@ -297,25 +304,59 @@ const elementOverhead = (text: string): number => {
 	return added
 }
 
+/** An array literal of parameter texts, itself a parameter text: minted here, where each one is written. */
+const arrayLiteral = nominal<string, ParamText>()
+
+/** One column's array literal while arrayTexts writes it: its column, its length so far and its elements. */
+interface OpenLiteral {
+	readonly column: string
+	length: number
+	readonly elements: Array<string>
+}
+
+/**
+ * `literal` grown by `added` UTF-16 code units, or its column's refusal where that passes `limit`: the one place a
+ * literal's length grows, its braces as much as each element and its comma, so no literal arrayTexts writes, of no row
+ * or of many, passes the bound.
+ */
+const grown = (
+	input: string,
+	limit: number,
+	literal: OpenLiteral,
+	added: number
+): LiteralBound | undefined => {
+	const length = literal.length + added
+	if (length > limit) {
+		return { _tag: "LiteralBound", input, column: literal.column, limit }
+	}
+	literal.length = length
+	return undefined
+}
+
 /**
  * The arrays of a normalized input, one placeholder text each (ir/products.ts ArrayTexts): over `columns` of it, one
  * text-format array literal per column, `{"t1","t2",...}` of its rows' texts in row order, or, of no column, the count
  * of its rows. Every literal is one string, so one longer than `limit` UTF-16 code units, the longest string the host
  * builds in production (core/limits.ts maxStringLength), is refused before it is built, as the bound of the column it
- * carries (ir/products.ts LiteralBound), by a count of its length kept while the rows are read; the literals are
- * written by one pass over the rows.
+ * carries (ir/products.ts LiteralBound), by a count of its length that every character it gains goes through (grown),
+ * its braces before any row; the literals are written by one pass over the rows.
  */
 export const arrayTexts = (
 	input: string,
 	columns: ReadonlyArray<string>,
-	rows: ReadonlyArray<ReadonlyArray<string>>,
+	rows: ReadonlyArray<ReadonlyArray<ParamText>>,
 	limit: number
 ): Result.Result<ArrayTexts, LiteralBound> => {
 	if (columns.length === 0) {
-		return Result.ok(Object.freeze([String(rows.length)]))
+		return Result.ok(Object.freeze([countParam(rows.length)]))
 	}
-	/** Each column's literal so far: its length, both braces counted, and its elements. */
-	const literals = columns.map((column) => ({ column, length: 2, elements: new Array<string>() }))
+	const literals = columns.map((column): OpenLiteral => ({ column, length: 0, elements: [] }))
+	for (const literal of literals) {
+		const refused = grown(input, limit, literal, "{}".length)
+		if (refused !== undefined) {
+			return Result.err(refused)
+		}
+	}
 	for (const row of rows) {
 		/** A normalized row holds one text per column, in column order. */
 		const texts = row.values()
@@ -326,16 +367,31 @@ export const arrayTexts = (
 			}
 			const comma = literal.elements.length === 0 ? 0 : 1
 			const overhead = elementOverhead(text.value)
-			const length = literal.length + comma + text.value.length + overhead
-			if (length > limit) {
-				return Result.err({ _tag: "LiteralBound", input, column: literal.column, limit })
+			const refused = grown(input, limit, literal, comma + text.value.length + overhead)
+			if (refused !== undefined) {
+				return Result.err(refused)
 			}
-			literal.length = length
 			literal.elements.push(arrayElement(text.value, overhead))
 		}
 	}
-	return Result.ok(Object.freeze(literals.map((literal) => `{${literal.elements.join(",")}}`)))
+	return Result.ok(
+		Object.freeze(literals.map((literal) => arrayLiteral(`{${literal.elements.join(",")}}`)))
+	)
 }
+
+/**
+ * A text[] parameter of `values`, each the text carrier's parameter text, as one text-format array literal: the
+ * shell's catalog statements' arrays of names.
+ */
+export const textArrayParam = (values: ReadonlyArray<string>): ParamText =>
+	arrayLiteral(
+		`{${values
+			.map((v) => {
+				const text = textParam(v)
+				return arrayElement(text, elementOverhead(text))
+			})
+			.join(",")}}`
+	)
 
 /** The arrays encoder of a member slot's placeholders, over the slot's normal facts (normalRows). */
 export const normalArrays = (

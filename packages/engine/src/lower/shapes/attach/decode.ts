@@ -1,4 +1,6 @@
+import { nominal } from "#compiler/core/brand.ts"
 import { jsonStrings } from "#compiler/core/json-strings.ts"
+import type { OutputText } from "#compiler/core/wire.ts"
 import type { Heading, HeadingColumn, NodeOf } from "#compiler/ir/rel.ts"
 
 /** The index of `search` in `text` at or after `from`, or undefined when it does not occur there. */
@@ -118,9 +120,15 @@ export const fusedElement = (layout: FusedLayout): Heading =>
  * child heading's columns in order.
  */
 export type FusedTexts = (
-	text: string,
-	parent: ReadonlyArray<string>
-) => ReadonlyArray<ReadonlyArray<string>>
+	text: OutputText,
+	parent: ReadonlyArray<OutputText>
+) => ReadonlyArray<ReadonlyArray<OutputText>>
+
+/**
+ * A field's text inside a fused array's element: the field's own output text, which the statement casts to text and
+ * the array and its jsonb carry unchanged, minted here, where the element is read.
+ */
+const elementText = nominal<string, OutputText>()
 
 /**
  * The field texts of one element of a jsonb[] fused column, read in order: jsonb_out's text of an object whose values
@@ -141,7 +149,7 @@ const objectFields = (text: string): (() => string) => {
  */
 export const fusedTexts = (
 	layout: FusedLayout,
-	parentCell: (column: string) => (row: ReadonlyArray<string>) => string
+	parentCell: (column: string) => (row: ReadonlyArray<OutputText>) => OutputText
 ): FusedTexts => {
 	const several = fusedElement(layout).length > 1
 	/**
@@ -156,6 +164,8 @@ export const fusedTexts = (
 	return (text, parent) =>
 		arrayElements(text).map((e) => {
 			const field = several ? objectFields(e) : () => e
-			return cells.map((cell) => (cell.from === "element" ? field() : cell.read(parent)))
+			return cells.map((cell) =>
+				cell.from === "element" ? elementText(field()) : cell.read(parent)
+			)
 		})
 }

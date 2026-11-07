@@ -20,14 +20,18 @@ export {
 	parameterNormalizer,
 	positionalColumns,
 	type RelationNormalizer,
-	type RelationSpec
+	type RelationSpec,
+	textArrayParam
 } from "#compiler/codec/recordset.ts"
 export {
 	carrierSpecOf,
+	countParam,
 	paramEncoder,
 	scalarCodec,
-	type ScalarCodec
+	type ScalarCodec,
+	textParam
 } from "#compiler/codec/scalar.ts"
+export type { PageFill, SizeFill } from "#compiler/ir/products.ts"
 export type { CompletedOrder, Heading, NodeOf, TakeBound } from "#compiler/ir/rel.ts"
 export { columnPosition, columnType } from "#compiler/lower/conservative/context.ts"
 export {
@@ -71,10 +75,12 @@ export {
 	statedOrderOf
 } from "#compiler/lower/shapes/page/compile.ts"
 export type {
+	AnchoredVariant,
 	PageComparator,
 	PageDirection,
 	PageVariant,
-	ProbeKind
+	ProbeKind,
+	VariantFill
 } from "#compiler/lower/shapes/page/seek.ts"
 export { runsLargeForm } from "#compiler/lower/shapes/take/index.ts"
 export { mergeHeadingGroups } from "#compiler/lower/shapes/union/index.ts"

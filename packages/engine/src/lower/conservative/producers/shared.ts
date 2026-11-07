@@ -1,6 +1,7 @@
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import type { NodeOf, ProducerNode } from "#compiler/ir/rel.ts"
+import { isSpanCarrier, type SpanCarrier } from "#compiler/ir/scalar.ts"
 import {
 	type ColumnMap,
 	columnIn,
@@ -77,16 +78,13 @@ export const producedQuery = (
 	}
 }
 
-/** The range carrier of a span: int4range for pg.integer endpoints, int8range for pg.bigint. */
-type SpanCarrier = "range4" | "range8"
-
 /**
  * The range carrier of the span expression `e`, or MalformedDescription: the checker builds every producer argument as
  * a span, and validation checks only that it reads the producer's input.
  */
 const spanCarrierOf = (e: ScalarExpr, at: string): SpanCarrier => {
 	const carrier = e.type.carrier
-	if (carrier !== "range4" && carrier !== "range8") {
+	if (!isSpanCarrier(carrier)) {
 		return refuse(
 			"MalformedDescription",
 			at,

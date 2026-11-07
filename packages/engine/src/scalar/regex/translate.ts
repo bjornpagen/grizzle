@@ -13,6 +13,7 @@ import {
 } from "#compiler/scalar/regex/charset.ts"
 import { end, type LiveNode, type RegexNode, seq, start } from "#compiler/scalar/regex/ir.ts"
 import type { RegexFlags } from "#compiler/scalar/regex/parse.ts"
+import type { PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
 import {
 	anchoredAt,
 	anyText,
@@ -153,8 +154,13 @@ const imageSources = (
 	}
 }
 
-/** The image of a text type's language under a map (imageSources), its pattern's or the wildcard's (patternNode). */
+/**
+ * The image of a text type's language under a map (imageSources), its pattern's, read from `patterns`, or the
+ * wildcard's (patternNode).
+ */
 export const imageOf = (
 	regex: TextInfo["regex"],
-	map: CharMap
-): { readonly exact: string; readonly within: string } => imageSources(patternNode(regex), map)
+	map: CharMap,
+	patterns: PatternAutomata
+): { readonly exact: string; readonly within: string } =>
+	imageSources(patternNode(regex, patterns), map)

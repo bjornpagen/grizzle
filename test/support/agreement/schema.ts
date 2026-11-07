@@ -1,4 +1,4 @@
-import { closedId, contract, pg, span, uuid } from "#compiler/public/fields.ts"
+import { closedId, contract, date, pg, span, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	alternatives,
@@ -35,7 +35,8 @@ import { str } from "#compiler/public/text.ts"
  *
  * Slot holds an item's spans and vectors, keyed by its item and span: during, a span over integer ticks, which Allen
  * predicates, a point's test and the span producers read, and which a span parameter declared at it types; budget and
- * raw, spans over Cents and over its bare base, which never meet; embedding, the vector a cosine distance scores and an
+ * raw, spans over Cents and over its bare base, which never meet; when, a span of calendar dates, whose width counts
+ * days, and day, a date a point's test of it reads; embedding, the vector a cosine distance scores and an
  * approximate search ranks by, and image, a second vector of its dimensions, which a distance relates to it but no
  * search ranks by.
  *
@@ -92,6 +93,8 @@ export const Slot = relation(
 		during: span(pg.integer),
 		budget: span(Cents),
 		raw: span(pg.bigint),
+		day: date,
+		when: span(date),
 		embedding: pg.vector(3),
 		image: pg.vector(3)
 	},
@@ -215,3 +218,9 @@ export const Deliver = schema(
 		alternatives(Task, "kind", Kind, { Automatic: AutomaticTask, Manual: ManualTask })
 	]
 )
+
+/**
+ * A schema of Deliver's relations that is no level of Deliver, nor Deliver of it: an attachment child written over it
+ * reads relations its parent's schema holds, and is still over no level of that schema.
+ */
+export const DeliverApart = schema("DeliverApart", Deliver.relations, [])

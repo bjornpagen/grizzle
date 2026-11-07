@@ -19,9 +19,10 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint, float } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, pipe, String as Str } from "effect"
+import { Array as Arr, DateTime, Effect, Formatter, pipe, String as Str } from "effect"
 import type { CodecFault } from "#compiler/core/errors.ts"
 import { int8Max, int8Min } from "#compiler/core/limits.ts"
+import { type CalendarDate, toCalendarDate } from "#compiler/ir/date.ts"
 import type { Carrier, ScalarType } from "#compiler/ir/scalar.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import type { CarrierHost } from "#compiler/scalar/values/identity.ts"
@@ -36,6 +37,7 @@ import { codecOf, kindCodes, types } from "#test/unit/codec/support.ts"
 import { asVector } from "#test/unit/codec/values.ts"
 
 import { regex } from "arkregex"
+import { paramText } from "#test/support/wire.ts"
 /**
  * Text-mode scalar codecs: each carrier's written text, admission at the encoder, and the null ban; the strict reading of
  * PostgreSQL's output text (the kernel's, test/support/kernel/strict.ts), and the library's trusting conversion agreeing
@@ -104,6 +106,31 @@ const writtenSpan8 = (endpoint: Gen<bigint>): Gen<Written> =>
 			return { value: { start, end }, text: `[${start},${end})` }
 		}
 	)
+
+/** The days past 0001-01-01 of the calendar's dates, the last 9999-12-31. */
+const days = int(0, 3_652_058)
+
+/** A calendar date's text at a count of days past 0001-01-01, by the proleptic Gregorian calendar. */
+const dateAt = (day: number): CalendarDate =>
+	succeeded(
+		toCalendarDate(
+			DateTime.formatIsoDateUtc(DateTime.makeUnsafe({ year: 1, month: 1, day: 1 + day }))
+		),
+		"a calendar date's text"
+	)
+
+/** A span of two distinct days, the earlier its start, written as daterange_out writes it. */
+const writtenDateSpan: Gen<Written> = map(
+	filter(
+		(source) => [source.draw(days), source.draw(days)] as const,
+		([a, b]) => a !== b,
+		100
+	),
+	([a, b]): Written => {
+		const [start, end] = a < b ? [dateAt(a), dateAt(b)] : [dateAt(b), dateAt(a)]
+		return { value: { start, end }, text: `[${start},${end})` }
+	}
+)
 
 /** Text PostgreSQL stores: no NUL and no lone surrogate. */
 const storableText = string(
@@ -305,6 +332,27 @@ const carried = {
 		refusedValues: [[{ start: 1, end: 2 }, "spanEndpoint"]],
 		refusedTexts: []
 	},
+	daterange: {
+		type: types.rangeDate,
+		live: writtenDateSpan,
+		refusedValues: [
+			[{ start: "2024-03-01", end: "2024-02-29" }, "spanOrder"],
+			[{ start: "2024-02-30", end: "2024-03-01" }, "spanEndpoint"],
+			[{ start: 1, end: 2 }, "spanEndpoint"]
+		],
+		refusedTexts: Arr.map(
+			[
+				"empty",
+				"(2024-02-28,2024-03-01)",
+				"[2024-02-28,2024-03-01]",
+				"[2024-03-01,2024-02-28)",
+				"[2024-02-28,infinity)",
+				"[2024-02-30,2024-03-01)",
+				"[2024-02-28, 2024-03-01)"
+			],
+			(t) => [t, "spanSyntax"] as const
+		)
+	},
 	"int4range of width 15": {
 		type: fixed4,
 		live: map(int(-(2 ** 31), 2 ** 31 - 16), (start) => ({
@@ -370,6 +418,7 @@ const carriedNames: Arr.NonEmptyReadonlyArray<CarriedName> = [
 	"bits",
 	"int4range",
 	"int8range",
+	"daterange",
 	"int4range of width 15",
 	"int8range of width int8 max",
 	"vector"
@@ -461,7 +510,11 @@ describe("each carrier's codec", () => {
 								case "written": {
 									c.note(`${name} written`)
 									const { value, text } = sketch.written
-									assert.equal(succeeded(codec.encode(value)), codec.cellText(text), name)
+									assert.equal(
+										succeeded(codec.encode(value)),
+										paramText(codec.cellText(text)),
+										name
+									)
 									assert.equal(codec.cellText(text), codec.text(codec.convert(text)), name)
 									assert.deepEqual(succeeded(codec.read(text)), value, name)
 									assert.deepEqual(codec.convert(text), value, name)

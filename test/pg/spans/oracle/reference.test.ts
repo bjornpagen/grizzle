@@ -17,23 +17,17 @@ import { col } from "#compiler/sql/build.ts"
 import { printExpr } from "#compiler/sql/print.ts"
 import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { maskSql } from "#test/support/oracle/allen-sql.ts"
-import {
-	classify,
-	type HalfOpen,
-	rangeLimits,
-	spanText,
-	windowSpans
-} from "#test/support/oracle/allen.ts"
+import { classify, type HalfOpen, spanText, windowSpans } from "#test/support/oracle/allen.ts"
 
 import { caseHang } from "#test/support/limits.ts"
 import {
 	defaultSpanCaseLimits,
+	endpointLimits,
 	endpointMaskPredicate,
 	type MaskPredicate,
 	overlaps,
 	printSpanCase,
 	type RawRow,
-	rangeTypeOf,
 	referenceRows,
 	referenceSql,
 	rowSet,
@@ -193,7 +187,7 @@ type SpanCaseFeature =
 
 const caseFeatures = (c: SpanCase): ReadonlyArray<SpanCaseFeature> => {
 	const out = new Set<SpanCaseFeature>([`query:${c.query.kind}`, `endpoint:${c.schema.endpoint}`])
-	const { min, max } = rangeLimits[rangeTypeOf(c.schema.endpoint)]
+	const { min, max } = endpointLimits(c.schema.endpoint)
 	for (const name of spanRelationNames) {
 		const facts = c.facts[name]
 		const keyed = c.schema.relations[name].spanKeyed
@@ -254,6 +248,7 @@ const situations: Arr.NonEmptyReadonlyArray<SpanCaseFeature> = [
 	"endpoint:integer",
 	"endpoint:bigint",
 	"endpoint:contract",
+	"endpoint:date",
 	"span-keyed relation",
 	"id-keyed relation",
 	"span starting at the type minimum",
@@ -322,7 +317,7 @@ describe("the span generators", () => {
 						if (!decoded.ok) {
 							throw new Error(`${printSpanCase(c)}\n${decoded.error.message}`)
 						}
-						const { min, max } = rangeLimits[rangeTypeOf(c.schema.endpoint)]
+						const { min, max } = endpointLimits(c.schema.endpoint)
 						for (const name of spanRelationNames) {
 							assertLawful(c, name, min, max)
 						}

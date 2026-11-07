@@ -1,6 +1,7 @@
 import { layer } from "@effect/vitest"
 import type { Situations } from "@grizzle/testing/features"
 import { constant, type Gen, weighted } from "@grizzle/testing/gen"
+import { Array as Arr } from "effect"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { witnessesShowTheirOwn } from "#test/support/worlds/drive/acting.ts"
 import {
@@ -8,10 +9,13 @@ import {
 	drawnRealities,
 	type Focus,
 	fresh,
+	type Lead,
+	leadsOf,
 	programTests
 } from "#test/support/worlds/drive/suite.ts"
 import { installGen } from "#test/support/worlds/generate/install.ts"
 import { roomsBase, roomsInstall } from "#test/support/worlds/model/bases/rooms.ts"
+import { ticketsInstall } from "#test/support/worlds/model/bases/tickets.ts"
 import type { InstallSpec, WorldFeature } from "#test/support/worlds/model/types.ts"
 
 /**
@@ -23,8 +27,10 @@ import type { InstallSpec, WorldFeature } from "#test/support/worlds/model/types
  * immutable, inserts, deletes and puts what the worlds model says. The model judges each outcome: the refusal's law, its
  * witness (the keys the writer submitted, and those of relations its role holds whole, at most: a key's, a row check's
  * and a domain's at a stated fact the host judges, none of a containment's, a coverage's or an alternatives law's),
- * and the state every accepted write leaves, read back as the owner. Reads walk a world's span fields, and chain which
- * rooms adjoin which by a recursive query. Beside the model, a shown witness carries only what the writer submitted or holds whole
+ * and the state every accepted write leaves, read back as the owner. A row check over the tickets base
+ * (model/bases/tickets.ts) refuses a ticket added without the number the database draws for it, its witness the
+ * ticket's code, the first key it states. Reads walk a world's span fields, and chain which rooms adjoin which by a
+ * recursive query. Beside the model, a shown witness carries only what the writer submitted or holds whole
  * (drive/acting.ts witnessesShowTheirOwn).
  */
 const focus: Focus = ["open-db", "apply", "read", "close", "direct-begin", "direct", "direct-end"]
@@ -68,6 +74,22 @@ const required: Situations<WorldFeature> = [
 	"read:span"
 ]
 
+/**
+ * A lead aiming a Db's applies at a domain's CHECK refusing a write through a query entry: a value its contract or
+ * pattern refuses is a wild input, which dbSession's live-only applies never draw, so this lead's applies draw only the
+ * wild strata, each still aimed at the feature while it is pending.
+ */
+const domainRefusing: Lead = (weights, install, at) =>
+	Arr.map(dbSession(["law:domain:entry:shown"])(weights, install, at), (w) =>
+		w.actions.apply > 0 ? { ...w, validity: { live: 0, stale: 0, wild: 1 } } : w
+	)
+
+/**
+ * What the drawn-key suite must reach, over the tickets base: a row check refusing a ticket added without the number
+ * the database draws, its witness the ticket's code.
+ */
+const drawnKeyRequired: Situations<WorldFeature> = ["law:check:declared-key"]
+
 layer(Substrate.layer, { excludeTestServices: true })("the worlds model: rules", (it) => {
 	programTests(it, {
 		suite: "pg/world-model/rules",
@@ -79,7 +101,20 @@ layer(Substrate.layer, { excludeTestServices: true })("the worlds model: rules",
 		cases: 24,
 		required,
 		realities: drawnRealities,
-		lead: dbSession(required),
+		lead: leadsOf(dbSession(required), domainRefusing),
+		check: witnessesShowTheirOwn
+	})
+	programTests(it, {
+		suite: "pg/world-model/rules/drawn-key",
+		name: "a row check refusing a fact whose primary key the database draws names it by the next key it states",
+		installs: constant(ticketsInstall),
+		realize: fresh,
+		focus: ["open-db", "apply", "read", "close"],
+		steps: 8,
+		cases: 8,
+		required: drawnKeyRequired,
+		realities: drawnRealities,
+		lead: dbSession(drawnKeyRequired),
 		check: witnessesShowTheirOwn
 	})
 })

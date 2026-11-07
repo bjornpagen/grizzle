@@ -8,15 +8,17 @@ import { bigint } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
 import * as Result from "#compiler/core/result.ts"
-import type { FieldDesc } from "#compiler/ir/desc.ts"
+import { type FieldDesc, pgScalarNames } from "#compiler/ir/desc.ts"
+import { type DeclaredType, languageOfText } from "#compiler/ir/scalar.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
 import { str } from "#compiler/public/text.ts"
 import { Decimal, type DecimalParts, type FiniteParts } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { makeSpan } from "#compiler/scalar/values/span.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
+import { textLookupWithin } from "#compiler/text/refinement.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
-import { textDesc } from "#test/support/fixtures/ir/desc.ts"
+import { f, textDesc } from "#test/support/fixtures/ir/desc.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { decimalGen, decimalText } from "#test/unit/values/support.ts"
@@ -182,12 +184,39 @@ const reached = (value: unknown): ReadonlyArray<object> => {
 	return out
 }
 
+/** A text descriptor of `source` cut to `bytes` UTF-8 bytes, its language as str.bytes admits it. */
+const bytesDesc = (source: string, flags: "u" | "su", bytes: number): FieldDesc => ({
+	kind: "text",
+	source,
+	flags,
+	bytes,
+	language: succeeded(textLookupWithin(bytes)(source, flags))
+})
+
+/** The roster the closed id and the set descriptors are over. */
+const rosters = { Kind: ["Manual", "Automatic"] } as const
+
+/**
+ * A descriptor of every kind, every PostgreSQL scalar among them, and of every text check the analysis makes: a
+ * finite language's, a bounded regex's, an unbounded one's past the automaton bound, a byte bound beside a pattern's
+ * check and alone, and every text's.
+ */
 const fieldDescs: Arr.NonEmptyReadonlyArray<FieldDesc> = [
-	{ kind: "pg", type: "integer" },
 	{ kind: "numeric", precision: 10, scale: 2 },
+	...Arr.map(pgScalarNames, (type): FieldDesc => ({ kind: "pg", type })),
 	{ kind: "uuid" },
 	textDesc("^[a-z]{1,8}$", "u"),
+	textDesc("^x$", "u"),
+	textDesc("^(a|b)*a(a|b){12}$", "u"),
+	f.wildcard,
+	bytesDesc("^[a-z]{1,8}$", "u", 4),
+	bytesDesc("^.*$", "su", 4),
+	f.natural,
+	f.closedId("Kind"),
+	{ kind: "bits", roster: "Kind" },
 	{ kind: "span", endpoint: { kind: "pg", type: "bigint" }, width: 10n },
+	{ kind: "span", endpoint: { kind: "pg", type: "integer" }, width: undefined },
+	{ kind: "span", endpoint: { kind: "pg", type: "date" }, width: undefined },
 	{ kind: "vector", dimensions: 3 }
 ]
 
@@ -198,8 +227,38 @@ type Constructor =
 	| "makeSpan"
 	| "Vector.canonical"
 	| "scalarTypeOf"
+	| "scalarTypeOf, a finite check"
+	| "scalarTypeOf, a bounded regex check"
+	| "scalarTypeOf, a regex check of no bound"
+	| "scalarTypeOf, a byte bound beside a check"
+	| "scalarTypeOf, a byte bound alone"
+	| "scalarTypeOf, every text"
 	| "a public field descriptor"
 	| "str.regex"
+
+/** What scalarTypeOf made, as its value shows it: a text type by the check its language carries. */
+const typedBy = (type: DeclaredType): Constructor => {
+	if (type.carrier !== "text") {
+		return "scalarTypeOf"
+	}
+	const language = languageOfText(type.text)
+	if (language.kind === "every") {
+		return "scalarTypeOf, every text"
+	}
+	const { check } = language
+	switch (check.kind) {
+		case "finite":
+			return "scalarTypeOf, a finite check"
+		case "regex":
+			return check.bounds === undefined
+				? "scalarTypeOf, a regex check of no bound"
+				: "scalarTypeOf, a bounded regex check"
+		case "octets":
+			return check.check === undefined
+				? "scalarTypeOf, a byte bound alone"
+				: "scalarTypeOf, a byte bound beside a check"
+	}
+}
 
 interface Constructed {
 	readonly by: Constructor
@@ -218,10 +277,10 @@ const constructedGen: Gen<Constructed> = oneOf<Constructed>([
 		by: "Vector.canonical",
 		value: succeeded(Vector.canonical(vectorOf(xs)))
 	})),
-	map(element(fieldDescs), (desc): Constructed => ({
-		by: "scalarTypeOf",
-		value: scalarOf(desc, {})
-	})),
+	map(element(fieldDescs), (desc): Constructed => {
+		const type = scalarOf(desc, rosters)
+		return { by: typedBy(type), value: type }
+	}),
 	element<Constructed>([
 		{ by: "a public field descriptor", value: uuid },
 		{ by: "a public field descriptor", value: pg.integer },
@@ -367,6 +426,12 @@ describe("the value carriers' laws", () => {
 								"makeSpan",
 								"Vector.canonical",
 								"scalarTypeOf",
+								"scalarTypeOf, a finite check",
+								"scalarTypeOf, a bounded regex check",
+								"scalarTypeOf, a regex check of no bound",
+								"scalarTypeOf, a byte bound beside a check",
+								"scalarTypeOf, a byte bound alone",
+								"scalarTypeOf, every text",
 								"a public field descriptor",
 								"str.regex"
 							],

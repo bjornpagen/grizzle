@@ -7,6 +7,7 @@ import type {
 	ResolvedTerm,
 	TheoryLaw
 } from "#compiler/analysis/theory/laws.ts"
+import { type RefillDeferral, refillDeferral } from "#compiler/analysis/theory/refill.ts"
 import { Refusal } from "#compiler/core/canonical.ts"
 import type { KeyFault } from "#compiler/core/causes.ts"
 import { CompileError, type ProseTag, prose } from "#compiler/core/errors.ts"
@@ -241,6 +242,7 @@ const hashable = (c: PlannedColumn): boolean => {
 		case "code":
 		case "range4":
 		case "range8":
+		case "rangeDate":
 		case "exactInteger":
 			return true
 		case "money":
@@ -859,6 +861,8 @@ export class Recognizer {
 	readonly #planned = new Map<string, FamilyPlan>()
 	/** The columns each relation's owner axes write by ON UPDATE CASCADE, by relation name and column key. */
 	readonly #cascaded: ReadonlyMap<string, ReadonlySet<string>>
+	/** The family axes a refill writes around, deferred whatever else decides them (analysis/theory/refill.ts). */
+	readonly #refill: RefillDeferral
 
 	constructor(
 		laws: ReadonlyArray<TheoryLaw>,
@@ -905,6 +909,14 @@ export class Recognizer {
 			cascaded.set(f.member.name, own)
 		}
 		this.#cascaded = cascaded
+		this.#refill = refillDeferral(families)
+	}
+
+	/** Whether a refill writes around `family`'s `axis`, its owner or its predecessor axis, so it is deferred. */
+	refillDeferred(axis: "owner" | "predecessor", family: Family): boolean {
+		return (axis === "owner" ? this.#refill.owner : this.#refill.predecessor).has(
+			familyKey(family.id)
+		)
 	}
 
 	plan(law: TheoryLaw): LawPlan {
@@ -1648,7 +1660,10 @@ class FamilyPlanner {
 							{ relation: member, base: extendNonEmpty(group, [copy]) },
 							{ relation: owner, base: ownerTargets },
 							"cascade",
-							this.#recognizer.cascadeFed(owner, ownerTargetColumns) ? "deferred" : "cycle"
+							this.#recognizer.refillDeferred("owner", f) ||
+								this.#recognizer.cascadeFed(owner, ownerTargetColumns)
+								? "deferred"
+								: "cycle"
 						)
 					: this.#axis(
 							"owner",
@@ -1659,7 +1674,7 @@ class FamilyPlanner {
 							},
 							{ relation: owner, base: ownerTargets },
 							"noAction",
-							"immediate"
+							this.#recognizer.refillDeferred("owner", f) ? "deferred" : "immediate"
 						),
 			predecessor: this.#axis(
 				"predecessor",
@@ -1667,7 +1682,9 @@ class FamilyPlanner {
 				{ relation: member, base: appendNonEmpty(group, pred) },
 				{ relation: member, base: familyKeyColumns },
 				"noAction",
-				index.kind === "field" ? "immediate" : "deferred"
+				index.kind === "field" && !this.#recognizer.refillDeferred("predecessor", f)
+					? "immediate"
+					: "deferred"
 			),
 			last: this.#axis(
 				"last",
@@ -2056,7 +2073,9 @@ class FamilyPlanner {
 
 	/**
 	 * A fold's combine CHECK on the member, under the fold's law: every plane's after is `combine(befores, x)` where the
-	 * step side's selection holds, and its before where it does not, compared in exact arithmetic.
+	 * step side's selection holds, and its before where it does not, compared in exact arithmetic. The selection holds
+	 * only where it is true: `CASE WHEN φ THEN after = combine ELSE after = before END`, so a member a closed read at an
+	 * absent key leaves unknown is off the step side, as a law column's `CASE WHEN φ` and the host's fill read it.
 	 */
 	#combine(fold: FamilyFold, at: number): void {
 		const { law, detail } = this.#recognizer.foldLaw(familyKey(this.#family.id), at)
@@ -2076,18 +2095,14 @@ class FamilyPlanner {
 			conditions.add(stepped)
 			return
 		}
-		const phi = and(where)
-		conditions.add(
-			or([
-				and([phi, stepped]),
-				and([
-					{ kind: "not", arg: phi },
-					and(
-						mapNonEmpty(afters, (a, p) => cmp("eq", a, befores[p] ?? missing("a before per plane")))
-					)
-				])
-			])
-		)
+		conditions.add({
+			kind: "cond",
+			pred: and(where),
+			onTrue: stepped,
+			onFalse: and(
+				mapNonEmpty(afters, (a, p) => cmp("eq", a, befores[p] ?? missing("a before per plane")))
+			)
+		})
 	}
 }
 

@@ -83,7 +83,6 @@
 			{
 				"rule": "no-spread-argument",
 				"files": [
-					"test/types/evidence/fixtures/evidence.ts",
 					"test/unit/deps/runtime-probe.ts"
 				]
 			},
@@ -583,6 +582,7 @@
 						"test/types/api/access.test.ts",
 						"test/types/api/config.test.ts",
 						"test/types/api/recursion.test.ts",
+						"test/types/api/surface.test.ts",
 						"test/types/api/workload.test.ts",
 						"test/types/changeset/changeset.test.ts",
 						"test/types/changeset/nesting.test.ts",
@@ -590,6 +590,7 @@
 						"test/types/evidence/agreement.test.ts",
 						"test/types/evidence/attachments.test.ts",
 						"test/types/harness/harness.test.ts",
+						"test/types/regex/agreement.test.ts",
 						"test/types/regex/schema.test.ts",
 						"test/types/schema/agreement.test.ts",
 						"test/types/text/bytes.test.ts",

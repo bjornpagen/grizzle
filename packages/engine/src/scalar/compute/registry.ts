@@ -351,6 +351,7 @@ export const catalogTypeName = {
 	bits: "bit",
 	range4: "anyrange",
 	range8: "anyrange",
+	rangeDate: "anyrange",
 	vector: "vector",
 	exactInteger: "numeric",
 	exactMoney: "numeric"
@@ -666,7 +667,11 @@ const booleanNot: FixedOverload = frozen({
 })
 
 /** A span's lower or upper endpoint, which never returns NULL: a grizzle span is bounded and nonempty. */
-const endpoint = (fn: "lower" | "upper", range: SpanCarrier, point: IntCarrier): FixedOverload =>
+const endpoint = (
+	fn: "lower" | "upper",
+	range: SpanCarrier,
+	point: IntCarrier | "date"
+): FixedOverload =>
 	frozen({
 		fn,
 		operands: positional([range]),
@@ -996,6 +1001,11 @@ const catalogOverloads = {
 	"in:uuid": membership("uuid", opId("uuid_eq")),
 	"least:uuid": extreme("least", "uuid", opId("uuid_lt")),
 	"greatest:uuid": extreme("greatest", "uuid", opId("uuid_gt")),
+	/**
+	 * date - date, the integer count of days between them, which no two dates a CalendarDate spells overflow: a date
+	 * span's width alone (compute/lower.ts width), since Compute admits no date arithmetic.
+	 */
+	date_mi: infix("sub", "-", "date", "int4", total, "value"),
 	date_eq: comparison("eq", "date"),
 	date_ne: comparison("ne", "date"),
 	date_lt: comparison("lt", "date"),
@@ -1056,6 +1066,14 @@ const catalogOverloads = {
 	"in:int8range": membership("range8", rangeOp("range_eq", "range8")),
 	"least:int8range": extreme("least", "range8", rangeOp("range_lt", "range8")),
 	"greatest:int8range": extreme("greatest", "range8", rangeOp("range_gt", "range8")),
+	"between:daterange": between(
+		"rangeDate",
+		rangeOp("range_ge", "rangeDate"),
+		rangeOp("range_le", "rangeDate")
+	),
+	"in:daterange": membership("rangeDate", rangeOp("range_eq", "rangeDate")),
+	"least:daterange": extreme("least", "rangeDate", rangeOp("range_lt", "rangeDate")),
+	"greatest:daterange": extreme("greatest", "rangeDate", rangeOp("range_gt", "rangeDate")),
 	vector_eq: comparison("eq", "vector"),
 	vector_ne: comparison("ne", "vector"),
 	vector_lt: comparison("lt", "vector"),
@@ -1151,7 +1169,20 @@ const listedSpanCodes = [
 	"range_ge"
 ] as const satisfies ReadonlyArray<RangeOpCode>
 
-const listedSpanCarriers = ["range4", "range8"] as const satisfies ReadonlyArray<SpanCarrier>
+const listedSpanCarriers = [
+	"range4",
+	"range8",
+	"rangeDate"
+] as const satisfies ReadonlyArray<SpanCarrier>
+
+/** A range comparison at each span carrier. */
+const spanComparison = (
+	op: "eq" | "ne" | "lt" | "le" | "gt" | "ge"
+): { readonly [C in SpanCarrier]: Overload } => ({
+	range4: comparison(op, "range4"),
+	range8: comparison(op, "range8"),
+	rangeDate: comparison(op, "rangeDate")
+})
 
 /** Each range-polymorphic overload by its code and the range carrier it is instantiated at (ir/expr.ts rangeOp). */
 const spanOverloads: {
@@ -1159,18 +1190,20 @@ const spanOverloads: {
 } = {
 	"lower(anyrange)": {
 		range4: endpoint("lower", "range4", "int4"),
-		range8: endpoint("lower", "range8", "int8")
+		range8: endpoint("lower", "range8", "int8"),
+		rangeDate: endpoint("lower", "rangeDate", "date")
 	},
 	"upper(anyrange)": {
 		range4: endpoint("upper", "range4", "int4"),
-		range8: endpoint("upper", "range8", "int8")
+		range8: endpoint("upper", "range8", "int8"),
+		rangeDate: endpoint("upper", "rangeDate", "date")
 	},
-	range_eq: { range4: comparison("eq", "range4"), range8: comparison("eq", "range8") },
-	range_ne: { range4: comparison("ne", "range4"), range8: comparison("ne", "range8") },
-	range_lt: { range4: comparison("lt", "range4"), range8: comparison("lt", "range8") },
-	range_le: { range4: comparison("le", "range4"), range8: comparison("le", "range8") },
-	range_gt: { range4: comparison("gt", "range4"), range8: comparison("gt", "range8") },
-	range_ge: { range4: comparison("ge", "range4"), range8: comparison("ge", "range8") }
+	range_eq: spanComparison("eq"),
+	range_ne: spanComparison("ne"),
+	range_lt: spanComparison("lt"),
+	range_le: spanComparison("le"),
+	range_gt: spanComparison("gt"),
+	range_ge: spanComparison("ge")
 }
 
 /** A registered cast: its node, and the host conversion the evaluator runs for it. */

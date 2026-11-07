@@ -48,7 +48,7 @@ import {
 } from "#compiler/scalar/compute/lower.ts"
 import { definedRangeOp } from "#compiler/scalar/compute/registry.ts"
 import { widening } from "#compiler/scalar/compute/types.ts"
-import { regexMember } from "#compiler/scalar/regex/nfa.ts"
+import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { bareEnv, scalarTypeOf } from "#compiler/scalar/registry.ts"
 import { textLookup } from "#compiler/text/refinement.ts"
 import { defined } from "#test/support/assert.ts"
@@ -331,7 +331,7 @@ class Translation {
 			},
 			params: noParams,
 			fieldType: (desc, loc) => scalarTypeOf(desc, bareEnv, loc),
-			regexMember,
+			patterns: new CompilePatterns(),
 			patternLanguage: textLookup,
 			extension: noExtension
 		}
@@ -1357,6 +1357,7 @@ const cellText = (v: Value, type: ScalarType): string => {
 		case "exactMoney":
 		case "range4":
 		case "range8":
+		case "rangeDate":
 		case "vector":
 			throw new Error(`a mixed root's cell of the ${carrier} carrier, which its arms never hold`)
 	}

@@ -56,9 +56,12 @@ import {
 	defect,
 	type EmittedText,
 	messageMaxBytes,
+	type OutputRows,
+	type ParamText,
 	type SchemaFingerprint,
 	sqlstates
 } from "#compiler/plan/common.ts"
+import { textParam } from "#compiler/plan/read.ts"
 
 /** A statement of a reviewed migration file, minted where migrate/input.ts splits a file into its statements. */
 export type MigrationText = string & Brand.Brand<"MigrationText">
@@ -72,13 +75,13 @@ export type SentText = EmittedText | MigrationText
 /** One statement of a flight: its SQL and its parameters' texts, in placeholder order. */
 export interface BatchStatement {
 	readonly sql: SentText
-	readonly params: ReadonlyArray<string>
+	readonly params: ReadonlyArray<ParamText>
 }
 
 /** One run of a server statement of the session's pool, with its parameters' texts, in placeholder order. */
 export interface NamedStatement {
 	readonly server: ServerStatement
-	readonly params: ReadonlyArray<string>
+	readonly params: ReadonlyArray<ParamText>
 }
 
 /**
@@ -93,7 +96,7 @@ export type FlightStatement = BatchStatement | NamedStatement
  */
 export interface BatchOutcome {
 	readonly command: string
-	readonly rows: ReadonlyArray<ReadonlyArray<string>>
+	readonly rows: OutputRows
 }
 
 /** The transaction a flight runs its statements in, always SERIALIZABLE: whether it writes, and how it ends. */
@@ -136,7 +139,10 @@ export const prologueOf = (
 	claims,
 	snapshot,
 	fence: { server: statements.fence, params: [] },
-	enter: { server: statements.enter, params: [snapshot, role, claims] }
+	enter: {
+		server: statements.enter,
+		params: [textParam(snapshot), textParam(role), textParam(claims)]
+	}
 })
 
 /** A Db's transaction: framed as a transaction is, and begun by the Db's prologue (see the header). */

@@ -20,6 +20,7 @@ import { type RosterCodec, rosterCodec } from "#compiler/ir/codes.ts"
 import { candidateKeyFields, descText, type FieldDesc } from "#compiler/ir/desc.ts"
 import type { OwnedSchema } from "#compiler/ir/products.ts"
 import { numericMaxPrecision, numericMaxScale, numericMinScale } from "#compiler/ir/scalar.ts"
+import { ProgramPatterns } from "#compiler/scalar/regex/patterns.ts"
 import { admitSchemaDesc } from "#compiler/schema/admit.ts"
 
 import type {
@@ -1198,7 +1199,11 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 		sql,
 		vectorSchema,
 		skipped,
-		fill: { order: { families: [], layouts: new Map() }, closed: new Map() }
+		fill: {
+			order: { families: [], layouts: new Map() },
+			closed: new Map(),
+			patterns: ProgramPatterns.of([])
+		}
 	}
 }
 

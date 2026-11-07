@@ -7,7 +7,13 @@ import type {
 	DefinitionQuery,
 	DefinitionShape
 } from "#compiler/types/derived/derived.ts"
-import type { Field, NotSerial, SerialField, UnwrittenField } from "#compiler/types/fields/field.ts"
+import type {
+	Field,
+	NotSerial,
+	NotSerialBases,
+	SerialField,
+	UnwrittenField
+} from "#compiler/types/fields/field.ts"
 import type { ContextsOf, QueryBase } from "#compiler/types/query/query.ts"
 import type {
 	AnyClosedRelation,
@@ -36,6 +42,9 @@ export type ContextField = Field<
 	"text" | "uuid" | "boolean" | "smallint" | "integer" | "bigint" | "code"
 > &
 	NotSerial
+
+/** A context's fields with every contract's base chain read: a field whose chain ends at a serial is never. */
+export type ContextFieldBases<Fields> = { readonly [K in keyof Fields]: NotSerialBases<Fields[K]> }
 
 /**
  * Any context: the members every one has. `claim` names the nested claim object its fields are read from, undefined

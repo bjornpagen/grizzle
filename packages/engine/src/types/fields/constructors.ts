@@ -5,7 +5,6 @@ import type { SqlTag } from "#compiler/scalar/registry.ts"
 import type { Money } from "#compiler/scalar/values/money.ts"
 import type { Scalar } from "#compiler/types/compute/scalar.ts"
 import type {
-	BaseOf,
 	DomainOf,
 	Facts,
 	InputTerm,
@@ -27,12 +26,14 @@ import type {
 	FloatField,
 	GeneratedField,
 	Infer,
-	IntegerLike,
+	SpanEndpointLike,
 	NaturalField,
 	NotSerial,
+	NotSerialBases,
 	NumericTypmodField,
 	SerialField,
 	SpanField,
+	SpanWidthOf,
 	WritingTag
 } from "#compiler/types/fields/field.ts"
 import type { AnyRoster, HandleOf } from "#compiler/types/schema/relation.ts"
@@ -142,17 +143,20 @@ export type ContractBase<Name extends string, B> = Columned<
 export type NotSerialBase<B> =
 	B extends SerialField<unknown, SqlTag>
 		? Refusal<"a contract is a value domain; a serial is a generation declaration, so use its integer type">
-		: unknown
+		: [NotSerialBases<B>] extends [never]
+			? Refusal<"a contract is a value domain; a serial is a generation declaration, so use its integer type">
+			: unknown
 
 /**
- * A bounded half-open span over an integer endpoint; never over a serial. The width is upper - lower,
- * a positive value of the endpoint's base type, checked at runtime. The span's column converts each endpoint with the
- * endpoint's own column, so span(Cents) delivers Span<Cents>.
+ * A bounded half-open span over an integer or a date endpoint; never over a serial. The width is upper - lower, a
+ * positive value of the endpoint's base type, or a count of days over a date, checked at runtime. The span's column
+ * converts each endpoint with the endpoint's own column, so span(Cents) delivers Span<Cents> and span(date)
+ * Span<CalendarDate>.
  */
-export type SpanConstructor = <E extends IntegerLike>(
-	endpoint: E & Columned<Infer<E>>,
-	width?: BaseOf<Infer<E>>
-) => SpanField<Infer<E>>
+export type SpanConstructor = <E extends SpanEndpointLike>(
+	endpoint: E & Columned<Infer<E>> & NotSerialBases<E>,
+	width?: SpanWidthOf<Infer<E>>
+) => SpanField<Infer<E>, DomainOf<E>>
 
 /** A closed reference: its column is the roster's handles, the roster's non-empty tuple of literals. */
 export type ClosedIdConstructor = <C extends AnyRoster>(
@@ -169,7 +173,7 @@ export type DrawnConstructor = (type: NaturalField) => DrawnField
 
 /** An accumulated field is of a value type: no span, no vector, and no field of a writing of its own. */
 export type Accumulable<F> = F extends
-	| SpanField<unknown>
+	| SpanField<unknown, unknown>
 	| VectorField<number>
 	| { readonly writing: WritingTag }
 	? Refusal<"an accumulated field is of a value type: no span, vector or field of a writing of its own">
@@ -196,6 +200,6 @@ export type GeneratedTermOf<F extends FieldBase> = InputTerm<DomainOf<F>, never,
  * written fields and closed reads are all a generation expression may read.
  */
 export type GeneratedConstructor = <F extends FieldBase, T extends GeneratedTermOf<F>>(
-	type: F & NotSerial,
+	type: F & NotSerial & NotSerialBases<F>,
 	term: T & Parameterless<T>
 ) => GeneratedField<F>

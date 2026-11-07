@@ -26,18 +26,29 @@ import {
 import type { InputRefusal } from "#adapter/reader/relations.ts"
 import type { GroupOrder } from "#adapter/reader/run.ts"
 import type { BatchStatement, Flight } from "#adapter/wire/batch.ts"
-import { defect, type Row, rowText } from "#compiler/plan/common.ts"
 import {
+	defect,
+	type OutputText,
+	type ParamText,
+	type Row,
+	rowText
+} from "#compiler/plan/common.ts"
+import type { ScalarReader } from "#compiler/plan/decode.ts"
+import {
+	type AnchoredVariant,
+	countParam,
 	mergeHeadingGroups,
-	type PageParamSlot,
+	type PageFill,
 	type PageStatementSlot,
+	type PageVariant,
 	type ProbeKind,
 	runsLargeForm,
-	type ScalarCodec,
-	type ShapeChoice
+	type ShapeChoice,
+	type SizeFill,
+	type VariantFill
 } from "#compiler/plan/read.ts"
 
-type Raw = ReadonlyArray<ReadonlyArray<string>>
+type Raw = ReadonlyArray<ReadonlyArray<OutputText>>
 
 /**
  * One page request as one flight of one transaction.
@@ -81,13 +92,21 @@ type Raw = ReadonlyArray<ReadonlyArray<string>>
 export type PageCall =
 	| { readonly variant: "first"; readonly size: number }
 	| { readonly variant: "last"; readonly size: number }
-	| { readonly variant: "after"; readonly size: number; readonly boundary: ReadonlyArray<string> }
-	| { readonly variant: "before"; readonly size: number; readonly boundary: ReadonlyArray<string> }
+	| {
+			readonly variant: "after"
+			readonly size: number
+			readonly boundary: ReadonlyArray<ParamText>
+	  }
+	| {
+			readonly variant: "before"
+			readonly size: number
+			readonly boundary: ReadonlyArray<ParamText>
+	  }
 
 interface DeliveredEdge {
 	/** The rows statement that delivered it, and its row's result texts. */
 	readonly statement: PageRecord
-	readonly raw: ReadonlyArray<string>
+	readonly raw: ReadonlyArray<OutputText>
 	/** The delivered Row: the row's texts with its attachments' child Rows, which the query's decoder reads. */
 	readonly row: Row
 	/** The comparison tuple, the comparators' values in order. */
@@ -108,58 +127,67 @@ export interface PageRows {
 }
 
 /**
- * The binding of a page placeholder: the limit, the validated size plus one, and the size, each a `$n::bigint` bound as
- * the decimal digits of a bigint, which every validated size, a safe integer, and that size plus one are; and a
- * boundary value as the cursor carried it. The one site of the fact that a page statement's boundary placeholders are
- * those its request binds: one only in an anchored request, at a position of the boundary its decoded cursor carries
- * one value per comparator for. The engine allocates the placeholders and the cursor's decode admits the boundary
- * apart, runtime facts no TypeScript type ties together, so another binding is a defect of the compiler.
+ * The text of a size fill, a `$n::bigint` bound as the decimal digits of a bigint: the limit, the validated size plus
+ * one, or the size. Every validated size, a safe integer, and that size plus one are bigint values.
  */
-const pageBinding = (slot: PageParamSlot, call: PageCall): string => {
-	const fill = slot.fill
+const sizeBinding = (fill: SizeFill, size: number): ParamText => {
 	switch (fill.kind) {
 		case "limit":
-			return (BigInt(call.size) + 1n).toString()
+			return countParam(size + 1)
 		case "size":
-			return BigInt(call.size).toString()
-		case "boundary": {
-			const text =
-				call.variant === "first" || call.variant === "last"
-					? undefined
-					: call.boundary[fill.position]
-			if (text === undefined) {
-				throw defect(
-					`a ${call.variant} request binds its page boundary placeholder ${fill.position}`
-				)
-			}
-			return text
-		}
+			return countParam(size)
 	}
 }
 
+/** An anchored request: its variant, its validated size and its decoded cursor's boundary texts. */
+type AnchoredCall = Extract<PageCall, { readonly variant: AnchoredVariant }>
+
+/**
+ * The binding of an anchored request's page placeholder: a size fill's text (sizeBinding), or a boundary value as the
+ * cursor carried it. The cursor's decode checks its foreign text against the comparators, one text per comparator
+ * (codec/cursor), and the engine allocates one boundary placeholder per comparator, at its position, so a position the
+ * decoded boundary holds no text at is a defect of the compiler.
+ */
+const anchoredBinding =
+	(call: AnchoredCall) =>
+	(fill: PageFill): ParamText => {
+		if (fill.kind !== "boundary") {
+			return sizeBinding(fill, call.size)
+		}
+		const text = call.boundary[fill.position]
+		if (text === undefined) {
+			throw defect(`a ${call.variant} request binds its page boundary placeholder ${fill.position}`)
+		}
+		return text
+	}
+
 /** The size of a choice's input in one execution: the requested size, or a relation parameter's distinct fact count. */
-const choiceCount = (choice: ShapeChoice, inputs: ExecutionInputs, call: PageCall): number => {
+const choiceCount = (choice: ShapeChoice, inputs: ExecutionInputs, size: number): number => {
 	const source = choice.source
 	switch (source.kind) {
 		case "pageSize":
-			return call.size
+			return size
 		case "relation":
 			return inputCount(inputs, source.param)
 	}
 }
 
-/** The `encode` phase of `run`, in the form `call` and `inputs` choose. */
-const sending = (
-	run: PageRunStatement,
+/**
+ * The `encode` phase of `run`, in the form the requested size and `inputs` choose, each page placeholder bound by
+ * `bind`, which takes every fill the statement holds.
+ */
+const sending = <F extends PageFill>(
+	run: PageRunStatement<F>,
 	inputs: ExecutionInputs,
-	call: PageCall
+	size: number,
+	bind: (fill: F) => ParamText
 ): Effect.Effect<BatchStatement, InputRefusal> => {
 	const form = formFor(run, (choice: ShapeChoice) =>
-		runsLargeForm(choice, choiceCount(choice, inputs, call))
+		runsLargeForm(choice, choiceCount(choice, inputs, size))
 	)
-	const bind = (slot: PageStatementSlot) =>
-		slot.kind === "page" ? Result.succeed(pageBinding(slot, call)) : readBinding(slot, inputs)
-	return encodeForm(form, bind)
+	return encodeForm(form, (slot: PageStatementSlot<F>) =>
+		slot.kind === "page" ? Result.succeed(bind(slot.fill)) : readBinding(slot, inputs)
+	)
 }
 
 /**
@@ -169,7 +197,7 @@ const sending = (
 interface Candidate {
 	readonly statement: RowsStatement
 	readonly group: number
-	readonly texts: ReadonlyArray<string>
+	readonly texts: ReadonlyArray<OutputText>
 	readonly tuple: ComparisonTuple
 }
 
@@ -332,7 +360,7 @@ const mergedCandidates = (
  */
 interface SentProbe {
 	readonly kind: ProbeKind
-	readonly answer: ScalarCodec
+	readonly answer: ScalarReader
 	readonly statement: BatchStatement
 }
 
@@ -340,40 +368,40 @@ interface SentProbe {
 const probeSending = (
 	run: PageRuntime["artifacts"][PageArtifactName],
 	inputs: ExecutionInputs,
-	call: Extract<PageCall, { readonly boundary: ReadonlyArray<string> }>
+	call: AnchoredCall,
+	bind: (fill: PageFill) => ParamText
 ): Effect.Effect<SentProbe, InputRefusal> => {
 	const probe = run.probes[run.requests[call.variant].program.probe]
-	return Effect.map(sending(probe.statement, inputs, call), (statement) => ({
+	return Effect.map(sending(probe.statement, inputs, call.size, bind), (statement) => ({
 		kind: probe.program.kind,
 		answer: probe.answer,
 		statement
 	}))
 }
 
-/** The flight of one page request, reading its rows (see the header). */
-export const pageFlight = (
-	runtime: PageRuntime,
-	artifact: PageArtifactName,
+/**
+ * The flight of one request of `program`, whose page placeholders `bind` binds, of the requested size `size`, and the
+ * probe of its opposite flag `probe` sends, none for a plain request (see the header).
+ */
+const requestFlight = <V extends PageVariant>(
+	program: RunProgram<V>,
 	inputs: ExecutionInputs,
-	call: PageCall
+	size: number,
+	bind: (fill: VariantFill[V]) => ParamText,
+	probe: Effect.Effect<Option.Option<SentProbe>, InputRefusal>
 ): Effect.Effect<Flight<PageRows, UnreadableAnswer>, InputRefusal> =>
 	Effect.gen(function* () {
-		const run = runtime.artifacts[artifact]
-		const program: RunProgram = run.requests[call.variant]
 		/** 1, 2. Every statement of the request, the rows statements and their attachments. */
 		const batch: Array<BatchStatement> = []
 		for (const record of program.records) {
 			if (record.arrival.kind === "sent") {
-				const statement = yield* sending(record.run, inputs, call)
+				const statement = yield* sending(record.run, inputs, size, bind)
 				batch.push(statement)
 			}
 		}
 		const sent = batch.length
 		/** 3. An anchored request's opposite flag: its probe on the anchor. */
-		const probing =
-			call.variant === "first" || call.variant === "last"
-				? Option.none()
-				: yield* Effect.asSome(probeSending(run, inputs, call))
+		const probing = yield* probe
 		if (Option.isSome(probing)) {
 			batch.push(probing.value.statement)
 		}
@@ -398,7 +426,7 @@ export const pageFlight = (
 								opposite = yield* probeAnswer(probing.value, outcome.rows, sent)
 							}
 						}
-						const page = yield* pageEdges(program, runs, call.size)
+						const page = yield* pageEdges(program, runs, size)
 						const flags = program.program
 						return {
 							edges: page.edges,
@@ -412,3 +440,35 @@ export const pageFlight = (
 				)
 		}
 	})
+
+/** The flight of one page request, reading its rows (see the header): a plain request's binds its size alone. */
+export const pageFlight = (
+	runtime: PageRuntime,
+	artifact: PageArtifactName,
+	inputs: ExecutionInputs,
+	call: PageCall
+): Effect.Effect<Flight<PageRows, UnreadableAnswer>, InputRefusal> => {
+	const run = runtime.artifacts[artifact]
+	switch (call.variant) {
+		case "first":
+		case "last":
+			return requestFlight(
+				run.requests[call.variant],
+				inputs,
+				call.size,
+				(fill: SizeFill) => sizeBinding(fill, call.size),
+				Effect.succeedNone
+			)
+		case "after":
+		case "before": {
+			const bind = anchoredBinding(call)
+			return requestFlight(
+				run.requests[call.variant],
+				inputs,
+				call.size,
+				bind,
+				Effect.asSome(probeSending(run, inputs, call, bind))
+			)
+		}
+	}
+}

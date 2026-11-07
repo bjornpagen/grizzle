@@ -6,6 +6,7 @@ import type { ClosedTheoryRelation, FieldWriting, RelationInfo } from "#compiler
 import type { Heading, HeadingColumn } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import type { ClosedRelations } from "#compiler/scalar/compute/lower.ts"
+import type { PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
 import type { Owned, OwnedRole } from "#compiler/schema/own.ts"
 
 /**
@@ -76,14 +77,26 @@ export interface SchemaReading {
 	readonly closedReads: ClosedRelations
 	/** A relation by name, refused when the schema or role holds none of that name. */
 	relation(name: string, loc: SourceLoc): ReadRelation
-	/** A literal of a declared value, checked against the type's contract and regex (ContractLiteral). */
-	literal(value: LiteralDesc, type: ScalarType, loc: SourceLoc): TypedLiteral
+	/**
+	 * A literal of a declared value, checked against the type's contract and regex (ContractLiteral), by the admitted
+	 * patterns of the caller's compile.
+	 */
+	literal(
+		value: LiteralDesc,
+		type: ScalarType,
+		loc: SourceLoc,
+		patterns: PatternAutomata
+	): TypedLiteral
 	/** Whether a literal is a value of `type`: one `literal` admits at it rather than refuses. */
-	admits(value: LiteralDesc, type: ScalarType): boolean
-	/** A descriptor a query carries, its contracts the schema's or declared once by the same query (`seen`). */
+	admits(value: LiteralDesc, type: ScalarType, patterns: PatternAutomata): boolean
+	/**
+	 * A descriptor a query carries, its contracts the schema's or declared once by the same query (`seen`), typed by the
+	 * admitted patterns of the caller's compile.
+	 */
 	queryFieldType(
 		desc: FieldDesc,
 		loc: SourceLoc,
-		seen: Map<string, { text: string; loc: SourceLoc }>
+		seen: Map<string, { text: string; loc: SourceLoc }>,
+		patterns: PatternAutomata
 	): ScalarType
 }

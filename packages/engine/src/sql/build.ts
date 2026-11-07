@@ -126,6 +126,7 @@ export const types = {
 	money: builtinType("money"),
 	int4range: builtinType("int4range"),
 	int8range: builtinType("int8range"),
+	daterange: builtinType("daterange"),
 	record: builtinType("record"),
 	/** bit(n): a set over a roster, one bit per code it has minted, padded to whole hex digits. */
 	bit: (length: number): TypeRef => ({

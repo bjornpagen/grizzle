@@ -191,6 +191,12 @@ export const namesOfBuiltAt = (
 				)
 			),
 			codes: rosterCodesOf(installation.names.codes),
+			keys: Rec.fromEntries(
+				Arr.map(
+					[...installation.checked.relations.values()],
+					(r) => [r.name, Arr.map(r.keyNames, (k) => Arr.map(k.fields, (f) => f.name))] as const
+				)
+			),
 			roles: Rec.fromEntries(Arr.map(spec.roles, (r) => [r.name, roleOf(r.name)] as const)),
 			logins: Rec.fromEntries(
 				Arr.map(

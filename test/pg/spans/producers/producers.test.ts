@@ -30,7 +30,6 @@ import {
 	type RuleDesc
 } from "#test/support/fixtures/ir/desc.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
-import { spanText } from "#test/support/oracle/allen.ts"
 import {
 	printSpanCase,
 	type RawRow,
@@ -46,6 +45,7 @@ import {
 	spanPack,
 	spanSetupStatements,
 	spanSchemaDesc,
+	spanTextOf,
 	tickContract
 } from "#test/support/oracle/gen/spans.ts"
 import { oracleCheck, PropertyFailed } from "#test/support/oracle/runner.ts"
@@ -75,6 +75,11 @@ const spanType = (endpoint: SpanEndpointKind): ScalarType => {
 					},
 					width: undefined
 				},
+				{}
+			)
+		case "date":
+			return scalarOf(
+				{ kind: "span", endpoint: { kind: "pg", type: "date" }, width: undefined },
 				{}
 			)
 	}
@@ -154,6 +159,7 @@ const tupleReference = (
 	kind: "intersection" | "difference"
 ): { readonly expected: ReadonlyArray<RawRow>; readonly duplicates: number } => {
 	const produce = kind === "intersection" ? spanIntersection : spanDifference
+	const spanText = spanTextOf(c.schema.endpoint)
 	const bag: Array<RawRow> = []
 	for (const l of c.facts.Left) {
 		for (const r of c.facts.Right) {
@@ -190,7 +196,11 @@ const ungroupedPackQuery = (relation: "Left" | "Right"): QueryDesc =>
 	})
 
 const ungroupedPackReference = (c: SpanCase, relation: "Left" | "Right"): ReadonlyArray<RawRow> =>
-	rowSet(Arr.map(spanPack(Arr.map(c.facts[relation], (f) => f.during)), (p) => [spanText(p)]))
+	rowSet(
+		Arr.map(spanPack(Arr.map(c.facts[relation], (f) => f.during)), (p) => [
+			spanTextOf(c.schema.endpoint)(p)
+		])
+	)
 
 /**
  * What a generated case reaches: its query kind, the ungrouped pack of a pack case, and a bound-tuple case's uniqueness
@@ -202,6 +212,7 @@ const tupleShapes = ["proved", "duplicates", "unproved"] as const
 type Outcome = (typeof outcomes)[number]
 type ProducerFeature =
 	| `${SpanQueryKind}:${Outcome}`
+	| `endpoint:${SpanEndpointKind}`
 	| `correlated:${Outcome}`
 	| `ungroupedPack:${Outcome}`
 	| `tuple:${(typeof tupleKinds)[number]}:${(typeof tupleShapes)[number]}:${Outcome}`
@@ -306,6 +317,7 @@ layer(Substrate.layer)("span producers on PostgreSQL 19", (it) => {
 									(cx) => cx.lower(outer, emptyEnv)
 								).sql
 								const expected: Array<RawRow> = []
+								const spanText = spanTextOf(c.schema.endpoint)
 								for (const l of c.facts.Left) {
 									for (const r of c.facts.Right) {
 										if (l.group === r.group) {
@@ -341,6 +353,7 @@ layer(Substrate.layer)("span producers on PostgreSQL 19", (it) => {
 			Arr.map(outcomes, (outcome): ProducerFeature => `${kind}:${outcome}`)
 		),
 		...Arr.map(outcomes, (outcome): ProducerFeature => `ungroupedPack:${outcome}`),
+		...Arr.map(spanEndpointKinds, (endpoint): ProducerFeature => `endpoint:${endpoint}`),
 		...Arr.flatMap(tupleKinds, (kind) =>
 			Arr.map(tupleShapes, (shape): ProducerFeature => `tuple:${kind}:${shape}:rows`)
 		)
@@ -375,6 +388,7 @@ layer(Substrate.layer)("span producers on PostgreSQL 19", (it) => {
 							yield* installSpanCase(db, schema, sc)
 							const expected = referenceRows(sc)
 							c.note(`${sc.query.kind}:${outcomeOf(expected)}`)
+							c.note(`endpoint:${sc.schema.endpoint}`)
 							/**
 							 * Both artifacts of a template against the expected set: the optimized one delivers no
 							 * repeated row and agrees with the conservative one, which agrees

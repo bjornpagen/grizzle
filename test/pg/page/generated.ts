@@ -27,6 +27,7 @@ import { NodeId, ParamId } from "#compiler/core/ids.ts"
 import { maxStringLength } from "#compiler/core/limits.ts"
 import { formatLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { trusted } from "#compiler/core/trusted.ts"
+import type { ParamText } from "#compiler/core/wire.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import { relNode, rooted, topoOrder } from "#compiler/ir/dag.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
@@ -89,6 +90,7 @@ import { everyColumnCarried } from "#test/support/spine.ts"
 import { statementSql } from "#test/support/sql.ts"
 import { headingRecord } from "#test/support/statement-rows.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { outputRows } from "#test/support/wire.ts"
 import { Q } from "#test/unit/lower/conservative/fixtures.ts"
 
 /**
@@ -378,7 +380,7 @@ const callerInput = (
 	type: ScalarType,
 	literal: TypedLiteral,
 	codes: Codebook
-): { readonly value: unknown; readonly text: string } => {
+): { readonly value: unknown; readonly text: ParamText } => {
 	const codec = scalarCodec(type, codes)
 	const of = (value: unknown) => ({ value, text: codec.text(value) })
 	const text = inputText(literal, type, codes)
@@ -692,7 +694,7 @@ const flightOn =
 					onFailure: readFailureOf,
 					onSuccess: (rows): BatchOutcome => ({
 						command: "SELECT",
-						rows: Arr.map(rows, (row) => Arr.map(row, textCell))
+						rows: outputRows(Arr.map(rows, (row) => Arr.map(row, textCell)))
 					})
 				})
 			),

@@ -7,7 +7,6 @@ import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import type { FieldDesc, LiteralDesc, MonoidName } from "#compiler/ir/desc.ts"
 import type { Family } from "#compiler/ir/family.ts"
-import { regexMember } from "#compiler/scalar/regex/nfa.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { own, rostersOf } from "#compiler/schema/own.ts"
@@ -292,7 +291,7 @@ const fillOf = (s: Shape): Compiled | undefined => {
 	const fill = filler(
 		model.value.theory.fill,
 		codes,
-		hostEvaluator(codes, closedLeaf(new Map()), regexMember)
+		hostEvaluator(codes, closedLeaf(new Map()), model.value.patterns)
 	)
 	const built = { family, fill }
 	compiledFills.set(key, built)

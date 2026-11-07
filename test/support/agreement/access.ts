@@ -47,7 +47,8 @@ import { compileTemplate, testArtifacts, testCompile } from "#test/support/compi
  * of the relations it names (refresh/targets.ts). Of each drawn login:
  *
  * - Db.open of each of its roles without a token typechecks exactly when the role's relations read no context, and
- *   with one always, its services exactly the role's DbLayer and its error OpenError;
+ *   with one always, delivering exactly a Db of the role it opened, over the base or an extension, its services
+ *   exactly the role's DbLayer and its error OpenError;
  * - DbLayer.make without verify typechecks exactly when no role of the login reads a context, and with verify its
  *   layer provides exactly the DbLayer of each of the login's roles, failing with OpenError;
  * - a program over a role matching a drawn context, run on the role's Db by execute, compile or apply (a read-back),
@@ -405,7 +406,7 @@ const blockOf = (c: AccessCase, i: number): ReadonlyArray<string> => {
 			: []),
 		`export const o${i}_${r.name} = Db.open(L${i}.roles.${r.name}, {})`,
 		`export const t${i}_${r.name} = Db.open(L${i}.roles.${r.name}, { token: "token" })`,
-		`export type s${i}_${r.name} = [Expect<Equals<Effect.Services<typeof t${i}_${r.name}>, DbLayer<typeof R${i}_${r.name}>>>, Expect<Equals<Effect.Error<typeof t${i}_${r.name}>, OpenError>>]`
+		`export type s${i}_${r.name} = [Expect<Equals<Effect.Services<typeof t${i}_${r.name}>, DbLayer<typeof R${i}_${r.name}>>>, Expect<Equals<Effect.Error<typeof t${i}_${r.name}>, OpenError>>, Expect<Equals<Effect.Success<typeof t${i}_${r.name}>, DbOf<typeof R${i}_${r.name}, unknown>>>]`
 	])
 	const programRole = defined(roleIds[spec.program.role], "the program's role")
 	const run = (() => {

@@ -3,13 +3,20 @@ import {
 	type HostLaw,
 	type HostSchema,
 	type HostState,
+	isDrawn,
 	relationOf,
 	type Violation,
 	violations,
 	witnessOf
 } from "#test/support/laws/model.ts"
 import { holdsWhole } from "#test/support/worlds/model/session/state.ts"
-import type { HostFact, RoleSpec, SqlState, Witness } from "#test/support/worlds/model/types.ts"
+import type {
+	HostFact,
+	InstalledNames,
+	RoleSpec,
+	SqlState,
+	Witness
+} from "#test/support/worlds/model/types.ts"
 
 /**
  * How PostgreSQL meets a broken law, for every writer: at the statement that breaks it or at COMMIT, and with which
@@ -132,19 +139,81 @@ const pick = (fact: HostFact, fields: ReadonlyArray<string>): HostFact =>
 	)
 
 /**
+ * The key a stated fact names itself by (README "Errors and outcomes"): the first of its relation's declared keys, in
+ * the engine's order (InstalledNames keys: the primary key first), whose every field it states, a serial field the
+ * database draws stating none; none where it states no key whole.
+ */
+export const statedKey = (
+	keys: InstalledNames["keys"],
+	relation: string,
+	fact: HostFact
+): Arr.NonEmptyReadonlyArray<string> | undefined => {
+	const declared = Option.getOrThrowWith(
+		Rec.get(keys, relation),
+		() => new Error(`the installation declares no keys of ${relation}`)
+	)
+	return Option.getOrUndefined(
+		Arr.findFirst(declared, (key) =>
+			Arr.every(key, (field) => {
+				const value = fact[field]
+				return value !== undefined && !isDrawn(value)
+			})
+		)
+	)
+}
+
+/** A fact's values at `key`, named as the caller wrote each field: a field it did not write is left out. */
+const writtenKey = (
+	fact: HostFact,
+	key: ReadonlyArray<string>,
+	terms: Readonly<Record<string, string>>
+): HostFact =>
+	Rec.fromEntries(
+		Arr.flatMap(key, (field) => {
+			const value = fact[field]
+			const name = terms[field]
+			return value === undefined || name === undefined ? [] : [[name, value] as const]
+		})
+	)
+
+/**
+ * A row check's witness (README "Errors and outcomes"): grizzle judges the facts the ChangeSet states at the check's
+ * relation by the check, on the host, and names the first that breaks it by its stated key (statedKey), in the fields
+ * the caller wrote it in; any violating fact may be the first. One that states no key whole, its primary key drawn and
+ * no other key stated, names none, and neither does a check no stated fact breaks.
+ */
+const checkWitness = (
+	law: Extract<HostLaw, { readonly kind: "check" }>,
+	keys: InstalledNames["keys"],
+	submitted: ReadonlyArray<Submitted>
+): Witness => {
+	const shown = Arr.flatMap(
+		Arr.filter(submitted, (s) => s.relation === law.relation && !law.holds(s.fact)),
+		(s: Submitted): ReadonlyArray<HostFact> => {
+			const key = statedKey(keys, law.relation, s.fact)
+			return key === undefined ? [] : [writtenKey(s.fact, key, s.terms)]
+		}
+	)
+	return shown.length === 0 ? { kind: "withheld" } : { kind: "shown", keys: shown }
+}
+
+/**
  * The most a refusal's witness may show (README "Errors and outcomes"): the key values of the violating facts, never a payload
  * column; of those, only the keys the caller submitted, in the fields it wrote them in, and the keys of relations its
- * role holds whole. A row check's names its facts by their relation's primary key, as the host judges the facts a
- * ChangeSet states; a containment or coverage PostgreSQL reports only in prose shows none. The observed witness may
- * show fewer.
+ * role holds whole. A row check's names a stated fact that breaks it (checkWitness); a containment or coverage
+ * PostgreSQL reports only in prose shows none. The observed witness may show fewer.
  */
 export const witnessFor = (
 	host: HostSchema,
+	keys: InstalledNames["keys"],
 	role: RoleSpec,
 	violation: Violation,
 	submitted: ReadonlyArray<Submitted>
 ): Witness => {
 	const law = lawNamed(host, violation)
+	if (law?.kind === "check") {
+		return checkWitness(law, keys, submitted)
+	}
 	const witnessed = law === undefined ? undefined : witnessOf(law, host)
 	if (witnessed === undefined || witnessed.kind === "unnamed") {
 		return { kind: "withheld" }
@@ -160,6 +229,6 @@ export const witnessFor = (
 		})
 		return [keyed, Rec.fromEntries(written)]
 	})
-	const keys = [...held, ...own]
-	return keys.length === 0 ? { kind: "withheld" } : { kind: "shown", keys }
+	const allowed = [...held, ...own]
+	return allowed.length === 0 ? { kind: "withheld" } : { kind: "shown", keys: allowed }
 }

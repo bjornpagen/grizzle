@@ -1,5 +1,6 @@
 import { canonicalTextOf } from "#compiler/core/canonical.ts"
 import type { NodeId, ParamId } from "#compiler/core/ids.ts"
+import { TupleMap } from "#compiler/core/tuple-map.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import { Fold } from "#compiler/ir/fold.ts"
 import type { RelationInfo } from "#compiler/ir/law.ts"
@@ -87,8 +88,12 @@ interface KeyQuestion {
 	readonly values: ReadonlyMap<string, KeyValue>
 }
 
-/** A key value's identity, under which two questions over one node ask the same thing. */
-const valueText = (v: KeyValue): string => (v.kind === "column" ? `c${v.name}` : `k${v.key}`)
+/**
+ * A question's identity over its node: each field, then its value's kind and its column's name or its constant's key,
+ * so two questions over one node ask the same thing exactly when their identities are one tuple.
+ */
+const questionKey = (vs: ReadonlyMap<string, KeyValue>): ReadonlyArray<string> =>
+	[...vs].flatMap(([field, v]) => [field, v.kind, v.kind === "column" ? v.name : v.key])
 
 /**
  * Whether every row of `root` carries at the key fields the given values (one per primary key field of `relation`)
@@ -104,17 +109,17 @@ const provesKeys = (
 	relation: RelationInfo,
 	values: ReadonlyMap<string, KeyValue>
 ): boolean => {
-	const asked = new Map<RelNode, Map<string, KeyQuestion>>()
+	const asked = new Map<RelNode, TupleMap<string, KeyQuestion>>()
 	const question = (node: RelNode, vs: ReadonlyMap<string, KeyValue>): KeyQuestion => {
-		const text = [...vs].map(([field, v]) => `${field}\u0001${valueText(v)}`).join("\u0000")
-		const byNode = asked.get(node) ?? new Map<string, KeyQuestion>()
+		const key = questionKey(vs)
+		const byNode = asked.get(node) ?? new TupleMap<string, KeyQuestion>()
 		asked.set(node, byNode)
-		const known = byNode.get(text)
+		const known = byNode.get(key)
 		if (known !== undefined) {
 			return known
 		}
 		const fresh: KeyQuestion = { node, values: vs }
-		byNode.set(text, fresh)
+		byNode.set(key, fresh)
 		return fresh
 	}
 	const answers = new Fold<KeyQuestion, boolean>(function* (q) {

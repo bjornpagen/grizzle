@@ -15,6 +15,7 @@ import {
 	type CompileError,
 	Engine,
 	type Layout,
+	type OutputText,
 	type ParamDecl,
 	type QueryDesc,
 	rowText,
@@ -22,13 +23,14 @@ import {
 	SourceLoc,
 	type StatementSpec
 } from "#compiler/plan/common.ts"
+import { scalarReader, type ScalarReader } from "#compiler/plan/decode.ts"
 import {
 	type CarrierHost,
 	columnPosition,
 	compareValues,
 	compilePageOf,
-	cursorCodec,
 	type CursorCodec,
+	cursorCodec,
 	type CursorGeneration,
 	cursorTokenMaxLength,
 	type FusedStatement,
@@ -36,6 +38,7 @@ import {
 	type PageArtifact,
 	type PageComparator,
 	type PageDirection,
+	type PageFill,
 	type PageProbeProgram,
 	type PageProgram,
 	pageQueryFingerprint,
@@ -47,10 +50,9 @@ import {
 	type PageVariant,
 	type ProbeKind,
 	type QueryTemplate,
-	scalarCodec,
-	type ScalarCodec,
 	type ShapeChoice,
 	statedOrderOf,
+	type VariantFill,
 	type StatementRoots,
 	statementSpec,
 	traverseTree
@@ -85,14 +87,14 @@ import {
  * One statement of a page program as the runtime runs it: its page placeholders, each the page fill the runtime binds
  * (execute.ts), among its read ones, and its per-execution form, when it has one.
  */
-export type PageRunStatement = RunStatement<
-	FusedStatement<PageStatementSlot>,
-	PageStatementSlot,
+export type PageRunStatement<F extends PageFill = PageFill> = RunStatement<
+	FusedStatement<PageStatementSlot<F>>,
+	PageStatementSlot<F>,
 	ShapeChoice
 >
 
-/** A page statement's record (reader/execution.ts programRecords). */
-export type PageRecord = StatementRecord<PageRunStatement>
+/** A page statement's record (reader/execution.ts programRecords), its page placeholders each filled by one of `F`. */
+export type PageRecord<F extends PageFill = PageFill> = StatementRecord<PageRunStatement<F>>
 
 /** A delivered row's comparison tuple, the comparators' values converted from its texts, in order. */
 export type ComparisonTuple = ReadonlyArray<CarrierHost[Carrier]>
@@ -100,7 +102,7 @@ export type ComparisonTuple = ReadonlyArray<CarrierHost[Carrier]>
 /** A rows statement of a request: its record, and the reading of a row's comparison tuple from its texts. */
 export interface RowsStatement {
 	readonly record: PageRecord
-	readonly tuple: (texts: ReadonlyArray<string>) => ComparisonTuple
+	readonly tuple: (texts: ReadonlyArray<OutputText>) => ComparisonTuple
 }
 
 /**
@@ -111,13 +113,17 @@ export type PageDelivery =
 	| { readonly kind: "concat"; readonly groups: Arr.NonEmptyReadonlyArray<RowsStatement> }
 	| { readonly kind: "groups"; readonly order: GroupOrder<RowsStatement> }
 
-export interface RunProgram<P extends PageProgram = PageRequestProgram> {
-	readonly program: P
+/**
+ * A request variant's program as it runs: its statements' page placeholders are each filled by one of its variant's
+ * fills (VariantFill), so a plain request's binding reads its size alone.
+ */
+export interface RunProgram<V extends PageVariant = PageVariant> {
+	readonly program: PageRequestProgram<V>
 	/**
 	 * Its statements' records in flight order, what the request delivers, and the layouts of its delivered Rows, one
 	 * per heading group (one for a rows delivery), which the query's decoder binds to.
 	 */
-	readonly records: ReadonlyArray<PageRecord>
+	readonly records: ReadonlyArray<PageRecord<VariantFill[V]>>
 	readonly delivery: PageDelivery
 	readonly layouts: Arr.NonEmptyReadonlyArray<Layout>
 	/** The fetch order of two delivered rows' comparison tuples (fetchComparison). */
@@ -130,7 +136,7 @@ export interface RunProgram<P extends PageProgram = PageRequestProgram> {
  * are the completed order's keys, a key of the result, so the rows a request fetches strictly increase under it.
  */
 const fetchComparison = (
-	comparators: ReadonlyArray<readonly [PageComparator, ScalarCodec]>,
+	comparators: ReadonlyArray<readonly [PageComparator, ScalarReader]>,
 	direction: PageDirection
 ): ((a: ComparisonTuple, b: ComparisonTuple) => number) => {
 	const fetched = direction === "backward" ? -1 : 1
@@ -156,11 +162,11 @@ const fetchComparison = (
 interface RunProbe<K extends ProbeKind = ProbeKind> {
 	readonly program: PageProbeProgram<K>
 	readonly statement: PageRunStatement
-	readonly answer: ScalarCodec
+	readonly answer: ScalarReader
 }
 
 interface RunArtifact {
-	readonly requests: { readonly [V in PageVariant]: RunProgram<PageRequestProgram<V>> }
+	readonly requests: { readonly [V in PageVariant]: RunProgram<V> }
 	readonly probes: { readonly [K in ProbeKind]: RunProbe<K> }
 }
 
@@ -173,8 +179,8 @@ export interface PageRuntime {
 	readonly codec: CursorCodec<ReadonlyArray<PageComparator>>
 	/** What the codec binds every token to: the ordered query's semantic fingerprint and the semantic generation. */
 	readonly identity: { readonly query: string; readonly generation: CursorGeneration }
-	/** One value codec per comparator, in order. */
-	readonly values: ReadonlyArray<ScalarCodec>
+	/** One value reader per comparator, in order. */
+	readonly values: ReadonlyArray<ScalarReader>
 }
 
 interface PageRuntimeParts {
@@ -197,10 +203,10 @@ interface PageRuntimeParts {
 }
 
 /** The form of a page statement: each page placeholder is the page's, every other one a declared parameter's. */
-const pageForm = (
-	statement: FusedStatement<PageStatementSlot>,
+const pageForm = <F extends PageFill>(
+	statement: FusedStatement<PageStatementSlot<F>>,
 	spec: StatementSpec
-): StatementForm<FusedStatement<PageStatementSlot>, PageStatementSlot> => ({
+): StatementForm<FusedStatement<PageStatementSlot<F>>, PageStatementSlot<F>> => ({
 	statement,
 	spec,
 	slots: statement.params
@@ -210,13 +216,13 @@ const pageForm = (
  * A statement of a page program as it runs, each form with the spec rebuilt from it, its placeholders encoded under the
  * installation's codes `codes`.
  */
-const pageRun = (
-	statement: PageStatement,
+const pageRun = <F extends PageFill>(
+	statement: PageStatement<F>,
 	codes: Codebook
-): Engine.Result<PageRunStatement, CompileError> =>
+): Engine.Result<PageRunStatement<F>, CompileError> =>
 	Engine.flatMap(
 		statementSpec(statement, pageStatementSlotOf(codes)),
-		(spec): Engine.Result<PageRunStatement, CompileError> => {
+		(spec): Engine.Result<PageRunStatement<F>, CompileError> => {
 			const form = pageForm(statement, spec)
 			const forms = statement.forms
 			if (forms.kind === "one") {
@@ -224,7 +230,7 @@ const pageRun = (
 			}
 			return Engine.map(
 				statementSpec(forms.large, pageStatementSlotOf(codes)),
-				(large): PageRunStatement => ({
+				(large): PageRunStatement<F> => ({
 					...form,
 					forms: { kind: "chosen", choices: forms.choices, large: pageForm(forms.large, large) },
 					arrival: statement.arrival
@@ -234,10 +240,10 @@ const pageRun = (
 	)
 
 /** The statements of a page program as they run (pageRun), in their tree. */
-const specsOf = (
-	program: PageProgram,
+const specsOf = <F extends PageFill>(
+	program: PageProgram<F>,
 	codes: Codebook
-): Result.Result<StatementRoots<PageRunStatement>, CompileError> =>
+): Result.Result<StatementRoots<PageRunStatement<F>>, CompileError> =>
 	toResult(traverseTree(program.roots, (statement) => pageRun(statement, codes)))
 
 /**
@@ -247,7 +253,7 @@ const specsOf = (
  */
 const rowsStatement = (
 	record: PageRecord,
-	comparators: ReadonlyArray<readonly [PageComparator, ScalarCodec]>
+	comparators: ReadonlyArray<readonly [PageComparator, ScalarReader]>
 ): RowsStatement => {
 	const read = Arr.map(comparators, ([c, value]) => ({
 		at: columnPosition(record.run.statement.heading, c.field),
@@ -273,7 +279,7 @@ const pageDelivery = (
 	delivery: PageRequestProgram["delivery"],
 	heading: Heading,
 	delivered: Arr.NonEmptyReadonlyArray<PageRecord>,
-	comparators: ReadonlyArray<readonly [PageComparator, ScalarCodec]>,
+	comparators: ReadonlyArray<readonly [PageComparator, ScalarReader]>,
 	codes: Codebook
 ): PageDelivery => {
 	const rows = Arr.map(delivered, (record) => rowsStatement(record, comparators))
@@ -300,7 +306,7 @@ const deliveredLayouts = (delivery: PageDelivery): Arr.NonEmptyReadonlyArray<Lay
 interface ArtifactParts {
 	readonly heading: Heading
 	readonly comparators: ReadonlyArray<PageComparator>
-	readonly values: ReadonlyArray<ScalarCodec>
+	readonly values: ReadonlyArray<ScalarReader>
 	readonly spine: AttachmentScope
 	readonly codes: Codebook
 }
@@ -325,7 +331,7 @@ const runArtifact = (
 					Arr.zip(parts.comparators, parts.values),
 					parts.codes
 				)
-				const run: RunProgram<PageRequestProgram<V>> = {
+				const run: RunProgram<V> = {
 					program,
 					records,
 					delivery,
@@ -340,7 +346,7 @@ const runArtifact = (
 				const run: RunProbe<K> = {
 					program,
 					statement: yield* toResult(pageRun(program.statement, parts.codes)),
-					answer: scalarCodec(program.column.type, parts.codes)
+					answer: scalarReader(program.column.type, parts.codes)
 				}
 				return run
 			})
@@ -362,8 +368,8 @@ const runArtifact = (
 export const pageRuntimeOf = (parts: PageRuntimeParts): Result.Result<PageRuntime, CompileError> =>
 	Result.gen(function* () {
 		const page = parts.page
-		const values: ReadonlyArray<ScalarCodec> = Arr.map(page.comparators, (c) =>
-			scalarCodec(c.type, parts.codes)
+		const values: ReadonlyArray<ScalarReader> = Arr.map(page.comparators, (c) =>
+			scalarReader(c.type, parts.codes)
 		)
 		const shared: ArtifactParts = {
 			heading: page.heading,

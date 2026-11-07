@@ -688,6 +688,23 @@ export const keyedSchema = (schema: HostSchema): HostSchema => {
 }
 
 /**
+ * Violations one per law, in the order each law first breaks: two of one law are one violation, its violators both's,
+ * whether two statements of one law identity broke it (a restated containment) or a stratum's deletions and its final
+ * state did (expect), so a refusal by a law may name any fact either names.
+ */
+const byLaw = (found: ReadonlyArray<Violation>): ReadonlyArray<Violation> => {
+	const merged = new Map<LawId, Violation>()
+	for (const v of found) {
+		const prior = merged.get(v.law)
+		merged.set(
+			v.law,
+			prior === undefined ? v : { ...prior, violators: Arr.appendAll(prior.violators, v.violators) }
+		)
+	}
+	return [...merged.values()]
+}
+
+/**
  * The brute-force side of the law-bearing generated suites: over law-bearing generated schemas, an outcome is accepted
  * iff the brute-force evaluation of every violation query on the final state is empty.
  *
@@ -721,19 +738,8 @@ export const keyedSchema = (schema: HostSchema): HostSchema => {
  *
  * Every law's violation query over `state`.
  */
-export const violations = (schema: HostSchema, state: HostState): ReadonlyArray<Violation> => {
-	const out = Arr.flatMap(schema.laws, (law) => Option.toArray(violationOf(schema, state, law)))
-	/** Two statements of one law identity are one law (a restated containment): their violators merge. */
-	const merged = new Map<string, Violation>()
-	for (const v of out) {
-		const prior = merged.get(v.law)
-		merged.set(
-			v.law,
-			prior === undefined ? v : { ...prior, violators: [...prior.violators, ...v.violators] }
-		)
-	}
-	return [...merged.values()]
-}
+export const violations = (schema: HostSchema, state: HostState): ReadonlyArray<Violation> =>
+	byLaw(Arr.flatMap(schema.laws, (law) => Option.toArray(violationOf(schema, state, law))))
 
 /** A state's rows, relation by relation in schema order, each fact its fields' output texts in heading order. */
 export type StateRows = ReadonlyArray<ReadonlyArray<ReadonlyArray<string>>>
@@ -831,7 +837,8 @@ export const overlapsUnequally = (state: HostState, law: HostLaw): boolean => {
  * (keyedSchema), so a state holding one fact twice is always that key's violation, never an outcome the laws pass.
  * Two facts a stratum deletes at one value of a primary or candidate key (a span key's span compared as a value) are
  * that key's refusal before any SQL, whatever S' holds: a key names one fact. The refusal may name any key the
- * stratum's additions break too, since the host judges a stratum's relations in an order the model leaves open.
+ * stratum's additions break too, since the host judges a stratum's relations in an order the model leaves open; a key
+ * both break is one violation (byLaw), so its witness may name a deleted fact or an added one.
  */
 export const expect = (
 	schema: HostSchema,
@@ -844,10 +851,12 @@ export const expect = (
 	if (deleted.length > 0) {
 		return {
 			kind: "invariant-rejected",
-			violations: [
-				...deleted,
-				...Arr.filter(all, (v) => v.immediate && Arr.isReadonlyArrayNonEmpty(v.violators))
-			]
+			violations: byLaw(
+				Arr.appendAll(
+					deleted,
+					Arr.filter(all, (v) => v.immediate && Arr.isReadonlyArrayNonEmpty(v.violators))
+				)
+			)
 		}
 	}
 	const immediate = Arr.filter(all, (v) => v.immediate)

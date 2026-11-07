@@ -62,6 +62,28 @@ export type ConstantDigest<D extends ConstantDomain = ConstantDomain> = string &
 export const ownedDigest = (domain: OwnedDomain, value: unknown, options: EncodeOptions): string =>
 	sha256Hex(`${canonicalFormat}\n${domain}\n${ownedText(value, options)}`)
 
+declare const rosterDigestBrand: unique symbol
+
+/**
+ * The digest of a roster's handles in order, minted only by rosterDigest: what a roster's canonical form carries beside
+ * its name (ir/scalar.ts Roster), so two rosters of one name with other handles, or with its handles in another order,
+ * never share an identity, and the form holds the same characters whatever the roster's size.
+ */
+export type RosterDigest = string & { readonly [rosterDigestBrand]: true }
+
+/**
+ * SHA-256 over the domain-separated text of a roster's handles in order, each written as its length in UTF-16 code
+ * units, a colon, and the handle, so one text frames exactly one list of handles. The canonical encoder would frame
+ * them too, at three times the cost of this one pass over each handle's characters.
+ */
+export const rosterDigest = (handles: ReadonlyArray<string>): RosterDigest => {
+	let framed = ""
+	for (const handle of handles) {
+		framed += `${handle.length}:${handle}`
+	}
+	return nominal<string, RosterDigest>()(sha256Hex(`${canonicalFormat}\nroster-handles\n${framed}`))
+}
+
 declare const domainDigestBrand: unique symbol
 
 /**

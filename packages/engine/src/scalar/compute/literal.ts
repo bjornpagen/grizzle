@@ -3,7 +3,7 @@ import { defect } from "#compiler/core/invariant.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
 import { VectorText, vectorTag } from "#compiler/ir/carriers.ts"
-import { toCalendarDate } from "#compiler/ir/date.ts"
+import { dayNumber, toCalendarDate } from "#compiler/ir/date.ts"
 import { decimalPayload, isDecimalLike } from "#compiler/ir/decimal.ts"
 import type { LiteralDesc } from "#compiler/ir/desc.ts"
 import { type TypedLiteral, literalProblem } from "#compiler/ir/expr.ts"
@@ -73,6 +73,15 @@ const setHandles = (value: LiteralDesc): ReadonlyArray<string> | undefined => {
 export interface CarriedLiteral {
 	readonly literal: TypedLiteral
 	readonly value: CarrierValue
+}
+
+/**
+ * A date span endpoint's position, the day number of the date its text names, the line a date span's endpoints lie on
+ * in the IR and the evaluator; undefined for anything that is no calendar date.
+ */
+const dayPosition = (value: unknown): bigint | undefined => {
+	const date = toCalendarDate(value)
+	return date.ok ? BigInt(dayNumber(date.value)) : undefined
 }
 
 const asBigint = (value: unknown): bigint | undefined => {
@@ -272,18 +281,22 @@ const carriedOf = (value: LiteralDesc, t: ScalarType): Result.Result<CarriedLite
 				: finish({ kind: "handles", handles: Object.freeze([...handles]) }, new Set(handles))
 		}
 		case "range4":
-		case "range8": {
+		case "range8":
+		case "rangeDate": {
 			if (!isRecord(value) || !Object.hasOwn(value, "span") || !("span" in value)) {
 				return Result.err("a span { start, end }")
 			}
 			const span: unknown = value.span
 			if (!isRecord(span)) {
-				return Result.err("integer span endpoints")
+				return Result.err("a span's endpoints")
 			}
-			const start = asBigint(span["start"])
-			const end = asBigint(span["end"])
+			const position = base.carrier === "rangeDate" ? dayPosition : asBigint
+			const start = position(span["start"])
+			const end = position(span["end"])
 			if (start === undefined || end === undefined) {
-				return Result.err("integer span endpoints")
+				return Result.err(
+					base.carrier === "rangeDate" ? "date span endpoints" : "integer span endpoints"
+				)
 			}
 			return finish({ kind: "span", start, end }, { start, end })
 		}

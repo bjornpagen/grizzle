@@ -5,7 +5,7 @@
 import { Result } from "effect"
 import { CatalogRowRefused } from "#adapter/errors/failures.ts"
 import { sentAnswer, type BatchOutcome } from "#adapter/wire/batch.ts"
-import type { EmittedText } from "#compiler/plan/common.ts"
+import type { EmittedText, OutputRows, OutputText } from "#compiler/plan/common.ts"
 
 /**
  * A catalog statement and the one reading of its rows: each row is parsed once, where its flight answers, into what it
@@ -19,13 +19,13 @@ export interface CatalogQuery<Row> {
 	readonly sql: EmittedText
 	/** What a row says, naming the answer when a row is refused. */
 	readonly what: string
-	readonly row: (cells: ReadonlyArray<string>) => Row | undefined
+	readonly row: (cells: ReadonlyArray<OutputText>) => Row | undefined
 }
 
 /** Every row of `query`'s statement, parsed. */
 export const catalogRows = <Row>(
 	query: CatalogQuery<Row>,
-	rows: ReadonlyArray<ReadonlyArray<string>>
+	rows: OutputRows
 ): Result.Result<ReadonlyArray<Row>, CatalogRowRefused> => {
 	const out: Array<Row> = []
 	for (const cells of rows) {
@@ -41,7 +41,7 @@ export const catalogRows = <Row>(
 /** The one row of a statement that answers exactly one, parsed. */
 export const catalogRow = <Row>(
 	query: CatalogQuery<Row>,
-	rows: ReadonlyArray<ReadonlyArray<string>>
+	rows: OutputRows
 ): Result.Result<Row, CatalogRowRefused> => {
 	const only = rows.length === 1 ? rows[0] : undefined
 	const row = only === undefined ? undefined : query.row(only)
@@ -51,7 +51,5 @@ export const catalogRow = <Row>(
 }
 
 /** The rows of one statement's outcome: a flight answers every statement it sends, one outcome each. */
-export const outcomeRows = (
-	outcomes: ReadonlyArray<BatchOutcome>,
-	index: number
-): ReadonlyArray<ReadonlyArray<string>> => sentAnswer(outcomes, index).rows
+export const outcomeRows = (outcomes: ReadonlyArray<BatchOutcome>, index: number): OutputRows =>
+	sentAnswer(outcomes, index).rows

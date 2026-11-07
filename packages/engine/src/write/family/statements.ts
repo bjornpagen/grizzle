@@ -18,6 +18,7 @@
  * write's.
  */
 import { type CompileError, unsupported } from "#compiler/core/errors.ts"
+import type { ParamId } from "#compiler/core/ids.ts"
 import { defined } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
@@ -35,9 +36,11 @@ import { completeClass } from "#compiler/ir/write.ts"
 import { WriteParams } from "#compiler/lower/conservative/context.ts"
 import type {
 	Assignment,
+	Cte,
 	CteBody,
 	EmittedSql,
 	Expr,
+	FromItem,
 	FromSource,
 	SqlStatement,
 	Target
@@ -54,6 +57,7 @@ import {
 	cte,
 	cteRef,
 	cteRefAs,
+	distinctCore,
 	eq,
 	ge,
 	join,
@@ -73,6 +77,12 @@ import {
 } from "#compiler/sql/build.ts"
 import { emitText } from "#compiler/sql/emit.ts"
 import { NameSupply } from "#compiler/sql/naming.ts"
+import {
+	type GroupsOf,
+	type RefillRead,
+	type RowsOf,
+	rowsRelation
+} from "#compiler/write/family/chain.ts"
 import { type ColumnKey, columnKey } from "#compiler/write/family/fold.ts"
 import {
 	type DeleteResult,
@@ -85,7 +95,10 @@ import {
 } from "#compiler/write/insert/statement.ts"
 import type { PutResult } from "#compiler/write/put/statement.ts"
 
-/** A column of a member relation's row layout: its native column, its key, its type, and whether an update sets it. */
+/**
+ * A column of a member relation's row layout: its native column, its key, its type, whether an update sets it, and
+ * whether it is a copy of an owner's count, which only a refill sets.
+ */
 export interface RowColumn {
 	readonly column: NativeColumn
 	readonly key: ColumnKey
@@ -93,6 +106,7 @@ export interface RowColumn {
 	/** An update in place leaves the key, every group field and every copy of an owner's count: a move between groups
 	 * is a delete and an insert, and the owner axes cascade the counts. */
 	readonly settable: boolean
+	readonly copy: boolean
 }
 
 /**
@@ -124,13 +138,12 @@ export const memberFamilies = (
  */
 export const rowLayout = (relation: RelationInfo, families: ReadonlyArray<Family>): RowLayout => {
 	const mine = memberFamilies(relation.name, families)
-	const fixed = new Set<string>([
-		...mine.flatMap((f) => f.group.map((g) => `field:${g.member.name}`)),
-		...mine.map((f) => `law:${f.copy}`)
-	])
+	const groups = new Set<string>(mine.flatMap((f) => f.group.map((g) => `field:${g.member.name}`)))
+	const copies = new Set<string>(mine.map((f) => `law:${f.copy}`))
 	const of = (column: NativeColumn, type: ScalarType): RowColumn => {
 		const key = columnKey(column)
-		return { column, key, type, settable: !fixed.has(key) }
+		const copy = copies.has(key)
+		return { column, key, type, settable: !groups.has(key) && !copy, copy }
 	}
 	const keyNames = new Set(relation.primaryFields.map((f) => f.name))
 	const fields = relation.fields.flatMap((f) =>
@@ -156,7 +169,8 @@ export const rowLayout = (relation: RelationInfo, families: ReadonlyArray<Family
 		column: { kind: "field", field: f } as const,
 		key: columnKey({ kind: "field", field: f }),
 		type: f.type,
-		settable: false
+		settable: false,
+		copy: false
 	}))
 	return Object.freeze({ relation: relation.name, key: keyColumns, columns: [...fields, ...law] })
 }
@@ -196,7 +210,7 @@ export type FamilySql = {
 	readonly relation: string
 } & (
 	| { readonly kind: "delete" | "deleteTree"; readonly result: DeleteResult }
-	| { readonly kind: "update"; readonly result: UpdateResult }
+	| { readonly kind: "update" | "refill"; readonly result: UpdateResult }
 	| { readonly kind: "count"; readonly family: FamilyId; readonly result: UpdateResult }
 	| { readonly kind: "insert"; readonly result: InsertResult }
 )
@@ -362,13 +376,15 @@ const begun = (w: WriteContext): NameSupply => {
 const carriedOf = (c: RowColumn): Carried => ({ column: c.column, type: c.type })
 
 /**
- * A member relation's statement of kind `kind` over its row layout: a delete by key, an update in place by key of
- * every settable column, or an insert of every column. One per relation and kind, whatever rows it carries.
+ * A member relation's statement of kind `kind` over its row layout: a delete by key; an update in place by key of every
+ * settable column; a refill, an update in place by key of every column but its key and its groups, its copies of its
+ * owners' counts among them, since a refill writes a row with the new values of the owners it is drawn ahead of
+ * (analysis/theory/refill.ts); or an insert of every column. One per relation and kind, whatever rows it carries.
  */
 export const rowStatement = (
 	relation: RelationInfo,
 	layout: RowLayout,
-	kind: "delete" | "update" | "insert",
+	kind: "delete" | "refill" | "update" | "insert",
 	w: WriteContext
 ): Result.Result<FamilySql, CompileError> => {
 	const supply = begun(w)
@@ -406,11 +422,12 @@ export const rowStatement = (
 				result: deleted(relation)
 			})
 		}
+		case "refill":
 		case "update": {
 			const input = arraysOf(w, supply, all)
 			const k = layout.key.length
 			const sets = layout.columns.flatMap((c, i) =>
-				c.settable
+				c.settable || (kind === "refill" && c.copy)
 					? [
 							{
 								column: installed(w, relation.name, c.column),
@@ -594,6 +611,16 @@ export interface ReadShape {
 	readonly width: number
 }
 
+/** The shape of a family's read's rows over its member's row layout (`ReadShape`). */
+export const readShape = (family: Family, layout: RowLayout): ReadShape => {
+	const columns = ownerReadColumns(family)
+	return {
+		owner: { key: family.group.length, columns },
+		member: { key: layout.key.length, columns: layout.columns.length },
+		width: Math.max(family.group.length + columns.length, layout.key.length + layout.columns.length)
+	}
+}
+
 /** A family's read statement and the shape of its rows. */
 export interface ReadSql {
 	readonly ast: SqlStatement
@@ -658,11 +685,9 @@ export const suffixReadSql = (
 		column: { kind: "field", field: g.owner },
 		type: g.owner.type
 	}))
-	const ownerColumns = ownerReadColumns(family)
-	const width = Math.max(
-		family.group.length + ownerColumns.length,
-		layout.key.length + layout.columns.length
-	)
+	const shape = readShape(family, layout)
+	const ownerColumns = shape.owner.columns
+	const width = shape.width
 	const memberTable = w.names.relation(member.name)
 	const ownerTable = w.names.relation(owner.name)
 	const mCol = (alias: string, c: NativeColumn): Expr => col(alias, installed(w, member.name, c))
@@ -794,10 +819,408 @@ export const suffixReadSql = (
 		ast,
 		sql: emitText(ast, supply.map()),
 		arrays: keyCarried.length + groupCarried.length,
-		shape: {
-			owner: { key: family.group.length, columns: ownerColumns },
-			member: { key: layout.key.length, columns: layout.columns.length },
-			width
-		}
+		shape
 	})
+}
+
+/**
+ * Where a chain's rows begin, as its read's placeholders carry them: a put's keys, one array per key field of its
+ * relation, $1 on; or the members and groups an edit of `family` touches, as the family's own read carries them
+ * (`suffixReadSql`), its members' keys from $1 and its groups' keys after them.
+ */
+export type ChainRoot =
+	| { readonly kind: "put"; readonly relation: RelationInfo; readonly slot: ParamId }
+	| { readonly kind: "touched"; readonly family: Family }
+
+/**
+ * The shape of a chain read's rows: each row set its chain passes, by its tag, its relation and its row layout, every
+ * row by its key's texts and its layout's columns; and what it reads at its end: a refilled family's suffixes as a
+ * family's read returns them (`o` and `m` rows), a refilled tree's whole (`t` rows, in its relation's layout), or no
+ * more than its row sets. A row of a shorter kind is padded with empty texts to `width` columns after the tag.
+ */
+export interface ChainShape {
+	readonly rows: ReadonlyArray<{
+		readonly tag: string
+		readonly relation: RelationInfo
+		readonly layout: RowLayout
+	}>
+	readonly end:
+		| {
+				readonly kind: "suffix"
+				readonly family: Family
+				readonly shape: ReadShape
+				readonly layout: RowLayout
+		  }
+		| { readonly kind: "tree"; readonly family: Family; readonly layout: RowLayout }
+		| { readonly kind: "rows" }
+	readonly width: number
+}
+
+/** A chain's read statement: its AST and text, where its rows begin, and the shape of its rows. */
+export interface ChainSql {
+	readonly ast: SqlStatement
+	readonly sql: EmittedSql
+	readonly root: ChainRoot
+	readonly shape: ChainShape
+}
+
+/**
+ * A chain's read (write/family/chain.ts), one SELECT. Each row set and group set the chain passes is a CTE over the one
+ * before it: a put's keys from its arrays, an edit's touched groups (its keyed members' groups and its group keys), an
+ * owner's members by their groups (a cascade), a member's groups with the least slot it stands at, a group's owners or
+ * its members from that slot, a tree's every row. It returns every row each row set holds, tag `r<i>` for the i-th, and
+ * at its end a refilled family's owners (`o`) and members from one slot before each group's least (`m`), or a refilled
+ * tree's every row (`t`). Every column is text:
+ *
+ *   WITH c0(k…) AS (SELECT DISTINCT a.k… FROM unnest($1 …) a),
+ *        c1(k…) AS (SELECT DISTINCT m.k… FROM M m JOIN c0 ON m.g… = c0.k…),
+ *        c2(g…, s) AS (SELECT m.g…, min(m.i) FROM L m JOIN c1 ON m.k… = c1.k… GROUP BY m.g…)
+ *   SELECT 'r0', a.k…, a.c… FROM A a JOIN c0 …
+ *   UNION ALL SELECT 'r1', m.k…, m.c… FROM M m JOIN c1 …
+ *   UNION ALL SELECT 'o', o.k…, o.n, o.e…, … FROM O o JOIN c2 ON o.k… = c2.g…
+ *   UNION ALL SELECT 'm', m.k…, m.c… FROM L m JOIN c2 ON m.g… = c2.g… WHERE m.i >= c2.s - 1
+ */
+export const chainReadSql = (
+	read: RefillRead,
+	w: WriteContext,
+	layoutOf: (relation: RelationInfo) => RowLayout
+): ChainSql => {
+	const supply = begun(w)
+	const ctes: Array<Cte> = []
+	const arms: Array<{
+		readonly tag: string
+		readonly texts: ReadonlyArray<Expr>
+		readonly from: FromItem
+		readonly where: Expr | undefined
+	}> = []
+	const sets: Array<ChainShape["rows"][number]> = []
+	const roots: Array<ChainRoot> = []
+	const columnOf = (alias: string, relation: RelationInfo, c: NativeColumn): Expr =>
+		col(alias, installed(w, relation.name, c))
+	const fieldOf = (alias: string, relation: RelationInfo, f: LawField): Expr =>
+		columnOf(alias, relation, { kind: "field", field: f })
+	const tableOf = (relation: RelationInfo, alias: string): FromSource => {
+		const name = w.names.relation(relation.name)
+		return table(name.schema, name.name, alias)
+	}
+	const fieldCarried = (f: LawField): Carried => ({
+		column: { kind: "field", field: f },
+		type: f.type
+	})
+	/** A row of `relation` under `alias` as a chain returns it: its key's texts, then its layout's columns'. */
+	const rowTexts = (
+		alias: string,
+		relation: RelationInfo,
+		layout: RowLayout
+	): ReadonlyArray<Expr> => [
+		...layout.key.map((c) => resultText(columnOf(alias, relation, c.column), c.type)),
+		...layout.columns.map((c) => resultText(columnOf(alias, relation, c.column), c.type))
+	]
+	/** The key fields of `relation` under `alias` equal to `keys` of the CTE `at`, field by field in key order. */
+	const keyed = (
+		alias: string,
+		relation: RelationInfo,
+		at: string,
+		keys: NonEmptyReadonlyArray<string>
+	) =>
+		and(
+			mapNonEmpty(relation.primaryFields, (f, i) =>
+				eq(fieldOf(alias, relation, f), col(at, defined(keys[i], `key ${i}`)))
+			)
+		)
+	/** The owner's key field a group field of `family` pairs with, as a position among the owner's key fields. */
+	const ownerPosition = (family: Family, owner: LawField): number =>
+		family.owner.primaryFields.findIndex((f) => f.name === owner.name)
+	/** The fields a set of `family`'s groups holds: its group fields, or a tree's root field. */
+	const groupFields = (family: Family): NonEmptyReadonlyArray<LawField> =>
+		family.members.kind === "tree"
+			? [family.members.root]
+			: mapNonEmpty(family.group, (g) => g.member)
+	interface RowsCte {
+		readonly name: string
+		readonly keys: NonEmptyReadonlyArray<string>
+	}
+	interface GroupsCte {
+		readonly name: string
+		readonly groups: NonEmptyReadonlyArray<string>
+		readonly slot: string
+	}
+	const groupsCte = (groups: GroupsOf): GroupsCte => {
+		const family = groups.family
+		const name = supply.relation(internal("chain groups"))
+		const names = mapNonEmpty(groupFields(family), () => supply.column(internal("chain group")))
+		const slot = supply.column(internal("chain slot"))
+		const m = supply.relation(internal("chain member"))
+		const zero = lit.int(0, types.bigint)
+		switch (groups.kind) {
+			case "touched": {
+				roots.push({ kind: "touched", family })
+				const layout = layoutOf(family.member)
+				const keys = arraysAt(w, supply, mapNonEmpty(layout.key, carriedOf), 1)
+				const touched = arraysAt(
+					w,
+					supply,
+					mapNonEmpty(family.group, (g) => fieldCarried(g.owner)),
+					1 + layout.key.length
+				)
+				ctes.push(
+					cte(
+						name,
+						[...names, slot],
+						select(
+							setOperation("UNION", [
+								core(
+									[
+										...family.group.map((g, i) =>
+											targetAs(
+												fieldOf(m, family.member, g.member),
+												defined(names[i], "a group column")
+											)
+										),
+										targetAs(zero, slot)
+									],
+									[
+										join(
+											tableOf(family.member, m),
+											keys.from,
+											and(
+												mapNonEmpty(layout.key, (c, i) =>
+													eq(columnOf(m, family.member, c.column), keys.raw(i))
+												)
+											)
+										)
+									],
+									undefined
+								),
+								core(
+									[
+										...family.group.map((_, i) =>
+											targetAs(touched.raw(i), defined(names[i], "a group column"))
+										),
+										targetAs(zero, slot)
+									],
+									[touched.from],
+									undefined
+								)
+							])
+						)
+					)
+				)
+				return { name, groups: names, slot }
+			}
+			case "groups": {
+				const from = rowsCte(groups.from)
+				const fields = groupFields(family)
+				const least =
+					family.members.kind === "tree"
+						? zero
+						: call("min", [columnOf(m, family.member, family.index)])
+				ctes.push(
+					cte(
+						name,
+						[...names, slot],
+						select({
+							...provedCore(
+								"grouped",
+								[
+									...fields.map((f, i) =>
+										targetAs(fieldOf(m, family.member, f), defined(names[i], "a group column"))
+									),
+									targetAs(least, slot)
+								],
+								[
+									join(
+										tableOf(family.member, m),
+										cteRef(from.name),
+										keyed(m, family.member, from.name, from.keys)
+									)
+								],
+								undefined
+							),
+							groupBy: fields.map((f) => fieldOf(m, family.member, f))
+						})
+					)
+				)
+				return { name, groups: names, slot }
+			}
+		}
+	}
+	const rowsCte = (rows: RowsOf): RowsCte => {
+		const relation = rowsRelation(rows)
+		const name = supply.relation(internal("chain rows"))
+		const keys = mapNonEmpty(relation.primaryFields, () => supply.column(internal("chain key")))
+		const t = supply.relation(internal("chain row"))
+		const own = mapNonEmpty(relation.primaryFields, (f) => fieldOf(t, relation, f))
+		const distinct = (from: FromItem, where: Expr | undefined) =>
+			select(
+				distinctCore(
+					mapNonEmpty(own, (e, i) => targetAs(e, defined(keys[i], `key ${i}`))),
+					[from],
+					where
+				)
+			)
+		const body = ((): CteBody => {
+			switch (rows.kind) {
+				case "put": {
+					roots.push({ kind: "put", relation, slot: rows.slot })
+					const input = arraysAt(w, supply, mapNonEmpty(relation.primaryFields, fieldCarried), 1)
+					return select(
+						distinctCore(
+							mapNonEmpty(relation.primaryFields, (_, i) =>
+								targetAs(input.raw(i), defined(keys[i], `key ${i}`))
+							),
+							[input.from],
+							undefined
+						)
+					)
+				}
+				case "cascade": {
+					const from = rowsCte(rows.from)
+					const family = rows.family
+					return distinct(
+						join(
+							tableOf(relation, t),
+							cteRef(from.name),
+							and(
+								mapNonEmpty(family.group, (g) =>
+									eq(
+										fieldOf(t, relation, g.member),
+										col(
+											from.name,
+											defined(from.keys[ownerPosition(family, g.owner)], "an owner key")
+										)
+									)
+								)
+							)
+						),
+						undefined
+					)
+				}
+				case "owners":
+				case "members": {
+					const from = groupsCte(rows.from)
+					const family = rows.family
+					const on = and(
+						mapNonEmpty(groupFields(family), (f, i) => {
+							const field =
+								rows.kind === "owners" && family.members.kind !== "tree"
+									? defined(family.group[i], "a group field").owner
+									: f
+							return eq(
+								fieldOf(t, relation, field),
+								col(from.name, defined(from.groups[i], "a group column"))
+							)
+						})
+					)
+					const where =
+						rows.kind === "members" && family.members.kind !== "tree"
+							? ge(columnOf(t, relation, family.index), col(from.name, from.slot))
+							: undefined
+					return distinct(join(tableOf(relation, t), cteRef(from.name), on), where)
+				}
+			}
+		})()
+		ctes.push(cte(name, keys, body))
+		const r = supply.relation(internal("chain read row"))
+		const layout = layoutOf(relation)
+		const tag = `r${sets.length}`
+		sets.push({ tag, relation, layout })
+		arms.push({
+			tag,
+			texts: rowTexts(r, relation, layout),
+			from: join(tableOf(relation, r), cteRef(name), keyed(r, relation, name, keys)),
+			where: undefined
+		})
+		return { name, keys }
+	}
+	const end = ((): ChainShape["end"] => {
+		if (read.kind === "rows") {
+			rowsCte(read.rows)
+			return { kind: "rows" }
+		}
+		const family = read.groups.family
+		const g = groupsCte(read.groups)
+		const member = family.member
+		const layout = layoutOf(member)
+		const m = supply.relation(internal("chain end member"))
+		const onGroups = and(
+			mapNonEmpty(groupFields(family), (f, i) =>
+				eq(fieldOf(m, member, f), col(g.name, defined(g.groups[i], "a group column")))
+			)
+		)
+		if (family.members.kind === "tree") {
+			arms.push({
+				tag: "t",
+				texts: rowTexts(m, member, layout),
+				from: join(tableOf(member, m), cteRef(g.name), onGroups),
+				where: undefined
+			})
+			return { kind: "tree", family, layout }
+		}
+		const o = supply.relation(internal("chain end owner"))
+		const owner = family.owner
+		const shape = readShape(family, layout)
+		const ownerColumns = shape.owner.columns
+		arms.push({
+			tag: "o",
+			texts: [
+				...family.group.map((pair) => resultText(fieldOf(o, owner, pair.owner), pair.owner.type)),
+				...ownerColumns.map((f) => resultText(fieldOf(o, owner, f), f.type))
+			],
+			from: join(
+				tableOf(owner, o),
+				cteRef(g.name),
+				and(
+					mapNonEmpty(family.group, (pair, i) =>
+						eq(fieldOf(o, owner, pair.owner), col(g.name, defined(g.groups[i], "a group column")))
+					)
+				)
+			),
+			where: undefined
+		})
+		arms.push({
+			tag: "m",
+			texts: rowTexts(m, member, layout),
+			from: join(tableOf(member, m), cteRef(g.name), onGroups),
+			where: ge(
+				columnOf(m, member, family.index),
+				binary("-", col(g.name, g.slot), lit.int(1, types.bigint))
+			)
+		})
+		return { kind: "suffix", family, shape, layout }
+	})()
+	const width = arms.reduce((most, arm) => Math.max(most, arm.texts.length), 0)
+	const tagColumn = supply.column(internal("chain tag"))
+	const out = Array.from({ length: width }, () => supply.column(internal("chain column")))
+	const at = (i: number): string => defined(out[i], `chain column ${i}`)
+	const built = arms.map((arm) =>
+		provedCore(
+			"keyed",
+			[
+				targetAs(lit.text(arm.tag, types.text), tagColumn),
+				...arm.texts.map((e, i) => targetAs(e, at(i))),
+				...Array.from({ length: width - arm.texts.length }, (_, j) =>
+					targetAs(lit.text("", types.text), at(arm.texts.length + j))
+				)
+			],
+			[arm.from],
+			arm.where
+		)
+	)
+	const root = defined(roots[0], "a chain begins at a put or an edit")
+	const [first, ...rest] = built
+	const [firstCte, ...restCtes] = ctes
+	const ast: SqlStatement = {
+		...select(unionAll("disjoint", [defined(first, "a chain reads a row set"), ...rest])),
+		with: {
+			recursive: false,
+			ctes: [defined(firstCte, "a chain's rows are a CTE"), ...restCtes]
+		}
+	}
+	return {
+		ast,
+		sql: emitText(ast, supply.map()),
+		root,
+		shape: { rows: sets, end, width }
+	}
 }

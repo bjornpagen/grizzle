@@ -72,6 +72,7 @@ const spaceOf = (t: ScalarType): Space | undefined => {
 		case "bits":
 		case "range4":
 		case "range8":
+		case "rangeDate":
 		case "vector":
 			return undefined
 	}

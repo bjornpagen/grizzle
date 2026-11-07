@@ -6,14 +6,17 @@ import * as Result from "#compiler/core/result.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
 import { codePoints } from "#compiler/core/text.ts"
 import {
+	finiteCheck,
 	languageKey,
 	languageWithin,
 	type PatternCheck,
 	type PatternLanguage,
 	type RegexCheck,
 	type RegexKey,
+	regexCheck,
 	type TextBounds,
 	type TextInfo,
+	textBounds,
 	textInfoOf
 } from "#compiler/ir/scalar.ts"
 import { admitPattern } from "#compiler/scalar/regex/admit.ts"
@@ -52,6 +55,9 @@ const dfaLimits: DfaLimits = Object.freeze({
  */
 type TextCheck = { readonly kind: "tautology" } | PatternCheck
 
+/** The check of a pattern every admitted text matches: none, one frozen value for every such pattern. */
+const tautology: TextCheck = Object.freeze({ kind: "tautology" })
+
 export interface TextRefinement {
 	readonly source: string
 	readonly flags: RegexFlags
@@ -85,7 +91,7 @@ const boundsOfMembers = (members: ReadonlyArray<string>): TextBounds => {
 			cps.reduce((n, c) => n + utf8Width(c), 0)
 		)
 	}
-	return { length, bytes }
+	return textBounds(length, bytes)
 }
 
 /**
@@ -125,18 +131,18 @@ const choose = (ir: RegexNode, known: Known, are: string): TextCheck => {
 		case "automaton": {
 			const { dfa } = known
 			if (isUniversal(dfa)) {
-				return { kind: "tautology" }
+				return tautology
 			}
-			const regex = measured({ kind: "regex", pattern: are, bounds: longest(dfa) })
+			const regex = measured(regexCheck(are, longest(dfa)))
 			const members = membersWithin(dfa, memberBytes, regex.bytes)
 			if (members === undefined || !isNonEmpty(members)) {
 				return regex.check
 			}
-			const inList = measured({ kind: "finite", members, bounds: boundsOfMembers(members) })
+			const inList = measured(finiteCheck(members, boundsOfMembers(members)))
 			return shorter(inList, regex).check
 		}
 		case "structure":
-			return { kind: "regex", pattern: are, bounds: structuralBounds(ir) }
+			return regexCheck(are, structuralBounds(ir))
 	}
 }
 

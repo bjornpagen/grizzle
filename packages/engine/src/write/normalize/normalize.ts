@@ -7,11 +7,14 @@ import type { LawId, ParamId } from "#compiler/core/ids.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
-import { compareCodePoints } from "#compiler/core/text.ts"
+import { compareCodePoints, compareTextTuples } from "#compiler/core/text.ts"
+import { TupleMap } from "#compiler/core/tuple-map.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
+import { type CalendarDate, dayNumber } from "#compiler/ir/date.ts"
 import type { LawField } from "#compiler/ir/law.ts"
 import type { KeyNormalized, NormalFacts } from "#compiler/ir/products.ts"
 import type { KeySet } from "#compiler/ir/rel.ts"
+import type { SpanCarrier } from "#compiler/ir/scalar.ts"
 import {
 	admitted,
 	admittedText,
@@ -94,13 +97,20 @@ export const memberSlots = (frontend: WriteFrontend): ReadonlyArray<string> => [
 	...new Set(frontend.slots.flatMap((g) => g.inputs.flatMap((i) => i.members.map((m) => m.name))))
 ]
 
-interface Entry {
-	readonly identity: string
+/** A fact or a nested row as the same-key checks judge it: its identity, and its host values by field name. */
+interface Entry<I> {
+	readonly identity: I
 	readonly fact: Fact
 }
 
-/** Facts in identity order, by code point. */
-const identityOrder = (a: Entry, b: Entry): number => compareCodePoints(a.identity, b.identity)
+/** An admitted fact, its identity the codec's (codec/recordset.ts), one text. */
+type FactEntry = Entry<string>
+
+/** A nested row, its identity its filled columns' texts (write/family/nesting.ts NestedRow). */
+type RowEntry = Entry<ReadonlyArray<string>>
+
+/** The canonical order of one kind of entries' identities, the order their same-key checks judge them in. */
+type IdentityOrder<I> = (a: I, b: I) => number
 
 /** A non-null object, whose fields a string key reads as unknown values. */
 const isObject = (value: unknown): value is Fact => typeof value === "object" && value !== null
@@ -126,7 +136,7 @@ const supplied = (fact: unknown, fields: ReadonlyArray<string>): number => {
 const admit = (
 	normalize: RelationNormalizer,
 	facts: Iterable<unknown>
-): Result.Result<ReadonlyArray<Entry>, EncodingFailure> => {
+): Result.Result<ReadonlyArray<FactEntry>, EncodingFailure> => {
 	const normalized = normalize(facts)
 	if (!normalized.ok) {
 		return normalized
@@ -161,7 +171,7 @@ const routed = (
 }
 
 /** Each admitted entry of `entries` into `set`, the first of each identity kept. */
-const collect = (set: Map<string, Entry>, entries: ReadonlyArray<Entry>): void => {
+const collect = (set: Map<string, FactEntry>, entries: ReadonlyArray<FactEntry>): void => {
 	for (const e of entries) {
 		if (!set.has(e.identity)) {
 			set.set(e.identity, e)
@@ -187,13 +197,11 @@ export interface HostChecks {
 		readonly equal: ReadonlyArray<HostKeyField>
 		readonly span: {
 			readonly field: string
-			readonly spec: Extract<CarrierSpec, { readonly carrier: Range }>
+			readonly spec: Extract<CarrierSpec, { readonly carrier: SpanCarrier }>
 		}
 		readonly witness: ReadonlyArray<HostKeyField>
 	}>
 }
-
-export type Range = "range4" | "range8"
 
 /**
  * A declared key the host compares a relation's facts at: its law, its fields, and whether a fact as its caller writes
@@ -252,27 +260,31 @@ export const hostChecks = (
 		})
 	})
 
-/** The key of a fact at `fields`: each field's canonical text after its length, so two facts share it exactly when they
- * share every field's value. The fact was admitted against the same carriers, so its values are already their
+/** The key of a fact at `fields`: each field's canonical text, in the fields' order, so two facts share it exactly when
+ * they share every field's value. The fact was admitted against the same carriers, so its values are already their
  * carriers' host values and are not admitted again. */
-const keyTextOf = (fields: ReadonlyArray<HostKeyField>) => (fact: Fact) => {
-	let key = ""
-	for (const { field, spec } of fields) {
-		const text = admittedText(spec, fact[field])
-		key = `${key}${text.length}:${text}`
-	}
-	return key
+const keyTextsOf =
+	(fields: ReadonlyArray<HostKeyField>) =>
+	(fact: Fact): ReadonlyArray<string> =>
+		fields.map(({ field, spec }) => admittedText(spec, fact[field]))
+
+/** Entries in their identities' canonical order. */
+const sorted = <I>(order: IdentityOrder<I>, entries: Iterable<Entry<I>>): ReadonlyArray<Entry<I>> =>
+	[...entries].toSorted((a, b) => order(a.identity, b.identity))
+
+/** An admitted span: a nonempty half-open interval of integers, bigints or dates. */
+type HostSpan = Span<number> | Span<bigint> | Span<CalendarDate>
+
+/** A span endpoint's position on its line: an integer itself, a date its day number. */
+const position = (endpoint: HostSpan["start"]): bigint =>
+	typeof endpoint === "string" ? BigInt(dayNumber(endpoint)) : BigInt(endpoint)
+
+/** Span starts by position. */
+const spanStartOrder = (a: HostSpan["start"], b: HostSpan["start"]): number => {
+	const x = position(a)
+	const y = position(b)
+	return x < y ? -1 : x > y ? 1 : 0
 }
-
-const sorted = (entries: Iterable<Entry>): ReadonlyArray<Entry> =>
-	[...entries].toSorted(identityOrder)
-
-/** Span starts, numbers or bigints, by value. */
-const spanStartOrder = (a: HostSpan["start"], b: HostSpan["start"]): number =>
-	a < b ? -1 : a > b ? 1 : 0
-
-/** An admitted span: a nonempty half-open interval of integers or bigints. */
-type HostSpan = Span<number> | Span<bigint>
 
 /** Whether an admitted value is a set's. */
 const isSet = (value: CarrierHost[Carrier]): value is ReadonlySet<string> => value instanceof Set
@@ -335,21 +347,22 @@ const primaryConflict = (stratum: number, facts: SlotFacts, fact: NestedFact): K
 
 /**
  * The first of one relation's facts, in canonical order, sharing a declared key's value with an earlier one of another
- * identity, the keys tried primary key first, each over the facts `onKey` takes part on it.
+ * identity under `order`, the keys tried primary key first, each over the facts `onKey` takes part on it.
  */
-const keyConflictIn = (
+const keyConflictIn = <I>(
 	stratum: number,
 	facts: SlotFacts,
-	onKey: (key: HostKey) => ReadonlyArray<Entry>
+	order: IdentityOrder<I>,
+	onKey: (key: HostKey) => ReadonlyArray<Entry<I>>
 ): KeyRefusal | undefined => {
 	for (const key of facts.host.keys) {
 		const { fields } = key
-		const keyText = keyTextOf(fields)
-		const seen = new Map<string, Entry>()
+		const keyTexts = keyTextsOf(fields)
+		const seen = new TupleMap<string, Entry<I>>()
 		for (const e of onKey(key)) {
-			const k = keyText(e.fact)
+			const k = keyTexts(e.fact)
 			const prior = seen.get(k)
-			if (prior !== undefined && prior.identity !== e.identity) {
+			if (prior !== undefined && order(prior.identity, e.identity) !== 0) {
 				return conflictOf(stratum, facts, e.fact, fields, key)
 			}
 			seen.set(k, e)
@@ -364,14 +377,15 @@ const keyConflictIn = (
  * first; then the first whose span overlaps an earlier one's at equal scalar fields. A generated addition takes part
  * only on the keys and spans that hold no serial field.
  */
-const sameKey = (
+const sameKey = <I>(
 	stratum: number,
 	facts: SlotFacts,
+	order: IdentityOrder<I>,
 	serial: ReadonlyArray<string>,
-	complete: ReadonlyArray<Entry>,
-	generated: ReadonlyArray<Entry>
+	complete: ReadonlyArray<Entry<I>>,
+	generated: ReadonlyArray<Entry<I>>
 ): KeyRefusal | undefined => {
-	const keyed = keyConflictIn(stratum, facts, ({ fields }) =>
+	const keyed = keyConflictIn(stratum, facts, order, ({ fields }) =>
 		fields.some((f) => serial.includes(f.field)) ? complete : [...complete, ...generated]
 	)
 	if (keyed !== undefined) {
@@ -379,14 +393,17 @@ const sameKey = (
 	}
 	for (const check of facts.host.spans) {
 		const { span, witness } = check
-		const keyText = keyTextOf(check.equal)
+		const keyTexts = keyTextsOf(check.equal)
 		const onKey = witness.some((f) => serial.includes(f.field))
 			? complete
 			: [...complete, ...generated]
-		const groups = new Map<string, Array<{ readonly entry: Entry; readonly span: HostSpan }>>()
+		const groups = new TupleMap<
+			string,
+			Array<{ readonly entry: Entry<I>; readonly span: HostSpan }>
+		>()
 		for (const e of onKey) {
 			const value = admitted(span.spec, e.fact[span.field])
-			const k = keyText(e.fact)
+			const k = keyTexts(e.fact)
 			const group = groups.get(k) ?? []
 			group.push({ entry: e, span: value })
 			groups.set(k, group)
@@ -396,15 +413,15 @@ const sameKey = (
 			 * end so far. */
 			const ordered = group.toSorted((x, y) => {
 				const byStart = spanStartOrder(x.span.start, y.span.start)
-				return byStart !== 0 ? byStart : identityOrder(x.entry, y.entry)
+				return byStart !== 0 ? byStart : order(x.entry.identity, y.entry.identity)
 			})
-			let reach: HostSpan["end"] | undefined
+			let reach: bigint | undefined
 			for (const { entry, span: value } of ordered) {
-				if (reach !== undefined && value.start < reach) {
+				if (reach !== undefined && position(value.start) < reach) {
 					return conflictOf(stratum, facts, entry.fact, witness, check)
 				}
-				if (reach === undefined || value.end > reach) {
-					reach = value.end
+				if (reach === undefined || position(value.end) > reach) {
+					reach = position(value.end)
 				}
 			}
 		}
@@ -468,7 +485,7 @@ export const normalizeChangeSet = (
 	const nested = new Map<number, NestedSet>()
 	const reached = new Map<number, Map<string, SlotFacts>>()
 	for (const { stratum, facts: relation, inputs: enumerated } of frontend.slots) {
-		const sets: Record<"insert" | "generated" | "put" | "delete", Map<string, Entry>> = {
+		const sets: Record<"insert" | "generated" | "put" | "delete", Map<string, FactEntry>> = {
 			insert: new Map(),
 			generated: new Map(),
 			put: new Map(),
@@ -521,7 +538,7 @@ export const normalizeChangeSet = (
 						}
 						/** A slot that carries fields beyond its facts' holds each at its start (frontend/compile.ts
 						 * EnumeratedInput "single"), its identity its facts'. */
-						const started = admittedFacts.value.map((e): Entry =>
+						const started = admittedFacts.value.map((e): FactEntry =>
 							input.starts.length === 0
 								? e
 								: {
@@ -572,11 +589,14 @@ export const normalizeChangeSet = (
 			sameKey(
 				stratum,
 				relation,
+				compareCodePoints,
 				serial,
-				sorted([...sets.put.values(), ...sets.insert.values()]),
-				sorted(sets.generated.values())
+				sorted(compareCodePoints, [...sets.put.values(), ...sets.insert.values()]),
+				sorted(compareCodePoints, sets.generated.values())
 			) ??
-			keyConflictIn(stratum, relation, (key) => (key.stated ? sorted(sets.delete.values()) : []))
+			keyConflictIn(stratum, relation, compareCodePoints, (key) =>
+				key.stated ? sorted(compareCodePoints, sets.delete.values()) : []
+			)
 		if (refused !== undefined) {
 			return Result.ok(refused)
 		}
@@ -612,8 +632,12 @@ export const normalizeChangeSet = (
 			const refused = sameKey(
 				stratum,
 				facts,
+				compareTextTuples,
 				[],
-				sorted([...byKey.values()].map((r) => ({ identity: r.identity, fact: r.fact }))),
+				sorted(
+					compareTextTuples,
+					[...byKey.values()].map((r): RowEntry => ({ identity: r.identity, fact: r.fact }))
+				),
 				[]
 			)
 			if (refused !== undefined) {

@@ -16,6 +16,61 @@ How to upgrade:
 
 ### Breaking changes
 
+#### A row's identity is its texts, never one text joined from them, so a nested write's content may sum past JavaScript's longest string
+
+- **A nested insert whose texts sum past JavaScript's longest string (V8's 536,870,888 UTF-16 code units) is written,
+  where it died in the host with `RangeError: Invalid string length` before any SQL.** A nested write deduped its facts
+  by one signature text that held every row it nests, each spelled after its length, so an owner inserted with seven
+  members of 80,000,000 characters each was refused while six were accepted. Each of these identities is now a tuple
+  of its texts, in a map that walks a tuple one element at a time (`core/tuple-map.ts`): a nested row's identity and
+  key, a nested fact's signature (its rows as the set holds them), a same-key check's key, a read's row identity and
+  attachment key, a closed relation's key, and a closed side's rows. An identity's size is its arity, whatever its
+  texts' lengths, and no hash stands in for a text, so two different rows are never one. Orders that were the joined
+  text's are kept exactly, so generated SQL is unchanged.
+- **Two nested facts at one key that differ only in the owner's own fields are refused by its key law.** Before, the
+  second was dropped silently whenever both nested the same members. Before: `insert(Owner, [{ id, title: "x",
+  members }, { id, title: "y", members }])` wrote the first. After: it is `invariant-rejected` by Owner's primary key
+  law, as two facts at one key are. No codemod.
+
+#### A change a family's derived value reads through a copy refills that family, members first
+
+- **A write that changes a column a family's drawn value reads, on rows already stored, refills that family's groups
+  instead of being refused.** A fold's step or selection, a predecessor copy, a last copy and a tree node's copy of its
+  parent's are drawn when their row is written; a put of an owner whose column its members copy, and an edit of a
+  family whose owner's count or end another family reads, changed what they read on stored rows, and the ChangeSet was
+  refused when it compiled (`StaleDerivedRead`), as was an append whose copy came through such a cascade
+  (`CascadedCopyAppend`). Now one read flight locates every group the change reaches, along the copies that carry it,
+  and grizzle draws each value again, its own refill's changes followed in turn, and rewrites those rows in place
+  before the change that would cascade into them, so a fold's CHECK holds at every statement; an append takes the
+  owner's new value. The owner axis of every family whose members a refill can rewrite, and the predecessor axis of a
+  refilled ordered family or tree and a tree's owner axis, are deferred, decided once per schema. `StaleDerivedRead`
+  keeps only what grizzle cannot refill, its new `cause`: a put whose rows a query states (`query`), refills that reach
+  a family they refill again (`cycle`), and a refill of an immutable owner's family or an immutable relation's rows
+  (`immutable`);
+  `CascadedCopyAppend` keeps only a put from a query, and loses `by`. A refill is planned in the first stratum, beside
+  every family edit, and a role that does not hold, whole, every relation a refill rewrites or reads is refused
+  (`OutsideRole`). Regenerate: the deferred axes change. No codemod.
+- **A delete of an ordered family's member, or a put that moves a member to another group, is accepted where the rows
+  it re-places own counted members.** Such a write re-places rows, deleting and inserting them again: a delete
+  re-places every member after it, a slot down. The counted members of a re-placed row referenced it along an
+  immediate owner axis, so the delete was refused (`invariant-rejected`, by the counted family's law), and their
+  copies of the row's columns, which no cascade reaches when a row is inserted again, would have gone stale. Now the
+  owner axis of every family owned by a relation a put or a delete may re-place is deferred, and those members'
+  copies, their count's among them, are refilled, members first. Regenerate: the deferred axes change. No codemod.
+
+#### A fold's selection a closed read leaves unknown skips the member, on the host and in its CHECK
+
+- **A fold step's selection that a closed read at an absent key leaves unknown, NULL, holds of no member, as a
+  selection holds only where it is true.** The host evaluated it as unsupported, so every write of such a member,
+  with its owner, into a stored owner or by a refill, failed with an `EncodingFailure` (`factShape`) before any SQL;
+  and the fold's CHECK, `(φ AND after = combine) OR (NOT φ AND after = before)`, was unknown there and refused the
+  member. The host's evaluation now holds NULL as a value, by SQL's three-valued logic: AND, OR and NOT by Kleene's,
+  LEAST and GREATEST past a NULL, BETWEEN and IN as their comparisons, a conditional's other branch, and every other
+  operation, cast and closed read NULL at a NULL operand. The CHECK is `CASE WHEN φ THEN after = combine ELSE after =
+  before END`. A refused write's witness judges a row CHECK, a closed containment's guard and a generated field's NOT
+  NULL by the same logic, exactly, where it judged a NULL some operation masks as unjudged. Regenerate: a selected
+  fold's CHECK changes. No codemod.
+
 #### Every domain admits NULL, so a closed read at an absent key is judged by its rule, never refused by a cast
 
 - **A domain's CHECK is `CHECK (VALUE IS NULL OR (<predicate>) IS TRUE)`, a roster's, a set's, a contract's and a
@@ -31,7 +86,18 @@ How to upgrade:
   member`, as a key over the selection already did: a row is on a selection only where its condition is true.
   Regenerate: every domain's CHECK and every such containment's CHECK changes. No codemod.
 
-#### `date` is a plain type, not a contract
+#### grizzle reads back no text it writes: a parameter's text and a result cell's text are two types
+
+- **Every text grizzle sends PostgreSQL is a `ParamText`, which only an encoder writes, and every text it reads is an
+  `OutputText`, which only the wire receives; a reader takes an `OutputText` and nothing else.** The two spell one
+  value differently wherever PostgreSQL's input and output forms differ, a set's `X` and hex digits in and its 0s and 1s
+  out, and the counted family's end above was a parameter text read as an output text. The family planner now carries
+  host values from its fill to its statements and writes each text once, there; the reader is a module of its own that
+  only the decode sites import, which `pnpm architecture` holds; and an `OutputText` is minted only where PostgreSQL's
+  rows, a law refusal's key texts and a fused array's elements are read. The engine's internal subpaths gain
+  `./internal/plan/decode.ts`, the shell's decode sites' one door to the reader. No codemod.
+
+#### `date` is a plain type, not a contract, and a span may be over dates
 
 - **`date` is PostgreSQL's date, a plain scalar type as `pg.integer` is.** It was the builtin contract `date` over
   PostgreSQL's date, so `Compute.base(day)` was another type than `day`: `Compute.greatest(day, Compute.base(day))` was
@@ -40,6 +106,16 @@ How to upgrade:
   the naming door, which holds every writer to the days a `CalendarDate` spells; it is the type's range, no law, so the
   contract law `{ kind: "contract", contract: "date" }` is gone. Regenerate: the snapshot and the installation change.
   No codemod.
+- **`span(date)` is a span of days, PostgreSQL's daterange.** It was refused, by the types and with
+  `UnsupportedOperation` (`spanEndpoint`). A date span is a span as an integer one is: `r.allen` under every `ALLEN`
+  mask, `r.pointIn` of a date, `r.intersection`, `r.difference` and `r.pack`, a key `WITHOUT OVERLAPS` over it, and a
+  `contained` coverage between two, a PERIOD foreign key. Its value is `{ start, end }` of `CalendarDate`s, start
+  included and end excluded, its column's shape CHECK holds its ends to 0001-01-01 … 9999-12-31, and
+  `Compute.width` of one is its count of days, a `number`; `Compute.sub` of two dates stays refused. No codemod.
+- **`Compute.width` is typed by its endpoint.** Its result's SQL type is read off one table, `SpanWidthSql`, by the
+  types and by the engine's typed builder alike: an exact integer (a `bigint`) over integer endpoints and an integer (a
+  `number`) over dates, where it was an exact integer over every span. An endpoint descriptor of another SQL type still
+  names the endpoint's refusal. No codemod.
 
 #### A fold over a counted family ends at its members' values when its owner is inserted with them
 
@@ -94,7 +170,7 @@ How to upgrade:
   every operand inside the native range, stays a subquery, run for the rows that take it. Values are unchanged. No
   codemod.
 
-#### A refused check names the row you stated, a generated field's NULL names its law, a parameter of any pattern is delivered, and Written and AdditionIn are public
+#### A refused check names the row you stated, a generated field's NULL names its law, a parameter of any pattern is delivered, Written and AdditionIn are public, and a family statement compiles each pattern once
 
 - **A row check, a contract, a pattern or a generated field that PostgreSQL refuses names the row you stated that
   breaks it.** The witness was `{ kind: "unreported" }` for every refusal PostgreSQL raises itself, because it states
@@ -117,6 +193,11 @@ How to upgrade:
 - **`Written<R>` and `AdditionIn<S, R>` are exported** from `@bjornpagen/grizzle` and `@bjornpagen/grizzle-engine`:
   a fact of R as its caller writes it, and R's addition in S, its sequences' members nested at its count fields. No
   codemod.
+- **A family statement's rows go ordered by the values its matches read their patterns from**, so PostgreSQL compiles
+  each pattern once per statement. A family whose members cycle through more patterns than PostgreSQL's cache of
+  compiled regular expressions holds (32, `MAX_CACHED_RES`), each member matched against the pattern its kind reads
+  from a closed relation, compiled a pattern per row. Only the order of a statement's own rows changes; the statements
+  keep theirs. No codemod.
 
 #### Keys and dependencies are proved by one closure over every attribute a node reads, and independent keys are one proof
 
@@ -126,8 +207,9 @@ How to upgrade:
   held a column the projection dropped was lost: a query projecting away the column that joins two relations no longer
   knew that the first relation's key determines the second's fields through it, and proved a wider key. No codemod.
 - **A lateral source's column fixed to a region column equals that column both ways.** A variable bound to a column
-  that a lateral source's filter fixes to a variable of the region was determined by that variable but did not
-  determine it, so a key holding the bound variable in its place was not proved. No codemod.
+  that a lateral source fixes to a variable of the region, by a take's correlation or a match's constant, was
+  determined by that variable but did not determine it, so a key holding the bound variable in its place was not
+  proved. No codemod.
 - **k joined relations of two declared keys each are one proof of k alternatives, never 2^k keys.** A node's minimal
   keys are one proof over the independent factors of its dependencies: its key holds one minimal key of each factor,
   and its alternatives are each factor's others, every minimal key a choice among them. The analysis's work, and the
@@ -138,6 +220,14 @@ How to upgrade:
   No codemod.
 - **A closed relation's columns of one type holding one value in every fact are one class.** Each stands for the other
   in a key, so a key over one of them is proved over the other too. No codemod.
+- **A union of grouped arms keeps the columns every arm's group key makes equal.** Two key columns of a group whose
+  input holds them equal are equal in every group, its key values being one input row's; a union read them as only
+  determining each other, so a union of two grouped arms, each keyed by one column equal to another, lost the second
+  as a stand-in for the first. No codemod.
+- **The lowering's rewrites rest every key on a proof.** A key the catalog rewrites read of a node, and a key a node
+  they build states, is the logical analysis's proof over the cells as they stand, never a claim the rewrite makes by
+  construction; a row number within its partition, with the partition, is a rule of the analysis, so a window chain's
+  key is proved, not claimed. A certificate's key premises are the proof's. No codemod.
 
 #### A TLS handshake's failure is stage tls, and a query naming an extension its role can't use is refused before any SQL
 
@@ -161,6 +251,9 @@ How to upgrade:
   The types already refused it ("the query is not over a level of this query's schema"); the engine admitted it where
   the two schemas shared the relations the query reads. Write the query over a level of the rule's schema, or extend
   that schema from the query's. No codemod.
+- **An attachment's child written over a schema that is none of its parent's levels is `ForeignLevel` too**, with the
+  child's schema (`written`) and the parent's (`over`). The types already refused such a child, as no child of the
+  parent's schema; the engine admitted it where the two schemas shared the relations the child reads. No codemod.
 - **`Q.bind` binds a relation parameter only to a relation parameter of the importing rule, `r.relation(name,
   heading)`**, the one binding a Description holds. The types admitted a query, a bound import or an interior stage
   there, refused only over another schema; the engine refused every one with `UnsupportedOperation`. The type now
@@ -186,6 +279,14 @@ How to upgrade:
   `r.max(divisor)` or a conditional of a contract's type passed none. A contract's domain now carries the facts it
   declares (`Declares<"nonzero">` beside its brand), so a `ParamType` of such a contract states its domain and its
   host apart. No codemod.
+- **A derived relation's keys in the types are its definition's minimal keys**, as the engine lists them: `KeysOf` no
+  longer adds the whole heading beside a key that fewer of its fields form. No codemod.
+- **A span over a contract meets the contract's own terms**: `span(Cents)` is a field whose domain is the span of
+  Cents's domain, the facts Cents declares among it, so `r.pointIn(cents, spanOfCents)` typechecks as the engine admits
+  it. Its records are still `Span<Cents>`. No codemod.
+- **`Compute.lower` and `Compute.upper` of a span over a contract are terms of the contract's domain**, with the facts
+  it declares, as a column of it is, and take the contract's descriptor, as `Compute.width` does; over a contract that
+  declares a fact the three were refused, the span's endpoint read without the facts. No codemod.
 - **`r.relation(name, Relation)` refuses a relation that is not the rule's schema's**, by its name and heading: "the
   relation is not in this query's schema". The Description names the relation, which the engine resolves in the
   schema and refused when the rule matched the parameter (`MalformedDescription`); the types admitted any relation.
@@ -220,6 +321,9 @@ How to upgrade:
 - **A ChangeSet that needs no parameters has one parameter type, `unknown`.** An insert, delete, put, read, `union` or
   `sequence` of ChangeSets that need none gave `{}`, where `ChangeSet.empty` and `bind` gave `unknown`, and a
   ChangeSet's parameters are invariant, so `db.apply(flip ? ChangeSet.empty(S) : built, {})` was refused. No codemod.
+- **`db.apply`, `db.explain` and `db.compile` take a choice of ChangeSets** (`flip ? a : ChangeSet.sequence(a, b)`) and
+  refuse it where any of them is refused: `apply` and `explain` refused every such choice whose strata differ, and
+  `db.compile` admitted one of which only one ChangeSet stays within the role's write list. No codemod.
 - **A fact that is no fact of its relation is one refusal**, "a member fact is not a fact of the relation", whatever
   is wrong with it: a missing field, a value of another type, or a field its relation lacks. `insert`, `delete` and
   `put` infer their facts as written and refuse them in one place, where a missing field or a mistyped value failed
@@ -249,6 +353,12 @@ How to upgrade:
   token that is no string already was. The types require the options, so typed code never meets it. Their type is
   one of two shapes, `TokenOptions` (`{ token }`) or, for a role whose relations read no context, `NoTokenOptions`
   (`{}`), never an optional `token`; every `Db.open` call typechecks as it did. No codemod.
+- **`db.execute` and `db.page` refuse a value that is no query value with a `ReadFailure` at stage `compile`, as
+  `db.compile` and `db.get` already refused it.** A JavaScript caller's query Description, which the compiler reads as a
+  query, passed execute and page, and then died reading the rows' decoder with a `TypeError`; now every read entry
+  checks its query at one boundary before anything reads its decoder: a query or an ordered query value the builders
+  made, and nothing else (get's keyed lookup aside). The types require a query value, so typed code never meets it. No
+  codemod.
 
 #### A pattern whose anchors leave no match is refused, and a role's types cost linear time
 
@@ -318,6 +428,16 @@ How to upgrade:
   subject's type, so a contract's text matches only its own. A conditional over a numeric delivers a Decimal for a
   bigint or string branch. `Compute.literal` takes a set's descriptor, as the engine does. A `Compute.within` low bound
   TypeScript cannot see, a Decimal or a string-typed value, is the engine's to judge, as a divisor's is. No codemod.
+- **A value its contract refuses is a type error where the types can tell.** A JavaScript value a contract reads, a
+  constant of it (`Compute.literal(Cents, -1n)`) or a value opposite a term of it (`Compute.div(cell.divisor, 0)`,
+  `Compute.lt(cents, -1n)`, a `Compute.within` bound, a member of an IN list, a conditional's other branch), that lacks
+  a fact the contract declares, a zero where it declares nonzero or a negative value where it declares nonnegative, is
+  refused, `Refusal<"a value its contract refuses: it lacks a fact the contract declares">`, as compilation refuses it
+  (`ContractLiteral`), in place of any precondition's refusal; a constant's is its own call's, so a call over it states
+  nothing more. A precondition the types cannot prove is refused whatever compilation finds first:
+  `Compute.sqrt(Compute.literal(Rate, -1n))` over a contract that declares no fact is refused for its radicand, where
+  compilation names the literal. A value outside a bound a contract's predicate states, which no type carries, stays
+  compilation's to refuse. No codemod.
 
 #### A query's types no longer cost the size of its schema
 
@@ -397,12 +517,15 @@ How to upgrade:
 
 #### A schema compiles once, a pattern is analyzed once, and key text is bounded by bytes
 
-- **A closed id names its roster by identity.** A roster's canonical form is its closed relation's name alone
-  (`Roster` in ir/scalar.ts), its handles encoded once, with the schema's closed relation, so a closed-id literal, a
-  closed-id column and a closed read encode at the same size whatever the roster's: a guard over a roster of 5,000
-  handles encoded in 81,691 characters, and one reading a closed relation of its rows in 161,282; both now take
-  1,661 and 1,222 at any size. Every digest, law identity and snapshot record that holds a closed id's type changes:
-  regenerate. No codemod.
+- **A closed id names its roster by its name and its handles' digest.** A roster's canonical form is its closed
+  relation's name and a SHA-256 of its handles in order (`Roster` in ir/scalar.ts), taken once as the roster is made,
+  so a closed-id literal, a closed-id column and a closed read encode at the same size whatever the roster's, and every
+  digest that holds one changes with its handles, as type identity does: a guard over a roster of 5,000 handles encoded
+  in 81,691 characters, and one reading a closed relation of its rows in 161,282; both now take 1,791 and 1,482 at any
+  size. A cursor's comparator digest changes when a roster it orders by gains, loses or reorders a handle. A snapshot
+  records a field's type with its roster by name alone, so a column keeps its recorded type when its roster grows. A
+  schema's environment holds one roster for each closed relation, so typing its fields takes no digest. Every digest,
+  law identity and snapshot record that holds a closed id's type changes: regenerate. No codemod.
 - **An installation's objects are ordered with n log n comparisons**, from a heap of the ready objects, where every
   step re-sorted them all: 400 relations took 1,053,545 comparisons, now 27,959, in the same order. No codemod.
 - **A relation's unique objects beyond its primary key are decided once, as the law model is built**

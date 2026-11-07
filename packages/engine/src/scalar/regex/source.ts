@@ -1,18 +1,14 @@
-import { defect } from "#compiler/core/invariant.ts"
-import * as Result from "#compiler/core/result.ts"
-import type { TextInfo } from "#compiler/ir/scalar.ts"
+import { type TextInfo, wildcardFlags, wildcardSource } from "#compiler/ir/scalar.ts"
 import { type CharSet, domain } from "#compiler/scalar/regex/charset.ts"
 import {
-	end,
 	folded,
 	type LiveNode,
 	RegexBuilder,
 	type RegexNode,
-	seq,
-	set,
-	start
+	set
 } from "#compiler/scalar/regex/ir.ts"
-import { parsePattern, type RegexFlags } from "#compiler/scalar/regex/parse.ts"
+import type { RegexFlags } from "#compiler/scalar/regex/parse.ts"
+import type { PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
 
 /** ECMAScript's ASCII letters and digits, which a pattern spells as themselves inside a class and out. */
 const isAsciiAlnum = (c: number): boolean =>
@@ -122,17 +118,10 @@ export const anchoredAt = (node: LiveNode, side: "start" | "end"): boolean => {
 export const anyText = (): RegexNode => new RegexBuilder().repeat(set(domain), 0, "unbounded")
 
 /**
- * A text type's pattern's language as a node: its pattern's parse, or, for the wildcard, every admitted value, `^.*$`
- * under the flags "su". A type's pattern is one its text analysis admitted with a member, so it parses to a live node.
- * A byte bound str.bytes cuts the type to is no part of the node, whose language holds every value of the type.
+ * A text type's pattern's language as a node: its pattern's parse, read from `patterns` (patterns.ts), the wildcard's
+ * the parse of its spelling, every admitted value, `^.*$` under the flags "su". A byte bound str.bytes cuts the type to
+ * is no part of the node, whose language holds every value of the type.
  */
-export const patternNode = (regex: TextInfo["regex"]): LiveNode => {
-	const parsed =
-		regex === "wildcard"
-			? Result.ok(seq([start, anyText(), end]))
-			: parsePattern(regex.source, regex.flags)
-	if (!parsed.ok || parsed.value.kind === "never") {
-		throw defect("the pattern of a text type, which its text analysis admitted with a member")
-	}
-	return parsed.value
-}
+export const patternNode = (regex: TextInfo["regex"], patterns: PatternAutomata): LiveNode =>
+	patterns.parse(regex === "wildcard" ? { source: wildcardSource, flags: wildcardFlags } : regex)
+		.node

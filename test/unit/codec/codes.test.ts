@@ -20,10 +20,12 @@ import { requiredInSpace } from "@grizzle/testing/features"
 import { type Gen, int } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, String as Str } from "effect"
+import { scalarReader } from "#compiler/codec/read.ts"
 import { positionalColumns, relationNormalizer } from "#compiler/codec/recordset.ts"
 import { scalarCodec } from "#compiler/codec/scalar.ts"
 import type { CodecFault } from "#compiler/core/errors.ts"
 import { parseDeclaredName } from "#compiler/core/identity.ts"
+import type { ParamText } from "#compiler/core/wire.ts"
 import type { CodeSlot } from "#compiler/ir/cells.ts"
 import { type Codebook, rosterCodec } from "#compiler/ir/codes.ts"
 import { Roster, type ScalarType } from "#compiler/ir/scalar.ts"
@@ -32,6 +34,7 @@ import { compareValues } from "#compiler/scalar/values/identity.ts"
 import { assert, faulted, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { hexOfText, setText, wholeDigits } from "#test/support/closed/bit-text.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { echoed, outputText, paramText } from "#test/support/wire.ts"
 
 /** The codes a roster of the box has minted, holes included. */
 const size = 5
@@ -125,7 +128,7 @@ const storedText = (held: number): string =>
 	)
 
 /** The model's written text of a set: X, then the hex digits of its stored text. */
-const writtenText = (held: number): string => `X${hexOfText(storedText(held))}`
+const writtenText = (held: number): ParamText => paramText(`X${hexOfText(storedText(held))}`)
 
 /**
  * Every live handle encodes as its code's digits and converts back, the order of two is their codes', and a hole's
@@ -137,6 +140,8 @@ const roundTrips = ({ live, held, variant }: Pattern, c: Case<Variant | "a hole"
 		const { roster, book, code, bits } = installed(live)
 		const ids = scalarCodec(code, book)
 		const sets = scalarCodec(bits, book)
+		const idsRead = scalarReader(code, book)
+		const setsRead = scalarReader(bits, book)
 		for (let k = 0; k < size; k += 1) {
 			const handle = handleOf(k)
 			if (!isSet(live, k)) {
@@ -145,9 +150,9 @@ const roundTrips = ({ live, held, variant }: Pattern, c: Case<Variant | "a hole"
 				continue
 			}
 			const text = succeeded(ids.encode(handle))
-			assert.equal(text, `${k}`, `${handle} is written as its code`)
-			assert.equal(ids.convert(text), handle, `code ${k} reads as ${handle}`)
-			assert.equal(ids.cellText(text), text, "a code's cell is its own one text")
+			assert.equal(text, paramText(`${k}`), `${handle} is written as its code`)
+			assert.equal(idsRead.convert(echoed(code, text)), handle, `code ${k} reads as ${handle}`)
+			assert.equal(idsRead.cellText(echoed(code, text)), text, "a code's cell is its own one text")
 			assert.equal(ids.text(handle), text, "an admitted handle's text is its encoding")
 			for (const other of roster.handles) {
 				const otherCode = Number(Str.slice(1)(other))
@@ -199,7 +204,7 @@ const roundTrips = ({ live, held, variant }: Pattern, c: Case<Variant | "a hole"
 			"a set's text has a hex digit per four codes, rounded up"
 		)
 		const stored = storedText(held)
-		const read = sets.convert(stored)
+		const read = setsRead.convert(outputText(stored))
 		if (!(read instanceof Set)) {
 			return assert.fail("a set reads as a Set")
 		}
@@ -208,7 +213,11 @@ const roundTrips = ({ live, held, variant }: Pattern, c: Case<Variant | "a hole"
 			Arr.sort(members, Order.String),
 			"a set reads back as its handles"
 		)
-		assert.equal(sets.cellText(stored), text, "a set's stored cell's one text is its written text")
+		assert.equal(
+			setsRead.cellText(outputText(stored)),
+			text,
+			"a set's stored cell's one text is its written text"
+		)
 	})
 
 describe("the closed-id and set codecs", () => {

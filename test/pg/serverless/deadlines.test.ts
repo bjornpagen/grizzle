@@ -13,6 +13,7 @@ import { assert } from "#test/support/assert.ts"
 import { caseHang, testIdleTimeout } from "#test/support/limits.ts"
 import { testSql } from "#test/support/sql.ts"
 import { freshSchema, Substrate } from "#test/support/substrate/substrate.ts"
+import { outputRows, paramText } from "#test/support/wire.ts"
 
 /**
  * No server-side deadlines.
@@ -118,13 +119,13 @@ layer(Substrate.layer)("no server-side deadlines", (it) => {
 												[
 													{
 														sql: testSql(settingsQuery),
-														params: [`{${Arr.join(deadlineSettings, ",")}}`]
+														params: [paramText(`{${Arr.join(deadlineSettings, ",")}}`)]
 													},
 													{ sql: testSql(backendPid), params: [] }
 												],
 												{ access, end: "COMMIT" }
 											)
-											assert.deepEqual(settings?.rows, untouched)
+											assert.deepEqual(settings?.rows, outputRows(untouched))
 											backends.add(String(pid?.rows[0]?.[0]))
 										}
 									})

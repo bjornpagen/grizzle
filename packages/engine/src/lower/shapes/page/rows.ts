@@ -7,12 +7,11 @@ import {
 } from "#compiler/lower/conservative/context.ts"
 
 import {
+	type Anchor,
 	comparatorColumn,
 	type PageComparator,
 	type PageDirection,
-	type PageSlots,
 	reversedOrder,
-	type Seek,
 	seekPredicate
 } from "#compiler/lower/shapes/page/seek.ts"
 import type { Expr, OperandSelect, OrderItem, Select } from "#compiler/sql/ast.ts"
@@ -36,13 +35,12 @@ interface PagedRowsSpec {
 	readonly rel: OperandSelect
 	readonly heading: Heading
 	readonly origin: NameOrigin
-	/** Undefined for an anchorless request. */
-	readonly seek: Seek | undefined
+	/** The seek past the anchor and its boundaries; none for a plain request. */
+	readonly anchor: Anchor | undefined
 	readonly direction: PageDirection
 	/** The ORDER BY of D in the declared order, over its columns as read. */
 	readonly order: (map: ColumnMap) => ReadonlyArray<OrderItem>
 	readonly limit: Expr
-	readonly slots: PageSlots
 }
 
 /**
@@ -70,10 +68,11 @@ interface PagedRowsSpec {
  */
 export const pagedRows = (cx: LowerContext, spec: PagedRowsSpec): Select => {
 	const source = cx.wrap(spec.rel, spec.heading, spec.origin)
+	const anchor = spec.anchor
 	const where =
-		spec.seek === undefined
+		anchor === undefined
 			? undefined
-			: seekPredicate(spec.slots.seekKeys(source.map), spec.seek, cx.names.vectorSchema)
+			: seekPredicate(anchor.boundaries.seekKeys(source.map), anchor.seek, cx.names.vectorSchema)
 	const declared = spec.order(source.map)
 	const orderBy = spec.direction === "backward" ? reversedOrder(declared) : declared
 	return {
@@ -89,14 +88,17 @@ interface ProbeSpec {
 	readonly rel: OperandSelect
 	readonly heading: Heading
 	readonly origin: NameOrigin
-	readonly seek: Seek
-	readonly slots: PageSlots
+	readonly anchor: Anchor
 }
 
 /** EXISTS (SELECT 1 FROM (D) AS r(...) [WHERE seek]). */
 export const probeTest = (cx: LowerContext, spec: ProbeSpec): Expr => {
 	const source = cx.wrap(spec.rel, spec.heading, spec.origin)
-	const where = seekPredicate(spec.slots.seekKeys(source.map), spec.seek, cx.names.vectorSchema)
+	const where = seekPredicate(
+		spec.anchor.boundaries.seekKeys(source.map),
+		spec.anchor.seek,
+		cx.names.vectorSchema
+	)
 	return exists(simpleSelect([target(lit.int(1, types.integer))], [source.item], where))
 }
 

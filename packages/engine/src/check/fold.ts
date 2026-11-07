@@ -13,7 +13,7 @@ import {
 	noClosedRelations,
 	noParams
 } from "#compiler/scalar/compute/lower.ts"
-import { regexMember } from "#compiler/scalar/regex/nfa.ts"
+import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { textLookup } from "#compiler/text/refinement.ts"
 
 /**
@@ -125,6 +125,7 @@ const one: ExprDesc = { kind: "literal", value: 1n, type: undefined }
  */
 export const combineRule = (monoid: MonoidSpec, plane: ScalarType): string | undefined => {
 	const loc = SourceLoc(`fold ${monoid.name}`, [])
+	const patterns = new CompilePatterns()
 	const befores: NonEmptyReadonlyArray<ExprDesc> =
 		monoid.planes === 2 ? [operand, operand] : [operand]
 	const combined = monoid.combine<ExprDesc>(
@@ -144,7 +145,7 @@ export const combineRule = (monoid: MonoidSpec, plane: ScalarType): string | und
 				fieldType: () =>
 					Result.err(malformedDescription(loc, "no descriptor: a combine reads its planes alone")),
 				closed: noClosedRelations("a fold's combine reads its planes and its step alone"),
-				regexMember,
+				patterns,
 				patternLanguage: textLookup
 			}
 		)

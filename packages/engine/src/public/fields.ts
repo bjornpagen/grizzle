@@ -20,13 +20,7 @@ import {
 	slotField
 } from "#compiler/schema/relation.ts"
 import type { Scalar } from "#compiler/types/compute/scalar.ts"
-import type {
-	BaseOf,
-	DomainOf,
-	Facts,
-	Parameterless,
-	Predicate
-} from "#compiler/types/core/phantom.ts"
+import type { DomainOf, Facts, Parameterless, Predicate } from "#compiler/types/core/phantom.ts"
 import type {
 	AccumulatedConstructor,
 	BitsConstructor,
@@ -55,10 +49,12 @@ import type {
 	GeneratedField,
 	HandleOf,
 	Infer,
-	IntegerLike,
+	SpanEndpointLike,
 	NaturalField,
 	NotSerial,
-	SpanField
+	NotSerialBases,
+	SpanField,
+	SpanWidthOf
 } from "#compiler/types/fields/field.ts"
 import type {
 	AnyClosedRelation,
@@ -89,11 +85,13 @@ export type {
 	HandleOf,
 	Infer,
 	IntegerLike,
+	SpanEndpointLike,
 	LiteralOf,
 	NaturalField,
 	NumericTypmodField,
 	SerialField,
 	SpanField,
+	SpanWidthOf,
 	SqlOf,
 	TextField,
 	WritingTag
@@ -148,11 +146,11 @@ export const contract: ContractConstructor = <
 }
 
 /** A span over the endpoint the admission core admitted, its column converting endpoints with the endpoint's own. */
-export const span: SpanConstructor = <E extends IntegerLike>(
-	endpoint: E & Columned<Infer<E>>,
-	width: BaseOf<Infer<E>> | undefined,
+export const span: SpanConstructor = <E extends SpanEndpointLike>(
+	endpoint: E & Columned<Infer<E>> & NotSerialBases<E>,
+	width: SpanWidthOf<Infer<E>> | undefined,
 	...extra: ReadonlyArray<never>
-): SpanField<Infer<E>> => {
+): SpanField<Infer<E>, DomainOf<E>> => {
 	const parts = spanParts(endpoint, [width, ...extra])
 	const column = spanColumn(endpoint.column)
 	return defineField(
@@ -219,7 +217,7 @@ export const Bits: {
  * record relation.generated's callback returns (schema/relation.ts generatedField).
  */
 export const generated: GeneratedConstructor = <F extends FieldBase>(
-	type: F & NotSerial,
+	type: F & NotSerial & NotSerialBases<F>,
 	term: GeneratedTermOf<F>,
 	...extra: ReadonlyArray<never>
 ): GeneratedField<F> => generatedField<F>(type, term, extra)

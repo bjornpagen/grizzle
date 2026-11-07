@@ -17,10 +17,11 @@ import { appendAll, indices } from "#compiler/core/array.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
+import { dayNumber, toCalendarDate } from "#compiler/ir/date.ts"
 import { literalDescShape } from "#compiler/ir/desc.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
-import type { ScalarType } from "#compiler/ir/scalar.ts"
+import { isSpanCarrier, type ScalarType } from "#compiler/ir/scalar.ts"
 import * as S from "#compiler/ir/shape.ts"
 import { workloadExtension } from "#compiler/physical/access/extension.ts"
 import type { WorkloadPlan } from "#compiler/program/workload/compile.ts"
@@ -34,6 +35,7 @@ import { succeeded } from "#test/support/assert.ts"
 import { compileTemplate, compileTestWorkload, testCompile } from "#test/support/compile.ts"
 import * as P from "#test/support/fixtures/api/platform.ts"
 import { type Installed, installMigrated as install } from "#test/support/install-migrate.ts"
+import { Identities } from "#test/support/kernel/identity.ts"
 import { canonicalFacts } from "#test/support/oracle/gen/facts.ts"
 import type { GenParam } from "#test/support/oracle/gen/query.ts"
 import type { GenSchema } from "#test/support/oracle/gen/schema.ts"
@@ -42,7 +44,6 @@ import {
 	expectedStatements
 } from "#test/support/oracle/reference/deliver.ts"
 import { Reference, unobserved } from "#test/support/oracle/reference/evaluate.ts"
-import { Identities } from "#test/support/oracle/reference/identity.ts"
 import { distinctRows, equal, type Row, type Value } from "#test/support/oracle/reference/values.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { loadOrder, noFacts, type PlatformFacts } from "#test/support/platform/generate.ts"
@@ -435,10 +436,7 @@ export const loadPlatform = (db: PlatformDb, f: PlatformFacts, limit: number) =>
 
 /** A host value as the literal of `type` it is (a span as its endpoints), or the defect of the test. */
 const literalOf = (value: unknown, type: ScalarType, what: string) => {
-	const desc =
-		(type.carrier === "range4" || type.carrier === "range8") && isRecord(value)
-			? { span: value }
-			: value
+	const desc = isSpanCarrier(type.carrier) && isRecord(value) ? { span: value } : value
 	const decoded = succeeded(
 		S.decodeWith(literalDescShape, desc, what),
 		`${what} is a Description literal`
@@ -631,6 +629,17 @@ const carrier = (type: ScalarType, host: unknown, what: string): Value => {
 				return { start: host["start"], end: host["end"] }
 			}
 			break
+		case "rangeDate": {
+			if (!isRecord(host)) {
+				break
+			}
+			const start = toCalendarDate(host["start"])
+			const end = toCalendarDate(host["end"])
+			if (start.ok && end.ok) {
+				return { start: BigInt(dayNumber(start.value)), end: BigInt(dayNumber(end.value)) }
+			}
+			break
+		}
 		case "float4":
 		case "float8":
 		case "money":

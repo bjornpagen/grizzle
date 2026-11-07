@@ -27,7 +27,7 @@ import type {
 	RelNode,
 	VarDecl
 } from "#compiler/ir/rel.ts"
-import { baseOf, type Carrier, fewValued } from "#compiler/ir/scalar.ts"
+import { baseOf, type Carrier, fewValued, isSpanCarrier } from "#compiler/ir/scalar.ts"
 import { type Atom, atomKey, operandOf, predicateAtoms } from "#compiler/physical/access/atoms.ts"
 import { uniquePaths } from "#compiler/physical/access/paths.ts"
 import { statisticsMaxColumns } from "#compiler/physical/statistics/statistics.ts"
@@ -242,7 +242,7 @@ const carrierOf = (heading: Heading, column: string): Carrier | undefined => {
 
 const isSpanColumn = (heading: Heading, column: string): boolean => {
 	const carrier = carrierOf(heading, column)
-	return carrier === "range4" || carrier === "range8"
+	return carrier !== undefined && isSpanCarrier(carrier)
 }
 
 const isVectorColumn = (heading: Heading, column: string): boolean =>

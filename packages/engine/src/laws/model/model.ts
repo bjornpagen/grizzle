@@ -37,7 +37,12 @@ import * as Result from "#compiler/core/result.ts"
 import { DagBuilder } from "#compiler/ir/builder.ts"
 import { mergeDags } from "#compiler/ir/dag.ts"
 import { descText, type ExprDesc } from "#compiler/ir/desc.ts"
-import { type ExprSpec, identityValueOf, type ScalarExpr } from "#compiler/ir/expr.ts"
+import {
+	type ExprSpec,
+	identityValueOf,
+	predicateTable,
+	type ScalarExpr
+} from "#compiler/ir/expr.ts"
 import type { Family } from "#compiler/ir/family.ts"
 import {
 	type DomainCheck,
@@ -82,6 +87,12 @@ import {
 	noParams
 } from "#compiler/scalar/compute/lower.ts"
 import { guardedTerm } from "#compiler/scalar/natural.ts"
+import {
+	type AdmittedSource,
+	ProgramPatterns,
+	tablePatterns,
+	typePatterns
+} from "#compiler/scalar/regex/patterns.ts"
 import type { Owned } from "#compiler/schema/own.ts"
 import type { Law } from "#compiler/types/changeset/changeset.ts"
 
@@ -284,6 +295,53 @@ export interface LawModel {
 	readonly relations: ReadonlyMap<string, RelationLaws>
 	/** The checker's reading of the owned schema, whose relation handles the theory's laws read. */
 	readonly checked: CheckedSchema
+	/**
+	 * Every admitted pattern the host evaluates against over the model (lawPatterns), each parsed once, where the model
+	 * compiles: what a write's host fill and its refusal's witness read per row, parsing none.
+	 */
+	readonly patterns: ProgramPatterns
+}
+
+/**
+ * The admitted patterns the host's evaluation of a write reads over the model: every stored relation's field types and
+ * generated expressions, every family fold's selections, and every constraint native's predicates the witness judges
+ * (write/family/fold.ts hostEvaluator, write/program/witness.ts).
+ */
+const lawPatterns = (
+	checked: CheckedSchema,
+	families: ReadonlyArray<Family>,
+	natives: ReadonlyArray<NamedNative>
+): ProgramPatterns => {
+	const exprPatterns = (e: ScalarExpr): ReadonlyArray<AdmittedSource> =>
+		tablePatterns(predicateTable(e))
+	const nativePatterns = (n: NamedNative): ReadonlyArray<AdmittedSource> => {
+		switch (n.object.kind) {
+			case "TableCheck":
+				return exprPatterns(n.object.predicate)
+			case "ClosedCheck":
+				return n.object.guard.flatMap((g) => exprPatterns(g.predicate))
+			case "PrimaryKey":
+			case "Unique":
+			case "WithoutOverlaps":
+			case "ForeignKey":
+			case "PeriodForeignKey":
+			case "LawColumn":
+			case "Domain":
+			case "RosterDomain":
+			case "ReverseIndex":
+				return []
+		}
+	}
+	return ProgramPatterns.of([
+		...checked.stored.flatMap((r) =>
+			r.fields.flatMap((f) => [
+				...typePatterns(f.type),
+				...(f.writing.kind === "generated" ? exprPatterns(f.writing.expr) : [])
+			])
+		),
+		...families.flatMap((f) => f.folds.flatMap((fold) => fold.where.flatMap(exprPatterns))),
+		...natives.flatMap(nativePatterns)
+	])
 }
 
 const unwrap = <A>(r: Result.Result<A, CompileError>): A => {
@@ -931,7 +989,8 @@ class Specializer {
 			immediate,
 			migrationLaws: plans.flatMap((plan) => (plan.discharge === "migration" ? [plan.law.id] : [])),
 			relations: this.#refuseGeneratedKeys(relationLaws(keyed, natives)),
-			checked: this.checked
+			checked: this.checked,
+			patterns: lawPatterns(this.checked, this.theory.families, natives)
 		}
 	}
 

@@ -19,6 +19,8 @@ import type {
 	Select
 } from "#compiler/sql/ast.ts"
 
+import { nominal } from "#compiler/core/brand.ts"
+import type { OutputText } from "#compiler/core/wire.ts"
 import {
 	asc,
 	binary,
@@ -440,7 +442,7 @@ export type LawDetail =
 	| {
 			readonly kind: "law"
 			readonly relation: string
-			readonly key: ReadonlyArray<{ readonly field: string; readonly text: string }>
+			readonly key: ReadonlyArray<{ readonly field: string; readonly text: OutputText }>
 	  }
 	| { readonly kind: "foreign"; readonly detail: string }
 
@@ -520,6 +522,12 @@ const escaped = (code: number): string => {
 
 /** The refusal a 23000 DETAIL text says, converted without a check (see `refusalGuard`): a write statement's refusal of a
  * law under its tag; any other text a DETAIL grizzle did not raise. */
+/**
+ * A key field's text in a law refusal's DETAIL: the field's own output text, which the law's SQL casts to text and
+ * escape_json writes unchanged, minted here, where the DETAIL is read.
+ */
+const keyText = nominal<string, OutputText>()
+
 export const readLawDetail = (text: string): LawDetail => {
 	if (!text.startsWith(`${keyTag}[`)) {
 		return { kind: "foreign", detail: text }
@@ -530,7 +538,7 @@ export const readLawDetail = (text: string): LawDetail => {
 		relation,
 		key: fields.flatMap((field, i) => {
 			const fieldText = texts[i]
-			return fieldText === undefined ? [] : [{ field, text: fieldText }]
+			return fieldText === undefined ? [] : [{ field, text: keyText(fieldText) }]
 		})
 	}
 }

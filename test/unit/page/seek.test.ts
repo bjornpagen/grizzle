@@ -7,19 +7,19 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, type Order, String as Str } from "effect"
 import type { CompletedOrder } from "#compiler/ir/rel.ts"
 import {
+	anchoredSeek,
 	probeKinds,
 	probeSeek,
 	reversedCompletedOrder,
 	reversedOrder,
 	type Seek,
 	type SeekKey,
-	seekPredicate,
-	variantSeek
+	seekPredicate
 } from "#compiler/lower/shapes/page/seek.ts"
 import { plainType } from "#compiler/scalar/compute/types.ts"
 import type { BinaryOperator, Expr } from "#compiler/sql/ast.ts"
 import { asc, col, desc, param, types } from "#compiler/sql/build.ts"
-import { assert, defined, nonEmpty } from "#test/support/assert.ts"
+import { assert, nonEmpty } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { isList } from "#test/support/list.ts"
 
@@ -318,7 +318,7 @@ describe("variants and probes", () => {
 						 * An after request: the page is the first `size` tuples after the anchor in the declared order, its
 						 * first edge E the least of them; hasPreviousPage is a tuple strictly before E.
 						 */
-						const after = defined(variantSeek("after"))
+						const after = anchoredSeek("after")
 						const fetched = Arr.take(
 							Arr.filter(inOrder, (tuple) => anyOn(dirs, [tuple], after, anchor)),
 							size
@@ -333,7 +333,7 @@ describe("variants and probes", () => {
 						 * A before request: the page is the last `size` tuples before the anchor, its last edge L the
 						 * greatest of them; hasNextPage is a tuple strictly after L.
 						 */
-						const before = defined(variantSeek("before"))
+						const before = anchoredSeek("before")
 						const backward = Arr.take(
 							Arr.reverse(Arr.filter(inOrder, (tuple) => anyOn(dirs, [tuple], before, anchor))),
 							size

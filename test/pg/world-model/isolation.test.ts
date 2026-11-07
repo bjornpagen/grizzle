@@ -7,6 +7,7 @@ import { reachingPastRefused } from "#test/support/worlds/drive/acting.ts"
 import {
 	dbSession,
 	directTransaction,
+	docsChainedRealities,
 	docsInstalls,
 	docsTenantRealities,
 	everyWriter,
@@ -28,7 +29,9 @@ import type { InvalidKind, WorldFeature } from "#test/support/worlds/model/types
  * Tenant and login isolation over the documents base, judged by the worlds model: every read a role makes, through a
  * Db (executed, by key, page by page under a drawn order, from the first page or the last, whose ties grizzle breaks by
  * a key it proves of a table's entry or of a derived relation, or by the whole heading, so every row arrives exactly
- * once; prepared; with another of its relations attached to each row; as the pairs a recursive query chains; both artifacts must agree) or as a direct writer that
+ * once; prepared; with another of its relations attached to each row; as the pairs a recursive query chains, over a reality holding a chain at every relation one chains
+ * (docsChainedRealities), so a chain past one step is there to read whatever installation is drawn; both artifacts
+ * must agree) or as a direct writer that
  * took the role on (its views and tables, with predicates that raise on one value, prepared and executed under other
  * claims), answers exactly its world under the claims it holds, whatever lies outside it; every write through an entry
  * (in one stratum, a union or a sequence, with its read-backs, each classified by the model's restatement of the
@@ -190,7 +193,7 @@ layer(Substrate.layer, { excludeTestServices: true })("the worlds model: isolati
 		steps: 10,
 		cases: 24,
 		required: readsRequired,
-		realities: docsTenantRealities,
+		realities: docsChainedRealities,
 		lead: leadsOf(directTransaction(readsRequired), dbSession(readsRequired)),
 		check: noCheck
 	})

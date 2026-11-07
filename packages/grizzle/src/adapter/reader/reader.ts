@@ -442,9 +442,31 @@ export const readHandle = <A>(
 	}
 }
 
+/** Whether a value is a query or an ordered query value the builders made: the only value a read takes as its query. */
+const isReadQuery = (query: unknown) => isQueryValue(query) || isOrderedValue(query)
+
 /**
- * The reader of `ctx`, its reads run by `executor`. A JavaScript caller may pass any value; one that names no key does
- * not compile.
+ * The one boundary of a read's query, at the entry `entry`: the query narrowed, or the refusal of any other value a
+ * JavaScript caller passes (a query's Description, a ChangeSet, a relation, anything else), before anything reads the
+ * query's decoder.
+ */
+const queryAt = <Q>(query: Q, entry: string) =>
+	isReadQuery(query)
+		? Result.succeed(query)
+		: Result.fail(
+				malformedDescription(
+					SourceLoc(entry, []),
+					"a query or an ordered query value the builders made"
+				)
+			)
+
+/** A read's query at `entry`, its refusal a ReadFailure at stage compile. */
+const readQueryAt = <Q>(query: Q, entry: string) =>
+	Effect.mapError(Effect.fromResult(queryAt(query, entry)), (reason) => new ReadFailure({ reason }))
+
+/**
+ * The reader of `ctx`, its reads run by `executor`. A JavaScript caller may pass any value: a value that is no query
+ * the builders made is refused at the read's boundary (queryAt), and one that names no key does not compile.
  */
 export const makeReader = <S>(ctx: DbContext, executor: ReadExecutor): Reader<S> => {
 	/**
@@ -505,7 +527,7 @@ export const makeReader = <S>(ctx: DbContext, executor: ReadExecutor): Reader<S>
 		params: ParamMap
 	): Effect.Effect<Option.Option<A>, ReadError> =>
 		Effect.suspend(() => {
-			if (isQueryValue(target) || isOrderedValue(target)) {
+			if (isReadQuery(target)) {
 				return getQuery(target, () => decoderOf(decoding), params)
 			}
 			const lookup = keyLookup(ctx.schema.value, target)
@@ -566,33 +588,32 @@ export const makeReader = <S>(ctx: DbContext, executor: ReadExecutor): Reader<S>
 			return getRow(target, decoding, params)
 		},
 		execute: (query, params) =>
-			Effect.map(
-				executeQuery(query, () => query.rows, params),
-				collected
+			Effect.flatMap(readQueryAt(query, "db.execute"), () =>
+				Effect.map(
+					executeQuery(query, () => query.rows, params),
+					collected
+				)
 			),
 		page: <Q, A>(
 			query: PageTarget<S, Q, A>,
 			params: NoInfer<ParamArg<ParamsOf<Q>>>,
 			request: PageRequest
 		): Effect.Effect<Page<A, Q>, ReadError | CursorError> =>
-			pageRuntime<A, Q>({
-				ctx,
-				executor,
-				query,
-				decoder: () => query.rows,
-				params,
-				request,
-				source: { kind: "query" }
-			}),
+			Effect.flatMap(readQueryAt(query, "db.page"), () =>
+				pageRuntime<A, Q>({
+					ctx,
+					executor,
+					query,
+					decoder: () => query.rows,
+					params,
+					request,
+					source: { kind: "query" }
+				})
+			),
 		compile: (query) =>
-			isQueryValue(query) || isOrderedValue(query)
-				? compileRead(query, () => query.rows)
-				: Effect.fail(
-						malformedDescription(
-							SourceLoc("db.compile", []),
-							"a query or an ordered query value the builders made"
-						)
-					),
+			Effect.flatMap(Effect.fromResult(queryAt(query, "db.compile")), (read) =>
+				compileRead(read, () => read.rows)
+			),
 		compileWith: compileRead
 	}
 }

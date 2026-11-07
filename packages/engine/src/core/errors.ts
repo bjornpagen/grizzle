@@ -19,6 +19,7 @@ import {
 	type RoleRule,
 	recursionRefusalText,
 	roleRuleText,
+	type StaleCause,
 	staleDerivedReadText,
 	unfillableText,
 	type UnwritableCause,
@@ -353,13 +354,13 @@ const duplicateText = (duplicate: Duplicate): string => {
  *   `source` along the `axis` of `family`, which its row fills only after it, for `later` (FilledLater), so no write
  *   fills it.
  * - `UnwritableRelation`: no write fills `relation`'s rows, for `cause` (UnwritableCause).
- * - `CascadedCopyAppend`: a write at `at` of `member`, an `op`, appends to `family`, whose copy `copy` reads `owner`'s
- *   `through`, which `owner` copies from `changed`, a relation the same stratum also changes, by a put or by an edit of
- *   one of its families (`by`): the change reaches `owner` by cascade only after the family's rows are drawn.
+ * - `CascadedCopyAppend`: a write at `at` of `member`, an `op`, edits `family`, whose copy `copy` reads `owner`'s
+ *   `through`, which `owner` copies from `changed`, a relation the same stratum puts from a query: grizzle never sees
+ *   the query's rows, so it cannot draw the copy the put's change reaches `owner` with.
  * - `StaleDerivedRead`: a write at `at` of `member`, an `op`, changes `changed` on rows already stored, by a put of its
  *   relation or by an edit of a family it owns or is a member of, and the cascade carries the change on into `copies`,
- *   in order; the value `reader`, which a family draws from the last of them only when its row is written, reads it,
- *   so the change would leave that value stale (write/family/redraw.ts).
+ *   in order; the value `reader`, which a family draws from the last of them, reads it, and grizzle cannot draw it
+ *   again by refilling the family (analysis/theory/refill.ts) for `cause` (StaleCause).
  * - `UnorderableStratum`: a stratum's writes `cycle`, each of which an immediate key or foreign key between them must
  *   run before the next, and the last before the first (write/frontend/schedule.ts), so no order of the stratum's
  *   statements keeps every key at every statement: an action's insert, put or delete, or a family statement's insert,
@@ -509,14 +510,13 @@ export type CompileReason =
 	| {
 			readonly _tag: "CascadedCopyAppend"
 			readonly at: SourceLoc
-			readonly op: "insert" | "put"
+			readonly op: "insert" | "put" | "delete"
 			readonly member: string
 			readonly family: FamilyName
 			readonly copy: string
 			readonly owner: string
 			readonly through: string
 			readonly changed: string
-			readonly by: "put" | "family"
 	  }
 	| {
 			readonly _tag: "StaleDerivedRead"
@@ -526,6 +526,7 @@ export type CompileReason =
 			readonly changed: ChangedColumn
 			readonly copies: ReadonlyArray<ColumnName>
 			readonly reader: DerivedReader
+			readonly cause: StaleCause
 	  }
 	| {
 			readonly _tag: "UnorderableStratum"
@@ -677,7 +678,7 @@ export const compileReasonText = (reason: CompileReason): string => {
 		case "UnwritableRelation":
 			return unwritableRelationText(reason.relation, reason.cause)
 		case "CascadedCopyAppend":
-			return `${reason.op === "put" ? "a put of" : "an insert into"} ${reason.member} appends to the family ${reason.family.owner}.${reason.family.count}, whose copy ${reason.copy} reads ${reason.owner}'s ${reason.through}, which ${reason.owner} copies from ${reason.changed}; the same stratum ${reason.by === "put" ? "puts" : "edits a family of"} ${reason.changed}, whose change reaches ${reason.owner} by cascade only after the family's rows are drawn from ${reason.owner} as the read found it: change ${reason.changed} in a ChangeSet applied before this one`
+			return `${reason.op === "put" ? "a put of" : reason.op === "insert" ? "an insert into" : "a delete of"} ${reason.member} edits the family ${reason.family.owner}.${reason.family.count}, whose copy ${reason.copy} reads ${reason.owner}'s ${reason.through}, which ${reason.owner} copies from ${reason.changed}; the same stratum puts ${reason.changed} from a query, whose rows grizzle never sees, so it cannot draw the copy the change reaches ${reason.owner} with: put ${reason.changed} from an array or a Stream, or in a ChangeSet applied before this one`
 		case "StaleDerivedRead":
 			return staleDerivedReadText(reason)
 		case "UnorderableStratum":

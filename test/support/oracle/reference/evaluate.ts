@@ -24,20 +24,22 @@ import {
 	type VarDecl
 } from "#compiler/ir/rel.ts"
 import type { RegexRef, ScalarType } from "#compiler/ir/scalar.ts"
+import { matchFlags } from "#compiler/scalar/regex/admit.ts"
+import { CompilePatterns, type PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"
 import { defined } from "#test/support/assert.ts"
 import { accepts } from "#test/support/fixtures/ir/scalar.ts"
-import { evaluate } from "#test/support/oracle/evaluate/catalog.ts"
-import { type GenFacts, rowValues } from "#test/support/oracle/gen/facts.ts"
-import type { GenParam } from "#test/support/oracle/gen/query.ts"
-import type { GenSchema } from "#test/support/oracle/gen/schema.ts"
-import { aggregate } from "#test/support/oracle/reference/aggregate.ts"
 import {
 	type Atom,
 	Identities,
 	type Identity,
 	type Interned
-} from "#test/support/oracle/reference/identity.ts"
+} from "#test/support/kernel/identity.ts"
+import { evaluate } from "#test/support/oracle/evaluate/catalog.ts"
+import { type GenFacts, rowValues } from "#test/support/oracle/gen/facts.ts"
+import type { GenParam } from "#test/support/oracle/gen/query.ts"
+import type { GenSchema } from "#test/support/oracle/gen/schema.ts"
+import { aggregate } from "#test/support/oracle/reference/aggregate.ts"
 import {
 	asBigint,
 	asDecimal,
@@ -86,6 +88,20 @@ const pointAtom = "range_contains_elem"
 export const patternMember = (regex: Pick<RegexRef, "source" | "flags">, text: string): boolean => {
 	const analyzed = analyzeText(regex.source, regex.flags, SourceLoc("a regex refinement", []))
 	return analyzed.ok && accepts(analyzed.value, text)
+}
+
+/**
+ * The admitted patterns a lowering under test reads, its membership and its matches the reference's (patternMember)
+ * and each pattern's parse, which inclusion and translation read, the engine's own (CompilePatterns): one table per
+ * call, as one compile holds one.
+ */
+export const referencePatterns = (): PatternAutomata => {
+	const compiled = new CompilePatterns()
+	return {
+		parse: compiled.parse,
+		member: patternMember,
+		matches: (source, text) => patternMember({ source, flags: matchFlags }, text)
+	}
 }
 
 /** A heading with its column positions by name, built with the rows a tuple reads through it (tupleOf). */

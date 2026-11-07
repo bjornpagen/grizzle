@@ -1,5 +1,5 @@
 import { layer } from "@effect/vitest"
-import { drawn, exhaust, explore } from "@grizzle/testing/explore"
+import { type Case, drawn, exhaust, explore } from "@grizzle/testing/explore"
 import { required, requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen, int, subset } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
@@ -15,12 +15,14 @@ import {
 } from "effect"
 import type { MigrateError } from "#adapter/migrate/errors.ts"
 import type { FolderSource } from "#adapter/migrate/input.ts"
+import { scalarReader } from "#compiler/codec/read.ts"
 import { scalarCodec } from "#compiler/codec/scalar.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { ConstraintName } from "#compiler/core/ids.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { trusted } from "#compiler/core/trusted.ts"
+import type { ParamText } from "#compiler/core/wire.ts"
 import type { Declarations, Named } from "#compiler/deploy/diff/plan.ts"
 import { codebookOf } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
@@ -67,6 +69,7 @@ import { planRealInstall, type RealInstallPlan } from "#test/support/oracle/inst
 import { expectConstraint, expectSqlstate, inTransaction } from "#test/support/substrate/expect.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
+import { outputText, paramText } from "#test/support/wire.ts"
 
 /**
  * Closed ids as codes on PostgreSQL 19rc1: a roster's smallint domain, its names constant, the decoded column of a role
@@ -490,8 +493,8 @@ const modelText = (state: RosterState, members: ReadonlyArray<string>): string =
 	)
 
 /** The model's wire text of a set: X, then the hex digits of its positional text. */
-const wireText = (state: RosterState, members: ReadonlyArray<string>): string =>
-	`X${hexOfText(modelText(state, members))}`
+const wireText = (state: RosterState, members: ReadonlyArray<string>): ParamText =>
+	paramText(`X${hexOfText(modelText(state, members))}`)
 
 /** The type of a column as the catalog holds it: its own type's kind, and its base type formatted with its typmod. */
 const columnTypeOf = (session: RawSession, table: string, column: string) =>
@@ -566,7 +569,7 @@ const bitsNames = ["Open", "Done", "Held", "Gone", "Late", "Kept", "Lost"] as co
 /** A migration of a bits history: one handle added after the last code, or one live handle removed. */
 type BitsStep = { readonly kind: "grow" } | { readonly kind: "remove"; readonly handle: string }
 
-/** A roster's history: installed with one to four handles, then one or two migrations. */
+/** A roster's history: its installation, then its migrations. */
 interface BitsHistory {
 	readonly installed: RosterState
 	readonly steps: ReadonlyArray<BitsStep>
@@ -598,39 +601,66 @@ const stepped = (state: RosterState, step: BitsStep): RosterState => {
 	}
 }
 
-/** A history whose every state keeps a live handle: a removal is drawn only beside another live handle. */
-const bitsHistoryGen: Gen<BitsHistory> = (source) => {
-	const installed: RosterState = {
-		closed: parsedName("Flags"),
-		slots: nonEmpty(
-			Arr.map(Arr.take(bitsNames, source.draw(int(1, 4))), (handle): ModelSlot => ({
-				kind: "live",
-				handle
-			})),
-			"an installation's handles"
-		),
-		spellings: { plain: 3 }
-	}
-	const steps: Array<BitsStep> = []
-	const count = source.draw(int(1, 2))
-	let state = installed
-	for (let at = 0; at < count; at += 1) {
+/** The roster of a bits history's installation: its first `size` names, each live. */
+const installedOf = (size: number): RosterState => ({
+	closed: parsedName("Flags"),
+	slots: nonEmpty(
+		Arr.map(Arr.take(bitsNames, size), (handle): ModelSlot => ({ kind: "live", handle })),
+		"an installation's handles"
+	),
+	spellings: { plain: 3 }
+})
+
+/** A migration of `state`: a removal of one live handle, drawn only beside another live handle, or a growth. */
+const bitsStepGen =
+	(state: RosterState): Gen<BitsStep> =>
+	(source) => {
 		const live = liveOf(state)
-		const step: BitsStep =
-			live.length > 1 && source.draw(element(["grow", "remove"] as const)) === "remove"
-				? { kind: "remove", handle: source.draw(element(live)) }
-				: { kind: "grow" }
-		steps.push(step)
-		state = stepped(state, step)
+		return live.length > 1 && source.draw(element(["grow", "remove"] as const)) === "remove"
+			? { kind: "remove", handle: source.draw(element(live)) }
+			: { kind: "grow" }
 	}
-	return { installed, steps }
-}
+
+/** A history of `installed` through the steps `taken`, then `more` migrations drawn after them. */
+const bitsHistoryFrom =
+	(installed: RosterState, taken: ReadonlyArray<BitsStep>, more: Gen<number>): Gen<BitsHistory> =>
+	(source) => {
+		const steps = [...taken]
+		let state = Arr.reduce(taken, installed, stepped)
+		const count = source.draw(more)
+		for (let at = 0; at < count; at += 1) {
+			const step = source.draw(bitsStepGen(state))
+			steps.push(step)
+			state = stepped(state, step)
+		}
+		return { installed, steps }
+	}
+
+/** The handles one hex digit of a set's bit string holds: a growth of an installation of so many passes the digit. */
+const digitHandles = wholeDigits(1)
+
+/** A history whose every state keeps a live handle: one to a digit's handles installed, then one or two migrations. */
+const bitsHistoryGen: Gen<BitsHistory> = (source) =>
+	source.draw(bitsHistoryFrom(installedOf(source.draw(int(1, digitHandles))), [], int(1, 2)))
+
+/** A history that grows past a hex digit: a digit's handles installed, a growth, then at most one more migration. */
+const pastDigitHistoryGen: Gen<BitsHistory> = bitsHistoryFrom(
+	installedOf(digitHandles),
+	[{ kind: "grow" }],
+	int(0, 1)
+)
 
 type BitsFeature =
 	| "a growth past a hex digit"
 	| "a growth within a hex digit"
 	| "a removal refused until the data step"
 	| "two migrations"
+
+/** The history a witness runs: its drawn one, or, while a growth past a hex digit is pending, one that grows past it. */
+const aimedHistory = (drawnHistory: BitsHistory, k: Case<BitsFeature>): BitsHistory =>
+	Option.getOrUndefined(k.steering)?.has("a growth past a hex digit") === true
+		? k.draw(pastDigitHistoryGen)
+		: drawnHistory
 
 layer(Substrate.layer)("closed ids as codes on PostgreSQL 19rc1", (it) => {
 	it.effect(
@@ -775,14 +805,14 @@ layer(Substrate.layer)("closed ids as codes on PostgreSQL 19rc1", (it) => {
 										yield* writer.query(insertCode(m, state), [i, defined(codeAt(state, handle))])
 									}
 									yield* writer.commit
-									const codec = scalarCodec(codeType(state), codes)
+									const codec = scalarReader(codeType(state), codes)
 									const rows = yield* reader.values(
 										`SELECT v.${view.column(probeOf(state), "code")}::text, v.${decodedColumn} FROM ${view.view(probeOf(state))} AS v ORDER BY v.${view.column(probeOf(state), "id")}`,
 										[]
 									)
 									assert.deepEqual(
 										Arr.map(rows, ([code, decoded]) => ({
-											host: codec.convert(String(code)),
+											host: codec.convert(outputText(String(code))),
 											postgres: String(decoded)
 										})),
 										Arr.map(live, (handle) => ({ host: handle, postgres: handle })),
@@ -1075,9 +1105,10 @@ layer(Substrate.layer)("closed ids as codes on PostgreSQL 19rc1", (it) => {
 						steerEvery: 4,
 						caseHang
 					},
-					(history, k) =>
+					(drawnHistory, k) =>
 						Effect.scoped(
 							Effect.gen(function* () {
+								const history = aimedHistory(drawnHistory, k)
 								const { m, first } = yield* installFirst("closed_codes_bits", (name) =>
 									setsOf(name, history.installed)
 								)
@@ -1130,7 +1161,10 @@ layer(Substrate.layer)("closed ids as codes on PostgreSQL 19rc1", (it) => {
 									state: RosterState,
 									codes: Codebook,
 									texts: ReadonlyArray<string>
-								) => Arr.map(texts, (t) => membersOf(scalarCodec(setType(state), codes).convert(t)))
+								) =>
+									Arr.map(texts, (t) =>
+										membersOf(scalarReader(setType(state), codes).convert(outputText(t)))
+									)
 								yield* writeEvery(history.installed, codebookOf(m.snapshot))
 								const viewed = yield* reader.values(
 									`SELECT v.${view.column("Sets", "members")}::text FROM ${view.view("Sets")} AS v ORDER BY v.${view.column("Sets", "id")}`,

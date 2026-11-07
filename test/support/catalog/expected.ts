@@ -129,6 +129,8 @@ const builtinTypname: { readonly [K in BuiltinTypeName]: string } = {
 	int8range: "int8range",
 	int4multirange: "int4multirange",
 	int8multirange: "int8multirange",
+	daterange: "daterange",
+	datemultirange: "datemultirange",
 	record: "record",
 	"bit varying": "varbit",
 	name: "name"

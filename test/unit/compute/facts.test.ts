@@ -37,7 +37,7 @@ import { textLookup } from "#compiler/text/refinement.ts"
 import { assert, nonEmpty } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { argumentsOf } from "#test/support/list.ts"
-import { patternMember } from "#test/support/oracle/reference/evaluate.ts"
+import { referencePatterns } from "#test/support/oracle/reference/evaluate.ts"
 import {
 	baseParams,
 	type LeafBinding,
@@ -274,7 +274,7 @@ describe("a contract's facts", () => {
 								{
 									loc: SourceLoc(`contract ${name}`, []),
 									fieldType: (desc, at) => scalarTypeOf(desc, bareEnv, at),
-									regexMember: patternMember,
+									patterns: referencePatterns(),
 									patternLanguage: textLookup
 								}
 							)

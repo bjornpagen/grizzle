@@ -111,7 +111,7 @@ describe("a forged carrier instance", () => {
 								relationNormalizer(relation)(Arr.map(admitted, (a) => ({ v: a.input })))
 							)
 							assert.equal(normal.count, distinct.size, "one fact per PostgreSQL value")
-							assert.deepEqual(
+							assert.deepEqual<ReadonlySet<string>>(
 								new Set(Arr.flatten(normal.rows)),
 								distinct,
 								"every row carries its value's PostgreSQL text"
@@ -128,7 +128,7 @@ describe("a forged carrier instance", () => {
 							for (const buffer of buffers) {
 								buffer.fill(7)
 							}
-							assert.deepEqual(
+							assert.deepEqual<ReadonlySet<string>>(
 								new Set(Arr.flatten(succeeded(normalRows(relation)(normal)).rows)),
 								distinct,
 								"the rows stay the admitted values"

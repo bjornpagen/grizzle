@@ -119,7 +119,8 @@ const filledOf = (c: Inserted, g: Group): Edited => {
 				stated: ownersOf(ctx, family, ownerFacts),
 				plain: true,
 				recounted: new Map()
-			})
+			}),
+			{ current: new Map(), refilled: () => false }
 		)
 	)
 	return defined(foldRecounts([{ target, edited }])[0], "the edited relation")

@@ -1,10 +1,6 @@
-import { defect } from "#compiler/core/invariant.ts"
-import { utf8Length } from "#compiler/core/sha256.ts"
 import { codePoints } from "#compiler/core/text.ts"
-import { octetsOf, type RegexRef } from "#compiler/ir/scalar.ts"
 import { type CharSet, has, isAdmittedCodePoint } from "#compiler/scalar/regex/charset.ts"
 import { copiesOf, type RegexNode } from "#compiler/scalar/regex/ir.ts"
-import { parsePattern } from "#compiler/scalar/regex/parse.ts"
 import { entry } from "#compiler/scalar/regex/table.ts"
 
 type NfaEdge =
@@ -298,23 +294,4 @@ const matchesCodePoints = (nfa: Nfa, cps: ReadonlyArray<number>): boolean => {
 export const matches = (nfa: Nfa, value: string): boolean => {
 	const cps = admittedCodePoints(value)
 	return cps !== undefined && matchesCodePoints(nfa, cps)
-}
-
-/**
- * Whether a text is a member of a regex refinement: within its byte bound where str.bytes cuts it (ir/scalar.ts
- * octetsOf), and a match of the NFA of its pattern's parse, the automaton the text analysis builds
- * (text/refinement.ts analyzeText). A RegexRef is minted only from a pattern that analysis admitted, so its parse
- * succeeds.
- */
-export const regexMember = (regex: RegexRef, value: string): boolean => {
-	const parsed = parsePattern(regex.source, regex.flags)
-	if (!parsed.ok) {
-		throw defect(
-			`the pattern of a RegexRef, which its text analysis admitted: /${regex.source}/${regex.flags}`
-		)
-	}
-	const octets = octetsOf(regex.check)
-	return (
-		(octets === undefined || utf8Length(value) <= octets) && matches(buildNfa(parsed.value), value)
-	)
 }

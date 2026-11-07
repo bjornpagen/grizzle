@@ -1,8 +1,11 @@
 /**
  * Every B-tree index the law model plans fits its entry for every value its columns admit, or the schema is refused
  * with UnrepresentableKey naming that index's columns, where PostgreSQL would refuse the first write that outgrew it
- * (54000): the UNIQUE a containment references where its target's columns are a superkey of a declared key, and the
- * index over the containment's referencing columns, as well as the declared keys ownership checks first.
+ * (54000): the UNIQUE a containment references where its target's columns are a superkey of a declared key, as well as
+ * the declared keys ownership checks first. The containment's reverse index never refuses here: it is a B-tree over the
+ * longest leading run of its referencing columns that fits, else a hash index on one of them, and every type drawn here
+ * is one a hash index takes (README, "A containment's reverse index never refuses free text";
+ * reverse-index.test.ts plans it), so a containment whose whole referencing run outgrows an entry is admitted.
  *
  * Each case draws a target relation B, its declared key, and a containment from a source relation A into a side of B
  * that is B's key or a superkey of it, in a drawn order, every pair of one type: a fixed-width type, a text bounded by
@@ -10,8 +13,8 @@
  * text of a bounded pattern, or the wildcard, which bounds nothing. The oracle restates PostgreSQL: index_form_tuple's
  * layout of each index's columns in their order (heaptuple.c fill_val), exact through a prefix of fixed-width columns
  * and at the worst padding from the first varlena on, against nbtree.h's BTMaxItemSize, the indexes checked in the
- * order compilation meets them: A's and B's primary keys, the target's UNIQUE where one is planned, then the reverse
- * index. The first that fails is the refusal, by its columns and its fault.
+ * order compilation meets them: A's and B's primary keys, then the target's UNIQUE where one is planned. The first that
+ * fails is the refusal, by its columns and its fault.
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -265,7 +268,7 @@ type PlannedFeature =
 	| "target UNIQUE refused, unbounded"
 	| "target UNIQUE refused, over the limit"
 	| "target UNIQUE at the limit, admitted"
-	| "reverse index refused"
+	| "a referencing run no B-tree entry holds, admitted"
 
 describe("the law model's planned B-tree indexes", () => {
 	it.effect(
@@ -288,7 +291,7 @@ describe("the law model's planned B-tree indexes", () => {
 								"target UNIQUE refused, unbounded",
 								"target UNIQUE refused, over the limit",
 								"target UNIQUE at the limit, admitted",
-								"reverse index refused"
+								"a referencing run no B-tree entry holds, admitted"
 							],
 							{ cases: 300, sense: notesOnly }
 						),
@@ -373,16 +376,15 @@ describe("the law model's planned B-tree indexes", () => {
 														: "target UNIQUE refused, over the limit"
 											}
 										]
-									: []),
-								{
-									columns: columns(s.target.order, (p) => `s${p}`),
-									feature: () => "reverse index refused"
-								}
+									: [])
 							]
 							const first = Arr.findFirst(checked, (index) => faultOf(index.columns) !== undefined)
 							if (Option.isNone(first)) {
 								succeeded(compiled, "every planned index fits")
 								c.note("admitted")
+								if (faultOf(columns(s.target.order, (p) => `s${p}`)) !== undefined) {
+									c.note("a referencing run no B-tree entry holds, admitted")
+								}
 								if (s.target.superkey && s.boundary.kind === "at") {
 									c.note("target UNIQUE at the limit, admitted")
 								}

@@ -23,6 +23,7 @@ import { serverStatement } from "#adapter/wire/session.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { testSql } from "#test/support/sql.ts"
+import { paramText } from "#test/support/wire.ts"
 
 /**
  * The one bound a flight's parameters meet before they are sent (wire/batch.ts bindOverrun): each statement's Bind
@@ -67,7 +68,7 @@ const text = string(
 /** A statement of a flight: run under a server statement's name or unnamed, with its parameters' texts. */
 const statementGen: Gen<FlightStatement> = (source) => {
 	const sql = testSql("SELECT $1::text")
-	const params = source.draw(array(text, { min: 0, max: 6 }))
+	const params = Arr.map(source.draw(array(text, { min: 0, max: 6 })), paramText)
 	return source.draw(boolean) ? { server: serverStatement(sql), params } : { sql, params }
 }
 

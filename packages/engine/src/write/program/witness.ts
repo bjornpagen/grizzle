@@ -1,16 +1,12 @@
 import type { CheckedEntry, RoleWorld } from "#compiler/analysis/schema.ts"
 import { carrierSpecOf } from "#compiler/codec/scalar.ts"
+import { appendAll } from "#compiler/core/array.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { ColumnIdent, ConstraintName, RelationIdent } from "#compiler/core/ids.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { Split } from "#compiler/ir/cells.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
-import {
-	type ExprTable,
-	predicateTable,
-	type ScalarExpr,
-	type TypedLiteral
-} from "#compiler/ir/expr.ts"
+import { predicateTable, type ScalarExpr, type TypedLiteral } from "#compiler/ir/expr.ts"
 import type { LawField, NativeOf, RelationInfo, TableRelation } from "#compiler/ir/law.ts"
 import { baseOf, contractOf, type ScalarType, spanOf, textOf } from "#compiler/ir/scalar.ts"
 import type { DomainUse } from "#compiler/laws/model/model.ts"
@@ -19,12 +15,11 @@ import {
 	type EvalLeaves,
 	evaluateTable,
 	literalValue,
-	type RegexMember,
+	type SqlValue,
+	sqlNull,
 	valueMember
 } from "#compiler/scalar/compute/evaluate.ts"
 import { type CarrierValue, irLiteral } from "#compiler/scalar/compute/literal.ts"
-import { nativeOp } from "#compiler/scalar/compute/registry.ts"
-import { regexMember } from "#compiler/scalar/regex/nfa.ts"
 import { admitted, type Carrier, type CarrierHost } from "#compiler/scalar/values/identity.ts"
 import type { KeyHost, Law, Witness } from "#compiler/types/changeset/changeset.ts"
 import { type ClosedRows, closedLeaf, evalValue, literalHost } from "#compiler/write/family/fold.ts"
@@ -49,11 +44,14 @@ export type Refuser =
 	  }
 	| { readonly kind: "generated"; readonly table: RelationIdent; readonly column: ColumnIdent }
 
-/** Where a refused statement stands: its stratum and the stored relations it writes, by declared name. */
-export interface StatementAt {
-	readonly stratum: number
-	readonly relations: ReadonlyArray<string>
-}
+/**
+ * What a refused statement states, as the host reads it: a write of stored relations, by declared name, at its stratum,
+ * which states every fact the ChangeSet adds or puts into them there; or a query entry's precheck, which casts the
+ * entry's own stated facts into its target's types before any statement writes them.
+ */
+export type StatementAt =
+	| { readonly kind: "write"; readonly stratum: number; readonly relations: ReadonlyArray<string> }
+	| { readonly kind: "precheck"; readonly stratum: number; readonly entry: string }
 
 /** One fact a statement states, as the host judges it: its relation's fields, and its witness in its caller's words. */
 interface StatedFact {
@@ -140,42 +138,56 @@ const entryOf = (frontend: WriteFrontend, group: SlotGroup): CheckedEntry | unde
 }
 
 /**
- * The facts the ChangeSet states for `relation` at `stratum` that a statement adds or puts: each enumerated insert's
- * and put's normal facts, a query entry's as facts of its target, and each nested row the stratum inserts into it,
- * each with its witness, the key it was stated at in the words it was stated in.
+ * The facts one slot group of the ChangeSet states that a statement adds or puts into `relation`, its written relation:
+ * each enumerated insert's and put's normal facts, a query entry's as facts of its target, each with its witness, the
+ * key it was stated at in the words it was stated in.
  */
-const statedFacts = (
+const groupFacts = (
+	frontend: WriteFrontend,
+	normalized: Normalized,
+	group: SlotGroup,
+	relation: RelationInfo
+): ReadonlyArray<StatedFact> => {
+	const codes = frontend.codes
+	const entry = entryOf(frontend, group)
+	const out: Array<StatedFact> = []
+	for (const input of group.inputs) {
+		if (input.kind === "single" && input.act.op === "delete") {
+			continue
+		}
+		for (const slot of inputSlots(input)) {
+			for (const stated of normalized.slots.get(slot.slot)?.facts ?? []) {
+				const fact = entry === undefined ? stated : targetFact(entry, stated, codes)
+				const key = statedKey(relation, fact, codes)
+				out.push({
+					fact,
+					witness:
+						key === undefined
+							? unreported
+							: entry === undefined
+								? keyWitness(relation.name, key)
+								: keyWitness(entry.entry, entryKey(entry, key))
+				})
+			}
+		}
+	}
+	return out
+}
+
+/**
+ * The facts the ChangeSet states for `relation` at `stratum` that a write adds or puts: every slot group's of it
+ * (groupFacts), and each nested row the stratum inserts into it, each with its witness.
+ */
+const writtenFacts = (
 	frontend: WriteFrontend,
 	normalized: Normalized,
 	stratum: number,
 	relation: RelationInfo
 ): ReadonlyArray<StatedFact> => {
-	const codes = frontend.codes
 	const out: Array<StatedFact> = []
 	for (const group of frontend.slots) {
-		if (group.stratum !== stratum || group.relation.name !== relation.name) {
-			continue
-		}
-		const entry = entryOf(frontend, group)
-		for (const input of group.inputs) {
-			if (input.kind === "single" && input.act.op === "delete") {
-				continue
-			}
-			for (const slot of inputSlots(input)) {
-				for (const stated of normalized.slots.get(slot.slot)?.facts ?? []) {
-					const fact = entry === undefined ? stated : targetFact(entry, stated, codes)
-					const key = statedKey(relation, fact, codes)
-					out.push({
-						fact,
-						witness:
-							key === undefined
-								? unreported
-								: entry === undefined
-									? keyWitness(relation.name, key)
-									: keyWitness(entry.entry, entryKey(entry, key))
-					})
-				}
-			}
+		if (group.stratum === stratum && group.relation.name === relation.name) {
+			appendAll(out, groupFacts(frontend, normalized, group, relation))
 		}
 	}
 	for (const row of normalized.nested.get(stratum)?.get(relation.name)?.values() ?? []) {
@@ -185,29 +197,71 @@ const statedFacts = (
 				fact[column.slice("field:".length)] = value
 			}
 		}
-		const key = statedKey(relation, fact, codes)
+		const key = statedKey(relation, fact, frontend.codes)
 		out.push({ fact, witness: key === undefined ? unreported : keyWitness(relation.name, key) })
 	}
 	return out
 }
 
-/** Whether a NULL anywhere in `e` makes `e` NULL: no conditional, which takes its other branch at a NULL test, and no
- * AND or OR, which a FALSE or TRUE operand decides whatever the other is. */
-const nullStrict = (e: ScalarExpr): boolean => {
-	if (e.kind === "cond") {
-		return false
+/** The slot groups of a query entry's precheck: the entry's own at its stratum. */
+const precheckGroups = (
+	frontend: WriteFrontend,
+	at: Extract<StatementAt, { readonly kind: "precheck" }>
+): ReadonlyArray<SlotGroup> =>
+	frontend.slots.filter((group) => group.stratum === at.stratum && group.facts.name === at.entry)
+
+/**
+ * The stored relations a refused statement writes or casts its facts into, by declared name: a write's own, and a query
+ * entry's precheck's target, whose types the precheck casts the entry's facts into.
+ */
+export const statementRelations = (
+	frontend: WriteFrontend,
+	at: StatementAt
+): ReadonlyArray<string> => {
+	switch (at.kind) {
+		case "write":
+			return at.relations
+		case "precheck":
+			return [...new Set(precheckGroups(frontend, at).map((group) => group.relation.name))]
 	}
-	if (e.kind === "op") {
-		const fn = nativeOp(e.op)?.fn
-		if (fn === "and" || fn === "or") {
-			return false
-		}
-	}
-	return e.args.every(nullStrict)
 }
 
-/** What an expression is over one fact, as PostgreSQL computes it: a value, NULL (a closed read at a key its relation
- * holds no row at, which nothing in the expression masks), or unknown to the host. */
+/**
+ * The facts a refused statement states, each beside the written relation it is a fact of, in the order the host judges
+ * them: a write's, relation by relation in its order (writtenFacts); a query entry's precheck's, the entry's own slot
+ * groups' at its stratum (groupFacts).
+ */
+const statedFacts = (
+	frontend: WriteFrontend,
+	normalized: Normalized,
+	at: StatementAt
+): ReadonlyArray<readonly [RelationInfo, StatedFact]> => {
+	const writtenNamed = (name: string): RelationInfo | undefined =>
+		frontend.written.find((r) => r.name === name)
+	switch (at.kind) {
+		case "write":
+			return at.relations.flatMap((name) => {
+				const relation = writtenNamed(name)
+				return relation === undefined
+					? []
+					: writtenFacts(frontend, normalized, at.stratum, relation).map(
+							(stated) => [relation, stated] as const
+						)
+			})
+		case "precheck":
+			return precheckGroups(frontend, at).flatMap((group) => {
+				const relation = writtenNamed(group.relation.name)
+				return relation === undefined
+					? []
+					: groupFacts(frontend, normalized, group, relation).map(
+							(stated) => [relation, stated] as const
+						)
+			})
+	}
+}
+
+/** What an expression is over one fact, as PostgreSQL computes it by its three-valued logic (scalar/compute/evaluate.ts
+ * sqlNull): a value, NULL, or unknown to the host. */
 type Evaluated =
 	| { readonly kind: "value"; readonly value: CarrierValue }
 	| { readonly kind: "null" }
@@ -219,28 +273,10 @@ interface Judge {
 	readonly member: (value: unknown, type: ScalarType) => boolean | undefined
 }
 
-/**
- * Whether some closed read C.at of `table` reads a key its relation holds no row at, its arguments evaluated over
- * `leaves`: the read is NULL there.
- */
-const readsAbsent = (table: ExprTable, leaves: EvalLeaves, member: RegexMember): boolean =>
-	Object.values(table.exprs).some((node) => {
-		if (node.kind !== "closedAt") {
-			return false
-		}
-		const args: Array<CarrierValue> = []
-		for (const a of node.args) {
-			const v = evaluateTable(table.exprs, a, leaves, member)
-			if (!v.ok) {
-				return false
-			}
-			args.push(v.value)
-		}
-		return leaves.closed(node.relation, node.field, args) === undefined
-	})
-
-const judgeOf = (frontend: WriteFrontend, member: RegexMember): Judge => {
+/** The judge of a write's facts by its law model's compiled patterns (LawModel.patterns), parsing none per fact. */
+const judgeOf = (frontend: WriteFrontend): Judge => {
 	const codes = frontend.codes
+	const patterns = frontend.laws.patterns
 	const closed = closedLeaf(
 		new Map(
 			[...frontend.schema.closed].map(([name, c]): readonly [string, ClosedRows] => [
@@ -250,8 +286,8 @@ const judgeOf = (frontend: WriteFrontend, member: RegexMember): Judge => {
 		)
 	)
 	const evaluate = (relation: TableRelation, expr: ScalarExpr, fact: HostFact): Evaluated => {
-		/** A field's value: the fact's own, or a generated field's as PostgreSQL generates it from the fact. */
-		const valueOf = (field: string): CarrierValue | undefined => {
+		/** A field's value: the fact's own, or a generated field's as PostgreSQL generates it from the fact, NULL included. */
+		const valueOf = (field: string): SqlValue | undefined => {
 			const declared = relation.fields.find((f) => f.name === field)
 			if (declared === undefined) {
 				return undefined
@@ -263,23 +299,26 @@ const judgeOf = (frontend: WriteFrontend, member: RegexMember): Judge => {
 				return undefined
 			}
 			const generated = evaluate(relation, declared.writing.expr, fact)
-			return generated.kind === "value" ? generated.value : undefined
+			return generated.kind === "value"
+				? generated.value
+				: generated.kind === "null"
+					? sqlNull
+					: undefined
 		}
 		const table = predicateTable(expr)
 		const leaves: EvalLeaves = { value: undefined, column: (ref) => valueOf(ref.name), closed }
-		const value = evaluateTable(table.exprs, table.root, leaves, member)
-		if (value.ok) {
-			return { kind: "value", value: value.value }
-		}
-		return nullStrict(expr) && readsAbsent(table, leaves, member)
-			? { kind: "null" }
-			: { kind: "unknown" }
+		const value = evaluateTable(table.exprs, table.root, leaves, patterns)
+		return !value.ok
+			? { kind: "unknown" }
+			: value.value === sqlNull
+				? { kind: "null" }
+				: { kind: "value", value: value.value }
 	}
 	return {
 		evaluate,
 		member: (value, type) => {
 			const carried = evalValue(carrierSpecOf(type, codes), value)
-			return carried === undefined ? undefined : valueMember(carried, type, member)
+			return carried === undefined ? undefined : valueMember(carried, type, patterns)
 		}
 	}
 }
@@ -391,6 +430,26 @@ const endpointsOf = (value: unknown): ReadonlyArray<unknown> =>
 		: []
 
 /** The verdict of the first of `verdicts` that decides: a break, else a hold, else unjudged. */
+/**
+ * What the NOT NULL of each of a fact's generated fields makes of its row: PostgreSQL checks every NOT NULL of a row
+ * before any CHECK of it, so a row whose generated field's expression is NULL at the fact is refused there, and no
+ * CHECK of its table judges it; "unknown" where the host cannot evaluate one of them.
+ */
+const generatedNotNulls = (
+	judge: Judge,
+	relation: RelationInfo,
+	fact: HostFact
+): "hold" | "refuse" | "unknown" => {
+	const values = relation.fields.flatMap((field) =>
+		field.writing.kind === "generated" ? [judge.evaluate(relation, field.writing.expr, fact)] : []
+	)
+	return values.some((v) => v.kind === "null")
+		? "refuse"
+		: values.some((v) => v.kind === "unknown")
+			? "unknown"
+			: "hold"
+}
+
 const firstBreak = (verdicts: ReadonlyArray<Verdict>): Verdict =>
 	verdicts.includes("breaks")
 		? "breaks"
@@ -455,6 +514,10 @@ const verdictOf = (
 			if (relation.ident !== refuser.owner) {
 				return "unjudged"
 			}
+			const notNulls = generatedNotNulls(judge, relation, fact)
+			if (notNulls !== "hold") {
+				return notNulls === "refuse" ? "holds" : "unjudged"
+			}
 			const native = frontend.laws.natives.find(
 				(n) =>
 					n.namespace === "constraint" &&
@@ -494,22 +557,24 @@ const verdictOf = (
  * each of them, by the one host evaluation of a check's expression (scalar/compute/evaluate.ts) over the fact's fields
  * and the generated fields PostgreSQL computes from them, against what PostgreSQL reported:
  *
- * - a row CHECK, `CHECK ((p) IS TRUE)`: a fact at which p is FALSE, or NULL by a closed read at a key its relation
- *   holds no row at that nothing in p masks;
- * - a containment into a closed relation, a table CHECK: a fact its guard holds of that no row of the target's side
- *   meets at every pair;
+ * - a row CHECK, `CHECK ((p) IS TRUE)`: a fact at which p is FALSE, or NULL by SQL's three-valued logic, a closed read
+ *   at a key its relation holds no row at left unknown; never a fact a generated field's NOT NULL refuses, which
+ *   PostgreSQL checks before any CHECK of its row (generatedNotNulls);
+ * - a containment into a closed relation, a table CHECK: a fact its guard is true of, never one it leaves unknown, that
+ *   no row of the target's side meets at every pair;
  * - a span's endpoint CHECK of a contract: a fact whose span has an endpoint inside every level below the contract
  *   and outside the contract;
  * - a domain's CHECK, a contract's or a pattern's: a fact whose field, among the columns the domain types in the
  *   statement's tables, holds a value inside every level below the law's and outside the law's own;
- * - a generated column's NOT NULL: a fact at which its generation expression is NULL, by such a closed read.
+ * - a generated column's NOT NULL: a fact at which its generation expression is NULL, by a closed read at a key its
+ *   relation holds no row at.
  *
  * The host never decides whether a write is refused: PostgreSQL has refused it. The host only names a fact that
- * breaks what refused it, the first in the statement's relations' order and each one's stated order, its witness the
- * key it was stated at, in the words it was stated in (a query entry's, through `entryKey`). Where the host finds none
- * (a row only PostgreSQL computes, a query's or a family's filled values, a fact whose law reads what the host cannot
- * evaluate, or one stated with no whole key, as a generated addition's identity is drawn), the witness is
- * `unreported`.
+ * breaks what refused it, the first the statement states (statedFacts: a write's in its relations' order, a query
+ * entry's precheck's in its own), its witness the key it was stated at, in the words it was stated in (a query
+ * entry's, through `entryKey`). Where the host finds none (a row only PostgreSQL computes, a query's or a family's
+ * filled values, a fact whose law reads what the host cannot evaluate, or one stated with no whole key, as a generated
+ * addition's identity is drawn), the witness is `unreported`.
  */
 export const hostWitness = (
 	frontend: WriteFrontend,
@@ -517,16 +582,10 @@ export const hostWitness = (
 	at: StatementAt,
 	refuser: Refuser
 ): Witness => {
-	const judge = judgeOf(frontend, regexMember)
-	for (const name of at.relations) {
-		const relation = frontend.written.find((r) => r.name === name)
-		if (relation === undefined) {
-			continue
-		}
-		for (const stated of statedFacts(frontend, normalized, at.stratum, relation)) {
-			if (verdictOf(frontend, judge, relation, refuser, stated.fact) === "breaks") {
-				return stated.witness
-			}
+	const judge = judgeOf(frontend)
+	for (const [relation, stated] of statedFacts(frontend, normalized, at)) {
+		if (verdictOf(frontend, judge, relation, refuser, stated.fact) === "breaks") {
+			return stated.witness
 		}
 	}
 	return unreported

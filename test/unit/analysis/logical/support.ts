@@ -23,6 +23,7 @@ import { analyzeLogical, checkerEvidence, type LogicalEnv } from "#compiler/logi
 import { irLiteral } from "#compiler/scalar/compute/literal.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import type { SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
+import { Identities, type Interned } from "#test/support/kernel/identity.ts"
 import { type KernelEnv, KeyKernel } from "#test/support/keys/kernel.ts"
 import { canonicallySpelled } from "#test/support/oracle/gen/domain.ts"
 import type { GenFacts, StoredRow } from "#test/support/oracle/gen/facts.ts"
@@ -34,7 +35,6 @@ import {
 	unobserved
 } from "#test/support/oracle/reference/evaluate.ts"
 import { RecordingReference } from "#test/support/oracle/reference/evaluations.ts"
-import { Identities, type Interned } from "#test/support/oracle/reference/identity.ts"
 import { equal, type Row, valueIdentity } from "#test/support/oracle/reference/values.ts"
 import { ownedInput } from "#test/support/policy.ts"
 import type { HostFacts } from "#test/unit/analysis/theory/support.ts"

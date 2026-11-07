@@ -46,12 +46,14 @@ import {
 	type EmittedText,
 	nominal,
 	type NonEmptyReadonlyArray,
+	type ParamText,
 	quoteIdent,
 	sha256Hex,
 	type SqlStatement,
 	type TypeSchema
 } from "#compiler/plan/common.ts"
 import type { DeploySnapshot, LedgerState } from "#compiler/plan/migration.ts"
+import { textParam } from "#compiler/plan/read.ts"
 
 /**
  * The drift check: the installed schema against the target snapshot, judged by PostgreSQL, after `grizzle migrate`.
@@ -853,7 +855,7 @@ interface Sending {
 	readonly statements: ReadonlyArray<BatchStatement>
 	readonly command: (sql: EmittedText) => void
 	readonly commands: (texts: ReadonlyArray<EmittedText>) => FlightSpan
-	readonly query: <Row>(query: CatalogQuery<Row>, params: ReadonlyArray<string>) => Slot<Row>
+	readonly query: <Row>(query: CatalogQuery<Row>, params: ReadonlyArray<ParamText>) => Slot<Row>
 }
 
 const sending = (): Sending => {
@@ -918,15 +920,18 @@ export const driftFlight = (snapshot: DeploySnapshot): Result.Result<DriftFlight
 		)
 		const flight = sending()
 		flight.command(emitCatalog(C.setClosedSearchPath))
-		const printed = Arr.map(schemas, (s) => ({ schema: s, slot: flight.query(quotedIdent, [s]) }))
+		const printed = Arr.map(schemas, (s) => ({
+			schema: s,
+			slot: flight.query(quotedIdent, [textParam(s)])
+		}))
 		const replayed = flight.commands(replay)
 		const described = Arr.map(schemas, (s) => ({
-			installed: flight.query(descriptions, [s, s]),
-			expected: flight.query(descriptions, [scratchSchema(s), s])
+			installed: flight.query(descriptions, [textParam(s), textParam(s)]),
+			expected: flight.query(descriptions, [textParam(scratchSchema(s)), textParam(s)])
 		}))
 		const extensionSchemas = Arr.map(createdExtensions, (x) => ({
 			extension: x,
-			slot: flight.query(extensionSchema, [x.name])
+			slot: flight.query(extensionSchema, [textParam(x.name)])
 		}))
 		const database = flight.query(databaseSettingsQuery, [])
 		const defaults = Arr.map(defaultPrivilegesExpectations(statements, schema), (expectation) => ({
@@ -935,12 +940,12 @@ export const driftFlight = (snapshot: DeploySnapshot): Result.Result<DriftFlight
 		}))
 		const roleReads = Arr.map(roles, (r) => ({
 			expectation: r,
-			attributes: flight.query(attributesQuery, [r.role]),
-			settings: flight.query(settingsQuery, [r.role]),
+			attributes: flight.query(attributesQuery, [textParam(r.role)]),
+			settings: flight.query(settingsQuery, [textParam(r.role)]),
 			privileges: flight.query(privilegesQuery, privilegesParams(r)),
-			memberships: flight.query(membershipsQuery, [r.role]),
-			members: flight.query(membersQuery, [r.role, schema]),
-			policies: flight.query(policiesQuery, [r.role, schema])
+			memberships: flight.query(membershipsQuery, [textParam(r.role)]),
+			members: flight.query(membersQuery, [textParam(r.role), textParam(schema)]),
+			policies: flight.query(policiesQuery, [textParam(r.role), textParam(schema)])
 		}))
 		return {
 			replay: replayed,

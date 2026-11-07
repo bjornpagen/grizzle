@@ -19,13 +19,29 @@ import { type ApplyOutcome, Db } from "#adapter/public/db.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { ChangeSet, type Law } from "#compiler/public/changeset.ts"
 import { Compute } from "#compiler/public/compute.ts"
-import { Bits, bits, closedId, contract, Decimal, generated, pg } from "#compiler/public/fields.ts"
+import {
+	accumulated,
+	Bits,
+	bits,
+	closedId,
+	contract,
+	Decimal,
+	drawn as drawnField,
+	generated,
+	natural,
+	pg
+} from "#compiler/public/fields.ts"
 import {
 	check,
 	closed,
 	contained,
+	fin,
+	fold,
 	key,
+	Monoid,
+	mutable,
 	on,
+	ordered,
 	relation,
 	schema,
 	select
@@ -38,6 +54,7 @@ import { assert } from "#test/support/assert.ts"
 import { setText } from "#test/support/closed/bit-text.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { pgErrorFields } from "#test/support/substrate/errors.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 
@@ -68,7 +85,13 @@ import { withLayer } from "#test/support/with-layer.ts"
  *   selection keeps and one it leaves unknown share their integer;
  * - a generated field of each read, each its own relation: a closed id, an integer, a numeric, a text, a contract and
  *   a refined text read by Pick.at; and a set and an integer read by FlagRel.row and FlagW.at at the own and at the
- *   picked flag.
+ *   picked flag;
+ * - a fold, the sum of an ordered family's integers under a drawn selection of its members. On the host, grizzle's
+ *   writer fills it: an owner with every row nested as its members, a stored owner one member put at a time at its
+ *   end, and a refill past the first owner's deleted first member; each owner's total must be the sum over the members the
+ *   selection makes true. On the server, each stored member's after set to its other branch (its before where the
+ *   selection is true, its stepped value where it is false or unknown) must be refused by the fold's CHECK, 23514,
+ *   wherever its integer is not 0.
  *
  * Each drawn row is written into each relation by grizzle's writer, one insert per ChangeSet. The oracle is the
  * documented contract restated over the world's rows: Kleene's three-valued logic over reads that are NULL exactly at
@@ -79,7 +102,9 @@ import { withLayer } from "#test/support/with-layer.ts"
  *
  * The planted bugs: a domain CHECK that refuses NULL refuses the downstream case and every generated closed id, set,
  * contract or pattern field at an absent key; a C.row of a prefix completed nowhere read as NULL refuses a subset
- * check and a generated set the contract stores empty.
+ * check and a generated set the contract stores empty; a host evaluator that reads a closed read at an absent key as
+ * unsupported refuses a fold write whose selection it leaves unknown; and a fold CHECK that steps where `NOT φ` fails,
+ * not where φ holds, refuses the host's fill of such a member.
  */
 
 /** A Pick row's payload: a flag's code, an integer, a numeric in tenths, a text, a Units value and a Short text. */
@@ -150,6 +175,7 @@ interface AbsentCase {
 	readonly checks: readonly [Pred, Pred]
 	readonly contained: Pred
 	readonly keyed: Pred
+	readonly folded: Pred
 	readonly items: NonEmptyReadonlyArray<Item>
 }
 
@@ -285,6 +311,7 @@ const caseGen: Gen<AbsentCase> = (s) => {
 		checks: [s.draw(pred), s.draw(pred)],
 		contained: s.draw(pred),
 		keyed: s.draw(pred),
+		folded: s.draw(pred),
 		items: [s.draw(item), ...s.draw(array(item, { min: 0, max: 3 }))]
 	}
 }
@@ -465,22 +492,18 @@ const schemaOf = (c: AbsentCase) => {
 			Arr.map(flags, (flag) => ({ kind: kindOf(kind), flag: flagOf(flag) }))
 		)
 	)
-	const itemOf = (name: string) =>
-		relation(
-			name,
-			{
-				id: pg.integer,
-				kind: closedId(Kind),
-				flag: closedId(Flag),
-				flags: bits(Flag),
-				n: pg.integer,
-				d: pg.numeric(3, 1),
-				t: Wild,
-				u: Units,
-				p: Short
-			},
-			["id"]
-		)
+	const itemFields = {
+		id: pg.integer,
+		kind: closedId(Kind),
+		flag: closedId(Flag),
+		flags: bits(Flag),
+		n: pg.integer,
+		d: pg.numeric(3, 1),
+		t: Wild,
+		u: Units,
+		p: Short
+	}
+	const itemOf = (name: string) => relation(name, itemFields, ["id"])
 	type ItemRow = RowScalars<ReturnType<typeof itemOf>>
 	const flagTerm = (r: ItemRow, of: FlagSource) => (of === "own" ? r.flag : Pick.at("flag", r.kind))
 	const eqAt = (r: ItemRow, field: PickField, literal: Value | undefined): Predicate => {
@@ -534,6 +557,23 @@ const schemaOf = (c: AbsentCase) => {
 				return r.not(predicate(p.arg, r))
 		}
 	}
+	const Owner = relation(
+		"Owner",
+		{ id: pg.integer, members: drawnField(natural), total: accumulated(pg.integer, 0) },
+		["id"]
+	)
+	const Member = relation(
+		"Member",
+		{
+			...itemFields,
+			owner: pg.integer,
+			at: drawnField(natural),
+			before: accumulated(pg.integer, 0),
+			after: accumulated(pg.integer, 0)
+		},
+		["id"]
+	)
+	const members = ordered(on(Member, "owner", "at"), fin(Owner, "members"))
 	const Checked0 = itemOf("Checked0")
 	const Checked1 = itemOf("Checked1")
 	const Contained = itemOf("Contained")
@@ -587,7 +627,21 @@ const schemaOf = (c: AbsentCase) => {
 				select(Keyed, (r) => predicate(c.keyed, r)),
 				"n"
 			)
-		)
+		),
+		members,
+		fold(
+			members,
+			Monoid.sum,
+			on(
+				select(Member, (r) => predicate(c.folded, r)),
+				"owner",
+				"n",
+				"before",
+				"after"
+			),
+			on(Owner, "id", "total")
+		),
+		mutable(Owner)
 	] as const
 	const relations = {
 		Kind,
@@ -600,6 +654,8 @@ const schemaOf = (c: AbsentCase) => {
 		Checked1,
 		Contained,
 		Keyed,
+		Owner,
+		Member,
 		...generatedRelations
 	}
 	return {
@@ -607,6 +663,8 @@ const schemaOf = (c: AbsentCase) => {
 		checked: [Checked0, Checked1] as const,
 		Contained,
 		Keyed,
+		Owner,
+		Member,
 		generatedRelations,
 		Absent: schema("Absent", relations, statements)
 	}
@@ -624,6 +682,13 @@ type Feature =
 	| "a key refuses a selected row at a selected row's value"
 	| `${Exclude<Generated, "GenRowOwn">} refused by its NOT NULL`
 	| "a generated set stored empty"
+	| "a fold steps a member its selection makes true"
+	| "a fold skips a member its selection leaves unknown, filled with its owner"
+	| "a fold skips a member its selection leaves unknown, filled into a stored owner"
+	| "a fold refills past a deleted member, skipping one its selection leaves unknown"
+	| "the fold's CHECK refuses the unstepped after of a member its selection makes true"
+	| "the fold's CHECK refuses the stepped after of a member its selection leaves unknown"
+	| "the fold's CHECK refuses the stepped after of a member its selection makes false"
 
 const situations: NonEmptyReadonlyArray<Feature> = [
 	"a check holds of a row with a NULL read",
@@ -644,7 +709,13 @@ const situations: NonEmptyReadonlyArray<Feature> = [
 	"GenRowPicked refused by its NOT NULL",
 	"GenWeightOwn refused by its NOT NULL",
 	"GenWeightPicked refused by its NOT NULL",
-	"a generated set stored empty"
+	"a generated set stored empty",
+	"a fold steps a member its selection makes true",
+	"a fold skips a member its selection leaves unknown, filled with its owner",
+	"a fold skips a member its selection leaves unknown, filled into a stored owner",
+	"a fold refills past a deleted member, skipping one its selection leaves unknown",
+	"the fold's CHECK refuses the unstepped after of a member its selection makes true",
+	"the fold's CHECK refuses the stepped after of a member its selection leaves unknown"
 ]
 
 /** Whether a law is the one `relation` holds: its check, its selection's containment or key, or its generated field. */
@@ -704,6 +775,15 @@ const storedText = (w: World, read: Read, value: Value): string =>
 		: read.kind === "at" && read.field === "d" && typeof value === "number"
 			? tenthsText(value)
 			: String(value)
+
+/** The id of the member of the stored owner 1 the item at `i` is written as, one insert each. */
+const memberOfLater = (i: number): number => 100 + i
+
+/** An owner's fold total over `members`: the sum of the integers of the members its selection makes true. */
+const foldedTotal = (c: AbsentCase, members: ReadonlyArray<Item>): number =>
+	Arr.reduce(members, 0, (sum, item) =>
+		truth(c.world, item, c.folded) === "true" ? sum + item.n : sum
+	)
 
 /**
  * The rows written into Keyed: each item at every kind, so a row the selection keeps and one it leaves unknown, at a
@@ -838,6 +918,52 @@ const absentCase = (c: AbsentCase, notes: Case<Feature>) =>
 				}
 				kept.push({ relation: name, rows })
 			}
+			const memberFact = (item: Item, id: number, of: number) => ({
+				...itemFact(item, id),
+				owner: of
+			})
+			const together = yield* Effect.result(
+				db.apply(
+					empty.insert(built.Owner, [
+						{ id: 0, members: Arr.map(c.items, (item, id) => itemFact(item, id)) }
+					]),
+					{}
+				)
+			)
+			verdict(together, "Member", true, where("Member", 0))
+			const stored = yield* Effect.result(
+				db.apply(empty.insert(built.Owner, [{ id: 1, members: [] }]), {})
+			)
+			verdict(stored, "Owner", true, where("Owner", 1))
+			for (const [i, item] of c.items.entries()) {
+				const one = yield* Effect.result(
+					db.apply(empty.put(built.Member, [memberFact(item, memberOfLater(i), 1)]), {})
+				)
+				verdict(one, "Member", true, where("Member", memberOfLater(i)))
+			}
+			const deleted = yield* Effect.result(
+				db.apply(empty.delete(built.Member, [memberFact(c.items[0], 0, 0)]), {})
+			)
+			verdict(deleted, "Member", true, where("Member", 0))
+			for (const item of c.items) {
+				if (item.n > 0 && truth(w, item, c.folded) === "true") {
+					notes.note("a fold steps a member its selection makes true")
+				}
+				if (item.n > 0 && truth(w, item, c.folded) === "unknown") {
+					notes.note("a fold skips a member its selection leaves unknown, filled with its owner")
+					notes.note(
+						"a fold skips a member its selection leaves unknown, filled into a stored owner"
+					)
+				}
+			}
+			if (
+				c.items.length > 1 &&
+				Arr.some(c.items.slice(1), (item) => item.n > 0 && truth(w, item, c.folded) === "unknown")
+			) {
+				notes.note(
+					"a fold refills past a deleted member, skipping one its selection leaves unknown"
+				)
+			}
 			return kept
 		}).pipe(Effect.scoped, withLayer(o.layer))
 		const s = yield* Substrate
@@ -855,6 +981,47 @@ const absentCase = (c: AbsentCase, notes: Case<Feature>) =>
 				lines,
 				rows,
 				`${relation} stores each accepted row's read, a set its exact bits: ${Formatter.format(c)}`
+			)
+		}
+		const totals = yield* owner.values(
+			`SELECT ${names.column(built.Owner, "id")}::text, ${names.column(built.Owner, "total")}::text FROM ${names.table(built.Owner)} ORDER BY ${names.column(built.Owner, "id")}`,
+			[]
+		)
+		const totalLines: ReadonlyArray<string> = Arr.map(totals, (row) =>
+			Arr.join(Arr.map(row, String), " ")
+		)
+		assert.deepEqual(
+			totalLines,
+			[`0 ${foldedTotal(c, c.items.slice(1))}`, `1 ${foldedTotal(c, c.items)}`],
+			`each owner's total sums the members its selection makes true, none it leaves unknown: ${Formatter.format(c)}`
+		)
+		const probes = [
+			...Arr.map(c.items.slice(1), (item, i) => ({ item, id: i + 1 })),
+			...Arr.map(c.items, (item, i) => ({ item, id: memberOfLater(i) }))
+		]
+		for (const { item, id } of probes) {
+			const t = truth(w, item, c.folded)
+			const before = names.column(built.Member, "before")
+			const unstepped = t === "true" ? before : `${before} + ${names.column(built.Member, "n")}`
+			const updated = yield* Effect.result(
+				owner.query(
+					`UPDATE ${names.table(built.Member)} SET ${names.column(built.Member, "after")} = ${unstepped} WHERE ${names.column(built.Member, "id")} = ${id}`,
+					[]
+				)
+			)
+			const at = `the stored member ${id}'s after set to its other branch, the selection ${t}, of ${Formatter.format(c)}`
+			if (item.n === 0) {
+				assert.equal(updated._tag, "Success", `${at} is its own after, so it stands`)
+				continue
+			}
+			const fields = updated._tag === "Failure" ? pgErrorFields(updated.failure) : undefined
+			assert.equal(fields?.code, "23514", `${at} is refused by the fold's CHECK`)
+			notes.note(
+				t === "true"
+					? "the fold's CHECK refuses the unstepped after of a member its selection makes true"
+					: t === "unknown"
+						? "the fold's CHECK refuses the stepped after of a member its selection leaves unknown"
+						: "the fold's CHECK refuses the stepped after of a member its selection makes false"
 			)
 		}
 	}).pipe(Effect.scoped)
@@ -907,6 +1074,7 @@ layer(Substrate.layer, { excludeTestServices: true })("a closed read at an absen
 								],
 								contained: { kind: "subset", of: "picked" },
 								keyed: { kind: "subset", of: "picked" },
+								folded: { kind: "subset", of: "picked" },
 								items: [{ kind: 1, flag: 0, flags: [], n: 0, d: 0, t: "", u: 0, p: "a" }]
 							},
 							draws: "",

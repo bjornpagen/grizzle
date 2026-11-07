@@ -3,6 +3,7 @@ import { Refusal } from "#compiler/core/canonical.ts"
 import type { TransientReason } from "#compiler/core/errors.ts"
 import type { ConstraintName, ParamId } from "#compiler/core/ids.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import type { OutputText } from "#compiler/core/wire.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
 import type { FamilyId } from "#compiler/ir/law.ts"
@@ -184,10 +185,10 @@ const writesOf = (step: WriteStep): ReadonlyArray<RowsStep> => {
  * outcome reads. */
 export const writeRows = (
 	step: WriteStep,
-	rows: ReadonlyArray<ReadonlyArray<string>>
+	rows: ReadonlyArray<ReadonlyArray<OutputText>>
 ): ReadonlyArray<{
 	readonly step: RowsStep
-	readonly rows: ReadonlyArray<ReadonlyArray<string>>
+	readonly rows: ReadonlyArray<ReadonlyArray<OutputText>>
 }> => {
 	switch (step.kind) {
 		case "write":

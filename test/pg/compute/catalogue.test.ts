@@ -723,118 +723,128 @@ const reached = (
 /**
  * Every admitted entry's cases: each boundary class of its carrier at each operand position, every pair of boundary
  * classes for a binary entry, and a walk over the boundary and generated operands; each operand read through its
- * spelling's term.
+ * spelling's term. A drawn case builds some 56,600 of them, each lowered, rendered and evaluated on the host, about 20 s
+ * of CPU in all, so building yields after each one: the case's hang guard and its test's deadline can cut it there,
+ * which a synchronous build of that length would starve.
  */
-const buildCases = (operands: Operands): ReadonlyArray<ReadCase> => {
-	const cases: Array<ReadCase> = []
-	const add = (
-		label: string,
-		expr: OpenExpr,
-		bindings: Readonly<Record<string, LeafBinding>>,
-		predicate: boolean,
-		read: ReadonlyArray<Operand>
-	) => {
-		cases.push({
-			built: makeCase(label, expr, bindings, predicate),
-			spelling: spellingOf(read),
-			read
-		})
-	}
-	for (const c of gateCarriers) {
-		const f = fields[c]
-		const values = operandValues(c, operands)
-		const classes = boundaryValues(c, operands)
-		const terms = [v("a", f), v("b", f), v("c", f)]
-		for (const op of ops) {
-			if (!admitted(() => op.build(terms, c))) {
-				continue
-			}
-			const walk = pick(values, 200, operands.walk ^ (op.name.length * 31 + c.length))
-			const atPositions = Arr.flatMap(Arr.range(0, op.arity - 1), (p) =>
-				Arr.map(classes, (k, i) =>
-					Arr.map([0, 1, 2], (q) => (q === p ? k : at(at(walk, i % walk.length), q)))
+const buildCases = (operands: Operands): Effect.Effect<ReadonlyArray<ReadCase>> =>
+	Effect.gen(function* () {
+		const cases: Array<ReadCase> = []
+		const add = (
+			label: string,
+			expr: OpenExpr,
+			bindings: Readonly<Record<string, LeafBinding>>,
+			predicate: boolean,
+			read: ReadonlyArray<Operand>
+		) => {
+			cases.push({
+				built: makeCase(label, expr, bindings, predicate),
+				spelling: spellingOf(read),
+				read
+			})
+		}
+		for (const c of gateCarriers) {
+			const f = fields[c]
+			const values = operandValues(c, operands)
+			const classes = boundaryValues(c, operands)
+			const terms = [v("a", f), v("b", f), v("c", f)]
+			for (const op of ops) {
+				if (!admitted(() => op.build(terms, c))) {
+					continue
+				}
+				const walk = pick(values, 200, operands.walk ^ (op.name.length * 31 + c.length))
+				const atPositions = Arr.flatMap(Arr.range(0, op.arity - 1), (p) =>
+					Arr.map(classes, (k, i) =>
+						Arr.map([0, 1, 2], (q) => (q === p ? k : at(at(walk, i % walk.length), q)))
+					)
 				)
+				const pairs =
+					op.arity === 1 ? [] : Arr.flatMap(classes, (x) => Arr.map(classes, (y) => [x, y, y]))
+				for (const tuple of [...atPositions, ...pairs, ...walk]) {
+					const expr = op.build(
+						Arr.map(operandNames, (name, k) => spelledTerm(name, f, at(tuple, k))),
+						c
+					).expr
+					add(
+						`${op.name}/${c}`,
+						expr,
+						{
+							a: literalOf(f, at(tuple, 0)),
+							b: literalOf(f, at(tuple, 1)),
+							c: literalOf(f, at(tuple, 2))
+						},
+						op.predicate,
+						tuple.slice(0, op.arity)
+					)
+					yield* Effect.yieldNow
+				}
+			}
+			for (const [name, target] of castTargets) {
+				const label = `cast:${typeLabel(f.scalar)}->${name}`
+				if (!admitted(() => Compute.cast(terms[0], target))) {
+					continue
+				}
+				for (const x of values) {
+					add(
+						label,
+						Compute.cast(spelledTerm("a", f, x), target).expr,
+						{ a: literalOf(f, x) },
+						false,
+						[x]
+					)
+					yield* Effect.yieldNow
+				}
+			}
+		}
+		const numeric = testPg.numeric
+		const numericValues = operandValues("numeric", operands)
+		const counts = [-1, 0, 1, 3, 10, 2147483647]
+		const bucket = (a: Operand, b: Operand, c: Operand, n: number) =>
+			add(
+				"widthBucket/numeric",
+				Compute.widthBucket(
+					spelledTerm("a", numeric, a),
+					spelledTerm("b", numeric, b),
+					spelledTerm("c", numeric, c),
+					v("n", testPg.integer)
+				).expr,
+				{
+					a: literalOf(numeric, a),
+					b: literalOf(numeric, b),
+					c: literalOf(numeric, c),
+					n: { kind: "literal", field: testPg.integer, value: n }
+				},
+				false,
+				[a, b, c]
 			)
-			const pairs =
-				op.arity === 1 ? [] : Arr.flatMap(classes, (x) => Arr.map(classes, (y) => [x, y, y]))
-			for (const tuple of [...atPositions, ...pairs, ...walk]) {
-				const expr = op.build(
-					Arr.map(operandNames, (name, k) => spelledTerm(name, f, at(tuple, k))),
-					c
-				).expr
-				add(
-					`${op.name}/${c}`,
-					expr,
-					{
-						a: literalOf(f, at(tuple, 0)),
-						b: literalOf(f, at(tuple, 1)),
-						c: literalOf(f, at(tuple, 2))
-					},
-					op.predicate,
-					tuple.slice(0, op.arity)
-				)
-			}
+		for (const [i, t] of pick(numericValues, 1200, operands.walk ^ 77).entries()) {
+			bucket(at(t, 0), at(t, 1), at(t, 2), at(counts, i % counts.length))
+			yield* Effect.yieldNow
 		}
-		for (const [name, target] of castTargets) {
-			const label = `cast:${typeLabel(f.scalar)}->${name}`
-			if (!admitted(() => Compute.cast(terms[0], target))) {
-				continue
-			}
-			for (const x of values) {
-				add(
-					label,
-					Compute.cast(spelledTerm("a", f, x), target).expr,
-					{ a: literalOf(f, x) },
-					false,
-					[x]
-				)
-			}
+		for (const [i, k] of boundaryValues("numeric", operands).entries()) {
+			const lo = plainOperand(Decimal.of(BigInt(-(i % 17))), "drawn")
+			const hi = plainOperand(Decimal.of(`${(i % 13) + 1}.${i % 7}`), "drawn")
+			bucket(k, lo, hi, (i % 9) + 1)
+			yield* Effect.yieldNow
+			bucket(lo, k, hi, (i % 9) + 1)
+			yield* Effect.yieldNow
+			bucket(lo, hi, k, (i % 9) + 1)
+			yield* Effect.yieldNow
 		}
-	}
-	const numeric = testPg.numeric
-	const numericValues = operandValues("numeric", operands)
-	const counts = [-1, 0, 1, 3, 10, 2147483647]
-	const bucket = (a: Operand, b: Operand, c: Operand, n: number) =>
-		add(
-			"widthBucket/numeric",
-			Compute.widthBucket(
-				spelledTerm("a", numeric, a),
-				spelledTerm("b", numeric, b),
-				spelledTerm("c", numeric, c),
-				v("n", testPg.integer)
-			).expr,
-			{
-				a: literalOf(numeric, a),
-				b: literalOf(numeric, b),
-				c: literalOf(numeric, c),
-				n: { kind: "literal", field: testPg.integer, value: n }
-			},
-			false,
-			[a, b, c]
-		)
-	for (const [i, t] of pick(numericValues, 1200, operands.walk ^ 77).entries()) {
-		bucket(at(t, 0), at(t, 1), at(t, 2), at(counts, i % counts.length))
-	}
-	for (const [i, k] of boundaryValues("numeric", operands).entries()) {
-		const lo = plainOperand(Decimal.of(BigInt(-(i % 17))), "drawn")
-		const hi = plainOperand(Decimal.of(`${(i % 13) + 1}.${i % 7}`), "drawn")
-		bucket(k, lo, hi, (i % 9) + 1)
-		bucket(lo, k, hi, (i % 9) + 1)
-		bucket(lo, hi, k, (i % 9) + 1)
-	}
-	for (const [x, y] of operands.fractionalPairs) {
-		const a = plainOperand(Decimal.of(x), "drawn")
-		const b = plainOperand(Decimal.of(y), "drawn")
-		add(
-			"lcm/numeric",
-			Compute.lcm(v("a", numeric), v("b", numeric)).expr,
-			{ a: literalOf(numeric, a), b: literalOf(numeric, b) },
-			false,
-			[a, b]
-		)
-	}
-	return cases
-}
+		for (const [x, y] of operands.fractionalPairs) {
+			const a = plainOperand(Decimal.of(x), "drawn")
+			const b = plainOperand(Decimal.of(y), "drawn")
+			add(
+				"lcm/numeric",
+				Compute.lcm(v("a", numeric), v("b", numeric)).expr,
+				{ a: literalOf(numeric, a), b: literalOf(numeric, b) },
+				false,
+				[a, b]
+			)
+			yield* Effect.yieldNow
+		}
+		return cases
+	})
 
 /** The integer digits of a finite numeric: the least d with |x| < 10^d. */
 const integerDigits = (x: FiniteDecimal): number => {
@@ -964,7 +974,7 @@ layer(Substrate.layer)("the Compute catalogue against PostgreSQL 19", (it) => {
 						},
 						(operands, c) =>
 							Effect.gen(function* () {
-								const all = buildCases(operands)
+								const all = yield* buildCases(operands)
 								const ran = Arr.flatMap(all, (k) => (k.built.kind === "case" ? [k] : []))
 								const cases = Arr.flatMap(ran, (k) =>
 									k.built.kind === "case" ? [k.built.evalCase] : []

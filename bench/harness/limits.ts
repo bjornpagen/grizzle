@@ -3,7 +3,7 @@
  * (packages/engine/src/core/limits.ts). A benchmark bounds no wait by a time of its own: a sample that hangs is its
  * operator's to interrupt, which kills the sample with its process group.
  */
-import { derived, type Limit } from "#compiler/core/limits.ts"
+import { derived, type Limit, postgresSource, published } from "#compiler/core/limits.ts"
 import { nodeTimerMax } from "#test/support/limits.ts"
 
 /**
@@ -48,4 +48,33 @@ export const benchExitWait: Limit = derived({
 	derivation:
 		'PostgreSQL waits only for a positive timeout and a benchmark sets no deadline of its own, so it is the longest wait a benchmark states, the longest delay a Node timer keeps, which pg_terminate_backend keeps too, reading its timeout into a C int (REL_19_RC1 src/backend/storage/ipc/signalfuncs.c: "int timeout; /* milliseconds */"): a backend that never exits is the operator\'s to interrupt',
 	compute: ([max]) => max.value
+})
+
+/**
+ * The most compiled regular expressions one PostgreSQL backend keeps: its cache is a move-to-front list, so a pattern is
+ * compiled again once this many others were used since its last use.
+ */
+const regexCacheEntries: Limit = published({
+	value: 32,
+	owner: "PostgreSQL 19rc1's regular expression functions",
+	unit: "compiled regular expressions",
+	scope: "one backend's cache of the regular expressions `~` compiles",
+	constraint: "compile-time constant",
+	source: `${postgresSource}/src/backend/utils/adt/regexp.c#L95`,
+	quote: "#define MAX_CACHED_RES\t32",
+	verified: "2026-11-06"
+})
+
+/**
+ * The patterns a family-patterns case's members cycle through: past the cache, so in the order written every row
+ * would compile its pattern again.
+ */
+export const patternDictionary: Limit = derived({
+	owner: "grizzle's benchmarks",
+	unit: "patterns",
+	scope: "the closed dictionary of patterns one family-patterns case's members cycle through",
+	from: [regexCacheEntries],
+	derivation:
+		"twice the cache: rows cycling through more patterns than the move-to-front cache holds evict each pattern before its next use, and twice is past it by the cache's whole size",
+	compute: ([cache]) => 2 * cache.value
 })

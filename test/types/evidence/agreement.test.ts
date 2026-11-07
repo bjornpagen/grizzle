@@ -51,7 +51,8 @@ import { typeRun } from "#test/types/batch/provided.ts"
  * evidence types reason about, a constant in each position, both verdicts, a variable two filters fix, a contract in a
  * head, a self-join whose get the engine proves, which pinnedSelfJoin draws by construction, a span parameter opposite
  * each span predicate and in a producer, a distance to a vector parameter, a search whose get the engine proves, a
- * closed relation, a roster and a derived relation matched, an extension's Db reading a base query and a base Db
+ * closed relation, a roster and a derived relation matched, each span construct over a span of dates, its parameter and
+ * its width in days beside an integer span's width, an extension's Db reading a base query and a base Db
  * refused an extension's, a keyed get admitted through each kind of key position and with a name beside its key, and
  * refused for a key field missing, alone or with a name in its place, and every fault refused, each whose site may hold a valid value admitted too, so the
  * program is never vacuous on any seed; the admission matrix holds every position and kind by construction.
@@ -72,6 +73,12 @@ const required: Situations<AgreementNote> = [
 	"a distance to a vector parameter",
 	"a search get proves",
 	"a closed relation matched",
+	"r.allen over date spans",
+	"a date's point test",
+	"a producer over date spans",
+	"a date span parameter",
+	"a width in days",
+	"a width over integer endpoints",
 	"a roster matched",
 	"a derived relation's get proved",
 	"an extension's Db read a base query",

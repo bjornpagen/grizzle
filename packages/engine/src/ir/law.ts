@@ -11,7 +11,12 @@ import type { CellSide } from "#compiler/ir/cells.ts"
 import type { FieldDesc, TermDesc } from "#compiler/ir/desc.ts"
 import type { ExprTable, ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
 import type { DeclaredKey, HeadingColumn, RelNode } from "#compiler/ir/rel.ts"
-import type { RegexRef, ScalarType, SpanCarrier } from "#compiler/ir/scalar.ts"
+import {
+	isSpanCarrier,
+	type RegexRef,
+	type ScalarType,
+	type SpanCarrier
+} from "#compiler/ir/scalar.ts"
 
 /** The recognized shapes. */
 const lawShapes = [
@@ -83,8 +88,7 @@ export interface SpanField extends LawField {
 	readonly type: SpanType
 }
 
-export const isSpanField = (f: LawField): f is SpanField =>
-	f.type.carrier === "range4" || f.type.carrier === "range8"
+export const isSpanField = (f: LawField): f is SpanField => isSpanCarrier(f.type.carrier)
 
 /** The names of fields, in their order. */
 export const fieldNames = (fields: ReadonlyArray<LawField>): ReadonlyArray<string> =>

@@ -10,13 +10,13 @@ import type { CarrierValue } from "#compiler/scalar/compute/literal.ts"
 import { Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 import { canonicalZero } from "#compiler/scalar/values/float.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
-import { type CatalogResult, compareCarried } from "#test/support/oracle/evaluate/catalog.ts"
 import {
 	Identities,
 	type Identity,
 	type Interned,
 	sameIdentity
-} from "#test/support/oracle/reference/identity.ts"
+} from "#test/support/kernel/identity.ts"
+import { type CatalogResult, compareCarried } from "#test/support/oracle/evaluate/catalog.ts"
 
 /**
  * Why the reference states no value: a closed union, so a new way to give up is a type change, and each is a named,
@@ -228,7 +228,8 @@ export const valueIdentity = (v: Value, type: ScalarType): Identity => {
 			return ["value", members.length, ...members]
 		}
 		case "range4":
-		case "range8": {
+		case "range8":
+		case "rangeDate": {
 			const { start, end } = asSpan(v)
 			return ["value", start, end]
 		}
@@ -279,6 +280,7 @@ export const indexIdentity = (v: Value, type: ScalarType): Identity | undefined 
 			return v instanceof Set ? valueIdentity(v, type) : undefined
 		case "range4":
 		case "range8":
+		case "rangeDate":
 			return typeof v === "object" && "start" in v ? valueIdentity(v, type) : undefined
 		case "vector":
 			return typeof v === "object" && "vector" in v ? valueIdentity(v, type) : undefined
@@ -445,7 +447,8 @@ export const literalOfValue = (v: Value, type: ScalarType): TypedLiteral => {
 		case "bits":
 			return { kind: "handles", handles: setMembers(v, base.roster.handles) }
 		case "range4":
-		case "range8": {
+		case "range8":
+		case "rangeDate": {
 			const { start, end } = asSpan(v)
 			return { kind: "span", start, end }
 		}

@@ -8,15 +8,16 @@
  * can state a gap, a shared slot, a count that disagrees with its family or a fold that disagrees with its members.
  */
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import type { ParamText } from "#compiler/core/wire.ts"
 
 /** An owner, or a group, by its key's texts, in the order the family's group fields pair with them. */
-export type Owner = NonEmptyReadonlyArray<string>
+export type Owner = NonEmptyReadonlyArray<ParamText>
 
 /** A member by its relation's primary key: each key field's text, in key order. */
-export type MemberKey = NonEmptyReadonlyArray<string>
+export type MemberKey = NonEmptyReadonlyArray<ParamText>
 
 /** The texts of a row's columns beside its key, in its relation's row layout. */
-export type Member = ReadonlyArray<string>
+export type Member = ReadonlyArray<ParamText>
 
 /** A member relation's row as one statement writes it: its key's texts, then every other column's (`Member`). */
 export interface Row {
@@ -56,10 +57,10 @@ export const textsKey = (texts: ReadonlyArray<string>): string => {
 }
 
 /** A row's texts: its key, then its other columns. */
-export const rowTexts = (row: Row): ReadonlyArray<string> => [...row.key, ...row.columns]
+export const rowTexts = (row: Row): ReadonlyArray<ParamText> => [...row.key, ...row.columns]
 
 /** A deleted row's texts: its key. */
-export const keyTexts = (key: MemberKey): ReadonlyArray<string> => key
+export const keyTexts = (key: MemberKey): ReadonlyArray<ParamText> => key
 
 /** A count statement row's texts: the owner's key, then its count and its ends. */
-export const countTexts = (row: CountRow): ReadonlyArray<string> => [...row.owner, ...row.drawn]
+export const countTexts = (row: CountRow): ReadonlyArray<ParamText> => [...row.owner, ...row.drawn]

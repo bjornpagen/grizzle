@@ -4,51 +4,58 @@ import { query, v } from "#compiler/public/query.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 
-/**
- * The schema the Compute type/engine agreement draws its cases over (test/support/agreement/compute.ts): one relation,
- * Cell, with a field of every carrier a Compute operand may have, a contract over each base the catalogue reads (a
- * bigint with and without a predicate, a numeric, an integer that proves itself nonzero, a text), a text of no bound
- * and a word of a few letters, spans of a contract and of an integer, vectors of two dimensions, a closed id and sets of
- * two rosters that share a member.
- */
 export const Tone = closed("Tone", ["low", "high"])
 const Shade = closed("Shade", ["low", "dark"])
-const Cents = contract("Cents", pg.bigint, (x) => x.ge(0n))
+const Cents = contract("Cents", pg.bigint, (x) => x.ge(0n), { proves: ["nonnegative"] })
 const EpochDay = contract("EpochDay", pg.bigint)
 const Rate = contract("Rate", pg.numeric(7, 6), (x) => x.between(0n, 1n))
 const Divisor = contract("Divisor", pg.integer, (x) => x.ne(0), { proves: ["nonzero"] })
 const Body = contract("Body", str.regex("^.*$", "su"))
 
-export const Cell = relation(
-	"Cell",
-	{
-		id: uuid,
-		small: pg.smallint,
-		int: pg.integer,
-		big: pg.bigint,
-		real: pg.real,
-		dbl: pg["double precision"],
-		dec: pg.numeric(10, 2),
-		money: pg.money,
-		flag: pg.boolean,
-		text: str.regex("^.*$", "su"),
-		word: str.regex("^[a-z]{1,8}$"),
-		day: date,
-		cents: Cents,
-		epoch: EpochDay,
-		rate: Rate,
-		divisor: Divisor,
-		body: Body,
-		centsSpan: span(Cents),
-		intSpan: span(pg.integer),
-		vec: pg.vector(3),
-		wide: pg.vector(4),
-		tone: closedId(Tone),
-		tones: bits(Tone),
-		shades: bits(Shade)
-	},
-	["id"]
-)
+/**
+ * The relation the Compute type/engine agreement draws its cases over (test/support/agreement/compute.ts), over a Rate
+ * contract: Cell, with a field of every carrier a Compute operand may have, a contract over each base the catalogue
+ * reads (a bigint that declares itself nonnegative and one with no predicate, a numeric in [0, 1], an integer that
+ * declares itself nonzero, a text), a text of no bound and a word of a few letters, spans of a contract, of a contract
+ * that declares a fact, of an integer and of a date, vectors of two dimensions, a closed id and sets of two rosters that
+ * share a member.
+ */
+const cellOver = (rate: typeof Rate) =>
+	relation(
+		"Cell",
+		{
+			id: uuid,
+			small: pg.smallint,
+			int: pg.integer,
+			big: pg.bigint,
+			real: pg.real,
+			dbl: pg["double precision"],
+			dec: pg.numeric(10, 2),
+			money: pg.money,
+			flag: pg.boolean,
+			text: str.regex("^.*$", "su"),
+			word: str.regex("^[a-z]{1,8}$"),
+			day: date,
+			cents: Cents,
+			epoch: EpochDay,
+			rate,
+			divisor: Divisor,
+			body: Body,
+			centsSpan: span(Cents),
+			intSpan: span(pg.integer),
+			daySpan: span(date),
+			divisorSpan: span(Divisor),
+			vec: pg.vector(3),
+			wide: pg.vector(4),
+			tone: closedId(Tone),
+			tones: bits(Tone),
+			shades: bits(Shade)
+		},
+		["id"]
+	)
+
+/** Cell over Rate, the relation the population's programs read. */
+export const Cell = cellOver(Rate)
 
 export const Cells = schema("Cells", { Tone, Shade, Cell }, [])
 
@@ -59,18 +66,39 @@ export const Cells = schema("Cells", { Tone, Shade, Cell }, [])
  * whatever the head term proved (compute.ts's heading operand): Divisor's nonzero where the column is of Divisor, none
  * where it is of a plain integer.
  */
-export const Heads = query(Cells).rule((r) => {
-	const cell = v(Cell, "cell")
-	return r.match(Cell, { id: cell.id, divisor: cell.divisor, int: cell.int }).find({
-		id: cell.id,
-		divisor: cell.divisor,
-		base: Compute.base(cell.divisor),
-		cast: Compute.cast(cell.divisor, Cell.fields.int),
-		cond: Compute.cond(Compute.gt(cell.int, 0), cell.divisor, cell.divisor),
-		least: Compute.least(cell.divisor, cell.divisor),
-		greatest: Compute.greatest(cell.divisor, cell.divisor),
-		min: r.min(cell.divisor),
-		max: r.max(cell.divisor),
-		sum: r.sum(cell.divisor)
+const headsOver = (cells: typeof Cells, of: typeof Cell) =>
+	query(cells).rule((r) => {
+		const cell = v(of, "cell")
+		return r.match(of, { id: cell.id, divisor: cell.divisor, int: cell.int }).find({
+			id: cell.id,
+			divisor: cell.divisor,
+			base: Compute.base(cell.divisor),
+			cast: Compute.cast(cell.divisor, of.fields.int),
+			cond: Compute.cond(Compute.gt(cell.int, 0), cell.divisor, cell.divisor),
+			least: Compute.least(cell.divisor, cell.divisor),
+			greatest: Compute.greatest(cell.divisor, cell.divisor),
+			min: r.min(cell.divisor),
+			max: r.max(cell.divisor),
+			sum: r.sum(cell.divisor)
+		})
 	})
+
+/** Heads over Cell. */
+export const Heads = headsOver(Cells, Cell)
+
+/**
+ * Cell's schema as the types read its contracts: each one its declared facts alone, since no type states a contract's
+ * predicate. Rate declares none, so it holds every value of its base here; Cents, EpochDay, Divisor and Body are their
+ * declared facts already. Where the engine refuses a case for a contract's predicate (ContractLiteral), the population
+ * judges it over this schema too: a refusal here is one the types decide, and any other is theirs to state.
+ */
+const RateAsTyped = contract("Rate", pg.numeric(7, 6))
+const CellAsTyped = cellOver(RateAsTyped)
+const CellsAsTyped = schema("Cells", { Tone, Shade, Cell: CellAsTyped }, [])
+
+/** The population's world as the types read it (CellsAsTyped). */
+export const AsTyped = Object.freeze({
+	Cell: CellAsTyped,
+	Cells: CellsAsTyped,
+	Heads: headsOver(CellsAsTyped, CellAsTyped)
 })

@@ -129,8 +129,9 @@ export type AdmissionPosition = (typeof admissionPositions)[number]
  * Every kind of constant: a JavaScript value of each carrier, a roster's handle, a typed Compute.literal and a
  * contract's, an uppercase uuid, which the builder canonicalizes, a finite refined text's member, and a parameter of
  * the column's own descriptor; and the ill-typed: another roster's handle, a contract's constant at its base, a handle
- * off its roster, a text that is no uuid's spelling at a uuid, another pattern's member at a refined text, and a
- * parameter of another column's descriptor, a term of its own type that adopts nothing from its uses.
+ * off its roster, a text that is no uuid's spelling at a uuid, another pattern's member at a refined text, a
+ * parameter of another column's descriptor, a term of its own type that adopts nothing from its uses, and a roster's
+ * member as a typed constant of its closed id, Compute.literal, which is X.handle(member) instead.
  */
 const constantKinds = [
 	"text",
@@ -152,7 +153,8 @@ const constantKinds = [
 	"language",
 	"otherLanguage",
 	"param",
-	"otherParam"
+	"otherParam",
+	"rosterLiteral"
 ] as const
 export type ConstantKind = (typeof constantKinds)[number]
 
@@ -298,6 +300,14 @@ const constantOf = (kind: ConstantKind, pick: number): Constant => {
 			const column = of(["integer", "uuid", "cents", "tone", "text"] as const)
 			return parameterOf(column, column)
 		}
+		case "rosterLiteral": {
+			const m = of(["low", "mid", "high"] as const)
+			return {
+				source: `Compute.literal(Cell.fields.tone, ${jsonText(m)})`,
+				value: () => computeCore.literal(Cell.fields.tone, m),
+				column: "tone"
+			}
+		}
 		case "otherParam": {
 			const [descriptor, column] = of<readonly [Column, Column]>([
 				["uuid", "cents"],
@@ -317,10 +327,18 @@ const headed = (position: AdmissionPosition): boolean =>
 	position === "selfJoinAttachParent" ||
 	position === "pageOrderKey"
 
-/** The diagnostic a refused statement raises: a handle's member's, else its position's (see the header). */
-const refusalCode = (position: AdmissionPosition, kind: ConstantKind): "TS2322" | "TS2345" =>
+/**
+ * The diagnostic a refused statement raises: a handle's member's, else its position's (see the header); at a computed
+ * binding, the binding's where the constant is a term of its column's own contract, Cents (a contract's constant or a
+ * parameter declared at the column), whose sum the column refuses, and the sum's operand's otherwise.
+ */
+const refusalCode = (
+	position: AdmissionPosition,
+	kind: ConstantKind,
+	column: Column
+): "TS2322" | "TS2345" =>
 	position === "computedBinding"
-		? kind === "contract"
+		? column === "cents" && (kind === "contract" || kind === "param")
 			? "TS2322"
 			: "TS2345"
 		: kind === "offRoster" ||
@@ -361,6 +379,7 @@ const isJavaScriptValue = (kind: ConstantKind): boolean => {
 		case "offRoster":
 		case "param":
 		case "otherParam":
+		case "rosterLiteral":
 			return false
 	}
 }
@@ -419,11 +438,17 @@ const namedRefusal = (
 	}
 }
 
-/** The directive over a refused statement: its named refusal, else its diagnostic and why. */
-const directiveOf = (position: AdmissionPosition, kind: ConstantKind): string => {
+/**
+ * The directive over a refused statement: a roster's member as Compute.literal is the literal's own refusal, its
+ * descriptor's (TS2345), wherever it stands; else its named refusal, else its diagnostic and why.
+ */
+const directiveOf = (position: AdmissionPosition, kind: ConstantKind, column: Column): string => {
+	if (kind === "rosterLiteral") {
+		return "// @ts-expect-error -- TS2345: a roster's member is X.handle(member), never Compute.literal"
+	}
 	const named = namedRefusal(position, kind)
 	return named === undefined
-		? `// @ts-expect-error -- ${refusalCode(position, kind)}: the engine refuses ${kind} at ${position}`
+		? `// @ts-expect-error -- ${refusalCode(position, kind, column)}: the engine refuses ${kind} at ${position}`
 		: `// @ts-expect-error -- ${named.code} refusal: ${named.message}`
 }
 
@@ -999,12 +1024,15 @@ const valued: ReadonlyArray<ConstantKind> = [
 
 /**
  * The kinds a position draws: every kind, but where a head holds the constant only those a head holds, where the
- * verdict turns on two constants being one value only those whose value the types carry (see the header), and in a
- * check's predicate, which is no rule's and so has no r.param to declare one, no parameter.
+ * verdict turns on two constants being one value only those whose value the types carry (see the header), in a
+ * check's predicate, which is no rule's and so has no r.param to declare one, no parameter, and at a discriminant,
+ * whose two arms hold two constants of one kind, no parameter: two drawn parameters are of two descriptors, so their
+ * arms would differ in type, the union's own refusal.
  */
 const kindsAt = (position: AdmissionPosition): ReadonlyArray<ConstantKind> => {
 	switch (position) {
 		case "discriminant":
+			return Arr.filter(constantKinds, (k) => k !== "vector" && k !== "param" && k !== "otherParam")
 		case "heteroArms":
 		case "threeArms":
 			return Arr.filter(constantKinds, (k) => k !== "vector")
@@ -1051,10 +1079,11 @@ export const admissionCells = (pick: (cell: number) => number): ReadonlyArray<Ad
 		),
 		({ position, kind }, i): AdmissionCell => {
 			const at = pick(i)
-			const statement = statementOf(position, constantOf(kind, at), constantOf(kind, at + 1), at, i)
+			const constant = constantOf(kind, at)
+			const statement = statementOf(position, constant, constantOf(kind, at + 1), at, i)
 			const admitted = statement.verdict()
 			const [first, ...rest] = Arr.reverse(statement.lines)
-			const refused = [...Arr.reverse(rest), directiveOf(position, kind), first]
+			const refused = [...Arr.reverse(rest), directiveOf(position, kind, constant.column), first]
 			return { position, kind, admitted, lines: admitted ? statement.lines : refused }
 		}
 	)
@@ -1709,10 +1738,9 @@ export const admissionModule = (
 			`import { Decimal, Money, pg, uuid, Vector } from ${jsonText(entries.fields)}`,
 			`import { query, v } from ${jsonText(entries.query)}`,
 			`import type { DbOf } from ${jsonText(entries.db)}`,
-			`import { check, role } from ${jsonText(entries.declare)}`,
-			`import { Agree, AgreeAbove, Apart, agreeEntries, Cell, Cents, Item, Note, Shade, Tone } from ${jsonText(entries.schema)}`,
+			`import { check } from ${jsonText(entries.declare)}`,
+			`import { Agree, AgreeAbove, Apart, Cell, Cents, Item, Note, Reader, Shade, Tone } from ${jsonText(entries.schema)}`,
 			"",
-			'const Reader = role(Agree, "reader", agreeEntries)',
 			byIdsSource,
 			"",
 			...Arr.flatMap(cells, (c) => [

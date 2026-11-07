@@ -20,8 +20,9 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, type Scope, Struct } from "effect"
 import type { MigrateError } from "#adapter/migrate/errors.ts"
 import type { FolderSource } from "#adapter/migrate/input.ts"
-import { scalarCodec } from "#compiler/codec/scalar.ts"
+import { scalarReader } from "#compiler/codec/read.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
+import type { OutputText } from "#compiler/core/wire.ts"
 import type { Declarations, Named } from "#compiler/deploy/diff/plan.ts"
 import type { GenerateResult } from "#compiler/deploy/render/generate.ts"
 import { codebookOf } from "#compiler/deploy/snapshot/build.ts"
@@ -45,7 +46,7 @@ import {
 } from "#compiler/public/schema.ts"
 import { evaluateTable } from "#compiler/scalar/compute/evaluate.ts"
 import type { CarrierValue } from "#compiler/scalar/compute/literal.ts"
-import { regexMember } from "#compiler/scalar/regex/nfa.ts"
+import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { ownLogin } from "#compiler/schema/own.ts"
 import { loginDescOf, role } from "#compiler/schema/world.ts"
 import { printObjectName, quoteIdent } from "#compiler/sql/print.ts"
@@ -83,6 +84,7 @@ import { checking, owning } from "#test/support/policy.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import type { Credentials, RawSession } from "#test/support/substrate/session.ts"
 import { ownerSession, Substrate, worldSession } from "#test/support/substrate/substrate.ts"
+import { outputText } from "#test/support/wire.ts"
 
 /**
  * Generated fields on PostgreSQL 19rc1: STORED generated columns, run as programs of a commands machine whose model
@@ -895,17 +897,17 @@ const sameAsModel = (sys: System, model: Model) =>
 			"R's columns are its caller's fields and exactly the model's generated fields, each STORED"
 		)
 		const codes = codebookOf(snapshotOf(sys))
-		const codeCodec = scalarCodec(codeType(model.tier), codes)
-		const setCodec = scalarCodec(setType(model.tier), codes)
+		const codeCodec = scalarReader(codeType(model.tier), codes)
+		const setCodec = scalarReader(setType(model.tier), codes)
 		const storedCodec = (name: GeneratedName) => {
 			switch (name) {
 				case "k":
-					return scalarCodec(countType, codes)
+					return scalarReader(countType, codes)
 				case "p":
 				case "s":
 					return setCodec
 				case "w":
-					return scalarCodec(weightType, codes)
+					return scalarReader(weightType, codes)
 			}
 		}
 		const fields = [...callerFields, ...present]
@@ -921,7 +923,8 @@ const sameAsModel = (sys: System, model: Model) =>
 		const closedRead = closedReader(model.closedRows)
 		assert.equal(rows.length, model.rows.length, "R holds the model's rows")
 		for (const [i, raw] of rows.entries()) {
-			const text = (at: number): string => String(defined(raw[at], `column ${at} of row ${i}`))
+			const text = (at: number): OutputText =>
+				outputText(String(defined(raw[at], `column ${at} of row ${i}`)))
 			const row = defined(model.rows[i], `the model's row ${i}`)
 			assert.deepEqual(
 				{
@@ -952,7 +955,7 @@ const sameAsModel = (sys: System, model: Model) =>
 						table.exprs,
 						table.root,
 						{ value: undefined, column: (ref) => host.get(ref.name), closed: closedRead },
-						regexMember
+						ProgramPatterns.of(tablePatterns(table))
 					),
 					`the host evaluates ${name} over row ${i}`
 				)

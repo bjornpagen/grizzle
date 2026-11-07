@@ -96,7 +96,7 @@ const baseEnv = (base: ScalarType): ScalarEnv => {
 	const roster = rosterOf(base)
 	return {
 		kind: "builder",
-		roster: (name) => (roster?.closed === name ? roster.handles : undefined)
+		roster: (name) => (roster?.closed === name ? roster : undefined)
 	}
 }
 

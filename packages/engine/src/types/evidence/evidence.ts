@@ -887,7 +887,6 @@ export type TakeEvidence<Ev extends Evidence, K> = K extends 1
 type OriginsPart<Ev> = Ev extends { readonly origins: infer O extends OriginMap }
 	? { readonly origins: O }
 	: unknown
-export type TakeOneEvidence<Ev extends Evidence> = TakeEvidence<Ev, 1>
 
 /**
  * The rule's only match, while it is the rule's only clause: no second match and no where ("the child has

@@ -14,27 +14,92 @@ import {
 
 import { jsonText } from "#compiler/core/trusted.ts"
 import {
+	type CalendarDate,
+	dateOfDayNumber,
+	dayNumber,
+	lastCalendarDate
+} from "#compiler/ir/date.ts"
+import {
 	classify,
 	compareSpans,
 	type HalfOpen,
-	limitSpans,
-	type RangeType,
+	limitSpansWithin,
 	rangeLimits,
 	relationBit,
-	spanText
+	type SpanLimits
 } from "#test/support/oracle/allen.ts"
 import { cyclicAt, elementAt } from "#test/support/oracle/pick.ts"
 
-export const spanEndpointKinds = ["integer", "bigint", "contract"] as const
+export const spanEndpointKinds = ["integer", "bigint", "contract", "date"] as const
 export type SpanEndpointKind = (typeof spanEndpointKinds)[number]
 
-/** int4range for pg.integer endpoints, int8range for pg.bigint and contracts over it. */
-export const rangeTypeOf = (endpoint: SpanEndpointKind): RangeType =>
-	endpoint === "integer" ? "int4range" : "int8range"
+/** The range type of a span field: int4range, int8range or daterange. */
+type SpanRangeType = "int4range" | "int8range" | "daterange"
+
+/**
+ * int4range for pg.integer endpoints, int8range for pg.bigint and contracts over it, daterange for date endpoints.
+ */
+const rangeTypeOf = (endpoint: SpanEndpointKind): SpanRangeType => {
+	switch (endpoint) {
+		case "integer":
+			return "int4range"
+		case "bigint":
+		case "contract":
+			return "int8range"
+		case "date":
+			return "daterange"
+	}
+}
 
 /** The endpoint's base type name in SQL. */
-const endpointSqlType = (endpoint: SpanEndpointKind): "int4" | "int8" =>
-	endpoint === "integer" ? "int4" : "int8"
+const endpointSqlType = (endpoint: SpanEndpointKind): "int4" | "int8" | "date" => {
+	switch (endpoint) {
+		case "integer":
+			return "int4"
+		case "bigint":
+		case "contract":
+			return "int8"
+		case "date":
+			return "date"
+	}
+}
+
+/**
+ * The day a date span's endpoint 0 is: a span of dates is held as a span of day offsets from it, so the window
+ * [-3, 8] is 2024-02-24 to 2024-03-06, across a leap day and a month's end.
+ */
+const dateOrigin = BigInt(dayNumber("2024-02-27"))
+
+/** The calendar date of a day offset from dateOrigin. */
+const dateAt = (offset: bigint): CalendarDate => dateOfDayNumber(dateOrigin + offset)
+
+/**
+ * The limits of a span field's stored domain, in its endpoint's offsets: the range type's for an integer endpoint; for
+ * a date, the days a CalendarDate spells, 0001-01-01 to 9999-12-31, the span shape CHECK's bounds.
+ */
+export const endpointLimits = (endpoint: SpanEndpointKind): SpanLimits => {
+	switch (endpoint) {
+		case "integer":
+			return rangeLimits.int4range
+		case "bigint":
+		case "contract":
+			return rangeLimits.int8range
+		case "date":
+			return { min: -dateOrigin, max: BigInt(dayNumber(lastCalendarDate)) - dateOrigin }
+	}
+}
+
+/** An endpoint's text as its type's output function writes it: the integer, or the date of its day offset. */
+const pointTextOf =
+	(endpoint: SpanEndpointKind) =>
+	(point: bigint): string =>
+		endpoint === "date" ? dateAt(point) : String(point)
+
+/** A span's canonical text, `[start,end)`, as its range type's output function writes it. */
+export const spanTextOf =
+	(endpoint: SpanEndpointKind) =>
+	(span: HalfOpen): string =>
+		`[${pointTextOf(endpoint)(span.lo)},${pointTextOf(endpoint)(span.hi)})`
 
 /**
  * The Tick contract: epoch-free ticks over bigint, no smaller than -100. Its predicate is the one
@@ -48,6 +113,8 @@ const endpointFieldDesc = (endpoint: SpanEndpointKind): FieldDesc => {
 			return { kind: "pg", type: "integer" }
 		case "bigint":
 			return { kind: "pg", type: "bigint" }
+		case "date":
+			return { kind: "pg", type: "date" }
 		case "contract":
 			return {
 				kind: "contract",
@@ -70,15 +137,33 @@ const spanFieldDesc = (endpoint: SpanEndpointKind): FieldDesc => ({
 	width: undefined
 })
 
-/** The host value of an endpoint: a JavaScript integer for pg.integer, a bigint otherwise. */
-const endpointHost = (endpoint: SpanEndpointKind, value: bigint): number | bigint =>
-	endpoint === "integer" ? Number(value) : value
+/**
+ * The host value of an endpoint: a JavaScript integer for pg.integer, a bigint for pg.bigint and the Tick contract, the
+ * CalendarDate of its day offset for a date.
+ */
+const endpointHost = (
+	endpoint: SpanEndpointKind,
+	value: bigint
+): number | bigint | CalendarDate => {
+	switch (endpoint) {
+		case "integer":
+			return Number(value)
+		case "bigint":
+		case "contract":
+			return value
+		case "date":
+			return dateAt(value)
+	}
+}
 
 /** The host value of a span, `{ start, end }`. */
 const spanHost = (
 	endpoint: SpanEndpointKind,
 	span: HalfOpen
-): { readonly start: number | bigint; readonly end: number | bigint } => ({
+): {
+	readonly start: number | bigint | CalendarDate
+	readonly end: number | bigint | CalendarDate
+} => ({
 	start: endpointHost(endpoint, span.lo),
 	end: endpointHost(endpoint, span.hi)
 })
@@ -110,7 +195,7 @@ const drawsLimits = (endpoint: SpanEndpointKind): boolean => endpoint !== "contr
 
 const resolveSpan = (endpoint: SpanEndpointKind, sketch: SpanSketch): HalfOpen => {
 	if (sketch.limit && drawsLimits(endpoint)) {
-		const limits = limitSpans(rangeTypeOf(endpoint))
+		const limits = limitSpansWithin(endpointLimits(endpoint))
 		return cyclicAt(limits, sketch.start, "the limit spans")
 	}
 	const width = spanWindow.hi - spanWindow.lo
@@ -132,7 +217,7 @@ const pointSketchGen: Gen<PointSketch> = (source) => ({
 
 const resolvePoint = (endpoint: SpanEndpointKind, sketch: PointSketch): bigint => {
 	if (sketch.limit && drawsLimits(endpoint)) {
-		const { min, max } = rangeLimits[rangeTypeOf(endpoint)]
+		const { min, max } = endpointLimits(endpoint)
 		const points = [min, min + 1n, max - 1n, max]
 		return cyclicAt(points, sketch.pick, "the limit points")
 	}
@@ -362,7 +447,7 @@ const resolveQuery = (
  *   the reference is checked against PostgreSQL itself (test/pg/spans/oracle).
  *
  * The schema: two relations, Left and Right, each with a scalar `group` and a span
- * field `during` over pg.integer, pg.bigint, or the contract Tick over pg.bigint. Each relation is
+ * field `during` over pg.integer, pg.bigint, the contract Tick over pg.bigint, or date. Each relation is
  * either span-keyed, primary key ["group", "during"], a pointwise nonoverlap rule per group, or keyed by
  * an integer `id`, so its facts overlap freely and repeat a (group, during) pair under different ids (facts
  * with different identities are distinct). The fact generator keeps a span-keyed relation lawful: a row that
@@ -370,9 +455,11 @@ const resolveQuery = (
  * rows (23P01), while touching neighbours such as [9, 10) and [10, 11) are kept.
  *
  * The values: endpoints in the small window [-3, 8] around zero, so adjacent, nested, overlapping
- * and equal-bound pairs and negative endpoints are common, and, for the integer and bigint endpoints, spans at the
- * int4 or int8 limits, a start at the type's minimum and an exclusive end at its maximum included. The Tick contract's
- * predicate VALUE >= -100 becomes endpoint checks on lower() and upper(), so Tick spans stay in the window.
+ * and equal-bound pairs and negative endpoints are common, and, for the integer, bigint and date endpoints, spans at
+ * the stored domain's limits, a start at its minimum and an exclusive end at its maximum included: int4's, int8's, and
+ * a date's 0001-01-01 and 9999-12-31. A date endpoint is a day offset from 2024-02-27 (dateOrigin), written as its
+ * date, so its spans are those of day numbers and its texts daterange's. The Tick contract's predicate VALUE >= -100
+ * becomes endpoint checks on lower() and upper(), so Tick spans stay in the window.
  *
  * The queries:
  *
@@ -677,6 +764,7 @@ const groupsOf = (facts: ReadonlyArray<SpanFact>): ReadonlyMap<number, ReadonlyA
 export const referenceRows = (c: SpanCase): ReadonlyArray<RawRow> => {
 	const q = c.query
 	const g = (fact: SpanFact): string => String(fact.group)
+	const spanText = spanTextOf(c.schema.endpoint)
 	switch (q.kind) {
 		case "allenFilter":
 			return rowSet(
@@ -784,7 +872,15 @@ export const spanInsert = (
 	const values = keyed ? ["j.g", `j.d::${range}`] : ["j.id", "j.g", `j.d::${range}`]
 	return {
 		sql: `INSERT INTO ${table(schema, relation)} (${Arr.join(columns, ", ")}) SELECT ${Arr.join(values, ", ")} FROM jsonb_to_recordset($1::text::jsonb) AS j(id int4, g int4, d text)`,
-		params: [jsonText(Arr.map(facts, (f) => ({ id: f.id, g: f.group, d: spanText(f.during) })))]
+		params: [
+			jsonText(
+				Arr.map(facts, (f) => ({
+					id: f.id,
+					g: f.group,
+					d: spanTextOf(c.schema.endpoint)(f.during)
+				}))
+			)
+		]
 	}
 }
 
@@ -843,7 +939,7 @@ export const referenceSql = (
 		case "allenFilter":
 			return {
 				sql: `SELECT DISTINCT ${g("l")}::text, ${d("l")}::text FROM ${table(schema, query.relation)} AS ${q("l")} CROSS JOIN (SELECT $1::text::${range}) AS ${q("w")}(${q("v")}) WHERE ${mask(query.mask, { table: "l", column: "during" }, { table: "w", column: "v" })}`,
-				params: [spanText(query.window.span)]
+				params: [spanTextOf(c.schema.endpoint)(query.window.span)]
 			}
 		case "allenJoin":
 			return {
@@ -853,7 +949,7 @@ export const referenceSql = (
 		case "pointIn":
 			return {
 				sql: `SELECT DISTINCT ${g("l")}::text, ${d("l")}::text FROM ${table(schema, query.relation)} AS ${q("l")} WHERE ${d("l")} @> $1::text::${point}`,
-				params: [String(query.point.point)]
+				params: [pointTextOf(c.schema.endpoint)(query.point.point)]
 			}
 		case "intersection":
 			return {
@@ -873,14 +969,14 @@ export const referenceSql = (
 	}
 }
 
-const queryText = (query: SpanQuery): string => {
+const queryText = (endpoint: SpanEndpointKind, query: SpanQuery): string => {
 	switch (query.kind) {
 		case "allenFilter":
-			return `${query.relation} where allen(during, ${query.mask}, ${query.window.kind} ${spanText(query.window.span)})`
+			return `${query.relation} where allen(during, ${query.mask}, ${query.window.kind} ${spanTextOf(endpoint)(query.window.span)})`
 		case "allenJoin":
 			return `Left x Right where allen(left, ${query.mask}, right)`
 		case "pointIn":
-			return `${query.relation} where pointIn(${query.point.kind} ${query.point.point}, during)`
+			return `${query.relation} where pointIn(${query.point.kind} ${pointTextOf(endpoint)(query.point.point)}, during)`
 		case "pack":
 			return `pack(${query.relation}.during) by group`
 		case "difference":
@@ -900,12 +996,12 @@ export const printSpanCase = (c: SpanCase): string =>
 						Arr.map(
 							c.facts[name],
 							(f) =>
-								`${c.schema.relations[name].spanKeyed ? "" : `#${f.id} `}${f.group} ${spanText(f.during)}`
+								`${c.schema.relations[name].spanKeyed ? "" : `#${f.id} `}${f.group} ${spanTextOf(c.schema.endpoint)(f.during)}`
 						),
 						"; "
 					)}`
 			),
-			`query ${queryText(c.query)}`
+			`query ${queryText(c.schema.endpoint, c.query)}`
 		],
 		"\n"
 	)

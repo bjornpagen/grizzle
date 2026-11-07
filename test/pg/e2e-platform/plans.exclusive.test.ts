@@ -28,10 +28,11 @@ import type { TestContext } from "vitest"
  * batches within the input limit, then VACUUM ANALYZE. Its sizes: a thousand organizations under resellers, five
  * thousand workspaces with ten thousand keys, ten models on four providers repriced monthly, six months of calendar, and
  * 100,000 usage events (about half a million usage facts). Each case draws, per read, which of the platform's entities
- * and windows it reads (the busiest workspace, key, organization and grant, or another), opens the tenant's Db with a
- * token naming the drawn organization, so every read goes through the tenant's security-barrier views of its own
- * organization over relations under row-level security, runs every workload read through the runtime as the tenant with
- * a counting executor, and EXPLAINs each statement the runtime sent with its parameters:
+ * and windows it reads (the busiest workspace, key, organization and grant, or another), runs every workload read
+ * through the runtime with a counting executor twice, as billing, whose whole entries are plain views, and as the
+ * tenant, its Db opened with a token naming the drawn organization, so the read goes through the tenant's
+ * security-barrier views of its own organization over relations under row-level security, and EXPLAINs each statement
+ * the runtime sent with its parameters:
  *
  * - a read is one statement for its rows and one for each attachment it declares, at every depth: over exact parents
  *   every attachment is a statement of its own in the read's flight (R36, lower/shapes/attach chooseAttachment);
@@ -1115,39 +1116,55 @@ const planSuite = (events: number, runs: number) => (ctx: TestContext) =>
 							pickIndex(pick, 3) === 0 ? "a read by the busiest entities" : "a read by another"
 						)
 						cx.note(pickIndex(pick, 2) === 0 ? "a week's window" : "a whole month's window")
-						const db = yield* Db.open(tenants.roles.tenant, {
-							token: tokenOf({ org: pickOf(e.orgs, pick, uid(0xdead, 2)) })
-						})
-						const { compileWith, counts } = yield* recordingReader(db)
 						const problems: Array<string> = []
-						for (const pr of probes(e, pick)) {
-							const before = counts.sent.length
-							const read = yield* compileWith(descriptionOf(pr.query), () => rowsOf(pr.query))
-							yield* (yield* read.execute(pr.params)).collect
-							const sent = counts.sent.slice(before)
-							const expected = statementsOf(pr.query)
-							if (sent.length !== expected) {
-								problems.push(`${pr.name}: ${sent.length} statements, not ${expected}`)
+						/** One read's statements as it sent them as `who`, judged, the indexes their free plans read used. */
+						const review = (who: string, pr: Probe, sent: Parameters<typeof sentProblems>[2]) =>
+							Effect.gen(function* () {
+								const expected = statementsOf(pr.query)
+								if (sent.length !== expected) {
+									problems.push(`${pr.name} as ${who}: ${sent.length} statements, not ${expected}`)
+								}
+								const judged = yield* sentProblems(s.admin, `${pr.name} as ${who}`, sent, judge)
+								appendAll(problems, judged.problems)
+								for (const index of judged.read) {
+									used.add(index)
+								}
+							})
+						yield* o.withDb((db) =>
+							Effect.gen(function* () {
+								const { reader, counts } = yield* recordingReader(db)
+								for (const pr of probes(e, pick)) {
+									const before = counts.sent.length
+									yield* (yield* reader.execute(pr.query, pr.params)).collect
+									yield* review("billing", pr, counts.sent.slice(before))
+								}
+							})
+						)
+						yield* Effect.gen(function* () {
+							const db = yield* Db.open(tenants.roles.tenant, {
+								token: tokenOf({ org: pickOf(e.orgs, pick, uid(0xdead, 2)) })
+							})
+							const { compileWith, counts } = yield* recordingReader(db)
+							for (const pr of probes(e, pick)) {
+								const before = counts.sent.length
+								const read = yield* compileWith(descriptionOf(pr.query), () => rowsOf(pr.query))
+								yield* (yield* read.execute(pr.params)).collect
+								yield* review("the tenant", pr, counts.sent.slice(before))
 							}
-							const judged = yield* sentProblems(s.admin, pr.name, sent, judge)
-							appendAll(problems, judged.problems)
-							for (const index of judged.read) {
-								used.add(index)
-							}
-						}
+						}).pipe(
+							Effect.scoped,
+							(body) =>
+								Effect.flatMap(Layer.build(loginLayer(o.installed, tenants)), (context) =>
+									Effect.provideContext(body, context)
+								),
+							Effect.scoped
+						)
 						assert.deepEqual(
 							problems,
 							[],
-							"every read is its rows' statement and its attachments', each planned through its indexes"
+							"every read is its rows' statement and its attachments', each planned through its indexes, as billing and as the tenant"
 						)
-					}).pipe(
-						Effect.scoped,
-						(body) =>
-							Effect.flatMap(Layer.build(loginLayer(o.installed, tenants)), (context) =>
-								Effect.provideContext(body, context)
-							),
-						Effect.scoped
-					)
+					})
 			)
 			/** Law maintenance. */
 			const lawProblems: Array<string> = []

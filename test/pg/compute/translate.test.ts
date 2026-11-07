@@ -5,8 +5,7 @@ import { array, element, type Gen, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Option } from "effect"
-import { appendAll } from "#compiler/core/array.ts"
+import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import { identity } from "#compiler/core/identity.ts"
 import { codePoints, codePointsText } from "#compiler/core/text.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
@@ -18,7 +17,7 @@ import {
 } from "#compiler/physical/install/compile.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { generated, pg } from "#compiler/public/fields.ts"
-import { key, on, relation, schema, select } from "#compiler/public/schema.ts"
+import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { translated } from "#compiler/scalar/regex/translate.ts"
@@ -51,11 +50,12 @@ import { stringsOver } from "#test/unit/text/generators.ts"
  * 1. The SQL a check holds for a drawn map and for lowerAscii, `translate(v, from, to)`, over a batch of texts that mix
  *    ASCII, Latin-1, BMP and supplementary code points in one round trip: PostgreSQL's answer must be the reference
  *    evaluator's character by character, and lowerAscii's must leave every character but A to Z as it was.
- * 2. An installed relation whose generated fields translate a title into xs:normalizedString's value space and fold a
- *    tag's ASCII case, each cast into its declared text type by the inclusion of the image, and whose second relation
- *    keys a selected side by a field generated from a text: the installer's own DDL, each drawn row inserted under a
- *    savepoint. A row is admitted exactly when the host model admits it, a refusal is 23505 naming the key the model
- *    names, and every admitted row's generated fields hold the host's translation.
+ * 2. An installed relation whose generated fields translate a title into xs:normalizedString's value space, fold a
+ *    tag's ASCII case and collapse a title's white space, each cast into its declared text type by the inclusion of the
+ *    image, and a second relation whose generated field casts a numeral to a bigint: the installer's own DDL, each
+ *    drawn row inserted. Every row is admitted, and its generated fields hold the host's values. No key holds a
+ *    generated field (README, "How a field is written": no fact carries its value, so such a schema is refused when
+ *    it compiles), so neither relation keys one.
  */
 
 const textColumn: LeafBinding = { kind: "column", type: testPg.text.scalar }
@@ -260,9 +260,7 @@ layer(Substrate.layer)("Compute's translate and lowerAscii on PostgreSQL", (it) 
 		| "a title normalized"
 		| "a title collapsed"
 		| "a tag folded"
-		| "a tag refused by its folded key"
-		| "a selected row refused by its generated key"
-		| "an unselected row admitted beside its twin"
+		| "a numeral's leading zeros dropped"
 
 	/** Short titles over tab, LF, CR, space and letters; tags of a few letters either case; numerals with leading zeros. */
 	const title = stringsOver([0x09, 0x0a, 0x0d, 0x20, 0x61, 0xe9], 6)
@@ -305,11 +303,7 @@ layer(Substrate.layer)("Compute's translate and lowerAscii on PostgreSQL", (it) 
 		["id"],
 		(r) => ({ v: generated(pg.bigint, Compute.cast(r.k, pg.bigint)) })
 	)
-	/** The rows whose numeral is a one after any zeros: "1", "01" and "001" are one value of v, which the key holds apart. */
-	const ones = select(Counted, (c) => Compute.matches(c.k, "^0*1"))
-	const foldedKey = key(on(Named, "folded"))
-	const onesKey = key(on(ones, "g", "v"))
-	const value = schema("Translated", { Named, Counted }, [foldedKey, onesKey])
+	const value = schema("Translated", { Named, Counted }, [])
 
 	const installationOf = Effect.gen(function* () {
 		const substrate = yield* Substrate
@@ -349,93 +343,41 @@ layer(Substrate.layer)("Compute's translate and lowerAscii on PostgreSQL", (it) 
 			""
 		)
 
-	/** Whether a numeral is a one after any zeros, as `^0*1` matches it. */
-	const isOne = (numeral: string): boolean => {
-		const digits = Arr.fromIterable(numeral)
-		return Option.match(
-			Arr.findFirstIndex(digits, (d) => d !== "0"),
-			{ onNone: () => false, onSome: (first) => digits[first] === "1" }
-		)
-	}
-
 	const judge = (pinned: PgConnection, installation: Installation, rows: ReadonlyArray<Row>) =>
 		Effect.gen(function* () {
 			const names = installationNamesOf(installation)
-			const foldedConstraint = names.constraintOf(names.lawOf(foldedKey), "Unique")
-			const onesConstraint = names.constraintOf(names.lawOf(onesKey), "Unique")
 			const reached = new Set<InstalledFeature>()
 			const problems: Array<string> = []
-			const folded = new Set<string>()
-			const held = new Set<string>()
-			const verdictProblem = (
-				what: string,
-				expected: Option.Option<string>,
-				verdict:
-					| { readonly kind: "admitted" }
-					| {
-							readonly kind: "refused"
-							readonly code: string
-							readonly constraint: Option.Option<string>
-					  }
-			): ReadonlyArray<string> => {
-				if (verdict.kind === "admitted") {
-					return Option.isNone(expected)
-						? []
-						: [`${what}: the model refuses it, the server admitted it`]
-				}
-				return Option.isSome(expected) &&
-					verdict.code === "23505" &&
-					Option.contains(verdict.constraint, expected.value)
-					? []
-					: [
-							`${what}: refused with ${verdict.code}, the model ${Option.isSome(expected) ? `names ${expected.value}` : "admits it"}`
-						]
-			}
 			for (const r of rows) {
-				const tag = asciiLower(r.tag)
-				const tagTaken = folded.has(tag)
 				const named = yield* probe(
 					pinned,
 					`INSERT INTO ${names.table(Named)} (${names.column(Named, "id")}, ${names.column(Named, "title")}, ${names.column(Named, "tag")}) VALUES ($1, $2, $3)`,
 					[r.id, r.title, r.tag]
 				)
-				appendAll(
-					problems,
-					verdictProblem(
-						`Named ${Formatter.format(r)}`,
-						tagTaken ? Option.some(foldedConstraint) : Option.none(),
-						named
-					)
-				)
-				if (tagTaken) {
-					reached.add("a tag refused by its folded key")
-				} else {
-					folded.add(tag)
+				if (named.kind === "refused") {
+					problems.push(`Named ${Formatter.format(r)}: refused with ${named.code}`)
 				}
-				const selected = isOne(r.k)
-				const held_ = `${r.g}:${BigInt(r.k)}`
-				const clash = selected && held.has(held_)
 				const counted = yield* probe(
 					pinned,
 					`INSERT INTO ${names.table(Counted)} (${names.column(Counted, "id")}, ${names.column(Counted, "g")}, ${names.column(Counted, "k")}) VALUES ($1, $2, $3)`,
 					[r.id, r.g, r.k]
 				)
-				appendAll(
-					problems,
-					verdictProblem(
-						`Counted ${Formatter.format(r)}`,
-						clash ? Option.some(onesConstraint) : Option.none(),
-						counted
-					)
-				)
-				if (clash) {
-					reached.add("a selected row refused by its generated key")
-				} else if (selected) {
-					held.add(held_)
-				} else if (
-					Arr.some(rows, (o) => o.id < r.id && o.g === r.g && BigInt(o.k) === BigInt(r.k))
-				) {
-					reached.add("an unselected row admitted beside its twin")
+				if (counted.kind === "refused") {
+					problems.push(`Counted ${Formatter.format(r)}: refused with ${counted.code}`)
+				}
+			}
+			const numerals = yield* pinned.queryValues(
+				`SELECT ${names.column(Counted, "k")}, ${names.column(Counted, "v")} FROM ${names.table(Counted)} ORDER BY ${names.column(Counted, "id")}`,
+				[]
+			)
+			for (const row of numerals) {
+				const [k, cast] = Arr.map(row, String)
+				const numeral = defined(k)
+				if (BigInt(defined(cast)) !== BigInt(numeral)) {
+					problems.push(`v ${Formatter.format(cast)} of ${Formatter.format(numeral)}`)
+				}
+				if (Str.startsWith("0")(numeral)) {
+					reached.add("a numeral's leading zeros dropped")
 				}
 			}
 			const stored = yield* pinned.queryValues(
@@ -469,7 +411,7 @@ layer(Substrate.layer)("Compute's translate and lowerAscii on PostgreSQL", (it) 
 		})
 
 	it.effect(
-		"an installed translation, case fold and generated selected key admit exactly the host model's rows",
+		"an installed translation, case fold, collapse and numeral cast store exactly the host's values",
 		(ctx) =>
 			searched(
 				ctx,
@@ -482,16 +424,14 @@ layer(Substrate.layer)("Compute's translate and lowerAscii on PostgreSQL", (it) 
 							literal: Formatter.format,
 							oracle: {
 								kind: "second-implementation",
-								name: "the host model of the keys and the host's translation"
+								name: "the host's translation, case fold, collapse and numeral cast"
 							},
 							coverage: required<InstalledFeature>(
 								[
 									"a title normalized",
 									"a title collapsed",
 									"a tag folded",
-									"a tag refused by its folded key",
-									"a selected row refused by its generated key",
-									"an unselected row admitted beside its twin"
+									"a numeral's leading zeros dropped"
 								],
 								{ cases: 30, sense: notesOnly }
 							),

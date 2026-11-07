@@ -1,12 +1,18 @@
 import { sameMembers } from "#compiler/core/array.ts"
 import type { NodeId, OccurrenceId } from "#compiler/core/ids.ts"
+import { TupleMap } from "#compiler/core/tuple-map.ts"
 import {
 	contextAdmits,
 	type EvidenceContext,
 	strongest,
 	type TemplateContext
 } from "#compiler/ir/evidence.ts"
-import { nativeEqualityKey, type ScalarExpr, type TypedLiteral } from "#compiler/ir/expr.ts"
+import {
+	type EqualityKey,
+	nativeEqualityKey,
+	type ScalarExpr,
+	type TypedLiteral
+} from "#compiler/ir/expr.ts"
 import type { EvidenceSide } from "#compiler/ir/law.ts"
 import {
 	closedCell,
@@ -138,11 +144,13 @@ const closedKey = (source: NodeOf<"Closed">, fields: ReadonlyArray<string>): boo
 	if (positions.some((at) => at < 0)) {
 		return false
 	}
-	const tuples = new Set(
-		source.rows.map((row) =>
-			JSON.stringify(positions.map((at) => nativeEqualityKey(closedCell(row, at))))
+	const tuples = new TupleMap<EqualityKey, ReadonlyArray<TypedLiteral>>()
+	for (const row of source.rows) {
+		tuples.set(
+			positions.map((at) => nativeEqualityKey(closedCell(row, at))),
+			row
 		)
-	)
+	}
 	return tuples.size === source.rows.length
 }
 

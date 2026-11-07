@@ -19,7 +19,10 @@ import { admitEncodable, isVector, Vector } from "#compiler/scalar/values/vector
 
 export type { Carrier }
 
-type PlainCarrier = Exclude<Carrier, "numeric" | "code" | "bits" | "vector" | "range4" | "range8">
+type PlainCarrier = Exclude<
+	Carrier,
+	"numeric" | "code" | "bits" | "vector" | "range4" | "range8" | "rangeDate"
+>
 
 /**
  * What a carrier needs beyond its name to admit a value. A closed id and a set over a roster carry the roster's codes,
@@ -31,7 +34,7 @@ export type CarrierSpec =
 	| { readonly carrier: "code"; readonly roster: RosterCodec }
 	| { readonly carrier: "bits"; readonly roster: RosterCodec }
 	| { readonly carrier: "vector"; readonly dimensions: number }
-	| { readonly carrier: "range4" | "range8"; readonly width: bigint | undefined }
+	| { readonly carrier: "range4" | "range8" | "rangeDate"; readonly width: bigint | undefined }
 
 /**
  * A carrier spec as plain data, what its canonical text encodes: a closed id's or a set's spec by its roster's name
@@ -71,6 +74,7 @@ export interface CarrierHost {
 	readonly bits: ReadonlySet<string>
 	readonly range4: Span<number>
 	readonly range8: Span<bigint>
+	readonly rangeDate: Span<CalendarDate>
 	readonly vector: Vector
 	readonly exactInteger: bigint
 	readonly exactMoney: Money
@@ -96,6 +100,7 @@ interface SpecExtras {
 	readonly vector: { readonly dimensions: number }
 	readonly range4: { readonly width: bigint | undefined }
 	readonly range8: { readonly width: bigint | undefined }
+	readonly rangeDate: { readonly width: bigint | undefined }
 	readonly exactInteger: unknown
 	readonly exactMoney: unknown
 }
@@ -209,6 +214,7 @@ const admitters: Admitters = {
 	bits: (value, spec) => admitHandles(value, spec.roster),
 	range4: (value, spec) => admitSpan("int4", value, spec.width),
 	range8: (value, spec) => admitSpan("int8", value, spec.width),
+	rangeDate: (value, spec) => admitSpan("date", value, spec.width),
 	vector: (value, spec) => admitVector(value, spec.dimensions),
 	exactInteger: (value) =>
 		typeof value === "bigint" ? Result.ok(value) : Result.err("integerType"),
@@ -236,6 +242,7 @@ export const unreadableFault: { readonly [C in Carrier]: ValueFault } = {
 	bits: "bitsType",
 	range4: "spanType",
 	range8: "spanType",
+	rangeDate: "spanType",
 	vector: "vectorType",
 	exactInteger: "integerType",
 	exactMoney: "moneyType"
@@ -258,7 +265,7 @@ const isString = (value: unknown): value is string => typeof value === "string"
 const isStringSet = (value: unknown): value is ReadonlySet<string> =>
 	value instanceof Set && Array.from(value).every(isString)
 const isSpanOf =
-	<E extends number | bigint>(isEndpoint: (value: unknown) => value is E) =>
+	<E extends number | bigint | CalendarDate>(isEndpoint: (value: unknown) => value is E) =>
 	(value: unknown): value is Span<E> =>
 		typeof value === "object" &&
 		value !== null &&
@@ -284,6 +291,7 @@ const hostChecks: { readonly [C in Carrier]: (value: unknown) => value is Carrie
 	bits: isStringSet,
 	range4: isSpanOf(isNumber),
 	range8: isSpanOf(isBigint),
+	rangeDate: isSpanOf((value): value is CalendarDate => toCalendarDate(value).ok),
 	vector: isVector,
 	exactInteger: isBigint,
 	exactMoney: (value) => value instanceof Money
@@ -314,6 +322,7 @@ const canonicalTexts: CanonicalTexts = {
 	bits: (v, spec) => handlesText(spec.roster, v),
 	range4: (v) => spanText(v),
 	range8: (v) => spanText(v),
+	rangeDate: (v) => spanText(v),
 	vector: (v) => Vector.componentText(v),
 	exactInteger: (v) => String(v),
 	exactMoney: (v) => v.toString()
@@ -373,6 +382,7 @@ const comparators: Comparators = {
 	bits: (x, y, spec) => compareOrdered(handlesText(spec.roster, x), handlesText(spec.roster, y)),
 	range4: (x, y) => compareSpan(x, y),
 	range8: (x, y) => compareSpan(x, y),
+	rangeDate: (x, y) => compareSpan(x, y),
 	vector: (x, y) => Vector.compare(x, y),
 	exactInteger: (x, y) => compareOrdered(x, y),
 	exactMoney: (x, y) => x.compare(y)

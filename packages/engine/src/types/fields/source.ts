@@ -356,6 +356,120 @@ type Digit = "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9"
 type QuantifierChar = "*" | "+" | "?" | "{"
 
 /**
+ * A source the scan refuses before ArkRegex reads it, with the refusal the compiler's grammar check states of it: a
+ * construct ArkRegex misreads or cannot read in bounded time.
+ */
+export interface Rejected<out Message extends string> {
+	readonly rejected: Message
+}
+
+/** Whether T is one or more decimal digits. */
+type AllDigits<T extends string> = T extends `${Digit}${infer Rest}`
+	? Rest extends ""
+		? true
+		: AllDigits<Rest>
+	: false
+
+/** A decimal numeral without its leading zeros, "0" for zero. */
+type StripZeros<T extends string> = T extends `0${infer Rest}`
+	? Rest extends ""
+		? "0"
+		: StripZeros<Rest>
+	: T
+
+/** Whether digit A is greater than digit B: B comes before A in the digits' order. */
+type DigitAbove<A extends string, B extends string> = A extends B
+	? false
+	: "0123456789" extends `${string}${B}${string}${A}${string}`
+		? true
+		: false
+
+/**
+ * How two numerals without leading zeros of one length compare, digit by digit from the first: "above" where the
+ * first that differs is greater in A, "below" where less, "same" where none differs.
+ */
+type CompareDigits<A extends string, B extends string> = A extends `${infer HA}${infer RA}`
+	? B extends `${infer HB}${infer RB}`
+		? HA extends HB
+			? CompareDigits<RA, RB>
+			: DigitAbove<HA, HB> extends true
+				? "above"
+				: "below"
+		: "above"
+	: "same"
+
+/** Whether numeral A is longer than numeral B, both read one digit at a time together: "longer", "shorter" or "same". */
+type CompareLength<A extends string, B extends string> = A extends `${string}${infer RA}`
+	? B extends `${string}${infer RB}`
+		? CompareLength<RA, RB>
+		: "longer"
+	: B extends ""
+		? "same"
+		: "shorter"
+
+/** Whether decimal numeral A denotes a greater number than B. */
+type NumeralAbove<A extends string, B extends string> =
+	CompareLength<StripZeros<A>, StripZeros<B>> extends infer L
+		? L extends "longer"
+			? true
+			: L extends "same"
+				? CompareDigits<StripZeros<A>, StripZeros<B>> extends "above"
+					? true
+					: false
+				: false
+		: false
+
+/** A counted repetition read: its quantifier respelled without leading zeros, and what follows it. */
+interface Counted<Text extends string, Rest extends string> {
+	readonly text: Text
+	readonly rest: Rest
+}
+
+/**
+ * A counted repetition's bound checked against PostgreSQL's greatest, 255, the compiler's regexMaxRepeat
+ * (core/limits.ts): "above", refused before ArkRegex expands it, or the numeral without its leading zeros.
+ */
+type Bound<N extends string> = NumeralAbove<N, "255"> extends true ? "above" : StripZeros<N>
+
+/**
+ * What R, what follows a `{` outside a class, opens, decided from its numerals before ArkRegex expands anything: a
+ * counted repetition {m}, {m,} or {m,n} with bounds in order and within PostgreSQL's, respelled without leading zeros,
+ * which ArkRegex refuses and the compiler admits (Counted); one whose bounds are out of order, m > n, which ArkRegex
+ * would expand counting from m up to n and never end ("reversed"); one with a bound above PostgreSQL's ("above"), which
+ * ArkRegex would expand into an instantiation too deep; or no counted repetition ("none"), which ArkRegex reads.
+ */
+type CountedBounds<R extends string> = R extends `${infer Body}}${infer Rest}`
+	? Body extends `${infer Lo},${infer Hi}`
+		? AllDigits<Lo> extends true
+			? Hi extends ""
+				? Bound<Lo> extends infer L extends string
+					? L extends "above"
+						? "above"
+						: Counted<`{${L},}`, Rest>
+					: never
+				: AllDigits<Hi> extends true
+					? NumeralAbove<Lo, Hi> extends true
+						? "reversed"
+						: [Bound<Lo>, Bound<Hi>] extends [infer L extends string, infer H extends string]
+							? "above" extends L | H
+								? "above"
+								: Counted<`{${L},${H}}`, Rest>
+							: never
+					: "none"
+			: "none"
+		: AllDigits<Body> extends true
+			? Bound<Body> extends infer B extends string
+				? B extends "above"
+					? "above"
+					: Counted<`{${B}}`, Rest>
+				: never
+			: "none"
+	: "none"
+
+/** The refusal of a quantifier on an anchor, which the scan rewrites as an empty group a quantifier could follow. */
+type QuantifiedAnchor = Rejected<"nothing to repeat: an anchor is no quantifier's operand">
+
+/**
  * The scan's state is held in unions of flag names, which TypeScript evaluates eagerly, so a long source does not
  * build a chain of deferred object types.
  *
@@ -411,7 +525,7 @@ type ReadMember<K extends ClassFlag, Lit extends string, R extends string> = Lit
 			: Exclude<K, "prevDigit"> | "other" | "started"
 		: Exclude<K, "prevDigit"> | "other" | "started"
 
-/** The scan: [rewritten source, widen], or "too long". Out is the rewritten source so far. */
+/** The scan: [rewritten source, widen], "too long", or Rejected. Out is the rewritten source so far. */
 type Scan<
 	S extends string,
 	Out extends string,
@@ -491,56 +605,68 @@ type Outside<
 			: R extends `^${infer R2}`
 				? Scan<R2, `${Out}[^`, "open" | "negated", Depth, Exclude<F, "lastEnd"> | "stringy", Spent>
 				: Scan<R, `${Out}[`, "open", Depth, Exclude<F, "lastEnd">, Spent>
-		: C extends "("
-			? Scan<R, `${Out}(`, "none", [...Depth, "group"], Exclude<F, "lastEnd">, Spent>
-			: C extends ")"
-				? Depth extends readonly [
-						...infer Outer extends ReadonlyArray<GroupFlag>,
-						infer Inner extends GroupFlag
-					]
-					? Scan<
-							R,
-							`${Out})`,
-							"none",
-							MarkGroup<Outer, Extract<Inner, "digit">>,
-							/**
-							 * A group holding a digit construct is a union that may hold `${number}` with other members
-							 * when it has an alternation or a quantifier applies to it.
-							 */
-							| Exclude<F, "lastEnd">
-							| ("digit" extends Inner
-									? "alt" extends Inner
-										? "widen"
-										: R extends `${QuantifierChar}${string}`
-											? "widen"
-											: never
-									: never),
-							Spent
-						>
-					: Scan<R, `${Out})`, "none", Depth, Exclude<F, "lastEnd">, Spent>
-				: C extends "|"
-					? Depth extends readonly []
+		: C extends "{"
+			? CountedBounds<R> extends infer Bounds
+				? Bounds extends "reversed"
+					? Rejected<"numbers out of order in the quantifier">
+					: Bounds extends "above"
+						? Rejected<"a repetition bound above 255, PostgreSQL's limit">
+						: Bounds extends Counted<infer Text, infer Rest>
+							? Scan<Rest, `${Out}${Text}`, "none", Depth, Exclude<F, "lastEnd">, Spent>
+							: Scan<R, `${Out}{`, "none", Depth, Exclude<F, "lastEnd">, Spent>
+				: never
+			: C extends "("
+				? Scan<R, `${Out}(`, "none", [...Depth, "group"], Exclude<F, "lastEnd">, Spent>
+				: C extends ")"
+					? Depth extends readonly [
+							...infer Outer extends ReadonlyArray<GroupFlag>,
+							infer Inner extends GroupFlag
+						]
 						? Scan<
 								R,
-								`${Out}|`,
+								`${Out})`,
 								"none",
-								Depth,
-								Exclude<F, "lastEnd"> | "atArm" | ("lastEnd" extends F ? never : "openEdge"),
+								MarkGroup<Outer, Extract<Inner, "digit">>,
+								/**
+								 * A group holding a digit construct is a union that may hold `${number}` with other members
+								 * when it has an alternation or a quantifier applies to it.
+								 */
+								| Exclude<F, "lastEnd">
+								| ("digit" extends Inner
+										? "alt" extends Inner
+											? "widen"
+											: R extends `${QuantifierChar}${string}`
+												? "widen"
+												: never
+										: never),
 								Spent
 							>
-						: Scan<R, `${Out}|`, "none", MarkGroup<Depth, "alt">, Exclude<F, "lastEnd">, Spent>
-					: C extends "^"
+						: Scan<R, `${Out})`, "none", Depth, Exclude<F, "lastEnd">, Spent>
+					: C extends "|"
 						? Depth extends readonly []
-							? "atArm" extends F
-								? Scan<R, `${Out}^`, "none", Depth, Exclude<F, "atArm" | "lastEnd">, Spent>
-								: Scan<R, `${Out}(?:)`, "none", Depth, Exclude<F, "lastEnd"> | "widen", Spent>
-							: Scan<R, `${Out}(?:)`, "none", Depth, Exclude<F, "lastEnd"> | "widen", Spent>
-						: C extends "$"
-							? Depth extends readonly []
-								? R extends "" | `|${string}`
-									? Scan<R, `${Out}$`, "none", Depth, F | "lastEnd", Spent>
-									: Scan<R, `${Out}(?:)`, "none", Depth, Exclude<F, "lastEnd"> | "widen", Spent>
-								: Scan<R, `${Out}(?:)`, "none", Depth, Exclude<F, "lastEnd"> | "widen", Spent>
+							? Scan<
+									R,
+									`${Out}|`,
+									"none",
+									Depth,
+									Exclude<F, "lastEnd"> | "atArm" | ("lastEnd" extends F ? never : "openEdge"),
+									Spent
+								>
+							: Scan<R, `${Out}|`, "none", MarkGroup<Depth, "alt">, Exclude<F, "lastEnd">, Spent>
+						: C extends "^" | "$"
+							? R extends `${QuantifierChar}${string}`
+								? QuantifiedAnchor
+								: C extends "^"
+									? Depth extends readonly []
+										? "atArm" extends F
+											? Scan<R, `${Out}^`, "none", Depth, Exclude<F, "atArm" | "lastEnd">, Spent>
+											: Scan<R, `${Out}(?:)`, "none", Depth, Exclude<F, "lastEnd"> | "widen", Spent>
+										: Scan<R, `${Out}(?:)`, "none", Depth, Exclude<F, "lastEnd"> | "widen", Spent>
+									: Depth extends readonly []
+										? R extends "" | `|${string}`
+											? Scan<R, `${Out}$`, "none", Depth, F | "lastEnd", Spent>
+											: Scan<R, `${Out}(?:)`, "none", Depth, Exclude<F, "lastEnd"> | "widen", Spent>
+										: Scan<R, `${Out}(?:)`, "none", Depth, Exclude<F, "lastEnd"> | "widen", Spent>
 							: C extends "."
 								? Scan<R, `${Out}.`, "none", Depth, Exclude<F, "lastEnd"> | "stringy", Spent>
 								: Scan<R, `${Out}${C}`, "none", Depth, Exclude<F, "lastEnd">, Spent>
@@ -649,3 +775,332 @@ type InClass<
  * The rewritten source: [rewritten source, widen], or "too long".
  */
 export type RewriteSource<S extends string> = Scan<S, "", "none", [], "atArm", []>
+
+/**
+ * TypeScript's representable union: a union or template literal of 100,000 members or more is TS2590, the checker's
+ * cross-product refusal, measured as typeUnionLimit (core/limits.ts). A count of that many is "over", and every count
+ * is saturated there.
+ */
+type OverUnion<N extends string> = NumeralAbove<N, "99999"> extends true ? "over" : N
+
+/** A digit's value as a tuple of that many elements. */
+interface DigitTuple {
+	"0": []
+	"1": [0]
+	"2": [0, 0]
+	"3": [0, 0, 0]
+	"4": [0, 0, 0, 0]
+	"5": [0, 0, 0, 0, 0]
+	"6": [0, 0, 0, 0, 0, 0]
+	"7": [0, 0, 0, 0, 0, 0, 0]
+	"8": [0, 0, 0, 0, 0, 0, 0, 0]
+	"9": [0, 0, 0, 0, 0, 0, 0, 0, 0]
+}
+
+type Ten = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+
+/** Two digits and a carry added: the digit written and the carry out. */
+type AddDigits<A extends Digit, B extends Digit, C extends 0 | 1> = [
+	...DigitTuple[A],
+	...DigitTuple[B],
+	...(C extends 1 ? [0] : [])
+] extends infer T extends ReadonlyArray<0>
+	? T extends [...Ten, ...infer R extends ReadonlyArray<0>]
+		? [`${R["length"]}`, 1]
+		: [`${T["length"]}`, 0]
+	: never
+
+/** A numeral's digits from the last. */
+type Reversed<S extends string, Out extends string = ""> = S extends `${infer H}${infer R}`
+	? Reversed<R, `${H}${Out}`>
+	: Out
+
+/** Two numerals written from their last digits added with a carry, the sum written in order as it grows. */
+type AddReversed<
+	A extends string,
+	B extends string,
+	C extends 0 | 1,
+	Out extends string
+> = A extends `${infer HA extends Digit}${infer RA}`
+	? B extends `${infer HB extends Digit}${infer RB}`
+		? AddDigits<HA, HB, C> extends [infer D extends string, infer C2 extends 0 | 1]
+			? AddReversed<RA, RB, C2, `${D}${Out}`>
+			: never
+		: AddDigits<HA, "0", C> extends [infer D extends string, infer C2 extends 0 | 1]
+			? AddReversed<RA, "", C2, `${D}${Out}`>
+			: never
+	: B extends `${infer HB extends Digit}${infer RB}`
+		? AddDigits<"0", HB, C> extends [infer D extends string, infer C2 extends 0 | 1]
+			? AddReversed<"", RB, C2, `${D}${Out}`>
+			: never
+		: C extends 1
+			? `1${Out}`
+			: Out
+
+/** Two counts added, saturated. */
+type AddCount<A extends string, B extends string> = "over" extends A | B
+	? "over"
+	: OverUnion<AddReversed<Reversed<A>, Reversed<B>, 0, "">>
+
+/** A count times one digit, by that many additions, saturated. */
+type TimesDigit<
+	A extends string,
+	T extends ReadonlyArray<0>,
+	Acc extends string = "0"
+> = T extends [0, ...infer R extends ReadonlyArray<0>] ? TimesDigit<A, R, AddCount<Acc, A>> : Acc
+
+/** A count times ten, saturated. */
+type TimesTen<A extends string> = A extends "over"
+	? "over"
+	: A extends "0"
+		? "0"
+		: OverUnion<`${A}0`>
+
+/** Two counts multiplied, digit by digit of B from its first, saturated. */
+type MultiplyCount<A extends string, B extends string, Acc extends string = "0"> = "over" extends
+	| A
+	| B
+	? "over"
+	: B extends `${infer H extends Digit}${infer R}`
+		? MultiplyCount<A, R, AddCount<TimesTen<Acc>, TimesDigit<A, DigitTuple[H]>>>
+		: Acc
+
+/** One digit less another and a borrow: the digit written and the borrow out. */
+type SubtractDigits<A extends Digit, B extends Digit, C extends 0 | 1> = [
+	...DigitTuple[B],
+	...(C extends 1 ? [0] : [])
+] extends infer T extends ReadonlyArray<0>
+	? DigitTuple[A] extends [...T, ...infer R extends ReadonlyArray<0>]
+		? [`${R["length"]}`, 0]
+		: [...DigitTuple[A], ...Ten] extends [...T, ...infer R extends ReadonlyArray<0>]
+			? [`${R["length"]}`, 1]
+			: never
+	: never
+
+/** A numeral less a smaller one, both written from their last digits, the difference written in order. */
+type SubtractReversed<
+	A extends string,
+	B extends string,
+	C extends 0 | 1,
+	Out extends string
+> = A extends `${infer HA extends Digit}${infer RA}`
+	? (B extends `${infer HB extends Digit}${string}` ? HB : "0") extends infer HB extends Digit
+		? SubtractDigits<HA, HB, C> extends [infer D extends string, infer C2 extends 0 | 1]
+			? SubtractReversed<RA, B extends `${string}${infer RB}` ? RB : "", C2, `${D}${Out}`>
+			: never
+		: never
+	: StripZeros<Out>
+
+/** n − m + 1, the bounds of a counted repetition in order. */
+type RepeatSpan<M extends string, N extends string> = AddCount<
+	SubtractReversed<Reversed<StripZeros<N>>, Reversed<StripZeros<M>>, 0, "">,
+	"1"
+>
+
+/** c^m, saturated: at most seventeen multiplications before a count of two or more saturates. */
+type Power<
+	C extends string,
+	M extends string,
+	K extends ReadonlyArray<0> = [],
+	P extends string = "1"
+> = P extends "over"
+	? "over"
+	: `${K["length"]}` extends StripZeros<M>
+		? P
+		: Power<C, M, [...K, 0], MultiplyCount<P, C>>
+
+/**
+ * The sum of c^k for k from m to n, saturated, c of two or more: once a power saturates, so does every later one, and
+ * a term from m on, so the sum.
+ */
+type PowerSum<
+	C extends string,
+	M extends string,
+	N extends string,
+	K extends ReadonlyArray<0> = [],
+	P extends string = "1",
+	Sum extends string = "0"
+> = P extends "over"
+	? "over"
+	: NumeralAbove<M, `${K["length"]}`> extends true
+		? PowerSum<C, M, N, [...K, 0], MultiplyCount<P, C>, Sum>
+		: AddCount<Sum, P> extends infer Next extends string
+			? `${K["length"]}` extends StripZeros<N>
+				? Next
+				: PowerSum<C, M, N, [...K, 0], MultiplyCount<P, C>, Next>
+			: never
+
+/**
+ * The members ArkRegex's quantify writes for an atom of C members repeated from M to N times (quantify.d.ts): one for
+ * a maximum of zero; C + 1 for at most once or unbounded from zero, "" beside the atom or its open run; C^M from M on,
+ * unbounded; the sum of C^k for k from M to N, counted.
+ */
+type Quantified<C extends string, M extends string, N extends string> = N extends "0"
+	? "1"
+	: N extends "unbounded"
+		? StripZeros<M> extends "0"
+			? AddCount<C, "1">
+			: C extends "0" | "1"
+				? "1"
+				: Power<C, M>
+		: C extends "0" | "1"
+			? RepeatSpan<M, N>
+			: PowerSum<C, M, N>
+
+/**
+ * A counted repetition's body, as quantify reads it: [m, n] for {m,n}, [m, "unbounded"] for {m,}, [m, m] for {m}; or
+ * never where the body is no numerals, which ArkRegex reads as literal text.
+ */
+type RepeatBounds<Body extends string> = Body extends `${infer M},${infer X}`
+	? AllDigits<M> extends true
+		? X extends ""
+			? [M, "unbounded"]
+			: AllDigits<X> extends true
+				? [M, X]
+				: never
+		: never
+	: AllDigits<Body> extends true
+		? [Body, Body]
+		: never
+
+/** One alternative's members so far, its last atom's still open to a quantifier, and its alternatives' before it. */
+type Frame = readonly [alternatives: string, product: string, last: string]
+
+/** A frame with its last atom committed and a new one of C members open. */
+type Atom<F extends Frame, C extends string> = [F[0], MultiplyCount<F[1], F[2]>, C]
+
+/** A frame's members: its alternatives before its last, and its last alternative's product. */
+type Members<F extends Frame> = AddCount<F[0], MultiplyCount<F[1], F[2]>>
+
+/** What follows `(` in a rewritten source: a group's prefix skipped. */
+type GroupBody<R extends string> = R extends
+	| `?:${infer B}`
+	| `?=${infer B}`
+	| `?!${infer B}`
+	| `?<=${infer B}`
+	| `?<!${infer B}`
+	? B
+	: R extends `?<${string}>${infer B}`
+		? B
+		: R
+
+/** The members a class writes: one per member read, a range among them; a negated class one. */
+type ClassMembers<R extends string, C extends string> = R extends `\\${string}${infer Rest}`
+	? ClassMembers<Rest, AddCount<C, "1">>
+	: R extends `]${infer Rest}`
+		? [C, Rest]
+		: R extends `${string}${infer Rest}`
+			? ClassMembers<Rest, AddCount<C, "1">>
+			: [C, ""]
+
+/**
+ * The count of the members ArkRegex's inference writes for a rewritten source, saturated at the representable union,
+ * read once, left to right: an atom is one member (a code unit, an escape, a dot, a digit class), a class one per
+ * member, a group its alternatives' sum, a sequence its atoms' product, a quantifier ArkRegex's own repetition of its
+ * atom (Quantified); a backreference "over", since ArkRegex writes its group's members again. It is an upper bound on
+ * the union ArkRegex builds, which dedupes, so a count within the limit never draws TS2590.
+ */
+type CountScan<N extends string, Top extends Frame, Outer extends ReadonlyArray<Frame>> =
+	Members<Top> extends "over"
+		? "over"
+		: N extends `\\${infer E}${infer R}`
+			? E extends Digit
+				? "over"
+				: CountScan<R, Atom<Top, "1">, Outer>
+			: N extends `[^${string}`
+				? ClassMembers<N extends `[^${infer B}` ? B : "", "0"> extends [
+						string,
+						infer R extends string
+					]
+					? CountScan<R, Atom<Top, "1">, Outer>
+					: never
+				: N extends `[${infer B}`
+					? ClassMembers<B, "0"> extends [infer C extends string, infer R extends string]
+						? CountScan<R, Atom<Top, C>, Outer>
+						: never
+					: N extends `(${infer R}`
+						? CountScan<
+								GroupBody<R>,
+								["0", "1", "1"],
+								[...Outer, [Top[0], MultiplyCount<Top[1], Top[2]>, "1"]]
+							>
+						: N extends `)${infer R}`
+							? Outer extends readonly [
+									...infer Rest extends ReadonlyArray<Frame>,
+									infer Parent extends Frame
+								]
+								? CountScan<R, [Parent[0], Parent[1], Members<Top>], Rest>
+								: CountScan<R, Top, Outer>
+							: N extends `|${infer R}`
+								? CountScan<R, [Members<Top>, "1", "1"], Outer>
+								: N extends `{${infer Body}}${infer R}`
+									? RepeatBounds<Body> extends readonly [
+											infer M extends string,
+											infer X extends string
+										]
+										? CountScan<
+												R extends `?${infer L}` ? L : R,
+												[Top[0], Top[1], Quantified<Top[2], M, X>],
+												Outer
+											>
+										: CountScan<`${Body}}${R}`, Atom<Top, "1">, Outer>
+									: N extends `${infer Q extends "?" | "*" | "+"}${infer R}`
+										? CountScan<
+												R extends `?${infer L}` ? L : R,
+												[
+													Top[0],
+													Top[1],
+													Quantified<
+														Top[2],
+														Q extends "+" ? "1" : "0",
+														Q extends "?" ? "1" : "unbounded"
+													>
+												],
+												Outer
+											>
+										: N extends `${string}${infer R}`
+											? CountScan<R, Atom<Top, "1">, Outer>
+											: Members<Top>
+
+/**
+ * The members ArkRegex's inference would write for a rewritten source (RewriteSource), as a numeral, or "over" where
+ * TypeScript could not represent them as one union; decided from the parse, at a cost linear in the source, before
+ * anything is expanded.
+ */
+export type LanguageCount<N extends string> = CountScan<N, ["0", "1", "1"], []>
+
+/**
+ * A rewritten source with every counted repetition outside a class read as `?`, for ArkRegex to validate a source
+ * whose members TypeScript could not represent: its parse finalizes the members it would infer, so it cannot read the
+ * source itself. A counted repetition and `?` are refused by it in the same places, after nothing to repeat, and the
+ * scan has already refused a reversed or oversized one, so the reading refuses what the source's would. Within the
+ * scan's budget, only a counted repetition writes more members than TypeScript represents.
+ */
+type ReduceCounts<
+	N extends string,
+	Out extends string,
+	Classed extends boolean
+> = N extends `\\${infer E}${infer R}`
+	? ReduceCounts<R, `${Out}\\${E}`, Classed>
+	: Classed extends true
+		? N extends `]${infer R}`
+			? ReduceCounts<R, `${Out}]`, false>
+			: N extends `${infer C}${infer R}`
+				? ReduceCounts<R, `${Out}${C}`, true>
+				: Out
+		: N extends `[${infer R}`
+			? ReduceCounts<R, `${Out}[`, true>
+			: N extends `{${infer Body}}${infer R}`
+				? RepeatBounds<Body> extends readonly [string, string]
+					? ReduceCounts<R, `${Out}?`, false>
+					: ReduceCounts<`${Body}}${R}`, `${Out}{`, false>
+				: N extends `${infer C}${infer R}`
+					? ReduceCounts<R, `${Out}${C}`, false>
+					: Out
+
+/**
+ * The source ArkRegex validates: the rewritten one where its members are representable, else the reading of it with
+ * every counted repetition as `?` (ReduceCounts).
+ */
+export type ValidatedSource<N extends string> =
+	LanguageCount<N> extends "over" ? ReduceCounts<N, "", false> : N

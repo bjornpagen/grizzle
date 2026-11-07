@@ -53,6 +53,7 @@ import type { RawSession } from "#test/support/substrate/session.ts"
 import { freshSchema, Substrate, worldSession } from "#test/support/substrate/substrate.ts"
 
 import { ConnectionLost, type ServerError, type TransientReason } from "#adapter/errors/failures.ts"
+import { paramText } from "#test/support/wire.ts"
 import { fullWorld, loginLayerIn, tokenOf } from "#test/support/worlds.ts"
 
 const round = (x: number): number => Math.round(x * 1000) / 1000
@@ -223,7 +224,7 @@ export interface FamilyLabel {
 	readonly kind: "family"
 	readonly position: number
 	readonly relation: string
-	readonly statement: "delete" | "deleteTree" | "count" | "insert" | "update"
+	readonly statement: "delete" | "deleteTree" | "count" | "insert" | "refill" | "update"
 }
 
 export type WriteLabel = {
@@ -533,7 +534,14 @@ const probeSession = (session: Session): ProbeSession => ({
 			let answer: Answer | undefined
 			session.send(
 				[],
-				[{ _tag: "statement", sql: testSql(sql), params, name: { _tag: "unnamed" } }],
+				[
+					{
+						_tag: "statement",
+						sql: testSql(sql),
+						params: Arr.map(params, paramText),
+						name: { _tag: "unnamed" }
+					}
+				],
 				(...[, answered]) => {
 					answer = answered
 				},

@@ -265,8 +265,11 @@ type ProgramContexts<X> = X extends AnyChangeSet
 		: never
 	: ContextsOf<X>
 
-/** A ChangeSet's writes lie within the role's write list; a query writes nothing. */
-type CompiledWrites<R, X> = X extends AnyChangeSet ? WithinWriteList<R, WritesOf<X>> : unknown
+/**
+ * A ChangeSet's writes lie within the role's write list, every member's where the program is a union of them; a query
+ * writes nothing.
+ */
+type CompiledWrites<R, X> = WithinWriteList<R, X extends AnyChangeSet ? WritesOf<X> : never>
 
 /**
  * db.compile's target: a program X over a level of S, whose decoder delivers A, matching only the contexts S's

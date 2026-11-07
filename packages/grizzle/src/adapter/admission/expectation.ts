@@ -6,6 +6,7 @@ import {
 	derived,
 	emitCatalog,
 	measured,
+	type OutputRows,
 	published,
 	type SchemaArtifacts,
 	type TemplateRequirements
@@ -253,8 +254,8 @@ export interface ServerRows {
 
 /** Parses the rows of the database and extensions statements, as they answered them. */
 export const serverRows = (rows: {
-	readonly database: ReadonlyArray<ReadonlyArray<string>>
-	readonly extensions: ReadonlyArray<ReadonlyArray<string>>
+	readonly database: OutputRows
+	readonly extensions: OutputRows
 }): Result.Result<ServerRows, CatalogRowRefused> =>
 	Result.all({
 		database: catalogRow(databaseQuery, rows.database),

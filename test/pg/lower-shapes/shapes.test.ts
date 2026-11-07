@@ -82,6 +82,7 @@ const sqlType = (schema: string, c: HeadingColumn): string => {
 		case "int2":
 		case "range4":
 		case "range8":
+		case "rangeDate":
 		case "vector":
 		case "bits":
 		case "exactInteger":

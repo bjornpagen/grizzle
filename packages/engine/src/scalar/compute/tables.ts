@@ -58,7 +58,7 @@ export const plainColumns: { readonly [S in PlainSql]: Column<PlainHost[S]> } = 
 /**
  * The operand families, by SQL type: + and - over the numeric family and money; *, unary minus, abs and sign over the
  * numeric family; / over both; % gcd and lcm over the integer types and numeric; power and sqrt over numeric and double
- * precision; a span's endpoint is an integer or a bigint.
+ * precision; a span's endpoint is an integer, a bigint or a date.
  */
 export type NumericSql =
 	| "smallint"
@@ -73,7 +73,21 @@ export type NumericSql =
 export type SignedSql = Exclude<NumericSql, "money" | "exact money">
 export type IntegralSql = "smallint" | "integer" | "bigint" | "numeric" | "exact integer"
 export type PowerSql = "numeric" | "double precision"
-export type EndpointSql = "integer" | "bigint"
+export type EndpointSql = "integer" | "bigint" | "date"
+/**
+ * The SQL type of a span's width, the difference of its endpoints, for each SQL type an endpoint has: an exact integer
+ * of integer endpoints, which never overflows, and PostgreSQL's integer count of days of dates (date - date).
+ */
+export interface SpanWidthSql {
+	readonly integer: "exact integer"
+	readonly bigint: "exact integer"
+	readonly date: "integer"
+}
+export const spanWidthSql: SpanWidthSql = Object.freeze({
+	integer: "exact integer",
+	bigint: "exact integer",
+	date: "integer"
+})
 /** The SQL types whose values a narrowing cast into an integer or money needs proved finite: numeric and the floats. */
 export type InexactSql = "numeric" | "real" | "double precision"
 

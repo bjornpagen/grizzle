@@ -1,3 +1,4 @@
+import { type TextBounds, textBounds } from "#compiler/ir/scalar.ts"
 import { maxUtf8Width } from "#compiler/scalar/regex/charset.ts"
 import { folded, type RegexNode } from "#compiler/scalar/regex/ir.ts"
 
@@ -109,13 +110,6 @@ const pathsOf = (root: RegexNode): Paths =>
 		}
 	})
 
-interface LengthBounds {
-	/** The most code points a member can hold. */
-	readonly length: number
-	/** The most UTF-8 bytes a member can hold. */
-	readonly bytes: number
-}
-
 /**
  * Proved length and byte bounds of a pattern's members.
  *
@@ -130,17 +124,17 @@ interface LengthBounds {
  *
  * Upper bounds on every member's length and byte size, or undefined when members can be arbitrarily long.
  */
-export const structuralBounds = (node: RegexNode): LengthBounds | undefined => {
+export const structuralBounds = (node: RegexNode): TextBounds | undefined => {
 	const paths = pathsOf(node)
 	if (paths[0] !== undefined || paths[1] !== undefined || paths[2] !== undefined) {
 		return undefined
 	}
 	const anchored = paths[3]
 	if (anchored === undefined) {
-		return { length: 0, bytes: 0 }
+		return textBounds(0, 0)
 	}
 	if (!Number.isFinite(anchored.length) || !Number.isFinite(anchored.bytes)) {
 		return undefined
 	}
-	return anchored
+	return textBounds(anchored.length, anchored.bytes)
 }

@@ -51,10 +51,17 @@ import { fullWorld, loginLayer } from "#test/support/worlds.ts"
  * filled by the nested walk and completed by its counted families' fill.
  *
  * A drawn follow-up over the stored instance (fill.ts `followUpGen`), one ChangeSet that puts an owner's row with a new
- * `v`, inserts counted members under it and puts a member at the end of one of its ordered families, is then applied
- * wherever the reference finds it leaves no value stale (fill.ts `writesVerdict`; the unit suite judges the refusals),
- * and it too stores exactly the reference writer's rows of the instance it leaves: the owner's new values in its
- * members' copies, the new members' counts, folds and copies, the appended member's index and its siblings' last copy.
+ * `v`, inserts counted members under it, deletes a member of one of its ordered families and puts a member, new or
+ * moved from another owner's group, at the end of one, is then applied,
+ * every value it leaves stale refilled (analysis/theory/refill.ts), wherever its refills write only mutable relations
+ * (fill.ts `writesVerdict`, which refuses only a refill of an immutable relation's rows; the unit suite judges that
+ * refusal), and it too stores exactly the reference writer's rows of the instance it leaves: the owner's new values in
+ * its members' copies, every predecessor copy, last copy, tree copy and fold drawn from them again, the new members'
+ * counts, folds and copies, the appended member's index and its siblings' last copy, and every member re-placed after a
+ * deleted or moved one, its own members' copies of it drawn again (a re-placed row is deleted and inserted again, which
+ * no cascade follows). A fold that steps a copy of the
+ * owner's `v` is judged by its member row's own CHECK at every statement, so the refill that rewrites its members
+ * ahead of the owner's put is what lets the put land.
  *
  * The schemas are the unit suite's (test/unit/write/fill-order.test.ts), kept where the reference model admits them;
  * the unit suite holds the refusals. PostgreSQL proves every value grizzle wrote through the installation's natives,
@@ -78,6 +85,9 @@ type ClusterSituation =
 	| "a copy of a generated field"
 	| "a follow-up written over the stored instance"
 	| "an owner put in place beside an append to its family"
+	| "a follow-up that refills a value it leaves stale"
+	| "a follow-up that refills a fold stepping a copy"
+	| "a follow-up that re-places an owner of counted members"
 
 const situations: Arr.NonEmptyReadonlyArray<ClusterSituation> = [
 	"a tree owning an ordered family",
@@ -95,8 +105,24 @@ const situations: Arr.NonEmptyReadonlyArray<ClusterSituation> = [
 	"a fold over a tree",
 	"a copy of a generated field",
 	"a follow-up written over the stored instance",
-	"an owner put in place beside an append to its family"
+	"an owner put in place beside an append to its family",
+	"a follow-up that refills a value it leaves stale",
+	"a follow-up that refills a fold stepping a copy",
+	"a follow-up that re-places an owner of counted members"
 ]
+
+/** Whether a follow-up re-places a stored row, `was` before it and `now` after: it moves the row to another slot or
+ * another owner's group of an ordered family, deleting it and inserting it again. */
+const replaced = (spec: FillSpec, was: InstanceRow, now: InstanceRow): boolean =>
+	Arr.some(
+		now.memberOf,
+		(m) =>
+			spec.families[m.family]?.kind === "ordered" &&
+			!Arr.some(
+				was.memberOf,
+				(w) => w.family === m.family && w.owner === m.owner && w.slot === m.slot
+			)
+	)
 
 /** The shapes of an admitted specification its case reaches. */
 const shapesOf = (spec: FillSpec): ReadonlyArray<ClusterSituation> => {
@@ -232,8 +258,48 @@ const aims: ReadonlyArray<readonly [ClusterSituation, Planted]> = [
 	["a counted member that owns a sequence", "counted sequence owner"],
 	["a copy along a counted family of a column after a sequence", "counted copy of an end"],
 	["a copy of a sibling sequence's end", "sibling's end"],
-	["an owner put in place beside an append to its family", "mutable owner"]
+	["an owner put in place beside an append to its family", "mutable owner"],
+	["a follow-up that refills a value it leaves stale", "stepped copy"],
+	["a follow-up that refills a fold stepping a copy", "stepped copy"],
+	["a follow-up that re-places an owner of counted members", "re-placed owner"]
 ]
+
+/**
+ * The shape a delete once broke: R1, the member of R0's ordered family, owns a counted family of R2 whose members copy
+ * R1's index. Deleting R0's first member re-places the second, deleting it and inserting it again a slot down beneath
+ * its counted member, which references it along an owner axis no cascade follows: the axis waits for the commit, and
+ * the member's copy of the new index is drawn again ahead of the re-placement.
+ */
+const replacedOwner: ClusterCase = {
+	spec: {
+		relations: [
+			{ generated: false, mutable: true, key: false },
+			{ generated: false, mutable: true, key: false },
+			{ generated: false, mutable: true, key: false }
+		],
+		families: [
+			{ kind: "ordered", owner: 0, member: 1, fold: "none" },
+			{ kind: "counted", owner: 1, member: 2, fold: "none" }
+		],
+		copies: [{ family: 1, axis: "owner", source: { kind: "index", family: 0 } }],
+		steps: []
+	},
+	rows: [
+		{ relation: 0, id: 1, v: 1n, memberOf: [] },
+		{ relation: 1, id: 2, v: 2n, memberOf: [{ family: 0, owner: 1, slot: 0 }] },
+		{ relation: 1, id: 3, v: 3n, memberOf: [{ family: 0, owner: 1, slot: 1 }] },
+		{ relation: 2, id: 4, v: 4n, memberOf: [{ family: 1, owner: 3, slot: 0 }] }
+	],
+	followUp: Option.some({
+		owner: 0,
+		row: 1,
+		put: Option.none(),
+		inserted: [],
+		removed: Option.some({ id: 2, family: 0 }),
+		appended: Option.none(),
+		moved: Option.none()
+	})
+}
 
 /** The case a witness runs: its drawn one, or, while a situation `aims` plants is pending, a planted one. */
 const aimedCase = (drawnCase: ClusterCase, c: Case<ClusterSituation>): ClusterCase => {
@@ -254,7 +320,19 @@ layer(Substrate.layer, { excludeTestServices: true })("the fill order on the clu
 						draw: drawn(caseGen),
 						literal: Formatter.format,
 						coverage: required<ClusterSituation>(situations, { cases: 60, sense: notesOnly }),
-						kept: [],
+						kept: [
+							{
+								note: "a delete of an ordered family's member re-places the next, which owns a counted member copying its index",
+								sketch: replacedOwner,
+								draws: "",
+								reaches: [
+									"a counted family of nested owners",
+									"a follow-up written over the stored instance",
+									"a follow-up that refills a value it leaves stale",
+									"a follow-up that re-places an owner of counted members"
+								]
+							}
+						],
 						runs: 16,
 						shrink: boundedShrink(40),
 						concurrency: 1,
@@ -317,7 +395,14 @@ layer(Substrate.layer, { excludeTestServices: true })("the fill order on the clu
 								const members = followUpMembers(spec, rows, followUp.value)
 								const next = Arr.reduce(members, ChangeSet.empty(value), (cs, m) => {
 									const relation = defined(built.relations[relationName(m.relation)])
-									return m.op === "put" ? cs.put(relation, m.facts) : cs.insert(relation, m.facts)
+									switch (m.op) {
+										case "insert":
+											return cs.insert(relation, m.facts)
+										case "put":
+											return cs.put(relation, m.facts)
+										case "delete":
+											return cs.delete(relation, m.facts)
+									}
 								})
 								const second = yield* apply(ctx, next, next.reads, {})
 								assert.equal(
@@ -325,8 +410,33 @@ layer(Substrate.layer, { excludeTestServices: true })("the fill order on the clu
 									"accepted",
 									`the follow-up ${Formatter.format(members)} of ${Formatter.format(spec)}`
 								)
-								yield* stores(followUpRows(rows, followUp.value), "the follow-up")
+								const after = followUpRows(rows, followUp.value)
+								yield* stores(after, "the follow-up")
 								c.note("a follow-up written over the stored instance")
+								const verdict = writesVerdict(
+									spec,
+									Arr.map(members, (m) => ({ relation: m.relation, op: m.op }))
+								)
+								if (Arr.isReadonlyArrayNonEmpty(verdict.stale)) {
+									c.note("a follow-up that refills a value it leaves stale")
+								}
+								if (
+									Arr.some(verdict.stale, (s) =>
+										Arr.some(spec.steps, (step) => step.family === s.family)
+									)
+								) {
+									c.note("a follow-up that refills a fold stepping a copy")
+								}
+								if (
+									Arr.some(
+										after,
+										(x) =>
+											Arr.some(rows, (was) => was.id === x.id && replaced(spec, was, x)) &&
+											Arr.some(after, (y) => Arr.some(y.memberOf, (m) => m.owner === x.id))
+									)
+								) {
+									c.note("a follow-up that re-places an owner of counted members")
+								}
 								if (
 									Option.isSome(followUp.value.put) &&
 									(Arr.isReadonlyArrayNonEmpty(followUp.value.inserted) ||

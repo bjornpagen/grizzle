@@ -311,6 +311,7 @@ export const kindOfType = (t: ScalarType): ColumnKind | "hull" | undefined => {
 		case "bits":
 		case "range4":
 		case "range8":
+		case "rangeDate":
 		case "vector":
 		case "exactInteger":
 		case "exactMoney":

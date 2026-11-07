@@ -17,7 +17,7 @@ import type { RuleValue } from "#compiler/query/build/rule.ts"
 import type { TypeRefusal } from "#compiler/types/core/phantom.ts"
 import { AccountTally, Tallies } from "#test/support/agreement/deliver-tally.ts"
 import { groupFields, recordType } from "#test/support/agreement/heading.ts"
-import { Deliver } from "#test/support/agreement/schema.ts"
+import { Deliver, DeliverApart } from "#test/support/agreement/schema.ts"
 import { defined } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
 import { messageOf } from "#test/support/message.ts"
@@ -41,7 +41,9 @@ import { messageOf } from "#test/support/message.ts"
  * clause a match of an arm relation keyed by the parent's Task.id of one scope, every other binding its own variable,
  * its field the parent's head field of that scope's Task.kind, and its handle that arm's, one literal. A child of two
  * headings, which one attachment statement cannot deliver, and an attachment named as a field of its parent are the
- * engine's own refusals. The program states each refusal under its directive at the child's line or the name's, and
+ * engine's own refusals, and so is a child written over DeliverApart, a schema of Deliver's relations that is no level
+ * of the parent's (ForeignLevel), which the types refuse as no child of the parent's schema. The program states each
+ * refusal under its directive at the child's line or the name's, and
  * each admitted one's records, of a snapshot read and of a read inside a write transaction, as the engine decodes them:
  * the parent's and the child's records, and the child under the delivery stated, its arm narrowed to Some where the
  * parent's field holds the handle and None elsewhere, and a read-back's one child or arm an Option (readBack), which the
@@ -185,6 +187,8 @@ interface ChildFilter {
 }
 
 interface Child {
+	/** The schema the child is written over: the parent's, or DeliverApart, which is no level of it. */
+	readonly schema: "Deliver" | "DeliverApart"
 	readonly rel: Rel
 	readonly bindings: ReadonlyArray<readonly [string, ChildTerm]>
 	readonly filter: ChildFilter | undefined
@@ -263,6 +267,7 @@ const drawnIntents: Arr.NonEmptyReadonlyArray<Intent> = [
 	"composite",
 	"composite",
 	"reflexive",
+	"arm",
 	"arm",
 	"arm",
 	"arm"
@@ -477,7 +482,15 @@ const childOf = (source: Source, plan: Plan, parent: Parent, intent: Intent): Ch
 	const arms = coin(source, calm ? 10 : 5)
 		? source.draw(element(["twice", "apart"] as const))
 		: "one"
-	return { rel: plan.child, bindings: keyed(plan.child, bindings, head), filter, head, shape, arms }
+	return {
+		schema: "Deliver",
+		rel: plan.child,
+		bindings: keyed(plan.child, bindings, head),
+		filter,
+		head,
+		shape,
+		arms
+	}
 }
 
 /**
@@ -523,8 +536,8 @@ const correlated = (
 
 /**
  * A delivery stated over `parent` and `child`: an array, an Option, the one child or an arm of a parent's field, an
- * arm's field and handle mostly the ones the plan's arm would state. A child of two headings states an array, so the
- * engine's one refusal of it is the case's one.
+ * arm's field and handle mostly the ones the plan's arm would state, and the one child more often where the intent is
+ * a proof of it. A child of two headings states an array, so the engine's one refusal of it is the case's one.
  */
 const statedOf = (source: Source, parent: Parent, child: Child, intent: Intent): Stated => {
 	if (child.arms === "apart") {
@@ -548,7 +561,18 @@ const statedOf = (source: Source, parent: Parent, child: Child, intent: Intent):
 			spelling: coin(source, 4) ? "widened" : "literal"
 		}
 	}
-	return source.draw(element([{ kind: "array" }, { kind: "option" }, { kind: "one" }] as const))
+	const proving =
+		intent === "containment" ||
+		intent === "closed" ||
+		intent === "composite" ||
+		intent === "reflexive"
+	return source.draw(
+		element(
+			proving
+				? ([{ kind: "array" }, { kind: "option" }, { kind: "one" }, { kind: "one" }] as const)
+				: ([{ kind: "array" }, { kind: "option" }, { kind: "one" }] as const)
+		)
+	)
 }
 
 /** The field of a relation named `name`. */
@@ -596,11 +620,20 @@ const specGen: Gen<AttachSpec> = (source) => {
 	const plan = planOf(source, intent)
 	const parent = parentOf(source, plan)
 	const child = childOf(source, plan, parent, intent)
-	if (coin(source, 10)) {
+	if (coin(source, 16)) {
 		return {
 			parent,
 			name: source.draw(element(parent.head)).name,
 			child: { ...child, arms: "one" },
+			stated: { kind: "array" },
+			nested: undefined
+		}
+	}
+	if (coin(source, 16)) {
+		return {
+			parent,
+			name: "child",
+			child: { ...child, schema: "DeliverApart", arms: "one" },
 			stated: { kind: "array" },
 			nested: undefined
 		}
@@ -696,7 +729,7 @@ const childSource = (child: Child): string => {
 		child.shape === "set"
 			? ""
 			: `.orderBy([${jsonText(firstHeadField(child))}, "asc"])${child.shape === "first" ? ".take(1)" : ""}`
-	return `(p) => query(Deliver)${arms}${order}`
+	return `(p) => query(${child.schema})${arms}${order}`
 }
 
 /** The stated delivery, in the program. */
@@ -719,6 +752,9 @@ const schemaName = (rel: Rel): "Deliver" | "Tallies" =>
 	rel === "AccountTally" ? "Tallies" : "Deliver"
 
 const schemas = { Deliver, Tallies } as const
+
+/** The schemas a child is written over, by name. */
+const childSchemas = { Deliver, DeliverApart } as const
 
 const relationOf = (rel: Rel): unknown => relations[rel]
 
@@ -786,7 +822,7 @@ const childRule =
 
 /** The child over the parent's variables `p`, as its attachment states it: its rules, its order and take. */
 const builtChild = (child: Child, p: Readonly<Record<string, unknown>>): unknown => {
-	const first = queryOver(Deliver).rule(childRule(child, p, false))
+	const first = queryOver(childSchemas[child.schema]).rule(childRule(child, p, false))
 	const union = child.arms === "one" ? first : first.rule(childRule(child, p, true))
 	switch (child.shape) {
 		case "set":
@@ -886,12 +922,28 @@ const armClaim = (
 /** Where a refusal's directive stands: above the attachment's name, its child, or its nested attachment's child. */
 type AttachAt = "name" | "child" | "nested"
 
-/** What the program states of an attachment the types must refuse: its line, its diagnostic and its refusal. */
+/**
+ * What the program states of an attachment the types must refuse: its line, its diagnostic, and the refusal it names,
+ * or why in prose where the refusal is structural (a child over no level of the parent's schema).
+ */
 interface AttachRefused {
 	readonly at: AttachAt
 	readonly code: "TS2322" | "TS2345"
-	readonly refusal: TypeRefusal
+	readonly claim:
+		| { readonly kind: "refusal"; readonly refusal: TypeRefusal }
+		| { readonly kind: "prose"; readonly reason: string }
 }
+
+/** A refusal the types name at `at`, under `code`. */
+const namedAt = (at: AttachAt, code: "TS2322" | "TS2345", refusal: TypeRefusal): AttachRefused => ({
+	at,
+	code,
+	claim: { kind: "refusal", refusal }
+})
+
+/** What a refusal claims, as a note and a directive name it. */
+const claimText = (refused: AttachRefused): string =>
+	refused.claim.kind === "refusal" ? refused.claim.refusal : refused.claim.reason
 
 /** What the engine proves of an attachment it admits, and of its nested one, and the records the types must infer. */
 interface AttachAdmitted {
@@ -1054,17 +1106,27 @@ const engineRefusal = (spec: AttachSpec, reason: CompileReason): AttachRefused |
 		Str.startsWith("Query.attach(")(label) &&
 		Arr.some(spec.parent.head, (h) => h.name === spec.name)
 	) {
-		return { at: "name", code: "TS2345", refusal: "a new field name for the attachment" }
+		return namedAt("name", "TS2345", "a new field name for the attachment")
 	}
 	if (reason._tag === "UnsupportedOperation" && spec.child.arms === "apart") {
+		return namedAt(
+			"child",
+			"TS2322",
+			"an attached heterogeneous union; one attachment statement delivers one heading"
+		)
+	}
+	if (reason._tag === "ForeignLevel" && spec.child.schema === "DeliverApart") {
 		return {
 			at: "child",
 			code: "TS2322",
-			refusal: "an attached heterogeneous union; one attachment statement delivers one heading"
+			claim: { kind: "prose", reason: foreignChild }
 		}
 	}
 	return undefined
 }
+
+/** Why the types refuse a child over no level of its parent's schema: no child of that schema (types/query Child). */
+const foreignChild = "an attachment child is a query over a level of the parent's schema"
 
 /** The refusal the types name for a stated delivery the engine does not license, or an arm the law does not make. */
 const claimRefusal = (spec: Attachment, proved: Delivery): TypeRefusal | undefined => {
@@ -1113,7 +1175,7 @@ const attachVerdict = (spec: AttachSpec): AttachVerdict => {
 	]
 	const refused = Arr.flatMap(analyzed, ([a, at]): ReadonlyArray<AttachRefused> => {
 		const claimed = claimRefusal(a.attachment, a.node.delivered)
-		return claimed === undefined ? [] : [{ at, code: "TS2322", refusal: claimed }]
+		return claimed === undefined ? [] : [namedAt(at, "TS2322", claimed)]
 	})
 	if (Arr.isReadonlyArrayNonEmpty(refused)) {
 		return { kind: "refused", refused }
@@ -1193,6 +1255,7 @@ export type AttachNote =
 	| "a derived parent"
 	| "a nested attachment admitted"
 	| "a nested attachment refused"
+	| "a foreign child refused"
 
 interface AttachCase {
 	readonly spec: AttachSpec
@@ -1207,7 +1270,11 @@ const attachCaseGen: Gen<AttachCase> = (source) => {
 	switch (verdict.kind) {
 		case "refused":
 			for (const refused of verdict.refused) {
-				notes.add(`refused: ${refused.refusal}`)
+				notes.add(
+					refused.claim.kind === "refusal"
+						? `refused: ${refused.claim.refusal}`
+						: "a foreign child refused"
+				)
 				if (refused.at === "nested") {
 					notes.add("a nested attachment refused")
 				}
@@ -1336,13 +1403,14 @@ const attachBlock = (c: AttachCase, i: number): ReadonlyArray<string> => {
 		case "refused": {
 			const refused = c.verdict.refused
 			return [
-				`/** The engine refuses the attachment: ${Arr.join(
-					Arr.map(refused, (r) => r.refusal),
-					"; "
-				)}. */`,
+				`/** The engine refuses the attachment: ${Arr.join(Arr.map(refused, claimText), "; ")}. */`,
 				...linesOf(c.spec, i, (at) =>
 					Arr.flatMap(refused, (r) =>
-						r.at === at ? [`// @ts-expect-error -- ${r.code} refusal: ${r.refusal}`] : []
+						r.at !== at
+							? []
+							: r.claim.kind === "refusal"
+								? [`// @ts-expect-error -- ${r.code} refusal: ${r.claim.refusal}`]
+								: [`// @ts-expect-error -- ${r.code}: ${r.claim.reason}`]
 					)
 				),
 				""
@@ -1418,7 +1486,7 @@ export const attachModule = (entries: AttachEntries, seed: number): string => {
 			...some(["arm", "query", "v"], entries.query, "import"),
 			...some(["HeadOf", "ImmediateHeadOf"], entries.query, "import type"),
 			...some(["ChangeSet", "ReadsOf"], entries.changeset, "import type"),
-			...some(["Deliver"], entries.schema, "import"),
+			...some(["Deliver", "DeliverApart"], entries.schema, "import"),
 			...some(["AccountTally", "Tallies"], entries.tallies, "import"),
 			"",
 			body

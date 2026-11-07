@@ -11,6 +11,7 @@ import { type ConstraintName, ExprId, type LawId, NodeId } from "#compiler/core/
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import type * as Result from "#compiler/core/result.ts"
+import { firstCalendarDate, lastCalendarDate } from "#compiler/ir/date.ts"
 import {
 	builtExpr,
 	type ExprTable,
@@ -23,7 +24,14 @@ import {
 import { Fold } from "#compiler/ir/fold.ts"
 import type { TheoryRelation } from "#compiler/ir/law.ts"
 import type { PhysicalReason } from "#compiler/ir/products.ts"
-import { baseOf, contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
+import {
+	baseOf,
+	contractOf,
+	type ScalarType,
+	type SpanCarrier,
+	spanCarrierOf,
+	spanOf
+} from "#compiler/ir/scalar.ts"
 import type { ConstraintLaw } from "#compiler/laws/model/model.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
 import { noTextDomainUses } from "#compiler/physical/ddl/domains.ts"
@@ -60,7 +68,7 @@ type StoredRelation = Extract<TheoryRelation, { readonly kind: "relation" }>
 
 /** A span column type's range carrier, its endpoint, and its fixed width when it has one. */
 interface SpanColumnInfo {
-	readonly carrier: "range4" | "range8"
+	readonly carrier: SpanCarrier
 	readonly endpoint: ScalarType
 	readonly width: bigint | undefined
 }
@@ -68,31 +76,53 @@ interface SpanColumnInfo {
 /** The span information of a column type, or undefined when the column is no span. */
 const spanColumnInfo = (t: ScalarType): SpanColumnInfo | undefined => {
 	const b = baseOf(t)
-	if (b.carrier !== "range4" && b.carrier !== "range8") {
-		return undefined
-	}
-	return { carrier: b.carrier, endpoint: b.span.endpoint, width: b.span.width }
+	const carrier = spanCarrierOf(b)
+	const span = spanOf(b)
+	return carrier === undefined || span === undefined
+		? undefined
+		: { carrier, endpoint: span.endpoint, width: span.width }
 }
 
-/** The span shape over the column: nonempty, bounded on both sides, lower bound inclusive and upper bound exclusive. */
-const spanShapePredicate = (column: string): Expr => {
+/**
+ * The span shape over the column: nonempty, bounded on both sides, lower bound inclusive and upper bound exclusive;
+ * over dates, its endpoints among the days a CalendarDate spells, 0001-01-01 to 9999-12-31, which PostgreSQL's date
+ * exceeds.
+ */
+const spanShapePredicate = (column: string, carrier: SpanCarrier): Expr => {
 	const c = tableCol(column)
-	return and([
+	const shape = [
 		not(call("isempty", [c])),
 		not(call("lower_inf", [c])),
 		not(call("upper_inf", [c])),
 		call("lower_inc", [c]),
 		not(call("upper_inc", [c]))
-	])
+	] as const
+	return carrier === "rangeDate"
+		? and([
+				...shape,
+				binary(">=", call("lower", [c]), lit.text(firstCalendarDate, types.date)),
+				binary("<=", call("upper", [c]), lit.text(lastCalendarDate, types.date))
+			])
+		: and(shape)
 }
 
-/** The fixed width over the column: upper(c)::numeric - lower(c)::numeric = <width>. */
-const spanWidthPredicate = (column: string, width: bigint): Expr => {
+/**
+ * The fixed width over the column: upper(c)::numeric - lower(c)::numeric = <width> over integers, both endpoints cast
+ * to numeric so no width at the endpoint type's limits overflows; upper(c) - lower(c) = <width> over dates, whose
+ * difference is the integer count of days between them.
+ */
+const spanWidthPredicate = (column: string, width: bigint, carrier: SpanCarrier): Expr => {
 	const c = tableCol(column)
-	return eq(
-		binary("-", cast(call("upper", [c]), types.numeric), cast(call("lower", [c]), types.numeric)),
-		lit.int(width, types.numeric)
-	)
+	return carrier === "rangeDate"
+		? eq(binary("-", call("upper", [c]), call("lower", [c])), lit.int(width, types.integer))
+		: eq(
+				binary(
+					"-",
+					cast(call("upper", [c]), types.numeric),
+					cast(call("lower", [c]), types.numeric)
+				),
+				lit.int(width, types.numeric)
+			)
 }
 
 /** A contract along an endpoint's chain that has a predicate: its name and its predicate's table. */
@@ -225,7 +255,13 @@ const spanColumnConstraints = (
 			relation: r,
 			field: c.name,
 			kind: "shape",
-			...spanCheck(b, relation, c.name, { kind: "shape" }, spanShapePredicate(column)),
+			...spanCheck(
+				b,
+				relation,
+				c.name,
+				{ kind: "shape" },
+				spanShapePredicate(column, info.carrier)
+			),
 			reasons: [enforcement(`span shape of ${label}: nonempty, bounded and half-open`)]
 		})
 		if (info.width !== undefined) {
@@ -238,7 +274,7 @@ const spanColumnConstraints = (
 					relation,
 					c.name,
 					{ kind: "width" },
-					spanWidthPredicate(column, info.width)
+					spanWidthPredicate(column, info.width, info.carrier)
 				),
 				reasons: [enforcement(`span width ${info.width} of ${label}`)]
 			})
@@ -333,8 +369,8 @@ const addSpanChecks = (b: InstallBuilder, constraints: ReadonlyArray<SpanConstra
 
 /** Span storage: the CHECKs every span column carries, as the installer's built-in contribution.
  *
- * A span is one base range column, int4range over an integer endpoint and int8range over a bigint one, NOT NULL like
- * every column. The table never stores two public endpoint columns. Beside the column, every writer meets these native
+ * A span is one base range column, int4range over an integer endpoint, int8range over a bigint one and daterange over a
+ * date, NOT NULL like every column. The table never stores two public endpoint columns. Beside the column, every writer meets these native
  * CHECKs, each wrapped in IS TRUE by the printer:
  *
  * - the shape, `<table>__check__<column>_span`: `NOT isempty(c) AND NOT lower_inf(c) AND NOT upper_inf(c) AND

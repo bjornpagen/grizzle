@@ -59,6 +59,7 @@ import {
 	testCompile
 } from "#test/support/compile.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { outputRows, outputText } from "#test/support/wire.ts"
 import { ascendingTasks, compiledPageResult, Paging } from "#test/unit/page/fixtures.ts"
 
 /** A child record of one column, `c`. */
@@ -96,7 +97,11 @@ const parentRow = (n: number): Row => ({
 	group: 0,
 	texts: [],
 	children: [
-		Array.from({ length: n }, (_, i): Row => ({ group: 0, texts: [`c${i}`], children: [] }))
+		Array.from({ length: n }, (_, i): Row => ({
+			group: 0,
+			texts: [outputText(`c${i}`)],
+			children: []
+		}))
 	]
 })
 
@@ -424,7 +429,7 @@ describe("a statement's rows", () => {
 									plant.kind === "repeat" && plant.statement === "attachment"
 										? planted(childRows, attached)
 										: childRows
-								const answers: SentRuns = sent
+								const answers: SentRuns = Arr.map(sent, outputRows)
 								const delivered = deliveredRows(program, answers, {})
 								const repeatedAt =
 									plant.kind === "repeat" && (plant.statement === "root" || childRows.length > 0)
@@ -442,9 +447,9 @@ describe("a statement's rows", () => {
 								assert.equal(rows.length, posts)
 								for (const row of rows) {
 									const kids = defined(row.children[0], "the comments slot")
-									const owner = Arr.findFirst(uuids, (u) => row.texts.includes(u)).pipe(
-										Option.getOrUndefined
-									)
+									const owner = Arr.findFirst(uuids, (u) =>
+										Arr.some(row.texts, (t) => t === u)
+									).pipe(Option.getOrUndefined)
 									const p = uuids.indexOf(defined(owner, "the row's post id"))
 									const owned = Arr.filter(comments, (q) => q === p).length
 									c.note(owned === 0 ? "a post without comments" : "stitched")
@@ -559,7 +564,7 @@ describe("a page's candidates", () => {
 											? [second, first, ...fetched.slice(2)]
 											: fetched
 								const planted = answer !== fetched
-								const edges = pageEdges(program, [answer], size)
+								const edges = pageEdges(program, [outputRows(answer)], size)
 								if (planted) {
 									c.note(
 										plant === "an equal tuple" ? "an equal tuple refused" : "a step back refused"

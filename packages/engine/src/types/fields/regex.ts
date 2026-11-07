@@ -1,6 +1,11 @@
 import type { regex } from "arkregex"
 import type { RegexFlags } from "#compiler/scalar/regex/parse.ts"
-import type { RewriteSource } from "#compiler/types/fields/source.ts"
+import type {
+	LanguageCount,
+	Rejected,
+	RewriteSource,
+	ValidatedSource
+} from "#compiler/types/fields/source.ts"
 
 /**
  * The type-level reading of a pattern's literal source, which str.regex (text/field.ts) and Compute.matches
@@ -28,6 +33,8 @@ type SourceRefusal<S extends string> = string extends S
 /**
  * ArkRegex's type-level pattern check on the rewritten source (types/fields/source.ts): S itself when it parses,
  * otherwise S branded with ArkRegex's error message, which no string satisfies, so the message shows in the diagnostic.
+ * A source the scan rejects (a counted repetition's bounds out of order, a quantified anchor) is branded with the
+ * scan's message, the compiler's refusal, before ArkRegex reads it.
  * A source too long to scan is left to the compiler's grammar check. A source that is no single literal is refused
  * first (SourceRefusal). The result is always S or a subtype of it, so the runtime source has the source type S.
  */
@@ -39,10 +46,16 @@ export interface Refused<out Message> {
 type RegexRefusal<S extends string, F extends RegexFlags> =
 	SourceRefusal<S> extends infer Refusal extends string
 		? Refused<Refusal>
-		: RewriteSource<S> extends readonly [infer N extends string, boolean]
-			? regex.validate<N, F> extends N
-				? unknown
-				: Refused<regex.validate<N, F>>
+		: RewriteSource<S> extends infer Read
+			? Read extends Rejected<infer Message>
+				? Refused<Message>
+				: Read extends readonly [infer N extends string, boolean]
+					? ValidatedSource<N> extends infer V extends string
+						? regex.validate<V, F> extends V
+							? unknown
+							: Refused<regex.validate<V, F>>
+						: unknown
+					: unknown
 			: unknown
 export type RegexValidate<S extends string, F extends RegexFlags> = S & RegexRefusal<S, F>
 
@@ -131,11 +144,14 @@ type OnePlaceholderPerRun<T extends string> = T extends string ? Rebuilt<T, "", 
 
 /**
  * The inferred host type of a pattern's members: ArkRegex's inference on the rewritten source with one placeholder per
- * run, or string where that would not be sound or the source is too long to scan (types/fields/source.ts).
+ * run, or string where that would not be sound, the source is too long to scan, or its members are more than
+ * TypeScript represents as one union (LanguageCount, types/fields/source.ts), the same field RegexText<string, S, F>.
  */
 export type RegexInfer<S extends string, F extends RegexFlags> =
 	RewriteSource<S> extends readonly [infer N extends string, infer Widen extends boolean]
 		? Widen extends true
 			? string
-			: OnePlaceholderPerRun<regex.infer<N, F>>
+			: LanguageCount<N> extends "over"
+				? string
+				: OnePlaceholderPerRun<regex.infer<N, F>>
 		: string

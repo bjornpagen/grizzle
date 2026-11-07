@@ -540,6 +540,8 @@ const valueOf = (value: string, type: TypeRef): SqlValue => {
 		case "record":
 		case "uuid":
 		case "date":
+		case "daterange":
+		case "datemultirange":
 			return unevaluable(`a ${type.name} literal`)
 	}
 }

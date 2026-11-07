@@ -73,6 +73,7 @@ import { caseHang } from "#test/support/limits.ts"
 import { nothingReported, serverError } from "#test/support/server-error.ts"
 
 import { regex } from "arkregex"
+import { paramText } from "#test/support/wire.ts"
 
 /**
  * db.refresh without PostgreSQL: which views a call refreshes and in which order, its refusals before any SQL, the
@@ -519,7 +520,7 @@ describe("plain or CONCURRENTLY", () => {
 							assert.deepEqual(readTextArray(textArray(views)), views)
 							const params = populatedParams("edu", views)
 							const [schemaParam, viewsParam] = params
-							assert.equal(schemaParam, "edu")
+							assert.equal(schemaParam, paramText("edu"))
 							const read = readTextArray(defined(viewsParam, "the views parameter"))
 							assert.ok(read !== "unread", "the views parameter is no text[] literal")
 							unorderedEqual(read, [...new Set(views)], "each view once")

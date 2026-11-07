@@ -27,6 +27,7 @@ import { caseHang } from "#test/support/limits.ts"
 import { auditTextViolations } from "#test/support/oracle/verify/sql.ts"
 import { expectSqlstate } from "#test/support/substrate/expect.ts"
 import { freshSchema, Substrate } from "#test/support/substrate/substrate.ts"
+import { outputText } from "#test/support/wire.ts"
 
 /** An error's DETAIL; an error without one fails. */
 const detailOf = (detail: Option.Option<string>): string =>
@@ -153,9 +154,9 @@ layer(Substrate.layer)("the write refusal channel on PostgreSQL 19", (it) => {
 									kind: "law",
 									relation: "Timesheet",
 									key: [
-										{ field: "employee", text: employee },
-										{ field: "week", text: week },
-										{ field: "note", text: note }
+										{ field: "employee", text: outputText(employee) },
+										{ field: "week", text: outputText(week) },
+										{ field: "note", text: outputText(note) }
 									]
 								})
 							} else {

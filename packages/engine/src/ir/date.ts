@@ -164,3 +164,30 @@ export const dayNumber = (date: CalendarDate): number => {
 	}
 	return days + day - 1
 }
+
+/** The year's digits, and the month's and the day's, of a calendar date's text. */
+const partWidths = {
+	year: dateLayout.monthHyphen,
+	monthOrDay: dateLayout.dayHyphen - dateLayout.monthHyphen - 1
+} as const
+
+/**
+ * The calendar date of a day number, its days after 0001-01-01: dayNumber's inverse, a date span's endpoint as the
+ * evaluator holds it read back as the host's.
+ */
+export const dateOfDayNumber = (days: bigint): CalendarDate => {
+	const n = Number(days)
+	let year = Math.floor(n / (commonYearDays + 1)) + 1
+	while (daysBeforeYear(year + 1) <= n) {
+		year++
+	}
+	let rest = n - daysBeforeYear(year)
+	let month = 1
+	for (let length = daysInMonth(year, month); length !== undefined && rest >= length;) {
+		rest -= length
+		month++
+		length = daysInMonth(year, month)
+	}
+	const pad = (value: number, width: number): string => String(value).padStart(width, "0")
+	return `${pad(year, partWidths.year)}-${pad(month, partWidths.monthOrDay)}-${pad(rest + 1, partWidths.monthOrDay)}`
+}

@@ -34,6 +34,13 @@
  * Each phase is cut into consecutive statements, each holding as many rows as fit: its arrays' literals within V8's
  * longest string, and its Bind message within PostgreSQL's longest message. A family larger than one statement goes as
  * consecutive inserts after its one count update, in ascending slot order.
+ *
+ * Inside each update and insert statement, rows go ordered by their pattern input (pattern-order.ts): the values a
+ * row CHECK's or a generated field's match reads its pattern from, so each pattern PostgreSQL compiles serves every row
+ * of it in the statement, where rows cycling through more patterns than its cache of compiled ones holds would compile
+ * one per row. Only a statement's own rows are reordered, after the cut, so the statements keep their order: a
+ * statement's predecessor keys and owner axes are checked at its end, and no two of its rows hold one slot, so its rows
+ * go in any order.
  */
 import { arrayTexts } from "#compiler/codec/recordset.ts"
 import { defined, invariant } from "#compiler/core/invariant.ts"
@@ -41,6 +48,7 @@ import { maxStringLength, messageMaxBytes } from "#compiler/core/limits.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
+import type { ParamText } from "#compiler/core/wire.ts"
 import type { FamilyId } from "#compiler/ir/law.ts"
 import {
 	type CountRow,
@@ -52,17 +60,20 @@ import {
 	type Row,
 	rowTexts
 } from "#compiler/write/family/draw.ts"
+import { byPatternInput } from "#compiler/write/family/pattern-order.ts"
 
 /**
  * One member relation's rows of a write, each kind a set by its key's text (draw.ts textsKey), so no row is written
- * twice by one kind: those deleted by key, its trees deleted whole by their root fields' texts, its kept rows updated in
- * place, and its new and re-placed rows inserted, in the order they go: a sequence's members in ascending slot order
- * per owner, a tree's in pre-order.
+ * twice by one kind: those deleted by key, its trees deleted whole by their root fields' texts, its kept rows a refill
+ * rewrites in place ahead of the change it draws (analysis/theory/refill.ts), its other kept rows updated in place, and
+ * its new and re-placed rows inserted, in the order they go: a sequence's members in ascending slot order per owner, a
+ * tree's in pre-order.
  */
 export interface RelationWrite {
 	readonly relation: string
 	readonly deletes: ReadonlyMap<string, MemberKey>
 	readonly trees: ReadonlyMap<string, Owner>
+	readonly refills: ReadonlyMap<string, Row>
 	readonly updates: ReadonlyMap<string, Row>
 	readonly inserts: ReadonlyMap<string, Row>
 }
@@ -122,6 +133,11 @@ export type FamilyStatement =
 			readonly rows: NonEmptyReadonlyArray<Owner>
 	  }
 	| {
+			readonly kind: "refill"
+			readonly relation: string
+			readonly rows: NonEmptyReadonlyArray<Row>
+	  }
+	| {
 			readonly kind: "update"
 			readonly relation: string
 			readonly rows: NonEmptyReadonlyArray<Row>
@@ -143,23 +159,26 @@ export type Phase<K extends FamilyStatement["kind"]> = ReadonlyArray<
 >
 
 /**
- * A write's statements, phase by phase in the one order they run: its deletes, its updates in place, its counts, its
- * inserts. The order is the tuple's, so no plan holds another, and `plan.flat()` lists the statements as they are sent.
+ * A write's statements, phase by phase in the one order they run: its deletes, its refills, its updates in place, its
+ * counts, its inserts. The order is the tuple's, so no plan holds another, and `plan.flat()` lists the statements as
+ * they are sent.
  */
 export type Plan = readonly [
 	deletes: Phase<"delete" | "deleteTree">,
+	refills: Phase<"refill">,
 	updates: Phase<"update">,
 	counts: Phase<"count">,
 	inserts: Phase<"insert">
 ]
 
 /** A statement's rows as their texts, each in its row's layout (draw.ts): what its arrays carry, column by column. */
-export const textsOf = (statement: FamilyStatement): ReadonlyArray<ReadonlyArray<string>> => {
+export const textsOf = (statement: FamilyStatement): ReadonlyArray<ReadonlyArray<ParamText>> => {
 	switch (statement.kind) {
 		case "delete":
 			return statement.rows.map(keyTexts)
 		case "deleteTree":
 			return statement.rows
+		case "refill":
 		case "update":
 		case "insert":
 			return statement.rows.map(rowTexts)
@@ -189,7 +208,7 @@ interface Alone {
  * The literal of `text` alone, from the transport's own encoder (codec/recordset.ts arrayTexts), or none when it is
  * longer than `limit` code units.
  */
-const aloneOf = (text: string, limit: number): Alone | undefined => {
+const aloneOf = (text: ParamText, limit: number): Alone | undefined => {
 	const literal = arrayTexts("", [""], [[text]], limit)
 	if (!literal.ok) {
 		return undefined
@@ -205,7 +224,7 @@ const aloneOf = (text: string, limit: number): Alone | undefined => {
  */
 const cut = <R>(
 	rows: ReadonlyArray<R>,
-	textsOfRow: (row: R) => ReadonlyArray<string>,
+	textsOfRow: (row: R) => ReadonlyArray<ParamText>,
 	transport: Transport
 ): Result.Result<ReadonlyArray<NonEmptyReadonlyArray<R>>, Bound> => {
 	const statements: Array<NonEmptyReadonlyArray<R>> = []
@@ -281,9 +300,10 @@ const unsendable = (statement: Unsendable["statement"], bound: Bound): Unsendabl
 	statement
 })
 
-/** A relation's write's statements: its deletes, its updates and its inserts. */
+/** A relation's write's statements: its deletes, its refills, its updates and its inserts. */
 export type RelationPlan = readonly [
 	deletes: Phase<"delete" | "deleteTree">,
+	refills: Phase<"refill">,
 	updates: Phase<"update">,
 	inserts: Phase<"insert">
 ]
@@ -295,20 +315,27 @@ export type RelationPlan = readonly [
  */
 export const planRelation = (
 	write: RelationWrite,
-	transport: Transport
+	transport: Transport,
+	input: ReadonlySet<number>
 ): Result.Result<RelationPlan, Unsendable> => {
 	const { relation } = write
 	invariant(
-		[...write.updates.keys()].every((k) => !write.deletes.has(k) && !write.inserts.has(k)),
-		"a row updated in place is neither deleted nor inserted"
+		[...write.updates.keys(), ...write.refills.keys()].every(
+			(k) => !write.deletes.has(k) && !write.inserts.has(k)
+		) && [...write.refills.keys()].every((k) => !write.updates.has(k)),
+		"a row updated in place is neither deleted nor inserted, and is refilled or updated, not both"
 	)
 	const deletes = cut([...write.deletes.values()], keyTexts, transport)
 	if (!deletes.ok) {
 		return Result.err(unsendable("delete", deletes.error))
 	}
-	const trees = cut([...write.trees.values()], (t: Owner): ReadonlyArray<string> => t, transport)
+	const trees = cut([...write.trees.values()], (t: Owner): ReadonlyArray<ParamText> => t, transport)
 	if (!trees.ok) {
 		return Result.err(unsendable("deleteTree", trees.error))
+	}
+	const refills = cut([...write.refills.values()], rowTexts, transport)
+	if (!refills.ok) {
+		return Result.err(unsendable("refill", refills.error))
 	}
 	const updates = cut([...write.updates.values()], rowTexts, transport)
 	if (!updates.ok) {
@@ -323,8 +350,15 @@ export const planRelation = (
 			...deletes.value.map((rows) => ({ kind: "delete", relation, rows }) as const),
 			...trees.value.map((rows) => ({ kind: "deleteTree", relation, rows }) as const)
 		],
-		updates.value.map((rows) => ({ kind: "update", relation, rows }) as const),
-		inserts.value.map((rows) => ({ kind: "insert", relation, rows }) as const)
+		refills.value.map(
+			(rows) => ({ kind: "refill", relation, rows: byPatternInput(rows, rowTexts, input) }) as const
+		),
+		updates.value.map(
+			(rows) => ({ kind: "update", relation, rows: byPatternInput(rows, rowTexts, input) }) as const
+		),
+		inserts.value.map(
+			(rows) => ({ kind: "insert", relation, rows: byPatternInput(rows, rowTexts, input) }) as const
+		)
 	]
 	return Result.ok(planned)
 }
@@ -376,7 +410,7 @@ export const planRead = (
 	if (!byKey.ok) {
 		return Result.err(unsendable("read", byKey.error))
 	}
-	const byGroup = cut(groups, (g: Owner): ReadonlyArray<string> => g, beside(widths.key))
+	const byGroup = cut(groups, (g: Owner): ReadonlyArray<ParamText> => g, beside(widths.key))
 	if (!byGroup.ok) {
 		return Result.err(unsendable("read", byGroup.error))
 	}

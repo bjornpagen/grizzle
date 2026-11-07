@@ -50,8 +50,10 @@ import {
 	carriers,
 	type ContractInfo,
 	type IntegerCarrier,
+	isDateType,
 	isExactValue,
 	isNumericValue,
+	isSpanCarrier,
 	type NumericBound,
 	numericMaxFractionDigits,
 	numericMaxIntegerDigits,
@@ -69,6 +71,7 @@ import {
 	type ScalarType,
 	type SpanCarrier,
 	type SpanInfo,
+	spanCarriers,
 	spanOf,
 	type TextBounds,
 	type TextInfo,
@@ -223,7 +226,8 @@ const rosterParts = S.struct({
 
 /**
  * A roster as its constructor built it (ir/scalar.ts Roster), whose parts are a declared name and distinct handles,
- * answered as it is: its canonical form names it alone, so no plain object stands for one.
+ * answered as it is: its canonical form is its name and the digest its constructor takes of its handles, so no plain
+ * object stands for one.
  */
 const rosterShape: S.Shape<Roster> = S.plain({
 	expected: "a roster, a closed relation's name and its handles",
@@ -344,12 +348,12 @@ const narrowContract = (t: WireScalarType, contract: WireContract): ContractInfo
 
 const narrowSpan = (carrier: SpanCarrier, span: WireSpan): SpanInfo | string => {
 	const { endpoint, width } = span
-	const want = carrier === "range4" ? "int4" : "int8"
-	if (endpoint.carrier !== "int4" && endpoint.carrier !== "int8") {
-		return `a ${carrier} span has an ${want} endpoint`
-	}
+	const want = carrier === "range4" ? "int4" : carrier === "range8" ? "int8" : "date"
 	if (endpoint.carrier !== want) {
-		return `a ${carrier} span has an ${want} endpoint`
+		return `a ${carrier} span has a ${want} endpoint`
+	}
+	if (endpoint.carrier !== "int4" && endpoint.carrier !== "int8" && !isDateType(endpoint)) {
+		return `a ${carrier} span has a ${want} endpoint`
 	}
 	if (width === undefined) {
 		return Object.freeze({ endpoint, width })
@@ -411,7 +415,7 @@ const narrow = (t: WireScalarType): ScalarType | string => {
 	if (carrier !== "code" && carrier !== "bits" && t.roster !== undefined) {
 		return "only a closed id or a set over a roster has a roster"
 	}
-	if (carrier !== "range4" && carrier !== "range8" && t.span !== undefined) {
+	if (!isSpanCarrier(carrier) && t.span !== undefined) {
 		return "only a range type has a span endpoint"
 	}
 	if (carrier !== "numeric" && carrier !== "vector" && t.typmod !== undefined) {
@@ -482,7 +486,8 @@ const narrow = (t: WireScalarType): ScalarType | string => {
 			}
 			return Object.freeze({ carrier, caps, roster: t.roster })
 		case "range4":
-		case "range8": {
+		case "range8":
+		case "rangeDate": {
 			if (t.span === undefined) {
 				return "a span type names its endpoint"
 			}
@@ -508,7 +513,7 @@ export const decodeScalarType = (value: unknown): Result.Result<ScalarType, Comp
 	S.decodeWith(scalarTypeShape, value, "scalar type")
 
 /** A calendar date's text, its one form (ir/date.ts), decoded by the admission every date is. */
-const calendarDateShape: S.Shape<CalendarDate> = S.plain({
+export const calendarDateShape: S.Shape<CalendarDate> = S.plain({
 	expected: "a calendar date written YYYY-MM-DD, from 0001-01-01 to 9999-12-31",
 	parse: function* (value, path) {
 		const date = toCalendarDate(yield* S.string.parse(value, path))
@@ -575,7 +580,7 @@ const opIdShape: S.Shape<OpId> = S.unionShape(
 	S.interned(
 		S.struct({
 			code: S.literalsShape(rangeOpCodes),
-			carrier: S.literalsShape(["range4", "range8"])
+			carrier: S.literalsShape(spanCarriers)
 		}),
 		(parts: RangeOpParts) => rangeOp(parts.code, parts.carrier)
 	)

@@ -1,4 +1,4 @@
-import { type Array as Arr, Effect, type Redacted, type Scope } from "effect"
+import { Array as Arr, Effect, type Redacted, type Scope } from "effect"
 import type { CredentialError } from "#adapter/errors/failures.ts"
 import type { BatchFailure } from "#adapter/errors/failures.ts"
 import type { ConnectionPool, PoolBounds, Transport } from "#adapter/types/layer.ts"
@@ -17,6 +17,7 @@ import {
 import { testSql } from "#test/support/sql.ts"
 import type { Credentials } from "#test/support/substrate/session.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { paramText } from "#test/support/wire.ts"
 
 /**
  * Shared helpers for the adapter tests (test/pg/adapter).
@@ -130,7 +131,10 @@ export const rowsOn = (
 	sql: string,
 	params: ReadonlyArray<string>
 ): Effect.Effect<ReadonlyArray<ReadonlyArray<unknown>>, BatchFailure> =>
-	Effect.map(runAlone(session, { sql: testSql(sql), params }), (outcome) => outcome.rows)
+	Effect.map(
+		runAlone(session, { sql: testSql(sql), params: Arr.map(params, paramText) }),
+		(outcome) => outcome.rows
+	)
 
 /** The backend a session runs on, as pg_backend_pid() reports it. */
 export const backendPidOf = (session: Session): Effect.Effect<number, BatchFailure> =>

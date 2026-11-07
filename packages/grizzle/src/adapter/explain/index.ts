@@ -30,6 +30,7 @@ import {
 	explainOf,
 	malformedDescription,
 	type ParamMap,
+	type ParamText,
 	SourceLoc
 } from "#compiler/plan/common.ts"
 import { flight, isOrderedValue, isQueryValue, queryInput } from "#compiler/plan/read.ts"
@@ -43,7 +44,7 @@ interface Explained {
 	readonly planned: boolean
 }
 
-const planned = (sql: EmittedText, params: ReadonlyArray<string>): Explained => ({
+const planned = (sql: EmittedText, params: ReadonlyArray<ParamText>): Explained => ({
 	statement: { sql: explainOf(sql), params },
 	planned: true
 })

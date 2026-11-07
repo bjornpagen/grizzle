@@ -169,12 +169,13 @@ export interface MemberParamSlot extends ValuePlaceholder {
 }
 
 /**
- * A placeholder the page request fills (PageFill), cast where the page compiler places it (lower/shapes/page/seek.ts
- * PageSlots): a limit or a size to bigint, a boundary to its comparator's base type.
+ * A placeholder the page request fills with one of `F`, cast where the page compiler places it
+ * (lower/shapes/page/seek.ts SizeSlots, BoundarySlots): a limit or a size to bigint, a boundary to its comparator's base
+ * type. A plain request's statement holds size fills alone, so no binding of it reads a boundary.
  */
-export interface PageParamSlot extends ValuePlaceholder {
+export interface PageParamSlot<F extends PageFill = PageFill> extends ValuePlaceholder {
 	readonly kind: "page"
-	readonly fill: PageFill
+	readonly fill: F
 }
 
 /** A declared parameter's placeholder, which every lowering allocates: every placeholder of a query's statement. */
@@ -189,8 +190,8 @@ export type ArraySlot = RelationParamSlot | MemberParamSlot
 /** The placeholders of a write statement: its declared parameters' and its member slots'. */
 export type WriteParamSlot = DeclaredParamSlot | MemberParamSlot
 
-/** The placeholders of a page statement: its declared parameters' and the page request's fills. */
-export type PageStatementSlot = DeclaredParamSlot | PageParamSlot
+/** The placeholders of a page statement: its declared parameters' and the page request's fills, each one of `F`. */
+export type PageStatementSlot<F extends PageFill = PageFill> = DeclaredParamSlot | PageParamSlot<F>
 
 /** What fills one placeholder $n of a statement of any lowering. */
 export type ConservativeParamSlot = DeclaredParamSlot | OwnParamSlot

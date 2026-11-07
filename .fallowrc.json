@@ -44,6 +44,32 @@
 				"patterns": ["packages/testing/**"]
 			},
 			{
+				// The one reader of PostgreSQL's output texts (codec/read.ts), which the decode zones alone import.
+				"name": "reader",
+				"patterns": ["packages/engine/src/codec/read.ts"]
+			},
+			{
+				// The engine's decode sites: a family's read, a write's returned rows and a refusal's witness, and the shell's
+				// decode facade. Nothing else reaches the reader.
+				"name": "decode",
+				"patterns": [
+					"packages/engine/src/codec/row.ts",
+					"packages/engine/src/plan/decode.ts",
+					"packages/engine/src/write/family/decode.ts",
+					"packages/engine/src/write/program/outcome.ts"
+				]
+			},
+			{
+				// The shell's decode sites: its readers of a read's and a page's rows, which alone import the decode facade.
+				"name": "adapter-decode",
+				"patterns": [
+					"packages/grizzle/src/adapter/page/execute.ts",
+					"packages/grizzle/src/adapter/page/template.ts",
+					"packages/grizzle/src/adapter/reader/execution.ts",
+					"packages/grizzle/src/adapter/reader/run.ts"
+				]
+			},
+			{
 				"name": "core",
 				"patterns": ["packages/engine/src/core/**"]
 			},
@@ -150,6 +176,30 @@
 				"allow": []
 			},
 			{
+				"from": "reader",
+				"allow": ["codec", "core", "ir", "scalar"]
+			},
+			{
+				"from": "decode",
+				"allow": [
+					"analysis",
+					"check",
+					"codec",
+					"core",
+					"ir",
+					"laws",
+					"logical",
+					"lower",
+					"query",
+					"reader",
+					"scalar",
+					"schema",
+					"sql",
+					"types",
+					"write"
+				]
+			},
+			{
 				"from": "core",
 				"allow": []
 			},
@@ -219,6 +269,7 @@
 					"check",
 					"codec",
 					"core",
+					"decode",
 					"ir",
 					"laws",
 					"logical",
@@ -255,6 +306,7 @@
 					"check",
 					"codec",
 					"core",
+					"decode",
 					"ir",
 					"laws",
 					"logical",
@@ -282,6 +334,7 @@
 					"check",
 					"codec",
 					"core",
+					"decode",
 					"deploy",
 					"ir",
 					"lower",
@@ -296,12 +349,39 @@
 				]
 			},
 			{
-				"from": "adapter",
+				"from": "adapter-decode",
 				"allow": [
+					"adapter",
 					"analysis",
 					"check",
 					"codec",
 					"core",
+					"decode",
+					"deploy",
+					"ir",
+					"logical",
+					"lower",
+					"physical",
+					"plan",
+					"program",
+					"query",
+					"reader",
+					"scalar",
+					"schema",
+					"sql",
+					"types",
+					"write"
+				]
+			},
+			{
+				"from": "adapter",
+				"allow": [
+					"adapter-decode",
+					"analysis",
+					"check",
+					"codec",
+					"core",
+					"decode",
 					"deploy",
 					"ir",
 					"logical",
@@ -508,7 +588,9 @@
 	// SessionStatements.release on each open session it iterates in adapter/wire/session.ts makePool. retype, scalar,
 	// relation and member: union narrowing again, the lowering's StatementParams and WriteParams methods called on the
 	// placeholders a statement's narrowed kind holds (lower/conservative/context.ts). _tag: KeyConflict's tag, read
-	// through the error unions that discriminate on it.
+	// through the error unions that discriminate on it. matches: fallow does not follow an interface to its classes, and
+	// the evaluator calls PatternReads.matches on the CompilePatterns or ProgramPatterns its caller passes
+	// (scalar/compute/evaluate.ts, a Compute.matches).
 	"usedClassMembers": [
 		"discriminantSpine",
 		"use",
@@ -521,6 +603,7 @@
 		"scalar",
 		"relation",
 		"member",
+		"matches",
 		"_tag"
 	]
 }

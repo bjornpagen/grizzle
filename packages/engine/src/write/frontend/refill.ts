@@ -1,0 +1,423 @@
+/**
+ * A stratum's refills as its write front end plans them (analysis/theory/refill.ts): the closure of the changes its
+ * writes make on stored rows, refused where grizzle cannot draw a stale value again, and the reads that locate every row
+ * a refill rewrites and every owner row a cascade carries a change through.
+ *
+ * A read follows a chain from a change of the stratum to the rows it reaches, all in the one read flight before any
+ * write: from a put's rows, by the keys its facts state, or from the groups an edit of a family touches, through each
+ * owner axis the change cascades along (an owner's members), each refilled family's groups (a member's groups, then
+ * their owners for the family's recount or their members for its redraw), to the groups a refill rewrites or the owner
+ * rows a cascade reaches before it is drawn into a member. Every row a chain passes is read whole, so the host draws
+ * each value along it as PostgreSQL's cascade and generated fields would.
+ */
+import { familyKey } from "#compiler/analysis/theory/families.ts"
+import {
+	type Carried,
+	type Change,
+	type Changed,
+	type Closure,
+	closureOf,
+	replacedBy,
+	columnName,
+	derivedReader,
+	type Hop,
+	type RefillPath,
+	refillable
+} from "#compiler/analysis/theory/refill.ts"
+import type { StaleCause } from "#compiler/core/causes.ts"
+import { CompileError, type RoleAccess } from "#compiler/core/errors.ts"
+import type { ParamId } from "#compiler/core/ids.ts"
+import { defect, defined } from "#compiler/core/invariant.ts"
+import type { SourceLoc } from "#compiler/core/loc.ts"
+import { isNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
+import * as Result from "#compiler/core/result.ts"
+import { type Family, isTreeOf } from "#compiler/ir/family.ts"
+import type { RelationInfo } from "#compiler/ir/law.ts"
+import {
+	type GroupsOf,
+	groupsKey,
+	type RefillRead,
+	type RowsOf,
+	rowsKey,
+	rowsRelation
+} from "#compiler/write/family/chain.ts"
+import { endColumns } from "#compiler/write/family/statements.ts"
+import type { FamilyNode, RefillOrder } from "#compiler/write/frontend/schedule.ts"
+
+/** One of a stratum's writes as its refills start from it: its change, where it is, and where a put's rows come from. */
+export interface StratumWrite {
+	readonly change: Extract<Change, { readonly kind: "write" }>
+	readonly loc: SourceLoc
+	/** A put's rows: its member slot's facts, or a query's rows, which the host never sees; none for any other write. */
+	readonly rows:
+		| { readonly kind: "slot"; readonly slot: ParamId }
+		| { readonly kind: "query" }
+		| { readonly kind: "none" }
+}
+
+/** What a role holds of its base, as a refill reads and rewrites it; reality holds everything. */
+export type RefillHolds =
+	| { readonly kind: "reality" }
+	| {
+			readonly kind: "role"
+			readonly role: string
+			readonly base: string
+			readonly reads: (relation: string) => boolean
+			readonly writes: (relation: string) => boolean
+	  }
+
+/**
+ * A stratum's refills: its writes' closure; the reads they need; the relations whose rows a refill rewrites; the
+ * families whose owners' ends a refill changes; and the order the refills require of the stratum's statements.
+ */
+export interface StratumRefill {
+	readonly closure: Closure
+	readonly reads: ReadonlyArray<RefillRead>
+	readonly relations: ReadonlyArray<string>
+	readonly recounted: ReadonlyArray<Family>
+	readonly order: RefillOrder
+}
+
+/** A relation's family statement of kind `statement`, as the schedule names it. */
+const rowsNode = (
+	relation: string,
+	statement: "delete" | "refill" | "update" | "insert"
+): FamilyNode =>
+	statement === "delete" || statement === "insert"
+		? { kind: "rows", relation, statement }
+		: { kind: "rows", relation, statement, changes: [] }
+
+/** A family's count statement, as the schedule names it. */
+const ownersNode = (family: Family): FamilyNode => ({
+	kind: "owners",
+	family: family.id,
+	relation: family.owner.name,
+	member: family.member.name,
+	changes: []
+})
+
+/**
+ * The order a stratum's refills require (schedule.ts RefillOrder), members first: each path's refill of its reader's
+ * member relation runs ahead of the statement whose change would cascade into it, and a refill of the relation the
+ * change is on carries that change, a recount, where a count statement would run.
+ *
+ * - A put of a relation no family has as a member is its plain put action, which the refill precedes; a family member's
+ *   put is its relation's update in place or refill.
+ * - An edit's or a refill's recount of an owner is its family's count statement, or the refill of the owner's rows
+ *   that carries it; that refill runs after the family's members' deletions, refills and updates in place, the count
+ *   falling only once every kept member below the new count holds a slot below it, and before their insertions where
+ *   the family's owner axis is immediate (`immediate`), a new member carrying the new count.
+ * - An edit's redraw of its members is their update in place or refill, and a refill's its members' refill.
+ */
+const refillOrder = (
+	closure: Closure,
+	managed: (relation: RelationInfo) => boolean,
+	immediate: (family: Family) => boolean
+): RefillOrder => {
+	const precedes = new Map<string, RefillOrder["precedes"][number]>()
+	const edges = new Map<string, RefillOrder["edges"][number]>()
+	const edge = (first: FamilyNode, second: FamilyNode): void => {
+		const key = (n: FamilyNode): string =>
+			n.kind === "owners" ? `o:${familyKey(n.family)}` : `${n.statement}:${n.relation}`
+		edges.set(`${key(first)}\u0000${key(second)}`, { before: first, after: second })
+	}
+	for (const path of closure.paths) {
+		const reader = path.reader.family.member.name
+		const refill = rowsNode(reader, "refill")
+		const changed = path.changed
+		const at = changed.relation.name
+		if (changed.by === "put") {
+			if (!managed(changed.relation)) {
+				precedes.set(`${reader}\u0000${at}`, { node: refill, relation: at })
+				continue
+			}
+			edge(refill, rowsNode(at, "update"))
+			if (at !== reader) {
+				edge(refill, rowsNode(at, "refill"))
+			}
+			continue
+		}
+		const family = changed.family
+		if (changed.by === "member") {
+			if (at !== reader) {
+				edge(refill, rowsNode(at, "update"))
+				edge(refill, rowsNode(at, "refill"))
+			}
+			continue
+		}
+		if (at !== reader) {
+			edge(refill, ownersNode(family))
+			edge(refill, rowsNode(at, "refill"))
+			continue
+		}
+		const members = family.member.name
+		edge(rowsNode(members, "delete"), refill)
+		edge(rowsNode(members, "update"), refill)
+		if (members !== reader) {
+			edge(rowsNode(members, "refill"), refill)
+		}
+		if (immediate(family)) {
+			edge(refill, rowsNode(members, "insert"))
+		}
+	}
+	return { precedes: [...precedes.values()], edges: [...edges.values()] }
+}
+
+/** The changed rows a change's column is on, by every chain that reaches them. */
+const changedRows = (
+	way: { readonly change: Change; readonly changed: Changed },
+	groupsOf: (family: Family) => ReadonlyArray<GroupsOf>,
+	putOf: (relation: RelationInfo) => RowsOf
+): ReadonlyArray<RowsOf> => {
+	const changed = way.changed
+	if (changed.by === "put") {
+		return [putOf(changed.relation)]
+	}
+	const from: ReadonlyArray<GroupsOf> =
+		way.change.kind === "write"
+			? [{ kind: "touched", family: changed.family }]
+			: groupsOf(changed.family)
+	return from.map((g): RowsOf => ({
+		kind: changed.by === "owner" ? "owners" : "members",
+		family: changed.family,
+		from: g
+	}))
+}
+
+/** Rows carried along `copies` by cascade. */
+const cascaded = (rows: RowsOf, copies: ReadonlyArray<{ readonly family: Family }>): RowsOf =>
+	copies.reduce(
+		(from: RowsOf, hop): RowsOf => ({ kind: "cascade", family: hop.family, from }),
+		rows
+	)
+
+/** Every relation whose rows a read's chain passes, the rows it reads. */
+const readRelations = (read: RefillRead): ReadonlyArray<RelationInfo> => {
+	const ofRows = (rows: RowsOf): ReadonlyArray<RelationInfo> => {
+		switch (rows.kind) {
+			case "put":
+				return [rows.relation]
+			case "cascade":
+				return [...ofRows(rows.from), rows.family.member]
+			case "owners":
+			case "members":
+				return [...ofGroups(rows.from), rowsRelation(rows)]
+		}
+	}
+	const ofGroups = (groups: GroupsOf): ReadonlyArray<RelationInfo> =>
+		groups.kind === "touched" ? [] : ofRows(groups.from)
+	return read.kind === "rows" ? ofRows(read.rows) : ofGroups(read.groups)
+}
+
+/**
+ * A stratum's refills over the schema's `families`, from its `writes`, or the refusal of one grizzle cannot draw:
+ * - a value a put changes whose rows a query states (StaleDerivedRead, `query`), and a member's copy that a change of
+ *   such a put reaches by cascade before a write of the stratum draws it (CascadedCopyAppend) or a refill rewrites it;
+ * - a refill of an immutable relation's rows (StaleDerivedRead, `immutable`);
+ * - refills that reach a family they refill again (StaleDerivedRead, `cycle`);
+ * - a refill a role does not hold the rows of whole (OutsideRole): the members it rewrites, which its write list names,
+ *   and every row its reads pass, which it holds.
+ *
+ * `edited` names the relations a write of the stratum edits as a family's members, whose owners' copies a cascade
+ * reaches too; `immediate`, the families whose owner axis is immediate.
+ */
+export const stratumRefill = (
+	families: ReadonlyArray<Family>,
+	writes: ReadonlyArray<StratumWrite>,
+	edited: ReadonlySet<string>,
+	holds: RefillHolds,
+	immediate: (family: Family) => boolean
+): Result.Result<StratumRefill | undefined, CompileError> => {
+	const changes = writes.map((w) => w.change)
+	const closure = closureOf(families, changes, replacedBy(families, changes))
+	if (!isNonEmpty(writes)) {
+		return Result.ok(undefined)
+	}
+	const first = writes[0]
+	/** The write a change of the closure starts from: its own, or for a refill's, the stratum's first. */
+	const writeOf = (change: Change): StratumWrite => writes.find((w) => w.change === change) ?? first
+	const queried = (change: Change): boolean => writeOf(change).rows.kind === "query"
+	const stale = (
+		path: {
+			readonly change: Change
+			readonly changed: Changed
+			readonly copies: ReadonlyArray<Hop>
+		},
+		reader: RefillPath["reader"],
+		cause: StaleCause
+	): CompileError => {
+		const write = writeOf(path.change)
+		return CompileError.make({
+			_tag: "StaleDerivedRead",
+			at: write.loc,
+			op: write.change.op,
+			member: write.change.relation.name,
+			changed: {
+				relation: path.changed.relation.name,
+				column: columnName(path.changed.column),
+				by: path.changed.by
+			},
+			copies: path.copies.map((hop) => ({
+				relation: hop.family.member.name,
+				column: columnName(hop.pair.from)
+			})),
+			reader: derivedReader(reader),
+			cause
+		})
+	}
+	const queriedPath = closure.paths.find((p) => p.changed.by === "put" && queried(p.change))
+	if (queriedPath !== undefined) {
+		return Result.err(stale(queriedPath, queriedPath.reader, { kind: "query" }))
+	}
+	const readerOf = (l: Family): RefillPath =>
+		defined(
+			closure.paths.find((p) => familyKey(p.reader.family.id) === familyKey(l.id)),
+			"a refilled family is a path's reader"
+		)
+	const fixed = closure.refills.find((l) => !refillable(l))
+	if (fixed !== undefined) {
+		const path = readerOf(fixed)
+		return Result.err(
+			stale(path, path.reader, {
+				kind: "immutable",
+				relation: fixed.member.mutable ? fixed.owner.name : fixed.member.name
+			})
+		)
+	}
+	if (closure.cycle !== undefined) {
+		return Result.err(
+			stale(closure.cycle.path, closure.cycle.path.reader, {
+				kind: "cycle",
+				refills: mapNonEmpty(closure.cycle.refills, (f) => ({
+					owner: f.id.owner,
+					count: f.id.count
+				}))
+			})
+		)
+	}
+	const refilled = new Set(closure.refills.map((l) => l.member.name))
+	/** Whether a cascade's way reaches rows the host draws: a refilled relation's, or an edited relation's through an
+	 * owner whose copied column a cascade changes, which the edit's copies read before PostgreSQL's cascade reaches it. */
+	const reaches = (way: Carried): boolean =>
+		refilled.has(way.hop.family.member.name) ||
+		(edited.has(way.hop.family.member.name) && way.copies.length > 0)
+	const queriedWay = closure.carried.find(
+		(way) => way.changed.by === "put" && queried(way.change) && reaches(way)
+	)
+	if (queriedWay !== undefined) {
+		const member = queriedWay.hop.family.member
+		const appending = writes.find((w) => w.change.relation.name === member.name)
+		if (appending === undefined) {
+			const l = defined(
+				closure.refills.find((f) => f.member.name === member.name),
+				"a refilled relation's family"
+			)
+			return Result.err(
+				stale(
+					{ ...queriedWay, copies: [...queriedWay.copies, queriedWay.hop] },
+					readerOf(l).reader,
+					{ kind: "query" }
+				)
+			)
+		}
+		const copy = queriedWay.hop.pair
+		return Result.err(
+			CompileError.make({
+				_tag: "CascadedCopyAppend",
+				at: appending.loc,
+				op: appending.change.op,
+				member: member.name,
+				family: { owner: queriedWay.hop.family.id.owner, count: queriedWay.hop.family.id.count },
+				copy: columnName(copy.from),
+				owner: queriedWay.hop.family.owner.name,
+				through: columnName(copy.to),
+				changed: queriedWay.changed.relation.name
+			})
+		)
+	}
+	if (closure.paths.length === 0 && !closure.carried.some(reaches)) {
+		return Result.ok(undefined)
+	}
+	const putOf = (relation: RelationInfo): RowsOf => {
+		for (const w of writes) {
+			if (w.change.relation.name === relation.name && w.rows.kind === "slot") {
+				return { kind: "put", relation, slot: w.rows.slot }
+			}
+		}
+		throw defect(`the slot of the put of ${relation.name} a change starts from`)
+	}
+	const known = new Map<string, ReadonlyArray<GroupsOf>>()
+	const groupsOf = (family: Family): ReadonlyArray<GroupsOf> => {
+		const key = familyKey(family.id)
+		const had = known.get(key)
+		if (had !== undefined) {
+			return had
+		}
+		known.set(key, [])
+		const found = new Map<string, GroupsOf>()
+		for (const path of closure.paths) {
+			if (familyKey(path.reader.family.id) !== key) {
+				continue
+			}
+			const copies = path.reader.kind === "owner" ? [...path.copies, { family }] : path.copies
+			for (const rows of changedRows(path, groupsOf, putOf)) {
+				const groups: GroupsOf = { kind: "groups", family, from: cascaded(rows, copies) }
+				found.set(groupsKey(groups), groups)
+			}
+		}
+		const out = [...found.values()]
+		known.set(key, out)
+		return out
+	}
+	const reads = new Map<string, RefillRead>()
+	for (const l of closure.refills) {
+		for (const groups of groupsOf(l)) {
+			if (groups.kind === "groups") {
+				reads.set(`g:${groupsKey(groups)}`, { kind: "groups", groups })
+			}
+		}
+	}
+	for (const way of closure.carried) {
+		if (!reaches(way)) {
+			continue
+		}
+		for (const rows of changedRows(way, groupsOf, putOf)) {
+			const read: RefillRead = {
+				kind: "rows",
+				rows: cascaded(rows, way.copies),
+				family: way.hop.family
+			}
+			reads.set(`r:${rowsKey(read.rows)}`, read)
+		}
+	}
+	if (holds.kind === "role") {
+		const refusal = (access: RoleAccess, at: SourceLoc): CompileError =>
+			CompileError.make({ _tag: "OutsideRole", at, role: holds.role, access })
+		const at = first.loc
+		for (const l of closure.refills) {
+			if (!holds.writes(l.member.name)) {
+				return Result.err(refusal({ kind: "write", relation: l.member.name }, at))
+			}
+		}
+		for (const read of reads.values()) {
+			for (const relation of readRelations(read)) {
+				if (!holds.reads(relation.name)) {
+					return Result.err(
+						refusal({ kind: "read", relation: relation.name, base: holds.base }, at)
+					)
+				}
+			}
+		}
+	}
+	const managed = (relation: RelationInfo): boolean =>
+		families.some((f) => f.member.name === relation.name)
+	return Result.ok({
+		closure,
+		reads: [...reads.values()],
+		relations: [...refilled],
+		recounted: closure.refills.filter(
+			(l) => !isTreeOf(l, l.member.name) && isNonEmpty(endColumns(l))
+		),
+		order: refillOrder(closure, managed, immediate)
+	})
+}

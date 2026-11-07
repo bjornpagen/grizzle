@@ -9,11 +9,11 @@ import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import { conservativeMeta, type Heading } from "#compiler/ir/rel.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { conservativeInput, flight } from "#compiler/lower/conservative/types.ts"
-import { regexMember } from "#compiler/scalar/regex/nfa.ts"
 import { assert, defined, refused, succeeded } from "#test/support/assert.ts"
 import { closed, decodedSchema, f, relation } from "#test/support/fixtures/ir/desc.ts"
 import { installationOf, localVectorSchema, productionNames } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { patternMember } from "#test/support/oracle/reference/evaluate.ts"
 import { auditStatementViolations } from "#test/support/oracle/verify/sql.ts"
 import { fixtureCodes } from "#test/unit/ir/fixture.ts"
 import { Q, T } from "#test/unit/lower/conservative/fixtures.ts"
@@ -157,7 +157,7 @@ describe("a Closed source's refined payload", () => {
 								regex !== undefined && regex !== "wildcard",
 								"the payload carries a pattern"
 							)
-							const outside = Arr.some(c.payload, (v) => !regexMember(regex, v))
+							const outside = Arr.some(c.payload, (v) => !patternMember(regex, v))
 							assert.equal(outside, Arr.contains(c.payload, "Abc"), "the oracle's membership")
 							const r = lowered(c)
 							if (outside && !c.domain) {

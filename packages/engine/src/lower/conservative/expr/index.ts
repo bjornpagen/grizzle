@@ -3,7 +3,12 @@ import { defect } from "#compiler/core/invariant.ts"
 import { moneyFractionDigits, moneyMinorUnits, vectorPayload } from "#compiler/ir/carriers.ts"
 import { codecOf, codeOf, handlesHex, type RosterCodec } from "#compiler/ir/codes.ts"
 import { datePartSlices } from "#compiler/ir/date.ts"
-import { describeOp, type TypedLiteral, type ScalarExpr } from "#compiler/ir/expr.ts"
+import {
+	describeOp,
+	type ScalarExpr,
+	spanLiteralText,
+	type TypedLiteral
+} from "#compiler/ir/expr.ts"
 import { baseTypeRef as physicalBaseType, type PhysicalNames } from "#compiler/ir/physical.ts"
 import { baseOf, rosterOf, type ScalarType, spanCarrierOf } from "#compiler/ir/scalar.ts"
 import {
@@ -95,7 +100,7 @@ export const lowerLiteral = (
 		case "handles":
 			return lit.bits(handlesHex(literalCodec(names, type), literal.handles), sqlType)
 		case "span":
-			return lit.text(`[${literal.start.toString()},${literal.end.toString()})`, sqlType)
+			return lit.text(spanLiteralText(literal, type), sqlType)
 		case "vector":
 			return lit.text(vectorPayload(literal.value), sqlType)
 	}

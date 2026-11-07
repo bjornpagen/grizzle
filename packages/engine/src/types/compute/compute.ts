@@ -11,7 +11,8 @@ import type {
 	PowerSql,
 	QuotientSql,
 	RemainderSql,
-	SignedSql
+	SignedSql,
+	SpanWidthSql
 } from "#compiler/scalar/compute/tables.ts"
 import type { guarded } from "#compiler/scalar/compute/term.ts"
 import type { SqlTag } from "#compiler/scalar/registry.ts"
@@ -21,6 +22,7 @@ import type {
 	Admitted,
 	AnyRefused,
 	CastAdmitted,
+	ContractAdmits,
 	Every,
 	First,
 	FirstAmong,
@@ -34,6 +36,7 @@ import type {
 	Operand,
 	Precondition,
 	Proves,
+	Refutes,
 	Scalar,
 	Takes,
 	TakesFirst,
@@ -42,6 +45,7 @@ import type {
 } from "#compiler/types/compute/scalar.ts"
 
 import type {
+	ColumnFacts,
 	ComputedOrigin,
 	ConstantOrigin,
 	Facts,
@@ -67,10 +71,14 @@ import type { Field, LiteralOf, NotRoster } from "#compiler/types/fields/field.t
 import type { PatternValidate } from "#compiler/types/fields/regex.ts"
 import type { Scored } from "#compiler/types/vector/vector.ts"
 
+/** The SQL type a descriptor states, read off the descriptor as written. */
+type SqlOfDescriptor<D> = D extends { readonly sql: infer Q extends SqlTag } ? Q : never
+
 /**
  * Whether a span's endpoint descriptor is the one the engine requires: the span's own, of an endpoint's SQL type ES,
- * integer or bigint, whose values H are exactly the span's endpoints E, so neither another SQL type nor a contract over a
- * span's plain endpoint type nor the plain type of a span over a contract.
+ * integer, bigint or date, whose domain D is exactly the span's endpoints' E, a contract's declared facts included, so
+ * neither another SQL type nor a contract over a span's plain endpoint type nor the plain type of a span over a
+ * contract.
  */
 type SpanEndpoint<E, H, ES extends SqlTag> = [ES] extends [EndpointSql]
 	? [E] extends [H]
@@ -157,6 +165,37 @@ type GuardOver<X, PA, OA, S extends SqlTag, V, FA extends Facts, L, LX, G> = Gua
 type T<A> = TypeOfTerm<A>
 type P<A> = ParamsOfTerm<A>
 type O<A> = OperandOrigin<A>
+/** The negation of a decided condition. */
+type Not<C extends boolean> = [C] extends [true] ? false : true
+/** Whether the contract of a term A refuses a JavaScript value B read opposite it, as the types decide it (Refutes). */
+type RefutedAt<A, B> = Refutes<ColumnFacts<A>, B>
+/** The members of a list of values. */
+type MembersOf<Vs> = Vs extends ReadonlyArray<infer E> ? E : never
+/**
+ * Whether an operation over the SQL types F takes its first operand A and an operand B opposite it (Binary), and B's
+ * contract, A's, admits it as far as the types decide (RefutedAt): the call the engine takes past its values.
+ */
+type Reads<A, B, X, S extends SqlTag, F extends SqlTag> = Every<
+	[Binary<A, B, X, S, F>, Not<RefutedAt<A, B>>]
+>
+/** Whether a range's subject A, of an SQL type of F and language L, takes both its bounds, values of L. */
+type Bounds<A, Lo, Hi, F extends SqlTag, L> = Every<
+	[TakesFirst<A, F>, Takes<Lo, LiteralOf<L>>, Takes<Hi, LiteralOf<L>>]
+>
+/** Whether a conditional takes its test C, its first branch A, of type (X, S, L), and its other branch. */
+type Conditional<C, A, Otherwise, X, S extends SqlTag, L> = Every<
+	[
+		Takes<C, PredicateBase | Meets<boolean, "boolean">>,
+		TakesFirst<A, SqlTag>,
+		Takes<Otherwise, Operand<X, S, L>>
+	]
+>
+/** An operand B's own requirement opposite A: its contract's refusal, where the operation takes both (ContractAdmits). */
+type ValueAt<A, B, X, S extends SqlTag, F extends SqlTag> = ContractAdmits<
+	Binary<A, B, X, S, F>,
+	ColumnFacts<A>,
+	B
+>
 /**
  * The values an operand delivers opposite a term whose column delivers V: a term's column's; a JavaScript value its own
  * where it is one of V, and otherwise V, into which the column converts it, as a bigint opposite a numeric is a Decimal.
@@ -171,6 +210,14 @@ type Opposite<A> = Operand<T<A>, SqlOfTerm<A>, LanguageOf<A>>
  * meets its type or a value.
  */
 type Compares<A, B, F extends SqlTag> = Every<[TakesFirst<A, F>, Takes<B, Opposite<A>>]>
+/** Whether IN takes its first operand A, a term, and its list Vs, values of A's language. */
+type Listed<A, Vs> = Every<
+	[TakesFirst<A, SqlTag>, Takes<Vs, ReadonlyArray<LiteralOf<LanguageOf<A>>>>]
+>
+/** Whether BETWEEN takes its operands: a term of an ordered type first, and opposite it two operands (Opposite). */
+type Between<A, Lo, Hi> = Every<
+	[TakesFirst<A, OrderedSql>, Takes<Lo, Opposite<A>>, Takes<Hi, Opposite<A>>]
+>
 /** The SQL types whose values are ordered: every one but a set's, whose bit string has no order in grizzle. */
 type OrderedSql = Exclude<SqlTag, "bits">
 /** An ordering's first operand: a term of an ordered type, and never a set (OrderedSql). */
@@ -200,9 +247,13 @@ type Ordered<A> = [SqlOfTerm<A>] extends ["bits"] ? never : unknown
  * values; % over a float; power and sqrt over an integer type), and every other operand is read as it is written and
  * held to its position (Fit), so the types see which operand the operation does not take. Last, a partial
  * operation's precondition (Precondition), stated only where the operation takes every operand, so an operand of
- * another type gets its type refusal and never the precondition's. A refused call's result is never (Admitted), which
- * meets every position, so a call over it states no refusal of its own, as the engine, which builds a call's operands
- * first, refuses the inner call.
+ * another type gets its type refusal and never the precondition's. A precondition the types cannot prove is refused,
+ * whatever compilation would find first. Before it, a JavaScript value a contract reads, a constant of one or a value
+ * opposite a term of one, states its contract's refusal where the types decide it (Refutes): it lacks a fact the
+ * contract declares, which its predicate implies. A bound the predicate states is in no type, so a value outside one is
+ * compilation's to refuse (ContractLiteral). A refused call's result is never (Admitted), which meets every position,
+ * so a call over it states no refusal of its own, as the engine, which builds a call's operands first, refuses the
+ * inner call.
  *
  * test/unit/compute pins the runtime behavior each signature promises, the Compute population
  * (test/support/agreement/compute.ts) the signatures against the engine.
@@ -214,11 +265,16 @@ export interface ComputeApi {
 	 * refined text's pattern's, uuid_out's spelling. Its value is the one approximation its type keeps: its column
 	 * delivers the host type, never x alone. A roster's member is X.handle(member), whose column delivers the member, so a
 	 * closed id's descriptor is refused here, and a set's, of the code-free SQL type bits, is a descriptor like any other.
+	 * A contract refuses a value the types see lacking a fact it declares (Refutes), and judges any other when compilation
+	 * reads it.
 	 */
 	literal<H, S extends SqlTag, D, F extends Facts, const V>(
 		type: Field<H, S, D, F> & ([S] extends ["code"] ? NotRoster : unknown),
-		value: Fit<V, NoInfer<LiteralOf<H>>>
-	): Admitted<Takes<V, LiteralOf<H>>, Term<D, unknown, ConstantOrigin, S, H, F> & Literal<V>>
+		value: Fit<V, NoInfer<LiteralOf<H>>> & ContractAdmits<Takes<V, LiteralOf<H>>, F, V>
+	): Admitted<
+		Every<[Takes<V, LiteralOf<H>>, Not<Refutes<F, V>>]>,
+		Term<D, unknown, ConstantOrigin, S, H, F> & Literal<V>
+	>
 	/** Drops a contract to its base explicitly: the plain value of its SQL type, with every fact it states. */
 	base<A extends TermBase | FirstValue, X, PA, OA, S extends PlainSql, FX extends Facts>(
 		x: A & FirstTerm<A> & InputTerm<X, PA, OA, S> & Proving<FX>
@@ -283,24 +339,24 @@ export interface ComputeApi {
 	 */
 	add<A extends TermBase | FirstValue, X, PA, OA, S extends NumericSql, const B>(
 		a: A & First<A, [B]> & InputTerm<X, PA, OA, S>,
-		b: Fit<B, NoInfer<Operand<X, S>>>
+		b: Fit<B, NoInfer<Operand<X, S>>> & ValueAt<A, B, X, S, NumericSql>
 	): Admitted<
-		Binary<A, B, X, S, NumericSql>,
+		Reads<A, B, X, S, NumericSql>,
 		Term<PlainHost[ArithmeticSql[S]], PA & P<B>, ComputedOrigin<OA | O<B>>, ArithmeticSql[S]>
 	>
 	sub<A extends TermBase | FirstValue, X, PA, OA, S extends NumericSql, const B>(
 		a: A & First<A, [B]> & InputTerm<X, PA, OA, S>,
-		b: Fit<B, NoInfer<Operand<X, S>>>
+		b: Fit<B, NoInfer<Operand<X, S>>> & ValueAt<A, B, X, S, NumericSql>
 	): Admitted<
-		Binary<A, B, X, S, NumericSql>,
+		Reads<A, B, X, S, NumericSql>,
 		Term<PlainHost[ArithmeticSql[S]], PA & P<B>, ComputedOrigin<OA | O<B>>, ArithmeticSql[S]>
 	>
 	/** Money has no product. */
 	mul<A extends TermBase | FirstValue, X, PA, OA, S extends SignedSql, const B>(
 		a: A & First<A, [B]> & InputTerm<X, PA, OA, S>,
-		b: Fit<B, NoInfer<Operand<X, S>>>
+		b: Fit<B, NoInfer<Operand<X, S>>> & ValueAt<A, B, X, S, SignedSql>
 	): Admitted<
-		Binary<A, B, X, S, SignedSql>,
+		Reads<A, B, X, S, SignedSql>,
 		Term<PlainHost[ArithmeticSql[S]], PA & P<B>, ComputedOrigin<OA | O<B>>, ArithmeticSql[S]>
 	>
 	/**
@@ -310,26 +366,28 @@ export interface ComputeApi {
 	div<A extends TermBase | FirstValue, X, PA, OA, S extends NumericSql, const B>(
 		a: A & First<A, [B]> & InputTerm<X, PA, OA, S>,
 		b: Fit<B, NoInfer<Operand<X, S>>> &
+			ValueAt<A, B, X, S, NumericSql> &
 			Precondition<
-				Binary<A, B, X, S, NumericSql>,
+				Reads<A, B, X, S, NumericSql>,
 				NonzeroDivisor<S, B>,
 				"a divisor proved nonzero: guard it with Compute.when(Compute.nonzero(x), (x) => …, otherwise)"
 			>
 	): Admitted<
-		Binary<A, B, X, S, NumericSql>,
+		Reads<A, B, X, S, NumericSql>,
 		Term<PlainHost[QuotientSql[S]], PA & P<B>, ComputedOrigin<OA | O<B>>, QuotientSql[S]>
 	>
 	/** PostgreSQL has no float or money %; the divisor is proved nonzero. */
 	mod<A extends TermBase | FirstValue, X, PA, OA, S extends IntegralSql, const B>(
 		a: A & First<A, [B]> & InputTerm<X, PA, OA, S>,
 		b: Fit<B, NoInfer<Operand<X, S>>> &
+			ValueAt<A, B, X, S, IntegralSql> &
 			Precondition<
-				Binary<A, B, X, S, IntegralSql>,
+				Reads<A, B, X, S, IntegralSql>,
 				NonzeroDivisor<S, B>,
 				"a divisor proved nonzero: guard it with Compute.when(Compute.nonzero(x), (x) => …, otherwise)"
 			>
 	): Admitted<
-		Binary<A, B, X, S, IntegralSql>,
+		Reads<A, B, X, S, IntegralSql>,
 		Term<PlainHost[RemainderSql[S]], PA & P<B>, ComputedOrigin<OA | O<B>>, RemainderSql[S]>
 	>
 	neg<A extends TermBase | FirstValue, X, PA, OA, S extends SignedSql>(
@@ -341,25 +399,27 @@ export interface ComputeApi {
 	quot<A extends TermBase | FirstValue, X, PA, OA, const B>(
 		a: A & First<A, [B]> & InputTerm<X, PA, OA, "numeric">,
 		b: Fit<B, NoInfer<Operand<X, "numeric">>> &
+			ValueAt<A, B, X, "numeric", "numeric"> &
 			Precondition<
-				Binary<A, B, X, "numeric", "numeric">,
+				Reads<A, B, X, "numeric", "numeric">,
 				Proves<B, "nonzero">,
 				"a divisor proved nonzero: guard it with Compute.when(Compute.nonzero(x), (x) => …, otherwise)"
 			>
 	): Admitted<
-		Binary<A, B, X, "numeric", "numeric">,
+		Reads<A, B, X, "numeric", "numeric">,
 		Term<Decimal, PA & P<B>, ComputedOrigin<OA | O<B>>, "numeric">
 	>
 	rem<A extends TermBase | FirstValue, X, PA, OA, const B>(
 		a: A & First<A, [B]> & InputTerm<X, PA, OA, "numeric">,
 		b: Fit<B, NoInfer<Operand<X, "numeric">>> &
+			ValueAt<A, B, X, "numeric", "numeric"> &
 			Precondition<
-				Binary<A, B, X, "numeric", "numeric">,
+				Reads<A, B, X, "numeric", "numeric">,
 				Proves<B, "nonzero">,
 				"a divisor proved nonzero: guard it with Compute.when(Compute.nonzero(x), (x) => …, otherwise)"
 			>
 	): Admitted<
-		Binary<A, B, X, "numeric", "numeric">,
+		Reads<A, B, X, "numeric", "numeric">,
 		Term<Decimal, PA & P<B>, ComputedOrigin<OA | O<B>>, "numeric">
 	>
 	abs<A extends TermBase | FirstValue, X, PA, OA, S extends SignedSql>(
@@ -431,13 +491,13 @@ export interface ComputeApi {
 			Proving<FA> &
 			Literal<LA> &
 			Precondition<
-				Binary<A, B, X, S, PowerSql>,
+				Reads<A, B, X, S, PowerSql>,
 				PowerBase<FA, LA, B>,
 				"a power's base proved nonnegative, and nonzero or its exponent nonnegative: guard it with Compute.when(Compute.positive(x), (x) => …, otherwise)"
 			>,
-		b: Fit<B, NoInfer<Operand<X, S>>>
+		b: Fit<B, NoInfer<Operand<X, S>>> & ValueAt<A, B, X, S, PowerSql>
 	): Admitted<
-		Binary<A, B, X, S, PowerSql>,
+		Reads<A, B, X, S, PowerSql>,
 		Term<PlainHost[S], PA & P<B>, ComputedOrigin<OA | O<B>>, S>
 	>
 	/** Numeric's radicand is proved nonnegative; double precision's is IEEE 754's, NaN below zero. */
@@ -600,15 +660,10 @@ export interface ComputeApi {
 	>(
 		p: C & First<C, [A, Otherwise]> & NegationFree<C>,
 		then: A & First<A, [C, Otherwise]> & Term<X, PT, OT, S, V, Facts, L>,
-		otherwise: Fit<Otherwise, NoInfer<Operand<X, S, L>>>
+		otherwise: Fit<Otherwise, NoInfer<Operand<X, S, L>>> &
+			ContractAdmits<Conditional<C, A, Otherwise, X, S, L>, ColumnFacts<A>, Otherwise>
 	): Admitted<
-		Every<
-			[
-				Takes<C, PredicateBase | Meets<boolean, "boolean">>,
-				TakesFirst<A, SqlTag>,
-				Takes<Otherwise, Operand<X, S, L>>
-			]
-		>,
+		Every<[Conditional<C, A, Otherwise, X, S, L>, Not<RefutedAt<A, Otherwise>>]>,
 		Term<
 			X,
 			P<C> & PT & P<Otherwise>,
@@ -630,9 +685,20 @@ export interface ComputeApi {
 	when<Gd extends Guard<TermBase, never>, X, PT, OT, S extends SqlTag, V, L, const Otherwise>(
 		guard: Gd,
 		then: (subject: Gd[typeof guarded]) => Term<X, PT, OT, S, V, Facts, L> & FirstOrigin<OT>,
-		otherwise: Fit<Otherwise, NoInfer<Operand<X, S, L>>>
+		otherwise: Fit<Otherwise, NoInfer<Operand<X, S, L>>> &
+			ContractAdmits<
+				Every<[Takes<Gd, Guard<TermBase, never>>, Takes<Otherwise, Operand<X, S, L>>]>,
+				ColumnFacts<Term<X, PT, OT, S, V, Facts, L>>,
+				Otherwise
+			>
 	): Admitted<
-		Every<[Takes<Gd, Guard<TermBase, never>>, Takes<Otherwise, Operand<X, S, L>>]>,
+		Every<
+			[
+				Takes<Gd, Guard<TermBase, never>>,
+				Takes<Otherwise, Operand<X, S, L>>,
+				Not<RefutedAt<Term<X, PT, OT, S, V, Facts, L>, Otherwise>>
+			]
+		>,
 		Term<
 			X,
 			P<Gd> & PT & P<Otherwise>,
@@ -715,7 +781,8 @@ export interface ComputeApi {
 	 * A guard that its subject lies within two finite literal bounds: `x BETWEEN low AND high`. It proves the subject
 	 * finite, nonnegative from a low bound at or above zero, and nonzero from bounds on one side of zero (WithinFacts);
 	 * compilation reads the bounds too, for the preconditions that rest on magnitudes (a narrowing's range, a power's, a
-	 * bucket's): Compute.when(Compute.within(x, 0n, 1000n), (x) => Compute.power(x, 2n), 0n).
+	 * bucket's): Compute.when(Compute.within(x, 0n, 1000n), (x) => Compute.power(x, 2n), 0n). Over a contract a bound is a
+	 * value of it, which its contract refuses where it lacks a fact the contract declares (ContractAdmits).
 	 */
 	within<
 		A extends TermBase | FirstValue,
@@ -731,10 +798,12 @@ export interface ComputeApi {
 		const Hi
 	>(
 		x: A & FirstTerm<A> & Term<X, PA, OA, S, V, FA, L> & Literal<LX>,
-		low: Fit<Lo, NoInfer<LiteralOf<L>>>,
-		high: Fit<Hi, NoInfer<LiteralOf<L>>>
+		low: Fit<Lo, NoInfer<LiteralOf<L>>> &
+			ContractAdmits<Bounds<A, Lo, Hi, NumericSql, L>, ColumnFacts<A>, Lo>,
+		high: Fit<Hi, NoInfer<LiteralOf<L>>> &
+			ContractAdmits<Bounds<A, Lo, Hi, NumericSql, L>, ColumnFacts<A>, Hi>
 	): Admitted<
-		Every<[TakesFirst<A, NumericSql>, Takes<Lo, LiteralOf<L>>, Takes<Hi, LiteralOf<L>>]>,
+		Every<[Bounds<A, Lo, Hi, NumericSql, L>, Not<RefutedAt<A, Lo | Hi>>]>,
 		GuardOver<X, PA, OA, S, V, FA, L, LX, WithinFacts<Lo, Hi>>
 	>
 	/** A negation holds no relational negation, which is a rule-level filter (Negating). */
@@ -758,34 +827,37 @@ export interface ComputeApi {
 	 */
 	eq<A extends TermBase | FirstValue, const B>(
 		a: A & First<A, [B]>,
-		b: Fit<B, NoInfer<Opposite<A>>>
-	): Admitted<Compares<A, B, SqlTag>, Compared<A, B> & Stating<EqualityStates<A, B>>>
+		b: Fit<B, NoInfer<Opposite<A>>> & ContractAdmits<Compares<A, B, SqlTag>, ColumnFacts<A>, B>
+	): Admitted<
+		Every<[Compares<A, B, SqlTag>, Not<RefutedAt<A, B>>]>,
+		Compared<A, B> & Stating<EqualityStates<A, B>>
+	>
 	ne<A extends TermBase | FirstValue, const B>(
 		a: A & First<A, [B]>,
-		b: Fit<B, NoInfer<Opposite<A>>>
-	): Admitted<Compares<A, B, SqlTag>, Compared<A, B>>
+		b: Fit<B, NoInfer<Opposite<A>>> & ContractAdmits<Compares<A, B, SqlTag>, ColumnFacts<A>, B>
+	): Admitted<Every<[Compares<A, B, SqlTag>, Not<RefutedAt<A, B>>]>, Compared<A, B>>
 	lt<A extends TermBase | FirstValue, const B>(
 		a: A & First<A, [B]> & Ordered<A>,
-		b: Fit<B, NoInfer<Opposite<A>>>
-	): Admitted<Compares<A, B, OrderedSql>, Compared<A, B>>
+		b: Fit<B, NoInfer<Opposite<A>>> & ContractAdmits<Compares<A, B, OrderedSql>, ColumnFacts<A>, B>
+	): Admitted<Every<[Compares<A, B, OrderedSql>, Not<RefutedAt<A, B>>]>, Compared<A, B>>
 	le<A extends TermBase | FirstValue, const B>(
 		a: A & First<A, [B]> & Ordered<A>,
-		b: Fit<B, NoInfer<Opposite<A>>>
-	): Admitted<Compares<A, B, OrderedSql>, Compared<A, B>>
+		b: Fit<B, NoInfer<Opposite<A>>> & ContractAdmits<Compares<A, B, OrderedSql>, ColumnFacts<A>, B>
+	): Admitted<Every<[Compares<A, B, OrderedSql>, Not<RefutedAt<A, B>>]>, Compared<A, B>>
 	gt<A extends TermBase | FirstValue, const B>(
 		a: A & First<A, [B]> & Ordered<A>,
-		b: Fit<B, NoInfer<Opposite<A>>>
-	): Admitted<Compares<A, B, OrderedSql>, Compared<A, B>>
+		b: Fit<B, NoInfer<Opposite<A>>> & ContractAdmits<Compares<A, B, OrderedSql>, ColumnFacts<A>, B>
+	): Admitted<Every<[Compares<A, B, OrderedSql>, Not<RefutedAt<A, B>>]>, Compared<A, B>>
 	ge<A extends TermBase | FirstValue, const B>(
 		a: A & First<A, [B]> & Ordered<A>,
-		b: Fit<B, NoInfer<Opposite<A>>>
-	): Admitted<Compares<A, B, OrderedSql>, Compared<A, B>>
+		b: Fit<B, NoInfer<Opposite<A>>> & ContractAdmits<Compares<A, B, OrderedSql>, ColumnFacts<A>, B>
+	): Admitted<Every<[Compares<A, B, OrderedSql>, Not<RefutedAt<A, B>>]>, Compared<A, B>>
 	between<A extends TermBase | FirstValue, const Lo, const Hi>(
 		a: A & First<A, [Lo, Hi]> & Ordered<A>,
-		low: Fit<Lo, NoInfer<Opposite<A>>>,
-		high: Fit<Hi, NoInfer<Opposite<A>>>
+		low: Fit<Lo, NoInfer<Opposite<A>>> & ContractAdmits<Between<A, Lo, Hi>, ColumnFacts<A>, Lo>,
+		high: Fit<Hi, NoInfer<Opposite<A>>> & ContractAdmits<Between<A, Lo, Hi>, ColumnFacts<A>, Hi>
 	): Admitted<
-		Every<[TakesFirst<A, OrderedSql>, Takes<Lo, Opposite<A>>, Takes<Hi, Opposite<A>>]>,
+		Every<[Between<A, Lo, Hi>, Not<RefutedAt<A, Lo | Hi>>]>,
 		Predicate<P<A> & P<Lo> & P<Hi>, ComputedOrigin<O<A> | O<Lo> | O<Hi>>>
 	>
 	/**
@@ -796,54 +868,60 @@ export interface ComputeApi {
 		a: A & FirstTerm<A>,
 		values: AnyRefused<[A]> extends true
 			? Vs
-			: Fit<Vs, NoInfer<ReadonlyArray<LiteralOf<LanguageOf<A>>>>>
+			: Fit<Vs, NoInfer<ReadonlyArray<LiteralOf<LanguageOf<A>>>>> &
+					ContractAdmits<Listed<A, Vs>, ColumnFacts<A>, MembersOf<Vs>>
 	): Admitted<
-		Every<[TakesFirst<A, SqlTag>, Takes<Vs, ReadonlyArray<LiteralOf<LanguageOf<A>>>>]>,
+		Every<[Listed<A, Vs>, Not<RefutedAt<A, MembersOf<Vs>>>]>,
 		Predicate<P<A>, ComputedOrigin<O<A>>>
 	>
 
 	/**
 	 * A span's endpoints, of its endpoint descriptor's type, contract included, and its width, the plain value of the
 	 * endpoint's SQL type: the endpoint descriptor states what a span term's type alone cannot carry, and must be the
-	 * span's own exactly (SpanEndpoint), as the engine requires of a span, so the endpoint's values H, which its column
-	 * delivers, are the span's endpoints.
+	 * span's own exactly (SpanEndpoint), as the engine requires of a span: an endpoint is of the descriptor's domain D,
+	 * with the facts its contract declares, and delivers its values H, the span's endpoints.
 	 */
-	lower<A extends TermBase | FirstValue, E, PA, OA, ES extends SqlTag, H>(
+	lower<A extends TermBase | FirstValue, E, PA, OA, ES extends SqlTag, H, D, F extends Facts>(
 		s: A & FirstTerm<A> & InputTerm<Span<E>, PA, OA, "range">,
-		endpoint: Field<H, ES> &
+		endpoint: Field<H, ES, D, F> &
 			Precondition<
 				TakesFirst<A, "range">,
-				SpanEndpoint<E, H, ES>,
+				SpanEndpoint<E, D, ES>,
 				"the span's own endpoint descriptor: a descriptor of another type is no endpoint of the span"
 			>
 	): Admitted<
-		Every<[TakesFirst<A, "range">, SpanEndpoint<E, H, ES>]>,
-		Term<H, PA, ComputedOrigin<OA>, ES>
+		Every<[TakesFirst<A, "range">, SpanEndpoint<E, D, ES>]>,
+		Term<D, PA, ComputedOrigin<OA>, ES, H, F>
 	>
-	upper<A extends TermBase | FirstValue, E, PA, OA, ES extends SqlTag, H>(
+	upper<A extends TermBase | FirstValue, E, PA, OA, ES extends SqlTag, H, D, F extends Facts>(
 		s: A & FirstTerm<A> & InputTerm<Span<E>, PA, OA, "range">,
-		endpoint: Field<H, ES> &
+		endpoint: Field<H, ES, D, F> &
 			Precondition<
 				TakesFirst<A, "range">,
-				SpanEndpoint<E, H, ES>,
+				SpanEndpoint<E, D, ES>,
 				"the span's own endpoint descriptor: a descriptor of another type is no endpoint of the span"
 			>
 	): Admitted<
-		Every<[TakesFirst<A, "range">, SpanEndpoint<E, H, ES>]>,
-		Term<H, PA, ComputedOrigin<OA>, ES>
+		Every<[TakesFirst<A, "range">, SpanEndpoint<E, D, ES>]>,
+		Term<D, PA, ComputedOrigin<OA>, ES, H, F>
 	>
-	/** The exact difference of the endpoints, which never overflows. */
-	width<A extends TermBase | FirstValue, E, PA, OA, ES extends SqlTag, H>(
+	/**
+	 * The difference of the endpoints, of the SQL type its endpoint's has (SpanWidthSql): an exact integer of integers,
+	 * which never overflows, and an integer count of days of dates. The endpoint descriptor is read as it is written
+	 * (Ep), so one of another SQL type states the endpoint's refusal.
+	 */
+	width<A extends TermBase | FirstValue, E, PA, OA, Ep, ES extends EndpointSql, H, D>(
 		s: A & FirstTerm<A> & InputTerm<Span<E>, PA, OA, "range">,
-		endpoint: Field<H, ES> &
+		endpoint: Ep &
+			Field<H, ES, D> &
 			Precondition<
 				TakesFirst<A, "range">,
-				SpanEndpoint<E, H, ES>,
+				SpanEndpoint<E, D, SqlOfDescriptor<Ep>>,
 				"the span's own endpoint descriptor: a descriptor of another type is no endpoint of the span"
 			>
 	): Admitted<
-		Every<[TakesFirst<A, "range">, SpanEndpoint<E, H, ES>]>,
-		Term<bigint, PA, ComputedOrigin<OA>, "exact integer">
+		Every<[TakesFirst<A, "range">, SpanEndpoint<E, D, SqlOfDescriptor<Ep>>]>,
+		Term<PlainHost[SpanWidthSql[ES]], PA, ComputedOrigin<OA>, SpanWidthSql[ES]>
 	>
 
 	/** char_length; admitted only in contract predicates and row checks, never in a query. */

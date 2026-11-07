@@ -16,6 +16,7 @@ import {
 } from "#adapter/wire/session.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import { nothingReported, serverError } from "#test/support/server-error.ts"
+import { outputRows } from "#test/support/wire.ts"
 
 export type Rows = ReadonlyArray<ReadonlyArray<string>>
 
@@ -128,7 +129,7 @@ export interface ScriptedSession extends Session {
 
 const result = (command: string, cells: Rows): Answer => ({
 	_tag: "result",
-	outcome: { command, rows: cells }
+	outcome: { command, rows: outputRows(cells) }
 })
 
 /** A command that returns no rows. */

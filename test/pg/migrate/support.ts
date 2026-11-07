@@ -88,6 +88,7 @@ import { ownerSession, Substrate, type SubstrateShape } from "#test/support/subs
 
 import { regex } from "arkregex"
 import type { Uuid } from "#compiler/public/fields.ts"
+import { paramText } from "#test/support/wire.ts"
 /** The migration identity's connection to the substrate's database.
  *
  * Driving the real apply runner from the migrate tests.
@@ -124,8 +125,9 @@ export const statementRows = (
 	sql: string,
 	params: ReadonlyArray<string>
 ): Effect.Effect<ReadonlyArray<ReadonlyArray<string>>, StatementFailure> =>
-	Effect.flatMap(session.apart([{ sql: testSql(sql), params }]), (answers) =>
-		Effect.fromResult(Result.map(sentAnswer(answers, 0), (outcome) => outcome.rows))
+	Effect.flatMap(
+		session.apart([{ sql: testSql(sql), params: Arr.map(params, paramText) }]),
+		(answers) => Effect.fromResult(Result.map(sentAnswer(answers, 0), (outcome) => outcome.rows))
 	)
 
 /** What a reviewer decides for a drafted folder (`Decisions`), and an edit of each reviewed file's text

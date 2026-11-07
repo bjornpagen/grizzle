@@ -74,7 +74,8 @@ layer(Substrate.layer)("generated span queries against the reference", (it) => {
 					const installed = yield* Effect.all({
 						integer: installEvery("integer"),
 						bigint: installEvery("bigint"),
-						contract: installEvery("contract")
+						contract: installEvery("contract"),
+						date: installEvery("date")
 					})
 					return yield* oracleCheck(
 						drawn(spanCaseGen({ maxRows: 6, kinds, endpoints: spanEndpointKinds })),

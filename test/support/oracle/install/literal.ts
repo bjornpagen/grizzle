@@ -6,6 +6,7 @@ import { isRecord } from "#compiler/core/record.ts"
 import { MoneyText, moneyTag, VectorText, vectorTag } from "#compiler/ir/carriers.ts"
 import { toCalendarDate } from "#compiler/ir/date.ts"
 import { decimalPayload, isDecimalLike } from "#compiler/ir/decimal.ts"
+import type { SpanCarrier } from "#compiler/ir/scalar.ts"
 import { isVector, Vector } from "#compiler/scalar/values/vector.ts"
 import type { Expr, LiteralValue } from "#compiler/sql/ast.ts"
 import { cast, lit, types } from "#compiler/sql/build.ts"
@@ -90,6 +91,38 @@ const spanEndpoints = (
 		return undefined
 	}
 	return { start: inner["start"], end: inner["end"] }
+}
+
+/** The range type of each span carrier. */
+const spanRangeNames = {
+	range4: "int4range",
+	range8: "int8range",
+	rangeDate: "daterange"
+} as const satisfies Readonly<Record<SpanCarrier, string>>
+
+/** A span's canonical `[start,end)` text: endpoints of its endpoint type with start before end, or none. */
+const spanText = (
+	carrier: SpanCarrier,
+	endpoints: { readonly start: unknown; readonly end: unknown } | undefined
+): string | undefined => {
+	switch (carrier) {
+		case "range4":
+		case "range8": {
+			const start = integerOf(endpoints?.start)
+			const end = integerOf(endpoints?.end)
+			const [min, max] = integerRanges[carrier === "range4" ? "int4" : "int8"]
+			return start === undefined || end === undefined || start < min || end > max || !(start < end)
+				? undefined
+				: `[${start},${end})`
+		}
+		case "rangeDate": {
+			const start = toCalendarDate(endpoints?.start)
+			const end = toCalendarDate(endpoints?.end)
+			return start.ok && end.ok && start.value < end.value
+				? `[${start.value},${end.value})`
+				: undefined
+		}
+	}
 }
 
 const floatSpecials = {
@@ -288,18 +321,11 @@ export const literalFor = (
 			)
 		}
 		case "span": {
-			const endpoints = spanEndpoints(value)
-			const start = integerOf(endpoints?.start)
-			const end = integerOf(endpoints?.end)
-			const [min, max] = integerRanges[v.carrier === "range4" ? "int4" : "int8"]
-			if (start === undefined || end === undefined || start < min || end > max || !(start < end)) {
-				return refuse(
-					location,
-					`a nonempty bounded ${v.carrier === "range4" ? "int4range" : "int8range"} span`,
-					value
-				)
+			const text = spanText(v.carrier, spanEndpoints(value))
+			if (text === undefined) {
+				return refuse(location, `a nonempty bounded ${spanRangeNames[v.carrier]} span`, value)
 			}
-			return Result.succeed(literal({ kind: "text", value: `[${start},${end})` }, type))
+			return Result.succeed(literal({ kind: "text", value: text }, type))
 		}
 		case "vector": {
 			/** A host Vector is its Float32Array; a Description's literal is its canonical payload. */

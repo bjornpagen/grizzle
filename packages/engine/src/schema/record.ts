@@ -17,6 +17,7 @@ import {
 } from "#compiler/core/decoder.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
+import type { OutputText } from "#compiler/core/wire.ts"
 import type { SqlTag } from "#compiler/scalar/registry.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
@@ -74,7 +75,7 @@ const fieldsOf = (
  * refined text, the handle the installation's names give a closed id's code, and a fresh set of the handles a bit
  * string's 1 bits name, position i code i.
  */
-const conversion = (column: Column<unknown>, names: CodeNames): ((text: string) => unknown) => {
+const conversion = (column: Column<unknown>, names: CodeNames): ((text: OutputText) => unknown) => {
 	switch (column.kind) {
 		case "convert":
 			return column.convert

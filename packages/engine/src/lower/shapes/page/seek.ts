@@ -1,5 +1,5 @@
 import { appendNonEmpty, isNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
-import type { PageFill } from "#compiler/ir/products.ts"
+import type { PageFill, SizeFill } from "#compiler/ir/products.ts"
 import type { CompletedOrder, Heading, OrderKey } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import {
@@ -19,6 +19,23 @@ import { and, asc, binary, desc, lit, or, row, slotParam, types } from "#compile
  */
 const pageVariants = ["first", "after", "last", "before"] as const
 export type PageVariant = (typeof pageVariants)[number]
+
+/** The requests of no anchor, whose statements seek nothing. */
+export type PlainVariant = Extract<PageVariant, "first" | "last">
+
+/** The requests anchored at a cursor's boundary, whose statements seek past it. */
+export type AnchoredVariant = Exclude<PageVariant, PlainVariant>
+
+/**
+ * The page fills a variant's statements hold: a plain request's are its sizes alone, so no binding of one reads a
+ * boundary; an anchored request's are its sizes and its comparators' boundaries.
+ */
+export interface VariantFill {
+	readonly first: SizeFill
+	readonly after: PageFill
+	readonly last: SizeFill
+	readonly before: PageFill
+}
 
 /** The order a variant fetches in: the declared order for first and after, every direction reversed for last and before. */
 export type PageDirection = "forward" | "backward"
@@ -79,12 +96,9 @@ export interface Seek {
 	readonly inclusive: boolean
 }
 
-/** The seek of a variant: none for an anchorless request. */
-export const variantSeek = (variant: PageVariant): Seek | undefined => {
+/** The seek of an anchored request: strictly past its anchor in its fetch direction. */
+export const anchoredSeek = (variant: AnchoredVariant): Seek => {
 	switch (variant) {
-		case "first":
-		case "last":
-			return undefined
 		case "after":
 			return { side: "follows", inclusive: false }
 		case "before":
@@ -127,22 +141,64 @@ export const pageComparators = (
 		type: columnType(heading, k.column)
 	}))
 
+/** A new placeholder of `params` the page request fills with `fill`, cast to `sqlType`. */
+const pageParam = <F extends PageFill>(
+	params: StatementParams<PageParamSlot<F>>,
+	fill: F,
+	sqlType: TypeRef
+): Expr =>
+	slotParam(
+		params.own((number): PageParamSlot<F> => ({
+			kind: "page",
+			placeholder: "value",
+			number,
+			fill
+		})),
+		sqlType
+	)
+
 /**
- * The page placeholders of one statement, allocated into that statement's parameter list after its own parameters, in
- * first-use order, each used as often as the predicate needs (one placeholder per boundary value). It holds the
- * statement's placeholders (its delivery's params once the statement began), so every placeholder it allocates is that
- * statement's. Each placeholder is a page fill its statement's parameters record: limit, size, or a comparator's
- * boundary.
+ * The size placeholders of one statement, its limit and its size, each allocated into that statement's parameter list
+ * (its delivery's params once the statement began) by `allocate` at its first use, after the statement's own
+ * parameters, and read by every later one: every request's statement holds them, a plain request's alone.
  */
-export class PageSlots {
+class SizeSlots {
+	readonly #allocate: (fill: SizeFill) => Expr
+	#limit: Expr | undefined
+	#size: Expr | undefined
+
+	constructor(allocate: (fill: SizeFill) => Expr) {
+		this.#allocate = allocate
+	}
+
+	/**
+	 * The limit placeholder, `$n::bigint`: the requested size plus one. A page size is any safe integer of at least 1,
+	 * and every safe integer and its successor are bigint values, which LIMIT takes.
+	 */
+	limit(): Expr {
+		this.#limit ??= this.#allocate({ kind: "limit" })
+		return this.#limit
+	}
+
+	/** The size placeholder, `$n::bigint`: the most rows the page delivers, any safe integer of at least 1. */
+	size(): Expr {
+		this.#size ??= this.#allocate({ kind: "size" })
+		return this.#size
+	}
+}
+
+/**
+ * The boundary placeholders of an anchored request's or a probe's statement, one per comparator, each cast to its
+ * comparator's base type: the first seek allocates them into the statement's parameter list, in comparator order, and
+ * every later seek of the statement reads the same ones.
+ */
+class BoundarySlots {
 	readonly #params: StatementParams<PageParamSlot>
 	readonly #typeRef: (t: ScalarType) => TypeRef
 	readonly #comparators: ReadonlyArray<PageComparator>
 	#boundaries:
 		| ReadonlyArray<{ readonly comparator: PageComparator; readonly boundary: Expr }>
 		| undefined
-	#limit: Expr | undefined
-	#size: Expr | undefined
 
 	constructor(
 		params: StatementParams<PageParamSlot>,
@@ -154,41 +210,12 @@ export class PageSlots {
 		this.#comparators = comparators
 	}
 
-	/**
-	 * The limit placeholder, `$n::bigint`: the requested size plus one. A page size is any safe integer of at least 1,
-	 * and every safe integer and its successor are bigint values, which LIMIT takes.
-	 */
-	limit(): Expr {
-		this.#limit ??= this.#fill({ kind: "limit" }, types.bigint)
-		return this.#limit
-	}
-
-	/** The size placeholder, `$n::bigint`: the most rows the page delivers, any safe integer of at least 1. */
-	size(): Expr {
-		this.#size ??= this.#fill({ kind: "size" }, types.bigint)
-		return this.#size
-	}
-
-	/** A new placeholder the page request fills with `fill`, cast to `sqlType`. */
-	#fill(fill: PageFill, sqlType: TypeRef): Expr {
-		const slot = this.#params.own((number): PageParamSlot => ({
-			kind: "page",
-			placeholder: "value",
-			number,
-			fill
-		}))
-		return slotParam(slot, sqlType)
-	}
-
-	/**
-	 * The seek keys over the delivered columns `map`: each comparator's column against its boundary value, one
-	 * placeholder cast to the comparator's base type. The first seek allocates the placeholders, in comparator order,
-	 * and every later seek of the statement reads the same ones.
-	 */
+	/** The seek keys over the delivered columns `map`: each comparator's column against its boundary value. */
 	seekKeys(map: ColumnMap): ReadonlyArray<SeekKey> {
 		this.#boundaries ??= this.#comparators.map((comparator, position) => ({
 			comparator,
-			boundary: this.#fill(
+			boundary: pageParam(
+				this.#params,
 				{ kind: "boundary", position, field: comparator.field },
 				this.#typeRef(comparator.type)
 			)
@@ -201,6 +228,38 @@ export class PageSlots {
 		}))
 	}
 }
+
+/** An anchored statement's seek and the boundary placeholders it compares against. */
+export interface Anchor {
+	readonly seek: Seek
+	readonly boundaries: BoundarySlots
+}
+
+/** A request statement's page placeholders: its sizes, and, for an anchored request, its anchor. */
+export interface RequestSlots {
+	readonly sizes: SizeSlots
+	readonly anchor: Anchor | undefined
+}
+
+/** A plain request's statement's page placeholders over its parameter list `params`: its sizes alone. */
+export const plainSlots = (params: StatementParams<PageParamSlot<SizeFill>>): RequestSlots => ({
+	sizes: new SizeSlots((fill) => pageParam(params, fill, types.bigint)),
+	anchor: undefined
+})
+
+/**
+ * An anchored request's or a probe's statement's page placeholders over its parameter list `params`: its sizes, and its
+ * seek `seek` against one boundary per comparator, typed by `typeRef`.
+ */
+export const anchoredSlots = (
+	params: StatementParams<PageParamSlot>,
+	typeRef: (t: ScalarType) => TypeRef,
+	comparators: ReadonlyArray<PageComparator>,
+	seek: Seek
+): RequestSlots & { readonly anchor: Anchor } => ({
+	sizes: new SizeSlots((fill) => pageParam(params, fill, types.bigint)),
+	anchor: { seek, boundaries: new BoundarySlots(params, typeRef, comparators) }
+})
 
 /**
  * One position of a seek: its direction, its comparator's type, the delivered column it reads, and the boundary value

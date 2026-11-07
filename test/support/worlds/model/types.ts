@@ -257,6 +257,11 @@ export interface InstalledNames {
 	readonly rosterConstants: Readonly<Record<string, string>>
 	/** Each roster's handles by code, as the installation holds them: what a closed id's claim and column hold. */
 	readonly codes: HandleCodes
+	/**
+	 * Each ordinary relation's declared keys, each by its fields, in the order the engine reads them for a witness: its
+	 * primary key first, then each key a law declares (the compiled relation's keyNames).
+	 */
+	readonly keys: Readonly<Record<string, ReadonlyArray<Arr.NonEmptyReadonlyArray<string>>>>
 }
 
 /** Each roster's handles by code, by the roster's name: a removed handle's code a hole, "". */
@@ -1001,6 +1006,7 @@ export type WorldFeature =
 	| `claim-refused:${ClaimDomain}:${ClaimRefusal}`
 	| `readback:${ReadBackClass}`
 	| `law:${LawFamily}:${LawPath}:${Witness["kind"]}`
+	| "law:check:declared-key"
 	| `write:${WriteShape}:${RelationSpec["mutability"]}:${"entry" | "whole"}:${EntryOp["kind"]}`
 	| `strata:${"one" | "union" | "sequence" | "refused-order"}`
 	| AdditionFeature

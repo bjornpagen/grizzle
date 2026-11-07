@@ -69,6 +69,7 @@ export const castInjective = (from: ScalarType, to: ScalarType): boolean => {
 			case "text":
 			case "range4":
 			case "range8":
+			case "rangeDate":
 			case "exactInteger":
 			case "exactMoney":
 				return true

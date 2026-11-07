@@ -456,6 +456,10 @@ export const textByteBound = (desc: InferredFieldDesc): number => {
 const isTextDesc = (desc: InferredFieldDesc): boolean =>
 	desc.kind === "text" || (desc.kind === "contract" && isTextDesc(desc.base))
 
+/** Whether a span's endpoint is a date, date itself or a contract over it: a daterange's, of 4-byte bounds. */
+const isDateEndpoint = (desc: FieldDesc): boolean =>
+	desc.kind === "contract" ? isDateEndpoint(desc.base) : desc.kind === "pg" && desc.type === "date"
+
 const integerFamily = (desc: FieldDesc): "int4" | "int8" | undefined => {
 	switch (desc.kind) {
 		case "contract":
@@ -534,9 +538,11 @@ export const datumBound = (desc: InferredFieldDesc): DatumBound | undefined => {
 		case "computedNumeric":
 			return fixed(numericMaximumSize(desc.bound.digits + desc.bound.scale), 4, "numeric")
 		case "span":
-			return integerFamily(desc.endpoint) === "int4"
-				? fixed(rangeBytes(typlens.int4), 4, "range")
-				: fixed(rangeBytes(typlens.int8), 8, "range")
+			return isDateEndpoint(desc.endpoint)
+				? fixed(rangeBytes(typlens.date), 4, "range")
+				: integerFamily(desc.endpoint) === "int4"
+					? fixed(rangeBytes(typlens.int4), 4, "range")
+					: fixed(rangeBytes(typlens.int8), 8, "range")
 		case "vector":
 			return fixed(vectorHeaderBytes.value + typlens.float4.value * desc.dimensions, 4, "vector")
 		case "text":

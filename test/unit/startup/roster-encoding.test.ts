@@ -1,7 +1,7 @@
 /**
  * A predicate's canonical encoding is linear in its own terms, whatever the size of the rosters it reads: a closed id's
- * type names its roster by identity (ir/scalar.ts Roster), whose handles its closed relation's description encodes once
- * with the schema, so no literal, column or closed read of a closed id carries the roster again.
+ * type names its roster by its name and its handles' digest (ir/scalar.ts Roster), taken once as the roster is made, so
+ * no literal, column or closed read of a closed id carries the roster's handles.
  *
  * Each case draws a guard, the selection a key of T is over: up to three atoms joined by and or or, each a closed id
  * `kind` compared with a handle, held to an IN list of one, or read through a closed relation `Weight.at("weight",

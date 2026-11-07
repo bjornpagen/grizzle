@@ -81,7 +81,6 @@ import {
 	spanOf
 } from "#compiler/ir/scalar.ts"
 import { countOverload, unaryOverload } from "#compiler/scalar/aggregate.ts"
-import type { RegexMember } from "#compiler/scalar/compute/evaluate.ts"
 import { irLiteral } from "#compiler/scalar/compute/literal.ts"
 import {
 	type LowerEnv,
@@ -90,6 +89,7 @@ import {
 	noParams
 } from "#compiler/scalar/compute/lower.ts"
 import { guardedTerm } from "#compiler/scalar/natural.ts"
+import type { PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
 import type { TextLookup } from "#compiler/scalar/registry.ts"
 import type {
 	OwnedContract,
@@ -455,7 +455,7 @@ interface NormalizeEnv {
 	/** What lowering a law's predicate or term reads of the schema's types, and the closed relations it may apply. */
 	readonly lowerEnv: {
 		readonly fieldType: LowerEnv["fieldType"]
-		readonly regexMember: RegexMember
+		readonly patterns: PatternAutomata
 		readonly patternLanguage: TextLookup
 		readonly closed: LowerEnv["closed"]
 	}

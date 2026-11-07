@@ -28,6 +28,7 @@ import {
 } from "effect"
 import type { MigrateError } from "#adapter/migrate/errors.ts"
 import type { FolderSource } from "#adapter/migrate/input.ts"
+import { scalarReader } from "#compiler/codec/read.ts"
 import { scalarCodec } from "#compiler/codec/scalar.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
@@ -93,6 +94,7 @@ import type { SqlError } from "#test/support/pg.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
+import { outputText, paramText } from "#test/support/wire.ts"
 
 /**
  * Roster migrations on PostgreSQL 19rc1, run as programs of a commands machine against a model of the roster's history.
@@ -743,9 +745,12 @@ const sameAsModel = (sys: System, after: Model) =>
 			`SELECT ${n.tier}::text FROM ${n.held} ORDER BY ${n.heldId}`,
 			[]
 		)
-		const codec = scalarCodec(codeType(after.tier), codes)
+		const codec = scalarReader(codeType(after.tier), codes)
 		assert.deepEqual(
-			Arr.map(held, (r) => ({ code: Number(r[0]), handle: codec.convert(String(r[0])) })),
+			Arr.map(held, (r) => ({
+				code: Number(r[0]),
+				handle: codec.convert(outputText(String(r[0])))
+			})),
 			Arr.map(after.held, (code) => ({
 				code,
 				handle: defined(modelNames(after.tier)[code], "a live code's handle")
@@ -757,11 +762,11 @@ const sameAsModel = (sys: System, after: Model) =>
 				`SELECT ${n.members}::text FROM ${n.sets} ORDER BY ${n.setsId}`,
 				[]
 			)
-			const setCodec = scalarCodec(setType(after.tier), codes)
+			const setCodec = scalarReader(setType(after.tier), codes)
 			assert.deepEqual(
 				Arr.map(sets, (r) => ({
 					text: String(r[0]),
-					members: membersOf(setCodec.convert(String(r[0])))
+					members: membersOf(setCodec.convert(outputText(String(r[0]))))
 				})),
 				Arr.map(after.sets.rows, (s) => ({
 					text: setText(sizeOf(after.tier), s),
@@ -1004,12 +1009,14 @@ const real = (
 			)
 			assert.equal(
 				text,
-				`X${hexOfText(
-					setText(
-						sizeOf(before.tier),
-						Arr.map(p.members, (h) => defined(codeAt(before.tier, h)))
-					)
-				)}`,
+				paramText(
+					`X${hexOfText(
+						setText(
+							sizeOf(before.tier),
+							Arr.map(p.members, (h) => defined(codeAt(before.tier, h)))
+						)
+					)}`
+				),
 				"the host writes X and the hex digits of the model's positional text"
 			)
 			yield* sys.writer.begin

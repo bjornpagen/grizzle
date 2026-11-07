@@ -42,6 +42,8 @@ import { Q, Reading, T } from "#test/unit/lower/conservative/fixtures.ts"
 import { present } from "#test/unit/lower/support.ts"
 
 import { regex } from "arkregex"
+import type { OutputText } from "#compiler/core/wire.ts"
+import { outputRows, outputText } from "#test/support/wire.ts"
 /**
  * The attachment shape: the fusion rule and the converter that reads a fused column back. The fused and pipelined
  * statements' rows are the optimized differential's on PostgreSQL (test/pg/oracle/optimized), and their decoding
@@ -330,9 +332,15 @@ describe("the fused attachment codec", () => {
 											)
 								)
 							)
-							const parentCell = (column: string) => (row: ReadonlyArray<string>) =>
+							const parentCell = (column: string) => (row: ReadonlyArray<OutputText>) =>
 								present(row[c.parentAt(column)], `the parent text of ${column}`)
-							assert.deepEqual(fusedTexts(c.layout, parentCell)(fusedColumn(c), c.parent), expected)
+							assert.deepEqual(
+								fusedTexts(c.layout, parentCell)(
+									outputText(fusedColumn(c)),
+									Arr.map(c.parent, outputText)
+								),
+								outputRows(expected)
+							)
 							note.note(
 								element.length === 0
 									? "no element field"

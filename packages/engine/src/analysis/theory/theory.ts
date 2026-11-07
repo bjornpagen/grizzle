@@ -46,13 +46,13 @@ import {
 	baseOf,
 	type ContractInfo,
 	contractOf,
+	Roster,
 	type ScalarType,
 	spanOf
 } from "#compiler/ir/scalar.ts"
-import type { RegexMember } from "#compiler/scalar/compute/evaluate.ts"
 import type { ClosedRelations } from "#compiler/scalar/compute/lower.ts"
 import { contractPredicateTable } from "#compiler/scalar/compute/total.ts"
-import { regexMember } from "#compiler/scalar/regex/nfa.ts"
+import { CompilePatterns, type PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
 import {
 	contractInfoOf,
 	type ScalarEnv,
@@ -349,8 +349,9 @@ const contractNames = (t: ScalarType): ReadonlyArray<string> => {
 
 /**
  * The typing environment of an owned schema's laws: the descriptor registry's reading, its closed relations' rosters,
- * each contract's predicate table, the text package's regex membership, and its analysis of a pattern a predicate
- * computes. Theory normalization types its laws in it, and law specialization its generated CHECK predicates.
+ * each contract's predicate table, the admitted patterns of the compile it serves (scalar/regex/patterns.ts), one table
+ * per environment, and the text analysis of a pattern a predicate computes. Theory normalization types its laws in it,
+ * and law specialization its generated CHECK predicates.
  */
 export const typingEnv = (
 	owned: Owned
@@ -360,13 +361,14 @@ export const typingEnv = (
 		desc: Extract<FieldDesc, { readonly kind: "contract" }>,
 		loc: SourceLoc
 	) => Result.Result<ContractInfo, CompileError>
-	readonly regexMember: RegexMember
+	readonly patterns: PatternAutomata
 	readonly patternLanguage: TextLookup
 } => {
-	const rosters = new Map<string, NonEmptyReadonlyArray<string>>()
+	const patterns = new CompilePatterns()
+	const rosters = new Map<string, Roster>()
 	for (const r of Object.values(owned.relations)) {
 		if (r.desc.kind === "closed") {
-			rosters.set(r.name, r.desc.handles)
+			rosters.set(r.name, new Roster(r.name, r.desc.handles))
 		}
 	}
 	const fieldType = (desc: FieldDesc, loc: SourceLoc): Result.Result<ScalarType, CompileError> =>
@@ -379,14 +381,14 @@ export const typingEnv = (
 			contractPredicateTable(predicate, base, contract, facts, {
 				loc,
 				fieldType,
-				regexMember,
+				patterns,
 				patternLanguage: textLookup
 			})
 	})
 	return {
 		fieldType,
 		contractInfo: (desc, loc) => contractInfoOf(desc, schemaEnv(loc), loc),
-		regexMember,
+		patterns,
 		patternLanguage: textLookup
 	}
 }
@@ -395,6 +397,8 @@ class Builder {
 	readonly owned: Owned
 	readonly options: TheoryOptions
 	readonly fieldType: (desc: FieldDesc, loc: SourceLoc) => Result.Result<ScalarType, CompileError>
+	/** The admitted patterns the theory's compile reads (typingEnv). */
+	readonly patterns: PatternAutomata
 	/** The stored relations' handles the checked schema minted, in name order. */
 	readonly stored: ReadonlyArray<TheoryRelation>
 	readonly relations: ReadonlyMap<string, TheoryRelation>
@@ -404,7 +408,9 @@ class Builder {
 	constructor(checked: CheckedSchema, options: TheoryOptions) {
 		this.owned = checked.owned
 		this.options = options
-		this.fieldType = typingEnv(checked.owned).fieldType
+		const typing = typingEnv(checked.owned)
+		this.fieldType = typing.fieldType
+		this.patterns = typing.patterns
 		this.closed = checked.closedReads
 		this.stored = checked.stored
 		this.relations = new Map(checked.stored.map((r) => [r.name, r] as const))
@@ -430,7 +436,7 @@ class Builder {
 			named: lawIdentityOf,
 			lowerEnv: {
 				fieldType: this.fieldType,
-				regexMember,
+				patterns: this.patterns,
 				patternLanguage: textLookup,
 				closed: this.closed
 			}

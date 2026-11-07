@@ -28,6 +28,8 @@ import { defect, defined } from "#compiler/core/invariant.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { type Comparator, compareStrings } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
+import { compareQuotedTuples } from "#compiler/core/text.ts"
+import { type ReadonlyTupleMap, TupleMap } from "#compiler/core/tuple-map.ts"
 
 /** One code of a roster: the live handle it names, or the hole a removed handle left, which no handle takes again. */
 export type CodeSlot =
@@ -515,12 +517,12 @@ export interface Heading {
 
 /**
  * A side as a closed relation of its own: its key's fields, its payload's fields, and its rows split between them, one
- * per key, by the canonical text of the key's values (sideOf). A side is a set: a row its projection repeats is one row.
+ * per key, by the canonical texts of the key's values (sideOf). A side is a set: a row its projection repeats is one row.
  */
 export interface CellSide<V> {
 	readonly key: NonEmptyReadonlyArray<string>
 	readonly payload: ReadonlyArray<string>
-	readonly rows: ReadonlyMap<string, Split<V>>
+	readonly rows: ReadonlyTupleMap<string, Split<V>>
 }
 
 /**
@@ -528,9 +530,9 @@ export interface CellSide<V> {
  * of its own. Its key is the smallest declared key whose fields the side contains, the first declared among the
  * smallest, in that key's order; a side that contains no declared key is keyed by all its fields. Its payload is its
  * other fields, in term order. The rows of a selected side are the rows its predicate selects, each once by its key's
- * text (`text`, each value's canonical text), in key text order: two rows a projection onto a side keyed by all its
- * fields makes equal are one row, and a side keyed by a declared key holds one row per key, which the closed relation's
- * key law makes one payload.
+ * texts (`text`, each value's canonical text), in the UTF-16 order of those texts as a JSON array spells them
+ * (core/text.ts compareQuotedTuples): two rows a projection onto a side keyed by all its fields makes equal are one row,
+ * and a side keyed by a declared key holds one row per key, which the closed relation's key law makes one payload.
  */
 export const sideOf = <V>(
 	heading: Heading,
@@ -559,10 +561,14 @@ export const sideOf = <V>(
 		key: keyAt.map((position) => cell(row, position)),
 		payload: payloadAt.map((position) => cell(row, position))
 	}))
-	const keyed = new Map(split.map((row) => [JSON.stringify(row.key.map(text)), row] as const))
-	return {
-		key,
-		payload,
-		rows: new Map([...keyed].toSorted(([a], [b]) => compareStrings(a, b)))
+	const keyed = new TupleMap<string, Split<V>>()
+	for (const row of split) {
+		keyed.set(row.key.map(text), row)
 	}
+	const order = compareQuotedTuples(compareStrings)
+	const rowsInOrder = new TupleMap<string, Split<V>>()
+	for (const [k, row] of [...keyed].toSorted(([a], [b]) => order(a, b))) {
+		rowsInOrder.set(k, row)
+	}
+	return { key, payload, rows: rowsInOrder }
 }

@@ -15,15 +15,16 @@ import type { ExprDesc } from "#compiler/ir/desc.ts"
 import { predicateTable, type ScalarExpr } from "#compiler/ir/expr.ts"
 import { defaultOps } from "#compiler/lower/conservative/expr/ops.ts"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
-import { evaluateTable } from "#compiler/scalar/compute/evaluate.ts"
+import { evaluateTable, sqlNull } from "#compiler/scalar/compute/evaluate.ts"
 import type { CarrierValue } from "#compiler/scalar/compute/literal.ts"
 import { matchPattern } from "#compiler/scalar/regex/admit.ts"
-import { regexMember } from "#compiler/scalar/regex/nfa.ts"
+import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
 import type { Expr } from "#compiler/sql/ast.ts"
 import { col } from "#compiler/sql/build.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"
 import {
 	assert,
+	assertNot,
 	assertVariant,
 	defined,
 	refusalLoc,
@@ -84,12 +85,13 @@ const values = (
 				table.exprs,
 				table.root,
 				{ value: undefined, column: (ref) => row.get(ref.name), closed: () => undefined },
-				regexMember
+				ProgramPatterns.of(tablePatterns(table))
 			),
 			(stop) => new Error(Formatter.format(stop))
 		),
 		"the host evaluates it"
 	)
+	assertNot(host, sqlNull, "the host's value is a value, no operand being NULL")
 	const reference = evaluate(root, {
 		kind: "row",
 		column: (ref) => row.get(ref.name),

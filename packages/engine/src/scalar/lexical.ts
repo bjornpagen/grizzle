@@ -1,13 +1,11 @@
 import { unsupported } from "#compiler/core/errors.ts"
-import { defect } from "#compiler/core/invariant.ts"
 import { derived, type Limit, regexMaxRepeat } from "#compiler/core/limits.ts"
 import { captureLoc } from "#compiler/core/loc.ts"
 import { binary64DecimalDigits, binary64Digits, integerRanges } from "#compiler/ir/carriers.ts"
 import { type CalendarDate, toCalendarDate } from "#compiler/ir/date.ts"
 import { baseOf, contractOf, type NumericTypmod, type ScalarType } from "#compiler/ir/scalar.ts"
 import { type Inclusion, inclusion } from "#compiler/scalar/regex/inclusion.ts"
-import { buildNfa, type Nfa } from "#compiler/scalar/regex/nfa.ts"
-import { parsePattern } from "#compiler/scalar/regex/parse.ts"
+import type { AdmittedSource, PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
 import { describeFieldOrThrow } from "#compiler/scalar/registry.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 
@@ -77,6 +75,7 @@ export const lexicalTargetOf = (type: ScalarType): LexicalTarget | undefined => 
 		case "bits":
 		case "range4":
 		case "range8":
+		case "rangeDate":
 		case "vector":
 		case "exactInteger":
 		case "exactMoney":
@@ -228,23 +227,20 @@ export const formSource = (target: LexicalTarget): string => {
 	return `^(?:${body})$`
 }
 
-/** The automaton of a pattern the admitted grammar reads; a form or a RegexRef's pattern, which always parses. */
-const nfaOf = (source: string, flags: "u" | "su"): Nfa => {
-	const parsed = parsePattern(source, flags)
-	if (!parsed.ok) {
-		throw defect(`a pattern the admitted grammar reads: /${source}/${flags}`)
-	}
-	return buildNfa(parsed.value)
-}
-
 /**
  * Whether every value of a pattern's language is a member of a target's lexical form (regex/inclusion.ts): what makes
- * a parse of a value of that language total. A pattern is a RegexRef's, admitted by the text analysis.
+ * a parse of a value of that language total. A pattern is a RegexRef's, admitted by the text analysis; both automata
+ * are read from `patterns`.
  */
 export const formIncludes = (
-	pattern: { readonly source: string; readonly flags: "u" | "su" },
-	target: LexicalTarget
-): Inclusion => inclusion(nfaOf(pattern.source, pattern.flags), nfaOf(formSource(target), "u"))
+	pattern: AdmittedSource,
+	target: LexicalTarget,
+	patterns: PatternAutomata
+): Inclusion =>
+	inclusion(
+		patterns.parse(pattern).nfa,
+		patterns.parse({ source: formSource(target), flags: "u" }).nfa
+	)
 
 /** A decimal numeral's sign and the digits on each side of its point, at least one digit in all. */
 interface Numeral {

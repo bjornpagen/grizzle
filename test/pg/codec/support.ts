@@ -93,6 +93,8 @@ export const wireSql = (type: ScalarType, names: SqlNames): string => {
 			return "int4range"
 		case "range8":
 			return "int8range"
+		case "rangeDate":
+			return "daterange"
 		case "exactInteger":
 			return type.digits <= 18 ? "int8" : "numeric"
 		case "exactMoney":

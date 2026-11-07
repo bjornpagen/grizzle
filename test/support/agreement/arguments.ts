@@ -243,7 +243,6 @@ export const argumentModule = (
 		readonly query: string
 		readonly fields: string
 		readonly db: string
-		readonly declare: string
 		readonly schema: string
 	},
 	cells: ReadonlyArray<ArgumentCell>
@@ -255,10 +254,8 @@ export const argumentModule = (
 			`import { uuid } from ${jsonText(entries.fields)}`,
 			`import { query, v } from ${jsonText(entries.query)}`,
 			`import type { DbOf } from ${jsonText(entries.db)}`,
-			`import { role } from ${jsonText(entries.declare)}`,
-			`import { Agree, agreeEntries, Cell } from ${jsonText(entries.schema)}`,
+			`import { Agree, Cell, Reader } from ${jsonText(entries.schema)}`,
 			"",
-			'const Reader = role(Agree, "reader", agreeEntries)',
 			...Arr.map(shapes, (shape, s) => `const q${s} = ${queryOf(shape).source}`),
 			"",
 			...Arr.flatMap(cells, (c) => [

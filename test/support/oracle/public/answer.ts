@@ -8,6 +8,7 @@ import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { isVector } from "#compiler/scalar/values/vector.ts"
 import { defined } from "#test/support/assert.ts"
+import { sameIdentity } from "#test/support/kernel/identity.ts"
 import type {
 	Column,
 	MixedRoot,
@@ -15,7 +16,6 @@ import type {
 	Query,
 	StatedDelivery
 } from "#test/support/oracle/public/program.ts"
-import { sameIdentity } from "#test/support/oracle/reference/identity.ts"
 import { Declined, type Value, valueIdentity } from "#test/support/oracle/reference/values.ts"
 
 /**
@@ -353,7 +353,8 @@ const carrierValue = (type: ScalarType, host: unknown): Result.Result<Value, str
 				? Result.succeed(new Set<string>(host))
 				: wrong()
 		case "range4":
-		case "range8": {
+		case "range8":
+		case "rangeDate": {
 			if (!isRecord(host)) {
 				return wrong()
 			}

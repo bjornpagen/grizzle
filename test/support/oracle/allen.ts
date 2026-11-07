@@ -11,7 +11,7 @@ import {
 } from "#compiler/allen/atoms.ts"
 import { AllenMask } from "#compiler/allen/mask.ts"
 import { type AllenRelation, allenRelations } from "#compiler/core/allen.ts"
-import { type SpanCarrier, spanCarriers } from "#compiler/ir/scalar.ts"
+import { type IntegerSpanCarrier, integerSpanCarriers } from "#compiler/ir/scalar.ts"
 import { elementAt } from "#test/support/oracle/pick.ts"
 
 /** A stored span: the canonical half-open [lo, hi) with lo < hi. */
@@ -22,21 +22,25 @@ export interface HalfOpen {
 
 export type RangeType = "int4range" | "int8range"
 
-/** The range type of each span carrier. */
-const rangeTypeOf: Readonly<Record<SpanCarrier, RangeType>> = {
+/** The range type of each span carrier over integer endpoints, whose canonicalization this oracle states. */
+const rangeTypeOf: Readonly<Record<IntegerSpanCarrier, RangeType>> = {
 	range4: "int4range",
 	range8: "int8range"
 }
 
-/** The range type of every span carrier the engine declares, in its order. */
+/** The range type of every span carrier over integer endpoints the engine declares, in its order. */
 export const rangeTypes: Arr.NonEmptyReadonlyArray<RangeType> = Arr.map(
-	spanCarriers,
+	integerSpanCarriers,
 	(carrier) => rangeTypeOf[carrier]
 )
 
-export const rangeLimits: Readonly<
-	Record<RangeType, { readonly min: bigint; readonly max: bigint }>
-> = {
+/** The least lower bound and the greatest upper bound of a span's stored domain. */
+export interface SpanLimits {
+	readonly min: bigint
+	readonly max: bigint
+}
+
+export const rangeLimits: Readonly<Record<RangeType, SpanLimits>> = {
 	int4range: { min: -(2n ** 31n), max: 2n ** 31n - 1n },
 	int8range: { min: -(2n ** 63n), max: 2n ** 63n - 1n }
 }
@@ -311,11 +315,10 @@ export const windowSpans = (): ReadonlyArray<HalfOpen> => {
 }
 
 /**
- * Spans at a type's limits: starting at the minimum, ending exclusively at the maximum, the whole type,
- * and the narrowest spans at each end, plus spans reaching from each limit into the window.
+ * Spans at a stored domain's limits: starting at the minimum, ending exclusively at the maximum, the whole domain, and
+ * the narrowest spans at each end, plus spans reaching from each limit into the window, which the limits lie outside.
  */
-export const limitSpans = (type: RangeType): ReadonlyArray<HalfOpen> => {
-	const { min, max } = rangeLimits[type]
+export const limitSpansWithin = ({ min, max }: SpanLimits): ReadonlyArray<HalfOpen> => {
 	const ends = [min + 1n, min + 2n, windowLow, 0n, windowHigh, max - 1n, max]
 	const starts = [min, min + 1n, windowLow, 0n, windowHigh, max - 2n, max - 1n]
 	const out: Array<HalfOpen> = []
@@ -332,6 +335,10 @@ export const limitSpans = (type: RangeType): ReadonlyArray<HalfOpen> => {
 	)
 	return out
 }
+
+/** The limit spans of a range type (limitSpansWithin). */
+export const limitSpans = (type: RangeType): ReadonlyArray<HalfOpen> =>
+	limitSpansWithin(rangeLimits[type])
 
 export const compareSpans = (a: HalfOpen, b: HalfOpen): -1 | 0 | 1 =>
 	a.lo !== b.lo ? (a.lo < b.lo ? -1 : 1) : a.hi === b.hi ? 0 : a.hi < b.hi ? -1 : 1

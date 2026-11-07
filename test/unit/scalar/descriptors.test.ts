@@ -247,7 +247,7 @@ describe("alias identity", () => {
 							const field = descriptorOf(sketch)
 							const { desc, scalar } = described(field)
 							assert.deepEqual(succeeded(decodeDesc("field", desc)), desc)
-							const decoded = succeeded(decodeScalarType(structuredClone(scalar)))
+							const decoded = succeeded(decodeScalarType(scalar))
 							assert.deepEqual(decoded, scalar)
 							assert.deepEqual(keyOrder(decoded), keyOrder(scalar))
 							assert.equal(Object.isFrozen(field), true)

@@ -20,7 +20,7 @@ import {
 	textOf
 } from "#compiler/ir/scalar.ts"
 import type { CastValue, HostCast, IntCarrier } from "#compiler/scalar/compute/cast.ts"
-import { compareValues, literalValue, type RegexMember } from "#compiler/scalar/compute/evaluate.ts"
+import { compareValues, literalValue } from "#compiler/scalar/compute/evaluate.ts"
 import { totalFloat } from "#compiler/scalar/compute/float.ts"
 import type { CarrierValue } from "#compiler/scalar/compute/literal.ts"
 import * as TotalNumeric from "#compiler/scalar/compute/numeric.ts"
@@ -163,6 +163,9 @@ export type CatalogStop =
 	  }
 
 export type CatalogResult = Result.Result<CarrierValue, CatalogStop>
+
+/** Membership of a text value in a regex refinement, the caller's (reference/evaluate.ts patternMember). */
+type RegexMember = (regex: RegexRef, text: string) => boolean
 
 /**
  * What an evaluation reads besides its expressions: nothing (a constant expression), or a row's columns and the

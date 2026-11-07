@@ -192,7 +192,20 @@ export const hostWitnessSuite = (): void => {
 										kind: "specification",
 										name: "each account's rules restated over its drawn fields, and a witness naming an account that breaks the law"
 									},
-									kept: [],
+									kept: [
+										{
+											note: "a bronze account past its rate beside a gold one whose rate is NULL: the gold row's generated NOT NULL refuses it before WithinRate, so WithinRate's witness is the bronze account",
+											sketch: {
+												op: "insert",
+												accounts: [
+													{ tier: "bronze", units: 400, code: "b" },
+													{ tier: "gold", units: 0, code: "a" }
+												]
+											},
+											draws: "",
+											reaches: ["refused by withinRate"]
+										}
+									],
 									runs: 60,
 									shrink: { kind: "bounded", candidates: 100 },
 									concurrency: 1,

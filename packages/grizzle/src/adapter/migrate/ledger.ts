@@ -13,7 +13,14 @@ import { apartRow } from "#adapter/migrate/session.ts"
 import type { ApartAnswer, BatchStatement } from "#adapter/wire/batch.ts"
 import type { CatalogQuery } from "#adapter/wire/statement.ts"
 import { C } from "#compiler/plan/catalog.ts"
-import { emitCatalog, rowText, SchemaFingerprint } from "#compiler/plan/common.ts"
+import {
+	emitCatalog,
+	type OutputRows,
+	type OutputText,
+	type ParamText,
+	rowText,
+	SchemaFingerprint
+} from "#compiler/plan/common.ts"
 import {
 	emptyFingerprint,
 	type LedgerRow,
@@ -23,6 +30,7 @@ import {
 	type LedgerStatements,
 	ledgerTableName
 } from "#compiler/plan/migration.ts"
+import { countParam, textParam } from "#compiler/plan/read.ts"
 
 const relations = C.from("pg_class", "c")
 const namespaces = C.from("pg_namespace", "n")
@@ -79,7 +87,7 @@ export const statementsFor = (schema: string): Result.Result<LedgerStatements, M
  * A row of the rows statement, converted: the ledger is grizzle's own table, written only by the apply runner's
  * records, so each text is the one a record wrote and each integer PostgreSQL's output of the one it wrote.
  */
-const ledgerRowOf = (row: ReadonlyArray<string>): LedgerRow => ({
+const ledgerRowOf = (row: ReadonlyArray<OutputText>): LedgerRow => ({
 	folder: rowText(row, 0),
 	ordinal: Number(rowText(row, 1)),
 	file: rowText(row, 2),
@@ -96,7 +104,7 @@ const ledgerRowOf = (row: ReadonlyArray<string>): LedgerRow => ({
  */
 const ledgerOfRows = (
 	schema: string,
-	rows: ReadonlyArray<ReadonlyArray<string>>
+	rows: OutputRows
 ): Result.Result<LedgerState, LedgerDamaged> =>
 	Result.mapError(
 		toResult(ledgerState(Arr.map(rows, ledgerRowOf), emptyFingerprint(schema))),
@@ -108,7 +116,7 @@ type LedgerReads = readonly [exists: BatchStatement, rows: BatchStatement]
 
 /** The two statements that read a schema's ledger, apart (see the header). */
 export const ledgerReads = (schema: string, statements: LedgerStatements): LedgerReads => [
-	{ sql: ledgerExists.sql, params: [schema, ledgerTableName] },
+	{ sql: ledgerExists.sql, params: [textParam(schema), textParam(ledgerTableName)] },
 	{ sql: statements.rows.text, params: [] }
 ]
 
@@ -143,21 +151,21 @@ export const ledgerOfAnswers = (
 }
 
 /** The folder row, if absent: $1 folder, $2 source, $3 target, $4 files, $5 digest of meta.json. */
-export const folderParams = (folder: ParsedFolder): ReadonlyArray<string> => [
-	folder.name,
-	folder.meta.source,
-	folder.meta.target,
-	String(folder.files.length),
-	folder.metaDigest
+export const folderParams = (folder: ParsedFolder): ReadonlyArray<ParamText> => [
+	textParam(folder.name),
+	textParam(folder.meta.source),
+	textParam(folder.meta.target),
+	countParam(folder.files.length),
+	textParam(folder.metaDigest)
 ]
 
 /** A file's row: $1 folder, $2 ordinal, $3 file, $4 source, $5 target, $6 files, $7 digest of the applied text. */
-export const fileParams = (folder: ParsedFolder, file: ParsedFile): ReadonlyArray<string> => [
-	folder.name,
-	String(file.ordinal),
-	file.name,
-	folder.meta.source,
-	folder.meta.target,
-	String(folder.files.length),
-	file.digest
+export const fileParams = (folder: ParsedFolder, file: ParsedFile): ReadonlyArray<ParamText> => [
+	textParam(folder.name),
+	countParam(file.ordinal),
+	textParam(file.name),
+	textParam(folder.meta.source),
+	textParam(folder.meta.target),
+	countParam(folder.files.length),
+	textParam(file.digest)
 ]

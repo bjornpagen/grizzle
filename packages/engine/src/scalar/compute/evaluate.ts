@@ -2,6 +2,7 @@ import type { ExprId } from "#compiler/core/ids.ts"
 import * as Result from "#compiler/core/result.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
 import { compareCodePoints } from "#compiler/core/text.ts"
+import { dateOfDayNumber, dayNumber, toCalendarDate } from "#compiler/ir/date.ts"
 import type { LiteralDesc } from "#compiler/ir/desc.ts"
 import {
 	type ColumnRef,
@@ -36,9 +37,7 @@ import {
 	nativeOp,
 	type Undefined
 } from "#compiler/scalar/compute/registry.ts"
-import { matchFlags } from "#compiler/scalar/regex/admit.ts"
-import { buildNfa, matches } from "#compiler/scalar/regex/nfa.ts"
-import { parsePattern } from "#compiler/scalar/regex/parse.ts"
+import type { PatternReads } from "#compiler/scalar/regex/patterns.ts"
 import { translated } from "#compiler/scalar/regex/translate.ts"
 import { collapsed } from "#compiler/scalar/regex/whitespace.ts"
 import { compareDecimal, Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
@@ -54,43 +53,68 @@ export type EvalStop =
 	| { readonly kind: "undefined"; readonly precondition: Undefined }
 	| { readonly kind: "unsupported"; readonly what: string }
 
+/**
+ * SQL's NULL, a value of every type: what C.at reads at a key its closed relation holds no row at, and what a strict
+ * operation, a cast or a closed read reads of a NULL operand. AND, OR and NOT judge it by Kleene's three-valued logic,
+ * LEAST and GREATEST skip it, BETWEEN and IN judge it as the comparisons they are, and a conditional takes its other
+ * branch at it, each as PostgreSQL does, so a selection or a guard it leaves unknown holds of no row.
+ */
+export const sqlNull: unique symbol = Symbol("NULL")
+
+/** What an expression evaluates to: a value of its type, or NULL. */
+export type SqlValue = CarrierValue | typeof sqlNull
+
+/** A value of an operation's or a cast's type, which no NULL operand reaches. */
 type EvalResult = Result.Result<CarrierValue, EvalStop>
+
+/** What an expression evaluates to, or why the host has no value for it. */
+type SqlResult = Result.Result<SqlValue, EvalStop>
 
 /**
  * What an evaluated expression's leaves read: a contract predicate's VALUE, a row's columns, each by its name, its
- * value or undefined where the row holds none, which the evaluation then refuses as unsupported; and the closed
+ * value, NULL, or undefined where the row holds none, which the evaluation then refuses as unsupported; and the closed
  * relations a closed read applies: `closed(relation, field, args)` is C.at's cell, the value of `field` at the key
- * `args`, and with no field C.row's set, the completions of the key prefix `args`; undefined where the reader holds no
- * closed relation, or C.at's relation holds no tuple at the key, which the evaluation refuses as unsupported.
+ * `args`, NULL where the relation holds no tuple at the key, and with no field C.row's set, the completions of the key
+ * prefix `args`, empty where none completes it; undefined where the reader holds no closed relation, which the
+ * evaluation refuses as unsupported.
  */
 export interface EvalLeaves {
 	readonly value: CarrierValue | undefined
-	readonly column: (ref: ColumnRef) => CarrierValue | undefined
+	readonly column: (ref: ColumnRef) => SqlValue | undefined
 	readonly closed: (
 		relation: string,
 		field: string | undefined,
 		args: ReadonlyArray<CarrierValue>
-	) => CarrierValue | undefined
+	) => SqlValue | undefined
 }
 
-/**
- * Membership of a text value in a regex refinement: the text package's NFA (never RegExp), which the caller supplies,
- * since the text package reads the scalar package and not the other way round.
- */
-export type RegexMember = (regex: RegexRef, text: string) => boolean
+/** Whether a value is a value of its type, not NULL. */
+const isPresent = (v: SqlValue): v is CarrierValue => v !== sqlNull
 
-const undefinedAt = (precondition: Undefined): EvalResult =>
+/** A truth value of Kleene's logic: true, false, or NULL, unknown. */
+type Truth = boolean | typeof sqlNull
+
+/** The AND of truth values: false where one is false, else NULL where one is NULL, else true. */
+const conjunction = (values: ReadonlyArray<Truth>): Truth =>
+	values.includes(false) ? false : values.includes(sqlNull) ? sqlNull : true
+
+/** The OR of truth values: true where one is true, else NULL where one is NULL, else false. */
+const disjunction = (values: ReadonlyArray<Truth>): Truth =>
+	values.includes(true) ? true : values.includes(sqlNull) ? sqlNull : false
+
+const undefinedAt = (precondition: Undefined): Result.Err<EvalStop> =>
 	Result.err({ kind: "undefined", precondition })
-const unsupported = (what: string): EvalResult => Result.err({ kind: "unsupported", what })
+const unsupported = (what: string): Result.Err<EvalStop> =>
+	Result.err({ kind: "unsupported", what })
 
-/** A value's membership in a regex refinement, by the caller's NFA; a value that is not text has none to judge. */
+/** A value's membership in a regex refinement, by the caller's patterns; a value that is not text has none to judge. */
 const regexHolds = (
-	regexMember: RegexMember,
+	patterns: PatternReads,
 	regex: RegexRef,
 	v: CarrierValue
 ): Result.Result<boolean, EvalStop> =>
 	isString(v)
-		? Result.ok(regexMember(regex, v))
+		? Result.ok(patterns.member(regex, v))
 		: Result.err({ kind: "unsupported", what: "regex membership of a value that is not text" })
 
 const lift = <A extends CarrierValue>(r: Result.Result<A, Undefined>): EvalResult =>
@@ -162,6 +186,13 @@ const isSpanValue = (v: unknown): v is SpanValue =>
 	isBigint(v.end)
 
 /**
+ * A span endpoint as a value of the endpoint's type, from a span of `range`'s carrier: an integer itself, a date span's
+ * day number the date it is.
+ */
+const endpointValue = (position: bigint, range: Carrier): CarrierValue =>
+	range === "rangeDate" ? dateOfDayNumber(position) : position
+
+/**
  * PostgreSQL's comparison of two values of one type, or undefined when either is no value of it (another host kind, a
  * handle outside the roster): the host claims no order it cannot reproduce.
  */
@@ -229,7 +260,8 @@ export const compareValues = (
 			return x === y ? 0 : x < y ? -1 : 1
 		}
 		case "range4":
-		case "range8": {
+		case "range8":
+		case "rangeDate": {
 			if (!isSpanValue(a) || !isSpanValue(b)) {
 				return undefined
 			}
@@ -278,18 +310,6 @@ const rightOf = (text: string, n: bigint): string => {
 	return characters.slice(Number(kept < 0n ? 0n : kept)).join("")
 }
 
-/**
- * Whether `text` holds a match of the pattern `source`, read under the flags of every Compute.matches pattern: the NFA
- * of its parse (scalar/regex/nfa.ts), the automaton a str.regex refinement's membership reads, which agrees with
- * PostgreSQL's `~` over the pattern's ARE. A source outside the grammar is no pattern any admitted node holds.
- */
-const patternMatch = (text: string, source: string): EvalResult => {
-	const parsed = parsePattern(source, matchFlags)
-	return parsed.ok
-		? Result.ok(matches(buildNfa(parsed.value), text))
-		: unsupported(`the pattern /${source}/${matchFlags}, outside the admitted grammar`)
-}
-
 const gcdOf = (a: bigint, b: bigint): bigint => {
 	let x = a < 0n ? -a : a
 	let y = b < 0n ? -b : b
@@ -314,7 +334,8 @@ const gcdOf = (a: bigint, b: bigint): bigint => {
 const apply = (
 	op: NativeOp,
 	args: ReadonlyArray<CarrierValue>,
-	argTypes: ReadonlyArray<ScalarType>
+	argTypes: ReadonlyArray<ScalarType>,
+	patterns: PatternReads
 ): EvalResult => {
 	const [a, b] = args
 	const c = firstOperand(op.operands)
@@ -325,6 +346,13 @@ const apply = (
 		case "div":
 		case "mod": {
 			const fn = op.fn
+			if (c === "date") {
+				const x = isString(a) ? toCalendarDate(a) : undefined
+				const y = isString(b) ? toCalendarDate(b) : undefined
+				return fn === "sub" && x?.ok === true && y?.ok === true
+					? Result.ok(BigInt(dayNumber(x.value) - dayNumber(y.value)))
+					: mismatch(op)
+			}
 			if (c === "numeric") {
 				if (!isDecimal(a) || !isDecimal(b)) {
 					return mismatch(op)
@@ -403,9 +431,9 @@ const apply = (
 			return Result.ok(g === 0n ? 0n : (product < 0n ? -product : product) / g)
 		}
 		case "lower":
-			return isSpanValue(a) ? Result.ok(a.start) : mismatch(op)
+			return isSpanValue(a) ? Result.ok(endpointValue(a.start, c)) : mismatch(op)
 		case "upper":
-			return isSpanValue(a) ? Result.ok(a.end) : mismatch(op)
+			return isSpanValue(a) ? Result.ok(endpointValue(a.end, c)) : mismatch(op)
 		case "charLength":
 			return isString(a) ? Result.ok(BigInt(Array.from(a).length)) : mismatch(op)
 		case "octetLength":
@@ -419,7 +447,7 @@ const apply = (
 		case "right":
 			return isString(a) && isBigint(b) ? Result.ok(rightOf(a, b)) : mismatch(op)
 		case "matches":
-			return isString(a) && isString(b) ? patternMatch(a, b) : mismatch(op)
+			return isString(a) && isString(b) ? Result.ok(patterns.matches(b, a)) : mismatch(op)
 		case "collapse":
 			return isString(a) ? Result.ok(collapsed(a)) : mismatch(op)
 		case "regexpReplace":
@@ -535,47 +563,49 @@ const apply = (
 
 /**
  * Evaluates a contract predicate, `root` in its expression table `exprs`, over its VALUE `value`, reading regex
- * membership by `regexMember`.
+ * membership by `patterns`.
  */
 const evaluatePredicate = (
 	exprs: Readonly<Record<ExprId, TableExpr>>,
 	root: ExprId,
 	value: CarrierValue,
-	regexMember: RegexMember
-): EvalResult =>
-	evaluateTable(
-		exprs,
-		root,
-		{ value, column: () => undefined, closed: () => undefined },
-		regexMember
-	)
+	patterns: PatternReads
+): SqlResult =>
+	evaluateTable(exprs, root, { value, column: () => undefined, closed: () => undefined }, patterns)
 
 /**
  * The host's value of the expression `root` in its table `exprs`, its leaves read from `leaves` and regex membership
- * by `regexMember`: the value PostgreSQL computes for it, or why the host has none (EvalStop). The one evaluation of a
- * contract predicate over its VALUE and of a generation expression or a row check over its row.
+ * by `patterns`: the value PostgreSQL computes for it, NULL included (sqlNull), or why the host has none (EvalStop).
+ * The one evaluation of a contract predicate over its VALUE and of a generation expression, a row check, a selection
+ * or a guard over its row.
  */
 export const evaluateTable = (
 	exprs: Readonly<Record<ExprId, TableExpr>>,
 	root: ExprId,
 	leaves: EvalLeaves,
-	regexMember: RegexMember
-): EvalResult => {
+	patterns: PatternReads
+): SqlResult => {
 	const at = (id: ExprId): TableExpr | undefined =>
 		Object.hasOwn(exprs, id) ? exprs[id] : undefined
-	/** AND or OR over `args`, left to right, stopping at the deciding operand. */
-	const connective = (fn: "and" | "or", args: ReadonlyArray<ExprId>): EvalResult => {
+	/**
+	 * AND or OR over `args` by Kleene's logic, left to right as PostgreSQL evaluates them: the deciding operand, false
+	 * for AND and true for OR, ends it; otherwise it is NULL where an operand is NULL.
+	 */
+	const connective = (fn: "and" | "or", args: ReadonlyArray<ExprId>): SqlResult => {
+		const deciding = fn === "or"
+		const read: Array<Truth> = []
 		for (const a of args) {
 			const v = run(a)
-			if (!v.ok || v.value === (fn === "or")) {
+			if (!v.ok || v.value === deciding) {
 				return v
 			}
+			read.push(v.value === sqlNull ? sqlNull : !deciding)
 		}
-		return Result.ok(fn === "and")
+		return Result.ok(fn === "and" ? conjunction(read) : disjunction(read))
 	}
-	/** A native operation over its arguments' values, each evaluated left to right. */
-	const applied = (op: NativeOp, args: ReadonlyArray<ExprId>): EvalResult => {
-		const values: Array<CarrierValue> = []
+	/** A native operation over its arguments' values, each evaluated left to right (nullAware). */
+	const applied = (op: NativeOp, args: ReadonlyArray<ExprId>): SqlResult => {
+		const values: Array<SqlValue> = []
 		const types: Array<ScalarType> = []
 		for (const a of args) {
 			const v = run(a)
@@ -586,9 +616,9 @@ export const evaluateTable = (
 			values.push(v.value)
 			types.push(operand.type)
 		}
-		return apply(op, values, types)
+		return nullAware(op, values, types, patterns)
 	}
-	const run = (id: ExprId): EvalResult => {
+	const run = (id: ExprId): SqlResult => {
 		const expr = at(id)
 		if (expr === undefined) {
 			return unsupported(`an expression named ${id}`)
@@ -618,7 +648,7 @@ export const evaluateTable = (
 				const [operand] = expr.args
 				const arg = at(operand)
 				const v = run(operand)
-				if (arg === undefined || !v.ok) {
+				if (arg === undefined || !v.ok || v.value === sqlNull) {
 					return v
 				}
 				return castTo(v.value, arg.type, expr.type)
@@ -627,14 +657,14 @@ export const evaluateTable = (
 				const [operand] = expr.args
 				const arg = at(operand)
 				const v = run(operand)
-				if (arg === undefined || !v.ok) {
+				if (arg === undefined || !v.ok || v.value === sqlNull) {
 					return v
 				}
 				const coerced = castTo(v.value, arg.type, baseOf(expr.type))
 				if (!coerced.ok) {
 					return coerced
 				}
-				const member = membership(coerced.value, expr.type, regexMember)
+				const member = membership(coerced.value, expr.type, patterns)
 				if (!member.ok) {
 					return member
 				}
@@ -658,13 +688,17 @@ export const evaluateTable = (
 				)
 			case "closedAt":
 			case "closedRow": {
-				const args: Array<CarrierValue> = []
+				const values: Array<SqlValue> = []
 				for (const a of expr.args) {
 					const v = run(a)
 					if (!v.ok) {
 						return v
 					}
-					args.push(v.value)
+					values.push(v.value)
+				}
+				const args = values.filter(isPresent)
+				if (args.length < values.length) {
+					return Result.ok(sqlNull)
 				}
 				const read = leaves.closed(
 					expr.relation,
@@ -678,6 +712,133 @@ export const evaluateTable = (
 		}
 	}
 	return run(root)
+}
+
+/**
+ * A native operation over operand values that may be NULL, as PostgreSQL applies it: over values alone, `apply`;
+ * otherwise LEAST and GREATEST over their values that are no NULL, NULL where none is; BETWEEN as `a >= low AND a <=
+ * high` and IN as the OR of its equalities, by Kleene's logic; and every other operation, which is strict, NULL. Each
+ * operation states its NULL behaviour here, so a new one is a case to decide.
+ */
+const nullAware = (
+	op: NativeOp,
+	values: ReadonlyArray<SqlValue>,
+	types: ReadonlyArray<ScalarType>,
+	patterns: PatternReads
+): SqlResult => {
+	const present = values.filter(isPresent)
+	if (present.length === values.length) {
+		return apply(op, present, types, patterns)
+	}
+	const [a, ...rest] = values
+	const [t] = types
+	if (a === undefined || t === undefined) {
+		return mismatch(op)
+	}
+	/** One comparison of `a` with `b` by `holds` over their order, NULL where either is NULL. */
+	const compared = (
+		b: SqlValue,
+		holds: (order: -1 | 0 | 1) => boolean
+	): Result.Result<Truth, EvalStop> => {
+		if (a === sqlNull || b === sqlNull) {
+			return Result.ok(sqlNull)
+		}
+		const order = compareValues(a, b, t)
+		return order === undefined ? unsupported(`${op.fn} over ${t.carrier}`) : Result.ok(holds(order))
+	}
+	/** Each comparison's truth, or the first that has none. */
+	const truths = (
+		comparisons: ReadonlyArray<Result.Result<Truth, EvalStop>>
+	): Result.Result<ReadonlyArray<Truth>, EvalStop> => {
+		const out: Array<Truth> = []
+		for (const c of comparisons) {
+			if (!c.ok) {
+				return c
+			}
+			out.push(c.value)
+		}
+		return Result.ok(out)
+	}
+	switch (op.fn) {
+		case "least":
+		case "greatest":
+			return present.length === 0
+				? Result.ok(sqlNull)
+				: apply(
+						op,
+						present,
+						types.filter((_, i) => values[i] !== sqlNull),
+						patterns
+					)
+		case "between": {
+			const [low, high] = rest
+			if (low === undefined || high === undefined) {
+				return mismatch(op)
+			}
+			return Result.map(
+				truths([compared(low, (order) => order >= 0), compared(high, (order) => order <= 0)]),
+				conjunction
+			)
+		}
+		case "in":
+			return Result.map(
+				truths(rest.map((item) => compared(item, (order) => order === 0))),
+				disjunction
+			)
+		case "and":
+		case "or":
+		case "cast":
+			return unsupported(`${op.fn} evaluated by its node`)
+		case "abs":
+		case "add":
+		case "btrim":
+		case "cardinality":
+		case "ceil":
+		case "charLength":
+		case "collapse":
+		case "complement":
+		case "concat":
+		case "cosineDistance":
+		case "difference":
+		case "disjoint":
+		case "div":
+		case "endsWith":
+		case "eq":
+		case "floor":
+		case "gcd":
+		case "ge":
+		case "gt":
+		case "intersection":
+		case "lcm":
+		case "le":
+		case "lower":
+		case "lt":
+		case "matches":
+		case "minScale":
+		case "mod":
+		case "mul":
+		case "ne":
+		case "neg":
+		case "not":
+		case "octetLength":
+		case "power":
+		case "quot":
+		case "regexpReplace":
+		case "rem":
+		case "right":
+		case "round":
+		case "sign":
+		case "sqrt":
+		case "startsWith":
+		case "sub":
+		case "subset":
+		case "translate":
+		case "trunc":
+		case "union":
+		case "upper":
+		case "widthBucket":
+			return Result.ok(sqlNull)
+	}
 }
 
 /**
@@ -736,10 +897,10 @@ const castTo = (v: CarrierValue, from: ScalarType, to: ScalarType): EvalResult =
 
 /**
  * How a literal's admission judges its type's refinements: against the contract's predicates and the regex refinements,
- * by `regexMember`, or not at all, where a builder only shapes a term (compute/lower.ts "build" mode).
+ * by `patterns`, or not at all, where a builder only shapes a term (compute/lower.ts "build" mode).
  */
 type LiteralJudgment =
-	| { readonly kind: "refinements"; readonly regexMember: RegexMember }
+	| { readonly kind: "refinements"; readonly patterns: PatternReads }
 	| { readonly kind: "shape" }
 
 /** A literal's refusal at a typed slot. */
@@ -767,7 +928,8 @@ interface LiteralRefusal {
  *
  * Values are exact carriers: integers and exact integers as bigint, numeric as Decimal, floats as number, money and
  * exact money as Money, booleans, text,
- * uuids and closed ids' handles as primitives, sets as fresh Sets of handles, spans as { start, end } bigints.
+ * uuids and closed ids' handles as primitives, sets as fresh Sets of handles, spans as { start, end } bigints, a date
+ * span's the day numbers of its endpoints.
  * Comparison follows PostgreSQL's total orders: NaN above every number and equal to itself, -0 equal to 0, numeric by
  * value, text in code point order under the fixed C.UTF-8 collation, closed ids in roster order, which is code order. A regex refinement's membership is the text package's NFA,
  * which the caller supplies.
@@ -791,7 +953,7 @@ export const admitLiteral = (
 	}
 	return judgment.kind === "shape"
 		? Result.ok(typed.value)
-		: refined(typed.value, type, judgment.regexMember)
+		: refined(typed.value, type, judgment.patterns)
 }
 
 /**
@@ -803,12 +965,12 @@ export const admitLiteral = (
 export const refined = (
 	carried: CarriedLiteral,
 	type: ScalarType,
-	regexMember: RegexMember
+	patterns: PatternReads
 ): Result.Result<CarriedLiteral, LiteralRefusal> => {
 	if (!isRefined(type)) {
 		return Result.ok(carried)
 	}
-	const member = membership(carried.value, type, regexMember)
+	const member = membership(carried.value, type, patterns)
 	if (!member.ok) {
 		return Result.err({
 			reason: "UnsupportedOperation",
@@ -828,24 +990,24 @@ export const refined = (
 const predicateHolds = (
 	predicate: ExprTable | undefined,
 	v: CarrierValue,
-	regexMember: RegexMember
+	patterns: PatternReads
 ): Result.Result<boolean, EvalStop> => {
 	if (predicate === undefined) {
 		return Result.ok(true)
 	}
-	const holds = evaluatePredicate(predicate.exprs, predicate.root, v, regexMember)
+	const holds = evaluatePredicate(predicate.exprs, predicate.root, v, patterns)
 	return !holds.ok ? Result.err(holds.error) : Result.ok(holds.value === true)
 }
 
 /**
  * Whether a value of a contract's base satisfies the contract at every level: each level's base refinement (a regex),
  * then its predicate, innermost first, as PostgreSQL checks a domain over a domain. Each predicate reads its VALUE and
- * regex membership by `regexMember`.
+ * regex membership by `patterns`.
  */
 const membership = (
 	v: CarrierValue,
 	t: ScalarType,
-	regexMember: RegexMember
+	patterns: PatternReads
 ): Result.Result<boolean, EvalStop> => {
 	const levels: Array<ScalarType> = []
 	for (let at: ScalarType | undefined = t; at !== undefined; at = contractOf(at)?.base) {
@@ -857,11 +1019,11 @@ const membership = (
 		const member =
 			pattern === undefined || pattern === "wildcard"
 				? Result.ok(true)
-				: regexHolds(regexMember, pattern, v)
+				: regexHolds(patterns, pattern, v)
 		if (!member.ok || !member.value) {
 			return member
 		}
-		const holds = predicateHolds(contract?.predicate, v, regexMember)
+		const holds = predicateHolds(contract?.predicate, v, patterns)
 		if (!holds.ok || !holds.value) {
 			return holds
 		}
@@ -876,8 +1038,8 @@ const membership = (
 export const literalMember = (
 	literal: TypedLiteral,
 	type: ScalarType,
-	regexMember: RegexMember
-): boolean | undefined => valueMember(literalValue(literal), type, regexMember)
+	patterns: PatternReads
+): boolean | undefined => valueMember(literalValue(literal), type, patterns)
 
 /**
  * Whether a carrier value is a value of `type`'s refinements at every level (membership), or undefined where the
@@ -886,8 +1048,8 @@ export const literalMember = (
 export const valueMember = (
 	value: CarrierValue,
 	type: ScalarType,
-	regexMember: RegexMember
+	patterns: PatternReads
 ): boolean | undefined => {
-	const member = membership(value, type, regexMember)
+	const member = membership(value, type, patterns)
 	return member.ok ? member.value : undefined
 }

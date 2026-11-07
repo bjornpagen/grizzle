@@ -140,6 +140,7 @@ const candidates: { readonly [C in Carrier]: (spec: SpecOf<C>) => (text: string)
 	bits: (spec) => handlesOf(spec.roster),
 	range4: () => spanOf(Number),
 	range8: () => spanOf(bigintOf),
+	rangeDate: () => spanOf(itself),
 	vector: (spec) => vectorOf(spec.dimensions),
 	exactInteger: () => bigintOf,
 	exactMoney: () => moneyOf

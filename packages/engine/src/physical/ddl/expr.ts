@@ -8,8 +8,9 @@ import { datePartSlices } from "#compiler/ir/date.ts"
 import {
 	type ColumnRef,
 	describeOp,
-	type TypedLiteral,
-	type ScalarExpr
+	type ScalarExpr,
+	spanLiteralText,
+	type TypedLiteral
 } from "#compiler/ir/expr.ts"
 import { baseTypeRef, type PhysicalNames } from "#compiler/ir/physical.ts"
 import {
@@ -80,7 +81,7 @@ export const persistentLiteral = (
 		case "handles":
 			return lit.bits(handlesHex(codecOf(names.codes, rosterAt(type)), literal.handles), sqlType)
 		case "span":
-			return lit.text(`[${literal.start.toString()},${literal.end.toString()})`, sqlType)
+			return lit.text(spanLiteralText(literal, type), sqlType)
 		case "vector":
 			return lit.text(vectorPayload(literal.value), sqlType)
 	}

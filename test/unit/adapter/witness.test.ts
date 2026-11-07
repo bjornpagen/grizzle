@@ -208,6 +208,7 @@ const keyValueGen = (artifacts: SchemaArtifacts, field: LawField): Gen<KeyValue>
 		case "bits":
 		case "range4":
 		case "range8":
+		case "rangeDate":
 		case "vector":
 		case "exactInteger":
 		case "exactMoney":
@@ -624,7 +625,9 @@ const originOf = (
 		case "a read-back step":
 			return statement({ kind: "readBack", name: "read" }, [])
 		case "an entry's precheck":
-			return statement({ kind: "check", stratum: 0, entry: "Entry", skipWhenEmpty: undefined }, [])
+			return statement({ kind: "check", stratum: 0, entry: "Entry", skipWhenEmpty: undefined }, [
+				first
+			])
 		case "a read-back past the statements":
 			return { origin: { kind: "readBack", index: 2 }, written: [] }
 		case "the COMMIT":
@@ -701,14 +704,24 @@ const refuserText = (refuser: Refuser): string => {
 	}
 }
 
+/** Where a statement stands, as text: a write's stratum and relations, or a precheck's stratum and entry. */
+const atText = (at: StatementAt): string => {
+	switch (at.kind) {
+		case "write":
+			return `${at.stratum}:${Arr.join(at.relations, ",")}`
+		case "precheck":
+			return `${at.stratum}:precheck ${at.entry}`
+	}
+}
+
 /**
  * The host's witness as the classifier is handed it: a key naming where it was asked, the statement's stratum and
- * relations, and what refused, so every call the classifier makes of it shows in the outcome.
+ * relations or its entry, and what refused, so every call the classifier makes of it shows in the outcome.
  */
 const hostWitnessOf = (at: StatementAt, refuser: string): Witness => ({
 	kind: "key",
 	relation: "Host",
-	values: { at: `${at.stratum}:${Arr.join(at.relations, ",")}`, refuser }
+	values: { at: atText(at), refuser }
 })
 
 describe("a server error at a write", () => {
@@ -1011,16 +1024,25 @@ describe("a server error at a write", () => {
 							const classified = classifyServerError(failure, {
 								violation: installationWitness(artifacts).classify,
 								origin,
-								witness: (at, refuser) => hostWitnessOf(at, refuserText(refuser))
+								statement: (at) => ({
+									relations: written,
+									witness: (refuser) => hostWitnessOf(at, refuserText(refuser))
+								})
 							})
-							/** Where the host's witness is asked: a statement that writes stored relations, none elsewhere. */
+							/**
+							 * Where the host's witness is asked: a statement that writes stored relations, or a query entry's
+							 * precheck, which casts its facts into its target; none elsewhere.
+							 */
 							const at: StatementAt | undefined =
-								origin.kind === "statement" &&
-								(origin.step.kind === "write" ||
-									origin.step.kind === "single" ||
-									origin.step.kind === "family")
-									? { stratum: origin.step.stratum, relations: written }
-									: undefined
+								origin.kind !== "statement"
+									? undefined
+									: origin.step.kind === "write" ||
+										  origin.step.kind === "single" ||
+										  origin.step.kind === "family"
+										? { kind: "write", stratum: origin.step.stratum, relations: written }
+										: origin.step.kind === "check"
+											? { kind: "precheck", stratum: origin.step.stratum, entry: origin.step.entry }
+											: undefined
 							/** The witness the rules give a native refusal by `refuser`: the host's, at a statement alone. */
 							const hostWitness = (refuser: string): Witness =>
 								at === undefined ? { kind: "unreported" } : hostWitnessOf(at, refuser)

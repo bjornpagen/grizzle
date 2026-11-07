@@ -80,6 +80,7 @@ import {
 	identifierOf,
 	malformedDescription,
 	type ObjectName,
+	type OutputRows,
 	type OwnedLogin,
 	printObjectName,
 	type RoleDesc,
@@ -95,6 +96,7 @@ import {
 	type LedgerStatements,
 	ledgerTableName
 } from "#compiler/plan/migration.ts"
+import { textParam } from "#compiler/plan/read.ts"
 
 /** A claim PostgreSQL refused: its context and field. */
 interface RefusedClaim {
@@ -230,9 +232,7 @@ const refusedAt = (mismatches: ReadonlyArray<AdmissionMismatch>): Effect.Effect<
 		: Effect.void
 
 /** The rows of a statement the server answered; its refusal is the admission's failure. */
-const rowsOf = (
-	answer: ApartAnswer
-): Effect.Effect<ReadonlyArray<ReadonlyArray<string>>, OpenError> =>
+const rowsOf = (answer: ApartAnswer): Effect.Effect<OutputRows, OpenError> =>
 	Result.isSuccess(answer)
 		? Effect.succeed(answer.success.rows)
 		: Effect.fail(admissionFailure(answer.failure))
@@ -497,29 +497,32 @@ export const admit = Effect.fn("admit")(function* (
 	const reads: { readonly [R in AdmissionRead]: BatchStatement } = {
 		database: { sql: databaseQuery.sql, params: [] },
 		extensions: { sql: extensionsQuery.sql, params: [] },
-		loginSettings: { sql: settingsQuery.sql, params: [login] },
+		loginSettings: { sql: settingsQuery.sql, params: [textParam(login)] },
 		loginPrivileges: { sql: privilegesQuery.sql, params: privilegesParams(loginExpected) },
-		memberships: { sql: membershipsQuery.sql, params: [login] },
-		roleSettings: { sql: settingsQuery.sql, params: [role] },
+		memberships: { sql: membershipsQuery.sql, params: [textParam(login)] },
+		roleSettings: { sql: settingsQuery.sql, params: [textParam(role)] },
 		rolePrivileges: { sql: privilegesQuery.sql, params: privilegesParams(roleExpected) },
-		policies: { sql: policiesQuery.sql, params: [role, schema] },
-		loginAttributes: { sql: attributesQuery.sql, params: [login] },
-		loginMembers: { sql: membersQuery.sql, params: [login, schema] },
-		roleAttributes: { sql: attributesQuery.sql, params: [role] },
-		roleMemberships: { sql: membershipsQuery.sql, params: [role] },
-		roleMembers: { sql: membersQuery.sql, params: [role, schema] },
-		rowSecurity: { sql: rowSecurityQuery.sql, params: [schema, textArray(roleExpected.secured)] }
+		policies: { sql: policiesQuery.sql, params: [textParam(role), textParam(schema)] },
+		loginAttributes: { sql: attributesQuery.sql, params: [textParam(login)] },
+		loginMembers: { sql: membersQuery.sql, params: [textParam(login), textParam(schema)] },
+		roleAttributes: { sql: attributesQuery.sql, params: [textParam(role)] },
+		roleMemberships: { sql: membershipsQuery.sql, params: [textParam(role)] },
+		roleMembers: { sql: membersQuery.sql, params: [textParam(role), textParam(schema)] },
+		rowSecurity: {
+			sql: rowSecurityQuery.sql,
+			params: [textParam(schema), textArray(roleExpected.secured)]
+		}
 	}
 	const flight: ReadonlyArray<BatchStatement> = [
 		...Arr.map(admissionReads, (read) => reads[read]),
 		...Arr.map(judged, (j): BatchStatement => ({
 			sql: claimValidQuery.sql,
-			params: [j.claim.text, printObjectName(j.domain)]
+			params: [textParam(j.claim.text), textParam(printObjectName(j.domain))]
 		}))
 	]
 	const fenceStatements: { readonly [S in FenceStep]: BatchStatement } = {
 		lock: { sql: ledger.fence.text, params: [] },
-		guard: { sql: ledger.guard.text, params: [snapshot.fingerprint] }
+		guard: { sql: ledger.guard.text, params: [textParam(snapshot.fingerprint)] }
 	}
 	const fence = Arr.map(fenceSteps, (step) => fenceStatements[step])
 	const flown = yield* Effect.scoped(

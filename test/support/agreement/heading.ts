@@ -21,7 +21,7 @@ import type { Carriers } from "#compiler/types/core/phantom.ts"
  * literals, a closed id's its handles, narrowed to a handle's own member where the column is a constant's, and every
  * other column its carrier's host values, under its contract's brand. A text is a string, but one whose refinement's
  * language is finite, whose values are its members. A span's host values are spans of its endpoint's, under the
- * endpoint contract's brand, and a vector's are vectors of its dimension count.
+ * endpoint contract's brand, a date's are calendar dates, and a vector's are vectors of its dimension count.
  */
 
 /** A head literal's TypeScript literal type. */
@@ -76,10 +76,12 @@ const carrierHost = (type: ScalarType): string => {
 			return handles(type.roster.handles)
 		case "range4":
 		case "range8":
+		case "rangeDate":
 			return `Span<${branded(type.span.endpoint, carrierHost(type.span.endpoint))}>`
 		case "vector":
 			return `Vector<${type.typmod.dims}>`
 		case "date":
+			return "CalendarDate"
 		case "bits":
 			throw new Error(`no agreement schema declares a ${type.carrier} field`)
 	}
@@ -212,12 +214,42 @@ const paramEntry = (p: ParamDecl): string => {
 	}
 	const sql = jsonText(carrierSql[p.type.carrier])
 	const host = branded(p.type, carrierHost(p.type))
-	const domain = domainOf(p.type, carrierHost(p.type))
+	const domain = paramDomain(p.type)
 	return p.type.carrier === "code"
 		? `ParamType<${host} & Rostered<${jsonText(p.type.roster.closed)}>, ${sql}, ${host}>`
 		: domain === host
 			? `ParamType<${host}, ${sql}>`
 			: `ParamType<${domain}, ${sql}, ${host}>`
+}
+
+/**
+ * A parameter's domain: its type's (domainOf), but a span's, which is the span of its endpoint's domain, the endpoint
+ * contract's declared facts with it.
+ */
+const paramDomain = (type: ScalarType): string => {
+	switch (type.carrier) {
+		case "range4":
+		case "range8":
+		case "rangeDate":
+			return `Span<${domainOf(type.span.endpoint, carrierHost(type.span.endpoint))}>`
+		case "int2":
+		case "int4":
+		case "int8":
+		case "numeric":
+		case "float4":
+		case "float8":
+		case "money":
+		case "bool":
+		case "uuid":
+		case "date":
+		case "text":
+		case "code":
+		case "bits":
+		case "vector":
+		case "exactInteger":
+		case "exactMoney":
+			return domainOf(type, carrierHost(type))
+	}
 }
 
 /** A query's parameter map as the types state it: unknown where it takes none. */

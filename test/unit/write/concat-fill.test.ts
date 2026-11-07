@@ -5,7 +5,6 @@ import { array, element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { firstCodebook } from "#compiler/ir/codes.ts"
-import { regexMember } from "#compiler/scalar/regex/nfa.ts"
 import { own, rostersOf } from "#compiler/schema/own.ts"
 import {
 	closedLeaf,
@@ -96,7 +95,11 @@ const fills = Arr.map([false, true] as const, (selected) => {
 	const codes = firstCodebook(rostersOf(succeeded(own(decodedSchema(desc)))))
 	return {
 		family: defined(model.families[0], "the fold's family"),
-		fill: filler(model.theory.fill, codes, hostEvaluator(codes, closedLeaf(new Map()), regexMember))
+		fill: filler(
+			model.theory.fill,
+			codes,
+			hostEvaluator(codes, closedLeaf(new Map()), model.patterns)
+		)
 	}
 })
 

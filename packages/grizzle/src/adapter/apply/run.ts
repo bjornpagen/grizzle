@@ -47,6 +47,7 @@ import {
 } from "#adapter/wire/batch.ts"
 import { nameStatements } from "#adapter/wire/naming.ts"
 import type { Session } from "#adapter/wire/session.ts"
+import type { WrittenAt } from "#adapter/witness/classify.ts"
 import {
 	type ArtifactStatement,
 	bindWrite,
@@ -59,8 +60,8 @@ import {
 	interpretRows,
 	type Law,
 	type Raw,
-	type Refuser,
 	type StatementAt,
+	statementRelations,
 	type Witness,
 	type WriteArtifact
 } from "#compiler/plan/change.ts"
@@ -81,12 +82,13 @@ import { encodeFailure, factPlace, slotPlace } from "#compiler/plan/read.ts"
 const noRows: Raw = []
 
 /**
- * What a write's failure is classified with: the installation's violation classifier, the layer's, and the host's
- * witness of a native refusal over the facts this application states (write/program/witness.ts hostWitness).
+ * What a write's failure is classified with: the installation's violation classifier, the layer's, and what a refused
+ * statement wrote: its relations and the host's witness of a native refusal over the facts this application states
+ * (write/program/witness.ts statementRelations, hostWitness).
  */
 interface WitnessContext {
 	readonly violation: WriteEntry["violation"]
-	readonly witness: (at: StatementAt, refuser: Refuser) => Witness
+	readonly statement: (at: StatementAt) => WrittenAt
 }
 
 /**
@@ -421,7 +423,10 @@ export const runWrite = <R>(
 		const artifact = program.artifacts[kind]
 		const context: WitnessContext = {
 			violation: entry.violation,
-			witness: (at, refuser) => hostWitness(program.frontend, inputs.bound.normalized, at, refuser)
+			statement: (at) => ({
+				relations: statementRelations(program.frontend, at),
+				witness: (refuser) => hostWitness(program.frontend, inputs.bound.normalized, at, refuser)
+			})
 		}
 		const readBackFlights = yield* Effect.mapError(
 			Effect.forEach(reads.runs.runs, (run) => readBackFlight(run, inputs)),

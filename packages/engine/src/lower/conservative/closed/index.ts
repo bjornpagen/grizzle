@@ -47,6 +47,7 @@ const placeholderValue = (cx: LowerContext, type: ScalarType): Expr => {
 			return lowerLiteral(cx.names, { kind: "handles", handles: [] }, base)
 		case "range4":
 		case "range8":
+		case "rangeDate":
 			return lowerLiteral(cx.names, { kind: "span", start: 0n, end: 1n }, base)
 		case "vector":
 			return lit.text(

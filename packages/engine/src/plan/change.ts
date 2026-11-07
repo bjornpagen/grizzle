@@ -47,7 +47,12 @@ export {
 	keyWitness,
 	witnessDecoder
 } from "#compiler/write/program/outcome.ts"
-export { hostWitness, type Refuser, type StatementAt } from "#compiler/write/program/witness.ts"
+export {
+	hostWitness,
+	type Refuser,
+	type StatementAt,
+	statementRelations
+} from "#compiler/write/program/witness.ts"
 export {
 	type ConcurrentChange,
 	type LawDetail,

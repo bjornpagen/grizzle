@@ -383,8 +383,29 @@ type KeySideOf<St> =
 type DefinitionKeysOf<Q> =
 	Q extends Phantom<{ readonly evidence: { readonly keys: infer Ks } }>
 		? Ks extends ReadonlyArray<infer K extends ReadonlyArray<string>>
-			? K
+			? MinimalKeys<K>
 			: never
+		: never
+
+/**
+ * The minimal keys among a union of keys K, as a derived relation's analysis lists them: each key no other key's
+ * fields lie strictly within. The whole heading a definition's evidence states, a set's own key, is one only where no
+ * fewer fields are. Quadratic in the keys, which a definition states a few of.
+ */
+type MinimalKeys<K> = MinimalAmong<K, K>
+
+/** Each key of Each that no key of All lies strictly within. */
+type MinimalAmong<Each, All> =
+	Each extends ReadonlyArray<infer F> ? (true extends StrictlyWithin<All, F> ? never : Each) : never
+
+/** Whether some key of Ks has fields strictly within F: all of its fields among F's, and not all of F's among its. */
+type StrictlyWithin<Ks, F> =
+	Ks extends ReadonlyArray<infer G>
+		? [G] extends [F]
+			? [F] extends [G]
+				? false
+				: true
+			: false
 		: never
 
 /** A law read without its sugar: a mirrors as the two containments it is, any other law as itself. */

@@ -121,6 +121,7 @@ export const exactNumericBound = (t: ScalarType): NumericBound | undefined => {
 		case "bits":
 		case "range4":
 		case "range8":
+		case "rangeDate":
 		case "vector":
 			return undefined
 	}
@@ -158,6 +159,7 @@ export const familyDigits = (t: ScalarType): number | undefined => {
 		case "bits":
 		case "range4":
 		case "range8":
+		case "rangeDate":
 		case "vector":
 			return undefined
 	}
@@ -180,7 +182,10 @@ export const valueType = (t: ScalarType): ScalarType => baseOf(t)
  * equated with it, is any span over the same endpoint.
  */
 export const withoutSpanWidth = (t: ScalarType): ScalarType => {
-	if ((t.carrier !== "range4" && t.carrier !== "range8") || t.span.width === undefined) {
+	if (
+		(t.carrier !== "range4" && t.carrier !== "range8" && t.carrier !== "rangeDate") ||
+		t.span.width === undefined
+	) {
 		return t
 	}
 	return Object.freeze({
@@ -253,7 +258,7 @@ export const commonType = (a: ScalarType, b: ScalarType): ScalarType => {
 	if (x.carrier === "text") {
 		return wildcardText
 	}
-	if (x.carrier === "range4" || x.carrier === "range8") {
+	if (x.carrier === "range4" || x.carrier === "range8" || x.carrier === "rangeDate") {
 		return withoutSpanWidth(x)
 	}
 	return x
@@ -328,6 +333,7 @@ export const exactFamily = (t: ScalarType): "exactInteger" | "exactMoney" | unde
 		case "bits":
 		case "range4":
 		case "range8":
+		case "rangeDate":
 		case "vector":
 			return undefined
 	}

@@ -12,10 +12,12 @@ interface ScheduledAction<A> {
 
 /**
  * One of a stratum's family statements, as the schedule orders it among the stratum's actions: the rows of a member
- * relation a family write deletes, updates in place or inserts (`rows`), or the counts and ends of a family's owners
- * (`owners`), the owner relation `relation` of the member relation `member`, which update the owner's rows
- * (write/family/order.ts FamilyStatement). An update in place and a count change only the columns `changes` names, by
- * key (write/family/fold.ts ColumnKey), each generated column that reads one of them among them.
+ * relation a family write deletes, refills, updates in place or inserts (`rows`), or the counts and ends of a family's
+ * owners (`owners`), the owner relation `relation` of the member relation `member`, which update the owner's rows
+ * (write/family/order.ts FamilyStatement). A refill rewrites in place the rows whose families' values a change of the
+ * stratum leaves stale, ahead of the change that would cascade into them (analysis/theory/refill.ts). A refill, an
+ * update in place and a count change only the columns `changes` names, by key (write/family/fold.ts ColumnKey), each
+ * generated column that reads one of them among them.
  */
 export type FamilyNode =
 	| {
@@ -26,7 +28,7 @@ export type FamilyNode =
 	| {
 			readonly kind: "rows"
 			readonly relation: string
-			readonly statement: "update"
+			readonly statement: "refill" | "update"
 			readonly changes: ReadonlyArray<string>
 	  }
 	| {
@@ -50,6 +52,18 @@ export interface FamilyPair {
 	readonly immediate: boolean
 	readonly fromColumns: ReadonlyArray<string>
 	readonly toColumns: ReadonlyArray<string>
+}
+
+/**
+ * What a stratum's refills require of its order (write/frontend/refill.ts), members first: each refill before every put
+ * action of a relation whose put its rows are drawn ahead of (`precedes`), and one family statement before another
+ * (`edges`): a refill before the family statement whose change it is drawn ahead of, and a refill that carries an
+ * owner's counts after its members' deletions, refills and updates in place and, where the family's owner axis is
+ * immediate, before their insertions, as a count statement would.
+ */
+export interface RefillOrder {
+	readonly precedes: ReadonlyArray<{ readonly node: FamilyNode; readonly relation: string }>
+	readonly edges: ReadonlyArray<{ readonly before: FamilyNode; readonly after: FamilyNode }>
 }
 
 /** A family statement in the stratum's order: `at`, the number of the stratum's actions that run before it. */
@@ -153,22 +167,26 @@ export const canonicalActionOrder = <A extends Scheduled>(
  * - one member relation's deletion, update in place and insertion, in that order: a counted removal frees its slot by
  *   the deletion before the update moves the last member into it, and a re-placed row is deleted before it is
  *   inserted again, the family's (group, index) key being immediate;
- * - a family's count after its member's and its owner's deletions and updates, and before the owner's insertions: the
- *   count falls only once every kept member below the new count holds a slot below it (`CHECK (i < ‹n›)`, which the
- *   owner axis's cascade of the count reaches at once), a moved member's update writes its copies from the owner as
- *   the read found it, before the count's cascade, and an owner's own update in place is planned before its counts;
- *   and before the member's insertions where the owner axis is immediate, since a new member carries the new count;
- * - a member's update before its owner's where the member's update writes a column the owner axis cascades into and
- *   the owner's update changes a column the axis reads: the member's update writes its copies from its owner as the
- *   read found it, and the owner's update cascades its new values into them at once, deferred axis or not, so the
- *   other order would overwrite them stale;
+ * - one member relation's deletion before its refill: a refilled counted group's removal frees its slot before the
+ *   refill moves the last member into it;
+ * - a family's count after its member's and its owner's deletions, refills and updates, and before the owner's
+ *   insertions: the count falls only once every kept member below the new count holds a slot below it
+ *   (`CHECK (i < ‹n›)`, which the owner axis's cascade of the count reaches at once), a moved member's update writes
+ *   its copies from the owner as the read found it, before the count's cascade, and an owner's own update in place is
+ *   planned before its counts; and before the member's insertions where the owner axis is immediate, since a new
+ *   member carries the new count;
+ * - a member's update before its owner's update or refill where the member's update writes a column the owner axis
+ *   cascades into and the owner's changes a column the axis reads: the member's update writes its copies from its
+ *   owner as the read found it, and the owner's write cascades its new values into them at once, deferred axis or
+ *   not, so the other order would overwrite them stale;
  * - one family relation's insertion before the insertion of a family relation an immediate key names it from, and
  *   the deletion of the naming one first: an owner's insertion before its members' and their deletion before its
  *   own where the owner axis is immediate, and no order where it is deferred, as on a cycle of families.
  * Against an action, a family statement adds, removes and changes facts as the keys see them: an insertion adds, a
  * deletion removes, and an update in place or a count adds and changes facts only at the columns it changes
  * (FamilyNode `changes`), so a key over other columns orders nothing; and an action runs before the family statements
- * of its own relation, whose planner reads the stratum's own writes of an owner as landed.
+ * of its own relation, whose planner reads the stratum's own writes of an owner as landed. A refill is ordered as its
+ * `refills` require, members first (`RefillOrder`).
  *
  * The actions are numbered in a canonical order (relation, then the phases above, then member order), sorted
  * topologically with that order breaking ties, and each action's dependsOn lists the earlier actions an edge orders
@@ -177,7 +195,8 @@ export const scheduleStratum = <A extends Scheduled>(
 	actions: ReadonlyArray<A>,
 	family: ReadonlyArray<FamilyNode>,
 	pairs: ReadonlyArray<FamilyPair>,
-	references: ReadonlyArray<ImmediateReference>
+	references: ReadonlyArray<ImmediateReference>,
+	refills: RefillOrder
 ): Schedule<A> => {
 	interface Vertex {
 		readonly write: Write<A>
@@ -211,7 +230,10 @@ export const scheduleStratum = <A extends Scheduled>(
 		}
 	}
 	/** The family statement `step` of `relation` (a member relation's rows), none where the stratum has none. */
-	const rowsOf = (relation: string, step: "delete" | "update" | "insert"): Vertex | undefined =>
+	const rowsOf = (
+		relation: string,
+		step: "delete" | "refill" | "update" | "insert"
+	): Vertex | undefined =>
 		statements.find(
 			({ node }) => node.kind === "rows" && node.relation === relation && node.statement === step
 		)?.vertex
@@ -226,38 +248,51 @@ export const scheduleStratum = <A extends Scheduled>(
 				before(rowsOf(node.relation, "delete"), vertex)
 				before(vertex, rowsOf(node.relation, "insert"))
 			}
+			if (node.statement === "refill") {
+				before(rowsOf(node.relation, "delete"), vertex)
+			}
 			if (node.statement === "delete") {
 				before(vertex, rowsOf(node.relation, "insert"))
 			}
 			continue
 		}
 		before(rowsOf(node.relation, "delete"), vertex)
+		before(rowsOf(node.relation, "refill"), vertex)
 		before(rowsOf(node.relation, "update"), vertex)
 		before(vertex, rowsOf(node.relation, "insert"))
 		before(rowsOf(node.member, "delete"), vertex)
+		before(rowsOf(node.member, "refill"), vertex)
 		before(rowsOf(node.member, "update"), vertex)
 		const counted = node.family
 		if (pairs.some((p) => p.immediate && sameFamily(p.family, counted))) {
 			before(vertex, rowsOf(node.member, "insert"))
 		}
 	}
+	/** The family statement `node` names, none where the stratum has none. */
+	const statementOf = (node: FamilyNode): Vertex | undefined =>
+		statements.find((s) => sameNode(s.node, node))?.vertex
+	for (const edge of refills.edges) {
+		before(statementOf(edge.before), statementOf(edge.after))
+	}
+	/** The family statement `step` of `relation` (a member relation's rows) as a node, none where the stratum has none. */
+	const nodeOf = (relation: string, step: "refill" | "update"): FamilyNode | undefined =>
+		statements.find(
+			({ node }) => node.kind === "rows" && node.relation === relation && node.statement === step
+		)?.node
 	for (const pair of pairs) {
-		const member = statements.find(
-			({ node }) =>
-				node.kind === "rows" && node.relation === pair.member && node.statement === "update"
-		)?.node
-		const owner = statements.find(
-			({ node }) =>
-				node.kind === "rows" && node.relation === pair.owner && node.statement === "update"
-		)?.node
+		const member = nodeOf(pair.member, "update")
 		if (
-			pair.owner !== pair.member &&
-			member !== undefined &&
-			owner !== undefined &&
-			changesAt(member, pair.fromColumns) &&
-			changesAt(owner, pair.toColumns)
+			pair.owner === pair.member ||
+			member === undefined ||
+			!changesAt(member, pair.fromColumns)
 		) {
-			before(rowsOf(pair.member, "update"), rowsOf(pair.owner, "update"))
+			continue
+		}
+		for (const step of ["refill", "update"] as const) {
+			const owner = nodeOf(pair.owner, step)
+			if (owner !== undefined && changesAt(owner, pair.toColumns)) {
+				before(rowsOf(pair.member, "update"), rowsOf(pair.owner, step))
+			}
 		}
 	}
 	for (const r of references) {
@@ -266,6 +301,14 @@ export const scheduleStratum = <A extends Scheduled>(
 		}
 		before(rowsOf(r.to, "insert"), rowsOf(r.from, "insert"))
 		before(rowsOf(r.from, "delete"), rowsOf(r.to, "delete"))
+	}
+	for (const p of refills.precedes) {
+		const refill = statementOf(p.node)
+		for (const { action, vertex } of plain) {
+			if (action.action.relation === p.relation && action.action.op === "put") {
+				before(refill, vertex)
+			}
+		}
 	}
 	for (const { action, vertex: x } of plain) {
 		for (const { node, vertex: y } of statements) {
@@ -327,7 +370,7 @@ export const scheduleStratum = <A extends Scheduled>(
 
 /** Whether a family statement that changes rows in place changes one of `columns`. */
 const changesAt = (node: FamilyNode, columns: ReadonlyArray<string>): boolean =>
-	(node.kind === "owners" || node.statement === "update") &&
+	(node.kind === "owners" || node.statement === "refill" || node.statement === "update") &&
 	node.changes.some((c) => columns.includes(c))
 
 /** Whether two families are one: the same owner and count. */
@@ -365,10 +408,11 @@ const actionEffect = (action: Scheduled): Effect => ({
  * reference alone otherwise.
  */
 const familyEffect = (node: FamilyNode, columns: ReadonlyArray<string>): Effect => {
-	if (node.kind === "rows" && node.statement !== "update") {
-		return node.statement === "insert"
-			? { adds: true, removes: false, updates: false }
-			: { adds: false, removes: true, updates: false }
+	if (node.kind === "rows" && node.statement === "insert") {
+		return { adds: true, removes: false, updates: false }
+	}
+	if (node.kind === "rows" && node.statement === "delete") {
+		return { adds: false, removes: true, updates: false }
 	}
 	const touched = changesAt(node, columns)
 	return { adds: touched, removes: false, updates: touched }
@@ -425,3 +469,9 @@ const cycleAmong = <A>(
 	}
 	throw defect("every remaining action follows an unplaced one, so the walk back meets one again")
 }
+
+/** Whether two family statements of a stratum are one: their kind, their relation and statement or their family. */
+export const sameNode = (a: FamilyNode, b: FamilyNode): boolean =>
+	a.kind === "owners"
+		? b.kind === "owners" && a.family.owner === b.family.owner && a.family.count === b.family.count
+		: b.kind === "rows" && a.relation === b.relation && a.statement === b.statement

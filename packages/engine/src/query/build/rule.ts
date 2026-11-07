@@ -36,6 +36,7 @@ import {
 	noOrigin,
 	type RuleContext,
 	recordVariables,
+	requireLevel,
 	type SchemaInfo,
 	sharedVariable,
 	withRule
@@ -55,7 +56,6 @@ import {
 import * as T from "#compiler/query/build/terms.ts"
 import { spellRule } from "#compiler/query/build/walk.ts"
 import { type PredicateValue, predicateValue, type Typing } from "#compiler/scalar/compute/term.ts"
-import { isLevelOver } from "#compiler/schema/level.ts"
 import { isPlainRecord, malformed, requireName } from "#compiler/schema/protocol.ts"
 import { headRecord, record } from "#compiler/schema/record.ts"
 import type { Carriers } from "#compiler/types/core/phantom.ts"
@@ -164,25 +164,9 @@ const checkScope = (info: SourceInfo, ctx: RuleContext, label: string): void => 
 				throw malformed(label, "self matched in a recursive arm of its own definition")
 			}
 			return
-		case "written": {
-			const written = info.scope.over
-			const over = ctx.schema.over
-			if (written.kind === "description" || over.kind === "description") {
-				throw malformed(
-					label,
-					"a query and a rule written over a schema: a query rebuilt from its Description alone names none, so no level holds it or is held by it"
-				)
-			}
-			if (!isLevelOver(written, over)) {
-				throw CompileError.make({
-					_tag: "ForeignLevel",
-					at: buildLoc(label, []),
-					written: written.desc.name,
-					over: over.desc.name
-				})
-			}
+		case "written":
+			requireLevel(info.scope.over, ctx.schema.over, label)
 			return
-		}
 	}
 }
 
@@ -325,7 +309,8 @@ const finishedValue = <Head, Ev extends Evidence, P, S, IHead, Hc extends Carrie
 			const attached = runAttach(
 				n,
 				(scope) => child(parentVars(scope, state.heading, carriers)),
-				label
+				label,
+				state.ctx.schema.over
 			)
 			return finishedValue(
 				{

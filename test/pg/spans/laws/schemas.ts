@@ -23,25 +23,27 @@ const visitsCoverage = contained(
 	on("Shift", ["site", "during"])
 )
 
-export const visits = (options: { readonly mutable: boolean }): SchemaDesc => ({
-	name: "Visits",
-	relations: [
-		relation("Shift", { site: f.integer, during: f.span(f.bigint, undefined), nurse: f.integer }, [
-			"site",
-			"during"
-		]),
-		relation(
-			"Visit",
-			{ id: f.integer, site: f.integer, during: f.span(f.bigint, undefined), billable: f.boolean },
-			["id"]
-		)
-	],
-	statements: [visitsCoverage, ...mutables(options.mutable, ["Shift", "Visit"])],
-	extends: undefined
-})
+/** The endpoint a visit's and a shift's span is over: bigint, or date. */
+export type VisitsEndpoint = "bigint" | "date"
+
+export const visits = (options: {
+	readonly mutable: boolean
+	readonly endpoint: VisitsEndpoint
+}): SchemaDesc => {
+	const during = f.span(f.pg(options.endpoint), undefined)
+	return {
+		name: "Visits",
+		relations: [
+			relation("Shift", { site: f.integer, during, nurse: f.integer }, ["site", "during"]),
+			relation("Visit", { id: f.integer, site: f.integer, during, billable: f.boolean }, ["id"])
+		],
+		statements: [visitsCoverage, ...mutables(options.mutable, ["Shift", "Visit"])],
+		extends: undefined
+	}
+}
 
 /**
- * The span-law schema of the span law tests, as a Description.
+ * The span-law schema of the span law tests, as a Description, its spans over bigint or over date.
  *
  * Visits: a selected source, `on(select(Visit, (v) => v.eq(v.billable, true)), "site", "during")`, into Shift's span
  * key `(site, during)`, WITHOUT OVERLAPS: a PERIOD foreign key from the billable visit's range law column, `CASE WHEN
@@ -49,4 +51,5 @@ export const visits = (options: { readonly mutable: boolean }): SchemaDesc => ({
  *
  * The law is read through the naming door from the statement that declares it.
  */
-export const visitsLaw: LawId = lawNamesOf(visits({ mutable: false })).lawOfDesc(visitsCoverage)
+export const visitsLaw = (endpoint: VisitsEndpoint): LawId =>
+	lawNamesOf(visits({ mutable: false, endpoint })).lawOfDesc(visitsCoverage)

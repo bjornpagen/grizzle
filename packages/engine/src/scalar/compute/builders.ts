@@ -36,6 +36,7 @@ import {
 import {
 	arithmeticSql,
 	divisorSql,
+	type EndpointSql,
 	type IntegralSql,
 	type NumericSql,
 	type PlainHost,
@@ -44,7 +45,8 @@ import {
 	plainColumns,
 	quotientSql,
 	remainderSql,
-	type SignedSql
+	type SignedSql,
+	spanWidthSql
 } from "#compiler/scalar/compute/tables.ts"
 
 import { irLiteral } from "#compiler/scalar/compute/literal.ts"
@@ -67,6 +69,7 @@ import {
 } from "#compiler/scalar/compute/term.ts"
 import { compatible, isFloat, plainType } from "#compiler/scalar/compute/types.ts"
 import { matchPattern } from "#compiler/scalar/regex/admit.ts"
+import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { replaceMap } from "#compiler/scalar/regex/whitespace.ts"
 import {
 	carrierSql,
@@ -242,6 +245,8 @@ class Call {
 	readonly types: Array<ScalarType> = []
 	/** The field descriptors the call met, with their types; a connective's unit is typed by booleanField. */
 	readonly fields = new Map<FieldDesc, ScalarType>([[booleanField, plainType("bool")]])
+	/** The admitted patterns the call's typing reads (scalar/regex/patterns.ts): the call is the term's admission. */
+	readonly patterns = new CompilePatterns()
 
 	constructor(label: string) {
 		this.loc = captureLoc(label, [])
@@ -371,7 +376,8 @@ class Call {
 				return type === undefined
 					? Result.err(malformedDescription(this.loc, "a field descriptor"))
 					: Result.ok(type)
-			}
+			},
+			patterns: this.patterns
 		}
 	}
 
@@ -401,6 +407,7 @@ class Call {
 			carrier === "bits" ||
 			carrier === "range4" ||
 			carrier === "range8" ||
+			carrier === "rangeDate" ||
 			carrier === "vector"
 		) {
 			return malformed(this.loc, `a value of a plain SQL type, not ${typeLabel(checked.type)}`)
@@ -629,6 +636,7 @@ const zeroOf = (t: ScalarType): unknown => {
 		case "bits":
 		case "range4":
 		case "range8":
+		case "rangeDate":
 		case "vector":
 			return 0
 	}
@@ -1198,8 +1206,8 @@ export const compute = Object.freeze({
 		carried(checks.lower(s, endpoint, []), endpoint),
 	upper: <T, S extends SqlTag>(s: unknown, endpoint: TermCarrier<T, S>): ScalarTerm<T, S> =>
 		carried(checks.upper(s, endpoint, []), endpoint),
-	width: <S extends SqlTag>(s: unknown, endpoint: OfSql<S>) =>
-		plain(checks.width(s, endpoint, []), "exact integer"),
+	width: <S extends EndpointSql>(s: unknown, endpoint: OfSql<S>) =>
+		plain(checks.width(s, endpoint, []), spanWidthSql[endpoint.sql]),
 	charLength: (s: unknown) => plain(checks.charLength(s, []), "integer"),
 	octetLength: (s: unknown) => plain(checks.octetLength(s, []), "integer"),
 	concat: (a: unknown, b: unknown) => plain(checks.concat(a, b), "text"),

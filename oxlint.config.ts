@@ -183,6 +183,24 @@ export default defineConfig(
 					{ doors: ["packages/engine/src/codec/bits.ts"], brands: ["Accumulator"] },
 					{
 						doors: [
+							"packages/engine/src/codec/scalar.ts",
+							"packages/engine/src/codec/recordset.ts",
+							"test/support/wire.ts"
+						],
+						brands: ["ParamText"]
+					},
+					{
+						doors: [
+							"packages/engine/src/lower/shapes/attach/decode.ts",
+							"packages/engine/src/scalar/values/convert.ts",
+							"packages/engine/src/write/refusal.ts",
+							"test/support/wire.ts"
+						],
+						brands: ["OutputText"]
+					},
+					{ doors: ["packages/grizzle/src/adapter/wire/session.ts"], brands: ["OutputRows"] },
+					{
+						doors: [
 							"packages/engine/src/physical/ddl/names.ts",
 							"packages/grizzle/src/adapter/admission/drift.ts",
 							"test/support/sql.ts"
@@ -493,7 +511,7 @@ export default defineConfig(
 				})
 			},
 			{
-				files: ["test/types/examples/fixtures/readme.ts", "test/types/query/fixtures/language.ts"],
+				files: ["test/types/examples/fixtures/readme.ts"],
 				rules: active({
 					/** A refusal fixture's return is refused by construction: the value is the checker's error type. */
 					"typescript/no-unsafe-return": "off"

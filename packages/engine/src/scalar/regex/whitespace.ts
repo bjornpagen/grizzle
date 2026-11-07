@@ -20,6 +20,7 @@ import {
 	set
 } from "#compiler/scalar/regex/ir.ts"
 import type { RegexFlags } from "#compiler/scalar/regex/parse.ts"
+import type { PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
 import { anchoredAt, patternNode, sourceFlags, sourceSet } from "#compiler/scalar/regex/source.ts"
 
 /**
@@ -146,9 +147,10 @@ export interface CollapseSource {
  */
 export const collapseSources = (
 	regex: TextInfo["regex"],
-	lengthBound: number | undefined
+	lengthBound: number | undefined,
+	patterns: PatternAutomata
 ): readonly [CollapseSource, ...ReadonlyArray<CollapseSource>] => {
-	const node = patternNode(regex)
+	const node = patternNode(regex, patterns)
 	const alphabet = alphabetOf(node)
 	if (regex !== "wildcard" && isEmpty(without(alphabet, without(alphabet, whitespace)))) {
 		return [{ source: regex.source, flags: regex.flags, exact: true }]

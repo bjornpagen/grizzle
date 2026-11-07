@@ -665,6 +665,7 @@ const boundsOf = (type: ScalarType): readonly [LiteralDesc, LiteralDesc] | undef
 		case "bits":
 		case "range4":
 		case "range8":
+		case "rangeDate":
 		case "vector":
 		case "exactInteger":
 		case "exactMoney":

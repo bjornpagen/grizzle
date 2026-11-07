@@ -330,7 +330,10 @@ export const strictReal = (text: string): Result.Result<number, StrictFault> => 
 export const strictComponent = (text: string): Result.Result<number, StrictFault> =>
 	finiteBinary32(text)
 
-/** range_out of a nonempty bounded half-open integer range, "[start,end)", each endpoint an integer output text. */
+/**
+ * range_out of a nonempty bounded half-open range, "[start,end)": its two endpoint texts, the text between "[" and its
+ * one comma and between that comma and ")", which the endpoint's own strict reader reads (endpointReaders).
+ */
 const spanEndpoints = (text: string): readonly [string, string] | undefined => {
 	const n = text.length
 	if (n < 5 || !codeIs(text, 0, 0x5b) || !codeIs(text, n - 1, 0x29)) {
@@ -340,22 +343,7 @@ const spanEndpoints = (text: string): readonly [string, string] | undefined => {
 	if (Option.isNone(comma)) {
 		return undefined
 	}
-	const endpoint = (from: number, to: number): string | undefined => {
-		const start = codeIs(text, from, 0x2d) ? from + 1 : from
-		const digits = to - start
-		if (digits < 1 || digits > 19) {
-			return undefined
-		}
-		for (let i = start; i < to; i++) {
-			if (!digitAt(text, i)) {
-				return undefined
-			}
-		}
-		return Str.slice(from, to)(text)
-	}
-	const start = endpoint(1, comma.value)
-	const end = endpoint(comma.value + 1, n - 1)
-	return start === undefined || end === undefined ? undefined : [start, end]
+	return [Str.slice(1, comma.value)(text), Str.slice(comma.value + 1, n - 1)(text)]
 }
 
 const endpointReaders: {
@@ -364,7 +352,8 @@ const endpointReaders: {
 	) => Result.Result<SpanEndpointHost[P], StrictFault>
 } = {
 	int4: readSmall(int4Min.value, int4Max.value),
-	int8: readInt8
+	int8: readInt8,
+	date: (text) => toResult(toCalendarDate(text))
 }
 
 const readSpan =
@@ -478,6 +467,7 @@ const readers: {
 	bits: (spec) => readBits(spec.roster),
 	range4: () => readSpan("int4"),
 	range8: () => readSpan("int8"),
+	rangeDate: () => readSpan("date"),
 	vector: (spec) => readVector(spec),
 	exactInteger: () => readExactInteger,
 	exactMoney: () => readExactMoney
@@ -538,11 +528,21 @@ export const strictReader = (
 }
 
 /**
- * The least scale of a finite value of `coefficient` at `minScale`: its own where it has a fraction, and an integer's
- * trailing zeros below scale 0, so 500 is a multiple of 10^2, scale -2.
+ * The least scale of a finite nonzero value of `coefficient` at `minScale`: its own where it has a fraction, and an
+ * integer's trailing zeros below scale 0, so 500 is a multiple of 10^2, scale -2. The zeros are counted in one pass over
+ * the coefficient's digits, so an integer of numeric's 131072 digits reads without a frame per zero.
  */
-const leastScale = (coefficient: bigint, minScale: number): number =>
-	minScale > 0 || coefficient % 10n !== 0n ? minScale : leastScale(coefficient / 10n, minScale - 1)
+const leastScale = (coefficient: bigint, minScale: number): number => {
+	if (minScale > 0) {
+		return minScale
+	}
+	const digits = coefficient.toString()
+	let end = digits.length
+	while (codeIs(digits, end - 1, 0x30)) {
+		end--
+	}
+	return minScale - (digits.length - end)
+}
 
 /**
  * Whether a computed numeric's value is one its type proves: a finite value below 10^digits, a multiple of 10^-scale,

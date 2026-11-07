@@ -134,7 +134,7 @@ import {
 	widening,
 	withoutSpanWidth
 } from "#compiler/scalar/compute/types.ts"
-import { regexMember } from "#compiler/scalar/regex/nfa.ts"
+import { CompilePatterns, type PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
 import { spanType } from "#compiler/scalar/registry.ts"
 import { textLookup } from "#compiler/text/refinement.ts"
 
@@ -200,7 +200,8 @@ type BindValue =
 const boundConstant = (
 	schema: SchemaReading,
 	constant: Extract<BindValue, { readonly kind: "literal" }>,
-	type: ScalarType
+	type: ScalarType,
+	patterns: PatternAutomata
 ): ExprSpec => {
 	if (constant.stated.kind === "typed" && !compatible(constant.stated.type, type)) {
 		fail(
@@ -209,7 +210,7 @@ const boundConstant = (
 			`a bound constant of ${typeLabel(type)}, not ${typeLabel(constant.stated.type)}`
 		)
 	}
-	return literalSpec(schema.literal(constant.value, type, constant.loc), type)
+	return literalSpec(schema.literal(constant.value, type, constant.loc, patterns), type)
 }
 
 type ParamResolver =
@@ -519,7 +520,9 @@ const deliveredValue: ClosedRelations = noClosedRelations(
 type SpanBase = Extract<ScalarType, { readonly carrier: SpanCarrier }>
 const spanBase = (t: ScalarType): SpanBase | undefined => {
 	const base = baseOf(t)
-	return base.carrier === "range4" || base.carrier === "range8" ? base : undefined
+	return base.carrier === "range4" || base.carrier === "range8" || base.carrier === "rangeDate"
+		? base
+		: undefined
 }
 
 /**
@@ -815,6 +818,8 @@ export class Checker {
 	readonly #attached = new Map<RelNode, ReadonlySet<string>>()
 	/** Contracts the query declares itself, for DuplicateIdentity. */
 	readonly #contracts = new Map<string, { text: string; loc: SourceLoc }>()
+	/** The admitted patterns the query's compile reads (scalar/regex/patterns.ts), each parsed once per query. */
+	readonly patterns = new CompilePatterns()
 	/** The contexts the query matches, each with its descriptor's canonical text, for DuplicateIdentity. */
 	readonly #contexts = new Map<string, { text: string; loc: SourceLoc }>()
 	/**
@@ -865,7 +870,7 @@ export class Checker {
 	}
 
 	fieldType(desc: FieldDesc, loc: SourceLoc): ScalarType {
-		return this.schema.queryFieldType(desc, loc, this.#contracts)
+		return this.schema.queryFieldType(desc, loc, this.#contracts, this.patterns)
 	}
 
 	/**
@@ -1352,7 +1357,9 @@ export class Checker {
 			agreedType(delivered.flatMap((d) => (d.bare === undefined ? [d.column.type] : []))) ??
 			position
 		return mapNonEmpty(delivered, (d) =>
-			d.bare !== undefined && agreed !== undefined && this.schema.admits(d.bare.value, agreed)
+			d.bare !== undefined &&
+			agreed !== undefined &&
+			this.schema.admits(d.bare.value, agreed, this.patterns)
 				? agreed
 				: d.column.type
 		)
@@ -1390,7 +1397,7 @@ export class Checker {
 				const retyped: HeadLiteral =
 					head.kind === "fixed" || sameScalarType(t, c.type)
 						? head
-						: { ...head, literal: this.schema.literal(head.value, t, head.loc) }
+						: { ...head, literal: this.schema.literal(head.value, t, head.loc, this.patterns) }
 				kept.set(c.name, retyped)
 				return { name: c.name, expr: this.emit(literalSpec(retyped.literal, t)), type: t }
 			}
@@ -1883,8 +1890,8 @@ export class Checker {
 					catchRefusal(() => this.#paramUse(param, at, scope, node, paramColumn))
 			},
 			fieldType: (desc, at) =>
-				catchRefusal(() => this.schema.queryFieldType(desc, at, this.#contracts)),
-			regexMember,
+				catchRefusal(() => this.schema.queryFieldType(desc, at, this.#contracts, this.patterns)),
+			patterns: this.patterns,
 			patternLanguage: textLookup,
 			extension: (desc, at, lower) => catchRefusal(() => this.#extension(desc, lower, at))
 		}
@@ -1926,7 +1933,7 @@ export class Checker {
 		const type = this.paramType(param, loc)
 		return resolved.kind === "param"
 			? { spec: paramSpec(resolved.cell.use(type, loc), "compare", compareType(type)), type }
-			: { spec: boundConstant(this.schema, resolved, type), type }
+			: { spec: boundConstant(this.schema, resolved, type, this.patterns), type }
 	}
 
 	/** One immutable operator node over `args`, of an overload defined on every value its operands admit. */
@@ -2005,7 +2012,9 @@ export class Checker {
 		const operand = (d: ResolvedExpr, against: ScalarType, at: SourceLoc): ScalarExpr => {
 			const adopted = adoptCompare(against)
 			if (d.kind === "literal" && d.type === undefined) {
-				return this.emit(literalSpec(this.schema.literal(d.value, adopted, at), adopted))
+				return this.emit(
+					literalSpec(this.schema.literal(d.value, adopted, at, this.patterns), adopted)
+				)
 			}
 			const t = unwrap(lower(d))
 			if (!compatible(t.nominal, against)) {
@@ -2632,7 +2641,9 @@ class RuleCheck {
 		const heading = source.heading
 		const constants = entries(bindings).flatMap(([column, e]) => {
 			const col = columnOf(heading, column)
-			return e.kind === "literal" && col !== undefined && this.cx.schema.admits(e.value, col.type)
+			return e.kind === "literal" &&
+				col !== undefined &&
+				this.cx.schema.admits(e.value, col.type, this.cx.patterns)
 				? [{ column, value: e.value }]
 				: []
 		})
@@ -2662,12 +2673,16 @@ class RuleCheck {
 		const head = this.cx.literalOf(arm)?.get(column)
 		if (head !== undefined) {
 			return (
-				this.cx.schema.admits(value, col.type) &&
-				canonicalEquals(this.cx.schema.literal(value, col.type, loc), head.literal, everyProperty)
+				this.cx.schema.admits(value, col.type, this.cx.patterns) &&
+				canonicalEquals(
+					this.cx.schema.literal(value, col.type, loc, this.cx.patterns),
+					head.literal,
+					everyProperty
+				)
 			)
 		}
 		const delivered = columnOf(this.cx.deliveredOf(arm), column)?.type ?? col.type
-		return this.cx.schema.admits(value, delivered)
+		return this.cx.schema.admits(value, delivered, this.cx.patterns)
 	}
 
 	/**
@@ -2765,7 +2780,7 @@ class RuleCheck {
 	#constant(column: HeadingColumn, e: ResolvedExpr, loc: SourceLoc): ConstantPlacement {
 		const baseMatches = (t: ScalarType) => sameScalarType(baseOf(column.type), baseOf(t))
 		if (e.kind === "literal" && e.type === undefined) {
-			const literal = this.cx.schema.literal(e.value, column.type, loc)
+			const literal = this.cx.schema.literal(e.value, column.type, loc, this.cx.patterns)
 			const expr = this.cx.emit(literalSpec(literal, column.type))
 			return { kind: "fix", expr }
 		}
@@ -2819,7 +2834,7 @@ class RuleCheck {
 			case "literal":
 				return {
 					kind: "fix",
-					expr: this.cx.emit(boundConstant(this.cx.schema, resolved, column.type))
+					expr: this.cx.emit(boundConstant(this.cx.schema, resolved, column.type, this.cx.patterns))
 				}
 			case "column": {
 				if (!compatible(resolved.type, column.type)) {
@@ -3221,7 +3236,7 @@ class RuleCheck {
 			return {
 				kind: "constant",
 				column,
-				expr: this.cx.emit(boundConstant(this.cx.schema, resolved, col.type))
+				expr: this.cx.emit(boundConstant(this.cx.schema, resolved, col.type, this.cx.patterns))
 			}
 		}
 		if (resolved.kind !== "param") {
@@ -3282,7 +3297,9 @@ class RuleCheck {
 		at: SourceLoc
 	): ScalarExpr {
 		if (e.type === undefined) {
-			return this.cx.emit(literalSpec(this.cx.schema.literal(e.value, col.type, at), col.type))
+			return this.cx.emit(
+				literalSpec(this.cx.schema.literal(e.value, col.type, at, this.cx.patterns), col.type)
+			)
 		}
 		const t = this.cx.fieldType(e.type, at)
 		if (!compatible(t, col.type)) {
@@ -3292,7 +3309,7 @@ class RuleCheck {
 				`operands of one type: ${col.name} is ${typeLabel(col.type)}`
 			)
 		}
-		return this.cx.emit(literalSpec(this.cx.schema.literal(e.value, t, at), t))
+		return this.cx.emit(literalSpec(this.cx.schema.literal(e.value, t, at, this.cx.patterns), t))
 	}
 
 	/**
@@ -3354,7 +3371,7 @@ class RuleCheck {
 		})
 		const literal = (value: LiteralDesc, typing: LiteralTyping, at: SourceLoc): TermOut => {
 			const admitted = typing.kind === "fixed" ? typing.type : this.cx.bareLiteralType(value, at)
-			const lit = this.cx.schema.literal(value, admitted, at)
+			const lit = this.cx.schema.literal(value, admitted, at, this.cx.patterns)
 			const type =
 				lit.kind === "numeric" && isComputedNumeric(admitted)
 					? literalNumeric(lit.value.parts)

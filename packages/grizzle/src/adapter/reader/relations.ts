@@ -11,6 +11,7 @@ import {
 	maxStringLength,
 	type ParamDecl,
 	type ParamId,
+	type ParamText,
 	type RelationParamDecl,
 	type ScalarType
 } from "#compiler/plan/common.ts"
@@ -209,7 +210,7 @@ export const executionInputs = (
 	params: HostParams
 ): Result.Result<ExecutionInputs, InputRefusal> => {
 	const relations = new Map<ParamId, RelationInput>()
-	const scalars = new Map<ParamId, string>()
+	const scalars = new Map<ParamId, ParamText>()
 	for (const codec of codecs) {
 		if (codec.kind === "relation") {
 			const input = prepareInput(codec, params[codec.decl.name])

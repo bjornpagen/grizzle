@@ -28,14 +28,23 @@ import { builtExpr, OpId, predicateTable, type ScalarExpr } from "#compiler/ir/e
 import { Roster, type ScalarType } from "#compiler/ir/scalar.ts"
 import { bits } from "#compiler/public/fields.ts"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
-import { evaluateTable } from "#compiler/scalar/compute/evaluate.ts"
+import { evaluateTable, sqlNull } from "#compiler/scalar/compute/evaluate.ts"
 import type { CarrierValue } from "#compiler/scalar/compute/literal.ts"
 import { type NativeFn, nativeOp, nativeOps } from "#compiler/scalar/compute/registry.ts"
+import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { capabilitiesOf } from "#compiler/scalar/registry.ts"
 import { closed } from "#compiler/schema/api.ts"
-import { assert, defined, nonEmpty, succeeded, throwsRefused } from "#test/support/assert.ts"
+import {
+	assert,
+	assertNot,
+	defined,
+	nonEmpty,
+	succeeded,
+	throwsRefused
+} from "#test/support/assert.ts"
 import { hexOfText, setText, wholeDigits } from "#test/support/closed/bit-text.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { paramText } from "#test/support/wire.ts"
 
 /** The codes a roster of the box has minted, holes included. */
 const size = 5
@@ -128,15 +137,17 @@ const opNode = (id: string, args: ReadonlyArray<ScalarExpr>, type: ScalarType, l
 /** The host's value of `root`, which reads no leaf but its literals. */
 const evaluated = (root: ScalarExpr): CarrierValue => {
 	const table = predicateTable(root)
-	return succeeded(
+	const value = succeeded(
 		evaluateTable(
 			table.exprs,
 			table.root,
 			{ value: undefined, column: () => undefined, closed: () => undefined },
-			() => false
+			ProgramPatterns.of(tablePatterns(table))
 		),
 		"the host evaluates the set algebra"
 	)
+	assertNot(value, sqlNull, "the host's set is a value, no operand being NULL")
+	return value
 }
 
 /**
@@ -193,7 +204,7 @@ const agrees = ({ live, a, b }: Pattern, c: Case<Situation>) =>
 			)
 			assert.equal(
 				succeeded(codec.encode(result)),
-				bitText(model[fn]),
+				paramText(bitText(model[fn])),
 				`${fn} as bit(${wholeDigits(size)})`
 			)
 		}

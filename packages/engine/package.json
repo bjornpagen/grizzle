@@ -57,6 +57,11 @@
 			"types": "./dist/plan/common.d.ts",
 			"default": "./dist/plan/common.js"
 		},
+		"./internal/plan/decode.ts": {
+			"grizzle-source": "./src/plan/decode.ts",
+			"types": "./dist/plan/decode.d.ts",
+			"default": "./dist/plan/decode.js"
+		},
 		"./internal/plan/migration.ts": {
 			"grizzle-source": "./src/plan/migration.ts",
 			"types": "./dist/plan/migration.d.ts",

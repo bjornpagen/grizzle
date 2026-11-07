@@ -22,6 +22,7 @@ import {
 } from "#compiler/write/refusal.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { outputText } from "#test/support/wire.ts"
 
 /** The write refusal channel, without a database.
  *
@@ -181,7 +182,11 @@ describe("the write refusal channel", () => {
 							Effect.sync(() => {
 								assert.deepEqual(
 									readLawDetail(encodeRefusalDetail({ kind: "law", relation }, key)),
-									{ kind: "law", relation, key }
+									{
+										kind: "law",
+										relation,
+										key: Arr.map(key, (k) => ({ ...k, text: outputText(k.text) }))
+									}
 								)
 								assert.deepEqual(
 									readChangeDetail(encodeRefusalDetail({ kind: "change", reason, relation }, key)),
@@ -213,7 +218,11 @@ describe("the write refusal channel", () => {
 								if (Str.includes("\\ud8")(Str.toLowerCase(law))) {
 									c.note("an escaped surrogate pair")
 								}
-								assert.deepEqual(readLawDetail(law), { kind: "law", relation, key })
+								assert.deepEqual(readLawDetail(law), {
+									kind: "law",
+									relation,
+									key: Arr.map(key, (k) => ({ ...k, text: outputText(k.text) }))
+								})
 								assert.deepEqual(readChangeDetail(change), { reason, relation })
 							})
 					)

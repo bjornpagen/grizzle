@@ -1326,7 +1326,7 @@ becomes one PostgreSQL schema.
 | `closedId(X)`, for `X = closed("X", [...])`        | smallint, behind the roster's domain           | the union of its names                                              |
 | `bits(X)`, a set of `X`'s handles                  | bit(n), n `X`'s codes rounded up to whole hex digits, behind a domain that holds only live handles | `Bits<typeof X>`, a `ReadonlySet` of its names, `Bits.of(X, [...])` |
 | `contract(name, base, check?)`                     | a domain with that CHECK                      | the base type, branded with the name                                |
-| `span(pg.integer)`, over integer or bigint         | a range                                       | `{ start, end }`, start included, end excluded                      |
+| `span(pg.integer)`, over integer, bigint or date  | a range                                       | `{ start, end }`, start included, end excluded                      |
 | `pg.vector(n)`                                     | pgvector's vector(n)                          | `Vector`, a Float32Array                                            |
 
 Text always carries a pattern, with flags `"u"` (the default) or `"su"`. A contract value is made with its
@@ -1338,7 +1338,8 @@ of the proleptic Gregorian calendar: PostgreSQL's date, a plain type as `pg.inte
 is the date itself. Every date column carries a CHECK of the days from 0001-01-01 to 9999-12-31, so no column holds an
 infinity or a year its text could not spell, whoever writes it; it is the type's range, no rule an outcome names. Its value is its ISO
 8601 text, `"2024-02-29"`, one text per day, ordered as the calendar is; every login pins `DateStyle` to ISO, so
-PostgreSQL writes it the same way. Dates compare, and `min` and `max` them, and a key or index may hold one.
+PostgreSQL writes it the same way. Dates compare, and `min` and `max` them, a key or index may hold one, and
+`span(date)` is a span of days, PostgreSQL's daterange.
 
 `str.bytes(n, pattern)` is text of the pattern's language of at most `n` UTF-8 bytes, `n` from 0 to 2,147,483,647.
 The bound is a refinement as the pattern is, not a type: the field's host type is the pattern's, so it meets every
@@ -1613,13 +1614,25 @@ never narrowed into its column's type unproved.
   ordered family, an insertion or a removal rewrites the later siblings. So a change near the start of a long family
   costs the members after it, and an edit of an owner already stored reads its stored values first
   ([Transactions and concurrency](#transactions-and-concurrency)).
-- **A changed owner column reaches its copies, never what is drawn from them.** A put of an owner updates its row in
+- **A changed owner column reaches its copies and every value drawn from them.** A put of an owner updates its row in
   place, and an edit of one of its families its count and ends; a member's copy of a changed column follows by
   cascade, and a member appended in the same ChangeSet takes the new value. A fold's step or selection, a predecessor
-  or last copy, or a tree's copy of its parent's is drawn only when its row is written, so a write that changes a
-  column one of them reads on a stored row, through such a copy, or as the count or end of an owner that is itself a
-  member, is refused when the ChangeSet compiles (`StaleDerivedRead`): derive such a value from a column fixed once
-  its row is written.
+  or last copy, or a tree's copy of its parent's is drawn when its row is written, so a write that changes a column one
+  of them reads on a stored row, through such a copy, or as the count or end of an owner that is itself a member,
+  refills that value's family: the read flight finds every group the change reaches, along the copies that carry it,
+  and grizzle draws each value there again and rewrites those rows in place before the change that would cascade into
+  them, members first, so a fold's CHECK holds at every statement; a refill that changes an owner's ends or another
+  family's copies refills on in turn. A put that moves a member to another group or changes what its ordered family
+  reads of it, and a delete of an ordered family's member, re-place rows, deleting and inserting them again, which no
+  cascade follows: every family the re-placed rows own is refilled where its members copy a column the ChangeSet
+  changes there, its count among them. The owner axis of every family whose members a refill can rewrite or whose
+  owner a put or a delete can re-place, and the predecessor axis of every ordered family and tree a refill rewrites
+  and a tree's owner axis, are deferred, decided once for the schema. A refill is planned in the first stratum, beside every edit of a family's members, and is
+  refused when the ChangeSet compiles (`StaleDerivedRead`) only where grizzle cannot draw it: a put whose rows a query
+  states, which grizzle never sees; refills that reach a family they refill again; and a refill of an immutable
+  relation's family or rows, an immutable owner's family being fixed when the owner is inserted. A role refills only rows of
+  relations it holds whole: the members it rewrites in its write list, and every relation the refill's read passes
+  among its own (`OutsideRole`).
 - **An immutable owner's family is fixed when the owner is inserted.** Declare `mutable(Owner)` for a family that
   changes later, or an owner you put: a delete of a member of an immutable owner's family, and a put of an immutable
   owner, are type errors, and from JavaScript refused when the ChangeSet compiles. A ChangeSet's type holds its strata,
@@ -2322,11 +2335,13 @@ its `fault`; `RecursionRefused` and `DerivedRefused`, their `cause`; `RoleRefuse
 generated `field` of a `relation` and the `rule` it breaks; `FoldOverProjection`, the match's `source` and the `key` it
 must bind for an aggregate to read each row once; `QueriedOwnerAppend`, an insert or a put (`op`) of the `owner` from
 a query beside an append of `member` to its `family` (`{ owner, count }`), the write being `at`; `CascadedCopyAppend`,
-an insert or a put (`op`) of `member` appending to its `family` whose `copy` reads its `owner`'s `through`, which the
-owner copies from `changed`, a relation the same stratum changes `by` a put or a family's edit; `StaleDerivedRead`, a
-write (`op`) of `member` that changes a stored row's column (`changed`: its `relation`, `column`, and `by`: `put`,
-`owner` or `member`), which the cascade carries into `copies`, read by `reader` (`{ kind, family, relation, column }`,
-a fold, a predecessor, a last or a tree's copy) drawn only when its row is written; `UnfillableField`, the `relation`'s
+a write (`op`) of `member` of its `family` whose `copy` reads its `owner`'s `through`, which the owner copies from
+`changed`, a relation the same stratum puts from a query, whose rows grizzle never sees; `StaleDerivedRead`, a write
+(`op`) of `member` that changes a stored row's column (`changed`: its `relation`, `column`, and `by`: `put`, `owner` or
+`member`), which the cascade carries into `copies`, read by `reader` (`{ kind, family, relation, column }`, a fold, a
+predecessor, a last or a tree's copy), which grizzle cannot refill for `cause`: `{ kind: "query" }`, a put from a
+query; `{ kind: "cycle", refills }`, refills that reach a family they refill again; or `{ kind: "immutable", relation }`,
+a refill of an immutable owner's family or an immutable relation's rows; `UnfillableField`, the `relation`'s
 `field`, the `law` that fills it, the `source` column it reads along `axis` of its `family`, and why that column is
 filled `later`; `UnwritableRelation`, the `relation` no write fills and its `cause`; `UnorderableStratum`, the
 `cycle` of a stratum's writes (`{ relation, op }`, an insert, a put or a delete, or a family's insert, update or
@@ -2346,9 +2361,10 @@ by `name`, or a whole `Fact`. **`CursorError`**'s reason is its cursor fault wor
 - **Every transaction is SERIALIZABLE.** The first migration makes it the database's default, so every session gets
   it, psql included, and a write below it on a grizzle table is refused with 25000.
 - **One call, one transaction, one round trip.** A call sends BEGIN, its statements and COMMIT in one pipelined flight.
-  A write whose plan reads before it writes, a family edit of a group already stored, sends two flights in its one
-  transaction: one batched read per family of the stored values the edit continues, then the writes filled from them,
-  with COMMIT. There are no interactive transactions: a read that decides a write is a query inside the ChangeSet, and
+  A write whose plan reads before it writes, a family edit of a group already stored or a refill of a value a change
+  leaves stale, sends two flights in its one transaction: one batched read per family of the stored values the edit
+  continues, and one per way a change reaches a refilled family's groups, then the writes filled from them, with
+  COMMIT. There are no interactive transactions: a read that decides a write is a query inside the ChangeSet, and
   reads that must agree are one query with nested results.
 - **No retries.** A refusal from outside the call's inputs fails the call with `TransientFailure` and changes
   nothing; a migration's is `StaleSnapshot` instead. A serialization failure can happen to any transaction, even with
@@ -2476,7 +2492,7 @@ app. Log in as a login, `SET ROLE` to one of its roles, set the claims in the tr
 | 23514               | a row check, a family's CHECK or a rule over a closed relation, each named by its rule; a value its contract or pattern refuses, or a code or set its roster's domain refuses, as the statement casts it, before row-level security and the row's constraints |
 | 23505               | at the statement: a duplicate key, over a table or over a side of one, an exact repeat included; or a key a concurrent transaction committed after this one's snapshot, which is retryable |
 | 23P01               | an overlap under a no-overlap key, at the statement; or a span a concurrent transaction committed after this one's snapshot, which is retryable               |
-| 23503               | a foreign key, a containment between sides included: at COMMIT when it is deferred (a family's key as its proof needs: a counted family's predecessor key, every last-slot key, and an owner key a cascade feeds; any key that lies on a cycle of the foreign keys that order a write's statements, a family's owner key among them, as a containment from an owner into its members closes one; and any other whose target has a field that is not one of the columns it references), at the statement otherwise |
+| 23503               | a foreign key, a containment between sides included: at COMMIT when it is deferred (a family's key as its proof needs: a counted family's predecessor key, every last-slot key, and an owner key a cascade feeds; a family's key a refill writes around: the owner key of every family whose members a refill can rewrite or whose owner a put or a delete can re-place, and the predecessor key of an ordered family or tree and a tree's owner key a refill rewrites; any key that lies on a cycle of the foreign keys that order a write's statements, a family's owner key among them, as a containment from an owner into its members closes one; and any other whose target has a field that is not one of the columns it references), at the statement otherwise |
 | 40001, 40P01        | a serialization failure or a deadlock: run the transaction again                                                                                             |
 
 - **The claims setting** is readable exactly when it has the shape a `Db` writes: empty, or a JSON object with no key
@@ -2570,9 +2586,10 @@ workflows, whose rules are worth declaring and whose users see different slices 
   grizzle's query language or not at all.
 - **No timestamp type.** An instant is a bigint contract. A `date` holds 0001-01-01 to 9999-12-31, and a lexical
   form has no timezone: a timezoned `xs:date` has no typed value.
-- **A span is over `integer` or `bigint`, or a contract over one**: PostgreSQL's int4range or int8range. A `date` has
-  no span yet, though PostgreSQL has `daterange`, and `span(date)` is refused, by the types and with
-  `UnsupportedOperation` (`spanEndpoint`) at run time; a `smallint` has none, since PostgreSQL has no range over it.
+- **A span is over `integer`, `bigint` or `date`, or a contract over one**: PostgreSQL's int4range, int8range or
+  daterange; a `smallint` has none, since PostgreSQL has no range over it. A date span's ends are `CalendarDate`s, so
+  it starts at 0001-01-01 at the earliest and ends at 9999-12-31 at the latest, which it excludes, as an integer span
+  ends at its type's greatest value; its width is its count of days, a `number`.
 - **A parse reads the forms of integers, numeric(p, s), double precision, booleans and dates.** A numeric's form
   holds at most 255 digits either side of its point, PostgreSQL's limit on a counted repetition; a double's, 15
   significant digits either side and an exponent of at most 293, inside which float8in neither overflows nor
@@ -2607,7 +2624,9 @@ workflows, whose rules are worth declaring and whose users see different slices 
   Apple M-series laptop under load), 200,000 rows matched over dictionaries of 1 to 178 value-domain patterns, median
   of three runs: rows grouped by pattern, or cycling through 32 patterns or fewer, cost 1.4 to 4.9 µs a row; rows
   cycling through 33, 64 or 178 cost 80 to 102 µs a row. The CASE that reads each source's translation adds about
-  1 µs a row at 178 patterns. Order a bulk read or write by pattern where it can be.
+  1 µs a row at 178 patterns. A family write orders each of its statements' rows by the values its matches read their
+  patterns from, so each pattern is compiled once per statement; order any other bulk read or write by pattern where it
+  can be.
 - **Every key fits its index entry for every value its fields admit.** A primary key, a declared key, a key over a
   selection, the UNIQUE a containment references where its target's columns are no declared key, a family's own
   UNIQUEs, and the UNIQUE each family axis references, which holds

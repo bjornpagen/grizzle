@@ -9,6 +9,7 @@ import type {
 	SchemaFingerprint
 } from "#compiler/core/ids.ts"
 import type * as Result from "#compiler/core/result.ts"
+import type { OutputText, ParamText } from "#compiler/core/wire.ts"
 import type { Certificate } from "#compiler/ir/certificate.ts"
 import type { SchemaDesc } from "#compiler/ir/desc.ts"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
@@ -23,7 +24,7 @@ import type { CarrierName } from "#compiler/sql/naming.ts"
  * Codec contracts ("codec"). Codecs are straight-line closures with no eval.
  * Encoder: one host value to its text-form parameter.
  */
-export type Encoder = (value: unknown) => Result.Result<string, EncodingFailure>
+export type Encoder = (value: unknown) => Result.Result<ParamText, EncodingFailure>
 
 /** An admitted fact (scalar/values/identity.ts) with its identity, factIdentity's over the input's heading. */
 export interface IdentifiedFact {
@@ -58,7 +59,7 @@ export interface NormalFacts {
  * array literal per column of the statement's reading of it, or, for an input of no column, its count of facts
  * (codec/recordset.ts arrayTexts).
  */
-export type ArrayTexts = ReadonlyArray<string>
+export type ArrayTexts = ReadonlyArray<ParamText>
 
 /**
  * A relation input's column whose array literal would be longer than the longest string the host builds
@@ -173,14 +174,24 @@ export type StatementRole =
 	| "carrier"
 
 /**
- * What fills one page placeholder: the limit, the validated requested size plus one; the size itself, the most rows
- * the page delivers, which an attachment's statement bounds the page's rows by; or the boundary value of one
- * comparator, the cursor tuple's text at that position (lower/shapes/page/seek.ts PageSlots).
+ * A page placeholder every request fills from its size: the limit, the validated requested size plus one, or the size
+ * itself, the most rows the page delivers, which an attachment's statement bounds the page's rows by
+ * (lower/shapes/page/seek.ts SizeSlots).
  */
-export type PageFill =
-	| { readonly kind: "limit" }
-	| { readonly kind: "size" }
-	| { readonly kind: "boundary"; readonly position: number; readonly field: string }
+export type SizeFill = { readonly kind: "limit" } | { readonly kind: "size" }
+
+/**
+ * A page placeholder only an anchored request and a probe fill: the boundary value of one comparator, the cursor
+ * tuple's text at that position (lower/shapes/page/seek.ts BoundarySlots).
+ */
+export interface BoundaryFill {
+	readonly kind: "boundary"
+	readonly position: number
+	readonly field: string
+}
+
+/** What fills one page placeholder: a size fill, or, in an anchored request's or a probe's statement, a boundary. */
+export type PageFill = SizeFill | BoundaryFill
 
 /**
  * What fills one placeholder of a statement spec, decided where the lowering allocated it, with its encoder. For a
@@ -273,7 +284,7 @@ export interface WitnessDecoder {
 	 */
 	readonly fromRefusal: (
 		relation: string,
-		key: ReadonlyArray<{ readonly field: string; readonly text: string }>
+		key: ReadonlyArray<{ readonly field: string; readonly text: OutputText }>
 	) => unknown
 }
 

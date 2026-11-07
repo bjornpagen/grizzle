@@ -6,7 +6,7 @@ import {
 	everyProperty,
 	type TaggedValue
 } from "#compiler/core/canonical.ts"
-import { ownedDigest } from "#compiler/core/fingerprint.ts"
+import { ownedDigest, type RosterDigest, rosterDigest } from "#compiler/core/fingerprint.ts"
 import type { DeclaredName } from "#compiler/core/identity.ts"
 import { derived, type Limit, postgresSource, published } from "#compiler/core/limits.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
@@ -15,7 +15,7 @@ import type { ExprTable } from "#compiler/ir/expr.ts"
 import type { Fact } from "#compiler/ir/proof.ts"
 
 /**
- * The native carriers grizzle admits. range4 and range8 are int4range and int8range,
+ * The native carriers grizzle admits. range4, range8 and rangeDate are int4range, int8range and daterange,
  * the only span carriers; date is a calendar day; there is no timestamp, interval, bytea, JSON or array carrier. exactInteger and
  * exactMoney are the exact arithmetic carriers (ExactType), never a field's.
  */
@@ -35,6 +35,7 @@ export const carriers = [
 	"bits",
 	"range4",
 	"range8",
+	"rangeDate",
 	"vector",
 	"exactInteger",
 	"exactMoney"
@@ -68,6 +69,7 @@ export const fewValued: Readonly<Record<Carrier, boolean>> = {
 	bits: false,
 	range4: false,
 	range8: false,
+	rangeDate: false,
 	vector: false,
 	exactInteger: false,
 	exactMoney: false
@@ -80,8 +82,14 @@ export const serialCarriers = {
 	bigserial: "int8"
 } as const satisfies Readonly<Record<string, Carrier>>
 
-/** The span carriers, range4 over int4 endpoints and range8 over int8 endpoints. */
-export const spanCarriers = ["range4", "range8"] as const satisfies ReadonlyArray<Carrier>
+/** The span carriers over integer endpoints, range4 over int4 and range8 over int8. */
+export const integerSpanCarriers = ["range4", "range8"] as const satisfies ReadonlyArray<Carrier>
+
+/** The span carriers: those over integer endpoints, and rangeDate over date endpoints. */
+export const spanCarriers = [
+	...integerSpanCarriers,
+	"rangeDate"
+] as const satisfies ReadonlyArray<Carrier>
 
 /**
  * The operation capability vocabulary: storage, equality, ordering, hashing used for bucketing, the
@@ -277,16 +285,24 @@ export type RegexKey = string & { readonly [regexKeyBrand]: true }
 declare const regexKeyBrand: unique symbol
 export const RegexKey = nominal<string, RegexKey>()
 
-/** Proved bounds on every member of a language, in code points and UTF-8 bytes. */
+/**
+ * Proved bounds on every member of a language, in code points and UTF-8 bytes. The analysis makes one by textBounds
+ * alone, frozen where it is made.
+ */
 export interface TextBounds {
 	readonly length: number
 	readonly bytes: number
 }
 
+/** Bounds of `length` code points and `bytes` UTF-8 bytes: the one constructor of a TextBounds, frozen. */
+export const textBounds = (length: number, bytes: number): TextBounds =>
+	Object.freeze({ length, bytes })
+
 /**
  * How PostgreSQL enforces a pattern's language some admitted text value is no member of, with the bounds the
  * enforcement proves on every member: `VALUE IN (...)` of its members, at least one since an analyzed language has a
- * member, or `VALUE ~ '<ARE>'` of the pattern's translation. The text analysis chooses it (text/refinement.ts).
+ * member, or `VALUE ~ '<ARE>'` of the pattern's translation. The text analysis chooses it (text/refinement.ts) and
+ * makes it by finiteCheck or regexCheck alone, so every one is frozen with all it holds.
  */
 export type PatternCheck =
 	| {
@@ -296,10 +312,25 @@ export type PatternCheck =
 	  }
 	| { readonly kind: "regex"; readonly pattern: string; readonly bounds: TextBounds | undefined }
 
+/** `VALUE IN (...)` of a finite language's `members`, a frozen copy of them: the one constructor of a finite check. */
+export const finiteCheck = (
+	members: NonEmptyReadonlyArray<string>,
+	bounds: TextBounds
+): PatternCheck => {
+	const [first, ...rest] = members
+	const copy: NonEmptyReadonlyArray<string> = [first, ...rest]
+	return Object.freeze({ kind: "finite", members: Object.freeze(copy), bounds })
+}
+
+/** `VALUE ~ '<ARE>'` of a pattern's translation `pattern`: the one constructor of a regex check, frozen. */
+export const regexCheck = (pattern: string, bounds: TextBounds | undefined): PatternCheck =>
+	Object.freeze({ kind: "regex", pattern, bounds })
+
 /**
  * How PostgreSQL enforces a text refinement: its pattern's language (PatternCheck), or a byte bound that cuts it,
  * `octet_length(VALUE) <= octets` beside the pattern's check, or alone where the pattern admits every value
- * (str.bytes), with the tighter of the pattern's bounds and the byte bound's, a code point taking at least a byte.
+ * (str.bytes), with the tighter of the pattern's bounds and the byte bound's, a code point taking at least a byte. A
+ * byte bound's is made by octetsCheck alone, frozen.
  */
 export type RegexCheck =
 	| PatternCheck
@@ -382,8 +413,15 @@ export const languageKey = (text: string): RegexKey =>
 /** The tighter of a pattern's bounds and a byte bound's: a code point takes at least a byte. */
 const boundsWithin = (bounds: TextBounds | undefined, octets: number): TextBounds =>
 	bounds === undefined
-		? { length: octets, bytes: octets }
-		: { length: Math.min(bounds.length, octets), bytes: Math.min(bounds.bytes, octets) }
+		? textBounds(octets, octets)
+		: textBounds(Math.min(bounds.length, octets), Math.min(bounds.bytes, octets))
+
+/**
+ * `octet_length(VALUE) <= octets` beside a pattern's `check`, or alone where the pattern admits every value, with the
+ * tighter bounds of the two (boundsWithin): the one constructor of a byte bound's check, frozen.
+ */
+const octetsCheck = (octets: number, check: PatternCheck | undefined): RegexCheck =>
+	Object.freeze({ kind: "octets", octets, check, bounds: boundsWithin(check?.bounds, octets) })
 
 /**
  * The language of a text of at most `octets` UTF-8 bytes whose pattern's own language is `pattern`, as str.bytes and a
@@ -397,7 +435,7 @@ export const languageWithin = (pattern: PatternLanguage, octets: number): TextLa
 		const every: TextLanguage = {
 			kind: "refined",
 			key: languageKey(`octets<=${octets}`),
-			check: { kind: "octets", octets, check: undefined, bounds: boundsWithin(undefined, octets) }
+			check: octetsCheck(octets, undefined)
 		}
 		return Object.freeze(every)
 	}
@@ -408,7 +446,7 @@ export const languageWithin = (pattern: PatternLanguage, octets: number): TextLa
 	const cut: TextLanguage = {
 		kind: "refined",
 		key: languageKey(`${pattern.key}&octets<=${octets}`),
-		check: { kind: "octets", octets, check, bounds: boundsWithin(check.bounds, octets) }
+		check: octetsCheck(octets, check)
 	}
 	return Object.freeze(cut)
 }
@@ -432,41 +470,52 @@ export type TextInfo =
  * mints the roster's domain from it (core/identity.ts identity.rosterDomain), and the installation's codebook holds its
  * codes (ir/codes.ts), which no type holds, since they depend on the codes the installation held before.
  *
- * Its canonical form is its name alone (core/canonical.ts Canonicalizable): one schema holds one roster of a name, whose
- * handles its closed relation's description encodes once, so a type, a literal or a predicate over the roster names it
- * by identity, its encoding the same size whatever the roster's.
+ * Its identity is its name and its handles in order, as type identity compares them (sameScalarType): one name holds
+ * other handles in another schema, which a cursor, a snapshot or a migration compares this one's against. Its canonical
+ * form (core/canonical.ts Canonicalizable) is its name and its handles' digest (core/fingerprint.ts rosterDigest), taken
+ * once as it is made, so a type, a literal or a predicate over the roster encodes the same characters whatever the
+ * roster's size, and every encoding of it changes with its handles.
  */
 export class Roster implements Canonicalizable {
 	readonly closed: DeclaredName
 	readonly handles: NonEmptyReadonlyArray<string>
+	readonly digest: RosterDigest
 
 	constructor(closed: DeclaredName, handles: NonEmptyReadonlyArray<string>) {
 		this.closed = closed
 		this.handles = Object.isFrozen(handles) ? handles : Object.freeze(handles)
+		this.digest = rosterDigest(this.handles)
 		Object.freeze(this)
 	}
 
 	[canonicalTag](): TaggedValue {
-		return { tag: "roster", payload: this.closed }
+		return { tag: "roster", payload: `${this.closed}:${this.digest}` }
 	}
 }
 
 /** The integer carriers, a serial field's among them. */
 export type IntegerCarrier = "int2" | "int4" | "int8"
 export type SpanCarrier = (typeof spanCarriers)[number]
+export type IntegerSpanCarrier = (typeof integerSpanCarriers)[number]
 /** The carriers whose descriptor holds nothing beside its carrier, its capabilities and its contract. */
 type BareCarrier = "float4" | "float8" | "money" | "bool" | "uuid" | "date"
 
+/** A date: a calendar day, as a span's endpoint, a closed id's payload or a field. */
+export type DateType = BareType & { readonly carrier: "date" }
+
+/** Whether a type is a date's, a date itself or a contract over one. */
+export const isDateType = (t: ScalarType): t is DateType => t.carrier === "date"
+
 /**
- * A bounded, half-open span over an integer endpoint of its carrier's width (range4 over int4, range8 over int8),
- * with an optional fixed positive width. Every value of a span type is nonempty and bounded, so lower() and upper()
+ * A bounded, half-open span over an endpoint of its carrier (range4 over int4, range8 over int8, rangeDate over date),
+ * with an optional fixed positive width, of the endpoint's units: a count of days over date. Every value of a span type is nonempty and bounded, so lower() and upper()
  * never return NULL: a stored column carries the span shape CHECK (physical/span/storage.ts), a literal has
  * start < end (expr.ts literalProblem), a parameter or fact is admitted only as one (scalar/values/span.ts makeSpan),
  * a producer never delivers an empty piece, and no operation of the catalogue returns a span. The Allen reading of
  * endpoint predicates (check/allen.ts) rests on it.
  */
 export interface SpanInfo {
-	readonly endpoint: IntegerType<"int4"> | IntegerType<"int8">
+	readonly endpoint: IntegerType<"int4"> | IntegerType<"int8"> | DateType
 	readonly width: bigint | undefined
 }
 
@@ -631,6 +680,7 @@ export const contractOf = (t: ScalarType): ContractInfo | undefined => {
 		case "code":
 		case "range4":
 		case "range8":
+		case "rangeDate":
 		case "vector":
 			return t.contract
 		case "bits":
@@ -659,6 +709,7 @@ export const textOf = (t: ScalarType): TextInfo | undefined => {
 		case "bits":
 		case "range4":
 		case "range8":
+		case "rangeDate":
 		case "vector":
 		case "exactInteger":
 		case "exactMoney":
@@ -685,6 +736,7 @@ export const rosterOf = (t: ScalarType): Roster | undefined => {
 		case "text":
 		case "range4":
 		case "range8":
+		case "rangeDate":
 		case "vector":
 		case "exactInteger":
 		case "exactMoney":
@@ -694,13 +746,20 @@ export const rosterOf = (t: ScalarType): Roster | undefined => {
 
 /** The range carrier of a span descriptor. */
 export const spanCarrierOf = (t: ScalarType): SpanCarrier | undefined =>
-	t.carrier === "range4" || t.carrier === "range8" ? t.carrier : undefined
+	t.carrier === "range4" || t.carrier === "range8" || t.carrier === "rangeDate"
+		? t.carrier
+		: undefined
+
+/** Whether a carrier is a span's. */
+export const isSpanCarrier = (carrier: Carrier): carrier is SpanCarrier =>
+	carrier === "range4" || carrier === "range8" || carrier === "rangeDate"
 
 /** The span of a range descriptor. */
 export const spanOf = (t: ScalarType): SpanInfo | undefined => {
 	switch (t.carrier) {
 		case "range4":
 		case "range8":
+		case "rangeDate":
 			return t.span
 		case "int2":
 		case "int4":
@@ -741,6 +800,7 @@ export const numericTypmodOf = (t: ScalarType): NumericTypmod | undefined => {
 		case "bits":
 		case "range4":
 		case "range8":
+		case "rangeDate":
 		case "vector":
 		case "exactInteger":
 		case "exactMoney":
@@ -768,6 +828,7 @@ export const vectorTypmodOf = (t: ScalarType): VectorTypmod | undefined => {
 		case "bits":
 		case "range4":
 		case "range8":
+		case "rangeDate":
 		case "exactInteger":
 		case "exactMoney":
 			return undefined
@@ -805,10 +866,9 @@ const sameText = (a: TextInfo | undefined, b: TextInfo | undefined): boolean =>
 			a.lengthBound === b.lengthBound &&
 			a.byteBound === b.byteBound
 
+/** One roster: its name and its handles in order, by their digest, as its canonical form states them. */
 const sameRoster = (a: Roster | undefined, b: Roster | undefined): boolean =>
-	a === undefined || b === undefined
-		? a === b
-		: a.closed === b.closed && sameOrder(a.handles, b.handles)
+	a === undefined || b === undefined ? a === b : a.closed === b.closed && a.digest === b.digest
 
 const sameSpan = (a: SpanInfo | undefined, b: SpanInfo | undefined): boolean =>
 	a === undefined || b === undefined
@@ -864,6 +924,7 @@ const nativeNames: Readonly<Record<Carrier, string>> = {
 	bits: "bit",
 	range4: "int4range",
 	range8: "int8range",
+	rangeDate: "daterange",
 	vector: "vector",
 	exactInteger: "numeric",
 	exactMoney: "numeric"
@@ -914,6 +975,7 @@ export const typeLabel = (t: ScalarType): string => {
 		case "date":
 		case "range4":
 		case "range8":
+		case "rangeDate":
 			return nativeNames[t.carrier]
 		case "exactInteger":
 			return `exact integer of ${t.digits} digits`

@@ -40,6 +40,10 @@ const float = (
  * The integer carrier a descriptor's values travel as: "int4" for smallint and integer (a JavaScript number in
  * range), "int8" for bigint (a JavaScript bigint), through contracts and serial generation.
  */
+/** Whether a field's values are dates: date itself, or a contract over it. */
+const isDateDesc = (desc: FieldDesc): boolean =>
+	desc.kind === "contract" ? isDateDesc(desc.base) : desc.kind === "pg" && desc.type === "date"
+
 const integerKind = (desc: FieldDesc): "int2" | "int4" | "int8" | undefined => {
 	switch (desc.kind) {
 		case "contract":
@@ -100,6 +104,17 @@ const span = (endpoint: FieldDesc, value: unknown): Result.Result<LiteralDesc, V
 	const keys = Object.keys(value)
 	if (keys.length !== 2 || !Object.hasOwn(value, "start") || !Object.hasOwn(value, "end")) {
 		return Result.err("spanType")
+	}
+	if (isDateDesc(endpoint)) {
+		const start = toCalendarDate(value["start"])
+		const end = toCalendarDate(value["end"])
+		if (!start.ok || !end.ok) {
+			return Result.err("spanEndpoint")
+		}
+		if (!(start.value < end.value)) {
+			return Result.err("spanOrder")
+		}
+		return Result.ok({ span: { start: start.value, end: end.value } })
 	}
 	if (integerKind(endpoint) === "int8") {
 		const start = toInt8(value["start"])

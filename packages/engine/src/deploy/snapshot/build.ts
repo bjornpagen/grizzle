@@ -57,7 +57,7 @@ import {
 	type StoredIndexRequest,
 	type WorkloadAccess
 } from "#compiler/ir/products.ts"
-import { Roster } from "#compiler/ir/scalar.ts"
+import { Roster, rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { isolationFunctionIdent } from "#compiler/physical/ddl/isolation.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { namedIdent } from "#compiler/physical/obligations/graph.ts"
@@ -142,6 +142,18 @@ const writingOf = (w: Writing): SnapshotWriting => {
 	}
 }
 
+/** Every property of a value but its rosters. */
+const withoutRosters: EncodeOptions = { omit: (_key, value) => value instanceof Roster }
+
+/**
+ * A field's type as the snapshot records it: every property of the type but its rosters, beside the name of the roster
+ * it is over. A roster's handles are its codes, which the roster's own record holds, so a column keeps its recorded type
+ * when its roster grows; and the type's is the only roster a type holds, since its contract's predicate resolves no
+ * other (scalar/contract.ts).
+ */
+const recordedType = (type: ScalarType): string =>
+	recordedDigest("scalar-type", { type, roster: rosterOf(type)?.closed }, withoutRosters)
+
 const theoryOf = (installation: Installation): SnapshotTheory => {
 	const owned = installation.owned
 	const theory = installation.laws.theory
@@ -154,7 +166,7 @@ const theoryOf = (installation: Installation): SnapshotTheory => {
 		return {
 			name: f.name,
 			column: f.column,
-			type: recordedDigest("scalar-type", f.type, everyProperty),
+			type: recordedType(f.type),
 			writing: writingOf(declared.writing)
 		}
 	}

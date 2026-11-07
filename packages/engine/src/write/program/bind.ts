@@ -10,10 +10,11 @@ import type { CompileError, EncodingFailure } from "#compiler/core/errors.ts"
 import type { LawId, ParamId } from "#compiler/core/ids.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
 import { maxStringLength } from "#compiler/core/limits.ts"
-import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
-import type { Family } from "#compiler/ir/family.ts"
-import type { FamilyId } from "#compiler/ir/law.ts"
+import type { OutputText, ParamText } from "#compiler/core/wire.ts"
+import { type Family, isTreeOf } from "#compiler/ir/family.ts"
+import type { FamilyId, RelationInfo } from "#compiler/ir/law.ts"
 import type { ArrayTexts, LiteralBound, WriteSlot } from "#compiler/ir/products.ts"
 import type { RelationChoice } from "#compiler/lower/shapes/index.ts"
 import { runsLargeForm } from "#compiler/lower/shapes/take/index.ts"
@@ -21,21 +22,29 @@ import type { EmittedText } from "#compiler/sql/ast.ts"
 import type { Law, Witness } from "#compiler/types/changeset/changeset.ts"
 import { isIterable } from "#compiler/write/defined.ts"
 import { compose, type RelationPlanAt, relationDepths } from "#compiler/write/family/compose.ts"
-import type { Recount } from "#compiler/write/family/draw.ts"
+import { decodeChain, decodeRead } from "#compiler/write/family/decode.ts"
+import { type Owner, type Recount, textsKey } from "#compiler/write/family/draw.ts"
 import {
+	callerValues,
 	countRows,
-	decodeRead,
 	type EditedTarget,
 	type EditTarget,
 	encodedWrite,
 	type Fact,
+	factKey,
+	type FilledRow,
 	type FillContext,
 	foldRecounts,
+	groupOfOwner,
+	keyOf,
+	mergeStored,
 	ownerText,
-	recountValues,
 	ownersOf,
 	planEdits,
+	type ReadKeys,
 	readKeys,
+	recountValues,
+	refillTree,
 	type RelationChanges,
 	type StoredFamily,
 	type Values
@@ -54,7 +63,25 @@ import {
 	type Transport,
 	type Unsendable
 } from "#compiler/write/family/order.ts"
-import { endColumns, type ReadShape, type RowLayout } from "#compiler/write/family/statements.ts"
+import { patternPositions } from "#compiler/write/family/pattern-order.ts"
+import {
+	cascade,
+	changedColumns,
+	copyState,
+	dropRow,
+	holdRow,
+	type RowState,
+	rowOf,
+	rowsOf,
+	writeRow
+} from "#compiler/write/family/state.ts"
+import {
+	type ChainSql,
+	endColumns,
+	type ReadShape,
+	type RowLayout,
+	rowLayout
+} from "#compiler/write/family/statements.ts"
 import type { EnumeratedInput } from "#compiler/write/frontend/compile.ts"
 import {
 	type MemberFacts,
@@ -69,7 +96,7 @@ import {
 	sentForm,
 	type WriteArtifact
 } from "#compiler/write/program/artifact.ts"
-import type { CompiledWrite, EditProgram } from "#compiler/write/program/compile.ts"
+import type { CompiledWrite, EditProgram, RefillProgram } from "#compiler/write/program/compile.ts"
 import { keyWitness } from "#compiler/write/program/outcome.ts"
 
 interface BindInputs {
@@ -90,7 +117,8 @@ export interface FamilyRowBound {
 	readonly row: Unsendable
 }
 
-export type Raw = ReadonlyArray<ReadonlyArray<string>>
+/** A read's rows as PostgreSQL answered them: each cell its output text. */
+export type Raw = ReadonlyArray<ReadonlyArray<OutputText>>
 
 export interface BoundWrite {
 	readonly kind: "bound"
@@ -105,7 +133,7 @@ export interface BoundWrite {
 	 */
 	readonly values: (
 		statement: ArtifactStatement
-	) => Result.Result<ReadonlyArray<string>, EncodingFailure | LiteralBound>
+	) => Result.Result<ReadonlyArray<ParamText>, EncodingFailure | LiteralBound>
 	/** How the application's statements reach the server: one flight, or a read flight first (`Flights`). */
 	readonly flights: Flights
 }
@@ -121,7 +149,7 @@ export interface BoundWrite {
 export type Chunks = (
 	statement: ArtifactStatement
 ) => Result.Result<
-	ReadonlyArray<ReadonlyArray<string>>,
+	ReadonlyArray<ReadonlyArray<ParamText>>,
 	EncodingFailure | LiteralBound | FamilyRowBound | CompileError
 >
 
@@ -130,7 +158,7 @@ export interface ReadStatement {
 	/** The family whose stored suffixes it reads, which a failure the read meets is attributed to. */
 	readonly family: FamilyId
 	readonly sql: EmittedText
-	readonly params: ReadonlyArray<string>
+	readonly params: ReadonlyArray<ParamText>
 }
 
 /**
@@ -250,7 +278,7 @@ export const bindWrite = (
 		slot: WriteSlot,
 		arrays: Map<unknown, ArrayTexts>,
 		slotFacts: (slot: ParamId) => NormalizedSlot
-	): Result.Result<string, EncodingFailure | LiteralBound> => {
+	): Result.Result<ParamText, EncodingFailure | LiteralBound> => {
 		switch (slot.kind) {
 			case "scalar":
 				return slot.encode(inputs.params[slot.param])
@@ -288,8 +316,8 @@ export const bindWrite = (
 		(slotFacts: (slot: ParamId) => NormalizedSlot) =>
 		(
 			statement: ArtifactStatement
-		): Result.Result<ReadonlyArray<string>, EncodingFailure | LiteralBound> => {
-			const out: Array<string> = []
+		): Result.Result<ReadonlyArray<ParamText>, EncodingFailure | LiteralBound> => {
+			const out: Array<ParamText> = []
 			const arrays = new Map<unknown, ArrayTexts>()
 			for (const slot of form(statement).paramSlots) {
 				const encoded = encodeSlot(slot, arrays, slotFacts)
@@ -322,17 +350,23 @@ export const bindWrite = (
 		const relations: Array<RelationPlanAt> = []
 		for (const [relation, rows] of nested) {
 			const layout = nestedLayout(stratum, relation)
+			const info = defined(
+				frontend.schema.relations.get(relation),
+				`the stored relation ${relation}, a nested write's`
+			)
 			const planned = planRelation(
 				{
 					relation,
 					deletes: new Map(),
 					trees: new Map(),
+					refills: new Map(),
 					updates: new Map(),
 					inserts: new Map(
 						[...rows].map(([key, r]) => [key, rowOfValues(ctx.codes, layout, r.values)] as const)
 					)
 				},
-				inputs.transport
+				inputs.transport,
+				patternPositions(info, frontend.laws.natives, layout)
 			)
 			if (!planned.ok) {
 				return Result.err(rowBound(relation, planned.error))
@@ -422,6 +456,60 @@ export const bindWrite = (
 			familyReads.push({ family: read.family, shape: read.sql.shape, at })
 		}
 		edits.push({ program: editProgram, changes, owners, reads: familyReads })
+	}
+	/** A refill as one application binds it: its program, and each of its reads with its positions in the read flight. */
+	interface BoundRefill {
+		readonly program: RefillProgram
+		readonly reads: ReadonlyArray<{ readonly sql: ChainSql; readonly at: ReadonlyArray<number> }>
+	}
+	const refills: Array<BoundRefill> = []
+	for (const refillProgram of program.refills) {
+		const chainReads: Array<BoundRefill["reads"][number]> = []
+		for (const [i, sql] of refillProgram.reads.entries()) {
+			const read = defined(refillProgram.refill.reads[i], "a refill's read of each chain")
+			const root = sql.root
+			const keyed = ((): ReadKeys | undefined => {
+				if (root.kind === "put") {
+					const layout = rowLayout(root.relation, frontend.laws.families)
+					const keys = factsOf(root.slot).facts.map((fact) => factKey(ctx, layout, fact))
+					return keys.length === 0 ? undefined : { keys, groups: [] }
+				}
+				const bound = edits.find(
+					(e) =>
+						e.program.edit.stratum === refillProgram.stratum &&
+						e.program.target.relation.name === root.family.member.name
+				)
+				return bound === undefined
+					? undefined
+					: readKeys(ctx, bound.program.target, root.family, bound.changes)
+			})()
+			const widths =
+				root.kind === "put"
+					? { key: root.relation.primaryFields.length, group: 0 }
+					: { key: root.family.member.primaryFields.length, group: root.family.group.length }
+			const relation = root.kind === "put" ? root.relation.name : root.family.member.name
+			const at: Array<number> = []
+			if (keyed !== undefined) {
+				const parts = planRead(keyed.keys, keyed.groups, widths, inputs.transport)
+				if (!parts.ok) {
+					unreadable ??= rowBound(relation, parts.error)
+				} else {
+					for (const part of parts.value) {
+						at.push(reads.length)
+						reads.push({
+							family: read.kind === "groups" ? read.groups.family.id : read.family.id,
+							sql: sql.sql.text,
+							params: [
+								...readLiterals(relation, part.keys, widths.key),
+								...readLiterals(relation, part.groups, widths.group)
+							]
+						})
+					}
+				}
+			}
+			chainReads.push({ sql, at })
+		}
+		refills.push({ program: refillProgram, reads: chainReads })
 	}
 	/**
 	 * A stratum's owner writes with every count of an owner the stratum inserts carried by the owner's own insert row
@@ -513,45 +601,6 @@ export const bindWrite = (
 		)
 		return { identity: row.identity, key: row.key, values: rowValues, fact }
 	}
-	/**
-	 * Each family's view of its owners' recounts by the stratum's planned edits: for every family, by its key, each owner's
-	 * counts and ends that the edits of its owner's other families draw, by group key text; none where no other family of
-	 * its owner recounts it.
-	 */
-	const recountsOf = (
-		plans: ReadonlyArray<EditedTarget>
-	): ReadonlyMap<string, ReadonlyMap<string, Values>> => {
-		const drawn = plans.flatMap(({ target, edited }) =>
-			edited.owners.map((write) => ({
-				family: defined(
-					target.families.find((f) => familyKey(f.family.id) === familyKey(write.family)),
-					"an edited relation's family"
-				).family,
-				recounts: write.recounts
-			}))
-		)
-		const out = new Map<string, Map<string, Values>>()
-		for (const family of frontend.laws.families) {
-			for (const other of drawn) {
-				if (
-					other.family.owner.name !== family.owner.name ||
-					familyKey(other.family.id) === familyKey(family.id)
-				) {
-					continue
-				}
-				const byGroup = out.get(familyKey(family.id)) ?? new Map<string, Values>()
-				for (const [text, recount] of other.recounts) {
-					const recounted = new Map(byGroup.get(text) ?? [])
-					for (const [name, value] of recountValues(other.family, recount)) {
-						recounted.set(fieldKey(name), value)
-					}
-					byGroup.set(text, recounted)
-				}
-				out.set(familyKey(family.id), byGroup)
-			}
-		}
-		return out
-	}
 	/** The slots of an owner relation in a stratum that carry its counts and ends: a plain insert's or an enumerated
 	 * put's that starts them (frontend/compile.ts EnumeratedInput "single"), and a nested insert's. */
 	const ownerSlots = (stratum: number, relation: string): ReadonlyArray<ParamId> =>
@@ -565,19 +614,31 @@ export const bindWrite = (
 						: []
 				)
 			)
-	/** Each stratum's plan from the reads' rows, one array of rows per read in order: its nested rows and its edits'
-	 * rows by relation, composed by depth with its edits' counts. */
+	/**
+	 * Each stratum's plan from the reads' rows, one array of rows per read in order: its nested rows, and the rows of
+	 * every relation its edits write or its refills rewrite, composed by depth with their counts.
+	 *
+	 * The stratum's rows are planned over one state (family/state.ts): every row its reads found, and the same rows as
+	 * its changes leave them, a put's caller fields, every edit's and refill's rows and recounts, each owner axis's
+	 * cascade. Each relation's edits and refills are planned against the state the others leave (edit.ts planEdits), a
+	 * tree's refill draws its trees again (edit.ts refillTree), and the plan runs again over the state each plan leaves,
+	 * once more than the relations and trees it plans, so every value drawn from another plan's is drawn from its final
+	 * one: the changes reach one another only along the schema's families, which close no cycle a refill could not order
+	 * (analysis/theory/refill.ts).
+	 */
 	const planned = (
 		rows: ReadonlyArray<Raw>
 	): Result.Result<Planned, EncodingFailure | FamilyRowBound | CompileError> => {
 		const strata = [
 			...new Set([
 				...frontend.nested.map((n) => n.stratum),
-				...edits.map((e) => e.program.edit.stratum)
+				...edits.map((e) => e.program.edit.stratum),
+				...refills.map((r) => r.program.stratum)
 			])
 		]
 		const out = new Map<number, Plan>()
 		const refilled = new Map<ParamId, NormalizedSlot>()
+		const families = frontend.laws.families
 		for (const stratum of strata) {
 			/** The stratum's nested rows but those an edit of their relation plans with its own changes. */
 			const editedHere = new Set(
@@ -590,14 +651,39 @@ export const bindWrite = (
 					editedHere.has(relation) ? [] : [[relation, new Map(relationRows)] as const]
 				)
 			)
-			const editedPlans: Array<RelationPlanAt> = []
-			const counts: Array<Phase<"count">> = []
-			const reading: Array<{
-				readonly bound: BoundEdit
-				readonly stored: ReadonlyMap<string, StoredFamily>
-			}> = []
-			for (const bound of edits.filter((e) => e.program.edit.stratum === stratum)) {
-				const storedOf = new Map<string, StoredFamily>()
+			const refill = refills.find((r) => r.program.stratum === stratum)
+			/** Every row the stratum's reads found, by relation and key text. */
+			const stored: RowState = new Map()
+			/** Each family's stored suffixes, by family key, every read of it as one set. */
+			const suffixes = new Map<string, StoredFamily>()
+			/** An owner's key text in its row layout's key order, from its group texts in the family's group order. */
+			const ownerKeyText = (family: Family, owner: Owner): string => {
+				const layout = rowLayout(family.owner, families)
+				return textsKey(
+					mapNonEmpty(layout.key, (c) =>
+						defined(
+							owner[family.group.findIndex((g) => fieldKey(g.owner.name) === c.key)],
+							`the owner's key field ${c.key} in its group`
+						)
+					)
+				)
+			}
+			const holdFamily = (family: Family, read: StoredFamily): void => {
+				suffixes.set(familyKey(family.id), mergeStored(suffixes.get(familyKey(family.id)), read))
+				for (const g of read.groups.values()) {
+					holdRow(
+						stored,
+						family.owner.name,
+						textsKey(keyOf(ctx, rowLayout(family.owner, families), g.owner)),
+						g.owner
+					)
+				}
+				for (const m of read.members.values()) {
+					holdRow(stored, family.member.name, m.key, m.values)
+				}
+			}
+			const reading = edits.filter((e) => e.program.edit.stratum === stratum)
+			for (const bound of reading) {
 				for (const read of bound.reads) {
 					const decoded = decodeRead(
 						ctx,
@@ -609,67 +695,262 @@ export const bindWrite = (
 					if (!decoded.ok) {
 						return decoded
 					}
-					storedOf.set(familyKey(read.family.id), decoded.value)
+					holdFamily(read.family, decoded.value)
 				}
-				reading.push({ bound, stored: storedOf })
 			}
-			/** The stratum's edits planned with each family's owners read over by `recounted`, every other family's
-			 * recounts of the stratum by owner relation and group (`recountsOf`). */
-			const planAll = (
-				recounted: ReadonlyMap<string, ReadonlyMap<string, Values>>
-			): Result.Result<ReadonlyArray<EditedTarget>, EncodingFailure | CompileError> => {
-				const plannedEdits: Array<EditedTarget> = []
-				for (const { bound, stored: storedOf } of reading) {
-					const target = bound.program.target
-					const edited = planEdits(ctx, target, bound.changes, storedOf, (family) => ({
-						stated: bound.owners(family),
-						plain: !frontend.laws.families.some((f) => f.member.name === family.owner.name),
-						recounted: recounted.get(familyKey(family.id)) ?? new Map<string, Values>()
-					}))
+			/** Each refilled tree's nodes its reads found whole, by family key. */
+			const treeNodes = new Map<string, Set<string>>()
+			for (const read of refill?.reads ?? []) {
+				const decoded = decodeChain(
+					ctx,
+					read.sql.shape,
+					read.at.flatMap((i) => defined(rows[i], `the rows of read ${i}`))
+				)
+				if (!decoded.ok) {
+					return decoded
+				}
+				for (const row of decoded.value.rows) {
+					holdRow(stored, row.relation, row.key, row.values)
+				}
+				const end = decoded.value.end
+				switch (end.kind) {
+					case "suffix":
+						holdFamily(end.family, end.stored)
+						break
+					case "tree": {
+						const keys = treeNodes.get(familyKey(end.family.id)) ?? new Set<string>()
+						for (const key of end.keys) {
+							keys.add(key)
+						}
+						treeNodes.set(familyKey(end.family.id), keys)
+						break
+					}
+					case "rows":
+						break
+				}
+			}
+			const refilledFamilies = new Set(
+				(refill?.program.refill.closure.refills ?? []).map((l) => familyKey(l.id))
+			)
+			const trees = (refill?.program.refill.closure.refills ?? []).filter((l) =>
+				isTreeOf(l, l.member.name)
+			)
+			/** Each relation the stratum edits or refills, as an edit's target, with its edit where it has one. */
+			const units = [
+				...reading.map((bound) => ({ target: bound.program.target, bound })),
+				...(refill?.program.targets ?? [])
+					.filter((target) => !editedHere.has(target.relation.name))
+					.map((target) => ({ target, bound: undefined }))
+			].toSorted((a, b) => depthOf(b.target.relation.name) - depthOf(a.target.relation.name))
+			const current = copyState(stored)
+			for (const read of refill?.program.reads ?? []) {
+				const root = read.root
+				if (root.kind === "put" && !families.some((f) => f.member.name === root.relation.name)) {
+					const layout = rowLayout(root.relation, families)
+					for (const fact of factsOf(root.slot).facts) {
+						writeRow(
+							current,
+							root.relation,
+							textsKey(factKey(ctx, layout, fact)),
+							callerValues(root.relation, fact)
+						)
+					}
+				}
+			}
+			const noChange: RelationChanges = { inserts: [], puts: [], deletes: [], nested: [] }
+			/** The owners of `family` the stratum changes, by group text, each with the columns it changes of it. */
+			const changedOwners = (family: Family): ReadonlyMap<string, Values> => {
+				const layout = rowLayout(family.owner, families)
+				return new Map(
+					[...rowsOf(current, family.owner.name)].flatMap(([key, row]) => {
+						const was = rowOf(stored, family.owner.name, key)
+						const delta = was === undefined ? new Map() : changedColumns(ctx, layout, was, row)
+						return delta.size > 0
+							? [[textsKey(groupOfOwner(ctx, family, row)), delta] as const]
+							: []
+					})
+				)
+			}
+			/** Each pass draws from what the one before left, so each unit's values are final one pass after every value it
+			 * draws from is: the units and trees close no cycle a refill could not order (analysis/theory/refill.ts). */
+			const passes = units.length + trees.length + 1
+			let plannedUnits: ReadonlyArray<EditedTarget> = []
+			for (let pass = 0; pass < passes; pass += 1) {
+				cascade(ctx, families, depthOf, stored, current)
+				const done: Array<EditedTarget> = []
+				for (const { target, bound } of units) {
+					const relation = target.relation
+					const refreshed = target.families.some((f) =>
+						refilledFamilies.has(familyKey(f.family.id))
+					)
+					const storedOf = new Map(
+						target.families.flatMap(({ family }) => {
+							const read = suffixes.get(familyKey(family.id))
+							return read === undefined ? [] : [[familyKey(family.id), read] as const]
+						})
+					)
+					const edited = planEdits(
+						ctx,
+						target,
+						bound?.changes ?? noChange,
+						storedOf,
+						(family) => ({
+							stated:
+								bound?.owners(family) ??
+								ownersOf(ctx, family, insertedOf(stratum, family.owner.name)),
+							plain: !families.some((f) => f.member.name === family.owner.name),
+							recounted: changedOwners(family)
+						}),
+						{
+							current: refreshed ? rowsOf(current, relation.name) : new Map<string, Values>(),
+							refilled: (family) => refilledFamilies.has(familyKey(family.id))
+						}
+					)
 					if (!edited.ok) {
 						return edited
 					}
-					plannedEdits.push({ target, edited: edited.value })
+					done.push({ target, edited: edited.value })
+					const written = edited.value.rows
+					for (const key of written.deletes.keys()) {
+						dropRow(current, relation.name, key)
+					}
+					for (const row of [
+						...written.refills.values(),
+						...written.updates.values(),
+						...written.inserts.values()
+					]) {
+						holdRow(current, relation.name, textsKey(row.key), row.values)
+					}
+					for (const write of edited.value.owners) {
+						const family = defined(
+							target.families.find((f) => familyKey(f.family.id) === familyKey(write.family)),
+							"a planned relation's family"
+						).family
+						for (const recount of write.recounts.values()) {
+							writeRow(
+								current,
+								family.owner,
+								ownerKeyText(family, recount.owner),
+								new Map(
+									[...recountValues(family, recount)].map(
+										([name, v]) => [fieldKey(name), v] as const
+									)
+								)
+							)
+						}
+					}
 				}
-				return Result.ok(plannedEdits)
+				for (const tree of trees) {
+					const keys = [...(treeNodes.get(familyKey(tree.id)) ?? [])]
+					const nodesOf = (state: RowState): ReadonlyMap<string, Values> =>
+						new Map(
+							keys.flatMap((key) => {
+								const row = rowOf(state, tree.member.name, key)
+								return row === undefined ? [] : [[key, row] as const]
+							})
+						)
+					const drawn = refillTree(ctx, tree, nodesOf(stored), nodesOf(current))
+					if (!drawn.ok) {
+						return drawn
+					}
+					for (const [key, node] of drawn.value) {
+						holdRow(current, tree.member.name, key, node)
+					}
+				}
+				plannedUnits = done
 			}
-			/** The edits planned from the owners as the reads found them, then again from the owners with every other
-			 * family's recounts over them, which each family's count statement writes before any member is inserted: a
-			 * recount reads no column another family's recount writes, so the second plan's are final. */
-			const first = planAll(new Map())
-			if (!first.ok) {
-				return first
+			/** The rows of each relation a refill rewrites, by relation and key text, each with every value as the stratum
+			 * leaves it: an owner's count and ends among them, which its count statement then leaves out. A tree's nodes are
+			 * every node whose values its refill changes. */
+			const refillRows = new Map<string, Map<string, FilledRow>>()
+			for (const tree of trees) {
+				const name = tree.member.name
+				const layout = rowLayout(tree.member, families)
+				const nodes = refillRows.get(name) ?? new Map<string, FilledRow>()
+				for (const key of treeNodes.get(familyKey(tree.id)) ?? []) {
+					const was = rowOf(stored, name, key)
+					const now = rowOf(current, name, key)
+					if (
+						was === undefined ||
+						now === undefined ||
+						changedColumns(ctx, layout, was, now).size === 0
+					) {
+						continue
+					}
+					nodes.set(key, { key: keyOf(ctx, layout, now), values: now })
+				}
+				refillRows.set(name, nodes)
 			}
-			const recounted = recountsOf(first.value)
-			const second = recounted.size === 0 ? first : planAll(recounted)
-			if (!second.ok) {
-				return second
-			}
-			const editsPlanned = second.value
-			for (const [i, edited] of foldRecounts(editsPlanned).entries()) {
-				const { target } = defined(editsPlanned[i], "a planned edit")
+			const rewritten = plannedUnits.map(({ target, edited }): EditedTarget => {
+				const name = target.relation.name
+				const rewrites = new Map(refillRows.get(name) ?? [])
+				for (const [key, row] of edited.rows.refills) {
+					rewrites.set(key, { key: row.key, values: rowOf(current, name, key) ?? row.values })
+				}
+				refillRows.set(name, rewrites)
+				return { target, edited: { ...edited, rows: { ...edited.rows, refills: rewrites } } }
+			})
+			const editedPlans: Array<RelationPlanAt> = []
+			const counts: Array<Phase<"count">> = []
+			const planRows = (
+				relation: RelationInfo,
+				layout: RowLayout,
+				write: Parameters<typeof encodedWrite>[2]
+			): Result.Result<void, FamilyRowBound> => {
 				const rowsPlan = planRelation(
-					encodedWrite(ctx, target.layout, edited.rows),
-					inputs.transport
+					encodedWrite(ctx, layout, write),
+					inputs.transport,
+					patternPositions(relation, frontend.laws.natives, layout)
 				)
 				if (!rowsPlan.ok) {
-					return Result.err(rowBound(target.relation.name, rowsPlan.error))
+					return Result.err(rowBound(relation.name, rowsPlan.error))
 				}
-				editedPlans.push({ depth: depthOf(target.relation.name), plan: rowsPlan.value })
+				editedPlans.push({ depth: depthOf(relation.name), plan: rowsPlan.value })
+				return Result.ok(undefined)
+			}
+			for (const [i, edited] of foldRecounts(rewritten).entries()) {
+				const { target } = defined(rewritten[i], "a planned edit")
+				const rowsPlanned = planRows(target.relation, target.layout, edited.rows)
+				if (!rowsPlanned.ok) {
+					return rowsPlanned
+				}
 				for (const owner of carried(stratum, target, edited.owners, refilled, nested)) {
 					const family = defined(
 						target.families.find((f) => familyKey(f.family.id) === familyKey(owner.family)),
 						"an edited relation's family"
 					).family
+					const carriedByRefill = refillRows.get(family.owner.name) ?? new Map<string, FilledRow>()
+					const recounted = [...owner.recounts.values()].filter(
+						(r) => !carriedByRefill.has(ownerKeyText(family, r.owner))
+					)
+					if (recounted.length === 0) {
+						continue
+					}
 					const phase = planOwners(
 						owner.family,
-						countRows(ctx, family, owner.recounts.values()),
+						countRows(ctx, family, recounted),
 						inputs.transport
 					)
 					if (!phase.ok) {
 						return Result.err(rowBound(target.relation.name, phase.error))
 					}
 					counts.push(phase.value)
+				}
+			}
+			for (const tree of trees) {
+				const nodes = refillRows.get(tree.member.name) ?? new Map<string, FilledRow>()
+				if (nodes.size === 0 || units.some((u) => u.target.relation.name === tree.member.name)) {
+					continue
+				}
+				const rowsPlanned = planRows(tree.member, rowLayout(tree.member, families), {
+					relation: tree.member.name,
+					deletes: new Map(),
+					refills: nodes,
+					updates: new Map(),
+					inserts: new Map()
+				})
+				if (!rowsPlanned.ok) {
+					return rowsPlanned
 				}
 			}
 			const relations = nestedPlans(stratum, nested)
@@ -684,7 +965,7 @@ export const bindWrite = (
 	const arraysOf = (
 		relation: string,
 		statement: FamilyStatement
-	): Result.Result<ReadonlyArray<string>, LiteralBound> => {
+	): Result.Result<ReadonlyArray<ParamText>, LiteralBound> => {
 		const rows = textsOf(statement)
 		const width = rows[0]?.length ?? 0
 		return arrayTexts(
@@ -720,7 +1001,7 @@ export const bindWrite = (
 							? target.kind === "owners" && familyKey(s.family) === familyKey(target.family)
 							: target.kind === "rows" && s.relation === target.relation)
 				)
-			const out: Array<ReadonlyArray<string>> = []
+			const out: Array<ReadonlyArray<ParamText>> = []
 			for (const s of sent) {
 				const arrays = arraysOf(step.relation, s)
 				if (!arrays.ok) {
@@ -758,9 +1039,9 @@ export const bindWrite = (
  * read was cut to its transport (order.ts planRead), so every literal fits. */
 const readLiterals = (
 	relation: string,
-	keys: ReadonlyArray<ReadonlyArray<string>>,
+	keys: ReadonlyArray<ReadonlyArray<ParamText>>,
 	width: number
-): ReadonlyArray<string> => {
+): ReadonlyArray<ParamText> => {
 	const literals = arrayTexts(
 		relation,
 		Array.from({ length: width }, (_, i) => `key ${i + 1}`),
@@ -786,7 +1067,7 @@ const insertSlots = (input: EnumeratedInput): ReadonlyArray<ParamId> => {
 	}
 }
 
-const noPlan: Plan = [[], [], [], []]
+const noPlan: Plan = [[], [], [], [], []]
 
 /** Each stratum's plan, and each owner insert slot whose facts carry the counts and ends its members' appends draw. */
 interface Planned {

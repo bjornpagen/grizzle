@@ -59,8 +59,8 @@ import {
 	unobserved
 } from "#test/support/oracle/reference/evaluate.ts"
 
+import { type Identity, sameIdentity } from "#test/support/kernel/identity.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { type Identity, sameIdentity } from "#test/support/oracle/reference/identity.ts"
 import {
 	type DeclineReason,
 	equal,

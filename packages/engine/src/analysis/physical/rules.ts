@@ -38,6 +38,7 @@ import {
 import { appendAll } from "#compiler/core/array.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { TupleMap } from "#compiler/core/tuple-map.ts"
 import {
 	atMost,
 	boundsAtMost,
@@ -54,7 +55,8 @@ import {
 	exprClosure,
 	nativeEqualityKey,
 	type OpId,
-	type ScalarExpr
+	type ScalarExpr,
+	type TypedLiteral
 } from "#compiler/ir/expr.ts"
 import {
 	closedColumn,
@@ -940,8 +942,14 @@ const closedProps = (node: NodeOf<"Closed">, cx: RuleContext): PhysicalProps => 
 	const facts = withReason(justify({ premises: [nodePremise(node.id)], context: "queryLocal" }), [
 		"finiteFacts"
 	])
-	const rowKeys = rows.map((r) => r.map((v) => nativeEqualityKey(v)).join("\u0000"))
-	if (new Set(rowKeys).size === rows.length) {
+	const rowKeys = new TupleMap<EqualityKey, ReadonlyArray<TypedLiteral>>()
+	for (const r of rows) {
+		rowKeys.set(
+			r.map((v) => nativeEqualityKey(v)),
+			r
+		)
+	}
+	if (rowKeys.size === rows.length) {
 		fds.identify(columns, joinJustifications([facts, comparing(node.heading.map((c) => c.type))]))
 	}
 	for (const [i, { name: c, type }] of node.heading.entries()) {

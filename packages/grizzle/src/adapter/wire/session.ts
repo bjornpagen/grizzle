@@ -52,7 +52,14 @@ import type { BatchOutcome, SentText, Transaction } from "#adapter/wire/batch.ts
 import { type ServerAnswer, serverFailure } from "#adapter/wire/failure.ts"
 import { releasingPool } from "#adapter/wire/releasing-pool.ts"
 import { emptyNameMap, loginStartupOptions } from "#compiler/plan/catalog.ts"
-import { type EmittedText, emitText, sha256Hex } from "#compiler/plan/common.ts"
+import {
+	type EmittedText,
+	emitText,
+	nominal,
+	type OutputRows,
+	type ParamText,
+	sha256Hex
+} from "#compiler/plan/common.ts"
 
 /**
  * Sessions: clients of the caller's node-postgres (DbConnection.driver, types/driver.ts PgDriver) in pipeline mode,
@@ -282,7 +289,7 @@ export type WireQuery =
 	| {
 			readonly _tag: "statement"
 			readonly sql: SentText
-			readonly params: ReadonlyArray<string>
+			readonly params: ReadonlyArray<ParamText>
 			/** The session's name for the statement in this execution. */
 			readonly name: StatementName
 	  }
@@ -328,6 +335,9 @@ const forgetParsed = (client: PgClient, name: string): void => {
 	}
 }
 
+/** A result's rows whose every cell arrived as text: PostgreSQL's output texts, minted here, where they arrive. */
+const outputRows = nominal<ReadonlyArray<ReadonlyArray<string>>, OutputRows>()
+
 /** Rows every cell of which arrived as text: a native loop over every cell of the result. */
 const isTextRows = (
 	rows: ReadonlyArray<ReadonlyArray<unknown>>
@@ -362,7 +372,7 @@ const answerOf = (driver: PgDriver, error: unknown, result: PgArrayResult | unde
 	if (!isTextRows(rows)) {
 		return { _tag: "unreadable", command: result.command }
 	}
-	return { _tag: "result", outcome: { command: result.command, rows } }
+	return { _tag: "result", outcome: { command: result.command, rows: outputRows(rows) } }
 }
 
 /** The identity of every type: each cell stays the text the server sent. */

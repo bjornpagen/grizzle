@@ -19,6 +19,7 @@ import { bigint, double, float, uuid } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { cursorCodec, cursorTokenMaxLength } from "#compiler/codec/cursor/codec.ts"
+import { scalarReader } from "#compiler/codec/read.ts"
 import { scalarCodec } from "#compiler/codec/scalar.ts"
 import { int8Max, int8Min } from "#compiler/core/limits.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
@@ -43,6 +44,7 @@ import { parsedName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
+import { outputText, paramText } from "#test/support/wire.ts"
 import { decimalGen } from "#test/unit/values/support.ts"
 
 /**
@@ -245,6 +247,7 @@ const batches: Gen<ReadonlyArray<ReadonlyArray<unknown>>> = (source) =>
 const agreement = (db: RawSession, names: SqlNames, c: Case, batch: ReadonlyArray<unknown>) =>
 	Effect.gen(function* () {
 		const scalar = scalarCodec(c.type, kindCodes)
+		const reader = scalarReader(c.type, kindCodes)
 		const codec = succeeded(
 			cursorCodec(
 				{
@@ -272,7 +275,7 @@ const agreement = (db: RawSession, names: SqlNames, c: Case, batch: ReadonlyArra
 			assert.ok(typeof text === "string", "a row's value is its text")
 			const atOrBefore = Number(row[1])
 			/** The boundary is captured from converted database output. */
-			const captured = scalar.convert(text)
+			const captured = reader.convert(outputText(text))
 			const decoded = succeeded(codec.decode(succeeded(codec.encode([captured]))))
 			/**
 			 * Exactly the captured value: its canonical text (a real's is the binary64 text of its binary32 value,
@@ -280,7 +283,7 @@ const agreement = (db: RawSession, names: SqlNames, c: Case, batch: ReadonlyArra
 			 */
 			const exact = scalar.text(captured)
 			assert.equal(scalar.text(decoded.values[0]), exact)
-			assert.equal(decoded.texts[0], exact)
+			assert.equal(decoded.texts[0], paramText(exact))
 			if (Option.isSome(previous)) {
 				assert.ok(
 					compareValues(scalar.spec, previous.value, decoded.values[0]) <= 0,
@@ -298,7 +301,7 @@ const agreement = (db: RawSession, names: SqlNames, c: Case, batch: ReadonlyArra
 			assert.equal(Number(before) + Number(equal), atOrBefore)
 			assert.ok(Number(equal) >= 1)
 			assert.ok(echoed !== undefined, "the bound parameter is echoed")
-			assert.equal(scalar.text(scalar.convert(echoed)), exact)
+			assert.equal(scalar.text(reader.convert(outputText(echoed))), exact)
 		}
 	})
 

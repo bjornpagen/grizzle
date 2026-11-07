@@ -159,6 +159,28 @@ export const postgresSource = "https://github.com/postgres/postgres/blob/REL_19_
  * (https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/limits.h.html, "{_POSIX2_RE_DUP_MAX} Maximum number of
  * repeated occurrences of a BRE or ERE interval expression; [...] Value: 255"), so every platform's build has it.
  */
+/**
+ * The members of one union TypeScript represents: a union or template literal whose cross product reaches this many is
+ * TS2590, "Expression produces a union type that is too complex to represent". A pattern's inferred host type is its
+ * exact member union below it and string at it (types/fields/source.ts LanguageCount), decided before anything is
+ * expanded.
+ */
+export const typeUnionLimit = measured({
+	value: 100_000,
+	owner: "TypeScript's checker (tsgo 7.1.0-beta), its cross-product union refusal",
+	unit: "union members",
+	scope: "one union or template literal type, a str.regex pattern's inferred host type among them",
+	evidence:
+		"test/types/regex/agreement.ts: its program states a template literal of 9 × 41 × 271 = 99,999 members, which typechecks, and one of 10^5 members under a TS2590 directive, which the type-test batch requires on every run",
+	observed: "2026-11-06, a standalone probe of the two templates, the same the program states",
+	environment: "tsgo 7.1.0-beta as package.json pins it, on macOS",
+	workload: "the two template literal types alone, checked once",
+	result: "the 99,999-member template typechecked; the 100,000-member one was TS2590",
+	decision:
+		"the checker's own threshold, which grizzle's inference never reaches: a count at it widens the host type to string",
+	revalidate: "a TypeScript upgrade; the regex agreement program's TS2590 directive left unmet"
+})
+
 export const regexMaxRepeat = published({
 	value: 255,
 	owner: "PostgreSQL 19rc1's regex compiler",

@@ -19,7 +19,8 @@ import { typeRun } from "#test/types/batch/provided.ts"
  * law makes it, each refusal under its directive at its argument, and each admitted attachment's records, of a snapshot
  * read and of a read-back, the engine's decoded heading under the delivery stated, a nested attachment's within its
  * child's records. A read-back's delivery is one the engine proves in the transaction context, and the floor's
- * witnesses reach every delivery, refusal, proof and shape, a derived parent's and a nested attachment's among them.
+ * witnesses reach every delivery, refusal, proof and shape, a derived parent's and a nested attachment's among them,
+ * and a child over no level of its parent's schema, which both refuse.
  */
 const required: Situations<AttachNote> = [
 	...Arr.map(attachRefusals, (refusal): AttachNote => `refused: ${refusal}`),
@@ -38,7 +39,8 @@ const required: Situations<AttachNote> = [
 	"a child of two rules",
 	"a derived parent",
 	"a nested attachment admitted",
-	"a nested attachment refused"
+	"a nested attachment refused",
+	"a foreign child refused"
 ]
 
 layer(NodeServices.layer, { excludeTestServices: true })("the attachment agreement", (it) => {

@@ -19,6 +19,7 @@ import {
 	sumSql
 } from "#compiler/scalar/compute/tables.ts"
 
+import type { OutputText } from "#compiler/core/wire.ts"
 import {
 	type PredicateValue,
 	predicateExpr,
@@ -178,7 +179,7 @@ const sameMoney = (literal: unknown, host: unknown): boolean =>
 /** A head literal's SQL type, that type's conversion of its output text, and its equality of host values. */
 interface LiteralType {
 	readonly sql: SqlTag
-	readonly convert: (text: string) => unknown
+	readonly convert: (text: OutputText) => unknown
 	readonly equal: (literal: unknown, host: unknown) => boolean
 }
 

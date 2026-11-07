@@ -26,14 +26,15 @@ import { predicateTable, type ScalarExpr } from "#compiler/ir/expr.ts"
 import type { OpenExpr } from "#compiler/ir/open.ts"
 import { textOf } from "#compiler/ir/scalar.ts"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
-import { evaluateTable } from "#compiler/scalar/compute/evaluate.ts"
+import { evaluateTable, sqlNull } from "#compiler/scalar/compute/evaluate.ts"
 import type { CarrierValue } from "#compiler/scalar/compute/literal.ts"
-import { regexMember } from "#compiler/scalar/regex/nfa.ts"
+import { CompilePatterns, ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { charMapOf, imageOf } from "#compiler/scalar/regex/translate.ts"
 import { collapsed, collapseSources } from "#compiler/scalar/regex/whitespace.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"
 import {
 	assert,
+	assertNot,
 	assertVariant,
 	defined,
 	refusalLoc,
@@ -116,12 +117,13 @@ const values = (
 				table.exprs,
 				table.root,
 				{ value: undefined, column: (ref) => row.get(ref.name), closed: () => undefined },
-				regexMember
+				ProgramPatterns.of(tablePatterns(table))
 			),
 			(stop) => new Error(Formatter.format(stop))
 		),
 		"the host evaluates it"
 	)
+	assertNot(host, sqlNull, "the host's value is a value, no operand being NULL")
 	const reference = evaluate(root, {
 		kind: "row",
 		column: (ref) => row.get(ref.name),
@@ -365,10 +367,10 @@ describe("Compute's translate and lowerAscii", () => {
 					),
 					kept: [
 						{
-							note: "a pattern of seven anchors unanchored at either end, whose exact image writes out nine, past the eight PostgreSQL's compile space admits: the pattern's own image types it",
+							note: "a code point and four end-or-start tests, eight anchors unanchored at the start, whose exact image writes out two more, past the eight PostgreSQL's compile space admits: the pattern's own image types it",
 							sketch: {
 								family: 0,
-								source: "0{1}(^)|((0))(($)|((((^)|(^)(^|$|\\d^)))))",
+								source: "\\u{30}(?:$|^)(?:$|^)(?:$|^)(?:$|^)",
 								flags: "u",
 								map: { from: [0x30], to: [0x31] },
 								texts: ["", "1", "21"]
@@ -421,7 +423,8 @@ describe("Compute's translate and lowerAscii", () => {
 						const exact = analyzeText(
 							imageOf(
 								operandText.regex,
-								succeeded(charMapOf(codePointsText(c.map.from), codePointsText(c.map.to)))
+								succeeded(charMapOf(codePointsText(c.map.from), codePointsText(c.map.to))),
+								new CompilePatterns()
 							).exact,
 							"u",
 							SourceLoc("the exact image", [])
@@ -1210,7 +1213,7 @@ describe("Compute's translate and lowerAscii", () => {
 						const operandText = defined(textOf(operand.scalar))
 						const chosen = defined(
 							Arr.findFirst(
-								collapseSources(operandText.regex, operandText.lengthBound),
+								collapseSources(operandText.regex, operandText.lengthBound, new CompilePatterns()),
 								(s) => analyzeText(s.source, s.flags, SourceLoc("image", [])).ok
 							).pipe(Option.getOrUndefined),
 							"an admitted image"

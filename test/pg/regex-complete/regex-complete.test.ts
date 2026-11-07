@@ -72,6 +72,7 @@ import { checking, owning } from "#test/support/policy.ts"
 import { expectConstraint, expectSqlstate, inTransaction } from "#test/support/substrate/expect.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { ownerSession, Substrate, worldSession } from "#test/support/substrate/substrate.ts"
+import { paramText } from "#test/support/wire.ts"
 import { oracleWorld } from "#test/support/worlds.ts"
 
 /**
@@ -756,7 +757,7 @@ layer(Substrate.layer)("refinement validation sites on PostgreSQL 19", (it) => {
 							const written = arrayTexts(
 								slot.relation,
 								fields,
-								[Arr.map(fields, (f) => defined(fact[f], `the fact's ${f}`))],
+								[Arr.map(fields, (f) => paramText(defined(fact[f], `the fact's ${f}`)))],
 								maxStringLength.value
 							)
 							if (!written.ok) {

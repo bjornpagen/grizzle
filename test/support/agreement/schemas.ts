@@ -168,6 +168,7 @@ const schemaConstructs = [
 	"closedRelationProbe",
 	"closedReadProbe",
 	"castProbe",
+	"serialChainProbe",
 	"generatedProbe",
 	"slotKeyProbe",
 	"slotSideProbe",
@@ -209,6 +210,7 @@ const schemaForms = [
 	"derivedOverLevels",
 	"derivedBoundImport",
 	"derivedDiscriminated",
+	"derivedProjection",
 	"finOfKey",
 	"finOfAccumulated",
 	"closedKeyOne",
@@ -299,6 +301,8 @@ const schemaFaults = [
 	"selectedUndeclared",
 	"keyOverClosed",
 	"lookAlikeDescriptor",
+	"serialUnderContract",
+	"spanOverSerialChain",
 	"setPrimaryKey",
 	"setKey",
 	"conflictingRow",
@@ -712,6 +716,18 @@ const refusals: { readonly [F in SchemaFault]: Refusing } = {
 		claim: prose(
 			"key takes a side of an ordinary relation; a closed relation is keyed by its declaration"
 		)
+	},
+	serialUnderContract: {
+		engine: { tag: "UnsupportedOperation" },
+		code: "TS2345",
+		claim: named(
+			"a contract is a value domain; a serial is a generation declaration, so use its integer type"
+		)
+	},
+	spanOverSerialChain: {
+		engine: { tag: "UnsupportedOperation" },
+		code: "TS2345",
+		claim: prose("a span endpoint's contract chain holds no serial")
 	},
 	setPrimaryKey: {
 		engine: { tag: "UnrepresentableKey" },
@@ -2820,6 +2836,7 @@ const hostOfScalar = (t: ScalarType, ids: Ids): string => {
 			return `Ff.Bits<typeof ${ids(t.roster.closed)}>`
 		case "range4":
 		case "range8":
+		case "rangeDate":
 			return `Fi.Span<${hostOfScalar(t.span.endpoint, ids)}>`
 		case "vector":
 			return `Fi.Vector<${t.typmod.dims}>`
@@ -3589,12 +3606,13 @@ type DerivedFault = Extract<
 >
 
 /** The derived definitions a derived probe states that the engine admits, each noted as its form. */
-type DerivedValid = "overLevels" | "boundImport" | "discriminated"
+type DerivedValid = "overLevels" | "boundImport" | "discriminated" | "projection"
 
 const validForm: { readonly [K in DerivedValid]: SchemaForm } = {
 	overLevels: "derivedOverLevels",
 	boundImport: "derivedBoundImport",
-	discriminated: "derivedDiscriminated"
+	discriminated: "derivedDiscriminated",
+	projection: "derivedProjection"
 }
 
 /** The definition the derived relation's probes draw over: the base's derived spec's relation and field. */
@@ -3636,7 +3654,8 @@ const definitionSource = (
  * containment's left side, its right side or a mirror; fin over it; each a planted fault. The admitted forms: a further
  * derived relation over the extension, declared above it, whose schema's levels are its own, the extension's and the
  * root's; a definition matching a query that reads a parameter, bound at each group value; a definition of two arms of
- * one heading, apart only in the handle a discriminant holds. Each admitted definition's fact is the heading the engine
+ * one heading, apart only in the handle a discriminant holds; a projection of its relation's key fields and group
+ * field, which keeps the keys it inherits. Each admitted definition's fact is the heading the engine
  * compiles it to.
  */
 const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
@@ -3645,9 +3664,9 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 		return undefined
 	}
 	const r = relationNamed(base.relations, spec.over)
-	const valid = d.from<DerivedValid>(["overLevels", "boundImport", "discriminated"])
+	const valid = d.from<DerivedValid>(["overLevels", "boundImport", "discriminated", "projection"])
 	const [fault, side] =
-		d.upTo(2) === 0
+		d.upTo(3) === 0
 			? ([undefined, "left"] as const)
 			: d.from<readonly [DerivedFault, DerivedSide]>([
 					["parameterizedDefinition", "left"],
@@ -3727,6 +3746,18 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 					head: [],
 					line: `export const ${own} = Sc.derived("Probe", Q.query(${ids("S")})${armText(discriminants[0])}${armText(discriminants[1])})`,
 					tail: [fact(discriminatedValue(env))]
+				}
+			}
+			case "projection": {
+				const level = `${own}_level`
+				return {
+					head: [],
+					line: `export const ${own} = Sc.derived("Probe", Q.query(${ids("S")}).rule((r) => { ${matched(ids)}.find({ ${Arr.join(bound, ", ")} }) }))`,
+					tail: [
+						fact(projectionValue(env)),
+						`export const ${level} = Sc.schema.extend(${ids("S")}, { Probe: ${own} }, [])`,
+						`export type ${own}_keys = Expect<Equals<Sc.KeysOf<typeof ${level}, typeof ${own}>, ${projectionKeys(env)}>>`
+					]
 				}
 			}
 		}
@@ -3832,6 +3863,31 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 				})
 		})
 	}
+	/** A projection of R's key fields and its group field: no aggregate, its keys the ones it inherits from R. */
+	const projectionValue = (env: Env): QueryValue =>
+		queryOver(env.schema).rule(
+			arm(env, (vars) => Rec.fromEntries(Arr.map(bound, (f) => [f, vars[f]] as const)))
+		)
+	/** The keys the engine infers the projection inherits, as KeysOf states them, from its compiled extension. */
+	const projectionKeys = (env: Env): string => {
+		const compiled = Result.flatMap(
+			catchCompileError(() =>
+				schema.extend(env.schema, { Probe: derived("Probe", projectionValue(env), []) }, [], [])
+			),
+			(level) => testArtifacts(level, testCompile)
+		)
+		if (!compiled.ok) {
+			throw new Error(
+				`the engine refuses a drawn projection, a defect of the generator: ${messageOf(compiled.error)}`
+			)
+		}
+		const analysis = compiled.value.derived.relations["Probe"]
+		const keys =
+			analysis === undefined
+				? []
+				: Arr.map(analysis.keys, (k) => `ReadonlyArray<${literalUnion(k.fields)}>`)
+		return Arr.isReadonlyArrayNonEmpty(keys) ? Arr.join(keys, " | ") : "never"
+	}
 	/** Two arms of one heading, apart only in the handle their discriminant arm holds. */
 	const discriminatedValue = (env: Env): QueryValue => {
 		const handles = got(env.rosters, roster.name)
@@ -3862,6 +3918,8 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 						return probing(() => boundImportValue(env))
 					case "discriminated":
 						return probing(() => discriminatedValue(env))
+					case "projection":
+						return probing(() => projectionValue(env))
 				}
 			case "parameterizedDefinition":
 				return building(() => derived("Probe", parameterizedDefinition(spec, base, env), []))
@@ -5127,7 +5185,7 @@ const valueDescriptorType = (desc: FieldDesc, base: Base, ids: Ids): string => {
 			return `Fi.Contract<${jsonText(desc.name)}, ${valueDescriptorType(desc.base, base, ids)}>`
 		}
 		case "span":
-			return `Fi.SpanField<${hostOfDesc(desc.endpoint, base, ids)}>`
+			return `Fi.SpanField<${hostOfDesc(desc.endpoint, base, ids)}, Ph.DomainOf<${valueDescriptorType(desc.endpoint, base, ids)}>>`
 		case "closedId":
 			return `Fi.ClosedIdField<typeof ${ids(desc.roster)}>`
 		case "bits":
@@ -5269,7 +5327,6 @@ const baseAssertions = (
 						`Sc.LevelsOf<typeof ${ids("Level")}>`,
 						`typeof ${ids("Level")} | typeof ${ids("S")}`
 					),
-					expect("base", `Ss.BaseSchemaOf<typeof ${ids("Level")}>`, `typeof ${ids("S")}`),
 					...derivedAssertions(base.derived, base, env, artifacts, ids)
 				]
 	const root =
@@ -5489,7 +5546,7 @@ const descriptorAssertions = (base: Base, env: Env, ids: Ids): ReadonlyArray<str
 					),
 					expect(
 						`endpoint_${r.name}_${name}`,
-						`[${fieldOfR(name)}] extends [Fi.IntegerLike] ? true : false`,
+						`[${fieldOfR(name)}] extends [Fi.SpanEndpointLike] ? true : false`,
 						endpoint ? "true" : "false"
 					),
 					...(decl.type.kind === "vector"
@@ -6319,6 +6376,40 @@ const slotKeyProbe = (d: Drawing): Probe => {
 	}
 }
 
+/**
+ * A contract over a serial, refused where it is declared, then read where a descriptor is admitted: as the base of a
+ * further contract, the serial at depth two of its chain, or as a span's endpoint. Each is a planted fault, the
+ * serial anywhere down the chain refused as at depth one; the engine refuses the inner contract, so the chain is never
+ * built. The probe is never admitted, so its construct is noted where drawn.
+ */
+const serialChainProbe = (d: Drawing): Probe => {
+	d.note("serialChainProbe")
+	const serial = d.from(serialSpellings)
+	const fault = d.from(["serialUnderContract", "spanOverSerialChain"] as const)
+	const inner = () => admitContract("Inner", pgDescriptors[serial], [])
+	return {
+		construct: "serialChainProbe",
+		refused: fault,
+		text: (_ids, own) => ({
+			head: [
+				"// @ts-expect-error -- TS2345 refusal: a contract is a value domain; a serial is a generation declaration, so use its integer type",
+				`export const ${own}_inner = Fi.contract("Inner", Fi.pg.${serial})`
+			],
+			line:
+				fault === "serialUnderContract"
+					? `export const ${own} = Fi.contract("Outer", ${own}_inner)`
+					: `export const ${own} = Fi.span(${own}_inner)`,
+			tail: []
+		}),
+		judge: () =>
+			building(() =>
+				fault === "serialUnderContract"
+					? admitContract("Outer", inner(), [])
+					: spanDescriptor(inner())
+			)
+	}
+}
+
 /** The integer types a cast probe's operand and target are drawn from. */
 const castTypes = ["smallint", "integer", "bigint"] as const
 
@@ -6569,6 +6660,7 @@ const probeMakers: ReadonlyArray<
 	["closedReadProbe", closedReadProbe],
 	["castProbe", (d) => castProbe(d)],
 	["generatedProbe", generatedProbe],
+	["serialChainProbe", (d) => serialChainProbe(d)],
 	["slotKeyProbe", (d) => slotKeyProbe(d)],
 	["slotSideProbe", slotSideProbe],
 	["slotContainmentProbe", slotContainmentProbe]
@@ -6739,7 +6831,6 @@ interface SchemaEntries {
 	readonly query: string
 	readonly changeset: string
 	readonly fieldTypes: string
-	readonly schemaTypes: string
 	readonly statementTypes: string
 	readonly decoder: string
 	readonly compute: string
@@ -6756,7 +6847,6 @@ export const schemaEntriesFrom = (entry: (path: string) => string): SchemaEntrie
 	query: entry("packages/engine/src/public/query.ts"),
 	changeset: entry("packages/engine/src/types/changeset/changeset.ts"),
 	fieldTypes: entry("packages/engine/src/types/fields/field.ts"),
-	schemaTypes: entry("packages/engine/src/types/schema/schema.ts"),
 	statementTypes: entry("packages/engine/src/types/schema/statements.ts"),
 	decoder: entry("packages/engine/src/core/decoder.ts"),
 	compute: entry("packages/engine/src/public/compute.ts"),
@@ -6796,7 +6886,6 @@ export const schemaModules = (
 					`import * as Fi from ${jsonText(entries.fields)}`,
 					`import * as Q from ${jsonText(entries.query)}`,
 					`import * as Sc from ${jsonText(entries.schema)}`,
-					`import type * as Ss from ${jsonText(entries.schemaTypes)}`,
 					`import type * as St from ${jsonText(entries.statementTypes)}`,
 					`import * as Tx from ${jsonText(entries.text)}`,
 					"",

@@ -163,6 +163,7 @@ const sameValue = (value: CarrierValue, text: string, type: ScalarType): boolean
 			)
 		case "range4":
 		case "range8":
+		case "rangeDate":
 		case "text":
 		case "uuid":
 		case "date":

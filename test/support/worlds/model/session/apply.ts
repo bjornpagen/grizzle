@@ -20,7 +20,12 @@ import {
 	type RowFault,
 	rowFault
 } from "#test/support/worlds/model/session/domains.ts"
-import { brokenAt, type Submitted, witnessFor } from "#test/support/worlds/model/session/laws.ts"
+import {
+	brokenAt,
+	statedKey,
+	type Submitted,
+	witnessFor
+} from "#test/support/worlds/model/session/laws.ts"
 import {
 	type Called,
 	roleEntryOf,
@@ -355,27 +360,24 @@ const statedOf = (fact: HostFact): HostFact =>
 	Rec.fromEntries(Arr.filter(Rec.toEntries(fact), ([, value]) => !isDrawn(value)))
 
 /**
- * The witness of a law domain's CHECK refusing a judged op's statement (README "Errors and outcomes"): the host judges
- * the facts the op states, each a target fact with its fills, and names the first that breaks a law domain by the
- * first key of its target it carries whole, in the terms its role relation wrote it in
- * (packages/engine/src/write/program/witness.ts hostWitness). Any violating fact may be the first, so each one's key at
- * every key it carries whole is allowed. A delete states no fact and a fact whose every key holds a drawn serial carries
- * none whole, so neither shows a key.
+ * The witness of a law domain's CHECK refusing a judged op's statement (README "Errors and outcomes"): grizzle judges
+ * the facts the op states, each a target fact with its fills, on the host, and names the first that breaks a law
+ * domain by its stated key (laws.ts statedKey), in the terms its role relation wrote it in; any violating fact may be
+ * the first. A delete states no fact, and a fact that states no key whole names none.
  */
-const domainWitness = (base: BaseSpec, j: Judged): Witness => {
+const domainWitness = (state: ModelState, j: Judged): Witness => {
 	if (j.op.kind === "delete") {
 		return { kind: "withheld" }
 	}
+	const base = state.install.base
 	const target = j.written.target
 	const violating = Arr.filter(j.submitted, (fact) => {
 		const stated = statedOf(fact)
 		return rowFault(factCells(base, target, stated, Rec.keys(stated)))?.kind === "checks"
 	})
 	const keys = Arr.flatMap(violating, (fact) => {
-		const stated = statedOf(fact)
-		return Arr.flatMap(keysOf(base, target), (key) =>
-			Arr.every(key, (field) => stated[field] !== undefined) ? [keyIn(j.written, stated, key)] : []
-		)
+		const key = statedKey(state.names.keys, target, fact)
+		return key === undefined ? [] : [keyIn(j.written, statedOf(fact), key)]
 	})
 	return keys.length === 0 ? { kind: "withheld" } : { kind: "shown", keys }
 }
@@ -393,7 +395,7 @@ const refusalsOf = (
 	j: Judged
 ): ReadonlyArray<ActionOutcome> => {
 	if (j.checks.length > 0) {
-		const witness = domainWitness(state.install.base, j)
+		const witness = domainWitness(state, j)
 		return Arr.map(j.checks, (law): ActionOutcome => ({ kind: "invariant-rejected", law, witness }))
 	}
 	const outside: ReadonlyArray<ActionOutcome> = j.outside
@@ -435,8 +437,9 @@ const carriedFields = (base: BaseSpec, w: Written): ReadonlySet<string> =>
 /**
  * The key refusal grizzle's host normalization makes of one target's additions, or of its deletions, in a stratum
  * (packages/engine/src/write/normalize/normalize.ts), before any SQL is sent: two facts its inserts and puts submit,
- * inside the entry or not and whatever the claims fill, that agree on a key (or, of a span key, collide) and differ
- * elsewhere break the key whatever is stored; and two facts its deletes name, inside the entry or not, that agree on
+ * inside the entry or not and whatever the claims fill, that agree on a key (or, of a span candidate key, collide; a
+ * span primary key's overlapping pairs are its write statement's) and differ elsewhere break the key whatever is
+ * stored; and two facts its deletes name, inside the entry or not, that agree on
  * every field of a key, a span compared as a value, and differ elsewhere name two facts where the key names one. The
  * first key of the target holding such a pair, the primary key first and then the declared keys in order, the
  * additions judged before the deletions, is invariant-rejected on its law, its witness the key of one of those facts in
@@ -473,7 +476,8 @@ const keyConflictOf = (
 
 /**
  * The refusal of the first key of `target` two of `facts` agree on and differ elsewhere (see `keyConflictOf`): a span
- * key's agreement is a collision among additions and equal values among deletions.
+ * candidate key's agreement is a collision among additions; a span primary key's, and any span key's among deletions,
+ * equal values.
  */
 const conflictAmong = (
 	state: ModelState,
@@ -488,13 +492,13 @@ const conflictAmong = (
 	const carried = carriedFields(state.install.base, first.w)
 	const carriedOnly = (fields: ReadonlyArray<string>): ReadonlyArray<string> =>
 		Arr.filter(fields, (f) => carried.has(f))
-	for (const key of keysOf(state.install.base, target)) {
+	for (const [position, key] of keysOf(state.install.base, target).entries()) {
 		const law = keyLawOf(state, target, key)
 		if (law === undefined || (law.kind === "spanKey" && !carried.has(law.span))) {
 			continue
 		}
 		const agree = (a: HostFact, b: HostFact): boolean =>
-			law.kind === "spanKey" && spans === "collide"
+			law.kind === "spanKey" && spans === "collide" && position > 0
 				? collide({ ...law, scalars: carriedOnly(law.scalars) }, a, b)
 				: projection(a, carriedOnly(key)) === projection(b, carriedOnly(key))
 		const paired = Arr.filter(facts, (x) =>
@@ -792,7 +796,7 @@ export const applyCall = (
 			Arr.map(brokenAt(state.host, after, at), ({ violation }) => ({
 				kind: "invariant-rejected",
 				law: violation.law,
-				witness: witnessFor(state.host, role, violation, submitted)
+				witness: witnessFor(state.host, state.names.keys, role, violation, submitted)
 			}))
 		let now = state.reality
 		let draws = nextDraw(state)

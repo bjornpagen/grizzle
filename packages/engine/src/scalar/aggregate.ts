@@ -230,6 +230,7 @@ const catalogName = (t: ScalarType): string => {
 			return "bit"
 		case "range4":
 		case "range8":
+		case "rangeDate":
 			return "anyrange"
 		case "vector":
 			return "vector"

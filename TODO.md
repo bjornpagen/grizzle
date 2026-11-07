@@ -42,46 +42,25 @@ How the work runs:
 	- Tell the downstream session first: its database lives in the cluster.
 
 ### 2. No known bug
-- **A containment's reverse index never refuses it** (K, the fix is in): its tests follow. A search over
-  containments with unbounded source columns at every position, with and without a covering key and a source
-  selection, and a bounded run too wide for one entry. Oracle: the schema compiles and every planned index is a proved
-  B-tree, a proved GiST or a hash; on 5433 the reverse probe's generic plan uses an index, and a 10,000-byte text lands.
-  Planted bug: every source column planned.
-- **The key text budget leaves out the index tuple's null bitmap** (K): the fix is in, and a generated suite
-  follows: a declared key, a key over a selection, an ordered family's axis and a tree's predecessor axis, each
-  admitted at N and refused at N+1 where tight. `keyTextBytes`'s JSDoc and README say `fields` is every other column
-  of the index.
-- **A byte bound as a refinement, not a type** (K, qti-pie's 54 containments): `str.bytes(N, pattern)`, its CHECK
-  `octet_length(VALUE) <= N` beside the pattern's, read exactly by the bound analysis, meeting any text in a
-  containment as a pattern does. Test: texts at N-1, N and N+1 bytes in 1- to 4-byte scripts against the CHECK and the
-  analysis. Planted bug: the bound made part of the type.
-- **Compute's types and engine disagree** (W-agree, W-typesC):
-	- integer exact division's refusal names the `proves` to add; Compute.numeric refuses a text operand; a span's
-	  endpoint refusal and span casts between endpoint contracts in the types; README and SKILL state `proves`;
-	- a partial operation's types print its precondition's Refusal only for an operand of the type it takes, and the
-	  operand's type refusal otherwise, in the engine's order (`Compute.mod(cell.int, …)`, widthBucket over real, power
-	  over integer, casts, the literal-first Refusal);
-	- `Compute.cast(Compute.add(r.depth, 1), pg.integer)` in a generated field: the types accept it, the engine
-	  refuses PartialOperation;
-	- a containment into a side that is not a key, and a narrowing whose fit rests on bounds, are decided at compile
-	  (the types track neither a key over a selection nor bounds): the populations draw them as declared classes;
-	- a delete listing two facts that share a key with different payloads: the types refuse it, the engine admits it.
-	  The engine refuses it too, as it does for an insert and a put (W-typesD).
 - **Changing an owner's column that a family's derived value reads through a copy** (a fold step, a predecessor or last
   copy, a copy of a copy) is refused today (StaleDerivedRead, CascadedCopyAppend). Lane REFILL, on F's design: every
   stale path is refilled members-first, ahead of the change that would cascade into it, as a node of the unified
   schedule; the axes it writes around are deferred by schema analysis; one read flight locates the groups. Only a change
   sourced from a query stays refused. Guard: fill-order's follow-up writes every case and the stored rows equal the
   reference writer's; planted bug: a refill out of members-first order.
-- **An absent key in a closed read raises a domain CHECK** (qti-pie, defect 3): `C.row` of an absent `C.at` casts NULL to
-  the set's bits domain, whose `IS TRUE` CHECK raises 23514 before the law's three-valued logic can hold, so every
-  lawful row of such a relation is refused. Lane CROW: the contract (C.at reads NULL, C.row the empty set, the law
-  decides) over every domain that refuses NULL. Guard: a pg search over every read form, carrier and position, the
-  downstream shape kept; planted bugs: IS TRUE on a NULL cast, a C.row reading NULL.
-- **@grizzle/testing `matching()` refuses after expanding every class** (qti-pie, low): an unbounded `*`, `+` or
-  `{n,}` is refused only after the pattern's classes are built, 2.8-4.3 s for XML's Char class. Decide the refusal
-  from the repetition structure first. Test: a count of class expansions for refused patterns, 0. Planted bug:
-  expanding first.
+- **A fold step's selection that reads an absent closed key refuses a lawful write** (found by CROW after 0e4454d): the
+  host evaluator has no NULL, and the combine CHECK is not three-valued. Lane CROW: NULL as a value in evaluate.ts
+  (Kleene AND/OR, strict elsewhere), `CASE WHEN φ` in the combine, the witness judge exact. Guard: absent reads in fold
+  steps and selections on host and server; planted bug.
+- **A nested write's identity concatenates every member's content** (qti-pie, defect 4): past V8's string limit the
+  write dies in the host. Lane TKEY: rows identified by tuples of interned texts (core/tuple-map.ts), every value-text
+  key in the engine cut; guard, kept case and planted bugs pass. The family key text (edit/decode/order/state/bind)
+  follows once REFILL frees those files.
+- **A near-limit numeric power takes seconds in the test's host port of numeric.c** (power.test.ts never finished).
+  Lane CMP: the port on PostgreSQL's NBASE digit arrays, a yield per pair, a work-count gate.
+- **Regex types beyond TypeScript's representable union** (`[ab]{255}`): TS2590 after 20 s where the engine admits it.
+  Lane W-typesA: the exact union up to TypeScript's own limit, the pattern's RegexText widening past it, decided by a
+  saturating count in the scan; a regex scaling dimension in the type batch.
 - **README limits the downstream census found:** the str.regex grammar (no lookaround, no \p), and that a generated
   NOT NULL column's 23502 fails the write as ExecutionFailure naming no law.
 - **Watch first at the gate** (lanes' own risk notes for suites that have never run on 5433):
@@ -94,9 +73,6 @@ How the work runs:
 - **Everything parked "after the beta" is fixed for it** (owner, 2026-11-06: "all these known issues must be
   fixed"). What remains, by lane:
 	- REFILL: refill on an owner's copied column (above).
-	- KEYS: rewrites' key claims on proofs; a projection drops a dependency on a dropped column; a lateral fixed column
-	  in both directions; linear minimal keys over k joined relations; a closed relation's identical columns as one
-	  class.
 	- OPEN: date spans; family rows ordered by pattern input (after FOLD's brands).
 	- FOLD: host values only inside the engine, ParamText/OutputText brands, every encode/decode round trip deleted.
 	- PERF: the 1M-row plans under roles, index-served.

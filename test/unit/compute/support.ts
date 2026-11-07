@@ -58,7 +58,7 @@ import { textLookup } from "#compiler/text/refinement.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { textDesc } from "#test/support/fixtures/ir/desc.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
-import { patternMember } from "#test/support/oracle/reference/evaluate.ts"
+import { referencePatterns } from "#test/support/oracle/reference/evaluate.ts"
 import { testTypeSchema } from "#test/support/sql.ts"
 
 /** An operand as the Compute catalogue reads one: its SQL type, its column and its ScalarType. */
@@ -90,12 +90,15 @@ const testCodes: Codebook = firstCodebook(
  */
 const testEnv: ScalarEnv = {
 	kind: "schema",
-	roster: (name) => rosters.get(name),
+	roster: (name) => {
+		const handles = rosters.get(name)
+		return handles === undefined ? undefined : new Roster(name, handles)
+	},
 	contractPredicate: (predicate, base, name, facts) =>
 		contractPredicateTable(predicate, base, name, facts, {
 			loc: SourceLoc(`contract ${name}`, []),
 			fieldType: (d) => scalarTypeOf(d, testEnv, SourceLoc(`contract ${name}`, [])),
-			regexMember: patternMember,
+			patterns: referencePatterns(),
 			patternLanguage: textLookup
 		})
 }
@@ -315,12 +318,11 @@ const env = (
 			return {
 				...common,
 				mode,
-				regexMember: patternMember,
 				patternLanguage: textLookup,
 				extension: noExtension
 			}
 		case "check":
-			return { ...common, mode, regexMember: patternMember, patternLanguage: textLookup }
+			return { ...common, mode, patternLanguage: textLookup }
 		case "build":
 			return { ...common, mode }
 	}
@@ -413,7 +415,8 @@ const commonEnv = (
 	},
 	params,
 	fieldType: (desc, loc) => scalarTypeOf(desc, testEnv, loc),
-	closed: noClosedRelations("the compute suites read no closed relation")
+	closed: noClosedRelations("the compute suites read no closed relation"),
+	patterns: referencePatterns()
 })
 
 /** A lowered term or predicate, and every expression its lowering emitted, in emission order. */

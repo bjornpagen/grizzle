@@ -1,4 +1,5 @@
 import type { LawId } from "#compiler/core/ids.ts"
+import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 
 /** The list of a recursive definition an arm belongs to. */
 export type RecursionArm = "base" | "rec"
@@ -603,11 +604,12 @@ export interface ChangedColumn extends ColumnName {
 
 /**
  * A value a family draws from a column of its member's row only when that row is written: a fold's step or selection
- * (`fold`), a predecessor copy (`predecessor`), a last copy on its owner (`last`), or a tree node's copy of its
- * parent's (`tree`). `column` is the column the value is drawn into, on `relation`.
+ * (`fold`), a predecessor copy (`predecessor`), a last copy on its owner (`last`), a tree node's copy of its parent's
+ * (`tree`), or a member's copy of its owner's column where an ordered edit re-places the owner's row, which no cascade
+ * follows (`owner`). `column` is the column the value is drawn into, on `relation`.
  */
 export interface DerivedReader extends ColumnName {
-	readonly kind: "fold" | "predecessor" | "last" | "tree"
+	readonly kind: "fold" | "predecessor" | "last" | "tree" | "owner"
 	readonly family: FamilyName
 }
 
@@ -624,16 +626,43 @@ const derivedReaderText = (reader: DerivedReader): string => {
 			return `the last copy ${at} of ${family}`
 		case "tree":
 			return `the copy ${at} of each node's parent along the tree ${family}`
+		case "owner":
+			return `the copy ${at} of its owner's along ${family}, whose owner an ordered edit deletes and inserts again,`
 	}
 }
 
-/** A StaleDerivedRead's sentence: the change, the cascade that carries it on, and the value that reads it. */
+/**
+ * Why grizzle cannot draw again a value a change leaves stale: the change is a put whose rows a query states, which the
+ * host never sees (`query`); the refills the change needs reach a family they refill again, `refills` in the order
+ * each reaches the next, so no order of them draws every value once (`cycle`); or the refill would change the rows of
+ * `relation`, which is immutable: the family's members, which it updates in place, or its owner, whose family is fixed
+ * when it is inserted (`immutable`).
+ */
+export type StaleCause =
+	| { readonly kind: "query" }
+	| { readonly kind: "cycle"; readonly refills: NonEmptyReadonlyArray<FamilyName> }
+	| { readonly kind: "immutable"; readonly relation: string }
+
+/** Why a StaleDerivedRead's value cannot be drawn again, of a write of `member`. */
+const staleCauseText = (member: string, cause: StaleCause): string => {
+	switch (cause.kind) {
+		case "query":
+			return `a query states the put's rows, which grizzle never sees, so it cannot draw that value again: put ${member} from an array or a Stream`
+		case "cycle":
+			return `refilling it reaches the families ${cause.refills.map(familyNameText).join(", then ")} and the first again, so no order of the refills draws each value once`
+		case "immutable":
+			return `refilling it would update rows of the immutable ${cause.relation} in place: declare mutable(${cause.relation}), or change the column in a schema whose family reads it from a column fixed once its row is written`
+	}
+}
+
+/** A StaleDerivedRead's sentence: the change, the cascade that carries it on, the value that reads it, and its cause. */
 export const staleDerivedReadText = (read: {
 	readonly op: "insert" | "put" | "delete"
 	readonly member: string
 	readonly changed: ChangedColumn
 	readonly copies: ReadonlyArray<ColumnName>
 	readonly reader: DerivedReader
+	readonly cause: StaleCause
 }): string => {
 	const write =
 		read.op === "insert"
@@ -651,5 +680,6 @@ export const staleDerivedReadText = (read: {
 	const carried = read.copies
 		.map((c) => `, which ${c.relation}.${c.column} copies by cascade`)
 		.join("")
-	return `${how}${carried}; ${derivedReaderText(read.reader)} reads it, a value grizzle draws when its row is written and never again when a column it reads changes, so the change would leave it stale`
+	const why = staleCauseText(read.member, read.cause)
+	return `${how}${carried}; ${derivedReaderText(read.reader)} reads it, a value grizzle draws again by refilling its family's groups, and ${why}`
 }

@@ -22,20 +22,21 @@ import {
 	type RelationNormalizer,
 	relationNormalizer
 } from "#compiler/codec/recordset.ts"
-import { carrierSpecOf } from "#compiler/codec/scalar.ts"
+import { admittedParam, carrierSpecOf } from "#compiler/codec/scalar.ts"
 import type { EncodingFailure } from "#compiler/core/errors.ts"
 import { defect, defined, invariant } from "#compiler/core/invariant.ts"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
-import { compareCodePoints } from "#compiler/core/text.ts"
+import { compareCodePoints, compareTextTuples } from "#compiler/core/text.ts"
+import { TupleMap } from "#compiler/core/tuple-map.ts"
+import type { ParamText } from "#compiler/core/wire.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import { type Family, isSequence, isTreeOf } from "#compiler/ir/family.ts"
 import type { FillOrder } from "#compiler/ir/fill.ts"
 import type { LawField, LawRelation, RelationInfo } from "#compiler/ir/law.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
-import { admittedText } from "#compiler/scalar/values/identity.ts"
 import { encodeAddition, type NestedAddition } from "#compiler/write/changeset/value.ts"
-import { type Row, textsKey } from "#compiler/write/family/draw.ts"
+import { type MemberKey, type Row, textsKey } from "#compiler/write/family/draw.ts"
 import {
 	type ColumnKey,
 	columnKey,
@@ -238,34 +239,37 @@ export type NestedFact = { readonly [field: string]: unknown }
  * A row one nested write fills, of a relation its family statements write: the host value of every column of its row
  * layout the walk filled, by key, every column but those its counted families fill afterwards (`NestedLayout`
  * pending); its fields' host values by name, which the host's same-key checks read; and its identity, the texts of
- * every column the walk filled, its key's first, so two rows are one exactly when each such column is.
+ * every column the walk filled, its key's first, so two rows are one exactly when each such column is. The identity is
+ * those texts themselves, never one text joined from them: its size is its row's arity, whatever its texts' lengths.
  */
 export interface NestedRow {
-	readonly identity: string
-	/** Its key's texts as one text (draw.ts textsKey), which its relation's rows are a set by. */
-	readonly key: string
+	readonly identity: ReadonlyArray<ParamText>
+	/** Its key's texts, which its relation's rows are a set by. */
+	readonly key: MemberKey
 	readonly values: ReadonlyMap<ColumnKey, unknown>
 	readonly fact: NestedFact
 }
 
 /**
+ * One element of a nested fact's signature: a text of its own row, the insert's own statement's to write, or a row it
+ * nests as its relation's set holds it, the first of its identity, so two facts nest one row exactly when they hold one
+ * element.
+ */
+type Signed = ParamText | NestedRow
+
+/**
  * One stratum's nested writes as sets (rule 0), across its every nested input, array or Stream: each insert's facts by
- * their relation and their key's text, each with its host values and the signature of every row it nests; and each
- * reached member relation's rows by their key's text (draw.ts textsKey) and their identity. A fact or a row stated
- * twice, in one array, across arrays or across inserts, is one. Two signatures or two identities at one key are a key
- * conflict, which `nestedConflict` names once every input is in, so the refusal depends on the set alone, never on the
- * order its facts came in. Each relation's rows keep the order they are inserted in: each owner's members in slot
- * order, a tree's nodes in pre-order.
+ * their relation and their key's texts, each signature at a key with the host values of its first fact; and each
+ * reached member relation's rows by their key's texts and their identity. A fact's signature is its own row's texts
+ * when the insert's own statement writes it, then every row it nests, each row the set's one of its identity: a tuple
+ * as long as its rows are many, never their texts joined. A fact or a row stated twice, in one array, across arrays or
+ * across inserts, is one. Two signatures or two identities at one key are a key conflict, which `nestedConflict` names
+ * once every input is in, so the refusal depends on the set alone, never on the order its facts came in. Each
+ * relation's rows keep the order they are inserted in: each owner's members in slot order, a tree's nodes in pre-order.
  */
 export interface NestedSet {
-	readonly tops: Map<string, Map<string, NestedTop>>
-	readonly rows: Map<string, Map<string, Map<string, NestedRow>>>
-}
-
-/** An insert's facts at one key of its relation: the first's host values, and the signature of every row each nests. */
-interface NestedTop {
-	readonly fact: NestedFact
-	readonly signatures: Set<string>
+	readonly tops: Map<string, TupleMap<ParamText, TupleMap<Signed, NestedFact>>>
+	readonly rows: Map<string, TupleMap<ParamText, TupleMap<ParamText, NestedRow>>>
 }
 
 /** A stratum's nested writes before any fact: no fact and no row. */
@@ -301,7 +305,7 @@ export const nestedRows = (
 	const sequences = nesting.families.filter(isSequence)
 	const tops: Array<NestedFact> = []
 	const relation = nesting.relation.name
-	const byKey = into.tops.get(relation) ?? new Map<string, NestedTop>()
+	const byKey = into.tops.get(relation) ?? new TupleMap<ParamText, TupleMap<Signed, NestedFact>>()
 	into.tops.set(relation, byKey)
 	const keyFields = nesting.relation.keyNames.find((k) => k.primary)?.fields ?? []
 	for (const fact of facts) {
@@ -323,34 +327,31 @@ export const nestedRows = (
 				nesting.top.map((c) => [c.name, root.values.get(fieldKey(c.name))] as const)
 			)
 		)
-		const key = textsKey(
-			keyFields.map((f) => text(nesting, f.type, root.values.get(fieldKey(f.name))))
-		)
-		const written = rowsOf(nesting, root)
-		const signature = textsKey(
-			[...written].flatMap(([r, list]) => [r, ...list.map((n) => n.identity)])
-		)
-		const held = byKey.get(key)
-		if (held?.signatures.has(signature) === true) {
-			continue
-		}
-		if (held === undefined) {
-			byKey.set(key, { fact: own, signatures: new Set([signature]) })
-		} else {
-			held.signatures.add(signature)
-		}
-		if (nesting.root.kind === "plain") {
-			tops.push(own)
-		}
-		for (const [reached, list] of written) {
-			const known = into.rows.get(reached) ?? new Map<string, Map<string, NestedRow>>()
+		const key = keyFields.map((f) => text(nesting, f.type, root.values.get(fieldKey(f.name))))
+		const signature: Array<Signed> =
+			nesting.root.kind === "plain"
+				? nesting.top.map((c) => text(nesting, c.type, own[c.name]))
+				: []
+		for (const [reached, list] of rowsOf(nesting, root)) {
+			const known =
+				into.rows.get(reached) ?? new TupleMap<ParamText, TupleMap<ParamText, NestedRow>>()
 			into.rows.set(reached, known)
 			for (const row of list) {
-				const at = row.key
-				const identities = known.get(at) ?? new Map<string, NestedRow>()
-				known.set(at, identities)
-				identities.set(row.identity, row)
+				const identities = known.get(row.key) ?? new TupleMap<ParamText, NestedRow>()
+				known.set(row.key, identities)
+				const held = identities.get(row.identity) ?? row
+				identities.set(row.identity, held)
+				signature.push(held)
 			}
+		}
+		const signatures = byKey.get(key) ?? new TupleMap<Signed, NestedFact>()
+		byKey.set(key, signatures)
+		if (signatures.has(signature)) {
+			continue
+		}
+		signatures.set(signature, own)
+		if (nesting.root.kind === "plain") {
+			tops.push(own)
 		}
 	}
 	return Result.ok(tops)
@@ -362,24 +363,31 @@ const byCodePoint = <A>(
 ): ReadonlyArray<readonly [string, A]> =>
 	[...entries].toSorted(([a], [b]) => compareCodePoints(a, b))
 
+/** Keys in their texts' order (core/text.ts compareTextTuples). */
+const byTexts = <A>(
+	entries: Iterable<readonly [ReadonlyArray<ParamText>, A]>
+): ReadonlyArray<readonly [ReadonlyArray<ParamText>, A]> =>
+	[...entries].toSorted(([a], [b]) => compareTextTuples(a, b))
+
 /**
  * The first key conflict of a stratum's nested set: an insert's relation's key at which two facts nest different rows,
- * then a member relation's key holding two rows; relations in code point order and keys in their texts' code point
- * order, so the conflict named is the set's, whatever order its facts came in. `fact` is the host values of one of
- * them, which agree at the key.
+ * then a member relation's key holding two rows; relations in code point order and keys in their texts' order, so the
+ * conflict named is the set's, whatever order its facts came in. `fact` is the host values of one of them, which agree
+ * at the key.
  */
 export const nestedConflict = (
 	set: NestedSet
 ): { readonly relation: string; readonly fact: NestedFact } | undefined => {
 	for (const [relation, byKey] of byCodePoint(set.tops)) {
-		for (const [, top] of byCodePoint(byKey)) {
-			if (top.signatures.size > 1) {
-				return { relation, fact: top.fact }
+		for (const [, signatures] of byTexts(byKey)) {
+			if (signatures.size > 1) {
+				const [fact] = signatures.values()
+				return { relation, fact: defined(fact, "a fact of two") }
 			}
 		}
 	}
 	for (const [relation, byKey] of byCodePoint(set.rows)) {
-		for (const [, identities] of byCodePoint(byKey)) {
+		for (const [, identities] of byTexts(byKey)) {
 			if (identities.size > 1) {
 				const [row] = identities.values()
 				return { relation, fact: defined(row, "a row of two").fact }
@@ -395,21 +403,22 @@ export const nestedRowsOf = (set: NestedSet): ReadonlyMap<string, ReadonlyMap<st
 		[...set.rows].map(([relation, byKey]) => [
 			relation,
 			new Map(
-				[...byKey].map(([key, identities]) => {
+				[...byKey.values()].map((identities) => {
 					invariant(
 						identities.size === 1,
 						"a nested set with no conflict holds one row at each key"
 					)
 					const [row] = identities.values()
-					return [key, defined(row, "the row at a key")] as const
+					const held = defined(row, "the row at a key")
+					return [textsKey(held.key), held] as const
 				})
 			)
 		])
 	)
 
 /** A value's text in its column's carrier, as the transport writes it. */
-const text = (nesting: Nesting, type: LawField["type"], value: unknown): string =>
-	admittedText(carrierSpecOf(type, nesting.codes), value)
+const text = (nesting: Nesting, type: LawField["type"], value: unknown): ParamText =>
+	admittedParam(carrierSpecOf(type, nesting.codes), value)
 
 /**
  * A split fact as the filler's nesting: each level's own fields admitted through its normalizer, iteratively, members
@@ -492,11 +501,11 @@ const nestedRowOf = (nesting: Nesting, at: NestedLayout, row: FilledNode): Neste
 			)
 		)
 	)
-	const textOf = (c: RowLayout["columns"][number]): string =>
+	const textOf = (c: RowLayout["columns"][number]): ParamText =>
 		text(nesting, c.type, values.get(c.key))
 	return {
-		identity: textsKey(filled.map(textOf)),
-		key: textsKey(at.layout.key.map(textOf)),
+		identity: Object.freeze(filled.map(textOf)),
+		key: mapNonEmpty(at.layout.key, textOf),
 		values,
 		fact
 	}
@@ -511,11 +520,11 @@ export const rowOfValues = (
 	layout: RowLayout,
 	values: ReadonlyMap<ColumnKey, unknown>
 ): Row => {
-	const textOf = (c: RowLayout["columns"][number]): string => {
+	const textOf = (c: RowLayout["columns"][number]): ParamText => {
 		if (!values.has(c.key)) {
 			throw defect(`a column ${c.key} of ${layout.relation} its fills filled`)
 		}
-		return admittedText(carrierSpecOf(c.type, codes), values.get(c.key))
+		return admittedParam(carrierSpecOf(c.type, codes), values.get(c.key))
 	}
 	return { key: mapNonEmpty(layout.key, textOf), columns: layout.columns.map(textOf) }
 }

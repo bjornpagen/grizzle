@@ -16,6 +16,7 @@ import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { conservativeInput, type ConservativeProgram } from "#compiler/lower/conservative/types.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { ownedFixture } from "#test/support/evidence.ts"
+import type { Identity } from "#test/support/kernel/identity.ts"
 import { standInNames } from "#test/support/kernel/naming.ts"
 import { validateDag } from "#test/support/oracle/dag-validate.ts"
 import type { QueryCase } from "#test/support/oracle/gen/case.ts"
@@ -32,7 +33,6 @@ import {
 	type ReferenceInput,
 	unobserved
 } from "#test/support/oracle/reference/evaluate.ts"
-import type { Identity } from "#test/support/oracle/reference/identity.ts"
 import {
 	equal,
 	indexIdentity,

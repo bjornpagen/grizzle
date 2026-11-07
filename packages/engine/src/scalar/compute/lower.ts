@@ -132,12 +132,7 @@ import {
 	tenTo
 } from "#compiler/scalar/compute/bounds.ts"
 import { floatNumericDigits, parseText } from "#compiler/scalar/compute/cast.ts"
-import {
-	admitLiteral,
-	literalMember,
-	literalValue,
-	type RegexMember
-} from "#compiler/scalar/compute/evaluate.ts"
+import { admitLiteral, literalMember, literalValue } from "#compiler/scalar/compute/evaluate.ts"
 import {
 	bareLiteralKind,
 	type CarriedLiteral,
@@ -179,6 +174,7 @@ import {
 import { formIncludes, formSource, lexicalTargetOf } from "#compiler/scalar/lexical.ts"
 import { matchFlags, matchPattern } from "#compiler/scalar/regex/admit.ts"
 import { type Inclusion, patternIncludes } from "#compiler/scalar/regex/inclusion.ts"
+import type { PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
 import { type CharMap, charMapOf, imageFlags, imageOf } from "#compiler/scalar/regex/translate.ts"
 import { collapseSources } from "#compiler/scalar/regex/whitespace.ts"
 import { capabilitiesOf, numericValue, type TextLookup } from "#compiler/scalar/registry.ts"
@@ -300,26 +296,29 @@ interface LowerCommon<R extends Refs> {
 	readonly fieldType: (desc: FieldDesc, loc: SourceLoc) => Result.Result<ScalarType, CompileError>
 	/** The closed relations C.at and C.row apply. */
 	readonly closed: ClosedRelations
+	/**
+	 * The admitted patterns the lowering reads, its compile's table (scalar/regex/patterns.ts): a literal's membership
+	 * in a regex refinement, a language's inclusion in another or in a lexical form, a translation's image.
+	 */
+	readonly patterns: PatternAutomata
 }
 
 /**
  * A lowering's mode: a query (its filters and outputs), a check (a contract predicate or a row check, which reads only
  * its VALUE or row and becomes a CHECK), or a builder typing the term it constructs.
  *
- * What each mode reads besides: a query and a check judge a literal against its regex refinement, by the text
- * package's membership they carry, and only a query lowers the predicates of other packages (a check refuses them); a
- * builder judges no literal and lowers none.
+ * What each mode reads besides: a query and a check judge a literal against its regex refinement, by the patterns
+ * every mode carries (LowerCommon.patterns), and analyze a pattern they compute, and only a query lowers the
+ * predicates of other packages (a check refuses them); a builder judges no literal and lowers none.
  */
 export type LowerEnv<R extends Refs = Spelled> =
 	| (LowerCommon<R> & {
 			readonly mode: "query"
-			readonly regexMember: RegexMember
 			readonly patternLanguage: TextLookup
 			readonly extension: LowerExtension<R>
 	  })
 	| (LowerCommon<R> & {
 			readonly mode: "check"
-			readonly regexMember: RegexMember
 			readonly patternLanguage: TextLookup
 	  })
 	| (LowerCommon<R> & { readonly mode: "build" })
@@ -454,6 +453,7 @@ const carrierBounds = (t: ScalarType): Bounds | undefined => {
 		case "bits":
 		case "range4":
 		case "range8":
+		case "rangeDate":
 		case "vector":
 			return undefined
 	}
@@ -855,7 +855,8 @@ const languagePremise = (
 const lexicalPremise = (
 	a: Lowered,
 	target: ScalarType,
-	at: SourceLoc
+	at: SourceLoc,
+	patterns: PatternAutomata
 ): OperandPremise | undefined => {
 	const form = lexicalTargetOf(target)
 	if (form === undefined) {
@@ -866,7 +867,12 @@ const lexicalPremise = (
 			? { kind: "checked", operand: 0, by: "literal" }
 			: undefined
 	}
-	return languagePremise(a, `/${formSource(form)}/u`, (regex) => formIncludes(regex, form), at)
+	return languagePremise(
+		a,
+		`/${formSource(form)}/u`,
+		(regex) => formIncludes(regex, form, patterns),
+		at
+	)
 }
 
 /**
@@ -918,6 +924,7 @@ export const withinGuards = (carrier: Carrier): boolean => {
 		case "bits":
 		case "range4":
 		case "range8":
+		case "rangeDate":
 		case "vector":
 			return false
 	}
@@ -935,7 +942,8 @@ const guardTest = (
 	precondition: PreconditionKind,
 	operand: Lowered | undefined,
 	target: ScalarType,
-	mode: LowerEnv["mode"]
+	mode: LowerEnv["mode"],
+	patterns: PatternAutomata
 ): GuardTest => {
 	switch (precondition) {
 		case "nonzero":
@@ -960,7 +968,7 @@ const guardTest = (
 				? { kind: "within" }
 				: { kind: "typed" }
 		case "language":
-			return languageRemedy(operand, target, mode)
+			return languageRemedy(operand, target, mode, patterns)
 		case "lexical":
 			return { kind: "matches", pattern: "lexicalForm" }
 	}
@@ -977,7 +985,8 @@ const guardTest = (
 const languageRemedy = (
 	operand: Lowered | undefined,
 	target: ScalarType,
-	mode: LowerEnv["mode"]
+	mode: LowerEnv["mode"],
+	patterns: PatternAutomata
 ): GuardTest => {
 	const refinement = refinementOf(target)
 	const octets = refinement === undefined ? undefined : octetsOf(refinement.check)
@@ -993,7 +1002,7 @@ const languageRemedy = (
 	}
 	const inner =
 		text.regex === "wildcard" ? { source: wildcardSource, flags: wildcardFlags } : text.regex
-	return patternIncludes(inner, refinement).kind === "included"
+	return patternIncludes(inner, refinement, patterns).kind === "included"
 		? { kind: "octets", bytes: octets }
 		: { kind: "matches", pattern: "target" }
 }
@@ -1422,7 +1431,7 @@ class Lowering<R extends Refs> {
 					operand: text,
 					guard: guardOf(
 						precondition.kind,
-						guardTest(precondition.kind, named, target, this.env.mode),
+						guardTest(precondition.kind, named, target, this.env.mode, this.env.patterns),
 						text,
 						operation
 					)
@@ -1462,7 +1471,7 @@ class Lowering<R extends Refs> {
 						: languagePremise(
 								a,
 								`/${refinement.source}/${refinement.flags}`,
-								(regex) => patternIncludes(regex, refinement),
+								(regex) => patternIncludes(regex, refinement, this.env.patterns),
 								at
 							)
 				const octets = refinement === undefined ? undefined : octetsOf(refinement.check)
@@ -1509,7 +1518,8 @@ class Lowering<R extends Refs> {
 			}
 			case "lexical": {
 				const a = args[0]
-				const premise = a === undefined ? undefined : lexicalPremise(a, target, at)
+				const premise =
+					a === undefined ? undefined : lexicalPremise(a, target, at, this.env.patterns)
 				return premise === undefined ? refuse(0) : { precondition, premises: [premise] }
 			}
 		}
@@ -1652,7 +1662,7 @@ class Lowering<R extends Refs> {
 		if (env.mode === "build" || checked !== "literal" || value.expr.kind !== "literal") {
 			return false
 		}
-		const member = literalMember(value.expr.value, to, env.regexMember)
+		const member = literalMember(value.expr.value, to, env.patterns)
 		if (member === false) {
 			return stop(
 				"ContractLiteral",
@@ -1701,7 +1711,7 @@ class Lowering<R extends Refs> {
 			type,
 			this.env.mode === "build"
 				? { kind: "shape" }
-				: { kind: "refinements", regexMember: this.env.regexMember }
+				: { kind: "refinements", patterns: this.env.patterns }
 		)
 		if (!admitted.ok) {
 			return stop(admitted.error.reason, at, admitted.error.capability)
@@ -2221,7 +2231,7 @@ class Lowering<R extends Refs> {
 	 * language's own pattern fits, the image of that pattern alone, which holds every value of the image.
 	 */
 	image(regex: TextInfo["regex"], map: CharMap, analyze: TextLookup, at: SourceLoc): ScalarType {
-		const sources = imageOf(regex, map)
+		const sources = imageOf(regex, map, this.env.patterns)
 		const typed = (source: string) => this.computedText(source, imageFlags, analyze, at)
 		const exact = typed(sources.exact)
 		return exact.ok ? exact.value : unwrap(typed(sources.within))
@@ -2258,7 +2268,7 @@ class Lowering<R extends Refs> {
 	 * first of its patterns the text analysis admits, each held to its measures as a str.regex is.
 	 */
 	collapseType(text: TextInfo, analyze: TextLookup, at: SourceLoc): ScalarType {
-		for (const c of collapseSources(text.regex, text.lengthBound)) {
+		for (const c of collapseSources(text.regex, text.lengthBound, this.env.patterns)) {
 			const typed = this.computedText(c.source, c.flags, analyze, at)
 			if (typed.ok) {
 				return typed.value
@@ -3318,6 +3328,13 @@ class Lowering<R extends Refs> {
 			return this.floatArithmetic(fn, va, at)
 		}
 		const operation = `Compute.${fn}(${exprText(a0.expr)}, ${exprText(b0.expr)})`
+		if (va.carrier === "date") {
+			return stop(
+				"UnsupportedOperation",
+				at,
+				`${fn}: PostgreSQL has no ${fn} over ${typeLabel(a0.nominal)}, ${typeLabel(b0.nominal)} that Compute admits`
+			)
+		}
 		if (fn === "div" && exactFamily(va) === "exactInteger") {
 			const a = this.widenExact(a0, "exactInteger", at)
 			const b = this.widenExact(b0, "exactInteger", at)
@@ -3402,6 +3419,7 @@ class Lowering<R extends Refs> {
 			case "bits":
 			case "range4":
 			case "range8":
+			case "rangeDate":
 			case "vector":
 				return stop("UnsupportedOperation", at, `sign: PostgreSQL has no sign over ${typeLabel(v)}`)
 		}
@@ -3638,6 +3656,7 @@ const roundingScale = (target: ScalarType): number => {
 		case "bits":
 		case "range4":
 		case "range8":
+		case "rangeDate":
 		case "vector":
 			return 0
 	}
@@ -3676,6 +3695,7 @@ const conversionOf = (from: ScalarType, to: ScalarType, how: CastHow): Conversio
 		case "bits":
 		case "range4":
 		case "range8":
+		case "rangeDate":
 		case "vector":
 			return { kind: "exact" }
 	}
@@ -3769,6 +3789,7 @@ export const fitRange = (target: ScalarType): readonly [Exact, Exact] | undefine
 		case "bits":
 		case "range4":
 		case "range8":
+		case "rangeDate":
 		case "vector":
 			return undefined
 	}
@@ -4051,6 +4072,7 @@ const zeroLiteral = (v: ScalarType): LiteralDesc => {
 		case "bits":
 		case "range4":
 		case "range8":
+		case "rangeDate":
 		case "vector":
 			return 0
 	}

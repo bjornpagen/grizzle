@@ -29,21 +29,18 @@
  */
 import { readsOf } from "#compiler/analysis/theory/fill.ts"
 import { encodeFailure, slotPlace } from "#compiler/codec/fault.ts"
-import { carrierSpecOf, scalarCodec } from "#compiler/codec/scalar.ts"
+import { admittedParam, carrierSpecOf } from "#compiler/codec/scalar.ts"
 import { type CompileError, type EncodingFailure, unsupported } from "#compiler/core/errors.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
+import type { ParamText } from "#compiler/core/wire.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import { type Family, familyColumnType, isSequence } from "#compiler/ir/family.ts"
 import type { LawField, LawRelation, RelationInfo } from "#compiler/ir/law.ts"
-import {
-	admitted,
-	admittedText,
-	admitValue,
-	compareValues
-} from "#compiler/scalar/values/identity.ts"
+import { sqlNull } from "#compiler/scalar/compute/evaluate.ts"
+import { admitted, admitValue, compareValues } from "#compiler/scalar/values/identity.ts"
 import {
 	type CountRow,
 	type MemberKey,
@@ -114,7 +111,7 @@ const fixedRefusal = (member: string, head: string, family: Family, effect: stri
 	unsupported(SourceLoc("ChangeSet", [member]), fixedSentence(head, family, effect))
 
 /** A stored member as a read returns it: its slot in the read's family, its group's key text, and its values. */
-interface StoredMember {
+export interface StoredMember {
 	readonly key: string
 	readonly slot: number
 	readonly group: string
@@ -141,26 +138,56 @@ export interface FillContext {
 }
 
 /** A key text, which keys of one relation are told apart by. */
-const specOf = (ctx: FillContext, type: LawField["type"]) => carrierSpecOf(type, ctx.codes)
+export const specOf = (ctx: FillContext, type: LawField["type"]) => carrierSpecOf(type, ctx.codes)
 
 /**
  * A host value's parameter text in its type's carrier: a key's, which the read and the delete send and which its
  * relation's rows are a set by, and a row's or a count's, written once at its statement. No text it writes is read
  * back: what PostgreSQL holds comes back through decodeRead, from PostgreSQL's own output.
  */
-const textOf = (ctx: FillContext, type: LawField["type"], value: unknown): string =>
-	admittedText(specOf(ctx, type), value)
+const textOf = (ctx: FillContext, type: LawField["type"], value: unknown): ParamText =>
+	admittedParam(specOf(ctx, type), value)
 
 /** A fact's values by column key. */
 const valuesOfFact = (fact: Fact): Map<ColumnKey, unknown> =>
 	new Map(Object.entries(fact).map(([name, v]) => [fieldKey(name), v] as const))
 
 /** A row's key texts in its layout. */
-const keyOf = (ctx: FillContext, layout: RowLayout, values: Values): MemberKey =>
+export const keyOf = (ctx: FillContext, layout: RowLayout, values: Values): MemberKey =>
 	mapNonEmpty(layout.key, (c) => textOf(ctx, c.type, values.get(c.key)))
 
+/** A fact's key texts in its relation's layout. */
+export const factKey = (ctx: FillContext, layout: RowLayout, fact: Fact): MemberKey =>
+	keyOf(ctx, layout, valuesOfFact(fact))
+
+/** A fact's fields its caller writes, by column key: what a put of it sets of a row already stored. */
+export const callerValues = (relation: LawRelation, fact: Fact): Values =>
+	callerFields(relation, valuesOfFact(fact))
+
+/**
+ * Two reads of one family as one (`StoredFamily`): every member either read returns, each by its key, and every group
+ * either reads, its members the ones read of it in slot order.
+ */
+export const mergeStored = (a: StoredFamily | undefined, b: StoredFamily): StoredFamily => {
+	if (a === undefined) {
+		return b
+	}
+	const members = new Map([...a.members, ...b.members])
+	const groups = new Map<string, StoredGroup>()
+	for (const [text, g] of [...a.groups, ...b.groups]) {
+		groups.set(text, {
+			owner: g.owner,
+			count: g.count,
+			members: [...members.values()]
+				.filter((m) => m.group === text)
+				.toSorted((x, y) => x.slot - y.slot)
+		})
+	}
+	return { groups, members }
+}
+
 /** A row's group key texts in a family. */
-const groupOf = (ctx: FillContext, family: Family, values: Values): Owner =>
+export const groupOf = (ctx: FillContext, family: Family, values: Values): Owner =>
 	mapNonEmpty(family.group, (g) => textOf(ctx, g.member.type, values.get(fieldKey(g.member.name))))
 
 /**
@@ -231,90 +258,8 @@ export const ownersOf = (
 		})
 	)
 
-/**
- * One family's reads' rows decoded (statements.ts suffixReadSql), every read of the family's (order.ts planRead) as one
- * set: each `o` row an owner, its key and its read columns; each `m` row a member, its key and its row layout's columns,
- * each text read through its column's codec. A row two reads return is one, an owner by its group and a member by its
- * key. A text the codec does not read is the read's EncodingFailure.
- */
-export const decodeRead = (
-	ctx: FillContext,
-	target: EditTarget,
-	family: Family,
-	shape: ReadShape,
-	rows: ReadonlyArray<ReadonlyArray<string>>
-): Result.Result<StoredFamily, EncodingFailure> => {
-	const owners = new Map<
-		string,
-		{ readonly values: Map<ColumnKey, unknown>; readonly count: number }
-	>()
-	const members = new Map<string, StoredMember>()
-	const failure = encodeFailure("factShape", slotPlace(target.relation.name))
-	const read = (
-		type: LawField["type"],
-		text: string | undefined
-	): Result.Result<unknown, EncodingFailure> => {
-		if (text === undefined) {
-			return Result.err(failure)
-		}
-		const converted = scalarCodec(type, ctx.codes).convert(text)
-		const value = admitValue(specOf(ctx, type), converted)
-		return value.ok ? Result.ok(value.value) : Result.err(failure)
-	}
-	for (const row of rows) {
-		const [tag, ...cells] = row
-		if (tag === "o") {
-			const values = new Map<ColumnKey, unknown>()
-			const columns: ReadonlyArray<LawField> = [
-				...family.group.map((g) => g.owner),
-				...shape.owner.columns
-			]
-			for (const [i, f] of columns.entries()) {
-				const v = read(f.type, cells[i])
-				if (!v.ok) {
-					return v
-				}
-				values.set(fieldKey(f.name), v.value)
-			}
-			const count = values.get(fieldKey(family.count.name))
-			const group = textsKey(groupOfOwner(ctx, family, values))
-			owners.set(group, { values, count: typeof count === "bigint" ? Number(count) : 0 })
-			continue
-		}
-		const values = new Map<ColumnKey, unknown>()
-		for (const [i, c] of [...target.layout.key, ...target.layout.columns].entries()) {
-			const v = read(c.type, cells[i])
-			if (!v.ok) {
-				return v
-			}
-			values.set(c.key, v.value)
-		}
-		const slot = values.get(columnKey(family.index))
-		const key = textsKey(keyOf(ctx, target.layout, values))
-		if (!members.has(key)) {
-			members.set(key, {
-				key,
-				slot: typeof slot === "bigint" ? Number(slot) : -1,
-				group: textsKey(groupOf(ctx, family, values)),
-				values
-			})
-		}
-	}
-	const groups = new Map<string, StoredGroup>()
-	for (const [group, o] of owners) {
-		groups.set(group, {
-			owner: o.values,
-			count: o.count,
-			members: [...members.values()]
-				.filter((m) => m.group === group)
-				.toSorted((a, b) => a.slot - b.slot)
-		})
-	}
-	return Result.ok({ groups, members })
-}
-
 /** An owner's group key texts, its key fields paired with the family's group in order. */
-const groupOfOwner = (ctx: FillContext, family: Family, values: Values): Owner =>
+export const groupOfOwner = (ctx: FillContext, family: Family, values: Values): Owner =>
 	mapNonEmpty(family.group, (g) => textOf(ctx, g.owner.type, values.get(fieldKey(g.owner.name))))
 
 /** The fields a family's drawn values read of a member: its step value, its selections' fields, every column its axes
@@ -354,8 +299,11 @@ const inputsOf = (family: Family, relation: LawRelation): ReadonlySet<string> =>
 	return out
 }
 
-/** A value of a row, a generated field's evaluated over the row; undefined where the row holds none. */
-const valueAt = (
+/**
+ * A value of a row, a generated field's evaluated over the row; undefined where the row holds none, as it holds no
+ * generated field that is NULL.
+ */
+export const valueAt = (
 	ctx: FillContext,
 	relation: LawRelation,
 	values: Values,
@@ -371,11 +319,11 @@ const valueAt = (
 	const v = ctx.evaluate(relation, field.writing.expr, (name) =>
 		valueAt(ctx, relation, values, fieldKey(name))
 	)
-	return v.ok ? v.value : undefined
+	return v.ok && v.value !== sqlNull ? v.value : undefined
 }
 
 /** Whether two host values of one carrier are one value: equal under PostgreSQL's B-tree order of the type. */
-const same = (ctx: FillContext, type: LawField["type"], a: unknown, b: unknown): boolean => {
+export const same = (ctx: FillContext, type: LawField["type"], a: unknown, b: unknown): boolean => {
 	if (a === undefined || b === undefined) {
 		return false
 	}
@@ -438,14 +386,21 @@ const overlaid = (
 /**
  * A group's edit as one family's fill takes it: its owner as a member's update in place reads it (`owner`), and as a
  * member's insert reads it (`final`), the owner as its stratum leaves it; none for an owner neither stored nor written.
+ * A refilled group (`refilled`) is one a change of the stratum leaves stale, whose kept members a refill rewrites in
+ * place ahead of that change, each with the owner as its stratum leaves it, since the refill draws the family's
+ * values again from the values the change gives them (analysis/theory/refill.ts).
  */
 interface GroupEdit {
 	readonly owner: Values | undefined
 	readonly final: Values | undefined
 	readonly stored: StoredGroup | undefined
 	readonly removals: ReadonlySet<string>
-	/** Kept members' new values, the stored ones with the put's caller fields over them. */
+	/** Kept members' new values: the stored ones with the put's caller fields over them, or a refreshed member's values
+	 * as the stratum's changes leave them. */
 	readonly updates: ReadonlyMap<string, Values>
+	/** The kept members whose new values are the stratum's other changes', not the edit's own. */
+	readonly refreshed: ReadonlySet<string>
+	readonly refilled: boolean
 	/** Each new member, with the write that adds it: an insert, or a put of a key no stored row holds or that moves it. */
 	readonly appends: ReadonlyArray<{
 		readonly key: string
@@ -474,7 +429,8 @@ interface GroupFilled {
  * member's index, copies and accumulators in slot order, each from its predecessor, its owner and the step, and the
  * owner's count and ends from its last member. A counted removal moves the last kept members into the slots removals
  * free below the new count, and every other member keeps its slot; a sequence's members keep their order, and from the
- * least changed slot on every one is re-placed, since its predecessor axis is immediate.
+ * least slot the edit's own changes touch on every one is re-placed, since its predecessor axis is immediate. A refreshed
+ * member below that slot keeps its slot and is rewritten in place, under its family's deferred predecessor axis.
  */
 const fillGroup = (
 	ctx: FillContext,
@@ -492,7 +448,8 @@ const fillGroup = (
 		[...inputs].some((name) => {
 			const field = relation.fields.find((f) => f.name === name)
 			return (
-				field?.writing.kind === "caller" &&
+				field !== undefined &&
+				field.writing.kind !== "generated" &&
 				!same(ctx, field.type, before.get(fieldKey(name)), after.get(fieldKey(name)))
 			)
 		})
@@ -530,15 +487,47 @@ const fillGroup = (
 	const kept = n0 - removedSlots.length
 	const n1 = kept + edit.appends.length
 	const counted = !isSequence(family)
-	let s = n1
+	const owner = edit.owner
+	const ownerCopies = family.axes.owner.filter(
+		(pair) =>
+			(pair.from.kind === "field" ? pair.from.field.writing.kind === "accumulated" : true) &&
+			!(pair.from.kind === "law" && pair.from.column === family.copy)
+	)
+	/** A refilled group whose owner's copied columns or count change is refilled from its first member, each member's
+	 * copy of them drawn again: a refill draws the rows of an owner the stratum deletes and inserts again, which no
+	 * cascade follows. */
+	const ownerChanged =
+		edit.refilled &&
+		ownerCopies.some((pair) => {
+			const type = pair.to.kind === "field" ? pair.to.field.type : familyColumnType(family, pair.to)
+			const was = edit.stored?.owner
+			return (
+				type !== undefined &&
+				was !== undefined &&
+				edit.final !== undefined &&
+				!same(
+					ctx,
+					type,
+					valueAt(ctx, family.owner, was, columnKey(pair.to)),
+					valueAt(ctx, family.owner, edit.final, columnKey(pair.to))
+				)
+			)
+		})
+	let s = ownerChanged || (edit.refilled && n1 !== n0) ? 0 : n1
+	/** The least slot the edit's own changes touch, from which a sequence's members are re-placed. */
+	let own = n1
 	for (const [key, values] of edit.updates) {
 		const m = stored.find((x) => x.key === key)
 		if (m !== undefined && changesInput(m.values, values)) {
 			s = Math.min(s, m.slot)
+			if (!edit.refreshed.has(key)) {
+				own = Math.min(own, m.slot)
+			}
 		}
 	}
 	if (edit.appends.length > 0) {
 		s = Math.min(s, kept)
+		own = Math.min(own, kept)
 	}
 	/** Each final slot's member from `s` on, where it differs from the stored slot's: moved, or appended. */
 	const at = new Map<
@@ -556,6 +545,7 @@ const fillGroup = (
 				"a kept member above the new count for each slot freed below it"
 			)
 			s = Math.min(s, slot)
+			own = Math.min(own, slot)
 			at.set(slot, {
 				key: mover.key,
 				values: edit.updates.get(mover.key) ?? mover.values,
@@ -565,6 +555,7 @@ const fillGroup = (
 	} else {
 		for (const slot of removedSlots) {
 			s = Math.min(s, slot)
+			own = Math.min(own, slot)
 		}
 		const remaining = stored
 			.filter((m) => m.slot >= s && !edit.removals.has(m.key))
@@ -587,12 +578,6 @@ const fillGroup = (
 		const m = bySlot.get(slot)
 		return m === undefined ? undefined : { key: m.key, values: edit.updates.get(m.key) ?? m.values }
 	}
-	const owner = edit.owner
-	const ownerCopies = family.axes.owner.filter(
-		(pair) =>
-			(pair.from.kind === "field" ? pair.from.field.writing.kind === "accumulated" : true) &&
-			!(pair.from.kind === "law" && pair.from.column === family.copy)
-	)
 	if (edit.final === undefined && ownerCopies.length > 0 && n1 > 0) {
 		return Result.err(encodeFailure("factShape", slotPlace(relation.name)))
 	}
@@ -604,18 +589,18 @@ const fillGroup = (
 			throw defect(`the member at slot ${slot} a group's fill places`)
 		}
 		const values = new Map(member.values)
-		const own = new Map<ColumnKey, unknown>()
+		const drawn = new Map<ColumnKey, unknown>()
 		const put = (key: ColumnKey, v: unknown): void => {
 			values.set(key, v)
-			own.set(key, v)
+			drawn.set(key, v)
 		}
 		put(columnKey(family.index), BigInt(slot))
 		put(`law:${family.copy}`, BigInt(n1))
 		const prev = slot === 0 ? undefined : (filled.get(slot - 1) ?? memberAt(slot - 1)?.values)
 		/** A counted member kept or moved is updated in place, before its owner's own write and its count statement, which
-		 * the owner axis cascades into it; every other member is inserted after them, so it reads the owner as the stratum
-		 * leaves it. */
-		const seen = counted && at.get(slot)?.from !== "new" ? owner : edit.final
+		 * the owner axis cascades into it; every other member is inserted after them, and every member of a refilled group
+		 * is rewritten ahead of its owner's change, so each reads the owner as the stratum leaves it. */
+		const seen = counted && !edit.refilled && at.get(slot)?.from !== "new" ? owner : edit.final
 		for (const pair of ownerCopies) {
 			put(
 				columnKey(pair.from),
@@ -672,7 +657,7 @@ const fillGroup = (
 			from === "kept" &&
 			storedHere !== undefined &&
 			!edit.updates.has(member.key) &&
-			[...own].every(([key, v]) =>
+			[...drawn].every(([key, v]) =>
 				same(ctx, typeOfKey(relation, family, key), storedHere.values.get(key), v)
 			)
 		if (counted && unchanged) {
@@ -680,13 +665,13 @@ const fillGroup = (
 		}
 		placed.push({
 			key: member.key,
-			columns: own,
-			change: from === "new" ? "insert" : counted ? "update" : "replace"
+			columns: drawn,
+			change: from === "new" ? "insert" : counted || slot < own ? "update" : "replace"
 		})
 	}
 	for (const key of edit.updates.keys()) {
 		const m = stored.find((x) => x.key === key)
-		if (m !== undefined && m.slot < s) {
+		if (m !== undefined && m.slot < s && !edit.refreshed.has(key)) {
 			placed.push({ key, columns: new Map(), change: "update" })
 		}
 	}
@@ -760,12 +745,14 @@ export interface FilledRow {
 
 /**
  * A member relation's rows of one stratum as its families' fill leaves them, each kind a set by its key's text: those
- * deleted by key, its kept rows updated in place and its new and re-placed rows inserted, each with its columns' host
- * values. Its texts are written once, at its statements (`encodedWrite`).
+ * deleted by key, its kept rows a refill rewrites in place, its other kept rows updated in place, and its new and
+ * re-placed rows inserted, each with its columns' host values. Its texts are written once, at its statements
+ * (`encodedWrite`).
  */
 export interface FilledWrite {
 	readonly relation: string
 	readonly deletes: ReadonlyMap<string, MemberKey>
+	readonly refills: ReadonlyMap<string, FilledRow>
 	readonly updates: ReadonlyMap<string, FilledRow>
 	readonly inserts: ReadonlyMap<string, FilledRow>
 }
@@ -790,6 +777,7 @@ export const encodedWrite = (
 		relation: write.relation,
 		deletes: write.deletes,
 		trees: new Map(),
+		refills: new Map([...write.refills].map(([k, row]) => [k, encoded(row)] as const)),
 		updates: new Map([...write.updates].map(([k, row]) => [k, encoded(row)] as const)),
 		inserts: new Map([...write.inserts].map(([k, row]) => [k, encoded(row)] as const))
 	}
@@ -810,17 +798,37 @@ export const countRows = (
 	}))
 
 /**
+ * The stratum's other changes to a relation's stored rows, which its refilled families are drawn again from
+ * (analysis/theory/refill.ts): each row's values as the stratum leaves them, by key text, and whether a family is
+ * refilled.
+ */
+export interface RefillView {
+	readonly current: ReadonlyMap<string, Values>
+	readonly refilled: (family: Family) => boolean
+}
+
+/** Whether two rows of `relation` hold another value at some column one of them holds. */
+const differs = (ctx: FillContext, relation: LawRelation, a: Values, b: Values): boolean =>
+	[...a.keys()].some((key) => {
+		const field = relation.fields.find((f) => fieldKey(f.name) === key)
+		return field !== undefined && b.has(key) && !same(ctx, field.type, a.get(key), b.get(key))
+	})
+
+/**
  * A member relation's changes in one stratum planned against its families' reads: each family's touched groups
- * resolved into edits and filled, the placements merged per row (a row deleted, inserted whole, re-placed whole, or
- * updated in place, its every family's columns as filled or as stored), and each changed owner's count and ends.
- * `owners` gives each family's owners the stratum writes (`OwnerViews`).
+ * resolved into edits and filled, the placements merged per row (a row deleted, inserted whole, re-placed whole,
+ * refilled or updated in place, its every family's columns as filled or as stored), and each changed owner's count and
+ * ends. `owners` gives each family's owners the stratum writes (`OwnerViews`); `refresh` the rows the stratum's other
+ * changes leave changed, whose refilled families' groups are filled again from them, their kept members rewritten in
+ * place by the relation's refill with every value as the stratum leaves it.
  */
 export const planEdits = (
 	ctx: FillContext,
 	target: EditTarget,
 	changes: RelationChanges,
 	stored: ReadonlyMap<string, StoredFamily>,
-	owners: (family: Family) => OwnerViews
+	owners: (family: Family) => OwnerViews,
+	refresh: RefillView
 ): Result.Result<Edited, EncodingFailure | CompileError> => {
 	const relation = target.relation
 	/** Each row the changes name, once: a key named twice is refused, never a second member. */
@@ -871,7 +879,11 @@ export const planEdits = (
 		named.delete(text)
 	}
 	const placements = new Map<string, Array<Placement>>()
+	/** The kept rows a refilled group's fill rewrites, which the relation's refill writes. */
+	const refilledRows = new Set<string>()
 	const writes: Array<OwnerWrite> = []
+	/** A row's values as the stratum leaves them before the edit's own changes: its refreshed ones, else its stored. */
+	const currentOf = (key: string, was: Values): Values => refresh.current.get(key) ?? was
 	for (const { family, fixed } of target.families) {
 		const read = stored.get(familyKey(family.id))
 		const views = owners(family)
@@ -885,6 +897,8 @@ export const planEdits = (
 					readonly stored: StoredGroup | undefined
 					readonly removals: Set<string>
 					readonly updates: Map<string, Values>
+					readonly refreshed: Set<string>
+					refilled: boolean
 					readonly appends: Array<GroupEdit["appends"][number]>
 				}
 			}
@@ -915,6 +929,8 @@ export const planEdits = (
 				stored: s,
 				removals: new Set<string>(),
 				updates: new Map<string, Values>(),
+				refreshed: new Set<string>(),
+				refilled: false,
 				appends: new Array<GroupEdit["appends"][number]>()
 			}
 			groups.set(text, { owner, edit })
@@ -943,7 +959,7 @@ export const planEdits = (
 						groupEdit(group).appends.push({ key, values, by: "put" })
 						break
 					}
-					const merged = new Map([...was.values, ...values])
+					const merged = new Map([...currentOf(key, was.values), ...values])
 					if (was.group === textsKey(group)) {
 						groupEdit(group).updates.set(key, merged)
 					} else {
@@ -952,6 +968,18 @@ export const planEdits = (
 					}
 					break
 				}
+			}
+		}
+		if (refresh.refilled(family)) {
+			for (const m of read?.members.values() ?? []) {
+				const now = refresh.current.get(m.key)
+				if (now === undefined || named.has(m.key) || !differs(ctx, relation, m.values, now)) {
+					continue
+				}
+				const edit = groupEdit(storedGroupOf(m))
+				edit.updates.set(m.key, now)
+				edit.refreshed.add(m.key)
+				edit.refilled = true
 			}
 		}
 		const recounts = new Map<string, Recount>()
@@ -978,6 +1006,9 @@ export const planEdits = (
 				const moved = placement.change === "insert" && storedRows.has(placement.key)
 				list.push(moved ? { ...placement, change: "replace" } : placement)
 				placements.set(placement.key, list)
+				if (edit.refilled && placement.change === "update") {
+					refilledRows.add(placement.key)
+				}
 			}
 			const after = filled.value.recount
 			if (after !== undefined) {
@@ -998,6 +1029,7 @@ export const planEdits = (
 		}
 	}
 	const deletes = new Map<string, MemberKey>()
+	const refills = new Map<string, FilledRow>()
 	const updates = new Map<string, FilledRow>()
 	const inserts = new Map<string, FilledRow>()
 	const keyOfText = (text: string): MemberKey => defined(keys.get(text), "a named or stored key")
@@ -1011,7 +1043,11 @@ export const planEdits = (
 			}
 			continue
 		}
-		const merged = new Map([...(storedRows.get(text) ?? []), ...(op?.values ?? [])])
+		const was = storedRows.get(text)
+		const merged = new Map([
+			...(was === undefined ? [] : currentOf(text, was)),
+			...(op?.values ?? [])
+		])
 		const list = placements.get(text) ?? []
 		for (const placement of list) {
 			for (const [k, v] of placement.columns) {
@@ -1033,12 +1069,14 @@ export const planEdits = (
 		} else if (list.some((p) => p.change === "replace")) {
 			deletes.set(text, keyOfText(text))
 			inserts.set(text, rowOf(text, merged))
+		} else if (refilledRows.has(text)) {
+			refills.set(text, rowOf(text, merged))
 		} else {
 			updates.set(text, rowOf(text, merged))
 		}
 	}
 	return Result.ok({
-		rows: { relation: relation.name, deletes, updates, inserts },
+		rows: { relation: relation.name, deletes, refills, updates, inserts },
 		owners: writes
 	})
 }
@@ -1102,4 +1140,117 @@ export const foldRecounts = (planned: ReadonlyArray<EditedTarget>): ReadonlyArra
 		},
 		owners: defined(owners[i], "an edited relation's owners")
 	}))
+}
+
+/**
+ * A tree's every value drawn again from its nodes as the stratum leaves them (analysis/theory/refill.ts): each node's
+ * copies of its parent's columns, a root's of its own, each group of siblings' predecessor copies and accumulators, and
+ * each parent's ends, parents before their children, as the nesting draws them on insert; no node moves, so every slot,
+ * count and interval stays. `stored` and `current` are the trees' every node, by key text, as stored and as the stratum
+ * leaves them; the result is every node with every value drawn again.
+ */
+export const refillTree = (
+	ctx: FillContext,
+	family: Family,
+	stored: ReadonlyMap<string, Values>,
+	current: ReadonlyMap<string, Values>
+): Result.Result<ReadonlyMap<string, Values>, EncodingFailure | CompileError> => {
+	const tree = family.members
+	if (tree.kind !== "tree") {
+		return Result.ok(current)
+	}
+	const relation = family.member
+	const now = new Map<string, Map<ColumnKey, unknown>>(
+		[...current].map(([key, values]) => [key, new Map(values)] as const)
+	)
+	const ownText = (values: Values): string => textsKey(groupOfOwner(ctx, family, values))
+	const parentText = (values: Values): string => textsKey(groupOf(ctx, family, values))
+	const startOf = (values: Values): bigint => {
+		const start = values.get(fieldKey(tree.start.name))
+		return typeof start === "bigint" ? start : 0n
+	}
+	const ownerCopies = family.axes.owner.filter(
+		(pair) =>
+			(pair.from.kind === "field" ? pair.from.field.writing.kind === "accumulated" : true) &&
+			!(pair.from.kind === "law" && pair.from.column === family.copy)
+	)
+	const children = new Map<string, Array<string>>()
+	for (const [key, values] of stored) {
+		const parent = parentText(values)
+		if (parent === ownText(values)) {
+			continue
+		}
+		const list = children.get(parent) ?? []
+		list.push(key)
+		children.set(parent, list)
+	}
+	const preOrder = [...stored].toSorted(([, a], [, b]) => {
+		const x = startOf(a)
+		const y = startOf(b)
+		return x < y ? -1 : x > y ? 1 : 0
+	})
+	for (const [key, was] of preOrder) {
+		const node = defined(now.get(key), "a tree's node as the stratum leaves it")
+		if (parentText(was) === ownText(was)) {
+			for (const pair of ownerCopies) {
+				node.set(columnKey(pair.from), valueAt(ctx, relation, node, columnKey(pair.to)))
+			}
+		}
+		const kids = children.get(ownText(was)) ?? []
+		if (kids.length === 0) {
+			continue
+		}
+		const members = kids.map((kid): StoredMember => {
+			const values = defined(stored.get(kid), "a stored node")
+			const slot = values.get(columnKey(family.index))
+			return {
+				key: kid,
+				slot: typeof slot === "bigint" ? Number(slot) : -1,
+				group: ownText(was),
+				values
+			}
+		})
+		const changed = members.filter((m) => {
+			const values = now.get(m.key)
+			return values !== undefined && differs(ctx, relation, m.values, values)
+		})
+		const filled = fillGroup(
+			ctx,
+			relation,
+			family,
+			{
+				owner: node,
+				final: node,
+				stored: {
+					owner: was,
+					count: members.length,
+					members: members.toSorted((a, b) => a.slot - b.slot)
+				},
+				removals: new Set(),
+				updates: new Map(
+					changed.map((m) => [m.key, defined(now.get(m.key), "a changed node")] as const)
+				),
+				refreshed: new Set(changed.map((m) => m.key)),
+				refilled: true,
+				appends: []
+			},
+			undefined
+		)
+		if (!filled.ok) {
+			return filled
+		}
+		for (const placement of filled.value.placed) {
+			const values = defined(now.get(placement.key), "a placed node")
+			for (const [k, v] of placement.columns) {
+				values.set(k, v)
+			}
+		}
+		const ends = filled.value.recount
+		if (ends !== undefined) {
+			for (const f of endColumns(family)) {
+				node.set(fieldKey(f.name), ends.get(fieldKey(f.name)))
+			}
+		}
+	}
+	return Result.ok(now)
 }

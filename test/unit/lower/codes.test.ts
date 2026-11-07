@@ -28,7 +28,7 @@ import { type DeclaredName, parseDeclaredName } from "#compiler/core/identity.ts
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import { baseTypeRef, type PhysicalNames } from "#compiler/ir/physical.ts"
-import type { ScalarType } from "#compiler/ir/scalar.ts"
+import { Roster, type ScalarType } from "#compiler/ir/scalar.ts"
 import { lowerLiteral } from "#compiler/lower/conservative/expr/index.ts"
 import { scalarTypeOf } from "#compiler/scalar/registry.ts"
 import type { Expr } from "#compiler/sql/ast.ts"
@@ -60,7 +60,7 @@ const typeOver = (state: RosterState, desc: FieldDesc): ScalarType =>
 			desc,
 			{
 				kind: "builder",
-				roster: (name) => (name === state.closed ? liveOf(state) : undefined)
+				roster: (name) => (name === state.closed ? new Roster(name, liveOf(state)) : undefined)
 			},
 			SourceLoc("a closed literal's field", [])
 		)

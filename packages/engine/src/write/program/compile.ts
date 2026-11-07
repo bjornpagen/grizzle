@@ -76,11 +76,14 @@ import {
 import type { EditTarget } from "#compiler/write/family/edit.ts"
 import { familyKey } from "#compiler/write/family/fold.ts"
 import {
+	type ChainSql,
+	chainReadSql,
 	countStatement,
 	type FamilySql,
 	memberFamilies,
 	type ReadSql,
 	type RowLayout,
+	readShape,
 	rowLayout,
 	rowStatement,
 	suffixReadSql
@@ -93,7 +96,8 @@ import {
 	type WrittenRelation
 } from "#compiler/write/frontend/compile.ts"
 import type { EntryClaims } from "#compiler/write/frontend/entry.ts"
-import type { FamilyNode } from "#compiler/write/frontend/schedule.ts"
+import type { StratumRefill } from "#compiler/write/frontend/refill.ts"
+import { type FamilyNode, sameNode } from "#compiler/write/frontend/schedule.ts"
 import { distinctByEvidence, type WriteInput } from "#compiler/write/insert/input.ts"
 import { buildInsert, buildSpanClassify } from "#compiler/write/insert/protocol.ts"
 import {
@@ -173,6 +177,8 @@ export interface CompiledWrite extends WriteProgram {
 	readonly frontend: WriteFrontend
 	/** Each stratum's edits of a family's member relation, with their reads, built once. */
 	readonly edits: ReadonlyArray<EditProgram>
+	/** Each stratum's refills, with their reads, built once. */
+	readonly refills: ReadonlyArray<RefillProgram>
 	readonly choices: ReadonlyArray<PutChoice>
 	readonly plan: WritePlan
 	readonly artifacts: { readonly optimized: WriteArtifact; readonly conservative: WriteArtifact }
@@ -272,10 +278,22 @@ export interface EditProgram {
 	readonly reads: ReadonlyArray<{ readonly family: Family; readonly sql: ReadSql }>
 }
 
-/** The family statements of a program, by stratum, and its edits with their reads. */
+/**
+ * A stratum's refills as the program runs them (write/frontend/refill.ts): its refill, each of its reads' statement, and
+ * each relation a refill rewrites as an edit's target, its row layout and its families with their reads' shapes.
+ */
+export interface RefillProgram {
+	readonly stratum: number
+	readonly refill: StratumRefill
+	readonly reads: ReadonlyArray<ChainSql>
+	readonly targets: ReadonlyArray<EditTarget>
+}
+
+/** The family statements of a program, by stratum, and its edits and refills with their reads. */
 interface FamilyProgram {
 	readonly placements: ReadonlyArray<FamilyPlacement>
 	readonly edits: ReadonlyArray<EditProgram>
+	readonly refills: ReadonlyArray<RefillProgram>
 }
 
 /**
@@ -320,6 +338,30 @@ const familyProgram = (frontend: WriteFrontend, w: WriteContext): FamilyProgram 
 			reads
 		})
 	})
+	const refills = frontend.refills.map(({ stratum, refill }): RefillProgram =>
+		Object.freeze({
+			stratum,
+			refill,
+			reads: refill.reads.map((read) =>
+				chainReadSql(read, w, (relation) => rowLayout(relation, all))
+			),
+			targets: refill.relations.map((name): EditTarget => {
+				const relation = defined(stored.get(name), `the refilled relation ${name}`)
+				const layout = layoutOf(name)
+				return Object.freeze({
+					relation,
+					layout,
+					families: memberFamilies(name, all)
+						.filter((f) => !isTreeOf(f, name))
+						.map((family) => ({
+							family,
+							shape: readShape(family, layout),
+							fixed: stored.get(family.owner.name)?.mutable !== true
+						}))
+				})
+			})
+		})
+	)
 	const info = (name: string) =>
 		defined(frontend.schema.relations.get(name), `the family relation ${name}`)
 	const familyOf = (id: FamilyId): Family =>
@@ -347,14 +389,8 @@ const familyProgram = (frontend: WriteFrontend, w: WriteContext): FamilyProgram 
 			return Object.freeze({ stratum: s, node, step: Object.freeze(step), sql })
 		})
 	)
-	return { placements, edits }
+	return { placements, edits, refills }
 }
-
-/** Whether two family statements of a stratum are one: their kind, their relation and statement or their family. */
-const sameNode = (a: FamilyNode, b: FamilyNode): boolean =>
-	a.kind === "owners"
-		? b.kind === "owners" && familyKey(a.family) === familyKey(b.family)
-		: b.kind === "rows" && a.relation === b.relation && a.statement === b.statement
 
 /**
  * Places the family statement of `node` in `stratum`, after the statements placed so far and those `deps` gives it.
@@ -1214,6 +1250,7 @@ const compile = (
 		shares: (members) => unwrap(planStatementShares(sharing.index, members))
 	})
 	const optimized = optimizedArtifact(restated, plan, lowering, options)
+	const family = familyProgram(frontend, lowering.w)
 	const conservative = conservativeArtifact(
 		unwrap(
 			realizeConservative(frontend, {
@@ -1223,7 +1260,7 @@ const compile = (
 			})
 		),
 		options.names.codes,
-		familyProgram(frontend, lowering.w).placements
+		family.placements
 	)
 	const ir = frontend.ir
 	const vector =
@@ -1240,7 +1277,8 @@ const compile = (
 		reads[r.name] = r.statements[0].index
 	}
 	const program: CompiledWrite = {
-		edits: familyProgram(frontend, lowering.w).edits,
+		edits: family.edits,
+		refills: family.refills,
 		kind: "write",
 		context: "transaction",
 		optimized: optimized.specs,

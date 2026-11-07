@@ -1,15 +1,16 @@
 import { Array as Arr } from "effect"
-import { scalarCodec } from "#compiler/codec/scalar.ts"
+import { scalarReader } from "#compiler/codec/read.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
+import { outputText } from "#test/support/wire.ts"
 
 /**
  * A statement's rows as the tests that run a statement directly read them.
  *
  * The library reads a statement's texts only through a value's decoder (core/decoder.ts), bound to the statement's
  * layout (adapter/reader/execution.ts). A test that runs a template's statement on its own, outside a reader, reads its
- * rows here instead: each text converted by its column type's codec, the library's own trusting conversion
- * (codec/scalar.ts), a row a record of its heading.
+ * rows here instead: each text, PostgreSQL's output, converted by its column type's reader, the library's own trusting
+ * conversion (codec/read.ts), a row a record of its heading.
  *
  * A record of host values, keyed by column name, with no prototype.
  */
@@ -28,11 +29,11 @@ export const headingRecord = (
 	heading: Heading,
 	codes: Codebook
 ): ((row: ReadonlyArray<string>) => RowRecord) => {
-	const converts = Arr.map(heading, (c) => [c.name, scalarCodec(c.type, codes).convert] as const)
+	const converts = Arr.map(heading, (c) => [c.name, scalarReader(c.type, codes).convert] as const)
 	return (row) => {
 		const out: Record<string, unknown> = { __proto__: null }
 		for (const [i, [name, convert]] of converts.entries()) {
-			out[name] = convert(cell(row, i))
+			out[name] = convert(outputText(cell(row, i)))
 		}
 		return Object.freeze(out)
 	}

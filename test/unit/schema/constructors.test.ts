@@ -478,7 +478,7 @@ describe("closed", () => {
 							for (const h of handles) {
 								const term = K.handle(h)
 								assert.deepEqual(term.expr, { kind: "literal", value: h, type: descOf(rosterId) })
-								assert.equal(term.sql, "code")
+								assert.equal(term.sql, rosterId.sql)
 								assert.deepEqual(
 									term.column.kind === "code" ? term.column.handles : [],
 									[h],

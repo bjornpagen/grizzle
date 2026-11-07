@@ -78,6 +78,8 @@ const sqlTypeOf = (type: ScalarType, plan: InstallPlan): TypeRef => {
 			return types.int4range
 		case "range8":
 			return types.int8range
+		case "rangeDate":
+			return types.daterange
 		case "vector":
 			return namedType(testTypeSchema(plan.vectorSchema), "vector", [b.typmod.dims])
 		case "exactInteger":

@@ -32,6 +32,7 @@ import { decodedQuery } from "#test/support/fixtures/ir/desc.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { has, shapeOf } from "#test/support/kernel/shape.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { paramText } from "#test/support/wire.ts"
 
 const Instant = contract("Instant", pg.bigint)
 const Slot = relation(
@@ -222,7 +223,7 @@ describe("span parameters and windows", () => {
 							for (const encode of declared) {
 								const encoded = encode({ start, end: start + width })
 								if (width === 15) {
-									assert.deepEqual(encoded, Result.ok(`[${start},${start + width})`))
+									assert.deepEqual(encoded, Result.ok(paramText(`[${start},${start + width})`)))
 								} else {
 									refused(encoded, "spanWidth")
 								}

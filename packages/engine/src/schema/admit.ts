@@ -13,7 +13,7 @@ import {
 	type SchemaDesc,
 	type UnadmittedSchemaDesc
 } from "#compiler/ir/desc.ts"
-import { baseOf, type ScalarType, typeLabel } from "#compiler/ir/scalar.ts"
+import { baseOf, Roster, type ScalarType, typeLabel } from "#compiler/ir/scalar.ts"
 import { irLiteral } from "#compiler/scalar/compute/literal.ts"
 import { type ScalarEnv, scalarTypeOf } from "#compiler/scalar/registry.ts"
 
@@ -107,7 +107,13 @@ const admittedLevels = (desc: UnadmittedSchemaDesc, env: ScalarEnv): unknown => 
 export const admitSchemaDesc = (value: unknown): Result.Result<SchemaDesc, CompileError> =>
 	Result.flatMap(decodeUnadmittedSchema(value), (unadmitted) => {
 		const rosters = rostersOf(unadmitted)
-		const env: ScalarEnv = { kind: "builder", roster: (name) => rosters.get(name) }
+		const env: ScalarEnv = {
+			kind: "builder",
+			roster: (name) => {
+				const handles = rosters.get(name)
+				return handles === undefined ? undefined : new Roster(name, handles)
+			}
+		}
 		return Result.flatMap(
 			catchRefusal(() => admittedLevels(unadmitted, env)),
 			(levels) => decodeDesc("schema", levels)

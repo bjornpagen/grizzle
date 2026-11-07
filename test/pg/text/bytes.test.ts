@@ -10,7 +10,7 @@
  * a direct writer. A value is stored exactly when it is a member of the pattern, by ECMAScript (jsAccepts), and of
  * at most N bytes, by TextEncoder; otherwise the domain's CHECK refuses it with SQLSTATE 23514. The analysis agrees:
  * the field's type bounds its bytes at the lesser of the pattern's bound and N and its code points at the lesser of
- * the pattern's and N, and the host's membership (scalar/regex/nfa.ts regexMember) answers as PostgreSQL does.
+ * the pattern's and N, and the host's membership (scalar/regex/patterns.ts ProgramPatterns) answers as PostgreSQL does.
  */
 import { layer } from "@effect/vitest"
 import { type Case as SearchCase, drawn, explore } from "@grizzle/testing/explore"
@@ -24,7 +24,7 @@ import { textOf } from "#compiler/ir/scalar.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { regexMember } from "#compiler/scalar/regex/nfa.ts"
+import { ProgramPatterns } from "#compiler/scalar/regex/patterns.ts"
 import { describeField } from "#compiler/scalar/registry.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { regexField } from "#compiler/text/field.ts"
@@ -207,7 +207,7 @@ const checkBatch = (batch: ReadonlyArray<BytesCase>, note: SearchCase<BytesFeatu
 				const at = `${where}, a value of ${bytes} bytes`
 				const regex = text.regex
 				assert.equal(
-					regex === "wildcard" || regexMember(regex, value),
+					regex === "wildcard" || ProgramPatterns.of([regex]).member(regex, value),
 					lawful,
 					`${at}: the host's membership`
 				)

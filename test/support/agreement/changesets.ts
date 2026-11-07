@@ -8,6 +8,7 @@ import { collectInputs } from "#adapter/apply/collect.ts"
 import { changeOps } from "#adapter/db/db.ts"
 import { readParams } from "#adapter/reader/params.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
+import { refinedMember } from "#compiler/codec/scalar.ts"
 import { CompileError, type CompileReason } from "#compiler/core/errors.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { isSequence, isTreeOf } from "#compiler/ir/family.ts"
@@ -121,13 +122,22 @@ const uuidLit = (n: number): Lit => {
 	return { text: jsonText(text), value: text }
 }
 
-/** A field of a written relation: its name, whether it is a serial, its key, values of its type and one outside it. */
+/**
+ * A value outside a field, by its shape: a value of another type, a text outside its roster, a text with fewer than four
+ * hyphens at a uuid field, a plain `string`, or a text of another pattern.
+ */
+interface Outside {
+	readonly shape: OutsideShape
+	readonly lit: Lit
+}
+
+/** A field of a written relation: its name, whether it is a serial, its key, values of its type and ones outside it. */
 interface FieldInfo {
 	readonly name: string
 	readonly serial: boolean
 	readonly key: boolean
 	readonly values: Arr.NonEmptyReadonlyArray<Lit>
-	readonly bad: Lit
+	readonly outside: Arr.NonEmptyReadonlyArray<Outside>
 }
 
 const uuids: Arr.NonEmptyReadonlyArray<Lit> = [uuidLit(1), uuidLit(2)]
@@ -144,65 +154,90 @@ const bigints: Arr.NonEmptyReadonlyArray<Lit> = [
 	{ text: "1n", value: 1n },
 	{ text: "2n", value: 2n }
 ]
+const textsOf = (texts: Arr.NonEmptyReadonlyArray<string>): Arr.NonEmptyReadonlyArray<Lit> =>
+	Arr.map(texts, (t) => ({ text: jsonText(t), value: t }))
+const answers = textsOf(["yes", "no"])
+const grades = textsOf(["pass", "fail"])
+
+/**
+ * The program's `declare const plain: string`: a value whose type is every text, so the engine judges the inhabitant
+ * of that type outside every narrower field, which the types refuse with it.
+ */
+const plainString: Lit = { text: "plain", value: "plain" }
+const anotherType = (lit: Lit): Outside => ({ shape: "a value of another type", lit })
+const plainOutside: Outside = { shape: "a plain string", lit: plainString }
+const uuidOutside: Arr.NonEmptyReadonlyArray<Outside> = [
+	anotherType(plainNumber),
+	{ shape: "a uuid given a short text", lit: { text: '"0193d8f2"', value: "0193d8f2" } },
+	plainOutside
+]
+const kindOutside: Arr.NonEmptyReadonlyArray<Outside> = [
+	{ shape: "a text outside its roster", lit: { text: '"Paused"', value: "Paused" } },
+	plainOutside
+]
+const otherPattern = (lit: Lit): Arr.NonEmptyReadonlyArray<Outside> => [
+	{ shape: "another pattern's text", lit },
+	plainOutside
+]
 
 const fieldsOf: { readonly [R in RelName]: Arr.NonEmptyReadonlyArray<FieldInfo> } = {
 	Task: [
-		{ name: "id", serial: false, key: true, values: uuids, bad: plainNumber },
-		{ name: "account", serial: false, key: false, values: uuids, bad: plainNumber },
-		{
-			name: "kind",
-			serial: false,
-			key: false,
-			values: kinds,
-			bad: { text: '"Paused"', value: "Paused" }
-		}
+		{ name: "id", serial: false, key: true, values: uuids, outside: uuidOutside },
+		{ name: "account", serial: false, key: false, values: uuids, outside: uuidOutside },
+		{ name: "kind", serial: false, key: false, values: kinds, outside: kindOutside }
 	],
 	Budget: [
-		{ name: "task", serial: false, key: true, values: uuids, bad: plainNumber },
-		{ name: "cents", serial: false, key: false, values: cents, bad: plainNumber }
+		{ name: "task", serial: false, key: true, values: uuids, outside: uuidOutside },
+		{
+			name: "cents",
+			serial: false,
+			key: false,
+			values: cents,
+			outside: [anotherType(plainNumber)]
+		}
 	],
 	Ticket: [
-		{ name: "id", serial: true, key: true, values: bigints, bad: plainNumber },
-		{ name: "account", serial: false, key: false, values: uuids, bad: plainNumber },
-		{ name: "amount", serial: false, key: false, values: cents, bad: plainNumber }
+		{ name: "id", serial: true, key: true, values: bigints, outside: [anotherType(plainNumber)] },
+		{ name: "account", serial: false, key: false, values: uuids, outside: uuidOutside },
+		{
+			name: "amount",
+			serial: false,
+			key: false,
+			values: cents,
+			outside: [anotherType(plainNumber)]
+		}
 	],
 	Pair: [
-		{ name: "a", serial: true, key: true, values: bigints, bad: plainNumber },
+		{ name: "a", serial: true, key: true, values: bigints, outside: [anotherType(plainNumber)] },
 		{
 			name: "b",
 			serial: true,
 			key: false,
 			values: [{ text: "1", value: 1 }],
-			bad: { text: "1n", value: 1n }
+			outside: [anotherType({ text: "1n", value: 1n })]
 		},
-		{ name: "note", serial: false, key: false, values: uuids, bad: plainNumber }
+		{ name: "note", serial: false, key: false, values: uuids, outside: uuidOutside }
 	],
 	Ledger: [
-		{ name: "id", serial: false, key: true, values: bigints, bad: plainNumber },
+		{ name: "id", serial: false, key: true, values: bigints, outside: [anotherType(plainNumber)] },
 		{
 			name: "balance",
 			serial: false,
 			key: false,
 			values: [{ text: "5n", value: 5n }],
-			bad: plainNumber
+			outside: [anotherType(plainNumber)]
 		},
 		{
 			name: "fee",
 			serial: false,
 			key: false,
 			values: [{ text: "Money.of(5n)", value: Money.of(5n) }],
-			bad: { text: "5n", value: 5n }
+			outside: [anotherType({ text: "5n", value: 5n })]
 		}
 	],
 	Tag: [
-		{ name: "id", serial: false, key: true, values: uuids, bad: plainNumber },
-		{
-			name: "kind",
-			serial: false,
-			key: false,
-			values: kinds,
-			bad: { text: '"Paused"', value: "Paused" }
-		},
+		{ name: "id", serial: false, key: true, values: uuids, outside: uuidOutside },
+		{ name: "kind", serial: false, key: false, values: kinds, outside: kindOutside },
 		{
 			name: "flags",
 			serial: false,
@@ -211,10 +246,34 @@ const fieldsOf: { readonly [R in RelName]: Arr.NonEmptyReadonlyArray<FieldInfo> 
 				{ text: 'Bits.of(Flag, ["on"])', value: Bits.of(Flag, ["on"]) },
 				{ text: "Bits.of(Flag, [])", value: Bits.of(Flag, []) }
 			],
-			bad: plainNumber
+			outside: [anotherType(plainNumber)]
+		},
+		{
+			name: "answer",
+			serial: false,
+			key: false,
+			values: answers,
+			outside: otherPattern(Arr.headNonEmpty(grades))
+		},
+		{
+			name: "grade",
+			serial: false,
+			key: false,
+			values: grades,
+			outside: otherPattern(Arr.headNonEmpty(answers))
 		}
 	]
 }
+
+/** The shapes a value outside its field takes, each a feature of the fault that writes one. */
+const outsideShapes = [
+	"a value of another type",
+	"a text outside its roster",
+	"a uuid given a short text",
+	"a plain string",
+	"another pattern's text"
+] as const
+type OutsideShape = (typeof outsideShapes)[number]
 
 /** The faults a case may plant, one at most, each a swarm feature; and the constructs it may use. */
 const changeSetFaults = [
@@ -294,7 +353,10 @@ const changeSetFeatures = [
 	"bind",
 	"over an extension",
 	"applied",
-	"a partial write list"
+	"a partial write list",
+	"a choice of two ChangeSets applied",
+	"a choice of two ChangeSets compiled",
+	...outsideShapes
 ] as const
 type ChangeSetFeature = (typeof changeSetFeatures)[number]
 
@@ -480,6 +542,11 @@ interface ApplySpec {
 	readonly role: RoleName
 	readonly entry: "apply" | "compile" | "execute" | "get" | "compiled apply"
 	readonly args: Argument
+	/**
+	 * Where db.apply or db.compile is given a choice of two ChangeSets, `flip ? c : ChangeSet.sequence(c, choice)`, the
+	 * ChangeSet the second branch sequences after the case's own.
+	 */
+	readonly choice: BuiltSpec | undefined
 }
 
 type RoleName = "Writer" | "Clerk" | "Reader"
@@ -591,13 +658,47 @@ const factOf = (
 	if (fault === "a fact missing a field" && Option.isSome(payload)) {
 		return Arr.filter(base, ([name]) => name !== payload.value.name)
 	}
-	if (fault === "a fact value outside its field" && Option.isSome(payload)) {
-		return Arr.map(base, ([name, lit]) =>
-			name === payload.value.name ? ([name, payload.value.bad] as const) : ([name, lit] as const)
-		)
+	if (fault === "a fact value outside its field") {
+		return Arr.match(outsideTargets(written), {
+			onEmpty: () => base,
+			onNonEmpty: (targets) => {
+				const target = Option.getOrElse(
+					Arr.findFirst(targets, (t) => d.aimed(t.outside.shape)),
+					() => d.from(targets)
+				)
+				d.note(target.outside.shape)
+				return Arr.map(base, ([name, lit]) =>
+					name === target.field ? ([name, target.outside.lit] as const) : ([name, lit] as const)
+				)
+			}
+		})
 	}
 	return base
 }
+
+/** The relations a fact of which may hold a value outside its field of each of `shapes`: with none, every relation. */
+const offering = (shapes: ReadonlyArray<OutsideShape>): Arr.NonEmptyReadonlyArray<RelName> =>
+	Arr.match(
+		Arr.filter(relNames, (r) =>
+			Arr.every(shapes, (shape) =>
+				Arr.some(outsideTargets(fieldsOf[r]), (t) => t.outside.shape === shape)
+			)
+		),
+		{
+			onEmpty: () => {
+				throw new Error(`no written relation's field takes ${Arr.join(shapes, " and ")}`)
+			},
+			onNonEmpty: (offered) => offered
+		}
+	)
+
+/** The values outside its field a fact's field may be written, each at its field: no key's and no serial's. */
+const outsideTargets = (
+	fields: ReadonlyArray<FieldInfo>
+): ReadonlyArray<{ readonly field: string; readonly outside: Outside }> =>
+	Arr.flatMap(fields, (f) =>
+		f.key || f.serial ? [] : Arr.map(f.outside, (outside) => ({ field: f.name, outside }))
+	)
 
 /**
  * A described member of `relation`: a copy of its facts, each field bound in the match and written in the head as its
@@ -676,7 +777,10 @@ const describedOf = (
 				? head
 				: Arr.map(head, ([name, term]) =>
 						name === target.value.name
-							? ([name, { kind: "literal", lit: target.value.bad }] as const)
+							? ([
+									name,
+									{ kind: "literal", lit: Arr.headNonEmpty(target.value.outside).lit }
+								] as const)
 							: ([name, term] as const)
 					)
 		}
@@ -759,11 +863,13 @@ const memberOf = (d: Drawing, fault: ChangeSetFault | undefined, clean: boolean)
 					? d.from(["Budget", "Ticket"] as const)
 					: fault === "an exact value into a plain field" || narrowed
 						? "Ledger"
-						: d.aimed("a partial write list")
-							? d.from(["Task", "Budget"] as const)
-							: d.aimed("a generated addition")
-								? d.from(["Ticket", "Pair"] as const)
-								: d.from(relNames)
+						: fault === "a fact value outside its field"
+							? d.from(offering(Arr.filter(outsideShapes, (shape) => d.aimed(shape))))
+							: d.aimed("a partial write list")
+								? d.from(["Task", "Budget"] as const)
+								: d.aimed("a generated addition")
+									? d.from(["Ticket", "Pair"] as const)
+									: d.from(relNames)
 	const described =
 		fault !== undefined && Arr.contains(headFaults, fault)
 			? true
@@ -1394,17 +1500,6 @@ const caseOver = (d: Drawing): CaseSpec => {
 	const free = freeParams(change)
 	const writes = Arr.flatMap(builtsOf(change), (b) => Arr.flatMap(b.members, memberWrites))
 	const clerkly = Arr.every(writes, (w) => Arr.contains(clerkWrites, w))
-	const role: RoleName =
-		fault === "a role that does not write the relation" && Arr.isReadonlyArrayNonEmpty(writes)
-			? clerkly
-				? "Reader"
-				: d.from(["Reader", "Clerk"] as const)
-			: clerkly && d.keep("a partial write list")
-				? "Clerk"
-				: "Writer"
-	if (role === "Clerk") {
-		d.note("a partial write list")
-	}
 	const entry =
 		fault === "a parameter left unbound"
 			? "apply"
@@ -1415,7 +1510,31 @@ const caseOver = (d: Drawing): CaseSpec => {
 					: fault === "an argument naming no parameter" ||
 						  fault === "a parameter map of a wider type"
 						? d.from(["apply", "compiled apply"] as const)
-						: d.from(["apply", "apply", "compile"] as const)
+						: d.aimed("a choice of two ChangeSets compiled")
+							? "compile"
+							: d.aimed("a choice of two ChangeSets applied")
+								? "apply"
+								: d.from(["apply", "apply", "compile"] as const)
+	const roleFault =
+		fault === "a role that does not write the relation" && Arr.isReadonlyArrayNonEmpty(writes)
+	const chosen =
+		(fault === undefined || (roleFault && clerkly)) &&
+		(entry === "apply"
+			? d.keep("a choice of two ChangeSets applied")
+			: entry === "compile" && d.keep("a choice of two ChangeSets compiled"))
+	const role: RoleName = roleFault
+		? chosen
+			? "Clerk"
+			: clerkly
+				? "Reader"
+				: d.from(["Reader", "Clerk"] as const)
+		: clerkly && d.keep("a partial write list")
+			? "Clerk"
+			: "Writer"
+	if (role === "Clerk") {
+		d.note("a partial write list")
+	}
+	const choice = chosen ? choiceOf(d, role, roleFault) : undefined
 	const entries =
 		fault === "a parameter left unbound"
 			? free.slice(1)
@@ -1427,9 +1546,37 @@ const caseOver = (d: Drawing): CaseSpec => {
 		apply: {
 			role,
 			entry,
-			args: { kind: fault === "a parameter map of a wider type" ? "variable" : "record", entries }
+			args: { kind: fault === "a parameter map of a wider type" ? "variable" : "record", entries },
+			choice
 		},
 		fault
+	}
+}
+
+/**
+ * The ChangeSet a choice sequences after the case's own in its other branch: one fact's insert, into a relation the
+ * role writes, or, where the case plants a write outside its role's write list, into one the clerk does not write.
+ */
+const choiceOf = (d: Drawing, role: RoleName, outside: boolean): BuiltSpec => {
+	const relation =
+		role !== "Clerk"
+			? d.from(relNames)
+			: outside
+				? d.from(["Ticket", "Pair", "Ledger", "Tag"] as const)
+				: d.from(["Task", "Budget"] as const)
+	return {
+		kind: "built",
+		level: "Work",
+		members: [
+			{
+				kind: "array",
+				op: "insert",
+				relation,
+				facts: [factOf(d, "insert", relation, undefined, 0)]
+			}
+		],
+		reads: [],
+		bind: undefined
 	}
 }
 
@@ -1449,9 +1596,14 @@ class Rendering {
 		| "Bits"
 		| "Flag"
 		| RoleName
+		| "flip"
+		| "plain"
 	>()
 
 	lit(l: Lit): string {
+		if (l === plainString) {
+			this.uses.add("plain")
+		}
 		if (Str.startsWith("Cents(")(l.text)) {
 			this.uses.add("Cents")
 		}
@@ -1917,7 +2069,10 @@ type Verdict =
 			readonly code: string
 	  }
 
-/** The host type a value of the engine's type has, as the program spells it. */
+/**
+ * The host type a value of the engine's type has, as the program spells it: a pattern's text the inference of its
+ * source, as its field's host type is (text/field.ts str.regex).
+ */
 const hostText = (t: ScalarType): string => {
 	const named = contractOf(t)
 	if (named !== undefined) {
@@ -1944,7 +2099,9 @@ const hostText = (t: ScalarType): string => {
 		case "date":
 			return "CalendarDate"
 		case "text":
-			return "string"
+			return t.text.regex === "wildcard"
+				? "string"
+				: `RegexInfer<${jsonText(t.text.regex.source)}, ${jsonText(t.text.regex.flags)}>`
 		case "code":
 			return Arr.join(
 				Arr.map(t.roster.handles, (h) => jsonText(h)),
@@ -1954,6 +2111,7 @@ const hostText = (t: ScalarType): string => {
 			return `BitsOf<typeof ${t.roster.closed}>`
 		case "range4":
 		case "range8":
+		case "rangeDate":
 		case "vector":
 			return `unknown /* ${t.carrier} */`
 	}
@@ -2039,6 +2197,32 @@ const bound = (
 }
 
 /**
+ * Whether a member fact holds a value outside its column's refinements (codec/scalar.ts refinedMember): no parameter, so
+ * bind passes it, and its column's domain refuses it when the ChangeSet applies.
+ */
+const outsideItsDomain = (laws: ReturnType<typeof realityWrite>["laws"], c: ChangeSpec): boolean =>
+	Arr.some(builtsOf(c), (b) =>
+		Arr.some(b.members, (m) => {
+			if (m.kind !== "array" && m.kind !== "stream" && m.kind !== "widened") {
+				return false
+			}
+			const relation = laws.relations.get(m.relation)
+			if (relation === undefined) {
+				throw new Error(`the law model holds no relation ${m.relation}, which a member writes`)
+			}
+			return Arr.some(relation.relation.heading, (f) => {
+				const member = refinedMember(f.type)
+				return (
+					member !== undefined &&
+					Arr.some(m.facts, (fact) =>
+						Arr.some(fact, ([name, lit]) => name === f.name && !member(lit.value))
+					)
+				)
+			})
+		})
+	)
+
+/**
  * The diagnostic a planted fault raises: a fold's head field is a property of an object (TS2322), a Stream member's
  * fact is an argument under exactOptionalPropertyTypes (TS2379), every other an argument (TS2345).
  */
@@ -2064,8 +2248,22 @@ const compiledChange = (level: Level) =>
 		apply: () => Effect.die(new Error("a compiled ChangeSet read as a query never applies"))
 	})
 
-/** The engine's verdict on a case: built, compiled over reality, bound, then compiled for the applying role. */
+/**
+ * The engine's verdict on a case: its own ChangeSet's, and, where its application is given a choice, refused where
+ * either branch is, at the call that is given both.
+ */
 const verdictOf = (spec: CaseSpec): Verdict => {
+	const own = verdictOfOne(spec)
+	const choice = spec.apply?.choice
+	if (own.kind === "refused" || choice === undefined) {
+		return own
+	}
+	const other = verdictOfOne({ ...spec, change: { kind: "sequence", a: spec.change, b: choice } })
+	return other.kind === "refused" ? { ...other, at: "apply" } : own
+}
+
+/** The engine's verdict on one ChangeSet: built, compiled over reality, bound, then compiled for the applying role. */
+const verdictOfOne = (spec: CaseSpec): Verdict => {
 	const code = codeOf(spec)
 	const built = Result.try(() => buildChange(spec.change))
 	if (Result.isFailure(built)) {
@@ -2128,6 +2326,14 @@ const verdictOf = (spec: CaseSpec): Verdict => {
 					claim: { kind: "refusal", refusal: "a member fact is not a fact of the relation" },
 					code
 				}
+	}
+	if (outsideItsDomain(reality.options.laws, spec.change)) {
+		return {
+			kind: "refused",
+			at: "change",
+			claim: { kind: "refusal", refusal: "a member fact is not a fact of the relation" },
+			code
+		}
 	}
 	if (encoded.value.kind === "invariant-rejected" && spec.fault === "two facts sharing a key") {
 		return {
@@ -2215,6 +2421,8 @@ interface ChangeSetCase {
 	readonly spec: CaseSpec
 	readonly change: string
 	readonly args: string
+	/** The source of the ChangeSet a choice sequences after the case's own, where its application is given one. */
+	readonly choice: string | undefined
 	readonly verdict: Verdict
 	readonly uses: ReadonlySet<string>
 	readonly notes: ReadonlySet<ChangeSetNote>
@@ -2240,6 +2448,10 @@ const caseOf = ({ spec, reached }: Drawn): ChangeSetCase => {
 	if (spec.apply !== undefined) {
 		rendering.uses.add(spec.apply.role)
 	}
+	const choice = spec.apply?.choice === undefined ? undefined : rendering.change(spec.apply.choice)
+	if (choice !== undefined) {
+		rendering.uses.add("flip")
+	}
 	const verdict = verdictOf(spec)
 	const notes = new Set<ChangeSetNote>(reached)
 	if (verdict.kind === "admitted") {
@@ -2257,21 +2469,30 @@ const caseOf = ({ spec, reached }: Drawn): ChangeSetCase => {
 			notes.add(m.kind === "appended" ? "insert" : m.op)
 		}
 	}
-	return { spec, change, args, verdict, uses: rendering.uses, notes }
+	return { spec, change, args, choice, verdict, uses: rendering.uses, notes }
 }
 
 /**
  * The situations the floor's witnesses reach: every construct and fault, each construct admitted and each fault
- * refused; a key two facts share and a
- * derived relation written, under each op, and a derived relation's delta, added and removed.
+ * refused; a value outside its field in each of its shapes; a key two facts share and a derived relation written, under
+ * each op; a derived relation's delta, added and removed; and a write outside the role's write list by one branch of a
+ * choice of two ChangeSets, applied and compiled.
  */
 export const changeSetRequired: ReadonlyArray<Reached<ChangeSetNote>> = [
 	...changeSetFeatures,
 	...Arr.map(
-		Arr.filter(changeSetFeatures, (f) => !Arr.contains(changeSetFaults, f)),
+		Arr.filter(
+			changeSetFeatures,
+			(f) => !Arr.contains(changeSetFaults, f) && !Arr.contains(outsideShapes, f)
+		),
 		(f) => [f, "admitted"] as const
 	),
 	...Arr.map(changeSetFaults, (f) => [f, "refused"] as const),
+	...Arr.map(outsideShapes, (shape) => ["a fact value outside its field", shape] as const),
+	...Arr.map(
+		["a choice of two ChangeSets applied", "a choice of two ChangeSets compiled"] as const,
+		(choice) => ["a role that does not write the relation", choice] as const
+	),
 	...Arr.flatMap(["two facts sharing a key", "a derived relation written"] as const, (f) =>
 		Arr.map(["insert", "delete", "put"] as const, (op) => [f, op] as const)
 	),
@@ -2335,6 +2556,8 @@ const prerequisites: { readonly [F in ChangeSetFeature]?: ReadonlyArray<ChangeSe
 	"an immutable family": ["family member"],
 	"an append beside its owner": ["family member", "a counted member", "insert"],
 	"a partial write list": ["applied"],
+	"a choice of two ChangeSets applied": ["applied", "a partial write list"],
+	"a choice of two ChangeSets compiled": ["applied", "a partial write list"],
 	"a generated addition": ["insert"],
 	bind: ["described member", "a parameter"]
 }
@@ -2375,6 +2598,7 @@ interface ChangeSetEntries {
 	readonly phantom: string
 	readonly typesPhantom: string
 	readonly field: string
+	readonly regex: string
 	readonly db: string
 	readonly outcome: string
 	readonly agreement: string
@@ -2389,6 +2613,7 @@ export const changeSetEntriesFrom = (entry: (path: string) => string): ChangeSet
 	phantom: entry("packages/engine/src/core/phantom.ts"),
 	typesPhantom: entry("packages/engine/src/types/core/phantom.ts"),
 	field: entry("packages/engine/src/types/fields/field.ts"),
+	regex: entry("packages/engine/src/types/fields/regex.ts"),
 	db: entry("packages/grizzle/src/adapter/types/db.ts"),
 	outcome: entry("packages/grizzle/src/index.ts"),
 	agreement: entry("test/support/agreement/changeset-schema.ts")
@@ -2466,11 +2691,13 @@ const blockOf = (c: ChangeSetCase, i: number): string => {
 		return Arr.join([...change, ...assertions, ""], "\n")
 	}
 	const passed = apply.args.kind === "variable" ? `w${i}` : c.args
+	const given =
+		c.choice === undefined ? `c${i}` : `flip ? c${i} : ChangeSet.sequence(c${i}, ${c.choice})`
 	const call =
 		apply.entry === "apply"
-			? `db.apply(c${i}, ${passed})`
+			? `db.apply(${given}, ${passed})`
 			: apply.entry === "compile"
-				? `db.compile(c${i})`
+				? `db.compile(${given})`
 				: apply.entry === "compiled apply"
 					? `h.apply(${passed})`
 					: `h.${apply.entry}(${passed})`
@@ -2559,15 +2786,18 @@ export const changeSetModules = (
 					`import type { Phantom } from ${jsonText(entries.phantom)}`,
 					`import type { Invariant, Rostered } from ${jsonText(entries.typesPhantom)}`,
 					`import type { Bits as BitsOf, Infer } from ${jsonText(entries.field)}`,
+					`import type { RegexInfer } from ${jsonText(entries.regex)}`,
 					`import type { Compiled, DbOf } from ${jsonText(entries.db)}`,
 					`import type { ApplyError, ApplyOutcome, CompileError } from ${jsonText(entries.outcome)}`,
 					`import { ${Arr.join(schemaNames, ", ")} } from ${jsonText(entries.agreement)}`,
 					"",
 					"type Equals<A, B> = (<X>() => X extends A ? 1 : 2) extends <X>() => X extends B ? 1 : 2 ? true : false",
 					"type Expect<T extends true> = T",
+					...(uses.has("flip") ? ["declare const flip: boolean"] : []),
+					...(uses.has("plain") ? ["declare const plain: string"] : []),
 					"export const widen = <R>(_relation: R, facts: ReadonlyArray<Written<R>>): ReadonlyArray<Written<R>> => facts",
 					"type SchemaOf<C> = C extends Phantom<{ readonly schema: Invariant<infer S> }> ? S : never",
-					'export type Hosts = [CalendarDate, Decimal, Money, Uuid, Infer<typeof Cents>, typeof pg, BitsOf<typeof Flag>, Rostered<"Kind">]',
+					'export type Hosts = [CalendarDate, Decimal, Money, Uuid, Infer<typeof Cents>, typeof pg, BitsOf<typeof Flag>, Rostered<"Kind">, RegexInfer<"", "u">]',
 					"",
 					...Arr.map(cases, blockOf)
 				],

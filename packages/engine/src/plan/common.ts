@@ -74,6 +74,8 @@ export { sha256Hex, utf8Length } from "#compiler/core/sha256.ts"
 export { parseSqlstate, type Sqlstate, sqlstateClass, sqlstates } from "#compiler/core/sqlstate.ts"
 export { compareCodePoints } from "#compiler/core/text.ts"
 export { jsonText, trusted, trustedJson } from "#compiler/core/trusted.ts"
+export { TupleMap } from "#compiler/core/tuple-map.ts"
+export type { OutputRows, OutputText, ParamText } from "#compiler/core/wire.ts"
 export {
 	type Codebook,
 	codeNames,

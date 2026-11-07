@@ -262,6 +262,7 @@ const family = (t: ScalarType): Family => {
 		case "numeric":
 		case "range4":
 		case "range8":
+		case "rangeDate":
 		case "text":
 		case "uuid":
 		case "date":

@@ -41,18 +41,21 @@ import {
 	String as Str
 } from "effect"
 import { isCodecFault } from "#compiler/codec/fault.ts"
+import { scalarReader } from "#compiler/codec/read.ts"
 import { tupleConverter } from "#compiler/codec/row.ts"
 import { carrierSpecOf, paramEncoder, scalarCodec } from "#compiler/codec/scalar.ts"
+import { parseDeclaredName } from "#compiler/core/identity.ts"
 import { int8Max, int8Min } from "#compiler/core/limits.ts"
 import * as Result from "#compiler/core/result.ts"
 import { decodeScalarType } from "#compiler/ir/scalar-shape.ts"
-import { type Carrier, capabilitySet, type ScalarType } from "#compiler/ir/scalar.ts"
+import { type Carrier, capabilitySet, Roster, type ScalarType } from "#compiler/ir/scalar.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { isValueFault } from "#compiler/scalar/values/fault.ts"
 import { factIdentity } from "#compiler/scalar/values/identity.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
-import { assert, nonEmpty } from "#test/support/assert.ts"
+import { assert, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { echoed, paramText } from "#test/support/wire.ts"
 import { kindCodes } from "#test/unit/codec/support.ts"
 
 /**
@@ -133,12 +136,28 @@ const spans = <E extends number | bigint>(endpoint: Gen<E>): Gen<unknown> =>
  * A calendar date's ISO 8601 text: a day from 0001-01-01 to 9999-12-31, drawn as a count of days past the first, which
  * Effect's DateTime carries over its months and years by the proleptic Gregorian calendar and formats at its UTC date.
  */
-const calendarDates: Gen<unknown> = (source) =>
-	DateTime.formatIsoDateUtc(
-		DateTime.makeUnsafe({ year: 1, month: 1, day: 1 + source.draw(int(0, 3_652_058)) })
-	)
+const dateAt = (days: number): string =>
+	DateTime.formatIsoDateUtc(DateTime.makeUnsafe({ year: 1, month: 1, day: 1 + days }))
+
+/** The days past 0001-01-01 of the calendar's dates, the last 9999-12-31. */
+const days = int(0, 3_652_058)
+
+const calendarDates: Gen<unknown> = map(days, dateAt)
+
+/** A span of days: two distinct days, the earlier its start, each its calendar date's text. */
+const dateSpans: Gen<unknown> = map(
+	filter(
+		(source) => [source.draw(days), source.draw(days)] as const,
+		([a, b]) => a !== b,
+		100
+	),
+	([a, b]) => ({ start: dateAt(Math.min(a, b)), end: dateAt(Math.max(a, b)) })
+)
 
 const handles = ["Manual", "Automatic", "Ünïcode"] as const
+
+/** The roster a closed id and a set are over: Kind, of the three handles. */
+const kind = new Roster(succeeded(parseDeclaredName("Kind")), handles)
 
 /** The largest finite float32. */
 const floatMax = Math.fround(3.4028234663852886e38)
@@ -225,14 +244,14 @@ const written: { readonly [C in Carrier]: Arr.NonEmptyReadonlyArray<Written> } =
 	code: [
 		{
 			label: "code",
-			type: { carrier: "code", roster: { closed: "Kind", handles }, caps },
+			type: { carrier: "code", roster: kind, caps },
 			live: element(handles)
 		}
 	],
 	bits: [
 		{
 			label: "bits",
-			type: { carrier: "bits", roster: { closed: "Kind", handles }, caps },
+			type: { carrier: "bits", roster: kind, caps },
 			live: map(
 				array(boolean, { min: 3, max: 3 }),
 				(held): ReadonlySet<string> => new Set(Arr.filter(handles, (_, c) => held[c] === true))
@@ -261,6 +280,22 @@ const written: { readonly [C in Carrier]: Arr.NonEmptyReadonlyArray<Written> } =
 			label: "int8range of width 1",
 			type: { carrier: "range8", span: { endpoint: { carrier: "int8", caps }, width: 1n }, caps },
 			live: map(bigint(int8Min.value, int8Max.value - 1n), (start) => ({ start, end: start + 1n }))
+		}
+	],
+	rangeDate: [
+		{
+			label: "daterange",
+			type: { carrier: "rangeDate", span: { endpoint: { carrier: "date", caps } }, caps },
+			live: dateSpans
+		},
+		{
+			label: "daterange of width 1",
+			type: {
+				carrier: "rangeDate",
+				span: { endpoint: { carrier: "date", caps }, width: 1n },
+				caps
+			},
+			live: map(int(0, 3_652_057), (start) => ({ start: dateAt(start), end: dateAt(start + 1) }))
 		}
 	],
 	vector: [
@@ -382,7 +417,9 @@ describe("the encoders", () => {
 							if (drawn.kind === "stale") {
 								c.note("admitted from another carrier")
 							}
-							const again = codec.encode(codec.convert(encoded.value))
+							const again = codec.encode(
+								scalarReader(target.type, kindCodes).convert(echoed(target.type, encoded.value))
+							)
 							assert.deepEqual(
 								again,
 								Result.ok(encoded.value),
@@ -475,7 +512,7 @@ describe("admission reads a value once", () => {
 						const codec = scalarCodec(range4, kindCodes)
 						const unstable = unstableSpan(first, then, end)
 						const encoded = codec.encode(unstable.span)
-						assert.deepEqual(encoded, Result.ok(`[${first},${end})`))
+						assert.deepEqual(encoded, Result.ok(paramText(`[${first},${end})`)))
 						assert.equal(unstable.reads(), 1, "the getter is read once")
 						/** A fact's field: read once, and its admitted value is the first answer. */
 						const heading = [{ name: "span", spec: carrierSpecOf(range4, kindCodes) }]
@@ -613,7 +650,7 @@ describe("the tuple converter", () => {
 							const tuple = tupleConverter(
 								Arr.map(columns, (c) => ({ name: "c", type: c.type })),
 								kindCodes
-							)(Arr.map(cells, (cell) => cell.text))
+							)(Arr.map(cells, (cell) => echoed(cell.column.type, cell.text)))
 							assert.ok(Object.isFrozen(tuple))
 							assert.equal(tuple.length, columns.length)
 							for (const [i, { column, text }] of cells.entries()) {

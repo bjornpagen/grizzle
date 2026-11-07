@@ -2,6 +2,7 @@ import { indices } from "#compiler/core/array.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { codePoints, codePointsText } from "#compiler/core/text.ts"
+import { type TextBounds, textBounds } from "#compiler/ir/scalar.ts"
 import {
 	type CharSet,
 	charSet,
@@ -770,9 +771,7 @@ const compareByCodePoint = (a: string, b: string): number => {
 }
 
 /** The longest member, in code points and in UTF-8 bytes; undefined for an infinite or empty language. */
-export const longest = (
-	dfa: CanonicalDfa
-): { readonly length: number; readonly bytes: number } | undefined => {
+export const longest = (dfa: CanonicalDfa): TextBounds | undefined => {
 	const order = topologicalOrder(dfa)
 	if (order === undefined || dfa.states.length === 0) {
 		return undefined
@@ -796,8 +795,5 @@ export const longest = (
 		length[s] = l
 		bytes[s] = b
 	}
-	return {
-		length: entry(length, 0),
-		bytes: entry(bytes, 0)
-	}
+	return textBounds(entry(length, 0), entry(bytes, 0))
 }

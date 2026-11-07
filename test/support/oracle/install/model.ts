@@ -1,6 +1,8 @@
 import type { Array as Arr } from "effect"
 import type { Codebook, RosterCodec } from "#compiler/ir/codes.ts"
 import type { FillOrder } from "#compiler/ir/fill.ts"
+import type { SpanCarrier } from "#compiler/ir/scalar.ts"
+import type { PatternReads } from "#compiler/scalar/regex/patterns.ts"
 import type { Ddl, ObjectName, TypeRef } from "#compiler/sql/ast.ts"
 import type { ClosedRows } from "#compiler/write/family/fold.ts"
 
@@ -20,7 +22,7 @@ export type ValueKind =
 	| { readonly kind: "text" }
 	| { readonly kind: "code"; readonly roster: RosterCodec }
 	| { readonly kind: "bits"; readonly roster: RosterCodec }
-	| { readonly kind: "span"; readonly carrier: "range4" | "range8" }
+	| { readonly kind: "span"; readonly carrier: SpanCarrier }
 	| { readonly kind: "vector"; readonly dimensions: number }
 
 export interface ColumnType {
@@ -122,6 +124,8 @@ export interface OracleDomain {
 interface FamilyFill {
 	readonly order: FillOrder
 	readonly closed: ReadonlyMap<string, ClosedRows>
+	/** The admitted patterns the host's fill evaluates against, compiled with the order (LawModel.patterns). */
+	readonly patterns: PatternReads
 }
 
 /** Something the schema declares that the oracle installer does not install. */

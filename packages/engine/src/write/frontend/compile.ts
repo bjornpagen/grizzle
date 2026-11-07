@@ -55,7 +55,6 @@ import {
 	type LogicalAnalysis
 } from "#compiler/logical/annotate.ts"
 import { everyParentTakes } from "#compiler/lower/shapes/take/decorrelate.ts"
-import { regexMember } from "#compiler/scalar/regex/nfa.ts"
 import { queryUses } from "#compiler/schema/walk.ts"
 import type { Law } from "#compiler/types/changeset/changeset.ts"
 import { groupBy } from "#compiler/write/defined.ts"
@@ -78,13 +77,19 @@ import {
 	closedLeaf,
 	type ClosedRows,
 	columnKey,
+	familyKey,
 	type HostEvaluator,
 	hostEvaluator,
 	literalHost
 } from "#compiler/write/family/fold.ts"
 import { type Nesting, nestingOf } from "#compiler/write/family/nesting.ts"
-import { staleRead } from "#compiler/write/family/redraw.ts"
 import { endColumns, memberFamilies, rowLayout } from "#compiler/write/family/statements.ts"
+import {
+	type RefillHolds,
+	type StratumRefill,
+	type StratumWrite,
+	stratumRefill
+} from "#compiler/write/frontend/refill.ts"
 import {
 	canonicalActionOrder,
 	type FamilyAt,
@@ -423,6 +428,8 @@ export interface WriteFrontend extends WriteQueries {
 	/** Each stratum's edits of a family's member relation (write/family/edit.ts): its slots of inserted, put and deleted
 	 * rows, which no action of its own writes, the family planner's statements following the stratum's own. */
 	readonly edits: ReadonlyArray<StratumEdit>
+	/** Each stratum's refills (write/frontend/refill.ts), by its position among the occupied strata, as `edits` holds it. */
+	readonly refills: ReadonlyArray<{ readonly stratum: number; readonly refill: StratumRefill }>
 	/** The relations whose deltas the read-backs name, in code point order. */
 	readonly deltas: ReadonlyArray<NamedDelta>
 	readonly references: ReadonlyArray<ImmediateReference>
@@ -765,8 +772,39 @@ const compile = (
 		refuse("MalformedDescription", loc, `an ordinary relation of the schema, not ${name}`)
 	/** The schema's families: a nested insert reaches some of them (write/family/nesting.ts). */
 	const families = laws.families
+	/** The families of the schema as the schedule orders their statements, a tree's aside: each with its owner axis. */
+	const pairs: ReadonlyArray<FamilyPair> = families.flatMap((f): ReadonlyArray<FamilyPair> => {
+		if (isTreeOf(f, f.member.name)) {
+			return []
+		}
+		/** The family's owner axis: the cascading key from its member to its owner over its count copy ‹n›. */
+		const axis = laws.natives.find(
+			(n) =>
+				n.object.kind === "ForeignKey" &&
+				n.object.onUpdate === "cascade" &&
+				n.object.relation.name === f.member.name &&
+				n.object.target.name === f.owner.name &&
+				n.object.columns.some((c) => c.kind === "law" && c.column === f.copy)
+		)?.object
+		if (axis?.kind !== "ForeignKey") {
+			throw defect(`the owner axis of the family ${f.id.owner}.${f.id.count}`)
+		}
+		return [
+			{
+				family: f.id,
+				owner: f.owner.name,
+				member: f.member.name,
+				immediate: !axis.deferrable,
+				fromColumns: axis.columns.map(columnKey),
+				toColumns: axis.targetColumns.map(columnKey)
+			}
+		]
+	})
+	/** Whether `family`'s owner axis is immediate, which orders its members' rows after their owner's. */
+	const immediateOwner = (family: Family): boolean =>
+		pairs.some((p) => p.immediate && familyKey(p.family) === familyKey(family.id))
 	/** The host's evaluation of the generated fields a nesting's copies, steps and selections read, over the schema's
-	 * closed relations, as PostgreSQL generates them. */
+	 * closed relations, as PostgreSQL generates them, by the law model's compiled patterns. */
 	const evaluate = hostEvaluator(
 		codes,
 		closedLeaf(
@@ -777,7 +815,7 @@ const compile = (
 				])
 			)
 		),
-		regexMember
+		laws.patterns
 	)
 	const nestings = new Map<string, Nesting>()
 	/** The nesting of an insert into `relation`, built once. */
@@ -880,95 +918,6 @@ const compile = (
 				member: appended.member.name
 			})
 		)
-	}
-	/**
-	 * Refuses an append whose family's copy reads its owner's column through the owner's own copies along owner axes,
-	 * up to a relation the same stratum changes: by a put of it, or by an edit of the family whose count or end the
-	 * copies read there (CascadedCopyAppend). The family's rows are drawn from the owner as the read found it, with the
-	 * stratum's own writes of that owner over it, and a further owner's change reaches it by cascade only afterwards. A
-	 * tree's owner axis is no step: a tree is written whole.
-	 */
-	const refuseCascadedCopy = (
-		member: {
-			readonly relation: RelationInfo
-			readonly op: MemberDesc["op"]
-			readonly loc: SourceLoc
-			readonly edited: ReadonlyArray<Family>
-		},
-		members: ReadonlyArray<CheckedMember>
-	): void => {
-		const op = member.op
-		if (op === "delete") {
-			return
-		}
-		const changedBy = (relation: string, column: string): "put" | "family" | undefined =>
-			members.some((m) => m.relation.name === relation && m.op === "put")
-				? "put"
-				: families.some(
-							(k) =>
-								k.owner.name === relation &&
-								(k.count.name === column ||
-									k.axes.last.some(
-										(p) => p.from.kind === "field" && p.from.field.name === column
-									)) &&
-								members.some((m) => m.relation.name === k.member.name)
-					  )
-					? "family"
-					: undefined
-		for (const f of member.edited) {
-			if (f.member.name !== member.relation.name || isTreeOf(f, f.member.name)) {
-				continue
-			}
-			for (const pair of f.axes.owner) {
-				if (
-					pair.from.kind !== "field" ||
-					pair.from.field.writing.kind !== "accumulated" ||
-					pair.to.kind !== "field"
-				) {
-					continue
-				}
-				const seen = new Set<string>()
-				for (let step = { relation: f.owner.name, column: pair.to.field.name }; ;) {
-					const key = `${step.relation}\u0000${step.column}`
-					if (seen.has(key)) {
-						break
-					}
-					seen.add(key)
-					const up = families
-						.filter((h) => h.member.name === step.relation && !isTreeOf(h, h.member.name))
-						.flatMap((h) =>
-							h.axes.owner.flatMap((q) =>
-								q.from.kind === "field" &&
-								q.from.field.name === step.column &&
-								q.to.kind === "field"
-									? [{ relation: h.owner.name, column: q.to.field.name }]
-									: []
-							)
-						)[0]
-					if (up === undefined) {
-						break
-					}
-					const by = changedBy(up.relation, up.column)
-					if (by !== undefined) {
-						throw new Refusal(
-							CompileError.make({
-								_tag: "CascadedCopyAppend",
-								at: member.loc,
-								op,
-								member: member.relation.name,
-								family: { owner: f.id.owner, count: f.id.count },
-								copy: pair.from.field.name,
-								owner: f.owner.name,
-								through: pair.to.field.name,
-								changed: up.relation,
-								by
-							})
-						)
-					}
-					step = up
-				}
-			}
-		}
 	}
 	/** A relation written whole, its classes its own serial fields'. */
 	const wholeTarget = (name: string, loc: SourceLoc): CheckedTarget => {
@@ -1206,12 +1155,28 @@ const compile = (
 			)
 		}
 	}
-	for (const members of strataMembers) {
+	/** What a refill reads and rewrites of the base, which a role holds only whole (write/frontend/refill.ts). */
+	const holds: RefillHolds = ((): RefillHolds => {
+		const world = checked.world
+		if (world.kind === "reality") {
+			return { kind: "reality" }
+		}
+		return {
+			kind: "role",
+			role: world.role.name,
+			base: world.base.owned.name,
+			reads: (relation) =>
+				checked.entries.some((e) => e.kind === "whole" && e.relation.name === relation),
+			writes: (relation) => world.writes.get(relation)?.kind === "whole"
+		}
+	})()
+	/** Each stratum's refills, by its position among the ChangeSet's strata. */
+	const refills = new Map<number, StratumRefill>()
+	for (const [s, members] of strataMembers.entries()) {
 		const writtenNames = new Set(members.map((m) => m.relation.name))
+		const writes: Array<StratumWrite> = []
 		for (const m of members) {
 			refuseMovedFilter(m, writtenNames)
-			/** A nested insert writes, besides its own relation's rows, every counted member's its nesting reaches, each
-			 * an insert of its own relation as far as its counted families are concerned. */
 			/** The counted members a nested insert writes: each edits only its counted families, since its sequences are the
 			 * walk's, under their fresh owners. */
 			const nestedCounted =
@@ -1220,31 +1185,50 @@ const compile = (
 							name === m.relation.name ? [] : [writtenOf(name, m.loc)]
 						)
 					: []
+			/** A put's rows: its slot's facts, or a query's rows, through a query member or a query entry's fill. */
+			const putRows: StratumWrite["rows"] =
+				m.op !== "put"
+					? { kind: "none" }
+					: m.entry.kind === "entry" ||
+						  members.some(
+								(o) =>
+									o.relation.name === m.relation.name &&
+									o.op === "put" &&
+									o.source.kind === "described"
+						  )
+						? { kind: "query" }
+						: {
+								kind: "slot",
+								slot: writeSlotId(s, { op: "put" }, m.classes, m.relation.name)
+							}
 			for (const w of [
-				{ relation: m.relation, op: m.op, loc: m.loc, edited: families },
+				{ relation: m.relation, op: m.op, edited: families, rows: putRows },
 				...nestedCounted.map((relation) => ({
 					relation,
 					op: m.op,
-					loc: m.loc,
-					edited: families.filter((f) => !isSequence(f))
+					edited: families.filter((f) => !isSequence(f)),
+					rows: { kind: "none" } as const
 				}))
 			]) {
-				refuseCascadedCopy(w, members)
-				const stale = staleRead(families, w.relation, w.op, w.edited)
-				if (stale !== undefined) {
-					throw new Refusal(
-						CompileError.make({
-							_tag: "StaleDerivedRead",
-							at: w.loc,
-							op: w.op,
-							member: w.relation.name,
-							changed: stale.changed,
-							copies: stale.copies,
-							reader: stale.reader
-						})
-					)
-				}
+				writes.push({
+					change: { kind: "write", relation: w.relation, op: w.op, edited: w.edited },
+					loc: m.loc,
+					rows: w.rows
+				})
 			}
+		}
+		const edited = new Set(
+			writes.flatMap((w) =>
+				families.some(
+					(f) => f.member.name === w.change.relation.name && !isTreeOf(f, f.member.name)
+				)
+					? [w.change.relation.name]
+					: []
+			)
+		)
+		const refill = unwrap(stratumRefill(families, writes, edited, holds, immediateOwner))
+		if (refill !== undefined) {
+			refills.set(s, refill)
 		}
 	}
 	const readBacks = desc.reads.map((r) => {
@@ -1766,44 +1750,23 @@ const compile = (
 			)
 		]
 	}
-	/** The families of the schema as the schedule orders their statements, a tree's aside: each with its owner axis. */
-	const pairs: ReadonlyArray<FamilyPair> = families.flatMap((f): ReadonlyArray<FamilyPair> => {
-		if (isTreeOf(f, f.member.name)) {
-			return []
-		}
-		/** The family's owner axis: the cascading key from its member to its owner over its count copy ‹n›. */
-		const axis = laws.natives.find(
-			(n) =>
-				n.object.kind === "ForeignKey" &&
-				n.object.onUpdate === "cascade" &&
-				n.object.relation.name === f.member.name &&
-				n.object.target.name === f.owner.name &&
-				n.object.columns.some((c) => c.kind === "law" && c.column === f.copy)
-		)?.object
-		if (axis?.kind !== "ForeignKey") {
-			throw defect(`the owner axis of the family ${f.id.owner}.${f.id.count}`)
-		}
-		return [
-			{
-				family: f.id,
-				owner: f.owner.name,
-				member: f.member.name,
-				immediate: !axis.deferrable,
-				fromColumns: axis.columns.map(columnKey),
-				toColumns: axis.targetColumns.map(columnKey)
-			}
-		]
-	})
 	/** Each relation's depth among the families, which orders a stratum's family statements among themselves. */
 	const depthOf = relationDepths(families)
+	/** A stratum's refills, by its position among the occupied strata. */
+	const refillOf = (stratum: number): StratumRefill | undefined =>
+		refills.get(defined(occupied[stratum], "an occupied stratum").s)
 	/**
 	 * A stratum's family statements, in the order the family planner runs them among themselves (write/family/
-	 * compose.ts): every edited relation's deletes, then its updates in place, deepest relation first; then the counts of
-	 * every family of an edited relation; then the inserts of every relation a family write writes, its nested writes'
-	 * and its edits', shallowest first. The schedule places them among the stratum's actions.
+	 * compose.ts): every edited relation's deletes, deepest relation first; then each relation's refill and its updates
+	 * in place, deepest relation first, so a refill of a member runs before the change of its owner that would cascade
+	 * into it, and after its own deletes; then the counts of every family of an edited relation and of every family a
+	 * refill recounts; then the inserts of every relation a family write writes, its nested writes' and its edits',
+	 * shallowest first. The schedule places them among the stratum's actions.
 	 */
 	const familyNodesOf = (stratum: number): ReadonlyArray<FamilyNode> => {
 		const edited = [...new Set(edits.filter((e) => e.stratum === stratum).map((e) => e.relation))]
+		const refill = refillOf(stratum)
+		const refilled = refill?.relations ?? []
 		const inserted = [
 			...new Set([
 				...nestedWrites
@@ -1817,39 +1780,63 @@ const compile = (
 		/** The columns an update in place of `name` sets. */
 		const settable = (name: string): ReadonlyArray<string> =>
 			rowLayout(writtenOf(name, at), families).columns.flatMap((c) => (c.settable ? [c.key] : []))
+		/** The columns a refill of `name` sets: every column but its key and its groups, its copies of its owners' counts
+		 * among them. */
+		const refilledColumns = (name: string): ReadonlyArray<string> =>
+			rowLayout(writtenOf(name, at), families).columns.flatMap((c) =>
+				c.settable || c.copy ? [c.key] : []
+			)
+		const counted = [
+			...edited.flatMap((relation) =>
+				memberFamilies(relation, families).filter((f) => !isTreeOf(f, relation))
+			),
+			...(refill?.recounted ?? [])
+		]
 		return [
 			...deepest(edited).map((relation): FamilyNode => ({
 				kind: "rows",
 				relation,
 				statement: "delete"
 			})),
-			...deepest(edited).flatMap((relation): ReadonlyArray<FamilyNode> => {
-				const set = settable(relation)
-				return isNonEmpty(set)
-					? [
-							{
-								kind: "rows",
-								relation,
-								statement: "update",
-								changes: [...set, ...generatedOf(relation)]
-							}
-						]
-					: []
-			}),
-			...edited.flatMap((relation) =>
-				memberFamilies(relation, families)
-					.filter((f) => !isTreeOf(f, relation))
-					.map((f): FamilyNode => ({
-						kind: "owners",
-						family: f.id,
-						relation: f.owner.name,
-						member: f.member.name,
-						changes: [
-							columnKey({ kind: "field", field: f.count }),
-							...endColumns(f).map((field) => columnKey({ kind: "field", field })),
-							...generatedOf(f.owner.name)
-						]
-					}))
+			...deepest([...new Set([...edited, ...refilled])]).flatMap(
+				(relation): ReadonlyArray<FamilyNode> => {
+					const set = settable(relation)
+					return [
+						...(refilled.includes(relation)
+							? [
+									{
+										kind: "rows",
+										relation,
+										statement: "refill",
+										changes: [...refilledColumns(relation), ...generatedOf(relation)]
+									} as const
+								]
+							: []),
+						...(edited.includes(relation) && isNonEmpty(set)
+							? [
+									{
+										kind: "rows",
+										relation,
+										statement: "update",
+										changes: [...set, ...generatedOf(relation)]
+									} as const
+								]
+							: [])
+					]
+				}
+			),
+			...[...new Map(counted.map((f) => [familyKey(f.id), f] as const)).values()].map(
+				(f): FamilyNode => ({
+					kind: "owners",
+					family: f.id,
+					relation: f.owner.name,
+					member: f.member.name,
+					changes: [
+						columnKey({ kind: "field", field: f.count }),
+						...endColumns(f).map((field) => columnKey({ kind: "field", field })),
+						...generatedOf(f.owner.name)
+					]
+				})
 			),
 			...deepest(inserted)
 				.toReversed()
@@ -1866,7 +1853,8 @@ const compile = (
 			),
 			familyNodesOf(stratum),
 			pairs,
-			references
+			references,
+			refillOf(stratum)?.order ?? { precedes: [], edges: [] }
 		)
 		if (schedule.kind === "cycle") {
 			throw new Refusal(
@@ -1878,7 +1866,12 @@ const compile = (
 							? { relation: w.action.action.relation, op: w.action.action.op }
 							: {
 									relation: w.node.relation,
-									op: w.node.kind === "owners" ? "count" : w.node.statement
+									op:
+										w.node.kind === "owners"
+											? "count"
+											: w.node.statement === "refill"
+												? "update"
+												: w.node.statement
 								}
 					)
 				})
@@ -1984,18 +1977,38 @@ const compile = (
 	/** The relations a family write writes through its families' statements: every reached family's member, a tree's
 	 * relation among them, every edited member relation, and the owners of its families, whose count statements return
 	 * only their keys, counts and ends. Their statements fill no delta carrier, so no read-back names their deltas. */
+	const stratumRefills = occupied.flatMap(({ s }, stratum) => {
+		const refill = refills.get(s)
+		return refill === undefined ? [] : [Object.freeze({ stratum, refill })]
+	})
 	const nestedRelations = new Set([
 		...nestedWrites.flatMap((n) => [...n.nesting.layouts.keys()]),
 		...edits.map((e) => e.relation),
 		...families
 			.filter((f) => edits.some((e) => e.relation === f.member.name))
-			.map((f) => f.owner.name)
+			.map((f) => f.owner.name),
+		...stratumRefills.flatMap(({ refill }) => [
+			...refill.relations,
+			...refill.recounted.map((f) => f.owner.name)
+		])
 	])
 	if (new Set(edits.map((e) => e.stratum)).size > 1) {
 		refuse(
 			"UnsupportedOperation",
 			at,
 			"family members written in more than one stratum: each stratum's edits are planned from what one read before the changeset's writes finds, so write a ChangeSet's family members in one stratum"
+		)
+	}
+	/** A refill draws from what the one read before the changeset's writes finds, so it is planned only in the first
+	 * stratum, beside every edit of a family's members. */
+	const refilledAt = stratumRefills.find(
+		({ stratum }) => stratum > 0 || edits.some((e) => e.stratum !== stratum)
+	)
+	if (refilledAt !== undefined) {
+		refuse(
+			"UnsupportedOperation",
+			at,
+			`a change in stratum ${refilledAt.stratum} that refills the families ${refilledAt.refill.closure.refills.map((f) => `${f.id.owner}.${f.id.count}`).join(", ")}, beside an earlier stratum or family members written in another: a refill is planned from what one read before the changeset's writes finds, so make the change in the first stratum, with every family member the ChangeSet writes`
 		)
 	}
 	const stratumEdits: ReadonlyArray<StratumEdit> = [
@@ -2125,6 +2138,7 @@ const compile = (
 		slots: Object.freeze(slots),
 		nested: Object.freeze(nestedWrites),
 		edits: stratumEdits,
+		refills: Object.freeze(stratumRefills),
 		deltas: Object.freeze(namedDeltas),
 		references: Object.freeze(references),
 		deltaEntries,

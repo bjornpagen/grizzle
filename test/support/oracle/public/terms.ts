@@ -13,7 +13,7 @@ import {
 	noExtension,
 	noParams
 } from "#compiler/scalar/compute/lower.ts"
-import { regexMember } from "#compiler/scalar/regex/nfa.ts"
+import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { bareEnv, scalarTypeOf } from "#compiler/scalar/registry.ts"
 import { textLookup } from "#compiler/text/refinement.ts"
 import { numeric, typedLiteralDesc } from "#test/support/oracle/gen/domain.ts"
@@ -154,7 +154,7 @@ const loweredType = (desc: (name: (v: Var) => string) => ExprDesc): ScalarType =
 		},
 		params: noParams,
 		fieldType: (d, loc) => scalarTypeOf(d, bareEnv, loc),
-		regexMember,
+		patterns: new CompilePatterns(),
 		patternLanguage: textLookup,
 		extension: noExtension
 	}

@@ -24,6 +24,7 @@ import { testSql } from "#test/support/sql.ts"
 import { fixtureGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { freshSchema, Substrate } from "#test/support/substrate/substrate.ts"
 import { tappedSession, type WireWindow } from "#test/support/wire-tap.ts"
+import { outputRows, paramText } from "#test/support/wire.ts"
 
 /**
  * One session whose traffic the tap records, running flights framed as a Db's write: one transaction, its prologue
@@ -115,10 +116,14 @@ const refusals = {
 	parse: { sql: testSql(`SELECT * FROM "no such table"`), params: [], sqlstate: "42P01" },
 	bind: {
 		sql: testSql(`SELECT $1::int4::text AS "n"`),
-		params: ["not a number"],
+		params: [paramText("not a number")],
 		sqlstate: "22P02"
 	},
-	execute: { sql: testSql(`SELECT (1 / $1::int4)::text AS "n"`), params: ["0"], sqlstate: "22012" },
+	execute: {
+		sql: testSql(`SELECT (1 / $1::int4)::text AS "n"`),
+		params: [paramText("0")],
+		sqlstate: "22012"
+	},
 	unique: { sql: testSql(""), params: [], sqlstate: "23505" }
 } as const
 
@@ -153,14 +158,14 @@ export const batchParitySuite = (): void => {
 										sql: testSql(
 											`SELECT g::text AS "i", $1::text || g::text AS "label" FROM pg_catalog.generate_series(1, $2::int4) AS g`
 										),
-										params: [planned.tag, String(planned.count)]
+										params: [paramText(planned.tag), paramText(String(planned.count))]
 									}
 								case "insert":
 									return {
 										sql: testSql(
 											`INSERT INTO ${table} ("k", "v") VALUES (pg_catalog.nextval('${seq}')::int4, $1::text) RETURNING "v"`
 										),
-										params: [`row ${index}`]
+										params: [paramText(`row ${index}`)]
 									}
 								case "update":
 									return { sql: testSql(`UPDATE ${table} SET "v" = "v" WHERE false`), params: [] }
@@ -171,13 +176,15 @@ export const batchParitySuite = (): void => {
 								case "rows":
 									return {
 										command: "SELECT",
-										rows: Arr.map(indices(planned.count), (g) => [
-											String(g + 1),
-											`${planned.tag}${g + 1}`
-										])
+										rows: outputRows(
+											Arr.map(indices(planned.count), (g) => [
+												String(g + 1),
+												`${planned.tag}${g + 1}`
+											])
+										)
 									}
 								case "insert":
-									return { command: "INSERT", rows: [[`row ${index}`]] }
+									return { command: "INSERT", rows: outputRows([[`row ${index}`]]) }
 								case "update":
 									return { command: "UPDATE", rows: [] }
 							}
@@ -229,11 +236,11 @@ export const batchParitySuite = (): void => {
 						const [one] = yield* session.batch([
 							{
 								sql: testSql(`INSERT INTO ${table} ("k", "v") VALUES (-7, $1::text) RETURNING "v"`),
-								params: ["one"]
+								params: [paramText("one")]
 							}
 						])
 						assertOneRoundTrip(session.since(mark), "I")
-						assert.deepEqual(one, { command: "INSERT", rows: [["one"]] })
+						assert.deepEqual(one, { command: "INSERT", rows: outputRows([["one"]]) })
 						const rows = yield* s.admin.queryValues(`SELECT "v" FROM ${table} WHERE "k" = -7`, [])
 						assert.deepEqual(rows, [["one"]])
 						return explored
@@ -253,7 +260,7 @@ export const batchParitySuite = (): void => {
 							sql: testSql(
 								`INSERT INTO ${table} ("k", "v") VALUES (pg_catalog.nextval('${seq}')::int4, $1::text)`
 							),
-							params: ["doomed"]
+							params: [paramText("doomed")]
 						}
 						const cases: Gen<{
 							readonly before: number
@@ -322,12 +329,12 @@ export const batchParitySuite = (): void => {
 										session,
 										`SELECT "k"::text FROM ${table} ORDER BY "k"`
 									)
-									assert.deepEqual(keys, [["-1"]])
+									assert.deepEqual(keys, outputRows([["-1"]]))
 									const sequenceValue = yield* readBack(
 										session,
 										`SELECT (CASE WHEN is_called THEN last_value ELSE 0 END)::text FROM ${seq}`
 									)
-									assert.deepEqual(sequenceValue, [[String(before)]])
+									assert.deepEqual(sequenceValue, outputRows([[String(before)]]))
 								})
 						)
 					}).pipe(Effect.scoped)
@@ -352,8 +359,8 @@ export const batchParitySuite = (): void => {
 						type Label = "a" | "b" | "c" | "boom"
 						const statementOf = (label: Label): FlightStatement =>
 							label === "c"
-								? { sql: unnamedSql, params: [label] }
-								: { server: servers[label], params: label === "boom" ? [] : [label] }
+								? { sql: unnamedSql, params: [paramText(label)] }
+								: { server: servers[label], params: label === "boom" ? [] : [paramText(label)] }
 						/** One step: a flight of labelled statements, or the release of a label's server statement. */
 						type Step =
 							| { readonly kind: "flight"; readonly labels: ReadonlyArray<Label> }
@@ -389,7 +396,7 @@ export const batchParitySuite = (): void => {
 										if (Exit.isSuccess(exit)) {
 											assert.deepEqual(
 												Arr.map(exit.value, (outcome) => outcome.rows),
-												Arr.map(batch, (label) => [[label]])
+												Arr.map(batch, (label) => outputRows([[label]]))
 											)
 										}
 									} else {

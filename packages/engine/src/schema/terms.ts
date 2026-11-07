@@ -13,7 +13,7 @@ import {
 	type Refs
 } from "#compiler/ir/desc.ts"
 import type { OpenExpr } from "#compiler/ir/open.ts"
-import type { ScalarType } from "#compiler/ir/scalar.ts"
+import { Roster, type ScalarType } from "#compiler/ir/scalar.ts"
 import { plainColumns } from "#compiler/scalar/compute/tables.ts"
 import {
 	predicateExpr,
@@ -94,7 +94,7 @@ const typingOf = (
 	}
 	const scalar = scalarTypeOf(
 		desc,
-		{ kind: "builder", roster: () => roster },
+		{ kind: "builder", roster: (name) => new Roster(name, roster) },
 		SourceLoc("check field", [])
 	)
 	return scalar.ok

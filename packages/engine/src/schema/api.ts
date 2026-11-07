@@ -107,6 +107,7 @@ import type {
 import type {
 	Context,
 	ContextField,
+	ContextFieldBases,
 	ContextOptions,
 	EntriesCheck,
 	EntryContexts,
@@ -434,7 +435,7 @@ export const context = <
 	const Fields extends Readonly<Record<string, ContextField>>
 >(
 	name: Name,
-	fields: Fields,
+	fields: Fields & ContextFieldBases<Fields>,
 	...options: ContextOptions
 ): Context<Name, Fields> => contextBuilder<Name, Fields>(name, fields, ...options)
 

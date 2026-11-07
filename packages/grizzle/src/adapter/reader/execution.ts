@@ -10,11 +10,16 @@ import {
 	defined,
 	type EmittedText,
 	type Layout,
+	type OutputRows,
+	type OutputText,
 	type ParamId,
+	type ParamText,
 	type Row,
 	rowText,
-	type StatementSpec
+	type StatementSpec,
+	TupleMap
 } from "#compiler/plan/common.ts"
+import { scalarReader } from "#compiler/plan/decode.ts"
 import {
 	type Arrival,
 	type AttachedTree,
@@ -27,7 +32,6 @@ import {
 	type FusedTexts,
 	keyColumns,
 	type NodeOf,
-	scalarCodec,
 	type StatementForms,
 	statementOutput,
 	type StatementOutput,
@@ -119,7 +123,7 @@ export const readForm = <S extends FusedStatement>(
  */
 export interface ExecutionInputs {
 	readonly params: HostParams
-	readonly scalars: ReadonlyMap<ParamId, string>
+	readonly scalars: ReadonlyMap<ParamId, ParamText>
 	readonly relations: RelationInputs
 }
 
@@ -138,7 +142,7 @@ const declaredInput = <V>(inputs: ReadonlyMap<ParamId, V>, param: ParamId): V =>
 }
 
 /** The encoded text of the scalar input `param`. */
-const scalarInput = (inputs: ExecutionInputs, param: ParamId): string =>
+const scalarInput = (inputs: ExecutionInputs, param: ParamId): ParamText =>
 	declaredInput(inputs.scalars, param)
 
 /** The distinct fact count of the relation input `param`. */
@@ -166,7 +170,7 @@ export const formFor = <S extends LoweredStatement, Slot, Choice>(
 export const readBinding = (
 	slot: DeclaredParamSlot,
 	inputs: ExecutionInputs
-): Result.Result<string, InputRefusal> => {
+): Result.Result<ParamText, InputRefusal> => {
 	switch (slot.kind) {
 		case "scalar":
 			return Result.succeed(scalarInput(inputs, slot.param))
@@ -192,9 +196,9 @@ export interface EmittedStatement extends BatchStatement {
 /** The text and placeholder texts of one execution of `form`, each placeholder bound by `bind`. */
 export const executionOf = <S extends LoweredStatement, Slot, E>(
 	form: StatementForm<S, Slot>,
-	bind: (slot: Slot) => Result.Result<string, E>
+	bind: (slot: Slot) => Result.Result<ParamText, E>
 ): Result.Result<EmittedStatement, E> => {
-	const encoded: Array<string> = []
+	const encoded: Array<ParamText> = []
 	for (const slot of form.slots) {
 		const bound = bind(slot)
 		if (Result.isFailure(bound)) {
@@ -208,12 +212,12 @@ export const executionOf = <S extends LoweredStatement, Slot, E>(
 /** One execution of `form`, its parameters encoded. */
 export const encodeForm = <S extends LoweredStatement, Slot, E>(
 	form: StatementForm<S, Slot>,
-	bind: (slot: Slot) => Result.Result<string, E>
+	bind: (slot: Slot) => Result.Result<ParamText, E>
 ): Effect.Effect<BatchStatement, E> =>
 	Effect.suspend(() => Effect.fromResult(executionOf(form, bind)))
 
 /** One statement's rows: the texts PostgreSQL sent for them, one per column (the session admits no NULL). */
-export type StatementRun = ReadonlyArray<ReadonlyArray<string>>
+export type StatementRun = ReadonlyArray<ReadonlyArray<OutputText>>
 
 /** A flight's answers to the statements it sent, in the order it sent them. */
 export type SentRuns = ReadonlyArray<StatementRun>
@@ -226,7 +230,7 @@ export type SentRuns = ReadonlyArray<StatementRun>
  */
 interface KeyRead {
 	readonly at: number
-	readonly cell: (cell: string) => string
+	readonly cell: (cell: OutputText) => string
 }
 
 /**
@@ -262,26 +266,21 @@ interface RowPlan<Run> {
 }
 
 /**
- * A row's identity: each cell's value text under its column's type (codec/scalar.ts cellText), each written after its
- * length, so two rows have one identity exactly when every column holds equal values under its type's equality, 1.0
- * and 1.00 or -0 and 0 alike, whatever their spellings.
+ * A row's identity: each cell's value text under its column's type (codec/scalar.ts cellText), in column order, so two
+ * rows have one identity exactly when every column holds equal values under its type's equality, 1.0 and 1.00 or -0
+ * and 0 alike, whatever their spellings. It is those texts, never one text joined from them, so it costs its row's
+ * arity, whatever its cells' lengths.
  */
-type RowIdentity = (texts: ReadonlyArray<string>) => string
+type RowIdentity = (texts: ReadonlyArray<OutputText>) => ReadonlyArray<string>
 
 /** The identity of rows whose cells, position by position, are read by `cells`. */
 const rowIdentity =
-	(cells: ReadonlyArray<(cell: string) => string>): RowIdentity =>
-	(texts) => {
-		let out = ""
-		for (const [at, cell] of cells.entries()) {
-			const identity = cell(rowText(texts, at))
-			out = `${out}${identity.length}:${identity}`
-		}
-		return out
-	}
+	(cells: ReadonlyArray<(cell: OutputText) => string>): RowIdentity =>
+	(texts) =>
+		cells.map((cell, at) => cell(rowText(texts, at)))
 
 /** A fused attachment's column text as it is: its children are held to their own identities (FusedPlan). */
-const itself = (cell: string): string => cell
+const itself = (cell: OutputText): string => cell
 
 /**
  * One statement of a program as a flight runs it and its readers read it: its forms (`run`), how its rows arrive, how
@@ -399,7 +398,7 @@ const recordOf = <Run extends Arrived>(
 		return {
 			position: output.fusedAt(j),
 			identity: rowIdentity(
-				Arr.map(f.layout.columns, ({ column }) => scalarCodec(column.type, codes).cellText)
+				Arr.map(f.layout.columns, ({ column }) => scalarReader(column.type, codes).cellText)
 			),
 			texts: fusedTexts(f.layout, (column) => {
 				const at = output.own(columnPosition(statement.heading, column))
@@ -412,7 +411,7 @@ const recordOf = <Run extends Arrived>(
 		arrival: run.arrival,
 		plan: {
 			identity: rowIdentity([
-				...Arr.map(output.heading, (column) => scalarCodec(column.type, codes).cellText),
+				...Arr.map(output.heading, (column) => scalarReader(column.type, codes).cellText),
 				...Arr.map(fused, () => itself)
 			]),
 			children: Arr.map(attached, (a) => a.plan),
@@ -446,9 +445,9 @@ const attachedOf = <Run extends Arrived>(
 			record,
 			parent: Arr.map(parentKey, (c) => ({
 				at: parent.own(c.at),
-				cell: scalarCodec(c.type, codes).cellText
+				cell: scalarReader(c.type, codes).cellText
 			})),
-			child: Arr.map(parentKey, (c, at) => ({ at, cell: scalarCodec(c.type, codes).cellText }))
+			child: Arr.map(parentKey, (c, at) => ({ at, cell: scalarReader(c.type, codes).cellText }))
 		},
 		layout: { layouts: [record.layout], proved: attach.judged }
 	}
@@ -476,19 +475,11 @@ export const programRecords = <Run extends Arrived>(
 	return { records: Arr.flatten(Arr.map(delivered, recordsUnder)), delivered }
 }
 
-/**
- * A parent key's map key: the identities of the cells `key` reads. The keys of one map all have the arity of the
- * attachment's parent columns, so a one-column key is its identity as is, and a wider key writes each identity after
- * its length.
- */
-const keyOf = (texts: ReadonlyArray<string>, key: ReadonlyArray<KeyRead>): string => {
-	let out = ""
-	for (const read of key) {
-		const identity = read.cell(rowText(texts, read.at))
-		out = key.length === 1 ? identity : `${out}${identity.length}:${identity}`
-	}
-	return out
-}
+/** A parent key's map key: the identities of the cells `key` reads, in its order. */
+const keyOf = (
+	texts: ReadonlyArray<OutputText>,
+	key: ReadonlyArray<KeyRead>
+): ReadonlyArray<string> => key.map((read) => read.cell(rowText(texts, read.at)))
 
 /** The rows of `record` in a flight whose sent statements answered `sent`. */
 export const runOf = <Run>(record: StatementRecord<Run>, sent: SentRuns): StatementRun =>
@@ -502,14 +493,14 @@ const noRows: ReadonlyArray<Row> = Object.freeze([])
  * Whether two of `rows` have one identity (RowIdentity): a repeat, which no statement grizzle delivers holds, since
  * every delivered statement, an attachment's and a fused child array's included, is a set by its compiled proof.
  */
-const repeats = (rows: ReadonlyArray<ReadonlyArray<string>>, identity: RowIdentity): boolean => {
-	const seen = new Set<string>()
+const repeats = (rows: OutputRows, identity: RowIdentity): boolean => {
+	const seen = new TupleMap<string, ReadonlyArray<OutputText>>()
 	for (const texts of rows) {
 		const one = identity(texts)
 		if (seen.has(one)) {
 			return true
 		}
-		seen.add(one)
+		seen.set(one, texts)
 	}
 	return false
 }
@@ -544,14 +535,14 @@ export const rowsOf = <Run>(
 	}
 	const grouped: Array<{
 		readonly child: ChildPlan<Run>
-		readonly groups: Map<string, Array<Row>>
+		readonly groups: TupleMap<string, Array<Row>>
 	}> = []
 	for (const child of plan.children) {
 		const childRows = rowsOf(child.record, sent, runOf(child.record, sent), 0)
 		if (Result.isFailure(childRows)) {
 			return childRows
 		}
-		const groups = new Map<string, Array<Row>>()
+		const groups = new TupleMap<string, Array<Row>>()
 		for (const row of childRows.success) {
 			const key = keyOf(row.texts, child.child)
 			const known = groups.get(key)

@@ -1,3 +1,5 @@
+import { nominal } from "#compiler/core/brand.ts"
+import type { OutputText } from "#compiler/core/wire.ts"
 import { handleAt, type RosterCodec } from "#compiler/ir/codes.ts"
 import { convertDate } from "#compiler/ir/date.ts"
 import type { Carrier } from "#compiler/ir/scalar.ts"
@@ -8,20 +10,24 @@ import { Money } from "#compiler/scalar/values/money.ts"
 import type { Span } from "#compiler/scalar/values/span.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
 
-/** The conversion of one carrier's output text, built from its spec. */
-export type Converter<C extends Carrier> = (text: string) => CarrierHost[C]
+/** The conversion of one carrier's output text, PostgreSQL's and no other, built from its spec. */
+export type Converter<C extends Carrier> = (text: OutputText) => CarrierHost[C]
+
+/** An endpoint's text inside a range's output text: PostgreSQL's output of the endpoint, minted where it is cut out. */
+const endpointText = nominal<string, OutputText>()
 
 /**
  * range_out of a bounded half-open range, "[start,end)", its endpoints read by `endpoint`: the range carrier's own
- * integers, or a span descriptor's endpoint column (scalar/span.ts), whose contract brands them.
+ * integers, or a span descriptor's endpoint column (scalar/span.ts), whose contract brands them. Each endpoint's text
+ * is the endpoint type's own output, which range_out writes between the bounds.
  */
 export const convertSpan =
-	<E>(endpoint: (text: string) => E) =>
-	(text: string): Span<E> => {
+	<E>(endpoint: (text: OutputText) => E) =>
+	(text: OutputText): Span<E> => {
 		const comma = text.indexOf(",")
 		return Object.freeze({
-			start: endpoint(text.slice(1, comma)),
-			end: endpoint(text.slice(comma + 1, -1))
+			start: endpoint(endpointText(text.slice(1, comma))),
+			end: endpoint(endpointText(text.slice(comma + 1, -1)))
 		})
 	}
 
@@ -91,7 +97,7 @@ const convertBits =
  * | date | date_out under DateStyle ISO, YYYY-MM-DD | the text itself, a CalendarDate |
  * | code | int2out of the code | the live handle the code names |
  * | bits | bit_out, n characters of 0 and 1 | a fresh Set of the handles of its 1 bits, position i code i |
- * | range4, range8 | range_out of a bounded half-open range, [start,end) | a frozen { start, end } |
+ * | range4, range8, rangeDate | range_out of a bounded half-open range, [start,end) | a frozen { start, end } |
  * | vector | vector_out, [c1,...,cn] | a Float32Array of the column's dimensions, components exactly binary32 |
  * | exactInteger | int8out or numeric_out of an integer | BigInt, the exact integer |
  * | exactMoney | numeric_out of an amount at scale 2 | Money.fromOutput, an exact count of any size |
@@ -116,6 +122,7 @@ export const convertByCarrier: { readonly [C in Carrier]: (spec: SpecOf<C>) => C
 	bits: (spec) => convertBits(spec.roster),
 	range4: () => convertSpan(Number),
 	range8: () => convertSpan(BigInt),
+	rangeDate: () => convertSpan(convertDate),
 	vector: (spec) => convertVector(spec.dimensions),
 	exactInteger: () => BigInt,
 	exactMoney: () => (text) => Money.fromOutput(text)

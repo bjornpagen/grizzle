@@ -81,6 +81,7 @@ import {
 import { decimalGen } from "#test/unit/values/support.ts"
 
 import { regex } from "arkregex"
+import { paramText } from "#test/support/wire.ts"
 /**
  * The cursor codec, its host half: exact round-trips of boundary
  * values, validation of every token before any SQL in a fixed order, and the size limits.
@@ -401,7 +402,7 @@ describe("boundary values round-trip exactly", () => {
 						Effect.sync(() => {
 							const decoded = succeeded(codec.decode(succeeded(codec.encode([d]))))
 							assert.equal(decoded.values[0].toString(), d.toString())
-							assert.equal(decoded.texts[0], d.toString())
+							assert.equal(decoded.texts[0], paramText(d.toString()))
 						})
 				)
 			)
@@ -480,7 +481,11 @@ describe("boundary values round-trip exactly", () => {
 									: unsigned
 								const expected = negative && rounded !== 0n ? `-${trimmed}` : trimmed
 								const decoded = succeeded(codec.decode(succeeded(codec.encode([value]))))
-								assert.equal(decoded.texts[0], expected, `${name} of ${value.toString()}`)
+								assert.equal(
+									decoded.texts[0],
+									paramText(expected),
+									`${name} of ${value.toString()}`
+								)
 							})
 					)
 				)
@@ -605,8 +610,8 @@ describe("boundary values round-trip exactly", () => {
 										Str.toLowerCase(sketch.value[1])
 									])
 									assert.deepEqual(decoded.texts, [
-										String(sketch.value[0]),
-										Str.toLowerCase(sketch.value[1])
+										paramText(String(sketch.value[0])),
+										paramText(Str.toLowerCase(sketch.value[1]))
 									])
 									/**
 									 * The spec states no page size or direction: a codec built again binds the same identity, and one

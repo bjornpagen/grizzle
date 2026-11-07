@@ -7,7 +7,6 @@ import type { Fact } from "#compiler/ir/proof.ts"
 import { exprTableShape } from "#compiler/ir/scalar-shape.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import * as S from "#compiler/ir/shape.ts"
-import type { RegexMember } from "#compiler/scalar/compute/evaluate.ts"
 import {
 	exprEmitter,
 	type LeafDesc,
@@ -17,6 +16,7 @@ import {
 	noParams,
 	unprovedFact
 } from "#compiler/scalar/compute/lower.ts"
+import type { PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
 import type { TextLookup } from "#compiler/scalar/registry.ts"
 
 interface TotalOptions {
@@ -24,8 +24,8 @@ interface TotalOptions {
 	readonly loc: SourceLoc
 	/** The descriptor registry's reading of a Description, for a typed literal (Compute.literal) in the predicate. */
 	readonly fieldType: (desc: FieldDesc, loc: SourceLoc) => Result.Result<ScalarType, CompileError>
-	/** A literal's membership in a regex refinement: the text package's NFA. */
-	readonly regexMember: RegexMember
+	/** The admitted patterns the lowering reads, its compile's table (scalar/regex/patterns.ts). */
+	readonly patterns: PatternAutomata
 	/** The text analysis of a pattern the predicate computes (a translate's or collapse's image, a guard's match). */
 	readonly patternLanguage: TextLookup
 }
@@ -78,7 +78,7 @@ export const contractPredicateTable = (
 		params: noParams,
 		fieldType: options.fieldType,
 		closed: noClosedRelations("a contract predicate reads no closed relation of the schema"),
-		regexMember: options.regexMember,
+		patterns: options.patterns,
 		patternLanguage: options.patternLanguage
 	}
 	return Result.flatMap(lowerPredicate(predicate, env), (root) => {

@@ -1,5 +1,5 @@
 import { describe, it } from "@effect/vitest"
-import { drawn, explore, sketched } from "@grizzle/testing/explore"
+import { drawn, explore, type Kept, sketched } from "@grizzle/testing/explore"
 import { noCoverage, required } from "@grizzle/testing/features"
 import {
 	array,
@@ -40,6 +40,7 @@ import { assert, defined, failed, nonEmpty, succeeded } from "#test/support/asse
 import { f } from "#test/support/fixtures/ir/desc.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { paramText } from "#test/support/wire.ts"
 import { kindCodes, types } from "#test/unit/codec/support.ts"
 import { asDecimal } from "#test/unit/codec/values.ts"
 
@@ -137,6 +138,21 @@ const boundOffset: Gen<number> = weighted([
 	[3, constant(-1)],
 	[2, int(-40, -2)]
 ])
+
+/** A bound case: the columns, their rows' texts, and how far the bound sits from the longest literal's length. */
+interface BoundCase {
+	readonly width: number
+	readonly rows: ReadonlyArray<ReadonlyArray<string>>
+	readonly by: number
+}
+
+/** A column's literal of no row, its braces alone: once written past a bound one short of them. */
+const bracesPastTheBound: Kept<BoundCase, LiteralFeature> = {
+	note: "a column's literal of no row, its braces alone, was written past a bound one short of it",
+	sketch: { width: 1, rows: [], by: -1 },
+	draws: "",
+	reaches: ["one past the bound"]
+}
 
 describe("relation normalization", () => {
 	it.effect(
@@ -264,7 +280,9 @@ describe("relation normalization", () => {
 								const result = normalize([{ fixed: { start, end: start + width } }])
 								if (width === 15) {
 									c.note("fixed width")
-									assert.deepEqual(succeeded(result).rows, [[`[${start},${start + 15})`]])
+									assert.deepEqual(succeeded(result).rows, [
+										[paramText(`[${start},${start + 15})`)]
+									])
 								} else {
 									c.note("other width")
 									assert.deepEqual(
@@ -529,9 +547,10 @@ describe("relation normalization", () => {
 					([width, rows]) =>
 						Effect.sync(() => {
 							const columns = Array.from({ length: width }, (_, i) => `f${i}`)
-							const written = succeeded(arrayTexts("Input", columns, rows, 2 ** 20))
+							const params = Arr.map(rows, (row) => Arr.map(row, paramText))
+							const written = succeeded(arrayTexts("Input", columns, params, 2 ** 20))
 							if (width === 0) {
-								assert.deepEqual(written, [String(rows.length)])
+								assert.deepEqual(written, [paramText(String(rows.length))])
 								return
 							}
 							assert.equal(written.length, width)
@@ -555,7 +574,7 @@ describe("relation normalization", () => {
 				explore(
 					{
 						suite: "unit/codec/arrays-literal-bound",
-						draw: drawn((source) => {
+						draw: drawn((source): BoundCase => {
 							const width = source.draw(int(1, 4))
 							return { width, rows: source.draw(cellRows(width)), by: source.draw(boundOffset) }
 						}),
@@ -568,7 +587,7 @@ describe("relation normalization", () => {
 							["far within the bound", "at the bound", "one past the bound", "far past the bound"],
 							{ cases: 300, sense: notesOnly }
 						),
-						kept: [],
+						kept: [bracesPastTheBound],
 						runs: 300,
 						shrink: completeShrink,
 						concurrency: 1,
@@ -578,7 +597,8 @@ describe("relation normalization", () => {
 					({ width, rows, by }, c) =>
 						Effect.sync(() => {
 							const columns = Array.from({ length: width }, (_, i) => `f${i}`)
-							const whole = succeeded(arrayTexts("Input", columns, rows, 2 ** 20))
+							const params = Arr.map(rows, (row) => Arr.map(row, paramText))
+							const whole = succeeded(arrayTexts("Input", columns, params, 2 ** 20))
 							const longest = Arr.reduce(whole, 0, (n, literal) => Math.max(n, literal.length))
 							const limit = Math.max(longest + by, 0)
 							c.note(
@@ -590,7 +610,7 @@ describe("relation normalization", () => {
 											? "far within the bound"
 											: "far past the bound"
 							)
-							const bounded = arrayTexts("Input", columns, rows, limit)
+							const bounded = arrayTexts("Input", columns, params, limit)
 							if (longest <= limit) {
 								assert.deepEqual(succeeded(bounded), whole)
 								return

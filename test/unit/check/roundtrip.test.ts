@@ -43,6 +43,7 @@ import {
 } from "#compiler/ir/scalar.ts"
 import { queryInput } from "#compiler/program/compile.ts"
 import { queryValueDesc } from "#compiler/query/build/query.ts"
+import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, refusalLoc } from "#test/support/assert.ts"
 import { fromQueryDescription, queryFromDesc } from "#test/support/describe.ts"
@@ -1126,7 +1127,12 @@ const corruptions: Arr.NonEmptyReadonlyArray<Corruption<Live, Refusal, RuleName>
 					return []
 				}
 				const typed = catchRefusal(() =>
-					checkedSchema.literal(term.value, field.value.type, SourceLoc(name, []))
+					checkedSchema.literal(
+						term.value,
+						field.value.type,
+						SourceLoc(name, []),
+						new CompilePatterns()
+					)
 				)
 				return !typed.ok ? [typed.error.reason._tag] : []
 			})[0]

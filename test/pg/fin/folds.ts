@@ -48,7 +48,6 @@ import {
 	schema,
 	select
 } from "#compiler/public/schema.ts"
-import { regexMember } from "#compiler/scalar/regex/nfa.ts"
 import {
 	closedLeaf,
 	type ColumnKey,
@@ -965,7 +964,7 @@ export const hostFilled = (f: FoldSeat, family: FoldFamily): Result.Result<FoldS
 	const built = filler(
 		f.seat.model.theory.fill,
 		codes,
-		hostEvaluator(codes, closedLeaf(new Map()), regexMember)
+		hostEvaluator(codes, closedLeaf(new Map()), f.seat.model.patterns)
 	)
 	const node: HostNode = {
 		relation: "Owner",

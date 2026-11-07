@@ -121,10 +121,16 @@ export interface SerialField<out Host, out Sql extends SqlTag> extends Field<Hos
  * A span's width is upper - lower, a value of the endpoint's base type: over a contract
  * endpoint such as span(Cents, 15n) it is a bare bigint, not a Cents; for every unbranded
  * endpoint that is the endpoint type itself. BaseOf is a conditional type, so the variance is measured rather than
- * annotated: a SpanField is covariant in its endpoint exactly where BaseOf is.
+ * annotated: a SpanField is covariant in its endpoint exactly where BaseOf is. Its host is the span of its endpoint's
+ * host, Endpoint, and its domain the span of its endpoint's domain, EndpointDomain: over a contract, the contract's
+ * domain with the facts it declares, so a span over Cents meets a point of Cents (r.pointIn) as the engine does.
  */
-export interface SpanField<Endpoint> extends Field<Span<Endpoint>, "range"> {
-	readonly width?: BaseOf<Endpoint>
+export interface SpanField<Endpoint, EndpointDomain> extends Field<
+	Span<Endpoint>,
+	"range",
+	Span<EndpointDomain>
+> {
+	readonly width?: SpanWidthOf<Endpoint>
 }
 
 /**
@@ -173,16 +179,24 @@ export interface Contract<
 }
 
 /**
- * Not a field of a writing of its own, a serial generation declaration among them, at any depth of contract bases. A
- * caller's descriptor carries no `writing` member, so an absent optional `never` admits it and refuses a serial's,
- * a drawn field's and an accumulated field's; a contract carries its base, so the
- * same test on `base` refuses a contract over a serial. The base is also a Field, which keeps the nested target from
- * being a weak type that a plain descriptor, sharing none of its optional members, would fail to match.
+ * Not a field of a writing of its own, a serial generation declaration among them. A caller's descriptor carries no
+ * `writing` member, so an absent optional `never` admits it and refuses a serial's, a drawn field's and an accumulated
+ * field's. A contract's bases are NotSerialBases'.
  */
 export interface NotSerial {
 	readonly writing?: never
-	readonly base?: FieldBase & NotSerial
 }
+
+/**
+ * A contract's base chain read down to its end: unknown where no base is a field of a writing of its own, never where
+ * one is, at any depth, so a contract over a serial, or over a contract over one, is refused wherever a descriptor is
+ * admitted as NotSerial.
+ */
+export type NotSerialBases<F> = F extends { readonly base: infer B }
+	? B extends { readonly writing: WritingTag }
+		? never
+		: NotSerialBases<B>
+	: unknown
 
 /**
  * Not a roster's descriptor: closedId(X) carries its roster under `roster`, which an absent optional `never` refuses,
@@ -204,6 +218,18 @@ type PlainIntegerField<Host, Sql extends SqlTag> = Field<Host, Sql> & NotSerial
  * bigint, and pg.int2, like smallint, is not an endpoint.
  */
 export type IntegerLike = PlainIntegerField<number, "integer"> | PlainIntegerField<bigint, "bigint">
+
+/**
+ * Span endpoints: the integer ones (IntegerLike), date and a contract over date, whose host is a CalendarDate, branded
+ * or not.
+ */
+export type SpanEndpointLike = IntegerLike | Field<CalendarDate, "date">
+
+/**
+ * A span's width over endpoints of host type E, upper - lower: a count of days, a JavaScript integer, over dates; a
+ * value of the endpoint's base type otherwise.
+ */
+export type SpanWidthOf<E> = [BaseOf<E>] extends [CalendarDate] ? number : BaseOf<E>
 
 /**
  * A closed reference: one of the roster's handles, stored as its code under the roster's domain, whose domain is its

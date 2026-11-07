@@ -34,6 +34,7 @@ import { nativeHolds } from "#compiler/scalar/compute/native.ts"
 import { nativeOp } from "#compiler/scalar/compute/registry.ts"
 import { formIncludes, lexicalTargetOf } from "#compiler/scalar/lexical.ts"
 import { patternIncludes } from "#compiler/scalar/regex/inclusion.ts"
+import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 
 /**
  * Whether a proof's premises establish its precondition: the proof kernel, which re-checks the kept proofs a lowering
@@ -119,8 +120,11 @@ const proofHolds = (
 						(m.kind === "language" &&
 							m.operand === 0 &&
 							(octets === undefined || (m.bytes !== undefined && m.bytes <= octets)) &&
-							patternIncludes({ source: m.pattern, flags: m.flags }, refinement).kind ===
-								"included")
+							patternIncludes(
+								{ source: m.pattern, flags: m.flags },
+								refinement,
+								new CompilePatterns()
+							).kind === "included")
 				)
 			}
 			case "contract": {
@@ -189,7 +193,8 @@ const proofHolds = (
 							p.operand === 0 &&
 							((p.kind === "checked" && p.by === "literal") ||
 								(p.kind === "language" &&
-									formIncludes({ source: p.pattern, flags: p.flags }, form).kind === "included"))
+									formIncludes({ source: p.pattern, flags: p.flags }, form, new CompilePatterns())
+										.kind === "included"))
 					)
 				)
 			}

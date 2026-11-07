@@ -59,6 +59,7 @@ import type { CatalogQuery } from "#adapter/wire/statement.ts"
 import { C } from "#compiler/plan/catalog.ts"
 import { emitCatalog, type EmittedText, type SchemaFingerprint } from "#compiler/plan/common.ts"
 import type { DeploySnapshot, LedgerStatements } from "#compiler/plan/migration.ts"
+import { textParam } from "#compiler/plan/read.ts"
 
 /**
  * `grizzle migrate`: the apply runner.
@@ -221,7 +222,7 @@ const schemaReads = (checked: Checked): ReadonlyArray<BatchStatement> => {
 	const schema = checked.parsed.schema
 	const [ledgerExists, ledgerRows] = ledgerReads(schema, checked.statements)
 	const reads: { readonly [R in SchemaRead]: BatchStatement } = {
-		owner: { sql: schemaOwner.sql, params: [schema] },
+		owner: { sql: schemaOwner.sql, params: [textParam(schema)] },
 		lock: { sql: checked.lock.take.sql, params: [] },
 		ledgerExists,
 		ledgerRows

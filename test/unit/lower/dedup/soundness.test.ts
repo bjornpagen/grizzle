@@ -29,6 +29,7 @@ import {
 	witnessRoot
 } from "#test/support/oracle/mutants/cases.ts"
 
+import { Identities, type Interned } from "#test/support/kernel/identity.ts"
 import { caseHang } from "#test/support/limits.ts"
 import {
 	noBindings,
@@ -36,7 +37,6 @@ import {
 	type ReferenceInput,
 	unobserved
 } from "#test/support/oracle/reference/evaluate.ts"
-import { Identities, type Interned } from "#test/support/oracle/reference/identity.ts"
 import { ReferenceUnsupported, rowIdentity } from "#test/support/oracle/reference/values.ts"
 import { verifyMultiplicity } from "#test/support/oracle/verify/multiplicity.ts"
 import { FragmentReference, uniqueOn } from "#test/unit/analysis/physical/support.ts"

@@ -149,6 +149,7 @@ const valueKind = (t: ScalarType, codes: Codebook): ValueKind => {
 			return { kind: b.carrier, roster: codecOf(codes, b.roster) }
 		case "range4":
 		case "range8":
+		case "rangeDate":
 			return { kind: "span", carrier: b.carrier }
 		case "vector":
 			return { kind: "vector", dimensions: b.typmod.dims }
@@ -396,6 +397,7 @@ const build = (input: unknown, options: RealPlanOptions): RealInstallPlan => {
 		skipped: [],
 		fill: {
 			order: installation.laws.theory.fill,
+			patterns: installation.laws.patterns,
 			closed: new Map(
 				Arr.map(
 					[...installation.checked.closed],

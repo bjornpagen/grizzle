@@ -4,6 +4,7 @@ import { type Built, builtMark } from "#compiler/core/phantom.ts"
 import { hasProperties } from "#compiler/core/record.ts"
 import type { FieldDesc, QueryDesc, QueryStageDesc } from "#compiler/ir/desc.ts"
 import type { BuilderScope, OpenSource } from "#compiler/ir/open.ts"
+import { Roster } from "#compiler/ir/scalar.ts"
 import {
 	fieldsHeading,
 	fieldTyping,
@@ -287,7 +288,7 @@ export const relationHeading = (value: unknown, env: ScalarEnv, label: string): 
 		const handles = named.roster
 		const rosterEnv: ScalarEnv = {
 			...env,
-			roster: (name) => (name === named.name ? handles : env.roster(name))
+			roster: (name) => (name === named.name ? new Roster(name, handles) : env.roster(name))
 		}
 		return heading(
 			Object.entries(named.fields).map(

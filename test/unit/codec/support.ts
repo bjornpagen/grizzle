@@ -1,4 +1,5 @@
 import type { Result } from "effect"
+import { scalarReader } from "#compiler/codec/read.ts"
 import { type ScalarCodec, scalarCodec } from "#compiler/codec/scalar.ts"
 import { type Codebook, firstCodebook } from "#compiler/ir/codes.ts"
 import type { Carrier, ScalarType } from "#compiler/ir/scalar.ts"
@@ -7,6 +8,7 @@ import type { CarrierHost } from "#compiler/scalar/values/identity.ts"
 import { f } from "#test/support/fixtures/ir/desc.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { type StrictFault, strictReader } from "#test/support/kernel/strict.ts"
+import { outputText } from "#test/support/wire.ts"
 
 /**
  * Descriptors and helpers shared by the codec tests (test/unit/codec and test/pg/codec).
@@ -55,6 +57,7 @@ export const types = {
 	),
 	range4: ofCarrier("range4", scalarOf(f.span(f.integer, undefined), {})),
 	range8: ofCarrier("range8", scalarOf(f.span(f.bigint, undefined), {})),
+	rangeDate: ofCarrier("rangeDate", scalarOf(f.span(f.pg("date"), undefined), {})),
 	vector3: ofCarrier("vector", scalarOf({ kind: "vector", dimensions: 3 }, {})),
 	embedding: ofCarrier("vector", scalarOf({ kind: "vector", dimensions: 4 }, {})),
 	cents: ofCarrier("int8", scalarOf(f.contract("Cents", f.bigint, undefined), {}))
@@ -64,13 +67,23 @@ export const types = {
 export const kindCodes: Codebook = firstCodebook([types.kind.roster])
 
 /**
- * A type's codec beside the kernel's strict reader of its output texts (test/support/kernel/strict.ts): `read` is what
- * PostgreSQL's output grammar admits, `convert` the library's trusting conversion of it.
+ * A type's codec beside its reader and the kernel's strict reader of its output texts (test/support/kernel/strict.ts):
+ * `read` is what PostgreSQL's output grammar admits, `convert` and `cellText` the library's trusting reading of it, each
+ * over a text the test states PostgreSQL wrote (test/support/wire.ts outputText).
  */
 export interface TestCodec extends ScalarCodec {
 	readonly read: (text: string) => Result.Result<CarrierHost[Carrier], StrictFault>
+	readonly convert: (text: string) => CarrierHost[Carrier]
+	readonly cellText: (text: string) => string
 }
 
 /** The codec of `type` under the installation's codes `codes`, which a closed id or a set encodes against. */
-export const codecOf = (type: ScalarType, codes: Codebook): TestCodec =>
-	Object.freeze({ ...scalarCodec(type, codes), read: strictReader(type, codes) })
+export const codecOf = (type: ScalarType, codes: Codebook): TestCodec => {
+	const reader = scalarReader(type, codes)
+	return Object.freeze({
+		...scalarCodec(type, codes),
+		read: strictReader(type, codes),
+		convert: (text: string) => reader.convert(outputText(text)),
+		cellText: (text: string) => reader.cellText(outputText(text))
+	})
+}

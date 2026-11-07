@@ -25,6 +25,7 @@ import { pickFrom, pickGen } from "#test/support/pick.ts"
 import { testSql } from "#test/support/sql.ts"
 import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import { makeTap } from "#test/support/wire-tap.ts"
+import { paramText } from "#test/support/wire.ts"
 
 /** One step as drawn: what it does, and which leased session it picks. */
 interface StepSketch {
@@ -104,7 +105,10 @@ const lockKey = "7366231908012114001"
 const longStatement = (statement: LongStatement): BatchStatement =>
 	statement === "sleep"
 		? { sql: testSql("SELECT pg_catalog.pg_sleep(600)::text"), params: [] }
-		: { sql: testSql("SELECT pg_catalog.pg_advisory_lock($1::int8)::text"), params: [lockKey] }
+		: {
+				sql: testSql("SELECT pg_catalog.pg_advisory_lock($1::int8)::text"),
+				params: [paramText(lockKey)]
+			}
 
 /** Runs `statement` on `session` in the form drawn: alone, or in a read-only transaction that ends with COMMIT. */
 const runIn = (session: Session, form: FlightForm, statement: BatchStatement) =>

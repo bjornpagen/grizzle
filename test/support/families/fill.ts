@@ -6,8 +6,9 @@
  *
  * A specification is relations R0 … Rn−1, each keyed by its uuid `id` and holding a bigint `v` its caller writes, with a
  * generated `g` = `v` where it says so; families between them, a tree on one relation, an ordered family or a counted
- * one of an owner and a member, each with a fold over it or none; copies, each an accumulated field `c<j>` riding one
- * axis of one family and reading one column of the axis's target row; keys over `g`; and mutable relations. Family `f`
+ * one of an owner and a member, each with a fold over it or none, a sum stepping its member's `v` or a copy of it;
+ * copies, each an accumulated field `c<j>` riding one axis of one family and reading one column of the axis's target
+ * row; keys over `g`; and mutable relations. Family `f`
  * names its count `n<f>`, its member's group field `o<f>` (a tree's parent), an ordered family's or a tree's index
  * `i<f>`, a tree's root field `d<f>` and a fold's end `s<f>`; a tree's interval is `start` and `end`.
  *
@@ -22,10 +23,12 @@
  * base. It never consults the engine.
  *
  * A follow-up (`followUpGen`) is a second ChangeSet over a stored instance: an owner's put, counted members inserted
- * under it, and a member appended to one of its ordered families. The reference's verdict on a ChangeSet
- * (`writesVerdict`) finds every value a write leaves stale (`staleReads`, a second implementation of
- * write/family/redraw.ts over the specification's names) and every append through a cascade (`cascadedAppends`); the
- * instance a follow-up leaves (`followUpRows`) is the reference writer's to fill.
+ * under it, a member deleted from one of its ordered families, and a member appended to one, new or moved there from
+ * another owner's. The reference's verdict on a ChangeSet
+ * (`writesVerdict`) finds every value its writes leave stale and every value the refills that draw them again leave
+ * stale in turn (`refillsOf`, a second implementation of analysis/theory/refill.ts over the specification's names), and
+ * refuses only a refill of an immutable relation's rows; the instance a follow-up leaves (`followUpRows`) is the
+ * reference writer's to fill, every refilled value among it.
  */
 import { boolean, type Gen, int } from "@grizzle/testing/gen"
 import { keep, type Swarm, swarm, swarmChoice } from "@grizzle/testing/swarm"
@@ -64,7 +67,7 @@ export type Axis = "owner" | "predecessor" | "last"
  * index in the sequence it is a member of, its tree's start or end, the end of a fold over a family it owns, or another
  * copy it holds.
  */
-export type Source =
+export type CopySource =
 	| { readonly kind: "caller" }
 	| { readonly kind: "generated" }
 	| { readonly kind: "count"; readonly family: number }
@@ -84,7 +87,7 @@ interface FamilySpec {
 interface CopySpec {
 	readonly family: number
 	readonly axis: Axis
-	readonly source: Source
+	readonly source: CopySource
 }
 
 interface RelationSpec {
@@ -95,10 +98,21 @@ interface RelationSpec {
 	readonly key: boolean
 }
 
+/**
+ * A sum fold that steps a copy of its member's instead of its `v`: family `family`'s fold, stepping copy `copy`, a copy
+ * of a caller's `v` or a generated `g` along an owner axis onto the family's member, its own family's or, for a counted
+ * family, a sequence's.
+ */
+interface StepSpec {
+	readonly family: number
+	readonly copy: number
+}
+
 export interface FillSpec {
 	readonly relations: Arr.NonEmptyReadonlyArray<RelationSpec>
 	readonly families: ReadonlyArray<FamilySpec>
 	readonly copies: ReadonlyArray<CopySpec>
+	readonly steps: ReadonlyArray<StepSpec>
 }
 
 /** The specification's names: relation `i`, family `f`'s fields, copy `j`'s field. */
@@ -109,6 +123,16 @@ const indexName = (f: number): string => `i${f}`
 const rootName = (f: number): string => `d${f}`
 const foldName = (f: number): string => `s${f}`
 const copyName = (j: number): string => `c${j}`
+
+/** The copy family `f`'s sum fold steps, none where it steps its member's `v`. */
+const stepCopyOf = (spec: FillSpec, f: number): number | undefined =>
+	Option.getOrUndefined(Arr.findFirst(spec.steps, (step) => step.family === f))?.copy
+
+/** The field family `f`'s sum fold steps on its member: a copy a step names, else `v`. */
+const stepField = (spec: FillSpec, f: number): string => {
+	const copy = stepCopyOf(spec, f)
+	return copy === undefined ? "v" : copyName(copy)
+}
 
 const familyAt = (spec: FillSpec, f: number): FamilySpec => defined(spec.families[f], `family ${f}`)
 const copyAt = (spec: FillSpec, j: number): CopySpec => defined(spec.copies[j], `copy ${j}`)
@@ -136,7 +160,7 @@ const treeOn = (spec: FillSpec, r: number): number | undefined =>
 	)
 
 /** The field a source names on its row. */
-const sourceField = (source: Source): string => {
+const sourceField = (source: CopySource): string => {
 	switch (source.kind) {
 		case "caller":
 			return "v"
@@ -158,7 +182,7 @@ const sourceField = (source: Source): string => {
 }
 
 /** Whether a source's type is natural, else bigint: a count, an index, an interval and a count fold are natural. */
-const naturalSource = (spec: FillSpec, source: Source, seen: ReadonlySet<number>): boolean => {
+const naturalSource = (spec: FillSpec, source: CopySource, seen: ReadonlySet<number>): boolean => {
 	switch (source.kind) {
 		case "caller":
 		case "generated":
@@ -189,32 +213,32 @@ export const sourcesFor = (
 	f: number,
 	axis: Axis,
 	copy: number
-): ReadonlyArray<Source> => {
+): ReadonlyArray<CopySource> => {
 	const family = familyAt(spec, f)
 	const row = axis === "owner" ? family.owner : family.member
 	const tree = treeOn(spec, row)
 	const taken = Arr.flatMap(spec.copies, (c, j) =>
 		j !== copy && c.family === f && c.axis === axis ? [sourceField(c.source)] : []
 	)
-	const all: ReadonlyArray<Source> = [
+	const all: ReadonlyArray<CopySource> = [
 		{ kind: "caller" },
 		...(relationAt(spec, row).generated ? [{ kind: "generated" } as const] : []),
-		...Arr.flatMap(spec.families, (x, k): ReadonlyArray<Source> =>
+		...Arr.flatMap(spec.families, (x, k): ReadonlyArray<CopySource> =>
 			x.owner === row ? [{ kind: "count", family: k }] : []
 		),
-		...Arr.flatMap(spec.families, (x, k): ReadonlyArray<Source> =>
+		...Arr.flatMap(spec.families, (x, k): ReadonlyArray<CopySource> =>
 			x.member === row && x.kind !== "counted" ? [{ kind: "index", family: k }] : []
 		),
 		...(tree === undefined ? [] : [{ kind: "start" } as const, { kind: "end" } as const]),
-		...Arr.flatMap(spec.families, (x, k): ReadonlyArray<Source> =>
+		...Arr.flatMap(spec.families, (x, k): ReadonlyArray<CopySource> =>
 			x.owner === row && x.fold !== "none" ? [{ kind: "fold", family: k }] : []
 		),
-		...Arr.flatMap(spec.copies, (c, j): ReadonlyArray<Source> =>
+		...Arr.flatMap(spec.copies, (c, j): ReadonlyArray<CopySource> =>
 			j !== copy && holderOf(spec, c) === row ? [{ kind: "copy", copy: j }] : []
 		),
 		...(family.kind === "tree" && axis === "owner" ? [{ kind: "copy", copy } as const] : [])
 	]
-	const carried = (s: Source): boolean => {
+	const carried = (s: CopySource): boolean => {
 		switch (axis) {
 			case "owner":
 				return (
@@ -242,7 +266,8 @@ const fillFeatures = [
 	"generated",
 	"generated key",
 	"mutable",
-	"nesting cycle"
+	"nesting cycle",
+	"fold over a copy"
 ] as const
 
 type FillFeature = (typeof fillFeatures)[number]
@@ -317,7 +342,8 @@ export const fillSpecGen =
 			const spec: FillSpec = {
 				relations: relationsNonEmpty(relations),
 				families,
-				copies: [...draft.copies, { family: f, axis, source: { kind: "caller" } }]
+				copies: [...draft.copies, { family: f, axis, source: { kind: "caller" } }],
+				steps: []
 			}
 			const sources = sourcesFor(spec, f, axis, draft.copies.length)
 			if (Arr.isReadonlyArrayNonEmpty(sources)) {
@@ -325,8 +351,39 @@ export const fillSpecGen =
 				draft.copies.push({ family: f, axis, source: chosen })
 			}
 		}
-		return { relations: relationsNonEmpty(relations), families, copies: draft.copies }
+		const drafted: FillSpec = {
+			relations: relationsNonEmpty(relations),
+			families,
+			copies: draft.copies,
+			steps: []
+		}
+		const steps = Arr.flatMap(families, (family, f): ReadonlyArray<StepSpec> => {
+			const candidates = steppable(drafted, f)
+			return family.fold === "sum" &&
+				Arr.isReadonlyArrayNonEmpty(candidates) &&
+				kept("fold over a copy")
+				? [{ family: f, copy: defined(candidates[source.draw(int(0, candidates.length - 1))]) }]
+				: []
+		})
+		return { ...drafted, steps }
 	}
+
+/**
+ * The copies family `f`'s sum fold may step: each a copy of its member's of a caller's `v` or a generated `g` along an
+ * owner axis, its own family's, or, for a counted family, a sequence's whose member its member is too.
+ */
+const steppable = (spec: FillSpec, f: number): ReadonlyArray<number> => {
+	const family = familyAt(spec, f)
+	return Arr.flatMap(spec.copies, (c, j) => {
+		const along = familyAt(spec, c.family)
+		return c.axis === "owner" &&
+			holderOf(spec, c) === family.member &&
+			(c.source.kind === "caller" || c.source.kind === "generated") &&
+			(c.family === f || (family.kind === "counted" && along.kind !== "counted"))
+			? [j]
+			: []
+	})
+}
 
 /** The axis a copy feature draws. */
 const axisOf = {
@@ -408,7 +465,7 @@ const nestingCycle = (spec: FillSpec): boolean => {
  */
 const stageOf = (
 	spec: FillSpec,
-	source: Source,
+	source: CopySource,
 	root: boolean,
 	seen: ReadonlySet<number>
 ): Stage | undefined => {
@@ -720,7 +777,10 @@ export const buildFill = (spec: FillSpec): BuiltFill => {
 				foldBuilder(
 					stated,
 					family.fold === "sum" ? monoids.sum : monoids.count,
-					onBuilder(member, family.fold === "sum" ? [groupName(f), "v"] : [groupName(f)]),
+					onBuilder(
+						member,
+						family.fold === "sum" ? [groupName(f), stepField(spec, f)] : [groupName(f)]
+					),
 					onBuilder(owner, ["id", foldName(f)])
 				)
 			)
@@ -953,7 +1013,7 @@ export const writtenRows = (
 		const before = Arr.filter(siblings, (s) => (membership(s, tree)?.slot ?? 0) < up.slot)
 		return Arr.reduce(before, startOf(rowOf(up.owner), tree) + 1, (n, s) => n + sizeOf(s, tree))
 	}
-	const sourceValue = (row: InstanceRow, source: Source): bigint => {
+	const sourceValue = (row: InstanceRow, source: CopySource): bigint => {
 		switch (source.kind) {
 			case "caller":
 			case "generated":
@@ -971,8 +1031,13 @@ export const writtenRows = (
 			case "fold": {
 				const family = familyAt(spec, source.family)
 				const members = membersOf(row.id, source.family)
+				const stepped = stepCopyOf(spec, source.family)
 				return family.fold === "sum"
-					? Arr.reduce(members, 0n, (sum, m) => sum + m.v)
+					? Arr.reduce(
+							members,
+							0n,
+							(sum, m) => sum + (stepped === undefined ? m.v : copyValue(m, stepped))
+						)
 					: BigInt(members.length)
 			}
 			case "copy":
@@ -1151,10 +1216,17 @@ export interface SpecWrite {
 	readonly op: "insert" | "put" | "delete"
 }
 
-/** A value the reference finds a write leaves stale: the column the write changes, and the value drawn from it. */
+/**
+ * A value the reference finds a change leaves stale, which a refill of its family draws again: the column the change
+ * makes, by a write or by a refill, every relation the change passes on its way (its own, then each its cascade
+ * reaches), the value drawn from it, and the family whose refill draws it.
+ */
 export interface StaleSpec {
 	readonly changed: ChangedColumn
+	readonly from: "write" | "refill"
+	readonly passed: Arr.NonEmptyReadonlyArray<string>
 	readonly reader: DerivedReader
+	readonly family: number
 }
 
 /** Family `f` as a refusal names it. */
@@ -1164,75 +1236,112 @@ const familyNamed = (spec: FillSpec, f: number): FamilyName => ({
 })
 
 /**
- * The values of relation `r`'s families that read its column `column` and are drawn only when their row is written: a
- * fold summing `v`, and a copy along a predecessor axis, a last axis or a tree's owner axis.
+ * The values of relation `r`'s families but those `except` names that read its column `column` and are drawn only when
+ * their row is written, each with its family: a sum fold stepping the column, and a copy along a predecessor axis, a
+ * last axis or a tree's owner axis.
  */
 const derivedReaders = (
 	spec: FillSpec,
 	r: number,
-	column: string
-): ReadonlyArray<DerivedReader> => [
-	...Arr.flatMap(spec.families, (l, k): ReadonlyArray<DerivedReader> =>
-		l.member === r && l.fold === "sum" && column === "v"
+	column: string,
+	except: (k: number) => boolean
+): ReadonlyArray<{ readonly reader: DerivedReader; readonly family: number }> => [
+	...Arr.flatMap(spec.families, (l, k) =>
+		l.member === r && !except(k) && l.fold === "sum" && column === stepField(spec, k)
 			? [
 					{
-						kind: "fold",
-						family: familyNamed(spec, k),
-						relation: relationName(l.owner),
-						column: foldName(k)
+						family: k,
+						reader: {
+							kind: "fold" as const,
+							family: familyNamed(spec, k),
+							relation: relationName(l.owner),
+							column: foldName(k)
+						}
 					}
 				]
 			: []
 	),
-	...Arr.flatMap(spec.copies, (c, j): ReadonlyArray<DerivedReader> => {
+	...Arr.flatMap(spec.copies, (c, j) => {
 		const l = familyAt(spec, c.family)
-		if (l.member !== r || sourceField(c.source) !== column) {
+		if (l.member !== r || except(c.family) || sourceField(c.source) !== column) {
 			return []
 		}
 		const family = familyNamed(spec, c.family)
+		const at = (kind: DerivedReader["kind"], relation: number) => [
+			{
+				family: c.family,
+				reader: { kind, family, relation: relationName(relation), column: copyName(j) }
+			}
+		]
 		switch (c.axis) {
 			case "predecessor":
-				return [{ kind: "predecessor", family, relation: relationName(r), column: copyName(j) }]
+				return at("predecessor", r)
 			case "last":
-				return [{ kind: "last", family, relation: relationName(l.owner), column: copyName(j) }]
+				return at("last", l.owner)
 			case "owner":
-				return l.kind === "tree"
-					? [{ kind: "tree", family, relation: relationName(r), column: copyName(j) }]
-					: []
+				return l.kind === "tree" ? at("tree", r) : []
 		}
 	})
 ]
 
+/** A change of stored rows the reference follows: a write of a ChangeSet's, or a refill of family `family`. */
+type SpecChange =
+	| { readonly kind: "write"; readonly write: SpecWrite }
+	| { readonly kind: "refill"; readonly family: number }
+
 /**
- * The values a write leaves stale, by the reference: each value drawn from a column the write changes on rows already
- * stored that nothing draws again, through every path the change takes.
+ * The values one change leaves stale, by the reference: each value drawn from a column the change makes on rows
+ * already stored that the change itself does not draw again, through every path the change takes.
  *
  * A put changes its row's `v` and `g`. A write of a family's member, a tree's aside, changes the owner's count, fold end
- * and last copies, and draws its members' index and copies along the owner and predecessor axes again. A copy along a
- * family's owner axis, a tree's aside, carries a change of what it reads into its member's copy, and `g` follows `v`.
- * A change reaches the values of the families of the row it is on, drawn there only when their row is written (a fold
- * summing `v`, and a predecessor copy, a last copy and a tree's copy of what changed): each is stale, but those of the
- * families of the written relation's own row, a put's or a member's edit's, which the family planner draws again. An
- * insert also edits the counted families of every counted member its nesting writes, each nested row appended to them
- * as a row of its own would be; their sequences are the walk's, under their fresh owners, and change nothing stored.
+ * and last copies, and draws its members' index and copies along the owner and predecessor axes again. A refill of a
+ * family changes its owner's fold end and last copies, and its members' predecessor copies and, along a tree, copies
+ * of their parent's. A copy along a family's owner axis, a tree's aside, carries a change of what it reads into its
+ * member's copy, and `g` follows `v`. A change reaches the values of the families of the row it is on (a fold summing
+ * its step, and a predecessor copy, a last copy and a tree's copy of what changed): each is stale, but those the change
+ * draws again itself: a write's of the written relation's own families, which the family planner draws, and a
+ * refill's of its own family. An insert also edits the counted families of every counted member its nesting writes,
+ * each nested row appended to them as a row of its own would be; their sequences are the walk's, under their fresh
+ * owners, and change nothing stored. A relation of `replaced` has rows the ChangeSet deletes and inserts again, which no
+ * cascade follows: a member's copy, along a family it owns, of a column a change makes there is stale too, its copy of
+ * the family's count among them.
  */
-const staleReads = (spec: FillSpec, write: SpecWrite): ReadonlyArray<StaleSpec> => {
+const staleOf = (
+	spec: FillSpec,
+	change: SpecChange,
+	replaced: ReadonlySet<number>
+): ReadonlyArray<StaleSpec> => {
 	const found: Array<StaleSpec> = []
 	const reach = (
 		changed: ChangedColumn,
 		at: number,
 		column: string,
-		drawnHere: boolean,
-		seen: ReadonlySet<string>
+		except: (k: number) => boolean,
+		seen: ReadonlySet<string>,
+		passed: Arr.NonEmptyReadonlyArray<string>
 	): void => {
-		const visit = `${at} ${column} ${drawnHere ? "drawn" : "planned"}`
+		const visit = `${at} ${column} ${seen.size === 0 ? "own" : "carried"}`
 		if (seen.has(visit)) {
 			return
 		}
 		const next = new Set([...seen, visit])
-		if (drawnHere) {
-			for (const reader of derivedReaders(spec, at, column)) {
-				found.push({ changed, reader })
+		for (const { reader, family } of derivedReaders(spec, at, column, except)) {
+			found.push({ changed, from: change.kind, passed, reader, family })
+		}
+		for (const [k, f] of spec.families.entries()) {
+			if (replaced.has(at) && f.kind !== "tree" && f.owner === at && column === countName(k)) {
+				found.push({
+					changed,
+					from: change.kind,
+					passed,
+					reader: {
+						kind: "owner",
+						family: familyNamed(spec, k),
+						relation: relationName(f.member),
+						column: `‹${countName(k)}›`
+					},
+					family: k
+				})
 			}
 		}
 		for (const [j, c] of spec.copies.entries()) {
@@ -1243,139 +1352,170 @@ const staleReads = (spec: FillSpec, write: SpecWrite): ReadonlyArray<StaleSpec> 
 				family.owner === at &&
 				sourceField(c.source) === column
 			) {
-				reach(changed, family.member, copyName(j), true, next)
+				if (replaced.has(at)) {
+					found.push({
+						changed,
+						from: change.kind,
+						passed,
+						reader: {
+							kind: "owner",
+							family: familyNamed(spec, c.family),
+							relation: relationName(family.member),
+							column: copyName(j)
+						},
+						family: c.family
+					})
+				}
+				reach(changed, family.member, copyName(j), () => false, next, [
+					...passed,
+					relationName(family.member)
+				])
 			}
 		}
 		if (column === "v" && relationAt(spec, at).generated) {
-			reach(changed, at, "g", drawnHere, next)
+			reach(changed, at, "g", except, next, passed)
 		}
 	}
-	const r = write.relation
-	/** The relations an insert of r nests, through its sequences, every one but r. */
-	const nested = new Set<number>()
-	if (write.op === "insert") {
-		const pending = [r]
-		for (let at = pending.pop(); at !== undefined; at = pending.pop()) {
-			for (const s of spec.families) {
-				if (s.owner === at && s.kind !== "counted" && s.member !== r && !nested.has(s.member)) {
-					nested.add(s.member)
-					pending.push(s.member)
-				}
-			}
-		}
-	}
-	const changes: ReadonlyArray<{
+	const carried = (k: number, axis: Axis): ReadonlyArray<string> =>
+		Arr.flatMap(spec.copies, (c, j) => (c.family === k && c.axis === axis ? [copyName(j)] : []))
+	const changes = ((): ReadonlyArray<{
 		readonly at: number
 		readonly column: string
 		readonly by: ChangedColumn["by"]
-	}> = [
-		...(write.op === "put"
-			? Arr.map(["v", ...(relationAt(spec, r).generated ? ["g"] : [])], (column) => ({
-					at: r,
-					column,
-					by: "put" as const
-				}))
-			: []),
-		...Arr.flatMap(spec.families, (f, k) => {
-			if (
-				f.kind === "tree" ||
-				(f.member !== r && !(f.kind === "counted" && nested.has(f.member)))
-			) {
-				return []
-			}
-			const carried = (axis: Axis): ReadonlyArray<string> =>
-				Arr.flatMap(spec.copies, (c, j) => (c.family === k && c.axis === axis ? [copyName(j)] : []))
+		readonly except: (k: number) => boolean
+	}> => {
+		if (change.kind === "refill") {
+			const k = change.family
+			const f = familyAt(spec, k)
+			const own = (x: number): boolean => x === k
 			return [
 				...Arr.map(
-					[countName(k), ...(f.fold === "none" ? [] : [foldName(k)]), ...carried("last")],
-					(column) => ({ at: f.owner, column, by: "owner" as const })
+					[...(f.fold === "none" ? [] : [foldName(k)]), ...carried(k, "last")],
+					(column) => ({
+						at: f.owner,
+						column,
+						by: "owner" as const,
+						except: own
+					})
 				),
 				...Arr.map(
-					[
-						...(f.kind === "ordered" ? [indexName(k)] : []),
-						...carried("owner"),
-						...carried("predecessor")
-					],
-					(column) => ({ at: f.member, column, by: "member" as const })
+					[...carried(k, "predecessor"), ...(f.kind === "tree" ? carried(k, "owner") : [])],
+					(column) => ({
+						at: f.member,
+						column,
+						by: "member" as const,
+						except: own
+					})
 				)
 			]
-		})
-	]
-	for (const change of changes) {
+		}
+		const write = change.write
+		const r = write.relation
+		const written = (k: number): boolean => familyAt(spec, k).member === r
+		/** The relations an insert of r nests, through its sequences, every one but r. */
+		const nested = new Set<number>()
+		if (write.op === "insert") {
+			const pending = [r]
+			for (let at = pending.pop(); at !== undefined; at = pending.pop()) {
+				for (const s of spec.families) {
+					if (s.owner === at && s.kind !== "counted" && s.member !== r && !nested.has(s.member)) {
+						nested.add(s.member)
+						pending.push(s.member)
+					}
+				}
+			}
+		}
+		return [
+			...(write.op === "put"
+				? Arr.map(["v", ...(relationAt(spec, r).generated ? ["g"] : [])], (column) => ({
+						at: r,
+						column,
+						by: "put" as const,
+						except: written
+					}))
+				: []),
+			...Arr.flatMap(spec.families, (f, k) => {
+				if (
+					f.kind === "tree" ||
+					(f.member !== r && !(f.kind === "counted" && nested.has(f.member)))
+				) {
+					return []
+				}
+				return [
+					...Arr.map(
+						[countName(k), ...(f.fold === "none" ? [] : [foldName(k)]), ...carried(k, "last")],
+						(column) => ({
+							at: f.owner,
+							column,
+							by: "owner" as const,
+							except: () => false
+						})
+					),
+					...Arr.map(
+						[
+							...(f.kind === "ordered" ? [indexName(k)] : []),
+							...carried(k, "owner"),
+							...carried(k, "predecessor")
+						],
+						(column) => ({
+							at: f.member,
+							column,
+							by: "member" as const,
+							except: (x: number) => familyAt(spec, x).member === f.member
+						})
+					)
+				]
+			})
+		]
+	})()
+	for (const c of changes) {
 		reach(
-			{ relation: relationName(change.at), column: change.column, by: change.by },
-			change.at,
-			change.column,
-			change.by === "owner",
-			new Set()
+			{ relation: relationName(c.at), column: c.column, by: c.by },
+			c.at,
+			c.column,
+			c.except,
+			new Set(),
+			[relationName(c.at)]
 		)
 	}
 	return found
 }
 
 /**
- * The relations whose write in a ChangeSet of `writes` appends to a family whose copy reads its owner's column through
- * the owner's own copies along owner axes, a tree's aside, up to a relation the ChangeSet changes: by a put of it, or
- * by a write of the member of a family it owns whose count, fold end or last copy the copies read there
- * (CascadedCopyAppend). A delete appends nothing.
+ * The refills a ChangeSet of `writes` needs, by the reference: every value its writes leave stale, and every value each
+ * refill it needs leaves stale in turn, each with the family whose refill draws it again.
  */
-const cascadedAppends = (
-	spec: FillSpec,
-	writes: ReadonlyArray<SpecWrite>
-): ReadonlyArray<number> => {
-	const ownerCopyAt = (r: number, column: string) =>
-		Arr.findFirst(spec.copies, (c, j) => {
-			const family = familyAt(spec, c.family)
-			return (
-				c.axis === "owner" &&
-				family.kind !== "tree" &&
-				family.member === r &&
-				copyName(j) === column
-			)
-		})
-	const changes = (r: number, column: string): boolean =>
-		Arr.some(writes, (w) => w.relation === r && w.op === "put") ||
-		Arr.some(
-			spec.families,
-			(k, n) =>
-				k.owner === r &&
-				(column === countName(n) ||
-					(k.fold !== "none" && column === foldName(n)) ||
-					Arr.some(
-						spec.copies,
-						(c, j) => c.family === n && c.axis === "last" && copyName(j) === column
-					)) &&
-				Arr.some(writes, (w) => w.relation === k.member)
-		)
-	const reachesChange = (r: number, column: string, seen: ReadonlySet<string>): boolean => {
-		const visit = `${r} ${column}`
-		const up = ownerCopyAt(r, column)
-		if (seen.has(visit) || Option.isNone(up)) {
-			return false
-		}
-		const family = familyAt(spec, up.value.family)
-		const source = sourceField(up.value.source)
-		return (
-			changes(family.owner, source) ||
-			reachesChange(family.owner, source, new Set([...seen, visit]))
-		)
-	}
-	return Arr.dedupe(
+const refillsOf = (spec: FillSpec, writes: ReadonlyArray<SpecWrite>): ReadonlyArray<StaleSpec> => {
+	const found: Array<StaleSpec> = []
+	const refilled = new Set<number>()
+	/** The relations whose stored rows the writes may delete and insert again: a put of a member of a family that is no
+	 * tree, which may move it to another group or change what an ordered family reads of it, and a delete of an ordered
+	 * family's member, which re-places every member after it, each family's owner mutable. */
+	const replaced = new Set(
 		Arr.flatMap(writes, (w) =>
-			w.op !== "delete" &&
-			Arr.some(spec.copies, (c) => {
-				const family = familyAt(spec, c.family)
-				return (
-					c.axis === "owner" &&
-					family.kind !== "tree" &&
-					family.member === w.relation &&
-					reachesChange(family.owner, sourceField(c.source), new Set())
-				)
-			})
+			Arr.some(
+				spec.families,
+				(f) =>
+					f.member === w.relation &&
+					f.kind !== "tree" &&
+					relationAt(spec, f.owner).mutable &&
+					(w.op === "put" || (w.op === "delete" && f.kind === "ordered"))
+			)
 				? [w.relation]
 				: []
 		)
 	)
+	const pending: Array<SpecChange> = Arr.map(writes, (write) => ({ kind: "write", write }))
+	for (let change = pending.shift(); change !== undefined; change = pending.shift()) {
+		for (const stale of staleOf(spec, change, replaced)) {
+			found.push(stale)
+			if (!refilled.has(stale.family)) {
+				refilled.add(stale.family)
+				pending.push({ kind: "refill", family: stale.family })
+			}
+		}
+	}
+	return found
 }
 
 /**
@@ -1391,7 +1531,10 @@ const cascadedAppends = (
  * - `mutable owner`: a mutable owner of a counted and an ordered family over mutable members, which a follow-up puts
  *   beside appends to its families;
  * - `sibling's end`, `siblings' ends`: an owner of two sequences, a tree or an ordered family and an ordered family,
- *   each with a fold, and a copy along one's owner axis of the other's end, or along each of the other's.
+ *   each with a fold, and a copy along one's owner axis of the other's end, or along each of the other's;
+ * - `stepped copy`: a mutable owner of a counted or an ordered family over a mutable member, which copies its owner's
+ *   `v` along the family's owner axis, and the family's sum fold steps that copy, so a put of the owner changes what
+ *   the fold's every step reads.
  */
 export type Planted =
 	| "counted copy of an end"
@@ -1407,6 +1550,8 @@ export type Planted =
 	| "mutable owner"
 	| "sibling's end"
 	| "siblings' ends"
+	| "stepped copy"
+	| "re-placed owner"
 
 /** A specification holding the shape `planted` (`Planted`), its relations' flags, its folds and its kinds drawn. */
 export const plantedGen =
@@ -1439,7 +1584,8 @@ export const plantedGen =
 						{ ...first, fold: source.draw(boolean) ? "sum" : "count" },
 						{ kind: "counted", owner: 0, member: 2, fold: fold() }
 					],
-					copies: [{ family: 1, axis: "owner", source: { kind: "fold", family: 0 } }]
+					copies: [{ family: 1, axis: "owner", source: { kind: "fold", family: 0 } }],
+					steps: []
 				}
 			}
 			case "counted ordered member":
@@ -1449,7 +1595,8 @@ export const plantedGen =
 						{ kind: "ordered", owner: 0, member: 2, fold: fold() },
 						{ kind: "counted", owner: source.draw(int(0, 1)), member: 2, fold: fold() }
 					],
-					copies: []
+					copies: [],
+					steps: []
 				}
 			case "counted tree node":
 				return {
@@ -1458,13 +1605,15 @@ export const plantedGen =
 						{ kind: "tree", owner: 1, member: 1, fold: fold() },
 						{ kind: "counted", owner: 0, member: 1, fold: fold() }
 					],
-					copies: []
+					copies: [],
+					steps: []
 				}
 			case "counted sequence owner":
 				return {
 					relations,
 					families: [{ kind: "counted", owner: 0, member: 1, fold: fold() }, sequence(1, 2)],
-					copies: []
+					copies: [],
+					steps: []
 				}
 			case "tree with an ordered family":
 			case "tree with a counted family":
@@ -1479,7 +1628,8 @@ export const plantedGen =
 							fold: fold()
 						}
 					],
-					copies: []
+					copies: [],
+					steps: []
 				}
 			case "counted family of a nested owner":
 				return {
@@ -1488,7 +1638,8 @@ export const plantedGen =
 						{ kind: "ordered", owner: 0, member: 1, fold: fold() },
 						{ kind: "counted", owner: 1, member: 2, fold: fold() }
 					],
-					copies: []
+					copies: [],
+					steps: []
 				}
 			case "copy of a tree's end":
 			case "counted copy of a tree's end":
@@ -1506,7 +1657,8 @@ export const plantedGen =
 							fold: fold()
 						}
 					],
-					copies: [{ family: 1, axis: "owner", source: { kind: "end" } }]
+					copies: [{ family: 1, axis: "owner", source: { kind: "end" } }],
+					steps: []
 				}
 			case "sibling's end":
 			case "siblings' ends": {
@@ -1522,7 +1674,8 @@ export const plantedGen =
 				return {
 					relations,
 					families: [first, second],
-					copies: planted === "sibling's end" ? [one] : [reads(0, 1), reads(1, 0)]
+					copies: planted === "sibling's end" ? [one] : [reads(0, 1), reads(1, 0)],
+					steps: []
 				}
 			}
 			case "mutable owner":
@@ -1536,7 +1689,42 @@ export const plantedGen =
 						{ kind: "counted", owner: 0, member: 1, fold: fold() },
 						{ kind: "ordered", owner: 0, member: 2, fold: fold() }
 					],
-					copies: []
+					copies: [],
+					steps: []
+				}
+			case "stepped copy":
+				return {
+					relations: [
+						{ ...relations[0], mutable: true },
+						{ ...relationGen(), mutable: true },
+						relationGen()
+					],
+					families: [
+						{
+							kind: source.draw(boolean) ? "counted" : "ordered",
+							owner: 0,
+							member: 1,
+							fold: "sum"
+						}
+					],
+					copies: [{ family: 0, axis: "owner", source: { kind: "caller" } }],
+					steps: [{ family: 0, copy: 0 }]
+				}
+			case "re-placed owner":
+				return {
+					relations: [
+						{ ...relations[0], mutable: true },
+						{ ...relationGen(), mutable: true },
+						relationGen()
+					],
+					families: [
+						{ kind: "ordered", owner: 0, member: 1, fold: fold() },
+						{ kind: "counted", owner: 1, member: 2, fold: fold() }
+					],
+					copies: source.draw(boolean)
+						? [{ family: 1, axis: "owner", source: { kind: "index", family: 0 } }]
+						: [],
+					steps: []
 				}
 			case "nesting three deep":
 				return {
@@ -1545,20 +1733,21 @@ export const plantedGen =
 						{ kind: "ordered", owner: 0, member: 1, fold: fold() },
 						{ kind: "ordered", owner: 1, member: 2, fold: fold() }
 					],
-					copies: []
+					copies: [],
+					steps: []
 				}
 		}
 	}
 
 /**
- * Two specifications side by side, over disjoint relations: `planted`'s relations, families and copies after `base`'s,
- * renumbered past them. Neither reads the other, so the union is admitted exactly where both are.
+ * Two specifications side by side, over disjoint relations: `planted`'s relations, families, copies and steps after
+ * `base`'s, renumbered past them. Neither reads the other, so the union is admitted exactly where both are.
  */
 export const besides = (base: FillSpec, planted: FillSpec): FillSpec => {
 	const r = base.relations.length
 	const f = base.families.length
 	const c = base.copies.length
-	const source = (s: Source): Source => {
+	const source = (s: CopySource): CopySource => {
 		switch (s.kind) {
 			case "caller":
 			case "generated":
@@ -1586,6 +1775,10 @@ export const besides = (base: FillSpec, planted: FillSpec): FillSpec => {
 				axis: x.axis,
 				source: source(x.source)
 			}))
+		],
+		steps: [
+			...base.steps,
+			...Arr.map(planted.steps, (x) => ({ family: x.family + f, copy: x.copy + c }))
 		]
 	}
 }
@@ -1618,23 +1811,33 @@ const ownsSequence = (spec: FillSpec, r: number): boolean =>
  * relation that is no tree's, owns no sequence while it is a member, and is a member only of mutable owners' families,
  * so the rules admit its put in place. It puts the row with a new `v`, or leaves it; inserts counted members under it
  * in one counted family it owns whose member is no ordered family's, each naming a row of the owner of every other
- * counted family it is a member of, every such owner mutable, with the sequences it owns empty; and puts a member at
- * the end of one ordered family it owns, whose member owns no sequence, is mutable where it owns a family and names a
- * row of the owner of every counted family it is a member of, every such owner mutable, or none. Each new row's id
- * follows the instance's.
+ * counted family it is a member of, every such owner mutable, with the sequences it owns empty; deletes a stored member
+ * that owns no row of one of its ordered families (`removed`), or none; and puts a member at the end of one ordered
+ * family it owns, whose member owns no sequence, is mutable where it owns a family and names a row of the owner of
+ * every counted family it is a member of, every such owner mutable: a new one (`appended`), or a stored one of another
+ * owner's group (`moved`), its relation mutable, or none. A deletion or a move re-places every member after it in its
+ * group, and a moved member keeps the rows it owns. Each new row's id follows the instance's.
  */
 export interface FollowUp {
 	readonly owner: number
 	readonly row: number
 	readonly put: Option.Option<bigint>
 	readonly inserted: ReadonlyArray<InstanceRow>
+	readonly removed: Option.Option<FollowUpMove>
 	readonly appended: Option.Option<InstanceRow>
+	readonly moved: Option.Option<FollowUpMove>
 }
 
-/** One member of a follow-up's ChangeSet: the relation it writes, by an insert or a put, and its facts. */
+/** A stored member a follow-up deletes or moves, by its row's id, of the ordered family `family`. */
+export interface FollowUpMove {
+	readonly id: number
+	readonly family: number
+}
+
+/** One member of a follow-up's ChangeSet: the relation it writes, by an insert, a put or a delete, and its facts. */
 export interface FollowUpMember {
 	readonly relation: number
-	readonly op: "insert" | "put"
+	readonly op: "insert" | "put" | "delete"
 	readonly facts: ReadonlyArray<Fact>
 }
 
@@ -1688,6 +1891,19 @@ export const followUpGen =
 					f.owner === owner &&
 					!ownsSequence(spec, f.member) &&
 					(mutable(f.member) || !Arr.some(spec.families, (o) => o.owner === f.member)) &&
+					countedOwners(f.member)
+				)
+			})
+		/** The ordered families of `owner` whose stored members a follow-up may delete or move to its row: one whose
+		 * member owns no sequence and is mutable, naming a mutable owner of each counted family it is a member of. */
+		const reorderedOf = (owner: number): ReadonlyArray<number> =>
+			Arr.filter(families, (k) => {
+				const f = familyAt(spec, k)
+				return (
+					f.kind === "ordered" &&
+					f.owner === owner &&
+					!ownsSequence(spec, f.member) &&
+					mutable(f.member) &&
 					countedOwners(f.member)
 				)
 			})
@@ -1748,6 +1964,36 @@ export const followUpGen =
 					return made
 				})()
 			: []
+		const reordered = reorderedOf(owner)
+		/** Whether a row of the instance is a member of the row `id` owns. */
+		const ownsRows = (id: number): boolean =>
+			Arr.some(rows, (x) => Arr.some(x.memberOf, (m) => m.owner === id))
+		/** A stored member of one of `reordered` drawn among the rows `where` keeps, or none. */
+		const storedMember = (
+			where: (x: InstanceRow, family: number) => boolean
+		): Option.Option<FollowUpMove> => {
+			if (!Arr.isReadonlyArrayNonEmpty(reordered) || !source.draw(boolean)) {
+				return Option.none()
+			}
+			const family = defined(
+				reordered[source.draw(int(0, reordered.length - 1))],
+				"an ordered family"
+			)
+			const candidates = Arr.filter(rows, (x) => where(x, family))
+			return Arr.isReadonlyArrayNonEmpty(candidates)
+				? Option.some({
+						id: defined(candidates[source.draw(int(0, candidates.length - 1))], "a member").id,
+						family
+					})
+				: Option.none()
+		}
+		const removed = storedMember(
+			(x, family) => membershipIn(x, family)?.owner === row.id && !ownsRows(x.id)
+		)
+		/** The slot after the last member of `family` the row keeps. */
+		const end = (family: number): number =>
+			Arr.filter(rows, (r) => membershipIn(r, family)?.owner === row.id).length -
+			(Option.exists(removed, (m) => m.family === family) ? 1 : 0)
 		const ordered = orderedOf(owner)
 		const appended: Option.Option<InstanceRow> =
 			Arr.isReadonlyArrayNonEmpty(ordered) && source.draw(boolean)
@@ -1759,48 +2005,91 @@ export const followUpGen =
 							id: rows.length + 1 + inserted.length,
 							v: BigInt(source.draw(int(-2, 3))),
 							memberOf: [
-								{
-									family: g,
-									owner: row.id,
-									slot: Arr.filter(rows, (r) => membershipIn(r, g)?.owner === row.id).length
-								},
+								{ family: g, owner: row.id, slot: end(g) },
 								...countedMemberships(member, undefined)
 							]
 						})
 					})()
 				: Option.none()
-		return Option.isNone(put) && inserted.length === 0 && Option.isNone(appended)
+		const moved = Option.isSome(appended)
 			? Option.none()
-			: Option.some({ owner, row: row.id, put, inserted, appended })
+			: storedMember((x, family) => {
+					const m = membershipIn(x, family)
+					return m !== undefined && m.owner !== row.id
+				})
+		return Option.isNone(put) &&
+			inserted.length === 0 &&
+			Option.isNone(removed) &&
+			Option.isNone(appended) &&
+			Option.isNone(moved)
+			? Option.none()
+			: Option.some({ owner, row: row.id, put, inserted, removed, appended, moved })
 	}
 
-/** The instance a follow-up leaves: its owner's row with its new `v`, then its new rows. */
+/**
+ * The instance a follow-up leaves: its owner's row with its new `v`, its removed member gone, its moved member at the
+ * end of the row's group, each member after the removed or the moved one in its group a slot down, then its new rows.
+ */
 export const followUpRows = (
 	rows: ReadonlyArray<InstanceRow>,
 	followUp: FollowUp
-): ReadonlyArray<InstanceRow> => [
-	...Arr.map(rows, (row) =>
-		row.id === followUp.row
-			? Option.match(followUp.put, { onNone: () => row, onSome: (v) => ({ ...row, v }) })
-			: row
-	),
-	...followUp.inserted,
-	...Option.toArray(followUp.appended)
-]
+): ReadonlyArray<InstanceRow> => {
+	/** The slots the removed and the moved member leave, each in its family and its owner's group. */
+	const left = Arr.flatMap(
+		[...Option.toArray(followUp.removed), ...Option.toArray(followUp.moved)],
+		({ id, family }) => {
+			const stored = Option.getOrUndefined(Arr.findFirst(rows, (x) => x.id === id))
+			const m = stored === undefined ? undefined : membershipIn(stored, family)
+			return m === undefined ? [] : [{ family, owner: m.owner, slot: m.slot }]
+		}
+	)
+	const end = (family: number): number =>
+		Arr.filter(rows, (x) => membershipIn(x, family)?.owner === followUp.row).length -
+		Arr.filter(left, (l) => l.family === family && l.owner === followUp.row).length
+	return [
+		...Arr.flatMap(rows, (row): ReadonlyArray<InstanceRow> => {
+			if (Option.exists(followUp.removed, (m) => m.id === row.id)) {
+				return []
+			}
+			const moving = Option.getOrUndefined(Option.filter(followUp.moved, (m) => m.id === row.id))
+			return [
+				{
+					...row,
+					v: row.id === followUp.row ? Option.getOrElse(followUp.put, () => row.v) : row.v,
+					memberOf: Arr.map(row.memberOf, (m) =>
+						moving !== undefined && m.family === moving.family
+							? { family: m.family, owner: followUp.row, slot: end(m.family) }
+							: {
+									...m,
+									slot:
+										m.slot -
+										Arr.filter(
+											left,
+											(l) => l.family === m.family && l.owner === m.owner && l.slot < m.slot
+										).length
+								}
+					)
+				}
+			]
+		}),
+		...followUp.inserted,
+		...Option.toArray(followUp.appended)
+	]
+}
 
 /**
  * A follow-up's ChangeSet, member by member: the owner's put, the counted members' insert, each a top fact of its
- * relation with the sequences it owns empty and a tree's root its own, and the appended member's put.
+ * relation with the sequences it owns empty and a tree's root its own, the removed member's delete, and the appended or
+ * the moved member's put, the moved one under the follow-up's row.
  */
 export const followUpMembers = (
 	spec: FillSpec,
 	rows: ReadonlyArray<InstanceRow>,
 	followUp: FollowUp
 ): ReadonlyArray<FollowUpMember> => {
-	const row = defined(
-		Arr.findFirst(rows, (r) => r.id === followUp.row).pipe(Option.getOrUndefined),
-		"the follow-up's row"
-	)
+	const rowOf = (id: number): InstanceRow =>
+		defined(Arr.findFirst(rows, (r) => r.id === id).pipe(Option.getOrUndefined), `the row ${id}`)
+	const row = rowOf(followUp.row)
 	return [
 		...Option.match(followUp.put, {
 			onNone: (): ReadonlyArray<FollowUpMember> => [],
@@ -1818,33 +2107,62 @@ export const followUpMembers = (
 				}
 			]
 		}),
+		...Option.match(followUp.removed, {
+			onNone: (): ReadonlyArray<FollowUpMember> => [],
+			onSome: ({ id }): ReadonlyArray<FollowUpMember> => {
+				const x = rowOf(id)
+				return [{ relation: x.relation, op: "delete", facts: [memberFact(x, x.v)] }]
+			}
+		}),
 		...Option.match(followUp.appended, {
 			onNone: (): ReadonlyArray<FollowUpMember> => [],
 			onSome: (a): ReadonlyArray<FollowUpMember> => [
 				{ relation: a.relation, op: "put", facts: [memberFact(a, a.v)] }
 			]
+		}),
+		...Option.match(followUp.moved, {
+			onNone: (): ReadonlyArray<FollowUpMember> => [],
+			onSome: ({ id, family }): ReadonlyArray<FollowUpMember> => {
+				const x = rowOf(id)
+				const under = {
+					...x,
+					memberOf: Arr.map(x.memberOf, (m) =>
+						m.family === family ? { ...m, owner: followUp.row } : m
+					)
+				}
+				return [{ relation: x.relation, op: "put", facts: [memberFact(under, x.v)] }]
+			}
 		})
 	]
 }
 
 /**
- * The reference's verdict on a ChangeSet of `writes` over a stored instance of an admitted specification: written, or
- * refused by a value it leaves stale (StaleDerivedRead) or by an append through a cascade (CascadedCopyAppend), the
- * compiler naming any of them.
+ * The reference's verdict on a ChangeSet of `writes` over a stored instance of an admitted specification, with every
+ * value it leaves stale (`refillsOf`): written, each stale value drawn again by a refill of its family; or refused,
+ * where a refill would change the rows of an immutable relation: a refilled family's members, or its owner, whose
+ * family is fixed when it is inserted (StaleDerivedRead, `immutable`, the compiler naming any of `immutable`).
  */
 export type WritesVerdict =
-	| { readonly kind: "written" }
+	| { readonly kind: "written"; readonly stale: ReadonlyArray<StaleSpec> }
 	| {
 			readonly kind: "refused"
 			readonly stale: ReadonlyArray<StaleSpec>
-			readonly cascaded: ReadonlyArray<number>
+			readonly immutable: Arr.NonEmptyReadonlyArray<string>
 	  }
 
 /** The reference's verdict on a ChangeSet of `writes` (`WritesVerdict`). */
 export const writesVerdict = (spec: FillSpec, writes: ReadonlyArray<SpecWrite>): WritesVerdict => {
-	const stale = Arr.flatMap(writes, (w) => staleReads(spec, w))
-	const cascaded = cascadedAppends(spec, writes)
-	return stale.length === 0 && cascaded.length === 0
-		? { kind: "written" }
-		: { kind: "refused", stale, cascaded }
+	const stale = refillsOf(spec, writes)
+	const immutable = Arr.dedupe(
+		Arr.flatMap(stale, ({ family: k }) => {
+			const f = familyAt(spec, k)
+			return [
+				...(relationAt(spec, f.member).mutable ? [] : [relationName(f.member)]),
+				...(relationAt(spec, f.owner).mutable ? [] : [relationName(f.owner)])
+			]
+		})
+	)
+	return Arr.isReadonlyArrayNonEmpty(immutable)
+		? { kind: "refused", stale, immutable }
+		: { kind: "written", stale }
 }

@@ -1,27 +1,37 @@
 /**
- * Selected-source span coverage at the int8 limits, native: a billable visit is accepted exactly when the union of its
- * site's shifts contains its span, and refused otherwise with 23503 on the PERIOD foreign key from the visit's range
- * law column into Shift's WITHOUT OVERLAPS key (fin.md §7), at its statement.
+ * Selected-source span coverage at the limits of a span's stored domain, over bigint and over date endpoints, native: a
+ * billable visit is accepted exactly when the union of its site's shifts contains its span, and refused otherwise with
+ * 23503 on the PERIOD foreign key from the visit's range law column into Shift's WITHOUT OVERLAPS key (fin.md §7), at
+ * its statement.
  *
- * The oracle is a second implementation: `covers`, a sweep over the disjoint shifts in order. The box is a cover cut at
- * distinct points of `points` (the int8 limits, the points beside them, and a few inside), each piece dropped one time
- * in four, and a nonempty visit between two of the points, 60 runs, required to reach a covered and a refused visit
- * from the lower limit, to the upper limit and inside them.
+ * The oracle is a second implementation: `covers`, a sweep over the disjoint shifts in order, over the endpoint's
+ * values as bigints (a date as its day number, the order of dates). The box is an endpoint, bigint or date, a cover cut
+ * at distinct points of its `points` (pointsAround: the domain's limits and the points beside them, and an inside value
+ * and the points beside it: int8's limits and zero, a date's 0001-01-01, 9999-12-31 and leap day), each piece dropped
+ * one time in four, and a nonempty visit between two of the points, 60 runs, required to reach, over each endpoint, a
+ * covered and a refused visit from the lower limit, to the upper limit and inside them.
  *
  * These edges stay a suite of their own rather than kept cases of the span-coverage box (test/support/laws/boxes.ts
  * spanCoverage): that harness's host model spells a span's ends as JavaScript numbers
- * (test/support/laws/model.ts Span), which hold no int8 limit exactly, so the limits can be stated only here, as
- * bigints in int8range literals.
+ * (test/support/laws/model.ts Span), which hold no int8 limit exactly and no date, so the limits can be stated only
+ * here, as int8range and daterange literals.
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { array, type Gen, int, map, shuffled } from "@grizzle/testing/gen"
+import { array, element, type Gen, int, map, shuffled } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Order } from "effect"
-import { visits, visitsLaw } from "#test/pg/spans/laws/schemas.ts"
+import {
+	type CalendarDate,
+	dateOfDayNumber,
+	dayNumber,
+	firstCalendarDate,
+	lastCalendarDate
+} from "#compiler/ir/date.ts"
+import { type VisitsEndpoint, visits, visitsLaw } from "#test/pg/spans/laws/schemas.ts"
 import { installSpans, writerOf } from "#test/pg/spans/laws/support.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -32,14 +42,55 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 const int8Min = -(2n ** 63n)
 const int8Max = 2n ** 63n - 1n
 
-/** The points a cover is cut at and a visit ends at: the int8 limits, the points beside them, and a few inside. */
-const points: ReadonlyArray<bigint> = [int8Min, int8Min + 1n, -1n, 0n, 1n, int8Max - 1n, int8Max]
+/** A date's day number, as a bigint. */
+const day = (date: CalendarDate): bigint => BigInt(dayNumber(date))
 
 /**
- * One drawn cover and visit: the indices into `points` of the cover's cuts, which pieces are dropped, and the visit's
- * two ends.
+ * The points a cover is cut at and a visit ends at, in order: the domain's least value and the one after it, the
+ * values within one of an inside value it branches on, and the one before its greatest value and that value.
+ */
+const pointsAround = (
+	least: bigint,
+	inside: bigint,
+	greatest: bigint
+): Arr.NonEmptyReadonlyArray<bigint> => [
+	least,
+	least + 1n,
+	inside - 1n,
+	inside,
+	inside + 1n,
+	greatest - 1n,
+	greatest
+]
+
+/**
+ * Each endpoint's points, around its domain's limits and an inside value: int8's limits and zero, and a date's
+ * 0001-01-01 and 9999-12-31 and the leap day 2024-02-29, as day numbers. Its range type, and the text of a point as the
+ * range's input reads it.
+ */
+const endpoints: {
+	readonly [E in VisitsEndpoint]: {
+		readonly points: Arr.NonEmptyReadonlyArray<bigint>
+		readonly range: string
+		readonly text: (point: bigint) => string
+	}
+} = {
+	bigint: { points: pointsAround(int8Min, 0n, int8Max), range: "int8range", text: String },
+	date: {
+		points: pointsAround(day(firstCalendarDate), day("2024-02-29"), day(lastCalendarDate)),
+		range: "daterange",
+		text: dateOfDayNumber
+	}
+}
+
+const endpointKinds: Arr.NonEmptyReadonlyArray<VisitsEndpoint> = ["bigint", "date"]
+
+/**
+ * One drawn cover and visit: its endpoint, the indices into the endpoint's `points` of the cover's cuts, which pieces
+ * are dropped, and the visit's two ends.
  */
 interface CoverSketch {
+	readonly endpoint: VisitsEndpoint
 	readonly cuts: ReadonlyArray<number>
 	readonly dropped: ReadonlyArray<boolean>
 	readonly visit: readonly [number, number]
@@ -50,9 +101,12 @@ interface CoverSketch {
  * plants a nonempty visit.
  */
 const coverSketchGen: Gen<CoverSketch> = (source) => {
+	const endpoint = source.draw(element(endpointKinds))
+	const { points } = endpoints[endpoint]
 	const first = source.draw(int(0, points.length - 1))
 	const other = source.draw(int(0, points.length - 2))
 	return {
+		endpoint,
 		cuts: source.draw(
 			shuffled(
 				Arr.map(points, (_, i) => i),
@@ -75,8 +129,6 @@ interface Span {
 	readonly end: bigint
 }
 
-const point = (i: number) => defined(points[i], `the point ${i}`)
-
 /**
  * The shifts a sketch plants, the pieces between consecutive cuts it keeps, and its visit, a nonempty span; none when
  * its ends meet.
@@ -84,6 +136,8 @@ const point = (i: number) => defined(points[i], `the point ${i}`)
 const resolveCover = (
 	sketch: CoverSketch
 ): { readonly shifts: ReadonlyArray<Span>; readonly visit: Span } | "no visit" => {
+	const { points } = endpoints[sketch.endpoint]
+	const point = (i: number) => defined(points[i], `the point ${i}`)
 	const cuts = Arr.sort(Arr.map(sketch.cuts, point), Order.BigInt)
 	const shifts = Arr.flatMap(cuts.slice(1), (end, i) => {
 		const start = defined(cuts[i], `the cut ${i}`)
@@ -113,88 +167,122 @@ const covers = (shifts: ReadonlyArray<Span>, visit: Span): boolean => {
 	return reached >= visit.end
 }
 
-const literal = (s: Span): string => `'[${s.start},${s.end})'::int8range`
+/** A span's literal over its endpoint's range type. */
+const literal = (endpoint: VisitsEndpoint, s: Span): string => {
+	const { range, text } = endpoints[endpoint]
+	return `'[${text(s.start)},${text(s.end)})'::${range}`
+}
 
-type CoverFeature =
-	`${"covered" | "refused"} ${"from the lower limit" | "to the upper limit" | "inside the limits"}`
+type Where = "from the lower limit" | "to the upper limit" | "inside the limits"
+type CoverFeature = `${VisitsEndpoint} ${"covered" | "refused"} ${Where}`
 
-layer(Substrate.layer)("selected-source span coverage at the int8 limits", (it) => {
-	it.effect(
-		"a billable visit is accepted iff the union of its site's shifts contains it, at the int8 limits",
-		(ctx) =>
-			searched(
-				ctx,
-				Effect.gen(function* () {
-					const s = yield* Substrate
-					const install = yield* installSpans(visits({ mutable: false }), "covlimits")
-					const w = yield* writerOf(install, "writer")
-					const foreignKey = install.periodForeignKey(visitsLaw)
-					const shift = install.table("Shift")
-					const visit = install.table("Visit")
-					return yield* explore(
-						{
-							oracle: { kind: "unstated" },
-							suite: "spans/selected-coverage-limits",
-							draw: drawn(coverSketchGen),
-							literal: Formatter.format,
-							kept: [],
-							runs: 60,
-							shrink: completeShrink,
-							concurrency: 1,
-							steerEvery: 16,
-							caseHang,
-							coverage: required<CoverFeature>(
-								Arr.flatMap(["covered", "refused"] as const, (o) =>
-									Arr.map(
-										["from the lower limit", "to the upper limit", "inside the limits"] as const,
-										(where): CoverFeature => `${o} ${where}`
-									)
-								),
-								{ cases: 60, sense: notesOnly }
-							)
-						},
-						(sketch, c) =>
+const runs = 60
+
+layer(Substrate.layer)(
+	"selected-source span coverage at the limits of bigint and date spans",
+	(it) => {
+		it.effect(
+			"a billable visit is accepted iff the union of its site's shifts contains it, at the limits of its endpoint",
+			(ctx) =>
+				searched(
+					ctx,
+					Effect.gen(function* () {
+						const s = yield* Substrate
+						const installOf = (endpoint: VisitsEndpoint) =>
 							Effect.gen(function* () {
-								const resolved = resolveCover(sketch)
-								if (resolved === "no visit") {
-									return
-								}
-								const expected = covers(resolved.shifts, resolved.visit)
-								const where =
-									resolved.visit.start === int8Min
-										? "from the lower limit"
-										: resolved.visit.end === int8Max
-											? "to the upper limit"
-											: "inside the limits"
-								c.note(`${expected ? "covered" : "refused"} ${where}`)
-								yield* replaceRows(
-									s.admin,
-									install.group,
-									resolved.shifts.length === 0
-										? []
-										: [
-												{
-													sql: `INSERT INTO ${shift} VALUES ${Arr.join(
-														Arr.map(resolved.shifts, (x, i) => `(1, ${literal(x)}, ${i})`),
-														", "
-													)}`,
-													params: []
-												}
-											]
+								const install = yield* installSpans(
+									visits({ mutable: false, endpoint }),
+									`cov${endpoint}`
 								)
-								const insert = w.query(
-									`INSERT INTO ${visit} VALUES (1, 1, ${literal(resolved.visit)}, true)`,
-									[]
-								)
-								if (expected) {
-									yield* insert
-								} else {
-									const refused = yield* expectSqlstate(insert, "23503")
-									assert.equal(refused.constraint, foreignKey)
+								return {
+									install,
+									writer: yield* writerOf(install, `writer ${endpoint}`),
+									foreignKey: install.periodForeignKey(visitsLaw(endpoint))
 								}
 							})
-					)
-				})
-			)
-	)
-})
+						const installed = yield* Effect.all({
+							bigint: installOf("bigint"),
+							date: installOf("date")
+						})
+						return yield* explore(
+							{
+								oracle: {
+									kind: "second-implementation",
+									name: "a sweep over the disjoint shifts in order, over the endpoint's values"
+								},
+								suite: "spans/selected-coverage-limits",
+								draw: drawn(coverSketchGen),
+								literal: Formatter.format,
+								kept: [],
+								runs,
+								shrink: completeShrink,
+								concurrency: 1,
+								steerEvery: 16,
+								caseHang,
+								coverage: required<CoverFeature>(
+									Arr.flatMap(endpointKinds, (endpoint) =>
+										Arr.flatMap(["covered", "refused"] as const, (o) =>
+											Arr.map(
+												[
+													"from the lower limit",
+													"to the upper limit",
+													"inside the limits"
+												] as const,
+												(where): CoverFeature => `${endpoint} ${o} ${where}`
+											)
+										)
+									),
+									{ cases: runs, sense: notesOnly }
+								)
+							},
+							(sketch, c) =>
+								Effect.gen(function* () {
+									const resolved = resolveCover(sketch)
+									if (resolved === "no visit") {
+										return
+									}
+									const { points } = endpoints[sketch.endpoint]
+									const { install, writer, foreignKey } = installed[sketch.endpoint]
+									const expected = covers(resolved.shifts, resolved.visit)
+									const where: Where =
+										resolved.visit.start === Arr.headNonEmpty(points)
+											? "from the lower limit"
+											: resolved.visit.end === Arr.lastNonEmpty(points)
+												? "to the upper limit"
+												: "inside the limits"
+									c.note(`${sketch.endpoint} ${expected ? "covered" : "refused"} ${where}`)
+									yield* replaceRows(
+										s.admin,
+										install.group,
+										resolved.shifts.length === 0
+											? []
+											: [
+													{
+														sql: `INSERT INTO ${install.table("Shift")} VALUES ${Arr.join(
+															Arr.map(
+																resolved.shifts,
+																(x, i) => `(1, ${literal(sketch.endpoint, x)}, ${i})`
+															),
+															", "
+														)}`,
+														params: []
+													}
+												]
+									)
+									const insert = writer.query(
+										`INSERT INTO ${install.table("Visit")} VALUES (1, 1, ${literal(sketch.endpoint, resolved.visit)}, true)`,
+										[]
+									)
+									if (expected) {
+										yield* insert
+									} else {
+										const refused = yield* expectSqlstate(insert, "23503")
+										assert.equal(refused.constraint, foreignKey)
+									}
+								})
+						)
+					})
+				)
+		)
+	}
+)

@@ -18,7 +18,13 @@ import {
 	uuidTextLength,
 	type VectorText
 } from "#compiler/ir/carriers.ts"
-import { type CalendarDate, toCalendarDate } from "#compiler/ir/date.ts"
+import {
+	type CalendarDate,
+	dateOfDayNumber,
+	dayNumber,
+	lastCalendarDate,
+	toCalendarDate
+} from "#compiler/ir/date.ts"
 import { type DecimalValue, decimalPayload } from "#compiler/ir/decimal.ts"
 import { drive, Fold } from "#compiler/ir/fold.ts"
 import type { NativeProof, OperationProof } from "#compiler/ir/proof.ts"
@@ -79,7 +85,8 @@ const rangeOpId = nominal<RangeOpParts, RangeOpId>()
 const rangeOpsOf = (code: RangeOpCode): { readonly [C in SpanCarrier]: RangeOpId } =>
 	Object.freeze({
 		range4: rangeOpId(Object.freeze({ code, carrier: "range4" })),
-		range8: rangeOpId(Object.freeze({ code, carrier: "range8" }))
+		range8: rangeOpId(Object.freeze({ code, carrier: "range8" })),
+		rangeDate: rangeOpId(Object.freeze({ code, carrier: "rangeDate" }))
 	})
 
 /** Every code's overloads, made once at load, so two range overloads are the same exactly when they are one value. */
@@ -692,6 +699,24 @@ const isUuidText = (text: string): boolean =>
  */
 const isStorableText = (text: string): boolean => text.isWellFormed() && !text.includes("\u0000")
 
+/**
+ * A span literal's range text, `[start,end)`, as its type's range input reads it: its integers, or over dates the
+ * dates its day numbers are.
+ */
+export const spanLiteralText = (
+	literal: { readonly start: bigint; readonly end: bigint },
+	type: ScalarType
+): string =>
+	baseOf(type).carrier === "rangeDate"
+		? `[${dateOfDayNumber(literal.start)},${dateOfDayNumber(literal.end)})`
+		: `[${literal.start.toString()},${literal.end.toString()})`
+
+/**
+ * A date span literal's endpoints, day numbers from 0001-01-01's: a span's endpoints are dates a CalendarDate spells,
+ * its exclusive end among them.
+ */
+const dayRange: readonly [bigint, bigint] = [0n, BigInt(dayNumber(lastCalendarDate))]
+
 const inRange = (value: bigint, [lo, hi]: readonly [bigint, bigint]): boolean =>
 	value >= lo && value <= hi
 
@@ -877,7 +902,9 @@ export const literalProblem = (literal: TypedLiteral, outer: ScalarType): string
 					? integerRanges.int4
 					: carrier === "range8"
 						? integerRanges.int8
-						: undefined
+						: carrier === "rangeDate"
+							? dayRange
+							: undefined
 			if (range === undefined) {
 				return `a span literal is not a ${carrier} value`
 			}

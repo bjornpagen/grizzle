@@ -1,5 +1,6 @@
-import { Array as Arr, Data, Option, pipe, Result, String as Str } from "effect"
+import { Array as Arr, Data, Option, Result, String as Str } from "effect"
 import { indices, maxOf } from "#compiler/core/array.ts"
+import { type Limit, measured } from "#compiler/core/limits.ts"
 import { numericMaxIntegerDigits } from "#compiler/ir/scalar.ts"
 import { Decimal, type DecimalParts, type FiniteParts } from "#compiler/scalar/values/decimal.ts"
 import { assert, defined } from "#test/support/assert.ts"
@@ -178,223 +179,341 @@ const cdiv = (a: number, b: number): number => Math.trunc(a / b)
 const pow10 = (n: number): bigint => 10n ** BigInt(n)
 
 /**
- * A NumericVar: (-1)^neg * mag * 10^exp, mag not divisible by 10 (zero is mag 0, exp 0, not negative), with the
- * display scale numeric.c gives it.
+ * The work an evaluation does, counted as it goes: the base-NBASE digit operations of its multiplications, divisions
+ * and square roots, which the power suite holds every generated power's evaluation within (powerWorkLimit). One
+ * evaluation owns its meter and counts into it alone.
+ */
+interface Meter {
+	work: number
+}
+
+/**
+ * A NumericVar as numeric.c holds one: its sign, its base-NBASE digits from the most significant on, the weight of the
+ * first (its power of NBASE), and the display scale each function sets as numeric.c sets it. The digits are stripped
+ * (strip_var): no leading or trailing zero digit, zero being no digits at weight 0, not negative.
  */
 interface NumVar {
 	readonly neg: boolean
-	readonly mag: bigint
-	readonly exp: number
+	readonly weight: number
+	readonly digits: ReadonlyArray<number>
 	readonly dscale: number
 }
 
-const trailingZeros = (s: string): number => {
-	let z = 0
-	while (
-		z < s.length - 1 &&
-		Option.exists(Str.charCodeAt(s, s.length - 1 - z), (code) => code === 0x30)
-	) {
-		z++
-	}
-	return z
-}
+const HALF_NBASE = 5000
 
-/** The NumericVar of a signed magnitude at a decimal exponent, normalized. */
-const make = (neg: boolean, mag: bigint, exp: number, dscale: number): NumVar => {
-	if (mag === 0n) {
-		return { neg: false, mag: 0n, exp: 0, dscale }
-	}
-	if (mag % 10n !== 0n) {
-		return { neg, mag, exp, dscale }
-	}
-	const s = mag.toString()
-	const z = trailingZeros(s)
-	return { neg, mag: BigInt(Str.slice(0, s.length - z)(s)), exp: exp + z, dscale }
-}
+/** numeric.c's round_powers: the power of ten a rounding inside an NBASE digit keeps, by its decimal digits kept. */
+const roundPowers: ReadonlyArray<number> = [0, 1000, 100, 10]
 
-const zero = (dscale: number): NumVar => ({ neg: false, mag: 0n, exp: 0, dscale })
-const isZero = (v: NumVar): boolean => v.mag === 0n
+const zero = (dscale: number): NumVar => ({ neg: false, weight: 0, digits: [], dscale })
+const isZero = (v: NumVar): boolean => v.digits.length === 0
 const withScale = (v: NumVar, dscale: number): NumVar => ({ ...v, dscale })
 
-/** numeric.c's constants: const_one, const_two, const_zero_point_nine and const_one_point_one. */
-const ONE = make(false, 1n, 0, 0)
-const TWO = make(false, 2n, 0, 0)
-const ZERO_POINT_NINE = make(false, 9n, -1, 1)
-const ONE_POINT_ONE = make(false, 11n, -1, 1)
-
-/** The signed value as an integer count of 10^exp units. */
-const signed = (v: NumVar): bigint => (v.neg ? -v.mag : v.mag)
-
-/** Two values at a common exponent. */
-const aligned = (
-	a: NumVar,
-	b: NumVar
-): { readonly x: bigint; readonly y: bigint; readonly exp: number } => {
-	const exp = Math.min(a.exp, b.exp)
-	return { x: signed(a) * pow10(a.exp - exp), y: signed(b) * pow10(b.exp - exp), exp }
+/** strip_var: the value of `digits` from `weight` on, with its leading and trailing zero digits dropped. */
+const strip = (neg: boolean, weight: number, digits: ArrayLike<number>, dscale: number): NumVar => {
+	let first = 0
+	while (first < digits.length && digits[first] === 0) {
+		first++
+	}
+	let end = digits.length
+	while (end > first && digits[end - 1] === 0) {
+		end--
+	}
+	if (first === end) {
+		return zero(dscale)
+	}
+	const kept: Array<number> = []
+	for (let i = first; i < end; i++) {
+		kept.push(digits[i] ?? 0)
+	}
+	return { neg, weight: weight - first, digits: kept, dscale }
 }
 
-const fromSigned = (value: bigint, exp: number, dscale: number): NumVar =>
-	make(value < 0n, value < 0n ? -value : value, exp, dscale)
+/** numeric.c's constants: const_one, const_two, const_zero_point_nine and const_one_point_one. */
+const ONE: NumVar = { neg: false, weight: 0, digits: [1], dscale: 0 }
+const TWO: NumVar = { neg: false, weight: 0, digits: [2], dscale: 0 }
+const ZERO_POINT_NINE: NumVar = { neg: false, weight: -1, digits: [9000], dscale: 1 }
+const ONE_POINT_ONE: NumVar = { neg: false, weight: 0, digits: [1, 1000], dscale: 1 }
+
+/** The weight of `v`'s last digit. */
+const lastWeight = (v: NumVar): number => v.weight - v.digits.length + 1
+
+/** cmp_abs. */
+const cmpAbs = (a: NumVar, b: NumVar): -1 | 0 | 1 => {
+	if (isZero(a) || isZero(b)) {
+		return isZero(a) ? (isZero(b) ? 0 : -1) : 1
+	}
+	if (a.weight !== b.weight) {
+		return a.weight > b.weight ? 1 : -1
+	}
+	const n = Math.max(a.digits.length, b.digits.length)
+	for (let i = 0; i < n; i++) {
+		const x = a.digits[i] ?? 0
+		const y = b.digits[i] ?? 0
+		if (x !== y) {
+			return x > y ? 1 : -1
+		}
+	}
+	return 0
+}
 
 /** cmp_var. */
 const cmp = (a: NumVar, b: NumVar): -1 | 0 | 1 => {
-	if (isZero(a) && isZero(b)) {
-		return 0
+	const sa = isZero(a) ? 0 : a.neg ? -1 : 1
+	const sb = isZero(b) ? 0 : b.neg ? -1 : 1
+	if (sa !== sb) {
+		return sa > sb ? 1 : -1
 	}
-	const { x, y } = aligned(a, b)
-	return x < y ? -1 : x > y ? 1 : 0
+	const c = cmpAbs(a, b)
+	return sa < 0 ? (c === 0 ? 0 : c > 0 ? -1 : 1) : c
+}
+
+/**
+ * The digits of `v` placed from weight `high` down over `count` digits: zero outside its own, as the columns of an
+ * addition read it.
+ */
+const placed = (v: NumVar, high: number, count: number): Float64Array => {
+	const out = new Float64Array(count)
+	const offset = high - v.weight
+	for (let i = 0; i < v.digits.length; i++) {
+		out[offset + i] = v.digits[i] ?? 0
+	}
+	return out
+}
+
+/** add_abs: |a| + |b|, exactly, as digits from the weight past both operands' first. */
+const addAbs = (
+	a: NumVar,
+	b: NumVar
+): { readonly weight: number; readonly digits: Float64Array } => {
+	const high = Math.max(a.weight, b.weight) + 1
+	const count = high - Math.min(lastWeight(a), lastWeight(b)) + 1
+	const x = placed(a, high, count)
+	const y = placed(b, high, count)
+	const digits = new Float64Array(count)
+	let carry = 0
+	for (let i = count - 1; i >= 0; i--) {
+		const sum = (x[i] ?? 0) + (y[i] ?? 0) + carry
+		carry = sum >= NBASE ? 1 : 0
+		digits[i] = sum - carry * NBASE
+	}
+	return { weight: high, digits }
+}
+
+/** sub_abs: |a| - |b| for |a| > |b|, exactly. */
+const subAbs = (
+	a: NumVar,
+	b: NumVar
+): { readonly weight: number; readonly digits: Float64Array } => {
+	const high = a.weight
+	const count = high - Math.min(lastWeight(a), lastWeight(b)) + 1
+	const x = placed(a, high, count)
+	const y = placed(b, high, count)
+	const digits = new Float64Array(count)
+	let borrow = 0
+	for (let i = count - 1; i >= 0; i--) {
+		const difference = (x[i] ?? 0) - (y[i] ?? 0) - borrow
+		borrow = difference < 0 ? 1 : 0
+		digits[i] = difference + borrow * NBASE
+	}
+	return { weight: high, digits }
 }
 
 /** add_var and sub_var: exact, at the larger display scale. */
-const add = (a: NumVar, b: NumVar): NumVar => {
-	const { x, y, exp } = aligned(a, b)
-	return fromSigned(x + y, exp, Math.max(a.dscale, b.dscale))
+const addSigned = (a: NumVar, bNeg: boolean, b: NumVar): NumVar => {
+	const dscale = Math.max(a.dscale, b.dscale)
+	if (isZero(b)) {
+		return withScale(a, dscale)
+	}
+	if (isZero(a)) {
+		return { ...b, neg: bNeg, dscale }
+	}
+	if (a.neg === bNeg) {
+		const sum = addAbs(a, b)
+		return strip(a.neg, sum.weight, sum.digits, dscale)
+	}
+	const order = cmpAbs(a, b)
+	if (order === 0) {
+		return zero(dscale)
+	}
+	const difference = order > 0 ? subAbs(a, b) : subAbs(b, a)
+	return strip(order > 0 ? a.neg : bNeg, difference.weight, difference.digits, dscale)
 }
 
-const sub = (a: NumVar, b: NumVar): NumVar => {
-	const { x, y, exp } = aligned(a, b)
-	return fromSigned(x - y, exp, Math.max(a.dscale, b.dscale))
-}
+const add = (a: NumVar, b: NumVar): NumVar => addSigned(a, b.neg, b)
+const sub = (a: NumVar, b: NumVar): NumVar => addSigned(a, !b.neg, b)
 
-/** round_var: half away from zero at rscale fractional digits (rscale may be negative); the display scale is rscale. */
+/**
+ * round_var: half away from zero at rscale fractional digits (rscale may be negative), judged by the first digit
+ * dropped as numeric.c judges it; the display scale is rscale.
+ */
 const roundVar = (v: NumVar, rscale: number): NumVar => {
-	if (v.exp >= -rscale) {
+	const di = (v.weight + 1) * DEC_DIGITS + rscale
+	if (di < 0) {
+		return zero(rscale)
+	}
+	let ndigits = cdiv(di + DEC_DIGITS - 1, DEC_DIGITS)
+	const within = di % DEC_DIGITS
+	if (!(ndigits < v.digits.length || (ndigits === v.digits.length && within > 0))) {
 		return withScale(v, rscale)
 	}
-	const divisor = pow10(-rscale - v.exp)
-	let q = v.mag / divisor
-	if ((v.mag % divisor) * 2n >= divisor) {
-		q += 1n
+	/** One spare digit before the first, for a carry out of it, as numeric.c's digit buffer keeps one. */
+	const digits = [0, ...v.digits.slice(0, ndigits)]
+	let carry = 0
+	if (within === 0) {
+		carry = (v.digits[ndigits] ?? 0) >= HALF_NBASE ? 1 : 0
+	} else {
+		const power = defined(roundPowers[within], "a rounding power of ten")
+		const last = defined(digits[ndigits], "the last digit kept")
+		const extra = last % power
+		digits[ndigits] = last - extra
+		if (extra >= power / 2) {
+			const raised = last - extra + power
+			carry = raised >= NBASE ? 1 : 0
+			digits[ndigits] = raised - carry * NBASE
+		}
+		ndigits--
 	}
-	return make(v.neg, q, -rscale, rscale)
+	while (carry > 0) {
+		const sum = defined(digits[ndigits], "a digit a carry reaches") + carry
+		carry = sum >= NBASE ? 1 : 0
+		digits[ndigits] = sum - carry * NBASE
+		ndigits--
+	}
+	return strip(v.neg, v.weight + 1, digits, rscale)
 }
 
 /** trunc_var: toward zero at rscale fractional digits. */
 const truncVar = (v: NumVar, rscale: number): NumVar => {
-	if (v.exp >= -rscale) {
+	const di = (v.weight + 1) * DEC_DIGITS + rscale
+	if (di <= 0) {
+		return zero(rscale)
+	}
+	const ndigits = cdiv(di + DEC_DIGITS - 1, DEC_DIGITS)
+	if (ndigits > v.digits.length) {
 		return withScale(v, rscale)
 	}
-	return make(v.neg, v.mag / pow10(-rscale - v.exp), -rscale, rscale)
+	const digits = v.digits.slice(0, ndigits)
+	const within = di % DEC_DIGITS
+	if (within > 0) {
+		const power = defined(roundPowers[within], "a rounding power of ten")
+		const last = defined(digits[ndigits - 1], "the last digit kept")
+		digits[ndigits - 1] = last - (last % power)
+	}
+	return strip(v.neg, v.weight, digits, rscale)
 }
 
-/** The base-NBASE digits and weight of a stripped NumericVar, as numeric.c holds them. */
-interface Digits {
-	readonly digits: ReadonlyArray<number>
-	readonly weight: number
-	/** The digits' decimal text, DEC_DIGITS characters per digit. */
-	readonly text: string
-}
+/** The weight of `v`, numeric.c's var->weight: 0 for zero. */
+const weightOf = (v: NumVar): number => v.weight
 
-/** A NumVar's digits. */
-const digitsOf = (v: NumVar): Digits => {
-	if (isZero(v)) {
-		return { digits: [], weight: 0, text: "" }
-	}
-	const pad = ((v.exp % DEC_DIGITS) + DEC_DIGITS) % DEC_DIGITS
-	const raw = v.mag.toString() + Str.repeat(pad)("0")
-	const lo = (v.exp - pad) / DEC_DIGITS
-	const n = Math.ceil(raw.length / DEC_DIGITS)
-	const text = Str.padStart(n * DEC_DIGITS, "0")(raw)
-	const digits: Array<number> = []
-	for (let i = 0; i < text.length; i += DEC_DIGITS) {
-		digits.push(Number(Str.slice(i, i + DEC_DIGITS)(text)))
-	}
-	return { digits, weight: lo + n - 1, text }
-}
+/** Digit pair `i` of `v`, base NBASE^2, the last of an odd count shifted up: mul_var's and div_var's working digits. */
+const pair = (v: NumVar, i: number): number =>
+	defined(v.digits[2 * i], "the first digit of a pair") * NBASE + (v.digits[2 * i + 1] ?? 0)
 
-const weightOf = (v: NumVar): number => {
-	if (isZero(v)) {
-		return 0
-	}
-	const pad = ((v.exp % DEC_DIGITS) + DEC_DIGITS) % DEC_DIGITS
-	const length = v.mag.toString().length + pad
-	return (v.exp - pad) / DEC_DIGITS + Math.ceil(length / DEC_DIGITS) - 1
-}
-
-/** The integer of `count` base-NBASE digits starting at `from`, missing digits past the last being zero. */
-const digitInt = (d: Digits, from: number, count: number): bigint => {
-	if (count <= 0) {
-		return 0n
-	}
-	const missing = count - Math.max(0, Math.min(d.digits.length, from + count) - from)
-	return BigInt(
-		Str.slice(DEC_DIGITS * from, DEC_DIGITS * (from + count))(d.text) +
-			Str.repeat(DEC_DIGITS * missing)("0")
+/** The decimal text of `digits`, DEC_DIGITS characters a digit. */
+const digitsText = (digits: ReadonlyArray<number>): string =>
+	Arr.join(
+		Arr.map(digits, (d) => Str.padStart(DEC_DIGITS, "0")(String(d))),
+		""
 	)
-}
 
-/** A digit pair of base NBASE^2, the last one of an odd-length input shifted up, as mul_var and div_var form them. */
-const pair = (digits: ReadonlyArray<number>, i: number): number =>
-	defined(digits[2 * i], "the first digit of a pair") * NBASE + (digits[2 * i + 1] ?? 0)
+/** The value of `v`'s digits as one integer, its last digit the units: v / NBASE^(weight of its last digit). */
+const integerOf = (v: NumVar): bigint => (isZero(v) ? 0n : BigInt(digitsText(v.digits)))
+
+/** The NumVar of `units` · 10^exp10, stripped, at `dscale`. */
+const ofUnits = (neg: boolean, units: bigint, exp10: number, dscale: number): NumVar => {
+	if (units === 0n) {
+		return zero(dscale)
+	}
+	const pad = ((exp10 % DEC_DIGITS) + DEC_DIGITS) % DEC_DIGITS
+	const text = units.toString() + Str.repeat(pad)("0")
+	const count = Math.ceil(text.length / DEC_DIGITS)
+	const padded = Str.padStart(count * DEC_DIGITS, "0")(text)
+	const digits = Arr.map(indices(count), (i) =>
+		Number(Str.slice(i * DEC_DIGITS, (i + 1) * DEC_DIGITS)(padded))
+	)
+	return strip(neg, (exp10 - pad) / DEC_DIGITS + count - 1, digits, dscale)
+}
 
 /**
- * mul_var: the product rounded to rscale fractional digits, computed from the digit-pair products whose position
- * survives the maxdigits truncation (MUL_GUARD_DIGITS guard digits), exactly as mul_var accumulates them; the exact
- * product when the shorter input has at most six digits and the exact scale is requested (mul_var_short).
+ * Columns of base-NBASE digits, `columns[i]` holding the digit of weight `weight - i` and carries yet to propagate,
+ * every one an exact double: the stripped NumVar they sum to. Each column stays below 2^53, numeric.c's uint64 digit
+ * pairs being at most NBASE^4 apiece and a column summing fewer of them than NBASE^2 halves.
  */
-const mulVar = (left: NumVar, right: NumVar, rscale: number): NumVar => {
-	let var1 = left
-	let var2 = right
-	let d1 = digitsOf(var1)
-	let d2 = digitsOf(var2)
-	if (d1.digits.length > d2.digits.length) {
-		;[var1, var2, d1, d2] = [var2, var1, d2, d1]
+const fromColumns = (
+	neg: boolean,
+	weight: number,
+	columns: Float64Array,
+	dscale: number
+): NumVar => {
+	const digits = new Float64Array(columns.length)
+	let carry = 0
+	for (let i = columns.length - 1; i >= 0; i--) {
+		const value = (columns[i] ?? 0) + carry
+		carry = Math.floor(value / NBASE)
+		digits[i] = value - carry * NBASE
 	}
-	const var1ndigits = d1.digits.length
-	const var2ndigits = d2.digits.length
-	if (var1ndigits === 0) {
-		return zero(rscale)
+	assert.ok(carry === 0, "the columns' sum fits their digits")
+	return strip(neg, weight, digits, dscale)
+}
+
+/**
+ * The shorter operand's base-NBASE digits from which mul_var sums its digit-pair products as BigInt products
+ * (pairTriangle) rather than over double columns: a measured crossover, where V8's BigInt multiplication, whose cost
+ * grows slower than the columns' quadratic one, overtakes the column loop; both give the same integer.
+ */
+const bigintTriangleDigits: Limit = measured({
+	value: 6000,
+	owner: "grizzle's test oracle",
+	unit: "base-10000 digits of mul_var's shorter operand",
+	scope:
+		"the numeric power oracle's mul_var (test/support/oracle/evaluate/power.ts), which of two exact ways it sums its digit-pair products",
+	evidence:
+		"a scratch run of both ways over two values of n decimal digits each, rscale n, the best of 5 to 15 runs each, on 2026-11-06",
+	observed: "one run of each size, interleaved, at a load average near 60",
+	environment:
+		"macOS (Darwin 27.0.0, an arm64 virtual machine) on 10 cores, Node 26.13.0, under the load of the other sessions on the machine",
+	workload:
+		"products of 1,000, 2,000, 4,000, 8,000, 16,000 and 32,000 decimal digits, 250 to 8,000 base-10000 digits a side",
+	result:
+		"the column loop took 0.02, 0.09, 0.61, 1.05 and 4.87 ms up to 16,000 decimal digits, the BigInt triangle 0.10, 0.24, 0.67, 1.07 and 7.01 ms; at 32,000 the loop took 45.38 ms and the triangle 31.07 ms",
+	decision:
+		"6,000 base-10000 digits, 24,000 decimal digits, lies between the last size the loop won and the first the triangle won; either way costs the same integer, so the bound moves only time",
+	revalidate:
+		"a Node or V8 upgrade that changes BigInt multiplication, a change to either way of summing, or a power suite whose large products slow"
+})
+
+/**
+ * The sum of the digit-pair products mul_var keeps, as one integer whose last digit pair is the result's last: pair i1
+ * of var1 times pair i2 of var2 at result pair i1 + i2 + pairOffset, for every i2 below min(var2ndigitpairs,
+ * resNdigitpairs - i1 - pairOffset). The pairs of var1 whose limit is all of var2's pairs sum as one product of
+ * var1's leading pairs and var2; each later pair full + t meets var2's leading n0 - t pairs, a square triangle, summed
+ * by splitting it in halves into one product each and two smaller triangles (square), down to 16 pairs, where it is
+ * summed pair by pair. Every step is an exact integer identity, so the sum is the one the pair-by-pair loop forms.
+ */
+const pairTriangle = (
+	var1: NumVar,
+	var2: NumVar,
+	var1ndigitpairs: number,
+	var2ndigitpairs: number,
+	resNdigitpairs: number,
+	pairOffset: number
+): bigint => {
+	const text1 = digitsText(var1.digits)
+	const text2 = digitsText(var2.digits)
+	/** `count` digit pairs of a value's text from pair `from` as one integer, pairs past its last being zero. */
+	const pairsOf = (text: string, from: number, count: number): bigint => {
+		const start = 2 * DEC_DIGITS * from
+		const end = 2 * DEC_DIGITS * (from + count)
+		const kept = Str.slice(start, Math.min(end, text.length))(text)
+		return count <= 0 ? 0n : BigInt(kept + Str.repeat(end - start - kept.length)("0"))
 	}
-	const resNeg = var1.neg !== var2.neg
-	if (var1ndigits <= 6 && rscale === var1.dscale + var2.dscale) {
-		return make(resNeg, var1.mag * var2.mag, var1.exp + var2.exp, var1.dscale + var2.dscale)
-	}
-	let var1ndigitpairs = cdiv(var1ndigits + 1, 2)
-	let var2ndigitpairs = cdiv(var2ndigits + 1, 2)
-	const resNdigitsExact = var1ndigits + var2ndigits
-	let resNdigitpairs = cdiv(resNdigitsExact, 2) + 1
-	const pairOffset = resNdigitpairs - var1ndigitpairs - var2ndigitpairs + 1
-	const resWeight =
-		d1.weight +
-		d2.weight +
-		1 +
-		2 * resNdigitpairs -
-		resNdigitsExact -
-		(var1ndigits & 1) -
-		(var2ndigits & 1)
-	const maxdigits = resWeight + 1 + cdiv(rscale + DEC_DIGITS - 1, DEC_DIGITS) + MUL_GUARD_DIGITS
-	const maxdigitpairs = cdiv(maxdigits, 2) + 1
-	resNdigitpairs = Math.min(resNdigitpairs, maxdigitpairs)
-	const resNdigits = 2 * resNdigitpairs
-	if (resNdigitpairs <= pairOffset) {
-		return zero(rscale)
-	}
-	var1ndigitpairs = Math.min(var1ndigitpairs, resNdigitpairs - pairOffset)
-	var2ndigitpairs = Math.min(var2ndigitpairs, resNdigitpairs - pairOffset)
-	/**
-	 * Digit pair i1 of var1 times digit pair i2 of var2 adds to dig[i1 + i2 + pairOffset] for i2 below
-	 * min(var2ndigitpairs, resNdigitpairs - i1 - pairOffset). Over the pairs i1 whose limit is all of var2's pairs, the
-	 * sum is (var1's leading pairs) * (var2's pairs) at one shift. Each later pair i1 = full + t meets the prefix of
-	 * var2 that is n0 - t pairs long, n0 = resNdigitpairs - full - pairOffset, each product ending in the last result
-	 * pair: the triangle sum over t of a(full + t) * y(0, n0 - t), where a(i) is var1's pair i and y(s, n) var2's n
-	 * pairs from pair s as one integer (n0 is at least the number of triangle pairs, since each meets one pair or more).
-	 */
-	const ys = (from: number, count: number): bigint => digitInt(d2, 2 * from, 2 * count)
-	const as = (from: number, count: number): bigint => digitInt(d1, 2 * from, 2 * count)
-	/**
-	 * The square triangle: the sum over t < count of a(aFrom + t) * y(yFrom, count - t). Summed pair by pair it costs
-	 * count multiplications of count-pair integers. Split at h, y(yFrom, count - t) for t < h is
-	 * y(yFrom, count - h) * NBASE^2^(h - t) + y(yFrom + count - h, h - t), so the first half is one product
-	 * y(yFrom, count - h) * a's h pairs * NBASE^2 plus the square triangle of h pairs at yFrom + count - h, and the
-	 * second half is the square triangle of count - h pairs at yFrom: the same integer from O(log count) levels of large
-	 * multiplications. Every step is an exact integer identity, so the sum is the one the pair-by-pair loop forms.
-	 */
+	const ys = (from: number, count: number): bigint => pairsOf(text2, from, count)
+	const as = (from: number, count: number): bigint => pairsOf(text1, from, count)
 	const square = (aFrom: number, count: number, yFrom: number): bigint => {
 		if (count <= 16) {
 			let sum = 0n
 			for (let t = 0; t < count; t++) {
-				sum += BigInt(pair(d1.digits, aFrom + t)) * ys(yFrom, count - t)
+				sum += BigInt(pair(var1, aFrom + t)) * ys(yFrom, count - t)
 			}
 			return sum
 		}
@@ -411,96 +530,259 @@ const mulVar = (left: NumVar, right: NumVar, rscale: number): NumVar => {
 	)
 	let total = 0n
 	if (full > 0) {
-		const lead = as(0, full)
 		const shift = resNdigitpairs - pairOffset - var2ndigitpairs - (full - 1)
-		total = lead * ys(0, var2ndigitpairs) * NBASE_SQR_N ** BigInt(shift)
+		total = as(0, full) * ys(0, var2ndigitpairs) * NBASE_SQR_N ** BigInt(shift)
 	}
 	if (full < var1ndigitpairs) {
-		/**
-		 * y(0, n0 - t) is y(0, n0 - count) * NBASE^2^(count - t) + y(n0 - count, count - t): one product and a square.
-		 */
 		const count = var1ndigitpairs - full
 		const n0 = resNdigitpairs - full - pairOffset
 		total += ys(0, n0 - count) * as(full, count) * NBASE_SQR_N + square(full, count, n0 - count)
 	}
-	const product = make(resNeg, total, DEC_DIGITS * (resWeight - resNdigits + 1), rscale)
-	return roundVar(product, rscale)
+	return total
 }
 
 /**
- * The exactly rounded or truncated quotient at rscale fractional digits: what div_var_int, div_var_int64 and div_var
- * with exact = true compute.
+ * mul_var: the product rounded to rscale fractional digits, as numeric.c forms it: the exact product through
+ * mul_var_short when the shorter input has at most six digits and the exact scale is requested; otherwise the sum of
+ * the digit-pair products whose position survives the maxdigits truncation (MUL_GUARD_DIGITS guard digits), each pair
+ * product split over three base-NBASE columns, then rounded.
  */
-const divExact = (a: NumVar, b: NumVar, rscale: number, round: boolean): NumVar => {
+const mulVar = (left: NumVar, right: NumVar, rscale: number, meter: Meter): NumVar => {
+	const [var1, var2] = left.digits.length > right.digits.length ? [right, left] : [left, right]
+	const var1ndigits = var1.digits.length
+	const var2ndigits = var2.digits.length
+	if (var1ndigits === 0) {
+		return zero(rscale)
+	}
+	const resNeg = var1.neg !== var2.neg
+	if (var1ndigits <= 6 && rscale === var1.dscale + var2.dscale) {
+		const columns = new Float64Array(var1ndigits + var2ndigits)
+		for (let i1 = 0; i1 < var1ndigits; i1++) {
+			const x = var1.digits[i1] ?? 0
+			for (let i2 = 0; i2 < var2ndigits; i2++) {
+				columns[i1 + i2 + 1] = (columns[i1 + i2 + 1] ?? 0) + x * (var2.digits[i2] ?? 0)
+			}
+		}
+		meter.work += var1ndigits * var2ndigits
+		return fromColumns(resNeg, var1.weight + var2.weight + 1, columns, rscale)
+	}
+	let var1ndigitpairs = cdiv(var1ndigits + 1, 2)
+	let var2ndigitpairs = cdiv(var2ndigits + 1, 2)
+	const resNdigitsExact = var1ndigits + var2ndigits
+	let resNdigitpairs = cdiv(resNdigitsExact, 2) + 1
+	const pairOffset = resNdigitpairs - var1ndigitpairs - var2ndigitpairs + 1
+	const resWeight =
+		var1.weight +
+		var2.weight +
+		1 +
+		2 * resNdigitpairs -
+		resNdigitsExact -
+		(var1ndigits & 1) -
+		(var2ndigits & 1)
+	const maxdigits = resWeight + 1 + cdiv(rscale + DEC_DIGITS - 1, DEC_DIGITS) + MUL_GUARD_DIGITS
+	const maxdigitpairs = cdiv(maxdigits, 2) + 1
+	resNdigitpairs = Math.min(resNdigitpairs, maxdigitpairs)
+	if (resNdigitpairs <= pairOffset) {
+		return zero(rscale)
+	}
+	var1ndigitpairs = Math.min(var1ndigitpairs, resNdigitpairs - pairOffset)
+	var2ndigitpairs = Math.min(var2ndigitpairs, resNdigitpairs - pairOffset)
+	for (let i1 = 0; i1 < var1ndigitpairs; i1++) {
+		meter.work += Math.max(Math.min(var2ndigitpairs, resNdigitpairs - i1 - pairOffset), 0)
+	}
+	if (var1ndigits >= bigintTriangleDigits.value) {
+		const triangle = pairTriangle(
+			var1,
+			var2,
+			var1ndigitpairs,
+			var2ndigitpairs,
+			resNdigitpairs,
+			pairOffset
+		)
+		const resNdigits = 2 * resNdigitpairs
+		return roundVar(
+			ofUnits(resNeg, triangle, DEC_DIGITS * (resWeight - resNdigits + 1), rscale),
+			rscale
+		)
+	}
+	/**
+	 * Digit pair i1 of var1 times digit pair i2 of var2 adds to result pair i1 + i2 + pairOffset for i2 below
+	 * min(var2ndigitpairs, resNdigitpairs - i1 - pairOffset). A pair (x0, x1) times a pair (y0, y1) is x0·y0 at the
+	 * pair's high column less one, x0·y1 + x1·y0 at its high column and x1·y1 at its low one.
+	 */
+	const high2 = new Float64Array(var2ndigitpairs)
+	const low2 = new Float64Array(var2ndigitpairs)
+	for (let i = 0; i < var2ndigitpairs; i++) {
+		high2[i] = var2.digits[2 * i] ?? 0
+		low2[i] = var2.digits[2 * i + 1] ?? 0
+	}
+	const columns = new Float64Array(2 * resNdigitpairs)
+	for (let i1 = 0; i1 < var1ndigitpairs; i1++) {
+		const x0 = var1.digits[2 * i1] ?? 0
+		const x1 = var1.digits[2 * i1 + 1] ?? 0
+		const limit = Math.min(var2ndigitpairs, resNdigitpairs - i1 - pairOffset)
+		let column = 2 * (i1 + pairOffset)
+		for (let i2 = 0; i2 < limit; i2++, column += 2) {
+			const y0 = high2[i2] ?? 0
+			const y1 = low2[i2] ?? 0
+			columns[column - 1] = (columns[column - 1] ?? 0) + x0 * y0
+			columns[column] = (columns[column] ?? 0) + x0 * y1 + x1 * y0
+			columns[column + 1] = (columns[column + 1] ?? 0) + x1 * y1
+		}
+	}
+	return roundVar(fromColumns(resNeg, resWeight, columns, rscale), rscale)
+}
+
+/**
+ * div_var_int: var / (ival · NBASE^ivalWeight) by short division, numeric.c's digits past the result's rscale digits
+ * (one more where it rounds), then rounded or truncated. ival is an int32, so every carry, below ival · NBASE, is an
+ * exact double.
+ */
+const divVarInt = (
+	v: NumVar,
+	ival: number,
+	ivalWeight: number,
+	rscale: number,
+	round: boolean,
+	meter: Meter
+): NumVar => {
+	if (ival === 0) {
+		return fail("22012")
+	}
+	if (isZero(v)) {
+		return zero(rscale)
+	}
+	const divisor = Math.abs(ival)
+	const resWeight = v.weight - ivalWeight
+	const resNdigits =
+		Math.max(resWeight + 1 + cdiv(rscale + DEC_DIGITS - 1, DEC_DIGITS), 1) + (round ? 1 : 0)
+	const digits: Array<number> = [0]
+	let carry = 0
+	for (let i = 0; i < resNdigits; i++) {
+		carry = carry * NBASE + (v.digits[i] ?? 0)
+		const q = Math.floor(carry / divisor)
+		digits.push(q)
+		carry -= q * divisor
+	}
+	meter.work += resNdigits
+	const quotient = strip(v.neg !== ival < 0, resWeight + 1, digits, rscale)
+	return round ? roundVar(quotient, rscale) : truncVar(quotient, rscale)
+}
+
+/**
+ * div_var_int64: var / (ival · NBASE^ivalWeight) for an int64 ival, the short division over 128-bit carries, held here
+ * as bigints.
+ */
+const divVarInt64 = (
+	v: NumVar,
+	ival: bigint,
+	ivalWeight: number,
+	rscale: number,
+	round: boolean,
+	meter: Meter
+): NumVar => {
+	if (isZero(v)) {
+		return zero(rscale)
+	}
+	const divisor = ival < 0n ? -ival : ival
+	const resWeight = v.weight - ivalWeight
+	const resNdigits =
+		Math.max(resWeight + 1 + cdiv(rscale + DEC_DIGITS - 1, DEC_DIGITS), 1) + (round ? 1 : 0)
+	const digits: Array<number> = [0]
+	let carry = 0n
+	for (let i = 0; i < resNdigits; i++) {
+		carry = carry * BigInt(NBASE) + BigInt(v.digits[i] ?? 0)
+		digits.push(Number(carry / divisor))
+		carry %= divisor
+	}
+	meter.work += resNdigits
+	const quotient = strip(v.neg !== ival < 0n, resWeight + 1, digits, rscale)
+	return round ? roundVar(quotient, rscale) : truncVar(quotient, rscale)
+}
+
+/** The exactly rounded or truncated quotient at rscale fractional digits: what div_var with exact = true computes. */
+const divExact = (a: NumVar, b: NumVar, rscale: number, round: boolean, meter: Meter): NumVar => {
 	if (isZero(b)) {
 		return fail("22012")
 	}
 	if (isZero(a)) {
 		return zero(rscale)
 	}
-	/** a / b * 10^rscale = A * 10^(ea - eb + rscale) / B. */
-	const shift = a.exp - b.exp + rscale
-	const num = a.mag * (shift > 0 ? pow10(shift) : 1n)
-	const den = b.mag * (shift < 0 ? pow10(-shift) : 1n)
+	/** a / b · 10^rscale = A · 10^shift / B, A and B their digits' integers. */
+	const shift = DEC_DIGITS * (lastWeight(a) - lastWeight(b)) + rscale
+	const num = integerOf(a) * (shift > 0 ? pow10(shift) : 1n)
+	const den = integerOf(b) * (shift < 0 ? pow10(-shift) : 1n)
 	let q = num / den
 	if (round && (num % den) * 2n >= den) {
 		q += 1n
 	}
-	return make(a.neg !== b.neg, q, -rscale, rscale)
+	meter.work += a.digits.length * b.digits.length
+	return ofUnits(a.neg !== b.neg, q, -rscale, rscale)
 }
 
-/** div_var_int: var / (ival * NBASE^ivalWeight), exact. */
-const divVarInt = (
-	v: NumVar,
-	ival: number,
-	ivalWeight: number,
-	rscale: number,
-	round: boolean
-): NumVar =>
-	divExact(v, make(ival < 0, BigInt(Math.abs(ival)), DEC_DIGITS * ivalWeight, 0), rscale, round)
-
 /**
- * div_var: the quotient at rscale fractional digits, rounded or truncated. Divisors of up to four digits go to the
- * exact short divisions, divisors of up to 2 * (DIV_GUARD_DIGITS + 2) digits are always exact, and longer ones are
- * exact only on request; otherwise the approximate long division runs as numeric.c runs it.
+ * div_var: the quotient at rscale fractional digits, rounded or truncated. A divisor of up to two digits goes to
+ * div_var_int and one of three or four to div_var_int64, numeric.c's short divisions; divisors of up to
+ * 2 * (DIV_GUARD_DIGITS + 2) digits are always exact, and longer ones are exact only on request; otherwise the
+ * approximate long division runs as numeric.c runs it.
  */
 const divVar = (
 	var1: NumVar,
 	var2: NumVar,
 	rscale: number,
 	round: boolean,
-	exactRequested: boolean
+	exactRequested: boolean,
+	meter: Meter
 ): NumVar => {
-	const d2 = digitsOf(var2)
-	if (d2.digits.length === 0) {
+	const var2ndigits = var2.digits.length
+	if (var2ndigits === 0) {
 		return fail("22012")
 	}
-	if (d2.digits.length <= 4) {
-		return divExact(var1, var2, rscale, round)
+	if (var2ndigits <= 2) {
+		const first = defined(var2.digits[0], "the divisor's first digit")
+		const ival = var2ndigits === 2 ? first * NBASE + (var2.digits[1] ?? 0) : first
+		return divVarInt(
+			var1,
+			var2.neg ? -ival : ival,
+			var2.weight - (var2ndigits - 1),
+			rscale,
+			round,
+			meter
+		)
+	}
+	if (var2ndigits <= 4) {
+		const ival = integerOf(var2)
+		return divVarInt64(
+			var1,
+			var2.neg ? -ival : ival,
+			var2.weight - (var2ndigits - 1),
+			rscale,
+			round,
+			meter
+		)
 	}
 	if (isZero(var1)) {
 		return zero(rscale)
 	}
-	const exact = exactRequested || d2.digits.length <= 2 * (DIV_GUARD_DIGITS + 2)
+	const exact = exactRequested || var2ndigits <= 2 * (DIV_GUARD_DIGITS + 2)
 	if (exact) {
-		return divExact(var1, var2, rscale, round)
+		return divExact(var1, var2, rscale, round, meter)
 	}
-	return divApproximate(var1, digitsOf(var1), var2, d2, rscale, round)
+	return divApproximate(var1, var2, rscale, round, meter)
 }
 
 /** div_var's approximate long division (exact = false), over base-NBASE^2 working digits. */
 const divApproximate = (
 	var1: NumVar,
-	d1: Digits,
 	var2: NumVar,
-	d2: Digits,
 	rscale: number,
-	round: boolean
+	round: boolean,
+	meter: Meter
 ): NumVar => {
-	const var1ndigits = d1.digits.length
-	const var2ndigits = d2.digits.length
+	const var1ndigits = var1.digits.length
+	const var2ndigits = var2.digits.length
 	const resNeg = var1.neg !== var2.neg
-	const resWeight = d1.weight - d2.weight + 1
+	const resWeight = var1.weight - var2.weight + 1
 	let resNdigits = resWeight + 1 + cdiv(rscale + DEC_DIGITS - 1, DEC_DIGITS)
 	resNdigits = Math.max(resNdigits, 1)
 	if (round) {
@@ -517,11 +799,11 @@ const divApproximate = (
 	/** One spare dividend digit past div_ndigitpairs, always zero. */
 	const dividend: Array<bigint> = Array.from({ length: divNdigitpairs + 1 }, () => 0n)
 	for (let i = 0; i < var1ndigitpairs; i++) {
-		dividend[i] = BigInt(pair(d1.digits, i))
+		dividend[i] = BigInt(pair(var1, i))
 	}
 	const divisor: Array<number> = []
 	for (let i = 0; i < var2ndigitpairs; i++) {
-		divisor.push(pair(d2.digits, i))
+		divisor.push(pair(var2, i))
 	}
 	let fdivisor = defined(divisor[0], "the divisor's leading digit pair") * NBASE_SQR
 	if (var2ndigitpairs > 1) {
@@ -562,6 +844,7 @@ const divApproximate = (
 			}
 			if (qdigit !== 0) {
 				const istop = Math.min(var2ndigitpairs, divNdigitpairs - qi)
+				meter.work += istop
 				const q = BigInt(qdigit)
 				for (let i = 0; i < istop; i++) {
 					dividend[qi + i] = at(qi + i) - q * BigInt(defined(divisor[i], "a divisor digit pair"))
@@ -588,11 +871,12 @@ const divApproximate = (
 		pairs[i] = newdig
 	}
 	assert.ok(carry === 0n, "div_var: no carry out of the quotient")
-	let text = ""
-	for (const p of pairs) {
-		text += pipe(p.toString(), Str.padStart(2 * DEC_DIGITS, "0"))
-	}
-	const quotient = make(resNeg, BigInt(text), DEC_DIGITS * (resWeight - resNdigits + 1), rscale)
+	const digits = Arr.flatMap(pairs, (p) => {
+		const value = Number(p)
+		const high = Math.floor(value / NBASE)
+		return [high, value - high * NBASE]
+	})
+	const quotient = strip(resNeg, resWeight, digits, rscale)
 	return round ? roundVar(quotient, rscale) : truncVar(quotient, rscale)
 }
 
@@ -600,7 +884,7 @@ const divApproximate = (
  * sqrt_var: the integer square root of the input's leading src_ndigits digits, placed at res_weight and rounded to
  * rscale fractional digits (rscale may be negative). The Karatsuba iteration computes exactly that floor root.
  */
-const sqrtVar = (arg: NumVar, rscale: number): NumVar => {
+const sqrtVar = (arg: NumVar, rscale: number, meter: Meter): NumVar => {
 	const stat = cmp(arg, zero(0))
 	if (stat === 0) {
 		return zero(rscale)
@@ -608,45 +892,52 @@ const sqrtVar = (arg: NumVar, rscale: number): NumVar => {
 	if (stat < 0) {
 		return fail("2201F")
 	}
-	const a = digitsOf(arg)
-	const resWeight = a.weight >= 0 ? cdiv(a.weight, 2) : -(cdiv(-a.weight - 1, 2) + 1)
+	const resWeight = arg.weight >= 0 ? cdiv(arg.weight, 2) : -(cdiv(-arg.weight - 1, 2) + 1)
 	let resNdigits =
 		rscale + 1 >= 0
 			? resWeight + 1 + cdiv(rscale + DEC_DIGITS, DEC_DIGITS)
 			: resWeight + 1 - cdiv(-rscale - 1, DEC_DIGITS)
 	resNdigits = Math.max(resNdigits, 1)
-	let srcNdigits = a.weight + 1 + (resNdigits - resWeight - 1) * 2
+	let srcNdigits = arg.weight + 1 + (resNdigits - resWeight - 1) * 2
 	srcNdigits = Math.max(srcNdigits, 1)
-	const root = isqrt(digitInt(a, 0, srcNdigits))
+	const kept = arg.digits.slice(0, srcNdigits)
+	const leading = BigInt(
+		digitsText(kept) + Str.repeat(DEC_DIGITS * (srcNdigits - kept.length))("0")
+	)
+	const root = isqrt(leading)
+	meter.work += srcNdigits * resNdigits
 	const rootDigits = Math.ceil(root.toString().length / DEC_DIGITS)
-	const placed = make(false, root, DEC_DIGITS * (resWeight - rootDigits + 1), rscale)
+	const placed = ofUnits(false, root, DEC_DIGITS * (resWeight - rootDigits + 1), rscale)
 	return roundVar(placed, rscale)
+}
+
+/** A stripped value's decimal text, the point after its integer digits. */
+const decimalText = (v: NumVar): string => {
+	const text = digitsText(v.digits)
+	const point = (v.weight + 1) * DEC_DIGITS
+	return point <= 0
+		? `0.${Str.repeat(-point)("0")}${text}`
+		: point >= text.length
+			? text + Str.repeat(point - text.length)("0")
+			: `${Str.slice(0, point)(text)}.${Str.slice(point)(text)}`
 }
 
 /** numericvar_to_double_no_overflow: the value's text at its display scale, read by strtod. */
 const toDouble = (v: NumVar): number => {
-	const scale = Math.max(v.dscale, 0)
-	const t = truncVar(v, scale)
-	if (isZero(t)) {
-		return 0
-	}
-	const units = pipe((t.mag * pow10(t.exp + scale)).toString(), Str.padStart(scale + 1, "0"))
-	const text =
-		scale === 0
-			? units
-			: `${Str.slice(0, units.length - scale)(units)}.${Str.slice(units.length - scale)(units)}`
-	return Number(t.neg ? `-${text}` : text)
+	const t = truncVar(v, Math.max(v.dscale, 0))
+	return isZero(t) ? 0 : Number(`${t.neg ? "-" : ""}${decimalText(t)}`)
 }
 
 /** numericvar_to_int64: the value rounded to an integer, or none outside int64. */
 const toInt64 = (v: NumVar): Option.Option<bigint> => {
 	const r = roundVar(v, 0)
-	const value = signed(r) * pow10(r.exp)
+	const magnitude = integerOf(r) * (isZero(r) ? 1n : pow10(DEC_DIGITS * lastWeight(r)))
+	const value = r.neg ? -magnitude : magnitude
 	return value < PG_INT64_MIN || value > PG_INT64_MAX ? Option.none() : Option.some(value)
 }
 
 /** exp_var: e^arg at rscale fractional digits. */
-const expVar = (arg: NumVar, rscale: number): NumVar => {
+const expVar = (arg: NumVar, rscale: number, meter: Meter): NumVar => {
 	let x = arg
 	let val = toDouble(x)
 	if (Math.abs(val) >= NUMERIC_MAX_RESULT_SCALE * 3) {
@@ -665,7 +956,7 @@ const expVar = (arg: NumVar, rscale: number): NumVar => {
 			val /= 2
 		}
 		const localRscale = x.dscale + ndiv2
-		x = divVarInt(x, 1 << ndiv2, 0, localRscale, true)
+		x = divVarInt(x, 1 << ndiv2, 0, localRscale, true, meter)
 	} else {
 		ndiv2 = 0
 	}
@@ -673,19 +964,19 @@ const expVar = (arg: NumVar, rscale: number): NumVar => {
 	sigDigits = Math.max(sigDigits, 0) + 8
 	let localRscale = sigDigits - 1
 	let result = add(ONE, x)
-	let elem = mulVar(x, x, localRscale)
+	let elem = mulVar(x, x, localRscale, meter)
 	let ni = 2
-	elem = divVarInt(elem, ni, 0, localRscale, true)
+	elem = divVarInt(elem, ni, 0, localRscale, true, meter)
 	while (!isZero(elem)) {
 		result = add(result, elem)
-		elem = mulVar(elem, x, localRscale)
+		elem = mulVar(elem, x, localRscale, meter)
 		ni++
-		elem = divVarInt(elem, ni, 0, localRscale, true)
+		elem = divVarInt(elem, ni, 0, localRscale, true, meter)
 	}
 	while (ndiv2-- > 0) {
 		localRscale = sigDigits - weightOf(result) * 2 * DEC_DIGITS
 		localRscale = Math.max(localRscale, NUMERIC_MIN_DISPLAY_SCALE)
-		result = mulVar(result, result, localRscale)
+		result = mulVar(result, result, localRscale, meter)
 	}
 	return roundVar(result, rscale)
 }
@@ -703,22 +994,20 @@ const estimateLnDweight = (v: NumVar): Estimate => {
 		if (isZero(x)) {
 			return exactEstimate(0)
 		}
-		const d = digitsOf(x)
 		/**
 		 * log10 of a digit 1..9999 is exact at a power of ten and otherwise at least 4e-5 from an integer, far past any
 		 * libm's error: the truncations agree, and the weight is exact.
 		 */
-		const leading = defined(d.digits[0], "a nonzero value's leading digit")
-		return exactEstimate(d.weight * DEC_DIGITS + Math.trunc(Math.log10(leading)))
+		const leading = defined(x.digits[0], "a nonzero value's leading digit")
+		return exactEstimate(x.weight * DEC_DIGITS + Math.trunc(Math.log10(leading)))
 	}
 	if (isZero(v)) {
 		return exactEstimate(0)
 	}
-	const d = digitsOf(v)
-	let digits = defined(d.digits[0], "a nonzero value's leading digit")
-	let dweight = d.weight * DEC_DIGITS
-	if (d.digits.length > 1) {
-		digits = digits * NBASE + defined(d.digits[1], "a value's second digit")
+	let digits = defined(v.digits[0], "a nonzero value's leading digit")
+	let dweight = v.weight * DEC_DIGITS
+	if (v.digits.length > 1) {
+		digits = digits * NBASE + defined(v.digits[1], "a value's second digit")
 		dweight -= DEC_DIGITS
 	}
 	/**
@@ -740,34 +1029,34 @@ const estimateLnDweight = (v: NumVar): Estimate => {
 /**
  * ln_var: the natural logarithm at rscale fractional digits, after reducing the input into (0.9, 1.1) by square roots.
  */
-const lnVar = (arg: NumVar, rscale: number): NumVar => {
+const lnVar = (arg: NumVar, rscale: number, meter: Meter): NumVar => {
 	assert.ok(cmp(arg, zero(0)) > 0, "ln_var of a positive value")
 	let x = arg
 	let fact = TWO
 	let nsqrt = 0
 	while (cmp(x, ZERO_POINT_NINE) <= 0) {
 		const localRscale = rscale - cdiv(weightOf(x) * DEC_DIGITS, 2) + 8
-		x = sqrtVar(x, localRscale)
-		fact = mulVar(fact, TWO, 0)
+		x = sqrtVar(x, localRscale, meter)
+		fact = mulVar(fact, TWO, 0, meter)
 		nsqrt++
 	}
 	while (cmp(x, ONE_POINT_ONE) >= 0) {
 		const localRscale = rscale - cdiv(weightOf(x) * DEC_DIGITS, 2) + 8
-		x = sqrtVar(x, localRscale)
-		fact = mulVar(fact, TWO, 0)
+		x = sqrtVar(x, localRscale, meter)
+		fact = mulVar(fact, TWO, 0, meter)
 		nsqrt++
 	}
 	const localRscale = rscale + Math.trunc((nsqrt + 1) * LOG10_2) + 8
 	let result = sub(x, ONE)
 	let elem = add(x, ONE)
-	result = divVar(result, elem, localRscale, true, false)
+	result = divVar(result, elem, localRscale, true, false, meter)
 	let xx = result
-	x = mulVar(result, result, localRscale)
+	x = mulVar(result, result, localRscale, meter)
 	let ni = 1
 	for (;;) {
 		ni += 2
-		xx = mulVar(xx, x, localRscale)
-		elem = divVarInt(xx, ni, 0, localRscale, true)
+		xx = mulVar(xx, x, localRscale, meter)
+		elem = divVarInt(xx, ni, 0, localRscale, true, meter)
 		if (isZero(elem)) {
 			break
 		}
@@ -776,22 +1065,21 @@ const lnVar = (arg: NumVar, rscale: number): NumVar => {
 			break
 		}
 	}
-	return mulVar(result, fact, rscale)
+	return mulVar(result, fact, rscale, meter)
 }
 
 /**
  * power_var_int: base^exp for an int32 exponent, by repeated squaring at working scales that keep the result's
  * significant digits; numeric.c picks the result scale here.
  */
-const powerVarInt = (base: NumVar, exp: number, expDscale: number): NumVar => {
-	const b = digitsOf(base)
-	if (b.digits.length === 0) {
-		return powerVarIntAt(base, b, exp, expDscale, 0)
+const powerVarInt = (base: NumVar, exp: number, expDscale: number, meter: Meter): NumVar => {
+	if (isZero(base)) {
+		return powerVarIntAt(base, exp, expDscale, 0, meter)
 	}
-	let leading = defined(b.digits[0], "a nonzero base's leading digit")
-	let p = b.weight * DEC_DIGITS
-	for (let i = 1; i < b.digits.length && i * DEC_DIGITS < 16; i++) {
-		leading = leading * NBASE + defined(b.digits[i], "a digit of the base")
+	let leading = defined(base.digits[0], "a nonzero base's leading digit")
+	let p = base.weight * DEC_DIGITS
+	for (let i = 1; i < base.digits.length && i * DEC_DIGITS < 16; i++) {
+		leading = leading * NBASE + defined(base.digits[i], "a digit of the base")
 		p -= DEC_DIGITS
 	}
 	/**
@@ -809,7 +1097,7 @@ const powerVarInt = (base: NumVar, exp: number, expDscale: number): NumVar => {
 		hi: maxOf(ends, Number.NEGATIVE_INFINITY)
 	}
 	return libmEstimate(estimate, "power_var_int's log10", (f) =>
-		powerVarIntAt(base, b, exp, expDscale, f)
+		powerVarIntAt(base, exp, expDscale, f, meter)
 	)
 }
 
@@ -822,10 +1110,10 @@ const powerVarInt = (base: NumVar, exp: number, expDscale: number): NumVar => {
  */
 const powerVarIntAt = (
 	base: NumVar,
-	b: Digits,
 	exp: number,
 	expDscale: number,
-	f: number
+	f: number,
+	meter: Meter
 ): NumVar => {
 	if (f > numericMaxIntegerDigits.value) {
 		return fail("22003")
@@ -844,11 +1132,11 @@ const powerVarIntAt = (
 		case 1:
 			return roundVar(base, rscale)
 		case -1:
-			return divVar(ONE, base, rscale, true, true)
+			return divVar(ONE, base, rscale, true, true, meter)
 		case 2:
-			return mulVar(base, base, rscale)
+			return mulVar(base, base, rscale, meter)
 	}
-	if (b.digits.length === 0) {
+	if (isZero(base)) {
 		if (exp < 0) {
 			return fail("22012")
 		}
@@ -868,12 +1156,12 @@ const powerVarIntAt = (
 		let localRscale = sigDigits - 2 * weightOf(baseProd) * DEC_DIGITS
 		localRscale = Math.min(localRscale, 2 * baseProd.dscale)
 		localRscale = Math.max(localRscale, NUMERIC_MIN_DISPLAY_SCALE)
-		baseProd = mulVar(baseProd, baseProd, localRscale)
+		baseProd = mulVar(baseProd, baseProd, localRscale, meter)
 		if (mask % 2 === 1) {
 			localRscale = sigDigits - (weightOf(baseProd) + weightOf(result)) * DEC_DIGITS
 			localRscale = Math.min(localRscale, baseProd.dscale + result.dscale)
 			localRscale = Math.max(localRscale, NUMERIC_MIN_DISPLAY_SCALE)
-			result = mulVar(baseProd, result, localRscale)
+			result = mulVar(baseProd, result, localRscale, meter)
 		}
 		if (
 			(Math.max(weightOf(baseProd), weightOf(result)) + 1) * DEC_DIGITS >
@@ -887,13 +1175,12 @@ const powerVarIntAt = (
 			break
 		}
 	}
-	return neg ? divVar(ONE, result, rscale, true, false) : roundVar(result, rscale)
+	return neg ? divVar(ONE, result, rscale, true, false, meter) : roundVar(result, rscale)
 }
 
 /** power_var: base^exp, through power_var_int for an int32 exponent and exp(exp * ln(base)) otherwise. */
-const powerVar = (baseIn: NumVar, exp: NumVar): NumVar => {
-	const e = digitsOf(exp)
-	const integral = e.digits.length === 0 || e.digits.length <= e.weight + 1
+const powerVar = (baseIn: NumVar, exp: NumVar, meter: Meter): NumVar => {
+	const integral = exp.digits.length === 0 || exp.digits.length <= exp.weight + 1
 	if (integral) {
 		const value = toInt64(exp)
 		if (
@@ -901,7 +1188,7 @@ const powerVar = (baseIn: NumVar, exp: NumVar): NumVar => {
 			value.value >= BigInt(PG_INT32_MIN) &&
 			value.value <= BigInt(PG_INT32_MAX)
 		) {
-			return powerVarInt(baseIn, Number(value.value), exp.dscale)
+			return powerVarInt(baseIn, Number(value.value), exp.dscale, meter)
 		}
 	}
 	if (cmp(baseIn, zero(0)) === 0) {
@@ -913,21 +1200,27 @@ const powerVar = (baseIn: NumVar, exp: NumVar): NumVar => {
 		if (!integral) {
 			return fail("2201F")
 		}
-		const last = e.digits.at(-1)
-		resNeg = last !== undefined && e.digits.length === e.weight + 1 && (last & 1) === 1
+		const last = exp.digits.at(-1)
+		resNeg = last !== undefined && exp.digits.length === exp.weight + 1 && (last & 1) === 1
 		base = { ...base, neg: false }
 	}
 	return libmEstimate(estimateLnDweight(base), "estimate_ln_dweight's log and log10", (estimate) =>
-		powerVarAt(base, exp, resNeg, Math.trunc(estimate))
+		powerVarAt(base, exp, resNeg, Math.trunc(estimate), meter)
 	)
 }
 
 /** power_var's exp(exp * ln(base)) from estimate_ln_dweight's weight on. */
-const powerVarAt = (base: NumVar, exp: NumVar, resNeg: boolean, lnDweight: number): NumVar => {
+const powerVarAt = (
+	base: NumVar,
+	exp: NumVar,
+	resNeg: boolean,
+	lnDweight: number,
+	meter: Meter
+): NumVar => {
 	let localRscale = 8 - lnDweight
 	localRscale = Math.max(localRscale, NUMERIC_MIN_DISPLAY_SCALE)
-	let lnBase = lnVar(base, localRscale)
-	let lnNum = mulVar(lnBase, exp, localRscale)
+	let lnBase = lnVar(base, localRscale, meter)
+	let lnNum = mulVar(lnBase, exp, localRscale, meter)
 	let val = toDouble(lnNum)
 	if (Math.abs(val) > NUMERIC_MAX_RESULT_SCALE * 3.01) {
 		if (val > 0) {
@@ -945,20 +1238,23 @@ const powerVarAt = (base: NumVar, exp: NumVar, resNeg: boolean, lnDweight: numbe
 	sigDigits = Math.max(sigDigits, 0)
 	localRscale = sigDigits - lnDweight + 8
 	localRscale = Math.max(localRscale, NUMERIC_MIN_DISPLAY_SCALE)
-	lnBase = lnVar(base, localRscale)
-	lnNum = mulVar(lnBase, exp, localRscale)
-	const result = expVar(lnNum, rscale)
+	lnBase = lnVar(base, localRscale, meter)
+	lnNum = mulVar(lnBase, exp, localRscale, meter)
+	const result = expVar(lnNum, rscale, meter)
 	return resNeg && !isZero(result) ? { ...result, neg: true } : result
 }
 
 /** A finite value in its one form as a NumVar, at the display scale trim_scale leaves it: its least scale. */
 const fromParts = (p: FiniteParts): NumVar =>
-	make(p.negative, p.coefficient, -p.minScale, p.minScale)
+	ofUnits(p.negative, p.coefficient, -p.minScale, p.minScale)
 
 /** make_result: the Decimal of the result, 22003 outside numeric's format. */
 const toDecimal = (v: NumVar): Result.Result<Decimal, PowerStopReason> => {
-	assert.ok(v.exp >= -v.dscale, "numeric power: a result with no digits past its display scale")
-	const made = Decimal.fromParts(v.neg, v.mag * pow10(v.exp + v.dscale), v.dscale)
+	const shift = DEC_DIGITS * lastWeight(v) + v.dscale
+	const units = integerOf(v)
+	const unit = pow10(Math.max(-shift, 0))
+	assert.ok(units % unit === 0n, "numeric power: a result with no digits past its display scale")
+	const made = Decimal.fromParts(v.neg, (units / unit) * pow10(Math.max(shift, 0)), v.dscale)
 	return made.ok ? Result.succeed(made.value) : failed("22003")
 }
 
@@ -1049,7 +1345,7 @@ const specialPower = (a: Decimal, b: Decimal): Result.Result<Decimal, PowerStopR
 		return Result.succeed(Decimal.zero)
 	}
 	/** a is -Infinity and b is finite and positive: -Infinity to an odd integer, +Infinity otherwise. */
-	const d = digitsOf(fromParts(y))
+	const d = fromParts(y)
 	const last = d.digits.at(-1)
 	const odd = last !== undefined && d.digits.length === d.weight + 1 && (last & 1) === 1
 	return Result.succeed(odd ? Decimal.negativeInfinity : Decimal.infinity)
@@ -1066,10 +1362,12 @@ const specialPower = (a: Decimal, b: Decimal): Result.Result<Decimal, PowerStopR
  * PostgreSQL to the last digit therefore means reproducing each intermediate value, not computing the mathematically
  * exact power. Each function below is the numeric.c function of the same name, step for step:
  *
- * - A NumericVar is PostgreSQL's working value: a sign, a value, and the display scale (dscale) each function sets as
- *   numeric.c sets it. The value is held exactly as an unscaled bigint and a decimal exponent; its base-NBASE digits
- *   and weight are derived on demand. numeric.c keeps every working value stripped (strip_var) before it is read
- *   again, so the derived digits are the ones PostgreSQL holds.
+ * - A NumericVar is PostgreSQL's working value as numeric.c holds it: a sign, base-NBASE digits from the most
+ *   significant on with the weight of the first, and the display scale (dscale) each function sets as numeric.c sets
+ *   it, stripped (strip_var) as numeric.c keeps every working value before it is read again. Additions, roundings,
+ *   truncations, comparisons, div_var_int and mul_var below bigintTriangleDigits run over the digits as numeric.c's
+ *   do, so no working value is converted to decimal text on its way through a series; a longer mul_var, exact division
+ *   and the integer square root read their operands as bigints, a few times a power.
  * - Where numeric.c computes an exactly rounded or truncated result (add_var, sub_var, round_var, trunc_var,
  *   div_var_int, div_var_int64, div_var with exact = true, mul_var_short, sqrt_var's integer square root), the port
  *   computes the exact value and rounds it the same way. Where numeric.c computes with truncated working precision,
@@ -1086,22 +1384,32 @@ const specialPower = (a: Decimal, b: Decimal): Result.Result<Decimal, PowerStopR
  *
  * Failures are PostgreSQL's SQLSTATEs: 2201F for zero to a negative power and a negative base to a non-integer
  * power, 22003 when the result overflows numeric's format. A result that underflows is zero at the display scale
- * PostgreSQL gives it. test/pg/compute compares every case with PostgreSQL 19.
+ * PostgreSQL gives it. test/pg/compute compares every case with PostgreSQL 19. The evaluation counts its work, the
+ * digit operations numeric.c's own truncations leave it (Meter), which test/unit/compute/power-work.test.ts bounds.
  *
  * numeric_power over operands in their one form, trim_scale(a) and trim_scale(b), as SQL rendering passes them
  * (registry.ts OperandReading): POSIX pow(3)'s rules for NaN and the infinities, then power_var.
  */
-export const power = (a: Decimal, b: Decimal): Result.Result<Decimal, PowerStopReason> => {
+export const powerWork = (
+	a: Decimal,
+	b: Decimal
+): { readonly outcome: Result.Result<Decimal, PowerStopReason>; readonly work: number } => {
 	const x = a.parts
 	const y = b.parts
 	if (x.kind !== "finite" || y.kind !== "finite") {
-		return specialPower(a, b)
+		return { outcome: specialPower(a, b), work: 0 }
 	}
 	if (signOf(x) === 0 && signOf(y) < 0) {
-		return failed("2201F")
+		return { outcome: failed("2201F"), work: 0 }
 	}
-	return Result.flatMap(
-		caught(() => toDecimal(powerVar(fromParts(x), fromParts(y)))),
+	const meter: Meter = { work: 0 }
+	const outcome = Result.flatMap(
+		caught(() => toDecimal(powerVar(fromParts(x), fromParts(y), meter))),
 		(result) => result
 	)
+	return { outcome, work: meter.work }
 }
+
+/** numeric power's outcome (powerWork). */
+export const power = (a: Decimal, b: Decimal): Result.Result<Decimal, PowerStopReason> =>
+	powerWork(a, b).outcome

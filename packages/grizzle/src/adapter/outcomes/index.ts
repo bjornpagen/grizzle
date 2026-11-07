@@ -16,7 +16,6 @@ import {
 import type {
 	FamilyId,
 	Law,
-	Refuser,
 	RelationCounts,
 	StatementAt,
 	UniqueAbort,
@@ -113,10 +112,11 @@ interface ClassifyContext {
 	readonly violation: ViolationClassifier
 	readonly origin: FailureOrigin
 	/**
-	 * The host's witness of a native refusal at a statement, over the facts the application's ChangeSet states for it
-	 * (write/program/witness.ts hostWitness).
+	 * What a statement wrote, as the classifier reads it: the stored relations it writes or casts into
+	 * (write/program/witness.ts statementRelations), and the host's witness of a native refusal at it, over the facts
+	 * the application's ChangeSet states for it (hostWitness).
 	 */
-	readonly witness: (at: StatementAt, refuser: Refuser) => Witness
+	readonly statement: (at: StatementAt) => WrittenAt
 }
 
 /**
@@ -134,9 +134,10 @@ const uniqueAbortsAt = (origin: FailureOrigin): ReadonlyArray<UniqueAbort> => {
 }
 
 /**
- * Where the statement at `origin` stands, its stratum and the stored relations it writes by declared name: a write
- * statement's relation, a family statement's, a single statement's parts'; undefined for any other step, which writes
- * no stored relation, or for a read-back or the COMMIT.
+ * What the statement at `origin` states, as the host reads it: a write statement's relation, a family statement's, a
+ * single statement's parts', each at its stratum; a query entry's precheck, which casts the entry's facts into its
+ * target's types; undefined for a carrier's statement, an ANALYZE or a serial advance, which state no fact the
+ * ChangeSet states, for a read-back, or for the COMMIT.
  */
 const statementAt = (origin: FailureOrigin): StatementAt | undefined => {
 	if (origin.kind !== "statement") {
@@ -146,14 +147,19 @@ const statementAt = (origin: FailureOrigin): StatementAt | undefined => {
 	switch (step.kind) {
 		case "write":
 		case "family":
-			return { stratum: step.stratum, relations: [step.relation] }
+			return { kind: "write", stratum: step.stratum, relations: [step.relation] }
 		case "single":
-			return { stratum: step.stratum, relations: Arr.map(step.parts, (p) => p.step.relation) }
+			return {
+				kind: "write",
+				stratum: step.stratum,
+				relations: Arr.map(step.parts, (p) => p.step.relation)
+			}
+		case "check":
+			return { kind: "precheck", stratum: step.stratum, entry: step.entry }
 		case "carrier":
 		case "analyze":
 		case "advance":
 		case "readBack":
-		case "check":
 			return undefined
 	}
 }
@@ -164,9 +170,7 @@ const unreported: Witness = Object.freeze({ kind: "unreported" })
 /** What the statement at `origin` wrote, as the classifier reads it (WrittenAt). */
 const writtenAt = (context: ClassifyContext): WrittenAt => {
 	const at = statementAt(context.origin)
-	return at === undefined
-		? { relations: [], witness: () => unreported }
-		: { relations: at.relations, witness: (refuser) => context.witness(at, refuser) }
+	return at === undefined ? { relations: [], witness: () => unreported } : context.statement(at)
 }
 
 /** What a write's step does, as a defect names the statement that raised it. */

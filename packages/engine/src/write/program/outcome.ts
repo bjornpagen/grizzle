@@ -1,4 +1,5 @@
-import { scalarCodec } from "#compiler/codec/scalar.ts"
+import { scalarReader } from "#compiler/codec/read.ts"
+import type { OutputText } from "#compiler/core/wire.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { RelationInfo } from "#compiler/ir/law.ts"
 import { isVector } from "#compiler/scalar/values/vector.ts"
@@ -81,7 +82,7 @@ type RowChange =
 	| { readonly side: "added"; readonly tag: AddedTag; readonly fact: Fact }
 	| { readonly side: "removed"; readonly tag: RemovedTag; readonly fact: Fact }
 
-type ChangesConverter = (row: ReadonlyArray<string>) => ReadonlyArray<RowChange>
+type ChangesConverter = (row: ReadonlyArray<OutputText>) => ReadonlyArray<RowChange>
 
 /** The changes of one write statement's rows, converted as its StatementSpec converts them, by its result
  * (`changeTags`): an insert's rows are facts its action made present, a deletion's facts made absent; an upsert's rows
@@ -148,7 +149,7 @@ const stepIdentity = (
 export const interpretRows = (
 	context: OutcomeContext,
 	artifact: WriteArtifact,
-	rowsOf: (position: number) => ReadonlyArray<ReadonlyArray<string>>
+	rowsOf: (position: number) => ReadonlyArray<ReadonlyArray<OutputText>>
 ): WriteChanges => {
 	const changes = byStratum(artifact.statements).map((statements) => {
 		const returned = statements
@@ -211,7 +212,7 @@ export const interpretRows = (
 export interface KeyDecoder {
 	readonly fromRefusal: (
 		relation: string,
-		key: ReadonlyArray<{ readonly field: string; readonly text: string }>
+		key: ReadonlyArray<{ readonly field: string; readonly text: OutputText }>
 	) => KeyWitness | undefined
 }
 
@@ -221,7 +222,7 @@ export interface KeyDecoder {
 export const witnessDecoder = (context: OutcomeContext): KeyDecoder => {
 	const convertKey = (
 		relation: string,
-		key: ReadonlyArray<{ readonly field: string; readonly text: string }>
+		key: ReadonlyArray<{ readonly field: string; readonly text: OutputText }>
 	): KeyWitness | undefined => {
 		const info = context.relations.get(relation)
 		if (info === undefined) {
@@ -234,7 +235,7 @@ export const witnessDecoder = (context: OutcomeContext): KeyDecoder => {
 				return undefined
 			}
 			/** Every carrier's host value but a vector's and a set's is a key value: ownership refuses a key over a set. */
-			const value = scalarCodec(column.type, context.codes).convert(text)
+			const value = scalarReader(column.type, context.codes).convert(text)
 			if (isVector(value) || isSet(value)) {
 				return undefined
 			}

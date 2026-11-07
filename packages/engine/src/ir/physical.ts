@@ -120,6 +120,8 @@ export const baseTypeRef = (names: PhysicalNames, t: ScalarType): TypeRef => {
 			return types.int4range
 		case "range8":
 			return types.int8range
+		case "rangeDate":
+			return types.daterange
 		case "code":
 			return types.smallint
 		case "bits":

@@ -1,4 +1,4 @@
-import { Array as Arr, Option, pipe, String as Str } from "effect"
+import { Array as Arr, Option, String as Str } from "effect"
 import type { CatalogQuery } from "#adapter/wire/statement.ts"
 import {
 	C,
@@ -11,7 +11,8 @@ import {
 	privilegeFamilyNames,
 	type RoleExpectation
 } from "#compiler/plan/catalog.ts"
-import { emitCatalog } from "#compiler/plan/common.ts"
+import { emitCatalog, type ParamText } from "#compiler/plan/common.ts"
+import { textArrayParam, textParam } from "#compiler/plan/read.ts"
 
 /**
  * The settings, privileges, attributes, memberships, members, policies and row security statements both admissions
@@ -26,17 +27,11 @@ import { emitCatalog } from "#compiler/plan/common.ts"
  * column's privilege beside its table's as has_column_privilege where the table's has_table_privilege does not already
  * hold, and the two sets meet by OID. An expected object that does not resolve is a privilege the role does not hold.
  *
- * A PostgreSQL text[] literal of `values`, each element double-quoted with its backslashes and quotes escaped, so any
- * text, an identifier among them, is one element: the adapter's one text[] encoder.
+ * A PostgreSQL text[] parameter of `values`, each element the text carrier's parameter text, double-quoted with its
+ * backslashes and quotes escaped, so any text, an identifier among them, is one element (codec/recordset.ts
+ * textArrayParam).
  */
-export const textArray = (values: Iterable<string>): string =>
-	`{${Arr.join(
-		Arr.map(
-			[...values],
-			(v) => `"${pipe(Str.replaceAll("\\", "\\\\")(v), Str.replaceAll('"', '\\"'))}"`
-		),
-		","
-	)}}`
+export const textArray = (values: Iterable<string>): ParamText => textArrayParam([...values])
 
 /** Where a stored setting applies: the database's own default, the role's own, or the role's in this database alone. */
 const settingScopes = ["database", "role", "roleInDatabase"] as const
@@ -521,8 +516,8 @@ export const privilegesQuery: CatalogQuery<PrivilegeDifference> = {
 }
 
 /** The privileges statement's parameters for `expectation`'s role. */
-export const privilegesParams = (expectation: RoleExpectation): ReadonlyArray<string> => [
-	expectation.role,
+export const privilegesParams = (expectation: RoleExpectation): ReadonlyArray<ParamText> => [
+	textParam(expectation.role),
 	textArray(expectation.schemas),
 	textArray(expectation.otherSchemas),
 	textArray(Arr.map(expectation.privileges, (p) => p.family)),
@@ -1016,8 +1011,8 @@ export const defaultPrivilegesQuery = (
 /** The default privileges statement's parameters: the owner the snapshot names, if any, then the schemas. */
 export const defaultPrivilegesParams = (
 	expectation: DefaultPrivilegesExpectation
-): ReadonlyArray<string> => [
-	...(expectation.owner.kind === "named" ? [expectation.owner.role] : []),
+): ReadonlyArray<ParamText> => [
+	...(expectation.owner.kind === "named" ? [textParam(expectation.owner.role)] : []),
 	textArray(expectation.schemas)
 ]
 

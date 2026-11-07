@@ -42,14 +42,16 @@ const rangeForms: { readonly [K in RangeOpCode]: RangeForm } = {
 	"upper(anyrange)": registry
 }
 
-const spanEndpointCarrier: Readonly<Record<SpanCarrier, "int4" | "int8">> = {
+const spanEndpointCarrier: Readonly<Record<SpanCarrier, "int4" | "int8" | "date">> = {
 	range4: "int4",
-	range8: "int8"
+	range8: "int8",
+	rangeDate: "date"
 }
 
-const endpointType: Readonly<Record<"int4" | "int8", TypeRef>> = {
+const endpointType: Readonly<Record<"int4" | "int8" | "date", TypeRef>> = {
 	int4: types.integer,
-	int8: types.bigint
+	int8: types.bigint,
+	date: types.date
 }
 
 const carrierOf = (t: ScalarType): string => baseOf(t).carrier

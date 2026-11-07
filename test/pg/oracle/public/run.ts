@@ -12,8 +12,8 @@ import {
 	Result,
 	type Scope
 } from "effect"
+import { type Identity, sameIdentity } from "#test/support/kernel/identity.ts"
 import { type ReferenceObserver, unobserved } from "#test/support/oracle/reference/evaluate.ts"
-import { type Identity, sameIdentity } from "#test/support/oracle/reference/identity.ts"
 import { valueIdentity } from "#test/support/oracle/reference/values.ts"
 
 import {
@@ -27,7 +27,6 @@ import {
 import { AdmissionRefused } from "#adapter/errors/failures.ts"
 import { type ApplyOutcome, Db } from "#adapter/public/db.ts"
 import type { CompiledReadValue, ReaderValue } from "#adapter/reader/reader.ts"
-import { scalarCodec } from "#compiler/codec/scalar.ts"
 import { CursorError, isCompileError } from "#compiler/core/errors.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import { nativeEqualityKey } from "#compiler/ir/expr.ts"
@@ -76,6 +75,7 @@ import {
 } from "#test/support/oracle/public/answer.ts"
 import { storedInput } from "#test/support/oracle/runner.ts"
 
+import { scalarReader } from "#compiler/codec/read.ts"
 import {
 	type BuiltSchema,
 	buildMixed,
@@ -116,6 +116,7 @@ import {
 import { applyRuntime, contextOf, dbReader } from "#test/support/runtime-db.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
+import { outputText } from "#test/support/wire.ts"
 import { loginLayer } from "#test/support/worlds.ts"
 
 /**
@@ -338,7 +339,7 @@ const noteSpellings = (
 
 /** The native identity of a sent key cell: its codec's one text of the value the cell spells. */
 const sentKey = (type: ScalarType, text: string): string =>
-	scalarCodec(type, freshCodesOf(type)).cellText(text)
+	scalarReader(type, freshCodesOf(type)).cellText(outputText(text))
 
 /** A stored value's spelling: its one form, or its twin text. */
 const spellingOf = (v: SpelledValue): string =>

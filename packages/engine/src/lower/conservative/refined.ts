@@ -4,7 +4,7 @@ import type { Heading, HeadingColumn } from "#compiler/ir/rel.ts"
 import { isRefined, refinementText, type ScalarType } from "#compiler/ir/scalar.ts"
 import { type LowerContext, refuse } from "#compiler/lower/conservative/context.ts"
 import type { ConservativeParamSlot, ScalarParamSlot } from "#compiler/lower/conservative/types.ts"
-import { regexMember } from "#compiler/scalar/regex/nfa.ts"
+import { CompilePatterns, type PatternReads } from "#compiler/scalar/regex/patterns.ts"
 import type {
 	Cte,
 	Expr,
@@ -90,19 +90,23 @@ const isFalse = (e: Expr): boolean =>
 
 /**
  * Whether a text literal is a member of the claim's text pattern, decided on the host: a literal's value is fixed, so
- * PostgreSQL delivers exactly that value, and the pattern's automaton (scalar/regex/nfa.ts regexMember) decides its
- * language as the pattern's domain CHECK does. This is the proof for a literal whose pattern the installation names
+ * PostgreSQL delivers exactly that value, and the pattern's automaton, read from `patterns`, decides its language as
+ * the pattern's domain CHECK does. This is the proof for a literal whose pattern the installation names
  * no domain for, which a Closed node's query-local payload may carry. Only a text pattern is decided here: a
  * contract's predicate is the database's to evaluate, through its domain, which the installation always names.
  */
-const admittedLiteral = (e: Extract<Expr, { readonly kind: "literal" }>, claim: Claim): boolean => {
+const admittedLiteral = (
+	e: Extract<Expr, { readonly kind: "literal" }>,
+	claim: Claim,
+	patterns: PatternReads
+): boolean => {
 	const t = claim.type
 	return (
 		e.value.kind === "text" &&
 		t.carrier === "text" &&
 		t.contract === undefined &&
 		t.text.regex !== "wildcard" &&
-		regexMember(t.text.regex, e.value.value)
+		patterns.member(t.text.regex, e.value.value)
 	)
 }
 
@@ -144,6 +148,8 @@ export class Tracer {
 	readonly #stored: ReadonlyMap<string, ScalarType>
 	/** Each declared parameter's placeholder, by its number (Supplied). */
 	readonly #parameters: ReadonlyMap<number, Supplied>
+	/** The admitted patterns the trace's literals are judged by, one table per lowering's trace. */
+	readonly #patterns = new CompilePatterns()
 
 	constructor(
 		stored: ReadonlyMap<string, ScalarType>,
@@ -200,7 +206,11 @@ export class Tracer {
 			case "param":
 				return [isDomain(e.type, claim) ? "proved" : this.#supplied(e.slot.number, claim)]
 			case "literal":
-				return [isDomain(e.type, claim) || admittedLiteral(e, claim) ? "proved" : "unproved"]
+				return [
+					isDomain(e.type, claim) || admittedLiteral(e, claim, this.#patterns)
+						? "proved"
+						: "unproved"
+				]
 			case "cast":
 				if (isDomain(e.type, claim)) {
 					return ["proved"]

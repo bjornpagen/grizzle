@@ -11,9 +11,12 @@ import {
 	mapNonEmpty,
 	type NonEmptyReadonlyArray,
 	type ObjectName,
+	type OutputRows,
+	type ParamText,
 	sqlstates,
 	types
 } from "#compiler/plan/common.ts"
+import { textParam } from "#compiler/plan/read.ts"
 
 /**
  * Plain or CONCURRENTLY: which refresh statement each view takes.
@@ -90,13 +93,16 @@ export const populatedSql: EmittedText = emitCatalog(
 export const populatedParams = (
 	schema: string,
 	names: ReadonlyArray<string>
-): ReadonlyArray<string> => [schema, textArray(Arr.sort(new Set(names), Order.String))]
+): ReadonlyArray<ParamText> => [
+	textParam(schema),
+	textArray(Arr.sort(new Set(names), Order.String))
+]
 
 /**
  * The views `populatedSql` reported populated. A row is the view's name and PostgreSQL's boolean text, each a text
  * cell as the wire delivers every one.
  */
-export const populatedViews = (rows: ReadonlyArray<ReadonlyArray<string>>): ReadonlySet<string> => {
+export const populatedViews = (rows: OutputRows): ReadonlySet<string> => {
 	const out = new Set<string>()
 	for (const [name, populated] of rows) {
 		if (name !== undefined && populated === "true") {

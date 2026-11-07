@@ -5,13 +5,21 @@ import { type Gen, int, oneOf } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
-import { canonicalEquals, everyProperty, isCanonicalizable } from "#compiler/core/canonical.ts"
+import { Array as Arr, Effect, Formatter, Record as Rec, String as Str } from "effect"
+import {
+	canonicalEquals,
+	everyProperty,
+	isCanonicalizable,
+	taggedValueOf
+} from "#compiler/core/canonical.ts"
+import { parseDeclaredName } from "#compiler/core/identity.ts"
 import type * as Result from "#compiler/core/result.ts"
 import { toTable } from "#compiler/ir/dag.ts"
+import { DecimalText } from "#compiler/ir/decimal.ts"
 import type { ExprTable } from "#compiler/ir/expr.ts"
 import { identicalExprTable, identicalScalarType } from "#compiler/ir/identical.ts"
 import { decodeScalarType, exprTableShape } from "#compiler/ir/scalar-shape.ts"
+import { Roster } from "#compiler/ir/scalar.ts"
 import { decodeWith } from "#compiler/ir/shape.ts"
 import { assert } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -22,7 +30,9 @@ import { scalarTypeGen } from "#test/unit/ir/types.ts"
  * Structural identity (ir/identical.ts) against the equality of canonical text, the oracle it replaces: over a drawn
  * value and a one-leaf edit of it, both decoded, the two agree. An edit replaces one string, number, bigint or boolean
  * anywhere in the value, or drops one key, so a field the structural comparison misses is an edit it calls identical
- * while the canonical texts differ.
+ * while the canonical texts differ. A canonical value is edited inside too, rebuilt through its own constructor: a
+ * roster's name or one of its handles, replaced or dropped, and one digit of a decimal, so a canonical form that misses
+ * a part its structural comparison reads, or the reverse, is a disagreement as well.
  */
 
 type Segment = string | number
@@ -36,9 +46,35 @@ interface Edit {
 const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
 	typeof value === "object" && value !== null && !Arr.isArray(value)
 
-/** The paths to every leaf of a plain value; a canonical value (a decimal, money, a vector) is a leaf of its own. */
-const leavesOf = (root: unknown): ReadonlyArray<ReadonlyArray<Segment>> => {
-	const out: Array<ReadonlyArray<Segment>> = []
+/** A decimal's text with its digit at `at` stepped to the next, when that is a decimal's one text. */
+const steppedDigit = (text: string, at: number): DecimalText | undefined => {
+	const digit = Number(text[at])
+	return DecimalText.parse(`${Str.slice(0, at)(text)}${(digit + 1) % 10}${Str.slice(at + 1)(text)}`)
+}
+
+/** A decimal-tagged value's text: its canonical payload. */
+const decimalText = (value: unknown): string | undefined => {
+	const tagged = taggedValueOf(value)
+	return tagged?.tag === "d" ? tagged.payload : undefined
+}
+
+type Path = ReadonlyArray<Segment>
+
+/**
+ * Where a value is edited: the path to every leaf of it as a plain value, a canonical value other than a roster or a
+ * decimal (money, a vector) a leaf of its own; the paths to each roster's name and each of its handles; and the paths
+ * to each digit of a decimal that steps to another decimal's text.
+ */
+interface Sites {
+	readonly plain: ReadonlyArray<Path>
+	readonly roster: ReadonlyArray<Path>
+	readonly decimal: ReadonlyArray<Path>
+}
+
+const sitesOf = (root: unknown): Sites => {
+	const plain: Array<Path> = []
+	const roster: Array<Path> = []
+	const decimal: Array<Path> = []
 	const stack: Array<{ readonly value: unknown; readonly path: ReadonlyArray<Segment> }> = [
 		{ value: root, path: [] }
 	]
@@ -52,11 +88,25 @@ const leavesOf = (root: unknown): ReadonlyArray<ReadonlyArray<Segment>> => {
 			for (const [key, item] of Rec.toEntries(value)) {
 				stack.push({ value: item, path: [...path, key] })
 			}
+		} else if (value instanceof Roster) {
+			roster.push([...path, "closed"])
+			for (const i of Arr.makeBy(value.handles.length, (at) => at)) {
+				roster.push([...path, "handles", i])
+			}
 		} else {
-			out.push(path)
+			const text = decimalText(value)
+			if (text === undefined) {
+				plain.push(path)
+			} else {
+				for (const i of Arr.makeBy(text.length, (at) => at)) {
+					if (steppedDigit(text, i) !== undefined) {
+						decimal.push([...path, "digits", i])
+					}
+				}
+			}
 		}
 	}
-	return out
+	return { plain, roster, decimal }
 }
 
 /** Another value of a leaf's own kind: a string extended, a number or bigint stepped, a boolean flipped. */
@@ -78,11 +128,42 @@ const replaced = (leaf: unknown): unknown => {
 	}
 }
 
+/**
+ * A roster with its name replaced, or its handle at `at` replaced or dropped, made by its constructor; the roster as it
+ * is where the edit leaves no declared name or no handle.
+ */
+const rosterEdited = (
+	roster: Roster,
+	part: Segment,
+	at: Segment | undefined,
+	drop: boolean
+): Roster => {
+	if (part === "closed") {
+		const name = parseDeclaredName(`${roster.closed}x`)
+		return name.ok ? new Roster(name.value, roster.handles) : roster
+	}
+	if (typeof at !== "number") {
+		return roster
+	}
+	const handles = drop
+		? Arr.filter(roster.handles, (_, i) => i !== at)
+		: Arr.map(roster.handles, (h, i) => (i === at ? `${h}x` : h))
+	return Arr.isReadonlyArrayNonEmpty(handles) ? new Roster(roster.closed, handles) : roster
+}
+
 /** The value with the edit applied: each container on the path copied, every other part shared. */
 const applied = (value: unknown, path: ReadonlyArray<Segment>, drop: boolean): unknown => {
 	const [head, ...rest] = path
 	if (head === undefined) {
 		return replaced(value)
+	}
+	if (value instanceof Roster) {
+		return rosterEdited(value, head, rest[0], drop)
+	}
+	const text = decimalText(value)
+	if (text !== undefined) {
+		const at = rest[0]
+		return typeof at === "number" ? (steppedDigit(text, at) ?? value) : value
 	}
 	if (Arr.isArray(value) && typeof head === "number") {
 		const items: Array<unknown> = [...value]
@@ -108,15 +189,20 @@ const applied = (value: unknown, path: ReadonlyArray<Segment>, drop: boolean): u
 	return value
 }
 
-/** A drawn edit of `value`: one of its leaves, replaced or dropped. */
+/**
+ * A drawn edit of `value`: one of its sites, replaced or dropped, the kind of site drawn first among those it has, so a
+ * roster's part or a decimal's digit is drawn as often as a plain leaf however few of them the value holds.
+ */
 const editOf =
 	(value: unknown): Gen<Edit | undefined> =>
 	(source) => {
-		const leaves = leavesOf(value)
-		if (leaves.length === 0) {
-			return undefined
-		}
-		const path = leaves[source.draw(int(0, leaves.length - 1))]
+		const sites = sitesOf(value)
+		const kinds = Arr.filter(
+			[sites.plain, sites.roster, sites.decimal],
+			(paths) => paths.length > 0
+		)
+		const paths = kinds[source.draw(int(0, Math.max(0, kinds.length - 1)))]
+		const path = paths === undefined ? undefined : paths[source.draw(int(0, paths.length - 1))]
 		return path === undefined ? undefined : { path, drop: source.draw(int(0, 3)) === 0 }
 	}
 
@@ -143,6 +229,26 @@ type Feature =
 	| "tables identical"
 	| "tables different"
 	| "an edit refused"
+	| "a roster edited inside"
+	| "a decimal edited inside"
+
+/** The canonical value an edit's path enters, if any: a roster or a decimal it edits a part of. */
+const enteredAt = (value: unknown, path: ReadonlyArray<Segment>): Feature | undefined => {
+	const [head, ...rest] = path
+	if (head === undefined) {
+		return undefined
+	}
+	if (value instanceof Roster) {
+		return "a roster edited inside"
+	}
+	if (decimalText(value) !== undefined) {
+		return "a decimal edited inside"
+	}
+	if (Arr.isArray(value) && typeof head === "number") {
+		return enteredAt(value[head], rest)
+	}
+	return isRecord(value) && typeof head === "string" ? enteredAt(value[head], rest) : undefined
+}
 
 /** The two decoded values of a case, or none where either does not decode. */
 const decodedPair = <A>(
@@ -176,7 +282,9 @@ describe("structural identity", () => {
 								"types different",
 								"tables identical",
 								"tables different",
-								"an edit refused"
+								"an edit refused",
+								"a roster edited inside",
+								"a decimal edited inside"
 							],
 							{ cases: 800, sense: notesOnly }
 						),
@@ -188,6 +296,10 @@ describe("structural identity", () => {
 					},
 					(c, n) =>
 						Effect.sync(() => {
+							const entered = c.edit === undefined ? undefined : enteredAt(c.value, c.edit.path)
+							if (entered !== undefined) {
+								n.note(entered)
+							}
 							if (c.kind === "type") {
 								const pair = decodedPair(decodeScalarType, c)
 								if (pair === undefined) {

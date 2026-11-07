@@ -102,7 +102,7 @@ import {
 } from "#test/support/fixtures/ir/scalar.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { patternMember } from "#test/support/oracle/reference/evaluate.ts"
+import { referencePatterns } from "#test/support/oracle/reference/evaluate.ts"
 import { types as codecTypes } from "#test/unit/codec/support.ts"
 import { cursorCodecTypes as cursorTypes } from "#test/unit/cursor/support.ts"
 import { scalarTypes as irFixtureTypes } from "#test/unit/ir/fixture.ts"
@@ -201,7 +201,7 @@ const predicateTable = (
 	contractPredicateTable(predicate, base, name, facts, {
 		loc: SourceLoc(`contract ${name}`, []),
 		fieldType: (desc, location) => scalarTypeOf(desc, bareEnv, location),
-		regexMember: patternMember,
+		patterns: referencePatterns(),
 		patternLanguage: textLookup
 	})
 
@@ -270,11 +270,9 @@ const fieldDescFor = (t: Exclude<ScalarType, NumericValueType>): FieldDesc => {
 const registryBuild = (t: ScalarType): ScalarType =>
 	isNumericValue(t) ? numericValue(t.bound) : registryTypeOf(fieldDescFor(t), rostersOf(t))
 
-/** The roster an environment holds under the declared name `name`, as the registry builds a closedId's. */
-const envRoster = (env: ScalarEnv, name: string): Roster => {
-	const closed = parsedName(name)
-	return new Roster(closed, defined(env.roster(closed), name))
-}
+/** The roster an environment holds under the declared name `name`, which the registry types a closedId by. */
+const envRoster = (env: ScalarEnv, name: string): Roster =>
+	defined(env.roster(parsedName(name)), name)
 
 /** The roster the registry resolves `t`'s closedId by: its own, or none. */
 const rostersOf = (t: ScalarType): Readonly<Record<string, Arr.NonEmptyReadonlyArray<string>>> => {
@@ -352,7 +350,10 @@ describe("scalarTypeOf: a FieldDesc to its ScalarType", () => {
 						const rosters = rostersOfSketch(sketch)
 						const env: ScalarEnv = {
 							kind: "builder",
-							roster: (name) => rosters.get(name)
+							roster: (name) => {
+								const handles = rosters.get(name)
+								return handles === undefined ? undefined : new Roster(name, handles)
+							}
 						}
 						assert.deepEqual(succeeded(scalarTypeOf(desc, env, SourceLoc("field", []))), scalar)
 					})
@@ -396,7 +397,7 @@ describe("scalarTypeOf: a FieldDesc to its ScalarType", () => {
 							const held = new Roster(parsedName(name), listed)
 							const env = {
 								kind: "builder",
-								roster: (n: string) => (n === name ? listed : undefined)
+								roster: (n: string) => (n === name ? new Roster(parsedName(n), listed) : undefined)
 							} as const
 							assert.deepEqual(
 								rosterOf(
@@ -584,7 +585,7 @@ const readingEnvGen: Gen<ScalarEnv> = map(
 		handles: source.draw(element<Arr.NonEmptyReadonlyArray<string>>([["a"], ["a", "b"]]))
 	}),
 	({ schema, handles }): ScalarEnv => {
-		const roster = () => handles
+		const roster = (name: string) => new Roster(parsedName(name), handles)
 		return schema
 			? { kind: "schema", roster, contractPredicate: predicateTable }
 			: { kind: "builder", roster }

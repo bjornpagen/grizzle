@@ -15,7 +15,7 @@ import {
 } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { type AmbientSession, ambientFeatures, ambientSessionGen } from "#test/support/ambient.ts"
-import { sameValue, valueText } from "#test/support/laws/model.ts"
+import { relationOf, sameValue, valueText } from "#test/support/laws/model.ts"
 import { caseHang } from "#test/support/limits.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import type { Substrate } from "#test/support/substrate/substrate.ts"
@@ -31,7 +31,7 @@ import { installedNames } from "#test/support/worlds/execute/names.ts"
 import type { RealizeRefused } from "#test/support/worlds/execute/refused.ts"
 import { requiredWorldFeatures } from "#test/support/worlds/features.ts"
 import { actionGen, withOpener } from "#test/support/worlds/generate/action.ts"
-import { knownNonEmpty } from "#test/support/worlds/generate/domain.ts"
+import { knownNonEmpty, pool } from "#test/support/worlds/generate/domain.ts"
 import { defaultScope, enumerateKind } from "#test/support/worlds/generate/enumerate.ts"
 import { installGen } from "#test/support/worlds/generate/install.ts"
 import {
@@ -40,6 +40,7 @@ import {
 	namesCatalogType,
 	ownConversions
 } from "#test/support/worlds/generate/names.ts"
+import { reaches } from "#test/support/worlds/generate/reads.ts"
 import { lawfulOf, realityGen } from "#test/support/worlds/generate/reality.ts"
 import {
 	actionKinds,
@@ -59,8 +60,7 @@ import {
 	docsInstall,
 	docsLevelInstall,
 	docsOneShareEditorInstall,
-	docsOneShareInstall,
-	docsProfileInstall
+	docsOneShareInstall
 } from "#test/support/worlds/model/bases/docs.ts"
 import { hostSchemaOf } from "#test/support/worlds/model/host.ts"
 import { writtenOf } from "#test/support/worlds/model/session/writes.ts"
@@ -861,6 +861,64 @@ const atBound = (base: BaseSpec, host: HostSchema, reality: HostState): HostStat
 }
 
 /**
+ * A reality with a chain at each ordinary relation's first pair of fields a recursive read chains (reads.ts reaches):
+ * two facts, a first fact's copy at `from` a and `to` b and another at `from` b and `to` c, a, b and c three distinct
+ * values of the pair's pool, beside the relation's facts that share no key with either (its primary key and every key
+ * a law declares), so every role relation that keeps the pair and both facts reads a pair past one step; repaired to
+ * lawful (lawfulOf), which drops what a dropped fact held up. A relation with no fact, no such pair, or a pool of fewer
+ * than three values is left as it is.
+ */
+const chainedOf = (base: BaseSpec, host: HostSchema, reality: HostState): HostState => {
+	const chained = Arr.reduce(base.relations, reality, (at, relation) => {
+		const facts = factsOf(at, relation.name)
+		const [fact] = facts
+		const [pair] = Arr.flatMap(reaches(relation.fields), (via) =>
+			via.kind === "reach" ? [via] : []
+		)
+		const domain = Option.getOrUndefined(
+			Option.map(
+				Arr.findFirst(relation.fields, (f) => f.name === pair?.from),
+				(f) => f.domain
+			)
+		)
+		const [a, b, c] = domain === undefined ? [] : Arr.dedupeWith(pool(domain), sameValue)
+		if (
+			fact === undefined ||
+			pair === undefined ||
+			a === undefined ||
+			b === undefined ||
+			c === undefined
+		) {
+			return at
+		}
+		const links: ReadonlyArray<HostFact> = [
+			{ ...fact, [pair.from]: a, [pair.to]: b },
+			{ ...fact, [pair.from]: b, [pair.to]: c }
+		]
+		const keys = [
+			relationOf(host, relation.name).key,
+			...Arr.flatMap(host.laws, (law) =>
+				law.kind === "key" && law.relation === relation.name ? [law.fields] : []
+			)
+		]
+		const clashes = (f: HostFact): boolean =>
+			Arr.some(keys, (key) =>
+				Arr.some(links, (link) => Arr.every(key, (field) => sameValue(f[field], link[field])))
+			)
+		return new Map(at).set(relation.name, [...Arr.filter(facts, (f) => !clashes(f)), ...links])
+	})
+	return lawfulOf(host, chained)
+}
+
+/**
+ * The documents bases' realities for a suite whose reads need a recursive read past one step: docsTenantRealities'
+ * draws, each with a chain planted at every relation a recursive read chains (chainedOf), so a role relation holding
+ * the pair and the facts reads one whatever the drawn reality held, and the reads lead aims a recursive read at it.
+ */
+export const docsChainedRealities = (base: BaseSpec, host: HostSchema): Gen<HostState> =>
+	map(docsTenantRealities(base, host), (reality) => chainedOf(base, host, reality))
+
+/**
  * The documents bases' realities for a suite whose refusals need a document at its bound of shares: docsTenantRealities'
  * draws, half of them with the first document holding as many shares as its base admits (atBound), so a writer adding
  * its own share of that document breaks the one-share variant's key on Share's `doc`, a unique index.
@@ -1432,9 +1490,8 @@ export const generatedDocsInstalls: Gen<InstallSpec> = dictionaryNamed((source) 
  * The documents base's installations a suite draws: half the time its README-shaped worlds, whose roles hold every
  * shape the README names (writable query entries filled from a claim, a claim-fixed head field, a negation reading a
  * claim, refresh lists, two logins), over the base (docsInstall), its one-share variant (docsOneShareInstall), where
- * the member's own shares meet a hidden share at that key, its Level variant (docsLevelInstall), where the member
- * reads a context field of a contract, or its Profile variant (docsProfileInstall), where the member reads a claim of
- * every type a context field takes, and the first two with an editor beside (docsEditorInstall,
+ * the member's own shares meet a hidden share at that key, or its Level variant (docsLevelInstall), where the member
+ * reads a context field of a contract, and the first two with an editor beside (docsEditorInstall,
  * docsOneShareEditorInstall), whose every fact outside an entry it writes is one it sees through a relation it holds
  * whole, or one hidden from it, under its claims or under none; and otherwise a generated one (generatedDocsInstalls),
  * which combines the shapes anew.
@@ -1444,7 +1501,6 @@ export const docsInstalls: Gen<InstallSpec> = oneOf([
 		docsInstall,
 		docsOneShareInstall,
 		docsLevelInstall,
-		docsProfileInstall,
 		docsEditorInstall,
 		docsOneShareEditorInstall
 	]),

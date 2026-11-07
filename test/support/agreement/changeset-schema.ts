@@ -26,10 +26,11 @@ import {
 	schema,
 	tree
 } from "#compiler/public/schema.ts"
+import { str } from "#compiler/public/text.ts"
 
 /**
  * The schemas the ChangeSet type/engine agreement draws its cases over (test/support/agreement/changesets.ts): Work,
- * whose relations a ChangeSet writes (a closed roster's id and a set, a contract, serial fields, plain bigint and money
+ * whose relations a ChangeSet writes (a closed roster's id, a set, texts of two patterns, a contract, serial fields, plain bigint and money
  * for exact arithmetic, and families: ordered families whose members sum into their owners, counted families whose counts fold
  * into their owners and whose members have a generated field, each over an immutable and a mutable owner, and a tree),
  * an extension of it, a level above it, and two schemas of which neither is a level of Work, one of its name; and
@@ -44,9 +45,19 @@ export const Pair = relation("Pair", { a: pg.bigserial, b: pg.serial, note: uuid
 export const Ledger = relation("Ledger", { id: pg.bigint, balance: pg.bigint, fee: pg.money }, [
 	"id"
 ])
-/** A relation every field of which its caller writes, a closed id and a set among them. */
+/** A relation every field of which its caller writes, a closed id, a set and two texts of different patterns among them. */
 export const Flag = closed("Flag", ["on", "off"])
-export const Tag = relation("Tag", { id: uuid, kind: closedId(Kind), flags: bits(Flag) }, ["id"])
+export const Tag = relation(
+	"Tag",
+	{
+		id: uuid,
+		kind: closedId(Kind),
+		flags: bits(Flag),
+		answer: str.regex("^(yes|no)$"),
+		grade: str.regex("^(pass|fail)$")
+	},
+	["id"]
+)
 
 /** An ordered family's owner: its drawn count, and the total its members' quantities sum into. */
 const ownerFields = { id: uuid, n: drawn(natural), total: accumulated(pg.bigint, 0n) } as const
