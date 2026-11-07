@@ -12,7 +12,8 @@ import type { BudgetEntries } from "#test/types/query/budget/generate.ts"
  * - `rules` queries, each a rule over relation i (round the relations) with a filter, an attachment of the relation
  *   before it keyed by the parent's field, delivered as the one child where the containment chain proves it, and a read
  *   of it through a Db of the Reader;
- * - one ChangeSet of `members` inserts, round the relations;
+ * - one ChangeSet of `members` members in one stratum, round the relations: inserts, or inserts, deletes and puts in turn,
+ *   each put of a mutable relation, so a chain's every call is checked against the stratum the call before it made;
  * - `contexts` contexts, each read by a query entry of one role, Ctx, and each entry's query run through a Db of Ctx.
  *
  * One dimension grows the schema with its rules and members, as an application grows: a call whose cost grows with the
@@ -22,6 +23,7 @@ type QueryShape = {
 	readonly relations: number
 	readonly rules: number
 	readonly members: number
+	readonly writes: "inserts" | "inserts, deletes and puts"
 	readonly contexts: number
 }
 
@@ -36,22 +38,39 @@ export const queryDimensions: ReadonlyArray<QueryDimension> = [
 	{
 		name: "query rules and attachments",
 		sizes: [25, 50, 100],
-		shape: (rules) => ({ relations: 25, rules, members: 0, contexts: 0 })
+		shape: (rules) => ({ relations: 25, rules, members: 0, writes: "inserts", contexts: 0 })
 	},
 	{
-		name: "ChangeSet members",
-		sizes: [25, 50, 100],
-		shape: (members) => ({ relations: 25, rules: 0, members, contexts: 0 })
+		name: "ChangeSet inserts",
+		sizes: [75, 150, 300],
+		shape: (members) => ({ relations: 25, rules: 0, members, writes: "inserts", contexts: 0 })
+	},
+	{
+		name: "ChangeSet inserts, deletes and puts",
+		sizes: [75, 150, 300],
+		shape: (members) => ({
+			relations: 25,
+			rules: 0,
+			members,
+			writes: "inserts, deletes and puts",
+			contexts: 0
+		})
 	},
 	{
 		name: "contexts",
 		sizes: [8, 16, 32],
-		shape: (contexts) => ({ relations: 25, rules: 0, members: 0, contexts })
+		shape: (contexts) => ({ relations: 25, rules: 0, members: 0, writes: "inserts", contexts })
 	},
 	{
 		name: "relations with their rules and members",
 		sizes: [25, 50, 100],
-		shape: (size) => ({ relations: size, rules: size, members: size, contexts: 0 })
+		shape: (size) => ({
+			relations: size,
+			rules: size,
+			members: size,
+			writes: "inserts",
+			contexts: 0
+		})
 	}
 ]
 
@@ -78,9 +97,18 @@ export const read${q} = (db: DbOf<typeof Reader, unknown>) => db.execute(owned${
 `
 }
 
-/** Member m: an insert of one fact into relation m, round the relations. */
-const memberCall = (m: number, relations: number): string =>
-	`\t.insert(R${m % relations}, [{ id: someId, parent: someId, amount: 1n, label: "abc", kind: "A", qty: 1 }])`
+/**
+ * Member m: one fact of relation m, round the relations, inserted; or, writing inserts, deletes and puts, the m-th of
+ * them in turn, each put of the mutable relations, every seventh (statements), round them.
+ */
+const memberCall = (m: number, shape: QueryShape): string => {
+	const fact = `[{ id: someId, parent: someId, amount: 1n, label: "abc", kind: "A", qty: 1 }]`
+	const turn = shape.writes === "inserts" ? 0 : m % 3
+	if (turn === 2) {
+		return `\t.put(R${7 * (m % Math.ceil(shape.relations / 7))}, ${fact})`
+	}
+	return `\t.${turn === 0 ? "insert" : "delete"}(R${m % shape.relations}, ${fact})`
+}
 
 /** Context j and the query entry of Ctx that reads it, over relation j, round the relations. */
 const contextBlock = (
@@ -143,7 +171,7 @@ ${Arr.join(
 			? `declare const someId: Uuid
 export const change = ChangeSet.empty(S)
 ${Arr.join(
-	Arr.map(indices(shape.members), (m) => memberCall(m, shape.relations)),
+	Arr.map(indices(shape.members), (m) => memberCall(m, shape)),
 	"\n"
 )}
 `

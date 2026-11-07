@@ -112,17 +112,12 @@ export interface Payroll extends ReturnType<typeof members> {
 	readonly w: PayrollWorlds
 	readonly cs: () => ChangeSet<PayrollInstalled>
 	/**
-	 * db.apply of a ChangeSet without parameters as `role`, a role reached through its login: its parameter map holds
-	 * no key, so every key it might hold is never.
+	 * db.apply of a ChangeSet without parameters, whose parameter type is unknown, as `role`, a role reached through its
+	 * login.
 	 */
-	readonly attempt: <
-		L extends LevelsOf<PayrollInstalled>,
-		P extends Readonly<Record<string, never>>,
-		W extends string,
-		Reads
-	>(
+	readonly attempt: <L extends LevelsOf<PayrollInstalled>, W extends string, Reads>(
 		role: AnyLoginRole,
-		changes: ChangeSet<L, P, W, Reads>
+		changes: ChangeSet<L, unknown, W, Reads>
 	) => Attempt
 }
 

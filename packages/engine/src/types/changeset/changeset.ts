@@ -1,6 +1,7 @@
 import type { Stream } from "effect"
 import type { RowDecoder } from "#compiler/core/decoder.ts"
 import type { Built, delta, Phantom } from "#compiler/core/phantom.ts"
+import type { CalendarDate } from "#compiler/ir/date.ts"
 import type { MonoidName, SideDesc, SlotsDesc } from "#compiler/ir/desc.ts"
 
 /** One side of a law as an outcome names it: its statement's side, as its Description states it (ir/desc.ts). */
@@ -451,6 +452,7 @@ export type ChangeSetAt<L> = L extends unknown ? ChangeSetOver<L> : never
  * Writes is the union of the relation names its members write; db.apply checks it against the role's write list. Over
  * a role a ChangeSet writes the world relations the role's write list names, besides ordinary relations. Cx is the union
  * of the contexts its members and read-backs match, which db.apply checks against the role's (WithinRoleContexts).
+ * Done is its strata before the last and Last the stratum insert, delete and put write to (Stratum).
  *
  * What an applied ChangeSet's outcome reads back is a real member: `reads`, the decoder of the record of its
  * read-backs, each under its name the rows its query's immediate decoder delivers (schema/record.ts record of named
@@ -463,14 +465,15 @@ export interface ChangeSet<
 	Writes extends string = never,
 	Reads = unknown,
 	Cx = never,
-	St extends Strata = Strata
+	Done extends Strata = Strata,
+	Last extends Stratum = Stratum
 > extends Phantom<{
 	readonly params: Params
 	readonly paramsInvariant: Invariant<Params>
 	readonly writes: Writes
 	readonly contexts: Cx
 	readonly schema: Invariant<S>
-	readonly strata: St
+	readonly strata: readonly [...Done, Last]
 }> {
 	/** The decoder of the outcome's read-backs, by name. */
 	readonly reads: RowDecoder<Reads>
@@ -483,15 +486,20 @@ export interface ChangeSet<
 		relation: R &
 			WritableCheck<S, R> &
 			NotSequenceMember<S, R> &
-			EditsInOneStratum<WithMember<St, S, R, "insert">>,
+			EditsOnce<Done, EditsWith<Last, S, R>>,
 		facts: M & MemberCheck<M, AdditionIn<S, R>, R>
 	): ChangeSet<
 		S,
-		Simplify<Params & ParamsOf<M>>,
+		JointParams<Params, ParamsOf<M>>,
 		Writes | NameOf<R> | NestedWrites<S, R>,
 		Reads,
 		Cx | ContextsOf<M>,
-		WithMember<St, S, R, "insert">
+		Done,
+		Stratum<
+			Last["inserts"] | NameOf<R> | NestedWrites<S, R>,
+			Last["needs"] | FixedOwnerOf<S, R>,
+			EditsWith<Last, S, R>
+		>
 	>
 	/**
 	 * Removes each member fact, stated as its caller writes it (Written<R>): the fields PostgreSQL and grizzle write are
@@ -503,15 +511,16 @@ export interface ChangeSet<
 		relation: R &
 			WritableCheck<S, R> &
 			EditCheck<S, R, "delete"> &
-			EditsInOneStratum<WithMember<St, S, R, "delete">>,
+			EditsOnce<Done, EditsWith<Last, S, R>>,
 		facts: M & MemberCheck<M, Written<R>, R>
 	): ChangeSet<
 		S,
-		Simplify<Params & ParamsOf<M>>,
+		JointParams<Params, ParamsOf<M>>,
 		Writes | NameOf<R>,
 		Reads,
 		Cx | ContextsOf<M>,
-		WithMember<St, S, R, "delete">
+		Done,
+		Stratum<Last["inserts"], Last["needs"], EditsWith<Last, S, R>>
 	>
 	/**
 	 * After the change, R's fact at each member's key is that member, with the fields its caller does not write as
@@ -524,15 +533,16 @@ export interface ChangeSet<
 		relation: R &
 			WritableCheck<S, R> &
 			EditCheck<S, R, "put"> &
-			EditsInOneStratum<WithMember<St, S, R, "put">>,
+			EditsOnce<Done, EditsWith<Last, S, R>>,
 		facts: M & MemberCheck<M, Written<R>, R>
 	): ChangeSet<
 		S,
-		Simplify<Params & ParamsOf<M>>,
+		JointParams<Params, ParamsOf<M>>,
 		Writes | NameOf<R>,
 		Reads,
 		Cx | ContextsOf<M>,
-		WithMember<St, S, R, "put">
+		Done,
+		Stratum<Last["inserts"], Last["needs"], EditsWith<Last, S, R>>
 	>
 	/**
 	 * A query over the post-change state and the change's own delta, delivered in the outcome under `name`. It runs
@@ -544,62 +554,58 @@ export interface ChangeSet<
 		readBack: (delta: Delta<S>) => Q & Decoders<unknown, IHead>
 	): ChangeSet<
 		S,
-		Simplify<Params & ParamsOf<Q>>,
+		JointParams<Params, ParamsOf<Q>>,
 		Writes,
 		Simplify<Reads & { readonly [K in Name]: ReadonlyArray<IHead> }>,
 		Cx | ContextsOf<Q>,
-		St
+		Done,
+		Last
 	>
 	bind<const Arg>(
 		params: ParamArg<Params> & Arg & OnlyParams<Arg, Params>
-	): ChangeSet<S, unknown, Writes, Reads, Cx, St>
+	): ChangeSet<S, unknown, Writes, Reads, Cx, Done, Last>
 }
+
+/**
+ * The parameters two parts of a program need together: one map of them, and unknown where neither names one, as an
+ * empty ChangeSet's and a bound one's are, so every ChangeSet that needs none has one parameter type and a choice of
+ * two of them is one program.
+ */
+type JointParams<A, B> = [keyof (A & B)] extends [never] ? unknown : Simplify<A & B>
 
 /**
  * What one stratum of a ChangeSet writes, as the engine's front end plans it (write/frontend/compile.ts): the relations
  * it inserts, each with every sequence member its nesting reaches (`inserts`); the immutable owners whose families its
  * inserts append to, which an owner's family takes only from an insert of the owner in the same stratum (`needs`); and
  * whether it writes a member of an ordered or a counted family, an edit the engine plans from one read before the
- * ChangeSet's writes, so in one stratum alone (`edits`).
+ * ChangeSet's writes, so in one stratum alone (`edits`). Each is a type argument, so a builder's call states the
+ * stratum it makes from the one before in constant depth, however long its chain.
  */
-export interface Stratum {
-	readonly inserts: string
-	readonly needs: string
-	readonly edits: boolean
+export interface Stratum<
+	out Inserts extends string = string,
+	out Needs extends string = string,
+	out Edits extends boolean = boolean
+> {
+	readonly inserts: Inserts
+	readonly needs: Needs
+	readonly edits: Edits
 }
 
-/** A ChangeSet's strata in order: a tuple where they are known, which every builder keeps. */
+/** A ChangeSet's strata before its last in order: a tuple where they are known, which every builder keeps. */
 export type Strata = ReadonlyArray<Stratum>
 
 /** The stratum an empty ChangeSet holds, and a stratum no member has written. */
-export interface Unwritten extends Stratum {
-	readonly inserts: never
-	readonly needs: never
-	readonly edits: false
-}
+export type Unwritten = Stratum<never, never, false>
 
 /**
- * The strata with a member `op` of R in S added to the last, where insert, delete and put add it: an insert inserts R
- * and the members its nesting reaches, and needs each immutable owner whose family R is a member of; every write of a
- * family's member edits. Strata not known as a tuple stay as they are.
+ * Whether a stratum edits a family's members once a write of R is added to it: a stratum not known to edit or not stays
+ * not known, so a ChangeSet whose strata are not known is a supertype of every one whose strata are.
  */
-type WithMember<
-	St extends Strata,
-	S,
-	R,
-	Op extends "insert" | "delete" | "put"
-> = St extends readonly [...infer Init extends Strata, infer Last extends Stratum]
-	? readonly [
-			...Init,
-			{
-				readonly inserts:
-					| Last["inserts"]
-					| (Op extends "insert" ? NameOf<R> | NestedWrites<S, R> : never)
-				readonly needs: Last["needs"] | (Op extends "insert" ? FixedOwnerOf<S, R> : never)
-				readonly edits: Last["edits"] extends true ? true : IsFamilyMember<S, R>
-			}
-		]
-	: St
+type EditsWith<Last extends Stratum, S, R> = boolean extends Last["edits"]
+	? boolean
+	: Last["edits"] extends true
+		? true
+		: IsFamilyMember<S, R>
 
 /** union's strata: its arguments' position by position, each pair one stratum. */
 type Aligned<A extends Strata, B extends Strata> = A extends readonly [
@@ -608,18 +614,20 @@ type Aligned<A extends Strata, B extends Strata> = A extends readonly [
 ]
 	? B extends readonly [infer Bh extends Stratum, ...infer Bt extends Strata]
 		? readonly [
-				{
-					readonly inserts: Ah["inserts"] | Bh["inserts"]
-					readonly needs: Ah["needs"] | Bh["needs"]
-					readonly edits: Ah["edits"] extends true ? true : Bh["edits"]
-				},
+				Stratum<
+					Ah["inserts"] | Bh["inserts"],
+					Ah["needs"] | Bh["needs"],
+					Ah["edits"] extends true ? true : Bh["edits"]
+				>,
 				...Aligned<At, Bt>
 			]
 		: A
 	: B
 
-/** sequence's strata: its first argument's, then its second's. */
-type Sequenced<A extends Strata, B extends Strata> = readonly [...A, ...B]
+/** The strata before the last of strata that end in one; strata not known as a tuple stay unknown. */
+type Leading<St> = St extends readonly [...infer D extends Strata, Stratum] ? D : Strata
+/** The last stratum of strata that end in one; strata not known as a tuple leave it unknown. */
+type Final<St> = St extends readonly [...Strata, infer L extends Stratum] ? L : Stratum
 
 /** Whether more than one of the strata edits a family's members, one walk over them. */
 type EditsTwice<St, Seen extends boolean = false> = St extends readonly [
@@ -634,10 +642,36 @@ type EditsTwice<St, Seen extends boolean = false> = St extends readonly [
 	: false
 
 /** A family's members are written in one stratum: the engine plans each stratum's edits from one read before its writes. */
-type EditsInOneStratum<St> =
-	EditsTwice<St> extends true
-		? Refusal<"a ChangeSet writes a family's members in one stratum: each stratum's edits are planned from one read before the ChangeSet's writes">
-		: unknown
+type EditsRefusal<Twice> = Twice extends true
+	? Refusal<"a ChangeSet writes a family's members in one stratum: each stratum's edits are planned from one read before the ChangeSet's writes">
+	: unknown
+type EditsInOneStratum<St> = EditsRefusal<EditsTwice<St>>
+/** A last stratum that edits, after strata of which none may. */
+type EditsOnce<Done extends Strata, E> = [E] extends [true]
+	? EditsRefusal<DoneEdits<Done>>
+	: unknown
+/**
+ * Whether strata known as a tuple hold one that edits a family's members, read off the union of their flags in one
+ * step: strata not known as a tuple hold none known to.
+ */
+type DoneEdits<D extends Strata> = number extends D["length"]
+	? false
+	: true extends D[number]["edits"]
+		? true
+		: false
+/** Whether some stratum of a ChangeSet is known to edit a family's members. */
+type EditsIn<D extends Strata, L extends Stratum> =
+	DoneEdits<D> extends true ? true : L["edits"] extends true ? true : false
+/**
+ * union's refusal: its arguments both edit, at positions that align into two strata. Only then are their strata walked,
+ * so a union of ChangeSets of which at most one edits costs no walk.
+ */
+type UnionEdits<D1 extends Strata, L1 extends Stratum, D2 extends Strata, L2 extends Stratum> = [
+	EditsIn<D1, L1>,
+	EditsIn<D2, L2>
+] extends [true, true]
+	? EditsInOneStratum<Aligned<readonly [...D1, L1], readonly [...D2, L2]>>
+	: unknown
 
 /**
  * Whether each stratum inserts every immutable owner its appends need: an immutable owner's family takes an append only
@@ -750,7 +784,7 @@ type DisjointReads<A, B> = [keyof A & keyof B] extends [never]
 export interface ChangeSetConstructor {
 	empty<S extends AnySchema>(
 		schema: S
-	): ChangeSet<S, unknown, never, unknown, never, readonly [Unwritten]>
+	): ChangeSet<S, unknown, never, unknown, never, readonly [], Unwritten>
 	/** The commutative combination: one add-wins transition, its strata combined position by position. */
 	union<
 		SA,
@@ -763,21 +797,24 @@ export interface ChangeSetConstructor {
 		R2,
 		C1,
 		C2,
-		T1 extends Strata,
-		T2 extends Strata
+		D1 extends Strata,
+		D2 extends Strata,
+		L1 extends Stratum,
+		L2 extends Stratum
 	>(
-		a: ChangeSet<SA, P1, W1, R1, C1, T1>,
-		b: ChangeSet<SB, P2, W2, R2, C2, T2> &
+		a: ChangeSet<SA, P1, W1, R1, C1, D1, L1>,
+		b: ChangeSet<SB, P2, W2, R2, C2, D2, L2> &
 			LevelCheck<HigherLevel<SA, SB>> &
 			DisjointReads<R1, R2> &
-			EditsInOneStratum<Aligned<T1, T2>>
+			UnionEdits<D1, L1, D2, L2>
 	): ChangeSet<
 		HigherLevel<SA, SB>,
-		Simplify<P1 & P2>,
+		JointParams<P1, P2>,
 		W1 | W2,
 		Simplify<R1 & R2>,
 		C1 | C2,
-		Aligned<T1, T2>
+		Leading<Aligned<readonly [...D1, L1], readonly [...D2, L2]>>,
+		Final<Aligned<readonly [...D1, L1], readonly [...D2, L2]>>
 	>
 	/**
 	 * Strata: b is evaluated against the state a produced. The result is over the higher of the two schemas, each of
@@ -794,21 +831,24 @@ export interface ChangeSetConstructor {
 		R2,
 		C1,
 		C2,
-		T1 extends Strata,
-		T2 extends Strata
+		D1 extends Strata,
+		D2 extends Strata,
+		L1 extends Stratum,
+		L2 extends Stratum
 	>(
-		a: ChangeSet<SA, P1, W1, R1, C1, T1>,
-		b: ChangeSet<SB, P2, W2, R2, C2, T2> &
+		a: ChangeSet<SA, P1, W1, R1, C1, D1, L1>,
+		b: ChangeSet<SB, P2, W2, R2, C2, D2, L2> &
 			LevelCheck<HigherLevel<SA, SB>> &
 			DisjointReads<R1, R2> &
-			EditsInOneStratum<Sequenced<T1, T2>>
+			EditsRefusal<[EditsIn<D1, L1>, EditsIn<D2, L2>] extends [true, true] ? true : false>
 	): ChangeSet<
 		HigherLevel<SA, SB>,
-		Simplify<P1 & P2>,
+		JointParams<P1, P2>,
 		W1 | W2,
 		Simplify<R1 & R2>,
 		C1 | C2,
-		Sequenced<T1, T2>
+		readonly [...D1, L1, ...D2],
+		L2
 	>
 }
 
@@ -822,6 +862,7 @@ export type KeyHost =
 	| Money
 	| Span<number>
 	| Span<bigint>
+	| Span<CalendarDate>
 	| Vector
 
 /**

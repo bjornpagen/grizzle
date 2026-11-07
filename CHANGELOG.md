@@ -193,12 +193,18 @@ How to upgrade:
   keyed by its drawn index; a delete of a member of an immutable owner's family; and a put of an immutable family
   owner. Each typechecked and failed at compile with `UnsupportedOperation` or `UnstatedKey`. Now the relation
   argument names the engine's reason in a `Refusal`. No codemod.
-- **A ChangeSet's type holds its strata** (a sixth type parameter of `ChangeSet`, which `ChangeSet.empty`, `union` and
-  `sequence` track), so two refusals the engine made when it compiled are type errors. An insert of a member of an
-  immutable owner's family in a stratum that inserts no such owner is refused where the ChangeSet is compiled:
-  `db.apply`, `db.compile`, `db.explain` and a workload. A ChangeSet that writes a family's members in more than one
-  stratum is refused at the call that makes the second such stratum. A type that names `ChangeSet` with five
-  arguments or fewer still accepts every ChangeSet. No codemod.
+- **A ChangeSet's type holds its strata** (the sixth and seventh type parameters of `ChangeSet`, the strata before
+  the last and the last, which `ChangeSet.empty`, `union` and `sequence` track), so two refusals the engine made when
+  it compiled are type errors. An insert of a member of an immutable owner's family in a stratum that inserts no such
+  owner is refused where the ChangeSet is compiled: `db.apply`, `db.compile`, `db.explain` and a workload. A ChangeSet
+  that writes a family's members in more than one stratum is refused at the call that makes the second such stratum.
+  The last stratum is a type argument of its own, which `insert`, `delete` and `put` state from the one before in
+  constant depth, so a chain of any length typechecks with types and instantiations linear in its length; a chain of
+  about 95 members built the stratum one level deeper per call and failed with TS2589. A type that names `ChangeSet`
+  with five arguments or fewer still accepts every ChangeSet. No codemod.
+- **A ChangeSet that needs no parameters has one parameter type, `unknown`.** An insert, delete, put, read, `union` or
+  `sequence` of ChangeSets that need none gave `{}`, where `ChangeSet.empty` and `bind` gave `unknown`, and a
+  ChangeSet's parameters are invariant, so `db.apply(flip ? ChangeSet.empty(S) : built, {})` was refused. No codemod.
 - **A fact that is no fact of its relation is one refusal**, "a member fact is not a fact of the relation", whatever
   is wrong with it: a missing field, a value of another type, or a field its relation lacks. `insert`, `delete` and
   `put` infer their facts as written and refuse them in one place, where a missing field or a mistyped value failed
