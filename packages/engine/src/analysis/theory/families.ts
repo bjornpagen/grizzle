@@ -22,7 +22,7 @@ import type {
 	RelationInfo,
 	TheoryRelation
 } from "#compiler/ir/law.ts"
-import { monoids } from "#compiler/ir/monoid.ts"
+import { monoidSpecs } from "#compiler/ir/monoid.ts"
 
 /**
  * Families and their axes, as the theory resolves them (fin.md §4, w4-w7 §2.1 to §2.3, trees.md).
@@ -671,7 +671,7 @@ const endFields = (f: FamilyShape, end: SideDesc, loc: SourceLoc): ReadonlyArray
  */
 export const foldEntry = (s: FoldStatement, f: FamilyShape, law: Identifier<"law">): FoldEntry => {
 	const loc = s.loc
-	const monoid = monoids[s.monoid]
+	const monoid = monoidSpecs[s.monoid]
 	const rest = afterGroup(f, s.step, loc)
 	const valueTerm = monoid.step === "value" ? rest[0] : undefined
 	const accumulators = monoid.step === "value" ? rest.slice(1) : rest

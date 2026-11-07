@@ -29,7 +29,7 @@ import { combineRule } from "#compiler/check/fold.ts"
 import { parseDeclaredName } from "#compiler/core/identity.ts"
 import { type MonoidName, monoidNames } from "#compiler/ir/desc.ts"
 import { literalProblem, type TypedLiteral } from "#compiler/ir/expr.ts"
-import { type CombineBuild, type MonoidSpec, monoids } from "#compiler/ir/monoid.ts"
+import { type CombineBuild, type MonoidSpec, monoidSpecs } from "#compiler/ir/monoid.ts"
 import { type Roster, type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
 import { naturalDescriptor } from "#compiler/scalar/natural.ts"
 import { capabilitiesOf } from "#compiler/scalar/registry.ts"
@@ -181,19 +181,19 @@ const specOf = (
 ): { readonly spec: MonoidSpec; readonly carrier: ScalarType } => {
 	switch (monoid) {
 		case "count":
-			return { spec: monoids.count, carrier: natural }
+			return { spec: monoidSpecs.count, carrier: natural }
 		case "sum":
-			return { spec: monoids.sum, carrier: natural }
+			return { spec: monoidSpecs.sum, carrier: natural }
 		case "or":
-			return { spec: monoids.or, carrier: set }
+			return { spec: monoidSpecs.or, carrier: set }
 		case "twos":
-			return { spec: monoids.twos, carrier: set }
+			return { spec: monoidSpecs.twos, carrier: set }
 		case "maxNatural":
-			return { spec: monoids.max, carrier: natural }
+			return { spec: monoidSpecs.max, carrier: natural }
 		case "maxCode":
-			return { spec: monoids.max, carrier: code }
+			return { spec: monoidSpecs.max, carrier: code }
 		case "concat":
-			return { spec: monoids.concat, carrier: text }
+			return { spec: monoidSpecs.concat, carrier: text }
 	}
 }
 
@@ -359,7 +359,7 @@ describe("the closed monoids", () => {
 					},
 					([name, carrier], c) =>
 						Effect.sync(() => {
-							const spec = monoids[name]
+							const spec = monoidSpecs[name]
 							const admitted = spec.admits(carrier)
 							c.note(`${name} ${admitted ? "admits" : "refuses"}`)
 							if (admitted) {

@@ -25,14 +25,22 @@ export interface Row {
 }
 
 /**
- * An owner's count, as one statement sets it, with its family's ends: the texts of the owner's end fields, every
- * accumulated field its family's last axis carries (write/family/statements.ts endColumns), set in the same UPDATE, so
- * the owner's last-slot copies change with its count. A family with none has none.
+ * An owner's count as its family's fill draws it, with its family's ends: the host value of each of the owner's end
+ * fields by name, every accumulated field its family's last axis carries (write/family/statements.ts endColumns),
+ * which its count statement sets in the same UPDATE, so the owner's last-slot copies change with its count. A family
+ * with none has none. Its values are host values, never texts: the count statement's texts are written once, at the
+ * statement (`CountRow`), and no text of them is read back.
  */
 export interface Recount {
 	readonly owner: Owner
 	readonly count: number
-	readonly ends: Member
+	readonly ends: ReadonlyMap<string, unknown>
+}
+
+/** An owner's count statement row, as the transport carries it: its key's texts, then its count's and its ends'. */
+export interface CountRow {
+	readonly owner: Owner
+	readonly drawn: Member
 }
 
 /**
@@ -53,9 +61,5 @@ export const rowTexts = (row: Row): ReadonlyArray<string> => [...row.key, ...row
 /** A deleted row's texts: its key. */
 export const keyTexts = (key: MemberKey): ReadonlyArray<string> => key
 
-/** A count's texts: the owner's key, then the count, then its ends. */
-export const recountTexts = (row: Recount): ReadonlyArray<string> => [
-	...row.owner,
-	String(row.count),
-	...row.ends
-]
+/** A count statement row's texts: the owner's key, then its count and its ends. */
+export const countTexts = (row: CountRow): ReadonlyArray<string> => [...row.owner, ...row.drawn]

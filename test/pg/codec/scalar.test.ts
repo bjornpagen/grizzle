@@ -46,7 +46,7 @@ import {
 	vectorSchemaOf,
 	wireSql
 } from "#test/pg/codec/support.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { assert, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -76,6 +76,20 @@ import { decimalGen } from "#test/unit/values/support.ts"
  * is its position, and the cases' scalar types beyond the plain carriers, each the registry's.
  */
 const kindHandles = ["Manual", "Automatic", "Ünïcode"] as const
+
+/**
+ * The widths of the sets the round trip sends over rosters of their own, one code to nine: a set's text is X and whole
+ * hex digits, its padding 0, so the widths that fill their last digit and those that pad it are told apart, and a
+ * digit holding only its last code is the digit 1.
+ */
+const setWidths = Arr.range(1, 9)
+
+/** The handles of the roster of a set of `width` codes. */
+const setHandles = (width: number): Arr.NonEmptyReadonlyArray<string> =>
+	nonEmpty(Arr.map(Arr.range(0, width - 1), (c) => `s${c}`))
+
+const setRoster = (width: number) => parsedName(`Set${width}`)
+
 const kindCodes: Codebook = {
 	rosters: new Map([
 		[
@@ -87,7 +101,18 @@ const kindCodes: Codebook = {
 				{ kind: "hole" },
 				{ kind: "live", handle: "Ünïcode" }
 			])
-		]
+		],
+		...Arr.map(
+			setWidths,
+			(w) =>
+				[
+					setRoster(w),
+					rosterCodec(
+						setRoster(w),
+						Arr.map(setHandles(w), (handle) => ({ kind: "live", handle }) as const)
+					)
+				] as const
+		)
 	])
 }
 const scalars = {
@@ -258,6 +283,11 @@ const cases: Arr.NonEmptyReadonlyArray<Case> = [
 		type: scalars.kinds,
 		values: map(subset(kindHandles, { min: 0, max: kindHandles.length }), (hs) => new Set(hs))
 	},
+	...Arr.map(setWidths, (w): Case => ({
+		label: `set over ${w} codes`,
+		type: scalarOf({ kind: "bits", roster: `Set${w}` }, { [`Set${w}`]: setHandles(w) }),
+		values: map(subset(setHandles(w), { min: 0, max: w }), (hs) => new Set(hs))
+	})),
 	{ label: "int4range", type: scalars.range4, values: span(int4Gen) },
 	{ label: "int8range", type: scalars.range8, values: span(int8Gen) },
 	{ label: "vector(3)", type: scalars.vector3, values: vectorGen(3) },
@@ -287,19 +317,50 @@ const roundTripGen: Gen<RoundTrip> = (source) => {
 type RoundTripFeature = `round-trips ${string}`
 
 /**
- * The exact comparison of a sent value with its conversion: the conversion's canonical text is the text the sent
- * value encodes to, which is its fact identity's part. The sent value is encodable by construction; the conversion is
- * compared as it is, never admitted.
+ * Whether two host values are one value, compared by their structure and never through grizzle's encoder, whose texts
+ * are what the round trip tests: a set by its handles, a numeric and money by their own equality, a vector component by
+ * component and a span by its ends, each double by Object.is, everything else by identity.
  */
-const sameValue = (codec: ScalarCodec, sent: unknown, decoded: CarrierHost[Carrier]): boolean => {
-	const admitted = succeeded(admitValue(codec.spec, sent))
-	return codec.text(decoded) === codec.text(admitted)
+const sameHost = (a: unknown, b: unknown): boolean => {
+	if (a instanceof Set && b instanceof Set) {
+		return a.size === b.size && Arr.every(Arr.fromIterable(a), (x) => b.has(x))
+	}
+	if (a instanceof Decimal && b instanceof Decimal) {
+		return a.equals(b)
+	}
+	if (a instanceof Money && b instanceof Money) {
+		return a.equals(b)
+	}
+	if (isVector(a) && isVector(b)) {
+		return Vector.equals(a, b)
+	}
+	if (
+		typeof a === "object" &&
+		a !== null &&
+		typeof b === "object" &&
+		b !== null &&
+		"start" in a &&
+		"end" in a &&
+		"start" in b &&
+		"end" in b
+	) {
+		return Object.is(a.start, b.start) && Object.is(a.end, b.end)
+	}
+	return Object.is(a, b)
 }
 
 /**
+ * The exact comparison of a sent value with its conversion: the conversion is the value the sent one admits to,
+ * compared by its structure (sameHost). The sent value is encodable by construction; the conversion is compared as it
+ * is, never admitted.
+ */
+const sameValue = (codec: ScalarCodec, sent: unknown, decoded: CarrierHost[Carrier]): boolean =>
+	sameHost(succeeded(admitValue(codec.spec, sent)), decoded)
+
+/**
  * PostgreSQL's output text of a value: admitted by the kernel's strict reader, and converted by the library to the value
- * the strict reader reads, the same canonical text (no admission: PostgreSQL's value may lie outside what the
- * encoder admits).
+ * the strict reader reads, compared by its structure (no admission: PostgreSQL's value may lie outside what the encoder
+ * admits).
  */
 const read = (codec: TestCodec, text: unknown): Result.Result<CarrierHost[Carrier], string> => {
 	if (typeof text !== "string") {
@@ -310,7 +371,7 @@ const read = (codec: TestCodec, text: unknown): Result.Result<CarrierHost[Carrie
 		return Result.err(strict.failure)
 	}
 	const converted = codec.convert(text)
-	return codec.text(strict.success) === codec.text(converted)
+	return sameHost(strict.success, converted)
 		? Result.ok(converted)
 		: Result.err("conversion differs")
 }
@@ -384,6 +445,7 @@ const batches = <A>(
 	values: Gen<A>,
 	runs: number
 ): Exploration<ReadonlyArray<A>, ReadonlyArray<A>, never> => ({
+	oracle: { kind: "unstated" },
 	suite,
 	draw: drawn(batchOf(values)),
 	literal: Formatter.format,
@@ -417,7 +479,11 @@ layer(Substrate.layer)("exact scalar codecs against PostgreSQL", (it) => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang
+						caseHang,
+						oracle: {
+							kind: "universal",
+							name: "convert ∘ PostgreSQL ∘ encode = id, the strict reader's value of the output text"
+						}
 					},
 					({ label, batch }, c) =>
 						Effect.gen(function* () {
@@ -438,6 +504,7 @@ layer(Substrate.layer)("exact scalar codecs against PostgreSQL", (it) => {
 					const { db } = yield* setup
 					return yield* explore(
 						{
+							oracle: { kind: "unstated" },
 							/** 60 batches over four typmods: each typmod's 1500 values, its sample before the search. */
 							suite: "pg/codec/scalar/numeric-coercion",
 							draw: drawn(
@@ -656,6 +723,7 @@ layer(Substrate.layer)("exact scalar codecs against PostgreSQL", (it) => {
 				)
 				return yield* explore(
 					{
+						oracle: { kind: "unstated" },
 						/**
 						 * 3 batches of facts distinct by key: the 300 facts stored before the search, each batch into an empty table.
 						 */

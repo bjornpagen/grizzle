@@ -23,9 +23,11 @@ import { isIterable } from "#compiler/write/defined.ts"
 import { compose, type RelationPlanAt, relationDepths } from "#compiler/write/family/compose.ts"
 import type { Recount } from "#compiler/write/family/draw.ts"
 import {
+	countRows,
 	decodeRead,
 	type EditedTarget,
 	type EditTarget,
+	encodedWrite,
 	type Fact,
 	type FillContext,
 	foldRecounts,
@@ -455,7 +457,7 @@ export const bindWrite = (
 				const byGroup = new Map<string, ReadonlyMap<string, unknown>>()
 				for (const [text, recount] of write.recounts) {
 					if (!write.stored.has(text) && ownersOf(ctx, family, current.facts).has(text)) {
-						byGroup.set(text, recountValues(ctx, family, recount))
+						byGroup.set(text, recountValues(family, recount))
 						kept.delete(text)
 					}
 				}
@@ -496,7 +498,7 @@ export const bindWrite = (
 	}
 	/** A nested owner's row with its count and ends of `family` replaced by its recount's. */
 	const recountedRow = (family: Family, row: NestedRow, recount: Recount): NestedRow => {
-		const recounted = recountValues(ctx, family, recount)
+		const recounted = recountValues(family, recount)
 		const rowValues = new Map(row.values)
 		for (const [name, value] of recounted) {
 			rowValues.set(fieldKey(name), value)
@@ -540,7 +542,7 @@ export const bindWrite = (
 				const byGroup = out.get(familyKey(family.id)) ?? new Map<string, Values>()
 				for (const [text, recount] of other.recounts) {
 					const recounted = new Map(byGroup.get(text) ?? [])
-					for (const [name, value] of recountValues(ctx, other.family, recount)) {
+					for (const [name, value] of recountValues(other.family, recount)) {
 						recounted.set(fieldKey(name), value)
 					}
 					byGroup.set(text, recounted)
@@ -644,15 +646,26 @@ export const bindWrite = (
 				return second
 			}
 			const editsPlanned = second.value
-			for (const [i, edited] of foldRecounts(ctx, editsPlanned).entries()) {
+			for (const [i, edited] of foldRecounts(editsPlanned).entries()) {
 				const { target } = defined(editsPlanned[i], "a planned edit")
-				const rowsPlan = planRelation(edited.rows, inputs.transport)
+				const rowsPlan = planRelation(
+					encodedWrite(ctx, target.layout, edited.rows),
+					inputs.transport
+				)
 				if (!rowsPlan.ok) {
 					return Result.err(rowBound(target.relation.name, rowsPlan.error))
 				}
 				editedPlans.push({ depth: depthOf(target.relation.name), plan: rowsPlan.value })
 				for (const owner of carried(stratum, target, edited.owners, refilled, nested)) {
-					const phase = planOwners(owner, inputs.transport)
+					const family = defined(
+						target.families.find((f) => familyKey(f.family.id) === familyKey(owner.family)),
+						"an edited relation's family"
+					).family
+					const phase = planOwners(
+						owner.family,
+						countRows(ctx, family, owner.recounts.values()),
+						inputs.transport
+					)
 					if (!phase.ok) {
 						return Result.err(rowBound(target.relation.name, phase.error))
 					}

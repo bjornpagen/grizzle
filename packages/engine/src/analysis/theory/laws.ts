@@ -70,7 +70,7 @@ import {
 	type SpanField,
 	type TheoryRelation
 } from "#compiler/ir/law.ts"
-import { type CombineFn, monoids } from "#compiler/ir/monoid.ts"
+import { type CombineFn, monoidSpecs } from "#compiler/ir/monoid.ts"
 import type { RelNode } from "#compiler/ir/rel.ts"
 import { conservativeMeta, type HeadingColumn } from "#compiler/ir/rel.ts"
 import {
@@ -1237,7 +1237,7 @@ export class Normalizer {
 		 * family's folds, so removing another fold renames none of them. */
 		const law = identifierOf(this.env.named({ ...identity, statements: [index] }))
 		const fold = foldEntry(s, f, law)
-		const monoid = monoids[s.monoid]
+		const monoid = monoidSpecs[s.monoid]
 		const plane =
 			fold.step.kind === "value" ? fold.step.field.type : headNonEmpty(fold.planes).end.type
 		const unproved = combineRule(monoid, plane)
@@ -1302,7 +1302,7 @@ export class Normalizer {
 					identity: p.identity
 				}
 			})
-			const monoid = monoids[fold.monoid]
+			const monoid = monoidSpecs[fold.monoid]
 			const befores = mapNonEmpty(planes, (p) => based(p.before))
 			const combined = monoid.combine<ExprDesc>(
 				befores,

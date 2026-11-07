@@ -287,7 +287,7 @@ const concat: MonoidSpec = {
 }
 
 /** The admitted monoids, by name. */
-export const monoids: { readonly [M in MonoidName]: MonoidSpec } = Object.freeze({
+export const monoidSpecs: { readonly [M in MonoidName]: MonoidSpec } = Object.freeze({
 	count: Object.freeze(count),
 	sum: Object.freeze(sum),
 	or: Object.freeze(or),

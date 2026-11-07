@@ -38,8 +38,14 @@ import * as Result from "#compiler/core/result.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import { type Family, familyColumnType, isSequence } from "#compiler/ir/family.ts"
 import type { LawField, LawRelation, RelationInfo } from "#compiler/ir/law.ts"
-import { admittedText, admitValue } from "#compiler/scalar/values/identity.ts"
 import {
+	admitted,
+	admittedText,
+	admitValue,
+	compareValues
+} from "#compiler/scalar/values/identity.ts"
+import {
+	type CountRow,
 	type MemberKey,
 	type Owner,
 	type Recount,
@@ -137,7 +143,11 @@ export interface FillContext {
 /** A key text, which keys of one relation are told apart by. */
 const specOf = (ctx: FillContext, type: LawField["type"]) => carrierSpecOf(type, ctx.codes)
 
-/** A host value's text in its type's carrier. */
+/**
+ * A host value's parameter text in its type's carrier: a key's, which the read and the delete send and which its
+ * relation's rows are a set by, and a row's or a count's, written once at its statement. No text it writes is read
+ * back: what PostgreSQL holds comes back through decodeRead, from PostgreSQL's own output.
+ */
 const textOf = (ctx: FillContext, type: LawField["type"], value: unknown): string =>
 	admittedText(specOf(ctx, type), value)
 
@@ -201,22 +211,11 @@ export const readKeys = (
 export const ownerText = (ctx: FillContext, family: Family, fact: Fact): string =>
 	textsKey(groupOfOwner(ctx, family, valuesOfFact(fact)))
 
-/** A recount's values as an owner's fields hold them: its count, and each end read from its text by its codec. */
-export const recountValues = (
-	ctx: FillContext,
-	family: Family,
-	recount: Recount
-): ReadonlyMap<string, unknown> =>
+/** A recount's values as an owner's fields hold them, by field name: its count, and each end's host value. */
+export const recountValues = (family: Family, recount: Recount): ReadonlyMap<string, unknown> =>
 	new Map<string, unknown>([
 		[family.count.name, BigInt(recount.count)],
-		...endColumns(family).map((f, i): readonly [string, unknown] => {
-			const text = defined(recount.ends[i], `the end ${f.name} of a recount`)
-			const admitted = admitValue(specOf(ctx, f.type), scalarCodec(f.type, ctx.codes).convert(text))
-			if (!admitted.ok) {
-				throw defect(`a recount's end ${f.name}, a text its own fill wrote`)
-			}
-			return [f.name, admitted.value]
-		})
+		...endColumns(family).map((f): readonly [string, unknown] => [f.name, recount.ends.get(f.name)])
 	])
 
 /** The owners of `family` among an owner relation's inserted facts, by group key text, with their values. */
@@ -259,8 +258,8 @@ export const decodeRead = (
 			return Result.err(failure)
 		}
 		const converted = scalarCodec(type, ctx.codes).convert(text)
-		const admitted = admitValue(specOf(ctx, type), converted)
-		return admitted.ok ? Result.ok(admitted.value) : Result.err(failure)
+		const value = admitValue(specOf(ctx, type), converted)
+		return value.ok ? Result.ok(value.value) : Result.err(failure)
 	}
 	for (const row of rows) {
 		const [tag, ...cells] = row
@@ -375,9 +374,14 @@ const valueAt = (
 	return v.ok ? v.value : undefined
 }
 
-/** Whether two host values of one carrier are one: their canonical texts are equal. */
-const same = (ctx: FillContext, type: LawField["type"], a: unknown, b: unknown): boolean =>
-	a !== undefined && b !== undefined && textOf(ctx, type, a) === textOf(ctx, type, b)
+/** Whether two host values of one carrier are one value: equal under PostgreSQL's B-tree order of the type. */
+const same = (ctx: FillContext, type: LawField["type"], a: unknown, b: unknown): boolean => {
+	if (a === undefined || b === undefined) {
+		return false
+	}
+	const spec = specOf(ctx, type)
+	return compareValues(spec, admitted(spec, a), admitted(spec, b)) === 0
+}
 
 /** A member a group's fill writes: its key text, the family's columns of it, and the statement that writes it: an
  * insert of a new member, a delete and an insert of a re-placed one, an update in place of any other. */
@@ -654,11 +658,11 @@ const fillGroup = (
 			for (const [p, plane] of fold.planes.entries()) {
 				const spec = specOf(ctx, familyColumnType(family, plane.after) ?? plane.end.type)
 				const after = selected ? combineHost(fold, p === 0 ? 0 : 1, befores, x, spec) : befores[p]
-				const admitted = after === undefined ? undefined : admitValue(spec, after)
-				if (admitted === undefined || !admitted.ok) {
+				const value = after === undefined ? undefined : admitValue(spec, after)
+				if (value === undefined || !value.ok) {
 					return Result.err(failure)
 				}
-				put(columnKey(plane.after), admitted.value)
+				put(columnKey(plane.after), value.value)
 			}
 		}
 		filled.set(slot, values)
@@ -748,11 +752,62 @@ const startHost = (ctx: FillContext, field: LawField): unknown => {
 	}
 }
 
+/** A member relation's row as its families' fill leaves it: its key's texts, and each column's host value. */
+export interface FilledRow {
+	readonly key: MemberKey
+	readonly values: Values
+}
+
+/**
+ * A member relation's rows of one stratum as its families' fill leaves them, each kind a set by its key's text: those
+ * deleted by key, its kept rows updated in place and its new and re-placed rows inserted, each with its columns' host
+ * values. Its texts are written once, at its statements (`encodedWrite`).
+ */
+export interface FilledWrite {
+	readonly relation: string
+	readonly deletes: ReadonlyMap<string, MemberKey>
+	readonly updates: ReadonlyMap<string, FilledRow>
+	readonly inserts: ReadonlyMap<string, FilledRow>
+}
+
 /** What one stratum's edits of a member relation write: its rows, and each family's changed owners. */
 export interface Edited {
-	readonly rows: RelationWrite
+	readonly rows: FilledWrite
 	readonly owners: ReadonlyArray<OwnerWrite>
 }
+
+/** A filled write in its rows' texts, each column's host value written by its type's codec, as its statements carry it. */
+export const encodedWrite = (
+	ctx: FillContext,
+	layout: RowLayout,
+	write: FilledWrite
+): RelationWrite => {
+	const encoded = (row: FilledRow): Row => ({
+		key: row.key,
+		columns: layout.columns.map((c) => textOf(ctx, c.type, row.values.get(c.key)))
+	})
+	return {
+		relation: write.relation,
+		deletes: write.deletes,
+		trees: new Map(),
+		updates: new Map([...write.updates].map(([k, row]) => [k, encoded(row)] as const)),
+		inserts: new Map([...write.inserts].map(([k, row]) => [k, encoded(row)] as const))
+	}
+}
+
+/** A family's recounts as its count statement's rows: each owner's key, then its count and its ends, written. */
+export const countRows = (
+	ctx: FillContext,
+	family: Family,
+	recounts: Iterable<Recount>
+): ReadonlyArray<CountRow> =>
+	[...recounts].map((r) => ({
+		owner: r.owner,
+		drawn: [
+			textOf(ctx, family.count.type, BigInt(r.count)),
+			...endColumns(family).map((f) => textOf(ctx, f.type, r.ends.get(f.name)))
+		]
+	}))
 
 /**
  * A member relation's changes in one stratum planned against its families' reads: each family's touched groups
@@ -929,7 +984,9 @@ export const planEdits = (
 				recounts.set(text, {
 					owner,
 					count: edit.appends.length + (edit.stored?.count ?? 0) - edit.removals.size,
-					ends: endColumns(family).map((f) => textOf(ctx, f.type, after.get(fieldKey(f.name))))
+					ends: new Map(
+						endColumns(family).map((f) => [f.name, after.get(fieldKey(f.name))] as const)
+					)
 				})
 				if (storedGroup) {
 					storedGroups.add(text)
@@ -941,13 +998,10 @@ export const planEdits = (
 		}
 	}
 	const deletes = new Map<string, MemberKey>()
-	const updates = new Map<string, Row>()
-	const inserts = new Map<string, Row>()
+	const updates = new Map<string, FilledRow>()
+	const inserts = new Map<string, FilledRow>()
 	const keyOfText = (text: string): MemberKey => defined(keys.get(text), "a named or stored key")
-	const rowOf = (text: string, values: Values): Row => ({
-		key: keyOfText(text),
-		columns: target.layout.columns.map((c) => textOf(ctx, c.type, values.get(c.key)))
-	})
+	const rowOf = (text: string, values: Values): FilledRow => ({ key: keyOfText(text), values })
 	const written = new Set<string>([...named.keys(), ...placements.keys()])
 	for (const text of written) {
 		const op = named.get(text)
@@ -984,7 +1038,7 @@ export const planEdits = (
 		}
 	}
 	return Result.ok({
-		rows: { relation: relation.name, deletes, trees: new Map(), updates, inserts },
+		rows: { relation: relation.name, deletes, updates, inserts },
 		owners: writes
 	})
 }
@@ -1002,10 +1056,7 @@ export interface EditedTarget {
  * statements run before the inserts (order.ts Plan), so a count of an owner not yet inserted would update no row; the
  * row carries its count and its ends from the start, which its members' copies then reference.
  */
-export const foldRecounts = (
-	ctx: FillContext,
-	planned: ReadonlyArray<EditedTarget>
-): ReadonlyArray<Edited> => {
+export const foldRecounts = (planned: ReadonlyArray<EditedTarget>): ReadonlyArray<Edited> => {
 	/** Each edited relation's inserted rows, by key text, which a recount of its own families may replace. */
 	const insertedRows = new Map(
 		planned.map((p) => [p.target.relation.name, new Map(p.edited.rows.inserts)] as const)
@@ -1035,19 +1086,11 @@ export const foldRecounts = (
 					kept.set(text, recount)
 					continue
 				}
-				const set = new Map<ColumnKey, string>([
-					[fieldKey(family.count.name), textOf(ctx, family.count.type, BigInt(recount.count))],
-					...endColumns(family).map((f, i): readonly [ColumnKey, string] => [
-						fieldKey(f.name),
-						defined(recount.ends[i], `the end ${f.name} of a recount`)
-					])
-				])
-				rows.set(at, {
-					key: row.key,
-					columns: layout.columns.map(
-						(c, i) => set.get(c.key) ?? defined(row.columns[i], "a row's column")
-					)
-				})
+				const values = new Map(row.values)
+				for (const [name, value] of recountValues(family, recount)) {
+					values.set(fieldKey(name), value)
+				}
+				rows.set(at, { key: row.key, values })
 			}
 			return kept.size > 0 ? [{ family: write.family, recounts: kept, stored: write.stored }] : []
 		})

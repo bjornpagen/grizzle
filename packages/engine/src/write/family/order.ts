@@ -43,11 +43,12 @@ import * as Result from "#compiler/core/result.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
 import type { FamilyId } from "#compiler/ir/law.ts"
 import {
+	type CountRow,
+	countTexts,
 	keyTexts,
 	type MemberKey,
 	type Owner,
 	type Recount,
-	recountTexts,
 	type Row,
 	rowTexts
 } from "#compiler/write/family/draw.ts"
@@ -128,7 +129,7 @@ export type FamilyStatement =
 	| {
 			readonly kind: "count"
 			readonly family: FamilyId
-			readonly rows: NonEmptyReadonlyArray<Recount>
+			readonly rows: NonEmptyReadonlyArray<CountRow>
 	  }
 	| {
 			readonly kind: "insert"
@@ -163,7 +164,7 @@ export const textsOf = (statement: FamilyStatement): ReadonlyArray<ReadonlyArray
 		case "insert":
 			return statement.rows.map(rowTexts)
 		case "count":
-			return statement.rows.map(recountTexts)
+			return statement.rows.map(countTexts)
 	}
 }
 
@@ -328,17 +329,18 @@ export const planRelation = (
 	return Result.ok(planned)
 }
 
-/** A family's owners' counts cut into the statements the transport carries. */
+/** A family's owners' count statement rows cut into the statements the transport carries. */
 export const planOwners = (
-	write: OwnerWrite,
+	family: FamilyId,
+	rows: ReadonlyArray<CountRow>,
 	transport: Transport
 ): Result.Result<Phase<"count">, Unsendable> => {
-	const counts = cut([...write.recounts.values()], recountTexts, transport)
+	const counts = cut(rows, countTexts, transport)
 	if (!counts.ok) {
 		return Result.err(unsendable("count", counts.error))
 	}
 	const planned: Phase<"count"> = counts.value.map(
-		(rows) => ({ kind: "count", family: write.family, rows }) as const
+		(chunk) => ({ kind: "count", family, rows: chunk }) as const
 	)
 	return Result.ok(planned)
 }

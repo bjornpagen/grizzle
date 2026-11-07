@@ -16,6 +16,19 @@ How to upgrade:
 
 ### Breaking changes
 
+#### A fold over a counted family ends at its members' values when its owner is inserted with them
+
+- **A counted family's `Monoid.or` or `Monoid.twos` end is its members' sets when the owner is inserted in the same
+  ChangeSet.** An owner inserted beside its counted members, as the README writes an entry and its postings, had its
+  insert row carry each fold's end read back from the text grizzle wrote for it, read as PostgreSQL's output: a set's
+  parameter text is `X` and hex digits and its output 0s and 1s, so the end read as the empty set, or as the handles
+  at the positions of the digit 1, and the write was `invariant-rejected` on the family and the fold (23503 on the
+  last-member key, or 23514 on the set's domain). An owner with two families read its other family's ends the same
+  way. Ends whose two texts coincide, an integer's, a numeric's or a text's, were right. The family planner now carries
+  every count and end as its host value from the fill to the statement that writes it, and writes its text once,
+  there. No codemod.
+
+
 #### A TLS handshake's failure is stage tls, and a query naming an extension its role can't use is refused before any SQL
 
 - **Every failure the TLS handshake raises is `TlsRefused` at stage `tls`, told by when it happened, not by its code.**
