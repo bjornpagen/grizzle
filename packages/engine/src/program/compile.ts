@@ -45,12 +45,7 @@ import {
 	schemaCatalog
 } from "#compiler/program/schema.ts"
 import { hostArguments } from "#compiler/query/build/host.ts"
-import {
-	isOrderedValue,
-	isQueryValue,
-	queryValueDesc,
-	queryValueSchema
-} from "#compiler/query/build/query.ts"
+import { publicDesc, queryState } from "#compiler/query/build/state.ts"
 
 export interface QueryTemplate extends ProgramArtifacts {
 	readonly kind: "query" | "ordered"
@@ -120,24 +115,18 @@ export type QueryInput =
  * is refused as MalformedDescription, never a defect.
  */
 export const queryInput = (query: unknown): Result.Result<QueryInput, CompileError> => {
-	if (isQueryValue(query) || isOrderedValue(query)) {
+	const built = queryState(query)
+	if (built !== undefined) {
 		return Result.flatMap(
-			catchCompileError(() => queryValueDesc(query)),
-			(desc) => {
-				if (desc === undefined) {
-					return Result.err(
-						malformedDescription(SourceLoc("compile", []), "a query value the builder made")
-					)
-				}
-				const carried = queryValueSchema(query)
-				return carried === undefined
+			catchCompileError(() => publicDesc(built, "query")),
+			(desc) =>
+				built.schema.over.kind === "description"
 					? Result.ok<QueryInput>({ kind: "described", desc })
-					: Result.map(parseSchemaInput(carried), (schema): QueryInput => ({
+					: Result.map(parseSchemaInput(built.schema.value), (schema): QueryInput => ({
 							kind: "built",
 							desc,
 							schema
 						}))
-			}
 		)
 	}
 	return Result.flatMap(

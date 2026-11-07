@@ -4,6 +4,7 @@ import { carrierSpecOf } from "#compiler/codec/scalar.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { ColumnIdent, ConstraintName, LawId, RelationIdent } from "#compiler/core/ids.ts"
+import { defect } from "#compiler/core/invariant.ts"
 import {
 	concatNonEmpty,
 	mapNonEmpty,
@@ -618,9 +619,10 @@ const lawChecks = (
 		const native = frontend.laws.natives.find(
 			(n) => n.namespace === "constraint" && n.owner === c.owner && identifierOf(n.named) === c.name
 		)
-		return native?.namespace === "constraint"
-			? checkOf(frontend, judge, c.name, c.laws, native.object)
-			: []
+		if (native?.namespace !== "constraint") {
+			throw defect(`the native object of the constraint ${c.name}, which the law model names it by`)
+		}
+		return checkOf(frontend, judge, c.name, c.laws, native.object)
 	})
 	const endpoints = relation.fields.flatMap((field): ReadonlyArray<LawCheck> => {
 		const span = spanOf(baseOf(field.type))

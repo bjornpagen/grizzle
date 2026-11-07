@@ -462,15 +462,11 @@ export const pointIn = (point: unknown, span: unknown): PredicateValue => {
 		throw malformed("r.pointIn", "a span term or a span parameter, r.param(name, span(...))")
 	}
 	if (s.typing.kind === "typed") {
-		if (spanCarrierOf(s.typing.type) === undefined) {
+		const info = spanOf(s.typing.type)
+		if (info === undefined) {
 			throw malformed("r.pointIn", "a span term")
 		}
-		const endpoint = spanOf(s.typing.type)?.endpoint
-		if (
-			p.typing.kind === "typed" &&
-			endpoint !== undefined &&
-			!compatible(p.typing.type, endpoint)
-		) {
+		if (p.typing.kind === "typed" && !compatible(p.typing.type, info.endpoint)) {
 			throw malformed("r.pointIn", "a point of the span's endpoint type")
 		}
 	}

@@ -1061,7 +1061,10 @@ export const bindWrite = (
 					rewrites.set(key, row)
 				}
 				for (const [key, row] of edited.rows.refills) {
-					rewrites.set(key, { key: row.key, values: rowOf(current, name, key) ?? row.values })
+					rewrites.set(key, {
+						key: row.key,
+						values: defined(rowOf(current, name, key), "a refilled row its plan holds in the state")
+					})
 				}
 				refillRows.set(name, rewrites)
 				return { target, edited: { ...edited, rows: { ...edited.rows, refills: rewrites } } }
@@ -1188,7 +1191,10 @@ export const bindWrite = (
 				return plans
 			}
 			const target = step.target
-			const sent: ReadonlyArray<FamilyStatement> = (plans.value.plans.get(step.stratum) ?? noPlan)
+			const sent: ReadonlyArray<FamilyStatement> = defined(
+				plans.value.plans.get(step.stratum),
+				`the plan of stratum ${step.stratum}, which a family statement the schedule placed sends`
+			)
 				.flat()
 				.filter(
 					(s) =>
@@ -1270,8 +1276,6 @@ const insertSlots = (input: EnumeratedInput): ReadonlyArray<ParamId> => {
 			return [input.complete.slot]
 	}
 }
-
-const noPlan: Plan = [[], [], [], [], []]
 
 /** Whether a family statement the schedule placed sends a planned one: the count of its family, or the statement of its
  * kind of its member relation. */

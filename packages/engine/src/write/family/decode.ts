@@ -14,6 +14,7 @@ import type { LawField } from "#compiler/ir/law.ts"
 import { admitValue } from "#compiler/scalar/values/identity.ts"
 import type { MemberKey, Owner } from "#compiler/write/family/draw.ts"
 import {
+	drawnAt,
 	type EditTarget,
 	type FillContext,
 	groupOf,
@@ -74,10 +75,11 @@ export const decodeRead = (
 				}
 				values.set(fieldKey(f.name), v.value)
 			}
-			const count = values.get(fieldKey(family.count.name))
 			owners.set(groupOfOwner(ctx, family, values), {
 				values,
-				count: typeof count === "bigint" ? Number(count) : 0
+				count: Number(
+					drawnAt(values, fieldKey(family.count.name), `the count of ${family.owner.name}`)
+				)
 			})
 			continue
 		}
@@ -89,12 +91,13 @@ export const decodeRead = (
 			}
 			values.set(c.key, v.value)
 		}
-		const slot = values.get(columnKey(family.index))
 		const key = keyOf(ctx, target.layout, values)
 		if (!members.has(key)) {
 			members.set(key, {
 				key,
-				slot: typeof slot === "bigint" ? Number(slot) : -1,
+				slot: Number(
+					drawnAt(values, columnKey(family.index), `the index of a ${target.relation.name}`)
+				),
 				group: groupOf(ctx, family, values),
 				values
 			})

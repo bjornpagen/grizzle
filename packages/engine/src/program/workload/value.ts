@@ -142,18 +142,11 @@ const workloadProgram = (
 			`program ${JSON.stringify(name)}: a query, an ordered query, a ChangeSet or a relation's key the builders made`
 		)
 	}
-	const query = lookup.query
-	if (!isQueryValue(query)) {
-		throw malformed(
-			label,
-			`program ${JSON.stringify(name)}: a key of a relation of ${built.desc.name}`
-		)
-	}
 	return {
 		name,
 		kind: "key",
 		target: lookup.target,
-		desc: { kind: "query", query: orThrow(queryInput(query)).desc }
+		desc: { kind: "query", query: orThrow(queryInput(lookup.query)).desc }
 	}
 }
 

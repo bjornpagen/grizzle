@@ -1,5 +1,5 @@
-import { catchCompileError } from "#compiler/core/canonical.ts"
 import type { RowDecoder } from "#compiler/core/decoder.ts"
+import { defect } from "#compiler/core/invariant.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { admittedClosedId } from "#compiler/scalar/closed-id.ts"
@@ -30,8 +30,8 @@ export interface KeyLookup {
 }
 
 /**
- * A built relation, roster or closed relation, read once; undefined for any other value. A value namedRelation refuses
- * is none; any other throw is a defect.
+ * A built relation, roster or closed relation, read once; undefined for any other value. namedRelation reads an owned
+ * relation, roster or closed relation through its own Description, so it neither refuses one nor names it derived.
  */
 const builtRelation = (value: unknown): BuiltRelation | undefined => {
 	const built =
@@ -41,11 +41,13 @@ const builtRelation = (value: unknown): BuiltRelation | undefined => {
 	if (built === undefined) {
 		return undefined
 	}
-	const named = catchCompileError(() => namedRelation(built.value, "get"))
-	if (!named.ok || named.value.kind === "derived") {
-		return undefined
+	const named = namedRelation(built.value, "get")
+	if (named.kind === "derived") {
+		throw defect(
+			`an owned relation, roster or closed relation ${named.name}, never a derived relation`
+		)
 	}
-	return { value: built.value, named: named.value, fact: built.value.fact }
+	return { value: built.value, named, fact: built.value.fact }
 }
 
 /**

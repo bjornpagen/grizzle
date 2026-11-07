@@ -44,7 +44,7 @@ import {
 } from "#compiler/core/tuple-map.ts"
 import type { ParamText } from "#compiler/core/wire.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
-import { type Family, familyColumnType, isSequence } from "#compiler/ir/family.ts"
+import { type Family, familyColumnType, type FoldPlane, isSequence } from "#compiler/ir/family.ts"
 import type { LawField, LawRelation, RelationInfo } from "#compiler/ir/law.ts"
 import { sqlNull } from "#compiler/scalar/compute/evaluate.ts"
 import { admitted, admitValue, compareValues } from "#compiler/scalar/values/identity.ts"
@@ -117,6 +117,18 @@ export interface StoredMember {
 	readonly slot: number
 	readonly group: Owner
 	readonly values: Values
+}
+
+/**
+ * A drawn natural a read row holds at `key`: an owner's count, a member's index or a tree node's start. Every drawn
+ * column is a NOT NULL int8 its row layout reads, so a read row holds it as a bigint.
+ */
+export const drawnAt = (values: Values, key: ColumnKey, what: string): bigint => {
+	const value = values.get(key)
+	if (typeof value !== "bigint") {
+		throw defect(`${what}, a drawn natural its read row holds`)
+	}
+	return value
 }
 
 /** A group as a read returns it: its owner's values and count, and its members from the read's first slot on. */
@@ -307,26 +319,68 @@ const inputsOf = (family: Family, relation: LawRelation): ReadonlyArray<LawField
 }
 
 /**
- * A value of a row, a generated field's evaluated over the row; undefined where the row holds none, as it holds no
- * generated field that is NULL.
+ * A row's value at a column: the value the row holds, or a generated field's evaluated over the row; refused where that
+ * evaluation is NULL, which the field's NOT NULL column refuses, or an operation's precondition fails, which PostgreSQL
+ * raises; none where the row holds no such column, or not what its generation reads.
  */
+type RowValue =
+	| { readonly kind: "value"; readonly value: unknown }
+	| { readonly kind: "refused" }
+	| { readonly kind: "none" }
+
+const rowValue = (
+	ctx: FillContext,
+	relation: LawRelation,
+	values: Values,
+	key: ColumnKey
+): RowValue => {
+	if (values.has(key)) {
+		return { kind: "value", value: values.get(key) }
+	}
+	const field = relation.fields.find((f) => fieldKey(f.name) === key)
+	if (field?.writing.kind !== "generated") {
+		return { kind: "none" }
+	}
+	const v = ctx.evaluate(relation, field.writing.expr, (name) =>
+		valueAt(ctx, relation, values, fieldKey(name))
+	)
+	if (!v.ok) {
+		return v.error.kind === "undefined" ? { kind: "refused" } : { kind: "none" }
+	}
+	return v.value === sqlNull ? { kind: "refused" } : { kind: "value", value: v.value }
+}
+
+/** A value of a row (`RowValue`), as a comparison or an evaluation reads it: undefined where it is none or refused. */
 export const valueAt = (
 	ctx: FillContext,
 	relation: LawRelation,
 	values: Values,
 	key: ColumnKey
 ): unknown => {
-	if (values.has(key)) {
-		return values.get(key)
+	const v = rowValue(ctx, relation, values, key)
+	return v.kind === "value" ? v.value : undefined
+}
+
+/**
+ * A value a fill copies out of a row into a column it writes (`RowValue`): undefined where the row holds none, and
+ * `refusal` where the row's generated field is refused, as the nesting's fill refuses it (fold.ts FillRefusal).
+ */
+const carriedAt = (
+	ctx: FillContext,
+	relation: LawRelation,
+	values: Values,
+	key: ColumnKey,
+	refusal: EncodingFailure
+): Result.Result<unknown, EncodingFailure> => {
+	const v = rowValue(ctx, relation, values, key)
+	switch (v.kind) {
+		case "value":
+			return Result.ok(v.value)
+		case "none":
+			return Result.ok(undefined)
+		case "refused":
+			return Result.err(refusal)
 	}
-	const field = relation.fields.find((f) => fieldKey(f.name) === key)
-	if (field?.writing.kind !== "generated") {
-		return undefined
-	}
-	const v = ctx.evaluate(relation, field.writing.expr, (name) =>
-		valueAt(ctx, relation, values, fieldKey(name))
-	)
-	return v.ok && v.value !== sqlNull ? v.value : undefined
 }
 
 /** Whether two host values of one carrier are one value: equal under PostgreSQL's B-tree order of the type. */
@@ -594,8 +648,9 @@ const fillGroup = (
 		const m = bySlot.get(slot)
 		return m === undefined ? undefined : { key: m.key, values: edit.updates.get(m.key) ?? m.values }
 	}
+	const refused = encodeFailure("factShape", slotPlace(relation.name))
 	if (edit.final === undefined && ownerCopies.length > 0 && n1 > 0) {
-		return Result.err(encodeFailure("factShape", slotPlace(relation.name)))
+		return Result.err(refused)
 	}
 	const placed: Array<Placement> = []
 	const filled = new Map<number, Values>()
@@ -612,7 +667,11 @@ const fillGroup = (
 		}
 		put(columnKey(family.index), BigInt(slot))
 		put(`law:${family.copy}`, BigInt(n1))
-		const prev = slot === 0 ? undefined : (filled.get(slot - 1) ?? memberAt(slot - 1)?.values)
+		const prev =
+			slot === 0
+				? undefined
+				: (filled.get(slot - 1) ??
+					defined(memberAt(slot - 1), `the member at slot ${slot - 1} before a filled slot`).values)
 		/** A counted member kept or moved is updated in place, before its owner's own write and its count statement, which
 		 * the owner axis cascades into it; every other member is inserted after them, and every member of a refilled group
 		 * is rewritten ahead of its owner's change, so each reads the owner as the stratum leaves it. */
@@ -621,10 +680,17 @@ const fillGroup = (
 				? owner
 				: edit.final
 		for (const pair of ownerCopies) {
-			put(
-				columnKey(pair.from),
-				seen === undefined ? undefined : valueAt(ctx, family.owner, seen, columnKey(pair.to))
+			const copy = carriedAt(
+				ctx,
+				family.owner,
+				defined(seen, "the owner a member's copies read, which a group with copies has"),
+				columnKey(pair.to),
+				refused
 			)
+			if (!copy.ok) {
+				return copy
+			}
+			put(columnKey(pair.from), copy.value)
 		}
 		for (const pair of family.axes.predecessor) {
 			if (pair.from.kind === "field" && pair.from.field.writing.kind !== "accumulated") {
@@ -641,7 +707,11 @@ const fillGroup = (
 				}
 				continue
 			}
-			put(columnKey(pair.from), valueAt(ctx, relation, prev, columnKey(pair.to)))
+			const copy = carriedAt(ctx, relation, prev, columnKey(pair.to), refused)
+			if (!copy.ok) {
+				return copy
+			}
+			put(columnKey(pair.from), copy.value)
 		}
 		for (const fold of family.folds) {
 			const befores = fold.planes.map((p) => values.get(columnKey(p.before)))
@@ -660,7 +730,7 @@ const fillGroup = (
 					? valueAt(ctx, relation, values, fieldKey(fold.step.field.name))
 					: undefined
 			for (const [p, plane] of fold.planes.entries()) {
-				const spec = specOf(ctx, familyColumnType(family, plane.after) ?? plane.end.type)
+				const spec = specOf(ctx, afterType(plane))
 				const after = selected ? combineHost(fold, p === 0 ? 0 : 1, befores, x, spec) : befores[p]
 				const value = after === undefined ? undefined : admitValue(spec, after)
 				if (value === undefined || !value.ok) {
@@ -694,22 +764,27 @@ const fillGroup = (
 			placed.push({ key, columns: new Map(), change: "update" })
 		}
 	}
-	const last = n1 === 0 ? undefined : (filled.get(n1 - 1) ?? memberAt(n1 - 1)?.values)
+	const last =
+		n1 === 0
+			? undefined
+			: (filled.get(n1 - 1) ??
+				defined(memberAt(n1 - 1), `the last member, at slot ${n1 - 1}`).values)
 	const ownerAfter = new Map(owner ?? [])
 	ownerAfter.set(fieldKey(family.count.name), BigInt(n1))
 	for (const pair of family.axes.last) {
 		if (pair.from.kind !== "field" || pair.from.field.writing.kind !== "accumulated") {
 			continue
 		}
-		const base = baseOf(family, pair.from, specOf(ctx, pair.from.field.type))
-		ownerAfter.set(
-			columnKey(pair.from),
-			last === undefined
-				? base.kind === "base"
-					? base.value
-					: undefined
-				: valueAt(ctx, relation, last, columnKey(pair.to))
-		)
+		if (last === undefined) {
+			const base = baseOf(family, pair.from, specOf(ctx, pair.from.field.type))
+			ownerAfter.set(columnKey(pair.from), base.kind === "base" ? base.value : undefined)
+			continue
+		}
+		const end = carriedAt(ctx, relation, last, columnKey(pair.to), refused)
+		if (!end.ok) {
+			return end
+		}
+		ownerAfter.set(columnKey(pair.from), end.value)
 	}
 	const changes =
 		n1 !== n0 ||
@@ -718,6 +793,10 @@ const fillGroup = (
 		)
 	return Result.ok({ placed, recount: changes ? ownerAfter : undefined })
 }
+
+/** The type of a fold plane's after: its field's own, or a hidden accumulator's, its plane's end's. */
+const afterType = (plane: FoldPlane): LawField["type"] =>
+	plane.after.kind === "field" ? plane.after.field.type : plane.end.type
 
 /** The type of a column key of a member of `family`: a field's, or one of the family's drawn law columns'. */
 const typeOfKey = (relation: LawRelation, family: Family, key: ColumnKey): LawField["type"] => {
@@ -1235,10 +1314,8 @@ export const refillTree = (
 	const ownGroup = (values: Values): Owner => groupOfOwner(ctx, family, values)
 	/** A node as a member: its parent's key, its group. */
 	const parentGroup = (values: Values): Owner => groupOf(ctx, family, values)
-	const startOf = (values: Values): bigint => {
-		const start = values.get(fieldKey(tree.start.name))
-		return typeof start === "bigint" ? start : 0n
-	}
+	const startOf = (values: Values): bigint =>
+		drawnAt(values, fieldKey(tree.start.name), `the start of a ${relation.name}`)
 	const ownerCopies = family.axes.owner.filter(
 		(pair) =>
 			(pair.from.kind === "field" ? pair.from.field.writing.kind === "accumulated" : true) &&
@@ -1263,7 +1340,17 @@ export const refillTree = (
 		const node = defined(now.get(key), "a tree's node as the stratum leaves it")
 		if (sameOrder(parentGroup(was), ownGroup(was))) {
 			for (const pair of ownerCopies) {
-				node.set(columnKey(pair.from), valueAt(ctx, relation, node, columnKey(pair.to)))
+				const copy = carriedAt(
+					ctx,
+					relation,
+					node,
+					columnKey(pair.to),
+					encodeFailure("factShape", slotPlace(relation.name))
+				)
+				if (!copy.ok) {
+					return copy
+				}
+				node.set(columnKey(pair.from), copy.value)
 			}
 		}
 		const kids = children.get(ownGroup(was)) ?? []
@@ -1272,10 +1359,9 @@ export const refillTree = (
 		}
 		const members = kids.map((kid): StoredMember => {
 			const values = defined(stored.get(kid), "a stored node")
-			const slot = values.get(columnKey(family.index))
 			return {
 				key: kid,
-				slot: typeof slot === "bigint" ? Number(slot) : -1,
+				slot: Number(drawnAt(values, columnKey(family.index), `the index of a ${relation.name}`)),
 				group: ownGroup(was),
 				values
 			}

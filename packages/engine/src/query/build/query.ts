@@ -879,16 +879,10 @@ export const isOrderedValue = (value: unknown): value is OrderedValue => {
 }
 
 /**
- * The Description of a query or ordered value the builder made, refused at `label` while it still holds a pending
- * parent variable.
+ * The Description of a query or ordered value the builder made, refused while it still holds a pending parent
+ * variable; none for any other value.
  */
-export const labelledQueryDesc = (value: unknown, label: string): QueryDesc | undefined => {
+export const queryValueDesc = (value: unknown): QueryDesc | undefined => {
 	const state = queryState(value)
-	return state === undefined ? undefined : publicDesc(state, label)
+	return state === undefined ? undefined : publicDesc(state, "query")
 }
-
-export const queryValueDesc = (value: unknown): QueryDesc | undefined =>
-	labelledQueryDesc(value, "query")
-
-/** The schema value a query or ordered value the builder made is over. */
-export const queryValueSchema = (value: unknown): unknown => queryState(value)?.schema.value

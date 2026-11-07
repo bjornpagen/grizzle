@@ -332,7 +332,7 @@ const familyProgram = (frontend: WriteFrontend, w: WriteContext): FamilyProgram 
 				families: reads.map((r) => ({
 					family: r.family,
 					shape: r.sql.shape,
-					fixed: stored.get(r.family.owner.name)?.mutable !== true
+					fixed: !r.family.owner.mutable
 				}))
 			}),
 			reads
@@ -356,7 +356,7 @@ const familyProgram = (frontend: WriteFrontend, w: WriteContext): FamilyProgram 
 						.map((family) => ({
 							family,
 							shape: readShape(family, layout),
-							fixed: stored.get(family.owner.name)?.mutable !== true
+							fixed: !family.owner.mutable
 						}))
 				})
 			})

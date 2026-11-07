@@ -94,7 +94,7 @@ export interface NestedLayout {
 
 /** A nested write as compiled: see the module's header. */
 export interface Nesting {
-	readonly relation: LawRelation
+	readonly relation: RelationInfo
 	readonly root: NestingRoot
 	readonly families: ReadonlyArray<Family>
 	/** Every family the nesting reaches, in the order its writes are composed: shallowest first. */
@@ -163,7 +163,7 @@ const pendingOf = (fill: FillOrder, relation: string): ReadonlySet<ColumnKey> =>
  * the columns its counted families fill.
  */
 export const nestingOf = (
-	relation: LawRelation,
+	relation: RelationInfo,
 	fill: FillOrder,
 	codes: Codebook,
 	evaluate: HostEvaluator
@@ -312,7 +312,7 @@ export const nestedRows = (
 		into.tops.get(relation) ??
 		new TupleMap<ReadonlyArray<ParamText>, TupleMap<ReadonlyArray<Signed>, NestedFact>>()
 	into.tops.set(relation, byKey)
-	const keyFields = nesting.relation.keyNames.find((k) => k.primary)?.fields ?? []
+	const keyFields = nesting.relation.primaryFields
 	for (const fact of facts) {
 		const split = encodeAddition(relation, fact, sequences)
 		if (!split.ok) {

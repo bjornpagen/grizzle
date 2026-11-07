@@ -31,10 +31,9 @@ import type { FamilyId } from "#compiler/ir/law.ts"
 import * as S from "#compiler/ir/shape.ts"
 import { inReservedSpace, slotSpelling } from "#compiler/ir/slots.ts"
 import { schemaInfo } from "#compiler/query/build/heading.ts"
-import { isOrderedValue, isQueryValue, labelledQueryDesc } from "#compiler/query/build/query.ts"
 import { buildLoc, isCallback } from "#compiler/query/build/scope.ts"
-import { queryState } from "#compiler/query/build/state.ts"
-import { isLevelOver, levelOf } from "#compiler/schema/level.ts"
+import { isOrdered, publicDesc, queryState } from "#compiler/query/build/state.ts"
+import { isLevelOver, type WrittenOver } from "#compiler/schema/level.ts"
 import { isPlainRecord, malformed, orThrow, requireName } from "#compiler/schema/protocol.ts"
 import { named, record } from "#compiler/schema/record.ts"
 import type {
@@ -704,10 +703,9 @@ const make = <S, P, W extends string, Rd, Done extends Strata, Last extends Stra
 	return value
 }
 
-/** The schema a query value was written over, which must be a level of the ChangeSet's. */
-const requireLevel = (query: unknown, over: BuiltOver, label: string): void => {
-	const written = levelOf(queryState(query)?.schema.value)
-	if (written === undefined) {
+/** What a query value was written over, which must be a level of the ChangeSet's. */
+const requireLevel = (written: WrittenOver, over: BuiltOver, label: string): void => {
+	if (written.kind === "description") {
 		throw malformed(label, "a query built by query(S) over a schema or a role")
 	}
 	if (!isLevelOver(written, over)) {
@@ -763,12 +761,16 @@ const memberState = (
 			desc: enumeratedDesc("stream", op, name, slot, keptLoc(loc))
 		}
 	}
-	if (isQueryValue(facts)) {
-		requireLevel(facts, state.over, label)
-		const query = labelledQueryDesc(facts, label)
-		if (query === undefined) {
-			throw malformed(label, "a query built by query(S)")
+	const built = queryState(facts)
+	if (built !== undefined) {
+		if (isOrdered(built)) {
+			throw malformed(
+				label,
+				"a member that is a Query, not an Ordered: take(k) closes an ordered query back into a set"
+			)
 		}
+		requireLevel(built.schema.over, state.over, label)
+		const query = publicDesc(built, label)
 		const text = identityText(query)
 		return {
 			kind: "query",
@@ -779,12 +781,6 @@ const memberState = (
 			params: queryParamNames(query),
 			desc: queryMemberDesc(op, name, query, keptLoc(loc))
 		}
-	}
-	if (isOrderedValue(facts)) {
-		throw malformed(
-			label,
-			"a member that is a Query, not an Ordered: take(k) closes an ordered query back into a set"
-		)
 	}
 	throw malformed(label, "a member: an array of facts, a Stream of facts, or a query")
 }
@@ -837,14 +833,12 @@ const addRead = <
 		throw malformed(label, "a read-back: a function from the change's Delta to a query")
 	}
 	const q = readBack(delta<S>(state.over, schemaInfo(state.schema, state.over)))
-	if (!isQueryValue(q) && !isOrderedValue(q)) {
+	const built = queryState(q)
+	if (built === undefined) {
 		throw malformed(label, "a read-back callback that returns a query or an ordered query")
 	}
-	requireLevel(q, state.over, label)
-	const query = labelledQueryDesc(q, label)
-	if (query === undefined) {
-		throw malformed(label, "a read-back query built by query(S)")
-	}
+	requireLevel(built.schema.over, state.over, label)
+	const query = publicDesc(built, label)
 	const immediate: RowDecoder<IHead> = q.immediate
 	const params = queryParamNames(query)
 	const loc = labeledChildLoc(buildLoc(label, [name]), "query", `read ${name}`)
