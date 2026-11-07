@@ -1,10 +1,3 @@
-# One check-only gate over what the commit holds (scripts/dev/check-commit.sh). It runs at commit-msg, after the index
-# is final, because lefthook's pre-commit hides every unstaged change in the working tree while its jobs run, and work
-# in progress there is not the commit's. The hook never formats or stages files, it only refuses a failing commit.
-commit-msg:
-  skip:
-    - merge
-    - rebase
-  jobs:
-    - name: check
-      run: sh scripts/dev/check-commit.sh
+# No commit gate (owner, 2026-11-07): every agent commits and pushes straight to main, and the typecheck and lint run
+# once, by hand, before a release. `pnpm check` (scripts/dev/check-commit.sh mirrors exactly what a commit holds) stays
+# available to run on demand.
