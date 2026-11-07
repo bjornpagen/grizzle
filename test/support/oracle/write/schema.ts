@@ -17,7 +17,9 @@ import {
 	role,
 	type Statement,
 	schema,
-	select
+	select,
+	wholeEntriesOf,
+	writableNamesOf
 } from "#compiler/public/schema.ts"
 import type { ObjectName } from "#compiler/sql/ast.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
@@ -650,8 +652,8 @@ export type WSchemaValue = ReturnType<typeof schemaOf>
 /**
  * The world a generated schema is written in: the full role `writer`, writing every relation, in its login `server`.
  */
-const worldOf = (value: WSchemaValue, written: ReadonlyArray<string>) => {
-	const writer = role(value, "writer", value.relations, { write: written })
+const worldOf = (value: WSchemaValue) => {
+	const writer = role(value, "writer", wholeEntriesOf(value), { write: writableNamesOf(value) })
 	return { writer, server: login(value, "server", [writer]) }
 }
 export type WWorld = ReturnType<typeof worldOf>
@@ -738,8 +740,7 @@ export const buildSchema = (w: WSchema, name: string): BuiltSchema => {
 	}
 	const rename = (declared: string): WSchemaValue =>
 		schemaOf(declared, declaredRelations, statements)
-	const written = Arr.map(all, (r) => r.name)
-	return { value: rename(name), relations, rename, worldOf: (value) => worldOf(value, written) }
+	return { value: rename(name), relations, rename, worldOf }
 }
 
 /**

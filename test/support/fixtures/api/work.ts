@@ -12,7 +12,8 @@ import {
 	role,
 	type Schema,
 	schema,
-	type StatementsByName
+	type StatementsByName,
+	wholeEntriesOf
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { Cents } from "#test/support/fixtures/api/contracts.ts"
@@ -63,8 +64,8 @@ export type WorkNamed<N extends string> = Schema<
  * holding both.
  */
 export const workWorlds = (installed: WorkNamed<string>) => {
-	const reader = role(installed, "reader", installed.relations)
-	const writer = role(installed, "writer", installed.relations, {
+	const reader = role(installed, "reader", wholeEntriesOf(installed))
+	const writer = role(installed, "writer", wholeEntriesOf(installed), {
 		write: ["Task", "AutomaticTask", "ManualTask", "TaskNote"]
 	})
 	return { reader, writer, server: login(installed, "server", [reader, writer]) }

@@ -33,7 +33,13 @@ import type {
 import type { AnyDerived } from "#compiler/types/derived/derived.ts"
 import type { HeadLiteral, HeadShape, HeadTerms, HeadValue } from "#compiler/types/query/terms.ts"
 import type { AnyClosed, AnyRelation } from "#compiler/types/schema/relation.ts"
-import type { AnyWorld, EntryValue, RoleRelations } from "#compiler/types/schema/world.ts"
+import type { AnySchema } from "#compiler/types/schema/schema.ts"
+import type {
+	AnyWorld,
+	EntryValue,
+	RoleRelations,
+	WholeEntries
+} from "#compiler/types/schema/world.ts"
 
 /** A name that is one literal: a union of names would claim keys the record does not hold. */
 type OneName<N extends string> =
@@ -159,6 +165,9 @@ const assembled = <R, I>(
  * - roleRelations(relations, make): a role's relations (schema/world.ts role), one per entry of its relation record,
  *   each made by `make` from its key and value, which TypeScript checks: the base relation itself for a whole entry,
  *   the world relation of the key for a query entry: RoleRelations<Rs> (types/schema/world.ts).
+ * - wholeEntries(relations): a full role's entries (schema/world.ts wholeEntriesOf), every relation of a schema's
+ *   record under its own key but the closed relations, each kept or dropped by its kind, as its type keeps or drops it
+ *   by its type: WholeEntries<Rs> (types/schema/world.ts).
  *
  * Nothing else asserts a type in the repository; this file's override in oxlint.config.ts allows this one.
  *
@@ -308,6 +317,17 @@ export const roleRelations = <const Rs extends Readonly<Record<string, EntryValu
 ): RoleRelations<Rs> =>
 	assembled<RoleRelations<Rs>, undefined>(
 		Object.entries(relations).map(([key, value]) => [key, () => make(key, value)] as const),
+		undefined
+	)
+
+/** A full role's entries over a schema's record of relations (see the header). */
+export const wholeEntries = <const Rs extends AnySchema["relations"]>(
+	relations: Rs
+): WholeEntries<Rs> =>
+	assembled<WholeEntries<Rs>, undefined>(
+		Object.entries(relations).flatMap(([key, relation]) =>
+			relation.kind === "closedRelation" ? [] : [[key, () => relation] as const]
+		),
 		undefined
 	)
 

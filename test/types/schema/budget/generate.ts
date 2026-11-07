@@ -79,7 +79,7 @@ ${statements(relations)}
  * A role over every relation, read as a schema by ChangeSet.empty and query, and one over a Pick of half of them. A
  * role keeps each law whose relations are its entries under their own names, read by name.
  */
-export const Everything = role(S, "everything", S.relations)
+export const Everything = role(S, "everything", wholeEntriesOf(S))
 export const overEverything = query(Everything)
 export const emptyEverything = ChangeSet.empty(Everything)
 declare const half: Pick<typeof S.relations, ${half}>

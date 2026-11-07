@@ -1,5 +1,5 @@
 import { closedId, pg, uuid } from "#compiler/public/fields.ts"
-import { closed, relation, role, schema } from "#compiler/public/schema.ts"
+import { closed, relation, role, schema, wholeEntriesOf } from "#compiler/public/schema.ts"
 
 /**
  * The schema the recursion agreement (test/support/agreement/recursion.ts) draws its recursive queries over, which
@@ -10,4 +10,4 @@ const Kind = closed("Kind", ["Leaf", "Inner"])
 export const Edge = relation("Edge", { from: uuid, to: uuid }, ["from", "to"])
 export const Node = relation("Node", { id: uuid, rank: pg.integer, kind: closedId(Kind) }, ["id"])
 export const Graph = schema("Graph", { Kind, Edge, Node }, [])
-export const Reader = role(Graph, "reader", Graph.relations)
+export const Reader = role(Graph, "reader", wholeEntriesOf(Graph))

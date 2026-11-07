@@ -500,7 +500,8 @@ import {
 	fold,
 	Monoid,
 	mutable,
-	natural
+	natural,
+	wholeEntriesOf
 } from "@bjornpagen/grizzle"
 import { Effect } from "effect"
 
@@ -527,7 +528,7 @@ export const Credits = schema("Credits", { Grant, Debit }, [
 	mutable(Grant)
 ])
 
-export const Metering = role(Credits, "metering", Credits.relations, { write: ["Debit"] })
+export const Metering = role(Credits, "metering", wholeEntriesOf(Credits), { write: ["Debit"] })
 
 /** Debit a grant for one call. Your code decides the retry; grizzle never retries. */
 export const spend = (db: Db<typeof Metering, unknown>, debit: Fact<typeof Debit>) =>
@@ -822,7 +823,7 @@ backward page, and both indexes are yours.
 **With grizzle**, continuing the `Usage` schema of [showcase 2](#2-top-three-per-group-with-exact-types):
 
 ```ts
-import { derived, type PageCursor, type Uuid, workload } from "@bjornpagen/grizzle"
+import { derived, type PageCursor, type Uuid, wholeEntriesOf, workload } from "@bjornpagen/grizzle"
 
 /** A workspace's calls, newest first. */
 export const callLog = query(Usage)
@@ -846,7 +847,9 @@ export const ModelSpend = derived(
 )
 export const Reporting = schema.extend(Usage, { ModelSpend }, [])
 
-export const Analyst = role(Reporting, "analyst", Reporting.relations, { refresh: ["ModelSpend"] })
+export const Analyst = role(Reporting, "analyst", wholeEntriesOf(Reporting), {
+	refresh: ["ModelSpend"]
+})
 export const UsageApi = login(Reporting, "usage_api", [Analyst], {
 	workload: [workload(Analyst, { callLog })]
 })
@@ -1730,9 +1733,14 @@ Three declarations, all in the [example](#example):
   evaluates it on included. Its keys are the ones its query provably has. A role declares no rules of its own: the
   schema's rules hold, whoever writes. A role that writes a family's member reads what grizzle reads of the owner to
   fill the family and, when the owner is mutable, changes that family's drawn count and accumulated ends on it, and
-  nothing else of the owner unless `write` lists the owner too: `role(Credits, "metering", Credits.relations, { write: ["Debit"] })` spends grants and
+  nothing else of the owner unless `write` lists the owner too: `role(Credits, "metering", wholeEntriesOf(Credits), { write: ["Debit"] })` spends grants and
   edits no grant's amount. A roster among a role's entries has no view of its own: every query reads its handles as
-  codes.
+  codes. `wholeEntriesOf(schema)` is the entries of a role that holds the whole schema: every table of every level,
+  whole, under its own name, but the closed relations, which are no role's entries, since every role reads their rows.
+  `writableNamesOf(schema)` names, in the schema's order, every table a role writes whole: all of them but the rosters,
+  the closed relations and the derived tables. So `role(Credits, "admin", wholeEntriesOf(Credits), { write:
+  writableNamesOf(Credits) })` writes every table of `Credits`. Their types are exactly those records and names, so a
+  closed relation is never an entry and a write list of `writableNamesOf` never names a table `write` refuses.
 - **`login(schema, name, roles, { workload? })`** is one PostgreSQL user and one pool for some roles of one schema,
   and owns their workloads, each over the schema or one of the login's roles. Every role is in exactly one login, and
   is reached through it by name, `Web.roles.member`. Two programs of one name across a login's workloads are a type
@@ -1750,7 +1758,7 @@ whatever the payload.
 **Queries for a role are written over the role.** `query(MemberBlog)` and `ChangeSet.empty(MemberBlog)` see and write
 only what `member` does, and may match only the contexts `member` reads: any other is a type error, and, for a caller
 the types don't reach, refused before any SQL. A role that holds every table of its schema whole,
-`role(Blog, "staff", Blog.relations)`, also runs every query and ChangeSet written over the schema itself, such as
+`role(Blog, "staff", wholeEntriesOf(Blog))`, also runs every query and ChangeSet written over the schema itself, such as
 `postPage`. A ChangeSet can write only the entries in its role's `write` list; anything else is a type error.
 
 ### Writing through a role

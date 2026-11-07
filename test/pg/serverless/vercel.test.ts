@@ -12,7 +12,13 @@ import { DbLayer } from "#adapter/public/layer.ts"
 import type { ConnectionPool } from "#adapter/types/layer.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import { uuid } from "#compiler/public/fields.ts"
-import { login, relation, role, schema as schemaOf } from "#compiler/public/schema.ts"
+import {
+	login,
+	relation,
+	role,
+	schema as schemaOf,
+	wholeEntriesOf
+} from "#compiler/public/schema.ts"
 import {
 	defaultPool,
 	poolFor,
@@ -57,7 +63,7 @@ import { isNativePool } from "#test/support/worlds/execute/pool.ts"
  */
 const shopUnder = (name: string) => {
 	const shop = schemaOf(name, { Item: relation("Item", { id: uuid }, ["id"]) }, [])
-	const app = role(shop, "app", shop.relations)
+	const app = role(shop, "app", wholeEntriesOf(shop))
 	/** The shop's snapshot.json, as an import of it yields: what its login's layer is given. */
 	const snapshot = snapshotJson(
 		succeeded(

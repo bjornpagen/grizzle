@@ -37,7 +37,7 @@ import {
 	querySchemaOf,
 	requireName
 } from "#compiler/schema/protocol.ts"
-import { record, roleRelations } from "#compiler/schema/record.ts"
+import { record, roleRelations, wholeEntries } from "#compiler/schema/record.ts"
 import { derivedDraftOf, relationContentOf, writingOf } from "#compiler/schema/relation.ts"
 import { expansionDescOf, statementDescOf } from "#compiler/schema/statements.ts"
 import { approximates, attachesHeading, queryUses } from "#compiler/schema/walk.ts"
@@ -61,7 +61,9 @@ import type {
 	RoleOptionRecord,
 	RoleOptions,
 	RoleRelations,
-	World
+	WholeEntriesOf,
+	World,
+	WritableNameOf
 } from "#compiler/types/schema/world.ts"
 
 export const contextDescOf = (value: unknown): ContextDesc | undefined =>
@@ -522,6 +524,44 @@ export const role = <
 		admitted.level
 	)
 	return value
+}
+
+/**
+ * A schema's record of relations, as a caller hands the schema in: a value that is no schema is refused, as role
+ * refuses it.
+ */
+const schemaRelations = <Base extends AnySchema>(base: Base, label: string): Base["relations"] => {
+	if (ownedEntry(base, "schema") === undefined) {
+		throw malformed(label, "a base schema built by schema(...) or schema.extend(...)")
+	}
+	return base.relations
+}
+
+/**
+ * wholeEntriesOf(base): the entries of a full role over `base`, every relation of every level of it under its own name,
+ * whole, but the closed relations, which are no entry (every role reads their rows). `role(base, name,
+ * wholeEntriesOf(base))` holds every relation of its base whole, so the base is among its levels and every program
+ * over the base runs on it; spread beside query entries, they make a full role with entries of its own.
+ */
+export const wholeEntriesOf = <Base extends AnySchema>(base: Base): WholeEntriesOf<Base> =>
+	wholeEntries(schemaRelations(base, "wholeEntriesOf"))
+
+/**
+ * writableNamesOf(base): the names of the base's ordinary relations, every level's, in its record's order, which are
+ * the whole entries a role writes: `{ write: writableNamesOf(base) }` writes every relation of a full role that a role
+ * writes whole. A roster, a closed relation and a derived relation are never among them.
+ */
+export const writableNamesOf = <Base extends AnySchema>(
+	base: Base
+): ReadonlyArray<WritableNameOf<Base>> => {
+	const ordinary = (
+		entry: [string, AnySchema["relations"][string]]
+	): entry is [WritableNameOf<Base>, AnyRelation] => entry[1].kind === "relation"
+	return Object.freeze(
+		Object.entries(schemaRelations(base, "writableNamesOf"))
+			.filter(ordinary)
+			.map(([name]) => name)
+	)
 }
 
 /**

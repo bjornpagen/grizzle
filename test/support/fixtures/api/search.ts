@@ -9,7 +9,9 @@ import {
 	role,
 	type Schema,
 	schema,
-	type StatementsByName
+	type StatementsByName,
+	wholeEntriesOf,
+	writableNamesOf
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 
@@ -49,9 +51,9 @@ export type SearchNamed<N extends string> = Schema<
  * Search's worlds over the schema they are given: a searcher, a writer of every relation, and the login holding both.
  */
 export const searchWorlds = (installed: SearchNamed<string>) => {
-	const searcher = role(installed, "searcher", installed.relations)
-	const writer = role(installed, "writer", installed.relations, {
-		write: ["Document", "DocumentCurrent", "DocumentEmbedding"]
+	const searcher = role(installed, "searcher", wholeEntriesOf(installed))
+	const writer = role(installed, "writer", wholeEntriesOf(installed), {
+		write: writableNamesOf(installed)
 	})
 	return { searcher, writer, server: login(installed, "server", [searcher, writer]) }
 }

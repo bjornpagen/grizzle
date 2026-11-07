@@ -11,10 +11,17 @@ import { jsonText } from "#compiler/core/trusted.ts"
 import { type QueryValue, queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { queryUses } from "#compiler/schema/walk.ts"
-import { login, loginRoleOf, role, roleDescOf } from "#compiler/schema/world.ts"
+import {
+	login,
+	loginRoleOf,
+	role,
+	roleDescOf,
+	wholeEntriesOf,
+	writableNamesOf
+} from "#compiler/schema/world.ts"
 import type { TypeRefusal } from "#compiler/types/core/phantom.ts"
 import type { AnyDerived } from "#compiler/types/derived/derived.ts"
-import type { AnyRole, EntryValue } from "#compiler/types/schema/world.ts"
+import type { AnyRole, EntryValue, RoleOptionRecord } from "#compiler/types/schema/world.ts"
 import {
 	Account,
 	AccountNames,
@@ -63,7 +70,12 @@ import { preludeAt, type PreludeAt, preludeFrom, preludeProgram } from "#test/su
  * - a program over the base, reading its ordinary relations alone or the closed relation's rows too, executed on a
  *   role's Db typechecks exactly when the engine compiles it for the role: a role holding every relation of the base
  *   whole but the closed one, whose rows every role reads, runs it, and a role holding one only through a query entry
- *   refuses it (OutsideRole).
+ *   refuses it (OutsideRole);
+ * - a full role over the level, its entries wholeEntriesOf(level) and its write list none, writableNamesOf(level),
+ *   those and a name role refuses to write, or a drawn list, and a drawn refresh list, typechecks exactly when
+ *   role(...) builds it, and then its relations' names and its write list are exactly those of the engine's
+ *   Description of it, and a program over the base reading the closed relation runs on it exactly when the engine
+ *   compiles it there.
  *
  * The places a Task entry reads a context are every place a definition can: a match of Org or of Session, Org under
  * a negation, in an interior stage and through an imported query, or none. Each refusal stands under
@@ -141,6 +153,36 @@ const optionDirective = (form: OptionForm): string => {
 const entries = ["execute", "compile", "apply"] as const
 type Entry = (typeof entries)[number]
 
+/**
+ * Every name of either level a full role's lists draw from: Work's relations, the closed TierInfo among them, then
+ * Reports' derived relations.
+ */
+const levelNames = ["Tier", "TierInfo", "Account", "Task", ...derivedNames] as const
+type LevelName = (typeof levelNames)[number]
+
+/**
+ * The names role refuses in a full role's write list, the stray after writableNamesOf: the roster, the closed relation,
+ * and each derived relation. A second copy of a name the list holds is no stray: the types never see a list's repeats.
+ */
+const strayNames = ["Tier", "TierInfo", ...derivedNames] as const
+type StrayName = (typeof strayNames)[number]
+
+/**
+ * A full role's write list, as the program spells it: left out, every relation it may write (writableNamesOf), those
+ * and a stray, or a drawn list of the level's names in order.
+ */
+type FullWrite =
+	| { readonly kind: "omitted" }
+	| { readonly kind: "every" }
+	| { readonly kind: "every and"; readonly stray: StrayName }
+	| { readonly kind: "listed"; readonly names: ReadonlyArray<LevelName> }
+
+/** A full role over the case's level: its base's whole entries (wholeEntriesOf), and its write and refresh lists. */
+interface FullSpec {
+	readonly write: FullWrite
+	readonly refresh: ReadonlyArray<LevelName>
+}
+
 /** One role of a case's login: its Task entry's place, and, over Reports, its derived entries and refresh list. */
 interface RoleSpec {
 	readonly name: string
@@ -164,6 +206,8 @@ interface AccessSpec {
 	readonly options: OptionForm
 	/** A program over the base a role's Db executes: its role, and whether it matches the closed relation. */
 	readonly base: { readonly role: number; readonly program: BaseProgram }
+	/** A full role over the level, outside the login. */
+	readonly full: FullSpec
 }
 
 /** What a case reached: each role's place and every verdict. */
@@ -176,10 +220,35 @@ export type AccessNote =
 	| `${Opener} ${"admitted" | "refused"}`
 	| `options ${OptionForm} ${"admitted" | "refused"}`
 	| `base ${BaseProgram} ${"admitted" | "refused"}`
+	| `full ${"admitted" | "refused"}`
+	| `full write ${FullWrite["kind"]}`
 	| "two roles"
 	| "over an extension"
 
 const coin = (source: Source, odds: number): boolean => source.draw(int(1, odds)) === 1
+
+const fullWriteKinds = ["omitted", "every", "every and", "listed"] as const satisfies ReadonlyArray<
+	FullWrite["kind"]
+>
+
+const fullWriteGen: Gen<FullWrite> = (source) => {
+	const kind = source.draw(element(fullWriteKinds))
+	switch (kind) {
+		case "omitted":
+			return { kind }
+		case "every":
+			return { kind }
+		case "every and":
+			return { kind, stray: source.draw(element(strayNames)) }
+		case "listed":
+			return { kind, names: Arr.filter(levelNames, () => coin(source, 3)) }
+	}
+}
+
+const fullGen: Gen<FullSpec> = (source) => ({
+	write: fullWriteGen(source),
+	refresh: coin(source, 2) ? [] : Arr.filter(levelNames, () => coin(source, 3))
+})
 
 const specGen: Gen<AccessSpec> = (source) => {
 	const level = coin(source, 2) ? "Reports" : "Work"
@@ -209,7 +278,8 @@ const specGen: Gen<AccessSpec> = (source) => {
 		base: {
 			role: source.draw(int(0, count - 1)),
 			program: source.draw(element(basePrograms))
-		}
+		},
+		full: fullGen(source)
 	}
 }
 
@@ -289,6 +359,62 @@ interface AccessVerdict {
 	readonly options: boolean
 	/** Whether the engine compiles the program over the base for the role (OutsideRole for a partial role). */
 	readonly base: boolean
+	readonly full: FullVerdict
+}
+
+/**
+ * The engine's reading of a case's full role: refused by role(...), or admitted with the names of its entries and its
+ * write list as its Description holds them, and whether the program over the base matching the closed relation
+ * compiles for it.
+ */
+type FullVerdict =
+	| { readonly kind: "refused" }
+	| {
+			readonly kind: "admitted"
+			readonly entries: ReadonlyArray<string>
+			readonly write: ReadonlyArray<string>
+			readonly base: boolean
+	  }
+
+/** A full role's options as a JavaScript caller passes them, its write list made by the helpers the program calls. */
+const fullOptions = (
+	full: FullSpec,
+	level: typeof Work | typeof Reports
+): RoleOptionRecord<ReadonlyArray<string>, ReadonlyArray<string>> => {
+	switch (full.write.kind) {
+		case "omitted":
+			return { refresh: full.refresh }
+		case "every":
+			return { write: writableNamesOf(level), refresh: full.refresh }
+		case "every and":
+			return { write: [...writableNamesOf(level), full.write.stray], refresh: full.refresh }
+		case "listed":
+			return { write: full.write.names, refresh: full.refresh }
+	}
+}
+
+/**
+ * The case's full role, built by role(...) over wholeEntriesOf(level) as the program builds it, as the engine reads
+ * it.
+ */
+const fullVerdictOf = (spec: AccessSpec): FullVerdict => {
+	const level = spec.level === "Reports" ? Reports : Work
+	const built = catchCompileError(() =>
+		role(level, "full", wholeEntriesOf(level), fullOptions(spec.full, level))
+	)
+	if (!built.ok) {
+		return { kind: "refused" }
+	}
+	const desc = roleDescOf(built.value)
+	if (desc === undefined) {
+		throw new Error("role(...) describes every role it builds")
+	}
+	return {
+		kind: "admitted",
+		entries: Arr.map(desc.relations, (entry) => entry.name),
+		write: desc.write,
+		base: compileTemplate(accountSeats, built.value, testCompile).ok
+	}
 }
 
 const verdictOf = (spec: AccessSpec): AccessVerdict => {
@@ -329,7 +455,8 @@ const verdictOf = (spec: AccessSpec): AccessVerdict => {
 			baseValues[spec.base.program],
 			defined(values[spec.base.role], "the base program's role"),
 			testCompile
-		).ok
+		).ok,
+		full: fullVerdictOf(spec)
 	}
 }
 
@@ -353,6 +480,8 @@ const caseGen: Gen<AccessCase> = (source) => {
 	notes.add(`${spec.opener} ${verdict.opener ? "admitted" : "refused"}`)
 	notes.add(`options ${spec.options} ${verdict.options ? "admitted" : "refused"}`)
 	notes.add(`base ${spec.base.program} ${verdict.base ? "admitted" : "refused"}`)
+	notes.add(`full ${verdict.full.kind}`)
+	notes.add(`full write ${spec.full.write.kind}`)
 	if (spec.roles.length > 1) {
 		notes.add("two roles")
 	}
@@ -378,6 +507,50 @@ const roleSource = (spec: AccessSpec, r: RoleSpec, i: number): string =>
 /** The program over a role matching a context, in the program. */
 const programSource = (roleId: string, context: ContextName, i: number): string =>
 	`export const p${i} = query(${roleId}).rule((r) => { const { id, name } = v(${roleId}.relations.Account, "account"); return r.match(${roleId}.relations.Account, { id, name })${context === "Org" ? ".match(Org, { id })" : ".match(Session, { sub: name })"}.find({ id }) })`
+
+/** A full role's options, in the program. */
+const fullOptionsSource = (full: FullSpec, level: AccessSpec["level"]): string => {
+	const refresh = `refresh: [${Arr.join(Arr.map(full.refresh, jsonText), ", ")}]`
+	switch (full.write.kind) {
+		case "omitted":
+			return `{ ${refresh} }`
+		case "every":
+			return `{ write: writableNamesOf(${level}), ${refresh} }`
+		case "every and":
+			return `{ write: [...writableNamesOf(${level}), ${jsonText(full.write.stray)}], ${refresh} }`
+		case "listed":
+			return `{ write: [${Arr.join(Arr.map(full.write.names, jsonText), ", ")}], ${refresh} }`
+	}
+}
+
+/** Names as the union type the program states, never for none. */
+const unionOf = (names: ReadonlyArray<string>): string =>
+	Arr.isReadonlyArrayNonEmpty(names) ? Arr.join(Arr.map(names, jsonText), " | ") : "never"
+
+/**
+ * A case's full role, in the program: under its directive where role(...) refuses it, and otherwise followed by its
+ * relations' names and its write list stated as the engine's, and the program over the base matching the closed
+ * relation run on it under the engine's verdict.
+ */
+const fullBlock = (spec: AccessSpec, verdict: FullVerdict, i: number): ReadonlyArray<string> => {
+	const declaration = `export const F${i} = role(${spec.level}, "f${i}", wholeEntriesOf(${spec.level}), ${fullOptionsSource(spec.full, spec.level)})`
+	switch (verdict.kind) {
+		case "refused":
+			return [
+				"// @ts-expect-error -- TS2345: role refuses the full role's write or refresh list",
+				declaration
+			]
+		case "admitted":
+			return [
+				declaration,
+				`export type fe${i} = Expect<Equals<keyof (typeof F${i})["relations"], ${unionOf(verdict.entries)}>>`,
+				`export type fw${i} = Expect<Equals<WriteListOf<typeof F${i}>, ${unionOf(verdict.write)}>>`,
+				`export const fb${i} = (db: DbOf<typeof F${i}, unknown>) =>`,
+				...(verdict.base ? [] : [`\t// @ts-expect-error -- TS2345 refusal: ${baseRefusal}`]),
+				"\tdb.execute(accountSeats, {})"
+			]
+	}
+}
 
 /** Db.open's first argument, in the program. */
 const openerSource = (spec: AccessSpec, i: number): string => {
@@ -457,6 +630,7 @@ const blockOf = (c: AccessCase, i: number): ReadonlyArray<string> => {
 					`export type g${i} = Expect<Equals<ReturnType<typeof f${i}>, Effect.Effect<void, ApplyError>>>`
 				]
 			: []),
+		...fullBlock(spec, verdict.full, i),
 		""
 	]
 }
@@ -487,6 +661,9 @@ export const accessRequired: Situations<AccessNote> = [
 	"base accountIds refused",
 	"base accountSeats admitted",
 	"base accountSeats refused",
+	"full admitted",
+	"full refused",
+	...Arr.map(fullWriteKinds, (kind): AccessNote => `full write ${kind}`),
 	"two roles",
 	"over an extension"
 ]

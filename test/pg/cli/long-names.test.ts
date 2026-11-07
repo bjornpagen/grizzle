@@ -23,7 +23,7 @@ import { conversionOf, identity, maxIdentifierBytes } from "#compiler/core/ident
 import { utf8Length } from "#compiler/core/sha256.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { uuid } from "#compiler/public/fields.ts"
-import { login, relation, role, schema } from "#compiler/public/schema.ts"
+import { login, relation, role, schema, wholeEntriesOf } from "#compiler/public/schema.ts"
 import { defineConfig } from "#index.ts"
 import { cliOver, configName, connectionOf, ownerOn, workspace } from "#test/pg/cli/support.ts"
 import { assert } from "#test/support/assert.ts"
@@ -100,7 +100,7 @@ const longest = (n: Names): number =>
 /** The world a case's names declare: one relation, each role reading it whole, every role in the login. */
 const worldOf = (declared: string, n: Names) => {
 	const base = schema(declared, { Item: relation("Item", { id: uuid }, ["id"]) }, [])
-	const roles = Arr.map(n.roles, (name) => role(base, name, base.relations))
+	const roles = Arr.map(n.roles, (name) => role(base, name, wholeEntriesOf(base)))
 	return { schema: base, login: login(base, n.login, roles) }
 }
 

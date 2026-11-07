@@ -45,7 +45,7 @@ import { trusted } from "#compiler/core/trusted.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { derived, login, relation, role, schema } from "#compiler/public/schema.ts"
+import { derived, login, relation, role, schema, wholeEntriesOf } from "#compiler/public/schema.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
 import { regex } from "arkregex"
@@ -109,7 +109,7 @@ const build = (name: string) => {
 	)
 	const Reports = schema.extend(Level1, { WeekBusy }, [])
 	/** The refresher: a full role refreshing every view, in a login of its own. */
-	const refresher = role(Reports, "refresher", Reports.relations, {
+	const refresher = role(Reports, "refresher", wholeEntriesOf(Reports), {
 		refresh: ["StudentWeekly", "TopFee", "WeekBusy"]
 	})
 	return {

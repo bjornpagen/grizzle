@@ -16,7 +16,7 @@ import { isRecord } from "#compiler/core/record.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
 import { arm, query, v } from "#compiler/public/query.ts"
-import { derived, login, relation, role, schema } from "#compiler/public/schema.ts"
+import { derived, login, relation, role, schema, wholeEntriesOf } from "#compiler/public/schema.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import { defaultPool, poolFor, rowsOn } from "#test/pg/adapter/support.ts"
 import { installed } from "#test/pg/reads/support.ts"
@@ -77,7 +77,9 @@ const derivedFixture = (name: string) => {
 		})
 	)
 	const Reports = schema.extend(Edu, { StudentWeekly }, [])
-	const refresher = role(Reports, "refresher", Reports.relations, { refresh: ["StudentWeekly"] })
+	const refresher = role(Reports, "refresher", wholeEntriesOf(Reports), {
+		refresh: ["StudentWeekly"]
+	})
 	return { StudentWeekly, Reports, refresher, server: login(Reports, "server", [refresher]) }
 }
 

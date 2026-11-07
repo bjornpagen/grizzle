@@ -31,6 +31,7 @@ export {
 } from "#compiler/schema/api.ts"
 export { lawsOf, type StatementLaws } from "#compiler/program/laws.ts"
 export { login } from "#compiler/program/workload/login.ts"
+export { wholeEntriesOf, writableNamesOf } from "#compiler/schema/world.ts"
 export type { AnyDerived, Derived, NoParams } from "#compiler/types/derived/derived.ts"
 export type {
 	Alternatives,
@@ -90,7 +91,10 @@ export type {
 	RefreshListOf,
 	Role,
 	RolesOf,
+	WholeEntries,
+	WholeEntriesOf,
 	World,
+	WritableNameOf,
 	WriteListOf
 } from "#compiler/types/schema/world.ts"
 
@@ -113,7 +117,8 @@ export type {
 
 /**
  * Public barrel: relation (and relation.generated), closed (and closed.relation), derived, schema, the statement
- * constructors, and the worlds: context, role and login.
+ * constructors, and the worlds: context, role (with wholeEntriesOf and writableNamesOf, a full role's entries and
+ * write list) and login.
  *
  * relation, closed, schema and the statement constructors are the typed schema facade's (schema/api.ts), and login,
  * which admits the workloads it owns, the workload program's (program/workload/login.ts). derived's

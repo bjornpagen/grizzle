@@ -13,7 +13,7 @@ import type { CompileError, TransientTag } from "#compiler/core/errors.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { pg, uuid, type Uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { derived, login, relation, role, schema } from "#compiler/public/schema.ts"
+import { derived, login, relation, role, schema, wholeEntriesOf } from "#compiler/public/schema.ts"
 import {
 	installDerived,
 	type Opened,
@@ -106,9 +106,9 @@ const build = (name: string) => {
 	)
 	const Reports = schema.extend(Level1, { WeekBusy }, [])
 	const refresh = derivedNames
-	const refresher = role(Reports, "refresher", Reports.relations, { refresh })
-	const refresher2 = role(Reports, "refresher2", Reports.relations, { refresh })
-	const holder = role(Reports, "holder", Reports.relations, { refresh })
+	const refresher = role(Reports, "refresher", wholeEntriesOf(Reports), { refresh })
+	const refresher2 = role(Reports, "refresher2", wholeEntriesOf(Reports), { refresh })
+	const holder = role(Reports, "holder", wholeEntriesOf(Reports), { refresh })
 	const writer = role(Reports, "writer", { Sitting, StudentWeekly }, { write: ["Sitting"] })
 	const reader = role(Reports, "reader", { StudentWeekly, StudentTotal, WeekBusy })
 	return {

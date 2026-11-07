@@ -9,7 +9,9 @@ import {
 	on,
 	relation,
 	role,
-	schema
+	schema,
+	wholeEntriesOf,
+	writableNamesOf
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 
@@ -41,8 +43,8 @@ export const Thing = relation("Thing", { id: uuid }, ["id"])
 export const Other = schema("Other", { Thing }, [])
 const Twin = schema("Work", { Account }, [])
 
-export const Writer = role(Work, "writer", Work.relations, { write: ["Account", "Task"] })
-export const Reader = role(Work, "reader", Work.relations)
+export const Writer = role(Work, "writer", wholeEntriesOf(Work), { write: writableNamesOf(Work) })
+export const Reader = role(Work, "reader", wholeEntriesOf(Work))
 export const Clerk = role(Work, "clerk", { Account })
 
 export const tasks = query(Work).rule((r) => {

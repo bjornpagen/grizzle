@@ -194,7 +194,7 @@ export const S = schema("Gen", { Kind, ${names} }, [
 ${statements(relations)}
 ])
 /** A full role reading every relation, which every program over S runs on. */
-export const Reader = role(S, "reader", S.relations)
+export const Reader = role(S, "reader", wholeEntriesOf(S))
 ${blocks}${checked}`
 	)
 }

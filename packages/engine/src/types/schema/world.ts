@@ -98,8 +98,9 @@ export interface AnyWorld extends Built, Headed<Carriers> {
  *   under its own name; a query entry is a world relation (World), a query over the base installed as a plain view,
  *   whose fields are its definition's heading and whose keys are those its definition's evidence proves, as a derived
  *   relation's are. The role keeps the base's laws among its whole entries. A role holding every relation of its base
- *   whole is a full role: its base is among its levels (LevelsOf), so programs over the base run on it. `write` names
- *   the role relations it may write, `refresh` the derived whole entries it may refresh.
+ *   whole is a full role: its base is among its levels (LevelsOf), so programs over the base run on it; its entries are
+ *   wholeEntriesOf(base) (WholeEntriesOf). `write` names the role relations it may write, every one it may write whole
+ *   being writableNamesOf(base) (WritableNameOf), `refresh` the derived whole entries it may refresh.
  * - A login is one credential and one pool for roles over one base. DbLayer.make takes one; Db.open opens a role of
  *   the layer's login.
  *
@@ -212,6 +213,29 @@ export type RefreshableKeys<Rs> = {
 	[K in keyof Rs]-?: Rs[K] extends AnyDerived ? K : never
 }[keyof Rs] &
 	string
+
+/**
+ * A full role's entries over a schema's record of relations: each relation under its own key, whole, but the closed
+ * relations, which are no entry (every role reads their rows). One key per relation, kept or dropped by its own type
+ * alone, so a record of n relations costs n conditionals and a closed relation can never stand among the entries.
+ */
+export type WholeEntries<Rs> = {
+	readonly [K in keyof Rs as Rs[K] extends AnyClosedRelation ? never : K]: Rs[K]
+}
+
+/**
+ * The entries of a full role over Base (wholeEntriesOf): every relation of every level of the base, under its own name,
+ * whole, its closed relations aside. A role holding them holds every relation of its base whole, so its base is among
+ * its levels (FullBaseOf).
+ */
+export type WholeEntriesOf<Base extends AnySchema> = WholeEntries<Base["relations"]>
+
+/**
+ * The names a role over Base writes when it writes every whole entry it may (writableNamesOf): the base's ordinary
+ * relations, every level's, which are WritableKeys of its full role's entries. A roster, a closed relation and a
+ * derived relation are never among them.
+ */
+export type WritableNameOf<Base extends AnySchema> = WritableKeys<WholeEntriesOf<Base>>
 
 /** The contexts a role's query entries read. */
 export type EntryContexts<Rs> = {

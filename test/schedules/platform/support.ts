@@ -33,7 +33,7 @@ import { type ReadonlyTupleMap, TupleMap, TupleSet } from "#compiler/core/tuple-
 import { codecOf, codeOf } from "#compiler/ir/codes.ts"
 import type { Family } from "#compiler/ir/family.ts"
 import type { NativeColumn } from "#compiler/ir/law.ts"
-import { login, role } from "#compiler/public/schema.ts"
+import { login, role, wholeEntriesOf, writableNamesOf } from "#compiler/public/schema.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { defined, nonEmpty } from "#test/support/assert.ts"
 import * as P from "#test/support/fixtures/api/platform.ts"
@@ -149,8 +149,8 @@ import { regex } from "arkregex"
  */
 export const racesAt = (name: string) => {
 	const base = P.platformAt(name).Platform
-	const app = role(base, "app", base.relations, { write: P.platformWrites })
-	const direct = role(base, "direct", base.relations, { write: P.platformWrites })
+	const app = role(base, "app", wholeEntriesOf(base), { write: writableNamesOf(base) })
+	const direct = role(base, "direct", wholeEntriesOf(base), { write: writableNamesOf(base) })
 	return {
 		schema: base,
 		app,

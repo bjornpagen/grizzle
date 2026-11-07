@@ -11,7 +11,9 @@ import {
 	on,
 	relation,
 	role,
-	schema
+	schema,
+	wholeEntriesOf,
+	writableNamesOf
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { workload } from "#compiler/public/workload.ts"
@@ -34,8 +36,8 @@ export const shopV1 = (name: string, programs: ShopWorkload) => {
 	const s = schema(name, { Customer, Order }, [
 		contained(on(Order, "customer"), on(Customer, "id"))
 	])
-	const reader = role(s, "reader", s.relations)
-	const writer = role(s, "writer", s.relations, { write: ["Customer", "Order"] })
+	const reader = role(s, "reader", wholeEntriesOf(s))
+	const writer = role(s, "writer", wholeEntriesOf(s), { write: writableNamesOf(s) })
 	/** A customer by name: an equality lookup on a bounded text field, which drafts `customer__ix__name`. */
 	const customersByName = query(s).rule((r) => {
 		const c = v(Customer, "customer")
@@ -79,8 +81,8 @@ export const shopV2 = (name: string, programs: ShopWorkload) => {
 	const s = schema(name, { Customer, Order }, [
 		contained(on(Order, "customer"), on(Customer, "id"))
 	])
-	const reader = role(s, "reader", s.relations)
-	const writer = role(s, "writer", s.relations, { write: ["Customer", "Order"] })
+	const reader = role(s, "reader", wholeEntriesOf(s))
+	const writer = role(s, "writer", wholeEntriesOf(s), { write: writableNamesOf(s) })
 	const customersByName = query(s).rule((r) => {
 		const c = v(Customer, "customer")
 		return r
@@ -173,11 +175,11 @@ export const ledger = (name: string) => {
 	})
 	const CustomerSpend = derived("CustomerSpend", spend)
 	const s = schema.extend(base, { CustomerSpend }, [])
-	const reader = role(s, "reader", s.relations)
-	const writer = role(s, "writer", s.relations, {
-		write: ["Customer", "Payment", "CardPayment", "InvoicePayment"]
+	const reader = role(s, "reader", wholeEntriesOf(s))
+	const writer = role(s, "writer", wholeEntriesOf(s), {
+		write: writableNamesOf(s)
 	})
-	const refresher = role(s, "refresher", s.relations, { refresh: ["CustomerSpend"] })
+	const refresher = role(s, "refresher", wholeEntriesOf(s), { refresh: ["CustomerSpend"] })
 	const customersByName = query(s).rule((r) => {
 		const c = v(Customer, "customer")
 		return r

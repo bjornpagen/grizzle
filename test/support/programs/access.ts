@@ -5,8 +5,18 @@
 export type { Effect, Layer, Redacted } from "effect"
 export type { DbOf } from "#adapter/types/db.ts"
 export type { DbConfigShape, Verify } from "#adapter/types/layer.ts"
-export { ChangeSet, Db, DbLayer, login, query, role, v } from "#index.ts"
-export type { ApplyError, OpenError } from "#index.ts"
+export {
+	ChangeSet,
+	Db,
+	DbLayer,
+	login,
+	query,
+	role,
+	v,
+	wholeEntriesOf,
+	writableNamesOf
+} from "#index.ts"
+export type { ApplyError, OpenError, WriteListOf } from "#index.ts"
 export {
 	Account,
 	AccountNames,

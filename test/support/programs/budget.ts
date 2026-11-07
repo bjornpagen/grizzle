@@ -41,7 +41,9 @@ export {
 	relation,
 	role,
 	schema,
-	tree
+	tree,
+	wholeEntriesOf,
+	writableNamesOf
 } from "#compiler/public/schema.ts"
 export type { Fact, KeysOf } from "#compiler/public/schema.ts"
 export { str } from "#compiler/public/text.ts"

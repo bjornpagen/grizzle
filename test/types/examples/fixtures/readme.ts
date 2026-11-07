@@ -48,6 +48,7 @@ import {
 	uuid,
 	type Uuid,
 	v,
+	wholeEntriesOf,
 	workload
 } from "@bjornpagen/grizzle"
 import { verifyToken } from "@clerk/backend"
@@ -261,7 +262,7 @@ export const Credits = schema("Credits", { Grant, Debit }, [
 	mutable(Grant)
 ])
 
-export const Metering = role(Credits, "metering", Credits.relations, { write: ["Debit"] })
+export const Metering = role(Credits, "metering", wholeEntriesOf(Credits), { write: ["Debit"] })
 
 /** Debit a grant for one call. Your code decides the retry; grizzle never retries. */
 export const spend = (db: Db<typeof Metering, unknown>, debit: Fact<typeof Debit>) =>
@@ -382,7 +383,9 @@ export const ModelSpend = derived(
 )
 export const Reporting = schema.extend(Usage, { ModelSpend }, [])
 
-export const Analyst = role(Reporting, "analyst", Reporting.relations, { refresh: ["ModelSpend"] })
+export const Analyst = role(Reporting, "analyst", wholeEntriesOf(Reporting), {
+	refresh: ["ModelSpend"]
+})
 export const UsageApi = login(Reporting, "usage_api", [Analyst], {
 	workload: [workload(Analyst, { callLog })]
 })
@@ -856,7 +859,7 @@ export type PostPageParams = Expect<
 >
 
 /** "grizzle knows postPage returns at most one row, so db.get accepts it": on a role holding the schema whole. */
-const Staff = role(Blog, "staff", Blog.relations)
+const Staff = role(Blog, "staff", wholeEntriesOf(Blog))
 declare const staff: Db<typeof Staff, unknown>
 export const onePage = staff.get(postPage, { id: "00000000-0000-0000-0000-000000000000" })
 export type OnePage = Expect<
@@ -1070,7 +1073,7 @@ export type PublishParams = Expect<
 >
 
 /** "the outcome's reads hold the count": on a role that writes Comment. */
-const Moderator = role(Blog, "moderator", Blog.relations, { write: ["Comment"] })
+const Moderator = role(Blog, "moderator", wholeEntriesOf(Blog), { write: ["Comment"] })
 declare const moderator: Db<typeof Moderator, unknown>
 export const purged = moderator.apply(purge, { author: "user_1" })
 export type PurgedReads = Expect<

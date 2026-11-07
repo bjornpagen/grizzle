@@ -12,7 +12,9 @@ import {
 	relation,
 	role,
 	type Statement,
-	schema
+	schema,
+	wholeEntriesOf,
+	writableNamesOf
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { arm } from "#compiler/query/build/attach.ts"
@@ -188,8 +190,8 @@ export type SchemaValue = ReturnType<typeof schemaOf>
  * The world every case opens its Db as: the full role `app`, reading every relation and writing every stored one, in
  * its login `server`.
  */
-const worldOf = (value: SchemaValue, stored: ReadonlyArray<string>) => {
-	const app = role(value, "app", value.relations, { write: stored })
+const worldOf = (value: SchemaValue) => {
+	const app = role(value, "app", wholeEntriesOf(value), { write: writableNamesOf(value) })
 	return { app, server: login(value, "server", [app]) }
 }
 export type WorldValue = ReturnType<typeof worldOf>
@@ -254,7 +256,6 @@ export const buildSchema = (s: ProgramSchema): BuiltSchema => {
 		}
 		return value
 	}
-	const stored = Arr.map(s.relations, (r) => r.name)
 	const declared: Record<string, RosterValue | RelationValue> = { [s.roster.name]: roster }
 	for (const r of s.relations) {
 		declared[r.name] = relationValue(r)
@@ -263,8 +264,8 @@ export const buildSchema = (s: ProgramSchema): BuiltSchema => {
 	return {
 		schema: schemaValue,
 		installedAs: (installed) => schemaOf(installed, declared, statements),
-		world: worldOf(schemaValue, stored),
-		worldAs: (installed) => worldOf(schemaOf(installed, declared, statements), stored),
+		world: worldOf(schemaValue),
+		worldAs: (installed) => worldOf(schemaOf(installed, declared, statements)),
 		roster,
 		source: (source) => {
 			switch (source.kind) {

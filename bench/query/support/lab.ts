@@ -3,7 +3,16 @@ import { type Fixture, fill, settle } from "#bench/query/support/kit.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { contained, derived, login, on, relation, role, schema } from "#compiler/public/schema.ts"
+import {
+	contained,
+	derived,
+	login,
+	on,
+	relation,
+	role,
+	schema,
+	wholeEntriesOf
+} from "#compiler/public/schema.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -510,7 +519,7 @@ export const distinctPointsPerCohort = query(Lab).rule((r) => {
 export const BestThree = derived("BestThree", bestPerStudent)
 export const LabReports = schema.extend(Lab, { BestThree }, [])
 /** The refresher: a full role over LabReports refreshing BestThree, in a login of its own. */
-export const labRefresher = role(LabReports, "refresher", LabReports.relations, {
+export const labRefresher = role(LabReports, "refresher", wholeEntriesOf(LabReports), {
 	refresh: ["BestThree"]
 })
 export const labRefreshers = login(LabReports, "refreshers", [labRefresher])

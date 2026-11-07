@@ -285,7 +285,7 @@ type Expect<T extends true> = T
 ${declarations}
 ${rels}
 export const S = schema("Patterns", { ${names} }, [])
-export const Reader = role(S, "reader", S.relations)
+export const Reader = role(S, "reader", wholeEntriesOf(S))
 declare const db: DbOf<typeof Reader, unknown>
 ${queries}
 ${checks}

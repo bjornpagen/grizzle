@@ -33,7 +33,9 @@ import {
 	relation,
 	role,
 	schema,
-	select
+	select,
+	wholeEntriesOf,
+	writableNamesOf
 } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
 
@@ -605,45 +607,6 @@ export const dailySpendDefinition = query(Platform).rule((r) => {
 })
 const DailySpend = derived("DailySpend", dailySpendDefinition)
 
-/**
- * What the billing role writes: every stored relation of the platform.
- * Every stored relation of the platform: what its full roles write.
- */
-export const platformWrites = [
-	"Org",
-	"ParentOrg",
-	"Workspace",
-	"ApiKey",
-	"Revocation",
-	"ApiKeyActive",
-	"Provider",
-	"Model",
-	"Route",
-	"ProviderPrice",
-	"RateCard",
-	"RateTier",
-	"UsageEvent",
-	"UsageCharge",
-	"EventCharge",
-	"ProviderCost",
-	"CreditGrant",
-	"CreditDebit",
-	"WorkspaceLimit",
-	"Day",
-	"Month",
-	"Invoice",
-	"InvoiceLine",
-	"UsageLine",
-	"PlanLine",
-	"Payment",
-	"Voiding",
-	"Dispute",
-	"Refund",
-	"Subscription",
-	"Segment",
-	"Allocation"
-] as const
-
 export const Billing = schema.extend(Platform, { DailySpend }, [])
 
 /**
@@ -653,8 +616,8 @@ export const Billing = schema.extend(Platform, { DailySpend }, [])
 export const platformAt = (name: string) => {
 	const base = platformOf(name)
 	const extended = schema.extend(base, { DailySpend }, [])
-	const billing = role(extended, "billing", extended.relations, {
-		write: platformWrites,
+	const billing = role(extended, "billing", wholeEntriesOf(extended), {
+		write: writableNamesOf(extended),
 		refresh: ["DailySpend"]
 	})
 	return {

@@ -13,7 +13,8 @@ import {
 	role,
 	type Schema,
 	schema,
-	type StatementsByName
+	type StatementsByName,
+	wholeEntriesOf
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { Instant } from "#test/support/fixtures/api/contracts.ts"
@@ -119,11 +120,13 @@ export type QueueNamed<N extends string> = Schema<
  * keeps the seats; full roles all, in one login.
  */
 export const queueWorlds = (installed: QueueNamed<string>) => {
-	const worker = role(installed, "worker", installed.relations, {
+	const worker = role(installed, "worker", wholeEntriesOf(installed), {
 		write: ["Work", "Wanted", "Leased", "Done", "Refused"]
 	})
-	const enqueuer = role(installed, "enqueuer", installed.relations, { write: ["Work", "Wanted"] })
-	const operator = role(installed, "operator", installed.relations, { write: ["Seat"] })
+	const enqueuer = role(installed, "enqueuer", wholeEntriesOf(installed), {
+		write: ["Work", "Wanted"]
+	})
+	const operator = role(installed, "operator", wholeEntriesOf(installed), { write: ["Seat"] })
 	return {
 		worker,
 		enqueuer,

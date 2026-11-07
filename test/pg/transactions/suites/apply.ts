@@ -11,7 +11,7 @@ import { isCompileError } from "#compiler/core/errors.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { login, relation, role, schema } from "#compiler/public/schema.ts"
+import { login, relation, role, schema, wholeEntriesOf } from "#compiler/public/schema.ts"
 import { defaultPool, poolFor, rowsOn } from "#test/pg/adapter/support.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, failureOf, bareRecord, unorderedEqual } from "#test/support/assert.ts"
@@ -46,7 +46,7 @@ const levels = (name: string) => {
 	 * The app: a full role over Extended writing Work's stored relations but Account, so a write of Account is outside
 	 * its write list, in its login.
 	 */
-	const app = role(Extended, "app", Extended.relations, {
+	const app = role(Extended, "app", wholeEntriesOf(Extended), {
 		write: ["Task", "AutomaticTask", "ManualTask", "TaskNote"]
 	})
 	return { Base, Extended, app, server: login(Extended, "server", [app]) }

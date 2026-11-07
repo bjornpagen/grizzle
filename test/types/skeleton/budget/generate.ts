@@ -132,11 +132,8 @@ export const S = schema("Gen", { Kind, ${names} }, [
 ${statements(relations)}
 ])
 /** A full reader and a full writer of every relation, which every program over S runs on. */
-export const Reader = role(S, "reader", S.relations)
-export const Writer = role(S, "writer", S.relations, { write: [${Arr.join(
-			Arr.map(indices(relations), (i) => `"R${i}"`),
-			", "
-		)}] })
+export const Reader = role(S, "reader", wholeEntriesOf(S))
+export const Writer = role(S, "writer", wholeEntriesOf(S), { write: writableNamesOf(S) })
 declare const db: DbOf<typeof Writer, unknown>
 declare const reader: DbOf<typeof Reader, unknown>
 ${blocks}${checked}`

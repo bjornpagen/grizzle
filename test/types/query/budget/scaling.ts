@@ -172,7 +172,7 @@ ${Arr.join(
 	",\n"
 )}
 ])
-export const Reader = role(S, "reader", S.relations)
+export const Reader = role(S, "reader", wholeEntriesOf(S))
 export const readAll = (db: DbOf<typeof Reader, unknown>) => db.get(R0, { id: "00000000-0000-4000-8000-000000000001" })
 ${Arr.join(
 	Arr.map(indices(shape.rules), (q) => ruleBlock(q, shape.relations)),
@@ -189,7 +189,7 @@ ${members(shape)}
 			""
 		)}${
 			shape.contexts > 0
-				? `export const Ctx = role(S, "ctx", { ...S.relations, ${Arr.join(
+				? `export const Ctx = role(S, "ctx", { ...wholeEntriesOf(S), ${Arr.join(
 						Arr.map(indices(shape.contexts), (j) => `InC${j}: inC${j}`),
 						", "
 					)} })
