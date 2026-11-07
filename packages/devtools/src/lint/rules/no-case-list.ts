@@ -193,14 +193,15 @@ const visitOf = (
 				)
 			: Option.none()
 	}
-	/** The generators a choice offers: its arguments, through the lists that hold them and the weights beside them. */
+	/** The generators a choice offers: its arguments, through the lists that hold them, without the weights beside them;
+	 * a function written in place is a generator of its own, and so an option that is no case list. */
 	const optionsOf = (
 		expressions: ReadonlyArray<ts.Expression>,
 		seen: Set<ts.Node>
 	): ReadonlyArray<ts.Expression> =>
 		Arr.flatMap(expressions, (expression) => {
 			const node = bare(expression)
-			if (isFunctionLiteral(node) || isPrimitiveLiteral(node) || seen.has(node)) {
+			if (isPrimitiveLiteral(node) || seen.has(node)) {
 				return []
 			}
 			seen.add(node)

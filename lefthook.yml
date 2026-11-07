@@ -1,6 +1,7 @@
-# One check-only gate over what the commit holds (scripts/dev/check-commit.sh): the hook never formats or stages
-# files, it only refuses a failing commit.
-pre-commit:
+# One check-only gate over what the commit holds (scripts/dev/check-commit.sh). It runs at commit-msg, after the index
+# is final, because lefthook's pre-commit hides every unstaged change in the working tree while its jobs run, and work
+# in progress there is not the commit's. The hook never formats or stages files, it only refuses a failing commit.
+commit-msg:
   skip:
     - merge
     - rebase

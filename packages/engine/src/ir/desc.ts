@@ -63,7 +63,7 @@ export type LiteralDesc =
 	| { readonly handles: ReadonlyArray<string> }
 
 /** Field descriptors, aliases already normalized: decimal is numeric, bool is boolean. */
-const pgScalarNames = [
+export const pgScalarNames = [
 	"smallint",
 	"integer",
 	"bigint",
@@ -163,7 +163,7 @@ export type ComputeFn = (typeof computeFns)[number]
 /** The functions that take a scale argument: round(a, scale) and trunc(a, scale). */
 export type ScaledComputeFn = "round" | "trunc"
 
-const compareOps = ["eq", "ne", "lt", "le", "gt", "ge"] as const
+export const compareOps = ["eq", "ne", "lt", "le", "gt", "ge"] as const
 export type CompareOp = (typeof compareOps)[number]
 
 /**

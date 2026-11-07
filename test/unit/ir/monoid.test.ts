@@ -8,26 +8,35 @@
  *   two-plane model), so a set stepped twice is twice.
  * - The combine is evaluated over host values: bigints for count, sum and max over natural, Sets of handles for or and
  *   twos, handles in roster order for max over a closed id, and strings for concat.
- * - `admits`, by the specification: sum refuses the floats, or and twos refuse every carrier but a set, and max refuses
- *   every carrier with no least value.
+ * - `admits`, against the validators its construction must pass, over every generated scalar type: a monoid admits a
+ *   carrier exactly when its identity there is one value of the carrier per plane (literalProblem) and the CHECK that
+ *   proves its combine types over it (check/fold.ts combineRule), but count, which reads no step value and counts in
+ *   natural alone.
  *
  * The box, exhausted: accumulators and steps over naturals 0 to 4, over every subset of a five-code roster with a
  * hole (a twos state's twos plane within its ones plane, as every fold's is), over its live codes, and over five texts:
  * the empty text, two letters, their concatenation and a supplementary-plane character.
  */
 import { describe, it } from "@effect/vitest"
-import { type Case, exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
+import { type Case, drawn, exhaust, explore } from "@grizzle/testing/explore"
+import { required, requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen, int } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
+import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Order } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Order, Result } from "effect"
+import { combineRule } from "#compiler/check/fold.ts"
 import { parseDeclaredName } from "#compiler/core/identity.ts"
-import type { TypedLiteral } from "#compiler/ir/expr.ts"
+import { type MonoidName, monoidNames } from "#compiler/ir/desc.ts"
+import { literalProblem, type TypedLiteral } from "#compiler/ir/expr.ts"
 import { type CombineBuild, type MonoidSpec, monoids } from "#compiler/ir/monoid.ts"
-import type { Roster, ScalarType } from "#compiler/ir/scalar.ts"
+import { type Roster, type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
+import { naturalDescriptor } from "#compiler/scalar/natural.ts"
 import { capabilitiesOf } from "#compiler/scalar/registry.ts"
-import { assert, nonEmpty, succeeded } from "#test/support/assert.ts"
+import { assert, nonEmpty, succeeded, throwsDefect } from "#test/support/assert.ts"
+import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { scalarTypeGen } from "#test/unit/ir/types.ts"
 
 const int8: ScalarType = { carrier: "int8", caps: capabilitiesOf("int8"), contract: undefined }
 const natural: ScalarType = {
@@ -244,49 +253,50 @@ const laws = (
 		c.note(monoid)
 	})
 
-const float8: ScalarType = {
-	carrier: "float8",
-	caps: capabilitiesOf("float8"),
-	contract: undefined
-}
 const text: ScalarType = {
 	carrier: "text",
 	caps: capabilitiesOf("text"),
 	contract: undefined,
 	text: { regex: "wildcard", lengthBound: undefined, byteBound: undefined }
 }
-const numeric: ScalarType = {
-	carrier: "numeric",
-	caps: capabilitiesOf("numeric"),
-	typmod: { precision: 10, scale: 2 },
-	contract: undefined
-}
 
-/** A carrier the box names, and the monoids the specification admits it to. */
-interface Admission {
-	readonly name: CarrierName
-	readonly type: ScalarType
-	readonly admitted: ReadonlyArray<MonoidSpec["name"]>
-}
+/** What a monoid's construction gives at a carrier: its identity, or the defect it raises where it has none. */
+const identityAt = (
+	spec: MonoidSpec,
+	carrier: ScalarType
+): Option.Option<ReadonlyArray<TypedLiteral>> =>
+	Result.match(
+		Result.try(() => spec.identity(carrier)),
+		{
+			onSuccess: (identity): Option.Option<ReadonlyArray<TypedLiteral>> => Option.some(identity),
+			onFailure: (thrown) => {
+				throwsDefect(() => {
+					throw thrown
+				}, `${spec.name}'s identity at a carrier it refuses is a defect`)
+				return Option.none()
+			}
+		}
+	)
 
-type CarrierName =
-	| "natural"
-	| "bigint"
-	| "numeric(10,2)"
-	| "double precision"
-	| "text"
-	| "a set"
-	| "a closed id"
+/**
+ * Whether a monoid's construction is valid at a carrier, judged by the validators it must pass: its identity is one
+ * literal per plane, each a value of the carrier (literalProblem), and the CHECK that proves its combine types over a
+ * plane of the carrier (check/fold.ts combineRule).
+ */
+const constructs = (spec: MonoidSpec, carrier: ScalarType): boolean =>
+	Option.match(identityAt(spec, carrier), {
+		onNone: () => false,
+		onSome: (identity) =>
+			identity.length === spec.planes &&
+			Arr.every(identity, (literal) => literalProblem(literal, carrier) === undefined) &&
+			combineRule(spec, carrier) === undefined
+	})
 
-const carriers: readonly [Admission, ...Array<Admission>] = [
-	{ name: "natural", type: natural, admitted: ["count", "sum", "max"] },
-	{ name: "bigint", type: int8, admitted: ["sum", "max"] },
-	{ name: "numeric(10,2)", type: numeric, admitted: ["sum"] },
-	{ name: "double precision", type: float8, admitted: [] },
-	{ name: "text", type: text, admitted: ["concat"] },
-	{ name: "a set", type: set, admitted: ["or", "twos"] },
-	{ name: "a closed id", type: code, admitted: ["max"] }
-]
+/** Whether a type is natural, the builtin contract count's plane is: its declared descriptor's own type. */
+const isNatural = (t: ScalarType): boolean =>
+	sameScalarType(t, scalarOf(naturalDescriptor.desc, {}))
+
+type AdmitsFeature = `${MonoidName} admits` | `${MonoidName} refuses`
 
 describe("the closed monoids", () => {
 	it.effect("keep the monoid laws on every admitted carrier", (ctx) =>
@@ -317,47 +327,54 @@ describe("the closed monoids", () => {
 		)
 	)
 
-	it.effect("admit exactly the carriers the specification names", (ctx) =>
-		searched(
-			ctx,
-			exhaust(
-				{
-					suite: "unit/ir/monoid-admits",
-					generator: element(carriers),
-					literal: (c: Admission) => c.name,
-					limit: carriers.length,
-					coverage: requiredInSpace<CarrierName>([
-						"natural",
-						"bigint",
-						"numeric(10,2)",
-						"double precision",
-						"text",
-						"a set",
-						"a closed id"
-					]),
-					caseHang,
-					box: "every carrier of the box",
-					oracle: { kind: "specification", name: "each monoid's admitted carriers" }
-				},
-				(carrier: Admission, c: Case<CarrierName>) =>
-					Effect.sync(() => {
-						for (const spec of [
-							monoids.count,
-							monoids.sum,
-							monoids.or,
-							monoids.twos,
-							monoids.max,
-							monoids.concat
-						]) {
-							assert.equal(
-								spec.admits(carrier.type),
-								carrier.admitted.includes(spec.name),
-								`${spec.name} over ${carrier.name}`
-							)
+	it.effect(
+		"admit exactly the carriers whose identity and combine their validators admit, count natural alone",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/ir/monoid-admits",
+						literal: Formatter.format,
+						draw: drawn(
+							(source) => [source.draw(element(monoidNames)), source.draw(scalarTypeGen)] as const
+						),
+						runs: 400,
+						shrink: completeShrink,
+						coverage: required<AdmitsFeature>(
+							Arr.flatMap(monoidNames, (name): Arr.NonEmptyReadonlyArray<AdmitsFeature> => [
+								`${name} admits`,
+								`${name} refuses`
+							]),
+							{ cases: 2000, sense: notesOnly }
+						),
+						kept: [],
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang,
+						oracle: {
+							kind: "second-implementation",
+							name: "the literal validator and the combine's CHECK typing over the monoid's construction"
 						}
-						c.note(carrier.name)
-					})
+					},
+					([name, carrier], c) =>
+						Effect.sync(() => {
+							const spec = monoids[name]
+							const admitted = spec.admits(carrier)
+							c.note(`${name} ${admitted ? "admits" : "refuses"}`)
+							if (admitted) {
+								assert.ok(
+									constructs(spec, carrier) && (spec.step === "value" || isNatural(carrier)),
+									`${name} constructs over what it admits`
+								)
+								return
+							}
+							assert.ok(
+								spec.step === "none" ? !isNatural(carrier) : !constructs(spec, carrier),
+								`${name} refuses only a carrier its construction has no valid identity or combine over`
+							)
+						})
+				)
 			)
-		)
 	)
 })

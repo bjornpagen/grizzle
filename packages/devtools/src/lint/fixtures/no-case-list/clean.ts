@@ -3,6 +3,7 @@ import { KINDS } from "#lint/fixtures/no-case-list/dictionary.ts"
 import { ROSTER } from "#lint/fixtures/no-case-list/roster.ts"
 import {
 	array,
+	constant,
 	drawn,
 	element,
 	exhaust,
@@ -12,7 +13,8 @@ import {
 	notASearch,
 	oneOf,
 	record,
-	sketched
+	sketched,
+	weighted
 } from "#lint/fixtures/no-case-list/testing.ts"
 
 const rangeOf = (from: number, to: number): ReadonlyArray<number> =>
@@ -53,6 +55,24 @@ export const union = exhaust(
 	{ suite: "union", generator: oneOf([element(["a"]), map(integer(0, 3), String)]) },
 	() => Effect.void
 )
+
+export const written = exhaust(
+	{
+		suite: "written",
+		generator: weighted([
+			[1, constant("none")],
+			[5, (pick) => String(pick)]
+		])
+	},
+	() => Effect.void
+)
+
+const hoisted = weighted([
+	[1, constant("none")],
+	[5, (pick: number) => String(pick)]
+])
+
+export const held = explore({ suite: "held", draw: drawn(hoisted), kept: [] }, () => Effect.void)
 
 export const explored = explore(
 	{ suite: "explored", draw: drawn(integer(0, 9)), kept: [4, 7] },

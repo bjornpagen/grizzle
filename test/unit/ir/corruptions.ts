@@ -48,6 +48,7 @@ export type DagRule =
 	| "an occurrence id is fresh"
 	| "a region binds its own variables only"
 	| "a heading names each column once"
+	| "a heading column has a name"
 	| "a heading is the one its kind defines"
 	| "a heading column has the type its kind defines"
 	| "a group's keys lie in its bound tuple"
@@ -619,6 +620,24 @@ const typedFirstColumn = (dag: DagTable, n: TableNode): boolean => {
 }
 
 const headings: ReadonlyArray<DagCorruption> = [
+	{
+		rule: "a heading column has a name",
+		from: "wild",
+		weight: 1,
+		sites: (dag) =>
+			Arr.flatMap(nodesOf(dag), (n) => {
+				const [first, ...rest] = n.heading
+				return first === undefined
+					? []
+					: [
+							site(
+								withNode(dag, n.id, { ...n, heading: [{ ...first, name: "" }, ...rest] }),
+								atNode(n.id),
+								n.kind
+							)
+						]
+			})
+	},
 	{
 		rule: "a heading names each column once",
 		from: "wild",

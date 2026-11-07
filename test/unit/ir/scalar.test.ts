@@ -15,9 +15,9 @@ import {
 	weighted
 } from "@grizzle/testing/gen"
 import {
-	type Corrupted,
 	type CorruptedFeature,
 	type Corruption,
+	corrupted,
 	corruptedFeature
 } from "@grizzle/testing/lsw"
 import { matching } from "@grizzle/testing/pattern"
@@ -48,22 +48,22 @@ import {
 	type TableExpr
 } from "#compiler/ir/expr.ts"
 import { decodeScalarType } from "#compiler/ir/scalar-shape.ts"
-import { baseOf, contractOf, isRefined, type ScalarType } from "#compiler/ir/scalar.ts"
-import { numericValue } from "#compiler/scalar/registry.ts"
+import {
+	baseOf,
+	contractOf,
+	isRefined,
+	numericMaxPrecision,
+	type ScalarType
+} from "#compiler/ir/scalar.ts"
 import { compareDecimal, Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
 import { assert, defined, nonEmpty, refusalLoc, succeeded } from "#test/support/assert.ts"
 import { f } from "#test/support/fixtures/ir/desc.ts"
-import {
-	anyNumeric,
-	normalizeExprTable,
-	plainType,
-	scalarOf,
-	wildcardText
-} from "#test/support/fixtures/ir/scalar.ts"
+import { normalizeExprTable, plainType, scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { definedOpOf } from "#test/support/oracle/gen/ops.ts"
 import { fail, scalarTypes } from "#test/unit/ir/fixture.ts"
+import { scalarTypeGen } from "#test/unit/ir/types.ts"
 
 import { regex } from "arkregex"
 import { canonicalZero } from "#compiler/ir/carriers.ts"
@@ -79,41 +79,6 @@ const decimalText = (units: bigint, scale: number): string => {
 		? `${sign}${abs}`
 		: `${sign}${Str.slice(0, -scale)(abs)}.${Str.slice(-scale)(abs)}`
 }
-
-/**
- * A valid type of every carrier, and contracts over a plain, a typmod, a roster and a regex base, each the one the
- * registry builds. A serial field's type is its integer's: serial is how a field is written, never a type.
- */
-const kinds: Readonly<Record<string, Arr.NonEmptyReadonlyArray<string>>> = {
-	Kind: ["Automatic", "Manual"]
-}
-const numeric102 = scalarOf(f.numeric(10, 2), {})
-const slugDesc = f.regex("^[a-z]+$", "u")
-const validTypes: ReadonlyArray<ScalarType> = [
-	plainType("int2"),
-	plainType("int4"),
-	plainType("int8"),
-	anyNumeric,
-	numericValue({ digits: 38, scale: 0 }),
-	numeric102,
-	scalarOf(f.numeric(5, -2), {}),
-	plainType("float4"),
-	plainType("float8"),
-	plainType("money"),
-	plainType("bool"),
-	scalarOf(f.uuid, {}),
-	wildcardText,
-	scalarOf(slugDesc, {}),
-	scalarOf(f.closedId("Kind"), kinds),
-	scalarOf({ kind: "bits", roster: "Kind" }, kinds),
-	scalarOf(f.span(f.integer, undefined), {}),
-	scalarOf(f.span(f.bigint, undefined), {}),
-	scalarOf({ kind: "vector", dimensions: 3 }, {}),
-	scalarOf(f.contract("Cents", f.bigint, undefined), {}),
-	scalarOf(f.contract("Price", f.numeric(10, 2), undefined), {}),
-	scalarOf(f.contract("Pick", f.closedId("Kind"), undefined), kinds),
-	scalarOf(f.contract("Slug", slugDesc, undefined), {})
-]
 
 /**
  * Every rule of a consistent scalar type a corruption breaks: a corruption names one of these, so a misspelt rule is a
@@ -224,8 +189,27 @@ const scalarCorruptions: Arr.NonEmptyReadonlyArray<Corruption<ScalarType, string
 		(t) => contractOf(t) !== undefined && (t.carrier === "numeric" || t.carrier === "code"),
 		(t) =>
 			t.carrier === "numeric"
-				? [without(t, "typmod"), { ...t, typmod: { precision: 12, scale: 2 } }]
-				: [{ ...t, roster: { closed: "Other", handles: ["x"] } }]
+				? [
+						without(t, "typmod"),
+						{
+							...t,
+							typmod: {
+								precision: ((t.typmod?.precision ?? 0) % numericMaxPrecision.value) + 1,
+								scale: t.typmod?.scale ?? 0
+							}
+						}
+					]
+				: t.carrier === "code"
+					? [
+							{
+								...t,
+								roster: {
+									closed: t.roster.closed,
+									handles: [...t.roster.handles, `${Arr.join(t.roster.handles, "")}x`]
+								}
+							}
+						]
+					: []
 	),
 	breaks(
 		"the carrier is one grizzle stores",
@@ -237,41 +221,37 @@ const scalarCorruptions: Arr.NonEmptyReadonlyArray<Corruption<ScalarType, string
 
 describe("ScalarType", () => {
 	it.effect(
-		"decodes every valid type of every carrier as itself, and refuses each corruption of one at the type it breaks",
-		(ctx) => {
-			const cases = [
-				...Arr.map(validTypes, (type): Corrupted<ScalarType, string, ScalarRule> => ({
-					kind: "live",
-					value: type
-				})),
-				...Arr.flatMap(validTypes, (type) =>
-					Arr.flatMap(scalarCorruptions, (c) =>
-						Arr.map(c.sites(type), (b): Corrupted<ScalarType, string, ScalarRule> => ({
-							kind: c.from,
-							rule: c.rule,
-							at: b.at,
-							value: b.value,
-							refusal: b.refusal
-						}))
-					)
-				)
-			]
-			return searched(
+		"decodes every generated type as itself, and refuses each corruption of one at the type it breaks",
+		(ctx) =>
+			searched(
 				ctx,
-				exhaust(
+				explore(
 					{
 						suite: "unit/ir/scalar-types",
 						literal: Formatter.format,
-						generator: element(nonEmpty(cases, "the scalar types and their corruptions")),
-						limit: 1_000,
-						coverage: requiredInSpace<CorruptedFeature<ScalarRule>>([
-							"live",
-							...Arr.map(
-								scalarCorruptions,
-								(c): CorruptedFeature<ScalarRule> => `${c.from} ${c.rule}`
-							)
-						]),
-						caseHang
+						draw: drawn((source) =>
+							source.draw(corrupted(source.draw(scalarTypeGen), scalarCorruptions))
+						),
+						runs: 500,
+						shrink: completeShrink,
+						coverage: required<CorruptedFeature<ScalarRule>>(
+							[
+								"live",
+								...Arr.map(
+									scalarCorruptions,
+									(c): CorruptedFeature<ScalarRule> => `${c.from} ${c.rule}`
+								)
+							],
+							{ cases: 2000, sense: notesOnly }
+						),
+						kept: [],
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang,
+						oracle: {
+							kind: "universal",
+							name: "decode ∘ build = id, and each rule's refusal at the type"
+						}
 					},
 					(c, n) =>
 						Effect.sync(() => {
@@ -292,7 +272,6 @@ describe("ScalarType", () => {
 						})
 				)
 			)
-		}
 	)
 })
 
@@ -316,7 +295,7 @@ describe("literals", () => {
 		scalarTypes.int4,
 		scalarTypes.int8,
 		scalarTypes.numeric,
-		numeric102,
+		scalarOf(f.numeric(10, 2), {}),
 		plainType("float4"),
 		scalarTypes.float8,
 		scalarTypes.money,

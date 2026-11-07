@@ -1,5 +1,5 @@
 import { describe, it } from "@effect/vitest"
-import { drawn, exhaust, explore } from "@grizzle/testing/explore"
+import { type CaseDiscarded, drawn, exhaust, explore } from "@grizzle/testing/explore"
 import { noCoverage, required, requiredInSpace } from "@grizzle/testing/features"
 import {
 	array,
@@ -66,7 +66,6 @@ import {
 	type LiveRefs,
 	mapNode,
 	metaSpecOf,
-	type NodeSpec,
 	type RelNode,
 	type SpecRefs,
 	type ValidDag,
@@ -75,13 +74,13 @@ import {
 } from "#compiler/ir/rel.ts"
 import { decodeScalarType } from "#compiler/ir/scalar-shape.ts"
 import { contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
-import { decodeWith } from "#compiler/ir/shape.ts"
 import { contractType } from "#compiler/scalar/registry.ts"
 import {
 	assert,
-	containsText,
 	defined,
+	nonEmpty,
 	refusalLoc,
+	refused,
 	succeeded,
 	throwsDefect,
 	unorderedEqual
@@ -90,8 +89,9 @@ import { f } from "#test/support/fixtures/ir/desc.ts"
 import { normalizeExprTable, scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { dagTableShape, validateDag, validateTable } from "#test/support/oracle/dag-validate.ts"
+import { validateDag, validateTable } from "#test/support/oracle/dag-validate.ts"
 import { definedOpOf } from "#test/support/oracle/gen/ops.ts"
+import { pickFrom, pickGen } from "#test/support/pick.ts"
 import { Exprs, everyKind, fail, heading, scalarTypes } from "#test/unit/ir/fixture.ts"
 import { generatedDags } from "#test/unit/ir/population.ts"
 
@@ -381,86 +381,82 @@ describe("traversals of generated DAGs", () => {
 })
 
 /**
- * A builder's defect against the IR's shape, planted in the take of a two-node DAG, and the path of the value it breaks.
+ * A DAG the label tests take: the every-kind fixture, which holds every kind of node and expression, or a generated
+ * one.
  */
-type Planted =
-	| "an empty column name"
-	| "a repeated column name"
-	| "a property no node holds"
-	| "a bound of zero"
+const labelled = weighted([
+	[1, constant(dag)],
+	[4, generatedDags]
+])
 
-const plantedTake = (input: RelNode, planted: Planted): NodeSpec => {
-	const take: NodeSpec = {
-		kind: "Take",
-		input,
-		order: { keys: [{ column: "a", dir: "asc" }] },
-		bound: { kind: "literal", k: planted === "a bound of zero" ? 0n : 1n },
-		correlation: [],
-		heading: heading(["a", scalarTypes.int8]),
-		loc: undefined,
-		meta: conservativeMeta
-	}
-	switch (planted) {
-		case "an empty column name":
-			return { ...take, heading: heading(["", scalarTypes.int8]) }
-		case "a repeated column name":
-			return { ...take, heading: heading(["a", scalarTypes.int8], ["a", scalarTypes.int8]) }
-		case "a property no node holds": {
-			/** Spread from a wider value, which no excess property check sees. */
-			const wider = { ...take, extra: 1 }
-			return wider
-		}
-		case "a bound of zero":
-			return take
-	}
-}
+/** Which labels a clash repeats: two distinct nodes', or two distinct expressions'. */
+type Clash = "two nodes" | "two expressions"
 
-describe("DagBuilder.build", () => {
+describe("validateDag over a DAG of direct references", () => {
 	it.effect(
-		"builds a DAG whose shape defect the re-reader raises where the decode of its table refuses it",
-		(ctx) => {
-			const planted: Arr.NonEmptyReadonlyArray<Planted> = [
-				"an empty column name",
-				"a repeated column name",
-				"a property no node holds",
-				"a bound of zero"
-			]
-			return searched(
+		"refuses two distinct nodes, or two distinct expressions, under one label, wherever they stand",
+		(ctx) =>
+			searched(
 				ctx,
-				exhaust(
+				explore(
 					{
-						suite: "unit/ir/dag-planted",
+						suite: "unit/ir/validate-label-clash",
 						literal: Formatter.format,
-						generator: element(planted),
-						limit: planted.length,
-						coverage: requiredInSpace<Planted>(planted),
-						caseHang
+						draw: drawn(
+							(source) =>
+								[
+									source.draw(labelled),
+									source.draw(boolean),
+									source.draw(pickGen),
+									source.draw(pickGen)
+								] as const
+						),
+						runs: 100,
+						shrink: completeShrink,
+						coverage: required<Clash>(["two nodes", "two expressions"], {
+							cases: 100,
+							sense: notesOnly
+						}),
+						kept: [],
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang,
+						oracle: { kind: "specification", name: "one node and one expression per label" }
 					},
-					(p, c) =>
-						Effect.sync(() => {
-							c.note(p)
-							const b = new DagBuilder(makeIdSupply())
-							const input = b.node({
-								kind: "InputSet",
-								input: { kind: "declared", param: ParamId("p") },
-								heading: heading(["a", scalarTypes.int8]),
-								loc: undefined,
-								meta: conservativeMeta
-							})
-							const take = b.node(plantedTake(input, p))
-							const built = b.build([take])
-							const outside: unknown = succeeded(toTable(built))
-							const refusal = fail(decodeWith(dagTableShape, outside, "relational DAG"))
-							assert.equal(refusal.reason._tag, "MalformedDescription")
-							assert.deepEqual(refusalLoc(refusal).path.slice(0, 2), ["nodes", take.id])
-							containsText(
-								throwsDefect(() => validateDag(built)),
-								refusal.message
-							)
+					([d, overExprs, first, second], c) =>
+						Effect.gen(function* () {
+							const twoOf = <A>(
+								pool: ReadonlyArray<A>
+							): Effect.Effect<readonly [A, A], CaseDiscarded> =>
+								Effect.gen(function* () {
+									yield* c.assume(Arr.isReadonlyArrayNonEmpty(pool))
+									const kept = pickFrom(nonEmpty(pool, "a label's holder"), first)
+									const rest = Arr.filter(pool, (x) => x !== kept)
+									yield* c.assume(Arr.isReadonlyArrayNonEmpty(rest))
+									return [kept, pickFrom(nonEmpty(rest, "another holder"), second)] as const
+								})
+							if (overExprs) {
+								const [kept, relabelled] = yield* twoOf(exprsIn(d))
+								c.note("two expressions")
+								const clashed = replacedExpr(d, relabelled, builtExpr(relabelled, kept.id))
+								assert.deepEqual(
+									refusalLoc(refused(toTable(clashed), "MalformedDescription")).path,
+									["exprs", kept.id]
+								)
+								throwsDefect(() => validateDag(clashed))
+								return
+							}
+							const [kept, relabelled] = yield* twoOf(topoOrder(d))
+							c.note("two nodes")
+							const clashed = replacedNode(d, relabelled, relNode(kept.id, relabelled))
+							assert.deepEqual(refusalLoc(refused(toTable(clashed), "MalformedDescription")).path, [
+								"nodes",
+								kept.id
+							])
+							throwsDefect(() => validateDag(clashed))
 						})
 				)
 			)
-		}
 	)
 })
 
@@ -532,15 +528,6 @@ describe("dagDigest", () => {
 		)
 	)
 
-	/**
-	 * A DAG the digest is taken of: the every-kind fixture, which holds every kind of node and expression, or a
-	 * generated one.
-	 */
-	const dags = weighted([
-		[1, constant(dag)],
-		[4, generatedDags]
-	])
-
 	it.effect("ignores source locations", (ctx) =>
 		searched(
 			ctx,
@@ -548,7 +535,7 @@ describe("dagDigest", () => {
 				{
 					suite: "unit/ir/dag-digest-invariance",
 					literal: Formatter.format,
-					draw: drawn(dags),
+					draw: drawn(labelled),
 					runs: 100,
 					shrink: completeShrink,
 					coverage: required<"a moved location">(["a moved location"], {
@@ -586,7 +573,7 @@ describe("dagDigest", () => {
 				{
 					suite: "unit/ir/dag-digest-sensitivity",
 					literal: Formatter.format,
-					draw: drawn(dags),
+					draw: drawn(labelled),
 					runs: 100,
 					shrink: completeShrink,
 					coverage: required<Change>(
