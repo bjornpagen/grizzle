@@ -74,6 +74,8 @@ never as a hack downstream. Every hash goes to qti-pie, which repins at once.
     - a value's identity becomes its windows-1252 decode, so about 512 MiB;
     - a digest key with an exact compare on a hit would reach about 1 GB.
   - The riskiest part is the attachment stitching.
+  - qti-pie, 2026-11-07: nothing it stores today comes near the bound (largest 64 MiB). But QTI sets no file size
+    limit, so a lawful package with a video over about 256 MiB is refused at import. First in line after beta.1.
 - **Mutation adequacy:** one seeded `pnpm mutate` sample on the release commit, in a scratch copy. Every surviving
   mutant becomes a generator arm or a written equivalence, and triage.json is pruned to the code.
 - **PostgreSQL:** repin to 19rc2 on 2026-11-12 if the beta isn't out by then (pin.env, rebuild, re-init, delete the
