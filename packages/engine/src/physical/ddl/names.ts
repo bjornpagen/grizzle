@@ -464,10 +464,18 @@ const collated = (type: TypeRef): ColumnType => ({
 })
 
 /**
- * The type of a column a law adds (a constant tag, a partial term): its type's base, the fixed collation for text, and
- * never a contract's, a pattern's or a roster's domain. A law column holds only values its type already admits: a
- * field's own, which that field's column checked, or the law model's literal of the field's type; and NULL outside its
- * selection, which every domain admits too (sql/print.ts), a set's bits domain, its base, included.
+ * The type of a column a law adds (a constant tag, a partial term, a family's drawn column): its held field's type's
+ * base, the fixed collation for text, and never a contract's, a pattern's or a roster's domain.
+ *
+ * - A fold's hidden accumulator holds the fold's running value, filled in its carrier (write/family/fold.ts), which the
+ *   plane's contract need not admit between members: a sum under an upper bound can pass the bound and come back under
+ *   it, so the contract's domain would refuse a state whose laws hold.
+ * - Every other law column holds a value of its field's type, or NULL outside its selection: a field's own, which its
+ *   column's domain checked; the law model's literal of the type; pred of a natural, x - 1 where x > 0; or a natural
+ *   the host draws, a count copy, an index or a parent start. A domain would only judge again, on every row, what
+ *   the law model proves.
+ *
+ * A set's base is its bits domain, which admits NULL as every domain does (sql/print.ts).
  */
 export const lawColumnType = (names: PhysicalNames, t: ScalarType): ColumnType =>
 	collated(baseTypeRef(names, t))
