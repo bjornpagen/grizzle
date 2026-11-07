@@ -95,7 +95,7 @@ export type KeyNormalized = NormalFacts & { readonly [keyNormalizedBrand]: true 
 type ArrayEncoder<F extends NormalFacts> = (
 	facts: F,
 	part: number
-) => Result.Result<ParamText, EncodingFailure | LiteralBound>
+) => Result.Result<ParamText, LiteralBound>
 
 /** MemberEncoder: a member slot's key-normalized facts to one of its arrays. */
 export type MemberEncoder = ArrayEncoder<KeyNormalized>

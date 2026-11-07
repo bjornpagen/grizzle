@@ -1,5 +1,5 @@
 import { Array as Arr, Effect, Option, Result } from "effect"
-import { UnreadableAnswer } from "#adapter/errors/failures.ts"
+import { type InputTooLarge, UnreadableAnswer } from "#adapter/errors/failures.ts"
 import type {
 	ComparisonTuple,
 	PageArtifactName,
@@ -23,7 +23,6 @@ import {
 	type SentRuns,
 	type StatementRun
 } from "#adapter/reader/execution.ts"
-import type { InputRefusal } from "#adapter/reader/relations.ts"
 import type { GroupOrder } from "#adapter/reader/run.ts"
 import type { BatchStatement, Flight } from "#adapter/wire/batch.ts"
 import {
@@ -181,7 +180,7 @@ const sending = <F extends PageFill>(
 	inputs: ExecutionInputs,
 	size: number,
 	bind: (fill: F) => ParamText
-): Effect.Effect<BatchStatement, InputRefusal> => {
+): Effect.Effect<BatchStatement, InputTooLarge> => {
 	const form = formFor(run, (choice: ShapeChoice) =>
 		runsLargeForm(choice, choiceCount(choice, inputs, size))
 	)
@@ -370,7 +369,7 @@ const probeSending = (
 	inputs: ExecutionInputs,
 	call: AnchoredCall,
 	bind: (fill: PageFill) => ParamText
-): Effect.Effect<SentProbe, InputRefusal> => {
+): Effect.Effect<SentProbe, InputTooLarge> => {
 	const probe = run.probes[run.requests[call.variant].program.probe]
 	return Effect.map(sending(probe.statement, inputs, call.size, bind), (statement) => ({
 		kind: probe.program.kind,
@@ -388,8 +387,8 @@ const requestFlight = <V extends PageVariant>(
 	inputs: ExecutionInputs,
 	size: number,
 	bind: (fill: VariantFill[V]) => ParamText,
-	probe: Effect.Effect<Option.Option<SentProbe>, InputRefusal>
-): Effect.Effect<Flight<PageRows, UnreadableAnswer>, InputRefusal> =>
+	probe: Effect.Effect<Option.Option<SentProbe>, InputTooLarge>
+): Effect.Effect<Flight<PageRows, UnreadableAnswer>, InputTooLarge> =>
 	Effect.gen(function* () {
 		/** 1, 2. Every statement of the request, the rows statements and their attachments. */
 		const batch: Array<BatchStatement> = []
@@ -447,7 +446,7 @@ export const pageFlight = (
 	artifact: PageArtifactName,
 	inputs: ExecutionInputs,
 	call: PageCall
-): Effect.Effect<Flight<PageRows, UnreadableAnswer>, InputRefusal> => {
+): Effect.Effect<Flight<PageRows, UnreadableAnswer>, InputTooLarge> => {
 	const run = runtime.artifacts[artifact]
 	switch (call.variant) {
 		case "first":

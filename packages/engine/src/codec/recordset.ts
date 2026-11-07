@@ -13,7 +13,7 @@ import {
 import { nominal } from "#compiler/core/brand.ts"
 import { canonicalTextOf } from "#compiler/core/canonical.ts"
 import type { EncodingFailure, EncodingPlace } from "#compiler/core/errors.ts"
-import { defined } from "#compiler/core/invariant.ts"
+import { defect, defined } from "#compiler/core/invariant.ts"
 import { maxStringLength } from "#compiler/core/limits.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -430,34 +430,28 @@ export const textArrayParam = (values: ReadonlyArray<string>): ParamText =>
 /**
  * The writer of a placeholder's array of normal facts under `spec` (ir/products.ts ArrayEncoder): of the facts written
  * in the spec's column order, the array at a part, its column's literal (columnLiteral), or, of no column, their count.
- * Each placeholder writes its own array and no other: facts normal under the spec's heading have that one column
- * written, never admitted again; facts normal under another heading are normalized under this one first.
+ * Each placeholder writes its own array and no other, and never admits a fact again. Its columns are its input's whole
+ * heading in the statement's order, which every statement over an input declares, so the facts are normal under the
+ * spec's heading; facts normal under another are the compiler's defect, never the caller's input, since admitting them
+ * again under it could only refuse them.
  */
 export const normalArray = (
 	spec: RelationSpec
-): ((
-	normal: NormalFacts,
-	part: number
-) => Result.Result<ParamText, EncodingFailure | LiteralBound>) => {
+): ((normal: NormalFacts, part: number) => Result.Result<ParamText, LiteralBound>) => {
 	const built = buildSpec(spec)
 	const ownHeading = headingText(built.plan)
-	const normalize = normalizerOf(built)
 	return (normal, part) => {
-		const written =
-			normal.heading === ownHeading
-				? Result.ok(normal.facts)
-				: Result.map(normalize(normal.facts), (normalized) => normalized.facts)
-		if (!written.ok) {
-			return Result.err(written.error)
+		if (normal.heading !== ownHeading) {
+			throw defect(`a placeholder of ${spec.relation} reads a heading other than its input's`)
 		}
 		if (built.columns.length === 0) {
-			return Result.ok(countParam(written.value.length))
+			return Result.ok(countParam(normal.facts.length))
 		}
 		const column = defined(built.columns[part], "a placeholder's column among its input's columns")
 		return columnLiteral(
 			spec.relation,
 			column.field,
-			written.value,
+			normal.facts,
 			(fact) => column.codec.text(fact[column.field]),
 			maxStringLength.value
 		)

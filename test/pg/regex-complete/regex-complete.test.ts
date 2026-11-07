@@ -16,11 +16,12 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { regex } from "arkregex"
 import { Array as Arr, Effect, Exit, Formatter, Option, Order, String as Str } from "effect"
-import { executionInputs, type InputRefusal, paramCodecs } from "#adapter/reader/relations.ts"
+import { executionInputs, paramCodecs } from "#adapter/reader/relations.ts"
 import { checkedSchema } from "#compiler/analysis/schema.ts"
 import { refinedConstants } from "#compiler/check/refinement/index.ts"
 import { arrayTexts } from "#compiler/codec/recordset.ts"
 import { indices } from "#compiler/core/array.ts"
+import type { EncodingFailure } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
 import type { ConstraintName } from "#compiler/core/ids.ts"
 import { maxStringLength } from "#compiler/core/limits.ts"
@@ -352,25 +353,19 @@ const refused: Bound = { kind: "refused" }
 
 const rows = (count: number): Bound => ({ kind: "rows", count })
 
-/** The word a bind refuses with: an encoding failure's reason, or the refusal itself. */
-type BindRefusal =
-	| Extract<InputRefusal, { readonly _tag: "EncodingFailure" }>["reason"]["_tag"]
-	| Exclude<InputRefusal, { readonly _tag: "EncodingFailure" }>["_tag"]
+/** The word a bind refuses with: its encoding failure's reason. */
+type BindRefusal = EncodingFailure["reason"]["_tag"]
 
 /**
  * The codec fault the reader's bind refuses `params` with before any SQL (adapter/reader/relations.ts
- * executionInputs, over the template's declared parameters), the refusal's own tag where it is no codec fault, or
- * undefined where it binds them.
+ * executionInputs, over the template's declared parameters), or undefined where it binds them.
  */
 const bindRefusal = (
 	template: QueryTemplate,
 	params: Readonly<Record<string, unknown>>
 ): BindRefusal | undefined => {
 	const bound = executionInputs(paramCodecs(template.params, contentCodes), params)
-	if (bound._tag === "Success") {
-		return undefined
-	}
-	return bound.failure._tag === "EncodingFailure" ? bound.failure.reason._tag : bound.failure._tag
+	return bound._tag === "Success" ? undefined : bound.failure.reason._tag
 }
 
 /**

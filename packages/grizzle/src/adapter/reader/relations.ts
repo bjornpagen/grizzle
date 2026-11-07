@@ -32,34 +32,6 @@ import {
 	slotPlace
 } from "#compiler/plan/read.ts"
 
-/**
- * A read's inputs made ready for one execution: every declared parameter admitted.
- *
- * One walk of the read's declared parameters admits every one of them, whether or not the selected artifact's
- * statements bind it (an optimizer may prove a rule empty and drop the parameters only it read): a scalar parameter's
- * value is encoded by its declared type's codec, a relation parameter's input normalized. The statements bind their
- * placeholders from what this walk produced (execution.ts readBinding) and send only those, so a read's refusal never
- * depends on what the optimizer eliminated, and what is admitted is what is sent.
- *
- * Every relation input travels as its arrays, whatever its size (lower/shapes/relparam): each of its placeholders in a
- * statement carries one array of its normal facts over the statement's columns, which that placeholder alone writes
- * (`RelationInput.array`), so the input's facts are encoded once in all. The execution's Bind messages are bounded, not
- * its rows: one longer than PostgreSQL reads is refused before the flight is sent (wire/batch.ts), as is a column whose
- * array is longer than one string holds, here, each as InputTooLarge, a write's ExecutionFailure reason and a read's
- * ReadFailure reason at stage resource.
- *
- * Every relation input of the read is normalized once, before any of its SQL is sent, exactly as a statement's arrays
- * encoder normalizes it (codec/recordset.ts: field validation, the null ban, deduplication of complete facts,
- * canonical order). So an input the codec refuses is the codec's EncodingFailure (the parameter, `parameter.field` for
- * a fact's field, and the fault), a read's ReadFailure reason at stage encode, whatever statement would have read it
- * first. A Stream parameter arrives here collected (params.ts), so its distinct facts follow the same rule.
- *
- * Why an input never reaches a statement: its codec refused it, with the EncodingFailure that names the parameter and
- * the fault, or one of its arrays is longer than one string holds. A read reports it as its ReadFailure's reason, a
- * write as its own EncodingFailure or its ExecutionFailure's reason.
- */
-export type InputRefusal = EncodingFailure | InputTooLarge
-
 /** The columns a statement's relation slot reads, in its arrays' order. */
 type SlotColumns = ReadonlyArray<{ readonly name: string; readonly type: ScalarType }>
 
@@ -75,7 +47,7 @@ interface RelationInput {
 	readonly array: (
 		columns: ReadonlyArray<RelationColumn>,
 		part: number
-	) => Result.Result<ParamText, InputRefusal>
+	) => Result.Result<ParamText, InputTooLarge>
 }
 
 export type RelationInputs = ReadonlyMap<ParamId, RelationInput>
@@ -151,7 +123,7 @@ export const paramCodecs = (declared: ReadonlyArray<ParamDecl>, codes: Codebook)
 const prepareInput = (
 	codec: Extract<ParamCodec, { readonly kind: "relation" }>,
 	value: unknown
-): Result.Result<RelationInput, InputRefusal> => {
+): Result.Result<RelationInput, EncodingFailure> => {
 	const decl = codec.decl
 	if (typeof value !== "object" || !Predicate.isIterable(value)) {
 		return Result.fail(encodeFailure("factShape", slotPlace(decl.name)))
@@ -170,15 +142,11 @@ const prepareInput = (
 	const array = (
 		columns: ReadonlyArray<RelationColumn>,
 		part: number
-	): Result.Result<ParamText, InputRefusal> => {
+	): Result.Result<ParamText, InputTooLarge> => {
 		const written = sameColumns(columns, declared)
 			? declaredArray(decl, normal, part)
 			: normalArray(specOver(decl, columns, codec.codes))(normal, part)
-		if (written.ok) {
-			return Result.succeed(written.value)
-		}
-		const refused = written.error
-		return Result.fail(refused._tag === "LiteralBound" ? literalBound(refused) : refused)
+		return written.ok ? Result.succeed(written.value) : Result.fail(literalBound(written.error))
 	}
 	return Result.succeed({ decl, normalized: normal, array })
 }
@@ -206,14 +174,32 @@ const declaredArray = (
 }
 
 /**
- * The inputs of one execution, from one walk of the declared parameters' codecs (see the header): every relation
- * parameter's input normalized and every scalar parameter's text encoded by its declared type's codec, or the read's
- * refusal before any SQL at the first declaration refused. The statements bind their placeholders from nothing else.
+ * The inputs of one execution, from one walk of the declared parameters' codecs: every relation parameter's input
+ * normalized and every scalar parameter's text encoded by its declared type's codec, or the read's refusal before any
+ * SQL at the first declaration refused. The statements bind their placeholders from nothing else.
+ *
+ * One walk of the read's declared parameters admits every one of them, whether or not the selected artifact's
+ * statements bind it (an optimizer may prove a rule empty and drop the parameters only it read), and the statements
+ * bind their placeholders from what this walk produced (execution.ts readBinding) and send only those, so a read's
+ * refusal never depends on what the optimizer eliminated, and what is admitted is what is sent.
+ *
+ * Every relation input of the read is normalized once, before any of its SQL is sent (codec/recordset.ts: field
+ * validation, the null ban, deduplication of complete facts, canonical order). So an input the codec refuses is the
+ * codec's EncodingFailure (the parameter, `parameter.field` for a fact's field, and the fault), a read's ReadFailure
+ * reason at stage encode and a write's own EncodingFailure, whatever statement would have read it first. A Stream
+ * parameter arrives here collected (params.ts), so its distinct facts follow the same rule.
+ *
+ * Every relation input then travels as its arrays, whatever its size (lower/shapes/relparam): each of its placeholders
+ * in a statement carries one array of its normal facts over the statement's columns, which that placeholder alone
+ * writes (`RelationInput.array`), so the input's facts are encoded once in all. The execution's Bind messages are
+ * bounded, not its rows: one longer than PostgreSQL reads is refused before the flight is sent (wire/batch.ts), as is a
+ * column whose array is longer than one string holds, at its placeholder, each as InputTooLarge, a write's
+ * ExecutionFailure reason and a read's ReadFailure reason at stage resource.
  */
 export const executionInputs = (
 	codecs: ParamCodecs,
 	params: HostParams
-): Result.Result<ExecutionInputs, InputRefusal> => {
+): Result.Result<ExecutionInputs, EncodingFailure> => {
 	const relations = new Map<ParamId, RelationInput>()
 	const scalars = new Map<ParamId, ParamText>()
 	for (const codec of codecs) {

@@ -61,7 +61,9 @@ import type {
 	BaseSpec,
 	Branch,
 	ClaimRefusal,
-	ContextFacts,
+	ClaimsRead,
+	ClaimsSetting,
+	ContextRefusal,
 	DirectSessionState,
 	DirectStart,
 	DirectStatement,
@@ -81,22 +83,13 @@ import type {
 	SqlState,
 	HostValue,
 	Observation,
+	RefusedClaim,
 	ViewFilter,
 	Witness,
 	WorldFunction
 } from "#test/support/worlds/model/types.ts"
 
 import { regex } from "arkregex"
-/**
- * How a read of a context refuses a hand-set claim (packages/engine/src/sql/print.ts contextClaims): with a SQLSTATE
- * alone, 22P02 or 22003 for a claim no value of its base type, 22P02 for a member holding other keys, 23514 for a closed
- * id's code its roster's domain refuses; or on a law domain's CHECK as the claim is cast to it, 23514 on the domain's
- * law, for a contract's integer past its bounds or a text past its pattern.
- */
-type RefusedClaim =
-	| { readonly kind: "state"; readonly sqlstate: ClaimRefusal }
-	| { readonly kind: "check"; readonly domain: LawDomain }
-
 /** Whether two refused claims meet a read alike: one SQLSTATE, or one law domain's CHECK. */
 const sameRefusal = (a: RefusedClaim, b: RefusedClaim): boolean =>
 	a.kind === "state"
@@ -117,20 +110,9 @@ const claimRefusal = (names: InstalledNames, refusal: RefusedClaim): ActionOutco
 				witness: { kind: "withheld" }
 			}
 
-/**
- * What PostgreSQL reads from a direct writer's claims setting (packages/engine/src/sql/print.ts claimsDocument,
- * contextClaims): a claims document, holding the facts of the contexts whose member holds exactly their fields, each
- * value admitted by its field's type, and the contexts whose member holds other keys or a value its type refuses, each
- * with the refusals a read of it meets; or a text that is no claims document, which every read of a claim refuses
- * (22P02).
- */
-type ClaimsRead =
-	| {
-			readonly kind: "document"
-			readonly facts: ContextFacts
-			readonly refused: ReadonlyMap<string, Arr.NonEmptyReadonlyArray<RefusedClaim>>
-	  }
-	| { readonly kind: "malformed" }
+/** The refusal a read of a context meets as it reads one of its refusals: other keys' 22P02, or a claim's own. */
+const contextRefused = (refusal: ContextRefusal): RefusedClaim =>
+	refusal.kind === "keys" ? { kind: "state", sqlstate: "22P02" } : refusal.refusal
 
 /** The claims a session reads when it holds no claims document: no fact, no refused context. */
 const noClaims: ClaimsRead = { kind: "document", facts: {}, refused: new Map() }
@@ -369,45 +351,35 @@ interface ClaimFault {
 }
 
 /**
- * Every fault of the claims a hand-set setting's text holds that `observation` is the refusal of (metBy), of the
- * contexts the base declares whose member holds exactly their fields: none for a text that is no claims document.
+ * Every refused claim of a session's claims (ClaimsRead) that `observation` is the refusal of (metBy), of the contexts
+ * whose member holds exactly their fields: none for a text that is no claims document.
  */
 export const handSetFaults = (
-	base: BaseSpec,
 	names: InstalledNames,
-	text: string,
+	read: ClaimsRead,
 	observation: Observation
 ): ReadonlyArray<ClaimFault> =>
-	Option.match(claimsDocumentOf(text), {
-		onNone: () => [],
-		onSome: (document) =>
-			Arr.flatMap(base.contexts, (context) => {
-				const member = document.get(context.name)
-				if (member === undefined || member.size !== context.fields.length) {
-					return []
-				}
-				return Arr.flatMap(context.fields, (field): ReadonlyArray<ClaimFault> => {
-					const claim = member.get(field.name)
-					if (claim === undefined) {
+	read.kind === "malformed"
+		? []
+		: Arr.flatMap([...read.refused], ([context, refusals]) =>
+				Arr.flatMap(refusals, (r): ReadonlyArray<ClaimFault> => {
+					if (r.kind === "keys") {
 						return []
 					}
-					const cast = claimCast(field.domain, names.codes, claim)
-					const sqlstate =
-						cast.kind === "refused" ? metBy(names, cast.refusal, observation) : undefined
+					const sqlstate = metBy(names, r.refusal, observation)
 					return sqlstate === undefined
 						? []
-						: [{ context: context.name, field: field.name, domain: field.domain, sqlstate }]
+						: [{ context, field: r.field, domain: r.domain, sqlstate }]
 				})
-			})
-	})
+			)
 
 /**
  * The claims PostgreSQL reads from a setting's text: the empty text holds none (claimsDocument's first branch); a text
  * that is no claims document is malformed; a claims document holds, for each context of the installation it has a
  * member for, the context's fact where the member holds exactly the context's fields and each value casts to its
- * field's type (claimCast), or else the refusals a read of the context meets: 22P02 for other keys (contextClaims), a
- * value's own refusal otherwise, any of which the read may meet first. A member of no context of the
- * installation is never read.
+ * field's type (claimCast), or else the refusals a read of the context meets: other keys (contextClaims), each
+ * value's own refusal otherwise, any of which the read may meet first. A member of no context of the installation is
+ * never read.
  */
 const textRead = (base: BaseSpec, codes: HandleCodes, text: string): ClaimsRead => {
 	if (text === "") {
@@ -418,7 +390,7 @@ const textRead = (base: BaseSpec, codes: HandleCodes, text: string): ClaimsRead 
 		return { kind: "malformed" }
 	}
 	const facts: Array<readonly [string, HostFact]> = []
-	const refused = new Map<string, Arr.NonEmptyReadonlyArray<RefusedClaim>>()
+	const refused = new Map<string, Arr.NonEmptyReadonlyArray<ContextRefusal>>()
 	for (const context of base.contexts) {
 		const member = document.value.get(context.name)
 		if (member === undefined) {
@@ -429,16 +401,19 @@ const textRead = (base: BaseSpec, codes: HandleCodes, text: string): ClaimsRead 
 			return claim === undefined ? [] : [{ field, claim }]
 		})
 		if (cells.length !== context.fields.length || member.size !== context.fields.length) {
-			refused.set(context.name, [{ kind: "state", sqlstate: "22P02" }])
+			refused.set(context.name, [{ kind: "keys" }])
 			continue
 		}
 		const casts = Arr.map(cells, ({ field, claim }) => ({
 			field,
 			cast: claimCast(field.domain, codes, claim)
 		}))
-		const [fault, ...faults] = Arr.dedupeWith(
-			Arr.flatMap(casts, ({ cast }) => (cast.kind === "refused" ? [cast.refusal] : [])),
-			sameRefusal
+		const [fault, ...faults] = Arr.flatMap(
+			casts,
+			({ field, cast }): ReadonlyArray<ContextRefusal> =>
+				cast.kind === "refused"
+					? [{ kind: "claim", field: field.name, domain: field.domain, refusal: cast.refusal }]
+					: []
 		)
 		if (fault !== undefined) {
 			refused.set(context.name, [fault, ...faults])
@@ -456,19 +431,20 @@ const textRead = (base: BaseSpec, codes: HandleCodes, text: string): ClaimsRead 
 	return { kind: "document", facts: Record.fromEntries(facts), refused }
 }
 
-const claimsRead = (
-	base: BaseSpec,
-	codes: HandleCodes,
-	session: DirectSessionState
-): ClaimsRead => {
-	if (session.claims.kind === "none") {
-		return noClaims
-	}
-	const setting = session.claims.setting
-	return setting.kind === "facts"
+/**
+ * What PostgreSQL reads from a setting, parsed once where the setting enters the session (a `set-claims` statement):
+ * facts are a claims document of themselves; a text is read as textRead reads it. The base and the roster codes it is
+ * read under hold for the transaction's life, since a migration never runs while a direct writer's transaction is open
+ * (session/migrate.ts migrateBranches).
+ */
+const settingRead = (base: BaseSpec, codes: HandleCodes, setting: ClaimsSetting): ClaimsRead =>
+	setting.kind === "facts"
 		? { kind: "document", facts: setting.facts, refused: new Map() }
 		: textRead(base, codes, setting.text)
-}
+
+/** The claims a session reads: none before it set any, else the read its setting was parsed to as it entered. */
+const claimsRead = (session: DirectSessionState): ClaimsRead =>
+	session.claims.kind === "none" ? noClaims : session.claims.read
 
 /** The role a direct writer has taken on, or undefined while it acts as its login. */
 const currentRole = (state: ModelState, session: DirectSessionState): RoleSpec | undefined =>
@@ -687,7 +663,7 @@ export const directBranches = (
 		return [{ observation: { kind: "refused", sqlstate: "other" }, next: state }]
 	}
 	const role = currentRole(state, session)
-	const claims = claimsRead(base, state.names.codes, session)
+	const claims = claimsRead(session)
 	const facts = claims.kind === "document" ? claims.facts : {}
 	/** Whether a read of a context refuses: every one under a setting that is no claims document, else a refused one. */
 	const faulty = (context: string): boolean =>
@@ -702,7 +678,7 @@ export const directBranches = (
 				? []
 				: [{ kind: "state", sqlstate: "22P02" }]
 			: Arr.dedupeWith(
-					Arr.flatMap([...contexts], (c) => claims.refused.get(c) ?? []),
+					Arr.flatMap([...contexts], (c) => Arr.map(claims.refused.get(c) ?? [], contextRefused)),
 					sameRefusal
 				)
 	/** A statement refused by a claim it reads (claimRefusal). */
@@ -1063,7 +1039,16 @@ export const directBranches = (
 		case "set-session-authorization":
 			return [refused(roleRefusal(state, namedBy(statement.role)))]
 		case "set-claims":
-			return [go({ ...session, claims: { kind: "set", setting: statement.setting } })]
+			return [
+				go({
+					...session,
+					claims: {
+						kind: "set",
+						setting: statement.setting,
+						read: settingRead(base, state.names.codes, statement.setting)
+					}
+				})
+			]
 		case "select-view":
 			return viewRead(statement.role, statement.relation, statement.filter)
 		case "select-table":

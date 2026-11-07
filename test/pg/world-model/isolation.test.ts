@@ -13,10 +13,12 @@ import {
 	everyWriter,
 	type Focus,
 	fresh,
+	handSetTransaction,
 	invalidFeatures,
 	leadsOf,
 	noCheck,
 	opIn,
+	orgHeldRealities,
 	programTests,
 	requiredWhere,
 	startingWith
@@ -240,8 +242,8 @@ layer(Substrate.layer, { excludeTestServices: true })("the worlds model: isolati
 		steps: 8,
 		cases: 16,
 		required: handSetRequired,
-		realities: docsTenantRealities,
-		lead: directTransaction(handSetRequired),
+		realities: orgHeldRealities,
+		lead: handSetTransaction(handSetRequired),
 		check: noCheck
 	})
 })

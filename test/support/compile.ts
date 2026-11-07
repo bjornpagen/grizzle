@@ -333,9 +333,8 @@ export const paramTexts = (
 			case "relation": {
 				const encoded = slot.encode(relationInput(slot.param), slot.part)
 				if (!encoded.ok) {
-					const error = encoded.error
 					throw new Error(
-						`encode ${slot.param}: ${error._tag === "EncodingFailure" ? error.message : `column ${error.column} past ${error.limit}`}`
+						`encode ${slot.param}: column ${encoded.error.column} past ${encoded.error.limit}`
 					)
 				}
 				return encoded.value

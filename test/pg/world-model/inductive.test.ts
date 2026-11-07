@@ -50,6 +50,7 @@ import type {
 	Action,
 	ContextFacts,
 	ContextSpec,
+	ClaimsStart,
 	DirectSessionState,
 	FieldSpec,
 	HostFact,
@@ -124,7 +125,7 @@ interface DbPlan {
 interface DirectPlan {
 	readonly login: string
 	readonly current: DirectSessionState["current"]
-	readonly claims: DirectSessionState["claims"]
+	readonly claims: ClaimsStart
 	readonly transaction: "open" | "aborted" | "ended"
 }
 
@@ -305,7 +306,7 @@ const directPlanGen =
 					: asLogin
 			),
 			claims: source.draw(
-				oneOf<DirectSessionState["claims"]>([
+				oneOf<ClaimsStart>([
 					constant({ kind: "none" }),
 					(inner) => ({
 						kind: "set",
@@ -496,8 +497,10 @@ const reachedPlan = (state: ModelState, plan: StatePlan): void => {
 		held?.kind === "direct" && held.transaction === planned.transaction,
 		`the setup leaves the direct writer's transaction ${planned.transaction}`
 	)
+	const claims: ClaimsStart =
+		held.claims.kind === "none" ? held.claims : { kind: "set", setting: held.claims.setting }
 	assert.deepEqual(
-		{ login: held.login, current: held.current, claims: held.claims },
+		{ login: held.login, current: held.current, claims },
 		{ login: planned.login, current: planned.current, claims: planned.claims },
 		"the direct writer acts and claims as planned"
 	)

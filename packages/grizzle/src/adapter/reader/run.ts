@@ -1,5 +1,5 @@
 import { Array as Arr, Effect, Option, Result } from "effect"
-import { UnreadableAnswer } from "#adapter/errors/failures.ts"
+import { type InputTooLarge, UnreadableAnswer } from "#adapter/errors/failures.ts"
 import type { AttachmentScope } from "#adapter/reader/analysis.ts"
 import {
 	answerOf,
@@ -18,7 +18,6 @@ import {
 	type SentRuns,
 	type StatementRecord
 } from "#adapter/reader/execution.ts"
-import type { InputRefusal } from "#adapter/reader/relations.ts"
 import type { BatchStatement, Flight } from "#adapter/wire/batch.ts"
 import {
 	type Carrier,
@@ -502,7 +501,7 @@ const withGroup: Emit<Delivered> = (row, group) => ({ row, group })
 const programStatements = (
 	program: ReadProgram,
 	inputs: ExecutionInputs
-): Effect.Effect<ReadonlyArray<BatchStatement>, InputRefusal> =>
+): Effect.Effect<ReadonlyArray<BatchStatement>, InputTooLarge> =>
 	Effect.gen(function* () {
 		const exceeds = readExceeds(inputs)
 		const statements: Array<BatchStatement> = []
@@ -526,7 +525,7 @@ export const programFlight = <A>(
 	program: ReadProgram,
 	inputs: ExecutionInputs,
 	read: (row: Row) => A
-): Effect.Effect<Flight<ReadonlyArray<A>, UnreadableAnswer>, InputRefusal> =>
+): Effect.Effect<Flight<ReadonlyArray<A>, UnreadableAnswer>, InputTooLarge> =>
 	Effect.map(programStatements(program, inputs), (statements) => ({
 		statements,
 		read: (outcomes) =>
@@ -563,7 +562,7 @@ export const programGetFlight = <A>(
 	program: ReadProgram,
 	inputs: ExecutionInputs,
 	read: (row: Row) => A
-): Effect.Effect<Flight<Option.Option<A>, UnreadableAnswer>, InputRefusal> =>
+): Effect.Effect<Flight<Option.Option<A>, UnreadableAnswer>, InputTooLarge> =>
 	Effect.map(programStatements(program, inputs), (statements) => ({
 		statements,
 		read: (outcomes) =>

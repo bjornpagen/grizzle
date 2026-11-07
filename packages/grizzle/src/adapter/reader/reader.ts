@@ -5,6 +5,7 @@ import { toResult } from "#adapter/engine.ts"
 import { type ReadError, ReadFailure } from "#adapter/errors/execution.ts"
 import {
 	HandleReleased,
+	type InputTooLarge,
 	MissingCapability,
 	type UnreadableAnswer
 } from "#adapter/errors/failures.ts"
@@ -15,12 +16,7 @@ import { attachmentHeads } from "#adapter/reader/analysis.ts"
 import { getEligibility } from "#adapter/reader/eligibility.ts"
 import type { ExecutionInputs } from "#adapter/reader/execution.ts"
 import { hostParams, readKeyValues, unreadableArguments } from "#adapter/reader/params.ts"
-import {
-	executionInputs,
-	type InputRefusal,
-	type ParamCodecs,
-	paramCodecs
-} from "#adapter/reader/relations.ts"
+import { executionInputs, type ParamCodecs, paramCodecs } from "#adapter/reader/relations.ts"
 import {
 	programFlight,
 	programGetFlight,
@@ -317,7 +313,7 @@ type Delivery<A, X> = (
 	program: ReadProgram,
 	inputs: ExecutionInputs,
 	read: (row: Row) => A
-) => Effect.Effect<Flight<X, UnreadableAnswer>, InputRefusal>
+) => Effect.Effect<Flight<X, UnreadableAnswer>, InputTooLarge>
 
 /** One run of a bound read with the parameters, through `through`, its rows delivered by `delivery`. */
 const runBound = <A, X>(

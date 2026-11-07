@@ -1,7 +1,7 @@
 import { Array as Arr, Effect, Result } from "effect"
-import { UnreadableAnswer } from "#adapter/errors/failures.ts"
+import { type InputTooLarge, UnreadableAnswer } from "#adapter/errors/failures.ts"
 import { type AttachmentScope, carried } from "#adapter/reader/analysis.ts"
-import type { InputRefusal, RelationInputs } from "#adapter/reader/relations.ts"
+import type { RelationInputs } from "#adapter/reader/relations.ts"
 import { sentAnswer, type BatchStatement } from "#adapter/wire/batch.ts"
 import {
 	type AttachmentLayout,
@@ -170,7 +170,7 @@ export const formFor = <S extends LoweredStatement, Slot, Choice>(
 export const readBinding = (
 	slot: DeclaredParamSlot,
 	inputs: ExecutionInputs
-): Result.Result<ParamText, InputRefusal> => {
+): Result.Result<ParamText, InputTooLarge> => {
 	switch (slot.kind) {
 		case "scalar":
 			return Result.succeed(scalarInput(inputs, slot.param))

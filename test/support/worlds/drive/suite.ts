@@ -10,6 +10,7 @@ import {
 	Formatter,
 	Option,
 	Predicate,
+	Record,
 	type Scope,
 	String as Str
 } from "effect"
@@ -29,7 +30,7 @@ import {
 import { type RealWorld, realize } from "#test/support/worlds/execute/index.ts"
 import { installedNames } from "#test/support/worlds/execute/names.ts"
 import type { RealizeRefused } from "#test/support/worlds/execute/refused.ts"
-import { requiredWorldFeatures } from "#test/support/worlds/features.ts"
+import { claimRefusalsOf, requiredWorldFeatures } from "#test/support/worlds/features.ts"
 import { actionGen, withOpener } from "#test/support/worlds/generate/action.ts"
 import { knownNonEmpty, pool } from "#test/support/worlds/generate/domain.ts"
 import { defaultScope, enumerateKind } from "#test/support/worlds/generate/enumerate.ts"
@@ -63,6 +64,7 @@ import {
 	docsOneShareInstall
 } from "#test/support/worlds/model/bases/docs.ts"
 import { hostSchemaOf } from "#test/support/worlds/model/host.ts"
+import { relationSpecOf } from "#test/support/worlds/model/session/state.ts"
 import { writtenOf } from "#test/support/worlds/model/session/writes.ts"
 import { initialState, settle, step } from "#test/support/worlds/model/step.ts"
 import type {
@@ -236,6 +238,39 @@ const afterBegin = (
 }
 
 /**
+ * What the transaction a BEGIN setting claims by hand reaches next through its views, read of the BEGIN's outcome: the
+ * refusal of every hand-set claim (features.ts claimRefusalsOf) a read of a view the box offers it meets, as the model
+ * predicts it. A role's entries read every context it reads, so a refusal one statement away is one view read away.
+ */
+const afterHandSet = (
+	state: ModelState,
+	action: Action,
+	observation: ActionOutcome
+): ReadonlyArray<WorldFeature> => {
+	if (action.kind !== "direct-begin" || observation.kind !== "opened") {
+		return []
+	}
+	return Arr.flatMap(branchesOf(state, action), ({ observation: began, next }) =>
+		began.kind === "opened"
+			? Arr.flatMap(enumerateKind(next, "direct", defaultScope), (a) =>
+					a.kind === "direct" && a.session === began.session && a.statement.kind === "select-view"
+						? Arr.flatMap(step(next, a), (b) => claimRefusalsOf(next, a, b.observation))
+						: []
+				)
+			: []
+	)
+}
+
+/** Whether an action is a BEGIN, any the box offers. */
+const everyBegin = (action: Action): boolean => action.kind === "direct-begin"
+
+/** Whether a BEGIN sets its transaction's claims by hand: a setting's text, judged where a statement reads it. */
+const setsClaimsByHand = (action: Action): boolean =>
+	action.kind === "direct-begin" &&
+	action.start.claims.kind === "set" &&
+	action.start.claims.setting.kind === "malformed"
+
+/**
  * What a direct writer's statements and COMMIT note: their op features, the world objects they meet, and the SQLSTATE a
  * hand-set claim its field refuses meets where a statement reads it.
  */
@@ -248,17 +283,23 @@ const directReach = (feature: WorldFeature): boolean =>
 		"claim-refused-read:"
 	)(feature)
 
-/** A live BEGIN aimed on every draw at `targets`, read of its outcome through `read`, among the box's BEGINs. */
+/** How a lead aims its BEGIN: at what `read` finds the BEGIN's outcome reaches, among the box's BEGINs `worth` admits. */
+interface BeginAim {
+	readonly read: Aiming["read"]
+	readonly worth: (action: Action) => boolean
+}
+
+/** A live BEGIN aimed on every draw at `targets` as `begin` aims it. */
 const aimedBegin = (
 	weights: Weights,
 	targets: Arr.NonEmptyReadonlyArray<string>,
-	read: Aiming["read"]
+	begin: BeginAim
 ): Weights => ({
 	...weights,
 	kinds: ["direct-begin"],
 	actions: { ...zeroWeights.actions, "direct-begin": 1 },
 	validity: liveOnly,
-	aims: everyDraw(targets, read, (a) => a.kind === "direct-begin")
+	aims: everyDraw(targets, begin.read, begin.worth)
 })
 
 /**
@@ -278,14 +319,12 @@ const aimedStatement = (
 })
 
 /**
- * A lead for a suite requiring a direct writer's statements: a BEGIN from which a required feature still pending is one
- * statement away (afterBegin, aimed on every draw among the box's starts: as the login or one of its roles, under no
- * claims, each choice of claims, a context alone, or malformed claims), three statements of its transaction each aimed
- * at the required features the program has not reached yet, and its end, aimed likewise (endingIt), so the lead closes
- * what it opened and the program's own draws meet no transaction they did not begin.
+ * A lead's transaction: a BEGIN aimed as `begin` aims it, three statements of its transaction each aimed at the required
+ * features the program has not reached yet, and its end, aimed likewise (endingIt), so the lead closes what it opened
+ * and the program's own draws meet no transaction they did not begin.
  */
-export const directTransaction =
-	(required: ReadonlyArray<Reached<WorldFeature>>): Lead =>
+const transactionLead =
+	(required: ReadonlyArray<Reached<WorldFeature>>, begin: BeginAim): Lead =>
 	(weights, _install, at) => {
 		const [first, ...rest] = requiredFeatures(required, () => true)
 		if (first === undefined) {
@@ -293,13 +332,31 @@ export const directTransaction =
 		}
 		const statement = aimedStatement(weights, [first, ...rest], notedOf)
 		return whilePending(requiredFeatures(required, directReach), at, () => [
-			aimedBegin(weights, [first, ...rest], afterBegin),
+			aimedBegin(weights, [first, ...rest], begin),
 			statement,
 			statement,
 			statement,
 			endingIt(weights, [first, ...rest])
 		])
 	}
+
+/**
+ * A lead for a suite requiring a direct writer's statements (transactionLead): a BEGIN from which a required feature
+ * still pending is one statement away (afterBegin, aimed on every draw among the box's starts: as the login or one of
+ * its roles, under no claims, each choice of claims, a context alone, or malformed claims).
+ */
+export const directTransaction = (required: ReadonlyArray<Reached<WorldFeature>>): Lead =>
+	transactionLead(required, { read: afterBegin, worth: everyBegin })
+
+/**
+ * A lead for a suite requiring the refusals of a direct writer's hand-set claims (transactionLead): a BEGIN setting
+ * claims by hand from which a required refusal still pending is one view read away (afterHandSet, aimed on every draw
+ * among the box's BEGINs that set claims by hand). Its BEGIN looks ahead at the reads of views alone, not at every
+ * statement the box offers after every BEGIN, which one draw cannot step without holding its process past a search's
+ * deadline.
+ */
+export const handSetTransaction = (required: ReadonlyArray<Reached<WorldFeature>>): Lead =>
+	transactionLead(required, { read: afterHandSet, worth: setsClaimsByHand })
 
 /** Whether an action is a call through the open Db at `session` (afterOpen). */
 const callThrough = (action: Action, session: number): boolean => {
@@ -651,7 +708,7 @@ const oneStatementIn = (
 	targets: Arr.NonEmptyReadonlyArray<string>,
 	read: Aiming["read"]
 ): Arr.NonEmptyReadonlyArray<Weights> => [
-	aimedBegin(weights, targets, afterAStatementOf(read)),
+	aimedBegin(weights, targets, { read: afterAStatementOf(read), worth: everyBegin }),
 	aimedStatement(weights, targets, read)
 ]
 
@@ -926,6 +983,37 @@ const chainedOf = (base: BaseSpec, host: HostSchema, reality: HostState): HostSt
  */
 export const docsChainedRealities = (base: BaseSpec, host: HostSchema): Gen<HostState> =>
 	map(docsTenantRealities(base, host), (reality) => chainedOf(base, host, reality))
+
+/**
+ * A reality holding a fact of `relation`: one holding none gains the fact of each field's first pool value, and the
+ * whole repaired to lawful; a reality holding one, or a base without the relation, keeps what it has.
+ */
+const holdingOne = (
+	base: BaseSpec,
+	host: HostSchema,
+	relation: string,
+	reality: HostState
+): HostState => {
+	const spec = relationSpecOf(base, relation)
+	if (spec === undefined || factsOf(reality, relation).length > 0) {
+		return reality
+	}
+	const fact: HostFact = Record.fromEntries(
+		Arr.map(spec.fields, (f) => [f.name, Arr.headNonEmpty(pool(f.domain))] as const)
+	)
+	return lawfulOf(host, new Map(reality).set(relation, [fact]))
+}
+
+/**
+ * The realities of a suite whose views join Org ahead of a context they read: half of them drawn as realityGen draws
+ * them, half holding an Org fact (holdingOne), since a plan over no fact of the one relation a rule joins drops every
+ * row before it reads a claim, and only over one does every plan read the claims (model/session/direct.ts ClaimsOrder).
+ */
+export const orgHeldRealities = (base: BaseSpec, host: HostSchema): Gen<HostState> =>
+	oneOf([
+		realityGen(base, host),
+		map(realityGen(base, host), (reality) => holdingOne(base, host, "Org", reality))
+	])
 
 /**
  * The documents bases' realities for a suite whose refusals need a document at its bound of shares: docsTenantRealities'
@@ -1316,7 +1404,9 @@ export const inductiveLeads = (
 	const shapes: ReadonlyArray<InductiveShape> = [
 		{
 			reaches: (f) => directReach(f) && !appliedProbe(f),
-			moves: (weights, targets) => [aimedBegin(weights, targets, afterBegin)]
+			moves: (weights, targets) => [
+				aimedBegin(weights, targets, { read: afterBegin, worth: everyBegin })
+			]
 		},
 		{
 			reaches: (f) => atCommitRefusals(f) || goneFromItsWorld(f),

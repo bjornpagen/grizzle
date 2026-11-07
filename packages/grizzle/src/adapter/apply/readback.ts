@@ -1,8 +1,7 @@
 import { Array as Arr, type Effect } from "effect"
-import type { UnreadableAnswer } from "#adapter/errors/failures.ts"
+import type { InputTooLarge, UnreadableAnswer } from "#adapter/errors/failures.ts"
 import { attachmentHeads } from "#adapter/reader/analysis.ts"
 import type { ExecutionInputs } from "#adapter/reader/execution.ts"
-import type { InputRefusal } from "#adapter/reader/relations.ts"
 import { programFlight, type ReadProgram, readProgram } from "#adapter/reader/run.ts"
 import type { Flight } from "#adapter/wire/batch.ts"
 import type { CompiledWrite } from "#compiler/plan/change.ts"
@@ -106,5 +105,5 @@ const delivering = (row: Row): Row => row
 export const readBackFlight = (
 	run: ReadBackRun,
 	inputs: ExecutionInputs
-): Effect.Effect<Flight<ReadonlyArray<Row>, UnreadableAnswer>, InputRefusal> =>
+): Effect.Effect<Flight<ReadonlyArray<Row>, UnreadableAnswer>, InputTooLarge> =>
 	programFlight(run.program, inputs, delivering)

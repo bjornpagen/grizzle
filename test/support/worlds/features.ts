@@ -1435,12 +1435,15 @@ const readsOf = (
  * the statement's refusal is, a refinement's 23514 on its law domain's CHECK law where it has one; none for any other
  * action or answer.
  */
-const claimRefusalsOf = (
+export const claimRefusalsOf = (
 	state: ModelState,
 	action: Action,
 	observation: Observation
 ): ReadonlyArray<WorldFeature> => {
-	if (action.kind !== "direct") {
+	if (
+		action.kind !== "direct" ||
+		(observation.kind !== "refused" && observation.kind !== "law-refused")
+	) {
 		return []
 	}
 	const session = state.sessions[action.session]
@@ -1462,7 +1465,7 @@ const claimRefusalsOf = (
 				)
 			: undefined
 	return Arr.flatMap(
-		handSetFaults(state.install.base, state.names, session.claims.setting.text, observation),
+		handSetFaults(state.names, session.claims.read, observation),
 		(fault): ReadonlyArray<WorldFeature> => {
 			const at = entry === undefined ? undefined : claimReadAt(entry, fault.context, fault.field)
 			const refined = refinedOf(fault.domain)

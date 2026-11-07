@@ -2,6 +2,7 @@ import type { WildKind } from "@grizzle/testing/lsw"
 import type { Array as Arr } from "effect"
 import type { Identity } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
+import type { HeadStanding } from "#compiler/schema/entry.ts"
 import type { AmbientFeature } from "#test/support/ambient.ts"
 import type { IdentifierFeature } from "#test/support/kernel/dict.ts"
 import type { HostFact, HostSchema, HostState, HostValue } from "#test/support/laws/model.ts"
@@ -296,7 +297,7 @@ export type Fill =
  */
 export interface HeadField {
 	readonly field: string
-	readonly kind: "free" | "claimFixed" | "keyed"
+	readonly kind: HeadStanding
 }
 
 export type EntryClass =
@@ -366,6 +367,52 @@ export type SettingScope = "transaction" | "session"
 export type ClaimsSetting =
 	| { readonly kind: "facts"; readonly facts: ContextFacts; readonly scope: SettingScope }
 	| { readonly kind: "malformed"; readonly text: string; readonly scope: SettingScope }
+
+/**
+ * How a read of a context refuses a hand-set claim (packages/engine/src/sql/print.ts contextClaims): with a SQLSTATE
+ * alone, 22P02 or 22003 for a claim no value of its base type, 23514 for a closed id's code its roster's domain refuses;
+ * or on a law domain's CHECK as the claim is cast to it, 23514 on the domain's law, for a contract's integer past its
+ * bounds or a text past its pattern.
+ */
+export type RefusedClaim =
+	| { readonly kind: "state"; readonly sqlstate: ClaimRefusal }
+	| {
+			readonly kind: "check"
+			readonly domain: Extract<FieldDomain, { readonly kind: "contract" | "text" }>
+	  }
+
+/**
+ * One refusal a read of a context meets: its member holding other keys than the context's fields (22P02), or one of its
+ * fields' claims, refused as its field's type is cast (RefusedClaim).
+ */
+export type ContextRefusal =
+	| { readonly kind: "keys" }
+	| {
+			readonly kind: "claim"
+			readonly field: string
+			readonly domain: FieldDomain
+			readonly refusal: RefusedClaim
+	  }
+
+/**
+ * What PostgreSQL reads from a direct writer's claims setting (packages/engine/src/sql/print.ts claimsDocument,
+ * contextClaims), parsed once where the setting enters (model/session/direct.ts settingRead): a claims document,
+ * holding the facts of the contexts whose member holds exactly their fields, each value admitted by its field's type,
+ * and the contexts whose member holds other keys or a value its type refuses, each with the refusals a read of it meets;
+ * or a text that is no claims document, which every read of a claim refuses (22P02).
+ */
+export type ClaimsRead =
+	| {
+			readonly kind: "document"
+			readonly facts: ContextFacts
+			readonly refused: ReadonlyMap<string, Arr.NonEmptyReadonlyArray<ContextRefusal>>
+	  }
+	| { readonly kind: "malformed" }
+
+/** The claims a direct writer sets as it begins: none, or a setting, sent as `grizzle.claims`. */
+export type ClaimsStart =
+	| { readonly kind: "none" }
+	| { readonly kind: "set"; readonly setting: ClaimsSetting }
 
 /** A function the installation defines that a direct writer may try to call: no law function is one (fin.md §7). */
 export type WorldFunction =
@@ -793,16 +840,20 @@ export interface DbSessionState {
  * (startStatements), so the facts inside, outside and hidden from a role's world, and a login's statements under claims
  * it holds, are one statement away.
  */
-export type DirectStart = Pick<DirectSessionState, "current" | "claims">
+export interface DirectStart {
+	readonly current: DirectSessionState["current"]
+	readonly claims: ClaimsStart
+}
 
 /** A direct SQL writer inside the one transaction it began: who it acts as, the claims it set, and what it sees. */
 export interface DirectSessionState {
 	readonly kind: "direct"
 	readonly login: string
 	readonly current: { readonly kind: "login" } | { readonly kind: "role"; readonly role: string }
+	/** The claims it set, and what PostgreSQL reads from them (ClaimsRead), parsed once as the setting entered. */
 	readonly claims:
 		| { readonly kind: "none" }
-		| { readonly kind: "set"; readonly setting: ClaimsSetting }
+		| { readonly kind: "set"; readonly setting: ClaimsSetting; readonly read: ClaimsRead }
 	readonly isolation: Isolation
 	readonly transaction: "open" | "aborted"
 	/** The state the transaction sees: reality when it began, with its own statements applied; COMMIT makes it reality. */

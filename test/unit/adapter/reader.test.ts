@@ -544,9 +544,7 @@ describe("a read's relation input", () => {
 							if (slot !== undefined) {
 								const refusal: EncodingFailure | ReadFailure | undefined = Exit.isFailure(host)
 									? Option.getOrUndefined(Exit.findErrorOption(host))
-									: prepared !== undefined &&
-										  Result.isFailure(prepared) &&
-										  prepared.failure._tag === "EncodingFailure"
+									: prepared !== undefined && Result.isFailure(prepared)
 										? prepared.failure
 										: undefined
 								const reason = refusal instanceof ReadFailure ? refusal.reason : refusal
