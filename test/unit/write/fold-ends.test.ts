@@ -290,7 +290,7 @@ const insertedGen: Gen<Inserted> = (source) => {
 				times(owners, (o) =>
 					times(source.draw(int(0, 6)), () => ({
 						monoid: g.monoid,
-						member: { owner: o + 1, steps: source.draw(stepsGen(g, true)) }
+						member: { owner: o + 1, steps: source.draw(stepsGen(g, "none")) }
 					}))
 				)
 			)

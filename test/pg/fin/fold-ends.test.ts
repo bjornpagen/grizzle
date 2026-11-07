@@ -1,7 +1,7 @@
 import { layer } from "@effect/vitest"
 import { type Kept, drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { type Gen, int } from "@grizzle/testing/gen"
+import { constant, type Gen, int, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { boundedShrink } from "@grizzle/testing/shrink"
 import { type Swarm, swarm, swarmChoice } from "@grizzle/testing/swarm"
@@ -18,6 +18,7 @@ import { cleared, seatOfInstalled } from "#test/pg/fin/installed.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, deepEquals, defined, nonEmpty, unorderedEqual } from "#test/support/assert.ts"
 import {
+	type Breaking,
 	type Broken,
 	brokenOf,
 	type Cell,
@@ -262,7 +263,7 @@ interface Keys {
 
 /**
  * New members of every monoid's family under `owners`, at most `most` per owner and family, their keys fresh, a refined
- * cell's steps outside its refinement too where `breaking` holds.
+ * cell's steps breaking the rule `breaking` names too.
  */
 const newMembersGen =
 	(
@@ -270,7 +271,7 @@ const newMembersGen =
 		owners: Arr.NonEmptyReadonlyArray<number>,
 		keys: Keys,
 		most: number,
-		breaking: boolean
+		breaking: Breaking
 	): Gen<ReadonlyArray<Stated>> =>
 	(source) =>
 		Arr.flatMap(s.groups, (g) =>
@@ -285,8 +286,12 @@ const newMembersGen =
 			)
 		)
 
-/** Whether a write's refined steps may break their refinement: one write in six. */
-const breakingGen: Gen<boolean> = (source) => source.draw(int(0, 5)) === 0
+/** Which rule a write's refined steps may break: one write in twelve the pattern, as many the pieces' bound. */
+const breakingGen: Gen<Breaking> = weighted([
+	[10, constant("none")],
+	[1, constant("pattern")],
+	[1, constant("bound")]
+])
 
 const writeKinds = ["create", "append", "remove", "restep", "move", "relabel"] as const
 
@@ -385,10 +390,10 @@ const writeGen =
 
 /**
  * A tree of at most `depth` levels below its root, each node of at most three children, its keys fresh, a refined
- * cell's steps outside its refinement too where `breaking` holds.
+ * cell's steps breaking the rule `breaking` names too.
  */
 const nodeGen =
-	(g: Group, keys: Keys, depth: number, breaking: boolean): Gen<Node> =>
+	(g: Group, keys: Keys, depth: number, breaking: Breaking): Gen<Node> =>
 	(source) => {
 		keys.member += 1
 		const id = keys.member
@@ -822,7 +827,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								suite: "pg/fin/fold-ends",
 								draw: drawn(caseGen),
 								literal: Formatter.format,
-								coverage: required<Situation>(situations, { cases: 160, sense: notesOnly }),
+								coverage: required<Situation>(situations, { cases: 320, sense: notesOnly }),
 								kept: [downstream, pieces],
 								runs: 16,
 								shrink: boundedShrink(40),

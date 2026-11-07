@@ -378,20 +378,31 @@ export const hostOf = (p: PlaneKind, v: Value): unknown => {
 	}
 }
 
+/** Which rule of a refined cell a write's tokens may break: none, its accumulators' pattern, or its pieces' bound. */
+export type Breaking = "none" | "pattern" | "bound"
+
 /**
  * A refined cell's tokens, the letters and lengths its pieces' bound and its accumulators' pattern branch on: none or
- * one of a and b, whose piece fits its bound and keeps every running value inside the pattern; and where the write may
- * break them, c, which breaks the pattern wherever it is folded, or two letters, whose piece outgrows its bound.
+ * one of a and b, whose piece fits its bound and keeps every running value inside the pattern; and as often, where the
+ * write may break one rule, c, which breaks the pattern wherever it is folded, or two of a and b, whose piece outgrows
+ * its bound and stays inside the pattern.
  */
-const tokenGen = (breaking: boolean): Gen<Value> => {
+const tokenGen = (breaking: Breaking): Gen<Value> => {
 	const lying = string(element(["a", "b"]), { min: 0, max: 1 })
-	return breaking
-		? weighted([
-				[2, lying],
-				[1, constant("c")],
+	switch (breaking) {
+		case "none":
+			return lying
+		case "pattern":
+			return weighted([
+				[1, lying],
+				[1, constant("c")]
+			])
+		case "bound":
+			return weighted([
+				[1, lying],
 				[1, string(element(["a", "b"]), { min: 2, max: 2 })]
 			])
-		: lying
+	}
 }
 
 /** The step values of a plane kind: a box of small units per carrier, every subset of a set's roster, short texts. */
@@ -678,17 +689,17 @@ export const membersOf = (state: State, monoid: MonoidName): ReadonlyArray<Membe
 
 /**
  * A cell's step values as a member's steps record holds them, its step's or the token its piece doubles, over its whole
- * plane, a refined cell's outside its accumulators' pattern too where `breaking` holds.
+ * plane, a refined cell's breaking the rule `breaking` names too.
  */
-export const stepValueGen = (c: Cell, breaking: boolean): Gen<Value> =>
+export const stepValueGen = (c: Cell, breaking: Breaking): Gen<Value> =>
 	c.refined ? tokenGen(breaking) : stepGen(c.plane)
 
 /**
  * A member's step values, drawn for each field of its group a step reads that its caller writes, a refined cell's
- * outside its accumulators' pattern too where `breaking` holds.
+ * breaking the rule `breaking` names too.
  */
 export const stepsGen =
-	(g: Group, breaking: boolean): Gen<Steps> =>
+	(g: Group, breaking: Breaking): Gen<Steps> =>
 	(source) =>
 		Rec.fromEntries(
 			Arr.flatMap(g.cells, (c): ReadonlyArray<readonly [string, Value]> => {
