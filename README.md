@@ -927,14 +927,22 @@ Migrations are plain SQL files that `grizzle generate` drafts and you review, as
 
 ## Install
 
+> **What you need to run grizzle**
+>
+> - **PostgreSQL 19**, tested on 19rc1 with the two patches under
+>   [PostgreSQL known issues](#postgresql-known-issues). PostgreSQL 19 GA is due on 2026-11-19; until hosted providers
+>   offer it, run the server yourself.
+> - **Node 26** or later.
+> - **Effect 4.1.**
+
 ```sh
-pnpm add @bjornpagen/grizzle effect pg
+pnpm add @bjornpagen/grizzle@beta effect pg
 ```
 
 The agent guide ships in the package as `skills/grizzle/SKILL.md`: copy it to where your agent reads skills, and again
 after upgrading grizzle.
 
-You need:
+In full, you need:
 
 - **Node 26 or later** and **Effect 4.1.** `effect` is a peer dependency, so install one copy beside grizzle. grizzle
   runs under `--disable-proto=delete` and `--disable-sigusr1`: it never touches `Object.prototype.__proto__`, the
@@ -1341,6 +1349,15 @@ infinity or a year its text could not spell, whoever writes it; it is the type's
 PostgreSQL writes it the same way. Dates compare, and `min` and `max` them, a key or index may hold one, and
 `span(date)` is a span of days, PostgreSQL's daterange.
 
+A pattern is written in JavaScript's regular expression syntax under the `u` flag, and holds the part of it that
+PostgreSQL matches the same way: characters and escapes, classes and ranges, `\d`, `\w` and their complements, `.`,
+groups, `|`, `^` and `$` for the start and end of the whole text, and the greedy `?`, `*`, `+` and `{m,n}`, each bound
+at most 255. A lookahead or lookbehind, a `\p{…}` or `\P{…}` class, `\s` or `\S`, `\b` or `\B`, a backreference, a
+named group, an inline modifier, a lazy quantifier, NUL and a lone surrogate are not, and neither is a pattern no text
+matches, such as `a^b` or `[]`. TypeScript accepts each of them, as JavaScript does;
+the first relation, contract or `Compute.matches` built over the pattern refuses it with `UnsupportedOperation`, naming
+the construct and where it stands in the pattern.
+
 `str.bytes(n, pattern)` is text of the pattern's language of at most `n` UTF-8 bytes, `n` from 0 to 2,147,483,647.
 The bound is a refinement as the pattern is, not a type: the field's host type is the pattern's, so it meets every
 text the pattern meets, and a value copied from a document text of no bound into it needs no cast. Its domain checks
@@ -1518,16 +1535,17 @@ writer.
 
 A rule is stated over sides, `on(source, ...terms)`, and pairs its sides' terms in order. A source is a table, or
 `select(T, (t) => φ)`: the rows of T where φ holds, φ written as a row check's condition, the one way a selection is
-written. A term is a field, or `pred(n)` of a `natural` field n: n − 1, defined only where n is above 0. A row outside
-a side's selection, or whose `pred` field is 0, has no tuple on that side: a key over the side doesn't hold it apart,
-a containment from the side doesn't require it, and a containment into the side doesn't find it. A key over a table's
-own fields is a candidate key of the table; over a selected side or a `pred` term it is no key of the table. A
-containment's target holds a key: a candidate key among its fields, or a key over the same selection among its terms.
-A rule may be written in a helper generic over the tables it reads, `<T extends typeof A | typeof B>(t: T) =>
-contained(on(t, "owner"), on(Owner, "id"))`: it typechecks exactly where the rule holds for each table T may be. Those
-tables share one heading, or one holds every field of another and more; a helper over tables that share none is
-refused. A query over such a T reads it the same way, through `v(t, "x")` and `r.match(t, …)`. A show's waitlist,
-over the box office:
+written. A term is a field, or `pred(n)` of a `natural` field n: n − 1, defined only where n is above 0. A side lists
+each term once: `on(Ticket, "show", "show")` is a type error, and from JavaScript refused when you build it, while
+`"at"` and `pred("at")` are two terms. A row outside a side's selection, or whose `pred` field is 0, has no tuple on
+that side: a key over the side doesn't hold it apart, a containment from the side doesn't require it, and a containment
+into the side doesn't find it. A key over a table's own fields is a candidate key of the table; over a selected side or
+a `pred` term it is no key of the table. A containment's target holds a key: a candidate key among its fields, or a key
+over the same selection among its terms. A rule may be written in a helper generic over the tables it reads,
+`<T extends typeof A | typeof B>(t: T) => contained(on(t, "owner"), on(Owner, "id"))`: it typechecks exactly where the
+rule holds for each table T may be. Those tables share one heading, or one holds every field of another and more; a
+helper over tables that share none is refused. A query over such a T reads it the same way, through `v(t, "x")` and
+`r.match(t, …)`. A show's waitlist, over the box office:
 
 ```ts
 import { natural, pred, select } from "@bjornpagen/grizzle"
@@ -1592,7 +1610,10 @@ A relation is a member of at most one ordered family or tree, which orders it, a
 each with its own hidden columns and foreign keys. A counted family's member may also be an ordered family's member,
 a tree's node or a sequence's owner. Ordered families that nest each other in a cycle, an ordered family of a relation
 over itself among them, are refused when the schema compiles (`UnwritableRelation`, `nestingCycle`), since no row of
-them could be written first. One count counts one family.
+them could be written first. One count counts one family. A family's or a tree's member side is a table, never a
+selection, since every row of its relation is a member: `counted(on(select(Ticket, φ), "show"), fin(Show, "tickets"))`
+is a type error, and from JavaScript refused when you build it. A fold's step may still select the members whose
+values it reads.
 
 grizzle owns every value a family holds: each count, index, interval, copy and accumulator is drawn on the host on
 every write and proved by PostgreSQL, never written by the caller. A fold's running `after` is no generated column: it
@@ -1692,9 +1713,10 @@ the types don't reach, refused before any SQL. A role that holds every table of 
 
 ### Writing through a role
 
-A query entry in `write` is writable when it has one rule and all its columns come straight from one table, any
-column of that table the entry leaves out, a key column included, is fixed by the query to a constant or a claim, but
-a count or end its family draws, which the entry holds or leaves out, and every other match only filters. `myPosts` qualifies: its columns come from `Post`, and `author` and `org` are fixed
+A query entry in `write` is writable when it has one rule, all its columns come straight from one table, every column of
+that table the entry leaves out, a key column included, is fixed by the query to a constant or a claim, and every other
+match only filters. A count or end the table's family draws is the one exception: the entry holds it among its columns,
+or leaves it out unfixed. `myPosts` qualifies: its columns come from `Post`, and `author` and `org` are fixed
 by the token. A role whose `write` names any other entry is refused when you build it, with the reason.
 
 - An insert fills the fixed columns, and may leave out the entry's serial columns as an insert into a table may, also
@@ -1705,9 +1727,10 @@ by the token. A role whose `write` names any other entry is refused when you bui
 - A delete of a row outside the entry does nothing: for this role, that row does not exist.
 - An entry over a family's owner writes the owner as a write of the table does: no row states its counts and ends,
   which grizzle draws, and a put updates the entry's own columns in place and leaves the family as it is. Its filter
-  may read no count or end, and no key of the table may hold one; a role whose entry does is refused when you build
-  it. The owner's place in the entry would move with writes to its members that no write through the entry states,
-  and the table's policy could not judge an owner as it is inserted, before its count is written.
+  may read no count or end, and no key of the table may hold one: a role whose entry does is refused when you build
+  it, a `RoleRefused` whose rule is `writeUnwritable` with the `why` `filterReadsFamily` or `keyHoldsFamily`, naming
+  the field. The owner's place in the entry would move with writes to its members that no write through the entry
+  states, and the table's policy could not judge an owner as it is inserted, before its count is written.
 - A put or insert that collides with a row outside the entry, on a key over the table or over a side of it, is
   `invariant-rejected` on that rule, and the witness is the key you submitted, in the entry's fields, never the other
   row. An error PostgreSQL still raises there is a typed failure, never an outcome.
@@ -1993,7 +2016,10 @@ page's rows see one snapshot.
 - **`db.page(orderedQuery, params, { first: 20 })`** pages by key, with opaque cursors: `{ first }`,
   `{ first, after }`, `{ last }` or `{ last, before }`. There is no default page size and no largest one: a size is
   any safe integer of at least 1.
-- **`db.explain(program, params)`** returns PostgreSQL's estimated plans as data, never EXPLAIN ANALYZE.
+- **`db.explain(program, params)`** returns PostgreSQL's estimated plans as data, in the order the program's statements
+  would run, never EXPLAIN ANALYZE. A plan node holds its node type, its estimated startup and total cost, rows and
+  width, and its children, nothing else: the relation and index names and the conditions PostgreSQL reports are
+  dropped.
 
 A program in the login's workloads is `db.workload.<name>`, compiled when the layer was built, with exactly the
 operations it allows; its statements are prepared on each connection's first use and kept for the pool's life. Any
@@ -2229,14 +2255,17 @@ channel as a tagged class.
   them, and `witness`, which says what broke them. Match on a law directly:
   `{ kind: "check", relation: "Grant", name: "WithinGrant" }`. `refused` is one of two:
   - `{ kind: "every", laws }`: every rule grizzle decides refused the write. A row check that refused a row you stated
-    names every rule of that row's table's checks the row breaks, each once, in your schema's canonical order of rules
+    names every rule of that row's table's checks the row breaks as the write fills it, its counts, ends, indexes and
+    copies at the values grizzle draws for it, each once, in your schema's canonical order of rules
     (its primary keys', then its statements' in canonical order, the order its snapshot lists them, which depends on
     what the schema says, never on how you wrote it), whichever check PostgreSQL tried first. Any other rule is the one
     the failing constraint states, or, where one PostgreSQL object discharges several and its report does not say which
     failed, each of them: a family's foreign key carries every containment merged into it, and one domain serves every
     contract and pattern of the same definition.
   - `{ kind: "first", laws }`: a row check that refused a row only PostgreSQL computes, which no ChangeSet states (a
-    query's, or one grizzle fills on a family): the rules of the check PostgreSQL tried first. PostgreSQL tries a
+    query's, or one grizzle fills on a family), or a row you stated one of whose table's checks reads a value grizzle
+    does not hold on the host, such as a count or an end a put keeps from the stored row: the rules of the check
+    PostgreSQL tried first, never more, since grizzle cannot decide that check. PostgreSQL tries a
     table's checks in the order of their installed names, which no version of grizzle keeps, so the row may break
     others too, and another version may name another of them.
 - The witness is `{ kind: "key", relation, values }`, the key values of one row that breaks the rule, never another
@@ -2245,10 +2274,10 @@ channel as a tagged class.
   submitted, in the fields you wrote it in. A rule PostgreSQL refuses itself, a row check, a contract, a pattern or a
   generated field, states its row only in its message, which grizzle never reads, so grizzle judges, on the host, the
   rows the refused statement wrote that your ChangeSet states (an inserted or put row, a query entry's row, a nested
-  member) by the rule over their fields: the witness is the key of the first that breaks it, in the fields you wrote it
-  in. It is `unreported` for a foreign key, and where no row you stated breaks the rule: a row only PostgreSQL computes,
-  a query's, or one whose rule reads a value grizzle fills on a family, a rule over what the host does not evaluate,
-  or a row whose key PostgreSQL draws.
+  member) by the rule over their fields as the write fills them: the witness is the key of the first that breaks it,
+  in the fields you wrote it in. It is `unreported` for a foreign key, and where no row you stated breaks the rule: a
+  row only PostgreSQL computes, a query's, one whose rule reads a value grizzle does not hold on the host, a rule over
+  what the host does not evaluate, or a row whose key PostgreSQL draws.
 - `outside-world` names the role's table a row cannot belong to.
 
 A value its contract or pattern refuses passes the encoder, which checks only the base type, and is refused by its
@@ -2517,6 +2546,7 @@ app. Log in as a login, `SET ROLE` to one of its roles, set the claims in the tr
 | 22023               | `SET ROLE` or `SET SESSION AUTHORIZATION` to a role that does not exist                                                                                      |
 | 428C9               | an UPDATE of a serial column, before any privilege check                                                                                                     |
 | 25000               | a write below SERIALIZABLE                                                                                                                                   |
+| 23502               | a NULL in a column, such as one an INSERT leaves out that is neither serial nor generated (every column a writer supplies is NOT NULL, a family's hidden ones included); a generated field whose term has no value at the row, a closed read at a key its relation holds no row at |
 | 22P02, 22003, 23514 | a `grizzle.claims` setting PostgreSQL cannot read, where a statement reads it (below)                                                                         |
 | 23514               | a row check, a family's CHECK or a rule over a closed relation, each named by its rule; a value its contract or pattern refuses, or a code or set its roster's domain refuses, as the statement casts it, before row-level security and the row's constraints |
 | 23505               | at the statement: a duplicate key, over a table or over a side of one, an exact repeat included; or a key a concurrent transaction committed after this one's snapshot, which is retryable |
@@ -2633,6 +2663,8 @@ workflows, whose rules are worth declaring and whose users see different slices 
 - **A vector's norm lies in the cosine domain**, between 2^-68 and 2^63: within it pgvector's `cosine_distance`,
   which sums in single precision, is a number in [0, 2] for every pair of vectors of up to 16,000 dimensions, never
   NaN. A vector outside it is refused when it is encoded, and its column's CHECK refuses it from any writer.
+- **A `str.regex` pattern has no lookahead or lookbehind and no `\p{…}` class**, nor any other construct
+  [Tables and types](#tables-and-types) lists, and some text must match it.
 - **A `str.regex` pattern is bounded by the automaton PostgreSQL compiles from it**, not by its length or nesting.
   PostgreSQL refuses a regular expression whose automaton outgrows its compile space (`REG_MAX_COMPILE_SPACE`) as
   "regular expression is too complex", and compilation refuses with `ResourceBound` a pattern past grizzle's measures

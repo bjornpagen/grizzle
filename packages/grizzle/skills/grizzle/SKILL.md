@@ -368,11 +368,12 @@ The command line's own refusals, by stage:
 - Connect straight to PostgreSQL: PgBouncer is not supported.
 - Every server setting grizzle does not pin is the database owner's, set on the database or the server: a login's
   role holds exactly its pinned defaults, and `Db.open` refuses one that holds any other. A login's role pins only
-  what a grizzle guarantee rests on: `search_path`, `extra_float_digits = 1`, `lc_monetary`, `lc_numeric` and
-  `lc_time` at `C.UTF-8`, and for a login whose roles search vectors `hnsw.iterative_scan = strict_order`. So
-  `hnsw.ef_search`, `hnsw.max_scan_tuples` and `hnsw.scan_mem_multiplier` decide which rows an `approximateNearest`
-  read returns and how many; JIT is the owner's too, and on a server built with LLVM `jit_above_cost` can make a large
-  statement compile its plan first; and the server's messages come in its `lc_messages` language.
+  what a grizzle guarantee rests on: `search_path`, `extra_float_digits = 1`, `DateStyle = 'ISO, YMD'`, `lc_monetary`,
+  `lc_numeric` and `lc_time` at `C.UTF-8`, and for a login whose roles search vectors
+  `hnsw.iterative_scan = strict_order`. So `hnsw.ef_search`, `hnsw.max_scan_tuples` and `hnsw.scan_mem_multiplier`
+  decide which rows an `approximateNearest` read returns and how many; JIT is the owner's too, and on a server built
+  with LLVM `jit_above_cost` can make a large statement compile its plan first; and the server's messages come in its
+  `lc_messages` language.
 - Pass the committed snapshot to the login's `DbLayer.make`, and open each `Db` through its login:
 
   ```ts
@@ -420,6 +421,13 @@ The command line's own refusals, by stage:
   and a server's error by its `sqlstate` and the fields it names, never by its words, which follow `lc_messages`.
   Retry only `TransientFailure`, and `Db.open`'s `OpenError` whose reason is `AdmissionTransient`, with `Effect.retry`
   and your own `Schedule`; after `CommitUnknown`, read back before running the call again.
+- A broken rule is an outcome of `db.apply`, never an error. `invariant-rejected` carries `refused`,
+  `{ kind: "every" | "first", laws }`, whose `laws` are the laws as the schema states them, never empty, such as
+  `[{ kind: "check", relation: "Grant", name: "WithinGrant" }]`: match on them directly, never on a constraint's name.
+  `every` names every law grizzle decides the write broke. `first` names the laws of the CHECK PostgreSQL tried first,
+  where grizzle cannot decide a row's checks on the host (a row only PostgreSQL computes, such as a query's, or a check
+  that reads a value grizzle does not hold, such as a count or an end a put keeps from the stored row): the row may
+  break other checks too, and another version of grizzle may name another of them.
 - No read raises an arithmetic error on a row: never catch 22003, 22012 or 2201F around a query. Integer arithmetic is
   exact and delivers `bigint`, money arithmetic exact `Money`, and floats are IEEE 754 (`x / 0.0` is ±Infinity). A
   partial operation needs its precondition proved, by a literal's type (`Compute.div(x, 7n)`), by a contract that
@@ -455,6 +463,15 @@ The command line's own refusals, by stage:
   `(before, after)` pair, and write each member's separator into its own step value; type the step and the
   accumulators by a bounded pattern, `str.regex("^.{0,64}$", "su")`, since the family's axes key each running text
   and an unbounded one is UnrepresentableKey.
+- Write a `str.regex` or `Compute.matches` pattern in JavaScript's syntax under `u`, with no lookahead or lookbehind,
+  `\p{…}` or `\P{…}`, `\s` or `\S`, `\b` or `\B`, backreference, named group, inline modifier, lazy quantifier or
+  repetition bound above 255, and with some text it matches. TypeScript accepts each of these, but the relation,
+  contract or `Compute.matches` built over the pattern refuses it as `UnsupportedOperation`, naming the construct and
+  its offset. Spell an explicit class instead of `\s` or `\p{…}`.
+- A set of a roster's handles, `bits(X)`, has the algebra `Compute.union`, `Compute.intersection`,
+  `Compute.difference`, `Compute.cardinality`, `Compute.subset`, `Compute.disjoint` and `Compute.singleton`, and no
+  complement. Test a closed id's membership in a set as `Compute.subset(Compute.singleton(id), set)`:
+  `Compute.singleton(id)` is the set of the id's one handle, and a NULL id gives a NULL set.
 - Every numeric field declares its precision and scale, `pg.numeric(p, s)`; there is no bare `pg.numeric`. A sum,
   a mean or an operation's numeric result carries the digits its computation proves, and one past 131,072 integer
   digits is `ResourceBound`. Convert an integer, money or a float to numeric with `Compute.numeric(x)`, never a cast to
@@ -467,6 +484,13 @@ The command line's own refusals, by stage:
   the login's roles only with SET FALSE and no ADMIN, and only while the login's effective privileges on the
   installation stay exactly those three: `rds_iam` holds nothing there, so it is admitted, and a membership handing
   the login any privilege or ownership is refused. This has not been run against RDS.
+- A role's `write` lists a query entry only when the entry is writable (README's Writing through a role); otherwise
+  `role(...)` is refused as `RoleRefused`, its rule `writeUnwritable` naming the `entry` and the `why`. An entry over a
+  family's owner writes the owner as a write of its table does: grizzle draws the owner's counts and ends, so no row
+  states them, and a put leaves the family as it is. Its filter reads no count or end, and no key of the table holds
+  one, or the `why` is `filterReadsFamily` or `keyHoldsFamily`, naming the field: filter the owner by the fields its
+  caller writes. A family's members are written from an array or a `Stream`, never from a query or through a query
+  entry.
 - A direct SQL writer logs in as a login, runs `SET ROLE <role>` for one of its roles, and, for a role whose
   relations read a context, sets the claims in the transaction:
   `SELECT set_config('grizzle.claims', '{"Session":{"sub":"user_123"}}', true)`. A login holder can set any claims:
@@ -480,10 +504,8 @@ The command line's own refusals, by stage:
   of a schema, a contract a context names beside a relation, roster or contract of the schema), a name may not start
   with `_`, a conversion (a login's or role's with its schema's) must fit 63 bytes, and a schema's must not start with
   `pg_`. Everything else is `__<readable part>_<digest>` and carries a COMMENT saying what it is: `grizzle names`
-  prints that mapping from the committed snapshot. Write direct SQL against those names. An outcome's `laws` are the
-  laws as the schema states them, never empty, such as `[{ kind: "check", relation: "Grant", name: "WithinGrant" }]`:
-  match on them directly. A direct writer of a family's member fills its hidden columns as grizzle does (its index,
-  its copy of the owner's count, each fold's running values) and the owner's count and ends; PostgreSQL refuses every
-  value that breaks the family.
+  prints that mapping from the committed snapshot. Write direct SQL against those names. A direct writer of a family's
+  member fills its hidden columns as grizzle does (its index, its copy of the owner's count, each fold's running
+  values) and the owner's count and ends; PostgreSQL refuses every value that breaks the family.
 - This file ships in the package as `skills/grizzle/SKILL.md`: copy it to where your agent reads skills, and again
   after upgrading grizzle.

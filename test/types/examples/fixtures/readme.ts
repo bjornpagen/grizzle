@@ -961,7 +961,7 @@ const post = {
 export const writePost = ChangeSet.empty(MemberBlog).insert(MemberPost, [post])
 
 /** "A query over the schema is a type error on a role that does not hold every table whole". */
-// @ts-expect-error -- TS2345: a query over Blog is no query over MemberBlog, whose Post is a query of its own
+// @ts-expect-error -- TS2345 refusal: a program over no level of the database's schema
 export const baseOnMember = (db: Db<typeof MemberBlog, unknown>) => db.execute(published, {})
 
 /** "requires verify exactly when a role of the login reads a context". */
