@@ -42,8 +42,9 @@ import { patternOver, walkGen } from "#test/unit/text/generators.ts"
  *   (sign, digits either side of a point, exponent; year, month, day), and whether it is a member, and the value it
  *   names, follow from those parts alone: an integer in its carrier's range; a decimal's significant digits against
  *   the typmod; a double's value as ECMAScript's StringToNumber reads it, correctly rounded for the at most 20
- *   significant digits a candidate has; a date's validity and day number as the proleptic Gregorian calendar of
- *   ECMAScript's Date gives them;
+ *   significant digits a candidate has; a double's text of any digits by the IEEE 754 conversion written from its
+ *   definition (test/support/oracle/evaluate/double-text.ts); a date's validity and day number as the proleptic
+ *   Gregorian calendar of ECMAScript's Date gives them;
  * - **the inclusion walk's own refutation:** a pattern pair the walk calls included admits no walk of the inner
  *   pattern's NFA outside the outer's language, and a refuted pair's witness is a member of the inner and not of the
  *   outer, both judged by the host NFA, an implementation apart from the canonical DFAs the walk reads.
@@ -128,7 +129,8 @@ describe("lexical forms", () => {
 							"decimal",
 							"double",
 							"boolean",
-							"date"
+							"date",
+							"doubleText"
 						]),
 						caseHang,
 						box: "every integer carrier, numeric(p, s) for p from 1 to 12 and s from 0 to p, and every other kind",
@@ -296,6 +298,22 @@ const checkTargets: Arr.NonEmptyReadonlyArray<readonly [LexicalTarget, Parsed]> 
 								Compute.matches(r.t, pattern),
 								(t) => Compute.cast(t, pg.numeric(3, 1)),
 								Compute.literal(pg.numeric(3, 1), "0")
+							)
+				)
+			}))
+	],
+	[
+		{ kind: "doubleText" },
+		(pattern, route) =>
+			relation.generated("R", { id: uuid, t: typedText(pattern, route) }, ["id"], (r) => ({
+				n: generated(
+					pg["double precision"],
+					route === "type"
+						? Compute.parseDouble(r.t)
+						: Compute.when(
+								Compute.matches(r.t, pattern),
+								(t) => Compute.parseDouble(t),
+								Compute.literal(pg["double precision"], 0)
 							)
 				)
 			}))

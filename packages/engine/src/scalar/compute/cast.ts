@@ -14,7 +14,12 @@ import {
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { fromUnits, toInteger } from "#compiler/scalar/compute/numeric.ts"
 import type { Undefined } from "#compiler/scalar/compute/registry.ts"
-import { type LexicalValue, lexicalTargetOf, lexicalValue } from "#compiler/scalar/lexical.ts"
+import {
+	type LexicalTarget,
+	type LexicalValue,
+	lexicalTargetOf,
+	lexicalValue
+} from "#compiler/scalar/lexical.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { fround } from "#compiler/scalar/values/float.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
@@ -408,13 +413,18 @@ const roundDouble = (negative: boolean, num: bigint, den: bigint): number =>
 	toFloat(negative, num, den, "float8")
 
 /**
- * A text's parse into `to`: defined where the text is a member of `to`'s lexical form, its value the one the form's
- * lexical mapping gives it (scalar/lexical.ts); a target with no form has no parse.
+ * A text's parse by a lexical target's form: defined where the text is a member of the form, its value the one the
+ * form's lexical mapping gives it (scalar/lexical.ts).
  */
-export const parseText = (text: string, to: ScalarType): CastResult => {
-	const target = lexicalTargetOf(to)
-	const value = target === undefined ? undefined : lexicalValue(target, text, roundDouble)
+export const parseBy = (target: LexicalTarget, text: string): CastResult => {
+	const value = lexicalValue(target, text, roundDouble)
 	return value === undefined ? Result.err("lexical") : Result.ok(value)
+}
+
+/** A text's parse into `to`, by `to`'s lexical form (parseBy); a target with no form has no parse. */
+const parseText = (text: string, to: ScalarType): CastResult => {
+	const target = lexicalTargetOf(to)
+	return target === undefined ? Result.err("lexical") : parseBy(target, text)
 }
 
 /** The parse as a registered cast's host conversion. */

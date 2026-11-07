@@ -32,7 +32,7 @@ import {
 } from "#compiler/scalar/compute/lower.ts"
 import { nativeHolds } from "#compiler/scalar/compute/native.ts"
 import { nativeOp } from "#compiler/scalar/compute/registry.ts"
-import { formIncludes, lexicalTargetOf } from "#compiler/scalar/lexical.ts"
+import { formIncludes, parseTargetOf } from "#compiler/scalar/lexical.ts"
 import { patternIncludes } from "#compiler/scalar/regex/inclusion.ts"
 import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 
@@ -42,7 +42,7 @@ import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
  * interval premise on it whose every value has the fact (bounds.ts premiseHas); powerDomain by fact premises of power's
  * sign; fits, contract, powerRange and bucketDomain by interval premises the caller's `judge` reads, with the
  * arithmetic scalar/compute/lower.ts writes once for each, fits over the values but NaN and the others over intervals
- * that hold no NaN; lexical by a language premise whose language the judge finds inside the target's form again, or a
+ * that hold no NaN; lexical by a language premise whose language the judge finds inside the parse's form again, or a
  * literal it parses; a contract into a regex-refined text with no contract by a language premise whose language it
  * finds inside the target's again. A proof no premise of the needed kind supports is no proof.
  */
@@ -184,7 +184,7 @@ const proofHolds = (
 				)
 			}
 			case "lexical": {
-				const form = lexicalTargetOf(node.type)
+				const form = parseTargetOf(precondition.form, node.type)
 				return (
 					form !== undefined &&
 					Arr.some(
@@ -205,9 +205,14 @@ const proofHolds = (
 		}
 	})
 
-/** Whether two preconditions are one: one kind, on one operand where the kind names one. */
+/**
+ * Whether two preconditions are one: one kind, on one operand where the kind names one, and of one form where it is a
+ * parse's.
+ */
 const samePrecondition = (a: Precondition, b: Precondition): boolean =>
-	a.kind === b.kind && ("operand" in a && "operand" in b ? a.operand === b.operand : true)
+	a.kind === b.kind &&
+	("operand" in a && "operand" in b ? a.operand === b.operand : true) &&
+	("form" in a && "form" in b ? a.form === b.form : true)
 
 /**
  * Whether an operation's kept proof proves every precondition its overload requires (`required`, the registry's

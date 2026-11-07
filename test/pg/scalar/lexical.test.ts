@@ -8,6 +8,7 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { dayNumber, datePartSlices, toCalendarDate } from "#compiler/ir/date.ts"
+import { parseDoubleForm } from "#compiler/lower/conservative/expr/parse-double.ts"
 import { toFloat } from "#compiler/scalar/compute/cast.ts"
 import { formSource, type LexicalTarget, lexicalValue } from "#compiler/scalar/lexical.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
@@ -50,7 +51,9 @@ const roundDouble = (negative: boolean, num: bigint, den: bigint): number =>
 	toFloat(negative, num, den, "float8")
 
 /** The SQL type a target's cast names, numeric's typmod included. */
-const targetType = (target: Exclude<LexicalTarget, { readonly kind: "date" }>): TypeRef => {
+const targetType = (
+	target: Exclude<LexicalTarget, { readonly kind: "date" | "doubleText" }>
+): TypeRef => {
 	switch (target.kind) {
 		case "integer":
 			return target.carrier === "int2"
@@ -68,21 +71,29 @@ const targetType = (target: Exclude<LexicalTarget, { readonly kind: "date" }>): 
 }
 
 /**
- * The parse of the column `t` as grizzle prints it, as text: the cast, or for a date its day number after 0001-01-01,
- * which reads no DateStyle.
+ * The parse of the column `t` as grizzle prints it, as text: the cast, for a date its day number after 0001-01-01,
+ * which reads no DateStyle, and for a double's text Compute.parseDouble's form.
  */
-const parseSql = (target: LexicalTarget): string => {
-	const t = tableCol("t")
-	const parsed: Expr =
-		target.kind === "date"
-			? binary(
-					"-",
-					dateOfText(t, datePartSlices),
-					cast(lit.text("0001-01-01", types.text), types.date)
-				)
-			: cast(t, targetType(target))
-	return printExpr(cast(parsed, types.text))
+const parsedOf = (target: LexicalTarget, t: Expr): Expr => {
+	switch (target.kind) {
+		case "date":
+			return binary(
+				"-",
+				dateOfText(t, datePartSlices),
+				cast(lit.text("0001-01-01", types.text), types.date)
+			)
+		case "doubleText":
+			return parseDoubleForm(t)
+		case "integer":
+		case "decimal":
+		case "double":
+		case "boolean":
+			return cast(t, targetType(target))
+	}
 }
+
+const parseSql = (target: LexicalTarget): string =>
+	printExpr(cast(parsedOf(target, tableCol("t")), types.text))
 
 /** The ARE of a target's form, as the text analysis translates it for PostgreSQL. */
 const areOf = (target: LexicalTarget): string =>
@@ -96,6 +107,7 @@ const agrees = (target: LexicalTarget, text: string, value: unknown): boolean =>
 		case "decimal":
 			return value instanceof Decimal && Decimal.fromOutput(text).equals(value)
 		case "double":
+		case "doubleText":
 			return sameValue(convertDouble(text), value)
 		case "boolean":
 			return value === (text === "true")

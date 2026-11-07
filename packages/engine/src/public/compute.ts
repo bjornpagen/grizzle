@@ -60,6 +60,7 @@ const catalogue: ComputeApi = {
 	lowerAscii: (x) => C.lowerAscii(x),
 	replaceWhitespace: (x) => C.replaceWhitespace(x),
 	collapse: (x) => C.collapse(x),
+	parseDouble: (x) => C.parseDouble(x),
 	cosineDistance: (a, b) => C.cosineDistance(a, b),
 	union: (a, b) => C.union(a, b),
 	intersection: (a, b) => C.intersection(a, b),

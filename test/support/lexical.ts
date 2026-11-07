@@ -1,4 +1,5 @@
 import {
+	boolean,
 	characterOf,
 	constant,
 	element,
@@ -6,13 +7,15 @@ import {
 	int,
 	map,
 	oneOf,
-	string
+	string,
+	weighted
 } from "@grizzle/testing/gen"
 import { type Array as Arr, DateTime, Record as Rec, String as Str } from "effect"
 import { integerRanges } from "#compiler/ir/carriers.ts"
 import type { LexicalTarget } from "#compiler/scalar/lexical.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { nonEmpty } from "#test/support/assert.ts"
+import { referenceDouble } from "#test/support/oracle/evaluate/double-text.ts"
 
 /**
  * Candidates for the lexical forms (scalar/lexical.ts), shared by the unit suite and the PostgreSQL differential: each
@@ -61,7 +64,8 @@ export const targetGen = (maxPrecision: number): Gen<LexicalTarget> => {
 		},
 		double: constant({ kind: "double" }),
 		boolean: constant({ kind: "boolean" }),
-		date: constant({ kind: "date" })
+		date: constant({ kind: "date" }),
+		doubleText: constant({ kind: "doubleText" })
 	}
 	return oneOf<LexicalTarget>(nonEmpty(Rec.values(ofKind), "a generator per kind"))
 }
@@ -89,6 +93,8 @@ export type Shape =
 	| "boolean"
 	| "date valid"
 	| "date invalid"
+	| "double text finite"
+	| "double text special"
 	| "corrupted"
 
 export const shapes: Arr.NonEmptyReadonlyArray<Shape> = [
@@ -102,6 +108,8 @@ export const shapes: Arr.NonEmptyReadonlyArray<Shape> = [
 	"boolean",
 	"date valid",
 	"date invalid",
+	"double text finite",
+	"double text special",
 	"corrupted"
 ]
 
@@ -247,6 +255,184 @@ const dateGen: Gen<Candidate> = (source) => {
 	}
 }
 
+/** An exact decimal of no sign: its digits as one integer and the power of ten that scales them. */
+interface ExactDecimal {
+	readonly digits: bigint
+	readonly scale: bigint
+}
+
+/** The exact decimal of m * 2^e. */
+const exactOfBinary = (m: bigint, e: number): ExactDecimal =>
+	e >= 0
+		? { digits: m << BigInt(e), scale: 0n }
+		: { digits: m * 5n ** BigInt(-e), scale: BigInt(e) }
+
+/** A whole number of `bits` bits, drawn in halves of at most 26 bits each. */
+const bitsGen =
+	(bits: number): Gen<bigint> =>
+	(source) => {
+		const high = Math.max(bits - 26, 0)
+		const top = BigInt(source.draw(int(0, 2 ** high - 1)))
+		return (
+			(top << BigInt(Math.min(bits, 26))) | BigInt(source.draw(int(0, 2 ** Math.min(bits, 26) - 1)))
+		)
+	}
+
+/** A binary exponent of a normal double, most often at either end of the range or near 2^0. */
+const binadeGen: Gen<number> = weighted([
+	[2, int(-1022, -990)],
+	[2, int(990, 1023)],
+	[3, int(-60, 120)],
+	[1, int(-1022, 1023)]
+])
+
+/**
+ * A point of binary64 a conversion's rounding turns on, or a double: the greatest finite double, the overflow
+ * threshold midway past it, the least normal, a subnormal, half the least subnormal, a double of a drawn binade, and
+ * the midpoint between two neighbouring doubles, a subnormal's among them, where a decimal on it is a tie.
+ */
+const binaryPointGen: Gen<ExactDecimal> = weighted([
+	[1, constant(exactOfBinary((1n << 53n) - 1n, 971))],
+	[1, constant(exactOfBinary((1n << 54n) - 1n, 970))],
+	[1, constant(exactOfBinary(1n, -1022))],
+	[1, constant(exactOfBinary(1n, -1075))],
+	[
+		2,
+		(source) =>
+			exactOfBinary(
+				source.draw(
+					oneOf([constant(1n), constant(2n), constant(3n), bitsGen(52), constant((1n << 52n) - 1n)])
+				),
+				-1074
+			)
+	],
+	[
+		2,
+		(source) => exactOfBinary(source.draw(bitsGen(52)) | (1n << 52n), source.draw(binadeGen) - 52)
+	],
+	[
+		4,
+		(source) =>
+			exactOfBinary(2n * (source.draw(bitsGen(52)) | (1n << 52n)) + 1n, source.draw(binadeGen) - 53)
+	],
+	[2, (source) => exactOfBinary(2n * source.draw(bitsGen(52)) + 1n, -1075)]
+])
+
+/**
+ * A decimal at or beside a point: the point itself, its digits cut short (just below), one more digit of 1 after them
+ * (just above), its last digit one more or one less, or its 17 leading digits.
+ */
+const besideGen = (point: ExactDecimal): Gen<ExactDecimal> =>
+	weighted([
+		[3, constant(point)],
+		[
+			2,
+			(source) => {
+				const width = point.digits.toString().length
+				const cut = source.draw(int(1, Math.max(width - 1, 1)))
+				return { digits: point.digits / 10n ** BigInt(cut), scale: point.scale + BigInt(cut) }
+			}
+		],
+		[
+			2,
+			(source) => {
+				const zeros = BigInt(source.draw(int(0, 3)))
+				return { digits: point.digits * 10n ** (zeros + 1n) + 1n, scale: point.scale - zeros - 1n }
+			}
+		],
+		[1, constant({ digits: point.digits + 1n, scale: point.scale })],
+		[1, constant({ digits: point.digits > 1n ? point.digits - 1n : 1n, scale: point.scale })],
+		[
+			1,
+			() => {
+				const excess = BigInt(Math.max(point.digits.toString().length - 17, 0))
+				return { digits: point.digits / 10n ** excess, scale: point.scale + excess }
+			}
+		]
+	])
+
+/** Digits of 1 to 40 places, the first nonzero. */
+const digitsValueGen: Gen<bigint> = (source) =>
+	BigInt(
+		`${source.draw(characterOf(["1", "2", "3", "4", "5", "6", "7", "8", "9"]))}${source.draw(digits(0, 39))}`
+	)
+
+/** A decimal exponent near either threshold, near 10^0, or far past both. */
+const scaleGen: Gen<bigint> = weighted([
+	[3, map(int(-370, -300), BigInt)],
+	[3, map(int(280, 330), BigInt)],
+	[2, map(int(-30, 30), BigInt)],
+	[
+		1,
+		(source) => {
+			const magnitude = 10n ** BigInt(source.draw(int(3, 30))) + BigInt(source.draw(int(0, 999)))
+			return source.draw(boolean) ? -magnitude : magnitude
+		}
+	]
+])
+
+/** A decimal a double's text names: a point of binary64 or beside it, digits at a drawn exponent, or zero. */
+const doubleDecimalGen: Gen<ExactDecimal> = weighted([
+	[6, (source) => source.draw(besideGen(source.draw(binaryPointGen)))],
+	[3, (source) => ({ digits: source.draw(digitsValueGen), scale: source.draw(scaleGen) })],
+	[1, (source) => ({ digits: 0n, scale: source.draw(scaleGen) })]
+])
+
+/** An exponent's text: its letter, a sign where it needs or may take one, and a few leading zeros. */
+const exponentText =
+	(exponent: bigint): Gen<string> =>
+	(source) => {
+		const sign = exponent < 0n ? "-" : source.draw(element(["", "", "+"]))
+		const zeros = Str.repeat(source.draw(int(0, 2)))("0")
+		return `${source.draw(element(["e", "E"]))}${sign}${zeros}${exponent < 0n ? -exponent : exponent}`
+	}
+
+/**
+ * A decimal spelled as a double's text: an optional sign, its digits with the point moved and the exponent moved with
+ * it (past the digits, so a fraction of leading zeros, or before them, so trailing zeros), leading zeros, a bare
+ * fraction `.5`, a trailing point `5.`, and the exponent omitted where it is zero and the draw says so.
+ */
+const spelledGen =
+	(negative: boolean, value: ExactDecimal): Gen<string> =>
+	(source) => {
+		const appended = BigInt(
+			source.draw(
+				weighted([
+					[4, constant(0)],
+					[1, int(1, 600)]
+				])
+			)
+		)
+		const body = (value.digits * 10n ** appended).toString()
+		const shift = source.draw(int(0, body.length + 3))
+		const integer = shift <= body.length ? Str.slice(0, body.length - shift)(body) : ""
+		const fraction =
+			shift <= body.length
+				? Str.slice(body.length - shift)(body)
+				: `${Str.repeat(shift - body.length)("0")}${body}`
+		const exponent = value.scale - appended + BigInt(shift)
+		const lead = Str.repeat(source.draw(int(0, 2)))("0")
+		const point =
+			fraction.length > 0
+				? `.${fraction}${Str.repeat(source.draw(int(0, 2)))("0")}`
+				: source.draw(element(["", "", ".", ".0"]))
+		const whole = integer.length > 0 ? `${lead}${integer}` : source.draw(element(["", "0", lead]))
+		const mantissa = whole.length === 0 && point.length < 2 ? `0${point}` : `${whole}${point}`
+		const sign = negative ? "-" : source.draw(element(["", "", "+"]))
+		const omitted = exponent === 0n && source.draw(boolean)
+		return `${sign}${mantissa}${omitted ? "" : source.draw(exponentText(exponent))}`
+	}
+
+/**
+ * A decimal text of a double, every one a member of its form: a special spelling (`INF`, `+INF`, `-INF`, `NaN`), or a
+ * decimal at or beside a point binary64's rounding turns on, digits at an exponent near either threshold or far past
+ * both, or zero, of either sign, spelled every way the form admits.
+ */
+export const doubleTextGen: Gen<string> = weighted([
+	[1, element(["INF", "+INF", "-INF", "NaN"])],
+	[9, (source) => source.draw(spelledGen(source.draw(boolean), source.draw(doubleDecimalGen)))]
+])
+
 /** One corruption of a member: a space, a doubled sign or point, a letter, or nothing left. */
 const corruptions = [" ", "+-", "..", "x", ""] as const
 
@@ -263,6 +449,15 @@ const candidatesOf = (target: LexicalTarget): Gen<Candidate> => {
 			return booleanGen
 		case "date":
 			return dateGen
+		case "doubleText":
+			return map(doubleTextGen, (text) => ({
+				target,
+				text,
+				member: true,
+				value: referenceDouble(text),
+				shape:
+					text === "NaN" || Str.endsWith("INF")(text) ? "double text special" : "double text finite"
+			}))
 	}
 }
 

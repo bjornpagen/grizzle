@@ -1,12 +1,17 @@
 import { CompileError } from "#compiler/core/errors.ts"
 import { captureLoc, childLoc } from "#compiler/core/loc.ts"
-import { lexicalFormOf } from "#compiler/scalar/lexical.ts"
+import { formSource, lexicalFormOf } from "#compiler/scalar/lexical.ts"
 import { describeFieldOrThrow } from "#compiler/scalar/registry.ts"
 import { textBytesBeside } from "#compiler/schema/representability.ts"
 import { type RegexText, regexField } from "#compiler/text/field.ts"
 import type { Field, FieldBase } from "#compiler/types/fields/field.ts"
 
-export { bytesMaxLength, type Limit, maxStringLength, messageMaxBytes } from "#compiler/core/limits.ts"
+export {
+	bytesMaxLength,
+	type Limit,
+	maxStringLength,
+	messageMaxBytes
+} from "#compiler/core/limits.ts"
 export { type RegexText, str } from "#compiler/text/field.ts"
 
 /** The SQL types a text parses into, those with a lexical form (scalar/lexical.ts). */
@@ -27,6 +32,14 @@ type ParseSql =
 export const lexicalForm: (type: Field<unknown, ParseSql, unknown>) => string = lexicalFormOf
 export type { RegexFlagsValidate, RegexInfer, RegexValidate } from "#compiler/types/fields/regex.ts"
 export type { RegexFlags } from "#compiler/scalar/regex/parse.ts"
+
+/**
+ * doubleText: the pattern of every decimal text of a double, Compute.parseDouble's operand, under flags "u": a mantissa
+ * `[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)` of any digits with an optional exponent `[eE][+-]?[0-9]+` of any digits, or `INF`,
+ * `+INF`, `-INF` or `NaN`, the grammar of XML Schema 1.1's xs:double lexical space. A text of its language, or of a
+ * language inside it, parses into a double total.
+ */
+export const doubleText: string = formSource({ kind: "doubleText" })
 
 /**
  * lexical(T): the text field of T's lexical form, str.regex over lexicalForm(T): a field of it casts into T total, so

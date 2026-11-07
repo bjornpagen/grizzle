@@ -2,6 +2,7 @@ import { defect } from "#compiler/core/invariant.ts"
 import { isNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
 import type { OpId, PatternTable, ScalarExpr } from "#compiler/ir/expr.ts"
 import { baseOf } from "#compiler/ir/scalar.ts"
+import { parseDoubleForm } from "#compiler/lower/conservative/expr/parse-double.ts"
 import { exactForm, ieeeForm } from "#compiler/lower/conservative/expr/total.ts"
 import {
 	admitsArity,
@@ -296,6 +297,8 @@ const registryForm = (id: OpId, args: ReadonlyArray<Expr>): Expr | undefined => 
 			return textSuffix(args)
 		case "collapse":
 			return collapseText(args, sql.run)
+		case "parseDouble":
+			return args.length === 1 && first !== undefined ? parseDoubleForm(first) : undefined
 	}
 }
 

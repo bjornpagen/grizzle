@@ -1098,6 +1098,18 @@ export interface ComputeApi {
 		x: A & FirstTerm<A> & InputTerm<X, PA, OA, "text">
 	): Admitted<TakesFirst<A, "text">, Term<string, PA, ComputedOrigin<OA>, "text">>
 	/**
+	 * The double a decimal text names, IEEE 754-2019's conversion from decimal character sequences: the text's exact
+	 * value rounded to the nearest double, ties to even, ±Infinity past the greatest finite double and a zero of the
+	 * mantissa's sign below half the least subnormal; `INF`, `+INF`, `-INF` and `NaN` name themselves. Its text is
+	 * `doubleText`, the grammar of XML Schema 1.1's xs:double lexical space, of any digits and any exponent:
+	 * compilation proves the operand's pattern lies inside it, or refuses the parse as PartialOperation (`lexical`),
+	 * remedied by `Compute.when(Compute.matches(x, doubleText), (x) => Compute.parseDouble(x), otherwise)`. Admitted
+	 * in contract predicates, row checks, generated fields and queries.
+	 */
+	parseDouble<A extends TermBase | FirstValue, X, PA, OA>(
+		x: A & FirstTerm<A> & InputTerm<X, PA, OA, "text">
+	): Admitted<TakesFirst<A, "text">, Term<number, PA, ComputedOrigin<OA>, "double precision">>
+	/**
 	 * Whether the text holds a match of the pattern, PostgreSQL's `~` (textregexeq), as a str.regex refinement holds
 	 * one: the pattern is in grizzle's grammar under the flags "u", and `^` and `$` anchor it. The pattern is a string,
 	 * which the grammar check reads at the type level as str.regex's does, or a text term that meets the subject's type,

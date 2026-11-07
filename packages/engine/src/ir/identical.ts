@@ -215,13 +215,14 @@ const identicalPrecondition = (a: Precondition, b: Precondition): boolean => {
 			return b.kind === "nonnegative" && a.operand === b.operand
 		case "finite":
 			return b.kind === "finite" && a.operand === b.operand
+		case "lexical":
+			return b.kind === "lexical" && a.form === b.form
 		case "fits":
 		case "contract":
 		case "language":
 		case "powerDomain":
 		case "powerRange":
 		case "bucketDomain":
-		case "lexical":
 			return b.kind === a.kind
 	}
 }

@@ -228,6 +228,7 @@ const exactIn = (
 		case "collapse":
 		case "regexpReplace":
 		case "btrim":
+		case "parseDouble":
 		case "lower":
 		case "upper":
 		case "cosineDistance":

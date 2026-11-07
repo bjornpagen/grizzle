@@ -23,8 +23,8 @@ export type OperandIndex = 0 | 1 | 2 | 3
  *   term's TypeScript type states;
  * - `powerRange`: power's result over those operands stays inside its carrier's range;
  * - `bucketDomain`: width_bucket's bounds differ and its count lies in 1..2147483646;
- * - `lexical`: a text a parse reads is a member of its target's lexical form (scalar/lexical.ts), so the target's input
- *   function reads it without raising, to the value XML Schema's lexical mapping gives it.
+ * - `lexical`: a text a parse reads is a member of the lexical form `form` names (ParseForm), so the parse reads it
+ *   without raising, to the value the form's mapping gives it (scalar/lexical.ts lexicalValue).
  *
  * nonzero, nonnegative and finite are facts a term's TypeScript type states (Facts), exactly, and powerDomain rests on
  * them; fits, contract, powerRange and bucketDomain rest on numeric bounds no TypeScript type can state, which the
@@ -41,7 +41,16 @@ export type Precondition =
 	| { readonly kind: "powerDomain" }
 	| { readonly kind: "powerRange" }
 	| { readonly kind: "bucketDomain" }
-	| { readonly kind: "lexical" }
+	| { readonly kind: "lexical"; readonly form: ParseForm }
+
+/**
+ * The lexical form a parse reads its text by, which its `lexical` precondition names: its target type's own (`target`,
+ * scalar/lexical.ts lexicalTargetOf), a Compute.cast's, cut to the values the type holds exactly; or every decimal text
+ * of a double (`doubleText`), Compute.parseDouble's, whose every member rounds to a double. The registry states it per
+ * overload and a proof carries it, so a language proved inside one form never stands for the other's precondition:
+ * the two forms over double precision differ, and the proof kernel compares them.
+ */
+export type ParseForm = "target" | "doubleText"
 
 /** A fact about every value of a term that its type states: never zero, never below zero, never NaN or an infinity. */
 export type Fact = "nonzero" | "nonnegative" | "finite"

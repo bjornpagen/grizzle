@@ -3,6 +3,7 @@ import { derived, type Limit, regexMaxRepeat } from "#compiler/core/limits.ts"
 import { captureLoc } from "#compiler/core/loc.ts"
 import { binary64DecimalDigits, binary64Digits, integerRanges } from "#compiler/ir/carriers.ts"
 import { type CalendarDate, toCalendarDate } from "#compiler/ir/date.ts"
+import type { ParseForm } from "#compiler/ir/proof.ts"
 import { baseOf, contractOf, type NumericTypmod, type ScalarType } from "#compiler/ir/scalar.ts"
 import { type Inclusion, inclusion } from "#compiler/scalar/regex/inclusion.ts"
 import type { AdmittedSource, PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
@@ -21,6 +22,12 @@ import { Decimal } from "#compiler/scalar/values/decimal.ts"
  *   with the mantissa's digits and the exponent bounded so the value is finite and nonzero unless it is zero;
  * - boolean: xs:boolean's `true`, `false`, `1` and `0`;
  * - date: xs:date's `YYYY-MM-DD` without a timezone, years 0001 to 9999.
+ *
+ * And one target no type names, the parse Compute.parseDouble reads (`doubleText`): every decimal text of a double,
+ * `[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)([eE][+-]?[0-9]+)?` of any digits and any exponent, and `INF`, `+INF`, `-INF` and
+ * `NaN` (the grammar of XML Schema 1.1's xs:double lexical space), each member the double IEEE 754-2019's conversion
+ * from decimal character sequences gives it: its exact value rounded to the nearest double, ties to even, ±Infinity
+ * past the greatest finite double, and a zero of the mantissa's sign below half the least subnormal.
  */
 export type LexicalTarget =
 	| { readonly kind: "integer"; readonly carrier: "int2" | "int4" | "int8" }
@@ -28,6 +35,7 @@ export type LexicalTarget =
 	| { readonly kind: "double" }
 	| { readonly kind: "boolean" }
 	| { readonly kind: "date" }
+	| { readonly kind: "doubleText" }
 
 /** The value a member of a lexical form names, as the target's carrier holds it on the host. */
 export type LexicalValue = bigint | Decimal | number | boolean | CalendarDate
@@ -41,6 +49,16 @@ const decimalWritable = ({ precision, scale }: NumericTypmod): boolean =>
 	scale <= precision &&
 	scale <= regexMaxRepeat.value &&
 	precision - scale - 1 <= regexMaxRepeat.value
+
+/** The lexical target of a parse's form (ir/proof.ts ParseForm): its target type's own, or every double's text. */
+export const parseTargetOf = (form: ParseForm, type: ScalarType): LexicalTarget | undefined => {
+	switch (form) {
+		case "target":
+			return lexicalTargetOf(type)
+		case "doubleText":
+			return { kind: "doubleText" }
+	}
+}
 
 /**
  * The lexical target of a type: its own carrier's, a contract's none, since a parse yields its carrier's value and a
@@ -194,6 +212,13 @@ const doubleForm = (): string => {
 	return `[+-]?(?:${mantissa})(?:${exponent})?|-?INF|NaN`
 }
 
+/**
+ * Every decimal text of a double: a mantissa of any digits with an optional exponent of any digits, or one of the
+ * special spellings `INF`, `+INF`, `-INF` and `NaN`, the grammar of XML Schema 1.1's xs:double lexical space.
+ */
+const doubleTextForm = (): string =>
+	"[+-]?(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)(?:[eE][+-]?[0-9]+)?|[+-]?INF|NaN"
+
 /** The proleptic Gregorian dates 0001-01-01 to 9999-12-31, leap days by the leap year rule over the year's digits. */
 const dateForm = (): string => {
 	const year = "(?:000[1-9]|00[1-9][0-9]|0[1-9][0-9]{2}|[1-9][0-9]{3})"
@@ -223,6 +248,8 @@ export const formSource = (target: LexicalTarget): string => {
 				return "true|false|1|0"
 			case "date":
 				return dateForm()
+			case "doubleText":
+				return doubleTextForm()
 		}
 	})()
 	return `^(?:${body})$`
@@ -370,13 +397,53 @@ const doubleValue = (
 		: round(n.negative, units, 10n ** BigInt(-shift))
 }
 
+/** Whether a text is an exponent's digits, `[+-]?[0-9]+`. */
+const isExponent = (text: string): boolean => {
+	const start = text.startsWith("-") || text.startsWith("+") ? 1 : 0
+	if (text.length === start) {
+		return false
+	}
+	for (let i = start; i < text.length; i++) {
+		if (!isDigit(text.charCodeAt(i))) {
+			return false
+		}
+	}
+	return true
+}
+
+/**
+ * Whether a text is a decimal text of a double (doubleTextForm), decided by a scan: `NaN`, an optionally signed `INF`,
+ * or a numeral with an optional exponent.
+ */
+const isDoubleText = (text: string): boolean => {
+	const e = Math.max(text.indexOf("e"), text.indexOf("E"))
+	return (
+		text === "NaN" ||
+		text === "INF" ||
+		text === "+INF" ||
+		text === "-INF" ||
+		(numeralOf(e < 0 ? text : text.slice(0, e)) !== undefined &&
+			(e < 0 || isExponent(text.slice(e + 1))))
+	)
+}
+
+/**
+ * The double a decimal text of one names, by IEEE 754-2019's conversion from decimal character sequences: ECMAScript's
+ * StringToNumber over the text with `INF` spelled `Infinity`, which reads exactly the form's members, its own spelling
+ * of the infinities and NaN among them, and rounds a decimal's exact value to the nearest double, ties to even, with
+ * ±Infinity past the greatest finite double and a zero of the mantissa's sign below half the least subnormal; undefined
+ * for a text no member of the form.
+ */
+export const doubleOfText = (text: string): number | undefined =>
+	isDoubleText(text) ? Number(text.replace("INF", "Infinity")) : undefined
+
 /**
  * The value a text names under a target's lexical form, or undefined when it is no member of the form: the form
  * decided again by a scan of the text, never by its pattern, so the two definitions of each form are held to agree
  * (test/unit/scalar/lexical.test.ts). The value is the one XML Schema's lexical mapping gives the member and
  * PostgreSQL's input function reads from it: an integer exactly; a decimal exactly, which the form leaves unrounded at
  * the typmod; a double rounded once, half to even, from its exact rational value by `round`; a boolean by its literal;
- * a date as its own text.
+ * a date as its own text; a double's decimal text by doubleOfText.
  */
 export const lexicalValue = (
 	target: LexicalTarget,
@@ -400,6 +467,8 @@ export const lexicalValue = (
 			const date = toCalendarDate(text)
 			return date.ok ? date.value : undefined
 		}
+		case "doubleText":
+			return doubleOfText(text)
 	}
 }
 

@@ -29,7 +29,8 @@ import { sink } from "#test/unit/compute/support.ts"
 import { decimalGen } from "#test/unit/values/support.ts"
 
 /**
- * IEEE 754 §5.4: +, −, ×, ÷, sqrt and conversions are correctly rounded; sign, abs, comparisons and min/max are exact.
+ * IEEE 754 §5.4: +, −, ×, ÷, sqrt and conversions, a decimal text's among them (convertFromDecimalCharacter,
+ * parseDouble), are correctly rounded; sign, abs, comparisons and min/max are exact.
  */
 const ieeeExact: ReadonlySet<NativeFn> = new Set<NativeFn>([
 	"add",
@@ -50,7 +51,8 @@ const ieeeExact: ReadonlySet<NativeFn> = new Set<NativeFn>([
 	"in",
 	"least",
 	"greatest",
-	"cast"
+	"cast",
+	"parseDouble"
 ])
 
 const isFloat = (c: Carrier): boolean => c === "float4" || c === "float8"

@@ -154,6 +154,7 @@ export const lowerVectorOp = (
 		case "adjoin":
 		case "endsWith":
 		case "collapse":
+		case "parseDouble":
 			return refuseAt("UnsupportedOperation", at, `the vector operation ${describeOp(expr.op)}`)
 	}
 }

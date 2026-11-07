@@ -37,6 +37,7 @@ import { parsePattern } from "#compiler/scalar/regex/parse.ts"
 import { Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 import { canonicalZero } from "#compiler/scalar/values/float.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
+import { referenceDouble } from "#test/support/oracle/evaluate/double-text.ts"
 import * as F from "#test/support/oracle/evaluate/float.ts"
 import {
 	intAbs,
@@ -65,6 +66,8 @@ import { power as numericPower } from "#test/support/oracle/evaluate/power.ts"
  * A set's algebra over a roster's handles (union, intersection, difference, cardinality, subset, disjoint, and a set
  * with one more handle, singleton's) is exact: a bits value is the set of its handles, and bit(n)'s &, |, bit_count
  * and set_bit compute exactly the Set operations over them.
+ * A double's parse from its decimal text is IEEE 754's conversion from decimal written from its definition
+ * (double-text.ts), apart from the engine's and ECMAScript's.
  * A text's concatenation, prefix and suffix tests and translation are exact over its code points, and its regex match is grizzle's own
  * automaton over the pattern's parse (src's scalar/regex/nfa.ts), which PostgreSQL's `~` over the pattern's ARE agrees
  * with (test/pg/compute/text.test.ts).
@@ -121,6 +124,7 @@ export const evaluationOf = (op: NativeOp): Evaluation => {
 		case "matches":
 		case "translate":
 		case "collapse":
+		case "parseDouble":
 		case "eq":
 		case "ne":
 		case "lt":
@@ -654,6 +658,13 @@ const catalogApply = (
 			return declined(op, "database", "PostgreSQL alone evaluates it")
 		case "collapse":
 			return isString(a) ? Result.succeed(collapsedText(a)) : mismatch(op)
+		case "parseDouble": {
+			if (!isString(a)) {
+				return mismatch(op)
+			}
+			const value = referenceDouble(a)
+			return value === undefined ? undefinedAt("lexical") : Result.succeed(value)
+		}
 		case "union":
 		case "intersection":
 		case "difference":

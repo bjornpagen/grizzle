@@ -11,7 +11,7 @@ import {
 	rangeOp,
 	type Volatility
 } from "#compiler/ir/expr.ts"
-import type { OperandIndex, Precondition } from "#compiler/ir/proof.ts"
+import type { OperandIndex, ParseForm, Precondition } from "#compiler/ir/proof.ts"
 import { type Carrier, carriers, type SpanCarrier } from "#compiler/ir/scalar.ts"
 import {
 	floatCast,
@@ -69,7 +69,7 @@ const requires = (preconditions: NonEmptyReadonlyArray<Precondition>): Totality 
 const nonzero = (operand: OperandIndex): Precondition => Object.freeze({ kind: "nonzero", operand })
 const finite = (operand: OperandIndex): Precondition => Object.freeze({ kind: "finite", operand })
 const fits: Precondition = Object.freeze({ kind: "fits" })
-const lexical: Precondition = Object.freeze({ kind: "lexical" })
+const lexical = (form: ParseForm): Precondition => Object.freeze({ kind: "lexical", form })
 const divisor: Totality = requires([nonzero(1)])
 const narrowing: Totality = requires([fits])
 const finiteNarrowing: Totality = requires([finite(0), fits])
@@ -102,7 +102,8 @@ type Owner = "catalog" | "vector"
  * How the node is spelled in SQL. A set's difference, subset and disjointness are constructs of bit's own operators:
  * `a & ~b`, `bit_count(a & ~b) = 0` and `bit_count(a & b) = 0`; a set with one more handle is set_bit at a closed id's
  * code read as an integer, `set_bit(a, c::integer, 1)`; a text's suffix test is one of right, char_length and text's =,
- * `right(a, char_length(b)) = b`, since PostgreSQL has no ends_with.
+ * `right(a, char_length(b)) = b`, since PostgreSQL has no ends_with; a double's parse is a reading of its text's digits
+ * and exponent into a numeric rounded to a double (lower/conservative/expr/parse-double.ts).
  */
 type SqlForm =
 	| { readonly kind: "infix"; readonly op: Infix; readonly owner: Owner }
@@ -123,6 +124,7 @@ type SqlForm =
 				| "disjoint"
 				| "adjoin"
 				| "endsWith"
+				| "parseDouble"
 	  }
 	| {
 			/** whiteSpace collapse, `btrim(regexp_replace(x, run, ' ', 'g'))`, `run` the ARE of a run of white space. */
@@ -205,6 +207,7 @@ export type NativeFn =
 	| "collapse"
 	| "regexpReplace"
 	| "btrim"
+	| "parseDouble"
 	| "cosineDistance"
 	| "eq"
 	| "ne"
@@ -670,6 +673,26 @@ const textCollapse: FixedOverload = frozen({
 	reads: "value"
 })
 
+/**
+ * A double's parse from its decimal text (scalar/lexical.ts doubleOfText), IEEE 754-2019's conversion from decimal
+ * character sequences, defined where the text is one ("lexical" over `doubleText`), which the lowering proves by
+ * language inclusion: its digits and exponent read by ltrim, rtrim, split_part, replace, left, char_length and
+ * starts_with, the numeric they name with its significant digits cut to a sticky last one and its exponent clamped
+ * where neither changes its double, rounded once (lower/conservative/expr/parse-double.ts). Every function it reads is
+ * IMMUTABLE in pg_proc, so it is one value wherever it stands, a generated column among them; none is a Compute
+ * operation, so it uses no entry here.
+ */
+const textParseDouble: FixedOverload = frozen({
+	fn: "parseDouble",
+	operands: positional(["text"]),
+	result: "float8",
+	sql: { kind: "parseDouble" },
+	catalog: { kind: "construct", uses: [] },
+	volatility: "immutable",
+	totality: requires([lexical("doubleText")]),
+	reads: "value"
+})
+
 /** A boolean connective over any number of boolean operands. */
 const connective = (fn: "and" | "or"): FixedOverload =>
 	frozen({
@@ -776,6 +799,8 @@ const endpoint = (
  *   from once (scalar/regex/translate.ts charMapOf): it allocates four bytes per byte of its operand, and past
  *   MaxAllocSize raises "requested length too large", so a query holds it only over an operand whose pattern bounds its
  *   bytes within translateMaxBytes, and a check or generated column holding it fails a write whose operand is longer;
+ * - a double's parse from its decimal text, `lexical` over every double's text, everywhere: no function it reads
+ *   allocates past its operand's own size;
  * - pgvector's cosine distance, the one score an approximate search ranks by, never the <=> operator;
  * - readings: numeric_div, power(numeric,numeric) and sqrt(numeric) take their result scale from their operands'
  *   display scales (numeric.c select_div_scale, sqrt's and power_var's rscale, the exponent's included), so they are
@@ -927,6 +952,7 @@ const catalogOverloads = {
 	),
 	"btrim(text)": fnCall("btrim", "btrim", ["text"], "text", total, "value"),
 	"collapse:text": textCollapse,
+	"parseDouble:text": textParseDouble,
 	"translate(text,text,text)": fnCall(
 		"translate",
 		"translate",
@@ -1329,7 +1355,7 @@ const fromText = <T extends "int2" | "int4" | "int8" | "numeric" | "float8" | "b
 	target: T
 ): CastOpOf<"text", T> =>
 	Object.freeze({
-		...castOp("text", target, requires([lexical]), "immutable", textCast),
+		...castOp("text", target, requires([lexical("target")]), "immutable", textCast),
 		catalog:
 			target === "date"
 				? dateOfTextCatalog

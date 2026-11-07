@@ -66,6 +66,7 @@ import type {
 	NativeProof,
 	OperandPremise,
 	OperationProof,
+	ParseForm,
 	Precondition,
 	PreconditionProof
 } from "#compiler/ir/proof.ts"
@@ -134,7 +135,7 @@ import {
 	subBounds,
 	tenTo
 } from "#compiler/scalar/compute/bounds.ts"
-import { floatNumericDigits, parseText } from "#compiler/scalar/compute/cast.ts"
+import { floatNumericDigits, parseBy } from "#compiler/scalar/compute/cast.ts"
 import { admitLiteral, literalMember, literalValue } from "#compiler/scalar/compute/evaluate.ts"
 import {
 	bareLiteralKind,
@@ -175,7 +176,13 @@ import {
 	wildcardText,
 	withoutSpanWidth
 } from "#compiler/scalar/compute/types.ts"
-import { formIncludes, formSource, lexicalTargetOf } from "#compiler/scalar/lexical.ts"
+import {
+	formIncludes,
+	formSource,
+	type LexicalTarget,
+	lexicalTargetOf,
+	parseTargetOf
+} from "#compiler/scalar/lexical.ts"
 import { matchFlags, matchPattern } from "#compiler/scalar/regex/admit.ts"
 import { type Inclusion, patternIncludes } from "#compiler/scalar/regex/inclusion.ts"
 import type { PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
@@ -400,6 +407,7 @@ const checkMembers: ReadonlySet<string> = new Set([
 	"matches",
 	"translate",
 	"collapse",
+	"parseDouble",
 	"lower",
 	"upper",
 	"width",
@@ -858,23 +866,22 @@ const languagePremise = (
 }
 
 /**
- * What proves a parse's operand a member of its target's lexical form: a text literal by its own value, checked as
- * the host parses it; any other text by its refinement whose language is included in the form (languagePremise,
- * scalar/lexical.ts formIncludes). Undefined where neither proves it: a text of no refinement, or one whose language
- * holds a value the form does not.
+ * What proves a parse's operand a member of its lexical form, the target `form` (scalar/lexical.ts parseTargetOf):
+ * a text literal by its own value, checked as the host parses it; any other text by its refinement whose language is
+ * included in the form (languagePremise, scalar/lexical.ts formIncludes). Undefined where neither proves it: a parse
+ * into a type of no form, a text of no refinement, or one whose language holds a value the form does not.
  */
 const lexicalPremise = (
 	a: Lowered,
-	target: ScalarType,
+	form: LexicalTarget | undefined,
 	at: SourceLoc,
 	patterns: PatternAutomata
 ): OperandPremise | undefined => {
-	const form = lexicalTargetOf(target)
 	if (form === undefined) {
 		return undefined
 	}
 	if (a.expr.kind === "literal" && a.expr.value.kind === "text") {
-		return parseText(a.expr.value.value, target).ok
+		return parseBy(form, a.expr.value.value).ok
 			? { kind: "checked", operand: 0, by: "literal" }
 			: undefined
 	}
@@ -942,30 +949,36 @@ export const withinGuards = (carrier: Carrier): boolean => {
 	}
 }
 
+/** The pattern a parse's guard matches its text against: the target's lexical form, or every double's decimal text. */
+const parseRemedy: { readonly [F in ParseForm]: "lexicalForm" | "doubleText" } = {
+	target: "lexicalForm",
+	doubleText: "doubleText"
+}
+
 /**
  * The test a guard of `precondition` puts over an operand of type `operand`: a fact's own test, Compute.within for a
- * magnitude, Compute.matches for a text's language or lexical form. A contract proves its predicate of an operand by
+ * magnitude, Compute.matches for a text's language or a parse's form (parseRemedy). A contract proves its predicate of an operand by
  * its bounds, which Compute.within narrows over a number and no Compute test over a text, a boolean, a uuid or a date,
  * so over those only a value of the contract's type proves it. A fact the contract of an operand that has its type's
  * facts implies without declaring it is remedied by the declaration (undeclaredBy), since a contract's facts are
  * exactly the ones it declares; an operation's result has none of them, so no declaration remedies it.
  */
 const guardTest = (
-	precondition: PreconditionKind,
+	precondition: Precondition,
 	operand: Lowered,
 	target: ScalarType,
 	mode: LowerEnv["mode"],
 	patterns: PatternAutomata
 ): GuardTest => {
-	switch (precondition) {
+	switch (precondition.kind) {
 		case "nonzero":
 		case "nonnegative":
 		case "finite": {
 			const contract = hasTypeFacts(operand.expr)
-				? undeclaredBy(operand.nominal, precondition)
+				? undeclaredBy(operand.nominal, precondition.kind)
 				: undefined
 			return contract === undefined
-				? factTests[precondition]
+				? factTests[precondition.kind]
 				: { kind: "proves", contract: contract.name }
 		}
 		case "fits":
@@ -981,7 +994,7 @@ const guardTest = (
 		case "language":
 			return languageRemedy(operand, target, mode, patterns)
 		case "lexical":
-			return { kind: "matches", pattern: "lexicalForm" }
+			return { kind: "matches", pattern: parseRemedy[precondition.form] }
 	}
 }
 
@@ -1092,15 +1105,23 @@ const guardOf = (
 				text: `${when(`Compute.within(${operand}, <low>, <high>)`)}, its bounds within which the operation is defined`
 			}
 		case "matches":
-			return remedy.pattern === "target"
-				? {
+			switch (remedy.pattern) {
+				case "target":
+					return {
 						remedy,
 						text: `a text whose type's pattern lies inside the target's, or ${when(`Compute.matches(${operand}, <the target's pattern>)`)}`
 					}
-				: {
+				case "lexicalForm":
+					return {
 						remedy,
 						text: `a text whose type proves the target's lexical form, str.regex(lexicalForm(<target>)) or a refinement of it, or ${when(`Compute.matches(${operand}, lexicalForm(<target>))`)}`
 					}
+				case "doubleText":
+					return {
+						remedy,
+						text: `a text whose type proves a double's decimal text, str.regex(doubleText) or a refinement of it, or ${when(`Compute.matches(${operand}, doubleText)`)}`
+					}
+			}
 		case "octets":
 			return {
 				remedy,
@@ -1490,7 +1511,7 @@ class Lowering<R extends Refs> {
 					operand: text,
 					guard: guardOf(
 						precondition.kind,
-						guardTest(precondition.kind, named, target, this.env.mode, this.env.patterns),
+						guardTest(precondition, named, target, this.env.mode, this.env.patterns),
 						text,
 						operation
 					)
@@ -1578,7 +1599,9 @@ class Lowering<R extends Refs> {
 			case "lexical": {
 				const a = args[0]
 				const premise =
-					a === undefined ? undefined : lexicalPremise(a, target, at, this.env.patterns)
+					a === undefined
+						? undefined
+						: lexicalPremise(a, parseTargetOf(precondition.form, target), at, this.env.patterns)
 				return premise === undefined ? refuse(0) : { precondition, premises: [premise] }
 			}
 		}
@@ -2371,6 +2394,29 @@ class Lowering<R extends Refs> {
 		return wildcardText
 	}
 
+	/**
+	 * Compute.parseDouble(x): the double x's decimal text names, IEEE 754-2019's conversion from decimal character
+	 * sequences, rounded to the nearest, ties to even, ±Infinity past the greatest finite double and a zero of the
+	 * mantissa's sign below half the least subnormal; `INF`, `+INF`, `-INF` and `NaN` their own. The registry's one
+	 * overload, text to double precision, admits its operand, and it is defined where x is a member of every double's
+	 * text, the grammar of XML Schema 1.1's xs:double lexical space, its digits and exponent of any length (the lexical
+	 * precondition over `doubleText`, proved by `prove`). Its SQL reads no regex and allocates nothing past x's own size,
+	 * so it stands in a query over any text as in a check or a generated field.
+	 */
+	parseDouble(subjectDesc: ExprDesc<Located, R>, at: SourceLoc): Lowered {
+		const x = this.term(subjectDesc, childLoc(at, 0))
+		const op = this.overload("parseDouble", [x.actual], at)
+		const type = this.resultType(op, undefined)
+		return this.native(
+			op,
+			[x],
+			type,
+			boundsOfType(type),
+			at,
+			`Compute.parseDouble(${exprText(x.expr)})`
+		)
+	}
+
 	/** A set over a roster, and the roster, or the refusal of a term of another type: it has no set algebra. */
 	set(
 		fn: string,
@@ -3070,6 +3116,7 @@ class Lowering<R extends Refs> {
 			matches: 2,
 			translate: 3,
 			collapse: 1,
+			parseDouble: 1,
 			add: 2,
 			sub: 2,
 			mul: 2,
@@ -3370,6 +3417,8 @@ class Lowering<R extends Refs> {
 				return this.translate(arg(0), arg(1), arg(2), here)
 			case "collapse":
 				return this.collapse(arg(0), here)
+			case "parseDouble":
+				return this.parseDouble(arg(0), here)
 			case "cosineDistance": {
 				const a = this.term(arg(0), here)
 				const b = this.operand(arg(1), a, "compare", here)

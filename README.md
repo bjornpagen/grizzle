@@ -1992,6 +1992,22 @@ by PostgreSQL from the text it agrees with, and a law reads it as it reads any f
 since `text::date` reads `DateStyle` and is STABLE, which a generated column refuses. The host reads each form by a
 scan of its own and agrees with PostgreSQL to the bit, a double's rounding included.
 
+`Compute.parseDouble(x)` reads any decimal text of a double, of any digits and any exponent, as IEEE 754 converts a
+decimal character sequence to binary64, the conversion JavaScript's `Number` and Java's `Double.parseDouble` make: the
+text's exact value rounded to the nearest double, ties to even, an infinity of its sign past the greatest finite
+double, and a zero of its sign below half the least subnormal; `INF`, `+INF`, `-INF` and `NaN` name themselves. Its
+text is `doubleText`, the grammar of XML Schema 1.1's `xs:double` lexical space: `[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)`
+with an optional `[eE][+-]?[0-9]+`, or `INF`, `+INF`, `-INF` or `NaN`. It compiles exactly when every value of its
+operand is such a text, as a parse does: a field whose pattern lies inside `doubleText`, or a subject under
+`Compute.when(Compute.matches(x, doubleText), (x) => Compute.parseDouble(x), otherwise)`; anything else is
+`PartialOperation` with the precondition `lexical`. So `1e400` is `Infinity`, `-1e-400` is a negative zero, which
+equals zero as every double's zero does, and `1.7976931348623157e308`, `5e-324` and `1.2345678901234567` are the
+doubles they name, where `Compute.cast` into `pg["double precision"]` keeps its bounded form, since PostgreSQL's own
+`float8in` refuses an overflow and an underflow. Its SQL reads the text's digits and exponent with plain text
+functions into a numeric of at most 769 significant digits and an exponent clamped within ±324, which rounds to the
+double the text names, and rounds it once, so it stands in checks, generated fields and queries over a text of any
+length.
+
 `Compute.concat(a, b)` is `a || b`, text of no pattern. A concatenation allocates its result, so it stands in checks,
 contract predicates, generated fields and folds, and in a query only as a side of `Compute.eq` or `Compute.ne`, which
 is decided without building it: by the lengths, a prefix and a suffix, and NULL exactly where `a || b` would be. Its
