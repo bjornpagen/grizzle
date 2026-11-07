@@ -18,24 +18,19 @@ How the work runs:
 - This work is grizzle only. Fixes due on qti-pie's side are qti-pie's own agents' work.
 
 ### P0: before the publish
-- **The every-law witness** (qti-pie): a refused write's `refused.every` judges a family's drawn counts and ends at the
-  slot's start (0), so it lists laws the row doesn't break and misses ones it does. The witness judges each row as the
-  plan fills it, and an outcome never claims `every` with a law unjudged. Guard: the exact-`every` suite aimed at drawn
-  and accumulated fields; kept cases qti-pie's p21-sum-as-condition and payroll-invalid cases 16 and 18.
-- **The full run's failures**, one agent each, plus any more the run reports:
-  - test/pg/fields/derived.test.ts: the model reused a row id after a migration deleted a row (test model);
-  - test/unit/lower/rewrite/generated.test.ts pass-alone: the reference evaluator declines a vector comparison the
-    generator draws;
-  - test/types/compute/compute.test.ts: one refusal the types make unnamed;
-  - test/pg/e2e-laws payroll-invalid: stated witnesses corrected to the filled-row contract (two cases wait on the
-    every-law witness).
-- **Planted-bug evidence the paused lanes owe:**
-  - Compute.singleton: its bit at code + 1, and a NULL id giving the empty set;
-  - the NULL search: round, trunc, ceil and floor refused in every host-evaluated position, and floats;
-  - the fin tree box: its checked ending's planted bug and its measured case rate.
-- **One clean full run on one commit:** `pnpm check`, the unit and type tiers, then the pg tier at --maxWorkers=3 with
-  a pinned TEST_SEED, against a `git archive` of the commit with its own install. A failure is rerun once, alone; only a
-  pure load timeout that then passes is a flake, and anything else is fixed and the whole run repeats.
+Owner 2026-11-07, later the same day: passing tests are no longer required to publish, and grizzle fixes only bugs qti-pie
+triggers or that root in grizzle and affect it. Beta.1 must also lift the limits qti-pie named, each fixed in grizzle,
+never as a hack downstream. Every hash goes to qti-pie, which repins at once.
+- **qti-pie's limits, one agent each:**
+  - #1 a candidate key over a STORED generated column, compared in the write's own statement (Q1);
+  - #2 a containment source with constant terms and a field read twice (Q2);
+  - #3 a fold step or generated term under another refinement of its carrier, refused by the target domain (Q3);
+  - #5 messageMaxBytes and maxStringLength exported (landed, 8a7c03ab);
+  - #7 `lawsOf(schema)` and `sameLaw` (EXP).
+- **Bytes and the binary wire, once the owner approves the plan:** a first-class `bytes` type (bytea, Uint8Array), every
+  non-text value on the wire in binary format, sets and closed constants decoded from binary, no text parsing at the
+  boundary.
+- **The fallback audits:** FB-L and FB-A finish and push.
 
 ### P1: the publish
 - **README and SKILL.md:**
@@ -54,6 +49,22 @@ How the work runs:
   `pnpm -r publish` under the `beta` tag (neither name is on npm yet).
 
 ### P2: after the publish
+- **Test failures that reach no qti-pie path** (each an after-beta agent):
+  - test/unit/deploy/split.test.ts floor case 13: the SQL lexer stops at a zero-length quoted identifier `""`;
+  - test/unit/physical/executes.test.ts and test/pg/physical/executes.test.ts: "a constant only a written table's casts
+    reach" is never reached;
+  - test/pg/closed/fin.test.ts: C.at's generated field at an absent key now gives 23502, and the test still expects 23514
+    (stale since 0e4454d3);
+  - test/pg/migrate/paths.test.ts intents (replay 'pg/migrate/intents:-:0.a.0.1.9.0.0.0.0.0.0.0.0.0'): after
+    removeLastHandle then renameRoster, the roster domain's CHECK calls a names constant other than the one the test
+    expects. A possible rename defect, so it goes first;
+  - test/pg/substrate/tree.ts clearSql is a DELETE; make it TRUNCATE, as fin.ts does;
+  - test/types/compute: building the program synchronously blocks vitest's worker-start timer under heavy load.
+- **Leftovers from the fallback audits:** in edit.ts, a fold `where` that fails to evaluate is refused as integerRange
+  where the nested path says factShape; WrittenOver's "description" arm exists only for test/support/describe.ts; the
+  re-insert witness residual (a stored owner re-inserted beside a refused new owner).
+- **qti-pie's other limits:** #4 a bytes type (covered by the bytes plan if it lands in beta.1), #6 a pattern law naming
+  its relation and field, #8 float cast totality past the double form, and a containment whose source is a join.
 - **Mutation adequacy:** one seeded `pnpm mutate` sample on the release commit, in a scratch copy. Every surviving
   mutant becomes a generator arm or a written equivalence, and triage.json is pruned to the code.
 - **PostgreSQL:** repin to 19rc2 on 2026-11-12 if the beta isn't out by then (pin.env, rebuild, re-init, delete the
