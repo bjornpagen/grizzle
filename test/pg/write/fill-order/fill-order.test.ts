@@ -323,9 +323,9 @@ const aims: ReadonlyArray<readonly [ClusterSituation, Gen<ClusterCase>]> = [
 const replacedOwner: ClusterCase = {
 	spec: {
 		relations: [
-			{ generated: false, mutable: true, key: false },
-			{ generated: false, mutable: true, key: false },
-			{ generated: false, mutable: true, key: false }
+			{ generated: false, mutable: true },
+			{ generated: false, mutable: true },
+			{ generated: false, mutable: true }
 		],
 		families: [
 			{ kind: "ordered", owner: 0, member: 1, fold: "none" },
@@ -371,11 +371,11 @@ const replacedOwnerBare: ClusterCase = {
 const replacedCountedMember: ClusterCase = {
 	spec: {
 		relations: [
-			{ generated: false, mutable: true, key: false },
-			{ generated: false, mutable: true, key: false },
-			{ generated: false, mutable: true, key: false },
-			{ generated: false, mutable: true, key: false },
-			{ generated: true, mutable: true, key: false }
+			{ generated: false, mutable: true },
+			{ generated: false, mutable: true },
+			{ generated: false, mutable: true },
+			{ generated: false, mutable: true },
+			{ generated: true, mutable: true }
 		],
 		families: [
 			{ kind: "tree", owner: 0, member: 0, fold: "none" },
@@ -447,11 +447,11 @@ const replacedCountedMember: ClusterCase = {
 const ownerPutBesideAppend: ClusterCase = {
 	spec: {
 		relations: [
-			{ generated: false, mutable: true, key: false },
-			{ generated: false, mutable: true, key: false },
-			{ generated: false, mutable: true, key: false },
-			{ generated: false, mutable: true, key: false },
-			{ generated: true, mutable: false, key: false }
+			{ generated: false, mutable: true },
+			{ generated: false, mutable: true },
+			{ generated: false, mutable: true },
+			{ generated: false, mutable: true },
+			{ generated: true, mutable: false }
 		],
 		families: [
 			{ kind: "ordered", owner: 0, member: 1, fold: "none" },
@@ -493,9 +493,9 @@ const ownerPutBesideAppend: ClusterCase = {
 const movedSequenceCopy: ClusterCase = {
 	spec: {
 		relations: [
-			{ generated: false, mutable: true, key: false },
-			{ generated: false, mutable: true, key: false },
-			{ generated: false, mutable: true, key: false }
+			{ generated: false, mutable: true },
+			{ generated: false, mutable: true },
+			{ generated: false, mutable: true }
 		],
 		families: [
 			{ kind: "ordered", owner: 2, member: 0, fold: "none" },

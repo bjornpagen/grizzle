@@ -317,7 +317,7 @@ const over =
 	(spec: SwarmSpec, on: ReadonlyArray<SwarmFeature>): Gen<SwarmCase> =>
 	(source) => ({ spec, steps: source.draw(stepsGen(fullSwarm(on), false, spec)) })
 
-const relationFlags = (mutable: boolean) => ({ generated: false, mutable, key: false })
+const relationFlags = (mutable: boolean) => ({ generated: false, mutable })
 
 /** A family core over relations of the given mutability, its families, copies and steps. */
 const coreOf = (
@@ -887,7 +887,7 @@ const kept: ReadonlyArray<Kept<SwarmCase, Situation>> = [
 						relationFlags(true),
 						relationFlags(true),
 						relationFlags(true),
-						{ generated: true, mutable: false, key: false }
+						{ generated: true, mutable: false }
 					],
 					families: [
 						{ kind: "ordered", owner: 0, member: 1, fold: "none" },
@@ -1043,7 +1043,7 @@ const kept: ReadonlyArray<Kept<SwarmCase, Situation>> = [
 		note: "found: a put from a query into a relation with a generated field dies compiling its insert",
 		sketch: {
 			spec: bare({
-				relations: [{ generated: true, mutable: true, key: false }],
+				relations: [{ generated: true, mutable: true }],
 				families: [],
 				copies: [],
 				steps: []
@@ -1069,8 +1069,8 @@ const kept: ReadonlyArray<Kept<SwarmCase, Situation>> = [
 			spec: {
 				fill: {
 					relations: [
-						{ generated: true, mutable: true, key: false },
-						{ generated: true, mutable: true, key: false }
+						{ generated: true, mutable: true },
+						{ generated: true, mutable: true }
 					],
 					families: [
 						{ kind: "ordered", owner: 0, member: 1, fold: "sum" },
@@ -1184,8 +1184,8 @@ const kept: ReadonlyArray<Kept<SwarmCase, Situation>> = [
 		sketch: {
 			spec: bare({
 				relations: [
-					{ generated: true, mutable: true, key: false },
-					{ generated: true, mutable: true, key: false }
+					{ generated: true, mutable: true },
+					{ generated: true, mutable: true }
 				],
 				families: [{ kind: "counted", owner: 0, member: 1, fold: "sum" }],
 				copies: [{ family: 0, axis: "owner", source: { kind: "generated" } }],

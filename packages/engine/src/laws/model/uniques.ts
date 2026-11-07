@@ -303,7 +303,7 @@ export interface RelationLaws {
 	readonly uniques: UniqueObjects
 	/**
 	 * The unique objects an addition meets beyond its primary key (`beyondPrimary`), decided once as the law model is
-	 * built: what its refusal of a generated key, a write's probes and a role's probe functions read.
+	 * built: what a write's probes and a role's probe functions read.
 	 */
 	readonly beyond: ReadonlyArray<UniqueObject>
 }

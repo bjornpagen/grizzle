@@ -38,7 +38,7 @@ import {
 } from "#compiler/write/family/nesting.ts"
 import type { MemberSlot, SlotFacts, WriteFrontend } from "#compiler/write/frontend/compile.ts"
 import { isCarried } from "#compiler/write/insert/statement.ts"
-import type { RelationUniques } from "#compiler/write/insert/unique.ts"
+import { hostHeld, type RelationUniques } from "#compiler/write/insert/unique.ts"
 
 type Fact = { readonly [field: string]: unknown }
 
@@ -194,9 +194,10 @@ export interface HostKeyField {
 }
 
 /** The host's same-key checks of one written relation's additions (see `normalizeChangeSet`, step 3), built with the relation:
- * each declared key's law and fields, primary key first; and each span candidate key whose pairs the probe leaves to
- * the host (`checks`, `Probed`), its law, its compared fields, its span field with its range carrier's spec, and the
- * fields a conflict at it names. */
+ * each declared key's law and fields, primary key first, but a key over a generated field, which PostgreSQL computes and
+ * the host never does, so the statement that writes the facts compares them there (insert/unique.ts `hostHeld`); and
+ * each span candidate key whose pairs the probe leaves to the host (`checks`, `Probed`), its law, its compared fields,
+ * its span field with its range carrier's spec, and the fields a conflict at it names. */
 export interface HostChecks {
 	readonly keys: ReadonlyArray<HostKey>
 	readonly spans: ReadonlyArray<{
@@ -228,7 +229,8 @@ const hostKeyField =
 	(codes: Codebook) =>
 	(f: LawField): HostKeyField => ({ field: f.name, spec: carrierSpecOf(f.type, codes) })
 
-/** The host checks of a relation's keys and span candidate keys, each field's spec its type's carrier's. */
+/** The host checks of a relation's keys whose every field it holds (insert/unique.ts `hostHeld`) and of its span
+ * candidate keys, each field's spec its type's carrier's. */
 export const hostChecks = (
 	keyLaws: ReadonlyArray<{
 		readonly fields: ReadonlyArray<LawField>
@@ -239,13 +241,17 @@ export const hostChecks = (
 	codes: Codebook
 ): HostChecks =>
 	Object.freeze({
-		keys: keyLaws.map((k): HostKey =>
-			Object.freeze({
-				law: k.law,
-				described: k.described,
-				fields: k.fields.map(hostKeyField(codes)),
-				stated: k.fields.every(isCarried)
-			})
+		keys: keyLaws.flatMap((k): ReadonlyArray<HostKey> =>
+			k.fields.every(hostHeld)
+				? [
+						Object.freeze({
+							law: k.law,
+							described: k.described,
+							fields: k.fields.map(hostKeyField(codes)),
+							stated: k.fields.every(isCarried)
+						})
+					]
+				: []
 		),
 		spans: uniques.checks.flatMap(({ object: check, pairs }) => {
 			if (check.kind !== "span" || pairs !== "host") {
@@ -469,7 +475,9 @@ const sameKey = <I>(
  *    their relation's primary key. Additions win the transition S' = (S \ D) ∪ A, so both facts
  *    would be in the final state and break the key whatever was stored. A generated addition takes part on every key
  *    that holds no serial field; its identity does not exist yet on the others. Keys are tried primary
- *    key first, then in declaration order, and facts in canonical order, so the refusal is deterministic. A span
+ *    key first, then in declaration order, and facts in canonical order, so the refusal is deterministic. A declared
+ *    key over a generated field is no host key: PostgreSQL computes the field, so the statement that writes the facts
+ *    compares them there (insert/unique.ts `hostHeld`, `Probed`), and a family's member rows meet it at its index. A span
  *    candidate key also refuses two additions whose spans overlap at equal scalar fields, the pair
  *    the statement would otherwise meet as a violation that aborts it. Deletions are a relation's facts too: two facts
  *    the stratum deletes with one value of a declared key and different identities name two facts where the key names

@@ -4,9 +4,10 @@ import type { LawId } from "#compiler/core/ids.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import type { EvidenceCatalog } from "#compiler/ir/evidence.ts"
-import { fieldNames, type LawField } from "#compiler/ir/law.ts"
+import type { ScalarExpr } from "#compiler/ir/expr.ts"
+import { fieldNames, type LawField, type RelationInfo } from "#compiler/ir/law.ts"
 import type { SerialClass } from "#compiler/ir/write.ts"
-import { witnessFields } from "#compiler/laws/model/uniques.ts"
+import { columnReads, witnessFields } from "#compiler/laws/model/uniques.ts"
 import type { Cte, Expr, FunctionName, TypeRef } from "#compiler/sql/ast.ts"
 import {
 	cast,
@@ -28,9 +29,11 @@ import {
 	buildStatement,
 	type EntryCheckResult,
 	ownBuild,
+	requestedValue,
 	rowType,
 	type WriteContext,
-	type WriteStatement
+	type WriteStatement,
+	writeValue
 } from "#compiler/write/insert/statement.ts"
 import { type OutsideProbe, probeParams, readsDrawn } from "#compiler/write/insert/unique.ts"
 import {
@@ -73,6 +76,12 @@ const probeCall = (world: CheckNames, entry: string, probe: OutsideProbe): Probe
 	law: probe.object.law,
 	witness: witnessFields(probe.object)
 })
+
+/** The fields of `relation` a generation expression reads, in declared field order. */
+const generatedFrom = (relation: RelationInfo, expr: ScalarExpr): ReadonlyArray<LawField> => {
+	const reads = new Set(columnReads(expr).map((c) => c.name))
+	return relation.fields.filter((f) => reads.has(f.name))
+}
 
 /** What a check refuses: an addition's facts outside the entry's membership, or conflicting at a unique object with a
  * fact outside the entry; or any fact of an addition the Db's claims leave outside the world. */
@@ -157,7 +166,10 @@ const internal = (purpose: string) => ({ kind: "internal", purpose }) as const
  *   row's key, through the role's key probe of that key; for each object no key subsumes, such as a key over a
  *   selected side, whether such a fact occupies it at the row's values, through the role's unique probe of
  *   it. Each probe runs as the owner and answers that alone. An object reading a serial field an addition leaves to
- *   the identity default is not probed: the value is drawn at the insert.
+ *   the identity default is not probed: the value is drawn at the insert. A generated field an object reads is the
+ *   field's generation expression over the row's fields, cast into their domains as the addition writes them, the
+ *   value PostgreSQL stores; a row whose fields its domains refuse is refused there, on their law, before its
+ *   membership is judged, which the README leaves unpromised for a row both outside the entry and breaking a rule.
  *
  * The verdicts are refusal arms over the rows, raised through the refusal function: a fact outside
  * the entry first, as the entry's `outside-world` refusal, which names the entry and carries no value; then a conflict
@@ -223,7 +235,21 @@ export const buildEntryCheck = (
 	return buildStatement(w, ownBuild, (supply) => {
 		const { from, read } = readInputFields(w, input, at)
 		const baseType = (f: LawField): TypeRef => w.cx.baseTypeRef(rowType(f))
-		const typed = (f: LawField): Expr => cast(read(f.name).value, baseType(f))
+		/** A field the row states, cast into its domain as the addition's statement writes it. */
+		const written = (f: LawField): Expr => {
+			const r = read(f.name)
+			return writeValue(w, r.value, r.type, rowType(f), at)
+		}
+		/** The row's value at a field, at its base type: one it states as it reads, and a generated one at its generation
+		 * expression over the fields it is generated from, written into their domains (insert/statement.ts
+		 * requestedValue), the value PostgreSQL stores. */
+		const typed = (f: LawField): Expr =>
+			cast(
+				f.writing.kind === "generated"
+					? requestedValue(w, relation, generatedFrom(relation, f.writing.expr), written)(f)
+					: read(f.name).value,
+				baseType(f)
+			)
 		const rv = supply.relation(internal("verdicts"))
 		const keyColumns = fieldColumns(keyFields, (f) => supply.column(internal(`key ${f.name}`)))
 		const inside = supply.column(internal("membership"))

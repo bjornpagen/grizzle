@@ -382,15 +382,28 @@ type IsTreeRow<S, R> = [DrawnFieldOf<R>] extends [never]
 		: true
 
 /**
- * Whether a key of R that `op` names its rows by holds a field its caller never writes (UnwrittenFieldsOf): a delete's
+ * The fields of R grizzle writes itself, which no fact determines: each drawn or accumulated field. A generated field is
+ * PostgreSQL's, a function of the fields its fact states, which the statement that writes the fact computes as
+ * PostgreSQL stores it.
+ */
+type GrizzleWrittenFieldsOf<R> = R extends { readonly fields: infer Fields }
+	? {
+			[K in keyof Fields]-?: Fields[K] extends { readonly writing: "drawn" | "accumulated" }
+				? K
+				: never
+		}[keyof Fields]
+	: never
+
+/**
+ * Whether a key of R that `op` names its rows by holds a field grizzle writes (GrizzleWrittenFieldsOf): a delete's
  * primary key, and a put's every declared key, which it compares its facts at.
  */
-type UnstatedKey<S, R, Op extends "put" | "delete"> = [UnwrittenFieldsOf<R>] extends [never]
+type UnstatedKey<S, R, Op extends "put" | "delete"> = [GrizzleWrittenFieldsOf<R>] extends [never]
 	? false
 	: [
 				Extract<
 					PrimaryKeyOf<R>[number] | (Op extends "put" ? CandidateKeyFieldOf<S, R> : never),
-					UnwrittenFieldsOf<R>
+					GrizzleWrittenFieldsOf<R>
 				>
 		  ] extends [never]
 		? false

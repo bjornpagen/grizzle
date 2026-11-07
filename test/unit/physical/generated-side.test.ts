@@ -22,7 +22,7 @@ import { rowHelpers } from "#compiler/schema/terms.ts"
 import type { ColumnDef, Expr } from "#compiler/sql/ast.ts"
 import { identityHooks, transformExpr } from "#compiler/sql/transform.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
-import { assert, nonEmpty, refused, succeeded } from "#test/support/assert.ts"
+import { assert, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { installationNamesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { owning } from "#test/support/policy.ts"
@@ -31,16 +31,15 @@ import { regex } from "#test/unit/schema/support.ts"
 /**
  * A law column over a generated field reads what the field is generated from: PostgreSQL refuses a generation
  * expression that reads a generated column (42P17), so a law over a selected side whose terms or selection read a
- * generated field installs only when its law column's generation reads the row's written fields alone; and a key whose
- * unique object reads a generated field, which no fact carries, is refused, since no addition's same-key check or probe
- * could meet it (UnwritableRelation, generatedKey).
+ * generated field installs only when its law column's generation reads the row's written fields alone. A key over such
+ * a side installs as a containment from it does: the statement that writes a row compares it at the generated field's
+ * generation expression (test/pg/write/generated-key).
  *
  * Each case draws a relation of one to three written numerals and up to two bigint fields generated from drawn ones of
  * them, and a key over a selected side, or a containment from one into a relation keyed by fields of its terms' types,
- * whose one or two terms and whose selection each read a drawn field, written or generated. Oracles: the key rule above,
- * which refuses the key exactly when it reads a generated field, naming one it reads; and PostgreSQL's rule for
- * generated columns, that a generation expression reads no generated column, over every column an admitted
- * installation adds. test/pg/compute/translate.test.ts installs one and writes it.
+ * whose one or two terms and whose selection each read a drawn field, written or generated. Oracle: PostgreSQL's rule
+ * for generated columns, that a generation expression reads no generated column, over every column the installation
+ * adds, which every case's installation compiles. test/pg/compute/translate.test.ts installs one and writes it.
  */
 type FieldRef =
 	| { readonly kind: "written"; readonly at: number }
@@ -148,7 +147,7 @@ const generationReads = (c: ColumnDef): ReadonlyArray<string> => {
 type Reading =
 	| "a term over a generated field"
 	| "a selection over a generated field"
-	| "a key refused for a generated read"
+	| "a key over a generated read"
 	| "a containment over a generated read"
 	| "a key over written fields"
 
@@ -170,7 +169,9 @@ describe("a law column over a generated field", () => {
 							"a term over a generated field",
 							"a selection over a generated field",
 							["a term over a generated field", "a selection over a generated field"],
-							"a key refused for a generated read",
+							"a key over a generated read",
+							["a key over a generated read", "a term over a generated field"],
+							["a key over a generated read", "a selection over a generated field"],
 							"a containment over a generated read",
 							["a containment over a generated read", "a term over a generated field"],
 							["a containment over a generated read", "a selection over a generated field"],
@@ -204,27 +205,18 @@ describe("a law column over a generated field", () => {
 						const generatedReads = Arr.flatMap([...c.terms, c.selection], (ref) =>
 							ref.kind === "generated" ? [nameOf(ref)] : []
 						)
-						if (c.law === "key" && generatedReads.length > 0) {
-							k.note("a key refused for a generated read")
-							const reason = refused(compiled, "UnwritableRelation").reason
-							assert.ok(
-								reason._tag === "UnwritableRelation" && reason.cause.kind === "generatedKey"
-							)
-							assert.equal(reason.relation, "R")
-							assert.ok(
-								Arr.contains(generatedReads, reason.cause.field),
-								`${reason.cause.field} is a generated field the key reads`
-							)
-							return
+						const law: Reading =
+							c.law === "contained"
+								? "a containment over a generated read"
+								: generatedReads.length > 0
+									? "a key over a generated read"
+									: "a key over written fields"
+						k.note(law)
+						if (law !== "a key over written fields" && term) {
+							k.pair(law, "a term over a generated field")
 						}
-						k.note(
-							c.law === "key" ? "a key over written fields" : "a containment over a generated read"
-						)
-						if (c.law === "contained" && term) {
-							k.pair("a containment over a generated read", "a term over a generated field")
-						}
-						if (c.law === "contained" && selection) {
-							k.pair("a containment over a generated read", "a selection over a generated field")
+						if (law !== "a key over written fields" && selection) {
+							k.pair(law, "a selection over a generated field")
 						}
 						const installation = succeeded(compiled, "the installation compiles")
 						const names = installationNamesOf(installation)

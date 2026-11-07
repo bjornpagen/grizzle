@@ -456,12 +456,21 @@ const refuse = (tag: ProseTag, loc: SourceLoc, capability: string): never => {
 }
 
 /**
+ * Whether a fact determines a field's value: one its caller or its sequence writes (isCarried), or one PostgreSQL
+ * generates from them, which the statement that writes the fact computes as PostgreSQL stores it. A field grizzle draws
+ * or accumulates is no fact's.
+ */
+const determined = (field: LawField): boolean =>
+	isCarried(field) || field.writing.kind === "generated"
+
+/**
  * A put or a delete of `relation`, `member`, refused (UnstatedKey) where a key it reads off its facts holds a field no
- * fact carries (isCarried): its primary key, by which a put names each row and a family's edit each member, and, for a
- * put, every key its same-key check compares, in that check's order, the primary key's first. A key holding a field
- * grizzle writes, such as a sequence's index, is stated by no fact. A delete compares no key before it is sent, so only
- * its primary key is read; an insert names no row by its key, a sequence's members being inserted nested under their
- * owner, whose nesting draws their index.
+ * fact determines (`determined`): its primary key, by which a put names each row and a family's edit each member, and,
+ * for a put, every key its same-key checks compare, the primary key's first. A key holding a field grizzle writes, such
+ * as a sequence's index, is stated by no fact; one holding a generated field is compared by the statement that writes
+ * the facts, at the field's generation expression over each. A delete compares no key before it is sent, so only its
+ * primary key is read; an insert names no row by its key, a sequence's members being inserted nested under their owner,
+ * whose nesting draws their index.
  */
 const refuseUnstatedKey = (member: MemberDesc, relation: WrittenRelation): void => {
 	const op = member.op
@@ -474,7 +483,7 @@ const refuseUnstatedKey = (member: MemberDesc, relation: WrittenRelation): void 
 		...(op === "put" ? declared.map((law) => ({ kind: "declared" as const, law })) : [])
 	]
 	for (const { kind, law } of read) {
-		const unstated = law.fields.filter((f) => !isCarried(f))
+		const unstated = law.fields.filter((f) => !determined(f))
 		if (isNonEmpty(unstated)) {
 			throw new Refusal(
 				CompileError.make({

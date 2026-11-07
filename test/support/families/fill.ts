@@ -8,7 +8,7 @@
  * generated `g` = `v` where it says so; families between them, a tree on one relation, an ordered family or a counted
  * one of an owner and a member, each with a fold over it or none, a sum stepping its member's `v` or a copy of it;
  * copies, each an accumulated field `c<j>` riding one axis of one family and reading one column of the axis's target
- * row; keys over `g`; and mutable relations. Family `f`
+ * row; and mutable relations. Family `f`
  * names its count `n<f>`, its member's group field `o<f>` (a tree's parent), an ordered family's or a tree's index
  * `i<f>`, a tree's root field `d<f>` and a fold's end `s<f>`; a tree's interval is `start` and `end`.
  *
@@ -42,7 +42,6 @@ import {
 	countedBuilder,
 	finBuilder,
 	foldBuilder,
-	keyBuilder,
 	monoids,
 	mutableBuilder,
 	onBuilder,
@@ -93,8 +92,6 @@ interface RelationSpec {
 	/** Whether it holds `g`, generated from `v`. */
 	readonly generated: boolean
 	readonly mutable: boolean
-	/** Whether a key holds its `g`, which only a relation that holds one may. */
-	readonly key: boolean
 }
 
 /**
@@ -263,7 +260,6 @@ const fillFeatures = [
 	"predecessor copy",
 	"last copy",
 	"generated",
-	"generated key",
 	"mutable",
 	"nesting cycle",
 	"fold over a copy"
@@ -293,10 +289,10 @@ export const fillSpecGen =
 		const features: Swarm<FillFeature> = source.draw(swarm(Arr.copy(fillFeatures)))
 		const kept = (feature: FillFeature): boolean => source.draw(keep(features, feature))
 		const n = source.draw(int(1, space.relations))
-		const relations = Arr.makeBy(n, () => {
-			const generated = kept("generated")
-			return { generated, mutable: kept("mutable"), key: generated && kept("generated key") }
-		})
+		const relations = Arr.makeBy(n, () => ({
+			generated: kept("generated"),
+			mutable: kept("mutable")
+		}))
 		const families: Array<FamilySpec> = []
 		const sequenced = new Set<number>()
 		const nf = source.draw(int(0, space.families))
@@ -414,10 +410,8 @@ type LaterKind = "afterMembers" | "countedFill" | "cycle" | "unreached"
 /**
  * The reference's verdict on a specification, in the order the compiler decides them: a relation no write fills,
  * sequences that nest each other in a cycle; then copies no write fills, each with the causes it may be reported by;
- * then a relation with a key over its generated `g`; else admitted. A copy of `g` along a predecessor or a last axis
- * makes its target's superkey hold `g`, but the family's own key holds every two of its rows apart first, so no
- * addition meets that superkey. A counted family's member may also be a sequence's member, a tree's node or a
- * sequence's owner: the walk fills its row and the counted family's fill completes it.
+ * else admitted. A counted family's member may also be a sequence's member, a tree's node or a sequence's owner: the
+ * walk fills its row and the counted family's fill completes it.
  */
 type Verdict =
 	| { readonly kind: "unwritable" }
@@ -428,7 +422,6 @@ type Verdict =
 				readonly later: ReadonlyArray<LaterKind>
 			}>
 	  }
-	| { readonly kind: "generatedKey"; readonly relations: ReadonlyArray<number> }
 	| { readonly kind: "admitted" }
 
 /** Whether the reference finds sequences that nest each other in a cycle, which no write fills: see `Verdict`. */
@@ -625,13 +618,7 @@ export const verdictOf = (spec: FillSpec): Verdict => {
 		const later = refusalsOf(spec, j, cycles)
 		return Arr.isReadonlyArrayNonEmpty(later) ? [{ copy: j, later }] : []
 	})
-	if (Arr.isReadonlyArrayNonEmpty(copies)) {
-		return { kind: "unfillable", copies }
-	}
-	const keyed = Arr.flatMap(spec.relations, (r, i) => (r.key ? [i] : []))
-	return Arr.isReadonlyArrayNonEmpty(keyed)
-		? { kind: "generatedKey", relations: keyed }
-		: { kind: "admitted" }
+	return Arr.isReadonlyArrayNonEmpty(copies) ? { kind: "unfillable", copies } : { kind: "admitted" }
 }
 
 /**
@@ -823,9 +810,6 @@ export const buildFill = (spec: FillSpec): BuiltFill => {
 		}
 	}
 	for (const [r, flags] of spec.relations.entries()) {
-		if (flags.key) {
-			statements.push(keyBuilder(onBuilder(valueAt(r), ["g"])))
-		}
 		if (flags.mutable) {
 			statements.push(mutableBuilder(valueAt(r)))
 		}
@@ -1602,8 +1586,7 @@ export const plantedGen =
 	(source) => {
 		const relationGen = (): RelationSpec => ({
 			generated: source.draw(boolean),
-			mutable: source.draw(boolean),
-			key: false
+			mutable: source.draw(boolean)
 		})
 		const fold = (): FamilySpec["fold"] => {
 			const k = source.draw(int(0, 2))

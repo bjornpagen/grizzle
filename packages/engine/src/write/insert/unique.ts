@@ -91,14 +91,25 @@ export const probeIdentity = (
 		: identity.uniqueProbe(role, entry, probe.object.name)
 
 /** An object a statement probes, and who refuses two requested facts of one enumerated input that it cannot both hold:
- * the host, before any SQL (normalize.ts), which compares the values of every declared key, so of every key object, and
- * the spans of every span object an insert of complete facts probes; or the statement, at a unique index, whose
- * predicate and fields are no declared key's, and at a span primary key, which only a generated addition probes. A
- * carrier's or a described member's pairs are always the statement's: nobody normalized them. */
+ * the host, before any SQL (normalize.ts), which compares the values of every declared key whose fields it holds
+ * (`hostHeld`), so of every such key object, and the spans of every span object of such fields an insert of complete
+ * facts probes; or the statement, at a unique index, whose predicate and fields are no declared key's, at a span
+ * primary key, which only a generated addition probes, and at an object reading a generated field, which PostgreSQL
+ * computes and the host never does. A carrier's or a described member's pairs are always the statement's: nobody
+ * normalized them. */
 export interface Probed {
 	readonly object: UniqueObject
 	readonly pairs: "host" | "statement"
 }
+
+/**
+ * Whether the host holds a fact's value at a field, which its same-key checks compare (normalize.ts): every field but a
+ * generated one, whose value PostgreSQL computes from the row as it stores it, so that only a statement compares it, at
+ * the field's generation expression over the requested fact (statement.ts requestedValue), and the value it compares is
+ * the one PostgreSQL stores.
+ */
+export const hostHeld = (field: Pick<LawField, "writing">): boolean =>
+	field.writing.kind !== "generated"
 
 /** Whether a unique object's guards select the rows it holds apart. */
 const predicated = (u: UniqueObject): boolean => u.kind === "guarded"
@@ -156,9 +167,15 @@ const probeOrder = (
 	return kept
 }
 
-/** Whether an object reads a field a generated addition draws (`drawn`), whose value it meets only at its insert. */
+/** Whether an object reads a field a generated addition draws (`drawn`), whose value it meets only at its insert: a
+ * field it reads, or one a generated field it reads is generated from. */
 export const readsDrawn = (u: UniqueObject, drawn: ReadonlyArray<string>): boolean =>
-	readFields(u).some((f) => drawn.includes(f.name))
+	readFields(u).some(
+		(f) =>
+			drawn.includes(f.name) ||
+			(f.writing.kind === "generated" &&
+				columnReads(f.writing.expr).some((c) => drawn.includes(c.name)))
+	)
 
 /** The unique objects of `relation` no declared key subsumes, as a statement probes them (`probeOrder`): those whose
  * conflicts are no key's, a key over a selected side among them.
@@ -176,7 +193,8 @@ const beyondKeys = ({ primary, others, keys }: UniqueObjects): ReadonlyArray<Uni
 }
 
 /** `objects` as a statement probes them, each with who refuses a pair of it within one input: the host at a key, and at
- * a span a complete insert probes (`complete`, normalize.ts hostChecks); the statement anywhere else. */
+ * a span a complete insert probes (`complete`, normalize.ts hostChecks), whose every field it holds (`hostHeld`); the
+ * statement anywhere else. */
 const probedAt = (
 	objects: ReadonlyArray<UniqueObject>,
 	complete: ReadonlyArray<UniqueObject>
@@ -186,7 +204,8 @@ const probedAt = (
 			Object.freeze({
 				object,
 				pairs:
-					object.kind === "key" || (object.kind === "span" && complete.includes(object))
+					(object.kind === "key" || (object.kind === "span" && complete.includes(object))) &&
+					readFields(object).every(hostHeld)
 						? "host"
 						: "statement"
 			})
@@ -299,7 +318,12 @@ const internal = (purpose: string) => ({ kind: "internal", purpose }) as const
  *   negated, a conflict within the ChangeSet. Host normalization refuses such a pair among an enumerated input's facts
  *   before any SQL at every object whose pairs are the host's (`Probed`); the statement checks it for a carrier
  *   or a described member, which nobody normalized, at a unique index, whose predicate and fields are no declared key's,
- *   and at a span primary key a generated addition is probed at, whose overlaps the host does not compare.
+ *   at a span primary key a generated addition is probed at, whose overlaps the host does not compare, and at an object
+ *   reading a generated field, whose value the host never computes.
+ *
+ * A requested fact's value at a generated field is its generation expression over the fields it carries, cast into
+ * their domains as the statement reads its input (statement.ts requestedValue): the value PostgreSQL stores for it, so
+ * the probe compares what the index compares.
  *
  * After that, a 23505 or 23P01 on any of these objects can only come from a row the statement's snapshot did not see,
  * committed or in flight when the row entered the index: the apply fails with TransientFailure{UnseenOccupant}
@@ -360,7 +384,11 @@ export const buildProbe = (
 				)
 			: mapNonEmpty(check.equal, (f) => same(f, a(f), b(f)))
 	const one = [target(lit.int(1, types.integer))]
-	const fact = (f: LawField) => inCol(input, f)
+	/** A requested fact's value at a field, read under `alias`: its input's column for a field it carries, and a
+	 * generated field's generation expression over them (statement.ts requestedValue), the value PostgreSQL stores. */
+	const requestedAt = (alias: string): ((f: LawField) => Expr) =>
+		requestedValue(w, relation, fields, (f) => inCol(alias, f))
+	const fact = requestedAt(input)
 	const branches: Array<SetCore> = []
 	for (const [i, { object: check, pairs }] of checks.entries()) {
 		const ordinal = i + 1
@@ -368,7 +396,7 @@ export const buildProbe = (
 		if (!spec.normalized || pairs === "statement") {
 			/** Another requested fact the object cannot hold beside this one. */
 			const other = supply.relation(internal("other requested fact"))
-			const otherCol = (f: LawField) => inCol(other, f)
+			const otherCol = requestedAt(other)
 			branches.push(
 				provedCore(
 					"keyed",

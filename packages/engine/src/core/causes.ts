@@ -572,25 +572,18 @@ export const unfillableText = (fill: {
 	`${fill.relation}.${fill.field}, filled by law ${fill.law}, reads ${fill.source.relation}'s ${fill.source.column} ${fill.axis === "row" ? "on its own row" : `along the ${fill.axis} axis`} of ${familyNameText(fill.family)}, ${filledLaterText(fill.later)}`
 
 /**
- * Why no write fills a relation's rows (ir/fill.ts):
- * - `nestingCycle`: the sequences `families` nest each other in a cycle, an ordered family over its own relation among
- *   them, so every row of the cycle is nested under another and none is written first;
- * - `generatedKey`: a unique object of the law `law` reads `field`, which PostgreSQL generates and no fact carries, so
- *   no addition's same-key check or probe can meet it.
+ * Why no write fills a relation's rows (ir/fill.ts): `nestingCycle`, the sequences `families` nest each other in a
+ * cycle, an ordered family over its own relation among them, so every row of the cycle is nested under another and
+ * none is written first.
  */
-export type UnwritableCause =
-	| { readonly kind: "nestingCycle"; readonly families: ReadonlyArray<FamilyName> }
-	| { readonly kind: "generatedKey"; readonly law: LawId; readonly field: string }
+export type UnwritableCause = {
+	readonly kind: "nestingCycle"
+	readonly families: ReadonlyArray<FamilyName>
+}
 
 /** An UnwritableRelation's sentence. */
-export const unwritableRelationText = (relation: string, cause: UnwritableCause): string => {
-	switch (cause.kind) {
-		case "nestingCycle":
-			return `no write fills ${relation}: the sequences ${cause.families.map(familyNameText).join(", ")} nest each other in a cycle, so every row of them is nested under another and none is written first`
-		case "generatedKey":
-			return `no addition to ${relation} compiles: the unique object of law ${cause.law} reads ${cause.field}, which PostgreSQL generates and no fact carries, so no same-key check or probe meets it; key fields its caller writes`
-	}
-}
+export const unwritableRelationText = (relation: string, cause: UnwritableCause): string =>
+	`no write fills ${relation}: the sequences ${cause.families.map(familyNameText).join(", ")} nest each other in a cycle, so every row of them is nested under another and none is written first`
 
 /** A column of a relation, as a refusal names it. */
 export interface ColumnName {

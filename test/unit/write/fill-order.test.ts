@@ -68,11 +68,11 @@ import { descOf, parsedOf } from "#test/unit/write/changeset/fixtures.ts"
  *
  * Over drawn schemas of relations, trees, ordered and counted families nested in each other, folds over them, copies
  * riding their owner, predecessor and last axes and reading entering columns, columns that wait on a sequence's
- * members, fold ends, counts and other copies, and keys over generated fields (test/support/families/fill.ts):
+ * members, fold ends, counts and other copies (test/support/families/fill.ts):
  *
  * - **The schema compiles exactly where the reference model admits it** (fill.ts `verdictOf`, a second implementation of
  *   the fill order over the specification's own names), and a refusal is the one the model names: UnwritableRelation
- *   for sequences nesting each other, or for a unique object over a generated field; UnfillableField for a copy whose
+ *   for sequences nesting each other; UnfillableField for a copy whose
  *   source its row fills after it, naming the copy's relation, field, family, axis and source as the specification
  *   states them, for a cause the model gives. A counted family's member that is also an ordered family's member, a
  *   tree's node or a sequence's owner is admitted. The schema compiles as `grizzle generate` compiles it: its artifacts
@@ -102,7 +102,6 @@ import { descOf, parsedOf } from "#test/unit/write/changeset/fixtures.ts"
 type FillSituation =
 	| "admitted"
 	| "refused: sequences nesting each other"
-	| "refused: a key over a generated field"
 	| "refused: a copy of a column filled after its members"
 	| "refused: a copy of a column a counted family fills"
 	| "refused: copies at a tree's root in a cycle"
@@ -525,19 +524,6 @@ const property = (
 				)
 				return
 			}
-			case "generatedKey": {
-				const reason = defined(refusal, "a key over a generated field is refused").reason
-				assert.equal(reason._tag, "UnwritableRelation", Formatter.format(spec))
-				if (reason._tag === "UnwritableRelation") {
-					assert.equal(reason.cause.kind, "generatedKey", "a key over a generated field")
-					assert.ok(
-						Arr.some(verdict.relations, (r) => relationName(r) === reason.relation),
-						`a relation the model refuses, not ${reason.relation}`
-					)
-				}
-				note("refused: a key over a generated field")
-				return
-			}
 			case "admitted":
 				break
 		}
@@ -735,7 +721,6 @@ const property = (
 const fillSituations: Arr.NonEmptyReadonlyArray<FillSituation> = [
 	"admitted",
 	"refused: sequences nesting each other",
-	"refused: a key over a generated field",
 	"refused: a copy of a column filled after its members",
 	"refused: a copy of a column a counted family fills",
 	"refused: copies at a tree's root in a cycle",
@@ -784,7 +769,7 @@ const stepsOfSequenceCopies: ReadonlyArray<{ readonly note: string; readonly ske
 			}
 		] as const,
 		({ note, family, source }) => {
-			const relation = { generated: false, mutable: false, key: false }
+			const relation = { generated: false, mutable: false }
 			const spec: FillSpec = {
 				relations: [
 					{ ...relation, generated: source === "generated" },
@@ -926,8 +911,7 @@ const shapeSpec = (shape: Shape): FillSpec | undefined => {
 	}
 	const relations = Arr.makeBy(5, (r) => ({
 		generated: r === 1 || r === 2,
-		mutable: false,
-		key: false
+		mutable: false
 	}))
 	const families: Array<FillSpec["families"][number]> = []
 	if (shape.owner === "nested") {
@@ -1103,7 +1087,7 @@ const staleShapeGen: Gen<StaleShape> = (source) => ({
 
 /** The specification of a stale shape, or none where the path reads no such column or the axis carries none. */
 const staleSpec = (shape: StaleShape): FillSpec | undefined => {
-	const relation = { generated: true, mutable: true, key: false }
+	const relation = { generated: true, mutable: true }
 	const relations: FillSpec["relations"] = [relation, relation, relation]
 	if (shape.path === "second-order refusal") {
 		return shape.reader === "step" && (shape.source === "caller" || shape.source === "generated")
@@ -1325,7 +1309,7 @@ const siblingsGen: Gen<Siblings> = (source) => ({
 
 /** The specification of a sibling shape (`Siblings`). */
 const siblingsSpec = (shape: Siblings): FillSpec => {
-	const relation = { generated: false, mutable: false, key: false }
+	const relation = { generated: false, mutable: false }
 	const fold = shape.end === "fold" ? "sum" : "none"
 	const lasts: ReadonlyArray<FillSpec["copies"][number]> =
 		shape.end === "last copy"

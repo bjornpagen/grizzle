@@ -3,8 +3,7 @@
  * representation of what the installation must hold.
  *
  * Each case draws a family schema (test/support/families/fill.ts: relations with a generated field or none, ordered and
- * counted families and trees between them, folds and copies on their axes, no key over a generated field), one the
- * fill reference admits, beside a
+ * counted families and trees between them, folds and copies on their axes), one the fill reference admits, beside a
  * roster and a relation Item with a closed id over it; and a login holding a role that writes a drawn set of the
  * relations whole, a role that writes each relation of another drawn set through a query entry of all its fields, so
  * its writes are column grants, or a role that reads Item through a query entry, so its view decodes the closed id,
@@ -78,20 +77,8 @@ const writingGen: Gen<Writing> = (source) => {
 /** The most relations a drawn specification holds. */
 const relationsAtMost = 3
 
-/**
- * A drawn specification with no key over a generated field, which the generated-side suite refuses
- * (test/unit/physical/generated-side.test.ts).
- */
-const unkeyed = (spec: FillSpec): FillSpec => {
-	const [first, ...rest] = spec.relations
-	return {
-		...spec,
-		relations: [{ ...first, key: false }, ...Arr.map(rest, (r) => ({ ...r, key: false }))]
-	}
-}
-
 const familyCaseGen: Gen<FamilyCase> = (source) => ({
-	spec: unkeyed(source.draw(fillSpecGen({ relations: relationsAtMost, families: 3, copies: 2 }))),
+	spec: source.draw(fillSpecGen({ relations: relationsAtMost, families: 3, copies: 2 })),
 	writings: source.draw(array(writingGen, { min: relationsAtMost, max: relationsAtMost })),
 	viewer: source.draw(boolean)
 })

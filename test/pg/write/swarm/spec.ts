@@ -306,8 +306,7 @@ const coreGen =
 		const n = source.draw(int(2, size.relations))
 		const relations = Arr.makeBy(n, (): RelationSpec => ({
 			generated: kept("generated"),
-			mutable: kept("mutable"),
-			key: false
+			mutable: kept("mutable")
 		}))
 		const families: Array<FamilySpec> = []
 		const sequenced = new Set<number>()

@@ -1422,9 +1422,14 @@ grizzle exports beside `AdditionIn<S, R>`, R's addition in S with its sequences'
   `start` its value where the axis begins.
 - **The identity:** a serial field, which an insert may leave out ([Writes](#writes)).
 
-A fact and a query's row hold every field. A primary key holds no set, generated or accumulated field, and no key
-holds a generated field: no fact carries its value, so no write could check it, and such a schema is refused when it
-compiles (`UnwritableRelation`, `generatedKey`).
+A fact and a query's row hold every field. A primary key holds no set, generated or accumulated field: it names the
+row a put, a delete and a family's member name, and its caller states it. Any other key may hold a generated field,
+such as a `value` generated from a key's text, which holds two spellings of one value apart. PostgreSQL computes the
+field, and grizzle compares it in the statement that writes a row, never on the host: at its term over the row's
+written fields, against every other row the statement writes and every stored row. So a write that would store two
+rows of one value there is `invariant-rejected` on the key, its witness the key's values as PostgreSQL stores them. A
+deletion compares only at keys whose fields it states. A family's member rows, which its family's own statements
+write, meet such a key at its index alone, which refuses them on the key with an `unreported` witness.
 
 grizzle fills every value it writes in an order the schema fixes, and a schema in which a field would be read before
 it is filled is refused when it compiles, never at its first write. An insert fills each row on entering it: its
@@ -2065,8 +2070,9 @@ ChangeSet.empty(Blog)               a write over a schema, or over a role: Chang
   may be written through a query entry whose filter reads none of the counts and ends grizzle draws
   ([Writing through a role](#writing-through-a-role)).
 - **A relation's rows are a set.** Identical rows are one row, however often they are given. Two rows of one relation
-  that share a key and differ elsewhere are `invariant-rejected` on that key before any SQL is sent, and an array
-  literal of such rows, its keys literals, is a type error.
+  that share a key and differ elsewhere are `invariant-rejected` on that key before any SQL is sent, or, at a key over
+  a generated field, by the statement that writes them, and an array literal of such rows, its keys literals, is a
+  type error.
 - **Serial columns** may be left out of an insert's rows, all of a row's serial columns or none of them. A row that
   leaves them out is a new row whose serial values the identity draws, and equal such rows are one new row; a row
   that leaves out only some is an `EncodingFailure`. A table whose every column is serial takes `[{}]`: one new row.
@@ -2287,13 +2293,14 @@ channel as a tagged class.
 - The witness is `{ kind: "key", relation, values }`, the key values of one row that breaks the rule, never another
   column; or `{ kind: "unreported" }`. A key, over a table or over a side of one, that grizzle's own write statement
   finds broken, by two rows you submitted or by a stored row inside or outside your role's view, names the key you
-  submitted, in the fields you wrote it in. A rule PostgreSQL refuses itself, a row check, a contract, a pattern or a
-  generated field, states its row only in its message, which grizzle never reads, so grizzle judges, on the host, the
-  rows the refused statement wrote that your ChangeSet states (an inserted or put row, a query entry's row, a nested
-  member) by the rule over their fields as the write fills them: the witness is the key of the first that breaks it,
-  in the fields you wrote it in. It is `unreported` for a foreign key, and where no row you stated breaks the rule: a
-  row only PostgreSQL computes, a query's, one whose rule reads a value grizzle does not hold on the host, a rule over
-  what the host does not evaluate, or a row whose key PostgreSQL draws.
+  submitted, in the fields you wrote it in, a generated field at the value PostgreSQL computes from them. A rule
+  PostgreSQL refuses itself, a row check, a contract, a pattern or a generated field, states its row only in its
+  message, which grizzle never reads, so grizzle judges, on the host, the rows the refused statement wrote that your
+  ChangeSet states (an inserted or put row, a query entry's row, a nested member) by the rule over their fields as the
+  write fills them: the witness is the key of the first that breaks it, in the fields you wrote it in. It is
+  `unreported` for a foreign key, and where no row you stated breaks the rule: a row only PostgreSQL computes, a
+  query's, one whose rule reads a value grizzle does not hold on the host, a rule over what the host does not
+  evaluate, or a row whose key PostgreSQL draws.
 - `outside-world` names the role's table a row cannot belong to.
 
 A value its contract or pattern refuses passes the encoder, which checks only the base type, and is refused by its
