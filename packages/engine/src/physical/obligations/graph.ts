@@ -1,5 +1,6 @@
 import { compareIdentities, type Identity, identifierOf } from "#compiler/core/identity.ts"
 import type { IdentityKind, LawId } from "#compiler/core/ids.ts"
+import { defined } from "#compiler/core/invariant.ts"
 import {
 	type Comparator,
 	combine,
@@ -368,6 +369,82 @@ const priority: Comparator<Node<DeployPhase>> = combineAll([
  * A freshly compiled object is `needed`: only installation and catalog validation establish the later states, created,
  * building, validated and trusted, which the deployment package records. The manifest holds the objects in install
  * order with every edge, the PUBLIC revokes and the role defaults. */
+/** A ready object, and the place it took among the ready ones, which breaks a tie of `priority`. */
+interface Ready {
+	readonly node: Node<DeployPhase>
+	readonly at: number
+}
+
+/** The first of two ready objects: by `priority`, then by when it became ready. */
+const readyFirst = (a: Ready, b: Ready): number => priority(a.node, b.node) || a.at - b.at
+
+/** The ready objects of an install order, a binary heap under `readyFirst`: its least on top. */
+class ReadyHeap {
+	readonly #heap: Array<Ready> = []
+	#pushed = 0
+
+	/** The object at a place the heap holds. */
+	#at(i: number): Ready {
+		return defined(this.#heap[i], "a ready object at a place within the heap")
+	}
+
+	#swap(i: number, j: number): void {
+		const a = this.#at(i)
+		this.#heap[i] = this.#at(j)
+		this.#heap[j] = a
+	}
+
+	push(node: Node<DeployPhase>): void {
+		this.#heap.push({ node, at: this.#pushed })
+		this.#pushed += 1
+		let i = this.#heap.length - 1
+		while (i > 0) {
+			const up = (i - 1) >> 1
+			if (readyFirst(this.#at(i), this.#at(up)) >= 0) {
+				return
+			}
+			this.#swap(i, up)
+			i = up
+		}
+	}
+
+	/** The least ready object, taken off the heap; none once the heap is empty. */
+	pop(): Node<DeployPhase> | undefined {
+		const top = this.#heap[0]
+		if (top === undefined) {
+			return undefined
+		}
+		const last = this.#at(this.#heap.length - 1)
+		this.#heap.pop()
+		if (this.#heap.length > 0) {
+			this.#heap[0] = last
+			this.#sink(0)
+		}
+		return top.node
+	}
+
+	#sink(from: number): void {
+		const size = this.#heap.length
+		let i = from
+		for (;;) {
+			const left = 2 * i + 1
+			const right = left + 1
+			let least = i
+			if (left < size && readyFirst(this.#at(left), this.#at(least)) < 0) {
+				least = left
+			}
+			if (right < size && readyFirst(this.#at(right), this.#at(least)) < 0) {
+				least = right
+			}
+			if (least === i) {
+				return
+			}
+			this.#swap(i, least)
+			i = least
+		}
+	}
+}
+
 export class ObligationGraph {
 	readonly #nodes: Array<Node<DeployPhase>> = []
 	readonly #reasons = new Map<Node<DeployPhase>, Array<PhysicalReason>>()
@@ -387,31 +464,40 @@ export class ObligationGraph {
 		this.#reasons.set(node, [...(this.#reasons.get(node) ?? []), ...reasons])
 	}
 
-	/** Every object in install order. */
+	/**
+	 * Every object in install order: Kahn's order, each step taking the ready object first by `priority`, two equal ones
+	 * in the order they became ready, from a heap of the ready objects, so the order costs n log n in its objects.
+	 */
 	order(): ReadonlyArray<InstallObject> {
 		const waiting = new Map<Node<DeployPhase>, number>()
 		const next = new Map<Node<DeployPhase>, Array<Node<DeployPhase>>>()
 		for (const node of this.#nodes) {
 			waiting.set(node, node.after.size)
 			for (const from of node.after) {
-				next.set(from, [...(next.get(from) ?? []), node])
+				const own = next.get(from)
+				if (own === undefined) {
+					next.set(from, [node])
+				} else {
+					own.push(node)
+				}
 			}
+		}
+		const ready = new ReadyHeap()
+		for (const node of this.#nodes.filter((n) => n.after.size === 0).toSorted(priority)) {
+			ready.push(node)
 		}
 		const out: Array<InstallObject> = []
-		let ready = this.#nodes.filter((n) => n.after.size === 0).toSorted(priority)
-		for (;;) {
-			const [node, ...rest] = ready
-			if (node === undefined) {
-				return out
-			}
+		for (let node = ready.pop(); node !== undefined; node = ready.pop()) {
 			out.push(this.#object(node))
-			const freed = (next.get(node) ?? []).filter((to) => {
+			for (const to of next.get(node) ?? []) {
 				const n = (waiting.get(to) ?? 0) - 1
 				waiting.set(to, n)
-				return n === 0
-			})
-			ready = [...rest, ...freed].toSorted(priority)
+				if (n === 0) {
+					ready.push(to)
+				}
+			}
 		}
+		return out
 	}
 
 	/** The manifest: the objects in install order with every edge, ordered by their objects' identities, the PUBLIC

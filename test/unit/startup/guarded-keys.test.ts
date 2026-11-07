@@ -12,7 +12,11 @@
  * - A guard's predicate is encoded once, where its unique object is built, and compared by that text: the canonical
  *   encoder's calls grow linearly in k, where comparing every two guards by encoding both grew with k squared.
  *
- * The box is exhausted: k at 6, 8 and 10, each against twice it.
+ * - The installation's objects are ordered with n log n comparisons (obligations/graph.ts order), where re-sorting every
+ *   ready object at each step grew with their number squared: over r relations with no law between them, every table
+ *   ready at once, its comparisons at 2r are at most linear's bound over those at r.
+ *
+ * The boxes are exhausted: k at 6, 8 and 10, and r at 20, 30 and 40, each against twice it.
  */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
@@ -20,10 +24,11 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, FileSystem, Formatter, Layer } from "effect"
+import { Array as Arr, Effect, FileSystem, Formatter, Layer, Record as Rec } from "effect"
 import { DbLayer } from "#adapter/public/layer.ts"
 import { resolveConfig } from "#cli/config.ts"
 import { snapshotFileName } from "#compiler/deploy/snapshot/types.ts"
+import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { login } from "#compiler/program/workload/login.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
@@ -39,10 +44,11 @@ import {
 	offlineOwner,
 	workspace
 } from "#test/pg/cli/support.ts"
-import { assert, defined } from "#test/support/assert.ts"
+import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { type CallSite, callCounts } from "#test/support/kernel/calls.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { clusterPool } from "#test/support/pg.ts"
+import { ownedInput } from "#test/support/policy.ts"
 import { snapshotJson } from "#test/support/snapshot-json.ts"
 
 /** The bound on growth from k to 2k: linear, with ε for the parts that do not grow. */
@@ -186,5 +192,59 @@ layer(NodeServices.layer, { excludeTestServices: true })("guarded keys at startu
 						})
 				)
 			)
+	)
+})
+
+/** The comparisons ordering an installation's objects, the order's one comparator of two object keys. */
+const orderSites = {
+	compareKeys: { file: "packages/engine/src/physical/obligations/graph.ts", name: "compareKeys" }
+} satisfies Readonly<Record<string, CallSite>>
+
+/** The comparisons ordering the installation of r relations, each keyed by its id, with no law between them. */
+const orderedAt = (r: number) =>
+	Effect.gen(function* () {
+		const relations = Arr.makeBy(r, (i) => relation(`R${i}`, { id: uuid, a: pg.integer }, ["id"]))
+		const owned = succeeded(
+			ownedInput(
+				schema("Tables", Rec.fromEntries(Arr.map(relations, (t) => [t.name, t] as const)), [])
+			)
+		)
+		const [, counts] = yield* callCounts(
+			Effect.sync(() => succeeded(compileInstallation(owned, installOptions(owned, "owner")))),
+			orderSites
+		)
+		return counts.compareKeys
+	})
+
+/** The numbers of relations the order's box holds, each measured against twice it. */
+const rs = [20, 30, 40] as const
+
+type Width = `r=${(typeof rs)[number]}`
+
+layer(NodeServices.layer, { excludeTestServices: true })("the install order", (it) => {
+	it.effect("compares its objects n log n times, linearly in r within the bound", (ctx) =>
+		searched(
+			ctx,
+			exhaust(
+				{
+					suite: "unit/startup/install-order",
+					generator: element(rs),
+					literal: Formatter.format,
+					limit: rs.length,
+					coverage: requiredInSpace<Width>(["r=20", "r=30", "r=40"]),
+					caseHang
+				},
+				(r, c) =>
+					Effect.gen(function* () {
+						c.note(`r=${r}`)
+						const small = yield* orderedAt(r)
+						const large = yield* orderedAt(2 * r)
+						assert.ok(
+							large <= linear * small,
+							`r at ${r} against ${2 * r}: the order's comparisons grow from ${small} to ${large}`
+						)
+					})
+			)
+		)
 	)
 })
