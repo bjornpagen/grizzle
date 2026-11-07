@@ -16,7 +16,7 @@ import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { conservativeInput, type ConservativeProgram } from "#compiler/lower/conservative/types.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { ownedFixture } from "#test/support/evidence.ts"
-import type { ValueIdentity } from "#test/support/kernel/identity.ts"
+import { sameIdentity, type ValueIdentity } from "#test/support/kernel/identity.ts"
 import { standInNames } from "#test/support/kernel/naming.ts"
 import { validateDag } from "#test/support/oracle/dag-validate.ts"
 import type { QueryCase } from "#test/support/oracle/gen/case.ts"
@@ -34,10 +34,13 @@ import {
 	unobserved
 } from "#test/support/oracle/reference/evaluate.ts"
 import {
+	Declined,
 	equal,
 	indexIdentity,
 	ReferenceUnsupported,
-	type Row
+	type Row,
+	type Value,
+	valueIdentity
 } from "#test/support/oracle/reference/values.ts"
 import { ledgerSchema, type Q, type RelationSpec } from "#test/unit/lower/conservative/fixtures.ts"
 
@@ -104,7 +107,19 @@ const headingNames = (s: ExpectedStatement): string =>
 		", "
 	)
 
-/** One row against another under the reference's native equality, column by column at `heading`'s types. */
+/**
+ * Whether two cells of a column of `type` are one as the reference states them: stated values by native equality
+ * (reference/values.ts equal), and a declined term's value (values.ts Declined) by its identity alone, the term as
+ * PostgreSQL computes it. A rewrite delivers the terms the original delivers, whatever node computes them, so a
+ * declined cell is one only with the same term over equal values, and another term, or a stated value in its place, is
+ * a difference.
+ */
+const sameCell = (a: Value, b: Value, type: ScalarType): boolean =>
+	a instanceof Declined
+		? b instanceof Declined && sameIdentity(a.identity, b.identity)
+		: !(b instanceof Declined) && equal(a, b, type)
+
+/** One row against another, column by column at `heading`'s types (sameCell). */
 const rowEquivalence =
 	(heading: Heading): Equivalence<Row> =>
 	(left, right) =>
@@ -112,10 +127,17 @@ const rowEquivalence =
 		Arr.every(heading, (c, i) => {
 			const a = left[i]
 			const b = right[i]
-			return a !== undefined && b !== undefined && equal(a, b, c.type)
+			return a !== undefined && b !== undefined && sameCell(a, b, c.type)
 		})
 			? Option.none()
-			: Option.some("a row has no natively equal row")
+			: Option.some("a row has no equal row")
+
+/**
+ * A cell's identity where it decides sameCell exactly: a declined term's value by its identity, a stated value by its
+ * index identity (reference/values.ts indexIdentity); none where comparison alone decides.
+ */
+const cellIdentity = (v: Value, type: ScalarType): ValueIdentity | undefined =>
+	v instanceof Declined ? valueIdentity(v, type) : indexIdentity(v, type)
 
 /** An identity's hash, atom by atom, so equal identities hash alike. */
 const identityHash = (identity: ValueIdentity): number =>
@@ -124,9 +146,8 @@ const identityHash = (identity: ValueIdentity): number =>
 	)
 
 /**
- * A row's hash on `heading`, consistent with rowEquivalence: each column by its value's index identity
- * (reference/values.ts indexIdentity), which decides equality exactly as comparison does, and a column whose value has
- * none hashes alike with every other such value, so comparison alone decides it.
+ * A row's hash on `heading`, consistent with rowEquivalence: each column by its cell's identity (cellIdentity), and a
+ * column whose value has none hashes alike with every other such value, so comparison alone decides it.
  */
 const rowHash =
 	(heading: Heading) =>
@@ -136,7 +157,7 @@ const rowHash =
 				hash,
 				Option.match(
 					Option.flatMap(Option.fromUndefinedOr(row[i]), (value) =>
-						Option.fromUndefinedOr(indexIdentity(value, c.type))
+						Option.fromUndefinedOr(cellIdentity(value, c.type))
 					),
 					{ onNone: () => 0, onSome: identityHash }
 				)
@@ -144,9 +165,9 @@ const rowHash =
 		)
 
 /**
- * One statement against another: the same label, the same heading names in order, and the same set of rows under the
- * reference's native equality per column (reference/values.ts equal), neither side holding a row twice: the reference
- * delivers each statement as a set, so a repeat on either side is a difference, never folded away.
+ * One statement against another: the same label, the same heading names in order, and the same set of rows, cell by
+ * cell as the reference states them (sameCell), neither side holding a row twice: the reference delivers each
+ * statement as a set, so a repeat on either side is a difference, never folded away.
  */
 const statementEquivalence: Equivalence<ExpectedStatement> = (left, right) => {
 	if (left.label !== right.label) {

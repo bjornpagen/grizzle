@@ -37,11 +37,12 @@ export const declineReasons: Arr.NonEmptyReadonlyArray<DeclineReason> = [
 
 /**
  * A value the reference does not state: a declined term's (DeclineReason), which PostgreSQL alone computes, any value
- * of its type or a failure. It is identified by its reading and the values of what that reading reads, so two of one
- * reading over equal reads are one value. A delivered column holding one is compared by type alone (compare.ts
- * StatementRows.unstated). The only reading of one the reference states is its identity: whether two others are equal,
- * how one orders and what any other reading of it gives are unknown, and the reference refuses to judge them
- * (ReferenceUnsupported). The frontier reads a declined column by the same rule (frontier.ts mustEval).
+ * of its type or a failure. It is identified by its term as PostgreSQL computes it, the declined operations over the
+ * values the reference states (evaluate.ts Reference termOf), never by a label of its DAG, so one term over equal values
+ * is one value wherever it stands, in one DAG or in two. A delivered column holding one is compared by type alone
+ * (compare.ts StatementRows.unstated). The only reading of one the reference states is its identity: whether two
+ * others are equal, how one orders and what any other reading of it gives are unknown, and the reference refuses to
+ * judge them (ReferenceUnsupported). The frontier reads a declined column by the same rule (frontier.ts mustEval).
  */
 export class Declined {
 	readonly identity: ValueIdentity
@@ -147,9 +148,13 @@ export const referenceUnsupported = (what: string): ReferenceUnsupported =>
  * and a declined term's value stays itself. A value the type cannot hold is a defect of the generator, which draws only
  * values that fit.
  */
-export const coerce = (v: Value, type: ScalarType): Value => {
+export const coerce = (v: Value, type: ScalarType): Value =>
+	v instanceof Declined ? v : coerceStated(v, type)
+
+/** The value a column of `type` holds for the stated value `v` (coerce). */
+export const coerceStated = (v: CarrierValue, type: ScalarType): CarrierValue => {
 	const base = baseOf(type)
-	if (base.carrier !== "numeric" || base.typmod === undefined || v instanceof Declined) {
+	if (base.carrier !== "numeric" || base.typmod === undefined) {
 		return v
 	}
 	const normalized = normalizeNumeric(asDecimal(v), base.typmod)
@@ -172,8 +177,8 @@ export const literalOf = (literal: TypedLiteral, type: ScalarType): Value =>
 	coerce(literalValue(literal), type)
 
 /**
- * PostgreSQL's comparison of two values of one type. Two declined values compare equal only as one reading over equal
- * reads; any other comparison of a declined value is unknown.
+ * PostgreSQL's comparison of two values of one type. Two declined values compare equal only as one term, their
+ * identities one; any other comparison of a declined value is unknown.
  */
 export const compare = (a: Value, b: Value, type: ScalarType): -1 | 0 | 1 => {
 	if (a instanceof Declined && b instanceof Declined && sameIdentity(a.identity, b.identity)) {
@@ -194,8 +199,8 @@ export const equal = (a: Value, b: Value, type: ScalarType): boolean => compare(
 /**
  * A value's identity under native equality: its kind ("value" or "declined") and its atoms, each value in its one form,
  * so a stated value's atoms are its own (a numeric by its one text, a float by its number, a set by its members in roster
- * order after their count, a vector by its components after its dimensions); a declined term's, its reading's over its
- * reads (Declined identity), after its length.
+ * order after their count, a vector by its components after its dimensions); a declined term's, its term's (Declined
+ * identity), after its length.
  */
 export const valueIdentity = (v: Value, type: ScalarType): ValueIdentity => {
 	if (v instanceof Declined) {
@@ -363,17 +368,21 @@ export const statedValue = (v: Value): CarrierValue | undefined =>
 export type CarrierRead = (v: Value) => CarrierValue | undefined
 
 /**
- * The outcome of a reading: its value, or its decline, named (DeclineReason): a term the oracle declines, or a reading
- * of a declined term's value.
+ * The outcome of a reading: its value; its decline, named (DeclineReason): a term the oracle declines, or a reading of
+ * a declined term's value; an operation it meets where its precondition fails; or a term the Compute evaluator does not
+ * evaluate, named. No term PostgreSQL evaluates meets an undefined operation, since every partial operation stands with
+ * its proof, but an operand of a declined term read alone may, where an operand the reference declines decides whether
+ * PostgreSQL evaluates it, and may be one the evaluator never reached (evaluate.ts Reference termOf).
  */
 export type ReadingOutcome =
 	| { readonly kind: "value"; readonly value: CarrierValue }
 	| { readonly kind: "declined"; readonly reason: DeclineReason }
+	| { readonly kind: "undefined"; readonly what: string }
+	| { readonly kind: "unsupported"; readonly what: string }
 
 /**
  * The outcome of a reading, run once through `read`: every value is in its one form, so one run is the reading. A run
- * that reads a declined term's value is declined, whatever it gives. A term the Compute evaluator does not evaluate is
- * refused.
+ * that reads a declined term's value is declined, whatever it gives.
  */
 export const outcomeOf = (run: (read: CarrierRead) => CatalogResult): ReadingOutcome => {
 	const declinedReads: Array<Declined> = []
@@ -393,13 +402,11 @@ export const outcomeOf = (run: (read: CarrierRead) => CatalogResult): ReadingOut
 	const stop = result.failure
 	switch (stop.kind) {
 		case "undefined":
-			throw new Error(
-				`the reference met an operation where its precondition fails (${stop.what}): a partial operation stands without its proof`
-			)
+			return { kind: "undefined", what: stop.what }
 		case "declined":
 			return { kind: "declined", reason: stop.evaluation }
 		case "unsupported":
-			throw referenceUnsupported(stop.what)
+			return { kind: "unsupported", what: stop.what }
 	}
 }
 

@@ -66,14 +66,17 @@ import { wideCaseGen } from "#test/unit/lower/rewrite/wide.ts"
 /**
  * Every rewrite pass, alone and composed, preserves what the query delivers over generated cases: the rewritten DAG
  * validates, lowers conservatively with every statement passing the structural audit, and the reference evaluator
- * computes the same statements, headings and row sets for it as for the original.
+ * computes the same statements, headings and row sets for it as for the original. A delivered term the reference
+ * declines, such as a vector's distance, is compared as its term (reference/values.ts Declined), which the rewritten
+ * query must deliver over the same values.
  *
- * The cases are the optimizer's population for the rewrite passes (gen/case.ts rewriteGenConfig), without vectors and
- * with filters drawn directly over groups, unions and set comparisons, whose schemas declare
- * containments as native foreign keys that their facts satisfy (gen/schema.ts) and whose queries read through them, so
- * R03 runs against the immediate foreign keys a generated installation has; its wide payload under takes with stated
- * orders lets R06 late fetch fire on generated cases, and the hand-built wide-payload cases (wide.ts) hold it to the
- * transaction context too. No pass and no lowering refuses a generated case: a refusal fails it.
+ * The cases are the optimizer's population for the rewrite passes (gen/case.ts rewriteGenConfig), its wide payload
+ * text alone, every carrier still in its palette, and with filters drawn directly over groups, unions and set
+ * comparisons, whose schemas declare containments as native foreign keys that their facts satisfy (gen/schema.ts) and
+ * whose queries read through them, so R03 runs against the immediate foreign keys a generated installation has; its
+ * wide payload under takes with stated orders lets R06 late fetch fire on generated cases, and the hand-built
+ * wide-payload cases (wide.ts) hold it to the transaction context too. No pass and no lowering refuses a generated
+ * case: a refusal fails it.
  *
  * The population is steered: while a required feature is unreached, a case that reached a feature or pair no earlier
  * case reached is kept, and later cases mutate kept ones. The features are semantic: each rule fired, each rule paired

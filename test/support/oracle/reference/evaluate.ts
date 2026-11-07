@@ -7,6 +7,7 @@ import {
 	type ColumnRef,
 	describeOp,
 	exprClosure,
+	type OpId,
 	type RangeOpCode,
 	type ScalarExpr,
 	type TypedLiteral
@@ -23,7 +24,8 @@ import {
 	type RelNode,
 	type VarDecl
 } from "#compiler/ir/rel.ts"
-import type { RegexRef, ScalarType } from "#compiler/ir/scalar.ts"
+import { type RegexRef, type ScalarType, typeLabel } from "#compiler/ir/scalar.ts"
+import type { CarrierValue } from "#compiler/scalar/compute/literal.ts"
 import { matchFlags } from "#compiler/scalar/regex/admit.ts"
 import { CompilePatterns, type PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"
@@ -45,6 +47,7 @@ import {
 	asDecimal,
 	asSpan,
 	coerce,
+	coerceStated,
 	compare,
 	decidedKeys,
 	Declined,
@@ -54,6 +57,7 @@ import {
 	indexIdentity,
 	literalOf,
 	outcomeOf,
+	type ReadingOutcome,
 	referenceUnsupported,
 	type Row,
 	type Value,
@@ -80,6 +84,51 @@ const rangeAtoms: ReadonlySet<RangeOpCode> = new Set([
 
 /** The point-membership atom `r.pointIn` lowers to: its operands are the span, then the point (checker.ts). */
 const pointAtom = "range_contains_elem"
+
+/**
+ * An overload or cast in a declined term's identity: a catalog identity by its text, a range overload by code and
+ * carrier.
+ */
+const opAtoms = (op: OpId): ReadonlyArray<Atom> =>
+	typeof op === "string" ? [op] : [op.code, op.carrier]
+
+/**
+ * What an operation of a declined term applies, in its identity (Reference termOf): its overload or cast, or the closed
+ * relation and field it reads; a conditional and a domain's cast apply nothing their kind and type do not name. A leaf
+ * is no operation: its identity is its value, and one the reference states none for (a relation parameter, a contract's
+ * VALUE) is refused, since no identity names it.
+ */
+const appliedAtoms = (expr: ScalarExpr): ReadonlyArray<Atom> => {
+	switch (expr.kind) {
+		case "op":
+			return opAtoms(expr.op)
+		case "cast":
+			return opAtoms(expr.cast)
+		case "closedAt":
+			return [expr.relation, expr.field]
+		case "closedRow":
+		case "closedHas":
+			return [expr.relation]
+		case "domainCast":
+		case "cond":
+			return []
+		case "column":
+		case "value":
+		case "param":
+		case "literal":
+			throw referenceUnsupported(`a ${expr.kind} with no value, read by a declined term`)
+	}
+}
+
+/**
+ * A stated operand of a declined term, in its identity (Reference termOf): its type, which PostgreSQL's operations read
+ * besides the value, then its value's identity (values.ts valueIdentity).
+ */
+const statedTerm = (v: CarrierValue, type: ScalarType): ValueIdentity => [
+	"stated",
+	typeLabel(type),
+	...valueIdentity(v, type)
+]
 
 /**
  * Membership of a text value in a regex refinement, or in a descriptor's pattern, the text package's NFA: what a domain
@@ -905,26 +954,48 @@ export class Reference {
 	}
 
 	/**
-	 * The value of a term by the Compute evaluator, run once (values.ts outcomeOf): every value is in its one form, so
-	 * the one run is the term's value. A term the oracle declines (oracle/evaluate/catalog.ts declinedOps), or one
-	 * reading a declined term's value, is declined, its value the term's over its reads, which PostgreSQL alone
-	 * computes; the decline is observed by its reason. A term that fails fails with its code.
+	 * The value of a term by the Compute evaluator, run once (reading): every value is in its one form, so the one run
+	 * is the term's value. A term the oracle declines (oracle/evaluate/catalog.ts declinedOps), or one reading a
+	 * declined term's value, is declined, its value PostgreSQL's for the term (termOf); the decline is observed by its
+	 * reason. A term that meets an operation where its precondition fails is a defect, since every partial operation
+	 * stands with its proof, and one the Compute evaluator does not evaluate is refused.
 	 *
 	 * A column read is the column's value as it is: a declined term's the same value.
 	 */
 	computed(expr: ScalarExpr, scope: Bindings): Value {
+		if (expr.kind === "column") {
+			const v = scope.get(expr.column.node)?.get(expr.column.name)
+			if (v instanceof Declined) {
+				return v
+			}
+		}
+		const outcome = this.reading(expr, scope)
+		switch (outcome.kind) {
+			case "value":
+				return coerceStated(outcome.value, expr.type)
+			case "declined":
+				this.input.observer.decline(outcome.reason)
+				return new Declined(this.termOf(expr, scope), outcome.reason)
+			case "undefined":
+				throw new Error(
+					`the reference met an operation where its precondition fails (${outcome.what}): a partial operation stands without its proof`
+				)
+			case "unsupported":
+				throw referenceUnsupported(outcome.what)
+		}
+	}
+
+	/**
+	 * The outcome of a term by the Compute evaluator, run once over `scope` (values.ts outcomeOf), each parameter read as
+	 * the case's scalar value.
+	 */
+	reading(expr: ScalarExpr, scope: Bindings): ReadingOutcome {
 		const param = (pid: ParamId): Value | undefined => {
 			const p = this.param(pid)
 			return p.kind === "scalar" ? literalOf(p.value, p.type) : undefined
 		}
 		const column = (ref: ColumnRef) => scope.get(ref.node)?.get(ref.name)
-		if (expr.kind === "column") {
-			const v = column(expr.column)
-			if (v instanceof Declined) {
-				return v
-			}
-		}
-		const outcome = outcomeOf((read) =>
+		return outcomeOf((read) =>
 			evaluate(expr, {
 				kind: "row",
 				column: (ref) => {
@@ -938,44 +1009,47 @@ export class Reference {
 				regexMember: patternMember
 			})
 		)
-		switch (outcome.kind) {
-			case "value":
-				return coerce(outcome.value, expr.type)
-			case "declined":
-				this.input.observer.decline(outcome.reason)
-				return new Declined(this.readsOf(expr, scope, param), outcome.reason)
-		}
 	}
 
 	/**
-	 * The identity of a term over what it reads in `scope`: its expression, and each column's and parameter's value by
-	 * native equality (values.ts valueIdentity), which every reading is a function of, each read tagged by its kind and
-	 * named before its value.
+	 * A declined term's identity (values.ts Declined), the term as PostgreSQL computes it in `scope`: each operand the
+	 * reference states a value for is that value, after its type (statedTerm); a column holding a declined term's value
+	 * is that term; a conditional whose condition the reference states is the branch it takes; and every other operand,
+	 * which declines, or which read alone meets an operation where its precondition fails or one the Compute evaluator
+	 * does not evaluate (values.ts ReadingOutcome), is its kind, its type and what it applies (appliedAtoms), then its
+	 * operands' count and each operand's identity.
+	 * What remains is the declined operations over stated values, which PostgreSQL's value of the term is a function of.
+	 * It names no label of the DAG, neither an expression's id nor a column's node, so one term over equal values is one
+	 * identity wherever it stands: in one node or fused across two, read through a column, a parameter or a literal, and
+	 * in a rewrite's original and its result alike.
 	 */
-	readsOf(
-		root: ScalarExpr,
-		scope: Bindings,
-		param: (pid: ParamId) => Value | undefined
-	): ValueIdentity {
-		const parts: Array<Atom> = [root.id]
-		for (const expr of exprClosure([root])) {
-			if (expr.kind === "column") {
-				const v = stated(
-					scope.get(expr.column.node)?.get(expr.column.name),
-					`the column ${expr.column.name}`
-				)
-				appendAll(parts, [
-					"column",
-					expr.column.node,
-					expr.column.name,
-					...valueIdentity(v, expr.type)
-				])
-			} else if (expr.kind === "param") {
-				const v = stated(param(expr.param), `a value for the parameter ${expr.param}`)
-				appendAll(parts, ["param", expr.param, ...valueIdentity(v, expr.type)])
+	termOf(expr: ScalarExpr, scope: Bindings): ValueIdentity {
+		if (expr.kind === "column") {
+			const v = stated(
+				scope.get(expr.column.node)?.get(expr.column.name),
+				`the column ${expr.column.name}`
+			)
+			return v instanceof Declined ? v.identity : statedTerm(v, expr.type)
+		}
+		const outcome = this.reading(expr, scope)
+		if (outcome.kind === "value") {
+			return statedTerm(coerceStated(outcome.value, expr.type), expr.type)
+		}
+		if (expr.kind === "cond") {
+			const [condition, whenTrue, whenFalse] = expr.args
+			const taken = this.reading(condition, scope)
+			if (taken.kind === "value") {
+				return this.termOf(taken.value === true ? whenTrue : whenFalse, scope)
 			}
 		}
-		return parts
+		const operands: ReadonlyArray<ScalarExpr> = expr.args
+		return [
+			expr.kind,
+			typeLabel(expr.type),
+			...appliedAtoms(expr),
+			operands.length,
+			...Arr.flatMap(operands, (operand) => this.termOf(operand, scope))
+		]
 	}
 
 	/** The truth of a predicate; a predicate over an unstated value has none the reference states. */
