@@ -11,6 +11,7 @@ import {
 	Normalizer,
 	type PrimaryKeyKept,
 	type ResolvedSide,
+	type ResolvedSourceSide,
 	selectorsOf,
 	type TheoryLaw
 } from "#compiler/analysis/theory/laws.ts"
@@ -31,7 +32,7 @@ import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty
 import * as Result from "#compiler/core/result.ts"
 import { type FieldDesc, fieldTermsOf, termText } from "#compiler/ir/desc.ts"
 import type { EvidenceContext } from "#compiler/ir/evidence.ts"
-import type { TypedLiteral } from "#compiler/ir/expr.ts"
+import { identityValueOf, type TypedLiteral } from "#compiler/ir/expr.ts"
 import type { Family } from "#compiler/ir/family.ts"
 import type { FillOrder } from "#compiler/ir/fill.ts"
 import {
@@ -111,23 +112,28 @@ interface ContainmentEvidence {
 
 /**
  * The two sides of a containment as evidence states them (`EvidenceSide`): each side's fields, and the selectors of its
- * fixed conjuncts, or none when a side has a pred term. A source's selection is read whole, every conjunct fixed, or
- * the containment gives no evidence, since a source read with fewer conjuncts would claim more of its facts than the
- * law does. A target's fixed conjuncts are read and its others dropped: a target with fewer conjuncts holds more facts,
+ * fixed conjuncts, or none when a side has a pred term, or its source a constant or a term read twice. A source's
+ * selection is read whole, every conjunct fixed, or the containment gives no evidence, since a source read with fewer
+ * conjuncts would claim more of its facts than the law does. A target's fixed conjuncts are read and its others dropped: a target with fewer conjuncts holds more facts,
  * so the evidence claims less than the law and is sound.
  */
 const evidenceSides = (
-	from: ResolvedSide,
+	from: ResolvedSourceSide,
 	to: ResolvedSide
 ): { readonly from: EvidenceSide; readonly to: EvidenceSide } | undefined => {
 	const fromFields = fieldTermsOf(from.terms)
 	const toFields = fieldTermsOf(to.terms)
 	const fromSelection = fixedSelection(from.selection)
-	if (fromFields === undefined || toFields === undefined || fromSelection === undefined) {
+	if (
+		fromFields === undefined ||
+		toFields === undefined ||
+		fromSelection === undefined ||
+		new Set(fromFields.map((f) => f.field)).size !== fromFields.length
+	) {
 		return undefined
 	}
 	const side = (
-		s: ResolvedSide,
+		s: { readonly relation: string },
 		fields: NonEmptyReadonlyArray<{ readonly field: string }>,
 		selectors: ReadonlyArray<{ readonly column: string; readonly value: TypedLiteral }>
 	): EvidenceSide => ({
@@ -207,21 +213,26 @@ export interface Theory extends CheckedTheory {
 	readonly evidence: TheoryEvidence
 }
 
-/** A side as a law's identity states it: its relation, its terms, and its conjuncts by their canonical texts. */
-const sidePart = (side: ResolvedSide): Part => [
+/**
+ * A side as a law's identity states it: its relation, its terms, a constant by its typed literal's identity, and its
+ * conjuncts by their canonical texts.
+ */
+const sidePart = (side: ResolvedSourceSide): Part => [
 	side.relation,
-	side.terms.map((t) => [t.kind, t.field]),
+	side.terms.map((t) =>
+		t.kind === "constant" ? [t.kind, identityValueOf(t.literal).part] : [t.kind, t.field]
+	),
 	side.selection.conjuncts.map((c) => c.text)
 ]
 
 /** A side as a law's stem spells it: its relation, then the fields each conjunct reads. */
-const sideStem = (side: ResolvedSide): ReadonlyArray<string> => [
+const sideStem = (side: ResolvedSourceSide): ReadonlyArray<string> => [
 	side.relation,
 	...side.selection.conjuncts.flatMap((c) => c.reads.map((f) => f.name))
 ]
 
 /** A side as a law's display spells it: its relation and terms, then each conjunct by its canonical text. */
-const sideDisplay = (side: ResolvedSide): string => {
+const sideDisplay = (side: ResolvedSourceSide): string => {
 	const conjuncts = side.selection.conjuncts
 	return `${side.relation}(${side.terms.map(termText).join(", ")})${
 		conjuncts.length === 0 ? "" : ` where ${conjuncts.map((c) => c.text).join(" and ")}`
@@ -563,7 +574,9 @@ class Builder {
 			const detail = k.draft.identity.detail
 			if (detail.kind === "containment") {
 				for (const p of detail.pairs) {
-					pair(detail.from.relation, p.from.column, detail.to.relation, p.to.column, k.tracked)
+					if (p.kind === "terms") {
+						pair(detail.from.relation, p.from.column, detail.to.relation, p.to.column, k.tracked)
+					}
 				}
 			}
 		}

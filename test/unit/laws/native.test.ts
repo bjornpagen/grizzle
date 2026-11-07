@@ -448,7 +448,7 @@ type RuleFeature = RuleKind | Verdict
 const boxLiteral = (b: BoxCase): string => `${ruleText(b.rule)}: ${Formatter.format(b.state)}`
 
 /** The box's size, counted by the library's own enumeration. */
-const BOX_CASES = 9_645
+const BOX_CASES = 15_016
 
 /** The oracle of the state and transaction suites: the laws' meaning, read from each statement by the host. */
 const HOST_ORACLE: Oracle = {

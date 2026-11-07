@@ -1548,12 +1548,19 @@ writer.
 | Fold           | `fold(family, Monoid.sum, step, end)`                     | each owner's end is its members' step values combined by the monoid              |
 | Selected side  | `on(select(Ticket, (t) => φ), "show")`, in any rule       | the rule reads only the rows where φ holds                                       |
 | Predecessor    | `on(Place, "show", pred("at"))`, in any rule              | the rule reads `at` − 1, and nothing of a row whose `at` is 0                    |
+| Constant       | `on(A, "id", constant("x"))`, in a containment's source   | the row meets only target rows holding `"x"` at the paired field                 |
 
 A rule is stated over sides, `on(source, ...terms)`, and pairs its sides' terms in order. A source is a table, or
 `select(T, (t) => φ)`: the rows of T where φ holds, φ written as a row check's condition, the one way a selection is
-written. A term is a field, or `pred(n)` of a `natural` field n: n − 1, defined only where n is above 0. A side lists
-each term once: `on(Ticket, "show", "show")` is a type error, and from JavaScript refused when you build it, while
-`"at"` and `pred("at")` are two terms. A row outside a side's selection, or whose `pred` field is 0, has no tuple on
+written. A term is a field, or `pred(n)` of a `natural` field n: n − 1, defined only where n is above 0. A key's, a
+family's, a fold's and a containment's target side lists each term once: `key(on(Ticket, "show", "show"))` is a type
+error, and from JavaScript refused when you build it, while `"at"` and `pred("at")` are two terms. A containment's
+source, its first side, may also read a field twice, each time meeting its own target term, and may hold `constant(v)`,
+v on every row, which meets a field of the target that v is a value of: `contained(on(A, "id", constant("x"), "id"),
+on(B, "id", "kind", "root"))` holds where every A's id is a B of kind `"x"` that is its own root. A constant pairs with
+a scalar field of the target, never a `pred` term or a span, and a source reads at least one field; a target, a
+`mirrors`' sides (each is a target once), a key, a family and a fold hold no constant, each refused as a type error and
+from JavaScript. A row outside a side's selection, or whose `pred` field is 0, has no tuple on
 that side: a key over the side doesn't hold it apart, a containment from the side doesn't require it, and a containment
 into the side doesn't find it. A key over a table's own fields is a candidate key of the table; over a selected side or
 a `pred` term it is no key of the table. A containment's target holds a key: a candidate key among its fields, or a key
@@ -1589,7 +1596,10 @@ once per show, and may also hold any number of places already called.
 Every rule holds at commit, for every writer, and every rule compiles to PostgreSQL's own constraints: grizzle
 installs no trigger and no function for a rule. Each term of a selected side, and each `pred` term, is a STORED
 generated column, `CASE WHEN φ THEN t END`; a key over a side is `UNIQUE NULLS DISTINCT` and a containment
-`FOREIGN KEY … MATCH SIMPLE`, which pass a row whose columns there are null. `alternatives` is its containments: one
+`FOREIGN KEY … MATCH SIMPLE`, which pass a row whose columns there are null. A constant of a containment's source is a
+STORED generated column holding it, and a field the source reads twice is listed twice among the foreign key's
+columns, so the reference meets the target's columns in the order its side names them and adds no column to the
+target. Such a containment keeps a foreign key of its own: it rides no family's axis. `alternatives` is its containments: one
 from each arm into its parent at its handle, and one from the parent's rows of each handle into its arm, a selected
 side. A coverage's target needs a no-overlap key over its span, or the schema is refused: coalesce the spans, or key
 them. A write that breaks a rule comes back as an outcome that names the rule, never as a message to parse.

@@ -30,7 +30,9 @@ import {
 	type LiteralDesc,
 	type SideDesc,
 	type StatementDesc,
-	type TermDesc
+	type SourceTermDesc,
+	type TermDesc,
+	termText
 } from "#compiler/ir/desc.ts"
 import type { AxisKind, AxisPair } from "#compiler/ir/family.ts"
 import type { NativeColumn } from "#compiler/ir/law.ts"
@@ -570,11 +572,8 @@ describe("riding a family axis (§2.1)", () => {
 								theory.laws,
 								(law) => law.detail.kind === "containment"
 							)
-							const termsText = (terms: ReadonlyArray<TermDesc>): string =>
-								Arr.join(
-									Arr.map(terms, (t) => `${t.kind} ${t.field}`),
-									", "
-								)
+							const termsText = (terms: ReadonlyArray<SourceTermDesc>): string =>
+								Arr.join(Arr.map(terms, termText), ", ")
 							const states = (detail: LawDetail, c: RideCase): boolean =>
 								detail.kind === "containment" &&
 								detail.from.relation === c.left &&

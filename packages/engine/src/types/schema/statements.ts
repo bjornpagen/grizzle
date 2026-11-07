@@ -15,11 +15,13 @@ import type {
 	DrawnField,
 	FieldBase,
 	HandleOf,
+	LiteralOf,
 	WritingTag
 } from "#compiler/types/fields/field.ts"
 import type {
 	AnyRelation,
 	AnyRoster,
+	DistinctTerms,
 	Fact,
 	FactOfFields,
 	NameOf
@@ -36,6 +38,18 @@ export interface Pred<F extends string> {
 
 /** Any term of a law side: a field's name, or pred of one. */
 export type AnyTerm = string | Pred<string>
+
+/**
+ * constant(v), a term of a containment's source side: v on every fact, meeting a field of the target, whose type it is
+ * a value of, as a literal compared with that field is. It selects the target facts whose paired field holds v.
+ */
+export interface Constant<out V> {
+	readonly kind: "constant"
+	readonly value: V
+}
+
+/** Any term of a containment's source side: a term, or a constant. */
+export type AnySourceTerm = AnyTerm | Constant<unknown>
 
 /**
  * A candidate key of the ordinary relation R: a Key over a side of the whole relation whose terms are fields. A key
@@ -70,13 +84,15 @@ export interface Check<Name extends string, R> {
 
 /**
  * A law side: a relation, closed relation or selection projected onto terms, in order, a partial projection: a fact
- * whose pred term is undefined has no tuple on it. Side is covariant, so AnySide is every side.
+ * whose pred term is undefined has no tuple on it. Side is covariant, so AnySide is every side whose terms read its
+ * facts, and AnySourceSide every side, a containment's source with its constants among them.
  */
-export interface Side<R, T extends ReadonlyArray<AnyTerm> = ReadonlyArray<AnyTerm>> {
+export interface Side<R, T extends ReadonlyArray<AnySourceTerm> = ReadonlyArray<AnyTerm>> {
 	readonly source: R
 	readonly terms: T
 }
 export type AnySide = Side<unknown>
+export type AnySourceSide = Side<unknown, ReadonlyArray<AnySourceTerm>>
 
 /**
  * select(R, predicate): the facts of R a row predicate over their own fields holds of. The predicate is the
@@ -548,6 +564,98 @@ export type SidesCompatible<L, R> = [L] extends [R]
 		? unknown
 		: Refusal<"the sides' field types differ">
 	: Refusal<"the sides' field types differ">
+
+/**
+ * A side's terms hold no constant, which reads on a containment's source side alone: a target, a mirrors' sides, a key,
+ * a family's member and a fold's step and end read their facts' own values.
+ */
+export type NoConstant<T> = [Extract<T[number & keyof T], Constant<unknown>>] extends [never]
+	? unknown
+	: Refusal<"a constant reads only on a containment's source side">
+
+/** A containment's source reads at least one field: a constant reads nothing of the fact whose tuple it is part of. */
+export type ReadsAField<T> = [Exclude<T[number & keyof T], Constant<unknown>>] extends [never]
+	? Refusal<"a containment's source reads at least one field: a constant pairs beside a term of the fact">
+	: unknown
+
+/** The host value a field K of the heading C holds, the value a literal compared with it is of. */
+type HostOfField<C, K> = K extends keyof FactOfFields<C> ? FactOfFields<C>[K] : never
+
+/**
+ * What is wrong with a constant of value V opposite the target term T of the heading C: it meets a pred term, whose
+ * value is no field's; a span field, which a containment pairs as coverage; or a field V is no value of. Never where
+ * it meets a scalar field it is a value of.
+ */
+type ConstantFault<V, C, T> =
+	T extends Pred<string>
+		? "pred"
+		: FieldTypeOf<C, T> extends readonly [unknown, "range"]
+			? "span"
+			: [V] extends [LiteralOf<HostOfField<C, T>>]
+				? never
+				: "value"
+
+/** The faults of a source's constants, the source terms LT opposite the target terms RT over the heading CR. */
+type ConstantFaults<LT, CR, RT> = {
+	readonly [I in keyof LT]: LT[I] extends Constant<infer V>
+		? I extends keyof RT
+			? ConstantFault<V, CR, RT[I]>
+			: never
+		: never
+}[number & keyof LT]
+
+/** The refusal of a source's constants with faults F, the first in the order the faults are judged. */
+type ConstantRefusal<F> = "pred" extends F
+	? Refusal<"a constant meets a field of the target, never a pred term">
+	: "span" extends F
+		? Refusal<"a constant meets a scalar field of the target, never a span, which a containment pairs as coverage">
+		: Refusal<"a constant is a value of the target field it meets">
+
+/**
+ * The join types of a containment's source terms LT over the heading CL: a term's own, and a constant the type of the
+ * target term it meets, the target terms RT over the heading CR, so the sides compare as the target's at its constants.
+ */
+type SourceHosts<CL, LT, CR, RT> = {
+	readonly [I in keyof LT]: LT[I] extends Constant<unknown>
+		? I extends keyof RT
+			? TermTypeOf<CR, RT[I]>
+			: never
+		: TermTypeOf<CL, LT[I]>
+}
+
+/**
+ * A containment's source, the terms LT over the heading CL, meets its target, the terms RT over CR: each constant a
+ * value of the scalar field it meets, and every other term of its target term's join type (SidesCompatible).
+ */
+export type SourceMeets<CL, LT, CR, RT> = [ConstantFaults<LT, CR, RT>] extends [never]
+	? SidesCompatible<SourceHosts<CL, LT, CR, RT>, SideHosts<CR, RT>>
+	: ConstantRefusal<ConstantFaults<LT, CR, RT>>
+
+/**
+ * A containment's target, the terms RT over CR, holds no constant and reads each term once, and its source, the terms
+ * LT over CL, meets it (SourceMeets): the first refusal of the three, so a target states one fault at a time.
+ */
+export type TargetTerms<CL, LT, CR, RT> = [
+	Extract<RT[number & keyof RT], Constant<unknown>>
+] extends [never]
+	? unknown extends DistinctTerms<RT>
+		? SourceMeets<CL, LT, CR, RT>
+		: DistinctTerms<RT>
+	: Refusal<"a constant reads only on a containment's source side">
+
+/**
+ * mirrors' second side, the terms RT over CR, holds no constant and reads each term once, and its first side, the
+ * terms LT over CL, is of its join types (SidesCompatible) where it holds no constant, which NoConstant refuses there.
+ */
+export type MirroredTerms<CL, LT, CR, RT> = [
+	Extract<RT[number & keyof RT], Constant<unknown>>
+] extends [never]
+	? unknown extends DistinctTerms<RT>
+		? [Extract<LT[number & keyof LT], Constant<unknown>>] extends [never]
+			? SidesCompatible<SideHosts<CL, LT>, SideHosts<CR, RT>>
+			: unknown
+		: DistinctTerms<RT>
+	: Refusal<"a constant reads only on a containment's source side">
 
 /** The relation and key fields a KeyRef names: a Key's side's relation and field terms, a relation's primary key. */
 export type RelationOfKey<K> = K extends Key<Side<infer R, ReadonlyArray<string>>> ? R : K

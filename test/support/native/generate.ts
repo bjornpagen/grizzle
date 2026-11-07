@@ -110,7 +110,7 @@ const readsOf = (laws: ReadonlyArray<Law>): ReadonlyMap<string, ReadonlySet<stri
 			case "mirrors":
 				for (const side of law.kind === "key" ? [law.side] : [law.left, law.right]) {
 					add(side.relation, [
-						...Arr.map(side.terms, (t) => t.field),
+						...Arr.flatMap(side.terms, (t) => (t.kind === "constant" ? [] : [t.field])),
 						...Option.match(side.where, { onNone: () => [], onSome: phiFields })
 					])
 				}
@@ -237,6 +237,13 @@ const BOX_RULES: NonEmptyReadonlyArray<Rule> = [
 		rule: "a containment between selected sides",
 		phi: live,
 		psi
+	})),
+	...Arr.map([0, 1], (rank): Rule => ({ rule: "a containment from a constant", rank })),
+	{ rule: "a containment reading a field twice" },
+	...Arr.map([true, false], (constant): Rule => ({
+		rule: "a containment from a selected side with a constant and a field read twice",
+		phi: live,
+		live: constant
 	})),
 	{ rule: "a closure under pred" },
 	...Arr.map(
@@ -445,6 +452,11 @@ const ruleGen =
 				return { rule: kind, psi: source.draw(ownerPhi) }
 			case "a containment between selected sides":
 				return { rule: kind, phi: source.draw(itemPhi), psi: source.draw(ownerPhi) }
+			case "a containment from a constant":
+				return { rule: kind, rank: source.draw(int(-1, 2)) }
+			case "a containment from a selected side with a constant and a field read twice":
+				return { rule: kind, phi: source.draw(itemPhi), live: source.draw(boolean) }
+			case "a containment reading a field twice":
 			case "a key over fields":
 			case "a key over a pred term":
 			case "a containment":
@@ -646,6 +658,10 @@ const restatedRule = (r: Rule): Rule => {
 			return { rule: r.rule, psi: restated(r.psi) }
 		case "a containment between selected sides":
 			return { rule: r.rule, phi: restated(r.phi), psi: restated(r.psi) }
+		case "a containment from a selected side with a constant and a field read twice":
+			return { rule: r.rule, phi: restated(r.phi), live: r.live }
+		case "a containment from a constant":
+		case "a containment reading a field twice":
 		case "a key over fields":
 		case "a key over a pred term":
 		case "a containment":

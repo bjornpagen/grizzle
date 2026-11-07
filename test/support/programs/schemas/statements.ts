@@ -6,6 +6,7 @@
 export type {
 	Alternatives,
 	Check,
+	Constant,
 	Containment,
 	Counted,
 	Fin,

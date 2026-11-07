@@ -2,10 +2,15 @@ import type { Stream } from "effect"
 import type { RowDecoder } from "#compiler/core/decoder.ts"
 import type { Built, delta, Phantom } from "#compiler/core/phantom.ts"
 import type { CalendarDate } from "#compiler/ir/date.ts"
-import type { MonoidName, SideDesc, SlotsDesc } from "#compiler/ir/desc.ts"
+import type { MonoidName, SideDesc, SlotsDesc, SourceSideDesc } from "#compiler/ir/desc.ts"
 
 /** One side of a law as an outcome names it: its statement's side, as its Description states it (ir/desc.ts). */
 export type { SideDesc as LawSide } from "#compiler/ir/desc.ts"
+/**
+ * A containment's source side as an outcome names it, as its Description states it (ir/desc.ts SourceSideDesc): a side
+ * whose terms may also be constants, each its literal, and may read a term twice.
+ */
+export type { SourceSideDesc as LawSourceSide } from "#compiler/ir/desc.ts"
 import type { Decimal } from "#compiler/scalar/values/decimal.ts"
 import type { Money } from "#compiler/scalar/values/money.ts"
 import type { Span } from "#compiler/scalar/values/span.ts"
@@ -920,7 +925,8 @@ export type Refused =
  *   them, each a field or pred of a natural field, and its selection's conjuncts, each a row predicate in its
  *   canonical form (schema/own.ts canonicalPredicate), in canonical order: none reads every fact;
  * - `check`: a relation's row check, by its name;
- * - `contained`: a containment, a foreign key included, from its source side into its target side (a mirrors is two);
+ * - `contained`: a containment, a foreign key included, from its source side into its target side (a mirrors is two):
+ *   the source side (LawSourceSide) may hold constants, `{ kind: "constant", value }`, and read a term twice;
  * - `coverage`: a containment whose sides pair a span field, the source's span covered by the target's;
  * - `family`: an ordered or counted family, by its member side and its owner's slots: each owner's members indexed by
  *   exactly 0 … n − 1 (an alternatives law states plain containments, each a `contained` law);
@@ -940,8 +946,8 @@ export type Law =
 	  }
 	| { readonly kind: "key"; readonly side: SideDesc }
 	| { readonly kind: "check"; readonly relation: string; readonly name: string }
-	| { readonly kind: "contained"; readonly from: SideDesc; readonly to: SideDesc }
-	| { readonly kind: "coverage"; readonly from: SideDesc; readonly to: SideDesc }
+	| { readonly kind: "contained"; readonly from: SourceSideDesc; readonly to: SideDesc }
+	| { readonly kind: "coverage"; readonly from: SourceSideDesc; readonly to: SideDesc }
 	| {
 			readonly kind: "family"
 			readonly order: "ordered" | "counted"

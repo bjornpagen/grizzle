@@ -23,9 +23,10 @@ import {
 	type RoleDesc,
 	type FieldDecl,
 	type FieldDesc,
-	type SideDesc,
-	type StatementDesc,
-	type TermDesc
+	type LiteralDesc,
+	type SourceSideDesc,
+	type SourceTermDesc,
+	type StatementDesc
 } from "#compiler/ir/desc.ts"
 import type { Heading as Columns } from "#compiler/ir/rel.ts"
 import { contractOf, sameScalarType, type ScalarType } from "#compiler/ir/scalar.ts"
@@ -62,6 +63,7 @@ import { admitSchema, schema } from "#compiler/schema/schema.ts"
 import {
 	alternativesBuilder,
 	checkBuilder,
+	constantBuilder,
 	containedBuilder,
 	countedBuilder,
 	finBuilder,
@@ -88,7 +90,7 @@ import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { AnyClosed, AnyRelation, AnyRoster } from "#compiler/types/schema/relation.ts"
 import type { AnySchema } from "#compiler/types/schema/schema.ts"
 import type { Statement } from "#compiler/types/schema/statements.ts"
-import { defined } from "#test/support/assert.ts"
+import { assert, defined } from "#test/support/assert.ts"
 import { compileTemplate, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { admitContract, spanDescriptor } from "#test/support/fixtures/descriptors.ts"
 import { messageOf } from "#test/support/message.ts"
@@ -174,6 +176,7 @@ const schemaConstructs = [
 	"slotKeyProbe",
 	"slotSideProbe",
 	"slotContainmentProbe",
+	"sourceTermProbe",
 	"valueProbe",
 	"contractNameProbe"
 ] as const
@@ -227,7 +230,9 @@ const schemaForms = [
 	"concatMismatch",
 	"refinedFold",
 	"refinedGenerated",
-	"roleBesideClosed"
+	"roleBesideClosed",
+	"constantSource",
+	"repeatedSource"
 ] as const
 type SchemaForm = (typeof schemaForms)[number]
 
@@ -342,7 +347,15 @@ const schemaFaults = [
 	"finOverDerived",
 	"emptyHead",
 	"headingGroups",
-	"derivedOverBase"
+	"derivedOverBase",
+	"constantOnTarget",
+	"constantMeetsPred",
+	"constantMeetsSpan",
+	"constantsOnly",
+	"constantValue",
+	"repeatedTarget",
+	"mirrorsConstant",
+	"keyConstant"
 ] as const
 type SchemaFault = (typeof schemaFaults)[number]
 
@@ -911,6 +924,50 @@ const refusals: { readonly [F in SchemaFault]: Refusing } = {
 		engine: { tag: "MalformedDescription" },
 		code: "TS2345",
 		claim: named("the relation is not in this query's schema")
+	},
+	constantOnTarget: {
+		engine: { tag: "MalformedDescription" },
+		code: "TS2345",
+		claim: named("a constant reads only on a containment's source side")
+	},
+	constantMeetsPred: {
+		engine: { tag: "MalformedDescription" },
+		code: "TS2345",
+		claim: named("a constant meets a field of the target, never a pred term")
+	},
+	constantMeetsSpan: {
+		engine: { tag: "UnsupportedLawFamily" },
+		code: "TS2345",
+		claim: named(
+			"a constant meets a scalar field of the target, never a span, which a containment pairs as coverage"
+		)
+	},
+	constantsOnly: {
+		engine: { tag: "MalformedDescription" },
+		code: "TS2345",
+		claim: named(
+			"a containment's source reads at least one field: a constant pairs beside a term of the fact"
+		)
+	},
+	constantValue: {
+		engine: { tag: "MalformedDescription" },
+		code: "TS2345",
+		claim: named("a constant is a value of the target field it meets")
+	},
+	repeatedTarget: {
+		engine: { tag: "MalformedDescription" },
+		code: "TS2345",
+		claim: named("a side lists each term once")
+	},
+	mirrorsConstant: {
+		engine: { tag: "MalformedDescription" },
+		code: "TS2345",
+		claim: named("a constant reads only on a containment's source side")
+	},
+	keyConstant: {
+		engine: { tag: "MalformedDescription" },
+		code: "TS2345",
+		claim: prose("a key's side reads its facts' own terms, never a constant")
 	},
 	emptyHead: {
 		engine: { tag: "DerivedRefused", cause: "emptyHeading" },
@@ -3260,7 +3317,10 @@ const keyProbe = (d: Drawing, base: Base): Probe => {
 	}
 }
 
-/** A side over a relation of the base: drawn terms, or one planted fault. */
+/**
+ * A side over a relation of the base: drawn terms, or one planted fault. A term written twice is a containment source's
+ * form alone, so it is planted in a key over the side, which reads each term once.
+ */
 const sideProbe = (d: Drawing, base: Base): Probe => {
 	const r = d.from(ordinaryOf(base))
 	const terms = Arr.map(d.some(r.fields), (f) => f.name)
@@ -3278,14 +3338,19 @@ const sideProbe = (d: Drawing, base: Base): Probe => {
 				: fault === "undeclaredSideTerm"
 					? [...terms, "nope"]
 					: terms
+	const keyed = fault === "repeatedSideTerm"
 	return {
 		construct: "sideProbe",
 		refused: fault,
-		text: (ids) =>
-			oneLine(
-				`Sc.on(${ids(r.name)}${Arr.isReadonlyArrayNonEmpty(written) ? `, ${quoted(written)}` : ""})`
-			),
-		judge: (env) => building(() => onBuilder(got(env.relations, r.name), written))
+		text: (ids) => {
+			const side = `Sc.on(${ids(r.name)}${Arr.isReadonlyArrayNonEmpty(written) ? `, ${quoted(written)}` : ""})`
+			return oneLine(keyed ? `Sc.key(${side})` : side)
+		},
+		judge: (env) =>
+			building(() => {
+				const side = onBuilder(got(env.relations, r.name), written)
+				return keyed ? keyBuilder(side) : side
+			})
 	}
 }
 
@@ -5223,11 +5288,37 @@ const wholeEntries = (base: Base): ReadonlyArray<string> => [
 	...(base.derived === undefined ? [] : [base.derived.name])
 ]
 /** A term of a law side as a side's tuple type writes it: a field's name, or pred of a natural field. */
-const termType = (t: TermDesc): string =>
-	t.kind === "field" ? jsonText(t.field) : `St.Pred<${jsonText(t.field)}>`
+const termType = (t: SourceTermDesc): string => {
+	switch (t.kind) {
+		case "field":
+			return jsonText(t.field)
+		case "pred":
+			return `St.Pred<${jsonText(t.field)}>`
+		case "constant":
+			return `St.Constant<${constantType(t.value)}>`
+	}
+}
+
+/**
+ * A constant's literal as the type constant(v) infers for it: a text, a number, a bigint or a boolean as its literal
+ * type, the only literals the population draws as constants.
+ */
+const constantType = (value: LiteralDesc): string => {
+	switch (typeof value) {
+		case "string":
+			return jsonText(value)
+		case "bigint":
+			return `${value}n`
+		case "number":
+		case "boolean":
+			return `${value}`
+		default:
+			return assert.fail("a constant the population draws: a text, a number, a bigint or a boolean")
+	}
+}
 
 /** A law side as its type: its source, a relation or a selection of one, and its terms in order. */
-const sideType = (side: SideDesc, ids: Ids): string =>
+const sideType = (side: SourceSideDesc, ids: Ids): string =>
 	`St.Side<${side.selection.conjuncts.length === 0 ? `typeof ${ids(side.relation)}` : `St.Selection<typeof ${ids(side.relation)}>`}, readonly [${Arr.join(Arr.map(side.terms, termType), ", ")}]>`
 
 /**
@@ -7017,24 +7108,203 @@ const castProbe = (d: Drawing): Probe => {
 	}
 }
 
+/** The forms a source-term probe writes: valid, each noted, or with one planted fault. */
+type SourceTermForm =
+	| { readonly kind: "valid"; readonly form: "constantSource" | "repeatedSource" }
+	| {
+			readonly kind: "fault"
+			readonly fault:
+				| "constantOnTarget"
+				| "constantMeetsPred"
+				| "constantMeetsSpan"
+				| "constantsOnly"
+				| "constantValue"
+				| "repeatedTarget"
+				| "mirrorsConstant"
+				| "keyConstant"
+	  }
+
+/** A source-term probe's statement as the program writes it, and the type it states of a valid one. */
+interface SourceTermText {
+	readonly line: string
+	readonly type: string | undefined
+}
+
+/** A source-term form's statement over the probe's relations `src` and `tgt`, as the program writes it. */
+const sourceTermText = (form: SourceTermForm, src: string, tgt: string): SourceTermText => {
+	const on = (r: string, terms: string) => `Sc.on(${r}, ${terms})`
+	switch (form.kind === "valid" ? form.form : form.fault) {
+		case "constantSource":
+			return {
+				line: `Sc.contained(${on(src, '"t", Sc.constant(true)')}, ${on(tgt, '"id", "flag"')})`,
+				type: `St.Containment<St.Side<typeof ${src}, readonly ["t", St.Constant<true>]>, St.Side<typeof ${tgt}, readonly ["id", "flag"]>>`
+			}
+		case "repeatedSource":
+			return {
+				line: `Sc.contained(${on(src, '"t", "t"')}, ${on(tgt, '"id", "ref"')})`,
+				type: `St.Containment<St.Side<typeof ${src}, readonly ["t", "t"]>, St.Side<typeof ${tgt}, readonly ["id", "ref"]>>`
+			}
+		case "constantOnTarget":
+			return {
+				line: `Sc.contained(${on(src, '"t", "m"')}, ${on(tgt, '"id", Sc.constant(0n)')})`,
+				type: undefined
+			}
+		case "constantMeetsPred":
+			return {
+				line: `Sc.contained(${on(src, '"t", Sc.constant(0n)')}, ${on(tgt, '"id", Sc.pred("n")')})`,
+				type: undefined
+			}
+		case "constantMeetsSpan":
+			return {
+				line: `Sc.contained(${on(src, '"t", Sc.constant({ start: 0, end: 2 })')}, ${on(tgt, '"id", "during"')})`,
+				type: undefined
+			}
+		case "constantsOnly":
+			return {
+				line: `Sc.contained(${on(src, "Sc.constant(true)")}, ${on(tgt, '"flag"')})`,
+				type: undefined
+			}
+		case "constantValue":
+			return {
+				line: `Sc.contained(${on(src, '"t", Sc.constant(1)')}, ${on(tgt, '"id", "flag"')})`,
+				type: undefined
+			}
+		case "repeatedTarget":
+			return {
+				line: `Sc.contained(${on(src, '"t", "t"')}, ${on(tgt, '"id", "id"')})`,
+				type: undefined
+			}
+		case "mirrorsConstant":
+			return {
+				line: `Sc.mirrors(${on(src, '"t", Sc.constant(true)')}, ${on(tgt, '"id", "flag"')})`,
+				type: undefined
+			}
+		case "keyConstant":
+			return { line: `Sc.key(${on(src, '"t", Sc.constant(true)')})`, type: undefined }
+	}
+}
+
+/** A source-term form's statement over the relations `src` and `tgt`, built through the engine's cores. */
+const sourceTermValue = (form: SourceTermForm, src: AnyRelation, tgt: AnyRelation): unknown => {
+	switch (form.kind === "valid" ? form.form : form.fault) {
+		case "constantSource":
+			return containedBuilder(
+				onBuilder(src, ["t", constantBuilder(true)]),
+				onBuilder(tgt, ["id", "flag"])
+			)
+		case "repeatedSource":
+			return containedBuilder(onBuilder(src, ["t", "t"]), onBuilder(tgt, ["id", "ref"]))
+		case "constantOnTarget":
+			return containedBuilder(
+				onBuilder(src, ["t", "m"]),
+				onBuilder(tgt, ["id", constantBuilder(0n)])
+			)
+		case "constantMeetsPred":
+			return containedBuilder(
+				onBuilder(src, ["t", constantBuilder(0n)]),
+				onBuilder(tgt, ["id", predBuilder("n")])
+			)
+		case "constantMeetsSpan":
+			return containedBuilder(
+				onBuilder(src, ["t", constantBuilder({ start: 0, end: 2 })]),
+				onBuilder(tgt, ["id", "during"])
+			)
+		case "constantsOnly":
+			return containedBuilder(onBuilder(src, [constantBuilder(true)]), onBuilder(tgt, ["flag"]))
+		case "constantValue":
+			return containedBuilder(
+				onBuilder(src, ["t", constantBuilder(1)]),
+				onBuilder(tgt, ["id", "flag"])
+			)
+		case "repeatedTarget":
+			return containedBuilder(onBuilder(src, ["t", "t"]), onBuilder(tgt, ["id", "id"]))
+		case "mirrorsConstant":
+			return mirrorsBuilder(
+				onBuilder(src, ["t", constantBuilder(true)]),
+				onBuilder(tgt, ["id", "flag"])
+			)
+		case "keyConstant":
+			return keyBuilder(onBuilder(src, ["t", constantBuilder(true)]))
+	}
+}
+
+/**
+ * A statement over two relations the probe declares, Src(t, m) and Tgt(id, ref, flag, n, during) keyed by id: a
+ * containment whose source holds a constant meeting a field it is a value of, or reads a field twice; or a planted
+ * fault: a constant on the target, meeting a pred term, a span or a field it is no value of, a source of constants
+ * alone, a target reading a field twice, a constant in a mirrors' side, a key over a side holding a constant. The
+ * engine's builders and its compilation are the oracle.
+ */
+const sourceTermProbe = (d: Drawing): Probe => {
+	const form = d.from<SourceTermForm>([
+		{ kind: "valid", form: "constantSource" },
+		{ kind: "valid", form: "repeatedSource" },
+		{ kind: "fault", fault: "constantOnTarget" },
+		{ kind: "fault", fault: "constantMeetsPred" },
+		{ kind: "fault", fault: "constantMeetsSpan" },
+		{ kind: "fault", fault: "constantsOnly" },
+		{ kind: "fault", fault: "constantValue" },
+		{ kind: "fault", fault: "repeatedTarget" },
+		{ kind: "fault", fault: "mirrorsConstant" },
+		{ kind: "fault", fault: "keyConstant" }
+	])
+	if (form.kind === "valid") {
+		d.note(form.form)
+	}
+	return {
+		construct: "sourceTermProbe",
+		refused: form.kind === "fault" ? form.fault : undefined,
+		text: (_ids, own) => {
+			const src = `${own}_Src`
+			const tgt = `${own}_Tgt`
+			const statement = sourceTermText(form, src, tgt)
+			return {
+				head: [
+					`export const ${tgt} = Sc.relation("Tgt", { id: Fi.uuid, ref: Fi.uuid, flag: Fi.pg.boolean, n: Fi.natural, during: Fi.span(Fi.pg.integer) }, ["id"])`,
+					`export const ${src} = Sc.relation("Src", { t: Fi.uuid, m: Fi.natural }, ["t"])`
+				],
+				line: `export const ${own} = ${statement.line}`,
+				tail:
+					statement.type === undefined
+						? []
+						: [`export type ${own}_type = Expect<Equals<typeof ${own}, ${statement.type}>>`]
+			}
+		},
+		judge: () =>
+			compiling(() => {
+				const tgt = relation(
+					"Tgt",
+					{
+						id: uuidDescriptor,
+						ref: uuidDescriptor,
+						flag: pgDescriptors.boolean,
+						n: naturalDescriptor,
+						during: spanDescriptor(pgDescriptors.integer)
+					},
+					["id"],
+					[]
+				)
+				const src = relation("Src", { t: uuidDescriptor, m: naturalDescriptor }, ["t"], [])
+				return schema("P", { Src: src, Tgt: tgt }, [sourceTermValue(form, src, tgt)], [])
+			})
+	}
+}
+
 /** How a slot side probe writes its side, valid or with one planted fault. */
 type SlotSideForm =
 	| { readonly fault: undefined; readonly side: LawSide }
 	| {
-			readonly fault:
-				| "predNotNatural"
-				| "predUndeclared"
-				| "repeatedSideTerm"
-				| "selectedUndeclared"
+			readonly fault: "predNotNatural" | "predUndeclared" | "selectedUndeclared"
 			readonly side: LawSide
 	  }
 	| { readonly fault: "predClosed" | "keyOverClosed"; readonly roster: string }
 	| { readonly fault: "predOfPred" }
 
 /**
- * A side over the slots pack's Parent: field and pred terms over the relation or a selection of it; or a planted fault:
- * pred of a field that is no natural or no field, pred of a closed relation's id, pred of a pred, a pred term twice, a
- * selected side's stranger term, a key over a closed relation's side. The engine's side, pred and key cores and its
+ * A side over the slots pack's Parent: field and pred terms over the relation or a selection of it, a pred term twice
+ * among them, which on() admits as a containment source's form; or a planted fault: pred of a field that is no natural
+ * or no field, pred of a closed relation's id, pred of a pred, a selected side's stranger term, a key over a closed
+ * relation's side. The engine's side, pred and key cores and its
  * compilation are the oracle.
  */
 const slotSideProbe = (d: Drawing, base: Base): Probe | undefined => {
@@ -7072,7 +7342,7 @@ const slotSideProbe = (d: Drawing, base: Base): Probe | undefined => {
 		[
 			"predTwice",
 			{
-				fault: "repeatedSideTerm",
+				fault: undefined,
 				side: parent(undefined, [predTerm("children"), predTerm("children")])
 			}
 		],
@@ -7099,7 +7369,6 @@ const slotSideProbe = (d: Drawing, base: Base): Probe | undefined => {
 					}
 				case "predNotNatural":
 				case "predUndeclared":
-				case "repeatedSideTerm":
 				case "selectedUndeclared":
 					return oneLine(`export const ${own} = ${lawSideSource(form.side, ids)}`)
 				case "predClosed":
@@ -7117,7 +7386,6 @@ const slotSideProbe = (d: Drawing, base: Base): Probe | undefined => {
 				case undefined:
 				case "predNotNatural":
 				case "predUndeclared":
-				case "repeatedSideTerm":
 				case "selectedUndeclared":
 					return building(() => lawSideValue(form.side, env.relations))
 				case "predClosed":
@@ -7230,7 +7498,8 @@ const probeMakers: ReadonlyArray<
 	["ruleProbe", ruleProbe],
 	["slotKeyProbe", (d) => slotKeyProbe(d)],
 	["slotSideProbe", slotSideProbe],
-	["slotContainmentProbe", slotContainmentProbe]
+	["slotContainmentProbe", slotContainmentProbe],
+	["sourceTermProbe", (d) => sourceTermProbe(d)]
 ]
 
 /** A drawn case: its base, its probes, and the constructs its drawing reached. */

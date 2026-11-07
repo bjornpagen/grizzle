@@ -4,6 +4,7 @@ import type {
 	ResolvedSelection,
 	ResolvedSelector,
 	ResolvedSide,
+	ResolvedSourceSide,
 	ResolvedTerm,
 	TheoryLaw
 } from "#compiler/analysis/theory/laws.ts"
@@ -80,7 +81,8 @@ const unrepresentable = (
 /**
  * A column a law adds to its relation, as planned (ir/law.ts LawColumn), its name and expressions still to settle:
  *
- * - a constant a selected target fixes on its source `relation`, the value of the target's `field`;
+ * - a constant on a containment's source `relation`, a value of the target's `field`: one a selected target fixes, or a
+ *   constant term of the source meeting that field;
  * - a term of a side of `relation` under the side's selection, a pred term or any term of a selected side, generated
  *   from the row;
  * - a drawn column of a family (`Drawn`), a plain column the host writes and the family's foreign keys and CHECKs
@@ -93,7 +95,8 @@ export type LawColumnPlan =
 	| {
 			readonly kind: "constant"
 			readonly relation: RelationInfo
-			readonly target: RelationInfo
+			/** The relation whose field it meets: an ordinary relation, or a closed relation a ClosedCheck reads. */
+			readonly target: TheoryRelation
 			readonly field: LawField
 			readonly value: TypedLiteral
 	  }
@@ -359,7 +362,7 @@ const plannedGist = (
 }
 
 /** A side as a refusal names it: its terms over its relation, selected or whole. */
-const sideText = (side: ResolvedSide): string =>
+const sideText = (side: ResolvedSourceSide): string =>
 	`${side.selection.conjuncts.length === 0 ? "" : "selected "}${side.relation}(${side.terms.map(termText).join(", ")})`
 
 /** A law column as a planned native reads it. */
@@ -514,6 +517,53 @@ const dependencies = (column: LawColumnPlan): ReadonlyArray<NativePlan> =>
 const sideColumns = (side: ResolvedSide): NonEmptyReadonlyArray<PlannedColumn> =>
 	mapNonEmpty(side.terms, (term) => termColumn(tableOf(side.rel), term, side.selection))
 
+/**
+ * The columns a containment's source lowers to, one per term in its order (sideColumns): a constant is the constant law
+ * column of the target field it meets, `target`'s, generated as its literal under no guard, since the source reads at
+ * least one other term, whose column is null wherever the side reads no tuple; a term read twice is its one column,
+ * listed at each of its positions, which a foreign key's referencing columns may repeat.
+ */
+const sourceColumns = (
+	side: ResolvedSourceSide,
+	target: TheoryRelation
+): NonEmptyReadonlyArray<PlannedColumn> => {
+	const relation = tableOf(side.rel)
+	return mapNonEmpty(side.terms, (term) =>
+		term.kind === "constant"
+			? lawColumn({
+					kind: "constant",
+					relation,
+					target,
+					field: term.meets,
+					value: term.literal
+				})
+			: termColumn(relation, term, side.selection)
+	)
+}
+
+/**
+ * The columns of a containment's source a reverse probe binds, each once, in their order: every column but a constant's,
+ * which narrows no lookup. None for a source of constants alone, which ownership refuses.
+ */
+const probedColumns = (
+	side: ResolvedSourceSide,
+	terms: ReadonlyArray<ResolvedSourceSide["terms"][number]>
+): ReadonlyArray<PlannedColumn> => {
+	const relation = tableOf(side.rel)
+	const seen = new Set<string>()
+	return terms.flatMap((t) => {
+		if (t.kind === "constant") {
+			return []
+		}
+		const key = `${t.kind} ${t.field}`
+		if (seen.has(key)) {
+			return []
+		}
+		seen.add(key)
+		return [termColumn(relation, t, side.selection)]
+	})
+}
+
 /** One term of a side over `relation` under `selection` as a column (`sideColumns`). */
 const termColumn = (
 	relation: RelationInfo,
@@ -619,6 +669,51 @@ const fieldsOf = (
 				`${what} over fields; ${side.relation}(${side.terms.map(termText).join(", ")}) has a pred term`
 			)
 		: mapNonEmpty(fields, (t) => t.column)
+}
+
+/** A column of a containment's source a ClosedCheck reads: its column, the type it holds, and its name in a refusal. */
+interface ClosedSource {
+	readonly column: PlannedColumn
+	readonly type: ScalarType
+	readonly name: string
+}
+
+/**
+ * The columns of a containment's source into the closed relation `target`, one per pair: a field term its field, a
+ * constant the constant law column of the target field it meets, of that field's type; or the refusal of `what` over a
+ * source with a pred term, which a ClosedCheck reads as fields alone.
+ */
+const closedSources = (
+	side: ResolvedSourceSide,
+	target: ClosedTheoryRelation,
+	loc: SourceLoc,
+	what: string
+): NonEmptyReadonlyArray<ClosedSource> => {
+	const relation = tableOf(side.rel)
+	return mapNonEmpty(side.terms, (t): ClosedSource => {
+		switch (t.kind) {
+			case "field":
+				return { column: fieldColumn(t.column), type: t.column.type, name: t.column.name }
+			case "constant":
+				return {
+					column: lawColumn({
+						kind: "constant",
+						relation,
+						target,
+						field: t.meets,
+						value: t.literal
+					}),
+					type: t.meets.type,
+					name: termText(t)
+				}
+			case "pred":
+				return refuse(
+					"UnsupportedLawFamily",
+					loc,
+					`${what} over fields; ${side.relation}(${side.terms.map(termText).join(", ")}) has a pred term`
+				)
+		}
+	})
 }
 
 /** A side's selectors, or the refusal of `what` over a side with a conjunct that fixes no field. */
@@ -1103,11 +1198,13 @@ export class Recognizer {
 		loc: SourceLoc
 	): ReadonlyArray<NativePlan> {
 		const what = "a containment into a closed relation"
-		const fromFields = fieldsOf(d.from, loc, what)
+		const sources = closedSources(d.from, toRel, loc, what)
 		const toFields = fieldsOf(d.to, loc, what)
 		const toSelection = literalsOf(d.to, loc, what)
 		const [only, ...more] = d.pairs
-		const roster = rosterOf(baseOf(only.from.column.type))
+		const roster = rosterOf(
+			baseOf(only.kind === "terms" ? only.from.column.type : only.from.meets.type)
+		)
 		if (
 			more.length === 0 &&
 			only.to.column.name === "id" &&
@@ -1125,9 +1222,9 @@ export class Recognizer {
 			rows,
 			literalKey
 		)
-		/** The source field each target field meets, by the containment's pairs. */
-		const sourceOf = (target: LawField): LawField =>
-			fromFields[toFields.indexOf(target)] ??
+		/** The source column each target field meets, by the containment's pairs. */
+		const sourceOf = (target: LawField): ClosedSource =>
+			sources[toFields.indexOf(target)] ??
 			refuse("MalformedDescription", loc, `${what} pairing every field of ${d.to.relation}`)
 		const targetField = (name: string): LawField =>
 			toFields.find((f) => f.name === name) ??
@@ -1150,13 +1247,14 @@ export class Recognizer {
 					`${what} whose key fields each meet a field of their roster's type; ${d.from.relation}.${source.name} is no closed id of ${targetRoster.closed}`
 				)
 			}
-			return { source: fieldColumn(source), target }
+			return { source: source.column, target }
 		})
 		const payloadPairs = side.payload.map((name) => {
 			const target = targetField(name)
-			return { source: fieldColumn(sourceOf(target)), target }
+			return { source: sourceOf(target).column, target }
 		})
 		return [
+			...lawColumns(sources.map((s) => s.column)),
 			{
 				kind: "ClosedCheck",
 				relation: fromRel,
@@ -1180,18 +1278,16 @@ export class Recognizer {
 	 * source, which the index leaves out: a constant narrows no lookup.
 	 */
 	#scalarContainment(
-		from: ResolvedSide,
+		from: ResolvedSourceSide,
 		to: ResolvedSide,
 		loc: SourceLoc
 	): ReadonlyArray<NativePlan> {
 		const fromRel = tableOf(from.rel)
 		const toRel = tableOf(to.rel)
-		const sourceColumns = sideColumns(from)
 		const constant = this.#constantTarget(to, fromRel)
+		const sourced = sourceColumns(from, to.rel)
 		const columns: NonEmptyReadonlyArray<PlannedColumn> =
-			constant === undefined
-				? sourceColumns
-				: extendNonEmpty(sourceColumns, constant.tags.map(lawColumn))
+			constant === undefined ? sourced : extendNonEmpty(sourced, constant.tags.map(lawColumn))
 		const targetColumns = constant === undefined ? sideColumns(to) : constant.columns
 		if (constant === undefined && !this.#targetKeyed(to)) {
 			return refuse(
@@ -1215,16 +1311,34 @@ export class Recognizer {
 				deferral: "rule",
 				laws: undefined
 			},
-			{
-				kind: "ReverseIndex",
-				relation: fromRel,
-				...plannedReverse(
-					sourceColumns,
-					`the index of ${fromRel.name} over the columns ${containment} references from`,
-					loc
-				)
-			}
+			...this.#reverseIndex(fromRel, probedColumns(from, from.terms), containment, loc)
 		]
+	}
+
+	/**
+	 * The index over a containment's referencing columns its reverse probe reads (plannedReverse): over the source's
+	 * columns that read its row, each once; none where it reads none.
+	 */
+	#reverseIndex(
+		fromRel: RelationInfo,
+		probed: ReadonlyArray<PlannedColumn>,
+		containment: string,
+		loc: SourceLoc
+	): ReadonlyArray<NativePlan> {
+		const [first, ...rest] = probed
+		return first === undefined
+			? []
+			: [
+					{
+						kind: "ReverseIndex",
+						relation: fromRel,
+						...plannedReverse(
+							[first, ...rest],
+							`the index of ${fromRel.name} over the columns ${containment} references from`,
+							loc
+						)
+					}
+				]
 	}
 
 	/**
@@ -1345,11 +1459,11 @@ export class Recognizer {
 				"a coverage law whose span pair is one of its pairs"
 			)
 		}
-		const sourceColumns = sideColumns(from)
+		const sourced = sourceColumns(from, to.rel)
 		const targetColumns = sideColumns(to)
-		const sourceSpan = sourceColumns[at] ?? missing("a coverage source's span column")
+		const sourceSpan = sourced[at] ?? missing("a coverage source's span column")
 		const targetSpan = targetColumns[at] ?? missing("a coverage target's span column")
-		const sourceScalars = sourceColumns.filter((_, i) => i !== at)
+		const sourceScalars = sourced.filter((_, i) => i !== at)
 		const targetScalars = targetColumns.filter((_, i) => i !== at)
 		if (!isNonEmpty(sourceScalars) || !isNonEmpty(targetScalars)) {
 			return refuse(
@@ -1368,7 +1482,7 @@ export class Recognizer {
 			return refuse("UnsupportedLawFamily", loc, coverageKeySentence)
 		}
 		return [
-			...lawColumns(sourceColumns),
+			...lawColumns(sourced),
 			...lawColumns(targetColumns),
 			{
 				kind: "PeriodForeignKey",
@@ -1383,7 +1497,10 @@ export class Recognizer {
 				kind: "ReverseIndex",
 				relation: fromRel,
 				...plannedPeriodReverse(
-					sourceScalars,
+					probedColumns(
+						from,
+						from.terms.filter((_, i) => i !== at)
+					),
 					sourceSpan,
 					`the index of ${fromRel.name} over the columns the coverage of ${sideText(from)} in ${sideText(to)} references from`,
 					loc

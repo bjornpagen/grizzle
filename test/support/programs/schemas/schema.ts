@@ -7,6 +7,7 @@ export {
 	alternatives,
 	check,
 	closed,
+	constant,
 	contained,
 	counted,
 	derived,

@@ -16,6 +16,7 @@ import {
 	keyBuilder,
 	mirrorsBuilder,
 	monoids,
+	constantBuilder,
 	mutableBuilder,
 	onBuilder,
 	orderedBuilder,
@@ -68,12 +69,13 @@ import type {
 	AnyFamily,
 	AnyFin,
 	AnyMonoid,
-	AnySide,
+	AnySourceSide,
 	ArmsApartFromParent,
 	ArmsCompatible,
 	ArmsOfRoster,
 	AtLeastOneArm,
 	Check,
+	Constant,
 	Containment,
 	Counted,
 	CountedMember,
@@ -87,15 +89,18 @@ import type {
 	Key,
 	KeyRef,
 	MemberRelationOf,
+	MirroredTerms,
 	Mirrors,
 	Monoid as MonoidOf,
 	Mutable,
+	NoConstant,
 	NoSetKey,
 	Ordered,
 	OrderedMember,
 	OwnerRelationOf,
 	KeyShows,
 	Pred,
+	ReadsAField,
 	RowScalars,
 	Selection,
 	SelfFamily,
@@ -107,8 +112,8 @@ import type {
 	SideHosts,
 	SideShows,
 	SideShowsKeyed,
-	SidesCompatible,
 	Statement,
+	TargetTerms,
 	TermOf,
 	Tree,
 	TreeRootOf
@@ -304,7 +309,7 @@ export const schema: typeof rootSchema & { readonly extend: typeof extend } = Ob
  * by its handle and a closed relation by its declared key, so no side of either is keyed.
  */
 export const key = <S extends Side<AnyRelation | Selection<AnyRelation>>, N extends string, C>(
-	side: S & SideShows<N, C> & NoSetKey<C, S["terms"]>
+	side: S & SideShows<N, C> & NoSetKey<C, S["terms"]> & DistinctTerms<S["terms"]>
 ): Key<S> => keyBuilder<S>(side)
 
 /**
@@ -326,15 +331,17 @@ export const check = <
 ): Check<Name, R> => checkBuilder<Name, R>(name, target, predicate)
 
 /**
- * A side reads at least one term of its source, each once (ir/desc.ts SideDesc): a field, or pred of a natural field,
- * whose fact has no tuple on the side where the field is zero.
+ * A side reads at least one term of its source, in order (ir/desc.ts SideDesc): a field, or pred of a natural field,
+ * whose fact has no tuple on the side where the field is zero. A containment's source side may also read a term more
+ * than once and hold constants (ir/desc.ts SourceSideDesc); every other side reads each term once and holds none, which
+ * the statement that reads it holds it to.
  */
 export const on = <
 	R extends AnyRelation | AnyClosed | Selection<AnyRelation | AnyClosed>,
-	const T extends readonly [TermOf<R>, ...TermOf<R>[]]
+	const T extends readonly [TermOf<R> | Constant<unknown>, ...(TermOf<R> | Constant<unknown>)[]]
 >(
 	source: R,
-	...terms: T & DistinctTerms<T>
+	...terms: T
 ): Side<R, readonly [...T]> => {
 	const list: T = terms
 	return onBuilder<R, T>(source, list)
@@ -342,6 +349,13 @@ export const on = <
 
 /** pred(field): a natural field's value less one, defined only above zero; on(...) takes it as a term. */
 export const pred = <const F extends string>(field: F): Pred<F> => predBuilder<F>(field)
+
+/**
+ * constant(v): a term of a containment's source side, v on every fact. It meets a scalar field of the target, whose
+ * value v is, typed by it as a literal compared with that field is, and selects the target facts whose field holds v:
+ * `contained(on(A, "id", constant("x")), on(B, "id", "kind"))` holds where every A's id is a B of kind "x".
+ */
+export const constant = <const V>(value: V): Constant<V> => constantBuilder<V>(value)
 
 /**
  * select(R, (row) => predicate): the facts of R a row predicate over their own fields holds of, in the row-check
@@ -357,33 +371,37 @@ export const select = <
 	predicate: (row: RowScalars<Shows<N, C>>) => Pr & Parameterless<Pr>
 ): Selection<R> => selectBuilder<R>(target, predicate)
 
+/**
+ * contained(source, target): every tuple of the source side is one of the target side's. The source may hold
+ * constants, each meeting a scalar field of the target it is a value of, and read a term more than once, each
+ * occurrence meeting its own target term; the target reads each term once and holds no constant.
+ */
 export const contained = <
-	L extends AnySide,
-	R extends AnySide,
+	L extends AnySourceSide,
+	R extends AnySourceSide,
 	NL extends string,
 	CL,
 	NR extends string,
 	CR
 >(
-	left: L & SideShows<NL, CL>,
-	right: R &
-		SideShows<NR, CR> &
-		SidesCompatible<SideHosts<CL, L["terms"]>, SideHosts<CR, R["terms"]>>
+	left: L & SideShows<NL, CL> & ReadsAField<L["terms"]>,
+	right: R & SideShows<NR, CR> & TargetTerms<CL, L["terms"], CR, R["terms"]>
 ): Containment<L, R> => containedBuilder<L, R>(left, right)
 
-/** mirrors(a, b): sugar for contained(a, b) and contained(b, a), which the schema states in its place. */
+/**
+ * mirrors(a, b): sugar for contained(a, b) and contained(b, a), which the schema states in its place. Each side is the
+ * other's target once, so neither holds a constant or reads a term twice.
+ */
 export const mirrors = <
-	L extends AnySide,
-	R extends AnySide,
+	L extends AnySourceSide,
+	R extends AnySourceSide,
 	NL extends string,
 	CL,
 	NR extends string,
 	CR
 >(
-	left: L & SideShows<NL, CL>,
-	right: R &
-		SideShows<NR, CR> &
-		SidesCompatible<SideHosts<CL, L["terms"]>, SideHosts<CR, R["terms"]>>
+	left: L & SideShows<NL, CL> & NoConstant<L["terms"]> & DistinctTerms<L["terms"]>,
+	right: R & SideShows<NR, CR> & MirroredTerms<CL, L["terms"], CR, R["terms"]>
 ): Mirrors<L, R> => mirrorsBuilder<L, R>(left, right)
 
 export const alternatives = <
@@ -434,7 +452,7 @@ export const ordered = <
 	OC,
 	OK extends ReadonlyArray<string>
 >(
-	family: F & SideShows<N, C> & OrderedMember<C, F["terms"], OC, OK>,
+	family: F & SideShows<N, C> & DistinctTerms<F["terms"]> & OrderedMember<C, F["terms"], OC, OK>,
 	slots: Fi & FinShows<ON, OC, OK>
 ): Ordered<F, Fi> => orderedBuilder<F, Fi>(family, slots)
 
@@ -448,7 +466,7 @@ export const counted = <
 	OC,
 	OK extends ReadonlyArray<string>
 >(
-	family: F & SideShows<N, C> & CountedMember<C, F["terms"], OC, OK>,
+	family: F & SideShows<N, C> & DistinctTerms<F["terms"]> & CountedMember<C, F["terms"], OC, OK>,
 	slots: Fi & FinShows<ON, OC, OK>
 ): Counted<F, Fi> => countedBuilder<F, Fi>(family, slots)
 
@@ -467,6 +485,7 @@ export const tree = <
 >(
 	family: F &
 		SideShowsKeyed<N, C, K> &
+		DistinctTerms<F["terms"]> &
 		(
 			| Side<Fi["owner"]>
 			| Refusal<"a tree is a family of T over itself, on(T, parent, at), with drawn start and end">
@@ -498,6 +517,7 @@ export const fold = <
 	monoid: M,
 	step: S &
 		SideShows<SN, SC> &
+		DistinctTerms<S["terms"]> &
 		(
 			| Side<MemberRelationOf<Fa> | Selection<MemberRelationOf<Fa>>>
 			| Refusal<"a fold's step is its family's member: its group, its value, then an accumulated pair per plane">
@@ -505,6 +525,7 @@ export const fold = <
 		FoldStep<Fa, M, SC, S["terms"]>,
 	end: E &
 		SideShowsKeyed<EN, EC, EK> &
+		DistinctTerms<E["terms"]> &
 		(
 			| Side<OwnerRelationOf<Fa>>
 			| Refusal<"a fold's end names one accumulated field of the owner per plane">

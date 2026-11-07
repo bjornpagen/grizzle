@@ -44,9 +44,11 @@ import {
 } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import {
+	type ConstantTermDesc,
 	connectiveExpr,
 	type ExprDesc,
 	expandAlternatives,
+	type FieldTermDesc,
 	type LiteralDesc,
 	type MonoidName,
 	type SelectionDesc,
@@ -81,6 +83,7 @@ import {
 	spanOf
 } from "#compiler/ir/scalar.ts"
 import { countOverload, unaryOverload } from "#compiler/scalar/aggregate.ts"
+import { admitLiteral } from "#compiler/scalar/compute/evaluate.ts"
 import { irLiteral } from "#compiler/scalar/compute/literal.ts"
 import {
 	type LowerEnv,
@@ -161,7 +164,7 @@ export type LawDetail =
 	  }
 	| {
 			readonly kind: "containment"
-			readonly from: ResolvedSide
+			readonly from: ResolvedSourceSide
 			readonly to: ResolvedSide
 			readonly pairs: NonEmptyReadonlyArray<ResolvedPair>
 			readonly pairing: ContainmentPairing
@@ -181,20 +184,34 @@ export type LawDetail =
 			readonly end: ResolvedSide
 	  }
 
-/** A containment's source term with the target term it meets. */
-export interface ContainmentPair {
-	readonly from: TermDesc
-	readonly to: TermDesc
-}
+/**
+ * A containment's source term with the target term it meets: two terms, or a constant of the source and the field term
+ * of the target it meets (schema/own.ts SidePair).
+ */
+export type ContainmentPair =
+	| { readonly kind: "terms"; readonly from: TermDesc; readonly to: TermDesc }
+	| { readonly kind: "constant"; readonly from: ConstantTermDesc; readonly to: FieldTermDesc }
 
 /** A term of a declared side, the handle of its field resolved: the field's own value, or its pred. */
 export type ResolvedTerm = TermDesc & { readonly column: LawField }
 
-/** A containment pair with its two terms resolved. */
-interface ResolvedPair {
-	readonly from: ResolvedTerm
-	readonly to: ResolvedTerm
+/**
+ * A constant of a containment's source, resolved: its literal typed at the target field it meets, `meets`, as a literal
+ * compared with that field is (admitLiteral: its base, its contract's predicate and its patterns). It reads no field of
+ * the source.
+ */
+export type ResolvedConstant = ConstantTermDesc & {
+	readonly literal: TypedLiteral
+	readonly meets: LawField
 }
+
+/** A term of a containment's source side, resolved: a term, or a constant. */
+export type ResolvedSourceTerm = ResolvedTerm | ResolvedConstant
+
+/** A containment pair with its two terms resolved: two terms, or a constant and the field term it meets. */
+export type ResolvedPair =
+	| { readonly kind: "terms"; readonly from: ResolvedTerm; readonly to: ResolvedTerm }
+	| { readonly kind: "constant"; readonly from: ResolvedConstant; readonly to: ResolvedTerm }
 
 /** A selector of a declared side, with the handle of the field it selects. */
 export interface ResolvedSelector extends Selector {
@@ -248,11 +265,39 @@ export const selectorsOf = (selection: FixedSelection): ReadonlyArray<ResolvedSe
  * law's identity reads; the resolved members are what its consumers read.
  */
 export interface ResolvedSide<
-	S extends ResolvedSelection = ResolvedSelection
-> extends DeclaredSide {
+	S extends ResolvedSelection = ResolvedSelection,
+	T extends ResolvedSourceTerm = ResolvedTerm
+> extends DeclaredSide<T> {
 	readonly rel: TheoryRelation
-	readonly terms: NonEmptyReadonlyArray<ResolvedTerm>
 	readonly selection: S
+}
+
+/**
+ * A containment's source side resolved: its terms may hold constants and read a term more than once, each occurrence
+ * paired with its own target term.
+ */
+export type ResolvedSourceSide = ResolvedSide<ResolvedSelection, ResolvedSourceTerm>
+
+/** The terms of a source side that read its facts: every term but a constant, each occurrence of a repeated one. */
+export const readingTerms = (side: ResolvedSourceSide): ReadonlyArray<ResolvedTerm> =>
+	side.terms.flatMap((t) => (t.kind === "constant" ? [] : [t]))
+
+/** A containment's pair of two terms. */
+export type TermsPair = Extract<ResolvedPair, { readonly kind: "terms" }>
+type TermsPairs = NonEmptyReadonlyArray<TermsPair>
+
+/**
+ * A containment's pairs when its source is plain, no constant and each term once: the one form a family axis carries
+ * and evidence reads. Undefined for any other.
+ */
+export const plainPairs = (pairs: NonEmptyReadonlyArray<ResolvedPair>): TermsPairs | undefined => {
+	const terms = pairs.filter((p): p is TermsPair => p.kind === "terms")
+	const [first, ...rest] = terms
+	return first !== undefined &&
+		terms.length === pairs.length &&
+		new Set(terms.map((p) => `${p.from.kind} ${p.from.field}`)).size === terms.length
+		? [first, ...rest]
+		: undefined
 }
 
 /**
@@ -443,7 +488,7 @@ export class KeptLaw {
 
 /** The span pair of a coverage law: the pair, and the handles of its source and target spans. */
 interface SpanPair {
-	readonly pair: ResolvedPair
+	readonly pair: TermsPair
 	readonly from: SpanField
 	readonly to: SpanField
 }
@@ -465,7 +510,14 @@ interface NormalizeEnv {
 const leftToRight = (
 	pairs: NonEmptyReadonlyArray<SidePair>
 ): NonEmptyReadonlyArray<ContainmentPair> =>
-	mapNonEmpty(pairs, (p) => ({ from: p.left, to: p.right }))
+	mapNonEmpty(pairs, (p): ContainmentPair => {
+		switch (p.kind) {
+			case "terms":
+				return { kind: "terms", from: p.left, to: p.right }
+			case "constant":
+				return { kind: "constant", from: p.left, to: p.right }
+		}
+	})
 
 /** Each field as a field term. */
 const termsOfFields = (fields: ReadonlyArray<string>): ReadonlyArray<TermDesc> =>
@@ -504,7 +556,7 @@ const pairedTerms = (
 	right: { readonly relation: string; readonly terms: NonEmptyReadonlyArray<TermDesc> },
 	loc: SourceLoc
 ): NonEmptyReadonlyArray<ContainmentPair> =>
-	mapNonEmpty(left.terms, (from, j) => {
+	mapNonEmpty(left.terms, (from, j): ContainmentPair => {
 		const to = right.terms[j]
 		if (to === undefined || right.terms.length !== left.terms.length) {
 			return refuse(
@@ -513,7 +565,7 @@ const pairedTerms = (
 				`a containment between sides of one width; on(${left.relation}, …) names ${left.terms.length} term(s) and on(${right.relation}, …) ${right.terms.length}`
 			)
 		}
-		return { from, to }
+		return { kind: "terms", from, to }
 	})
 
 /** A field as a field term. */
@@ -681,13 +733,40 @@ export class Normalizer {
 		return { ...t, column: this.#column(r, t.field, loc) }
 	}
 
+	/**
+	 * A constant of a containment's source, typed by the target field it meets as a literal compared with that field is
+	 * (admitLiteral): a value of its base, its contract's predicate and its patterns, or the refusal such a literal
+	 * meets. It meets a scalar field: a span field a containment pairs as coverage, which no constant states.
+	 */
+	#constant(term: ConstantTermDesc, meets: LawField, loc: SourceLoc): ResolvedConstant {
+		if (isSpanField(meets)) {
+			return refuse(
+				"UnsupportedLawFamily",
+				loc,
+				`a constant meeting a scalar field of the target; ${termText(term)} meets the span ${meets.name}, which a containment pairs as coverage`
+			)
+		}
+		const admitted = admitLiteral(term.value, meets.type, {
+			kind: "refinements",
+			patterns: this.env.lowerEnv.patterns
+		})
+		if (!admitted.ok) {
+			return refuse(
+				admitted.error.reason,
+				loc,
+				`${termText(term)} meeting ${meets.name}: ${admitted.error.capability}`
+			)
+		}
+		return { ...term, literal: admitted.value.literal, meets }
+	}
+
 	/** The side of `scope` over `r` with its terms resolved, its selection resolved. */
-	#sideOver(
+	#sideOver<T extends ResolvedSourceTerm>(
 		scope: SideScope,
 		r: TheoryRelation,
-		terms: NonEmptyReadonlyArray<ResolvedTerm>,
+		terms: NonEmptyReadonlyArray<T>,
 		loc: SourceLoc
-	): ResolvedSide {
+	): ResolvedSide<ResolvedSelection, T> {
 		return {
 			relation: scope.relation,
 			rel: r,
@@ -1403,11 +1482,16 @@ export class Normalizer {
 		const loc = tracked
 		const fromRel = this.#relation(from.relation, loc)
 		const toRel = this.#relation(to.relation, loc)
-		const resolved = mapNonEmpty(pairs, (p): ResolvedPair => ({
-			from: this.#term(fromRel, p.from, loc),
-			to: this.#term(toRel, p.to, loc)
-		}))
-		const fromSide = this.#sideOver(
+		const resolved = mapNonEmpty(pairs, (p): ResolvedPair => {
+			const met = this.#term(toRel, p.to, loc)
+			switch (p.kind) {
+				case "terms":
+					return { kind: "terms", from: this.#term(fromRel, p.from, loc), to: met }
+				case "constant":
+					return { kind: "constant", from: this.#constant(p.from, met.column, loc), to: met }
+			}
+		})
+		const fromSide: ResolvedSourceSide = this.#sideOver(
 			from,
 			fromRel,
 			mapNonEmpty(resolved, (p) => p.from),
@@ -1421,9 +1505,11 @@ export class Normalizer {
 		)
 		/**
 		 * The pairing is decided here, once: sides with no span field pair term by term, and sides with one are a
-		 * coverage law.
+		 * coverage law. A constant meets a scalar field (#constant), so no constant is a span.
 		 */
-		const [first, ...more] = resolved.filter((p) => isSpanField(p.from.column))
+		const [first, ...more] = resolved.filter(
+			(p): p is TermsPair => p.kind === "terms" && isSpanField(p.from.column)
+		)
 		if (more.length > 0) {
 			return refuse(
 				"UnsupportedLawFamily",
@@ -1439,8 +1525,18 @@ export class Normalizer {
 			isSpanField(first.to.column)
 				? { pair: first, from: first.from.column, to: first.to.column }
 				: undefined
-		const ride: Ride | undefined =
-			span === undefined ? ridesOf(this.#shapes(), fromSide, toSide, resolved) : undefined
+		/**
+		 * A source of constants or of a term read twice rides no family axis: an owner axis updates its members' columns by
+		 * ON UPDATE CASCADE, which PostgreSQL refuses over a generated column and cannot assign to one column twice. It
+		 * keeps its own foreign key.
+		 */
+		const plain = span === undefined ? plainPairs(resolved) : undefined
+		const riding = ((): { readonly ride: Ride; readonly pairs: TermsPairs } | undefined => {
+			const ride =
+				plain === undefined ? undefined : ridesOf(this.#shapes(), fromSide, toSide, plain)
+			return ride === undefined || plain === undefined ? undefined : { ride, pairs: plain }
+		})()
+		const ride = riding?.ride
 		const entry = ride === undefined ? undefined : this.#entry(ride.family, loc)
 		const pins = ride === undefined || entry === undefined ? [] : ridingPins(entry.shape, ride)
 		const width = resolved.length - (ride?.carried.length ?? 0)
@@ -1450,7 +1546,7 @@ export class Normalizer {
 			}
 			const own = containmentViolation(b, this.env, fromSide, toSide, resolved, loc)
 			const [lead, ...rest] = own.heading.slice(0, width)
-			if (!isNonEmpty(pins) || lead === undefined) {
+			if (!isNonEmpty(pins) || lead === undefined || riding === undefined) {
 				return own
 			}
 			/** A pinned copy's law names its axis's group: the key a base row and a source tuple both hold. */
@@ -1458,7 +1554,8 @@ export class Normalizer {
 			const group = mapNonEmpty(
 				witness,
 				(_, j) =>
-					defined(resolved[j], "a containment's witness reads its pairs' first columns").from.column
+					defined(riding.pairs[j], "a containment's witness reads its pairs' first columns").from
+						.column
 			)
 			return b.union([
 				witnessed(b, own, witness),
@@ -1492,9 +1589,9 @@ export class Normalizer {
 			(kept) => {
 				const display = `the containment ${kept.named.display}`
 				if (ride === undefined || entry === undefined) {
-					for (const p of resolved) {
-						if (p.from.kind === "field" && p.from.column.writing.kind === "accumulated") {
-							this.#namings.unridden(fromRel.name, p.from.column.name, display)
+					for (const t of readingTerms(fromSide)) {
+						if (t.kind === "field" && t.column.writing.kind === "accumulated") {
+							this.#namings.unridden(fromRel.name, t.column.name, display)
 						}
 					}
 					return
@@ -1880,46 +1977,67 @@ const lowerTermTotal = (
 const sideRows = (
 	b: ViolationBuilder,
 	env: NormalizeEnv,
-	side: ResolvedSide,
-	terms: NonEmptyReadonlyArray<ResolvedTerm>,
+	side: ResolvedSide<ResolvedSelection, ResolvedSourceTerm>,
+	terms: NonEmptyReadonlyArray<ResolvedSourceTerm>,
 	loc: SourceLoc
 ): { readonly rows: RelNode; readonly values: NonEmptyReadonlyArray<ScalarExpr> } => {
 	const r = side.rel
 	const conjuncts = side.selection.conjuncts
 	const general = conjuncts.flatMap((c) => (c.kind === "general" ? [c] : []))
+	const reading = terms.flatMap((t) => (t.kind === "constant" ? [] : [t]))
 	const region = b.scan(
 		r,
-		[...terms.map((t) => t.column), ...general.flatMap((c) => c.reads)],
+		[...reading.map((t) => t.column), ...general.flatMap((c) => c.reads)],
 		conjuncts.flatMap((c) => (c.kind === "fixed" ? [c.selector] : []))
 	)
-	const guarded = mapNonEmpty(terms, guardedTerm)
 	const leaf = rowLeaf(r, region)
 	const guards = [
 		...general.map((c) => lowerTotal(b, env, c.predicate, loc, leaf)),
-		...guarded.flatMap((t) => t.guard.map((g) => lowerTotal(b, env, g, loc, leaf)))
+		...reading.flatMap((t) => guardedTerm(t).guard.map((g) => lowerTotal(b, env, g, loc, leaf)))
 	]
 	const rows = isNonEmpty(guards) ? b.filter(region, b.connective("and", guards)) : region
 	return {
 		rows,
-		values: mapNonEmpty(guarded, (t) => lowerTermTotal(b, env, t.term, loc, rowLeaf(r, rows)))
+		values: mapNonEmpty(terms, (t) =>
+			t.kind === "constant"
+				? b.typed(t.literal, t.meets.type)
+				: lowerTermTotal(b, env, guardedTerm(t).term, loc, rowLeaf(r, rows))
+		)
 	}
 }
 
 /**
- * Each pair's met column, its source term naming its left column and `right` its target's, at the type its two terms'
- * values meet as: a field's own, pred's difference the Compute lowering's.
+ * Each pair's source column name: its term's text, but a constant's, and a term's read a second time, suffixed by the
+ * pair's position, so the source projection names each of its columns once.
+ */
+const sourceNames = (pairs: NonEmptyReadonlyArray<ResolvedPair>): NonEmptyReadonlyArray<string> => {
+	const seen = new Set<string>()
+	return mapNonEmpty(pairs, (pair, i) => {
+		const text = termText(pair.from)
+		const name = pair.kind === "constant" || seen.has(text) ? `${text}#${i}` : text
+		seen.add(text)
+		return name
+	})
+}
+
+/**
+ * Each pair's met column, its source naming its left column (sourceNames) and `right` its target's, at the type its two
+ * terms' values meet as: a field's own, pred's difference the Compute lowering's, a constant's the field it meets.
  */
 const pairsMet = (
 	pairs: NonEmptyReadonlyArray<ResolvedPair>,
 	from: NonEmptyReadonlyArray<ScalarExpr>,
 	to: NonEmptyReadonlyArray<ScalarExpr>,
-	right: (pair: ResolvedPair) => string
-): NonEmptyReadonlyArray<Met> =>
-	mapNonEmpty(pairs, (pair, i) => {
+	right: (pair: ResolvedPair, source: string) => string
+): NonEmptyReadonlyArray<Met> => {
+	const names = sourceNames(pairs)
+	return mapNonEmpty(pairs, (pair, i) => {
 		const left = defined(from[i], "a side's rows hold one value per pair")
 		const target = defined(to[i], "a side's rows hold one value per pair")
-		return metColumn(meetType(left.type, target.type), termText(pair.from), right(pair))
+		const name = defined(names[i], "a pair has its source name")
+		return metColumn(meetType(left.type, target.type), name, right(pair, name))
 	})
+}
 
 /** Rows projected onto columns, each value read at its column's type. */
 const projected = (
@@ -1943,7 +2061,7 @@ const projected = (
 const containmentViolation = (
 	b: ViolationBuilder,
 	env: NormalizeEnv,
-	from: ResolvedSide,
+	from: ResolvedSourceSide,
 	to: ResolvedSide,
 	pairs: NonEmptyReadonlyArray<ResolvedPair>,
 	loc: SourceLoc
@@ -1989,7 +2107,7 @@ const containmentViolation = (
 const coverageViolation = (
 	b: ViolationBuilder,
 	env: NormalizeEnv,
-	from: ResolvedSide,
+	from: ResolvedSourceSide,
 	to: ResolvedSide,
 	pairs: NonEmptyReadonlyArray<ResolvedPair>,
 	spanPair: SpanPair,
@@ -2009,7 +2127,7 @@ const coverageViolation = (
 		mapNonEmpty(pairs, (p) => p.to),
 		loc
 	)
-	const met = pairsMet(pairs, source.values, target.values, (p) => termText(p.from))
+	const met = pairsMet(pairs, source.values, target.values, (_, name) => name)
 	const paired = mapNonEmpty(pairs, (pair, i) => ({
 		pair,
 		met: defined(met[i], "a coverage law meets each of its pairs")
@@ -2150,7 +2268,8 @@ const witnessed = (
 
 /** Two sides' terms paired by position: a lemma's sides are of one width. */
 const zipped = (from: ResolvedSide, to: ResolvedSide): NonEmptyReadonlyArray<ResolvedPair> =>
-	mapNonEmpty(from.terms, (t, j) => ({
+	mapNonEmpty(from.terms, (t, j): ResolvedPair => ({
+		kind: "terms",
 		from: t,
 		to: defined(to.terms[j], "a lemma's sides are of one width")
 	}))

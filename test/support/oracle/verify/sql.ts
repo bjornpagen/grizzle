@@ -1835,17 +1835,22 @@ class StatementAuditor {
 		}
 	}
 
-	/** A span key's span, and a PERIOD reference's span, is the last column. */
+	/**
+	 * A span key's span, and a PERIOD reference's span, is the last column. A key's columns, and a foreign key's
+	 * referenced columns, are each listed once (42701, 42830); a foreign key's referencing columns may list a column more
+	 * than once, which PostgreSQL accepts (`repeats` "admitted").
+	 */
 	keyColumns(
 		columns: ReadonlyArray<SpanColumn>,
 		tableColumns: ReadonlySet<string> | undefined,
-		at: string
+		at: string,
+		repeats: "refused" | "admitted"
 	): void {
 		this.at(at, () => {
 			const seen = new Set<string>()
 			for (const [i, c] of columns.entries()) {
 				this.ident(c.column, "key column", i)
-				if (seen.has(c.column)) {
+				if (repeats === "refused" && seen.has(c.column)) {
 					this.report("columnList", `key column "${c.column}" is listed twice`, i)
 				}
 				seen.add(c.column)
@@ -1864,15 +1869,21 @@ class StatementAuditor {
 		switch (constraint.kind) {
 			case "primaryKey":
 			case "unique":
-				this.keyColumns(Arr.map(constraint.columns, keySpan), tableColumns, "columns")
+				this.keyColumns(Arr.map(constraint.columns, keySpan), tableColumns, "columns", "refused")
 				return
 			case "foreignKey": {
-				this.keyColumns(Arr.map(constraint.columns, periodSpan), tableColumns, "columns")
+				this.keyColumns(
+					Arr.map(constraint.columns, periodSpan),
+					tableColumns,
+					"columns",
+					"admitted"
+				)
 				this.objectName(constraint.references, "referenced table", "references")
 				this.keyColumns(
 					Arr.map(constraint.referencedColumns, periodSpan),
 					undefined,
-					"referencedColumns"
+					"referencedColumns",
+					"refused"
 				)
 				if (constraint.columns.length !== constraint.referencedColumns.length) {
 					this.report(
@@ -1894,7 +1905,8 @@ class StatementAuditor {
 				this.keyColumns(
 					Arr.map(constraint.elements, (e) => ({ column: e.column, span: false })),
 					tableColumns,
-					"elements"
+					"elements",
+					"refused"
 				)
 				return
 		}
@@ -1926,7 +1938,8 @@ class StatementAuditor {
 			this.keyColumns(
 				Arr.map(carrier.primaryKey, (column) => ({ column, span: false })),
 				columns,
-				"primaryKey"
+				"primaryKey",
+				"refused"
 			)
 		}
 	}
