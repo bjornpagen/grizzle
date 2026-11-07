@@ -94,7 +94,7 @@ type WithinWriteList<R, W> = [W] extends [WriteListOf<R>]
  * A Db is opened for a role R, a schema whose relations are defined over its base (types/schema/world.ts), reached
  * through its login, whose workloads' programs over R or a level of it are P (ProgramsOf): `workload` holds their
  * handles, compiled once when the layer was built. Every reader
- * accepts a query over R or over any level below it (L extends LevelsOf<R>): Query is invariant in its schema, and a
+ * accepts a query over R or over any level below it (AtLevel): Query is invariant in its schema, and a
  * full role holds its base among its levels, so a query written over the base is a query over the full role.
  * db.apply, compile and explain accept a ChangeSet over any level the same way. Every program matches only the
  * contexts R's relations read (WithinRoleContexts), whose facts the Db's claims hold.
@@ -109,9 +109,10 @@ export interface DbOf<R, P> extends QueryReader<R> {
 	 */
 	readonly workload: WorkloadHandles<R, P>
 	/** Only ChangeSets whose writes lie within R's write list typecheck. */
-	apply<L extends LevelsOf<R>, P, W extends string, Reads, Cx extends string, C, const Arg>(
+	apply<L, P, W extends string, Reads, Cx extends string, C, const Arg>(
 		changes: C &
 			ChangeSet<L, P, W, Reads, Cx> &
+			AtLevel<R, L> &
 			WithinWriteList<R, W> &
 			WithinRoleContexts<R, Cx> &
 			PlannedStrata<C>,
@@ -133,7 +134,7 @@ export interface DbOf<R, P> extends QueryReader<R> {
 		...relations: Arr.NonEmptyReadonlyArray<RefreshListOf<R>>
 	): Effect.Effect<void, ApplyError>
 	explain<
-		L extends LevelsOf<R>,
+		L,
 		Head,
 		Ev extends Evidence,
 		P,
@@ -152,6 +153,7 @@ export interface DbOf<R, P> extends QueryReader<R> {
 				| Ordered<L, Head, Ev, P, IHead, Hc, Cx, Arms>
 				| ChangeSet<L, P, W, Reads, Cx>
 			) &
+			AtLevel<R, L> &
 			WithinRoleContexts<R, Cx> &
 			PlannedStrata<C>,
 		params: NoInfer<ParamArg<P>> & Arg & NoInfer<OnlyParams<Arg, P>>
@@ -160,10 +162,14 @@ export interface DbOf<R, P> extends QueryReader<R> {
 
 /** The schema a query, ordered query or ChangeSet is over. */
 type ProgramSchema<X> = X extends Phantom<{ readonly schema: Invariant<infer L> }> ? L : never
-/** Every reader accepts a program over S or over any level below it. */
-type AtLevelOf<S, X> = [ProgramSchema<X>] extends [LevelsOf<S>]
+/**
+ * Every reader, apply and explain accept a program over S or over any level below it, L, and refuse one over any other
+ * schema by name.
+ */
+type AtLevel<S, L> = [L] extends [LevelsOf<S>]
 	? unknown
 	: Refusal<"a program over no level of the database's schema">
+type AtLevelOf<S, X> = AtLevel<S, ProgramSchema<X>>
 
 /**
  * What a reader's get reads: a query, or a key. A relation stands for its primary key, a Key from key() over a side of
@@ -222,7 +228,7 @@ export interface QueryReader<S> {
 		params: NoInfer<GetArg<X>> & Arg & NoInfer<OnlyArg<Arg, X>>
 	): Effect.Effect<Option.Option<A>, ReadError>
 	execute<
-		L extends LevelsOf<S>,
+		L,
 		Head,
 		Ev extends Evidence,
 		P,
@@ -236,6 +242,7 @@ export interface QueryReader<S> {
 			| Query<L, Head, Ev, P, IHead, Hc, Cx, Arms>
 			| Ordered<L, Head, Ev, P, IHead, Hc, Cx, Arms>
 		) &
+			AtLevel<S, L> &
 			WithinRoleContexts<S, Cx>,
 		params: NoInfer<ParamArg<P>> & Arg & NoInfer<OnlyParams<Arg, P>>
 	): Effect.Effect<QueryResult<Head>, ReadError>

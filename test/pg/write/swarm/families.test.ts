@@ -1156,6 +1156,40 @@ const kept: ReadonlyArray<Kept<SwarmCase, Situation>> = [
 			"a follow-up accepted",
 			"a follow-up refilling a value"
 		]
+	},
+	{
+		note: "found: a first counted member inserted under a stored owner whose members copy the owner's generated field dies encoding the edit",
+		sketch: {
+			spec: bare({
+				relations: [
+					{ generated: true, mutable: true, key: false },
+					{ generated: true, mutable: true, key: false }
+				],
+				families: [{ kind: "counted", owner: 0, member: 1, fold: "sum" }],
+				copies: [{ family: 0, axis: "owner", source: { kind: "generated" } }],
+				steps: []
+			}),
+			steps: [
+				inserted([{ relation: 0, id: 1, v: 2n, memberOf: [] }], true, undefined),
+				{
+					kind: "follow",
+					followUp: {
+						owner: 0,
+						row: 1,
+						put: Option.none(),
+						inserted: [{ relation: 1, id: 2, v: 0n, memberOf: [{ family: 0, owner: 1, slot: 0 }] }],
+						removed: Option.none(),
+						appended: Option.none(),
+						moved: Option.none()
+					},
+					plain: [],
+					query: undefined,
+					shape: { split: false, repeat: false }
+				}
+			]
+		},
+		draws: "",
+		reaches: ["a follow-up accepted"]
 	}
 ]
 

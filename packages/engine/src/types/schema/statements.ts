@@ -99,8 +99,18 @@ export interface Shows<out N, out C> {
 	readonly heading: C
 }
 
-/** A relation that shows N and C, whose primary key is K. */
-export interface ShowsKeyed<out N, out C, out K> extends Shows<N, C> {
+/**
+ * A source a builder takes as one that shows N and C: its heading is C, which a builder infers from it; a generic
+ * source whose relations share no heading is refused there. The refusal is the heading's, so it is printed only where
+ * the heading is what differs.
+ */
+export interface Showing<out N, out C> {
+	readonly name: N
+	readonly heading: C | Refusal<"a generic source's relations share one heading">
+}
+
+/** A relation a builder takes as one that shows N and C, whose primary key is K. */
+export interface ShowingKeyed<out N, out C, out K> extends Showing<N, C> {
 	readonly primaryKey: K
 }
 
@@ -109,22 +119,27 @@ export interface ShowsKeyed<out N, out C, out K> extends Shows<N, C> {
  * heading is refused.
  */
 export interface SideShows<out N, out C> {
-	readonly source:
-		| Shows<N, C>
-		| { readonly relation: Shows<N, C> }
-		| Refusal<"a generic source's relations share one heading">
+	readonly source: Showing<N, C> | Selecting<N, C>
+}
+
+/** A selection a builder takes as one of a source that shows N and C. */
+export interface Selecting<out N, out C> {
+	readonly relation: Showing<N, C>
 }
 
 /** A side over a relation that shows N and C, whose primary key is K. */
 export interface SideShowsKeyed<out N, out C, out K> {
-	readonly source: ShowsKeyed<N, C, K> | Refusal<"a generic source's relations share one heading">
+	readonly source: ShowingKeyed<N, C, K>
+}
+
+/** An owner a builder takes as one that shows N and C, whose primary key, where it has one, is K. */
+export interface OwnerShowing<out N, out C, out K> extends Showing<N, C> {
+	readonly primaryKey?: K
 }
 
 /** Slots over an owner that shows N and C, whose primary key, where it has one, is K. */
 export interface FinShows<out N, out C, out K> {
-	readonly owner:
-		| (Shows<N, C> & { readonly primaryKey?: K })
-		| Refusal<"a generic source's relations share one heading">
+	readonly owner: OwnerShowing<N, C, K>
 }
 
 /**
@@ -560,7 +575,16 @@ type KeyHosts<K> = SideHosts<HeadingOf<RelationOfKey<K>>, KeyFieldsOf<K>>
 
 /** A Key over a side of a relation that shows N and C, whose terms are F: a parent in key position. */
 export interface KeyShows<out N, out C, out F> {
-	readonly side: { readonly source: Shows<N, C>; readonly terms: F }
+	readonly side: KeySideShowing<N, C, F>
+}
+interface KeySideShowing<out N, out C, out F> {
+	readonly source: Showing<N, C>
+	readonly terms: F
+}
+
+/** A source of kind K a builder takes as one that shows N and C (fin's owner). */
+export interface ShowingKind<out N, out C, out K> extends Showing<N, C> {
+	readonly kind: K
 }
 
 /** The fields of the heading C that are closedId(R) references: the discriminator alternatives accepts. */

@@ -401,23 +401,6 @@ const treeViolations = (
 	)
 }
 
-/**
- * One statement a tree's writer sends: an INSERT of rows in the order listed, or the DELETE of every row of the given
- * root values, the one statement that removes a tree written whole.
- */
-export type TreeStatement =
-	| { readonly kind: "insert"; readonly rows: Arr.NonEmptyReadonlyArray<TreeRow> }
-	| { readonly kind: "deleteTree"; readonly roots: Arr.NonEmptyReadonlyArray<number> }
-
-/** The rows a statement leaves, before any native is checked. */
-const treeApplied = (
-	rows: ReadonlyArray<TreeRow>,
-	statement: TreeStatement
-): ReadonlyArray<TreeRow> =>
-	statement.kind === "insert"
-		? Arr.appendAll(rows, statement.rows)
-		: Arr.filter(rows, (r) => !statement.roots.includes(r.root))
-
 /** What the model says PostgreSQL does with a transaction: it commits to rows, or is refused at a moment by any of a set. */
 export type TreePredicted =
 	| { readonly kind: "committed"; readonly after: ReadonlyArray<TreeRow> }
@@ -428,19 +411,20 @@ export type TreePredicted =
 	  }
 
 /**
- * The model of one transaction of statements over committed rows `before`: after each statement every native checked
- * at a statement must hold of the whole state, which is PostgreSQL's check of the rows that statement touched since
- * the state before broke none; at COMMIT the deferred last axis must hold too. PostgreSQL reports one violation of the
- * set, which one depending on an order of rows and constraints it does not promise.
+ * The model of one transaction of statements over committed rows `before`, each an INSERT of its rows in the order
+ * listed, the one statement a tree's writer sends, since a tree is written whole: after each statement every native
+ * checked at a statement must hold of the whole state, which is PostgreSQL's check of the rows that statement touched
+ * since the state before broke none; at COMMIT the deferred last axis must hold too. PostgreSQL reports one violation
+ * of the set, which one depending on an order of rows and constraints it does not promise.
  */
 export const treePredicted = (
 	lowering: TreeLowering,
 	before: ReadonlyArray<TreeRow>,
-	statements: ReadonlyArray<TreeStatement>
+	statements: ReadonlyArray<Arr.NonEmptyReadonlyArray<TreeRow>>
 ): TreePredicted => {
 	let state = before
 	for (const [index, statement] of statements.entries()) {
-		state = treeApplied(state, statement)
+		state = Arr.appendAll(state, statement)
 		const broken = Arr.filter(
 			treeViolations(lowering, state),
 			(v) => treeTiming(v.native) === "statement"

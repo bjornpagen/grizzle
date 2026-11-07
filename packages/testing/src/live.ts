@@ -23,22 +23,26 @@ export const liveSleepUntil = (moment: number): Effect.Effect<void> =>
 	)
 
 /**
- * How long a hung fiber's cleanup may run once a guard has interrupted it, on the live clock. Cleanup that waits on a
- * clock the work froze (a TestClock no one advances) or on a server that never answers would never end, so a guard
- * reports the hang once this grace has passed, whether or not the cleanup finished, and never waits on it longer.
+ * How long a search waits on a hung case's cleanup, on the live clock, before it reports the hang or goes on to its next
+ * case. The case stays among the fibers its search awaits before it returns (explore.ts withCaseLives), so a cleanup
+ * past the grace delays the search's end and never outlives it.
  */
 const HUNG_CLEANUP_GRACE = Duration.seconds(5)
 
-/** Interrupts a fiber and never waits for its cleanup, which runs on in a fiber of its own. */
+/** Interrupts a fiber without waiting for its cleanup: its caller keeps the fiber and awaits it later. */
 export const abandon = <A, E>(running: Fiber.Fiber<A, E>): Effect.Effect<void> =>
 	Effect.asVoid(Effect.forkDetach(Fiber.interrupt(running)))
 
-/** Interrupts a hung fiber and waits for its cleanup for HUNG_CLEANUP_GRACE at most, never longer. */
+/** Waits for an interrupted fiber's cleanup for HUNG_CLEANUP_GRACE at most: the fiber's keeper awaits the rest. */
+export const awaitWithinGrace = <A, E>(running: Fiber.Fiber<A, E>): Effect.Effect<void> =>
+	Effect.raceFirst(Effect.asVoid(Fiber.await(running)), liveSleep(HUNG_CLEANUP_GRACE))
+
+/**
+ * Interrupts a hung fiber and waits until its cleanup has ended, however long that takes: no cleanup outlives the guard
+ * that stopped it, and one that never ends holds the guard, which its caller's own timeout then names.
+ */
 export const stopHung = <A, E>(running: Fiber.Fiber<A, E>): Effect.Effect<void> =>
-	Effect.andThen(
-		abandon(running),
-		Effect.raceFirst(Effect.asVoid(Fiber.await(running)), liveSleep(HUNG_CLEANUP_GRACE))
-	)
+	Effect.asVoid(Fiber.interrupt(running))
 
 /**
  * Where the watchdog's two threads meet in their shared memory: four Int32 counters (bumped when the earliest moment

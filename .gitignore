@@ -11,3 +11,4 @@ test/types/**/.*-??????/
 .turbo/
 /.agents/skills/local/*
 /.agents/skills/local-*
+packages/*/out/

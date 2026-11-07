@@ -1521,7 +1521,11 @@ a side's selection, or whose `pred` field is 0, has no tuple on that side: a key
 a containment from the side doesn't require it, and a containment into the side doesn't find it. A key over a table's
 own fields is a candidate key of the table; over a selected side or a `pred` term it is no key of the table. A
 containment's target holds a key: a candidate key among its fields, or a key over the same selection among its terms.
-A show's waitlist, over the box office:
+A rule may be written in a helper generic over the tables it reads, `<T extends typeof A | typeof B>(t: T) =>
+contained(on(t, "owner"), on(Owner, "id"))`: it typechecks exactly where the rule holds for each table T may be. Those
+tables share one heading, or one holds every field of another and more; a helper over tables that share none is
+refused. A query over such a T reads it the same way, through `v(t, "x")` and `r.match(t, …)`. A show's waitlist,
+over the box office:
 
 ```ts
 import { natural, pred, select } from "@bjornpagen/grizzle"

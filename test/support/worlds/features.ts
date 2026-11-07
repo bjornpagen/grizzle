@@ -1432,14 +1432,15 @@ const readsOf = (
 /**
  * The SQLSTATE a direct writer's statement met reading a hand-set claim its field's type refuses (README "Direct SQL
  * access"), by the field's domain: each fault of the session's hand-set claims (model/session/direct.ts handSetFaults)
- * whose SQLSTATE the statement was refused with; none for any other action or answer.
+ * the statement's refusal is, a refinement's 23514 on its law domain's CHECK law where it has one; none for any other
+ * action or answer.
  */
 const claimRefusalsOf = (
 	state: ModelState,
 	action: Action,
 	observation: Observation
 ): ReadonlyArray<WorldFeature> => {
-	if (action.kind !== "direct" || observation.kind !== "refused") {
+	if (action.kind !== "direct") {
 		return []
 	}
 	const session = state.sessions[action.session]
@@ -1448,12 +1449,6 @@ const claimRefusalsOf = (
 		session.claims.kind !== "set" ||
 		session.claims.setting.kind !== "malformed"
 	) {
-		return []
-	}
-	const sqlstate = observation.sqlstate
-	const refusal: ClaimRefusal | undefined =
-		sqlstate === "22P02" || sqlstate === "22003" || sqlstate === "23514" ? sqlstate : undefined
-	if (refusal === undefined) {
 		return []
 	}
 	const statement = action.statement
@@ -1467,16 +1462,13 @@ const claimRefusalsOf = (
 				)
 			: undefined
 	return Arr.flatMap(
-		handSetFaults(state.install.base, state.names.codes, session.claims.setting.text),
+		handSetFaults(state.install.base, state.names, session.claims.setting.text, observation),
 		(fault): ReadonlyArray<WorldFeature> => {
-			if (fault.sqlstate !== refusal) {
-				return []
-			}
 			const at = entry === undefined ? undefined : claimReadAt(entry, fault.context, fault.field)
 			const refined = refinedOf(fault.domain)
 			return [
-				...claimRefusalFeature(fault.domain, refusal),
-				...(at === undefined || refined === undefined || refusal !== "23514"
+				...claimRefusalFeature(fault.domain, fault.sqlstate),
+				...(at === undefined || refined === undefined || fault.sqlstate !== "23514"
 					? []
 					: [`claim-refused-read:${refined}:${at}` as const])
 			]

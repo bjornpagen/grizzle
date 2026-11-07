@@ -16,6 +16,7 @@ import type {
 	IsRetyped,
 	LanguageOf,
 	Meets,
+	Minted,
 	OperandOrigin,
 	ParamsContribution,
 	ParamsOfTerm,
@@ -43,7 +44,9 @@ import type {
 	NoExcess,
 	ParentVars,
 	Producer,
-	VarsOf,
+	HeadedBy,
+	SourceNamed,
+	ShownOrigins,
 	VSource
 } from "#compiler/types/query/terms.ts"
 import type { FactOfFields } from "#compiler/types/schema/relation.ts"
@@ -923,10 +926,10 @@ export interface Ordered<
  * declared-name rule (ScopeName), so two scopes of one relation are two types; a rule holds one scope of each name,
  * which the builder refuses twice (no type tells two calls of one name apart).
  */
-export type VConstructor = <R extends VSource, const N extends string>(
-	source: R,
+export type VConstructor = <R extends VSource, const N extends string, F extends Carriers, RN>(
+	source: R & HeadedBy<F> & Headed<F> & SourceNamed<RN>,
 	name: ScopeName<N>
-) => VarsOf<R, N>
+) => Minted<F, ShownOrigins<R, N, RN, F>>
 
 /** The records a query, ordered query or finished arm delivers: its rows decoder's. */
 export type HeadOf<Q> = Q extends { readonly rows: RowDecoder<infer H> } ? H : never

@@ -4,6 +4,7 @@ import { attachEntriesFrom, attachModule } from "#test/support/agreement/attachm
 import { changeSetEntriesFrom, changeSetModules } from "#test/support/agreement/changesets.ts"
 import { computeEntriesFrom, computeModules } from "#test/support/agreement/compute.ts"
 import { configEntriesFrom, configModule } from "#test/support/agreement/dbconfig.ts"
+import { genericEntriesFrom, genericModule } from "#test/support/agreement/generic-sources.ts"
 import { agreementEntriesFrom, agreementModules } from "#test/support/agreement/queries.ts"
 import { recursionEntriesFrom, recursionModule } from "#test/support/agreement/recursion.ts"
 import { schemaEntriesFrom, schemaModules } from "#test/support/agreement/schemas.ts"
@@ -259,6 +260,19 @@ export const typeGroups: ReadonlyArray<Group> = [
 				disarm: true,
 				heavy: false,
 				source: (entry, seed) => schemaModules(schemaEntriesFrom(entry), seed)
+			}
+		}
+	},
+	{
+		owner: "test/types/schema/generic.test.ts",
+		units: {
+			"schema/generic": {
+				kind: "program",
+				dir: "test/types/schema",
+				prefix: ".generic-",
+				disarm: true,
+				heavy: false,
+				source: (entry) => [{ file: "index.ts", source: genericModule(genericEntriesFrom(entry)) }]
 			}
 		}
 	},

@@ -1,4 +1,4 @@
-import { Context, Effect, Fiber, Option, Ref, Schema } from "effect"
+import { Console, Context, Effect, Fiber, Option, Ref, Schema } from "effect"
 import { liveMillis, liveSleep, stopHung } from "#live.ts"
 
 /**
@@ -6,7 +6,7 @@ import { liveMillis, liveSleep, stopHung } from "#live.ts"
  * take, a wait for a resource other runs hold (a connection lease, a slot in a queue); some are a hang, a build stuck
  * on a server that never answers. A hook marks each wait for a shared resource with `waitingOnShared`, and the guard
  * counts only the time the hook spends outside every such wait, on the live clock: a hook whose own work outruns its
- * budget fails with LayerHung, its fiber stopped as a hung case's is, and a hook that waits on others for an hour
+ * budget fails with LayerHung, its fiber stopped and its cleanup awaited, and a hook that waits on others for an hour
  * passes. Waits that overlap or nest are left out once: the hook is waiting while any of them is open.
  */
 export class LayerHung extends Schema.TaggedError<LayerHung, { readonly brand: unique symbol }>()(
@@ -67,7 +67,9 @@ const tickOf = (budgetMillis: number) => Math.min(1000, Math.max(10, Math.floor(
 /**
  * `hook` guarded: its value or its failure as it ends, or LayerHung once its own work, the time outside every
  * `waitingOnShared`, passes `budgetMillis` on the live clock. The hook runs in a fiber of its own with the caller's
- * services, so the resources it acquires belong to the caller's scope, and an interrupted caller stops it.
+ * services, so the resources it acquires belong to the caller's scope, and an interrupted caller stops it. A hung hook
+ * is reported on the error console, then stopped, and its cleanup awaited before LayerHung returns, so none of it
+ * outlives the guard.
  */
 export const guardHook =
 	(options: Readonly<{ label: string; budgetMillis: number }>) =>
@@ -91,10 +93,14 @@ export const guardHook =
 			if (ended.kind === "ended") {
 				return yield* ended.exit
 			}
-			yield* stopHung(running)
-			return yield* LayerHung.make({
+			const hung = LayerHung.make({
 				label: options.label,
 				budgetMillis: options.budgetMillis,
 				workedMillis: Math.round(ended.worked)
 			})
+			yield* Console.error(
+				`${hung.label}: its own work passed its budget of ${hung.budgetMillis} ms, ${hung.workedMillis} ms worked; it is stopped, and its cleanup awaited`
+			).pipe(Effect.provideService(Console.Console, Console.Console.defaultValue()))
+			yield* stopHung(running)
+			return yield* hung
 		})

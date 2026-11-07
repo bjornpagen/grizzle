@@ -228,11 +228,7 @@ const judged = (
 ): Effect.Effect<Judged, SqlError | TransactionRolledBack | Disagreed> =>
 	Effect.gen(function* () {
 		const { seat } = t
-		const model = treePredicted(
-			t.lowering,
-			[],
-			Arr.map(statements, (rows) => ({ kind: "insert", rows }) as const)
-		)
+		const model = treePredicted(t.lowering, [], statements)
 		const real = yield* attempt(
 			seat.session,
 			Arr.map(statements, (rows) => nodeInsertSql(seat, rows))

@@ -6,7 +6,7 @@
  * all three, so they never disagree.
  *
  * It stays below the cluster-wide connection lease's slots on a cluster of PostgreSQL's default max_connections (seven:
- * shared.ts leaseConnections), so a run alone never waits for a lease; the slot left over is a bench's or another
- * tree's.
+ * shared.ts leaseConnections), so a run alone never waits for a lease, each of its files' substrates holding one; the
+ * slot left over is a bench's or another tree's.
  */
 export const networkWorkers = 6

@@ -229,10 +229,10 @@ const claimRead = (document: string, source: ContextSource, field: string, type:
  * the shape the Db path writes; the document where it holds no member for the context, or a member holding exactly the
  * source's fields, each a value of the type it is judged by (ContextColumn `judged`: its field's own, a contract's,
  * pattern's or roster's domain included), which reads every claim once here, so a claim its type or its refinement
- * refuses raises that error (22P02, 22003, 23514) wherever the context is read, whichever columns the source's readers read (a read of a
- * string is never NULL, so num_nonnulls counts every field); and refused where the member holds any other keys. It
- * reads no column of the statement, so PostgreSQL computes it once per statement as an InitPlan, reading the setting
- * once: when it is first read, or, under a parallel plan, before the workers start.
+ * refuses raises that error (22P02, 22003, 23514) wherever the context is read, whichever columns the source's
+ * readers read (a read of a string is never NULL, so num_nonnulls counts every field); and refused where the member
+ * holds any other keys. It reads no column of the statement, so PostgreSQL computes it once per statement as an
+ * InitPlan, reading the setting once: when it is first read, or, under a parallel plan, before the workers start.
  */
 const contextClaims = (source: ContextSource): string => {
 	const context = `${quoteString(source.context)}${castTo("text")}`

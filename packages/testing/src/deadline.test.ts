@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { deepStrictEqual, strictEqual } from "@effect/vitest/utils"
-import { Array as Arr, Duration, Effect, Formatter, Option, String as Str } from "effect"
+import { Array as Arr, Duration, Effect, Exit, Formatter, Option, String as Str } from "effect"
 import {
 	type DeadlineReached,
 	drawn,
@@ -13,7 +13,8 @@ import {
 	type SearchFailure
 } from "#explore.ts"
 import { noCoverage, required } from "#features.ts"
-import { array, int } from "#gen.ts"
+import { array, element, type Gen, int, weighted } from "#gen.ts"
+import { liveMillis, liveSleep } from "#live.ts"
 import { floorSeed, rotatingSeed } from "#random.ts"
 import { type ReplayCase, replayTokenOf } from "#replay.ts"
 import { notesOnly } from "#sense.ts"
@@ -313,5 +314,153 @@ describe("a search under its test's deadline", () => {
 						})
 				)
 			)
+	)
+})
+
+/** How a planted search stops its blocking case: its test's deadline cuts it, or its hang guard stops it. */
+const ENDINGS = ["cut", "hung"] as const
+
+type Ending = (typeof ENDINGS)[number]
+
+/**
+ * A planted search whose cases each hold a resource with a finalizer that takes `releaseMillis` to run: it runs `cases`
+ * cases, `concurrency` at once, and its case at `blocksAt`, in start order, blocks once it holds its resource. A cut
+ * search's deadline arrives while that case blocks; a hung one's hang limit does.
+ */
+type Lifetimes = Readonly<{
+	ending: Ending
+	cases: number
+	concurrency: number
+	blocksAt: number
+	releaseMillis: number
+}>
+
+const lifetimes: Gen<Lifetimes> = (source) => {
+	const cases = source.draw(int(1, 4))
+	return {
+		ending: source.draw(element(ENDINGS)),
+		cases,
+		concurrency: source.draw(int(1, 3)),
+		blocksAt: source.draw(int(0, cases - 1)),
+		releaseMillis: source.draw(
+			weighted([
+				[5, int(0, 200)],
+				[1, int(5100, 5400)]
+			])
+		)
+	}
+}
+
+/**
+ * The deadline a cut search runs under, in milliseconds after it begins: its cut comes PRINT_MARGIN_MILLIS before it,
+ * once its cases before the blocking one have run.
+ */
+const CUT_AFTER_MILLIS = 300
+
+/** The hang limit of a hung search's cases: short, so its hang guard stops the blocking case first. */
+const SHORT_HANG = Duration.millis(200)
+
+type LifetimeFeature = Ending | "a cleanup past the grace" | "cases beside the blocking one"
+
+describe("a search's cases", () => {
+	it.effect(
+		"have all run their finalizers when their search returns, its blocking case cut or hung, however long they take",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "case lifetimes",
+						oracle: {
+							kind: "specification",
+							name: "no case's cleanup outlives the search that started it: every acquisition released when it returns"
+						},
+						draw: drawn(lifetimes),
+						literal: Formatter.format,
+						coverage: required<LifetimeFeature>(
+							["cut", "hung", "a cleanup past the grace", "cases beside the blocking one"],
+							{ cases: 24, sense: notesOnly }
+						),
+						kept: [],
+						runs: 6,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 6,
+						caseHang: Duration.minutes(2)
+					},
+					(planted, c) =>
+						Effect.gen(function* () {
+							c.note(planted.ending)
+							if (planted.releaseMillis > 5000) {
+								c.note("a cleanup past the grace")
+							}
+							if (planted.cases > 1 && planted.concurrency > 1) {
+								c.note("cases beside the blocking one")
+							}
+							const counts = { started: 0, acquired: 0, released: 0 }
+							const run = yield* Run
+							const began = yield* liveMillis
+							const inner = explore(
+								{
+									suite: "case lifetimes, planted",
+									oracle: { kind: "specification", name: "a planted search whose case blocks" },
+									draw: drawn(int(0, 2 ** 31 - 1)),
+									literal: Formatter.format,
+									coverage: noCoverage,
+									kept: [],
+									runs: planted.cases,
+									shrink: { kind: "bounded", candidates: 0 },
+									concurrency: planted.concurrency,
+									steerEvery: 16,
+									caseHang: planted.ending === "hung" ? SHORT_HANG : Duration.minutes(1)
+								},
+								() =>
+									Effect.suspend(() => {
+										const index = counts.started
+										counts.started += 1
+										return Effect.scoped(
+											Effect.gen(function* () {
+												yield* Effect.acquireRelease(
+													Effect.sync(() => {
+														counts.acquired += 1
+													}),
+													() =>
+														Effect.andThen(
+															liveSleep(Duration.millis(planted.releaseMillis)),
+															Effect.sync(() => {
+																counts.released += 1
+															})
+														)
+												)
+												if (index === planted.blocksAt) {
+													return yield* Effect.never
+												}
+											})
+										)
+									})
+							).pipe(
+								Effect.provideService(
+									Run,
+									Run.of({
+										...run,
+										deadline:
+											planted.ending === "cut"
+												? { kind: "at", millis: began + PRINT_MARGIN_MILLIS + CUT_AFTER_MILLIS }
+												: noDeadline
+									})
+								)
+							)
+							const ended = yield* Effect.exit(inner)
+							deepStrictEqual(
+								{
+									ended: Exit.isFailure(ended),
+									released: counts.released
+								},
+								{ ended: true, released: counts.acquired }
+							)
+						})
+				)
+			),
+		{ timeout: 600_000 }
 	)
 })

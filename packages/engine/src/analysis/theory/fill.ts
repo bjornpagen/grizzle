@@ -76,6 +76,37 @@ export const readsOf = (expr: ScalarExpr): ReadonlyArray<string> => {
 	]
 }
 
+/**
+ * `fields` of `relation`, then every field a generated one among them reads, transitively, each once: every field the
+ * host needs of a row to evaluate again each generated field it reads of it (write/family/edit.ts valueAt).
+ */
+export const withGenerationInputs = (
+	relation: LawRelation,
+	fields: ReadonlyArray<LawField>
+): ReadonlyArray<LawField> => {
+	const out = [...fields]
+	const held = new Set(fields.map((f) => f.name))
+	const pending = [...fields]
+	for (let field = pending.pop(); field !== undefined; field = pending.pop()) {
+		if (field.writing.kind !== "generated") {
+			continue
+		}
+		for (const name of readsOf(field.writing.expr)) {
+			if (held.has(name)) {
+				continue
+			}
+			const input = relation.fields.find((f) => f.name === name)
+			if (input === undefined) {
+				throw defect(`the field ${name} of ${relation.name} a generated field reads`)
+			}
+			held.add(name)
+			out.push(input)
+			pending.push(input)
+		}
+	}
+	return out
+}
+
 /** A native column's identity within its relation: a field by its name, a law column by its identifier. */
 const keyOf = (c: NativeColumn): string =>
 	c.kind === "field" ? `field\u0000${c.field.name}` : `law\u0000${c.column}`

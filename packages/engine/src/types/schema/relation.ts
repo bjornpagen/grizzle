@@ -202,6 +202,7 @@ export interface AnyRelation {
 	readonly fields: unknown
 	readonly primaryKey: ReadonlyArray<string>
 	readonly fact: RowDecoder<unknown>
+	readonly heading: unknown
 }
 
 /**
@@ -239,6 +240,7 @@ export interface AnyRoster {
 	readonly name: string
 	readonly handles: NonEmptyReadonlyArray<string>
 	readonly fact: RowDecoder<unknown>
+	readonly heading: unknown
 }
 
 export interface Roster<
@@ -290,6 +292,7 @@ export interface AnyClosedRelation {
 	readonly fields: unknown
 	readonly key: NonEmptyReadonlyArray<string>
 	readonly fact: RowDecoder<unknown>
+	readonly heading: unknown
 }
 
 /** The fields of a record of descriptors that are closed ids, the fields a closed relation's key may list. */

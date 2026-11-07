@@ -1,6 +1,6 @@
 import type { Stream } from "effect"
 import type { Column, Decoded } from "#compiler/core/decoder.ts"
-import type { Domained, Languaged, Phantom } from "#compiler/core/phantom.ts"
+import type { built, Domained, Languaged, Phantom } from "#compiler/core/phantom.ts"
 import type { AggregateName } from "#compiler/scalar/aggregate.ts"
 import type { SqlTag } from "#compiler/scalar/registry.ts"
 import type { Decimal } from "#compiler/scalar/values/decimal.ts"
@@ -34,7 +34,12 @@ import type {
 import type { AnyDerived } from "#compiler/types/derived/derived.ts"
 import type { HoldingMatches, OriginsOf, ScopedKey } from "#compiler/types/evidence/evidence.ts"
 import type { LiteralOf } from "#compiler/types/fields/field.ts"
-import type { AnyClosed, AnyRelation, FactOfFields } from "#compiler/types/schema/relation.ts"
+import type {
+	AnyClosed,
+	AnyRelation,
+	FactOfFields,
+	HeadingOf
+} from "#compiler/types/schema/relation.ts"
 import type { AnyContext, AnyWorld } from "#compiler/types/schema/world.ts"
 
 /**
@@ -155,6 +160,58 @@ type BindingAt<C, K> =
 	| (K extends keyof C ? Meets<DomainOf<C[K]>, SqlOfCarrier<C[K]>> : never)
 /** The heading of carriers a source holds, whose types its bindings meet. */
 export type CarriersOf<R> = R extends Headed<infer C> ? C : never
+
+/**
+ * What a rule's match and negation read of a source, inferred from their argument, and from a generic argument's
+ * constraint where the argument is one: its kind K, its name N, heading C and primary key PK, and the brand BT of a
+ * built source, a query, stage, delta, context, derived or world relation, which an ordinary relation holds none of.
+ * A source whose every member is an ordinary relation is read by what it shows (OrdinaryKind), so the bindings of a
+ * generic relation are typed by the heading its relations share (types/schema/statements.ts Shows), and every other
+ * source by its own type. A generic relation whose relations share no heading is refused.
+ */
+export interface SourceShows<out K, out N, out C, out PK, out BT> {
+	readonly kind?: K
+	readonly name?: N
+	readonly heading?: C | Refusal<"a generic source's relations share one heading">
+	readonly primaryKey?: PK
+	readonly [built]?: BT
+}
+
+/** The kind a source is read as: "relation" where every member of it is an ordinary relation, its own otherwise. */
+export type OrdinaryKind<K, BT> = [K] extends ["relation"]
+	? unknown extends BT
+		? "relation"
+		: "mixed"
+	: K
+
+/** The heading of a source of kind K that shows C: an ordinary relation's facts of C, any other source's own. */
+export type ShownHeading<R, K, C> = [K] extends ["relation"] ? FactOfFields<C> : HeadingOf<R>
+
+/** The carriers of a source of kind K that shows C: an ordinary relation's C, any other source's own. */
+export type ShownCarriers<R, K, C> = [K] extends ["relation"] ? C : CarriersOf<R>
+
+/**
+ * A source v mints variables over whose heading of carriers is F: a relation, or a generic relation whose relations share
+ * that heading, which v infers from its constraint (types/schema/statements.ts Shows); one whose relations share none
+ * is refused.
+ */
+export interface HeadedBy<out F> {
+	readonly heading: F | Refusal<"a generic source's relations share one heading">
+}
+
+/** A source's name, where it has one: a relation's, or the union of a generic relation's relations' names. */
+export interface SourceNamed<out N> {
+	readonly name?: N
+}
+
+/**
+ * The origins of the variables v mints in the scope Sc over a source named N whose heading is F: a named source's, a
+ * relation's, closed, derived or world relation's or a context's, name its field and scope (VarOrigins), read off the
+ * name v infers, which a generic relation's constraint gives; a source with no name, its own (VarOrigins).
+ */
+export type ShownOrigins<R, Sc extends string, N, F> = [N] extends [string]
+	? { readonly [K in keyof F]: Origin<N, K & string, Sc> }
+	: VarOrigins<R, Sc>
 
 /**
  * Refuses the keys of a binding object that name no field the binding may bind. A binding object is inferred as a

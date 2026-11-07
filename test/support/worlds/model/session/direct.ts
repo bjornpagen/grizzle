@@ -17,6 +17,7 @@ import {
 
 import {
 	checkLaw,
+	domainLawKey,
 	encodingState,
 	factCells,
 	installedCheck,
@@ -56,8 +57,10 @@ import {
 } from "#test/support/worlds/model/session/writes.ts"
 
 import type {
+	ActionOutcome,
 	BaseSpec,
 	Branch,
+	ClaimRefusal,
 	ContextFacts,
 	DirectSessionState,
 	DirectStart,
@@ -68,6 +71,7 @@ import type {
 	HostFact,
 	HostState,
 	InstallSpec,
+	InstalledNames,
 	ModelState,
 	RoleRef,
 	RoleSpec,
@@ -76,6 +80,7 @@ import type {
 	Source,
 	SqlState,
 	HostValue,
+	Observation,
 	ViewFilter,
 	Witness,
 	WorldFunction
@@ -83,17 +88,47 @@ import type {
 
 import { regex } from "arkregex"
 /**
+ * How a read of a context refuses a hand-set claim (packages/engine/src/sql/print.ts contextClaims): with a SQLSTATE
+ * alone, 22P02 or 22003 for a claim no value of its base type, 22P02 for a member holding other keys, 23514 for a closed
+ * id's code its roster's domain refuses; or on a law domain's CHECK as the claim is cast to it, 23514 on the domain's
+ * law, for a contract's integer past its bounds or a text past its pattern.
+ */
+type RefusedClaim =
+	| { readonly kind: "state"; readonly sqlstate: ClaimRefusal }
+	| { readonly kind: "check"; readonly domain: LawDomain }
+
+/** Whether two refused claims meet a read alike: one SQLSTATE, or one law domain's CHECK. */
+const sameRefusal = (a: RefusedClaim, b: RefusedClaim): boolean =>
+	a.kind === "state"
+		? b.kind === "state" && a.sqlstate === b.sqlstate
+		: b.kind === "check" && domainLawKey(a.domain) === domainLawKey(b.domain)
+
+/**
+ * What a read refused by a claim answers: its SQLSTATE alone, or 23514 on its law domain's CHECK law, the witness
+ * withheld, since a domain's CHECK reports no key.
+ */
+const claimRefusal = (names: InstalledNames, refusal: RefusedClaim): ActionOutcome =>
+	refusal.kind === "state"
+		? { kind: "refused", sqlstate: refusal.sqlstate }
+		: {
+				kind: "law-refused",
+				sqlstate: "23514",
+				law: checkLaw(names, refusal.domain),
+				witness: { kind: "withheld" }
+			}
+
+/**
  * What PostgreSQL reads from a direct writer's claims setting (packages/engine/src/sql/print.ts claimsDocument,
  * contextClaims): a claims document, holding the facts of the contexts whose member holds exactly their fields, each
- * value admitted by its field's base type, and the contexts whose member holds other keys or a value its type refuses,
- * each with the SQLSTATEs a read of it refuses with; or a text that is no claims document, which every read of a claim
- * refuses (22P02).
+ * value admitted by its field's type, and the contexts whose member holds other keys or a value its type refuses, each
+ * with the refusals a read of it meets; or a text that is no claims document, which every read of a claim refuses
+ * (22P02).
  */
 type ClaimsRead =
 	| {
 			readonly kind: "document"
 			readonly facts: ContextFacts
-			readonly refused: ReadonlyMap<string, Arr.NonEmptyReadonlyArray<SqlState>>
+			readonly refused: ReadonlyMap<string, Arr.NonEmptyReadonlyArray<RefusedClaim>>
 	  }
 	| { readonly kind: "malformed" }
 
@@ -210,7 +245,7 @@ const claimsDocumentOf = (
 /** What PostgreSQL makes of one hand-set claim as a context source casts it to its field's type. */
 type ClaimCast =
 	| { readonly kind: "value"; readonly value: HostValue }
-	| { readonly kind: "refused"; readonly sqlstate: SqlState }
+	| { readonly kind: "refused"; readonly refusal: RefusedClaim }
 
 /** The spellings PostgreSQL's boolean input reads as true; every other spelling it admits is false. */
 const TRUE_SPELLINGS: ReadonlyArray<string> = [
@@ -248,14 +283,21 @@ const integerValue = (text: string): HostValue => {
 /**
  * A hand-set claim cast to its field's type (README "Direct SQL access"): its base type's input first, 22P02 for a
  * text that is no value of it (not a uuid, not an integer, not a boolean) and 22003 for an integer past its range;
- * then its refinement, 23514 for a value its contract or pattern refuses. A closed id's claim is its handle's code, a
- * smallint its roster's domain admits only where `codes` holds a live handle (23514 otherwise).
+ * then its refinement, its law domain's CHECK for a value its contract or pattern refuses. A closed id's claim is its
+ * handle's code, a smallint its roster's domain admits only where `codes` holds a live handle (23514 otherwise).
  */
 const claimCast = (domain: FieldDomain, codes: HandleCodes, text: string): ClaimCast => {
-	const refused = (sqlstate: SqlState): ClaimCast => ({ kind: "refused", sqlstate })
+	const refused = (sqlstate: ClaimRefusal): ClaimCast => ({
+		kind: "refused",
+		refusal: { kind: "state", sqlstate }
+	})
+	const checked = (law: LawDomain): ClaimCast => ({
+		kind: "refused",
+		refusal: { kind: "check", domain: law }
+	})
 	switch (domain.kind) {
 		case "text":
-			return domain.matcher.test(text) ? { kind: "value", value: text } : refused("23514")
+			return domain.matcher.test(text) ? { kind: "value", value: text } : checked(domain)
 		case "uuid": {
 			const fault = literalFault(domain, text)
 			return fault === undefined ? { kind: "value", value: canonicalUuid(text) } : refused(fault)
@@ -271,7 +313,7 @@ const claimCast = (domain: FieldDomain, codes: HandleCodes, text: string): Claim
 			}
 			const n = BigInt(Str.trim(text))
 			return n < BigInt(domain.min) || n > BigInt(domain.max)
-				? refused("23514")
+				? checked(domain)
 				: { kind: "value", value: integerValue(text) }
 		}
 		case "boolean": {
@@ -296,22 +338,45 @@ const claimCast = (domain: FieldDomain, codes: HandleCodes, text: string): Claim
 	}
 }
 
-/** One hand-set claim's fault: its context and field, the field's domain, and the SQLSTATE its cast meets. */
+/**
+ * The SQLSTATE a refused claim met where `observation` is its refusal (claimRefusal): its own, or its law domain's
+ * CHECK's 23514 on the domain's law; none for any other answer.
+ */
+const metBy = (
+	names: InstalledNames,
+	refusal: RefusedClaim,
+	observation: Observation
+): ClaimRefusal | undefined => {
+	switch (refusal.kind) {
+		case "state":
+			return observation.kind === "refused" && observation.sqlstate === refusal.sqlstate
+				? refusal.sqlstate
+				: undefined
+		case "check":
+			return observation.kind === "law-refused" &&
+				observation.law === checkLaw(names, refusal.domain)
+				? "23514"
+				: undefined
+	}
+}
+
+/** One hand-set claim's fault an answer refused: its context and field, the field's domain, and the SQLSTATE it met. */
 interface ClaimFault {
 	readonly context: string
 	readonly field: string
 	readonly domain: FieldDomain
-	readonly sqlstate: SqlState
+	readonly sqlstate: ClaimRefusal
 }
 
 /**
- * Every fault of the claims a hand-set setting's text holds, of the contexts the base declares whose member holds
- * exactly their fields: none for a text that is no claims document.
+ * Every fault of the claims a hand-set setting's text holds that `observation` is the refusal of (metBy), of the
+ * contexts the base declares whose member holds exactly their fields: none for a text that is no claims document.
  */
 export const handSetFaults = (
 	base: BaseSpec,
-	codes: HandleCodes,
-	text: string
+	names: InstalledNames,
+	text: string,
+	observation: Observation
 ): ReadonlyArray<ClaimFault> =>
 	Option.match(claimsDocumentOf(text), {
 		onNone: () => [],
@@ -326,17 +391,12 @@ export const handSetFaults = (
 					if (claim === undefined) {
 						return []
 					}
-					const cast = claimCast(field.domain, codes, claim)
-					return cast.kind === "refused"
-						? [
-								{
-									context: context.name,
-									field: field.name,
-									domain: field.domain,
-									sqlstate: cast.sqlstate
-								}
-							]
-						: []
+					const cast = claimCast(field.domain, names.codes, claim)
+					const sqlstate =
+						cast.kind === "refused" ? metBy(names, cast.refusal, observation) : undefined
+					return sqlstate === undefined
+						? []
+						: [{ context: context.name, field: field.name, domain: field.domain, sqlstate }]
 				})
 			})
 	})
@@ -345,8 +405,8 @@ export const handSetFaults = (
  * The claims PostgreSQL reads from a setting's text: the empty text holds none (claimsDocument's first branch); a text
  * that is no claims document is malformed; a claims document holds, for each context of the installation it has a
  * member for, the context's fact where the member holds exactly the context's fields and each value casts to its
- * field's type (claimCast), or else the SQLSTATEs a read of the context refuses with: 22P02 for other keys
- * (contextClaims), a value's own fault otherwise, any of which the read may meet first. A member of no context of the
+ * field's type (claimCast), or else the refusals a read of the context meets: 22P02 for other keys (contextClaims), a
+ * value's own refusal otherwise, any of which the read may meet first. A member of no context of the
  * installation is never read.
  */
 const textRead = (base: BaseSpec, codes: HandleCodes, text: string): ClaimsRead => {
@@ -358,7 +418,7 @@ const textRead = (base: BaseSpec, codes: HandleCodes, text: string): ClaimsRead 
 		return { kind: "malformed" }
 	}
 	const facts: Array<readonly [string, HostFact]> = []
-	const refused = new Map<string, Arr.NonEmptyReadonlyArray<SqlState>>()
+	const refused = new Map<string, Arr.NonEmptyReadonlyArray<RefusedClaim>>()
 	for (const context of base.contexts) {
 		const member = document.value.get(context.name)
 		if (member === undefined) {
@@ -369,15 +429,16 @@ const textRead = (base: BaseSpec, codes: HandleCodes, text: string): ClaimsRead 
 			return claim === undefined ? [] : [{ field, claim }]
 		})
 		if (cells.length !== context.fields.length || member.size !== context.fields.length) {
-			refused.set(context.name, ["22P02"])
+			refused.set(context.name, [{ kind: "state", sqlstate: "22P02" }])
 			continue
 		}
 		const casts = Arr.map(cells, ({ field, claim }) => ({
 			field,
 			cast: claimCast(field.domain, codes, claim)
 		}))
-		const [fault, ...faults] = Arr.dedupe(
-			Arr.flatMap(casts, ({ cast }) => (cast.kind === "refused" ? [cast.sqlstate] : []))
+		const [fault, ...faults] = Arr.dedupeWith(
+			Arr.flatMap(casts, ({ cast }) => (cast.kind === "refused" ? [cast.refusal] : [])),
+			sameRefusal
 		)
 		if (fault !== undefined) {
 			refused.set(context.name, [fault, ...faults])
@@ -632,15 +693,23 @@ export const directBranches = (
 	const faulty = (context: string): boolean =>
 		claims.kind === "malformed" || claims.refused.has(context)
 	/**
-	 * The SQLSTATEs a judgment reading `contexts` may be refused with as it reads the claims: none where it reads no
-	 * faulty context; 22P02 under a setting that is no claims document; each refused context's otherwise.
+	 * The refusals a judgment reading `contexts` may meet as it reads the claims: none where it reads no faulty context;
+	 * 22P02 under a setting that is no claims document; each refused context's otherwise.
 	 */
-	const faultsOf = (contexts: ReadonlySet<string>): ReadonlyArray<SqlState> =>
+	const faultsOf = (contexts: ReadonlySet<string>): ReadonlyArray<RefusedClaim> =>
 		claims.kind === "malformed"
 			? contexts.size === 0
 				? []
-				: ["22P02"]
-			: Arr.dedupe(Arr.flatMap([...contexts], (c) => claims.refused.get(c) ?? []))
+				: [{ kind: "state", sqlstate: "22P02" }]
+			: Arr.dedupeWith(
+					Arr.flatMap([...contexts], (c) => claims.refused.get(c) ?? []),
+					sameRefusal
+				)
+	/** A statement refused by a claim it reads (claimRefusal). */
+	const claimRefused = (refusal: RefusedClaim): Branch => ({
+		observation: claimRefusal(state.names, refusal),
+		next: withSession(state, id, { ...session, transaction: "aborted" })
+	})
 	/**
 	 * A judgment reading `contexts` in `order`, as the claims make it: first only where every context it reads is faulty
 	 * or holds a fact, since a plan that meets a context without a fact first reads no other claim of the judgment.
@@ -686,8 +755,8 @@ export const directBranches = (
 			return then()
 		}
 		const refusals: Arr.NonEmptyReadonlyArray<Branch> = [
-			refused(fault),
-			...Arr.map(faults, refused)
+			claimRefused(fault),
+			...Arr.map(faults, claimRefused)
 		]
 		return judgment.order === "first" && judgesRow ? refusals : [...refusals, ...then()]
 	}

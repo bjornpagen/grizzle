@@ -69,7 +69,6 @@ import type {
 	Aggregate,
 	BindingParams,
 	Bindings,
-	CarriersOf,
 	DeadConstants,
 	HeadOrigins,
 	HeadParams,
@@ -78,13 +77,24 @@ import type {
 	NoExcess,
 	ParamSource,
 	Producer,
-	ResultOf
+	ResultOf,
+	OrdinaryKind,
+	ShownCarriers,
+	ShownHeading,
+	SourceShows
 } from "#compiler/types/query/terms.ts"
-import type { AnyClosed, AnyRelation, HeadingOf, NameOf } from "#compiler/types/schema/relation.ts"
+import type {
+	AnyClosed,
+	AnyRelation,
+	HeadingOf,
+	NameOf,
+	Relation
+} from "#compiler/types/schema/relation.ts"
 import type {
 	IsLevelOf,
 	IsRelationOf,
 	KeysOf,
+	RelationOf,
 	RelationsOf,
 	UnderName
 } from "#compiler/types/schema/schema.ts"
@@ -177,6 +187,15 @@ type MatchKeyed<S, M> =
 						: false
 		: false
 
+/**
+ * The source a match of a source of kind K records for its rule's evidence: an ordinary relation as it shows itself, its
+ * name N, heading C and primary key PK, which are a concrete relation's own, so a generic relation's evidence is read
+ * off the relations it may be, its name the union of theirs; any other source itself.
+ */
+type ShownSource<R, K, N, C, PK> = [K] extends ["relation"]
+	? Relation<Extract<N, string>, C, Extract<PK, ReadonlyArray<keyof C & string>>>
+	: R
+
 /** Whether one of the keys, each a tuple of fields, has every field among the bound ones. */
 type BindsAKey<Keys, Bound> = 0 extends 1 & Keys
 	? false
@@ -221,6 +240,20 @@ type RequireBound<R> =
 			? unknown
 			: Refusal<"bind the query's parameters before matching it: Q.bind({ ... })">
 		: unknown
+
+/**
+ * What a rule checks of a source of kind K it matches or negates: an ordinary relation is one of the schema's, held by
+ * assignability, which a generic relation's constraint decides; any other source as MatchCheck checks it.
+ */
+type ShownMatch<S, R, K> = [K] extends ["relation"]
+	? RelationOf<S> | Refusal<"the relation is not in this query's schema">
+	: MatchCheck<S, R>
+
+/** The parameters a source of kind K contributes: an ordinary relation none, any other source its own. */
+type ShownSourceParams<R, K> = [K] extends ["relation"] ? unknown : SourceParamsOf<R>
+
+/** The contexts a source of kind K reads: an ordinary relation none, any other source its own. */
+type ShownSourceContexts<R, K> = [K] extends ["relation"] ? never : SourceContexts<R>
 
 /** The parameters a source contributes to the rule that matches it. */
 type SourceParamsOf<R> = R extends Phantom<{ readonly sourceParams: infer SP }> ? SP : unknown
@@ -277,9 +310,9 @@ interface UnknownFilters {
 	readonly unknownFilters: true
 }
 export type NoFacts = RuleFacts<readonly [], never, readonly [], never>
-type AfterMatch<F, R, B> =
+type AfterMatch<F, M> =
 	F extends RuleFacts<infer O extends ReadonlyArray<unknown>, infer St, infer Fl, infer Sp>
-		? RuleFacts<readonly [...O, SoleMatch<R, B>], St, Fl, Sp>
+		? RuleFacts<readonly [...O, M], St, Fl, Sp>
 		: never
 
 type AfterWhere<F, Ps> =
@@ -382,15 +415,33 @@ type MinMaxSql = NumericSql | "boolean" | "text" | "code"
  * is what find reads of every match and filter (RuleFacts), from which the head's keys follow (HeadKeys).
  */
 export interface Rule<S, Params = unknown, Sole = "no match", Facts = NoFacts, Cx = never> {
-	match<R extends Matchable, const B extends Partial<Bindings<HeadingOf<R>, CarriersOf<R>>>>(
-		source: R & MatchCheck<S, R>,
-		bindings: B & NoExcess<B, HeadingOf<R>> & DeadConstants<B, HeadingOf<R>, CarriersOf<R>>
+	match<
+		R extends Matchable,
+		K,
+		RN,
+		C,
+		PK,
+		BT,
+		const B extends Partial<
+			Bindings<ShownHeading<R, OrdinaryKind<K, BT>, C>, ShownCarriers<R, OrdinaryKind<K, BT>, C>>
+		>
+	>(
+		source: R & SourceShows<K, RN, C, PK, BT> & ShownMatch<S, R, OrdinaryKind<K, BT>>,
+		bindings: B &
+			NoExcess<B, ShownHeading<R, OrdinaryKind<K, BT>, C>> &
+			DeadConstants<
+				B,
+				ShownHeading<R, OrdinaryKind<K, BT>, C>,
+				ShownCarriers<R, OrdinaryKind<K, BT>, C>
+			>
 	): Rule<
 		S,
-		Params & SourceParamsOf<R> & BindingParams<B>,
-		[Sole] extends ["no match"] ? SoleMatch<R, B> : "joined",
-		AfterMatch<Facts, R, B>,
-		Cx | SourceContexts<R>
+		Params & ShownSourceParams<R, OrdinaryKind<K, BT>> & BindingParams<B>,
+		[Sole] extends ["no match"]
+			? SoleMatch<ShownSource<R, OrdinaryKind<K, BT>, RN, C, PK>, B>
+			: "joined",
+		AfterMatch<Facts, SoleMatch<ShownSource<R, OrdinaryKind<K, BT>, RN, C, PK>, B>>,
+		Cx | ShownSourceContexts<R, OrdinaryKind<K, BT>>
 	>
 	where<const Ps extends ReadonlyArray<Predicate<never>>>(
 		...predicates: Ps
@@ -497,12 +548,28 @@ export interface Rule<S, Params = unknown, Sole = "no match", Facts = NoFacts, C
 	 * Relational negation only. It reads a relation, no computation over its operands, so its origin is unknown, and it
 	 * stands only as a rule's filter, alone or in a conjunction that does (Negating).
 	 */
-	not<R extends Matchable, const B extends Partial<Bindings<HeadingOf<R>, CarriersOf<R>>>>(
-		relation: R & MatchCheck<S, R>,
-		bindings: B & NoExcess<B, HeadingOf<R>> & DeadConstants<B, HeadingOf<R>, CarriersOf<R>>
-	): Predicate<SourceParamsOf<R> & BindingParams<B>> &
+	not<
+		R extends Matchable,
+		K,
+		RN,
+		C,
+		PK,
+		BT,
+		const B extends Partial<
+			Bindings<ShownHeading<R, OrdinaryKind<K, BT>, C>, ShownCarriers<R, OrdinaryKind<K, BT>, C>>
+		>
+	>(
+		relation: R & SourceShows<K, RN, C, PK, BT> & ShownMatch<S, R, OrdinaryKind<K, BT>>,
+		bindings: B &
+			NoExcess<B, ShownHeading<R, OrdinaryKind<K, BT>, C>> &
+			DeadConstants<
+				B,
+				ShownHeading<R, OrdinaryKind<K, BT>, C>,
+				ShownCarriers<R, OrdinaryKind<K, BT>, C>
+			>
+	): Predicate<ShownSourceParams<R, OrdinaryKind<K, BT>> & BindingParams<B>> &
 		Shaped<Negation> &
-		ReadsContexts<SourceContexts<R>> &
+		ReadsContexts<ShownSourceContexts<R, OrdinaryKind<K, BT>>> &
 		Negating<true>
 
 	/**

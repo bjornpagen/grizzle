@@ -16,6 +16,7 @@
  * fact after and before it, as a put's update's. So the outcome and the deltas read a family's rows as they read any
  * write's.
  */
+import { withGenerationInputs } from "#compiler/analysis/theory/fill.ts"
 import { type CompileError, unsupported } from "#compiler/core/errors.ts"
 import type { ParamId } from "#compiler/core/ids.ts"
 import { defined } from "#compiler/core/invariant.ts"
@@ -578,8 +579,9 @@ export const countStatement = (
 
 /**
  * The owner columns a family's read returns of each touched group's owner, after its key: its count, its ends
- * (`endColumns`), and every column its owner axis carries into its members, which an appended or refilled member
- * copies.
+ * (`endColumns`), every column its owner axis carries into its members, which an appended or refilled member copies,
+ * and every field a generated one among them is computed from (withGenerationInputs): the host evaluates a generated
+ * field again over the owner's row once its count or ends change (edit.ts overlaid), so the row holds what it reads.
  */
 export const ownerReadColumns = (family: Family): ReadonlyArray<LawField> => {
 	const out: Array<LawField> = [family.count]
@@ -596,7 +598,7 @@ export const ownerReadColumns = (family: Family): ReadonlyArray<LawField> => {
 			add(pair.to.field)
 		}
 	}
-	return out
+	return withGenerationInputs(family.owner, out)
 }
 
 /**

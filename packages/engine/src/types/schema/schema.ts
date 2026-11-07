@@ -334,8 +334,9 @@ type StatementOf<S> = StatementsOf<S>[number]
 
 /**
  * The keys of R in S: its primary key, a roster's handle and a closed relation's declared key, the keys a derived or
- * world relation's definition proves, and every candidate key declared for R with key(). Each key is a list of field
- * names. A context holds at most one fact, so its key is the empty one.
+ * world relation's definition proves, and every candidate key declared for R with key(), for each relation its name
+ * may be where it is a generic relation's union of names (DeclaredKeysOfAll). Each key is a list of field names. A
+ * context holds at most one fact, so its key is the empty one.
  */
 export type KeysOf<S, R> = R extends { readonly kind: "context" }
 	? readonly []
@@ -349,7 +350,7 @@ export type KeysOf<S, R> = R extends { readonly kind: "context" }
 							: R extends { readonly kind: "derived" | "world"; readonly definition: infer Q }
 								? DefinitionKeysOf<Q>
 								: never)
-			| KeyIndexOf<S>[NameOf<R>]
+			| DeclaredKeysOfAll<S, NameOf<R>>
 
 /**
  * The candidate keys of every relation of S, each relation's under its name and none under any other name. Relation
@@ -361,6 +362,22 @@ export type KeysOf<S, R> = R extends { readonly kind: "context" }
 type KeyIndexOf<S> = {
 	readonly [K in KeySideOf<StatementOf<S>> as NameOf<SourceOf<K>>]: TermsOf<K>
 } & { readonly [name: string]: never }
+
+/**
+ * The candidate keys declared for every relation of S named in N: a generic relation's, whose name is the union of its
+ * relations' names, are the keys each of them holds; a relation's, its own.
+ */
+export type DeclaredKeysOfAll<S, N extends string> = HeldByAll<N, KeyIndexOf<S>[N], KeyIndexOf<S>>
+type HeldByAll<N extends string, T, I> = T extends unknown
+	? [N] extends [HoldersOf<N, T, I>]
+		? T
+		: never
+	: never
+type HoldersOf<N extends string, T, I> = N extends keyof I
+	? [T] extends [I[N]]
+		? N
+		: never
+	: never
 
 type SourceOf<X> = X extends Side<infer R> ? R : never
 type TermsOf<X> = X extends Side<unknown, infer T> ? T : never

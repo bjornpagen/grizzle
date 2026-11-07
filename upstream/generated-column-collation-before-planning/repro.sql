@@ -19,6 +19,10 @@ CREATE TEMP TABLE g_virtual (a int, b boolean GENERATED ALWAYS AS ('ab'::text = 
 CREATE TEMP TABLE g_mixed (a int, b int GENERATED ALWAYS AS (CASE WHEN a > 0 OR 'ab'::text = 'ab' THEN 1 ELSE 2 END) STORED);
 CREATE TEMP TABLE g_alter (a int);
 ALTER TABLE g_alter ADD COLUMN b boolean GENERATED ALWAYS AS ('ab'::text = 'bb'::text) STORED;
+-- Refused though the written expression reads a column: the parser's own expansion compares two constants.
+CREATE TEMP TABLE g_between (a text, b boolean GENERATED ALWAYS AS ('ab'::text BETWEEN 'ab'::text AND a) STORED);
+CREATE TEMP TABLE g_in_column (a text, b boolean GENERATED ALWAYS AS ('ab'::text IN ('ab'::text, a)) STORED);
+CREATE TEMP TABLE g_case_operand (a text, b boolean GENERATED ALWAYS AS (a ~ CASE 'ab'::text WHEN 'ab' THEN 'x' ELSE 'y' END) STORED);
 
 -- Accepted: the same comparisons where collations are assigned before planning, or where an argument is a column.
 CREATE TEMP TABLE ok_check (a int, CHECK ('ab'::text < 'bb'::text));

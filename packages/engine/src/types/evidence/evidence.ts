@@ -223,11 +223,15 @@ export type HoldingMatches<Os extends ReadonlyArray<unknown>, O> =
 			}[keyof Os & `${number}`]
 		: never
 
-/** Whether a match is of relation R and binds the variable of origin key Key at R's field F. */
+/**
+ * Whether a match is of relation R and binds the variable of origin key Key at R's field F. A generic relation's name is
+ * the union of its relations' names, which no match tells apart from another generic relation's, so a variable of one
+ * is held by no match.
+ */
 type BindsAt<M, R, F, Key> =
 	M extends SoleMatch<infer Src, infer B>
 		? Src extends AnyRelation | AnyClosed | AnyDerived | AnyWorld | AnyContext
-			? R extends NameOf<Src>
+			? [R] extends [UnionToIntersection<R> & NameOf<Src>]
 				? F extends keyof B
 					? Key extends OriginKey<B[F]>
 						? true
@@ -1020,9 +1024,24 @@ type KeyedByParent<S, R, B, H> = R extends AnyRelation | AnyClosed
 export type ContainmentProof<S, Sole, H> =
 	Sole extends SoleMatch<infer R, infer B>
 		? KeyedByParent<S, R, B, H> extends true
-			? ContainmentsInto<ContainmentsBetween<S, ParentRelations<B>, NameOf<R>>, NameOf<R>, B>
+			? OneRelationEach<NameOf<R>, B> extends true
+				? ContainmentsInto<ContainmentsBetween<S, ParentRelations<B>, NameOf<R>>, NameOf<R>, B>
+				: never
 			: never
 		: never
+
+/**
+ * Whether a proof by name reads one relation at each end: a matched relation of one name, and parent variables each of
+ * an origin of one. A generic relation's name is the union of its relations' names (types/schema/statements.ts Shows),
+ * and a law of one of them proves nothing of the others, so a proof over it, or over a parent variable of its, is none.
+ */
+type OneRelationEach<RN, B> =
+	IsOneLiteral<RN> extends true
+		? false extends OneNamed<ParentOriginOf<B[keyof B]>>
+			? false
+			: true
+		: false
+type OneNamed<O> = O extends Origin<infer R> ? IsOneLiteral<R> : true
 
 /**
  * S's containments between two ordinary or closed relations, each under the pair of names `${source} ${target}`, the
@@ -1101,7 +1120,9 @@ type HeadingFieldOf<R, G> = R extends { readonly heading: infer C }
 export type ArmProofOf<S, Sole, H> =
 	Sole extends SoleMatch<infer R, infer B>
 		? KeyedByParent<S, R, B, H> extends true
-			? ArmsOf<AlternativesBetween<S, ParentRelations<B>, NameOf<R>>, NameOf<R>, B>
+			? OneRelationEach<NameOf<R>, B> extends true
+				? ArmsOf<AlternativesBetween<S, ParentRelations<B>, NameOf<R>>, NameOf<R>, B>
+				: never
 			: never
 		: never
 
@@ -1174,7 +1195,9 @@ export type ReflexiveProof<Occurrences, Filters, H> = Occurrences extends readon
 	SoleMatch<infer R, infer B>
 ]
 	? R extends AnyRelation | AnyDerived
-		? ReflexiveOf<NameOf<R>, B, Filters, H>
+		? OneRelationEach<NameOf<R>, B> extends true
+			? ReflexiveOf<NameOf<R>, B, Filters, H>
+			: false
 		: false
 	: false
 

@@ -457,7 +457,7 @@ export type ChangeSetAt<L> = L extends unknown ? ChangeSetOver<L> : never
  * What an applied ChangeSet's outcome reads back is a real member: `reads`, the decoder of the record of its
  * read-backs, each under its name the rows its query's immediate decoder delivers (schema/record.ts record of named
  * attachments). read adds one, and union and sequence merge their arguments' (core/decoder.ts merge), so Reads is the
- * type of the records that decoder assembles.
+ * type of the records that decoder assembles (ReadsOf).
  */
 export interface ChangeSet<
 	S,
@@ -754,8 +754,9 @@ export interface DeltaSource<R extends Headed<Carriers>>
 	readonly [delta]?: Invariant<R> | undefined
 }
 
-/** The writes of a ChangeSet. */
+/** The writes and the read-backs of a ChangeSet: Reads is its reads decoder's records. */
 export type WritesOf<C> = C extends Phantom<{ readonly writes: infer W }> ? W : never
+export type ReadsOf<C> = C extends { readonly reads: RowDecoder<infer R> } ? R : never
 
 /**
  * A ChangeSet over a level of the other's schema combines with it, as db.apply accepts either: the result

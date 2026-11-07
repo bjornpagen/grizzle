@@ -1,4 +1,4 @@
-import { Array as Arr, Config, Effect, Exit, Fiber, Option, Scope } from "effect"
+import { Array as Arr, Config, Effect, Exit, Option, Scope } from "effect"
 import { trusted } from "#compiler/core/trusted.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { InitializedCluster, type InitializedClusterShape } from "#test/support/cluster.ts"
@@ -113,19 +113,16 @@ export const undoInstallEffects = (admin: PgConnection): Effect.Effect<void> =>
 
 /**
  * The cluster-wide connection lease. max_connections is the cluster's, not a run's: two runs, a run and an agent's
- * copy of the tree, or a bench beside a run all share it. So every process that opens test connections first takes a
- * lease, one of `leaseSlots` session-level advisory locks (leaseKey, i) in the owner's own database, held on a
- * connection of its own until the process exits, and a lease covers `connectionsPerLease` connections: a test's full
- * pool (testPoolMax) and the sessions the substrate holds in the process. The slots are max_connections less the
+ * copy of the tree, or a bench beside a run all share it. So every substrate first takes a lease, one of `leaseSlots`
+ * session-level advisory locks (leaseKey, i) in the owner's own database, held on a connection of its own until the
+ * substrate is released, and a lease covers `connectionsPerLease` connections: a test's full pool (testPoolMax) and
+ * the sessions the substrate holds. The slots are max_connections less the
  * reserved connections and `unleasedConnections`, divided by the lease's width, read from the server each time, so a
  * cluster with more connections admits more processes. A process with every slot taken waits on a slot's lock in the server, never on a
  * timer; runs beside each other may start more files than there are leases, and they wait their turn.
  */
 const leaseKey = 1735289961
-/**
- * The sessions the substrate holds in a test process: its lease's, its shared database's claim and that database's
- * owner.
- */
+/** The sessions a substrate holds: its lease's, its shared database's claim and that database's owner. */
 const substrateSessions = ["lease", "claim", "owner"] as const
 export const connectionsPerLease = testPoolMax + substrateSessions.length
 /** Connections no lease covers: the global setup, the doctor, the sweep, and an operator's psql. */
@@ -156,34 +153,20 @@ const takeLease = (lock: PgConnection): Effect.Effect<void, SqlError> =>
 	})
 
 /**
- * This process's lease, taken by the first substrate it builds and held until it exits: its connection lives in a
- * scope nothing closes, and the process's exit closes it. The taking is a root fiber of its own, under none of its
- * first caller's services (a suite's TestClock never governs it) and interrupted by no caller; every caller joins it.
- * A file waiting for a free slot behind other processes waits as long as they hold the slots, inside its suite's layer
- * build, whose hook the network config leaves unbounded for that reason; a run alone never waits, since it runs fewer
- * files at once than there are slots (workers.ts).
+ * A substrate's lease, held for the current scope: a slot (takeLease) on a connection of its own, which the scope's
+ * close ends, and so frees the slot. A lease covers one substrate's connections (connectionsPerLease), so each
+ * substrate a process builds holds one while it lives, and a process holds none once its substrates are released:
+ * nothing of the lease outlives them, so a process whose work is done exits. A substrate waiting for a free slot behind
+ * other processes waits as long as they hold the slots, inside its layer build, whose hook the network config leaves
+ * unbounded for that reason; a run alone never waits, since it runs fewer files at once than there are slots
+ * (workers.ts).
  */
-let lease = Option.none<Fiber.Fiber<void, SqlError>>()
-
-export const leaseConnections: Effect.Effect<void, SqlError, InitializedCluster> = Effect.flatMap(
-	Effect.service(InitializedCluster),
-	(cluster) =>
-		Effect.suspend(() => {
-			if (Option.isSome(lease)) {
-				return Fiber.join(lease.value)
-			}
-			const taking = Effect.runFork(
-				Effect.flatMap(Scope.make(), (scope) =>
-					Scope.provide(
-						Effect.flatMap(devSession(cluster, Option.some("grizzle-substrate lease")), takeLease),
-						scope
-					)
-				)
-			)
-			lease = Option.some(taking)
-			return Fiber.join(taking)
-		})
-)
+export const leaseConnections: Effect.Effect<void, SqlError, InitializedCluster | Scope.Scope> =
+	Effect.gen(function* () {
+		const cluster = yield* InitializedCluster
+		const lock = yield* devSession(cluster, Option.some("grizzle-substrate lease"))
+		yield* takeLease(lock)
+	})
 
 export interface SharedClaim {
 	readonly database: string

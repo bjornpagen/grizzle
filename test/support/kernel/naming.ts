@@ -58,7 +58,7 @@ import type {
 	AnySchema,
 	Statement
 } from "#compiler/public/schema.ts"
-import { ownRole, rostersOf } from "#compiler/schema/own.ts"
+import { type OwnedLogin, ownRole, rostersOf } from "#compiler/schema/own.ts"
 import { statementDescOf } from "#compiler/schema/statements.ts"
 import { roleDescOf } from "#compiler/schema/world.ts"
 import { type SqlStatement, tableConstraints } from "#compiler/sql/ast.ts"
@@ -792,27 +792,30 @@ export const lawIdOf = (schema: AnySchema, law: Statement): LawId => lawNamesOf(
 /**
  * A subject's whole installation compiled without a database, under the schema `at` names: own and compileInstallation
  * over the complete install options (physical/complete.ts), as `grizzle generate` drafts it (cli/generate.ts), its codes
- * a fresh installation's (installationWith takes a history's). A door that named a partial installation would name
- * objects production installs beside it as absent, so an installation that leaves a derived relation deferred is
- * refused.
+ * a fresh installation's and no login (installationWith takes a history's codes and the logins it installs). A door
+ * that named a partial installation would name objects production installs beside it as absent, so an installation
+ * that leaves a derived relation deferred is refused.
  */
 export const installationOf = (subject: NamingSubject, at: InstalledAt): Installation =>
-	installationWith(subject, at, firstCodebook(rostersOf(lawNamesOf(subject).model.owned)))
+	installationWith(subject, at, firstCodebook(rostersOf(lawNamesOf(subject).model.owned)), [])
 
 /**
- * A subject's whole installation compiled under `codes`, as installationOf compiles it: the installation a history
- * whose rosters hold holes reaches, which a fresh installation's codes would number otherwise.
+ * A subject's whole installation compiled under `codes` with `logins`, as installationOf compiles it: the installation
+ * a history whose rosters hold holes reaches, which a fresh installation's codes would number otherwise, holding what
+ * its logins' roles install beside the base (each role's views, and the text and contract domains of the context
+ * fields they read).
  */
 export const installationWith = (
 	subject: NamingSubject,
 	at: InstalledAt,
-	codes: Codebook
+	codes: Codebook,
+	logins: ReadonlyArray<OwnedLogin>
 ): Installation => {
 	const owned = lawNamesOf(subject).model.owned
 	const under = at.kind === "declared" ? owned.installation : at.installation
 	const installation = compileInstallation(
 		owned,
-		completeInstallOptions(owned, under, [], [], codes)
+		completeInstallOptions(owned, under, logins, [], codes)
 	)
 	if (!installation.ok) {
 		throw refused(installation.error)

@@ -658,8 +658,8 @@ const nodeSpawner = NodeChildProcessSpawner.layer.pipe(
  * the file must return the database as it found it. A file that needs a whole database of its own, because it checks
  * the entire catalog or changes the database itself, builds Substrate.isolatedLayer and says why in a comment.
  *
- * Every connection reaches PostgreSQL itself, directly. A process first takes its cluster-wide connection lease
- * (shared.ts leaseConnections).
+ * Every connection reaches PostgreSQL itself, directly. A substrate first takes a cluster-wide connection lease for its
+ * own life (shared.ts leaseConnections), so a process holds none once its substrates are released.
  *
  * Every role a test allocates is `<schema>__<name>`, the form of a login or world role (The cluster). The owner
  * creates it with CREATEROLE, which leaves the owner ADMIN OPTION only. The allocator also grants the role to the

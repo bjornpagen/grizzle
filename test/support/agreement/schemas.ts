@@ -544,7 +544,7 @@ const refusals: { readonly [F in SchemaFault]: Refusing } = {
 	},
 	checkOverDerived: {
 		engine: { tag: "LawOnDerived" },
-		code: "TS2739",
+		code: "TS2345",
 		claim: prose("check takes ordinary relations only")
 	},
 	selectOverDerived: {
@@ -5912,7 +5912,7 @@ const vectorProbe = (d: Drawing): Probe => {
 			switch (form.call) {
 				case "make":
 					return oneLine(
-						`export const ${own}: Fi.Vector<${form.target === "same" ? n : other}> = Fi.Vector.make(${bufferSource(form.buffer)}, ${form.dims === "number" ? n : jsonText(String(n))})`
+						`export const ${own}${form.fault === "vectorMakeBuffer" || form.fault === "vectorDimensionArgument" ? "" : `: Fi.Vector<${form.target === "same" ? n : other}>`} = Fi.Vector.make(${bufferSource(form.buffer)}, ${form.dims === "number" ? n : jsonText(String(n))})`
 					)
 				case "from":
 					return oneLine(`export const ${own} = Fi.Vector.from(${bufferSource(form.buffer)}, ${n})`)
@@ -6217,11 +6217,11 @@ const generatedProbe = (d: Drawing, base: Base): Probe => {
 			case "readsCaller":
 				return `{ g: Fi.generated(${set}, Cp.Compute.union(r.w, r.w)) }`
 			case "generatedReadsGenerated":
-				return `{ next: ${nextSource}, twice: Fi.generated(Fi.pg.bigint, Cp.Compute.add(r.next, 1n)) }`
+				return `{ next: ${nextSource}, twice: Fi.generated(Fi.pg.bigint, r.next) }`
 			case "generatedReadsAccumulated":
 				return `{ g: Fi.generated(${set}, r.acc) }`
 			case "generatedReadsDrawn":
-				return "{ m: Fi.generated(Fi.pg.bigint, Cp.Compute.add(r.n, 1n)) }"
+				return "{ m: Fi.generated(Fi.pg.bigint, r.n) }"
 			case "generatedWrongType":
 				return "{ label: Fi.generated(Fi.pg.bigint, r.depth) }"
 			case "generatedTwiceNamed":
@@ -6258,12 +6258,12 @@ const generatedProbe = (d: Drawing, base: Base): Probe => {
 						case "generatedReadsGenerated":
 							return {
 								next: next(row),
-								twice: generatedField(pgDescriptors.bigint, computeCore.add(row["next"], 1n), [])
+								twice: generatedField(pgDescriptors.bigint, row["next"], [])
 							}
 						case "generatedReadsAccumulated":
 							return { g: generatedField(set, row["acc"], []) }
 						case "generatedReadsDrawn":
-							return { m: generatedField(pgDescriptors.bigint, computeCore.add(row["n"], 1n), []) }
+							return { m: generatedField(pgDescriptors.bigint, row["n"], []) }
 						case "generatedWrongType":
 							return { label: generatedField(pgDescriptors.bigint, row["depth"], []) }
 						case "generatedTwiceNamed":
@@ -6565,7 +6565,7 @@ const ruleProbe = (d: Drawing, base: Base): Probe => {
 	const target = d.from(literalTargets)
 	const type = targetType(target, roster.name)
 	const kinds: Arr.NonEmptyReadonlyArray<LiteralValue> =
-		form === "inSet" ? literalsOfTarget(target) : literalsAt(target)
+		form === "inSet" ? literalsOfTarget(target) : listedAt(target)
 	const literal = literalOf(d.from(kinds), roster)
 	const contractWay = d.from(["contract var at base", "base var at contract"] as const)
 	if (form === "paramTwice" || form === "negationParam") {
@@ -6631,12 +6631,13 @@ const ruleProbe = (d: Drawing, base: Base): Probe => {
 				}
 				case "bindingType":
 				case "negatedBindingType": {
-					const binding = contractWay === "contract var at base" ? "{ id, n: c }" : "{ id, c: n }"
+					const [bound, binding] =
+						contractWay === "contract var at base" ? ["c", "{ id, n: c }"] : ["n", "{ id, c: n }"]
 					return {
 						head,
 						line: rule(
 							form === "bindingType"
-								? `const { id, c, n } = Q.v(${lit}, "lit"); return r.match(${lit}, ${binding}).find({ id })`
+								? `const { id, ${bound} } = Q.v(${lit}, "lit"); return r.match(${lit}, ${binding}).find({ id })`
 								: `const { id, c, n } = Q.v(${lit}, "lit"); return r.match(${lit}, { id, c, n }).where(r.not(${lit}, ${binding})).find({ id })`
 						),
 						tail: []
@@ -6828,6 +6829,15 @@ const ruleProbe = (d: Drawing, base: Base): Probe => {
 		}
 	}
 }
+
+/**
+ * The literals an inSet of a planted kind lists at a target: those literalsAt draws, but at money no Decimal, which
+ * TypeScript reports as a class missing Money's members (TS2739), never as the element type it is not (TS2322).
+ */
+const listedAt = (t: LiteralTarget): Arr.NonEmptyReadonlyArray<LiteralValue> =>
+	t === "money"
+		? ["number", "bigint", "decimal", "boolean", "handle", "stranger", "uuid", "moneyValue"]
+		: literalsAt(t)
 
 /** The literal values of a literal target's own type: those a literal probe's engine admits at it. */
 const literalsOfTarget = (t: LiteralTarget): Arr.NonEmptyReadonlyArray<LiteralValue> => {

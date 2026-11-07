@@ -593,6 +593,7 @@
 						"test/types/regex/agreement.test.ts",
 						"test/types/regex/schema.test.ts",
 						"test/types/schema/agreement.test.ts",
+						"test/types/schema/generic.test.ts",
 						"test/types/text/bytes.test.ts",
 						"test/types/text/regex.test.ts"
 					],

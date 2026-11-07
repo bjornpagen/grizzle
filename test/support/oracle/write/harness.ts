@@ -583,7 +583,8 @@ const judgedExpectation = (
 
 /**
  * The problems of a refusal with `o`'s laws against the refusals an expectation allows: every law it names is one,
- * and its witness is the first's.
+ * and its witness is a violating key of one of the allowed refusals of its first law. One law may be allowed more than
+ * once, as two strata's clashes on one key are, each with keys of its own, and the witness may name any of them.
  */
 const refusalProblems = (
 	group: WGroup,
@@ -599,13 +600,14 @@ const refusalProblems = (
 			)}`
 		]
 	}
-	return Option.match(
-		Arr.findFirst(refusals, (r) => r.law === Arr.headNonEmpty(o.laws)),
-		{
-			onNone: () => [],
-			onSome: (refusal) => witnessProblems(group, refusal, o)
-		}
+	const verdicts = Arr.map(
+		Arr.filter(refusals, (r) => r.law === Arr.headNonEmpty(o.laws)),
+		(refusal) => witnessProblems(group, refusal, o)
 	)
+	return Arr.isReadonlyArrayNonEmpty(verdicts) &&
+		!Arr.some(verdicts, (problems) => !Arr.isReadonlyArrayNonEmpty(problems))
+		? Arr.headNonEmpty(verdicts)
+		: []
 }
 
 /** A relation's counts as an accepted outcome reports them. */

@@ -99,8 +99,10 @@ import type {
 	RowScalars,
 	Selection,
 	SelfFamily,
+	Showing,
+	ShowingKeyed,
+	ShowingKind,
 	Shows,
-	ShowsKeyed,
 	Side,
 	SideHosts,
 	SideShows,
@@ -319,7 +321,7 @@ export const check = <
 	Pr extends Predicate<never>
 >(
 	name: Name,
-	target: R & (Shows<N, C> | Refusal<"a generic source's relations share one heading">),
+	target: R & Showing<N, C>,
 	predicate: (row: RowScalars<Shows<N, C>>) => Pr & Parameterless<Pr>
 ): Check<Name, R> => checkBuilder<Name, R>(name, target, predicate)
 
@@ -351,7 +353,7 @@ export const select = <
 	C,
 	Pr extends Predicate<never>
 >(
-	target: R & (Shows<N, C> | Refusal<"a generic source's relations share one heading">),
+	target: R & Showing<N, C>,
 	predicate: (row: RowScalars<Shows<N, C>>) => Pr & Parameterless<Pr>
 ): Selection<R> => selectBuilder<R>(target, predicate)
 
@@ -393,12 +395,7 @@ export const alternatives = <
 	const D extends DiscriminatorsOf<PC, C>,
 	const Arms extends Partial<{ readonly [H in HandleOf<C>]: KeyRef<AnyRelation> }>
 >(
-	parent: PK &
-		(
-			| ShowsKeyed<PN, PC, PF>
-			| KeyShows<PN, PC, PF>
-			| Refusal<"a generic source's relations share one heading">
-		),
+	parent: PK & (ShowingKeyed<PN, PC, PF> | KeyShows<PN, PC, PF>),
 	discriminator: D,
 	roster: C,
 	arms: Arms &
@@ -420,11 +417,7 @@ export const fin = <
 	K,
 	const N extends CountFieldIn<K, OC>
 >(
-	owner: O &
-		(
-			| (Shows<ON, OC> & { readonly kind: K })
-			| Refusal<"a generic source's relations share one heading">
-		),
+	owner: O & ShowingKind<ON, OC, K>,
 	count: N
 ): Fin<O, N> => finBuilder<O, N>(owner, count)
 

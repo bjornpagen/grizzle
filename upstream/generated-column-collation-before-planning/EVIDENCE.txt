@@ -88,8 +88,10 @@ nodeModifyTable.c and relcache.c; none touches heap.c, clauses.c or the parser, 
    
 
    Refused (42P22): =, <, IN, an explicit COLLATE on one operand, starts_with, GREATEST, ~ and lower() over constants;
-   the same as a VIRTUAL column; a CASE where one arm reads a column but the other compares constants; and ALTER TABLE
-   ... ADD COLUMN ... GENERATED. Accepted: the same comparison as a CHECK, a DEFAULT, a partial index's predicate and a
+   the same as a VIRTUAL column; a CASE where one arm reads a column but the other compares constants; ALTER TABLE
+   ... ADD COLUMN ... GENERATED; and an expression that reads a column whose parser expansion compares two constants:
+   'ab' BETWEEN 'ab' AND a, 'ab' IN ('ab', a), and a simple CASE over a constant operand (rerun 2026-11-07, 19rc1).
+   Accepted: the same comparison as a CHECK, a DEFAULT, a partial index's predicate and a
    SELECT, and a generated column whose comparison reads a column.
 
 4. WHY COLLATE DOESN'T HELP

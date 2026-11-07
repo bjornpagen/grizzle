@@ -39,9 +39,9 @@ import type { Corpus, Fuzz, FuzzBudget } from "#fuzz.ts"
 import type { Gen } from "#gen.ts"
 import {
 	abandon,
+	awaitWithinGrace,
 	liveMillis,
 	liveSleepUntil,
-	stopHung,
 	WATCHDOG_GRACE_MILLIS,
 	watchedCase
 } from "#live.ts"
@@ -111,32 +111,47 @@ export const noDeadline: Deadline = { kind: "unbounded" }
 
 /**
  * How long before its test's deadline a search stops its work and reports: the time from the moment it is due to stop
- * to the moment its test's function has failed with the report, which then beats the test's own timeout.
+ * to the moment its test's function has failed with the report, which then beats the test's own timeout. In it the
+ * search logs its report, then awaits the cleanup of every case it stopped (withCaseLives), so a report outlives a
+ * cleanup slower than the margin, and only the typed failure is lost to the test's own timeout.
  *
  * @limitKind measured
  * @owner the choice-stream testing library (explore)
  * @unit milliseconds
  * @scope every search under a bounded deadline (Run.deadline), in each test process alone
- * @evidence packages/testing/out/print-margin/ in superstarter's checkout of this library: busy-20261104T220121.jsonl,
- * loaded-20261104T220131.jsonl and suite-load-20261104T220131.jsonl, one row per cut search, its time from its cut to
- * its failure leaving @effect/vitest's logging; grizzle-write-literal-20261104T220220.json, four runs of
- * Formatter.format over 300 of grizzle's write-oracle sketches
- * @observed 2026-11-04 21:59 to 22:03 CST
+ * @evidence the report: packages/testing/out/print-margin/ in superstarter's checkout of this library,
+ * busy-20261104T220121.jsonl, loaded-20261104T220131.jsonl and suite-load-20261104T220131.jsonl, one row per cut
+ * search, its time from its cut to its failure leaving @effect/vitest's logging, and
+ * grizzle-write-literal-20261104T220220.json, four runs of Formatter.format over 300 of grizzle's write-oracle sketches;
+ * the cleanup: packages/testing/out/print-margin/release-20261107T140045/ in grizzle's checkout, small.sql and large.sql
+ * with small-1.txt to small-10.txt and large-1.txt to large-10.txt, the output of
+ * `scripts/pg/ctl.sh admin postgres -X -q -f <script>` run ten times each, alternating
+ * @observed the report 2026-11-04 21:59 to 22:03 CST; the cleanup 2026-11-07 14:00:45 to 14:01:15 UTC
  * @environment macOS (Darwin 27.0.0) on 10 cores, Node 26.13.0, Vitest 5.1.0, effect and @effect/vitest 4.1.2, the
- * library's pool of forks under its hardened flags; load average 27 to 44 from other sessions throughout
- * @workload 240 cut searches, four test files at once, two thirds of them while the library's whole suite ran at four
- * workers: a floor case fails, the shrink's next candidate never ends, and the deadline cuts it; reports of 1.6 KB (an
- * int) and 68 KB (300 records), each with a cause's stack and 50 drawn values; and grizzle's write-oracle literal, 30 KB,
- * the largest sketch the three repositories print
- * @result every search ended in its PropertyFalsified; print time 0 to 6 ms for 1.6 KB reports and 2 to 30 ms for 68 KB
- * ones, the slowest a process's first; grizzle's literal alone 0.3 to 0.4 ms median, 11 to 47 ms p99 and 29 to 87 ms
- * worst, each worst a run's first, cold; event-loop lag and garbage collection not measured apart from them
- * @decision the slowest report seen (30 ms) with the slowest literal seen (87 ms) is about 120 ms; 500 ms is four times
- * that, for timers late on a machine loaded four times over its cores
- * @revalidate a Node, Vitest or effect upgrade; a literal much slower than 87 ms; a property or finalizer that holds the
- * event loop near its deadline; any report lost to a bare timeout
+ * library's pool of forks under its hardened flags, load average 27 to 44 from other sessions; the cleanup on grizzle
+ * 5d61c85aa415's local PostgreSQL 19rc1 cluster (scripts/pg/pin.env), load average 78.8 to 85.1 from other sessions
+ * @workload the report: 240 cut searches, four test files at once, two thirds of them while the library's whole suite
+ * ran at four workers: a floor case fails, the shrink's next candidate never ends, and the deadline cuts it; reports of
+ * 1.6 KB (an int) and 68 KB (300 records), each with a cause's stack and 50 drawn values; and grizzle's write-oracle
+ * literal, 30 KB, the largest sketch the three repositories print. The cleanup: the release a grizzle test's case runs
+ * when it is stopped (test/support/substrate/substrate.ts), DROP OWNED BY and DROP ROLE for each role, then DROP SCHEMA
+ * CASCADE, of a schema shaped like the largest a running test held (6 tables with 12 trigger functions, 10 triggers and
+ * two roles, 1,000 rows) and of one ten times its size (40 tables with 40 more indexes, 120 trigger functions, 80
+ * triggers and one role)
+ * @result every cut search ended in its PropertyFalsified; print time 0 to 6 ms for 1.6 KB reports and 2 to 30 ms for
+ * 68 KB ones, the slowest a process's first; grizzle's literal alone 0.3 to 0.4 ms median, 11 to 47 ms p99 and 29 to
+ * 87 ms worst, each worst a run's first, cold. A release of the test-sized schema 9.5 to 801 ms, five of ten under
+ * 20 ms; of the ten-times schema 1,171 to 2,186 ms; no errors; event-loop lag, garbage collection and a session's
+ * backend exit (pg_terminate_backend's wait) not measured apart from them
+ * @decision the slowest report seen (30 ms) with the slowest literal seen (87 ms) is about 120 ms; the longer of the
+ * slowest release of the ten-times schema (2,186 ms) and three stopped cases' slowest releases of the test-sized one,
+ * one after another (3 x 801 ms, 2,403 ms), brings it to about 2,520 ms. 3,000 ms leaves 480 ms more, a fifth of it,
+ * for timers late on a machine loaded eight times over its cores, as the release was measured under
+ * @revalidate a Node, Vitest, effect or PostgreSQL upgrade; a literal much slower than 87 ms; a case whose cleanup
+ * releases more than the ten-times schema, or a search that stops more cases at once; a property or finalizer that holds
+ * the event loop near its deadline; any typed failure lost to a bare timeout
  */
-export const PRINT_MARGIN_MILLIS = 500
+export const PRINT_MARGIN_MILLIS = 3_000
 
 /** The run an exploration draws from, as the test it runs in sees it: the process's run, and its test's deadline. */
 export class Run extends Context.Service<Run, ProcessRun & Readonly<{ deadline: Deadline }>>()(
@@ -181,6 +196,51 @@ const cuttingOf = (deadline: Deadline): Effect.Effect<Cutting, never, Scope.Scop
 /** The moment a search's cut comes, none when it never does. */
 const cutMoment = (cutting: Cutting): Option.Option<number> =>
 	cutting.kind === "at" ? Option.some(cutting.moment) : Option.none()
+
+/**
+ * What a search's cases live within: its cut, and `stop`, which interrupts a case's fiber without waiting and keeps it
+ * among the fibers the search awaits before it returns, so no case's cleanup outlives the search that started it.
+ */
+type Life = Readonly<{
+	cutting: Cutting
+	stop: (fiber: Fiber.Fiber<unknown, unknown>) => Effect.Effect<void>
+}>
+
+/**
+ * A search whose cases live no longer than it does: `body` runs with the search's run and life, and every case fiber
+ * it stops is awaited before the search returns, however it ends, its cut, its hang and its interruption included.
+ * Should a stopped case still be cleaning up when the search fails, the failure's report is printed first, so a
+ * deadline that arrives during the wait cannot lose it. A cleanup that never ends holds the search, and its test's own
+ * timeout names the leak.
+ */
+const withCaseLives = <A, R>(
+	body: (run: Context.Service.Shape<typeof Run>, life: Life) => Effect.Effect<A, SearchFailure, R>
+): Effect.Effect<A, SearchFailure, Run | Exclude<R, Scope.Scope>> =>
+	Effect.suspend(() => {
+		const stopped = new Set<Fiber.Fiber<unknown, unknown>>()
+		const cleaning = () =>
+			Arr.some(Arr.fromIterable(stopped), (fiber) => fiber.pollUnsafe() === undefined)
+		return Effect.scoped(
+			Effect.gen(function* () {
+				const run = yield* Run
+				yield* Effect.addFinalizer(() =>
+					Effect.forEach(stopped, (fiber) => Fiber.await(fiber), { discard: true })
+				)
+				const cutting = yield* cuttingOf(run.deadline)
+				const life: Life = {
+					cutting,
+					stop: (fiber) =>
+						Effect.andThen(
+							Effect.sync(() => stopped.add(fiber)),
+							abandon(fiber)
+						)
+				}
+				return yield* body(run, life)
+			}).pipe(
+				Effect.tapError((failure) => (cleaning() ? liveReport(failure.message) : Effect.void))
+			)
+		)
+	})
 
 /** A case gave itself up: its precondition did not hold. It never counts as a pass or a failure. */
 export class CaseDiscarded extends Schema.TaggedError<
@@ -617,14 +677,16 @@ type Blocked<S> = (sketch: Option.Option<S>, tape: Tape) => string
 
 /**
  * Runs one case on a recorder from the pool: generates its sketch from the chooser, resolves it, and runs the property
- * in its own scope and fiber, raced against the hang guard and the search's deadline, so a case's finalizers always
- * run, a hung case's included, for as long as HUNG_CLEANUP_GRACE allows (live.ts). The case's fiber starts inline, so
- * a property that runs to its end synchronously arms no guard and never waits on the event loop; from its start until
- * the race that guards it, the search is uninterruptible, so an interruption of the search that arrives in between,
- * from the case's own synchronous work included, reaches the race and stops the case rather than leaving it running
- * detached. A case the deadline cuts is stopped
- * without waiting on its cleanup, which runs on while the search reports, and a case begun once the search is due to
- * stop is cut before its property runs. The property's own draws continue the same tape, so they replay and shrink with
+ * in its own scope and fiber, raced against the hang guard and the search's deadline. A case stopped any way, hung, cut
+ * or interrupted with the search, is kept among its search's stopped cases (`life`, withCaseLives), whose cleanups the
+ * search awaits before it returns, so a case's finalizers always run and none outlives its search. The case's fiber
+ * starts inline, so a property that runs to its end synchronously arms no guard and never waits on the event loop;
+ * from its start until the race that guards it, the search is uninterruptible, so an interruption of the search that
+ * arrives in between, from the case's own synchronous work included, reaches the race and stops the case rather than
+ * leaving it running detached. A hung case's cleanup is awaited for HUNG_CLEANUP_GRACE (live.ts) before the search goes
+ * on, the rest of it when the search ends; a case the deadline cuts is stopped without waiting on its cleanup until the
+ * search ends, so the search reports first; and a case begun once the search is due to stop is cut before its property
+ * runs. The property's own draws continue the same tape, so they replay and shrink with
  * the case, and it steers as `under` says. The tape is copied out only for a failed, hung or cut case and for what
  * `keep` asks; the recorder goes back to the pool when the case ends, so a use of the case after that is marked a
  * misuse and never reaches the recorder, which another case may be drawing on. The process's watchdog watches the case
@@ -640,7 +702,7 @@ const runCase = <S, T, F extends string, E, R, K>(
 	pool: Array<Recorder>,
 	under: Under<F>,
 	caseHang: Duration.Input,
-	cutting: Cutting,
+	life: Life,
 	keep: (recorded: Recording) => K,
 	sense: Sense,
 	blocked: Blocked<S>
@@ -650,7 +712,7 @@ const runCase = <S, T, F extends string, E, R, K>(
 		recorded.reset(chooser)
 		let drawnSketch: Option.Option<S> = Option.none()
 		return watchedCase(
-			{ caseHang, cut: cutMoment(cutting) },
+			{ caseHang, cut: cutMoment(life.cutting) },
 			() => blocked(drawnSketch, recorded.tape()),
 			runRecorded(
 				generator,
@@ -660,7 +722,7 @@ const runCase = <S, T, F extends string, E, R, K>(
 				pool,
 				under,
 				caseHang,
-				cutting,
+				life,
 				keep,
 				sense,
 				(sketch) => {
@@ -679,7 +741,7 @@ const runRecorded = <S, T, F extends string, E, R, K>(
 	pool: Array<Recorder>,
 	under: Under<F>,
 	caseHang: Duration.Input,
-	cutting: Cutting,
+	life: Life,
 	keep: (recorded: Recording) => K,
 	sense: Sense,
 	onDrawn: (sketch: S) => void
@@ -762,6 +824,7 @@ const runRecorded = <S, T, F extends string, E, R, K>(
 		return Effect.uninterruptibleMask((restore) =>
 			Effect.gen(function* () {
 				const began = yield* liveMillis
+				const cutting = life.cutting
 				if (cutting.kind === "at" && began >= cutting.moment) {
 					return finish({ kind: "cut" })
 				}
@@ -779,14 +842,15 @@ const runRecorded = <S, T, F extends string, E, R, K>(
 					...(cutting.kind === "at" ? [Effect.as(cutting.reached, { kind: "cut" } as const)] : [])
 				]
 				const ended = yield* restore(Effect.raceAllFirst(guards)).pipe(
-					Effect.onInterrupt(() => stopHung(running))
+					Effect.onInterrupt(() => life.stop(running))
 				)
 				switch (ended.kind) {
 					case "hung":
-						yield* stopHung(running)
+						yield* life.stop(running)
+						yield* awaitWithinGrace(running)
 						break
 					case "cut":
-						yield* abandon(running)
+						yield* life.stop(running)
 						break
 					case "passed":
 					case "discarded":
@@ -992,7 +1056,7 @@ type Replaying<S, T, F extends string> = Readonly<{
 const replayOne = <S, T, F extends string, E, R, A>(
 	search: Replaying<S, T, F>,
 	run: Context.Service.Shape<typeof Run>,
-	cutting: Cutting,
+	life: Life,
 	property: (value: T, c: Case<F>) => Effect.Effect<void, E, R>,
 	replayed: ReplayCase,
 	passed: () => A
@@ -1014,7 +1078,7 @@ const replayOne = <S, T, F extends string, E, R, A>(
 			[],
 			underOf(search.situations, replayed.drawn),
 			search.caseHang,
-			cutting,
+			life,
 			keepNothing,
 			notesOnly,
 			blockedIn(run, search.suite, search.literal, search.caseHang, Option.some(replayed.drawn))
@@ -1096,6 +1160,10 @@ export type Explored = Readonly<{
  * running it, as `go test -fuzz` does, past a test's captured console. */
 const liveLog = (line: string) =>
 	Console.log(line).pipe(Effect.provideService(Console.Console, Console.Console.defaultValue()))
+
+/** A report on the process's own error console, whatever console the search runs under. */
+const liveReport = (report: string) =>
+	Console.error(report).pipe(Effect.provideService(Console.Console, Console.Console.defaultValue()))
 
 /** How often a fuzz run reports its progress, in milliseconds of wall time. */
 const STATUS_EVERY = 3000
@@ -1209,10 +1277,8 @@ export const explore = <S, T, F extends string, E, R>(
 	spec: Exploration<S, T, F>,
 	property: (value: T, c: Case<F>) => Effect.Effect<void, E, R>
 ): Effect.Effect<Explored, SearchFailure, Run | Exclude<R, Scope.Scope>> =>
-	Effect.scoped(
+	withCaseLives((run, life) =>
 		Effect.gen(function* () {
-			const run = yield* Run
-			const cutting = yield* cuttingOf(run.deadline)
 			const situations = situationsOf(spec.coverage)
 			const replay = Option.filter(run.replay, (requested) => requested.suite === spec.suite)
 			if (Option.isSome(replay)) {
@@ -1226,7 +1292,7 @@ export const explore = <S, T, F extends string, E, R>(
 						caseHang: spec.caseHang
 					},
 					run,
-					cutting,
+					life,
 					property,
 					replay.value.replayed,
 					(): Explored => ({
@@ -1262,7 +1328,7 @@ export const explore = <S, T, F extends string, E, R>(
 					pool,
 					under,
 					spec.caseHang,
-					cutting,
+					life,
 					keepNothing,
 					notesOnly,
 					blockedUnder(under)
@@ -1276,7 +1342,7 @@ export const explore = <S, T, F extends string, E, R>(
 					pool,
 					under,
 					spec.caseHang,
-					cutting,
+					life,
 					keepTape,
 					sense,
 					blockedUnder(under)
@@ -1290,7 +1356,7 @@ export const explore = <S, T, F extends string, E, R>(
 					pool,
 					under,
 					spec.caseHang,
-					cutting,
+					life,
 					keepTape,
 					notesOnly,
 					blockedUnder(under)
@@ -1316,7 +1382,7 @@ export const explore = <S, T, F extends string, E, R>(
 					pool,
 					unsteered,
 					spec.caseHang,
-					cutting,
+					life,
 					keepNothing,
 					notesOnly,
 					blockedIn(run, spec.suite, spec.literal, spec.caseHang, Option.none())
@@ -1744,10 +1810,8 @@ export const exhaust = <A, F extends string, E, R>(
 	spec: Exhaustion<A, F>,
 	property: (value: A, c: Case<F>) => Effect.Effect<void, E, R>
 ): Effect.Effect<Exhausted, SearchFailure, Run | Exclude<R, Scope.Scope>> =>
-	Effect.scoped(
+	withCaseLives((run, life) =>
 		Effect.gen(function* () {
-			const run = yield* Run
-			const cutting = yield* cuttingOf(run.deadline)
 			const situations = situationsOf(spec.coverage)
 			const exhaustedOf = (cases: number): Exhausted => ({
 				kind: "exhausted",
@@ -1769,7 +1833,7 @@ export const exhaust = <A, F extends string, E, R>(
 						caseHang: spec.caseHang
 					},
 					run,
-					cutting,
+					life,
 					property,
 					replay.value.replayed,
 					(): Exhausted => exhaustedOf(1)
@@ -1797,7 +1861,7 @@ export const exhaust = <A, F extends string, E, R>(
 					pool,
 					under,
 					spec.caseHang,
-					cutting,
+					life,
 					keepTape,
 					notesOnly,
 					blockedUnder(under)
@@ -1812,7 +1876,7 @@ export const exhaust = <A, F extends string, E, R>(
 					pool,
 					under,
 					spec.caseHang,
-					cutting,
+					life,
 					keepTape,
 					notesOnly,
 					blockedUnder(under)

@@ -14,7 +14,10 @@ expression calls a collatable function on constant arguments is refused:
 The same happens for <, IN, starts_with(), GREATEST, ~ ("... for regular
 expression") and lower() ("... for lower() function"), for VIRTUAL columns,
 for ALTER TABLE ... ADD COLUMN, when one operand has an explicit COLLATE, and
-when only one arm of a CASE compares constants while another reads a column.
+when only one arm of a CASE compares constants while another reads a column,
+and when the expression as written reads a column but the parser's expansion
+of it compares two constants: 'ab' BETWEEN 'ab' AND a, 'ab' IN ('ab', a), and
+a ~ CASE 'ab' WHEN 'ab' THEN 'x' ELSE 'y' END.
 The same expression is accepted as a CHECK, a DEFAULT, a partial index
 predicate and in a SELECT.  A self-contained script is below.
 
@@ -46,6 +49,7 @@ Reproduction (psql -X, temporary tables only):
     CREATE TEMP TABLE g_collate (a int, b boolean GENERATED ALWAYS AS ('ab'::text COLLATE "C" < 'bb'::text) STORED);
     CREATE TEMP TABLE g_regex (a int, b boolean GENERATED ALWAYS AS ('ab'::text ~ 'a') STORED);
     CREATE TEMP TABLE g_lower (a int, b text GENERATED ALWAYS AS (lower('AB'::text)) STORED);
+    CREATE TEMP TABLE g_between (a text, b boolean GENERATED ALWAYS AS ('ab'::text BETWEEN 'ab'::text AND a) STORED);
     -- all fail with 42P22; these succeed:
     CREATE TEMP TABLE ok_check (a int, CHECK ('ab'::text < 'bb'::text));
     CREATE TEMP TABLE ok_column (a text, b boolean GENERATED ALWAYS AS (a = 'bb'::text) STORED);

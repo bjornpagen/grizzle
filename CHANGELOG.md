@@ -16,6 +16,30 @@ How to upgrade:
 
 ### Breaking changes
 
+#### A rule written in a helper generic over its tables typechecks exactly where it holds for each of them
+
+- **Every statement builder reads a generic source's name and heading off its constraint**, so `contained`,
+  `mirrors`, `key`, `check`, `select` and its predicate, `alternatives`, `fin`, `ordered`, `counted`, `tree` and `fold`
+  typecheck inside a helper generic over the tables they read, such as
+  `<T extends typeof A | typeof B>(t: T) => contained(on(t, "owner"), on(Owner, "id"))`, exactly where the rule holds
+  for each table T may be. Each builder's check was a conditional type over the type parameter, which TypeScript
+  defers, so such a helper failed with TS2345 whatever it stated, and `key` admitted one it should refuse. The tables a
+  generic source may be share one heading, or one holds every field of another and more; a helper over tables that
+  share none is refused, `a generic source's relations share one heading`. A fold's step and end, and a tree's slots,
+  are held to the family's own member and owner by assignability, so two type parameters of one constraint are never
+  taken for one table. Each builder takes the name and heading it infers as type parameters of its own, and
+  `RowScalars` takes a source that shows them. Codemod: `Parameters<Parameters<typeof check<N, R, P>>[2]>[0]` →
+  `RowScalars<R>`.
+- **A query rule reads a generic relation the same way**: `v(m, "x")` mints its variables over the heading the
+  relations share, and `r.match(m, …)` and `r.not(m, …)` check their bindings against it and the relation against the
+  query's schema by assignability, so `query(S).rule((r) => { const x = v(m, "x"); return r.match(m, { id: x.id
+  }).find({ id: x.id }) })` typechecks inside a helper generic over S's relations, its filters, joins, constants,
+  negations and folds included. A match records the relation as it shows itself, its name the union of its relations'
+  names, so the query's evidence is read off the relations it may be: its keys are those every one of them holds
+  (`KeysOf` reads a declared key under each name), and no containment, alternatives or reflexive proof reads it, nor
+  holds one of its variables, since a law of one of them proves nothing of the others. A source that is a union of an
+  ordinary relation and another kind of source is read as before. No codemod.
+
 #### A variable binds only a field of its own type, so a contract never binds its bare base
 
 - **`r.match` and `r.not` refuse a variable bound at a field of another type, exactly where `Compute.eq` of the two is
@@ -36,7 +60,12 @@ How to upgrade:
   `endsWith` and `greatest` over such texts, compiled and then failed its migration with 42P22 ("could not
   determine which collation to use for string comparison"): PostgreSQL 19 plans a generation expression, and so
   pre-evaluates a function of constants, before it assigns the expression's collations, a PostgreSQL bug written up
-  in `upstream/generated-column-collation-before-planning`. Regenerate: an expression holding such a subterm prints
+  in `upstream/generated-column-collation-before-planning`. The same held where PostgreSQL's reading of a node that
+  reads the row sets two constants side by side: a match of a row's text against a pattern that reads no row,
+  `Compute.matches(t, Pick.at("t", "k1"))`, printed `CASE <pattern> WHEN '<source>' THEN …`, and a BETWEEN whose
+  operand and one bound read no row, `Compute.between(Compute.literal(Text, "a"), "a", t)`, which PostgreSQL reads as
+  `'a' >= 'a' AND 'a' <= t`. Now such a pattern prints as its regular expression, and such a BETWEEN as its two
+  comparisons, each comparison of constants as its value. Regenerate: an expression holding such a subterm prints
   its value. No codemod.
 
 #### A refused check names every rule its row breaks, and says when it can name only PostgreSQL's first
