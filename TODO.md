@@ -63,6 +63,8 @@ never as a hack downstream. Every hash goes to qti-pie, which repins at once.
 - **Leftovers from the fallback audits:** in edit.ts, a fold `where` that fails to evaluate is refused as integerRange
   where the nested path says factShape; WrittenOver's "description" arm exists only for test/support/describe.ts; the
   re-insert witness residual (a stored owner re-inserted beside a refused new owner).
+- **role's base type admits a role value** (AnyRole extends AnySchema) that the runtime then refuses as malformed: an
+  illegal state the types still represent (found by FULLROLE).
 - **qti-pie's other limits:** #4 a bytes type (covered by the bytes plan if it lands in beta.1), #6 a pattern law naming
   its relation and field, #8 float cast totality past the double form, and a containment whose source is a join.
 - **Mutation adequacy:** one seeded `pnpm mutate` sample on the release commit, in a scratch copy. Every surviving
