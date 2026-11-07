@@ -214,6 +214,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								},
 								(sketch, c) =>
 									Effect.gen(function* () {
+										yield* cleared(seat, ["Owner", "Member"])
 										const members = Arr.map(sketch.values, (i, member) => ({
 											member,
 											x: Arr.getUnsafe(SPEC.domain, i),
@@ -239,7 +240,6 @@ layer(Substrate.layer, { excludeTestServices: true })(
 													])
 										yield* db.apply(changes, {})
 										const read = yield* foldRead(f)
-										yield* cleared(seat, ["Owner", "Member"])
 										const after =
 											sketch.edit.kind === "delete"
 												? swapWithLast(m, before, 0, sketch.edit.at).after
@@ -304,7 +304,22 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										],
 										{ cases: 40, sense: notesOnly }
 									),
-									kept: [],
+									kept: [
+										{
+											note: "an owner of one member put in place: its count and end, its member's, differ from the starts its put's slot carries them at, which no comparison of the put reads",
+											sketch: {
+												owners: [{ id: 0, during: { start: 0, end: 1 }, members: [0] }],
+												labels: [0],
+												xs: [3],
+												put: { at: 0, label: 1 }
+											},
+											draws: "",
+											reaches: [
+												"a span-keyed owner put in place",
+												"a span-keyed owner put in place over its family's members"
+											]
+										}
+									],
 									runs: 24,
 									shrink: boundedShrink(40),
 									concurrency: 1,
@@ -317,6 +332,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								},
 								(sketch, c) =>
 									Effect.gen(function* () {
+										yield* cleared(seat, ["SpanOwner", "SpanMember"])
 										const xOf = (member: number): number =>
 											defined(sketch.xs[member], "a member's step value")
 										const labelOf = (i: number): number =>
@@ -351,7 +367,6 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										)
 										const owners = yield* tableState(o.installed, SpanOwner)
 										const stored = yield* tableState(o.installed, SpanMember)
-										yield* cleared(seat, ["SpanOwner", "SpanMember"])
 										assert.equal(first.kind, "accepted", "the owners' and members' insert")
 										assert.equal(outcome.kind, "accepted", "the owner's put")
 										unorderedEqual(

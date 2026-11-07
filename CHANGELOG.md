@@ -16,6 +16,17 @@ How to upgrade:
 
 ### Breaking changes
 
+#### A put of a span-keyed owner in place is accepted over its family's members
+
+- **A put of a mutable owner whose key holds a span, at a stored owner with members, updates it and is accepted.**
+  Before, the put updated the owner and was then refused with `TransientFailure{SpanKeyChange}`, as if a concurrent
+  change had moved its key. The check after the put's insert half compared the requested fact at every column its
+  slot carries. That included the owner's counts and fold ends, which the slot carries at their starts for an owner the
+  put inserts, while a stored owner holds its members' values. A slot's input now holds the fields its facts state
+  apart from the fields its families draw (`RelationInput.stated` and `.family`). Every comparison reads only the
+  stated part, only an insert writes the family's, and every statement over the slot still declares all of its arrays.
+  No codemod.
+
 #### A rule written in a helper generic over its tables typechecks exactly where it holds for each of them
 
 - **Every statement builder reads a generic source's name and heading off its constraint**, so `contained`,

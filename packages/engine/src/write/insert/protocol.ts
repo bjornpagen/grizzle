@@ -47,7 +47,8 @@ import { arbiterLaw, type WrittenRelation } from "#compiler/write/frontend/compi
 import { payloadOf, primaryKeyShape } from "#compiler/write/frontend/targets.ts"
 import {
 	inputGuarantees,
-	inputHeading,
+	inputFamily,
+	inputStated,
 	inputSharing,
 	keyUniqueBy,
 	readInput,
@@ -278,8 +279,8 @@ const storedAbsent = (
  * fact it did not insert and raises the refusal it finds, so it returns no row. An occupant the arbiter waited on and
  * saw commit is not in the transaction's snapshot, so the insert meets it as 40001. The classification reads the input
  * again (the arrays, or the carrier the schedule then gives a described member, which has two consumers) and returns
- * the requested facts no equal stored fact accounts for, an inserted fact and an exact repeat both being stored and
- * equal:
+ * the requested facts no stored fact equal at every field they state accounts for (input.ts inputStated), an inserted
+ * fact and an exact repeat both being stored and equal there, as a family owner's exact repeat is at a scalar key:
  *
  *   WITH "r1"(...) AS (<the input>),
  *   "r5"(<key>, "c8", "c9") AS MATERIALIZED (
@@ -320,10 +321,11 @@ export const buildInsert = (
 	const sameKeyCheck = variant === "protocol" && !keyUniqueBy(guarantees.keyUnique)
 	const written = insertedFields(relation, serial)
 	const proposes = proposalOf(relation, serial)
-	/** The written fields the input carries, which the insert reads from it, and the rest, each written at its start: a
-	 * fresh owner's counts and ends, which a nesting's input carries and a plain insert's does not. */
-	const heading = inputHeading(input)
-	const carries = (f: LawField): boolean => heading.some((c) => c.name === f.name)
+	/** The written fields the input carries, which the insert reads from it, the ones its facts state and the ones its
+	 * families draw that its slot carries (input.ts RelationInput), and the rest, each written at its start: a fresh
+	 * owner's counts and ends, which a nesting's input and an owner's plain insert carry and no other input does. */
+	const carried = [...inputStated(input), ...inputFamily(input)]
+	const carries = (f: LawField): boolean => carried.some((c) => c.name === f.name)
 	const fields = written.filter(carries)
 	const starts = written
 		.filter((f) => !carries(f))
@@ -750,15 +752,15 @@ export const buildSpanClassify = (
 ): WriteStatement<SpanClassifyResult> => {
 	const { relation, input } = spec
 	const at = `classify ${relation.name}`
-	/** The fields its input carries, which it compares the requested facts at: a fresh owner's count and ends are no
-	 * input's (statement.ts startOf), and its key is every input's. */
-	const heading = inputHeading(input)
-	const carried = keyFirst(relation).filter((f) => heading.some((c) => c.name === f.name))
-	if (!isNonEmpty(carried)) {
+	const pk = relation.primaryFields
+	/** The fields it compares the requested facts at, the ones its input's facts state (input.ts inputStated), its key
+	 * among them: never an owner's count or end its slot carries beside them, a family's, which a stored owner holds as
+	 * its members leave it and no put of the owner sets. */
+	const stated = inputStated(input)
+	const all = keyFirst(relation).filter((f) => stated.some((c) => c.name === f.name))
+	if (!isNonEmpty(all)) {
 		throw defect(`a classification of ${relation.name} whose input carries none of its key`)
 	}
-	const all = carried
-	const pk = relation.primaryFields
 	const scalars = pk.filter((f) => f !== span)
 	const vectorSchema = w.names.vectorSchema
 	const typeOf = rowType

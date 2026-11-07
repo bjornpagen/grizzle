@@ -26,7 +26,12 @@ import { buildEntryCheck, type EntryCheck, outsideProbes } from "#compiler/write
 import type { WriteFrontend, WrittenRelation } from "#compiler/write/frontend/compile.ts"
 import type { FamilyNode } from "#compiler/write/frontend/schedule.ts"
 import { payloadOf } from "#compiler/write/frontend/targets.ts"
-import { type RereadInput, unproved, type WriteInput } from "#compiler/write/insert/input.ts"
+import {
+	outsideInput,
+	type RereadInput,
+	unproved,
+	type WriteInput
+} from "#compiler/write/insert/input.ts"
 import { buildInsert, buildSpanClassify, insertShape } from "#compiler/write/insert/protocol.ts"
 import {
 	type CarrierResult,
@@ -173,12 +178,7 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 			const reads = refused.reads
 			check(
 				reads.kind === "slot"
-					? {
-							kind: "relation",
-							slot: reads.slot.slot,
-							relation: refused.entry,
-							heading: reads.slot.heading
-						}
+					? outsideInput(reads.slot.slot, refused.entry, reads.slot.heading)
 					: { kind: "described", node: reads.node, proof: unproved },
 				{ kind: "outside", entry: refused.entry }
 			)

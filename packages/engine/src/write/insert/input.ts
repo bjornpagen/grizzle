@@ -33,6 +33,7 @@ import { type WriteCarrier, carrierField, carrierScan } from "#compiler/write/ca
 import type { FieldColumns } from "#compiler/write/defined.ts"
 import {
 	type InputColumnType,
+	isCarried,
 	isSerialField,
 	keyFirst,
 	type KeyPart,
@@ -96,29 +97,47 @@ export type WriteInput =
  * one statement's that reads it, so a member two statements read is carried. */
 export type RereadInput = Exclude<WriteInput, { readonly kind: "described" }>
 
-/** A relation parameter: the slot's facts, its columns in key-first order, so every statement reading it declares its
- * arrays alike. */
+/** A relation parameter: the slot's facts, its columns in two parts, each in key-first order, which every statement
+ * reading it declares whole (`readInput`). */
 export interface RelationInput {
 	readonly kind: "relation"
 	readonly slot: ParamId
 	readonly relation: string
-	readonly heading: Heading
+	/** The fields its facts state: its key and its caller's and serial fields, the ones a statement compares. */
+	readonly stated: Heading
+	/** The fields its slot carries beside them that its families draw (statement.ts isCarried): an owner's counts and
+	 * ends, at their starts or as its stratum's appends drew them (frontend/compile.ts EnumeratedInput), which an insert
+	 * writes and no statement compares, since a stored owner's hold its members'. None for any other slot. */
+	readonly family: Heading
 }
 
-/** The relation input of the slot `slot` whose facts carry `heading`, of `relation`: built once, with its slot
- * (`MemberSlot.input`), and a slot is one action's, so the plan and the conservative realization read one input, and the
- * statements each builds over it are one request (`StatementShare`). */
+/** The relation input of the slot `slot` whose facts carry `heading`, of `relation`, each column in its part by how the
+ * relation writes its field: built once, with its slot (`MemberSlot.input`), and a slot is one action's, so the plan and
+ * the conservative realization read one input, and the statements each builds over it are one request
+ * (`StatementShare`). */
 export const relationInput = (
 	slot: ParamId,
 	heading: Heading,
 	relation: RelationInfo
-): RelationInput =>
-	Object.freeze({
+): RelationInput => {
+	const carried = keyFirst(relation).flatMap((f) =>
+		heading.filter((c) => c.name === f.name).map((c) => ({ field: f, column: c }))
+	)
+	const states = (f: LawField): boolean => relation.primaryFields.includes(f) || isCarried(f)
+	return Object.freeze({
 		kind: "relation",
 		slot,
 		relation: relation.name,
-		heading: keyFirst(relation).flatMap((f) => heading.filter((c) => c.name === f.name))
+		stated: carried.filter((c) => states(c.field)).map((c) => c.column),
+		family: carried.filter((c) => !states(c.field)).map((c) => c.column)
 	})
+}
+
+/** The relation input of the slot `slot` an outside check reads (entry/precheck.ts), named after the entry `entry` an
+ * encoding refusal names: its every column, `heading`, declared and none read, since the check refuses whatever fact the
+ * slot holds, so it compares none and splits no part off. */
+export const outsideInput = (slot: ParamId, entry: string, heading: Heading): RelationInput =>
+	Object.freeze({ kind: "relation", slot, relation: entry, stated: heading, family: [] })
 
 /** The enumerated input whose emptiness lets the runtime skip a statement over `input`: a relation parameter's slot;
  * a carrier or a described member is no enumerated input. */
@@ -129,17 +148,26 @@ export const skipWhenEmptyOf = (input: WriteInput): ParamId | undefined =>
 export const inputGuarantees = (input: WriteInput): InputProof =>
 	input.kind === "relation" ? normalized : input.proof
 
-/** The fields an input carries: a slot's heading, a carrier's, or a described member's head. */
-export const inputHeading = (input: WriteInput): Heading => {
+/** The fields an input's facts state, which a statement compares them at: a slot's stated part, a carrier's heading, or a
+ * described member's head. */
+export const inputStated = (input: WriteInput): Heading => {
 	switch (input.kind) {
 		case "relation":
-			return input.heading
+			return input.stated
 		case "carrier":
 			return input.carrier.heading
 		case "described":
 			return input.node.heading
 	}
 }
+
+/** The fields an input carries beside its facts' that its families draw, which an insert writes: a slot's family part,
+ * none for a carrier or a described member. */
+export const inputFamily = (input: WriteInput): Heading =>
+	input.kind === "relation" ? input.family : []
+
+/** Every column a relation input's arrays declare: its stated part, then its family part. */
+const slotColumns = (input: RelationInput): Heading => [...input.stated, ...input.family]
 
 /** One input read for a statement as a set: the query that projects `fields`, and each projected column's type. */
 interface InputRead {
@@ -159,8 +187,9 @@ interface OperandRead {
  * deletion and D EXCEPT A, must read it after the cast, never before.
  *
  * - input: the statement's input CTE, its fields in order under the statement's scan alias (r0), a relation
- *   parameter's array columns named after the CTE's columns (r1(c1, c2, c3) reads r0(c1, c2, c3)), so `fields`
- *   covers the parameter's heading;
+ *   parameter's array columns named after the CTE's columns (r1(c1, c2, c3) reads r0(c1, c2, c3)), and any column of
+ *   the parameter `fields` leaves out declared after them under a fresh name, so a statement that compares only a slot's
+ *   stated part still declares its every array (`inputColumns`);
  * - except: an addition a deletion excepts, under a fresh alias, a relation parameter's arrays following its
  *   heading as given with fresh names, so every statement that reads one relation parameter declares its columns in
  *   one order. */
@@ -222,18 +251,19 @@ interface FieldRead {
 	readonly type: InputColumnType
 }
 
-/** The FROM item that reads an input, and how it reads a field by its name; a relation parameter's array columns are
- * named after the input CTE's columns (`Naming`), in the statement's field order. */
+/** The FROM item that reads an input, and how it reads a field by its name; a relation parameter's arrays are its whole
+ * heading whichever fields the statement reads, the ones it reads named after the input CTE's columns (`Naming`), in the
+ * statement's field order, and then the rest under fresh names, so its placeholders encode every column its facts hold. */
 const inputColumns = (
 	w: WriteContext,
 	input: WriteInput,
 	naming: Naming,
 	at: string
 ): { readonly from: FromItem; readonly read: (field: string) => FieldRead } => {
-	const heading = inputHeading(input)
 	/** A statement reads the fields of its relation the input carries: a slot's and a carrier's heading are the relation's
 	 * (less a generated addition's serial fields), and a described member's head is, which the checker holds it to
 	 * (`checkMemberHeading`). */
+	const heading = input.kind === "relation" ? slotColumns(input) : inputStated(input)
 	const typeOf = (field: string) => columnType(heading, field)
 	const aliasOf = (origin: Parameters<WriteContext["cx"]["relationAlias"]>[0]): string =>
 		naming.kind === "fresh" ? w.cx.relationAlias(origin) : naming.alias
@@ -241,20 +271,27 @@ const inputColumns = (
 		case "relation": {
 			const origin = { kind: "param", param: input.slot } as const
 			const base = (type: ScalarType) => w.cx.baseTypeRef(type)
+			const fresh = (columns: Heading) =>
+				relationColumns(columns, () => w.cx.supply.column(origin), base)
 			const slots = w.cx.member(
 				input.slot,
 				input.relation,
 				() =>
 					naming.kind === "named"
-						? naming.keys.pairs.map((p) => {
-								const type = columnType(input.heading, p.field.name)
-								return {
-									name: p.field.name,
-									type,
-									definition: columnDefinition(p.column, base(type))
-								}
-							})
-						: relationColumns(input.heading, () => w.cx.supply.column(origin), base),
+						? [
+								...naming.keys.pairs.map((p) => {
+									const type = typeOf(p.field.name)
+									return {
+										name: p.field.name,
+										type,
+										definition: columnDefinition(p.column, base(type))
+									}
+								}),
+								...fresh(
+									heading.filter((c) => !naming.keys.pairs.some((p) => p.field.name === c.name))
+								)
+							]
+						: fresh(heading),
 				at
 			)
 			const alias = aliasOf(origin)

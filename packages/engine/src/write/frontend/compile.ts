@@ -1391,10 +1391,7 @@ const compile = (
 						return undefined
 					}
 					const { slot, normalizer } = classSlot(act, carried, admitted)
-					const starts = carried.flatMap((c) => {
-						if (admitted.some((a) => a.name === c.name)) {
-							return []
-						}
+					const starts = slot.input.family.map((c) => {
 						const field = defined(
 							relation.fields.find((f) => f.name === c.name),
 							`the field ${relation.name}.${c.name} a slot carries`
@@ -1403,7 +1400,7 @@ const compile = (
 							field.writing.kind === "accumulated"
 								? literalHost(carrierSpecOf(field.type, codes), field.writing.start)
 								: 0n
-						return [{ name: c.name, value }]
+						return { name: c.name, value }
 					})
 					groupInputs.push(
 						Object.freeze({

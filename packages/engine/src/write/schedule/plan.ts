@@ -19,6 +19,7 @@ import { payloadOf } from "#compiler/write/frontend/targets.ts"
 import {
 	type InputProof,
 	keyUniqueByEvidence,
+	outsideInput,
 	type RelationInput,
 	type RereadInput,
 	unproved,
@@ -693,12 +694,7 @@ export const planWrite = (
 				stratum: s,
 				input:
 					reads.kind === "slot"
-						? {
-								kind: "relation",
-								slot: reads.slot.slot,
-								relation: refused.entry,
-								heading: reads.slot.heading
-							}
+						? outsideInput(reads.slot.slot, refused.entry, reads.slot.heading)
 						: { kind: "described", node: reads.node, proof: unproved },
 				check: { kind: "outside", entry: refused.entry }
 			})

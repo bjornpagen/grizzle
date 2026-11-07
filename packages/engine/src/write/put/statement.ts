@@ -63,7 +63,8 @@ import { type FieldColumns, fieldColumns, flatMapNonEmpty } from "#compiler/writ
 import { arbiterLaw, type WrittenRelation } from "#compiler/write/frontend/compile.ts"
 import {
 	inputGuarantees,
-	inputHeading,
+	inputFamily,
+	inputStated,
 	keyUniqueBy,
 	type RelationInput,
 	readInput,
@@ -241,10 +242,11 @@ const putHead = (w: WriteContext, spec: PutSpec, supply: NameSupply, at: string)
 	const payload = spec.inPlace.payload
 	const guarantees = inputGuarantees(input)
 	const all = keyFirst(relation)
-	/** The written fields its input carries: a put's facts carry the caller's and serial fields, and an enumerated put
-	 * of an owner its counts and ends, at their starts or as its stratum's appends drew them for an owner it inserts
-	 * (frontend/compile.ts), which no UPDATE sets: a stored owner's families keep them (rows-first.md §3). */
-	const heading = inputHeading(input)
+	/** The written fields its input carries: a put's facts state the caller's and serial fields, and an enumerated put
+	 * of an owner carries its counts and ends beside them (input.ts RelationInput family), at their starts or as its
+	 * stratum's appends drew them for an owner it inserts (frontend/compile.ts), which no UPDATE sets: a stored owner's
+	 * families keep them (rows-first.md §3). */
+	const heading = [...inputStated(input), ...inputFamily(input)]
 	const carried = writtenFields(relation).filter((f) => heading.some((c) => c.name === f.name))
 	if (!isNonEmpty(carried)) {
 		throw defect(`a put of ${relation.name} whose input carries none of its key`)
