@@ -16,7 +16,7 @@ import { carrierSpecOf } from "#compiler/codec/scalar.ts"
 import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import { CompileError, type ProseTag, prose } from "#compiler/core/errors.ts"
 import { type LawId, ParamId } from "#compiler/core/ids.ts"
-import { defined } from "#compiler/core/invariant.ts"
+import { defect, defined } from "#compiler/core/invariant.ts"
 import { childLoc, SourceLoc } from "#compiler/core/loc.ts"
 import {
 	headNonEmpty,
@@ -1766,10 +1766,34 @@ const compile = (
 			)
 		]
 	}
-	/** The families of the schema as the schedule orders their statements, a tree's aside: each owner and member. */
-	const pairs: ReadonlyArray<FamilyPair> = families.flatMap((f) =>
-		isTreeOf(f, f.member.name) ? [] : [{ owner: f.owner.name, member: f.member.name }]
-	)
+	/** The families of the schema as the schedule orders their statements, a tree's aside: each with its owner axis. */
+	const pairs: ReadonlyArray<FamilyPair> = families.flatMap((f): ReadonlyArray<FamilyPair> => {
+		if (isTreeOf(f, f.member.name)) {
+			return []
+		}
+		/** The family's owner axis: the cascading key from its member to its owner over its count copy ‹n›. */
+		const axis = laws.natives.find(
+			(n) =>
+				n.object.kind === "ForeignKey" &&
+				n.object.onUpdate === "cascade" &&
+				n.object.relation.name === f.member.name &&
+				n.object.target.name === f.owner.name &&
+				n.object.columns.some((c) => c.kind === "law" && c.column === f.copy)
+		)?.object
+		if (axis?.kind !== "ForeignKey") {
+			throw defect(`the owner axis of the family ${f.id.owner}.${f.id.count}`)
+		}
+		return [
+			{
+				family: f.id,
+				owner: f.owner.name,
+				member: f.member.name,
+				immediate: !axis.deferrable,
+				fromColumns: axis.columns.map(columnKey),
+				toColumns: axis.targetColumns.map(columnKey)
+			}
+		]
+	})
 	/** Each relation's depth among the families, which orders a stratum's family statements among themselves. */
 	const depthOf = relationDepths(families)
 	/**

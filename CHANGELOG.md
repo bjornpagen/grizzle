@@ -355,7 +355,8 @@ How to upgrade:
   counted against every key of its relation, even one over columns it never writes. Now one member relation's
   delete, update and insert, a family's count against its member's and owner's writes, the owner axis, and an
   immediate key between two family relations are the only orders, and a family update or count meets a key only at
-  the columns it changes. No codemod.
+  the columns it changes. An owner's insert precedes its members' insert, and their delete its own, only where the
+  family's owner axis is immediate: a cycle of families, whose owner axes are deferred, needs neither. No codemod.
 
 - **A field grizzle fills that reads a column its source fills after it is `UnfillableField`** (new reason), at the
   law that states it, naming the field, the law, the column it reads, the axis and why that column is later

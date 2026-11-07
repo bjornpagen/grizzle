@@ -274,22 +274,35 @@ const relationName = (r: number): string => `R${String(r)}`
 
 const stratumGen: Gen<Stratum> = (source) => {
 	const n = source.draw(int(2, 24))
+	/** A family's owner comes before its member, but where `cyclic` draws, which draws any two relations, so families
+	 * may form a cycle, as an owner of an ordered family whose member owns a counted family of it does. */
 	const families = Arr.makeBy(source.draw(int(0, n)), (k) => {
+		if (source.draw(boolean)) {
+			const owner = source.draw(int(0, n - 1))
+			const other = source.draw(int(0, n - 2))
+			return {
+				k,
+				owner,
+				member: other >= owner ? other + 1 : other,
+				immediate: source.draw(boolean)
+			}
+		}
 		const owner = source.draw(int(0, n - 2))
-		return { k, owner, member: source.draw(int(owner + 1, n - 1)) }
+		return {
+			k,
+			owner,
+			member: source.draw(int(owner + 1, n - 1)),
+			immediate: source.draw(boolean)
+		}
 	})
 	const members = new Set(Arr.map(families, (f) => f.member))
+	const axisOf = (f: (typeof families)[number]) => ({
+		fromColumns: [`field:g${String(f.k)}`, `law:n${String(f.k)}`, `field:c${String(f.k)}`],
+		toColumns: ["field:id", `field:n${String(f.k)}`, "field:a"]
+	})
 	const ownAxis = Arr.flatMap(families, (f): ReadonlyArray<ImmediateReference> =>
-		source.draw(boolean)
-			? [
-					{
-						from: relationName(f.member),
-						to: relationName(f.owner),
-						cascade: true,
-						fromColumns: [`field:g${String(f.k)}`, `law:n${String(f.k)}`, `field:c${String(f.k)}`],
-						toColumns: ["field:id", `field:n${String(f.k)}`, "field:a"]
-					}
-				]
+		f.immediate
+			? [{ from: relationName(f.member), to: relationName(f.owner), cascade: true, ...axisOf(f) }]
 			: []
 	)
 	const columnsOf = (r: number): ReadonlyArray<string> => [
@@ -364,8 +377,11 @@ const stratumGen: Gen<Stratum> = (source) => {
 		actions,
 		family: [...family, ...updates, ...counts, ...inserts],
 		pairs: Arr.map(families, (f) => ({
+			family: { owner: relationName(f.owner), count: `n${String(f.k)}` },
 			owner: relationName(f.owner),
-			member: relationName(f.member)
+			member: relationName(f.member),
+			immediate: f.immediate,
+			...axisOf(f)
 		})),
 		references: [...ownAxis, ...laws]
 	}
@@ -403,10 +419,13 @@ const plainPhase = { delete: 0, put: 1, insert: 2 } as const
  * - one relation's plain deletion, put and insertion run in that order, and its plain actions before its family
  *   statements;
  * - a member's deletion, update and insertion run in that order; a family's count after its member's and its owner's
- *   deletions and updates and before their insertions; a member's deletion and update before its owner's, and its
- *   owner's insertion before its own; and a family insertion before the family insertion that names it, and a family
- *   deletion that names before the one it names. Nothing else orders family statements among themselves: two families'
- *   statements of unrelated relations, an owner's counts of several families among them, run in any order.
+ *   deletions and updates and before its owner's insertions, and before its member's where the owner axis is
+ *   immediate; a member's update before its owner's where the one changes a column the owner axis cascades into and
+ *   the other one it reads; and a family insertion before the family insertion that names it by an immediate key, and
+ *   a family deletion that names before the one it names, so an owner's insertion before its members' where the owner
+ *   axis is immediate and in no order where it is deferred. Nothing else orders family statements among themselves:
+ *   two families' statements of unrelated relations, an owner's counts of several families among them, run in any
+ *   order.
  */
 const requiredEdges = (stratum: Stratum): ReadonlySet<string> => {
 	const edges = new Set<string>()
@@ -461,19 +480,39 @@ const requiredEdges = (stratum: Stratum): ReadonlySet<string> => {
 			}
 			continue
 		}
-		for (const relation of [f.relation, f.member]) {
-			add(rowsOf(relation, "delete"), id)
-			add(rowsOf(relation, "update"), id)
-			add(id, rowsOf(relation, "insert"))
+		add(rowsOf(f.relation, "delete"), id)
+		add(rowsOf(f.relation, "update"), id)
+		add(id, rowsOf(f.relation, "insert"))
+		add(rowsOf(f.member, "delete"), id)
+		add(rowsOf(f.member, "update"), id)
+		const counted = f.family
+		if (
+			Arr.some(
+				stratum.pairs,
+				(p) => p.immediate && p.family.owner === counted.owner && p.family.count === counted.count
+			)
+		) {
+			add(id, rowsOf(f.member, "insert"))
 		}
 	}
+	/** The update in place of `relation`, where the stratum holds one, and the columns it changes. */
+	const updateOf = (relation: string) =>
+		Arr.findFirst(
+			families,
+			({ f }) => f.kind === "rows" && f.relation === relation && f.statement === "update"
+		).pipe(Option.getOrUndefined)
 	for (const p of stratum.pairs) {
-		if (p.owner === p.member) {
-			continue
+		const member = updateOf(p.member)
+		const owner = updateOf(p.owner)
+		if (
+			p.owner !== p.member &&
+			member !== undefined &&
+			owner !== undefined &&
+			changesAny(member.f, p.fromColumns) &&
+			changesAny(owner.f, p.toColumns)
+		) {
+			add(member.id, owner.id)
 		}
-		add(rowsOf(p.member, "delete"), rowsOf(p.owner, "delete"))
-		add(rowsOf(p.member, "update"), rowsOf(p.owner, "update"))
-		add(rowsOf(p.owner, "insert"), rowsOf(p.member, "insert"))
 	}
 	for (const r of stratum.references) {
 		if (r.from === r.to) {
@@ -525,6 +564,11 @@ const requiredEdges = (stratum: Stratum): ReadonlySet<string> => {
 	}
 	return edges
 }
+
+/** Whether a family statement that changes rows in place changes one of `columns`. */
+const changesAny = (f: FamilyNode, columns: ReadonlyArray<string>): boolean =>
+	(f.kind === "owners" || f.statement === "update") &&
+	Arr.some(f.changes, (c) => columns.includes(c))
 
 /** Whether `edges` over a stratum's writes close a cycle. */
 const hasCycle = (stratum: Stratum, edges: ReadonlySet<string>): boolean => {
@@ -586,8 +630,22 @@ const importShape: Stratum = {
 		{ kind: "rows", relation: "R1", statement: "insert" }
 	],
 	pairs: [
-		{ owner: "R0", member: "R1" },
-		{ owner: "R2", member: "R3" }
+		{
+			family: { owner: "R0", count: "n0" },
+			owner: "R0",
+			member: "R1",
+			immediate: true,
+			fromColumns: ["field:g0", "law:n0", "field:c0"],
+			toColumns: ["field:id", "field:n0", "field:a"]
+		},
+		{
+			family: { owner: "R2", count: "n1" },
+			owner: "R2",
+			member: "R3",
+			immediate: true,
+			fromColumns: ["field:g1", "law:n1", "field:c1"],
+			toColumns: ["field:id", "field:n1", "field:a"]
+		}
 	],
 	references: [
 		{
@@ -614,6 +672,47 @@ const importShape: Stratum = {
 	]
 }
 
+/**
+ * A cycle of families the schedule once refused: R1 owns an ordered family of R0, and R0 a counted family of R1, both
+ * owner axes on that cycle and so deferred. An insert of R1 nesting R0 writes both relations and counts R0's family of
+ * R1; an owner's insertion ordered before its member's for both families, deferred axes or not, closed a cycle no key
+ * requires.
+ */
+const familyCycle: Stratum = {
+	actions: [],
+	family: [
+		{ kind: "rows", relation: "R1", statement: "delete" },
+		{
+			kind: "owners",
+			family: { owner: "R0", count: "n1" },
+			relation: "R0",
+			member: "R1",
+			changes: ["field:n1", "field:e1"]
+		},
+		{ kind: "rows", relation: "R0", statement: "insert" },
+		{ kind: "rows", relation: "R1", statement: "insert" }
+	],
+	pairs: [
+		{
+			family: { owner: "R1", count: "n0" },
+			owner: "R1",
+			member: "R0",
+			immediate: false,
+			fromColumns: ["field:g0", "law:n0", "field:c0"],
+			toColumns: ["field:id", "field:n0", "field:a"]
+		},
+		{
+			family: { owner: "R0", count: "n1" },
+			owner: "R0",
+			member: "R1",
+			immediate: false,
+			fromColumns: ["field:g1", "law:n1", "field:c1"],
+			toColumns: ["field:id", "field:n1", "field:a"]
+		}
+	],
+	references: []
+}
+
 type StratumSituation =
 	| "ordered"
 	| "refused: a required cycle"
@@ -621,6 +720,7 @@ type StratumSituation =
 	| "counts, updates and inserts together"
 	| "a reference from a plain relation into a family member"
 	| "a family member's reference into a plain relation"
+	| "a cycle of families"
 
 const stratumSituations: Arr.NonEmptyReadonlyArray<StratumSituation> = [
 	"ordered",
@@ -628,8 +728,22 @@ const stratumSituations: Arr.NonEmptyReadonlyArray<StratumSituation> = [
 	"several counts of one relation",
 	"counts, updates and inserts together",
 	"a reference from a plain relation into a family member",
-	"a family member's reference into a plain relation"
+	"a family member's reference into a plain relation",
+	"a cycle of families"
 ]
+
+/** Whether a stratum's families form a cycle, owner to member and back. */
+const familiesCycle = (pairs: ReadonlyArray<FamilyPair>): boolean => {
+	const reaches = (from: string, to: string, seen: ReadonlySet<string>): boolean =>
+		Arr.some(
+			pairs,
+			(p) =>
+				p.owner === from &&
+				(p.member === to ||
+					(!seen.has(p.member) && reaches(p.member, to, new Set([...seen, p.member]))))
+		)
+	return Arr.some(pairs, (p) => reaches(p.member, p.owner, new Set([p.member])))
+}
 
 /** The shapes a generated stratum holds. */
 const stratumShapes = (stratum: Stratum): ReadonlyArray<StratumSituation> => {
@@ -648,7 +762,8 @@ const stratumShapes = (stratum: Stratum): ReadonlyArray<StratumSituation> => {
 			: []),
 		...(Arr.some(stratum.references, (r) => familyRelations.has(r.from) && plainRelations.has(r.to))
 			? (["a family member's reference into a plain relation"] as const)
-			: [])
+			: []),
+		...(familiesCycle(stratum.pairs) ? (["a cycle of families"] as const) : [])
 	]
 }
 
@@ -782,6 +897,12 @@ describe("a stratum's schedule", () => {
 									"counts, updates and inserts together",
 									"a reference from a plain relation into a family member"
 								]
+							},
+							{
+								note: "a cycle of families, both owner axes deferred, written by one nested insert",
+								sketch: familyCycle,
+								draws: "",
+								reaches: ["ordered", "a cycle of families"]
 							}
 						],
 						runs: 300,

@@ -37,10 +37,19 @@ export type FamilyNode =
 			readonly changes: ReadonlyArray<string>
 	  }
 
-/** A family of the schema as the schedule orders its statements: its owner relation and its member relation. */
+/**
+ * A family of the schema, a tree's aside, as the schedule orders its statements: the family, its owner relation and its
+ * member relation, and its owner axis: whether the axis is immediate, which orders the member's rows after their
+ * owner's and before them going, and the columns its cascade writes on the member and reads on the owner, by key
+ * (write/family/fold.ts ColumnKey).
+ */
 export interface FamilyPair {
+	readonly family: FamilyId
 	readonly owner: string
 	readonly member: string
+	readonly immediate: boolean
+	readonly fromColumns: ReadonlyArray<string>
+	readonly toColumns: ReadonlyArray<string>
 }
 
 /** A family statement in the stratum's order: `at`, the number of the stratum's actions that run before it. */
@@ -144,16 +153,18 @@ export const canonicalActionOrder = <A extends Scheduled>(
  * - one member relation's deletion, update in place and insertion, in that order: a counted removal frees its slot by
  *   the deletion before the update moves the last member into it, and a re-placed row is deleted before it is
  *   inserted again, the family's (group, index) key being immediate;
- * - a family's count after its member's and its owner's deletions and updates, and before their insertions: the count
- *   falls only once every kept member below the new count holds a slot below it (`CHECK (i < ‹n›)`, which the owner
- *   axis's cascade of the count reaches), a moved member's update writes its copies from the owner as the read found
- *   it, before the count's cascade, an owner's own update in place is planned before its counts, and a new member
- *   carries the new count;
- * - a member's deletion and update before its owner's, and the owner's insertion before the member's: the member
- *   references its owner along the owner axis, and a member's update writes its copies from its owner as the read
- *   found it, before the owner's own update cascades its new values;
+ * - a family's count after its member's and its owner's deletions and updates, and before the owner's insertions: the
+ *   count falls only once every kept member below the new count holds a slot below it (`CHECK (i < ‹n›)`, which the
+ *   owner axis's cascade of the count reaches at once), a moved member's update writes its copies from the owner as
+ *   the read found it, before the count's cascade, and an owner's own update in place is planned before its counts;
+ *   and before the member's insertions where the owner axis is immediate, since a new member carries the new count;
+ * - a member's update before its owner's where the member's update writes a column the owner axis cascades into and
+ *   the owner's update changes a column the axis reads: the member's update writes its copies from its owner as the
+ *   read found it, and the owner's update cascades its new values into them at once, deferred axis or not, so the
+ *   other order would overwrite them stale;
  * - one family relation's insertion before the insertion of a family relation an immediate key names it from, and
- *   the deletion of the naming one first.
+ *   the deletion of the naming one first: an owner's insertion before its members' and their deletion before its
+ *   own where the owner axis is immediate, and no order where it is deferred, as on a cycle of families.
  * Against an action, a family statement adds, removes and changes facts as the keys see them: an insertion adds, a
  * deletion removes, and an update in place or a count adds and changes facts only at the columns it changes
  * (FamilyNode `changes`), so a key over other columns orders nothing; and an action runs before the family statements
@@ -225,15 +236,29 @@ export const scheduleStratum = <A extends Scheduled>(
 		before(vertex, rowsOf(node.relation, "insert"))
 		before(rowsOf(node.member, "delete"), vertex)
 		before(rowsOf(node.member, "update"), vertex)
-		before(vertex, rowsOf(node.member, "insert"))
+		const counted = node.family
+		if (pairs.some((p) => p.immediate && sameFamily(p.family, counted))) {
+			before(vertex, rowsOf(node.member, "insert"))
+		}
 	}
 	for (const pair of pairs) {
-		if (pair.owner === pair.member) {
-			continue
+		const member = statements.find(
+			({ node }) =>
+				node.kind === "rows" && node.relation === pair.member && node.statement === "update"
+		)?.node
+		const owner = statements.find(
+			({ node }) =>
+				node.kind === "rows" && node.relation === pair.owner && node.statement === "update"
+		)?.node
+		if (
+			pair.owner !== pair.member &&
+			member !== undefined &&
+			owner !== undefined &&
+			changesAt(member, pair.fromColumns) &&
+			changesAt(owner, pair.toColumns)
+		) {
+			before(rowsOf(pair.member, "update"), rowsOf(pair.owner, "update"))
 		}
-		before(rowsOf(pair.member, "delete"), rowsOf(pair.owner, "delete"))
-		before(rowsOf(pair.member, "update"), rowsOf(pair.owner, "update"))
-		before(rowsOf(pair.owner, "insert"), rowsOf(pair.member, "insert"))
 	}
 	for (const r of references) {
 		if (r.from === r.to) {
@@ -300,6 +325,14 @@ export const scheduleStratum = <A extends Scheduled>(
 	}
 }
 
+/** Whether a family statement that changes rows in place changes one of `columns`. */
+const changesAt = (node: FamilyNode, columns: ReadonlyArray<string>): boolean =>
+	(node.kind === "owners" || node.statement === "update") &&
+	node.changes.some((c) => columns.includes(c))
+
+/** Whether two families are one: the same owner and count. */
+const sameFamily = (a: FamilyId, b: FamilyId): boolean => a.owner === b.owner && a.count === b.count
+
 /** A placed write's action, which an action vertex holds. */
 const actionOf = <A>(write: Write<A>): A => {
 	if (write.kind !== "action") {
@@ -337,7 +370,7 @@ const familyEffect = (node: FamilyNode, columns: ReadonlyArray<string>): Effect 
 			? { adds: true, removes: false, updates: false }
 			: { adds: false, removes: true, updates: false }
 	}
-	const touched = node.changes.some((c) => columns.includes(c))
+	const touched = changesAt(node, columns)
 	return { adds: touched, removes: false, updates: touched }
 }
 
