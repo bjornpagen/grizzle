@@ -51,7 +51,10 @@ export const factNames = ["finite", "nonnegative", "nonzero"] as const satisfies
 
 /** Whether a list of facts is in the one order, each once: what a contract's declaration holds. */
 export const factsSorted = (facts: ReadonlyArray<Fact>): boolean =>
-	facts.every((f, i) => i === 0 || (facts[i - 1] ?? f) < f)
+	facts.every((f, i) => {
+		const before = facts[i - 1]
+		return before === undefined || before < f
+	})
 
 /**
  * Where a fact comes from: a literal's own value; a contract that declares the fact, which its build checked against

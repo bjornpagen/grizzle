@@ -19,7 +19,7 @@ import {
 	type Rule,
 	rewritePass
 } from "#compiler/lower/optimize/demand/frame.ts"
-import { definedIdOf, overloadOf } from "#compiler/scalar/compute/registry.ts"
+import { carrierEquality } from "#compiler/scalar/compute/registry.ts"
 import { plainType } from "#compiler/scalar/compute/types.ts"
 
 const membershipRule = "R07.closedMembership"
@@ -112,14 +112,9 @@ const membershipOf = (cx: RewriteCx, region: Region, o: Occurrence): Membership 
 	const others = region.occurrences.filter((x) => x.id !== o.id && !ed.correlated(x.source))
 	const elsewhere = new Set(others.flatMap((x) => x.bindings.map((b) => b.var.id)))
 	const key: Array<KeyValue> = []
-	for (const [i, column] of evidence.key.entries()) {
-		const value = keyValue(o, column, elsewhere)
-		const type = source.heading[i]?.type
-		if (
-			value === undefined ||
-			type === undefined ||
-			!sameScalarType(baseOf(valueType(value)), baseOf(type))
-		) {
+	for (const column of source.heading.slice(0, evidence.key.length)) {
+		const value = keyValue(o, column.name, elsewhere)
+		if (value === undefined || !sameScalarType(baseOf(valueType(value)), baseOf(column.type))) {
 			return undefined
 		}
 		key.push(value)
@@ -178,11 +173,7 @@ const predicateOf = (ed: DagEditor, region: Cell, m: Membership): ScalarExpr | u
 
 /** The code equality each key column's join compared by, which the membership test stands for. */
 const equalityOf = (m: Membership): ReadonlyArray<OpId> =>
-	[...new Set(m.key.map((value) => baseOf(valueType(value)).carrier))].flatMap((carrier) => {
-		const op = overloadOf("eq", [carrier, carrier])
-		const id = op === undefined ? undefined : definedIdOf(op)
-		return id === undefined ? [] : [id]
-	})
+	[...new Set(m.key.map((value) => baseOf(valueType(value)).carrier))].map(carrierEquality)
 
 /** The R07 rule over a declared closed relation's installed constants. */
 const membershipRuleOf: Rule = {

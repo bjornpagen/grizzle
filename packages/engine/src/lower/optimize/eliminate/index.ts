@@ -29,7 +29,7 @@ import {
 	type Rule,
 	rewritePass
 } from "#compiler/lower/optimize/demand/frame.ts"
-import { overloadOf } from "#compiler/scalar/compute/registry.ts"
+import { carrierEquality } from "#compiler/scalar/compute/registry.ts"
 
 const eliminationRule = "R03.elimination"
 const keyJoinRule = "R03.keyJoin"
@@ -142,11 +142,7 @@ const elimination = (cx: RewriteCx, cell: Cell, region: Region): Elimination | u
 
 /** The native equality operators of the variables `bindings` bind, which a proof matching them compares under. */
 const equalityOf = (bindings: Occurrence["bindings"]): ReadonlyArray<OpId> =>
-	bindings.flatMap((b) => {
-		const carrier = baseOf(b.var.type).carrier
-		const op = overloadOf("eq", [carrier, carrier])
-		return op === undefined ? [] : [op.id]
-	})
+	bindings.map((b) => carrierEquality(baseOf(b.var.type).carrier))
 
 /**
  * Two occurrences of one stored relation that bind every column of one of its keys to one variable each: one fact of

@@ -2,6 +2,7 @@ import { analyzeDemand, type DemandAnalysis, noPins } from "#compiler/analysis/d
 import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
+import { defined } from "#compiler/core/invariant.ts"
 import { extendNonEmpty, isNonEmpty } from "#compiler/core/nonempty.ts"
 import type * as Result from "#compiler/core/result.ts"
 import { type NodeScope, nodeScopes, topoOrder } from "#compiler/ir/dag.ts"
@@ -167,7 +168,7 @@ export const planStatementShares = (
 	catchRefusal(() => {
 		const chosen: Array<CarriedShare> = []
 		const carriedKeys = new Set<string>()
-		const copiesOf = new Map<string, Array<RelNode>>()
+		const copiesOf = new Map<string, [RelNode, ...Array<RelNode>]>()
 		/** Whether a node is a copy of a carried sub-query, which its carrier's reader reads instead. */
 		const stop = (node: RelNode): boolean => {
 			const key = index.key(node)
@@ -191,11 +192,12 @@ export const planStatementShares = (
 					const set = statementsOf.get(key) ?? new Set<number>()
 					set.add(u)
 					statementsOf.set(key, set)
-					const copies = copiesOf.get(key) ?? []
-					if (!copies.includes(node)) {
+					const copies = copiesOf.get(key)
+					if (copies === undefined) {
+						copiesOf.set(key, [node])
+					} else if (!copies.includes(node)) {
 						copies.push(node)
 					}
-					copiesOf.set(key, copies)
 				}
 			}
 			/** The highest key enough statements read, the least key among equals. */
@@ -203,10 +205,10 @@ export const planStatementShares = (
 				| { readonly key: string; readonly node: RelNode; readonly height: number }
 				| undefined
 			for (const [key, statements] of statementsOf) {
-				const [node] = copiesOf.get(key) ?? []
-				if (statements.size < 2 || node === undefined) {
+				if (statements.size < 2) {
 					continue
 				}
+				const [node] = defined(copiesOf.get(key), "the copies of a key a statement reads")
 				const height = index.height(node)
 				if (
 					best === undefined ||
@@ -223,7 +225,12 @@ export const planStatementShares = (
 			chosen.push({ key: best.key, node: best.node, copies: [] })
 		}
 		return chosen
-			.map((c) => ({ ...c, copies: [...(copiesOf.get(c.key) ?? [])] }))
+			.map((c) => ({
+				...c,
+				copies: [
+					...defined(copiesOf.get(c.key), "the copies of a carried key, which statements read")
+				]
+			}))
 			.toSorted((a, b) => index.height(a.node) - index.height(b.node))
 	})
 
@@ -454,15 +461,15 @@ export class StatementSharing {
 			return this.#inner(node, cx, env)
 		}
 		const origin = { kind: "node", node: node.id } as const
-		let defined = scope.defined.get(key)
-		if (defined === undefined) {
+		let cte = scope.defined.get(key)
+		if (cte === undefined) {
 			const query = this.#inner(node, cx, emptyEnv)
 			const name = cx.relationAlias(origin)
 			const columns = cx.supply.columns(outputNames(node.heading).map(() => origin))
 			scope.ctes.add({ name, columns, materialized: "MATERIALIZED", query })
-			defined = { name, columns, set: isSetQuery(query) }
-			scope.defined.set(key, defined)
+			cte = { name, columns, set: isSetQuery(query) }
+			scope.defined.set(key, cte)
 		}
-		return cteRead(cx.relationAlias(origin), defined)
+		return cteRead(cx.relationAlias(origin), cte)
 	}
 }

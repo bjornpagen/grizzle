@@ -1505,6 +1505,38 @@ export const connectiveOps: { readonly [C in "and" | "or" | "not"]: DefinedOp } 
 export const definedRangeOp = (code: RangeOpCode, carrier: SpanCarrier): DefinedOp =>
 	definedOp(rangeOp(code, carrier))
 
+/** A listed comparison's identity: every comparison is total (comparison), so it is defined on every value. */
+const comparisonId = (id: keyof typeof catalogOverloads): DefinedOp => definedOp(opId(id))
+
+/**
+ * Each carrier's native equality, its `eq` comparison: what a rewrite's proof compares two of its values under. Every
+ * carrier has one, defined on every value, so the table is total and a carrier without one is a type error here.
+ */
+const equalities: { readonly [C in Carrier]: DefinedOp } = Object.freeze({
+	int2: comparisonId("int2eq"),
+	int4: comparisonId("int4eq"),
+	int8: comparisonId("int8eq"),
+	numeric: comparisonId("numeric_eq"),
+	float4: comparisonId("float4eq"),
+	float8: comparisonId("float8eq"),
+	money: comparisonId("cash_eq"),
+	bool: comparisonId("booleq"),
+	uuid: comparisonId("uuid_eq"),
+	date: comparisonId("date_eq"),
+	text: comparisonId("texteq"),
+	code: comparisonId("code:int2eq"),
+	bits: comparisonId("biteq"),
+	range4: definedRangeOp("range_eq", "range4"),
+	range8: definedRangeOp("range_eq", "range8"),
+	rangeDate: definedRangeOp("range_eq", "rangeDate"),
+	vector: comparisonId("vector_eq"),
+	exactInteger: comparisonId("exact:numeric_eq"),
+	exactMoney: comparisonId("exactMoney:numeric_eq")
+})
+
+/** The native equality of `carrier` (equalities). */
+export const carrierEquality = (carrier: Carrier): DefinedOp => equalities[carrier]
+
 /** The registry's node listed under a catalog identity. */
 const catalogOp = (id: keyof typeof catalogOverloads): NativeOp =>
 	listedOp(opId(id), catalogOverloads[id])

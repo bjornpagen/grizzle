@@ -1338,7 +1338,9 @@ export const tryAttachedNeighbor = (cx: CatalogContext, cell: Cell): NeighborRes
 		const exprs = out.map(({ h, col }) => {
 			const source = (() => {
 				if (col.kind === "own") {
-					return built.lead.get(col.column) ?? col.column
+					return shape.group.some((g) => g.q === col.column)
+						? col.column
+						: required(built.lead.get(col.column), `the LEAD of ${col.column}`)
 				}
 				return required(
 					[...shape.group, ...shape.compared].find((p) => sameRef(p.parent, col.ref)),

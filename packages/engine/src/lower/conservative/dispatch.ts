@@ -1,4 +1,5 @@
 import type { NodeId } from "#compiler/core/ids.ts"
+import { defined } from "#compiler/core/invariant.ts"
 import { extendNonEmpty, isNonEmpty } from "#compiler/core/nonempty.ts"
 import { postorder } from "#compiler/ir/dag.ts"
 import { edgesOf, type NodeOf, type RelKind, type RelNode } from "#compiler/ir/rel.ts"
@@ -136,7 +137,12 @@ const sharedOf = (
 		const scanned =
 			node.kind === "SelfRef"
 				? [node.recursive]
-				: loweredInputs(node).flatMap((input) => [...(open.get(input) ?? noRecursions)])
+				: loweredInputs(node).flatMap((input) => [
+						...defined(
+							open.get(input),
+							"an input's open recursions, met before its consumer in postorder"
+						)
+					])
 		const own = scanned.filter((id) => node.kind !== "Recursive" || id !== node.id)
 		open.set(node, own.length === 0 ? noRecursions : new Set(own))
 	}
@@ -150,7 +156,7 @@ const sharedOf = (
 		const shares =
 			node !== root &&
 			counted === "many" &&
-			(open.get(node) ?? noRecursions).size === 0 &&
+			defined(open.get(node), "the open recursions of a node in the postorder").size === 0 &&
 			[...cx.scopeOf(node).outer.keys()].every((id) => !inside.has(id))
 		if (shares) {
 			shared.add(node)

@@ -1,3 +1,4 @@
+import { defined } from "#compiler/core/invariant.ts"
 import * as Result from "#compiler/core/result.ts"
 
 /**
@@ -45,27 +46,34 @@ export const wholeDigitBits = (bits: number): number => hexDigitsFor(bits) * hex
 /** The digits of a string of `bits` bits, each 0: one value from 0 to 15 per whole hex digit, which setBit fills. */
 export const zeroDigits = (bits: number): Uint8Array => new Uint8Array(hexDigitsFor(bits))
 
-/** Sets bit `position` of `digits` to 1, position 0 the first digit's most significant bit. */
+/** Sets bit `position` of `digits`, a position within them, to 1, position 0 the first digit's most significant bit. */
 export const setBit = (digits: Uint8Array, position: number): void => {
 	const at = Math.floor(position / hexDigitBits)
-	digits[at] = (digits[at] ?? 0) | (firstBit >> (position % hexDigitBits))
+	digits[at] =
+		defined(digits[at], "a bit position within its string's digits") |
+		(firstBit >> (position % hexDigitBits))
 }
 
 /** Whether bit `bit` of one digit's value, 0 its most significant, is 1. */
 export const digitHolds = (value: number, bit: number): boolean => (value & (firstBit >> bit)) !== 0
 
-/** Bit `position` of `digits`, 0 or 1; a position past the last digit reads 0. */
+/** Bit `position` of `digits`, a position within them: 0 or 1. */
 export const bitAt = (digits: Uint8Array, position: number): number =>
-	digitHolds(digits[Math.floor(position / hexDigitBits)] ?? 0, position % hexDigitBits) ? 1 : 0
+	digitHolds(
+		defined(
+			digits[Math.floor(position / hexDigitBits)],
+			"a bit position within its string's digits"
+		),
+		position % hexDigitBits
+	)
+		? 1
+		: 0
+
+/** A digit's character, as its ASCII byte. */
+const digitByte = (digit: number): number => alphabet.charCodeAt(digit)
 
 /** The hex text of `digits`: one character of 0-9 or A-F per digit, in order. */
-export const hexText = (digits: Uint8Array): string => {
-	const out = new Uint8Array(digits.length)
-	for (let i = 0; i < digits.length; i += 1) {
-		out[i] = alphabet.charCodeAt(digits[i] ?? 0)
-	}
-	return ascii.decode(out)
-}
+export const hexText = (digits: Uint8Array): string => ascii.decode(digits.map(digitByte))
 
 /**
  * PostgreSQL's output text of a bit string, a 0 or a 1 per position, as its hex digits: each four characters one digit,

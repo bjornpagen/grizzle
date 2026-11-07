@@ -288,7 +288,13 @@ export const blockRadices = (
 	owner: bigint
 ): NonEmptyReadonlyArray<number> => {
 	const held = counts.get(owner)
-	return mapNonEmpty(block, (c) => (c.kind === "codes" ? c.size : (held?.[c.count] ?? 0)))
+	return mapNonEmpty(block, (c) =>
+		c.kind === "codes"
+			? c.size
+			: held === undefined
+				? 0
+				: defined(held[c.count], "an owner's count for each slot coordinate of its block")
+	)
 }
 
 /**

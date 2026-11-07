@@ -25,7 +25,7 @@ import {
 	type Rule,
 	rewritePass
 } from "#compiler/lower/optimize/demand/frame.ts"
-import { overloadOf } from "#compiler/scalar/compute/registry.ts"
+import { carrierEquality } from "#compiler/scalar/compute/registry.ts"
 
 const semiJoinRule = "R02.semiJoin"
 
@@ -287,11 +287,7 @@ const rewrite = (cx: RewriteCx, cell: Cell, region: Region, o: Occurrence): void
 		outputs.push(restored.id)
 		return restored
 	})
-	const equality = witnesses.flatMap((w) => {
-		const carrier = baseOf(w.type).carrier
-		const op = overloadOf("eq", [carrier, carrier])
-		return op === undefined ? [] : [op.id]
-	})
+	const equality = witnesses.map((w) => carrierEquality(baseOf(w.type).carrier))
 	cx.certify({
 		rule: semiJoinRule,
 		inputs: [o.source.id, cell.id],
@@ -347,14 +343,7 @@ const setComparison: Rule = {
 		if (cx.demand().lateral(node.right) || ed.correlated(node.right)) {
 			return false
 		}
-		const equality = node.heading.flatMap((c) => {
-			const carrier = baseOf(c.type).carrier
-			const op = overloadOf("eq", [carrier, carrier])
-			return op === undefined ? [] : [op.id]
-		})
-		if (equality.length !== node.heading.length) {
-			return false
-		}
+		const equality = node.heading.map((c) => carrierEquality(baseOf(c.type).carrier))
 		const unique = keyedBy(
 			cx.physical().of(node.left).props,
 			node.heading.map((c) => c.name)

@@ -1,6 +1,7 @@
 import type { JustifiedKey } from "#compiler/analysis/physical/fds.ts"
 import { keyAmong } from "#compiler/analysis/physical/props.ts"
 import type { VarId } from "#compiler/core/ids.ts"
+import { defined } from "#compiler/core/invariant.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import type {
 	Cell,
@@ -23,7 +24,7 @@ import {
 	rewritePass
 } from "#compiler/lower/optimize/demand/frame.ts"
 import { regionChain } from "#compiler/lower/optimize/fuse/chain.ts"
-import { overloadOf } from "#compiler/scalar/compute/registry.ts"
+import { carrierEquality } from "#compiler/scalar/compute/registry.ts"
 
 const lateFetchRule = "R06.lateFetch"
 
@@ -110,10 +111,9 @@ const lateFetchPlans = (cx: RewriteCx, takeCell: Cell, take: Take): ReadonlyArra
 			continue
 		}
 		/** The stage columns that carry each column of the key. */
-		const keyColumns = key.columns.flatMap((k) => {
-			const c = carried.get(k)
-			return c === undefined ? [] : [c]
-		})
+		const keyColumns = key.columns.map((k) =>
+			defined(carried.get(k), "a key among the carried columns is carried")
+		)
 		/** The stage columns the occurrence's relation can deliver instead, outside the order and the key, each
 		 * from a column of the same type no other fetched column copies; and whether one of them is wide. */
 		const keyStage = new Set(keyColumns.map(([, c]) => c))
@@ -215,11 +215,7 @@ const fetch = (cx: RewriteCx, plan: Plan): void => {
 		loc: take.loc
 	}
 	ed.set(plan.take, region)
-	const equality = plan.keyColumns.flatMap(([k]) => {
-		const carrier = baseOf(k.type).carrier
-		const op = overloadOf("eq", [carrier, carrier])
-		return op === undefined ? [] : [op.id]
-	})
+	const equality = plan.keyColumns.map(([k]) => carrierEquality(baseOf(k.type).carrier))
 	cx.certify({
 		rule: lateFetchRule,
 		inputs: [plan.take.id, stage.id, plan.base.id],

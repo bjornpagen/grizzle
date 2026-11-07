@@ -1,4 +1,5 @@
 import type { ValueFault } from "#compiler/core/errors.ts"
+import { defined } from "#compiler/core/invariant.ts"
 import * as Result from "#compiler/core/result.ts"
 
 /**
@@ -160,7 +161,7 @@ export const dayNumber = (date: CalendarDate): number => {
 	const { year, month, day } = dateParts(date)
 	let days = daysBeforeYear(year)
 	for (let m = 1; m < month; m++) {
-		days += daysInMonth(year, m) ?? 0
+		days += defined(daysInMonth(year, m), "a month before a calendar date's own")
 	}
 	return days + day - 1
 }

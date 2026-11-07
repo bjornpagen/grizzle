@@ -9,7 +9,7 @@ import {
 	unsupported
 } from "#compiler/core/errors.ts"
 import { ExprId } from "#compiler/core/ids.ts"
-import { defect } from "#compiler/core/invariant.ts"
+import { defect, defined } from "#compiler/core/invariant.ts"
 import {
 	derived,
 	int4Max,
@@ -945,7 +945,7 @@ export const withinGuards = (carrier: Carrier): boolean => {
  */
 const guardTest = (
 	precondition: PreconditionKind,
-	operand: Lowered | undefined,
+	operand: Lowered,
 	target: ScalarType,
 	mode: LowerEnv["mode"],
 	patterns: PatternAutomata
@@ -954,10 +954,9 @@ const guardTest = (
 		case "nonzero":
 		case "nonnegative":
 		case "finite": {
-			const contract =
-				operand === undefined || !hasTypeFacts(operand.expr)
-					? undefined
-					: undeclaredBy(operand.nominal, precondition)
+			const contract = hasTypeFacts(operand.expr)
+				? undeclaredBy(operand.nominal, precondition)
+				: undefined
 			return contract === undefined
 				? factTests[precondition]
 				: { kind: "proves", contract: contract.name }
@@ -969,7 +968,7 @@ const guardTest = (
 		case "powerDomain":
 			return { kind: "positive" }
 		case "contract":
-			return operand !== undefined && withinGuards(valueType(operand.nominal).carrier)
+			return withinGuards(valueType(operand.nominal).carrier)
 				? { kind: "within" }
 				: { kind: "typed" }
 		case "language":
@@ -988,14 +987,14 @@ const guardTest = (
  * target's type remedies it.
  */
 const languageRemedy = (
-	operand: Lowered | undefined,
+	operand: Lowered,
 	target: ScalarType,
 	mode: LowerEnv["mode"],
 	patterns: PatternAutomata
 ): GuardTest => {
 	const refinement = refinementOf(target)
 	const octets = refinement === undefined ? undefined : octetsOf(refinement.check)
-	const text = operand === undefined ? undefined : textOf(operand.nominal)
+	const text = textOf(operand.nominal)
 	if (refinement === undefined || octets === undefined || text === undefined) {
 		return { kind: "matches", pattern: "target" }
 	}
@@ -1473,8 +1472,8 @@ class Lowering<R extends Refs> {
 		operation: string
 	): PreconditionProof {
 		const refuse = (operand: number): never => {
-			const named = args[operand]
-			const text = named === undefined ? "x" : exprText(named.expr)
+			const named = defined(args[operand], "the operand a precondition names")
+			const text = exprText(named.expr)
 			throw new Refusal(
 				CompileError.make({
 					_tag: "PartialOperation",

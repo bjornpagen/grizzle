@@ -1,4 +1,5 @@
 import type { NodeId } from "#compiler/core/ids.ts"
+import { defined } from "#compiler/core/invariant.ts"
 import { OpId } from "#compiler/ir/expr.ts"
 import type { OperandPremise, OperationProof } from "#compiler/ir/proof.ts"
 import { type Cell, conservativeMeta, type EditRefs, type KindOver } from "#compiler/ir/rel.ts"
@@ -246,7 +247,9 @@ const keyedShare = (cx: CatalogContext, cell: Cell, region: Region): ShareResult
 			`the key ${k} bound`
 		)
 		const joined = required(
-			(byVar.get(binding.var) ?? []).find((y) => region.occurrences[y.occurrence]?.id === ox.id),
+			defined(byVar.get(binding.var), "the bindings of a variable the count side binds").find(
+				(y) => y.occurrence === ix
+			),
 			`the key ${k} joined to its input column`
 		)
 		demand(joined.column === rows.column.get(k), `the key ${k} joined to its input column`)
@@ -279,12 +282,12 @@ const keyedShare = (cx: CatalogContext, cell: Cell, region: Region): ShareResult
 	})
 	const exprs = region.heading.map((h) => {
 		const list = boundColumns(region, byVar, h.name)
-		const onInput = list.find((y) => region.occurrences[y.occurrence]?.id === ox.id)
+		const onInput = list.find((y) => y.occurrence === ix)
 		if (onInput !== undefined) {
 			return { name: h.name, expr: colExpr(cx.ed, window, onInput.column, h.type) }
 		}
 		demand(
-			list.some((y) => region.occurrences[y.occurrence]?.id === oc.id && y.column === count),
+			list.some((y) => y.occurrence === ic && y.column === count),
 			`a region column ${h.name} from the input or the count`
 		)
 		return { name: h.name, expr: colExpr(cx.ed, window, out, h.type) }

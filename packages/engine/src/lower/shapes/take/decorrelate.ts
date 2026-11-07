@@ -1,6 +1,7 @@
 import { catchRefusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { NodeId, OccurrenceId } from "#compiler/core/ids.ts"
+import { defined } from "#compiler/core/invariant.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
@@ -130,14 +131,14 @@ const rewrite = (ed: DagEditor, c: Candidate): void => {
 	)
 	const added: Array<{ readonly column: HeadingColumn; readonly expr: ScalarExpr }> = []
 	for (const k of c.outer) {
-		const occurrence = occurrences.get(k.occurrence)
-		if (occurrence === undefined) {
-			continue
-		}
-		const source = occurrence.source.current.heading.find((h) => h.name === k.column)
-		if (source === undefined) {
-			continue
-		}
+		const occurrence = defined(
+			occurrences.get(k.occurrence),
+			"an outer constant's occurrence of the region"
+		)
+		const source = defined(
+			occurrence.source.current.heading.find((h) => h.name === k.column),
+			"an outer constant's column of its occurrence's source"
+		)
 		/**
 		 * A bound column delivers the variable its binding names, which the region declares; an unbound one delivers
 		 * a fresh variable, named apart from every column in play.

@@ -8,7 +8,7 @@ import {
 import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
-import { invariant } from "#compiler/core/invariant.ts"
+import { defined, invariant } from "#compiler/core/invariant.ts"
 import type * as Result from "#compiler/core/result.ts"
 import { type Certificate, makeCertificate } from "#compiler/ir/certificate.ts"
 import type { FinishedCells } from "#compiler/ir/dag.ts"
@@ -396,9 +396,11 @@ const affectedBy = (editor: DagEditor, before: Before): ReadonlySet<Cell> => {
 		}
 	}
 	const above = reach(seeds, (c) => readers.get(c) ?? [])
-	const below = reach(
-		[...seeds, ...[...seeds].flatMap((c) => readers.get(c) ?? [])],
-		(c) => reads.get(c) ?? []
+	const below = reach([...seeds, ...[...seeds].flatMap((c) => readers.get(c) ?? [])], (c) =>
+		defined(
+			reads.get(c),
+			"the reads of a reachable cell, which every cell a reachable cell reads is"
+		)
 	)
 	return new Set([...above, ...below])
 }

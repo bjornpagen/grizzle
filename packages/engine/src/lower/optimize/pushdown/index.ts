@@ -1,4 +1,5 @@
 import type { NodeId } from "#compiler/core/ids.ts"
+import { defined } from "#compiler/core/invariant.ts"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import type { CertificateRule } from "#compiler/ir/certificate.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
@@ -320,7 +321,10 @@ const pushRule: Rule = {
  */
 const pushdownPotential: Potential = (cx) => {
 	const reach = new Map<Cell, number>()
-	const exclusiveReach = (c: Cell): number => (exclusive(cx, c) ? (reach.get(c) ?? 0) : 0)
+	const exclusiveReach = (c: Cell): number =>
+		exclusive(cx, c)
+			? defined(reach.get(c), "an input's reach, set before its readers in topological order")
+			: 0
 	let sum = 0
 	for (const cell of cx.editor.topoOrder()) {
 		const node = cell.current

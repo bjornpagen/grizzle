@@ -18,7 +18,7 @@ const quotedElement = (
 	let start = open + 1
 	for (;;) {
 		/** Read without a check, as every element is: array_out closes each quoted element before the closing brace. */
-		const quote = indexFrom(text, '"', start) ?? text.length - 1
+		const quote = text.indexOf('"', start)
 		const backslash = indexFrom(text, "\\", start)
 		if (backslash === undefined || backslash > quote) {
 			return { value: value + text.slice(start, quote), next: quote + 1 }
