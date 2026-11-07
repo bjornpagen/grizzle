@@ -1668,7 +1668,9 @@ never narrowed into its column's type unproved.
   `EncodingFailure` (`factShape`) before any SQL. An insert of an ordered member alone is a type error, since its
   order is the nesting's. A tree is written whole: a put or a delete of one of its rows is a type error, and from
   JavaScript refused when the ChangeSet compiles, because a row inserted or removed in the middle shifts every later
-  interval.
+  interval. An insert of a sequence's owner states its members and a put of it leaves them as they are, so a put and
+  an insert of one owner at one key in one stratum are two rows at that key, `invariant-rejected` on the key before any
+  SQL is sent; at different keys each is written.
 - **A counted member is a row.** Its group key names its owner, and it is inserted, put and deleted like any row. A
   counted member that is also a sequence's member or a tree's node is inserted nested under its owner in that
   sequence, its group key among the fields it states, and one that owns a sequence is inserted with that sequence's

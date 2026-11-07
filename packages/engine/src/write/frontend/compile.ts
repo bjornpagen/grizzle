@@ -605,17 +605,27 @@ type MemberEntry =
 			readonly fillable: boolean
 	  }
 
-/** A target as its members write it: its relation, whole or through a query entry, and its classes' carried headings. */
+/**
+ * A target as its members write it: its relation, whole or through a query entry, and its classes' carried headings.
+ * targetOf decides it from the relation's name alone, so every member of one relation holds the one target, and its
+ * classes head every operation's slot of the relation, a delete's, a put's and an insert's alike. A nested insert's
+ * heading is its nesting's (Nesting.top), never a class, so it heads no other operation's slot.
+ */
 interface CheckedTarget {
 	readonly relation: WrittenRelation
 	readonly entry: MemberEntry
 	readonly classes: InsertClasses<Heading>
 }
 
-/** A stratum's member, checked: its operation, its target, and its source, an array or Stream member slot, or a query
- * with its root in the write DAG, whose head is the member relation's. */
-interface CheckedMember extends CheckedTarget {
+/**
+ * A stratum's member, checked: its operation, its target, and its source, an array or Stream member slot, or a query
+ * with its root in the write DAG, whose head is the member relation's. Its target is its relation's, whole, as targetOf
+ * decides it for every member of the relation: a member holds no heading or class of its own, so no member's statement
+ * can set the heading another operation's slot of its relation is admitted and carried under.
+ */
+interface CheckedMember {
 	readonly op: MemberDesc["op"]
+	readonly target: CheckedTarget
 	readonly loc: SourceLoc
 	readonly source:
 		| {
@@ -1137,20 +1147,10 @@ const compile = (
 					`an insert into ${relation.name}, which owns a sequence, ${entry.kind !== "whole" ? "through a query entry" : "by a query"}: a sequence's members are written nested in order under their owner, so insert ${relation.name} whole from an array or a Stream`
 				)
 			}
-			const classes: InsertClasses<Heading> = nested
-				? { kind: "unclassed", complete: nestingFor(relation).top }
-				: target.classes
 			const written: MemberRelation = entry.kind === "entry" ? entry.member : relation
 			const source = member.member
 			if (source.kind !== "query") {
-				return {
-					op: member.op,
-					relation,
-					entry,
-					classes,
-					loc,
-					source: { kind: "enumerated", member: source }
-				}
+				return { op: member.op, target, loc, source: { kind: "enumerated", member: source } }
 			}
 			const query = unwrap(
 				checkMember(
@@ -1165,9 +1165,7 @@ const compile = (
 			}
 			return {
 				op: member.op,
-				relation,
-				entry,
-				classes,
+				target,
 				loc,
 				source: { kind: "described", query, root: merger.add(query) }
 			}
@@ -1175,10 +1173,10 @@ const compile = (
 	)
 	/** A write into an entry refuses a stratum that also writes a relation its filter reads. */
 	const refuseMovedFilter = (m: CheckedMember, writtenNames: ReadonlySet<string>): void => {
-		if (m.entry.kind !== "entry") {
+		if (m.target.entry.kind !== "entry") {
 			return
 		}
-		const entry = m.entry.entry
+		const entry = m.target.entry.entry
 		const filter = entry.filter
 		if (filter.kind === "none") {
 			return
@@ -1212,38 +1210,39 @@ const compile = (
 	/** Each stratum's refills, by its position among the ChangeSet's strata. */
 	const refills = new Map<number, StratumRefill>()
 	for (const [s, members] of strataMembers.entries()) {
-		const writtenNames = new Set(members.map((m) => m.relation.name))
+		const writtenNames = new Set(members.map((m) => m.target.relation.name))
 		const writes: Array<StratumWrite> = []
 		for (const m of members) {
 			refuseMovedFilter(m, writtenNames)
+			const { relation, entry, classes } = m.target
 			/** The counted members a nested insert writes: each edits only its counted families, since its sequences are the
 			 * walk's, under their fresh owners. */
 			const nestedCounted =
-				m.op === "insert" && nests(m.relation.name)
-					? countedReached(m.relation).flatMap((name) =>
-							name === m.relation.name ? [] : [writtenOf(name, m.loc)]
+				m.op === "insert" && nests(relation.name)
+					? countedReached(relation).flatMap((name) =>
+							name === relation.name ? [] : [writtenOf(name, m.loc)]
 						)
 					: []
 			/** A put's rows: its slot's facts, or a query's rows, through a query member or a query entry's fill. */
 			const putRows: StratumWrite["rows"] =
 				m.op !== "put"
 					? { kind: "none" }
-					: m.entry.kind === "entry" ||
+					: entry.kind === "entry" ||
 						  members.some(
 								(o) =>
-									o.relation.name === m.relation.name &&
+									o.target.relation.name === relation.name &&
 									o.op === "put" &&
 									o.source.kind === "described"
 						  )
 						? { kind: "query" }
 						: {
 								kind: "slot",
-								slot: writeSlotId(s, { op: "put" }, m.classes, m.relation.name)
+								slot: writeSlotId(s, { op: "put" }, classes, relation.name)
 							}
 			for (const w of [
-				{ relation: m.relation, op: m.op, edited: families, rows: putRows },
-				...nestedCounted.map((relation) => ({
-					relation,
+				{ relation, op: m.op, edited: families, rows: putRows },
+				...nestedCounted.map((counted) => ({
+					relation: counted,
 					op: m.op,
 					edited: families.filter((f) => !isSequence(f)),
 					rows: { kind: "none" } as const
@@ -1339,14 +1338,13 @@ const compile = (
 	const draftsByStratum = occupied.map(({ s, members }, stratum) => {
 		const drafts: Array<Draft> = []
 		const outside: Array<OutsideDraft> = []
-		const byRelation = [...groupBy(members, (m) => m.relation.name)].toSorted(
+		const byRelation = [...groupBy(members, (m) => m.target.relation.name)].toSorted(
 			Order.mapInput(Order.compareStrings, ([name]: readonly [string, unknown]) => name)
 		)
 		for (const [, list] of byRelation) {
-			const relation = list[0].relation
-			/** One writable entry per base relation per role, so every member of the relation writes it alike. */
-			const target = list[0].entry
-			const classes = list[0].classes
+			/** One target per base relation per role (targetOf), its writable entry and its classes, so every member of the
+			 * relation writes it alike and every operation's slot is headed by the relation's own classes. */
+			const { relation, entry: target, classes } = list[0].target
 			const written: MemberRelation = target.kind === "entry" ? target.member : relation
 			const groupInputs: Array<EnumeratedInput> = []
 			const ops = (["delete", "put", "insert"] as const).flatMap((op) => {
@@ -1564,6 +1562,9 @@ const compile = (
 						if (nests(relation.name)) {
 							const nesting = nestingFor(relation)
 							if (isNonEmpty(enumerated)) {
+								/** A nested insert's facts are its rows as its nesting writes them (Nesting.top), each count and end
+								 * drawn from its members: never a put's, which state their caller's fields, so the host refuses the
+								 * two at one key (normalize/ step 3). */
 								const { slot, normalizer } = classSlot(complete, nesting.top, nesting.top)
 								groupInputs.push(
 									Object.freeze({
@@ -2010,9 +2011,10 @@ const compile = (
 	const writtenThrough = new Map<string, Set<string>>()
 	for (const members of strataMembers) {
 		for (const m of members) {
-			const through = writtenThrough.get(m.relation.name) ?? new Set<string>()
-			through.add(m.entry.kind === "entry" ? m.entry.entry.entry : m.relation.name)
-			writtenThrough.set(m.relation.name, through)
+			const { relation, entry } = m.target
+			const through = writtenThrough.get(relation.name) ?? new Set<string>()
+			through.add(entry.kind === "entry" ? entry.entry.entry : relation.name)
+			writtenThrough.set(relation.name, through)
 		}
 	}
 	type DeltaOf =
@@ -2210,7 +2212,7 @@ const compile = (
 		written: Object.freeze(
 			[
 				...new Set([
-					...strataMembers.flat().map((m) => m.relation),
+					...strataMembers.flat().map((m) => m.target.relation),
 					...[...nestedRelations].map((name) => writtenOf(name, at))
 				])
 			].toSorted(Order.mapInput(Order.compareStrings, (r: WrittenRelation) => r.name))

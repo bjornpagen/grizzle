@@ -77,6 +77,9 @@ import { type PreludeAt, preludeAt, preludeFrom, preludeProgram } from "#test/su
  *   application's error, success and service channels are ApplyError, the ApplyOutcome of its read-backs, and none,
  *   each asserted exactly.
  *
+ * The engine is judged too where a stratum puts an owner and inserts it with its members nested (ownerPairings): at
+ * one key the two are two rows at that key, which it refuses on the key before any SQL (README Families).
+ *
  * A case is a valid ChangeSet by construction with at most one planted fault, so the one line the case is written on
  * raises at most the one diagnostic its directive names: a read-back name repeated by read, union or sequence, a
  * closed or derived relation written, a read-back of a derived relation's delta, a described member's head that is no
@@ -281,6 +284,17 @@ const outsideShapes = [
 ] as const
 type OutsideShape = (typeof outsideShapes)[number]
 
+/**
+ * Where a stratum's put of a mutable ordered owner and its insert with its members nested meet: at one key, two rows
+ * at that key, since the put leaves the owner's sequence as it is and the insert states it (README Families), which
+ * the engine refuses on the key before any SQL; or at different keys, each written.
+ */
+const ownerPairings = [
+	"a put and a nested insert of one owner at one key",
+	"a put and a nested insert of one owner at different keys"
+] as const
+type OwnerPairing = (typeof ownerPairings)[number]
+
 /** The faults a case may plant, one at most, each a swarm feature; and the constructs it may use. */
 const changeSetFaults = [
 	"a read-back name repeated by read",
@@ -346,6 +360,7 @@ const changeSetFeatures = [
 	"a mutable family",
 	"an immutable family",
 	"an append beside its owner",
+	...ownerPairings,
 	"a parameter",
 	"a narrowed exact value",
 	"a head parameter",
@@ -1208,6 +1223,68 @@ const familyMemberOf = (d: Drawing, clean: boolean): MemberSpec => {
 const familyMemberRelation = (owner: OrderedOwner | CountedOwner): FamilyRel =>
 	owner === "Order" || owner === "Cart" ? sequenceMembers[owner] : countedMembers[owner]
 
+/**
+ * A put of the mutable ordered owner beside an insert of it with its members nested, in either order, met as
+ * `pairing` says: both at one key, or the put at the first key and the insert at the second, so a union of two such
+ * pairs stays at different keys.
+ */
+const ownerPair = (d: Drawing, pairing: OwnerPairing): Arr.NonEmptyReadonlyArray<MemberSpec> => {
+	d.note("family member")
+	const shared = d.from([0, 1])
+	const [putAt, insertAt]: readonly [number, number] =
+		pairing === "a put and a nested insert of one owner at one key" ? [shared, shared] : [0, 1]
+	const put = familyOf(d, "put", "Cart", [[["id", familyValue(Arr.getUnsafe(uuids, putAt))]]])
+	const insert = familyOf(d, "insert", "Cart", [orderOf(d, insertAt, undefined)])
+	return d.from([0, 1]) === 0 ? [put, insert] : [insert, put]
+}
+
+/** The keys a stratum's members of the ordered owner `owner` state under `op`: each fact's id, by its literal. */
+const ownerKeys = (
+	members: ReadonlyArray<MemberSpec>,
+	owner: OrderedOwner,
+	op: Op
+): ReadonlyArray<string> =>
+	Arr.flatMap(members, (m) =>
+		m.kind === "family" && m.relation === owner && m.op === op
+			? Arr.flatMap(m.facts, (fact) =>
+					Arr.flatMap(fact, ([name, value]) =>
+						name === "id" && value.kind === "value" ? [value.lit.text] : []
+					)
+				)
+			: []
+	)
+
+/** Each stratum's members of a ChangeSet: a built's one, a sequence's in turn, a union's aligned position by position. */
+const strataOf = (c: ChangeSpec): ReadonlyArray<ReadonlyArray<MemberSpec>> => {
+	switch (c.kind) {
+		case "built":
+			return [c.members]
+		case "sequence":
+			return [...strataOf(c.a), ...strataOf(c.b)]
+		case "union": {
+			const a = strataOf(c.a)
+			const b = strataOf(c.b)
+			const [longer, shorter] = a.length >= b.length ? [a, b] : [b, a]
+			return Arr.map(longer, (members, i) => [...members, ...(shorter[i] ?? [])])
+		}
+	}
+}
+
+/**
+ * How each stratum of a ChangeSet that puts the mutable ordered owner and inserts it with its members nested meets
+ * them (ownerPairings): at one key where the two state one, else at different keys.
+ */
+const ownerPairingsOf = (c: ChangeSpec): ReadonlyArray<OwnerPairing> =>
+	Arr.flatMap(strataOf(c), (members): ReadonlyArray<OwnerPairing> => {
+		const put = ownerKeys(members, "Cart", "put")
+		const inserted = ownerKeys(members, "Cart", "insert")
+		return !Arr.isReadonlyArrayNonEmpty(put) || !Arr.isReadonlyArrayNonEmpty(inserted)
+			? []
+			: Arr.some(put, (k) => Arr.contains(inserted, k))
+				? ["a put and a nested insert of one owner at one key"]
+				: ["a put and a nested insert of one owner at different keys"]
+	})
+
 /** A read-back of a written relation's added or removed facts, or of a relation's state, or a count over them. */
 const readOf = (
 	d: Drawing,
@@ -1347,9 +1424,9 @@ const callsOf = (b: BuiltSpec): ReadonlyArray<Call> => {
 }
 
 /**
- * A ChangeSet over `level` with up to two members, at least one where its inserts are one insertAll, and two
- * read-backs, the first read-back named `readName` where one is given, carrying `fault` where it is a member's or a
- * read-back's.
+ * A ChangeSet over `level` with up to two members, one to four where its inserts are one insertAll, or, aimed at it, a
+ * put and a nested insert of one owner; and up to two read-backs, the first named `readName` where one is given,
+ * carrying `fault` where it is a member's or a read-back's.
  */
 const builtOf = (
 	d: Drawing,
@@ -1368,19 +1445,22 @@ const builtOf = (
 		memberFault !== undefined && Arr.contains(soleMemberFaults, memberFault)
 			? 1
 			: grouped
-				? d.from([1, 2])
+				? d.from([1, 2, 3, 4])
 				: memberFault !== undefined ||
 					  unbound ||
 					  fault === "a role that does not write the relation" ||
 					  d.aimed("family member")
 					? d.from([1, 2])
 					: d.from([0, 1, 1, 2])
-	const members = Arr.map(ordinals(count), (i): MemberSpec => {
-		if (i === 1 && unbound) {
-			return describedWithParam(d)
-		}
-		return memberOf(d, i === 1 ? memberFault : undefined, clean)
-	})
+	const pairing = Arr.findFirst(ownerPairings, (p) => d.aimed(p))
+	const members = Option.isSome(pairing)
+		? ownerPair(d, pairing.value)
+		: Arr.map(ordinals(count), (i): MemberSpec => {
+				if (i === 1 && unbound) {
+					return describedWithParam(d)
+				}
+				return memberOf(d, i === 1 ? memberFault : undefined, clean)
+			})
 	const written = Arr.flatMap(members, (m): ReadonlyArray<RelName> =>
 		(m.kind === "array" || m.kind === "stream" || m.kind === "widened" || m.kind === "query") &&
 		m.relation !== "Kind"
@@ -2443,6 +2523,14 @@ const verdictOfOne = (spec: CaseSpec): Verdict => {
 					code
 				}
 	}
+	if (
+		encoded.value.kind !== "invariant-rejected" &&
+		Arr.contains(ownerPairingsOf(spec.change), "a put and a nested insert of one owner at one key")
+	) {
+		throw new Error(
+			"the engine binds a put and a nested insert of one owner at one key, two rows at that key it refuses before any SQL"
+		)
+	}
 	if (outsideItsDomain(reality.options.laws, spec.change)) {
 		return {
 			kind: "refused",
@@ -2584,6 +2672,9 @@ const caseOf = ({ spec, reached }: Drawn): ChangeSetCase => {
 		for (const m of b.members) {
 			notes.add(m.kind === "appended" ? "insert" : m.op)
 		}
+	}
+	for (const pairing of ownerPairingsOf(spec.change)) {
+		notes.add(pairing)
 	}
 	return { spec, change, args, choice, verdict, uses: rendering.uses, notes }
 }
