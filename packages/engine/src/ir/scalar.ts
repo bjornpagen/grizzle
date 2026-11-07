@@ -928,7 +928,6 @@ export const unrefined = (t: ScalarType): ScalarType =>
 export const sameUnrefined = (a: ScalarType, b: ScalarType): boolean =>
 	sameScalarType(unrefined(a), unrefined(b))
 
-
 /**
  * Whether a value of this type is refined beyond its base: a contract, or text with a specific pattern. A comparison
  * parameter is never cast to such a type.
