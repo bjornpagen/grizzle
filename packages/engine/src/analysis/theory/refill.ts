@@ -17,8 +17,8 @@
  * A write may re-place a family member's stored rows, deleting and inserting them again, which no cascade follows: a
  * put that moves a member to another group, or that changes what an ordered family reads of it, and a delete of an
  * ordered family's member, which re-places every member after it. Every member's copy of a column a change makes on a
- * relation the stratum re-places, along a family it owns, is a reader too, as is a re-placed member's copy of a column
- * a change makes on its owner (`replacedBy`).
+ * relation the stratum re-places, along a family it owns, is a reader too, as is a re-placed counted member's copy of a
+ * column a change makes on its owner (`replacedBy`).
  *
  * The refills a write needs close over the changes the refills make in turn. A refill whose own changes reach it again
  * is a cycle no order of the refills draws.
@@ -39,18 +39,25 @@ const columnId = (c: NativeColumn): string =>
 /** Whether two native columns are one column of one relation. */
 const sameColumn = (a: NativeColumn, b: NativeColumn): boolean => columnId(a) === columnId(b)
 
+/** A ChangeSet member's write of `relation` by `op`, which edits the families of `edited` it is a member of. */
+export interface WriteChange {
+	readonly kind: "write"
+	readonly relation: RelationInfo
+	readonly op: "insert" | "put" | "delete"
+	readonly edited: ReadonlyArray<Family>
+}
+
 /**
- * A change of stored rows that refills start from: a ChangeSet member's write of `relation` by `op`, which edits the
- * families of `edited` it is a member of; or a refill of `family`.
+ * A change of stored rows that refills start from: a write; or a refill of `family`, which the path from the write
+ * `origin` first reached.
  */
 export type Change =
-	| {
-			readonly kind: "write"
-			readonly relation: RelationInfo
-			readonly op: "insert" | "put" | "delete"
-			readonly edited: ReadonlyArray<Family>
-	  }
-	| { readonly kind: "refill"; readonly family: Family }
+	| WriteChange
+	| { readonly kind: "refill"; readonly family: Family; readonly origin: WriteChange }
+
+/** The write a change starts from: itself, or the write whose path first reached a refill. */
+export const originOf = (change: Change): WriteChange =>
+	change.kind === "write" ? change : change.origin
 
 /**
  * A column a change makes on stored rows: a put's field of `relation`; or, by an edit or a refill of `family`, a column
@@ -218,8 +225,9 @@ interface Reached {
  * header. Each column it makes is followed into the readers of its relation's families but those it draws again itself,
  * along every owner axis that carries it, a tree's aside, and into every field generated from it; where its relation is
  * one `replaced` names, every owner axis that carries it is a reader too, a count among them, which its family's
- * members copy as ‹n›; and so is every owner axis that carries it into a relation `replaced` names, whose re-placed
- * rows no cascade reaches either (a re-placed counted member's ‹n› is its edit's to draw, write/family/edit.ts).
+ * members copy as ‹n›; and so is a counted family's owner axis that carries it into a relation `replaced` names, whose
+ * re-placed rows no cascade reaches either. A sequence re-places its own members and draws each from its owner as the
+ * stratum leaves it, and a re-placed counted member's ‹n› is its edit's to draw (write/family/edit.ts).
  */
 const reachedBy = (
 	families: ReadonlyArray<Family>,
@@ -270,7 +278,7 @@ const reachedBy = (
 					}
 					const hop = { family: j, pair }
 					carried.push({ change, changed, copies, hop })
-					if (replaced.has(at.name) || replaced.has(j.member.name)) {
+					if (replaced.has(at.name) || (replaced.has(j.member.name) && !isSequence(j))) {
 						paths.push({
 							change,
 							changed,
@@ -315,7 +323,7 @@ export interface Closure {
 /** The closure of `roots` among `families` (`Closure`), the relations of `replaced` re-placed (`reachedBy`). */
 export const closureOf = (
 	families: ReadonlyArray<Family>,
-	roots: ReadonlyArray<Change>,
+	roots: ReadonlyArray<WriteChange>,
 	replaced: ReadonlySet<string>
 ): Closure => {
 	const paths: Array<RefillPath> = []
@@ -339,7 +347,7 @@ export const closureOf = (
 			}
 			if (!refilled.has(key)) {
 				refilled.set(key, l)
-				pending.push({ kind: "refill", family: l })
+				pending.push({ kind: "refill", family: l, origin: originOf(change) })
 			}
 		}
 	}
@@ -439,7 +447,7 @@ export const refillDeferral = (families: ReadonlyArray<Family>): RefillDeferral 
 		relations.set(f.owner.name, f.owner)
 		relations.set(f.member.name, f.member)
 	}
-	const roots = [...relations.values()].flatMap((relation): ReadonlyArray<Change> => {
+	const roots = [...relations.values()].flatMap((relation): ReadonlyArray<WriteChange> => {
 		const edited = families.filter(
 			(f) => f.member.name === relation.name && f.members.kind !== "tree" && f.owner.mutable
 		)

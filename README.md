@@ -1625,7 +1625,8 @@ never narrowed into its column's type unproved.
   family's copies refills on in turn. A put that moves a member to another group or changes what its ordered family
   reads of it, and a delete of an ordered family's member, re-place rows, deleting and inserting them again, which no
   cascade follows: every family the re-placed rows own is refilled where its members copy a column the ChangeSet
-  changes there, its count among them. The owner axis of every family whose members a refill can rewrite or whose
+  changes there, its count among them, and a re-placed row is drawn whole, with its owners' values as the ChangeSet
+  leaves them. The owner axis of every family whose members a refill can rewrite or whose
   owner a put or a delete can re-place, and the predecessor axis of every ordered family and tree a refill rewrites
   and a tree's owner axis, are deferred, decided once for the schema. A refill is planned in the first stratum, beside every edit of a family's members, and is
   refused when the ChangeSet compiles (`StaleDerivedRead`) only where grizzle cannot draw it: a put whose rows a query

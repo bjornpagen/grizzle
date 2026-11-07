@@ -9,6 +9,7 @@ import {
 	int,
 	map,
 	oneOf,
+	proportional,
 	string,
 	weighted
 } from "@grizzle/testing/gen"
@@ -623,6 +624,35 @@ const entriesOf = (c: Gate): ReadonlyArray<string> => {
 /** The entries the host declines for every value by design (a float's pow, evaluation "database"): no verdict. */
 const declinedEntries: ReadonlySet<string> = new Set(["power/float8", "power/float4"])
 
+/** Every entry the catalogue builds cases of: each gate carrier's (entriesOf), in one order. */
+const catalogueEntries: ReadonlyArray<string> = Arr.flatMap(gateCarriers, entriesOf)
+
+/**
+ * Whether a case builds an entry: all but once in as many cases as the catalogue has entries squared, so a case builds
+ * every entry all but rarely; shrinking toward leaving it out, so a failure shrinks to the entries it needs and each
+ * shrink candidate builds those alone rather than every entry again.
+ */
+const entryKept: Gen<boolean> = proportional([
+	[1, constant(false)],
+	[catalogueEntries.length ** 2, constant(true)]
+])
+
+/** A case: the entries it builds, in catalogue order, and the operands it builds them over. */
+interface CatalogueCase {
+	readonly entries: ReadonlyArray<string>
+	readonly operands: Operands
+}
+
+const catalogueCaseGen: Gen<CatalogueCase> = (source) => {
+	const kept = source.draw(
+		array(entryKept, { min: catalogueEntries.length, max: catalogueEntries.length })
+	)
+	return {
+		entries: Arr.filter(catalogueEntries, (_, i) => kept[i] === true),
+		operands: source.draw(operandsGen)
+	}
+}
+
 /** An entry met at one of its carrier's boundary classes: `<entry> @ <class>`. */
 type BoundarySituation = `${string} @ ${string}`
 
@@ -726,14 +756,18 @@ const reached = (
 	})
 
 /**
- * Every admitted entry's cases: each boundary class of its carrier at each operand position, every pair of boundary
+ * The cases of each of `entries`: each boundary class of its carrier at each operand position, every pair of boundary
  * classes for a binary entry, and a walk over the boundary and generated operands; each operand read through its
- * spelling's term. A drawn case builds some 56,600 of them, each lowered, rendered and evaluated on the host, about 20 s
- * of CPU in all, so building yields after each one: the case's hang guard and its test's deadline can cut it there,
- * which a synchronous build of that length would starve.
+ * spelling's term. A case of every entry builds some 56,600 of them, each lowered, rendered and evaluated on the host,
+ * about 20 s of CPU in all, so building yields after each one: the case's hang guard and its test's deadline can cut it
+ * there, which a synchronous build of that length would starve.
  */
-const buildCases = (operands: Operands): Effect.Effect<ReadonlyArray<ReadCase>> =>
+const buildCases = (
+	entries: ReadonlyArray<string>,
+	operands: Operands
+): Effect.Effect<ReadonlyArray<ReadCase>> =>
 	Effect.gen(function* () {
+		const builds: ReadonlySet<string> = new Set(entries)
 		const cases: Array<ReadCase> = []
 		const add = (
 			label: string,
@@ -752,9 +786,8 @@ const buildCases = (operands: Operands): Effect.Effect<ReadonlyArray<ReadCase>> 
 			const f = fields[c]
 			const values = operandValues(c, operands)
 			const classes = boundaryValues(c, operands)
-			const terms = [v("a", f), v("b", f), v("c", f)]
 			for (const op of ops) {
-				if (!admitted(() => op.build(terms, c))) {
+				if (!builds.has(`${op.name}/${c}`)) {
 					continue
 				}
 				const walk = pick(values, 200, operands.walk ^ (op.name.length * 31 + c.length))
@@ -786,7 +819,7 @@ const buildCases = (operands: Operands): Effect.Effect<ReadonlyArray<ReadCase>> 
 			}
 			for (const [name, target] of castTargets) {
 				const label = `cast:${typeLabel(f.scalar)}->${name}`
-				if (!admitted(() => Compute.cast(terms[0], target))) {
+				if (!builds.has(label)) {
 					continue
 				}
 				for (const x of values) {
@@ -802,7 +835,7 @@ const buildCases = (operands: Operands): Effect.Effect<ReadonlyArray<ReadCase>> 
 			}
 		}
 		const numeric = testPg.numeric
-		const numericValues = operandValues("numeric", operands)
+		const buckets = builds.has("widthBucket/numeric")
 		const counts = [-1, 0, 1, 3, 10, 2147483647]
 		const bucket = (a: Operand, b: Operand, c: Operand, n: number) =>
 			add(
@@ -822,11 +855,14 @@ const buildCases = (operands: Operands): Effect.Effect<ReadonlyArray<ReadCase>> 
 				false,
 				[a, b, c]
 			)
-		for (const [i, t] of pick(numericValues, 1200, operands.walk ^ 77).entries()) {
+		const bucketWalk = buckets
+			? pick(operandValues("numeric", operands), 1200, operands.walk ^ 77)
+			: []
+		for (const [i, t] of bucketWalk.entries()) {
 			bucket(at(t, 0), at(t, 1), at(t, 2), at(counts, i % counts.length))
 			yield* Effect.yieldNow
 		}
-		for (const [i, k] of boundaryValues("numeric", operands).entries()) {
+		for (const [i, k] of (buckets ? boundaryValues("numeric", operands) : []).entries()) {
 			const lo = plainOperand(Decimal.of(BigInt(-(i % 17))), "drawn")
 			const hi = plainOperand(Decimal.of(`${(i % 13) + 1}.${i % 7}`), "drawn")
 			bucket(k, lo, hi, (i % 9) + 1)
@@ -836,7 +872,7 @@ const buildCases = (operands: Operands): Effect.Effect<ReadonlyArray<ReadCase>> 
 			bucket(lo, hi, k, (i % 9) + 1)
 			yield* Effect.yieldNow
 		}
-		for (const [x, y] of operands.fractionalPairs) {
+		for (const [x, y] of builds.has("lcm/numeric") ? operands.fractionalPairs : []) {
 			const a = plainOperand(Decimal.of(x), "drawn")
 			const b = plainOperand(Decimal.of(y), "drawn")
 			add(
@@ -958,7 +994,7 @@ layer(Substrate.layer)("the Compute catalogue against PostgreSQL 19", (it) => {
 						{
 							oracle: { kind: "unstated" },
 							suite: "pg/compute/catalogue",
-							draw: drawn(operandsGen),
+							draw: drawn(catalogueCaseGen),
 							literal: Formatter.format,
 							coverage: required<CatalogueFeature>(
 								[
@@ -977,9 +1013,9 @@ layer(Substrate.layer)("the Compute catalogue against PostgreSQL 19", (it) => {
 							steerEvery: 16,
 							caseHang
 						},
-						(operands, c) =>
+						(drawnCase, c) =>
 							Effect.gen(function* () {
-								const all = yield* buildCases(operands)
+								const all = yield* buildCases(drawnCase.entries, drawnCase.operands)
 								const unjustified = Arr.flatMap(all, (k) =>
 									k.built.kind === "refused" && !justified(k.built.precondition, k.read)
 										? [

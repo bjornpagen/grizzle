@@ -250,8 +250,7 @@ suite's residual risk. A longer search is a fuzz run, `pnpm fuzz <suite>`.
   a `map`, `span`, `filter`, `drawn` or `sketched` of one, or a choice among them alone. Whether a drawn record's field
   is the verdict a case asserts takes the drawn value's flow through the generators and the property's branches,
   which no syntactic reading decides, so the rule refuses the written list itself: a space is a box its bounds define,
-  a dictionary or a roster the source declares. Both rules are pending: the gate leaves them out until the tree's
-  examples are converted, and `superlint --pending` runs them beside the rest.
+  a dictionary or a roster the source declares.
 - **No module state outside test files.** superlint's `no-module-state` refuses a module-level `let` and a constant
   whose type a write can change (an array, a Map, an object with a writable property) everywhere but in `*.test.ts`
   files. A WeakMap or WeakSet keyed by a handle is a registry and allowed, and so are the stateless codecs; a cache of a

@@ -21,8 +21,10 @@ import {
 	columnName,
 	derivedReader,
 	type Hop,
+	originOf,
 	type RefillPath,
-	refillable
+	refillable,
+	type WriteChange
 } from "#compiler/analysis/theory/refill.ts"
 import type { StaleCause } from "#compiler/core/causes.ts"
 import { CompileError, type RoleAccess } from "#compiler/core/errors.ts"
@@ -46,7 +48,7 @@ import type { FamilyNode, RefillOrder } from "#compiler/write/frontend/schedule.
 
 /** One of a stratum's writes as its refills start from it: its change, where it is, and where a put's rows come from. */
 export interface StratumWrite {
-	readonly change: Extract<Change, { readonly kind: "write" }>
+	readonly change: WriteChange
 	readonly loc: SourceLoc
 	/** A put's rows: its member slot's facts, or a query's rows, which the host never sees; none for any other write. */
 	readonly rows:
@@ -233,9 +235,12 @@ export const stratumRefill = (
 	if (!isNonEmpty(writes)) {
 		return Result.ok(undefined)
 	}
-	const first = writes[0]
-	/** The write a change of the closure starts from: its own, or for a refill's, the stratum's first. */
-	const writeOf = (change: Change): StratumWrite => writes.find((w) => w.change === change) ?? first
+	/** The write a change of the closure starts from: its own, or the one whose path first reached the refill. */
+	const writeOf = (change: Change): StratumWrite =>
+		defined(
+			writes.find((w) => w.change === originOf(change)),
+			"the stratum's write a change of its closure starts from"
+		)
 	const queried = (change: Change): boolean => writeOf(change).rows.kind === "query"
 	const stale = (
 		path: {
@@ -370,10 +375,17 @@ export const stratumRefill = (
 		return out
 	}
 	const reads = new Map<string, RefillRead>()
+	/** The change each read follows, by the read's key: the first path's to its family, or the cascade's way. */
+	const readFrom = new Map<string, Change>()
 	for (const l of closure.refills) {
 		for (const groups of groupsOf(l)) {
-			if (groups.kind === "groups") {
-				reads.set(`g:${groupsKey(groups)}`, { kind: "groups", groups })
+			if (groups.kind !== "groups") {
+				continue
+			}
+			const key = `g:${groupsKey(groups)}`
+			reads.set(key, { kind: "groups", groups })
+			if (!readFrom.has(key)) {
+				readFrom.set(key, readerOf(l).change)
 			}
 		}
 	}
@@ -387,23 +399,31 @@ export const stratumRefill = (
 				rows: cascaded(rows, way.copies),
 				family: way.hop.family
 			}
-			reads.set(`r:${rowsKey(read.rows)}`, read)
+			const key = `r:${rowsKey(read.rows)}`
+			reads.set(key, read)
+			if (!readFrom.has(key)) {
+				readFrom.set(key, way.change)
+			}
 		}
 	}
 	if (holds.kind === "role") {
 		const refusal = (access: RoleAccess, at: SourceLoc): CompileError =>
 			CompileError.make({ _tag: "OutsideRole", at, role: holds.role, access })
-		const at = first.loc
 		for (const l of closure.refills) {
 			if (!holds.writes(l.member.name)) {
-				return Result.err(refusal({ kind: "write", relation: l.member.name }, at))
+				return Result.err(
+					refusal({ kind: "write", relation: l.member.name }, writeOf(readerOf(l).change).loc)
+				)
 			}
 		}
-		for (const read of reads.values()) {
+		for (const [key, read] of reads) {
 			for (const relation of readRelations(read)) {
 				if (!holds.reads(relation.name)) {
 					return Result.err(
-						refusal({ kind: "read", relation: relation.name, base: holds.base }, at)
+						refusal(
+							{ kind: "read", relation: relation.name, base: holds.base },
+							writeOf(defined(readFrom.get(key), "the change a read follows")).loc
+						)
 					)
 				}
 			}

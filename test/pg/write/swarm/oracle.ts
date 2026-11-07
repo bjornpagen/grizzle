@@ -486,10 +486,11 @@ export const familyWrites = (
 
 /**
  * What a step must do from a lawful `state`:
- * - `stale`: refused when it compiles (StaleDerivedRead), where a follow-up's refills update an immutable relation's
- *   rows (its relation one of `immutable`), or a put from a query leaves a value stale (`query`);
- * - `later refill`: refused when it compiles (UnsupportedOperation), where the follow-up's refills fall in a stratum
- *   after another, a refill being planned from one read before the ChangeSet's writes, so in the first stratum;
+ * - `uncompiled`: refused when it compiles, for any cause that applies: StaleDerivedRead where its refills update an
+ *   immutable relation's rows (its relation one of `immutable`), where a put from a query leaves a value stale
+ *   (`query`), or where the refills reach a family they refill again (`cycle`), each naming one of the writes whose
+ *   path first reaches a refill (`origins`, fill.ts writesVerdict); UnsupportedOperation where its refills fall in a
+ *   stratum after another (`later`), a refill being planned from one read before the ChangeSet's writes;
  * - `refused`: invariant-rejected, naming only laws of `laws`, where two facts share a key, a family's member names no
  *   owner, an immediate law fails at the end of a stratum, or any law fails at the end;
  * - `written`: accepted, or no-change where nothing stored changes, leaving `next`.
@@ -497,8 +498,17 @@ export const familyWrites = (
 export type StepVerdict =
 	| { readonly kind: "written"; readonly next: State; readonly changed: boolean }
 	| { readonly kind: "refused"; readonly laws: ReadonlySet<LawId> }
-	| { readonly kind: "stale"; readonly immutable: ReadonlyArray<string>; readonly query: boolean }
-	| { readonly kind: "later refill" }
+	| {
+			readonly kind: "uncompiled"
+			readonly immutable: ReadonlyArray<string>
+			readonly query: boolean
+			readonly cycle: boolean
+			readonly later: boolean
+			readonly origins: ReadonlyArray<{
+				readonly relation: string
+				readonly op: "insert" | "put" | "delete"
+			}>
+	  }
 
 /** The laws `host` finds broken in `state`, every one or the immediate ones alone. */
 const brokenIn = (
@@ -520,25 +530,35 @@ export const expectStep = (
 	state: State,
 	step: Step
 ): StepVerdict => {
-	if (step.kind === "delete all") {
+	if (step.kind !== "insert") {
 		const verdict = writesVerdict(spec.fill, familyWrites(spec, state, step))
-		if (verdict.kind === "refused") {
-			return { kind: "stale", immutable: verdict.immutable, query: false }
-		}
-	}
-	if (step.kind === "follow" || step.kind === "query put") {
-		const verdict = writesVerdict(spec.fill, familyWrites(spec, state, step))
-		if (verdict.kind === "refused") {
-			return { kind: "stale", immutable: verdict.immutable, query: step.kind === "query put" }
-		}
-		if (step.kind === "query put" && Arr.isReadonlyArrayNonEmpty(verdict.stale)) {
-			return { kind: "stale", immutable: [], query: true }
-		}
+		const stale = Arr.isReadonlyArrayNonEmpty(verdict.stale)
 		const earlier =
-			Arr.some(step.plain, (o) => o.at === "before") ||
-			(step.kind === "follow" && step.query?.at === "before")
-		if (earlier && Arr.isReadonlyArrayNonEmpty(verdict.stale)) {
-			return { kind: "later refill" }
+			step.kind !== "delete all" &&
+			(Arr.some(step.plain, (o) => o.at === "before") ||
+				(step.kind === "follow" && step.query?.at === "before"))
+		const uncompiled = {
+			kind: "uncompiled" as const,
+			immutable: verdict.kind === "refused" ? verdict.immutable : [],
+			query: step.kind === "query put" && stale,
+			cycle: verdict.kind === "cycle",
+			later: earlier && stale,
+			origins: Arr.map(
+				verdict.kind === "written"
+					? step.kind === "query put"
+						? [{ relation: step.relation, op: "put" as const }]
+						: []
+					: verdict.origins,
+				(w) => ({ relation: relationName(w.relation), op: w.op })
+			)
+		}
+		if (
+			Arr.isReadonlyArrayNonEmpty(uncompiled.immutable) ||
+			uncompiled.query ||
+			uncompiled.cycle ||
+			uncompiled.later
+		) {
+			return uncompiled
 		}
 	}
 	const s1: State = {

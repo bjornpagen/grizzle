@@ -102,6 +102,7 @@ type Situation =
 	| "one member per fact"
 	| "a stratum no order keeps refused"
 	| "a refill after an earlier stratum refused"
+	| "refills reaching a family again refused"
 
 const situations: Arr.NonEmptyReadonlyArray<Situation> = [
 	"a lawful first insert accepted",
@@ -1039,6 +1040,66 @@ const kept: ReadonlyArray<Kept<SwarmCase, Situation>> = [
 		},
 		draws: "",
 		reaches: ["a put from a query accepted"]
+	},
+	{
+		note: "found: a put of an ordered member whose g its owner's last copy reads, read again by a tree's last copy, beside a referrer's put: once refused as a refill cycle naming the referrer's put as its write, now refilled",
+		sketch: {
+			spec: {
+				fill: {
+					relations: [
+						{ generated: true, mutable: true, key: false },
+						{ generated: true, mutable: true, key: false }
+					],
+					families: [
+						{ kind: "ordered", owner: 0, member: 1, fold: "sum" },
+						{ kind: "tree", owner: 0, member: 0, fold: "count" }
+					],
+					copies: [
+						{ family: 1, axis: "predecessor", source: { kind: "count", family: 1 } },
+						{ family: 0, axis: "last", source: { kind: "generated" } },
+						{ family: 0, axis: "owner", source: { kind: "copy", copy: 0 } },
+						{ family: 1, axis: "last", source: { kind: "copy", copy: 1 } }
+					],
+					steps: []
+				},
+				ends: [],
+				plains: [{ kind: "referrer", mutable: true }],
+				laws: []
+			},
+			steps: [
+				inserted(
+					[
+						{ relation: 0, id: 1, v: 0n, memberOf: [] },
+						{ relation: 1, id: 2, v: 1n, memberOf: [{ family: 0, owner: 1, slot: 0 }] }
+					],
+					false,
+					undefined
+				),
+				{
+					kind: "follow",
+					followUp: {
+						owner: 1,
+						row: 2,
+						put: Option.some(2n),
+						inserted: [],
+						removed: Option.none(),
+						appended: Option.none(),
+						moved: Option.none()
+					},
+					plain: [
+						{
+							op: "put",
+							row: { kind: "referrer", plain: 0, id: 6000, r: 2, x: 0n },
+							at: "with"
+						}
+					],
+					query: undefined,
+					shape: { split: true, repeat: false }
+				}
+			]
+		},
+		draws: "",
+		reaches: ["a follow-up accepted", "a follow-up refilling a value"]
 	}
 ]
 
@@ -1123,28 +1184,39 @@ layer(Substrate.layer, { excludeTestServices: true })("the family writer under a
 											c.note("a stratum no order keeps refused")
 											return
 										}
-										if (
-											reason._tag === "UnsupportedOperation" &&
-											expected.kind === "later refill"
-										) {
-											c.note("a refill after an earlier stratum refused")
-											return
-										}
-										if (reason._tag === "StaleDerivedRead" && expected.kind === "stale") {
-											if (reason.cause.kind === "immutable") {
-												assert.ok(
-													expected.immutable.includes(reason.cause.relation),
-													`${label}: a refill of the immutable ${reason.cause.relation}, which the reference finds no refill updates: ${Formatter.format(expected.immutable)}`
-												)
-												c.note("a refill of an immutable relation refused")
+										if (expected.kind === "uncompiled") {
+											if (reason._tag === "UnsupportedOperation" && expected.later) {
+												c.note("a refill after an earlier stratum refused")
 												return
 											}
-											assert.ok(
-												reason.cause.kind === "query" && expected.query,
-												`${label}: refused as stale for ${reason.cause.kind}, which the reference does not state`
-											)
-											c.note("a put from a query refused for a value it leaves stale")
-											return
+											if (reason._tag === "StaleDerivedRead") {
+												const cause = reason.cause
+												const stated =
+													cause.kind === "immutable"
+														? expected.immutable.includes(cause.relation)
+														: cause.kind === "query"
+															? expected.query
+															: expected.cycle
+												assert.ok(
+													stated,
+													`${label}: refused as stale (${Formatter.format(cause)}), a cause the reference does not state: ${Formatter.format(expected)}`
+												)
+												assert.ok(
+													Arr.some(
+														expected.origins,
+														(w) => w.relation === reason.member && w.op === reason.op
+													),
+													`${label}: the refusal names a ${reason.op} of ${reason.member} as the write that leaves a value stale, none of the writes whose path first reaches a refill (${Formatter.format(expected.origins)}): ${failure.reason.message}`
+												)
+												c.note(
+													cause.kind === "immutable"
+														? "a refill of an immutable relation refused"
+														: cause.kind === "query"
+															? "a put from a query refused for a value it leaves stale"
+															: "refills reaching a family again refused"
+												)
+												return
+											}
 										}
 										return assert.fail(
 											`${label}: refused when it compiles, ${failure.reason.message}, where the oracle expects ${expected.kind}`
@@ -1152,13 +1224,9 @@ layer(Substrate.layer, { excludeTestServices: true })("the family writer under a
 									}
 									const outcome = applied.success
 									switch (expected.kind) {
-										case "later refill":
+										case "uncompiled":
 											return assert.fail(
-												`${label}: ${outcome.kind}, where its refills fall in a stratum after another, which the README refuses`
-											)
-										case "stale":
-											return assert.fail(
-												`${label}: ${outcome.kind}, where the reference finds a refill it cannot draw (immutable ${Formatter.format(expected.immutable)}, query ${String(expected.query)})`
+												`${label}: ${outcome.kind}, where the reference finds a refill it cannot draw or plan: ${Formatter.format(expected)}`
 											)
 										case "refused": {
 											assert.equal(

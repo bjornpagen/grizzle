@@ -12,7 +12,7 @@ What it is
 How grizzle met it
   A generated field, or a law column's selection or term, whose term compares texts that read no row field: two text
   literals, or a closed relation's payload read at a handle written in the term (Pick.at("t", "k1")), which PostgreSQL
-  folds to a constant, against a literal; also startsWith, endsWith, greatest and least over such texts. The schema
+  folds to a constant, against a literal; also startsWith, endsWith and greatest over such texts. The schema
   compiled and its migration failed at the ALTER TABLE ... ADD COLUMN ... GENERATED statement (GEN-NULL's
   test/pg/null/positions search).
 

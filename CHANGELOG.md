@@ -33,7 +33,7 @@ How to upgrade:
   under pg_c_utf8, a closed read at a handle written in the term included; a boolean one that is NULL as
   `NULLIF(true, true)`. A generated field or a selection whose term compared texts that read no row field, such as
   `Compute.in(Compute.literal(Text, "ab"), ["ab", "bb"])`, `Compute.eq(Pick.at("t", "k1"), "a")`, or `startsWith`,
-  `endsWith`, `greatest` and `least` over such texts, compiled and then failed its migration with 42P22 ("could not
+  `endsWith` and `greatest` over such texts, compiled and then failed its migration with 42P22 ("could not
   determine which collation to use for string comparison"): PostgreSQL 19 plans a generation expression, and so
   pre-evaluates a function of constants, before it assigns the expression's collations, a PostgreSQL bug written up
   in `upstream/generated-column-collation-before-planning`. Regenerate: an expression holding such a subterm prints
@@ -111,7 +111,10 @@ How to upgrade:
   immediate owner axis, so the delete was refused (`invariant-rejected`, by the counted family's law), and their
   copies of the row's columns, which no cascade reaches when a row is inserted again, would have gone stale. Now the
   owner axis of every family owned by a relation a put or a delete may re-place is deferred, and those members'
-  copies, their count's among them, are refilled, members first. Regenerate: the deferred axes change. No codemod.
+  copies, their count's among them, are refilled, members first. A re-placed row is itself drawn whole: as a counted
+  family's member it takes that family's new count and its owner's values, and its copy of a column its owner changes
+  in the same ChangeSet is refilled, where before it was inserted again with the old ones and refused. Regenerate: the
+  deferred axes change. No codemod.
 
 #### A fold's selection a closed read leaves unknown skips the member, on the host and in its CHECK
 
@@ -219,6 +222,13 @@ How to upgrade:
   range is refused with `precondition: "powerRange"` and `Compute.within` as its guard; one whose sign is unproved is
   `powerDomain`, whose guard is now `Compute.positive` (`remedy: { kind: "positive" }`). Code that matched
   `precondition === "powerDomain"` for a range matches `"powerRange"`. No codemod.
+- **A float power is proved in range from its operands' digits, never from a double of them.** A base's exact value
+  was read as a double, which rounds to zero once it has more than 308 fraction digits, as a double below about 1e-77
+  has, and a zero base is always in range, so `Compute.power` of `1e-80` to `9.5` compiled and PostgreSQL raised 22003
+  for the zero its result underflows to; and `1e-300` to `0.5` was refused though its result is 1e-150. Each base's
+  log2 is now read from its digits, each exponent's magnitude is the least double at or above it, and a base interval
+  that holds zero is in range only under a zero exponent. The first is refused with `powerRange`, the second compiles.
+  No codemod.
 - **`Compute.within(x, low, high)` takes a number alone.** Over a text, a uuid or a date it was admitted as a
   predicate, a BETWEEN, and refused as Compute.when's guard; it is now `MalformedDescription` wherever it stands, as
   the types already refused it. Write `Compute.between(x, low, high)` for the predicate. No codemod.
@@ -498,6 +508,10 @@ How to upgrade:
   subject's type, so a contract's text matches only its own. A conditional over a numeric delivers a Decimal for a
   bigint or string branch. `Compute.literal` takes a set's descriptor, as the engine does. A `Compute.within` low bound
   TypeScript cannot see, a Decimal or a string-typed value, is the engine's to judge, as a divisor's is. No codemod.
+- **`Compute.neg` keeps its operand's finite and nonzero facts**, a guard's, a contract's declared ones and a
+  constant's value's among them, in compilation and in its type; it drops nonnegative, which `-x` does not keep. So
+  `Compute.cast(Compute.neg(Compute.literal(pg["double precision"], 0)), pg.smallint)` and a division by the negation of
+  a proved divisor compile, where they were refused for an unproved fact. No codemod.
 - **An exact value and a plain value of its family share no type in a conditional, LEAST or GREATEST.** PostgreSQL
   widens the plain one implicitly; grizzle refuses an exact integer beside a smallint, an integer or a bigint, and exact
   money beside money, in `Compute.cond`, `Compute.when`, `Compute.least` and `Compute.greatest`, in either order, by the

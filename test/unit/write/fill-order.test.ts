@@ -27,6 +27,7 @@ import {
 	copyNamed,
 	countedFilled,
 	type FamilyKind,
+	familyNamed,
 	type FillSpec,
 	type FollowUp,
 	fillSpecGen,
@@ -124,6 +125,7 @@ type FillSituation =
 	| "refilled: a last copy"
 	| "refilled: a tree copy"
 	| "refilled: a copy of an owner an edit re-places"
+	| "refused: the write a refill starts from, beside a plain put named first"
 	| "refilled: a fold over a copy"
 	| "refused: a refill of an immutable relation's rows"
 	| "refused: a put from a query that a refill would draw"
@@ -189,7 +191,8 @@ const staleNotes = (spec: FillSpec, stale: StaleSpec): ReadonlyArray<FillSituati
 /**
  * A compiled ChangeSet of `writes` judged against the reference's verdict (fill.ts `writesVerdict`): compiled where it
  * is written, noting every value it refills; else refused with StaleDerivedRead naming a refill of an immutable
- * relation's rows the reference names.
+ * relation's rows the reference names, or refills on a cycle the reference finds, at the write a refused refill's
+ * path starts from.
  */
 const judged = (
 	spec: FillSpec,
@@ -212,14 +215,38 @@ const judged = (
 	if (reason._tag !== "StaleDerivedRead") {
 		return
 	}
-	assert.equal(reason.cause.kind, "immutable", `${label}: a refill of an immutable relation's rows`)
-	if (reason.cause.kind === "immutable") {
-		assert.ok(
-			verdict.immutable.includes(reason.cause.relation),
-			`an immutable relation the reference finds a refill updates, not ${reason.cause.relation}: ${Formatter.format(verdict.immutable)}`
-		)
+	const named = reason
+	assert.ok(
+		Arr.some(
+			verdict.origins,
+			(w) => relationName(w.relation) === named.member && w.op === named.op
+		),
+		`${label}: the refusal names the write a refused refill's path starts from, one of ${Formatter.format(verdict.origins)}, not ${named.op} ${named.member}`
+	)
+	const cause = reason.cause
+	switch (verdict.kind) {
+		case "refused":
+			assert.equal(cause.kind, "immutable", `${label}: a refill of an immutable relation's rows`)
+			if (cause.kind === "immutable") {
+				assert.ok(
+					verdict.immutable.includes(cause.relation),
+					`an immutable relation the reference finds a refill updates, not ${cause.relation}: ${Formatter.format(verdict.immutable)}`
+				)
+			}
+			note("refused: a refill of an immutable relation's rows")
+			return
+		case "cycle":
+			assert.equal(cause.kind, "cycle", `${label}: refills that reach a family they refill again`)
+			if (cause.kind === "cycle") {
+				const onCycle = Arr.map(verdict.cycle, (k) => familyNamed(spec, k))
+				assert.ok(
+					Arr.every(cause.refills, (f) =>
+						Arr.some(onCycle, (g) => g.owner === f.owner && g.count === f.count)
+					),
+					`refills on a cycle the reference finds: ${Formatter.format(cause.refills)} among ${Formatter.format(onCycle)}`
+				)
+			}
 	}
-	note("refused: a refill of an immutable relation's rows")
 }
 
 /** Whether the README's rules admit a write of relation `r` by `op`, which then must compile. */
@@ -302,6 +329,43 @@ const guards = (spec: FillSpec, note: (situation: FillSituation) => void): void 
 	const artifacts = succeeded(testArtifacts(value, testCompile), "the specification's artifacts")
 	const options = realityWrite(artifacts)
 	const checked = checking(value)
+	/** A relation no family has, whose put changes nothing a refill reads: named first beside a refused write, it is
+	 * never the write the refusal names. */
+	const plain = Arr.findFirstIndex(
+		spec.relations,
+		(_, p) => !Arr.some(spec.families, (f) => f.owner === p || f.member === p)
+	)
+	for (const [r] of spec.relations.entries()) {
+		for (const op of ["put", "delete"] as const) {
+			const refused = writesVerdict(spec, [{ relation: r, op }])
+			if (Option.isNone(plain) || !ruleAdmits(spec, r, op) || refused.kind === "written") {
+				continue
+			}
+			const p = plain.value
+			const beside = ChangeSet.empty(value).put(relationOf(built, p), [])
+			judged(
+				spec,
+				refusalOf(
+					compileWrite(
+						checked,
+						descOf(
+							op === "put"
+								? beside.put(relationOf(built, r), [])
+								: beside.delete(relationOf(built, r), [])
+						),
+						options
+					)
+				),
+				writesVerdict(spec, [
+					{ relation: p, op: "put" },
+					{ relation: r, op }
+				]),
+				`a put of ${relationName(p)} named before a ${op} of ${relationName(r)}`,
+				note
+			)
+			note("refused: the write a refill starts from, beside a plain put named first")
+		}
+	}
 	for (const [r] of spec.relations.entries()) {
 		for (const op of ["put", "delete"] as const) {
 			const verdict = writesVerdict(spec, [{ relation: r, op }])
@@ -990,6 +1054,10 @@ const boxSituations: Arr.NonEmptyReadonlyArray<BoxSituation> = [
  * - `re-placed owner`: R0 owns an ordered family of R1, and R1 a counted family of R2 whose owner copy reads R1's `v`,
  *   `g` or index; R1's put or delete re-places R1's rows, deleting and inserting them again, which no cascade follows,
  *   so the copy itself is the value drawn again.
+ * - `second-order refusal`: R0 has no family. R1 owns an ordered family of R2, whose sum steps R2's copy of R1's `v` or
+ *   `g`, and a counted family of R3, an immutable relation, whose sum steps R3's copy of the first family's end. R1's put
+ *   refills the first family, whose refill changes the end the second's members copy, a refill of an immutable
+ *   relation's rows, refused at R1's put beside a put of R0, which every order of the ChangeSet's writes puts first.
  *
  * The value is a predecessor copy, a last copy, along a tree's owner axis a node's copy of its parent's, or, after a
  * put, a sum fold stepping the copy, which the member row's own CHECK judges.
@@ -1001,6 +1069,7 @@ type StalePath =
 	| "edit of a tree node"
 	| "edit through a copy"
 	| "re-placed owner"
+	| "second-order refusal"
 
 interface StaleShape {
 	readonly path: StalePath
@@ -1016,7 +1085,8 @@ const staleShapeGen: Gen<StaleShape> = (source) => ({
 			"edit of a member owner",
 			"edit of a tree node",
 			"edit through a copy",
-			"re-placed owner"
+			"re-placed owner",
+			"second-order refusal"
 		] as const)
 	),
 	reader: source.draw(element(["predecessor", "last", "owner", "step"] as const)),
@@ -1029,6 +1099,29 @@ const staleShapeGen: Gen<StaleShape> = (source) => ({
 const staleSpec = (shape: StaleShape): FillSpec | undefined => {
 	const relation = { generated: true, mutable: true, key: false }
 	const relations: FillSpec["relations"] = [relation, relation, relation]
+	if (shape.path === "second-order refusal") {
+		return shape.reader === "step" && (shape.source === "caller" || shape.source === "generated")
+			? {
+					relations: [relation, relation, relation, { ...relation, mutable: false }],
+					families: [
+						{ kind: "ordered", owner: 1, member: 2, fold: "sum" },
+						{ kind: "counted", owner: 1, member: 3, fold: "sum" }
+					],
+					copies: [
+						{
+							family: 0,
+							axis: "owner",
+							source: shape.source === "generated" ? { kind: "generated" } : { kind: "caller" }
+						},
+						{ family: 1, axis: "owner", source: { kind: "fold", family: 0 } }
+					],
+					steps: [
+						{ family: 0, copy: 0 },
+						{ family: 1, copy: 1 }
+					]
+				}
+			: undefined
+	}
 	if (shape.path === "re-placed owner") {
 		return shape.reader === "owner" &&
 			(shape.source === "caller" || shape.source === "generated" || shape.source === "index")
@@ -1191,6 +1284,7 @@ const staleSituations: Arr.NonEmptyReadonlyArray<FillSituation> = [
 	"refilled: a tree copy",
 	"refilled: a copy of an owner an edit re-places",
 	"refilled: a fold over a copy",
+	"refused: the write a refill starts from, beside a plain put named first",
 	"refused: a put from a query that a refill would draw",
 	"refused: a role that does not hold a relation a refill writes or reads",
 	"compiled: a role that holds every relation a refill writes and reads"
@@ -1355,8 +1449,8 @@ describe("the fill order: a schema generate accepts is one every write of fills"
 						suite: "unit/write/fill-order-stale",
 						generator: staleShapeGen,
 						literal: Formatter.format,
-						limit: 144,
-						box: "an owner's put through one copy or two, and an edit of a family of a member owner, of a tree node or of the owner a copy reads, to a predecessor copy, a last copy, a tree's copy or a sum fold stepping the copy, and a put or a delete re-placing an ordered family's member whose counted members copy its v, g or index, over mutable relations holding g; each put from a query too, and each write under a role leaving out each relation in turn",
+						limit: 168,
+						box: "an owner's put through one copy or two, and an edit of a family of a member owner, of a tree node or of the owner a copy reads, to a predecessor copy, a last copy, a tree's copy or a sum fold stepping the copy, and a put or a delete re-placing an ordered family's member whose counted members copy its v, g or index, over mutable relations holding g; a refill's refill of an immutable relation's rows, its write named after a plain put; each put from a query too, and each write under a role leaving out each relation in turn",
 						oracle: {
 							kind: "second-implementation",
 							name: "the reference's refills (families/fill.ts writesVerdict, refillsOf)"

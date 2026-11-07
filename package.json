@@ -602,6 +602,7 @@
 					"files": [
 						"test/types/query/budget/refusals.test.ts",
 						"test/types/query/budget/scaling.test.ts",
+						"test/types/regex/scaling.test.ts",
 						"test/types/schema/budget/families.test.ts",
 						"test/types/schema/budget/refusals.test.ts",
 						"test/types/schema/budget/scaling.test.ts",

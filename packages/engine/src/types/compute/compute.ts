@@ -138,6 +138,15 @@ type Binary<A, B, X, S extends SqlTag, F extends SqlTag, L = X> = Every<
 	[TakesFirst<A, F>, Takes<B, Operand<X, S, L>>]
 >
 
+/**
+ * The facts a negation keeps of its operand's, of facts FA and, a constant, of value type LA (Holds), as compilation
+ * keeps them (lower.ts negationFacts): finite and nonzero, each where the operand has it; never nonnegative, since -x is
+ * not, and no fact states a value at or below zero.
+ */
+type NegatedFacts<FA extends Facts, LA> = Facts &
+	(Holds<FA, LA, "finite"> extends true ? { readonly finite: true } : unknown) &
+	(Holds<FA, LA, "nonzero"> extends true ? { readonly nonzero: true } : unknown)
+
 /** Whether a cast takes its operand A, of type (X, S), into the target's domain D and SQL type F. */
 type Casts<A, X, S extends SqlTag, D, F extends SqlTag> = Every<
 	[TakesFirst<A, SqlTag>, CastAdmitted<X, S, D, F>]
@@ -422,11 +431,22 @@ export interface ComputeApi {
 		Reads<A, B, X, S, IntegralSql>,
 		Term<PlainHost[RemainderSql[S]], PA & P<B>, ComputedOrigin<OA | O<B>>, RemainderSql[S]>
 	>
-	neg<A extends TermBase | FirstValue, X, PA, OA, S extends SignedSql>(
-		a: A & FirstTerm<A> & InputTerm<X, PA, OA, S>
+	/**
+	 * The negation keeps its operand's finite and nonzero facts, a constant's value's among them, and never its
+	 * nonnegative one (NegatedFacts).
+	 */
+	neg<A extends TermBase | FirstValue, X, PA, OA, S extends SignedSql, FA extends Facts, LA>(
+		a: A & FirstTerm<A> & InputTerm<X, PA, OA, S> & Proving<FA> & Literal<LA>
 	): Admitted<
 		TakesFirst<A, SignedSql>,
-		Term<PlainHost[ArithmeticSql[S]], PA, ComputedOrigin<OA>, ArithmeticSql[S]>
+		Term<
+			PlainHost[ArithmeticSql[S]],
+			PA,
+			ComputedOrigin<OA>,
+			ArithmeticSql[S],
+			PlainHost[ArithmeticSql[S]],
+			NegatedFacts<FA, LA>
+		>
 	>
 	quot<A extends TermBase | FirstValue, X, PA, OA, const B>(
 		a: A & First<A, [B]> & InputTerm<X, PA, OA, "numeric">,

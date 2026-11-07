@@ -1218,19 +1218,21 @@ export interface SpecWrite {
 
 /**
  * A value the reference finds a change leaves stale, which a refill of its family draws again: the column the change
- * makes, by a write or by a refill, every relation the change passes on its way (its own, then each its cascade
- * reaches), the value drawn from it, and the family whose refill draws it.
+ * makes, by a write or by a refill, the write the change starts from (a refill's, the one whose path first reached
+ * it), every relation the change passes on its way (its own, then each its cascade reaches), the value drawn from it,
+ * and the family whose refill draws it.
  */
 export interface StaleSpec {
 	readonly changed: ChangedColumn
 	readonly from: "write" | "refill"
+	readonly origin: SpecWrite
 	readonly passed: Arr.NonEmptyReadonlyArray<string>
 	readonly reader: DerivedReader
 	readonly family: number
 }
 
 /** Family `f` as a refusal names it. */
-const familyNamed = (spec: FillSpec, f: number): FamilyName => ({
+export const familyNamed = (spec: FillSpec, f: number): FamilyName => ({
 	owner: relationName(familyAt(spec, f).owner),
 	count: countName(f)
 })
@@ -1287,7 +1289,7 @@ const derivedReaders = (
 /** A change of stored rows the reference follows: a write of a ChangeSet's, or a refill of family `family`. */
 type SpecChange =
 	| { readonly kind: "write"; readonly write: SpecWrite }
-	| { readonly kind: "refill"; readonly family: number }
+	| { readonly kind: "refill"; readonly family: number; readonly origin: SpecWrite }
 
 /**
  * The values one change leaves stale, by the reference: each value drawn from a column the change makes on rows
@@ -1304,7 +1306,8 @@ type SpecChange =
  * each nested row appended to them as a row of its own would be; their sequences are the walk's, under their fresh
  * owners, and change nothing stored. A relation of `replaced` has rows the ChangeSet deletes and inserts again, which no
  * cascade follows: a member's copy, along a family it owns, of a column a change makes there is stale too, its copy of
- * the family's count among them, and so is its own copy, as a member, of a column a change makes on its owner.
+ * the family's count among them, and so is its own copy, as a counted family's member, of a column a change makes on
+ * its owner; a sequence draws its own re-placed members from their owner as the ChangeSet leaves it.
  */
 const staleOf = (
 	spec: FillSpec,
@@ -1312,6 +1315,8 @@ const staleOf = (
 	replaced: ReadonlySet<number>
 ): ReadonlyArray<StaleSpec> => {
 	const found: Array<StaleSpec> = []
+	/** The write the change starts from: its own, or the one whose path first reached the refill. */
+	const origin = change.kind === "write" ? change.write : change.origin
 	const reach = (
 		changed: ChangedColumn,
 		at: number,
@@ -1326,13 +1331,14 @@ const staleOf = (
 		}
 		const next = new Set([...seen, visit])
 		for (const { reader, family } of derivedReaders(spec, at, column, except)) {
-			found.push({ changed, from: change.kind, passed, reader, family })
+			found.push({ changed, from: change.kind, origin, passed, reader, family })
 		}
 		for (const [k, f] of spec.families.entries()) {
 			if (replaced.has(at) && f.kind !== "tree" && f.owner === at && column === countName(k)) {
 				found.push({
 					changed,
 					from: change.kind,
+					origin,
 					passed,
 					reader: {
 						kind: "owner",
@@ -1352,10 +1358,11 @@ const staleOf = (
 				family.owner === at &&
 				sourceField(c.source) === column
 			) {
-				if (replaced.has(at) || replaced.has(family.member)) {
+				if (replaced.has(at) || (replaced.has(family.member) && family.kind === "counted")) {
 					found.push({
 						changed,
 						from: change.kind,
+						origin,
 						passed,
 						reader: {
 							kind: "owner",
@@ -1485,9 +1492,14 @@ const staleOf = (
  * The refills a ChangeSet of `writes` needs, by the reference: every value its writes leave stale, and every value each
  * refill it needs leaves stale in turn, each with the family whose refill draws it again.
  */
-const refillsOf = (spec: FillSpec, writes: ReadonlyArray<SpecWrite>): ReadonlyArray<StaleSpec> => {
+const refillsOf = (
+	spec: FillSpec,
+	writes: ReadonlyArray<SpecWrite>
+): { readonly stale: ReadonlyArray<StaleSpec>; readonly cycle: ReadonlyArray<number> } => {
 	const found: Array<StaleSpec> = []
 	const refilled = new Set<number>()
+	/** Each refilled family's refills its own changes reach. */
+	const next = new Map<number, Set<number>>()
 	/** The relations whose stored rows the writes may delete and insert again: a put of a member of a family that is no
 	 * tree, which may move it to another group or change what an ordered family reads of it, and a delete of an ordered
 	 * family's member, which re-places every member after it, each family's owner mutable. */
@@ -1509,13 +1521,38 @@ const refillsOf = (spec: FillSpec, writes: ReadonlyArray<SpecWrite>): ReadonlyAr
 	for (let change = pending.shift(); change !== undefined; change = pending.shift()) {
 		for (const stale of staleOf(spec, change, replaced)) {
 			found.push(stale)
+			if (change.kind === "refill") {
+				const out = next.get(change.family) ?? new Set<number>()
+				out.add(stale.family)
+				next.set(change.family, out)
+			}
 			if (!refilled.has(stale.family)) {
 				refilled.add(stale.family)
-				pending.push({ kind: "refill", family: stale.family })
+				pending.push({ kind: "refill", family: stale.family, origin: stale.origin })
 			}
 		}
 	}
-	return found
+	/** Whether family `k`'s refill reaches it again, through the refills each reaches in turn. */
+	const returns = (k: number): boolean => {
+		const seen = new Set<number>()
+		const pendingFamilies = [...(next.get(k) ?? [])]
+		for (let at = pendingFamilies.pop(); at !== undefined; at = pendingFamilies.pop()) {
+			if (at === k) {
+				return true
+			}
+			if (!seen.has(at)) {
+				seen.add(at)
+				for (const then of next.get(at) ?? []) {
+					pendingFamilies.push(then)
+				}
+			}
+		}
+		return false
+	}
+	return {
+		stale: found,
+		cycle: Arr.filter(Arr.sort([...refilled], Order.Number), returns)
+	}
 }
 
 /**
@@ -2282,9 +2319,12 @@ export const followUpMembers = (
 
 /**
  * The reference's verdict on a ChangeSet of `writes` over a stored instance of an admitted specification, with every
- * value it leaves stale (`refillsOf`): written, each stale value drawn again by a refill of its family; or refused,
- * where a refill would change the rows of an immutable relation: a refilled family's members, or its owner, whose
- * family is fixed when it is inserted (StaleDerivedRead, `immutable`, the compiler naming any of `immutable`).
+ * value it leaves stale (`refillsOf`): written, each stale value drawn again by a refill of its family; refused, where
+ * a refill would change the rows of an immutable relation: a refilled family's members, or its owner, whose family is
+ * fixed when it is inserted (StaleDerivedRead, `immutable`, the compiler naming any of `immutable`); or, failing that,
+ * cycle, where refills reach a family they refill again (StaleDerivedRead, `cycle`, every family the compiler names
+ * among `cycle`, the families whose refill reaches them again). A refusal names the write a refused refill's path
+ * starts from, one of `origins`.
  */
 export type WritesVerdict =
 	| { readonly kind: "written"; readonly stale: ReadonlyArray<StaleSpec> }
@@ -2292,21 +2332,50 @@ export type WritesVerdict =
 			readonly kind: "refused"
 			readonly stale: ReadonlyArray<StaleSpec>
 			readonly immutable: Arr.NonEmptyReadonlyArray<string>
+			readonly origins: Arr.NonEmptyReadonlyArray<SpecWrite>
+	  }
+	| {
+			readonly kind: "cycle"
+			readonly stale: ReadonlyArray<StaleSpec>
+			readonly cycle: Arr.NonEmptyReadonlyArray<number>
+			readonly origins: Arr.NonEmptyReadonlyArray<SpecWrite>
 	  }
 
 /** The reference's verdict on a ChangeSet of `writes` (`WritesVerdict`). */
 export const writesVerdict = (spec: FillSpec, writes: ReadonlyArray<SpecWrite>): WritesVerdict => {
-	const stale = refillsOf(spec, writes)
-	const immutable = Arr.dedupe(
-		Arr.flatMap(stale, ({ family: k }) => {
-			const f = familyAt(spec, k)
-			return [
-				...(relationAt(spec, f.member).mutable ? [] : [relationName(f.member)]),
-				...(relationAt(spec, f.owner).mutable ? [] : [relationName(f.owner)])
-			]
-		})
-	)
-	return Arr.isReadonlyArrayNonEmpty(immutable)
-		? { kind: "refused", stale, immutable }
+	const { stale, cycle } = refillsOf(spec, writes)
+	const sameWrite = (a: SpecWrite, b: SpecWrite): boolean =>
+		a.relation === b.relation && a.op === b.op
+	/** Each stale value of a family whose refill would change an immutable relation's rows, with those relations. */
+	const fixed = Arr.flatMap(stale, (s) => {
+		const f = familyAt(spec, s.family)
+		const relations = [
+			...(relationAt(spec, f.member).mutable ? [] : [relationName(f.member)]),
+			...(relationAt(spec, f.owner).mutable ? [] : [relationName(f.owner)])
+		]
+		return Arr.isReadonlyArrayNonEmpty(relations) ? [{ s, relations }] : []
+	})
+	if (Arr.isReadonlyArrayNonEmpty(fixed)) {
+		return {
+			kind: "refused",
+			stale,
+			immutable: Arr.dedupe(Arr.flatMap(fixed, ({ relations }) => relations)),
+			origins: Arr.dedupeWith(
+				Arr.map(fixed, ({ s }) => s.origin),
+				sameWrite
+			)
+		}
+	}
+	const cyclic = Arr.filter(stale, (s) => cycle.includes(s.family))
+	return Arr.isReadonlyArrayNonEmpty(cyclic)
+		? {
+				kind: "cycle",
+				stale,
+				cycle: Arr.sort(Arr.dedupe(Arr.map(cyclic, (s) => s.family)), Order.Number),
+				origins: Arr.dedupeWith(
+					Arr.map(cyclic, (s) => s.origin),
+					sameWrite
+				)
+			}
 		: { kind: "written", stale }
 }

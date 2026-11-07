@@ -53,7 +53,7 @@ import { withLayer } from "#test/support/with-layer.ts"
  * Each case draws a roster Kind of one to three handles; Pick, a closed relation of a text at a drawn subset of the
  * kinds, so a read at a kind it holds no row at is NULL; and a constant predicate over constant texts: literals over an
  * alphabet that orders by code point unlike by UTF-16 unit or by case (Z, a, b, é and 𝒳), Pick.at at a handle written
- * in the term, their concatenation, GREATEST and LEAST; compared by =, <>, <, <=, > and >=, IN a list of literals,
+ * in the term, their concatenation and GREATEST (a check admits no LEAST); compared by =, <>, <, <=, > and >=, IN a list of literals,
  * starts_with and ends_with, under AND, OR and NOT. The predicate stands alone, or beside an arm that reads the row's
  * integer, under OR or AND, as GEN-NULL found it. Its positions, each its own relation:
  *
@@ -77,7 +77,7 @@ type TextTerm =
 	| { readonly kind: "literal"; readonly text: string }
 	| { readonly kind: "pick"; readonly handle: number }
 	| {
-			readonly kind: "concat" | "greatest" | "least"
+			readonly kind: "concat" | "greatest"
 			readonly a: Atom
 			readonly b: Atom
 	  }
@@ -151,7 +151,7 @@ const textTermGen = (kinds: number): Gen<TextTerm> =>
 		[
 			2,
 			(s) => ({
-				kind: s.draw(element(["concat", "greatest", "least"] as const)),
+				kind: s.draw(element(["concat", "greatest"] as const)),
 				a: s.draw(atomGen(kinds)),
 				b: s.draw(atomGen(kinds))
 			})
@@ -257,15 +257,10 @@ const textOf = (c: ConstantCase, t: TextTerm): string | undefined => {
 			const b = textOf(c, t.b)
 			return a === undefined || b === undefined ? undefined : a + b
 		}
-		case "greatest":
-		case "least": {
+		case "greatest": {
 			const values = Arr.filter([textOf(c, t.a), textOf(c, t.b)], (v) => v !== undefined)
 			return Arr.reduce(values, undefined, (best: string | undefined, v: string) =>
-				best === undefined
-					? v
-					: (t.kind === "greatest" ? order(v, best) > 0 : order(v, best) < 0)
-						? v
-						: best
+				best === undefined || order(v, best) > 0 ? v : best
 			)
 		}
 	}
@@ -380,8 +375,6 @@ const schemaOf = (c: ConstantCase) => {
 				return Compute.concat(atomOf(t.a), atomOf(t.b))
 			case "greatest":
 				return Compute.greatest(atomOf(t.a), atomOf(t.b))
-			case "least":
-				return Compute.least(atomOf(t.a), atomOf(t.b))
 		}
 	}
 	const constOf = (p: Const): Predicate => {

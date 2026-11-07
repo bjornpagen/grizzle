@@ -30,7 +30,7 @@ export type Rule = Readonly<{ id: string; start: Start; scope: Scope; gate: Gate
  * guard in a repository is inert there. A rule that reads nothing but the file starts as its own Visit. */
 export const RULES: ReadonlyArray<Rule> = [
 	{ id: "limit-evidence", start: () => limitEvidence, scope: "every file", gate: "on" },
-	{ id: "no-case-list", start: noCaseList, scope: "every file", gate: "pending" },
+	{ id: "no-case-list", start: noCaseList, scope: "every file", gate: "on" },
 	{ id: "no-environment", start: () => noEnvironment, scope: "every file", gate: "on" },
 	{ id: "no-module-state", start: () => noModuleState, scope: "outside tests", gate: "on" },
 	{
@@ -47,7 +47,7 @@ export const RULES: ReadonlyArray<Rule> = [
 	},
 	{ id: "no-spread-argument", start: () => noSpreadArgument, scope: "every file", gate: "on" },
 	{ id: "sql-text-assertion", start: () => sqlTextAssertion, scope: "every file", gate: "on" },
-	{ id: "test-case-is-search", start: testCaseIsSearch, scope: "every file", gate: "pending" },
+	{ id: "test-case-is-search", start: testCaseIsSearch, scope: "every file", gate: "on" },
 	{ id: "tuple-identity", start: () => tupleIdentity, scope: "every file", gate: "on" },
 	{
 		id: "unchecked-vocabulary-literal",
