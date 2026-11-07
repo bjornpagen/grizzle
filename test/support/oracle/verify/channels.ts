@@ -551,7 +551,7 @@ export const artifactProblems = (
 	const cd = discriminant(conservative.delivery)
 	const same =
 		od === undefined || cd === undefined
-			? od === cd
+			? od === undefined && cd === undefined
 			: od.length === cd.length && Arr.every(od, (d, i) => d === cd[i])
 	if (!same) {
 		out.push(problem("artifacts", "the template", "the same heading-group merge in both artifacts"))

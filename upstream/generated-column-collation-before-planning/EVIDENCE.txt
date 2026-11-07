@@ -1,0 +1,97 @@
+EVIDENCE: a generation expression that calls a collatable function on constants is refused with 42P22
+
+Run 2026-11-07 on PostgreSQL 19rc1 (REL_19_RC1, 0b8bff042a), aarch64-darwin, clang 21.0.0. The database's default
+collation is the builtin C.UTF-8; the result does not depend on it, since the failing call has no collation at all.
+The build carries grizzle's two source patches (scripts/pg/patches), which touch execGrouping.c, execMain.c,
+nodeModifyTable.c and relcache.c; none touches heap.c, clauses.c or the parser, so the path below is stock.
+
+1. THE CAUSE, IN THE SOURCE (master 0607aa6109, 2026-11-07, identical on REL_19_RC1)
+   src/backend/catalog/heap.c, cookDefault():
+       expr = transformExpr(pstate, raw_default, EXPR_KIND_GENERATED_COLUMN ...);
+       if (attgenerated)
+       {
+           check_nested_generated(pstate, expr);
+           if (contain_mutable_functions_after_planning((Expr *) expr))      <- plans the expression
+               ereport(ERROR, ... "generation expression is not immutable");
+           ...
+       }
+       ... coerce_to_target_type(...) ...
+       assign_expr_collations(pstate, expr);                                  <- collations set only here
+   contain_mutable_functions_after_planning() (optimizer/util/clauses.c) runs expression_planner(), whose
+   eval_const_expressions() pre-evaluates an immutable function whose arguments are all constants. At that point no
+   node of the expression has its input collation assigned, so a collatable function (texteq, text_lt, bttextcmp,
+   text_starts_with, a regular expression match, lower()) is called with InvalidOid and raises 42P22.
+   cookConstraint() (CHECK), index expressions and predicates, and partition keys all assign collations before they
+   plan; cookDefault() is the one caller that plans first.
+   The ordering dates from 743ddafc71 (2023-11-16, "Ensure we preprocess expressions before checking their
+   volatility", bug #18097), back-patched to all branches supported then; before it the check did not plan the
+   expression, so it never pre-evaluated anything.
+
+2. THE BACKTRACE (backtrace_functions = 'check_collation_set', server log)
+       texteq.cold.1
+       ExecInterpExpr
+       evaluate_expr
+       simplify_function
+       eval_const_expressions_mutator
+       eval_const_expressions
+       expression_planner
+       contain_mutable_functions_after_planning
+       cookDefault
+       AddRelationNewConstraints
+       DefineRelation
+   for CREATE TEMP TABLE g_eq (a int, b boolean GENERATED ALWAYS AS ('ab'::text = 'bb'::text) STORED).
+
+3. repro.sql, run with psql -X (VERBOSITY verbose)
+   $ scripts/pg/ctl.sh psql gz_crow_probe -X -f upstream/generated-column-collation-before-planning/repro.sql
+                                  version                                
+   ----------------------------------------------------------------------
+    PostgreSQL 19rc1 on aarch64-darwin, compiled by clang-21.0.0, 64-bit
+   (1 row)
+   
+   psql:upstream/generated-column-collation-before-planning/repro.sql:10: ERROR:  42P22: could not determine which collation to use for string comparison
+   HINT:  Use the COLLATE clause to set the collation explicitly.
+   LOCATION:  check_collation_set, varlena.c:1337
+   psql:upstream/generated-column-collation-before-planning/repro.sql:11: ERROR:  42P22: could not determine which collation to use for string comparison
+   HINT:  Use the COLLATE clause to set the collation explicitly.
+   LOCATION:  check_collation_set, varlena.c:1337
+   psql:upstream/generated-column-collation-before-planning/repro.sql:12: ERROR:  42P22: could not determine which collation to use for string comparison
+   HINT:  Use the COLLATE clause to set the collation explicitly.
+   LOCATION:  check_collation_set, varlena.c:1337
+   psql:upstream/generated-column-collation-before-planning/repro.sql:13: ERROR:  42P22: could not determine which collation to use for string comparison
+   HINT:  Use the COLLATE clause to set the collation explicitly.
+   LOCATION:  check_collation_set, varlena.c:1337
+   psql:upstream/generated-column-collation-before-planning/repro.sql:14: ERROR:  42P22: could not determine which collation to use for string comparison
+   HINT:  Use the COLLATE clause to set the collation explicitly.
+   LOCATION:  check_collation_set, varlena.c:1337
+   psql:upstream/generated-column-collation-before-planning/repro.sql:15: ERROR:  42P22: could not determine which collation to use for string comparison
+   HINT:  Use the COLLATE clause to set the collation explicitly.
+   LOCATION:  check_collation_set, varlena.c:1337
+   psql:upstream/generated-column-collation-before-planning/repro.sql:16: ERROR:  42P22: could not determine which collation to use for regular expression
+   HINT:  Use the COLLATE clause to set the collation explicitly.
+   LOCATION:  pg_set_regex_collation, regc_pg_locale.c:48
+   psql:upstream/generated-column-collation-before-planning/repro.sql:17: ERROR:  42P22: could not determine which collation to use for lower() function
+   HINT:  Use the COLLATE clause to set the collation explicitly.
+   LOCATION:  str_tolower, formatting.c:1639
+   psql:upstream/generated-column-collation-before-planning/repro.sql:18: ERROR:  42P22: could not determine which collation to use for string comparison
+   HINT:  Use the COLLATE clause to set the collation explicitly.
+   LOCATION:  check_collation_set, varlena.c:1337
+   psql:upstream/generated-column-collation-before-planning/repro.sql:19: ERROR:  42P22: could not determine which collation to use for string comparison
+   HINT:  Use the COLLATE clause to set the collation explicitly.
+   LOCATION:  check_collation_set, varlena.c:1337
+   psql:upstream/generated-column-collation-before-planning/repro.sql:21: ERROR:  42P22: could not determine which collation to use for string comparison
+   HINT:  Use the COLLATE clause to set the collation explicitly.
+   LOCATION:  check_collation_set, varlena.c:1337
+    eq | lt 
+   ----+----
+    f  | t
+   (1 row)
+   
+
+   Refused (42P22): =, <, IN, an explicit COLLATE on one operand, starts_with, GREATEST, ~ and lower() over constants;
+   the same as a VIRTUAL column; a CASE where one arm reads a column but the other compares constants; and ALTER TABLE
+   ... ADD COLUMN ... GENERATED. Accepted: the same comparison as a CHECK, a DEFAULT, a partial index's predicate and a
+   SELECT, and a generated column whose comparison reads a column.
+
+4. WHY COLLATE DOESN'T HELP
+   eval_const_expressions() turns a CollateExpr over a constant into the constant with its constcollid set, but the
+   OpExpr above it keeps inputcollid InvalidOid until assign_expr_collations() runs, so the call still fails.

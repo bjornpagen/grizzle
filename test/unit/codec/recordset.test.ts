@@ -21,9 +21,8 @@ import { Array as Arr, Effect, Formatter, Option, Order, Record, String as Str }
 import {
 	arraysEncoder,
 	arrayTexts,
-	normalArrays,
+	normalArray,
 	normalForm,
-	normalRows,
 	positionalColumns,
 	type RelationSpec,
 	relationNormalizer
@@ -352,7 +351,7 @@ describe("relation normalization", () => {
 	)
 
 	it.effect(
-		"encodes facts normalized on the host as it encodes the raw input, without normalizing them again",
+		"writes each array of facts normalized on the host as the raw input's arrays, in the heading's order or another",
 		(ctx) =>
 			Effect.gen(function* () {
 				const heading: RelationSpec = {
@@ -361,22 +360,31 @@ describe("relation normalization", () => {
 					slot: { kind: "none" },
 					codes: kindCodes
 				}
-				/** A statement's encoder over the same heading in its own column order. */
-				const statement: RelationSpec = {
-					relation: "Reading",
-					columns: positionalColumns([
-						{ name: "raw", type: types.float8 },
-						{ name: "id", type: types.uuid },
-						{ name: "value", type: types.numeric52 }
-					]),
-					slot: { kind: "none" },
-					codes: kindCodes
-				}
+				/** A statement's columns: the heading's, in its order and in another. */
+				const statements = Arr.map(
+					[
+						[
+							{ name: "id", type: types.uuid },
+							{ name: "value", type: types.numeric52 },
+							{ name: "raw", type: types.float8 }
+						],
+						[
+							{ name: "raw", type: types.float8 },
+							{ name: "id", type: types.uuid },
+							{ name: "value", type: types.numeric52 }
+						]
+					],
+					(columns) => {
+						const statement: RelationSpec = {
+							relation: "Reading",
+							columns: positionalColumns(columns),
+							slot: { kind: "none" },
+							codes: kindCodes
+						}
+						return { encode: arraysEncoder(statement), write: normalArray(statement) }
+					}
+				)
 				const normalize = relationNormalizer(heading)
-				const again = relationNormalizer(statement)
-				const encode = arraysEncoder(statement)
-				const rows = normalRows(statement)
-				const encodeNormal = normalArrays(statement)
 				/** An id in either case, so equal facts are spelled differently. */
 				const fact: Gen<Reading> = (source) => {
 					const id = source.draw(uuid(4))
@@ -413,10 +421,13 @@ describe("relation normalization", () => {
 									byIdentity.set(e.identity, { fact: e.fact })
 								}
 								const marked = normalForm(heading)(byIdentity)
-								const written = succeeded(rows(marked))
-								assert.equal(written.facts, marked.facts)
-								assert.deepEqual(written.rows, succeeded(again(facts)).rows)
-								assert.deepEqual(succeeded(encodeNormal(marked)), succeeded(encode(facts)).arrays)
+								for (const { encode, write } of statements) {
+									const arrays = succeeded(encode(facts)).arrays
+									assert.deepEqual<ReadonlyArray<string>>(
+										Arr.map(arrays, (_, part) => succeeded(write(marked, part))),
+										arrays
+									)
+								}
 							})
 					)
 				)

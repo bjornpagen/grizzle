@@ -28,7 +28,7 @@ import {
 } from "#compiler/ir/scalar.ts"
 import { domainCheck } from "#compiler/laws/model/model.ts"
 import { type InstallBuilder, isVectorRef } from "#compiler/physical/ddl/context.ts"
-import { lowerPersistent } from "#compiler/physical/ddl/expr.ts"
+import { lowerPersistent, noPersistentClosed } from "#compiler/physical/ddl/expr.ts"
 import { type ContractSource, domainBase } from "#compiler/physical/ddl/names.ts"
 import { enforcement, lawReasons } from "#compiler/physical/obligations/graph.ts"
 import type { Owned } from "#compiler/schema/own.ts"
@@ -258,6 +258,7 @@ const contractDomainDdl = (
 			case "predicate":
 				return lowerPersistent(names, unwrap(predicateTree(t.predicate)), {
 					reads: { kind: "domain" },
+					closed: noPersistentClosed,
 					loc: SourceLoc(`the predicate of contract ${contract.name}`, [])
 				})
 		}

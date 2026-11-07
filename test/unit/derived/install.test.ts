@@ -93,7 +93,7 @@ describe("derived relation view columns", () => {
 						([wa, wb, [s, t]]) => ({
 							a: spell(wa, s),
 							b: spell(wb, t),
-							same: wa === wb
+							same: wa.length === wb.length && Arr.every(wa, (w, i) => w === wb[i])
 						})
 					),
 					({ a, b }) => a !== b,

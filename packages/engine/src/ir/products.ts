@@ -43,7 +43,7 @@ declare const normalFactsBrand: unique symbol
  * ChangeSet's facts are normalized once on the host and then encoded for every statement that binds them, and a
  * relation parameter's once per execution and then written in each statement's column order: normalizing them again
  * under the same heading would admit every value again, find no repeat and keep the order, so a holder of normal facts
- * takes them to their text rows (codec/recordset.ts normalRows) and never normalizes them again.
+ * takes them to their arrays (codec/recordset.ts normalArray) and never normalizes them again.
  *
  * Branded: codec/recordset.ts mints it from facts keyed by their identities, a Map, so the facts are a set by
  * construction and their order is the mint's, and no other value stands where normal facts are taken.
@@ -87,16 +87,21 @@ declare const keyNormalizedBrand: unique symbol
  */
 export type KeyNormalized = NormalFacts & { readonly [keyNormalizedBrand]: true }
 
-/** An arrays encoder over normal facts of kind `F`: the facts written as a statement's placeholder arrays. */
-type ArraysEncoder<F extends NormalFacts> = (
-	facts: F
-) => Result.Result<ArrayTexts, EncodingFailure | LiteralBound>
+/**
+ * An array encoder over normal facts of kind `F`: of the facts written as a statement's arrays over the columns its
+ * placeholders of one input share, the array at `part` alone (codec/recordset.ts normalArray), so each placeholder
+ * writes its own array once and no placeholder's encoding is kept for another's.
+ */
+type ArrayEncoder<F extends NormalFacts> = (
+	facts: F,
+	part: number
+) => Result.Result<ParamText, EncodingFailure | LiteralBound>
 
-/** MemberEncoder: a member slot's key-normalized facts to its arrays. */
-export type MemberEncoder = ArraysEncoder<KeyNormalized>
+/** MemberEncoder: a member slot's key-normalized facts to one of its arrays. */
+export type MemberEncoder = ArrayEncoder<KeyNormalized>
 
-/** RelationEncoder: a relation parameter's input, normalized once per execution, to its arrays. */
-export type RelationEncoder = ArraysEncoder<NormalFacts>
+/** RelationEncoder: a relation parameter's input, normalized once per execution, to one of its arrays. */
+export type RelationEncoder = ArrayEncoder<NormalFacts>
 /** RelationParamEncoder: a relation-valued input to its deduplicated arrays and its distinct fact count. */
 export type RelationParamEncoder = (
 	facts: Iterable<unknown>
@@ -204,9 +209,9 @@ export type PageFill = SizeFill | BoundaryFill
  * (adapter/page/execute.ts), a limit or a size as the decimal digits of a bigint, `$n::bigint`, and a boundary as the
  * text its cursor carried.
  *
- * A relation input's placeholders in one statement, one per array, share one encoder, which writes all of its arrays
- * (ArrayTexts), and each takes the array at its `part`; a binder encodes the input once per statement by that shared
- * encoder (write/program/bind.ts).
+ * A relation input's placeholders in one statement, one per array (ArrayTexts), each carry an encoder over the columns
+ * they share and their `part`, the position of their array among the input's arrays: a binder writes each
+ * placeholder's array by its own encoder at its part (write/program/bind.ts), the input's facts encoded once in all.
  */
 export type ParamSlot =
 	| { readonly kind: "scalar"; readonly param: ParamId; readonly encode: Encoder }

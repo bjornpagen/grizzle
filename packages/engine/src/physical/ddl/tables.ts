@@ -25,7 +25,11 @@ import type { NamedPrimaryKey } from "#compiler/laws/model/model.ts"
 import { addDateRanges, dateRanges } from "#compiler/physical/date/storage.ts"
 import { closedMembership } from "#compiler/physical/ddl/constants.ts"
 import type { InstallBuilder, TargetField } from "#compiler/physical/ddl/context.ts"
-import { lowerPersistent, persistentLiteral } from "#compiler/physical/ddl/expr.ts"
+import {
+	lowerPersistent,
+	persistentClosed,
+	persistentLiteral
+} from "#compiler/physical/ddl/expr.ts"
 import { addIsolationTrigger } from "#compiler/physical/ddl/isolation.ts"
 import { type ColumnType, columnType, lawColumnType } from "#compiler/physical/ddl/names.ts"
 import {
@@ -809,6 +813,7 @@ const lowerRow = (
 				relation.fields.find((f) => f.name === ref.name)?.column ??
 				(lawColumns.has(ref.name) ? ref.name : undefined)
 		},
+		closed: persistentClosed(b.checked),
 		loc: SourceLoc(label, [])
 	})
 }

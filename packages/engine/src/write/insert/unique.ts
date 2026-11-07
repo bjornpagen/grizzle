@@ -1,5 +1,4 @@
 import { type Identity, identity } from "#compiler/core/identity.ts"
-import { defined } from "#compiler/core/invariant.ts"
 import {
 	appendNonEmpty,
 	concatNonEmpty,
@@ -44,7 +43,7 @@ import {
 } from "#compiler/sql/build.ts"
 import type { NameSupply } from "#compiler/sql/naming.ts"
 import { type FieldColumns, fieldColumns } from "#compiler/write/defined.ts"
-import { rowType, startOf, type WriteContext } from "#compiler/write/insert/statement.ts"
+import { requestedValue, rowType, type WriteContext } from "#compiler/write/insert/statement.ts"
 
 /** The unique objects of a relation an insert meets: its arbiter, the primary key; every object
  * besides it, in law order, probed or not, on which a 23505 or 23P01 aborts the apply; the objects an insert of
@@ -481,22 +480,7 @@ export const buildProbe = (
 		ctes,
 		refusal,
 		refusalCol,
-		refusalValue: (f) => {
-			if (f.writing.kind !== "generated") {
-				/** A field the requested fact does not carry is written at its start (statement.ts startOf): a fresh
-				 * owner's count and ends, which name no key. */
-				const value = fields.includes(f)
-					? refusalCol(f)
-					: defined(
-							startOf(w.names, f),
-							`the start of ${relation.name}.${f.name}, a field a requested fact does not carry`
-						)
-				return value
-			}
-			const row: ColumnMap = new Map(fields.map((g) => [g.name, refusalCol(g)] as const))
-			const env: Env = new Map(columnReads(f.writing.expr).map((c) => [c.node, row] as const))
-			return lowerExpr(w.cx, f.writing.expr, env)
-		},
+		refusalValue: requestedValue(w, relation, fields, refusalCol),
 		ordinal: col(refusal, ordinalCol),
 		gate: notExists(simpleSelect(one, [cteRef(refusal)], undefined)),
 		checks: mapNonEmpty(checks, (p) => p.object)

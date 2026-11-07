@@ -62,6 +62,7 @@ import {
 	type InsertVariant,
 	type Proposal,
 	keyFirst,
+	requestedValue,
 	writtenFields,
 	type ModifyingStatement,
 	type ResultColumn,
@@ -386,9 +387,9 @@ export const buildInsert = (
 			at
 		)
 		const inCol = (f: LawField): Expr => col(r1, inputs.of(f))
-		/** A requested fact's value at a field: its input's, or, for a written field its input does not carry, the start
-		 * the insert writes it at. */
-		const requested = (f: LawField): Expr => starts.find((s) => s.field === f)?.value ?? inCol(f)
+		/** A requested fact's value at every field (statement.ts requestedValue): its input's, a written field's start, and
+		 * a generated field's value over them. */
+		const requested = requestedValue(w, relation, fields, inCol)
 		const retCol = returned.of
 		const column = (f: LawField) => w.names.column(relation.name, f.name)
 		const ctes: [Cte, ...Array<Cte>] = [cte(r1, inputs.columns, read.select)]

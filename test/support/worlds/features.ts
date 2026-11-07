@@ -11,7 +11,9 @@ import {
 	equalValues,
 	evaluateRules,
 	factKey,
-	isMember
+	factKeySet,
+	isMember,
+	sameFact
 } from "#test/support/worlds/model/host.ts"
 import { reachedPairs, steppedPairs } from "#test/support/worlds/model/reads.ts"
 import { compileRefused, readBackClasses } from "#test/support/worlds/model/session/apply.ts"
@@ -1172,11 +1174,8 @@ const staleDerived = (state: ModelState, relation: string): ReadonlyArray<HostFa
 		{
 			onNone: () => [],
 			onSome: (d) => {
-				const fresh = new Set(
-					Arr.map(
-						evaluateRules(state.install.base, d.rules, state.reality, state.derived, {}),
-						factKey
-					)
+				const fresh = factKeySet(
+					evaluateRules(state.install.base, d.rules, state.reality, state.derived, {})
 				)
 				return Arr.filter(
 					Option.getOrElse(Record.get(state.derived, relation), () => []),
@@ -1294,13 +1293,11 @@ const deletionsOf = (
 					const deleted = deletedBy(state, session)
 					return (
 						Arr.some(deleted, (s) => Arr.contains(relations, s.relation)) &&
-						!Arr.some(observation.rows, (row) =>
-							Arr.some(deleted, (s) => factKey(s.fact) === factKey(row))
-						)
+						!Arr.some(observation.rows, (row) => Arr.some(deleted, (s) => sameFact(s.fact, row)))
 					)
 				})
 			const kept = Arr.some(relations, (relation) => {
-				const staleKeys = new Set(Arr.map(staleDerived(state, relation), factKey))
+				const staleKeys = factKeySet(staleDerived(state, relation))
 				return Arr.some(observation.rows, (row) => staleKeys.has(factKey(row)))
 			})
 			return [

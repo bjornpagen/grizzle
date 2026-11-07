@@ -74,6 +74,7 @@ import {
 	type Carrier,
 	contractOf,
 	type ContractInfo,
+	exactDigitsOf,
 	isRefined,
 	languageOctets,
 	languageWithin,
@@ -112,6 +113,8 @@ import {
 	insideRange,
 	type IntervalPremise,
 	intervalPremise,
+	log2Magnitude,
+	magnitudeAtLeast,
 	minus,
 	mulBounds,
 	negBounds,
@@ -164,6 +167,7 @@ import {
 	isFloat,
 	meetingType,
 	meets,
+	mixesExact,
 	plainType,
 	sameRegex,
 	valueType,
@@ -1189,6 +1193,43 @@ class Lowering<R extends Refs> {
 		return x.bounds ?? stop("MalformedDescription", at, `a number, not ${typeLabel(x.nominal)}`)
 	}
 
+	/**
+	 * A conditional's branch opposite the term `t`: a term that meets it, or a bare literal of t's own type. Opposite an
+	 * exact value the literal is its family's plain carrier's (adoptedType), converted into t's exact type where its
+	 * value lies within t's digits and refused where it does not, so the conditional is of t's type as its builder typed
+	 * it, never wider.
+	 */
+	branchOperand(desc: ExprDesc<Located, R>, t: Lowered, at: SourceLoc): Lowered {
+		const x = this.operand(desc, t, "compare", at)
+		const digits = exactDigitsOf(t.nominal)
+		if (!isBareLiteral(desc) || digits === undefined) {
+			return x
+		}
+		if (this.boundsOf(x, at).digits > digits) {
+			return stop(
+				"MalformedDescription",
+				at,
+				`a literal beside an exact value of ${digits} digits: a value within them, as the exact value's type holds`
+			)
+		}
+		return this.convert(x, t.nominal, at)
+	}
+
+	/**
+	 * Refuses `other` beside `first` where the two are an exact value and a plain value of its family (mixesExact), at
+	 * `other`, the operand whose type differs from the first's: the remedy is a cast of the exact one into the plain
+	 * one's type, since no type of a field is exact. A bare literal adopts its term's type and is never `other`.
+	 */
+	exactBeside(first: Lowered, other: Lowered, at: SourceLoc): void {
+		if (mixesExact(first.nominal, other.nominal)) {
+			stop(
+				"MalformedDescription",
+				at,
+				"operands of one type: an exact value beside a plain value of its family; Compute.cast the exact one into the plain one's type"
+			)
+		}
+	}
+
 	/** The type a bare literal adopts opposite a term of type t (adoptedType). */
 	adopt(t: ScalarType, role: Role): ScalarType {
 		return adoptedType(t, role)
@@ -1265,7 +1306,8 @@ class Lowering<R extends Refs> {
 
 	/**
 	 * A node of `spec` with what its computation proved: a computed numeric's type carries exactly the bounds proved of
-	 * it (numericOf), so its type is its proof wherever it is read again.
+	 * it (numericOf), so its type is its proof wherever it is read again; bounds it proves nothing of are its type's
+	 * (settle).
 	 */
 	emitProved(spec: ExprSpec, bounds: Bounds | undefined, facts: FactSet): Lowered {
 		return this.emitAt(
@@ -2536,12 +2578,15 @@ class Lowering<R extends Refs> {
 			childLoc(at, "cond", "then"),
 			childLoc(at, "cond", "else")
 		)
+		if (!isBareLiteral(desc.onTrue) && !isBareLiteral(desc.onFalse)) {
+			this.exactBeside(onTrue, onFalse, childLoc(at, "cond", "else"))
+		}
 		return this.conditional(p, onTrue, onFalse, at)
 	}
 
 	/**
-	 * A conditional's two branches, typed: a term fixes its type and a bare literal opposite it adopts it; of two bare
-	 * literals the first fixes it, at its value's own type.
+	 * A conditional's two branches, typed: a term fixes its type and a bare literal opposite it adopts it
+	 * (branchOperand); of two bare literals the first fixes it, at its value's own type.
 	 */
 	branches(
 		then: ExprDesc<Located, R>,
@@ -2551,11 +2596,11 @@ class Lowering<R extends Refs> {
 	): readonly [Lowered, Lowered] {
 		if (!isBareLiteral(then)) {
 			const t = this.term(then, thenAt)
-			return [t, this.operand(otherwise, t, "compare", elseAt)]
+			return [t, this.branchOperand(otherwise, t, elseAt)]
 		}
 		if (!isBareLiteral(otherwise)) {
 			const e = this.term(otherwise, elseAt)
-			return [this.operand(then, e, "compare", thenAt), e]
+			return [this.branchOperand(then, e, thenAt), e]
 		}
 		const t = this.lower(then, thenAt)
 		return [t, this.operand(otherwise, t, "compare", elseAt)]
@@ -2622,7 +2667,10 @@ class Lowering<R extends Refs> {
 			...this.whenGuard(desc.guard, desc.subject, subject, guard.within, here)
 		])
 		const onTrue = guarded.term(desc.proved, childLoc(here, "proved"))
-		const onFalse = this.operand(desc.otherwise, onTrue, "compare", childLoc(here, "otherwise"))
+		const onFalse = this.branchOperand(desc.otherwise, onTrue, childLoc(here, "otherwise"))
+		if (!isBareLiteral(desc.otherwise)) {
+			this.exactBeside(onTrue, onFalse, childLoc(here, "otherwise"))
+		}
 		return this.conditional(guard.predicate, onTrue, onFalse, at)
 	}
 
@@ -3146,7 +3194,9 @@ class Lowering<R extends Refs> {
 							`${desc.fn} takes terms or parameters, never a bare literal`
 						)
 					}
-					return this.operand(d, a, "compare", childLoc(here, i + 1))
+					const x = this.operand(d, a, "compare", childLoc(here, i + 1))
+					this.exactBeside(a, x, childLoc(here, i + 1))
+					return x
 				})
 				const all = [a, ...others]
 				const type = all.reduce((t, x) => commonType(t, x.nominal), a.nominal)
@@ -3380,12 +3430,18 @@ class Lowering<R extends Refs> {
 		)
 	}
 
-	/** neg and abs: an integer's exactly, a numeric's and a float's as PostgreSQL computes them, exactly. */
+	/**
+	 * neg and abs: an integer's exactly, a numeric's and a float's as PostgreSQL computes them, exactly. A negation keeps
+	 * its operand's facts but its sign (negationFacts).
+	 */
 	unary(fn: "neg" | "abs", a: Lowered, at: SourceLoc): Lowered {
 		const op = this.overload(fn, [valueType(a.nominal)], at)
 		const bounds =
 			a.bounds === undefined ? undefined : fn === "neg" ? negBounds(a.bounds) : absBounds(a.bounds)
-		return this.native(op, [a], this.resultType(op, bounds), bounds, at, `Compute.${fn}`)
+		const result = this.native(op, [a], this.resultType(op, bounds), bounds, at, `Compute.${fn}`)
+		return fn === "neg"
+			? { ...result, facts: Object.freeze({ ...negationFacts(a.facts), ...result.facts }) }
+			: result
 	}
 
 	/**
@@ -3766,6 +3822,15 @@ const castBounds = (a: Bounds, conversion: Conversion, to: ScalarType): Bounds |
 const isInfinite = (b: Bounds): boolean => b.low.kind === "infinite" || b.high.kind === "infinite"
 
 /**
+ * The facts a negation keeps of its operand's, each from its source: -x is finite where x is, and zero only where x is;
+ * x never below zero makes -x never above it, which no fact states, so that one is not kept.
+ */
+const negationFacts = (facts: FactSet): FactSet => {
+	const { nonnegative: _flipped, ...kept } = facts
+	return Object.freeze(kept)
+}
+
+/**
  * The facts a cast keeps: one that moves no value keeps every one; one that rounds keeps all but nonzero, which
  * rounding toward zero loses; a conversion into a float keeps none.
  */
@@ -3894,9 +3959,6 @@ const comparisonDecided = (
 	}
 }
 
-/** A finite exact value's magnitude as a double, for the coarse range checks of power. */
-const magnitude = (e: Exact): number => Math.abs(Number(e.units) / 10 ** e.scale)
-
 /**
  * power's sign premises, the facts its TypeScript type states: its base never below zero, so no negative base meets a
  * fractional exponent, and its base never zero or its exponent never below zero, so zero meets no negative power.
@@ -3936,21 +3998,15 @@ const powerRangePremises = (
  */
 const powerWeight = (bLow: Exact, bHigh: Exact, eLow: Exact, eHigh: Exact): number => {
 	const up = Math.max(digitsOfExact(bLow), digitsOfExact(bHigh))
-	const rising = compareExact(eHigh, zero) > 0 ? weightOf(magnitudeAtMost(eHigh), up) : 0
+	const rising = compareExact(eHigh, zero) > 0 ? weightOf(magnitudeAtLeast(eHigh), up) : 0
 	if (compareExact(eLow, zero) >= 0 || compareExact(bLow, oneExact) >= 0) {
 		return rising
 	}
 	const falling =
 		compareExact(bLow, zero) > 0
-			? weightOf(magnitudeAtMost(eLow), scaleOfExact(bLow))
+			? weightOf(magnitudeAtLeast(eLow), scaleOfExact(bLow))
 			: Number.POSITIVE_INFINITY
 	return Math.max(rising, falling)
-}
-
-/** An exponent's magnitude as a double, never below it: Infinity where the double reading overflows. */
-const magnitudeAtMost = (e: Exact): number => {
-	const m = magnitude(e)
-	return Number.isNaN(m) ? Number.POSITIVE_INFINITY : m
 }
 
 /** An exponent's magnitude times a base's digits: zero where either is zero, so an infinite exponent over no digit adds none. */
@@ -3974,10 +4030,14 @@ const powerExpLimit: Limit = derived({
 
 /**
  * Whether power over these intervals stays inside its result carrier, as powerRangePremises states. Over double precision
- * a zero exponent, a base exactly zero, or a result's binary exponent, |e · log2 |b||, at most binary64's greatest over
- * every end of the intervals, so the result is finite (dpow raises 22003 on an infinite result of finite operands)
- * and, binary64's least subnormal exponent lying further from zero, never rounds to zero (it raises 22003 on a zero
- * result of a nonzero base). Over numeric, as PostgreSQL computes it (numeric.c power_var): an exponent proved one
+ * a zero exponent or a base exactly zero, each decided on its digits; or a base interval clear of zero whose result's
+ * binary exponent, |e · log2 |b||, is at most binary64's greatest over every end of the intervals, so the result is
+ * finite (dpow raises 22003 on an infinite result of finite operands) and, binary64's least subnormal exponent lying
+ * further from zero, never rounds to zero (it raises 22003 on a zero result of a nonzero base). An interval holding
+ * zero holds bases as near it as any, whose powers reach both. Each log2 |b| is read from b's digits (log2Magnitude)
+ * and each |e| as the least double at or above it (magnitudeAtLeast), never through a double of the value, which
+ * rounds to zero below 2^-1074: a reading within an ulp, a whole binade inside the overflow and fifty inside the
+ * underflow. Over numeric, as PostgreSQL computes it (numeric.c power_var): an exponent proved one
  * integer, a point interval at an integer, is power_var_int's, which raises 22003 once its estimate of the result's
  * decimal weight passes (NUMERIC_WEIGHT_MAX + 1) · DEC_DIGITS, numericMaxIntegerDigits:
  * "if (f > (NUMERIC_WEIGHT_MAX + 1) * DEC_DIGITS)"
@@ -3997,13 +4057,15 @@ export const powerInRange = (
 	target: ScalarType
 ): boolean => {
 	if (isFloat(baseOf(target))) {
-		const eMag = Math.max(magnitude(eLow), magnitude(eHigh))
-		const lo = magnitude(bLow)
-		const hi = magnitude(bHigh)
-		if (eMag === 0 || (lo === 0 && hi === 0)) {
+		if ((eLow.units === 0n && eHigh.units === 0n) || (bLow.units === 0n && bHigh.units === 0n)) {
 			return true
 		}
-		const reach = Math.max(Math.abs(Math.log2(lo)), Math.abs(Math.log2(hi))) * eMag
+		if (bLow.units <= 0n && bHigh.units >= 0n) {
+			return false
+		}
+		const reach =
+			Math.max(Math.abs(log2Magnitude(bLow)), Math.abs(log2Magnitude(bHigh))) *
+			Math.max(magnitudeAtLeast(eLow), magnitudeAtLeast(eHigh))
 		return reach <= binary64MaxExponent.value
 	}
 	const weight = powerWeight(bLow, bHigh, eLow, eHigh)

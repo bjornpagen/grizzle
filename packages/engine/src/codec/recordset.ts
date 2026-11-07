@@ -13,6 +13,7 @@ import {
 import { nominal } from "#compiler/core/brand.ts"
 import { canonicalTextOf } from "#compiler/core/canonical.ts"
 import type { EncodingFailure, EncodingPlace } from "#compiler/core/errors.ts"
+import { defined } from "#compiler/core/invariant.ts"
 import { maxStringLength } from "#compiler/core/limits.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -257,31 +258,6 @@ const normalizerOf = (s: BuiltSpec): RelationNormalizer => {
 	return normalize
 }
 
-/** Normal facts to their normalized relation under one spec, written in its column order. */
-export type NormalRows = (normal: NormalFacts) => Result.Result<NormalizedRelation, EncodingFailure>
-
-const normalRowsOf = (s: BuiltSpec): NormalRows => {
-	const { columns } = s
-	const ownHeading = headingText(s.plan)
-	const normalize = normalizerOf(s)
-	return (normal) =>
-		normal.heading === ownHeading
-			? Result.ok(
-					Object.freeze({
-						...normal,
-						rows: Object.freeze(normal.facts.map((fact) => rowOf(columns, fact))),
-						count: normal.facts.length
-					})
-				)
-			: normalize(normal.facts)
-}
-
-/**
- * Normal facts written as `spec`'s rows: facts normal under its heading are only written in its column order, never
- * admitted again; facts normal under another heading are normalized under this one.
- */
-export const normalRows = (spec: RelationSpec): NormalRows => normalRowsOf(buildSpec(spec))
-
 /**
  * One element of a text-format array literal (array_in, src/backend/utils/adt/arrayfuncs.c ReadArrayToken): the text
  * between double quotes, each backslash and double quote inside it after a backslash. Quoted, no element reads as
@@ -320,8 +296,8 @@ interface OpenLiteral {
 
 /**
  * `literal` grown by `added` UTF-16 code units, or its column's refusal where that passes `limit`: the one place a
- * literal's length grows, its braces as much as each element and its comma, so no literal arrayTexts writes, of no row
- * or of many, passes the bound.
+ * literal's length grows, its braces as much as each element and its comma, so no literal arrayTexts or columnLiteral
+ * writes, of no row or of many, passes the bound.
  */
 const grown = (
 	input: string,
@@ -336,6 +312,40 @@ const grown = (
 	literal.length = length
 	return undefined
 }
+
+/**
+ * A literal of `column` with its braces counted and no element yet, or its refusal where the braces alone pass
+ * `limit`.
+ */
+const opened = (
+	input: string,
+	limit: number,
+	column: string
+): Result.Result<OpenLiteral, LiteralBound> => {
+	const literal: OpenLiteral = { column, length: 0, elements: [] }
+	const refused = grown(input, limit, literal, "{}".length)
+	return refused === undefined ? Result.ok(literal) : Result.err(refused)
+}
+
+/** `literal` with `text` written as its next element, or its column's refusal where that passes `limit`. */
+const appended = (
+	input: string,
+	limit: number,
+	literal: OpenLiteral,
+	text: ParamText
+): LiteralBound | undefined => {
+	const comma = literal.elements.length === 0 ? 0 : 1
+	const overhead = elementOverhead(text)
+	const refused = grown(input, limit, literal, comma + text.length + overhead)
+	if (refused !== undefined) {
+		return refused
+	}
+	literal.elements.push(arrayElement(text, overhead))
+	return undefined
+}
+
+/** A written literal's text: its elements between braces. */
+const closed = (literal: OpenLiteral): ParamText => arrayLiteral(`{${literal.elements.join(",")}}`)
 
 /**
  * The arrays of a normalized input, one placeholder text each (ir/products.ts ArrayTexts): over `columns` of it, one
@@ -354,12 +364,13 @@ export const arrayTexts = (
 	if (columns.length === 0) {
 		return Result.ok(Object.freeze([countParam(rows.length)]))
 	}
-	const literals = columns.map((column): OpenLiteral => ({ column, length: 0, elements: [] }))
-	for (const literal of literals) {
-		const refused = grown(input, limit, literal, "{}".length)
-		if (refused !== undefined) {
-			return Result.err(refused)
+	const literals: Array<OpenLiteral> = []
+	for (const column of columns) {
+		const literal = opened(input, limit, column)
+		if (!literal.ok) {
+			return Result.err(literal.error)
 		}
+		literals.push(literal.value)
 	}
 	for (const row of rows) {
 		/** A normalized row holds one text per column, in column order. */
@@ -369,18 +380,37 @@ export const arrayTexts = (
 			if (text.done === true) {
 				break
 			}
-			const comma = literal.elements.length === 0 ? 0 : 1
-			const overhead = elementOverhead(text.value)
-			const refused = grown(input, limit, literal, comma + text.value.length + overhead)
+			const refused = appended(input, limit, literal, text.value)
 			if (refused !== undefined) {
 				return Result.err(refused)
 			}
-			literal.elements.push(arrayElement(text.value, overhead))
 		}
 	}
-	return Result.ok(
-		Object.freeze(literals.map((literal) => arrayLiteral(`{${literal.elements.join(",")}}`)))
-	)
+	return Result.ok(Object.freeze(literals.map(closed)))
+}
+
+/**
+ * One column's array literal, as arrayTexts writes each: `{"t1","t2",...}` of `text` of each of `items` in order,
+ * refused as `column`'s bound before it passes `limit`.
+ */
+export const columnLiteral = <T>(
+	input: string,
+	column: string,
+	items: ReadonlyArray<T>,
+	text: (item: T) => ParamText,
+	limit: number
+): Result.Result<ParamText, LiteralBound> => {
+	const literal = opened(input, limit, column)
+	if (!literal.ok) {
+		return Result.err(literal.error)
+	}
+	for (const item of items) {
+		const refused = appended(input, limit, literal.value, text(item))
+		if (refused !== undefined) {
+			return Result.err(refused)
+		}
+	}
+	return Result.ok(closed(literal.value))
 }
 
 /**
@@ -397,17 +427,41 @@ export const textArrayParam = (values: ReadonlyArray<string>): ParamText =>
 			.join(",")}}`
 	)
 
-/** The arrays encoder of a member slot's placeholders, over the slot's normal facts (normalRows). */
-export const normalArrays = (
+/**
+ * The writer of a placeholder's array of normal facts under `spec` (ir/products.ts ArrayEncoder): of the facts written
+ * in the spec's column order, the array at a part, its column's literal (columnLiteral), or, of no column, their count.
+ * Each placeholder writes its own array and no other: facts normal under the spec's heading have that one column
+ * written, never admitted again; facts normal under another heading are normalized under this one first.
+ */
+export const normalArray = (
 	spec: RelationSpec
-): ((normal: NormalFacts) => Result.Result<ArrayTexts, EncodingFailure | LiteralBound>) => {
+): ((
+	normal: NormalFacts,
+	part: number
+) => Result.Result<ParamText, EncodingFailure | LiteralBound>) => {
 	const built = buildSpec(spec)
-	const rowsOf = normalRowsOf(built)
-	const fields = built.columns.map((c) => c.field)
-	return (normal) =>
-		Result.flatMap(rowsOf(normal), (normalized) =>
-			arrayTexts(spec.relation, fields, normalized.rows, maxStringLength.value)
+	const ownHeading = headingText(built.plan)
+	const normalize = normalizerOf(built)
+	return (normal, part) => {
+		const written =
+			normal.heading === ownHeading
+				? Result.ok(normal.facts)
+				: Result.map(normalize(normal.facts), (normalized) => normalized.facts)
+		if (!written.ok) {
+			return Result.err(written.error)
+		}
+		if (built.columns.length === 0) {
+			return Result.ok(countParam(written.value.length))
+		}
+		const column = defined(built.columns[part], "a placeholder's column among its input's columns")
+		return columnLiteral(
+			spec.relation,
+			column.field,
+			written.value,
+			(fact) => column.codec.text(fact[column.field]),
+			maxStringLength.value
 		)
+	}
 }
 
 /**

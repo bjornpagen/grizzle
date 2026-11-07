@@ -35,7 +35,7 @@ import {
 import type { ConstraintLaw } from "#compiler/laws/model/model.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
 import { noTextDomainUses } from "#compiler/physical/ddl/domains.ts"
-import { lowerPersistent } from "#compiler/physical/ddl/expr.ts"
+import { lowerPersistent, persistentClosed } from "#compiler/physical/ddl/expr.ts"
 import {
 	type InstallContribution,
 	type InstallExtension,
@@ -209,6 +209,7 @@ const spanEndpointPredicate = (
 		const substituted = substituteEndpoint(predicate.value, bound, field, spanType, carrier)
 		return lowerPersistent(b.names, substituted, {
 			reads: { kind: "row", column: (ref) => (ref.name === field ? column : undefined) },
+			closed: persistentClosed(b.checked),
 			loc: SourceLoc(
 				`the ${bound} endpoint check of ${relation}.${field} over contract ${contract.name}`,
 				[]

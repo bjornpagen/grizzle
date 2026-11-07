@@ -1,4 +1,5 @@
 import type { ExprId } from "#compiler/core/ids.ts"
+import { defect } from "#compiler/core/invariant.ts"
 import * as Result from "#compiler/core/result.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
 import { compareCodePoints } from "#compiler/core/text.ts"
@@ -155,6 +156,63 @@ export const literalValue = (literal: TypedLiteral): CarrierValue => {
 }
 
 /**
+ * The typed literal of a value of `type`, the inverse of literalValue: what a constant subterm the host evaluated is
+ * printed as (physical/ddl/expr.ts). A set's handles come in its roster's declared order. The evaluator's value of an
+ * expression is always of the expression's type, so a value of another kind is a defect.
+ */
+export const hostLiteralOf = (value: CarrierValue, type: ScalarType): TypedLiteral => {
+	const base = baseOf(type)
+	const wrong = (): never => {
+		throw defect(`a constant of ${typeLabel(type)} is a value of its carrier`)
+	}
+	switch (base.carrier) {
+		case "int2":
+		case "int4":
+		case "int8":
+		case "exactInteger":
+			return isBigint(value) ? { kind: "int", value } : wrong()
+		case "numeric":
+			return isDecimal(value) ? { kind: "numeric", value } : wrong()
+		case "float4":
+		case "float8":
+			return !isNumber(value)
+				? wrong()
+				: Number.isNaN(value)
+					? { kind: "floatSpecial", value: "NaN" }
+					: value === Number.POSITIVE_INFINITY
+						? { kind: "floatSpecial", value: "Infinity" }
+						: value === Number.NEGATIVE_INFINITY
+							? { kind: "floatSpecial", value: "-Infinity" }
+							: { kind: "float", value: canonicalZero(value) }
+		case "money":
+		case "exactMoney":
+			return isMoney(value) ? { kind: "money", value } : wrong()
+		case "bool":
+			return typeof value === "boolean" ? { kind: "bool", value } : wrong()
+		case "text":
+			return isString(value) ? { kind: "text", value } : wrong()
+		case "uuid":
+			return isString(value) ? { kind: "uuid", value } : wrong()
+		case "date": {
+			const date = isString(value) ? toCalendarDate(value) : undefined
+			return date?.ok === true ? { kind: "date", value: date.value } : wrong()
+		}
+		case "code":
+			return isString(value) ? { kind: "handle", handle: value } : wrong()
+		case "bits":
+			return isSet(value)
+				? { kind: "handles", handles: base.roster.handles.filter((h) => value.has(h)) }
+				: wrong()
+		case "range4":
+		case "range8":
+		case "rangeDate":
+			return isSpanValue(value) ? { kind: "span", start: value.start, end: value.end } : wrong()
+		case "vector":
+			return isVectorValue(value) ? { kind: "vector", value: value.vector } : wrong()
+	}
+}
+
+/**
  * The host kinds of the exact carriers, checked: an operand of another kind reaches `unsupported`, never a wrong answer.
  */
 const isBigint = (v: unknown): v is bigint => typeof v === "bigint"
@@ -184,6 +242,10 @@ const isSpanValue = (v: unknown): v is SpanValue =>
 	"end" in v &&
 	isBigint(v.start) &&
 	isBigint(v.end)
+
+/** A vector's value: its payload's canonical text. */
+const isVectorValue = (v: CarrierValue): v is Extract<CarrierValue, { readonly vector: unknown }> =>
+	typeof v === "object" && "vector" in v
 
 /**
  * A span endpoint as a value of the endpoint's type, from a span of `range`'s carrier: an integer itself, a date span's

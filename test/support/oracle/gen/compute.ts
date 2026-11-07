@@ -16,7 +16,15 @@ import type {
 } from "#compiler/ir/desc.ts"
 import type { ExprSpec, ScalarExpr } from "#compiler/ir/expr.ts"
 import type { Heading, HeadingColumn } from "#compiler/ir/rel.ts"
-import { baseOf, type Carrier, contractOf, rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
+import {
+	baseOf,
+	type Carrier,
+	contractOf,
+	exactDigitsOf,
+	rosterOf,
+	type ScalarType
+} from "#compiler/ir/scalar.ts"
+import { digitsOfExact, exactOf } from "#compiler/scalar/compute/bounds.ts"
 import {
 	type LowerEnv,
 	lowerPredicate,
@@ -32,6 +40,7 @@ import {
 	isComputedNumeric,
 	meets as engineMeets,
 	meetingType,
+	mixesExact,
 	type PlainCarrier,
 	plainType
 } from "#compiler/scalar/compute/types.ts"
@@ -532,7 +541,9 @@ const plainOf = (c: Carrier, fallback: ScalarType): ScalarType =>
  *   where its result meets `want`, so money / money and a cosine distance, double precision, stand only opposite
  *   double precision. A binary sketch whose operation cannot stand is its left operand.
  * - LEAST, GREATEST, gcd and lcm take terms or parameters, never a bare literal (the checker refuses one).
- * - a conditional is of its branches' common type (types.ts commonType), so money beside exact money is exact money.
+ * - a conditional is of its branches' common type (types.ts commonType); a conditional, LEAST or GREATEST of an exact
+ *   value beside a plain value of its family cannot stand (types.ts mixesExact), nor a bare literal beside an exact
+ *   branch of fewer digits than its value (lower.ts branchOperand), so such a sketch is its first operand.
  * - a numeric typmod coercion is the cast numeric -> numeric, which rounds and can overflow.
  */
 const resolveTerm = (
@@ -590,6 +601,9 @@ const resolveTerm = (
 			}
 			const fn = at(fns, s.fn)
 			if (literalShy.has(fn) && right.desc.kind === "literal") {
+				return left
+			}
+			if ((fn === "least" || fn === "greatest") && !standsBeside(left.type, right)) {
 				return left
 			}
 			const type =
@@ -713,7 +727,7 @@ const resolveTerm = (
 				return onTrue
 			}
 			const onFalse = resolveTerm(scope, s.onFalse, onTrue.type)
-			if (onFalse === undefined) {
+			if (onFalse === undefined || !standsBeside(onTrue.type, onFalse)) {
 				return onTrue
 			}
 			return {
@@ -723,6 +737,33 @@ const resolveTerm = (
 			}
 		}
 	}
+}
+
+/**
+ * Whether a conditional's other branch, or LEAST's and GREATEST's other operand, stands beside a first of type `first`
+ * (lower.ts exactBeside, branchOperand): a term neither of them an exact value beside a plain value of its family
+ * (types.ts mixesExact); a parameter, which is declared at a plain carrier wherever its term wants an exact value
+ * (resolveLeaf), beside no exact first; and a bare literal within an exact first's digits.
+ */
+const standsBeside = (first: ScalarType, other: Resolved): boolean => {
+	const digits = exactDigitsOf(first)
+	if (other.desc.kind === "param") {
+		return digits === undefined
+	}
+	if (other.desc.kind !== "literal" || other.desc.type !== undefined) {
+		return !mixesExact(first, other.type)
+	}
+	if (digits === undefined) {
+		return true
+	}
+	const value = other.desc.value
+	const exact =
+		typeof value === "bigint"
+			? exactOf(value, 0)
+			: value instanceof Money
+				? exactOf(value.minorUnits, 2)
+				: undefined
+	return exact !== undefined && digitsOfExact(exact) <= digits
 }
 
 /** A comparison of two terms of one carrier. */

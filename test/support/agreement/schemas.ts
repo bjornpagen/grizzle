@@ -168,6 +168,7 @@ const schemaConstructs = [
 	"closedRelationProbe",
 	"closedReadProbe",
 	"castProbe",
+	"ruleProbe",
 	"serialChainProbe",
 	"generatedProbe",
 	"slotKeyProbe",
@@ -211,12 +212,16 @@ const schemaForms = [
 	"derivedBoundImport",
 	"derivedDiscriminated",
 	"derivedProjection",
+	"derivedSkipsLevel",
 	"finOfKey",
 	"finOfAccumulated",
 	"closedKeyOne",
 	"closedKeyTwo",
 	"closedKeyThree",
 	"closedRepeatedRow",
+	"paramTwice",
+	"bindOuterVariable",
+	"negationParam",
 	"concatFold",
 	"concatMismatch",
 	"roleBesideClosed"
@@ -301,6 +306,13 @@ const schemaFaults = [
 	"selectedUndeclared",
 	"keyOverClosed",
 	"lookAlikeDescriptor",
+	"inSetKind",
+	"partialBind",
+	"strayBinding",
+	"strayNegation",
+	"bindingType",
+	"negatedBindingType",
+	"foreignAttach",
 	"serialUnderContract",
 	"spanOverSerialChain",
 	"setPrimaryKey",
@@ -324,7 +336,8 @@ const schemaFaults = [
 	"concatHidden",
 	"finOverDerived",
 	"emptyHead",
-	"headingGroups"
+	"headingGroups",
+	"derivedOverBase"
 ] as const
 type SchemaFault = (typeof schemaFaults)[number]
 
@@ -717,6 +730,41 @@ const refusals: { readonly [F in SchemaFault]: Refusing } = {
 			"key takes a side of an ordinary relation; a closed relation is keyed by its declaration"
 		)
 	},
+	inSetKind: {
+		engine: { tag: "MalformedDescription" },
+		code: "TS2322",
+		claim: prose("inSet lists literals of its term's type")
+	},
+	partialBind: {
+		engine: { tag: "MalformedDescription" },
+		code: "TS2345",
+		claim: prose("bind binds every parameter of the query it imports")
+	},
+	strayBinding: {
+		engine: { tag: "MalformedDescription" },
+		code: "TS2322",
+		claim: named("not a field of the arms the bindings select")
+	},
+	strayNegation: {
+		engine: { tag: "MalformedDescription" },
+		code: "TS2322",
+		claim: named("not a field of the arms the bindings select")
+	},
+	bindingType: {
+		engine: { tag: "MalformedDescription" },
+		code: "TS2322",
+		claim: prose("a variable binds a field of its own type, a contract's never its bare base's")
+	},
+	negatedBindingType: {
+		engine: { tag: "MalformedDescription" },
+		code: "TS2322",
+		claim: prose("a variable binds a field of its own type, a contract's never its bare base's")
+	},
+	foreignAttach: {
+		engine: { tag: "ForeignLevel" },
+		code: "TS2322",
+		claim: prose("an arm attaches a child over a level of its rule's schema")
+	},
 	serialUnderContract: {
 		engine: { tag: "UnsupportedOperation" },
 		code: "TS2345",
@@ -841,6 +889,11 @@ const refusals: { readonly [F in SchemaFault]: Refusing } = {
 		claim: prose(
 			"fin reads a relation's drawn count or a closed relation's natural field, never a derived relation's"
 		)
+	},
+	derivedOverBase: {
+		engine: { tag: "MalformedDescription" },
+		code: "TS2345",
+		claim: named("the relation is not in this query's schema")
 	},
 	emptyHead: {
 		engine: { tag: "DerivedRefused", cause: "emptyHeading" },
@@ -3603,16 +3656,18 @@ type DerivedFault = Extract<
 	| "finOverDerived"
 	| "emptyHead"
 	| "headingGroups"
+	| "derivedOverBase"
 >
 
 /** The derived definitions a derived probe states that the engine admits, each noted as its form. */
-type DerivedValid = "overLevels" | "boundImport" | "discriminated" | "projection"
+type DerivedValid = "overLevels" | "boundImport" | "discriminated" | "projection" | "skipsLevel"
 
 const validForm: { readonly [K in DerivedValid]: SchemaForm } = {
 	overLevels: "derivedOverLevels",
 	boundImport: "derivedBoundImport",
 	discriminated: "derivedDiscriminated",
-	projection: "derivedProjection"
+	projection: "derivedProjection",
+	skipsLevel: "derivedSkipsLevel"
 }
 
 /** The definition the derived relation's probes draw over: the base's derived spec's relation and field. */
@@ -3664,7 +3719,13 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 		return undefined
 	}
 	const r = relationNamed(base.relations, spec.over)
-	const valid = d.from<DerivedValid>(["overLevels", "boundImport", "discriminated", "projection"])
+	const valid = d.from<DerivedValid>([
+		"overLevels",
+		"boundImport",
+		"discriminated",
+		"projection",
+		"skipsLevel"
+	])
 	const [fault, side] =
 		d.upTo(3) === 0
 			? ([undefined, "left"] as const)
@@ -3680,7 +3741,8 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 					["selectOverDerived", "left"],
 					["finOverDerived", "left"],
 					["emptyHead", "left"],
-					["headingGroups", "left"]
+					["headingGroups", "left"],
+					["derivedOverBase", "left"]
 				])
 	if (fault === "sideOverDerived") {
 		d.note(sideForm[side])
@@ -3760,6 +3822,15 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 					]
 				}
 			}
+			case "skipsLevel":
+				return {
+					head: [],
+					line: `export const ${own} = Sc.derived("Skip", Q.query(${ids("S")}).rule((r) => { ${matched(ids)}.find({ ${Arr.join(bound, ", ")} }) }))`,
+					tail: [
+						`export const ${own}_level = Sc.schema.extend(${ids("Level")}, { Skip: ${own} }, [])`,
+						`export type ${own}_levels = Expect<Equals<Sc.LevelsOf<typeof ${own}_level>, typeof ${own}_level | typeof ${ids("Level")} | typeof ${ids("S")}>>`
+					]
+				}
 		}
 	}
 	const text = (ids: Ids, own: string, env: Env): ProbeText => {
@@ -3790,6 +3861,15 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 				return oneLine(
 					`Sc.derived("Probe", Q.query(${ids("S")}).rule((r) => { ${matched(ids)}.find({ ${spec.by}, arm: "one" }) }).rule((r) => { ${matched(ids)}.find({ ${spec.by}, arm: "two", flag: true }) }))`
 				)
+			case "derivedOverBase":
+				return {
+					head: [
+						`export const ${own}_base = Q.query(${ids("S")}).rule((r) => {`,
+						`	const { ${spec.by}, total } = Q.v(${ids(spec.name)}, "counted")`
+					],
+					line: `	return r.match(${ids(spec.name)}, { ${spec.by}, total }).find({ ${spec.by} })`,
+					tail: ["})"]
+				}
 		}
 	}
 	const overValue = (env: Env, level: AnySchema) =>
@@ -3920,6 +4000,10 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 						return probing(() => discriminatedValue(env))
 					case "projection":
 						return probing(() => projectionValue(env))
+					case "skipsLevel":
+						return compiling(() =>
+							schema.extend(env.level, { Skip: derived("Skip", projectionValue(env), []) }, [], [])
+						)
 				}
 			case "parameterizedDefinition":
 				return building(() => derived("Probe", parameterizedDefinition(spec, base, env), []))
@@ -3946,6 +4030,15 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 					queryOver(env.schema)
 						.rule(arm(env, (vars) => ({ [spec.by]: vars[spec.by], arm: "one" })))
 						.rule(arm(env, (vars) => ({ [spec.by]: vars[spec.by], arm: "two", flag: true })))
+				)
+			case "derivedOverBase":
+				return querying(() =>
+					queryOver(env.schema).rule((rule: RuleValue) => {
+						const vars = varsOver(counts, "counted")
+						return rule
+							.match(counts, { [spec.by]: vars[spec.by], total: vars["total"] })
+							.find({ [spec.by]: vars[spec.by] })
+					})
 				)
 		}
 	}
@@ -4088,6 +4181,15 @@ const literalValues = [
 ] as const
 type LiteralValue = (typeof literalValues)[number]
 
+/**
+ * The literal values a probe draws at a target: every one, but at a numeric field no string other than an exact
+ * decimal, since the types take every string to be one, a widening they keep and the engine's parse decides.
+ */
+const literalsAt = (t: LiteralTarget): Arr.NonEmptyReadonlyArray<LiteralValue> =>
+	t === "numeric"
+		? ["number", "bigint", "decimal", "boolean", "decimalValue", "moneyValue"]
+		: literalValues
+
 const targetType = (t: LiteralTarget, roster: string): FieldType => {
 	switch (t) {
 		case "integer":
@@ -4138,20 +4240,12 @@ const literalOf = (
 
 /**
  * A literal compared with a field in a row check, a selection or a contract's predicate: a value of every host kind
- * at every field kind, the engine admitting it exactly where it is a literal of the field's type. A numeric field's
- * strings are exact decimals: the types take every string to be one, a widening they keep.
+ * at every field kind (literalsAt), the engine admitting it exactly where it is a literal of the field's type.
  */
 const literalProbe = (d: Drawing, base: Base): Probe => {
 	const roster = d.from(base.rosters)
 	const target = d.from(literalTargets)
-	const values =
-		target === "numeric"
-			? Arr.filter(literalValues, (v) => v !== "handle" && v !== "stranger" && v !== "uuid")
-			: literalValues
-	const literal = literalOf(
-		d.from(Arr.isReadonlyArrayNonEmpty(values) ? values : literalValues),
-		roster
-	)
+	const literal = literalOf(d.from(literalsAt(target)), roster)
 	const type = targetType(target, roster.name)
 	const site = d.from(["check", "select", "contract"] as const)
 	return {
@@ -5333,10 +5427,20 @@ const baseAssertions = (
 		base.derived === undefined
 			? [expect("levels", `Sc.LevelsOf<typeof ${ids("S")}>`, `typeof ${ids("S")}`)]
 			: []
+	const writable = expect(
+		"writable",
+		`WritableNames<typeof ${ids("S")}>`,
+		literalUnion(
+			Arr.flatMap([...env.relations], ([name, value]) =>
+				relationDescOf(value, "agreement relation").kind === "relation" ? [name] : []
+			)
+		)
+	)
 	return [
 		...rosterFacts,
 		...closedFacts,
 		...relations,
+		writable,
 		...keyValues,
 		...roles,
 		...projected,
@@ -6410,6 +6514,343 @@ const serialChainProbe = (d: Drawing): Probe => {
 	}
 }
 
+/** How a rule probe writes its query, valid or with one planted fault. */
+type RuleForm =
+	| "inSet"
+	| "inSetKind"
+	| "bind"
+	| "partialBind"
+	| "strayBinding"
+	| "strayNegation"
+	| "bindingType"
+	| "negatedBindingType"
+	| "negationParam"
+	| "paramTwice"
+	| "attach"
+	| "foreignAttach"
+
+/** A query's verdict: built, then compiled as a read, the first refusal of either. */
+const querying = (build: () => unknown): Verdict =>
+	engineVerdict(
+		Result.flatMap(catchCompileError(build), (built) =>
+			compileTemplate(built, undefined, testCompile)
+		)
+	)
+
+/**
+ * A rule over a schema of its own, Lit with a field f of a drawn type, a bigint n and a contract over it c: inSet
+ * of literals, valid where they are literals of f's type and a planted fault where not; an import of a query reading
+ * a parameter, bound at an outer variable, and with its binding left out or beside a stray name; a variable bound
+ * to a field of another type, a contract's to its base's or its base's to the contract's, in a match or a negation; a
+ * negation naming a stray field, and one reading a parameter, which joins the rule's at its field's type as an
+ * equality's does; one parameter named in two places, which is one parameter; an attachment of a query over the schema, and of one over another schema. The
+ * engine's query builders and compilation are the oracle.
+ */
+const ruleProbe = (d: Drawing, base: Base): Probe => {
+	const roster = d.from(base.rosters)
+	const form = d.from<RuleForm>([
+		"inSet",
+		"inSetKind",
+		"bind",
+		"partialBind",
+		"strayBinding",
+		"strayNegation",
+		"bindingType",
+		"negatedBindingType",
+		"negationParam",
+		"paramTwice",
+		"attach",
+		"foreignAttach"
+	])
+	const target = d.from(literalTargets)
+	const type = targetType(target, roster.name)
+	const kinds: Arr.NonEmptyReadonlyArray<LiteralValue> =
+		form === "inSet" ? literalsOfTarget(target) : literalsAt(target)
+	const literal = literalOf(d.from(kinds), roster)
+	const contractWay = d.from(["contract var at base", "base var at contract"] as const)
+	if (form === "paramTwice" || form === "negationParam") {
+		d.note(form)
+	}
+	if (form === "bind") {
+		d.note("bindOuterVariable")
+	}
+	const refused: SchemaFault | undefined =
+		form === "inSetKind" ||
+		form === "partialBind" ||
+		form === "strayBinding" ||
+		form === "strayNegation" ||
+		form === "bindingType" ||
+		form === "negatedBindingType" ||
+		form === "foreignAttach"
+			? form
+			: undefined
+	return {
+		construct: "ruleProbe",
+		refused,
+		text: (ids, own) => {
+			const lit = `${own}_Lit`
+			const head = [
+				`export const ${own}_Cents = Fi.contract("Cents", Fi.pg.bigint)`,
+				`export const ${lit} = Sc.relation("Lit", { id: Fi.uuid, f: ${fieldSource(type, ids)}, n: Fi.pg.bigint, c: ${own}_Cents }, ["id"])`,
+				`export const ${own}_P = Sc.schema("P", { ${Arr.join(
+					Arr.map(base.rosters, (r) => `${r.name}: ${ids(r.name)}`),
+					", "
+				)}, Lit: ${lit} }, [])`
+			]
+			const imported = `${own}_q`
+			const importedLine = `export const ${imported} = Q.query(${own}_P).rule((r) => { const { id, f } = Q.v(${lit}, "inner"); return r.match(${lit}, { id, f }).where(r.eq(f, r.param("p", ${lit}.fields.f))).find({ id }) })`
+			const rule = (body: string) =>
+				`export const ${own} = Q.query(${own}_P).rule((r) => { ${body} })`
+			switch (form) {
+				case "inSet":
+				case "inSetKind":
+					return {
+						head,
+						line: rule(
+							`const { id, f } = Q.v(${lit}, "lit"); return r.match(${lit}, { id, f }).where(r.inSet(f, [${literal.source}])).find({ id })`
+						),
+						tail: []
+					}
+				case "bind":
+				case "partialBind":
+				case "strayBinding": {
+					const bindings =
+						form === "bind" ? "{ p: f }" : form === "partialBind" ? "{}" : "{ p: f, stray: f }"
+					return {
+						head: [...head, importedLine],
+						line: rule(
+							`const { f } = Q.v(${lit}, "outer"); const bound = ${imported}.bind(${bindings}); const { id } = Q.v(bound, "bound"); return r.match(${lit}, { f }).match(bound, { id }).find({ id })`
+						),
+						tail:
+							form === "bind"
+								? [
+										`export type ${own}_params = Expect<Equals<keyof Q.ParamsOf<typeof ${own}>, never>>`
+									]
+								: []
+					}
+				}
+				case "bindingType":
+				case "negatedBindingType": {
+					const binding = contractWay === "contract var at base" ? "{ id, n: c }" : "{ id, c: n }"
+					return {
+						head,
+						line: rule(
+							form === "bindingType"
+								? `const { id, c, n } = Q.v(${lit}, "lit"); return r.match(${lit}, ${binding}).find({ id })`
+								: `const { id, c, n } = Q.v(${lit}, "lit"); return r.match(${lit}, { id, c, n }).where(r.not(${lit}, ${binding})).find({ id })`
+						),
+						tail: []
+					}
+				}
+				case "strayNegation":
+					return {
+						head,
+						line: rule(
+							`const { id, f } = Q.v(${lit}, "lit"); return r.match(${lit}, { id, f }).where(r.not(${lit}, { id, stray: f })).find({ id })`
+						),
+						tail: []
+					}
+				case "negationParam":
+					return {
+						head: [...head, importedLine],
+						line: rule(
+							`const { id } = Q.v(${lit}, "lit"); return r.match(${lit}, { id }).where(r.not(${lit}, { id, f: r.param("p", ${lit}.fields.f) })).find({ id })`
+						),
+						tail: [
+							`export type ${own}_params = Expect<Equals<Q.ParamsOf<typeof ${own}>, Q.ParamsOf<typeof ${imported}>>>`
+						]
+					}
+				case "paramTwice":
+					return {
+						head,
+						line: rule(
+							`const { id, f } = Q.v(${lit}, "lit"); return r.match(${lit}, { id, f }).match(${lit}, { id, f: r.param("p", ${lit}.fields.f) }).where(r.eq(f, r.param("p", ${lit}.fields.f))).find({ id })`
+						),
+						tail: [
+							`export type ${own}_params = Expect<Equals<keyof Q.ParamsOf<typeof ${own}>, "p">>`
+						]
+					}
+				case "attach":
+				case "foreignAttach": {
+					const childSchema = form === "attach" ? `${own}_P` : `${own}_Other`
+					const childSource = form === "attach" ? lit : `${own}_Elsewhere`
+					return {
+						head: [
+							...head,
+							`export const ${own}_Elsewhere = Sc.relation("Elsewhere", { id: Fi.uuid }, ["id"])`,
+							`export const ${own}_Other = Sc.schema("Other", { Elsewhere: ${own}_Elsewhere }, [])`
+						],
+						line: rule(
+							`const { id } = Q.v(${lit}, "lit"); return r.match(${lit}, { id }).find({ id }).attach("children", (p) => Q.query(${childSchema}).rule((c) => { const { id: child } = Q.v(${childSource}, "child"); return c.match(${childSource}, { id: p.id }).match(${childSource}, { id: child }).find({ child }) }), "array")`
+						),
+						tail: []
+					}
+				}
+			}
+		},
+		judge: (env) => {
+			const cents = admitContract("Cents", pgDescriptors.bigint, [])
+			const lit = relation(
+				"Lit",
+				{
+					id: uuidDescriptor,
+					f: fieldValue(type, env.rosters, env.contracts),
+					n: pgDescriptors.bigint,
+					c: cents
+				},
+				["id"],
+				[]
+			)
+			const p = schema("P", { ...Rec.fromEntries([...env.rosters]), Lit: lit }, [], [])
+			const imported = () =>
+				queryOver(p).rule((rule: RuleValue) => {
+					const vars = varsOver(lit, "inner")
+					return rule
+						.match(lit, { id: vars["id"], f: vars["f"] })
+						.where(
+							rule.eq(vars["f"], rule.param("p", fieldValue(type, env.rosters, env.contracts)))
+						)
+						.find({ id: vars["id"] })
+				})
+			switch (form) {
+				case "inSet":
+				case "inSetKind":
+					return querying(() =>
+						queryOver(p).rule((rule: RuleValue) => {
+							const vars = varsOver(lit, "lit")
+							return rule
+								.match(lit, { id: vars["id"], f: vars["f"] })
+								.where(rule.inSet(vars["f"], [literal.value]))
+								.find({ id: vars["id"] })
+						})
+					)
+				case "bind":
+				case "partialBind":
+				case "strayBinding": {
+					const q = imported()
+					return querying(() =>
+						queryOver(p).rule((rule: RuleValue) => {
+							const outer = varsOver(lit, "outer")
+							const bindings =
+								form === "bind"
+									? { p: outer["f"] }
+									: form === "partialBind"
+										? {}
+										: { p: outer["f"], stray: outer["f"] }
+							const bound = q.bind(bindings)
+							const inner = varsOver(bound, "bound")
+							return rule
+								.match(lit, { f: outer["f"] })
+								.match(bound, { id: inner["id"] })
+								.find({ id: inner["id"] })
+						})
+					)
+				}
+				case "bindingType":
+				case "negatedBindingType":
+					return querying(() =>
+						queryOver(p).rule((rule: RuleValue) => {
+							const vars = varsOver(lit, "lit")
+							const binding =
+								contractWay === "contract var at base"
+									? { id: vars["id"], n: vars["c"] }
+									: { id: vars["id"], c: vars["n"] }
+							return form === "bindingType"
+								? rule.match(lit, binding).find({ id: vars["id"] })
+								: rule
+										.match(lit, { id: vars["id"], c: vars["c"], n: vars["n"] })
+										.where(rule.not(lit, binding))
+										.find({ id: vars["id"] })
+						})
+					)
+				case "strayNegation":
+					return querying(() =>
+						queryOver(p).rule((rule: RuleValue) => {
+							const vars = varsOver(lit, "lit")
+							return rule
+								.match(lit, { id: vars["id"], f: vars["f"] })
+								.where(rule.not(lit, { id: vars["id"], stray: vars["f"] }))
+								.find({ id: vars["id"] })
+						})
+					)
+				case "negationParam":
+					return querying(() =>
+						queryOver(p).rule((rule: RuleValue) => {
+							const vars = varsOver(lit, "lit")
+							return rule
+								.match(lit, { id: vars["id"] })
+								.where(
+									rule.not(lit, {
+										id: vars["id"],
+										f: rule.param("p", fieldValue(type, env.rosters, env.contracts))
+									})
+								)
+								.find({ id: vars["id"] })
+						})
+					)
+				case "paramTwice":
+					return querying(() =>
+						queryOver(p).rule((rule: RuleValue) => {
+							const vars = varsOver(lit, "lit")
+							const param = () => rule.param("p", fieldValue(type, env.rosters, env.contracts))
+							return rule
+								.match(lit, { id: vars["id"], f: vars["f"] })
+								.match(lit, { id: vars["id"], f: param() })
+								.where(rule.eq(vars["f"], param()))
+								.find({ id: vars["id"] })
+						})
+					)
+				case "attach":
+				case "foreignAttach": {
+					const elsewhere = relation("Elsewhere", { id: uuidDescriptor }, ["id"], [])
+					const other = schema("Other", { Elsewhere: elsewhere }, [], [])
+					const child = (parent: Readonly<Record<string, unknown>>) => {
+						const source = form === "attach" ? lit : elsewhere
+						return queryOver(form === "attach" ? p : other).rule((rule: RuleValue) => {
+							const vars = varsOver(source, "child")
+							return rule
+								.match(source, { id: parent["id"] })
+								.match(source, { id: vars["id"] })
+								.find({ child: vars["id"] })
+						})
+					}
+					return querying(() =>
+						queryOver(p).rule((rule: RuleValue) => {
+							const vars = varsOver(lit, "lit")
+							return rule
+								.match(lit, { id: vars["id"] })
+								.find({ id: vars["id"] })
+								.attach("children", child, "array")
+						})
+					)
+				}
+			}
+		}
+	}
+}
+
+/** The literal values of a literal target's own type: those a literal probe's engine admits at it. */
+const literalsOfTarget = (t: LiteralTarget): Arr.NonEmptyReadonlyArray<LiteralValue> => {
+	switch (t) {
+		case "integer":
+			return ["number"]
+		case "bigint":
+			return ["bigint"]
+		case "numeric":
+			return ["bigint", "decimal", "decimalValue"]
+		case "boolean":
+			return ["boolean"]
+		case "closedId":
+			return ["handle"]
+		case "uuid":
+			return ["uuid"]
+		case "text":
+			return ["handle", "stranger", "uuid", "decimal"]
+		case "money":
+			return ["moneyValue"]
+	}
+}
+
 /** The integer types a cast probe's operand and target are drawn from. */
 const castTypes = ["smallint", "integer", "bigint"] as const
 
@@ -6661,6 +7102,7 @@ const probeMakers: ReadonlyArray<
 	["castProbe", (d) => castProbe(d)],
 	["generatedProbe", generatedProbe],
 	["serialChainProbe", (d) => serialChainProbe(d)],
+	["ruleProbe", ruleProbe],
 	["slotKeyProbe", (d) => slotKeyProbe(d)],
 	["slotSideProbe", slotSideProbe],
 	["slotContainmentProbe", slotContainmentProbe]
@@ -6893,6 +7335,8 @@ export const schemaModules = (
 					"type Expect<T extends true> = T",
 					"/** Mutual assignability: a nested addition's intersections and omissions are no object type to compare exactly. */",
 					"type Alike<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false",
+					"/** The names of the relations a ChangeSet over S may write: ordinary, never closed or derived. */",
+					"type WritableNames<S> = Cs.WritableOf<S> extends infer R ? (R extends { readonly name: infer N } ? N : never) : never",
 					"",
 					...Arr.flatMap(cases, (c, i) => c.lines(`c${i}`)),
 					""

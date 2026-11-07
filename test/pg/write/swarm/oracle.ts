@@ -24,6 +24,7 @@ import {
 	countName,
 	endName,
 	familyOf,
+	fieldNames,
 	groupName,
 	holderOf,
 	holdsMask,
@@ -188,14 +189,14 @@ export const hostSchema = (spec: SwarmSpec, built: BuiltSwarm, laws: Laws): Host
 		...Arr.map(spec.fill.relations, (r, i) => ({
 			name: relationName(i),
 			table: relationName(i),
-			fields: [],
+			fields: Arr.map(fieldNames(spec, { kind: "core", r: i }), (name) => ({ name, column: name })),
 			key: ["id"],
 			mutable: r.mutable
 		})),
 		...Arr.map(spec.plains, (p, j) => ({
 			name: plainName(j),
 			table: plainName(j),
-			fields: [],
+			fields: Arr.map(fieldNames(spec, { kind: "plain", j }), (name) => ({ name, column: name })),
 			key: p.kind === "set" ? ["x"] : ["id"],
 			mutable: p.mutable
 		}))
@@ -487,6 +488,8 @@ export const familyWrites = (
  * What a step must do from a lawful `state`:
  * - `stale`: refused when it compiles (StaleDerivedRead), where a follow-up's refills update an immutable relation's
  *   rows (its relation one of `immutable`), or a put from a query leaves a value stale (`query`);
+ * - `later refill`: refused when it compiles (UnsupportedOperation), where the follow-up's refills fall in a stratum
+ *   after another, a refill being planned from one read before the ChangeSet's writes, so in the first stratum;
  * - `refused`: invariant-rejected, naming only laws of `laws`, where two facts share a key, a family's member names no
  *   owner, an immediate law fails at the end of a stratum, or any law fails at the end;
  * - `written`: accepted, or no-change where nothing stored changes, leaving `next`.
@@ -495,6 +498,7 @@ export type StepVerdict =
 	| { readonly kind: "written"; readonly next: State; readonly changed: boolean }
 	| { readonly kind: "refused"; readonly laws: ReadonlySet<LawId> }
 	| { readonly kind: "stale"; readonly immutable: ReadonlyArray<string>; readonly query: boolean }
+	| { readonly kind: "later refill" }
 
 /** The laws `host` finds broken in `state`, every one or the immediate ones alone. */
 const brokenIn = (
@@ -516,6 +520,12 @@ export const expectStep = (
 	state: State,
 	step: Step
 ): StepVerdict => {
+	if (step.kind === "delete all") {
+		const verdict = writesVerdict(spec.fill, familyWrites(spec, state, step))
+		if (verdict.kind === "refused") {
+			return { kind: "stale", immutable: verdict.immutable, query: false }
+		}
+	}
 	if (step.kind === "follow" || step.kind === "query put") {
 		const verdict = writesVerdict(spec.fill, familyWrites(spec, state, step))
 		if (verdict.kind === "refused") {
@@ -523,6 +533,12 @@ export const expectStep = (
 		}
 		if (step.kind === "query put" && Arr.isReadonlyArrayNonEmpty(verdict.stale)) {
 			return { kind: "stale", immutable: [], query: true }
+		}
+		const earlier =
+			Arr.some(step.plain, (o) => o.at === "before") ||
+			(step.kind === "follow" && step.query?.at === "before")
+		if (earlier && Arr.isReadonlyArrayNonEmpty(verdict.stale)) {
+			return { kind: "later refill" }
 		}
 	}
 	const s1: State = {
@@ -595,33 +611,44 @@ export interface StratumWrite {
 }
 
 /**
+ * An immediate key from `from` into `to`, by what it reads of `from`: its caller's `v` alone, which only a put of
+ * `from` changes in place, or columns grizzle draws (a group, a copy, a count), which any family statement may change.
+ */
+interface ImmediateKey {
+	readonly from: string
+	readonly to: string
+	readonly reads: "caller" | "drawn"
+}
+
+/**
  * The immediate keys between relations, each `from` referencing `to`: every family's owner axis (its member
  * referencing its owner), a last copy's axis (its owner referencing its member), and a containment into a pure set; a
  * key on a cycle of these is deferred, and left out.
  */
-const immediateKeys = (
-	spec: SwarmSpec
-): ReadonlyArray<{ readonly from: string; readonly to: string }> => {
+const immediateKeys = (spec: SwarmSpec): ReadonlyArray<ImmediateKey> => {
 	const core = spec.fill
-	const all = [
-		...Arr.flatMap(core.families, (f) =>
-			f.kind === "tree" ? [] : [{ from: relationName(f.member), to: relationName(f.owner) }]
+	const all: ReadonlyArray<ImmediateKey> = [
+		...Arr.flatMap(core.families, (f): ReadonlyArray<ImmediateKey> =>
+			f.kind === "tree"
+				? []
+				: [{ from: relationName(f.member), to: relationName(f.owner), reads: "drawn" }]
 		),
-		...Arr.flatMap(core.copies, (c) => {
+		...Arr.flatMap(core.copies, (c): ReadonlyArray<ImmediateKey> => {
 			const f = defined(core.families[c.family], "a copy's family")
 			return c.axis === "last" && f.kind !== "tree"
-				? [{ from: relationName(f.owner), to: relationName(f.member) }]
+				? [{ from: relationName(f.owner), to: relationName(f.member), reads: "drawn" }]
 				: []
 		}),
-		...Arr.flatMap(spec.laws, (law) => {
+		...Arr.flatMap(spec.laws, (law): ReadonlyArray<ImmediateKey> => {
 			switch (law.kind) {
 				case "into set":
-					return [{ from: relationName(law.relation), to: plainName(law.plain) }]
+					return [{ from: relationName(law.relation), to: plainName(law.plain), reads: "caller" }]
 				case "selected":
 					return [
 						{
 							from: relationName(holderOf(core, defined(core.copies[law.copy], "a copy"))),
-							to: plainName(law.plain)
+							to: plainName(law.plain),
+							reads: "drawn"
 						}
 					]
 				case "into rows":
@@ -658,25 +685,36 @@ const immediateKeys = (
  *   deletions, refills, updates and insertions in turn, so either of two statements of one relation may come first;
  * - along an immediate key from a referencing to a referenced relation, the referenced relation's additions and
  *   changes run before the referencing one's, and the referencing one's removals and changes before the referenced
- *   one's removals and changes;
+ *   one's removals and changes, where the change is at a column the key reads: a key over a caller's `v` meets an
+ *   update in place only of a relation the step puts (`puts`), a key over drawn columns every update and count;
  * - a family's count of its owner, or a refill of its owner that carries its counts (an update), runs after its
  *   member's and its owner's deletions, puts and updates, before its owner's insertions, and before its member's
  *   insertions where its owner axis is immediate;
  * - a member's update or put (a refill among them) runs before an update, a put or a count of its owner, or of an
  *   owner its owner's families lead up to: members first, ahead of the change that would cascade into them.
  */
-export const justified = (spec: SwarmSpec, a: StratumWrite, b: StratumWrite): boolean => {
+export const justified = (
+	spec: SwarmSpec,
+	puts: ReadonlySet<string>,
+	a: StratumWrite,
+	b: StratumWrite
+): boolean => {
 	if (a.relation === b.relation) {
 		return true
 	}
 	const keys = immediateKeys(spec)
-	const adds = (op: StratumWrite["op"]) => op !== "delete"
-	const removes = (op: StratumWrite["op"]) => op !== "insert"
+	const changes = (k: ImmediateKey, o: StratumWrite): boolean =>
+		o.op === "insert" ||
+		o.op === "delete" ||
+		o.op === "put" ||
+		(k.reads === "drawn" ? true : puts.has(o.relation) && o.op === "update")
+	const adds = (k: ImmediateKey, o: StratumWrite) => o.op !== "delete" && changes(k, o)
+	const removes = (k: ImmediateKey, o: StratumWrite) => o.op !== "insert" && changes(k, o)
 	const keyed = Arr.some(
 		keys,
 		(k) =>
-			(k.to === a.relation && k.from === b.relation && adds(a.op) && adds(b.op)) ||
-			(k.from === a.relation && k.to === b.relation && removes(a.op) && removes(b.op))
+			(k.to === a.relation && k.from === b.relation && adds(k, a) && adds(k, b)) ||
+			(k.from === a.relation && k.to === b.relation && removes(k, a) && removes(k, b))
 	)
 	if (keyed) {
 		return true

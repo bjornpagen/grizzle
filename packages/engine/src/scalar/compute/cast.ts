@@ -56,28 +56,42 @@ const floatFormat: {
 	}
 }
 
+/** The binary exponent of the positive rational num / den: the e with 2^e <= num / den < 2^(e + 1), exactly. */
+const binaryExponent = (num: bigint, den: bigint): number => {
+	const e = bitLength(num) - bitLength(den)
+	return (e >= 0 ? num < den << BigInt(e) : num << BigInt(-e) < den) ? e - 1 : e
+}
+
 /**
- * The nearest binary value of `width` to the positive rational num / den, ties to even, subnormals included; Infinity
- * past the largest finite value and 0 below half the smallest subnormal.
+ * How a rational rounds to a binary value: to the nearest, ties to even, as IEEE 754 and PostgreSQL round; or up, to
+ * the least binary value at or above it, a bound never below the rational.
  */
-const roundRational = (num: bigint, den: bigint, width: "float4" | "float8"): number => {
+type Rounding = "nearest" | "up"
+
+/**
+ * The binary value of `width` the positive rational num / den rounds to, subnormals included; Infinity past the largest
+ * finite value. To nearest, 0 below half the smallest subnormal; up, the smallest subnormal at least.
+ */
+const roundRational = (
+	num: bigint,
+	den: bigint,
+	width: "float4" | "float8",
+	rounding: Rounding
+): number => {
 	if (num === 0n) {
 		return 0
 	}
 	const { bits, minExp, maxExp } = floatFormat[width]
-	/** e such that 2^e <= num/den < 2^(e+1). */
-	let e = bitLength(num) - bitLength(den)
-	if (e >= 0 ? num < den << BigInt(e) : num << BigInt(-e) < den) {
-		e--
-	}
+	const e = binaryExponent(num, den)
 	/** The exponent of the last kept bit: normal values keep `bits` bits, subnormals stop at minExp - bits + 1. */
 	const lsb = Math.max(e, minExp) - (bits - 1)
-	/** q = num / den / 2^lsb, rounded half to even. */
+	/** q = num / den / 2^lsb, rounded as `rounding` says. */
 	const n = lsb >= 0 ? num : num << BigInt(-lsb)
 	const d = lsb >= 0 ? den << BigInt(lsb) : den
 	let q = n / d
 	const r = n % d
-	if (r * 2n > d || (r * 2n === d && (q & 1n) === 1n)) {
+	const up = rounding === "up" ? r > 0n : r * 2n > d || (r * 2n === d && (q & 1n) === 1n)
+	if (up) {
 		q += 1n
 	}
 	/** Rounding can carry into the next binade. */
@@ -100,8 +114,31 @@ export const toFloat = (
 	den: bigint,
 	width: "float4" | "float8"
 ): number => {
-	const magnitude = roundRational(num, den, width)
+	const magnitude = roundRational(num, den, width, "nearest")
 	return magnitude === 0 ? 0 : negative ? -magnitude : magnitude
+}
+
+/**
+ * The least double at or above the rational num / den of no sign: exact where it is a double, Infinity past the largest
+ * finite one, and never below it however small, so a bound read from it holds of the rational itself.
+ */
+export const doubleAtLeast = (num: bigint, den: bigint): number =>
+	roundRational(num, den, "float8", "up")
+
+/**
+ * log2 of the rational num / den of no sign, -Infinity at zero, read from its digits alone: its binary exponent,
+ * exactly, plus the log2 of its leading binary64Precision bits, a significand in [1, 2), so it is within an ulp of the
+ * true log2 wherever the rational lies, never through a double of the rational itself, which overflows past 2^1024 and
+ * rounds to zero below 2^-1074.
+ */
+export const log2Of = (num: bigint, den: bigint): number => {
+	if (num === 0n) {
+		return Number.NEGATIVE_INFINITY
+	}
+	const e = binaryExponent(num, den)
+	const shift = binary64Precision.value - 1 - e
+	const significand = shift >= 0 ? (num << BigInt(shift)) / den : num / (den << BigInt(-shift))
+	return e + Math.log2(Number(significand) / 2 ** (binary64Precision.value - 1))
 }
 
 /** binary64's trailing significand field, p - 1 bits: the significand's bits below its leading one, left implicit. */

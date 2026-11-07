@@ -39,7 +39,7 @@ import { regex } from "arkregex"
  * configurations.
  *
  * A unit is a set of files whose diagnostics one test reads:
- * - `fixtures`: a directory's fixtures, checked in place, with the extra files its project includes (support.ts);
+ * - `fixtures`: a directory's fixtures, checked in place;
  * - `disarmed`: the same fixtures copied beside ./fixtures, at the same depth, so their relative imports resolve
  *   unchanged, with every directive disarmed. A directive is `// @ts-expect-error -- TSnnnn: why` for a structural
  *   refusal, or `// @ts-expect-error -- TSnnnn refusal: <message>` for one grizzle's type names, a TypeRefusal. The
@@ -114,7 +114,7 @@ const repoRoot: Effect.Effect<string, never, Path.Path> = Effect.gen(function* (
 })
 
 export type UnitSpec =
-	| { readonly kind: "fixtures"; readonly dir: string; readonly extra: ReadonlyArray<string> }
+	| { readonly kind: "fixtures"; readonly dir: string }
 	| { readonly kind: "disarmed"; readonly dir: string }
 	| {
 			readonly kind: "program"
@@ -224,10 +224,7 @@ const place = (root: string, spec: UnitSpec, seed: number) =>
 			case "fixtures": {
 				const fixtures = yield* fixtureFiles(root, spec.dir)
 				const placed: Placed = {
-					files: [
-						...Arr.map(fixtures, (file) => path.join(root, spec.dir, "fixtures", file)),
-						...Arr.map(spec.extra, (file) => path.join(root, spec.dir, file))
-					],
+					files: Arr.map(fixtures, (file) => path.join(root, spec.dir, "fixtures", file)),
 					directives: [],
 					problems: []
 				}

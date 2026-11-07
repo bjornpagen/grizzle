@@ -1,0 +1,23 @@
+CHECKLIST: PostgreSQL contribution policy, applied to the generation-expression collation bug
+
+Outcome: a bug report for pgsql-bugs with a proposed diff. Nothing has been sent.
+
+A. GATES BEFORE REPORTING
+  [x] Check whether the problem is already known (https://www.postgresql.org/docs/current/bug-reporting.html 5.1).
+      cookDefault() on master 0607aa6109 (2026-11-07) has the same order as REL_19_RC1 (EVIDENCE.txt 1); heap.c's
+      history since 743ddafc71 holds no change to it. The pgsql-bugs archive was not searched by hand: the owner
+      should search "generation expression" "collation" before sending.
+  [x] Check the current development branch: master's cookDefault() is byte-identical to 19rc1's.
+  [x] Don't duplicate a discussion: none found from the commit history; see the archive search above.
+
+B. REPORT CONTENT
+  [x] Self-contained reproduction runnable with psql -X: repro.sql, temporary tables only.
+  [x] Observed and expected behaviour, version and platform: EVIDENCE.txt 2 and 3.
+  [x] List: pgsql-bugs, since it is a wrong refusal of a valid statement.
+  [x] Plain text, no top-posting: email.txt.
+
+C. PATCH (offered, not yet ready for hackers)
+  [ ] Build against master with assertions and run the regression suites. The diff is unbuilt and untested.
+  [ ] Add a regression test to src/test/regress/sql/generated_stored.sql (and generated_virtual.sql): a generated
+      column comparing text constants, which must be created.
+  [ ] git format-patch with the owner's author line, pgindent, git diff --check.

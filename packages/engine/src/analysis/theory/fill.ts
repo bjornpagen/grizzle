@@ -31,7 +31,12 @@
  *
  * A counted family's member may also be a sequence's member, a tree's node or a sequence's owner. The walk fills such a
  * row as it fills any row of its position, and the counted family's own fill completes it afterwards, from its owner's
- * row and the stored family: the walk reads none of the columns a counted family fills, so it never waits on one.
+ * row and the stored family: the walk reads none of the columns a counted family fills, so it never waits on one. The
+ * counted family's fill reads the row as the walk left it, so its layout holds, beside its own columns and the row's
+ * caller's, the copies the row takes along the owner axis of each sequence it is a member of, which a fold's step or
+ * selection may read. A sequence's other columns on the row, its index and the copies and accumulators along its
+ * predecessor axis, are no counted family's to read: a change of a sibling re-places them, which no fill of that row's
+ * counted families follows.
  */
 import { familyKey } from "#compiler/analysis/theory/families.ts"
 import type { TheoryLaw } from "#compiler/analysis/theory/laws.ts"
@@ -344,6 +349,20 @@ const entriesAt = (
 				},
 				writer
 			)
+		}
+	}
+	if (!isSequence(f)) {
+		for (const g of families.filter((h) => h.member.name === relation.name && isSequence(h))) {
+			for (const pair of g.axes.owner) {
+				if (!isCopy(g, pair.from)) {
+					continue
+				}
+				const type = familyColumnType(g, pair.from)
+				if (type === undefined) {
+					throw defect(`the type of ${nameOf(pair.from)}, a column ${familyKey(g.id)} fills`)
+				}
+				set(pair.from, type, { kind: "ownerCopy", family: g, to: pair.to, law: pair.laws[0] }, walk)
+			}
 		}
 	}
 	return entries

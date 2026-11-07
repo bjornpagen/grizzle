@@ -2,12 +2,14 @@ import { Array as Arr, Predicate, Result } from "effect"
 import { type InputTooLarge, literalBound } from "#adapter/errors/failures.ts"
 import type { ExecutionInputs, HostParams } from "#adapter/reader/execution.ts"
 import {
-	type ArrayTexts,
 	canonicalEquals,
 	type Codebook,
+	defined,
+	Engine,
 	type Encoder,
 	type EncodingFailure,
 	everyProperty,
+	type LiteralBound,
 	maxStringLength,
 	type ParamDecl,
 	type ParamId,
@@ -16,11 +18,11 @@ import {
 	type ScalarType
 } from "#compiler/plan/common.ts"
 import {
-	arrayTexts,
+	columnLiteral,
+	countParam,
 	encodeFailure,
 	type NormalizedRelation,
-	type NormalRows,
-	normalRows,
+	normalArray,
 	paramEncoder,
 	parameterNormalizer,
 	positionalColumns,
@@ -40,11 +42,11 @@ import {
  * depends on what the optimizer eliminated, and what is admitted is what is sent.
  *
  * Every relation input travels as its arrays, whatever its size (lower/shapes/relparam): each of its placeholders in a
- * statement carries one array of its normal facts over the statement's columns, which are written once per execution
- * for each statement reading of it (`RelationInput.arrays`). The execution's Bind messages are bounded, not its rows:
- * one longer than PostgreSQL reads is refused before the flight is sent (wire/batch.ts), as is a column whose array is
- * longer than one string holds, here, each as InputTooLarge, a write's ExecutionFailure reason and a read's ReadFailure
- * reason at stage resource.
+ * statement carries one array of its normal facts over the statement's columns, which that placeholder alone writes
+ * (`RelationInput.array`), so the input's facts are encoded once in all. The execution's Bind messages are bounded, not
+ * its rows: one longer than PostgreSQL reads is refused before the flight is sent (wire/batch.ts), as is a column whose
+ * array is longer than one string holds, here, each as InputTooLarge, a write's ExecutionFailure reason and a read's
+ * ReadFailure reason at stage resource.
  *
  * Every relation input of the read is normalized once, before any of its SQL is sent, exactly as a statement's arrays
  * encoder normalizes it (codec/recordset.ts: field validation, the null ban, deduplication of complete facts,
@@ -66,12 +68,14 @@ interface RelationInput {
 	readonly decl: ParamDecl
 	readonly normalized: NormalizedRelation
 	/**
-	 * The input's arrays over a statement's `columns` (codec/recordset.ts arrayTexts), the columns its placeholders in
-	 * that statement share: written at the first placeholder that asks, and found again by the others.
+	 * The array at `part` of the input over a statement's `columns`, the columns its placeholders in that statement
+	 * share (codec/recordset.ts arrayTexts): its column's literal, or, of no column, the count; each placeholder writes
+	 * its own.
 	 */
-	readonly arrays: (
-		columns: ReadonlyArray<RelationColumn>
-	) => Result.Result<ArrayTexts, InputRefusal>
+	readonly array: (
+		columns: ReadonlyArray<RelationColumn>,
+		part: number
+	) => Result.Result<ParamText, InputRefusal>
 }
 
 export type RelationInputs = ReadonlyMap<ParamId, RelationInput>
@@ -97,10 +101,6 @@ const normalizerOver = (
 	columns: SlotColumns,
 	codes: Codebook
 ): RelationNormalizer => parameterNormalizer(specOver(decl, columns, codes))
-
-/** The rows of a relation input's normal facts over `columns`, as normalizerOver's heading writes them. */
-const rowsOver = (decl: RelationParamDecl, columns: SlotColumns, codes: Codebook): NormalRows =>
-	normalRows(specOver(decl, columns, codes))
 
 const sameColumns = (a: SlotColumns, b: SlotColumns): boolean =>
 	a.length === b.length &&
@@ -163,41 +163,46 @@ const prepareInput = (
 	}
 	const normal = normalized.value
 	/**
-	 * The input over a statement's column list: as normalized above in the declared order, and in another order the
-	 * normal facts above written again, not the input: an iterator input is spent by then, and normal facts over the same
-	 * heading are only written in this column order (normalRows).
+	 * The input's array at `part` over a statement's column list: in the declared order, of the rows normalized above;
+	 * in another, of the normal facts above written again (codec/recordset.ts normalArray), not the input: an iterator
+	 * input is spent by then.
 	 */
-	const over = (columns: SlotColumns): Result.Result<NormalizedRelation, InputRefusal> => {
-		if (sameColumns(columns, declared)) {
-			return Result.succeed(normal)
+	const array = (
+		columns: ReadonlyArray<RelationColumn>,
+		part: number
+	): Result.Result<ParamText, InputRefusal> => {
+		const written = sameColumns(columns, declared)
+			? declaredArray(decl, normal, part)
+			: normalArray(specOver(decl, columns, codec.codes))(normal, part)
+		if (written.ok) {
+			return Result.succeed(written.value)
 		}
-		const again = rowsOver(decl, columns, codec.codes)(normal)
-		return again.ok ? Result.succeed(again.value) : Result.fail(again.error)
+		const refused = written.error
+		return Result.fail(refused._tag === "LiteralBound" ? literalBound(refused) : refused)
 	}
-	/** Each statement reading's arrays, by the columns its placeholders share, written once per execution. */
-	const written = new Map<ReadonlyArray<RelationColumn>, ArrayTexts>()
-	const arrays = (
-		columns: ReadonlyArray<RelationColumn>
-	): Result.Result<ArrayTexts, InputRefusal> => {
-		const known = written.get(columns)
-		if (known !== undefined) {
-			return Result.succeed(known)
-		}
-		return Result.flatMap(over(columns), (rows) => {
-			const texts = arrayTexts(
-				decl.name,
-				Arr.map(columns, (c) => c.name),
-				rows.rows,
-				maxStringLength.value
-			)
-			if (!texts.ok) {
-				return Result.fail(literalBound(texts.error))
-			}
-			written.set(columns, texts.value)
-			return Result.succeed(texts.value)
-		})
+	return Result.succeed({ decl, normalized: normal, array })
+}
+
+/**
+ * The array at `part` of a relation input over its declared columns, of the rows its normalization wrote in their order
+ * (normalizerOver): its column's literal, or, of no column, the count of its facts.
+ */
+const declaredArray = (
+	decl: RelationParamDecl,
+	normal: NormalizedRelation,
+	part: number
+): Engine.Result<ParamText, LiteralBound> => {
+	if (decl.heading.length === 0) {
+		return Engine.ok(countParam(normal.count))
 	}
-	return Result.succeed({ decl, normalized: normal, arrays })
+	const column = defined(decl.heading[part], "a placeholder's column among its input's columns")
+	return columnLiteral(
+		decl.name,
+		column.name,
+		normal.rows,
+		(row) => defined(row[part], "a normalized row's text at its column"),
+		maxStringLength.value
+	)
 }
 
 /**

@@ -1,0 +1,57 @@
+To: pgsql-bugs@lists.postgresql.org
+Subject: Generation expression calling a collatable function on constants fails with 42P22
+
+Hi,
+
+On PostgreSQL 19rc1 (and master 0607aa6109), a generated column whose
+expression calls a collatable function on constant arguments is refused:
+
+    CREATE TEMP TABLE g (a int,
+        b boolean GENERATED ALWAYS AS ('ab'::text = 'bb'::text) STORED);
+    ERROR:  42P22: could not determine which collation to use for string comparison
+    HINT:  Use the COLLATE clause to set the collation explicitly.
+
+The same happens for <, IN, starts_with(), GREATEST, ~ ("... for regular
+expression") and lower() ("... for lower() function"), for VIRTUAL columns,
+for ALTER TABLE ... ADD COLUMN, when one operand has an explicit COLLATE, and
+when only one arm of a CASE compares constants while another reads a column.
+The same expression is accepted as a CHECK, a DEFAULT, a partial index
+predicate and in a SELECT.  A self-contained script is below.
+
+The cause is the order of operations in cookDefault() (catalog/heap.c): for a
+generated column it calls contain_mutable_functions_after_planning() before
+assign_expr_collations().  expression_planner() pre-evaluates the immutable
+function of constants, whose input collation is still InvalidOid, and
+check_collation_set() raises.  The backtrace runs texteq ->
+evaluate_expr -> simplify_function -> eval_const_expressions ->
+expression_planner -> contain_mutable_functions_after_planning ->
+cookDefault.  An explicit COLLATE doesn't help, because simplification only
+moves it onto the Const; the OpExpr's inputcollid is set later.
+cookConstraint(), index expressions and partition keys assign collations
+before they plan.
+
+The ordering dates from 743ddafc71 ("Ensure we preprocess expressions before
+checking their volatility", bug #18097), which was back-patched, so the
+supported branches behave the same.
+
+A possible fix is to coerce the expression and assign its collations before
+the generation expression checks, as assign_expr_collations()'s comment asks;
+a diff is attached.  The one visible change is that an expression that is
+both mutable and of the wrong type reports the type mismatch first.
+
+Reproduction (psql -X, temporary tables only):
+
+    CREATE TEMP TABLE g_eq (a int, b boolean GENERATED ALWAYS AS ('ab'::text = 'bb'::text) STORED);
+    CREATE TEMP TABLE g_in (a int, b int GENERATED ALWAYS AS (CASE WHEN 'ab'::text IN ('ab', 'bb') THEN 1 ELSE 2 END) STORED);
+    CREATE TEMP TABLE g_collate (a int, b boolean GENERATED ALWAYS AS ('ab'::text COLLATE "C" < 'bb'::text) STORED);
+    CREATE TEMP TABLE g_regex (a int, b boolean GENERATED ALWAYS AS ('ab'::text ~ 'a') STORED);
+    CREATE TEMP TABLE g_lower (a int, b text GENERATED ALWAYS AS (lower('AB'::text)) STORED);
+    -- all fail with 42P22; these succeed:
+    CREATE TEMP TABLE ok_check (a int, CHECK ('ab'::text < 'bb'::text));
+    CREATE TEMP TABLE ok_column (a text, b boolean GENERATED ALWAYS AS (a = 'bb'::text) STORED);
+
+We met it in generated DDL whose generation expressions compare a constant
+lookup with a literal.
+
+Thanks,
+Bjorn Pagen

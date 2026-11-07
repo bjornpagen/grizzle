@@ -60,6 +60,7 @@ import type {
 	ParamsOfTerm,
 	Predicate,
 	PredicateBase,
+	Refusal,
 	SqlOfTerm,
 	Term,
 	TermBase,
@@ -190,6 +191,10 @@ type Conditional<C, A, Otherwise, X, S extends SqlTag, L> = Every<
 		Takes<Otherwise, Operand<X, S, L>>
 	]
 >
+/** Whether LEAST or GREATEST takes its first operand A, of type (X, S), and every other operand Bs, terms that meet it. */
+type Extremes<A, Bs extends ReadonlyArray<unknown>, X, S extends SqlTag> = Every<
+	[TakesFirst<A, OrderedSql>, TakesRest<Bs, ReadonlyArray<Meets<X, S>>>]
+>
 /** An operand B's own requirement opposite A: its contract's refusal, where the operation takes both (ContractAdmits). */
 type ValueAt<A, B, X, S extends SqlTag, F extends SqlTag> = ContractAdmits<
 	Binary<A, B, X, S, F>,
@@ -201,6 +206,33 @@ type ValueAt<A, B, X, S extends SqlTag, F extends SqlTag> = ContractAdmits<
  * where it is one of V, and otherwise V, into which the column converts it, as a bigint opposite a numeric is a Decimal.
  */
 type ValuesOf<A, V> = A extends TermBase ? ValueOfTerm<A> : A extends V ? A : V
+/** The SQL types of the exact families: the integers with the exact integer, money with exact money. */
+type IntegerFamily = "smallint" | "integer" | "bigint" | "exact integer"
+/**
+ * Whether a term B opposite a first operand of SQL type S is of S's exact family without sharing S: an exact value
+ * beside a plain one, in either order, which share no type (the engine's MalformedDescription); never for a value.
+ */
+type MixesExact<S extends SqlTag, B> = B extends TermBase
+	? [SqlOfTerm<B>] extends [S]
+		? false
+		: [S | SqlOfTerm<B>] extends [IntegerFamily]
+			? true
+			: [S | SqlOfTerm<B>] extends ["money" | "exact money"]
+				? true
+				: false
+	: false
+/** Whether no operand B opposite a first operand of SQL type S mixes an exact value with a plain one (MixesExact). */
+type OneType<S extends SqlTag, B> = true extends MixesExact<S, B> ? false : true
+/**
+ * An operand's own requirement opposite a first operand of SQL type S, which types a conditional, LEAST or GREATEST:
+ * the refusal of an exact value beside a plain one of its family (OneType), stated only where the call takes the
+ * operand (Taken).
+ */
+type SharesType<Taken extends boolean, S extends SqlTag, B> = [Taken] extends [true]
+	? OneType<S, B> extends true
+		? unknown
+		: Refusal<"operands of one type: an exact value beside a plain value of its family; Compute.cast the exact one into the plain one's type">
+	: unknown
 /** A comparison of two operands: their parameters, and their reads as its origin. */
 type Compared<A, B> = Predicate<P<A> & P<B>, ComputedOrigin<O<A> | O<B>>>
 /** What stands opposite a first operand A: a term that meets its type, or a JavaScript value of its language. */
@@ -515,7 +547,9 @@ export interface ComputeApi {
 	): Admitted<TakesFirst<A, PowerSql>, Term<PlainHost[S], PA, ComputedOrigin<OA>, S>>
 	/**
 	 * LEAST and GREATEST return an operand unchanged, so they keep the first operand's type, contract and roster
-	 * included, and deliver any operand's values; every other operand is a term that meets that type.
+	 * included, and deliver any operand's values; every other operand is a term of that type. An exact value and a
+	 * plain one of its family share none, in either order (SharesType): PostgreSQL widens the plain one, grizzle asks
+	 * for Compute.cast of the exact one into the plain one's type.
 	 */
 	least<
 		A extends TermBase | FirstValue,
@@ -528,9 +562,11 @@ export interface ComputeApi {
 		const Bs extends ReadonlyArray<unknown>
 	>(
 		first: A & First<A, Bs> & Term<X, PA, OA, S, V, Facts, L>,
-		...rest: Bs & NoInfer<ReadonlyArray<Meets<X, S>>>
+		...rest: Bs &
+			NoInfer<ReadonlyArray<Meets<X, S>>> &
+			NoInfer<{ readonly [K in keyof Bs]: SharesType<Extremes<A, Bs, X, S>, S, Bs[K]> }>
 	): Admitted<
-		Every<[TakesFirst<A, OrderedSql>, TakesRest<Bs, ReadonlyArray<Meets<X, S>>>]>,
+		Every<[Extremes<A, Bs, X, S>, OneType<S, Bs[number]>]>,
 		Term<
 			X,
 			PA & ParamsOfEach<Bs>,
@@ -552,9 +588,11 @@ export interface ComputeApi {
 		const Bs extends ReadonlyArray<unknown>
 	>(
 		first: A & First<A, Bs> & Term<X, PA, OA, S, V, Facts, L>,
-		...rest: Bs & NoInfer<ReadonlyArray<Meets<X, S>>>
+		...rest: Bs &
+			NoInfer<ReadonlyArray<Meets<X, S>>> &
+			NoInfer<{ readonly [K in keyof Bs]: SharesType<Extremes<A, Bs, X, S>, S, Bs[K]> }>
 	): Admitted<
-		Every<[TakesFirst<A, OrderedSql>, TakesRest<Bs, ReadonlyArray<Meets<X, S>>>]>,
+		Every<[Extremes<A, Bs, X, S>, OneType<S, Bs[number]>]>,
 		Term<
 			X,
 			PA & ParamsOfEach<Bs>,
@@ -644,7 +682,9 @@ export interface ComputeApi {
 	/**
 	 * The first branch, a term and never a parameter or a JavaScript value (FirstTerm), types the conditional, contract
 	 * and roster included; the other is a term that meets its type (a parameter among them) or a literal of it, and the
-	 * conditional delivers either's values. A boolean field is a predicate here, so
+	 * conditional delivers either's values. An exact value and a plain one of its family share no type, in either order
+	 * (SharesType): PostgreSQL widens the plain branch, grizzle asks for Compute.cast of the exact one into the plain
+	 * one's type. A boolean field is a predicate here, so
 	 * r.sum(Compute.cond(passed, Compute.literal(pg.integer, 1), 0)) is a conditional count.
 	 */
 	cond<
@@ -661,9 +701,12 @@ export interface ComputeApi {
 		p: C & First<C, [A, Otherwise]> & NegationFree<C>,
 		then: A & First<A, [C, Otherwise]> & Term<X, PT, OT, S, V, Facts, L>,
 		otherwise: Fit<Otherwise, NoInfer<Operand<X, S, L>>> &
-			ContractAdmits<Conditional<C, A, Otherwise, X, S, L>, ColumnFacts<A>, Otherwise>
+			ContractAdmits<Conditional<C, A, Otherwise, X, S, L>, ColumnFacts<A>, Otherwise> &
+			SharesType<Conditional<C, A, Otherwise, X, S, L>, S, Otherwise>
 	): Admitted<
-		Every<[Conditional<C, A, Otherwise, X, S, L>, Not<RefutedAt<A, Otherwise>>]>,
+		Every<
+			[Conditional<C, A, Otherwise, X, S, L>, Not<RefutedAt<A, Otherwise>>, OneType<S, Otherwise>]
+		>,
 		Term<
 			X,
 			P<C> & PT & P<Otherwise>,
@@ -680,7 +723,8 @@ export interface ComputeApi {
 	 * type-checks inside the branch and nowhere else; the otherwise branch, a term that meets the branch's type or a
 	 * literal of it, is the caller's value where the guard fails: Compute.when(Compute.nonzero(b), (b) => Compute.div(a,
 	 * b), 0n). The subject is read off the guard itself, so a guard its builder refused, never (Admitted), hands the
-	 * branch never, and the refusal is its one diagnostic.
+	 * branch never, and the refusal is its one diagnostic. Its branch and its otherwise share one type (SharesType), so an
+	 * exact quotient beside an integer otherwise is refused: cast the quotient into the integer's type.
 	 */
 	when<Gd extends Guard<TermBase, never>, X, PT, OT, S extends SqlTag, V, L, const Otherwise>(
 		guard: Gd,
@@ -690,13 +734,19 @@ export interface ComputeApi {
 				Every<[Takes<Gd, Guard<TermBase, never>>, Takes<Otherwise, Operand<X, S, L>>]>,
 				ColumnFacts<Term<X, PT, OT, S, V, Facts, L>>,
 				Otherwise
+			> &
+			SharesType<
+				Every<[Takes<Gd, Guard<TermBase, never>>, Takes<Otherwise, Operand<X, S, L>>]>,
+				S,
+				Otherwise
 			>
 	): Admitted<
 		Every<
 			[
 				Takes<Gd, Guard<TermBase, never>>,
 				Takes<Otherwise, Operand<X, S, L>>,
-				Not<RefutedAt<Term<X, PT, OT, S, V, Facts, L>, Otherwise>>
+				Not<RefutedAt<Term<X, PT, OT, S, V, Facts, L>, Otherwise>>,
+				OneType<S, Otherwise>
 			]
 		>,
 		Term<

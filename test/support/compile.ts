@@ -285,7 +285,7 @@ const isIterable = (value: unknown): value is Iterable<unknown> =>
  * The placeholder texts of a query statement's spec, from the caller's parameter values by declared name, each
  * encoded by the spec's own encoder; every placeholder of a query statement is a declared parameter. A relation
  * parameter's input is normalized once, under its declared heading (codec/recordset.ts parameterNormalizer), as an
- * execution normalizes it, and each of its placeholders writes that one set.
+ * execution normalizes it, and each of its placeholders writes its own array of that one set.
  */
 export const paramTexts = (
 	spec: StatementSpec,
@@ -331,18 +331,14 @@ export const paramTexts = (
 				return encoded.value
 			}
 			case "relation": {
-				const encoded = slot.encode(relationInput(slot.param))
+				const encoded = slot.encode(relationInput(slot.param), slot.part)
 				if (!encoded.ok) {
 					const error = encoded.error
 					throw new Error(
 						`encode ${slot.param}: ${error._tag === "EncodingFailure" ? error.message : `column ${error.column} past ${error.limit}`}`
 					)
 				}
-				const array = encoded.value[slot.part]
-				if (array === undefined) {
-					throw new Error(`encode ${slot.param}: no array ${slot.part}`)
-				}
-				return array
+				return encoded.value
 			}
 			case "member":
 			case "page":

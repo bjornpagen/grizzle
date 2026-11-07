@@ -681,6 +681,22 @@ const fieldsOf = (spec: SwarmSpec, r: number): Record<string, FieldBase> => {
 const plainFields = (p: PlainSpec): Record<string, FieldBase> =>
 	p.kind === "set" ? { x: pg.bigint } : { id: uuid, r: uuid, x: pg.bigint }
 
+/** The field names of family relation `r` (its generated `g` among them) or of plain relation `j`, in heading order. */
+export const fieldNames = (
+	spec: SwarmSpec,
+	relation:
+		| { readonly kind: "core"; readonly r: number }
+		| { readonly kind: "plain"; readonly j: number }
+): ReadonlyArray<string> =>
+	relation.kind === "core"
+		? [
+				...Rec.keys(fieldsOf(spec, relation.r)),
+				...(defined(spec.fill.relations[relation.r], `relation ${relation.r}`).generated
+					? ["g"]
+					: [])
+			]
+		: Rec.keys(plainFields(defined(spec.plains[relation.j], `plain relation ${relation.j}`)))
+
 /** The relation value of family relation `r`, its `g` generated from `v` where the core says so. */
 const relationValue = (spec: SwarmSpec, r: number): BuiltRelation => {
 	const name = relationName(r)

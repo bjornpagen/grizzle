@@ -7,6 +7,7 @@ import { noSpreadArgument } from "#lint/rules/no-spread-argument.ts"
 import { noNullUndefinedUnion } from "#lint/rules/null-undefined-union.ts"
 import { sqlTextAssertion } from "#lint/rules/sql-text-assertion.ts"
 import { testCaseIsSearch } from "#lint/rules/test-case-is-search.ts"
+import { tupleIdentity } from "#lint/rules/tuple-identity.ts"
 import { uncheckedVocabularyLiteral } from "#lint/rules/unchecked-vocabulary-literal.ts"
 import type { Start } from "#lint/types.ts"
 
@@ -47,6 +48,7 @@ export const RULES: ReadonlyArray<Rule> = [
 	{ id: "no-spread-argument", start: () => noSpreadArgument, scope: "every file", gate: "on" },
 	{ id: "sql-text-assertion", start: () => sqlTextAssertion, scope: "every file", gate: "on" },
 	{ id: "test-case-is-search", start: testCaseIsSearch, scope: "every file", gate: "pending" },
+	{ id: "tuple-identity", start: () => tupleIdentity, scope: "every file", gate: "on" },
 	{
 		id: "unchecked-vocabulary-literal",
 		start: () => uncheckedVocabularyLiteral,

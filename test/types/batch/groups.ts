@@ -35,14 +35,9 @@ import { containedProgram } from "#test/types/text/contained.ts"
  * A path from a generated program's directory into the repository.
  */
 
-/**
- * A fixture directory's two units: its fixtures in place, with the files its project includes, and their disarmed copy.
- */
-const fixtureUnits = (
-	name: string,
-	extra: ReadonlyArray<string>
-): Readonly<Record<string, UnitSpec>> => ({
-	[`${name}/fixtures`]: { kind: "fixtures", dir: `test/types/${name}`, extra },
+/** A fixture directory's two units: its fixtures in place, and their disarmed copy. */
+const fixtureUnits = (name: string): Readonly<Record<string, UnitSpec>> => ({
+	[`${name}/fixtures`]: { kind: "fixtures", dir: `test/types/${name}` },
 	[`${name}/disarmed`]: { kind: "disarmed", dir: `test/types/${name}` }
 })
 
@@ -187,7 +182,7 @@ export const typeGroups: ReadonlyArray<Group> = [
 			}
 		}
 	},
-	{ owner: "test/types/examples/examples.test.ts", units: fixtureUnits("examples", []) },
+	{ owner: "test/types/examples/examples.test.ts", units: fixtureUnits("examples") },
 	{
 		owner: "test/types/harness/harness.test.ts",
 		units: {
@@ -284,10 +279,6 @@ export const typeGroups: ReadonlyArray<Group> = [
 				]
 			}
 		}
-	},
-	{
-		owner: "test/types/skeleton/skeleton.test.ts",
-		units: fixtureUnits("skeleton", ["support.ts"])
 	},
 	{
 		owner: "test/types/skeleton/budget/refusals.test.ts",

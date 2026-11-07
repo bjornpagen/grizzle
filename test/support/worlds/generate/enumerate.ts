@@ -38,7 +38,7 @@ import { rosterMigrations, violatingLaws } from "#test/support/worlds/invalid/mi
 import { patternEdges } from "#test/support/worlds/invalid/patterns.ts"
 import { droppedNames, nonexistentNames } from "#test/support/worlds/invalid/roles.ts"
 import { nameableFacts } from "#test/support/worlds/model/draws.ts"
-import { classifyEntry, entryRows, factKey } from "#test/support/worlds/model/host.ts"
+import { classifyEntry, uniqueFacts, entryRows, factKey } from "#test/support/worlds/model/host.ts"
 import { parametersOf } from "#test/support/worlds/model/session/direct.ts"
 import { draftedFrom, factsIn, samePlain } from "#test/support/worlds/model/session/state.ts"
 import {
@@ -211,11 +211,6 @@ const valuesFor = (
 	return knownNonEmpty(distinctValues([...box, ...held]), "a domain's box values")
 }
 
-/** Facts, each once by its fields' values. */
-const distinctFacts = (facts: ReadonlyArray<HostFact>): ReadonlyArray<HostFact> => [
-	...new Map(Arr.map(facts, (f) => [factKey(f), f] as const)).values()
-]
-
 /**
  * The facts of a heading the box tries, each choice once: every field at its first value, then each field in turn at
  * each of its other values, the rest at their first: every value of every field is met, at a cost linear in them.
@@ -225,7 +220,7 @@ const eachChoice = (
 	valuesOf: (f: FieldSpec) => Arr.NonEmptyReadonlyArray<HostValue>
 ): ReadonlyArray<HostFact> => {
 	const first: HostFact = Rec.fromEntries(Arr.map(heading, (f) => [f.name, valuesOf(f)[0]]))
-	return distinctFacts([
+	return uniqueFacts([
 		first,
 		...Arr.flatMap(heading, (f) =>
 			Arr.map(valuesOf(f).slice(1), (v): HostFact => ({ ...first, [f.name]: v }))
@@ -289,7 +284,7 @@ const claimsBox = (state: ModelState, role: RoleSpec, scope: SmallScope): Claims
 	const fields = Arr.flatMap(contexts, (c) => Arr.map(c.fields, (f) => ({ context: c, field: f })))
 	const heading = Arr.map(fields, (x, i): FieldSpec => ({ name: `${i}`, domain: x.field.domain }))
 	const choices = eachChoice(heading, (f) => valuesFor(state, f.domain, scope))
-	const facts = distinctFacts([
+	const facts = uniqueFacts([
 		...choices,
 		...Arr.flatMap(Arr.take(choices, 1), (first) => jointChoices(state, heading, first))
 	])
@@ -649,7 +644,7 @@ const entryFacts = (
 	const rows = Rec.has(writer.role.entries, entry)
 		? entryRows(state, writer.role.name, entry, writer.facts)
 		: []
-	return distinctFacts([
+	return uniqueFacts([
 		...rows,
 		...eachChoice(headingOf(state.install.base, spec), (f) => valuesFor(state, f.domain, scope))
 	])
@@ -670,7 +665,7 @@ const generatedFacts = (
 	const classed = written === undefined ? [] : serialHead(base, written).classed
 	return classed.length === 0
 		? []
-		: distinctFacts(Arr.map(facts, (f) => Rec.filter(f, (_, field) => !classed.includes(field))))
+		: uniqueFacts(Arr.map(facts, (f) => Rec.filter(f, (_, field) => !classed.includes(field))))
 }
 
 /**
@@ -688,7 +683,7 @@ const omittingFacts = (
 	const { classed, filtered } =
 		written === undefined ? { classed: [], filtered: [] } : serialHead(base, written)
 	const omitted = [...(classed.length > 1 ? classed.slice(0, 1) : []), ...filtered.slice(0, 1)]
-	return distinctFacts(
+	return uniqueFacts(
 		Arr.flatMap(omitted, (field) =>
 			Arr.map(facts, (f) => Rec.filter(f, (_, name) => name !== field))
 		)

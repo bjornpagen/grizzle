@@ -109,6 +109,7 @@ type FillSituation =
 	| "admitted: a counted member that is an ordered family's"
 	| "admitted: a counted member that is a tree's node"
 	| "admitted: a counted member that owns a sequence"
+	| "admitted: a counted fold stepping a sequence's copy of its owner's"
 	| "admitted: a copy along a counted family of a column after a sequence"
 	| "admitted: a copy of a sibling sequence's end"
 	| "refused: copies of each other's ends along sibling sequences"
@@ -624,6 +625,12 @@ const property = (
 				}
 			}
 		}
+		for (const step of spec.steps) {
+			const along = defined(spec.families[defined(spec.copies[step.copy]).family])
+			if (defined(spec.families[step.family]).kind === "counted" && along.kind !== "counted") {
+				note("admitted: a counted fold stepping a sequence's copy of its owner's")
+			}
+		}
 		for (const [j, copy] of spec.copies.entries()) {
 			const family = defined(spec.families[copy.family])
 			const sourceClass = sourceClassOf(spec, j)
@@ -668,6 +675,7 @@ const fillSituations: Arr.NonEmptyReadonlyArray<FillSituation> = [
 	"admitted: a counted member that is an ordered family's",
 	"admitted: a counted member that is a tree's node",
 	"admitted: a counted member that owns a sequence",
+	"admitted: a counted fold stepping a sequence's copy of its owner's",
 	"admitted: a copy along a counted family of a column after a sequence",
 	"admitted: a copy of a sibling sequence's end",
 	"refused: copies of each other's ends along sibling sequences",
@@ -680,6 +688,50 @@ const fillSituations: Arr.NonEmptyReadonlyArray<FillSituation> = [
  * A drawn specification, its relations all made mutable or left as drawn, an instance of it, and a follow-up over the
  * stored instance or none: a follow-up needs a mutable owner, which a relation is only now and then as drawn.
  */
+/**
+ * The shapes the engine once refused (UnfillableField, a column no fill reaches) where the reference admits them: R0 is
+ * the member of a sequence, an ordered family of R2 or a tree of its own, and of R1's counted family, whose sum fold
+ * steps R0's copy along the sequence's owner axis of a caller's `v` or a generated `g`. The walk fills the copy on
+ * entering R0, and the counted family completes the row afterwards, as it completes any row the walk left.
+ */
+const stepsOfSequenceCopies: ReadonlyArray<{ readonly note: string; readonly sketch: FillCase }> =
+	Arr.map(
+		[
+			{
+				note: "an ordered family's copy of a caller's v",
+				family: { kind: "ordered", owner: 2, member: 0, fold: "none" },
+				source: "caller"
+			},
+			{
+				note: "a tree's copy of its parent's caller v",
+				family: { kind: "tree", owner: 0, member: 0, fold: "none" },
+				source: "caller"
+			},
+			{
+				note: "a tree's copy of its parent's generated g",
+				family: { kind: "tree", owner: 0, member: 0, fold: "none" },
+				source: "generated"
+			}
+		] as const,
+		({ note, family, source }) => {
+			const relation = { generated: false, mutable: false, key: false }
+			const spec: FillSpec = {
+				relations: [
+					{ ...relation, generated: source === "generated" },
+					relation,
+					...(family.kind === "ordered" ? [relation] : [])
+				],
+				families: [family, { kind: "counted", owner: 1, member: 0, fold: "sum" }],
+				copies: [{ family: 0, axis: "owner", source: { kind: source } }],
+				steps: [{ family: 1, copy: 0 }]
+			}
+			return {
+				note: `a counted fold stepping its member's copy along a sequence's owner axis: ${note}`,
+				sketch: { spec, rows: fullInstance(spec), followUp: Option.none() }
+			}
+		}
+	)
+
 const caseGen: Gen<FillCase> = (source) => {
 	const spec = source.draw(mutableOrDrawn(fillSpecGen({ relations: 4, families: 4, copies: 3 })))
 	const rows = source.draw(instanceGen(spec))
@@ -724,6 +776,10 @@ const aims: ReadonlyArray<readonly [FillSituation, Planted]> = [
 	["admitted: a counted member that is an ordered family's", "counted ordered member"],
 	["admitted: a counted member that is a tree's node", "counted tree node"],
 	["admitted: a counted member that owns a sequence", "counted sequence owner"],
+	[
+		"admitted: a counted fold stepping a sequence's copy of its owner's",
+		"counted step of a sequence's copy"
+	],
 	["admitted: a tree owning an ordered family", "tree with an ordered family"],
 	["admitted: a tree owning a counted family", "tree with a counted family"],
 	["admitted: a counted family of nested owners", "counted family of a nested owner"],
@@ -1223,7 +1279,15 @@ describe("the fill order: a schema generate accepts is one every write of fills"
 						draw: drawn(caseGen),
 						literal: Formatter.format,
 						coverage: required<FillSituation>(fillSituations, { cases: 240, sense: notesOnly }),
-						kept: [],
+						kept: Arr.map(stepsOfSequenceCopies, ({ note, sketch }) => ({
+							note,
+							sketch,
+							draws: "",
+							reaches: [
+								"admitted",
+								"admitted: a counted fold stepping a sequence's copy of its owner's"
+							]
+						})),
 						runs: 100,
 						shrink: boundedShrink(400),
 						concurrency: 1,

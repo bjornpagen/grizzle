@@ -559,13 +559,12 @@ describe("a page's candidates", () => {
 								const [first, second] = fetched
 								const answer =
 									plant === "an equal tuple" && first !== undefined && fetched.length <= size
-										? [first, ...fetched]
+										? { planted: true, rows: [first, ...fetched] }
 										: plant === "a step back" && first !== undefined && second !== undefined
-											? [second, first, ...fetched.slice(2)]
-											: fetched
-								const planted = answer !== fetched
-								const edges = pageEdges(program, [outputRows(answer)], size)
-								if (planted) {
+											? { planted: true, rows: [second, first, ...fetched.slice(2)] }
+											: { planted: false, rows: fetched }
+								const edges = pageEdges(program, [outputRows(answer.rows)], size)
+								if (answer.planted) {
 									c.note(
 										plant === "an equal tuple" ? "an equal tuple refused" : "a step back refused"
 									)

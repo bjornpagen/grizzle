@@ -7,7 +7,7 @@ import {
 	sameValue,
 	sendableFact
 } from "#test/support/laws/model.ts"
-import { factKey } from "#test/support/worlds/model/host.ts"
+import { factKeySet } from "#test/support/worlds/model/host.ts"
 import { factsIn, relationSpecOf } from "#test/support/worlds/model/session/state.ts"
 import type {
 	BaseSpec,
@@ -256,7 +256,7 @@ export const everyMeets = <A, B>(
 
 /** Whether a list of facts the real system showed holds no fact twice, each fact by every field and its value. */
 export const distinctFacts = (facts: ReadonlyArray<HostFact>): boolean =>
-	new Set(Arr.map(facts, factKey)).size === facts.length
+	factKeySet(facts).size === facts.length
 
 /**
  * The binding extending `binding` under which two lists of facts hold the same facts as keyed sets, which `rest`

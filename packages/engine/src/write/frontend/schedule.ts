@@ -39,6 +39,68 @@ export type FamilyNode =
 			readonly changes: ReadonlyArray<string>
 	  }
 
+/** A column PostgreSQL generates from its row, by key (write/family/fold.ts ColumnKey), with the keys of the columns it
+ * reads. */
+export interface GeneratedColumn {
+	readonly key: string
+	readonly reads: ReadonlyArray<string>
+}
+
+/** An operation a stratum's edits state of a member relation: an insertion, a put, a deletion, or a nested write's row. */
+export type MemberOp = "insert" | "put" | "delete" | "nested"
+
+/**
+ * A stratum's edits of one member relation as its update in place writes them (write/family/edit.ts planEdits), by key
+ * (write/family/fold.ts ColumnKey): the operations they state; `own`, the columns a put writes of a stored member, its
+ * caller's fields but its key and its groups; `placed`, the columns its counted families draw on a member they move into
+ * a freed slot or draw again from a changed step, an index, a copy of an owner's column and an accumulator, a copy of a
+ * count aside, which the owner axis cascades; `refreshed`, the columns of the rows as the stratum's other changes leave
+ * them where the stratum refills the relation, every column but its caller's fields an update sets, and none where it
+ * refills none; and `generated`, the relation's generated columns.
+ */
+export interface MemberEdit {
+	readonly ops: ReadonlyArray<MemberOp>
+	readonly own: ReadonlyArray<string>
+	readonly placed: ReadonlyArray<string>
+	readonly refreshed: ReadonlyArray<string>
+	readonly generated: ReadonlyArray<GeneratedColumn>
+}
+
+/**
+ * The columns a member relation's update in place changes in its stratum (FamilyNode `changes`): a put's own columns;
+ * where a deletion or a put removes or changes a member, the columns its counted families draw on the members they move
+ * or draw again, and the refreshed ones of every row so written; and every column PostgreSQL generates from one of
+ * them. An insertion and a nested write's row are inserted whole, and a sequence re-places its members by a deletion
+ * and an insertion, so neither changes a column in place.
+ */
+export const updateChanges = (edit: MemberEdit): ReadonlyArray<string> => {
+	const put = edit.ops.includes("put")
+	const moves = put || edit.ops.includes("delete")
+	return generating(
+		[...(put ? edit.own : []), ...(moves ? [...edit.placed, ...edit.refreshed] : [])],
+		edit.generated
+	)
+}
+
+/** `written` and every generated column that reads one of them, directly or through another generated column: the
+ * columns a statement that writes `written` of a row changes. */
+export const generating = (
+	written: ReadonlyArray<string>,
+	generated: ReadonlyArray<GeneratedColumn>
+): ReadonlyArray<string> => {
+	const changed = new Set(written)
+	const pending = [...changed]
+	for (let key = pending.pop(); key !== undefined; key = pending.pop()) {
+		for (const g of generated) {
+			if (!changed.has(g.key) && g.reads.includes(key)) {
+				changed.add(g.key)
+				pending.push(g.key)
+			}
+		}
+	}
+	return [...changed]
+}
+
 /**
  * A family of the schema, a tree's aside, as the schedule orders its statements: the family, its owner relation and its
  * member relation, and its owner axis: whether the axis is immediate, which orders the member's rows after their

@@ -1,5 +1,6 @@
 import type { CatalogKey } from "#compiler/analysis/physical/evidence.ts"
 import type { CheckedEntry, CheckedSchema, DerivedAnalysis } from "#compiler/analysis/schema.ts"
+import { readsOf } from "#compiler/analysis/theory/fill.ts"
 import { immediateEvidence } from "#compiler/analysis/theory/theory.ts"
 import { checkFill, checkMember, checkReadBack } from "#compiler/check/index.ts"
 import type { MemberColumn, MemberRelation } from "#compiler/check/schema.ts"
@@ -83,7 +84,12 @@ import {
 	literalHost
 } from "#compiler/write/family/fold.ts"
 import { type Nesting, nestingOf } from "#compiler/write/family/nesting.ts"
-import { endColumns, memberFamilies, rowLayout } from "#compiler/write/family/statements.ts"
+import {
+	endColumns,
+	memberFamilies,
+	type RowColumn,
+	rowLayout
+} from "#compiler/write/family/statements.ts"
 import {
 	type RefillHolds,
 	type StratumRefill,
@@ -95,8 +101,11 @@ import {
 	type FamilyAt,
 	type FamilyNode,
 	type FamilyPair,
+	type GeneratedColumn,
+	generating,
 	type ImmediateReference,
-	scheduleStratum
+	scheduleStratum,
+	updateChanges
 } from "#compiler/write/frontend/schedule.ts"
 import { payloadOf } from "#compiler/write/frontend/targets.ts"
 import { type RelationInput, relationInput } from "#compiler/write/insert/input.ts"
@@ -645,6 +654,27 @@ interface OutsideDraft {
 	readonly carried: Heading
 	readonly reads: DraftReads
 }
+
+/**
+ * The columns a family draws on its member, by key (write/family/edit.ts fillGroup): its index, its folds' accumulators,
+ * and each column its owner and predecessor axes carry that the host draws, an accumulated field or a law column.
+ */
+const drawnBy = (f: Family): ReadonlyArray<string> => [
+	columnKey(f.index),
+	...f.folds.flatMap((fold) =>
+		fold.planes.flatMap((plane) => [columnKey(plane.before), columnKey(plane.after)])
+	),
+	...[...f.axes.owner, ...f.axes.predecessor].flatMap((pair) =>
+		pair.from.kind === "law" || pair.from.field.writing.kind === "accumulated"
+			? [columnKey(pair.from)]
+			: []
+	)
+]
+
+/** Whether a member relation's row column is a field its caller writes, a caller's or a serial one. */
+const callerWritten = (c: RowColumn): boolean =>
+	c.column.kind === "field" &&
+	(c.column.field.writing.kind === "caller" || c.column.field.writing.kind === "serial")
 
 const merge = (params: Map<string, ParamDecl>, decl: ParamDecl, loc: SourceLoc): void => {
 	const prior = params.get(decl.name)
@@ -1730,22 +1760,46 @@ const compile = (
 			: []
 	)
 	/**
-	 * The columns of `relation` PostgreSQL generates, by key: its generated fields, and every law column of it a foreign
-	 * key names that no family draws on its rows, a selected side's term or a pred term. Each reads the row's other
-	 * columns, so an update of the row may change it whichever of them it writes.
+	 * The columns of `relation` PostgreSQL generates, by key, each with the columns it reads: its generated fields, and
+	 * its law columns no family draws, a selected side's term or a pred term, which read its fields and its drawn law
+	 * columns by name.
 	 */
-	const generatedOf = (relation: string): ReadonlyArray<string> => {
-		const drawn = new Set(rowLayout(writtenOf(relation, at), families).columns.map((c) => c.key))
+	const generatedOf = (relation: string): ReadonlyArray<GeneratedColumn> => {
+		const fields = writtenOf(relation, at).fields
+		const lawColumns = laws.natives.flatMap((n) =>
+			n.object.kind === "LawColumn" && n.object.relation.name === relation ? [n.object] : []
+		)
+		/** A column a generated expression reads by name: a field of the row, or one of its law columns. */
+		const keyOf = (name: string): string => {
+			const field = fields.find((f) => f.name === name)
+			if (field !== undefined) {
+				return columnKey({ kind: "field", field })
+			}
+			const law = lawColumns.find((c) => c.column === name)
+			if (law === undefined) {
+				throw defect(`the column ${name} a generated column of ${relation} reads`)
+			}
+			return columnKey({ kind: "law", column: law.column })
+		}
 		return [
-			...writtenOf(relation, at).fields.flatMap((f) =>
-				f.writing.kind === "generated" ? [columnKey({ kind: "field", field: f })] : []
-			),
-			...laws.natives.flatMap((n) =>
-				n.object.kind === "ForeignKey"
+			...fields.flatMap((f) =>
+				f.writing.kind === "generated"
 					? [
-							...(n.object.relation.name === relation ? n.object.columns : []),
-							...(n.object.target.name === relation ? n.object.targetColumns : [])
-						].flatMap((c) => (c.kind === "law" && !drawn.has(columnKey(c)) ? [columnKey(c)] : []))
+							{
+								key: columnKey({ kind: "field", field: f }),
+								reads: readsOf(f.writing.expr).map(keyOf)
+							}
+						]
+					: []
+			),
+			...lawColumns.flatMap((c) =>
+				c.value.kind === "generated"
+					? [
+							{
+								key: columnKey({ kind: "law", column: c.column }),
+								reads: [...c.value.guard, c.value.term].flatMap(readsOf).map(keyOf)
+							}
+						]
 					: []
 			)
 		]
@@ -1761,7 +1815,10 @@ const compile = (
 	 * in place, deepest relation first, so a refill of a member runs before the change of its owner that would cascade
 	 * into it, and after its own deletes; then the counts of every family of an edited relation and of every family a
 	 * refill recounts; then the inserts of every relation a family write writes, its nested writes' and its edits',
-	 * shallowest first. The schedule places them among the stratum's actions.
+	 * shallowest first. The schedule places them among the stratum's actions. Each changes only what it writes: an update
+	 * in place what the stratum's edits of its relation write in place (schedule.ts updateChanges), a refill every column
+	 * but its relation's key and groups, and a count its owner's count and ends, each with the columns PostgreSQL
+	 * generates from them.
 	 */
 	const familyNodesOf = (stratum: number): ReadonlyArray<FamilyNode> => {
 		const edited = [...new Set(edits.filter((e) => e.stratum === stratum).map((e) => e.relation))]
@@ -1777,15 +1834,6 @@ const compile = (
 		]
 		const deepest = (names: ReadonlyArray<string>) =>
 			names.toSorted((a, b) => depthOf(b) - depthOf(a))
-		/** The columns an update in place of `name` sets. */
-		const settable = (name: string): ReadonlyArray<string> =>
-			rowLayout(writtenOf(name, at), families).columns.flatMap((c) => (c.settable ? [c.key] : []))
-		/** The columns a refill of `name` sets: every column but its key and its groups, its copies of its owners' counts
-		 * among them. */
-		const refilledColumns = (name: string): ReadonlyArray<string> =>
-			rowLayout(writtenOf(name, at), families).columns.flatMap((c) =>
-				c.settable || c.copy ? [c.key] : []
-			)
 		const counted = [
 			...edited.flatMap((relation) =>
 				memberFamilies(relation, families).filter((f) => !isTreeOf(f, relation))
@@ -1800,7 +1848,16 @@ const compile = (
 			})),
 			...deepest([...new Set([...edited, ...refilled])]).flatMap(
 				(relation): ReadonlyArray<FamilyNode> => {
-					const set = settable(relation)
+					const columns = rowLayout(writtenOf(relation, at), families).columns
+					/** The columns an update in place of the relation sets. */
+					const settable = columns.filter((c) => c.settable)
+					const generated = generatedOf(relation)
+					/** The columns its counted families draw on a member. */
+					const drawn = new Set(
+						memberFamilies(relation, families)
+							.filter((f) => !isTreeOf(f, relation) && !isSequence(f))
+							.flatMap(drawnBy)
+					)
 					return [
 						...(refilled.includes(relation)
 							? [
@@ -1808,17 +1865,30 @@ const compile = (
 										kind: "rows",
 										relation,
 										statement: "refill",
-										changes: [...refilledColumns(relation), ...generatedOf(relation)]
+										changes: generating(
+											columns.flatMap((c) => (c.settable || c.copy ? [c.key] : [])),
+											generated
+										)
 									} as const
 								]
 							: []),
-						...(edited.includes(relation) && isNonEmpty(set)
+						...(edited.includes(relation) && isNonEmpty(settable)
 							? [
 									{
 										kind: "rows",
 										relation,
 										statement: "update",
-										changes: [...set, ...generatedOf(relation)]
+										changes: updateChanges({
+											ops: edits.flatMap((e) =>
+												e.stratum === stratum && e.relation === relation ? [e.write.op] : []
+											),
+											own: settable.flatMap((c) => (callerWritten(c) ? [c.key] : [])),
+											placed: settable.flatMap((c) => (drawn.has(c.key) ? [c.key] : [])),
+											refreshed: refilled.includes(relation)
+												? settable.flatMap((c) => (callerWritten(c) ? [] : [c.key]))
+												: [],
+											generated
+										})
 									} as const
 								]
 							: [])
@@ -1831,11 +1901,13 @@ const compile = (
 					family: f.id,
 					relation: f.owner.name,
 					member: f.member.name,
-					changes: [
-						columnKey({ kind: "field", field: f.count }),
-						...endColumns(f).map((field) => columnKey({ kind: "field", field })),
-						...generatedOf(f.owner.name)
-					]
+					changes: generating(
+						[
+							columnKey({ kind: "field", field: f.count }),
+							...endColumns(f).map((field) => columnKey({ kind: "field", field }))
+						],
+						generatedOf(f.owner.name)
+					)
 				})
 			),
 			...deepest(inserted)

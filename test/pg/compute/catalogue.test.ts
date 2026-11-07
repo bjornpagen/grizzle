@@ -644,30 +644,11 @@ const boundarySituations: ReadonlyArray<BoundarySituation> = Arr.flatMap(gateCar
 	)
 )
 
-/** Whether a cast into `target` needs its operand proved finite: into an integer or money (types/compute FiniteCast). */
-const needsFinite = (target: TestField): boolean => {
-	const c = target.scalar.carrier
-	return c === "int2" || c === "int4" || c === "int8" || c === "money"
-}
-
-/** The float entries no -0 operand agrees through: the casts that need it proved finite, which no negated term is. */
-const finiteCastEntries: ReadonlySet<string> = new Set(
-	Arr.flatMap(["float8", "float4"] as const, (c) =>
-		Arr.map(
-			Arr.filter(castTargets, ([, target]) => needsFinite(target)),
-			([name]) => `cast:${typeLabel(fields[c].scalar)}->${name}`
-		)
-	)
-)
-
-/** Every entry with a numeric operand, read padded, and every float entry but finiteCastEntries, read at -0. */
+/** Every entry with a numeric operand, read padded, and every float entry, read at -0. */
 const spelledSituations: ReadonlyArray<SpelledSituation> = [
 	...Arr.map(entriesOf("numeric"), (e): SpelledSituation => `padded ${e}`),
 	...Arr.map(
-		Arr.filter(
-			[...entriesOf("float8"), ...entriesOf("float4")],
-			(e) => !declinedEntries.has(e) && !finiteCastEntries.has(e)
-		),
+		Arr.filter([...entriesOf("float8"), ...entriesOf("float4")], (e) => !declinedEntries.has(e)),
 		(e): SpelledSituation => `negative zero ${e}`
 	)
 ]
@@ -697,25 +678,18 @@ const isSpecial = (x: LiteralDesc): boolean =>
 	(x instanceof Decimal && !x.isFinite()) || (typeof x === "object" && "float" in x)
 
 /**
- * Whether an operand's term states no fact of its value: the -0 spelling reads it through Compute.neg, whose result has
- * only its type's facts (types/compute/compute.ts neg), and a float's type states none.
- */
-const statesNoFact = (o: Operand): boolean => o.spelling.kind === "negative zero"
-
-/**
- * Whether a refusal is the operands': a fact precondition over an operand whose term states no fact (statesNoFact), or
- * over a value without the fact: nonzero over zero, nonnegative over a negative value, finite over NaN or an infinity.
- * The others rest on magnitudes compilation bounds (a narrowing's range, a power's, a bucket's, a digit bound), whose
- * refusals are the residues it decides from intervals.
+ * Whether a refusal is the operands' values': a nonzero precondition over a zero operand, a nonnegative one over a
+ * negative operand, a finite one over NaN or an infinity. The others rest on magnitudes compilation bounds (a
+ * narrowing's range, a power's, a bucket's, a digit bound), whose refusals are the residues it decides from intervals.
  */
 const justified = (precondition: PreconditionKind, read: ReadonlyArray<Operand>): boolean => {
 	switch (precondition) {
 		case "nonzero":
-			return Arr.some(read, (o) => statesNoFact(o) || isZero(o.value))
+			return Arr.some(read, (o) => isZero(o.value))
 		case "nonnegative":
-			return Arr.some(read, (o) => statesNoFact(o) || isNegative(o.value))
+			return Arr.some(read, (o) => isNegative(o.value))
 		case "finite":
-			return Arr.some(read, (o) => statesNoFact(o) || isSpecial(o.value))
+			return Arr.some(read, (o) => isSpecial(o.value))
 		case "fits":
 		case "contract":
 		case "language":

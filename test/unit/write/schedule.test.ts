@@ -14,8 +14,11 @@ import {
 	type FamilyNode,
 	type FamilyPair,
 	type ImmediateReference,
+	type MemberEdit,
+	type MemberOp,
 	type RefillOrder,
 	scheduleStratum,
+	updateChanges,
 	type Write
 } from "#compiler/write/frontend/schedule.ts"
 import { assert, defined } from "#test/support/assert.ts"
@@ -261,10 +264,17 @@ type Situation =
  * A member it edits may take a refill too (analysis/theory/refill.ts), its rows rewritten in place ahead of a change, with
  * the order its refills require (`RefillOrder`): each refill before every put of a plain relation it is drawn ahead
  * of, and before or after a family statement of the stratum.
+ *
+ * Each member it edits states its operations (`edits`), and its update in place changes what the schedule's
+ * `updateChanges` says they write: a member's caller fields are a and b, each family it is a member of draws an index
+ * ‹i› and a copy c of its owner's a, and PostgreSQL generates h from a, q from h, and each family's ‹p› from its index,
+ * as a predecessor's term is. An update once changed every column it could set whatever its edits wrote, so a deletion
+ * of an ordered member, or an insertion of a counted one, counted against a key over a caller field it never writes.
  */
 interface Stratum {
 	readonly actions: ReadonlyArray<StratumAction>
 	readonly family: ReadonlyArray<FamilyNode>
+	readonly edits: ReadonlyArray<{ readonly relation: string; readonly edit: MemberEdit }>
 	readonly pairs: ReadonlyArray<FamilyPair>
 	readonly references: ReadonlyArray<ImmediateReference>
 	readonly refills: RefillOrder
@@ -281,6 +291,15 @@ interface StratumAction {
 
 const relationName = (r: number): string => `R${String(r)}`
 
+const memberOps: ReadonlyArray<MemberOp> = ["insert", "put", "delete", "nested"]
+
+/** A relation's generated columns: h from a, q from h, and the ‹p› of each family `k` of `memberOf` from its index. */
+const generatedOn = (memberOf: ReadonlyArray<number>): MemberEdit["generated"] => [
+	{ key: "law:q", reads: ["field:h"] },
+	{ key: "field:h", reads: ["field:a"] },
+	...Arr.map(memberOf, (k) => ({ key: `law:p${String(k)}`, reads: [`law:i${String(k)}`] }))
+]
+
 const stratumGen: Gen<Stratum> = (source) => {
 	const n = source.draw(int(2, 24))
 	/** A family's owner comes before its member, but where `cyclic` draws, which draws any two relations, so families
@@ -293,7 +312,8 @@ const stratumGen: Gen<Stratum> = (source) => {
 				k,
 				owner,
 				member: other >= owner ? other + 1 : other,
-				immediate: source.draw(boolean)
+				immediate: source.draw(boolean),
+				counted: source.draw(boolean)
 			}
 		}
 		const owner = source.draw(int(0, n - 2))
@@ -301,7 +321,8 @@ const stratumGen: Gen<Stratum> = (source) => {
 			k,
 			owner,
 			member: source.draw(int(owner + 1, n - 1)),
-			immediate: source.draw(boolean)
+			immediate: source.draw(boolean),
+			counted: source.draw(boolean)
 		}
 	})
 	const members = new Set(Arr.map(families, (f) => f.member))
@@ -314,14 +335,23 @@ const stratumGen: Gen<Stratum> = (source) => {
 			? [{ from: relationName(f.member), to: relationName(f.owner), cascade: true, ...axisOf(f) }]
 			: []
 	)
+	/** The families `r` is a member of. */
+	const memberOf = (r: number) => Arr.filter(families, (f) => f.member === r)
+	/** The columns the host draws on `r`: each family's index and copy on its member, and each count and end on its owner. */
+	const drawnOn = (r: number): ReadonlyArray<string> => [
+		...Arr.flatMap(memberOf(r), (f) => [`law:i${String(f.k)}`, `field:c${String(f.k)}`]),
+		...Arr.flatMap(families, (f) =>
+			f.owner === r ? [`field:n${String(f.k)}`, `field:e${String(f.k)}`] : []
+		)
+	]
 	const columnsOf = (r: number): ReadonlyArray<string> => [
 		"field:id",
 		"field:a",
 		"field:b",
-		...Arr.flatMap(families, (f) =>
-			f.owner === r ? [`field:n${String(f.k)}`, `field:e${String(f.k)}`] : []
-		),
-		...Arr.flatMap(families, (f) => (f.member === r ? [`field:c${String(f.k)}`] : []))
+		"field:h",
+		"law:q",
+		...drawnOn(r),
+		...Arr.map(memberOf(r), (f) => `law:p${String(f.k)}`)
 	]
 	const laws = Arr.makeBy(source.draw(int(0, n)), (): ImmediateReference => {
 		const from = source.draw(int(0, n - 1))
@@ -342,6 +372,7 @@ const stratumGen: Gen<Stratum> = (source) => {
 	const inserts: Array<FamilyNode> = []
 	const updates: Array<FamilyNode> = []
 	const refilled: Array<FamilyNode> = []
+	const edits: Array<{ readonly relation: string; readonly edit: MemberEdit }> = []
 	for (let r = 0; r < n; r += 1) {
 		const relation = relationName(r)
 		if (!members.has(r)) {
@@ -364,14 +395,22 @@ const stratumGen: Gen<Stratum> = (source) => {
 		if (source.draw(boolean)) {
 			family.push({ kind: "rows", relation, statement: "delete" })
 		}
-		const changes = source.draw(subarray(columnsOf(r)))
-		if (Arr.isReadonlyArrayNonEmpty(changes)) {
-			updates.push({ kind: "rows", relation, statement: "update", changes })
-		}
 		const rewritten = source.draw(subarray(columnsOf(r)))
-		if (Arr.isReadonlyArrayNonEmpty(rewritten) && source.draw(boolean)) {
+		const refill = Arr.isReadonlyArrayNonEmpty(rewritten) && source.draw(boolean)
+		if (refill) {
 			refilled.push({ kind: "rows", relation, statement: "refill", changes: rewritten })
 		}
+		const edit: MemberEdit = {
+			ops: source.draw(subarray(memberOps)),
+			own: ["field:a", "field:b"],
+			placed: Arr.flatMap(memberOf(r), (f) =>
+				f.counted ? [`law:i${String(f.k)}`, `field:c${String(f.k)}`] : []
+			),
+			refreshed: refill ? drawnOn(r) : [],
+			generated: generatedOn(Arr.map(memberOf(r), (f) => f.k))
+		}
+		edits.push({ relation, edit })
+		updates.push({ kind: "rows", relation, statement: "update", changes: updateChanges(edit) })
 		for (const f of families) {
 			if (f.member === r) {
 				counts.push({
@@ -413,6 +452,7 @@ const stratumGen: Gen<Stratum> = (source) => {
 	return {
 		actions,
 		family: statements,
+		edits,
 		pairs: Arr.map(families, (f) => ({
 			family: { owner: relationName(f.owner), count: `n${String(f.k)}` },
 			owner: relationName(f.owner),
@@ -637,6 +677,39 @@ const changesAny = (f: FamilyNode, columns: ReadonlyArray<string>): boolean =>
 	(f.kind === "owners" || f.statement === "refill" || f.statement === "update") &&
 	Arr.some(f.changes, (c) => columns.includes(c))
 
+/**
+ * What a stratum's edits of a member write in place, operation by operation, as the family planner writes them
+ * (write/family/edit.ts): an insertion and a nested write's row write nothing in place, each inserted whole, and a
+ * sequence re-places its members by a deletion and an insertion; a deletion moves a counted family's last member into
+ * the slot it frees and draws its values again, and a refilled relation's rows so written carry every value the
+ * stratum's other changes leave; a put writes its caller's fields besides, and what a deletion writes, since it may
+ * move its member between groups or change a value a counted family draws from. PostgreSQL then generates again every
+ * generated column one of those feeds, through another or not.
+ */
+const writtenInPlace = (edit: MemberEdit): ReadonlySet<string> => {
+	const byOp = (op: MemberOp): ReadonlyArray<string> => {
+		switch (op) {
+			case "insert":
+			case "nested":
+				return []
+			case "delete":
+				return [...edit.placed, ...edit.refreshed]
+			case "put":
+				return [...edit.own, ...edit.placed, ...edit.refreshed]
+		}
+	}
+	const close = (known: ReadonlySet<string>): ReadonlySet<string> => {
+		const fed = Arr.filter(
+			edit.generated,
+			(g) => !known.has(g.key) && Arr.some(g.reads, (r) => known.has(r))
+		)
+		return Arr.isReadonlyArrayNonEmpty(fed)
+			? close(new Set([...known, ...Arr.map(fed, (g) => g.key)]))
+			: known
+	}
+	return close(new Set(Arr.flatMap(edit.ops, byOp)))
+}
+
 /** Whether `edges` over a stratum's writes close a cycle. */
 const hasCycle = (stratum: Stratum, edges: ReadonlySet<string>): boolean => {
 	const writes = stratum.actions.length + stratum.family.length
@@ -666,6 +739,15 @@ const hasCycle = (stratum: Stratum, edges: ReadonlySet<string>): boolean => {
  * whose update in place the stratum plans; R0's counted family of R1 takes an insert and so a count. A total order of the family statements put the update before every count, the count of R0 before R2's
  * insert, and R2's insert before the update of its member: a cycle no key requires.
  */
+/** R3's edit in the import's shape: a deletion of a member of R2's counted family 1. */
+const importEdit: MemberEdit = {
+	ops: ["delete"],
+	own: ["field:a", "field:b"],
+	placed: ["law:i1", "field:c1"],
+	refreshed: [],
+	generated: generatedOn([1])
+}
+
 const importShape: Stratum = {
 	actions: [
 		{
@@ -679,7 +761,7 @@ const importShape: Stratum = {
 		}
 	],
 	family: [
-		{ kind: "rows", relation: "R3", statement: "update", changes: ["field:c1"] },
+		{ kind: "rows", relation: "R3", statement: "update", changes: updateChanges(importEdit) },
 		{
 			kind: "owners",
 			family: { owner: "R0", count: "n0" },
@@ -696,6 +778,7 @@ const importShape: Stratum = {
 		},
 		{ kind: "rows", relation: "R1", statement: "insert" }
 	],
+	edits: [{ relation: "R3", edit: importEdit }],
 	pairs: [
 		{
 			family: { owner: "R0", count: "n0" },
@@ -760,6 +843,7 @@ const familyCycle: Stratum = {
 		{ kind: "rows", relation: "R0", statement: "insert" },
 		{ kind: "rows", relation: "R1", statement: "insert" }
 	],
+	edits: [],
 	pairs: [
 		{
 			family: { owner: "R1", count: "n0" },
@@ -782,6 +866,116 @@ const familyCycle: Stratum = {
 	refills: noRefills
 }
 
+/** R1's and R2's edits beside a pure set: a deletion of R1, an ordered member, and an insertion of R2, a counted one. */
+const setEdits = {
+	R1: {
+		ops: ["delete"],
+		own: ["field:a", "field:b"],
+		placed: [],
+		refreshed: [],
+		generated: generatedOn([0])
+	},
+	R2: {
+		ops: ["insert"],
+		own: ["field:a", "field:b"],
+		placed: ["law:i1", "field:c1"],
+		refreshed: [],
+		generated: generatedOn([1])
+	}
+} satisfies Record<string, MemberEdit>
+
+/**
+ * The schedule once refused a lawful stratum beside a pure set (UnorderableStratum [P0 insert, R1 update, P0 delete]):
+ * R0 owns an ordered family of R1 and a counted family of R2, each member's a contained in the pure set P0 by an
+ * immediate key; the stratum deletes a member of R1, inserts one of R2, and moves P0's one fact out and another in. R1's
+ * deletion re-places its later members by a deletion and an insertion and R2's insertion appends, so neither updates a
+ * caller field in place, yet each update in place counted as changing a.
+ */
+const editsBesideASet: Stratum = {
+	actions: [
+		{
+			pureSet: true,
+			action: {
+				op: "delete",
+				relation: "P0",
+				source: { kind: "enumerated", slot: ParamId("P0 member") }
+			}
+		},
+		{
+			pureSet: true,
+			action: {
+				op: "insert",
+				serial: completeClass,
+				relation: "P0",
+				source: { kind: "enumerated", slot: ParamId("P0 member") }
+			}
+		}
+	],
+	family: [
+		{ kind: "rows", relation: "R1", statement: "delete" },
+		{ kind: "rows", relation: "R2", statement: "delete" },
+		{ kind: "rows", relation: "R1", statement: "update", changes: updateChanges(setEdits.R1) },
+		{ kind: "rows", relation: "R2", statement: "update", changes: updateChanges(setEdits.R2) },
+		{
+			kind: "owners",
+			family: { owner: "R0", count: "n0" },
+			relation: "R0",
+			member: "R1",
+			changes: ["field:n0", "field:e0"]
+		},
+		{
+			kind: "owners",
+			family: { owner: "R0", count: "n1" },
+			relation: "R0",
+			member: "R2",
+			changes: ["field:n1", "field:e1"]
+		},
+		{ kind: "rows", relation: "R1", statement: "insert" },
+		{ kind: "rows", relation: "R2", statement: "insert" }
+	],
+	edits: [
+		{ relation: "R1", edit: setEdits.R1 },
+		{ relation: "R2", edit: setEdits.R2 }
+	],
+	pairs: [
+		{
+			family: { owner: "R0", count: "n0" },
+			owner: "R0",
+			member: "R1",
+			immediate: true,
+			fromColumns: ["field:g0", "law:n0", "field:c0"],
+			toColumns: ["field:id", "field:n0", "field:a"]
+		},
+		{
+			family: { owner: "R0", count: "n1" },
+			owner: "R0",
+			member: "R2",
+			immediate: true,
+			fromColumns: ["field:g1", "law:n1", "field:c1"],
+			toColumns: ["field:id", "field:n1", "field:a"]
+		}
+	],
+	references: [
+		{
+			from: "R1",
+			to: "R0",
+			cascade: true,
+			fromColumns: ["field:g0", "law:n0", "field:c0"],
+			toColumns: ["field:id", "field:n0", "field:a"]
+		},
+		{
+			from: "R2",
+			to: "R0",
+			cascade: true,
+			fromColumns: ["field:g1", "law:n1", "field:c1"],
+			toColumns: ["field:id", "field:n1", "field:a"]
+		},
+		{ from: "R1", to: "P0", cascade: false, fromColumns: ["field:a"], toColumns: ["field:a"] },
+		{ from: "R2", to: "P0", cascade: false, fromColumns: ["field:a"], toColumns: ["field:a"] }
+	],
+	refills: noRefills
+}
+
 type StratumSituation =
 	| "ordered"
 	| "refused: a required cycle"
@@ -792,6 +986,7 @@ type StratumSituation =
 	| "a refill drawn ahead of a plain put"
 	| "a refill ordered against another family statement"
 	| "a cycle of families"
+	| "an update that writes no column in place"
 
 const stratumSituations: Arr.NonEmptyReadonlyArray<StratumSituation> = [
 	"ordered",
@@ -802,7 +997,8 @@ const stratumSituations: Arr.NonEmptyReadonlyArray<StratumSituation> = [
 	"a family member's reference into a plain relation",
 	"a refill drawn ahead of a plain put",
 	"a refill ordered against another family statement",
-	"a cycle of families"
+	"a cycle of families",
+	"an update that writes no column in place"
 ]
 
 /** Whether a stratum's families form a cycle, owner to member and back. */
@@ -842,7 +1038,13 @@ const stratumShapes = (stratum: Stratum): ReadonlyArray<StratumSituation> => {
 		...(Arr.isReadonlyArrayNonEmpty(stratum.refills.edges)
 			? (["a refill ordered against another family statement"] as const)
 			: []),
-		...(familiesCycle(stratum.pairs) ? (["a cycle of families"] as const) : [])
+		...(familiesCycle(stratum.pairs) ? (["a cycle of families"] as const) : []),
+		...(Arr.some(
+			stratum.family,
+			(f) => f.kind === "rows" && f.statement === "update" && f.changes.length === 0
+		)
+			? (["an update that writes no column in place"] as const)
+			: [])
 	]
 }
 
@@ -983,6 +1185,17 @@ describe("a stratum's schedule", () => {
 								sketch: familyCycle,
 								draws: "",
 								reaches: ["ordered", "a cycle of families"]
+							},
+							{
+								note: "a deletion of an ordered member and an insertion of a counted one beside a pure set their members' a is contained in",
+								sketch: editsBesideASet,
+								draws: "",
+								reaches: [
+									"ordered",
+									"several counts of one relation",
+									"a family member's reference into a plain relation",
+									"an update that writes no column in place"
+								]
 							}
 						],
 						runs: 300,
@@ -992,12 +1205,26 @@ describe("a stratum's schedule", () => {
 						caseHang,
 						oracle: {
 							kind: "second-implementation",
-							name: "the required order of a stratum's writes, stated edge by edge from the keys and the family planner's rules"
+							name: "the required order of a stratum's writes, stated edge by edge from the keys and the family planner's rules, and what each update in place writes, stated operation by operation"
 						}
 					},
 					(stratum, c) =>
 						Effect.sync(() => {
 							c.noteAll(stratumShapes(stratum))
+							for (const { relation, edit } of stratum.edits) {
+								const update = Arr.findFirst(
+									stratum.family,
+									(f) => f.kind === "rows" && f.relation === relation && f.statement === "update"
+								).pipe(Option.getOrUndefined)
+								const expected = writtenInPlace(edit)
+								assert.ok(
+									update?.kind === "rows" &&
+										update.statement === "update" &&
+										update.changes.length === expected.size &&
+										Arr.every(update.changes, (c) => expected.has(c)),
+									`the update in place of ${relation} changes exactly what its edits ${Formatter.format(edit.ops)} write, ${Formatter.format([...expected])}`
+								)
+							}
 							const required = requiredEdges(stratum)
 							const cyclic = hasCycle(stratum, required)
 							const schedule = scheduleStratum(

@@ -598,13 +598,15 @@ const boolean =
 	}
 
 /**
- * A conditional: its first branch is a term, a parameter among them, never a literal, and types the conditional; the
- * other is a term of its type or a literal of it.
+ * A conditional: its first branch is a term, a parameter among them, never a literal; the other is a term that meets
+ * it or a literal of its type. Their common type carries the first branch's carrier: two branches that meet share a
+ * carrier, but for an exact value beside a plain value of its family, which the lowering refuses (lower.ts
+ * exactBeside), so the conditional's column is the first branch's.
  */
 const cond = (p: unknown, then: unknown, otherwise: unknown): CarriedChecked => {
 	const call = new Call("Compute.cond")
 	const pred = call.predicate(p, "cond's condition")
-	const t = call.term(then, "cond's first branch, which types the conditional")
+	const t = call.term(then, "cond's first branch")
 	const e = call.operand(otherwise, t.type, "literal")
 	return call.finishCarried(
 		{ kind: "cond", pred: pred.real, onTrue: t.real, onFalse: e.real },

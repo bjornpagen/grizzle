@@ -159,6 +159,12 @@ suite's residual risk. A longer search is a fuzz run, `pnpm fuzz <suite>`.
     - no absence check (`=== undefined`, `== null`, `??`, `?.`) on a value whose type admits neither `undefined` nor
       `null`;
     - no `default` in a switch whose cases already cover every member of its union;
+    - no list compared by reference where its elements are its meaning: no `===`, `!==`, `==` or `!=` between two
+      lists of values (arrays or tuples of texts, numbers, bigints, booleans, their brands, or lists of those), and no
+      builtin `Map`, `Set`, `WeakMap` or `WeakSet` keyed by any list, since both compare references and an equal list
+      built elsewhere never matches; a list is keyed by `TupleMap` or `TupleSet`
+      (`packages/engine/src/core/tuple-map.ts`). Comparing two lists of objects by reference, to see whether a rewrite
+      returned the list it was given, stays allowed (superlint `tuple-identity`);
     - internal modules only through `#` subpath imports with their file extension, never a relative import.
 
     The exceptions to the assertion ban are the assertion in `packages/engine/src/schema/record.ts` and the trust door

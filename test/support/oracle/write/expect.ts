@@ -183,12 +183,12 @@ const hostRefusals = (
 					: []
 			)
 			const serial = new Set(Arr.map(serialColumns(relation), (col) => col.name))
-			return Arr.flatMap([relation.primaryKey, ...relation.keys], (fields) =>
+			return Arr.flatMap(keysOf(relation), (key) =>
 				sameKeyRefusals(
 					ctx,
 					relation,
-					fields,
-					!deletions && Arr.some(fields, (f) => serial.has(f))
+					key,
+					!deletions && Arr.some(key.fields, (f) => serial.has(f))
 						? Arr.filter(listed, (f) => !isGenerated(relation, f))
 						: listed
 				)
@@ -196,13 +196,23 @@ const hostRefusals = (
 		})
 	)
 
-/** The refusal of the distinct facts among `added` that share a value of the key `fields`, if any do. */
+/** A key of a relation and which it is: its primary key, or one of its candidate keys. */
+type RelationKey = Readonly<{ kind: "primary" | "candidate"; fields: ReadonlyArray<string> }>
+
+/** A relation's keys, its primary key first, each carrying which it is. */
+const keysOf = (relation: WRelation): ReadonlyArray<RelationKey> => [
+	{ kind: "primary", fields: relation.primaryKey },
+	...Arr.map(relation.keys, (fields): RelationKey => ({ kind: "candidate", fields }))
+]
+
+/** The refusal of the distinct facts among `added` that share a value of the key, if any do. */
 const sameKeyRefusals = (
 	ctx: ExpectContext,
 	relation: WRelation,
-	fields: ReadonlyArray<string>,
+	key: RelationKey,
 	added: ReadonlyArray<Fact>
 ): ReadonlyArray<AcceptableRefusal> => {
+	const { fields } = key
 	const byKey = new Map<string, Map<string, Fact>>()
 	for (const f of added) {
 		const k = keyOf(relation, fields, f)
@@ -223,7 +233,7 @@ const sameKeyRefusals = (
 		return []
 	}
 	const law =
-		fields === relation.primaryKey
+		key.kind === "primary"
 			? ctx.laws.primaryKey(relation.name)
 			: ctx.laws.key(relation.name, fields)
 	return [
@@ -386,9 +396,9 @@ const collisionsOf = (
 		) {
 			continue
 		}
-		const keys = [relation.primaryKey, ...relation.keys]
+		const keys = keysOf(relation)
 		const keyed = Arr.filter(serialColumns(relation), (col) =>
-			Arr.some(keys, (k) => k.includes(col.name))
+			Arr.some(keys, (k) => k.fields.includes(col.name))
 		)
 		const values = Arr.reduce(keyed, 0, (n, col) => {
 			const position = entryOf(initial.sequences, `${relation.name}.${col.name}`, "the sequences")
@@ -403,13 +413,13 @@ const collisionsOf = (
 			)
 			return n + new Set(reached).size
 		})
-		const holding = Arr.filter(keys, (k) => Arr.some(keyed, (col) => k.includes(col.name)))
+		const holding = Arr.filter(keys, (k) => Arr.some(keyed, (col) => k.fields.includes(col.name)))
 		out.set(relation.name, {
 			constraints: new Set(
 				Arr.map(holding, (k) =>
-					k === relation.primaryKey
+					k.kind === "primary"
 						? ctx.laws.primaryKeyConstraint(relation.name)
-						: ctx.laws.keyConstraint(relation.name, k)
+						: ctx.laws.keyConstraint(relation.name, k.fields)
 				)
 			),
 			values

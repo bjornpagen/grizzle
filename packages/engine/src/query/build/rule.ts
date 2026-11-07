@@ -196,7 +196,7 @@ const bindingsDesc = (bindings: unknown, source: Heading, label: string): OpenBi
 				`a binding for ${field}: a term, a parameter or a literal; leave a field unbound by omitting it`
 			)
 		}
-		out[field] = T.operand(value, typing, `${label} ${field}`)
+		out[field] = T.fieldBinding(value, typing, `${label} ${field}`)
 	}
 	return out
 }

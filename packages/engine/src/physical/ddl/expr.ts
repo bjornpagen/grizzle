@@ -1,3 +1,4 @@
+import type { CheckedSchema } from "#compiler/analysis/schema.ts"
 import { Refusal } from "#compiler/core/canonical.ts"
 import { CompileError, type ProseTag, prose } from "#compiler/core/errors.ts"
 import { bitInputText } from "#compiler/core/hex.ts"
@@ -8,6 +9,7 @@ import { datePartSlices } from "#compiler/ir/date.ts"
 import {
 	type ColumnRef,
 	describeOp,
+	predicateTable,
 	type ScalarExpr,
 	spanLiteralText,
 	type TypedLiteral
@@ -25,11 +27,19 @@ import { defaultOps } from "#compiler/lower/conservative/expr/ops.ts"
 import { lowerSpanOp } from "#compiler/lower/conservative/span/index.ts"
 import { lowerVectorOp } from "#compiler/lower/conservative/vector/index.ts"
 import { columnType } from "#compiler/physical/ddl/names.ts"
+import {
+	type EvalLeaves,
+	evaluateTable,
+	hostLiteralOf,
+	sqlNull
+} from "#compiler/scalar/compute/evaluate.ts"
 import { isDateParse } from "#compiler/scalar/compute/registry.ts"
+import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
 import type { Expr } from "#compiler/sql/ast.ts"
 import { cast, lit, tableCol } from "#compiler/sql/build.ts"
 import { type ClosedRead, closedRead } from "#compiler/sql/constants.ts"
 import { dateOfText } from "#compiler/sql/lexical.ts"
+import { type ClosedRows, closedLeaf } from "#compiler/write/family/fold.ts"
 
 const refusePersistent = (tag: ProseTag, loc: SourceLoc, capability: string): never => {
 	throw new Refusal(CompileError.make(prose(tag, loc, capability)))
@@ -139,8 +149,77 @@ type PersistentReading =
 
 interface PersistentScope {
 	readonly reads: PersistentReading
+	/** The closed relations a closed read in a constant subterm applies, by name (`persistentClosed`). */
+	readonly closed: EvalLeaves["closed"]
 	/** Where a refusal is reported. */
 	readonly loc: SourceLoc
+}
+
+/** The closed relations of a checked schema as a constant subterm's closed reads apply them, its rows by key. */
+export const persistentClosed = (checked: CheckedSchema): EvalLeaves["closed"] =>
+	closedLeaf(
+		new Map(
+			[...checked.closed].map(([name, c]): readonly [string, ClosedRows] => [
+				name,
+				{ heading: c.heading, key: c.relation.primaryFields.length, rows: c.rows }
+			])
+		)
+	)
+
+/** What a persistent expression that reads no closed relation applies to a closed read: none, as it holds none. */
+export const noPersistentClosed: EvalLeaves["closed"] = () => undefined
+
+/**
+ * The compound subterms of `expr` that read no row: no column, no VALUE and no parameter at any depth, each a constant.
+ * One pass over the tree, children first.
+ */
+const constantSubterms = (expr: ScalarExpr): ReadonlySet<ScalarExpr> => {
+	const constant = new Set<ScalarExpr>()
+	const visit = (e: ScalarExpr): boolean => {
+		const children = e.args.map(visit)
+		const reads = e.kind === "column" || e.kind === "value" || e.kind === "param"
+		if (reads || children.includes(false)) {
+			return false
+		}
+		if (e.kind !== "literal") {
+			constant.add(e)
+		}
+		return true
+	}
+	visit(expr)
+	return constant
+}
+
+/**
+ * A constant subterm as its value, the host's exact evaluation of it, which computes what PostgreSQL computes under
+ * pg_c_utf8 (scalar/compute/evaluate.ts): the literal of its value, typed by its base; NULL, where it is a boolean, as
+ * NULLIF(true, true); undefined where it is NULL of another type, or the host has no value for it, which the caller
+ * lowers as written, its own constant subterms each folded. So no collatable function of constants reaches
+ * PostgreSQL, which pre-evaluates one in a generation expression before it assigns the expression's collations and
+ * refuses it with 42P22 (upstream/generated-column-collation-before-planning); a NULL of another type reaches it only
+ * through a closed read and the strict operations over it, which PostgreSQL folds to NULL without calling them.
+ */
+const foldedConstant = (
+	names: PhysicalNames,
+	expr: ScalarExpr,
+	closed: EvalLeaves["closed"]
+): Expr | undefined => {
+	const table = predicateTable(expr)
+	const value = evaluateTable(
+		table.exprs,
+		table.root,
+		{ value: undefined, column: () => undefined, closed },
+		ProgramPatterns.of(tablePatterns(table))
+	)
+	if (!value.ok) {
+		return undefined
+	}
+	if (value.value !== sqlNull) {
+		return persistentLiteral(names, hostLiteralOf(value.value, expr.type), expr.type)
+	}
+	return baseOf(expr.type).carrier === "bool"
+		? { kind: "nullif", expr: lit.bool(true), absent: lit.bool(true) }
+		: undefined
 }
 
 /** The SQL of the expression tree `expr` in `scope`: the scalar IR of a CHECK, a domain CHECK, a partial-index predicate or a
@@ -155,17 +234,30 @@ interface PersistentScope {
  *   row;
  * - VALUE is the domain's value, admitted only in a domain CHECK;
  * - a literal is typed by its base type (`persistentLiteral`);
- * - a parameter has no meaning in the schema and is refused.
+ * - a parameter has no meaning in the schema and is refused;
+ * - a compound subterm that reads no row is its value (`foldedConstant`).
  *
  * The IS TRUE wrapper of a CHECK is not added here: the printer wraps every CHECK. */
 export const lowerPersistent = (
 	names: PhysicalNames,
 	expr: ScalarExpr,
 	scope: PersistentScope
+): Expr => persistent(names, expr, scope, constantSubterms(expr))
+
+/** `expr` lowered in `scope`, each of `constants`, the tree's constant subterms, as its value where it has one. */
+const persistent = (
+	names: PhysicalNames,
+	expr: ScalarExpr,
+	scope: PersistentScope,
+	constants: ReadonlySet<ScalarExpr>
 ): Expr => {
+	const value = constants.has(expr) ? foldedConstant(names, expr, scope.closed) : undefined
+	if (value !== undefined) {
+		return value
+	}
 	const at = childLoc(scope.loc, "expressions", expr.id)
 	/** The expression's operands: a column of the constrained row, VALUE only in a domain CHECK, and no parameter. */
-	const lower = (a: ScalarExpr): Expr => lowerPersistent(names, a, scope)
+	const lower = (a: ScalarExpr): Expr => persistent(names, a, scope, constants)
 	switch (expr.kind) {
 		case "column": {
 			const column = scope.reads.kind === "row" ? scope.reads.column(expr.column) : undefined

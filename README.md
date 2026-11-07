@@ -1863,7 +1863,11 @@ Six things work differently from SQL:
   `PartialOperation`: narrow an exact integer into an integer field with
   `Compute.when(Compute.within(x, 0n, 1000000n), (x) => Compute.cast(x, pg.integer), 0)`. An exact value binds at a
   plain integer or money column, but a ChangeSet member stores one into a field only through that cast: a head that
-  writes `Compute.add(balance, amount)` into a `pg.bigint` field is a type error.
+  writes `Compute.add(balance, amount)` into a `pg.bigint` field is a type error. An exact value and a plain value of
+  its family share no type: where PostgreSQL widens the plain one implicitly, `Compute.cond`, `Compute.when`,
+  `Compute.least` and `Compute.greatest` refuse one beside the other in either order, naming the cast of the exact one
+  into the plain one's type. A bare literal takes its term's type, an exact one's included, and is refused where its
+  value has more digits than that type holds.
 
 Text has eight terms. `Compute.matches(x, pattern)` is PostgreSQL's `~`: whether `x` holds a match of a pattern in
 `str.regex`'s grammar under the flags `"u"`, which `^` and `$` anchor. The pattern is a string, which the type checker

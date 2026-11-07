@@ -340,6 +340,21 @@ export const exactFamily = (t: ScalarType): "exactInteger" | "exactMoney" | unde
 }
 
 /**
+ * Whether two operands that meet are an exact value and a plain value of its family, in either order: an exact integer
+ * beside a smallint, an integer or a bigint, exact money beside money. Their common type is the exact one, which no
+ * value of the plain one's type carries, so a conditional, LEAST or GREATEST over them is refused (lower.ts
+ * exactBeside).
+ */
+export const mixesExact = (a: ScalarType, b: ScalarType): boolean => {
+	const family = exactFamily(a)
+	return (
+		family !== undefined &&
+		family === exactFamily(b) &&
+		(valueType(a).carrier === family) !== (valueType(b).carrier === family)
+	)
+}
+
+/**
  * The one relation every position meets two operands by, a comparison's, an operation's, a conditional's branches', a
  * union's arms', a computed term bound at a column: compatible (types.ts compatible), or one an exact value and the
  * other a plain value of its family, which widens into it exactly (meetingType, widening), so the comparison is a value

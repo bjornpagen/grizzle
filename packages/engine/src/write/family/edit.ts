@@ -418,6 +418,10 @@ interface GroupEdit {
 	readonly updates: ReadonlyTupleMap<MemberKey, Values>
 	/** The kept members whose new values are the stratum's other changes', not the edit's own. */
 	readonly refreshed: ReadonlyTupleSet<MemberKey>
+	/** The kept members of a counted family the row's sequences re-place, deleting them before the family's count
+	 * statement and inserting them after it, which no cascade reaches: each is drawn whole, from the owner as the
+	 * stratum leaves it. */
+	readonly replaced: ReadonlyTupleSet<MemberKey>
 	readonly refilled: boolean
 	/** Each new member, with the write that adds it: an insert, or a put of a key no stored row holds or that moves it. */
 	readonly appends: ReadonlyArray<{
@@ -547,6 +551,11 @@ const fillGroup = (
 			}
 		}
 	}
+	for (const m of stored) {
+		if (edit.replaced.has(m.key) && !edit.removals.has(m.key)) {
+			s = Math.min(s, m.slot)
+		}
+	}
 	if (edit.appends.length > 0) {
 		s = Math.min(s, kept)
 		own = Math.min(own, kept)
@@ -622,7 +631,10 @@ const fillGroup = (
 		/** A counted member kept or moved is updated in place, before its owner's own write and its count statement, which
 		 * the owner axis cascades into it; every other member is inserted after them, and every member of a refilled group
 		 * is rewritten ahead of its owner's change, so each reads the owner as the stratum leaves it. */
-		const seen = counted && !edit.refilled && at.get(slot)?.from !== "new" ? owner : edit.final
+		const seen =
+			counted && !edit.refilled && at.get(slot)?.from !== "new" && !edit.replaced.has(member.key)
+				? owner
+				: edit.final
 		for (const pair of ownerCopies) {
 			put(
 				columnKey(pair.from),
@@ -682,7 +694,7 @@ const fillGroup = (
 			[...drawn].every(([key, v]) =>
 				same(ctx, typeOfKey(relation, family, key), storedHere.values.get(key), v)
 			)
-		if (counted && unchanged) {
+		if (counted && unchanged && !edit.replaced.has(member.key)) {
 			continue
 		}
 		placed.push({
@@ -806,7 +818,6 @@ export const encodedWrite = (
 	return {
 		relation: write.relation,
 		deletes: write.deletes,
-		trees: new TupleSet<Owner>(),
 		refills: encoded(write.refills),
 		updates: encoded(write.updates),
 		inserts: encoded(write.inserts)
@@ -910,9 +921,35 @@ export const planEdits = (
 	const writes: Array<OwnerWrite> = []
 	/** A row's values as the stratum leaves them before the edit's own changes: its refreshed ones, else its stored. */
 	const currentOf = (key: MemberKey, was: Values): Values => refresh.current.get(key) ?? was
-	for (const { family, fixed } of target.families) {
+	/**
+	 * A named row's values as `family`'s fill reads them: `values`, the edit's over the row as the stratum leaves it, and,
+	 * for a counted family, every column the row's sequences placed on it, which their fills, run first, drew: a counted
+	 * fold may step or select a sequence's copy of its owner's column (analysis/theory/fill.ts), and a put that moves
+	 * the row to another of that sequence's owners re-places it with the new owner's.
+	 */
+	const viewOf = (family: Family, key: MemberKey, values: Values): Values => {
+		const placed = isSequence(family) ? [] : (placements.get(key) ?? [])
+		return placed.length === 0
+			? values
+			: new Map([...values, ...placed.flatMap((p) => [...p.columns])])
+	}
+	/** The target's families, its sequences first, so each counted family's fill reads what they drew. */
+	const sequencesFirst = target.families.toSorted(
+		(a, b) => Number(!isSequence(a.family)) - Number(!isSequence(b.family))
+	)
+	for (const { family, fixed } of sequencesFirst) {
 		const read = stored.get(familyKey(family.id))
 		const views = owners(family)
+		/** The rows the target's sequences re-place, which their fills, run first, placed: a counted family's fill draws
+		 * each that its groups hold whole. */
+		const replaced = new TupleSet<MemberKey>()
+		if (!isSequence(family)) {
+			for (const [key, list] of placements) {
+				if (list.some((p) => p.change === "replace")) {
+					replaced.add(key)
+				}
+			}
+		}
 		const groups = new TupleMap<
 			Owner,
 			{
@@ -924,6 +961,7 @@ export const planEdits = (
 					readonly removals: TupleSet<MemberKey>
 					readonly updates: TupleMap<MemberKey, Values>
 					readonly refreshed: TupleSet<MemberKey>
+					readonly replaced: ReadonlyTupleSet<MemberKey>
 					refilled: boolean
 					readonly appends: Array<GroupEdit["appends"][number]>
 				}
@@ -955,6 +993,7 @@ export const planEdits = (
 				removals: new TupleSet<MemberKey>(),
 				updates: new TupleMap<MemberKey, Values>(),
 				refreshed: new TupleSet<MemberKey>(),
+				replaced,
 				refilled: false,
 				appends: new Array<GroupEdit["appends"][number]>()
 			}
@@ -971,7 +1010,11 @@ export const planEdits = (
 					}
 					break
 				case "insert":
-					groupEdit(groupOf(ctx, family, values)).appends.push({ key, values, by: "insert" })
+					groupEdit(groupOf(ctx, family, values)).appends.push({
+						key,
+						values: viewOf(family, key, values),
+						by: "insert"
+					})
 					break
 				case "nested":
 					if (!isSequence(family)) {
@@ -981,10 +1024,10 @@ export const planEdits = (
 				case "put": {
 					const group = groupOf(ctx, family, values)
 					if (was === undefined) {
-						groupEdit(group).appends.push({ key, values, by: "put" })
+						groupEdit(group).appends.push({ key, values: viewOf(family, key, values), by: "put" })
 						break
 					}
-					const merged = new Map([...currentOf(key, was.values), ...values])
+					const merged = viewOf(family, key, new Map([...currentOf(key, was.values), ...values]))
 					if (sameOrder(was.group, group)) {
 						groupEdit(group).updates.set(key, merged)
 					} else {
@@ -1005,6 +1048,14 @@ export const planEdits = (
 				edit.updates.set(m.key, now)
 				edit.refreshed.add(m.key)
 				edit.refilled = true
+			}
+		}
+		for (const m of read?.members.values() ?? []) {
+			if (replaced.has(m.key) && !named.has(m.key)) {
+				const edit = groupEdit(storedGroupOf(m))
+				if (!edit.updates.has(m.key)) {
+					edit.updates.set(m.key, viewOf(family, m.key, currentOf(m.key, m.values)))
+				}
 			}
 		}
 		const recounts = new TupleMap<Owner, Recount>()
@@ -1268,6 +1319,7 @@ export const refillTree = (
 				removals: new TupleSet<MemberKey>(),
 				updates: changedNodes,
 				refreshed: changedKeys,
+				replaced: new TupleSet<MemberKey>(),
 				refilled: true,
 				appends: []
 			},

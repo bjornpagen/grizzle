@@ -21,10 +21,16 @@ import { NodeId, ParamId } from "#compiler/core/ids.ts"
 import type { CompareOp, ExprDesc } from "#compiler/ir/desc.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
-import { contractOf, type ScalarType, sameScalarType, typeLabel } from "#compiler/ir/scalar.ts"
+import {
+	contractOf,
+	exactDigitsOf,
+	type ScalarType,
+	sameScalarType,
+	typeLabel
+} from "#compiler/ir/scalar.ts"
 import type { Lowered } from "#compiler/scalar/compute/lower.ts"
 import { definedness } from "#compiler/scalar/compute/registry.ts"
-import { commonType, widening } from "#compiler/scalar/compute/types.ts"
+import { commonType, mixesExact, widening } from "#compiler/scalar/compute/types.ts"
 import { assert, defined, refused, succeeded } from "#test/support/assert.ts"
 import { widensTo } from "#test/support/fixtures/ir/scalar.ts"
 import {
@@ -500,22 +506,26 @@ describe("a conversion into a contract", () => {
  * A conditional, LEAST or GREATEST over two compatible terms combines them in their common type (compute/types.ts
  * commonType), the same whichever comes first, and lowers to a value or a typed CompileError, never a defect: its
  * result has the common type, and a branch of another type reaches it by a widening (widensTo), which drops only
- * refinements PostgreSQL never checks or lifts a plain integer or money into its exact carrier. The terms are the compute generator's (test/support/oracle/gen/compute.ts), a
- * comparison's two sides, and two planted shapes the generator draws too rarely: cond(p, sign(x), y) over numeric
- * typmods, a negative scale among them (sign carries no typmod, so a typmod on its branch is a narrowing that rounds or
- * overflows), and a plain span against Compute.base of a contract over a fixed-width span (a width only the operand
- * order chose). Each pair is combined in both orders.
+ * refinements PostgreSQL never checks. An exact value beside a plain value of its family (compute/types.ts mixesExact)
+ * shares no type: the combination is MalformedDescription in either order (lower.ts exactBeside). The terms are the
+ * compute generator's (test/support/oracle/gen/compute.ts), a comparison's two sides, and three planted shapes the
+ * generator draws too rarely: cond(p, sign(x), y) over numeric typmods, a negative scale among them (sign carries no
+ * typmod, so a typmod on its branch is a narrowing that rounds or overflows), a plain span against Compute.base of a
+ * contract over a fixed-width span (a width only the operand order chose), and an exact sum of an integer or money
+ * column beside the column. Each pair is combined in both orders.
  */
 type CombinedFeature =
 	| "generated cond"
 	| "generated least or greatest"
 	| `sign over ${"the other branch's typmod" | "another typmod" | "a negative scale"}, sign ${"first" | "second"}`
 	| `a plain span against a based fixed-width span, base ${"first" | "second"}`
+	| `an exact value beside a plain value of its family refused, ${"exact" | "plain"} first`
 
 type CombinedCase =
 	| { readonly kind: "generated"; readonly compare: CompareSketch }
 	| { readonly kind: "sign"; readonly x: string; readonly y: string }
 	| { readonly kind: "span" }
+	| { readonly kind: "exact"; readonly column: "i" | "m" }
 
 const variable = (name: string): ExprDesc => ({ kind: "var", var: name })
 
@@ -573,7 +583,14 @@ describe("a combination of two compatible terms", () => {
 				y: source.draw(element(typmods))
 			})
 		],
-		[1, constant<CombinedCase>({ kind: "span" })]
+		[1, constant<CombinedCase>({ kind: "span" })],
+		[
+			1,
+			(source): CombinedCase => ({
+				kind: "exact",
+				column: source.draw(element(["i", "m"] as const))
+			})
+		]
 	])
 
 	/**
@@ -593,6 +610,11 @@ describe("a combination of two compatible terms", () => {
 				return [{ kind: "compute", fn: "sign", args: [variable(c.x)] }, variable(c.y)]
 			case "span":
 				return [{ kind: "base", arg: variable("shift") }, variable("s")]
+			case "exact":
+				return [
+					{ kind: "compute", fn: "sub", args: [variable(c.column), variable(c.column)] },
+					variable(c.column)
+				]
 		}
 	}
 
@@ -682,7 +704,9 @@ describe("a combination of two compatible terms", () => {
 								"sign over a negative scale, sign first",
 								"sign over a negative scale, sign second",
 								"a plain span against a based fixed-width span, base first",
-								"a plain span against a based fixed-width span, base second"
+								"a plain span against a based fixed-width span, base second",
+								"an exact value beside a plain value of its family refused, exact first",
+								"an exact value beside a plain value of its family refused, plain first"
 							],
 							{ cases: 400, sense: notesOnly }
 						),
@@ -715,6 +739,22 @@ describe("a combination of two compatible terms", () => {
 									pred: variable("f"),
 									onTrue: first,
 									onFalse: second
+								}
+								if (mixesExact(a.nominal, b.nominal)) {
+									for (const combination of [
+										cond,
+										{ kind: "compute", fn: "least", args: [first, second] },
+										{ kind: "compute", fn: "greatest", args: [first, second] }
+									] as const) {
+										refused(
+											lowerWith("query", combination, vars, false, baseParams),
+											"MalformedDescription"
+										)
+									}
+									c.note(
+										`an exact value beside a plain value of its family refused, ${exactDigitsOf(a.nominal) === undefined ? "plain" : "exact"} first`
+									)
+									continue
 								}
 								if (combined(cond, a, b, (node) => node.args.slice(1))) {
 									noteShape(first, second, c)

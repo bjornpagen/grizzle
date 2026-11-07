@@ -1,17 +1,11 @@
-import { normalArrays, positionalColumns, type RelationSpec } from "#compiler/codec/recordset.ts"
+import { normalArray, positionalColumns, type RelationSpec } from "#compiler/codec/recordset.ts"
 import { paramEncoder, resultTextCasts } from "#compiler/codec/scalar.ts"
 import { canonicalEquals, catchRefusal, everyProperty, Refusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
-import type {
-	MemberEncoder,
-	ParamSlot,
-	RelationEncoder,
-	StatementSpec,
-	WriteSlot
-} from "#compiler/ir/products.ts"
+import type { ParamSlot, StatementSpec, WriteSlot } from "#compiler/ir/products.ts"
 
 import {
 	type ArrayPart,
@@ -196,74 +190,13 @@ const placeholderSpec = (
 	codes
 })
 
-/**
- * The encoders of relation inputs' placeholders under one codebook, by the columns the placeholders of one input in
- * one statement share (conservative/context.ts StatementParams.relation and WriteParams.member): every placeholder of
- * an input takes the one encoder its columns were given, which a binder runs once for all of them (ir/products.ts
- * ParamSlot). Keyed by the codebook's and those columns' identity, an entry lives as long as the statement holding
- * them, and a closed id's column of one installation never writes another's codes.
- */
-const memberEncoders = new WeakMap<
-	Codebook,
-	WeakMap<ReadonlyArray<RelationColumn>, MemberEncoder>
->()
-const relationEncoders = new WeakMap<
-	Codebook,
-	WeakMap<ReadonlyArray<RelationColumn>, RelationEncoder>
->()
-
-/** The entry of `cache` for `codes` and `columns`, built by `make` the first time it is asked for. */
-const cachedEncoder = <E>(
-	cache: WeakMap<Codebook, WeakMap<ReadonlyArray<RelationColumn>, E>>,
-	codes: Codebook,
-	columns: ReadonlyArray<RelationColumn>,
-	make: () => E
-): E => {
-	const byColumns = cache.get(codes) ?? new WeakMap<ReadonlyArray<RelationColumn>, E>()
-	cache.set(codes, byColumns)
-	const known = byColumns.get(columns)
-	if (known !== undefined) {
-		return known
-	}
-	const encode = make()
-	byColumns.set(columns, encode)
-	return encode
-}
-
-/**
- * The encoder of a member slot's placeholders over `columns`: the host normalized the slot's facts already, so it
- * writes their rows in its column order (codec/recordset.ts normalRows) and refuses no same-key pair.
- */
-const memberEncoder = (
-	label: string,
-	columns: ReadonlyArray<RelationColumn>,
-	codes: Codebook
-): MemberEncoder =>
-	cachedEncoder(memberEncoders, codes, columns, () =>
-		normalArrays(placeholderSpec(label, columns, codes))
-	)
-
-/**
- * The arrays encoder of a relation parameter's placeholders over `columns`, its refusals naming `label`: the
- * parameter's input is normalized once per execution, a set of facts deduplicated and refined there, so every statement
- * that binds it writes the rows of that one set in its own column order (codec/recordset.ts normalRows), as a member
- * slot's placeholders do.
- */
-const relationEncoder = (
-	label: string,
-	columns: ReadonlyArray<RelationColumn>,
-	codes: Codebook
-): RelationEncoder =>
-	cachedEncoder(relationEncoders, codes, columns, () =>
-		normalArrays(placeholderSpec(label, columns, codes))
-	)
-
 /** The position of a placeholder's array among its input's arrays: its column's, or the count's, the only one. */
 const partIndex = (part: ArrayPart): number => (part.kind === "column" ? part.index : 0)
 
 /**
  * What fills a declared parameter's placeholder under the installation's codes, with its encoder: a scalar's text
- * codec, a relation's arrays encoder, whose array at the placeholder's part it takes.
+ * codec, a relation's array encoder over the placeholder's columns (codec/recordset.ts normalArray), which writes the
+ * array at its part of the parameter's input, normalized once per execution.
  */
 export const declaredSlotOf =
 	(codes: Codebook) =>
@@ -280,12 +213,15 @@ export const declaredSlotOf =
 					kind: "relation",
 					param: slot.param,
 					part: partIndex(slot.part),
-					encode: relationEncoder(slot.param, slot.columns, codes)
+					encode: normalArray(placeholderSpec(slot.param, slot.columns, codes))
 				}
 		}
 	}
 
-/** What fills a member slot's placeholder, with its arrays encoder over the slot's normal facts. */
+/**
+ * What fills a member slot's placeholder, with its array encoder over the slot's normal facts: the host normalized them
+ * already, so it writes the array at its part of their rows in its column order and refuses no same-key pair.
+ */
 const memberSlotOf = (
 	slot: MemberParamSlot,
 	codes: Codebook
@@ -293,7 +229,7 @@ const memberSlotOf = (
 	kind: "member",
 	slot: slot.slot,
 	part: partIndex(slot.part),
-	encode: memberEncoder(slot.relation, slot.columns, codes)
+	encode: normalArray(placeholderSpec(slot.relation, slot.columns, codes))
 })
 
 /**
@@ -371,8 +307,8 @@ export const statementSpec = <Slot extends ConservativeParamSlot, P extends Para
  *   texts rather than the values (1.0 and 1.00 are one numeric and two texts: PostgreSQL's output texts are raw, and
  *   only decode reads them into one form), so the statement is read as a derived table that deduplicates values and
  *   the casts are applied outside it, with its ORDER BY re-applied to the uncast columns;
- * - one encoder per placeholder: a scalar parameter's text codec, a relation parameter's deduplicating arrays encoder
- *   (codec/recordset.ts), one per input, which each of its placeholders takes its array of, and the delivered parent
+ * - one encoder per placeholder: a scalar parameter's text codec, a relation parameter's array encoder over the input's
+ *   normal facts (codec/recordset.ts normalArray), which writes that placeholder's array alone, and the delivered parent
  *   keys of an attachment, whose texts the runtime reads from the parent statement's rows;
  * - its heading, the statement's output heading: its rows are texts, a rows statement's its heading's columns then one
  *   per fused attachment column, an attachment statement's the parent key columns first, which the runtime stitches

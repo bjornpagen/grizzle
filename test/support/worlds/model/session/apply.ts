@@ -12,7 +12,7 @@ import {
 	valueText
 } from "#test/support/laws/model.ts"
 import { nextDraw, withSerial, withSerials } from "#test/support/worlds/model/draws.ts"
-import { entryRows, factKey, isMember } from "#test/support/worlds/model/host.ts"
+import { uniqueFacts, entryRows, isMember } from "#test/support/worlds/model/host.ts"
 import {
 	type Cell,
 	checkLaw,
@@ -546,14 +546,7 @@ const inTerms = (fact: HostFact, terms: Readonly<Record<string, string>>): HostF
 const allInTerms = (
 	facts: ReadonlyArray<HostFact>,
 	terms: Readonly<Record<string, string>>
-): ReadonlyArray<HostFact> => [
-	...new Map(
-		Arr.map(facts, (f) => {
-			const row = inTerms(f, terms)
-			return [factKey(row), row] as const
-		})
-	).values()
-]
+): ReadonlyArray<HostFact> => uniqueFacts(Arr.map(facts, (f) => inTerms(f, terms)))
 
 /** The base relations a role relation's definition reads: a whole entry's relation, every relation a query matches. */
 const definitionReads = (role: RoleSpec, relation: string): ReadonlySet<string> => {

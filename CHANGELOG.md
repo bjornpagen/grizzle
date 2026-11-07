@@ -16,6 +16,29 @@ How to upgrade:
 
 ### Breaking changes
 
+#### A variable binds only a field of its own type, so a contract never binds its bare base
+
+- **`r.match` and `r.not` refuse a variable bound at a field of another type, exactly where `Compute.eq` of the two is
+  refused.** A variable minted over a contract field and bound at a field of the contract's bare base, or the reverse,
+  such as `r.match(Lit, { id, n: c })` with `c` a `Cents` and `n` a `pg.bigint`, compiled from JavaScript: the
+  variable took the type of the first field it was bound at, so the query delivered bigint values its result type
+  called `Cents`, while `r.eq(c, n)` was refused. Now a binding checks the variable against its field by the one
+  identity two operands meet by and throws MalformedDescription. TypeScript already refused it. Bind the variable at a
+  field of its own type, and compare a contract with its base through `Compute.base`. No codemod.
+
+#### A subterm that reads no row is installed as its value, so a generated field comparing constant texts installs
+
+- **The installation prints every compound subterm of a CHECK, a domain CHECK, a generated field, a law column or an
+  index predicate that reads no row field as its value**, which the host's exact evaluator computes as PostgreSQL does
+  under pg_c_utf8, a closed read at a handle written in the term included; a boolean one that is NULL as
+  `NULLIF(true, true)`. A generated field or a selection whose term compared texts that read no row field, such as
+  `Compute.in(Compute.literal(Text, "ab"), ["ab", "bb"])`, `Compute.eq(Pick.at("t", "k1"), "a")`, or `startsWith`,
+  `endsWith`, `greatest` and `least` over such texts, compiled and then failed its migration with 42P22 ("could not
+  determine which collation to use for string comparison"): PostgreSQL 19 plans a generation expression, and so
+  pre-evaluates a function of constants, before it assigns the expression's collations, a PostgreSQL bug written up
+  in `upstream/generated-column-collation-before-planning`. Regenerate: an expression holding such a subterm prints
+  its value. No codemod.
+
 #### A refused check names every rule its row breaks, and says when it can name only PostgreSQL's first
 
 - **`invariant-rejected` carries `refused` in place of `laws`: `{ kind: "every", laws }` or `{ kind: "first", laws }`.**
@@ -33,6 +56,14 @@ How to upgrade:
   carried into a table typed by its target's columns before they are written, so the domain's check refused them
   there, and the witness was `unreported`; a whole entry's write named the key. Now the carrier's fill states what it
   casts, and the witness is the key you submitted, in the entry's fields, as the README says. No codemod.
+
+#### An insert or a put from a query into a relation with a generated field compiles
+
+- **An insert or a put from a query into a relation with a generated field compiles.** When the query's rows were not
+  proved unique on the key, the statement's same-key check asked them for every field, a generated one included, which
+  a source never carries, and the compiler died on an internal invariant. A requested row's generated field is now its
+  generation expression over the fields the source carries, the value PostgreSQL stores, as a put's and a probe's
+  already were. No codemod.
 
 #### A row's identity is its texts, never one text joined from them, so a nested write's content may sum past JavaScript's longest string
 
@@ -152,6 +183,21 @@ How to upgrade:
   way. Ends whose two texts coincide, an integer's, a numeric's or a text's, were right. The family planner now carries
   every count and end as its host value from the fill to the statement that writes it, and writes its text once,
   there. No codemod.
+
+#### A closed read is a value of its field's type, and a bare literal beside an exact branch takes that branch's type
+
+- **`C.at(field, k…)` has its field's bounds and facts, as a field of that type has them.** A closed read stood with
+  no bounds, which arithmetic read as zero digits: `Compute.add(n, Pick.at("n", kind))` over integers was an exact
+  integer of 0 digits, so its cast into `pg.bigint`, and a cast inside `Compute.within` over a product with a closed
+  read, were refused as `PartialOperation`, and a closed read of a contract lost the facts the contract declares.
+  Every value of a number now carries its type's bounds where nothing narrower is proved, and a guard narrows it
+  whatever its operands proved. A closed read's bounds are its field's type's, never its rows' values, so a row's
+  change never changes a type. No codemod.
+- **A bare literal in `Compute.cond` or `Compute.when` beside an exact branch is a value of that branch's type.**
+  `Compute.cond(p, Compute.add(a, b), 0n)` was built as an exact integer of the sum's digits and compiled as one of
+  bigint's 19, the literal's own type, so a cast of it that the types admitted could be refused. The literal now takes
+  the exact branch's type, and one of more digits than that type holds is `MalformedDescription`, "a literal beside an
+  exact value of n digits: …". No codemod.
 
 #### A guard over a contract is admitted whatever its domain holds, a text's bytes have a guard, power's precondition splits in two, and a set literal keeps its roster
 
@@ -452,6 +498,15 @@ How to upgrade:
   subject's type, so a contract's text matches only its own. A conditional over a numeric delivers a Decimal for a
   bigint or string branch. `Compute.literal` takes a set's descriptor, as the engine does. A `Compute.within` low bound
   TypeScript cannot see, a Decimal or a string-typed value, is the engine's to judge, as a divisor's is. No codemod.
+- **An exact value and a plain value of its family share no type in a conditional, LEAST or GREATEST.** PostgreSQL
+  widens the plain one implicitly; grizzle refuses an exact integer beside a smallint, an integer or a bigint, and exact
+  money beside money, in `Compute.cond`, `Compute.when`, `Compute.least` and `Compute.greatest`, in either order, by the
+  types, `Refusal<"operands of one type: an exact value beside a plain value of its family; Compute.cast the exact one
+  into the plain one's type">` at the operand that differs from the first, and by compilation (`MalformedDescription`).
+  Such a call was admitted, typed by its first operand while its column delivered the common type:
+  `Compute.when(Compute.nonzero(d), (d) => Compute.div(x, d), x)` was typed `number | bigint`. Codemod: cast the exact
+  operand into the plain one's type, `Compute.when(Compute.nonzero(d), (d) => Compute.cast(Compute.div(x, d),
+  pg.integer), x)`.
 - **A value its contract refuses is a type error where the types can tell.** A JavaScript value a contract reads, a
   constant of it (`Compute.literal(Cents, -1n)`) or a value opposite a term of it (`Compute.div(cell.divisor, 0)`,
   `Compute.lt(cents, -1n)`, a `Compute.within` bound, a member of an IN list, a conditional's other branch), that lacks
@@ -501,6 +556,16 @@ How to upgrade:
   immediate key between two family relations are the only orders, and a family update or count meets a key only at
   the columns it changes. An owner's insert precedes its members' insert, and their delete its own, only where the
   family's owner axis is immediate: a cycle of families, whose owner axes are deferred, needs neither. No codemod.
+- **A stratum's update in place meets a key only at the columns its edits write.** Every edited member relation's
+  update counted as changing every column it could set, so a delete of an ordered family's member, which re-places
+  its later siblings by a delete and an insert, or an insert of a counted family's member, which appends, met an
+  immediate key over a caller field beside a pure set's delete and insert, and a lawful ChangeSet was refused with
+  `UnorderableStratum`. Now a put changes its own fields; a delete or a put the columns its counted families draw on
+  the members they move or draw again; an insert or a nested row nothing in place; each with the generated columns
+  that read them. No codemod.
+- **A planned family statement the schedule placed no statement for fails closed.** Each family statement was sent
+  only by a scheduled one of its kind and target, and any other would have gone unsent; it is now an internal
+  invariant failure when the write is planned.
 
 - **A field grizzle fills that reads a column its source fills after it is `UnfillableField`** (new reason), at the
   law that states it, naming the field, the law, the column it reads, the axis and why that column is later
@@ -521,6 +586,11 @@ How to upgrade:
   other column a nested insert fills; a copy of a tree node's `end` along any owner axis; an insert of a tree that owns
   an ordered family; a predecessor or last copy of a generated field; appends to an immutable owner that is a tree
   node or a sequence member inserted in the same ChangeSet.
+- **A counted family's fold may step or select its member's copy along the owner axis of a sequence the member is also
+  in.** The nested write fills the copy on entering the row and the counted family completes the row afterwards, yet
+  such a schema was refused (`UnfillableField`, `unreached`). A put that moves the member to another of that
+  sequence's owners re-places it with the new owner's value, and its counted families draw their folds from it; a
+  change of the owner's column refills them. No codemod.
 - A put or delete of a family's member that owns a sequence is still refused at the write.
 - **A ChangeSet that would leave a family's derived value stale is `StaleDerivedRead`** (new reason) when it
   compiles: a put that changes a stored row's column, or an edit of a family that changes its owner's count or a

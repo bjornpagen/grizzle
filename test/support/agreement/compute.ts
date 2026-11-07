@@ -251,7 +251,9 @@ const refusalNotes = {
 	"the span's own endpoint descriptor: a descriptor of another type is no endpoint of the span":
 		"refused: an endpoint",
 	"a value its contract refuses: it lacks a fact the contract declares":
-		"refused: a contract's value"
+		"refused: a contract's value",
+	"operands of one type: an exact value beside a plain value of its family; Compute.cast the exact one into the plain one's type":
+		"refused: an exact value beside a plain one"
 } as const
 type ComputeRefusal = keyof typeof refusalNotes
 type RefusalNote = (typeof refusalNotes)[ComputeRefusal]
@@ -284,6 +286,27 @@ type Inference = (typeof computeInferences)[number]
  */
 const headingNote = "a column read through a heading"
 type HeadingNote = typeof headingNote
+
+/**
+ * A CASE (Compute.when, Compute.cond) or a LEAST or GREATEST over an exact value and a plain value of its family, in
+ * either order: they share no type, which both sides refuse, naming the cast that makes them one.
+ */
+const familyNotes = [
+	"a CASE of an exact branch first beside a plain one",
+	"a CASE of a plain branch first beside an exact one",
+	"LEAST or GREATEST of an exact operand first beside a plain one",
+	"LEAST or GREATEST of a plain operand first beside an exact one"
+] as const
+
+/**
+ * A CASE whose other branch is a bigint literal beside an exact branch, which takes the exact branch's type: admitted
+ * where its digits fit it, and the engine's alone where they do not, a literal's value the types cannot see.
+ */
+const exactLiteralNotes = [
+	"a literal beside an exact branch, which fits it",
+	"a literal beside an exact branch, wider than it"
+] as const
+type FamilyNote = (typeof familyNotes)[number] | (typeof exactLiteralNotes)[number]
 
 /**
  * What a byte guard case reached, by the engine's verdict on its check: its cast admitted within the guard's high bound,
@@ -364,6 +387,90 @@ const contractNoteOf: { readonly [F in Fn]?: ContractNote } = {
 	quot: "a dividend its contract refuses"
 }
 
+/** The exact carriers' SQL types and the plain SQL types of their families. */
+const exactSql: ReadonlyArray<string> = ["exact integer", "exact money"]
+const familySql: Readonly<Record<string, string>> = {
+	smallint: "exact integer",
+	integer: "exact integer",
+	bigint: "exact integer",
+	"exact integer": "exact integer",
+	money: "exact money",
+	"exact money": "exact money"
+}
+
+/**
+ * What a CASE or a LEAST or GREATEST at a case's root reached (familyNotes): its first operand and another of its
+ * family, the one exact and the other plain, built as the engine builds each, or an exact branch beside a bigint literal
+ * (exactLiteralNotes), by its verdict; none for any other case, or where a build refuses.
+ */
+const familyNotesOf = (spec: CaseSpec, verdict: Verdict): ReadonlyArray<FamilyNote> => {
+	if (spec.kind !== "term") {
+		return []
+	}
+	const t = spec.term
+	const sqls: Array<string> = []
+	const built = Result.try(() =>
+		queryOver(Cells).rule((r: RuleValue) => {
+			const cell = varsOver(Cell, "cell")
+			const head = varsOver(Heads, "head")
+			const building = new Building(r, written, cell, head, undefined)
+			const operands: ReadonlyArray<unknown> =
+				t.kind === "when"
+					? [
+							new Building(r, written, cell, head, guardSubject(building.guard(t.guard))).term(
+								t.body
+							),
+							building.operand(t.otherwise)
+						]
+					: t.kind === "cond"
+						? [building.operand(t.whenTrue), building.operand(t.otherwise)]
+						: t.kind === "apply" && (t.fn === "least" || t.fn === "greatest")
+							? Arr.map(t.args, (o) => building.operand(o))
+							: []
+			for (const operand of operands) {
+				sqls.push(typedTermOf(operand)?.carrier.sql ?? "a value")
+			}
+			return r.match(Cell, { id: cell["id"] }).find({ id: cell["id"] })
+		})
+	)
+	const [first, ...rest] = sqls
+	if (Result.isFailure(built) || first === undefined) {
+		return []
+	}
+	if (
+		Arr.contains(exactSql, first) &&
+		(t.kind === "when" || t.kind === "cond") &&
+		t.otherwise.kind === "literal" &&
+		typeof t.otherwise.lit.value === "bigint"
+	) {
+		return verdict.kind === "admitted"
+			? ["a literal beside an exact branch, which fits it"]
+			: verdict.kind === "decided" && verdict.note === engineDecides.literal
+				? ["a literal beside an exact branch, wider than it"]
+				: []
+	}
+	const family = familySql[first]
+	const mixed = Arr.some(
+		rest,
+		(q) => q !== first && family !== undefined && familySql[q] === family
+	)
+	if (!mixed) {
+		return []
+	}
+	const exactFirst = Arr.contains(exactSql, first)
+	return t.kind === "when" || t.kind === "cond"
+		? [
+				exactFirst
+					? "a CASE of an exact branch first beside a plain one"
+					: "a CASE of a plain branch first beside an exact one"
+			]
+		: [
+				exactFirst
+					? "LEAST or GREATEST of an exact operand first beside a plain one"
+					: "LEAST or GREATEST of a plain operand first beside an exact one"
+			]
+}
+
 /** What a case reached: its constructs, the engine's verdict, the Refusal it names and what its types infer. */
 export type ComputeNote =
 	| ComputeFeature
@@ -371,6 +478,7 @@ export type ComputeNote =
 	| ByteNote
 	| ContractNote
 	| ContestedNote
+	| FamilyNote
 	| "admitted"
 	| "refused"
 	| "refused: structurally"
@@ -480,7 +588,8 @@ type TextField = (typeof families.text)[number]
 
 /**
  * The fields of Cell Tuning (./compute-schema.ts) holds a payload of at each tone, of one type each: its integers, its
- * numeric and the contracts over an integer, one that declares nonnegative and one nonzero.
+ * numeric and the contracts over an integer, one that declares nonnegative and one nonzero, each of a predicate that is
+ * its declared fact alone, so a guard's bound one refuses lacks a fact the types read (contractRefusal).
  */
 const tunedFields = ["small", "int", "big", "dec", "cents", "divisor"] as const
 type TunedField = (typeof tunedFields)[number]
@@ -875,7 +984,7 @@ const alignedCond = (whenTrue: Operand): TermSpec => {
  * contract itself, divided by the base or the value of a contract that declares nonzero; a numeric divided by a typed
  * constant of it; a double precision constant, whose value proves its facts, or a Rate constant, whose value its
  * contract judges first, raised to a power or a Rate constant's square root, of a value in Rate or out of it; money
- * minus money, an exact money.
+ * minus money, an exact money; LEAST and GREATEST of an exact integer and an integer, in either order.
  */
 const aimedOperands: {
 	readonly [F in Fn]?: (d: Drawing) => Arr.NonEmptyReadonlyArray<Operand>
@@ -905,7 +1014,34 @@ const aimedOperands: {
 			otherOperand(d, { kind: "field", field }, 0)
 		]
 	},
-	sqrt: (d) => [{ kind: "typed", field: "rate", lit: d.from(baseDecimals()) }]
+	sqrt: (d) => [{ kind: "typed", field: "rate", lit: d.from(baseDecimals()) }],
+	least: (d) => exactBeside(d),
+	greatest: (d) => exactBeside(d)
+}
+
+/** The exact integer of a smallint's or an integer's sum with itself: of 6 or 11 digits. */
+const exactSum = (d: Drawing): Operand => {
+	const plain: Operand = { kind: "field", field: d.from(["small", "int"] as const) }
+	return { kind: "term", term: { kind: "apply", fn: "add", args: [plain, plain] } }
+}
+
+/**
+ * The bigint literals a CASE draws beside an exact integer branch (exactSum): one every exact integer holds, and one of
+ * 16 digits, within a bigint and wider than the branch.
+ */
+const exactLiterals: Arr.NonEmptyReadonlyArray<Lit> = [
+	{ text: "1n", value: 1n },
+	{ text: "1000000000000000n", value: 10n ** 15n }
+]
+
+/**
+ * An integer field and the exact integer of its sum with itself, in either order: an exact value beside a plain value
+ * of its family, which share no type (familyNotes).
+ */
+const exactBeside = (d: Drawing): readonly [Operand, Operand] => {
+	const plain: Operand = { kind: "field", field: d.from(["small", "int", "big"] as const) }
+	const exact: Operand = { kind: "term", term: { kind: "apply", fn: "add", args: [plain, plain] } }
+	return d.from([0, 1]) === 0 ? [exact, plain] : [plain, exact]
 }
 
 /**
@@ -1216,8 +1352,9 @@ const predReads = (
 const asideFns = ["div", "mod", "quot", "rem", "sqrt", "power"] as const
 
 /**
- * An operand of the type a branch over `subject` returns, which its otherwise branch is drawn opposite: a cast's target,
- * an integer for a least scale, and otherwise the branch's first operand, the subject where it stands first.
+ * An operand of the type a branch over `subject` returns, which its otherwise branch is, half the time, or is drawn
+ * opposite: a cast's target, an integer for a least scale, and otherwise the branch's first operand, the subject where
+ * it stands first, beside which a quotient's exact integer shares no type (familyNotes).
  */
 const branchOperand = (body: TermSpec, subject: Operand): Operand => {
 	switch (body.kind) {
@@ -1410,14 +1547,15 @@ type CastAim = (typeof castAims)[number]
 /**
  * A term's root: a cast under its aim, a when of one branch, a division by a column read through a heading (its facts
  * its column type's, so admitted or refused as the type declares nonzero), a partial operation over a constant its
- * contract refuses, or any other term construct. Each aim and branch is a root of its own, so the floor draws each
- * often enough to meet what it aims at.
+ * contract refuses, a CASE of an exact branch beside a bigint literal, which fits it or not, or any other term
+ * construct. Each aim and branch is a root of its own, so the floor draws each often enough to meet what it aims at.
  */
 type TermRoot =
 	| { readonly kind: "cast"; readonly aim: CastAim }
 	| { readonly kind: "when"; readonly branch: Branch }
 	| { readonly kind: "heading" }
 	| { readonly kind: "contract" }
+	| { readonly kind: "exact literal" }
 	| { readonly kind: "term"; readonly root: Exclude<TermKind, "cast" | "when"> }
 
 /** A term's root of a construct the swarm chose: a cast's aim and a when's branch drawn. */
@@ -1434,6 +1572,7 @@ const termRoots: Arr.NonEmptyReadonlyArray<TermRoot> = [
 	...Arr.map(branches, (branch): TermRoot => ({ kind: "when", branch })),
 	{ kind: "heading" },
 	{ kind: "contract" },
+	{ kind: "exact literal" },
 	...Arr.flatMap(termKinds, (root): ReadonlyArray<TermRoot> =>
 		root === "cast" || root === "when" ? [] : [{ kind: "term", root }]
 	)
@@ -1450,6 +1589,8 @@ const termRootName = (root: TermRoot): { readonly feature: TermKind; readonly na
 			return { feature: "div", name: headingNote }
 		case "contract":
 			return { feature: "sqrt", name: "a partial operation over a value its contract refuses" }
+		case "exact literal":
+			return { feature: "cond", name: "a literal beside an exact branch" }
 		case "term":
 			return { feature: root.root, name: root.root }
 	}
@@ -1474,6 +1615,16 @@ const termOf = (d: Drawing, root: TermRoot): TermSpec => {
 					{ kind: "field", field: headFields[column] },
 					{ kind: "heading", column }
 				]
+			}
+		}
+		case "exact literal": {
+			const exact = exactSum(d)
+			const own: Operand = { kind: "field", field: "int" }
+			return {
+				kind: "cond",
+				p: { kind: "compare", op: "eq", a: own, b: own },
+				whenTrue: exact,
+				otherwise: { kind: "literal", lit: d.from(exactLiterals) }
 			}
 		}
 		case "contract": {
@@ -1503,11 +1654,12 @@ const termOf = (d: Drawing, root: TermRoot): TermSpec => {
 				root.branch
 			)
 			const body = guardedBody(d, guard, root.branch)
+			const own = branchOperand(body, guard.x)
 			return {
 				kind: "when",
 				guard,
 				body,
-				otherwise: otherOperand(d, branchOperand(body, guard.x), 0)
+				otherwise: d.from([0, 1]) === 0 ? own : otherOperand(d, own, 0)
 			}
 		}
 		case "term": {
@@ -1527,14 +1679,26 @@ const termOf = (d: Drawing, root: TermRoot): TermSpec => {
 			}
 			if (kind === "cond") {
 				const whenTrue = firstOperand(d, homes.least, 1)
-				return d.from([0, 1]) === 0
-					? alignedCond(whenTrue)
-					: {
+				switch (d.from([0, 1, 2])) {
+					case 0:
+						return alignedCond(whenTrue)
+					case 1: {
+						const [first, other] = exactBeside(d)
+						return {
+							kind: "cond",
+							p: predOf(d, d.choose(predKinds)),
+							whenTrue: first,
+							otherwise: other
+						}
+					}
+					default:
+						return {
 							kind: "cond",
 							p: predOf(d, d.choose(predKinds)),
 							whenTrue,
 							otherwise: otherOperand(d, whenTrue, 1)
 						}
+				}
 			}
 			return applyOver(d, kind, 1)
 		}
@@ -2169,6 +2333,10 @@ const partialRefusals: Readonly<Record<string, ComputeRefusal>> = {
 		"a power's base proved nonnegative, and nonzero or its exponent nonnegative: guard it with Compute.when(Compute.positive(x), (x) => …, otherwise)"
 }
 
+/** The Refusal of an exact value beside a plain value of its family, which share no type (familyNotes). */
+const familyRefusal: ComputeRefusal =
+	"operands of one type: an exact value beside a plain value of its family; Compute.cast the exact one into the plain one's type"
+
 /** The engine's words for a refusal, on one line. */
 const oneLine = (text: string): string => Arr.join(Str.split(text, "\n"), " ")
 
@@ -2181,18 +2349,20 @@ const claimOf = (reason: CompileReason): Claim => {
 			: { kind: "refusal", refusal }
 	}
 	if (reason._tag === "MalformedDescription") {
-		return Str.includes("a literal never stands first")(reason.what)
-			? {
-					kind: "refusal",
-					refusal: "a term first: a literal takes its place opposite a term, never first"
-				}
-			: Str.startsWith("the span's own endpoint descriptor")(reason.what)
+		return Str.startsWith(familyRefusal)(reason.what)
+			? { kind: "refusal", refusal: familyRefusal }
+			: Str.includes("a literal never stands first")(reason.what)
 				? {
 						kind: "refusal",
-						refusal:
-							"the span's own endpoint descriptor: a descriptor of another type is no endpoint of the span"
+						refusal: "a term first: a literal takes its place opposite a term, never first"
 					}
-				: { kind: "prose", why: `the engine: ${oneLine(reason.what)}` }
+				: Str.startsWith("the span's own endpoint descriptor")(reason.what)
+					? {
+							kind: "refusal",
+							refusal:
+								"the span's own endpoint descriptor: a descriptor of another type is no endpoint of the span"
+						}
+					: { kind: "prose", why: `the engine: ${oneLine(reason.what)}` }
 	}
 	if (reason._tag === "UnsupportedOperation") {
 		return Str.startsWith("cast:")(reason.capability)
@@ -2396,16 +2566,18 @@ const decidedBy = (thrown: unknown): DecidedNote | undefined => {
 	if (text === undefined) {
 		return undefined
 	}
-	return Str.startsWith("an exact decimal literal")(text)
-		? engineDecides.digits
-		: Str.startsWith("a pattern whose every value is seen")(text)
-			? engineDecides.pattern
-			: Str.startsWith("from and to of")(text) ||
-				  Str.startsWith("from holding each character once")(text)
-				? engineDecides.literal
-				: Str.includes(" in a query")(text)
-					? engineDecides.placement
-					: undefined
+	return Str.startsWith("a literal beside an exact value of ")(text)
+		? engineDecides.literal
+		: Str.startsWith("an exact decimal literal")(text)
+			? engineDecides.digits
+			: Str.startsWith("a pattern whose every value is seen")(text)
+				? engineDecides.pattern
+				: Str.startsWith("from and to of")(text) ||
+					  Str.startsWith("from holding each character once")(text)
+					? engineDecides.literal
+					: Str.includes(" in a query")(text)
+						? engineDecides.placement
+						: undefined
 }
 
 /**
@@ -2606,17 +2778,25 @@ const engineVerdict = (
 				? decidedOr(form.failure, undefined, code)
 				: { kind: "admitted", admitted: { term: undefined, out: undefined, params: [] } }
 		}
-		case "bytes":
-		case "closed": {
-			const compiled = Result.try(() =>
-				testArtifacts(spec.kind === "bytes" ? bytesSchema(spec) : closedSchema(spec), testCompile)
-			)
+		case "bytes": {
+			const compiled = Result.try(() => testArtifacts(bytesSchema(spec), testCompile))
 			if (Result.isFailure(compiled)) {
 				return decidedOr(compiled.failure, undefined, code)
 			}
 			return compiled.success.ok
 				? { kind: "admitted", admitted: { term: undefined, out: undefined, params: [] } }
 				: decidedOr(compiled.success.error, undefined, code)
+		}
+		case "closed": {
+			const compiled = Result.try(() => testArtifacts(closedSchema(spec), testCompile))
+			if (Result.isFailure(compiled)) {
+				return decidedOr(compiled.failure, undefined, code)
+			}
+			return compiled.success.ok
+				? { kind: "admitted", admitted: { term: undefined, out: undefined, params: [] } }
+				: isContractLiteral(compiled.success.error)
+					? { kind: "refused", claim: { kind: "refusal", refusal: contractRefusal }, code }
+					: decidedOr(compiled.success.error, undefined, code)
 		}
 		case "member":
 			return hasMember(spec.holder, spec.name)
@@ -2734,7 +2914,8 @@ const guardSubject = (guard: unknown): unknown =>
 /**
  * The Refusal a when's branch states of its own, where it states one: the branch built over its guard's subject, the
  * case's values read as the types read them (standInsOf), refused for a Refusal where it is built, or else judged as
- * the when with a parameter of the branch's type as its otherwise (a field of Cell whose type meets the branch's). None
+ * the when with a parameter of the branch's type as its otherwise (a field of Cell of the branch's SQL type, which an
+ * exact value and a plain one of its family do not share). None
  * where the guard itself is refused, whose refusal is the case's, but for a branch that never reads its subject, which
  * the types judge apart from the guard: its own verdict as a case of its own.
  */
@@ -2771,7 +2952,11 @@ const branchRefusal = (
 				if (typed !== undefined) {
 					for (const field of allFields) {
 						const own = typedTermOf(cell[field])
-						if (own !== undefined && meets(own.type, typed.type)) {
+						if (
+							own !== undefined &&
+							meets(own.type, typed.type) &&
+							own.carrier.sql === typed.carrier.sql
+						) {
 							met.push(field)
 						}
 					}
@@ -3229,6 +3414,9 @@ const caseOf = ({ spec, reached }: Drawn): ComputeCase => {
 	for (const note of contractNotesOf(spec, verdict)) {
 		notes.add(note)
 	}
+	for (const note of familyNotesOf(spec, verdict)) {
+		notes.add(note)
+	}
 	switch (verdict.kind) {
 		case "admitted":
 			notes.add("admitted")
@@ -3328,6 +3516,8 @@ export const computeRequired: ReadonlyArray<Reached<ComputeNote>> = [
 	...computeDecided,
 	[headingNote, "admitted"],
 	[headingNote, "refused"],
+	...Arr.map(familyNotes, (n) => [n, "refused"] as const),
+	...exactLiteralNotes,
 	...byteNotes,
 	...contractNotes,
 	contestedNote,
@@ -3355,7 +3545,9 @@ const caseGen =
 const reachedBy = (c: ComputeCase): ReadonlyArray<Reached<ComputeNote>> => [
 	...c.notes,
 	...Arr.flatMap([...c.notes], (n): ReadonlyArray<Reached<ComputeNote>> =>
-		Arr.contains(computeFeatures, n) || n === headingNote
+		Arr.contains(computeFeatures, n) ||
+		n === headingNote ||
+		Arr.contains<ComputeNote>(familyNotes, n)
 			? [
 					[
 						n,

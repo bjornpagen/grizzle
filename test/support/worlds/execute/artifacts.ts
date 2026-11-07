@@ -10,7 +10,7 @@ import {
 } from "#adapter/wire/batch.ts"
 import * as EngineResult from "#compiler/core/result.ts"
 import type { CompiledTemplate } from "#compiler/program/template.ts"
-import { factKey } from "#test/support/worlds/model/host.ts"
+import { factKeySet } from "#test/support/worlds/model/host.ts"
 import type { HostFact } from "#test/support/worlds/model/types.ts"
 
 /**
@@ -176,8 +176,8 @@ const executorAt = (ctx: DbContext, meeting: Ref.Ref<Meeting>, side: Side): Read
  * each fact by every field and its value. Two artifacts that repeat one row alike deliver no set, so they do not agree.
  */
 const sameFacts = (left: ReadonlyArray<HostFact>, right: ReadonlyArray<HostFact>): boolean => {
-	const l = new Set(Arr.map(left, factKey))
-	const r = new Set(Arr.map(right, factKey))
+	const l = factKeySet(left)
+	const r = factKeySet(right)
 	return (
 		l.size === left.length &&
 		r.size === right.length &&

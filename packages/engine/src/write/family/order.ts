@@ -7,8 +7,7 @@
  * a write's statements go in one order:
  *
  * - deletes first: every removed member, every member a sequence's suffix rewrite re-places, and every member a move
- *   between groups re-places, by key, members before their owners (deepest relation first), and a tree rewritten whole
- *   by its root field;
+ *   between groups re-places, by key, members before their owners (deepest relation first);
  * - then updates in place, by key: a counted member moved into a slot a delete freed, a member whose accumulators a
  *   refill changes, and a member whose caller fields change; each sets every column but its key, its groups and its
  *   copies of its owners' counts, which the owner axes cascade. A move goes only into a freed slot, so no slot is held
@@ -65,15 +64,14 @@ import { byPatternInput } from "#compiler/write/family/pattern-order.ts"
 
 /**
  * One member relation's rows of a write, each kind a set by its key's texts, compared element by element
- * (core/tuple-map.ts), so no row is written twice by one kind: those deleted by key, its trees deleted whole by their
- * root fields' texts, its kept rows a refill rewrites in place ahead of the change it draws (analysis/theory/refill.ts),
+ * (core/tuple-map.ts), so no row is written twice by one kind: those deleted by key, its kept rows a refill rewrites in
+ * place ahead of the change it draws (analysis/theory/refill.ts),
  * its other kept rows updated in place, and its new and re-placed rows inserted, in the order they go: a sequence's
  * members in ascending slot order per owner, a tree's in pre-order.
  */
 export interface RelationWrite {
 	readonly relation: string
 	readonly deletes: ReadonlyTupleSet<MemberKey>
-	readonly trees: ReadonlyTupleSet<Owner>
 	readonly refills: ReadonlyTupleMap<MemberKey, Row>
 	readonly updates: ReadonlyTupleMap<MemberKey, Row>
 	readonly inserts: ReadonlyTupleMap<MemberKey, Row>
@@ -129,11 +127,6 @@ export type FamilyStatement =
 			readonly rows: NonEmptyReadonlyArray<MemberKey>
 	  }
 	| {
-			readonly kind: "deleteTree"
-			readonly relation: string
-			readonly rows: NonEmptyReadonlyArray<Owner>
-	  }
-	| {
 			readonly kind: "refill"
 			readonly relation: string
 			readonly rows: NonEmptyReadonlyArray<Row>
@@ -165,7 +158,7 @@ export type Phase<K extends FamilyStatement["kind"]> = ReadonlyArray<
  * they are sent.
  */
 export type Plan = readonly [
-	deletes: Phase<"delete" | "deleteTree">,
+	deletes: Phase<"delete">,
 	refills: Phase<"refill">,
 	updates: Phase<"update">,
 	counts: Phase<"count">,
@@ -177,8 +170,6 @@ export const textsOf = (statement: FamilyStatement): ReadonlyArray<ReadonlyArray
 	switch (statement.kind) {
 		case "delete":
 			return statement.rows.map(keyTexts)
-		case "deleteTree":
-			return statement.rows
 		case "refill":
 		case "update":
 		case "insert":
@@ -303,16 +294,16 @@ const unsendable = (statement: Unsendable["statement"], bound: Bound): Unsendabl
 
 /** A relation's write's statements: its deletes, its refills, its updates and its inserts. */
 export type RelationPlan = readonly [
-	deletes: Phase<"delete" | "deleteTree">,
+	deletes: Phase<"delete">,
 	refills: Phase<"refill">,
 	updates: Phase<"update">,
 	inserts: Phase<"insert">
 ]
 
 /**
- * A member relation's write cut into the statements the transport carries: its deletes by key, then its trees by root
- * field, its updates, and its inserts in their order; or the first row no statement can carry, before any statement is
- * planned. A row updated in place is neither deleted nor inserted.
+ * A member relation's write cut into the statements the transport carries: its deletes by key, its refills, its updates,
+ * and its inserts in their order; or the first row no statement can carry, before any statement is planned. A row
+ * updated in place is neither deleted nor inserted.
  */
 export const planRelation = (
 	write: RelationWrite,
@@ -330,10 +321,6 @@ export const planRelation = (
 	if (!deletes.ok) {
 		return Result.err(unsendable("delete", deletes.error))
 	}
-	const trees = cut([...write.trees], (t: Owner): ReadonlyArray<ParamText> => t, transport)
-	if (!trees.ok) {
-		return Result.err(unsendable("deleteTree", trees.error))
-	}
 	const refills = cut([...write.refills.values()], rowTexts, transport)
 	if (!refills.ok) {
 		return Result.err(unsendable("refill", refills.error))
@@ -347,10 +334,7 @@ export const planRelation = (
 		return Result.err(unsendable("insert", inserts.error))
 	}
 	const planned: RelationPlan = [
-		[
-			...deletes.value.map((rows) => ({ kind: "delete", relation, rows }) as const),
-			...trees.value.map((rows) => ({ kind: "deleteTree", relation, rows }) as const)
-		],
+		deletes.value.map((rows) => ({ kind: "delete", relation, rows }) as const),
 		refills.value.map(
 			(rows) => ({ kind: "refill", relation, rows: byPatternInput(rows, rowTexts, input) }) as const
 		),

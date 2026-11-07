@@ -17,7 +17,8 @@
  * A write may re-place a family member's stored rows, deleting and inserting them again, which no cascade follows: a
  * put that moves a member to another group, or that changes what an ordered family reads of it, and a delete of an
  * ordered family's member, which re-places every member after it. Every member's copy of a column a change makes on a
- * relation the stratum re-places, along a family it owns, is a reader too (`replacedBy`).
+ * relation the stratum re-places, along a family it owns, is a reader too, as is a re-placed member's copy of a column
+ * a change makes on its owner (`replacedBy`).
  *
  * The refills a write needs close over the changes the refills make in turn. A refill whose own changes reach it again
  * is a cycle no order of the refills draws.
@@ -217,7 +218,8 @@ interface Reached {
  * header. Each column it makes is followed into the readers of its relation's families but those it draws again itself,
  * along every owner axis that carries it, a tree's aside, and into every field generated from it; where its relation is
  * one `replaced` names, every owner axis that carries it is a reader too, a count among them, which its family's
- * members copy as ‹n›.
+ * members copy as ‹n›; and so is every owner axis that carries it into a relation `replaced` names, whose re-placed
+ * rows no cascade reaches either (a re-placed counted member's ‹n› is its edit's to draw, write/family/edit.ts).
  */
 const reachedBy = (
 	families: ReadonlyArray<Family>,
@@ -268,7 +270,7 @@ const reachedBy = (
 					}
 					const hop = { family: j, pair }
 					carried.push({ change, changed, copies, hop })
-					if (replaced.has(at.name)) {
+					if (replaced.has(at.name) || replaced.has(j.member.name)) {
 						paths.push({
 							change,
 							changed,

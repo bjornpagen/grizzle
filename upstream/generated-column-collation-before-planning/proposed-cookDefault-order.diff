@@ -1,0 +1,69 @@
+--- a/src/backend/catalog/heap.c
++++ b/src/backend/catalog/heap.c
+@@ -3400,30 +3400,12 @@
+ 	 * Transform raw parsetree to executable expression.
+ 	 */
+ 	expr = transformExpr(pstate, raw_default, attgenerated ? EXPR_KIND_GENERATED_COLUMN : EXPR_KIND_COLUMN_DEFAULT);
+-
+-	if (attgenerated)
+-	{
+-		/* Disallow refs to other generated columns */
+-		check_nested_generated(pstate, expr);
+-
+-		/* Disallow mutable functions */
+-		if (contain_mutable_functions_after_planning((Expr *) expr))
+-			ereport(ERROR,
+-					(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
+-					 errmsg("generation expression is not immutable")));
+ 
+-		/* Check security of expressions for virtual generated column */
+-		if (attgenerated == ATTRIBUTE_GENERATED_VIRTUAL)
+-			check_virtual_generated_security(pstate, expr);
+-	}
+-	else
+-	{
+-		/*
+-		 * For a default expression, transformExpr() should have rejected
+-		 * column references.
+-		 */
+-		Assert(!contain_var_clause(expr));
+-	}
++	/*
++	 * For a default expression, transformExpr() should have rejected column
++	 * references.
++	 */
++	Assert(attgenerated || !contain_var_clause(expr));
+ 
+ 	/*
+ 	 * Coerce the expression to the correct type and typmod, if given. This
+@@ -3451,10 +3433,29 @@
+ 	}
+ 
+ 	/*
+-	 * Finally, take care of collations in the finished expression.
++	 * Take care of collations in the finished expression.  This must precede
++	 * the generation expression checks below: the mutability check plans the
++	 * expression, and planning pre-evaluates functions of constants, which a
++	 * collatable function can't do before its input collation is set.
+ 	 */
+ 	assign_expr_collations(pstate, expr);
++
++	if (attgenerated)
++	{
++		/* Disallow refs to other generated columns */
++		check_nested_generated(pstate, expr);
+ 
++		/* Disallow mutable functions */
++		if (contain_mutable_functions_after_planning((Expr *) expr))
++			ereport(ERROR,
++					(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
++					 errmsg("generation expression is not immutable")));
++
++		/* Check security of expressions for virtual generated column */
++		if (attgenerated == ATTRIBUTE_GENERATED_VIRTUAL)
++			check_virtual_generated_security(pstate, expr);
++	}
++
+ 	return expr;
+ }
+ 

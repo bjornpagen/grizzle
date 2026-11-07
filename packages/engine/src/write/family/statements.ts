@@ -6,7 +6,6 @@
  * - a member relation's rows (`rowStatement`), whole in its row layout (`rowLayout`), whichever families it is a member
  *   of: `DELETE … WHERE key = r.key`, `UPDATE … SET <every settable column> … WHERE key = r.key`, and
  *   `INSERT INTO F (<every column>) SELECT …`;
- * - a tree deleted whole (`treeDelete`): `DELETE FROM T WHERE T.r = r`;
  * - a family's owners' counts (`countStatement`): `UPDATE O SET n = n, e… = e… … WHERE O.k… = k…`, each owner's one
  *   count and its ends, which the owner axis cascades into every member's ‹n›;
  * - a family's read (`suffixReadSql`, rows-first.md §2): its touched groups' owners and stored suffixes, one SELECT.
@@ -209,7 +208,7 @@ export type FamilySql = {
 	readonly arrays: number
 	readonly relation: string
 } & (
-	| { readonly kind: "delete" | "deleteTree"; readonly result: DeleteResult }
+	| { readonly kind: "delete"; readonly result: DeleteResult }
 	| { readonly kind: "update" | "refill"; readonly result: UpdateResult }
 	| { readonly kind: "count"; readonly family: FamilyId; readonly result: UpdateResult }
 	| { readonly kind: "insert"; readonly result: InsertResult }

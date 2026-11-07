@@ -41,7 +41,11 @@ import type { AxisKind, Family, FamilyFold, FoldPlane, TreeShape } from "#compil
 import type { NativeColumn, RelationInfo } from "#compiler/ir/law.ts"
 import { baseTypeRef } from "#compiler/ir/physical.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
-import { lowerPersistent, persistentLiteral } from "#compiler/physical/ddl/expr.ts"
+import {
+	lowerPersistent,
+	persistentClosed,
+	persistentLiteral
+} from "#compiler/physical/ddl/expr.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import type {
 	Assignment,
@@ -316,6 +320,7 @@ const maskedStep = (
 				kind: "row",
 				column: (ref) => member.fields.find((f) => f.name === ref.name)?.column
 			},
+			closed: persistentClosed(installation.checked),
 			loc: backfillLoc
 		})
 	)
@@ -1145,6 +1150,7 @@ const foldReads = (installation: Installation, family: Family): ReadonlySet<stri
 							kind: "row",
 							column: (ref) => member.fields.find((f) => f.name === ref.name)?.column
 						},
+						closed: persistentClosed(installation.checked),
 						loc: backfillLoc
 					})
 				)

@@ -951,6 +951,7 @@ export const typeRefusals = [
 	"one literal name",
 	"one span producer per head",
 	"one take over a union of several headings: each heading group is a statement of its own, which one take bounds and the merge across them keeps",
+	"operands of one type: an exact value beside a plain value of its family; Compute.cast the exact one into the plain one's type",
 	"page needs an ordered query",
 	"read-back names are distinct: the ChangeSets share a read-back name",
 	"read-back names are distinct: this ChangeSet already has a read-back of this name",

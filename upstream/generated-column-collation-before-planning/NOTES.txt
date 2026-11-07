@@ -1,0 +1,34 @@
+NOTES: generated-column-collation-before-planning
+
+What it is
+  PostgreSQL refuses, with 42P22 "could not determine which collation to use for string comparison" (or "... for
+  regular expression", "... for lower() function"), any generation expression that calls a collatable function on
+  constant arguments, as in GENERATED ALWAYS AS (CASE WHEN 'ab'::text IN ('ab', 'bb') THEN 1 ELSE 2 END) STORED. The
+  expression is immutable and is documented as allowed; the same expression is accepted in a CHECK, a DEFAULT, an index
+  predicate and a query. cookDefault() runs the immutability check, which plans the expression and so pre-evaluates
+  functions of constants, before it assigns collations (EVIDENCE.txt 1, 2). It is a bug, present on master
+  0607aa6109 and in every branch 743ddafc71 was back-patched to.
+
+How grizzle met it
+  A generated field, or a law column's selection or term, whose term compares texts that read no row field: two text
+  literals, or a closed relation's payload read at a handle written in the term (Pick.at("t", "k1")), which PostgreSQL
+  folds to a constant, against a literal; also startsWith, endsWith, greatest and least over such texts. The schema
+  compiled and its migration failed at the ALTER TABLE ... ADD COLUMN ... GENERATED statement (GEN-NULL's
+  test/pg/null/positions search).
+
+What grizzle does instead (it does not wait for a fix)
+  The persistent lowering (packages/engine/src/physical/ddl/expr.ts) folds every compound subterm that reads no row
+  field, by the host's exact evaluator, into a literal of its type before it prints a CHECK, a domain CHECK, a
+  generation expression or an index predicate. PostgreSQL then never pre-evaluates a collatable function of constants
+  there. When this is fixed upstream and the pin moves past the fix, the folding can stay: it is equal to PostgreSQL's
+  own answer under pg_c_utf8, and a constant is a literal either way.
+
+The fix proposed
+  proposed-cookDefault-order.diff, against master's heap.c: coerce, then assign collations, then run the generation
+  expression checks, as the comment on assign_expr_collations() asks ("after calling transformExpr() plus any
+  expression-modifying operations"). One visible change: a generation expression that is both mutable and of the wrong
+  type now reports the type mismatch first. Unbuilt and untested; see CHECKLIST.txt.
+
+For the owner
+  Nothing has been sent. email.txt is a report for pgsql-bugs (the bug form or the list), with the diff offered. Use
+  your sending address, not the GitHub noreply address.

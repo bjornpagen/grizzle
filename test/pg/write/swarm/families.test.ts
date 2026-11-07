@@ -6,64 +6,38 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { boundedShrink } from "@grizzle/testing/shrink"
 import { fullSwarm } from "@grizzle/testing/swarm"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Layer, Option, Record as Rec, Result } from "effect"
+import { Array as Arr, Effect, Formatter, Layer, Option, Result } from "effect"
 import { apply } from "#adapter/apply/index.ts"
 import { dbContext } from "#adapter/db/context.ts"
 import { Db } from "#adapter/public/db.ts"
 import type { LawId } from "#compiler/core/ids.ts"
-import type { ParamMap } from "#compiler/plan/common.ts"
-import { bits, pg, uuid } from "#compiler/public/fields.ts"
-import { query, v } from "#compiler/public/query.ts"
-import type { HeadShape } from "#compiler/types/query/terms.ts"
-import {
-	changeSetOver as ChangeSet,
-	type ChangeSetValue,
-	type MemberInput
-} from "#compiler/write/changeset/value.ts"
 import { caseGen, stepsGen } from "#test/pg/write/swarm/case.ts"
+import { changeSetOf, membershipIn, putsOf } from "#test/pg/write/swarm/changes.ts"
 import {
-	nothingStored,
-	type StepVerdict,
 	expectStep,
 	familyWrites,
 	hostSchema,
 	justified,
 	type Laws,
-	orphaned,
-	type PlainOp,
-	type Placed,
+	nothingStored,
 	type State,
 	type Step,
+	type StepVerdict,
 	storedRows,
 	type SwarmCase
 } from "#test/pg/write/swarm/oracle.ts"
 import {
 	buildSwarm,
-	type BuiltRelation,
 	type BuiltSwarm,
-	countName,
 	familyOf,
-	groupName,
-	holdsMask,
-	Mask,
-	idOfUuid,
-	swarmInstanceGen,
-	maskOf,
 	nonEmptyRelations,
-	plainFact,
-	plainName,
 	type SwarmFeature,
-	type SwarmSpec
+	type SwarmSpec,
+	swarmInstanceGen
 } from "#test/pg/write/swarm/spec.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, unorderedEqual } from "#test/support/assert.ts"
-import {
-	followUpMembers,
-	type InstanceRow,
-	relationName,
-	uuidOfRow,
-	writesVerdict
-} from "#test/support/families/fill.ts"
+import { type InstanceRow, writesVerdict } from "#test/support/families/fill.ts"
 import { installMigrated } from "#test/support/install-migrate.ts"
 import { lawNamesOf, namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -96,250 +70,6 @@ import { fullWorld, loginLayer } from "#test/support/worlds.ts"
  * texts each fail the search.
  */
 
-/** A fact as a ChangeSet states it. */
-type Fact = { readonly [field: string]: unknown }
-
-const membershipIn = (row: InstanceRow, f: number) =>
-	Option.getOrUndefined(Arr.findFirst(row.memberOf, (m) => m.family === f))
-
-/**
- * The top facts of an instance's rows by relation: each row no sequence nests, with its caller's fields, its set `b`,
- * its counted families' group fields, a tree root's own id as its root field, and each sequence's members nested at
- * its count field in slot order, each nested member its own caller's fields, set and counted group fields.
- */
-const topFacts = (
-	spec: SwarmSpec,
-	rows: ReadonlyArray<InstanceRow>
-): ReadonlyMap<number, ReadonlyArray<Fact>> => {
-	const factOf = (row: InstanceRow, nested: boolean): Fact => {
-		const fact: Record<string, unknown> = { id: uuidOfRow(row.id), v: row.v }
-		if (holdsMask(spec, row.relation)) {
-			fact["b"] = maskOf(row.id)
-		}
-		for (const m of row.memberOf) {
-			if (familyOf(spec, m.family).kind === "counted") {
-				fact[groupName(m.family)] = uuidOfRow(m.owner)
-			}
-		}
-		for (const [f, family] of spec.fill.families.entries()) {
-			if (family.kind === "tree" && family.member === row.relation && !nested) {
-				fact[`d${f}`] = uuidOfRow(row.id)
-			}
-			if (family.owner !== row.relation || family.kind === "counted") {
-				continue
-			}
-			fact[countName(f)] = Arr.map(
-				Arr.sort(
-					Arr.filter(rows, (r) => membershipIn(r, f)?.owner === row.id),
-					(a: InstanceRow, b: InstanceRow) =>
-						(membershipIn(a, f)?.slot ?? 0) < (membershipIn(b, f)?.slot ?? 0) ? -1 : 1
-				),
-				(member) => factOf(member, true)
-			)
-		}
-		return fact
-	}
-	const out = new Map<number, Array<Fact>>()
-	for (const row of rows) {
-		if (Arr.some(row.memberOf, (m) => familyOf(spec, m.family).kind !== "counted")) {
-			continue
-		}
-		const list = out.get(row.relation) ?? []
-		list.push(factOf(row, false))
-		out.set(row.relation, list)
-	}
-	return out
-}
-
-/** A stored row's caller fact, as a delete or a put states it: its `v`, its set and its group of every family. */
-const callerFact = (spec: SwarmSpec, row: InstanceRow): Fact => ({
-	id: uuidOfRow(row.id),
-	v: row.v,
-	...(holdsMask(spec, row.relation) ? { b: maskOf(row.id) } : {}),
-	...Rec.fromEntries(
-		Arr.map(row.memberOf, (m) => [groupName(m.family), uuidOfRow(m.owner)] as const)
-	)
-})
-
-/** One member of a ChangeSet: its relation, its operation, and its rows, facts or a query. */
-interface Member {
-	readonly relation: BuiltRelation
-	readonly op: "insert" | "put" | "delete"
-	readonly rows: MemberInput
-}
-
-/** A ChangeSet and its parameters. */
-interface Built {
-	readonly changes: ChangeSetValue
-	readonly params: ParamMap
-}
-
-/**
- * A step's ChangeSet over the installed schema `value`: its plain writes in the strata they are placed in, its family
- * writes in the middle one, each stratum a ChangeSet of its own and the strata in sequence, each list of facts one
- * member or, split, one member per fact, every member stated twice where the shape repeats it.
- */
-const changeSetOf = (
-	spec: SwarmSpec,
-	built: BuiltSwarm,
-	value: ReturnType<BuiltSwarm["rename"]>,
-	state: State,
-	step: Step
-): Built => {
-	const relationOf = (name: string): BuiltRelation =>
-		defined(built.relations[name], `the relation ${name}`)
-	const shape =
-		step.kind === "insert" || step.kind === "follow" ? step.shape : { split: false, repeat: false }
-	const spread = (
-		relation: BuiltRelation,
-		op: Member["op"],
-		facts: ReadonlyArray<Fact>
-	): ReadonlyArray<Member> => {
-		const members: ReadonlyArray<Member> = shape.split
-			? Arr.map(facts, (f): Member => ({ relation, op, rows: [f] }))
-			: Arr.isReadonlyArrayNonEmpty(facts)
-				? [{ relation, op, rows: facts }]
-				: []
-		return shape.repeat ? [...members, ...members] : members
-	}
-	const plainMembers = (ops: ReadonlyArray<PlainOp>): ReadonlyArray<Member> =>
-		Arr.flatMap(ops, (o) => spread(relationOf(plainName(o.row.plain)), o.op, [plainFact(o.row)]))
-	const plainAt = (at: Placed): ReadonlyArray<Member> =>
-		step.kind === "delete all" ? [] : plainMembers(Arr.filter(step.plain, (o) => o.at === at))
-	const queryAt = (at: Placed): ReadonlyArray<Member> => {
-		const q = step.kind === "follow" ? step.query : undefined
-		if (q?.at !== at) {
-			return []
-		}
-		const read = relationOf(relationName(q.relation))
-		return [
-			{
-				relation: relationOf(plainName(q.plain)),
-				op: "insert",
-				rows: query(value).rule((r) => {
-					const x = defined(v(read, "row")["v"], "the v of the relation a query reads")
-					const bound: Readonly<Record<string, typeof x>> = { v: x }
-					const head: HeadShape = { x }
-					return r.match(read, bound).find(head)
-				})
-			}
-		]
-	}
-	const family = ((): {
-		readonly members: ReadonlyArray<Member>
-		readonly params: ParamMap
-	} => {
-		switch (step.kind) {
-			case "insert": {
-				const rows = orphaned(spec, step)
-				const facts = topFacts(spec, rows)
-				return {
-					members: Arr.flatMap([...facts.entries()], ([r, list]) => {
-						const conflicting = Arr.flatMap(list, (f) =>
-							step.conflict !== undefined && f["id"] === uuidOfRow(step.conflict)
-								? [{ ...f, v: (typeof f["v"] === "bigint" ? f["v"] : 0n) + 1n }]
-								: []
-						)
-						return spread(relationOf(relationName(r)), "insert", [...list, ...conflicting])
-					}),
-					params: {}
-				}
-			}
-			case "follow":
-				return {
-					members:
-						step.followUp === undefined
-							? []
-							: Arr.flatMap(followUpMembers(spec.fill, state.rows, step.followUp), (m) =>
-									spread(
-										relationOf(relationName(m.relation)),
-										m.op,
-										Arr.map(m.facts, (f) =>
-											holdsMask(spec, m.relation) ? { ...f, b: maskOf(idOfUuid(f["id"])) } : f
-										)
-									)
-								),
-					params: {}
-				}
-			case "query put": {
-				const target = relationOf(relationName(step.relation))
-				const masked = holdsMask(spec, step.relation)
-				return {
-					members: [
-						{
-							relation: target,
-							op: "put",
-							rows: masked
-								? query(value).rule((r) => {
-										const rows = r.relation("rows", { id: uuid, v: pg.bigint, b: bits(Mask) })
-										const row = v(rows, "row")
-										return r.match(rows, row).find(row)
-									})
-								: query(value).rule((r) => {
-										const rows = r.relation("rows", { id: uuid, v: pg.bigint })
-										const row = v(rows, "row")
-										return r.match(rows, row).find(row)
-									})
-						}
-					],
-					params: {
-						rows: Arr.map(step.rows, (p) => ({
-							id: uuidOfRow(p.id),
-							v: p.v,
-							...(masked ? { b: maskOf(p.id) } : {})
-						}))
-					}
-				}
-			}
-			case "delete all":
-				return {
-					members: [
-						...Arr.flatMap(spec.fill.relations, (_, r) => {
-							const own = Arr.filter(state.rows, (x) => x.relation === r)
-							return Arr.isReadonlyArrayNonEmpty(own)
-								? [
-										{
-											relation: relationOf(relationName(r)),
-											op: "delete" as const,
-											rows: Arr.map(own, (x) => callerFact(spec, x))
-										}
-									]
-								: []
-						}),
-						...plainMembers(
-							Arr.map(state.plain, (row): PlainOp => ({ op: "delete", row, at: "with" }))
-						)
-					],
-					params: {}
-				}
-		}
-	})()
-	const stratumOf = (members: ReadonlyArray<Member>): ChangeSetValue =>
-		Arr.reduce(members, ChangeSet.empty(value), (cs, m) => {
-			switch (m.op) {
-				case "insert":
-					return cs.insert(m.relation, m.rows)
-				case "put":
-					return cs.put(m.relation, m.rows)
-				case "delete":
-					return cs.delete(m.relation, m.rows)
-			}
-		})
-	const strata = Arr.filter(
-		[
-			[...plainAt("before"), ...queryAt("before")],
-			[...family.members, ...plainAt("with"), ...queryAt("with")],
-			[...plainAt("after"), ...queryAt("after")]
-		],
-		Arr.isReadonlyArrayNonEmpty
-	)
-	const [first, ...rest] = Arr.map(strata, stratumOf)
-	return {
-		changes: Arr.reduce(rest, first ?? ChangeSet.empty(value), (a, b) => ChangeSet.sequence(a, b)),
-		params: family.params
-	}
-}
-
 /** What the search reached: shapes written, refusals justified, and the downstream defects' shapes. */
 type Situation =
 	| "a lawful first insert accepted"
@@ -371,6 +101,7 @@ type Situation =
 	| "every fact stated twice written once"
 	| "one member per fact"
 	| "a stratum no order keeps refused"
+	| "a refill after an earlier stratum refused"
 
 const situations: Arr.NonEmptyReadonlyArray<Situation> = [
 	"a lawful first insert accepted",
@@ -659,8 +390,34 @@ const large =
 		]
 	})
 
+/**
+ * Several situations a case reaches together: R0 owning an ordered family of R1 and a counted family of R2 under a
+ * check over its count, a pure set R1 and R2 read and a referrer into R1's rows, its ChangeSets in strata, each fact
+ * twice, with follow-ups and a query's insert.
+ */
+const together = over(
+	{
+		...bare(twoFamilies),
+		plains: [
+			{ kind: "set", mutable: false },
+			{ kind: "referrer", mutable: true }
+		],
+		laws: [
+			{ kind: "check", relation: 0, family: 1 },
+			{ kind: "into set", relation: 1, plain: 0 },
+			{ kind: "into set", relation: 2, plain: 0 },
+			{ kind: "into rows", plain: 1, relation: 1 }
+		]
+	},
+	["follow-ups", "strata", "query insert", "repeated fact"]
+)
+
 /** The situations the drawn cases reach only now and then, each with the case a witness draws to reach it. */
 const aims: ReadonlyArray<readonly [Situation, Gen<SwarmCase>]> = [
+	["every fact stated twice written once", together],
+	["plain writes in strata around the family's", together],
+	["a query's insert accepted", together],
+	["a check over a drawn count judged", together],
 	[
 		"a cycle of families written",
 		over(
@@ -863,7 +620,7 @@ const inserted = (
 	shape: { split, repeat: false }
 })
 
-/** The seven downstream defects' shapes, each kept by value. */
+/** The seven downstream defects' shapes, then the shapes this search found, each kept by value. */
 const kept: ReadonlyArray<Kept<SwarmCase, Situation>> = [
 	{
 		note: "1bf3dbb: a counted family's or end, its owner inserted beside its members, one member per fact",
@@ -1159,6 +916,129 @@ const kept: ReadonlyArray<Kept<SwarmCase, Situation>> = [
 			"a follow-up refilling a value",
 			"an owner's column changed beside an append to its family"
 		]
+	},
+	{
+		note: "found: a counted member inserted beside a pure set its relation reads trading one value for another, refused as unorderable through an update in place that changes no value the key reads",
+		sketch: {
+			spec: {
+				fill: coreOf(
+					[true, true],
+					[{ kind: "counted", owner: 0, member: 1, fold: "none" }],
+					[],
+					[]
+				),
+				ends: [],
+				plains: [{ kind: "set", mutable: false }],
+				laws: [{ kind: "into set", relation: 1, plain: 0 }]
+			},
+			steps: [
+				{
+					kind: "insert",
+					rows: [
+						{ relation: 0, id: 1, v: 0n, memberOf: [] },
+						{ relation: 1, id: 2, v: 0n, memberOf: [{ family: 0, owner: 1, slot: 0 }] }
+					],
+					plain: [
+						{ op: "insert", row: { kind: "set", plain: 0, x: 0n }, at: "with" },
+						{ op: "insert", row: { kind: "set", plain: 0, x: 5n }, at: "with" }
+					],
+					conflict: undefined,
+					orphan: undefined,
+					shape: { split: false, repeat: false }
+				},
+				{
+					kind: "follow",
+					followUp: {
+						owner: 0,
+						row: 1,
+						put: Option.none(),
+						inserted: [{ relation: 1, id: 3, v: 1n, memberOf: [{ family: 0, owner: 1, slot: 0 }] }],
+						removed: Option.none(),
+						appended: Option.none(),
+						moved: Option.none()
+					},
+					plain: [
+						{ op: "insert", row: { kind: "set", plain: 0, x: 1n }, at: "with" },
+						{ op: "delete", row: { kind: "set", plain: 0, x: 5n }, at: "with" }
+					],
+					query: undefined,
+					shape: { split: false, repeat: false }
+				}
+			]
+		},
+		draws: "",
+		reaches: [
+			"a follow-up accepted",
+			"a pure set and the family rows it holds written in one stratum"
+		]
+	},
+	{
+		note: "found: a counted member that owns a sequence appended to a stored owner's group, on a cycle of families, dies binding its edit",
+		sketch: {
+			spec: bare(
+				coreOf(
+					[true, true],
+					[
+						{ kind: "ordered", owner: 1, member: 0, fold: "none" },
+						{ kind: "counted", owner: 0, member: 1, fold: "sum" }
+					],
+					[],
+					[]
+				)
+			),
+			steps: [
+				inserted(
+					[
+						{ relation: 1, id: 1, v: 0n, memberOf: [{ family: 1, owner: 3, slot: 0 }] },
+						{ relation: 1, id: 2, v: 0n, memberOf: [{ family: 1, owner: 3, slot: 0 }] },
+						{ relation: 0, id: 3, v: 0n, memberOf: [{ family: 0, owner: 2, slot: 0 }] }
+					],
+					false,
+					undefined
+				),
+				{
+					kind: "follow",
+					followUp: {
+						owner: 0,
+						row: 3,
+						put: Option.none(),
+						inserted: [{ relation: 1, id: 4, v: 0n, memberOf: [{ family: 1, owner: 3, slot: 0 }] }],
+						removed: Option.none(),
+						appended: Option.none(),
+						moved: Option.none()
+					},
+					plain: [],
+					query: undefined,
+					shape: { split: false, repeat: false }
+				}
+			]
+		},
+		draws: "",
+		reaches: ["a cycle of families written", "a follow-up accepted"]
+	},
+	{
+		note: "found: a put from a query into a relation with a generated field dies compiling its insert",
+		sketch: {
+			spec: bare({
+				relations: [{ generated: true, mutable: true, key: false }],
+				families: [],
+				copies: [],
+				steps: []
+			}),
+			steps: [
+				inserted(
+					[
+						{ relation: 0, id: 1, v: 0n, memberOf: [] },
+						{ relation: 0, id: 2, v: 1n, memberOf: [] }
+					],
+					false,
+					undefined
+				),
+				{ kind: "query put", relation: 0, rows: [{ id: 1, v: 2n }], plain: [] }
+			]
+		},
+		draws: "",
+		reaches: ["a put from a query accepted"]
 	}
 ]
 
@@ -1173,7 +1053,7 @@ layer(Substrate.layer, { excludeTestServices: true })("the family writer under a
 						suite: "pg/write/swarm/families",
 						draw: drawn(caseGen),
 						literal: Formatter.format,
-						coverage: required<Situation>(situations, { cases: 80, sense: notesOnly }),
+						coverage: required<Situation>(situations, { cases: 160, sense: notesOnly }),
 						kept: kept,
 						runs: 24,
 						shrink: boundedShrink(60),
@@ -1236,11 +1116,18 @@ layer(Substrate.layer, { excludeTestServices: true })("the family writer under a
 													"the cycle's next write"
 												)
 												assert.ok(
-													justified(spec, at, next),
+													justified(spec, putsOf(spec, state, step), at, next),
 													`${label}: refused with UnorderableStratum, whose order ${at.relation} ${at.op} before ${next.relation} ${next.op} no write of the stratum requires; the cycle: ${Formatter.format(cycle)}`
 												)
 											}
 											c.note("a stratum no order keeps refused")
+											return
+										}
+										if (
+											reason._tag === "UnsupportedOperation" &&
+											expected.kind === "later refill"
+										) {
+											c.note("a refill after an earlier stratum refused")
 											return
 										}
 										if (reason._tag === "StaleDerivedRead" && expected.kind === "stale") {
@@ -1265,6 +1152,10 @@ layer(Substrate.layer, { excludeTestServices: true })("the family writer under a
 									}
 									const outcome = applied.success
 									switch (expected.kind) {
+										case "later refill":
+											return assert.fail(
+												`${label}: ${outcome.kind}, where its refills fall in a stratum after another, which the README refuses`
+											)
 										case "stale":
 											return assert.fail(
 												`${label}: ${outcome.kind}, where the reference finds a refill it cannot draw (immutable ${Formatter.format(expected.immutable)}, query ${String(expected.query)})`

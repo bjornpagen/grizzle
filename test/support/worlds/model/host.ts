@@ -2,7 +2,7 @@ import { Array as Arr, Option, Order, Record as Rec } from "effect"
 import { appendAll } from "#compiler/core/array.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
-import { TupleMap } from "#compiler/core/tuple-map.ts"
+import { type ReadonlyTupleSet, TupleMap, TupleSet } from "#compiler/core/tuple-map.ts"
 import { type Atom, sameIdentity, type ValueIdentity } from "#test/support/kernel/identity.ts"
 import {
 	everyFact,
@@ -219,8 +219,20 @@ export const factKey = (fact: HostFact): ValueIdentity => {
 	return atoms
 }
 
+/** Whether two facts are one fact, by every field and its value (factKey). */
+export const sameFact = (a: HostFact, b: HostFact): boolean => sameIdentity(factKey(a), factKey(b))
+
+/** The identities of `facts` (factKey), each once: what a fact's membership among them is read by. */
+export const factKeySet = (facts: Iterable<HostFact>): ReadonlyTupleSet<ValueIdentity> => {
+	const set = new TupleSet<ValueIdentity>()
+	for (const f of facts) {
+		set.add(factKey(f))
+	}
+	return set
+}
+
 /** The facts, each once, in the order they first appear. */
-const distinct = (facts: ReadonlyArray<HostFact>): ReadonlyArray<HostFact> => {
+export const uniqueFacts = (facts: ReadonlyArray<HostFact>): ReadonlyArray<HostFact> => {
 	const byKey = new TupleMap<ValueIdentity, HostFact>()
 	for (const f of facts) {
 		byKey.set(factKey(f), f)
@@ -559,7 +571,7 @@ export const evaluateRules = (
 	facts: ContextFacts
 ): ReadonlyArray<HostFact> => {
 	const reading: Reading = { base, reality, derived, facts }
-	return distinct(Arr.flatMap(rules, (rule) => ruleRows(reading, rule, readsSources(reading))))
+	return uniqueFacts(Arr.flatMap(rules, (rule) => ruleRows(reading, rule, readsSources(reading))))
 }
 
 /**

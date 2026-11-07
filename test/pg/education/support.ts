@@ -5,7 +5,7 @@ import { constant } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Record, String as Str } from "effect"
-import { type ReadonlyTupleSet, TupleSet } from "#compiler/core/tuple-map.ts"
+import type { ReadonlyTupleSet } from "#compiler/core/tuple-map.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert } from "#test/support/assert.ts"
 import {
@@ -46,7 +46,7 @@ import {
 	type Weights,
 	zeroWeights
 } from "#test/support/worlds/generate/weights.ts"
-import { entryRows, factKey } from "#test/support/worlds/model/host.ts"
+import { entryRows, factKey, factKeySet, sameFact } from "#test/support/worlds/model/host.ts"
 import { payloadFacts } from "#test/support/worlds/model/session/claims.ts"
 import { factsIn, noFacts } from "#test/support/worlds/model/session/state.ts"
 import type {
@@ -577,13 +577,7 @@ interface Change {
 }
 
 /** The canonical keys of facts, for set comparison. */
-const keys = (facts: ReadonlyArray<HostFact>): ReadonlyTupleSet<ValueIdentity> => {
-	const set = new TupleSet<ValueIdentity>()
-	for (const f of facts) {
-		set.add(factKey(f))
-	}
-	return set
-}
+const keys = (facts: ReadonlyArray<HostFact>): ReadonlyTupleSet<ValueIdentity> => factKeySet(facts)
 
 /** The facts `after` holds that `before` lacks, as added, and the ones it lost, as removed. */
 const changesOf = (before: HostState, after: HostState): ReadonlyArray<Change> =>
@@ -791,13 +785,13 @@ const noteSeen = (c: Case<Feature>, seen: Seen, earlier: ReadonlyArray<Seen>): v
 		const now = seen.after.derived["SectionPoints"] ?? []
 		const dropped = Arr.filter(
 			seen.before.derived["SectionPoints"] ?? [],
-			(fact) => !Arr.some(now, (f) => factKey(f) === factKey(fact))
+			(fact) => !Arr.some(now, (f) => sameFact(f, fact))
 		)
 		if (dropped.length > 0) {
 			c.note("a refresh dropped a grade")
 		}
 		const deleted = Arr.filter(gradesSeen(earlier), (grade) =>
-			Arr.some(dropped, (f) => factKey(f) === factKey(grade))
+			Arr.some(dropped, (f) => sameFact(f, grade))
 		)
 		if (deleted.length > 0) {
 			c.note("a refresh dropped a deleted grade")

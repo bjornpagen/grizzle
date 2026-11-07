@@ -13,10 +13,9 @@ export { cursorError } from "#compiler/codec/cursor/fault.ts"
 export type { CursorGeneration } from "#compiler/codec/cursor/identity.ts"
 export { encodeFailure, factPlace, slotPlace } from "#compiler/codec/fault.ts"
 export {
-	arrayTexts,
+	columnLiteral,
 	type NormalizedRelation,
-	type NormalRows,
-	normalRows,
+	normalArray,
 	parameterNormalizer,
 	positionalColumns,
 	type RelationNormalizer,

@@ -2,6 +2,7 @@ import { indices } from "#compiler/core/array.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { codePoints, codePointsText } from "#compiler/core/text.ts"
+import { TupleMap } from "#compiler/core/tuple-map.ts"
 import { type TextBounds, textBounds } from "#compiler/ir/scalar.ts"
 import {
 	type CharSet,
@@ -56,8 +57,8 @@ export interface CanonicalDfa {
 	}>
 }
 
-/** The canonical text of a set: its intervals in order, which identifies the set. */
-const setText = (set: CharSet): string => set.map(([lo, hi]) => `${lo}-${hi}`).join(",")
+/** A set's bounds in order, each interval's low then high: equal exactly for two sets of the same intervals. */
+const setBounds = (set: CharSet): ReadonlyArray<number> => set.flatMap(([lo, hi]) => [lo, hi])
 
 /** A set edge of an NFA state: the position of its set among the distinct sets, and its target. */
 interface SetEdge {
@@ -90,22 +91,17 @@ interface Alphabet {
  */
 const alphabetOf = (nfa: Nfa): Alphabet => {
 	const sets: Array<CharSet> = []
-	/** Each set's position by object, and by text for another object with the same intervals. */
-	const byObject = new Map<CharSet, number>()
-	const byText = new Map<string, number>()
+	/** Each distinct set's position, by its bounds (setBounds). */
+	const positions = new TupleMap<ReadonlyArray<number>, number>()
 	const positionOf = (set: CharSet): number => {
-		const known = byObject.get(set)
+		const bounds = setBounds(set)
+		const known = positions.get(bounds)
 		if (known !== undefined) {
 			return known
 		}
-		const text = setText(set)
-		const position = byText.get(text) ?? sets.length
-		if (position === sets.length) {
-			sets.push(set)
-			byText.set(text, position)
-		}
-		byObject.set(set, position)
-		return position
+		positions.set(bounds, sets.length)
+		sets.push(set)
+		return sets.length - 1
 	}
 	const setEdges = nfa.edges.map((edges) =>
 		edges.flatMap((e): ReadonlyArray<SetEdge> =>

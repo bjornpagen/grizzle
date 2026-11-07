@@ -7,7 +7,6 @@ import {
 	type AttachmentLayout,
 	type Codebook,
 	defect,
-	defined,
 	type EmittedText,
 	type Layout,
 	type OutputRows,
@@ -165,7 +164,8 @@ export const formFor = <S extends LoweredStatement, Slot, Choice>(
 
 /**
  * The text of a read placeholder in one execution: a scalar's encoded text, or one array of a relation input over the
- * columns the slot shares with its input's other placeholders in the statement, the array at its part.
+ * columns the slot shares with its input's other placeholders in the statement, the array at its part, which the
+ * placeholder writes.
  */
 export const readBinding = (
 	slot: DeclaredParamSlot,
@@ -174,17 +174,11 @@ export const readBinding = (
 	switch (slot.kind) {
 		case "scalar":
 			return Result.succeed(scalarInput(inputs, slot.param))
-		case "relation": {
-			const part = slot.part
-			return Result.map(
-				declaredInput(inputs.relations, slot.param).arrays(slot.columns),
-				(arrays) =>
-					defined(
-						arrays[part.kind === "column" ? part.index : 0],
-						`array ${part.kind === "column" ? part.index : 0} of relation input ${slot.param}`
-					)
+		case "relation":
+			return declaredInput(inputs.relations, slot.param).array(
+				slot.columns,
+				slot.part.kind === "column" ? slot.part.index : 0
 			)
-		}
 	}
 }
 

@@ -1,5 +1,6 @@
 import { resultTextCasts } from "#compiler/codec/scalar.ts"
 import type { ConstraintName, ParamId } from "#compiler/core/ids.ts"
+import { defined } from "#compiler/core/invariant.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { LawField, RelationInfo } from "#compiler/ir/law.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
@@ -7,8 +8,14 @@ import type { ParamDecl, StatementRole } from "#compiler/ir/products.ts"
 import type { Heading, KeySet, ValidDag } from "#compiler/ir/rel.ts"
 import { baseOf, contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { SerialClass } from "#compiler/ir/write.ts"
-import { LowerContext, WriteParams } from "#compiler/lower/conservative/context.ts"
-import { lowerLiteral } from "#compiler/lower/conservative/expr/index.ts"
+import { columnReads } from "#compiler/laws/model/uniques.ts"
+import {
+	type ColumnMap,
+	type Env,
+	LowerContext,
+	WriteParams
+} from "#compiler/lower/conservative/context.ts"
+import { lowerExpr, lowerLiteral } from "#compiler/lower/conservative/expr/index.ts"
 import type { WriteParamSlot } from "#compiler/lower/conservative/types.ts"
 import { wildcardText } from "#compiler/scalar/compute/types.ts"
 import type {
@@ -423,6 +430,35 @@ export const startOf = (names: PhysicalNames, field: LawField): Expr | undefined
 			return undefined
 	}
 }
+
+/**
+ * A requested fact's value at every field of its relation, as a statement reading its input states it: `carried`'s
+ * value, `colOf`, for a field its input carries; the start an insert writes it at (startOf) for a drawn count or an
+ * accumulated end it does not; and for a generated field its generation expression over the carried fields, the value
+ * PostgreSQL stores, so a requested fact lines up with the complete facts a statement returns. An input carries the
+ * written fields alone, never a generated one, whatever its source.
+ */
+export const requestedValue =
+	(
+		w: WriteContext,
+		relation: RelationInfo,
+		carried: ReadonlyArray<LawField>,
+		colOf: (f: LawField) => Expr
+	) =>
+	(f: LawField): Expr => {
+		if (carried.includes(f)) {
+			return colOf(f)
+		}
+		if (f.writing.kind === "generated") {
+			const row: ColumnMap = new Map(carried.map((g) => [g.name, colOf(g)] as const))
+			const env: Env = new Map(columnReads(f.writing.expr).map((c) => [c.node, row] as const))
+			return lowerExpr(w.cx, f.writing.expr, env)
+		}
+		return defined(
+			startOf(w.names, f),
+			`the start of ${relation.name}.${f.name}, a field a requested fact does not carry`
+		)
+	}
 
 /** Whether a field is written by its sequence: its writing says so (ir/law.ts FieldWriting). */
 export const isSerialField = (field: Pick<LawField, "writing">): boolean =>

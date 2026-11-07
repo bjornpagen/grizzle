@@ -721,7 +721,9 @@ const noteTakes = (q: Query<ParentColumn>, rows: ReadonlyArray<Nested>, note: No
 				const tiedAt = (x: Nested, y: Nested): boolean => {
 					const a = keyAt(x)
 					const b = keyAt(y)
-					return a === undefined || b === undefined ? a === b : sameIdentity(a, b)
+					return a === undefined || b === undefined
+						? a === undefined && b === undefined
+						: sameIdentity(a, b)
 				}
 				if (
 					first.dir === "desc" &&

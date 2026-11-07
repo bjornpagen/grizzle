@@ -18,10 +18,9 @@ import { required } from "@grizzle/testing/features"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Result, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Result } from "effect"
 import {
-	normalArrays,
-	normalRows,
+	normalArray,
 	positionalColumns,
 	type RelationSpec,
 	relationNormalizer
@@ -30,6 +29,7 @@ import { carrierSpecOf } from "#compiler/codec/scalar.ts"
 import { isCompileError } from "#compiler/core/errors.ts"
 import { isValueFault } from "#compiler/scalar/values/fault.ts"
 import { admitValue, canonicalText } from "#compiler/scalar/values/identity.ts"
+import { readArrayLiteral } from "#test/support/arrays.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { carriers, type Feature, forgedCases, pairOf, pairs } from "#test/support/forged.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -128,20 +128,16 @@ describe("a forged carrier instance", () => {
 							for (const buffer of buffers) {
 								buffer.fill(7)
 							}
-							assert.deepEqual<ReadonlySet<string>>(
-								new Set(Arr.flatten(succeeded(normalRows(relation)(normal)).rows)),
+							assert.deepEqual<ReadonlySet<string | null>>(
+								new Set(readArrayLiteral(succeeded(normalArray(relation)(normal, 0)))),
 								distinct,
-								"the rows stay the admitted values"
+								"the array the facts travel as carries the admitted values"
 							)
 							assert.deepEqual(
 								Arr.map(normal.entries, (e) => e.identity),
 								identities,
 								"the identities stay the admitted ones"
 							)
-							const arrays = succeeded(normalArrays(relation)(normal))
-							for (const pg of distinct) {
-								assert.ok(Arr.some(arrays, Str.includes(`"${pg}"`)), `the arrays carry ${pg}`)
-							}
 						})
 				)
 			)

@@ -1304,7 +1304,7 @@ type SpecChange =
  * each nested row appended to them as a row of its own would be; their sequences are the walk's, under their fresh
  * owners, and change nothing stored. A relation of `replaced` has rows the ChangeSet deletes and inserts again, which no
  * cascade follows: a member's copy, along a family it owns, of a column a change makes there is stale too, its copy of
- * the family's count among them.
+ * the family's count among them, and so is its own copy, as a member, of a column a change makes on its owner.
  */
 const staleOf = (
 	spec: FillSpec,
@@ -1352,7 +1352,7 @@ const staleOf = (
 				family.owner === at &&
 				sourceField(c.source) === column
 			) {
-				if (replaced.has(at)) {
+				if (replaced.has(at) || replaced.has(family.member)) {
 					found.push({
 						changed,
 						from: change.kind,
@@ -1553,6 +1553,7 @@ export type Planted =
 	| "stepped copy"
 	| "re-placed owner"
 	| "generated copy"
+	| "counted step of a sequence's copy"
 
 /** A specification holding the shape `planted` (`Planted`), its relations' flags, its folds and its kinds drawn. */
 export const plantedGen =
@@ -1751,6 +1752,24 @@ export const plantedGen =
 					copies: [],
 					steps: []
 				}
+			case "counted step of a sequence's copy": {
+				const tree = source.draw(boolean)
+				const generated = source.draw(boolean)
+				const owner = tree ? 0 : 2
+				return {
+					relations: Arr.map(relations, (r, i) => (i === owner ? { ...r, generated } : r)),
+					families: [
+						tree
+							? { kind: "tree", owner: 0, member: 0, fold: fold() }
+							: { kind: "ordered", owner: 2, member: 0, fold: fold() },
+						{ kind: "counted", owner: 1, member: 0, fold: "sum" }
+					],
+					copies: [
+						{ family: 0, axis: "owner", source: { kind: generated ? "generated" : "caller" } }
+					],
+					steps: [{ family: 1, copy: 0 }]
+				}
+			}
 		}
 	}
 

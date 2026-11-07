@@ -14,9 +14,11 @@ import type { Strata, Variant } from "#test/support/worlds/invalid/kinds.ts"
 import { nextDraw, withSerial, withSerials } from "#test/support/worlds/model/draws.ts"
 import {
 	classifyEntry,
+	uniqueFacts,
 	entryRows,
-	factKey,
+	factKeySet,
 	isMember,
+	sameFact,
 	selectionOf
 } from "#test/support/worlds/model/host.ts"
 import {
@@ -242,7 +244,7 @@ const hiddenCollision = (
 				(g) =>
 					Arr.every(key, (x) => f[x] !== undefined) &&
 					projection(f, key) === projection(g, key) &&
-					factKey(f) !== factKey(g)
+					!sameFact(f, g)
 			)
 		)
 	)
@@ -261,7 +263,7 @@ export const opKinds = (
 ): ReadonlyArray<InvalidKind> => {
 	const kinds = new Set<InvalidKind>()
 	for (const op of ops) {
-		if (distinctFacts(op.facts) < op.facts.length) {
+		if (distinctCount(op.facts) < op.facts.length) {
 			kinds.add("fact:duplicate-in-input")
 		}
 	}
@@ -418,8 +420,7 @@ const candidates = (
 }
 
 /** How many distinct facts an input holds: equal facts are one, as grizzle collapses them before it counts. */
-const distinctFacts = (facts: ReadonlyArray<HostFact>): number =>
-	new Set(Arr.map(facts, factKey)).size
+const distinctCount = (facts: ReadonlyArray<HostFact>): number => factKeySet(facts).size
 
 /** The fact kinds an op is searched for, each with its class: from another state or world (stale), or anything (wild). */
 const searchedKinds: ReadonlyArray<readonly [InvalidKind, "stale" | "wild"]> = [
@@ -761,9 +762,7 @@ export const opStrata = (
 }
 
 /** The facts, each once, first kept. */
-const dedupe = (facts: ReadonlyArray<HostFact>): ReadonlyArray<HostFact> => [
-	...new Map(Arr.map(facts, (f) => [factKey(f), f] as const)).values()
-]
+const dedupe = (facts: ReadonlyArray<HostFact>): ReadonlyArray<HostFact> => uniqueFacts(facts)
 
 /**
  * A fact of a relation of the base (a derived one included, which a direct writer may try to write) from the pools, the

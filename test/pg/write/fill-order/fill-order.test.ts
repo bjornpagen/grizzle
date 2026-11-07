@@ -1,7 +1,7 @@
 import { layer } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { filter, type Gen } from "@grizzle/testing/gen"
+import { constant, filter, type Gen, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { boundedShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -21,6 +21,7 @@ import {
 	followUpGen,
 	followUpMembers,
 	followUpRows,
+	fullInstance,
 	ownerPutGen,
 	type InstanceRow,
 	insertedRelations,
@@ -206,6 +207,7 @@ const caseGen: Gen<ClusterCase> = (source) =>
 				(s) => verdictOf(s).kind === "admitted" && Arr.some(s.families, (f) => f.kind !== "tree"),
 				16
 			),
+			instanceGen,
 			followUpGen
 		)
 	)
@@ -233,17 +235,18 @@ interface ClusterCase {
 }
 
 /**
- * A case over a specification `specs` draws, its instance drawn, and its follow-up as `followUps` draws it over them,
- * where the reference writes it.
+ * A case over a specification `specs` draws, its instance as `instances` draws it, and its follow-up as `followUps`
+ * draws it over them, where the reference writes it.
  */
 const caseOver =
 	(
 		specs: Gen<FillSpec>,
+		instances: (spec: FillSpec) => Gen<ReadonlyArray<InstanceRow>>,
 		followUps: (spec: FillSpec, rows: ReadonlyArray<InstanceRow>) => Gen<Option.Option<FollowUp>>
 	): Gen<ClusterCase> =>
 	(source) => {
 		const spec = source.draw(specs)
-		const rows = source.draw(instanceGen(spec))
+		const rows = source.draw(instances(spec))
 		const followUp = Option.filter(
 			source.draw(followUps(spec, rows)),
 			(f) =>
@@ -257,14 +260,15 @@ const caseOver =
 
 /** A case over a planted shape beside a drawn one, its follow-up drawn as any case's. */
 const plantedCase = (planted: Planted): Gen<ClusterCase> =>
-	caseOver(plantedBeside(planted), followUpGen)
+	caseOver(plantedBeside(planted), instanceGen, followUpGen)
 
 /**
  * The situations a drawn specification reaches only now and then, each with the cases a witness draws to reach it
  * while it is pending: a planted shape beside a drawn one (fill.ts `plantedGen`, admitted by the reference as planted);
  * or, where a follow-up must change what the planted relations hold, the shape alone with a follow-up aimed at it: a put
  * of the owner whose copy a fold steps (fill.ts `ownerPutGen`), or a deletion or a move re-placing an ordered member that
- * owns a counted member (`replacingGen`).
+ * owns a counted member (`replacingGen`) over the instance of every count at its most (`fullInstance`), whose last
+ * member of each group owns every counted member.
  */
 const aims: ReadonlyArray<readonly [ClusterSituation, Gen<ClusterCase>]> = [
 	["a tree owning an ordered family", plantedCase("tree with an ordered family")],
@@ -282,16 +286,20 @@ const aims: ReadonlyArray<readonly [ClusterSituation, Gen<ClusterCase>]> = [
 	["an owner put in place beside an append to its family", plantedCase("mutable owner")],
 	[
 		"a follow-up that refills a value it leaves stale",
-		caseOver(plantedGen("stepped copy"), (_, rows) => ownerPutGen(rows, 0))
+		caseOver(plantedGen("stepped copy"), instanceGen, (_, rows) => ownerPutGen(rows, 0))
 	],
 	[
 		"a follow-up that refills a fold stepping a copy",
-		caseOver(plantedGen("stepped copy"), (_, rows) => ownerPutGen(rows, 0))
+		caseOver(plantedGen("stepped copy"), instanceGen, (_, rows) => ownerPutGen(rows, 0))
 	],
 	["a copy of a generated field", plantedCase("generated copy")],
 	[
 		"a follow-up that re-places an owner of counted members",
-		caseOver(plantedGen("re-placed owner"), (spec, rows) => replacingGen(spec, rows, 0))
+		caseOver(
+			plantedGen("re-placed owner"),
+			(spec) => constant(fullInstance(spec)),
+			(spec, rows) => replacingGen(spec, rows, 0)
+		)
 	]
 ]
 
@@ -329,6 +337,83 @@ const replacedOwner: ClusterCase = {
 		removed: Option.some({ id: 2, family: 0 }),
 		appended: Option.none(),
 		moved: Option.none()
+	})
+}
+
+/**
+ * The case the search found re-inserting a counted member with its old count: R4 is a member of R2's ordered family
+ * and of R3's counted one. A delete of one R4 row and a move of another to a second R2 group re-place R4 rows, deleting
+ * them before the counted family's count statement and inserting them after it, which no cascade reaches, while the
+ * delete lowers R3's count; each re-placed member is drawn whole, its ‹n› the new count.
+ */
+const replacedCountedMember: ClusterCase = {
+	spec: {
+		relations: [
+			{ generated: false, mutable: true, key: false },
+			{ generated: false, mutable: true, key: false },
+			{ generated: false, mutable: true, key: false },
+			{ generated: false, mutable: true, key: false },
+			{ generated: true, mutable: true, key: false }
+		],
+		families: [
+			{ kind: "tree", owner: 0, member: 0, fold: "none" },
+			{ kind: "ordered", owner: 2, member: 4, fold: "count" },
+			{ kind: "counted", owner: 3, member: 4, fold: "count" }
+		],
+		copies: [
+			{ family: 0, axis: "owner", source: { kind: "caller" } },
+			{ family: 0, axis: "owner", source: { kind: "index", family: 0 } }
+		],
+		steps: []
+	},
+	rows: [
+		{ relation: 0, id: 1, v: -2n, memberOf: [] },
+		{ relation: 0, id: 2, v: -1n, memberOf: [] },
+		{ relation: 0, id: 3, v: -2n, memberOf: [{ family: 0, owner: 2, slot: 0 }] },
+		{ relation: 0, id: 4, v: -2n, memberOf: [{ family: 0, owner: 3, slot: 0 }] },
+		{ relation: 0, id: 5, v: 1n, memberOf: [{ family: 0, owner: 4, slot: 0 }] },
+		{ relation: 0, id: 6, v: 2n, memberOf: [{ family: 0, owner: 4, slot: 1 }] },
+		{ relation: 0, id: 7, v: 3n, memberOf: [{ family: 0, owner: 3, slot: 1 }] },
+		{ relation: 1, id: 8, v: -1n, memberOf: [] },
+		{ relation: 2, id: 9, v: 3n, memberOf: [] },
+		{
+			relation: 4,
+			id: 10,
+			v: 3n,
+			memberOf: [
+				{ family: 1, owner: 9, slot: 0 },
+				{ family: 2, owner: 14, slot: 0 }
+			]
+		},
+		{
+			relation: 4,
+			id: 11,
+			v: -2n,
+			memberOf: [
+				{ family: 1, owner: 9, slot: 1 },
+				{ family: 2, owner: 14, slot: 0 }
+			]
+		},
+		{ relation: 2, id: 12, v: -1n, memberOf: [] },
+		{
+			relation: 4,
+			id: 13,
+			v: -1n,
+			memberOf: [
+				{ family: 1, owner: 12, slot: 0 },
+				{ family: 2, owner: 14, slot: 0 }
+			]
+		},
+		{ relation: 3, id: 14, v: 1n, memberOf: [] }
+	],
+	followUp: Option.some({
+		owner: 2,
+		row: 12,
+		put: Option.some(-3n),
+		inserted: [],
+		removed: Option.some({ id: 13, family: 1 }),
+		appended: Option.none(),
+		moved: Option.some({ id: 10, family: 1 })
 	})
 }
 
@@ -376,11 +461,71 @@ const ownerPutBesideAppend: ClusterCase = {
 	})
 }
 
-/** The case a witness runs: its drawn one, or, while a situation `aims` plants is pending, a planted one. */
+/**
+ * A counted fold stepping a sequence's copy, its member moved: R0 is a member of R2's ordered family, whose owner axis
+ * copies R2's `v` into R0's c0, and of R1's counted family, whose sum fold steps c0. The follow-up moves R0's first row
+ * under the other R2 row: the put re-places it with the new owner's `v`, and the counted family draws its fold from
+ * that copy, as the ordered family's fill, run first, leaves it, where it once drew from the stored copy and the row's
+ * own CHECK refused the re-placement.
+ */
+const movedSequenceCopy: ClusterCase = {
+	spec: {
+		relations: [
+			{ generated: false, mutable: true, key: false },
+			{ generated: false, mutable: true, key: false },
+			{ generated: false, mutable: true, key: false }
+		],
+		families: [
+			{ kind: "ordered", owner: 2, member: 0, fold: "none" },
+			{ kind: "counted", owner: 1, member: 0, fold: "sum" }
+		],
+		copies: [{ family: 0, axis: "owner", source: { kind: "caller" } }],
+		steps: [{ family: 1, copy: 0 }]
+	},
+	rows: [
+		{ relation: 2, id: 1, v: 1n, memberOf: [] },
+		{ relation: 2, id: 2, v: 10n, memberOf: [] },
+		{ relation: 1, id: 3, v: 0n, memberOf: [] },
+		{
+			relation: 0,
+			id: 4,
+			v: 0n,
+			memberOf: [
+				{ family: 0, owner: 1, slot: 0 },
+				{ family: 1, owner: 3, slot: 0 }
+			]
+		},
+		{
+			relation: 0,
+			id: 5,
+			v: 0n,
+			memberOf: [
+				{ family: 0, owner: 1, slot: 1 },
+				{ family: 1, owner: 3, slot: 1 }
+			]
+		}
+	],
+	followUp: Option.some({
+		owner: 2,
+		row: 2,
+		put: Option.none(),
+		inserted: [],
+		removed: Option.none(),
+		appended: Option.none(),
+		moved: Option.some({ id: 4, family: 0 })
+	})
+}
+
+/**
+ * The case a witness runs: its drawn one, or, while situations `aims` reaches are pending, a case of one of their aims,
+ * drawn among them, so no aim that seldom reaches its situation holds back the others.
+ */
 const aimedCase = (drawnCase: ClusterCase, c: Case<ClusterSituation>): ClusterCase => {
 	const pending = Option.getOrUndefined(c.steering)
-	const aim = Arr.findFirst(aims, ([situation]) => pending?.has(situation) === true)
-	return Option.isNone(aim) ? drawnCase : c.draw(aim.value[1])
+	const open = Arr.filter(aims, ([situation]) => pending?.has(situation) === true)
+	return Arr.isReadonlyArrayNonEmpty(open)
+		? c.draw(defined(open[c.draw(int(0, open.length - 1))], "a pending aim")[1])
+		: drawnCase
 }
 
 layer(Substrate.layer, { excludeTestServices: true })("the fill order on the cluster", (it) => {
@@ -408,12 +553,31 @@ layer(Substrate.layer, { excludeTestServices: true })("the fill order on the clu
 								]
 							},
 							{
+								note: "a delete and a move re-placing ordered members that are a counted family's, whose count falls",
+								sketch: replacedCountedMember,
+								draws: "",
+								reaches: [
+									"a counted member that is an ordered family's",
+									"a follow-up written over the stored instance"
+								]
+							},
+							{
 								note: "an owner's put refilling its counted members' fold of its copy, beside an insert of two more under it",
 								sketch: ownerPutBesideAppend,
 								draws: "",
 								reaches: [
 									"a follow-up that refills a fold stepping a copy",
 									"an owner put in place beside an append to its family"
+								]
+							},
+							{
+								note: "a counted fold stepping its member's copy along an ordered family's owner axis, the member moved to another owner",
+								sketch: movedSequenceCopy,
+								draws: "",
+								reaches: [
+									"a counted member that is an ordered family's",
+									"an owner copy along a sequence",
+									"a follow-up written over the stored instance"
 								]
 							}
 						],

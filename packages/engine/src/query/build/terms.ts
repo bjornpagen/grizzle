@@ -5,7 +5,7 @@ import { type Built, builtMark } from "#compiler/core/phantom.ts"
 import { isList } from "#compiler/core/record.ts"
 import { type CompareOp, connectiveExpr, type LiteralDesc } from "#compiler/ir/desc.ts"
 import type { OpenExpr, OpenHead } from "#compiler/ir/open.ts"
-import { spanCarrierOf, spanOf } from "#compiler/ir/scalar.ts"
+import { spanCarrierOf, spanOf, typeLabel } from "#compiler/ir/scalar.ts"
 import { buildLoc } from "#compiler/query/build/scope.ts"
 import { type AggregateName, aggregateOverload } from "#compiler/scalar/aggregate.ts"
 import { computeCore, scalarTerm } from "#compiler/scalar/compute/builders.ts"
@@ -278,7 +278,7 @@ const literalAgainst = (anchor: Typing, value: unknown, label: string): LiteralD
 }
 
 /** The operand opposite a term: another term, a parameter among them, or a literal of the term's base. */
-export const operand = (value: unknown, anchor: Typing, label: string): OpenExpr => {
+const operand = (value: unknown, anchor: Typing, label: string): OpenExpr => {
 	const expr = termExpr(value)
 	if (expr !== undefined) {
 		return expr
@@ -291,6 +291,28 @@ export const operand = (value: unknown, anchor: Typing, label: string): OpenExpr
 		throw malformed(label, headOnlyOperand("a scalar operand", head.desc))
 	}
 	return { kind: "literal", value: literalAgainst(anchor, value, label), type: undefined }
+}
+
+/**
+ * A match's or negation's binding at a field typed `field`: an operand opposite it (operand). A variable the builder
+ * typed binds only a field compatible with its type (types.ts compatible), the rule each later column it binds meets
+ * (check/checker.ts #compatibleBinding) and the identity a comparison's operands meet by, so a contract binds no field
+ * of its bare base, nor a base one of the contract, exactly where Compute.eq of the two is refused.
+ */
+export const fieldBinding = (value: unknown, field: Typing, label: string): OpenExpr => {
+	const term = termOf(value)
+	if (
+		term?.expr.kind === "var" &&
+		term.typing.kind === "typed" &&
+		field.kind === "typed" &&
+		!compatible(term.typing.type, field.type)
+	) {
+		throw malformed(
+			label,
+			`a variable bound to fields of its own type: the variable is ${typeLabel(term.typing.type)}, the field ${typeLabel(field.type)}`
+		)
+	}
+	return operand(value, field, label)
 }
 
 /** A term that stands first, with what the builder knows of its type. */

@@ -503,25 +503,10 @@ export default defineConfig(
 				})
 			},
 			{
-				files: ["test/types/skeleton/fixtures/db.ts"],
-				rules: active({
-					/** The note is a string the host holds, not the literal type r.literal's const parameter would take from its text. */
-					"typescript/no-inferrable-types": "off"
-				})
-			},
-			{
 				files: ["test/types/examples/fixtures/readme.ts"],
 				rules: active({
 					/** A refusal fixture's return is refused by construction: the value is the checker's error type. */
 					"typescript/no-unsafe-return": "off"
-				})
-			},
-			{
-				files: ["test/types/skeleton/fixtures/compute.ts"],
-				rules: active({
-					/** A refusal fixture's member read and call are refused by construction: the value is the checker's error type. */
-					"typescript/no-unsafe-assignment": "off",
-					"typescript/no-unsafe-call": "off"
 				})
 			},
 			{

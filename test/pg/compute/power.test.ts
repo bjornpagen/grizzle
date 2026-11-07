@@ -4,10 +4,16 @@ import { required } from "@grizzle/testing/features"
 import { array, type Gen, int, map, oneOf, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
+import { bigint } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
 import type { PreconditionKind } from "#compiler/core/errors.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
+import {
+	binary64MaxExponent,
+	binary64MinExponent,
+	binary64Precision
+} from "#compiler/ir/carriers.ts"
 import type { ExprDesc } from "#compiler/ir/desc.ts"
 import {
 	numericMaxFractionDigits,
@@ -153,6 +159,74 @@ const guardedKept: ReadonlyArray<Kept<ReadonlyArray<GuardedPower>, GuardedFeatur
 		sketch: [{ guard: { kind: "positive", high: "10" }, exponent: "-10" }],
 		draws: "",
 		reaches: ["guarded power refused"]
+	}
+]
+
+/**
+ * What a float power reached: an admitted power PostgreSQL computes, one over a subnormal base, and a refusal where
+ * dpow raises 22003 on each side, its result rounding to zero from a nonzero base or to an infinity.
+ */
+type FloatFeature =
+	| "admitted"
+	| "admitted over a subnormal base"
+	| "refused where dpow underflows"
+	| "refused where dpow overflows"
+
+/** A float power's operands: a base of any binary exponent, subnormals among them, and an exponent of either sign. */
+interface FloatPower {
+	readonly base: number
+	readonly exponent: number
+}
+
+/** binary64's trailing significand field's width, p - 1 bits. */
+const trailingBits = BigInt(binary64Precision.value - 1)
+
+/** The binary64 exponent bias, emax: a biased exponent of 1 is emin. */
+const bias = binary64MaxExponent.value
+
+/** The positive double of biased exponent `biased`, 0 for a subnormal or zero, and trailing significand `fraction`. */
+const doubleOfFields = (biased: number, fraction: bigint): number => {
+	const view = new DataView(new ArrayBuffer(Float64Array.BYTES_PER_ELEMENT))
+	view.setBigUint64(0, (BigInt(biased) << trailingBits) | fraction)
+	return view.getFloat64(0)
+}
+
+const fractionGen: Gen<bigint> = bigint(0n, (1n << trailingBits) - 1n)
+
+/** A base of every finite binary exponent alike, from the subnormals to the largest. */
+const floatBaseGen: Gen<number> = (source) =>
+	doubleOfFields(source.draw(int(0, 2 * bias)), source.draw(fractionGen))
+
+/**
+ * An exponent: a small integer, or a value of either sign between 2^-20 and 2^31, so |e · log2 b| reaches either side
+ * of binary64's greatest exponent from every base.
+ */
+const floatExponentGen: Gen<number> = weighted<number>([
+	[1, int(-40, 40)],
+	[
+		3,
+		(source) =>
+			(source.draw(int(0, 1)) === 0 ? 1 : -1) *
+			doubleOfFields(source.draw(int(bias - 20, bias + 31)), source.draw(fractionGen))
+	]
+])
+
+/** The least normal double, 2^emin: below it a nonzero double is subnormal. */
+const leastNormal = 2 ** binary64MinExponent.value
+
+/**
+ * Escaped: a base whose exact value has more than 308 fraction digits read as zero through a double magnitude, so
+ * power proved a base exactly zero in range, where dpow's result underflows to zero and it raises 22003.
+ */
+const floatKept: ReadonlyArray<Kept<ReadonlyArray<FloatPower>, FloatFeature>> = [
+	{
+		note: "power(1.6466997816706438e-110, 9.5) and power(1.6466997816706438e-110, 527076835) underflow to zero",
+		sketch: [
+			{ base: 1.6466997816706438e-110, exponent: 9.5 },
+			{ base: 1.6466997816706438e-110, exponent: 527076835 }
+		],
+		draws: "",
+		reaches: ["refused where dpow underflows"]
 	}
 ]
 
@@ -350,6 +424,123 @@ layer(Substrate.layer)("numeric power against PostgreSQL 19", (it) => {
 								const failed = Arr.flatMap(proved, (k, i) => {
 									const answer = parseAnswer(String(rows[i]?.[0]))
 									return answer.kind === "error" ? [`${k.label}: ${answer.sqlstate}`] : []
+								})
+								assert.deepEqual(failed, [])
+							})
+					)
+				})
+			)
+	)
+
+	it.effect(
+		"never proves a float power over bases of every binary exponent that PostgreSQL's dpow fails",
+		(ctx) =>
+			searched(
+				ctx,
+				Effect.gen(function* () {
+					const { session, schema } = yield* Substrate
+					const db = yield* session(ownerSession())
+					const s = yield* schema(freshSchema)
+					yield* installEvaluator(db, s)
+					const expr: ExprDesc = spelledExpr(
+						Compute.power(v("a", testPg.double), v("b", testPg.double)).expr
+					)
+					return yield* explore(
+						{
+							oracle: {
+								kind: "postgresql",
+								name: "dpow's 22003 on a zero result of a nonzero base or an infinite one (float.c)"
+							},
+							suite: "pg/compute/power/float",
+							draw: drawn(
+								array(
+									(source): FloatPower => ({
+										base: source.draw(floatBaseGen),
+										exponent: source.draw(floatExponentGen)
+									}),
+									{ min: 1, max: 200 }
+								)
+							),
+							literal: Formatter.format,
+							coverage: required<FloatFeature>(
+								[
+									"admitted",
+									"admitted over a subnormal base",
+									"refused where dpow underflows",
+									"refused where dpow overflows"
+								],
+								{ cases: 4, sense: notesOnly }
+							),
+							kept: floatKept,
+							runs: 4,
+							shrink: completeShrink,
+							concurrency: 1,
+							steerEvery: 16,
+							caseHang
+						},
+						(batch, c) =>
+							Effect.gen(function* () {
+								const runs: Array<{
+									readonly pair: FloatPower
+									readonly admitted: boolean
+									readonly q: string
+								}> = []
+								for (const pair of batch) {
+									yield* Effect.yieldNow
+									const lowered = lowerWith(
+										"query",
+										expr,
+										{
+											a: { kind: "literal", field: testPg.double, value: pair.base },
+											b: { kind: "literal", field: testPg.double, value: pair.exponent }
+										},
+										false,
+										baseParams
+									)
+									if (lowered.ok) {
+										runs.push({
+											pair,
+											admitted: true,
+											q: renderSql(lowered.value.root.expr, plainRender)
+										})
+										continue
+									}
+									const reason = lowered.error.reason
+									assert.ok(
+										reason._tag === "PartialOperation" && powerPrecondition(reason.precondition),
+										`${Formatter.format(pair)}: ${String(lowered.error)}`
+									)
+									runs.push({
+										pair,
+										admitted: false,
+										q: `"pg_catalog"."power"('${pair.base}'::float8, '${pair.exponent}'::float8)`
+									})
+								}
+								const rows = yield* db.values(
+									`SELECT "${s}".try_eval(c.q, c.q) FROM jsonb_to_recordset($1::text::jsonb) AS c(ord int4, q text) ORDER BY c.ord`,
+									[jsonText(Arr.map(runs, (k, ord) => ({ ord, q: k.q })))]
+								)
+								const failed = Arr.flatMap(runs, (k, i) => {
+									const answer = parseAnswer(String(rows[i]?.[0]))
+									const { base, exponent } = k.pair
+									if (k.admitted) {
+										if (answer.kind === "error") {
+											return [`power(${base}, ${exponent}): ${answer.sqlstate}`]
+										}
+										c.note("admitted")
+										if (base > 0 && base < leastNormal) {
+											c.note("admitted over a subnormal base")
+										}
+										return []
+									}
+									if (answer.kind === "error" && answer.sqlstate === "22003") {
+										c.note(
+											Math.log2(base) * exponent < 0
+												? "refused where dpow underflows"
+												: "refused where dpow overflows"
+										)
+									}
+									return []
 								})
 								assert.deepEqual(failed, [])
 							})

@@ -243,14 +243,14 @@ describe("every declared parameter admitted at the read boundary", () => {
  * A read's relation input, from the caller's value to the arrays its statements bind (reader/params.ts hostParams, then
  * reader/relations.ts executionInputs): an array, a Stream collected whole on the host, or an iterable that can be read
  * only once, of any number of facts, more than the 65,535 parameters a statement binds among them, with no row bound; deduplicated; and written as one array per
- * column in any column order a statement's slot reads, each order's arrays written once per execution. An array or an
+ * column in any column order a statement's slot reads, each placeholder's array by itself. An array or an
  * iterable passes the host step as it is. A codec's refusal is the EncodingFailure naming the parameter, or
  * `parameter.field` for a fact's field, and a Stream that fails is the parameter's.
  *
  * The oracle is the input's set of facts: the arrays of each column order, read as PostgreSQL's array_in reads them and
  * zipped into rows, are exactly the distinct facts projected onto those columns, no row twice; the arrays of another
- * order are the declared order's, permuted, so every order aligns its rows alike; a slot's arrays read again are the
- * very arrays written; and the scalar parameter beside the input is admitted. A planted fault names its slot.
+ * order are the declared order's, permuted, so every order aligns its rows alike; and the scalar parameter beside the
+ * input is admitted. A planted fault names its slot.
  */
 const columnNames = ["a", "b", "c"] as const
 type ColumnName = (typeof columnNames)[number]
@@ -573,6 +573,9 @@ describe("a read's relation input", () => {
 							const inputs = succeeded(defined(prepared, "the inputs"))
 							assert.ok(inputs.scalars.has(ParamId("p2")), "the scalar parameter is admitted")
 							const input = defined(inputs.relations.get(ids.id), "the read admits ids")
+							/** The input's arrays over `columns`, each placeholder's written by itself at its part. */
+							const arraysOver = (columns: ReadonlyArray<RelationColumn>) =>
+								Arr.map(columns, (_, part) => succeeded(input.array(columns, part)))
 							const otherNames = Arr.map(c.order, (i) => defined(heading[i], "a column"))
 							const declaredColumns = Arr.map(heading, (name, i) => slotColumn(name, `c${i}`))
 							const otherColumns = Arr.map(otherNames, (name, i) => slotColumn(name, `d${i}`))
@@ -591,12 +594,7 @@ describe("a read's relation input", () => {
 								[heading, declaredColumns],
 								[otherNames, otherColumns]
 							] as const) {
-								const written = succeeded(input.arrays(columns))
-								assert.ok(
-									succeeded(input.arrays(columns)) === written,
-									"a slot's arrays are written once"
-								)
-								const literals = Arr.map(written, readArrayLiteral)
+								const literals = Arr.map(arraysOver(columns), readArrayLiteral)
 								const rows = Arr.map(defined(literals[0], "a column's array"), (_, row) =>
 									keyOf(Arr.map(literals, (column) => column[row]))
 								)
@@ -608,9 +606,9 @@ describe("a read's relation input", () => {
 								)
 							}
 							const distinct = projectedKeys(heading)
-							const declaredArrays = succeeded(input.arrays(declaredColumns))
+							const declaredArrays = arraysOver(declaredColumns)
 							assert.deepEqual(
-								succeeded(input.arrays(otherColumns)),
+								arraysOver(otherColumns),
 								Arr.map(c.order, (i) => defined(declaredArrays[i], "a column's array")),
 								"another order's arrays are the declared order's, permuted"
 							)

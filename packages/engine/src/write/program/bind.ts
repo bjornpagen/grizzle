@@ -16,7 +16,7 @@ import { type ReadonlyTupleMap, TupleMap, TupleSet } from "#compiler/core/tuple-
 import type { OutputText, ParamText } from "#compiler/core/wire.ts"
 import { type Family, isTreeOf } from "#compiler/ir/family.ts"
 import type { FamilyId, RelationInfo } from "#compiler/ir/law.ts"
-import type { ArrayTexts, LiteralBound, WriteSlot } from "#compiler/ir/products.ts"
+import type { LiteralBound, WriteSlot } from "#compiler/ir/products.ts"
 import type { RelationChoice } from "#compiler/lower/shapes/index.ts"
 import { runsLargeForm } from "#compiler/lower/shapes/take/index.ts"
 import type { EmittedText } from "#compiler/sql/ast.ts"
@@ -84,6 +84,7 @@ import {
 	rowLayout
 } from "#compiler/write/family/statements.ts"
 import type { EnumeratedInput } from "#compiler/write/frontend/compile.ts"
+import type { FamilyNode } from "#compiler/write/frontend/schedule.ts"
 import {
 	type MemberFacts,
 	type Normalized,
@@ -273,38 +274,25 @@ export const bindWrite = (
 		)
 	/**
 	 * A placeholder's text: a declared parameter's host value, by its declared name, or the array at its part of a
-	 * relation input's arrays, which `arrays` holds once its input's shared encoder wrote them for the statement.
+	 * relation parameter's normalized input or a member slot's normal facts, which its own encoder writes.
 	 */
 	const encodeSlot = (
 		slot: WriteSlot,
-		arrays: Map<unknown, ArrayTexts>,
 		slotFacts: (slot: ParamId) => NormalizedSlot
 	): Result.Result<ParamText, EncodingFailure | LiteralBound> => {
 		switch (slot.kind) {
 			case "scalar":
 				return slot.encode(inputs.params[slot.param])
 			case "relation":
-			case "member": {
-				const known = arrays.get(slot.encode)
-				const written =
-					known === undefined
-						? slot.kind === "relation"
-							? slot.encode(
-									defined(
-										relationInputs.get(slot.param),
-										`the normalized input of relation parameter ${slot.param}`
-									)
-								)
-							: slot.encode(slotFacts(slot.slot))
-						: Result.ok(known)
-				if (!written.ok) {
-					return written
-				}
-				arrays.set(slot.encode, written.value)
-				return Result.ok(
-					defined(written.value[slot.part], `array ${slot.part} of a relation input's arrays`)
+				return slot.encode(
+					defined(
+						relationInputs.get(slot.param),
+						`the normalized input of relation parameter ${slot.param}`
+					),
+					slot.part
 				)
-			}
+			case "member":
+				return slot.encode(slotFacts(slot.slot), slot.part)
 		}
 	}
 	/** Whether a choice runs its whole-relation form: the relation parameter it reads, counted above, holds more distinct
@@ -319,9 +307,8 @@ export const bindWrite = (
 			statement: ArtifactStatement
 		): Result.Result<ReadonlyArray<ParamText>, EncodingFailure | LiteralBound> => {
 			const out: Array<ParamText> = []
-			const arrays = new Map<unknown, ArrayTexts>()
 			for (const slot of form(statement).paramSlots) {
-				const encoded = encodeSlot(slot, arrays, slotFacts)
+				const encoded = encodeSlot(slot, slotFacts)
 				if (!encoded.ok) {
 					return Result.err(encoded.error)
 				}
@@ -363,7 +350,6 @@ export const bindWrite = (
 				{
 					relation,
 					deletes: new TupleSet<MemberKey>(),
-					trees: new TupleSet<Owner>(),
 					refills: new TupleMap<MemberKey, Row>(),
 					updates: new TupleMap<MemberKey, Row>(),
 					inserts
@@ -635,6 +621,9 @@ export const bindWrite = (
 	 * once more than the relations and trees it plans, so every value drawn from another plan's is drawn from its final
 	 * one: the changes reach one another only along the schema's families, which close no cycle a refill could not order
 	 * (analysis/theory/refill.ts).
+	 *
+	 * Every planned statement is one the stratum's schedule placed a family statement for, which sends it: one the
+	 * schedule did not place is a defect, never a statement left unsent.
 	 */
 	const planned = (
 		rows: ReadonlyArray<Raw>
@@ -979,7 +968,15 @@ export const bindWrite = (
 			if (!relations.ok) {
 				return relations
 			}
-			out.set(stratum, compose([...relations.value, ...editedPlans], counts))
+			const plan = compose([...relations.value, ...editedPlans], counts)
+			const placed = defined(frontend.ir.strata[stratum], "a planned stratum").family
+			const unsent = plan.flat().find((s) => !placed.some(({ node }) => placedFor(node, s)))
+			if (unsent !== undefined) {
+				throw defect(
+					`a planned ${unsent.kind} of ${unsent.kind === "count" ? `${unsent.family.owner}.${unsent.family.count}` : unsent.relation} in stratum ${stratum}, which no family statement the schedule placed sends`
+				)
+			}
+			out.set(stratum, plan)
 		}
 		return Result.ok({ plans: out, slots: refilled })
 	}
@@ -1090,6 +1087,15 @@ const insertSlots = (input: EnumeratedInput): ReadonlyArray<ParamId> => {
 }
 
 const noPlan: Plan = [[], [], [], [], []]
+
+/** Whether a family statement the schedule placed sends a planned one: the count of its family, or the statement of its
+ * kind of its member relation. */
+const placedFor = (node: FamilyNode, statement: FamilyStatement): boolean =>
+	statement.kind === "count"
+		? node.kind === "owners" && familyKey(node.family) === familyKey(statement.family)
+		: node.kind === "rows" &&
+			node.statement === statement.kind &&
+			node.relation === statement.relation
 
 /** Each stratum's plan, and each owner insert slot whose facts carry the counts and ends its members' appends draw. */
 interface Planned {

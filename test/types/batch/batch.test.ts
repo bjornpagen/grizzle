@@ -260,7 +260,7 @@ const attributed = (planted: Planted, c: Case<Feature>) =>
 					})
 					const spec: UnitSpec =
 						unit.kind === "fixtures"
-							? { kind: "fixtures", dir: yield* placeFixtures, extra: [] }
+							? { kind: "fixtures", dir: yield* placeFixtures }
 							: unit.kind === "disarmed"
 								? { kind: "disarmed", dir: yield* placeFixtures }
 								: {

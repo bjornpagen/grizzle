@@ -1,6 +1,6 @@
 import type { Exact, Fact, FactSource, OperandPremise } from "#compiler/ir/proof.ts"
 import { numericMaxFractionDigits, numericMaxIntegerDigits } from "#compiler/ir/scalar.ts"
-import { doubleParts } from "#compiler/scalar/compute/cast.ts"
+import { doubleAtLeast, doubleParts, log2Of } from "#compiler/scalar/compute/cast.ts"
 import type { Decimal } from "#compiler/scalar/values/decimal.ts"
 
 const pow10 = (n: number): bigint => 10n ** BigInt(n)
@@ -72,6 +72,16 @@ export const significantRound = (x: Exact, digits: number): Exact => {
 	const rounded = up ? kept + 1n : kept
 	return exactOf(x.units < 0n ? -rounded : rounded, x.scale - dropped)
 }
+
+/**
+ * |x| as the least double at or above it (cast.ts doubleAtLeast): exact where |x| is a double, Infinity past the
+ * doubles, and never below |x| however small, so a bound read from it holds of x itself.
+ */
+export const magnitudeAtLeast = (x: Exact): number =>
+	doubleAtLeast(absExact(x).units, pow10(x.scale))
+
+/** log2 |x|, read from x's digits (cast.ts log2Of), never through a double of x: -Infinity at zero. */
+export const log2Magnitude = (x: Exact): number => log2Of(absExact(x).units, pow10(x.scale))
 
 /**
  * The integer digits of a finite exact value: the least d of at least zero with |x| < 10^d, so a fraction's are none.
