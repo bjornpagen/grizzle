@@ -60,11 +60,6 @@
 		"reason": "derivedMigrationName (deploy/render/naming.ts) never reads one change twice: a theory field's column and a manifest column object (a stored tag's) are never the same column, and no identity is added, dropped, changed or retired at once, so leaving out the deduplication, or keying it by identity alone, names the same changes."
 	},
 	{
-		"id": "663eb60bc6",
-		"verdict": "equivalent",
-		"reason": "An empty list there (sql/print.ts): no statement builder makes an empty DELETE USING, UPDATE FROM, aggregate ORDER BY, window PARTITION BY or ORDER BY, index INCLUDE or locking OF list (an index model's include: [] is no AST), so printing one is unreachable."
-	},
-	{
 		"id": "7a9f7b7e9a",
 		"verdict": "equivalent",
 		"reason": "A non-associative operator's left operand (sql/print.ts) parenthesized from two levels up instead of one: only more parentheses, which PostgreSQL reads to the same tree."
@@ -93,5 +88,385 @@
 		"id": "a47f32a29b",
 		"verdict": "equivalent",
 		"reason": "Order completion without its fixed test (check/checker.ts complete): a column the attachment's correlation fixes holds one value across each parent's child rows, so appending it as a key changes no order."
+	},
+	{
+		"id": "1e2658132a",
+		"verdict": "equivalent",
+		"reason": "sameKeySets always false (logical/annotate.ts) restates a Base over a view whose stamped keys already equal the view's: the rebuilt node carries the same primary key, keys and claims, a new node of identical content, so no reading of the DAG changes."
+	},
+	{
+		"id": "85b33b5379",
+		"verdict": "equivalent",
+		"reason": "pairLaw (analysis/theory/fill.ts) is read only for a fold plane's pair on the predecessor axis, whose from is the plane's before: a law column only that plane carries, or an accumulated field, which Namings.refuseMisnamed (theory/families.ts) refuses when a second statement fills it, so no other pair of the axis has that from and the from alone picks the pair."
+	},
+	{
+		"id": "a74618c8ee",
+		"verdict": "equivalent",
+		"reason": "A contract law's sides (analysis/theory/laws.ts contract) are read only for their relations (theory.ts #dependencies): its name is its contract's alone (theory.ts contractStatement) and its native the contract's domain (laws/model/plan.ts), so the terms of each side change nothing."
+	},
+	{
+		"id": "b55119c113",
+		"verdict": "equivalent",
+		"reason": "finish's attribute filter (logical/props.ts) drops nothing: every caller hands it dependencies over the node's own attributes, carried renaming each input attribute to a delivered column or to a hidden attribute the caller lists (hiddenOf, keptRest), a region its sources' attributes, each bound or hidden, so keeping every dependency changes no closure."
+	},
+	{
+		"id": "732fc7ff89",
+		"verdict": "equivalent",
+		"reason": "Without the shortcut (logical/props.ts regionProps givenBy), a determinant's column the source fixes is given by its hidden attribute or a bound member of its class; determinantsOf lists the empty determinant first, whose dependency from the region's lateral reads alone reaches every column the source fixes, so the longer from is reached exactly when the shorter is and every closure is unchanged."
+	},
+	{
+		"id": "08f1980848",
+		"verdict": "equivalent",
+		"reason": "chooseAttachment (lower/shapes/attach) is read only for its form: without the pipelinedOnly guard a child under exact parents still pipelines, and a pipelinedOnly child under rows that read a search is refused by the checker first (check/approximate/attach.ts pipelinedOverSearch), so no admitted query fuses differently."
+	},
+	{
+		"id": "f4f92bd2b7",
+		"verdict": "equivalent",
+		"reason": "An ignored node's reasons (lower/optimize/dedup/explain.ts nodeReasons) feed only the plan's decisions and its Multiplicity diagnostics, which no code of the engine or the shell reads: a QueryTemplate carries its diagnostics and nothing renders them."
+	},
+	{
+		"id": "565bf34df6",
+		"verdict": "equivalent",
+		"reason": "Without the reserved test (check/checker.ts services), a search source reading a label the checker reserved is refused UnsupportedOperation at the same stage all the same: a read of the enclosing rule's region is an outer read, which outerRefusal (check/approximate) refuses, and no description puts a recursion's self source inside a search, which the decoder refuses outside a recursive step; only the wording differs."
+	},
+	{
+		"id": "b6fe869595",
+		"verdict": "equivalent",
+		"reason": "keyedOn's empty column set (lower/shapes/take) is keyed exactly when the empty key holds, where the physical analysis already bounds the source's maxCard by one (analysis/physical/rules.ts finish), so the bound differs only between at most zero and at most one rows; the take's shape reads it only against lateralMax and as a factor floored at one, so no shape changes."
+	},
+	{
+		"id": "30579e9f42",
+		"verdict": "equivalent",
+		"reason": "The conservative nearest search (lower/conservative/vector) orders by its score first; listing the score again among the tie columns after it orders nothing the first key did not."
+	},
+	{
+		"id": "cad8b65485",
+		"verdict": "equivalent",
+		"reason": "The hash index candidates of a reverse index (laws/model/plan.ts): a planned column is a field or a law column, so taking every column after the fields instead of the law columns alone lists the fields again, none of them hashable once the first pass found none, and then the law columns in their order: find returns the same column."
+	},
+	{
+		"id": "4e74938438",
+		"verdict": "equivalent",
+		"reason": "The rostered discriminant of a heterogeneous union (check/checker.ts) tried with no closed-id column: clashes over no column holds, since every arm's tuple over no column is the empty tuple and a heterogeneous union has two groups of at least one arm each, so the discriminant falls back to the literal columns as when the empty list is skipped."
+	},
+	{
+		"id": "99ae2e726d",
+		"verdict": "equivalent",
+		"reason": "uniqueBesideKey's test that an object compares every primary-key field (write/put/choose.ts) never decides: an installed unique object besides the arbiter that reads only primary-key fields and compares every one of them would hold apart only facts of one primary key, and none is installed (a key over a selected side of the whole primary key installs no object of its own: test/unit/write/put/choose.test.ts sees its MERGE either way), while one reading a field outside the key made the put the pair (candidateKey) first."
+	},
+	{
+		"id": "a9a1ea325c",
+		"verdict": "equivalent",
+		"reason": "An axis pair repeating a base pair (laws/model/plan.ts carried pairs) at the target base's first column: no axis carries one, since a riding containment's carried pairs are those after the axis key (theory/families.ts ridesOf) and a fold's and a tree's pairs are their own columns, so the skip never fires at any index, and a pair whose target is a base column with another source is refused either way."
+	},
+	{
+		"id": "6752760fe9",
+		"verdict": "equivalent",
+		"reason": "#lateNegations (check/checker.ts) without its early return for a rule with no negation returns no late negation instead of none: the early path then negates nothing and the late loop runs over nothing, so the head stands as built either way, and the slots it reads on the way are pure lookups."
+	},
+	{
+		"id": "2c91f7ce7f",
+		"verdict": "equivalent",
+		"reason": "directReads (write/schedule/plan.ts) with nothing carried walks the member's inputs (inputsOf, edgesOf deduplicated) and collects every Base relation, which is meta.reads, a Base's relation and its inputs' (ir/dag.ts relNode); its one reader asks only whether a written relation is among them."
+	},
+	{
+		"id": "f7d3e5e24e",
+		"verdict": "equivalent",
+		"reason": "backfillOf's skip of a family that adds no member and no owner column (deploy/diff/backfill.ts): memberUpdate and ownerUpdate over no added column assign nothing and return no update before reading anything else, so the family adds no statement either way."
+	},
+	{
+		"id": "1d7c7ab1ac",
+		"verdict": "equivalent",
+		"reason": "The ledger's privileges (deploy/diff/diff.ts, ledger.ts ledgerPrivilegesObject) are one grant of SELECT on the ledger to every login's role: revoking it from every role the source granted and granting the target's to its roles leaves the roles the target names holding it and no other, as revoking it only from the roles the target drops does, inside the migration file's one transaction."
+	},
+	{
+		"id": "0794b56874",
+		"verdict": "equivalent",
+		"reason": "A readable identity's label (deploy/render/naming.ts label) keeping the dot after its schema: the label feeds only changeMigrationName, whose words fold every run of other characters into one underscore, so the dot joins the one after the verb and the name is unchanged."
+	},
+	{
+		"id": "49f5b9bea8",
+		"verdict": "equivalent",
+		"reason": "decideFolder's order check (deploy/ledger/ledger.ts) refusing a folder that sorts before the last complete one but not one that sorts at it: a folder named as a complete folder is decided by the complete folders' lookup first, so no folder reaching the check shares the last one's name."
+	},
+	{
+		"id": "050a0b7d40",
+		"verdict": "equivalent",
+		"reason": "The ledger rows statement's output names (deploy/ledger/ledger.ts, c0 to c6 instead of c1 to c7): the migrate runner reads its rows by position (adapter/migrate/ledger.ts ledgerRowOf), so no reader names them."
+	},
+	{
+		"id": "d8d27e5028",
+		"verdict": "equivalent",
+		"reason": "admitsArity admitting no operand to a variadic native (scalar/compute/registry.ts) never decides: a variadic native enters an expression only through overloadOf, whose admits refuses an empty operand list, and every rewrite keeps an expression's arity (ir/expr.ts), so the lowering's arity tests never meet zero operands."
+	},
+	{
+		"id": "fdd1aba3ad",
+		"verdict": "equivalent",
+		"reason": "The owned clause of a set-aside relation's marker (deploy/diff/diff.ts ownedAside) when it owns nothing: every table grizzle installs has a primary key, which its own index carries, and every materialized view a unique index, its inherited key, which its concurrent refresh needs, so a table or a materialized view set aside always owns a key or an index (diff/aside.ts ownedBy) and the clause is always due."
+	},
+	{
+		"id": "b98fe11d6e",
+		"verdict": "equivalent",
+		"reason": "A refusal's wording (scalar/aggregate.ts unaryOverload): under the mutant the AVG(money) branch tests a sum over money, which sumOverloads defines, so it never fires, and a mean over money is refused by the next branch, UnsupportedOperation at the same location, saying money has no native AVG instead of naming the numeric cast that expresses one."
+	},
+	{
+		"id": "c9e0052d44",
+		"verdict": "gap-fixed",
+		"reason": "test/unit/analysis/theory/families.test.ts: the family resolution box refuses a fold step side naming an accumulator with no partner at its statement."
+	},
+	{
+		"id": "db1c38684b",
+		"verdict": "gap-fixed",
+		"reason": "test/unit/write/fill-order.test.ts: the stale box's path of a put beneath an immutable owner, which re-places nothing."
+	},
+	{
+		"id": "e619a9fea7",
+		"verdict": "gap-fixed",
+		"reason": "test/unit/lower/rewrite/existence.test.ts: an existence-only match whose binder's source is a rule of its own, whose variables share the region's names, becomes a semi-join."
+	},
+	{
+		"id": "f8ff910746",
+		"verdict": "gap-fixed",
+		"reason": "test/unit/physical/fin.test.ts: every slot of a dependent key's constants counts by its one fin, whose counts one function holds."
+	},
+	{
+		"id": "91a992ea5e",
+		"verdict": "gap-fixed",
+		"reason": "test/unit/write/put/choose.test.ts: each put's statement held to choosePutTargets' rules over every unique object of R and every form of its stratum."
+	},
+	{
+		"id": "d9f7fc0a95",
+		"verdict": "gap-fixed",
+		"reason": "test/unit/write/put/choose.test.ts: each put's statement held to choosePutTargets' rules over every unique object of R and every form of its stratum."
+	},
+	{
+		"id": "c9b0ded30c",
+		"verdict": "gap-fixed",
+		"reason": "test/unit/write/put/choose.test.ts: each put's statement held to choosePutTargets' rules over every unique object of R and every form of its stratum."
+	},
+	{
+		"id": "527d013e88",
+		"verdict": "gap-fixed",
+		"reason": "test/unit/write/put/choose.test.ts: each put's statement held to choosePutTargets' rules over every unique object of R and every form of its stratum."
+	},
+	{
+		"id": "52120dbd9e",
+		"verdict": "gap-fixed",
+		"reason": "test/unit/write/put/choose.test.ts: an enumerated put's planned input is distinct and key-unique by the codec's normalization."
+	},
+	{
+		"id": "034ec88e65",
+		"verdict": "gap-fixed",
+		"reason": "test/unit/write/put/choose.test.ts: a put of R's own facts reads its input as unique at R's key by the key its member proves."
+	},
+	{
+		"id": "aa1b771c60",
+		"verdict": "gap-fixed",
+		"reason": "test/unit/derived/keys.test.ts: a view stating its key's variable under several names keys each name, and so does a level reading the view whole."
+	},
+	{
+		"id": "687346967f",
+		"verdict": "gap-fixed",
+		"reason": "test/unit/derived/keys.test.ts: a join of two relations each keyed by either of two fields keeps a key of two factors, each with an alternative (the factors fixed in analysis/logical, aeb44aa4 and 42754ca8)."
+	},
+	{
+		"id": "f51a5559bc",
+		"verdict": "gap-fixed",
+		"reason": "test/unit/derived/keys.test.ts: a join of two relations each keyed by either of two fields keeps a key of two factors, each with an alternative (the factors fixed in analysis/logical, aeb44aa4 and 42754ca8)."
+	},
+	{
+		"id": "0585623487",
+		"verdict": "gap-fixed",
+		"reason": "test/unit/deploy/split.test.ts: a reviewed statement is held to its draft token for token, each placeholder filled by a balanced run."
+	},
+	{
+		"id": "c9c51f1a17",
+		"verdict": "gap-fixed",
+		"reason": "test/unit/deploy/split.test.ts: a reviewed statement is held to its draft token for token, each placeholder filled by a balanced run."
+	},
+	{
+		"id": "55208f9fdb",
+		"verdict": "gap-fixed",
+		"reason": "test/unit/adapter/migrate.test.ts: the planner refuses a recorded folder whose ledger rows name another target."
+	},
+	{
+		"id": "8593f56dfe",
+		"verdict": "gap-fixed",
+		"reason": "test/unit/compute/aggregate.test.ts: a numeric mean's result bound holds the reference numeric_avg of its argument's greatest value, which reaches its integer digits."
+	},
+	{
+		"id": "a72c0e66a3",
+		"verdict": "equivalent",
+		"reason": "A refusal's wording (scalar/aggregate.ts unaryOverload): without the AVG(money) branch, a mean over money, which avgOverloads lacks, is refused by the next branch, UnsupportedOperation at the same location, saying money has no native AVG instead of naming the numeric cast that expresses one."
+	},
+	{
+		"id": "a7c5f7b7ac",
+		"verdict": "gap-fixed",
+		"reason": "test/unit/compute/aggregate.test.ts: a numeric mean's result bound holds the reference numeric_avg of its argument's greatest value, which reaches its integer digits."
+	},
+	{
+		"id": "b88fdf8aca",
+		"verdict": "equivalent",
+		"reason": "A refusal's wording (scalar/aggregate.ts unaryOverload): under the mutant the AVG(money) branch asks for an overload of a mean over money, which avgOverloads lacks, so it never fires, and a mean over money is refused by the next branch, UnsupportedOperation at the same location, saying money has no native AVG instead of naming the numeric cast that expresses one."
+	},
+	{
+		"id": "963b4b9374",
+		"verdict": "equivalent",
+		"reason": "A refusal's wording (scalar/aggregate.ts unaryOverload): under the mutant a mean over any type avgOverloads lacks takes the AVG(money) branch, and every one is refused there as by the next branch, UnsupportedOperation at the same location; only the phrase differs, naming money's numeric cast for a type that is not money."
+	},
+	{
+		"id": "188714fde7",
+		"verdict": "equivalent",
+		"reason": "The tables whose row security an installation enables, which the drift check meets with a role's filtered tables (deploy/admission/roles.ts roleExpectation secured): an installation creates a policy only beside its table's ENABLE ROW LEVEL SECURITY (physical/ddl/roles.ts addRowSecurity), so every filtered table is among the tables whose row security is enabled, which are among the tables altered at all; met with the filtered tables, either set gives the filtered tables."
+	},
+	{
+		"id": "d6ba282dbd",
+		"verdict": "equivalent",
+		"reason": "Whether a default privilege's revoke names one of PostgreSQL's own defaults' grantees (deploy/admission/roles.ts sameGrantee): its second grantee is always a built-in default's, PUBLIC, so a revoke naming a role answers false whether or not the role's name is compared."
+	},
+	{
+		"id": "e54edf063b",
+		"verdict": "equivalent",
+		"reason": "The AVG(money) refusal's test (scalar/aggregate.ts unaryOverload) without its name: sumOverloads defines a sum over money, so an aggregate over money with no overload is a mean, and the branch fires for exactly the calls it did."
+	},
+	{
+		"id": "8aa321d7c6",
+		"verdict": "equivalent",
+		"reason": "Which of PostgreSQL's own default privileges an installation's revokes leave (deploy/admission/roles.ts defaultPrivilegesExpectations): every manifest that alters a default privilege is an installation's, whose PUBLIC revokes (physical/ddl/roles.ts publicRevokes) take ALL on functions and on types from PUBLIC everywhere, both of the defaults, so none is left whether or not each revoke is read."
+	},
+	{
+		"id": "29af231b12",
+		"verdict": "gap-fixed",
+		"reason": "test/pg/physical/row-security.test.ts: Db.open refuses a narrowed writer of a table whose row security a hand disabled or forced, one mismatch per such table, and admits every other role."
+	},
+	{
+		"id": "54223aee24",
+		"verdict": "gap-fixed",
+		"reason": "test/unit/check/semantics.test.ts: an imported query whose negated match reads a parameter the import binds to a literal answers the items no Tag holds at that label."
+	},
+	{
+		"id": "0b71022e69",
+		"verdict": "gap-fixed",
+		"reason": "test/unit/adapter/answers.test.ts: a page's rows statement answering one increasing row past its LIMIT, the size and its lookahead row, is UnreadableAnswer at that statement."
+	},
+	{
+		"id": "ea0f9f76fc",
+		"verdict": "equivalent",
+		"reason": "Whether two delivered rows of one identity hold the same bytes (adapter/reader/execution.ts sameCells): a bytes cell's identity is the SHA-256 digest of its bytes (scalar/values/bytes.ts BytesDigest), so two cells of one identity whose bytes differ are a SHA-256 collision, which no answer PostgreSQL computes holds; the comparison it drops never fails."
+	},
+	{
+		"id": "e74c1fb9d3",
+		"verdict": "equivalent",
+		"reason": "A stored setting's name before its '=' (adapter/admission/roles.ts storedSettings), refused under the mutant at one character: PostgreSQL defines no configuration parameter of one character, and a custom one is two or more names joined by a dot, so pg_db_role_setting holds no such setting for either reading to tell apart."
+	},
+	{
+		"id": "73f43a0f14",
+		"verdict": "gap-fixed",
+		"reason": "test/unit/write/put/choose.test.ts: an enumerated put after an insert into its relation in an earlier stratum is the pair (netting)."
+	},
+	{
+		"id": "cec4258bbc",
+		"verdict": "gap-fixed",
+		"reason": "test/pg/fields/set-checks.test.ts: a row whose flags break three checks at once is refused naming all three, each once, in canonical order; test/pg/laws/outcomes/witness.test.ts, which neither stage 2 nor its rechecks ran, kills it too."
+	},
+	{
+		"id": "a2376d0233",
+		"verdict": "gap-fixed",
+		"reason": "test/pg/migrate/admission.test.ts: a hand edit that adds a raising statement at the head of a file stops the apply there, StatementFailed naming its folder, its file and statement 1."
+	},
+	{
+		"id": "87ae805ec8",
+		"verdict": "gap-fixed",
+		"reason": "test/pg/laws/outcomes/suites/witness.ts: two captains of a new club in one input are refused by the selected side's key, its witness the club's key, never a transient failure."
+	},
+	{
+		"id": "1c8f46bded",
+		"verdict": "gap-fixed",
+		"reason": "test/pg/write/generated-source/generated-source.test.ts: a generated field parsing a day's text into a date installs IMMUTABLE and holds the day the host reads."
+	},
+	{
+		"id": "eda66772e0",
+		"verdict": "gap-fixed",
+		"reason": "test/pg/spans/allen/endpoints.test.ts: endpoint predicates over computed spans (CASE-chosen spans), and a connective of two pairs alike but for their computed span stays two masks (3c158f06)."
+	},
+	{
+		"id": "ee4a9dcdb3",
+		"verdict": "gap-fixed",
+		"reason": "test/unit/lower/catalog/lexicographic.test.ts: a predicate with a starts_with part over a pair is recognized as no order (d2bb3fbb)."
+	},
+	{
+		"id": "6ad6c0acce",
+		"verdict": "gap-fixed",
+		"reason": "test/unit/lower/selection-key.test.ts: a key guarded by tiers = {bronze} ∪ {silver} is probed only by a read computing the union, never the intersection of the same literals (f6c5104e)."
+	},
+	{
+		"id": "4ca69e316a",
+		"verdict": "gap-fixed",
+		"reason": "test/pg/compute/float-binding.test.ts: a closed read keyed by a conditional over the term, its dictionary subscript's index holding the binding, runs no SubPlan (37991373)."
+	},
+	{
+		"id": "ce611d6add",
+		"verdict": "gap-fixed",
+		"reason": "test/unit/lower/catalog/catalog.test.ts: in the self-match box, a student the region equates by the simplification's region equality is never windowed (0783a471)."
+	},
+	{
+		"id": "04264a374b",
+		"verdict": "gap-fixed",
+		"reason": "test/unit/write/changeset/params.test.ts: two members reading one relation parameter compile exactly when they declare it with the same fields of the same types, and are refused MalformedDescription otherwise."
+	},
+	{
+		"id": "a3eaf21f3a",
+		"verdict": "gap-fixed",
+		"reason": "test/pg/sql/print.test.ts: a catalog read of several arms reads as the set union of their rows, a row two arms share once."
+	},
+	{
+		"id": "b2d0b154d4",
+		"verdict": "equivalent",
+		"reason": "A boolean literal typed by a named type called boolean (sql/print.ts printLiteral), printed bare instead of cast: the one named type a boolean literal takes is a contract's domain over boolean, whose predicate the host checks every literal against when it is built, so the cast adds no check, and PostgreSQL coerces a bare boolean into the domain wherever the literal is stored, compared or delivered, both readings of the same values."
+	},
+	{
+		"id": "0e9db3a302",
+		"verdict": "equivalent",
+		"reason": "Whether an input nothing proves holds no repeated row (write/insert/input.ts unproved), the proof of a described member read through a carrier or by an entry's outside check: a carrier holds its member's rows as a set after their casts into the relation's types (write/carriers/carriers.ts memberRows, SELECT DISTINCT unless the member's lowering is a set and every cast keeps its value), so a DISTINCT over it removes nothing, and an outside check reads a member only to find whether some row lies outside its entry, which a repeated row cannot change."
+	},
+	{
+		"id": "75221c2de9",
+		"verdict": "gap-fixed",
+		"reason": "test/unit/write/changeset/normalize.test.ts: a stratum adding two generated Gen facts, different in w, at one k is refused by Gen's key on the host."
+	},
+	{
+		"id": "6529fec2d6",
+		"verdict": "gap-fixed",
+		"reason": "test/unit/lower/graph.test.ts: in the alike-conjuncts box, over a reach between closed ids, each of two conjuncts on the carried origin alike but for one part (a literal, a parameter, an operator, a closed field, an Allowed.row key, an Allowed.has key) moves into the seed, a conjunct once (1e072943)."
+	},
+	{
+		"id": "058f43578e",
+		"verdict": "gap-fixed",
+		"reason": "test/unit/lower/rewrite/fuse.test.ts: in the fixed-columns box, a stage filtered on the variable that a constant reading another occurrence's column fixes is never fused, its fused filter reading outside its input; unfiltered it is (a7c5e15b)."
+	},
+	{
+		"id": "2e976dc93a",
+		"verdict": "gap-fixed",
+		"reason": "test/unit/lower/rewrite/closed.test.ts: R07 beside a lateral read, a roster occurrence another occurrence reads through a constant stays in its region (b7f62d89)."
+	},
+	{
+		"id": "b49e7a3923",
+		"verdict": "equivalent",
+		"reason": "Decorrelation with no outer constant (lower/shapes/take/decorrelate.ts candidateAt): rewrite then sets the region, every chain link and the take to bodies equal to their own, occurrences in their order with no constant dropped or binding added, headings with nothing appended, the take's correlation with nothing added, so everyParentTakes returns the same DAG rebuilt, its certificates and both artifacts' SQL byte for byte."
+	},
+	{
+		"id": "c63a743add",
+		"verdict": "gap-fixed",
+		"reason": "test/unit/deploy/backfill.test.ts: arm end moved, an ordered family's fold over named accumulators moved into a new owner field total, the old end dropped or left to its caller, which adds one owner column and no member column, so the backfill draws the owner's new end alone from its last member's after, judged against the reference fold (48f86de6)."
+	},
+	{
+		"id": "b2066e2e4b",
+		"verdict": "gap-fixed",
+		"reason": "test/pg/migrate/paths.test.ts: the kept path keyPromotedBesideChangedReference, R0's surrogate key dropped and its candidate key promoted while R1's containment into it keeps its foreign key's name and turns from deferred to immediate, applies on PostgreSQL, both catalogs a fresh install's, the facts carried (55e872a0)."
+	},
+	{
+		"id": "cfa7fcaaea",
+		"verdict": "gap-fixed",
+		"reason": "test/pg/write/strata-families/strata-families.test.ts: family edits in one stratum and an owner inserted with its ordered members nested in another each take effect once, in their own stratum, whichever comes first."
 	}
 ]

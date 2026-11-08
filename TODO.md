@@ -30,8 +30,6 @@ post-beta swarm's fixes for the next release.
   their DFAs within the DFA bounds and otherwise by the members' keys in order. The alternatives: `str.regex([p, q])`,
   or nothing, since one product pattern within PostgreSQL's limits is admitted now. It reaches every place a text
   carries one source: TextInfo, pattern rules, casts' inclusion proofs, Compute.matches.
-- **Mutation adequacy:** one seeded `pnpm mutate` sample on the release commit, in a scratch copy. Every surviving
-  mutant becomes a generator arm or a written equivalence, and triage.json is pruned to the code.
 - **PostgreSQL:** repin to 19rc2 when it is released on 2026-11-12 (pin.env, rebuild, re-init, delete the 19rc1
   build; RC2 includes the recursive-UNION hash_mem fix, so that patch goes; confirm DROP DATABASE … WITH (FORCE)
   beside parallel autovacuum and the RI fast path with a cast). Repin to 19 GA on 2026-11-19; the relcache patch is
