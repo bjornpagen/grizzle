@@ -2398,6 +2398,13 @@ deploy.
   those rows in a data step first. A set over a grown roster converts in place to its wider
   domain, the new handles absent. A roster declared out of its codes' order is refused before anything is drafted:
   append new handles.
+- **A roster continues one roster at most.** It continues the roster a `--rename` names, or else the roster of its own
+  name or an alike spelling of it (`Status`, `status`), unless a rename of another roster takes that name. Every other
+  roster is new, its codes from 0. A closed id or a set keeps its stored codes only on the roster its own continues.
+  Anywhere else its codes would name other handles, so its conversion is a `-- grizzle: placeholder`: moved to
+  another roster, to or from an integer, renamed without `--rename` (that is a `--drop` and a new roster), or left on a
+  name another roster takes (`--rename Draft=Status --drop Status`). The marker says why, and it offers no cast:
+  compute each row's new value from what its old value means.
 - **A closed relation's change is a new constant.** Constants are named by their contents, so a change installs new
   ones, replaces and validates every CHECK that reads them, gives every generated field that reads them its new
   expression (`SET EXPRESSION`), and drops the old ones `RESTRICT`, so PostgreSQL refuses a migration that missed a

@@ -20,9 +20,9 @@ import type { Declarations, Named, Step } from "#compiler/deploy/diff/plan.ts"
 import { draftMigration } from "#compiler/deploy/render/generate.ts"
 import {
 	codebookOf,
-	codebookUnder,
 	emptySnapshot,
-	noWorkload
+	noWorkload,
+	rosterFates
 } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import type { CodeSlot } from "#compiler/ir/cells.ts"
@@ -428,7 +428,16 @@ const draft = (
 	renames: RosterRenames
 ) => {
 	const owned = owning(subject.desc)
-	const codes = draftCodebook(codebookUnder(previous, declared), renames, rostersOf(owned))
+	const rosters = rostersOf(owned)
+	const codes = draftCodebook(
+		rosterFates(
+			previous,
+			declared,
+			Arr.map(rosters, (r) => r.closed)
+		),
+		renames,
+		rosters
+	)
 	if (!codes.ok) {
 		return Result.fail(reorderRefusal(codes.error))
 	}

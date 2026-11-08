@@ -1,4 +1,4 @@
-import { DateTime, Formatter, Result as EffectResult } from "effect"
+import { Array as Arr, DateTime, Formatter, Result as EffectResult } from "effect"
 import { formatTimestamp } from "#cli/clock.ts"
 import { rosterRenames } from "#cli/renames.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
@@ -8,20 +8,22 @@ import type { AbandonedSchema, Declarations } from "#compiler/deploy/diff/plan.t
 import { type MigrationName, parseMigrationName } from "#compiler/deploy/render/folder.ts"
 import { type GenerateResult, generateMigration } from "#compiler/deploy/render/generate.ts"
 import {
-	codebookOf,
 	type DraftWorkload,
 	emptySnapshot,
-	noWorkload
+	noWorkload,
+	rosterFates
 } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import {
 	type Codebook,
 	draftCodebook,
-	emptyCodebook,
 	firstCodebook,
+	noPreviousRosters,
+	type PreviousRoster,
 	reorderRefusal
 } from "#compiler/ir/codes.ts"
 import type { SchemaDesc } from "#compiler/ir/desc.ts"
+import type { Roster } from "#compiler/ir/scalar.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
 import type { InstallExtension } from "#compiler/physical/install/extension.ts"
@@ -76,9 +78,20 @@ export const compile = (desc: DeploySubject, over: CompileOver): Installation =>
 	)
 }
 
-/** The codes the snapshot `previous` records: none for an empty migrations directory. */
-const previousCodes = (previous: Previous): Codebook =>
-	previous.kind === "snapshot" ? codebookOf(previous.snapshot) : emptyCodebook
+/** The rosters the snapshot `previous` records, each with what a draft under `declared` makes of it against `rosters`
+ * (deploy/snapshot/build.ts rosterFates): none for an empty migrations directory. */
+const previousRosters = (
+	previous: Previous,
+	declared: Declarations,
+	rosters: ReadonlyArray<Roster>
+): ReadonlyArray<PreviousRoster> =>
+	previous.kind === "snapshot"
+		? rosterFates(
+				previous.snapshot,
+				declared,
+				Arr.map(rosters, (r) => r.closed)
+			)
+		: noPreviousRosters
 
 /** No rename and no drop declared, as the command line states it: a draft that only adds, or whose drops a test means to
  * see refused. */
@@ -86,7 +99,8 @@ export { noDeclarations } from "#cli/renames.ts"
 
 /**
  * The codes `grizzle generate` drafts for `desc` from `previous` (cli/generate.ts draftInput): each roster's codes
- * continued from the snapshot's under the handle renames `declared` declares (cli/renames.ts rosterRenames), or D1's
+ * continued from those of the roster it continues (previousRosters) under the handle renames `declared` declares
+ * (cli/renames.ts rosterRenames), or D1's
  * refusal of a roster declared out of its codes' order. A malformed rename is a defect of the test.
  */
 export const draftCodes = (
@@ -100,7 +114,7 @@ export const draftCodes = (
 		throw new Error(`the test declares a rename the CLI refuses: ${renames.failure.message}`)
 	}
 	return Result.mapError(
-		draftCodebook(previousCodes(previous), renames.success, rosters),
+		draftCodebook(previousRosters(previous, declared, rosters), renames.success, rosters),
 		reorderRefusal
 	)
 }

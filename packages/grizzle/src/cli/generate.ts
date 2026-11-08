@@ -33,7 +33,6 @@ import { rosterRenames } from "#cli/renames.ts"
 import { type CompileError, draftCodebook, Engine, rostersOf } from "#compiler/plan/common.ts"
 import {
 	type AbandonedSchema,
-	codebookUnder,
 	compileWorkload,
 	completeInstallOptions,
 	customMigration,
@@ -53,6 +52,7 @@ import {
 	type MigrationDraft,
 	type MigrationFolder,
 	noWorkload,
+	rosterFates,
 	snapshotFileName,
 	workloadExtension
 } from "#compiler/plan/migration.ts"
@@ -182,8 +182,8 @@ type SchemaDraft = (
  * What the draft of a schema's change from `previous` is drafted from: its schema compiled with every installer
  * extension a deployment needs and its logins' workloads' access paths, with the schemas it abandons (abandonedSchemas)
  * and the renames and drops `declared` declares. Everything is compiled under the codes the draft gives the schema's
- * rosters, drafted from the codes `previous` records, each under the name a declared roster rename gives it
- * (deploy/snapshot/build.ts codebookUnder), and the declared handle renames (ir/codes.ts draftCodebook): a
+ * rosters, drafted from the codes `previous` records, each under the name of the roster it continues as
+ * (deploy/snapshot/build.ts rosterFates), and the declared handle renames (ir/codes.ts draftCodebook): a
  * roster's codes are its history, so a handle keeps its code, a renamed one its old one's, a removed one leaves a hole
  * and a new one takes the next, and a roster declared out of its codes' order is RosterReordered.
  * Beside the access paths, every program of each login's workloads is compiled for every role of the login exactly as
@@ -204,7 +204,15 @@ const draftInput = Effect.fn("draftInput")(function* (
 		Effect.fromResult(rosterRenames(declared, rosters)),
 		cliError
 	)
-	const drafted = draftCodebook(codebookUnder(previous, declared), renames, rosters)
+	const drafted = draftCodebook(
+		rosterFates(
+			previous,
+			declared,
+			Arr.map(rosters, (r) => r.closed)
+		),
+		renames,
+		rosters
+	)
 	if (!drafted.ok) {
 		const { roster, earlier, later } = drafted.error
 		return yield* cliError(

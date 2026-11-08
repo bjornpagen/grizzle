@@ -4,7 +4,7 @@ import type { Lines } from "#compiler/core/lines.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type * as Result from "#compiler/core/result.ts"
-import type { Action, Draft, Loss, LossDecision } from "#compiler/deploy/diff/plan.ts"
+import type { Action, Draft, Loss, LossDecision, RetypeReason } from "#compiler/deploy/diff/plan.ts"
 import type { DraftFile } from "#compiler/deploy/phases/files.ts"
 import type { MetaFile, MetaLosses, MetaStep } from "#compiler/deploy/render/folder.ts"
 import {
@@ -13,7 +13,7 @@ import {
 	noTransactionMarker,
 	placeholderMarker
 } from "#compiler/deploy/render/markers.ts"
-import type { PlBlock, SqlStatement } from "#compiler/sql/ast.ts"
+import type { ColumnDef, PlBlock, SqlStatement } from "#compiler/sql/ast.ts"
 import { cast, exists, lit, tableCol, types } from "#compiler/sql/build.ts"
 import {
 	commented,
@@ -94,6 +94,16 @@ const oneLine = (above: ReadonlyArray<string>, text: string): Spelled => ({
 	write: (out) => out.line(text)
 })
 
+/** What a retype's placeholder marker asks of the reviewer, by why no cast converts the column: for other values, the
+ * expression from the value before, the cast its example; for a code that names a handle only under a roster the
+ * conversion leaves, the expression from what each value means, never the cast, which reads it as another handle. */
+const retypeAdvice: { readonly [R in RetypeReason]: (column: ColumnDef) => string } = {
+	values: (column) =>
+		`replace the placeholder below with the expression computing it from the column's value before the conversion, such as ${printExpr(cast(tableCol(column.name), column.type))}`,
+	roster: () =>
+		"a closed id's or a set's code names a handle only under its own roster, which this conversion leaves, so a cast would read each value as another handle or a bare number: replace the placeholder below with the expression computing each row's new value from what its value before means"
+}
+
 /** The statements an action drafts, in order, as the file spells them: every action drafts one at least. */
 const spellAction = (action: Action): NonEmptyReadonlyArray<Spelled> => {
 	switch (action.kind) {
@@ -124,7 +134,7 @@ const spellAction = (action: Action): NonEmptyReadonlyArray<Spelled> => {
 			return [
 				{
 					above: [
-						`${placeholderMarker}: every row of ${printObjectName(action.table)} needs ${quoteIdent(column.name)} converted in place to ${printType(column.type)}; replace the placeholder below with the expression computing it from the column's value before the conversion, such as ${printExpr(cast(tableCol(column.name), column.type))}, and delete this line.`
+						`${placeholderMarker}: every row of ${printObjectName(action.table)} needs ${quoteIdent(column.name)} converted in place to ${printType(column.type)}; ${retypeAdvice[action.reason](column)}, and delete this line.`
 					],
 					write: (out) =>
 						writeStatement(out, {

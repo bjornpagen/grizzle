@@ -3,6 +3,7 @@ import { canonicalTextOf, catchRefusal, Refusal } from "#compiler/core/canonical
 import { type CompileError, unsupported } from "#compiler/core/errors.ts"
 import {
 	type Identity,
+	identifierOf,
 	identity,
 	type TemporaryCensus,
 	type TemporaryKind
@@ -61,7 +62,9 @@ import type {
 	SnapshotWriting
 } from "#compiler/deploy/snapshot/types.ts"
 import { migrationChecks } from "#compiler/deploy/snapshot/violation.ts"
+import { keptRosters, type PreviousRoster, type RosterFate } from "#compiler/ir/codes.ts"
 import type { InstallationManifest, PhysicalKind } from "#compiler/ir/products.ts"
+import { rosterConstants } from "#compiler/physical/ddl/constants.ts"
 import { targetKey, touchedTargets } from "#compiler/physical/install/comments.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { namedIdent, parseIdent, qualifiedIdent } from "#compiler/physical/obligations/graph.ts"
@@ -122,6 +125,9 @@ interface DiffInput {
 	/** The schemas the migrations directory holds that the configuration no longer lists, when `previous` is the empty
 	 * snapshot: the schema's creation then leaves their rows behind (`Loss`). */
 	readonly abandoned: ReadonlyArray<AbandonedSchema>
+	/** Each roster the previous snapshot records, with what the draft makes of it (snapshot/build.ts rosterFates): which
+	 * of the previous installation's domains are a roster's, and which roster of the target each continues as. */
+	readonly rosters: ReadonlyArray<PreviousRoster>
 }
 
 /** How a marker names a holder's kind. */
@@ -403,8 +409,8 @@ class Differ {
 	readonly next: ReadonlyMap<string, ManifestObject>
 	/** The domains of the previous and the target installation (domainsOf), which a column of each is read through to
 	 * what it holds (representationOf). */
-	readonly prevDomains: ReadonlyMap<string, CreateDomain>
-	readonly nextDomains: ReadonlyMap<string, CreateDomain>
+	readonly prevDomains: ReadonlyMap<string, DomainReading>
+	readonly nextDomains: ReadonlyMap<string, DomainReading>
 	/** Each table both installations hold, by identity, with the fate of each of its columns (KeptTable). */
 	readonly keptTables: ReadonlyMap<string, KeptTable>
 	/** The materialized views this migration drops at the start of Structure (viewDropsOf). */
@@ -458,8 +464,14 @@ class Differ {
 		const targetObjects = input.target.manifest.objects
 		this.prev = new Map(previousObjects.map((o) => [o.ident, o]))
 		this.next = new Map(targetObjects.map((o) => [o.ident, o]))
-		this.prevDomains = domainsOf(input.previous.manifest)
-		this.nextDomains = domainsOf(input.target.manifest)
+		this.prevDomains = domainsOf(
+			input.previous.manifest,
+			rosterConstantsOf(input.previous.schema, input.rosters)
+		)
+		this.nextDomains = domainsOf(
+			input.target.manifest,
+			rosterConstantsOf(input.target.schema, keptRosters(input.installation.names.codes))
+		)
 		this.reads = installedReads(input.previous, this.schema)
 		this.keptTables = this.keptTablesOf()
 		this.sequences = sequenceFatesOf(this.keptTables.values())
@@ -621,7 +633,7 @@ class Differ {
 					const create = v.create
 					const key = nameKey(create.table)
 					const changes = redrawn(
-						fieldChangesOf(old.columns, create.columns),
+						fieldChangesOf(old.columns, create.columns, (b, c) => this.retyped(b, c)),
 						writingsOf(this.input.previous.theory, create.table.name),
 						writingsOf(this.input.target.theory, create.table.name)
 					)
@@ -1481,6 +1493,16 @@ class Differ {
 		}
 	}
 
+	/** Whether a column's type changes from `was`, read through the previous installation's domains, to `column`, read
+	 * through the target's: as spelled, or by the roster its values are handles of (rosterOf), so a set whose domain
+	 * keeps its name over a roster that does not continue its own, under a name a rename takes, is converted. */
+	retyped(was: ColumnDef, column: ColumnDef): boolean {
+		return (
+			typeChanged(was, column) ||
+			!sameRoster(rosterOf(was.type, this.prevDomains), rosterOf(column.type, this.nextDomains))
+		)
+	}
+
 	/** Whether the previous column `was` and the target's `column` hold the same values (representationOf), each type
 	 * read through its own installation's domains: a cast from one to the other keeps every value. */
 	keepsValues(was: ColumnDef, column: ColumnDef): boolean {
@@ -1490,29 +1512,29 @@ class Differ {
 		)
 	}
 
-	/** The bit length a set over its own roster grows to, when the column `was` of `t` before and `column` after are a set
-	 * field over one roster (their recorded types equal, a roster being recorded by its name alone) whose type, read
-	 * through each installation's domains, is bit(n) before and bit(n′) after, n′ ≥ n: codes only append, so a set's
-	 * bit for code c stays at position c, and the roster's new codes are absent from every stored set. Undefined for any
-	 * other conversion. */
-	grownSet(t: ObjectName, was: ColumnDef, column: ColumnDef): number | undefined {
-		const before = bitLength(was.type, this.prevDomains)
-		const after = bitLength(column.type, this.nextDomains)
-		if (before === undefined || after === undefined || after < before) {
-			return undefined
-		}
-		const recordedBefore = recordedType(this.input.previous.theory, t, was.name)
-		const recordedAfter = recordedType(this.input.target.theory, t, column.name)
-		return recordedBefore !== undefined && recordedBefore === recordedAfter ? after : undefined
+	/** The bit length a set grows to, when the column `was` before and `column` after are sets over one roster, the
+	 * previous one's roster continuing as the target's (setOf), bit(n) before and bit(n′) after, n′ > n: its codes carry
+	 * on and only append, so a set's bit for code c stays at position c, and the roster's new codes are absent from every
+	 * stored set. Undefined for any other conversion. */
+	grownSet(was: ColumnDef, column: ColumnDef): number | undefined {
+		const before = setOf(was.type, this.prevDomains)
+		const after = setOf(column.type, this.nextDomains)
+		return before !== undefined &&
+			after !== undefined &&
+			continuesAs(before.roster, after.roster) &&
+			after.length > before.length
+			? after.length
+			: undefined
 	}
 
 	/** The conversion in place of the column `column` of `t`, of the previous column `was`, to `column`'s type: by its
 	 * cast when the two hold the same values (keepsValues), so only the laws of their domains change and the new ones
 	 * judge the stored values as the cast runs; a set over a roster that grew, by its cast to the wider bit(n′), which
 	 * pads every stored set with zeros on the right, the new codes absent, before the new domain judges it (grownSet);
-	 * otherwise by the expression the reviewer writes at its placeholder. */
+	 * otherwise by the expression the reviewer writes at its placeholder, a closed id or a set moved to a roster its own
+	 * does not continue as among them, whose codes would otherwise be read as another roster's handles. */
 	conversion(t: ObjectName, was: ColumnDef, column: ColumnDef): ColumnConversion {
-		const grown = this.grownSet(t, was, column)
+		const grown = this.grownSet(was, column)
 		if (grown !== undefined) {
 			return {
 				kind: "statement",
@@ -1528,7 +1550,16 @@ class Differ {
 			}
 		}
 		if (!this.keepsValues(was, column)) {
-			return { kind: "placeholderRetype", table: t, column }
+			return {
+				kind: "placeholderRetype",
+				table: t,
+				column,
+				reason:
+					rosterOf(was.type, this.prevDomains) === undefined &&
+					rosterOf(column.type, this.nextDomains) === undefined
+						? "values"
+						: "roster"
+			}
 		}
 		return {
 			kind: "statement",
@@ -2318,62 +2349,138 @@ interface ReplacedKey {
 const typeChanged = (a: ColumnDef, b: ColumnDef): boolean =>
 	canonicalTextOf({ t: a.type, c: a.collation }) !== canonicalTextOf({ t: b.type, c: b.collation })
 
-/** Each domain a manifest installs, by name key: what a column's type is read through to its representation. */
-const domainsOf = (
-	manifest: InstallationManifest<SqlStatement>
-): ReadonlyMap<string, CreateDomain> =>
+/**
+ * A domain as a column's values are read through it: a law's, a pattern's or a contract's, which is its base type with
+ * a CHECK, so it holds its base's values; or a roster's, its codes' domain or its sets', whose values are handles of the
+ * roster its fate names (ir/codes.ts RosterFate), the codes it stores meaning them only under that roster's
+ * codes.
+ */
+type DomainReading =
+	| { readonly kind: "law"; readonly create: CreateDomain }
+	| { readonly kind: "roster"; readonly roster: RosterFate; readonly create: CreateDomain }
+
+/** Each roster constant of an installation in `schema`, by its function's manifest identifier, with its roster's fate:
+ * its names constant and its live-codes constant (physical/ddl/constants.ts rosterConstants), named by the roster's
+ * recorded name and codes. A constant is named by its content and never renamed, so it names its roster whatever
+ * renames and asides the draft gives the roster's domains. */
+const rosterConstantsOf = (
+	schema: string,
+	rosters: ReadonlyArray<PreviousRoster>
+): ReadonlyMap<string, RosterFate> =>
 	new Map(
-		manifest.objects.flatMap((o) => {
-			const v = installed(o)
-			return v.kind === "domain" ? [[nameKey(v.create.name), v.create] as const] : []
+		rosters.flatMap(({ codec, fate }) => {
+			const constants = rosterConstants(codec)
+			return [constants.names, constants.live].map(
+				(id) => [qualifiedIdent("function", schema, identifierOf(id)), fate] as const
+			)
 		})
 	)
 
+/**
+ * Each domain a manifest installs, by name key, as a column's values are read through it (DomainReading): a roster's,
+ * the domain that reads a roster constant of `constants`, its codes' domain the names constant and its sets' the live
+ * constant; a law's, every other.
+ */
+const domainsOf = (
+	manifest: InstallationManifest<SqlStatement>,
+	constants: ReadonlyMap<string, RosterFate>
+): ReadonlyMap<string, DomainReading> => {
+	const readers = new Map(
+		manifest.edges.flatMap((e) => {
+			const roster = constants.get(e.from)
+			return roster === undefined ? [] : [[e.to, roster] as const]
+		})
+	)
+	return new Map(
+		manifest.objects.flatMap((o) => {
+			const v = installed(o)
+			if (v.kind !== "domain") {
+				return []
+			}
+			const roster = readers.get(o.ident)
+			const reading: DomainReading =
+				roster === undefined
+					? { kind: "law", create: v.create }
+					: { kind: "roster", roster, create: v.create }
+			return [[nameKey(v.create.name), reading] as const]
+		})
+	)
+}
+
+/** The domain of `domains` a column's type names, if it names one. */
+const domainOf = (
+	type: TypeRef,
+	domains: ReadonlyMap<string, DomainReading>
+): DomainReading | undefined =>
+	type.kind === "named" ? domains.get(nameKey(objectName(type.schema, type.name))) : undefined
+
+/** Whether a previous roster's fate continues it as the target's roster `to`'s: an ended roster continues as none. */
+const continuesAs = (from: RosterFate, to: RosterFate): boolean =>
+	from.kind === "continued" && to.kind === "continued" && from.as === to.as
+
+/** The roster's domain a column of `type` is read through, past each law's domain of `domains`; none for a type that
+ * holds no roster's values. */
+const rosterDomainOf = (
+	type: TypeRef,
+	domains: ReadonlyMap<string, DomainReading>
+): Extract<DomainReading, { readonly kind: "roster" }> | undefined => {
+	const domain = domainOf(type, domains)
+	if (domain === undefined) {
+		return undefined
+	}
+	switch (domain.kind) {
+		case "law":
+			return rosterDomainOf(domain.create.base, domains)
+		case "roster":
+			return domain
+	}
+}
+
+/** The roster a column of `type` holds handles of (rosterDomainOf). */
+const rosterOf = (
+	type: TypeRef,
+	domains: ReadonlyMap<string, DomainReading>
+): RosterFate | undefined => rosterDomainOf(type, domains)?.roster
+
+/** Whether a previous column's roster and a target column's are one, or neither holds a roster's values. */
+const sameRoster = (before: RosterFate | undefined, after: RosterFate | undefined): boolean =>
+	before === undefined || after === undefined ? before === after : continuesAs(before, after)
+
 /** What a column of `type` holds, as canonical text: the type read through each domain of `domains` to its base type,
- * under the collation that applies (the column's own, else its domain's). A domain is its base type with a CHECK,
- * a law, so two types of one representation hold the same values: a pattern's domain and another pattern's, a
- * contract's and its base, two contracts over one base. */
+ * under the collation that applies (the column's own, else its domain's), each roster's domain on the way with its
+ * roster (DomainReading). A law's domain is its base type with a CHECK, so two types of one representation hold the
+ * same values: a pattern's domain and another pattern's, a contract's and its base, two contracts over one base. A
+ * roster's domain holds the handles of its roster alone: two hold the same values only when the previous one's roster
+ * continues as the target's (continuesAs), so a code is never cast to another roster's, nor to or from an integer. */
 const representationOf = (
 	type: TypeRef,
 	collation: Collation | undefined,
-	domains: ReadonlyMap<string, CreateDomain>
+	domains: ReadonlyMap<string, DomainReading>
 ): string => {
-	const domain =
-		type.kind === "named" ? domains.get(nameKey(objectName(type.schema, type.name))) : undefined
-	return domain === undefined
-		? canonicalTextOf({ t: type, c: collation })
-		: representationOf(domain.base, collation ?? domain.collation, domains)
-}
-
-/** A column's type read through each domain of `domains` to its base type. */
-const baseTypeOf = (type: TypeRef, domains: ReadonlyMap<string, CreateDomain>): TypeRef => {
-	const domain =
-		type.kind === "named" ? domains.get(nameKey(objectName(type.schema, type.name))) : undefined
-	return domain === undefined ? type : baseTypeOf(domain.base, domains)
-}
-
-/** The n of a set's column type bit(n), read through each domain of `domains`; undefined for any other type. */
-const bitLength = (
-	type: TypeRef,
-	domains: ReadonlyMap<string, CreateDomain>
-): number | undefined => {
-	const base = baseTypeOf(type, domains)
-	return base.kind === "builtin" && base.name === "bit" ? base.length : undefined
-}
-
-/** The recorded type (SnapshotField type) of the field installed as the column `column` of the table `table`, in a
- * snapshot's theory; undefined when no stored relation of it is installed as that table. */
-const recordedType = (
-	theory: SnapshotTheory,
-	table: ObjectName,
-	column: string
-): string | undefined => {
-	for (const r of Object.values(theory.relations)) {
-		if (r.kind === "relation" && r.ident === table.name) {
-			return r.fields.find((f) => f.column === column)?.type
-		}
+	const domain = domainOf(type, domains)
+	if (domain === undefined) {
+		return canonicalTextOf({ t: type, c: collation })
 	}
-	return undefined
+	const base = representationOf(domain.create.base, collation ?? domain.create.collation, domains)
+	switch (domain.kind) {
+		case "law":
+			return base
+		case "roster":
+			return canonicalTextOf({ roster: domain.roster, base })
+	}
+}
+
+/** The roster and the n of a set's column type bit(n), its roster's domain's base (rosterDomainOf); undefined for any
+ * other type. */
+const setOf = (
+	type: TypeRef,
+	domains: ReadonlyMap<string, DomainReading>
+): { readonly roster: RosterFate; readonly length: number } | undefined => {
+	const domain = rosterDomainOf(type, domains)
+	const base = domain?.create.base
+	return domain !== undefined && base?.kind === "builtin" && base.name === "bit"
+		? { roster: domain.roster, length: base.length }
+		: undefined
 }
 
 /** How a migration replaces the physical column of a table both snapshots install (ColumnFate): a field whose type
@@ -2424,8 +2531,12 @@ const identitySequence = (c: ColumnDef): ObjectName | undefined =>
 const generationOf = (c: ColumnDef): Expr | undefined =>
 	c.generated?.kind === "stored" ? c.generated.expr : undefined
 
-/** The one reading of a field's change from its column before and after, alone (fieldChanges reads a table's). */
-const fieldChange = (b: ColumnDef, c: ColumnDef): FieldChange => {
+/** Whether a column's type changes between a previous column and a target one (Differ.retyped). */
+type Retyped = (b: ColumnDef, c: ColumnDef) => boolean
+
+/** The one reading of a field's change from its column before and after, alone (fieldChanges reads a table's), its type
+ * changing as `retyped` reads it. */
+const fieldChange = (b: ColumnDef, c: ColumnDef, retyped: Retyped): FieldChange => {
 	const was = identitySequence(b)
 	const now = identitySequence(c)
 	const before = generationOf(b)
@@ -2434,12 +2545,12 @@ const fieldChange = (b: ColumnDef, c: ColumnDef): FieldChange => {
 		return { kind: "rewritten" }
 	}
 	if (after !== undefined) {
-		if (typeChanged(b, c)) {
+		if (retyped(b, c)) {
 			return { kind: "rewritten" }
 		}
 		return same(before, after) ? { kind: "kept" } : { kind: "reexpressed", expr: after }
 	}
-	if (typeChanged(b, c)) {
+	if (retyped(b, c)) {
 		return {
 			kind: "converted",
 			sequence:
@@ -2461,11 +2572,12 @@ const fieldChange = (b: ColumnDef, c: ColumnDef): FieldChange => {
  * reads a field converted in place is rewritten, since PostgreSQL refuses to convert a column a generated column reads. */
 const fieldChangesOf = (
 	old: ReadonlyArray<ColumnDef>,
-	create: ReadonlyArray<ColumnDef>
+	create: ReadonlyArray<ColumnDef>,
+	retyped: Retyped
 ): ReadonlyMap<string, FieldChange> => {
 	const shared = create.flatMap((c) => {
 		const b = old.find((x) => x.name === c.name)
-		return b === undefined ? [] : [{ column: c, change: fieldChange(b, c) }]
+		return b === undefined ? [] : [{ column: c, change: fieldChange(b, c, retyped) }]
 	})
 	const own = new Map(shared.map(({ column, change }) => [column.name, change] as const))
 	return new Map(
@@ -2898,9 +3010,12 @@ const advance = (
  * - Changing a field's type: the column is converted in place by ALTER COLUMN ... TYPE ... USING a marked placeholder
  *   the reviewer replaces by SQL computing the new value from the old (structure), or by its cast when the new type
  *   holds the old one's values (keepsValues: a pattern's domain for another pattern's, a contract added, removed or
- *   swapped for another over one base type), since a domain is its base type with a law: the cast keeps every value,
- *   and the new type's CHECK judges each as it runs, refusing a stored value with 23514. What is built over the column, a
- *   constraint, an index or a statistics object, and the foreign keys referencing a key over it, is
+ *   swapped for another over one base type), since a law's domain is its base type with a law: the cast keeps every
+ *   value, and the new type's CHECK judges each as it runs, refusing a stored value with 23514. A roster's domain holds
+ *   only its roster's handles, so a closed id or a set keeps its values only on the roster its own continues as
+ *   (snapshot/build.ts rosterFates), and takes the placeholder when it moves to another or to or from an integer. What
+ *   is built over the column, a constraint, an index or a statistics object, and the foreign keys referencing a key
+ *   over it, is
  *   dropped first (structure.drop), since PostgreSQL would carry it across the conversion under its old definition or
  *   refuse the conversion under it, and is built again as the target declares it, as on a relation that may hold rows,
  *   but for a key, which is added again in the same Structure transaction right after the conversion, so it holds at
@@ -2913,7 +3028,8 @@ const advance = (
  * - A generated field: its expression changed, SET EXPRESSION (structure), which recomputes every row; its writing
  *   changed between its caller and a generation, its type changed, or a field it reads converted in place, dropped
  *   (structure.drop, a loss the reviewer decides when its caller wrote it) and added again (structure).
- * - A roster's change: its codes are drafted before the compile (ir/codes.ts draftCodebook), so a handle keeps its
+ * - A roster's change: its codes are drafted before the compile (ir/codes.ts draftCodebook), from the codes of the one
+ *   roster it continues (snapshot/build.ts rosterFates), so a handle keeps its
  *   code, a removed one leaves a hole, a new or re-added one takes the next code, and a declaration out of the codes'
  *   order is refused before anything is drafted. What changes is content-addressed constants, so a roster's change
  *   rides the rules for objects: its new names constant (and a set's `live`) is a new object, created in Setup; the

@@ -31,6 +31,7 @@ import {
 	emptyCodebook,
 	firstCodebook,
 	handleAt,
+	keptRosters,
 	noRenames,
 	reorderRefusal,
 	type RosterRenames,
@@ -220,7 +221,7 @@ const replay = (history: ReadonlyArray<Command>, c: Case<Situation>) =>
 				const others = Arr.map(rosters(), (r) =>
 					r.closed === closed ? rosterOf(closed, declared) : r
 				)
-				const refused = failed(draftCodebook(book, noRenames, others))
+				const refused = failed(draftCodebook(keptRosters(book), noRenames, others))
 				assert.deepEqual(refused, { roster: closed, earlier, later })
 				const error = reorderRefusal(refused)
 				assert.equal(error.reason._tag, "UnsupportedOperation")
@@ -234,9 +235,9 @@ const replay = (history: ReadonlyArray<Command>, c: Case<Situation>) =>
 					: noRenames
 			models[command.roster] = applied(model, command)
 			changed.add(command.roster)
-			book = succeeded(draftCodebook(book, renames, rosters()))
+			book = succeeded(draftCodebook(keptRosters(book), renames, rosters()))
 			agrees(book, models)
-			const again = succeeded(draftCodebook(book, noRenames, rosters()))
+			const again = succeeded(draftCodebook(keptRosters(book), noRenames, rosters()))
 			for (const roster of rosters()) {
 				assert.deepEqual(codecOf(again, roster).codes, codecOf(book, roster).codes, "idempotent")
 			}
@@ -268,7 +269,7 @@ const replay = (history: ReadonlyArray<Command>, c: Case<Situation>) =>
 			c.note("both rosters changed")
 		}
 		const [kept, dropped] = rosters()
-		const without = succeeded(draftCodebook(book, noRenames, [defined(kept)]))
+		const without = succeeded(draftCodebook(keptRosters(book), noRenames, [defined(kept)]))
 		throwsDefect(() => codecOf(without, defined(dropped)), "a roster the draft lacks leaves")
 		throwsDefect(() => codeNames(emptyCodebook)(defined(kept).closed), "no roster in no codebook")
 	})

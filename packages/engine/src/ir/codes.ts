@@ -81,19 +81,53 @@ export const rosterCodec = (roster: DeclaredName, codes: RosterCodes): RosterCod
 }
 
 /**
- * The codebook for `rosters` drafted from `previous`: each roster's codes by rosterCodes, from the codes `previous`
- * holds for it and the renames declared for it alone; a roster new to the installation numbers its handles from 0; a
- * roster `previous` holds and `rosters` lacks leaves with its codes. The first roster declared out of its codes' order
- * is refused.
+ * What a draft makes of a roster the previous installation records: continued as the schema's roster `as`, which carries
+ * its codes on, or ended, its codes with it.
+ */
+export type RosterFate =
+	| { readonly kind: "continued"; readonly as: DeclaredName }
+	| { readonly kind: "ended" }
+
+/**
+ * A roster the previous installation records, by its codes under its recorded name, and what a draft makes of it: the
+ * one reading of which roster a roster of the schema continues (deploy/snapshot/build.ts rosterFates), which the codes
+ * a draft drafts (draftCodebook) and the conversions of a column between rosters (deploy/diff/diff.ts) both follow.
+ */
+export interface PreviousRoster {
+	readonly codec: RosterCodec
+	readonly fate: RosterFate
+}
+
+/** No roster before: an installation's first draft. */
+export const noPreviousRosters: ReadonlyArray<PreviousRoster> = []
+
+/** Each roster of `book` continued as itself, under its own name: a target installation's rosters, as the diff reads its
+ * domains, and the rosters of an installation a test drafts again without a snapshot. */
+export const keptRosters = (book: Codebook): ReadonlyArray<PreviousRoster> =>
+	[...book.rosters.values()].map((codec) => ({
+		codec,
+		fate: { kind: "continued", as: codec.roster }
+	}))
+
+/**
+ * The codebook for `rosters` drafted from `previous`: each roster's codes by rosterCodes, from the codes of the one
+ * previous roster that continues as it and the renames declared for it alone; a roster no previous roster continues as
+ * is new to the installation and numbers its handles from 0; a previous roster that ends leaves with its codes. The
+ * first roster declared out of its codes' order is refused.
  */
 export const draftCodebook = (
-	previous: Codebook,
+	previous: ReadonlyArray<PreviousRoster>,
 	renames: RosterRenames,
 	rosters: ReadonlyArray<Roster>
 ): Result.Result<Codebook, RosterReordered> => {
+	const continued = new Map(
+		previous.flatMap(({ codec, fate }) =>
+			fate.kind === "continued" ? [[fate.as, codec.codes] as const] : []
+		)
+	)
 	const drafted = new Map<DeclaredName, RosterCodec>()
 	for (const roster of rosters) {
-		const before = previous.rosters.get(roster.closed)?.codes ?? []
+		const before = continued.get(roster.closed) ?? []
 		const codes = rosterCodes(before, renames.get(roster.closed) ?? noHandleRenames, roster.handles)
 		if (!codes.ok) {
 			return Result.err({ roster: roster.closed, ...codes.error })
@@ -108,7 +142,7 @@ export const draftCodebook = (
  * mints each handle's code in declared order, so it never refuses.
  */
 export const firstCodebook = (rosters: ReadonlyArray<Roster>): Codebook => {
-	const drafted = draftCodebook(emptyCodebook, noRenames, rosters)
+	const drafted = draftCodebook(noPreviousRosters, noRenames, rosters)
 	if (!drafted.ok) {
 		throw defect("a roster drafted from no codes numbers its handles in declared order")
 	}

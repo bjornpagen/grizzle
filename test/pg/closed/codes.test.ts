@@ -24,7 +24,7 @@ import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import type { ParamText } from "#compiler/core/wire.ts"
 import type { Declarations, Named } from "#compiler/deploy/diff/plan.ts"
-import { codebookOf } from "#compiler/deploy/snapshot/build.ts"
+import { codebookOf, rosterFates } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import { type Codebook, codecOf, draftCodebook, noRenames } from "#compiler/ir/codes.ts"
 import { Roster, type ScalarType } from "#compiler/ir/scalar.ts"
@@ -293,8 +293,17 @@ const draftNext = (
 	Effect.gen(function* () {
 		const substrate = yield* Substrate
 		const owned = succeeded(own(defined(schemaDescOf(version.schema), "a version's schema value")))
+		const rosters = rostersOf(owned)
 		const codes = succeeded(
-			draftCodebook(codebookOf(previous), noRenames, rostersOf(owned)),
+			draftCodebook(
+				rosterFates(
+					previous,
+					declared,
+					Arr.map(rosters, (r) => r.closed)
+				),
+				noRenames,
+				rosters
+			),
 			"a version keeps every roster's codes in order"
 		)
 		const workload = workloadOf(version)

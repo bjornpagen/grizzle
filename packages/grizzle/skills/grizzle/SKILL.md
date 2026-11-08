@@ -218,6 +218,12 @@ What a declaration drafts:
   constant, refuses every row still holding it, naming its table and column. Change or delete those rows in a data
   step first. Handles reordered are refused before anything is drafted, by `generate` at the stage codes and by
   `check`: a stored code never changes meaning, so append new handles; a roster's order is its codes' order.
+- **A roster continues one roster at most:** the one its `--rename` names, or else the one of its own name or an alike
+  spelling, unless a rename of another takes that name; any other roster is new, its codes from 0. A closed id or a
+  set keeps its codes only on the roster its own continues. Moved to another roster, to or from an integer, renamed
+  without `--rename` (a drop and a new roster), or left on a name another roster takes, it is converted at a
+  placeholder: there its codes would name other handles, so write each row's new value from what its old one means,
+  never a cast.
 - **A login renamed** (`--rename @web=@site`) is its PostgreSQL role renamed in place, `ALTER ROLE ... RENAME TO`, so
   its OID, password, memberships and grants survive. A login dropped (`--drop @web`) drops its role, and a new login
   needs its password again. A role is never renamed: it holds no data and no password, so its role, schema, views,

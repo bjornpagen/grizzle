@@ -9,9 +9,6 @@ with the next release.
 
 ### Next
 - **Test failures that reach no qti-pie path** (each an after-beta agent):
-  - test/pg/migrate/paths.test.ts intents (replay 'pg/migrate/intents:-:0.a.0.1.9.0.0.0.0.0.0.0.0.0'): after
-    removeLastHandle then renameRoster, the roster domain's CHECK calls a names constant other than the one the test
-    expects. A possible rename defect, so it goes first;
 - **A containment whose source is a semijoin, `within(...)`** (JOIN, deferred by the owner 2026-11-07). qti-pie keeps
   copy fields for it (unwrittenType, the metadata `named` copies, HeldType's existence).
   - Why it waits: no PostgreSQL constraint over R, S and T can state "every R row with a matching S row is in T". Two

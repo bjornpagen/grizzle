@@ -38,7 +38,7 @@ import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"
 import type { GenerateResult } from "#compiler/deploy/render/generate.ts"
-import { codebookOf } from "#compiler/deploy/snapshot/build.ts"
+import { codebookOf, rosterFates } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import { draftCodebook, noRenames } from "#compiler/ir/codes.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
@@ -571,8 +571,17 @@ const drafting = (sys: System, built: Built, declared: Declarations) =>
 		const owned = succeeded(
 			own(defined(schemaDescOf(built.version.schema), "a version's schema value"))
 		)
+		const rosters = rostersOf(owned)
 		const codes = succeeded(
-			draftCodebook(codebookOf(sys.snapshot), noRenames, rostersOf(owned)),
+			draftCodebook(
+				rosterFates(
+					sys.snapshot,
+					declared,
+					Arr.map(rosters, (r) => r.closed)
+				),
+				noRenames,
+				rosters
+			),
 			"a drafted version keeps every roster's codes in order"
 		)
 		const workload = workloadOf(built.version)
@@ -915,7 +924,16 @@ const reordering = (sys: System, p: Params["reorder"], before: Model) =>
 				)
 			)
 		)
-		const drafted = draftCodebook(codebookOf(sys.snapshot), noRenames, rostersOf(owned))
+		const rosters = rostersOf(owned)
+		const drafted = draftCodebook(
+			rosterFates(
+				sys.snapshot,
+				noDeclarations,
+				Arr.map(rosters, (r) => r.closed)
+			),
+			noRenames,
+			rosters
+		)
 		assert.ok(!drafted.ok, "a reordered roster drafts no codebook")
 		assert.deepEqual(
 			{ roster: drafted.error.roster, earlier: drafted.error.earlier, later: drafted.error.later },

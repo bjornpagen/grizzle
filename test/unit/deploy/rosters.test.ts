@@ -23,9 +23,14 @@ import type { CompileError } from "#compiler/core/errors.ts"
 import { constantDigest } from "#compiler/core/fingerprint.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
-import type { Action, Draft, Step } from "#compiler/deploy/diff/plan.ts"
+import type { Action, Declarations, Draft, Step } from "#compiler/deploy/diff/plan.ts"
 import { type MigrationDraft, draftMigration } from "#compiler/deploy/render/generate.ts"
-import { codebookOf, emptySnapshot, noWorkload } from "#compiler/deploy/snapshot/build.ts"
+import {
+	codebookOf,
+	emptySnapshot,
+	noWorkload,
+	rosterFates
+} from "#compiler/deploy/snapshot/build.ts"
 import { installed } from "#compiler/deploy/snapshot/objects.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import type { CodeSlot, RosterCodes } from "#compiler/ir/cells.ts"
@@ -664,7 +669,20 @@ const drafting = (
 	CompileError
 > => {
 	const owned = owning(descOf(d))
-	const codes = draftCodebook(codebookOf(previous), noRenames, rostersOf(owned))
+	const rosters = rostersOf(owned)
+	const declared: Declarations = {
+		renames: [],
+		drops: Arr.map(d.drops, (handle) => ({ kind: "handle", roster, handle }) as const)
+	}
+	const codes = draftCodebook(
+		rosterFates(
+			previous,
+			declared,
+			Arr.map(rosters, (r) => r.closed)
+		),
+		noRenames,
+		rosters
+	)
 	if (!codes.ok) {
 		return Result.fail(reorderRefusal(codes.error))
 	}
@@ -678,10 +696,7 @@ const drafting = (
 		previous,
 		installation,
 		workload: noWorkload,
-		declared: {
-			renames: [],
-			drops: Arr.map(d.drops, (handle) => ({ kind: "handle", roster, handle }) as const)
-		},
+		declared,
 		abandoned: []
 	})
 	return draft.ok ? Result.succeed({ draft: draft.value, installation }) : Result.fail(draft.error)

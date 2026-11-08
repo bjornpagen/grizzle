@@ -47,11 +47,11 @@ export {
 } from "#compiler/deploy/render/markers.ts"
 export {
 	codebookOf,
-	codebookUnder,
 	emptyFingerprint,
 	emptySnapshot,
 	isEmptySnapshot,
 	noWorkload,
+	rosterFates,
 	snapshotFingerprint
 } from "#compiler/deploy/snapshot/build.ts"
 export { type DeploySnapshot, snapshotFileName } from "#compiler/deploy/snapshot/types.ts"

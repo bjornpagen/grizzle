@@ -8,9 +8,9 @@ import { canonicalTextOf } from "#compiler/core/canonical.ts"
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"
 import { draftMigration, type MigrationDraft } from "#compiler/deploy/render/generate.ts"
 import {
-	codebookOf,
 	emptySnapshot,
 	noWorkload,
+	rosterFates,
 	withAttnums
 } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
@@ -131,7 +131,16 @@ const draft = (previous: DeploySnapshot, m: Model, declared: Declarations): Migr
 		return known
 	}
 	const owned = owning(descOf(m))
-	const codes = draftCodebook(codebookOf(previous), noRenames, rostersOf(owned))
+	const rosters = rostersOf(owned)
+	const codes = draftCodebook(
+		rosterFates(
+			previous,
+			declared,
+			Arr.map(rosters, (r) => r.closed)
+		),
+		noRenames,
+		rosters
+	)
 	if (!codes.ok) {
 		return assert.fail("a schema with no roster drafts its codes")
 	}

@@ -32,7 +32,7 @@ import type { TransientTag } from "#compiler/core/errors.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { ConstraintName, LawId } from "#compiler/core/ids.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
-import { codeOf, draftCodebook, firstCodebook, noRenames } from "#compiler/ir/codes.ts"
+import { codeOf, draftCodebook, firstCodebook, keptRosters, noRenames } from "#compiler/ir/codes.ts"
 import type { LawField } from "#compiler/ir/law.ts"
 import { Roster } from "#compiler/ir/scalar.ts"
 import {
@@ -117,13 +117,15 @@ const rostersArtifacts = succeeded(
 		vectorSchema: undefined,
 		codes: succeeded(
 			draftCodebook(
-				firstCodebook([
-					new Roster(defined(rostersOf(rostersOwned)[0], "Rosters declares Kind").closed, [
-						"leaf",
-						"gone",
-						"branch"
+				keptRosters(
+					firstCodebook([
+						new Roster(defined(rostersOf(rostersOwned)[0], "Rosters declares Kind").closed, [
+							"leaf",
+							"gone",
+							"branch"
+						])
 					])
-				]),
+				),
 				noRenames,
 				rostersOf(rostersOwned)
 			)

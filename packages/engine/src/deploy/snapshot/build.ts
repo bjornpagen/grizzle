@@ -10,7 +10,7 @@ import {
 } from "#compiler/core/canonical.ts"
 import { type CompileError, unsupported } from "#compiler/core/errors.ts"
 import { digest, ownedDigest } from "#compiler/core/fingerprint.ts"
-import { type DeclaredName, parseDeclaredName } from "#compiler/core/identity.ts"
+import { type DeclaredName, declaredAlike, parseDeclaredName } from "#compiler/core/identity.ts"
 import type { SchemaFingerprint } from "#compiler/core/ids.ts"
 import { SchemaFingerprint as toSchemaFingerprint } from "#compiler/core/ids.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
@@ -42,6 +42,7 @@ import {
 	type Codebook,
 	codecOf,
 	emptyCodebook,
+	type PreviousRoster,
 	type RosterCodec,
 	rosterCodec
 } from "#compiler/ir/codes.ts"
@@ -327,27 +328,41 @@ export const withAttnums = (
 }
 
 /**
- * The codebook a draft under `declared` drafts its codes from (ir/codes.ts draftCodebook): the previous snapshot's,
- * each roster a declared rename moves keyed by its new name, so a renamed roster keeps its codes.
+ * What a draft under `declared` makes of each roster `previous` records, against the names of the rosters the schema
+ * declares, as declared.ts applyDeclarations reads the declarations: a roster a declared rename names continues as the
+ * rename's new name; one whose name a rename of another takes ends; any other continues as the schema's roster of an
+ * alike name (core/identity.ts declaredAlike), which is one installed domain, and ends where the schema declares none.
+ * The one reading of which roster a roster of the schema continues, and so of its codes (ir/codes.ts PreviousRoster):
+ * the codes a draft drafts (draftCodebook) and the conversions of a column between rosters (deploy/diff/diff.ts
+ * DomainReading) both follow it, and each roster of the schema continues one previous roster at most.
  */
-export const codebookUnder = (previous: DeploySnapshot, declared: Declarations): Codebook => {
-	const book = codebookOf(previous)
-	const renames = new Map(
+export const rosterFates = (
+	previous: DeploySnapshot,
+	declared: Declarations,
+	rosters: ReadonlyArray<DeclaredName>
+): ReadonlyArray<PreviousRoster> => {
+	const renamed = new Map(
 		declared.renames.flatMap((r) =>
 			r.from.kind === "relation" && r.to.kind === "relation"
 				? [[r.from.relation, r.to.relation] as const]
 				: []
 		)
 	)
-	if (![...book.rosters.keys()].some((roster) => renames.has(roster))) {
-		return book
-	}
-	const rosters = new Map<DeclaredName, RosterCodec>()
-	for (const [roster, codec] of book.rosters) {
-		const to = renames.get(roster)
-		rosters.set(to ?? roster, to === undefined ? codec : rosterCodec(to, codec.codes))
-	}
-	return Object.freeze({ rosters })
+	const taken = [...renamed.values()]
+	return [...codebookOf(previous).rosters.values()].map((codec): PreviousRoster => {
+		const to = renamed.get(codec.roster)
+		if (to !== undefined) {
+			return { codec, fate: { kind: "continued", as: to } }
+		}
+		const alike = rosters.find((r) => declaredAlike(r, codec.roster))
+		return {
+			codec,
+			fate:
+				alike === undefined || taken.some((t) => declaredAlike(t, codec.roster))
+					? { kind: "ended" }
+					: { kind: "continued", as: alike }
+		}
+	})
 }
 
 /**
@@ -367,15 +382,21 @@ const continuesCodes = (before: RosterCodes, after: RosterCodes): boolean =>
 	})
 
 /**
- * The first roster whose codes `next` records otherwise than as a continuation of `previous`'s, or undefined when every
- * roster both record continues: what a draft checks the compiled installation's codebook by, since a codebook drafted
- * from another snapshot would give stored codes other meanings.
+ * The first previous roster whose codes the roster it continues as (rosterFates) records in `next` otherwise than as
+ * their continuation, or undefined when every one continues: what a draft checks the compiled installation's codebook
+ * by, since a codebook drafted from another snapshot would give stored codes other meanings.
  */
-export const discontinuedRoster = (previous: Codebook, next: Codebook): string | undefined =>
-	[...next.rosters].find(([roster, codec]) => {
-		const before = previous.rosters.get(roster)
-		return before !== undefined && !continuesCodes(before.codes, codec.codes)
-	})?.[0]
+export const discontinuedRoster = (
+	previous: ReadonlyArray<PreviousRoster>,
+	next: Codebook
+): string | undefined =>
+	previous.find(({ codec, fate }) => {
+		if (fate.kind === "ended") {
+			return false
+		}
+		const after = next.rosters.get(fate.as)
+		return after !== undefined && !continuesCodes(codec.codes, after.codes)
+	})?.codec.roster
 
 /** The roles of the installation's logins, in login name order, which Db.open's admission reads the ledger as. */
 const installationLogins = (installation: Installation): ReadonlyArray<string> =>

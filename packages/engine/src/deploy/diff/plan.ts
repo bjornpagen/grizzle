@@ -144,15 +144,25 @@ export const slotFile: { readonly [S in Slot]: SlotsFile } = {
  *   invent;
  * - `placeholderRetype`: ALTER TABLE ... ALTER COLUMN ... TYPE ... USING <placeholder>: a column converted in place to
  *   `column`'s type, by the expression the reviewer writes: a field whose type changes to one that holds other values
- *   (a `ColumnConversion`);
+ *   (a `ColumnConversion`), for its `reason` (RetypeReason);
  * - `violation`: the full violation query of a law the migration discharges once, which raises with the law's identity
  *   when it has a row;
  * - `analyze`: ANALYZE of a table that may hold rows, after a new statistics object;
  * - `dropStatistics`: DROP STATISTICS, which the SQL AST has no form for. */
+/** Why no cast converts a column in place: `values`, the new type's values are other values; or `roster`, a value of one
+ * side is a code, which names a handle only under its own roster and the conversion leaves that roster, so a cast would
+ * read it as another handle or a bare number. */
+export type RetypeReason = "values" | "roster"
+
 export type Action =
 	| { readonly kind: "statement"; readonly statement: SqlStatement }
 	| { readonly kind: "placeholderColumn"; readonly table: ObjectName; readonly column: ColumnDef }
-	| { readonly kind: "placeholderRetype"; readonly table: ObjectName; readonly column: ColumnDef }
+	| {
+			readonly kind: "placeholderRetype"
+			readonly table: ObjectName
+			readonly column: ColumnDef
+			readonly reason: RetypeReason
+	  }
 	| { readonly kind: "violation"; readonly law: LawId; readonly query: Select }
 	| { readonly kind: "analyze"; readonly table: ObjectName }
 	| { readonly kind: "dropStatistics"; readonly name: ObjectName }

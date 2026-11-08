@@ -27,10 +27,10 @@ import {
 import { derivedMigrationName } from "#compiler/deploy/render/naming.ts"
 import { recordFile, renderFile } from "#compiler/deploy/render/sql.ts"
 import {
-	codebookUnder,
 	discontinuedRoster,
 	type DraftWorkload,
 	finishSnapshot,
+	rosterFates,
 	targetState,
 	withAttnums,
 	writeSnapshot
@@ -143,10 +143,10 @@ export const draftMigration = (input: DraftInput): Result.Result<MigrationDraft,
 				)
 			)
 		}
-		const discontinued = discontinuedRoster(
-			codebookUnder(previous, input.declared),
-			installation.names.codes
-		)
+		const rosters = rosterFates(previous, input.declared, [
+			...installation.names.codes.rosters.keys()
+		])
+		const discontinued = discontinuedRoster(rosters, installation.names.codes)
 		if (discontinued !== undefined) {
 			throw defect(
 				`the installation's codes of roster ${discontinued} continue the previous snapshot's: compile it under the codes drafted from them`
@@ -171,7 +171,8 @@ export const draftMigration = (input: DraftInput): Result.Result<MigrationDraft,
 				renames: applied.statements,
 				asides,
 				temporaries,
-				abandoned: input.abandoned
+				abandoned: input.abandoned,
+				rosters
 			})
 		)
 		const finished = unwrap(

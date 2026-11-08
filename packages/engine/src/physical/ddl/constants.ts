@@ -802,15 +802,26 @@ export interface RosterObjects {
 		| undefined
 }
 
-/** The identity of a roster's names constant: its roster and the digest of its names in code order. */
-const namesIdentity = (codec: RosterCodec): Identity<"rosterConstant"> =>
-	identity.rosterConstant(codec.roster, constantDigest("roster-names", codec.names, everyProperty))
+/**
+ * The identities of a roster's constants, each named by its roster and the digest of its names in code order: its names
+ * constant, which its domain's CHECK reads, and its live-codes constant, which its sets' domain's CHECK reads.
+ */
+export const rosterConstants = (
+	codec: RosterCodec
+): { readonly names: Identity<"rosterConstant">; readonly live: Identity<"rosterLive"> } => {
+	const digest = constantDigest("roster-names", codec.names, everyProperty)
+	return {
+		names: identity.rosterConstant(codec.roster, digest),
+		live: identity.rosterLive(codec.roster, digest)
+	}
+}
 
 /** A roster's names constant's function, the one its domain's CHECK and a role view's decoded column read. */
 export const namesConstant = (b: InstallBuilder, roster: DeclaredName): ObjectName => ({
 	schema: b.schema,
 	name: identifierOf(
-		namesIdentity(defined(b.names.codes.rosters.get(roster), "the codebook holds every roster"))
+		rosterConstants(defined(b.names.codes.rosters.get(roster), "the codebook holds every roster"))
+			.names
 	)
 })
 
@@ -906,9 +917,9 @@ export const addRosters = (b: InstallBuilder): ReadonlyArray<RosterObjects> => {
 		.map((r): RosterObjects => {
 			const roster = r.name
 			const codec = defined(b.names.codes.rosters.get(roster), "the codebook holds every roster")
-			const digest = constantDigest("roster-names", codec.names, everyProperty)
+			const constants = rosterConstants(codec)
 			const why = [enforcement(`the codes of roster ${roster}`)]
-			const namesNamed = namesIdentity(codec)
+			const namesNamed = constants.names
 			const names: ObjectName = { schema: b.schema, name: b.name(namesNamed) }
 			const namesType = types.name(true)
 			const namesNode = b.addConstant(
@@ -958,23 +969,23 @@ export const addRosters = (b: InstallBuilder): ReadonlyArray<RosterObjects> => {
 				roster,
 				names: { name: names, node: namesNode },
 				domain: { name: domainName, node: domainNode },
-				bits: sets.has(roster) ? addBits(b, roster, codec, digest) : undefined
+				bits: sets.has(roster) ? addBits(b, roster, codec, constants.live) : undefined
 			}
 		})
 }
 
 /**
- * A roster's live-codes constant and its bits domain over it (`addRosters`). The live constant's bits are a function of
- * the roster's names, so it is named by the names constant's digest, and it reads no other object.
+ * A roster's live-codes constant, `liveNamed` (rosterConstants), and its bits domain over it (`addRosters`). The live
+ * constant's bits are a function of the roster's names, so it is named by the names constant's digest, and it reads no
+ * other object.
  */
 const addBits = (
 	b: InstallBuilder,
 	roster: DeclaredName,
 	codec: RosterCodec,
-	digest: Parameters<typeof identity.rosterLive>[1]
+	liveNamed: Identity<"rosterLive">
 ): RosterObjects["bits"] => {
 	const why = [enforcement(`the live codes of roster ${roster}, which a set over it holds`)]
-	const liveNamed = identity.rosterLive(roster, digest)
 	const live: ObjectName = { schema: b.schema, name: b.name(liveNamed) }
 	const liveNode = b.addConstant(
 		liveNamed,

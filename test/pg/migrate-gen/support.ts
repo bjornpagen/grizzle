@@ -1034,9 +1034,7 @@ export interface StatedExtras {
 const noStatedExtras: StatedExtras = { a: noExtras, b: noExtras, c: noExtras }
 
 const statedPath = (p: StatedPath): MigrationPath => ({
-	a: versionOf(p.a, p.extras.a),
-	b: versionOf(p.b, p.extras.b),
-	c: versionOf(p.c, p.extras.c),
+	...installedVersions(p, p.extras),
 	facts: p.facts,
 	spelling: p.spelling,
 	edits: p.edits,
@@ -1631,10 +1629,10 @@ const handlesRemoved = (
  * handles in declared order. A removal takes a roster's last handle and an addition appends one, so a later version
  * still declares its handles in their codes' order.
  */
-const continuedCodes = (before: GenSchema, after: GenSchema): GenSchema => ({
+const continuedCodes = (before: ReadonlyArray<GenClosed>, after: GenSchema): GenSchema => ({
 	...after,
 	closed: Arr.map(after.closed, (c): GenClosed => {
-		const was = Arr.findFirst(before.closed, (x) => x.name === c.name)
+		const was = Arr.findFirst(before, (x) => x.name === c.name)
 		if (Option.isNone(was)) {
 			return { ...c, codes: Arr.map(c.handles, (handle): CodeSlot => ({ kind: "live", handle })) }
 		}
@@ -1654,7 +1652,25 @@ const continuedCodes = (before: GenSchema, after: GenSchema): GenSchema => ({
  * since a code is history (continuedCodes), so a handle B added and C no longer holds leaves no hole on the direct path.
  */
 export const directVersion = (path: MigrationPath): Version =>
-	versionOf(continuedCodes(path.a.schema, path.c.schema), path.c.extras)
+	versionOf(continuedCodes(path.a.schema.closed, path.c.schema), path.c.extras)
+
+/**
+ * A path's three versions as its migrations install them: each roster's codes continued from the version before
+ * (continuedCodes), A's from none. A path states no codes: a code is history, and no step declares a roster renamed
+ * (declarationsOf), so a roster under a new name is a new roster, installed fresh, whatever codes its schema carried.
+ */
+const installedVersions = (
+	schemas: { readonly a: GenSchema; readonly b: GenSchema; readonly c: GenSchema },
+	extras: StatedExtras
+): Pick<MigrationPath, "a" | "b" | "c"> => {
+	const a = continuedCodes([], schemas.a)
+	const b = continuedCodes(a.closed, schemas.b)
+	return {
+		a: versionOf(a, extras.a),
+		b: versionOf(b, extras.b),
+		c: versionOf(continuedCodes(b.closed, schemas.c), extras.c)
+	}
+}
 
 const resolveRenamed =
 	({
@@ -1685,10 +1701,14 @@ const resolveRenamed =
 					removed
 				)
 			: renamedAll(cFirst, renamesC, "p", removed)
-		const bSchema = continuedCodes(p.a.schema, b.schema)
-		const cSchema = continuedCodes(bSchema, removalsKept(p.a.schema, b.schema, c.schema))
 		return {
-			path: { ...p, b: versionOf(bSchema, p.b.extras), c: versionOf(cSchema, p.c.extras) },
+			path: {
+				...p,
+				...installedVersions(
+					{ a: p.a.schema, b: b.schema, c: removalsKept(p.a.schema, b.schema, c.schema) },
+					{ a: p.a.extras, b: p.b.extras, c: p.c.extras }
+				)
+			},
 			origins: { a: ownOrigins(p.a.schema), b: b.origins, c: c.origins },
 			choose,
 			chained,
@@ -2942,7 +2962,7 @@ export const statisticsOfRenamedRelation: StatedRenamedPath = plantedRenameWith(
  * - swapFields: R1's contained r and its c, under statistics, exchange names;
  * - retypeKey: R0's key k and R1's r, the two sides of the containment, widened to int8 (a key over retyped columns);
  * - renameRetyped: R1's c renamed with its type widened; relationAndField: R1 renamed and its c renamed with it;
- * - renameRoster: K0 renamed;
+ * - renameRoster: K0 renamed, which no step declares, so it drafts K0's drop and a new roster (installedVersions);
  * - removeLastHandle: K0's last handle removed, its code a hole R0's a then refuses;
  * - retypeRosterField: R0's a, of K0, retyped to an integer, a code column converted to the integer it holds;
  * - hop: K0 renamed afresh and R1 renamed to K0's old name, a name hopping across the relation and type namespaces;

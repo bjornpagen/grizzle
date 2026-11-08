@@ -10,7 +10,7 @@ import { nextTimestamp, parseTimestamp } from "#cli/clock.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { Declarations, Named } from "#compiler/deploy/diff/plan.ts"
-import { codebookOf, emptySnapshot, noWorkload } from "#compiler/deploy/snapshot/build.ts"
+import { emptySnapshot, noWorkload, rosterFates } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import { draftCodebook, noRenames, reorderRefusal } from "#compiler/ir/codes.ts"
 import { isolationGuardName } from "#compiler/physical/ddl/isolation.ts"
@@ -24,7 +24,7 @@ import { and, col, derived, lit, provedSelect, target } from "#compiler/sql/buil
 import { printStatement, quoteIdent, quoteString, storedSettingValue } from "#compiler/sql/print.ts"
 import type { AmbientOwner } from "#test/support/ambient.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
-import { fromSnapshot, generate, draftedAt } from "#test/support/migrate/kit.ts"
+import { draftedAt, fromSnapshot, generate, noDeclarations } from "#test/support/migrate/kit.ts"
 import { review } from "#test/support/migrate/review.ts"
 import { planRealInstall, type RealInstallPlan } from "#test/support/oracle/install/real.ts"
 import { type PgConnection, type SqlError, wireSession } from "#test/support/pg.ts"
@@ -839,7 +839,16 @@ export const draftNext = (
 		}
 		const owned = yield* Effect.orDie(fromEngine(own(desc)))
 		/** The codes the next version's rosters take, every handle the snapshot holds keeping its own (D1). */
-		const drafted = draftCodebook(codebookOf(previous.snapshot), noRenames, rostersOf(owned))
+		const rosters = rostersOf(owned)
+		const drafted = draftCodebook(
+			rosterFates(
+				previous.snapshot,
+				noDeclarations,
+				Arr.map(rosters, (r) => r.closed)
+			),
+			noRenames,
+			rosters
+		)
 		if (!drafted.ok) {
 			return yield* new RealizeRefused({
 				what: `the codes of roster ${drafted.error.roster}`,
