@@ -512,13 +512,16 @@ The command line's own refusals, by stage:
   field's advance function, `SELECT <schema>.<advance function>(<largest value inserted>)`, in the same transaction.
 - Every installed object is named from what it is. Declared names are snake_case: the schema, tables, derived
   relations, rosters, contracts, columns, row checks and a role's views keep their converted names, a contract's CHECK
-  is `check`, and a role's schema is its role's name. Two declared names that convert alike are one name (two fields
-  of a relation, two head fields of a derived relation or a role's query, two relations of a role, two logins or roles
-  of a schema, a contract a context names beside a relation, roster or contract of the schema), a name may not start
-  with `_`, a conversion (a login's or role's with its schema's) must fit 63 bytes, and a schema's must not start with
-  `pg_`. Everything else is `__<readable part>_<digest>` and carries a COMMENT saying what it is: `grizzle names`
-  prints that mapping from the committed snapshot. Write direct SQL against those names. A direct writer of a family's
-  member fills its hidden columns as grizzle does (its index, its copy of the owner's count, each fold's running
-  values) and the owner's count and ends; PostgreSQL refuses every value that breaks the family.
+  is `check`, and a role's schema is its role's name. `constraintNameOf(law)` gives a row check's installed name from
+  its law, `constraintNameOf({ kind: "check", relation: "Grant", name: "WithinGrant" })` is `"within_grant"`: a direct
+  writer or a test that matches a refusal's constraint takes it from there, never spelling it. Two declared names that
+  convert alike are one name (two fields of a relation, two head fields of a derived relation or a role's query, two
+  relations of a role, two logins or roles of a schema, a contract a context names beside a relation, roster or
+  contract of the schema), a name may not start with `_`, a conversion (a login's or role's with its schema's) must
+  fit 63 bytes, and a schema's must not start with `pg_`. Everything else is `__<readable part>_<digest>` and carries
+  a COMMENT saying what it is: `grizzle names` prints that mapping from the committed snapshot. Write direct SQL
+  against those names. A direct writer of a family's member fills its hidden columns as grizzle does (its index, its
+  copy of the owner's count, each fold's running values) and the owner's count and ends; PostgreSQL refuses every
+  value that breaks the family.
 - This file ships in the package as `skills/grizzle/SKILL.md`: copy it to where your agent reads skills, and again
   after upgrading grizzle.

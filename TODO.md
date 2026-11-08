@@ -41,9 +41,6 @@ with the next release.
     no family's member), plus insertAll's record type. Today pantry casts.
   - `patternLawsOf(schema)`: the per-field pattern laws, beside lawsOf. A tautology pattern states no law, and pantry
     can't see that today.
-  - A named check's constraint name: export how a check's installed constraint name is derived from its statement
-    name (conversionOf, internal today: E1_derived installs as e_1_derived), or put the name in the catalogue comment
-    as foreign keys have it. pantry's interactions.db.test.ts writes "e_1_derived" by hand until then.
 - **The regex position cap** (qti-pie's upstream reviewer, aidenzepp/qti-pie#46, comment 6701102861): one pattern for
   a `data-ssml` value (every JSON spelling of Data-SSML's names and values) needs about 4,400 regex positions against
   the cap of 4,096 (core/limits.ts), and chaining two withPattern steps reaches about 35,800 product positions. The

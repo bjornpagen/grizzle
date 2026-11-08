@@ -2516,7 +2516,10 @@ when it is broken: one for a key, check, containment, family, tree or fold; two 
 alternatives statement's containments; none for `mutable`. Each call compiles the rules, so call it once and keep the
 list. `sameLaw(a, b)` says whether two rules are one:
 `refused.laws.some((law) => entry.laws.some((rule) => sameLaw(law, rule)))` says whether a refusal names a statement's
-rule.
+rule. `constraintNameOf(law)` is the name PostgreSQL holds a row check under, from its rule:
+`constraintNameOf({ kind: "check", relation: "Grant", name: "WithinGrant" })` is `"within_grant"`, and a check
+declared as `E1_derived` is `"e_1_derived"`. A direct writer's refusal by the check names it, so take it from grizzle
+and never spell it.
 
 **Errors**, by operation:
 
@@ -2752,8 +2755,9 @@ export const RdsEtlLayer = DbLayer.make({
 psql, scripts and other services may write grizzle's tables directly, under the same rules and roles as the app. Log in
 as a login, `SET ROLE` to one of its roles, set the claims in the transaction for a role that reads them
 (`SELECT set_config('grizzle.claims', '{"Session":{"sub":"user_123"}}', true)`), and write at SERIALIZABLE.
-A readable name spells what it is; `grizzle names` lists each hashed one with its COMMENT, which says what it is, read
-offline from the committed snapshot. PostgreSQL answers:
+A readable name spells what it is, and `constraintNameOf(law)` gives a row check's from its rule
+([Errors and outcomes](#errors-and-outcomes)); `grizzle names` lists each hashed one with its COMMENT, which says what
+it is, read offline from the committed snapshot. PostgreSQL answers:
 
 | SQLSTATE            | When                                                                                                                                                         |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
