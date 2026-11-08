@@ -47,6 +47,7 @@ import {
 	type KeyProof,
 	keyIn,
 	type Rule,
+	type Separation,
 	type ViewKey
 } from "#compiler/ir/keys.ts"
 import type { NativeProof, OperationProof } from "#compiler/ir/proof.ts"
@@ -1682,6 +1683,15 @@ const implicationShape: S.Shape<Implication> = S.lazy("an implication", () =>
 	S.struct({ node: nodeIdShape, from: keySetShape, steps: S.array(dependencyShape) })
 )
 
+/** The shape of two union arms told apart on a column (ir/keys.ts Separation). */
+const separationShape: S.Shape<Separation> = S.lazy("a separation", () =>
+	S.struct({
+		arms: S.pairShape(S.nonNegativeInteger),
+		column: S.nonEmptyString,
+		fixed: S.pairShape(implicationShape)
+	})
+)
+
 /** The shape of a key proof, as a node's metadata records it (rel.ts NodeMeta). */
 const keyProofShape: S.Shape<KeyProof> = S.lazy("a key proof", () =>
 	S.struct({
@@ -1702,13 +1712,7 @@ const keyProofShape: S.Shape<KeyProof> = S.lazy("a key proof", () =>
 			rows: S.struct({ implication: implicationShape }),
 			union: S.struct({
 				arms: S.nonEmptyArray(keyProofShape),
-				separations: S.array(
-					S.struct({
-						arms: S.pairShape(S.nonNegativeInteger),
-						column: S.nonEmptyString,
-						fixed: S.pairShape(implicationShape)
-					})
-				)
+				separations: S.array(separationShape)
 			}),
 			within: S.struct({ implication: implicationShape, inner: keyProofShape })
 		})
@@ -1781,6 +1785,10 @@ const ruleShape: S.Shape<Rule> = S.tagged("rule", {
 	numbered: S.struct({}),
 	agreed: S.struct({ arms: S.nonEmptyArray(implicationShape) }),
 	unionKey: S.struct({ proof: keyProofShape }),
+	separated: S.struct({
+		arms: S.nonEmptyArray(implicationShape),
+		separations: S.array(separationShape)
+	}),
 	viewAlternative: S.struct({ premises: S.array(premiseShape), context: evidenceContextShape })
 })
 

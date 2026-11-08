@@ -18,7 +18,8 @@ import {
 	type Implication,
 	isHidden,
 	type KeyProof,
-	type Rule
+	type Rule,
+	type Separation
 } from "#compiler/ir/keys.ts"
 import type { KeySet, NodeOf, RelDag, RelNode } from "#compiler/ir/rel.ts"
 import { sameScalarType } from "#compiler/ir/scalar.ts"
@@ -93,6 +94,8 @@ const ruleParts = (rule: Rule): ReadonlyArray<KeyProof | Implication> => {
 			return rule.arms
 		case "unionKey":
 			return [rule.proof]
+		case "separated":
+			return [...rule.arms, ...Arr.flatMap(rule.separations, (s) => s.fixed)]
 		case "declared":
 		case "viewAlternative":
 		case "correlated":
@@ -391,32 +394,10 @@ export class KeyKernel {
 					}
 					appendAll(faults, checked.proof(arm))
 				}
-				for (let i = 0; i < arms.length; i++) {
-					for (let j = i + 1; j < arms.length; j++) {
-						const s = Option.getOrUndefined(
-							Arr.findFirst(p.basis.separations, (x) => x.arms[0] === i && x.arms[1] === j)
-						)
-						if (s === undefined || !p.key.includes(s.column)) {
-							faults.push(`${at}: arms ${i} and ${j} told apart on no key column`)
-							continue
-						}
-						const [fi, fj] = s.fixed
-						appendAll(faults, [...checked.implication(fi), ...checked.implication(fj)])
-						const vi =
-							fi.node === arms[i]?.id && fi.from.length === 0
-								? this.#value(fi, s.column)
-								: undefined
-						const vj =
-							fj.node === arms[j]?.id && fj.from.length === 0
-								? this.#value(fj, s.column)
-								: undefined
-						if (vi?.kind !== "literal" || vj?.kind !== "literal" || vi.key === vj.key) {
-							faults.push(
-								`${at}: arms ${i} and ${j} not told apart by differing literals on ${s.column}`
-							)
-						}
-					}
-				}
+				appendAll(
+					faults,
+					Arr.map(this.#apart(arms, p.basis.separations, p.key, checked), (f) => `${at}: ${f}`)
+				)
 				break
 			}
 			case "within": {
@@ -784,7 +765,61 @@ export class KeyKernel {
 					within(d.to, heading)
 					? [...checked.proof(r.proof)]
 					: ["not a union key determining the union's row"]
+			case "separated": {
+				if (n.kind !== "Union") {
+					return ["what every arm derives, outside a union"]
+				}
+				const arms = Arr.flatMap(n.groups, (g) => g.arms)
+				if (arms.length !== r.arms.length) {
+					return ["one derivation per arm"]
+				}
+				return [
+					...Arr.flatMap(r.arms, (a, i) =>
+						a.node === arms[i]?.id && sameSet(a.from, d.from) && within(d.to, this.#derived(a))
+							? checked.implication(a)
+							: [`arm ${i}'s derivation does not derive it from its determinants`]
+					),
+					...(within(d.from, heading) && within(d.to, heading)
+						? []
+						: ["not columns of the union's heading"]),
+					...this.#apart(arms, r.separations, d.from, checked)
+				]
+			}
 		}
+	}
+
+	/**
+	 * The faults of `separations` telling every two of `arms` apart on a column of `columns`: each fixing it, by its own
+	 * derivation from nothing, to a literal, the two different.
+	 */
+	#apart(
+		arms: ReadonlyArray<RelNode>,
+		separations: ReadonlyArray<Separation>,
+		columns: ReadonlyArray<string>,
+		checked: Checked
+	): ReadonlyArray<string> {
+		const faults: Array<string> = []
+		for (let i = 0; i < arms.length; i++) {
+			for (let j = i + 1; j < arms.length; j++) {
+				const s = Option.getOrUndefined(
+					Arr.findFirst(separations, (x) => x.arms[0] === i && x.arms[1] === j)
+				)
+				if (s === undefined || !columns.includes(s.column)) {
+					faults.push(`arms ${i} and ${j} told apart on no column of its own`)
+					continue
+				}
+				const [fi, fj] = s.fixed
+				appendAll(faults, [...checked.implication(fi), ...checked.implication(fj)])
+				const vi =
+					fi.node === arms[i]?.id && fi.from.length === 0 ? this.#value(fi, s.column) : undefined
+				const vj =
+					fj.node === arms[j]?.id && fj.from.length === 0 ? this.#value(fj, s.column) : undefined
+				if (vi?.kind !== "literal" || vj?.kind !== "literal" || vi.key === vj.key) {
+					faults.push(`arms ${i} and ${j} not told apart by differing literals on ${s.column}`)
+				}
+			}
+		}
+		return faults
 	}
 
 	#declared(
@@ -1106,6 +1141,7 @@ export class KeyKernel {
 			case "numbered":
 			case "agreed":
 			case "unionKey":
+			case "separated":
 				return [`a ${r.rule} step, which is no equality`]
 		}
 	}
@@ -1348,6 +1384,7 @@ export class KeyKernel {
 			case "ranked":
 			case "numbered":
 			case "unionKey":
+			case "separated":
 				return { kind: "opaque" }
 		}
 	}
@@ -1467,6 +1504,12 @@ export class KeyKernel {
 						break
 					case "unionKey":
 						fromProof(r.proof)
+						break
+					case "separated":
+						Arr.forEach(r.arms, fromImplication)
+						for (const s of r.separations) {
+							Arr.forEach(s.fixed, fromImplication)
+						}
 						break
 					case "equal":
 						if (r.witness.kind === "arms") {

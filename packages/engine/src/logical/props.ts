@@ -2,7 +2,8 @@ import { appendAll } from "#compiler/core/array.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { NodeId, OccurrenceId, ParamId } from "#compiler/core/ids.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
-import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { TupleSet } from "#compiler/core/tuple-map.ts"
 import type { NodeScope, OuterRefs } from "#compiler/ir/dag.ts"
 import { type EvidenceContext, type Premise, strongest } from "#compiler/ir/evidence.ts"
 import {
@@ -32,22 +33,22 @@ import {
 	implication,
 	isHidden,
 	type KeyAlternative,
-	type KeyClasses,
 	type KeyFactor,
 	type KeyMember,
 	type KeyProof,
 	keyAlternative,
 	keyFactor,
-	keyFactors,
 	keyIn,
 	keyMember,
 	keyWithin,
+	listedKeys,
 	matchBinds,
 	producedFact,
 	projectionCloses,
 	rowsKeep,
 	rowsKey,
 	type Separation,
+	separated,
 	soleFactor,
 	unionKey,
 	unionKeyDetermines,
@@ -125,7 +126,8 @@ export interface Provenance {
  * - ProjectSet: closes over its input, its computed outputs following from the columns they read.
  * - Group: the group key determines the group, and the input's dependencies among it hold.
  * - Union: a column every arm fixes alike is fixed; two columns every arm makes equal are equal, by each arm's
- *   equalities; a key of every arm is a key when every two arms are told apart by a literal both fix on it, their
+ *   equalities; what every arm derives from an arm's determinant, beside the literals telling every two arms apart, is
+ *   derived from them; a key of every arm is a key when every two arms are told apart by a literal both fix on it, their
  *   discriminant; one heading group is a set of its whole heading.
  * - Every node that keeps its input's rows keeps its input's dependencies: Filter, Take, SemiJoin, AntiJoin,
  *   Difference and Intersect (either side), OrderedResult, ApproximateNearest, Window, Attach, Forbid; a SemiJoin also
@@ -619,6 +621,7 @@ const stepSource = (props: Table, d: Dependency, column: string): StepSource => 
 		case "ranked":
 		case "numbered":
 		case "unionKey":
+		case "separated":
 			return opaque
 	}
 }
@@ -2069,16 +2072,26 @@ const projectProps = (subject: Subject, node: ReadingOf<"ProjectSet">): Props =>
 	})
 }
 
-/**
- * Every key a proof states, each over its classes: one minimal key of each of its choices, together (ir/keys.ts
- * keyFactors). A union's key search exchanges nothing across its arms, so it is seeded with every key of every arm,
- * 2^k of a product of k factors of two keys each.
- */
-const statedKeys = (proof: KeyProof): ReadonlyArray<KeyClasses> =>
-	keyFactors(proof).reduce<ReadonlyArray<KeyClasses>>(
-		(keys, choice) => keys.flatMap((k) => choice.map((c) => [...k, ...c])),
-		[[]]
+/** Each of `sets` once, by its columns in their order, in the order of their first. */
+const distinctSets = (
+	sets: ReadonlyArray<ReadonlyArray<string>>
+): ReadonlyArray<ReadonlyArray<string>> => {
+	const distinct = new TupleSet<ReadonlyArray<string>>()
+	for (const cs of sets) {
+		distinct.add(cs)
+	}
+	return [...distinct]
+}
+
+/** The sets of `sets` no other of them is within, each once, in their order. */
+const leastSets = (
+	sets: ReadonlyArray<ReadonlyArray<string>>
+): ReadonlyArray<ReadonlyArray<string>> => {
+	const unique = distinctSets(sets)
+	return unique.filter(
+		(cs) => !unique.some((other) => other.length < cs.length && other.every((c) => cs.includes(c)))
 	)
+}
 
 /** Each arm's `f`, or undefined when some arm has none. */
 const everyArm = <B>(
@@ -2176,42 +2189,100 @@ const unionProps = (subject: Subject, node: ReadingOf<"Union">): Props => {
 		}
 		return undefined
 	}
-	/** The union proof of `cs`: every arm proves it, and every two arms are told apart on it. */
-	const unionProof = (given: ReadonlyArray<string>): KeyProof | undefined => {
-		const cs = inHeadingOrder(all, given)
-		const proofs = everyArm(arms, (a) => a.prove(cs))
-		if (proofs === undefined) {
-			return undefined
-		}
-		const separations: Array<Separation> = []
+	const separators = all.filter((c) => arms.every((a) => literalAt(a, c) !== undefined))
+	/** The separations of every two arms on `cs`, undefined when some two are not told apart on them. */
+	const separationsOn = (cs: ReadonlyArray<string>): ReadonlyArray<Separation> | undefined => {
+		const out: Array<Separation> = []
 		for (const [i, j, a, b] of pairs) {
 			const s = separation(cs, i, j, a, b)
 			if (s === undefined) {
 				return undefined
 			}
-			separations.push(s)
+			out.push(s)
 		}
-		return unionKey(subject.node.id, cs, proofs, separations)
+		return out
 	}
-	const separators = all.filter((c) => arms.every((a) => literalAt(a, c) !== undefined))
+	/** Columns that tell every two arms apart, with the separations on them; undefined when they do not. */
+	const toldApartBy = (
+		cs: ReadonlyArray<string>
+	):
+		| { readonly columns: ReadonlyArray<string>; readonly separations: ReadonlyArray<Separation> }
+		| undefined => {
+		const separations = separationsOn(cs)
+		return separations === undefined ? undefined : { columns: cs, separations }
+	}
 	/**
-	 * Each key an arm states (statedKeys) within the heading, by any columns of its classes, with the separators: the
-	 * minimization keeps the columns of its classes every arm proves. Then the whole heading: minimizing it from the end
-	 * finds a key that holds a different key of each arm beside the separators, which no one arm's key reaches.
+	 * The fewest separators, the first in heading order, that tell every two arms apart: the separators, each dropped
+	 * from the end while the rest still do; undefined when the separators do not.
 	 */
-	const candidates: Array<ReadonlyArray<string>> = [
-		...arms.flatMap((a) =>
-			a.keys.flatMap((k) =>
-				statedKeys(k).flatMap((classes) =>
-					classes.every((members) => members.some((c) => all.includes(c)))
-						? [[...classes.flat().filter((c) => all.includes(c)), ...separators]]
-						: []
+	const telling = separators.reduceRight(
+		(kept, c) =>
+			kept === undefined ? undefined : (toldApartBy(kept.columns.filter((k) => k !== c)) ?? kept),
+		toldApartBy(separators)
+	)
+	/**
+	 * What every arm derives from each determinant of an arm within the heading, with the separators that tell every two
+	 * arms apart: two rows of one arm agree on it as the arm's rows do, and rows of two arms never agree on it. So the
+	 * union keeps its arms' factors, each separator a factor of its own before them.
+	 */
+	const everyArmDerives: ReadonlyArray<Dependency> =
+		telling === undefined
+			? []
+			: distinctSets(
+					arms
+						.flatMap(determinantsOf)
+						.filter((d) => d.every((c) => all.includes(c)))
+						.map((d) => inHeadingOrder(all, [...d, ...telling.columns]))
+				).flatMap((from) => {
+					const reached = mapNonEmpty(arms, (a) => coverOf(a, from))
+					const to = all.filter((c) => !from.includes(c) && reached.every((r) => r.columns.has(c)))
+					return to.length === 0
+						? []
+						: [
+								separated(
+									from,
+									to,
+									mapNonEmpty(reached, (r) => derivation(r, to)),
+									telling.separations
+								)
+							]
+				})
+	/**
+	 * The least unions of one key each arm lists (listedKeys) within the heading, each key by any columns of its classes,
+	 * with the separators: a union key holds a key of every arm, and the least sets holding one listed key of each are
+	 * where the minimization starts, keeping the columns of its classes every arm proves; the dependencies every arm
+	 * derives (above) give the rest of the keys their factors choose among. Arms keyed alike give each listed key once.
+	 * Then the whole heading: minimizing it from the end finds a key holding a key of each arm beside the separators.
+	 */
+	const candidates: ReadonlyArray<ReadonlyArray<string>> = [
+		...arms
+			.map((a) =>
+				a.keys.flatMap((k) =>
+					listedKeys(k).flatMap((classes) =>
+						classes.every((members) => members.some((c) => all.includes(c)))
+							? [inHeadingOrder(all, classes.flat())]
+							: []
+					)
 				)
 			)
-		),
+			.reduce<ReadonlyArray<ReadonlyArray<string>>>(
+				(sofar, listed) =>
+					leastSets(sofar.flatMap((s) => listed.map((l) => inHeadingOrder(all, [...s, ...l])))),
+				[[]]
+			)
+			.map((cs) => [...cs, ...separators]),
 		all
 	]
-	/** A union's keys rest on its arms' keys and its separators, not on a dependency table of its own. */
+	/** The union proof of `cs`: every arm proves it, and every two arms are told apart on it. */
+	const unionProof = (given: ReadonlyArray<string>): KeyProof | undefined => {
+		const cs = inHeadingOrder(all, given)
+		const proofs = everyArm(arms, (a) => a.prove(cs))
+		const separations = separationsOn(cs)
+		return proofs === undefined || separations === undefined
+			? undefined
+			: unionKey(subject.node.id, cs, proofs, separations)
+	}
+	/** A union's keys rest on its arms' keys and its separators. */
 	const unionKeys = minimalKeys(all, candidates, unionProof, []).map((k) => k.witness)
 	const [firstArm, ...laterArms] = arms
 	const onlyArm = laterArms.length === 0 ? firstArm : undefined
@@ -2226,7 +2297,11 @@ const unionProps = (subject: Subject, node: ReadingOf<"Union">): Props => {
 	}
 	return finish(
 		subject,
-		single ? [...deps, ...unionKeys.map((k) => unionKeyDetermines(k, all))] : deps,
+		[
+			...deps,
+			...everyArmDerives,
+			...(single ? unionKeys.map((k) => unionKeyDetermines(k, all)) : [])
+		],
 		rest
 	)
 }

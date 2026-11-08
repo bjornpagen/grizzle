@@ -54,8 +54,10 @@ import type { DeclaredKey, HeadingColumn, KeySet } from "#compiler/ir/rel.ts"
  * - a closed column distinct across its facts determines the fact;
  * - a produced fact is determined by its input's carried key, and the produced span when there may be several;
  * - a window's input row determines its value, and a row number within its partition, with the partition, the row;
- * - a union column every arm fixes alike is fixed, two union columns equal in every arm are equal, and a union keeps
- *   what every arm proves where a discriminant tells any two arms apart.
+ * - a union column every arm fixes alike is fixed, two union columns equal in every arm are equal, a union keeps what
+ *   every arm proves where a discriminant tells any two arms apart, and what every arm derives from determinants that
+ *   tell every two arms apart (separated): two rows of one arm agree as the arm's do, and two of two arms never agree
+ *   on them.
  *
  * Two union columns are equal in every row only when they are equal in every row of every arm: that one determines
  * the other in every arm is not enough, since the arms may map one column's value to different values of the other. So
@@ -138,6 +140,11 @@ export type Rule =
 	| { readonly rule: "numbered" }
 	| { readonly rule: "agreed"; readonly arms: NonEmptyReadonlyArray<Implication> }
 	| { readonly rule: "unionKey"; readonly proof: KeyProof }
+	| {
+			readonly rule: "separated"
+			readonly arms: NonEmptyReadonlyArray<Implication>
+			readonly separations: ReadonlyArray<Separation>
+	  }
 	| {
 			readonly rule: "viewAlternative"
 			readonly premises: ReadonlyArray<Premise>
@@ -390,6 +397,20 @@ export const keyWith = (
 	alternative: KeyAlternative
 ): KeySet => [...proof.key.filter((c) => !factor.key.includes(c)), ...alternative.columns]
 
+/**
+ * The keys a proof lists one by one, each over its classes: its key, and each key one alternative away from it. Every
+ * other key of the proof chooses among their factors.
+ */
+export const listedKeys = (proof: KeyProof): NonEmptyReadonlyArray<KeyClasses> => {
+	const members = standIns(proof.members)
+	return [
+		classesOf(proof.key, members),
+		...proof.factors.flatMap((f) =>
+			f.alternatives.map((a) => classesOf(keyWith(proof, f, a), members))
+		)
+	]
+}
+
 /** A proof's members without their derivations, as a view's key states them. */
 export const classMembers = (proof: KeyProof): ReadonlyArray<ClassMember> =>
 	proof.members.map((m) => Object.freeze({ of: m.of, column: m.column }))
@@ -504,6 +525,17 @@ export const armsAgree = (column: string, arms: NonEmptyReadonlyArray<Implicatio
 export const unionKeyDetermines = (proof: KeyProof, heading: KeySet): Dependency =>
 	dependency(proof.key, heading, { rule: "unionKey", proof })
 
+/**
+ * What every arm of a union derives from `from`, which holds a column telling each two arms apart: each arm's derivation
+ * of `to`, in arm order, and the separation of every two arms on a column of `from`.
+ */
+export const separated = (
+	from: KeySet,
+	to: KeySet,
+	arms: NonEmptyReadonlyArray<Implication>,
+	separations: ReadonlyArray<Separation>
+): Dependency => dependency(from, to, { rule: "separated", arms, separations })
+
 /** The derivation that `from` determines more columns of `node` by `steps`. */
 export const implication = (
 	node: NodeId,
@@ -557,6 +589,7 @@ const ruleContext = (rule: Rule): EvidenceContext | undefined => {
 		case "numbered":
 		case "agreed":
 		case "unionKey":
+		case "separated":
 			return undefined
 	}
 }
@@ -634,6 +667,15 @@ const groundRule = (g: Collected, rule: Rule): void => {
 			return
 		case "unionKey":
 			groundProof(g, rule.proof)
+			return
+		case "separated":
+			for (const arm of rule.arms) {
+				groundImplication(g, arm)
+			}
+			for (const s of rule.separations) {
+				groundImplication(g, s.fixed[0])
+				groundImplication(g, s.fixed[1])
+			}
 			return
 		case "correlated":
 		case "group":

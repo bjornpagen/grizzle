@@ -2309,15 +2309,15 @@ export const purge = ChangeSet.empty(Blog)
 
 `derived(name, query)` stores a query's rows as a materialized view; add it to a schema with `schema.extend`. The
 query takes no parameter, matches no context, has at least one field, and its rules share one set of columns. The
-keys a query of one rule provably has are a choice of one key in each of its independent parts, such as one of the two
-keys of each table it joins: the view gets a unique index on one key and on each key one choice away from it, so k such
-tables make k + 1 indexes, not 2^k, and every key of the product stands in a `get`, a nested result or an order. A query
-of several rules gets a unique index on each key it provably has. Columns the query makes equal count as one column of
-a key, so k equal pairs make one key, not 2^k: the index holds the first of them, and any of them stands for it. A
-derived table changes only when `db.refresh(...tables)` refreshes it, on a role whose `refresh` list names it, all of
-one call's tables in one transaction. `db.refresh()` with no table is a type error:
-narrow a list built at run time with `Array.isReadonlyArrayNonEmpty` first. Rules are declared on stored tables only,
-never on derived ones.
+keys a query provably has are a choice of one key in each of its independent parts, such as one of the two keys of
+each table it joins: the view gets a unique index on one key and on each key one choice away from it, so k such tables
+make k + 1 indexes, not 2^k, and every key of the product stands in a `get`, a nested result or an order. A query of
+several rules, each finding a literal that tells its rows apart, is keyed the same way: its keys hold a key of every
+rule beside those literals. Columns the query makes equal count as one column of a key, so k equal pairs make one key,
+not 2^k: the index holds the first of them, and any of them stands for it. A derived table changes only when
+`db.refresh(...tables)` refreshes it, on a role whose `refresh` list names it, all of one call's tables in one
+transaction. `db.refresh()` with no table is a type error: narrow a list built at run time with
+`Array.isReadonlyArrayNonEmpty` first. Rules are declared on stored tables only, never on derived ones.
 
 ## Migrations
 
