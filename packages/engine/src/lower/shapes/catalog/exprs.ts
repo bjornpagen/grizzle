@@ -126,7 +126,10 @@ export const columnsRead = (root: ScalarExpr): ReadonlyArray<ColumnRef> => {
 
 /**
  * Whether two expressions compute the same value by the same operations: equal structure, equal operators, equal
- * leaves. Two spellings of one term are two expressions, so the comparison is structural.
+ * leaves. Two spellings of one term are two expressions, so the comparison is structural. It reads the vocabulary of
+ * the arithmetic a recognizer compares, columns, literals, native operators and casts, as the percentile
+ * interpolation's (n − 1)p is (percentile.ts minusOneProduct); any other kind is no match, which only leaves a
+ * composition unrecognized.
  */
 export const sameExpr = (x: ScalarExpr, y: ScalarExpr): boolean => {
 	if (x === y) {
@@ -149,24 +152,20 @@ export const sameExpr = (x: ScalarExpr, y: ScalarExpr): boolean => {
 			return (
 				y.kind === "column" && x.column.node === y.column.node && x.column.name === y.column.name
 			)
-		case "param":
-			return y.kind === "param" && x.param === y.param && x.role === y.role
 		case "literal":
 			return y.kind === "literal" && canonicalEquals(x.value, y.value, everyProperty)
 		case "op":
 			return y.kind === "op" && x.op === y.op && sameArgs()
 		case "cast":
 			return y.kind === "cast" && x.cast === y.cast && sameArgs()
-		case "closedAt":
-			return y.kind === "closedAt" && x.relation === y.relation && x.field === y.field && sameArgs()
-		case "closedRow":
-			return y.kind === "closedRow" && x.relation === y.relation && sameArgs()
-		case "closedHas":
-			return y.kind === "closedHas" && x.relation === y.relation && sameArgs()
+		case "param":
 		case "value":
 		case "domainCast":
 		case "cond":
-			return sameArgs()
+		case "closedAt":
+		case "closedRow":
+		case "closedHas":
+			return false
 	}
 }
 
