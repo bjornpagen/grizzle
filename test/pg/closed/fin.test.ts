@@ -17,7 +17,7 @@
  *   the key, and elsewhere refused by the generated field's law, `{ kind: "generated", relation, field }`: an absent key
  *   reads NULL, which every domain admits, so the generated column's NOT NULL refuses it, 23502 on that column;
  * - **C.row in a generated field:** each prefix's set in RowProbe is exactly the codes Slotted's rows complete it with,
- *   the empty set for a prefix past its owner's count;
+ *   the empty set for a prefix past its owner's count, as Position's bits domain stores it, whole hex digits wide;
  * - **R07's membership read:** a query matching Item against Slotted on every key field delivers exactly the items
  *   whose key Slotted holds, read through its key set with the rewrite's certificate;
  * - **a containment into a projection:** a row of ProjProbe holding an owner and a slot code is accepted exactly where
@@ -46,12 +46,14 @@ import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import { constraintLaw } from "#compiler/ir/products.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
+import { generatedLaw } from "#compiler/plan/change.ts"
 import { bits, closedId, generated, natural, slot } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, contained, fin, on, relation, schema } from "#compiler/public/schema.ts"
 import { printObjectName, quoteIdent } from "#compiler/sql/print.ts"
 import type { Law } from "#compiler/types/changeset/changeset.ts"
 import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
+import { setText } from "#test/support/closed/bit-text.ts"
 import {
 	codebookOfStates,
 	codecFor,
@@ -519,9 +521,7 @@ const reportedLaw = (
 			defined(installation.checked.relations.get(relation)).fields,
 			(f) => f.writing.kind === "generated" && Option.contains(fields.column, f.column)
 		)
-		return Option.getOrUndefined(
-			Option.map(generatedField, (f): Law => ({ kind: "generated", relation, field: f.name }))
-		)
+		return Option.getOrUndefined(Option.map(generatedField, (f) => generatedLaw(relation, f.name)))
 	}
 	const law =
 		fields.code === sqlstates.checkViolation && fields.constraint !== undefined
@@ -647,7 +647,7 @@ layer(Substrate.layer, { excludeTestServices: true })("dependent keys on Postgre
 							const projectionRefused = rejected(
 								lawNames.described(lawNames.lawOf(built.laws.projected))
 							)
-							const atRefused = rejected({ kind: "generated", relation: "AtProbe", field: "w" })
+							const atRefused = rejected(generatedLaw("AtProbe", "w"))
 							const block = blockOf(c.shape)
 							const fields = ["id", "version", "kind", ...Arr.map(block, (b) => b.field)]
 							const probes = probesOf(c.shape)
@@ -720,13 +720,15 @@ layer(Substrate.layer, { excludeTestServices: true })("dependent keys on Postgre
 								[]
 							)
 							const completionsOf = (prefix: Key): string =>
-								Arr.join(
-									Array.from({ length: lastCodes }, (_, code) =>
-										payloadAt.has(keyText({ owner: prefix.owner, block: [...prefix.block, code] }))
-											? "1"
-											: "0"
-									),
-									""
+								setText(
+									lastCodes,
+									Arr.filter(
+										Array.from({ length: lastCodes }, (_, code) => code),
+										(code) =>
+											payloadAt.has(
+												keyText({ owner: prefix.owner, block: [...prefix.block, code] })
+											)
+									)
 								)
 							assert.deepEqual(
 								Arr.sort(
