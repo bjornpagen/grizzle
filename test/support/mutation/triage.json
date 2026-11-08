@@ -170,11 +170,6 @@
 		"reason": "directReads (write/schedule/plan.ts) with nothing carried walks the member's inputs (inputsOf, edgesOf deduplicated) and collects every Base relation, which is meta.reads, a Base's relation and its inputs' (ir/dag.ts relNode); its one reader asks only whether a written relation is among them."
 	},
 	{
-		"id": "f7d3e5e24e",
-		"verdict": "equivalent",
-		"reason": "backfillOf's skip of a family that adds no member and no owner column (deploy/diff/backfill.ts): memberUpdate and ownerUpdate over no added column assign nothing and return no update before reading anything else, so the family adds no statement either way."
-	},
-	{
 		"id": "1d7c7ab1ac",
 		"verdict": "equivalent",
 		"reason": "The ledger's privileges (deploy/diff/diff.ts, ledger.ts ledgerPrivilegesObject) are one grant of SELECT on the ledger to every login's role: revoking it from every role the source granted and granting the target's to its roles leaves the roles the target names holding it and no other, as revoking it only from the roles the target drops does, inside the migration file's one transaction."
@@ -453,11 +448,6 @@
 		"id": "b49e7a3923",
 		"verdict": "equivalent",
 		"reason": "Decorrelation with no outer constant (lower/shapes/take/decorrelate.ts candidateAt): rewrite then sets the region, every chain link and the take to bodies equal to their own, occurrences in their order with no constant dropped or binding added, headings with nothing appended, the take's correlation with nothing added, so everyParentTakes returns the same DAG rebuilt, its certificates and both artifacts' SQL byte for byte."
-	},
-	{
-		"id": "c63a743add",
-		"verdict": "gap-fixed",
-		"reason": "test/unit/deploy/backfill.test.ts: arm end moved, an ordered family's fold over named accumulators moved into a new owner field total, the old end dropped or left to its caller, which adds one owner column and no member column, so the backfill draws the owner's new end alone from its last member's after, judged against the reference fold (48f86de6)."
 	},
 	{
 		"id": "b2066e2e4b",

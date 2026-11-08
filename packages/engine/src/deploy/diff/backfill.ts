@@ -1218,9 +1218,6 @@ export const backfillOf = (input: BackfillInput): Backfill => {
 			}
 			continue
 		}
-		if (mine.size === 0 && theirs.size === 0) {
-			continue
-		}
 		const m = memberUpdate(input, family, memberTable, mine)
 		if (m !== undefined) {
 			updates.push(m)

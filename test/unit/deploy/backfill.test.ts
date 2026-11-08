@@ -21,12 +21,11 @@
  *   field its caller wrote that the target draws is drawn anew over the caller's values; one the target leaves to its
  *   caller keeps its drawn values.
  * - **Reshaped:** a family drawn over stored rows that a later migration renames, declared: its owner relation, its count
- *   or both, which name its law columns (counted; ordered over hidden accumulators; ordered over named ones, whose
- *   rename leaves Member nothing to draw but the owner's count copied); or whose kind it changes, counted to ordered over
- *   a new drawn index, or ordered to counted, its index left to its caller with the values drawn; or whose fold over
- *   named accumulators it moves into a new owner field, the old end dropped or left to its caller, which leaves the
- *   backfill the owner's new end alone to draw. Every value the family holds after it is the reference's over the
- *   stored rows in key order, as it was drawn.
+ *   or both, which name its law columns (counted; ordered over hidden accumulators; ordered over named ones); or whose
+ *   kind it changes, counted to ordered over a new drawn index, or ordered to counted, its index left to its caller
+ *   with the values drawn; or whose fold over named accumulators it moves into a new owner field, the old end dropped or
+ *   left to its caller. Every value the family holds after it is the reference's over the stored rows in key order, as
+ *   it was drawn.
  *
  * - **The judge:** the catalog model of PostgreSQL (test/support/migrate/interpret.ts) runs the drafted migration
  *   statement by statement over the stored rows, and its catalog afterwards must be the target's installed from
@@ -1167,7 +1166,7 @@ interface Reshaped {
 }
 
 /** The families a later migration renames: counted, its accumulators hidden as they must be; ordered over hidden
- * accumulators; and ordered over named ones, whose rename draws nothing on Member but the owner's count copied. */
+ * accumulators; and ordered over named ones. */
 const renamedFamilies = ["counted", "ordered", "ordered with named accumulators"] as const
 type RenamedFamily = (typeof renamedFamilies)[number]
 
@@ -1261,8 +1260,7 @@ const kindChanged: { readonly [K in KindChange]: Reshaped } = Rec.map(
 )
 
 /** Where a later migration moves the end of an ordered family's fold over named accumulators: into the owner's new
- * field total, its old end dropped, declared, or left to its caller with the sums folded into it. Member keeps its
- * accumulators, so the backfill draws the owner's new end alone, each owner's from its last member's after. */
+ * field total, its old end dropped, declared, or left to its caller with the sums folded into it. */
 const endMoves = ["the old end dropped", "the old end left to its caller"] as const
 type EndMove = (typeof endMoves)[number]
 
