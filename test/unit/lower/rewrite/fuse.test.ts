@@ -37,8 +37,8 @@ import {
 /**
  * R01 fusion: an imported stage written as a region under filters and renames is inlined into the region that matches
  * it, preserving the complete bound tuple and every aggregate boundary, with the (account, amount) versus (id, account,
- * amount) counterexample held to the reference; a boundary, a correlated stage or two constants on one inner variable
- * is never fused.
+ * amount) counterexample held to the reference; a boundary, a correlated stage, two constants on one inner variable, or
+ * a constant reading a column on a variable the stage's filter reads is never fused.
  */
 
 const u = (n: number): TypedLiteral => ({ kind: "uuid", value: uuidOf(n) })
@@ -172,15 +172,19 @@ describe("the complete bound tuple survives fusion", () => {
 
 /**
  * What an outer occurrence does with each of two columns of an imported stage that carry one inner variable (amount):
- * leave it existential, bind it to a variable of its own, or fix it to 5 or to 7.
+ * leave it existential, bind it to a variable of its own, fix it to 5 or to 7, or fix it to another posting's amount,
+ * a constant that reads a column of an earlier occurrence's source.
  */
-type Use = "existential" | "bound" | "fixed to 5" | "fixed to 7"
+type Use = "existential" | "bound" | "fixed to 5" | "fixed to 7" | "fixed to a read"
 
-const uses = element<Use>(["existential", "bound", "fixed to 5", "fixed to 7"])
+const uses = element<Use>(["existential", "bound", "fixed to 5", "fixed to 7", "fixed to a read"])
+
+/** Whether the imported stage filters the amount its two columns carry, so a predicate reads the inner variable. */
+type Stage = "filtered" | "unfiltered"
 
 describe("fixed columns in R01 fusion", () => {
 	it.effect(
-		"two columns carrying one inner variable fuse unless one is fixed and the other fixed or bound",
+		"two columns carrying one inner variable fuse unless one is fixed and the other fixed or bound, or a read fixes a filtered one",
 		(ctx) =>
 			searched(
 				ctx,
@@ -190,16 +194,27 @@ describe("fixed columns in R01 fusion", () => {
 						oracle: { kind: "unstated" },
 						suite: "unit/lower/rewrite/fuse-fixed-columns",
 						literal: Formatter.format,
-						generator: (source) => [source.draw(uses), source.draw(uses)] as const,
-						limit: 16,
+						generator: (source) =>
+							[
+								source.draw(uses),
+								source.draw(uses),
+								source.draw(element<Stage>(["filtered", "unfiltered"]))
+							] as const,
+						limit: 50,
 						coverage: requiredInSpace<"fused" | "refused">(["fused", "refused"]),
 						caseHang
 					},
-					([first, second], c) =>
+					([first, second, stage], c) =>
 						Effect.sync(() => {
 							const q = new Q()
+							const inner = postings(q)
 							const imported = q.project(
-								postings(q),
+								stage === "filtered"
+									? q.filter(
+											inner,
+											q.op("int8gt", [q.col(inner, "amount"), q.int(6, T.int8)], T.bool)
+										)
+									: inner,
 								[
 									["id", "id"],
 									["a1", "amount"],
@@ -207,6 +222,7 @@ describe("fixed columns in R01 fusion", () => {
 								],
 								conservativeMeta
 							)
+							const other = q.base(Posting, conservativeMeta)
 							const bind: Record<string, string> = { id: "task" }
 							const fixed: Record<string, ScalarExpr> = {}
 							for (const [column, use] of [
@@ -222,13 +238,22 @@ describe("fixed columns in R01 fusion", () => {
 								if (use === "fixed to 7") {
 									fixed[column] = q.int(7, T.int8)
 								}
+								if (use === "fixed to a read") {
+									fixed[column] = q.col(other, "amount")
+								}
 							}
-							const outer = q.region([{ source: imported, bind, constants: fixed }])
+							const outer = q.region([
+								{ source: other, bind: { id: "other" }, constants: {} },
+								{ source: imported, bind, constants: fixed }
+							])
 							const ran = fused(q.build(outer).dag)
-							const isFixed = (use: Use) => use === "fixed to 5" || use === "fixed to 7"
+							const isFixed = (use: Use) =>
+								use === "fixed to 5" || use === "fixed to 7" || use === "fixed to a read"
 							const refused =
 								(isFixed(first) && second !== "existential") ||
-								(isFixed(second) && first !== "existential")
+								(isFixed(second) && first !== "existential") ||
+								(stage === "filtered" &&
+									(first === "fixed to a read" || second === "fixed to a read"))
 							c.note(refused ? "refused" : "fused")
 							assert.equal(rulesOf(ran.certificates).includes("R01.fusion"), !refused)
 						})
