@@ -2400,6 +2400,79 @@ export const keyRenamedOntoPrimary: StatedRenamedPath = plantedRename(
 	{ toB: ["column"], toC: [] }
 )
 
+/** R1 keyed by x, which R0's field b contains. */
+const referrerOfB: GenRelation = statedRelation("R1", [{ name: "x", type: int4 }], ["x"], false)
+
+const promotedSurrogateGone: GenSchema = {
+	...statedSchema(
+		[statedRelation("R0", [{ name: "b", type: int4 }], ["b"], false), referrerOfB],
+		[]
+	),
+	containments: [containedIn("R1", "x", "R0", "b")]
+}
+
+const surrogateGoneOrigins = statedOrigins(
+	[
+		["R0", "R0"],
+		["R1", "R1"]
+	],
+	[
+		["R0.b", "R0.b"],
+		["R1.x", "R1.x"]
+	]
+)
+
+/** B drops R0's surrogate primary key e, declared, and promotes its candidate key b to its primary key, which R1's
+ * containment references in A and B alike: its foreign key keeps its name and turns from deferred, R0 holding e
+ * beside b, to immediate, R0 holding b alone, in the migration that replaces the key over b it references. The draft
+ * drops the changed foreign key in Structure and adds it after B's key is attached, and the rebinding of the foreign
+ * keys the target keeps unchanged over a replaced key leaves it alone, so no statement drops it twice (42704). */
+export const keyPromotedBesideChangedReference: StatedRenamedPath = plantedRename(
+	{
+		a: {
+			...statedSchema(
+				[
+					{
+						...statedRelation(
+							"R0",
+							[
+								{ name: "e", type: int4 },
+								{ name: "b", type: int4 }
+							],
+							["e"],
+							false
+						),
+						keys: [["b"]]
+					},
+					referrerOfB
+				],
+				[]
+			),
+			containments: [containedIn("R1", "x", "R0", "b")]
+		},
+		b: promotedSurrogateGone,
+		c: promotedSurrogateGone
+	},
+	{ R0: [two(1n, 10n), two(2n, 20n)], R1: [one(10n), one(20n)] },
+	{
+		a: statedOrigins(
+			[
+				["R0", "R0"],
+				["R1", "R1"]
+			],
+			[
+				["R0.e", "R0.e"],
+				["R0.b", "R0.b"],
+				["R1.x", "R1.x"]
+			]
+		),
+		b: surrogateGoneOrigins,
+		c: surrogateGoneOrigins
+	},
+	true,
+	{ toB: [], toC: [] }
+)
+
 /** B renames R0 to P0 with its field b retyped from int4 to text, the rename chosen. */
 const retypedOrigins = statedOrigins(
 	[["P0", "R0"]],

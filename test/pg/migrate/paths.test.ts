@@ -15,6 +15,7 @@ import {
 	holdsCatalogName,
 	type IntentSketch,
 	keyCarriedOverRetyped,
+	keyPromotedBesideChangedReference,
 	keyRenamedOntoPrimary,
 	type LegalIntentKind,
 	legalIntentSketchGen,
@@ -317,6 +318,10 @@ const kept: ReadonlyArray<Kept<RenamedDraw, Feature>> = [
 	planted(
 		{ kind: "stated", path: keyRenamedOntoPrimary },
 		"a key over a field renamed onto the primary key a new reference reads"
+	),
+	planted(
+		{ kind: "stated", path: keyPromotedBesideChangedReference },
+		"a candidate key promoted over a dropped surrogate, its reference turned immediate in the same migration"
 	),
 	planted(
 		{ kind: "stated", path: renamedWithRetype },
