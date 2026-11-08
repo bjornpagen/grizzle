@@ -727,8 +727,13 @@ const coverageIn = Effect.fn("coverageIn")(function* (
 	const entries = yield* fs.readDirectory(dir, { recursive: true })
 	const dumps = Arr.filter(entries, isDump)
 	const scripts = yield* Effect.forEach(dumps, (name) =>
-		Effect.map(fs.readFileString(path.join(dir, name)), (text) =>
-			scriptsOfDump({ text, root, wanted })
+		Effect.flatMap(fs.readFileString(path.join(dir, name)), (text) =>
+			Effect.try({
+				try: () => scriptsOfDump({ text, root, wanted }),
+				catch: failureFrom(
+					`mutate: the coverage dump ${path.join(dir, name)}, of ${text.length} characters, is no whole JSON document`
+				)
+			})
 		)
 	)
 	return Rec.map(
