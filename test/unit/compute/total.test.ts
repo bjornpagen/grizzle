@@ -98,7 +98,7 @@ const literalsOf = (b: Base): Arr.NonEmptyReadonlyArray<LiteralDesc> => {
 	}
 }
 
-type Binary = "add" | "sub" | "mul" | "div" | "mod" | "greatest"
+type Binary = "add" | "sub" | "mul" | "div" | "mod" | "least" | "greatest"
 type Unary = "neg" | "abs" | "sign" | "round"
 
 /**
@@ -152,7 +152,7 @@ const termGen = (b: Base, depth: number): Gen<Term> => {
 			3,
 			(source) => ({
 				kind: "binary",
-				fn: source.draw(element(["add", "sub", "mul", "div", "mod", "greatest"] as const)),
+				fn: source.draw(element(["add", "sub", "mul", "div", "mod", "least", "greatest"] as const)),
 				left: source.draw(inner),
 				right: source.draw(inner)
 			})
@@ -288,7 +288,8 @@ const holds = (t: Term, at: (node: Term) => boolean): boolean => {
 }
 
 const isRound = (t: Term): boolean => t.kind === "unary" && t.fn === "round"
-const isArithmetic = (t: Term): boolean => t.kind === "binary" && t.fn !== "greatest"
+const isArithmetic = (t: Term): boolean =>
+	t.kind === "binary" && t.fn !== "least" && t.fn !== "greatest"
 const isValueArithmetic = (t: Term): boolean =>
 	isArithmetic(t) && t.kind === "binary" && (t.left.kind === "value" || t.right.kind === "value")
 const isZeroDivisor = (t: Term): boolean =>
@@ -310,6 +311,7 @@ type FragmentFeature =
 	| "agreed: MalformedDescription"
 	| "a zero divisor refused"
 	| "a conditional admitted"
+	| "least admitted"
 	| "greatest admitted"
 	| "abs and sign of a float admitted"
 	| "round refused in a check"
@@ -340,6 +342,9 @@ const featuresOf = (
 			: []),
 		...(both === "admitted" && holds(t, (x) => x.kind === "cond")
 			? ["a conditional admitted" as const]
+			: []),
+		...(both === "admitted" && holds(t, (x) => x.kind === "binary" && x.fn === "least")
+			? ["least admitted" as const]
 			: []),
 		...(both === "admitted" && holds(t, (x) => x.kind === "binary" && x.fn === "greatest")
 			? ["greatest admitted" as const]
@@ -400,6 +405,7 @@ describe("contract predicate tables", () => {
 								"agreed: MalformedDescription",
 								"a zero divisor refused",
 								"a conditional admitted",
+								"least admitted",
 								"greatest admitted",
 								"abs and sign of a float admitted",
 								"round refused in a check",

@@ -418,6 +418,7 @@ const checkMembers: ReadonlySet<string> = new Set([
 	"subset",
 	"disjoint",
 	"singleton",
+	"least",
 	"greatest"
 ])
 
