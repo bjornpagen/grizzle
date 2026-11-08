@@ -11,14 +11,14 @@ import { type GroupOrder, groupOrder } from "#adapter/reader/run.ts"
 import { vectorExpectations } from "#compiler/plan/catalog.ts"
 import {
 	type Carrier,
+	type Cell,
 	type Codebook,
 	type CompileError,
 	Engine,
 	type Layout,
-	type OutputText,
 	type ParamDecl,
 	type QueryDesc,
-	rowText,
+	rowCell,
 	type SchemaArtifacts,
 	SourceLoc,
 	type StatementSpec
@@ -96,13 +96,13 @@ export type PageRunStatement<F extends PageFill = PageFill> = RunStatement<
 /** A page statement's record (reader/execution.ts programRecords), its page placeholders each filled by one of `F`. */
 export type PageRecord<F extends PageFill = PageFill> = StatementRecord<PageRunStatement<F>>
 
-/** A delivered row's comparison tuple, the comparators' values converted from its texts, in order. */
+/** A delivered row's comparison tuple, the comparators' values converted from its cells, in order. */
 export type ComparisonTuple = ReadonlyArray<CarrierHost[Carrier]>
 
-/** A rows statement of a request: its record, and the reading of a row's comparison tuple from its texts. */
+/** A rows statement of a request: its record, and the reading of a row's comparison tuple from its cells. */
 export interface RowsStatement {
 	readonly record: PageRecord
-	readonly tuple: (texts: ReadonlyArray<OutputText>) => ComparisonTuple
+	readonly tuple: (cells: ReadonlyArray<Cell>) => ComparisonTuple
 }
 
 /**
@@ -261,10 +261,10 @@ const rowsStatement = (
 	}))
 	return {
 		record,
-		tuple: (texts) => {
+		tuple: (cells) => {
 			const tuple: Array<ComparisonTuple[number]> = []
 			for (const c of read) {
-				tuple.push(c.convert(rowText(texts, c.at)))
+				tuple.push(c.convert(rowCell(cells, c.at)))
 			}
 			return tuple
 		}

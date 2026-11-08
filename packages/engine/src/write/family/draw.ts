@@ -9,6 +9,7 @@
  */
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { ParamText } from "#compiler/core/wire.ts"
+import type { Bytes } from "#compiler/scalar/values/bytes.ts"
 
 /** An owner, or a group, by its key's texts, in the order the family's group fields pair with them. */
 export type Owner = NonEmptyReadonlyArray<ParamText>
@@ -16,10 +17,16 @@ export type Owner = NonEmptyReadonlyArray<ParamText>
 /** A member by its relation's primary key: each key field's text, in key order. */
 export type MemberKey = NonEmptyReadonlyArray<ParamText>
 
-/** The texts of a row's columns beside its key, in its relation's row layout. */
-export type Member = ReadonlyArray<ParamText>
+/**
+ * One column of a row as the transport carries it: its parameter text, or a bytes column's value, which travels in its
+ * column's binary bytea[] (codec/bytea.ts), since no text carries a bytes value at its own size.
+ */
+export type MemberCell = ParamText | Bytes
 
-/** A member relation's row as one statement writes it: its key's texts, then every other column's (`Member`). */
+/** The cells of a row's columns beside its key, in its relation's row layout. */
+export type Member = ReadonlyArray<MemberCell>
+
+/** A member relation's row as one statement writes it: its key's texts, then every other column's cell (`Member`). */
 export interface Row {
 	readonly key: MemberKey
 	readonly columns: Member
@@ -41,11 +48,11 @@ export interface Recount {
 /** An owner's count statement row, as the transport carries it: its key's texts, then its count's and its ends'. */
 export interface CountRow {
 	readonly owner: Owner
-	readonly drawn: Member
+	readonly drawn: ReadonlyArray<ParamText>
 }
 
-/** A row's texts: its key, then its other columns. */
-export const rowTexts = (row: Row): ReadonlyArray<ParamText> => [...row.key, ...row.columns]
+/** A row's cells: its key's texts, then its other columns'. */
+export const rowTexts = (row: Row): ReadonlyArray<MemberCell> => [...row.key, ...row.columns]
 
 /** A deleted row's texts: its key. */
 export const keyTexts = (key: MemberKey): ReadonlyArray<ParamText> => key

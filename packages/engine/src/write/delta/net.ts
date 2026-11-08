@@ -1,10 +1,10 @@
-import { scalarCodec } from "#compiler/codec/scalar.ts"
+import { carrierSpecOf } from "#compiler/codec/scalar.ts"
 import * as Order from "#compiler/core/order.ts"
 import { compareCodePoints } from "#compiler/core/text.ts"
 import { type ReadonlyTupleMap, TupleMap } from "#compiler/core/tuple-map.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
-import type { FactIdentity } from "#compiler/scalar/values/identity.ts"
+import { admittedText, type FactIdentity } from "#compiler/scalar/values/identity.ts"
 
 /** Strings by code point. */
 const codePointOrder = (a: string, b: string) => {
@@ -202,7 +202,7 @@ export const relationIdentity = (
 	codes: Codebook
 ): ((fact: Fact) => FactIdentity) => {
 	const fields = heading
-		.map((column) => ({ name: column.name, codec: scalarCodec(column.type, codes) }))
+		.map((column) => ({ name: column.name, spec: carrierSpecOf(column.type, codes) }))
 		.toSorted(Order.mapInput(codePointOrder, (field: { readonly name: string }) => field.name))
-	return (fact) => Object.freeze(fields.map((field) => field.codec.text(fact[field.name])))
+	return (fact) => Object.freeze(fields.map((field) => admittedText(field.spec, fact[field.name])))
 }

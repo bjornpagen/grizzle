@@ -146,6 +146,9 @@ const correlatedRefusal = (
  * approximate search, the one case an attachment otherwise fuses (lower/shapes/attach chooseAttachment), or undefined.
  */
 export const pipelinedOnly = (child: RelNode): string | undefined => {
+	if (child.heading.some((column) => column.type.carrier === "bytes")) {
+		return "a child delivering bytes delivers each value in chunks, which no array carries"
+	}
 	const seen = new Set<RelNode>([child])
 	const queue = [child]
 	for (const [i, node] of queue.entries()) {
@@ -278,8 +281,9 @@ const deliveredAttachments = (
  *
  * A third placement is refused for the same reason, by the checker over the whole query (pipelinedOverSearch), so that
  * both lowerings accept the same programs: an attachment that must be a statement of its own (pipelinedOnly: a
- * recursive or approximate child, a child with attachments of its own, a heterogeneous union, or any attachment of an
- * attachment's child) under rows that read a search. That statement computes its parent's rows again in the same
+ * recursive or approximate child, a child with attachments of its own, a heterogeneous union, a child delivering bytes,
+ * whose values travel in chunks (codec/delivery.ts), or any attachment of an attachment's child) under rows that read
+ * a search. That statement computes its parent's rows again in the same
  * snapshot, so it would run the parent's search a second time, and a delivered parent the second search misses would
  * lose its children. Every other attachment fuses exactly when its parent's rows read an approximate search
  * (lower/shapes/attach chooseAttachment), so the search runs once; over exact rows it is a statement of its own.

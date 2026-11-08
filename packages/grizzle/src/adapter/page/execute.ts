@@ -20,14 +20,14 @@ import {
 	readBinding,
 	rowsOf,
 	runOf,
-	type SentRuns,
-	type StatementRun
+	type SentRuns
 } from "#adapter/reader/execution.ts"
 import type { GroupOrder } from "#adapter/reader/run.ts"
 import type { BatchStatement, Flight } from "#adapter/wire/batch.ts"
 import {
+	type AssembledRows,
+	type Cell,
 	defect,
-	type OutputText,
 	type ParamText,
 	type Row,
 	rowText
@@ -46,8 +46,6 @@ import {
 	type SizeFill,
 	type VariantFill
 } from "#compiler/plan/read.ts"
-
-type Raw = ReadonlyArray<ReadonlyArray<OutputText>>
 
 /**
  * One page request as one flight of one transaction.
@@ -103,10 +101,10 @@ export type PageCall =
 	  }
 
 interface DeliveredEdge {
-	/** The rows statement that delivered it, and its row's result texts. */
+	/** The rows statement that delivered it, and its row's cells. */
 	readonly statement: PageRecord
-	readonly raw: ReadonlyArray<OutputText>
-	/** The delivered Row: the row's texts with its attachments' child Rows, which the query's decoder reads. */
+	readonly raw: ReadonlyArray<Cell>
+	/** The delivered Row: the row's cells with its attachments' child Rows, which the query's decoder reads. */
 	readonly row: Row
 	/** The comparison tuple, the comparators' values in order. */
 	readonly tuple: ComparisonTuple
@@ -118,7 +116,7 @@ export interface PageRows {
 	readonly hasPreviousPage: boolean
 	readonly hasNextPage: boolean
 	/** The rows of each attachment statement, by its record. */
-	readonly attachments: ReadonlyMap<PageRecord, Raw>
+	readonly attachments: ReadonlyMap<PageRecord, AssembledRows>
 	/** The probe that decided the opposite flag, none when none ran. */
 	readonly probe: Option.Option<ProbeKind>
 	/** How many statements were sent. */
@@ -190,13 +188,13 @@ const sending = <F extends PageFill>(
 }
 
 /**
- * A row a rows statement delivered, a candidate edge: its statement, its heading group, its texts and its comparison
+ * A row a rows statement delivered, a candidate edge: its statement, its heading group, its cells and its comparison
  * tuple.
  */
 interface Candidate {
 	readonly statement: RowsStatement
 	readonly group: number
-	readonly texts: ReadonlyArray<OutputText>
+	readonly cells: ReadonlyArray<Cell>
 	readonly tuple: ComparisonTuple
 }
 
@@ -211,7 +209,7 @@ const contradicted = (index: number): UnreadableAnswer =>
  */
 const probeAnswer = (
 	probe: SentProbe,
-	rows: StatementRun,
+	rows: AssembledRows,
 	index: number
 ): Result.Result<boolean, UnreadableAnswer> => {
 	const [only, ...rest] = rows
@@ -301,7 +299,7 @@ export const pageEdges = (
 			const read = rowsOf(
 				rows.record,
 				sent,
-				Arr.map(mine, ({ c }) => c.texts),
+				Arr.map(mine, ({ c }) => c.cells),
 				group
 			)
 			if (Result.isFailure(read)) {
@@ -310,7 +308,7 @@ export const pageEdges = (
 			for (const [{ c, at }, row] of Arr.zip(mine, read.success)) {
 				placed.push({
 					at,
-					edge: { statement: c.statement.record, raw: c.texts, row, tuple: c.tuple }
+					edge: { statement: c.statement.record, raw: c.cells, row, tuple: c.tuple }
 				})
 			}
 		}
@@ -329,7 +327,7 @@ const candidatesOf = (
 	runOf(rows.record, sent).map((row): Candidate => ({
 		statement: rows,
 		group,
-		texts: row,
+		cells: row,
 		tuple: rows.tuple(row)
 	}))
 
@@ -346,7 +344,7 @@ const mergedCandidates = (
 	limit: number
 ): ReadonlyArray<Candidate> => {
 	const groups = order.groups.map((one, group) =>
-		candidatesOf(one.group, group, sent).map((c): KeyedCandidate => ({ c, key: one.key(c.texts) }))
+		candidatesOf(one.group, group, sent).map((c): KeyedCandidate => ({ c, key: one.key(c.cells) }))
 	)
 	return mergeHeadingGroups(groups, (a, b) => order.compare(a.key, b.key), limit).map(
 		(one) => one.row.c
@@ -409,11 +407,8 @@ const requestFlight = <V extends PageVariant>(
 			read: (outcomes) =>
 				Effect.fromResult(
 					Result.gen(function* () {
-						const runs: ReadonlyArray<StatementRun> = Arr.map(
-							outcomes.slice(0, sent),
-							(outcome) => outcome.rows
-						)
-						const attachments = new Map<PageRecord, Raw>()
+						const runs: SentRuns = Arr.map(outcomes.slice(0, sent), (outcome) => outcome.rows)
+						const attachments = new Map<PageRecord, AssembledRows>()
 						for (const record of program.records) {
 							for (const { record: child } of record.plan.children) {
 								attachments.set(child, runOf(child, runs))

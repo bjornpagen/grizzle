@@ -25,10 +25,10 @@ import {
 	type NormalizedRelation,
 	normalArray,
 	paramEncoder,
+	type ParameterNormalizer,
 	parameterNormalizer,
 	positionalColumns,
 	type RelationColumn,
-	type RelationNormalizer,
 	type RelationSpec,
 	slotPlace
 } from "#compiler/plan/read.ts"
@@ -73,7 +73,7 @@ const normalizerOver = (
 	decl: RelationParamDecl,
 	columns: SlotColumns,
 	codes: Codebook
-): RelationNormalizer => parameterNormalizer(specOver(decl, columns, codes))
+): ParameterNormalizer => parameterNormalizer(specOver(decl, columns, codes))
 
 const sameColumns = (a: SlotColumns, b: SlotColumns): boolean =>
 	a.length === b.length &&

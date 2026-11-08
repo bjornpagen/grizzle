@@ -1,8 +1,9 @@
 import { normalArray, positionalColumns, type RelationSpec } from "#compiler/codec/recordset.ts"
-import { paramEncoder, resultTextCasts } from "#compiler/codec/scalar.ts"
+import { paramEncoder } from "#compiler/codec/scalar.ts"
 import { canonicalEquals, catchRefusal, everyProperty, Refusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { defect } from "#compiler/core/invariant.ts"
+import { bytesChunkLength } from "#compiler/core/limits.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { ParamSlot, StatementSpec, WriteSlot } from "#compiler/ir/products.ts"
@@ -23,43 +24,37 @@ import {
 	statementOutput,
 	type WriteParamSlot
 } from "#compiler/lower/conservative/types.ts"
+import {
+	type DeliveredColumn,
+	deliveredColumn,
+	deliveredRows,
+	type PlainQuery,
+	textColumn
+} from "#compiler/lower/delivery.ts"
 import type { FusedAttachment } from "#compiler/lower/shapes/attach/decode.ts"
 import type {
 	FusedStatement,
 	OptimizedStatement,
 	RelationChoice
 } from "#compiler/lower/shapes/index.ts"
-import type { Expr, OperandBody, OrderItem, Select, SelectBody, Target } from "#compiler/sql/ast.ts"
-import {
-	cast,
-	col,
-	derived,
-	mapTargets,
-	provedCore,
-	select,
-	target,
-	targetAs,
-	types
-} from "#compiler/sql/build.ts"
+import type { OperandBody, OrderItem, Select, SelectBody, Target } from "#compiler/sql/ast.ts"
+import { col, derived, mapTargets, provedCore, target, targetAs } from "#compiler/sql/build.ts"
 import { emit } from "#compiler/sql/emit.ts"
 import { NameSupply, renderNameMap } from "#compiler/sql/naming.ts"
 
-const textCast = (e: Expr, castTypes: ReadonlyArray<"numeric" | "text">): Expr =>
-	castTypes.reduce<Expr>((acc, t) => cast(acc, t === "numeric" ? types.numeric : types.text), e)
-
-/** One output column of a statement: its public name and the casts that make its result text. */
+/** One output column of a statement: its public name and how it is delivered (lower/delivery.ts). */
 interface OutputColumn {
 	readonly name: string
-	readonly casts: ReadonlyArray<"numeric" | "text">
+	readonly delivered: DeliveredColumn
 }
 
 /**
- * Each output column, position by position: each heading column with its own casts, then text for each fused
- * attachment's array column.
+ * Each output column, position by position: each heading column as its type delivers it, then each fused attachment's
+ * array column, a text.
  */
 const outputColumns = (output: StatementOutput<FusedAttachment>): ReadonlyArray<OutputColumn> => [
-	...output.heading.map((c) => ({ name: c.name, casts: resultTextCasts(c.type) })),
-	...output.fused.map((f): OutputColumn => ({ name: f.name, casts: ["text"] }))
+	...output.heading.map((c) => ({ name: c.name, delivered: deliveredColumn(c.type) })),
+	...output.fused.map((f): OutputColumn => ({ name: f.name, delivered: textColumn }))
 ]
 
 /** The output targets of a query body: a core's own, and a set operation's its left arm's, as PostgreSQL takes them. */
@@ -115,22 +110,20 @@ const freshSupply = (statement: ConservativeStatement<ConservativeParamSlot>): N
 const outerCore = (body: SelectBody) => (body.kind === "core" ? body : undefined)
 
 /**
- * The statement's AST with every output column cast to its result text. The lowering built the statement: its
- * outermost body is a SELECT core whose targets are named, and a deduplicating statement orders by its output columns.
+ * The statement's AST as it delivers its rows (lower/delivery.ts deliveredRows): every output column cast to its result
+ * text, or, where one is bytes, every row in chunks. The lowering built the statement: its outermost body is a SELECT
+ * core whose targets are named, and a deduplicating statement orders by its output columns.
  */
 export const executableQuery = (statement: FusedStatement<ConservativeParamSlot>): Select => {
 	const ast = statement.ast
 	const columns = outputColumns(statementOutput(statement.role, statement.heading, statement.fused))
+	const delivered = columns.map((c) => c.delivered)
+	const supply = freshSupply(statement)
 	const plain = outerCore(ast.body)
 	if (plain?.distinct === false && plain.groupBy.length === 0) {
-		const targets = targetColumns(plain.targets, columns).map(({ target: t, column }) => ({
-			...t,
-			expr: textCast(t.expr, column.casts)
-		}))
-		return { ...ast, body: { ...plain, targets } }
+		return deliveredRows({ ...ast, body: plain }, delivered, [], supply, bytesChunkLength.value)
 	}
-	/** SELECT r.c1::text AS name1, ... FROM (<statement>) AS r(c1, ...) ORDER BY r.c<k> ... */
-	const supply = freshSupply(statement)
+	/** SELECT r.c1 AS name1, ... FROM (<statement>) AS r(c1, ...) ORDER BY r.c<k> ..., delivered. */
 	const origin = { kind: "internal", purpose: "result text casts" } as const
 	const alias = supply.relation(origin)
 	const outputs = targetColumns(outputTargets(ast.body), columns).map((c) => ({
@@ -155,26 +148,27 @@ export const executableQuery = (statement: FusedStatement<ConservativeParamSlot>
 	const inner = outerCore(ast.body)
 	const query: Select =
 		inner === undefined ? ast : { ...ast, body: mapTargets(inner, (t) => target(t.expr)) }
-	return {
-		...select(
-			provedCore(
-				"keyed",
-				outputs.map((o) =>
-					targetAs(textCast(col(alias, o.derived), o.column.casts), o.column.name)
-				),
-				[
-					derived(
-						query,
-						alias,
-						outputs.map((o) => o.derived),
-						false
-					)
-				],
-				undefined
-			)
+	const rows: PlainQuery = {
+		kind: "select",
+		with: undefined,
+		limit: undefined,
+		offset: undefined,
+		body: provedCore(
+			"keyed",
+			outputs.map((o) => targetAs(col(alias, o.derived), o.column.name)),
+			[
+				derived(
+					query,
+					alias,
+					outputs.map((o) => o.derived),
+					false
+				)
+			],
+			undefined
 		),
 		orderBy
 	}
+	return deliveredRows(rows, delivered, [], supply, bytesChunkLength.value)
 }
 
 /** The spec of a relation input's placeholders over `columns` under the installation's codes, its refusals naming

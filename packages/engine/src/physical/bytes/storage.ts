@@ -26,12 +26,12 @@ const bytesColumns = (heading: ReadonlyArray<HeadingColumn>): ReadonlyArray<Head
  * The length CHECK of every bytes column of every stored relation, in relation then field order, for its table's
  * CREATE TABLE to declare (`addBytesLengths` adds their objects once the tables stand).
  *
- * `bytes` is PostgreSQL's bytea, whose column is `pg_catalog.bytea NOT NULL`. A bytea holds up to a gigabyte, but its
- * hex text, which grizzle reads every result cell as, is one string only up to core/limits.ts bytesMaxLength bytes, so
- * the column carries the named CHECK of that bound:
+ * `bytes` is PostgreSQL's bytea, whose column is `pg_catalog.bytea NOT NULL`. A bytea holds up to a gigabyte, but a
+ * bytes value's one text, its windows-1252 decode of one UTF-16 code unit a byte, which identifies it on the host, is
+ * one string only up to core/limits.ts bytesMaxLength bytes, so the column carries the named CHECK of that bound:
  *
  *     CONSTRAINT "__file_length_body_<digest>"
- *       CHECK ((pg_catalog.octet_length("body") <= 268435443::integer) IS TRUE)
+ *       CHECK ((pg_catalog.octet_length("body") <= 536870888::integer) IS TRUE)
  *
  * octet_length of a bytea reads its length word, never its bytes. The CHECK is declared inline by the table's CREATE
  * TABLE beside the row's other CHECKs, and PostgreSQL enforces it on every write, grizzle's or a direct SQL writer's. It
@@ -75,7 +75,7 @@ export const addBytesLengths = (b: InstallBuilder, lengths: ReadonlyArray<BytesL
 				ddl: [],
 				reasons: [
 					enforcement(
-						`the bytes whose hex text one string holds of ${l.relation}.${l.field}: at most ${bytesMaxLength.value}`
+						`the bytes whose one text one string holds of ${l.relation}.${l.field}: at most ${bytesMaxLength.value}`
 					)
 				],
 				phase: "structure"

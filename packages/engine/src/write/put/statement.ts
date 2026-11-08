@@ -21,6 +21,7 @@ import {
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
 import type { WriteParamSlot } from "#compiler/lower/conservative/types.ts"
 import { rowOrSingle } from "#compiler/lower/conservative/vector/equality.ts"
+import { textItself } from "#compiler/lower/delivery.ts"
 import { wildcardText } from "#compiler/scalar/compute/types.ts"
 import type {
 	Assignment,
@@ -78,7 +79,9 @@ import {
 	writtenFields,
 	type ResultColumn,
 	type Returning,
-	resultText,
+	type ReturnedColumn,
+	returnedColumn,
+	returnedRows,
 	rowType,
 	type WithSelect,
 	type WriteContext
@@ -358,7 +361,7 @@ const guardedPut = (
 	ctes: ReadonlyArray<Cte>,
 	verdicts: { readonly body: Select["body"]; readonly columns: ReadonlyArray<string> },
 	arms: (rv: string) => NonEmptyReadonlyArray<RefusalArm>,
-	deliver: (rv: string) => ReadonlyArray<Target>
+	deliver: (rv: string) => ReadonlyArray<ReturnedColumn>
 ): WithSelect => {
 	const rv = supply.relation(internal("verdicts"))
 	const verdictCte: Cte = {
@@ -369,7 +372,7 @@ const guardedPut = (
 	}
 	const guarded = refusalGuard({ supply, schema: w.names.schema, verdicts: rv, arms: arms(rv) })
 	return {
-		...provedSelect("keyed", deliver(rv), [cteRef(rv)], guarded.guard),
+		...returnedRows(supply, "keyed", deliver(rv), [cteRef(rv)], guarded.guard),
 		with: { ctes: concatNonEmpty(ctes, [verdictCte, guarded.cte]), recursive: false }
 	}
 }
@@ -472,13 +475,11 @@ export const buildUpsert = (w: WriteContext, spec: UpsertSpec): PutStatement => 
 			added: { columns: returned, conditions: [] }
 		}
 		const text = (alias: string) =>
-			returned.pairs.map((p) =>
-				targetAs(resultText(col(alias, p.column), rowType(p.field)), p.column)
-			)
+			returned.pairs.map((p) => returnedColumn(col(alias, p.column), rowType(p.field), p.column))
 		if (probe === undefined || cU === undefined) {
 			return {
 				ast: {
-					...select(provedCore("keyed", text(r2), [cteRef(r2)], undefined)),
+					...returnedRows(supply, "keyed", text(r2), [cteRef(r2)], undefined),
 					with: { ctes, recursive: false }
 				},
 				result,
@@ -582,7 +583,7 @@ export const buildUpdateFrom = (w: WriteContext, spec: PutSpec): PutStatement =>
 		ctes.push(cte(r2, [], update))
 		const text = (alias: string) =>
 			[...fresh.pairs, ...old.pairs].map((p) =>
-				targetAs(resultText(col(alias, p.column), rowType(p.field)), p.column)
+				returnedColumn(col(alias, p.column), rowType(p.field), p.column)
 			)
 		const result: PutResult = {
 			kind: "update",
@@ -604,7 +605,7 @@ export const buildUpdateFrom = (w: WriteContext, spec: PutSpec): PutStatement =>
 		if (c9 === undefined || r4 === undefined) {
 			return {
 				ast: {
-					...select(provedCore("keyed", text(r2), [cteRef(r2)], undefined)),
+					...returnedRows(supply, "keyed", text(r2), [cteRef(r2)], undefined),
 					with: { ctes, recursive: false }
 				},
 				result,
@@ -727,11 +728,9 @@ export const buildMerge = (w: WriteContext, spec: MergeSpec): PutStatement => {
 			with: undefined
 		}
 		ctes.push(cte(r2, [], merge))
-		const text = (alias: string) => [
-			targetAs(col(alias, actionCol), actionCol),
-			...returned.pairs.map((p) =>
-				targetAs(resultText(col(alias, p.column), rowType(p.field)), p.column)
-			)
+		const text = (alias: string): ReadonlyArray<ReturnedColumn> => [
+			{ expr: col(alias, actionCol), delivered: textItself, alias: actionCol },
+			...returned.pairs.map((p) => returnedColumn(col(alias, p.column), rowType(p.field), p.column))
 		]
 		const result: PutResult = {
 			kind: "merge",
@@ -755,7 +754,7 @@ export const buildMerge = (w: WriteContext, spec: MergeSpec): PutStatement => {
 		if (c9 === undefined || r4 === undefined) {
 			return {
 				ast: {
-					...select(provedCore("keyed", text(r2), [cteRef(r2)], undefined)),
+					...returnedRows(supply, "keyed", text(r2), [cteRef(r2)], undefined),
 					with: { ctes, recursive: false }
 				},
 				result,

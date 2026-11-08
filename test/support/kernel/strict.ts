@@ -1,6 +1,8 @@
-import { Array as Arr, Option, Result, String as Str } from "effect"
+import { Array as Arr, Option, Order, Result, String as Str } from "effect"
 import { toResult } from "#adapter/engine.ts"
+import type { Delivery } from "#compiler/codec/delivery.ts"
 import { carrierSpecOf } from "#compiler/codec/scalar.ts"
+import { maxOf } from "#compiler/core/array.ts"
 import type { ValueFault } from "#compiler/core/errors.ts"
 import { int2Max, int2Min, int4Max, int4Min, int8Max, int8Min } from "#compiler/core/limits.ts"
 import { validateText } from "#compiler/core/text.ts"
@@ -667,3 +669,157 @@ export const strictArrayText = (
 		i += 1
 	}
 }
+
+/** A delivered cell read strictly: a text column's output text, or a bytes column's assembled value. */
+export type StrictCell = string | Uint8Array<ArrayBuffer>
+
+/** A decimal integer's text without a leading zero, 0 itself included. */
+const isDecimal = (text: string): boolean =>
+	text.length > 0 &&
+	(text === "0" || !Str.startsWith("0")(text)) &&
+	Arr.every(Arr.range(0, text.length - 1), (at) => Option.exists(Str.charCodeAt(text, at), isDigit))
+
+/**
+ * The bytes a base64url text spells, read strictly: the alphabet only, no padding, and the text exactly the one
+ * base64url writes of its bytes, as PostgreSQL's encode(…, 'base64url') writes it (src/backend/utils/adt/encode.c
+ * pg_base64url_encode).
+ */
+const strictBase64url = (text: string): Result.Result<Uint8Array<ArrayBuffer>, string> => {
+	const bytes = Result.try(() => Uint8Array.fromBase64(text, { alphabet: "base64url" }))
+	return Result.isSuccess(bytes) &&
+		bytes.success.toBase64({ alphabet: "base64url", omitPadding: true }) === text
+		? Result.succeed(bytes.success)
+		: Result.fail(`a chunk that is no base64url text: ${Str.slice(0, 32)(text)}`)
+}
+
+/** The cell at `at` of a chunk row, or the reason a row of its width holds none. */
+const chunkCell = (row: ReadonlyArray<string>, at: number): Result.Result<string, string> => {
+	const cell = row[at]
+	return cell === undefined
+		? Result.fail(`a chunk row without its cell ${at}`)
+		: Result.succeed(cell)
+}
+
+/** One delivered row of a chunked answer read strictly, from its chunks by number (see strictDelivered). */
+const strictRow = (
+	delivery: Delivery,
+	ord: number,
+	chunks: ReadonlyMap<number, ReadonlyArray<string>>,
+	chunkLength: number
+): Result.Result<ReadonlyArray<StrictCell>, string> =>
+	Result.gen(function* () {
+		const n = delivery.cells.length
+		const bytes = Arr.flatMap(delivery.cells, (kind, at) => (kind === "bytes" ? [at] : []))
+		const first = chunks.get(0)
+		if (first === undefined) {
+			return yield* Result.fail(`row ${ord} without its chunk 0`)
+		}
+		const lengths: Array<number> = []
+		for (const [m] of bytes.entries()) {
+			const text = yield* chunkCell(first, 2 + n + m)
+			if (!isDecimal(text)) {
+				return yield* Result.fail(`row ${ord}'s length ${text}`)
+			}
+			lengths.push(Number(text))
+		}
+		const count = maxOf(
+			Arr.map(lengths, (length) => Math.ceil(length / chunkLength)),
+			1
+		)
+		if (chunks.size !== count || !Arr.every(Arr.range(0, count - 1), (i) => chunks.has(i))) {
+			return yield* Result.fail(`row ${ord} in ${chunks.size} chunks, not 0 … ${count - 1}`)
+		}
+		const values = Arr.map(lengths, (length) => new Uint8Array(length))
+		for (const [i, row] of chunks) {
+			for (const [at, kind] of delivery.cells.entries()) {
+				if (kind === "text" && i > 0 && (yield* chunkCell(row, 2 + at)) !== "") {
+					return yield* Result.fail(`row ${ord}'s text column ${at} on chunk ${i}`)
+				}
+			}
+			for (const [m, at] of bytes.entries()) {
+				if (i > 0 && (yield* chunkCell(row, 2 + n + m)) !== "") {
+					return yield* Result.fail(`row ${ord}'s length ${m} on chunk ${i}`)
+				}
+				const value = values[m]
+				if (value === undefined) {
+					return yield* Result.fail(`row ${ord} without bytes column ${m}'s length`)
+				}
+				const expected = Math.max(0, Math.min(chunkLength, value.length - i * chunkLength))
+				const chunk = yield* strictBase64url(yield* chunkCell(row, 2 + at))
+				if (chunk.length !== expected) {
+					return yield* Result.fail(
+						`row ${ord}'s bytes column ${at} chunk ${i} of ${chunk.length} bytes, not ${expected}`
+					)
+				}
+				if (expected > 0) {
+					value.set(chunk, i * chunkLength)
+				}
+			}
+		}
+		const cells: Array<StrictCell> = []
+		for (const [at, kind] of delivery.cells.entries()) {
+			if (kind === "text") {
+				cells.push(yield* chunkCell(first, 2 + at))
+			} else {
+				const value = values[bytes.indexOf(at)]
+				if (value === undefined) {
+					return yield* Result.fail(`row ${ord} without bytes column ${at}`)
+				}
+				cells.push(value)
+			}
+		}
+		return cells
+	})
+
+/**
+ * A statement's answer read strictly as its delivery delivers it (codec/delivery.ts Delivery), the test kernel's side
+ * of the library's trusting assembly, sharing none of its code: a whole delivery's rows each of exactly its columns'
+ * width, read as they are; a chunked delivery's result rows each `[ord, chunk, c1 … cn, l1 … lk]`, `ord` and `chunk`
+ * decimal integers, `ord` at least 1. Each ord's chunks are exactly 0 … m − 1, m the chunks of its longest bytes value
+ * of `chunkLength` bytes, at least one; its chunk 0 holds its text columns' cells and each bytes column's length, a
+ * decimal integer, and every other chunk empty texts there; each bytes column's chunk i is the base64url text of
+ * exactly its value's bytes from i · `chunkLength` on, at most `chunkLength` of them, empty past its end. The rows come
+ * in their ords' increasing order. Any other answer is refused, naming what it breaks.
+ */
+export const strictDelivered = (
+	delivery: Delivery,
+	rows: ReadonlyArray<ReadonlyArray<string>>,
+	chunkLength: number
+): Result.Result<ReadonlyArray<ReadonlyArray<StrictCell>>, string> =>
+	Result.gen(function* () {
+		const n = delivery.cells.length
+		if (delivery.kind === "whole") {
+			return Arr.every(rows, (row) => row.length === n)
+				? rows
+				: yield* Result.fail(`a whole row of other than ${n} cells`)
+		}
+		const width = 2 + n + delivery.bytes.length
+		const byOrd = new Map<number, Map<number, ReadonlyArray<string>>>()
+		for (const row of rows) {
+			if (row.length !== width) {
+				return yield* Result.fail(`a chunk row of other than ${width} cells`)
+			}
+			const ord = yield* chunkCell(row, 0)
+			const chunk = yield* chunkCell(row, 1)
+			if (!isDecimal(ord) || ord === "0" || !isDecimal(chunk)) {
+				return yield* Result.fail(`a chunk row numbered ${ord}, ${chunk}`)
+			}
+			const chunks = byOrd.get(Number(ord))
+			if (chunks === undefined) {
+				byOrd.set(Number(ord), new Map([[Number(chunk), row]]))
+			} else if (chunks.has(Number(chunk))) {
+				return yield* Result.fail(`row ${ord}'s chunk ${chunk} twice`)
+			} else {
+				chunks.set(Number(chunk), row)
+			}
+		}
+		const out: Array<ReadonlyArray<StrictCell>> = []
+		for (const ord of Arr.sort(Array.from(byOrd.keys()), Order.Number)) {
+			const chunks = byOrd.get(ord)
+			if (chunks === undefined) {
+				return yield* Result.fail(`row ${ord} without its chunks`)
+			}
+			out.push(yield* strictRow(delivery, ord, chunks, chunkLength))
+		}
+		return out
+	})

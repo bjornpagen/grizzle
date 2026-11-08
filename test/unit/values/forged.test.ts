@@ -21,9 +21,9 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Result } from "effect"
 import {
 	normalArray,
+	parameterNormalizer,
 	positionalColumns,
-	type RelationSpec,
-	relationNormalizer
+	type RelationSpec
 } from "#compiler/codec/recordset.ts"
 import { carrierSpecOf } from "#compiler/codec/scalar.ts"
 import { isCompileError } from "#compiler/core/errors.ts"
@@ -109,7 +109,7 @@ describe("a forged carrier instance", () => {
 								c.note("a batch holding one value twice")
 							}
 							const normal = succeeded(
-								relationNormalizer(relation)(Arr.map(admitted, (a) => ({ v: a.input })))
+								parameterNormalizer(relation)(Arr.map(admitted, (a) => ({ v: a.input })))
 							)
 							assert.equal(normal.count, distinct.size, "one fact per PostgreSQL value")
 							assert.deepEqual<ReadonlySet<string>>(

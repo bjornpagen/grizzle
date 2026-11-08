@@ -80,14 +80,24 @@ export interface RelationSpec {
 	readonly codes: Codebook
 }
 
-/** A normalized relation input: its normal facts and their text rows. */
-export interface NormalizedRelation extends NormalFacts {
-	/** Each fact's text forms in column order: the elements its arrays carry for it. */
-	readonly rows: ReadonlyArray<ReadonlyArray<ParamText>>
+/** An admitted relation input: its normal facts and how many they are. */
+export interface AdmittedRelation extends NormalFacts {
 	readonly count: number
 }
 
+/** A normalized relation parameter's input: its normal facts and their text rows. */
+export interface NormalizedRelation extends AdmittedRelation {
+	/** Each fact's text forms in column order: the elements its arrays carry for it. */
+	readonly rows: ReadonlyArray<ReadonlyArray<ParamText>>
+}
+
+/** A relation input's admission: a ChangeSet member's, or a nested write's level's. */
 export type RelationNormalizer = (
+	facts: Iterable<unknown>
+) => Result.Result<AdmittedRelation, EncodingFailure>
+
+/** A relation parameter's normalization, its facts' text rows written beside them. */
+export type ParameterNormalizer = (
 	facts: Iterable<unknown>
 ) => Result.Result<NormalizedRelation, EncodingFailure>
 
@@ -269,8 +279,8 @@ export const normalForm = (spec: RelationSpec): NormalForm => {
 
 /**
  * The normalizer of one relation input: admission, the null ban, deduplication, and canonical order. Facts of one
- * identity have one row, because every field's text is its value's canonical text, so the parameter bytes, the facts
- * and the rows never depend on input order.
+ * identity are one fact, so the facts never depend on input order. It writes no text: a relation parameter's rows are
+ * its own normalizer's (`parameterNormalizer`), and a member's arrays are written from its facts (`normalArray`).
  */
 export const relationNormalizer = (spec: RelationSpec): RelationNormalizer =>
 	normalizerOf(buildSpec(spec))
@@ -304,13 +314,7 @@ const normalizerOf = (s: BuiltSpec): RelationNormalizer => {
 			}
 		}
 		const normal = normalFacts(byIdentity, ownHeading)
-		return Result.ok(
-			Object.freeze({
-				...normal,
-				rows: Object.freeze(normal.facts.map((fact) => rowOf(columns, fact))),
-				count: normal.facts.length
-			})
-		)
+		return Result.ok(Object.freeze({ ...normal, count: normal.facts.length }))
 	}
 	return normalize
 }
@@ -513,14 +517,15 @@ export const normalArray = (
 /**
  * The normalizer of a relation parameter's input, a read's and a write's alike: the relation normalizer, then each value
  * of a refined column checked against its refinements (scalar.ts refinedMember), as a scalar parameter is, since the
- * input's array carries it as its base type, so a fact outside them is refused at bind (refinedValue) before any SQL. A
- * ChangeSet member's facts are no parameter: one outside its column's domain is refused by the domain's law
- * (relationNormalizer).
+ * input's array carries it as its base type, so a fact outside them is refused at bind (refinedValue) before any SQL;
+ * and each fact's text row, its arrays' elements, every field's text its value's canonical text, so equal inputs give
+ * equal rows whatever their order. No parameter is of bytes, the one carrier of no parameter text. A ChangeSet
+ * member's facts are no parameter: one outside its column's domain is refused by the domain's law (relationNormalizer).
  */
-export const parameterNormalizer = (spec: RelationSpec): RelationNormalizer =>
+export const parameterNormalizer = (spec: RelationSpec): ParameterNormalizer =>
 	parameterNormalizerOf(buildSpec(spec))
 
-const parameterNormalizerOf = (built: BuiltSpec): RelationNormalizer => {
+const parameterNormalizerOf = (built: BuiltSpec): ParameterNormalizer => {
 	const normalize = normalizerOf(built)
 	const refined = built.columns.flatMap((c) => {
 		const member = refinedMember(c.codec.type)
@@ -538,7 +543,12 @@ const parameterNormalizerOf = (built: BuiltSpec): RelationNormalizer => {
 				}
 			}
 		}
-		return normalized
+		return Result.ok(
+			Object.freeze({
+				...normalized.value,
+				rows: Object.freeze(normalized.value.facts.map((fact) => rowOf(built.columns, fact)))
+			})
+		)
 	}
 }
 

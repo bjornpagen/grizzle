@@ -113,9 +113,10 @@ interface AttachmentChoice {
  * rows again, which would run the search a second time, and two HNSW searches in one snapshot need not retrieve the
  * same set. Some children always pipeline (check/approximate/attach.ts pipelinedOnly): one that reads a recursive
  * relation is seeded once from the parent keys instead (R37, attach-recursive), one over an approximate source
- * evaluates that source once per execution, not once per parent, and one with attachments of its own, or a
- * heterogeneous union, delivers more than one array can carry. Such a child under a parent whose rows read a search
- * the checker refuses (check/approximate/attach.ts pipelinedOverSearch). No width or count decides the form: a
+ * evaluates that source once per execution, not once per parent, and one with attachments of its own, a heterogeneous
+ * union, or a bytes column, whose values travel in chunks (codec/delivery.ts), delivers more than one array can
+ * carry. Such a child under a parent whose rows read a search the checker refuses (check/approximate/attach.ts
+ * pipelinedOverSearch). No width or count decides the form: a
  * pipelined statement's cost is one more statement in the flight, never a different answer.
  */
 export const chooseAttachment = (

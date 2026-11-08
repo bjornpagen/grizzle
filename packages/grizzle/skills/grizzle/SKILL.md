@@ -499,7 +499,9 @@ The command line's own refusals, by stage:
   `Compute.or(Compute.not(C.has(k…)), φ(C.at(field, k…)))`, or a value there,
   `Compute.cond(C.has(k…), C.at(field, k…), d)`. Every closed read is NULL where a key value is NULL.
 - A `bytes` field, a `Uint8Array`, is written and read back whole and nothing more: never in a key, a rule's side, a
-  filter, a parameter, a `Compute` call, a contract, or a generated or accumulated field.
+  filter, a parameter, a `Compute` call, a contract, or a generated or accumulated field. A value holds at most
+  536,870,888 bytes (`bytesMaxLength`) and is read back in chunks, one round trip still; an attachment whose rows hold
+  one is a statement of its own, so under rows that read `.approximateNearest` attach in a second query instead.
 - Every numeric field declares its precision and scale, `pg.numeric(p, s)`; there is no bare `pg.numeric`. A sum,
   a mean or an operation's numeric result carries the digits its computation proves, and one past 131,072 integer
   digits is `ResourceBound`. Convert an integer, money or a float to numeric with `Compute.numeric(x)`, never a cast to

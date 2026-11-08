@@ -3,7 +3,6 @@ import type { OutputText } from "#compiler/core/wire.ts"
 import { handleAt, type RosterCodec } from "#compiler/ir/codes.ts"
 import { convertDate } from "#compiler/ir/date.ts"
 import type { Carrier } from "#compiler/ir/scalar.ts"
-import { convertBytes } from "#compiler/scalar/values/bytes.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { convertComponent, convertDouble, convertReal } from "#compiler/scalar/values/float.ts"
 import type { CarrierHost, SpecOf } from "#compiler/scalar/values/identity.ts"
@@ -11,8 +10,14 @@ import { Money } from "#compiler/scalar/values/money.ts"
 import type { Span } from "#compiler/scalar/values/span.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
 
+/**
+ * The carriers a cell of which is an output text: every carrier but bytes, whose cell is its value, assembled from the
+ * chunks it travels in (codec/delivery.ts).
+ */
+export type TextCarrier = Exclude<Carrier, "bytes">
+
 /** The conversion of one carrier's output text, PostgreSQL's and no other, built from its spec. */
-export type Converter<C extends Carrier> = (text: OutputText) => CarrierHost[C]
+export type Converter<C extends TextCarrier> = (text: OutputText) => CarrierHost[C]
 
 /** An endpoint's text inside a range's output text: PostgreSQL's output of the endpoint, minted where it is cut out. */
 const endpointText = nominal<string, OutputText>()
@@ -95,7 +100,6 @@ const convertBits =
  * | money | money::numeric | Money.fromOutput, the minor-unit count |
  * | bool | `true`/`false` (bool::text), `t`/`f` (boolout) | the first letter is t |
  * | uuid, text | uuid_out, the string | the text itself |
- * | bytes | byteaout under bytea_output = hex, `\x` and two hex digits a byte | a fresh Uint8Array over its own buffer |
  * | date | date_out under DateStyle ISO, YYYY-MM-DD | the text itself, a CalendarDate |
  * | code | int2out of the code | the live handle the code names |
  * | bits | bit_out, n characters of 0 and 1 | a fresh Set of the handles of its 1 bits, position i code i |
@@ -107,7 +111,9 @@ const convertBits =
  * Every converter is a per-row hot path, run on each value of each row a statement returns: native string methods and
  * index loops, no Option or closure per character, and one allocation for the value itself.
  */
-export const convertByCarrier: { readonly [C in Carrier]: (spec: SpecOf<C>) => Converter<C> } = {
+export const convertByCarrier: {
+	readonly [C in TextCarrier]: (spec: SpecOf<C>) => Converter<C>
+} = {
 	int2: () => Number,
 	int4: () => Number,
 	int8: () => BigInt,
@@ -120,7 +126,6 @@ export const convertByCarrier: { readonly [C in Carrier]: (spec: SpecOf<C>) => C
 	uuid: () => identity,
 	date: () => convertDate,
 	text: () => identity,
-	bytes: () => convertBytes,
 	code: (spec) => convertCode(spec.roster),
 	bits: (spec) => convertBits(spec.roster),
 	range4: () => convertSpan(Number),

@@ -3054,6 +3054,7 @@ const columnHost = (type: ScalarType, column: Column<unknown>, ids: Ids): string
 		case "convert":
 		case "text":
 		case "bits":
+		case "bytes":
 			return hostOfScalar(type, ids)
 	}
 }

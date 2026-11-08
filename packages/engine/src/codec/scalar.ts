@@ -10,9 +10,11 @@ import { type Carrier, isRefined, type ScalarType } from "#compiler/ir/scalar.ts
 import { admitLiteral } from "#compiler/scalar/compute/evaluate.ts"
 import { ProgramPatterns, typePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { literalDescFor } from "#compiler/scalar/registry.ts"
+import type { Bytes } from "#compiler/scalar/values/bytes.ts"
 import {
 	admitted,
 	admitValue,
+	type CarrierHost,
 	type CarrierSpec,
 	canonicalText,
 	type SpecOf
@@ -113,6 +115,21 @@ export const carrierSpecOf = (type: ScalarType, codes: Codebook): CarrierSpec =>
 const paramText = nominal<string, ParamText>()
 
 /**
+ * The parameter text of a value `spec` admitted: its canonical text, which PostgreSQL's input function of its type reads.
+ * The one site of the fact that no bytes value is a parameter text: a bytes value travels in binary (codec/bytea.ts),
+ * and its canonical text, its windows-1252 decode, is no input of byteain, so one here is a defect.
+ */
+const parameterText = <C extends Carrier>(
+	spec: SpecOf<C> & CarrierSpec,
+	value: CarrierHost[C]
+): ParamText => {
+	if (spec.carrier === "bytes") {
+		throw defect("a bytes value travels in binary, never as a parameter text")
+	}
+	return paramText(canonicalText(spec, value))
+}
+
+/**
  * The codec of one carrier's spec: its canonical text read through the spec's own carrier, so the admitted value and
  * its text are of one host type by construction.
  */
@@ -120,7 +137,7 @@ const codecOf = <C extends Carrier>(
 	type: ScalarType,
 	spec: SpecOf<C> & CarrierSpec
 ): ScalarCodec => {
-	const text = (value: unknown): ParamText => paramText(canonicalText(spec, admitted(spec, value)))
+	const text = (value: unknown): ParamText => parameterText(spec, admitted(spec, value))
 	const encode = (value: unknown): Result.Result<ParamText, CodecFault> => {
 		if (value === null || value === undefined) {
 			return Result.err("nullValue")
@@ -128,14 +145,22 @@ const codecOf = <C extends Carrier>(
 		const admittedValue = admitValue(spec, value)
 		return !admittedValue.ok
 			? Result.err(admittedValue.error)
-			: Result.ok(paramText(canonicalText(spec, admittedValue.value)))
+			: Result.ok(parameterText(spec, admittedValue.value))
 	}
 	return Object.freeze({ type, spec, encode, text })
 }
 
 /** The parameter text of a value `spec` already admitted (values/identity.ts admitted): its canonical text. */
 export const admittedParam = (spec: CarrierSpec, value: unknown): ParamText =>
-	paramText(canonicalText(spec, admitted(spec, value)))
+	parameterText(spec, admitted(spec, value))
+
+/**
+ * A column's cell of a value `spec` already admitted, as a family write's transport carries it (write/family/draw.ts
+ * MemberCell): a bytes value itself, which its column's binary array carries (codec/bytea.ts), and any other its
+ * parameter text.
+ */
+export const admittedCell = (spec: CarrierSpec, value: unknown): ParamText | Bytes =>
+	spec.carrier === "bytes" ? admitted(spec, value) : admittedParam(spec, value)
 
 /**
  * A plain text's parameter text: a name, a fingerprint or a JSON document grizzle's own statements send as text, written
@@ -198,7 +223,12 @@ export const paramEncoder = (type: ScalarType, slot: string, codes: Codebook): E
 
 /**
  * The casts the outermost SELECT applies to a result column of this type so the driver delivers its text form:
- * money through numeric, every other type straight to text. The names are built-in type names.
+ * money through numeric, every other type straight to text. The names are built-in type names. A bytes value has no
+ * result text: it travels in chunks (lower/delivery.ts), so a cast of one is a defect, and no reader ever meets one.
  */
-export const resultTextCasts = (type: ScalarType): ReadonlyArray<"numeric" | "text"> =>
-	type.carrier === "money" ? ["numeric", "text"] : ["text"]
+export const resultTextCasts = (type: ScalarType): ReadonlyArray<"numeric" | "text"> => {
+	if (type.carrier === "bytes") {
+		throw defect("a bytes value travels in chunks, never as its result text")
+	}
+	return type.carrier === "money" ? ["numeric", "text"] : ["text"]
+}

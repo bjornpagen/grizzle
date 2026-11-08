@@ -30,7 +30,7 @@
 import { generatedLaw } from "#compiler/analysis/theory/description.ts"
 import { readsOf, withGenerationInputs } from "#compiler/analysis/theory/fill.ts"
 import { encodeFailure, slotPlace } from "#compiler/codec/fault.ts"
-import { admittedParam, carrierSpecOf } from "#compiler/codec/scalar.ts"
+import { admittedCell, admittedParam, carrierSpecOf } from "#compiler/codec/scalar.ts"
 import { sameOrder } from "#compiler/core/array.ts"
 import { type CompileError, type EncodingFailure, unsupported } from "#compiler/core/errors.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
@@ -160,8 +160,9 @@ export const specOf = (ctx: FillContext, type: LawField["type"]) => carrierSpecO
 
 /**
  * A host value's parameter text in its type's carrier: a key's, which the read and the delete send and which its
- * relation's rows are a set by, and a row's or a count's, written once at its statement. No text it writes is read
- * back: what PostgreSQL holds comes back through decodeRead, from PostgreSQL's own output.
+ * relation's rows are a set by, and a count's, written once at its statement; a row's other columns are cells
+ * (codec/scalar.ts admittedCell), a bytes value travelling as itself. No text it writes is read back: what PostgreSQL
+ * holds comes back through decodeRead, from PostgreSQL's own output.
  */
 const textOf = (ctx: FillContext, type: LawField["type"], value: unknown): ParamText =>
 	admittedParam(specOf(ctx, type), value)
@@ -884,7 +885,7 @@ export const encodedWrite = (
 		for (const [key, row] of rows) {
 			out.set(key, {
 				key: row.key,
-				columns: layout.columns.map((c) => textOf(ctx, c.type, row.values.get(c.key)))
+				columns: layout.columns.map((c) => admittedCell(specOf(ctx, c.type), row.values.get(c.key)))
 			})
 		}
 		return out

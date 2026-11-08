@@ -16,9 +16,9 @@ export {
 	columnLiteral,
 	type NormalizedRelation,
 	normalArray,
+	type ParameterNormalizer,
 	parameterNormalizer,
 	positionalColumns,
-	type RelationNormalizer,
 	type RelationSpec,
 	textArrayParam
 } from "#compiler/codec/recordset.ts"

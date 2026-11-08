@@ -6,7 +6,9 @@
  *   sends one; nothing in grizzle reads one back. A bytes column's array is sent in binary instead, a `ParamBinary`
  *   (codec/bytea.ts), which PostgreSQL's receive function reads.
  * - `OutputText` is what PostgreSQL sends back: a result cell's text, its type's output function's. Only the wire
- *   receives one (packages/grizzle/src/adapter/wire/session.ts), and only a reader reads one (codec/read.ts).
+ *   receives one (packages/grizzle/src/adapter/wire/session.ts), and only a reader reads one (codec/read.ts). No
+ *   column's text is a bytes value's: a bytes column travels in chunks, which its statement's delivery assembles into
+ *   the value itself, a `Cell` (codec/delivery.ts).
  *
  * The two spell one value differently wherever PostgreSQL's input and output forms differ, a set's X and hex digits in
  * and its 0s and 1s out among them, so a reader fed the other form would read another value; no function takes a
@@ -34,3 +36,13 @@ export type OutputText = string & { readonly [outputTextBrand]: true }
 
 /** A statement's answer rows as PostgreSQL sent them: each row's cells, each its output text. */
 export type OutputRows = ReadonlyArray<ReadonlyArray<OutputText>>
+
+/**
+ * One cell of a delivered row: a column's output text, or a bytes column's value, assembled from the chunks its
+ * statement delivered into a fresh array over a buffer of its own (codec/delivery.ts). A text column's cell is never a
+ * value and a bytes column's never a text.
+ */
+export type Cell = OutputText | Uint8Array<ArrayBuffer>
+
+/** A statement's rows as its delivery assembles them: each row's cells, in its statement's output order. */
+export type AssembledRows = ReadonlyArray<ReadonlyArray<Cell>>

@@ -1,14 +1,16 @@
+import { assembled, byTag, cellKindOf, deliveryOf } from "#compiler/codec/delivery.ts"
 import { encodeFailure, slotPlace } from "#compiler/codec/fault.ts"
 /**
  * A family write's one reader of PostgreSQL's rows: a family's read of its stored suffixes (statements.ts
- * suffixReadSql), each cell PostgreSQL's output text read by its column's reader (codec/read.ts). The filler
- * (edit.ts) never reads a text: it works on host values from here to the statement that writes its texts.
+ * suffixReadSql), each kind of row read by its columns' delivery (codec/delivery.ts) and each cell by its column's
+ * reader (codec/read.ts). The filler (edit.ts) never reads a text: it works on host values from here to the statement
+ * that writes its texts.
  */
 import { scalarReader } from "#compiler/codec/read.ts"
 import type { EncodingFailure } from "#compiler/core/errors.ts"
 import * as Result from "#compiler/core/result.ts"
 import { TupleMap } from "#compiler/core/tuple-map.ts"
-import type { OutputText } from "#compiler/core/wire.ts"
+import type { Cell, OutputRows } from "#compiler/core/wire.ts"
 import type { Family } from "#compiler/ir/family.ts"
 import type { LawField } from "#compiler/ir/law.ts"
 import { admitValue } from "#compiler/scalar/values/identity.ts"
@@ -28,20 +30,33 @@ import {
 	type Values
 } from "#compiler/write/family/edit.ts"
 import { type ColumnKey, columnKey, fieldKey } from "#compiler/write/family/fold.ts"
-import type { ChainShape, ReadShape } from "#compiler/write/family/statements.ts"
+import type { ChainShape, ReadShape, RowLayout } from "#compiler/write/family/statements.ts"
+
+/** An arm a read's answer holds no row of. */
+const noRows: OutputRows = []
+
+/** The rows of one answer of a read, each kind by its tag (codec/delivery.ts byTag). */
+type Arms = ReadonlyMap<string, OutputRows>
+
+/** The columns of a row of `layout`, its key's first, in the order a read delivers them. */
+const layoutColumns = (layout: RowLayout): ReadonlyArray<RowLayout["columns"][number]> => [
+	...layout.key,
+	...layout.columns
+]
 
 /**
  * One family's reads' rows decoded (statements.ts suffixReadSql), every read of the family's (order.ts planRead) as one
- * set: each `o` row an owner, its key and its read columns; each `m` row a member, its key and its row layout's columns,
- * each text read through its column's codec. A row two reads return is one, an owner by its group and a member by its
- * key. A text the codec does not read is the read's EncodingFailure.
+ * set, each answer of `arms` read on its own: each `o` row an owner, its key and its read columns; each `m` row a
+ * member, its key and its row layout's columns, each kind's rows read by its columns' delivery and each cell through
+ * its column's codec. A row two reads return is one, an owner by its group and a member by its key. A cell the codec
+ * does not admit is the read's EncodingFailure.
  */
-export const decodeRead = (
+const decodeSuffix = (
 	ctx: FillContext,
 	target: EditTarget,
 	family: Family,
 	shape: ReadShape,
-	rows: ReadonlyArray<ReadonlyArray<OutputText>>
+	arms: ReadonlyArray<Arms>
 ): Result.Result<StoredFamily, EncodingFailure> => {
 	const owners = new TupleMap<
 		Owner,
@@ -49,26 +64,28 @@ export const decodeRead = (
 	>()
 	const members = new TupleMap<MemberKey, StoredMember>()
 	const failure = encodeFailure("factShape", slotPlace(target.relation.name))
+	const ownerFields: ReadonlyArray<LawField> = [
+		...family.group.map((g) => g.owner),
+		...shape.owner.columns
+	]
+	const memberColumns = layoutColumns(target.layout)
+	const ownerDelivery = deliveryOf(ownerFields.map((f) => cellKindOf(f.type)))
+	const memberDelivery = deliveryOf(memberColumns.map((c) => cellKindOf(c.type)))
 	const read = (
 		type: LawField["type"],
-		text: OutputText | undefined
+		cell: Cell | undefined
 	): Result.Result<unknown, EncodingFailure> => {
-		if (text === undefined) {
+		if (cell === undefined) {
 			return Result.err(failure)
 		}
-		const converted = scalarReader(type, ctx.codes).convert(text)
+		const converted = scalarReader(type, ctx.codes).convert(cell)
 		const value = admitValue(specOf(ctx, type), converted)
 		return value.ok ? Result.ok(value.value) : Result.err(failure)
 	}
-	for (const row of rows) {
-		const [tag, ...cells] = row
-		if (tag === "o") {
+	for (const answer of arms) {
+		for (const cells of assembled(ownerDelivery, answer.get("o") ?? noRows)) {
 			const values = new Map<ColumnKey, unknown>()
-			const columns: ReadonlyArray<LawField> = [
-				...family.group.map((g) => g.owner),
-				...shape.owner.columns
-			]
-			for (const [i, f] of columns.entries()) {
+			for (const [i, f] of ownerFields.entries()) {
 				const v = read(f.type, cells[i])
 				if (!v.ok) {
 					return v
@@ -81,26 +98,27 @@ export const decodeRead = (
 					drawnAt(values, fieldKey(family.count.name), `the count of ${family.owner.name}`)
 				)
 			})
-			continue
 		}
-		const values = new Map<ColumnKey, unknown>()
-		for (const [i, c] of [...target.layout.key, ...target.layout.columns].entries()) {
-			const v = read(c.type, cells[i])
-			if (!v.ok) {
-				return v
+		for (const cells of assembled(memberDelivery, answer.get("m") ?? noRows)) {
+			const values = new Map<ColumnKey, unknown>()
+			for (const [i, c] of memberColumns.entries()) {
+				const v = read(c.type, cells[i])
+				if (!v.ok) {
+					return v
+				}
+				values.set(c.key, v.value)
 			}
-			values.set(c.key, v.value)
-		}
-		const key = keyOf(ctx, target.layout, values)
-		if (!members.has(key)) {
-			members.set(key, {
-				key,
-				slot: Number(
-					drawnAt(values, columnKey(family.index), `the index of a ${target.relation.name}`)
-				),
-				group: groupOf(ctx, family, values),
-				values
-			})
+			const key = keyOf(ctx, target.layout, values)
+			if (!members.has(key)) {
+				members.set(key, {
+					key,
+					slot: Number(
+						drawnAt(values, columnKey(family.index), `the index of a ${target.relation.name}`)
+					),
+					group: groupOf(ctx, family, values),
+					values
+				})
+			}
 		}
 	}
 	const byGroup = membersByGroup(members.values())
@@ -112,10 +130,23 @@ export const decodeRead = (
 }
 
 /**
+ * One family's reads' rows decoded (`decodeSuffix`), from `answers`, one per read statement executed (order.ts
+ * planRead), each as PostgreSQL sent it, so no answer's chunks meet another's.
+ */
+export const decodeRead = (
+	ctx: FillContext,
+	target: EditTarget,
+	family: Family,
+	shape: ReadShape,
+	answers: ReadonlyArray<OutputRows>
+): Result.Result<StoredFamily, EncodingFailure> =>
+	decodeSuffix(ctx, target, family, shape, answers.map(byTag))
+
+/**
  * A chain read's rows decoded (statements.ts chainReadSql), every read of the chain's (order.ts planRead) as one set:
  * each row set's rows by relation and key, a refilled tree's nodes among them, each every column of its row
  * layout; and a refilled family's stored suffixes at the chain's end, as a family's read decodes them (`decodeRead`).
- * A text the codec does not read is the read's EncodingFailure.
+ * A cell the codec does not admit is the read's EncodingFailure.
  */
 export interface ChainRows {
 	readonly rows: ReadonlyArray<{
@@ -129,47 +160,51 @@ export interface ChainRows {
 		| { readonly kind: "rows" }
 }
 
-/** One chain read's rows decoded (`ChainRows`), over the row layouts its shape names. */
+/**
+ * One chain read's rows decoded (`ChainRows`), over the row layouts its shape names, from `answers`, one per read
+ * statement executed, each as PostgreSQL sent it: each answer's row sets, by tag, read by their layouts' delivery, and
+ * its `o` and `m` rows left for the suffix at the chain's end.
+ */
 export const decodeChain = (
 	ctx: FillContext,
 	shape: ChainShape,
-	rows: ReadonlyArray<ReadonlyArray<OutputText>>
+	answers: ReadonlyArray<OutputRows>
 ): Result.Result<ChainRows, EncodingFailure> => {
-	const sets = new Map(shape.rows.map((r) => [r.tag, r] as const))
-	const out: Array<ChainRows["rows"][number]> = []
-	const ends: Array<ReadonlyArray<OutputText>> = []
-	const nodes: Array<MemberKey> = []
 	const end = shape.end
-	for (const row of rows) {
-		const [tag, ...cells] = row
-		const set =
-			tag === undefined
-				? undefined
-				: (sets.get(tag) ??
-					(end.kind === "tree" && tag === "t"
-						? { relation: end.family.member, layout: end.layout }
-						: undefined))
-		if (set === undefined) {
-			ends.push(row)
-			continue
-		}
-		const failure = encodeFailure("factShape", slotPlace(set.relation.name))
-		const values = new Map<ColumnKey, unknown>()
-		for (const [i, c] of [...set.layout.key, ...set.layout.columns].entries()) {
-			const text = cells[i]
-			if (text === undefined) {
-				return Result.err(failure)
+	const sets = [
+		...shape.rows,
+		...(end.kind === "tree" ? [{ tag: "t", relation: end.family.member, layout: end.layout }] : [])
+	]
+	const out: Array<ChainRows["rows"][number]> = []
+	const nodes: Array<MemberKey> = []
+	const arms = answers.map(byTag)
+	for (const answer of arms) {
+		for (const set of sets) {
+			const failure = encodeFailure("factShape", slotPlace(set.relation.name))
+			const columns = layoutColumns(set.layout)
+			const delivery = deliveryOf(columns.map((c) => cellKindOf(c.type)))
+			for (const cells of assembled(delivery, answer.get(set.tag) ?? noRows)) {
+				const values = new Map<ColumnKey, unknown>()
+				for (const [i, c] of columns.entries()) {
+					const cell = cells[i]
+					if (cell === undefined) {
+						return Result.err(failure)
+					}
+					const value = admitValue(
+						specOf(ctx, c.type),
+						scalarReader(c.type, ctx.codes).convert(cell)
+					)
+					if (!value.ok) {
+						return Result.err(failure)
+					}
+					values.set(c.key, value.value)
+				}
+				const key = keyOf(ctx, set.layout, values)
+				out.push({ relation: set.relation.name, key, values })
+				if (set.tag === "t") {
+					nodes.push(key)
+				}
 			}
-			const value = admitValue(specOf(ctx, c.type), scalarReader(c.type, ctx.codes).convert(text))
-			if (!value.ok) {
-				return Result.err(failure)
-			}
-			values.set(c.key, value.value)
-		}
-		const key = keyOf(ctx, set.layout, values)
-		out.push({ relation: set.relation.name, key, values })
-		if (tag === "t") {
-			nodes.push(key)
 		}
 	}
 	if (end.kind === "tree") {
@@ -178,12 +213,12 @@ export const decodeChain = (
 	if (end.kind === "rows") {
 		return Result.ok({ rows: out, end: { kind: "rows" } })
 	}
-	const stored = decodeRead(
+	const stored = decodeSuffix(
 		ctx,
 		{ relation: end.family.member, layout: end.layout, families: [] },
 		end.family,
 		end.shape,
-		ends
+		arms
 	)
 	return stored.ok
 		? Result.ok({ rows: out, end: { kind: "suffix", family: end.family, stored: stored.value } })

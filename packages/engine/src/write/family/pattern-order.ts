@@ -1,8 +1,10 @@
+import { defect } from "#compiler/core/invariant.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray, sortNonEmpty } from "#compiler/core/nonempty.ts"
 import { compareCodePoints } from "#compiler/core/text.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import type { RelationInfo } from "#compiler/ir/law.ts"
 import type { NamedNative } from "#compiler/laws/model/model.ts"
+import type { MemberCell } from "#compiler/write/family/draw.ts"
 import type { RowLayout } from "#compiler/write/family/statements.ts"
 
 /**
@@ -75,6 +77,17 @@ export const patternPositions = (
 	)
 }
 
+/**
+ * A pattern input's cell as its text. The one site of the fact that a field a pattern reads is a text's: no pattern
+ * reads a bytes field, whose value alone travels as no text, so a bytes value here is a defect.
+ */
+const patternText = (cell: string | MemberCell): string => {
+	if (typeof cell !== "string") {
+		throw defect("a field a pattern reads is a text")
+	}
+	return cell
+}
+
 /** Texts in lexicographic order, each by code point, a text before every longer one it begins. */
 const lexicographic = (a: ReadonlyArray<string>, b: ReadonlyArray<string>): number => {
 	for (const [i, x] of a.entries()) {
@@ -98,13 +111,14 @@ const lexicographic = (a: ReadonlyArray<string>, b: ReadonlyArray<string>): numb
  */
 export const byPatternInput = <R>(
 	rows: NonEmptyReadonlyArray<R>,
-	textsOf: (row: R) => ReadonlyArray<string>,
+	textsOf: (row: R) => ReadonlyArray<string | MemberCell>,
 	positions: ReadonlySet<number>
 ): NonEmptyReadonlyArray<R> => {
 	if (positions.size === 0) {
 		return rows
 	}
-	const inputOf = (row: R): ReadonlyArray<string> => textsOf(row).filter((_, i) => positions.has(i))
+	const inputOf = (row: R): ReadonlyArray<string> =>
+		textsOf(row).flatMap((cell, i) => (positions.has(i) ? [patternText(cell)] : []))
 	const keyed = mapNonEmpty(rows, (row) => ({ row, input: inputOf(row) }))
 	return mapNonEmpty(
 		sortNonEmpty(keyed, (x, y) => lexicographic(x.input, y.input)),

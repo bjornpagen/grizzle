@@ -1,5 +1,6 @@
 import {
 	binding,
+	bytesAt,
 	type Column,
 	cellAt,
 	columnAt,
@@ -77,11 +78,14 @@ const fieldsOf = (
 }
 
 /**
- * A cell's conversion under its column: the convert closure, the head literal it converts to, the text itself for a
- * refined text, the handle the installation's names give a closed id's code, and a fresh set of the handles a bit
- * string's 1 bits name, position i code i.
+ * A text cell's conversion under its column: the convert closure, the head literal it converts to, the text itself for
+ * a refined text, the handle the installation's names give a closed id's code, and a fresh set of the handles a bit
+ * string's 1 bits name, position i code i. A bytes column has no text conversion: its cell is its value (`readerOf`).
  */
-const conversion = (column: Column<unknown>, names: CodeNames): ((text: OutputText) => unknown) => {
+const conversion = (
+	column: Exclude<Column<unknown>, { readonly kind: "bytes" }>,
+	names: CodeNames
+): ((text: OutputText) => unknown) => {
 	switch (column.kind) {
 		case "convert":
 			return column.convert
@@ -116,8 +120,12 @@ const readerOf = (
 	context: BindContext
 ): ((row: Row) => unknown) => {
 	if ("column" in field) {
-		const convert = conversion(field.column, context.names)
+		const column = field.column
 		const position = columnAt(layout, key)
+		if (column.kind === "bytes") {
+			return (row) => bytesAt(row, position)
+		}
+		const convert = conversion(column, context.names)
 		return (row) => convert(cellAt(row, position))
 	}
 	return field.bind(layout, key, context).read
@@ -233,18 +241,22 @@ const columnText = (carrier: Carrier): string => {
 		case "convert":
 		case "text":
 		case "constant":
+		case "bytes":
 			return carrier.sql
 	}
 }
 
 /**
  * Whether two arms' columns of one key meet: a set's only a set's of its roster, since no head literal is a set; a
- * closed id's only a closed id's of its roster, or a head literal, a handle; any other two by their SQL types, which
- * the checker judges.
+ * bytes column's only a bytes column's, since no head literal is bytes and its cell is no text; a closed id's only a
+ * closed id's of its roster, or a head literal, a handle; any other two by their SQL types, which the checker judges.
  */
 const columnsMeet = (x: Column<unknown>, y: Column<unknown>): boolean => {
 	if (x.kind === "bits" || y.kind === "bits") {
 		return x.kind === "bits" && y.kind === "bits" && x.roster === y.roster
+	}
+	if (x.kind === "bytes" || y.kind === "bytes") {
+		return x.kind === "bytes" && y.kind === "bytes"
 	}
 	if (x.kind === "constant" || y.kind === "constant") {
 		return true

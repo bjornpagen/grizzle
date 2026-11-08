@@ -1,6 +1,6 @@
 import { nominal } from "#compiler/core/brand.ts"
 import { jsonStrings } from "#compiler/core/json-strings.ts"
-import type { OutputText } from "#compiler/core/wire.ts"
+import type { Cell, OutputText } from "#compiler/core/wire.ts"
 import type { Heading, HeadingColumn, NodeOf } from "#compiler/ir/rel.ts"
 
 /** The index of `search` in `text` at or after `from`, or undefined when it does not occur there. */
@@ -121,7 +121,7 @@ export const fusedElement = (layout: FusedLayout): Heading =>
  */
 export type FusedTexts = (
 	text: OutputText,
-	parent: ReadonlyArray<OutputText>
+	parent: ReadonlyArray<Cell>
 ) => ReadonlyArray<ReadonlyArray<OutputText>>
 
 /**
@@ -149,7 +149,7 @@ const objectFields = (text: string): (() => string) => {
  */
 export const fusedTexts = (
 	layout: FusedLayout,
-	parentCell: (column: string) => (row: ReadonlyArray<OutputText>) => OutputText
+	parentCell: (column: string) => (row: ReadonlyArray<Cell>) => OutputText
 ): FusedTexts => {
 	const several = fusedElement(layout).length > 1
 	/**

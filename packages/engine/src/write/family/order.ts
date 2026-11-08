@@ -31,8 +31,9 @@
  * append is one update however many members it adds.
  *
  * Each phase is cut into consecutive statements, each holding as many rows as fit: its arrays' literals within V8's
- * longest string, and its Bind message within PostgreSQL's longest message. A family larger than one statement goes as
- * consecutive inserts after its one count update, in ascending slot order.
+ * longest string, and its Bind message within PostgreSQL's longest message. A bytes column's array is binary
+ * (codec/bytea.ts), which no string bounds, so its values count in the Bind message alone. A family larger than one
+ * statement goes as consecutive inserts after its one count update, in ascending slot order.
  *
  * Inside each update and insert statement, rows go ordered by their pattern input (pattern-order.ts): the values a
  * row CHECK's or a generated field's match reads its pattern from, so each pattern PostgreSQL compiles serves every row
@@ -41,19 +42,23 @@
  * statement's predecessor keys and owner axes are checked at its end, and no two of its rows hold one slot, so its rows
  * go in any order.
  */
-import { arrayTexts } from "#compiler/codec/recordset.ts"
-import { defined, invariant } from "#compiler/core/invariant.ts"
+import { byteaArray, byteaElementBytes, byteaHeaderBytes } from "#compiler/codec/bytea.ts"
+import { arrayTexts, columnLiteral } from "#compiler/codec/recordset.ts"
+import { defect, defined, invariant } from "#compiler/core/invariant.ts"
 import { maxStringLength, messageMaxBytes } from "#compiler/core/limits.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
 import type { ReadonlyTupleMap, ReadonlyTupleSet } from "#compiler/core/tuple-map.ts"
-import type { ParamText } from "#compiler/core/wire.ts"
+import type { Param, ParamText } from "#compiler/core/wire.ts"
 import type { FamilyId } from "#compiler/ir/law.ts"
+import type { LiteralBound } from "#compiler/ir/products.ts"
+import type { Bytes } from "#compiler/scalar/values/bytes.ts"
 import {
 	type CountRow,
 	countTexts,
 	keyTexts,
+	type MemberCell,
 	type MemberKey,
 	type Owner,
 	type Recount,
@@ -165,8 +170,8 @@ export type Plan = readonly [
 	inserts: Phase<"insert">
 ]
 
-/** A statement's rows as their texts, each in its row's layout (draw.ts): what its arrays carry, column by column. */
-export const textsOf = (statement: FamilyStatement): ReadonlyArray<ReadonlyArray<ParamText>> => {
+/** A statement's rows as their cells, each in its row's layout (draw.ts): what its arrays carry, column by column. */
+export const textsOf = (statement: FamilyStatement): ReadonlyArray<ReadonlyArray<MemberCell>> => {
 	switch (statement.kind) {
 		case "delete":
 			return statement.rows.map(keyTexts)
@@ -190,33 +195,73 @@ type Bound =
 /** A row of a `statement` that no statement can carry, even alone: the write is refused before any statement is sent. */
 export type Unsendable = Bound & { readonly statement: FamilyStatement["kind"] | "read" }
 
-/** A text's array literal written alone, as the transport writes it: its length in UTF-16 code units and UTF-8 bytes. */
-interface Alone {
-	readonly units: number
-	readonly bytes: number
-}
+/**
+ * A cell's array written alone, as the transport writes it: a text's array literal, its length in UTF-16 code units and
+ * UTF-8 bytes; or a bytes value's binary bytea[] (codec/bytea.ts), its length in bytes and the bytes its element adds
+ * to an array of more.
+ */
+type Alone =
+	| { readonly kind: "literal"; readonly units: number; readonly bytes: number }
+	| { readonly kind: "binary"; readonly bytes: number; readonly element: number }
 
 /**
- * The literal of `text` alone, from the transport's own encoder (codec/recordset.ts arrayTexts), or none when it is
- * longer than `limit` code units.
+ * The array of `cell` alone: a text's literal, from the transport's own encoder (codec/recordset.ts arrayTexts), or
+ * none when it is longer than `limit` code units; a bytes value's binary bytea[], which no string bounds.
  */
-const aloneOf = (text: ParamText, limit: number): Alone | undefined => {
-	const literal = arrayTexts("", [""], [[text]], limit)
+const aloneOf = (cell: MemberCell, limit: number): Alone | undefined => {
+	if (typeof cell !== "string") {
+		const element = byteaElementBytes(cell.length)
+		return { kind: "binary", bytes: byteaHeaderBytes(1) + element, element }
+	}
+	const literal = arrayTexts("", [""], [[cell]], limit)
 	if (!literal.ok) {
 		return undefined
 	}
 	const written = defined(literal.value[0], "an input of one column writes one literal")
-	return { units: written.length, bytes: utf8Length(written) }
+	return { kind: "literal", units: written.length, bytes: utf8Length(written) }
 }
+
+/**
+ * One column of a statement's rows as its placeholder carries it: a text array literal of its texts within the longest
+ * string (codec/recordset.ts columnLiteral), or a bytes column's binary bytea[] of its values (codec/bytea.ts). The one
+ * site of the fact that a column's cells are of one kind: every row of a statement is in its relation's row layout,
+ * whose column is a bytes column in every row or in none, so a column of both is a defect.
+ */
+export const columnArray = (
+	input: string,
+	column: string,
+	cells: ReadonlyArray<MemberCell>
+): Result.Result<Param, LiteralBound> => {
+	const texts: Array<ParamText> = []
+	const values: Array<Bytes> = []
+	for (const cell of cells) {
+		if (typeof cell === "string") {
+			texts.push(cell)
+		} else {
+			values.push(cell)
+		}
+	}
+	if (values.length === 0) {
+		return columnLiteral(input, column, texts, (text) => text, maxStringLength.value)
+	}
+	if (texts.length === 0) {
+		return byteaArray(input, column, values)
+	}
+	throw defect(`a family statement's column ${column} carries one kind of cell`)
+}
+
+/** The UTF-16 code units of a column's literal alone: none for a binary array, which is no string. */
+const unitsOf = (one: Alone): number => (one.kind === "literal" ? one.units : 0)
 
 /**
  * Rows cut into consecutive statements, each holding the rows after the last one's until the next would not fit, so
  * each is as long as the transport lets it be. The literal of k rows' texts is their literals alone joined, less k − 1:
- * each join drops a closing and an opening brace and adds a comma. A row too large to go alone refuses the cut.
+ * each join drops a closing and an opening brace and adds a comma; the binary array of k bytes values is their
+ * elements after one header. A row too large to go alone refuses the cut.
  */
 const cut = <R>(
 	rows: ReadonlyArray<R>,
-	textsOfRow: (row: R) => ReadonlyArray<ParamText>,
+	textsOfRow: (row: R) => ReadonlyArray<MemberCell>,
 	transport: Transport
 ): Result.Result<ReadonlyArray<NonEmptyReadonlyArray<R>>, Bound> => {
 	const statements: Array<NonEmptyReadonlyArray<R>> = []
@@ -242,7 +287,7 @@ const cut = <R>(
 			if (open !== undefined) {
 				statements.push(open.rows)
 			}
-			open = { rows: [row], size: { literals: alone.map((one) => one.units), message: bytes } }
+			open = { rows: [row], size: { literals: alone.map(unitsOf), message: bytes } }
 		} else {
 			open.rows.push(row)
 			open = { rows: open.rows, size: grown }
@@ -267,8 +312,9 @@ interface Open<R> {
 }
 
 /**
- * The size of a statement of `size` with one more row, whose literals alone are `alone`: each literal grows by the
- * row's literal less one, and the Bind message by those growths. None when the transport cannot carry it.
+ * The size of a statement of `size` with one more row, whose arrays alone are `alone`: each literal grows by the row's
+ * literal less one and each binary array by the row's element, and the Bind message by those growths. None when the
+ * transport cannot carry it.
  */
 const joined = (
 	size: Size,
@@ -276,10 +322,14 @@ const joined = (
 	transport: Transport
 ): Size | undefined => {
 	invariant(alone.length === size.literals.length, "a phase's rows share their columns")
-	const literals = size.literals.map(
-		(units, column) => units + defined(alone[column], "a row has each column").units - 1
+	const literals = size.literals.map((units, column) => {
+		const one = defined(alone[column], "a row has each column")
+		return one.kind === "literal" ? units + one.units - 1 : units
+	})
+	const message = alone.reduce(
+		(sum, one) => sum + (one.kind === "literal" ? one.bytes - 1 : one.element),
+		size.message
 	)
-	const message = alone.reduce((sum, one) => sum + one.bytes - 1, size.message)
 	return literals.every((units) => units <= transport.literalUnits) &&
 		message <= transport.messageBytes
 		? { literals, message }

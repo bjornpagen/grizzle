@@ -133,6 +133,7 @@ const columnHost = (type: ScalarType, column: Column<unknown>): string => {
 		case "convert":
 		case "text":
 		case "bits":
+		case "bytes":
 			return branded(type, carrierHost(type))
 	}
 }

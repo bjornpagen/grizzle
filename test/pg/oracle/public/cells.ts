@@ -1,11 +1,20 @@
-import { Array as Arr, Data, Effect, Formatter, Option, Record, Result } from "effect"
+import {
+	Array as Arr,
+	Data,
+	Effect,
+	Formatter,
+	Option,
+	Record,
+	Result,
+	String as Str
+} from "effect"
 import type { DbContext } from "#adapter/db/context.ts"
 import type { ReadError } from "#adapter/errors/execution.ts"
 import { pageEdges } from "#adapter/page/execute.ts"
 import { type PageRequestValue, pageRequest } from "#adapter/page/request.ts"
 import { type PageArtifactName, type PageRuntime, pageTemplateFor } from "#adapter/page/template.ts"
 import { attachmentHeads } from "#adapter/reader/analysis.ts"
-import type { SentRuns, StatementRun } from "#adapter/reader/execution.ts"
+import type { SentRuns } from "#adapter/reader/execution.ts"
 import {
 	type CompiledReadValue,
 	makeReader,
@@ -15,10 +24,13 @@ import {
 	type ReaderValue
 } from "#adapter/reader/reader.ts"
 import { deliveredRows, templateProgram } from "#adapter/reader/run.ts"
+import { assembled, cellKindOf, deliveryOf } from "#compiler/codec/delivery.ts"
 import { scalarCodec } from "#compiler/codec/scalar.ts"
 import type { Layout, Row } from "#compiler/core/decoder.ts"
+import { bytesChunkLength } from "#compiler/core/limits.ts"
 import * as Engine from "#compiler/core/result.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
+import type { Cell } from "#compiler/core/wire.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
@@ -28,10 +40,16 @@ import { type FusedLayout, fusedElement } from "#compiler/lower/shapes/attach/de
 import type { FusedStatement } from "#compiler/lower/shapes/index.ts"
 import { queryInput } from "#compiler/program/compile.ts"
 import type { CompiledTemplate } from "#compiler/program/template.ts"
+import { bytesText, isBytes } from "#compiler/scalar/values/bytes.ts"
 import { isHostValue } from "#compiler/scalar/values/identity.ts"
 import type { Page } from "#compiler/types/page/page.ts"
 import { type Conversion, freshCodesOf } from "#test/pg/oracle/public/planted.ts"
-import { strictArrayText, strictReader as strictCellReader } from "#test/support/kernel/strict.ts"
+import {
+	type StrictCell,
+	strictArrayText,
+	strictDelivered,
+	strictReader as strictCellReader
+} from "#test/support/kernel/strict.ts"
 
 export class CellDisagreement extends Data.TaggedError("CellDisagreement")<{
 	readonly report: string
@@ -61,14 +79,36 @@ const readsAs = (type: ScalarType, text: string, value: unknown, what: string): 
 	}
 }
 
-const cellCheck = (type: ScalarType, conversion: Conversion): ((text: string) => void) => {
+/** A text cell's text: a bytes value where a text column's cell stands disagrees. */
+const textCell = (cell: StrictCell, what: string): string =>
+	typeof cell === "string" ? cell : disagree(`${what}: a bytes value where a text stands`)
+
+/**
+ * A cell's check under its column: a text column's conversion against its strict reading; a bytes column's cell is
+ * the value its strict assembly read (checkCells), which no text spells.
+ */
+const cellCheck = (type: ScalarType, conversion: Conversion): ((cell: StrictCell) => void) => {
+	if (type.carrier === "bytes") {
+		return (cell) => {
+			if (typeof cell === "string") {
+				disagree(`a bytes cell that is a text: ${Str.slice(0, 32)(cell)}`)
+			}
+		}
+	}
 	const convert = conversion(type)
-	return (text) => {
+	return (cell) => {
+		const text = textCell(cell, `a ${type.carrier} cell`)
 		readsAs(type, text, convert(text), "its conversion differs from its strict reading")
 	}
 }
 
-const fusedCheck = (element: Heading, conversion: Conversion): ((text: string) => void) => {
+/** Whether two cells hold one value: two texts equal, or two bytes values of equal bytes. */
+const sameCell = (a: StrictCell | Cell, b: StrictCell | Cell): boolean =>
+	typeof a === "string" || typeof b === "string"
+		? a === b
+		: a.length === b.length && a.every((byte, at) => byte === b[at])
+
+const fusedCheck = (element: Heading, conversion: Conversion): ((cell: StrictCell) => void) => {
 	const checks = Arr.map(element, (c) => cellCheck(c.type, conversion))
 	const [only] = checks
 
@@ -85,7 +125,8 @@ const fusedCheck = (element: Heading, conversion: Conversion): ((text: string) =
 			check(value)
 		}
 	}
-	return (text) => {
+	return (cell) => {
+		const text = textCell(cell, "a fused attachment cell")
 		const elements = strictArrayText(text)
 		if (Result.isFailure(elements)) {
 			disagree(`a fused attachment cell that is no array output: ${text}`)
@@ -129,9 +170,13 @@ interface Recorded {
 	readonly desc: QueryDesc
 }
 
+/**
+ * Every answer of a flight read strictly by its statement's delivery (test/support/kernel/strict.ts strictDelivered),
+ * which the library's assembly must read alike, row by row and cell by cell, and every cell checked under its column.
+ */
 const checkCells = (
 	statements: ReadonlyArray<Pick<Checked, "heading" | "fused">>,
-	sent: ReadonlyArray<StatementRun>,
+	sent: SentRuns,
 	conversion: Conversion
 ): void => {
 	if (statements.length !== sent.length) {
@@ -142,25 +187,44 @@ const checkCells = (
 			...Arr.map(s.heading, (c) => cellCheck(c.type, conversion)),
 			...Arr.map(s.fused, (f) => fusedCheck(fusedElement(f.layout), conversion))
 		]
-		for (const row of sent[i] ?? []) {
+		const answer = defined(sent[i], `the answer of statement ${i}`)
+		const delivery = deliveryOf([
+			...Arr.map(s.heading, (c) => cellKindOf(c.type)),
+			...Arr.map(s.fused, () => "text" as const)
+		])
+		const strict = strictDelivered(delivery, answer, bytesChunkLength.value)
+		if (Result.isFailure(strict)) {
+			disagree(`statement ${i}'s answer is no delivery of its columns: ${strict.failure}`)
+		}
+		const library = assembled(delivery, answer)
+		if (
+			library.length !== strict.success.length ||
+			!Arr.every(
+				Arr.zip(library, strict.success),
+				([l, r]) => l.length === r.length && Arr.every(Arr.zip(l, r), ([x, y]) => sameCell(x, y))
+			)
+		) {
+			disagree(`statement ${i}'s answer assembles otherwise than its strict reading`)
+		}
+		for (const row of strict.success) {
 			checkRow(row, checks)
 		}
 	}
 }
 
 const checkRow = (
-	row: StatementRun[number],
-	checks: ReadonlyArray<(text: string) => void>
+	row: ReadonlyArray<StrictCell>,
+	checks: ReadonlyArray<(cell: StrictCell) => void>
 ): void => {
 	if (row.length !== checks.length) {
 		disagree(`a row of ${row.length} cells for ${checks.length} columns`)
 	}
 	for (const [k, check] of checks.entries()) {
-		const text = row[k]
-		if (text === undefined) {
+		const cell = row[k]
+		if (cell === undefined) {
 			disagree(`a row without its cell ${k}`)
 		}
-		check(text)
+		check(cell)
 	}
 }
 
@@ -236,13 +300,19 @@ const compareColumn = (
 		disagree(`layout of ${field}`)
 	}
 	const column = heading[position]
-	const text = row.texts[position]
-	if (column === undefined || text === undefined) {
+	const cell = row.cells[position]
+	if (column === undefined || cell === undefined) {
 		disagree(`no cell ${position} of ${field}`)
+	}
+	if (typeof cell !== "string") {
+		if (!isBytes(value) || !sameCell(cell, value) || value.buffer === cell.buffer) {
+			disagree(`the delivered field ${field} differs from its cell's bytes, or shares their buffer`)
+		}
+		return
 	}
 	readsAs(
 		column.type,
-		text,
+		cell,
 		value,
 		`the delivered field ${field} differs from its cell's strict reading`
 	)
@@ -294,9 +364,10 @@ const checkRecords = (
 type SentChecked = Checked & { readonly sent: boolean }
 
 /**
- * A delivered row as PostgreSQL sent it: each column's cell text by its field name, and each attachment's children by
- * its name, in the delivered order. Its texts spell each value as the server wrote it, the one witness of the
- * spellings a delivery met once grizzle delivers every value in its one form.
+ * A delivered row as PostgreSQL sent it: each column's cell text by its field name, a bytes value's its one text (its
+ * windows-1252 decode), and each attachment's children by its name, in the delivered order. Its texts spell each value
+ * as the server wrote it, the one witness of the spellings a delivery met once grizzle delivers every value in its one
+ * form.
  */
 export interface SentRow {
 	readonly texts: ReadonlyMap<string, string>
@@ -305,10 +376,10 @@ export interface SentRow {
 
 const sentRow = (row: Row, layout: Layout): SentRow => ({
 	texts: new Map(
-		Arr.map([...layout.columns], ([field, at]): readonly [string, string] => [
-			field,
-			defined(row.texts[at], `the cell ${at} of ${field}`)
-		])
+		Arr.map([...layout.columns], ([field, at]): readonly [string, string] => {
+			const cell = defined(row.cells[at], `the cell ${at} of ${field}`)
+			return [field, typeof cell === "string" ? cell : bytesText(cell)]
+		})
 	),
 	children: new Map(
 		Arr.map([...layout.attachments], ([field, a]): readonly [string, ReadonlyArray<SentRow>] => [

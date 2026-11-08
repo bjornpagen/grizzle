@@ -521,28 +521,6 @@ export const maxStringLength = published({
 })
 
 /**
- * The hex digits one byte takes in bytea's hex format, PostgreSQL's output text of a bytes value and its canonical
- * text alike.
- *
- * @formatConstant two hex digits a byte
- */
-const hexDigitsPerByte = 2
-
-/**
- * The most bytes one bytes value holds: bytea's hex output, `\x` and then two hex digits a byte, is one result cell's
- * string, which the host reads every cell as, so a longer value could not be read back. A longer value is refused at
- * its boundary (bytesLength), and every stored bytes column carries the CHECK of this bound, so no writer stores one.
- */
-export const bytesMaxLength: Limit = derived({
-	owner: "grizzle's bytes carrier (scalar/values/bytes.ts)",
-	unit: "bytes",
-	scope: "one bytes value, whose hex output text is one JavaScript string",
-	from: [maxStringLength],
-	derivation: `byteaout under bytea_output = hex writes \\x and two hex digits a byte, "rp = result = palloc(VARSIZE_ANY_EXHDR(vlena) * 2 + 2 + 1)" (${postgresSource}/src/backend/utils/adt/bytea.c#L284), a text of at most maxStringLength UTF-16 code units`,
-	compute: ([max]) => Math.floor((max.value - "\\x".length) / hexDigitsPerByte)
-})
-
-/**
  * The most columns one table of PostgreSQL holds: a stored relation's table with the tag columns added to it, a view, a
  * materialized view and a write program's carrier, each refused as ResourceBound (tableColumns) where it is emitted,
  * since PostgreSQL refuses the statement with 54011, "tables can have at most 1600 columns". A column the table once
@@ -613,6 +591,60 @@ const varlenaHeaderBytes = published({
 	source: `${postgresSource}/src/include/c.h#L787`,
 	quote: "#define VARHDRSZ\t\t((int32) sizeof(int32))",
 	verified: "2026-11-06"
+})
+
+/**
+ * The most bytes one bytea holds as grizzle writes it: a value arrives in binary, which bytearecv copies into an
+ * allocation of its bytes and its header, and palloc refuses an allocation past MaxAllocSize.
+ */
+const byteaMaxBytes = derived({
+	owner: "PostgreSQL 19rc1",
+	unit: "bytes",
+	scope: "one bytea value, as bytearecv reads it from a binary parameter",
+	from: [maxAllocSize, varlenaHeaderBytes],
+	derivation: `bytearecv allocates "result = (bytea *) palloc(nbytes + VARHDRSZ);" for a value of nbytes bytes (${postgresSource}/src/backend/utils/adt/bytea.c#L365, verified 2026-11-07), and "#define AllocSizeIsValid(size) ((Size) (size) <= MaxAllocSize)" (${postgresSource}/src/include/utils/memutils.h#L42), so nbytes is at most MaxAllocSize - VARHDRSZ`,
+	compute: ([alloc, header]) => alloc.value - header.value
+})
+
+/**
+ * The most bytes one bytes value holds: its one text, its windows-1252 decode of one UTF-16 code unit a byte, is one
+ * JavaScript string (scalar/values/bytes.ts bytesText), and one bytea holds it. A longer value is refused at its
+ * boundary (bytesLength), and every stored bytes column carries the CHECK of this bound, so no writer stores one.
+ */
+export const bytesMaxLength: Limit = derived({
+	owner: "grizzle's bytes carrier (scalar/values/bytes.ts)",
+	unit: "bytes",
+	scope: "one bytes value, whose one text is one JavaScript string and which one bytea holds",
+	from: [maxStringLength, byteaMaxBytes],
+	derivation:
+		"a bytes value's one text is one UTF-16 code unit a byte, a string of at most maxStringLength code units, and a bytea holds at most byteaMaxBytes bytes, so the lesser of the two",
+	compute: ([units, bytea]) => Math.min(units.value, bytea.value)
+})
+
+/**
+ * The bytes of a bytes value one row of its delivery carries: a statement that delivers a bytes column sends each row as
+ * one result row per chunk of this many bytes of its longest bytes value, each chunk base64url text
+ * (codec/delivery.ts, lower/delivery.ts), since the driver reads every result cell as one string. Chunk i of a value is
+ * its bytes from i times this on, and the host writes it there.
+ */
+export const bytesChunkLength = measured({
+	value: 16_777_216,
+	owner: "grizzle's bytes delivery (codec/delivery.ts, lower/delivery.ts)",
+	unit: "bytes",
+	scope: "one chunk of one bytes value in one result row",
+	evidence:
+		"bench/results/bytes/bytes-2026-11-08T045419.json, the uncommitted record of `pnpm bench bytes` (bench/bytes/main.ts)",
+	observed: "2026-11-08 04:54:19 to 05:01:03 UTC, one run",
+	environment:
+		"macOS 27.0.1 (Darwin 27.0.0, an arm64 virtual machine, Apple M2 Max, 10 cores, 64 GiB), Node 26.13.0, pg 8.23.1, the local PostgreSQL 19rc1 cluster (scripts/pg/pin.env), grizzle 36b85dad and the bytes delivery, in a scratch copy whose own commit the record's gitSha names; other sessions' load on the machine is not separated",
+	workload:
+		"one row of one 256 MiB bytes value, once xorshift bytes, which PostgreSQL stores uncompressed, and once a repeating sentence, which it compresses, read back through its delivered SQL on one session and assembled, three runs a chunk length: 64 KiB to 64 MiB by factors of four for the random value, 1 MiB to 64 MiB for the repeating one",
+	result:
+		"p50 of read and assembly in ms, random: 2,603 at 64 KiB, 2,114 at 256 KiB, 1,956 at 1 MiB, 2,136 at 4 MiB, 2,409 at 16 MiB, 2,237 at 64 MiB; repeating: 36,586 at 1 MiB, 8,212 at 4 MiB, 1,884 at 16 MiB, 1,288 at 64 MiB, the square of the chunks since every chunk's substring decompresses the value from its start (a 64 KiB read of it ran past six minutes in an earlier run and was stopped). Process rss after a case 1,742 to 2,546 MiB up to 16 MiB, 2,811 to 2,831 MiB at 64 MiB. Every value read back whole; no errors",
+	decision:
+		"16 MiB: the random value's time is flat across every length measured, and the compressed value's falls with the square of the chunks until 16 MiB, where it is within the random value's; 64 MiB saves the compressed value about 0.6 s of 256 MiB at about 0.7 GiB more rss, and a result row holds a base64url chunk of 4/3 of this for each bytes column its statement delivers within MaxAllocSize, which admits 47 such columns at 16 MiB and 11 at 64 MiB",
+	revalidate:
+		"a PostgreSQL upgrade that changes TOAST slicing or the default compression; a driver or Node upgrade that changes how a result cell is read; a bytes value bound past 1 GiB"
 })
 
 /**

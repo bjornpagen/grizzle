@@ -68,6 +68,8 @@ import {
 	type ModifyingStatement,
 	type ResultColumn,
 	resultText,
+	returnedColumn,
+	returnedRows,
 	rowType,
 	type SpanClassifyResult,
 	startOf,
@@ -716,9 +718,10 @@ export const buildInsert = (
 		}
 		return {
 			ast: {
-				...provedSelect(
+				...returnedRows(
+					supply,
 					"keyed",
-					outFields.map((f) => targetAs(resultText(verdict(retCol(f)), rowType(f)), retCol(f))),
+					outFields.map((f) => returnedColumn(verdict(retCol(f)), rowType(f), retCol(f))),
 					[cteRef(rv)],
 					guarded?.guard
 				),

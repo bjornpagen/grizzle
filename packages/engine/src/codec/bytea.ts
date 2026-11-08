@@ -52,6 +52,13 @@ const emptyFields = 3
  */
 const lowerBound = 1
 
+/** The bytes of a bytea[]'s header in the array binary format: an empty array's, or a dimensioned one's of `count`. */
+export const byteaHeaderBytes = (count: number): number =>
+	(count === 0 ? emptyFields : dimensionedFields) * int32Bytes
+
+/** The bytes one element of `length` bytes adds to a bytea[] in the array binary format: its length, then itself. */
+export const byteaElementBytes = (length: number): number => int32Bytes + length
+
 /**
  * One column's bytea[] in the array binary format (src/backend/utils/adt/arrayfuncs.c array_send and array_recv): one
  * dimension of `values.length` elements from 1, no NULL, element type bytea, then each value's length and bytes in
@@ -64,10 +71,9 @@ export const byteaArray = (
 	column: string,
 	values: ReadonlyArray<Bytes>
 ): Result.Result<ParamBinary, LiteralBound> => {
-	const fields = values.length === 0 ? emptyFields : dimensionedFields
-	let length = fields * int32Bytes
+	let length = byteaHeaderBytes(values.length)
 	for (const value of values) {
-		length += int32Bytes + value.length
+		length += byteaElementBytes(value.length)
 	}
 	if (length > messageMaxBytes.value) {
 		return Result.err({

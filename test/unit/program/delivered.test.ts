@@ -677,7 +677,7 @@ const mixedRead = (
 						"a cell"
 					)
 				}
-				return read({ group: g, texts: Arr.map(texts, outputText), children: [] })
+				return read({ group: g, cells: Arr.map(texts, outputText), children: [] })
 			})
 		})
 		const decoded = succeeded(mixedRows(root, rows), `a mixed root's decoded rows (${artifact})`)

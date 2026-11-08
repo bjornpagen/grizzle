@@ -48,11 +48,12 @@ import { carrierSpecOf, paramEncoder, scalarCodec } from "#compiler/codec/scalar
 import { parseDeclaredName } from "#compiler/core/identity.ts"
 import { int8Max, int8Min } from "#compiler/core/limits.ts"
 import * as Result from "#compiler/core/result.ts"
+import type { Cell, ParamText } from "#compiler/core/wire.ts"
 import { decodeScalarType } from "#compiler/ir/scalar-shape.ts"
 import { type Carrier, capabilitySet, Roster, type ScalarType } from "#compiler/ir/scalar.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { isValueFault } from "#compiler/scalar/values/fault.ts"
-import { factIdentity } from "#compiler/scalar/values/identity.ts"
+import { admitValue, factIdentity } from "#compiler/scalar/values/identity.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { assert, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -361,8 +362,17 @@ type EncoderFeature =
 	| "refused"
 	| "admitted from another carrier"
 
+/**
+ * Every descriptor whose values have a parameter text: all but bytes, whose value travels in binary and is read back
+ * as itself (codec/delivery.ts), so no text of it round-trips.
+ */
+const textCarried: Arr.NonEmptyReadonlyArray<Carried> = nonEmpty(
+	Arr.filter(everyCarried, (c) => c.type.carrier !== "bytes"),
+	"the carriers of a parameter text"
+)
+
 const caseGen: Gen<readonly [Carried, Drawn<unknown, StaleFrom>]> = (source) => {
-	const target = source.draw(element(everyCarried))
+	const target = source.draw(element(textCarried))
 	return [target, source.draw(drawnFor(target))] as const
 }
 
@@ -618,7 +628,7 @@ describe("fact identity", () => {
 	)
 })
 
-/** A row of a heading drawn from every descriptor: each cell the text of a Live value. */
+/** A row of a heading drawn from every descriptor: each cell the text of a Live value, a bytes value's itself. */
 const rowCaseGen: Gen<{
 	readonly columns: ReadonlyArray<Carried>
 	readonly values: ReadonlyArray<unknown>
@@ -626,6 +636,11 @@ const rowCaseGen: Gen<{
 	const columns = source.draw(array(element(everyCarried), { min: 1, max: 4 }))
 	return { columns, values: Arr.map(columns, (c) => source.draw(c.live)) }
 }
+
+/** A row's cell as the test writes it: a text column's parameter text, or a bytes column's admitted value. */
+type RowCell =
+	| { readonly kind: "text"; readonly column: Carried; readonly text: ParamText }
+	| { readonly kind: "bytes"; readonly value: Uint8Array<ArrayBuffer> }
 
 describe("the tuple converter", () => {
 	it.effect(
@@ -649,23 +664,36 @@ describe("the tuple converter", () => {
 					},
 					({ columns, values }) =>
 						Effect.sync(() => {
-							const cells = Arr.map(columns, (column, i) => {
+							const cells = Arr.map(columns, (column, i): RowCell => {
+								if (column.type.carrier === "bytes") {
+									const admitted = admitValue({ carrier: "bytes" }, values[i])
+									assert.ok(admitted.ok, `${column.label}: a Live value was refused`)
+									return { kind: "bytes", value: admitted.value }
+								}
 								const encoded = scalarCodec(column.type, kindCodes).encode(values[i])
 								assert.ok(encoded.ok, `${column.label}: a Live value was refused`)
-								return { column, text: encoded.value }
+								return { kind: "text", column, text: encoded.value }
 							})
 							/** Repeated private names convert positionally. */
 							const tuple = tupleConverter(
 								Arr.map(columns, (c) => ({ name: "c", type: c.type })),
 								kindCodes
-							)(Arr.map(cells, (cell) => echoed(cell.column.type, cell.text)))
+							)(
+								Arr.map(cells, (cell): Cell =>
+									cell.kind === "bytes" ? cell.value : echoed(cell.column.type, cell.text)
+								)
+							)
 							assert.ok(Object.isFrozen(tuple))
 							assert.equal(tuple.length, columns.length)
-							for (const [i, { column, text }] of cells.entries()) {
-								assert.deepEqual(
-									scalarCodec(column.type, kindCodes).encode(tuple[i]),
-									Result.ok(text)
-								)
+							for (const [i, cell] of cells.entries()) {
+								if (cell.kind === "bytes") {
+									assert.deepEqual(tuple[i], cell.value)
+								} else {
+									assert.deepEqual(
+										scalarCodec(cell.column.type, kindCodes).encode(tuple[i]),
+										Result.ok(cell.text)
+									)
+								}
 							}
 						})
 				)

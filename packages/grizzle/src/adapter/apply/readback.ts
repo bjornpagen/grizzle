@@ -61,10 +61,10 @@ const readsLayout = (runs: ReadonlyArray<ReadBackRun>): Layout => ({
 	)
 })
 
-/** The Row the reads decoder reads: no texts, and each read-back's delivered Rows at its slot. */
+/** The Row the reads decoder reads: no cells, and each read-back's delivered Rows at its slot. */
 export const readsRow = (delivered: ReadonlyArray<ReadonlyArray<Row>>): Row => ({
 	group: 0,
-	texts: [],
+	cells: [],
 	children: delivered
 })
 

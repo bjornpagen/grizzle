@@ -1,11 +1,11 @@
 import { scalarReader } from "#compiler/codec/read.ts"
-import { rowText } from "#compiler/core/decoder.ts"
-import type { OutputText } from "#compiler/core/wire.ts"
+import { rowCell } from "#compiler/core/decoder.ts"
+import type { Cell } from "#compiler/core/wire.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 
-/** One positional row of PostgreSQL's output texts to a host value, trusting the texts. */
-type RowConverter<Head> = (row: ReadonlyArray<OutputText>) => Head
+/** One positional delivered row (codec/delivery.ts) to a host value, trusting its cells. */
+type RowConverter<Head> = (row: ReadonlyArray<Cell>) => Head
 
 /** One result column: its name and its type. */
 interface DecodedColumn {
@@ -17,7 +17,8 @@ interface DecodedColumn {
  * Positional result row converters, for the rows grizzle reads for itself.
  *
  * A statement's result arrives as positional rows of column texts (the adapter's wire parses nothing, every column is
- * cast to text by the outermost SELECT, and the session admits a text cell only). A delivered row's public columns are
+ * cast to text by the outermost SELECT, and the session admits a text cell only), which its delivery assembles into
+ * cells, a bytes column's its value (codec/delivery.ts). A delivered row's public columns are
  * converted by the value's own decoder (core/decoder.ts); the rows grizzle reads for itself, a write's returned facts
  * (write/insert/rows.ts, write/put/rows.ts), are converted here. A converter is built once per heading: it resolves one
  * reader's conversion per column up front, and the returned closure is a straight loop over the row that calls those
@@ -37,7 +38,7 @@ export const tupleConverter = (
 		const out: Array<unknown> = []
 		let i = 0
 		for (const convert of converters) {
-			out.push(convert(rowText(row, i)))
+			out.push(convert(rowCell(row, i)))
 			i++
 		}
 		return Object.freeze(out)

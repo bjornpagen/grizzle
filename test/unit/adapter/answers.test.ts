@@ -95,11 +95,11 @@ const parentLayout = (proved: Delivery): Layout => ({
 /** A parent row whose one attachment slot holds `n` children, c0 to c(n-1). */
 const parentRow = (n: number): Row => ({
 	group: 0,
-	texts: [],
+	cells: [],
 	children: [
 		Array.from({ length: n }, (_, i): Row => ({
 			group: 0,
-			texts: [outputText(`c${i}`)],
+			cells: [outputText(`c${i}`)],
 			children: []
 		}))
 	]
@@ -448,7 +448,7 @@ describe("a statement's rows", () => {
 								for (const row of rows) {
 									const kids = defined(row.children[0], "the comments slot")
 									const owner = Arr.findFirst(uuids, (u) =>
-										Arr.some(row.texts, (t) => t === u)
+										Arr.some(row.cells, (t) => t === u)
 									).pipe(Option.getOrUndefined)
 									const p = uuids.indexOf(defined(owner, "the row's post id"))
 									const owned = Arr.filter(comments, (q) => q === p).length

@@ -1,5 +1,5 @@
 import { tupleConverter } from "#compiler/codec/row.ts"
-import type { OutputText } from "#compiler/core/wire.ts"
+import type { Cell } from "#compiler/core/wire.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import { type Fact, factOf } from "#compiler/write/insert/rows.ts"
 import type { PutResult } from "#compiler/write/put/statement.ts"
@@ -9,7 +9,7 @@ type PutRow =
 	| { readonly kind: "replaced"; readonly fact: Fact; readonly old: Fact }
 	| { readonly kind: "removed"; readonly fact: Fact }
 
-type PutRowConverter = (row: ReadonlyArray<OutputText>) => PutRow
+type PutRowConverter = (row: ReadonlyArray<Cell>) => PutRow
 
 /** The converter of the rows of one put statement that updates in place:
  * - an upsert row is a fact the put made present, inserted or updated;

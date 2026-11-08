@@ -1,5 +1,5 @@
 import { tupleConverter } from "#compiler/codec/row.ts"
-import type { OutputText } from "#compiler/core/wire.ts"
+import type { Cell } from "#compiler/core/wire.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { DeleteResult, InsertResult } from "#compiler/write/insert/statement.ts"
 
@@ -25,7 +25,7 @@ type WriteRow =
 	| { readonly kind: "added"; readonly fact: Fact }
 	| { readonly kind: "removed"; readonly fact: Fact }
 
-type WriteRowConverter = (row: ReadonlyArray<OutputText>) => WriteRow
+type WriteRowConverter = (row: ReadonlyArray<Cell>) => WriteRow
 
 type RowResult = InsertResult | DeleteResult
 

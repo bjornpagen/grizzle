@@ -1,6 +1,12 @@
 import { Array as Arr, Record as Rec } from "effect"
 import { canonicalTag } from "#compiler/core/canonical.ts"
-import { bitsColumn, codeColumn, type Column, convertColumn } from "#compiler/core/decoder.ts"
+import {
+	bitsColumn,
+	bytesColumn,
+	codeColumn,
+	type Column,
+	convertColumn
+} from "#compiler/core/decoder.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { NodeId, ParamId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -131,7 +137,7 @@ const columnOf = (desc: FieldDesc): Column<unknown> => {
 		case "bits":
 			return bitsColumn(desc.roster)
 		case "bytes":
-			return convertColumn(convertByCarrier.bytes({ carrier: "bytes" }))
+			return bytesColumn
 		case "vector":
 			return convertColumn(
 				convertByCarrier.vector({ carrier: "vector", dimensions: desc.dimensions })

@@ -94,7 +94,12 @@ const exclusions: Partial<Record<Carrier, ReadonlyArray<(typeof catalogCapabilit
 	/** An exact value is never a field's, so no key or constraint indexes it by GiST. */
 	exactInteger: ["gist"],
 	/** Nor exact money's; a mean over money is no aggregate of the language, as money's own avg is not. */
-	exactMoney: ["avg", "gist"]
+	exactMoney: ["avg", "gist"],
+	/**
+	 * A bytes value is stored and read back whole, and that is all (scalar/bytes.ts): no key, unique, containment,
+	 * comparison or aggregate reads one.
+	 */
+	bytes: ["equality", "gist", "hashing", "minMax", "ordering"]
 }
 
 /** The capabilities the registry claims for a carrier. */

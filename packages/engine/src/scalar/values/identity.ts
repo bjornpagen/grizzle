@@ -28,15 +28,17 @@ export type { Carrier }
 
 type PlainCarrier = Exclude<
 	Carrier,
-	"numeric" | "code" | "bits" | "vector" | "range4" | "range8" | "rangeDate"
+	"numeric" | "code" | "bits" | "vector" | "range4" | "range8" | "rangeDate" | "bytes"
 >
 
 /**
  * What a carrier needs beyond its name to admit a value. A closed id and a set over a roster carry the roster's codes,
- * which the installation holds: a handle is written as its code, and a set as its hex digits, one bit per code.
+ * which the installation holds: a handle is written as its code, and a set as its hex digits, one bit per code. Bytes
+ * is a spec of its own, since its value travels as no text, so a spec narrowed by it is a text carrier's.
  */
 export type CarrierSpec =
 	| { readonly carrier: PlainCarrier }
+	| { readonly carrier: "bytes" }
 	| { readonly carrier: "numeric"; readonly typmod: NumericTypmod | undefined }
 	| { readonly carrier: "code"; readonly roster: RosterCodec }
 	| { readonly carrier: "bits"; readonly roster: RosterCodec }
@@ -356,8 +358,8 @@ const canonicalTexts: CanonicalTexts = {
  *   holds, because every host value is in its one form (a Decimal has no display scale, a float and a vector component
  *   one zero): numeric 1.0 = 1.00 are one Decimal written 1, NaN = NaN, -0 = +0, text by exact scalar sequence. It is
  *   the parameter text, the array element and the fact identity's part alike (codec/scalar.ts text); a bytes value's is
- *   byteain's hex text, which a family write's text array carries, while a member's array of bytes travels in binary
- *   (codec/bytea.ts).
+ *   its windows-1252 decode, one UTF-16 code unit a byte (values/bytes.ts bytesText), the fact identity's part and no
+ *   parameter text: every bytes value travels in binary (codec/bytea.ts).
  * - `compareValues` is PostgreSQL's B-tree order for the type: float and numeric total orders with NaN last, text in
  *   code point order, uuid and bytes by bytes, closed ids by code, which is roster order, spans by start then end, vectors as
  *   vector_cmp, and sets by their bit strings, an order internal to the host, since a set has no ordering.

@@ -20,6 +20,7 @@ import { withGenerationInputs } from "#compiler/analysis/theory/fill.ts"
 import { type CompileError, unsupported } from "#compiler/core/errors.ts"
 import type { ParamId } from "#compiler/core/ids.ts"
 import { defined } from "#compiler/core/invariant.ts"
+import { bytesChunkLength } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -34,6 +35,12 @@ import {
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { completeClass } from "#compiler/ir/write.ts"
 import { WriteParams } from "#compiler/lower/conservative/context.ts"
+import {
+	deliveredColumn,
+	deliveredWidth,
+	type TaggedArm,
+	taggedArm
+} from "#compiler/lower/delivery.ts"
 import type {
 	Assignment,
 	Cte,
@@ -89,7 +96,8 @@ import {
 	type InsertResult,
 	keyFirst,
 	type ResultColumn,
-	resultText,
+	returnedColumn,
+	returnedRows,
 	rowType,
 	type WriteContext
 } from "#compiler/write/insert/statement.ts"
@@ -290,19 +298,22 @@ const returnedFields = (
 		type: rowType(field)
 	}))
 
-/** The data-modifying CTE `name` and the SELECT of its returned columns as text, as every write statement returns rows. */
+/**
+ * The data-modifying CTE `name` and the SELECT of its returned columns as their delivery sends them, as every write
+ * statement returns rows (write/insert/statement.ts returnedRows), its names drawn from `supply`.
+ */
 const returningSelect = (
+	supply: NameSupply,
 	name: string,
 	body: CteBody,
 	returned: ReadonlyArray<Returned>
 ): SqlStatement => ({
-	...select(
-		provedCore(
-			"keyed",
-			returned.map((r) => targetAs(resultText(col(name, r.column), r.type), r.column)),
-			[cteRef(name)],
-			undefined
-		)
+	...returnedRows(
+		supply,
+		"keyed",
+		returned.map((r) => returnedColumn(col(name, r.column), r.type, r.column)),
+		[cteRef(name)],
+		undefined
 	),
 	with: { recursive: false, ctes: [cte(name, [], body)] }
 })
@@ -399,6 +410,7 @@ export const rowStatement = (
 			const input = arraysOf(w, supply, keyCarried)
 			const returned = returnedFields(supply, keyFirst(relation))
 			const ast = returningSelect(
+				supply,
 				r,
 				{
 					kind: "delete",
@@ -444,6 +456,7 @@ export const rowStatement = (
 			const fresh = returnedFields(supply, keyFirst(relation))
 			const old = returnedFields(supply, keyFirst(relation))
 			const ast = returningSelect(
+				supply,
 				r,
 				{
 					kind: "update",
@@ -470,6 +483,7 @@ export const rowStatement = (
 			const input = arraysOf(w, supply, all)
 			const returned = returnedFields(supply, keyFirst(relation))
 			const ast = returningSelect(
+				supply,
 				r,
 				{
 					kind: "insert",
@@ -548,6 +562,7 @@ export const countStatement = (
 	const column = (f: LawField): string => w.names.column(owner.name, f.name)
 	const k = keys.length
 	const ast = returningSelect(
+		supply,
 		r,
 		{
 			kind: "update",
@@ -602,25 +617,20 @@ export const ownerReadColumns = (family: Family): ReadonlyArray<LawField> => {
 }
 
 /**
- * The columns of a family read's rows, tag first: an owner row's are its group's key texts and its `ownerReadColumns`;
- * a member row's are its key's texts and its row layout's columns. A row of the shorter kind is padded with empty
- * texts to `width` columns after the tag.
+ * The columns of a family read's rows, tag first: an owner row's are its group's key fields and its
+ * `ownerReadColumns`; a member row's are its key's and its row layout's other columns. Each kind's rows travel as its
+ * columns' delivery (lower/delivery.ts taggedArm), a row of the shorter padded with empty texts after it.
  */
 export interface ReadShape {
 	readonly owner: { readonly key: number; readonly columns: ReadonlyArray<LawField> }
 	readonly member: { readonly key: number; readonly columns: number }
-	readonly width: number
 }
 
 /** The shape of a family's read's rows over its member's row layout (`ReadShape`). */
-export const readShape = (family: Family, layout: RowLayout): ReadShape => {
-	const columns = ownerReadColumns(family)
-	return {
-		owner: { key: family.group.length, columns },
-		member: { key: layout.key.length, columns: layout.columns.length },
-		width: Math.max(family.group.length + columns.length, layout.key.length + layout.columns.length)
-	}
-}
+export const readShape = (family: Family, layout: RowLayout): ReadShape => ({
+	owner: { key: family.group.length, columns: ownerReadColumns(family) },
+	member: { key: layout.key.length, columns: layout.columns.length }
+})
 
 /** A family's read statement and the shape of its rows. */
 export interface ReadSql {
@@ -688,7 +698,6 @@ export const suffixReadSql = (
 	}))
 	const shape = readShape(family, layout)
 	const ownerColumns = shape.owner.columns
-	const width = shape.width
 	const memberTable = w.names.relation(member.name)
 	const ownerTable = w.names.relation(owner.name)
 	const mCol = (alias: string, c: NativeColumn): Expr => col(alias, installed(w, member.name, c))
@@ -756,58 +765,66 @@ export const suffixReadSql = (
 			)
 		])
 	)
+	const ownerFields: ReadonlyArray<LawField> = [
+		...family.group.map((pair) => pair.owner),
+		...ownerColumns
+	]
+	const memberColumns = [...layout.key, ...layout.columns]
+	const width = Math.max(
+		deliveredWidth(ownerFields.map((f) => deliveredColumn(f.type))),
+		deliveredWidth(memberColumns.map((c) => deliveredColumn(c.type)))
+	)
 	const tag = supply.column(internal("read tag"))
 	const out = Array.from({ length: width }, () => supply.column(internal("read column")))
 	const at = (i: number): string => defined(out[i], `read column ${i}`)
-	const pad = (from: number): ReadonlyArray<Target> =>
-		Array.from({ length: width - from }, (_, j) => targetAs(lit.text("", types.text), at(from + j)))
 	const o = supply.relation(internal("read owner"))
 	const ot = supply.relation(internal("read owner group"))
-	const ownerTexts: ReadonlyArray<Expr> = [
-		...family.group.map((pair) => resultText(oCol(o, pair.owner), pair.owner.type)),
-		...ownerColumns.map((f) => resultText(oCol(o, f), f.type))
-	]
-	const ownerArm = provedCore(
-		"keyed",
-		[
-			targetAs(lit.text("o", types.text), tag),
-			...ownerTexts.map((e, i) => targetAs(e, at(i))),
-			...pad(ownerTexts.length)
-		],
-		[
-			join(
-				table(ownerTable.schema, ownerTable.name, o),
-				cteRefAs(t, ot),
-				and(mapNonEmpty(family.group, (pair, i) => eq(oCol(o, pair.owner), col(ot, g(i)))))
-			)
-		],
-		undefined
+	const ownerArm = taggedArm(
+		{
+			tag: "o",
+			columns: ownerFields.map((f) => ({ expr: oCol(o, f), delivered: deliveredColumn(f.type) })),
+			from: [
+				join(
+					table(ownerTable.schema, ownerTable.name, o),
+					cteRefAs(t, ot),
+					and(mapNonEmpty(family.group, (pair, i) => eq(oCol(o, pair.owner), col(ot, g(i)))))
+				)
+			],
+			where: undefined
+		},
+		tag,
+		at,
+		width,
+		supply,
+		bytesChunkLength.value
 	)
 	const m = supply.relation(internal("read member"))
 	const mt = supply.relation(internal("read member group"))
-	const memberTexts: ReadonlyArray<Expr> = [
-		...layout.key.map((c) => resultText(mCol(m, c.column), c.type)),
-		...layout.columns.map((c) => resultText(mCol(m, c.column), c.type))
-	]
-	const memberArm = provedCore(
-		"keyed",
-		[
-			targetAs(lit.text("m", types.text), tag),
-			...memberTexts.map((e, i) => targetAs(e, at(i))),
-			...pad(memberTexts.length)
-		],
-		[
-			join(
-				table(memberTable.schema, memberTable.name, m),
-				cteRefAs(t, mt),
-				and(
-					mapNonEmpty(family.group, (pair, i) =>
-						eq(mCol(m, { kind: "field", field: pair.member }), col(mt, g(i)))
+	const memberArm = taggedArm(
+		{
+			tag: "m",
+			columns: memberColumns.map((c) => ({
+				expr: mCol(m, c.column),
+				delivered: deliveredColumn(c.type)
+			})),
+			from: [
+				join(
+					table(memberTable.schema, memberTable.name, m),
+					cteRefAs(t, mt),
+					and(
+						mapNonEmpty(family.group, (pair, i) =>
+							eq(mCol(m, { kind: "field", field: pair.member }), col(mt, g(i)))
+						)
 					)
 				)
-			)
-		],
-		ge(mCol(m, family.index), binary("-", col(mt, slotName), lit.int(1, types.bigint)))
+			],
+			where: ge(mCol(m, family.index), binary("-", col(mt, slotName), lit.int(1, types.bigint)))
+		},
+		tag,
+		at,
+		width,
+		supply,
+		bytesChunkLength.value
 	)
 	const ast: SqlStatement = {
 		...select(unionAll("disjoint", [ownerArm, memberArm])),
@@ -837,7 +854,8 @@ export type ChainRoot =
  * The shape of a chain read's rows: each row set its chain passes, by its tag, its relation and its row layout, every
  * row by its key's texts and its layout's columns; and what it reads at its end: a refilled family's suffixes as a
  * family's read returns them (`o` and `m` rows), a refilled tree's whole (`t` rows, in its relation's layout), or no
- * more than its row sets. A row of a shorter kind is padded with empty texts to `width` columns after the tag.
+ * more than its row sets. Each kind's rows travel as its columns' delivery (lower/delivery.ts taggedArm), a row of a
+ * shorter kind padded with empty texts after it.
  */
 export interface ChainShape {
 	readonly rows: ReadonlyArray<{
@@ -854,7 +872,6 @@ export interface ChainShape {
 		  }
 		| { readonly kind: "tree"; readonly family: Family; readonly layout: RowLayout }
 		| { readonly kind: "rows" }
-	readonly width: number
 }
 
 /** A chain's read statement: its AST and text, where its rows begin, and the shape of its rows. */
@@ -888,12 +905,7 @@ export const chainReadSql = (
 ): ChainSql => {
 	const supply = begun(w)
 	const ctes: Array<Cte> = []
-	const arms: Array<{
-		readonly tag: string
-		readonly texts: ReadonlyArray<Expr>
-		readonly from: FromItem
-		readonly where: Expr | undefined
-	}> = []
+	const arms: Array<TaggedArm> = []
 	const sets: Array<ChainShape["rows"][number]> = []
 	const roots: Array<ChainRoot> = []
 	const columnOf = (alias: string, relation: RelationInfo, c: NativeColumn): Expr =>
@@ -908,15 +920,16 @@ export const chainReadSql = (
 		column: { kind: "field", field: f },
 		type: f.type
 	})
-	/** A row of `relation` under `alias` as a chain returns it: its key's texts, then its layout's columns'. */
+	/** A row of `relation` under `alias` as a chain returns it: its key's columns, then its layout's other columns. */
 	const rowTexts = (
 		alias: string,
 		relation: RelationInfo,
 		layout: RowLayout
-	): ReadonlyArray<Expr> => [
-		...layout.key.map((c) => resultText(columnOf(alias, relation, c.column), c.type)),
-		...layout.columns.map((c) => resultText(columnOf(alias, relation, c.column), c.type))
-	]
+	): TaggedArm["columns"] =>
+		[...layout.key, ...layout.columns].map((c) => ({
+			expr: columnOf(alias, relation, c.column),
+			delivered: deliveredColumn(c.type)
+		}))
 	/** The key fields of `relation` under `alias` equal to `keys` of the CTE `at`, field by field in key order. */
 	const keyed = (
 		alias: string,
@@ -1128,8 +1141,8 @@ export const chainReadSql = (
 		sets.push({ tag, relation, layout })
 		arms.push({
 			tag,
-			texts: rowTexts(r, relation, layout),
-			from: join(tableOf(relation, r), cteRef(name), keyed(r, relation, name, keys)),
+			columns: rowTexts(r, relation, layout),
+			from: [join(tableOf(relation, r), cteRef(name), keyed(r, relation, name, keys))],
 			where: undefined
 		})
 		return { name, keys }
@@ -1152,8 +1165,8 @@ export const chainReadSql = (
 		if (family.members.kind === "tree") {
 			arms.push({
 				tag: "t",
-				texts: rowTexts(m, member, layout),
-				from: join(tableOf(member, m), cteRef(g.name), onGroups),
+				columns: rowTexts(m, member, layout),
+				from: [join(tableOf(member, m), cteRef(g.name), onGroups)],
 				where: undefined
 			})
 			return { kind: "tree", family, layout }
@@ -1164,25 +1177,27 @@ export const chainReadSql = (
 		const ownerColumns = shape.owner.columns
 		arms.push({
 			tag: "o",
-			texts: [
-				...family.group.map((pair) => resultText(fieldOf(o, owner, pair.owner), pair.owner.type)),
-				...ownerColumns.map((f) => resultText(fieldOf(o, owner, f), f.type))
-			],
-			from: join(
-				tableOf(owner, o),
-				cteRef(g.name),
-				and(
-					mapNonEmpty(family.group, (pair, i) =>
-						eq(fieldOf(o, owner, pair.owner), col(g.name, defined(g.groups[i], "a group column")))
+			columns: [...family.group.map((pair) => pair.owner), ...ownerColumns].map((f) => ({
+				expr: fieldOf(o, owner, f),
+				delivered: deliveredColumn(f.type)
+			})),
+			from: [
+				join(
+					tableOf(owner, o),
+					cteRef(g.name),
+					and(
+						mapNonEmpty(family.group, (pair, i) =>
+							eq(fieldOf(o, owner, pair.owner), col(g.name, defined(g.groups[i], "a group column")))
+						)
 					)
 				)
-			),
+			],
 			where: undefined
 		})
 		arms.push({
 			tag: "m",
-			texts: rowTexts(m, member, layout),
-			from: join(tableOf(member, m), cteRef(g.name), onGroups),
+			columns: rowTexts(m, member, layout),
+			from: [join(tableOf(member, m), cteRef(g.name), onGroups)],
 			where: ge(
 				columnOf(m, member, family.index),
 				binary("-", col(g.name, g.slot), lit.int(1, types.bigint))
@@ -1190,23 +1205,15 @@ export const chainReadSql = (
 		})
 		return { kind: "suffix", family, shape, layout }
 	})()
-	const width = arms.reduce((most, arm) => Math.max(most, arm.texts.length), 0)
+	const width = arms.reduce(
+		(most, arm) => Math.max(most, deliveredWidth(arm.columns.map((c) => c.delivered))),
+		0
+	)
 	const tagColumn = supply.column(internal("chain tag"))
 	const out = Array.from({ length: width }, () => supply.column(internal("chain column")))
 	const at = (i: number): string => defined(out[i], `chain column ${i}`)
 	const built = arms.map((arm) =>
-		provedCore(
-			"keyed",
-			[
-				targetAs(lit.text(arm.tag, types.text), tagColumn),
-				...arm.texts.map((e, i) => targetAs(e, at(i))),
-				...Array.from({ length: width - arm.texts.length }, (_, j) =>
-					targetAs(lit.text("", types.text), at(arm.texts.length + j))
-				)
-			],
-			[arm.from],
-			arm.where
-		)
+		taggedArm(arm, tagColumn, at, width, supply, bytesChunkLength.value)
 	)
 	const root = defined(roots[0], "a chain begins at a put or an edit")
 	const [first, ...rest] = built
@@ -1222,6 +1229,6 @@ export const chainReadSql = (
 		ast,
 		sql: emitText(ast, supply.map()),
 		root,
-		shape: { rows: sets, end, width }
+		shape: { rows: sets, end }
 	}
 }

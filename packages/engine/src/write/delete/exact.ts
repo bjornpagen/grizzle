@@ -13,8 +13,6 @@ import {
 	cte,
 	cteRef,
 	operandSelect,
-	provedCore,
-	select,
 	setOp,
 	targetAs
 } from "#compiler/sql/build.ts"
@@ -36,7 +34,8 @@ import {
 	type ModifyingStatement,
 	ownBuild,
 	type ResultColumn,
-	resultText,
+	returnedColumn,
+	returnedRows,
 	rowType,
 	type WriteContext
 } from "#compiler/write/insert/statement.ts"
@@ -84,6 +83,7 @@ interface DeleteMatch {
  * it reads, returning the complete facts it removed into `returned`, and the outer SELECT of their result texts. */
 const deletion = (
 	w: WriteContext,
+	supply: NameSupply,
 	relation: RelationInfo,
 	mode: DeleteResult["mode"],
 	names: { readonly r2: string; readonly r3: string; readonly returned: FieldColumns<string> },
@@ -106,9 +106,10 @@ const deletion = (
 		name: f.name,
 		type: rowType(f)
 	}))
-	const outer = provedCore(
+	const outer = returnedRows(
+		supply,
 		"keyed",
-		returned.pairs.map((p) => targetAs(resultText(col(r2, p.column), rowType(p.field)), p.column)),
+		returned.pairs.map((p) => returnedColumn(col(r2, p.column), rowType(p.field), p.column)),
 		[cteRef(r2)],
 		undefined
 	)
@@ -122,7 +123,7 @@ const deletion = (
 	}
 	return {
 		ast: {
-			...select(outer),
+			...outer,
 			with: { recursive: false, ctes: appendNonEmpty(match.leading, cte(r2, [], del)) }
 		},
 		role: "member" as const,
@@ -192,6 +193,7 @@ const buildDelete = (
 					)
 		return deletion(
 			w,
+			supply,
 			relation,
 			mode.kind,
 			{ r2, r3, returned },
@@ -317,6 +319,7 @@ export const buildAnchoredDelete = (
 		}
 		return deletion(
 			w,
+			supply,
 			relation,
 			"exact",
 			{ r2, r3, returned },

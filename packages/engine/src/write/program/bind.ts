@@ -60,6 +60,7 @@ import {
 } from "#compiler/write/family/fold.ts"
 import { type NestedRow, rowOfValues } from "#compiler/write/family/nesting.ts"
 import {
+	columnArray,
 	type FamilyStatement,
 	type OwnerWrite,
 	type Phase,
@@ -991,7 +992,7 @@ export const bindWrite = (
 						bound.program.target,
 						read.family,
 						read.shape,
-						read.at.flatMap((i) => defined(rows[i], `the rows of read ${i}`))
+						read.at.map((i) => defined(rows[i], `the rows of read ${i}`))
 					)
 					if (!decoded.ok) {
 						return decoded
@@ -1005,7 +1006,7 @@ export const bindWrite = (
 				const decoded = decodeChain(
 					ctx,
 					read.sql.shape,
-					read.at.flatMap((i) => defined(rows[i], `the rows of read ${i}`))
+					read.at.map((i) => defined(rows[i], `the rows of read ${i}`))
 				)
 				if (!decoded.ok) {
 					return decoded
@@ -1293,19 +1294,29 @@ export const bindWrite = (
 		}
 		return Result.ok({ plans: out, slots: refilled, fills })
 	}
-	/** A planned statement's arrays: its rows' texts, column by column, each array within the longest string. */
+	/**
+	 * A planned statement's arrays: its rows' cells, column by column (order.ts columnArray), each literal within the
+	 * longest string.
+	 */
 	const arraysOf = (
 		relation: string,
 		statement: FamilyStatement
-	): Result.Result<ReadonlyArray<ParamText>, LiteralBound> => {
+	): Result.Result<ReadonlyArray<Param>, LiteralBound> => {
 		const rows = textsOf(statement)
 		const width = rows[0]?.length ?? 0
-		return arrayTexts(
-			relation,
-			Array.from({ length: width }, (_, i) => `column ${i + 1}`),
-			rows,
-			maxStringLength.value
-		)
+		const arrays: Array<Param> = []
+		for (let i = 0; i < width; i += 1) {
+			const array = columnArray(
+				relation,
+				`column ${i + 1}`,
+				rows.map((row) => defined(row[i], "a family statement's row holds each of its columns"))
+			)
+			if (!array.ok) {
+				return array
+			}
+			arrays.push(array.value)
+		}
+		return Result.ok(arrays)
 	}
 	/** The chunks of the artifact's statements under the strata's plans: a family step's, one execution per planned
 	 * statement of its kind and target; any other's, its one execution. */

@@ -32,19 +32,6 @@ with the next release.
   their DFAs within the DFA bounds and otherwise by the members' keys in order. The alternatives: `str.regex([p, q])`,
   or nothing, since one product pattern within PostgreSQL's limits is admitted now. It reaches every place a text
   carries one source: TextInfo, pattern rules, casts' inclusion proofs, Compute.matches.
-- **bytes past 268,435,443 bytes:**
-  - Why: pg 8.23's parser decodes every result cell as a UTF-8 string, so a binary read isn't possible. Every bytes
-    value is read as hex text in one string.
-  - The design (BYTES, 2026-11-07), still one statement:
-    - every outermost select that delivers a bytes column is cross-joined with generate_series over chunks of a
-      measured Limit, delivering `encode(substring(col FROM i*C+1 FOR C), 'base64url')`, with octet_length and the
-      other columns on chunk 0;
-    - the reader groups rows by ordinal into one Uint8Array, filled with setFromBase64;
-    - a value's identity becomes its windows-1252 decode, so about 512 MiB;
-    - a digest key with an exact compare on a hit would reach about 1 GB.
-  - The riskiest part is the attachment stitching.
-  - qti-pie, 2026-11-07: nothing it stores today comes near the bound (largest 64 MiB). But QTI sets no file size
-    limit, so a lawful package with a video over about 256 MiB is refused at import. First in line after beta.1.
 - **Mutation adequacy:** one seeded `pnpm mutate` sample on the release commit, in a scratch copy. Every surviving
   mutant becomes a generator arm or a written equivalence, and triage.json is pruned to the code.
 - **PostgreSQL:** repin to 19rc2 on 2026-11-12 if the beta isn't out by then (pin.env, rebuild, re-init, delete the

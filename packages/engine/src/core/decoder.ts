@@ -7,7 +7,7 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { builtMark, type Phantom } from "#compiler/core/phantom.ts"
 import * as Result from "#compiler/core/result.ts"
-import type { OutputText } from "#compiler/core/wire.ts"
+import type { Cell, OutputText } from "#compiler/core/wire.ts"
 
 /** A column's conversion of its cell's text, PostgreSQL's output. */
 interface ConvertColumn<out A> {
@@ -65,12 +65,22 @@ interface ConstantColumn<out A> {
 	readonly equal: (literal: unknown, host: unknown) => boolean
 }
 
+/**
+ * A bytes column's: its cell is the value itself, which its statement's delivery assembled from the chunks it travels in
+ * (codec/delivery.ts), read without a copy under the record assembly's one claim. A is the bytes descriptor's host type,
+ * a phantom of it, and bytesColumn its one builder.
+ */
+interface BytesColumn<out A> extends Phantom<{ readonly host: A }> {
+	readonly kind: "bytes"
+}
+
 export type Column<A> =
 	| ConvertColumn<A>
 	| CodeColumn<A>
 	| BitsColumn<A>
 	| TextColumn<A>
 	| ConstantColumn<A>
+	| BytesColumn<A>
 
 /** What carries a column: a field descriptor, a term, an aggregate, a producer, a parameter, a head literal. */
 export interface Columned<out A> {
@@ -87,6 +97,12 @@ export const codeColumn = <A>(roster: string, handles: NonEmptyReadonlyArray<A>)
 /** A set's column over roster `roster`, whose values are A. */
 export const bitsColumn = <A>(roster: string): Column<A> =>
 	Object.freeze({ ...builtMark, kind: "bits", roster })
+
+/** The bytes descriptor's column (scalar/bytes.ts), whose cell is its assembled value. */
+export const bytesColumn: Column<Uint8Array<ArrayBuffer>> = Object.freeze({
+	...builtMark,
+	kind: "bytes"
+})
 
 /** A text column over the language A its cells are in: a refined text's pattern's (str.regex), or uuid_out's. */
 export const textColumn = <A extends string>(): Column<A> =>
@@ -108,6 +124,8 @@ export const brandColumn = <A, B>(base: Column<A>, brand: (value: A) => B): Colu
 			)
 		case "bits":
 			throw defect("no contract is over a set over a roster")
+		case "bytes":
+			throw defect("no contract is over bytes")
 		case "text":
 			return Object.freeze({ ...builtMark, kind: "text" })
 		case "constant":
@@ -164,7 +182,8 @@ const claimedText = <A>(): Column<A> => Object.freeze({ ...builtMark, kind: "tex
  * closed id are that closed id with them; two closed ids of one roster read as their union, and two sets of one
  * roster as one; a refined text with a text reads as a text of either language; two conversions are one conversion.
  * A closed id's or a set's cell is its type's alone, so one beside a column of another roster, or of any other kind
- * but head literals, is a defect: the checker gives the key one type in every arm.
+ * but head literals, is a defect, as is a bytes column beside any but a bytes column: the checker gives the key one type
+ * in every arm.
  */
 export const unionColumn = <A, B>(a: Column<A>, b: Column<B>): Column<A | B> => {
 	if (a.kind === "constant") {
@@ -177,12 +196,20 @@ export const unionColumn = <A, B>(a: Column<A>, b: Column<B>): Column<A | B> => 
 				return codeColumn<A | B>(b.roster, [...a.values, ...b.handles])
 			case "bits":
 				throw defect("a set's column meets only a set's column of its roster")
+			case "bytes":
+				throw defect("a bytes column meets only a bytes column")
 			case "text":
 				return claimedText()
 		}
 	}
 	if (b.kind === "constant") {
 		return unionColumn(b, a)
+	}
+	if (a.kind === "bytes" || b.kind === "bytes") {
+		if (a.kind !== "bytes" || b.kind !== "bytes") {
+			throw defect("a bytes column meets only a bytes column")
+		}
+		return Object.freeze({ ...builtMark, kind: "bytes" })
 	}
 	if (a.kind === "code" || b.kind === "code") {
 		if (a.kind !== "code" || b.kind !== "code" || a.roster !== b.roster) {
@@ -208,12 +235,12 @@ export const unionColumn = <A, B>(a: Column<A>, b: Column<B>): Column<A | B> => 
 /**
  * One row as a decoder reads it: the heading group it belongs to (the index of its statement's layout among the
  * layouts its decoder is bound to; 0 for every statement that is not one of a heterogeneous union's heading groups),
- * the cell texts of its statement's row, and for each attachment slot of its layout the child rows delivered under it,
- * in the child's order.
+ * the cells of its statement's row as its delivery assembled them (codec/delivery.ts), and for each attachment slot of
+ * its layout the child rows delivered under it, in the child's order.
  */
 export interface Row {
 	readonly group: number
-	readonly texts: ReadonlyArray<OutputText>
+	readonly cells: ReadonlyArray<Cell>
 	readonly children: ReadonlyArray<ReadonlyArray<Row>>
 }
 
@@ -256,7 +283,7 @@ export const licenses = (proved: Delivery, stated: Delivery): boolean =>
 	stated === "array" || proved === "one" || (stated === "option" && proved === "option")
 
 /**
- * Where a record's fields are in its statement's rows: each public column's position among a row's texts, and each
+ * Where a record's fields are in its statement's rows: each public column's position among a row's cells, and each
  * attachment's slot among a row's children, its child's layouts (one per heading group the child delivers, one for a
  * child of one heading), and the delivery the analysis proved for it.
  */
@@ -375,12 +402,43 @@ const rowSlot = <A>(members: ReadonlyArray<A>, position: number): A => {
 	return member
 }
 
-/** The text at a position of a positional row from PostgreSQL (rowSlot). */
-export const rowText = (texts: ReadonlyArray<OutputText>, position: number): OutputText =>
-	rowSlot(texts, position)
+/** The cell at a position of a delivered row (rowSlot). */
+export const rowCell = (cells: ReadonlyArray<Cell>, position: number): Cell =>
+	rowSlot(cells, position)
 
-/** The cell at a position of its layout, which bound the reader. */
-export const cellAt = (row: Row, position: number): OutputText => rowText(row.texts, position)
+/**
+ * A text column's cell as its output text. The one site of the fact that a text column's cell is its output text: a
+ * column's delivery is its type's, which travels a bytes column alone in chunks (codec/delivery.ts), and a row's cells
+ * are a runtime array no TypeScript type ties to its columns' types, so a value there is a defect.
+ */
+export const outputTextOf = (cell: Cell): OutputText => {
+	if (typeof cell !== "string") {
+		throw defect("a text column's cell is its output text")
+	}
+	return cell
+}
+
+/**
+ * A bytes column's cell as its value, which its delivery assembled. The one site of the fact that a bytes column's cell
+ * is its value, never a text (`outputTextOf`): a text there is a defect, so no bytes value is ever read from a text.
+ */
+export const bytesValueOf = (cell: Cell): Uint8Array<ArrayBuffer> => {
+	if (typeof cell === "string") {
+		throw defect("a bytes column's cell is its assembled value")
+	}
+	return cell
+}
+
+/** The text at a position of a delivered row (rowSlot): a text column's cell (`outputTextOf`). */
+export const rowText = (cells: ReadonlyArray<Cell>, position: number): OutputText =>
+	outputTextOf(rowSlot(cells, position))
+
+/** The text at a position of its layout, which bound the reader. */
+export const cellAt = (row: Row, position: number): OutputText => rowText(row.cells, position)
+
+/** The bytes value at a position of its layout, which bound the reader (`bytesValueOf`). */
+export const bytesAt = (row: Row, position: number): Uint8Array<ArrayBuffer> =>
+	bytesValueOf(rowSlot(row.cells, position))
 
 /**
  * The children of one row under an attachment the analysis proves delivers at most one, held to that proof: a second

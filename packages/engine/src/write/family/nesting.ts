@@ -22,7 +22,7 @@ import {
 	type RelationNormalizer,
 	relationNormalizer
 } from "#compiler/codec/recordset.ts"
-import { admittedParam, carrierSpecOf } from "#compiler/codec/scalar.ts"
+import { admittedCell, admittedParam, carrierSpecOf } from "#compiler/codec/scalar.ts"
 import type { EncodingFailure, EncodingPlace } from "#compiler/core/errors.ts"
 import { defect, defined, invariant } from "#compiler/core/invariant.ts"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
@@ -35,6 +35,7 @@ import { type Family, isSequence, isTreeOf } from "#compiler/ir/family.ts"
 import type { FillOrder } from "#compiler/ir/fill.ts"
 import type { LawField, LawRelation, RelationInfo } from "#compiler/ir/law.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
+import { admittedText } from "#compiler/scalar/values/identity.ts"
 import { encodeAddition, type NestedAddition } from "#compiler/write/changeset/value.ts"
 import type { MemberKey, Row } from "#compiler/write/family/draw.ts"
 import {
@@ -240,12 +241,13 @@ export type NestedFact = { readonly [field: string]: unknown }
 /**
  * A row one nested write fills, of a relation its family statements write: the host value of every column of its row
  * layout the walk filled, by key, every column but those its counted families fill afterwards (`NestedLayout`
- * pending); its fields' host values by name, which the host's same-key checks read; and its identity, the texts of
- * every column the walk filled, its key's first, so two rows are one exactly when each such column is. The identity is
- * those texts themselves, never one text joined from them: its size is its row's arity, whatever its texts' lengths.
+ * pending); its fields' host values by name, which the host's same-key checks read; and its identity, the canonical
+ * texts of every column the walk filled (scalar/values/identity.ts canonicalText), its key's first, so two rows are one
+ * exactly when each such column is. The identity is those texts themselves, never one text joined from them: its size
+ * is its row's arity, whatever its texts' lengths.
  */
 export interface NestedRow {
-	readonly identity: ReadonlyArray<ParamText>
+	readonly identity: ReadonlyArray<string>
 	/** Its key's texts, which its relation's rows are a set by. */
 	readonly key: MemberKey
 	readonly values: ReadonlyMap<ColumnKey, unknown>
@@ -253,11 +255,11 @@ export interface NestedRow {
 }
 
 /**
- * One element of a nested fact's signature: a text of its own row, the insert's own statement's to write, or a row it
- * nests as its relation's set holds it, the first of its identity, so two facts nest one row exactly when they hold one
- * element.
+ * One element of a nested fact's signature: a canonical text of its own row, the insert's own statement's to write, or
+ * a row it nests as its relation's set holds it, the first of its identity, so two facts nest one row exactly when they
+ * hold one element.
  */
-type Signed = ParamText | NestedRow
+type Signed = string | NestedRow
 
 /**
  * One stratum's nested writes as sets (rule 0), across its every nested input, array or Stream: each insert's facts by
@@ -274,7 +276,7 @@ export interface NestedSet {
 		string,
 		TupleMap<ReadonlyArray<ParamText>, TupleMap<ReadonlyArray<Signed>, NestedFact>>
 	>
-	readonly rows: Map<string, TupleMap<MemberKey, TupleMap<ReadonlyArray<ParamText>, NestedRow>>>
+	readonly rows: Map<string, TupleMap<MemberKey, TupleMap<ReadonlyArray<string>, NestedRow>>>
 }
 
 /** A stratum's nested writes before any fact: no fact and no row. */
@@ -351,15 +353,15 @@ export const nestedRows = (
 		const key = keyFields.map((f) => text(nesting, f.type, root.values.get(fieldKey(f.name))))
 		const signature: Array<Signed> =
 			nesting.root.kind === "plain"
-				? nesting.top.map((c) => text(nesting, c.type, own[c.name]))
+				? nesting.top.map((c) => canonical(nesting, c.type, own[c.name]))
 				: []
 		for (const [reached, list] of rowsOf(nesting, root)) {
 			const known =
 				into.rows.get(reached) ??
-				new TupleMap<MemberKey, TupleMap<ReadonlyArray<ParamText>, NestedRow>>()
+				new TupleMap<MemberKey, TupleMap<ReadonlyArray<string>, NestedRow>>()
 			into.rows.set(reached, known)
 			for (const row of list) {
-				const identities = known.get(row.key) ?? new TupleMap<ReadonlyArray<ParamText>, NestedRow>()
+				const identities = known.get(row.key) ?? new TupleMap<ReadonlyArray<string>, NestedRow>()
 				known.set(row.key, identities)
 				const held = identities.get(row.identity) ?? row
 				identities.set(row.identity, held)
@@ -435,9 +437,13 @@ export const nestedRowsOf = (
 		})
 	)
 
-/** A value's text in its column's carrier, as the transport writes it. */
+/** A key value's text in its column's carrier, as the transport writes it. */
 const text = (nesting: Nesting, type: LawField["type"], value: unknown): ParamText =>
 	admittedParam(carrierSpecOf(type, nesting.codes), value)
+
+/** A value's canonical text in its column's carrier, its identity (scalar/values/identity.ts canonicalText). */
+const canonical = (nesting: Nesting, type: LawField["type"], value: unknown): string =>
+	admittedText(carrierSpecOf(type, nesting.codes), value)
 
 /**
  * A split fact as the filler's nesting: each level's own fields admitted through its normalizer, iteratively, members
@@ -520,18 +526,16 @@ const nestedRowOf = (nesting: Nesting, at: NestedLayout, row: FilledNode): Neste
 			)
 		)
 	)
-	const textOf = (c: RowLayout["columns"][number]): ParamText =>
-		text(nesting, c.type, values.get(c.key))
 	return {
-		identity: Object.freeze(filled.map(textOf)),
-		key: mapNonEmpty(at.layout.key, textOf),
+		identity: Object.freeze(filled.map((c) => canonical(nesting, c.type, values.get(c.key)))),
+		key: mapNonEmpty(at.layout.key, (c) => text(nesting, c.type, values.get(c.key))),
 		values,
 		fact
 	}
 }
 
 /**
- * A relation's row in its row layout's texts (draw.ts Row), from the host value of every column of it: a nested row's
+ * A relation's row in its row layout's cells (draw.ts Row), from the host value of every column of it: a nested row's
  * once the walk and its counted families' fills hold every column.
  */
 export const rowOfValues = (
@@ -539,13 +543,16 @@ export const rowOfValues = (
 	layout: RowLayout,
 	values: ReadonlyMap<ColumnKey, unknown>
 ): Row => {
-	const textOf = (c: RowLayout["columns"][number]): ParamText => {
+	const valueOf = (c: RowLayout["columns"][number]): unknown => {
 		if (!values.has(c.key)) {
 			throw defect(`a column ${c.key} of ${layout.relation} its fills filled`)
 		}
-		return admittedParam(carrierSpecOf(c.type, codes), values.get(c.key))
+		return values.get(c.key)
 	}
-	return { key: mapNonEmpty(layout.key, textOf), columns: layout.columns.map(textOf) }
+	return {
+		key: mapNonEmpty(layout.key, (c) => admittedParam(carrierSpecOf(c.type, codes), valueOf(c))),
+		columns: layout.columns.map((c) => admittedCell(carrierSpecOf(c.type, codes), valueOf(c)))
+	}
 }
 
 /**

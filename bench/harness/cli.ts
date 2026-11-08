@@ -25,19 +25,20 @@ const usage = (reason: string): Effect.Effect<never, UsageError> =>
 	Effect.fail(new UsageError({ reason }))
 
 /**
- * The benchmarks with an entry point of their own: the cold starts, and, with no database, the subset construction and
- * a large schema's build and compile.
+ * The benchmarks with an entry point of their own: the cold starts, a bytes value's delivery at each chunk length, and,
+ * with no database, the subset construction and a large schema's build and compile.
  */
-type Suite = "cold" | "dfa" | "compile"
+type Suite = "cold" | "dfa" | "compile" | "bytes"
 
 const suiteEntries: Readonly<Record<Suite, string>> = {
 	cold: `${repoRoot}/bench/cold/main.ts`,
 	dfa: `${repoRoot}/bench/dfa/main.ts`,
-	compile: `${repoRoot}/bench/compile/main.ts`
+	compile: `${repoRoot}/bench/compile/main.ts`,
+	bytes: `${repoRoot}/bench/bytes/main.ts`
 }
 
 const suiteOf = (command: string | undefined): Option.Option<Suite> =>
-	Arr.findFirst(["cold", "dfa", "compile"] as const, (s) => s === command)
+	Arr.findFirst(["cold", "dfa", "compile", "bytes"] as const, (s) => s === command)
 
 type Listed = "gates" | "list" | "all"
 

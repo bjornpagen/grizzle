@@ -5,7 +5,8 @@
  * wrote; the architecture's zones (.fallowrc.json) give this module to the decode sites alone.
  *
  * - `convert` reads the text PostgreSQL writes for the column into its host value in its one form, trusting it
- *   (values/convert.ts): the text is PostgreSQL's own output of a value of the column's type, so nothing is checked.
+ *   (values/convert.ts): the text is PostgreSQL's own output of a value of the column's type, so nothing is checked. A
+ *   bytes column's cell is no text but its value, which its statement's delivery assembled (codec/delivery.ts).
  * - `cellText` reads the one text of the value a cell spells straight off the cell, with no host value between: the
  *   identity the shell stitches parent keys by.
  *
@@ -21,7 +22,7 @@
  * | uuid | uuid_out text |
  * | date | date_out text under DateStyle ISO |
  * | text | the string |
- * | bytes | byteaout text under bytea_output = hex, `\x` and lowercase hex digits, read into a fresh Uint8Array |
+ * | bytes | no text: the cell is the value its delivery assembled (codec/delivery.ts), its one text its windows-1252 decode |
  * | code | int2out text, read as the handle the code names |
  * | bits | bit_out text, read as the set of handles |
  * | range4, range8, rangeDate | range_out of a bounded half-open range |
@@ -35,29 +36,38 @@
  * Money is read through money::numeric under the fixed C.UTF-8 monetary context.
  */
 import { carrierSpecOf } from "#compiler/codec/scalar.ts"
+import { bytesValueOf, outputTextOf } from "#compiler/core/decoder.ts"
 import { bitInputText, hexOfBitText } from "#compiler/core/hex.ts"
-import type { OutputText } from "#compiler/core/wire.ts"
+import type { Cell } from "#compiler/core/wire.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { Carrier, ScalarType } from "#compiler/ir/scalar.ts"
-import { type Converter, convertByCarrier } from "#compiler/scalar/values/convert.ts"
+import { bytesText } from "#compiler/scalar/values/bytes.ts"
+import {
+	type Converter,
+	convertByCarrier,
+	type TextCarrier
+} from "#compiler/scalar/values/convert.ts"
 import type { CarrierHost, CarrierSpec, SpecOf } from "#compiler/scalar/values/identity.ts"
 
-/** A column's reader: its cell's host value, and the one text of the value its cell spells. */
+/** A column's reader: its cell's host value, and the one text of the value its cell holds. */
 export interface ScalarReader {
 	readonly type: ScalarType
 	/** The exact carrier's spec (values/identity.ts), which compares two values the reader converted. */
 	readonly spec: CarrierSpec
-	/** PostgreSQL's output text of a value of this type, converted into its canonical host value, trusting it. */
-	readonly convert: (cell: OutputText) => CarrierHost[Carrier]
 	/**
-	 * The one text of the value an output text spells, read off the text: two cells of this type have equal cell texts
-	 * exactly when their values are equal. The cell itself for the carriers whose output is already one text per value;
+	 * A delivered cell of this type as its canonical host value, trusting it: PostgreSQL's output text converted, or a
+	 * bytes column's assembled value itself.
+	 */
+	readonly convert: (cell: Cell) => CarrierHost[Carrier]
+	/**
+	 * The one text of the value a cell holds, read off the cell: two cells of this type have equal cell texts exactly
+	 * when their values are equal. The cell itself for the carriers whose output is already one text per value;
 	 * numeric with trailing fractional zeros dropped, which is the value's canonical text; a float's "-0" as "0", and
 	 * otherwise float4out's or float8out's own shortest spelling; a vector's "-0" components as "0"; a boolean's "t"/"f"
-	 * as "true"/"false"; a set's 0s and 1s as X and their hex digits. Chosen once per column; no allocation where the
-	 * cell is already the one text.
+	 * as "true"/"false"; a set's 0s and 1s as X and their hex digits; a bytes value's windows-1252 decode, its one text
+	 * (scalar/values/bytes.ts bytesText). Chosen once per column; no allocation where the cell is already the one text.
 	 */
-	readonly cellText: (cell: OutputText) => string
+	readonly cellText: (cell: Cell) => string
 }
 
 const itself = (cell: string): string => cell
@@ -109,8 +119,8 @@ const bitsCellText = (cell: string): string => bitInputText(hexOfBitText(cell))
 /** boolout's t and f, or bool::text's true and false: one letter tells them apart. */
 const boolCellText = (cell: string): string => (cell.startsWith("t") ? "true" : "false")
 
-/** The one text of the value an output cell spells, per carrier, chosen once per column. */
-const cellTextByCarrier: { readonly [C in Carrier]: (cell: string) => string } = {
+/** The one text of the value an output cell spells, per text carrier, chosen once per column. */
+const cellTextByCarrier: { readonly [C in TextCarrier]: (cell: string) => string } = {
 	int2: itself,
 	int4: itself,
 	int8: itself,
@@ -122,7 +132,6 @@ const cellTextByCarrier: { readonly [C in Carrier]: (cell: string) => string } =
 	uuid: itself,
 	date: itself,
 	text: itself,
-	bytes: itself,
 	code: itself,
 	bits: bitsCellText,
 	range4: itself,
@@ -133,21 +142,32 @@ const cellTextByCarrier: { readonly [C in Carrier]: (cell: string) => string } =
 	exactMoney: numericCellText
 }
 
-/** The reader of one carrier's spec: its conversion read through the spec's own carrier. */
-const readerOf = <C extends Carrier>(
+/** The reader of one text carrier's spec: its conversion read through the spec's own carrier, of a text cell. */
+const textReaderOf = <C extends TextCarrier>(
 	type: ScalarType,
 	spec: SpecOf<C> & CarrierSpec
 ): ScalarReader => {
 	const own: SpecOf<C> = spec
 	const convertOf: (spec: SpecOf<C>) => Converter<C> = convertByCarrier[own.carrier]
+	const convert = convertOf(own)
+	const text = cellTextByCarrier[own.carrier]
 	return Object.freeze({
 		type,
 		spec,
-		convert: convertOf(own),
-		cellText: cellTextByCarrier[own.carrier]
+		convert: (cell: Cell) => convert(outputTextOf(cell)),
+		cellText: (cell: Cell) => text(outputTextOf(cell))
 	})
 }
 
 /** The reader of a descriptor under an installation's codes: every descriptor has one, its carrier's. */
-export const scalarReader = (type: ScalarType, codes: Codebook): ScalarReader =>
-	readerOf(type, carrierSpecOf(type, codes))
+export const scalarReader = (type: ScalarType, codes: Codebook): ScalarReader => {
+	const spec = carrierSpecOf(type, codes)
+	return spec.carrier === "bytes"
+		? Object.freeze({
+				type,
+				spec,
+				convert: bytesValueOf,
+				cellText: (cell: Cell) => bytesText(bytesValueOf(cell))
+			})
+		: textReaderOf(type, spec)
+}

@@ -507,7 +507,7 @@ export const provedCore = (
 	targets: ReadonlyArray<Target>,
 	from: ReadonlyArray<FromItem>,
 	where: Expr | undefined
-): SetCore => ({
+): Extract<SetCore, { readonly distinct: false }> => ({
 	kind: "core",
 	distinct: false,
 	rows,

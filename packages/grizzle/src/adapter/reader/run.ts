@@ -21,13 +21,13 @@ import {
 import type { BatchStatement, Flight } from "#adapter/wire/batch.ts"
 import {
 	type Carrier,
+	type Cell,
 	type Codebook,
 	defined,
 	type Layout,
-	type OutputText,
 	type ParamId,
 	type Row,
-	rowText
+	rowCell
 } from "#compiler/plan/common.ts"
 import { scalarReader } from "#compiler/plan/decode.ts"
 import {
@@ -101,11 +101,11 @@ type BoundPlan =
 /** One value of an ordered column, converted from its text: a host value of its carrier. */
 type OrderValue = CarrierHost[Carrier]
 
-/** A row's key under an order: the order's columns converted from the row's texts, in the order's key order. */
+/** A row's key under an order: the order's columns converted from the row's cells, in the order's key order. */
 type OrderKey = ReadonlyArray<OrderValue>
 
-/** How a heading group reads a row's key from its statement's texts. */
-type KeyReader = (texts: ReadonlyArray<OutputText>) => OrderKey
+/** How a heading group reads a row's key from its statement's cells. */
+type KeyReader = (cells: ReadonlyArray<Cell>) => OrderKey
 
 /**
  * An order over a heterogeneous union's heading groups: each group, in group order, with its reading of a row's key
@@ -222,10 +222,10 @@ export const groupOrder = <G>(
 			}))
 			return {
 				group,
-				key: (texts): OrderKey => {
+				key: (row): OrderKey => {
 					const key: Array<OrderValue> = []
 					for (const cell of cells) {
-						key.push(cell.convert(rowText(texts, cell.at)))
+						key.push(cell.convert(rowCell(row, cell.at)))
 					}
 					return key
 				}
@@ -400,7 +400,7 @@ const mergedOn = <G>(
 	const compare = (a: Keyed<G>, b: Keyed<G>) => order.compare(a.key, b.key)
 	const sorted = order.groups.map(({ group, key }) =>
 		rowsOfGroup(group)
-			.map((row): Keyed<G> => ({ row, group, key: key(row.texts) }))
+			.map((row): Keyed<G> => ({ row, group, key: key(row.cells) }))
 			.toSorted(compare)
 	)
 	return mergeHeadingGroups(sorted, compare, limit).map((one) => one.row)
@@ -467,7 +467,7 @@ const mergedRows = <T>(
 			const rekeyed = taken.map((one): Keyed<Reordered> => ({
 				row: one.row,
 				group: one.group,
-				key: one.group.key(one.row.texts)
+				key: one.group.key(one.row.cells)
 			}))
 			return rekeyed
 				.toSorted((a, b) => merge.order(a.key, b.key))

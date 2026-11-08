@@ -27,7 +27,7 @@ import { NodeId, ParamId } from "#compiler/core/ids.ts"
 import { maxStringLength } from "#compiler/core/limits.ts"
 import { formatLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { trusted } from "#compiler/core/trusted.ts"
-import type { ParamText } from "#compiler/core/wire.ts"
+import type { Cell, ParamText } from "#compiler/core/wire.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import { relNode, rooted, topoOrder } from "#compiler/ir/dag.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
@@ -301,6 +301,15 @@ const printCase = (o: OrderedCase): string =>
 	)}${o.negativeZero ? ", relation parameters' float zeros passed as -0" : ""}\n${printQueryCase(o.c)}`
 
 type Row = ReadonlyArray<string>
+
+/**
+ * A delivered cell as PostgreSQL's output text of its value, which D reads every cell as: a text column's cell itself,
+ * a bytes column's assembled value as byteaout's hex text.
+ */
+const outputOf = (cell: Cell): string => (typeof cell === "string" ? cell : `\\x${cell.toHex()}`)
+
+/** A delivered row's cells as PostgreSQL's output texts (`outputOf`). */
+const outputRow = (cells: ReadonlyArray<Cell>): Row => Arr.map(cells, outputOf)
 
 /** A value the case's structure guarantees: its absence is a defect of the suite. */
 const defined = <A>(value: A | undefined, what: string): A => {
@@ -753,7 +762,7 @@ const pager =
 					const heading = e.statement.run.statement.heading
 					return Arr.map(runtime.page.heading, (c) =>
 						defined(
-							e.raw[
+							outputRow(e.raw)[
 								Option.getOrThrowWith(
 									Arr.findFirstIndex(heading, (h) => h.name === c.name),
 									() => new Error("a column the case's own heading holds")
@@ -789,22 +798,22 @@ const pager =
 				})
 				const parentRows: ReadonlyArray<Row> =
 					parent.role.kind === "attachment"
-						? (rows.attachments.get(parentRecord) ?? [])
+						? Arr.map(rows.attachments.get(parentRecord) ?? [], outputRow)
 						: Arr.map(
 								Arr.filter(rows.edges, (e) => e.statement === parentRecord),
-								(e) => e.raw
+								(e) => outputRow(e.raw)
 							)
 				expected++
 				const edgeKey = (edge: PageRows["edges"][number] | undefined): string | undefined =>
 					edge?.statement === parentRecord
-						? keyValue(edge.raw, positions, parentKey, codes)
+						? keyValue(outputRow(edge.raw), positions, parentKey, codes)
 						: undefined
 				attached.push({
 					width: parentKey.length,
 					parents: Arr.map(parentRows, (row) => keyValue(row, positions, parentKey, codes)),
 					rows: valueRows(
 						statementOutput(statement.role, statement.heading, statement.fused).heading,
-						rows.attachments.get(record) ?? [],
+						Arr.map(rows.attachments.get(record) ?? [], outputRow),
 						codes
 					),
 					head: edgeKey(rows.edges[0]),

@@ -88,7 +88,9 @@ const reach: { readonly [N in BuiltinFunctionName]: "row" | "rows" } = {
 	bit_or: "rows",
 	string_agg: "rows",
 	generate_subscripts: "row",
-	make_date: "row"
+	make_date: "row",
+	encode: "row",
+	generate_series: "row"
 }
 
 /** What a call over many rows is: an aggregate's, count(*) among them, or a window call. */

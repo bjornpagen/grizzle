@@ -23,6 +23,7 @@ import {
 	arrayTexts,
 	normalArray,
 	normalForm,
+	parameterNormalizer,
 	positionalColumns,
 	type RelationSpec,
 	relationNormalizer
@@ -242,7 +243,7 @@ describe("relation normalization", () => {
 					slot: { kind: "slot", name: "slots" },
 					codes: kindCodes
 				}
-				const normalize = relationNormalizer(spec)
+				const normalize = parameterNormalizer(spec)
 				yield* searched(
 					ctx,
 					explore(
@@ -448,7 +449,7 @@ describe("relation normalization", () => {
 					codes: kindCodes
 				}
 				const encode = arraysEncoder(spec)
-				const normalize = relationNormalizer(spec)
+				const normalize = parameterNormalizer(spec)
 				const spellings: Arr.NonEmptyReadonlyArray<string> = [
 					"1",
 					"1.0",
