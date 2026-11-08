@@ -7,12 +7,14 @@ import { testTimeout } from "#test/support/limits.ts"
 /**
  * One line a mutation run prints for main.ts to read: a failed test, by its file relative to the tree and its path of
  * suite and test names (`(file)` when the file itself failed: it did not load, or a hook outside every suite threw); a
- * file still running once fileTimeout has passed since Vitest queued it; or the run's end.
+ * file still running once fileTimeout has passed since Vitest queued it; or the run's end: done, or died, where a test
+ * process failed with an error no file claims, as one that ran out of memory does.
  */
 export type RunLine =
 	| { readonly kind: "fail"; readonly file: string; readonly test: string }
 	| { readonly kind: "hung"; readonly file: string }
 	| { readonly kind: "done" }
+	| { readonly kind: "died" }
 
 /** What starts each of the reporter's lines, its RunLine's JSON after it: every other stdout line is Vitest's. */
 export const runLineMarker = "GRIZZLE-MUTATE "
@@ -63,8 +65,8 @@ const pathOf = (error: SerializedError): Option.Option<string> => {
  * The mutation tester's reporter (main.ts runFiles): beside Vitest's default reporter, it prints one JSON line on
  * stdout per failed test as the test ends, so main.ts can stop a run at a first kill, one per suite whose own hooks
  * failed (a suite layer that did not build), one per file that failed outside every suite, one per unhandled error a
- * file raised, one for a file that runs past fileTimeout, after which main.ts kills the run, and one when the run ends.
- * A skipped or todo test never counts.
+ * file raised, one for a file that runs past fileTimeout, after which main.ts kills the run, and one when the run ends,
+ * which says the run died where an unhandled error names no file. A skipped or todo test never counts.
  */
 export default class MutationReporter implements Reporter {
 	/** The clock of each queued file that has not ended, by the file's Vitest id, in a scope as long as the reporter's. */
@@ -100,14 +102,14 @@ export default class MutationReporter implements Reporter {
 		unhandledErrors: ReadonlyArray<SerializedError>
 	): void => {
 		Effect.runFork(FiberMap.clear(this.#clocks))
-		for (const error of unhandledErrors) {
-			const module = Option.flatMap(pathOf(error), (path) =>
+		const claimed = Arr.map(unhandledErrors, (error) =>
+			Option.flatMap(pathOf(error), (path) =>
 				Arr.findFirst(testModules, (candidate) => candidate.moduleId === path)
 			)
-			if (Option.isSome(module)) {
-				failed(module.value, "(file)")
-			}
+		)
+		for (const module of Arr.getSomes(claimed)) {
+			failed(module, "(file)")
 		}
-		print({ kind: "done" })
+		print(Arr.some(claimed, Option.isNone) ? { kind: "died" } : { kind: "done" })
 	}
 }

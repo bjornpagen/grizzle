@@ -533,12 +533,13 @@ interface FileRun {
 }
 
 /**
- * Where reading a child's stdout stands: reading on, past the child's last line, stopped by a failure, or stopped by a
- * file the reporter calls hung.
+ * Where reading a child's stdout stands: reading on, past the child's last line, past its last line saying a test
+ * process died with an error no file claims, stopped by a failure, or stopped by a file the reporter calls hung.
  */
 type Reading =
 	| { readonly kind: "reading" }
 	| { readonly kind: "done" }
+	| { readonly kind: "died" }
 	| { readonly kind: "stopped" }
 	| { readonly kind: "hung"; readonly file: string }
 
@@ -550,6 +551,7 @@ const closedByItself = (reading: Reading): boolean => {
 	switch (reading.kind) {
 		case "reading":
 		case "done":
+		case "died":
 			return true
 		case "stopped":
 		case "hung":
@@ -557,10 +559,14 @@ const closedByItself = (reading: Reading): boolean => {
 	}
 }
 
-/** How a run whose reading stands so has ended, once its stdout is read: a run whose stdout closed early died. */
+/**
+ * How a run whose reading stands so has ended, once its stdout is read: a run whose stdout closed early died, and so did
+ * one whose reporter says a test process did.
+ */
 const endOf = (reading: Reading): RunEnd => {
 	switch (reading.kind) {
 		case "reading":
+		case "died":
 			return { kind: "crash" }
 		case "done":
 		case "stopped":
@@ -608,6 +614,8 @@ const runFiles = Effect.fn("runFiles")(function* (settings: Settings, run: FileR
 				return Effect.as(Ref.set(reading, { kind: "hung", file: line.file }), false)
 			case "done":
 				return Effect.as(Ref.set(reading, { kind: "done" }), true)
+			case "died":
+				return Effect.as(Ref.set(reading, { kind: "died" }), true)
 		}
 	}
 	/** Records one stdout line and says whether to read on: a line of the reporter's (reporter.ts) is a RunLine. */
