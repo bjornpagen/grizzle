@@ -3,6 +3,7 @@ import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
 import {
 	array,
+	constant,
 	element,
 	filter,
 	type Gen,
@@ -383,13 +384,17 @@ type ProgramArg =
 	| { readonly kind: "program"; readonly over: SchemaName; readonly pick: number }
 	| { readonly kind: "no program"; readonly value: Drawn<never, never> }
 
+/**
+ * A programs argument by what it is, each an object as workload()'s type asks: a plain record, a list, or a function. No
+ * value is two of them, so a case's verdict is its arm's: an empty record is a record, never a wild value.
+ */
 type ProgramsArg =
 	| {
 			readonly kind: "record"
 			readonly entries: ReadonlyArray<{ readonly name: string; readonly program: ProgramArg }>
 	  }
 	| { readonly kind: "list"; readonly programs: ReadonlyArray<ProgramArg> }
-	| { readonly kind: "wild"; readonly value: Drawn<never, never> }
+	| { readonly kind: "function" }
 
 interface SignatureCase {
 	readonly schema: Drawn<SchemaName, never>
@@ -401,12 +406,6 @@ const wildData: Gen<Drawn<never, never>> = map(wild(dataKinds), (w): Drawn<never
 	kind: "wild",
 	wild: w
 }))
-
-/** A wild value that is an object or a function: what a programs argument's type admits, of no record's shape. */
-const wildObject: Gen<Drawn<never, never>> = map(
-	wild(["function", "anything"]),
-	(w): Drawn<never, never> => ({ kind: "wild", wild: w })
-)
 
 const programArgGen: Gen<ProgramArg> = weighted<ProgramArg>([
 	[4, (s) => ({ kind: "program", over: s.draw(schemaNameGen), pick: s.draw(pickGen) })],
@@ -436,7 +435,7 @@ const signatureCaseGen: Gen<SignatureCase> = (source) => ({
 				})
 			],
 			[1, (s) => ({ kind: "list", programs: s.draw(array(programArgGen, { min: 0, max: 2 })) })],
-			[1, (s) => ({ kind: "wild", value: s.draw(wildObject) })]
+			[1, constant<ProgramsArg>({ kind: "function" })]
 		])
 	),
 	extra: source.draw(array(wildData, { min: 0, max: 1 }))
@@ -462,32 +461,24 @@ const admits = (c: SignatureCase): boolean => {
 	)
 }
 
-/**
- * The value a case passes as workload()'s programs, which its type asks to be an object: a record, a list, or a wild
- * object or function; a wild value of another kind no typed caller can pass.
- */
-const programsValue = (p: ProgramsArg): Option.Option<object> => {
+/** The value a case passes as workload()'s programs. */
+const programsValue = (p: ProgramsArg): object => {
 	switch (p.kind) {
 		case "record":
-			return Option.some(
-				Rec.fromEntries(Arr.map(p.entries, (e) => [e.name, programValue(e.program)] as const))
-			)
+			return Rec.fromEntries(Arr.map(p.entries, (e) => [e.name, programValue(e.program)] as const))
 		case "list":
-			return Option.some(Arr.map(p.programs, programValue))
-		case "wild": {
-			const value = passed(p.value)
-			return (typeof value === "object" && value !== null) || typeof value === "function"
-				? Option.some(value)
-				: Option.none()
-		}
+			return Arr.map(p.programs, programValue)
+		case "function":
+			return () => undefined
 	}
 }
 
 type SignatureFeature =
 	| "admitted"
 	| "a wild schema"
+	| "an empty programs record"
 	| "programs as a list"
-	| "wild programs"
+	| "programs as a function"
 	| "an empty program name"
 	| "a value that is no program"
 	| "a program over another schema"
@@ -505,8 +496,11 @@ const signatureFeatures = (c: SignatureCase): ReadonlyArray<SignatureFeature> =>
 	return [
 		...(admits(c) ? ["admitted" as const] : []),
 		...(c.schema.kind === "wild" ? ["a wild schema" as const] : []),
+		...(c.programs.kind === "record" && c.programs.entries.length === 0
+			? ["an empty programs record" as const]
+			: []),
 		...(c.programs.kind === "list" ? ["programs as a list" as const] : []),
-		...(c.programs.kind === "wild" ? ["wild programs" as const] : []),
+		...(c.programs.kind === "function" ? ["programs as a function" as const] : []),
 		...(Arr.some(programs, ([name]) => name === "") ? ["an empty program name" as const] : []),
 		...(Arr.some(programs, ([, p]) => p.kind === "no program")
 			? ["a value that is no program" as const]
@@ -549,8 +543,9 @@ describe("workload()'s signature", () => {
 							[
 								"admitted",
 								"a wild schema",
+								"an empty programs record",
 								"programs as a list",
-								"wild programs",
+								"programs as a function",
 								"an empty program name",
 								"a value that is no program",
 								"a program over another schema",
@@ -560,7 +555,18 @@ describe("workload()'s signature", () => {
 							],
 							{ cases: 200, sense: notesOnly }
 						),
-						kept: [],
+						kept: [
+							{
+								note: "an empty programs record, which a wild JSON object drew once as wild programs judged refused",
+								sketch: {
+									schema: { kind: "live", value: "Work" },
+									programs: { kind: "record", entries: [] },
+									extra: []
+								},
+								draws: "",
+								reaches: ["admitted", "an empty programs record"]
+							}
+						],
 						runs: 100,
 						shrink: completeShrink,
 						concurrency: 1,
@@ -568,20 +574,16 @@ describe("workload()'s signature", () => {
 						caseHang
 					},
 					(c, k) =>
-						Effect.gen(function* () {
+						Effect.sync(() => {
 							const programs = programsValue(c.programs)
-							yield* k.assume(Option.isSome(programs))
-							if (Option.isNone(programs)) {
-								return
-							}
 							k.noteAll(signatureFeatures(c))
 							const schema =
 								c.schema.kind === "live" ? schemaValue(c.schema.value) : passed(c.schema)
 							const [third] = c.extra
 							const result = catchCompileError(() =>
 								third === undefined
-									? admitWorkload(schema, programs.value)
-									: admitWorkload(schema, programs.value, passed(third))
+									? admitWorkload(schema, programs)
+									: admitWorkload(schema, programs, passed(third))
 							)
 							if (admits(c)) {
 								succeeded(result, "workload() admits a schema and its programs")
