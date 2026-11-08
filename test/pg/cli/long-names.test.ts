@@ -60,11 +60,12 @@ import { testVerify, tokenOf } from "#test/support/worlds.ts"
  * segments lowercase, capitalized or in capitals, which converts back to the allocation. The rule and the catalog are
  * the oracles:
  *
+ * - schemaNameOf of the schema is the allocation, however its declared name is spelled;
  * - at 63 bytes, `grizzle generate` drafts, `grizzle check` passes and `grizzle migrate`, with the configuration's
- *   connection, applies it; the installed schema is the allocation and schemaNameOf of the schema; the roles the
- *   catalog holds under the allocation are exactly roleNameOf of the login, which alone logs in, and of every role, and
- *   the schemas it holds there exactly schemaNameOf of every role; and Db.open of every role, its layer given the
- *   committed snapshot and the password of roleNameOf of the login, logs in and is admitted;
+ *   connection, applies it; the installed schema is the allocation; the roles the catalog holds under the allocation
+ *   are exactly roleNameOf of the login, which alone logs in, and of every role, and the schemas it holds there exactly
+ *   schemaNameOf of every role; and Db.open of every role, its layer given the committed snapshot and the password of
+ *   roleNameOf of the login, logs in and is admitted;
  * - one byte past, `grizzle generate` refuses the name as too long and drafts nothing, and roleNameOf refuses
  *   (RoleNameTooLong) exactly the worlds whose role passes 63 bytes.
  */
@@ -192,6 +193,7 @@ const limitCase = (n: Names, c: Case<LimitFeature>) =>
 				c.note("a schema spelled apart from its conversion")
 			}
 			const world = worldOf(declared, n)
+			assert.equal(schemaNameOf(world.schema), allocated, "schemaNameOf names the allocation")
 			const worlds: ReadonlyArray<Declared> = [
 				{ name: n.login, world: world.login },
 				...Arr.zipWith(n.roles, world.roles, (name, value) => ({ name, world: value }))
@@ -234,7 +236,6 @@ const limitCase = (n: Names, c: Case<LimitFeature>) =>
 			const text = yield* fs.readFileString(`${dir}/migrations/${allocated}/snapshot.json`)
 			const catalog = yield* readCatalog(substrate.admin, allocated)
 			assert.equal(catalog.kind, "present", `the schema is installed as ${allocated}`)
-			assert.equal(schemaNameOf(world.schema), allocated, "schemaNameOf names the installed schema")
 			const loginRole = roleNameOf(world.login)
 			const roles = Arr.map(world.roles, roleNameOf)
 			assert.ok(
