@@ -1048,6 +1048,17 @@ const regionProps = (node: NodeOf<"MatchRegion">, cx: RuleContext): PhysicalProp
 		}
 		return occ.bindings.find((x) => x.column === column)?.var.name
 	}
+	/** The variable a fixed value is bound to where it is a column of a local node bound to one: an outer value's. */
+	const equalVar = (value: Fixed): string | undefined => {
+		switch (value.kind) {
+			case "outer":
+				return varOf(value.node, value.column)
+			case "literal":
+			case "param":
+			case "expr":
+				return undefined
+		}
+	}
 	const fixVar = (v: string, fact: FixedFact): void => {
 		fixColumn({ fds, fixed }, v, fact.just, fact)
 	}
@@ -1109,7 +1120,9 @@ const regionProps = (node: NodeOf<"MatchRegion">, cx: RuleContext): PhysicalProp
 		>()
 		/**
 		 * A column fixed to the value `f` names: the variable it is bound to is fixed by it where it holds outright, and
-		 * determined by the variables it is known from otherwise; a column bound to no variable is known per evaluation.
+		 * determined by the variables it is known from otherwise, and where the value is a column of this region's own
+		 * nodes, the variable bound to the one determines the variable bound to the other, the two being one value; a
+		 * column bound to no variable is known per evaluation.
 		 */
 		const fixedColumn = (c: string, f: FixedFact): void => {
 			const l = localize(f.just)
@@ -1127,8 +1140,9 @@ const regionProps = (node: NodeOf<"MatchRegion">, cx: RuleContext): PhysicalProp
 			}
 			const just = joinJustifications([l.just, eqJust([v, ...l.vars])])
 			fds.imply(l.vars, [v], just)
-			if (f.fixed.kind === "outer" && l.vars.length === 1) {
-				fds.imply([v], l.vars, just)
+			const equal = equalVar(f.fixed)
+			if (equal !== undefined) {
+				fds.imply([v], [equal], just)
 			}
 		}
 		/**
