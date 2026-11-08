@@ -1,5 +1,6 @@
 import type { PreconditionKind } from "#compiler/core/errors.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import type { ComputeFn } from "#compiler/ir/desc.ts"
 import {
 	type DefinedOp,
 	definedOp,
@@ -166,10 +167,10 @@ type CatalogRef =
 	| { readonly kind: "construct"; readonly uses: ReadonlyArray<OpId> }
 
 /**
- * The Compute operation a native node serves, the comparisons, the boolean constructs, the set algebra over a roster,
- * the text operations and the casts; cond has no entry, it is the IR's cond node. The complement serves only the
- * difference and the subset test: it sets a set's hole and padding bits, so no Compute operation yields it; right serves
- * only the suffix test, endsWith; adjoin, a set with one more handle, serves Compute.singleton, over the empty set.
+ * The Compute operation a native node serves (computeNodes), the comparisons, the boolean constructs, the set algebra
+ * over a roster, the text operations and the casts; cond has no entry, it is the IR's cond node. The complement serves
+ * only the difference and the subset test: it sets a set's hole and padding bits, so no Compute operation yields it;
+ * right serves only the suffix test, endsWith.
  */
 export type NativeFn =
 	| "add"
@@ -229,6 +230,59 @@ export type NativeFn =
 	| "disjoint"
 	| "adjoin"
 	| "cast"
+
+/**
+ * The nodes each Compute function lowers to (lower.ts): the node of its own name, or the nodes it composes.
+ * Compute.numeric is a cast into numeric, Compute.width a span's upper endpoint less its lower, and Compute.singleton a
+ * set with one more handle over the empty set. Total over ComputeFn, so a new function names its nodes where it is
+ * added.
+ */
+export const computeNodes: { readonly [F in ComputeFn]: NonEmptyReadonlyArray<NativeFn> } =
+	Object.freeze({
+		add: ["add"],
+		sub: ["sub"],
+		mul: ["mul"],
+		div: ["div"],
+		mod: ["mod"],
+		neg: ["neg"],
+		quot: ["quot"],
+		rem: ["rem"],
+		abs: ["abs"],
+		sign: ["sign"],
+		round: ["round"],
+		trunc: ["trunc"],
+		ceil: ["ceil"],
+		floor: ["floor"],
+		gcd: ["gcd"],
+		lcm: ["lcm"],
+		power: ["power"],
+		sqrt: ["sqrt"],
+		least: ["least"],
+		greatest: ["greatest"],
+		widthBucket: ["widthBucket"],
+		minScale: ["minScale"],
+		numeric: ["cast"],
+		lower: ["lower"],
+		upper: ["upper"],
+		width: ["upper", "lower", "sub"],
+		charLength: ["charLength"],
+		octetLength: ["octetLength"],
+		concat: ["concat"],
+		startsWith: ["startsWith"],
+		endsWith: ["endsWith"],
+		matches: ["matches"],
+		translate: ["translate"],
+		collapse: ["collapse"],
+		parseDouble: ["parseDouble"],
+		cosineDistance: ["cosineDistance"],
+		union: ["union"],
+		intersection: ["intersection"],
+		difference: ["difference"],
+		cardinality: ["cardinality"],
+		subset: ["subset"],
+		disjoint: ["disjoint"],
+		singleton: ["adjoin"]
+	})
 
 /** Operands of one carrier each, in order, at least one. */
 interface PositionalOperands<L extends NonEmptyReadonlyArray<Carrier>> {

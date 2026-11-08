@@ -22,7 +22,7 @@ import { str } from "#compiler/public/text.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
-import { nativeOps } from "#compiler/scalar/compute/registry.ts"
+import { computeNodes, type NativeFn, nativeOps } from "#compiler/scalar/compute/registry.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
 import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
 import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
@@ -158,15 +158,15 @@ describe("R24 conditional aggregates", () => {
 })
 
 /**
- * The description vocabulary the registry must cover (ir/desc.ts): every Compute function but the one that composes
- * other operators, every comparison, the boolean connectives and a cast, each naming a registry node. (One OpId per
- * node is the registry's own load-time invariant.)
+ * The description vocabulary the registry must cover: each node a Compute function lowers to (registry.ts
+ * computeNodes), every comparison, the boolean connectives and a cast, each naming a registry node. (One OpId per node
+ * is the registry's own load-time invariant.)
  */
 type VocabularyWord =
-	| { readonly kind: "function"; readonly fn: ComputeFn }
-	| { readonly kind: "comparison"; readonly fn: CompareOp | "between" | "in" }
-	| { readonly kind: "connective"; readonly fn: "and" | "or" | "not" }
-	| { readonly kind: "cast"; readonly fn: "cast" }
+	| { readonly kind: "function"; readonly fn: ComputeFn; readonly node: NativeFn }
+	| { readonly kind: "comparison"; readonly node: CompareOp | "between" | "in" }
+	| { readonly kind: "connective"; readonly node: "and" | "or" | "not" }
+	| { readonly kind: "cast"; readonly node: "cast" }
 
 /** Every comparison a description states, complete by its type. */
 const comparisons: { readonly [W in CompareOp | "between" | "in"]: W } = {
@@ -180,52 +180,47 @@ const comparisons: { readonly [W in CompareOp | "between" | "in"]: W } = {
 	in: "in"
 }
 
+/** Each Compute function beside each node it lowers to. */
+const functionWords = nonEmpty(
+	Arr.flatMap(computeFns, (fn) =>
+		Arr.map(computeNodes[fn], (node): VocabularyWord => ({ kind: "function", fn, node }))
+	),
+	"the nodes the Compute functions lower to"
+)
+
 describe("the overload registry", () => {
 	it.effect("names a node for every word of the description vocabulary", (ctx) =>
 		Effect.gen(function* () {
-			/**
-			 * The Compute functions that compose other nodes rather than name one of their own: width, a span's upper
-			 * endpoint less its lower, and numeric, a registered cast or the binary coercion.
-			 */
-			const compositions: ReadonlySet<ComputeFn> = new Set<ComputeFn>(["width", "numeric"])
 			const words = oneOf<VocabularyWord>([
-				map(
-					element(
-						nonEmpty(
-							Arr.filter(computeFns, (fn) => !compositions.has(fn)),
-							"the functions that name a node"
-						)
-					),
-					(fn): VocabularyWord => ({
-						kind: "function",
-						fn
-					})
-				),
+				element(functionWords),
 				map(
 					element(nonEmpty(Record.values(comparisons), "the comparisons")),
-					(fn): VocabularyWord => ({
+					(node): VocabularyWord => ({
 						kind: "comparison",
-						fn
+						node
 					})
 				),
-				map(element(["and", "or", "not"] as const), (fn): VocabularyWord => ({
+				map(element(["and", "or", "not"] as const), (node): VocabularyWord => ({
 					kind: "connective",
-					fn
+					node
 				})),
-				element<VocabularyWord>([{ kind: "cast", fn: "cast" }])
+				element<VocabularyWord>([{ kind: "cast", node: "cast" }])
 			])
-			const fns: ReadonlySet<string> = new Set(Arr.map(nativeOps, (op) => op.fn))
+			const listed: ReadonlySet<NativeFn> = new Set(Arr.map(nativeOps, (op) => op.fn))
 			yield* searched(
 				ctx,
 				exhaust(
 					{
-						box: { kind: "unstated" },
-						oracle: { kind: "unstated" },
+						box: "each node every Compute function lowers to, every comparison, every connective and the cast",
+						oracle: {
+							kind: "specification",
+							name: "the registry lists a node of every function it names"
+						},
 						suite: "unit/compute/registry-vocabulary",
 						generator: words,
 						literal: Formatter.format,
 						/** The space is the vocabulary, each word once. */
-						limit: computeFns.length + Record.values(comparisons).length + 4,
+						limit: functionWords.length + Record.values(comparisons).length + 4,
 						coverage: requiredInSpace<`word ${VocabularyWord["kind"]}`>([
 							"word function",
 							"word comparison",
@@ -237,7 +232,10 @@ describe("the overload registry", () => {
 					(word, c) =>
 						Effect.sync(() => {
 							c.note(`word ${word.kind}`)
-							assert.ok(fns.has(word.fn), `the registry names no node for ${word.kind} ${word.fn}`)
+							assert.ok(
+								listed.has(word.node),
+								`the registry lists no ${word.node} node for ${Formatter.format(word)}`
+							)
 						})
 				)
 			)
