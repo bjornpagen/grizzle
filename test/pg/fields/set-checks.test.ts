@@ -18,7 +18,7 @@ import {
 	type StatementsByName
 } from "#compiler/public/schema.ts"
 import { installed } from "#test/pg/reads/support.ts"
-import { assert, containsEqual, deepEquals } from "#test/support/assert.ts"
+import { assert } from "#test/support/assert.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
@@ -30,16 +30,28 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * bits are its handles' codes, and the installed CHECK holds a row exactly when the set algebra over its handles does.
  *
  * The box: every set over a roster of three handles, written as one row of R, whose checks hold its flags apart from
- * {a} and within {a, b}. The model: a row is accepted exactly when its flags miss a and lie within {a, b}; otherwise the
- * write is refused by a check it breaks, and only by one: PostgreSQL reports the first CHECK that fails. A query reads
- * an accepted row back through the same algebra against set values, whether its flags miss b and their union with
- * {c}, which the model computes over plain Sets.
+ * {a} and within {a, b}. The model restates both checks over plain Sets: a row is accepted exactly when its flags hold
+ * both; otherwise the write is refused naming `every` check the flags break, each once, in the schema's canonical order
+ * of its laws, whichever CHECK PostgreSQL tried first, its witness the row's key. A query reads an accepted row back
+ * through the same algebra against set values, whether its flags miss b and their union with {c}, which the model
+ * computes over plain Sets.
+ *
+ * Planted in a scratch copy, a refusal naming only the CHECK PostgreSQL reported, as one did before a refused CHECK
+ * named every law its row breaks, and one naming the broken checks against the canonical order, each fail the box.
  */
-const Flag = closed("Flag", ["a", "b", "c"])
+const handles = ["a", "b", "c"] as const
+type Handle = (typeof handles)[number]
+const Flag = closed("Flag", handles)
 const R = relation("R", { id: pg.integer, flags: bits(Flag) }, ["id"])
-const apart = check("Apart", R, (r) => r.eq(Compute.disjoint(r.flags, Bits.of(Flag, ["a"])), true))
+
+/** The set value Apart holds R's flags apart from, and the one Within holds them within. */
+const apartFrom: ReadonlyArray<Handle> = ["a"]
+const withinOf: ReadonlyArray<Handle> = ["a", "b"]
+const apart = check("Apart", R, (r) =>
+	r.eq(Compute.disjoint(r.flags, Bits.of(Flag, apartFrom)), true)
+)
 const within = check("Within", R, (r) =>
-	r.eq(Compute.subset(r.flags, Bits.of(Flag, ["a", "b"])), true)
+	r.eq(Compute.subset(r.flags, Bits.of(Flag, withinOf)), true)
 )
 const Sets = schema("SetChecks", { Flag, R }, [apart, within])
 
@@ -62,18 +74,46 @@ const readBack = (s: SetsInstalled) =>
 	})
 
 /** Every set over Flag's handles. */
-const handles = ["a", "b", "c"] as const
 const allSets = Arr.map(Arr.range(0, 2 ** handles.length - 1), (mask) =>
 	Arr.filter(handles, (_, i) => (mask & (1 << i)) !== 0)
 )
 
-type Situation = "accepted" | "refused by Apart" | "refused by Within"
+/**
+ * R's checks restated over plain Sets, the oracle: each check's statement beside whether a row's flags hold it, and the
+ * situation of a row that breaks it alone.
+ */
+const restated = [
+	{
+		statement: apart,
+		holds: (flags: ReadonlySet<Handle>) => Arr.every(apartFrom, (h) => !flags.has(h)),
+		alone: "refused by Apart"
+	},
+	{
+		statement: within,
+		holds: (flags: ReadonlySet<Handle>) =>
+			Arr.every(Arr.fromIterable(flags), (h) => withinOf.includes(h)),
+		alone: "refused by Within"
+	}
+] as const
+
+type Restated = (typeof restated)[number]
+
+type Situation = "accepted" | Restated["alone"] | "refused by Apart and Within"
+
+/** The situation of a row breaking `broken`, R's checks its flags break. */
+const situationOf = (broken: ReadonlyArray<Restated>): Situation => {
+	const [only, ...others] = broken
+	if (only === undefined) {
+		return "accepted"
+	}
+	return Arr.isReadonlyArrayEmpty(others) ? only.alone : "refused by Apart and Within"
+}
 
 layer(Substrate.layer, { excludeTestServices: true })(
 	"a row check over a set and a set value",
 	(it) => {
 		it.effect(
-			"holds a row exactly when its flags are disjoint from and a subset of the set values, for every set over the roster",
+			"holds a row exactly when its flags are disjoint from and a subset of the set values, and a refusal names every check they break, for every set over the roster",
 			(ctx) =>
 				searched(
 					ctx,
@@ -97,7 +137,8 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									coverage: requiredInSpace<Situation>([
 										"accepted",
 										"refused by Apart",
-										"refused by Within"
+										"refused by Within",
+										"refused by Apart and Within"
 									]),
 									caseHang
 								},
@@ -108,13 +149,13 @@ layer(Substrate.layer, { excludeTestServices: true })(
 											ChangeSet.empty(o.schema).insert(R, [{ id: 1, flags: Bits.of(Flag, flags) }]),
 											{}
 										)
-										const apartLaw = names.described(names.lawOf(apart))
-										const withinLaw = names.described(names.lawOf(within))
-										const broken = [
-											...(flags.includes("a") ? [apartLaw] : []),
-											...(flags.includes("c") ? [withinLaw] : [])
-										]
-										if (broken.length === 0) {
+										const held = new Set(flags)
+										const broken = Arr.filter(restated, (r) => !r.holds(held))
+										const brokenLaws = new Set(Arr.map(broken, (r) => names.lawOf(r.statement)))
+										const named = Arr.flatMap(names.model.theory.laws, (law) =>
+											brokenLaws.has(law.id) ? [names.described(law.id)] : []
+										)
+										if (!Arr.isReadonlyArrayNonEmpty(named)) {
 											assert.equal(
 												outcome.kind,
 												"accepted",
@@ -134,25 +175,19 @@ layer(Substrate.layer, { excludeTestServices: true })(
 												],
 												"the query's set algebra against set values agrees with the model's"
 											)
-											c.note("accepted")
+											c.note(situationOf(broken))
 											return
 										}
-										if (outcome.kind !== "invariant-rejected") {
-											return assert.fail(`a refusal by a check, not ${outcome.kind}`)
-										}
-										assert.equal(
-											outcome.refused.laws.length,
-											1,
-											"one CHECK fails, and its law is named"
+										assert.deepEqual(
+											outcome,
+											{
+												kind: "invariant-rejected",
+												refused: { kind: "every", laws: named },
+												witness: { kind: "key", relation: "R", values: { id: 1 } }
+											},
+											`${Formatter.format(flags)} is refused naming every check it breaks, each once, in canonical order`
 										)
-										const [law] = outcome.refused.laws
-										containsEqual(broken, law, "the refusing check is one the set breaks")
-										assert.deepEqual(outcome.witness, {
-											kind: "key",
-											relation: "R",
-											values: { id: 1 }
-										})
-										c.note(deepEquals(law, apartLaw) ? "refused by Apart" : "refused by Within")
+										c.note(situationOf(broken))
 									})
 							)
 						}).pipe(
