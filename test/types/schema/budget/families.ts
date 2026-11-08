@@ -1,5 +1,6 @@
 import { Array as Arr, Option } from "effect"
 import { indices } from "#compiler/core/array.ts"
+import { jsonText } from "#compiler/core/trusted.ts"
 import { type PreludeAt, preludeProgram } from "#test/support/prelude.ts"
 
 /**
@@ -18,9 +19,10 @@ import { type PreludeAt, preludeProgram } from "#test/support/prelude.ts"
  * The program asserts the additions at the first and the last unit of each kind (an owner's addition nests its lines
  * at n and each line's parts at m, each less its group; a tree's addition names no parent and its rows below the root
  * no root field, through two levels; a pool's and an item's additions are their written rows), inserts the last of each
- * kind, and keeps the refusals that must fire at scale, each held by its `@ts-expect-error` directive (an unused
- * directive is a diagnostic of its own, TS2578): an ordered member is written under its owner, never alone, and a
- * counted member is never nested under its owner.
+ * kind, states the relations a ChangeSet inserts at its top level (InsertableNameOf: every relation but the lines and
+ * parts, which are ordered members), and keeps the refusals that must fire at scale, each held by its
+ * `@ts-expect-error` directive (an unused directive is a diagnostic of its own, TS2578): an ordered member is written
+ * under its owner, never alone, and a counted member is never nested under its owner.
  *
  * A nested addition is indexed by mapping over the owner's families (types/changeset/changeset.ts AdditionIn), never
  * by a count field's name: an index by name failed with TS2859 at 1,000 families (U1's budget proof, 2026-11-05).
@@ -57,6 +59,10 @@ export const itemCount${u} = fold(items${u}, Monoid.count, on(I${u}, "pool"), on
 /** A unit's relations, in declaration order. */
 const relationsOf = (u: number): ReadonlyArray<string> =>
 	isTreeUnit(u) ? [`T${u}`, `P${u}`, `I${u}`] : [`O${u}`, `F${u}`, `G${u}`]
+
+/** A unit's relations a ChangeSet inserts at its top level: all but an ordered family's members, the lines and parts. */
+const insertableOf = (u: number): ReadonlyArray<string> =>
+	isTreeUnit(u) ? [`T${u}`, `P${u}`, `I${u}`] : [`O${u}`]
 
 /** A unit's statements: its two families and its two folds. */
 const statementsOf = (u: number): ReadonlyArray<string> =>
@@ -123,6 +129,9 @@ export const nestedWrites = ChangeSet.empty(S)
 	.insert(T${lastTree.value}, [{ id, doc: id, children: [{ id, children: [{ id, children: [] }] }] }])
 	.insert(P${lastTree.value}, [{ id }])
 	.insert(I${lastTree.value}, [{ pool: id, w: 1 }, { pool: id, w: 2 }])
+
+/** Every relation a ChangeSet inserts at its top level: each owner, tree, pool and item, never a line or a part. */
+export type Insertable = Expect<Equals<InsertableNameOf<typeof S>, ${Arr.join(Arr.map(Arr.flatMap(units, insertableOf), jsonText), " | ")}>>
 
 /** The refusals that must keep firing at scale. */
 export const memberAlone = ChangeSet.empty(S).insert(

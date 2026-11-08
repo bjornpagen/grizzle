@@ -82,7 +82,7 @@ import {
 	treeBuilder
 } from "#compiler/schema/statements.ts"
 import { rowHelpers } from "#compiler/schema/terms.ts"
-import { role, roleDescOf } from "#compiler/schema/world.ts"
+import { insertableNamesOf, role, roleDescOf } from "#compiler/schema/world.ts"
 import { regexField, str } from "#compiler/text/field.ts"
 import type { TypeRefusal } from "#compiler/types/core/phantom.ts"
 import type { AnyDerived } from "#compiler/types/derived/derived.ts"
@@ -90,10 +90,13 @@ import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { AnyClosed, AnyRelation, AnyRoster } from "#compiler/types/schema/relation.ts"
 import type { AnySchema } from "#compiler/types/schema/schema.ts"
 import type { Statement } from "#compiler/types/schema/statements.ts"
+import { changeSetDesc, changeSetOver } from "#compiler/write/changeset/value.ts"
+import { compileWrite } from "#compiler/write/program/compile.ts"
 import { assert, defined } from "#test/support/assert.ts"
-import { compileTemplate, testArtifacts, testCompile } from "#test/support/compile.ts"
+import { compileTemplate, realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { admitContract, spanDescriptor } from "#test/support/fixtures/descriptors.ts"
 import { messageOf } from "#test/support/message.ts"
+import { checking } from "#test/support/policy.ts"
 /**
  * The schema agreement: schemas drawn as data, each with the engine's verdict on it and on probe statements beside it,
  * and the one TypeScript program that states every verdict as types, which the type tier checks
@@ -105,7 +108,10 @@ import { messageOf } from "#test/support/message.ts"
  * - every fact type, addition, nested addition, key, key lookup, serial set, write list, projection head, statement,
  *   descriptor, literal, closed read and text language the types infer equals what the engine describes: the host type
  *   of each field's scalar type, the fields its writing leaves to the caller, the families its statements nest, the
- *   candidate keys its laws state, each statement's Description, each descriptor's Description and writing.
+ *   candidate keys its laws state, each statement's Description, each descriptor's Description and writing;
+ * - the relations a ChangeSet over the schema, and over its extension, inserts at its top level, InsertableNameOf and
+ *   insertableNamesOf in record order, are those whose insert the engine compiles (topLevelInserts), and insertAll
+ *   takes InsertAllRowsOf of the schema exactly as the engine compiles an insert of every one of them at once.
  *
  * A case is drawn as data (SchemaCase) and read twice: rendered as TypeScript, and built through the builders'
  * JavaScript cores (schema/relation.ts, schema/statements.ts, schema/world.ts, the descriptor cores of
@@ -7642,6 +7648,73 @@ const statedOf = (probe: Probe, env: Env): Stated => {
 	}
 }
 
+/**
+ * The relations of `level` a ChangeSet over it inserts at its top level, in its record's order, as the engine reads
+ * them: each whose insert from an array it builds and compiles over reality, beside an insert of the owner of the base's
+ * ordered or counted family when the relation is its member, since an append to an immutable owner's family needs its
+ * owner inserted in its stratum. insertableNamesOf(level) must name exactly these, in this order, and the engine must
+ * compile an insert of all of them at once, as insertAll of InsertAllRowsOf does.
+ */
+const topLevelInserts = (
+	level: AnySchema,
+	family: FamilySpec | undefined
+): ReadonlyArray<string> => {
+	const artifacts = testArtifacts(level, testCompile)
+	if (!artifacts.ok) {
+		throw new Error(
+			`the engine refuses a drawn schema, a defect of the generator: ${messageOf(artifacts.error)}`
+		)
+	}
+	const checked = checking(level)
+	const options = realityWrite(artifacts.value)
+	const compiles = (names: ReadonlyArray<string>): boolean => {
+		const built = catchCompileError(() =>
+			changeSetOver.empty(level).insertAll(Rec.fromEntries(Arr.map(names, (n) => [n, []] as const)))
+		)
+		if (!built.ok) {
+			return false
+		}
+		const desc = changeSetDesc(built.value)
+		if (desc === undefined) {
+			throw new Error("a ChangeSet the facade built has no Description")
+		}
+		return compileWrite(checked, desc, options).ok
+	}
+	const ownerOf = (name: string): ReadonlyArray<string> =>
+		family !== undefined && family.kind !== "tree" && family.member.relation === name
+			? [family.owner]
+			: []
+	const inserts = Arr.filter(Rec.keys(level.relations), (name) =>
+		compiles([name, ...ownerOf(name)])
+	)
+	assert.deepEqual(
+		insertableNamesOf(level),
+		inserts,
+		"insertableNamesOf names the relations the engine inserts at the top level, in record order"
+	)
+	if (!compiles(inserts)) {
+		throw new Error(
+			`the engine refuses an insert of every top-level relation at once: ${Arr.join(inserts, ", ")}`
+		)
+	}
+	return inserts
+}
+
+/**
+ * The top-level inserts of a level of the case, stated as types: InsertableNameOf is the engine's names, InsertAllRowsOf
+ * is keyed by them, and insertAll takes it.
+ */
+const insertableLines = (
+	level: "S" | "Level",
+	inserts: ReadonlyArray<string>,
+	ids: Ids
+): ReadonlyArray<string> => [
+	`export type ${ids(`t_insertable_${level}`)} = Expect<Equals<Cs.InsertableNameOf<typeof ${ids(level)}>, ${literalUnion(inserts)}>>`,
+	`export type ${ids(`t_rows_${level}`)} = Expect<Equals<keyof Cs.InsertAllRowsOf<typeof ${ids(level)}>, ${literalUnion(inserts)}>>`,
+	`declare const ${ids(`rows_${level}`)}: Cs.InsertAllRowsOf<typeof ${ids(level)}>`,
+	`export const ${ids(`insertAll_${level}`)} = Cs.ChangeSet.empty(${ids(level)}).insertAll(${ids(`rows_${level}`)})`
+]
+
 /** One case: its base's declarations and assertions, its probes' statements, and what it reached. */
 interface SchemaCase {
 	readonly lines: (prefix: string) => ReadonlyArray<string>
@@ -7664,6 +7737,12 @@ const caseOf = ({ base, probes, reached }: Drawn): SchemaCase => {
 	}
 	const stated = Arr.map(probes, (p) => statedOf(p, env))
 	const assertions = (ids: Ids) => baseAssertions(base, env, compiled.value, ids)
+	const levels: ReadonlyArray<readonly ["S" | "Level", ReadonlyArray<string>]> = [
+		["S", topLevelInserts(env.schema, base.family)],
+		...(base.derived === undefined
+			? []
+			: [["Level", topLevelInserts(env.level, base.family)] as const])
+	]
 	return {
 		lines: (prefix) => {
 			const ids: Ids = (name) => `${prefix}_${name}`
@@ -7673,6 +7752,7 @@ const caseOf = ({ base, probes, reached }: Drawn): SchemaCase => {
 					([name, source]) => `export const ${ids(name)} = ${source}`
 				),
 				...assertions(ids),
+				...Arr.flatMap(levels, ([level, inserts]) => insertableLines(level, inserts, ids)),
 				...Arr.flatMap(stated, (s, i) => s.lines(ids, `${prefix}_p${i}`))
 			]
 		},
@@ -7782,7 +7862,7 @@ export const schemaModules = (
 					`import type * as Rf from ${jsonText(entries.relationTypes)}`,
 					`import type * as Er from ${jsonText(entries.errors)}`,
 					`import type * as Rs from ${jsonText(entries.result)}`,
-					`import type * as Cs from ${jsonText(entries.changeset)}`,
+					`import * as Cs from ${jsonText(entries.changeset)}`,
 					`import type * as Ff from ${jsonText(entries.fieldTypes)}`,
 					`import * as Fi from ${jsonText(entries.fields)}`,
 					`import * as Q from ${jsonText(entries.query)}`,

@@ -17,6 +17,7 @@ import {
 	type RelationDesc,
 	type RoleDesc,
 	type RoleEntryDesc,
+	type SchemaDesc,
 	type StatementDesc
 } from "#compiler/ir/desc.ts"
 import { writableEntry } from "#compiler/schema/entry.ts"
@@ -41,6 +42,7 @@ import { record, roleRelations, wholeEntries } from "#compiler/schema/record.ts"
 import { derivedDraftOf, relationContentOf, writingOf } from "#compiler/schema/relation.ts"
 import { expansionDescOf, statementDescOf } from "#compiler/schema/statements.ts"
 import { approximates, attachesHeading, queryUses } from "#compiler/schema/walk.ts"
+import type { InsertableNameOf } from "#compiler/types/changeset/changeset.ts"
 import type { AnyWorkload } from "#compiler/types/db/workload.ts"
 import type { AnyDerived, DefinitionQuery } from "#compiler/types/derived/derived.ts"
 import type { AnyRelation, AnyRoster } from "#compiler/types/schema/relation.ts"
@@ -524,14 +526,32 @@ export const role = <
 }
 
 /**
- * A schema's record of relations, as a caller hands the schema in: a value that is no schema is refused, as role
- * refuses it.
+ * A schema's Description, as a caller hands the schema in: a value that is no schema is refused, as role refuses it.
  */
-const schemaRelations = <Base extends AnySchema>(base: Base, label: string): Base["relations"] => {
-	if (ownedEntry(base, "schema") === undefined) {
+const schemaDesc = (base: AnySchema, label: string): SchemaDesc => {
+	const entry = ownedEntry(base, "schema")
+	if (entry === undefined) {
 		throw malformed(label, "a base schema built by schema(...) or schema.extend(...)")
 	}
+	return entry.desc
+}
+
+/** A schema's record of relations, as a caller hands the schema in, refused as schemaDesc refuses it. */
+const schemaRelations = <Base extends AnySchema>(base: Base, label: string): Base["relations"] => {
+	schemaDesc(base, label)
 	return base.relations
+}
+
+/** The names of the ordinary relations of a schema's record, in its order (writableNamesOf). */
+const ordinaryNames = <Base extends AnySchema>(
+	relations: Base["relations"]
+): ReadonlyArray<WritableNameOf<Base>> => {
+	const ordinary = (
+		entry: [string, AnySchema["relations"][string]]
+	): entry is [WritableNameOf<Base>, AnyRelation] => entry[1].kind === "relation"
+	return Object.entries(relations)
+		.filter(ordinary)
+		.map(([name]) => name)
 }
 
 /**
@@ -550,15 +570,38 @@ export const wholeEntriesOf = <Base extends AnySchema>(base: Base): WholeEntries
  */
 export const writableNamesOf = <Base extends AnySchema>(
 	base: Base
-): ReadonlyArray<WritableNameOf<Base>> => {
-	const ordinary = (
-		entry: [string, AnySchema["relations"][string]]
-	): entry is [WritableNameOf<Base>, AnyRelation] => entry[1].kind === "relation"
-	return Object.freeze(
-		Object.entries(schemaRelations(base, "writableNamesOf"))
-			.filter(ordinary)
-			.map(([name]) => name)
-	)
+): ReadonlyArray<WritableNameOf<Base>> =>
+	Object.freeze(ordinaryNames<Base>(schemaRelations(base, "writableNamesOf")))
+
+/**
+ * The member relations of a schema's ordered families, every level's: each is written nested in order under its owner,
+ * never inserted alone (write/frontend/compile.ts sequenceOf). A counted family's member and a tree's relation are
+ * inserted as rows of their own.
+ */
+const orderedMembersOf = (schema: SchemaDesc): ReadonlySet<string> => {
+	const members = new Set<string>()
+	for (let level: SchemaDesc | undefined = schema; level !== undefined; level = level.extends) {
+		for (const statement of level.statements) {
+			if (statement.kind === "family" && statement.order === "ordered") {
+				members.add(statement.member.relation)
+			}
+		}
+	}
+	return members
+}
+
+/**
+ * insertableNamesOf(base): the names of the relations a ChangeSet over the base inserts at its top level, in its
+ * record's order: every one writableNamesOf names but an ordered family's member, which is written nested in order
+ * under its owner. `ChangeSet.empty(base).insertAll(rows)` takes every one of them under its own name, its rows typed
+ * by InsertAllRowsOf.
+ */
+export const insertableNamesOf = <Base extends AnySchema>(
+	base: Base
+): ReadonlyArray<InsertableNameOf<Base>> => {
+	const nested = orderedMembersOf(schemaDesc(base, "insertableNamesOf"))
+	const topLevel = (name: WritableNameOf<Base>): name is InsertableNameOf<Base> => !nested.has(name)
+	return Object.freeze(ordinaryNames<Base>(base.relations).filter(topLevel))
 }
 
 /**

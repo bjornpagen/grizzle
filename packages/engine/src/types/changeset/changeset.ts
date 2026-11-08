@@ -74,6 +74,7 @@ import type {
 	AnyWorld,
 	WorldSerialFields,
 	WorldUnwrittenFields,
+	WritableNameOf,
 	WriteListOf
 } from "#compiler/types/schema/world.ts"
 
@@ -362,6 +363,27 @@ type InsertedRelation<S, K> =
 	IsOneLiteral<K> extends true
 		? Extract<UnderName<RelationsOf<S>, K>, AnyRelation | AnyWorld>
 		: never
+
+/**
+ * The names of the relations a ChangeSet over S inserts at its top level (insertableNamesOf): each relation S writes
+ * whole (WritableNameOf) that insert takes alone, which is every one but an ordered family's member, written nested
+ * under its owner (NotSequenceMember). A counted family's member is a row its group key places, and a tree's relation
+ * is its own owner, so both are among them. One conditional per relation, so a schema of n relations costs n.
+ */
+export type InsertableNameOf<S extends AnySchema> = {
+	[K in WritableNameOf<S>]-?: unknown extends NotSequenceMember<S, InsertedRelation<S, K>>
+		? K
+		: never
+}[WritableNameOf<S>]
+
+/**
+ * The record insertAll takes over S's every top-level relation (InsertableNameOf): under each one's name its rows, an
+ * array of its additions in S (AdditionIn), each with its sequences' members nested in order at its count fields, as
+ * insert takes them. A caller types the rows it inserts at once by it.
+ */
+export type InsertAllRowsOf<S extends AnySchema> = {
+	readonly [K in InsertableNameOf<S>]: ReadonlyArray<AdditionIn<S, InsertedRelation<S, K>>>
+}
 
 /** What insert requires of the relation it writes, as one type: unknown where it writes R. */
 type InsertChecks<S, R, Done extends Strata, Last extends Stratum> = WritableCheck<S, R> &

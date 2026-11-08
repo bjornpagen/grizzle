@@ -2222,7 +2222,12 @@ ChangeSet.empty(Blog)               a write over a schema, or over a role: Chang
   the state before its stratum, in the same transaction. There are no interactive transactions: a write that depends
   on a read states the read as its query.
 - **`insertAll`**'s rows at each key are what `insert` takes for that relation, typed and checked as that insert and
-  refused at their key. Its keys are required, and their order means nothing.
+  refused at their key. Its keys are required, and their order means nothing. `insertableNamesOf(schema)` names, in the
+  schema's order, every table a ChangeSet over it inserts at the top level: all that `writableNamesOf` names but an
+  ordered family's members, which are nested under their owner; a counted family's members and a tree's table are
+  among them. `InsertableNameOf<S>` is their type, and `InsertAllRowsOf<S>` is the record `insertAll` takes over all
+  of them, each table's rows an array of its `AdditionIn<S, R>`, so `ChangeSet.empty(Credits).insertAll(rows)` with
+  `rows: InsertAllRowsOf<typeof Credits>` writes grants and debits at once.
 - **A row holds the fields its caller writes**, `Written<R>` ([How a field is written](#how-a-field-is-written)). A
   family's member is a row of its own, nested under its owner only in a sequence ([Families](#families)), and written
   from an array or a `Stream`, never from a query or through a query entry, since grizzle draws its family's values
