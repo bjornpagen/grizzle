@@ -148,6 +148,7 @@ export const keyLaws = (input: KeyLawInput): KeyLaws => {
 	for (const c of input.constraintLaws) {
 		switch (c.kind) {
 			case "constraint":
+			case "trigger":
 				ownedBy(tables, c.owner).set(c.name, { laws: c.laws, uses: noUses })
 				break
 			case "domainConstraint":

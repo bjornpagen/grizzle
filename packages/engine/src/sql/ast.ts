@@ -464,7 +464,7 @@ export type Expr =
 	| { readonly kind: "domainValue" }
 	| User
 	| PlRecord
-	| { readonly kind: "plSpecial"; readonly name: "TG_TABLE_NAME" | "TG_TABLE_SCHEMA" }
+	| { readonly kind: "plSpecial"; readonly name: "TG_TABLE_NAME" | "TG_TABLE_SCHEMA" | "TG_OP" }
 	| { readonly kind: "field"; readonly record: PlRecord; readonly field: string }
 	| RegclassRef
 	| {
@@ -1354,6 +1354,24 @@ export interface CreateGuardTrigger {
 }
 
 /**
+ * CREATE CONSTRAINT TRIGGER <name> AFTER <events> ON <table> DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE
+ * FUNCTION <function>(): a rule over a query's trigger on one table it reads (physical/ddl/rules.ts), which PostgreSQL
+ * fires at COMMIT for every row an event of it touched.
+ */
+export interface CreateConstraintTrigger {
+	readonly kind: "createConstraintTrigger"
+	readonly name: string
+	readonly table: ObjectName
+	readonly events: NonEmptyReadonlyArray<TriggerEvent>
+	readonly function: ObjectName
+}
+
+/** A row event a constraint trigger fires on: an INSERT, a DELETE, or an UPDATE of one of `columns`. */
+export type TriggerEvent =
+	| { readonly kind: "insert" | "delete" }
+	| { readonly kind: "update"; readonly columns: NonEmptyReadonlyArray<string> }
+
+/**
  * The current database's default of a configuration parameter, whatever the database is named, printed as a DO block
  * (sql/catalog.ts DoBlock, built by sql/build.ts databaseDefaultBlock):
  *
@@ -1817,6 +1835,7 @@ export type Ddl =
 	| PackConstant
 	| CreateConstant
 	| CreateGuardTrigger
+	| CreateConstraintTrigger
 	| AlterDatabaseDefault
 	| CreateRole
 	| AlterRole

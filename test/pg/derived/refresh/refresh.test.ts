@@ -60,8 +60,8 @@ const build = (name: string) => {
 			passes: r.sum(Compute.cond(passed, Compute.literal(pg.integer, 1), 0))
 		})
 	})
-	const StudentWeekly = derived("StudentWeekly", weekly)
-	const WeekSittings = derived(
+	const StudentWeekly = derived.materialized("StudentWeekly", weekly)
+	const WeekSittings = derived.materialized(
 		"WeekSittings",
 		query(Edu).rule((r) => {
 			const { id, week } = v(Sitting, "sitting")
@@ -73,7 +73,7 @@ const build = (name: string) => {
 		const { student, week } = v(StudentWeekly, "studentWeekly")
 		return r.match(StudentWeekly, { student, week }).find({ week, students: r.count() })
 	})
-	const WeekBusy = derived("WeekBusy", busy)
+	const WeekBusy = derived.materialized("WeekBusy", busy)
 	const Reports = schema.extend(Level1, { WeekBusy }, [])
 	const partial = role(
 		Reports,
@@ -83,7 +83,7 @@ const build = (name: string) => {
 	)
 	const server = login(Reports, "server", [partial])
 	/** A derived relation named like one of Reports' with another definition: not Reports' relation. */
-	const Impostor = derived(
+	const Impostor = derived.materialized(
 		"StudentWeekly",
 		query(Edu).rule((r) => {
 			const { id, student, week } = v(Sitting, "sitting")

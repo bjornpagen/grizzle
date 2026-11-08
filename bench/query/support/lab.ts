@@ -516,7 +516,7 @@ export const distinctPointsPerCohort = query(Lab).rule((r) => {
  * R20's refresh-evaluated definition: the every-student take(3) as a derived relation. "A derived-relation definition
  * always wants every group, so it never takes the correlated form".
  */
-export const BestThree = derived("BestThree", bestPerStudent)
+export const BestThree = derived.materialized("BestThree", bestPerStudent)
 export const LabReports = schema.extend(Lab, { BestThree }, [])
 /** The refresher: a full role over LabReports refreshing BestThree, in a login of its own. */
 export const labRefresher = role(LabReports, "refresher", wholeEntriesOf(LabReports), {

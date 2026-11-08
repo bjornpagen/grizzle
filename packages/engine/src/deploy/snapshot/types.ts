@@ -68,12 +68,13 @@ export type SnapshotRelation =
 	| (SnapshotRelationOf<"closed"> & { readonly codes: RosterCodes })
 	| SnapshotRelationOf<"derived">
 
-/** A law of the snapshot's theory by how it is enforced: natively, by its shape alone; or, a law that reads closed
+/** A law of the snapshot's theory by how it is enforced: natively, by its shape alone; a law that reads closed
  * relations only, once by the migration that installs them, with the digest of the violation query that migration
- * runs, which a change of the law or of the rows it reads changes. */
+ * runs, which a change of the law or of the rows it reads changes; or a rule over a query, by its triggers, with the
+ * digest of the violation query the migration that adds or changes it runs. */
 export type SnapshotLaw =
 	| { readonly kind: "native"; readonly shape: string }
-	| { readonly kind: "migration"; readonly shape: string; readonly digest: string }
+	| { readonly kind: "migration" | "trigger"; readonly shape: string; readonly digest: string }
 
 export interface SnapshotTheory {
 	/** The owned schema's fingerprint, which compiled templates name (TemplateRequirements.schema). */

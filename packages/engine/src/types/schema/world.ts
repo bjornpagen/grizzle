@@ -11,6 +11,7 @@ import type {
 import type { AnyWorkload, Workload } from "#compiler/types/db/workload.ts"
 import type {
 	AnyDerived,
+	AnyMaterialized,
 	DefinitionQuery,
 	DefinitionShape
 } from "#compiler/types/derived/derived.ts"
@@ -198,11 +199,13 @@ type QuerySchema<Q> = Q extends Phantom<{ readonly schema: Invariant<infer QS> }
  * base and admissible as a definition (one flat heading of at least one field, no parameter).
  */
 type EntryCheck<Base, K, V> = V extends AnyRelation | AnyRoster | AnyDerived
-	? IsRelationOf<Base, V> extends true
-		? [K] extends [NameOf<V>]
-			? unknown
+	? V extends { readonly storage: "live" }
+		? Refusal<"a whole entry is a relation PostgreSQL stores: a role reads a live derived relation through the relations its definition reads">
+		: IsRelationOf<Base, V> extends true
+			? [K] extends [NameOf<V>]
+				? unknown
+				: Refusal<"a whole entry is a relation of the base under its own name">
 			: Refusal<"a whole entry is a relation of the base under its own name">
-		: Refusal<"a whole entry is a relation of the base under its own name">
 	: IsLevelOf<Base, QuerySchema<V>> extends true
 		? DefinitionShape<V>
 		: Refusal<"a query entry is a query over the role's base">
@@ -218,19 +221,22 @@ export type WritableKeys<Rs> = {
 }[keyof Rs] &
 	string
 
-/** The entries a role may refresh: whole derived relations. */
+/** The entries a role may refresh: whole materialized derived relations. */
 export type RefreshableKeys<Rs> = {
-	[K in keyof Rs]-?: Rs[K] extends AnyDerived ? K : never
+	[K in keyof Rs]-?: Rs[K] extends AnyMaterialized ? K : never
 }[keyof Rs] &
 	string
 
 /**
  * A full role's entries over a schema's record of relations: each relation under its own key, whole, but the closed
- * relations, which are no entry (every role reads their rows). One key per relation, kept or dropped by its own type
+ * relations, which are no entry (every role reads their rows), and the live derived relations, which store nothing and
+ * which a role reads through the relations their definitions read. One key per relation, kept or dropped by its own type
  * alone, so a record of n relations costs n conditionals and a closed relation can never stand among the entries.
  */
 export type WholeEntries<Rs> = {
-	readonly [K in keyof Rs as Rs[K] extends AnyClosedRelation ? never : K]: Rs[K]
+	readonly [
+		K in keyof Rs as Rs[K] extends AnyClosedRelation | { readonly storage: "live" } ? never : K
+	]: Rs[K]
 }
 
 /**

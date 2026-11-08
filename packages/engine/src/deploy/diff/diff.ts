@@ -61,7 +61,7 @@ import type {
 	SnapshotTheory,
 	SnapshotWriting
 } from "#compiler/deploy/snapshot/types.ts"
-import { migrationChecks } from "#compiler/deploy/snapshot/violation.ts"
+import { migrationChecks, ruleChecks } from "#compiler/deploy/snapshot/violation.ts"
 import { keptRosters, type PreviousRoster, type RosterFate } from "#compiler/ir/codes.ts"
 import type { InstallationManifest, PhysicalKind } from "#compiler/ir/products.ts"
 import { rosterConstants } from "#compiler/physical/ddl/constants.ts"
@@ -217,10 +217,12 @@ const dropOrder: { readonly [K in Dropped]: number } = {
 	roleSchema: 6,
 	statistics: 7,
 	materializedView: 9,
+	lawTrigger: 3,
 	refusalFunction: 11,
 	advanceFunction: 11,
 	isolationFunction: 11,
 	snapshotGuard: 11,
+	lawFunction: 11,
 	lawColumn: 12,
 	column: 13,
 	table: 14,
@@ -792,6 +794,7 @@ class Differ {
 			this.visit(t)
 		}
 		this.backfill()
+		this.ruleChecks()
 		this.validations()
 		for (const p of this.previous.toReversed()) {
 			if (p.fate.kind === "removed") {
@@ -821,6 +824,21 @@ class Differ {
 				continue
 			}
 			this.push("setup", { kind: "violation", law: c.law, query: c.query })
+		}
+	}
+
+	/** The checks of the rules over queries (violation.ts ruleChecks), in Validate, once every row the migration writes
+	 * is written and before the rules' triggers are created: each rule's violation query over every row, raising with the
+	 * rule's identity when it returns a row. A rule is checked exactly when the previous snapshot does not record its
+	 * check as it is, so a rule that is new, or whose definition changed, is checked once, and a regenerate checks
+	 * nothing. */
+	ruleChecks(): void {
+		for (const c of ruleChecks(this.input.installation)) {
+			const was = this.input.previous.theory.laws[c.law]
+			if (was?.kind === "trigger" && was.digest === c.digest) {
+				continue
+			}
+			this.push("validate", { kind: "violation", law: c.law, query: c.query })
 		}
 	}
 
@@ -1158,6 +1176,21 @@ class Differ {
 			case "isolationTrigger":
 				if (before === undefined) {
 					this.sql(o.phase === "setup" ? "setup" : "structure", o.ddl)
+				}
+				return
+			case "lawFunction":
+				if (before === undefined || !same(before.ddl, o.ddl)) {
+					this.sql("validate", o.ddl)
+				}
+				return
+			case "lawTrigger":
+				if (before === undefined) {
+					this.sql("validate", o.ddl)
+				} else if (!same(before.ddl, o.ddl)) {
+					this.sql("validate", [
+						{ kind: "dropTrigger", name: v.create.name, table: v.create.table, ifExists: false },
+						...o.ddl
+					])
 				}
 				return
 			case "privileges":
@@ -2011,10 +2044,24 @@ class Differ {
 			case "advanceFunction":
 			case "isolationFunction":
 			case "snapshotGuard":
+			case "lawFunction":
 				drop(
 					v.kind,
 					statement({ kind: "dropFunction", name: functionNameOf(v.create), ifExists: false })
 				)
+				return
+			case "lawTrigger":
+				if (!tableGone) {
+					drop(
+						v.kind,
+						statement({
+							kind: "dropTrigger",
+							name: v.create.name,
+							table: v.create.table,
+							ifExists: false
+						})
+					)
+				}
 				return
 			case "lawColumn":
 				if (!tableGone) {
@@ -2858,6 +2905,16 @@ const replacementDrop = (v: Installed): Drop | undefined => {
 			}
 		case "statistics":
 			return { rank: dropOrder.statistics, draft: { kind: "dropStatistics", name: v.create.name } }
+		case "lawTrigger":
+			return {
+				rank: dropOrder.lawTrigger,
+				draft: statement({
+					kind: "dropTrigger",
+					name: v.create.name,
+					table: v.create.table,
+					ifExists: false
+				})
+			}
 		case "lawColumn":
 			return {
 				rank: dropOrder.lawColumn,
@@ -2873,6 +2930,7 @@ const replacementDrop = (v: Installed): Drop | undefined => {
 		case "advanceFunction":
 		case "isolationFunction":
 		case "snapshotGuard":
+		case "lawFunction":
 		case "isolationTrigger":
 		case "materializedView":
 		case "validation":

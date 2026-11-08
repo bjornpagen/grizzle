@@ -276,6 +276,7 @@ const admitExtend = (
 				name: draft.name,
 				query: draft.query,
 				level,
+				storage: draft.storage,
 				loc: draft.loc
 			})
 		)

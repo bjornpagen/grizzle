@@ -62,7 +62,7 @@ const driftBase = (name: string) => {
 		mutable(Doc),
 		contained(on(Note, "doc"), on(Doc, "id"))
 	])
-	const DocCount = derived(
+	const DocCount = derived.materialized(
 		"DocCount",
 		query(base).rule((r) => {
 			const { id, org } = v(Doc, "doc")

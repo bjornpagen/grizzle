@@ -1,4 +1,3 @@
-import { CompileError } from "#compiler/core/errors.ts"
 import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { hasProperties, isList } from "#compiler/core/record.ts"
 import {
@@ -27,6 +26,7 @@ import {
 	builderLoc,
 	frozenCopy,
 	frozenTuple,
+	type HeadingTyping,
 	isName,
 	isPlainRecord,
 	malformed,
@@ -34,6 +34,7 @@ import {
 	ownedDesc,
 	ownedEntry,
 	ownValue,
+	queryHeadingOf,
 	requireName
 } from "#compiler/schema/protocol.ts"
 
@@ -45,7 +46,7 @@ import {
 	namedRelation,
 	relationDescOf
 } from "#compiler/schema/relation.ts"
-import { checkPredicate, rowScalars } from "#compiler/schema/terms.ts"
+import { checkPredicate, derivedRowScalars, rowScalars } from "#compiler/schema/terms.ts"
 import type {
 	Alternatives,
 	AnySourceTerm,
@@ -90,9 +91,9 @@ const admitted = (desc: StatementDesc): StatementDesc => orThrow(decodeDesc("sta
  *
  * The builders check what a JavaScript caller can get structurally wrong: a field that is not in the heading, pred of a
  * field that is not natural, a side pair of different widths, an arm map over handles the roster lacks. Semantic
- * judgments are ownership's (own.ts): a statement naming a derived relation is LawOnDerived there, because the same
- * statement can arrive in a description TypeScript never checked; the builders record it. The exceptions are check and
- * select, whose callbacks need the row's fields, which a derived relation does not have before compilation.
+ * judgments are ownership's (own.ts), because the same statement can arrive in a description TypeScript never
+ * checked: which statements may read a derived relation, and its fields, which its definition infers. A check's and a
+ * selection's callback over a derived relation reads its definition's heading as the builder typed it.
  */
 export const statementDescOf = (value: unknown): StatementDesc | undefined =>
 	ownedDesc(value, "statement")
@@ -253,7 +254,10 @@ const keyRef = (
 	}
 	const rel = namedRelation(value, label)
 	if (rel.kind === "derived") {
-		throw CompileError.make({ _tag: "LawOnDerived", at: builderLoc(label, []), relation: rel.name })
+		throw malformed(
+			label,
+			`a stored relation; ${rel.name} is a derived relation, whose rows its definition states and no write draws`
+		)
 	}
 	return { value, rel, fields: rel.primaryKey }
 }
@@ -276,33 +280,42 @@ export const mutableBuilder = <R>(relation: R): Mutable<R> =>
 	ownValue({ kind: "mutable", relation }, "statement", admitMutable(relation), undefined)
 
 /**
- * The predicate a row callback returns over `rel`'s row, which `label` refuses when the relation is derived, whose
- * fields are inferred at compilation, or the callback is no callback: the one reading of a row predicate, a check's
- * and a selection's.
+ * The predicate a row callback returns over the row of `relation`, `rel` its name and kind: a check's and a selection's
+ * one reading of a row predicate. A stored relation's row is its fields, typed by their descriptors; a derived
+ * relation's is its definition's heading, as the builder typed it (terms.ts derivedRowScalars).
  */
 const rowPredicate = (
+	relation: unknown,
 	rel: NamedRelation,
 	predicate: unknown,
 	label: string,
 	what: string
 ): ExprDesc => {
-	if (rel.kind === "derived") {
-		throw CompileError.make({ _tag: "LawOnDerived", at: builderLoc(label, []), relation: rel.name })
-	}
 	if (typeof predicate !== "function") {
 		throw malformed(label, `a predicate callback (row) => predicate, ${what}`)
 	}
-	const built: unknown = Reflect.apply(predicate, undefined, [
-		rowScalars(rel.fields, rel.descriptors, (field) => fieldRoster(rel, field))
-	])
+	const row =
+		rel.kind === "derived"
+			? derivedRowScalars(derivedHeading(relation, label))
+			: rowScalars(rel.fields, rel.descriptors, (field) => fieldRoster(rel, field))
+	const built: unknown = Reflect.apply(predicate, undefined, [row])
 	return checkPredicate(built, label)
 }
 
-export const admitCheck = (name: unknown, relation: unknown, predicate: unknown): StatementDesc => {
+/** The heading of a derived relation's definition as the builder typed it: a value derived(name, query) made. */
+const derivedHeading = (relation: unknown, label: string): ReadonlyMap<string, HeadingTyping> => {
+	const heading = hasProperties(relation) ? queryHeadingOf(relation["definition"]) : undefined
+	if (heading === undefined) {
+		throw malformed(label, "a derived relation built by derived(name, query) over a query value")
+	}
+	return heading
+}
+
+const admitCheck = (name: unknown, relation: unknown, predicate: unknown): StatementDesc => {
 	const label = `check ${typeof name === "string" ? name : "?"}`
 	const checkName = requireName(name, label, "a check name, the law's identity")
 	const rel = namedRelation(relation, `${label} relation`)
-	const expr = rowPredicate(rel, predicate, label, "the law every fact keeps")
+	const expr = rowPredicate(relation, rel, predicate, label, "the law every fact keeps")
 	return admitted({
 		kind: "check",
 		name: checkName,
@@ -339,7 +352,7 @@ const selectionOf = <R>(relation: R, desc: SelectedDesc): Selection<R> =>
 export const selectBuilder = <R>(relation: R, predicate: unknown): Selection<R> => {
 	const rel = namedRelation(relation, "select relation")
 	const label = `select ${rel.name}`
-	const expr = rowPredicate(rel, predicate, label, "the facts the side reads")
+	const expr = rowPredicate(relation, rel, predicate, label, "the facts the side reads")
 	return selectionOf(relation, { relation: rel.name, predicate: expr })
 }
 
@@ -461,8 +474,8 @@ const sameWidth = (
 
 /**
  * The literal of a source constant opposite the target term it meets: a field's, as a literal compared with that field
- * is (schema/literal.ts literalFor), or as its host kind alone where the target is derived, whose heading ownership
- * refuses the containment over (LawOnDerived).
+ * is (schema/literal.ts literalFor), or as its host kind alone where the target is derived, whose heading its
+ * definition infers, and where the theory refuses a constant (analysis/theory/laws.ts).
  */
 const constantOpposite = (
 	host: unknown,

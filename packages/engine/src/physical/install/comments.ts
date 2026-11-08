@@ -138,6 +138,7 @@ const created = (s: SqlStatement): ReadonlyArray<Created> => {
 		case "createPolicy":
 			return [{ on: { kind: "POLICY", name: s.name, on: s.table }, identifier: s.name }]
 		case "createGuardTrigger":
+		case "createConstraintTrigger":
 			return [{ on: { kind: "TRIGGER", name: s.name, on: s.table }, identifier: s.name }]
 		case "createRole":
 			return [{ on: { kind: "ROLE", name: s.name }, identifier: s.name }]

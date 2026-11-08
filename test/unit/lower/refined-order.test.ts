@@ -42,7 +42,7 @@ const Slug = str.regex("^[a-z][a-z0-9-]*$")
 const Prose = str.regex("^.*$", "su")
 const Article = relation("Article", { id: uuid, slug: Slug, title: Prose }, ["id"])
 const Stored = schema("RefinedOrder", { Article }, [])
-const Listed = derived(
+const Listed = derived.materialized(
 	"Listed",
 	query(Stored).rule((r) => {
 		const { id, slug, title } = v(Article, "article")

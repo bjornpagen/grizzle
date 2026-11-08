@@ -5,7 +5,7 @@ import { array, boolean, type Gen, int, oneOf, weighted } from "@grizzle/testing
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Record as Rec, String as Str } from "effect"
 import { checkedSchema, derivedAnalysis } from "#compiler/analysis/schema.ts"
 import { type CompileError, isCompileError } from "#compiler/core/errors.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -24,7 +24,6 @@ import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { admitDerived } from "#compiler/schema/relation.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
-import { admitCheck } from "#compiler/schema/statements.ts"
 import {
 	type CaseSketch,
 	buildSchema,
@@ -32,7 +31,6 @@ import {
 	type GenSchema
 } from "#test/pg/derived/oracle/gen.ts"
 import { assert, defined, nonEmpty } from "#test/support/assert.ts"
-import * as A from "#test/support/fixtures/api/work.ts"
 import {
 	alternatives,
 	check as checkDesc,
@@ -60,12 +58,15 @@ import { ownedInput } from "#test/support/policy.ts"
  * JavaScript caller, or a SchemaDesc decoded from data, meets the same rules at construction or at ownership, before any
  * definition is read, and so at every entry that installs or analyzes a schema.
  *
- * - No law names a derived relation, in either direction (LawOnDerived), at every entry. Each case draws a law of a
+ * - A statement over a derived relation is refused alike at every entry that reads it. Each case draws a law of a
  *   drawn shape (a key over drawn fields, mutable, a check, a containment in either or both directions, a family whose
  *   member or owner or both are derived, an alternatives arm) over the worked example's Reports level with a second
  *   derived relation beside AccountBudget, each slot drawn among the derived relations or the base's sides of its
- *   type, at least one derived; the refusal names a derived relation the law names, the one when it names one. The
- *   builder's check refuses a derived relation at construction, before its callback runs.
+ *   type, at least one derived. Mutable, a family and an alternatives arm name rows grizzle writes, which a derived
+ *   relation's definition states, so ownership refuses each (MalformedDescription) at every entry. A key, a check and a
+ *   containment are rules over the definition, which ownership owns and the analysis of derived relations reads, and
+ *   AccountBudget's definition aggregates, which no rule reads, so the entry that compiles the laws refuses each
+ *   (UnsupportedLawFamily), naming the aggregate.
  * - Levels, parameters and contexts an unchecked description can still write down are refused as
  *   MalformedDescription, a materialized view reading no parameter and holding no session. Each case draws a schema of
  *   the derived oracle (drawn levels and definitions over drawn base relations), which ownership admits, and one
@@ -245,18 +246,23 @@ const lawOf = (
 	}
 }
 
+/** What each entry that reads a schema makes of it, in order: ownership, the analysis of derived relations, and the
+ * installation, which compiles the laws. */
+const entries = (desc: SchemaDesc): ReadonlyArray<Result.Result<unknown, CompileError>> => [
+	ownedInput(desc),
+	Result.map(Result.flatMap(ownedInput(desc), checkedSchema), derivedAnalysis),
+	Result.flatMap(ownedInput(desc), (o) =>
+		compileInstallation(o, withDerivedRelations(installOptions(o, "owner")))
+	)
+]
+
 /** Every entry that reads a schema refuses it alike: the refusal, at each. */
 const refusalsEverywhere = (desc: SchemaDesc): ReadonlyArray<CompileError> =>
-	Arr.map(
-		[
-			ownedInput(desc),
-			Result.map(Result.flatMap(ownedInput(desc), checkedSchema), derivedAnalysis),
-			Result.flatMap(ownedInput(desc), (o) =>
-				compileInstallation(o, withDerivedRelations(installOptions(o, "owner")))
-			)
-		],
-		refusal
-	)
+	Arr.map(entries(desc), refusal)
+
+/** Whether a drawn statement names the rows grizzle writes, which ownership refuses over a derived relation. */
+const writesRows = (law: LawSketch): boolean =>
+	law.kind === "mutable" || law.kind === "family" || law.kind === "alternatives"
 
 type LawFeature =
 	| `law ${LawSketch["kind"]}`
@@ -395,6 +401,7 @@ const mutated = (
 				kind: "derived" as const,
 				name: `${target.name}x`,
 				level: derivedLevel,
+				storage: "materialized" as const,
 				query: {
 					stage: {
 						kind: "rules" as const,
@@ -505,18 +512,18 @@ const mutated = (
 
 describe("derived relation refusals", () => {
 	it.effect(
-		"refuse every law naming a derived relation, in either direction, at every entry",
+		"refuse a statement writing a derived relation's rows at every entry, and a rule over an aggregate where the laws compile",
 		(ctx) =>
 			searched(
 				ctx,
 				explore(
 					{
-						suite: "unit/derived/law-on-derived",
+						suite: "unit/derived/statements-over-derived",
 						draw: drawn(lawSketchGen),
 						literal: Formatter.format,
 						oracle: {
 							kind: "specification",
-							name: "no law names a derived relation: refused at every entry, naming one the law names"
+							name: "a statement naming rows grizzle writes is refused at every entry; a rule over a definition that aggregates is owned and refused where the laws compile"
 						},
 						coverage: required<LawFeature>(
 							[
@@ -554,29 +561,23 @@ describe("derived relation refusals", () => {
 									c.note("a containment into a derived relation")
 								}
 							}
-							for (const e of refusalsEverywhere({
-								...twinned,
-								statements: [...twinned.statements, statement]
-							})) {
-								const reason = e.reason
-								assert.ok(reason._tag === "LawOnDerived", e.message)
-								assert.ok(
-									Arr.contains(named, reason.relation),
-									`${reason.relation} is a derived relation the law names`
-								)
+							const desc = { ...twinned, statements: [...twinned.statements, statement] }
+							if (writesRows(law)) {
+								for (const e of refusalsEverywhere(desc)) {
+									assert.ok(e.reason._tag === "MalformedDescription", e.message)
+									assert.ok(
+										Arr.some(named, (n) => Str.includes(n)(e.message)),
+										`the refusal names a derived relation the law names: ${e.message}`
+									)
+								}
+								return
 							}
-							if (law.kind === "check") {
-								let called = false
-								assert.throws(
-									() =>
-										admitCheck(`Positive${law.name}`, A.AccountBudget, () => {
-											called = true
-											return undefined
-										}),
-									(e) => isCompileError(e) && e.reason._tag === "LawOnDerived"
-								)
-								assert.equal(called, false, "the check's callback never runs")
-							}
+							const [owned, analyzed, installed] = entries(desc)
+							assert.ok(owned?.ok === true, "ownership owns a rule over a derived relation")
+							assert.ok(analyzed?.ok === true, "the analysis of derived relations reads it")
+							const e = refusal(defined(installed, "the installation's entry"))
+							assert.ok(e.reason._tag === "UnsupportedLawFamily", e.message)
+							assert.ok(Str.includes("aggregates")(e.message), e.message)
 						})
 				)
 			)
@@ -638,7 +639,7 @@ describe("derived relation refusals", () => {
 										.find({ [column]: vars[column] })
 								})
 								assert.throws(
-									() => admitDerived(`P${mutation.parameter}`, parameterized, []),
+									() => admitDerived(`P${mutation.parameter}`, parameterized, "materialized", []),
 									(e) => isCompileError(e) && e.reason._tag === "MalformedDescription"
 								)
 							}

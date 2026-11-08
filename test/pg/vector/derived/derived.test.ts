@@ -47,7 +47,7 @@ const build = (name: string) => {
 		contained(on(DocumentEmbedding, "document"), on(Document, "id"))
 	])
 	/** Each embedded document with its account: keyed by document, inherited from the embedding's key. */
-	const Embeddings = derived(
+	const Embeddings = derived.materialized(
 		"Embeddings",
 		query(Core).rule((r) => {
 			const { document, value } = v(DocumentEmbedding, "documentEmbedding")

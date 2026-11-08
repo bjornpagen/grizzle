@@ -45,6 +45,7 @@ export type ManifestStatement =
 					| "createPolicy"
 					| "createFunction"
 					| "createGuardTrigger"
+					| "createConstraintTrigger"
 					| "alterDatabaseDefault"
 					| "createRole"
 					| "grantRole"
@@ -79,6 +80,7 @@ const manifestStatement = (s: SqlStatement): ManifestStatement => {
 		case "createPolicy":
 		case "createFunction":
 		case "createGuardTrigger":
+		case "createConstraintTrigger":
 		case "alterDatabaseDefault":
 		case "createRole":
 		case "grantRole":

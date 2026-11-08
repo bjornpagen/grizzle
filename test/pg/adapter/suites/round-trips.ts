@@ -69,7 +69,7 @@ const assertFlights = (
 const derivedFixture = (name: string) => {
 	const Sitting = relation("Sitting", { id: uuid, student: uuid, week: pg.integer }, ["id"])
 	const Edu = schema(name, { Sitting }, [])
-	const StudentWeekly = derived(
+	const StudentWeekly = derived.materialized(
 		"StudentWeekly",
 		query(Edu).rule((r) => {
 			const { id, student, week } = v(Sitting, "sitting")

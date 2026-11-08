@@ -210,6 +210,8 @@ export type EntryKind = "relation" | "closed" | "derived" | "query"
  * ownership), the rule of a RoleRefused CompileError:
  * - `wholeEntryName`: a whole entry under another name than its relation's, `relation`.
  * - `wholeEntryUndeclared`: a whole entry naming no relation the base `base` declares, or one it declares differently.
+ * - `wholeEntryLive`: a whole entry naming a live derived relation, which PostgreSQL stores nothing for: a role reads
+ *   it through the relations its definition reads.
  * - `entryOverAnother`: a query entry built over another schema than the base or one of its levels, or over a role.
  * - `entryOrdered`: a query entry that is an Ordered, not a Query.
  * - `entryParameters`: a query entry that reads the parameters `parameters`.
@@ -225,6 +227,7 @@ export type EntryKind = "relation" | "closed" | "derived" | "query"
 export type RoleRule =
 	| { readonly kind: "wholeEntryName"; readonly entry: string; readonly relation: string }
 	| { readonly kind: "wholeEntryUndeclared"; readonly entry: string; readonly base: string }
+	| { readonly kind: "wholeEntryLive"; readonly entry: string }
 	| {
 			readonly kind: "entryOverAnother"
 			readonly entry: string
@@ -423,6 +426,8 @@ export const roleRuleText = (rule: RoleRule): string => {
 	switch (rule.kind) {
 		case "wholeEntryName":
 			return `a whole entry under its own name; ${rule.entry} names the relation ${rule.relation}`
+		case "wholeEntryLive":
+			return `a whole entry over a relation PostgreSQL stores; ${rule.entry} is a live derived relation, which a role reads through the relations its definition reads`
 		case "wholeEntryUndeclared":
 			return `a whole entry naming a relation the base ${rule.base} declares; ${rule.entry} is none`
 		case "entryOverAnother":

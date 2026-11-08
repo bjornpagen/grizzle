@@ -3,6 +3,7 @@ import type {
 	ResolvedSide,
 	ResolvedSourceSide
 } from "#compiler/analysis/theory/laws.ts"
+import type { QueryRule, RuleSide } from "#compiler/analysis/theory/query.ts"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import {
 	everyFact,
@@ -70,6 +71,8 @@ export const lawDescription = (law: LawIdentity): Law => {
 				slots: Object.freeze({ owner: d.family.id.owner, count: d.family.id.count }),
 				root: d.family.members.root.name
 			})
+		case "rule":
+			return ruleDescription(d.rule)
 		case "fold":
 			return Object.freeze({
 				kind: "fold",
@@ -80,6 +83,35 @@ export const lawDescription = (law: LawIdentity): Law => {
 			})
 	}
 }
+
+/**
+ * A rule over a query as an outcome names it, as the same rule over stored relations is: a containment by its sides, a
+ * key by its side, a check by its relation and name, a side's relation the derived relation it reads.
+ */
+const ruleDescription = (rule: QueryRule): Law => {
+	switch (rule.kind) {
+		case "contained":
+			return Object.freeze({
+				kind: "contained",
+				from: ruleSideOf(rule.from),
+				to: ruleSideOf(rule.to)
+			})
+		case "key":
+			return Object.freeze({ kind: "key", side: ruleSideOf(rule.side) })
+		case "check":
+			return Object.freeze({ kind: "check", relation: rule.side.relation, name: rule.name })
+	}
+}
+
+/** A rule over a query's side as its statement declares it. */
+const ruleSideOf = (side: RuleSide): SideDesc =>
+	Object.freeze({
+		relation: side.relation,
+		terms: Object.freeze(
+			mapNonEmpty(side.terms, (t): TermDesc => Object.freeze({ kind: t.kind, field: t.field }))
+		),
+		selection: Object.freeze({ conjuncts: Object.freeze([...side.selection.conjuncts]) })
+	})
 
 /** A contract's law, wherever its domain is installed (theory.ts contractLawIdentity): its name. */
 export const contractLaw = (contract: string): Law => Object.freeze({ kind: "contract", contract })

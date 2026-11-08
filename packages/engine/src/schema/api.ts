@@ -27,6 +27,7 @@ import {
 import { context as contextBuilder, role as roleBuilder } from "#compiler/schema/world.ts"
 import type { UnwrittenFieldsOf } from "#compiler/types/changeset/changeset.ts"
 import type { Parameterless, Predicate, Refusal, Simplify } from "#compiler/types/core/phantom.ts"
+import type { AnyDerived } from "#compiler/types/derived/derived.ts"
 import type {
 	FieldBase,
 	GeneratedField,
@@ -80,7 +81,6 @@ import type {
 	Counted,
 	CountedMember,
 	CountFieldIn,
-	DerivedSource,
 	DiscriminatorsOf,
 	DistinctTerms,
 	Fin,
@@ -104,6 +104,7 @@ import type {
 	Pred,
 	ReadsAField,
 	RowScalars,
+	RuleSubject,
 	Selection,
 	SelfFamily,
 	Showing,
@@ -312,7 +313,11 @@ export const schema: typeof rootSchema & { readonly extend: typeof extend } = Ob
  * it is a candidate key; over a selection or a pred term it constrains only the facts the side reads. A roster is keyed
  * by its handle and a closed relation by its declared key, so no side of either is keyed.
  */
-export const key = <S extends Side<AnyRelation | Selection<AnyRelation>>, N extends string, C>(
+export const key = <
+	S extends Side<AnyRelation | AnyDerived | Selection<AnyRelation | AnyDerived>>,
+	N extends string,
+	C
+>(
 	side: S & SideShows<N, C> & NoSetKey<C, S["terms"]> & DistinctTerms<S["terms"]>
 ): Key<S> => keyBuilder<S>(side)
 
@@ -324,13 +329,13 @@ export const mutable = <R extends AnyRelation>(target: R): Mutable<R> => mutable
 
 export const check = <
 	const Name extends string,
-	R extends AnyRelation,
+	R extends AnyRelation | AnyDerived,
 	N extends string,
 	C,
 	Pr extends Predicate<never>
 >(
 	name: Name,
-	target: R & Showing<N, C>,
+	target: R & Showing<N, C> & RuleSubject<R>,
 	predicate: (row: RowScalars<Shows<N, C>>) => Pr & Parameterless<Pr>
 ): Check<Name, R> => checkBuilder<Name, R>(name, target, predicate)
 
@@ -341,11 +346,11 @@ export const check = <
  * the statement that reads it holds it to.
  */
 export const on = <
-	R extends AnyRelation | AnyClosed | Selection<AnyRelation | AnyClosed> | DerivedSource,
+	R extends AnyRelation | AnyClosed | AnyDerived | Selection<AnyRelation | AnyClosed | AnyDerived>,
 	C,
 	const T extends readonly [TermOf<C> | Constant<unknown>, ...(TermOf<C> | Constant<unknown>)[]]
 >(
-	source: R & SourceShowing<string, C>,
+	source: R & SourceShowing<string, C> & RuleSubject<R>,
 	...terms: T
 ): Side<R, readonly [...T]> => {
 	const list: T = terms
@@ -367,12 +372,12 @@ export const constant = <const V>(value: V): Constant<V> => constantBuilder<V>(v
  * language, the one spelling of a selection.
  */
 export const select = <
-	R extends AnyRelation | AnyClosed,
+	R extends AnyRelation | AnyClosed | AnyDerived,
 	N extends string,
 	C,
 	Pr extends Predicate<never>
 >(
-	target: R & Showing<N, C>,
+	target: R & Showing<N, C> & RuleSubject<R>,
 	predicate: (row: RowScalars<Shows<N, C>>) => Pr & Parameterless<Pr>
 ): Selection<R> => selectBuilder<R>(target, predicate)
 

@@ -48,7 +48,7 @@ import {
 	admitRelation,
 	admitRoster,
 	closed,
-	derived,
+	materializedDerived,
 	relation,
 	relationDescOf
 } from "#compiler/schema/relation.ts"
@@ -1403,7 +1403,6 @@ describe("statements", () => {
 		| "a look-alike term"
 		| "a spread copy of a term"
 		| "a symbol operand"
-		| "a derived relation"
 	const checkDefects: Arr.NonEmptyReadonlyArray<CheckDefect> = [
 		"none",
 		"a fraction for an integer field",
@@ -1414,8 +1413,7 @@ describe("statements", () => {
 		"a callback returning no predicate",
 		"a look-alike term",
 		"a spread copy of a term",
-		"a symbol operand",
-		"a derived relation"
+		"a symbol operand"
 	]
 
 	const opGen = element<Op>(["eq", "ne", "lt", "le", "gt", "ge"])
@@ -1592,7 +1590,6 @@ describe("statements", () => {
 				return e.lt(untypedTerm(sum.expr), Symbol("x"))
 			case "none":
 			case "a callback returning no predicate":
-			case "a derived relation":
 				return e.limit.ge(0)
 		}
 	}
@@ -1600,79 +1597,66 @@ describe("statements", () => {
 	it.effect(
 		"check records the row predicate over its own row, literals adopting the field's type, terms admitted by identity",
 		(ctx) =>
-			Effect.gen(function* () {
-				const D = derived(
-					"ElectionIds",
-					idsOf(schema("Votes", { Election }, [], []), [Election]),
-					[]
-				)
-				yield* searched(
-					ctx,
-					explore(
-						{
-							oracle: { kind: "unstated" },
-							suite: "unit/schema/check-constructor",
-							draw: drawn((source) => ({
-								predicate: source.draw(predicateGen(2)),
-								defect: source.draw(
-									element(Arr.append(Arr.append(checkDefects, "none" as const), "none" as const))
+			searched(
+				ctx,
+				explore(
+					{
+						oracle: { kind: "unstated" },
+						suite: "unit/schema/check-constructor",
+						draw: drawn((source) => ({
+							predicate: source.draw(predicateGen(2)),
+							defect: source.draw(
+								element(Arr.append(Arr.append(checkDefects, "none" as const), "none" as const))
+							)
+						})),
+						literal: Formatter.format,
+						coverage: required<CheckDefect | "a sum" | "an untyped sum">(
+							[...checkDefects, "a sum", "an untyped sum"],
+							{ cases: 300, sense: notesOnly }
+						),
+						kept: [],
+						runs: 300,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang
+					},
+					({ predicate, defect }, c) =>
+						Effect.sync(() => {
+							c.note(defect)
+							const build = () =>
+								checkBuilder("Bounded", Election, (e: Row) =>
+									defect === "a callback returning no predicate"
+										? true
+										: defect === "none"
+											? built(e, predicate)
+											: e.and(built(e, predicate), plantedConjunct(e, defect))
 								)
-							})),
-							literal: Formatter.format,
-							coverage: required<CheckDefect | "a sum" | "an untyped sum">(
-								[...checkDefects, "a sum", "an untyped sum"],
-								{ cases: 300, sense: notesOnly }
-							),
-							kept: [],
-							runs: 300,
-							shrink: completeShrink,
-							concurrency: 1,
-							steerEvery: 16,
-							caseHang
-						},
-						({ predicate, defect }, c) =>
-							Effect.sync(() => {
-								c.note(defect)
-								const build = () =>
-									checkBuilder(
-										defect === "a derived relation" ? "OnDerived" : "Bounded",
-										defect === "a derived relation" ? D : Election,
-										(e: Row) =>
-											defect === "a callback returning no predicate"
-												? true
-												: defect === "none"
-													? built(e, predicate)
-													: e.and(built(e, predicate), plantedConjunct(e, defect))
-									)
-								if (defect === "a derived relation") {
-									return void throwsRefused(build, "LawOnDerived")
-								}
-								if (defect !== "none") {
-									return void throwsRefused(build, "MalformedDescription")
-								}
-								const sums = operandsOf(predicate)
-								if (Arr.some(sums, (o) => o.kind === "sum" && o.typed)) {
-									c.note("a sum")
-								}
-								if (Arr.some(sums, (o) => o.kind === "sum" && !o.typed)) {
-									c.note("an untyped sum")
-								}
-								const value = build()
-								matchesObject(value, { kind: "check", name: "Bounded", relation: Election })
-								const desc = statementDescOf(value)
-								if (desc?.kind !== "check") {
-									return assert.fail("a check statement")
-								}
-								assert.deepEqual(desc, {
-									...desc,
-									name: "Bounded",
-									relation: "Election",
-									predicate: recordedExpr(predicate)
-								})
+							if (defect !== "none") {
+								return void throwsRefused(build, "MalformedDescription")
+							}
+							const sums = operandsOf(predicate)
+							if (Arr.some(sums, (o) => o.kind === "sum" && o.typed)) {
+								c.note("a sum")
+							}
+							if (Arr.some(sums, (o) => o.kind === "sum" && !o.typed)) {
+								c.note("an untyped sum")
+							}
+							const value = build()
+							matchesObject(value, { kind: "check", name: "Bounded", relation: Election })
+							const desc = statementDescOf(value)
+							if (desc?.kind !== "check") {
+								return assert.fail("a check statement")
+							}
+							assert.deepEqual(desc, {
+								...desc,
+								name: "Bounded",
+								relation: "Election",
+								predicate: recordedExpr(predicate)
 							})
-					)
+						})
 				)
-			})
+			)
 	)
 })
 
@@ -1917,7 +1901,11 @@ describe("schema and schema.extend", () => {
 		"records each relation under its own name and statements in order, expanding mirrors in place, and refuses a relation under another name or a malformed declaration",
 		(ctx) =>
 			Effect.gen(function* () {
-				const D = derived("TaskIds", idsOf(schema("Edu", { Kind, Task }, [], []), [Task]), [])
+				const D = materializedDerived(
+					"TaskIds",
+					idsOf(schema("Edu", { Kind, Task }, [], []), [Task]),
+					[]
+				)
 				yield* searched(
 					ctx,
 					explore(
@@ -2101,7 +2089,7 @@ describe("schema and schema.extend", () => {
 										 * The prefix varies where a view sorts by name among the relations a later definition reads.
 										 */
 										const name = `${view.prefix}View${k + 1}x${j}`
-										const value = derived(
+										const value = materializedDerived(
 											name,
 											idsOf(current, [
 												defined(reads[0]).value,
@@ -2146,7 +2134,7 @@ describe("schema and schema.extend", () => {
 										const first = defined(declared[0])
 										switch (s.defect) {
 											case "a read of its own level":
-												record["OwnLevel"] = derived(
+												record["OwnLevel"] = materializedDerived(
 													"OwnLevel",
 													idsOf(schema.extend(current, { [first.name]: first.value }, [], []), [
 														first.value
@@ -2155,7 +2143,7 @@ describe("schema and schema.extend", () => {
 												)
 												break
 											case "a parameter":
-												record["ByAccount"] = derived(
+												record["ByAccount"] = materializedDerived(
 													"ByAccount",
 													queryOver(current).rule((r: RuleValue) => {
 														const { id } = varsOver(Task, "task")
@@ -2167,7 +2155,7 @@ describe("schema and schema.extend", () => {
 												)
 												break
 											case "a definition that is no query":
-												admitDerived("Bad", {}, [])
+												admitDerived("Bad", {}, "materialized", [])
 												break
 											case "none":
 												break

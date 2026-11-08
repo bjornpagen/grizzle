@@ -329,7 +329,6 @@ const duplicateText = (duplicate: Duplicate): string => {
  * - `UnsupportedOperation`: a capability the compiler does not have, `capability`. A new diagnostic for a missing
  *   capability is one; no variant is added for it.
  * - `UnsupportedLawFamily`: a law of a family the compiler does not lower, `capability`.
- * - `LawOnDerived`: a law that names the derived relation `relation`.
  * - `UnrepresentableKey`: a key or index, `subject`, over `key`, with no representable index entry, for `fault`.
  * - `FoldOverProjection`: a fold whose rule matches `source` without binding every field of one of its keys, so the
  *   fold would read a projection of its facts; `key` is the key to bind.
@@ -391,7 +390,6 @@ export type CompileReason =
 	| { readonly _tag: "UnsupportedOperation"; readonly at: SourceLoc; readonly capability: string }
 	| { readonly _tag: "UndeclaredDrop"; readonly at: SourceLoc; readonly dropped: Dropped }
 	| { readonly _tag: "UnsupportedLawFamily"; readonly at: SourceLoc; readonly capability: string }
-	| { readonly _tag: "LawOnDerived"; readonly at: SourceLoc; readonly relation: string }
 	| {
 			readonly _tag: "UnrepresentableKey"
 			readonly at: SourceLoc
@@ -647,8 +645,6 @@ export const compileReasonText = (reason: CompileReason): string => {
 		case "DescribedHeadingMismatch":
 		case "ContractLiteral":
 			return reason.capability
-		case "LawOnDerived":
-			return `a law names derived relation ${reason.relation}; no law names a derived relation in either direction`
 		case "UnrepresentableKey":
 			return keyFaultText(reason.subject, reason.key, reason.fault)
 		case "FoldOverProjection":

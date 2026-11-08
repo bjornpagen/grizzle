@@ -69,6 +69,9 @@ const functionOf = (s: SqlStatement): Option.Option<string> =>
 const guardTriggerOf = (s: SqlStatement): Option.Option<string> =>
 	s.kind === "createGuardTrigger" ? Option.some(s.name) : Option.none()
 
+const ruleTriggerOf = (s: SqlStatement): Option.Option<string> =>
+	s.kind === "createConstraintTrigger" ? Option.some(s.name) : Option.none()
+
 const rowSecureOf = (s: SqlStatement): Option.Option<string> =>
 	s.kind === "alterTable" && Arr.some(s.actions, (a) => a.kind === "enableRowSecurity")
 		? Option.some(s.table.name)
@@ -292,6 +295,7 @@ export const installedScope = (
 			functions: new Map<string, InstalledFunction>([
 				...functionsOf("refusalFunction", { kind: "refusal" }),
 				...functionsOf("isolationFunction", { kind: "isolationGuard" }),
+				...functionsOf("lawFunction", { kind: "rule" }),
 				...functionsOf("snapshotGuard", { kind: "snapshotGuard" }),
 				...functionsOf("worldFunction", { kind: "world" }),
 				...constantsOf(installation, snapshot),
@@ -310,9 +314,10 @@ export const installedScope = (
 						: []
 				)
 			]),
-			triggers: new Map<string, InstalledTrigger>(
-				triggersOf("isolationTrigger", guardTriggerOf, "isolation")
-			),
+			triggers: new Map<string, InstalledTrigger>([
+				...triggersOf("isolationTrigger", guardTriggerOf, "isolation"),
+				...triggersOf("lawTrigger", ruleTriggerOf, "rule")
+			]),
 			rowSecure: created(snapshot, "rowSecurity", rowSecureOf),
 			logins: new Map(
 				Arr.map(

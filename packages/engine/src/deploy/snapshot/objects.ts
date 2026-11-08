@@ -7,6 +7,7 @@ import {
 	type ColumnDef,
 	type CreateConstant,
 	type CreateDomain,
+	type CreateConstraintTrigger,
 	type CreateGuardTrigger,
 	type CreateIndex,
 	type CreateMaterializedView,
@@ -101,7 +102,17 @@ export type Installed =
 			readonly create: CreateGuardTrigger
 	  }
 	| {
-			readonly kind: "refusalFunction" | "advanceFunction" | "isolationFunction" | "snapshotGuard"
+			readonly kind: "lawTrigger"
+			readonly object: ManifestObject
+			readonly create: CreateConstraintTrigger
+	  }
+	| {
+			readonly kind:
+				| "refusalFunction"
+				| "advanceFunction"
+				| "isolationFunction"
+				| "snapshotGuard"
+				| "lawFunction"
 			readonly object: ManifestObject
 			readonly create: PlFunction
 	  }
@@ -227,10 +238,15 @@ export const installed = (o: ManifestObject): Installed => {
 			return s?.kind === "createGuardTrigger"
 				? { kind: o.kind, object: o, create: s }
 				: malformed("a table's isolation trigger installed by its CREATE TRIGGER")
+		case "lawTrigger":
+			return o.ddl.length === 1 && s?.kind === "createConstraintTrigger"
+				? { kind: o.kind, object: o, create: s }
+				: malformed("a rule's trigger installed by its CREATE CONSTRAINT TRIGGER")
 		case "refusalFunction":
 		case "advanceFunction":
 		case "isolationFunction":
 		case "snapshotGuard":
+		case "lawFunction":
 			return s?.kind === "createFunction" && s.language === "plpgsql"
 				? { kind: o.kind, object: o, create: s }
 				: malformed("a CREATE FUNCTION ... LANGUAGE plpgsql")
@@ -356,6 +372,7 @@ export const objectTable = (o: ManifestObject): ObjectName | undefined => {
 		case "uniqueIndex":
 		case "statistics":
 		case "isolationTrigger":
+		case "lawTrigger":
 			return v.create.table
 		case "primaryKey":
 		case "unique":
@@ -372,6 +389,7 @@ export const objectTable = (o: ManifestObject): ObjectName | undefined => {
 		case "advanceFunction":
 		case "isolationFunction":
 		case "snapshotGuard":
+		case "lawFunction":
 		case "worldFunction":
 		case "role":
 		case "membership":
@@ -499,6 +517,11 @@ export const builtOver = (
 			return { table: v.table, columns: constraintColumns(v.constraint) }
 		case "lawColumn":
 			return { table: v.table, columns: columnsOf(v.definition.generated) }
+		case "lawTrigger":
+			return {
+				table: v.create.table,
+				columns: v.create.events.flatMap((e) => (e.kind === "update" ? e.columns : []))
+			}
 		case "table":
 		case "constant":
 		case "domain":
@@ -507,6 +530,7 @@ export const builtOver = (
 		case "advanceFunction":
 		case "isolationFunction":
 		case "snapshotGuard":
+		case "lawFunction":
 		case "isolationTrigger":
 		case "worldFunction":
 		case "role":
@@ -638,6 +662,7 @@ const objectParts = (
 			)
 		}
 		case "isolationTrigger":
+		case "lawTrigger":
 		case "constant":
 		case "domain":
 		case "materializedView":
@@ -645,6 +670,7 @@ const objectParts = (
 		case "advanceFunction":
 		case "isolationFunction":
 		case "snapshotGuard":
+		case "lawFunction":
 		case "worldFunction":
 		case "role":
 		case "membership":

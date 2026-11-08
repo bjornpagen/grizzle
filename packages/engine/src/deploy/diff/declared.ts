@@ -1323,6 +1323,15 @@ const withColumns = (
 		case "refresh":
 		case "analyze":
 			return s
+		case "createConstraintTrigger": {
+			const into = renamed(s.table)
+			return {
+				...s,
+				events: mapNonEmpty(s.events, (e) =>
+					e.kind === "update" ? { ...e, columns: mapNonEmpty(e.columns, nameIn(into)) } : e
+				)
+			}
+		}
 	}
 }
 
@@ -1387,6 +1396,7 @@ const withRoles = (s: SqlStatement, roles: ReadonlyMap<string, string>): SqlStat
 		case "packConstant":
 		case "createConstant":
 		case "createGuardTrigger":
+		case "createConstraintTrigger":
 		case "alterDatabaseDefault":
 		case "createExtension":
 		case "createStatistics":

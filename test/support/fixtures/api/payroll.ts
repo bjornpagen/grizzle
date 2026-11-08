@@ -405,7 +405,7 @@ const runTotalsOver = <const N extends string>(installed: PayrollNamed<N>) =>
 	})
 
 export const runTotals = runTotalsOver(Payroll)
-const RunTotal = derived("RunTotal", runTotals)
+const RunTotal = derived.materialized("RunTotal", runTotals)
 export const Reporting = schema.extend(Payroll, { RunTotal }, [])
 
 /**
@@ -416,7 +416,7 @@ export const Reporting = schema.extend(Payroll, { RunTotal }, [])
 export const reportingWorlds = (installed: PayrollNamed<string>) => {
 	const reporting = schema.extend(
 		installed,
-		{ RunTotal: derived("RunTotal", runTotalsOver(installed)) },
+		{ RunTotal: derived.materialized("RunTotal", runTotalsOver(installed)) },
 		[]
 	)
 	/** Every relation a role holds: all but LevyRate, a closed relation, which installs as constants and no table. */

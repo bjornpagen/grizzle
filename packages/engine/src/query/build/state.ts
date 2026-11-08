@@ -26,11 +26,13 @@ import { describeField, type ScalarEnv } from "#compiler/scalar/registry.ts"
 import type { Level } from "#compiler/schema/level.ts"
 import {
 	fieldDescOf as fieldDesc,
+	type HeadingTyping,
 	isPlainRecord,
 	malformed,
 	type OwnedKind,
 	ownedKind,
-	queryDescOf
+	queryDescOf,
+	registerQueryHeading
 } from "#compiler/schema/protocol.ts"
 import { describedHeading } from "#compiler/schema/record.ts"
 import { derivedDraftOf, namedRelation, relationDescOf } from "#compiler/schema/relation.ts"
@@ -97,6 +99,20 @@ const queries = new WeakMap<object, QueryState>()
 
 export const registerQuery = <T extends object>(value: T, state: QueryState): T => {
 	queries.set(value, state)
+	registerQueryHeading(
+		value,
+		new Map(
+			[...state.heading.fields].map(([name, typing]): readonly [string, HeadingTyping] => {
+				const carrier = state.carriers.kind === "typed" ? state.carriers.carriers[name] : undefined
+				return [
+					name,
+					typing.kind === "typed" && carrier !== undefined
+						? { kind: "typed", scalar: typing.type, carrier }
+						: { kind: "untyped" }
+				]
+			})
+		)
+	)
 	return value
 }
 
@@ -362,6 +378,17 @@ export const sourceInfo = (value: unknown, label: string, env: ScalarEnv): Sourc
 			scope: { kind: "written", over: query.schema.over },
 			/** A named query is labelled by its diagnostic name. */
 			label: stage.kind === "named" ? stage.name : "query"
+		}
+	}
+	const live = derivedDraftOf(value)
+	if (live?.storage === "live") {
+		return {
+			desc: { kind: "query", query: live.query, bind: {} },
+			heading: derivedHeading(value, env, label),
+			carriers: derivedCarriers(value),
+			origin: noOrigin,
+			scope: anywhere,
+			label: live.name
 		}
 	}
 	const draft = derivedDraftOf(value) ?? worldDraftOf(value)

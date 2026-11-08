@@ -645,7 +645,7 @@ const lawNamesOver = (
 ): LawNames => {
 	const holding = holdingOf(model)
 	/** What installs a constraint the law model maps: the one native of its owner that names it. */
-	const nativeKind = (c: ConstraintLaw): NativeKind =>
+	const nativeKind = (c: Exclude<ConstraintLaw, { readonly kind: "trigger" }>): NativeKind =>
 		single(
 			Arr.flatMap(model.natives, (n): ReadonlyArray<NativeKind> => {
 				switch (c.kind) {
@@ -670,6 +670,9 @@ const lawNamesOver = (
 		readonly law: LawId
 		readonly kind: NativeKind
 	}> = Arr.flatMap(model.constraints, (c) => {
+		if (c.kind === "trigger") {
+			return []
+		}
 		const kind = nativeKind(c)
 		return Arr.map(c.laws, (l) => ({ name: c.name, law: l.law, kind }))
 	})

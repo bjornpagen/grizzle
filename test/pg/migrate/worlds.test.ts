@@ -102,7 +102,7 @@ const versionOf = (name: string, k: Knobs) => {
 	const Share = relation("Share", { doc: uuid, user: Sub }, ["doc", "user"])
 	const Note = relation("Note", { no: pg.bigserial, doc: uuid, author: Sub }, ["no"])
 	const base = schema(name, { Tier, Org, Doc, Share, Note }, [mutable(Doc)])
-	const Busy = derived(
+	const Busy = derived.materialized(
 		"Busy",
 		query(base).rule((r) => {
 			const { id, words } = v(Doc, "doc")

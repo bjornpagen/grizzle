@@ -274,7 +274,7 @@ export const automaticBudget = query(Work).rule((r) => {
 		.find({ account, tasks: r.count(), budget: r.sum(budget) })
 })
 
-export const AccountBudget = derived("AccountBudget", automaticBudget)
+export const AccountBudget = derived.materialized("AccountBudget", automaticBudget)
 export const Reports = schema.extend(Work, { AccountBudget }, [])
 
 /** AccountBudget matched over Reports, as the reporter reads it. */

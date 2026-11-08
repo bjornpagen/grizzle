@@ -53,7 +53,7 @@ const build = (name: string) => {
 			)
 		})
 	})
-	const Narrowed = derived("Narrowed", narrowed)
+	const Narrowed = derived.materialized("Narrowed", narrowed)
 	const top = schema.extend(Base, { Narrowed }, [])
 	const refresher = role(top, "refresher", { Fee, Narrowed }, { refresh: ["Narrowed"] })
 	return { top, Narrowed, server: login(top, "server", [refresher]) }

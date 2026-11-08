@@ -173,7 +173,11 @@ breaking change may briefly break older application instances that are still run
   that becomes the primary key) is dropped here once the new key is attached, and the foreign keys over those fields
   are added after it, so each depends on the new key. A roster domain's VALIDATE refuses every row that still holds a
   removed handle's code, naming the table and column, never the row: change or delete those rows in a data step
-  before it.
+  before it. A rule over a query (a side over a derived relation) that is new, or whose rule or definition changed,
+  is checked here once every row the migration writes is written: a DO block running its violation query over the
+  stored rows, raising 23000 with the rule's name where a row breaks it. Its functions and its deferred constraint
+  triggers, one on each table its query reads, are created or replaced here too, and a renamed table's trigger is
+  created again.
 - **publish**: the refined constants' casts to their domains, so each is judged by the target's CHECK (one it refuses
   rolls the whole file back); the worlds: logins and roles, their memberships and settings, each role's schema of
   views (a security-barrier view for a query entry, a plain one for a whole entry, each closed id followed by its
@@ -280,6 +284,8 @@ as PostgreSQL's scanner reads it: whitespace, comments and the case of unquoted 
   or each statement alone with -- grizzle: no-transaction, and never controls the transaction itself.
 - The violation check of a rule over closed relations alone, at the start of Setup: without it the migration installs
   closed rows that break the rule, and no later statement checks them again.
+- The violation check of a rule over a query, in Validate: its triggers judge only the writes after it, so without it
+  the migration installs a rule the stored rows already break.
 - `CONCURRENTLY` turned into a plain build: a plain build blocks every write to the table while it runs.
 
 ## Custom migrations

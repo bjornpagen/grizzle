@@ -338,7 +338,12 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 	readonly entries: ReadonlyArray<RoleEntry>
 	/** The ordinary and closed relations' handles, in name order: what the theory's laws read. */
 	readonly stored: ReadonlyArray<TheoryRelation>
-	/** Every derived relation's analysis in refresh order's levels, level then name: a role's are its base's. */
+	/**
+	 * Every materialized derived relation's analysis in refresh order's levels, level then name: a role's are its
+	 * base's. A live derived relation is no relation a query reads: a query matching it reads its definition, which the
+	 * builder imports in its place (query/build/state.ts), and a rule over it reads its definition too
+	 * (analysis/theory/query.ts).
+	 */
 	readonly derived: ReadonlyArray<DerivedRelationAnalysis>
 	/** Every relation held as a base relation, by name: reality's own, or the ones a role holds whole. */
 	readonly #held: ReadonlyMap<string, BaseRelation>
@@ -439,12 +444,14 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 		}
 		const derived: Array<DerivedRelationAnalysis> = []
 		this.derived = derived
-		for (const r of ownedRelations
-			.flatMap((o) => (o.kind === "derived" ? [o] : []))
-			.toSorted((a, b) =>
+		for (const { r, view } of ownedRelations
+			.flatMap((o) =>
+				o.kind === "derived" && o.view.kind === "materialized" ? [{ r: o, view: o.view }] : []
+			)
+			.toSorted(({ r: a }, { r: b }) =>
 				a.desc.level === b.desc.level ? compareText(a.name, b.name) : a.desc.level - b.desc.level
 			)) {
-			const analysis = unwrap(analyzeDerivedRelation(this, r))
+			const analysis = unwrap(analyzeDerivedRelation(this, r, view))
 			derived.push(analysis)
 			hold({ kind: "derived", name: r.name, loc: r.loc, analysis }, true)
 		}

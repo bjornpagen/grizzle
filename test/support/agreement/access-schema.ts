@@ -53,14 +53,14 @@ export const accountSeats = query(Work).rule((r) => {
 	return r.match(Account, { id, tier }).match(TierInfo, { tier, seats }).find({ id, seats })
 })
 
-export const TaskTally = derived(
+export const TaskTally = derived.materialized(
 	"TaskTally",
 	query(Work).rule((r) => {
 		const { id, account } = v(Task, "task")
 		return r.match(Task, { id, account }).find({ account, tasks: r.count() })
 	})
 )
-export const AccountNames = derived(
+export const AccountNames = derived.materialized(
 	"AccountNames",
 	query(Work).rule((r) => {
 		const { id, name } = v(Account, "account")

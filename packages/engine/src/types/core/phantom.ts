@@ -51,8 +51,8 @@
  *    - alternatives: ArmsCompatible checks each arm's key against the parent key, and DiscriminatorsOf the
  *      discriminator against the roster;
  *    - derived: KeysOf reads a derived relation's keys from its definition's evidence, which pin a match on it like
- *      declared keys (HeadKeys), and the statement constructors
- *      refuse a derived relation (kind "derived"), which is LawOnDerived at the type level;
+ *      declared keys (HeadKeys); a key's, a check's and a containment's side may read a derived relation, its terms
+ *      typed by the definition's heading, and the statements that draw or put rows refuse one;
  *    - apply: WriteListOf<R> reads the opened role's write list, and db.apply and compile refuse a ChangeSet
  *      whose Writes lie outside it; RefreshListOf does the same for db.refresh;
  *    - orderBy: DeliveredKeys, the columns the query delivers; the retained key that completes the order is the
@@ -921,7 +921,6 @@ export const typeRefusals = [
 	"a key gets its one row",
 	"a key lists each field once",
 	"a key lists no set: a set's bit string is too wide for an index entry",
-	"a law side is never over a derived relation",
 	"a login's roles share its base",
 	"a login's workload is over its base, a level of it, or one of its roles",
 	"a member fact is not a fact of the relation",
@@ -939,6 +938,12 @@ export const typeRefusals = [
 	"a relation parameter binds a relation parameter of the importing rule, r.relation(name, heading)",
 	"a relation parameter has at least one field, as a relation does",
 	"a roster lists each handle once",
+	"a rule reads a derived relation whose definition joins, selects and projects: this one aggregates",
+	"a rule reads a derived relation whose definition joins, selects and projects: this one approximates a search",
+	"a rule reads a derived relation whose definition joins, selects and projects: this one attaches a nested query",
+	"a rule reads a derived relation whose definition joins, selects and projects: this one orders and takes",
+	"a rule reads a derived relation whose definition joins, selects and projects: this one produces spans",
+	"a rule reads a derived relation whose definition joins, selects and projects: this one recurses",
 	"a schema holds each relation under its own name",
 	"a schema predicate reads no parameter",
 	"a sequence's member is written under its owner: nest it in order at the owner's count field",
@@ -953,6 +958,7 @@ export const typeRefusals = [
 	"a union's arms deliver each field at one type",
 	"a value its contract refuses: it lacks a fact the contract declares",
 	"a value proved finite: guard it with Compute.when(Compute.isFinite(x), (x) => …, otherwise)",
+	"a whole entry is a relation PostgreSQL stores: a role reads a live derived relation through the relations its definition reads",
 	"a whole entry is a relation of the base under its own name",
 	"a write list names each role relation once",
 	"aggregate and span producer in one head: a producer yields facts per binding, an aggregate folds them",

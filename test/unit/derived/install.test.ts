@@ -36,6 +36,7 @@ const pairs = (a: string, b: string): SchemaDesc => ({
 			kind: "derived",
 			name: "Pairs",
 			level: 1,
+			storage: "materialized",
 			query: decodedQuery({
 				kind: "rules",
 				arms: [

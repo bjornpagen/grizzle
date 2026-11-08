@@ -967,7 +967,8 @@ export const fieldTypes = <L>(
  * A schema's relations. An ordinary relation stores the facts its callers write. A roster (closed) introduces its
  * handles, in declared order, which is their codes' order. A closed relation (closedRelation) relates existing values,
  * the closed ids of its key and its payload, by rows fixed when the schema compiles: its key is required, a set lists
- * every field, and no two rows share a key. A derived relation is a stored query.
+ * every field, and no two rows share a key. A derived relation is a named query, its rows its definition's, which
+ * PostgreSQL stores as a materialized view where it is materialized.
  */
 export type RelationDesc<L = Located> = L &
 	(
@@ -1002,8 +1003,30 @@ export type RelationDesc<L = Located> = L &
 				readonly query: QueryDesc<L>
 				/** The derived level: 1 over base relations, n + 1 over a level-n derived relation. */
 				readonly level: number
+				/** Whether PostgreSQL stores its rows: never, every read and rule reading its definition; or as a
+				 * materialized view, which a read reads as of its last refresh. */
+				readonly storage: DerivedStorage
 		  }
 	)
+
+/**
+ * How a derived relation is held: `live`, its definition alone, which every query matching it and every rule over it
+ * reads; or `materialized`, a materialized view of its rows besides, which a query reads as of its last refresh. A rule
+ * over either reads its definition.
+ */
+const derivedStorages = ["live", "materialized"] as const
+export type DerivedStorage = (typeof derivedStorages)[number]
+
+/**
+ * Whether a role holds a relation: whether PostgreSQL holds its rows, so neither a closed relation, whose rows are its
+ * constants, nor a live derived relation, whose rows are its definition's over the relations it reads.
+ */
+export const heldRelation = (relation: {
+	readonly kind: RelationDesc["kind"]
+	readonly storage?: DerivedStorage
+}): boolean =>
+	relation.kind !== "closedRelation" &&
+	!(relation.kind === "derived" && relation.storage === "live")
 
 export type SchemaDesc<L = Located> = L & {
 	readonly name: string
@@ -2070,7 +2093,15 @@ const relationDescShape: S.Shape<RelationDesc> = admittedOr(
 			)
 		),
 		derived: S.located(
-			S.structWith({ name, query: unorderedQueryShape, level: S.positiveInteger }, loc)
+			S.structWith(
+				{
+					name,
+					query: unorderedQueryShape,
+					level: S.positiveInteger,
+					storage: S.literalsShape(derivedStorages)
+				},
+				loc
+			)
 		)
 	})
 )

@@ -13,19 +13,19 @@ import {
 	type Refs
 } from "#compiler/ir/desc.ts"
 import type { OpenExpr } from "#compiler/ir/open.ts"
-import { Roster, type ScalarType } from "#compiler/ir/scalar.ts"
+import { Roster } from "#compiler/ir/scalar.ts"
 import { plainColumns } from "#compiler/scalar/compute/tables.ts"
 import {
 	predicateExpr,
 	registerTerm,
 	registerUntyped,
-	type TermCarrier,
 	termExpr
 } from "#compiler/scalar/compute/term.ts"
 import { plainType } from "#compiler/scalar/compute/types.ts"
 import { describeField, scalarTypeOf } from "#compiler/scalar/registry.ts"
 import { literalFor, untypedLiteral } from "#compiler/schema/literal.ts"
 import {
+	type HeadingTyping,
 	isParam,
 	malformed,
 	orThrow,
@@ -46,14 +46,6 @@ export interface RowTerm extends Built {
 }
 
 /**
- * What Compute reads of a row term: its ScalarType and its carrier, the field's column and SQL type, when the field
- * registry resolves the field.
- */
-type RowTyping =
-	| { readonly kind: "typed"; readonly scalar: ScalarType; readonly carrier: TermCarrier }
-	| { readonly kind: "untyped" }
-
-/**
  * What a term's literal operands adopt: a field's descriptor and roster, when this package knows them, and the term's
  * typing (the type and carrier the term protocol registers for it, which Compute reads).
  */
@@ -61,7 +53,7 @@ interface TermType {
 	readonly desc: FieldDesc
 	/** The handles of the closed relation a closedId field references, when its host descriptor carries them. */
 	readonly roster: ReadonlyArray<string> | undefined
-	readonly typing: RowTyping
+	readonly typing: HeadingTyping
 }
 
 const types = new WeakMap<object, TermType>()
@@ -79,7 +71,7 @@ const typingOf = (
 	desc: FieldDesc,
 	descriptor: unknown,
 	roster: ReadonlyArray<string> | undefined
-): RowTyping => {
+): HeadingTyping => {
 	const described =
 		descriptor === undefined ? undefined : describeField(descriptor, SourceLoc("check field", []))
 	if (described?.ok === true) {
@@ -151,7 +143,13 @@ const compare =
 		predicateValue({ kind: "compare", op, left, right: operand(other, type, `${op} operand`) })
 
 /** A term over `expr` whose literal operands adopt `type`. */
-const rowTerm = (expr: OpenExpr, type: TermType): RowTerm => {
+const rowTerm = (expr: OpenExpr, type: TermType): RowTerm => termOver(expr, type, type.typing)
+
+/**
+ * A term over `expr`, typed for Compute by `typing`, whose literal operands adopt `type` where its field's descriptor is
+ * known, and are recorded as written where it is not, for the schema's compilation to type.
+ */
+const termOver = (expr: OpenExpr, type: TermType | undefined, typing: HeadingTyping): RowTerm => {
 	const comparisons = {
 		eq: compare("eq", expr, type),
 		ne: compare("ne", expr, type),
@@ -169,10 +167,11 @@ const rowTerm = (expr: OpenExpr, type: TermType): RowTerm => {
 		in: (values: unknown) =>
 			predicateValue({ kind: "in", arg: expr, values: literalList(values, type, "in") })
 	}
-	const typing = type.typing
 	if (typing.kind === "untyped") {
 		const term: RowTerm = Object.freeze({ ...builtMark, expr, ...comparisons })
-		types.set(term, type)
+		if (type !== undefined) {
+			types.set(term, type)
+		}
 		return registerUntyped(term, expr)
 	}
 	const term = Object.freeze({
@@ -182,7 +181,9 @@ const rowTerm = (expr: OpenExpr, type: TermType): RowTerm => {
 		sql: typing.carrier.sql,
 		...comparisons
 	})
-	types.set(term, type)
+	if (type !== undefined) {
+		types.set(term, type)
+	}
 	return registerTerm(term, expr, typing.scalar)
 }
 
@@ -311,6 +312,22 @@ export const rowScalars = (
 			{ kind: "field", field: name },
 			{ desc, roster, typing: typingOf(desc, descriptors[name], roster) }
 		)
+	}
+	return Object.freeze(row)
+}
+
+/**
+ * The row a check's or a selection's callback over a derived relation receives: each field of its definition's heading
+ * as a term over `{ kind: "field" }`, typed for Compute as the builder typed the definition's head, beside the helpers.
+ * A derived field's descriptor is inferred where the schema compiles, so a literal operand is recorded as written and
+ * typed there (analysis/theory/query.ts), as one opposite a Compute term is.
+ */
+export const derivedRowScalars = (
+	heading: ReadonlyMap<string, HeadingTyping>
+): Readonly<Record<string, unknown>> => {
+	const row: Record<string, unknown> = { ...rowHelpers }
+	for (const [name, typing] of heading) {
+		row[name] = termOver({ kind: "field", field: name }, undefined, typing)
 	}
 	return Object.freeze(row)
 }

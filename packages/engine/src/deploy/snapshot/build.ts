@@ -36,7 +36,7 @@ import type {
 	SnapshotTheory,
 	SnapshotWriting
 } from "#compiler/deploy/snapshot/types.ts"
-import { migrationChecks } from "#compiler/deploy/snapshot/violation.ts"
+import { migrationChecks, ruleChecks } from "#compiler/deploy/snapshot/violation.ts"
 import type { CodeSlot, RosterCodes } from "#compiler/ir/cells.ts"
 import {
 	type Codebook,
@@ -231,15 +231,23 @@ const theoryOf = (installation: Installation): SnapshotTheory => {
 		primaryKey: t.primaryKey,
 		attnums: defined(created.get(t.ident), "every stored relation is installed as a table")
 	})
-	/** A derived relation's or a roster's record, from its ownership; a stored relation's is its theory handle's. */
+	/**
+	 * A materialized derived relation's or a roster's record, from its ownership; a stored relation's is its theory
+	 * handle's. A live derived relation installs nothing and holds no row, so the snapshot records none.
+	 */
 	const ownedRecord = (
 		o: (typeof owned.relations)[string]
 	): ReadonlyArray<readonly [string, SnapshotRelation]> => {
 		switch (o.kind) {
 			case "derived":
-				return [
-					[o.name, { kind: "derived", ident: o.ident, mutable: o.mutable, level: o.desc.level }]
-				]
+				return o.view.kind === "live"
+					? []
+					: [
+							[
+								o.name,
+								{ kind: "derived", ident: o.view.ident, mutable: o.mutable, level: o.desc.level }
+							]
+						]
 			case "closed":
 				return [
 					[
@@ -271,14 +279,18 @@ const theoryOf = (installation: Installation): SnapshotTheory => {
 	}
 	const laws: Record<string, SnapshotLaw> = {}
 	const migrations = new Map(migrationChecks(installation).map((c) => [c.law, c.digest] as const))
+	const rules = new Map(ruleChecks(installation).map((c) => [c.law, c.digest] as const))
 	for (const law of theory.laws.toSorted(
 		mapInput(compareStrings, (l: { readonly id: string }) => l.id)
 	)) {
 		const checked = migrations.get(law.id)
+		const ruled = rules.get(law.id)
 		laws[law.id] =
-			checked === undefined
-				? { kind: "native", shape: law.shape }
-				: { kind: "migration", shape: law.shape, digest: checked }
+			checked !== undefined
+				? { kind: "migration", shape: law.shape, digest: checked }
+				: ruled !== undefined
+					? { kind: "trigger", shape: law.shape, digest: ruled }
+					: { kind: "native", shape: law.shape }
 	}
 	return { schema: owned.fingerprint, relations, laws }
 }
@@ -596,6 +608,7 @@ const lawForm = (l: SnapshotLaw): SnapshotForm => {
 		case "native":
 			return { kind: l.kind, shape: l.shape }
 		case "migration":
+		case "trigger":
 			return { kind: l.kind, shape: l.shape, digest: l.digest }
 	}
 }

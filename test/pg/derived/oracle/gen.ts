@@ -18,7 +18,7 @@ import { type QueryValue, queryOver as query, varsOver as v } from "#compiler/qu
 import type { FinishedValue, RuleValue } from "#compiler/query/build/rule.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
-import { closed, derived, relation } from "#compiler/schema/relation.ts"
+import { closed, materializedDerived, relation } from "#compiler/schema/relation.ts"
 import { schema } from "#compiler/schema/schema.ts"
 import { role } from "#compiler/schema/world.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
@@ -873,7 +873,7 @@ export const buildSchema = (sketch: CaseSketch, options: BuildOptions): GenSchem
 				level: li + 1,
 				declared: di,
 				columns: built.columns,
-				value: derived(name, built.query, []),
+				value: materializedDerived(name, built.query, []),
 				form: built.form,
 				aggregates: built.aggregates,
 				negation: built.negation,

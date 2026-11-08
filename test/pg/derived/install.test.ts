@@ -25,7 +25,7 @@ import { closed, derived, login, relation, role, schema } from "#compiler/public
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
-import { derived as runtimeDerived } from "#compiler/schema/relation.ts"
+import { materializedDerived as runtimeDerived } from "#compiler/schema/relation.ts"
 import { printObjectName, printType, quoteIdent } from "#compiler/sql/print.ts"
 import { textLookup } from "#compiler/text/refinement.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
@@ -678,7 +678,7 @@ layer(Substrate.layer)("derived relations on PostgreSQL 19", (it) => {
 							.match(W.Account, { id: account })
 							.find({ id: t })
 					})
-					const OwnedTasks = derived("OwnedTasks", ownedTasks)
+					const OwnedTasks = derived.materialized("OwnedTasks", ownedTasks)
 					/** Account's name lies outside the referenced key, which makes Task.account -> Account.id deferred. */
 					const Written = schema.extend(W.Work, { OwnedTasks }, [])
 					const installed = yield* install(Written, {

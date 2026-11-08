@@ -12,6 +12,7 @@ import {
 	contextFieldAdmits,
 	decodeDesc,
 	type FieldDesc,
+	heldRelation,
 	type LoginDesc,
 	type QueryDesc,
 	type RelationDesc,
@@ -76,8 +77,8 @@ export const roleDescOf = (value: unknown): RoleDesc | undefined => ownedDesc(va
  * A role as a level (write/changeset/levels.ts), read once, when role(...) builds the role: its Description; its
  * identity, the content digest of that Description beside its base's name and content (levels.ts SchemaContent), so
  * two roles are one level exactly when their identities are equal; its base's content; whether it is full, holding
- * every relation of every level of its base whole under its own name but the closed relations, which no role holds and
- * every role reads, as ownership reads it (own.ts OwnedRole); every relation of every level of its base by name
+ * every relation of every level of its base whole under its own name but the closed and live derived relations, which
+ * no role holds and every role reads (desc.ts heldRelation), as ownership reads it (own.ts OwnedRole); every relation of every level of its base by name
  * (levelRelations); and its entries by name.
  */
 export interface RoleLevel {
@@ -270,6 +271,9 @@ export const admitRole = (
 		const loc = builderLoc(at, [baseDesc.name, roleName, key])
 		const draft = derivedDraftOf(value)
 		const kind = ownedKind(value)
+		if (draft?.storage === "live") {
+			throw roleRefused(at, { kind: "wholeEntryLive", entry: key })
+		}
 		if (draft !== undefined || kind === "relation" || kind === "closed") {
 			const own = wholeOf(value, at)
 			const declared = below.get(key)
@@ -413,7 +417,7 @@ export const admitRole = (
 			base: [baseDesc.name, baseEntry.content.digest]
 		}),
 		base: baseEntry.content,
-		full: [...below].every(([n, r]) => r.kind === "closedRelation" || whole.has(n)),
+		full: [...below].every(([n, r]) => !heldRelation(r) || whole.has(n)),
 		relations: below,
 		entries: new Map(desc.relations.map((e) => [e.name, e]))
 	})

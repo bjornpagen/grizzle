@@ -46,6 +46,16 @@ export interface MigrationCheck {
 	readonly digest: string
 }
 
+/** The check of `law`, whose violation query is rooted at `violation`, digested. */
+const checkOf = (installation: Installation, law: LawId, violation: RelNode): MigrationCheck => {
+	const query = violationQuery(installation, law, violation)
+	const d = digest("migration-check", query, everyProperty)
+	if (!d.ok) {
+		throw new Refusal(d.error)
+	}
+	return { law, query, digest: d.value }
+}
+
 /** The migration checks of an installation's theory, in the law model's order of its migration-discharged laws. */
 export const migrationChecks = (installation: Installation): ReadonlyArray<MigrationCheck> => {
 	const theory = installation.laws.theory
@@ -54,11 +64,15 @@ export const migrationChecks = (installation: Installation): ReadonlyArray<Migra
 		if (declared === undefined) {
 			throw defect(`the theory holds the migration-discharged law ${law}`)
 		}
-		const query = violationQuery(installation, law, declared.violation)
-		const d = digest("migration-check", query, everyProperty)
-		if (!d.ok) {
-			throw new Refusal(d.error)
-		}
-		return { law, query, digest: d.value }
+		return checkOf(installation, law, declared.violation)
 	})
 }
+
+/**
+ * The checks of an installation's rules over queries, in law order: each rule's violation query over every row, which
+ * the migration that adds the rule, or changes it or a definition it reads, runs once its rows are written, before
+ * its triggers hold it at every COMMIT after (laws/model/model.ts RuleTrigger). `digest` is the query's, so a change of
+ * the rule or of a definition it reads is a new check.
+ */
+export const ruleChecks = (installation: Installation): ReadonlyArray<MigrationCheck> =>
+	installation.laws.rules.map((r) => checkOf(installation, r.law.id, r.law.violation))

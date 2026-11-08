@@ -24,7 +24,13 @@ import { natural, uuid } from "#compiler/public/fields.ts"
 import { queryOver, queryValueDesc, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { own } from "#compiler/schema/own.ts"
-import { closed, closedRelation, derived, drawnField, relation } from "#compiler/schema/relation.ts"
+import {
+	closed,
+	closedRelation,
+	materializedDerived,
+	drawnField,
+	relation
+} from "#compiler/schema/relation.ts"
 import { schema, schemaDescOf } from "#compiler/schema/schema.ts"
 import {
 	alternativesBuilder,
@@ -68,7 +74,8 @@ import {
 import { regex as arkregex } from "arkregex"
 /**
  * Ownership: canonical FieldIds, conflict
- * detection, LawOnDerived, scope rules, and a fingerprint that ignores allocation order and source locations.
+ * detection, statements over a derived relation, scope rules, and a fingerprint that ignores allocation order and
+ * source locations.
  *
  * The oracle is ownership's documented rule (packages/engine/src/schema/own.ts): each property plants one way a declaration
  * breaks it, or one rewrite that keeps its meaning, over drawn names and shapes, and asserts the documented reason or
@@ -92,7 +99,7 @@ const Work = schema(
 	[]
 )
 
-const TaskIds = derived(
+const TaskIds = materializedDerived(
 	"TaskIds",
 	queryOver(Work).rule((r: RuleValue) => {
 		const { id, account } = varsOver(Task, "task")
@@ -308,7 +315,7 @@ describe("the owned product", () => {
 								if (!s.extended) {
 									return root
 								}
-								const Ids = derived(
+								const Ids = materializedDerived(
 									"TaskIds",
 									queryOver(root).rule((r: RuleValue) => {
 										const { id } = varsOver(Task, "task")
@@ -699,8 +706,8 @@ describe("closed relations", () => {
 	)
 })
 
-describe("LawOnDerived", () => {
-	type LawOnDerivedKind =
+describe("statements over a derived relation", () => {
+	type DerivedStatementKind =
 		| "key"
 		| "mutable"
 		| "check"
@@ -709,13 +716,13 @@ describe("LawOnDerived", () => {
 		| "mirrors"
 		| "an alternatives arm"
 	/**
-	 * Each law in each form it is written in: a description or a builder. mirrors is a builder's alone: it is sugar, which
-	 * a description states as its two containments, the contained laws.
+	 * Each statement in each form it is written in: a description or a builder. mirrors is a builder's alone: it is sugar,
+	 * which a description states as its two containments, the contained statements.
 	 */
-	type LawForm =
-		| { readonly kind: Exclude<LawOnDerivedKind, "mirrors">; readonly form: "description" }
-		| { readonly kind: LawOnDerivedKind; readonly form: "builder" }
-	const described: Arr.NonEmptyReadonlyArray<Exclude<LawOnDerivedKind, "mirrors">> = [
+	type StatementForm =
+		| { readonly kind: Exclude<DerivedStatementKind, "mirrors">; readonly form: "description" }
+		| { readonly kind: DerivedStatementKind; readonly form: "builder" }
+	const described: Arr.NonEmptyReadonlyArray<Exclude<DerivedStatementKind, "mirrors">> = [
 		"key",
 		"mutable",
 		"check",
@@ -723,38 +730,52 @@ describe("LawOnDerived", () => {
 		"contained into",
 		"an alternatives arm"
 	]
-	const lawForms: Arr.NonEmptyReadonlyArray<LawForm> = [
-		...Arr.map(described, (kind): LawForm => ({ kind, form: "description" })),
-		...Arr.map([...described, "mirrors" as const], (kind): LawForm => ({ kind, form: "builder" }))
+	const statementForms: Arr.NonEmptyReadonlyArray<StatementForm> = [
+		...Arr.map(described, (kind): StatementForm => ({ kind, form: "description" })),
+		...Arr.map([...described, "mirrors" as const], (kind): StatementForm => ({
+			kind,
+			form: "builder"
+		}))
 	]
+	/** Whether ownership reads the statement as a rule over the derived relation's definition: every rule but those that
+	 * name rows grizzle writes, mutable's and an alternatives arm's, which it refuses as MalformedDescription. */
+	const ruled = (kind: DerivedStatementKind): boolean =>
+		kind !== "mutable" && kind !== "an alternatives arm"
 	const derivedSide = on("TaskIds", ["id"])
 	const baseSide = on("Task", ["id"])
 
 	it.effect(
-		"refuses every law statement naming a derived relation, from a description or the builders",
+		"owns a key, check, containment either way and mirrors over a derived relation, and refuses mutable and an alternatives arm over one, from a description or the builders",
 		(ctx) =>
 			Effect.gen(function* () {
-				const space: Gen<readonly [LawForm, boolean]> = (source) =>
-					[source.draw(element(lawForms)), source.draw(boolean)] as const
+				const space: Gen<readonly [StatementForm, boolean]> = (source) =>
+					[source.draw(element(statementForms)), source.draw(boolean)] as const
 				yield* searched(
 					ctx,
 					exhaust(
 						{
 							box: { kind: "unstated" },
 							oracle: { kind: "unstated" },
-							suite: "unit/schema/law-on-derived",
+							suite: "unit/schema/statements-over-derived",
 							generator: space,
 							literal: Formatter.format,
-							/** The space is every law form, 6 described and 7 built, with its sides either way round. */
+							/** The space is every statement form, 6 described and 7 built, with its sides either way round. */
 							limit: 26,
-							coverage: requiredInSpace<`${LawOnDerivedKind} ${LawForm["form"]}`>(
-								Arr.map(lawForms, (l) => `${l.kind} ${l.form}` as const)
+							coverage: requiredInSpace<`${DerivedStatementKind} ${StatementForm["form"]}`>(
+								Arr.map(statementForms, (l) => `${l.kind} ${l.form}` as const)
 							),
 							caseHang
 						},
 						([law, swapped], c) =>
 							Effect.sync(() => {
 								c.note(`${law.kind} ${law.form}`)
+								const verdict = (result: ReturnType<typeof ownValue>): void => {
+									if (ruled(law.kind)) {
+										succeeded(result)
+									} else {
+										refused(result, "MalformedDescription")
+									}
+								}
 								if (law.form === "description") {
 									const statement = ((): StatementDesc => {
 										switch (law.kind) {
@@ -788,7 +809,7 @@ describe("LawOnDerived", () => {
 												}
 										}
 									})()
-									refused(ownValue(withStatements(statement)), "LawOnDerived")
+									verdict(ownValue(withStatements(statement)))
 									return
 								}
 								const [left, right] = swapped
@@ -798,41 +819,38 @@ describe("LawOnDerived", () => {
 									ownValue(schema.extend(Work, { TaskIds }, [statement], []))
 								switch (law.kind) {
 									case "check":
-										throwsRefused(
-											() => checkBuilder("Positive", TaskIds, (row: Row) => row.id.eq(row.id)),
-											"LawOnDerived"
+										verdict(
+											extended(checkBuilder("Positive", TaskIds, (row: Row) => row.id.eq(row.id)))
 										)
 										return
 									case "an alternatives arm":
 										throwsRefused(
 											() => alternativesBuilder(Task, "kind", Kind, { Automatic: TaskIds }),
-											"LawOnDerived"
+											"MalformedDescription"
 										)
 										return
 									case "key":
-										refused(extended(keyBuilder(onBuilder(TaskIds, ["id"]))), "LawOnDerived")
+										verdict(extended(keyBuilder(onBuilder(TaskIds, ["id"]))))
 										return
 									case "mutable":
-										refused(extended(mutableBuilder(TaskIds)), "LawOnDerived")
+										verdict(extended(mutableBuilder(TaskIds)))
 										return
 									case "contained from":
-										refused(
+										verdict(
 											extended(
 												containedBuilder(onBuilder(TaskIds, ["id"]), onBuilder(Task, ["id"]))
-											),
-											"LawOnDerived"
+											)
 										)
 										return
 									case "contained into":
-										refused(
+										verdict(
 											extended(
 												containedBuilder(onBuilder(Task, ["id"]), onBuilder(TaskIds, ["id"]))
-											),
-											"LawOnDerived"
+											)
 										)
 										return
 									case "mirrors":
-										refused(extended(mirrorsBuilder(left, right)), "LawOnDerived")
+										verdict(extended(mirrorsBuilder(left, right)))
 										return
 								}
 							})

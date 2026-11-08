@@ -605,7 +605,7 @@ export const dailySpendDefinition = query(Platform).rule((r) => {
 		.where(r.pointIn(Compute.lower(during, Instant), span))
 		.find({ workspace, day, amount: r.sum(amount) })
 })
-const DailySpend = derived("DailySpend", dailySpendDefinition)
+const DailySpend = derived.materialized("DailySpend", dailySpendDefinition)
 
 export const Billing = schema.extend(Platform, { DailySpend }, [])
 

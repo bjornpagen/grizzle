@@ -77,6 +77,8 @@ export type IdentityKind =
 	| "ledgerCheck"
 	| "isolationGuard"
 	| "isolationTrigger"
+	| "lawTrigger"
+	| "lawFunction"
 	| "refusal"
 	| "snapshotGuard"
 	| "aside"
@@ -106,7 +108,7 @@ export type RelationIdent = Identifier<"table" | "rosterDomain" | "view" | "role
 export type ColumnIdent = Identifier<"column" | "lawColumn">
 /**
  * What a violation reports as its constraint: a table constraint, a derived relation's unique index, a domain
- * constraint, or the law identity a law function or a write statement's refusal raises (LawId).
+ * constraint, a rule over a query's trigger, or the law identity a write statement's refusal raises (LawId).
  */
 export type ConstraintName = Identifier<
 	| "primaryKey"
@@ -119,6 +121,7 @@ export type ConstraintName = Identifier<
 	| "domainCheck"
 	| "foreignKey"
 	| "derivedKey"
+	| "lawTrigger"
 	| RaisedLawKind
 >
 /** A non-unique access index the index engine creates. */

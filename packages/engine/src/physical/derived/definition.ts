@@ -164,8 +164,11 @@ const withColumnTypes = (
 	})
 }
 
-/** A body's outputs left unaliased, every arm of a set operation's alike: a derived table's column list names them. */
-const unaliased = (body: OperandBody): OperandBody => {
+/**
+ * A body's outputs left unaliased, every arm of a set operation's alike: a derived table's column list names them, and
+ * an EXISTS reads none of them.
+ */
+export const unaliased = (body: OperandBody): OperandBody => {
 	switch (body.kind) {
 		case "core":
 			return mapTargets(body, (t) => target(t.expr))

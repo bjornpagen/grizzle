@@ -2246,6 +2246,7 @@ class StatementAuditor {
 			case "createConstant":
 			case "packConstant":
 			case "createGuardTrigger":
+			case "createConstraintTrigger":
 			case "alterDatabaseDefault":
 			case "createRole":
 			case "alterRole":
@@ -2593,6 +2594,7 @@ class StatementAuditor {
 				return
 			}
 			case "createGuardTrigger":
+			case "createConstraintTrigger":
 				this.ident(statement.name, "trigger", "name")
 				this.objectName(statement.table, "table", "table")
 				this.objectName(statement.function, "function", "function")

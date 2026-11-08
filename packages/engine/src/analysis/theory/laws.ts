@@ -31,6 +31,15 @@ import {
 	type TreeStatement,
 	treeShape
 } from "#compiler/analysis/theory/families.ts"
+import {
+	derivedSideArms,
+	liveArms,
+	type QueryRule,
+	type RuleSide,
+	ruleReads,
+	storedSideArm,
+	violationQuery
+} from "#compiler/analysis/theory/query.ts"
 import { unwrap } from "#compiler/check/fail.ts"
 import { combineRule } from "#compiler/check/fold.ts"
 import { compareText, ownedText, withoutSourceLocs } from "#compiler/core/canonical.ts"
@@ -52,7 +61,9 @@ import {
 	expandAlternatives,
 	type FieldTermDesc,
 	type LiteralDesc,
+	everyFact,
 	type MonoidName,
+	type QueryDesc,
 	type SelectionDesc,
 	type TermDesc,
 	termText
@@ -174,6 +185,14 @@ export type LawDetail =
 	  }
 	| { readonly kind: "family"; readonly family: Family }
 	| { readonly kind: "tree"; readonly family: TreeFamily }
+	| {
+			/**
+			 * A rule one of whose sides reads a derived relation, judged on its definition at every commit by the deferred
+			 * constraint triggers the law model plans for it (analysis/theory/query.ts).
+			 */
+			readonly kind: "rule"
+			readonly rule: QueryRule
+	  }
 	| {
 			readonly kind: "fold"
 			readonly family: FamilyId
@@ -386,8 +405,19 @@ interface StatementSource {
 interface LawDraft {
 	readonly identity: Omit<LawIdentity, "statements">
 	readonly sources: ReadonlyArray<StatementSource>
-	readonly write: (b: ViolationBuilder) => WrittenLaw
+	readonly write: LawWriting
 }
+
+/**
+ * How a law's violation query is written: in the theory's builder, or, for a rule over a query, as a query description
+ * the checker reads (analysis/theory/query.ts violationQuery), which the theory merges into its DAG.
+ */
+type LawWriting =
+	| { readonly kind: "built"; readonly write: (b: ViolationBuilder) => WrittenLaw }
+	| { readonly kind: "query"; readonly violation: QueryDesc; readonly detail: RuleDetail }
+
+/** A rule over a query's detail. */
+type RuleDetail = Extract<LawDetail, { readonly kind: "rule" }>
 
 /** A law's violation query as written, and its detail as the theory law carries it: a row check's with its predicate
  * as the query lowers it, any other law's as stated. */
@@ -409,7 +439,10 @@ interface StatedDraft {
 const lawDraft = (draft: StatedDraft): LawDraft => ({
 	identity: draft.identity,
 	sources: draft.sources,
-	write: (b) => ({ violation: draft.violation(b), detail: draft.identity.detail })
+	write: {
+		kind: "built",
+		write: (b) => ({ violation: draft.violation(b), detail: draft.identity.detail })
+	}
 })
 
 /** The draft of a key ownership owned over `r`, its handles the checked schema's: a relation's primary key, or a key
@@ -496,6 +529,8 @@ interface SpanPair {
 
 interface NormalizeEnv {
 	readonly relations: ReadonlyMap<string, TheoryRelation>
+	/** Each derived relation's definition, by name: undefined for a stored or closed relation. */
+	readonly definition: (relation: string) => QueryDesc | undefined
 	/** A law's identity at the naming door (theory.ts lawIdentityOf). */
 	readonly named: (law: LawIdentity) => Identity<"law">
 	/** What lowering a law's predicate or term reads of the schema's types, and the closed relations it may apply. */
@@ -946,9 +981,55 @@ export class Normalizer {
 		const sources = [{ index, loc }]
 		switch (s.kind) {
 			case "key":
+				if (this.env.definition(s.side.relation) !== undefined) {
+					this.#queryRule(
+						{ kind: "key", side: this.#ruleSide(s.side, s.side.terms, "side.", loc) },
+						"key",
+						{ statement: index, kind: "key" },
+						sources,
+						loc
+					)
+					return
+				}
 				this.#key(s, index, sources)
 				return
 			case "check": {
+				const definition = this.env.definition(s.relation)
+				if (definition !== undefined) {
+					const arms = liveArms(s.relation, definition, { definition: this.env.definition, loc })
+					const [field, ...fields] = Object.keys(arms[0].head)
+					if (field === undefined) {
+						return refuse(
+							"MalformedDescription",
+							loc,
+							`a definition of ${s.relation} that derives a field`
+						)
+					}
+					const heading = mapNonEmpty([field, ...fields], (f): TermDesc => ({
+						kind: "field",
+						field: f
+					}))
+					this.#queryRule(
+						{
+							kind: "check",
+							name: s.name,
+							predicate: s.predicate,
+							named: s.check.named,
+							side: {
+								relation: s.relation,
+								terms: heading,
+								selection: everyFact,
+								texts: [],
+								arms: derivedSideArms(arms, heading, everyFact, loc)
+							}
+						},
+						"check",
+						{ statement: index, kind: "check" },
+						sources,
+						loc
+					)
+					return
+				}
 				const r = this.#relation(s.relation, loc)
 				const stated: StatedCheck = {
 					kind: "check",
@@ -967,11 +1048,14 @@ export class Normalizer {
 							detail: stated
 						},
 						sources,
-						write: (b) => {
-							const written = checkViolation(b, this.env, r, s.predicate, loc)
-							return {
-								violation: written.violation,
-								detail: { ...stated, lowered: written.predicate }
+						write: {
+							kind: "built",
+							write: (b) => {
+								const written = checkViolation(b, this.env, r, s.predicate, loc)
+								return {
+									violation: written.violation,
+									detail: { ...stated, lowered: written.predicate }
+								}
 							}
 						}
 					},
@@ -981,6 +1065,13 @@ export class Normalizer {
 				return
 			}
 			case "contained":
+				if (
+					this.env.definition(s.left.relation) !== undefined ||
+					this.env.definition(s.right.relation) !== undefined
+				) {
+					this.#queryContainment(s.left, s.right, s.pairs, index, sources, loc)
+					return
+				}
 				this.containment(
 					s.left,
 					s.right,
@@ -1012,6 +1103,109 @@ export class Normalizer {
 			case "mutable":
 				return
 		}
+	}
+
+	/**
+	 * A side of a rule over a query (analysis/theory/query.ts RuleSide): a derived relation's live arms, or the one arm of
+	 * a stored or closed relation, `prefix` keeping its variables apart from the rule's other side's.
+	 */
+	#ruleSide(
+		scope: SideScope,
+		terms: NonEmptyReadonlyArray<TermDesc>,
+		prefix: string,
+		loc: SourceLoc
+	): RuleSide {
+		const definition = this.env.definition(scope.relation)
+		const texts = scope.selection.conjuncts.map((c) => ownedText(c, withoutSourceLocs))
+		if (definition === undefined) {
+			const r = this.#relation(scope.relation, loc)
+			for (const t of terms) {
+				this.#term(r, t, loc)
+			}
+			return {
+				relation: scope.relation,
+				terms,
+				selection: scope.selection,
+				texts,
+				arms: [storedSideArm(scope.relation, terms, scope.selection, prefix, loc)]
+			}
+		}
+		return {
+			relation: scope.relation,
+			terms,
+			selection: scope.selection,
+			texts,
+			arms: derivedSideArms(
+				liveArms(scope.relation, definition, { definition: this.env.definition, loc }),
+				terms,
+				scope.selection,
+				loc
+			)
+		}
+	}
+
+	/**
+	 * A containment one of whose sides reads a derived relation: a rule over a query, each side read as arms. A constant
+	 * term states a containment between stored relations alone, whose foreign key carries it.
+	 */
+	#queryContainment(
+		left: SideScope,
+		right: SideScope,
+		pairs: NonEmptyReadonlyArray<SidePair>,
+		index: number,
+		sources: ReadonlyArray<StatementSource>,
+		loc: SourceLoc
+	): void {
+		const terms = mapNonEmpty(pairs, (p) =>
+			p.kind === "terms"
+				? p
+				: refuse(
+						"UnsupportedLawFamily",
+						loc,
+						`a containment of terms where a side reads a derived relation; ${termText(p.left)} is a constant, which a containment between stored relations alone states`
+					)
+		)
+		this.#queryRule(
+			{
+				kind: "contained",
+				from: this.#ruleSide(
+					left,
+					mapNonEmpty(terms, (p) => p.left),
+					"from.",
+					loc
+				),
+				to: this.#ruleSide(
+					right,
+					mapNonEmpty(terms, (p) => p.right),
+					"to.",
+					loc
+				)
+			},
+			"contained",
+			{ statement: index, kind: "contained" },
+			sources,
+			loc
+		)
+	}
+
+	/** A rule over a query, kept with its violation query as a description the checker reads. */
+	#queryRule(
+		rule: QueryRule,
+		shape: LawShape,
+		source: LawSource,
+		sources: ReadonlyArray<StatementSource>,
+		loc: SourceLoc
+	): void {
+		const detail: RuleDetail = { kind: "rule", rule }
+		this.#keep(
+			{
+				identity: { shape, source, reads: ruleReads(rule), detail },
+				sources,
+				write: { kind: "query", violation: violationQuery(rule, loc), detail }
+			},
+			loc,
+			(kept) => this.#laws.push(kept)
+		)
 	}
 
 	/** A key statement: a candidate key as the checked schema minted it, or a key over a projected side. */
@@ -1126,10 +1320,13 @@ export class Normalizer {
 					detail: { kind: "family", family: f }
 				},
 				sources: [{ index, loc }],
-				write: (b) => ({
-					violation: b.union(familyArms(b, this.env, sides, loc)),
-					detail: { kind: "family", family: this.#resolvedFamily(f.id) }
-				})
+				write: {
+					kind: "built",
+					write: (b) => ({
+						violation: b.union(familyArms(b, this.env, sides, loc)),
+						detail: { kind: "family", family: this.#resolvedFamily(f.id) }
+					})
+				}
 			},
 			loc,
 			(kept) => this.#laws.push(kept)
@@ -1227,17 +1424,20 @@ export class Normalizer {
 					detail: { kind: "tree", family: f }
 				},
 				sources: [{ index, loc }],
-				write: (b) => {
-					const resolved = this.#resolvedFamily(f.id)
-					if (resolved.members.kind !== "tree") {
-						throw defect("a tree's resolved family keeps its tree members")
-					}
-					return {
-						violation: b.union([
-							...familyArms(b, this.env, sides, loc),
-							...treeArms(b, this.env, sides.witness, f.member, tree, loc)
-						]),
-						detail: { kind: "tree", family: { ...resolved, members: resolved.members } }
+				write: {
+					kind: "built",
+					write: (b) => {
+						const resolved = this.#resolvedFamily(f.id)
+						if (resolved.members.kind !== "tree") {
+							throw defect("a tree's resolved family keeps its tree members")
+						}
+						return {
+							violation: b.union([
+								...familyArms(b, this.env, sides, loc),
+								...treeArms(b, this.env, sides.witness, f.member, tree, loc)
+							]),
+							detail: { kind: "tree", family: { ...resolved, members: resolved.members } }
+						}
 					}
 				}
 			},

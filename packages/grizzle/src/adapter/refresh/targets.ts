@@ -105,7 +105,7 @@ const derivedOf = (
 				const { kind, name, definition } = value
 				return kind === "derived"
 					? Result.map(
-							toResult(catchCompileError(() => admitDerived(name, definition, []))),
+							toResult(catchCompileError(() => admitDerived(name, definition, "materialized", []))),
 							(draft) => ({
 								name: draft.name,
 								query: draft.query

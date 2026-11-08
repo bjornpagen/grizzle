@@ -125,7 +125,7 @@ const agreeEntries = Object.freeze({ Tone, Shade, Item, Tag, Note, Batch, Cell, 
 /** The full role over Agree every drawn read goes through, but where a case reads through Reporter. */
 export const Reader = role(Agree, "reader", agreeEntries)
 
-export const ItemTones = derived(
+export const ItemTones = derived.materialized(
 	"ItemTones",
 	query(Agree).rule((r) => {
 		const { id, tone, owner } = v(Item, "item")
@@ -133,7 +133,7 @@ export const ItemTones = derived(
 	})
 )
 
-export const OwnerCounts = derived(
+export const OwnerCounts = derived.materialized(
 	"OwnerCounts",
 	query(Agree).rule((r) => {
 		const { id, owner } = v(Item, "item")

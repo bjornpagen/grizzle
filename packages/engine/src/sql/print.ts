@@ -60,6 +60,7 @@ import {
 	type TableConstraint,
 	type TableName,
 	type Target,
+	type TriggerEvent,
 	type TypeRef,
 	tableConstraints,
 	type Update,
@@ -114,6 +115,18 @@ export const quoteIdent = (name: string): string => `"${name.replaceAll('"', '""
 
 export const printObjectName = (name: ObjectName): string =>
 	`${quoteIdent(name.schema)}.${quoteIdent(name.name)}`
+
+/** A constraint trigger's row event as CREATE CONSTRAINT TRIGGER spells it. */
+const triggerEventText = (event: TriggerEvent): string => {
+	switch (event.kind) {
+		case "insert":
+			return "INSERT"
+		case "delete":
+			return "DELETE"
+		case "update":
+			return `UPDATE OF ${event.columns.map(quoteIdent).join(", ")}`
+	}
+}
 
 /** A name of pg_catalog's, qualified by it. */
 const inCatalog = (name: string): string => printObjectName({ schema: "pg_catalog", name })
@@ -1610,6 +1623,15 @@ export const writeStatement = (out: Lines, statement: SqlStatement): void => {
 			return clauses.line(
 				`FOR EACH STATEMENT EXECUTE FUNCTION ${printObjectName(statement.function)}()`
 			)
+		}
+		case "createConstraintTrigger": {
+			out.line(`CREATE CONSTRAINT TRIGGER ${quoteIdent(statement.name)}`)
+			const clauses = out.nested()
+			clauses.line(
+				`AFTER ${statement.events.map(triggerEventText).join(" OR ")} ON ${printObjectName(statement.table)}`
+			)
+			clauses.line("DEFERRABLE INITIALLY DEFERRED")
+			return clauses.line(`FOR EACH ROW EXECUTE FUNCTION ${printObjectName(statement.function)}()`)
 		}
 		case "alterDatabaseDefault":
 			return writeDo(out, databaseDefaultBlock(statement))

@@ -66,7 +66,7 @@ const build = (name: string, picked: ReadonlyArray<ProgramName>) => {
 		contained(on(Task, "account"), on(Account, "code"))
 	])
 	/** Per account and kind, the number of tasks and their total weight. */
-	const Totals = derived(
+	const Totals = derived.materialized(
 		"Totals",
 		query(base).rule((r) => {
 			const { id, account, kind, weight } = v(Task, "task")
@@ -76,7 +76,7 @@ const build = (name: string, picked: ReadonlyArray<ProgramName>) => {
 		})
 	)
 	/** Each task with its account's region. */
-	const Placed = derived(
+	const Placed = derived.materialized(
 		"Placed",
 		query(base).rule((r) => {
 			const { id, account, kind } = v(Task, "task")

@@ -295,12 +295,25 @@ const relationOf = (owned: Owned, relation: string) => {
 }
 
 /** A relation the installation installs an object of its own for, by name: a table, a roster's domain or a view. */
-const installedOf = (owned: Owned, relation: string) => {
+const installedOf = (
+	owned: Owned,
+	relation: string
+): {
+	readonly named: Identity<"table" | "rosterDomain" | "view">
+	readonly ident: RelationIdent
+} => {
 	const r = relationOf(owned, relation)
-	if (r.kind === "closedRelation") {
-		return missing(`physical: the closed relation ${relation} installs no relation of its own`)
+	switch (r.kind) {
+		case "closedRelation":
+			return missing(`physical: the closed relation ${relation} installs no relation of its own`)
+		case "derived":
+			return r.view.kind === "live"
+				? missing(`physical: the live derived relation ${relation} installs no relation of its own`)
+				: r.view
+		case "relation":
+		case "closed":
+			return r
 	}
-	return r
 }
 
 /** A roster's codes in the installation's codebook, which holds every roster the schema declares. */

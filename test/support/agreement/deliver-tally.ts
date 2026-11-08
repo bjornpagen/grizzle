@@ -9,7 +9,7 @@ import { Deliver } from "#test/support/agreement/schema.ts"
  */
 const { Task } = Deliver.relations
 
-export const AccountTally = derived(
+export const AccountTally = derived.materialized(
 	"AccountTally",
 	query(Deliver).rule((r) => {
 		const { id, account } = v(Task, "task")

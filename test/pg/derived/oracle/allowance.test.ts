@@ -13,7 +13,7 @@ import type { AnyDerived, AnySchema } from "#compiler/public/schema.ts"
 import { relation } from "#compiler/public/schema.ts"
 import { type QueryValue, queryOver as query, varsOver as v } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
-import { derived } from "#compiler/schema/relation.ts"
+import { materializedDerived } from "#compiler/schema/relation.ts"
 import { schema } from "#compiler/schema/schema.ts"
 import { role } from "#compiler/schema/world.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
@@ -154,12 +154,12 @@ const build = (name: string, items: ReadonlyArray<MenuItem>) => {
 	const Base = schema(name, { Amount }, [], [])
 	const level1: Record<string, AnyDerived> = {}
 	for (const m of Arr.filter(items, (i) => i.level === 1)) {
-		level1[m.name] = derived(m.name, m.build(Base, {}), [])
+		level1[m.name] = materializedDerived(m.name, m.build(Base, {}), [])
 	}
 	let top: AnySchema = schema.extend(Base, level1, [], [])
 	const level2: Record<string, AnyDerived> = {}
 	for (const m of Arr.filter(items, (i) => i.level === 2)) {
-		level2[m.name] = derived(m.name, m.build(top, level1), [])
+		level2[m.name] = materializedDerived(m.name, m.build(top, level1), [])
 	}
 	if (Rec.keys(level2).length > 0) {
 		top = schema.extend(top, level2, [], [])

@@ -27,7 +27,7 @@ const Desk = schema("Desk", { Account, Entry, Pair }, [
 	DistinctPair
 ])
 
-const AccountEntries = derived(
+const AccountEntries = derived.materialized(
 	"AccountEntries",
 	query(Desk).rule((r) => {
 		const { id, account } = v(Entry, "entry")

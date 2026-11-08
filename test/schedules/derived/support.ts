@@ -77,7 +77,7 @@ const build = (name: string) => {
 		["id"]
 	)
 	const Edu = schema(name, { Sitting }, [])
-	const StudentWeekly = derived(
+	const StudentWeekly = derived.materialized(
 		"StudentWeekly",
 		query(Edu).rule((r) => {
 			const { id, student, week, passed } = v(Sitting, "sitting")
@@ -89,7 +89,7 @@ const build = (name: string) => {
 			})
 		})
 	)
-	const StudentTotal = derived(
+	const StudentTotal = derived.materialized(
 		"StudentTotal",
 		query(Edu).rule((r) => {
 			const { id, student } = v(Sitting, "sitting")
@@ -97,7 +97,7 @@ const build = (name: string) => {
 		})
 	)
 	const Level1 = schema.extend(Edu, { StudentWeekly, StudentTotal }, [])
-	const WeekBusy = derived(
+	const WeekBusy = derived.materialized(
 		"WeekBusy",
 		query(Level1).rule((r) => {
 			const { student, week } = v(StudentWeekly, "studentWeekly")

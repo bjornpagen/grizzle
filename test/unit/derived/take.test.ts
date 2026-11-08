@@ -14,7 +14,7 @@ import { pg, uuid } from "#compiler/public/fields.ts"
 import { type QueryValue, queryOver as query, varsOver as v } from "#compiler/query/build/query.ts"
 import type { FinishedValue, RuleValue } from "#compiler/query/build/rule.ts"
 import { ownLogin, rostersOf } from "#compiler/schema/own.ts"
-import { derived, relation } from "#compiler/schema/relation.ts"
+import { materializedDerived, relation } from "#compiler/schema/relation.ts"
 import { schema } from "#compiler/schema/schema.ts"
 import { loginDescOf, role } from "#compiler/schema/world.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
@@ -146,7 +146,7 @@ const installed = (s: Sketch): ReadonlyArray<SqlStatement> => {
 		[]
 	)
 	const Base = schema("Base", { R }, [], [])
-	const D = derived("D", definitionOf(Base, R, fields, s.derived), [])
+	const D = materializedDerived("D", definitionOf(Base, R, fields, s.derived), [])
 	const S = schema.extend(Base, { D }, [], [])
 	const reader = role(
 		S,

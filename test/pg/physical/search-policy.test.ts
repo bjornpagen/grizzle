@@ -56,7 +56,7 @@ const Tag = relation("Tag", { doc: uuid, state: State }, ["doc"])
 /** The schema under `name`: the stored relations, and Vectors in a level that extends them. */
 const searchAt = (name: string) => {
 	const core = schema(name, { Doc, Embedding, Tag }, [])
-	const Vectors = derived(
+	const Vectors = derived.materialized(
 		"Vectors",
 		query(core).rule((r) => {
 			const { doc, value } = v(Embedding, "embedding")

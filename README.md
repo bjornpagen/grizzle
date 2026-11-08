@@ -46,8 +46,9 @@ sees a database differently:
   proved by PostgreSQL's constraints, and a rollup is a query PostgreSQL stores as a materialized view.
 
 grizzle makes that model the API, and compiles it into PostgreSQL so that PostgreSQL enforces it for every writer, not
-only your app. Each rule becomes one of PostgreSQL's own constraints, never a trigger. Each role becomes a PostgreSQL
-role that reads through views of its own, under row-level security where it writes only some rows.
+only your app. A rule over tables becomes one of PostgreSQL's own constraints, and a rule over a query, a join no table
+stores, a deferred constraint trigger grizzle generates from the query. Each role becomes a PostgreSQL role that reads
+through views of its own, under row-level security where it writes only some rows.
 
 Every call is one SERIALIZABLE transaction, its statements pipelined into one round trip, or two when a write must
 first read stored values it builds on. There are no interactive transactions to hold open: a read that decides a write
@@ -66,7 +67,7 @@ time.
 |                          | With Drizzle                                                    | With grizzle                                                                          |
 | ------------------------ | --------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
 | Tables                   | `pgTable(...)`, nullable unless `.notNull()`                    | `relation(...)`, every field required                                                 |
-| Rules beyond FK, unique  | `check()` on one row; triggers in custom migrations; app code   | declared beside the relations, compiled to PostgreSQL's own constraints               |
+| Rules beyond FK, unique  | `check()` on one row; triggers in custom migrations; app code   | declared beside the relations, over tables or queries, compiled for PostgreSQL to keep |
 | Who sees which rows      | `where` clauses in app code, or `pgPolicy` with SQL conditions  | roles declared in TypeScript, compiled to roles, views, grants and row-level security |
 | Complex queries          | often `` sql`…` `` with a hand-written result type              | one query language, every result type inferred, nested results included               |
 | Indexes                  | declared by hand                                                | derived from your rules and from the queries your app runs                            |
@@ -1026,7 +1027,7 @@ Drizzle's `pgMaterializedView` declares the view and `refreshMaterializedView` r
 
 **The reframe.** Each piece follows from something you declare anyway. A page is a slice of an ordered set, and a cursor a position in its order; the order is total once it ends in a key, which grizzle knows. A rollup is a derived relation, a query whose rows PostgreSQL stores, and its key follows from its query. An index serves the queries that need it, so the queries your app runs decide the indexes:
 
-- **`derived(name, query)`** stores a query's rows as a materialized view, uniquely indexed on the keys the query provably has. `schema.extend` adds it to a schema, and a role's `refresh` list names what the role may refresh.
+- **`derived.materialized(name, query)`** stores a query's rows as a materialized view, uniquely indexed on the keys the query provably has. `schema.extend` adds it to a schema, and a role's `refresh` list names what the role may refresh.
 - **`workload(role, programs)`** names the queries and writes your app runs on its hot paths. A login owns its workloads: grizzle compiles them once when the app starts and prepares them on each connection, and `grizzle generate` derives the indexes they need.
 
 **The declaration**, continuing the `Usage` schema of [case 2](#2-top-three-per-group-with-exact-types):
@@ -1045,7 +1046,7 @@ export const callLog = query(Usage)
 	.orderBy(["at", "desc"])
 
 /** Calls and spend per workspace and model, stored, and refreshed when the job says so. */
-export const ModelSpend = derived(
+export const ModelSpend = derived.materialized(
 	"ModelSpend",
 	query(Usage).rule((r) => {
 		const { id, workspace, model, cost } = v(Call, "call")
@@ -1130,7 +1131,7 @@ For porting an app, each Drizzle construct and what takes its place:
 | `` check("some_seats", sql`...`) ``                    | `check("SomeSeats", Show, (s) => s.seats.ge(1n))`                                               |
 | `index().on(...)`                                      | nothing: `grizzle generate` derives indexes from your rules and your `workload(...)` queries    |
 | `pgPolicy(...)`, and `set_config` around each request  | `context(...)` and `role(...)`                                                                  |
-| `pgMaterializedView(...)`                              | `derived(...)`                                                                                  |
+| `pgMaterializedView(...)`                              | `derived.materialized(...)`                                                                     |
 | `db.select().from(post).where(eq(post.id, id))`        | `query(Blog).rule((r) => r.match(Post, { ... }).where(r.eq(...)).find({ ... }))`                |
 | `.innerJoin(comment, eq(comment.postId, post.id))`     | one variable in two matches                                                                     |
 | `notExists(...)`                                       | `r.not(Comment, { post: id })`                                                                  |
@@ -1158,12 +1159,14 @@ The whole map, from what you declare to what PostgreSQL enforces for every write
 | `str.regex(...)`, `contract(...)` | a domain whose CHECK every writer's value meets, one domain for each distinct definition |
 | `closed(...)` | a smallint domain that admits only live handles' codes, checked against an IMMUTABLE function returning the roster's names as `name[]`; for a `bits(...)` field over the roster, a `bit(n)` domain that admits only live handles, n its codes rounded up to whole hex digits |
 | `closed.relation(...)` | no table: content-addressed IMMUTABLE constants for each closed relation or side a rule or query reads, and a table CHECK for each rule that reads one from an open row ([Closed relations](#closed-relations)) |
-| a rule: `contained`, `key`, `check`, ... | a foreign key, unique key, no-overlap key or CHECK, over STORED generated columns where a side selects rows or reads `pred`; never a trigger |
+| a rule: `contained`, `key`, `check`, ... | a foreign key, unique key, no-overlap key or CHECK, over STORED generated columns where a side selects rows or reads `pred` |
+| a rule over a derived relation | a deferred constraint trigger on each table its query reads, whose function runs the rule's violation query over the rows a write touched ([Rules over queries](#rules-over-queries)) |
 | a family: `ordered`, `counted`, `tree`, `fold` | the drawn and accumulated fields grizzle fills on every write, hidden columns beside them, and the keys, CHECKs and foreign keys that prove each value it fills |
 | `role(...)` | a NOLOGIN role with a schema of views and its grants; on each table some role writes through a query entry that leaves rows out, row-level security and a policy for each role that writes it |
 | `login(...)` | a LOGIN NOINHERIT role that can switch to its roles, holds no privilege on your tables, and pins the session settings grizzle's guarantees rest on |
 | `workload(...)` | the indexes and extended statistics its programs need; the programs compiled when the app starts and prepared on each connection |
-| `derived(...)` | a materialized view, uniquely indexed on the keys it provably has |
+| `derived(...)` | nothing: every query that matches it and every rule over it reads its definition |
+| `derived.materialized(...)` | a materialized view, uniquely indexed on the keys it provably has |
 | a query | SQL, usually one statement and one more per attachment, and a decoder for its exact row type |
 
 None of it is a trigger or a policy you keep in step by hand. Migrations are plain SQL files that `grizzle generate` drafts and you review, as with drizzle-kit.
@@ -1793,13 +1796,13 @@ key, so two runs on one stage never share a night.
 | Selected side  | `on(select(Ticket, (t) => φ), "show")`, in any rule                       | the rule reads only the rows where φ holds                                    |
 | Predecessor    | `on(Place, "show", pred("at"))`, in any rule                              | the rule reads `at` − 1, and nothing of a row whose `at` is 0                 |
 | Constant       | `on(A, "id", constant("x"))`, in a containment's source                   | the row meets only target rows holding `"x"` at the paired field              |
+| Over a query   | `on(TypedHref, "path")`, TypedHref a derived relation, in any rule        | the rule reads the query's rows as the tables stand at commit                 |
 
 A rule pairs its sides' terms in order. A side is `on(source, ...terms)`.
 
-- **A source** is a table, or `select(T, (t) => φ)`, the rows of T where φ holds, φ written as a row check's
-  condition. It is the one way to write a selection. A derived relation is never a source, since its query alone
-  decides its rows: `on(Counts, "id")` is a type error, *a law side is never over a derived relation*, and a schema
-  stating a rule over one is refused from JavaScript as `LawOnDerived`.
+- **A source** is a table, a derived relation, or `select(T, (t) => φ)`, the rows of T where φ holds, φ written as a
+  row check's condition. It is the one way to write a selection. A rule over a derived relation reads its query
+  ([Rules over queries](#rules-over-queries)).
 - **A term** is a field, or `pred(n)` of a `natural` field n: n − 1, defined only where n is above 0.
 - **Each term once.** A key, a family, a fold and a containment's target list each term once:
   `key(on(Ticket, "show", "show"))` is a type error, and refused from JavaScript when built. `"at"` and `pred("at")`
@@ -1846,8 +1849,8 @@ export const Waitlist = schema.extend(BoxOffice, { Place }, [
 A show's places run from 0 with no gap. A holder waits at most once per show, and may hold any number of places
 already called.
 
-Every rule holds at commit, for every writer, as PostgreSQL's own constraints. grizzle installs no trigger and no
-function for a rule.
+Every rule holds at commit, for every writer. A rule over tables is PostgreSQL's own constraints, and grizzle installs
+no trigger and no function for it.
 
 - **Sides.** Each term of a selected side, and each `pred` term, is a STORED generated column,
   `CASE WHEN φ THEN t END`. A key over a side is `UNIQUE NULLS DISTINCT` and a containment
@@ -1862,6 +1865,99 @@ function for a rule.
   or key them.
 
 A write that breaks a rule comes back as an outcome that names the rule, never as a message to parse.
+
+### Rules over queries
+
+A rule's side may be a derived relation, a query the schema names. A content package's resource may have an href, a
+type, both or neither, each stored on its own, and the rules about a resource's href and its type together hold where
+it has both:
+
+```ts
+import { derived, query, v } from "@bjornpagen/grizzle"
+
+/** A content package's resources, each with an href and a type, either of which it may lack. */
+export const Resource = relation("Resource", { id: uuid }, ["id"])
+export const ResourceHref = relation(
+	"ResourceHref",
+	{ resource: uuid, path: Title, internal: pg.boolean },
+	["resource"]
+)
+export const ResourceTyped = relation("ResourceTyped", { resource: uuid, type: Title }, [
+	"resource"
+])
+export const PackageFile = relation("PackageFile", { path: Title }, ["path"])
+/** A catalog record of a resource, naming its href and its type. */
+export const CatalogRecord = relation(
+	"CatalogRecord",
+	{ resource: uuid, path: Title, type: Title },
+	["resource"]
+)
+
+export const Content = schema(
+	"Content",
+	{ Resource, ResourceHref, ResourceTyped, PackageFile, CatalogRecord },
+	[
+		contained(on(ResourceHref, "resource"), on(Resource, "id")),
+		contained(on(ResourceTyped, "resource"), on(Resource, "id"))
+	]
+)
+
+/** The resources that have both: a join, which no table stores and no write keeps. */
+export const TypedHref = derived(
+	"TypedHref",
+	query(Content).rule((r) => {
+		const { resource, path, internal } = v(ResourceHref, "href")
+		const { type } = v(ResourceTyped, "typed")
+		return r
+			.match(ResourceHref, { resource, path, internal })
+			.match(ResourceTyped, { resource, type })
+			.find({ resource, path, internal, type })
+	})
+)
+
+/** The typed hrefs of items. */
+const items = select(TypedHref, (t) => t.eq(t.type, "item"))
+
+export const ContentPackage = schema.extend(Content, { TypedHref }, [
+	check("ItemsInside", TypedHref, (t) =>
+		t.not(t.and(t.eq(t.type, "item"), t.eq(t.internal, false)))
+	),
+	contained(on(items, "path"), on(PackageFile, "path")),
+	contained(
+		on(CatalogRecord, "resource", "path", "type"),
+		on(TypedHref, "resource", "path", "type")
+	)
+])
+```
+
+A typed href is a resource with both parts. An item's href is inside the package and names one of its files, and
+every catalog record names a typed href as it stands. A resource with an href and no type, or a type and no href, has
+no typed href, so none of these rules asks anything of it. No table holds a copy of the join for the rules to read,
+and no write keeps one in step: `derived(name, query)` stores nothing, and a query that matches `TypedHref` reads its
+definition too.
+
+- **What a side's query may be.** Matches, `where` conditions and the head's fields: joins, selections, projections
+  and semijoins, a union of such rules, and `r.not(T, …)` over one table, an anti-join, so a rule can read "the rows of
+  R with no S". An aggregate, `orderBy(...).take(k)`, `attach`, an approximate search, a recursion, or a negation of a
+  query or of a derived relation is refused: a type error naming what it does, and `UnsupportedLawFamily` from
+  JavaScript. A family and a fold read tables only.
+- **Judged live.** A rule reads its query as the tables stand at commit, `derived.materialized(...)` included: never
+  its view's rows, and never as of a refresh.
+- **What PostgreSQL gets.** A rule that reads only tables is a constraint, as above. A rule that reads a query is, on
+  each table the query reads, a deferred constraint trigger, `DEFERRABLE INITIALLY DEFERRED` and row by row, for the
+  writes that can break it: for a containment, a write that adds rows to its source or takes rows from its target.
+  Its function runs the rule's violation query, compiled by grizzle's own query compiler, over the rows the write
+  touched, and raises 23503 for a containment, 23505 for a key and 23514 for a check, naming the rule. The functions
+  are SECURITY DEFINER on a pinned `search_path`, and no role may run them.
+- **Outcomes.** `db.apply` answers `invariant-rejected` naming the rule, its witness `unreported`: the row that breaks
+  it may be one the transaction never wrote.
+- **Concurrent writers.** Every writer is SERIALIZABLE, so PostgreSQL orders each trigger's reads against the writes
+  it does not see: two transactions that each keep a rule and together break it never both commit, and one fails with
+  40001.
+- **Migrations.** A migration that adds a rule over a query, or changes one, runs its violation query over the stored
+  rows, and fails where a row breaks it, as it validates a foreign key.
+- **TRUNCATE** fires no row trigger, so a rule over a query does not judge a TRUNCATE of a table it reads. grizzle
+  never truncates and no role may; a direct writer who truncates such a table answers for the rule itself.
 
 ### Families
 
@@ -2328,17 +2424,22 @@ export const purge = ChangeSet.empty(Blog)
 
 ## Derived tables
 
-`derived(name, query)` stores a query's rows as a materialized view; add it to a schema with `schema.extend`. The
-query takes no parameter, matches no context, has at least one field, and its rules share one set of columns. The
-keys a query provably has are a choice of one key in each of its independent parts, such as one of the two keys of
-each table it joins: the view gets a unique index on one key and on each key one choice away from it, so k such tables
-make k + 1 indexes, not 2^k, and every key of the product stands in a `get`, a nested result or an order. A query of
-several rules, each finding a literal that tells its rows apart, is keyed the same way: its keys hold a key of every
-rule beside those literals. Columns the query makes equal count as one column of a key, so k equal pairs make one key,
-not 2^k: the index holds the first of them, and any of them stands for it. A derived table changes only when
-`db.refresh(...tables)` refreshes it, on a role whose `refresh` list names it, all of one call's tables in one
-transaction. `db.refresh()` with no table is a type error: narrow a list built at run time with
-`Array.isReadonlyArrayNonEmpty` first. Rules are declared on stored tables only, never on derived ones.
+`derived(name, query)` names a query as a relation of the schema; add it with `schema.extend`. It stores nothing:
+every query that matches it, and every rule over it ([Rules over queries](#rules-over-queries)), reads its definition,
+and a role reads it through the tables its definition reads, never as a whole entry. The query takes no parameter,
+matches no context, has at least one field, and its rules share one set of columns.
+
+`derived.materialized(name, query)` also stores the query's rows as a materialized view, which a role may hold whole
+and refresh, and which a query matching it reads as of its last refresh. The keys a query provably has are a choice of
+one key in each of its independent parts, such as one of the two keys of each table it joins: the view gets a unique
+index on one key and on each key one choice away from it, so k such tables make k + 1 indexes, not 2^k, and every key
+of the product stands in a `get`, a nested result or an order. A query of several rules, each finding a literal that
+tells its rows apart, is keyed the same way: its keys hold a key of every rule beside those literals. Columns the query
+makes equal count as one column of a key, so k equal pairs make one key, not 2^k: the index holds the first of them,
+and any of them stands for it. A materialized table changes only when `db.refresh(...tables)` refreshes it, on a role
+whose `refresh` list names it, all of one call's tables in one transaction. `db.refresh()` with no table is a type
+error: narrow a list built at run time with `Array.isReadonlyArrayNonEmpty` first. A rule over either kind reads its
+definition, never the view.
 
 ## Migrations
 
@@ -2707,7 +2808,6 @@ and never spell it.
 | `DuplicateIdentity`                             | the `earlier` declaration                                                                                |
 | `IdentifierCollision`                           | the `other` declaration and the `identifier` both convert to                                             |
 | `DigestCollision`                               | two objects, `display` and `otherDisplay`, whose hashed names share the stem and digest of `identifier`; renaming a declaration either is built from gives it another |
-| `LawOnDerived`                                  | its `relation`                                                                                           |
 | `UnrepresentableKey`                            | the key and its `fault`                                                                                  |
 | `PartialOperation`                              | an `operation` whose `precondition` on `operand` nothing proves, and the `guard` to write                |
 | `RecursionRefused`, `DerivedRefused`            | their `cause`                                                                                            |
@@ -2862,6 +2962,7 @@ it is, read offline from the committed snapshot. PostgreSQL answers:
 | 23505               | at the statement: a duplicate key, over a table or over a side of one, an exact repeat included; or a key a concurrent transaction committed after this one's snapshot, which is retryable |
 | 23P01               | at the statement: an overlap under a no-overlap key; or a span a concurrent transaction committed after this one's snapshot, which is retryable               |
 | 23503               | a foreign key, a containment between sides included: at COMMIT when deferred (below), at the statement otherwise                                             |
+| 23503, 23505, 23514 | at COMMIT, a rule over a query, a containment, a key or a check, named by the rule ([Rules over queries](#rules-over-queries))                               |
 | 40001, 40P01        | a serialization failure or a deadlock: run the transaction again                                                                                             |
 
 - **Deferred foreign keys:** a family's key as its proof needs (a counted family's predecessor key, every last-slot

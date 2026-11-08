@@ -1,3 +1,4 @@
+import type { Phantom } from "#compiler/core/phantom.ts"
 import type { MonoidName } from "#compiler/ir/desc.ts"
 import type { SqlTag } from "#compiler/scalar/registry.ts"
 import type { ScalarHelpers } from "#compiler/types/compute/compute.ts"
@@ -20,6 +21,8 @@ import type {
 	StoredOnlySql,
 	WritingTag
 } from "#compiler/types/fields/field.ts"
+import type { UnionArm, UnionArms } from "#compiler/types/query/query.ts"
+import type { Aggregate, Producer } from "#compiler/types/query/terms.ts"
 import type {
 	AnyRelation,
 	AnyRoster,
@@ -105,13 +108,44 @@ export interface Side<R, T extends ReadonlyArray<AnySourceTerm> = ReadonlyArray<
 export type AnySourceSide = Side<unknown, ReadonlyArray<AnySourceTerm>>
 
 /**
- * A derived relation where on's source stands, which no value is: on's source is a relation, closed relation or
- * selection, and a derived relation, which no law names (LawOnDerived), meets this arm by its kind, so on refuses it by
- * name where its side is written.
+ * What a rule may read of R: anything but a derived relation whose definition does more than join, select and project,
+ * which the engine refuses as UnsupportedLawFamily (analysis/theory/query.ts): every arm of the definition a rule or a
+ * union of rules, no head term an aggregate or a span producer. A selection is read through its relation.
  */
-export type DerivedSource = Refusal<"a law side is never over a derived relation"> & {
-	readonly kind: "derived"
+export type RuleSubject<R> = R extends { readonly relation: infer S }
+	? RuleSubject<S>
+	: R extends { readonly kind: "derived"; readonly definition: infer Q }
+		? Q extends Phantom<infer B>
+			? B extends { readonly arms: infer Arms extends UnionArms }
+				? ArmsRuled<Arms[number]>
+				: unknown
+			: unknown
+		: unknown
+
+/** The refusal of a definition's arm a rule cannot read, or unknown for an arm that joins, selects and projects. */
+type ArmsRuled<A> =
+	A extends UnionArm<infer C, PropertyKey, infer Stage, boolean>
+		? Stage extends "rule" | "union"
+			? [KeysOfCarrier<C, Aggregate<unknown, never>>] extends [never]
+				? [KeysOfCarrier<C, Producer<unknown, never>>] extends [never]
+					? unknown
+					: Refusal<"a rule reads a derived relation whose definition joins, selects and projects: this one produces spans">
+				: Refusal<"a rule reads a derived relation whose definition joins, selects and projects: this one aggregates">
+			: Refusal<StageRefusals[Exclude<Stage, "rule" | "union">]>
+		: unknown
+
+/** The refusal of a definition's arm a stage beyond a rule made. */
+interface StageRefusals {
+	readonly take: "a rule reads a derived relation whose definition joins, selects and projects: this one orders and takes"
+	readonly attach: "a rule reads a derived relation whose definition joins, selects and projects: this one attaches a nested query"
+	readonly approximate: "a rule reads a derived relation whose definition joins, selects and projects: this one approximates a search"
+	readonly recursive: "a rule reads a derived relation whose definition joins, selects and projects: this one recurses"
 }
+
+/** The fields of a heading of carriers whose terms are of kind X. */
+type KeysOfCarrier<C, X> = {
+	readonly [K in keyof C]-?: [C[K]] extends [never] ? never : C[K] extends X ? K : never
+}[keyof C]
 
 /**
  * select(R, predicate): the facts of R a row predicate over their own fields holds of. The predicate is the
@@ -186,8 +220,9 @@ export interface FinShows<out N, out C, out K> {
  * packages/engine/src/schema.
  *
  * Every statement type carries the types of what it names, so the schema's captured statement tuple can be read back.
- * Statement constructors accept only ordinary relations (and closed relations where a law side may be one), never a
- * derived relation, so a law over a derived relation does not typecheck: on refuses one by name (DerivedSource).
+ * A key's, a check's and a containment's side may read an ordinary, a closed or a derived relation, a derived one's
+ * terms typed by its definition's heading; a family, a tree, a fold, alternatives and mutable name ordinary relations
+ * alone, whose rows grizzle writes.
  */
 export interface Containment<L = Side<unknown>, R = Side<unknown>> {
 	readonly kind: "contained"

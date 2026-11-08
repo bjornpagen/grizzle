@@ -16,7 +16,8 @@ import {
 	type StatementDesc
 } from "#compiler/ir/desc.ts"
 import type { OpenExpr } from "#compiler/ir/open.ts"
-import { registerPredicate } from "#compiler/scalar/compute/term.ts"
+import type { ScalarType } from "#compiler/ir/scalar.ts"
+import { registerPredicate, type TermCarrier } from "#compiler/scalar/compute/term.ts"
 import { type Described, describeField } from "#compiler/scalar/registry.ts"
 import type { SchemaContent } from "#compiler/schema/levels.ts"
 import type {
@@ -188,6 +189,31 @@ export const registerQuerySchema = (query: object, schema: object): void => {
 
 export const querySchemaOf = (value: unknown): object | undefined =>
 	hasProperties(value) ? querySchemas.get(value) : undefined
+
+/**
+ * What the builder knows of one field of a query value's heading: its ScalarType and its carrier, or nothing for a field
+ * it could not type (a bare literal head, a query rebuilt from its Description alone).
+ */
+export type HeadingTyping =
+	| { readonly kind: "typed"; readonly scalar: ScalarType; readonly carrier: TermCarrier }
+	| { readonly kind: "untyped" }
+
+/**
+ * Each query value's heading as the builder typed it, registered by the builder (query/build/state.ts registerQuery):
+ * what a check's and a selection's row over a derived relation is typed by. A value the builder did not make carries
+ * none.
+ */
+const queryHeadings = new WeakMap<object, ReadonlyMap<string, HeadingTyping>>()
+
+export const registerQueryHeading = (
+	query: object,
+	heading: ReadonlyMap<string, HeadingTyping>
+): void => {
+	queryHeadings.set(query, heading)
+}
+
+export const queryHeadingOf = (value: unknown): ReadonlyMap<string, HeadingTyping> | undefined =>
+	hasProperties(value) ? queryHeadings.get(value) : undefined
 
 /**
  * Each kind of owned value: the value a builder returns, at the widest of its public type, the Description it carries,

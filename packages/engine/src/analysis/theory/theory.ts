@@ -15,6 +15,7 @@ import {
 	selectorsOf,
 	type TheoryLaw
 } from "#compiler/analysis/theory/laws.ts"
+import type { RuleSide } from "#compiler/analysis/theory/query.ts"
 import {
 	familyStatement,
 	ownSpelling,
@@ -25,13 +26,15 @@ import {
 	type Spelling,
 	spelledSlots
 } from "#compiler/analysis/theory/spelling.ts"
+import { checkQuery } from "#compiler/check/index.ts"
 import { catchRefusal, compareText, Refusal } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import {
 	type Identity,
 	identifierOf,
 	identity,
-	type LawStatement
+	type LawStatement,
+	type Part
 } from "#compiler/core/identity.ts"
 
 import { type ConstraintName, FieldId, type LawId } from "#compiler/core/ids.ts"
@@ -39,7 +42,8 @@ import { defined } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
-import { type FieldDesc, fieldTermsOf } from "#compiler/ir/desc.ts"
+import { assembledDag, mergeForbidding } from "#compiler/ir/dag.ts"
+import { type FieldDesc, fieldTermsOf, type QueryDesc, termText } from "#compiler/ir/desc.ts"
 import type { EvidenceContext } from "#compiler/ir/evidence.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { Family } from "#compiler/ir/family.ts"
@@ -52,7 +56,7 @@ import {
 	type TheoryRelation
 } from "#compiler/ir/law.ts"
 import type { CheckedTheory } from "#compiler/ir/products.ts"
-import type { HeadingColumn, KeySet, ValidDag } from "#compiler/ir/rel.ts"
+import type { HeadingColumn, KeySet, RelNode, ValidDag } from "#compiler/ir/rel.ts"
 import {
 	baseOf,
 	type ContractInfo,
@@ -274,6 +278,8 @@ export const lawStatement = (law: LawIdentity, spell: Spelling): LawStatement =>
 		case "family":
 		case "tree":
 			return familyStatement(familyStated(d.family), spell)
+		case "rule":
+			return ruleStatement(law.shape, d.rule, spell)
 		case "fold": {
 			const owner = spell.relation(d.family.owner)
 			const count = spell.field(d.family.owner, d.family.count)
@@ -281,6 +287,54 @@ export const lawStatement = (law: LawIdentity, spell: Spelling): LawStatement =>
 				parts: [law.shape, owner, count, d.monoid, sidePart(d.step, spell), sidePart(d.end, spell)],
 				stem: [owner, count, d.monoid, "fold"],
 				display: `${d.monoid} fold over ${spelledSlots(d.family, spell)} of ${sideDisplay(d.step, spell)} into ${sideDisplay(d.end, spell)}`
+			}
+		}
+	}
+}
+
+/** A side of a rule over a query as its law's identity states it: its relation, its terms and its conjuncts' texts. */
+const rulePart = (side: RuleSide, spell: Spelling): Part => [
+	spell.relation(side.relation),
+	side.terms.map((t) => [t.kind, spell.field(side.relation, t.field)]),
+	side.texts
+]
+
+/** A side of a rule over a query as its law's display spells it. */
+const ruleDisplay = (side: RuleSide, spell: Spelling): string =>
+	`${spell.relation(side.relation)}(${side.terms
+		.map((t) => termText({ ...t, field: spell.field(side.relation, t.field) }))
+		.join(", ")})${side.texts.length === 0 ? "" : ` where ${side.texts.join(" and ")}`}`
+
+/** A rule over a query as the naming door states it: a containment by its sides, a key by its side, a check by its
+ * relation and name, as the same rule over stored relations is. */
+const ruleStatement = (
+	shape: LawIdentity["shape"],
+	rule: Extract<LawIdentity["detail"], { readonly kind: "rule" }>["rule"],
+	spell: Spelling
+): LawStatement => {
+	switch (rule.kind) {
+		case "contained":
+			return {
+				parts: [shape, rulePart(rule.from, spell), rulePart(rule.to, spell), "contained"],
+				stem: [spell.relation(rule.from.relation), "in", spell.relation(rule.to.relation)],
+				display: `${ruleDisplay(rule.from, spell)} in ${ruleDisplay(rule.to, spell)}`
+			}
+		case "key":
+			return {
+				parts: [shape, rulePart(rule.side, spell)],
+				stem: [
+					spell.relation(rule.side.relation),
+					"key",
+					...rule.side.terms.map((t) => spell.field(rule.side.relation, t.field))
+				],
+				display: `key ${ruleDisplay(rule.side, spell)}`
+			}
+		case "check": {
+			const relation = spell.relation(rule.side.relation)
+			return {
+				parts: [shape, relation, rule.name],
+				stem: [relation, "check", rule.name],
+				display: `check ${rule.name} of ${relation}`
 			}
 		}
 	}
@@ -381,8 +435,18 @@ class Builder {
 	readonly relations: ReadonlyMap<string, TheoryRelation>
 	/** The closed relations a law's predicates and terms may apply (CheckedSchema.closedReads). */
 	readonly closed: ClosedRelations
+	/** The checker's reading of the owned schema, which a rule over a query's violation query is checked against. */
+	readonly checked: CheckedSchema
+	/** Each derived relation's definition, by name. */
+	readonly definitions: ReadonlyMap<string, QueryDesc>
 
 	constructor(checked: CheckedSchema, options: TheoryOptions) {
+		this.checked = checked
+		this.definitions = new Map(
+			Object.values(checked.owned.relations).flatMap((r) =>
+				r.desc.kind === "derived" ? [[r.name, r.desc.query] as const] : []
+			)
+		)
 		this.owned = checked.owned
 		this.options = options
 		const typing = typingEnv(checked.owned)
@@ -410,6 +474,7 @@ class Builder {
 	run(): Theory {
 		const normalizer = new Normalizer({
 			relations: this.relations,
+			definition: (relation) => this.definitions.get(relation),
 			named: lawIdentityOf,
 			lowerEnv: {
 				fieldType: this.fieldType,
@@ -484,23 +549,71 @@ class Builder {
 	} {
 		const vb = new ViolationBuilder(SourceLoc(`schema ${this.owned.name}`, []))
 		const families = normalizer.resolve(vb)
-		const write = (k: KeptLaw): TheoryLaw => {
+		/** A law with its violation written in the builder, or a rule over a query's checked violation query. */
+		type Written =
+			| { readonly kind: "built"; readonly law: TheoryLaw }
+			| {
+					readonly kind: "query"
+					readonly law: Omit<TheoryLaw, "violation">
+					readonly query: ValidDag
+					readonly root: RelNode
+			  }
+		const write = (k: KeptLaw): Written => {
 			const id = identifierOf(k.named)
-			const written = k.draft.write(vb)
-			return Object.freeze({
-				id,
-				named: k.named,
-				...k.identity,
-				detail: written.detail,
-				violation: vb.forbid(id, written.violation),
-				loc: k.loc
-			})
+			const law = { id, named: k.named, ...k.identity, loc: k.loc }
+			const writing = k.draft.write
+			switch (writing.kind) {
+				case "built": {
+					const written = writing.write(vb)
+					return {
+						kind: "built",
+						law: Object.freeze({
+							...law,
+							detail: written.detail,
+							violation: vb.forbid(id, written.violation)
+						})
+					}
+				}
+				case "query": {
+					const checked = checkQuery(this.checked, writing.violation, {
+						read: "rows",
+						label: `rule ${k.named.display}`
+					})
+					if (!checked.ok) {
+						throw new Refusal(checked.error)
+					}
+					return {
+						kind: "query",
+						law: { ...law, detail: writing.detail },
+						query: checked.value.dag,
+						root: checked.value.dag.roots[0]
+					}
+				}
+			}
 		}
-		const primaryKeys = normalizer.primaryKeys.map((p: PrimaryKeyKept): PrimaryKeyLaw =>
-			Object.freeze({ relation: p.relation, law: write(p.kept) })
+		const keyed = normalizer.primaryKeys.map((p: PrimaryKeyKept) => ({
+			relation: p.relation,
+			written: write(p.kept)
+		}))
+		const written = kept.map(write)
+		let dag: ValidDag = vb.b.build(
+			[...keyed.map((p) => p.written), ...written].flatMap((w) =>
+				w.kind === "built" ? [w.law.violation] : []
+			)
 		)
-		const laws = [...primaryKeys.map((p) => p.law), ...kept.map(write)]
-		return { laws, primaryKeys, dag: vb.b.build(laws.map((law) => law.violation)), families }
+		const lawOf = (w: Written): TheoryLaw => {
+			if (w.kind === "built") {
+				return w.law
+			}
+			const merged = mergeForbidding(dag, w.query, w.root, w.law.id)
+			dag = merged.dag
+			return Object.freeze({ ...w.law, violation: merged.forbid })
+		}
+		const primaryKeys = keyed.map((p): PrimaryKeyLaw =>
+			Object.freeze({ relation: p.relation, law: lawOf(p.written) })
+		)
+		const laws = [...primaryKeys.map((p) => p.law), ...written.map(lawOf)]
+		return { laws, primaryKeys, dag: assembledDag(laws.map((law) => law.violation)), families }
 	}
 
 	/**

@@ -631,11 +631,12 @@ export interface LawPlan {
 	readonly law: TheoryLaw
 	readonly natives: ReadonlyArray<NativePlan>
 	/**
-	 * Where the law is discharged: on every write, by its natives; or, for a law that reads closed relations alone,
-	 * once by PostgreSQL in the migration that installs them, as its violation query over their rows, so it installs
-	 * nothing (fin.md §17, "Where each law is discharged").
+	 * Where the law is discharged: on every write, by its natives; for a law that reads closed relations alone, once by
+	 * PostgreSQL in the migration that installs them, as its violation query over their rows, so it installs nothing
+	 * (fin.md §17, "Where each law is discharged"); or, for a rule over a query, at every COMMIT by the deferred
+	 * constraint triggers the law model plans for it, and once by its violation query in the migration that adds it.
 	 */
-	readonly discharge: "write" | "migration"
+	readonly discharge: "write" | "migration" | "trigger"
 }
 
 /** A law that reads closed relations alone, discharged by the migration: no native. */
@@ -989,6 +990,7 @@ export class Recognizer {
 				case "check":
 				case "contract":
 				case "containment":
+				case "rule":
 					break
 			}
 		}
@@ -1047,6 +1049,10 @@ export class Recognizer {
 				return done([{ kind: "Domain", contract: d.owned }])
 			case "containment":
 				return this.#containment(law, d, loc, done)
+			case "rule":
+				return law.reads.some((r) => this.#relations[r]?.kind === "relation")
+					? { law, natives: [], discharge: "trigger" }
+					: migrationPlan(law)
 			case "family":
 			case "tree":
 				return done(this.#familyNatives(this.#familyPlan(d.family.id, loc), law.id))

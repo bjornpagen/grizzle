@@ -708,6 +708,7 @@ const inScratch = (
 		case "createPolicy":
 		case "createFunction":
 		case "createGuardTrigger":
+		case "createConstraintTrigger":
 		case "createStatistics":
 			return [transformStatement(s, hooks)]
 		case "alterDatabaseDefault":

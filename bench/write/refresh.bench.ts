@@ -80,7 +80,7 @@ const Fee = relation("Fee", { id: pg.bigint, student: pg.integer, amount: pg.num
 
 const build = (name: string) => {
 	const Edu = schema(name, { Sitting, Fee }, [])
-	const StudentWeekly = derived(
+	const StudentWeekly = derived.materialized(
 		"StudentWeekly",
 		query(Edu).rule((r) => {
 			const { id, student, week, passed } = v(Sitting, "sitting")
@@ -92,7 +92,7 @@ const build = (name: string) => {
 			})
 		})
 	)
-	const TopFee = derived(
+	const TopFee = derived.materialized(
 		"TopFee",
 		query(Edu).rule((r) => {
 			const { id, student, amount } = v(Fee, "fee")
@@ -100,7 +100,7 @@ const build = (name: string) => {
 		})
 	)
 	const Level1 = schema.extend(Edu, { StudentWeekly, TopFee }, [])
-	const WeekBusy = derived(
+	const WeekBusy = derived.materialized(
 		"WeekBusy",
 		query(Level1).rule((r) => {
 			const { student, week } = v(StudentWeekly, "studentWeekly")

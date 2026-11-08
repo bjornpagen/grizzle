@@ -338,7 +338,10 @@ export const wholeEntries = <const Rs extends AnySchema["relations"]>(
 ): WholeEntries<Rs> =>
 	assembled<WholeEntries<Rs>, undefined>(
 		Object.entries(relations).flatMap(([key, relation]) =>
-			relation.kind === "closedRelation" ? [] : [[key, () => relation] as const]
+			relation.kind === "closedRelation" ||
+			(relation.kind === "derived" && relation.storage === "live")
+				? []
+				: [[key, () => relation] as const]
 		),
 		undefined
 	)

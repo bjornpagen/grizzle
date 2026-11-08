@@ -3244,6 +3244,17 @@ class Model {
 					this.#trigger(s.table, s.name, s.function, [], [])
 				}
 				return
+			case "createConstraintTrigger":
+				if (this.#ours(s.table)) {
+					this.#trigger(
+						s.table,
+						s.name,
+						s.function,
+						Arr.flatMap(s.events, (e) => (e.kind === "update" ? e.columns : [])),
+						[]
+					)
+				}
+				return
 			case "dropTrigger": {
 				if (!this.#ours(s.table)) {
 					return

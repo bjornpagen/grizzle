@@ -94,7 +94,7 @@ const Post = relation(
 const Note = relation("Note", { id: uuid, post: uuid }, ["id"])
 const Doc = relation("Doc", { id: uuid, a: pg.vector(3), b: pg.vector(3) }, ["id"])
 const Blog = schema("Blog", { Kind, Post, Note, Doc }, [])
-const Counts = derived(
+const Counts = derived.materialized(
 	"Counts",
 	query(Blog).rule((r) => {
 		const { id, author } = v(Post, "post")

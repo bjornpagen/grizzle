@@ -626,6 +626,8 @@ const reportable = (installation: Installation): ReadonlyArray<Law> => {
 				})
 			case "createIndex":
 				return s.unique ? ofTable(s.table, s.name) : []
+			case "createConstraintTrigger":
+				return ofTable(s.table, s.name)
 			case "createDomain":
 				return installed(s.name)
 					? Arr.flatMap(s.constraints, (c) =>

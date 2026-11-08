@@ -68,7 +68,7 @@ const automaticBudgetOfBusy = query(W.Work).rule((r) => {
 		.where(r.gt(budget, 10n))
 		.find({ account, tasks: r.count(), budget: r.sum(budget) })
 })
-const BusyBudget = derived("AccountBudget", automaticBudgetOfBusy)
+const BusyBudget = derived.materialized("AccountBudget", automaticBudgetOfBusy)
 const Redefined = schema.extend(W.Work, { AccountBudget: BusyBudget }, [])
 
 /** The view's columns: its key, its count and its computed numeric, each with a parameter type it compares to. */

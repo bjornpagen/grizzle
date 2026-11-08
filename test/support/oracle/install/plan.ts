@@ -786,7 +786,11 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 		}
 		const declared = byName.get(relation)
 		return declared?.value.kind === "derived"
-			? refuseWith({ _tag: "LawOnDerived", at: SourceLoc(location, []), relation })
+			? refuse(
+					"UnsupportedOperation",
+					location,
+					`oracle install: ${what} over derived relation ${relation}: a rule over a query needs the query lowering`
+				)
 			: refuse(
 					"MalformedDescription",
 					location,

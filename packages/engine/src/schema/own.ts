@@ -47,6 +47,9 @@ import {
 	type LiteralDesc,
 	type LoginDesc,
 	type QueryDesc,
+	type DerivedStorage,
+	heldRelation,
+	type QueryStageDesc,
 	type RelationDesc,
 	type RoleDesc,
 	type RoleEntryDesc,
@@ -119,7 +122,8 @@ interface Owning<K extends RelationDesc["kind"]> {
 
 /**
  * What an installed relation is named by: `named` its table's, roster domain's or materialized view's identity at the
- * naming door, and `ident` that identity's identifier. A closed relation installs no relation of its own.
+ * naming door, and `ident` that identity's identifier. A closed relation and a live derived relation install no
+ * relation of their own.
  */
 interface Installed<K extends "table" | "rosterDomain" | "view"> {
 	readonly named: Identity<K>
@@ -148,13 +152,19 @@ export type OwnedRelation =
 			readonly keys: readonly []
 			readonly mutable: false
 	  })
-	| (Owning<"derived"> &
-			Installed<"view"> & {
-				readonly fields: Readonly<Record<string, never>>
-				readonly keys: readonly []
-				readonly mutable: false
-				readonly reads: ReadonlyArray<string>
-			})
+	| (Owning<"derived"> & {
+			readonly fields: Readonly<Record<string, never>>
+			readonly keys: readonly []
+			readonly mutable: false
+			readonly reads: ReadonlyArray<string>
+			/** Its materialized view, where PostgreSQL stores its rows; a live one's are its definition's alone. */
+			readonly view: OwnedView
+	  })
+
+/** Where a derived relation's rows are: its definition's alone, or a materialized view of them too. */
+export type OwnedView =
+	| { readonly kind: "live" }
+	| ({ readonly kind: "materialized" } & Installed<"view">)
 
 /**
  * An owned contract: its declared name, its type-level brand, and its descriptor. Ownership names no installed object
@@ -187,8 +197,11 @@ export interface OwnedContract {
  *   and a key over a closed relation (MalformedDescription);
  * - a key over a field of a type with no equality, and a side that reads one, as bytes is (UnsupportedOperation,
  *   scalar/registry.ts descCapabilities);
- * - a statement that names a derived relation (LawOnDerived), and a family, tree, fold or alternatives statement over
- *   anything but ordinary relations, its slots' owner one with a field of its count, and a roster (MalformedDescription);
+ * - a family, tree, fold, alternatives or mutable statement over anything but ordinary relations (a derived relation's
+ *   rows are its definition's, which no write draws), its slots' owner one with a field of its count, and a roster
+ *   (MalformedDescription); a key's, a check's or a containment's side may read a derived relation, its terms and
+ *   selection fields of the definition's heading, and the theory reads the rule over its definition
+ *   (analysis/theory/query.ts);
  * - a primary or candidate key whose index entry can exceed PostgreSQL's limit (UnrepresentableKey, representability.ts);
  * - a declared name the naming door's rule refuses (MalformedDescription, core/identity.ts parseDeclaredName, and
  *   parseSchemaName for the schema's), and two names of one namespace that convert to one identifier
@@ -263,10 +276,35 @@ export type OwnedStatement =
  * fields', sequences', keys' and checks'. A contract's domain is the installation's to name. The installation's census
  * and its comments read them (physical/install/comments.ts).
  */
+/** The identity of the relation PostgreSQL installs for `r`, none for a closed or live derived relation. */
+const installedIdentity = (r: OwnedRelation): ReadonlyArray<Identity<IdentityKind>> => {
+	switch (r.kind) {
+		case "closedRelation":
+			return []
+		case "derived":
+			return r.view.kind === "live" ? [] : [r.view.named]
+		case "relation":
+		case "closed":
+			return [r.named]
+	}
+}
+
+/** Where the derived relation `name`'s rows are, by its storage: a materialized one's view named at the naming door. */
+const ownedView = (name: DeclaredName, storage: DerivedStorage): OwnedView => {
+	switch (storage) {
+		case "live":
+			return { kind: "live" }
+		case "materialized": {
+			const named = identity.view(name)
+			return { kind: "materialized", named, ident: identifierOf(named) }
+		}
+	}
+}
+
 export const ownedIdentities = (owned: Owned): ReadonlyArray<Identity<IdentityKind>> => [
 	owned.installation,
 	...Object.values(owned.relations).flatMap((r): ReadonlyArray<Identity<IdentityKind>> => [
-		...(r.kind === "closedRelation" ? [] : [r.named]),
+		...installedIdentity(r),
 		...Object.values(r.fields).flatMap((f) =>
 			f.sequence === undefined ? [f.named] : [f.named, f.sequence]
 		),
@@ -370,6 +408,32 @@ interface LawRelationEntry {
 	readonly desc: StoredRelationDesc
 	readonly level: number
 	readonly heading: Readonly<Record<string, FieldDesc>>
+}
+
+/** The relation a rule's side reads: a stored relation with its heading, or a derived one with its definition's fields. */
+type SideRelationEntry =
+	| { readonly kind: "stored"; readonly entry: LawRelationEntry }
+	| { readonly kind: "derived"; readonly name: string; readonly fields: ReadonlySet<string> }
+
+/** The fields a definition derives: its first rules' head, through every stage that keeps its input's heading. */
+const definitionFields = (query: QueryDesc): ReadonlyArray<string> => {
+	const fields = (stage: QueryStageDesc): ReadonlyArray<string> => {
+		switch (stage.kind) {
+			case "rules":
+				return Object.keys(stage.arms[0].head)
+			case "recursive":
+				return Object.keys(stage.recursive.row)
+			case "union":
+			case "named":
+			case "order":
+			case "take":
+			case "approx":
+				return fields(stage.input)
+			case "attach":
+				return [...fields(stage.input), stage.attach.name]
+		}
+	}
+	return fields(query.stage)
 }
 
 interface StatementEntry {
@@ -1096,8 +1160,11 @@ class Owner {
 		}
 	}
 
-	/** A relation a law names: declared at the statement's level or below, and never derived. */
-	#lawRelation(name: string, s: StatementEntry): LawRelationEntry {
+	/**
+	 * A relation a statement names, declared at the statement's level or below: a stored relation, or a derived one,
+	 * which a key's, a check's and a containment's side may read (`#sideRelation`).
+	 */
+	#declared(name: string, s: StatementEntry): RelationEntry {
 		const entry = this.#relation(name, s.desc.loc, statementLabel(s.desc))
 		if (entry.level > s.level) {
 			fail(
@@ -1106,11 +1173,52 @@ class Owner {
 				`${statementLabel(s.desc)} names ${name}, which a higher level declares`
 			)
 		}
+		return entry
+	}
+
+	/**
+	 * A stored relation a statement names, declared at the statement's level or below: a family, a tree, a fold, an
+	 * alternatives statement and mutable name the rows grizzle writes, which a derived relation's definition states.
+	 */
+	#lawRelation(name: string, s: StatementEntry): LawRelationEntry {
+		const entry = this.#declared(name, s)
 		const desc = entry.desc
 		if (desc.kind === "derived") {
-			return failWith({ _tag: "LawOnDerived", at: s.desc.loc, relation: name })
+			return fail(
+				"MalformedDescription",
+				s.desc.loc,
+				`${statementLabel(s.desc)} over a stored relation; ${name} is a derived relation, whose rows its definition states and no write draws`
+			)
 		}
 		return { desc, level: entry.level, heading: headingOf(desc) }
+	}
+
+	/**
+	 * The relation a key's, a check's or a containment's side reads: a stored relation, or a derived relation, read by
+	 * its definition's heading, whose fields' types the theory reads (analysis/theory/query.ts).
+	 */
+	#sideRelation(name: string, s: StatementEntry): SideRelationEntry {
+		const entry = this.#declared(name, s)
+		const desc = entry.desc
+		return desc.kind === "derived"
+			? { kind: "derived", name, fields: new Set(definitionFields(desc.query)) }
+			: { kind: "stored", entry: { desc, level: entry.level, heading: headingOf(desc) } }
+	}
+
+	/**
+	 * The stored relations a derived relation reads, through every derived relation it reads: the tables its rules'
+	 * triggers are installed on.
+	 */
+	#storedBases(name: string, into: Set<string>): Set<string> {
+		const desc = this.#relations.get(name)?.desc
+		if (desc?.kind !== "derived") {
+			into.add(name)
+			return into
+		}
+		for (const read of queryUses(desc.query).relations) {
+			this.#storedBases(read, into)
+		}
+		return into
 	}
 
 	#ordinary(name: string, s: StatementEntry, why: string): LawRelationEntry {
@@ -1135,6 +1243,47 @@ class Owner {
 				)
 			}
 		}
+	}
+
+	/**
+	 * A key's or a containment's side as ownership admits it: a side of a stored relation (`#checkSide`), or of a derived
+	 * relation, each term's field one of its definition's heading and its selection a predicate over that heading's
+	 * fields alone; the theory types the terms, the selection and every handle it compares (analysis/theory/query.ts).
+	 */
+	#checkRuleSide(side: SourceSideDesc, s: StatementEntry): SideRelationEntry {
+		const read = this.#sideRelation(side.relation, s)
+		if (read.kind === "stored") {
+			this.#checkSide(side, s)
+			return read
+		}
+		const requireField = (field: string): void => {
+			if (!read.fields.has(field)) {
+				fail(
+					"MalformedDescription",
+					s.desc.loc,
+					`${statementLabel(s.desc)} names ${side.relation}.${field}, which is not a field of ${side.relation}`
+				)
+			}
+		}
+		for (const t of side.terms) {
+			if (t.kind !== "constant") {
+				requireField(t.field)
+			}
+		}
+		for (const conjunct of side.selection.conjuncts) {
+			const foreign = foreignInput(conjunct)
+			if (foreign !== undefined) {
+				fail(
+					"MalformedDescription",
+					s.desc.loc,
+					`${statementLabel(s.desc)} selects ${side.relation} by its row only, not ${foreign}`
+				)
+			}
+			for (const f of fieldRefs(conjunct, new Set())) {
+				requireField(f)
+			}
+		}
+		return read
 	}
 
 	/**
@@ -1268,7 +1417,11 @@ class Owner {
 		const d = s.desc
 		switch (d.kind) {
 			case "key": {
-				const entry = this.#checkSide(d.side, s)
+				const read = this.#checkRuleSide(d.side, s)
+				if (read.kind === "derived") {
+					return { ...d, key: { kind: "projected" } }
+				}
+				const entry = read.entry
 				if (entry.desc.kind !== "relation") {
 					fail(
 						"MalformedDescription",
@@ -1293,6 +1446,10 @@ class Owner {
 				this.#mutable.add(d.relation)
 				return d
 			case "check": {
+				const read = this.#sideRelation(d.relation, s)
+				if (read.kind === "derived") {
+					return this.#derivedCheck(d, read, s)
+				}
 				const entry = this.#ordinary(
 					d.relation,
 					s,
@@ -1316,8 +1473,8 @@ class Owner {
 				return { ...d, check: { named, constraint: identifierOf(named) } }
 			}
 			case "contained": {
-				this.#checkSide(d.left, s)
-				this.#checkSide(d.right, s)
+				this.#checkRuleSide(d.left, s)
+				this.#checkRuleSide(d.right, s)
 				return {
 					kind: d.kind,
 					left: scopeOf(d.left),
@@ -1396,6 +1553,43 @@ class Owner {
 		}
 	}
 
+	/**
+	 * A row check over a derived relation's facts: its predicate over the definition's heading alone, and its name
+	 * declared in the check namespace of the derived relation and of every table it reads, whose constraint namespace its
+	 * triggers are named in (laws/model/model.ts RuleTrigger).
+	 */
+	#derivedCheck(
+		d: Extract<StatementDesc, { readonly kind: "check" }>,
+		read: Extract<SideRelationEntry, { readonly kind: "derived" }>,
+		s: StatementEntry
+	): OwnedStatement {
+		const foreign = foreignInput(d.predicate)
+		if (foreign !== undefined) {
+			fail("MalformedDescription", s.desc.loc, `check ${d.name} over its row only, not ${foreign}`)
+		}
+		for (const f of fieldRefs(d.predicate, new Set())) {
+			if (!read.fields.has(f)) {
+				fail(
+					"MalformedDescription",
+					s.desc.loc,
+					`${statementLabel(d)} names ${d.relation}.${f}, which is not a field of ${d.relation}`
+				)
+			}
+		}
+		const declare = (relation: string): DeclaredName => {
+			const checks =
+				this.#checkNames.get(relation) ?? new DeclaredNamespace(`relation ${relation}'s check`)
+			this.#checkNames.set(relation, checks)
+			return declareName(checks, d.name, "check", d.loc)
+		}
+		const name = declare(d.relation)
+		for (const base of this.#storedBases(d.relation, new Set())) {
+			declare(base)
+		}
+		const named = identity.check(d.relation, name)
+		return { ...d, check: { named, constraint: identifierOf(named) } }
+	}
+
 	/** The slots of a count: its owner an ordinary relation of the statement's level or below, and its count a field. */
 	#checkSlots(slots: SlotsDesc, s: StatementEntry): void {
 		const owner = this.#ordinary(slots.owner, s, "has no drawn count")
@@ -1461,18 +1655,16 @@ class Owner {
 					mutable: false
 				}
 			case "derived": {
-				const named = identity.view(name)
 				const reads = [...queryUses(r.query).relations].toSorted(compareStrings)
 				return {
 					...owning,
 					kind: r.kind,
 					desc: r,
-					named,
-					ident: identifierOf(named),
 					fields: {},
 					keys: [],
 					mutable: false,
-					reads
+					reads,
+					view: ownedView(name, r.storage)
 				}
 			}
 		}
@@ -1716,6 +1908,9 @@ const ownRoleOf = (desc: RoleDesc, base: Owned): OwnedRole => {
 			if (relation === undefined) {
 				broken(e.loc, { kind: "wholeEntryUndeclared", entry: e.name, base: base.name })
 			}
+			if (relation.kind === "derived" && relation.desc.storage === "live") {
+				broken(e.loc, { kind: "wholeEntryLive", entry: e.name })
+			}
 			relations[e.name] = { kind: "whole", name: entryName, relation, loc: e.loc }
 			continue
 		}
@@ -1815,7 +2010,7 @@ const ownRoleOf = (desc: RoleDesc, base: Owned): OwnedRole => {
 		}
 	}
 	const full = Object.values(base.relations).every(
-		(r) => r.kind === "closedRelation" || relations[r.name]?.kind === "whole"
+		(r) => !heldRelation(r.desc) || relations[r.name]?.kind === "whole"
 	)
 	const canonical = unwrap(
 		decodeDesc("role", {
@@ -1933,8 +2128,8 @@ export const ownBuiltRole = (desc: RoleDesc, base: Owned): Result.Result<OwnedRo
 	catchRefusal(() => ownRoleOf(desc, base))
 
 /**
- * The description of the full role `name` over a schema description: every relation of every level whole, writing its
- * ordinary relations and refreshing its derived ones.
+ * The description of the full role `name` over a schema description: every relation of every level a role holds
+ * whole (desc.ts heldRelation), writing its ordinary relations and refreshing its materialized derived ones.
  */
 export const fullRoleDesc = (
 	base: SchemaDesc,
@@ -1943,7 +2138,7 @@ export const fullRoleDesc = (
 ): Result.Result<RoleDesc, CompileError> =>
 	Result.flatMap(own(base), (owned) => {
 		const relations = Object.values(owned.relations)
-			.filter((r) => r.kind !== "closedRelation")
+			.filter((r) => heldRelation(r.desc))
 			.toSorted((a, b) => compareText(a.name, b.name))
 		const [first, ...rest] = relations.map((r): RoleEntryDesc => ({
 			kind: "whole",

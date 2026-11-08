@@ -1,4 +1,7 @@
-import { derived as derivedBuilder } from "#compiler/schema/relation.ts"
+import {
+	derived as derivedBuilder,
+	materializedDerived as materializedBuilder
+} from "#compiler/schema/relation.ts"
 import type {
 	DefinitionCheck,
 	DefinitionQuery,
@@ -127,11 +130,23 @@ export type {
  * precise signature is declared with the derived relation types (types/derived); the view here gives it to the one
  * builder of a derived relation's value (schema/relation.ts).
  *
- * derived(name, definition): a view over the one builder of a derived relation's value (schema/relation.ts derived),
- * which narrows its definition to one DefinitionCheck admits.
+ * derived(name, definition) and derived.materialized(name, definition): views over the builders of a derived
+ * relation's value (schema/relation.ts derived and materializedDerived), which narrow its definition to one
+ * DefinitionCheck admits.
  */
-export const derived: DerivedConstructor = <const Name extends string, Q extends DefinitionQuery>(
-	name: Name,
-	definition: Q & DefinitionCheck<Q>,
-	...extra: ReadonlyArray<unknown>
-): Derived<Name, Q> => derivedBuilder<Name, Q>(name, definition, extra)
+export const derived: DerivedConstructor = Object.freeze(
+	Object.assign(
+		<const Name extends string, Q extends DefinitionQuery>(
+			name: Name,
+			definition: Q & DefinitionCheck<Q>,
+			...extra: ReadonlyArray<unknown>
+		): Derived<Name, Q, "live"> => derivedBuilder<Name, Q>(name, definition, extra),
+		{
+			materialized: <const Name extends string, Q extends DefinitionQuery>(
+				name: Name,
+				definition: Q & DefinitionCheck<Q>,
+				...extra: ReadonlyArray<unknown>
+			): Derived<Name, Q, "materialized"> => materializedBuilder<Name, Q>(name, definition, extra)
+		}
+	)
+)

@@ -68,6 +68,7 @@ import {
 	type InstalledLogin,
 	worldTextDomainUses
 } from "#compiler/physical/ddl/roles.ts"
+import { addRules } from "#compiler/physical/ddl/rules.ts"
 import { addTables } from "#compiler/physical/ddl/tables.ts"
 import {
 	type PlannedIndex,
@@ -145,7 +146,8 @@ export interface Installation {
 	/** Every identity the installation named an object by, ownership's, the law model's and the installer's, each as
 	 * often as it was minted: the census its comments passed. */
 	readonly identities: ReadonlyArray<Identity<IdentityKind>>
-	/** What this installation leaves to other packages' extensions. */
+	/** What this installation leaves to other packages' extensions: its materialized derived relations no extension
+	 * installs. */
 	readonly deferred: {
 		readonly derivedRelations: ReadonlyArray<string>
 	}
@@ -520,6 +522,7 @@ export const installationOver = (
 			]
 			const { keyIndexes, tables, sequences } = addTables(b)
 			const advance = addAdvanceFunctions(b)
+			const ruleRequests = addRules(b)
 
 			const claimedDerived = new Set<string>()
 			const extensionRequests: Array<IndexRequest> = []
@@ -558,7 +561,7 @@ export const installationOver = (
 				)
 			])
 
-			const requests = [...reverseRequests(b), ...extensionRequests]
+			const requests = [...reverseRequests(b), ...ruleRequests, ...extensionRequests]
 			const indexes = planIndexes(b, keyIndexes, requests)
 			if (!indexes.ok) {
 				throw new Refusal(indexes.error)
@@ -580,7 +583,7 @@ export const installationOver = (
 			const manifest = { ...ordered, comments }
 			const statements = [...created, ...worlds.publicRevokes, ...worlds.roleDefaults, ...comments]
 			const derived = Object.values(owned.relations)
-				.filter((r) => r.kind === "derived")
+				.filter((r) => r.kind === "derived" && r.view.kind === "materialized")
 				.map((r) => r.name)
 			return {
 				owned,

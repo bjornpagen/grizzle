@@ -486,6 +486,8 @@ export const physicalKinds = [
 	"index",
 	"statistics",
 	"validation",
+	"lawFunction",
+	"lawTrigger",
 	"role",
 	"membership",
 	"roleSchema",

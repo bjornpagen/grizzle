@@ -49,7 +49,7 @@ import {
 	admitRoster,
 	bitsOf,
 	closed,
-	derived,
+	materializedDerived,
 	drawnField,
 	closedRelation,
 	generatedField,
@@ -223,6 +223,7 @@ const schemaForms = [
 	"derivedDiscriminated",
 	"derivedProjection",
 	"derivedSkipsLevel",
+	"derivedRuled",
 	"finOfKey",
 	"finOfAccumulated",
 	"closedKeyOne",
@@ -556,37 +557,45 @@ const refusals: { readonly [F in SchemaFault]: Refusing } = {
 		claim: prose("a root schema declares no derived relation; schema.extend does")
 	},
 	keyOverDerived: {
-		engine: { tag: "LawOnDerived" },
+		engine: { tag: "UnsupportedLawFamily" },
 		code: "TS2345",
-		claim: named("a law side is never over a derived relation")
+		claim: named(
+			"a rule reads a derived relation whose definition joins, selects and projects: this one aggregates"
+		)
 	},
 	sideOverDerived: {
-		engine: { tag: "LawOnDerived" },
+		engine: { tag: "UnsupportedLawFamily" },
 		code: "TS2345",
-		claim: named("a law side is never over a derived relation")
+		claim: named(
+			"a rule reads a derived relation whose definition joins, selects and projects: this one aggregates"
+		)
 	},
 	mutableDerived: {
-		engine: { tag: "LawOnDerived" },
+		engine: { tag: "MalformedDescription" },
 		code: "TS2739",
 		claim: prose("mutable takes ordinary relations only")
 	},
 	checkOverDerived: {
-		engine: { tag: "LawOnDerived" },
+		engine: { tag: "UnsupportedLawFamily" },
 		code: "TS2345",
-		claim: prose("check takes ordinary relations only")
+		claim: named(
+			"a rule reads a derived relation whose definition joins, selects and projects: this one aggregates"
+		)
 	},
 	selectOverDerived: {
-		engine: { tag: "LawOnDerived" },
+		engine: { tag: "UnsupportedLawFamily" },
 		code: "TS2345",
-		claim: prose("a selection is never over a derived relation")
+		claim: named(
+			"a rule reads a derived relation whose definition joins, selects and projects: this one aggregates"
+		)
 	},
 	derivedParent: {
-		engine: { tag: "LawOnDerived" },
+		engine: { tag: "MalformedDescription" },
 		code: "TS2345",
 		claim: prose("alternatives takes no derived parent")
 	},
 	derivedArm: {
-		engine: { tag: "LawOnDerived" },
+		engine: { tag: "MalformedDescription" },
 		code: "TS2322",
 		claim: named("the arm's key does not match the parent key")
 	},
@@ -1111,7 +1120,6 @@ const reasonKey = (reason: CompileReason): string => {
 		case "UnsupportedOperation":
 		case "UndeclaredDrop":
 		case "UnsupportedLawFamily":
-		case "LawOnDerived":
 		case "UnrepresentableKey":
 		case "FoldOverProjection":
 		case "UnstatedKey":
@@ -2774,7 +2782,11 @@ const envOf = (base: Base): Env => {
 	const counts =
 		base.derived === undefined
 			? undefined
-			: derived(base.derived.name, definitionOf(base.derived, base, schemaValue, relations), [])
+			: materializedDerived(
+					base.derived.name,
+					definitionOf(base.derived, base, schemaValue, relations),
+					[]
+				)
 	const level =
 		counts === undefined
 			? schemaValue
@@ -3626,7 +3638,7 @@ const alternativesProbe = (d: Drawing, base: Base): Probe | undefined => {
 				const counts =
 					spec === undefined
 						? undefined
-						: derived(spec.name, definitionOf(spec, base, p, env.relations), [])
+						: materializedDerived(spec.name, definitionOf(spec, base, p, env.relations), [])
 				const valueOf = (name: string): AnyRelation | AnyDerived =>
 					counts?.name === name ? counts : got(env.relations, name)
 				const statement = alternativesBuilder(
@@ -3794,14 +3806,21 @@ type DerivedFault = Extract<
 >
 
 /** The derived definitions a derived probe states that the engine admits, each noted as its form. */
-type DerivedValid = "overLevels" | "boundImport" | "discriminated" | "projection" | "skipsLevel"
+type DerivedValid =
+	| "overLevels"
+	| "boundImport"
+	| "discriminated"
+	| "projection"
+	| "skipsLevel"
+	| "ruled"
 
 const validForm: { readonly [K in DerivedValid]: SchemaForm } = {
 	overLevels: "derivedOverLevels",
 	boundImport: "derivedBoundImport",
 	discriminated: "derivedDiscriminated",
 	projection: "derivedProjection",
-	skipsLevel: "derivedSkipsLevel"
+	skipsLevel: "derivedSkipsLevel",
+	ruled: "derivedRuled"
 }
 
 /** The definition the derived relation's probes draw over: the base's derived spec's relation and field. */
@@ -3840,11 +3859,13 @@ const definitionSource = (
 /**
  * The derived relation's laws and levels: a definition reading a parameter, of no field, or of several heading groups;
  * a derived relation declared at the level its definition reads, or in a root schema; a key, check or selection over
- * it; fin over it; each a planted fault. The admitted forms: a further derived relation over the extension, declared
- * above it, whose schema's levels are its own, the extension's and the root's; a definition matching a query that
- * reads a parameter, bound at each group value; a definition of two arms of one heading, apart only in the handle a
- * discriminant holds; a projection of its relation's key fields and group field, which keeps the keys it inherits. Each
- * admitted definition's fact is the heading the engine compiles it to.
+ * the base's aggregate, which no rule reads; fin over it; each a planted fault. The admitted forms: a further derived
+ * relation over the extension, declared above it, whose schema's levels are its own, the extension's and the root's; a
+ * definition matching a query that reads a parameter, bound at each group value; a definition of two arms of one
+ * heading, apart only in the handle a discriminant holds; a projection of its relation's key fields and group field,
+ * which keeps the keys it inherits; and rules over such a projection, a key, a check, a containment from a selection of
+ * it and a mirrors with its relation, which both sides admit. Each admitted definition's fact is the heading the engine
+ * compiles it to.
  */
 const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 	const spec = base.derived
@@ -3857,7 +3878,8 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 		"boundImport",
 		"discriminated",
 		"projection",
-		"skipsLevel"
+		"skipsLevel",
+		"ruled"
 	])
 	const fault =
 		d.upTo(3) === 0
@@ -3884,7 +3906,7 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 	] as const
 	const bound = Arr.dedupe([...r.key, spec.by])
 	const over = (ids: Ids) =>
-		`Sc.derived("Over", Q.query(${ids("Level")}).rule((r) => { const { ${spec.by}, total } = Q.v(${ids(spec.name)}, "counted"); return r.match(${ids(spec.name)}, { ${spec.by}, total }).find({ ${spec.by}, total }) }))`
+		`Sc.derived.materialized("Over", Q.query(${ids("Level")}).rule((r) => { const { ${spec.by}, total } = Q.v(${ids(spec.name)}, "counted"); return r.match(${ids(spec.name)}, { ${spec.by}, total }).find({ ${spec.by}, total }) }))`
 	const matched = (ids: Ids) =>
 		`const { ${Arr.join(bound, ", ")} } = Q.v(${ids(r.name)}, "fact"); return r.match(${ids(r.name)}, { ${Arr.join(bound, ", ")} })`
 	const keys = r.key
@@ -3909,7 +3931,7 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 					head: [
 						`export const ${own}_imported = Q.query(${ids("S")}).rule((r) => { ${matched(ids)}.where(r.eq(${spec.by}, r.param("p", ${ids(r.name)}.fields.${spec.by}))).find({ ${Arr.join(keys, ", ")} }) })`
 					],
-					line: `export const ${own} = Sc.derived("Probe", Q.query(${ids("S")}).rule((r) => { const { ${spec.by}: outer } = Q.v(${ids(r.name)}, "outer"); const source = ${own}_imported.bind({ p: outer }); const { ${renamed} } = Q.v(source, "inner"); return r.match(${ids(r.name)}, { ${spec.by}: outer }).match(source, { ${renamed} }).find({ ${spec.by}: outer, ${Arr.join(
+					line: `export const ${own} = Sc.derived.materialized("Probe", Q.query(${ids("S")}).rule((r) => { const { ${spec.by}: outer } = Q.v(${ids(r.name)}, "outer"); const source = ${own}_imported.bind({ p: outer }); const { ${renamed} } = Q.v(source, "inner"); return r.match(${ids(r.name)}, { ${spec.by}: outer }).match(source, { ${renamed} }).find({ ${spec.by}: outer, ${Arr.join(
 						Arr.map(keys, (k) => `${k}_in`),
 						", "
 					)} }) }))`,
@@ -3921,7 +3943,7 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 					`.rule((r) => { ${matched(ids)}.find({ ${spec.by}, arm: ${ids(roster.name)}.handle(${jsonText(handle)}) }) })`
 				return {
 					head: [],
-					line: `export const ${own} = Sc.derived("Probe", Q.query(${ids("S")})${armText(discriminants[0])}${armText(discriminants[1])})`,
+					line: `export const ${own} = Sc.derived.materialized("Probe", Q.query(${ids("S")})${armText(discriminants[0])}${armText(discriminants[1])})`,
 					tail: [fact(discriminatedValue(env))]
 				}
 			}
@@ -3929,7 +3951,7 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 				const level = `${own}_level`
 				return {
 					head: [],
-					line: `export const ${own} = Sc.derived("Probe", Q.query(${ids("S")}).rule((r) => { ${matched(ids)}.find({ ${Arr.join(bound, ", ")} }) }))`,
+					line: `export const ${own} = Sc.derived.materialized("Probe", Q.query(${ids("S")}).rule((r) => { ${matched(ids)}.find({ ${Arr.join(bound, ", ")} }) }))`,
 					tail: [
 						fact(projectionValue(env)),
 						`export const ${level} = Sc.schema.extend(${ids("S")}, { Probe: ${own} }, [])`,
@@ -3937,10 +3959,21 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 					]
 				}
 			}
+			case "ruled": {
+				const rel = `${own}_rel`
+				const by = jsonText(spec.by)
+				return {
+					head: [
+						`export const ${rel} = Sc.derived.materialized("Probe", Q.query(${ids("S")}).rule((r) => { ${matched(ids)}.find({ ${Arr.join(bound, ", ")} }) }))`
+					],
+					line: `export const ${own} = Sc.schema.extend(${ids("S")}, { Probe: ${rel} }, [Sc.key(Sc.on(${rel}, ${by})), Sc.check("Probe", ${rel}, (w) => w.and()), Sc.contained(Sc.on(Sc.select(${rel}, (w) => w.and()), ${by}), Sc.on(${ids(r.name)}, ${by})), Sc.mirrors(Sc.on(${ids(r.name)}, ${by}), Sc.on(${rel}, ${by}))])`,
+					tail: []
+				}
+			}
 			case "skipsLevel":
 				return {
 					head: [],
-					line: `export const ${own} = Sc.derived("Skip", Q.query(${ids("S")}).rule((r) => { ${matched(ids)}.find({ ${Arr.join(bound, ", ")} }) }))`,
+					line: `export const ${own} = Sc.derived.materialized("Skip", Q.query(${ids("S")}).rule((r) => { ${matched(ids)}.find({ ${Arr.join(bound, ", ")} }) }))`,
 					tail: [
 						`export const ${own}_level = Sc.schema.extend(${ids("Level")}, { Skip: ${own} }, [])`,
 						`export type ${own}_levels = Expect<Equals<Sc.LevelsOf<typeof ${own}_level>, typeof ${own}_level | typeof ${ids("Level")} | typeof ${ids("S")}>>`
@@ -3953,7 +3986,9 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 			case undefined:
 				return admittedText(ids, own, env)
 			case "parameterizedDefinition":
-				return oneLine(`Sc.derived("Probe", ${definitionSource(spec, base, ids, ids("S"), true)})`)
+				return oneLine(
+					`Sc.derived.materialized("Probe", ${definitionSource(spec, base, ids, ids("S"), true)})`
+				)
 			case "derivedAtOwnLevel":
 				return oneLine(`Sc.schema.extend(${ids("S")}, { Over: ${over(ids)} }, [])`)
 			case "derivedInRoot":
@@ -3963,16 +3998,18 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 			case "checkOverDerived":
 				return oneLine(`Sc.check("Probe", ${ids(spec.name)}, (w) => w.and())`)
 			case "selectOverDerived":
-				return oneLine(`Sc.select(${ids(spec.name)}, (w) => w.and())`)
+				return oneLine(
+					`Sc.key(Sc.on(Sc.select(${ids(spec.name)}, (w) => w.and()), ${jsonText(spec.by)}))`
+				)
 			case "finOverDerived":
 				return oneLine(`Sc.fin(${ids(spec.name)}, "total")`)
 			case "emptyHead":
 				return oneLine(
-					`Sc.derived("Probe", Q.query(${ids("S")}).rule((r) => { ${matched(ids)}.find({}) }))`
+					`Sc.derived.materialized("Probe", Q.query(${ids("S")}).rule((r) => { ${matched(ids)}.find({}) }))`
 				)
 			case "headingGroups":
 				return oneLine(
-					`Sc.derived("Probe", Q.query(${ids("S")}).rule((r) => { ${matched(ids)}.find({ ${spec.by}, arm: "one" }) }).rule((r) => { ${matched(ids)}.find({ ${spec.by}, arm: "two", flag: true }) }))`
+					`Sc.derived.materialized("Probe", Q.query(${ids("S")}).rule((r) => { ${matched(ids)}.find({ ${spec.by}, arm: "one" }) }).rule((r) => { ${matched(ids)}.find({ ${spec.by}, arm: "two", flag: true }) }))`
 				)
 			case "derivedOverBase":
 				return {
@@ -3986,7 +4023,7 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 		}
 	}
 	const overValue = (env: Env, level: AnySchema) =>
-		derived(
+		materializedDerived(
 			"Over",
 			queryOver(level).rule((rule: RuleValue) => {
 				const vars = varsOver(derivedOf(env), "counted")
@@ -4052,7 +4089,12 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 	const projectionKeys = (env: Env): string => {
 		const compiled = Result.flatMap(
 			catchCompileError(() =>
-				schema.extend(env.schema, { Probe: derived("Probe", projectionValue(env), []) }, [], [])
+				schema.extend(
+					env.schema,
+					{ Probe: materializedDerived("Probe", projectionValue(env), []) },
+					[],
+					[]
+				)
 			),
 			(level) => testArtifacts(level, testCompile)
 		)
@@ -4085,7 +4127,7 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 			compiling(() => schema.extend(env.schema, derivedRecord(env), [statement], []))
 		const probing = (definition: () => QueryValue) =>
 			compiling(() =>
-				schema.extend(env.schema, { Probe: derived("Probe", definition(), []) }, [], [])
+				schema.extend(env.schema, { Probe: materializedDerived("Probe", definition(), []) }, [], [])
 			)
 		switch (fault) {
 			case undefined:
@@ -4102,11 +4144,39 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 						return probing(() => projectionValue(env))
 					case "skipsLevel":
 						return compiling(() =>
-							schema.extend(env.level, { Skip: derived("Skip", projectionValue(env), []) }, [], [])
+							schema.extend(
+								env.level,
+								{ Skip: materializedDerived("Skip", projectionValue(env), []) },
+								[],
+								[]
+							)
 						)
+					case "ruled": {
+						const rel = materializedDerived("Probe", projectionValue(env), [])
+						const own = got(env.relations, r.name)
+						const row = (w: typeof rowHelpers) => w.and()
+						return compiling(() =>
+							schema.extend(
+								env.schema,
+								{ Probe: rel },
+								[
+									keyBuilder(onBuilder(rel, [spec.by])),
+									checkBuilder("Probe", rel, row),
+									containedBuilder(
+										onBuilder(selectBuilder(rel, row), [spec.by]),
+										onBuilder(own, [spec.by])
+									),
+									mirrorsBuilder(onBuilder(own, [spec.by]), onBuilder(rel, [spec.by]))
+								],
+								[]
+							)
+						)
+					}
 				}
 			case "parameterizedDefinition":
-				return building(() => derived("Probe", parameterizedDefinition(spec, base, env), []))
+				return building(() =>
+					materializedDerived("Probe", parameterizedDefinition(spec, base, env), [])
+				)
 			case "derivedAtOwnLevel":
 				return building(() =>
 					schema.extend(env.schema, { Over: overValue(env, env.level) }, [], [])
@@ -4116,9 +4186,16 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 			case "keyOverDerived":
 				return extended(keyBuilder(onBuilder(counts, [spec.by])))
 			case "checkOverDerived":
-				return building(() => checkBuilder("Probe", counts, (w: typeof rowHelpers) => w.and()))
+				return extended(checkBuilder("Probe", counts, (w: typeof rowHelpers) => w.and()))
 			case "selectOverDerived":
-				return building(() => selectBuilder(counts, (w: typeof rowHelpers) => w.and()))
+				return extended(
+					keyBuilder(
+						onBuilder(
+							selectBuilder(counts, (w: typeof rowHelpers) => w.and()),
+							[spec.by]
+						)
+					)
+				)
 			case "finOverDerived":
 				return building(() => finBuilder(counts, "total"))
 			case "emptyHead":
@@ -4150,8 +4227,10 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 
 /**
  * A law naming the derived relation on a drawn side, a containment's left side, its right side or a mirror, over its
- * group field and its relation's: always a planted fault, which on refuses where the side is written, so every case
- * with a derived relation states one on some side.
+ * group field and its relation's: always a planted fault, since the base's derived relation aggregates, which no rule
+ * reads (the engine's UnsupportedLawFamily, RuleSubject in the types), so every case with a derived relation states
+ * one on some side. A rule over a derived relation that joins, selects and projects is the derived probe's admitted
+ * `ruled` form.
  */
 const derivedSideProbe = (d: Drawing, base: Base): Probe | undefined => {
 	const spec = base.derived
@@ -5313,7 +5392,7 @@ const baseDeclarations = (base: Base, ids: Ids): ReadonlyArray<readonly [string,
 			: [
 					[
 						base.derived.name,
-						`Sc.derived(${jsonText(base.derived.name)}, ${definitionSource(base.derived, base, ids, ids("S"), false)})`
+						`Sc.derived.materialized(${jsonText(base.derived.name)}, ${definitionSource(base.derived, base, ids, ids("S"), false)})`
 					] as const,
 					[
 						"Level",

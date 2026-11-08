@@ -271,6 +271,7 @@ export const worldsGrants = (
 					return on("function", name, [writer.role, reader], ["EXECUTE"])
 				case "world":
 				case "isolationGuard":
+				case "rule":
 				case "closedConstant":
 					return []
 			}

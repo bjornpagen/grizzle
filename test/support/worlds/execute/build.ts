@@ -19,7 +19,7 @@ import {
 	type Statement
 } from "#compiler/public/schema.ts"
 import { compute } from "#compiler/scalar/compute/builders.ts"
-import { derived } from "#compiler/schema/relation.ts"
+import { materializedDerived } from "#compiler/schema/relation.ts"
 import { alternativesBuilder } from "#compiler/schema/statements.ts"
 import { contextDescOf, role } from "#compiler/schema/world.ts"
 import { regexField } from "#compiler/text/field.ts"
@@ -494,7 +494,9 @@ export const buildBase = (
 				level,
 				`derived ${d.name}`
 			)
-			const value = yield* attempt(`derived ${d.name}`, () => derived(d.name, definition, []))
+			const value = yield* attempt(`derived ${d.name}`, () =>
+				materializedDerived(d.name, definition, [])
+			)
 			derivedValues[d.name] = value
 			base = yield* attempt(`derived ${d.name}`, () =>
 				schema.extend(level, { [d.name]: value }, [])

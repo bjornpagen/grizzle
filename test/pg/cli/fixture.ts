@@ -173,7 +173,7 @@ export const ledger = (name: string) => {
 			.match(Payment, { id, customer, cents })
 			.find({ customer, payments: r.count(), cents: r.sum(cents) })
 	})
-	const CustomerSpend = derived("CustomerSpend", spend)
+	const CustomerSpend = derived.materialized("CustomerSpend", spend)
 	const s = schema.extend(base, { CustomerSpend }, [])
 	const reader = role(s, "reader", wholeEntriesOf(s))
 	const writer = role(s, "writer", wholeEntriesOf(s), {

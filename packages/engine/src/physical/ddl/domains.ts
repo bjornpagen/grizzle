@@ -35,9 +35,9 @@ import {
 import { domainCheck, type LawModel } from "#compiler/laws/model/model.ts"
 import { type InstallBuilder, isVectorRef } from "#compiler/physical/ddl/context.ts"
 import { lowerPersistent, noPersistentClosed } from "#compiler/physical/ddl/expr.ts"
-import { type ContractSource, domainBase } from "#compiler/physical/ddl/names.ts"
+import { type ContractSource, domainBase, missing } from "#compiler/physical/ddl/names.ts"
 import { enforcement, lawReasons } from "#compiler/physical/obligations/graph.ts"
-import type { Owned } from "#compiler/schema/own.ts"
+import type { Owned, OwnedRelation } from "#compiler/schema/own.ts"
 import type { CreateDomain, Expr, ObjectName } from "#compiler/sql/ast.ts"
 import { and } from "#compiler/sql/build.ts"
 import { domainValue, membershipTerms, textDomainDdl } from "#compiler/text/refinement.ts"
@@ -188,6 +188,19 @@ export interface TextDomainPlan {
  * claim against it. The domains come in the order of their first use in canonical order, a stored column's before an
  * extra's, and each CHECK is spelled from that first use, so it follows one rule whatever order the relations are met
  * in. */
+/** The installed relation a theory relation's columns are of: a closed relation's conversion, a stored one's table. */
+const theoryTable = (o: OwnedRelation): string => {
+	switch (o.kind) {
+		case "closedRelation":
+			return conversionOf(o.name)
+		case "derived":
+			return missing(`physical: the derived relation ${o.name} is no relation of the theory`)
+		case "relation":
+		case "closed":
+			return o.ident
+	}
+}
+
 export const planTextDomains = (
 	owned: Owned,
 	theory: Theory,
@@ -215,7 +228,7 @@ export const planTextDomains = (
 		compareStrings(a, b)
 	)) {
 		const o = defined(owned.relations[name], "ownership holds every relation of the theory")
-		const table = o.kind === "closedRelation" ? conversionOf(o.name) : o.ident
+		const table = theoryTable(o)
 		for (const c of r.fields) {
 			const regex = structuralRegex(c.type)
 			if (regex === undefined) {

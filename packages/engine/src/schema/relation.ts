@@ -18,6 +18,7 @@ import {
 	type ContentDigest,
 	contentDigest,
 	decodeDesc,
+	type DerivedStorage,
 	type ExprDesc,
 	type FieldDecl,
 	type AdmittedClosedRelation,
@@ -105,6 +106,7 @@ export interface DerivedDraft {
 	readonly name: string
 	readonly query: QueryDesc
 	readonly reads: ReadonlyArray<string>
+	readonly storage: DerivedStorage
 	readonly loc: SourceLoc
 }
 
@@ -921,13 +923,15 @@ export const bitsOf = <C extends AnyRoster>(
 	return mintBits<C>()(new RosterSet(roster.name, members))
 }
 
-/** The admission core of derived(...): the definition checked and recorded, as relation's is. */
+/** The admission core of derived(...) and derived.materialized(...): the definition checked and recorded, as
+ * relation's is, with how the relation is held. */
 export const admitDerived = (
 	name: unknown,
 	definition: unknown,
+	storage: DerivedStorage,
 	extra: ReadonlyArray<unknown>
 ): DerivedDraft => {
-	const label = `derived ${typeof name === "string" ? name : "?"}`
+	const label = `${storage === "live" ? "derived" : "derived.materialized"} ${typeof name === "string" ? name : "?"}`
 	const derivedName = requireName(name, label, "a derived relation name")
 	if (extra.length > 0) {
 		throw malformed(label, "derived(name, definition): two arguments")
@@ -956,29 +960,38 @@ export const admitDerived = (
 		name: derivedName,
 		query,
 		reads: Object.freeze([...uses.relations].toSorted(compareStrings)),
+		storage,
 		loc: builderLoc(label, [derivedName])
 	})
 	return draft
 }
 
+/** The value of a derived relation's definition under its name, held as `storage` says (derivedBuilder). */
+const derivedOf =
+	<St extends DerivedStorage>(storage: St) =>
+	<const Name extends string, Q extends DefinitionQuery>(
+		name: Name,
+		definition: Q,
+		extra: ReadonlyArray<unknown>
+	): Derived<Name, Q, St> => {
+		const draft = admitDerived(name, definition, storage, extra)
+		const heading: Q["heading"] = definition.heading
+		return ownValue(
+			{ ...builtMark, kind: "derived", name, definition, heading, storage, fact: record(heading) },
+			"derived",
+			draft,
+			contentDigest("relation", draft)
+		)
+	}
+
 /**
- * derived(name, definition): the value of the definition under its name, owned with the draft its admission core
- * records; its heading is the definition's, which v mints variables over, and its `fact` the decoder of that heading.
+ * derived(name, definition): the value of the definition under its name, a live derived relation PostgreSQL stores
+ * nothing for, owned with the draft its admission core records; its heading is the definition's, which v mints
+ * variables over, and its `fact` the decoder of that heading. derived.materialized(name, definition) is the same
+ * relation stored as a materialized view.
  */
-export const derived = <const Name extends string, Q extends DefinitionQuery>(
-	name: Name,
-	definition: Q,
-	extra: ReadonlyArray<unknown>
-): Derived<Name, Q> => {
-	const draft = admitDerived(name, definition, extra)
-	const heading: Q["heading"] = definition.heading
-	return ownValue(
-		{ ...builtMark, kind: "derived", name, definition, heading, fact: record(heading) },
-		"derived",
-		draft,
-		contentDigest("relation", draft)
-	)
-}
+export const derived = derivedOf("live")
+export const materializedDerived = derivedOf("materialized")
 
 /**
  * The Description of a relation, roster or closed relation value: an owned value's own, or a JavaScript look-alike's,

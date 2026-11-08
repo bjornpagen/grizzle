@@ -414,7 +414,7 @@ export const callLog = query(Usage)
 	.orderBy(["at", "desc"])
 
 /** Calls and spend per workspace and model, stored, and refreshed when the job says so. */
-export const ModelSpend = derived(
+export const ModelSpend = derived.materialized(
 	"ModelSpend",
 	query(Usage).rule((r) => {
 		const { id, workspace, model, cost } = v(Call, "call")
@@ -720,6 +720,61 @@ export const Waitlist = schema.extend(BoxOffice, { Place }, [
 	contained(on(Place, "show"), on(Show, "id")),
 	contained(on(Place, "show", pred("at")), on(Place, "show", "at")),
 	key(on(waiting, "show", "holder"))
+])
+
+/** README: "Rules over queries": rules over a join no table stores. */
+/** A content package's resources, each with an href and a type, either of which it may lack. */
+export const Resource = relation("Resource", { id: uuid }, ["id"])
+export const ResourceHref = relation(
+	"ResourceHref",
+	{ resource: uuid, path: Title, internal: pg.boolean },
+	["resource"]
+)
+export const ResourceTyped = relation("ResourceTyped", { resource: uuid, type: Title }, [
+	"resource"
+])
+export const PackageFile = relation("PackageFile", { path: Title }, ["path"])
+/** A catalog record of a resource, naming its href and its type. */
+export const CatalogRecord = relation(
+	"CatalogRecord",
+	{ resource: uuid, path: Title, type: Title },
+	["resource"]
+)
+
+export const Content = schema(
+	"Content",
+	{ Resource, ResourceHref, ResourceTyped, PackageFile, CatalogRecord },
+	[
+		contained(on(ResourceHref, "resource"), on(Resource, "id")),
+		contained(on(ResourceTyped, "resource"), on(Resource, "id"))
+	]
+)
+
+/** The resources that have both: a join, which no table stores and no write keeps. */
+export const TypedHref = derived(
+	"TypedHref",
+	query(Content).rule((r) => {
+		const { resource, path, internal } = v(ResourceHref, "href")
+		const { type } = v(ResourceTyped, "typed")
+		return r
+			.match(ResourceHref, { resource, path, internal })
+			.match(ResourceTyped, { resource, type })
+			.find({ resource, path, internal, type })
+	})
+)
+
+/** The typed hrefs of items. */
+const items = select(TypedHref, (t) => t.eq(t.type, "item"))
+
+export const ContentPackage = schema.extend(Content, { TypedHref }, [
+	check("ItemsInside", TypedHref, (t) =>
+		t.not(t.and(t.eq(t.type, "item"), t.eq(t.internal, false)))
+	),
+	contained(on(items, "path"), on(PackageFile, "path")),
+	contained(
+		on(CatalogRecord, "resource", "path", "type"),
+		on(TypedHref, "resource", "path", "type")
+	)
 ])
 
 /** README: "Queries". */

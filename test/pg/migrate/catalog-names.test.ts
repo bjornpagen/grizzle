@@ -150,6 +150,7 @@ const schemaOf = (names: Names): SchemaDesc => {
 				kind: "derived",
 				name: names["derived relation"].declared,
 				level: 1,
+				storage: "materialized",
 				query: decodedQuery({
 					kind: "rules",
 					arms: [

@@ -31,7 +31,7 @@ import {
 import { type Card, type HeadingColumn, keptRowsOf, type RelNode } from "#compiler/ir/rel.ts"
 import { analyzeLogical, queryEvidence } from "#compiler/logical/annotate.ts"
 import { derivedKeyPremise } from "#compiler/logical/props.ts"
-import type { OwnedRelation } from "#compiler/schema/own.ts"
+import type { OwnedRelation, OwnedView } from "#compiler/schema/own.ts"
 
 export interface DerivedRelationAnalysis {
 	readonly name: string
@@ -83,6 +83,8 @@ const viewKeysOf = (relation: string, keys: ReadonlyArray<DerivedKey>): Readonly
 
 /** A derived relation as ownership resolved it. */
 type OwnedDerived = Extract<OwnedRelation, { readonly kind: "derived" }>
+/** A materialized derived relation's view, which its analysis names its rows by. */
+type MaterializedView = Extract<OwnedView, { readonly kind: "materialized" }>
 
 /**
  * The first attachment, or union of several heading groups, on the delivered rows of `root`: the spine of nodes whose
@@ -185,15 +187,17 @@ export const declaredHeading = (
  * - an inherited key, or the full-heading fallback, whose unique index entry can exceed PostgreSQL's B-tree limit
  *   (UnrepresentableKey: inheritedKey, wholeHeading, oneFact).
  *
- * Laws over derived relations (LawOnDerived) and definitions outside the levels below (MalformedDescription) are
- * refused by ownership (schema/own.ts), before any definition is read.
+ * Definitions outside the levels below (MalformedDescription) are refused by ownership (schema/own.ts), before any
+ * definition is read. A rule over a derived relation reads its definition live, never its view
+ * (analysis/theory/query.ts).
  *
  * Derived relations: field inference and key inheritance. The keys a query over a derived relation relies on are the
  * same ones (ir/rel.ts ViewBase view).
  */
 export const analyzeDerivedRelation = (
 	schema: SchemaReading,
-	owned: OwnedDerived
+	owned: OwnedDerived,
+	view: MaterializedView
 ): Result.Result<DerivedRelationAnalysis, CompileError> => {
 	const { name, loc } = owned
 	const at = loc
@@ -267,7 +271,7 @@ export const analyzeDerivedRelation = (
 	}
 	return Result.ok({
 		name,
-		ident: owned.ident,
+		ident: view.ident,
 		level: owned.desc.level,
 		reads: owned.reads,
 		loc,

@@ -6,6 +6,7 @@ import { digest } from "#compiler/core/fingerprint.ts"
 import {
 	allocatedKinds,
 	ExprId,
+	type LawId,
 	NodeId,
 	OccurrenceId,
 	type ParamId,
@@ -59,7 +60,8 @@ import {
 	type TableRefs,
 	type ValidDag,
 	type ValueRefs,
-	type VarDecl
+	type VarDecl,
+	conservativeMeta
 } from "#compiler/ir/rel.ts"
 import * as S from "#compiler/ir/shape.ts"
 
@@ -706,6 +708,30 @@ export const mergeDags = (base: ValidDag, extension: ValidDag): MergedDag => {
 	})
 	const roots = [...base.roots, ...extension.roots.map((root) => nodes.of(root))]
 	return { dag: assembledDag(roots), node: (n) => nodes.of(n), expr: (e) => exprs.of(e) }
+}
+
+/**
+ * `base` with a law's violation query added under its Forbid node: `query`'s nodes renamed past every label of the
+ * base's (mergeDags), and the Forbid over `violation`, the query's counterpart there, labelled past them. The DAG's
+ * roots are the base's, then the Forbid, which `forbid` is.
+ */
+export const mergeForbidding = (
+	base: ValidDag,
+	query: ValidDag,
+	violation: RelNode,
+	law: LawId
+): { readonly dag: ValidDag; readonly forbid: RelNode } => {
+	const merged = mergeDags(base, query)
+	const root = merged.node(violation)
+	const forbid = relNode(NodeId(`${allocatedKinds.node}${highest(merged.dag).node + 1}`), {
+		kind: "Forbid",
+		lawId: law,
+		violation: root,
+		heading: root.heading,
+		loc: undefined,
+		meta: conservativeMeta
+	})
+	return { dag: assembledDag([...base.roots, forbid]), forbid }
 }
 
 /** An expression's outside form: its arguments by label. */

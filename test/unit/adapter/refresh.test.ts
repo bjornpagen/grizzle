@@ -54,7 +54,7 @@ import {
 } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
-import { derived as derivedOver } from "#compiler/schema/relation.ts"
+import { materializedDerived as derivedOver } from "#compiler/schema/relation.ts"
 import { admitRole, roleDescOf } from "#compiler/schema/world.ts"
 import { assert, defined, refusalLoc, succeeded, unorderedEqual } from "#test/support/assert.ts"
 import { testArtifacts, testCompile } from "#test/support/compile.ts"
@@ -592,14 +592,14 @@ const Totals = query(Edu).rule((r) => {
 	const { id, student } = v(Sitting, "sitting")
 	return r.match(Sitting, { id, student }).find({ student, total: r.count() })
 })
-const B = derived("B", Weekly)
-const A = derived("A", Totals)
+const B = derived.materialized("B", Weekly)
+const A = derived.materialized("A", Totals)
 const Level1 = schema.extend(Edu, { B, A }, [])
 const Busy = query(Level1).rule((r) => {
 	const { student, week } = v(B, "b")
 	return r.match(B, { student, week }).find({ week, students: r.count() })
 })
-const C = derived("C", Busy)
+const C = derived.materialized("C", Busy)
 const Reports = schema.extend(Level1, { C }, [])
 const Refresher = role(Reports, "refresher", Reports.relations, { refresh: ["A", "B", "C"] })
 const reports = succeeded(testArtifacts(Reports, testCompile))

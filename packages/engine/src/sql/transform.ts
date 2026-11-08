@@ -1218,6 +1218,11 @@ class Transform {
 				const fn = this.name(s.function, "function")
 				return table === s.table && fn === s.function ? s : { ...s, table, function: fn }
 			}
+			case "createConstraintTrigger": {
+				const table = this.name(s.table, "relation")
+				const fn = this.name(s.function, "function")
+				return table === s.table && fn === s.function ? s : { ...s, table, function: fn }
+			}
 			case "alterDatabaseDefault":
 				return s
 			case "grant":
@@ -1324,6 +1329,7 @@ class Transform {
 			case "createExtension":
 			case "createFunction":
 			case "createGuardTrigger":
+			case "createConstraintTrigger":
 			case "createIndex":
 			case "createMaterializedView":
 			case "createPolicy":

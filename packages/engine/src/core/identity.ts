@@ -1081,6 +1081,21 @@ export const identity = Object.freeze({
 			"the snapshot guard function",
 			readable("__snapshot_guard")
 		),
+	/**
+	 * The deferred constraint trigger a rule over a query is held by on every table it reads: one name for the rule,
+	 * which PostgreSQL scopes to each table's triggers and constraints.
+	 */
+	lawTrigger: (law: Identity<"law">): Identity<"lawTrigger"> =>
+		mint("lawTrigger", [law], ["rule", law.stem], `trigger of rule ${law.display}`, hashed),
+	/** The function a rule over a query's trigger on `relation`'s table runs. */
+	lawFunction: (relation: string, law: Identity<"law">): Identity<"lawFunction"> =>
+		mint(
+			"lawFunction",
+			[relation, law],
+			["rule", relation, law.stem],
+			`function of rule ${law.display} on ${relation}`,
+			hashed
+		),
 	/** The name a migration sets a held object aside under. */
 	aside: (of: string): Identity<"aside"> =>
 		mint("aside", [of], ["aside", of], `${of} set aside`, hashed),

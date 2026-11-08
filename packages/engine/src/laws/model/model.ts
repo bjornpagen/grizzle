@@ -2,6 +2,7 @@ import { type CheckedSchema, checkedSchema } from "#compiler/analysis/schema.ts"
 import { ViolationBuilder } from "#compiler/analysis/theory/build.ts"
 import { lawDescription } from "#compiler/analysis/theory/description.ts"
 import type { ResolvedConjunct, TheoryLaw } from "#compiler/analysis/theory/laws.ts"
+import { type QueryRule, type Touches, touches } from "#compiler/analysis/theory/query.ts"
 import {
 	buildTheory,
 	type PrimaryKeyLaw,
@@ -229,13 +230,15 @@ export interface DomainUse {
 }
 
 /**
- * One entry of the constraint-to-LawId map: the identifier a violation reports (a table constraint or a domain
- * constraint), the table or domain that owns it, and every law it discharges with its description, in its native's
- * order (`NativeObject.lawIds`): the first is the one it reports when nothing narrows it, a key law's where a key plans
- * the object, and a merged family axis lists its former's law and every containment that rides it. A domain constraint
- * also lists each column its domain types with that use's law, since PostgreSQL's report of a domain violation names
- * no table or column: a text domain one law per stored field it types, so its laws are its uses'. The law model emits
- * table constraints only; the installation, which names each domain by its definition, emits the domain constraints.
+ * One entry of the constraint-to-LawId map: the identifier a violation reports (a table constraint, a rule's constraint
+ * trigger or a domain constraint), the table or domain that owns it, and every law it discharges with its description,
+ * in its native's order (`NativeObject.lawIds`): the first is the one it reports when nothing narrows it, a key law's
+ * where a key plans the object, and a merged family axis lists its former's law and every containment that rides it.
+ * A rule's trigger is one per table the rule reads, each its one law, and no native object: its violation is the rule's
+ * query, which no host judges. A domain constraint also lists each column its domain types with that use's law, since
+ * PostgreSQL's report of a domain violation names no table or column: a text domain one law per stored field it types,
+ * so its laws are its uses'. The law model emits table constraints and rule triggers; the installation, which names
+ * each domain by its definition, emits the domain constraints.
  */
 export type ConstraintLaw =
 	| {
@@ -243,6 +246,12 @@ export type ConstraintLaw =
 			readonly name: ConstraintName
 			readonly owner: RelationIdent
 			readonly laws: NonEmptyReadonlyArray<ConstraintLawOf>
+	  }
+	| {
+			readonly kind: "trigger"
+			readonly name: ConstraintName
+			readonly owner: RelationIdent
+			readonly laws: readonly [ConstraintLawOf]
 	  }
 	| {
 			readonly kind: "domainConstraint"
@@ -276,6 +285,26 @@ export const constraintLawMap = (entries: ReadonlyArray<ConstraintLaw>): Constra
 	return Object.freeze({ tables: frozenOwners(tables), domains: frozenOwners(domains) })
 }
 
+/**
+ * A rule over a query and the deferred constraint triggers that hold it (analysis/theory/query.ts): its law, its
+ * triggers' one name, which PostgreSQL scopes to each table (a check's own name, any other rule's minted from its
+ * law), and each ordinary relation it reads, what that relation's writes can break of it and the function its trigger
+ * there runs. A closed relation it reads changes with no write, so it carries none.
+ */
+export interface RuleTrigger {
+	readonly law: TheoryLaw
+	readonly rule: QueryRule
+	readonly named: Identity<"check" | "lawTrigger">
+	readonly tables: NonEmptyReadonlyArray<RuleTable>
+}
+
+/** One table a rule over a query reads, with what its writes can break of the rule and its trigger's function. */
+export interface RuleTable {
+	readonly relation: RelationInfo
+	readonly touches: Touches
+	readonly function: Identity<"lawFunction">
+}
+
 export interface LawModel {
 	/** The owned schema the model specializes: every installed identifier a law reads (a table, a column, a roster's
 	 * domain, a declared key or check) is the one ownership registered there. */
@@ -304,6 +333,8 @@ export interface LawModel {
 	 * installed constant, and installs nothing.
 	 */
 	readonly migrationLaws: ReadonlyArray<LawId>
+	/** The rules over queries, in law order, with the triggers that discharge them at every COMMIT. */
+	readonly rules: ReadonlyArray<RuleTrigger>
 	/** Each ordinary relation by name, with its primary key and the unique objects its natives install (uniques.ts
 	 * relationLaws): one per primary key the model seeds, so one per ordinary relation. */
 	readonly relations: ReadonlyMap<string, RelationLaws>
@@ -991,6 +1022,19 @@ class Specializer {
 			}
 		}
 
+		const rules = plans.flatMap((plan) =>
+			plan.discharge === "trigger" ? [this.#ruleTrigger(plan.law)] : []
+		)
+		for (const r of rules) {
+			for (const t of r.tables) {
+				constraints.push({
+					kind: "trigger",
+					name: identifierOf(r.named),
+					owner: t.relation.ident,
+					laws: [{ law: r.law.id, described: lawDescription(r.law) }]
+				})
+			}
+		}
 		this.#refuseWideRows(natives)
 		const lowered: Record<LawId, LawLowering> = {}
 		for (const { plan, objects } of nativeObjects) {
@@ -1006,6 +1050,7 @@ class Specializer {
 			identities: [...this.theory.laws.map((law) => law.named), ...this.#minted],
 			immediate,
 			migrationLaws: plans.flatMap((plan) => (plan.discharge === "migration" ? [plan.law.id] : [])),
+			rules,
 			relations: relationLaws(keyed, natives),
 			checked: this.checked,
 			patterns: lawPatterns(this.checked, this.theory.families, natives)
@@ -1042,6 +1087,38 @@ class Specializer {
 				throw new Refusal(CompileError.make(prose("UnsupportedLawFamily", r.loc, refused)))
 			}
 		}
+	}
+
+	/**
+	 * The triggers of a rule over a query: one name for the rule, a check's own and any other's minted from its law, and
+	 * on each ordinary relation it reads, a function of its own.
+	 */
+	#ruleTrigger(law: TheoryLaw): RuleTrigger {
+		const d = law.detail
+		if (d.kind !== "rule") {
+			return missing(`the rule over a query ${law.id} plans its triggers`)
+		}
+		const named = this.#named(
+			d.rule.kind === "check" ? d.rule.named : identity.lawTrigger(law.named)
+		)
+		const tables = law.reads.flatMap((name): ReadonlyArray<RuleTable> => {
+			const relation = this.theory.relations[name]
+			const touched = touches(d.rule, name)
+			return relation?.kind === "relation" && touched !== undefined
+				? [
+						{
+							relation,
+							touches: touched,
+							function: this.#named(identity.lawFunction(name, law.named))
+						}
+					]
+				: []
+		})
+		const [first, ...rest] = tables
+		if (first === undefined) {
+			return missing(`a rule over a query discharged by triggers reads an ordinary relation`)
+		}
+		return { law, rule: d.rule, named, tables: [first, ...rest] }
 	}
 
 	/** The law `id` names, which the theory states. */
@@ -1639,13 +1716,18 @@ const immediateLaws = (
  *   a law states one CHECK per table, the conjunction of every row condition it states there. A native object that
  *   discharges several laws is one object listing them all; its violation reports the first, a key law's when one
  *   plans it, since key laws are merged first, and a family axis's former's.
+ * - Rules over queries: a rule one of whose sides reads a derived relation is discharged by triggers, never by a native
+ *   object: one deferred constraint trigger per ordinary relation it reads, all under one name, a check's own and any
+ *   other rule's minted from its law (identity.lawTrigger), each running a function of its own
+ *   (identity.lawFunction), and each listed in the constraint map under its table, so a violation it raises names the
+ *   rule. A rule that reads closed relations alone is discharged by the migration, as every such law is.
  * - The DAG: the theory's violation queries plus each generated CHECK's predicate and each generated law column's
  *   value.
  *
  * The law model of an owned schema, or the first refusal: a theory refusal, a law shape the compiler does not
- * admit (UnsupportedLawFamily), a law over a derived relation (LawOnDerived) or an unrepresentable key. A first
- * normalization's plans settle foreign key deferral and so the laws it proves immediate (Specializer.immediate), and
- * the theory rebuilt with the immediate evidence that deferral gives is specialized once. */
+ * admit (UnsupportedLawFamily) or an unrepresentable key. A first normalization's plans settle foreign key deferral
+ * and so the laws it proves immediate (Specializer.immediate), and the theory rebuilt with the immediate evidence that
+ * deferral gives is specialized once. */
 export const compileLaws = (owned: Owned): Result.Result<LawModel, CompileError> =>
 	Result.flatMap(checkedSchema(owned), (checked) =>
 		Result.flatMap(buildTheory(checked, provisionalTheory), (first) =>

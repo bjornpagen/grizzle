@@ -28,33 +28,44 @@ type Reality = AnySchema & {
 	readonly relations: Readonly<Record<string, AnyRelation | AnyClosed | AnyDerived>>
 }
 
-/**
- * The relations of `base` a role can hold: every one but its closed relations, which have no extent in the database,
- * only their constants.
- */
-export const heldRelations = <B extends Reality>(base: B): HeldOf<B> =>
-	trusted<HeldOf<B>>(Rec.filter(base.relations, (r) => r.kind !== "closedRelation"))
+/** A relation of a schema PostgreSQL holds no rows of: a closed relation's are its constants, a live derived one's its
+ * definition's. */
+type Unheld =
+	| { readonly kind: "closedRelation" }
+	| { readonly kind: "derived"; readonly storage: "live" }
 
 /**
- * The relations of B a role can hold, by their own names and values: B's relation map but its closed relations, so a
- * map of any relations holds any relation, roster or derived relation but a closed one.
+ * The relations of `base` a role can hold: every one but its closed relations, which have no extent in the database,
+ * only their constants, and its live derived relations, which a role reads through the relations their definitions
+ * read.
+ */
+export const heldRelations = <B extends Reality>(base: B): HeldOf<B> =>
+	trusted<HeldOf<B>>(
+		Rec.filter(
+			base.relations,
+			(r) => r.kind !== "closedRelation" && !(r.kind === "derived" && r.storage === "live")
+		)
+	)
+
+/**
+ * The relations of B a role can hold, by their own names and values: B's relation map but its closed relations and live
+ * derived relations, so a map of any relations holds any relation, roster or materialized derived relation.
  */
 export type HeldOf<B extends Reality> = {
-	readonly [
-		K in keyof B["relations"] as B["relations"][K] extends { readonly kind: "closedRelation" }
-			? never
-			: K
-	]: Exclude<B["relations"][K], { readonly kind: "closedRelation" }>
+	readonly [K in keyof B["relations"] as B["relations"][K] extends Unheld ? never : K]: Exclude<
+		B["relations"][K],
+		Unheld
+	>
 }
 
 /**
  * What a test opens a world through: a schema's full world, the DbLayer of an installation's login, and the token a
  * test's identity provider issues.
  *
- * A schema's full world is the role `app` holding every relation of the schema whole but its closed relations, and
- * writing every ordinary relation, in the login `server`: reality itself, so every program over the schema runs on it.
- * A closed relation has no extent in the database, only its constants, so no role holds it; a roster does, as its
- * code column. It is typed by no
+ * A schema's full world is the role `app` holding every relation of the schema whole but its closed and live derived
+ * relations, and writing every ordinary relation, in the login `server`: reality itself, so every program over the
+ * schema runs on it. A closed relation has no extent in the database, only its constants, so no role holds it; a roster
+ * does, as its code column; a live derived relation's rows are its definition's over the relations the role holds. It is typed by no
  * particular schema (its relations are any relations), so a program over the schema is a program over one of its levels
  * whatever the schema's name; it refreshes nothing, which a type over any relations cannot name. A fixture that needs
  * more than one role, or a refresh, states its own.

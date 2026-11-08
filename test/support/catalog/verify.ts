@@ -5,7 +5,7 @@ import type { Catalog, CatalogGrant, CatalogMembership } from "#test/support/cat
  * What a function of the installation is, by the object that installs it, which decides how it is installed and who
  * may execute it: a world's function (a writable query entry's filter function, key probe or unique probe), a serial
  * field's advance function, moving the identity sequence of `table`, the refusal function, the snapshot guard, the
- * isolation guard, or a constant: a roster's names constant, which the roster domain `domain`'s CHECK reads; a
+ * isolation guard, a rule over a query's trigger function, or a constant: a roster's names constant, which the roster domain `domain`'s CHECK reads; a
  * roster's live-codes constant, derived from the names constant `names` and read by the bits domain `domain`'s CHECK;
  * or a closed relation's or a side's constant, named by its content's digest.
  */
@@ -15,6 +15,7 @@ export type InstalledFunction =
 	| { readonly kind: "refusal" }
 	| { readonly kind: "snapshotGuard" }
 	| { readonly kind: "isolationGuard" }
+	| { readonly kind: "rule" }
 	| { readonly kind: "names"; readonly domain: string }
 	| { readonly kind: "live"; readonly domain: string }
 	| {
@@ -25,8 +26,11 @@ export type InstalledFunction =
 			readonly tables: ReadonlyArray<string>
 	  }
 
-/** What a trigger of the installation is: the isolation guard every table carries, the one trigger grizzle installs. */
-const installedTriggers = ["isolation"] as const
+/**
+ * What a trigger of the installation is: the isolation guard every table carries, or a rule over a query's deferred
+ * constraint trigger on a table its query reads.
+ */
+const installedTriggers = ["isolation", "rule"] as const
 
 export type InstalledTrigger = (typeof installedTriggers)[number]
 
@@ -145,6 +149,7 @@ export type ErasureProblem =
 	| { readonly kind: "triggerDisabled"; readonly trigger: string; readonly table: string }
 	| { readonly kind: "malformedGuard"; readonly table: string }
 	| { readonly kind: "foreignTrigger"; readonly trigger: string; readonly table: string }
+	| { readonly kind: "malformedRuleTrigger"; readonly trigger: string; readonly table: string }
 	| { readonly kind: "enumLabels"; readonly count: number }
 	| {
 			/** A constant installed otherwise than as one: a function of arguments, VOLATILE or STABLE, SECURITY DEFINER,
@@ -248,6 +253,12 @@ const unless = (holds: boolean, problem: ErasureProblem): ReadonlyArray<ErasureP
  * TRUNCATE (32).
  */
 const guardTriggerType = 2 + 4 + 8 + 16 + 32
+
+/** pg_trigger.tgtype's row-level bit, which a rule's trigger sets. */
+const ruleTriggerLevel = 1
+
+/** pg_trigger.tgtype's BEFORE and INSTEAD OF bits, neither of which a rule's AFTER trigger sets. */
+const beforeOrInstead = 2 + 64
 
 const allowed = {
 	table: new Set(["SELECT", "INSERT", "DELETE", "UPDATE"]),
@@ -569,6 +580,7 @@ const functionProblems = (j: Judging, f: Fn): ReadonlyArray<ErasureProblem> => {
 				...loginLacks(j, object, f.grants, "EXECUTE")
 			]
 		case "isolationGuard":
+		case "rule":
 			return [...definer, ...grantProblems(j, held, allowed.none, allowed.none)]
 		case "names":
 		case "live":
@@ -743,8 +755,9 @@ const rosterDomainProblems = (j: Judging): ReadonlyArray<ErasureProblem> =>
 	})
 
 /**
- * Every trigger is enabled, and is PostgreSQL's internal foreign-key trigger or the isolation guard (running the
- * isolation guard function): no law trigger exists (W7), every law being native.
+ * Every trigger is enabled, and is PostgreSQL's internal foreign-key trigger, the isolation guard (running the isolation
+ * guard function), or a rule over a query's trigger: a row constraint trigger AFTER its events, DEFERRABLE INITIALLY
+ * DEFERRED, running a rule function. No other trigger exists.
  */
 const triggerProblems = (j: Judging, t: Trigger): ReadonlyArray<ErasureProblem> => {
 	const enabled = unless(t.enabled === "O", {
@@ -756,6 +769,20 @@ const triggerProblems = (j: Judging, t: Trigger): ReadonlyArray<ErasureProblem> 
 		return enabled
 	}
 	const expected = j.expect.triggers.get(t.name)
+	if (expected === "rule") {
+		return [
+			...enabled,
+			...unless(
+				t.constraint &&
+					t.deferrable &&
+					t.deferred &&
+					(t.type & ruleTriggerLevel) === ruleTriggerLevel &&
+					(t.type & beforeOrInstead) === 0 &&
+					j.expect.functions.get(t.function)?.kind === "rule",
+				{ kind: "malformedRuleTrigger", trigger: t.name, table: t.table }
+			)
+		]
+	}
 	if (expected === "isolation") {
 		return [
 			...enabled,
