@@ -21,9 +21,9 @@ import { graphPass } from "#compiler/lower/optimize/graph/index.ts"
 import type { OptimizedProgram } from "#compiler/lower/optimize/pipeline.ts"
 import { carriedColumns, positiveLinear } from "#compiler/lower/shapes/attach-recursive/carried.ts"
 import { Compute } from "#compiler/public/compute.ts"
-import { pg, uuid } from "#compiler/public/fields.ts"
+import { closedId, pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { contained, on, relation, schema } from "#compiler/public/schema.ts"
+import { closed, contained, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { queryValueDesc } from "#compiler/query/build/query.ts"
 import { assert, succeeded, unorderedEqual } from "#test/support/assert.ts"
@@ -64,6 +64,9 @@ import { nodeOfKind, present } from "#test/unit/lower/support.ts"
  *   nothing moves and idempotent where something did. Over generated origin filters of every vertex type, the
  *   recursion's seed applies the filter after the pass, whether the pass placed it there or the seed applied it
  *   already, and the pass is idempotent.
+ * - Two conjuncts on a carried column alike but for one part, a literal, a parameter, an operator, a closed relation's
+ *   field or a closed read's key, are two predicates: over a reach between closed ids, each is moved into the seed,
+ *   the second whatever the first placed there, and one conjunct is moved once.
  */
 
 /** The graph example's schema. */
@@ -294,6 +297,100 @@ const shared = (q: LogicalQuery, sharing: Sharing): LogicalQuery => {
 const seedPushdowns = (rules: ReadonlyArray<CertificateRule>): number =>
 	Arr.filter(rules, (r) => Str.startsWith("graph.seedPushdown.")(r)).length
 
+/**
+ * A graph between closed ids: Kind's handles linked by Link, the zones each kind is allowed in, and two weights per
+ * kind, so a predicate on a kind reads a closed relation's field, a key's completions or a key's presence.
+ */
+const Kind = closed("Kind", ["a", "b", "c"])
+const Zone = closed("Zone", ["north", "south"])
+const Allowed = closed.relation(
+	"Allowed",
+	{ zone: closedId(Zone), kind: closedId(Kind) },
+	["zone", "kind"],
+	[
+		{ zone: "north", kind: "a" },
+		{ zone: "north", kind: "b" },
+		{ zone: "south", kind: "b" },
+		{ zone: "south", kind: "c" }
+	]
+)
+const Weight = closed.relation(
+	"Weight",
+	{ kind: closedId(Kind), light: pg.integer, heavy: pg.integer },
+	["kind"],
+	[
+		{ kind: "a", light: 1, heavy: 2 },
+		{ kind: "b", light: 2, heavy: 1 },
+		{ kind: "c", light: 1, heavy: 1 }
+	]
+)
+const Link = relation("Link", { from: closedId(Kind), to: closedId(Kind) }, ["from", "to"])
+const Kinds = schema("Kinds", { Kind, Zone, Allowed, Weight, Link }, [])
+
+/** Every kind with the kinds it reaches: the origin carried by the step, the kind advanced. */
+const KindReach = query(Kinds).recursive("KindReach", {
+	row: { origin: closedId(Kind), kind: closedId(Kind) },
+	base: [
+		(r) => {
+			const { from } = v(Link, "link")
+			return r.match(Link, { from }).find({ origin: from, kind: from })
+		}
+	],
+	rec: [
+		(r, self) => {
+			const { origin, kind } = v(self, "self")
+			const { to } = v(Link, "link")
+			return r
+				.match(self, { origin, kind })
+				.match(Link, { from: kind, to })
+				.find({ origin, kind: to })
+		}
+	]
+})
+
+/**
+ * The part two conjuncts on the carried origin differ in: a literal, a parameter, the operator, the field a closed read
+ * reads, or the key of a closed relation's completions or presence.
+ */
+type Part = "literal" | "parameter" | "operator" | "field" | "completions" | "presence"
+/** One conjunct, or both of a part's two. */
+type Conjuncts = "one" | "two"
+
+/** The query filtering KindReach's origin by the part's first conjunct, or by both. */
+const alikeQuery = (part: Part, conjuncts: Conjuncts): unknown =>
+	query(Kinds).rule((r) => {
+		const { origin, kind } = v(KindReach, "reach")
+		const pair = (() => {
+			switch (part) {
+				case "literal":
+					return [r.eq(origin, "a"), r.eq(origin, "b")] as const
+				case "parameter":
+					return [
+						r.eq(origin, r.param("p", Link.fields.from)),
+						r.eq(origin, r.param("q", Link.fields.from))
+					] as const
+				case "operator":
+					return [r.eq(origin, "a"), r.ne(origin, "a")] as const
+				case "field":
+					return [r.eq(Weight.at("light", origin), 1), r.eq(Weight.at("heavy", origin), 1)] as const
+				case "completions":
+					return [
+						r.eq(Compute.subset(Compute.singleton(origin), Allowed.row("north")), true),
+						r.eq(Compute.subset(Compute.singleton(origin), Allowed.row("south")), true)
+					] as const
+				case "presence":
+					return [Allowed.has("north", origin), Allowed.has("south", origin)] as const
+			}
+		})()
+		const [first, second] = pair
+		return r
+			.match(KindReach, { origin, kind })
+			.where(conjuncts === "one" ? first : r.and(first, second))
+			.find({ kind })
+	})
+
+const kindsCatalog = ownedSchemaFixture(Kinds).catalog
+
 type PushFeature = `${"moved" | "kept"} ${Spelling}` | `${Sharing} kept`
 
 type RecursiveCaseSketch = GenValue<typeof recursiveCaseSketchGen>
@@ -482,6 +579,58 @@ describe("proved root pushdown (graph.seedPushdown)", () => {
 							if (moves === 0 && column === "Reach.origin") {
 								c.note(`${sharing} kept`)
 							}
+						})
+				)
+			)
+	)
+
+	it.effect(
+		"moves each of two conjuncts alike but for one part into the seed, and one conjunct once",
+		(ctx) =>
+			searched(
+				ctx,
+				exhaust(
+					{
+						box: { kind: "unstated" },
+						oracle: { kind: "unstated" },
+						suite: "unit/lower/graph/alike-conjuncts",
+						generator: (source) =>
+							[
+								source.draw(
+									element<Part>([
+										"literal",
+										"parameter",
+										"operator",
+										"field",
+										"completions",
+										"presence"
+									])
+								),
+								source.draw(element<Conjuncts>(["one", "two"]))
+							] as const,
+						literal: Formatter.format,
+						limit: 12,
+						coverage: requiredInSpace<`${Conjuncts} moved`>(["one moved", "two moved"]),
+						caseHang
+					},
+					([part, conjuncts], c) =>
+						Effect.sync(() => {
+							const desc = queryValueDesc(alikeQuery(part, conjuncts))
+							if (desc === undefined) {
+								throw new Error("not a query value")
+							}
+							const q = succeeded(checkQuery(checking(Kinds), desc, checkOptions("query")))
+							const passContext = () =>
+								makePassContext({ evidenceContext: "snapshot", catalog: kindsCatalog })
+							const run = passContext()
+							const once = succeeded(graphPass.run(q, run))
+							assert.equal(
+								seedPushdowns(Arr.map(run.certificates.all(), (x) => x.rule)),
+								conjuncts === "one" ? 1 : 2,
+								`${part}: every conjunct on the carried origin moves`
+							)
+							assert.equal(succeeded(graphPass.run(once, passContext())), once, "idempotent")
+							c.note(`${conjuncts} moved`)
 						})
 				)
 			)
