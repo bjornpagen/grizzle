@@ -3,12 +3,13 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter } from "effect"
+import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { pg } from "#compiler/public/fields.ts"
 import { key, mutable, on, relation, schema, select } from "#compiler/public/schema.ts"
 import { type QueryValue, queryOver as query, varsOver as v } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
+import { inputGuarantees } from "#compiler/write/insert/input.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
 import type { PutChoice } from "#compiler/write/put/choose.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
@@ -33,6 +34,10 @@ import { descOf } from "#test/unit/write/changeset/fixtures.ts"
  * - A put of R's own facts, each key a stored fact's, is an UPDATE ... FROM (existingKeys) when the stratum deletes
  *   nothing of R, and the pair (unproved) beside a deletion, whose key the UPDATE would leave no row to update.
  * - An enumerated put is an ON CONFLICT DO UPDATE (enumerated).
+ *
+ * And what its statement reads its input as: an enumerated put's facts are distinct and unique at R's key by the codec's
+ * normalization, and a put of R's own facts is unique at R's key by the key its member proves, so neither statement
+ * deduplicates its input or checks it for two facts of one key.
  */
 
 /** The unique objects of R beside its primary key. */
@@ -207,6 +212,31 @@ describe("a put's statement", () => {
 								"the write"
 							)
 							const first = defined(compiled.choices[0], "R's first put's choice")
+							const written = defined(
+								Arr.findFirst(
+									Arr.flatMap(compiled.plan.steps, (step) =>
+										step.kind === "write" ? [step] : step.kind === "single" ? step.writes : []
+									),
+									(w) => w.action.stratum === first.stratum && w.action.index === first.action
+								).pipe(Option.getOrUndefined),
+								"R's first put's statement"
+							)
+							const guarantees = inputGuarantees(written.input)
+							if (form === "enumerated") {
+								assert.ok(guarantees.distinct, "an enumerated input is distinct")
+								assert.equal(
+									guarantees.keyUnique.kind,
+									"normalized",
+									"an enumerated input is key-unique"
+								)
+							}
+							if (form === "own facts") {
+								assert.equal(
+									guarantees.keyUnique.kind,
+									"proved",
+									"R's own facts are unique at R's key"
+								)
+							}
 							const expected = expectedOf(uniques, form)
 							assert.deepEqual<Choice>(
 								{ target: first.target, reason: first.reason },
