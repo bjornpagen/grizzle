@@ -588,7 +588,7 @@ const restatedWritings = (
 					if (into === undefined || field === undefined || !drawnBy(into.writing)) {
 						return f
 					}
-					const spell = new PreviousSpelling(names)
+					const spell = new PreviousSpelling(names, installation.laws.theory.relations)
 					const restated = fieldWriting(installation, fillers, now.name, field, spell)
 					return spell.complete && same(restated, f.writing) ? { ...f, writing: into.writing } : f
 				})
@@ -653,7 +653,7 @@ const lawColumnRenames = (
 		const of = targets.get(key) ?? { table, columns: [] }
 		of.columns.push({
 			column: n.object.column,
-			was: restatedLawColumn(n.plan, laws, names)
+			was: restatedLawColumn(n.plan, laws, names, installation.laws.theory.relations)
 		})
 		targets.set(key, of)
 	}

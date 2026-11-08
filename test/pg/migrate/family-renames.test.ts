@@ -8,7 +8,8 @@
  *
  * - **renames** it: the relations mapped injectively onto their own names, each other's or fresh ones, so swaps, chains
  *   and cycles occur, the owner, the member and a spare relation among them; the owner's count and caller fields
- *   likewise; and the roster and its handles, the kind a selected fold steps over among them; each rename declared
+ *   likewise; and the roster and its handles, the kind a selected fold steps over or a closed relation's read compares
+ *   with among them; each rename declared
  *   (`--rename`); or
  * - **changes what fills it**: the field its fold steps over, the field its axis copy reads, a counted or ordered
  *   family's group, or a fold it adds, a tree's among them, nothing declared.
@@ -38,6 +39,7 @@ import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { Declarations, Rename } from "#compiler/deploy/diff/plan.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
+import type { ExprDesc } from "#compiler/ir/desc.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
@@ -52,6 +54,7 @@ import { assert, defined, succeeded } from "#test/support/assert.ts"
 import {
 	type AuthoredStatementDesc,
 	closed,
+	closedRelation,
 	contained,
 	counted,
 	f,
@@ -89,12 +92,17 @@ type Kind = (typeof kinds)[number]
  * family). */
 type Accumulators = "none" | "hidden" | "named"
 
-/** What a history's family is: its kind, its fold, whether the fold steps over the members of one kind alone, and
- * whether an axis carries a copy. */
+/** Which members a fold steps over: every one, those of one kind (a roster's handle), or those whose kind weighs at
+ * least another kind's (a closed relation read at a handle). */
+const selections = ["every", "kind", "weight"] as const
+type Selection = (typeof selections)[number]
+
+/** What a history's family is: its kind, its fold, which members the fold steps over, and whether an axis carries a
+ * copy. */
 interface Shape {
 	readonly kind: Kind
 	readonly fold: Accumulators
-	readonly selected: boolean
+	readonly selection: Selection
 	readonly copy: boolean
 }
 
@@ -145,17 +153,47 @@ const firstReading: Reading = { step: "first", copied: "tag", group: "g" }
 /** The member field a counted or ordered family's fold steps over, by its reading. */
 const steps = { first: "x", second: "y" } as const
 
-/** The members a selected fold steps over: those of kind a. */
-const ofKind = (naming: Naming) =>
-	({ kind: "compare", op: "eq", left: field("kind"), right: literal(naming.handle("a")) }) as const
+/** The handle a selection names: the kind it selects, or the kind whose weight it compares with. */
+const selectedHandle: Handle = "b"
 
-/** A fold's step side: over every member, or, selected, over the members of kind a. */
+/** The closed relation of each kind's weight, its handle's code. */
+const weight = "Weight"
+
+/** The members a selected fold steps over: those of kind b, or those whose kind weighs at least kind b's. */
+const selectionOf = (selection: Exclude<Selection, "every">, naming: Naming): ExprDesc => {
+	switch (selection) {
+		case "kind":
+			return {
+				kind: "compare",
+				op: "eq",
+				left: field("kind"),
+				right: literal(naming.handle(selectedHandle))
+			}
+		case "weight":
+			return {
+				kind: "compare",
+				op: "ge",
+				left: { kind: "closedAt", relation: weight, field: "w", args: [field("kind")] },
+				right: {
+					kind: "closedAt",
+					relation: weight,
+					field: "w",
+					args: [literal(naming.handle(selectedHandle))]
+				}
+			}
+	}
+}
+
+/** A fold's step side: over every member, or over those its selection holds of. */
 const stepSide = (
 	shape: Shape,
 	naming: Naming,
 	relationName: string,
 	terms: ReadonlyArray<string>
-) => (shape.selected ? onWhere(relationName, terms, ofKind(naming)) : on(relationName, terms))
+) =>
+	shape.selection === "every"
+		? on(relationName, terms)
+		: onWhere(relationName, terms, selectionOf(shape.selection, naming))
 
 const integer = f.integer
 
@@ -307,10 +345,16 @@ const versionOf = (
 	const naming = at.kind === "plain" ? asFirst : at.naming
 	const spare = relation(naming.relation("Spare"), { id: integer }, ["id"])
 	const kinds = closed(naming.roster, Arr.map(handles, naming.handle))
+	const weights = closedRelation(
+		weight,
+		{ kind: { kind: "closedId", roster: naming.roster }, w: integer },
+		["kind"],
+		Arr.map(handles, (h, code) => ({ kind: naming.handle(h), w: code }))
+	)
 	if (at.kind === "plain") {
 		return {
 			name,
-			relations: [kinds, ...plainSchema(shape), spare],
+			relations: [kinds, weights, ...plainSchema(shape), spare],
 			statements: [],
 			extends: undefined
 		}
@@ -321,7 +365,7 @@ const versionOf = (
 			: familySchema(shape, at.naming, at.reading)
 	return {
 		name,
-		relations: [kinds, ...family.relations, spare],
+		relations: [kinds, weights, ...family.relations, spare],
 		statements: family.statements,
 		extends: undefined
 	}
@@ -449,7 +493,7 @@ const shapeGen =
 		return {
 			kind,
 			fold,
-			selected: fold !== "none" && source.draw(boolean),
+			selection: fold === "none" ? "every" : source.draw(element(selections)),
 			copy: source.draw(boolean)
 		}
 	}
@@ -750,8 +794,8 @@ type RenameFeature =
 	| "roster renamed"
 	| "handles swapped"
 	| "handles chained"
-	| "selected fold"
-	| "selected handle renamed"
+	| `fold selecting by ${Exclude<Selection, "every">}`
+	| `${Exclude<Selection, "every">} selection's handle renamed`
 	| "stored members"
 
 /** Whether a history stores more than one row of a relation of its family. */
@@ -795,9 +839,9 @@ const renameNotes = (c: RenameCase): ReadonlyArray<RenameFeature> => {
 		...(naming.roster === roster ? [] : (["roster renamed"] as const)),
 		...(kinds.swapped ? (["handles swapped"] as const) : []),
 		...(kinds.chained ? (["handles chained"] as const) : []),
-		...(c.shape.selected ? (["selected fold"] as const) : []),
-		...(c.shape.selected && naming.handle("a") !== "a"
-			? (["selected handle renamed"] as const)
+		...(c.shape.selection === "every" ? [] : [`fold selecting by ${c.shape.selection}` as const]),
+		...(c.shape.selection !== "every" && naming.handle(selectedHandle) !== selectedHandle
+			? [`${c.shape.selection} selection's handle renamed` as const]
 			: []),
 		...(members ? (["stored members"] as const) : [])
 	]
@@ -862,7 +906,7 @@ type ChangeFeature =
 	| Kind
 	| `fold ${Accumulators}`
 	| "copy"
-	| "selected fold"
+	| `fold selecting by ${Exclude<Selection, "every">}`
 	| `${Change} on a ${Kind}`
 	| Change
 	| "stored members"
@@ -891,7 +935,7 @@ const changeCaseGen: Gen<ChangeCase> = (source) => {
 
 /** What a reshaping history's second version is: its family without the fold it adds, or as it is. */
 const shapeBefore = (c: ChangeCase): Shape =>
-	c.change === "fold added" ? { ...c.shape, fold: "none", selected: false } : c.shape
+	c.change === "fold added" ? { ...c.shape, fold: "none", selection: "every" } : c.shape
 
 /** What a reshaping history's third version reads. */
 const changedReading = (change: Change): Reading => {
@@ -915,7 +959,7 @@ const changeCase = (c: ChangeCase, k: Case<ChangeFeature>) =>
 			c.change,
 			`${c.change} on a ${c.shape.kind}`,
 			...(c.shape.copy ? (["copy"] as const) : []),
-			...(c.shape.selected ? (["selected fold"] as const) : []),
+			...(c.shape.selection === "every" ? [] : [`fold selecting by ${c.shape.selection}` as const]),
 			...(storesMembers(c.stored) ? (["stored members"] as const) : [])
 		])
 		yield* migrateHistory(
@@ -980,8 +1024,10 @@ layer(Substrate.layer)(
 									"roster renamed",
 									"handles swapped",
 									"handles chained",
-									"selected fold",
-									"selected handle renamed",
+									"fold selecting by kind",
+									"fold selecting by weight",
+									"kind selection's handle renamed",
+									"weight selection's handle renamed",
 									"stored members"
 								],
 								{ cases: 48, sense: notesOnly }
@@ -1024,7 +1070,8 @@ layer(Substrate.layer)(
 									"fold step on a tree",
 									"fold added on a tree",
 									"copy target on a tree",
-									"selected fold",
+									"fold selecting by kind",
+									"fold selecting by weight",
 									"stored members"
 								],
 								{ cases: 48, sense: notesOnly }

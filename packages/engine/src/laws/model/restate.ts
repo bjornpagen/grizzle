@@ -36,14 +36,17 @@ export interface PreviousNames {
 	readonly handleRenames: ReadonlySet<string>
 }
 
+/** The target theory's relations by name, whose closed relations type the reads a selection makes of them. */
+type Relations = Readonly<Record<string, TheoryRelation>>
+
 /** Each of `xs` mapped by `f`, or none where `f` maps one to none. */
 const each = <A, B>(
 	xs: ReadonlyArray<A>,
-	f: (a: A) => B | undefined
+	f: (a: A, at: number) => B | undefined
 ): ReadonlyArray<B> | undefined => {
 	const out: Array<B> = []
-	for (const x of xs) {
-		const y = f(x)
+	for (const [at, x] of xs.entries()) {
+		const y = f(x, at)
 		if (y === undefined) {
 			return undefined
 		}
@@ -54,11 +57,11 @@ const each = <A, B>(
 
 const eachNonEmpty = <A, B>(
 	xs: NonEmptyReadonlyArray<A>,
-	f: (a: A) => B | undefined
+	f: (a: A, at: number) => B | undefined
 ): NonEmptyReadonlyArray<B> | undefined => {
 	const [head, ...tail] = xs
-	const first = f(head)
-	const rest = each(tail, f)
+	const first = f(head, 0)
+	const rest = each(tail, (a, at) => f(a, at + 1))
 	return first === undefined || rest === undefined ? undefined : [first, ...rest]
 }
 
@@ -98,12 +101,22 @@ const restatedLiteral = (
 }
 
 /** What a predicate is restated in: its relation's fields' previous names and the rosters they are over, each by its
- * name in the target, and the roster a contract's VALUE is over. */
+ * name in the target, the roster a contract's VALUE is over, and the target's closed relations, whose fields type the
+ * terms a closed read meets and yields. */
 interface Scope {
 	readonly field: (name: string) => string | undefined
 	readonly roster: (name: string) => string | undefined
 	readonly value: string | undefined
+	readonly closed: (relation: string) => TheoryRelation | undefined
 }
+
+/** The roster a field's values are handles of or sets over, by its handle. */
+const fieldRoster = (field: LawField | undefined): string | undefined =>
+	field === undefined ? undefined : rosterOf(field.type)?.closed
+
+/** The roster of the `at`th key field of a closed relation, which the `at`th term of a read of it meets. */
+const keyRoster = (relation: TheoryRelation, at: number): string | undefined =>
+	fieldRoster(relation.primaryFields[at])
 
 /** The roster a field descriptor's values are handles of, or sets over: a closed id's or a set's, a contract's base's. */
 const descRoster = (t: FieldDesc): string | undefined => {
@@ -136,9 +149,9 @@ const rosterFns: ReadonlySet<ComputeFn> = new Set<ComputeFn>([
 ])
 
 /** The roster an expression's value is a handle of or a set over, in the target's names, where its typing says: a
- * field's, a typed literal's, a cast's, a contract's VALUE's, and what a conditional, a guard or a set function
- * yields; none for any other value, and for a closed relation's read, which a draft restates only when no handle is
- * renamed (restatedExpr). */
+ * field's, a typed literal's, a cast's, a contract's VALUE's, a closed relation's field a read yields or the set of its
+ * last key field a row read yields, and what a conditional, a guard or a set function yields; none for any other
+ * value. */
 const rosterIn = (e: ExprDesc, scope: Scope): string | undefined => {
 	switch (e.kind) {
 		case "field":
@@ -157,6 +170,12 @@ const rosterIn = (e: ExprDesc, scope: Scope): string | undefined => {
 			return rosterIn(e.proved, scope) ?? rosterIn(e.otherwise, scope)
 		case "compute":
 			return rosterFns.has(e.fn) ? firstRoster(e.args, scope) : undefined
+		case "closedAt":
+			return fieldRoster(scope.closed(e.relation)?.fields.find((f) => f.name === e.field))
+		case "closedRow": {
+			const closed = scope.closed(e.relation)
+			return closed === undefined ? undefined : keyRoster(closed, e.args.length)
+		}
 		case "var":
 		case "parent":
 		case "param":
@@ -169,8 +188,6 @@ const rosterIn = (e: ExprDesc, scope: Scope): string | undefined => {
 		case "allen":
 		case "pointIn":
 		case "absent":
-		case "closedAt":
-		case "closedRow":
 		case "closedHas":
 			return undefined
 	}
@@ -224,7 +241,8 @@ const restatedType = (t: FieldDesc, names: PreviousNames): FieldDesc | undefined
 			const scope: Scope = {
 				field: () => undefined,
 				roster: () => undefined,
-				value: descRoster(t.base)
+				value: descRoster(t.base),
+				closed: () => undefined
 			}
 			const predicate =
 				t.predicate === undefined ? undefined : restatedExpr(t.predicate, undefined, scope, names)
@@ -247,9 +265,8 @@ const restatedType = (t: FieldDesc, names: PreviousNames): FieldDesc | undefined
  * closed relation by its previous name, and each literal that meets a closed id or a set as its roster's previous
  * handles, a literal's roster read off what it meets (`expected`, rosterIn), as the checker types it: the other side of
  * a comparison, an IN list's or a range's subject, a conditional's other branch, a set function's other arguments, a
- * cast's target. None where a name it reads is new to the migration; where a declared handle rename meets a closed
- * relation's read, whose fields' rosters the predicate does not state; and for a negation over a source, which no law
- * side's selection states.
+ * cast's target, the key field of a closed relation a read's term meets. None where a name it reads is new to the
+ * migration, and for a negation over a source, which no law side's selection states.
  */
 const restatedExpr = (
 	e: ExprDesc,
@@ -355,20 +372,33 @@ const restatedExpr = (
 			const span = own(e.span)
 			return point === undefined || span === undefined ? undefined : { ...e, point, span }
 		}
-		case "closedAt":
-		case "closedHas": {
-			const args = eachNonEmpty(e.args, own)
+		case "closedAt": {
+			const closed = scope.closed(e.relation)
 			const relation = names.relation(e.relation)
-			return args === undefined || relation === undefined || names.handleRenames.size > 0
+			const field = names.field(e.relation, e.field)
+			const args =
+				closed === undefined
+					? undefined
+					: eachNonEmpty(e.args, (a, at) => sub(a, keyRoster(closed, at)))
+			return args === undefined || relation === undefined || field === undefined
 				? undefined
-				: { ...e, relation, args }
+				: { ...e, relation, field, args }
+		}
+		case "closedHas": {
+			const closed = scope.closed(e.relation)
+			const relation = names.relation(e.relation)
+			const args =
+				closed === undefined
+					? undefined
+					: eachNonEmpty(e.args, (a, at) => sub(a, keyRoster(closed, at)))
+			return args === undefined || relation === undefined ? undefined : { ...e, relation, args }
 		}
 		case "closedRow": {
-			const args = each(e.args, own)
+			const closed = scope.closed(e.relation)
 			const relation = names.relation(e.relation)
-			return args === undefined || relation === undefined || names.handleRenames.size > 0
-				? undefined
-				: { ...e, relation, args }
+			const args =
+				closed === undefined ? undefined : each(e.args, (a, at) => sub(a, keyRoster(closed, at)))
+			return args === undefined || relation === undefined ? undefined : { ...e, relation, args }
 		}
 		case "absent":
 			return undefined
@@ -384,13 +414,18 @@ const restatedExpr = (
 const restatedConjuncts = (
 	relation: TheoryRelation,
 	selection: ResolvedSelection,
-	names: PreviousNames
+	names: PreviousNames,
+	relations: Relations
 ): ReadonlyArray<SpelledConjunct> | undefined => {
-	const rosters = new Map(relation.fields.map((f) => [f.name, rosterOf(f.type)?.closed] as const))
+	const rosters = new Map(relation.fields.map((f) => [f.name, fieldRoster(f)] as const))
 	const scope: Scope = {
 		field: (name) => names.field(relation.name, name),
 		roster: (name) => rosters.get(name),
-		value: undefined
+		value: undefined,
+		closed: (name) => {
+			const r = relations[name]
+			return r?.kind === "closed" ? r : undefined
+		}
 	}
 	const predicates = each(selection.conjuncts, (c) =>
 		restatedExpr(c.predicate, undefined, scope, names)
@@ -412,10 +447,12 @@ const restatedConjuncts = (
  */
 export class PreviousSpelling implements Spelling {
 	readonly #names: PreviousNames
+	readonly #relations: Relations
 	#complete = true
 
-	constructor(names: PreviousNames) {
+	constructor(names: PreviousNames, relations: Relations) {
 		this.#names = names
+		this.#relations = relations
 	}
 
 	/** Whether every name and selection the spelling was asked for has a previous spelling. */
@@ -433,7 +470,7 @@ export class PreviousSpelling implements Spelling {
 
 	/** A law's identifier as the previous snapshot would have named it (restatedLaw). */
 	readonly law = (law: TheoryLaw): Identifier<"law"> =>
-		this.#spelled(restatedLaw(law, this.#names), law.id)
+		this.#spelled(restatedLaw(law, this.#names, this.#relations), law.id)
 
 	readonly relation = (relation: string): string =>
 		this.#spelled(this.#names.relation(relation), relation)
@@ -445,7 +482,7 @@ export class PreviousSpelling implements Spelling {
 		relation: TheoryRelation,
 		selection: ResolvedSelection
 	): ReadonlyArray<SpelledConjunct> => {
-		const restated = restatedConjuncts(relation, selection, this.#names)
+		const restated = restatedConjuncts(relation, selection, this.#names, this.#relations)
 		if (restated === undefined) {
 			this.#complete = false
 			return []
@@ -468,8 +505,12 @@ export class PreviousSpelling implements Spelling {
  * lawStatement) spelled with every relation, field, handle and conjunct it names under its previous name. None where one
  * of them is new to the migration: such a law is new to it.
  */
-const restatedLaw = (law: LawIdentity, names: PreviousNames): Identifier<"law"> | undefined => {
-	const spelling = new PreviousSpelling(names)
+const restatedLaw = (
+	law: LawIdentity,
+	names: PreviousNames,
+	relations: Relations
+): Identifier<"law"> | undefined => {
+	const spelling = new PreviousSpelling(names, relations)
 	const statement = lawStatement(law, spelling)
 	return spelling.complete ? identifierOf(identity.law(statement)) : undefined
 }
@@ -526,18 +567,19 @@ const lawColumnStatement = (
 }
 
 /**
- * A law column's identifier as the previous snapshot would have named it (PreviousNames): its
- * statement with every relation, field, handle and law it names restated (restatedLaw). A column a declaration only
- * renames is then the very column the previous snapshot holds under that identifier, its values unchanged, so the
- * migration renames it; none where its statement names something new to the migration, a column new to it. `laws` holds
- * every law of the target's theory by its identifier.
+ * A law column's identifier as the previous snapshot would have named it (PreviousNames): its statement with every
+ * relation, field, handle and law it names restated (restatedLaw). A column a declaration only renames is then the very
+ * column the previous snapshot holds under that identifier, its values unchanged, so the migration renames it; none
+ * where its statement names something new to the migration, a column new to it. `laws` holds every law of the target's
+ * theory by its identifier, and `relations` its relations by name.
  */
 export const restatedLawColumn = (
 	plan: LawColumnPlan,
 	laws: ReadonlyMap<LawId, TheoryLaw>,
-	names: PreviousNames
+	names: PreviousNames,
+	relations: Relations
 ): Identifier<"lawColumn"> | undefined => {
-	const spell = new PreviousSpelling(names)
+	const spell = new PreviousSpelling(names, relations)
 	const law = (id: LawId): Identifier<"law"> => {
 		const stated = laws.get(id)
 		if (stated === undefined) {
