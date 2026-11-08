@@ -88,15 +88,36 @@ type Reader =
 	| "fold"
 
 /**
- * A posting matched with the account it names, under the Account occurrence and the reader drawn; the group node when
- * the reader folds.
+ * The Posting occurrence's source: the stored relation, or a rule of its own projecting Posting through variables named
+ * as the outer region's are, whose column references name the outer region's variables without reading them.
  */
-const matched = (account: Account, reader: Reader) => {
+type PostingSource = "a scan" | "its own rule"
+
+/**
+ * A posting matched with the account it names, under the Account occurrence, the reader and the posting's source
+ * drawn; the group node when the reader folds.
+ */
+const matched = (account: Account, reader: Reader, posting: PostingSource) => {
 	const q = new Q()
+	const postingVariables = { id: "id", account: "acct", amount: "amount" }
+	const postings =
+		posting === "a scan"
+			? q.base(Posting, conservativeMeta)
+			: q.project(
+					q.region([
+						{ source: q.base(Posting, conservativeMeta), bind: postingVariables, constants: {} }
+					]),
+					[
+						["id", "id"],
+						["account", "acct"],
+						["amount", "amount"]
+					],
+					conservativeMeta
+				)
 	const occurrences: ReadonlyArray<OccurrenceSpec> = [
 		{
-			source: q.base(Posting, conservativeMeta),
-			bind: { id: "id", account: "acct", amount: "amount" },
+			source: postings,
+			bind: postingVariables,
 			constants: {}
 		},
 		account === "with a constant"
@@ -150,7 +171,7 @@ const rewritten = (dag: RelDag, passes: ReadonlyArray<Pass<LogicalQuery, Logical
 	return ran
 }
 
-const shapes: Gen<readonly [Account, Reader]> = (source) =>
+const shapes: Gen<readonly [Account, Reader, PostingSource]> = (source) =>
 	[
 		source.draw(element<Account>(["existence only", "with a constant"])),
 		source.draw(
@@ -160,7 +181,8 @@ const shapes: Gen<readonly [Account, Reader]> = (source) =>
 				"root, shared variable outside the heading",
 				"fold"
 			])
-		)
+		),
+		source.draw(element<PostingSource>(["a scan", "its own rule"]))
 	] as const
 
 describe("an existence-only match becomes a semi-join", () => {
@@ -176,8 +198,12 @@ describe("an existence-only match becomes a semi-join", () => {
 						suite: "unit/lower/rewrite/existence-semi-join",
 						literal: Formatter.format,
 						generator: shapes,
-						limit: 8,
-						coverage: requiredInSpace<`${Account} under a ${Reader}`>([
+						limit: 16,
+						coverage: requiredInSpace<
+							`${Account} under a ${Reader}` | `postings from ${PostingSource}`
+						>([
+							"postings from a scan",
+							"postings from its own rule",
 							"existence only under a projection",
 							"existence only under a projection, shared variable outside the heading",
 							"existence only under a root, shared variable outside the heading",
@@ -189,10 +215,11 @@ describe("an existence-only match becomes a semi-join", () => {
 						]),
 						caseHang
 					},
-					([account, reader], c) =>
+					([account, reader, posting], c) =>
 						Effect.sync(() => {
 							c.note(`${account} under a ${reader}`)
-							const { dag, group } = matched(account, reader)
+							c.note(`postings from ${posting}`)
+							const { dag, group } = matched(account, reader, posting)
 							const ran = rewritten(dag, [prunePass, existencePass])
 							rewritten(dag, [relationalRewrites])
 							contains(rulesOf(ran.certificates), "R02.semiJoin")
