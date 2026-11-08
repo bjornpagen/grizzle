@@ -1,7 +1,7 @@
 import type { DeclaredName } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import type { FieldDesc } from "#compiler/ir/desc.ts"
+import type { FieldDesc, SchemaDesc } from "#compiler/ir/desc.ts"
 import { Roster } from "#compiler/ir/scalar.ts"
 import type { SchemaInfo } from "#compiler/query/build/scope.ts"
 import { type Typing, typed, untyped } from "#compiler/scalar/compute/term.ts"
@@ -9,8 +9,6 @@ import { commonType, compatible } from "#compiler/scalar/compute/types.ts"
 import { describeField, type ScalarEnv, scalarTypeOf } from "#compiler/scalar/registry.ts"
 import type { Level } from "#compiler/schema/level.ts"
 import { malformed } from "#compiler/schema/protocol.ts"
-import { schemaDescOf } from "#compiler/schema/schema.ts"
-import { roleDescOf } from "#compiler/schema/world.ts"
 
 /**
  * Headings as the builder knows them.
@@ -90,10 +88,10 @@ export const unionHeading = (arms: ReadonlyArray<Heading>): Heading => {
  * and of the levels below it, by name, so a closedId field described only by its Description still resolves its
  * handles.
  */
-export const schemaInfo = (value: unknown, over: Level): SchemaInfo => {
-	const desc = schemaDescOf(value) ?? roleDescOf(value)?.base
+export const schemaInfo = (over: Level): SchemaInfo => {
 	const rosters = new Map<string, NonEmptyReadonlyArray<string>>()
-	for (let at = desc; at !== undefined; at = at.extends) {
+	const schema = over.kind === "schema" ? over.desc : over.desc.base
+	for (let at: SchemaDesc | undefined = schema; at !== undefined; at = at.extends) {
 		for (const r of at.relations) {
 			if (r.kind === "closed" && !rosters.has(r.name)) {
 				rosters.set(r.name, r.handles)
@@ -101,7 +99,6 @@ export const schemaInfo = (value: unknown, over: Level): SchemaInfo => {
 		}
 	}
 	return Object.freeze({
-		value,
 		over,
 		env: Object.freeze({
 			kind: "builder",

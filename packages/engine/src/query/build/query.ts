@@ -282,10 +282,7 @@ const defineDesc = <T extends object>(value: T, state: QueryState, label: string
 		enumerable: false,
 		configurable: false
 	})
-	const schema = state.schema.value
-	if (typeof schema === "object" && schema !== null) {
-		registerQuerySchema(value, schema)
-	}
+	registerQuerySchema(value, state.schema.over.value)
 	return Object.freeze(registerQuery(value, state))
 }
 
@@ -320,7 +317,7 @@ export const queryOf = <
 	): Query<S, H2, E2, P2, I2, C2, X2, A2> => queryOf(makeState(schema, s, p, h, c), r)
 	const value: Query<S, Head, Ev, P, IHead, Hc, Cx, Arms> & SchemaMember = {
 		...builtMark,
-		schema: schema.value,
+		schema: schema.over.value,
 		heading: carriers,
 		rows: decoders.rows,
 		immediate: decoders.immediate,
@@ -505,7 +502,7 @@ export const orderedOf = <
 	const decoders = decodersOf(records)
 	const value: Ordered<S, Head, Ev, P, IHead, Hc, Cx, Arms> & SchemaMember = {
 		...builtMark,
-		schema: state.schema.value,
+		schema: state.schema.over.value,
 		heading: headingOf(state.carriers),
 		rows: decoders.rows,
 		immediate: decoders.immediate,
@@ -624,7 +621,7 @@ const querySchema = (schema: unknown, extra: ReadonlyArray<unknown>): SchemaInfo
 			"a schema built by schema(...) or schema.extend(...), or a role built by role(...)"
 		)
 	}
-	return schemaInfo(schema, level)
+	return schemaInfo(level)
 }
 
 /**

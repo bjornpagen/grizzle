@@ -57,8 +57,8 @@ const writtenOver = (schema: unknown): Result.Result<Level, CompileError> => {
 
 /**
  * A query or ordered value rebuilt from its Description over `schema`, a schema or role value: the same combinators,
- * over a heading the Description states, typed where its descriptors say so. Its heading carries no column: it is described, and delivers no records. A
- * Description spells every name, so it waits on no attachment child.
+ * over a heading the Description states, typed where its descriptors say so. Its heading carries no column: it is
+ * described, and delivers no records. A Description spells every name, so it waits on no attachment child.
  */
 export const queryFromDesc = (
 	desc: unknown,
@@ -66,7 +66,7 @@ export const queryFromDesc = (
 ): Result.Result<QueryValue | OrderedValue, CompileError> =>
 	Result.flatMap(writtenOver(schema), (over) =>
 		Result.map(decodeDesc("query", desc), (owned) => {
-			const info = schemaInfo(schema, over)
+			const info = schemaInfo(over)
 			const state: QueryState = {
 				desc: owned,
 				heading: stageHeading(owned.stage, info.env),

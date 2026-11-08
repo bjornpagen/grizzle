@@ -87,9 +87,6 @@ export interface RoleLevel {
 	readonly entries: ReadonlyMap<string, RoleEntryDesc>
 }
 
-/** The level of a role value role(...) built, none for any other value. */
-export const roleLevelOf = (value: unknown): RoleLevel | undefined =>
-	ownedEntry(value, "role")?.content
 export const loginDescOf = (value: unknown): LoginDesc | undefined => ownedDesc(value, "login")
 
 /** What a world relation value records: its name and definition, as its role's query entry. */

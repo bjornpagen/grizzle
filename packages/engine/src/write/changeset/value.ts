@@ -139,7 +139,7 @@ const boundOrder: Order.Comparator<BoundParam> = Order.combineAll([
 ])
 
 interface ChangeSetState {
-	readonly schema: unknown
+	/** The schema or role value it was built over, as a level (`BuiltOver`). */
 	readonly over: BuiltOver
 	readonly strata: ReadonlyArray<ReadonlyArray<MemberState>>
 	readonly reads: ReadonlyArray<ReadBackState>
@@ -260,12 +260,11 @@ export const changeSetDesc = (value: unknown): ChangeSetDesc | undefined =>
 	changeSetState(value)?.desc
 
 /** A ChangeSet value as compiling and applying it read it, taken once where the value enters (db.apply,
- * db.compile): the schema or role it was built over, which a level is matched by, its
+ * db.compile): the level of the schema or role it was built over, which a level is matched by, its
  * Description, the host inputs of its array and Stream members by the slot their member names, and the values bind
  * closed by the private parameter names the Description's `bindings` lists. */
 export interface ParsedChangeSet {
-	/** The schema value it was built over, and what that value is. */
-	readonly schema: unknown
+	/** The schema or role value it was built over, and its level. */
 	readonly over: BuiltOver
 	readonly desc: ChangeSetDesc
 	readonly inputs: ReadonlyMap<string, ChangeSetInput>
@@ -670,7 +669,6 @@ const distinctReads = (
  * takes them from its contextual result type), and whose decoder is this one, or for read this one merged with the new
  * read-back's. */
 const make = <S, P, W extends string, Rd, Done extends Strata, Last extends Stratum>(
-	schema: unknown,
 	over: BuiltOver,
 	strata: ReadonlyArray<ReadonlyArray<MemberState>>,
 	reads: ReadonlyArray<ReadBackState>,
@@ -682,7 +680,6 @@ const make = <S, P, W extends string, Rd, Done extends Strata, Last extends Stra
 	const bound: ReadonlyMap<string, BoundParam> = scope.bound
 	const { desc, inputs } = describe(over, canonical, scope.reads, bound)
 	const state: ChangeSetState = Object.freeze({
-		schema,
 		over,
 		strata: canonical,
 		reads: Object.freeze([...scope.reads]),
@@ -693,7 +690,7 @@ const make = <S, P, W extends string, Rd, Done extends Strata, Last extends Stra
 	})
 	const value: ChangeSetOf<S, P, W, Rd, never, Done, Last> & SchemaMember = {
 		...builtMark,
-		schema,
+		schema: over.value,
 		reads: decoder,
 		insert: (relation, facts) => addMember(state, decoder, "insert", relation, facts),
 		insertAll: (rows) => addInserts(state, decoder, rows),
@@ -814,7 +811,7 @@ const addMember = <S, P, W extends string, Rd, Done extends Strata, Last extends
 	const name = memberRelation(relation, state.over, label)
 	const member = memberState(state, op, name, buildLoc(`${op} ${name}`, []), facts, label)
 	const scope = scopeWith(state, member)
-	return make(state.schema, state.over, scope.strata, scope.reads, scope.bound, decoder)
+	return make(state.over, scope.strata, scope.reads, scope.bound, decoder)
 }
 
 /** The record from a JavaScript caller, read once through hostRead: its own string keys and their members, in its
@@ -851,7 +848,7 @@ const addInserts = <S, P, W extends string, Rd, Done extends Strata, Last extend
 			memberState(state, "insert", name, buildLoc(`insert ${name}`, []), facts, label)
 		)
 	}, state)
-	return make(state.schema, state.over, scope.strata, scope.reads, scope.bound, decoder)
+	return make(state.over, scope.strata, scope.reads, scope.bound, decoder)
 }
 
 /** The records of the read-backs before it and of this one, under its name: the rows of its query's immediate decoder,
@@ -883,7 +880,7 @@ const addRead = <
 	if (!isCallback(readBack)) {
 		throw malformed(label, "a read-back: a function from the change's Delta to a query")
 	}
-	const q = readBack(delta<S>(state.over, schemaInfo(state.schema, state.over)))
+	const q = readBack(delta<S>(state.over, schemaInfo(state.over)))
 	const built = queryState(q)
 	if (built === undefined) {
 		throw malformed(label, "a read-back callback that returns a query or an ordered query")
@@ -895,7 +892,6 @@ const addRead = <
 	const loc = labeledChildLoc(buildLoc(label, [name]), "query", `read ${name}`)
 	const scope = release(state, params)
 	return make(
-		state.schema,
 		state.over,
 		scope.strata,
 		[...scope.reads, { name, query, params, loc, desc: Object.freeze({ name, query }) }],
@@ -961,7 +957,7 @@ const bindParams = <S, W extends string, Rd, Done extends Strata, Last extends S
 			throw malformed(label, `a value for every parameter of the ChangeSet; ${name} is missing`)
 		}
 	}
-	return make(state.schema, state.over, state.strata, state.reads, bound, decoder)
+	return make(state.over, state.strata, state.reads, bound, decoder)
 }
 
 const stateOf = (value: unknown, label: string): ChangeSetState => {
@@ -985,13 +981,9 @@ interface ReadsMember<R> {
 	readonly reads: RowDecoder<R>
 }
 
-/** The higher of two states' schemas, as value and Description. */
-const higher = (
-	label: string,
-	a: Pick<ChangeSetState, "schema" | "over">,
-	b: Pick<ChangeSetState, "schema" | "over">
-): Pick<ChangeSetState, "schema" | "over"> => {
-	const which = higherOver(a.over, b.over)
+/** The higher of two states' levels. */
+const higher = (label: string, a: BuiltOver, b: BuiltOver): BuiltOver => {
+	const which = higherOver(a, b)
 	if (which === "neither") {
 		throw malformed(
 			label,
@@ -1017,7 +1009,6 @@ const emptyOf = <S, Done extends Strata, Last extends Stratum>(
 		)
 	}
 	return make<S, unknown, never, unknown, Done, Last>(
-		schema,
 		over,
 		[[]],
 		[],
@@ -1034,7 +1025,7 @@ const combined = <R1, R2>(
 	b: ReadsMember<R2>,
 	extra: ReadonlyArray<unknown>
 ): {
-	readonly top: Pick<ChangeSetState, "schema" | "over">
+	readonly top: BuiltOver
 	readonly x: Scope
 	readonly y: Scope
 	readonly bound: Map<string, BoundParam>
@@ -1043,7 +1034,7 @@ const combined = <R1, R2>(
 	if (extra.length > 0) {
 		throw malformed(label, `${label}(a, b): two arguments`)
 	}
-	const top = higher(label, stateOf(a, label), stateOf(b, label))
+	const top = higher(label, stateOf(a, label).over, stateOf(b, label).over)
 	const { a: x, b: y, bound } = combine(stateOf(a, label), stateOf(b, label))
 	return { top, x, y, bound, decoder: merge(a.reads, b.reads) }
 }
@@ -1061,7 +1052,7 @@ const unionOf = <S, P, W extends string, R1, R2, Done extends Strata, Last exten
 		indices(n).map((i) => [...(x.strata[i] ?? []), ...(y.strata[i] ?? [])])
 	)
 	const reads = distinctReads(label, [...x.reads, ...y.reads])
-	return make(top.schema, top.over, strata, reads, bound, decoder)
+	return make(top, strata, reads, bound, decoder)
 }
 
 /** ChangeSet.sequence(a, b): b evaluated against the state a produced, its strata after a's. */
@@ -1073,14 +1064,7 @@ const sequenceOf = <S, P, W extends string, R1, R2, Done extends Strata, Last ex
 	const label = "ChangeSet.sequence"
 	const { top, x, y, bound, decoder } = combined(label, a, b, extra)
 	const reads = distinctReads(label, [...x.reads, ...y.reads])
-	return make(
-		top.schema,
-		top.over,
-		canonicalStrata([...x.strata, ...y.strata]),
-		reads,
-		bound,
-		decoder
-	)
+	return make(top, canonicalStrata([...x.strata, ...y.strata]), reads, bound, decoder)
 }
 
 /** The constructor namespace, the public value itself: each constructor implemented under its

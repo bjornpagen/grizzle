@@ -25,12 +25,11 @@ export const requireLevel = (written: Level, over: Level, label: string): void =
 }
 
 /**
- * What a query knows about the schema it is written over: the schema or role value it is built over, that value's level
- * (schema/level.ts Level), which a rule that matches the query must be over a level above, and the field environment
- * that resolves a closed reference's roster by name.
+ * What a query knows about the schema it is written over: its level (schema/level.ts Level), the schema or role value
+ * it is built over with that value's Description, which a rule that matches the query must be over a level above, and
+ * the field environment that resolves a closed reference's roster by name.
  */
 export interface SchemaInfo {
-	readonly value: unknown
 	readonly over: Level
 	readonly env: ScalarEnv
 }

@@ -1056,7 +1056,7 @@ const readBackValue = (
 		"an input for every array and Stream member, and no other"
 	)
 	return {
-		level: levelOfValue(parsed.schema),
+		level: levelOfValue(parsed.over.value),
 		strata,
 		reads: Arr.map(desc.reads, (r): CanonRead => {
 			const read = recognised(r.query, readReferences, bindings, parsed.values)

@@ -1,19 +1,15 @@
-import type { RelationDesc, SchemaDesc } from "#compiler/ir/desc.ts"
-import { isLevelOver, levelOf } from "#compiler/schema/level.ts"
-import { levelRelations, type SchemaContent } from "#compiler/schema/levels.ts"
-import type { RoleLevel } from "#compiler/schema/world.ts"
+import type { RelationDesc } from "#compiler/ir/desc.ts"
+import { isLevelOver, type Level, levelOf } from "#compiler/schema/level.ts"
+import { levelRelations } from "#compiler/schema/levels.ts"
 
 /** What a ChangeSet is built over: a level (schema/level.ts Level), with every relation of every level of its schema,
  * or of its role's base, by name (`levelRelations`), read once when the ChangeSet is begun, which its members' relations
  * are found in. */
 export type BuiltOver =
-	| {
-			readonly kind: "schema"
-			readonly desc: SchemaDesc
-			readonly content: SchemaContent
+	| (Extract<Level, { readonly kind: "schema" }> & {
 			readonly relations: ReadonlyMap<string, RelationDesc>
-	  }
-	| ({ readonly kind: "role" } & RoleLevel)
+	  })
+	| Extract<Level, { readonly kind: "role" }>
 
 /** The higher of two built-overs when one is a level of the other (schema/level.ts isLevelOver), or neither:
  * `ChangeSet.union` and `sequence` are over the highest of their arguments' schemas, and schemas of which neither is a

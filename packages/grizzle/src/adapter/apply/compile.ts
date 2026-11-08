@@ -83,7 +83,7 @@ const parsedChange = (
 				)
 			)
 		}
-		const carried = yield* toResult(parseSchemaInput(change.schema))
+		const carried = yield* toResult(parseSchemaInput(change.over.value))
 		yield* toResult(levelSchema(carried, role.schema, SourceLoc("db.apply", [])))
 		return change
 	})

@@ -119,7 +119,7 @@ export const queryInput = (query: unknown): Result.Result<QueryInput, CompileErr
 		return Result.flatMap(
 			catchCompileError(() => publicDesc(built, "query")),
 			(desc) =>
-				Result.map(parseSchemaInput(built.schema.value), (schema): QueryInput => ({
+				Result.map(parseSchemaInput(built.schema.over.value), (schema): QueryInput => ({
 					kind: "built",
 					desc,
 					schema
