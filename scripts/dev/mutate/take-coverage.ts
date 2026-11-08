@@ -14,12 +14,14 @@ const takeFileCoverage = (): void => {
 }
 
 /**
- * The process environment, which Node reads as a thread or a process starts. NODE_V8_COVERAGE leaves it before any
- * test runs, so no thread or process the file starts, the testing library's watchdog thread among them, writes a dump
- * of its own that the process's end could cut short.
+ * Removes NODE_V8_COVERAGE from the process environment, which Node reads as a thread or a process starts, before any
+ * test runs: no thread or process the file starts, the testing library's watchdog thread among them, then writes a
+ * dump of its own that the process's end could cut short.
  */
-const environment: Record<string, string | undefined> = process.env
+const dropCoverageVariable = (environment: Record<string, string | undefined>): void => {
+	Reflect.deleteProperty(environment, "NODE_V8_COVERAGE")
+}
 
-Reflect.deleteProperty(environment, "NODE_V8_COVERAGE")
+dropCoverageVariable(process.env)
 
 afterAll(takeFileCoverage)
