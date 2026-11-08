@@ -4,6 +4,7 @@ import type { ExprTable } from "#compiler/ir/expr.ts"
 import {
 	contractOf,
 	octetsOf,
+	type PatternSource,
 	type RegexRef,
 	type ScalarType,
 	textOf
@@ -12,12 +13,6 @@ import { matchFlags } from "#compiler/scalar/regex/admit.ts"
 import type { LiveNode } from "#compiler/scalar/regex/ir.ts"
 import { buildNfa, matches, type Nfa } from "#compiler/scalar/regex/nfa.ts"
 import { parsePattern, type RegexFlags } from "#compiler/scalar/regex/parse.ts"
-
-/** A pattern of the admitted grammar under its flags: a refinement's (RegexRef), a lexical form's or a match's. */
-export interface AdmittedSource {
-	readonly source: string
-	readonly flags: RegexFlags
-}
 
 /** An admitted pattern parsed: its live node, which a translation's image reads, and its automaton. */
 export interface ParsedPattern {
@@ -32,7 +27,7 @@ export interface ParsedPattern {
  * admitted where its node is typed (admit.ts matchPattern). It runs where a program compiles or a pattern is admitted,
  * into a table (CompilePatterns, ProgramPatterns), and never per membership: membership reads the table.
  */
-const admittedParse = (pattern: AdmittedSource): ParsedPattern => {
+const admittedParse = (pattern: PatternSource): ParsedPattern => {
 	const parsed = parsePattern(pattern.source, pattern.flags)
 	if (!parsed.ok || parsed.value.kind === "never") {
 		throw defect(
@@ -57,27 +52,34 @@ export interface PatternReads {
  * compiled program holds, so none is parsed per membership.
  */
 export interface PatternAutomata extends PatternReads {
-	/** The parse of an admitted pattern: a refinement's, a lexical form's, or a Compute.matches pattern's. */
-	readonly parse: (pattern: AdmittedSource) => ParsedPattern
+	/** The parse of an admitted pattern: a refinement's member, a lexical form's, or a Compute.matches pattern's. */
+	readonly parse: (pattern: PatternSource) => ParsedPattern
 }
 
 /**
- * Whether a text is a member of a regex refinement, by its parse `pattern`: within its byte bound where str.bytes cuts
- * it (ir/scalar.ts octetsOf), and a match of the pattern's automaton.
+ * Whether a text is a member of a regex refinement, each of its patterns parsed by `parse`: within its byte bound where
+ * str.bytes cuts it (ir/scalar.ts octetsOf), and a match of every member's automaton.
  */
-const memberOf = (regex: RegexRef, pattern: ParsedPattern, text: string): boolean => {
+const memberOf = (
+	regex: RegexRef,
+	parse: (pattern: PatternSource) => ParsedPattern,
+	text: string
+): boolean => {
 	const octets = octetsOf(regex.check)
-	return (octets === undefined || utf8Length(text) <= octets) && matches(pattern.nfa, text)
+	return (
+		(octets === undefined || utf8Length(text) <= octets) &&
+		regex.patterns.every((pattern) => matches(parse(pattern).nfa, text))
+	)
 }
 
 /** Parses, by flags and then source. */
 type ParseTable = Map<RegexFlags, Map<string, ParsedPattern>>
 
-const tabled = (table: ParseTable, pattern: AdmittedSource): ParsedPattern | undefined =>
+const tabled = (table: ParseTable, pattern: PatternSource): ParsedPattern | undefined =>
 	table.get(pattern.flags)?.get(pattern.source)
 
 /** `pattern`'s parse, entered into `table`. */
-const entered = (table: ParseTable, pattern: AdmittedSource): ParsedPattern => {
+const entered = (table: ParseTable, pattern: PatternSource): ParsedPattern => {
 	const made = admittedParse(pattern)
 	const bySource = table.get(pattern.flags) ?? new Map<string, ParsedPattern>()
 	table.set(pattern.flags, bySource)
@@ -93,11 +95,10 @@ const entered = (table: ParseTable, pattern: AdmittedSource): ParsedPattern => {
 export class CompilePatterns implements PatternAutomata {
 	readonly #table: ParseTable = new Map()
 
-	readonly parse = (pattern: AdmittedSource): ParsedPattern =>
+	readonly parse = (pattern: PatternSource): ParsedPattern =>
 		tabled(this.#table, pattern) ?? entered(this.#table, pattern)
 
-	readonly member = (regex: RegexRef, text: string): boolean =>
-		memberOf(regex, this.parse(regex), text)
+	readonly member = (regex: RegexRef, text: string): boolean => memberOf(regex, this.parse, text)
 
 	readonly matches = (source: string, text: string): boolean =>
 		matches(this.parse({ source, flags: matchFlags }).nfa, text)
@@ -116,7 +117,7 @@ export class ProgramPatterns implements PatternAutomata {
 	}
 
 	/** The table of `patterns`, each distinct one parsed once. */
-	static of(patterns: Iterable<AdmittedSource>): ProgramPatterns {
+	static of(patterns: Iterable<PatternSource>): ProgramPatterns {
 		const table: ParseTable = new Map()
 		for (const pattern of patterns) {
 			if (tabled(table, pattern) === undefined) {
@@ -126,7 +127,7 @@ export class ProgramPatterns implements PatternAutomata {
 		return new ProgramPatterns(table)
 	}
 
-	readonly parse = (pattern: AdmittedSource): ParsedPattern => {
+	readonly parse = (pattern: PatternSource): ParsedPattern => {
 		const known = tabled(this.#table, pattern)
 		if (known === undefined) {
 			throw defect(`a pattern its program's types hold: /${pattern.source}/${pattern.flags}`)
@@ -134,20 +135,19 @@ export class ProgramPatterns implements PatternAutomata {
 		return known
 	}
 
-	readonly member = (regex: RegexRef, text: string): boolean =>
-		memberOf(regex, this.parse(regex), text)
+	readonly member = (regex: RegexRef, text: string): boolean => memberOf(regex, this.parse, text)
 
 	readonly matches = (source: string, text: string): boolean =>
 		matches(this.parse({ source, flags: matchFlags }).nfa, text)
 }
 
 /**
- * Every admitted pattern a value of `t` is checked against: each contract level's base refinement and the patterns its
- * predicate reads, every level down to the base.
+ * Every admitted pattern a value of `t` is checked against: each contract level's base refinement's members and the
+ * patterns its predicate reads, every level down to the base.
  */
-export const typePatterns = (t: ScalarType): ReadonlyArray<AdmittedSource> => {
+export const typePatterns = (t: ScalarType): ReadonlyArray<PatternSource> => {
 	const regex = textOf(t)?.regex
-	const own = regex === undefined || regex === "wildcard" ? [] : [regex]
+	const own = regex === undefined || regex === "wildcard" ? [] : regex.patterns
 	const contract = contractOf(t)
 	return contract === undefined
 		? own
@@ -159,7 +159,7 @@ export const typePatterns = (t: ScalarType): ReadonlyArray<AdmittedSource> => {
 }
 
 /** Every admitted pattern an expression table's evaluation reads: its expressions' types', and its matches' values. */
-export const tablePatterns = (table: ExprTable): ReadonlyArray<AdmittedSource> =>
+export const tablePatterns = (table: ExprTable): ReadonlyArray<PatternSource> =>
 	Object.values(table.exprs).flatMap((e) => [
 		...typePatterns(e.type),
 		...(e.kind === "op" && "patterns" in e

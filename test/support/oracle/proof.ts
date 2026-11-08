@@ -120,11 +120,8 @@ const proofHolds = (
 						(m.kind === "language" &&
 							m.operand === 0 &&
 							(octets === undefined || (m.bytes !== undefined && m.bytes <= octets)) &&
-							patternIncludes(
-								{ source: m.pattern, flags: m.flags },
-								refinement,
-								new CompilePatterns()
-							).kind === "included")
+							patternIncludes(m.patterns, refinement.patterns, new CompilePatterns()).kind ===
+								"included")
 				)
 			}
 			case "contract": {
@@ -195,8 +192,7 @@ const proofHolds = (
 							((p.kind === "checked" && p.by === "literal") ||
 								(p.kind === "language" &&
 									(octets === undefined || (p.bytes !== undefined && p.bytes <= octets)) &&
-									formIncludes({ source: p.pattern, flags: p.flags }, form, new CompilePatterns())
-										.kind === "included"))
+									formIncludes(p.patterns, form, new CompilePatterns()).kind === "included"))
 					)
 				)
 			}

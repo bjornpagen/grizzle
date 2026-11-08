@@ -2,6 +2,7 @@ import { appendAll, maxOf } from "#compiler/core/array.ts"
 import {
 	appendNonEmpty,
 	concatNonEmpty,
+	flatMapNonEmpty,
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
 } from "#compiler/core/nonempty.ts"
@@ -28,7 +29,6 @@ import {
 import { emitText } from "#compiler/sql/emit.ts"
 import { type NameMap, NameSupply } from "#compiler/sql/naming.ts"
 import { identityHooks, transformSelect } from "#compiler/sql/transform.ts"
-import { flatMapNonEmpty } from "#compiler/write/defined.ts"
 import {
 	type DeleteResult,
 	type InsertResult,

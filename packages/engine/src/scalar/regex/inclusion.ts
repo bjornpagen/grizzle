@@ -1,15 +1,23 @@
 import { regexDfaMaxStates, regexDfaMaxWork } from "#compiler/core/limits.ts"
+import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { codePointsText } from "#compiler/core/text.ts"
+import type { Patterns } from "#compiler/ir/scalar.ts"
 import { type CharSet, complement, isEmpty, union } from "#compiler/scalar/regex/charset.ts"
-import { type CanonicalDfa, type DfaLimits, minimalDfa } from "#compiler/scalar/regex/dfa.ts"
+import {
+	type CanonicalDfa,
+	type DfaLimits,
+	type IntersectionOutcome,
+	intersectionDfa,
+	minimalDfa
+} from "#compiler/scalar/regex/dfa.ts"
 import type { Nfa } from "#compiler/scalar/regex/nfa.ts"
-import type { AdmittedSource, PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
+import type { PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
 import { entry } from "#compiler/scalar/regex/table.ts"
 
 /**
- * Whether every admitted text value one pattern matches the other matches too: proved, refuted by the shortest value
- * that is a member of the first and not of the second, or unknown because a construction would pass the analysis's
- * bounds (core/limits.ts regexDfaMaxStates, regexDfaMaxWork).
+ * Whether every admitted text value one conjunction of patterns matches the other matches too: proved, refuted by a
+ * value that is a member of the first and not of the second, or unknown because a construction would pass the
+ * analysis's bounds (core/limits.ts regexDfaMaxStates, regexDfaMaxWork).
  */
 export type Inclusion =
 	| { readonly kind: "included" }
@@ -106,23 +114,69 @@ const included = (inner: CanonicalDfa, outer: CanonicalDfa): Inclusion => {
 	return { kind: "included" }
 }
 
-/**
- * Whether the language of `inner` is included in that of `outer`, two automata of the admitted grammar under its
- * search semantics (nfa.ts buildNfa): each is determinized and minimized to its canonical DFA (dfa.ts minimalDfa),
- * which reads whole values, and their product walked (`included`). Either construction past the bounds proves nothing.
- */
-export const inclusion = (inner: Nfa, outer: Nfa): Inclusion => {
-	const a = minimalDfa(inner, limits)
-	const b = minimalDfa(outer, limits)
-	return a.kind === "minimal" && b.kind === "minimal" ? included(a.dfa, b.dfa) : { kind: "bounded" }
+/** The canonical DFA of an automaton's search language within the analysis's bounds, or none past them. */
+const dfaOf = (nfa: Nfa): CanonicalDfa | undefined => {
+	const outcome = minimalDfa(nfa, limits)
+	return outcome.kind === "minimal" ? outcome.dfa : undefined
 }
 
 /**
- * Whether every value one admitted pattern's language holds the other's holds too (inclusion): what makes a cast of a
- * text of the first language into a text type of the second total.
+ * Whether the intersection of `inner`'s languages is included in `outer`'s language, the canonical DFA of one member of
+ * the outer conjunction: by the inner intersection's own DFA `product` where the bounds reach it (`included`); where
+ * they reach neither the intersection nor its walk, proved where one inner member's language lies inside, which holds
+ * the intersection's, and unknown otherwise.
+ */
+const inclusionInto = (
+	inner: ReadonlyArray<CanonicalDfa | undefined>,
+	product: IntersectionOutcome,
+	outer: CanonicalDfa
+): Inclusion => {
+	const verdict: Inclusion =
+		product.kind === "minimal" ? included(product.dfa, outer) : { kind: "bounded" }
+	return verdict.kind === "bounded" &&
+		inner.some((member) => member !== undefined && included(member, outer).kind === "included")
+		? { kind: "included" }
+		: verdict
+}
+
+/**
+ * Whether the language of the conjunction `inner` is included in that of the conjunction `outer`, automata of the
+ * admitted grammar under its search semantics (nfa.ts buildNfa): each is determinized and minimized to its canonical
+ * DFA (dfa.ts minimalDfa), which reads whole values, the inner ones intersected (dfa.ts intersectionDfa), and the
+ * intersection's walked against each outer member's (inclusionInto). Refuted where it falls outside an outer member, by
+ * the first such member's witness; proved where it lies inside every one; and unknown where a construction past the
+ * bounds leaves one undecided.
+ */
+export const inclusion = (
+	inner: NonEmptyReadonlyArray<Nfa>,
+	outer: NonEmptyReadonlyArray<Nfa>
+): Inclusion => {
+	const innerDfas = mapNonEmpty(inner, dfaOf)
+	const known = innerDfas.filter((dfa) => dfa !== undefined)
+	const product: IntersectionOutcome =
+		known.length === innerDfas.length && isNonEmpty(known)
+			? intersectionDfa(known, limits)
+			: { kind: "bounded" }
+	const verdicts = outer.map((nfa): Inclusion => {
+		const dfa = dfaOf(nfa)
+		return dfa === undefined ? { kind: "bounded" } : inclusionInto(innerDfas, product, dfa)
+	})
+	return (
+		verdicts.find((v) => v.kind === "refuted") ??
+		verdicts.find((v) => v.kind === "bounded") ?? { kind: "included" }
+	)
+}
+
+/**
+ * Whether every value one admitted conjunction's language holds the other's holds too (inclusion): what makes a cast of
+ * a text of the first language into a text type of the second total.
  */
 export const patternIncludes = (
-	inner: AdmittedSource,
-	outer: AdmittedSource,
+	inner: Patterns,
+	outer: Patterns,
 	patterns: PatternAutomata
-): Inclusion => inclusion(patterns.parse(inner).nfa, patterns.parse(outer).nfa)
+): Inclusion =>
+	inclusion(
+		mapNonEmpty(inner, (p) => patterns.parse(p).nfa),
+		mapNonEmpty(outer, (p) => patterns.parse(p).nfa)
+	)

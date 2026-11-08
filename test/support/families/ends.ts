@@ -151,7 +151,7 @@ const ruleLaw = (rule: CellRule, relation: string, field: string): Law => ({
 	kind: "pattern",
 	relation,
 	field,
-	...ruleSpelling[rule]
+	patterns: [ruleSpelling[rule]]
 })
 
 /** The most bytes a refined cell's piece holds. */

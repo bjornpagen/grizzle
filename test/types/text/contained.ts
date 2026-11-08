@@ -19,8 +19,9 @@ import {
 /**
  * The generated containment program of test/types/text: for every handwritten family pattern of the regex
  * differential tests and generated ones, it assigns the members ECMAScript accepts, from the family's strings and walks
- * over the pattern's own host NFA, to `Infer<typeof str.regex(...)>`, and for every kept pattern its kept members. It
- * must typecheck with no diagnostic at all, so typed authoring accepts every such admitted source. Each draw's label
+ * over the pattern's own host NFA, to `Infer<typeof str.regex(...)>`, and for every kept pattern its kept members;
+ * and each admitted pattern joined with the next by str.and, the values both accept, to `Infer<typeof str.and(...)>`. It
+ * must typecheck with no diagnostic at all, so typed authoring accepts every such admitted source and conjunction. Each draw's label
  * gives a quarter of its patterns, strings and walks from its floor stream (`floorDraws`), the same on every run, and
  * the rest from its rotating stream under the run's seed (`rotatingDraws`), new on every run, so the program is the
  * same wherever one run generates it, in the type-test batch (test/types/batch) and in regex.test.ts. A family's
@@ -112,14 +113,21 @@ export const containedProgram = (seed: number): Contained => {
 				(source, i): Drawn => ({ source, flags: generatedFlags(i), origin: "sample" })
 			)
 		]
+		/** The family's admitted patterns, each with the drawn members it was assigned, for the conjunctions below. */
+		const admitted: Array<{
+			readonly name: string
+			readonly source: string
+			readonly flags: Flags
+			readonly members: ReadonlyArray<string>
+		}> = []
 		for (const [pi, { source, flags, origin }] of drawn.entries()) {
 			/** Only admitted patterns: a refused one has no host type to contain anything. */
-			const result = analyzeText(source, flags, SourceLoc("str.regex", [family.name, pi]))
+			const result = analyzeText([{ source, flags }], SourceLoc("str.regex", [family.name, pi]))
 			if (!result.ok) {
 				continue
 			}
 			const walksLabel = `text/contained ${family.name} ${pi} walks`
-			const walks = walkGen(buildNfa(result.value.ir))
+			const walks = walkGen(buildNfa(result.value.members[0].ir))
 			const fixed = acceptedOf(source, flags, [
 				...floorStrings,
 				...ownOf(floorDraws(walksLabel, walks, 120))
@@ -133,6 +141,25 @@ export const containedProgram = (seed: number): Contained => {
 			const name = `p${fi}_${pi}`
 			lines.push(`export const ${name} = str.regex(${jsonText(source)}, ${jsonText(flags)})`)
 			for (const [i, v] of members.entries()) {
+				lines.push(`export const ${name}_${i}: Infer<typeof ${name}> = ${jsonText(v)}`)
+			}
+			admitted.push({ name, source, flags, members })
+		}
+		for (const [ai, a] of admitted.entries()) {
+			const b = admitted[ai + 1]
+			if (b === undefined) {
+				continue
+			}
+			const both = Arr.take(
+				Arr.filter(
+					Arr.dedupe([...a.members, ...b.members, ...floorStrings]),
+					(v) => jsAccepts(a.source, a.flags, v) && jsAccepts(b.source, b.flags, v)
+				),
+				12
+			)
+			const name = `${a.name}_and`
+			lines.push(`export const ${name} = str.and(${a.name}, ${b.name})`)
+			for (const [i, v] of both.entries()) {
 				lines.push(`export const ${name}_${i}: Infer<typeof ${name}> = ${jsonText(v)}`)
 			}
 		}

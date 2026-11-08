@@ -14,7 +14,7 @@ export {
 	messageMaxBytes
 } from "#compiler/core/limits.ts"
 export { decimalTextMaxBytes } from "#compiler/scalar/lexical.ts"
-export { type RegexText, str } from "#compiler/text/field.ts"
+export { type JoinedHost, type RegexText, str } from "#compiler/text/field.ts"
 
 /** The SQL types a text parses into, those with a lexical form (scalar/lexical.ts). */
 type ParseSql =
@@ -56,8 +56,8 @@ export const decimalText: string = formSource({ kind: "decimalText" })
  * lexical(T): the text field of T's lexical form, str.regex over lexicalForm(T): a field of it casts into T total, so
  * `generated(T, Compute.cast(row.lexical, T))` is a NOT NULL generated column of the value the text names.
  */
-export const lexical = (type: Field<unknown, ParseSql, unknown>): RegexText<string, string, "u"> =>
-	regexField<string, string, readonly []>(lexicalFormOf(type), [])
+export const lexical = (type: Field<unknown, ParseSql, unknown>): RegexText<string> =>
+	regexField<string>(lexicalFormOf(type), [])
 
 /**
  * keyTextBytes(fields): the most UTF-8 bytes a text can hold beside `fields` in every index grizzle plans over them and

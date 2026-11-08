@@ -205,7 +205,7 @@ const admissionOf = (source: string, flags: string): Admission => {
 	if (!isAdmittedFlags(flags)) {
 		return "MalformedDescription"
 	}
-	const analyzed = analyzeText(source, flags, SourceLoc("regex agreement", []))
+	const analyzed = analyzeText([{ source, flags }], SourceLoc("regex agreement", []))
 	if (analyzed.ok) {
 		return "admitted"
 	}

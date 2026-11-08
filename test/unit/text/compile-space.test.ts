@@ -496,12 +496,18 @@ describe("the RFC 3986 URI-reference grammar as one pattern", () => {
 	it.effect(
 		"is admitted, and accepts exactly the strings ECMAScript's RegExp accepts, on strings over its alphabet and walks of its own NFA",
 		(ctx) => {
-			const refinement = succeeded(analyzeText(uriReference, "u", loc), "the grammar")
+			const refinement = succeeded(
+				analyzeText([{ source: uriReference, flags: "u" }], loc),
+				"the grammar"
+			)
 			const parts = map(
 				array(string(element(Str.split(uriAlphabet, "")), { min: 0, max: 4 }), { min: 0, max: 6 }),
 				(drawnParts) => ({ value: Arr.join(drawnParts, ""), walked: false })
 			)
-			const walked = map(walkGen(buildNfa(refinement.ir)), (value) => ({ value, walked: true }))
+			const walked = map(walkGen(buildNfa(refinement.members[0].ir)), (value) => ({
+				value,
+				walked: true
+			}))
 			return searched(
 				ctx,
 				explore(

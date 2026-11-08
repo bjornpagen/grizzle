@@ -227,7 +227,10 @@ const runCase = Effect.fn("runCase")(function* (pattern: Pattern) {
 		const outcome = minimalDfa(nfa, ceilingLimits)
 		return { ms: elapsed(start), spend: spendOf(outcome) }
 	})
-	const analyzed = analyzeText(pattern.source, pattern.flags, SourceLoc(named, []))
+	const analyzed = analyzeText(
+		[{ source: pattern.source, flags: pattern.flags }],
+		SourceLoc(named, [])
+	)
 	if (!analyzed.ok) {
 		return yield* new PatternRefused({ pattern: pattern.label, reason: analyzed.error.message })
 	}

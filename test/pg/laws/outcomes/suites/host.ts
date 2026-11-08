@@ -72,8 +72,18 @@ const lawOf = {
 	positive: { kind: "check", relation: "Account", name: "Positive" },
 	withinRate: { kind: "check", relation: "Account", name: "WithinRate" },
 	units: { kind: "contract", contract: "Units" },
-	code: { kind: "pattern", relation: "Account", field: "code", source: codeSource, flags: "u" },
-	alias: { kind: "pattern", relation: "Account", field: "alias", source: codeSource, flags: "u" },
+	code: {
+		kind: "pattern",
+		relation: "Account",
+		field: "code",
+		patterns: [{ source: codeSource, flags: "u" }]
+	},
+	alias: {
+		kind: "pattern",
+		relation: "Account",
+		field: "alias",
+		patterns: [{ source: codeSource, flags: "u" }]
+	},
 	rate: { kind: "generated", relation: "Account", field: "rate" }
 } as const satisfies Readonly<Record<string, Law>>
 type Broken = keyof typeof lawOf

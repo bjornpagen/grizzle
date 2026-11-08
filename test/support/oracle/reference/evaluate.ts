@@ -134,8 +134,8 @@ const statedTerm = (v: CarrierValue, type: ScalarType): ValueIdentity => [
  * Membership of a text value in a regex refinement, or in a descriptor's pattern, the text package's NFA: what a domain
  * cast into a refined text type checks.
  */
-export const patternMember = (regex: Pick<RegexRef, "source" | "flags">, text: string): boolean => {
-	const analyzed = analyzeText(regex.source, regex.flags, SourceLoc("a regex refinement", []))
+export const patternMember = (regex: Pick<RegexRef, "patterns">, text: string): boolean => {
+	const analyzed = analyzeText(regex.patterns, SourceLoc("a regex refinement", []))
 	return analyzed.ok && accepts(analyzed.value, text)
 }
 
@@ -149,7 +149,7 @@ export const referencePatterns = (): PatternAutomata => {
 	return {
 		parse: compiled.parse,
 		member: patternMember,
-		matches: (source, text) => patternMember({ source, flags: matchFlags }, text)
+		matches: (source, text) => patternMember({ patterns: [{ source, flags: matchFlags }] }, text)
 	}
 }
 

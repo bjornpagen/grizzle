@@ -15,6 +15,7 @@ import { formatLoc } from "#compiler/core/loc.ts"
 import { DecimalText } from "#compiler/ir/decimal.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
+import { samePatterns } from "#compiler/ir/scalar.ts"
 import { pg, span, uuid } from "#compiler/public/fields.ts"
 import { type Rule, type SelfSource, v } from "#compiler/public/query.ts"
 import { schema, relation as table } from "#compiler/public/schema.ts"
@@ -306,7 +307,7 @@ describe("the state heading", () => {
 	const respelled = (d: Typed, a: Typed): boolean =>
 		d.field.kind === "text" &&
 		a.field.kind === "text" &&
-		(d.field.source !== a.field.source || d.field.flags !== a.field.flags)
+		!samePatterns(d.field.patterns, a.field.patterns)
 	const declared: Arr.NonEmptyReadonlyArray<Typed> = [
 		{ label: "integer", field: integer, identity: "int4", within: "none" },
 		{ label: "bigint", field: bigint, identity: "int8", within: "none" },

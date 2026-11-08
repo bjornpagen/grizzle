@@ -23,6 +23,7 @@ import {
 	type RegexRef,
 	type Roster,
 	rosterOf,
+	samePatterns,
 	type ScalarType,
 	spanOf,
 	type TextBounds,
@@ -62,7 +63,7 @@ const identicalPatternCheck = (a: PatternCheck, b: PatternCheck): boolean => {
 			)
 		case "regex":
 			return (
-				b.kind === "regex" && a.pattern === b.pattern && both(a.bounds, b.bounds, identicalBounds)
+				b.kind === "regex" && sameOrder(a.ares, b.ares) && both(a.bounds, b.bounds, identicalBounds)
 			)
 	}
 }
@@ -81,12 +82,11 @@ const identicalRegexCheck = (a: RegexCheck, b: RegexCheck): boolean => {
 const identicalRegex = (a: RegexRef | "wildcard", b: RegexRef | "wildcard"): boolean =>
 	a === "wildcard" || b === "wildcard"
 		? a === b
-		: a.source === b.source &&
-			a.flags === b.flags &&
+		: samePatterns(a.patterns, b.patterns) &&
 			a.key === b.key &&
 			identicalRegexCheck(a.check, b.check)
 
-/** A text descriptor's regex metadata: its pattern, its language's key and enforcement, and its proved bounds. */
+/** A text descriptor's regex metadata: its patterns, its language's key and enforcement, and its proved bounds. */
 export const identicalText = (a: TextInfo, b: TextInfo): boolean =>
 	identicalRegex(a.regex, b.regex) && a.lengthBound === b.lengthBound && a.byteBound === b.byteBound
 
@@ -200,8 +200,7 @@ const identicalPremise = (a: OperandPremise, b: OperandPremise): boolean => {
 			return (
 				b.kind === "language" &&
 				a.operand === b.operand &&
-				a.pattern === b.pattern &&
-				a.flags === b.flags &&
+				samePatterns(a.patterns, b.patterns) &&
 				a.bytes === b.bytes
 			)
 	}

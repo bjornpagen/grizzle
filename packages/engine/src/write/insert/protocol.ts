@@ -3,6 +3,7 @@ import type { LawId } from "#compiler/core/ids.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
 import {
 	appendNonEmpty,
+	flatMapNonEmpty,
 	isNonEmpty,
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
@@ -42,7 +43,7 @@ import {
 	types,
 	unionAll
 } from "#compiler/sql/build.ts"
-import { fieldColumns, flatMapNonEmpty } from "#compiler/write/defined.ts"
+import { fieldColumns } from "#compiler/write/defined.ts"
 import { arbiterLaw, type WrittenRelation } from "#compiler/write/frontend/compile.ts"
 import { payloadOf, primaryKeyShape } from "#compiler/write/frontend/targets.ts"
 import {

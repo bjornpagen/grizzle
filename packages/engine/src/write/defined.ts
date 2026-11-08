@@ -1,5 +1,5 @@
 import { defined } from "#compiler/core/invariant.ts"
-import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { LawField } from "#compiler/ir/law.ts"
 
 /** Columns allocated one per field, each paired with its field's handle where it is allocated: `pairs` in field order,
@@ -44,15 +44,6 @@ export const groupBy = <A, K>(
 		}
 	}
 	return [...groups]
-}
-
-/** `f`'s nonempty lists for each element in order, concatenated: nonempty. */
-export const flatMapNonEmpty = <A, B>(
-	xs: NonEmptyReadonlyArray<A>,
-	f: (a: A, i: number) => NonEmptyReadonlyArray<B>
-): NonEmptyReadonlyArray<B> => {
-	const [first, ...rest] = mapNonEmpty(xs, f)
-	return [...first, ...rest.flat()]
 }
 
 /** The one member of a list of exactly one, undefined for any other length. */

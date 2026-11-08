@@ -24,7 +24,12 @@ import {
 	translateMaxBytes
 } from "#compiler/core/limits.ts"
 import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
-import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import {
+	appendNonEmpty,
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import {
 	binary32Digits,
@@ -88,12 +93,14 @@ import {
 	rosterOf,
 	type ScalarType,
 	spanOf,
+	type PatternSource,
+	type Patterns,
+	patternsText,
 	type RegexRef,
 	type TextInfo,
 	textOf,
-	typeLabel,
-	wildcardFlags,
-	wildcardSource
+	textPatterns,
+	typeLabel
 } from "#compiler/ir/scalar.ts"
 import {
 	absBounds,
@@ -845,8 +852,7 @@ const languagePremise = (
 			return {
 				kind: "language",
 				operand: 0,
-				pattern: regex.source,
-				flags: regex.flags,
+				patterns: regex.patterns,
 				bytes: regex.check.bounds?.bytes
 			}
 		case "refuted":
@@ -858,7 +864,7 @@ const languagePremise = (
 					at,
 					bound: {
 						kind: "regexInclusion",
-						inner: `/${regex.source}/${regex.flags}`,
+						inner: patternsText(regex.patterns),
 						outer,
 						states: regexDfaMaxStates.value,
 						work: regexDfaMaxWork.value
@@ -892,7 +898,7 @@ const lexicalPremise = (
 	const premise = languagePremise(
 		a,
 		`/${formSource(form)}/u`,
-		(regex) => formIncludes(regex, form, patterns),
+		(regex) => formIncludes(regex.patterns, form, patterns),
 		at
 	)
 	const octets = formOctets(form)
@@ -993,7 +999,7 @@ const lexicalRemedy = (
 	) {
 		return matches
 	}
-	return formIncludes(regex, lexical, patterns).kind === "included"
+	return formIncludes(regex.patterns, lexical, patterns).kind === "included"
 		? { kind: "octets", bytes: octets }
 		: matches
 }
@@ -1067,9 +1073,8 @@ const languageRemedy = (
 	if (mode === "query") {
 		return { kind: "typed" }
 	}
-	const inner =
-		text.regex === "wildcard" ? { source: wildcardSource, flags: wildcardFlags } : text.regex
-	return patternIncludes(inner, refinement, patterns).kind === "included"
+	return patternIncludes(textPatterns(text.regex), refinement.patterns, patterns).kind ===
+		"included"
 		? { kind: "octets", bytes: octets }
 		: { kind: "matches", pattern: "target" }
 }
@@ -1608,8 +1613,8 @@ class Lowering<R extends Refs> {
 						? undefined
 						: languagePremise(
 								a,
-								`/${refinement.source}/${refinement.flags}`,
-								(regex) => patternIncludes(regex, refinement, this.env.patterns),
+								patternsText(refinement.patterns),
+								(regex) => patternIncludes(regex.patterns, refinement.patterns, this.env.patterns),
 								at
 							)
 				const octets = refinement === undefined ? undefined : octetsOf(refinement.check)
@@ -2388,30 +2393,33 @@ class Lowering<R extends Refs> {
 	}
 
 	/**
-	 * Text of a pattern this lowering computes, typed as a str.regex of it is: its language analyzed by `analyze`, the
-	 * text analysis, where the pattern is computed, which the descriptor then carries as a declared one does.
+	 * Text of patterns this lowering computes, typed as a str.regex of one, or a str.and of several, is: their language
+	 * analyzed by `analyze`, the text analysis, where they are computed, which the descriptor then carries as a declared
+	 * one does.
 	 */
 	computedText(
-		source: string,
-		flags: "u" | "su",
+		patterns: Patterns,
 		analyze: TextLookup,
 		at: SourceLoc
 	): Result.Result<ScalarType, CompileError> {
-		return Result.flatMap(analyze(source, flags), (language) =>
-			this.env.fieldType({ kind: "text", source, flags, bytes: undefined, language }, at)
+		return Result.flatMap(analyze(patterns), (language) =>
+			this.env.fieldType({ kind: "text", patterns, bytes: undefined, language }, at)
 		)
 	}
 
 	/**
-	 * Text of the image of a language under a map (scalar/regex/translate.ts imageOf), typed as a str.regex of its source
-	 * is: the exact image, or, where the exact source passes a measure of PostgreSQL's regex compile space that the
-	 * language's own pattern fits, the image of that pattern alone, which holds every value of the image.
+	 * Text of the image of a language under a map, the conjunction of its patterns' images (scalar/regex/translate.ts
+	 * imageOf), which holds the image of every value of the language: each the exact image, or, where the exact source
+	 * passes a measure of PostgreSQL's regex compile space that the pattern itself fits, the image of that pattern alone,
+	 * which holds every value of the image.
 	 */
 	image(regex: TextInfo["regex"], map: CharMap, analyze: TextLookup, at: SourceLoc): ScalarType {
-		const sources = imageOf(regex, map, this.env.patterns)
-		const typed = (source: string) => this.computedText(source, imageFlags, analyze, at)
-		const exact = typed(sources.exact)
-		return exact.ok ? exact.value : unwrap(typed(sources.within))
+		const images = mapNonEmpty(textPatterns(regex), (pattern): PatternSource => {
+			const sources = imageOf(pattern, map, this.env.patterns)
+			const exact = { source: sources.exact, flags: imageFlags }
+			return analyze([exact]).ok ? exact : { source: sources.within, flags: imageFlags }
+		})
+		return unwrap(this.computedText(images, analyze, at))
 	}
 
 	/**
@@ -2441,17 +2449,19 @@ class Lowering<R extends Refs> {
 	}
 
 	/**
-	 * Text of a language holding the image of `text`'s under collapse (scalar/regex/whitespace.ts collapseSources), the
-	 * first of its patterns the text analysis admits, each held to its measures as a str.regex is.
+	 * Text of a language holding the image of `text`'s under collapse: the conjunction of each of its patterns' images
+	 * (scalar/regex/whitespace.ts collapseSources), each the first of its sources the text analysis admits, held to its
+	 * measures as a str.regex is; a pattern none of whose sources it admits states nothing, and a text none of whose
+	 * patterns states anything is any text.
 	 */
 	collapseType(text: TextInfo, analyze: TextLookup, at: SourceLoc): ScalarType {
-		for (const c of collapseSources(text.regex, text.lengthBound, this.env.patterns)) {
-			const typed = this.computedText(c.source, c.flags, analyze, at)
-			if (typed.ok) {
-				return typed.value
-			}
-		}
-		return wildcardText
+		const images = textPatterns(text.regex).flatMap((pattern): ReadonlyArray<PatternSource> => {
+			const admitted = collapseSources(pattern, text.lengthBound, this.env.patterns).find(
+				(c) => analyze([{ source: c.source, flags: c.flags }]).ok
+			)
+			return admitted === undefined ? [] : [{ source: admitted.source, flags: admitted.flags }]
+		})
+		return isNonEmpty(images) ? unwrap(this.computedText(images, analyze, at)) : wildcardText
 	}
 
 	/**
@@ -2900,9 +2910,10 @@ class Lowering<R extends Refs> {
 	/**
 	 * What a guard gives its subject inside its branch: a numeric guard its facts and refined interval, and where its
 	 * subject is a text's byte count, Compute.octetLength(x), that text within the interval's high end of bytes as well
-	 * (bytesGuard); a match the language of its pattern within the subject's own byte bound, the type
-	 * str.bytes(bound, str.regex(pattern)) declares, or str.regex(pattern) where the subject has none. A builder proves
-	 * nothing, so in its branch the subject keeps its type.
+	 * (bytesGuard); a match the language of the subject's own patterns and the match's together, within the subject's
+	 * own byte bound: the type str.bytes(bound, str.and(subject, str.regex(pattern))) declares, without the bound where
+	 * the subject has none, and str.regex(pattern) alone where the subject is any text. A builder proves nothing, so in
+	 * its branch the subject keeps its type.
 	 */
 	whenGuard(
 		guard: GuardDesc,
@@ -2934,10 +2945,13 @@ class Lowering<R extends Refs> {
 		if (env.mode === "build") {
 			return []
 		}
+		const own = textOf(subject.nominal)
 		const type = this.textWithin(
-			guard.pattern,
-			matchFlags,
-			textOf(subject.nominal)?.byteBound,
+			appendNonEmpty(own === undefined || own.regex === "wildcard" ? [] : own.regex.patterns, {
+				source: guard.pattern,
+				flags: matchFlags
+			}),
+			own?.byteBound,
 			env.patternLanguage,
 			childLoc(at, "pattern")
 		)
@@ -2945,8 +2959,8 @@ class Lowering<R extends Refs> {
 	}
 
 	/**
-	 * What a bound on a text's byte count gives the text inside the guard's branch: its pattern's language within
-	 * `high` bytes, none below zero, the type str.bytes(high, its pattern) declares; nothing where its type already
+	 * What a bound on a text's byte count gives the text inside the guard's branch: its patterns' language within
+	 * `high` bytes, none below zero, the type str.bytes(high, its text) declares; nothing where its type already
 	 * bounds it so. A wildcard text's pattern is every text's, `^.*$` under `su`.
 	 */
 	bytesGuard(
@@ -2961,34 +2975,29 @@ class Lowering<R extends Refs> {
 		if (info === undefined || (info.byteBound !== undefined && info.byteBound <= octets)) {
 			return undefined
 		}
-		const pattern =
-			info.regex === "wildcard" ? { source: wildcardSource, flags: wildcardFlags } : info.regex
 		return {
 			kind: "language",
 			subject: text.expr,
-			type: this.textWithin(pattern.source, pattern.flags, octets, analyze, at)
+			type: this.textWithin(textPatterns(info.regex), octets, analyze, at)
 		}
 	}
 
 	/**
-	 * Text of `source`'s language within `octets` UTF-8 bytes, typed as str.bytes(octets, str.regex(source)) declares it,
-	 * or as str.regex(source) does where no bound is given: the pattern analyzed by `analyze`, the text analysis, and
-	 * cut by ir/scalar.ts languageWithin, so a language and a bound have the one type a declaration of them has.
+	 * Text of `patterns`' language within `octets` UTF-8 bytes, typed as str.bytes(octets, text) declares it for a text
+	 * of those patterns, or as that text does where no bound is given: the patterns analyzed by `analyze`, the text
+	 * analysis, and cut by ir/scalar.ts languageWithin, so a language and a bound have the one type a declaration of them
+	 * has.
 	 */
 	textWithin(
-		source: string,
-		flags: "u" | "su",
+		patterns: Patterns,
 		octets: number | undefined,
 		analyze: TextLookup,
 		at: SourceLoc
 	): ScalarType {
-		const pattern = unwrap(analyze(source, flags))
+		const pattern = unwrap(analyze(patterns))
 		const language = octets === undefined ? pattern : languageWithin(pattern, octets)
 		return unwrap(
-			this.env.fieldType(
-				{ kind: "text", source, flags, bytes: languageOctets(language), language },
-				at
-			)
+			this.env.fieldType({ kind: "text", patterns, bytes: languageOctets(language), language }, at)
 		)
 	}
 

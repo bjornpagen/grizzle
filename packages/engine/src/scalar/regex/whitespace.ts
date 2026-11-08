@@ -1,7 +1,7 @@
 import { defect } from "#compiler/core/invariant.ts"
 import { regexMaxRepeat } from "#compiler/core/limits.ts"
 import { codePoints, codePointsText } from "#compiler/core/text.ts"
-import type { TextInfo } from "#compiler/ir/scalar.ts"
+import type { PatternSource } from "#compiler/ir/scalar.ts"
 import { toAre } from "#compiler/scalar/regex/are.ts"
 import {
 	type CharSet,
@@ -21,7 +21,7 @@ import {
 } from "#compiler/scalar/regex/ir.ts"
 import type { RegexFlags } from "#compiler/scalar/regex/parse.ts"
 import type { PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
-import { anchoredAt, patternNode, sourceFlags, sourceSet } from "#compiler/scalar/regex/source.ts"
+import { anchoredAt, sourceFlags, sourceSet } from "#compiler/scalar/regex/source.ts"
 
 /**
  * XML Schema's whiteSpace facet over the four characters XML calls white space, `S ::= (#x20 | #x9 | #xD | #xA)+`
@@ -132,9 +132,11 @@ export interface CollapseSource {
 }
 
 /**
- * The patterns the image of a text type's language under collapse is stated by, the tightest first, each holding every
- * value of the image; the first the text analysis admits types the term. N is the language's alphabet without white
- * space, so a value of the image is a run of N's characters, then any number of a space and such a run, or empty:
+ * The patterns the image of one pattern's language under collapse is stated by, the tightest first, each holding every
+ * value of the image; the first the text analysis admits states the member's image. The pattern is a member of a text
+ * type's conjunction (ir/scalar.ts textPatterns), and `lengthBound` the conjunction's, which bounds every value of it, so
+ * each source holds the image of every value of the conjunction. N is the language's alphabet without white space, so a
+ * value of the image is a run of N's characters, then any number of a space and such a run, or empty:
  * - a language whose alphabet holds no white space is its own image, exactly, since collapse leaves its values as they
  *   are;
  * - one whose alphabet holds no other character collapses to the empty text alone, exactly;
@@ -146,14 +148,14 @@ export interface CollapseSource {
  *   an alphabet, `^[A]*$` (the wildcard among them), and more than the image of any other.
  */
 export const collapseSources = (
-	regex: TextInfo["regex"],
+	pattern: PatternSource,
 	lengthBound: number | undefined,
 	patterns: PatternAutomata
 ): readonly [CollapseSource, ...ReadonlyArray<CollapseSource>] => {
-	const node = patternNode(regex, patterns)
+	const node = patterns.parse(pattern).node
 	const alphabet = alphabetOf(node)
-	if (regex !== "wildcard" && isEmpty(without(alphabet, without(alphabet, whitespace)))) {
-		return [{ source: regex.source, flags: regex.flags, exact: true }]
+	if (isEmpty(without(alphabet, without(alphabet, whitespace)))) {
+		return [{ source: pattern.source, flags: pattern.flags, exact: true }]
 	}
 	const other = without(alphabet, whitespace)
 	if (isEmpty(other)) {

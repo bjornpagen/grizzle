@@ -143,7 +143,7 @@ const readField = (value: unknown): FieldReading => {
 	if (
 		isOwnedDescriptor(value) ||
 		isDescriptorCopy(value) ||
-		(hasProperties(value) && value["sql"] === "text" && hasProperties(value["pattern"]))
+		(hasProperties(value) && value["sql"] === "text" && hasProperties(value["patterns"]))
 	) {
 		return { kind: "registry" }
 	}

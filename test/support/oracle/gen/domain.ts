@@ -19,6 +19,7 @@ import {
 	type ScalarType,
 	type StorageCarrier,
 	textOf,
+	textPatterns,
 	vectorTypmodOf
 } from "#compiler/ir/scalar.ts"
 import { wildcardText } from "#compiler/scalar/compute/types.ts"
@@ -401,15 +402,12 @@ export const fieldDescOf = (type: ScalarType): FieldDesc => {
 				return textDesc(genTextSource, genTextFlags)
 			}
 			const language = languageOfText(text)
-			return text.regex === "wildcard"
-				? { kind: "text", source: "^.*$", flags: "su", bytes: undefined, language }
-				: {
-						kind: "text",
-						source: text.regex.source,
-						flags: text.regex.flags,
-						bytes: languageOctets(language),
-						language
-					}
+			return {
+				kind: "text",
+				patterns: textPatterns(text.regex),
+				bytes: languageOctets(language),
+				language
+			}
 		}
 		case "code":
 			return { kind: "closedId", roster: codeRoster(type).closed }
@@ -691,11 +689,8 @@ export const textFlavor = (type: ScalarType): "generated" | "code" | "long" => {
 	if (regex === undefined || regex === "wildcard") {
 		return "generated"
 	}
-	return regex.source === codeSource
-		? "code"
-		: regex.source === longTextSource
-			? "long"
-			: "generated"
+	const [only] = regex.patterns
+	return only.source === codeSource ? "code" : only.source === longTextSource ? "long" : "generated"
 }
 
 /** A type's typmod as text, for valueClasses' refusal: a numeric typmod or a vector's dimensions, empty for none. */

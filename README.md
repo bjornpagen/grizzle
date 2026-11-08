@@ -1549,6 +1549,7 @@ schema.
 | `pg.smallserial`, `pg.serial`, `pg.bigserial`      | an identity column                                                  | `number`, `number`, `bigint`                                           |
 | `str.regex(pattern, flags?)`                       | text, behind a domain that checks the pattern                       | the pattern's language: `string`, or `"yes" \| "no"` for `^(yes\|no)$` |
 | `str.bytes(n, str.regex(...))`                     | text, behind a domain that checks its UTF-8 bytes, then the pattern | the pattern's                                                          |
+| `str.and(str.regex(p), str.regex(q), ...)`         | text, behind a domain that checks every pattern                     | the patterns' languages intersected, `P & Q`                           |
 | `closedId(X)`, for `X = closed("X", [...])`        | smallint, behind the roster's domain                                | the union of its names                                                 |
 | `bits(X)`, a set of `X`'s handles                  | bit(n), behind a domain that holds only live handles                | `Bits<typeof X>`, a `ReadonlySet` of its names; `Bits.of(X, [...])`    |
 | `contract(name, base, check?)`                     | a domain with that CHECK                                            | the base type, branded with the name                                   |
@@ -1598,6 +1599,15 @@ PostgreSQL's other spellings are the same fields.
   `octet_length(VALUE) <= n` before the pattern, so the regex engine never reads a longer value, and refuses either
   with 23514. Equal patterns and bounds share one domain; a bound the pattern already implies is dropped.
   `str.bytes(n, str.regex("^.*$", "su"))` is any text of at most `n` bytes.
+- **`str.and(a, b, ...)`** is text of every pattern its texts carry at once, their intersection, as XML Schema reads
+  two pattern facets: write each facet as its own `str.regex` and join them, never one regex you intersect by hand.
+  Its host type is theirs intersected (`P & Q`), its byte bound the tightest of theirs, and its domain checks
+  `VALUE ~ p AND VALUE ~ q`, each pattern held to PostgreSQL's limits on its own, so a conjunction costs the sum of
+  its patterns, never their product. A text may be a `str.bytes` or another `str.and`, whose patterns it takes in
+  order. Two conjunctions of one language, or a conjunction and a pattern of its language, share one domain wherever
+  grizzle builds the intersection's automaton, within 2,048 DFA states and 2,097,152 NFA-state visits as for a parse's
+  proof ([Parsing text](#parsing-text)), and a conjunction no text matches is refused there with
+  `UnsupportedOperation`; past the bounds the domain still checks every pattern.
 - **Text in a key**, or in any index grizzle installs, needs a byte bound: its pattern's, `str.bytes`'s, or a
   contract's bound on `Compute.charLength(v)` (four bytes a code point) or `Compute.octetLength(v)` (exact).
   `keyTextBytes(fields)` is the most bytes a text holds beside `fields`, the index's other columns, in every index
@@ -2154,7 +2164,7 @@ Rows are typed from the query: `commentsPerAuthor` gives `{ author: string; comm
 
 ### Text
 
-- **`Compute.matches(x, pattern)`** is PostgreSQL's `~`: whether `x` holds a match of a pattern in `str.regex`'s grammar under the flags `"u"`, anchored by `^` and `$`. The pattern is a string, type-checked as `str.regex` checks its own, or a text term whose every value the schema holds: a closed relation's text payload, as in `Compute.matches(lexical, ValueDomain.at("pattern", domain))`, or a `Compute.cond` of such terms. Each value is admitted when the schema compiles, inside PostgreSQL's regex compile space as a `str.regex` pattern is ([Limits](#limits)). A field, a parameter or a computed text can be any pattern, and is refused as one. A match is also a guard: `Compute.when(Compute.matches(code, "^[0-9]+$"), (code) => …, otherwise)` hands its branch the subject as text of the pattern's language; over a pattern term it is a conditional.
+- **`Compute.matches(x, pattern)`** is PostgreSQL's `~`: whether `x` holds a match of a pattern in `str.regex`'s grammar under the flags `"u"`, anchored by `^` and `$`. The pattern is a string, type-checked as `str.regex` checks its own, or a text term whose every value the schema holds: a closed relation's text payload, as in `Compute.matches(lexical, ValueDomain.at("pattern", domain))`, or a `Compute.cond` of such terms. Each value is admitted when the schema compiles, inside PostgreSQL's regex compile space as a `str.regex` pattern is ([Limits](#limits)). A field, a parameter or a computed text can be any pattern, and is refused as one. A match is also a guard: `Compute.when(Compute.matches(code, "^[0-9]+$"), (code) => …, otherwise)` hands its branch the subject as text of its own patterns and the match's together, as `str.and` joins them, so nested matches prove a cast into a conjunction; over a pattern term it is a conditional.
 - **`Compute.startsWith(a, b)` and `Compute.endsWith(a, b)`** test a prefix and a suffix, by characters.
 - **A byte bound is a guard.** `Compute.when(Compute.within(Compute.octetLength(x), 0, 64), () => Compute.cast(x, Name), "")`, with `Name` a `str.bytes(64, pattern)` whose pattern holds x's, reads `x` inside the branch as at most 64 UTF-8 bytes of its own pattern, so a text of no byte bound casts into `Name`. Like `octetLength`, it stands in checks, contract predicates and generated fields.
 - **`Compute.concat(a, b)`** is `a || b`, text of no pattern. It stands in checks, contract predicates, generated fields and folds, and in a query only as a side of `Compute.eq` or `Compute.ne`, which is decided without building it: by the lengths, a prefix and a suffix, and NULL exactly where `a || b` would be. Its first operand is a term, as every operation's is, so a leading literal is a typed constant: `Compute.concat(Compute.literal(Prose, "item-"), id)`.
@@ -2541,8 +2551,10 @@ the witness is `unreported`.
 by its domain's CHECK as the statement casts it, before the row's constraints and row-level security. The outcome names
 the contract's rule or the field's pattern rule. Fields of one pattern share a domain, as do fields whose patterns
 grizzle proves match the same texts, and PostgreSQL reports the domain, never the column, so grizzle judges the row on
-the host to name the field, its rule spelled as that field spells its pattern:
-`{ kind: "pattern", relation: "Item", field: "slug", source: "^[a-z-]{1,64}$", flags: "u" }`. A value PostgreSQL
+the host to name the field, its rule spelled as that field spells its patterns:
+`{ kind: "pattern", relation: "Item", field: "slug", patterns: [{ source: "^[a-z-]{1,64}$", flags: "u" }] }`. A
+`str.and` field's rule lists every pattern, in order: its domain is one CHECK, which PostgreSQL refuses as a whole, so
+no outcome tells which pattern a value missed. A value PostgreSQL
 generates into a refined field, or grizzle fills into a fold's accumulator or end, is refused the same way; its witness
 is `unreported` where only a refill writes the row, such as a stored owner whose family the write appends to.
 
@@ -2560,7 +2572,7 @@ is `unreported` where only a refill writes the row, such as a stored owner whose
 | `tree`       | `member`, `slots`, `root` (the root field)                                                                      |
 | `fold`       | `family` (its slots), `monoid`, `step` and `end` (sides)                                                        |
 | `contract`   | `contract`                                                                                                      |
-| `pattern`    | `relation`, `field`, `source`, `flags`: the field's pattern as that field spells it, one rule per field         |
+| `pattern`    | `relation`, `field`, `patterns`: each `{ source, flags }` as that field spells it, one rule per field           |
 | `generated`  | `relation`, `field`: a generated field whose term has no value at a row, a closed read at a key its relation lacks |
 
 A side is `{ relation, terms, selection }`. `terms` are in the order the rule pairs them, each `{ kind: "field", field }`
@@ -2967,7 +2979,8 @@ grizzle fits applications that own their data end to end, with rules worth decla
 ### Patterns and text
 
 - **A `str.regex` pattern has no lookahead, lookbehind or `\p{…}` class**, nor any other construct [Tables and types](#tables-and-types) excludes, and some text must match it.
-- **A pattern is bounded by what PostgreSQL's regex engine builds from it**, not by its length. grizzle reads the ARE
+- **A pattern is bounded by what PostgreSQL's regex engine builds from it**, not by its length, and each pattern of a
+  `str.and` by its own alone. grizzle reads the ARE
   it prints as PostgreSQL's parser does, and refuses with `ResourceBound`, at compile time, a pattern past one of the
   engine's own limits, which PostgreSQL would otherwise meet at the first value a domain checks, refusing every write:
   more than 16,384 colors, the classes of characters its sets hold alike (`MAX_COLOR`, halved, since parsing one set can

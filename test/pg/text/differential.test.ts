@@ -250,7 +250,7 @@ const refine = (
 	flags: Flags,
 	at: SourceLoc
 ): TextRefinement | "empty" | "bound" => {
-	const result = analyzeText(source, flags, at)
+	const result = analyzeText([{ source, flags }], at)
 	if (result.ok) {
 		return result.value
 	}
@@ -304,7 +304,7 @@ type DifferentialFeature =
 const walksFor = (r: TextRefinement | "empty" | "bound"): Gen<ReadonlyArray<string | undefined>> =>
 	r === "empty" || r === "bound" || r.check.kind === "finite"
 		? constant([])
-		: array(walkGen(buildNfa(r.ir)), { min: 0, max: walksPerPattern })
+		: array(walkGen(buildNfa(r.members[0].ir)), { min: 0, max: walksPerPattern })
 
 /**
  * One drawn case of a family: the strings, the walks of each handwritten pattern, and generated patterns with theirs.
@@ -394,7 +394,7 @@ const agreeOn = (
 				const rows = yield* db.values(
 					`SELECT (c.v COLLATE pg_catalog.pg_c_utf8 ~ $2::text)::text, pg_input_is_valid(c.v, $3::text)::text
 					 FROM jsonb_to_recordset($1::text::jsonb) AS c(ord int4, v text) ORDER BY c.ord`,
-					[payload, r.are, domainType]
+					[payload, r.members[0].are, domainType]
 				)
 				assert.equal(rows.length, all.length, label)
 				for (const [i, row] of rows.entries()) {
@@ -405,7 +405,7 @@ const agreeOn = (
 						expected,
 						`${label} host on ${value}`
 					)
-					assert.equal(truth(row[0]), expected, `${label} ARE ${r.are} on ${value}`)
+					assert.equal(truth(row[0]), expected, `${label} ARE ${r.members[0].are} on ${value}`)
 					assert.equal(truth(row[1]), expected, `${label} domain on ${value}`)
 				}
 				assert.equal(
@@ -558,10 +558,10 @@ layer(Substrate.layer)(
 									k.note(past)
 									const source = growth.at(greatest)
 									const r = admitted(source, "u", SourceLoc("str.regex", []))
-									yield* compileWithin(db, r.are)
+									yield* compileWithin(db, r.members[0].are)
 									const rows = yield* db.values(
 										"SELECT ($1::text COLLATE pg_catalog.pg_c_utf8 ~ $2::text)::text",
-										["abcd", r.are]
+										["abcd", r.members[0].are]
 									)
 									assert.equal(truth(rows[0]?.[0]), accepts(r, "abcd"), Str.slice(0, 160)(source))
 								})
@@ -597,15 +597,15 @@ layer(Substrate.layer)(
 						(source, k) =>
 							Effect.gen(function* () {
 								const r = refine(source, "u", SourceLoc("str.regex", []))
-								if (r === "empty" || r === "bound" || RegexIr.expandedSize(r.ir) < 64) {
+								if (r === "empty" || r === "bound" || RegexIr.expandedSize(r.members[0].ir) < 64) {
 									return
 								}
 								k.note("a large pattern")
-								const exit = yield* Effect.exit(compileWithin(db, r.are))
+								const exit = yield* Effect.exit(compileWithin(db, r.members[0].are))
 								assert.equal(
 									Exit.isSuccess(exit),
 									true,
-									`/${source}/u as ${r.are}: ${Exit.isFailure(exit) ? String(exit.cause) : ""}`
+									`/${source}/u as ${r.members[0].are}: ${Exit.isFailure(exit) ? String(exit.cause) : ""}`
 								)
 							})
 					)

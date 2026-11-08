@@ -15,7 +15,7 @@ import * as Result from "#compiler/core/result.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { codeOf } from "#compiler/ir/codes.ts"
 import type { InferredFieldDesc } from "#compiler/ir/desc.ts"
-import { baseOf, textInfoOf } from "#compiler/ir/scalar.ts"
+import { baseOf, type Patterns, textInfoOf } from "#compiler/ir/scalar.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { conservativeInput, flight } from "#compiler/lower/conservative/types.ts"
 import { columnType } from "#compiler/physical/ddl/names.ts"
@@ -612,7 +612,8 @@ layer(Substrate.layer)("derived relations on PostgreSQL 19", (it) => {
 								 */
 								const typeOf = (l: LiteralCase["first"]): string => {
 									const { source, flags } = patternOf(sketchOf(c, l.pattern))
-									const info = textInfoOf(source, flags, succeeded(textLookup(source, flags)))
+									const patterns: Patterns = [{ source, flags }]
+									const info = textInfoOf(patterns, succeeded(textLookup(patterns)))
 									if (info.regex === "wildcard") {
 										return "text"
 									}

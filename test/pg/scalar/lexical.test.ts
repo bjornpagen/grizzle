@@ -107,7 +107,8 @@ const parseSql = (target: LexicalTarget): string =>
 
 /** The ARE of a target's form, as the text analysis translates it for PostgreSQL. */
 const areOf = (target: LexicalTarget): string =>
-	succeeded(analyzeText(formSource(target), "u", SourceLoc("lexicalForm", []))).are
+	succeeded(analyzeText([{ source: formSource(target), flags: "u" }], SourceLoc("lexicalForm", [])))
+		.members[0].are
 
 /** Whether PostgreSQL's text of a parsed value is the host's value of the member. */
 const agrees = (target: LexicalTarget, text: string, value: unknown): boolean => {

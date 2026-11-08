@@ -246,7 +246,7 @@ describe("Compute's text terms", () => {
 						)
 						const declaredRefused = Arr.some(
 							c.sources,
-							(s) => !analyzeText(s, "u", SourceLoc("str.regex", [])).ok
+							(s) => !analyzeText([{ source: s, flags: "u" }], SourceLoc("str.regex", [])).ok
 						)
 						assert.equal(!lowered.ok, declaredRefused, "refused exactly where str.regex refuses")
 						if (!lowered.ok) {
@@ -264,11 +264,14 @@ describe("Compute's text terms", () => {
 							k.note("sources out of code unit order")
 						}
 						for (const entry of node.patterns) {
-							const declared = analyzeText(entry.source, "u", SourceLoc("str.regex", []))
+							const declared = analyzeText(
+								[{ source: entry.source, flags: "u" }],
+								SourceLoc("str.regex", [])
+							)
 							if (declared.ok) {
 								assert.equal(
 									entry.are,
-									declared.value.are,
+									declared.value.members[0].are,
 									`the ARE str.regex prints for /${entry.source}/u`
 								)
 							}

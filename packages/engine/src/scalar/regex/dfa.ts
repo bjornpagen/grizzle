@@ -121,10 +121,10 @@ const subsetKey = (subset: Subset): string =>
 		: `${subset.initial ? "i" : "n"}${[...subset.states].toSorted((a, b) => a - b).join(",")}`
 
 interface RawDfa {
-	/** Transition table: target per atom; one row per state. */
+	/** Transition table: target per atom; one row per state, the initial one first. */
 	readonly next: ReadonlyArray<ReadonlyArray<number>>
 	readonly accept: ReadonlyArray<boolean>
-	readonly alphabet: Alphabet
+	readonly alphabet: CharPartition
 }
 
 /** What the subset construction came to: the raw DFA, or the limit it stopped at. */
@@ -550,6 +550,134 @@ export const minimalDfa = (nfa: Nfa, limits: DfaLimits): DfaOutcome => {
 		case "bounded":
 			return construction
 	}
+}
+
+/**
+ * What the bounded construction of an intersection's minimal DFA came to: the minimal DFA, or a bound a product would
+ * have passed.
+ */
+export type IntersectionOutcome =
+	| { readonly kind: "minimal"; readonly dfa: CanonicalDfa }
+	| { readonly kind: "bounded" }
+
+/**
+ * Each state's target on each atom of `partition`, -1 where the state has no edge holding it: a canonical DFA's edges,
+ * whose sets are `sets` from `offset` on in the order of its states' edges.
+ */
+const atomTargets = (
+	dfa: CanonicalDfa,
+	partition: CharPartition,
+	offset: number
+): ReadonlyArray<Int32Array> => {
+	let set = offset
+	return dfa.states.map((state) => {
+		const row = new Int32Array(partition.atomCount).fill(-1)
+		for (const edge of state.edges) {
+			for (const atom of entry(partition.setAtoms, set)) {
+				row[atom] = edge.to
+			}
+			set += 1
+		}
+		return row
+	})
+}
+
+/** A state of an intersection's product: a pair of the two DFAs' states, or the dead state a pair leaves past either. */
+type ProductState =
+	| { readonly kind: "pair"; readonly a: number; readonly b: number }
+	| { readonly kind: "dead" }
+
+/**
+ * The canonical minimal DFA of the intersection of two canonical DFAs' languages, within `limits`: the initial pair of
+ * their states, the dead state, and every pair the initial one reaches, over the atoms their edges' sets cut the domain
+ * into, an atom either state has no edge on leading to the dead state; then minimized and numbered as a pattern's own
+ * (canonicalize), so one language has one canonical DFA however it is spelled. Every state counts against the bound on
+ * states, and every state expanded is charged its transitions as work.
+ */
+const intersect = (a: CanonicalDfa, b: CanonicalDfa, limits: DfaLimits): IntersectionOutcome => {
+	if (a.states.length === 0 || b.states.length === 0) {
+		return { kind: "minimal", dfa: { states: [] } }
+	}
+	const sets = [...a.states, ...b.states].flatMap((state) => state.edges.map((edge) => edge.set))
+	const alphabet = partitionOf(sets, domain)
+	const onA = atomTargets(a, alphabet, 0)
+	const onB = atomTargets(
+		b,
+		alphabet,
+		a.states.reduce((n, state) => n + state.edges.length, 0)
+	)
+	const states: Array<ProductState> = [{ kind: "pair", a: 0, b: 0 }, { kind: "dead" }]
+	const dead = 1
+	const ids = new Map<number, number>([[0, 0]])
+	const intern = (x: number, y: number): number | undefined => {
+		const key = x * b.states.length + y
+		const known = ids.get(key)
+		if (known !== undefined) {
+			return known
+		}
+		if (states.length >= limits.maxStates) {
+			return undefined
+		}
+		ids.set(key, states.length)
+		states.push({ kind: "pair", a: x, b: y })
+		return states.length - 1
+	}
+	const next: Array<ReadonlyArray<number>> = []
+	let work = 0
+	for (let id = 0; id < states.length; id++) {
+		const state = entry(states, id)
+		work += alphabet.atomCount
+		if (work > limits.maxWork) {
+			return { kind: "bounded" }
+		}
+		const row: Array<number> = []
+		for (let atom = 0; atom < alphabet.atomCount; atom++) {
+			const target =
+				state.kind === "dead"
+					? dead
+					: transition(at(entry(onA, state.a), atom), at(entry(onB, state.b), atom), dead, intern)
+			if (target === undefined) {
+				return { kind: "bounded" }
+			}
+			row.push(target)
+		}
+		next.push(row)
+	}
+	const accept = states.map(
+		(state) =>
+			state.kind === "pair" && entry(a.states, state.a).accept && entry(b.states, state.b).accept
+	)
+	return { kind: "minimal", dfa: canonicalize({ next, accept, alphabet }) }
+}
+
+/**
+ * A pair's target on one atom, from its two states' targets on it: the dead state where either has none (-1, an atom no
+ * edge of the state holds), else the pair of the targets, undefined where interning it would pass the bound on states.
+ */
+const transition = (
+	toA: number,
+	toB: number,
+	dead: number,
+	intern: (x: number, y: number) => number | undefined
+): number | undefined => (toA < 0 || toB < 0 ? dead : intern(toA, toB))
+
+/**
+ * The canonical minimal DFA of the intersection of canonical DFAs' languages, within `limits` at each product
+ * (intersect): the first one alone where there is one, so one pattern's DFA is its own.
+ */
+export const intersectionDfa = (
+	dfas: NonEmptyReadonlyArray<CanonicalDfa>,
+	limits: DfaLimits
+): IntersectionOutcome => {
+	const [first, ...rest] = dfas
+	let product: IntersectionOutcome = { kind: "minimal", dfa: first }
+	for (const dfa of rest) {
+		if (product.kind === "bounded") {
+			return product
+		}
+		product = intersect(product.dfa, dfa, limits)
+	}
+	return product
 }
 
 /** The canonical text of a minimal DFA: equal texts, equal languages. */

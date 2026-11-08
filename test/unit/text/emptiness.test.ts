@@ -335,7 +335,7 @@ describe("a pattern no text matches", () => {
 									`${label} rejects ${Formatter.format(broken)}`
 								)
 							}
-							const analyzed = analyzeText(source, flags, loc)
+							const analyzed = analyzeText([{ source, flags }], loc)
 							judged(analyzed, empty, `analyzeText ${label}`)
 							if (flags === "u") {
 								judged(matchPattern(source, loc), empty, `matchPattern ${label}`)

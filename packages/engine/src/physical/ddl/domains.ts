@@ -13,7 +13,11 @@ import {
 import type { ConstraintName, DomainName } from "#compiler/core/ids.ts"
 import { defined } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { mapNonEmpty, sortNonEmpty } from "#compiler/core/nonempty.ts"
+import {
+	flatMapNonEmpty,
+	type NonEmptyReadonlyArray,
+	sortNonEmpty
+} from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
 import { descText, type FieldDesc } from "#compiler/ir/desc.ts"
@@ -24,6 +28,7 @@ import type { PhysicalReason } from "#compiler/ir/products.ts"
 import {
 	type ContractInfo,
 	contractOf,
+	patternsText,
 	type RegexRef,
 	type ScalarType
 } from "#compiler/ir/scalar.ts"
@@ -35,7 +40,7 @@ import { enforcement, lawReasons } from "#compiler/physical/obligations/graph.ts
 import type { Owned } from "#compiler/schema/own.ts"
 import type { CreateDomain, Expr, ObjectName } from "#compiler/sql/ast.ts"
 import { and } from "#compiler/sql/build.ts"
-import { domainValue, membership, textDomainDdl } from "#compiler/text/refinement.ts"
+import { domainValue, membershipTerms, textDomainDdl } from "#compiler/text/refinement.ts"
 import type { Law } from "#compiler/types/changeset/changeset.ts"
 
 const unwrap = <A>(result: Result.Result<A, CompileError>): A => {
@@ -51,8 +56,8 @@ export const structuralRegex = (t: ScalarType): RegexRef | undefined =>
 		? t.text.regex
 		: undefined
 
-/** A stored field whose pattern states a law: its relation, the field, its pattern, and the law, spelled as the field
- * declares its pattern. */
+/** A stored field whose patterns state a law: its relation, the field, its refinement, and the law, spelled as the
+ * field declares its patterns. */
 export interface FieldPatternLaw {
 	readonly relation: TableRelation
 	readonly field: LawField
@@ -82,8 +87,7 @@ export const fieldPatternLaws = (model: LawModel): ReadonlyArray<FieldPatternLaw
 								kind: "pattern",
 								relation: relation.name,
 								field: field.name,
-								source: regex.source,
-								flags: regex.flags
+								patterns: regex.patterns
 							})
 						})
 					]
@@ -268,7 +272,7 @@ export const addTextDomains = (
 	plans: ReadonlyArray<TextDomainPlan>
 ): ReadonlyArray<ObjectName> =>
 	plans.flatMap(({ domain, regex }) => {
-		const reasons = [enforcement(`text refinement /${regex.source}/${regex.flags}`)]
+		const reasons = [enforcement(`text refinement ${patternsText(regex.patterns)}`)]
 		const known = b.typeNamed({ schema: b.schema, name: domain.name })
 		if (known !== undefined) {
 			b.graph.addReasons(known, reasons)
@@ -294,16 +298,18 @@ const contractDomainDdl = (
 	contract: { readonly name: string; readonly base: ScalarType; readonly check: DomainCheck },
 	target: { readonly schema: string; readonly name: string; readonly constraint: string }
 ): CreateDomain => {
-	const term = (t: DomainCheckTerm): Expr => {
+	const terms = (t: DomainCheckTerm): NonEmptyReadonlyArray<Expr> => {
 		switch (t.kind) {
 			case "pattern":
-				return membership(t.regex.check, domainValue)
+				return membershipTerms(t.regex.check, domainValue)
 			case "predicate":
-				return lowerPersistent(names, unwrap(predicateTree(t.predicate)), {
-					reads: { kind: "domain" },
-					closed: noPersistentClosed,
-					loc: SourceLoc(`the predicate of contract ${contract.name}`, [])
-				})
+				return [
+					lowerPersistent(names, unwrap(predicateTree(t.predicate)), {
+						reads: { kind: "domain" },
+						closed: noPersistentClosed,
+						loc: SourceLoc(`the predicate of contract ${contract.name}`, [])
+					})
+				]
 		}
 	}
 	const { type, collation } = domainBase(names, contract.base)
@@ -316,7 +322,7 @@ const contractDomainDdl = (
 		constraints:
 			check.kind === "unchecked"
 				? []
-				: [{ name: target.constraint, predicate: and(mapNonEmpty(check.terms, (t) => term(t))) }]
+				: [{ name: target.constraint, predicate: and(flatMapNonEmpty(check.terms, terms)) }]
 	}
 }
 

@@ -207,7 +207,7 @@ const checkBatch = (batch: ReadonlyArray<BytesCase>, note: SearchCase<BytesFeatu
 				const at = `${where}, a value of ${bytes} bytes`
 				const regex = text.regex
 				assert.equal(
-					regex === "wildcard" || ProgramPatterns.of([regex]).member(regex, value),
+					regex === "wildcard" || ProgramPatterns.of(regex.patterns).member(regex, value),
 					lawful,
 					`${at}: the host's membership`
 				)

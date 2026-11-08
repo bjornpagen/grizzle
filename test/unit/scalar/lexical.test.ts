@@ -155,7 +155,10 @@ describe("lexical forms", () => {
 					(t, c) =>
 						Effect.sync(() => {
 							c.note(t.kind)
-							const analyzed = analyzeText(formSource(t), "u", SourceLoc("lexicalForm", []))
+							const analyzed = analyzeText(
+								[{ source: formSource(t), flags: "u" }],
+								SourceLoc("lexicalForm", [])
+							)
 							assert.equal(
 								analyzed.ok ? analyzed.value.check.kind : "refused",
 								"regex",
@@ -231,7 +234,7 @@ describe("language inclusion", () => {
 							}
 							const innerNfa = buildNfa(a.value)
 							const outerNfa = buildNfa(b.value)
-							const result = inclusion(innerNfa, outerNfa)
+							const result = inclusion([innerNfa], [outerNfa])
 							run.note(result.kind)
 							const label = `/${inner}/ in /${outer}/`
 							switch (result.kind) {
@@ -278,9 +281,7 @@ type CheckFeature = `${Route} admitted` | `${Route} refused`
 type Parsed = (pattern: string, route: Route) => AnyRelation
 
 const typedText = (pattern: string, route: Route) =>
-	route === "type"
-		? regexField<string, string, readonly []>(pattern, [])
-		: regexField<string, string, readonly ["su"]>("^.*$", ["su"])
+	route === "type" ? regexField<string>(pattern, []) : regexField<string>("^.*$", ["su"])
 
 const checkTargets: Arr.NonEmptyReadonlyArray<readonly [LexicalTarget, Parsed]> = [
 	[
@@ -381,10 +382,10 @@ describe("a parse's lexical precondition", () => {
 					},
 					({ pattern, target: [target, build], route }, run) =>
 						Effect.sync(() => {
-							if (!analyzeText(pattern, "u", SourceLoc("str.regex", [])).ok) {
+							if (!analyzeText([{ source: pattern, flags: "u" }], SourceLoc("str.regex", [])).ok) {
 								return
 							}
-							const verdict = inclusion(nfaOf(pattern), nfaOf(formSource(target))).kind
+							const verdict = inclusion([nfaOf(pattern)], [nfaOf(formSource(target))]).kind
 							const checked = checkedIn(schema("Lexical", { R: build(pattern, route) }, []))
 							run.note(`${route} ${checked.ok ? "admitted" : "refused"}`)
 							assert.equal(
@@ -434,7 +435,7 @@ const decimalRelation = (pattern: string, route: Route, bound: DecimalBound): An
 			no
 		)
 	if (route === "type") {
-		const typed = regexField<string, string, readonly []>(pattern, [])
+		const typed = regexField<string>(pattern, [])
 		const t = bound.kind === "none" ? typed : str.bytes(bound.bytes, typed)
 		return relation.generated("R", { id: uuid, t }, ["id"], (r) => ({
 			n: generatedField(pg.boolean, parsedSign(r.t), [])
@@ -499,11 +500,14 @@ describe("a decimal's parse", () => {
 					},
 					({ pattern, route, bound }, run) =>
 						Effect.sync(() => {
-							const analyzed = analyzeText(pattern, "u", SourceLoc("str.regex", []))
+							const analyzed = analyzeText(
+								[{ source: pattern, flags: "u" }],
+								SourceLoc("str.regex", [])
+							)
 							if (!analyzed.ok) {
 								return
 							}
-							const verdict = inclusion(nfaOf(pattern), nfaOf(decimalText)).kind
+							const verdict = inclusion([nfaOf(pattern)], [nfaOf(decimalText)]).kind
 							const check = analyzed.value.check
 							const patternBytes =
 								check.kind === "tautology" || check.bounds === undefined

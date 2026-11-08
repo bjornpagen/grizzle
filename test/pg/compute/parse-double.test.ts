@@ -182,7 +182,7 @@ const hostBits = (text: string): bigint => {
 
 const Keys = relation.generated(
 	"Keys",
-	{ id: pg.integer, key: regexField<string, string, readonly []>(doubleText, []) },
+	{ id: pg.integer, key: regexField<string>(doubleText, []) },
 	["id"],
 	(r) => ({ value: generated(pg["double precision"], Compute.parseDouble(r.key)) })
 )

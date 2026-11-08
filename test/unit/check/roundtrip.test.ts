@@ -39,6 +39,7 @@ import {
 	type TextBounds,
 	type TextLanguage,
 	textOf,
+	textPatterns,
 	vectorTypmodOf
 } from "#compiler/ir/scalar.ts"
 import { queryInput } from "#compiler/program/compile.ts"
@@ -114,8 +115,8 @@ const patternCheckJson = (check: PatternCheck): JsonRecord =>
 	check.kind === "finite"
 		? { kind: "finite", members: check.members, bounds: boundsJson(check.bounds) }
 		: check.bounds === undefined
-			? { kind: "regex", pattern: check.pattern }
-			: { kind: "regex", pattern: check.pattern, bounds: boundsJson(check.bounds) }
+			? { kind: "regex", ares: check.ares }
+			: { kind: "regex", ares: check.ares, bounds: boundsJson(check.bounds) }
 
 /** A refinement's check as its Description's JSON form spells it: a pattern's, or a byte bound's beside one or alone. */
 const checkJson = (check: RegexCheck): JsonRecord => {
@@ -603,13 +604,13 @@ const keyFieldDesc = (key: KeyVar): JsonRecord => {
 			const analyzed = languageOfText(text)
 			const language = languageJson(analyzed)
 			const bytes = languageOctets(analyzed)
-			if (text.regex === "wildcard") {
-				return { kind: "text", source: "^.*$", flags: "su", language }
-			}
-			const { source, flags } = text.regex
+			const patterns = Arr.map(textPatterns(text.regex), (p) => ({
+				source: p.source,
+				flags: p.flags
+			}))
 			return bytes === undefined
-				? { kind: "text", source, flags, language }
-				: { kind: "text", source, flags, bytes, language }
+				? { kind: "text", patterns, language }
+				: { kind: "text", patterns, bytes, language }
 		}
 		case "handle":
 			return { kind: "closedId", roster: defined(rosterOf(key.type), "a handle's roster").closed }

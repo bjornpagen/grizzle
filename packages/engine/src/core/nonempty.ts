@@ -16,6 +16,15 @@ export const mapNonEmpty = <A, B>(
 	return [f(head, 0), ...tail.map((a, i) => f(a, i + 1))]
 }
 
+/** `f`'s nonempty lists for each element in order, concatenated: nonempty. */
+export const flatMapNonEmpty = <A, B>(
+	xs: NonEmptyReadonlyArray<A>,
+	f: (a: A, i: number) => NonEmptyReadonlyArray<B>
+): NonEmptyReadonlyArray<B> => {
+	const [first, ...rest] = mapNonEmpty(xs, f)
+	return [...first, ...rest.flat()]
+}
+
 /** `xs` followed by `last`: nonempty whatever `xs` is. */
 export const appendNonEmpty = <A>(xs: ReadonlyArray<A>, last: A): NonEmptyReadonlyArray<A> =>
 	isNonEmpty(xs) ? [xs[0], ...xs.slice(1), last] : [last]

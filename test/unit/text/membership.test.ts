@@ -56,7 +56,7 @@ import {
 const loc = SourceLoc("str.regex", ["test"])
 
 const refine = (source: string, flags: Flags): TextRefinement => {
-	const result = analyzeText(source, flags, loc)
+	const result = analyzeText([{ source, flags }], loc)
 	if (!result.ok) {
 		throw new Error(`/${source}/${flags}: ${result.error.message}`)
 	}
@@ -95,7 +95,7 @@ const caseGen: Gen<{
  * classification (the IR fixtures' analyzeLanguage), never a refusal's text.
  */
 const refineOrEmpty = (source: string, flags: Flags): TextRefinement | "empty" | "bound" => {
-	const result = analyzeText(source, flags, loc)
+	const result = analyzeText([{ source, flags }], loc)
 	if (result.ok) {
 		return result.value
 	}
@@ -207,7 +207,7 @@ describe("host NFA membership equals ECMAScript", () => {
 				Arr.map(admitted, (p): Gen<FamilyCase> => {
 					const drawnString = oneOf<FamilyCase[1]>([
 						map(stringsOver(p.family.alphabet, 8), (s) => ({ witness: false, s })),
-						map(walkGen(buildNfa(p.r.ir)), (s) => ({ witness: true, s }))
+						map(walkGen(buildNfa(p.r.members[0].ir)), (s) => ({ witness: true, s }))
 					])
 					return (source) => [p, source.draw(drawnString)]
 				})
@@ -305,7 +305,7 @@ describe("host NFA membership equals ECMAScript", () => {
 							return
 						}
 						for (const tape of walks) {
-							const w = walk(buildNfa(r.ir), tape, walkLength)
+							const w = walk(buildNfa(r.members[0].ir), tape, walkLength)
 							if (w === undefined) {
 								continue
 							}

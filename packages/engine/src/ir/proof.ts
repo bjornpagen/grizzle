@@ -1,4 +1,5 @@
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import type { Patterns } from "#compiler/ir/scalar.ts"
 
 /** An exact decimal, units · 10^-scale with scale ≥ 0: an end of a proved interval, never a host value. */
 export interface Exact {
@@ -106,16 +107,15 @@ export type OperandPremise =
 	  }
 	| {
 			/**
-			 * An operand whose every value is a member of a regex refinement's language, the language of `pattern` under
-			 * `flags`, and of at most `bytes` UTF-8 bytes where the refinement bounds them: its type's, or the refinement a
-			 * Compute.matches guard gives it inside its branch. A parse's lexical precondition rests on it, the language
-			 * included in the form, and a cast's into a refined text, the language included in the target's pattern and
-			 * the bytes within its byte bound (str.bytes), which the tests' proof kernel decides again.
+			 * An operand whose every value is a member of a regex refinement's language, the language of the conjunction
+			 * `patterns`, and of at most `bytes` UTF-8 bytes where the refinement bounds them: its type's, or the
+			 * refinement a Compute.matches guard gives it inside its branch. A parse's lexical precondition rests on it,
+			 * the language included in the form, and a cast's into a refined text, the language included in the target's
+			 * and the bytes within its byte bound (str.bytes), which the tests' proof kernel decides again.
 			 */
 			readonly kind: "language"
 			readonly operand: OperandIndex
-			readonly pattern: string
-			readonly flags: "u" | "su"
+			readonly patterns: Patterns
 			readonly bytes: number | undefined
 	  }
 

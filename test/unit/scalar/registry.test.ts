@@ -50,11 +50,13 @@ import {
 	isNumericValue,
 	numericBoundOf,
 	type NumericValueType,
+	type Patterns,
+	type PatternSource,
 	RegexKey,
 	Roster,
 	rosterOf,
-	type ScalarType,
 	sameScalarType,
+	type ScalarType,
 	spanOf,
 	type TextBounds,
 	type TextInfo,
@@ -428,8 +430,7 @@ describe("scalarTypeOf: a FieldDesc to its ScalarType", () => {
 						oracle: { kind: "unstated" },
 						suite: "unit/scalar/text-env",
 						draw: drawn((source) => ({
-							source: source.draw(element(["^.*$", "^[a-z]*$", "^.+$", ""])),
-							flags: source.draw(element(["u" as const, "su" as const])),
+							patterns: source.draw(patternsGen(["^.*$", "^[a-z]*$", "^.+$", ""])),
 							language: source.draw(languageGen),
 							env: source.draw(readingEnvGen)
 						})),
@@ -442,16 +443,16 @@ describe("scalarTypeOf: a FieldDesc to its ScalarType", () => {
 						steerEvery: 16,
 						caseHang
 					},
-					({ source, flags, language, env }) =>
+					({ patterns, language, env }) =>
 						Effect.sync(() => {
 							const typed = succeeded(
 								scalarTypeOf(
-									{ kind: "text", source, flags, bytes: undefined, language },
+									{ kind: "text", patterns, bytes: undefined, language },
 									env,
 									SourceLoc("field", [])
 								)
 							)
-							assert.deepEqual(textOf(typed), carriedText(source, flags, language))
+							assert.deepEqual(textOf(typed), carriedText(patterns, language))
 						})
 				)
 			)
@@ -546,8 +547,7 @@ const readingDescGen: Gen<FieldDesc> = oneOf([
 	constant<FieldDesc>({ kind: "uuid" }),
 	(source) => ({
 		kind: "text" as const,
-		source: source.draw(element(["^.*$", "^[a-z]*$"])),
-		flags: source.draw(element(["u" as const, "su" as const])),
+		patterns: source.draw(patternsGen(["^.*$", "^[a-z]*$"])),
 		bytes: undefined,
 		language: source.draw(languageGen)
 	}),
@@ -592,6 +592,19 @@ const readingEnvGen: Gen<ScalarEnv> = map(
 	}
 )
 
+/** A text's patterns as a Description may carry them: one or two of `sources`, each under drawn flags. */
+const patternsGen =
+	(sources: Arr.NonEmptyReadonlyArray<string>): Gen<Patterns> =>
+	(source) => {
+		const pattern: Gen<PatternSource> = (inner) => ({
+			source: inner.draw(element(sources)),
+			flags: inner.draw(element(["u" as const, "su" as const]))
+		})
+		return source.draw(boolean)
+			? [source.draw(pattern)]
+			: [source.draw(pattern), source.draw(pattern)]
+	}
+
 /**
  * A language a text Description may carry: every admitted value, or a refined one by a drawn key, enforced as a
  * regex with drawn bounds or none, or as a finite list of members with their bounds.
@@ -604,7 +617,7 @@ const languageGen: Gen<TextLanguage> = oneOf<TextLanguage>([
 			element<TextBounds | undefined>([undefined, { length: 4, bytes: 8 }, { length: 8, bytes: 8 }])
 		)
 		return source.draw(boolean)
-			? { kind: "refined", key, check: { kind: "regex", pattern: "^x$", bounds } }
+			? { kind: "refined", key, check: { kind: "regex", ares: ["^x$"], bounds } }
 			: {
 					kind: "refined",
 					key,
@@ -614,15 +627,15 @@ const languageGen: Gen<TextLanguage> = oneOf<TextLanguage>([
 ])
 
 /**
- * The text metadata a Description of `source` and `flags` carrying `language` states, written out: the wildcard for
- * every value, else the pattern as declared with the language's key and enforcement, and its bounds where the
- * enforcement proves them.
+ * The text metadata a Description of `patterns` carrying `language` states, written out: the wildcard for every value,
+ * else the patterns as declared with the language's key and enforcement, and its bounds where the enforcement proves
+ * them.
  */
-const carriedText = (source: string, flags: "u" | "su", language: TextLanguage): TextInfo => {
+const carriedText = (patterns: Patterns, language: TextLanguage): TextInfo => {
 	if (language.kind === "every") {
 		return { regex: "wildcard", lengthBound: undefined, byteBound: undefined }
 	}
-	const regex = { source, flags, key: language.key, check: language.check }
+	const regex = { patterns, key: language.key, check: language.check }
 	const bounds = language.check.bounds
 	return bounds === undefined
 		? { regex, lengthBound: undefined, byteBound: undefined }
@@ -673,7 +686,7 @@ const describes = (t: ScalarType, desc: FieldDesc, env: ScalarEnv, at: string): 
 			plain(t, "uuid", at)
 			return
 		case "text":
-			assert.deepEqual(textOf(t), carriedText(desc.source, desc.flags, desc.language), at)
+			assert.deepEqual(textOf(t), carriedText(desc.patterns, desc.language), at)
 			return
 		case "closedId":
 			assert.equal(t.carrier, "code", at)
@@ -738,7 +751,7 @@ const contentOf = (desc: FieldDesc, env: ScalarEnv): Content => {
 		case "uuid":
 			return { kind: "plain", carrier: "uuid" }
 		case "text":
-			return { kind: "text", text: carriedText(desc.source, desc.flags, desc.language) }
+			return { kind: "text", text: carriedText(desc.patterns, desc.language) }
 		case "closedId":
 			return { kind: "closedId", roster: envRoster(env, desc.roster) }
 		case "bits":

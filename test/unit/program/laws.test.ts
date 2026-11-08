@@ -839,8 +839,9 @@ describe("lawsOf", () => {
 															kind: "pattern",
 															relation: r.name,
 															field,
-															source: pattern.value.source,
-															flags: pattern.value.flags
+															patterns: [
+																{ source: pattern.value.source, flags: pattern.value.flags }
+															]
 														}
 													]
 												: []
@@ -927,7 +928,12 @@ describe("lawsOf", () => {
 							for (const domain of names.installation.textDomains) {
 								const spelled = Arr.flatMap(patterns, (p) =>
 									Option.exists(domainAt(p.relation, p.field), (d) => d.name === domain.name)
-										? [p.source]
+										? [
+												Arr.join(
+													Arr.map(p.patterns, (q) => q.source),
+													" & "
+												)
+											]
 										: []
 								)
 								if (spelled.length > 1) {

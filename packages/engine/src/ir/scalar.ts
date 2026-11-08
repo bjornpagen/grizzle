@@ -9,7 +9,7 @@ import {
 import { ownedDigest, type RosterDigest, rosterDigest } from "#compiler/core/fingerprint.ts"
 import type { DeclaredName } from "#compiler/core/identity.ts"
 import { derived, type Limit, postgresSource, published } from "#compiler/core/limits.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import type { ExprTable } from "#compiler/ir/expr.ts"
 import type { Fact } from "#compiler/ir/proof.ts"
@@ -303,10 +303,11 @@ export const textBounds = (length: number, bytes: number): TextBounds =>
 	Object.freeze({ length, bytes })
 
 /**
- * How PostgreSQL enforces a pattern's language some admitted text value is no member of, with the bounds the
+ * How PostgreSQL enforces a language of a text's patterns some admitted text value is no member of, with the bounds the
  * enforcement proves on every member: `VALUE IN (...)` of its members, at least one since an analyzed language has a
- * member, or `VALUE ~ '<ARE>'` of the pattern's translation. The text analysis chooses it (text/refinement.ts) and
- * makes it by finiteCheck or regexCheck alone, so every one is frozen with all it holds.
+ * member, or `VALUE ~ '<ARE>'` of the translation of each pattern of the conjunction the check reads, joined by AND.
+ * The text analysis chooses it (text/refinement.ts) and makes it by finiteCheck or regexCheck alone, so every one is
+ * frozen with all it holds.
  */
 export type PatternCheck =
 	| {
@@ -314,7 +315,11 @@ export type PatternCheck =
 			readonly members: NonEmptyReadonlyArray<string>
 			readonly bounds: TextBounds
 	  }
-	| { readonly kind: "regex"; readonly pattern: string; readonly bounds: TextBounds | undefined }
+	| {
+			readonly kind: "regex"
+			readonly ares: NonEmptyReadonlyArray<string>
+			readonly bounds: TextBounds | undefined
+	  }
 
 /** `VALUE IN (...)` of a finite language's `members`, a frozen copy of them: the one constructor of a finite check. */
 export const finiteCheck = (
@@ -326,9 +331,14 @@ export const finiteCheck = (
 	return Object.freeze({ kind: "finite", members: Object.freeze(copy), bounds })
 }
 
-/** `VALUE ~ '<ARE>'` of a pattern's translation `pattern`: the one constructor of a regex check, frozen. */
-export const regexCheck = (pattern: string, bounds: TextBounds | undefined): PatternCheck =>
-	Object.freeze({ kind: "regex", pattern, bounds })
+/**
+ * `VALUE ~ '<ARE>'` of each ARE `ares` holds, one for each member of a conjunction its check reads, joined by AND: the
+ * one constructor of a regex check, frozen.
+ */
+export const regexCheck = (
+	ares: NonEmptyReadonlyArray<string>,
+	bounds: TextBounds | undefined
+): PatternCheck => Object.freeze({ kind: "regex", ares: Object.freeze(ares), bounds })
 
 /**
  * How PostgreSQL enforces a text refinement: its pattern's language (PatternCheck), or a byte bound that cuts it,
@@ -349,34 +359,57 @@ export type RegexCheck =
 export const octetsOf = (check: RegexCheck): number | undefined =>
 	check.kind === "octets" ? check.octets : undefined
 
-/**
- * A regex refinement: its source and flags as declared, its language's key and its enforcement, which the text
- * analysis computes where it builds the reference. The text package owns the pattern IR; the scalar type carries what
- * every later pass reads of it, so none analyzes the pattern again.
- */
-export interface RegexRef {
+/** One pattern as a text declares it: its source in grizzle's grammar and its flags. */
+export interface PatternSource {
 	readonly source: string
 	readonly flags: "u" | "su"
+}
+
+/**
+ * A text's patterns, in declared order: a conjunction whose language is every text each member matches, the
+ * intersection of the members' languages. str.regex declares one, str.and the members of each text it joins.
+ */
+export type Patterns = NonEmptyReadonlyArray<PatternSource>
+
+/** A text's patterns as diagnostics name them: each `/source/flags`, joined by ` & ` as the host type joins them. */
+export const patternsText = (patterns: Patterns): string =>
+	patterns.map((p) => `/${p.source}/${p.flags}`).join(" & ")
+
+/**
+ * A regex refinement: its patterns as declared, its language's key and its enforcement, which the text analysis
+ * computes where it builds the reference. The text package owns the pattern IR; the scalar type carries what every
+ * later pass reads of it, so none analyzes the patterns again.
+ */
+export interface RegexRef {
+	readonly patterns: Patterns
 	readonly key: RegexKey
 	readonly check: RegexCheck
 }
 
 /**
- * What the text analysis proved of a text descriptor's pattern, which the descriptor carries from where it is admitted
+ * What the text analysis proved of a text descriptor's patterns, which the descriptor carries from where it is admitted
  * (text/refinement.ts textLanguage): every admitted value, a tautology, or a language some admitted value is no member
- * of, by its key and its enforcement. It is a function of the pattern beside it, so it is no part of the descriptor's
+ * of, by its key and its enforcement. It is a function of the patterns beside it, so it is no part of the descriptor's
  * semantic identity (core/canonical.ts omitSourceLocs).
  */
 export type TextLanguage =
 	| { readonly kind: "every" }
 	| { readonly kind: "refined"; readonly key: RegexKey; readonly check: RegexCheck }
 
-/** The text metadata a ScalarType carries for a pattern of `language`: its regex reference and its proved bounds. */
-export const textInfoOf = (source: string, flags: "u" | "su", language: TextLanguage): TextInfo => {
+/** A frozen copy of `patterns`, each member frozen: what a regex reference holds. */
+const frozenPatterns = (patterns: Patterns): Patterns =>
+	Object.freeze(mapNonEmpty(patterns, (p) => Object.freeze({ source: p.source, flags: p.flags })))
+
+/** The text metadata a ScalarType carries for patterns of `language`: its regex reference and its proved bounds. */
+export const textInfoOf = (patterns: Patterns, language: TextLanguage): TextInfo => {
 	if (language.kind === "every") {
 		return Object.freeze({ regex: "wildcard", lengthBound: undefined, byteBound: undefined })
 	}
-	const regex = Object.freeze({ source, flags, key: language.key, check: language.check })
+	const regex = Object.freeze({
+		patterns: frozenPatterns(patterns),
+		key: language.key,
+		check: language.check
+	})
 	const bounds = language.check.bounds
 	return Object.freeze(
 		bounds === undefined
@@ -396,12 +429,15 @@ export const languageOctets = (language: TextLanguage): number | undefined =>
 	language.kind === "every" ? undefined : octetsOf(language.check)
 
 /** The pattern of every text as grizzle spells it: what a byte bound over every text cuts, `str.regex("^.*$", "su")`. */
-export const wildcardSource = "^.*$"
-export const wildcardFlags: "u" | "su" = "su"
+export const wildcardPattern: PatternSource = Object.freeze({ source: "^.*$", flags: "su" })
+
+/** The patterns a text type's language is stated by: its refinement's, or the wildcard's alone. */
+export const textPatterns = (regex: RegexRef | "wildcard"): Patterns =>
+	regex === "wildcard" ? [wildcardPattern] : regex.patterns
 
 /**
- * A pattern's own language, before a byte bound cuts it: every text, or the language its pattern's check enforces,
- * by its key. The text analysis proves one of a pattern (text/refinement.ts textLookup).
+ * The own language of a text's patterns, before a byte bound cuts it: every text, or the language their check
+ * enforces, by its key. The text analysis proves one of a conjunction of patterns (text/refinement.ts textLookup).
  */
 export type PatternLanguage =
 	| { readonly kind: "every" }
@@ -875,10 +911,19 @@ const sameContract = (a: ContractInfo | undefined, b: ContractInfo | undefined):
 const sameNumericTypmod = (a: NumericTypmod | undefined, b: NumericTypmod | undefined): boolean =>
 	a?.precision === b?.precision && a?.scale === b?.scale
 
+/** One list of patterns: each member's source and flags, in order. */
+export const samePatterns = (a: Patterns, b: Patterns): boolean =>
+	a === b ||
+	(a.length === b.length &&
+		a.every((p, i) => {
+			const q = b[i]
+			return q !== undefined && p.source === q.source && p.flags === q.flags
+		}))
+
 const sameRegexRef = (a: RegexRef | "wildcard", b: RegexRef | "wildcard"): boolean =>
 	a === "wildcard" || b === "wildcard"
 		? a === b
-		: a.source === b.source && a.flags === b.flags && a.key === b.key
+		: samePatterns(a.patterns, b.patterns) && a.key === b.key
 
 const sameText = (a: TextInfo | undefined, b: TextInfo | undefined): boolean =>
 	a === undefined || b === undefined
@@ -898,8 +943,8 @@ const sameSpan = (a: SpanInfo | undefined, b: SpanInfo | undefined): boolean =>
 
 /**
  * Type identity, field by field: one carrier and capability set, one contract by its identity (never
- * its predicate), and one numeric typmod or computed numeric bound, vector dimension count, text refinement (pattern,
- * flags, language key and bounds), roster and span. Source locations never appear inside a descriptor.
+ * its predicate), and one numeric typmod or computed numeric bound, vector dimension count, text refinement (patterns,
+ * language key and bounds), roster and span. Source locations never appear inside a descriptor.
  */
 export const sameScalarType = (a: ScalarType, b: ScalarType): boolean =>
 	a === b ||
@@ -981,12 +1026,12 @@ const nativeNames: Readonly<Record<Carrier, string>> = {
 }
 
 /**
- * A text refinement as diagnostics name it: its pattern, and the byte bound str.bytes cuts it to, as
- * "text ~ /^[a-z]+$/u" or "text ~ /^.*$/su of at most 64 bytes".
+ * A text refinement as diagnostics name it: its patterns, and the byte bound str.bytes cuts it to, as
+ * "text ~ /^[a-z]+$/u", "text ~ /^[a-z]+$/u & /^.{0,8}$/su" or "text ~ /^.*$/su of at most 64 bytes".
  */
 export const refinementText = (regex: RegexRef): string => {
 	const octets = octetsOf(regex.check)
-	return `text ~ /${regex.source}/${regex.flags}${octets === undefined ? "" : ` of at most ${octets} bytes`}`
+	return `text ~ ${patternsText(regex.patterns)}${octets === undefined ? "" : ` of at most ${octets} bytes`}`
 }
 
 /**

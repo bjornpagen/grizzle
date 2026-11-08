@@ -3,6 +3,7 @@ import type { RowDecoder } from "#compiler/core/decoder.ts"
 import type { Built, delta, Phantom } from "#compiler/core/phantom.ts"
 import type { CalendarDate } from "#compiler/ir/date.ts"
 import type { MonoidName, SideDesc, SlotsDesc, SourceSideDesc } from "#compiler/ir/desc.ts"
+import type { Patterns } from "#compiler/ir/scalar.ts"
 
 /** One side of a law as an outcome names it: its statement's side, as its Description states it (ir/desc.ts). */
 export type { SideDesc as LawSide } from "#compiler/ir/desc.ts"
@@ -1065,9 +1066,11 @@ export type Refused =
  * - `fold`: a fold, by its family's slots, its monoid and its step and end sides: each owner's ends its members'
  *   combination;
  * - `contract`: a contract's predicate, by its name;
- * - `pattern`: a stored field's text refinement (str.regex), by its relation and field, spelled as that field declares
- *   it: one law per field, so two fields of one pattern, which share one domain, are two laws, and a refusal names the
- *   field whose value broke it;
+ * - `pattern`: a stored field's text refinement (str.regex, str.and), by its relation and field, with its patterns
+ *   spelled as that field declares them, one for str.regex and every joined one in order for str.and: one law per
+ *   field, so two fields of one language, which share one domain, are two laws, and a refusal names the field whose
+ *   value broke it. A conjunction is one law, as its domain is one CHECK testing every pattern, which PostgreSQL
+ *   refuses as a whole: no refusal tells which pattern a value missed;
  * - `generated`: a generated field, by its relation and field: its term has a value at every row, which a closed read
  *   `C.at` at a key its closed relation holds no row at does not, so PostgreSQL refuses the row by the column's NOT NULL.
  */
@@ -1105,7 +1108,6 @@ export type Law =
 			readonly kind: "pattern"
 			readonly relation: string
 			readonly field: string
-			readonly source: string
-			readonly flags: "u" | "su"
+			readonly patterns: Patterns
 	  }
 	| { readonly kind: "generated"; readonly relation: string; readonly field: string }

@@ -155,9 +155,7 @@ describe("generated scalar types", () => {
 								}
 								const desc = fieldDescOf(t)
 								if (desc.kind === "text") {
-									const refinement = succeeded(
-										analyzeText(desc.source, desc.flags, SourceLoc("test", []))
-									)
+									const refinement = succeeded(analyzeText(desc.patterns, SourceLoc("test", [])))
 									assert.deepEqual(textOf(t), textInfo(refinement))
 									for (const l of classes) {
 										assert.ok(l.kind === "text" && accepts(refinement, l.value))

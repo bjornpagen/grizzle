@@ -9,6 +9,7 @@ import type {
 	Proving
 } from "#compiler/core/phantom.ts"
 import type { CalendarDate } from "#compiler/ir/date.ts"
+import type { Patterns } from "#compiler/ir/scalar.ts"
 import type { FloatPrecision, FloatSql } from "#compiler/scalar/pg.ts"
 import type { SqlTag } from "#compiler/scalar/registry.ts"
 import type { Decimal } from "#compiler/scalar/values/decimal.ts"
@@ -88,16 +89,13 @@ export interface Field<out Host, out Sql extends SqlTag, out D = Host, out F ext
 }
 
 /**
- * Every text field carries a regex; S and F are its literal source and flags. Its host type and language are the
- * pattern's (RegexInfer), and its domain is text: the checker meets text with text whatever their patterns, as
- * PostgreSQL compares them, and checks a JavaScript value against the pattern (ContractLiteral), as the language does.
+ * Every text field carries patterns, a non-empty conjunction: str.regex's one, or each joined text's for str.and. Its
+ * host type and language are its patterns' (RegexInfer), intersected, and its domain is text: the checker meets text
+ * with text whatever their patterns, as PostgreSQL compares them, and checks a JavaScript value against the patterns
+ * (ContractLiteral), as the language does.
  */
-export interface TextField<
-	out Host extends string,
-	out S extends string,
-	out F extends string
-> extends Field<Host, "text", string> {
-	readonly pattern: { readonly source: S; readonly flags: F }
+export interface TextField<out Host extends string> extends Field<Host, "text", string> {
+	readonly patterns: Patterns
 }
 
 /**

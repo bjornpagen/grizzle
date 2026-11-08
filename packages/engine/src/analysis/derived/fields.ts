@@ -11,9 +11,8 @@ import {
 	languageOfText,
 	type NumericValueType,
 	type ScalarType,
-	typeLabel,
-	wildcardFlags,
-	wildcardSource
+	textPatterns,
+	typeLabel
 } from "#compiler/ir/scalar.ts"
 import type { OwnedContract } from "#compiler/schema/own.ts"
 
@@ -78,25 +77,13 @@ export const declaredDescOf = (
 				scale: type.typmod.scale
 			})
 		case "text": {
-			const { regex } = type.text
 			const language = languageOfText(type.text)
-			return Result.ok(
-				regex === "wildcard"
-					? {
-							kind: "text",
-							source: wildcardSource,
-							flags: wildcardFlags,
-							bytes: undefined,
-							language
-						}
-					: {
-							kind: "text",
-							source: regex.source,
-							flags: regex.flags,
-							bytes: languageOctets(language),
-							language
-						}
-			)
+			return Result.ok({
+				kind: "text",
+				patterns: textPatterns(type.text.regex),
+				bytes: languageOctets(language),
+				language
+			})
 		}
 		case "code":
 			return Result.ok({ kind: "closedId", roster: type.roster.closed })
@@ -139,8 +126,8 @@ export const declaredDescOf = (
  *   NumericBound), which every read of the field then has;
  * - a contract field, or its `min` or `max`, keeps its brand and its domain; its `sum` or `mean` has its base's result
  *   type;
- * - a regex-refined text field keeps its pattern; a computed text value whose pattern is not preserved has the
- *   canonical wildcard, `^.*$` under `su` (ir/scalar.ts wildcardSource);
+ * - a regex-refined text field keeps its patterns; a computed text value whose patterns are not preserved has the
+ *   canonical wildcard, `^.*$` under `su` (ir/scalar.ts wildcardPattern);
  * - a closed id keeps its roster;
  * - a serial field read through a definition is a plain integer of its width: generation is a property of the stored
  *   column, not of the value, and a materialized view has no identity column.

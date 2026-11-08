@@ -1,7 +1,7 @@
 import { defect } from "#compiler/core/invariant.ts"
 import * as Result from "#compiler/core/result.ts"
 import { codePoints, codePointsText } from "#compiler/core/text.ts"
-import type { TextInfo } from "#compiler/ir/scalar.ts"
+import type { PatternSource } from "#compiler/ir/scalar.ts"
 import {
 	type CharSet,
 	charSet,
@@ -14,13 +14,7 @@ import {
 import { end, type LiveNode, type RegexNode, seq, start } from "#compiler/scalar/regex/ir.ts"
 import type { RegexFlags } from "#compiler/scalar/regex/parse.ts"
 import type { PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
-import {
-	anchoredAt,
-	anyText,
-	patternNode,
-	printSource,
-	sourceFlags
-} from "#compiler/scalar/regex/source.ts"
+import { anchoredAt, anyText, printSource, sourceFlags } from "#compiler/scalar/regex/source.ts"
 import { entry } from "#compiler/scalar/regex/table.ts"
 
 /**
@@ -155,12 +149,12 @@ const imageSources = (
 }
 
 /**
- * The image of a text type's language under a map (imageSources), its pattern's, read from `patterns`, or the
- * wildcard's (patternNode).
+ * The image of one pattern's language under a map (imageSources), its parse read from `patterns`: a member of a text
+ * type's conjunction (ir/scalar.ts textPatterns), whose image holds the image of every value of the conjunction.
  */
 export const imageOf = (
-	regex: TextInfo["regex"],
+	pattern: PatternSource,
 	map: CharMap,
 	patterns: PatternAutomata
 ): { readonly exact: string; readonly within: string } =>
-	imageSources(patternNode(regex, patterns), map)
+	imageSources(patterns.parse(pattern).node, map)

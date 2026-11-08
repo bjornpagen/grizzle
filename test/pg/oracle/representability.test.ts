@@ -28,7 +28,7 @@ import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { regexMaxRepeat } from "#compiler/core/limits.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
-import { wildcardFlags, wildcardSource } from "#compiler/ir/scalar.ts"
+import { wildcardPattern } from "#compiler/ir/scalar.ts"
 import { btreeMaxItemSize, keyLayout } from "#compiler/schema/representability.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { textDesc } from "#test/support/fixtures/ir/desc.ts"
@@ -98,7 +98,7 @@ const keyGen: Gen<KeySketch> = (source) => ({
 const lengthContract = (measure: "charLength" | "octetLength", length: number): FieldDesc => ({
 	kind: "contract",
 	name: "Bounded",
-	base: textDesc(wildcardSource, wildcardFlags),
+	base: textDesc(wildcardPattern.source, wildcardPattern.flags),
 	predicate: {
 		kind: "compare",
 		op: "le",

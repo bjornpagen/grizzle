@@ -32,6 +32,7 @@ import * as Result from "#compiler/core/result.ts"
 import { vectorMaxDimensions } from "#compiler/ir/carriers.ts"
 import type { ExprDesc, FieldDesc } from "#compiler/ir/desc.ts"
 import { fieldTypes } from "#compiler/ir/desc.ts"
+import type { Patterns } from "#compiler/ir/scalar.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { natural, uuid } from "#compiler/public/fields.ts"
 import { keyTextBytes, str } from "#compiler/public/text.ts"
@@ -546,13 +547,13 @@ describe("pattern byte bounds", () => {
 						Effect.sync(() => {
 							const alternatives = plantedAlternatives(s)
 							const source = patternSource(alternatives)
-							const language = textLookup(source, s.flags)
+							const patterns: Patterns = [{ source, flags: s.flags }]
+							const language = textLookup(patterns)
 							/** A pattern the analysis refuses has no descriptor, so nothing it bounds is a key's. */
 							const bound = language.ok
 								? textByteBound({
 										kind: "text",
-										source,
-										flags: s.flags,
+										patterns,
 										bytes: undefined,
 										language: language.value
 									})

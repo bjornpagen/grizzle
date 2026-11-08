@@ -18,7 +18,10 @@ layer(NodeServices.layer, { excludeTestServices: true })("the growing regex sche
 		const keys = new Set<string>()
 		for (let i = 0; i < regexSchemaPatterns; i++) {
 			const p = regexPattern(i)
-			const analyzed = succeeded(analyzeText(p.source, p.flags, SourceLoc("schema", [i])), p.source)
+			const analyzed = succeeded(
+				analyzeText([{ source: p.source, flags: p.flags }], SourceLoc("schema", [i])),
+				p.source
+			)
 			keys.add(analyzed.key)
 			assert.equal(jsAccepts(p.source, p.flags, p.member), true)
 			assert.equal(accepts(analyzed, p.member), true)

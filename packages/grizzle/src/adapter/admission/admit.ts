@@ -76,6 +76,7 @@ import {
 	malformedDescription,
 	type ObjectName,
 	type OutputRows,
+	patternsText,
 	printObjectName,
 	type RoleDesc,
 	type ScalarType,
@@ -154,7 +155,7 @@ const claimDomain = (t: ScalarType, names: InstallNames): Option.Option<ObjectNa
 	}
 	return Option.some(
 		names.textDomain(regex) ??
-			missing(`admission: no domain for the claim pattern /${regex.source}/${regex.flags}`)
+			missing(`admission: no domain for the claim patterns ${patternsText(regex.patterns)}`)
 	)
 }
 

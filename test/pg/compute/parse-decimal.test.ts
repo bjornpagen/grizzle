@@ -190,10 +190,7 @@ const textFeatures = (text: string): ReadonlyArray<Feature> => {
 }
 
 /** A decimal text the parse reads total: the form's pattern within its bytes. */
-const KeyText = str.bytes(
-	decimalTextMaxBytes.value,
-	regexField<string, string, readonly []>(decimalText, [])
-)
+const KeyText = str.bytes(decimalTextMaxBytes.value, regexField<string>(decimalText, []))
 
 /** The host evaluator's parse of a text: the evaluation, as a check lowers it, of parseDecimal(v). */
 const keyField = field(describeFieldOrThrow(KeyText, SourceLoc("KeyText", [])).desc, "text")

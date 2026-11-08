@@ -277,7 +277,10 @@ describe("an admitted pattern", () => {
 								const match = patternAt(c, fields[0]).match
 								Arr.forEach(c.texts, (text, j) => {
 									const matched = defined(answer.matched[j], "a match")
-									const expected = patternMember({ source: match, flags: "u" }, text)
+									const expected = patternMember(
+										{ patterns: [{ source: match, flags: "u" }] },
+										text
+									)
 									k.note(expected ? "a match that holds" : "a match that fails")
 									assert.ok(
 										matched.ok && matched.value === expected,
@@ -293,7 +296,10 @@ describe("an admitted pattern", () => {
 										}
 										assert.equal(
 											bound,
-											patternMember(pattern, text),
+											patternMember(
+												{ patterns: [{ source: pattern.source, flags: pattern.flags }] },
+												text
+											),
 											`${relation.name}.t${i}'s bind of ${Formatter.format(text)}`
 										)
 									})

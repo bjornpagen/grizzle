@@ -2837,7 +2837,10 @@ const hostOfDesc = (desc: FieldDesc, base: Base, ids: Ids): string => {
 		case "bytes":
 			return "Uint8Array<ArrayBuffer>"
 		case "text":
-			return `Tx.RegexInfer<${jsonText(desc.source)}, ${jsonText(desc.flags)}>`
+			return Arr.join(
+				Arr.map(desc.patterns, (p) => `Tx.RegexInfer<${jsonText(p.source)}, ${jsonText(p.flags)}>`),
+				" & "
+			)
 		case "contract":
 			return builtinDesc(desc)
 				? hostOfDesc(desc.base, base, ids)
@@ -2995,7 +2998,13 @@ const hostOfScalar = (t: ScalarType, ids: Ids): string => {
 		case "text":
 			return t.text.regex === "wildcard"
 				? "string"
-				: `Tx.RegexInfer<${jsonText(t.text.regex.source)}, ${jsonText(t.text.regex.flags)}>`
+				: Arr.join(
+						Arr.map(
+							t.text.regex.patterns,
+							(p) => `Tx.RegexInfer<${jsonText(p.source)}, ${jsonText(p.flags)}>`
+						),
+						" & "
+					)
 		case "bytes":
 			return "Uint8Array<ArrayBuffer>"
 		case "code":
@@ -5491,7 +5500,7 @@ const valueDescriptorType = (desc: FieldDesc, base: Base, ids: Ids): string => {
 		case "bytes":
 			return "Fi.BytesField"
 		case "text":
-			return `Tx.RegexText<${hostOfDesc(desc, base, ids)}, ${jsonText(desc.source)}, ${jsonText(desc.flags)}>`
+			return `Tx.RegexText<${hostOfDesc(desc, base, ids)}>`
 		case "contract": {
 			if (builtinDesc(desc)) {
 				return desc.base.kind === "pg" && desc.base.type === "date"
@@ -5822,7 +5831,7 @@ const textAssertions = (
 	const expect = (label: string, actual: string, expected: string): string =>
 		`export type ${ids(`t_${label}_${name}`)} = Expect<Equals<${actual}, ${expected}>>`
 	const check = desc.language.kind === "refined" ? desc.language.check : undefined
-	const exact = Str.includes("\\u")(desc.source)
+	const exact = Arr.some(desc.patterns, (p) => Str.includes("\\u")(p.source))
 		? ["string"]
 		: check?.kind === "finite" && check.members.length <= 8
 			? [literalUnion(check.members)]

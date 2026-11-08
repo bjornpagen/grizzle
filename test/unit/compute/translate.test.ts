@@ -24,7 +24,7 @@ import { codePoints, codePointsText } from "#compiler/core/text.ts"
 import type { ExprDesc, FieldDesc } from "#compiler/ir/desc.ts"
 import { predicateTable, type ScalarExpr } from "#compiler/ir/expr.ts"
 import type { OpenExpr } from "#compiler/ir/open.ts"
-import { textOf } from "#compiler/ir/scalar.ts"
+import { textOf, textPatterns } from "#compiler/ir/scalar.ts"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
 import { evaluateTable, sqlNull } from "#compiler/scalar/compute/evaluate.ts"
 import type { CarrierValue } from "#compiler/scalar/compute/literal.ts"
@@ -301,13 +301,16 @@ describe("Compute's translate and lowerAscii", () => {
 		| "an exact image past the measures"
 
 	/**
-	 * A code point and four end-or-start tests, eight anchors, unanchored at the start: the exact image's prefix writes
-	 * out two anchors more, past the eight PostgreSQL's compile space admits.
+	 * A code point and a chain of plain code points at the edge of the depth grizzle holds a pattern to (core/limits.ts
+	 * regexMaxDepth): the pattern and its own image fit the measure for every last run up to 196, and the exact image,
+	 * eight arcs deeper for the prefix and the suffix of any text it writes out around a pattern unanchored at either
+	 * end, passes it from a last run of 189. Each such case compiles a pattern of some 16,000 positions, so the arm is
+	 * drawn rarely.
 	 */
-	const anchored =
+	const deep =
 		(alphabet: Arr.NonEmptyReadonlyArray<number>): Gen<readonly [string, Flags]> =>
 		(s) => [
-			`\\u{${s.draw(element(alphabet)).toString(16)}}${Arr.join(Arr.replicate("(?:$|^)", 4), "")}`,
+			`\\u{${s.draw(element(alphabet)).toString(16)}}(?:a{255}){61}b{${s.draw(int(189, 196))}}`,
 			"u"
 		]
 
@@ -315,10 +318,10 @@ describe("Compute's translate and lowerAscii", () => {
 		const family = source.draw(int(0, families.length - 1))
 		const f = defined(families[family], "a family")
 		const declared: Gen<readonly [string, Flags]> = weighted([
-			[1, element(Arr.isReadonlyArrayNonEmpty(f.patterns) ? f.patterns : [["^$", "u"] as const])],
-			[2, map(patternOver(f.alphabet), (p): readonly [string, Flags] => [p, "u"])],
-			[1, (s): readonly [string, Flags] => ["^.*$", s.draw(boolean) ? "su" : "u"]],
-			[1, anchored(f.alphabet)]
+			[4, element(Arr.isReadonlyArrayNonEmpty(f.patterns) ? f.patterns : [["^$", "u"] as const])],
+			[8, map(patternOver(f.alphabet), (p): readonly [string, Flags] => [p, "u"])],
+			[4, (s): readonly [string, Flags] => ["^.*$", s.draw(boolean) ? "su" : "u"]],
+			[1, deep(f.alphabet)]
 		])
 		const [pattern, flags] = source.draw(declared)
 		return {
@@ -367,16 +370,16 @@ describe("Compute's translate and lowerAscii", () => {
 					),
 					kept: [
 						{
-							note: "a code point and four end-or-start tests, eight anchors unanchored at the start, whose exact image writes out two more, past the eight PostgreSQL's compile space admits: the pattern's own image types it",
+							note: "a code point and a chain whose own image fits the depth measure and whose exact image, eight arcs deeper for the prefix and the suffix it writes out, passes it; the measure keeps half of PostgreSQL's measured stack edge free, so PostgreSQL itself still compiles that image: the pattern's own image types the term",
 							sketch: {
 								family: 0,
-								source: "\\u{30}(?:$|^)(?:$|^)(?:$|^)(?:$|^)",
+								source: "\\u{30}(?:a{255}){61}b{189}",
 								flags: "u",
 								map: { from: [0x30], to: [0x31] },
 								texts: ["", "1", "21"]
 							},
 							draws: "",
-							reaches: ["an exact image past the measures", "an image member", "a non-member"]
+							reaches: ["an exact image past the measures", "a non-member"]
 						}
 					],
 					runs: 400,
@@ -387,7 +390,10 @@ describe("Compute's translate and lowerAscii", () => {
 				},
 				(c, k) =>
 					Effect.sync(() => {
-						const declared = analyzeText(c.source, c.flags, SourceLoc("str.regex", []))
+						const declared = analyzeText(
+							[{ source: c.source, flags: c.flags }],
+							SourceLoc("str.regex", [])
+						)
 						if (!declared.ok) {
 							return
 						}
@@ -420,20 +426,25 @@ describe("Compute's translate and lowerAscii", () => {
 						 * refinement is admitted under; past them the pattern's own image does, which holds every value of the
 						 * image and may hold more.
 						 */
+						const [operandPattern] = textPatterns(operandText.regex)
 						const exact = analyzeText(
-							imageOf(
-								operandText.regex,
-								succeeded(charMapOf(codePointsText(c.map.from), codePointsText(c.map.to))),
-								new CompilePatterns()
-							).exact,
-							"u",
+							[
+								{
+									source: imageOf(
+										operandPattern,
+										succeeded(charMapOf(codePointsText(c.map.from), codePointsText(c.map.to))),
+										new CompilePatterns()
+									).exact,
+									flags: "u"
+								}
+							],
 							SourceLoc("the exact image", [])
 						).ok
 						if (!exact) {
 							k.note("an exact image past the measures")
 						}
 						const accepts = (value: string): boolean =>
-							image.regex === "wildcard" || jsAccepts(image.regex.source, image.regex.flags, value)
+							Arr.every(textPatterns(image.regex), (p) => jsAccepts(p.source, p.flags, value))
 						for (const t of c.texts) {
 							const member = Arr.some(preimages(t, c.map), (p) => jsAccepts(c.source, c.flags, p))
 							const where = `${Formatter.format(t)} under /${c.source}/${c.flags} mapped by ${Formatter.format(c.map)}`
@@ -1195,7 +1206,9 @@ describe("Compute's translate and lowerAscii", () => {
 				},
 				(c, k) =>
 					Effect.sync(() => {
-						if (!analyzeText(c.source, c.flags, SourceLoc("str.regex", [])).ok) {
+						if (
+							!analyzeText([{ source: c.source, flags: c.flags }], SourceLoc("str.regex", [])).ok
+						) {
 							return
 						}
 						const operand = testPg.regex(c.source, c.flags)
@@ -1211,10 +1224,12 @@ describe("Compute's translate and lowerAscii", () => {
 						).root
 						const image = defined(textOf(term.nominal), "the image is text")
 						const operandText = defined(textOf(operand.scalar))
+						const [operandPattern] = textPatterns(operandText.regex)
 						const chosen = defined(
 							Arr.findFirst(
-								collapseSources(operandText.regex, operandText.lengthBound, new CompilePatterns()),
-								(s) => analyzeText(s.source, s.flags, SourceLoc("image", [])).ok
+								collapseSources(operandPattern, operandText.lengthBound, new CompilePatterns()),
+								(s) =>
+									analyzeText([{ source: s.source, flags: s.flags }], SourceLoc("image", [])).ok
 							).pipe(Option.getOrUndefined),
 							"an admitted image"
 						)
@@ -1226,7 +1241,7 @@ describe("Compute's translate and lowerAscii", () => {
 							)
 						}
 						const accepts = (value: string): boolean =>
-							image.regex === "wildcard" || jsAccepts(image.regex.source, image.regex.flags, value)
+							Arr.every(textPatterns(image.regex), (p) => jsAccepts(p.source, p.flags, value))
 						const members = Arr.filter(c.texts, (t) => jsAccepts(c.source, c.flags, t))
 						for (const m of members) {
 							assert.ok(

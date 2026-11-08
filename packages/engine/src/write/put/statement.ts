@@ -3,6 +3,7 @@ import type { ParamId } from "#compiler/core/ids.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import {
 	concatNonEmpty,
+	flatMapNonEmpty,
 	isNonEmpty,
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
@@ -60,7 +61,7 @@ import {
 } from "#compiler/sql/build.ts"
 import { emitText } from "#compiler/sql/emit.ts"
 import { NameSupply } from "#compiler/sql/naming.ts"
-import { type FieldColumns, fieldColumns, flatMapNonEmpty } from "#compiler/write/defined.ts"
+import { type FieldColumns, fieldColumns } from "#compiler/write/defined.ts"
 import { arbiterLaw, type WrittenRelation } from "#compiler/write/frontend/compile.ts"
 import {
 	inputGuarantees,

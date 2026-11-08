@@ -451,8 +451,9 @@ The command line's own refusals, by stage:
 - A broken rule is an outcome of `db.apply`, never an error. `invariant-rejected` carries `refused`,
   `{ kind: "every" | "first" | "some", laws }`, whose `laws` are the laws as the schema states them, never empty, such
   as `[{ kind: "check", relation: "Grant", name: "WithinGrant" }]`: match on them directly, never on a constraint's
-  name. A pattern's law names its field, `{ kind: "pattern", relation, field, source, flags }`, spelled as that field
-  spells its pattern, so two fields of one pattern are two laws. `lawsOf(schema)` lists every law a schema states,
+  name. A pattern's law names its field, `{ kind: "pattern", relation, field, patterns }`, each `{ source, flags }`
+  spelled as that field spells it, every pattern of a `str.and` in order and one law for the field all the same, so two
+  fields of one pattern are two laws. `lawsOf(schema)` lists every law a schema states,
   each once, as an outcome names it: each table's primary key, each statement's laws, each contract's, each stored
   field's pattern law and each generated field's law, none for a pattern every text matches, which grizzle drops, or
   for a contract's pattern, whose law is the contract's. Compare refusals against it with `sameLaw`, and never keep a
@@ -501,6 +502,11 @@ The command line's own refusals, by stage:
   is UnrepresentableKey. The step may be any text, a generated piece at a byte bound among them,
   `generated(T, Compute.concat(…))` for a refined `T`: a generated field and each accumulator is of its type but for
   its own pattern and byte bound, which its domain checks, refusing a write whose value lies outside it.
+- Join patterns a text must all match, XML Schema's pattern facets among them, with
+  `str.and(str.regex(p), str.regex(q))`, never one regex you intersect by hand: each pattern is held to PostgreSQL's
+  limits alone and its domain tests each in turn, so a conjunction costs the sum of its patterns, never their product,
+  and its host type is theirs intersected. Inside `Compute.when(Compute.matches(x, p), …)` the subject is text of its
+  own patterns and `p` together, so nested matches prove a cast into a conjunction.
 - Write a `str.regex` or `Compute.matches` pattern in JavaScript's syntax under `u`, with no lookahead or lookbehind,
   `\p{…}` or `\P{…}`, `\s` or `\S`, `\b` or `\B`, backreference, named group, inline modifier, lazy quantifier or
   repetition bound above 255, and with some text it matches. TypeScript accepts each of these, but the relation,

@@ -226,7 +226,7 @@ const admittedChecks: ReadonlyArray<ReadonlyArray<boolean>> = Arr.flatMap(
 	(family, fi) =>
 		Arr.flatMap(family.patterns, ([source, flags], pi) => {
 			field.regexField(source, [flags])
-			const result = refinement.analyzeText(source, flags, loc.SourceLoc("probe", [fi, pi]))
+			const result = refinement.analyzeText([{ source, flags }], loc.SourceLoc("probe", [fi, pi]))
 			if (!result.ok) {
 				return []
 			}
@@ -238,7 +238,7 @@ const admittedChecks: ReadonlyArray<ReadonlyArray<boolean>> = Arr.flatMap(
 			if (regex === "wildcard") {
 				return [[]]
 			}
-			const automata = programPatterns([regex])
+			const automata = programPatterns(regex.patterns)
 			return [Arr.map(probes(family.alphabet), (value) => automata.member(regex, value))]
 		})
 )
@@ -257,7 +257,7 @@ const refused = Arr.filter(
 	] as const,
 	([source, flags]) =>
 		!parse.isRegexFlags(flags) ||
-		!refinement.analyzeText(source, flags, loc.SourceLoc("probe", ["refused"])).ok
+		!refinement.analyzeText([{ source, flags }], loc.SourceLoc("probe", ["refused"])).ok
 ).length
 
 /** The text codecs: every carrier's conversion of PostgreSQL's output texts. */

@@ -187,10 +187,9 @@ const reached = (value: unknown): ReadonlyArray<object> => {
 /** A text descriptor of `source` cut to `bytes` UTF-8 bytes, its language as str.bytes admits it. */
 const bytesDesc = (source: string, flags: "u" | "su", bytes: number): FieldDesc => ({
 	kind: "text",
-	source,
-	flags,
+	patterns: [{ source, flags }],
 	bytes,
-	language: succeeded(textLookupWithin(bytes)(source, flags))
+	language: succeeded(textLookupWithin(bytes)([{ source, flags }]))
 })
 
 /** The roster the closed id and the set descriptors are over. */

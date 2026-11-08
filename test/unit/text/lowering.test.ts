@@ -124,7 +124,7 @@ const areKey = (are: string): string | undefined => {
 	if (source === undefined) {
 		return undefined
 	}
-	const analyzed = analyzeText(source, "su", SourceLoc("a printed ARE", []))
+	const analyzed = analyzeText([{ source, flags: "su" }], SourceLoc("a printed ARE", []))
 	return analyzed.ok ? analyzed.value.key : undefined
 }
 
@@ -218,9 +218,9 @@ describe("constraint loops (scalar/regex/ir.ts repeat)", () => {
 						if (parsed.ok && loops(parsed.value)) {
 							c.note("source loops through an assertion")
 						}
-						const r = analyzeText(source, flags, loc)
+						const r = analyzeText([{ source, flags }], loc)
 						if (r.ok) {
-							assert.equal(loops(r.value.ir), false, `/${source}/${flags}`)
+							assert.equal(loops(r.value.members[0].ir), false, `/${source}/${flags}`)
 						}
 					})
 			)
@@ -253,11 +253,11 @@ describe("reading a printed ARE back", () => {
 					},
 					([source, flags], c) =>
 						Effect.sync(() => {
-							const r = analyzeText(source, flags, loc)
+							const r = analyzeText([{ source, flags }], loc)
 							if (!r.ok) {
 								return
 							}
-							const language = analyzeLanguage(r.value.ir)
+							const language = analyzeLanguage(r.value.members[0].ir)
 							if (language.kind === "empty") {
 								return assert.fail(`/${source}/${flags} is admitted with no member`)
 							}
@@ -265,7 +265,7 @@ describe("reading a printed ARE back", () => {
 								return
 							}
 							c.note("compared")
-							const key = areKey(r.value.are)
+							const key = areKey(r.value.members[0].are)
 							if (key === r.value.key) {
 								c.note("read back to its own key")
 								return
@@ -277,18 +277,18 @@ describe("reading a printed ARE back", () => {
 							 * A key other than the pattern's own: the read-back pattern's language reaches no canonical automaton.
 							 */
 							const back = defined(
-								areSource(r.value.are),
-								`/${source}/${flags} as ${r.value.are} reads back`
+								areSource(r.value.members[0].are),
+								`/${source}/${flags} as ${r.value.members[0].are} reads back`
 							)
 							const reparsed = succeeded(
 								parsePattern(back, "su"),
-								`/${source}/${flags} as ${r.value.are} parses back`
+								`/${source}/${flags} as ${r.value.members[0].are} parses back`
 							)
 							const readBack = analyzeLanguage(reparsed)
 							assert.equal(
 								readBack.kind === "nonEmpty" && readBack.known.kind === "structure",
 								true,
-								`/${source}/${flags} as ${r.value.are}`
+								`/${source}/${flags} as ${r.value.members[0].are}`
 							)
 						})
 				)
@@ -342,16 +342,16 @@ describe("reading a printed ARE back", () => {
 						if (back !== source) {
 							c.note("spelled otherwise than its ARE")
 						}
-						const own = analyzeText(source, "u", loc)
+						const own = analyzeText([{ source, flags: "u" }], loc)
 						if (own.ok) {
 							c.note("admitted")
 						} else if (own.error.reason._tag === "ResourceBound") {
 							c.note("refused at a budget")
 						}
 						const verdict = (r: typeof own): string =>
-							r.ok ? `admitted as ${r.value.are}` : `refused as ${r.error.reason._tag}`
+							r.ok ? `admitted as ${r.value.members[0].are}` : `refused as ${r.error.reason._tag}`
 						assert.equal(
-							verdict(analyzeText(back, "su", loc)),
+							verdict(analyzeText([{ source: back, flags: "su" }], loc)),
 							verdict(own),
 							`/${source}/u as ${are}`
 						)
@@ -392,11 +392,11 @@ interface Forms {
 const formsOf = (language: FiniteLanguage, refinement: TextRefinement): Forms => {
 	const bounds = defined(
 		refinementBounds(refinement),
-		`/${refinement.source}/${refinement.flags} bounds its finite language`
+		`/${refinement.members[0].source}/${refinement.members[0].flags} bounds its finite language`
 	)
 	return {
 		inList: { kind: "finite", members: language.members, bounds },
-		regex: { kind: "regex", pattern: refinement.are, bounds }
+		regex: { kind: "regex", ares: [refinement.members[0].are], bounds }
 	}
 }
 
@@ -410,7 +410,7 @@ const tieFrom = (k: number): FiniteLanguage => {
 	const language: FiniteLanguage = { source: `^a{${k}}$`, members: [Str.repeat(k)("a")] }
 	const { inList, regex } = formsOf(
 		language,
-		succeeded(analyzeText(language.source, "u", loc), language.source)
+		succeeded(analyzeText([{ source: language.source, flags: "u" }], loc), language.source)
 	)
 	return domainBytes(inList) < domainBytes(regex) ? tieFrom(k + 1) : language
 }
@@ -462,7 +462,10 @@ describe("the enforcement of a finite language", () => {
 								() => drawnCase
 							)
 							const label = `/${language.source}/${flags}`
-							const r = succeeded(analyzeText(language.source, flags, loc), label)
+							const r = succeeded(
+								analyzeText([{ source: language.source, flags: flags }], loc),
+								label
+							)
 							const check = r.check
 							if (check.kind === "tautology") {
 								return assert.fail(`${label} is a finite language, no tautology`)

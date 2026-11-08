@@ -3,6 +3,7 @@ import { appendAll } from "#compiler/core/array.ts"
 import { conversionOf } from "#compiler/core/identity.ts"
 import type { ConstraintName, DomainName } from "#compiler/core/ids.ts"
 import { type FieldDesc, fieldTypes } from "#compiler/ir/desc.ts"
+import type { Patterns } from "#compiler/ir/scalar.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import type { SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
@@ -118,12 +119,12 @@ export const textProbes: ReadonlyArray<string> = [
 /** The declared text refinement of a field, along a contract's chain to its text base, or none. */
 type DeclaredText =
 	| { readonly kind: "none" }
-	| { readonly kind: "text"; readonly source: string; readonly flags: string }
+	| { readonly kind: "text"; readonly patterns: Patterns }
 
 const declaredText = (field: FieldDesc): DeclaredText => {
 	switch (field.kind) {
 		case "text":
-			return { kind: "text", source: field.source, flags: field.flags }
+			return { kind: "text", patterns: field.patterns }
 		case "contract":
 			return declaredText(field.base)
 		case "pg":
@@ -138,11 +139,11 @@ const declaredText = (field: FieldDesc): DeclaredText => {
 	}
 }
 
-/** One text refinement domain of an installation with the pattern its declaration states. */
+/** One text refinement domain of an installation with the patterns its declaration states, every one of which a member matches. */
 interface TextDomainModel {
 	readonly domain: DomainName
 	readonly check: ConstraintName
-	readonly pattern: RegExp
+	readonly patterns: ReadonlyArray<RegExp>
 }
 
 /**
@@ -182,7 +183,7 @@ const textDomainModels = (
 		return {
 			domain: d.name,
 			check: d.constraint,
-			pattern: compiledPattern(text.source, text.flags)
+			patterns: Arr.map(text.patterns, (p) => compiledPattern(p.source, p.flags))
 		}
 	})
 
@@ -209,7 +210,7 @@ export const probeTextDomains = (
 		const schema = quoteIdent(installation.names.schema)
 		for (const model of textDomainModels(installation, desc)) {
 			for (const text of textProbes) {
-				const holds = model.pattern.test(text)
+				const holds = Arr.every(model.patterns, (pattern) => pattern.test(text))
 				const verdict = yield* probe(
 					pinned,
 					`SELECT $1::text::${schema}.${quoteIdent(model.domain)}`,

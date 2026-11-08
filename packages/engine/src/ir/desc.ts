@@ -35,13 +35,14 @@ import {
 import type { CalendarDate } from "#compiler/ir/date.ts"
 import { decimalTag, isDecimalPayload } from "#compiler/ir/decimal.ts"
 import { type Fact, factNames, factsSorted } from "#compiler/ir/proof.ts"
-import { calendarDateShape, textLanguageShape } from "#compiler/ir/scalar-shape.ts"
+import { calendarDateShape, patternsShape, textLanguageShape } from "#compiler/ir/scalar-shape.ts"
 import {
 	languageOctets,
 	type NumericBound,
 	numericMaxPrecision,
 	numericMaxScale,
 	numericMinScale,
+	type Patterns,
 	type TextLanguage
 } from "#compiler/ir/scalar.ts"
 import * as S from "#compiler/ir/shape.ts"
@@ -96,14 +97,14 @@ export type FieldDesc =
 	| { readonly kind: "bytes" }
 	| {
 			readonly kind: "text"
-			readonly source: string
-			readonly flags: "u" | "su"
+			/** The text's patterns as declared: one for str.regex, the members of each text str.and joins. */
+			readonly patterns: Patterns
 			/**
 			 * The most UTF-8 bytes a value holds, str.bytes's bound where it cuts the pattern's language; none for a text of
 			 * its pattern alone.
 			 */
 			readonly bytes: number | undefined
-			/** The pattern's language as the text analysis proved it where the descriptor was admitted, cut to `bytes`. */
+			/** The patterns' language as the text analysis proved it where the descriptor was admitted, cut to `bytes`. */
 			readonly language: TextLanguage
 	  }
 	| {
@@ -1353,8 +1354,6 @@ export const literalDescShape: S.Shape<LiteralDesc> = S.unionShape(
 	S.struct({ handles: S.uniqueStrings("a set's handles", S.nonEmptyString) })
 )
 
-const regexFlags = S.literalsShape(["u", "su"])
-
 const fieldDescShape: S.Shape<FieldDesc> = S.lazy("a field descriptor", () =>
 	S.tagged("kind", {
 		pg: S.struct({ type: S.literalsShape(pgScalarNames) }),
@@ -1371,7 +1370,7 @@ const fieldDescShape: S.Shape<FieldDesc> = S.lazy("a field descriptor", () =>
 		bytes: S.struct({}),
 		text: S.refine(
 			S.structStated(
-				{ source: S.string, flags: regexFlags, language: textLanguageShape },
+				{ patterns: patternsShape, language: textLanguageShape },
 				{ bytes: S.nonNegativeInteger },
 				{}
 			),

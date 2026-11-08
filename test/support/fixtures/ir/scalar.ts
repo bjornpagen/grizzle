@@ -4,6 +4,7 @@
  * scalar types and text refinements: a predicate table's normal form, the plain carriers, the refinement-dropping
  * widening, and a refinement's host NFA membership and language.
  */
+import { Array as Arr } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
@@ -146,7 +147,7 @@ export const widensTo = (from: ScalarType, to: ScalarType): boolean => {
 
 /** Whether an admitted text value matches a refinement: the host NFA matcher (scalar/regex/nfa.ts) over its IR. */
 export const accepts = (refinement: TextRefinement, value: string): boolean =>
-	matches(buildNfa(refinement.ir), value)
+	Arr.every(refinement.members, (member) => matches(buildNfa(member.ir), value))
 
 /**
  * The language of a parsed pattern (scalar/regex/parse.ts parsePattern), classified as

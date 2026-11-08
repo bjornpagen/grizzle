@@ -64,6 +64,7 @@ import {
 	type NumericTypmod,
 	numericTypmodOf,
 	type PatternCheck,
+	type Patterns,
 	type RegexCheck,
 	type RegexRef,
 	RegexKey,
@@ -160,7 +161,11 @@ const textBoundsShape: S.Shape<TextBounds> = S.struct({
 
 const finiteCheckShape = S.struct({ members: S.nonEmptyArray(S.string), bounds: textBoundsShape })
 
-const patternRegexShape = S.structStated({ pattern: S.string }, { bounds: textBoundsShape }, {})
+const patternRegexShape = S.structStated(
+	{ ares: S.nonEmptyArray(S.string) },
+	{ bounds: textBoundsShape },
+	{}
+)
 
 /** A pattern's enforcement as the text analysis chose it (ir/scalar.ts PatternCheck). */
 const patternCheckShape: S.Shape<PatternCheck> = S.tagged("kind", {
@@ -181,9 +186,13 @@ const regexCheckShape: S.Shape<RegexCheck> = S.tagged("kind", {
 
 const regexKeyShape = S.branded(RegexKey, S.nonEmptyString)
 
+/** A text's patterns (ir/scalar.ts Patterns): at least one, each its source and flags. */
+export const patternsShape: S.Shape<Patterns> = S.nonEmptyArray(
+	S.struct({ source: S.string, flags: S.literalsShape(["u", "su"]) })
+)
+
 const regexRefShape: S.Shape<RegexRef> = S.struct({
-	source: S.string,
-	flags: S.literalsShape(["u", "su"]),
+	patterns: patternsShape,
 	key: regexKeyShape,
 	check: regexCheckShape
 })

@@ -21,7 +21,13 @@ import {
 	qualifiedType,
 	type SelectionKey
 } from "#compiler/ir/physical.ts"
-import { baseOf, contractOf, type RegexRef, type ScalarType } from "#compiler/ir/scalar.ts"
+import {
+	baseOf,
+	contractOf,
+	patternsText,
+	type RegexRef,
+	type ScalarType
+} from "#compiler/ir/scalar.ts"
 import type { NamedNative } from "#compiler/laws/model/model.ts"
 import type { Owned, OwnedEntry, OwnedRole } from "#compiler/schema/own.ts"
 import type { Collation, FunctionName, ObjectName, TypeRef, TypeSchema } from "#compiler/sql/ast.ts"
@@ -416,9 +422,7 @@ export const columnType = (names: PhysicalNames, t: ScalarType): ColumnType => {
 	if (t.carrier === "text" && t.text.regex !== "wildcard") {
 		const domain = names.textDomain(t.text.regex)
 		if (domain === undefined) {
-			missing(
-				`physical: no structural text domain for /${t.text.regex.source}/${t.text.regex.flags}`
-			)
+			missing(`physical: no structural text domain for ${patternsText(t.text.regex.patterns)}`)
 		}
 		return { type: qualifiedType(domain), collation: undefined }
 	}

@@ -199,7 +199,7 @@ const contractDigest = (
 	const inner = field.base
 	const pattern =
 		inner.kind === "text"
-			? unwrap(analyzeText(inner.source, inner.flags, SourceLoc(location, []))).check
+			? unwrap(analyzeText(inner.patterns, SourceLoc(location, []))).check
 			: undefined
 	return definitionDigest({
 		base: base.sql,

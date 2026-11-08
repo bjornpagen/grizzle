@@ -64,7 +64,13 @@ import {
 } from "#compiler/ir/law.ts"
 import type { ConstraintLaws } from "#compiler/ir/products.ts"
 import type { RelNode } from "#compiler/ir/rel.ts"
-import { type ContractInfo, contractOf, type ScalarType, textOf } from "#compiler/ir/scalar.ts"
+import {
+	type ContractInfo,
+	contractOf,
+	type PatternSource,
+	type ScalarType,
+	textOf
+} from "#compiler/ir/scalar.ts"
 
 import {
 	type CheckPredicate,
@@ -87,12 +93,7 @@ import {
 	noParams
 } from "#compiler/scalar/compute/lower.ts"
 import { guardedTerm } from "#compiler/scalar/natural.ts"
-import {
-	type AdmittedSource,
-	ProgramPatterns,
-	tablePatterns,
-	typePatterns
-} from "#compiler/scalar/regex/patterns.ts"
+import { ProgramPatterns, tablePatterns, typePatterns } from "#compiler/scalar/regex/patterns.ts"
 import type { Owned } from "#compiler/schema/own.ts"
 import type { Law } from "#compiler/types/changeset/changeset.ts"
 
@@ -325,9 +326,9 @@ const lawPatterns = (
 	families: ReadonlyArray<Family>,
 	natives: ReadonlyArray<NamedNative>
 ): ProgramPatterns => {
-	const exprPatterns = (e: ScalarExpr): ReadonlyArray<AdmittedSource> =>
+	const exprPatterns = (e: ScalarExpr): ReadonlyArray<PatternSource> =>
 		tablePatterns(predicateTable(e))
-	const nativePatterns = (n: NamedNative): ReadonlyArray<AdmittedSource> => {
+	const nativePatterns = (n: NamedNative): ReadonlyArray<PatternSource> => {
 		switch (n.object.kind) {
 			case "TableCheck":
 				return exprPatterns(n.object.predicate)

@@ -5,11 +5,10 @@ import { jsonText } from "#compiler/core/trusted.ts"
 import type { ParamDecl } from "#compiler/ir/products.ts"
 import type { Fact } from "#compiler/ir/proof.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
-import { contractOf, type RegexRef, type ScalarType } from "#compiler/ir/scalar.ts"
-import { admitPattern } from "#compiler/scalar/regex/admit.ts"
+import { contractOf, patternsText, type RegexRef, type ScalarType } from "#compiler/ir/scalar.ts"
 import { longest, membersWithin } from "#compiler/scalar/regex/dfa.ts"
 import { carrierSql } from "#compiler/scalar/registry.ts"
-import { languageOf } from "#compiler/text/refinement.ts"
+import { analyzeText } from "#compiler/text/refinement.ts"
 import type { Carriers } from "#compiler/types/core/phantom.ts"
 
 /**
@@ -93,22 +92,22 @@ const carrierHost = (type: ScalarType): string => {
  * (text/refinement.ts languageOf, its minimal automaton acyclic), and every string for any other.
  */
 const textHost = (regex: RegexRef): string => {
-	const admitted = admitPattern(regex.source, regex.flags, SourceLoc("heading", []))
-	if (!admitted.ok) {
-		throw new Error(`the engine refuses a pattern it admitted: /${regex.source}/${regex.flags}`)
+	const analyzed = analyzeText(regex.patterns, SourceLoc("heading", []))
+	if (!analyzed.ok) {
+		throw new Error(`the engine refuses patterns it admitted: ${patternsText(regex.patterns)}`)
 	}
-	const language = languageOf(admitted.value.ir, admitted.value.nfa)
-	if (language.kind === "empty" || language.known.kind === "structure") {
+	const { known } = analyzed.value
+	if (known.kind === "structure") {
 		return "string"
 	}
-	const dfa = language.known.dfa
+	const dfa = known.dfa
 	if (longest(dfa) === undefined) {
 		return "string"
 	}
 	const members = membersWithin(dfa, 1, memberWeight)
 	if (members === undefined || !Arr.isReadonlyArrayNonEmpty(members)) {
 		throw new Error(
-			`no agreement schema declares a finite text of so many members: /${regex.source}/`
+			`no agreement schema declares a finite text of so many members: ${patternsText(regex.patterns)}`
 		)
 	}
 	return handles(members)

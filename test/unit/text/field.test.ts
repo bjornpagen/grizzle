@@ -51,18 +51,16 @@ describe("str.regex", () => {
 							 */
 							const field = flags === "u" ? regexField(source, ["u"]) : regexField(source, ["su"])
 							assert.equal(Object.isFrozen(field), true)
-							assert.equal(Object.isFrozen(field.pattern), true)
-							assert.equal(Object.isFrozen(field.desc), true)
-							assert.deepEqual(field.pattern, { source, flags })
+							assert.equal(Object.isFrozen(field.patterns), true)
+							assert.deepEqual(field.patterns, [{ source, flags }])
 							const content = () =>
 								schema("Content", { Article: relation("Article", { state: field }, ["state"]) }, [])
-							const analyzed = textLookup(source, flags)
+							const analyzed = textLookup([{ source, flags }])
 							if (analyzed.ok) {
 								const desc = succeeded(describeField(field, SourceLoc("field", []))).desc
 								assert.deepEqual(desc, {
 									kind: "text",
-									source,
-									flags,
+									patterns: [{ source, flags }],
 									bytes: undefined,
 									language: analyzed.value
 								})

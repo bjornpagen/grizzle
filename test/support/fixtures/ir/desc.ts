@@ -44,6 +44,7 @@ import {
 	type TermDesc,
 	type VarDesc as VarOf
 } from "#compiler/ir/desc.ts"
+import type { Patterns } from "#compiler/ir/scalar.ts"
 import { admitSchemaDesc } from "#compiler/schema/admit.ts"
 import { textLookup } from "#compiler/text/refinement.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
@@ -124,11 +125,12 @@ export const textDesc = (
 	source: string,
 	flags: "u" | "su"
 ): Extract<FieldDesc, { readonly kind: "text" }> => {
-	const language = textLookup(source, flags)
+	const patterns: Patterns = [{ source, flags }]
+	const language = textLookup(patterns)
 	if (!language.ok) {
 		throw language.error
 	}
-	return { kind: "text", source, flags, bytes: undefined, language: language.value }
+	return { kind: "text", patterns, bytes: undefined, language: language.value }
 }
 
 /** natural: the builtin contract over bigint, never below zero, that pred reads (scalar/natural.ts). */
