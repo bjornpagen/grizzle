@@ -71,6 +71,7 @@ import { oracleOwnedLogin } from "#test/support/oracle/install/real.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import { checking, owning } from "#test/support/policy.ts"
 import { expectConstraint, expectSqlstate, inTransaction } from "#test/support/substrate/expect.ts"
+import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { ownerSession, Substrate, worldSession } from "#test/support/substrate/substrate.ts"
 import { paramText } from "#test/support/wire.ts"
@@ -513,20 +514,22 @@ const refinedWriteGen: Gen<RefinedWrite> = (source) => {
 }
 
 layer(Substrate.layer)("refinement validation sites on PostgreSQL 19", (it) => {
+	const articlesSql = (
+		schemaName: string,
+		rows: ReadonlyArray<{ id: string; slug: string; title: string }>
+	): string =>
+		`INSERT INTO ${quoteIdent(schemaName)}."article" ("id", "slug", "title") VALUES ${Arr.join(
+			Arr.map(rows, (a) => `('${a.id}'::uuid, ${literal(a.slug)}, ${literal(a.title)})`),
+			", "
+		)}`
+
 	const loadArticles = (
 		schemaName: string,
 		rows: ReadonlyArray<{ id: string; slug: string; title: string }>
 	) =>
 		Effect.gen(function* () {
 			const s = yield* Substrate
-			const values = Arr.join(
-				Arr.map(rows, (a) => `('${a.id}'::uuid, ${literal(a.slug)}, ${literal(a.title)})`),
-				", "
-			)
-			yield* s.admin.query(
-				`INSERT INTO ${quoteIdent(schemaName)}."article" ("id", "slug", "title") VALUES ${values}`,
-				[]
-			)
+			yield* s.admin.query(articlesSql(schemaName, rows), [])
 		})
 
 	it.effect(
@@ -961,8 +964,8 @@ layer(Substrate.layer)("refinement validation sites on PostgreSQL 19", (it) => {
 				ctx,
 				Effect.gen(function* () {
 					const s = yield* Substrate
-					const { schema: name } = yield* install()
-					yield* loadArticles(name, articles(3))
+					const { schema: name, installation } = yield* install()
+					const tables = installationGroup(installationNamesOf(installation))
 					const session = yield* s.session({ ...ownerSession(), label: "reader" })
 					/**
 					 * An attachment over exact parents is its own statement in the flight (lower/shapes/attach R36): the parent's
@@ -1026,13 +1029,13 @@ layer(Substrate.layer)("refinement validation sites on PostgreSQL 19", (it) => {
 									return
 								}
 								const facts = Arr.map(comments, (comment, i) => ({ ...comment, id: id(50 + i) }))
-								yield* s.admin.query(`DELETE FROM ${quoteIdent(name)}."comment"`, [])
-								for (const fact of facts) {
-									yield* s.admin.query(
-										`INSERT INTO ${quoteIdent(name)}."comment" ("id", "article", "slug") VALUES ('${fact.id}', '${id(fact.article)}', ${literal(fact.slug)})`,
-										[]
-									)
-								}
+								yield* replaceRows(s.admin, tables, [
+									{ sql: articlesSql(name, articles(3)), params: [] },
+									...Arr.map(facts, (fact) => ({
+										sql: `INSERT INTO ${quoteIdent(name)}."comment" ("id", "article", "slug") VALUES ('${fact.id}', '${id(fact.article)}', ${literal(fact.slug)})`,
+										params: []
+									}))
+								])
 								const excluded = Arr.filter(facts, (fact) => fact.slug !== slug)
 								const delivered = yield* runPlanned(
 									session,

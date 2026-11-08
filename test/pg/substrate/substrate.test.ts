@@ -4,6 +4,7 @@ import { required } from "@grizzle/testing/features"
 import {
 	boolean,
 	characterOf,
+	constant,
 	element,
 	type Gen,
 	int,
@@ -122,7 +123,10 @@ const strayOf = (
 
 const lowercase = nonEmpty(Arr.fromIterable("abcdefghijklmnopqrstuvwxyz"), "lowercase letters")
 
-/** A case: the strays it plants, each named `stray_<kind's index>_<word>`, and whether its claim's release meets them. */
+/**
+ * A case: the strays it plants, none (an arm of its own, so the clean database is drawn) or a drawn subset, each named
+ * `stray_<kind's index>_<word>`, and whether its claim's release meets them.
+ */
 interface Planting {
 	readonly strays: ReadonlyArray<Stray>
 	readonly word: string
@@ -130,7 +134,12 @@ interface Planting {
 }
 
 const plantingGen: Gen<Planting> = (source) => ({
-	strays: source.draw(subarray(strays)),
+	strays: source.draw(
+		weighted<ReadonlyArray<Stray>>([
+			[1, constant([])],
+			[3, subarray(strays)]
+		])
+	),
 	word: source.draw(string(characterOf(lowercase), { min: 1, max: 6 })),
 	released: source.draw(
 		weighted<boolean>([

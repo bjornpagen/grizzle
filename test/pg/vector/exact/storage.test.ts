@@ -33,6 +33,7 @@ import { namesOf } from "#test/support/kernel/naming.ts"
 import { strictRead } from "#test/support/kernel/strict.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { expectConstraint, expectSqlstate } from "#test/support/substrate/expect.ts"
+import { clearRows, installationGroup } from "#test/support/substrate/replace.ts"
 import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
 import { fullWorld } from "#test/support/worlds.ts"
 import { codecOf } from "#test/unit/codec/support.ts"
@@ -317,7 +318,7 @@ layer(Substrate.layer)("vector storage", (it) => {
 						},
 						(points, k) =>
 							Effect.gen(function* () {
-								yield* s.admin.query(`DELETE FROM ${table}`, [])
+								yield* clearRows(s.admin, installationGroup(names))
 								const stored: Array<readonly [number, number]> = []
 								for (const [label, at] of points.entries()) {
 									const insert = writer.values(

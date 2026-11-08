@@ -62,11 +62,12 @@ import {
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import type { Installed } from "#test/support/install-migrate.ts"
 import { migrated, noObservation, type Version, workloadOf } from "#test/support/installed.ts"
-import { parsedName, parsedSchemaName, roleNamesOf } from "#test/support/kernel/naming.ts"
+import { namesOf, parsedName, parsedSchemaName, roleNamesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { draftedAt, fromSnapshot, generate, noDeclarations } from "#test/support/migrate/kit.ts"
 import { planRealInstall, type RealInstallPlan } from "#test/support/oracle/install/real.ts"
 import { expectConstraint, expectSqlstate, inTransaction } from "#test/support/substrate/expect.ts"
+import { clearRows, installationGroup } from "#test/support/substrate/replace.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
 import { outputText, paramText } from "#test/support/wire.ts"
@@ -808,7 +809,7 @@ layer(Substrate.layer)("closed ids as codes on PostgreSQL 19rc1", (it) => {
 								Effect.gen(function* () {
 									c.note(holeFeature(state))
 									const live = liveOf(state)
-									yield* m.owner.query(`DELETE FROM ${probeTable(m, state).table}`, [])
+									yield* clearRows(m.owner, installationGroup(namesOf(m)))
 									yield* writer.begin
 									for (const [i, handle] of live.entries()) {
 										yield* writer.query(insertCode(m, state), [i, defined(codeAt(state, handle))])

@@ -69,6 +69,7 @@ import { caseHang } from "#test/support/limits.ts"
 import { checking } from "#test/support/policy.ts"
 import { headingRecord } from "#test/support/statement-rows.ts"
 import { type PgErrorFields, pgErrorFields } from "#test/support/substrate/errors.ts"
+import { clearRows, installationGroup } from "#test/support/substrate/replace.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
@@ -659,9 +660,7 @@ layer(Substrate.layer)("vector equality as a world role", (it) => {
 					const load = (c: PairsCase) =>
 						Effect.gen(function* () {
 							const values = (rows: ReadonlyArray<string>) => Arr.join(rows, ", ")
-							yield* s.admin.query(`DELETE FROM ${names.table(Edge)}`, [])
-							yield* s.admin.query(`DELETE FROM ${names.table(B)}`, [])
-							yield* s.admin.query(`DELETE FROM ${names.table(A)}`, [])
+							yield* clearRows(s.admin, installationGroup(names))
 							yield* s.admin.query(
 								`INSERT INTO ${names.table(A)} (${names.column(A, "id")}, ${names.column(A, "value")}) VALUES ${values(
 									Arr.map(c.a, (x, i) => `('${aId(i)}'::uuid, ${spelledLit(x)})`)
@@ -807,9 +806,7 @@ layer(Substrate.layer)("vector equality as a world role", (it) => {
 						},
 						(steps, k) =>
 							Effect.gen(function* () {
-								for (const relation of writtenRelations) {
-									yield* s.admin.query(`DELETE FROM ${names.table(writeRelations[relation])}`, [])
-								}
+								yield* clearRows(s.admin, installationGroup(names))
 								const model = new Map<WrittenRelation, Map<string, WriteFact>>(
 									Arr.map(writtenRelations, (relation) => [relation, new Map()])
 								)

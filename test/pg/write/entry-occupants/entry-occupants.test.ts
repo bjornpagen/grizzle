@@ -27,6 +27,7 @@ import { migrated, noObservation } from "#test/support/installed.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
+import { clearRows, installationGroup } from "#test/support/substrate/replace.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 import { loginLayer, tokenOf } from "#test/support/worlds.ts"
@@ -278,7 +279,7 @@ layer(Substrate.layer)("a query entry's write meets every unique object of its t
 												onSome: (s) => [row(s, "u_ann")]
 											})
 										]
-										yield* m.sql(`DELETE FROM ${table}`)
+										yield* clearRows(m.owner, installationGroup(names))
 										if (stored.length > 0) {
 											yield* m.sql(
 												`INSERT INTO ${table} (${columns}) VALUES ${Arr.join(stored, ", ")}`

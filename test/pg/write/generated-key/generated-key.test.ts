@@ -99,7 +99,7 @@ import {
 import { caseHang } from "#test/support/limits.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import { applyRuntime } from "#test/support/runtime-db.ts"
-import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
+import { clearRows, installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 import { loginLayer } from "#test/support/worlds.ts"
@@ -1274,7 +1274,7 @@ layer(Substrate.layer)("keys over generated fields, against PostgreSQL 19", (it)
 								},
 								(c, cx) =>
 									Effect.gen(function* () {
-										yield* m.sql(`DELETE FROM ${table}`)
+										yield* clearRows(m.owner, installationGroup(names))
 										if (Arr.isReadonlyArrayNonEmpty(c.stored)) {
 											yield* m.sql(
 												`INSERT INTO ${table} (${id}, ${text}) VALUES ${Arr.join(
