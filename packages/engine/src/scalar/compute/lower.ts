@@ -26,7 +26,6 @@ import {
 import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
-import { compareCodePoints } from "#compiler/core/text.ts"
 import {
 	binary32Digits,
 	binary32FractionDigits,
@@ -54,8 +53,8 @@ import {
 	type Effects,
 	type ExprSpec,
 	type ExprTable,
-	type PatternEntry,
 	type PatternTable,
+	patternTableOf,
 	type ScalarExpr,
 	type TableExpr,
 	type TypedLiteral
@@ -2202,20 +2201,19 @@ class Lowering<R extends Refs> {
 	}
 
 	/**
-	 * Each value a matches pattern can take, admitted and translated (matchPattern), distinct, in code point order of
-	 * their sources: one set of patterns has one table.
+	 * The table of the values a matches pattern can take (ir/expr.ts patternTableOf), each admitted and translated once
+	 * (matchPattern) in the order the pattern states them, so a refusal names the first refused value it states.
 	 */
 	patternTable(desc: ExprDesc<Located, R>, at: SourceLoc): PatternTable {
-		const sources = [...new Set(this.patternSources(desc, at))].toSorted(compareCodePoints)
-		const entries = sources.map((source): PatternEntry => unwrap(matchPattern(source, at)))
-		if (!isNonEmpty(entries)) {
+		const sources = [...new Set(this.patternSources(desc, at))]
+		if (!isNonEmpty(sources)) {
 			return stop(
 				"UnsupportedOperation",
 				at,
 				"a pattern of at least one value: the closed relation it reads holds no row, so the match could never be stated"
 			)
 		}
-		return Object.freeze(entries)
+		return patternTableOf(mapNonEmpty(sources, (source) => unwrap(matchPattern(source, at))))
 	}
 
 	/**

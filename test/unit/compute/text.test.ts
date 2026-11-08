@@ -5,22 +5,21 @@ import { array, boolean, element, filter, type Gen, int, map, weighted } from "@
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Order } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Order, String as Str } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { regexMaxPositions } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Engine from "#compiler/core/result.ts"
-import { codePoints, codePointsText, compareCodePoints } from "#compiler/core/text.ts"
+import { codePoints, codePointsText } from "#compiler/core/text.ts"
 import type { ExprDesc } from "#compiler/ir/desc.ts"
 import { predicateTable, type ScalarExpr } from "#compiler/ir/expr.ts"
-import { defaultOps } from "#compiler/lower/conservative/expr/ops.ts"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
 import { evaluateTable, sqlNull } from "#compiler/scalar/compute/evaluate.ts"
 import type { CarrierValue } from "#compiler/scalar/compute/literal.ts"
 import { matchPattern } from "#compiler/scalar/regex/admit.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
 import type { Expr } from "#compiler/sql/ast.ts"
-import { col } from "#compiler/sql/build.ts"
+import { lit, types } from "#compiler/sql/build.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"
 import {
 	assert,
@@ -35,7 +34,15 @@ import {
 import { caseHang } from "#test/support/limits.ts"
 import { evaluate } from "#test/support/oracle/evaluate/catalog.ts"
 import { patternMember } from "#test/support/oracle/reference/evaluate.ts"
-import { baseParams, type LeafBinding, lowerWith, testPg, v } from "#test/unit/compute/support.ts"
+import {
+	baseParams,
+	type LeafBinding,
+	lowerWith,
+	plainRender,
+	sqlOf,
+	testPg,
+	v
+} from "#test/unit/compute/support.ts"
 import {
 	type FiniteLanguage,
 	families,
@@ -50,19 +57,22 @@ import {
  * them, and evaluated on the host (scalar/compute/evaluate.ts) and by the reference evaluator
  * (test/support/oracle/evaluate/catalog.ts).
  *
- * - matches: over every regex family's patterns and generated ones, a literal pattern and a dictionary of two (a
- *   conditional of literals, the values a closed payload holds), both evaluators agree with ECMAScript's own test,
- *   the development oracle the text differential holds against PostgreSQL; the node's pattern table holds each value
- *   the pattern can take once, in code point order, each with the ARE str.regex's own lowering prints for it; and the
- *   node refuses exactly where str.regex refuses one of its patterns.
+ * - matches: over every regex family's patterns and generated ones, some led by a code point either side of the
+ *   surrogates, a literal pattern and a dictionary of two (a conditional of literals, the values a closed payload
+ *   holds), both evaluators agree with ECMAScript's own test, the development oracle the text differential holds
+ *   against PostgreSQL; the node's pattern table holds each value the pattern can take once, in code point order by
+ *   the code points themselves, never UTF-16's, each with the ARE str.regex's own lowering prints for it; and the node
+ *   refuses exactly where str.regex refuses one of its patterns.
  * - concat, startsWith and endsWith: by construction, a text that begins or ends with another, or a drawn pair; the
  *   host's string methods against the reference's code point walks, and the equation with a concatenation, which no
  *   lowering builds, against the concatenation itself.
  * - the refusals: a fault planted in a valid term, one for each refusal (a pattern past the compile space, outside the
  *   grammar, malformed or with no member, a pattern no measure bounds, a subject that is no text or unbounded in a
  *   query, concat in a query, a literal the builder refuses, a literal outside a guard's language), each by its
- *   reason and the place it states, and the term without its fault compiles; and the SQL `~` reads, the ARE of a
- *   drawn literal pattern and a CASE over a drawn dictionary's sources, asserted by its structure.
+ *   reason and the place it states, and the term without its fault compiles; and the SQL `~` reads in the SQL the
+ *   node lowers to: a pattern whose SQL is a text literal hands it that literal's ARE, and any other a CASE over the
+ *   pattern's SQL with an arm per value it takes, one value read through a conditional among them, asserted by its
+ *   structure.
  */
 
 const textColumn: LeafBinding = { kind: "column", type: testPg.text.scalar }
@@ -127,12 +137,38 @@ interface MatchCase {
 	readonly pick: boolean
 }
 
-type MatchFeature = "match" | "no match" | "dictionary of two" | "refused with str.regex"
+type MatchFeature =
+	| "match"
+	| "no match"
+	| "dictionary of two"
+	| "sources out of code unit order"
+	| "refused with str.regex"
+
+/** Code point order, by the code points themselves: the order a pattern table keeps. */
+const byCodePoints: Order.Order<string> = Order.mapInput(
+	Order.Array(Order.Number),
+	(text: string) =>
+		Arr.map(Arr.fromIterable(text), (c) =>
+			defined(Option.getOrUndefined(Str.codePointAt(0)(c)), "a code point")
+		)
+)
+
+/**
+ * Code points either side of the surrogates, where UTF-16 code unit order and code point order part: two patterns led
+ * by two of them are ordered by their leads.
+ */
+const orderEdge = [0xd7ff, 0xe000, 0xffff, 0x10000, 0x10ffff] as const
+
+/** Whether texts in code point order are out of UTF-16 code unit order, where a table ordered as text goes wrong. */
+const outOfUnitOrder = (inCodePointOrder: ReadonlyArray<string>): boolean => {
+	const byUnits = Arr.sort(inCodePointOrder, Order.String)
+	return !Arr.every(inCodePointOrder, (s, i) => s === byUnits[i])
+}
 
 const matchCase: Gen<MatchCase> = (source) => {
 	const fi = source.draw(int(0, families.length - 1))
 	const family = defined(families[fi], "a family")
-	const pattern: Gen<string> = weighted([
+	const body: Gen<string> = weighted([
 		[
 			1,
 			map(
@@ -143,6 +179,13 @@ const matchCase: Gen<MatchCase> = (source) => {
 			)
 		],
 		[2, patternOver(family.alphabet)]
+	])
+	/** A body led by an optional edge code point, which matches what the body matches. */
+	const led: Gen<string> = (s) =>
+		`${String.fromCodePoint(s.draw(element(orderEdge)))}?${s.draw(body)}`
+	const pattern: Gen<string> = weighted([
+		[1, body],
+		[1, led]
 	])
 	const first = source.draw(pattern)
 	const second = source.draw(boolean) ? [source.draw(pattern)] : []
@@ -173,7 +216,13 @@ describe("Compute's text terms", () => {
 					literal: Formatter.format,
 					oracle: { kind: "second-implementation", name: "ECMAScript's own RegExp test" },
 					coverage: required<MatchFeature>(
-						["match", "no match", "dictionary of two", "refused with str.regex"],
+						[
+							"match",
+							"no match",
+							"dictionary of two",
+							"sources out of code unit order",
+							"refused with str.regex"
+						],
 						{ cases: 400, sense: notesOnly }
 					),
 					kept: [],
@@ -203,12 +252,15 @@ describe("Compute's text terms", () => {
 							return
 						}
 						const node = matchNode(lowered.value.root.expr)
-						const distinct = Arr.sort(Arr.dedupe(c.sources), Order.String)
+						const distinct = Arr.sort(Arr.dedupe(c.sources), byCodePoints)
 						assert.deepEqual(
 							Arr.map(node.patterns, (e) => e.source),
 							distinct,
-							"each value the pattern can take, once"
+							"each value the pattern can take, once, in code point order"
 						)
+						if (outOfUnitOrder(distinct)) {
+							k.note("sources out of code unit order")
+						}
 						for (const entry of node.patterns) {
 							const declared = analyzeText(entry.source, "u", SourceLoc("str.regex", []))
 							if (declared.ok) {
@@ -688,10 +740,42 @@ describe("Compute's text terms", () => {
 			)
 	)
 
-	type Spelling = "a literal's ARE" | "a dictionary's CASE"
+	type Spelling = "a literal's ARE" | "a CASE of one value" | "a dictionary's CASE"
 
-	/** One pattern, or a dictionary of two distinct ones read through three values, the first repeated. */
-	const spellingGen: Gen<readonly [string, ...ReadonlyArray<string>]> = (source) => {
+	/** A matches pattern, a literal or a conditional over the condition column, and the sources its literals state. */
+	interface PatternSpelling {
+		readonly desc: ExprDesc
+		readonly sources: Arr.NonEmptyReadonlyArray<string>
+	}
+
+	/** A pattern over `pool`: one of its sources, or within `depth` conditionals, a conditional between two such. */
+	const spellingOver = (
+		pool: Arr.NonEmptyReadonlyArray<string>,
+		depth: number
+	): Gen<PatternSpelling> => {
+		const literal = map(element(pool), (s): PatternSpelling => ({ desc: text(s), sources: [s] }))
+		if (depth === 0) {
+			return literal
+		}
+		const inner = spellingOver(pool, depth - 1)
+		return weighted<PatternSpelling>([
+			[1, literal],
+			[
+				1,
+				(source) => {
+					const onTrue = source.draw(inner)
+					const onFalse = source.draw(inner)
+					return {
+						desc: { kind: "cond", pred: variable("p"), onTrue: onTrue.desc, onFalse: onFalse.desc },
+						sources: [...onTrue.sources, ...onFalse.sources]
+					}
+				}
+			]
+		])
+	}
+
+	/** A pattern over one admitted pattern or two distinct ones, two conditionals deep at most. */
+	const spellingGen: Gen<PatternSpelling> = (source) => {
 		const { alphabet } = source.draw(element(families))
 		const admitted = filter(
 			patternOver(alphabet),
@@ -699,10 +783,15 @@ describe("Compute's text terms", () => {
 			16
 		)
 		const first = source.draw(admitted)
-		return source.draw(boolean)
+		const pool: Arr.NonEmptyReadonlyArray<string> = source.draw(boolean)
 			? [first, source.draw(filter(admitted, (p) => p !== first, 16))]
 			: [first]
+		return source.draw(spellingOver(pool, 2))
 	}
+
+	/** The ARE str.regex prints for an admitted pattern. */
+	const areOf = (source: string): string =>
+		succeeded(matchPattern(source, SourceLoc("pattern", []))).are
 
 	it.effect("hands `~` the ARE of every value its pattern takes, never a source", (ctx) =>
 		searched(
@@ -716,10 +805,10 @@ describe("Compute's text terms", () => {
 						kind: "specification",
 						name: "the pattern operand's spelling (ops.ts patternOperand)"
 					},
-					coverage: required<Spelling>(["a literal's ARE", "a dictionary's CASE"], {
-						cases: 100,
-						sense: notesOnly
-					}),
+					coverage: required<Spelling>(
+						["a literal's ARE", "a CASE of one value", "a dictionary's CASE"],
+						{ cases: 100, sense: notesOnly }
+					),
 					kept: [],
 					runs: 100,
 					shrink: completeShrink,
@@ -727,80 +816,49 @@ describe("Compute's text terms", () => {
 					steerEvery: 16,
 					caseHang
 				},
-				([first, second], k) =>
+				(spelling, k) =>
 					Effect.sync(() => {
-						const pattern: ExprDesc =
-							second === undefined
-								? text(first)
-								: {
-										kind: "cond",
-										pred: variable("p"),
-										onTrue: text(first),
-										onFalse: {
-											kind: "cond",
-											pred: variable("p"),
-											onTrue: text(second),
-											onFalse: text(first)
-										}
-									}
 						const node = matchNode(
 							succeeded(
 								lowerWith(
 									"query",
-									compute("matches", variable("v"), pattern),
+									compute("matches", variable("v"), spelling.desc),
 									{ v: boundedColumn, p: boolColumn },
 									true,
 									baseParams
 								)
 							).root.expr
 						)
-						const distinct = Arr.sort(
-							second === undefined ? [first] : [first, second],
-							compareCodePoints
-						)
 						assert.deepEqual(
 							Arr.map(node.patterns, (e) => e.source),
-							distinct,
+							Arr.sort(Arr.dedupe(spelling.sources), byCodePoints),
 							"each distinct source once, in code point order"
 						)
-						const ares = Arr.map(
-							node.patterns,
-							(e) => succeeded(matchPattern(e.source, SourceLoc("pattern", []))).are
-						)
-						const operands: ReadonlyArray<Expr> = [col("r0", "v"), col("r0", "pattern")]
-						const sql = defined(defaultOps(node, operands), "the node's SQL")
+						const patternSql = sqlOf(defined(node.args[1], "the pattern operand"), plainRender)
+						const sql = sqlOf(node, plainRender)
 						if (sql.kind !== "binary" || sql.op !== "~") {
 							return assert.fail(`a ~, not ${sql.kind}`)
 						}
-						if (second === undefined) {
+						if (patternSql.kind === "literal" && patternSql.value.kind === "text") {
 							k.note("a literal's ARE")
-							assert.deepEqual(sql.right, {
-								kind: "literal",
-								value: { kind: "text", value: defined(ares[0]) },
-								type: sql.right.kind === "literal" ? sql.right.type : assert.fail("a literal")
-							})
+							assert.deepEqual(
+								sql.right,
+								lit.text(areOf(patternSql.value.value), types.text),
+								"a text literal pattern is its ARE's literal"
+							)
 							return
 						}
-						k.note("a dictionary's CASE")
+						k.note(node.patterns.length === 1 ? "a CASE of one value" : "a dictionary's CASE")
 						if (sql.right.kind !== "case") {
 							return assert.fail(`a CASE, not ${sql.right.kind}`)
 						}
-						const patternSql = defined(operands[1], "the pattern's SQL")
 						assert.deepEqual(sql.right.operand, patternSql, "the CASE reads the pattern once")
 						assert.deepEqual(sql.right.else, patternSql, "its ELSE keeps an absent read's NULL")
 						assert.deepEqual(
 							Arr.map(sql.right.whens, (w): ReadonlyArray<Expr> => [w.when, w.result]),
-							Arr.map(node.patterns, (e, i): ReadonlyArray<Expr> => [
-								{
-									kind: "literal",
-									value: { kind: "text", value: e.source },
-									type: textType(sql.right)
-								},
-								{
-									kind: "literal",
-									value: { kind: "text", value: defined(ares[i]) },
-									type: textType(sql.right)
-								}
+							Arr.map(node.patterns, (e): ReadonlyArray<Expr> => [
+								lit.text(e.source, types.text),
+								lit.text(areOf(e.source), types.text)
 							]),
 							"an arm per distinct source, its ARE beside it"
 						)
@@ -809,12 +867,3 @@ describe("Compute's text terms", () => {
 		)
 	)
 })
-
-/** The text type a CASE's arms are literals of. */
-const textType = (e: Expr) => {
-	if (e.kind !== "case") {
-		return assert.fail("a CASE")
-	}
-	const [first] = e.whens
-	return first.when.kind === "literal" ? first.when.type : assert.fail("a literal arm")
-}

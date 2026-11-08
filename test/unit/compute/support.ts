@@ -591,7 +591,7 @@ const literalExpr = (literal: TypedLiteral, t: ScalarType, options: RenderOption
  * guarded IEEE 754 rounding unless a kept proof makes it native), so the compute suites run on PostgreSQL the SQL a
  * query holds, against the host evaluator.
  */
-const sqlOf = (root: ScalarExpr, options: RenderOptions): Expr => {
+export const sqlOf = (root: ScalarExpr, options: RenderOptions): Expr => {
 	const go = (e: ScalarExpr): Expr => {
 		const args = Arr.map(e.args, go)
 		const arg = (i: number): Expr => {

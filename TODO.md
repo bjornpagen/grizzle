@@ -54,8 +54,6 @@ with the next release.
 - **Failing at HEAD on 2026-11-07, none on a qti-pie path:**
   - test/types/schema/agreement.test.ts: about 15 cases where the types miss the "the sides' field types differ"
     refusal, and derivedMirrors is never reached;
-  - test/unit/compute/text.test.ts: "a literal's ARE", plus one text-matches case seen once ("each value the pattern
-    can take, once");
   - test/pg/world-model/execute.test.ts leak scan: a direct 23505 on Doc's primary key (TEST_SEED=635540385);
   - test/pg/world-model/laws.test.ts: `invalid:fact:filtered-serial-omitted` is never reached.
 - **bytes past 268,435,443 bytes:**

@@ -19,6 +19,7 @@ import {
 	type TypedLiteral,
 	OpId,
 	partialOp,
+	patternTableOf,
 	predicateProblems,
 	type RangeOpParts,
 	rangeOp,
@@ -689,7 +690,11 @@ export const tableExprShape: S.Shape<TableExpr> = S.tagged("kind", {
 				op: opIdShape,
 				patterns: S.nonEmptyArray(S.struct({ source: S.string, are: S.string }))
 			}),
-			(e): CaseFields<TableExprOf<"op">> => ({ ...e, op: definedOp(e.op) })
+			(e): CaseFields<TableExprOf<"op">> => ({
+				...e,
+				op: definedOp(e.op),
+				patterns: patternTableOf(e.patterns)
+			})
 		)
 	),
 	cast: S.unionShape(

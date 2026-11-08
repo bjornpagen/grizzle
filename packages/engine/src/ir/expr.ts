@@ -5,9 +5,10 @@ import type { DecimalParts } from "#compiler/core/decimal.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { IdentityValue } from "#compiler/core/identity.ts"
 import { ExprId, type NodeId, type ParamId } from "#compiler/core/ids.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { type NonEmptyReadonlyArray, sortNonEmpty } from "#compiler/core/nonempty.ts"
 import { type Comparator, combine, compareStrings, mapInput } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
+import { compareCodePoints } from "#compiler/core/text.ts"
 import {
 	type CanonicalFloat,
 	cosineNormMax,
@@ -189,12 +190,33 @@ export interface PatternEntry {
 	readonly are: string
 }
 
+declare const patternTableBrand: unique symbol
+
 /**
  * Every value a Compute.matches pattern operand can take, each admitted when the node was typed
- * (scalar/regex/admit.ts matchPattern): at least one, distinct by source, in code point order of their sources, so one
- * set of patterns has one table.
+ * (scalar/regex/admit.ts matchPattern): at least one, each source once, in code point order of the sources, so one
+ * set of patterns has one table. patternTableOf alone mints one.
  */
-export type PatternTable = NonEmptyReadonlyArray<PatternEntry>
+export type PatternTable = NonEmptyReadonlyArray<PatternEntry> & {
+	readonly [patternTableBrand]: true
+}
+
+const mintPatternTable = nominal<NonEmptyReadonlyArray<PatternEntry>, PatternTable>()
+
+/**
+ * The one table of the patterns `entries` holds, in whatever order and with whatever repeats they arrive: each source
+ * once, in code point order of the sources (core/text.ts compareCodePoints).
+ */
+export const patternTableOf = (entries: NonEmptyReadonlyArray<PatternEntry>): PatternTable => {
+	const [head, ...tail] = entries
+	const others = new Map(tail.map((e) => [e.source, e]))
+	others.delete(head.source)
+	return mintPatternTable(
+		Object.freeze(
+			sortNonEmpty([head, ...others.values()], (a, b) => compareCodePoints(a.source, b.source))
+		)
+	)
+}
 
 /** How a parameter's placeholder is cast: compare binds the base type; write and emit cast to the domain. */
 export type ParamRole = "compare" | "write" | "emit"
