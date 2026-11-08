@@ -375,6 +375,7 @@ type NormalizeFeature =
 	| "a Stream member"
 	| "refused by a key"
 	| "refused by a key two deletions share"
+	| "refused by a key two generated additions share"
 	| "a later stratum restates an earlier stratum's key"
 
 /** Pair's key laws, by the field each compares. */
@@ -398,6 +399,20 @@ const deletedAtOneKey = (strata: ReadonlyArray<ReadonlyArray<Member>>) =>
 			)
 		})
 	)
+
+/**
+ * Whether a stratum adds two generated facts of Gen, different in w, at one k: a pair Gen's key on k holds apart, a key
+ * no sequence draws a field of, at which the host compares generated additions too (write/normalize sameKey).
+ */
+const generatedAtOneK = (strata: ReadonlyArray<ReadonlyArray<Member>>): boolean =>
+	Arr.some(strata, (ms) => {
+		const generated = Arr.flatMap(ms, (m) =>
+			m.relation === "Gen" ? Arr.filter(m.facts, (f) => !("id" in f)) : []
+		)
+		return Arr.some(generated, (f, i) =>
+			Arr.some(generated, (g, j) => i !== j && f.k === g.k && f.w !== g.w)
+		)
+	})
 
 /** Whether a later stratum adds a Pair fact at the key of a different one an earlier stratum adds. */
 const restated = (strata: ReadonlyArray<ReadonlyArray<Member>>): boolean => {
@@ -435,6 +450,9 @@ const normalizes = (
 				return
 			}
 			c.note("refused by a key")
+			if (normalization.law === lawIdOf(Small, genK) && generatedAtOneK(strata)) {
+				c.note("refused by a key two generated additions share")
+			}
 			assert.equal(expected.kind, "invariant-rejected", "the add-wins meaning rejects it too")
 			const empty = oracleState(oracleSchema, {}, loadedSequences)
 			assert.ok(
@@ -454,6 +472,11 @@ const normalizes = (
 			deleted,
 			[],
 			"a stratum that deletes two facts at one key is refused by that key"
+		)
+		assert.equal(
+			generatedAtOneK(strata),
+			false,
+			"a stratum that adds two generated facts of Gen at one k is refused by Gen's key"
 		)
 		if (strata.length >= 2 && restated(strata)) {
 			c.note("a later stratum restates an earlier stratum's key")
@@ -535,6 +558,7 @@ describe("normalization against the add-wins meaning", () => {
 								"a Stream member",
 								"refused by a key",
 								"refused by a key two deletions share",
+								"refused by a key two generated additions share",
 								"a later stratum restates an earlier stratum's key"
 							],
 							{ cases: 300, sense: notesOnly }
