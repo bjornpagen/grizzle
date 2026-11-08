@@ -100,11 +100,6 @@
 		"reason": "pairLaw (analysis/theory/fill.ts) is read only for a fold plane's pair on the predecessor axis, whose from is the plane's before: a law column only that plane carries, or an accumulated field, which Namings.refuseMisnamed (theory/families.ts) refuses when a second statement fills it, so no other pair of the axis has that from and the from alone picks the pair."
 	},
 	{
-		"id": "a74618c8ee",
-		"verdict": "equivalent",
-		"reason": "A contract law's sides (analysis/theory/laws.ts contract) are read only for their relations (theory.ts #dependencies): its name is its contract's alone (theory.ts contractStatement) and its native the contract's domain (laws/model/plan.ts), so the terms of each side change nothing."
-	},
-	{
 		"id": "b55119c113",
 		"verdict": "equivalent",
 		"reason": "finish's attribute filter (logical/props.ts) drops nothing: every caller hands it dependencies over the node's own attributes, carried renaming each input attribute to a delivered column or to a hidden attribute the caller lists (hiddenOf, keptRest), a region its sources' attributes, each bound or hidden, so keeping every dependency changes no closure."
