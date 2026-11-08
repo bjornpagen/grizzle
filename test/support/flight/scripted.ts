@@ -15,6 +15,7 @@ import {
 	type TxControl
 } from "#adapter/wire/session.ts"
 import { appendAll } from "#compiler/core/array.ts"
+import { flightMaxBytes } from "#compiler/core/limits.ts"
 import { nothingReported, serverError } from "#test/support/server-error.ts"
 import { outputRows } from "#test/support/wire.ts"
 
@@ -550,6 +551,7 @@ export const scriptedSession = (script: Script, options: ScriptedOptions): Scrip
 	return {
 		role: scriptedRole,
 		statements,
+		flightMaxBytes: flightMaxBytes.value,
 		cancel,
 		state: () => state,
 		retire: () => {

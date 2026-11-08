@@ -201,6 +201,7 @@ export const admissionFailure = (failure: AdmissionFailure): OpenError => {
 		case "UnreadableAnswer":
 		case "CatalogRowRefused":
 		case "CompileError":
+		case "InputTooLarge":
 			return new OpenError({ reason: new AdmissionFailed({ failure }) })
 	}
 }

@@ -59,6 +59,7 @@ export {
 export { defect, defined } from "#compiler/core/invariant.ts"
 export {
 	derived,
+	flightMaxBytes,
 	handleMaxBytes,
 	type Limit,
 	maxStackDepth,

@@ -10,7 +10,7 @@ import {
 	stackDepthRequired,
 	stackTooShallow
 } from "#adapter/admission/expectation.ts"
-import type { BatchFailure } from "#adapter/errors/failures.ts"
+import type { BatchFailure, InputTooLarge } from "#adapter/errors/failures.ts"
 import {
 	ApplyBusy,
 	Drifted,
@@ -414,7 +414,7 @@ const runFile = (
 				...Arr.map(file.statements.slice(0, count), (sql) => ({ sql, params: [] })),
 				...record
 			]),
-			(failure: BatchFailure) => {
+			(failure: BatchFailure | InputTooLarge) => {
 				switch (failure._tag) {
 					case "BatchRefused":
 					case "StaleName": {
@@ -431,6 +431,7 @@ const runFile = (
 					case "ConnectionLost":
 					case "DriverFailure":
 					case "UnreadableAnswer":
+					case "InputTooLarge":
 						return stopped(
 							new TransactionFailed({ schema, folder: folder.name, file: file.name, failure })
 						)
@@ -502,7 +503,7 @@ const recordFolderRow = (
 			...fence,
 			{ sql: statements.recordFolder.text, params: folderParams(folder) }
 		]),
-		(failure: BatchFailure) => {
+		(failure: BatchFailure | InputTooLarge) => {
 			switch (failure._tag) {
 				case "BatchRefused":
 				case "StaleName":
@@ -516,6 +517,7 @@ const recordFolderRow = (
 				case "ConnectionLost":
 				case "DriverFailure":
 				case "UnreadableAnswer":
+				case "InputTooLarge":
 					return failed(failure)
 			}
 		}

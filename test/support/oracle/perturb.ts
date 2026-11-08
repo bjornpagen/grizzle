@@ -303,10 +303,10 @@ const plannerSelect = (p: Perturbation): EmittedText => {
  */
 const plannedSession = (session: Session, statement: EmittedText): Session => ({
 	...session,
-	send: (closes, pipeline, onAnswer, onEnd) => {
+	send: (closes, pipeline, onAnswer, onEnd, onCut) => {
 		const [begin, ...rest] = pipeline
 		if (begin?._tag !== "control" || begin.control.kind !== "begin") {
-			session.send(closes, pipeline, onAnswer, onEnd)
+			session.send(closes, pipeline, onAnswer, onEnd, onCut)
 			return
 		}
 		session.send(
@@ -321,7 +321,8 @@ const plannedSession = (session: Session, statement: EmittedText): Session => ({
 					onAnswer(index === 0 ? 0 : index - 1, answer)
 				}
 			},
-			onEnd
+			onEnd,
+			onCut
 		)
 	}
 })

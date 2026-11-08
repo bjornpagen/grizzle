@@ -1,7 +1,8 @@
 import { Array as Arr, Effect, type Redacted, type Scope } from "effect"
 import type { CredentialError } from "#adapter/errors/failures.ts"
-import type { BatchFailure } from "#adapter/errors/failures.ts"
+import type { BatchRefused } from "#adapter/errors/failures.ts"
 import type { ConnectionPool, PoolBounds, Transport } from "#adapter/types/layer.ts"
+import type { ApartFailure } from "#adapter/wire/batch.ts"
 import { makePool, type Session, type SessionPool } from "#adapter/wire/session.ts"
 import { roleDefaultSettings } from "#compiler/physical/ddl/roles.ts"
 import type { RoleSetting } from "#compiler/sql/ast.ts"
@@ -130,14 +131,16 @@ export const rowsOn = (
 	session: Session,
 	sql: string,
 	params: ReadonlyArray<string>
-): Effect.Effect<ReadonlyArray<ReadonlyArray<unknown>>, BatchFailure> =>
+): Effect.Effect<ReadonlyArray<ReadonlyArray<unknown>>, ApartFailure | BatchRefused> =>
 	Effect.map(
 		runAlone(session, { sql: testSql(sql), params: Arr.map(params, paramText) }),
 		(outcome) => outcome.rows
 	)
 
 /** The backend a session runs on, as pg_backend_pid() reports it. */
-export const backendPidOf = (session: Session): Effect.Effect<number, BatchFailure> =>
+export const backendPidOf = (
+	session: Session
+): Effect.Effect<number, ApartFailure | BatchRefused> =>
 	Effect.map(rowsOn(session, "SELECT pg_catalog.pg_backend_pid()::text", []), (rows) =>
 		Number(rows[0]?.[0])
 	)

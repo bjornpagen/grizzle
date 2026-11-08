@@ -434,8 +434,8 @@ export class UnreadableAnswer extends Data.TaggedError("UnreadableAnswer")<{
 
 /**
  * Admission could not run to a verdict, for `failure`: a statement of its flight was refused (the server's report),
- * the session failed, the catalog answered rows its statements cannot give, or what it read does not compile (the
- * ledger's or the snapshot's statements).
+ * the session failed, the catalog answered rows its statements cannot give, what it read does not compile (the
+ * ledger's or the snapshot's statements), or its flight is longer than one write carries, refused unwritten.
  */
 export class AdmissionFailed extends Data.TaggedError("AdmissionFailed")<{
 	readonly failure:
@@ -446,6 +446,7 @@ export class AdmissionFailed extends Data.TaggedError("AdmissionFailed")<{
 		| UnreadableAnswer
 		| CatalogRowRefused
 		| CompileError
+		| InputTooLarge
 }> {
 	override get message(): string {
 		return `admission reached no verdict: ${this.failure.message}`
@@ -512,12 +513,15 @@ export class LawRejected extends Data.TaggedError("LawRejected")<{ readonly law:
  * - familyRow: one row a family write places, vacates or recounts, a `member` row of the family `owner.count`, is past
  *   one of those bounds alone, so no `statement` of the write's plan can carry it however its rows are cut
  *   (write/family/order.ts Unsendable);
+ * - flight: the flight's messages, every byte pg writes for it in its one corked write, would be `bytes` long, past the
+ *   most one write over TLS carries, `limit` (core/limits.ts flightMaxBytes), past which the write fails whole and the
+ *   connection with it, its end unsent;
  * - input: the member `input`'s arrays, or one row of it for a nested write, would make a Bind message of at least
  *   `bytes`, past the longest message PostgreSQL reads, `limit` (ir/products.ts MessageBound), found from its values'
  *   lengths before any of its bytes is read or copied.
  *
  * None bounds a count of rows: a ChangeSet input, a relation parameter or a family of any number of facts travels
- * whenever each row's texts fit.
+ * whenever each row's texts fit and the call's flight fits one write.
  */
 export type InputBound =
 	| {
@@ -539,6 +543,11 @@ export type InputBound =
 			readonly count: string
 			readonly member: string
 			readonly row: Unsendable
+	  }
+	| {
+			readonly kind: "flight"
+			readonly bytes: number
+			readonly limit: number
 	  }
 	| {
 			readonly kind: "input"
@@ -571,6 +580,8 @@ export class InputTooLarge extends Data.TaggedError("InputTooLarge")<{
 						: `its ${row.statement} statement would send a Bind message of ${row.bytes} bytes, past PostgreSQL's limit of ${row.limit}`
 				return `a ${bound.member} row of the family ${bound.owner}.${bound.count} fits no ${row.statement} statement even alone: ${past}; shorten the row's values`
 			}
+			case "flight":
+				return `the flight would write ${bound.bytes} bytes, past the ${bound.limit} one write over TLS carries; split the input across calls`
 			case "input":
 				return `the arrays of input ${bound.input} would make a Bind message of at least ${bound.bytes} bytes, past PostgreSQL's limit of ${bound.limit}; split the input across calls`
 		}

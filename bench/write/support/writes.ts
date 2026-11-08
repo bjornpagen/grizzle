@@ -555,7 +555,8 @@ const probeSession = (session: Session): ProbeSession => ({
 							Effect.fail(new ConnectionLost({ operation: "query", ended: { by: "transport" } }))
 						)
 					}
-				}
+				},
+				() => undefined
 			)
 		})
 })
@@ -639,7 +640,7 @@ const observedSession = (
 					}
 		)
 	}
-	const send: Session["send"] = (closes, pipeline, onAnswer, onEnd) => {
+	const send: Session["send"] = (closes, pipeline, onAnswer, onEnd, onCut) => {
 		const commitAt = pipeline.length - 1
 		const last = pipeline[commitAt]
 		if (
@@ -655,7 +656,8 @@ const observedSession = (
 					note(pipeline[index], answer)
 					onAnswer(index, answer)
 				},
-				onEnd
+				onEnd,
+				onCut
 			)
 		}
 		const probe = beforeCommit.run
@@ -681,7 +683,8 @@ const observedSession = (
 							note(last, reported)
 							onAnswer(commitAt, reported)
 						},
-						onEnd
+						onEnd,
+						onCut
 					)
 				if (!clean) {
 					return ending("COMMIT", undefined)
@@ -698,7 +701,8 @@ const observedSession = (
 						}
 					})
 				)
-			}
+			},
+			onCut
 		)
 	}
 	return { ...session, send }

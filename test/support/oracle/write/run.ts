@@ -365,7 +365,7 @@ export const applyValue = (
 /** A session that logs every flight it sends, and what the server answered, into `log`. */
 const loggedSession = (session: Session, log: Array<Flight>): Session => ({
 	...session,
-	send: (closes, pipeline, onAnswer, onEnd) => {
+	send: (closes, pipeline, onAnswer, onEnd, onCut) => {
 		const last = pipeline[pipeline.length - 1]
 		const ends = last?._tag === "control" && last.control.kind === "end" ? last.control.end : "kept"
 		const statements = Arr.filter(pipeline, (q) => q._tag === "statement").length
@@ -385,7 +385,8 @@ const loggedSession = (session: Session, log: Array<Flight>): Session => ({
 			() => {
 				log.push({ statements, ends, refused, committed })
 				onEnd()
-			}
+			},
+			onCut
 		)
 	}
 })

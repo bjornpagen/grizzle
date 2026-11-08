@@ -4,6 +4,7 @@ import {
 	type CatalogRowRefused,
 	ConnectionLost,
 	type DriverFailure,
+	type InputTooLarge,
 	type ServerError
 } from "#adapter/errors/failures.ts"
 
@@ -43,7 +44,8 @@ import { type CatalogQuery, catalogRow, catalogRows } from "#adapter/wire/statem
  * (`alongside`); or a transactional file's transaction, its statements and ledger rows ending with COMMIT
  * (`transaction`). Statements are unnamed: a migration statement runs once. Nothing sets statement_timeout or
  * lock_timeout; an interruption sends one CancelRequest for the flight in flight and destroys the session, which rolls
- * an open transaction back.
+ * an open transaction back. A step longer than one write carries is refused before any byte of it is written, as
+ * InputTooLarge (../wire/batch.ts send): nothing of it ran.
  */
 export interface MigrationSession {
 	/**
@@ -58,14 +60,14 @@ export interface MigrationSession {
 		apart: ReadonlyArray<BatchStatement>,
 		statements: ReadonlyArray<FlightStatement>,
 		transaction: Transaction
-	) => Effect.Effect<Alongside, ConnectionLost | DriverFailure>
+	) => Effect.Effect<Alongside, ConnectionLost | DriverFailure | InputTooLarge>
 	/**
 	 * One step of statements in one transaction that ends with COMMIT: a transactional file with its ledger rows, or a
 	 * ledger record alone.
 	 */
 	readonly transaction: (
 		statements: ReadonlyArray<BatchStatement>
-	) => Effect.Effect<void, BatchFailure>
+	) => Effect.Effect<void, BatchFailure | InputTooLarge>
 }
 
 /** The rows of a statement apart, each parsed by its query: its refusal, or a row the query refuses, fails. */

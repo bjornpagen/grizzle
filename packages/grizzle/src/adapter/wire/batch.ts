@@ -45,10 +45,12 @@ import {
 
 import {
 	type Answer,
+	controlText,
 	type WireQuery,
 	type ServerStatement,
 	serverStatementNameBytes,
 	type Session,
+	type StatementsDraft,
 	unnamed
 } from "#adapter/wire/session.ts"
 import type { BindFrame } from "#compiler/plan/change.ts"
@@ -157,7 +159,8 @@ class PrologueRefused extends Data.TaggedError("PrologueRefused")<{
 
 /**
  * How a Db call's flight fails: as any flight, at its prologue, or at its fence; or, before anything is sent, with a
- * statement whose Bind message PostgreSQL would not read (bindOverrun).
+ * statement whose Bind message PostgreSQL would not read (bindOverrun), or with a flight longer than one write carries
+ * (send).
  */
 export type FlightFailure = BatchFailure | PrologueRefused | StaleSnapshot | InputTooLarge
 
@@ -213,26 +216,29 @@ interface Planned {
 	readonly query: Extract<WireQuery, { readonly _tag: "statement" }>
 }
 
-/** A statement under its name for this execution: unnamed, or its server statement's, parsed now or bound. */
-const queryOf = (session: Session, statement: FlightStatement): Planned["query"] =>
+/**
+ * A statement under its name for this execution, as the flight's draft names it: unnamed, or its server statement's,
+ * parsed now or bound.
+ */
+const queryOf = (draft: StatementsDraft, statement: FlightStatement): Planned["query"] =>
 	"server" in statement
 		? {
 				_tag: "statement",
 				sql: statement.server.sql,
 				params: statement.params,
-				name: session.statements.name(statement.server)
+				name: draft.name(statement.server)
 			}
 		: { _tag: "statement", sql: statement.sql, params: statement.params, name: unnamed }
 
-const plannedOf = (session: Session, statement: FlightStatement): Planned => ({
-	query: queryOf(session, statement)
+const plannedOf = (draft: StatementsDraft, statement: FlightStatement): Planned => ({
+	query: queryOf(draft, statement)
 })
 
 /** Plans each of `statements`. */
 const planAll = (
-	session: Session,
+	draft: StatementsDraft,
 	statements: ReadonlyArray<FlightStatement>
-): ReadonlyArray<Planned> => statements.map((statement) => plannedOf(session, statement))
+): ReadonlyArray<Planned> => statements.map((statement) => plannedOf(draft, statement))
 
 /** The queries of `planned`, in order. */
 const queriesOf = (planned: ReadonlyArray<Planned>): Array<WireQuery> =>
@@ -321,14 +327,14 @@ interface Plan<P, F> {
 }
 
 const planOf = <P, F>(
-	session: Session,
+	draft: StatementsDraft,
 	alone: ReadonlyArray<FlightStatement>,
 	principal: Principal<P, F>,
 	statements: ReadonlyArray<FlightStatement>,
 	transaction: Transaction,
 	span: Span
 ): Plan<P, F> => {
-	const before = planAll(session, alone)
+	const before = planAll(draft, alone)
 	const pipeline = queriesOf(before)
 	const steps: Array<Position<P>> = []
 	const prologue: Array<Planned> = []
@@ -337,7 +343,7 @@ const planOf = <P, F>(
 		steps.push(beginStep)
 		pipeline.push({ _tag: "control", control: { kind: "begin", access: transaction.access } })
 		for (const { statement, step } of principal.prologue) {
-			const planned = plannedOf(session, statement)
+			const planned = plannedOf(draft, statement)
 			prologue.push(planned)
 			steps.push({ kind: "prologue", planned, step })
 			pipeline.push(planned.query)
@@ -347,7 +353,7 @@ const planOf = <P, F>(
 		const planned: PlannedStatement = {
 			kind: "statement",
 			at: framed.length,
-			query: queryOf(session, statement)
+			query: queryOf(draft, statement)
 		}
 		framed.push(planned)
 		steps.push(planned)
@@ -472,14 +478,16 @@ const statementFailure = (
 
 /**
  * The flight's failure, from the first query of its transaction the server answered neither with a result nor with an
- * unreadable one: `answer` at `position`, pipeline `index`.
+ * unreadable one: `answer` at `position`, pipeline `index`. A flight whose write was `cut` (Sent.cut) never carried
+ * COMMIT to the server, so a connection lost under it committed nothing.
  */
 const failureAt = <P, F>(
 	session: Session,
 	plan: Plan<P, F>,
 	position: Position<P>,
 	index: number,
-	answer: Unanswered
+	answer: Unanswered,
+	cut: boolean
 ): BatchFailure | F => {
 	const first = index - offsetOf(plan)
 	if (first < 0) {
@@ -489,6 +497,7 @@ const failureAt = <P, F>(
 	const commits = spanCloses(plan.span) && plan.transaction.end === "COMMIT"
 	if (
 		commits &&
+		!cut &&
 		(answer._tag === "unanswered" ||
 			answer._tag === "failed" ||
 			(answer._tag === "terminated" && position.kind === "end"))
@@ -578,7 +587,7 @@ const transactionFate = <P, F>(
 const decide = <P, F>(
 	session: Session,
 	plan: Plan<P, F>,
-	answers: ReadonlyArray<Received>,
+	sent: Sent,
 	until: number
 ): Result.Result<ReadonlyArray<Decided>, BatchFailure | F> => {
 	const decided: Array<Decided> = []
@@ -587,9 +596,11 @@ const decide = <P, F>(
 		if (index >= until) {
 			break
 		}
-		const answer = receivedAt(answers, index)
+		const answer = receivedAt(sent.answers, index)
 		if (answer._tag !== "result" && answer._tag !== "unreadable") {
-			return Result.fail(failureAt(session, plan, position, index, answer))
+			return Result.fail(
+				failureAt(session, plan, position, index, answer, Deferred.isDoneUnsafe(sent.cut))
+			)
 		}
 		decided.push(answer)
 		index += 1
@@ -626,10 +637,10 @@ const outcomesOf = <P, F>(
 const flightOutcomes = <P, F>(
 	session: Session,
 	plan: Plan<P, F>,
-	answers: ReadonlyArray<Received>
+	sent: Sent
 ): Result.Result<ReadonlyArray<BatchOutcome>, BatchFailure | F> =>
-	Result.flatMap(decide(session, plan, answers, plan.pipeline.length), (decided) =>
-		outcomesOf(plan, answers, decided)
+	Result.flatMap(decide(session, plan, sent, plan.pipeline.length), (decided) =>
+		outcomesOf(plan, sent.answers, decided)
 	)
 
 /**
@@ -651,8 +662,8 @@ const abandon = (session: Session, drained: Deferred.Deferred<void>): Effect.Eff
 	)
 
 /**
- * A flight as written: its answers by pipeline position as they arrive, and when its statements, and then every
- * query, have answered.
+ * A flight as written: its answers by pipeline position as they arrive, when its statements, and then every query,
+ * have answered, and whether its write was cut.
  */
 interface Sent {
 	readonly answers: ReadonlyArray<Received>
@@ -660,27 +671,43 @@ interface Sent {
 	readonly statements: Deferred.Deferred<void>
 	/** Every query has answered, and the ReadyForQuery after the last one has been read. */
 	readonly drained: Deferred.Deferred<void>
+	/**
+	 * The write failed while its stream stood (session.ts flightEnd), before any query failed for it: its last
+	 * message, the transaction's end where it carries one, never reached the server.
+	 */
+	readonly cut: Deferred.Deferred<void>
 }
 
 /**
- * Writes `pipeline` behind the names to close, which the caller took before planning it: a name the flight's own
- * failure forgets may still be bound by an earlier statement of the flight, so its Close waits for the next one.
- * `statements` resolves once the query at `awaited` has answered.
+ * Writes `pipeline`, built over `draft`, behind the Closes of the names the draft took, unless its bytes as pg writes
+ * them (flightBytes) pass what one write of the session's connection carries (Session.flightMaxBytes): then nothing is
+ * written, the session's statements stay as they were, and the flight is refused as InputTooLarge, so no flight is ever
+ * cut short by its own length. A written flight's draft is adopted in the same step: a name the flight's own failure
+ * forgets may still be bound by an earlier statement of the flight, so its Close waits for the next one. `statements`
+ * resolves once the query at `awaited` has answered.
  */
 const send = (
 	session: Session,
-	closes: ReadonlyArray<string>,
+	draft: StatementsDraft,
 	pipeline: ReadonlyArray<WireQuery>,
 	awaited: number
-): Sent => {
+): Result.Result<Sent, InputTooLarge> => {
+	const bytes = flightBytes(draft.closes, pipeline)
+	if (bytes > session.flightMaxBytes) {
+		return Result.fail(
+			new InputTooLarge({ bound: { kind: "flight", bytes, limit: session.flightMaxBytes } })
+		)
+	}
+	session.statements.adopt(draft)
 	const answers: Array<Received> = []
 	for (let index = 0; index < pipeline.length; index++) {
 		answers.push(unanswered)
 	}
 	const statements = Deferred.makeUnsafe<void>()
 	const drained = Deferred.makeUnsafe<void>()
+	const cut = Deferred.makeUnsafe<void>()
 	session.send(
-		closes,
+		draft.closes,
 		pipeline,
 		(index, answer) => {
 			answers[index] = answer
@@ -691,9 +718,12 @@ const send = (
 		() => {
 			Deferred.doneUnsafe(statements, Effect.void)
 			Deferred.doneUnsafe(drained, Effect.void)
+		},
+		() => {
+			Deferred.doneUnsafe(cut, Effect.void)
 		}
 	)
-	return { answers, statements, drained }
+	return Result.succeed({ answers, statements, drained, cut })
 }
 
 /**
@@ -740,9 +770,10 @@ export type ApartAnswer = Result.Result<BatchOutcome, ServerError>
 
 /**
  * How a flight of statements apart fails as a whole: the session failed (ConnectionLost, DriverFailure), or a
- * statement answered rows grizzle's SQL cannot deliver; it ran, and committed at its own Sync.
+ * statement answered rows grizzle's SQL cannot deliver, which ran and committed at its own Sync; or, before anything is
+ * written, the flight is longer than one write carries (InputTooLarge, send).
  */
-export type ApartFailure = ConnectionLost | DriverFailure | UnreadableAnswer
+export type ApartFailure = ConnectionLost | DriverFailure | UnreadableAnswer | InputTooLarge
 
 /**
  * Statement `index`'s answer in a flight of statements apart: a refusal is its answer, and forgets a name whose Parse
@@ -783,13 +814,15 @@ export const runApart = (
 ): Effect.Effect<ReadonlyArray<ApartAnswer>, ApartFailure> =>
 	onSession(session, (restore) =>
 		Effect.gen(function* () {
-			const { planned, sent } = yield* Effect.sync(() => {
-				const closing = session.statements.takeClosing()
-				const plannedStatements = planAll(session, statements)
-				return {
-					planned: plannedStatements,
-					sent: send(session, closing, queriesOf(plannedStatements), plannedStatements.length - 1)
-				}
+			const { planned, sent } = yield* Effect.suspend(() => {
+				const draft = session.statements.draft()
+				const plannedStatements = planAll(draft, statements)
+				return Effect.fromResult(
+					Result.map(
+						send(session, draft, queriesOf(plannedStatements), plannedStatements.length - 1),
+						(written) => ({ planned: plannedStatements, sent: written })
+					)
+				)
 			})
 			yield* execute(session, restore, sent, sent.drained)
 			const answers: Array<ApartAnswer> = []
@@ -823,7 +856,10 @@ const interruptedDrain = <A, E>(
 const lastStatement = <P, F>(plan: Plan<P, F>): number =>
 	offsetOf(plan) + plan.statements.length - 1
 
-/** Plans a transaction's flight and writes it (see `send`), its statements answered with its last one. */
+/**
+ * Plans a transaction's flight over a draft of the session's statements and writes it (see `send`), its statements
+ * answered with its last one, or refuses it unwritten.
+ */
 const sendPlan = <P, F>(
 	session: Session,
 	alone: ReadonlyArray<FlightStatement>,
@@ -831,11 +867,17 @@ const sendPlan = <P, F>(
 	statements: ReadonlyArray<FlightStatement>,
 	transaction: Transaction,
 	span: Span
-): { readonly plan: Plan<P, F>; readonly sent: Sent } => {
-	const closing = session.statements.takeClosing()
-	const plan = planOf(session, alone, principal, statements, transaction, span)
-	return { plan, sent: send(session, closing, plan.pipeline, lastStatement(plan)) }
-}
+): Effect.Effect<{ readonly plan: Plan<P, F>; readonly sent: Sent }, InputTooLarge> =>
+	Effect.suspend(() => {
+		const draft = session.statements.draft()
+		const plan = planOf(draft, alone, principal, statements, transaction, span)
+		return Effect.fromResult(
+			Result.map(send(session, draft, plan.pipeline, lastStatement(plan)), (sent) => ({
+				plan,
+				sent
+			}))
+		)
+	})
 
 /**
  * Sends `statements`, run as `principal`, in one transaction behind its prologue, as one flight, and returns each
@@ -853,14 +895,12 @@ const runEntered = <P, F>(
 	statements: ReadonlyArray<FlightStatement>,
 	transaction: Transaction,
 	span: Span
-): Effect.Effect<ReadonlyArray<BatchOutcome>, BatchFailure | F> =>
+): Effect.Effect<ReadonlyArray<BatchOutcome>, BatchFailure | F | InputTooLarge> =>
 	onSession(session, (restore) =>
 		Effect.gen(function* () {
-			const { plan, sent } = yield* Effect.sync(() =>
-				sendPlan(session, [], principal, statements, transaction, span)
-			)
+			const { plan, sent } = yield* sendPlan(session, [], principal, statements, transaction, span)
 			yield* execute(session, restore, sent, sent.statements)
-			const early = decide(session, plan, sent.answers, lastStatement(plan) + 1)
+			const early = decide(session, plan, sent, lastStatement(plan) + 1)
 			if (Result.isFailure(early) || transaction.end === "ROLLBACK" || !spanCloses(span)) {
 				/**
 				 * The answers decided a failure, a ROLLBACK frame awaits its end, or an opening has none: the flight
@@ -869,7 +909,7 @@ const runEntered = <P, F>(
 				 */
 				const settled = Result.isFailure(early)
 					? Effect.fail(early.failure)
-					: Effect.suspend(() => Effect.fromResult(flightOutcomes(session, plan, sent.answers)))
+					: Effect.suspend(() => Effect.fromResult(flightOutcomes(session, plan, sent)))
 				const waited = yield* Effect.exit(restore(Deferred.await(sent.drained)))
 				if (Exit.isFailure(waited)) {
 					return yield* interruptedDrain(sent, settled, waited.cause)
@@ -879,7 +919,7 @@ const runEntered = <P, F>(
 			/** Every statement answered: COMMIT's answer decides, and a refusal fails the flight as CommitRefused. */
 			const decided = Effect.suspend(
 				(): Effect.Effect<ReadonlyArray<Decided>, BatchFailure | F> => {
-					const settled = decide(session, plan, sent.answers, plan.pipeline.length)
+					const settled = decide(session, plan, sent, plan.pipeline.length)
 					if (Result.isFailure(settled)) {
 						return Effect.fail(settled.failure)
 					}
@@ -906,7 +946,9 @@ const runEntered = <P, F>(
  *
  * In pipeline mode pg writes each query as Parse (when its name is not parsed yet), Bind, Describe, Execute and a Sync
  * of its own, without waiting for the answers. A flight writes all of its queries at once, corked into one write, and
- * reads every answer in that one round trip (session.ts sends it).
+ * reads every answer in that one round trip (session.ts sends it). One write carries at most the session's
+ * flightMaxBytes (core/limits.ts), so a longer flight is refused before any byte of it is written, as InputTooLarge
+ * (`send`): it ran nothing, and the session is as it was.
  *
  * - Framing. A Sync per statement would commit each statement on its own, so the statements of a transaction run
  *   between BEGIN ISOLATION LEVEL SERIALIZABLE and COMMIT or ROLLBACK, both simple Query messages in the pipeline. After
@@ -929,10 +971,11 @@ const runEntered = <P, F>(
  * - Failures. BatchRefused: the first statement the server refused, by its index; the statements before it rolled
  *   back and the ones after it never ran. StaleName: the same for a statement whose session name the server no
  *   longer honors. CommitRefused: a refusal at COMMIT once every statement ran (a deferred constraint, a serialization
- *   failure); nothing committed. CommitLost: the connection failed after COMMIT was sent and
+ *   failure); nothing committed. CommitLost: the connection failed after COMMIT was written whole and
  *   before it answered, with no statement refused before it, so the transaction may have committed. ConnectionLost:
- *   the session failed with a flight in flight that carried no COMMIT, or the server ended it (FATAL, PANIC) before
- *   COMMIT ran; a refused BEGIN is one too, since the statements after it ran outside any transaction.
+ *   the session failed with a flight in flight that carried no COMMIT, or one whose write failed before COMMIT left
+ *   the process (Sent.cut), or the server ended it (FATAL, PANIC) before COMMIT ran; a refused BEGIN is one too, since
+ *   the statements after it ran outside any transaction.
  *   DriverFailure: an answer that does not fit the pipeline, or a query pg would not send. UnreadableAnswer: a statement
  *   answered rows grizzle's SQL cannot deliver; it decides nothing, so a transaction's fate still comes from COMMIT, and
  *   it is the flight's failure only when nothing else decided. A statement alone meets no COMMIT, so it fails as neither
@@ -973,7 +1016,7 @@ export const runTransaction = (
 	session: Session,
 	statements: ReadonlyArray<FlightStatement>,
 	transaction: Transaction
-): Effect.Effect<ReadonlyArray<BatchOutcome>, BatchFailure> =>
+): Effect.Effect<ReadonlyArray<BatchOutcome>, BatchFailure | InputTooLarge> =>
 	runEntered(session, asLogin, statements, transaction, "whole")
 
 /**
@@ -997,11 +1040,16 @@ export const runAlongside = (
 	alone: ReadonlyArray<BatchStatement>,
 	statements: ReadonlyArray<FlightStatement>,
 	transaction: Transaction
-): Effect.Effect<Alongside, ConnectionLost | DriverFailure> =>
+): Effect.Effect<Alongside, ConnectionLost | DriverFailure | InputTooLarge> =>
 	onSession(session, (restore) =>
 		Effect.gen(function* () {
-			const { plan, sent } = yield* Effect.sync(() =>
-				sendPlan(session, alone, asLogin, statements, transaction, "whole")
+			const { plan, sent } = yield* sendPlan(
+				session,
+				alone,
+				asLogin,
+				statements,
+				transaction,
+				"whole"
 			)
 			yield* execute(session, restore, sent, sent.drained)
 			const answers: Array<Result.Result<BatchOutcome, ServerError>> = []
@@ -1023,7 +1071,7 @@ export const runAlongside = (
 						return yield* lost(session, answer)
 				}
 			}
-			const framed = flightOutcomes(session, plan, sent.answers)
+			const framed = flightOutcomes(session, plan, sent)
 			if (
 				Result.isFailure(framed) &&
 				(framed.failure._tag === "ConnectionLost" || framed.failure._tag === "DriverFailure")
@@ -1100,8 +1148,11 @@ export const bindFrame: BindFrame = {
  * statement's name (none, or its server statement's), and each parameter's fields of fixed size (bindParamFields) and
  * bytes: a text's UTF-8 bytes, a binary value's own.
  */
-export const bindLength = (statement: FlightStatement): number => {
-	const name = "server" in statement ? statement.server.name : ""
+export const bindLength = (statement: FlightStatement): number =>
+	bindLengthOf("server" in statement ? statement.server.name : "", statement.params)
+
+/** The length a Bind message of `params` under the statement `name` ("" for the unnamed one) declares (bindLength). */
+const bindLengthOf = (name: string, params: ReadonlyArray<Param>): number => {
 	let length =
 		bindFields.length +
 		bindFields.portalEnd +
@@ -1111,13 +1162,85 @@ export const bindLength = (statement: FlightStatement): number => {
 		bindFields.params +
 		bindFields.results +
 		bindFields.result
-	for (const param of statement.params) {
+	for (const param of params) {
 		length +=
 			bindParamFields.format +
 			bindParamFields.length +
 			(typeof param === "string" ? Buffer.byteLength(param, "utf8") : param.byteLength)
 	}
 	return length
+}
+
+/**
+ * The bytes of the fields of fixed size of a flight's other messages, as pg 8.23 writes them (pg-protocol 1.16
+ * serializer.ts): every message's type byte and Int32 length word; the NUL ending a name or a text; a Parse's Int16
+ * count of parameter types, none; the kind byte of a Describe and of a Close; and an Execute's Int32 row limit.
+ *
+ * @formatConstant a frontend message's type byte, Int32 length word, NUL, Int16 type count, kind byte and Int32 row limit
+ */
+const messageFields = { type: 1, length: 4, end: 1, typeCount: 2, kind: 1, rowLimit: 4 } as const
+
+/** Every message's type byte and length word. */
+const messageHead = messageFields.type + messageFields.length
+
+/** A message holding one NUL-ended text, `text`: a simple Query of it, or a Close of `kind` and a name. */
+const textMessageBytes = (text: string): number =>
+	messageHead + Buffer.byteLength(text, "utf8") + messageFields.end
+
+/** What pg writes after every Bind: the unnamed portal's Describe, its Execute of every row, and a Sync. */
+const portalBytes =
+	messageHead +
+	messageFields.kind +
+	messageFields.end +
+	(messageHead + messageFields.end + messageFields.rowLimit) +
+	messageHead
+
+/** A Parse of `sql` under the statement `name` ("" for the unnamed one), with no parameter types. */
+const parseBytes = (name: string, sql: string): number =>
+	messageHead +
+	Buffer.byteLength(name, "utf8") +
+	messageFields.end +
+	Buffer.byteLength(sql, "utf8") +
+	messageFields.end +
+	messageFields.typeCount
+
+/** A statement's Bind, then its Describe, Execute and Sync, under the statement `name`. */
+const executionBytes = (name: string, params: ReadonlyArray<Param>): number =>
+	messageFields.type + bindLengthOf(name, params) + portalBytes
+
+/**
+ * The bytes pg writes for one query of a pipeline (session.ts send): a control's simple Query; a statement's Parse when
+ * this execution parses it, unnamed or a server statement's first use on the session, then its Bind, Describe, Execute
+ * and Sync.
+ */
+const queryBytes = (query: WireQuery): number => {
+	if (query._tag === "control") {
+		return textMessageBytes(controlText(query.control))
+	}
+	const name = query.name
+	switch (name._tag) {
+		case "unnamed":
+			return parseBytes("", query.sql) + executionBytes("", query.params)
+		case "parsing":
+			return parseBytes(name.name, query.sql) + executionBytes(name.name, query.params)
+		case "parsed":
+			return executionBytes(name.name, query.params)
+	}
+}
+
+/**
+ * The bytes of a flight as pg writes it in its one corked write (session.ts send): a Close of each of `closes`, a
+ * server statement's name, then every query of `pipeline`.
+ */
+const flightBytes = (closes: ReadonlyArray<string>, pipeline: ReadonlyArray<WireQuery>): number => {
+	let bytes = 0
+	for (const name of closes) {
+		bytes += messageFields.kind + textMessageBytes(name)
+	}
+	for (const query of pipeline) {
+		bytes += queryBytes(query)
+	}
+	return bytes
 }
 
 /**
@@ -1194,6 +1317,12 @@ const shifted = (failure: FlightFailure, by: number): FlightFailure => {
 }
 
 /**
+ * Whether a transaction flight failed with its refusal before any byte of it was written (send), so it ran nothing and
+ * an opening opened no transaction: the one InputTooLarge a flight meets once its statements' Binds were admitted.
+ */
+const unwritten = (failure: FlightFailure): boolean => failure._tag === "InputTooLarge"
+
+/**
  * Ends the transaction an opening left open on `session`, for a call that will not close it: a flight of ROLLBACK
  * alone. A session already retired or ended needs none, since its connection, and the transaction with it, ends when
  * it is released; a ROLLBACK that fails retires it the same way. It never fails.
@@ -1219,10 +1348,11 @@ const rollbackOpening = (session: Session, frame: Frame): Effect.Effect<void> =>
  *
  * The outcomes are both flights', `first`'s then `second`'s, and a failure counts statements across both: a statement
  * of the second flight is numbered after every statement of the first (`shifted`), as the call sent them. Whatever
- * ends the call between the flights ends the transaction: `second`'s failure, and a Bind message of its statements
- * PostgreSQL would not read, roll it back (rollbackOpening) and fail the call with it; an interruption retires the
- * session, so the transaction ends with its connection. A failed first flight rolls back the same way, and the second
- * flight's failures are runFramed's.
+ * ends the call between the flights ends the transaction: `second`'s failure, a Bind message of its statements
+ * PostgreSQL would not read, and a second flight longer than one write carries, refused unwritten (send), roll it back
+ * (rollbackOpening) and fail the call with it; an interruption retires the session, so the transaction ends with its
+ * connection. A failed first flight rolls back the same way, unless it was refused unwritten and opened nothing, and the
+ * second flight's other failures are runFramed's.
  */
 export const runFramedTwice = <E>(
 	session: Session,
@@ -1242,7 +1372,9 @@ export const runFramedTwice = <E>(
 				restore(runEntered(session, asDb(frame.prologue), first, frame, "opening"))
 			)
 			if (Exit.isFailure(read)) {
-				yield* rollbackOpening(session, frame)
+				if (!Option.exists(Cause.findErrorOption(read.cause), unwritten)) {
+					yield* rollbackOpening(session, frame)
+				}
 				return yield* Effect.failCause(read.cause)
 			}
 			const made = yield* Effect.exit(restore(second(read.value)))
@@ -1261,7 +1393,11 @@ export const runFramedTwice = <E>(
 				return yield* shifted(tooLarge, first.length)
 			}
 			const written = yield* Effect.mapError(
-				restore(runEntered(session, asDb(frame.prologue), statements, frame, "closing")),
+				restore(runEntered(session, asDb(frame.prologue), statements, frame, "closing")).pipe(
+					Effect.tapError((failure) =>
+						unwritten(failure) ? rollbackOpening(session, frame) : Effect.void
+					)
+				),
 				(failure) => shifted(failure, first.length)
 			)
 			return [...read.value, ...written]

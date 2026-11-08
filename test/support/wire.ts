@@ -1,7 +1,7 @@
 /**
  * The tests' door to the two wire texts (packages/engine/src/core/wire.ts): a text a test states PostgreSQL wrote, an
- * OutputText, and a parameter text a test sends on the wire itself, a ParamText, each minted here alone, so a test
- * that fabricates either says so by name; grizzle's own code mints neither but at the wire and its encoders.
+ * OutputText, and a parameter a test sends on the wire itself, a ParamText or a ParamBinary, each minted here alone, so
+ * a test that fabricates one says so by name; grizzle's own code mints none but at the wire and its encoders.
  *
  * `echoed` is the tests' model of what PostgreSQL answers for a value it read from a parameter text: the output text
  * of that value as a reader tells it, the text itself for every carrier whose input and output forms coincide, and a
@@ -9,7 +9,7 @@
  */
 import { Array as Arr, String as Str } from "effect"
 import { nominal } from "#compiler/core/brand.ts"
-import type { OutputRows, OutputText, Param, ParamText } from "#compiler/core/wire.ts"
+import type { OutputRows, OutputText, Param, ParamBinary, ParamText } from "#compiler/core/wire.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 
 /** A text a test states PostgreSQL wrote. */
@@ -21,6 +21,9 @@ export const outputRows = (rows: ReadonlyArray<ReadonlyArray<string>>): OutputRo
 
 /** A parameter text a test sends on the wire itself, or expects an encoder to write. */
 export const paramText = nominal<string, ParamText>()
+
+/** A binary parameter a test sends on the wire itself, whose bytes the driver sends with format code 1. */
+export const paramBinary = nominal<Uint8Array<ArrayBuffer>, ParamBinary>()
 
 /**
  * A placeholder's value as its text, for a test whose statements hold no bytes column's member array, the one binary

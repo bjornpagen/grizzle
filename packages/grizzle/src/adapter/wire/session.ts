@@ -55,6 +55,7 @@ import { emptyNameMap, loginStartupOptions } from "#compiler/plan/catalog.ts"
 import {
 	type EmittedText,
 	emitText,
+	flightMaxBytes,
 	nominal,
 	type OutputRows,
 	type Param,
@@ -210,24 +211,63 @@ export type StatementName =
 export const unnamed: StatementName = { _tag: "unnamed" }
 
 /**
+ * One flight's view of its session's statements while it is built: the names to close in front of it, and the name each
+ * server statement runs under, as the session's parsed names and the flight's own earlier statements decide. A draft
+ * changes nothing of the session; the session adopts it once its flight is written (SessionStatements.adopt), so a
+ * flight refused before it is written leaves the session as it was.
+ */
+export class StatementsDraft {
+	readonly #parsed: ReadonlySet<string>
+	readonly #parsing = new Set<string>()
+	/** The names the flight closes in front of its queries. */
+	readonly closes: ReadonlyArray<string>
+
+	constructor(parsed: ReadonlySet<string>, closing: ReadonlyArray<string>) {
+		this.#parsed = parsed
+		this.closes = closing.slice()
+	}
+
+	/** The name `statement` runs under in this execution: parsed now, on its first use, or bound to its earlier Parse. */
+	name(statement: ServerStatement): StatementName {
+		if (this.#parsed.has(statement.name) || this.#parsing.has(statement.name)) {
+			return { _tag: "parsed", name: statement.name }
+		}
+		this.#parsing.add(statement.name)
+		return { _tag: "parsing", name: statement.name }
+	}
+
+	/** The names the flight parses. */
+	get parsing(): ReadonlySet<string> {
+		return this.#parsing
+	}
+}
+
+/**
  * The server statements one session has parsed, by name, and the names to close in front of its next batch.
  *
  * A name whose Parse may not have run (the server skips every statement after a refused one), or that the server no
  * longer honors (26000, or 0A000 for a cached plan whose result type changed), is forgotten: closed in front of the next
  * batch, and parsed afresh at its next use. So is every name of a server statement its owner released. Closing a name
  * the server never parsed is no error.
+ *
+ * A flight is built over a draft (StatementsDraft) and adopted in the same synchronous step that writes it, so nothing
+ * changes the session's names between the two: the names to close only grow until a flight adopts the ones it closed.
  */
 export class SessionStatements {
 	readonly #parsed = new Set<string>()
 	#closing: Array<string> = []
 
-	/** The name `statement` runs under in this execution: parsed now, on its first use, or bound to its earlier Parse. */
-	name(statement: ServerStatement): StatementName {
-		if (this.#parsed.has(statement.name)) {
-			return { _tag: "parsed", name: statement.name }
+	/** A draft of the next flight over these statements. */
+	draft(): StatementsDraft {
+		return new StatementsDraft(this.#parsed, this.#closing)
+	}
+
+	/** `draft`'s flight is written: the names it closed are closed, and the names it parses are parsed. */
+	adopt(draft: StatementsDraft): void {
+		this.#closing = this.#closing.slice(draft.closes.length)
+		for (const name of draft.parsing) {
+			this.#parsed.add(name)
 		}
-		this.#parsed.add(statement.name)
-		return { _tag: "parsing", name: statement.name }
 	}
 
 	/** Forgets `name`: closed in front of the next batch, and parsed again at its next use. */
@@ -247,13 +287,6 @@ export class SessionStatements {
 				this.#closing.push(statement.name)
 			}
 		}
-	}
-
-	/** The names to close in front of the next batch. */
-	takeClosing(): ReadonlyArray<string> {
-		const closing = this.#closing
-		this.#closing = []
-		return closing
 	}
 }
 
@@ -684,15 +717,23 @@ export interface Session {
 	 */
 	readonly destroy: () => void
 	/**
+	 * The most bytes one write of the session's connection carries, and so one flight (core/limits.ts flightMaxBytes):
+	 * the flight's builder refuses a longer flight before any byte of it is written (wire/batch.ts send).
+	 */
+	readonly flightMaxBytes: number
+	/**
 	 * Writes `pipeline` in one corked write, behind a Close for each of `closes`, and reports each query's answer by its
 	 * index, then the pipeline's end: the ReadyForQuery after its last query, or the connection's end once every query
-	 * has failed.
+	 * has failed. Its bytes, as pg writes them, are within flightMaxBytes. `onCut` reports, before any query fails for it,
+	 * a write that failed while its stream stood: the end of the pipeline's last message never left the process
+	 * (flightEnd).
 	 */
 	readonly send: (
 		closes: ReadonlyArray<string>,
 		pipeline: ReadonlyArray<WireQuery>,
 		onAnswer: (index: number, answer: Answer) => void,
-		onEnd: () => void
+		onEnd: () => void,
+		onCut: () => void
 	) => void
 }
 
@@ -723,6 +764,18 @@ const statementQuery = (query: Extract<WireQuery, { readonly _tag: "statement" }
 
 const controlQuery = (sql: EmittedText) => ({ text: sql, rowMode: "array" as const })
 
+/**
+ * The last chunk of every flight's corked write, a new empty one, whose callback reports how the write ended: Node calls
+ * every chunk's callback of one corked write with its one outcome, an error before it destroys the stream for it. An
+ * error while the stream stands is the write's own (the socket's, or SSL_write's): it failed before its last byte, the
+ * end of the pipeline's last message, left the process, since a write that hands its every byte on succeeds. So the
+ * server never read that message whole and never ran it: a COMMIT there never ran. An error once the stream is destroyed
+ * cancels a write that may have gone out whole, and proves nothing; so does every failure of a transport's socket that
+ * is no native one, which Node's TLS reaches through a JavaScript stream that reports a write's failure only after the
+ * stream is destroyed.
+ */
+const flightEnd = (): Uint8Array => new Uint8Array(0)
+
 /** The whole flight is written corked and flushed at once; the stream is uncorked whatever the writes threw. */
 const makeSession = (
 	client: PgClient,
@@ -740,7 +793,7 @@ const makeSession = (
 	}
 	client.on("error", end)
 	client.on("end", end)
-	const send: Session["send"] = (closes, pipeline, onAnswer, onEnd) => {
+	const send: Session["send"] = (closes, pipeline, onAnswer, onEnd, onCut) => {
 		const connection = client.connection
 		let answered = 0
 		let drained = false
@@ -782,6 +835,11 @@ const makeSession = (
 					client.query<Array<unknown>, Array<Param>>(statementQuery(query), answer)
 				}
 			}
+			connection.stream.write(flightEnd(), (error) => {
+				if (Predicate.isError(error) && !connection.stream.destroyed) {
+					onCut()
+				}
+			})
 		})
 		connection.stream.uncork()
 		if (Result.isFailure(written)) {
@@ -791,6 +849,7 @@ const makeSession = (
 	return {
 		role: spec.role,
 		statements,
+		flightMaxBytes: flightMaxBytes.value,
 		cancel: cancelRequest(spec, key),
 		state: () => state,
 		retire: () => {

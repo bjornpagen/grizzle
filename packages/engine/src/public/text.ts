@@ -8,6 +8,7 @@ import type { Field, FieldBase } from "#compiler/types/fields/field.ts"
 
 export {
 	bytesMaxLength,
+	flightMaxBytes,
 	type Limit,
 	maxStringLength,
 	messageMaxBytes

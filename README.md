@@ -1609,10 +1609,11 @@ PostgreSQL's other spellings are the same fields.
   that leave a text no byte. An entry is sized as PostgreSQL lays it out: exactly through the fixed-width fields in key
   order, then each datum at its widest padding from the first text, numeric, set, range or vector on.
 - **Exported bounds.** `messageMaxBytes`, PostgreSQL's longest message (1,073,741,822 bytes), `maxStringLength`, V8's
-  longest string (536,870,888 UTF-16 code units), and `bytesMaxLength` (1,073,741,819 bytes) refuse a call before it is
-  sent. Each is a `Limit`: `.value` is the number, with its owner, unit, scope and evidence, the source that states it
-  or the limits it derives from. Code that splits an input across calls (`InputTooLarge`,
-  [Errors and outcomes](#errors-and-outcomes)) reads the bound instead of restating it.
+  longest string (536,870,888 UTF-16 code units), `bytesMaxLength` (1,073,741,819 bytes) and `flightMaxBytes`, the most
+  one write over TLS carries (1,908,342,784 bytes), refuse a call before it is sent. Each is a `Limit`: `.value` is the
+  number, with its owner, unit, scope and evidence, the source that states it or the limits it derives from. Code that
+  splits an input across calls (`InputTooLarge`, [Errors and outcomes](#errors-and-outcomes)) reads the bound instead of
+  restating it.
 - **Rosters.** `closed("Status", ["Draft", "Published"])` is a fixed list of handles. A `closedId(Status)` column holds
   a handle's code, 0 … n − 1 in declared order, which is also comparison order. The API reads and writes names. The
   table stores codes, under a smallint domain that admits only live handles' codes, and every role's view adds a
@@ -2579,8 +2580,9 @@ schema fixes. It compiles the rules too, so call it once and keep the list.
   `GeneratedSerialUnique`, `SpanKeyChange`, `UnseenOccupant`, `ConcurrentRefresh`), or `StaleStatement`, a prepared
   statement the server no longer honors; `error` is the server's report. grizzle never retries: use `Effect.retry` with
   your own `Schedule`. `Db.open`'s retryable case is an `OpenError` with reason `AdmissionTransient`: open again.
-- **`CommitUnknown`**: COMMIT was sent and no answer came, so the change may have committed. Read back before running
-  it again.
+- **`CommitUnknown`**: COMMIT was sent whole and no answer came, so the change may have committed. Read back before
+  running it again. A write the socket failed before COMMIT's last byte left the process is `TransportFailure`
+  instead: COMMIT never reached the server.
 - **`StaleSnapshot`**: the database is not at the `Db`'s snapshot, and the call ran nothing; its reason is `Migrating`
   or `Migrated` ([Deploying](#deploying)).
 - **`TransportFailure`**: the connection failed before the write could commit, and nothing changed. A connection that
@@ -2641,6 +2643,8 @@ schema fixes. It compiles the rules too, so call it once and keep the list.
 - `input`: a ChangeSet member's arrays, or one row of a nested write, would make a Bind message past that limit, with
   the input and the least length its statement would take. It is counted from your values' lengths before any of
   their bytes is read or copied. Split the input across calls.
+- `flight`: the call's flight, every byte the driver writes for it in its one write, is longer than one write over
+  TLS carries (1,908,342,784 bytes), with its length. Nothing was sent, so nothing ran. Split the input across calls.
 
 **`CompileError`**'s reason holds where it refused, `at`, and:
 
@@ -2970,10 +2974,11 @@ grizzle fits applications that own their data end to end, with rules worth decla
 
 ### Sizes
 
-`messageMaxBytes`, `maxStringLength` and `bytesMaxLength` are exported as `Limit` values, whose `.value` is the number.
+`messageMaxBytes`, `maxStringLength`, `bytesMaxLength` and `flightMaxBytes` are exported as `Limit` values, whose `.value` is the number.
 
 - **A `bytes` value is at most 1,073,741,819 bytes** (`bytesMaxLength`), PostgreSQL's longest bytea. A longer one is `EncodingFailure` before any SQL. It is read back in chunks of 16 MiB, one result row each, a write reads back only its SHA-256 digest, and a column's array of bytes values is sent in binary, bounded by the message alone, a family write's included: one copy of each value, made as the call is sent, after its member is measured from its values' lengths.
 - **A statement's parameters are at most 1,073,741,822 bytes** (`messageMaxBytes`, PostgreSQL's `PQ_LARGE_MESSAGE_LIMIT`), **and an input column's array literal at most 536,870,888 UTF-16 code units** (`maxStringLength`, V8's longest string, 2^29 − 24). A relation input is one array per column, sent again to each statement that reads it. A call past either bound is `InputTooLarge` before anything is sent.
+- **A call's flight is at most 1,908,342,784 bytes** (`flightMaxBytes`): every message the driver writes for it, its statements' texts and parameters among them, in the one write a round trip is. Node hands that write to one `SSL_write`, whose length is a C int, and its ciphertext to one send, which macOS refuses past 2,147,483,647 bytes, so the bound is the whole TLS 1.2 records whose largest ciphertext fits one send. A longer flight is `InputTooLarge` (`flight`) before any byte is written: grizzle never splits a call into more round trips, so split the input across calls. Without the bound such a write fails whole, the connection ends with a transaction open, and a write would report `CommitLost` though nothing committed.
 - **A generated text is at most 536,870,888 UTF-16 code units**, about 512 MiB of ASCII: each SQL statement, migration file, `snapshot.json` and fingerprint text. `generate` and `check` refuse a schema past it with `ResourceBound`.
 - **A closed relation is as large as its key's code space**: a cell per combination of its key fields' codes, written in its migration as one hex literal of a digit per four bits of code space times its cell's bits, whatever its rows. Prefer dense coordinates, such as slots, whose space is each owner's counts, to a sparse product of rosters ([Closed relations](#closed-relations)). Its constant has at most 2,147,483,640 bits, PostgreSQL's longest bit string, payload codes whose product is at most 2,147,483,647, the most a cell read as an integer holds, and a literal of at most 536,870,888 digits. Past any, the schema is `ResourceBound` when it compiles, the literal's as `stringLength`. `grizzle check` refuses a literal its comment or its function's name does not digest, naming the first cell that differs from the declared rows, and that cell's key.
 - **PostgreSQL's own limits are `ResourceBound` where grizzle emits what they bound**: a table's 1,600 columns, a relation's generated rule columns included (checked when its schema compiles), as for a view, a derived table or a write's temporary table; a select list's 1,664 entries; and a statement's 1,073,741,822 bytes and 65,535 parameters (a 16-bit count). Dropped columns count toward the 1,600, so PostgreSQL itself refuses an added column past them. A row must fit one 8 KB heap page once its long values are stored out of line, which PostgreSQL checks when it writes the row.

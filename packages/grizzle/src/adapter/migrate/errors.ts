@@ -5,6 +5,7 @@ import type {
 	ConnectionLost,
 	ConnectRefusal,
 	DriverFailure,
+	InputTooLarge,
 	ServerError,
 	UnreadableAnswer
 } from "#adapter/errors/failures.ts"
@@ -83,8 +84,11 @@ export const stageOutcome: { readonly [S in MigrateStage]: MigrateOutcome } = {
 /** A statement apart's answer that is no row its query reads: the server's refusal, or a row the catalog cannot give. */
 type RowFailure = ServerError | CatalogRowRefused
 
-/** A step that failed as a whole: the connection lost, the driver, or an answer grizzle cannot read. */
-type FlightFailure = ConnectionLost | DriverFailure | UnreadableAnswer
+/**
+ * A step that failed as a whole: the connection lost, the driver, or an answer grizzle cannot read; or a step longer than
+ * one write carries, refused before any byte of it was written.
+ */
+type FlightFailure = ConnectionLost | DriverFailure | UnreadableAnswer | InputTooLarge
 
 /**
  * How one statement fails: the server refused it, the session failed, it answered rows grizzle's SQL cannot deliver,
@@ -108,6 +112,8 @@ const failureText = (failure: StatementFailure): string => {
 			return "the driver refused it"
 		case "UnreadableAnswer":
 			return "it answered rows grizzle cannot read"
+		case "InputTooLarge":
+			return failure.message
 	}
 }
 
@@ -130,6 +136,7 @@ const serverReport = (failure: StatementFailure): ServerReport => {
 		case "CatalogRowRefused":
 		case "DriverFailure":
 		case "UnreadableAnswer":
+		case "InputTooLarge":
 			return noServerReport
 	}
 }
@@ -620,6 +627,7 @@ export class DriftUnchecked extends Data.TaggedError("DriftUnchecked")<{
 			case "CatalogRowRefused":
 			case "DriverFailure":
 			case "UnreadableAnswer":
+			case "InputTooLarge":
 				return serverReport(failure)
 		}
 	}
@@ -639,6 +647,7 @@ export class DriftUnchecked extends Data.TaggedError("DriftUnchecked")<{
 			case "CatalogRowRefused":
 			case "DriverFailure":
 			case "UnreadableAnswer":
+			case "InputTooLarge":
 				return `the catalog of ${this.schema} could not be read: ${failureText(failure)}`
 		}
 	}

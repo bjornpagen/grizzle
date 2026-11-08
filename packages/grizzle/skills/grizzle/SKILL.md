@@ -504,6 +504,9 @@ The command line's own refusals, by stage:
   still; a write reads back only its SHA-256 digest. grizzle copies a value once, as the call is sent; one changed
   before then is `bytesChanged`. An attachment whose rows hold one is a statement of its own, so under rows that read
   `.approximateNearest` attach in a second query instead.
+- A call's flight, every byte the driver writes for its one round trip, is at most 1,908,342,784 bytes
+  (`flightMaxBytes`), the most one write over TLS carries. A longer one is `InputTooLarge` (`flight`) before anything is
+  sent, nothing ran, and grizzle never splits it into more round trips: split the input across calls.
 - Every numeric field declares its precision and scale, `pg.numeric(p, s)`; there is no bare `pg.numeric`. A sum,
   a mean or an operation's numeric result carries the digits its computation proves, and one past 131,072 integer
   digits is `ResourceBound`. Convert an integer, money or a float to numeric with `Compute.numeric(x)`, never a cast to

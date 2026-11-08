@@ -793,6 +793,117 @@ export const int8Max = published({
 	verified: "2026-11-05"
 })
 
+/** The Node release every published Node and OpenSSL limit is read from, v26.13.0's tree. */
+const nodeSource = "https://github.com/nodejs/node/blob/v26.13.0"
+
+/**
+ * The most bytes one SSL_write takes, a C int's greatest value. Node's TLS socket hands each write it is given to one
+ * SSL_write, a corked flight's chunks concatenated, and OpenSSL refuses a length past INT_MAX, which wraps negative, as
+ * "bad length".
+ */
+const sslWriteMaxBytes = derived({
+	owner: "OpenSSL 4.1.0, as Node 26.13.0 bundles it",
+	unit: "bytes",
+	scope:
+		"the plaintext of one SSL_write: one write Node's TLS socket is handed, a corked flight's chunks together",
+	from: [int4Max],
+	derivation: `SSL_write takes its length as a C int and refuses a negative one, "int SSL_write(SSL *s, const void *buf, int num)" and "if (num < 0) {" (${nodeSource}/deps/openssl/openssl/ssl/ssl_lib.c#L2647-L2653, verified 2026-11-07), and Node's TLS socket passes it a write's chunks as one length, "written = SSL_write(ssl_.get(), bs->Data(), length);" (${nodeSource}/src/crypto/crypto_tls.cc#L1181), so a write is at most INT_MAX bytes, the greatest integer`,
+	compute: ([intMax]) => intMax.value
+})
+
+/**
+ * The most bytes one send on a macOS socket carries: a write or a writev past INT_MAX is refused whole with EINVAL.
+ * Node's TLS socket writes the ciphertext of one SSL_write to its socket in one call, so a flight's ciphertext is one
+ * send.
+ */
+const socketSendMaxBytes = derived({
+	owner: "macOS's kernel, XNU 12377.121.6",
+	unit: "bytes",
+	scope:
+		"one write or writev to a socket on macOS: the ciphertext of one SSL_write, which Node's TLS socket writes in one call",
+	from: [int4Max],
+	derivation: `sosend refuses "if (resid < 0 || resid > INT_MAX ||" with "error = EINVAL;" (https://github.com/apple-oss-distributions/xnu/blob/xnu-12377.121.6/bsd/kern/uipc_socket.c#L2122-L2124, verified 2026-11-07); Node's TLS socket sizes one buffer for the whole ciphertext of a write, "allocate_hint_ = (size / kThreshold + 1) * (kThreshold + 5 + 32);" (${nodeSource}/src/crypto/crypto_bio.h#L110), and hands what its buffers hold to its socket in one call, "StreamWriteResult res = underlying_stream()->Write(bufs, count);" (${nodeSource}/src/crypto/crypto_tls.cc#L770). Linux refuses no length: "On Linux, write() (and similar system calls) will transfer at most 0x7ffff000 (2,147,479,552) bytes, returning the number of bytes actually transferred." (https://man7.org/linux/man-pages/man2/write.2.html, verified 2026-11-07), and libuv writes the rest`,
+	compute: ([intMax]) => intMax.value
+})
+
+const tlsSource = "https://www.rfc-editor.org/rfc/rfc5246"
+
+/**
+ * The most plaintext one TLS record carries. OpenSSL cuts a write into records of this many bytes but the last, its
+ * max_send_fragment's default, which a peer lowers only when the client asks for max_fragment_length, and Node's TLS
+ * socket asks for none.
+ */
+const tlsRecordPlaintextBytes = published({
+	value: 2 ** 14,
+	owner: "TLS 1.2 (RFC 5246), and TLS 1.3 alike (RFC 8446)",
+	unit: "bytes",
+	scope: "the plaintext fragment of one TLS record",
+	constraint: "protocol constant",
+	source: `${tlsSource}#section-6.2.1`,
+	quote: "The length MUST NOT exceed 2^14.",
+	verified: "2026-11-07"
+})
+
+/**
+ * The most bytes one TLS 1.2 record's protected fragment holds, its plaintext and all its cipher adds: a MAC, an
+ * explicit IV, a nonce or padding. TLS 1.3's is 2^14 + 256 (RFC 8446 section 5.2), so a session of either version stays
+ * within it.
+ */
+const tlsRecordProtectedBytes = published({
+	value: 2 ** 14 + 2048,
+	owner: "TLS 1.2 (RFC 5246)",
+	unit: "bytes",
+	scope: "the protected fragment of one TLS record, as TLSCiphertext.length counts it",
+	constraint: "protocol constant",
+	source: `${tlsSource}#section-6.2.3`,
+	quote: "The length MUST NOT exceed 2^14 + 2048.",
+	verified: "2026-11-07"
+})
+
+/**
+ * The header in front of every TLS record's fragment: its ContentType, an enum of one byte, its ProtocolVersion, two
+ * uint8, and its uint16 length.
+ */
+const tlsRecordHeaderBytes = published({
+	value: 1 + 2 + 2,
+	owner: "TLS 1.2 (RFC 5246), and TLS 1.3 alike (RFC 8446)",
+	unit: "bytes",
+	scope: "the header of one TLS record, in front of its fragment",
+	constraint: "protocol constant",
+	source: `${tlsSource}#section-6.2.3`,
+	quote: "ContentType type; ProtocolVersion version; uint16 length;",
+	verified: "2026-11-07"
+})
+
+/**
+ * The most bytes one flight writes, every message pg writes for it corked into one write. Node's TLS socket hands that
+ * write to one SSL_write and its ciphertext to one send on its socket, so a longer flight fails whole: OpenSSL's "bad
+ * length" past INT_MAX, or the socket's EINVAL once TLS's records have grown it past INT_MAX. The connection ends with
+ * the flight's end unsent, which a flight carrying COMMIT would report as CommitLost though nothing committed, so a
+ * flight past this is refused on the host as InputTooLarge before any byte of it is written (the shell's wire/batch.ts).
+ */
+export const flightMaxBytes = derived({
+	owner:
+		"the TLS every session runs over: OpenSSL's SSL_write, TLS 1.2's records and macOS's socket send",
+	unit: "bytes",
+	scope:
+		"one flight: the Closes in front of it, BEGIN, the prologue, each statement's Parse, Bind, Describe, Execute and Sync, and the transaction's end, as pg writes them",
+	from: [
+		sslWriteMaxBytes,
+		socketSendMaxBytes,
+		tlsRecordPlaintextBytes,
+		tlsRecordProtectedBytes,
+		tlsRecordHeaderBytes
+	],
+	derivation:
+		"a flight's plaintext must fit one SSL_write, and its ciphertext one send. TLS cuts the plaintext into records of tlsRecordPlaintextBytes each but the last, and sends each as its header and a protected fragment of at most tlsRecordProtectedBytes, TLS 1.2's bound, the larger of the two versions a session negotiates (Node's and PostgreSQL's least is TLS 1.2). So the flight is at most the whole records whose worst ciphertext fits one send, and at most what one SSL_write takes",
+	compute: ([write, send, plaintext, protectedBytes, header]) =>
+		Math.min(
+			write.value,
+			Math.floor(send.value / (header.value + protectedBytes.value)) * plaintext.value
+		)
+})
+
 /** BITS_PER_BYTE, the bits PostgreSQL counts in one byte of a datum. */
 export const bitsPerByte = published({
 	value: 8,

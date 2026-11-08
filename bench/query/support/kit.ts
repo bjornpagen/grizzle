@@ -499,7 +499,7 @@ export const runtimeSession = Effect.fn("runtimeSession")(function* <S>(
 	const recorded: Array<VariantStatement> = []
 	const recording: Session = {
 		...session,
-		send: (closes, pipeline, onAnswer, onEnd) => {
+		send: (closes, pipeline, onAnswer, onEnd, onCut) => {
 			runtime.flights++
 			appendAll(
 				recorded,
@@ -511,7 +511,7 @@ export const runtimeSession = Effect.fn("runtimeSession")(function* <S>(
 						: Result.failVoid
 				)
 			)
-			session.send(closes, pipeline, onAnswer, onEnd)
+			session.send(closes, pipeline, onAnswer, onEnd, onCut)
 		}
 	}
 	const runtime: Runtime = { session: recording, prologue, recorded, flights: 0 }
