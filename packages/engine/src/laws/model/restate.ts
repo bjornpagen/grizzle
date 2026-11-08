@@ -11,7 +11,7 @@ import { identifierOf, identity, type LawColumnStatement } from "#compiler/core/
 import type { Identifier, LawId } from "#compiler/core/ids.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import type { ExprDesc, FieldDesc, LiteralDesc } from "#compiler/ir/desc.ts"
+import type { ComputeFn, ExprDesc, FieldDesc, LiteralDesc } from "#compiler/ir/desc.ts"
 import { identityValueOf, type TypedLiteral } from "#compiler/ir/expr.ts"
 import type { LawField, TheoryRelation } from "#compiler/ir/law.ts"
 import { rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
@@ -62,12 +62,6 @@ const eachNonEmpty = <A, B>(
 	return first === undefined || rest === undefined ? undefined : [first, ...rest]
 }
 
-/** Whether a declared rename renames a handle of the roster a type is over. */
-const handlesMoved = (names: PreviousNames, type: ScalarType): boolean => {
-	const roster = rosterOf(type)
-	return roster !== undefined && names.handleRenames.has(roster.closed)
-}
-
 /** A typed literal of `type` as the previous snapshot spells it: a handle, or a set's handles, by their previous
  * names, none where one is new; any other literal as it is. */
 const restatedLiteral = (
@@ -103,8 +97,117 @@ const restatedLiteral = (
 	}
 }
 
-/** A field descriptor as the previous snapshot spells it, each roster by its previous name; none for a contract's
- * when a declared rename renames handles, since its predicate may name one. */
+/** What a predicate is restated in: its relation's fields' previous names and the rosters they are over, each by its
+ * name in the target, and the roster a contract's VALUE is over. */
+interface Scope {
+	readonly field: (name: string) => string | undefined
+	readonly roster: (name: string) => string | undefined
+	readonly value: string | undefined
+}
+
+/** The roster a field descriptor's values are handles of, or sets over: a closed id's or a set's, a contract's base's. */
+const descRoster = (t: FieldDesc): string | undefined => {
+	switch (t.kind) {
+		case "closedId":
+		case "bits":
+			return t.roster
+		case "contract":
+			return descRoster(t.base)
+		case "pg":
+		case "numeric":
+		case "uuid":
+		case "bytes":
+		case "text":
+		case "span":
+		case "vector":
+			return undefined
+	}
+}
+
+/** The compute functions whose value is over the roster of their arguments': a set's union, intersection, difference
+ * and singleton, and a closed id's least and greatest. */
+const rosterFns: ReadonlySet<ComputeFn> = new Set<ComputeFn>([
+	"union",
+	"intersection",
+	"difference",
+	"singleton",
+	"least",
+	"greatest"
+])
+
+/** The roster an expression's value is a handle of or a set over, in the target's names, where its typing says: a
+ * field's, a typed literal's, a cast's, a contract's VALUE's, and what a conditional, a guard or a set function
+ * yields; none for any other value, and for a closed relation's read, which a draft restates only when no handle is
+ * renamed (restatedExpr). */
+const rosterIn = (e: ExprDesc, scope: Scope): string | undefined => {
+	switch (e.kind) {
+		case "field":
+			return scope.roster(e.field)
+		case "value":
+			return scope.value
+		case "literal":
+			return e.type === undefined ? undefined : descRoster(e.type)
+		case "cast":
+			return descRoster(e.to)
+		case "base":
+			return rosterIn(e.arg, scope)
+		case "cond":
+			return rosterIn(e.onTrue, scope) ?? rosterIn(e.onFalse, scope)
+		case "when":
+			return rosterIn(e.proved, scope) ?? rosterIn(e.otherwise, scope)
+		case "compute":
+			return rosterFns.has(e.fn) ? firstRoster(e.args, scope) : undefined
+		case "var":
+		case "parent":
+		case "param":
+		case "compare":
+		case "between":
+		case "in":
+		case "and":
+		case "or":
+		case "not":
+		case "allen":
+		case "pointIn":
+		case "absent":
+		case "closedAt":
+		case "closedRow":
+		case "closedHas":
+			return undefined
+	}
+}
+
+const firstRoster = (es: ReadonlyArray<ExprDesc>, scope: Scope): string | undefined => {
+	for (const e of es) {
+		const roster = rosterIn(e, scope)
+		if (roster !== undefined) {
+			return roster
+		}
+	}
+	return undefined
+}
+
+/** A description literal of a value of `roster` as the previous snapshot spells it: a handle by its previous name, a
+ * set's handles each by theirs, none where one is new; any other literal, and any literal of no roster, as it is. */
+const restatedValue = (
+	value: LiteralDesc,
+	roster: string | undefined,
+	names: PreviousNames
+): LiteralDesc | undefined => {
+	if (roster === undefined) {
+		return value
+	}
+	if (typeof value === "string") {
+		return names.handle(roster, value)
+	}
+	if (typeof value === "object" && "handles" in value) {
+		const handles = each(value.handles, (h) => names.handle(roster, h))
+		return handles === undefined ? undefined : { handles }
+	}
+	return value
+}
+
+/** A field descriptor as the previous snapshot spells it: each roster by its previous name, a contract's predicate
+ * restated over its VALUE (restatedExpr); none where a roster is new. */
 const restatedType = (t: FieldDesc, names: PreviousNames): FieldDesc | undefined => {
 	switch (t.kind) {
 		case "closedId":
@@ -117,12 +220,14 @@ const restatedType = (t: FieldDesc, names: PreviousNames): FieldDesc | undefined
 			return endpoint === undefined ? undefined : { ...t, endpoint }
 		}
 		case "contract": {
-			if (names.handleRenames.size > 0) {
-				return undefined
-			}
 			const base = restatedType(t.base, names)
+			const scope: Scope = {
+				field: () => undefined,
+				roster: () => undefined,
+				value: descRoster(t.base)
+			}
 			const predicate =
-				t.predicate === undefined ? undefined : restatedExpr(t.predicate, () => undefined, names)
+				t.predicate === undefined ? undefined : restatedExpr(t.predicate, undefined, scope, names)
 			return base === undefined || (t.predicate !== undefined && predicate === undefined)
 				? undefined
 				: { ...t, base, predicate }
@@ -137,32 +242,27 @@ const restatedType = (t: FieldDesc, names: PreviousNames): FieldDesc | undefined
 	}
 }
 
-/** Whether a literal may spell a handle a declared rename renames: a set of handles, or a literal typed over a roster
- * whose handles a declaration renames. */
-const literalMoved = (
-	value: LiteralDesc,
-	type: FieldDesc | undefined,
-	names: PreviousNames
-): boolean =>
-	names.handleRenames.size > 0 &&
-	((typeof value === "object" && "handles" in value) ||
-		((type?.kind === "closedId" || type?.kind === "bits") && names.handleRenames.has(type.roster)))
-
 /**
- * A selection's predicate as the previous snapshot spells it: each field of its relation by `field`, each roster and
- * closed relation by its previous name. None where a declared handle rename may reach it (a literal over a roster whose
- * handles move, a read of a closed relation, a contract's predicate), and for a negation over a source, which no law
+ * A predicate as the previous snapshot spells it: each field of its relation by its previous name, each roster and
+ * closed relation by its previous name, and each literal that meets a closed id or a set as its roster's previous
+ * handles, a literal's roster read off what it meets (`expected`, rosterIn), as the checker types it: the other side of
+ * a comparison, an IN list's or a range's subject, a conditional's other branch, a set function's other arguments, a
+ * cast's target. None where a name it reads is new to the migration; where a declared handle rename meets a closed
+ * relation's read, whose fields' rosters the predicate does not state; and for a negation over a source, which no law
  * side's selection states.
  */
 const restatedExpr = (
 	e: ExprDesc,
-	field: (name: string) => string | undefined,
+	expected: string | undefined,
+	scope: Scope,
 	names: PreviousNames
 ): ExprDesc | undefined => {
-	const sub = (x: ExprDesc): ExprDesc | undefined => restatedExpr(x, field, names)
+	const sub = (x: ExprDesc, roster: string | undefined): ExprDesc | undefined =>
+		restatedExpr(x, roster, scope, names)
+	const own = (x: ExprDesc): ExprDesc | undefined => sub(x, rosterIn(x, scope))
 	switch (e.kind) {
 		case "field": {
-			const previous = field(e.field)
+			const previous = scope.field(e.field)
 			return previous === undefined ? undefined : { ...e, field: previous }
 		}
 		case "var":
@@ -171,86 +271,100 @@ const restatedExpr = (
 		case "param":
 			return e
 		case "literal": {
-			if (literalMoved(e.value, e.type, names)) {
-				return undefined
-			}
+			const value = restatedValue(
+				e.value,
+				(e.type === undefined ? undefined : descRoster(e.type)) ?? expected,
+				names
+			)
 			const type = e.type === undefined ? undefined : restatedType(e.type, names)
-			return e.type !== undefined && type === undefined ? undefined : { ...e, type }
+			return value === undefined || (e.type !== undefined && type === undefined)
+				? undefined
+				: { ...e, value, type }
 		}
 		case "compute": {
-			const args = each(e.args, sub)
+			const roster = rosterFns.has(e.fn) ? (expected ?? firstRoster(e.args, scope)) : undefined
+			const args =
+				e.fn === "subset" || e.fn === "disjoint" || e.fn === "cardinality"
+					? each(e.args, (a) => sub(a, firstRoster(e.args, scope)))
+					: each(e.args, (a) => (roster === undefined ? own(a) : sub(a, roster)))
 			return args === undefined ? undefined : { ...e, args }
 		}
 		case "cast": {
 			const to = restatedType(e.to, names)
-			const arg = sub(e.arg)
+			const arg = sub(e.arg, rosterIn(e.arg, scope) ?? descRoster(e.to))
 			return to === undefined || arg === undefined ? undefined : { ...e, to, arg }
 		}
-		case "base":
+		case "base": {
+			const arg = sub(e.arg, expected ?? rosterIn(e.arg, scope))
+			return arg === undefined ? undefined : { ...e, arg }
+		}
 		case "not": {
-			const arg = sub(e.arg)
+			const arg = own(e.arg)
 			return arg === undefined ? undefined : { ...e, arg }
 		}
 		case "in": {
-			const arg = sub(e.arg)
-			return arg === undefined || e.values.some((v) => literalMoved(v, undefined, names))
-				? undefined
-				: { ...e, arg }
+			const roster = rosterIn(e.arg, scope)
+			const arg = sub(e.arg, roster)
+			const values = each(e.values, (v) => restatedValue(v, roster, names))
+			return arg === undefined || values === undefined ? undefined : { ...e, arg, values }
 		}
 		case "cond": {
-			const pred = sub(e.pred)
-			const onTrue = sub(e.onTrue)
-			const onFalse = sub(e.onFalse)
+			const roster = expected ?? rosterIn(e, scope)
+			const pred = own(e.pred)
+			const onTrue = sub(e.onTrue, roster)
+			const onFalse = sub(e.onFalse, roster)
 			return pred === undefined || onTrue === undefined || onFalse === undefined
 				? undefined
 				: { ...e, pred, onTrue, onFalse }
 		}
 		case "when": {
-			const subject = sub(e.subject)
-			const proved = sub(e.proved)
-			const otherwise = sub(e.otherwise)
+			const roster = expected ?? rosterIn(e, scope)
+			const subject = own(e.subject)
+			const proved = sub(e.proved, roster)
+			const otherwise = sub(e.otherwise, roster)
 			return subject === undefined || proved === undefined || otherwise === undefined
 				? undefined
 				: { ...e, subject, proved, otherwise }
 		}
 		case "compare": {
-			const left = sub(e.left)
-			const right = sub(e.right)
+			const left = sub(e.left, rosterIn(e.right, scope) ?? rosterIn(e.left, scope))
+			const right = sub(e.right, rosterIn(e.left, scope) ?? rosterIn(e.right, scope))
 			return left === undefined || right === undefined ? undefined : { ...e, left, right }
 		}
 		case "between": {
-			const arg = sub(e.arg)
-			const low = sub(e.low)
-			const high = sub(e.high)
+			const roster = firstRoster([e.arg, e.low, e.high], scope)
+			const arg = sub(e.arg, roster)
+			const low = sub(e.low, roster)
+			const high = sub(e.high, roster)
 			return arg === undefined || low === undefined || high === undefined
 				? undefined
 				: { ...e, arg, low, high }
 		}
 		case "and":
 		case "or": {
-			const args = eachNonEmpty(e.args, sub)
+			const args = eachNonEmpty(e.args, own)
 			return args === undefined ? undefined : { ...e, args }
 		}
 		case "allen": {
-			const left = sub(e.left)
-			const right = sub(e.right)
+			const left = own(e.left)
+			const right = own(e.right)
 			return left === undefined || right === undefined ? undefined : { ...e, left, right }
 		}
 		case "pointIn": {
-			const point = sub(e.point)
-			const span = sub(e.span)
+			const point = own(e.point)
+			const span = own(e.span)
 			return point === undefined || span === undefined ? undefined : { ...e, point, span }
 		}
 		case "closedAt":
 		case "closedHas": {
-			const args = eachNonEmpty(e.args, sub)
+			const args = eachNonEmpty(e.args, own)
 			const relation = names.relation(e.relation)
 			return args === undefined || relation === undefined || names.handleRenames.size > 0
 				? undefined
 				: { ...e, relation, args }
 		}
 		case "closedRow": {
-			const args = each(e.args, sub)
+			const args = each(e.args, own)
 			const relation = names.relation(e.relation)
 			return args === undefined || relation === undefined || names.handleRenames.size > 0
 				? undefined
@@ -264,20 +378,24 @@ const restatedExpr = (
 /**
  * A selection over `relation` as the previous snapshot spells it: each conjunct's predicate restated
  * (restatedExpr), the selection put in canonical form again (schema/own.ts canonicalSelection), since a renamed field
- * may reorder it, and each conjunct with its canonical text and the fields it reads under their previous names. None
- * where a conjunct reads a field over a roster whose handles a declaration renames, or a predicate does not restate.
+ * or handle may reorder it, and each conjunct with its canonical text and the fields it reads under their previous
+ * names. None where a conjunct does not restate.
  */
 const restatedConjuncts = (
 	relation: TheoryRelation,
 	selection: ResolvedSelection,
 	names: PreviousNames
 ): ReadonlyArray<SpelledConjunct> | undefined => {
-	if (selection.conjuncts.some((c) => c.reads.some((f: LawField) => handlesMoved(names, f.type)))) {
-		return undefined
+	const rosters = new Map(relation.fields.map((f) => [f.name, rosterOf(f.type)?.closed] as const))
+	const scope: Scope = {
+		field: (name) => names.field(relation.name, name),
+		roster: (name) => rosters.get(name),
+		value: undefined
 	}
-	const field = (name: string): string | undefined => names.field(relation.name, name)
-	const predicates = each(selection.conjuncts, (c) => restatedExpr(c.predicate, field, names))
-	const previousFields = each(relation.fields, (f) => field(f.name))
+	const predicates = each(selection.conjuncts, (c) =>
+		restatedExpr(c.predicate, undefined, scope, names)
+	)
+	const previousFields = each(relation.fields, (f) => scope.field(f.name))
 	if (predicates === undefined || previousFields === undefined) {
 		return undefined
 	}
