@@ -305,9 +305,14 @@ const fixedOf = (e: ScalarExpr, locals: ReadonlySet<NodeId>): Fixed | undefined 
 	}
 }
 
-const localColumn = (e: ScalarExpr, node: NodeId): string | undefined => {
+/**
+ * The input column an expression a Filter or a ProjectSet evaluates over its input copies: its compared value's column.
+ * Such an expression reads its input alone, since outer values enter a node only through the scope expressions of a
+ * region or a take (ir/dag.ts nodeScopes), so every column it names is one of its input's.
+ */
+const copiedColumn = (e: ScalarExpr): string | undefined => {
 	const u = comparedValue(e)
-	return u.kind === "column" && u.column.node === node ? u.column.name : undefined
+	return u.kind === "column" ? u.column.name : undefined
 }
 
 /** The columns of `node` an expression reads, in first-visit order of its closure (expr.ts exprClosure). */
@@ -588,7 +593,7 @@ const stepSource = (props: Table, d: Dependency, column: string): StepSource => 
 				return opaque
 			}
 			const input = node.input.node.id
-			const copied = localColumn(out.expr, input)
+			const copied = copiedColumn(out.expr)
 			return copied === undefined
 				? own(fixedOf(out.expr, new Set([input])) ?? { kind: "expr" })
 				: {
@@ -745,7 +750,7 @@ const fixedWitnessValue = (
 				"a conjunct that fixes a column is an equality"
 			)
 			const other = defined(
-				operands.find((o) => localColumn(o, input) !== column),
+				operands.find((o) => copiedColumn(o) !== column),
 				"an equality that fixes a column has an operand other than the column"
 			)
 			return fixedOf(other, new Set([input])) ?? { kind: "expr" }
@@ -1359,8 +1364,8 @@ const filterDependencies = (node: ReadingOf<"Filter">): Stated => {
 			continue
 		}
 		const [x, y] = operands
-		const cx = localColumn(x, input)
-		const cy = localColumn(y, input)
+		const cx = copiedColumn(x)
+		const cy = copiedColumn(y)
 		if (cx !== undefined && cy !== undefined) {
 			if (cx !== cy) {
 				const stated = statedEquality(cx, cy, { kind: "conjunct", expr: c })
@@ -1987,7 +1992,7 @@ const projectProps = (subject: Subject, node: ReadingOf<"ProjectSet">): Props =>
 	/** The input columns each computed or constant output reads. */
 	const reads = new Map<string, ReadonlyArray<string>>()
 	for (const o of node.out) {
-		const col = localColumn(o.expr, inputId)
+		const col = copiedColumn(o.expr)
 		if (col !== undefined) {
 			copyOf.set(o.name, col)
 			if (!copies.has(col)) {
