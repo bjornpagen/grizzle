@@ -1,5 +1,4 @@
 import { canonicalEquals, catchRefusal, everyProperty } from "#compiler/core/canonical.ts"
-import type { Diagnostic } from "#compiler/core/diag.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { Certificate } from "#compiler/ir/certificate.ts"
@@ -68,7 +67,6 @@ export interface OptimizedProgram<L = FusedStatement> extends OptimizedDeliveryP
 	 * policy's and the shapes'.
 	 */
 	readonly certificates: ReadonlyArray<Certificate>
-	readonly diagnostics: ReadonlyArray<Diagnostic>
 }
 
 /**
@@ -186,8 +184,7 @@ const optimizedLowering = (options: OptimizedOptions): Pass<LogicalQuery, Optimi
 			query,
 			plan,
 			cte,
-			certificates: ctx.certificates.all(),
-			diagnostics: ctx.diagnostics.all()
+			certificates: ctx.certificates.all()
 		})
 	}
 })

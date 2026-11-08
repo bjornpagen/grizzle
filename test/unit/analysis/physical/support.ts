@@ -1,12 +1,11 @@
 import { Array as Arr, Option, Order } from "effect"
-import type { MultiplicityReason } from "#compiler/analysis/certificates/reasons.ts"
 import {
 	analyzePhysical,
 	type PhysicalAnalysis,
 	type PhysicalEnv,
 	unplaced
 } from "#compiler/analysis/physical/analyze.ts"
-import { isUnique, plainLosses } from "#compiler/analysis/physical/props.ts"
+import { isUnique } from "#compiler/analysis/physical/props.ts"
 import type { PhysicalProps, Realization } from "#compiler/analysis/physical/props.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import type { Heading, KeySet, NodeOf, RelDag, RelNode } from "#compiler/ir/rel.ts"
@@ -131,11 +130,6 @@ export const keyColumns = (
 	a: PhysicalAnalysis,
 	node: RelNode
 ): ReadonlyArray<ReadonlyArray<string>> => provedKeys(propsOf(a, node))
-
-export const lossReasons = (
-	a: PhysicalAnalysis,
-	node: RelNode
-): ReadonlyArray<MultiplicityReason> => Arr.map(plainLosses(propsOf(a, node)), (l) => l.reason)
 
 /**
  * The fragment evaluator: the rows each fragment's SQL delivers under a realization. Its evaluations record every

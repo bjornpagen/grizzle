@@ -17,15 +17,12 @@ import {
 	structural,
 	withReason
 } from "#compiler/analysis/physical/fds.ts"
-import {
-	type FixedFact,
-	type FixedFacts,
-	isUnique,
-	type Loss,
-	type PhysicalProps,
-	plainLosses,
-	type Realization,
-	type Uniqueness
+import type {
+	FixedFact,
+	FixedFacts,
+	PhysicalProps,
+	Realization,
+	Uniqueness
 } from "#compiler/analysis/physical/props.ts"
 import { castIdentity, castInjective, comparedValue } from "#compiler/ir/injective.ts"
 
@@ -38,7 +35,7 @@ import {
 import { appendAll } from "#compiler/core/array.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import { defined } from "#compiler/core/invariant.ts"
-import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { TupleMap } from "#compiler/core/tuple-map.ts"
 import {
 	atMost,
@@ -334,7 +331,6 @@ interface Draft {
 	readonly fixed: ReadonlyMap<string, FixedFacts>
 	/** The most rows the node can have. */
 	readonly maxCard: Cardinality
-	readonly losses: ReadonlyArray<Loss>
 	/** What the node's own exact duplicate elimination rests on when it is realized `distinct`. */
 	readonly dedup: DraftDedup
 }
@@ -399,19 +395,13 @@ const finish = (node: RelNode, cx: RuleContext, draft: Draft): PhysicalProps => 
 			fixed.set(c, [{ fixed: { kind: "expr" }, just: plain.explain(determined, [c]) }])
 		}
 	}
-	/** Why the plain form is not unique, whatever the realization adds. */
-	const [loss, ...more] = draft.losses
-	const losses: NonEmptyReadonlyArray<Loss> =
-		loss === undefined
-			? [{ reason: "unknownEvidence", detail: "no admissible evidence proves the heading" }]
-			: [loss, ...more]
 	const lead = plainUnique === undefined ? undefined : leadingReason(plainUnique.just.reasons)
 	const uniqueness: Uniqueness =
 		plainUnique !== undefined && lead !== undefined
 			? { kind: "plain", key: plainUnique, lead }
 			: dependencies.proof(columns) === undefined
-				? { kind: "none", losses }
-				: { kind: "realized", losses }
+				? { kind: "none" }
+				: { kind: "realized" }
 	return {
 		node: node.id,
 		kind: node.kind,
@@ -505,14 +495,6 @@ const inheritSame = (node: RelNode, input: PhysicalProps): FixedState => {
 	return { fds, fixed }
 }
 
-/** Why a node over `input` whose heading is `columns` is not unique, when it is not: the input's, or its keys lost. */
-const lossesOf = (input: PhysicalProps, columns: ReadonlyArray<string>): ReadonlyArray<Loss> =>
-	input.uniqueness.kind === "none"
-		? input.uniqueness.losses
-		: columns.length === 0
-			? []
-			: [{ reason: "projectedKeyLoss", detail: "every key of the input is dropped" }]
-
 /**
  * A filter keeps its input's keys and can fix key components. A span held to contain a point the input's columns, or
  * values fixed per evaluation, give has that point known.
@@ -580,8 +562,7 @@ const filterProps = (node: NodeOf<"Filter">, cx: RuleContext): PhysicalProps => 
 		fds,
 		fixed: s.fixed,
 		maxCard: empty ? atMost(0n) : input.maxCard,
-		dedup: placed,
-		losses: plainLosses(input)
+		dedup: placed
 	})
 }
 
@@ -603,8 +584,7 @@ const semiProps = (
 		fds: s.fds,
 		fixed: s.fixed,
 		maxCard: left.maxCard,
-		dedup: placed,
-		losses: plainLosses(left)
+		dedup: placed
 	})
 }
 
@@ -643,8 +623,7 @@ const takeProps = (node: NodeOf<"Take">, cx: RuleContext): PhysicalProps => {
 		fds: s.fds,
 		fixed: s.fixed,
 		maxCard,
-		dedup: placed,
-		losses: plainLosses(input)
+		dedup: placed
 	})
 }
 
@@ -657,8 +636,7 @@ const atMostOneFact = (node: RelNode, cx: RuleContext): PhysicalProps => {
 		fds: new DependencyDraft(node.heading.map((c) => c.name)),
 		fixed: new Map(),
 		dedup: placed,
-		maxCard: atMost(1n),
-		losses: []
+		maxCard: atMost(1n)
 	})
 }
 
@@ -676,7 +654,7 @@ const atMostOneFact = (node: RelNode, cx: RuleContext): PhysicalProps => {
  * - MatchRegion: an occurrence is identified when its source's table, embedded over the variables it binds, reaches
  *   its row, constants and columns fixed per evaluation included, and a candidate is a key when it identifies every
  *   occurrence (a key from each input jointly identifies a pair; a left key alone survives only with at most one
- *   matching right row). Unbound key columns lose the key (projectedKeyLoss).
+ *   matching right row). Unbound key columns lose the key.
  * - Filter keeps its input's keys and can fix key components. ProjectSet keeps a key whose every column
  *   is copied, equal to a copied column, fixed, or injectively represented (injective.ts).
  * - SemiJoin and AntiJoin keep the left's keys and multiplicity. Intersect and Difference, in their set
@@ -726,8 +704,7 @@ export const physicalPropsOf = (node: RelNode, cx: RuleContext): PhysicalProps =
 				fds,
 				fixed: new Map(),
 				dedup: placed,
-				maxCard: unbounded,
-				losses: []
+				maxCard: unbounded
 			})
 		}
 		case "Context":
@@ -757,8 +734,7 @@ export const physicalPropsOf = (node: RelNode, cx: RuleContext): PhysicalProps =
 				fds: s.fds,
 				fixed: s.fixed,
 				maxCard,
-				dedup: placed,
-				losses: plainLosses(left)
+				dedup: placed
 			})
 		}
 		case "Union":
@@ -781,8 +757,7 @@ export const physicalPropsOf = (node: RelNode, cx: RuleContext): PhysicalProps =
 				fds: s.fds,
 				fixed: s.fixed,
 				maxCard: input.maxCard,
-				dedup: placed,
-				losses: plainLosses(input)
+				dedup: placed
 			})
 		}
 		case "Produce":
@@ -814,18 +789,7 @@ export const physicalPropsOf = (node: RelNode, cx: RuleContext): PhysicalProps =
 				fds,
 				fixed: new Map(),
 				dedup: node.kind === "Recursive" ? { kind: "recursiveUnion", just } : placed,
-				maxCard: unbounded,
-				losses: [
-					closure
-						? {
-								reason: "globalRecursiveClosure",
-								detail: "only the recursive UNION removes repeated states"
-							}
-						: {
-								reason: "globalRecursiveClosure",
-								detail: "recursive feedback without UNION repeats states"
-							}
-				]
+				maxCard: unbounded
 			})
 		}
 		case "ApproximateNearest":
@@ -840,8 +804,7 @@ export const physicalPropsOf = (node: RelNode, cx: RuleContext): PhysicalProps =
 				fds: s.fds,
 				fixed: s.fixed,
 				maxCard,
-				dedup: placed,
-				losses: plainLosses(input)
+				dedup: placed
 			})
 		}
 		case "Attach":
@@ -890,7 +853,6 @@ const declareKey = (
 const baseProps = (node: NodeOf<"Base">, cx: RuleContext): PhysicalProps => {
 	const columns = node.heading.map((c) => c.name)
 	const fds = new DependencyDraft(columns)
-	const losses: Array<Loss> = []
 	const declared = [node.primaryKey, ...node.keys]
 	for (const [i, k] of declared.entries()) {
 		if (node.relationKind === "world") {
@@ -910,10 +872,6 @@ const baseProps = (node: NodeOf<"Base">, cx: RuleContext): PhysicalProps => {
 			derived: node.relationKind === "derived"
 		})
 		if (constraint === undefined) {
-			losses.push({
-				reason: "unknownEvidence",
-				detail: "a declared key has no installed constraint"
-			})
 			continue
 		}
 		const just = withReason(
@@ -929,8 +887,7 @@ const baseProps = (node: NodeOf<"Base">, cx: RuleContext): PhysicalProps => {
 		fds,
 		fixed: new Map(),
 		maxCard: unbounded,
-		dedup: placed,
-		losses
+		dedup: placed
 	})
 }
 
@@ -971,10 +928,7 @@ const closedProps = (node: NodeOf<"Closed">, cx: RuleContext): PhysicalProps => 
 		fds,
 		fixed,
 		maxCard: atMost(BigInt(rows.length)),
-		dedup: placed,
-		losses: [
-			{ reason: "finiteFacts", detail: "two declared facts are equal under native equality" }
-		]
+		dedup: placed
 	})
 }
 
@@ -1009,8 +963,7 @@ const deltaProps = (node: NodeOf<"Delta">, cx: RuleContext): PhysicalProps => {
 		fds,
 		fixed: new Map(),
 		dedup: placed,
-		maxCard: unbounded,
-		losses: [{ reason: "unknownEvidence", detail: "no admissible key of the written relation" }]
+		maxCard: unbounded
 	})
 }
 
@@ -1028,7 +981,6 @@ const regionProps = (node: NodeOf<"MatchRegion">, cx: RuleContext): PhysicalProp
 	const fixed = new Map<string, FixedFacts>()
 	const locals = new Set<NodeId>([node.id, ...node.occurrences.map((o) => o.source.id)])
 	const joined: Array<JoinedOccurrence> = []
-	const losses: Array<Loss> = []
 	const cards: Array<Cardinality> = []
 	const eqJust = (vars: ReadonlyArray<string>) =>
 		comparing(
@@ -1246,16 +1198,6 @@ const regionProps = (node: NodeOf<"MatchRegion">, cx: RuleContext): PhysicalProp
 			fds.implyWithin(ns, [occurrenceRow, ...evaluation.vars], scanVars, evaluation.just)
 		}
 		joined.push({ row: occurrenceRow, origin: [ns] })
-		if (src.dependencies.proof([...colVar.keys(), ...known.keys()]) === undefined) {
-			losses.push(
-				src.uniqueness.kind === "none"
-					? src.uniqueness.losses[0]
-					: {
-							reason: "projectedKeyLoss",
-							detail: "an occurrence leaves a column of every key unbound"
-						}
-			)
-		}
 	}
 	for (const [place, o] of node.occurrences.entries()) {
 		occurrence(o, place)
@@ -1298,16 +1240,7 @@ const regionProps = (node: NodeOf<"MatchRegion">, cx: RuleContext): PhysicalProp
 		fds,
 		fixed,
 		maxCard: productCardinality(cards),
-		dedup: placed,
-		losses:
-			losses.length > 0
-				? losses
-				: [
-						{
-							reason: "projectedKeyLoss",
-							detail: "a variable an occurrence's key binds is not delivered"
-						}
-					]
+		dedup: placed
 	}
 	return finish(node, cx, draft)
 }
@@ -1351,7 +1284,6 @@ const projectProps = (node: NodeOf<"ProjectSet">, cx: RuleContext): PhysicalProp
 		readonly reads: ReadonlyArray<string>
 		readonly just: Justification
 	}> = []
-	let noninjective = false
 	for (const o of node.out) {
 		const inj = injectiveColumn(o.expr, inputId)
 		if (inj !== undefined) {
@@ -1368,7 +1300,6 @@ const projectProps = (node: NodeOf<"ProjectSet">, cx: RuleContext): PhysicalProp
 			fixed.set(o.name, [r.fact])
 			continue
 		}
-		noninjective = true
 		computed.push({
 			out: o.name,
 			reads: readColumns(o.expr, inputId),
@@ -1406,23 +1337,11 @@ const projectProps = (node: NodeOf<"ProjectSet">, cx: RuleContext): PhysicalProp
 			fds.imply(d.from, [c.out], joinJustifications(d.just))
 		}
 	}
-	const losses: ReadonlyArray<Loss> =
-		input.uniqueness.kind === "none"
-			? input.uniqueness.losses
-			: noninjective
-				? [
-						{
-							reason: "noninjectiveExpression",
-							detail: "a key column is replaced by a noninjective expression"
-						}
-					]
-				: lossesOf(input, columns)
 	return finish(node, cx, {
 		fds,
 		fixed,
 		maxCard: input.maxCard,
-		dedup: placed,
-		losses
+		dedup: placed
 	})
 }
 
@@ -1510,21 +1429,11 @@ const unionProps = (node: NodeOf<"Union">, cx: RuleContext): PhysicalProps => {
 	}
 	fds.identify(identifiedBy, arms.length > 1 ? disjoint : structural)
 	const maxCard = sumCardinality(arms.map((a) => a.props.maxCard))
-	const nonUnique = arms.find((a) => !isUnique(a.props))
 	return finish(node, cx, {
 		fds,
 		fixed,
 		maxCard,
-		dedup: placed,
-		losses:
-			nonUnique === undefined
-				? [
-						{
-							reason: "overlappingArms",
-							detail: "two arms are not told apart by a retained literal discriminant"
-						}
-					]
-				: plainLosses(nonUnique.props)
+		dedup: placed
 	})
 }
 
@@ -1562,8 +1471,7 @@ const groupProps = (
 		fds,
 		fixed,
 		maxCard: node.keys.length === 0 ? atMost(1n) : unbounded,
-		dedup: placed,
-		losses: []
+		dedup: placed
 	})
 }
 
@@ -1587,7 +1495,6 @@ const produceProps = (node: NodeOf<"Produce">, cx: RuleContext): PhysicalProps =
 		fds,
 		fixed,
 		maxCard: node.producer === "spanIntersection" ? input.maxCard : unbounded,
-		dedup: placed,
-		losses: lossesOf(input, columns)
+		dedup: placed
 	})
 }

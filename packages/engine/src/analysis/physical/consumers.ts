@@ -62,23 +62,6 @@ export const consumerIn = (consumer: Consumer, role: InputRole): RelNode | undef
 export const consumerOutput = (consumer: Consumer, input: RelNode): RelNode =>
 	consumer.kind === "node" ? consumer.node : input
 
-/** Why an observing or ignoring consumer treats repeats as it does; a constant phrase. */
-export type ObservationWhy =
-	| "passes repeats on"
-	| "exact deduplication absorbs repeats"
-	| "existence is an emptiness test"
-	| "a set operator absorbs repeats"
-	| "an aggregate fold counts every row"
-	| "grouping without aggregates collapses repeats"
-	| "an ordered-set aggregate reads every row"
-	| "a window function numbers or folds every row"
-	| "a bound selects among rows"
-	| "a candidate bound selects among rows"
-	| "recursive UNION removes repeated states"
-	| "a delivered attachment is a set per parent"
-	| "a law's violation query is tested for emptiness"
-	| "the program's result is a public set"
-
 /** A preserving edge's consumer is a node: the program's result observes or ignores its roots. */
 interface EdgeOf<S extends ConsumerSensitivity, C extends Consumer> {
 	readonly consumer: C
@@ -87,7 +70,6 @@ interface EdgeOf<S extends ConsumerSensitivity, C extends Consumer> {
 	readonly declared: ConsumerSensitivity
 	/** The treatment once the consumer's own realization is accounted for. */
 	readonly sensitivity: S
-	readonly why: ObservationWhy
 }
 
 /** An observing edge states the input columns its consumer needs distinct. */
@@ -123,31 +105,34 @@ const rootSensitivity = (roots: RootObservation, root: RelNode): "observes" | "i
 
 const heading = (props: PhysicalProps): KeySet => props.columns
 
-/** The edges of one consumer, in structural order. */
+/**
+ * The edges of one consumer, in structural order. A consumer passes its input's repeats on unless its own realization
+ * deduplicates them. Existence tests, set operators, grouping without aggregates and the recursive UNION ignore them;
+ * bounds, aggregate folds, ordered-set aggregates, window functions, candidate bounds and a delivered attachment's
+ * child, a set per parent, observe them.
+ */
 const consumerEdges = (node: RelNode, env: ClassifyEnv): ReadonlyArray<ConsumerEdge> => {
 	/** A preserving consumer realized with an exact duplicate-eliminating operator absorbs its input's repeats. */
 	const by = (role: InputRole): NodeConsumer => ({ kind: "node", node, role })
 	const pass = (input: RelNode, role: InputRole): ConsumerEdge => {
 		const fields = { consumer: by(role), input, declared: "preserves" as const }
 		return env.realization(node) === "distinct"
-			? { ...fields, sensitivity: "ignores", why: "exact deduplication absorbs repeats" }
-			: { ...fields, sensitivity: "preserves", why: "passes repeats on" }
+			? { ...fields, sensitivity: "ignores" }
+			: { ...fields, sensitivity: "preserves" }
 	}
 	/** An observing consumer that needs its whole input heading distinct. */
-	const observe = (input: RelNode, role: InputRole, why: ObservationWhy): ConsumerEdge => ({
+	const observe = (input: RelNode, role: InputRole): ConsumerEdge => ({
 		consumer: by(role),
 		input,
 		declared: "observes",
 		sensitivity: "observes",
-		requires: heading(env.props(input)),
-		why
+		requires: heading(env.props(input))
 	})
-	const ignore = (input: RelNode, role: InputRole, why: ObservationWhy): ConsumerEdge => ({
+	const ignore = (input: RelNode, role: InputRole): ConsumerEdge => ({
 		consumer: by(role),
 		input,
 		declared: "ignores",
-		sensitivity: "ignores",
-		why
+		sensitivity: "ignores"
 	})
 	switch (node.kind) {
 		case "Base":
@@ -166,54 +151,34 @@ const consumerEdges = (node: RelNode, env: ClassifyEnv): ReadonlyArray<ConsumerE
 			return [pass(node.input, "input")]
 		case "SemiJoin":
 		case "AntiJoin":
-			return [
-				pass(node.left, "left"),
-				ignore(node.right, "right", "existence is an emptiness test")
-			]
+			return [pass(node.left, "left"), ignore(node.right, "right")]
 		case "Union":
 			return node.groups.flatMap((g) => g.arms.map((a) => pass(a, "arm")))
 		case "Intersect":
 		case "Difference":
-			return [
-				ignore(node.left, "left", "a set operator absorbs repeats"),
-				ignore(node.right, "right", "a set operator absorbs repeats")
-			]
+			return [ignore(node.left, "left"), ignore(node.right, "right")]
 		case "Take":
-			return [observe(node.input, "input", "a bound selects among rows")]
+			return [observe(node.input, "input")]
 		case "Group":
-			return node.aggs.length === 0
-				? [ignore(node.input, "input", "grouping without aggregates collapses repeats")]
-				: [observe(node.input, "input", "an aggregate fold counts every row")]
+			return node.aggs.length === 0 ? [ignore(node.input, "input")] : [observe(node.input, "input")]
 		case "OrderedSetAggregate":
-			return [observe(node.input, "input", "an ordered-set aggregate reads every row")]
+			return [observe(node.input, "input")]
 		case "Window":
-			return [observe(node.input, "input", "a window function numbers or folds every row")]
+			return [observe(node.input, "input")]
 		case "Recursive":
-			return [
-				ignore(node.base, "base", "recursive UNION removes repeated states"),
-				ignore(node.step, "step", "recursive UNION removes repeated states")
-			]
+			return [ignore(node.base, "base"), ignore(node.step, "step")]
 		case "ApproximateNearest":
-			return [observe(node.source, "source", "a candidate bound selects among rows")]
+			return [observe(node.source, "source")]
 		case "Attach":
-			return [
-				pass(node.parent, "parent"),
-				observe(node.child, "child", "a delivered attachment is a set per parent")
-			]
+			return [pass(node.parent, "parent"), observe(node.child, "child")]
 		case "Forbid":
-			return [
-				ignore(node.violation, "violation", "a law's violation query is tested for emptiness")
-			]
+			return [ignore(node.violation, "violation")]
 	}
 }
 
 /** The edge from the program's result to a root. */
 const rootEdge = (root: RelNode, env: ClassifyEnv): ConsumerEdge => {
-	const why: ObservationWhy =
-		root.kind === "Forbid"
-			? "a law's violation query is tested for emptiness"
-			: "the program's result is a public set"
-	const fields = { consumer: programResult, input: root, why }
+	const fields = { consumer: programResult, input: root }
 	switch (rootSensitivity(env.roots, root)) {
 		case "observes":
 			return {
@@ -281,44 +246,4 @@ export const observedNodes = (
 		}
 	}
 	return observed
-}
-
-interface ObservationStep {
-	readonly consumer: Consumer
-	readonly sensitivity: ConsumerSensitivity
-	readonly why: ObservationWhy
-}
-
-/**
- * The steps that end the observation paths from a node upward, each edge once: every edge that observes or ignores the
- * node's repeats and that a chain of preserving edges from the node reaches, and every preserving edge so reached into
- * a node no consumer reads (a path ending at the result). The walk expands each consumer once, and reads each edge
- * out of an expanded node once, so it is linear in the edges, where the paths themselves can be exponentially many in
- * a DAG; a reader of one path's end reads every end here.
- */
-export const observationEnds = (
-	node: RelNode,
-	edges: ReadonlyArray<ConsumerEdge>
-): ReadonlyArray<ObservationStep> => {
-	const into = edgesInto(edges)
-	const ends: Array<ObservationStep> = []
-	const expanded = new Set<RelNode>([node])
-	const queue = [node]
-	for (const at of queue) {
-		for (const e of into.get(at) ?? []) {
-			const step: ObservationStep = { consumer: e.consumer, sensitivity: e.sensitivity, why: e.why }
-			if (e.sensitivity !== "preserves") {
-				ends.push(step)
-				continue
-			}
-			const next = e.consumer.node
-			if ((into.get(next) ?? []).length === 0) {
-				ends.push(step)
-			} else if (!expanded.has(next)) {
-				expanded.add(next)
-				queue.push(next)
-			}
-		}
-	}
-	return ends
 }

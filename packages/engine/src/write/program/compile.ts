@@ -1294,7 +1294,6 @@ const compile = (
 		},
 		certificates: placed.certificates,
 		nameMap: optimized.nameMap,
-		diagnostics: [],
 		ir,
 		strata: byStratum(optimized.statements).map((statements) => statements.map((s) => s.spec)),
 		carriers: optimized.carriers,

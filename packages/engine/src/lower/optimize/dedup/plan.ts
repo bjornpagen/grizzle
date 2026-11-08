@@ -1,8 +1,6 @@
-import type { MultiplicityReason } from "#compiler/analysis/certificates/reasons.ts"
 import type { PhysicalAnalysis } from "#compiler/analysis/physical/analyze.ts"
 import type { Consumer } from "#compiler/analysis/physical/consumers.ts"
 import type { Realization } from "#compiler/analysis/physical/props.ts"
-import type { Diagnostic } from "#compiler/core/diag.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import type { Certificate, MultiplicityRule } from "#compiler/ir/certificate.ts"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
@@ -25,23 +23,6 @@ export interface Placement {
 }
 
 /**
- * How one node's set boundary is decided:
- * - elided: realized plainly because a physical key proves the plain form unique;
- * - placed: realized `distinct` because a consumer observes its repeats and nothing proves them away;
- * - kept: realized `distinct` by the fixed policy (recursive UNION, the INTERSECT and EXCEPT set forms, set UNION for
- *   arms not proved unique and pairwise disjoint);
- * - ignored: realized plainly although it may repeat, because every consumer its repeats reach absorbs or ignores them.
- */
-export type NodeStatus = "elided" | "placed" | "kept" | "ignored"
-
-export interface NodeDecision {
-	readonly node: NodeId
-	readonly realization: Realization
-	readonly status: NodeStatus
-	readonly reasons: ReadonlyArray<MultiplicityReason>
-}
-
-/**
  * The product of duplicate-elimination placement.
  *
  * A plan says, for every node of the rewritten DAG, how its semantic set boundary is realized: `plain` (an ordinary
@@ -51,10 +32,9 @@ export interface NodeDecision {
  * its input as realized, whose bound tuple is a key of it (ir/rel.ts FoldInput), and an observing consumer's need for
  * its input distinct is discharged like any other.
  *
- * It also keeps what explains and certifies the decision: each node placement, with the consumer whose observation it
- * discharges; each node's decision with its reasons (certificates/reasons.ts); the certificates of the multiplicity
- * rewrites it performs; and the physical analysis of the final realization, which the test kernel's verification
- * (test/support/oracle/verify/multiplicity.ts) recomputes rather than trusts.
+ * It also keeps what certifies the decision: each node placement, with the consumer whose observation it discharges;
+ * the certificates of the multiplicity rewrites it performs; and the physical analysis of the final realization, which
+ * the test kernel's verification (test/support/oracle/verify/multiplicity.ts) recomputes rather than trusts.
  */
 export interface DedupPlan {
 	/** The execution context the plan's evidence holds in; a plan is never reused in another. */
@@ -62,11 +42,6 @@ export interface DedupPlan {
 	readonly realization: Readonly<Record<NodeId, Realization>>
 	/** In the order they were placed: topological within each worklist round. */
 	readonly placements: ReadonlyArray<Placement>
-	/** One per node, in topological order. */
-	readonly decisions: ReadonlyArray<NodeDecision>
 	readonly certificates: ReadonlyArray<Certificate<MultiplicityRule>>
-	readonly diagnostics: ReadonlyArray<Diagnostic>
 	readonly analysis: PhysicalAnalysis
-	/** How many analyses the bounded worklist ran. */
-	readonly rounds: number
 }

@@ -20,8 +20,8 @@ export type CoercionIdentity =
 	| `opclass:${string}`
 
 /**
- * The evidence an elision certificate leads with: each multiplicity reason that explains an absent duplicate
- * elimination (analysis/certificates/reasons.ts classifies every reason).
+ * The evidence a uniqueness proof cites, and an elision certificate leads with (analysis/certificates/reasons.ts
+ * leadingReason): each reason a duplicate elimination is absent because of.
  */
 export type ElisionReason =
 	| "retainedPrimaryKey"

@@ -314,7 +314,6 @@ export const compileQuery = (
 		},
 		certificates: optimized.certificates,
 		nameMap: templateNameMap(flight(optimized.roots)),
-		diagnostics: optimized.diagnostics,
 		heading: checked.dag.roots[0].heading,
 		params: checked.params,
 		requiredContext: certificatesContext(optimized.certificates),

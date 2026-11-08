@@ -18,7 +18,6 @@ import { contained, f, key, on, relation, type SchemaDesc } from "#test/support/
 import { caseHang } from "#test/support/limits.ts"
 import {
 	keyColumns,
-	lossReasons,
 	owedOf,
 	physical,
 	propsOf,
@@ -132,7 +131,7 @@ describe("catalogs", () => {
 							const base = Option.getOrThrow(
 								Arr.findFirst(topoOrder(a.dag), (n) => n.kind === "Base")
 							)
-							assert.deepEqual(lossReasons(a, base), [])
+							assert.equal(propsOf(a, base).uniqueness.kind, "plain")
 							const scanProps = propsOf(a, scan)
 							/** The strongest proof that the scan's heading identifies its row. */
 							const unique = keyedBy(scanProps, scanProps.columns)

@@ -15,7 +15,6 @@ import { topoOrder } from "#compiler/ir/dag.ts"
 import type { EvidenceCatalog, TemplateContext } from "#compiler/ir/evidence.ts"
 import { inputsOf, type RelDag, type RelNode } from "#compiler/ir/rel.ts"
 import { certifyPlan } from "#compiler/lower/optimize/dedup/certify.ts"
-import { explainPlan } from "#compiler/lower/optimize/dedup/explain.ts"
 import type { DedupPlan, Placement } from "#compiler/lower/optimize/dedup/plan.ts"
 import {
 	initialRealization,
@@ -114,9 +113,7 @@ export const placeDeduplication = (
 	const pinnedUnions = new Set<RelNode>()
 	const placements: Array<Placement> = []
 	const placementCerts: Array<Certificate<MultiplicityRule>> = []
-	let rounds = 0
 	for (;;) {
-		rounds++
 		const a = analyzeRealization(dag, realization, env)
 		/** 1. Set UNION over unique, pairwise disjoint arms is UNION ALL. */
 		const relaxed = a.order.filter(
@@ -135,7 +132,7 @@ export const placeDeduplication = (
 		/** 2. The outstanding obligations a node placement discharges. */
 		const outstanding = a.obligations.flatMap((o) => (o.discharged ? [] : [o]))
 		if (outstanding.length === 0) {
-			return finishPlan(env, a, realization, placements, placementCerts, rounds)
+			return finishPlan(env, a, realization, placements, placementCerts)
 		}
 		const targets = new Set(outstanding.map((o) => placementTarget(o.edge.input)))
 		const below = belowTargets(a.order, targets)
@@ -191,14 +188,12 @@ const finishPlan = (
 	a: PhysicalAnalysis,
 	realization: ReadonlyMap<NodeId, Realization>,
 	placements: ReadonlyArray<Placement>,
-	placementCerts: ReadonlyArray<Certificate<MultiplicityRule>>,
-	rounds: number
+	placementCerts: ReadonlyArray<Certificate<MultiplicityRule>>
 ): Result.Result<DedupPlan, CompileError> => {
 	const certified = certifyPlan(a, placementCerts)
 	if (!certified.ok) {
 		return Result.err(certified.error)
 	}
-	const explained = explainPlan(a, placements)
 	const realized: Record<NodeId, Realization> = {}
 	for (const [id, r] of realization) {
 		realized[id] = r
@@ -207,10 +202,7 @@ const finishPlan = (
 		context: env.context,
 		realization: Object.freeze(realized),
 		placements: Object.freeze([...placements]),
-		decisions: explained.decisions,
 		certificates: certified.value,
-		diagnostics: explained.diagnostics,
-		analysis: a,
-		rounds
+		analysis: a
 	})
 }

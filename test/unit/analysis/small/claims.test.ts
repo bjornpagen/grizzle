@@ -5,7 +5,6 @@ import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import type { TestContext } from "vitest"
-import type { MultiplicityReason } from "#compiler/analysis/certificates/reasons.ts"
 import {
 	analyzePhysical,
 	type Obligation,
@@ -13,9 +12,10 @@ import {
 	type PhysicalEnv,
 	unplaced
 } from "#compiler/analysis/physical/analyze.ts"
-import { isUnique, keyedBy, plainLosses } from "#compiler/analysis/physical/props.ts"
+import { isUnique, keyedBy } from "#compiler/analysis/physical/props.ts"
 import { checkQuery } from "#compiler/check/index.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
+import type { ElisionReason } from "#compiler/ir/certificate.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
 import type { Card, NodeOf, RelDag, RelNode } from "#compiler/ir/rel.ts"
@@ -156,8 +156,8 @@ type ClaimFeature =
 	| PlanFeature
 	| LogicalFeature
 	| `claimed ${Card | "nothing"}`
-	| `reason ${MultiplicityReason}`
-	| `loss ${MultiplicityReason}`
+	| `reason ${ElisionReason}`
+	| "a plain form not unique"
 	| `placement ${Placement}`
 	| `context ${TemplateContext}`
 	| "a dangling reference seen in a transaction"
@@ -179,8 +179,8 @@ const claimFeatures = (
 		for (const reason of strongest === undefined ? [] : strongest.just.reasons) {
 			out.push(`reason ${reason}`)
 		}
-		for (const loss of plainLosses(p)) {
-			out.push(`loss ${loss.reason}`)
+		if (p.uniqueness.kind !== "plain") {
+			out.push("a plain form not unique")
 		}
 	}
 	return out
@@ -354,7 +354,7 @@ const precise = (
 			c.note("precision: obligation")
 			if (p.witnessed.get(o) === "unique") {
 				throw new Error(
-					`an obligation on ${o.edge.input.id} (${o.edge.consumer.kind === "node" ? o.edge.consumer.role : "result"}, ${o.edge.why}) over (${Arr.join(o.heading, ", ")}) is outstanding, and its input, two rows or more on some database, repeats on none (${p.placement})\n${at}`
+					`an obligation on ${o.edge.input.id} (${o.edge.consumer.kind === "node" ? `${o.edge.consumer.node.kind} ${o.edge.consumer.role}` : "result"}) over (${Arr.join(o.heading, ", ")}) is outstanding, and its input, two rows or more on some database, repeats on none (${p.placement})\n${at}`
 				)
 			}
 		}
@@ -405,7 +405,7 @@ const coreSnapshotRequired: Arr.NonEmptyReadonlyArray<ClaimFeature> = [
 	"reason fixedKeyComponent",
 	"reason groupedOutputKey",
 	"reason disjointArms",
-	"loss projectedKeyLoss",
+	"a plain form not unique",
 	"placement root distinct",
 	"reason exactDeduplication",
 	"precision: get",
@@ -442,8 +442,7 @@ const extendedAdded: Arr.NonEmptyReadonlyArray<ClaimFeature> = [
 	"reason finiteFacts",
 	"reason deduplicatedInput",
 	"reason globalRecursiveClosure",
-	"reason injectiveRepresentation",
-	"loss noninjectiveExpression"
+	"reason injectiveRepresentation"
 ]
 
 /**

@@ -38,7 +38,7 @@ import {
 	unobserved
 } from "#test/support/oracle/reference/evaluate.ts"
 import { ReferenceUnsupported, rowIdentity } from "#test/support/oracle/reference/values.ts"
-import { verifyMultiplicity } from "#test/support/oracle/verify/multiplicity.ts"
+import { isElisionRule, verifyMultiplicity } from "#test/support/oracle/verify/multiplicity.ts"
 import { FragmentReference, uniqueOn } from "#test/unit/analysis/physical/support.ts"
 import { present } from "#test/unit/lower/support.ts"
 
@@ -89,7 +89,7 @@ const sound = (dag: RelDag, input: ReferenceInput, env: Env, c: Case<DedupFeatur
 	if (plan.placements.length > 0) {
 		c.note("a duplicate elimination placed")
 	}
-	if (Arr.some(plan.decisions, (d) => d.status === "elided")) {
+	if (Arr.some(plan.certificates, (cert) => isElisionRule(cert.rule))) {
 		c.note("a duplicate elimination elided")
 	}
 	/**

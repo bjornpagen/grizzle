@@ -58,7 +58,7 @@ const multiplicityRuleClass: {
 }
 
 /** Whether a multiplicity rule is an elision, which names its leading evidence after the prefix. */
-const isElisionRule = (rule: MultiplicityRule): rule is ElisionRule =>
+export const isElisionRule = (rule: MultiplicityRule): rule is ElisionRule =>
 	multiplicityRuleClass[rule] === "elision"
 
 /** What verification reads of a plan: everything it claims, nothing it derived. */

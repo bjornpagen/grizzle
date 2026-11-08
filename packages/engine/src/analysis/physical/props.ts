@@ -1,4 +1,3 @@
-import type { MultiplicityReason } from "#compiler/analysis/certificates/reasons.ts"
 import type {
 	Dependencies,
 	Identification,
@@ -34,17 +33,10 @@ export interface FixedFact {
  */
 export type FixedFacts = NonEmptyReadonlyArray<FixedFact>
 
-export interface Loss {
-	readonly reason: MultiplicityReason
-	/** A constant phrase naming what was lost; never a value. */
-	readonly detail: string
-}
-
 /**
  * Whether the fragment is proved unique, and by what: its plain form, without its own duplicate elimination, by the key
  * that proves it (under a `distinct` realization that DISTINCT is then redundant); only its own duplicate
- * elimination, its plain form not being unique for `losses`; or nothing, for `losses`. A plain form proved unique makes
- * the fragment unique whatever its realization.
+ * elimination; or nothing. A plain form proved unique makes the fragment unique whatever its realization.
  */
 export type Uniqueness =
 	| {
@@ -53,8 +45,8 @@ export type Uniqueness =
 			/** The most specific evidence the key's proof cites that an elision rule names. */
 			readonly lead: ElisionReason
 	  }
-	| { readonly kind: "realized"; readonly losses: NonEmptyReadonlyArray<Loss> }
-	| { readonly kind: "none"; readonly losses: NonEmptyReadonlyArray<Loss> }
+	| { readonly kind: "realized" }
+	| { readonly kind: "none" }
 
 /**
  * The physical properties of one fragment.
@@ -88,10 +80,6 @@ export interface PhysicalProps {
 
 /** Whether the fragment's whole heading identifies a row physically. */
 export const isUnique = (props: PhysicalProps): boolean => props.uniqueness.kind !== "none"
-
-/** Why the fragment's plain form is not unique: none when it is. */
-export const plainLosses = (props: PhysicalProps): ReadonlyArray<Loss> =>
-	props.uniqueness.kind === "plain" ? [] : props.uniqueness.losses
 
 /**
  * Whether `columns` identify a row of the fragment: then the fragment has at most one row per value of `columns`

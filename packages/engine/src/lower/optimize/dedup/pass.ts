@@ -15,8 +15,8 @@ const dedupPassName = "dedupPlacement"
  *
  * It runs after specialized lowering, on the rewritten DAG, in the optimized lowering: the conservative artifact
  * deduplicates at every set boundary and runs no pass. Its evidence holds in the context the template is compiled for;
- * its certificates enter the compilation's certificate log and its explanations the diagnostics, and its proofs resolve
- * keys through the compilation's catalog. The pass is a bounded worklist (place.ts).
+ * its certificates enter the compilation's certificate log, and its proofs resolve keys through the compilation's
+ * catalog. The pass is a bounded worklist (place.ts).
  */
 export const dedupPlacement: Pass<DedupInput, DedupPlan> = {
 	name: dedupPassName,
@@ -32,9 +32,6 @@ export const dedupPlacement: Pass<DedupInput, DedupPlan> = {
 		}
 		for (const cert of planned.value.certificates) {
 			ctx.certificates.record(cert)
-		}
-		for (const d of planned.value.diagnostics) {
-			ctx.diagnostics.emit(d)
 		}
 		return planned
 	}

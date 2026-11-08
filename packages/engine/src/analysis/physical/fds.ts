@@ -1,9 +1,8 @@
-import type { MultiplicityReason } from "#compiler/analysis/certificates/reasons.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import { compareText } from "#compiler/core/canonical.ts"
 import type { NodeId, ParamId } from "#compiler/core/ids.ts"
 import { defined } from "#compiler/core/invariant.ts"
-import type { CoercionIdentity } from "#compiler/ir/certificate.ts"
+import type { CoercionIdentity, ElisionReason } from "#compiler/ir/certificate.ts"
 import type { EvidenceContext, Grounds, Premise } from "#compiler/ir/evidence.ts"
 import { evidenceContexts, lessDemanding, premiseText, strongest } from "#compiler/ir/evidence.ts"
 import { type OpId, sortedOps } from "#compiler/ir/expr.ts"
@@ -12,10 +11,10 @@ import { inHeadingOrder } from "#compiler/logical/closure.ts"
 
 /**
  * What a physical claim rests on: its grounds, and what only a claim about a lowered SQL fragment depends on beyond
- * them (the multiplicity reasons, operators, coercions and outer columns below).
+ * them (the elision reasons, operators, coercions and outer columns below).
  */
 export interface Justification extends Grounds {
-	readonly reasons: ReadonlyArray<MultiplicityReason>
+	readonly reasons: ReadonlyArray<ElisionReason>
 	/** Native equality operators the claim compares under. */
 	readonly equality: ReadonlyArray<OpId>
 	/** Type, collation and cast identities the claim depends on. */
@@ -56,7 +55,7 @@ const sortedUnique = <A extends string>(items: Iterable<A>): ReadonlyArray<A> =>
 export const joinJustifications = (justs: Iterable<Justification>): Justification => {
 	const premises = new Map<string, Premise>()
 	const contexts: Array<EvidenceContext> = []
-	const reasons: Array<MultiplicityReason> = []
+	const reasons: Array<ElisionReason> = []
 	const equality: Array<OpId> = []
 	const coercions: Array<CoercionIdentity> = []
 	const outer = new Map<string, OuterColumn>()
@@ -101,7 +100,7 @@ export const justify = (input: Partial<Justification>): Justification =>
 
 export const withReason = (
 	j: Justification,
-	reasons: ReadonlyArray<MultiplicityReason>
+	reasons: ReadonlyArray<ElisionReason>
 ): Justification => joinJustifications([j, { ...structural, reasons }])
 
 export const nodePremise = (node: NodeId): Premise => ({ kind: "node", node })
@@ -242,7 +241,7 @@ export const asTheyAre = (just: Justification): Localized => ({ from: [], just }
 const annotateJoin = (
 	closure: FactClosure,
 	joined: ReadonlyArray<JoinedOccurrence>
-): ReadonlyArray<MultiplicityReason> => {
+): ReadonlyArray<ElisionReason> => {
 	if (joined.some((o) => !directly(closure, o))) {
 		return ["oneToOneJoin"]
 	}

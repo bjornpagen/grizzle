@@ -1,4 +1,3 @@
-import type { Diagnostic } from "#compiler/core/diag.ts"
 import type { EncodingFailure } from "#compiler/core/errors.ts"
 import type {
 	DomainName,
@@ -290,7 +289,6 @@ export interface ProgramArtifacts {
 	readonly certificates: ReadonlyArray<Certificate>
 	/** Generated SQL name to the source variable or relation occurrence it stands for. */
 	readonly nameMap: Readonly<Record<string, string>>
-	readonly diagnostics: ReadonlyArray<Diagnostic>
 }
 
 export interface CarrierDecl {
