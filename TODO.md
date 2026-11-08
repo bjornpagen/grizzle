@@ -4,11 +4,10 @@ The one plan: only work still to do. A finished item is deleted, not ticked.
 
 ## After 1.0.0-beta.1
 
-1.0.0-beta.1 is on npm (2026-11-08), tagged v1.0.0-beta.1 at 2e979b3c. The README rewrite lands on main and ships
-with the next release.
+1.0.0-beta.1 is on npm (2026-11-08), tagged v1.0.0-beta.1 at 2e979b3c. Main carries the README rewrite and the
+post-beta swarm's fixes for the next release.
 
 ### Next
-- **Test failures that reach no qti-pie path** (each an after-beta agent):
 - **A containment whose source is a semijoin, `within(...)`** (JOIN, deferred by the owner 2026-11-07). qti-pie keeps
   copy fields for it (unwrittenType, the metadata `named` copies, HeldType's existence).
   - Why it waits: no PostgreSQL constraint over R, S and T can state "every R row with a matching S row is in T". Two
@@ -24,7 +23,6 @@ with the next release.
     - The trigger function is SECURITY DEFINER, with EXECUTE revoked from PUBLIC.
     - R, S and T events probe by their own keys.
     - A violation raises 23503 naming the law's constraint, with no DETAIL.
-- **Exports qti-pie asked for after the freeze:**
 - **A conjunction of patterns** (the owner's decision, from the regex position cap, which PostgreSQL's own compile
   limits replaced): qti-pie's importer intersects XSD pattern sets into one regex, whose positions multiply (two
   withPattern steps made about 35,800). The shape: `str.and(str.regex(p), str.regex(q))`, host type P & Q, one domain
@@ -34,12 +32,11 @@ with the next release.
   carries one source: TextInfo, pattern rules, casts' inclusion proofs, Compute.matches.
 - **Mutation adequacy:** one seeded `pnpm mutate` sample on the release commit, in a scratch copy. Every surviving
   mutant becomes a generator arm or a written equivalence, and triage.json is pruned to the code.
-- **PostgreSQL:** repin to 19rc2 on 2026-11-12 if the beta isn't out by then (pin.env, rebuild, re-init, delete the
-  19rc1 build; RC2 includes the recursive-UNION hash_mem fix, so that patch goes; confirm DROP DATABASE … WITH (FORCE)
+- **PostgreSQL:** repin to 19rc2 when it is released on 2026-11-12 (pin.env, rebuild, re-init, delete the 19rc1
+  build; RC2 includes the recursive-UNION hash_mem fix, so that patch goes; confirm DROP DATABASE … WITH (FORCE)
   beside parallel autovacuum and the RI fast path with a cast). Repin to 19 GA on 2026-11-19; the relcache patch is
   rebased and kept until a release includes it. Tell qti-pie first: its database lives in the cluster.
 - **`bench:full` on a quiet machine.**
-- **Housekeeping:** delete the lane scratch under ~/.cache/grizzle-release (about 14 GB).
 - **Test layout:** tests move into packages/*/test, with their mutate and fallow paths and the docs.
 - **RDS IAM** against a real RDS.
 - **Cross-repo, outside school hours for edullm:** grizzle's packages/testing differs from superstarter's in 43 files.
