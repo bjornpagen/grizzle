@@ -11,8 +11,9 @@
  *   UnreadableAnswer at that statement, and an answer that is a set is stitched exactly. Oracle: a model of the delivered
  *   set, the generated rows themselves, which are distinct by construction until the case plants a repeat.
  * - A page's candidates (page/execute.ts pageEdges): the rows a request fetches strictly increase under its fetch order,
- *   so the lookahead counts distinct rows; an equal tuple or a step back is UnreadableAnswer at the rows statement.
- *   Oracle: the request's contract, edges the first min(size, n) of n increasing rows and the lookahead n > size.
+ *   so the lookahead counts distinct rows; an equal tuple, a step back, or a row past the statement's LIMIT, the size
+ *   and its one lookahead row, is UnreadableAnswer at the rows statement. Oracle: the request's contract, edges the
+ *   first min(size, n) of n increasing rows and the lookahead n > size.
  */
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
@@ -465,7 +466,8 @@ describe("a statement's rows", () => {
 	)
 })
 
-type PagePlant = "none" | "an equal tuple" | "a step back"
+/** What a case plants among the fetched rows: nothing, a repeat of the first, the first two swapped, or one row more. */
+type PagePlant = "none" | "an equal tuple" | "a step back" | "a row past its limit"
 
 interface PageCase {
 	readonly priorities: ReadonlyArray<number>
@@ -473,22 +475,32 @@ interface PageCase {
 	readonly plant: PagePlant
 }
 
-/** Up to four tasks of distinct (priority, id), a page size, and a planted equal tuple or step back among the rows. */
+/** Up to four tasks of distinct (priority, id), a page size, and what the case plants among the rows. */
 const pageCases: Gen<PageCase> = (source) => ({
 	priorities: source.draw(array(int(0, 2), { min: 0, max: 4 })),
 	size: source.draw(int(1, 4)),
-	plant: source.draw(element<PagePlant>(["none", "an equal tuple", "a step back"]))
+	plant: source.draw(
+		element<PagePlant>(["none", "an equal tuple", "a step back", "a row past its limit"])
+	)
 })
 
-type PageFeature =
-	| "an edge per row"
-	| "a lookahead"
-	| "an equal tuple refused"
-	| "a step back refused"
+/** A planted answer's refusal. */
+type PageRefusal = "an equal tuple refused" | "a step back refused" | "a row past its limit refused"
+
+type PageFeature = "an edge per row" | "a lookahead" | PageRefusal
+
+/** The rows a case answers its statement with: the fetched rows as the server sends them, or a plant among them. */
+type PageAnswer =
+	| { readonly kind: "fetched"; readonly rows: ReadonlyArray<ReadonlyArray<string>> }
+	| {
+			readonly kind: "planted"
+			readonly refusal: PageRefusal
+			readonly rows: ReadonlyArray<ReadonlyArray<string>>
+	  }
 
 describe("a page's candidates", () => {
 	it.effect(
-		"strictly increase in the fetch order, so an equal tuple or a step back is UnreadableAnswer, never a counted row",
+		"strictly increase in the fetch order and stop at the LIMIT, so an equal tuple, a step back or a row past the LIMIT is UnreadableAnswer, never a counted row",
 		(ctx) =>
 			Effect.gen(function* () {
 				const compiled = succeeded(compiledPageResult(ascendingTasks, testCompile))
@@ -520,7 +532,13 @@ describe("a page's candidates", () => {
 							draw: drawn(pageCases),
 							literal: Formatter.format,
 							coverage: required<PageFeature>(
-								["an edge per row", "a lookahead", "an equal tuple refused", "a step back refused"],
+								[
+									"an edge per row",
+									"a lookahead",
+									"an equal tuple refused",
+									"a step back refused",
+									"a row past its limit refused"
+								],
 								{ cases: 1000, sense: notesOnly }
 							),
 							kept: [],
@@ -533,7 +551,7 @@ describe("a page's candidates", () => {
 						({ priorities, size, plant }, c) =>
 							Effect.sync(() => {
 								/** The tasks in the fetch order, priority then id ascending: distinct, so strictly increasing. */
-								const tasks = Arr.sort(
+								const ordered = Arr.sort(
 									Arr.map(priorities, (priority, i) => ({
 										priority,
 										id: defined(uuids[i], "an id")
@@ -546,7 +564,8 @@ describe("a page's candidates", () => {
 											: a.id < b.id
 												? -1
 												: 1
-								).slice(0, size + 1)
+								)
+								const tasks = ordered.slice(0, size + 1)
 								const textsOf = (t: { readonly priority: number; readonly id: string }) =>
 									Arr.map(heading, (col) =>
 										col.name === "priority"
@@ -557,18 +576,30 @@ describe("a page's candidates", () => {
 									)
 								const fetched = Arr.map(tasks, textsOf)
 								const [first, second] = fetched
-								const answer =
+								const answer: PageAnswer =
 									plant === "an equal tuple" && first !== undefined && fetched.length <= size
-										? { planted: true, rows: [first, ...fetched] }
+										? {
+												kind: "planted",
+												refusal: "an equal tuple refused",
+												rows: [first, ...fetched]
+											}
 										: plant === "a step back" && first !== undefined && second !== undefined
-											? { planted: true, rows: [second, first, ...fetched.slice(2)] }
-											: { planted: false, rows: fetched }
+											? {
+													kind: "planted",
+													refusal: "a step back refused",
+													rows: [second, first, ...fetched.slice(2)]
+												}
+											: plant === "a row past its limit" && ordered.length > size + 1
+												? {
+														kind: "planted",
+														refusal: "a row past its limit refused",
+														rows: Arr.map(ordered.slice(0, size + 2), textsOf)
+													}
+												: { kind: "fetched", rows: fetched }
 								const edges = pageEdges(program, [outputRows(answer.rows)], size)
-								if (answer.planted) {
-									c.note(
-										plant === "an equal tuple" ? "an equal tuple refused" : "a step back refused"
-									)
-									assert.ok(Result.isFailure(edges), `${plant} was delivered`)
+								if (answer.kind === "planted") {
+									c.note(answer.refusal)
+									assert.ok(Result.isFailure(edges), `${answer.refusal}: delivered`)
 									assert.equal(edges.failure._tag, "UnreadableAnswer")
 									assert.equal(edges.failure.index, answerOf(rows.arrival))
 									return
