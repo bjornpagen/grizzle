@@ -15,11 +15,12 @@ import {
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, Result } from "effect"
 import { catchRefusal, encode, everyProperty } from "#compiler/core/canonical.ts"
+import { VarId } from "#compiler/core/ids.ts"
 import type { CertificateRule } from "#compiler/ir/certificate.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import { makePassContext } from "#compiler/ir/pass.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
-import type { Rooted } from "#compiler/ir/rel.ts"
+import type { Rooted, RootedDag, VarDecl } from "#compiler/ir/rel.ts"
 import { LowerContext } from "#compiler/lower/conservative/context.ts"
 import { Delivery } from "#compiler/lower/conservative/deliver.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
@@ -260,10 +261,11 @@ type Extra = "none" | "on the second occurrence" | "on the first occurrence"
 /** The group keys: the student and the id, the student alone, or the id alone. */
 type Keys = "student and id" | "student" | "id"
 /**
- * The student both occurrences match: the shared variable, one constant both fix, or two different constants, which
- * no composition queries.ts writes and an edit of the checked DAG plants.
+ * The student both occurrences match: the shared variable, one constant both fix, two different constants, which no
+ * composition queries.ts writes and an edit of the checked DAG plants, or two variables the region states equal, which
+ * the semantic simplification makes of `t.student = s.student` and an edit plants.
  */
-type Student = "shared" | "one constant" | "different constants"
+type Student = "shared" | "one constant" | "different constants" | "equated"
 
 interface SelfMatchShape {
 	readonly head: Head
@@ -280,9 +282,11 @@ const selfMatchShapes: Gen<SelfMatchShape> = filter(
 			element<Extra>(["none", "on the second occurrence", "on the first occurrence"])
 		),
 		keys: source.draw(element<Keys>(["student and id", "student", "id"])),
-		student: source.draw(element<Student>(["shared", "one constant", "different constants"]))
+		student: source.draw(
+			element<Student>(["shared", "one constant", "different constants", "equated"])
+		)
 	}),
-	(shape) => shape.student === "shared" || shape.keys === "id",
+	(shape) => shape.student === "shared" || shape.student === "equated" || shape.keys === "id",
 	1
 )
 
@@ -307,9 +311,12 @@ const selfMatchDag = (shape: SelfMatchShape) => {
 					: shape.keys === "student"
 						? ["student"]
 						: ["id"],
-			student: shape.student === "shared" ? s("student") : D.lit(1)
+			student: shape.student === "shared" || shape.student === "equated" ? s("student") : D.lit(1)
 		})
 	)
+	if (shape.student === "equated") {
+		return equatedStudents(q.dag)
+	}
 	if (shape.student !== "different constants") {
 		return q.dag
 	}
@@ -338,6 +345,39 @@ const selfMatchDag = (shape: SelfMatchShape) => {
 	return ed.build()
 }
 
+/**
+ * The self-match with the second occurrence's student bound to a variable of its own, which the region states equal to
+ * the first's: the region equality the semantic simplification makes of `t.student = s.student`.
+ */
+const equatedStudents = (dag: RootedDag) => {
+	const ed = new CatalogEditor(dag)
+	for (const cell of ed.cells()) {
+		const n = cell.current
+		if (!(n.kind === "MatchRegion" && n.occurrences.length === 2)) {
+			continue
+		}
+		const [first, second] = n.occurrences
+		if (first === undefined || second === undefined) {
+			continue
+		}
+		const shared = Option.getOrThrowWith(
+			Arr.findFirst(second.bindings, (b) => b.column === "student"),
+			() => new Error("the second occurrence binds the student")
+		).var
+		const own: VarDecl = { id: VarId("t.student"), name: "t_student", type: shared.type }
+		const bindings = Arr.map(second.bindings, (b) =>
+			b.column === "student" ? { ...b, var: own } : b
+		)
+		ed.redefine(cell, {
+			...n,
+			vars: [...n.vars, own],
+			occurrences: [first, { ...second, bindings }],
+			equalities: [...n.equalities, { a: shared, b: own }]
+		})
+	}
+	return ed.build()
+}
+
 describe("R26 and R41: the self-match's own conditions", () => {
 	it.effect(
 		"windows a self-match exactly where the second occurrence is free, the keys determine a row and the key holds",
@@ -351,7 +391,7 @@ describe("R26 and R41: the self-match's own conditions", () => {
 						suite: "unit/lower/catalog/self-match-conditions",
 						literal: Formatter.format,
 						generator: selfMatchShapes,
-						limit: 30,
+						limit: 48,
 						coverage: requiredInSpace<`${Head} ${"windowed" | "kept"}`>([
 							"ordinal windowed",
 							"ordinal kept",
@@ -366,7 +406,7 @@ describe("R26 and R41: the self-match's own conditions", () => {
 							const windowed =
 								shape.extra !== "on the second occurrence" &&
 								shape.keys !== "student" &&
-								shape.student !== "different constants"
+								(shape.student === "shared" || shape.student === "one constant")
 							c.note(`${shape.head} ${windowed ? "windowed" : "kept"}`)
 							assert.deepEqual(rules(r), windowed ? [shape.head === "ordinal" ? "R26" : "R41"] : [])
 						})
