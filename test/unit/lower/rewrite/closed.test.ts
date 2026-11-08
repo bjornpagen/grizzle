@@ -1,7 +1,7 @@
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
-import { element, type Gen, oneOf } from "@grizzle/testing/gen"
+import { boolean, element, type Gen, oneOf } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import type { ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
@@ -380,6 +380,12 @@ describe("R07 over closed constants", () => {
  */
 type LateralRead = "nothing" | "the task's kind" | "the roster's id"
 
+/** A case: what the third occurrence reads, and whether the task binds its kind to the roster's id. */
+interface LateralCase {
+	readonly read: LateralRead
+	readonly bound: boolean
+}
+
 describe("R07 beside a lateral read", () => {
 	it.effect(
 		"keeps a closed occurrence whose source another occurrence reads, and rewrites one no other occurrence reads",
@@ -390,17 +396,22 @@ describe("R07 beside a lateral read", () => {
 					{
 						suite: "unit/lower/rewrite/closed-lateral",
 						literal: Formatter.format,
-						generator: element<LateralRead>(["nothing", "the task's kind", "the roster's id"]),
-						limit: 3,
+						generator: (source): LateralCase => ({
+							read: source.draw(
+								element<LateralRead>(["nothing", "the task's kind", "the roster's id"])
+							),
+							bound: source.draw(boolean)
+						}),
+						limit: 6,
 						coverage: requiredInSpace<"rewritten" | "kept">(["rewritten", "kept"]),
 						caseHang,
-						box: "a region of the roster Kind, a task binding its kind, and a task whose kind is fixed to nothing, the first task's kind or the roster's id",
+						box: "a region of the roster Kind, a task binding its kind to the roster's id or not, and a task whose kind is fixed to nothing, the first task's kind or the roster's id",
 						oracle: {
 							kind: "specification",
-							name: "membershipsOf: no occurrence whose source a scope expression reads"
+							name: "membershipsOf: a key another occurrence binds, and no occurrence whose source a scope expression reads"
 						}
 					},
-					(read, c) =>
+					({ read, bound }, c) =>
 						Effect.sync(() => {
 							const q = new Q()
 							const roster = q.closed(
@@ -416,7 +427,11 @@ describe("R07 beside a lateral read", () => {
 									: { kind: read === "the task's kind" ? q.col(task, "kind") : q.col(roster, "id") }
 							const region = q.region([
 								{ source: roster, bind: { id: "k" }, constants: {} },
-								{ source: task, bind: { id: "t", kind: "k" }, constants: {} },
+								{
+									source: task,
+									bind: bound ? { id: "t", kind: "k" } : { id: "t" },
+									constants: {}
+								},
 								{ source: reader, bind: { id: "u" }, constants }
 							])
 							const query = queryOf(
@@ -443,7 +458,11 @@ describe("R07 beside a lateral read", () => {
 								ran.certificates,
 								(certificate) => certificate.rule === "R07.closedMembership"
 							)
-							assert.equal(rewritten, read !== "the roster's id", Formatter.format(read))
+							assert.equal(
+								rewritten,
+								bound && read !== "the roster's id",
+								Formatter.format({ read, bound })
+							)
 							scopedStay(query.dag, ran.query.dag)
 							c.note(rewritten ? "rewritten" : "kept")
 						})
