@@ -142,7 +142,7 @@ const narrowsAt = (install: InstallSpec, role: RoleSpec, relation: string): bool
  * UPDATE when the relation is mutable; through a query entry DELETE, its SELECT, INSERT and UPDATE being column grants;
  * nothing on a relation it does not write. TRUNCATE is granted to no one, and a login holds nothing on any table.
  */
-export const holdsTable = (
+const holdsTable = (
 	install: InstallSpec,
 	role: string,
 	relation: string,
@@ -170,7 +170,7 @@ export const holdsTable = (
  * The column grants a role holds: through a query entry SELECT and INSERT on every field of its target, and UPDATE on
  * the fields it may update in place; none through a whole entry, whose grants are the table's.
  */
-export const holdsColumn = (
+const holdsColumn = (
 	install: InstallSpec,
 	role: string,
 	relation: string,
@@ -612,6 +612,21 @@ const publicRevoked = (install: InstallSpec): unknown => {
  */
 export const rowSecured = (install: InstallSpec, relation: string): boolean =>
 	Arr.some(install.roles, (r) => narrowsAt(install, r, relation))
+
+/**
+ * Whether PostgreSQL shows a role the values of a key over a relation's fields in a constraint's DETAIL
+ * (ri_ReportViolation, BuildIndexValueDescription): never where row security is on, whatever the role's policy, and
+ * otherwise where the role holds SELECT on the table or on every field of the key.
+ */
+export const keyShown = (
+	install: InstallSpec,
+	role: string,
+	relation: string,
+	fields: ReadonlyArray<string>
+): boolean =>
+	!rowSecured(install, relation) &&
+	(holdsTable(install, role, relation, "SELECT") ||
+		Arr.every(fields, (field) => holdsColumn(install, role, relation, field, "SELECT")))
 
 /**
  * Whether a migration from one installation to another rewrites what a perturbation changed, so the catalog holds the

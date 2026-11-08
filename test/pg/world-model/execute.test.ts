@@ -1,7 +1,7 @@
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { element, type Gen } from "@grizzle/testing/gen"
+import { element, type Gen, oneOf } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
@@ -16,6 +16,7 @@ import { knownNonEmpty, pool, pooled } from "#test/support/worlds/generate/domai
 import { realityGen } from "#test/support/worlds/generate/reality.ts"
 import { docsInstall } from "#test/support/worlds/model/bases/docs.ts"
 import { hostSchemaOf } from "#test/support/worlds/model/host.ts"
+import { keyShown } from "#test/support/worlds/model/session/catalog.ts"
 import type {
 	Action,
 	DirectStatement,
@@ -35,7 +36,9 @@ import type {
  * - a direct writer acting as its login, which holds no table, sends a statement on a relation's table (a select, an
  *   insert, a delete, an update or a truncate), which PostgreSQL refuses with 42501 naming the table in its message;
  * - the admin, a direct writer that took on a role holding the relation whole, inserts a stored fact again, which
- *   PostgreSQL refuses with 23505 naming the fact's key values in its DETAIL;
+ *   PostgreSQL refuses with 23505 naming the fact's key values in its DETAIL, on a relation whose key it shows the
+ *   admin (session/catalog.ts keyShown): on a table under row security it omits the DETAIL, whatever the role's
+ *   policy, so that refusal spells no value to plant;
  * - the admin's Db inserts a stored document's id with another owner and a word count its organization's documents
  *   leave free, which grizzle answers invariant-rejected on the primary key alone, its witness the submitted id.
  * The table, the key value or the id is the planted value: a scan that stopped reading a field, or read it under
@@ -102,6 +105,28 @@ const plain: Arr.NonEmptyReadonlyArray<RelationSpec> = knownNonEmpty(
 	"the documents base's relations without a serial field"
 )
 
+/** The role the admin's direct writer takes on and its Db opens as: it holds every relation of the base whole. */
+const admin = "admin"
+
+/**
+ * The relations without a serial field whose key PostgreSQL shows the admin in a DETAIL: those under no row security,
+ * since the admin holds SELECT on every table.
+ */
+const spelling: ReadonlyArray<RelationSpec> = Arr.filter(plain, (r) =>
+	keyShown(docsInstall, admin, r.name, r.key)
+)
+
+/** The relations of `spelling` a reality holds facts of, each with its facts: where a DETAIL can be planted. */
+const heldIn = (
+	reality: HostState
+): ReadonlyArray<readonly [RelationSpec, Arr.NonEmptyReadonlyArray<HostFact>]> =>
+	Arr.flatMap(spelling, (relation) =>
+		Arr.match(factsOf(reality, relation), {
+			onEmpty: () => [],
+			onNonEmpty: (facts) => [[relation, facts] as const]
+		})
+	)
+
 /** The documents: a relation the base references (a note's document), so every reality holds one. */
 const docs: RelationSpec = defined(
 	Option.getOrUndefined(Arr.findFirst(plain, (r) => r.name === "Doc")),
@@ -149,56 +174,60 @@ const statementOf = (
 
 /**
  * Where a case plants its value over a reality, each fact a stored one where the reality holds one: a message's of any
- * relation without a serial field (from the pools where it holds none), a DETAIL's of one that holds facts, a witness's
- * of a document, inserted with another owner and a word count no document of its organization holds.
+ * relation without a serial field (from the pools where it holds none); a DETAIL's of a relation the reality holds facts
+ * of whose key PostgreSQL shows the admin (heldIn), drawn only where there is one; a witness's of a document, inserted
+ * with another owner and a word count no document of its organization holds.
  */
-const plantedGen =
-	(reality: HostState): Gen<Planted> =>
-	(source) => {
-		const stored = (relation: RelationSpec): Gen<HostFact> =>
-			Arr.match(factsOf(reality, relation), {
-				onEmpty: () => () => pooledFact(relation),
-				onNonEmpty: (facts) => element(facts)
-			})
-		const kind = source.draw(element(["message", "detail", "witness"] as const))
-		switch (kind) {
-			case "message": {
-				const relation = source.draw(element(plain))
-				return {
-					kind,
-					statement: source.draw(element(tableStatements)),
-					relation,
-					fact: source.draw(stored(relation))
-				}
-			}
-			case "detail": {
-				const holding = Arr.filter(plain, (r) => factsOf(reality, r).length > 0)
-				const relation = source.draw(element(knownNonEmpty(holding, "the relations holding facts")))
-				return { kind, relation, fact: source.draw(stored(relation)) }
-			}
-			case "witness": {
-				const doc = source.draw(stored(docs))
-				const owners = Arr.filter(
-					pool(fieldDomain(docs, "owner")),
-					(o) => !sameValue(o, doc["owner"])
-				)
-				const taken = Arr.flatMap(factsOf(reality, docs), (d) =>
-					sameValue(d["org"], doc["org"]) ? [d["words"]] : []
-				)
-				const words = Arr.filter(pool(fieldDomain(docs, "words")), (w) =>
-					Arr.every(taken, (t) => !sameValue(w, t))
-				)
-				return {
-					kind,
-					doc,
-					owner: source.draw(element(knownNonEmpty(owners, "another owner"))),
-					words: source.draw(
-						element(knownNonEmpty(words, "a word count the organization's documents leave free"))
-					)
-				}
-			}
+const plantedGen = (reality: HostState): Gen<Planted> => {
+	const stored = (relation: RelationSpec): Gen<HostFact> =>
+		Arr.match(factsOf(reality, relation), {
+			onEmpty: () => () => pooledFact(relation),
+			onNonEmpty: (facts) => element(facts)
+		})
+	const message: Gen<Planted> = (source) => {
+		const relation = source.draw(element(plain))
+		return {
+			kind: "message",
+			statement: source.draw(element(tableStatements)),
+			relation,
+			fact: source.draw(stored(relation))
 		}
 	}
+	const detail =
+		(
+			held: Arr.NonEmptyReadonlyArray<readonly [RelationSpec, Arr.NonEmptyReadonlyArray<HostFact>]>
+		): Gen<Planted> =>
+		(source) => {
+			const [relation, facts] = source.draw(element(held))
+			return { kind: "detail", relation, fact: source.draw(element(facts)) }
+		}
+	const witness: Gen<Planted> = (source) => {
+		const doc = source.draw(stored(docs))
+		const owners = Arr.filter(pool(fieldDomain(docs, "owner")), (o) => !sameValue(o, doc["owner"]))
+		const taken = Arr.flatMap(factsOf(reality, docs), (d) =>
+			sameValue(d["org"], doc["org"]) ? [d["words"]] : []
+		)
+		const words = Arr.filter(pool(fieldDomain(docs, "words")), (w) =>
+			Arr.every(taken, (t) => !sameValue(w, t))
+		)
+		return {
+			kind: "witness",
+			doc,
+			owner: source.draw(element(knownNonEmpty(owners, "another owner"))),
+			words: source.draw(
+				element(knownNonEmpty(words, "a word count the organization's documents leave free"))
+			)
+		}
+	}
+	return oneOf([
+		message,
+		...Arr.match(heldIn(reality), {
+			onEmpty: (): ReadonlyArray<Gen<Planted>> => [],
+			onNonEmpty: (held) => [detail(held)]
+		}),
+		witness
+	])
+}
 
 /** A case over the host schema the installation's names give: a lawful reality, then where to plant. */
 const caseGen =
@@ -276,7 +305,7 @@ const actionsOf = (planted: Planted): readonly [Action, Action] => {
 					kind: "direct-begin",
 					login: "ops",
 					isolation: "serializable",
-					start: { current: { kind: "role", role: "admin" }, claims: { kind: "none" } }
+					start: { current: { kind: "role", role: admin }, claims: { kind: "none" } }
 				},
 				{
 					kind: "direct",
@@ -288,7 +317,7 @@ const actionsOf = (planted: Planted): readonly [Action, Action] => {
 			return [
 				{
 					kind: "open-db",
-					role: { kind: "own", role: "admin" },
+					role: { kind: "own", role: admin },
 					token: { kind: "none" },
 					snapshot: "current"
 				},

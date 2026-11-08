@@ -8,12 +8,7 @@ import {
 	isMember,
 	writableSupplier
 } from "#test/support/worlds/model/host.ts"
-import {
-	holdsColumn,
-	holdsTable,
-	membershipOf,
-	rowSecured
-} from "#test/support/worlds/model/session/catalog.ts"
+import { keyShown, membershipOf } from "#test/support/worlds/model/session/catalog.ts"
 
 import {
 	type CheckedField,
@@ -1686,12 +1681,11 @@ const nativeKeys = (law: HostLaw, view: HostState): ReadonlyArray<KeyOf> => {
 
 /**
  * A direct writer's law refusal, its witness as PostgreSQL's message shows it. A native constraint's DETAIL names the
- * keys nativeKeys finds of a relation the role can read the rows of, and none of any other: PostgreSQL omits key detail
- * where row security is on and where the role holds SELECT neither on the table nor on every key column
- * (ri_ReportViolation, BuildIndexValueDescription), as the privilege model grants them (catalog.ts holdsTable,
- * holdsColumn). It is judged as the identity in force where the law is checked (README "Direct SQL access", Direct SQL
- * writers): the role the transaction took on, or else its login, which holds nothing, a login after RESET ROLE too, so
- * it is shown no key. Every law is native (fin.md §7), so no witness is a law function's.
+ * keys nativeKeys finds that PostgreSQL shows the role (catalog.ts keyShown), and none of any other: it omits key detail
+ * where row security is on and where the role holds SELECT neither on the table nor on every key column. It is judged
+ * as the identity in force where the law is checked (README "Direct SQL access", Direct SQL writers): the role the
+ * transaction took on, or else its login, which holds nothing, a login after RESET ROLE too, so it is shown no key.
+ * Every law is native (fin.md §7), so no witness is a law function's.
  */
 const lawWitness = (
 	state: ModelState,
@@ -1706,15 +1700,10 @@ const lawWitness = (
 	if (role === undefined || law === undefined) {
 		return { kind: "withheld" }
 	}
-	/** Whether PostgreSQL shows a key of a relation: no row security on it, and SELECT on it or on every key column. */
-	const readable = (relation: string, key: HostFact): boolean =>
-		!rowSecured(state.install, relation) &&
-		(holdsTable(state.install, role.name, relation, "SELECT") ||
-			Arr.every(Record.keys(key), (field) =>
-				holdsColumn(state.install, role.name, relation, field, "SELECT")
-			))
 	const keys = Arr.map(
-		Arr.filter(nativeKeys(law, view), (k) => readable(k.relation, k.key)),
+		Arr.filter(nativeKeys(law, view), (k) =>
+			keyShown(state.install, role.name, k.relation, Record.keys(k.key))
+		),
 		(k) => k.key
 	)
 	return keys.length === 0 ? { kind: "withheld" } : { kind: "shown", keys }
