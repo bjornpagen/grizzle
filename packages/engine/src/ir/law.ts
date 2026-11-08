@@ -180,20 +180,12 @@ export interface Selector {
 }
 
 /**
- * One side of a law, as its dependencies read it: the relation it reads and its terms, a containment's source's
- * constants among them. A check's side projects the fields its predicate mentions, which may be none. Which facts a
- * declared side reads is its resolved selection (analysis/theory/laws.ts ResolvedSide).
+ * A side a statement declares (desc.ts SideDesc), as a key's and a containment's are: its relation, and a projection
+ * on at least one term, of the kind T, a containment's source's holding constants. Which facts it reads is its
+ * resolved selection (analysis/theory/laws.ts ResolvedSide).
  */
-export interface LawSide {
+export interface DeclaredSide<T extends SourceTermDesc = TermDesc> {
 	readonly relation: string
-	readonly terms: ReadonlyArray<SourceTermDesc>
-}
-
-/**
- * A side a statement declares (desc.ts SideDesc), as a key's and a containment's are: a projection on at least one
- * term, of the kind T, a containment's source's holding constants.
- */
-export interface DeclaredSide<T extends SourceTermDesc = TermDesc> extends LawSide {
 	readonly terms: NonEmptyReadonlyArray<T>
 }
 
@@ -240,7 +232,8 @@ export interface NormalizedLaw {
 	readonly id: LawId
 	readonly source: LawSource
 	readonly shape: LawShape
-	readonly sides: ReadonlyArray<LawSide>
+	/** The relations its violation query reads, which the theory's relation dependency graph joins. */
+	readonly reads: ReadonlyArray<string>
 	/** The Forbid node whose violation query must be empty, a node of the theory's DAG. */
 	readonly violation: RelNode
 	/**

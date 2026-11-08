@@ -557,13 +557,13 @@ class Builder {
 			deps.set(name, new Set())
 		}
 		const reads = laws.flatMap((law) => {
-			const read = [...new Set(law.sides.map((s) => s.relation))]
+			const read = [...new Set(law.reads)]
 			return read.flatMap((r) =>
 				read.filter((other) => other !== r).map((other) => [r, other] as const)
 			)
 		})
 		for (const [reader, read] of reads) {
-			defined(deps.get(reader), "a law's side reads a relation of the theory").add(read)
+			defined(deps.get(reader), "a law reads a relation of the theory").add(read)
 		}
 		return Object.freeze(
 			Object.fromEntries(

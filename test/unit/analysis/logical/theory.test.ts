@@ -85,7 +85,10 @@ import { type DeclaredSketch, declaredGen, numericGen, textGen } from "#test/uni
 const lawsOf = (t: Theory, shape: string) => Arr.filter(t.laws, (l) => l.shape === shape)
 const lawOf = (t: Theory, shape: string, relation: string) =>
 	Option.getOrThrow(
-		Arr.findFirst(t.laws, (l) => l.shape === shape && l.sides[0]?.relation === relation)
+		Arr.findFirst(
+			t.laws,
+			(l) => l.shape === shape && l.detail.kind === "key" && l.detail.relation === relation
+		)
 	).id
 /** The containment an alternatives statement expands to from `from` into `to`: an arm's, or a handle's reverse. */
 const alternativeOf = (t: Theory, from: string, to: string) =>
@@ -95,8 +98,9 @@ const alternativeOf = (t: Theory, from: string, to: string) =>
 			(l) =>
 				l.shape === "contained" &&
 				l.source.kind === "alternatives" &&
-				l.sides[0]?.relation === from &&
-				l.sides[1]?.relation === to
+				l.detail.kind === "containment" &&
+				l.detail.from.relation === from &&
+				l.detail.to.relation === to
 		),
 		() => new Error(`the alternatives expand to a containment from ${from} into ${to}`)
 	).id
@@ -381,8 +385,9 @@ describe("violation queries mean what their laws say", () => {
 				(l) =>
 					l.shape === "contained" &&
 					l.source.kind === "contained" &&
-					l.sides[0]?.relation === from &&
-					l.sides[1]?.relation === to
+					l.detail.kind === "containment" &&
+					l.detail.from.relation === from &&
+					l.detail.to.relation === to
 			),
 			() => new Error(`Work declares a containment from ${from} into ${to}`)
 		).id
@@ -630,15 +635,6 @@ describe("violation queries mean what their laws say", () => {
 				provisionalTheory
 			)
 			const checkLaw = defined(lawsOf(rt, "check")[0])
-			assert.deepEqual(checkLaw.sides, [
-				{
-					relation: "Report",
-					terms: [
-						{ kind: "field", field: "employee" },
-						{ kind: "field", field: "manager" }
-					]
-				}
-			])
 			const people = [G.a1, G.a2, G.a3]
 			const manager = element<string>(["none", ...people])
 			return searched(
@@ -1106,8 +1102,9 @@ describe("law identities", () => {
 									(l) =>
 										l.shape === "contained" &&
 										l.source.kind === "contained" &&
-										l.sides[0]?.relation === from &&
-										l.sides[1]?.relation === to
+										l.detail.kind === "containment" &&
+										l.detail.from.relation === from &&
+										l.detail.to.relation === to
 								)
 							const reverse = Arr.some(
 								statements,

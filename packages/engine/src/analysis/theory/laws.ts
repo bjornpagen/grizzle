@@ -60,7 +60,6 @@ import type { AxisKind, Family, FamilyFold } from "#compiler/ir/family.ts"
 import {
 	type DeclaredSide,
 	type FamilyId,
-	fieldNames,
 	isSpanField,
 	type KeyName,
 	type LawField,
@@ -133,7 +132,7 @@ export type ContainmentLowering =
 	| { readonly kind: "rides"; readonly family: FamilyId; readonly axis: AxisKind }
 
 /**
- * What a law states beyond its shape and sides, per shape family.
+ * What a law states beyond its shape and the relations it reads, per shape family.
  *
  * Each side's fields are its pairs' fields on that side, in pair order. A family's and a tree's detail is its resolved
  * Family, every axis's carried pairs and every fold over it included; a fold's names its family and its position among
@@ -330,9 +329,9 @@ export interface ContractUse {
  * Law normalization: statements to normalized laws with their violation queries.
  *
  * Every law is a query that must be empty. Each statement of the owned schema is normalized into one or
- * more recognized shapes, each with its source identity, its sides, and the violation query the shape denotes. A side
- * is a partial projection: each row its selection holds on gives the tuple of its terms where every term is defined,
- * a pred term where its field is above zero.
+ * more recognized shapes, each with its source identity, the relations it reads, and the violation query the shape
+ * denotes. A side a statement declares is a partial projection: each row its selection holds on gives the tuple of its
+ * terms where every term is defined, a pred term where its field is above zero.
  *
  * - a relation's primary key and each candidate key: two facts agreeing on the key and differing elsewhere; a key
  *   with a span field is a pointwise nonoverlap rule, so two different facts agreeing on its scalar fields whose spans
@@ -426,7 +425,7 @@ const keyDraft = (
 		identity: {
 			shape,
 			source,
-			sides: [{ relation, terms: termsOfFields(fieldNames(key.fields)) }],
+			reads: [relation],
 			detail: { kind: "key", relation, rel: r, key }
 		},
 		sources,
@@ -518,10 +517,6 @@ const leftToRight = (
 				return { kind: "constant", from: p.left, to: p.right }
 		}
 	})
-
-/** Each field as a field term. */
-const termsOfFields = (fields: ReadonlyArray<string>): ReadonlyArray<TermDesc> =>
-	fields.map((field) => ({ kind: "field", field }))
 
 /** A key statement as ownership admitted it. */
 type KeyStatement = Extract<OwnedStatement, { readonly kind: "key" }>
@@ -887,12 +882,7 @@ export class Normalizer {
 				identity: {
 					shape: "contract",
 					source: { statement: index, kind: "contract" },
-					sides: [...new Set(uses.map((u) => u.relation))].map((relation) => ({
-						relation,
-						terms: termsOfFields([
-							...new Set(uses.filter((u) => u.relation === relation).map((u) => u.field.name))
-						])
-					})),
+					reads: [...new Set(uses.map((u) => u.relation))],
 					detail: { kind: "contract", contract: name, owned, uses }
 				},
 				sources: [],
@@ -958,7 +948,6 @@ export class Normalizer {
 				return
 			case "check": {
 				const r = this.#relation(s.relation, loc)
-				const fields = r.fields.map((f) => f.name).filter((f) => mentions(s.predicate, f))
 				const stated: StatedCheck = {
 					kind: "check",
 					relation: s.relation,
@@ -972,7 +961,7 @@ export class Normalizer {
 						identity: {
 							shape: "check",
 							source: { statement: index, kind: "check" },
-							sides: [{ relation: s.relation, terms: termsOfFields(fields) }],
+							reads: [s.relation],
 							detail: stated
 						},
 						sources,
@@ -1047,7 +1036,7 @@ export class Normalizer {
 						identity: {
 							shape: "key",
 							source: { statement: index, kind: "key" },
-							sides: [side],
+							reads: [side.relation],
 							detail: { kind: "projectedKey", side }
 						},
 						sources,
@@ -1114,21 +1103,12 @@ export class Normalizer {
 		}
 	}
 
-	/** The family law `f`'s statement states, at `source`, with the sides its identity reads. */
+	/** The family law `f`'s statement states, at `source`, reading its member and its owner. */
 	#familyIdentity(f: FamilyShape, source: LawSource): Omit<LawIdentity, "statements" | "detail"> {
 		return {
 			shape: source.kind === "tree" ? "tree" : "family",
 			source,
-			sides: [
-				{
-					relation: f.member.name,
-					terms: [
-						...f.group.map((p) => termOf(p.member)),
-						...(f.index.kind === "field" ? [termOf(f.index.field)] : [])
-					]
-				},
-				{ relation: f.owner.name, terms: [...f.group.map((p) => termOf(p.owner)), termOf(f.count)] }
-			]
+			reads: [f.member.name, f.owner.name]
 		}
 	}
 
@@ -1309,7 +1289,7 @@ export class Normalizer {
 		const identity = {
 			shape: "fold" as const,
 			source: { statement: index, kind: "fold" as const },
-			sides: [step, end],
+			reads: [step.relation, end.relation],
 			detail
 		}
 		/** The fold's law's identifier, which names its hidden accumulators: its identity is no position among the
@@ -1569,7 +1549,7 @@ export class Normalizer {
 						span === undefined ? { kind: "scalar" } : { kind: "span", ...span }
 					),
 					source,
-					sides: [fromSide, toSide],
+					reads: [fromSide.relation, toSide.relation],
 					detail: {
 						kind: "containment",
 						from: fromSide,
