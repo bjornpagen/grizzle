@@ -973,9 +973,9 @@ const initialState = (host: HostSchema, domains: Domains, sketch: CaseSketch): H
  * A direct SQL writer over the law-bearing families: a direct SQL writer needs nothing extra to keep the laws.
  *
  * A case of a family's schema starts from a lawful state, drawn as a short family case whose steps the host accepts,
- * most of them storing lawful referring groups (support.ts lawfulStateSketchGen), and loaded as the owner, and runs up to
- * four transactions as `direct`, the identity every family grants its writes, each SERIALIZABLE and each a list of
- * single-row statements:
+ * most of them storing lawful referring groups or facts a referring side's selection does not pick (support.ts
+ * lawfulStateSketchGen), and loaded as the owner, and runs up to four transactions as `direct`, the identity every
+ * family grants its writes, each SERIALIZABLE and each a list of single-row statements:
  *
  * - an INSERT of a fact, a DELETE of a stored fact by its whole row, and an UPDATE of a stored fact's payload by its key,
  *   from a family step's members (support.ts resolveStep: drawn, stored, linked and sibling facts, filled groups,

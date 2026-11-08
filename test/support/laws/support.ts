@@ -629,7 +629,19 @@ interface NearSketch {
 	readonly other: number
 	readonly values: ReadonlyArray<number>
 }
-type MemberSketch = WriteSketch | SupportedSketch | UnlinkSketch | NearSketch
+
+/**
+ * A member inserting one fact a referring side's selection does not pick, with every fact it needs as another side's
+ * (resolveUnselected): which of the needs whose referring side selects it starts from, which of the facts the domains
+ * draw outside that selection it inserts, and the picks its supports are drawn from.
+ */
+interface UnselectedSketch {
+	readonly arm: "unselected"
+	readonly need: number
+	readonly index: number
+	readonly values: ReadonlyArray<number>
+}
+type MemberSketch = WriteSketch | SupportedSketch | UnlinkSketch | NearSketch | UnselectedSketch
 export type StepSketch = ReadonlyArray<MemberSketch>
 export type CaseSketch = ReadonlyArray<StepSketch>
 
@@ -660,6 +672,13 @@ const writeSketchGen =
 const supportedSketchGen: Gen<MemberSketch> = (source) => ({
 	arm: "supported",
 	need: source.draw(pickGen),
+	values: source.draw(sixPicks)
+})
+
+const unselectedSketchGen: Gen<MemberSketch> = (source) => ({
+	arm: "unselected",
+	need: source.draw(pickGen),
+	index: source.draw(pickGen),
 	values: source.draw(sixPicks)
 })
 
@@ -700,13 +719,18 @@ const familyMemberGen = (steps: Swarm<StepFeature>): Gen<MemberSketch> =>
 export const familyStepSketchGen = (steps: Swarm<StepFeature>): Gen<StepSketch> =>
 	array(familyMemberGen(steps), { min: 1, max: 3 })
 
-/** The steps of a lawful state under a step swarm, most of them storing referring groups. */
+/**
+ * The steps of a lawful state under a step swarm: half their members store a referring group, a quarter store a fact a
+ * referring side's selection does not pick, which an UPDATE may then move into the selection, and a quarter draw their
+ * facts.
+ */
 export const lawfulStateSketchGen = (steps: Swarm<StepFeature>): Gen<CaseSketch> =>
 	caseSketchOf(
 		4,
 		weighted([
 			[1, writeSketchGen(steps)],
-			[2, supportedSketchGen]
+			[2, supportedSketchGen],
+			[1, unselectedSketchGen]
 		])
 	)
 
@@ -878,6 +902,10 @@ export const resolveStep = (
 		}
 		if (o.arm === "near") {
 			appendAll(ops, resolveNear(host, domains, state, ops, o))
+			continue
+		}
+		if (o.arm === "unselected") {
+			appendAll(ops, resolveUnselected(host, domains, state, ops, o))
 			continue
 		}
 		const relation = pickIn(host.relations, o.relation, "the relations")
@@ -1113,6 +1141,54 @@ const resolveSupported = (
 			domains,
 			transition(host, state, ops),
 			[{ relation: need.from.relation, fact }],
+			values
+		)
+	)
+}
+
+/**
+ * An unselected member, resolved against the state the step's earlier members `ops` leave: a fact of the referring side
+ * of the need it picks, among the needs whose referring side selects, that the side's selection does not pick, at a key
+ * no fact of its relation holds there, with its supports (withSupports). A schema none of whose needs selects its
+ * referring side, or whose domains draw no such fact, has none, and its member writes nothing.
+ */
+const resolveUnselected = (
+	host: HostSchema,
+	domains: Domains,
+	state: HostState,
+	ops: ReadonlyArray<HostOp>,
+	sketch: UnselectedSketch
+): ReadonlyArray<HostOp> => {
+	const [first, ...rest] = Arr.filter(
+		Arr.flatMap(host.laws, needs),
+		({ from }) => from.selection.kind !== "every"
+	)
+	if (first === undefined) {
+		return []
+	}
+	const { from } = pickFrom([first, ...rest], sketch.need)
+	const before = transition(host, state, ops)
+	const key = relationOf(host, from.relation).key
+	const held = new Set(
+		Arr.map(defined(before.get(from.relation), `the state's ${from.relation} facts`), (f) =>
+			projection(f, key)
+		)
+	)
+	const [fact, ...others] = Arr.filter(
+		Arr.fromIterable(domainFacts(host, domains, from.relation)),
+		(f) => !selected(f, from.selection) && !held.has(projection(f, key))
+	)
+	if (fact === undefined) {
+		return []
+	}
+	const values = (k: number) =>
+		Arr.map(sketch.values, (p, i) => (p + k * (i + 1) * redrawStride) % pickSpan)
+	return insertsOf(
+		withSupports(
+			host,
+			domains,
+			before,
+			[{ relation: from.relation, fact: pickFrom([fact, ...others], sketch.index) }],
 			values
 		)
 	)

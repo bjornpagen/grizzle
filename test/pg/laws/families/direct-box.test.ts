@@ -4,10 +4,11 @@
  * law names, every law native, so its identity names its constraint's table and name. The oracle is the host model
  * (test/support/laws/model.ts), a second implementation judging the same transactions.
  *
- * An UPDATE that moves a fact into a referring side's selection meets a box point with a selected referring side in a
- * few of its draws, so such an UPDATE refused at COMMIT, and one in a transaction that commits, are reached a few times
- * a run, once at times. Both are planted for the mutable point whose child a boolean selects: an unselected child whose
- * parent is missing selected, and the same child selected with its parent inserted after it.
+ * An UPDATE that moves a fact into a referring side's selection needs a fact outside the selection to move, which the
+ * lawful states a case starts from store (support.ts lawfulStateSketchGen), so the streams reach such an UPDATE refused
+ * at COMMIT and one in a transaction that commits. Both are kept cases too, on the mutable point whose child a boolean
+ * selects: an unselected child whose parent is missing selected, and the same child selected with its parent inserted
+ * after it.
  */
 
 import { Array as Arr, Option } from "effect"
