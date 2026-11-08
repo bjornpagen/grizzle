@@ -258,8 +258,9 @@ describe("a slotted closed relation's planned constants", () => {
 
 	/**
 	 * The pack holds Σ over owners of its block, each held row at its point's position in the dependent sum, and the
-	 * owner functions hold 1 + each owner's base, its count of the blocks before it, and 1 + its count. Oracle: the
-	 * enumeration (pointsOf) under the first installation's codes, each handle's code its declared position.
+	 * owner functions hold 1 + each owner's base, its count of the blocks before it, and 1 + its count, one count
+	 * function for Model's fin however many slots it counts. Oracle: the enumeration (pointsOf) under the first
+	 * installation's codes, each handle's code its declared position.
 	 */
 	const planned = (d: Declaration, c: Case<Planned>) =>
 		Effect.sync(() => {
@@ -288,6 +289,11 @@ describe("a slotted closed relation's planned constants", () => {
 				"each row lies at its key's position in the dependent sum"
 			)
 			if (constant.key.kind === "dependent") {
+				assert.equal(
+					constant.key.counts.length,
+					1,
+					"every slot counts by Model's one fin, whose counts one function holds"
+				)
 				const counts = packOf(installation.statements, constant.key.counts[0].function.name)
 				assert.deepEqual(
 					Arr.map(rowsOf(counts), (r) => r.payload),
