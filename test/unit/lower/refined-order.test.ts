@@ -12,7 +12,7 @@ import { compileInstallation, installOptions } from "#compiler/physical/install/
 import { queryInput } from "#compiler/program/compile.ts"
 import { uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { relation, schema } from "#compiler/public/schema.ts"
+import { derived, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import type { Expr, OrderItem, SqlStatement, Target } from "#compiler/sql/ast.ts"
 import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
@@ -33,13 +33,23 @@ import { checking, checkOptions, owning } from "#test/support/policy.ts"
  * no ORDER BY item is, canonically, the uncast value of an output its core casts; and under SELECT DISTINCT every ORDER
  * BY item is one of the core's outputs.
  *
- * Bound: a refined parameter emitted alone or beside a projected field that keeps no key, so the delivery deduplicates,
- * ordered by the parameter alone or after the projected field, either direction. Exhausted.
+ * Bound: a refined value from each source the delivery's trace judges, a derived relation's column, which it casts, and
+ * a declared parameter, which its bind proves (lower/conservative/refined Tracer), emitted alone or beside a projected
+ * field that keeps no key, so the delivery deduplicates, ordered by the value alone or after the projected field, either
+ * direction. Exhausted.
  */
 const Slug = str.regex("^[a-z][a-z0-9-]*$")
 const Prose = str.regex("^.*$", "su")
 const Article = relation("Article", { id: uuid, slug: Slug, title: Prose }, ["id"])
-const Refined = schema("RefinedOrder", { Article }, [])
+const Stored = schema("RefinedOrder", { Article }, [])
+const Listed = derived(
+	"Listed",
+	query(Stored).rule((r) => {
+		const { id, slug, title } = v(Article, "article")
+		return r.match(Article, { id, slug, title }).find({ id, slug, title })
+	})
+)
+const Refined = schema.extend(Stored, { Listed }, [])
 
 const owned = owning(Refined)
 const installation = succeeded(
@@ -50,30 +60,61 @@ const installation = succeeded(
 )
 const catalog = installedCatalog(installation)
 
+type Source = "a derived relation's column" | "a declared parameter"
 type Shape =
 	| "the tag alone"
 	| "the title and the tag, by the tag"
 	| "the title and the tag, by both"
 type Direction = "asc" | "desc"
 
-/** The tag the caller passes, alone or with each article's title, deduplicated and ordered as drawn. */
-const tagged = (shape: Shape, direction: Direction) => {
+/**
+ * Each listed article's slug, a derived relation's column, alone or with its title, deduplicated and ordered as drawn.
+ */
+const listedTags = (shape: Shape, direction: Direction) => {
 	if (shape === "the tag alone") {
 		return query(Refined)
 			.rule((r) => {
-				const { title } = v(Article, "article")
-				return r.match(Article, { title }).find({ tag: r.param("tag", Slug) })
+				const { slug } = v(Listed, "listed")
+				return r.match(Listed, { slug }).find({ tag: slug })
 			})
 			.orderBy(["tag", direction])
 	}
 	const read = query(Refined).rule((r) => {
-		const { title } = v(Article, "article")
-		return r.match(Article, { title }).find({ title, tag: r.param("tag", Slug) })
+		const { slug, title } = v(Listed, "listed")
+		return r.match(Listed, { slug, title }).find({ title, tag: slug })
 	})
 	return shape === "the title and the tag, by the tag"
 		? read.orderBy(["tag", direction])
 		: read.orderBy(["title", direction], ["tag", direction])
 }
+
+/**
+ * The tag the caller passes, a declared parameter, alone or with each listed article's title, deduplicated and ordered
+ * as drawn.
+ */
+const passedTags = (shape: Shape, direction: Direction) => {
+	if (shape === "the tag alone") {
+		return query(Refined)
+			.rule((r) => {
+				const { title } = v(Listed, "listed")
+				return r.match(Listed, { title }).find({ tag: r.param("tag", Slug) })
+			})
+			.orderBy(["tag", direction])
+	}
+	const read = query(Refined).rule((r) => {
+		const { title } = v(Listed, "listed")
+		return r.match(Listed, { title }).find({ title, tag: r.param("tag", Slug) })
+	})
+	return shape === "the title and the tag, by the tag"
+		? read.orderBy(["tag", direction])
+		: read.orderBy(["title", direction], ["tag", direction])
+}
+
+/** The query each source of the tag reads. */
+const tagged = {
+	"a derived relation's column": listedTags,
+	"a declared parameter": passedTags
+} satisfies Record<Source, (shape: Shape, direction: Direction) => unknown>
 
 /** A query over a core: its ORDER BY, the core's targets, and whether the core is SELECT DISTINCT. */
 interface OrderedCore {
@@ -111,6 +152,9 @@ describe("a refined output the delivery casts", () => {
 				{
 					suite: "unit/lower/refined-order",
 					generator: (source) => ({
+						source: source.draw(
+							element(["a derived relation's column", "a declared parameter"] as const)
+						),
 						shape: source.draw(
 							element([
 								"the tag alone",
@@ -121,14 +165,14 @@ describe("a refined output the delivery casts", () => {
 						direction: source.draw(element(["asc", "desc"] as const))
 					}),
 					literal: Formatter.format,
-					limit: 6,
+					limit: 12,
 					coverage: requiredInSpace<Feature>([
 						"ordered by a cast output",
 						"ordered by two outputs",
 						"the tag alone"
 					]),
 					caseHang,
-					box: "a refined parameter emitted alone or beside a key-less projected field, ordered by it alone or after the field, either direction",
+					box: "a refined derived column or parameter emitted alone or beside a key-less projected field, ordered by it alone or after the field, either direction",
 					oracle: {
 						kind: "specification",
 						name: "an ORDER BY item reads a cast output's cast, and under SELECT DISTINCT one of the outputs (42P10)"
@@ -136,7 +180,7 @@ describe("a refined output the delivery casts", () => {
 				},
 				(box, c) =>
 					Effect.sync(() => {
-						const input = succeeded(queryInput(tagged(box.shape, box.direction)))
+						const input = succeeded(queryInput(tagged[box.source](box.shape, box.direction)))
 						const checked = succeeded(
 							checkQuery(checking(Refined), input.desc, checkOptions("query"))
 						)
