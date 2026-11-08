@@ -2409,9 +2409,10 @@ deploy.
 - **Data steps** go in a custom migration, `generate --custom`: a folder holding only `meta.json`, from the committed
   snapshot to itself.
   Add `01-<words>.sql`, `02-<words>.sql` and so on, each one transaction unless its first line is
-  `-- grizzle: no-transaction`, which runs each statement alone, each ending at a semicolon outside a quote, a dollar
-  quote or a comment; none controls its own transaction. Every file runs at SERIALIZABLE, and the database must
-  still end at the snapshot.
+  `-- grizzle: no-transaction`, which runs each statement alone, each ending at a semicolon where psql would end it:
+  outside quotes, dollar quotes, comments, parentheses and the `BEGIN ATOMIC … END` body of a function or procedure.
+  None controls its own transaction. Every file runs at SERIALIZABLE, and the database must still end at the
+  snapshot.
 - **`check` reads no database.** It reports, each with its fix, a schema change you haven't generated, a drop no
   declaration names, a workload program whose index needs differ from the snapshot's (naming it), an unresolved marker
   or data loss, and an edited `snapshot.json` or `meta.json`.

@@ -18,6 +18,13 @@ import type { Lexeme, Lexemes, Opener } from "#compiler/sql/lexer.ts"
  * (psqlscan.l, whose rules and yyless are scan.l's) goes on past it. A quote or block comment the text never closes
  * ends the scan, its state named as the opener. An escape's value is never read, so a literal PostgreSQL refuses for
  * what an escape denotes is read as written.
+ *
+ * Where a statement ends is psql's, src/fe_utils/psqlscan.l of 19rc1, transcribed as its rules and its state are: its
+ * "(", ")" and ";" rules, ahead of self, count the parentheses and end a statement at a semicolon outside every
+ * parenthesis and every BEGIN block, read as the lexer's terminator; its {identifier} rule, and no other, tracks the
+ * identifier (psqlscan_track_identifier), recording the statement's first eight in init_idents and counting BEGIN, CASE
+ * and END in begin_depth once they spell CREATE [OR REPLACE] FUNCTION or PROCEDURE. Its rules for backslash commands
+ * and variables are psql's script language, which a migration file never holds, and are not transcribed.
  */
 
 /** A rule of a state: its name, as scan.l names it, and its pattern, which matches at an offset or not. */
@@ -67,6 +74,9 @@ const initialRules = () =>
 		rule("greater_equals", regex(">=", "y")),
 		rule("less_greater", regex("<>", "y")),
 		rule("not_equals", regex("!=", "y")),
+		rule("open_paren", regex("\\(", "y")),
+		rule("close_paren", regex("\\)", "y")),
+		rule("semicolon", regex(";", "y")),
 		rule("self", regex("[,()\\[\\].;:+\\-*/%^<>=]", "y")),
 		rule("operator", regex("[~!@#^&|`?+\\-*/%<>=]+", "y")),
 		rule("param", regex("\\$[0-9]+", "y")),
@@ -183,13 +193,35 @@ const raised = (text: string): string =>
 		""
 	)
 
-/** Where a scan stands after one step: the offset it goes on from, with a lexeme or none, or the construct the text
- * never closes, which ends it. */
+/** What psqlscan.l's action for a rule does besides echoing what it read: count a parenthesis, end a statement at a
+ * semicolon, or track an identifier. */
+type PsqlAction =
+	| { readonly kind: "echo" | "open" | "close" | "semicolon" }
+	| { readonly kind: "identifier"; readonly identifier: string }
+
+/** Where a scan stands after one step: the offset it goes on from, with a lexeme or none and psql's action, or the
+ * construct the text never closes, which ends it. */
 type Scanned =
-	| { readonly kind: "on"; readonly next: number; readonly lexeme: Option.Option<Lexeme> }
+	| {
+			readonly kind: "on"
+			readonly next: number
+			readonly lexeme: Option.Option<Lexeme>
+			readonly psql: PsqlAction
+	  }
 	| { readonly kind: "unclosed"; readonly opener: Opener; readonly offset: number }
 
-const on = (next: number, lexeme: Option.Option<Lexeme>): Scanned => ({ kind: "on", next, lexeme })
+const on = (next: number, lexeme: Option.Option<Lexeme>): Scanned => ({
+	kind: "on",
+	next,
+	lexeme,
+	psql: { kind: "echo" }
+})
+const psqlOn = (next: number, lexeme: Lexeme, psql: PsqlAction): Scanned => ({
+	kind: "on",
+	next,
+	lexeme: Option.some(lexeme),
+	psql
+})
 const unclosedAt = (opener: Opener, offset: number): Scanned => ({
 	kind: "unclosed",
 	opener,
@@ -408,6 +440,12 @@ const stepAt = (text: string, at: number, rules: ReturnType<typeof initialRules>
 		case "dot_dot":
 		case "colon_equals":
 			return on(at + read.length, Option.some({ kind: "punct", text: read, start: at }))
+		case "open_paren":
+			return psqlOn(at + 1, { kind: "punct", text: read, start: at }, { kind: "open" })
+		case "close_paren":
+			return psqlOn(at + 1, { kind: "punct", text: read, start: at }, { kind: "close" })
+		case "semicolon":
+			return psqlOn(at + 1, { kind: "punct", text: read, start: at }, { kind: "semicolon" })
 		case "equals_greater":
 		case "less_equals":
 		case "greater_equals":
@@ -441,9 +479,10 @@ const stepAt = (text: string, at: number, rules: ReturnType<typeof initialRules>
 		case "realfail":
 			return numberToken(at, Str.slice(0, -2)(read))
 		case "identifier":
-			return on(
+			return psqlOn(
 				at + read.length,
-				Option.some({ kind: "word", text: read, upper: raised(read), start: at })
+				{ kind: "word", text: read, upper: raised(read), start: at },
+				{ kind: "identifier", identifier: read }
 			)
 		case "dolqfailed":
 			return refusedRun(text, at, at + 1)
@@ -459,13 +498,105 @@ const stepAt = (text: string, at: number, rules: ReturnType<typeof initialRules>
 	}
 }
 
+/** The length of init_idents (psqlscan_int.h). */
+const initIdentsSize = 8
+
+/** The keywords psqlscan_record_initial_keyword records by their first letter, lowercased or uppercased. */
+const loweredKeywords: ReadonlySet<string> = new Set([
+	"CREATE",
+	"FUNCTION",
+	"PROCEDURE",
+	"OR",
+	"REPLACE"
+])
+const raisedKeywords: ReadonlySet<string> = new Set(["COPY", "FROM", "STDIN", "STDOUT"])
+
+/** What psqlscan_record_initial_keyword records for an identifier: its first letter, or "" for '\0'. */
+const initialKeyword = (identifier: string): string => {
+	const first = Str.slice(0, 1)(identifier)
+	if (loweredKeywords.has(raised(identifier))) {
+		return Str.toLowerCase(first)
+	}
+	return raisedKeywords.has(raised(identifier)) ? Str.toUpperCase(first) : ""
+}
+
+/** psqlscan_is_create_routine. */
+const isCreateRoutine = (idents: ReadonlyArray<string>): boolean =>
+	idents[0] === "c" &&
+	(idents[1] === "f" ||
+		idents[1] === "p" ||
+		(idents[1] === "o" && idents[2] === "r" && (idents[3] === "f" || idents[3] === "p")))
+
+/** psql's scan state of a statement (psqlscan_int.h), and its actions on what a rule read. */
+class PsqlState {
+	parenDepth = 0
+	beginDepth = 0
+	initIdentsCount = 0
+	initIdents: Array<string> = Arr.replicate("", initIdentsSize)
+
+	/** psqlscan_track_identifier. */
+	trackIdentifier(identifier: string): void {
+		if (this.parenDepth !== 0) {
+			return
+		}
+		if (this.initIdentsCount === 0) {
+			this.initIdents = Arr.replicate("", initIdentsSize)
+		}
+		if (this.initIdentsCount < initIdentsSize) {
+			this.initIdents[this.initIdentsCount] = initialKeyword(identifier)
+			this.initIdentsCount += 1
+		}
+		if (isCreateRoutine(this.initIdents)) {
+			const word = raised(identifier)
+			if (word === "BEGIN") {
+				this.beginDepth += 1
+			} else if (word === "CASE") {
+				if (this.beginDepth >= 1) {
+					this.beginDepth += 1
+				}
+			} else if (word === "END") {
+				if (this.beginDepth > 0) {
+					this.beginDepth -= 1
+				}
+			}
+		}
+	}
+
+	/** The lexeme a rule's action leaves: its own, or the terminator of the statement a semicolon ends. */
+	act(action: PsqlAction, lexeme: Lexeme): Lexeme {
+		switch (action.kind) {
+			case "echo":
+				return lexeme
+			case "open":
+				this.parenDepth += 1
+				return lexeme
+			case "close":
+				if (this.parenDepth > 0) {
+					this.parenDepth -= 1
+				}
+				return lexeme
+			case "semicolon":
+				if (this.parenDepth === 0 && this.beginDepth === 0) {
+					this.initIdentsCount = 0
+					return { kind: "terminator", start: lexeme.start }
+				}
+				return lexeme
+			case "identifier":
+				this.trackIdentifier(action.identifier)
+				return lexeme
+		}
+	}
+}
+
 /**
- * The lexemes PostgreSQL's scanner reads from `text`, as the lexer's, up to a quote or block comment it never closes; a
- * refused run's message is never compared.
+ * The lexemes PostgreSQL's scanner reads from `text`, as the lexer's, up to a quote or block comment it never closes,
+ * each semicolon that ends a statement as psql's scanner reads it a terminator; a refused run's message is never
+ * compared.
  */
 export const scan = (text: string): Lexemes => {
 	const rules = initialRules()
 	const lexemes: Array<Lexeme> = []
+	const psql = new PsqlState()
 	let at = 0
 	while (at < text.length) {
 		const step = stepAt(text, at, rules)
@@ -473,7 +604,7 @@ export const scan = (text: string): Lexemes => {
 			return { lexemes, unclosed: { opener: step.opener, offset: step.offset } }
 		}
 		if (Option.isSome(step.lexeme)) {
-			lexemes.push(step.lexeme.value)
+			lexemes.push(psql.act(step.psql, step.lexeme.value))
 		}
 		at = step.next
 	}

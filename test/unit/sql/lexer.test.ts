@@ -41,7 +41,9 @@ import { scan } from "#test/unit/sql/scan.ts"
  * audit's eyes, so a token it misreads is a construct the audit cannot see. The oracle is PostgreSQL's own scanner,
  * scan.l transcribed rule by rule apart from the lexer (test/unit/sql/scan.ts): the lexer reads every text as the
  * scanner does, each lexeme's kind, content and offset, a refused run's extent among them, and the quote or comment it
- * never closes, and where; and PostgreSQL accepts the tokens before the first refusal (lex).
+ * never closes, and where; each semicolon that ends a statement where psql's scanner ends one (psqlscan.l, transcribed
+ * beside scan.l), outside every parenthesis and every BEGIN block of a routine's body, is its terminator; and
+ * PostgreSQL accepts the tokens before the first refusal (lex), every semicolon punctuation to it.
  *
  * - Every text of up to three characters over the characters the scanner's rules branch on, and every run of up to
  *   three tokens and separators written edge to edge, lex as the scanner reads them: the boundaries between tokens.
@@ -51,6 +53,9 @@ import { scan } from "#test/unit/sql/scan.ts"
  *   its closing quote is reported unterminated at that token's offset.
  * - Every statement the kernel's generator draws (sqlgen.ts statementGen), printed, lexes as the scanner reads it, with
  *   no error.
+ * - Generated statements, CREATE [OR REPLACE] FUNCTION or PROCEDURE among them with BEGIN blocks, CASE expressions
+ *   and parentheses nested in their bodies, semicolons inside each, and stray tokens of each kind between, end where
+ *   psql's scanner ends them.
  */
 
 /** A text's lexemes, a refused run's message aside, and what it never closes: what the lexer and the scanner must
@@ -69,7 +74,7 @@ const acceptedOf = (read: Lexemes) => {
 		if (l.kind === "refused") {
 			return { tokens, error: l.start }
 		}
-		tokens.push(l)
+		tokens.push(l.kind === "terminator" ? { kind: "punct", text: ";", start: l.start } : l)
 	}
 	return { tokens, error: read.unclosed?.offset }
 }
@@ -133,6 +138,8 @@ const shape = (t: Lexeme): string => {
 			return `p:${t.text}`
 		case "refused":
 			return `r:${t.text}`
+		case "terminator":
+			return "t;"
 	}
 }
 
@@ -473,9 +480,10 @@ const render = (
 }
 
 /**
- * The characters scan.l's rules branch on: letters that begin a prefixed string or a base, e and E of an exponent, an
- * underscore and digits of each base, every quote, backslash and dollar, operator and punctuation characters, and the
- * whitespace that ends a line comment or continues a string, and one character past ASCII.
+ * The characters scan.l's and psqlscan.l's rules branch on: letters that begin a prefixed string or a base, e and E of
+ * an exponent, an underscore and digits of each base, every quote, backslash and dollar, operator and punctuation
+ * characters, the parentheses and the semicolon psql counts, the whitespace that ends a line comment or continues a
+ * string, and one character past ASCII.
  */
 const boundaryCharacters: Arr.NonEmptyReadonlyArray<string> = [
 	"a",
@@ -503,6 +511,8 @@ const boundaryCharacters: Arr.NonEmptyReadonlyArray<string> = [
 	"!",
 	":",
 	"(",
+	")",
+	";",
 	" ",
 	"\n",
 	"\r",
@@ -553,10 +563,13 @@ type BoundaryFeature =
 	| "a lexeme after a refused run"
 	| "an unclosed construct"
 	| "a continued string"
+	| "a terminator"
+	| "a semicolon inside parentheses"
 
 /**
  * What a text the boxes lex reached: how many lexemes the scanner reads, a run it refuses and one it reads after that
- * run, a construct it never closes, and two quoted segments across a newline read as one string constant.
+ * run, a construct it never closes, two quoted segments across a newline read as one string constant, a statement's
+ * terminator, and a semicolon psql reads inside parentheses, the only place a box of three reaches.
  */
 const boundaryFeatures = (text: string): ReadonlyArray<BoundaryFeature> => {
 	const read = scan(text)
@@ -571,6 +584,10 @@ const boundaryFeatures = (text: string): ReadonlyArray<BoundaryFeature> => {
 			? ["a lexeme after a refused run" as const]
 			: []),
 		...(read.unclosed === undefined ? [] : ["an unclosed construct" as const]),
+		...(Arr.some(read.lexemes, (l) => l.kind === "terminator") ? ["a terminator" as const] : []),
+		...(Arr.some(read.lexemes, (l) => l.kind === "punct" && l.text === ";")
+			? ["a semicolon inside parentheses" as const]
+			: []),
 		...(only?.kind === "string" && others.length === 0 && Str.includes("'\n'")(text)
 			? ["a continued string" as const]
 			: [])
@@ -583,6 +600,209 @@ const joined = (items: Arr.NonEmptyReadonlyArray<string>, most: number): Gen<str
 
 type PrintedFeature = Token["kind"]
 
+const statementFeatures = [
+	"a routine opened by CREATE OR REPLACE",
+	"an opening that is no routine",
+	"a semicolon inside parentheses",
+	"a semicolon inside a BEGIN block",
+	"a CASE inside a BEGIN block",
+	"a BEGIN block inside another",
+	"two statements"
+] as const
+type StatementFeature = (typeof statementFeatures)[number]
+
+/** Text drawn, and what it reaches. */
+interface Drawn {
+	readonly text: string
+	readonly reaches: ReadonlyArray<StatementFeature>
+}
+
+const drawnText = (text: string): Drawn => ({ text, reaches: [] })
+
+/** What separates two parts: whitespace, a comment, or nothing, so a part may run into the next. */
+const partSeparator = element([" ", " ", "\n", "", "/**/", "--c\n"])
+
+/** Parts, each after its separator. */
+const partsText = (parts: ReadonlyArray<readonly [string, Drawn]>): Drawn => ({
+	text: Arr.join(
+		Arr.map(parts, ([between, part]) => `${between}${part.text}`),
+		""
+	),
+	reaches: Arr.flatMap(parts, ([, part]) => part.reaches)
+})
+
+/**
+ * A stray part: a word psql's scanner tracks, alone or spelled in another case, a parenthesis or a semicolon on its
+ * own, a word that is no identifier to psql (U&), and quotes and comments that hide each of them.
+ */
+const strayGen: Gen<Drawn> = map(
+	element([
+		"x",
+		"SELECT",
+		"BEGIN",
+		"begin",
+		"CASE",
+		"END",
+		"end",
+		"ATOMIC",
+		"CREATE",
+		"FUNCTION",
+		"OR",
+		"REPLACE",
+		"PROCEDURE",
+		"COPY",
+		"(",
+		")",
+		";",
+		"U&",
+		"$",
+		"'a;b)'",
+		'"end"',
+		"$$ ; ( $$",
+		"/* ; ) */",
+		"-- ;\n",
+		"E'\\';'",
+		"[",
+		"]"
+	]),
+	drawnText
+)
+
+/**
+ * A body of up to four parts at `depth`, inside a BEGIN block or not: stray parts, a semicolon, parentheses holding a
+ * body of their own, and, above depth 0, a BEGIN block or a CASE expression holding one, each ended by END.
+ */
+const bodyGen = (depth: number, inBlock: boolean): Gen<Drawn> => {
+	const semicolon: Gen<Drawn> = constant({
+		text: ";",
+		reaches: inBlock ? ["a semicolon inside a BEGIN block"] : []
+	})
+	const parenthesized: Gen<Drawn> = map(
+		(source) => source.draw(parenBodyGen(depth)),
+		(inner): Drawn => ({ text: `(${inner.text})`, reaches: inner.reaches })
+	)
+	const block = (opener: "BEGIN" | "CASE"): Gen<Drawn> =>
+		map(
+			(source) => source.draw(bodyGen(depth - 1, true)),
+			(inner): Drawn => ({
+				text: `${opener} ${inner.text} END`,
+				reaches: [
+					...inner.reaches,
+					...(inBlock
+						? ([
+								opener === "BEGIN" ? "a BEGIN block inside another" : "a CASE inside a BEGIN block"
+							] as const)
+						: [])
+				]
+			})
+		)
+	const part: Gen<Drawn> =
+		depth > 0
+			? weighted([
+					[3, strayGen],
+					[3, semicolon],
+					[1, parenthesized],
+					[2, block("BEGIN")],
+					[1, block("CASE")]
+				])
+			: weighted([
+					[3, strayGen],
+					[3, semicolon],
+					[1, parenthesized]
+				])
+	return map(
+		array((source) => [source.draw(partSeparator), source.draw(part)] as const, { min: 0, max: 4 }),
+		partsText
+	)
+}
+
+/** What parentheses hold: stray parts and semicolons, each semicolon one psql reads inside them, and, above depth 0,
+ * parentheses again. */
+const parenBodyGen = (depth: number): Gen<Drawn> => {
+	const semicolon = constant<Drawn>({ text: ";", reaches: ["a semicolon inside parentheses"] })
+	const nested: Gen<Drawn> = map(
+		(source) => source.draw(parenBodyGen(depth - 1)),
+		(body): Drawn => ({ text: `(${body.text})`, reaches: body.reaches })
+	)
+	const inner: Gen<Drawn> =
+		depth > 0
+			? weighted([
+					[3, strayGen],
+					[2, semicolon],
+					[1, nested]
+				])
+			: weighted([
+					[3, strayGen],
+					[2, semicolon]
+				])
+	return map(
+		array((source) => [source.draw(partSeparator), source.draw(inner)] as const, {
+			min: 0,
+			max: 4
+		}),
+		partsText
+	)
+}
+
+/** A statement's opening: CREATE [OR REPLACE] FUNCTION or PROCEDURE in any case, a near miss of it, or none. */
+const openingGen: Gen<Drawn> = weighted([
+	[
+		3,
+		map(
+			element(["CREATE FUNCTION f()", "create procedure p (a int)", "CREATE U& FUNCTION f()"]),
+			drawnText
+		)
+	],
+	[
+		2,
+		map(
+			element(["CREATE OR REPLACE FUNCTION f()", "Create Or Replace Procedure p"]),
+			(text): Drawn => ({ text, reaches: ["a routine opened by CREATE OR REPLACE"] })
+		)
+	],
+	[
+		2,
+		map(
+			element([
+				"CREATE OR FUNCTION f()",
+				"CREATE TABLE t",
+				"SELECT FUNCTION",
+				"(CREATE) FUNCTION",
+				"U&x"
+			]),
+			(text): Drawn => ({ text, reaches: ["an opening that is no routine"] })
+		)
+	],
+	[1, constant(drawnText(""))]
+])
+
+/** Up to three statements, each an opening and a body two blocks deep, each but maybe the last ended by a semicolon. */
+const statementsGen: Gen<Drawn> = map(
+	array(
+		(source) =>
+			[
+				source.draw(openingGen),
+				source.draw(partSeparator),
+				source.draw(bodyGen(2, false)),
+				source.draw(element([";", ";\n", ""]))
+			] as const,
+		{ min: 1, max: 3 }
+	),
+	(statements): Drawn => ({
+		text: Arr.join(
+			Arr.map(
+				statements,
+				([opening, between, body, end]) => `${opening.text}${between}${body.text}${end}`
+			),
+			""
+		),
+		reaches: [
+			...Arr.flatMap(statements, ([opening, , body]) => [...opening.reaches, ...body.reaches]),
+			...(statements.length > 1 ? (["two statements"] as const) : [])
+		]
+	})
+)
+
 describe("lex", () => {
 	it.effect(
 		"reads every text of up to three boundary characters as PostgreSQL's scanner does",
@@ -594,16 +814,21 @@ describe("lex", () => {
 						suite: "unit/sql/lex-characters",
 						generator: joined(boundaryCharacters, 3),
 						literal: Formatter.format,
-						/** 29 characters, up to three of them: 25,260 texts; the limit guards only against their growth. */
-						limit: 30_000,
-						box: "every text of up to three characters over the 29 that scan.l's rules branch on",
-						oracle: { kind: "second-implementation", name: "scan.l's rules, transcribed apart" },
+						/** 31 characters, up to three of them: 30,784 texts; the limit guards only against their growth. */
+						limit: 31_000,
+						box: "every text of up to three characters over the 31 that scan.l's and psqlscan.l's rules branch on",
+						oracle: {
+							kind: "second-implementation",
+							name: "scan.l's and psqlscan.l's rules, transcribed apart"
+						},
 						coverage: requiredInSpace<BoundaryFeature>([
 							"a token",
 							"two tokens",
 							"a refused run",
 							"a lexeme after a refused run",
-							"an unclosed construct"
+							"an unclosed construct",
+							"a terminator",
+							"a semicolon inside parentheses"
 						]),
 						caseHang
 					},
@@ -629,7 +854,10 @@ describe("lex", () => {
 						/** 29 atoms, up to three of them: 25,260 runs; the limit guards only against their growth. */
 						limit: 30_000,
 						box: "every run of up to three of 29 tokens and separators, written edge to edge",
-						oracle: { kind: "second-implementation", name: "scan.l's rules, transcribed apart" },
+						oracle: {
+							kind: "second-implementation",
+							name: "scan.l's and psqlscan.l's rules, transcribed apart"
+						},
 						coverage: requiredInSpace<BoundaryFeature>([
 							"a token",
 							"two tokens",
@@ -661,7 +889,7 @@ describe("lex", () => {
 						literal: Formatter.format,
 						oracle: {
 							kind: "second-implementation",
-							name: "scan.l's rules, transcribed apart, and the tokens the sequence was rendered from"
+							name: "scan.l's and psqlscan.l's rules, transcribed apart, and the tokens the sequence was rendered from"
 						},
 						coverage: required<RenderedKind | SeparatorKind>(
 							[
@@ -728,7 +956,7 @@ describe("lex", () => {
 						literal: Formatter.format,
 						oracle: {
 							kind: "second-implementation",
-							name: "scan.l's rules, transcribed apart, and the offset the truncated token was rendered at"
+							name: "scan.l's and psqlscan.l's rules, transcribed apart, and the offset the truncated token was rendered at"
 						},
 						coverage: required<RenderedKind>(["quotedIdent", "string", "dollar"], {
 							cases: 300,
@@ -767,7 +995,10 @@ describe("lex", () => {
 						suite: "unit/sql/lex-printed",
 						draw: drawn(statementGen(sqlCatalog)),
 						literal: Formatter.format,
-						oracle: { kind: "second-implementation", name: "scan.l's rules, transcribed apart" },
+						oracle: {
+							kind: "second-implementation",
+							name: "scan.l's and psqlscan.l's rules, transcribed apart"
+						},
 						coverage: required<PrintedFeature>(
 							["word", "quotedIdent", "string", "number", "param", "operator", "punct"],
 							{ cases: 100, sense: notesOnly }
@@ -789,5 +1020,34 @@ describe("lex", () => {
 						})
 				)
 			)
+	)
+
+	it.effect("ends every generated statement where psql's scanner ends it", (ctx) =>
+		searched(
+			ctx,
+			explore(
+				{
+					suite: "unit/sql/lex-statements",
+					draw: drawn(statementsGen),
+					literal: Formatter.format,
+					oracle: {
+						kind: "second-implementation",
+						name: "scan.l's and psqlscan.l's rules and state, transcribed apart"
+					},
+					coverage: required<StatementFeature>(statementFeatures, { cases: 400, sense: notesOnly }),
+					kept: [],
+					runs: 400,
+					shrink: completeShrink,
+					concurrency: 1,
+					steerEvery: 16,
+					caseHang
+				},
+				(drawnStatements, c) =>
+					Effect.sync(() => {
+						c.noteAll(drawnStatements.reaches)
+						asScanned(drawnStatements.text)
+					})
+			)
+		)
 	)
 })

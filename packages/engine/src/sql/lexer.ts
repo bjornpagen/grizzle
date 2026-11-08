@@ -19,6 +19,11 @@
  * run, as psql's scanner (psqlscan.l, whose rules are scan.l's) goes on to find where statements end; it ends only
  * where the text opens a quote or a block comment it never closes, whose end is unknown. What PostgreSQL accepts is
  * the tokens before the first refusal (lex).
+ *
+ * A semicolon ends a statement where psql's scanner ends one: outside every parenthesis, and outside the BEGIN blocks
+ * of a routine's body (Statement), where it is the statement's terminator; anywhere else it is punctuation. psql's
+ * backslash commands and variables are its own script language, which a migration file never holds, so a backslash
+ * and a colon read as the server reads them.
  */
 export type Token =
 	| { readonly kind: "word"; readonly text: string; readonly upper: string; readonly start: number }
@@ -49,8 +54,17 @@ export interface Refused {
 	readonly start: number
 }
 
-/** A run PostgreSQL's scanner reads to its end: a token, or a run it refuses. */
-export type Lexeme = Token | Refused
+/** A semicolon that ends a statement, as psql's scanner reads one (Statement). */
+export interface Terminator {
+	readonly kind: "terminator"
+	readonly start: number
+}
+
+/** A run PostgreSQL's scanner reads to its end: a token, a run it refuses, or a statement's terminator. */
+export type Lexeme = Token | Refused | Terminator
+
+/** A word: what an identifier or a keyword reads as. */
+type Word = Extract<Token, { readonly kind: "word" }>
 
 /** A construct whose end the text must hold, as its opener reads it. */
 export type Opener =
@@ -139,15 +153,20 @@ const toUpperAscii = (text: string): string => {
 	return from === 0 ? text : out + text.slice(from)
 }
 
-/** What one scanner step read at an index: a run to skip, a lexeme and its end, or a construct never closed. */
+/**
+ * What one scanner step read at an index: a run to skip, a token or a refused run and its end, a word psql's scanner
+ * reads as an identifier (psqlscan.l {identifier}) and its end, or a construct never closed.
+ */
 type Step =
 	| { readonly kind: "skip"; readonly end: number }
-	| { readonly kind: "lexeme"; readonly lexeme: Lexeme; readonly end: number }
+	| { readonly kind: "lexeme"; readonly lexeme: Token | Refused; readonly end: number }
+	| { readonly kind: "identifier"; readonly word: Word; readonly end: number }
 	| { readonly kind: "unclosed"; readonly unclosed: Unclosed }
 
 const at = (text: string, k: number): number => text.charCodeAt(k)
 const skip = (end: number): Step => ({ kind: "skip", end })
 const token = (read: Token, end: number): Step => ({ kind: "lexeme", lexeme: read, end })
+const identifier = (word: Word, end: number): Step => ({ kind: "identifier", word, end })
 /** The run of `text` from `start` to `end`, refused for `message`. */
 const refused = (text: string, start: number, end: number, message: string): Step => ({
 	kind: "lexeme",
@@ -384,7 +403,8 @@ const dollar = (text: string, i: number): Step => {
 /**
  * A word, or the prefixed string it begins: E'...', B'...', X'...', N'...' and U&'...' are prefixed strings, U&"..." a
  * Unicode identifier. An unterminated one is refused where it begins, but N'...', which PostgreSQL reads as the word
- * NCHAR before a string, where its quote does.
+ * NCHAR before a string, where its quote does. U& before neither quote is the word U, which psql's scanner reads as no
+ * identifier (psqlscan.l xufailed); every other word is one.
  */
 const word = (text: string, i: number): Step => {
 	const j = identifierEnd(text, i)
@@ -401,6 +421,7 @@ const word = (text: string, i: number): Step => {
 				return stringConstant(text, j, i, upper, standardQuoting, j)
 		}
 	}
+	const read: Word = { kind: "word", text: spelled, upper, start: i }
 	if (upper === "U" && at(text, j) === ampersand) {
 		const quote = at(text, j + 1)
 		if (quote === singleQuote) {
@@ -409,8 +430,9 @@ const word = (text: string, i: number): Step => {
 		if (quote === doubleQuote) {
 			return quotedIdent(text, j + 1, i)
 		}
+		return token(read, j)
 	}
-	return token({ kind: "word", text: spelled, upper, start: i }, j)
+	return identifier(read, j)
 }
 
 /**
@@ -602,24 +624,135 @@ const stepAt = (text: string, i: number): Step => {
 	return refused(text, i, i + 1, `unexpected character ${JSON.stringify(text.charAt(i))}`)
 }
 
-/** The lexemes of `text`, scanned step by step from its start, up to a construct it never closes. */
+/**
+ * How far psql's scanner has read a statement's opening identifiers (psqlscan.l psqlscan_is_create_routine): CREATE,
+ * then OR REPLACE or nothing, then FUNCTION or PROCEDURE opens a routine, and any other opening is none. In a routine it
+ * counts the blocks open: BEGIN opens one, CASE one inside a block, and END closes the innermost.
+ */
+type Opening =
+	| { readonly kind: "start" | "create" | "createOr" | "createOrReplace" | "none" }
+	| { readonly kind: "routine"; readonly blocks: number }
+
+/**
+ * Where psql's scanner stands in a statement: the parentheses open, inside which it reads no identifier as one of the
+ * opening's, and the opening. A semicolon outside every parenthesis and every block ends the statement.
+ */
+interface Statement {
+	readonly parens: number
+	readonly opening: Opening
+}
+
+const freshStatement: Statement = { parens: 0, opening: { kind: "start" } }
+const noRoutine: Opening = { kind: "none" }
+const routine: Opening = { kind: "routine", blocks: 0 }
+const routineWords: ReadonlySet<string> = new Set(["FUNCTION", "PROCEDURE"])
+
+/** A routine's blocks open after the identifier `upper`. */
+const blocksAfter = (blocks: number, upper: string): number => {
+	switch (upper) {
+		case "BEGIN":
+			return blocks + 1
+		case "CASE":
+			return blocks > 0 ? blocks + 1 : blocks
+		case "END":
+			return blocks > 0 ? blocks - 1 : blocks
+		default:
+			return blocks
+	}
+}
+
+/** The opening after the identifier `upper`. */
+const openingAfter = (opening: Opening, upper: string): Opening => {
+	switch (opening.kind) {
+		case "start":
+			return upper === "CREATE" ? { kind: "create" } : noRoutine
+		case "create":
+			if (routineWords.has(upper)) {
+				return routine
+			}
+			return upper === "OR" ? { kind: "createOr" } : noRoutine
+		case "createOr":
+			return upper === "REPLACE" ? { kind: "createOrReplace" } : noRoutine
+		case "createOrReplace":
+			return routineWords.has(upper) ? routine : noRoutine
+		case "routine":
+			return { kind: "routine", blocks: blocksAfter(opening.blocks, upper) }
+		case "none":
+			return opening
+	}
+}
+
+/** The statement after an identifier psql's scanner reads: inside a parenthesis it stands where it stood. */
+const afterIdentifier = (statement: Statement, upper: string): Statement =>
+	statement.parens > 0 ? statement : { parens: 0, opening: openingAfter(statement.opening, upper) }
+
+/** Whether a semicolon ends the statement: no parenthesis and no block of a routine is open. */
+const ends = (statement: Statement): boolean =>
+	statement.parens === 0 && (statement.opening.kind !== "routine" || statement.opening.blocks === 0)
+
+/** A lexeme psql's scanner reads, and the statement it stands in after it. */
+interface Read {
+	readonly lexeme: Lexeme
+	readonly statement: Statement
+}
+
+/**
+ * What psql's scanner reads a token or a refused run as in `statement`: a parenthesis opens or closes one, never below
+ * none; a semicolon that ends the statement is its terminator, after which the next statement starts fresh.
+ */
+const punctuated = (statement: Statement, t: Token | Refused): Read => {
+	if (t.kind !== "punct") {
+		return { lexeme: t, statement }
+	}
+	switch (t.text) {
+		case "(":
+			return { lexeme: t, statement: { ...statement, parens: statement.parens + 1 } }
+		case ")":
+			return { lexeme: t, statement: { ...statement, parens: Math.max(statement.parens - 1, 0) } }
+		case ";":
+			return ends(statement)
+				? { lexeme: { kind: "terminator", start: t.start }, statement: freshStatement }
+				: { lexeme: t, statement }
+		default:
+			return { lexeme: t, statement }
+	}
+}
+
+/**
+ * The lexemes of `text`, scanned step by step from its start, up to a construct it never closes, each semicolon that
+ * ends a statement read as its terminator.
+ */
 export const lexemesOf = (text: string): Lexemes => {
 	const lexemes: Array<Lexeme> = []
+	let statement = freshStatement
 	let i = 0
 	while (i < text.length) {
 		const step = stepAt(text, i)
-		if (step.kind === "unclosed") {
-			return { lexemes, unclosed: step.unclosed }
-		}
-		if (step.kind === "lexeme") {
-			lexemes.push(step.lexeme)
+		switch (step.kind) {
+			case "unclosed":
+				return { lexemes, unclosed: step.unclosed }
+			case "skip":
+				break
+			case "identifier":
+				lexemes.push(step.word)
+				statement = afterIdentifier(statement, step.word.upper)
+				break
+			case "lexeme": {
+				const read = punctuated(statement, step.lexeme)
+				lexemes.push(read.lexeme)
+				statement = read.statement
+				break
+			}
 		}
 		i = step.end
 	}
 	return { lexemes, unclosed: undefined }
 }
 
-/** The tokens of `text` PostgreSQL's scanner reads before it first refuses it (lexemesOf), and that refusal. */
+/**
+ * The tokens of `text` PostgreSQL's scanner reads before it first refuses it (lexemesOf), and that refusal: every
+ * semicolon is punctuation to it, a statement's terminator among them.
+ */
 export const lex = (text: string): Lexed => {
 	const read = lexemesOf(text)
 	const tokens: Array<Token> = []
@@ -627,7 +760,7 @@ export const lex = (text: string): Lexed => {
 		if (l.kind === "refused") {
 			return { tokens, error: { offset: l.start, message: l.message } }
 		}
-		tokens.push(l)
+		tokens.push(l.kind === "terminator" ? { kind: "punct", text: ";", start: l.start } : l)
 	}
 	return {
 		tokens,

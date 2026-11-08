@@ -23,7 +23,13 @@ import { caseHang } from "#test/support/limits.ts"
 const splitFeatures = [
 	"a dollar-quote tag outside ASCII",
 	"a run PostgreSQL refuses",
-	"a block comment left open"
+	"a block comment left open",
+	"a semicolon inside parentheses",
+	"a parenthesis left open",
+	"a semicolon inside a BEGIN block",
+	"a BEGIN block inside another",
+	"a CASE inside a BEGIN block",
+	"a routine opened by CREATE OR REPLACE"
 ] as const
 type SplitFeature = (typeof splitFeatures)[number]
 
@@ -38,9 +44,12 @@ type SplitFeature = (typeof splitFeatures)[number]
  * among them), a line comment, or a nested block comment. Identifiers carry `$`, positional parameters appear beside
  * dollar quotes, and a piece that holds only comments and whitespace is no statement. A run the scanner reads whole
  * and refuses (an empty quoted identifier, junk after a number or a parameter, a base with no digit, a stray `$`, a
- * character no rule reads) is part of its statement, and the split goes on after it. Each statement keeps its leading
- * comments and loses its terminator; a file whose last statement opens a quote it never closes keeps the rest of the
- * file as that statement, and a block comment left open, nested or not, adds no statement of its own. */
+ * character no rule reads) is part of its statement, and the split goes on after it. As psql splits a file, a
+ * semicolon inside parentheses, nested or not, ends no statement, and neither does one in the body of a CREATE [OR
+ * REPLACE] FUNCTION or PROCEDURE between BEGIN ATOMIC and its END, through the BEGIN blocks and CASE expressions nested
+ * inside; a `)` no parenthesis opened closes none. Each statement keeps its leading comments and loses its terminator;
+ * a file whose last statement opens a quote or a parenthesis it never closes keeps the rest of the file as that
+ * statement, and a block comment left open, nested or not, adds no statement of its own. */
 interface Item {
 	readonly text: string
 	readonly substantive: boolean
@@ -95,7 +104,7 @@ const wordGen = element([
 ])
 const numberGen = element(["1", "2.5", "1e3", ".5"])
 const paramGen = element(["$1", "$12"])
-const operatorGen = element(["+", "<>", "=", "-", "/", "*", "::", "(", ")", ",", "."])
+const operatorGen = element(["+", "<>", "=", "-", "/", "*", "::", ",", "."])
 const stringGen = map(joined(trickyBut(["'"], ["''", "\\"]), 4), (s) => `'${s}'`)
 
 const escapedGen: Gen<string> = (source) => {
@@ -175,23 +184,141 @@ const itemGen: Gen<Item> = weighted([
 
 const spaceGen = element([" ", "\n", "\t", "  "])
 
-/** A statement's text, whether it is one, and what it reaches: its items, each followed by whitespace. */
-const pieceGen: Gen<Item> = map(
-	array((source) => [source.draw(itemGen), source.draw(spaceGen)] as const, { min: 0, max: 5 }),
-	(items) => ({
-		text: Arr.join(
-			Arr.map(items, ([item, space]) => `${item.text}${space}`),
-			""
-		),
-		substantive: Arr.some(items, ([item]) => item.substantive),
-		reaches: Arr.flatMap(items, ([item]) => item.reaches)
+/** Up to `max` items, each followed by whitespace, as one item: substantive when one of them is. */
+const spaced = (items: Gen<Item>, max: number): Gen<Item> =>
+	map(
+		array((source) => [source.draw(items), source.draw(spaceGen)] as const, { min: 0, max }),
+		(drawn) => ({
+			text: Arr.join(
+				Arr.map(drawn, ([item, space]) => `${item.text}${space}`),
+				""
+			),
+			substantive: Arr.some(drawn, ([item]) => item.substantive),
+			reaches: Arr.flatMap(drawn, ([item]) => item.reaches)
+		})
+	)
+
+/** A semicolon that ends no statement, and what it reaches. */
+const innerSemicolon = (reached: SplitFeature): Gen<Item> =>
+	constant<Item>({ text: ";", substantive: true, reaches: [reached] })
+
+/** Parentheses holding items, semicolons and, `depth` deep, parentheses again. */
+const parenGen = (depth: number): Gen<Item> => {
+	const semicolon = innerSemicolon("a semicolon inside parentheses")
+	const inner: Gen<Item> =
+		depth > 0
+			? weighted([
+					[4, itemGen],
+					[2, semicolon],
+					[1, (source) => source.draw(parenGen(depth - 1))]
+				])
+			: weighted([
+					[4, itemGen],
+					[2, semicolon]
+				])
+	return map(spaced(inner, 4), (held): Item => ({
+		text: `( ${held.text})`,
+		substantive: true,
+		reaches: held.reaches
+	}))
+}
+
+/** What a statement holds outside every parenthesis: items, parentheses, and a `)` that closes none. */
+const outerItemGen: Gen<Item> = weighted([
+	[10, itemGen],
+	[2, parenGen(2)],
+	[1, token(constant(")"))]
+])
+
+/** A plain statement: its items, each followed by whitespace. */
+const plainGen: Gen<Item> = spaced(outerItemGen, 5)
+
+/**
+ * The body of a BEGIN block `depth` deep: items, semicolons that end no statement, and, deeper, BEGIN blocks and CASE
+ * expressions, each ended by END.
+ */
+const blockBodyGen = (depth: number): Gen<Item> => {
+	const semicolon = innerSemicolon("a semicolon inside a BEGIN block")
+	const nested = (opener: "BEGIN" | "CASE", reached: SplitFeature): Gen<Item> =>
+		map(
+			(source) => source.draw(blockBodyGen(depth - 1)),
+			(body): Item => ({
+				text: `${opener} ${body.text}END`,
+				substantive: true,
+				reaches: [reached, ...body.reaches]
+			})
+		)
+	const part: Gen<Item> =
+		depth > 0
+			? weighted([
+					[4, outerItemGen],
+					[3, semicolon],
+					[1, nested("BEGIN", "a BEGIN block inside another")],
+					[1, nested("CASE", "a CASE inside a BEGIN block")]
+				])
+			: weighted([
+					[4, outerItemGen],
+					[3, semicolon]
+				])
+	return spaced(part, 4)
+}
+
+/** A routine whose body is a BEGIN ATOMIC block, CREATE [OR REPLACE] FUNCTION or PROCEDURE in any case. */
+const routineGen: Gen<Item> = map(
+	(source) =>
+		[
+			source.draw(
+				weighted<Item>([
+					[
+						2,
+						token(
+							element(["CREATE FUNCTION f() RETURNS int LANGUAGE sql", "create procedure p(a int)"])
+						)
+					],
+					[
+						1,
+						map(
+							element([
+								"CREATE OR REPLACE FUNCTION f(x text) RETURNS text",
+								"Create Or Replace Procedure p()"
+							]),
+							(text): Item => ({
+								text,
+								substantive: true,
+								reaches: ["a routine opened by CREATE OR REPLACE"]
+							})
+						)
+					]
+				])
+			),
+			source.draw(blockBodyGen(2)),
+			source.draw(spaceGen)
+		] as const,
+	([opening, body, space]): Item => ({
+		text: `${opening.text} BEGIN ATOMIC ${body.text}END${space}`,
+		substantive: true,
+		reaches: [...opening.reaches, ...body.reaches]
 	})
 )
 
-/** A quote the last statement opens and never closes, which it takes the rest of the file into; or a block comment,
- * nested or not, left open, which is no statement. */
+/** A statement's text, whether it is one, and what it reaches: a plain statement, or a routine. */
+const pieceGen: Gen<Item> = weighted([
+	[4, plainGen],
+	[1, routineGen]
+])
+
+/** A quote or a parenthesis the last statement opens and never closes, which it takes the rest of the file into; or a
+ * block comment, nested or not, left open, which is no statement. */
 const unterminatedGen: Gen<Item> = weighted([
 	[4, token(element(["'it ; is", '"a ; b', "E'\\' ; x", "$q$ ; body"]))],
+	[
+		1,
+		map(constant("( a ; b"), (text): Item => ({
+			text,
+			substantive: true,
+			reaches: ["a parenthesis left open"]
+		}))
+	],
 	[
 		1,
 		map(element(["/* ; x", "/* a /* b */ ; c"]), (text): Item => ({

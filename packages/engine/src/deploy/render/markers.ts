@@ -54,7 +54,7 @@ const tokenOffsets = (text: string, from: number, limit: number): ReadonlyArray<
 /** A lexeme's text, holding as many placeholder tokens as the lexeme's source: a quoted identifier's or a string
  * constant's content reads each doubled quote as one, which never joins or splits a placeholder token, since it holds
  * no quote; a dollar-quoted string is its tags and body; a positional parameter is `$` and digits; a refused run is its
- * source. */
+ * source; a terminator is its semicolon. */
 const lexemeText = (t: Lexeme): string => {
 	switch (t.kind) {
 		case "word":
@@ -69,6 +69,8 @@ const lexemeText = (t: Lexeme): string => {
 			return `${t.tag}${t.body}${t.tag}`
 		case "param":
 			return ""
+		case "terminator":
+			return ";"
 	}
 }
 
@@ -146,20 +148,20 @@ export const isNoTransaction = (text: string): boolean => {
 	return firstLine.trimEnd() === noTransactionMarker
 }
 
-/** The statements of a file, for a no-transaction file that runs each alone: the text split at the semicolons
- * PostgreSQL's scanner reads as punctuation (lexemesOf), so a semicolon in a comment, a quoted identifier, a string
- * constant or a dollar-quoted body never splits, and pieces that hold only comments and whitespace dropped. Each
- * statement keeps its leading comments and loses its terminator. A run the scanner refuses, such as `""`, is part of
- * its statement, which PostgreSQL then refuses alone when it runs. A quote or comment the text opens and never closes
- * takes the rest of the text into the piece it starts, which PostgreSQL then refuses when it runs; a block comment left
- * open is no statement of its own. */
+/** The statements of a file, for a no-transaction file that runs each alone: the text split at the terminators psql's
+ * scanner reads (lexemesOf), so a semicolon in a comment, a quoted identifier, a string constant, a dollar-quoted body,
+ * a parenthesis or the BEGIN block of a routine's body never splits, and pieces that hold only comments and whitespace
+ * dropped. Each statement keeps its leading comments and loses its terminator. A run the scanner refuses, such as
+ * `""`, is part of its statement, which PostgreSQL then refuses alone when it runs. A quote or comment the text opens
+ * and never closes takes the rest of the text into the piece it starts, which PostgreSQL then refuses when it runs; a
+ * block comment left open is no statement of its own. */
 export const splitStatements = (text: string): ReadonlyArray<string> => {
 	const { lexemes, unclosed } = lexemesOf(text)
 	const out: Array<string> = []
 	let start = 0
 	let substantive = false
 	for (const t of lexemes) {
-		const ends = t.kind === "punct" && t.text === ";"
+		const ends = t.kind === "terminator"
 		if (ends && substantive) {
 			out.push(text.slice(start, t.start).trim())
 		}
