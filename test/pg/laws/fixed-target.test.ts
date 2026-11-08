@@ -1,14 +1,15 @@
 /**
- * A containment whose source holds constants and reads a field twice, through grizzle's lowering on PostgreSQL 19rc1: a
- * document row states its node's context, the node being of kind `document`, its own document and at depth 0, as
- * `contained(on(Document, "node", constant("document"), "node", constant(0n)), on(Node, "id", "kind", "document",
- * "depth"))`. Each constant is a STORED generated column of Document holding it, and the foreign key lists `node`
- * twice, so the reference lands on the UNIQUE over Node's terms and adds no column to Node.
+ * A containment into a fixed target, through grizzle's lowering on PostgreSQL 19rc1: a document row states its node's
+ * context, the node being of kind `document`, its own document and at depth 0, as `contained(on(Document, "node"),
+ * on(select(Node, (n) => n.and(n.eq(n.kind, "document"), n.eq(n.document, n.id), n.eq(n.depth, 0n))), "id"))`. The
+ * target's selection fixes kind and depth to values and document to its term id, beyond its term: each value is a
+ * STORED generated column of Document holding it, and the foreign key lists `node` again opposite `document`, so the
+ * reference lands on the UNIQUE over Node's id and fixed fields, which Node's primary key implies, and adds no column
+ * to Node.
  *
- * - **The specification turned into a checker:** the containment's meaning, a constant selecting the node rows that
- *   hold it at the field it meets and a field read twice meeting both its target fields: a state commits exactly when
- *   every document row's node is a node of kind `document` whose document is itself and whose depth is 0. A refusal
- *   must be 23503 by Document's foreign key, reporting the containment's law.
+ * - **The specification turned into a checker:** the containment's meaning, the target's selection read row by row: a
+ *   state commits exactly when every document row's node is a node of kind `document` whose document is itself and
+ *   whose depth is 0. A refusal must be 23503 by Document's foreign key, reporting the containment's law.
  *
  * The box: nodes 0 and 1, each absent or of a kind, a document and a depth, and every subset of document rows over
  * them, nodes written first, in one transaction.
@@ -21,7 +22,7 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Data, Effect, Formatter, Option } from "effect"
 import { codeOf } from "#compiler/ir/codes.ts"
 import { closedId, natural, pg } from "#compiler/public/fields.ts"
-import { closed, constant, contained, on, relation, schema } from "#compiler/public/schema.ts"
+import { closed, contained, on, relation, schema, select } from "#compiler/public/schema.ts"
 import { cleared, seatOf } from "#test/pg/fin/installed.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { attempt, momentText, refusalText } from "#test/support/substrate.ts"
@@ -35,10 +36,15 @@ const Node = relation(
 )
 const Document = relation("Document", { node: pg.int4 }, ["node"])
 
-const SourceTerms = schema("source_terms", { NodeKind, Node, Document }, [
+const FixedTarget = schema("fixed_target", { NodeKind, Node, Document }, [
 	contained(
-		on(Document, "node", constant("document"), "node", constant(0n)),
-		on(Node, "id", "kind", "document", "depth")
+		on(Document, "node"),
+		on(
+			select(Node, (n) =>
+				n.and(n.eq(n.kind, "document"), n.eq(n.document, n.id), n.eq(n.depth, 0n))
+			),
+			"id"
+		)
 	)
 ])
 
@@ -79,7 +85,7 @@ const sketchGen: Gen<Sketch> = (source) => ({
 	documents: source.draw(element(SUBSETS))
 })
 
-/** What keeps a document row's node from meeting it: no node, or a node off one of the three terms it meets. */
+/** What keeps a document row's node from meeting it: no node, or a node off one of the three fields the target fixes. */
 type Missed = "no node" | "a node of another kind" | "a node of another document" | "a node deeper"
 
 /** Why the document row `id` meets no node, by the containment's meaning; none where it meets its node. */
@@ -95,10 +101,10 @@ const missedOf = (s: Sketch, id: number): ReadonlyArray<Missed> => {
 	]
 }
 
-type SourceTermsFeature = "committed" | "committed a document" | `refused for ${Missed}`
+type FixedTargetFeature = "committed" | "committed a document" | `refused for ${Missed}`
 
 layer(Substrate.layer)(
-	"a containment from constants and a field read twice on PostgreSQL 19rc1",
+	"a containment into a target fixed by values and by its own term on PostgreSQL 19rc1",
 	(it) => {
 		it.effect(
 			"commit exactly the states whose every document row's node is of kind document, its own document and at depth 0, refusing the rest by the document's foreign key",
@@ -106,7 +112,7 @@ layer(Substrate.layer)(
 				searched(
 					ctx,
 					Effect.gen(function* () {
-						const seat = yield* seatOf(SourceTerms, RELATIONS, "source_terms")
+						const seat = yield* seatOf(FixedTarget, RELATIONS, "fixed_target")
 						const codec = Arr.findFirst(
 							[...seat.installed.names.codes.rosters.values()],
 							(r) => r.roster === NodeKind.name
@@ -115,7 +121,7 @@ layer(Substrate.layer)(
 						const laws = seat.lawsOf("containment")
 						return yield* exhaust(
 							{
-								suite: "laws/source-terms",
+								suite: "laws/fixed-target",
 								generator: sketchGen,
 								literal: Formatter.format,
 								limit: (1 + 2 * 2 * 2) ** IDS.length * SUBSETS.length,
@@ -124,7 +130,7 @@ layer(Substrate.layer)(
 									kind: "specification",
 									name: "the containment's meaning as a checker: every document row's node of kind document, its own document, at depth 0"
 								},
-								coverage: requiredInSpace<SourceTermsFeature>([
+								coverage: requiredInSpace<FixedTargetFeature>([
 									"committed",
 									"committed a document",
 									"refused for no node",

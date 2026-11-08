@@ -2,7 +2,15 @@ import type { RowDecoder } from "#compiler/core/decoder.ts"
 import type { Built, Phantom } from "#compiler/core/phantom.ts"
 import type { DerivedStorage } from "#compiler/ir/desc.ts"
 import type { Carriers, Headed, Refusal } from "#compiler/types/core/phantom.ts"
-import type { ContextsOf, HeadOf, ParamsOf, QueryBase } from "#compiler/types/query/query.ts"
+import type {
+	ContextsOf,
+	HeadOf,
+	ParamsOf,
+	QueryBase,
+	UnionArm,
+	UnionArms
+} from "#compiler/types/query/query.ts"
+import type { Aggregate, Producer } from "#compiler/types/query/terms.ts"
 import type { FactOfFields } from "#compiler/types/schema/relation.ts"
 
 /** A definition: a query holding its heading of carriers. */
@@ -16,6 +24,59 @@ export interface AnyDerived extends Built, Headed<Carriers> {
 	readonly storage: DerivedStorage
 	readonly fact: RowDecoder<unknown>
 }
+
+declare const ruleRead: unique symbol
+
+/**
+ * Whether a rule may read a derived relation, a phantom of its definition (RuleReadOf): `true`, or the refusals of the
+ * arms a rule cannot read. on, select and check take a derived relation that is RuleReadDerived, so one of another
+ * definition is refused where its side is written, the refusal named at this member.
+ */
+export interface RuleRead<out R> {
+	readonly [ruleRead]?: R | undefined
+}
+
+/**
+ * The refusal of a definition's arm a rule cannot read, or never for an arm that joins, selects and projects: a rule or
+ * a union of rules, no head term an aggregate or a span producer (analysis/theory/query.ts, UnsupportedLawFamily).
+ */
+type ArmRefusal<A> =
+	A extends UnionArm<infer C, PropertyKey, infer Stage, boolean>
+		? Stage extends "rule" | "union"
+			? [KeysOfCarrier<C, Aggregate<unknown, never>>] extends [never]
+				? [KeysOfCarrier<C, Producer<unknown, never>>] extends [never]
+					? never
+					: Refusal<"a rule reads a derived relation whose definition joins, selects and projects: this one produces spans">
+				: Refusal<"a rule reads a derived relation whose definition joins, selects and projects: this one aggregates">
+			: Refusal<StageRefusals[Exclude<Stage, "rule" | "union">]>
+		: never
+
+/** The refusal of a definition's arm a stage beyond a rule made. */
+interface StageRefusals {
+	readonly take: "a rule reads a derived relation whose definition joins, selects and projects: this one orders and takes"
+	readonly attach: "a rule reads a derived relation whose definition joins, selects and projects: this one attaches a nested query"
+	readonly approximate: "a rule reads a derived relation whose definition joins, selects and projects: this one approximates a search"
+	readonly recursive: "a rule reads a derived relation whose definition joins, selects and projects: this one recurses"
+}
+
+/** The fields of a heading of carriers whose terms are of kind X. */
+type KeysOfCarrier<C, X> = {
+	readonly [K in keyof C]-?: [C[K]] extends [never] ? never : C[K] extends X ? K : never
+}[keyof C]
+
+/** The refusals of the arms of Q's definition, or never where every arm joins, selects and projects. */
+type ArmsRefusals<Q> =
+	Q extends Phantom<infer B>
+		? B extends { readonly arms: infer Arms extends UnionArms }
+			? ArmRefusal<Arms[number]>
+			: never
+		: never
+
+/** Whether a rule may read a derived relation over the definition Q: `true`, or its arms' refusals (RuleRead). */
+export type RuleReadOf<Q> = [ArmsRefusals<Q>] extends [never] ? true : ArmsRefusals<Q>
+
+/** A derived relation a rule may read: one whose definition joins, selects and projects (RuleRead). */
+export type RuleReadDerived = AnyDerived & RuleRead<true>
 
 /** A derived relation PostgreSQL stores as a materialized view, which db.refresh refreshes. */
 export interface AnyMaterialized extends AnyDerived {
@@ -45,7 +106,7 @@ export interface Derived<
 	Q extends DefinitionQuery,
 	St extends DerivedStorage = DerivedStorage
 >
-	extends AnyDerived, Phantom<{ readonly fields: Q["heading"] }> {
+	extends AnyDerived, Phantom<{ readonly fields: Q["heading"] }>, RuleRead<RuleReadOf<Q>> {
 	readonly kind: "derived"
 	readonly name: Name
 	readonly definition: Q

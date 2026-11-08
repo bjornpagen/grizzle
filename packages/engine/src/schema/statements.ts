@@ -15,8 +15,6 @@ import {
 	type SelectionDesc,
 	type SideDesc,
 	type SlotsDesc,
-	type SourceSideDesc,
-	type SourceTermDesc,
 	type StatementDesc,
 	type TermDesc,
 	termText
@@ -38,7 +36,6 @@ import {
 	requireName
 } from "#compiler/schema/protocol.ts"
 
-import { literalFor, untypedLiteral } from "#compiler/schema/literal.ts"
 import {
 	fieldRoster,
 	finOf,
@@ -49,9 +46,8 @@ import {
 import { checkPredicate, derivedRowScalars, rowScalars } from "#compiler/schema/terms.ts"
 import type {
 	Alternatives,
-	AnySourceTerm,
+	AnyTerm,
 	Check,
-	Constant,
 	Containment,
 	Counted,
 	Fin,
@@ -125,68 +121,18 @@ const requireFields = (rel: NamedRelation, fields: ReadonlyArray<string>, label:
 }
 
 /** A side as a label spells it: its relation, its terms, and whether it selects. */
-const sideLabel = (side: SourceSideDesc): string =>
+const sideLabel = (side: SideDesc): string =>
 	`${side.relation}(${side.terms.map(termText).join(", ")})${side.selection.conjuncts.length === 0 ? "" : " selected"}`
 
-/** A constant term as on() holds it, constant(v): the caller's value, which the target field it meets types. */
-export interface ConstantDraft {
-	readonly kind: "constant"
-	readonly host: unknown
-}
+export const sideDescOf = (value: unknown): SideDesc | undefined => ownedDesc(value, "side")
 
-/**
- * A side as on() builds it: its relation, its selection, and its terms in order, each a term of its relation or a
- * constant still the caller's value. A containment reads it as its source (sourcePair), typing each constant by the
- * target field it meets; every other statement reads it as a side whose terms are distinct and hold no constant
- * (sideOf).
- */
-export interface SideDraft {
-	readonly relation: string
-	readonly terms: NonEmptyReadonlyArray<TermDesc | ConstantDraft>
-	readonly selection: SelectionDesc
-}
-
-export const sideDescOf = (value: unknown): SideDraft | undefined => ownedDesc(value, "side")
-
-const sideDraftOf = (value: unknown, label: string): SideDraft => {
+const sideOf = (value: unknown, label: string): SideDesc => {
 	const desc = sideDescOf(value)
 	if (desc === undefined) {
 		throw malformed(label, "a law side built by on(...)")
 	}
 	return desc
 }
-
-/** A side's terms when none is a constant, which reads on a containment's source side alone. */
-const fieldReadingTerms = (draft: SideDraft, label: string): NonEmptyReadonlyArray<TermDesc> => {
-	const [first, ...rest] = draft.terms
-	const term = (t: TermDesc | ConstantDraft): TermDesc => {
-		if (t.kind === "constant") {
-			throw malformed(
-				label,
-				"terms of the side's relation: a constant reads only on a containment's source side"
-			)
-		}
-		return t
-	}
-	return [term(first), ...rest.map(term)]
-}
-
-/**
- * A side every statement but a containment's source reads: each term once and none a constant (ir/desc.ts SideDesc), a
- * constant and a term read twice being forms of a containment's source alone.
- */
-const sideOf = (value: unknown, label: string): SideDesc =>
-	strictSide(sideDraftOf(value, label), label)
-
-/** A draft read as a side whose terms are distinct and hold no constant (sideOf). */
-const strictSide = (draft: SideDraft, label: string): SideDesc =>
-	orThrow(
-		decodeSide({
-			relation: draft.relation,
-			terms: fieldReadingTerms(draft, label),
-			selection: draft.selection
-		})
-	)
 
 /** A key statement's side, a SideDesc built by on(...). */
 const admitKey = (side: unknown): StatementDesc => {
@@ -362,32 +308,19 @@ export const predBuilder = <const F extends string>(field: F): Pred<F> => {
 	return Object.freeze({ kind: "pred", field })
 }
 
-/**
- * constant(v): a term of a containment's source that is v on every fact, which meets a field of the target and is typed
- * by it, as a literal compared with that field is.
- */
-export const constantBuilder = <const V>(value: V): Constant<V> =>
-	Object.freeze({ kind: "constant", value })
-
-/** A term a caller wrote: a field's name, a pred(field) value, or a constant(v) value, as data. */
-const termOf = (value: unknown, label: string): TermDesc | ConstantDraft => {
+/** A term a caller wrote: a field's name, or a pred(field) value, as data. */
+const termOf = (value: unknown, label: string): TermDesc => {
 	if (isName(value)) {
 		return { kind: "field", field: value }
 	}
 	if (hasProperties(value) && value["kind"] === "pred" && isName(value["field"])) {
 		return { kind: "pred", field: value["field"] }
 	}
-	if (hasProperties(value) && value["kind"] === "constant" && Object.hasOwn(value, "value")) {
-		return { kind: "constant", host: value["value"] }
-	}
-	throw malformed(label, "terms that are field names, pred(field) values or constant(value) values")
+	throw malformed(label, "terms that are field names or pred(field) values")
 }
 
-/** A side's terms: nonempty, each a field, pred of one, or a constant. */
-const requireTerms = (
-	value: unknown,
-	label: string
-): NonEmptyReadonlyArray<TermDesc | ConstantDraft> => {
+/** A side's terms: nonempty, each a field or pred of one. The side's decoder holds each to once (ir/desc.ts). */
+const requireTerms = (value: unknown, label: string): NonEmptyReadonlyArray<TermDesc> => {
 	if (!isList(value)) {
 		throw malformed(label, "a side naming at least one term")
 	}
@@ -402,16 +335,13 @@ const requireTerms = (
 /** Every term's field is in the heading, where it is known, and every pred term's field is natural. */
 const requireTermsOf = (
 	rel: NamedRelation,
-	terms: NonEmptyReadonlyArray<TermDesc | ConstantDraft>,
+	terms: NonEmptyReadonlyArray<TermDesc>,
 	label: string
 ): void => {
 	if (rel.kind === "derived") {
 		return
 	}
 	for (const t of terms) {
-		if (t.kind === "constant") {
-			continue
-		}
 		const desc = fieldOf(rel, t.field, label)
 		if (t.kind === "pred" && !isNaturalDesc(desc)) {
 			throw malformed(
@@ -422,35 +352,24 @@ const requireTermsOf = (
 	}
 }
 
-/** The relation a side's source reads: a relation, closed relation or a selection's relation. */
-const sourceRelation = (source: unknown): NamedRelation => {
+/** A law side: a relation, closed relation or selection projected onto terms, in order. */
+const admitOn = (source: unknown, terms: unknown): SideDesc => {
 	const selected = ownedEntry(source, "selection")
-	return namedRelation(selected === undefined ? source : selected.value.relation, "on side")
-}
-
-/**
- * A law side as on() builds it: a relation, closed relation or selection projected onto terms, in order, which may
- * repeat and hold constants until a statement reads it (SideDraft).
- */
-const admitOn = (source: unknown, terms: unknown): SideDraft => {
-	const selected = ownedEntry(source, "selection")
-	const rel = sourceRelation(source)
+	const rel = namedRelation(selected === undefined ? source : selected.value.relation, "on side")
 	const label = `on ${rel.name}`
 	const list = requireTerms(terms, label)
 	requireTermsOf(rel, list, label)
-	return {
-		relation: rel.name,
-		terms: list,
-		selection: { conjuncts: selected === undefined ? [] : conjunctsOf(selected.desc.predicate) }
+	const selection: SelectionDesc = {
+		conjuncts: selected === undefined ? [] : conjunctsOf(selected.desc.predicate)
 	}
+	return orThrow(decodeSide({ relation: rel.name, terms: list, selection }))
 }
 
 /**
- * A side reads at least one term of its source, in order; the value holds a frozen copy of them, `readonly [...T]`.
- * Which terms a side may hold is the statement's that reads it: a containment's source alone holds a constant or reads
- * a term twice.
+ * A side reads at least one term of its source, each once (ir/desc.ts SideDesc); the value holds a frozen copy of
+ * them, `readonly [...T]`.
  */
-export const onBuilder = <R, const T extends ReadonlyArray<AnySourceTerm>>(
+export const onBuilder = <R, const T extends ReadonlyArray<AnyTerm>>(
 	source: R,
 	terms: T
 ): Side<R, readonly [...T]> => {
@@ -458,99 +377,21 @@ export const onBuilder = <R, const T extends ReadonlyArray<AnySourceTerm>>(
 	return ownValue({ source, terms: frozenTuple<T>(terms) }, "side", desc, undefined)
 }
 
-/** Two sides' widths agree, or `label` is refused. */
-const sameWidth = (
-	left: { readonly terms: ReadonlyArray<unknown> },
-	right: { readonly terms: ReadonlyArray<unknown> },
-	label: string
-): void => {
-	if (left.terms.length !== right.terms.length) {
-		throw malformed(
-			label,
-			`sides of one width: ${left.terms.length} term(s) against ${right.terms.length}`
-		)
-	}
-}
-
-/**
- * The literal of a source constant opposite the target term it meets: a field's, as a literal compared with that field
- * is (schema/literal.ts literalFor), or as its host kind alone where the target is derived, whose heading its
- * definition infers, and where the theory refuses a constant (analysis/theory/laws.ts).
- */
-const constantOpposite = (
-	host: unknown,
-	target: TermDesc,
-	rel: NamedRelation,
-	label: string
-): SourceTermDesc => {
-	if (target.kind === "pred") {
-		throw malformed(
-			label,
-			`a constant meeting a field of the target; it meets pred(${target.field}), whose value is no field's`
-		)
-	}
-	if (rel.kind === "derived") {
-		return { kind: "constant", value: untypedLiteral(host, label) }
-	}
-	return {
-		kind: "constant",
-		value: literalFor(
-			fieldOf(rel, target.field, label),
-			host,
-			label,
-			fieldRoster(rel, target.field)
-		)
-	}
-}
-
-/**
- * A containment's sides: its source, whose terms may repeat and hold constants (ir/desc.ts SourceSideDesc), each
- * constant typed by the target field it meets, and its target, a side whose terms are distinct and hold none.
- */
-const sourcePair = (
-	left: unknown,
-	right: unknown,
-	label: string
-): readonly [SourceSideDesc, SideDesc] => {
-	const l = sideDraftOf(left, `${label} left`)
-	const r = sideOf(right, `${label} right`)
-	sameWidth(l, r, label)
-	const target = sourceRelation(ownedEntry(right, "side")?.value.source)
-	const term = (t: TermDesc | ConstantDraft, i: number): SourceTermDesc => {
-		if (t.kind !== "constant") {
-			return t
-		}
-		const met = r.terms[i]
-		if (met === undefined) {
-			throw malformed(
-				label,
-				`sides of one width: ${l.terms.length} term(s) against ${r.terms.length}`
-			)
-		}
-		return constantOpposite(t.host, met, target, `${label} constant`)
-	}
-	const [first, ...rest] = l.terms
-	return [
-		{
-			relation: l.relation,
-			terms: [term(first, 0), ...rest.map((t, i) => term(t, i + 1))],
-			selection: l.selection
-		},
-		r
-	]
-}
-
-/** Two sides of one width, each read as a side whose terms are distinct and hold no constant: mirrors'. */
 const sidePair = (left: unknown, right: unknown, label: string): readonly [SideDesc, SideDesc] => {
 	const l = sideOf(left, `${label} left`)
 	const r = sideOf(right, `${label} right`)
-	sameWidth(l, r, label)
+	if (l.terms.length !== r.terms.length) {
+		throw malformed(
+			label,
+			`sides of one width: ${l.terms.length} term(s) against ${r.terms.length}`
+		)
+	}
 	return [l, r]
 }
 
 /** The containment of `left` in `right`, two sides of one width, declared at `loc`. */
 const containedDesc = (
-	left: SourceSideDesc,
+	left: SideDesc,
 	right: SideDesc,
 	label: string,
 	path: ReadonlyArray<string>
@@ -560,7 +401,7 @@ const containedDesc = (
 	)
 
 const admitContained = (left: unknown, right: unknown): ContainedDesc => {
-	const [l, r] = sourcePair(left, right, "contained")
+	const [l, r] = sidePair(left, right, "contained")
 	return containedDesc(l, r, `contained ${sideLabel(l)} in ${sideLabel(r)}`, [
 		l.relation,
 		"contained"
@@ -578,10 +419,6 @@ export interface ExpansionDesc {
 export const expansionDescOf = (value: unknown): ExpansionDesc | undefined =>
 	ownedDesc(value, "expansion")
 
-/**
- * mirrors' two containments: each side is the other's target once, so neither holds a constant or reads a term twice,
- * which would hold every target fact to the constant, or its two terms to one value.
- */
 const admitMirrors = (left: unknown, right: unknown): ExpansionDesc => {
 	const [l, r] = sidePair(left, right, "mirrors")
 	const label = `mirrors ${sideLabel(l)} and ${sideLabel(r)}`
@@ -659,7 +496,7 @@ const admitAlternatives = (
 				`the arm ${h} keyed like the parent: ${armKey.fields.length} key field(s) against ${parentKey.fields.length}`
 			)
 		}
-		armDescs.push({ handle: h, arm: strictSide(admitOn(armKey.value, armKey.fields), label) })
+		armDescs.push({ handle: h, arm: admitOn(armKey.value, armKey.fields) })
 	}
 	const [first, ...rest] = armDescs
 	if (first === undefined) {
@@ -667,7 +504,7 @@ const admitAlternatives = (
 	}
 	return admitted({
 		kind: "alternatives",
-		parent: strictSide(admitOn(parentKey.value, parentKey.fields), label),
+		parent: admitOn(parentKey.value, parentKey.fields),
 		discriminator: disc,
 		roster: rosterDesc.name,
 		arms: [first, ...rest],

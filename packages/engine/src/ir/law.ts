@@ -8,7 +8,7 @@ import {
 	type NonEmptyReadonlyArray
 } from "#compiler/core/nonempty.ts"
 import type { CellSide } from "#compiler/ir/cells.ts"
-import type { FieldDesc, SourceTermDesc, TermDesc } from "#compiler/ir/desc.ts"
+import type { FieldDesc, TermDesc } from "#compiler/ir/desc.ts"
 import type { ExprTable, ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
 import type { DeclaredKey, HeadingColumn, RelNode } from "#compiler/ir/rel.ts"
 import {
@@ -181,12 +181,11 @@ export interface Selector {
 
 /**
  * A side a statement declares (desc.ts SideDesc), as a key's and a containment's are: its relation, and a projection
- * on at least one term, of the kind T, a containment's source's holding constants. Which facts it reads is its
- * resolved selection (analysis/theory/laws.ts ResolvedSide).
+ * on at least one term. Which facts it reads is its resolved selection (analysis/theory/laws.ts ResolvedSide).
  */
-export interface DeclaredSide<T extends SourceTermDesc = TermDesc> {
+export interface DeclaredSide {
 	readonly relation: string
-	readonly terms: NonEmptyReadonlyArray<T>
+	readonly terms: NonEmptyReadonlyArray<TermDesc>
 }
 
 /**

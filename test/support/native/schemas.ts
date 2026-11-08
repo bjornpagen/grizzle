@@ -7,8 +7,6 @@ import type {
 	FieldDesc,
 	LiteralDesc,
 	SideDesc,
-	SourceSideDesc,
-	SourceTermDesc,
 	TermDesc
 } from "#compiler/ir/desc.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
@@ -17,13 +15,11 @@ import { naturalDescriptor } from "#compiler/scalar/natural.ts"
 import {
 	type AuthoredStatementDesc,
 	check,
-	constant,
 	contained,
 	f,
 	key,
 	mirrors,
 	on,
-	onSource,
 	onWhere,
 	pred,
 	relation,
@@ -40,8 +36,7 @@ import {
 	type HostSide,
 	type HostState,
 	type HostValue,
-	type Span,
-	selected
+	type Span
 } from "#test/support/laws/model.ts"
 import type { NativeRow, NativeState } from "#test/support/native/model.ts"
 
@@ -310,12 +305,9 @@ const phiDesc = (spec: RelationSpec, phi: Phi): ExprDesc => {
 export type Term =
 	| { readonly kind: "field"; readonly field: string }
 	| { readonly kind: "pred"; readonly field: string }
-	| { readonly kind: "constant"; readonly value: number | boolean }
 
 export const fieldTerm = (name: string): Term => ({ kind: "field", field: name })
 export const predTerm = (name: string): Term => ({ kind: "pred", field: name })
-/** constant(v), a containment source's term: v on every row, which selects the target rows holding v at its pair. */
-const constantTerm = (value: number | boolean): Term => ({ kind: "constant", value })
 
 /** The host field a pred term reads: x − 1, which the side reads only where x > 0. */
 const predField = (name: string): string => `pred(${name})`
@@ -422,22 +414,13 @@ const topConjuncts = (phi: Phi): ReadonlyArray<Phi> =>
  * A side as the canonical form reads it: its relation, its terms in order, and its selection the set of its conjuncts.
  */
 const sideForm = (s: Side): string =>
-	`${s.relation}(${Arr.join(Arr.map(s.terms, termForm), ", ")})${Option.match(s.where, {
+	`${s.relation}(${Arr.join(
+		Arr.map(s.terms, (t) => (t.kind === "field" ? t.field : `pred(${t.field})`)),
+		", "
+	)})${Option.match(s.where, {
 		onNone: () => "",
 		onSome: (phi) => ` where {${setText(Arr.map(topConjuncts(phi), phiForm))}}`
 	})}`
-
-/** A term as the canonical form reads it: a field by its name, pred of one, a constant by its value. */
-const termForm = (t: Term): string => {
-	switch (t.kind) {
-		case "field":
-			return t.field
-		case "pred":
-			return `pred(${t.field})`
-		case "constant":
-			return `constant(${String(t.value)})`
-	}
-}
 
 /**
  * Each statement a law states, read in ownership's canonical form, in the order Reading states them: a key by its
@@ -515,21 +498,7 @@ const naturalName = (): string => {
 	return desc.name
 }
 
-/** A term of a side that reads its facts, never a constant, which reads on a containment's source alone. */
-const termDesc = (t: Term): string | TermDesc => {
-	switch (t.kind) {
-		case "field":
-			return t.field
-		case "pred":
-			return pred(t.field)
-		case "constant":
-			throw new Error("a constant reads on a containment's source side alone")
-	}
-}
-
-/** A term of a containment's source: a constant among them. */
-const sourceTermDesc = (t: Term): string | SourceTermDesc =>
-	t.kind === "constant" ? constant(t.value) : termDesc(t)
+const termDesc = (t: Term): string | TermDesc => (t.kind === "field" ? t.field : pred(t.field))
 
 /** A schema's statements and their meaning, over its relations. */
 class Reading {
@@ -547,23 +516,12 @@ class Reading {
 		})
 	}
 
-	/** A containment's source side, whose terms may repeat and hold constants. */
-	source(s: Side): SourceSideDesc {
-		return onSource(
-			s.relation,
-			Arr.map(s.terms, sourceTermDesc),
-			Option.getOrUndefined(
-				Option.map(s.where, (phi) => phiDesc(specOf(this.#relations, s.relation), phi))
-			)
-		)
-	}
-
 	statements(law: Law): ReadonlyArray<AuthoredStatementDesc> {
 		switch (law.kind) {
 			case "key":
 				return [key(this.side(law.side))]
 			case "contained":
-				return [contained(this.source(law.left), this.side(law.right))]
+				return [contained(this.side(law.left), this.side(law.right))]
 			case "mirrors":
 				return mirrors(this.side(law.left), this.side(law.right))
 			case "check":
@@ -593,59 +551,8 @@ const hostSide = (s: Side): HostSide => {
 				}
 	return {
 		relation: s.relation,
-		fields: Arr.map(s.terms, (t: Term): string => {
-			switch (t.kind) {
-				case "field":
-					return t.field
-				case "pred":
-					return predField(t.field)
-				case "constant":
-					throw new Error(
-						"a side that reads its facts holds no constant: a containment's source is hostContainment's"
-					)
-			}
-		}),
+		fields: Arr.map(s.terms, (t) => (t.kind === "field" ? t.field : predField(t.field))),
 		selection
-	}
-}
-
-/**
- * A containment's two host sides, read from its meaning: a constant of the source selects the target rows holding it at
- * the field it meets, so the source reads its other terms, a term read twice at each of its positions, and the target
- * the terms they meet, under its selection conjoined with each constant's field holding the constant.
- */
-const hostContainment = (
-	from: Side,
-	to: Side
-): { readonly source: HostSide; readonly target: HostSide } => {
-	const pairs = Arr.zip(from.terms, to.terms)
-	const reading = Arr.filter(pairs, ([t]) => t.kind !== "constant")
-	const fixed = Arr.flatMap(pairs, ([t, met]) =>
-		t.kind === "constant" && met.kind === "field" ? [[met.field, t.value] as const] : []
-	)
-	const [firstFrom, ...restFrom] = Arr.map(reading, ([t]) => t)
-	const [firstTo, ...restTo] = Arr.map(reading, ([, t]) => t)
-	if (firstFrom === undefined || firstTo === undefined) {
-		throw new Error("a containment's source reads at least one field")
-	}
-	const source = hostSide({ ...from, terms: [firstFrom, ...restFrom] })
-	const target = hostSide({ ...to, terms: [firstTo, ...restTo] })
-	const pinned = Rec.fromEntries(fixed)
-	return {
-		source,
-		target:
-			fixed.length === 0
-				? target
-				: {
-						...target,
-						selection: {
-							kind: "where",
-							holds: (fact) =>
-								selected(fact, target.selection) &&
-								Arr.every(fixed, ([field, value]) => fact[field] === value),
-							pinned
-						}
-					}
 	}
 }
 
@@ -681,9 +588,7 @@ const spanOf = (
 	const last = Arr.lastNonEmpty(side.terms)
 	return last.kind === "field" && typeOf(specOf(relations, side.relation), last.field) === "span"
 		? Option.some({
-				scalars: Arr.flatMap(side.terms.slice(0, -1), (t) =>
-					t.kind === "constant" ? [] : [t.field]
-				),
+				scalars: Arr.map(side.terms.slice(0, -1), (t) => t.field),
 				span: last.field
 			})
 		: Option.none()
@@ -774,7 +679,12 @@ export const compiled = (relations: Relations, laws: ReadonlyArray<Law>): Compil
 								target: { ...hostSide(to), fields: target.value.scalars },
 								span: { source: source.value.span, target: target.value.span }
 							}
-						: { kind: "contained", law: lawOf(statement), ...hostContainment(from, to) }
+						: {
+								kind: "contained",
+								law: lawOf(statement),
+								source: hostSide(from),
+								target: hostSide(to)
+							}
 				})
 			}
 			case "check": {
@@ -929,13 +839,6 @@ export type Rule =
 	| { readonly rule: "a containment from a selected side"; readonly phi: Phi }
 	| { readonly rule: "a containment into a selected side"; readonly psi: Phi }
 	| { readonly rule: "a containment between selected sides"; readonly phi: Phi; readonly psi: Phi }
-	| { readonly rule: "a containment from a constant"; readonly rank: number }
-	| { readonly rule: "a containment reading a field twice" }
-	| {
-			readonly rule: "a containment from a selected side with a constant and a field read twice"
-			readonly phi: Phi
-			readonly live: boolean
-	  }
 	| { readonly rule: "a closure under pred" }
 	| { readonly rule: "a closure under pred over a selected side"; readonly phi: Phi }
 	| { readonly rule: "a cycle" }
@@ -956,9 +859,6 @@ export const RULE_KINDS: NonEmptyReadonlyArray<RuleKind> = [
 	"a containment from a selected side",
 	"a containment into a selected side",
 	"a containment between selected sides",
-	"a containment from a constant",
-	"a containment reading a field twice",
-	"a containment from a selected side with a constant and a field read twice",
 	"a closure under pred",
 	"a closure under pred over a selected side",
 	"a cycle",
@@ -982,15 +882,10 @@ export const ruleText = (r: Rule): string => {
 			return `${r.rule} where ${phiText(r.psi)}`
 		case "a containment between selected sides":
 			return `${r.rule} where ${phiText(r.phi)} and ${phiText(r.psi)}`
-		case "a containment from a constant":
-			return `${r.rule} rank ${r.rank}`
-		case "a containment from a selected side with a constant and a field read twice":
-			return `${r.rule} live ${String(r.live)} where ${phiText(r.phi)}`
 		case "a key over fields":
 		case "a key over a pred term":
 		case "a containment":
 		case "a containment into a superkey":
-		case "a containment reading a field twice":
 		case "a closure under pred":
 		case "a cycle":
 		case "mirrors over whole relations":
@@ -1037,30 +932,6 @@ export const lawsOf = (r: Rule): ReadonlyArray<Law> => {
 					kind: "contained",
 					left: overWhere("Item", [owner], r.phi),
 					right: overWhere("Owner", [id], r.psi)
-				}
-			]
-		case "a containment from a constant":
-			return [
-				{
-					kind: "contained",
-					left: over("Item", [owner, constantTerm(r.rank)]),
-					right: over("Owner", [id, fieldTerm("rank")])
-				}
-			]
-		case "a containment reading a field twice":
-			return [
-				{
-					kind: "contained",
-					left: over("Item", [owner, owner]),
-					right: over("Owner", [id, fieldTerm("rank")])
-				}
-			]
-		case "a containment from a selected side with a constant and a field read twice":
-			return [
-				{
-					kind: "contained",
-					left: overWhere("Item", [owner, constantTerm(r.live), owner], r.phi),
-					right: over("Owner", [id, fieldTerm("live"), fieldTerm("rank")])
 				}
 			]
 		case "a closure under pred":

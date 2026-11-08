@@ -631,59 +631,18 @@ export type TermDesc =
 	| { readonly kind: "field"; readonly field: string }
 	| { readonly kind: "pred"; readonly field: string }
 
-/** A field term: the field's own value, the one term a constant of a containment's source meets. */
-export type FieldTermDesc = Extract<TermDesc, { readonly kind: "field" }>
-
-/**
- * A constant term of a containment's source, constant(v): the same value on every fact, the literal as its Description
- * carries it, typed by the target field it meets.
- */
-export interface ConstantTermDesc {
-	readonly kind: "constant"
-	readonly value: LiteralDesc
-}
-
-/**
- * A term of a containment's source side: a term, or a constant, which reads no field of the fact and selects the target
- * facts whose paired field holds it.
- */
-export type SourceTermDesc = TermDesc | ConstantTermDesc
-
-/**
- * A literal as a label spells it: a text quoted, a number, a bigint or a boolean as JavaScript writes it, and any other
- * by its canonical text.
- */
-const literalText = (value: LiteralDesc): string => {
-	if (typeof value === "string") {
-		return JSON.stringify(value)
-	}
-	return typeof value === "object" ? ownedText(value, everyProperty) : `${value}`
-}
-
-/**
- * A term as a label, a display and a refusal spell it: a field by its name, pred of one as `pred(field)`, a constant as
- * `constant(value)`.
- */
-export const termText = (term: SourceTermDesc): string => {
-	switch (term.kind) {
-		case "field":
-			return term.field
-		case "pred":
-			return `pred(${term.field})`
-		case "constant":
-			return `constant(${literalText(term.value)})`
-	}
-}
+/** A term as a label, a display and a refusal spell it: a field by its name, pred of one as `pred(field)`. */
+export const termText = (term: TermDesc): string =>
+	term.kind === "field" ? term.field : `pred(${term.field})`
 
 /** A term's identity: a field and pred of it are two terms. */
 const termKey = (term: TermDesc): string => `${term.kind} ${term.field}`
 
 /**
  * The field terms of a side, when every term is a field: the one reading of "a side over fields", which a candidate
- * key, a containment between closed relations and a coverage law each are. Undefined when a term is a pred term or a
- * constant.
+ * key, a containment between closed relations and a coverage law each are. Undefined when a term is a pred term.
  */
-export const fieldTermsOf = <T extends SourceTermDesc>(
+export const fieldTermsOf = <T extends TermDesc>(
 	terms: NonEmptyReadonlyArray<T>
 ): NonEmptyReadonlyArray<Extract<T, { readonly kind: "field" }>> | undefined => {
 	const fields = terms.filter(
@@ -751,25 +710,11 @@ export interface SideDesc {
 }
 
 /**
- * A containment's source side: a side whose terms may also be constants and may read a term more than once, each
- * occurrence paired with its own target term. A constant selects the target facts whose paired field holds it, and a
- * term read twice the target facts whose two paired terms agree, so both narrow which target fact meets a source tuple.
- * Every other side, a containment's target among them, reads each term once and holds no constant.
- */
-export interface SourceSideDesc {
-	readonly relation: string
-	readonly terms: NonEmptyReadonlyArray<SourceTermDesc>
-	readonly selection: SelectionDesc
-}
-
-/**
  * The field names a side's terms are when a key over it is a candidate key of its relation: the side reads every fact,
  * and every term is a field. Undefined for a side that selects or reads a pred term, over which a key constrains only
  * the facts it reads, so it is no key of the relation.
  */
-export const candidateKeyFields = (
-	side: SideDesc | SourceSideDesc
-): NonEmptyReadonlyArray<string> | undefined => {
+export const candidateKeyFields = (side: SideDesc): NonEmptyReadonlyArray<string> | undefined => {
 	const fields = side.selection.conjuncts.length === 0 ? fieldTermsOf(side.terms) : undefined
 	return fields === undefined ? undefined : mapNonEmpty(fields, (t) => t.field)
 }
@@ -801,9 +746,7 @@ export interface ArmDesc {
 
 /**
  * A schema's laws. A key is UNIQUE over one side's terms. A containment states that its left side's tuples are among
- * its right side's: its left side is a source side, which alone may hold a constant or read a term twice;
- * mirrors is no statement of its own, but the two containments it is sugar for, each side a containment's target once,
- * so neither holds one.
+ * its right side's; mirrors is no statement of its own, but the two containments it is sugar for.
  *
  * - A family, ordered(on(F, g…, i), fin(O, n)) or counted(on(F, g…), fin(O, n)), indexes each owner's members by
  *   exactly 0 … n − 1: `member` reads every fact of F, its terms the group g… paired with O's primary key, then an
@@ -827,7 +770,7 @@ export type StatementDesc<L = Located> = L &
 				readonly relation: string
 				readonly predicate: ExprDesc<L>
 		  }
-		| { readonly kind: "contained"; readonly left: SourceSideDesc; readonly right: SideDesc }
+		| { readonly kind: "contained"; readonly left: SideDesc; readonly right: SideDesc }
 		| {
 				readonly kind: "family"
 				readonly order: "ordered" | "counted"
@@ -861,9 +804,6 @@ export type StatementDesc<L = Located> = L &
 /** A contained statement's Description. */
 export type ContainedDesc<L = Located> = Extract<StatementDesc<L>, { readonly kind: "contained" }>
 
-/** A containment between two sides that read their facts' own values: one an alternatives statement states. */
-export type PlainContainedDesc<L = Located> = ContainedDesc<L> & { readonly left: SideDesc }
-
 /** An alternatives statement's Description. */
 export type AlternativesDesc<L = Located> = Extract<
 	StatementDesc<L>,
@@ -892,9 +832,7 @@ const discriminated = (a: AlternativesDesc, handles: NonEmptyReadonlyArray<strin
  * There is no head: the discriminator's roster domain types the discriminator. Arm relations are in the order their
  * first handle has in `arms`; the reverse containments follow, in `arms`' order. Pure: ownership and the theory call it.
  */
-export const expandAlternatives = (
-	a: AlternativesDesc
-): NonEmptyReadonlyArray<PlainContainedDesc> => {
+export const expandAlternatives = (a: AlternativesDesc): NonEmptyReadonlyArray<ContainedDesc> => {
 	const byRelation = new Map<string, { readonly arm: SideDesc; readonly handles: Array<string> }>()
 	for (const { handle, arm } of a.arms) {
 		const group = byRelation.get(arm.relation)
@@ -905,14 +843,14 @@ export const expandAlternatives = (
 		}
 	}
 	const forward = [...byRelation.values()].flatMap(
-		({ arm, handles }): ReadonlyArray<PlainContainedDesc> => {
+		({ arm, handles }): ReadonlyArray<ContainedDesc> => {
 			const [first, ...rest] = handles
 			return first === undefined
 				? []
 				: [{ kind: "contained", left: arm, right: discriminated(a, [first, ...rest]), loc: a.loc }]
 		}
 	)
-	const reverse = mapNonEmpty(a.arms, ({ handle, arm }): PlainContainedDesc => ({
+	const reverse = mapNonEmpty(a.arms, ({ handle, arm }): ContainedDesc => ({
 		kind: "contained",
 		left: discriminated(a, [handle]),
 		right: arm,
@@ -1817,30 +1755,8 @@ const sideDescShape: S.Shape<SideDesc> = S.struct({
 	selection: selectionDescShape
 })
 
-const sourceTermDescShape: S.Shape<SourceTermDesc> = S.tagged("kind", {
-	field: S.struct({ field: name }),
-	pred: S.struct({ field: name }),
-	constant: S.struct({ value: literalDescShape })
-})
-
-/**
- * A containment's source side: its terms may repeat and hold constants, but not constants alone, since a constant reads
- * nothing of the fact whose tuple it is part of.
- */
-const sourceSideDescShape: S.Shape<SourceSideDesc> = S.refine(
-	S.struct({
-		relation: name,
-		terms: S.nonEmptyArray(sourceTermDescShape),
-		selection: selectionDescShape
-	}),
-	(side) => side.terms.some((t) => t.kind !== "constant"),
-	"a containment's source side reads at least one field: a constant pairs beside a term of the fact"
-)
-
-/** A contained statement's fields: its source side, which alone may hold a constant or read a term twice, and its target. */
-const sideLinkShape = S.located(
-	S.structWith({ left: sourceSideDescShape, right: sideDescShape }, loc)
-)
+/** A contained statement's fields: its two sides. */
+const sideLinkShape = S.located(S.structWith({ left: sideDescShape, right: sideDescShape }, loc))
 
 const slotsDescShape: S.Shape<SlotsDesc> = S.struct({ owner: name, count: name })
 

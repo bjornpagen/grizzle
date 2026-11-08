@@ -36,13 +36,11 @@ import {
 	candidateKeyFields,
 	type CompareOp,
 	conjunctsOf,
-	type ConstantTermDesc,
 	type ContextDesc,
 	decodeDesc,
 	descText,
 	type ExprDesc,
 	type FieldDesc,
-	type FieldTermDesc,
 	fieldTypes,
 	type LiteralDesc,
 	type LoginDesc,
@@ -58,7 +56,6 @@ import {
 	type SelectionDesc,
 	type SideDesc,
 	type SlotsDesc,
-	type SourceSideDesc,
 	type StatementDesc,
 	type TermDesc,
 	termText,
@@ -236,13 +233,11 @@ export interface Owned extends OwnedSchema {
 /** A statement's side beside the terms it pairs: its relation and its selection. */
 export type SideScope = Omit<SideDesc, "terms">
 
-/**
- * A term of a containment's source with the term of its target at its position: two terms, or a constant of the source
- * and the field term it meets, whose type it is a value of. Two constants never pair: a target holds none.
- */
-export type SidePair =
-	| { readonly kind: "terms"; readonly left: TermDesc; readonly right: TermDesc }
-	| { readonly kind: "constant"; readonly left: ConstantTermDesc; readonly right: FieldTermDesc }
+/** A term of a statement's left side with the term of its right side at its position: a contained's left and right. */
+export interface SidePair {
+	readonly left: TermDesc
+	readonly right: TermDesc
+}
 
 /**
  * What ownership made of a key statement. A key over a whole relation whose terms are all fields is a candidate key of
@@ -353,17 +348,14 @@ const declareName = (
 
 const textOf = (value: unknown): string => unwrap(descText(value))
 
-const scopeOf = (side: SourceSideDesc): SideScope => ({
+const scopeOf = (side: SideDesc): SideScope => ({
 	relation: side.relation,
 	selection: side.selection
 })
 
-/**
- * The terms of a containment's two sides paired by position (OwnedStatement): sides of one width, each constant of the
- * source meeting a field term of the target, never pred of one, whose value is no field's own.
- */
+/** The terms of a statement's two sides paired by position (OwnedStatement): sides of one width. */
 const pairSides = (
-	left: SourceSideDesc,
+	left: SideDesc,
 	right: SideDesc,
 	s: StatementEntry
 ): NonEmptyReadonlyArray<SidePair> => {
@@ -376,22 +368,9 @@ const pairSides = (
 	if (right.terms.length > left.terms.length) {
 		unequal()
 	}
-	return mapNonEmpty(left.terms, (l, i): SidePair => {
+	return mapNonEmpty(left.terms, (l, i) => {
 		const r = right.terms[i]
-		if (r === undefined) {
-			return unequal()
-		}
-		if (l.kind !== "constant") {
-			return { kind: "terms", left: l, right: r }
-		}
-		if (r.kind === "pred") {
-			return fail(
-				"MalformedDescription",
-				s.desc.loc,
-				`${statementLabel(s.desc)} pairs ${termText(l)} with ${termText(r)}; a constant meets a field of the target, whose value is no pred's`
-			)
-		}
-		return { kind: "constant", left: l, right: r }
+		return r === undefined ? unequal() : { left: l, right: r }
 	})
 }
 
@@ -619,7 +598,7 @@ export const canonicalSelection = (selection: SelectionDesc): SelectionDesc => {
 }
 
 /** A side in canonical form: its selection's (`canonicalSelection`). */
-const canonicalSide = <S extends SourceSideDesc>(side: S): S => ({
+const canonicalSide = (side: SideDesc): SideDesc => ({
 	...side,
 	selection: canonicalSelection(side.selection)
 })
@@ -1250,7 +1229,7 @@ class Owner {
 	 * relation, each term's field one of its definition's heading and its selection a predicate over that heading's
 	 * fields alone; the theory types the terms, the selection and every handle it compares (analysis/theory/query.ts).
 	 */
-	#checkRuleSide(side: SourceSideDesc, s: StatementEntry): SideRelationEntry {
+	#checkRuleSide(side: SideDesc, s: StatementEntry): SideRelationEntry {
 		const read = this.#sideRelation(side.relation, s)
 		if (read.kind === "stored") {
 			this.#checkSide(side, s)
@@ -1266,9 +1245,7 @@ class Owner {
 			}
 		}
 		for (const t of side.terms) {
-			if (t.kind !== "constant") {
-				requireField(t.field)
-			}
+			requireField(t.field)
 		}
 		for (const conjunct of side.selection.conjuncts) {
 			const foreign = foreignInput(conjunct)
@@ -1287,20 +1264,18 @@ class Owner {
 	}
 
 	/**
-	 * A law side as ownership admits it: over a stored relation of the statement's level or below, each term that reads
-	 * a field a field of its heading and each pred term's field natural, and its selection a predicate over its own row,
-	 * every field it reads the relation's and every handle it compares with a closedId field one of its roster's. A
-	 * containment's source's constants read no field: the theory types each by the target field it meets.
+	 * A law side as ownership admits it: over a stored relation of the statement's level or below, each term a field of
+	 * its heading and each pred term's field natural, and its selection a predicate over its own row, every field it
+	 * reads the relation's and every handle it compares with a closedId field one of its roster's.
 	 */
-	#checkSide(side: SourceSideDesc, s: StatementEntry): LawRelationEntry {
+	#checkSide(side: SideDesc, s: StatementEntry): LawRelationEntry {
 		const entry = this.#lawRelation(side.relation, s)
-		const reading = side.terms.flatMap((t) => (t.kind === "constant" ? [] : [t]))
 		this.#requireFields(
 			entry,
-			reading.map((t) => t.field),
+			side.terms.map((t) => t.field),
 			s
 		)
-		for (const t of reading) {
+		for (const t of side.terms) {
 			const desc = entry.heading[t.field]
 			if (desc !== undefined && !descCapabilities(desc).includes("equality")) {
 				fail(

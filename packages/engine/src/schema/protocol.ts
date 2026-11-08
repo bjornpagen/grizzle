@@ -13,6 +13,7 @@ import {
 	type QueryDesc,
 	type RoleDesc,
 	type SchemaDesc,
+	type SideDesc,
 	type StatementDesc
 } from "#compiler/ir/desc.ts"
 import type { OpenExpr } from "#compiler/ir/open.ts"
@@ -26,13 +27,13 @@ import type {
 	OrdinaryRelationDesc,
 	RosterDesc
 } from "#compiler/schema/relation.ts"
-import type { ExpansionDesc, SelectedDesc, SideDraft } from "#compiler/schema/statements.ts"
+import type { ExpansionDesc, SelectedDesc } from "#compiler/schema/statements.ts"
 import type { RoleLevel, WorldDraft } from "#compiler/schema/world.ts"
 import type { AnyDerived } from "#compiler/types/derived/derived.ts"
 import type { AnyClosedRelation, AnyRelation, AnyRoster } from "#compiler/types/schema/relation.ts"
 import type { AnySchema } from "#compiler/types/schema/schema.ts"
 import type {
-	AnySourceSide,
+	AnySide,
 	MirrorsBase,
 	Selection,
 	Statement
@@ -252,11 +253,7 @@ interface OwnedKinds {
 		readonly desc: ExpansionDesc
 		readonly content: undefined
 	}
-	readonly side: {
-		readonly value: AnySourceSide
-		readonly desc: SideDraft
-		readonly content: undefined
-	}
+	readonly side: { readonly value: AnySide; readonly desc: SideDesc; readonly content: undefined }
 	readonly selection: {
 		readonly value: Selection<unknown>
 		readonly desc: SelectedDesc

@@ -11,7 +11,6 @@ import {
 	Normalizer,
 	type PrimaryKeyKept,
 	type ResolvedSide,
-	type ResolvedSourceSide,
 	selectorsOf,
 	type TheoryLaw
 } from "#compiler/analysis/theory/laws.ts"
@@ -125,28 +124,23 @@ interface ContainmentEvidence {
 
 /**
  * The two sides of a containment as evidence states them (`EvidenceSide`): each side's fields, and the selectors of its
- * fixed conjuncts, or none when a side has a pred term, or its source a constant or a term read twice. A source's
- * selection is read whole, every conjunct fixed, or the containment gives no evidence, since a source read with fewer
- * conjuncts would claim more of its facts than the law does. A target's fixed conjuncts are read and its others dropped: a target with fewer conjuncts holds more facts,
+ * fixed conjuncts, or none when a side has a pred term. A source's selection is read whole, every conjunct fixed, or
+ * the containment gives no evidence, since a source read with fewer conjuncts would claim more of its facts than the
+ * law does. A target's fixed conjuncts are read and its others dropped: a target with fewer conjuncts holds more facts,
  * so the evidence claims less than the law and is sound.
  */
 const evidenceSides = (
-	from: ResolvedSourceSide,
+	from: ResolvedSide,
 	to: ResolvedSide
 ): { readonly from: EvidenceSide; readonly to: EvidenceSide } | undefined => {
 	const fromFields = fieldTermsOf(from.terms)
 	const toFields = fieldTermsOf(to.terms)
 	const fromSelection = fixedSelection(from.selection)
-	if (
-		fromFields === undefined ||
-		toFields === undefined ||
-		fromSelection === undefined ||
-		new Set(fromFields.map((f) => f.field)).size !== fromFields.length
-	) {
+	if (fromFields === undefined || toFields === undefined || fromSelection === undefined) {
 		return undefined
 	}
 	const side = (
-		s: { readonly relation: string },
+		s: ResolvedSide,
 		fields: NonEmptyReadonlyArray<{ readonly field: string }>,
 		selectors: ReadonlyArray<{ readonly column: string; readonly value: TypedLiteral }>
 	): EvidenceSide => ({
@@ -652,9 +646,7 @@ class Builder {
 			const detail = k.draft.identity.detail
 			if (detail.kind === "containment") {
 				for (const p of detail.pairs) {
-					if (p.kind === "terms") {
-						pair(detail.from.relation, p.from.column, detail.to.relation, p.to.column, k.tracked)
-					}
+					pair(detail.from.relation, p.from.column, detail.to.relation, p.to.column, k.tracked)
 				}
 			}
 		}

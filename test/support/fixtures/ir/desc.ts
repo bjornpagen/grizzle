@@ -38,8 +38,6 @@ import {
 	type SideDesc,
 	type SlotsDesc,
 	type SourceDesc as SourceOf,
-	type SourceSideDesc,
-	type SourceTermDesc,
 	type StatementDesc as StatementOf,
 	type TermDesc,
 	type VarDesc as VarOf
@@ -337,25 +335,6 @@ export const onWhere = (
 	selection: { conjuncts: conjunctsOf(predicate) }
 })
 
-/**
- * A containment's source side over the facts the selection holds of: its terms in order, each a field by its name, pred
- * of one, or a constant, any of them more than once.
- */
-export const onSource = (
-	relationName: string,
-	terms: Arr.NonEmptyReadonlyArray<string | SourceTermDesc>,
-	selection: ExprDesc | undefined
-): SourceSideDesc => ({
-	relation: relationName,
-	terms: Arr.map(terms, (t): SourceTermDesc =>
-		typeof t === "string" ? { kind: "field", field: t } : t
-	),
-	selection: selection === undefined ? everyFact : { conjuncts: conjunctsOf(selection) }
-})
-
-/** constant(v): a containment source's term that is v on every fact. */
-export const constant = (value: LiteralDesc): SourceTermDesc => ({ kind: "constant", value })
-
 /** An additional candidate key: the side's terms are unique over the facts it selects. */
 export const key = (side: SideDesc): AuthoredStatementDesc => ({ kind: "key", side })
 
@@ -377,7 +356,7 @@ export const check = (
 
 /** A contained statement: the left side's tuples are among the right side's. */
 export const contained = (
-	left: SourceSideDesc,
+	left: SideDesc,
 	right: SideDesc
 ): Extract<AuthoredStatementDesc, { readonly kind: "contained" }> => ({
 	kind: "contained",

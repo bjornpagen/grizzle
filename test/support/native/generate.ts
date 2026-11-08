@@ -110,7 +110,7 @@ const readsOf = (laws: ReadonlyArray<Law>): ReadonlyMap<string, ReadonlySet<stri
 			case "mirrors":
 				for (const side of law.kind === "key" ? [law.side] : [law.left, law.right]) {
 					add(side.relation, [
-						...Arr.flatMap(side.terms, (t) => (t.kind === "constant" ? [] : [t.field])),
+						...Arr.map(side.terms, (t) => t.field),
 						...Option.match(side.where, { onNone: () => [], onSome: phiFields })
 					])
 				}
@@ -189,8 +189,13 @@ const live: Phi = { kind: "is", field: "live", value: true }
 const coded: Phi = { kind: "compare", op: "gt", field: "code", value: 0 }
 const ranked: Phi = { kind: "compare", op: "gt", field: "rank", value: 0 }
 const uncoded: Phi = { kind: "compare", op: "eq", field: "code", value: 0 }
+/** An owner whose rank is its own id: a target selection that fixes rank to the target's term id. */
+const rankedById: Phi = { kind: "fields", op: "eq", left: "id", right: "rank" }
 
-/** Each rule with the selections the box draws it with: a boolean field, comparisons, connectives, BETWEEN and IN. */
+/**
+ * Each rule with the selections the box draws it with: a boolean field, comparisons, connectives, BETWEEN and IN, a
+ * target fixed beyond its terms to a value, to its own id, or to both.
+ */
 const BOX_RULES: NonEmptyReadonlyArray<Rule> = [
 	{ rule: "a key over fields" },
 	...Arr.map(
@@ -229,22 +234,26 @@ const BOX_RULES: NonEmptyReadonlyArray<Rule> = [
 			{ kind: "or", left: live, right: ranked },
 			{ kind: "and", left: { kind: "compare", op: "eq", field: "rank", value: 1 }, right: live },
 			{ kind: "and", left: live, right: ranked },
-			{ kind: "compare", op: "eq", field: "id", value: 1 }
+			{ kind: "compare", op: "eq", field: "id", value: 1 },
+			{ kind: "compare", op: "eq", field: "rank", value: 0 },
+			{ kind: "compare", op: "eq", field: "rank", value: 1 },
+			rankedById
 		] satisfies ReadonlyArray<Phi>,
 		(psi): Rule => ({ rule: "a containment into a selected side", psi })
 	),
-	...Arr.map([live, ranked] satisfies ReadonlyArray<Phi>, (psi): Rule => ({
-		rule: "a containment between selected sides",
-		phi: live,
-		psi
-	})),
-	...Arr.map([0, 1], (rank): Rule => ({ rule: "a containment from a constant", rank })),
-	{ rule: "a containment reading a field twice" },
-	...Arr.map([true, false], (constant): Rule => ({
-		rule: "a containment from a selected side with a constant and a field read twice",
-		phi: live,
-		live: constant
-	})),
+	...Arr.map(
+		[
+			live,
+			ranked,
+			{ kind: "and", left: live, right: rankedById },
+			{ kind: "and", left: { kind: "is", field: "live", value: false }, right: rankedById }
+		] satisfies ReadonlyArray<Phi>,
+		(psi): Rule => ({
+			rule: "a containment between selected sides",
+			phi: live,
+			psi
+		})
+	),
 	{ rule: "a closure under pred" },
 	...Arr.map(
 		[live, { kind: "between", field: "at", low: 0, high: 1 }] satisfies ReadonlyArray<Phi>,
@@ -452,11 +461,6 @@ const ruleGen =
 				return { rule: kind, psi: source.draw(ownerPhi) }
 			case "a containment between selected sides":
 				return { rule: kind, phi: source.draw(itemPhi), psi: source.draw(ownerPhi) }
-			case "a containment from a constant":
-				return { rule: kind, rank: source.draw(int(-1, 2)) }
-			case "a containment from a selected side with a constant and a field read twice":
-				return { rule: kind, phi: source.draw(itemPhi), live: source.draw(boolean) }
-			case "a containment reading a field twice":
 			case "a key over fields":
 			case "a key over a pred term":
 			case "a containment":
@@ -658,10 +662,6 @@ const restatedRule = (r: Rule): Rule => {
 			return { rule: r.rule, psi: restated(r.psi) }
 		case "a containment between selected sides":
 			return { rule: r.rule, phi: restated(r.phi), psi: restated(r.psi) }
-		case "a containment from a selected side with a constant and a field read twice":
-			return { rule: r.rule, phi: restated(r.phi), live: r.live }
-		case "a containment from a constant":
-		case "a containment reading a field twice":
 		case "a key over fields":
 		case "a key over a pred term":
 		case "a containment":

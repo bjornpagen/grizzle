@@ -1,15 +1,8 @@
-import type {
-	ResolvedSelection,
-	ResolvedSide,
-	ResolvedSourceTerm
-} from "#compiler/analysis/theory/laws.ts"
+import type { ResolvedSelection, ResolvedSide } from "#compiler/analysis/theory/laws.ts"
 import type { LawStatement, Part } from "#compiler/core/identity.ts"
 import { termText } from "#compiler/ir/desc.ts"
-import { identityValueOf, type TypedLiteral } from "#compiler/ir/expr.ts"
+import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { FamilyId, LawField, TheoryRelation } from "#compiler/ir/law.ts"
-
-/** A side of a law as its statement reads it: its relation, its terms and its selection. */
-export type LawSide = ResolvedSide<ResolvedSelection, ResolvedSourceTerm>
 
 /** A conjunct of a side as a law's statement spells it: its canonical text, and the names of the fields of its relation
  * it reads, in the relation's field order. */
@@ -20,7 +13,7 @@ export interface SpelledConjunct {
 
 /**
  * How a statement spells what it names: each relation and roster by its name, each field by its own name on its
- * relation, each selection by its conjuncts in canonical order, and each constant by its literal at the field it meets.
+ * relation, each selection by its conjuncts in canonical order, and each literal by its value at the field it meets.
  * The schema's own spelling (ownSpelling) names each as the schema declares it, which is what every installed name is
  * minted from. A draft spells the target's statements as the previous snapshot names what they read
  * (laws/model/restate.ts), so a statement a declared rename only renames has the identity the previous snapshot
@@ -45,38 +38,32 @@ export const ownSpelling: Spelling = Object.freeze({
 	literal: (value: TypedLiteral) => value
 })
 
-/** A term of a side as a statement's display and stem spell it: a field, pred of one, or a constant. */
-const spelledTerm = (side: LawSide, t: ResolvedSourceTerm, spell: Spelling): string =>
-	t.kind === "constant"
-		? termText(t)
-		: termText({ ...t, field: spell.field(side.relation, t.field) })
+/** A term of a side as a statement's display and stem spell it: a field, or pred of one. */
+const spelledTerm = (
+	side: ResolvedSide,
+	t: ResolvedSide["terms"][number],
+	spell: Spelling
+): string => termText({ ...t, field: spell.field(side.relation, t.field) })
 
-/**
- * A side as a law's identity states it: its relation, its terms, a constant by its typed literal's identity, and its
- * conjuncts by their canonical texts.
- */
-export const sidePart = (side: LawSide, spell: Spelling): Part => [
+/** A side as a law's identity states it: its relation, its terms, and its conjuncts by their canonical texts. */
+export const sidePart = (side: ResolvedSide, spell: Spelling): Part => [
 	spell.relation(side.relation),
-	side.terms.map((t) =>
-		t.kind === "constant"
-			? [t.kind, identityValueOf(spell.literal(t.literal, t.meets)).part]
-			: [t.kind, spell.field(side.relation, t.field)]
-	),
+	side.terms.map((t) => [t.kind, spell.field(side.relation, t.field)]),
 	spell.conjuncts(side.rel, side.selection).map((c) => c.text)
 ]
 
 /** A side as a law's stem spells it: its relation, then the fields each conjunct reads. */
-export const sideStem = (side: LawSide, spell: Spelling): ReadonlyArray<string> => [
+export const sideStem = (side: ResolvedSide, spell: Spelling): ReadonlyArray<string> => [
 	spell.relation(side.relation),
 	...spell.conjuncts(side.rel, side.selection).flatMap((c) => c.reads)
 ]
 
 /** A side's terms as a law's stem spells them. */
-export const sideTerms = (side: LawSide, spell: Spelling): ReadonlyArray<string> =>
+export const sideTerms = (side: ResolvedSide, spell: Spelling): ReadonlyArray<string> =>
 	side.terms.map((t) => spelledTerm(side, t, spell))
 
 /** A side as a law's display spells it: its relation and terms, then each conjunct by its canonical text. */
-export const sideDisplay = (side: LawSide, spell: Spelling): string => {
+export const sideDisplay = (side: ResolvedSide, spell: Spelling): string => {
 	const conjuncts = spell.conjuncts(side.rel, side.selection)
 	return `${spell.relation(side.relation)}(${sideTerms(side, spell).join(", ")})${
 		conjuncts.length === 0 ? "" : ` where ${conjuncts.map((c) => c.text).join(" and ")}`

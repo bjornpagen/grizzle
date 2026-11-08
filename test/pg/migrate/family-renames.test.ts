@@ -64,7 +64,6 @@ import {
 	fold,
 	literal,
 	on,
-	onSource,
 	onWhere,
 	ordered,
 	relation,
@@ -248,10 +247,7 @@ const familySchema = (shape: Shape, naming: Naming, reading: Reading) => {
 	}
 	if (shape.copy) {
 		statements.push(
-			contained(
-				onSource(member, [group, "ownerTag"], undefined),
-				on(owner, ["id", naming.field(reading.copied)])
-			)
+			contained(on(member, [group, "ownerTag"]), on(owner, ["id", naming.field(reading.copied)]))
 		)
 	}
 	return {
@@ -304,7 +300,7 @@ const treeSchema = (shape: Shape, naming: Naming, reading: Reading) => {
 	if (shape.copy) {
 		statements.push(
 			contained(
-				onSource(node, ["parent", "parentTag"], nonRoot),
+				onWhere(node, ["parent", "parentTag"], nonRoot),
 				on(node, ["id", naming.field(reading.copied)])
 			)
 		)

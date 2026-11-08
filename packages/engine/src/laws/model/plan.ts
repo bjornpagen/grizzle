@@ -4,7 +4,6 @@ import type {
 	ResolvedSelection,
 	ResolvedSelector,
 	ResolvedSide,
-	ResolvedSourceSide,
 	ResolvedTerm,
 	TheoryLaw
 } from "#compiler/analysis/theory/laws.ts"
@@ -43,7 +42,7 @@ import { type CombineFn, monoidSpecs } from "#compiler/ir/monoid.ts"
 
 import { type CellSide, sideOf } from "#compiler/ir/cells.ts"
 import { closedCell } from "#compiler/ir/rel.ts"
-import { baseOf, rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
+import { baseOf, rosterOf, type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
 import { literalKey } from "#compiler/laws/model/names.ts"
 import type { OwnedContract } from "#compiler/schema/own.ts"
 import {
@@ -81,8 +80,7 @@ const unrepresentable = (
 /**
  * A column a law adds to its relation, as planned (ir/law.ts LawColumn), its name and expressions still to settle:
  *
- * - a constant on a containment's source `relation`, a value of the target's `field`: one a selected target fixes, or a
- *   constant term of the source meeting that field;
+ * - a constant a selected target fixes on its source `relation`, the value of the target's `field`;
  * - a term of a side of `relation` under the side's selection, a pred term or any term of a selected side, generated
  *   from the row;
  * - a drawn column of a family (`Drawn`), a plain column the host writes and the family's foreign keys and CHECKs
@@ -95,8 +93,7 @@ export type LawColumnPlan =
 	| {
 			readonly kind: "constant"
 			readonly relation: RelationInfo
-			/** The relation whose field it meets: an ordinary relation, or a closed relation a ClosedCheck reads. */
-			readonly target: TheoryRelation
+			readonly target: RelationInfo
 			readonly field: LawField
 			readonly value: TypedLiteral
 	  }
@@ -129,9 +126,6 @@ export type LawColumnPlan =
 /** A family's law column as the naming door states it (core/identity.ts LawColumnStatement): a drawn one's, by its
  * family and what it draws. */
 export type DrawnStatement = Exclude<LawColumnStatement, { readonly kind: "constant" | "term" }>
-
-/** A constant law column, which a constant selection places on its source. */
-type ConstantColumn = Extract<LawColumnPlan, { readonly kind: "constant" }>
 
 /** A column a planned native reads: a field, or a law column. */
 export type PlannedColumn =
@@ -364,7 +358,7 @@ const plannedGist = (
 }
 
 /** A side as a refusal names it: its terms over its relation, selected or whole. */
-const sideText = (side: ResolvedSourceSide): string =>
+const sideText = (side: ResolvedSide): string =>
 	`${side.selection.conjuncts.length === 0 ? "" : "selected "}${side.relation}(${side.terms.map(termText).join(", ")})`
 
 /** A law column as a planned native reads it. */
@@ -519,53 +513,6 @@ const dependencies = (column: LawColumnPlan): ReadonlyArray<NativePlan> =>
 const sideColumns = (side: ResolvedSide): NonEmptyReadonlyArray<PlannedColumn> =>
 	mapNonEmpty(side.terms, (term) => termColumn(tableOf(side.rel), term, side.selection))
 
-/**
- * The columns a containment's source lowers to, one per term in its order (sideColumns): a constant is the constant law
- * column of the target field it meets, `target`'s, generated as its literal under no guard, since the source reads at
- * least one other term, whose column is null wherever the side reads no tuple; a term read twice is its one column,
- * listed at each of its positions, which a foreign key's referencing columns may repeat.
- */
-const sourceColumns = (
-	side: ResolvedSourceSide,
-	target: TheoryRelation
-): NonEmptyReadonlyArray<PlannedColumn> => {
-	const relation = tableOf(side.rel)
-	return mapNonEmpty(side.terms, (term) =>
-		term.kind === "constant"
-			? lawColumn({
-					kind: "constant",
-					relation,
-					target,
-					field: term.meets,
-					value: term.literal
-				})
-			: termColumn(relation, term, side.selection)
-	)
-}
-
-/**
- * The columns of a containment's source a reverse probe binds, each once, in their order: every column but a constant's,
- * which narrows no lookup. None for a source of constants alone, which ownership refuses.
- */
-const probedColumns = (
-	side: ResolvedSourceSide,
-	terms: ReadonlyArray<ResolvedSourceSide["terms"][number]>
-): ReadonlyArray<PlannedColumn> => {
-	const relation = tableOf(side.rel)
-	const seen = new Set<string>()
-	return terms.flatMap((t) => {
-		if (t.kind === "constant") {
-			return []
-		}
-		const key = `${t.kind} ${t.field}`
-		if (seen.has(key)) {
-			return []
-		}
-		seen.add(key)
-		return [termColumn(relation, t, side.selection)]
-	})
-}
-
 /** One term of a side over `relation` under `selection` as a column (`sideColumns`). */
 const termColumn = (
 	relation: RelationInfo,
@@ -645,9 +592,6 @@ const migrationPlan = (law: TheoryLaw): LawPlan => ({ law, natives: [], discharg
 const sameSet = <T>(a: ReadonlyArray<T>, b: ReadonlyArray<T>): boolean =>
 	a.length === b.length && new Set(a).size === a.length && a.every((x) => b.includes(x))
 
-const contains = <T>(outer: ReadonlyArray<T>, inner: ReadonlyArray<T>): boolean =>
-	inner.every((x) => outer.includes(x))
-
 /** The handles of each declared key's fields, the primary key's first. */
 const declaredFields = (r: TheoryRelation): ReadonlyArray<NonEmptyReadonlyArray<LawField>> => [
 	r.primaryFields,
@@ -674,51 +618,6 @@ const fieldsOf = (
 		: mapNonEmpty(fields, (t) => t.column)
 }
 
-/** A column of a containment's source a ClosedCheck reads: its column, the type it holds, and its name in a refusal. */
-interface ClosedSource {
-	readonly column: PlannedColumn
-	readonly type: ScalarType
-	readonly name: string
-}
-
-/**
- * The columns of a containment's source into the closed relation `target`, one per pair: a field term its field, a
- * constant the constant law column of the target field it meets, of that field's type; or the refusal of `what` over a
- * source with a pred term, which a ClosedCheck reads as fields alone.
- */
-const closedSources = (
-	side: ResolvedSourceSide,
-	target: ClosedTheoryRelation,
-	loc: SourceLoc,
-	what: string
-): NonEmptyReadonlyArray<ClosedSource> => {
-	const relation = tableOf(side.rel)
-	return mapNonEmpty(side.terms, (t): ClosedSource => {
-		switch (t.kind) {
-			case "field":
-				return { column: fieldColumn(t.column), type: t.column.type, name: t.column.name }
-			case "constant":
-				return {
-					column: lawColumn({
-						kind: "constant",
-						relation,
-						target,
-						field: t.meets,
-						value: t.literal
-					}),
-					type: t.meets.type,
-					name: termText(t)
-				}
-			case "pred":
-				return refuse(
-					"UnsupportedLawFamily",
-					loc,
-					`${what} over fields; ${side.relation}(${side.terms.map(termText).join(", ")}) has a pred term`
-				)
-		}
-	})
-}
-
 /** A side's selectors, or the refusal of `what` over a side with a conjunct that fixes no field. */
 const literalsOf = (
 	side: ResolvedSide,
@@ -735,12 +634,134 @@ const literalsOf = (
 				)
 	)
 
-/** Whether a key over `key` keys `target`: every conjunct of the key's selection is one of the target's, which so
- * reads only facts the key holds apart, and the target's terms hold every term of the key, each of one kind over one
- * field. */
-const keyedBy = (key: ResolvedSide, target: ResolvedSide): boolean =>
-	key.selection.conjuncts.every((k) => target.selection.conjuncts.some((c) => c.text === k.text)) &&
+/**
+ * A key of a relation as a containment's target reads it: the selection its side reads, none for a declared key, and
+ * its terms.
+ */
+type TargetKey = Pick<ResolvedSide, "selection" | "terms">
+
+/** The selection of every row, a declared key's: no conjunct. */
+const everyRow: ResolvedSelection = { conjuncts: [] }
+
+/** Whether every conjunct of `key`'s selection is one of `target`'s, which so reads only facts the key holds apart. */
+const selectsWithin = (key: TargetKey, target: TargetKey): boolean =>
+	key.selection.conjuncts.every((k) => target.selection.conjuncts.some((c) => c.text === k.text))
+
+/** Whether a key over `key` keys `target`: it selects within it, and the target's terms hold every term of the key, each
+ * of one kind over one field. */
+const keyedBy = (key: TargetKey, target: TargetKey): boolean =>
+	selectsWithin(key, target) &&
 	key.terms.every((k) => target.terms.some((t) => t.kind === k.kind && t.column === k.column))
+
+/**
+ * A field a containment's target's selection fixes beyond its terms, by one conjunct: to a literal, which the source
+ * meets by a constant law column; or to the target's term at `term`, which the source meets by its own column paired
+ * with that term.
+ */
+type Fixing =
+	| {
+			readonly kind: "literal"
+			readonly conjunct: ResolvedConjunct
+			readonly field: LawField
+			readonly value: TypedLiteral
+	  }
+	| {
+			readonly kind: "term"
+			readonly conjunct: ResolvedConjunct
+			readonly field: LawField
+			readonly term: number
+	  }
+
+/** The two fields a conjunct `left = right` equates, each way round; none for any other conjunct. */
+const equatedFields = (c: ResolvedConjunct): ReadonlyArray<readonly [LawField, LawField]> => {
+	const p = c.predicate
+	if (
+		p.kind !== "compare" ||
+		p.op !== "eq" ||
+		p.left.kind !== "field" ||
+		p.right.kind !== "field"
+	) {
+		return []
+	}
+	const leftName = p.left.field
+	const rightName = p.right.field
+	const left = c.reads.find((f) => f.name === leftName)
+	const right = c.reads.find((f) => f.name === rightName)
+	return left === undefined || right === undefined
+		? []
+		: [
+				[left, right],
+				[right, left]
+			]
+}
+
+/**
+ * The field a conjunct of a target's selection fixes beyond its field terms `terms`: `field = literal` over a field
+ * none of them is, or `field = term` between a field none of them is and one of them, of one type. None for any other
+ * conjunct, which stays the target's guard.
+ */
+const fixingOf = (c: ResolvedConjunct, terms: ReadonlyArray<LawField>): ReadonlyArray<Fixing> => {
+	switch (c.kind) {
+		case "fixed":
+			return terms.includes(c.selector.col)
+				? []
+				: [{ kind: "literal", conjunct: c, field: c.selector.col, value: c.selector.value }]
+		case "general":
+			return equatedFields(c).flatMap(([field, term]): ReadonlyArray<Fixing> => {
+				const at = terms.indexOf(term)
+				return at !== -1 && !terms.includes(field) && sameScalarType(field.type, term.type)
+					? [{ kind: "term", conjunct: c, field, term: at }]
+					: []
+			})
+	}
+}
+
+/**
+ * The fields `to`'s selection fixes beyond its field terms `terms`, outside the conjuncts `key` selects by, which stay
+ * guards: each fixed by one conjunct (fixingOf), in field order. A field two conjuncts fix stays guarded by both.
+ */
+const fixingsOf = (
+	to: ResolvedSide,
+	terms: ReadonlyArray<LawField>,
+	key: TargetKey
+): ReadonlyArray<Fixing> => {
+	const found = to.selection.conjuncts.flatMap((c) =>
+		key.selection.conjuncts.some((k) => k.text === c.text) ? [] : fixingOf(c, terms)
+	)
+	return found
+		.filter((f) => found.filter((g) => g.field === f.field).length === 1)
+		.toSorted((a, b) => a.field.position - b.field.position)
+}
+
+/**
+ * The source's column that meets a fixed field: a constant law column on `fromRel` holding the literal the field is fixed
+ * to, or `source`'s column paired with the term the field equals.
+ */
+const fixingSource = (
+	f: Fixing,
+	source: NonEmptyReadonlyArray<PlannedColumn>,
+	fromRel: RelationInfo,
+	toRel: RelationInfo
+): PlannedColumn => {
+	switch (f.kind) {
+		case "literal":
+			return lawColumn({
+				kind: "constant",
+				relation: fromRel,
+				target: toRel,
+				field: f.field,
+				value: f.value
+			})
+		case "term":
+			return source[f.term] ?? missing("the source's column paired with a fixed field's term")
+	}
+}
+
+/** How a containment references its target: the source's columns and the target's columns each meets, in order. */
+interface Reference {
+	readonly columns: NonEmptyReadonlyArray<PlannedColumn>
+	readonly targetColumns: NonEmptyReadonlyArray<PlannedColumn>
+}
 
 /** Whether `key` is exactly `side`: the same conjuncts and the same terms, each of one kind over one field. */
 const sameSide = (key: ResolvedSide, side: ResolvedSide): boolean =>
@@ -920,15 +941,18 @@ interface FamilyPlan {
  * - A key over a side is UNIQUE NULLS DISTINCT over its columns, which holds apart only the rows the side reads; one
  *   whose terms hold a span field is WITHOUT OVERLAPS over them, the span last.
  * - A containment is FOREIGN KEY MATCH SIMPLE from the source's columns, which references nothing from a row whose side
- *   reads no tuple, into a UNIQUE over exactly the target's columns, and its referencing columns are indexed. The
- *   target must contain a key: a declared key of its relation among its field terms, or a projected key of the
- *   relation whose conjuncts are among the target's and whose terms are among its terms. Its UNIQUE is that key's when
- *   the columns are exactly a declared key's, and otherwise a generated superkey, exact because a superkey of a key is
- *   unique.
- * - A constant selection of a target: its fixed conjuncts over fields that are none of its terms, which, with its field
- *   terms, contain a declared key of the target, are a constant law column each on the source instead, matched against
- *   the target's terms under its other conjuncts and then its fixed fields, so every constant shares one target
- *   UNIQUE. An alternatives arm of one handle is one: its parent selected by the handle.
+ *   reads no tuple, into a UNIQUE over exactly the target's columns, and its source's columns are indexed. The target
+ *   must contain a key (`TargetKey`): a declared scalar key of its relation, or a projected key with no span term, whose
+ *   conjuncts are among the target's and whose terms are among its terms. Its UNIQUE is that key's when the columns are
+ *   exactly a declared key's, and otherwise a generated superkey, exact because a superkey of a key is unique.
+ * - A fixed target (`#fixedTarget`): a target of field terms whose selection fixes fields beyond them, each by one
+ *   conjunct outside a key's selection (`Fixing`), `f = literal` or `f = t` with t one of its terms, where the key's
+ *   conjuncts are among the target's and its terms among the target's terms and fixed fields. The target's columns are
+ *   its terms under its other conjuncts, then its fixed fields in field order, each the key's own column where it is a
+ *   term of the key; the source meets each fixed field by a constant law column holding the literal or by its own
+ *   column paired with t, listed again. The key implies the UNIQUE, and every containment into the same fixed fields
+ *   shares it. Tried before a target keyed by its terms alone. An alternatives arm of one handle is one: its parent
+ *   selected by the handle.
  * - A coverage, a containment pairing a span field of each side, is a PERIOD foreign key from the source's columns into
  *   the target's, which must be keyed WITHOUT OVERLAPS over exactly its terms: a declared span key, or a key over its
  *   projected side. A target whose spans may overlap within a key is refused.
@@ -1206,13 +1230,11 @@ export class Recognizer {
 		loc: SourceLoc
 	): ReadonlyArray<NativePlan> {
 		const what = "a containment into a closed relation"
-		const sources = closedSources(d.from, toRel, loc, what)
+		const fromFields = fieldsOf(d.from, loc, what)
 		const toFields = fieldsOf(d.to, loc, what)
 		const toSelection = literalsOf(d.to, loc, what)
 		const [only, ...more] = d.pairs
-		const roster = rosterOf(
-			baseOf(only.kind === "terms" ? only.from.column.type : only.from.meets.type)
-		)
+		const roster = rosterOf(baseOf(only.from.column.type))
 		if (
 			more.length === 0 &&
 			only.to.column.name === "id" &&
@@ -1230,9 +1252,9 @@ export class Recognizer {
 			rows,
 			literalKey
 		)
-		/** The source column each target field meets, by the containment's pairs. */
-		const sourceOf = (target: LawField): ClosedSource =>
-			sources[toFields.indexOf(target)] ??
+		/** The source field each target field meets, by the containment's pairs. */
+		const sourceOf = (target: LawField): LawField =>
+			fromFields[toFields.indexOf(target)] ??
 			refuse("MalformedDescription", loc, `${what} pairing every field of ${d.to.relation}`)
 		const targetField = (name: string): LawField =>
 			toFields.find((f) => f.name === name) ??
@@ -1255,14 +1277,13 @@ export class Recognizer {
 					`${what} whose key fields each meet a field of their roster's type; ${d.from.relation}.${source.name} is no closed id of ${targetRoster.closed}`
 				)
 			}
-			return { source: source.column, target }
+			return { source: fieldColumn(source), target }
 		})
 		const payloadPairs = side.payload.map((name) => {
 			const target = targetField(name)
-			return { source: sourceOf(target).column, target }
+			return { source: fieldColumn(sourceOf(target)), target }
 		})
 		return [
-			...lawColumns(sources.map((s) => s.column)),
 			{
 				kind: "ClosedCheck",
 				relation: fromRel,
@@ -1274,79 +1295,48 @@ export class Recognizer {
 		]
 	}
 
-	/** Whether `fields` contain a declared scalar key of `r`. */
-	#containsKey(r: TheoryRelation, fields: ReadonlyArray<LawField>): boolean {
-		return scalarKeys(r).some((k) => contains<LawField>(fields, k))
-	}
-
 	/**
 	 * A containment from one side into another: a foreign key MATCH SIMPLE from the source's columns into the target's,
 	 * the UNIQUE over the target's columns it references, the law columns either side reads, and the index over the
-	 * referencing columns. A target fixed by a constant selection references through constant law columns on the
-	 * source, which the index leaves out: a constant narrows no lookup.
+	 * source's columns. A fixed target (`#fixedTarget`) is referenced at its fixed fields too, which the source meets by
+	 * constant law columns and by its own columns listed again, so the index over its columns alone serves every probe.
 	 */
 	#scalarContainment(
-		from: ResolvedSourceSide,
+		from: ResolvedSide,
 		to: ResolvedSide,
 		loc: SourceLoc
 	): ReadonlyArray<NativePlan> {
 		const fromRel = tableOf(from.rel)
 		const toRel = tableOf(to.rel)
-		const constant = this.#constantTarget(to, fromRel)
-		const sourced = sourceColumns(from, to.rel)
-		const columns: NonEmptyReadonlyArray<PlannedColumn> =
-			constant === undefined ? sourced : extendNonEmpty(sourced, constant.tags.map(lawColumn))
-		const targetColumns = constant === undefined ? sideColumns(to) : constant.columns
-		if (constant === undefined && !this.#targetKeyed(to)) {
-			return refuse(
-				"UnsupportedLawFamily",
-				loc,
-				`a containment into a side that contains a key of ${toRel.name}; ${to.relation}(${to.terms.map(termText).join(", ")}) contains no declared key among its fields and no key over its own selection, and a containment into an unkeyed side is not admitted`
-			)
-		}
+		const sourceColumns = sideColumns(from)
+		const reference =
+			this.#fixedTarget(to, sourceColumns, fromRel, toRel) ??
+			this.#keyedTarget(to, sourceColumns, toRel, loc)
 		const containment = `the containment of ${sideText(from)} in ${sideText(to)}`
 		return [
-			...lawColumns(columns),
-			...lawColumns(targetColumns),
-			...this.#targetUnique(toRel, targetColumns, containment, loc),
+			...lawColumns(reference.columns),
+			...lawColumns(reference.targetColumns),
+			...this.#targetUnique(toRel, reference.targetColumns, containment, loc),
 			{
 				kind: "ForeignKey",
 				relation: fromRel,
-				columns,
+				columns: reference.columns,
 				target: toRel,
-				targetColumns,
+				targetColumns: reference.targetColumns,
 				onUpdate: "noAction",
 				deferral: "rule",
 				laws: undefined
 			},
-			...this.#reverseIndex(fromRel, probedColumns(from, from.terms), containment, loc)
+			{
+				kind: "ReverseIndex",
+				relation: fromRel,
+				...plannedReverse(
+					sourceColumns,
+					`the index of ${fromRel.name} over the columns ${containment} references from`,
+					loc
+				)
+			}
 		]
-	}
-
-	/**
-	 * The index over a containment's referencing columns its reverse probe reads (plannedReverse): over the source's
-	 * columns that read its row, each once; none where it reads none.
-	 */
-	#reverseIndex(
-		fromRel: RelationInfo,
-		probed: ReadonlyArray<PlannedColumn>,
-		containment: string,
-		loc: SourceLoc
-	): ReadonlyArray<NativePlan> {
-		const [first, ...rest] = probed
-		return first === undefined
-			? []
-			: [
-					{
-						kind: "ReverseIndex",
-						relation: fromRel,
-						...plannedReverse(
-							[first, ...rest],
-							`the index of ${fromRel.name} over the columns ${containment} references from`,
-							loc
-						)
-					}
-				]
 	}
 
 	/**
@@ -1376,65 +1366,97 @@ export class Recognizer {
 	}
 
 	/**
-	 * A target side fixed by a constant selection (see the recognition table): the target's terms are fields, and its
-	 * fixed conjuncts over fields that are none of them, with its field terms, contain a declared key of the target. Its
-	 * fixed conjuncts' constants are law columns of the source, and the target's columns are its terms under its other
-	 * conjuncts (`sideColumns`), then its fixed fields: a fact the other conjuncts reject holds a null among its terms,
-	 * which references nothing, and the declared key holds the rest apart, so one UNIQUE over them serves every
-	 * constant. Undefined for any other target.
+	 * The keys a target over `to`'s relation may hold (`TargetKey`): each declared scalar key, over every fact, then each
+	 * key over a projected side with no span term, whose WITHOUT OVERLAPS holds apart no two equal empty spans.
 	 */
-	#constantTarget(
+	#keysOf(to: ResolvedSide): ReadonlyArray<TargetKey> {
+		return [
+			...scalarKeys(to.rel).map((k): TargetKey => ({
+				selection: everyRow,
+				terms: mapNonEmpty(k, (f): ResolvedTerm => ({ kind: "field", field: f.name, column: f }))
+			})),
+			...(this.#projectedKeys.get(to.relation) ?? []).filter(
+				(k) => !k.terms.some((t) => isSpanField(t.column))
+			)
+		]
+	}
+
+	/**
+	 * A fixed target (see the recognition table): a target of field terms whose selection fixes fields beyond them, by
+	 * the first key, in `#keysOf` order, that selects within it and whose terms are among its terms and the fields it
+	 * fixes outside the key's selection (`fixingsOf`). Its columns are its terms under its other conjuncts, then each
+	 * fixed field, the key's own column where the field is a term of the key and else the field, so a target that is a
+	 * projected key's side widened by its fixed fields references that key's own UNIQUE; the source's are its own, then
+	 * for each fixed field a constant law column of its literal or its column paired with the term the field equals. The
+	 * key holds apart the facts the other conjuncts keep at them, its selection among those conjuncts, so the UNIQUE over
+	 * them refuses nothing the key admits. Undefined for any other target.
+	 */
+	#fixedTarget(
 		to: ResolvedSide,
-		fromRel: RelationInfo
-	):
-		| {
-				readonly tags: NonEmptyReadonlyArray<ConstantColumn>
-				readonly columns: NonEmptyReadonlyArray<PlannedColumn>
-		  }
-		| undefined {
+		source: NonEmptyReadonlyArray<PlannedColumn>,
+		fromRel: RelationInfo,
+		toRel: RelationInfo
+	): Reference | undefined {
 		const fields = fieldTermsOf(to.terms)
 		if (fields === undefined) {
 			return undefined
 		}
 		const terms = fields.map((t) => t.column)
-		const fixes = (c: ResolvedConjunct): boolean =>
-			c.kind === "fixed" && !terms.includes(c.selector.col)
-		const selected = to.selection.conjuncts
-			.flatMap((c) => (c.kind === "fixed" && fixes(c) ? [c.selector] : []))
-			.toSorted((a, b) => a.col.position - b.col.position)
-		if (
-			!isNonEmpty(selected) ||
-			!this.#containsKey(to.rel, [...terms, ...selected.map((s) => s.col)])
-		) {
+		const [held] = this.#keysOf(to).flatMap((key) => {
+			const fixed = fixingsOf(to, terms, key)
+			const covered = [...terms, ...fixed.map((f) => f.field)]
+			return selectsWithin(key, to) &&
+				isNonEmpty(fixed) &&
+				key.terms.every((k) => k.kind === "field" && covered.includes(k.column))
+				? [{ key, fixings: fixed }]
+				: []
+		})
+		if (held === undefined) {
 			return undefined
 		}
+		const { key, fixings } = held
 		const rest: ResolvedSide = {
 			...to,
-			selection: { conjuncts: to.selection.conjuncts.filter((c) => !fixes(c)) }
+			selection: {
+				conjuncts: to.selection.conjuncts.filter((c) => !fixings.some((f) => f.conjunct === c))
+			}
 		}
 		return {
-			tags: mapNonEmpty(selected, (s): ConstantColumn => ({
-				kind: "constant",
-				relation: fromRel,
-				target: tableOf(to.rel),
-				field: s.col,
-				value: s.value
-			})),
 			columns: extendNonEmpty(
+				source,
+				fixings.map((f) => fixingSource(f, source, fromRel, toRel))
+			),
+			targetColumns: extendNonEmpty(
 				sideColumns(rest),
-				selected.map((s) => fieldColumn(s.col))
+				fixings.map((f) =>
+					termColumn(
+						toRel,
+						{ kind: "field", field: f.field.name, column: f.field },
+						key.terms.some((k) => k.column === f.field) ? key.selection : everyRow
+					)
+				)
 			)
 		}
 	}
 
-	/** Whether a target side contains a key: a declared scalar key of its relation among its field terms, or a projected
-	 * key of the relation over its own selection among its terms. */
-	#targetKeyed(to: ResolvedSide): boolean {
-		const fields = to.terms.flatMap((t) => (t.kind === "field" ? [t.column] : []))
-		return (
-			this.#containsKey(to.rel, fields) ||
-			(this.#projectedKeys.get(to.relation) ?? []).some((k) => keyedBy(k, to))
-		)
+	/**
+	 * A target keyed by its terms: a key (`#keysOf`) that selects within it and whose terms are among its terms, referenced
+	 * at its own columns; or the refusal of an unkeyed target, which no UNIQUE the law model may add holds apart.
+	 */
+	#keyedTarget(
+		to: ResolvedSide,
+		source: NonEmptyReadonlyArray<PlannedColumn>,
+		toRel: RelationInfo,
+		loc: SourceLoc
+	): Reference {
+		if (!this.#keysOf(to).some((k) => keyedBy(k, to))) {
+			return refuse(
+				"UnsupportedLawFamily",
+				loc,
+				`a containment into a side that contains a key of ${toRel.name}; ${to.relation}(${to.terms.map(termText).join(", ")}) contains no key among its terms and the fields its selection fixes, over a selection within its own, and a containment into an unkeyed side is not admitted`
+			)
+		}
+		return { columns: source, targetColumns: sideColumns(to) }
 	}
 
 	/**
@@ -1467,11 +1489,11 @@ export class Recognizer {
 				"a coverage law whose span pair is one of its pairs"
 			)
 		}
-		const sourced = sourceColumns(from, to.rel)
+		const sourceColumns = sideColumns(from)
 		const targetColumns = sideColumns(to)
-		const sourceSpan = sourced[at] ?? missing("a coverage source's span column")
+		const sourceSpan = sourceColumns[at] ?? missing("a coverage source's span column")
 		const targetSpan = targetColumns[at] ?? missing("a coverage target's span column")
-		const sourceScalars = sourced.filter((_, i) => i !== at)
+		const sourceScalars = sourceColumns.filter((_, i) => i !== at)
 		const targetScalars = targetColumns.filter((_, i) => i !== at)
 		if (!isNonEmpty(sourceScalars) || !isNonEmpty(targetScalars)) {
 			return refuse(
@@ -1490,7 +1512,7 @@ export class Recognizer {
 			return refuse("UnsupportedLawFamily", loc, coverageKeySentence)
 		}
 		return [
-			...lawColumns(sourced),
+			...lawColumns(sourceColumns),
 			...lawColumns(targetColumns),
 			{
 				kind: "PeriodForeignKey",
@@ -1505,10 +1527,7 @@ export class Recognizer {
 				kind: "ReverseIndex",
 				relation: fromRel,
 				...plannedPeriodReverse(
-					probedColumns(
-						from,
-						from.terms.filter((_, i) => i !== at)
-					),
+					sourceScalars,
 					sourceSpan,
 					`the index of ${fromRel.name} over the columns the coverage of ${sideText(from)} in ${sideText(to)} references from`,
 					loc

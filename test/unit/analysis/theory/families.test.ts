@@ -30,7 +30,6 @@ import {
 	type LiteralDesc,
 	type SideDesc,
 	type StatementDesc,
-	type SourceTermDesc,
 	type TermDesc,
 	termText
 } from "#compiler/ir/desc.ts"
@@ -572,7 +571,7 @@ describe("riding a family axis (§2.1)", () => {
 								theory.laws,
 								(law) => law.detail.kind === "containment"
 							)
-							const termsText = (terms: ReadonlyArray<SourceTermDesc>): string =>
+							const termsText = (terms: ReadonlyArray<TermDesc>): string =>
 								Arr.join(Arr.map(terms, termText), ", ")
 							const states = (detail: LawDetail, c: RideCase): boolean =>
 								detail.kind === "containment" &&

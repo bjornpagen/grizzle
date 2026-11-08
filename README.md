@@ -1795,7 +1795,6 @@ key, so two runs on one stage never share a night.
 | Fold           | `fold(family, Monoid.sum, step, end)`                                     | each owner's end is its members' step values combined by the monoid           |
 | Selected side  | `on(select(Ticket, (t) => φ), "show")`, in any rule                       | the rule reads only the rows where φ holds                                    |
 | Predecessor    | `on(Place, "show", pred("at"))`, in any rule                              | the rule reads `at` − 1, and nothing of a row whose `at` is 0                 |
-| Constant       | `on(A, "id", constant("x"))`, in a containment's source                   | the row meets only target rows holding `"x"` at the paired field              |
 | Over a query   | `on(TypedHref, "path")`, TypedHref a derived relation, in any rule        | the rule reads the query's rows as the tables stand at commit                 |
 
 A rule pairs its sides' terms in order. A side is `on(source, ...terms)`.
@@ -1804,20 +1803,17 @@ A rule pairs its sides' terms in order. A side is `on(source, ...terms)`.
   row check's condition. It is the one way to write a selection. A rule over a derived relation reads its query
   ([Rules over queries](#rules-over-queries)).
 - **A term** is a field, or `pred(n)` of a `natural` field n: n − 1, defined only where n is above 0.
-- **Each term once.** A key, a family, a fold and a containment's target list each term once:
-  `key(on(Ticket, "show", "show"))` is a type error, and refused from JavaScript when built. `"at"` and `pred("at")`
-  are two terms.
-- **A containment's source**, its first side, may read a field twice, each time meeting its own target term, and may
-  hold `constant(v)`, v on every row, meeting a target field v is a value of:
-  `contained(on(A, "id", constant("x"), "id"), on(B, "id", "kind", "root"))` holds where every A's id is a B of kind
-  `"x"` that is its own root. A constant pairs with a scalar target field, never a `pred` term or a span, and a source
-  reads at least one field. A target, either side of `mirrors` (each is a target once), a key, a family and a fold
-  hold no constant: a type error, and refused from JavaScript.
+- **Each term once.** A side lists each term once: `on(Ticket, "show", "show")` is a type error, and refused from
+  JavaScript when built. `"at"` and `pred("at")` are two terms.
 - **Rows a side leaves out**, outside its selection or with its `pred` field at 0, have no tuple there: a key over the
   side doesn't hold them apart, a containment from it doesn't require them, and one into it doesn't find them.
 - **Keys.** A key over a table's own fields is a candidate key of the table; one over a selected side or a `pred` term
-  is not. A containment's target holds a key: a candidate key among its fields, or a key over the same selection among
-  its terms.
+  is not. A containment's target holds a key of its table whose selection's conditions are all the target's, its terms
+  among the target's terms, or among its terms and the fields the target fixes. A target's selection fixes a field
+  beyond its terms by one condition, outside the key's selection, that equates the field to a value or to one of the
+  target's terms: `contained(on(A, "id"), on(select(B, (b) => b.and(b.eq(b.kind, "x"), b.eq(b.root, b.id))), "id"))`
+  holds where every A's id is a B of kind `"x"` that is its own root, and B's primary key `id` keys the target. A
+  target no key holds is refused when the schema compiles.
 - **Generic helpers.** A rule may be written in a helper generic over the tables it reads,
   `<T extends typeof A | typeof B>(t: T) => contained(on(t, "owner"), on(Owner, "id"))`, and typechecks exactly where
   the rule holds for each table T may be. Those tables share one heading, or one holds every field of another and
@@ -1855,10 +1851,10 @@ no trigger and no function for it.
 - **Sides.** Each term of a selected side, and each `pred` term, is a STORED generated column,
   `CASE WHEN φ THEN t END`. A key over a side is `UNIQUE NULLS DISTINCT` and a containment
   `FOREIGN KEY … MATCH SIMPLE`, both of which pass a row whose columns there are NULL.
-- **Constants and repeated fields.** A constant of a containment's source is a STORED generated column holding it, and
-  a field the source reads twice is listed twice among the foreign key's columns, so the reference meets the target's
-  columns in its side's order and adds no column to the target. Such a containment keeps its own foreign key and
-  rides no family's axis.
+- **Fixed fields.** The source holds each value a target fixes a field to as a STORED generated column, and lists its
+  own field again for each field the target equates to one of its terms, so the foreign key meets the target's terms,
+  then its fixed fields, which add no column to the target. The UNIQUE it references is the key the target holds, or
+  one over more columns, which that key implies.
 - **`alternatives`** is its containments: one from each arm into its parent at its handle, and one from the parent's
   rows of each handle into its arm, a selected side.
 - **Coverage.** A coverage's target needs a no-overlap key over its span, or the schema is refused: coalesce the spans,
@@ -2679,7 +2675,7 @@ is `unreported` where only a refill writes the row, such as a stored owner whose
 | `generated`  | `relation`, `field`: a generated field whose term has no value at a row, a closed read at a key its relation lacks |
 
 A side is `{ relation, terms, selection }`. `terms` are in the order the rule pairs them, each `{ kind: "field", field }`
-or `{ kind: "pred", field }`; a containment's `from` may also hold `{ kind: "constant", value }` and read a term twice.
+or `{ kind: "pred", field }`.
 `selection` is `{ conjuncts }`, row predicates in canonical form (a literal second, `gt` and `ge` between two terms as
 `lt` and `le`, `eq` and `ne` with their terms in canonical order, an IN list's values a set) and canonical order; a side
 that reads every row has none.

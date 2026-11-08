@@ -38,7 +38,6 @@ export type {
 	KeyHost,
 	Law,
 	LawSide,
-	LawSourceSide,
 	Member,
 	Refused,
 	Witness,

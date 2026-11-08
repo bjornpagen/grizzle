@@ -1,17 +1,7 @@
-import type {
-	LawIdentity,
-	ResolvedSide,
-	ResolvedSourceSide
-} from "#compiler/analysis/theory/laws.ts"
+import type { LawIdentity, ResolvedSide } from "#compiler/analysis/theory/laws.ts"
 import type { QueryRule, RuleSide } from "#compiler/analysis/theory/query.ts"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
-import {
-	everyFact,
-	type SideDesc,
-	type SourceSideDesc,
-	type SourceTermDesc,
-	type TermDesc
-} from "#compiler/ir/desc.ts"
+import { everyFact, type SideDesc, type TermDesc } from "#compiler/ir/desc.ts"
 import type { Family } from "#compiler/ir/family.ts"
 import { fieldNames, type LawField, type TableRelation } from "#compiler/ir/law.ts"
 import type { Law } from "#compiler/types/changeset/changeset.ts"
@@ -54,7 +44,7 @@ export const lawDescription = (law: LawIdentity): Law => {
 		case "containment":
 			return Object.freeze({
 				kind: d.pairing.kind === "span" ? "coverage" : "contained",
-				from: sourceSideOf(d.from),
+				from: side(d.from),
 				to: side(d.to)
 			})
 		case "family":
@@ -155,25 +145,6 @@ const sideOf = (side: ResolvedSide): SideDesc =>
 		relation: side.relation,
 		terms: Object.freeze(
 			mapNonEmpty(side.terms, (t): TermDesc => Object.freeze({ kind: t.kind, field: t.field }))
-		),
-		selection: Object.freeze({
-			conjuncts: Object.freeze(side.selection.conjuncts.map((c) => c.predicate))
-		})
-	})
-
-/**
- * A containment's source side as its statement declares it: its relation, its terms, each constant its literal as the
- * statement states it, and its selection's conjuncts.
- */
-const sourceSideOf = (side: ResolvedSourceSide): SourceSideDesc =>
-	Object.freeze({
-		relation: side.relation,
-		terms: Object.freeze(
-			mapNonEmpty(side.terms, (t): SourceTermDesc =>
-				t.kind === "constant"
-					? Object.freeze({ kind: t.kind, value: t.value })
-					: Object.freeze({ kind: t.kind, field: t.field })
-			)
 		),
 		selection: Object.freeze({
 			conjuncts: Object.freeze(side.selection.conjuncts.map((c) => c.predicate))

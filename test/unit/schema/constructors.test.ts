@@ -56,7 +56,6 @@ import { admitSchema, schema, schemaDescOf } from "#compiler/schema/schema.ts"
 import {
 	alternativesBuilder,
 	checkBuilder,
-	constantBuilder,
 	containedBuilder,
 	expansionDescOf,
 	keyBuilder,
@@ -64,7 +63,6 @@ import {
 	mutableBuilder,
 	onBuilder,
 	predBuilder,
-	type SideDraft,
 	selectBuilder,
 	sideDescOf,
 	statementDescOf
@@ -1101,10 +1099,9 @@ const fieldTerms = (fields: ReadonlyArray<string>): ReadonlyArray<TermDesc> =>
 describe("statements", () => {
 	/**
 	 * Where a side's terms or a selection is written, and the defects a JavaScript caller can plant there: on's terms,
-	 * over a relation or a selection, are a nonempty list of terms, each a field of the heading or pred of a natural
-	 * one, a term written twice among them; key takes a side built by on whose terms are distinct and hold no constant,
-	 * and nothing else; select takes a callback over the row that returns a predicate of its own fields, and nothing
-	 * else.
+	 * over a relation or a selection, are a nonempty list of distinct terms, each a field of the heading or pred of a
+	 * natural one; key takes a side built by on and nothing else; select takes a callback over the row that returns a
+	 * predicate of its own fields, and nothing else.
 	 */
 	type TermsDefect =
 		| "none"
@@ -1112,7 +1109,7 @@ describe("statements", () => {
 		| "an undeclared field"
 		| "a repeated term"
 		| "pred of a field that is not natural"
-	type KeyDefect = "none" | "no side" | "a repeated term" | "a constant"
+	type KeyDefect = "none" | "no side"
 	type SelectDefect = "no callback" | "an undeclared field" | "no predicate"
 	type FieldListCase =
 		| { readonly site: "key"; readonly defect: KeyDefect }
@@ -1129,8 +1126,6 @@ describe("statements", () => {
 	const fieldListCases: Arr.NonEmptyReadonlyArray<FieldListCase> = [
 		{ site: "key", defect: "none" },
 		{ site: "key", defect: "no side" },
-		{ site: "key", defect: "a repeated term" },
-		{ site: "key", defect: "a constant" },
 		...Arr.map(termsDefects, (defect): FieldListCase => ({ site: "on", defect })),
 		...Arr.map(termsDefects, (defect): FieldListCase => ({ site: "on a selection", defect })),
 		{ site: "pred", defect: "none" },
@@ -1152,7 +1147,7 @@ describe("statements", () => {
 	}
 
 	it.effect(
-		"on names a nonempty list of terms of the heading in the order written, key a side of distinct terms, and select a predicate",
+		"on names a nonempty list of distinct terms of the heading in the order written, key a side, and select a predicate",
 		(ctx) =>
 			searched(
 				ctx,
@@ -1193,16 +1188,6 @@ describe("statements", () => {
 									if (planted.defect === "no side") {
 										return void throwsRefused(() => keyBuilder(Task), "MalformedDescription")
 									}
-									if (planted.defect !== "none") {
-										const written =
-											planted.defect === "a repeated term"
-												? [...s.fields, defined(s.fields[0])]
-												: [...s.fields, constantBuilder(s.handle)]
-										return void throwsRefused(
-											() => keyBuilder(onBuilder(Task, written)),
-											"MalformedDescription"
-										)
-									}
 									const side = onBuilder(Task, s.fields)
 									const k = keyBuilder(side)
 									matchesObject(k, { kind: "key", side })
@@ -1229,29 +1214,23 @@ describe("statements", () => {
 													: planted.defect === "pred of a field that is not natural"
 														? [...s.fields, predBuilder("account")]
 														: s.fields
-									if (planted.defect !== "none" && planted.defect !== "a repeated term") {
+									if (planted.defect !== "none") {
 										return void throwsRefused(
 											() => onBuilder(source, terms),
 											"MalformedDescription"
 										)
 									}
-									return assert.deepEqual<SideDraft | undefined>(
+									return assert.deepEqual<SideDesc | undefined>(
 										sideDescOf(onBuilder(source, terms)),
 										{
 											relation: "Task",
-											terms: nonEmpty(
-												fieldTerms(
-													planted.defect === "a repeated term"
-														? [...s.fields, defined(s.fields[0])]
-														: s.fields
-												)
-											),
+											terms: nonEmpty(fieldTerms(s.fields)),
 											selection: planted.site === "on" ? everyFact : selected
 										}
 									)
 								}
 								case "pred":
-									return assert.deepEqual<SideDraft | undefined>(
+									return assert.deepEqual<SideDesc | undefined>(
 										sideDescOf(onBuilder(Counted, [predBuilder("n"), "id"])),
 										{
 											relation: "Counted",
@@ -1332,15 +1311,7 @@ describe("statements", () => {
 							return void throwsRefused(build, "MalformedDescription")
 						}
 						const built = build()
-						const sideOver = (relation: string, fields: ReadonlyArray<string>): SideDesc => ({
-							relation,
-							terms: nonEmpty(fieldTerms(fields)),
-							selection: everyFact
-						})
-						const [l0, r0] = [
-							sideOver("Task", taskFields.slice(0, s.left)),
-							sideOver("Triple", tripleFields.slice(0, s.right))
-						]
+						const [l0, r0] = [defined(sideDescOf(left)), defined(sideDescOf(right))]
 						/** mirrors is sugar: no statement of its own, the expansion of its two containments. */
 						const stated = (st: StatementDesc | undefined) =>
 							st?.kind === "contained"
