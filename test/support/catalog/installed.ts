@@ -8,7 +8,12 @@ import type { Installation } from "#compiler/physical/install/compile.ts"
 import type { CreateDomain, Expr, SqlStatement } from "#compiler/sql/ast.ts"
 import { identityHooks, transformExpr, transformStatement } from "#compiler/sql/transform.ts"
 import { assert } from "#test/support/assert.ts"
-import { type Catalog, type CatalogGrant, readCatalog } from "#test/support/catalog/read.ts"
+import {
+	type Catalog,
+	type CatalogColumn,
+	type CatalogGrant,
+	readCatalog
+} from "#test/support/catalog/read.ts"
 import {
 	type ErasureExpectation,
 	type ErasureProblem,
@@ -363,16 +368,33 @@ export type InstalledProblem = ErasureProblem | ReachProblem
 const unless = (holds: boolean, problem: ReachProblem): ReadonlyArray<ReachProblem> =>
 	holds ? [] : [problem]
 
-/** The column types of every table `role` holds a privilege `privilege` admits on, of the table or of a column. */
-const tableTypes = (
+/** The columns of every table `role` holds a privilege `privilege` admits on, of the table or of a column. */
+const tableColumns = (
 	catalog: Catalog,
 	role: string,
 	privilege: (p: string) => boolean
-): ReadonlyArray<NamedType> =>
+): ReadonlyArray<CatalogColumn> =>
 	Arr.flatMap(catalog.tables, (t) =>
 		Arr.some([...t.grants, ...t.columnGrants], (g) => g.grantee === role && privilege(g.privilege))
-			? Arr.map(t.columns, (c) => c.type)
+			? t.columns
 			: []
+	)
+
+/** The column types of every table `role` holds any privilege on. */
+const heldTypes = (catalog: Catalog, role: string): ReadonlyArray<NamedType> =>
+	Arr.map(
+		tableColumns(catalog, role, () => true),
+		(c) => c.type
+	)
+
+/**
+ * The types an insert by `role` names: those of every column of a table it holds INSERT on but a generated one, whose
+ * value PostgreSQL computes and no insert carries, so a domain only a generated column is typed by needs no USAGE.
+ */
+const insertedTypes = (catalog: Catalog, role: string): ReadonlyArray<NamedType> =>
+	Arr.flatMap(
+		tableColumns(catalog, role, (p) => p === "INSERT"),
+		(c) => (c.generation.kind === "computed" ? [] : [c.type])
 	)
 
 /** The column types of every view of `role`'s world. */
@@ -415,8 +437,8 @@ const usageProblems = (
 			...Arr.flatMap(roles, (r) => (r.role === role.name ? r.closedTypes : [])),
 			...viewedTypes(catalog, role.name)
 		]
-		const needed = closure([...reads, ...tableTypes(catalog, role.name, () => true)])
-		const bound = closure([...reads, ...tableTypes(catalog, role.name, (p) => p === "INSERT")])
+		const needed = closure([...reads, ...heldTypes(catalog, role.name)])
+		const bound = closure([...reads, ...insertedTypes(catalog, role.name)])
 		const judged = (
 			type: SchemaType,
 			grants: ReadonlyArray<CatalogGrant>
@@ -505,11 +527,7 @@ const vectorProblems = (catalog: Catalog, scope: InstalledScope): ReadonlyArray<
 	/** Each role's reached schemas: those whose vector type a column it reads or a table it inserts into rests on. */
 	const reached = new Map(
 		Arr.map(scope.roles, ({ role, closedTypes }) => {
-			const types = [
-				...closedTypes,
-				...viewedTypes(catalog, role),
-				...tableTypes(catalog, role, (p) => p === "INSERT")
-			]
+			const types = [...closedTypes, ...viewedTypes(catalog, role), ...insertedTypes(catalog, role)]
 			return [
 				role,
 				new Set(Arr.flatMap(types, (t) => Option.toArray(vectorSchemaOf(catalog, t))))

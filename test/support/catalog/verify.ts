@@ -631,6 +631,30 @@ const tableWriters = (j: Judging, tables: ReadonlyArray<string>): ReadonlySet<st
 		)
 	)
 
+/**
+ * The tables of the schema with a column whose type rests on the domain `domain`, the domain itself or one based on it
+ * down its chain: a write of one coerces into the domain, which runs its CHECK as the invoker, a generated column's
+ * included.
+ */
+const tablesOn = (j: Judging, domain: string): ReadonlyArray<string> => {
+	const bases = new Map<string, string>(
+		Arr.flatMap(j.catalog.domains, (d) =>
+			d.base.schema === j.catalog.schema ? [[d.name, d.base.name] as const] : []
+		)
+	)
+	const restsOn = (name: string): boolean =>
+		name === domain ||
+		Option.match(Option.fromUndefinedOr(bases.get(name)), {
+			onNone: () => false,
+			onSome: restsOn
+		})
+	return Arr.flatMap(j.catalog.tables, (t) =>
+		Arr.some(t.columns, (c) => c.type.schema === j.catalog.schema && restsOn(c.type.name))
+			? [t.name]
+			: []
+	)
+}
+
 /** The world roles holding EXECUTE on the function `name`. */
 const executorsOf = (j: Judging, name: string): ReadonlySet<string> =>
 	new Set(
@@ -645,9 +669,11 @@ const executorsOf = (j: Judging, name: string): ReadonlySet<string> =>
 
 /**
  * EXECUTE on a constant goes exactly to the world roles that call it as invokers (§3.12, "Role views"): a live
- * constant's, a hex literal that calls nothing, to the holders of USAGE on its bits domain, whose CHECK calls it; a names
- * constant's to the holders of USAGE on its roster domain and the roles whose views decode a closed id through it; a
- * declared closed relation's own constant's to every world role, since
+ * constant's, a hex literal that calls nothing, to the holders of USAGE on its bits domain, whose CHECK calls it, and the
+ * roles that insert into or update a table with a column whose type rests on that domain (`tablesOn`), a generated
+ * column's of a containment selected by a set among them, which no field of the writer's relations need type; a names
+ * constant's to the holders of USAGE on its roster domain, the writers of the tables on it alike, and the roles whose
+ * views decode a closed id through it; a declared closed relation's own constant's to every world role, since
  * a role holds every closed relation of its base but a roster (analysis/schema.ts CheckedSchema) and its queries' closed
  * reads call the relation's constants as the invoker; and any closed constant's to the roles whose views call it and
  * the roles that insert into or update a table whose CHECK or generated column calls it, a law's CHECK alone reading
@@ -661,12 +687,11 @@ const constantExecutorProblems = (
 	const required = new Set<string>(viewCallers(j, f.name))
 	switch (expected.kind) {
 		case "live":
-			for (const r of domainHolders(j, expected.domain, "USAGE")) {
-				required.add(r)
-			}
-			break
 		case "names":
-			for (const r of domainHolders(j, expected.domain, "USAGE")) {
+			for (const r of [
+				...domainHolders(j, expected.domain, "USAGE"),
+				...tableWriters(j, tablesOn(j, expected.domain))
+			]) {
 				required.add(r)
 			}
 			break

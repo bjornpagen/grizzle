@@ -49,7 +49,7 @@ export type CatalogGeneration =
 	| { readonly kind: "identity"; readonly always: boolean; readonly sequence: string }
 	| { readonly kind: "computed"; readonly stored: boolean; readonly expression: string }
 
-interface CatalogColumn {
+export interface CatalogColumn {
 	readonly name: ColumnIdent
 	readonly type: CatalogType
 	readonly notNull: boolean
