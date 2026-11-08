@@ -18,6 +18,7 @@ import {
 	keyRenamedOntoPrimary,
 	type LegalIntentKind,
 	legalIntentSketchGen,
+	payloadRostersRenamed,
 	planOf,
 	type RenamedDraw,
 	type RenamedPath,
@@ -325,6 +326,10 @@ const kept: ReadonlyArray<Kept<RenamedDraw, Feature>> = [
 	planted(
 		{ kind: "stated", path: statisticsOfRenamedRelation },
 		"M51: statistics of a renamed relation"
+	),
+	planted(
+		{ kind: "stated", path: payloadRostersRenamed },
+		"rosters carrying a text payload: each version's login holds their closed relations as admitted"
 	)
 ]
 

@@ -18,7 +18,6 @@ import {
 	parseDeclaredName
 } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import * as EngineResult from "#compiler/core/result.ts"
 import type { Declarations, Named, Rename } from "#compiler/deploy/diff/plan.ts"
 import type { CodeSlot } from "#compiler/ir/cells.ts"
 import { type Codebook, rosterCodec } from "#compiler/ir/codes.ts"
@@ -29,6 +28,7 @@ import {
 	type FieldDesc,
 	type LiteralDesc,
 	type LoginDesc,
+	type SchemaDesc,
 	type SideDesc
 } from "#compiler/ir/desc.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
@@ -47,9 +47,9 @@ import { own } from "#compiler/schema/own.ts"
 import type { ColumnDef } from "#compiler/sql/ast.ts"
 import { types as sqlTypes } from "#compiler/sql/build.ts"
 import { printType, quoteIdent, quoteString } from "#compiler/sql/print.ts"
-import { defined } from "#test/support/assert.ts"
+import { defined, succeeded } from "#test/support/assert.ts"
 import type {
-	SchemaDesc,
+	SchemaDesc as AuthoredSchemaDesc,
 	AuthoredStatementDesc as StatementDesc
 } from "#test/support/fixtures/ir/desc.ts"
 import {
@@ -618,7 +618,10 @@ const pathSketchGen: Gen<PathSketch> = (source) => {
 export interface Version {
 	readonly schema: GenSchema
 	readonly extras: Extras
-	/** The schema's Description with its extras. */
+	/**
+	 * The schema's Description with its extras, admitted as a user's description is (schema/admit.ts admitSchemaDesc):
+	 * each closed relation it holds admitted once, so every login over it holds admitted ones.
+	 */
 	readonly desc: SchemaDesc
 }
 
@@ -772,7 +775,7 @@ const identityFields = (schema: GenSchema, extras: Extras): ReadonlyMap<string, 
 		})
 	)
 
-const withExtras = (schema: GenSchema, extras: Extras): SchemaDesc => {
+const withExtras = (schema: GenSchema, extras: Extras): AuthoredSchemaDesc => {
 	const desc = schemaDesc(schema)
 	const serials = serialRelations(schema, extras)
 	const identities = identityFields(schema, extras)
@@ -780,7 +783,7 @@ const withExtras = (schema: GenSchema, extras: Extras): SchemaDesc => {
 	return {
 		...desc,
 		relations: [
-			...Arr.map(desc.relations, (r): SchemaDesc["relations"][number] => {
+			...Arr.map(desc.relations, (r): AuthoredSchemaDesc["relations"][number] => {
 				if (r.kind !== "relation") {
 					return r
 				}
@@ -808,11 +811,10 @@ const withExtras = (schema: GenSchema, extras: Extras): SchemaDesc => {
 	}
 }
 
-/** The worlds of a version, over its Description: the login `server`, holding the role `writer`, which holds every
- * stored relation whole and writes them, and the role `reader`, which holds every relation whole, closed ones
+/** The worlds of a version, over its admitted Description: the login `server`, holding the role `writer`, which holds
+ * every stored relation whole and writes them, and the role `reader`, which holds every relation whole, closed ones
  * included, but the unread ones, when one is left to read, and writes none. A role holds at least one relation, so a
- * version whose every relation is unread has no reader. Built only where a version installs: an invalid version (a
- * relation renamed onto a kept name) has no worlds, and its refusal is the schema's. */
+ * version whose every relation is unread has no reader. */
 const worldsOf = (
 	schema: GenSchema,
 	extras: Extras,
@@ -866,7 +868,7 @@ const on = (relation: string): SideDesc => ({
 const codedOf = (
 	coded: Coded
 ): {
-	readonly relations: SchemaDesc["relations"]
+	readonly relations: AuthoredSchemaDesc["relations"]
 	readonly statements: ReadonlyArray<StatementDesc>
 } => {
 	if (coded.kind === "absent") {
@@ -888,10 +890,11 @@ const codedOf = (
 	}
 }
 
-export const versionOf = (schema: GenSchema, extras: Extras): Version => {
-	const desc = withExtras(schema, extras)
-	return { schema, extras, desc }
-}
+export const versionOf = (schema: GenSchema, extras: Extras): Version => ({
+	schema,
+	extras,
+	desc: succeeded(admitSchemaDesc(withExtras(schema, extras)), "a version's description")
+})
 
 /** The logins a version installs (worldsOf). */
 export const versionLogins = (v: Version): ReadonlyArray<LoginDesc> =>
@@ -919,7 +922,7 @@ const statisticsWorkload = (v: Version): WorkloadPhysical | undefined => {
 	if (requests.length === 0) {
 		return undefined
 	}
-	const owned = EngineResult.flatMap(admitSchemaDesc(v.desc), (desc) => own(desc))
+	const owned = own(v.desc)
 	if (!owned.ok) {
 		throw new Error(owned.error.message)
 	}
@@ -2943,6 +2946,41 @@ export const statisticsOfRenamedRelation: StatedRenamedPath = plantedRenameWith(
 		b: renamedRelationOrigins(["P0"]),
 		c: renamedRelationOrigins(["P0", "R0"])
 	},
+	true,
+	{ toB: ["relation"], toC: [] }
+)
+
+/** A roster stated by its handles (statedRoster), carrying the text payload t, each handle's value its position. */
+const payloadRoster = (name: string, handles: Arr.NonEmptyReadonlyArray<string>): GenClosed => ({
+	...statedRoster(name, handles),
+	payload: [{ name: "t", type: textField }],
+	rows: Arr.map(handles, (handle, i): ReadonlyArray<TypedLiteral> => [
+		{ kind: "handle", handle },
+		{ kind: "text", value: `${i}` }
+	])
+})
+
+const payloadRosterOrigins = (relation: string) =>
+	statedOrigins([[relation, "R0"]], [[`${relation}.a`, "R0.a"]])
+
+/** A's roster K0 and B's added K1 each carry a text payload, which a version's description declares as the roster's
+ * closed relation (oracle/gen/schema.ts payloadPatterns), and B renames R0 to P0, chosen: every version's worlds hold
+ * those closed relations as the version's admission made them. The generated paths found it with two such rosters in
+ * A, a third added in B and one restored in C. */
+export const payloadRostersRenamed: StatedRenamedPath = plantedRename(
+	{
+		a: statedSchema([ints("R0", ["a"], ["a"])], [payloadRoster("K0", ["Open", "Shut"])]),
+		b: statedSchema(
+			[ints("P0", ["a"], ["a"])],
+			[payloadRoster("K0", ["Open", "Shut"]), payloadRoster("K1", ["Low"])]
+		),
+		c: statedSchema(
+			[ints("P0", ["a"], ["a"])],
+			[payloadRoster("K0", ["Open", "Shut"]), payloadRoster("K1", ["Low"])]
+		)
+	},
+	{ R0: [one(1n)] },
+	{ a: payloadRosterOrigins("R0"), b: payloadRosterOrigins("P0"), c: payloadRosterOrigins("P0") },
 	true,
 	{ toB: ["relation"], toC: [] }
 )
