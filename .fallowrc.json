@@ -19,6 +19,7 @@
 		"scripts/dev/mutate/main.ts",
 		"scripts/dev/mutate/vitest.config.ts",
 		"scripts/dev/mutate/reporter.ts",
+		"scripts/dev/mutate/take-coverage.ts",
 		"scripts/dev/mutate/oracle/*.test.ts",
 		"scripts/dev/profile/compile.ts",
 		"scripts/dev/profile/read.ts",

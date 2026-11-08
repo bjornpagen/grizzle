@@ -105,8 +105,9 @@ const self = "scripts/dev/mutate"
  * Workers default to the cores. An interrupted run writes no report: its verdicts are incomplete.
  *
  * These are the source modules in scope, by area: the compiler's analyses, lowerings, checker, law models, writes,
- * deployment, world DDL and SQL, and the adapter, the runtime between them and PostgreSQL. A file belongs to the first
- * area whose prefix its path starts with; a prefix ending in `.ts` names one file.
+ * deployment, world DDL and SQL, the Compute catalogue, the aggregate overloads and the ledger, which the sql-world
+ * family also aims at, and the adapter, the runtime between them and PostgreSQL. A file belongs to the first area whose
+ * prefix its path starts with; a prefix ending in `.ts` names one file.
  */
 const areas: ReadonlyArray<{ readonly area: string; readonly prefix: string }> = [
 	{ area: "analysis/logical", prefix: "packages/engine/src/analysis/logical/" },
@@ -124,6 +125,9 @@ const areas: ReadonlyArray<{ readonly area: string; readonly prefix: string }> =
 	{ area: "deploy/diff", prefix: "packages/engine/src/deploy/diff/" },
 	{ area: "deploy/render", prefix: "packages/engine/src/deploy/render/" },
 	{ area: "deploy/admission", prefix: "packages/engine/src/deploy/admission/" },
+	{ area: "deploy/ledger", prefix: "packages/engine/src/deploy/ledger/ledger.ts" },
+	{ area: "scalar/compute/registry", prefix: "packages/engine/src/scalar/compute/registry.ts" },
+	{ area: "scalar/aggregate", prefix: "packages/engine/src/scalar/aggregate.ts" },
 	{ area: "sql/print", prefix: "packages/engine/src/sql/print.ts" },
 	{ area: "adapter", prefix: "packages/grizzle/src/adapter/" }
 ]
@@ -401,7 +405,8 @@ interface Population {
 
 /**
  * Every area's mutants, and those of the scoped files, the population a run plans from. A file belongs to the first
- * area whose prefix it starts with, and every file is parsed in one native batch.
+ * area whose prefix it starts with, and every file is parsed in one native batch. An operator of grizzle's own families
+ * (world.ts) that finds no site in the areas' files refuses every run, since it would measure nothing.
  */
 const populationOf = Effect.fn("populationOf")(function* (base: string, settings: Settings) {
 	const fs = yield* FileSystem.FileSystem
@@ -426,6 +431,15 @@ const populationOf = Effect.fn("populationOf")(function* (base: string, settings
 		Effect.map(fs.readFileString(path.join(base, file)), (text) => ({ area, file, text }))
 	)
 	const found = yield* mutantsOf(inputs, [setSemantics, sqlWorld])
+	const unaimed = Arr.filter(
+		[...setSemantics.operators, ...sqlWorld.operators],
+		(operator) => !Arr.some(found, (m) => m.operator === operator)
+	)
+	if (Arr.isReadonlyArrayNonEmpty(unaimed)) {
+		return yield* DevtoolFailure.make({
+			detail: `mutate: ${Arr.join(unaimed, ", ")} find no site in the areas' files: the code each is aimed at changed, or its file is in no area`
+		})
+	}
 	const byFile = Arr.groupBy(found, (m) => m.file)
 	const files = Arr.map(inputs, (input) => ({ input, mutants: byFile[input.file] ?? [] }))
 	const wanted = (m: Mutant): boolean => Arr.contains(settings.operators, m.operator)

@@ -50,26 +50,6 @@
 		"reason": "test/unit/deploy/drafts.test.ts: drafted migration paths judged from the two snapshots, the missed-rename note and ambiguity markers, and each folder's derived name against an oracle written from the naming contract."
 	},
 	{
-		"id": "62c186fa86",
-		"verdict": "gap-fixed",
-		"reason": "test/unit/deploy/drafts.test.ts: drafted migration paths judged from the two snapshots, the missed-rename note and ambiguity markers, and each folder's derived name against an oracle written from the naming contract."
-	},
-	{
-		"id": "bc8eb4e4da",
-		"verdict": "gap-fixed",
-		"reason": "test/unit/deploy/drafts.test.ts: drafted migration paths judged from the two snapshots, the missed-rename note and ambiguity markers, and each folder's derived name against an oracle written from the naming contract."
-	},
-	{
-		"id": "852fbbb2c7",
-		"verdict": "gap-fixed",
-		"reason": "test/unit/deploy/drafts.test.ts: drafted migration paths judged from the two snapshots, the missed-rename note and ambiguity markers, and each folder's derived name against an oracle written from the naming contract."
-	},
-	{
-		"id": "63c1888de2",
-		"verdict": "gap-fixed",
-		"reason": "test/unit/deploy/drafts.test.ts: drafted migration paths judged from the two snapshots, the missed-rename note and ambiguity markers, and each folder's derived name against an oracle written from the naming contract."
-	},
-	{
 		"id": "e5c3bf762a",
 		"verdict": "gap-fixed",
 		"reason": "test/unit/deploy/drafts.test.ts: drafted migration paths judged from the two snapshots, the missed-rename note and ambiguity markers, and each folder's derived name against an oracle written from the naming contract."
@@ -78,11 +58,6 @@
 		"id": "a83e00d3e8",
 		"verdict": "equivalent",
 		"reason": "derivedMigrationName (deploy/render/naming.ts) never reads one change twice: a theory field's column and a manifest column object (a stored tag's) are never the same column, and no identity is added, dropped, changed or retired at once, so leaving out the deduplication, or keying it by identity alone, names the same changes."
-	},
-	{
-		"id": "b1fd7b73b3",
-		"verdict": "equivalent",
-		"reason": "The violation query's main statement (deploy/diff/diff.ts): the next line requires exactly one statement, which is then the first, whatever its role, and a violation query takes no parameter, so one parameter more or less is refused all the same."
 	},
 	{
 		"id": "663eb60bc6",
@@ -113,16 +88,6 @@
 		"id": "530436806e",
 		"verdict": "equivalent",
 		"reason": "A refusal's wording (check/checker.ts MissingDiscriminant): which of two phrases explains the missing discriminant; the reason and location are unchanged."
-	},
-	{
-		"id": "8d762c3317",
-		"verdict": "equivalent",
-		"reason": "checkMemberHeading's serial test without relation.serial.length > 0 (check/member.ts): for a relation without serial fields the supplied list is empty, so the mixed-serial refusal cannot fire."
-	},
-	{
-		"id": "5cc17d883e",
-		"verdict": "equivalent",
-		"reason": "The ADD VALUE position search starting at the new label itself (deploy/diff/diff.ts) finds the same existing label: the new label is not among the existing ones, so slice(k) and slice(k + 1) have the same first existing label."
 	},
 	{
 		"id": "a47f32a29b",
