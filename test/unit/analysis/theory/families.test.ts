@@ -939,6 +939,7 @@ type Refusal =
 	| "a start off the identity"
 	| "a carrier the monoid does not admit"
 	| "an accumulator pair over a counted family"
+	| "an accumulator with no partner"
 	| "a tree keyed by two fields"
 	| "a tree with no drawn start"
 	| "a drawn field no statement names"
@@ -1028,6 +1029,23 @@ const refusals: Arr.NonEmptyReadonlyArray<Corruption<FamilyCase, Refused, Refusa
 								st.kind === "fold"
 									? { ...st, step: on("F", [...group, "x", "before", "after"]) }
 									: st
+							)
+						}
+					})()
+				: undefined,
+		atStatement
+	),
+	refusal(
+		"an accumulator with no partner",
+		(c) =>
+			c.kind === "family" && c.fold === "named accumulators"
+				? (() => {
+						const parts = familyParts(c, f.bigint, 0n)
+						const [group] = keysOf(c)
+						return {
+							...parts,
+							statements: Arr.map(parts.statements, (st) =>
+								st.kind === "fold" ? { ...st, step: on("F", [...group, "x", "before"]) } : st
 							)
 						}
 					})()

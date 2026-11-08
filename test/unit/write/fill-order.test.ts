@@ -126,6 +126,7 @@ type FillSituation =
 	| "refilled: a last copy"
 	| "refilled: a tree copy"
 	| "refilled: a copy of an owner an edit re-places"
+	| "compiled: a put beneath an immutable owner, which re-places nothing"
 	| "refused: the write a refill starts from, beside a plain put named first"
 	| "refilled: a fold over a copy"
 	| "refused: a refill of an immutable relation's rows"
@@ -1046,6 +1047,9 @@ const boxSituations: Arr.NonEmptyReadonlyArray<BoxSituation> = [
  * - `re-placed owner`: R0 owns an ordered family of R1, and R1 a counted family of R2 whose owner copy reads R1's `v`,
  *   `g` or index; R1's put or delete re-places R1's rows, deleting and inserting them again, which no cascade follows,
  *   so the copy itself is the value drawn again.
+ * - `put beneath a fixed owner`: R0, immutable, owns an ordered family of R1, and R1 a counted family of R2, immutable
+ *   too, whose owner copy reads R1's `v`; R1's put re-places nothing, an immutable owner's family being fixed, so the
+ *   copy is carried by its cascade and nothing is drawn again, though a refill of R2 would be refused.
  * - `second-order refusal`: R0 has no family. R1 owns an ordered family of R2, whose sum steps R2's copy of R1's `v` or
  *   `g`, and a counted family of R3, an immutable relation, whose sum steps R3's copy of the first family's end. R1's put
  *   refills the first family, whose refill changes the end the second's members copy, a refill of an immutable
@@ -1061,6 +1065,7 @@ type StalePath =
 	| "edit of a tree node"
 	| "edit through a copy"
 	| "re-placed owner"
+	| "put beneath a fixed owner"
 	| "second-order refusal"
 
 interface StaleShape {
@@ -1078,6 +1083,7 @@ const staleShapeGen: Gen<StaleShape> = (source) => ({
 			"edit of a tree node",
 			"edit through a copy",
 			"re-placed owner",
+			"put beneath a fixed owner",
 			"second-order refusal"
 		] as const)
 	),
@@ -1111,6 +1117,19 @@ const staleSpec = (shape: StaleShape): FillSpec | undefined => {
 						{ family: 0, copy: 0 },
 						{ family: 1, copy: 1 }
 					]
+				}
+			: undefined
+	}
+	if (shape.path === "put beneath a fixed owner") {
+		return shape.reader === "owner" && shape.source === "caller"
+			? {
+					relations: [{ ...relation, mutable: false }, relation, { ...relation, mutable: false }],
+					families: [
+						{ kind: "ordered", owner: 0, member: 1, fold: "none" },
+						{ kind: "counted", owner: 1, member: 2, fold: "none" }
+					],
+					copies: [{ family: 1, axis: "owner", source: { kind: "caller" } }],
+					steps: []
 				}
 			: undefined
 	}
@@ -1275,6 +1294,7 @@ const staleSituations: Arr.NonEmptyReadonlyArray<FillSituation> = [
 	"refilled: a last copy",
 	"refilled: a tree copy",
 	"refilled: a copy of an owner an edit re-places",
+	"compiled: a put beneath an immutable owner, which re-places nothing",
 	"refilled: a fold over a copy",
 	"refused: the write a refill starts from, beside a plain put named first",
 	"refused: a put from a query that a refill would draw",
@@ -1441,8 +1461,8 @@ describe("the fill order: a schema generate accepts is one every write of fills"
 						suite: "unit/write/fill-order-stale",
 						generator: staleShapeGen,
 						literal: Formatter.format,
-						limit: 168,
-						box: "an owner's put through one copy or two, and an edit of a family of a member owner, of a tree node or of the owner a copy reads, to a predecessor copy, a last copy, a tree's copy or a sum fold stepping the copy, and a put or a delete re-placing an ordered family's member whose counted members copy its v, g or index, over mutable relations holding g; a refill's refill of an immutable relation's rows, its write named after a plain put; each put from a query too, and each write under a role leaving out each relation in turn",
+						limit: 192,
+						box: "an owner's put through one copy or two, and an edit of a family of a member owner, of a tree node or of the owner a copy reads, to a predecessor copy, a last copy, a tree's copy or a sum fold stepping the copy, and a put or a delete re-placing an ordered family's member whose counted members copy its v, g or index, over mutable relations holding g; a put of an immutable owner's member whose immutable counted members copy its v, which re-places nothing; a refill's refill of an immutable relation's rows, its write named after a plain put; each put from a query too, and each write under a role leaving out each relation in turn",
 						oracle: {
 							kind: "second-implementation",
 							name: "the reference's refills (families/fill.ts writesVerdict, refillsOf)"
@@ -1457,6 +1477,9 @@ describe("the fill order: a schema generate accepts is one every write of fills"
 								return
 							}
 							yield* property(spec, fullInstance(spec), Option.none(), (s) => c.note(s))
+							if (shape.path === "put beneath a fixed owner") {
+								c.note("compiled: a put beneath an immutable owner, which re-places nothing")
+							}
 							guards(spec, (s) => c.note(s))
 						})
 				)
