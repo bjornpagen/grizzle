@@ -150,9 +150,9 @@ breaking change may briefly break older application instances that are still run
   and interval (window functions, and one recursive step for a tree), each default is dropped, and only then are the
   constraints that read them added, `NOT VALID`, for Validate to prove the values. A field whose filler changed (its
   fold steps over another field, its copy reads another field, its family's group or order changed) is dropped and
-  backfilled the same way: `snapshot.json` records what fills each drawn or accumulated field. A family whose values
-  the stored rows alone don't give is refused, naming it: copies that read each other, a fold over a copy, or a tree
-  whose drawn columns are partly stored, such as a fold added to or changed on a tree that holds rows. A roster whose names changed has its domain's CHECK dropped and added `NOT VALID` against the new names constant,
+  backfilled the same way: `snapshot.json` records what fills each drawn or accumulated field. A fold added to or
+  changed on a tree that holds rows is drawn in the tree's stored sibling order. A family whose values the stored rows
+  alone don't give is refused, naming it: copies that read each other, or a fold over a copy. A roster whose names changed has its domain's CHECK dropped and added `NOT VALID` against the new names constant,
   validated in Validate; a set over a roster that grew is converted to the new size's domain by its cast, the new
   handles absent. A table CHECK or generated field over a changed closed relation is replaced the same way, or takes its
   new expression (`SET EXPRESSION`). A field whose type changes is converted in place, `ALTER COLUMN ... TYPE ... USING`
@@ -212,14 +212,17 @@ What a declaration drafts:
 - **A relation or roster renamed** is renamed in place in Setup, first aside and then to its new name, with its
   constraints, so its rows stay where they are, and a swap (`A=B` and `B=A`) or a chain (`A=B` and `B=C`) is free of the
   names it moves into. A name a rename takes ends its previous holder, which is dropped as declared.
-- **A field renamed** is renamed in place, through its own aside name, and what is built over it (its indexes, keys,
-  CHECKs and foreign keys) is built again as the schema declares it. A new field of a table with rows takes a
-  placeholder, and a field whose type changed is converted in place, as any field is.
+- **A field renamed** is renamed in place, through its own aside name. PostgreSQL carries the rename into what is built
+  over it, and each key, index, statistics object, CHECK and foreign key over it, or on a renamed relation, or
+  referencing one, that the schema declares by the same definition is renamed to the name the schema gives it
+  (`RENAME CONSTRAINT`, `ALTER INDEX ... RENAME TO`), never built or validated again; what the schema declares otherwise
+  is built again. A new field of a table with rows takes a placeholder, and a field whose type changed is converted in
+  place, as any field is.
 - **A family's hidden columns** (`__copy_…`, `__index_…`, `__parent_start_…`, `__before_…`, `__after_…`,
-  `__predecessor_…`, `__pred_…`) are named by the laws whose values they hold, so a rename of the owner, the member or
-  the count, a swap or a chain among them included, renames them in place too, `ALTER TABLE ... RENAME COLUMN` through
-  an aside name: no backfill, no table rewrite, every drawn value kept. A column whose law the migration changes
-  otherwise is a new column, drawn again.
+  `__predecessor_…`, `__pred_…`) are named by the laws whose values they hold, so a rename of the owner, the member, the
+  count, or a roster or handle a fold's or a side's selection reads, a swap or a chain among them included, renames
+  them in place too, `ALTER TABLE ... RENAME COLUMN` through an aside name: no backfill, no table rewrite, every drawn
+  value kept. A column whose law the migration changes otherwise is a new column, drawn again.
 - **A handle renamed** keeps its code, so every row holding it holds the new name: the migration installs the
   roster's new names constant and points its domain at it.
 - **A handle dropped** leaves a hole: its code is never reused, and the roster's domain, validated against the new names

@@ -2,24 +2,27 @@
  * A family over stored rows across a migration that renames it or changes what fills it, on PostgreSQL 19rc1,
  * generated.
  *
- * A history: relations with rows stored at their first version; a family over them at the second, counted, ordered or
- * a tree, with a fold whose accumulators are hidden, named or absent and an axis copy or none, backfilled over the rows;
- * then a third version that either
+ * A history: relations with rows stored at their first version, a roster's kinds among them; a family over them at the
+ * second, counted, ordered or a tree, with a fold whose accumulators are hidden, named or absent, stepping over every
+ * member or over those of one kind, and an axis copy or none, backfilled over the rows; then a third version that either
  *
  * - **renames** it: the relations mapped injectively onto their own names, each other's or fresh ones, so swaps, chains
- *   and cycles occur, the owner, the member and a spare relation among them, and the owner's count and caller fields
- *   likewise, each rename declared (`--rename`); or
- * - **changes what fills it**: the field its fold steps over, the field its axis copy reads, or a counted or ordered
- *   family's group, nothing declared.
+ *   and cycles occur, the owner, the member and a spare relation among them; the owner's count and caller fields
+ *   likewise; and the roster and its handles, the kind a selected fold steps over among them; each rename declared
+ *   (`--rename`); or
+ * - **changes what fills it**: the field its fold steps over, the field its axis copy reads, a counted or ordered
+ *   family's group, or a fold it adds, a tree's among them, nothing declared.
  *
  * The oracles, PostgreSQL the judge:
  *
- * - **A rename changes no stored byte.** Every table keeps its OID and its relfilenode, so nothing rewrote it; every
- *   column its attribute number and its values, so no law column or drawn field was dropped and added again; and every
- *   row its xmin, so no backfill UPDATE touched it. The family's law columns (‹n›, a counted index, a tree's ‹ps›, a
- *   fold's hidden accumulators, the generated terms) and its drawn fields are renamed in place.
+ * - **A rename changes no stored byte and builds nothing.** Every table keeps its OID and its relfilenode, so nothing
+ *   rewrote it; every column its attribute number and its values, so no law column or drawn field was dropped and added
+ *   again; every row its xmin, so no backfill UPDATE touched it; and every constraint and index its OID, so none was
+ *   built or validated again. The family's law columns (‹n›, a counted index, a tree's ‹ps›, a fold's hidden
+ *   accumulators, the generated terms), its drawn fields, its keys and its CHECKs and foreign keys are renamed in place.
  * - **A changed filler is drawn again.** The migration commits, so PostgreSQL validated every constraint it added over
- *   the values it drew; a field kept with its old filler's values fails the fold's CHECK or the axis's foreign key.
+ *   the values it drew; a field kept with its old filler's values fails the fold's CHECK or the axis's foreign key, and
+ *   a fold over a tree is drawn in the tree's stored sibling order.
  * - Either way, migrate's drift check and the installed-catalog checker match the catalog against the snapshot after
  *   every step, and no constraint is left NOT VALID: every law holds.
  */
@@ -48,6 +51,7 @@ import {
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import {
 	type AuthoredStatementDesc,
+	closed,
 	contained,
 	counted,
 	f,
@@ -58,6 +62,7 @@ import {
 	literal,
 	on,
 	onSource,
+	onWhere,
 	ordered,
 	relation,
 	type SchemaDesc
@@ -84,10 +89,12 @@ type Kind = (typeof kinds)[number]
  * family). */
 type Accumulators = "none" | "hidden" | "named"
 
-/** What a history's family is: its kind, its fold and whether an axis carries a copy. */
+/** What a history's family is: its kind, its fold, whether the fold steps over the members of one kind alone, and
+ * whether an axis carries a copy. */
 interface Shape {
 	readonly kind: Kind
 	readonly fold: Accumulators
+	readonly selected: boolean
 	readonly copy: boolean
 }
 
@@ -104,23 +111,51 @@ const freshRelations = ["Fresh", "Other"] as const
 const ownerFields = ["n", "tag", "tag2"] as const
 type OwnerField = (typeof ownerFields)[number]
 
-/** How a version names the history's relations and the owner's fields, by their names at its first version. */
+/** The roster a member's kind is of, its handles in code order, and the names a rename may give them. */
+const roster = "Kind"
+const handles = ["a", "b", "c"] as const
+type Handle = (typeof handles)[number]
+
+/** How a version names the history's relations, the owner's fields, the roster and its handles, by their names at its
+ * first version. */
 interface Naming {
 	readonly relation: (name: RelationName) => string
 	readonly field: (name: OwnerField) => string
+	readonly roster: string
+	readonly handle: (name: Handle) => string
 }
 
-const asFirst: Naming = { relation: (name) => name, field: (name) => name }
+const asFirst: Naming = {
+	relation: (name) => name,
+	field: (name) => name,
+	roster,
+	handle: (name) => name
+}
 
-/** What a version's family reads: the member field its fold steps over, the owner field its copy reads, and its
- * group. A tree's group is its parent, and its fold counts. */
+/** What a version's family reads: the field its fold steps over (a member's x or y, a tree node's two tags), the
+ * owner field its copy reads, and its group. A tree's group is its parent. */
 interface Reading {
-	readonly step: "x" | "y"
+	readonly step: "first" | "second"
 	readonly copied: "tag" | "tag2"
 	readonly group: "g" | "h"
 }
 
-const firstReading: Reading = { step: "x", copied: "tag", group: "g" }
+const firstReading: Reading = { step: "first", copied: "tag", group: "g" }
+
+/** The member field a counted or ordered family's fold steps over, by its reading. */
+const steps = { first: "x", second: "y" } as const
+
+/** The members a selected fold steps over: those of kind a. */
+const ofKind = (naming: Naming) =>
+	({ kind: "compare", op: "eq", left: field("kind"), right: literal(naming.handle("a")) }) as const
+
+/** A fold's step side: over every member, or, selected, over the members of kind a. */
+const stepSide = (
+	shape: Shape,
+	naming: Naming,
+	relationName: string,
+	terms: ReadonlyArray<string>
+) => (shape.selected ? onWhere(relationName, terms, ofKind(naming)) : on(relationName, terms))
 
 const integer = f.integer
 
@@ -150,6 +185,7 @@ const familySchema = (shape: Shape, naming: Naming, reading: Reading) => {
 		h: integer,
 		x: integer,
 		y: integer,
+		kind: f.closedId(naming.roster),
 		...(ordered_ ? { at: f.drawn } : {}),
 		...(named ? { before: f.accumulated(integer, 0), after: f.accumulated(integer, 0) } : {}),
 		...(shape.copy ? { ownerTag: f.accumulated(integer, 0) } : {})
@@ -162,7 +198,12 @@ const familySchema = (shape: Shape, naming: Naming, reading: Reading) => {
 			fold(
 				slots,
 				"sum",
-				on(member, named ? [group, reading.step, "before", "after"] : [group, reading.step]),
+				stepSide(
+					shape,
+					naming,
+					member,
+					named ? [group, steps[reading.step], "before", "after"] : [group, steps[reading.step]]
+				),
 				on(owner, ["id", "end"])
 			)
 		)
@@ -181,8 +222,8 @@ const familySchema = (shape: Shape, naming: Naming, reading: Reading) => {
 	}
 }
 
-/** A tree's relation and statements at a version: its count fold over each node's children, and its copy of the
- * parent's tag down the owner axis. */
+/** A tree's relation and statements at a version: its sum fold of a tag over each node's children, and its copy of
+ * the parent's tag down the owner axis. */
 const treeSchema = (shape: Shape, naming: Naming, reading: Reading) => {
 	const node = naming.relation("Node")
 	const count = naming.field("n")
@@ -198,19 +239,26 @@ const treeSchema = (shape: Shape, naming: Naming, reading: Reading) => {
 		[count]: f.drawn,
 		start: f.drawn,
 		end: f.drawn,
-		...(shape.fold === "none" ? {} : { total: f.accumulated(f.natural, 0n) }),
-		...(named ? { before: f.accumulated(f.natural, 0n), after: f.accumulated(f.natural, 0n) } : {}),
+		kind: f.closedId(naming.roster),
+		...(shape.fold === "none" ? {} : { total: f.accumulated(integer, 0) }),
+		...(named ? { before: f.accumulated(integer, 0), after: f.accumulated(integer, 0) } : {}),
 		...(shape.copy ? { parentTag: f.accumulated(integer, 0) } : {})
 	}
 	const statements: Array<AuthoredStatementDesc> = [
 		{ kind: "tree", member: on(node, ["parent", "at"]), slots, root: "doc" }
 	]
 	if (shape.fold !== "none") {
+		const step = naming.field(reading.step === "first" ? "tag" : "tag2")
 		statements.push(
 			fold(
 				slots,
-				"count",
-				on(node, named ? ["parent", "before", "after"] : ["parent"]),
+				"sum",
+				stepSide(
+					shape,
+					naming,
+					node,
+					named ? ["parent", step, "before", "after"] : ["parent", step]
+				),
 				on(node, ["id", "total"])
 			)
 		)
@@ -227,21 +275,25 @@ const treeSchema = (shape: Shape, naming: Naming, reading: Reading) => {
 }
 
 /** A history's relations before its family: the caller's fields alone. */
-const plainSchema = (shape: Shape) =>
-	shape.kind === "tree"
+const plainSchema = (shape: Shape) => {
+	const kind = f.closedId(roster)
+	return shape.kind === "tree"
 		? [
 				relation(
 					"Node",
-					{ id: integer, parent: integer, doc: integer, tag: integer, tag2: integer },
+					{ id: integer, parent: integer, doc: integer, tag: integer, tag2: integer, kind },
 					["id"]
 				)
 			]
 		: [
 				relation("Owner", { id: integer, tag: integer, tag2: integer }, ["id"]),
-				relation("Member", { member: integer, g: integer, h: integer, x: integer, y: integer }, [
-					"member"
-				])
+				relation(
+					"Member",
+					{ member: integer, g: integer, h: integer, x: integer, y: integer, kind },
+					["member"]
+				)
 			]
+}
 
 /** A version's schema under the declared name `name`: the plain relations, or the family as `naming` and `reading`
  * state it, with the spare relation. */
@@ -252,13 +304,16 @@ const versionOf = (
 		| { readonly kind: "plain" }
 		| { readonly kind: "family"; readonly naming: Naming; readonly reading: Reading }
 ): SchemaDesc => {
-	const spare = relation(
-		at.kind === "plain" ? "Spare" : at.naming.relation("Spare"),
-		{ id: integer },
-		["id"]
-	)
+	const naming = at.kind === "plain" ? asFirst : at.naming
+	const spare = relation(naming.relation("Spare"), { id: integer }, ["id"])
+	const kinds = closed(naming.roster, Arr.map(handles, naming.handle))
 	if (at.kind === "plain") {
-		return { name, relations: [...plainSchema(shape), spare], statements: [], extends: undefined }
+		return {
+			name,
+			relations: [kinds, ...plainSchema(shape), spare],
+			statements: [],
+			extends: undefined
+		}
 	}
 	const family =
 		shape.kind === "tree"
@@ -266,7 +321,7 @@ const versionOf = (
 			: familySchema(shape, at.naming, at.reading)
 	return {
 		name,
-		relations: [...family.relations, spare],
+		relations: [kinds, ...family.relations, spare],
 		statements: family.statements,
 		extends: undefined
 	}
@@ -282,6 +337,9 @@ interface Stored {
 const keyRange = Arr.range(1, 40)
 
 const valueGen = int(-9, 9)
+
+/** A kind's code: its handle's position in the roster. */
+const codeGen = int(0, handles.length - 1)
 
 /** One to three owners, each with two tags, and up to six members, each keyed apart, falling among them under both
  * groups, each with two values; the keys drawn in any order. */
@@ -306,7 +364,8 @@ const familyRows: Gen<ReadonlyArray<Stored>> = (source) => {
 				g: source.draw(ownerOf),
 				h: source.draw(ownerOf),
 				x: source.draw(valueGen),
-				y: source.draw(valueGen)
+				y: source.draw(valueGen),
+				kind: source.draw(codeGen)
 			}))
 		}
 	]
@@ -326,7 +385,8 @@ const treeRows: Gen<ReadonlyArray<Stored>> = (source) => {
 			parent: idOf(node === 0 ? 0 : defined(shape[node - 1], "a node's parent")),
 			doc,
 			tag: source.draw(valueGen),
-			tag2: source.draw(valueGen)
+			tag2: source.draw(valueGen),
+			kind: source.draw(codeGen)
 		}))
 		offset += shape.length + 1
 		return nodes
@@ -351,15 +411,20 @@ const relationsOf = (kind: Kind): ReadonlyArray<RelationName> =>
 /** The relation whose fields the owner fields are: a counted or ordered family's owner, a tree's node. */
 const ownerOf = (kind: Kind): RelationName => (kind === "tree" ? "Node" : "Owner")
 
-/** A rename of a history: each relation's name and each owner field's at the third version. */
+/** A rename of a history: each relation's name, each owner field's, the roster's and each handle's at the third
+ * version. */
 interface Renaming {
 	readonly relations: ReadonlyMap<RelationName, string>
 	readonly fields: ReadonlyMap<OwnerField, string>
+	readonly roster: string
+	readonly handles: ReadonlyMap<Handle, string>
 }
 
 const namingOf = (r: Renaming): Naming => ({
 	relation: (name) => r.relations.get(name) ?? name,
-	field: (name) => r.fields.get(name) ?? name
+	field: (name) => r.fields.get(name) ?? name,
+	roster: r.roster,
+	handle: (name) => r.handles.get(name) ?? name
 })
 
 /** An injective map of `names` onto their own names and `fresh`, drawn uniformly: swaps, chains and cycles among
@@ -381,7 +446,12 @@ const shapeGen =
 		const fold = source.draw(
 			element<Accumulators>(kind === "counted" ? ["none", "hidden"] : ["none", "hidden", "named"])
 		)
-		return { kind, fold, copy: source.draw(boolean) }
+		return {
+			kind,
+			fold,
+			selected: fold !== "none" && source.draw(boolean),
+			copy: source.draw(boolean)
+		}
 	}
 
 /** A renaming history: its family, its stored rows and its third version's names. */
@@ -398,7 +468,9 @@ const renameCaseGen: Gen<RenameCase> = (source) => {
 		stored: source.draw(rowsOf(shape.kind)),
 		renaming: {
 			relations: source.draw(injection(relationsOf(shape.kind), freshRelations)),
-			fields: source.draw(injection(ownerFields, ["m"]))
+			fields: source.draw(injection(ownerFields, ["m"])),
+			roster: source.draw(element([roster, "Sort"])),
+			handles: source.draw(injection(handles, ["d"]))
 		}
 	}
 }
@@ -432,6 +504,28 @@ const declarationsOf = (c: RenameCase): Declarations => {
 							}
 						}
 					]
+		),
+		...(naming.roster === roster
+			? []
+			: [
+					{
+						from: { kind: "relation" as const, relation: parsedName(roster) },
+						to: { kind: "relation" as const, relation: parsedName(naming.roster) }
+					}
+				]),
+		...Arr.flatMap(handles, (handle): ReadonlyArray<Rename> =>
+			naming.handle(handle) === handle
+				? []
+				: [
+						{
+							from: { kind: "handle", roster: parsedName(roster), handle },
+							to: {
+								kind: "handle",
+								roster: parsedName(naming.roster),
+								handle: naming.handle(handle)
+							}
+						}
+					]
 		)
 	]
 	return { renames, drops: [] }
@@ -453,10 +547,13 @@ const compiledAt = (
 	)
 }
 
-/** What a version holds of one table, read by its OID: its relfilenode, and each live column's attribute number with
- * every row's value of it, beside each row's xmin, rows in the order of the table's key. */
+/** What a version holds of one table, read by its OID: its relfilenode, its constraints' and its indexes' OIDs, and
+ * each live column's attribute number with every row's value of it, beside each row's xmin, rows in the order of the
+ * table's key. */
 interface TableRead {
 	readonly relfilenode: string
+	readonly constraints: ReadonlyArray<string>
+	readonly indexes: ReadonlyArray<string>
 	readonly columns: ReadonlyArray<{
 		readonly attnum: string
 		readonly values: ReadonlyArray<string>
@@ -518,7 +615,13 @@ const readTables = (oids: ReadonlyArray<string>) =>
 					)
 				)
 				const xmins = yield* values(`SELECT xmin::text FROM ${table} ORDER BY ${quoteIdent(key)}`)
-				const read: TableRead = { relfilenode, columns, xmins }
+				const constraints = yield* values(
+					`SELECT oid::int8::text FROM pg_catalog.pg_constraint WHERE conrelid = ${oid} ORDER BY oid`
+				)
+				const indexes = yield* values(
+					`SELECT indexrelid::int8::text FROM pg_catalog.pg_index WHERE indrelid = ${oid} ORDER BY indexrelid`
+				)
+				const read: TableRead = { relfilenode, constraints, indexes, columns, xmins }
 				return read
 			})
 		)
@@ -644,6 +747,11 @@ type RenameFeature =
 	| "relations chained"
 	| "fields swapped"
 	| "fields chained"
+	| "roster renamed"
+	| "handles swapped"
+	| "handles chained"
+	| "selected fold"
+	| "selected handle renamed"
 	| "stored members"
 
 /** Whether a history stores more than one row of a relation of its family. */
@@ -667,6 +775,7 @@ const renameNotes = (c: RenameCase): ReadonlyArray<RenameFeature> => {
 	const naming = namingOf(c.renaming)
 	const relations = movesOf(c.renaming.relations)
 	const fields = movesOf(c.renaming.fields)
+	const kinds = movesOf(c.renaming.handles)
 	const members = storesMembers(c.stored)
 	return [
 		c.shape.kind,
@@ -683,6 +792,13 @@ const renameNotes = (c: RenameCase): ReadonlyArray<RenameFeature> => {
 		...(relations.chained ? (["relations chained"] as const) : []),
 		...(fields.swapped ? (["fields swapped"] as const) : []),
 		...(fields.chained ? (["fields chained"] as const) : []),
+		...(naming.roster === roster ? [] : (["roster renamed"] as const)),
+		...(kinds.swapped ? (["handles swapped"] as const) : []),
+		...(kinds.chained ? (["handles chained"] as const) : []),
+		...(c.shape.selected ? (["selected fold"] as const) : []),
+		...(c.shape.selected && naming.handle("a") !== "a"
+			? (["selected handle renamed"] as const)
+			: []),
 		...(members ? (["stored members"] as const) : [])
 	]
 }
@@ -727,6 +843,12 @@ const renameCase = (c: RenameCase, k: Case<RenameFeature>) =>
 		for (const [i, table] of after.tables.entries()) {
 			const was = defined(before.tables[i], "a table before the rename")
 			assert.equal(table.relfilenode, was.relfilenode, "a rename rewrites no table")
+			assert.deepEqual(
+				table.constraints,
+				was.constraints,
+				"a rename keeps every constraint, renamed in place, never added and validated again"
+			)
+			assert.deepEqual(table.indexes, was.indexes, "a rename keeps every index, never built again")
 			assert.deepEqual(table.xmins, was.xmins, "a rename updates no row")
 			assert.deepEqual(
 				table.columns,
@@ -736,11 +858,18 @@ const renameCase = (c: RenameCase, k: Case<RenameFeature>) =>
 		}
 	})
 
-type ChangeFeature = Kind | `fold ${Accumulators}` | "copy" | Change | "stored members"
+type ChangeFeature =
+	| Kind
+	| `fold ${Accumulators}`
+	| "copy"
+	| "selected fold"
+	| `${Change} on a ${Kind}`
+	| Change
+	| "stored members"
 
 /** What a reshaping history changes at its third version: the field its fold steps over, the field its copy reads,
- * or its group. */
-type Change = "fold step" | "copy target" | "group"
+ * its group, or a fold it adds. */
+type Change = "fold step" | "copy target" | "group" | "fold added"
 
 interface ChangeCase {
 	readonly shape: Shape
@@ -749,12 +878,10 @@ interface ChangeCase {
 }
 
 const changeCaseGen: Gen<ChangeCase> = (source) => {
-	const change = source.draw(element<Change>(["fold step", "copy target", "group"]))
-	const base = source.draw(
-		shapeGen(change === "copy target" ? ["counted", "ordered", "tree"] : ["counted", "ordered"])
-	)
+	const change = source.draw(element<Change>(["fold step", "copy target", "group", "fold added"]))
+	const base = source.draw(shapeGen(change === "group" ? ["counted", "ordered"] : kinds))
 	const shape: Shape =
-		change === "fold step" && base.fold === "none"
+		(change === "fold step" || change === "fold added") && base.fold === "none"
 			? { ...base, fold: "hidden" }
 			: change === "copy target"
 				? { ...base, copy: true }
@@ -762,15 +889,21 @@ const changeCaseGen: Gen<ChangeCase> = (source) => {
 	return { shape, change, stored: source.draw(rowsOf(shape.kind)) }
 }
 
+/** What a reshaping history's second version is: its family without the fold it adds, or as it is. */
+const shapeBefore = (c: ChangeCase): Shape =>
+	c.change === "fold added" ? { ...c.shape, fold: "none", selected: false } : c.shape
+
 /** What a reshaping history's third version reads. */
 const changedReading = (change: Change): Reading => {
 	switch (change) {
 		case "fold step":
-			return { ...firstReading, step: "y" }
+			return { ...firstReading, step: "second" }
 		case "copy target":
 			return { ...firstReading, copied: "tag2" }
 		case "group":
 			return { ...firstReading, group: "h" }
+		case "fold added":
+			return firstReading
 	}
 }
 
@@ -780,7 +913,9 @@ const changeCase = (c: ChangeCase, k: Case<ChangeFeature>) =>
 			c.shape.kind,
 			`fold ${c.shape.fold}`,
 			c.change,
+			`${c.change} on a ${c.shape.kind}`,
 			...(c.shape.copy ? (["copy"] as const) : []),
+			...(c.shape.selected ? (["selected fold"] as const) : []),
 			...(storesMembers(c.stored) ? (["stored members"] as const) : [])
 		])
 		yield* migrateHistory(
@@ -789,7 +924,11 @@ const changeCase = (c: ChangeCase, k: Case<ChangeFeature>) =>
 				{ desc: (name) => versionOf(name, c.shape, { kind: "plain" }), declared: noDeclarations },
 				{
 					desc: (name) =>
-						versionOf(name, c.shape, { kind: "family", naming: asFirst, reading: firstReading }),
+						versionOf(name, shapeBefore(c), {
+							kind: "family",
+							naming: asFirst,
+							reading: firstReading
+						}),
 					declared: noDeclarations
 				},
 				{
@@ -811,7 +950,7 @@ layer(Substrate.layer)(
 	"a family over stored rows renamed or refilled through grizzle's migrations on PostgreSQL 19rc1",
 	(it) => {
 		it.effect(
-			"a declared rename of a family's relations or the owner's fields, swaps and chains among them, renames every law column and drawn field in place: no table rewritten, no row updated, every column's attribute number and values kept",
+			"a declared rename of a family's relations, the owner's fields, a roster and its handles, swaps and chains among them, renames every law column, drawn field, constraint and index in place: no table rewritten, no row updated, nothing built or validated again",
 			(ctx) =>
 				searched(
 					ctx,
@@ -822,7 +961,7 @@ layer(Substrate.layer)(
 							literal: Formatter.format,
 							oracle: {
 								kind: "postgresql",
-								name: "a rename changes no stored byte: relfilenodes, xmins, attribute numbers and values, judged by PostgreSQL's catalog"
+								name: "a rename changes no stored byte and builds nothing: relfilenodes, xmins, attribute numbers, values and constraint and index OIDs, judged by PostgreSQL's catalog"
 							},
 							coverage: required<RenameFeature>(
 								[
@@ -838,9 +977,14 @@ layer(Substrate.layer)(
 									"relations chained",
 									"fields swapped",
 									"fields chained",
+									"roster renamed",
+									"handles swapped",
+									"handles chained",
+									"selected fold",
+									"selected handle renamed",
 									"stored members"
 								],
-								{ cases: 24, sense: notesOnly }
+								{ cases: 48, sense: notesOnly }
 							),
 							kept: [],
 							runs: 4,
@@ -854,7 +998,7 @@ layer(Substrate.layer)(
 				)
 		)
 		it.effect(
-			"a fold's step, an axis copy's target or a family's group changed over stored rows is drawn again: the migration commits with every law validated",
+			"a fold's step, an axis copy's target or a family's group changed over stored rows, or a fold added, trees included, is drawn again: the migration commits with every law validated",
 			(ctx) =>
 				searched(
 					ctx,
@@ -876,6 +1020,11 @@ layer(Substrate.layer)(
 									"fold step",
 									"copy target",
 									"group",
+									"fold added",
+									"fold step on a tree",
+									"fold added on a tree",
+									"copy target on a tree",
+									"selected fold",
 									"stored members"
 								],
 								{ cases: 48, sense: notesOnly }
