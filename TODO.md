@@ -2,23 +2,12 @@
 
 The one plan: only work still to do. A finished item is deleted, not ticked.
 
-## Now: the first publish, 1.0.0-beta.1
+## After 1.0.0-beta.1
 
-Owner 2026-11-07: the final batch has landed and the scope is frozen. Only a real correctness bug comes back to the
-owner first. Passing tests are not required to publish. Every agent commits straight to main, with no commit gate.
+1.0.0-beta.1 is on npm (2026-11-08), tagged v1.0.0-beta.1 at 2e979b3c. The README rewrite lands on main and ships
+with the next release.
 
-### The publish
-- **Main's release pass:** typecheck and `pnpm check` clean, fixed by hand; schemas.ts `sourceTermValue` (from
-  6a733b71); edit.ts's dead `familyColumnType(...) ?? plane.end.type` fallback; superlint's limit-evidence findings in
-  codec/bytea.ts.
-- **Versions** to 1.0.0-beta.1 in packages/engine and packages/grizzle. The license is 0BSD (owner, 2026-11-07).
-- **Tarballs:** `git archive` the release commit into ~/.cache/grizzle-release/, `pnpm install --frozen-lockfile
-  --ignore-scripts`, then `pnpm pack` packages/engine and packages/grizzle twice and compare byte for byte; a scratch
-  consumer installs from them and imports. The release commit's full hash goes to the owner.
-- **The owner publishes.** Main hands over one line that tags the release commit, pushes the tag and runs
-  `pnpm -r publish` under the `beta` tag (neither name is on npm yet).
-
-### P2: after the publish
+### Next
 - **Test failures that reach no qti-pie path** (each an after-beta agent):
   - test/unit/deploy/split.test.ts floor case 13: the SQL lexer stops at a zero-length quoted identifier `""`;
   - test/unit/physical/executes.test.ts and test/pg/physical/executes.test.ts: "a constant only a written table's casts

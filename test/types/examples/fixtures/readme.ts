@@ -49,7 +49,8 @@ import {
 	type Uuid,
 	v,
 	wholeEntriesOf,
-	workload
+	workload,
+	writableNamesOf
 } from "@bjornpagen/grizzle"
 import { verifyToken } from "@clerk/backend"
 import { attachDatabasePool } from "@vercel/functions/db-connections"
@@ -119,6 +120,46 @@ export const postPage = query(Blog)
 			}),
 		"array"
 	)
+
+/** README: "The relational model, by feel", "Checks and closed relations": a price list and the rules that read it. */
+/** The plans an organization can be on, and the seats each allows: rows the schema fixes. */
+export const Plan = closed("Plan", ["Free", "Team"])
+export const PlanLimits = closed.relation(
+	"PlanLimits",
+	{ plan: closedId(Plan), seats: natural },
+	["plan"],
+	[
+		{ plan: "Free", seats: 1n },
+		{ plan: "Team", seats: 50n }
+	]
+)
+
+/** Each organization's plan, and the seats it bought. */
+export const Subscription = relation(
+	"Subscription",
+	{ org: ClerkOrg, plan: closedId(Plan), seats: natural },
+	["org"]
+)
+
+/** The blog, billed: an organization posts once it subscribes, within its plan's seats. */
+export const Billing = schema.extend(Blog, { Plan, PlanLimits, Subscription }, [
+	contained(on(Post, "org"), on(Subscription, "org")),
+	check("WithinPlan", Subscription, (s) => s.le(s.seats, PlanLimits.at("seats", s.plan)))
+])
+
+/** README: "The relational model, by feel", "A write moves between lawful states". */
+/** A role that reads all of Billing and writes every relation in it but the closed ones. */
+export const Admin = role(Billing, "admin", wholeEntriesOf(Billing), {
+	write: writableNamesOf(Billing)
+})
+
+/** An organization's subscription and its first post: one write, judged as a whole. */
+export const launch = (
+	db: Db<typeof Admin, unknown>,
+	subscription: Fact<typeof Subscription>,
+	post: Fact<typeof Post>
+) =>
+	db.apply(ChangeSet.empty(Billing).insert(Subscription, [subscription]).insert(Post, [post]), {})
 
 /** README: "Hard in Drizzle, one declaration here", 1. Every organization sees only its own rows. */
 export const ApiKey = relation("ApiKey", { id: uuid, org: ClerkOrg, name: Title }, ["id"])
@@ -1082,3 +1123,28 @@ export type PurgedReads = Expect<
 		{ readonly removed: ReadonlyArray<{ readonly comments: bigint }> }
 	>
 >
+
+/** "Types are sets of values": each field's TypeScript type follows from its declaration. */
+export type PostIdHost = Expect<Equals<Fact<typeof Post>["id"], Uuid>>
+export type PostStatusHost = Expect<Equals<Fact<typeof Post>["status"], "Draft" | "Published">>
+export type PostViewsHost = Expect<Equals<Fact<typeof PostViews>["views"], bigint>>
+export type SubscriptionPlanHost = Expect<
+	Equals<Fact<typeof Subscription>["plan"], "Free" | "Team">
+>
+export type SubscriptionSeatsHost = Expect<Equals<Fact<typeof Subscription>["seats"], bigint>>
+
+/** "db.apply answers with an outcome you match on: accepted, no-change, invariant-rejected or outside-world". */
+export type LaunchOutcomeKind = Expect<
+	Equals<
+		Effect.Success<ReturnType<typeof launch>>["kind"],
+		"accepted" | "no-change" | "invariant-rejected" | "outside-world"
+	>
+>
+
+/** "refused.laws names each broken rule as you declared it: law.kind === "check" && law.name === "WithinPlan"". */
+type LaunchLaw = Extract<
+	Effect.Success<ReturnType<typeof launch>>,
+	{ readonly kind: "invariant-rejected" }
+>["refused"]["laws"][number]
+export const overPlan = (law: LaunchLaw): boolean =>
+	law.kind === "check" && law.name === "WithinPlan"
