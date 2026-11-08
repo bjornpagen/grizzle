@@ -1,8 +1,9 @@
 import { describe, it } from "@effect/vitest"
-import { type Case, drawn, explore, sketched } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
+import { type Case, drawn, exhaust, explore, sketched } from "@grizzle/testing/explore"
+import { required, requiredInSpace } from "@grizzle/testing/features"
 import {
 	array,
+	boolean,
 	constant,
 	type Gen,
 	int,
@@ -360,11 +361,13 @@ const minimalKeys = (
 
 /**
  * Every key a view states (ir/keys.ts ViewKey): of each of its keys, one minimal key of each factor, its alternatives
- * grouped by the fields they stand for, the key's own fields among them, each in heading order.
+ * grouped by the fields they stand for, the key's own fields among them, and each column of it or a member of its
+ * class in its place, each in heading order.
  */
 const viewStated = (
 	keys: ReadonlyArray<{
 		readonly fields: ReadonlyArray<string>
+		readonly members: ReadonlyArray<{ readonly of: string; readonly column: string }>
 		readonly alternatives: ReadonlyArray<{
 			readonly of: ReadonlyArray<string>
 			readonly columns: ReadonlyArray<string>
@@ -380,8 +383,21 @@ const viewStated = (
 			(of) => [of, ...Arr.flatMap(k.alternatives, (a) => (deepEquals(a.of, of) ? [a.columns] : []))]
 		)
 		const rest = Arr.filter(k.fields, (f) => !Arr.some(k.alternatives, (a) => a.of.includes(f)))
-		return Arr.reduce(factors, [rest], (chosen: ReadonlyArray<ReadonlyArray<string>>, factor) =>
-			Arr.flatMap(chosen, (key) => Arr.map(factor, (alternative) => [...key, ...alternative]))
+		const chosen = Arr.reduce(
+			factors,
+			[rest],
+			(keysSoFar: ReadonlyArray<ReadonlyArray<string>>, factor) =>
+				Arr.flatMap(keysSoFar, (key) => Arr.map(factor, (alternative) => [...key, ...alternative]))
+		)
+		return Arr.flatMap(chosen, (key) =>
+			Arr.reduce(key, [[]], (named: ReadonlyArray<ReadonlyArray<string>>, column) =>
+				Arr.flatMap(named, (prefix) =>
+					Arr.map(
+						[column, ...Arr.flatMap(k.members, (m) => (m.of === column ? [m.column] : []))],
+						(name) => [...prefix, name]
+					)
+				)
+			)
 		)
 	})
 	return Arr.dedupeWith(
@@ -1120,6 +1136,18 @@ type StorableFeature =
 	| `fault ${KeyFault["kind"]}`
 	| "one fact keyed past its first column"
 
+/** A relation keyed by its id, with another field beside it, which a view names under several names. */
+const Keyed = relation("Keyed", { id: uuid, other: uuid }, ["id"])
+const keyedBase = schema("Named", { Keyed }, [])
+
+/** A view of Keyed: how many names its head gives Keyed's id, and whether it delivers Keyed's other field too. */
+interface NamedKey {
+	readonly names: number
+	readonly other: boolean
+}
+
+const keyName = (n: number): string => `n${n}`
+
 describe("derived relation keys", () => {
 	it.effect(
 		"are proven keys in heading order, narrowest first, none implied by another, the whole heading only alone",
@@ -1423,6 +1451,77 @@ describe("derived relation keys", () => {
 							) {
 								k.note("one fact keyed past its first column")
 							}
+						})
+				)
+			)
+	)
+
+	it.effect(
+		"state each name a view's head gives its key's variable as a key, and so does a level reading the view whole",
+		(ctx) =>
+			searched(
+				ctx,
+				exhaust(
+					{
+						suite: "unit/derived/named-key",
+						generator: (source): NamedKey => ({
+							names: source.draw(int(1, 3)),
+							other: source.draw(boolean)
+						}),
+						literal: Formatter.format,
+						limit: 6,
+						box: "a view of Keyed naming its key one to three times, beside its other field or not, and a level above reading the view whole",
+						oracle: {
+							kind: "specification",
+							name: "every name of Keyed's key is one column of every row, each a key alone, and the other field none"
+						},
+						coverage: requiredInSpace<"one name" | "two names" | "three names">([
+							"one name",
+							"two names",
+							"three names"
+						]),
+						caseHang
+					},
+					(c, k) =>
+						Effect.sync(() => {
+							const names = Arr.map(indices(c.names), keyName)
+							const heading = [...names, ...(c.other ? ["other"] : [])]
+							const view = runtimeDerived(
+								"D",
+								queryOver(keyedBase).rule((r: RuleValue) => {
+									const keyed = varsOver(Keyed, "keyed")
+									return r.match(Keyed, { id: keyed["id"], other: keyed["other"] }).find({
+										...Rec.fromEntries(Arr.map(names, (n) => [n, keyed["id"]] as const)),
+										...(c.other ? { other: keyed["other"] } : {})
+									})
+								}),
+								[]
+							)
+							const level = runtimeSchema.extend(keyedBase, { D: view }, [], [])
+							const above = runtimeDerived(
+								"E",
+								queryOver(level).rule((r: RuleValue) => {
+									const d = varsOver(view, "d")
+									const terms = Rec.fromEntries(Arr.map(heading, (n) => [n, d[n]] as const))
+									return r.match(view, terms).find(terms)
+								}),
+								[]
+							)
+							const analysis = succeeded(
+								Result.map(
+									checkedIn(runtimeSchema.extend(level, { E: above }, [], [])),
+									derivedAnalysis
+								)
+							)
+							for (const name of ["D", "E"]) {
+								const r = defined(analysis.relations[name], name)
+								keyRules(r)
+								unorderedEqual(
+									viewStated(r.read.keys),
+									Arr.map(names, (n) => [n])
+								)
+							}
+							k.note(c.names === 1 ? "one name" : c.names === 2 ? "two names" : "three names")
 						})
 				)
 			)
