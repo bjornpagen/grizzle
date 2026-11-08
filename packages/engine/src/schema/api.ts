@@ -114,6 +114,7 @@ import type {
 	SideHosts,
 	SideShows,
 	SideShowsKeyed,
+	SourceShowing,
 	Statement,
 	TargetTerms,
 	TermOf,
@@ -341,9 +342,10 @@ export const check = <
  */
 export const on = <
 	R extends AnyRelation | AnyClosed | Selection<AnyRelation | AnyClosed> | DerivedSource,
-	const T extends readonly [TermOf<R> | Constant<unknown>, ...(TermOf<R> | Constant<unknown>)[]]
+	C,
+	const T extends readonly [TermOf<C> | Constant<unknown>, ...(TermOf<C> | Constant<unknown>)[]]
 >(
-	source: R,
+	source: R & SourceShowing<string, C>,
 	...terms: T
 ): Side<R, readonly [...T]> => {
 	const list: T = terms

@@ -154,13 +154,16 @@ export interface ShowingKeyed<out N, out C, out K> extends Showing<N, C> {
  * heading is refused.
  */
 export interface SideShows<out N, out C> {
-	readonly source: Showing<N, C> | Selecting<N, C>
+	readonly source: SourceShowing<N, C>
 }
 
 /** A selection a builder takes as one of a source that shows N and C. */
 export interface Selecting<out N, out C> {
 	readonly relation: Showing<N, C>
 }
+
+/** A side's source as a builder takes it: one that shows N and C, or a selection of one. */
+export type SourceShowing<N, C> = Showing<N, C> | Selecting<N, C>
 
 /** A side over a relation that shows N and C, whose primary key is K. */
 export interface SideShowsKeyed<out N, out C, out K> {
@@ -557,8 +560,6 @@ type NaturalIn<C> = {
 /** The fields of R that are natural (types/fields NaturalField), the fields pred reads: read off R's heading. */
 export type NaturalFieldOf<R> = NaturalIn<HeadingOf<R>>
 
-export type SideHeading<R> = Fact<SideRelation<R>>
-
 /** The fields of the heading C that are bytes, which no side reads: a bytes value has no equality. */
 type StoredOnlyIn<C> = {
 	[K in keyof C]-?: C[K] extends { readonly sql: StoredOnlySql } ? K : never
@@ -566,12 +567,11 @@ type StoredOnlyIn<C> = {
 	string
 
 /**
- * A term a side over R may read: a field of the relation it reads, but no bytes field, or pred of one of its natural
- * fields.
+ * A term a side over a source of the heading C may read: a field of C, but no stored-only field, or pred of one of its
+ * natural fields. on reads C off what its source shows (SourceShowing), a generic source's off its constraint, so a
+ * term over a generic source is decided where it is written.
  */
-export type TermOf<R> =
-	| Exclude<keyof SideHeading<R> & string, StoredOnlyIn<HeadingOf<SideRelation<R>>>>
-	| Pred<NaturalFieldOf<SideRelation<R>>>
+export type TermOf<C> = Exclude<keyof C & string, StoredOnlyIn<C>> | Pred<NaturalIn<C>>
 
 /**
  * What field K of the heading C joins as: its domain and its PostgreSQL type, read off its carrier. Text and uuid are
