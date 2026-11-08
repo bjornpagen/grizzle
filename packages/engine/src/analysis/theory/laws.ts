@@ -12,6 +12,7 @@ import {
 	drawnNamed,
 	type FamilyShape,
 	type FamilyStatement,
+	carriedRank,
 	FamilyEntry,
 	familyKey,
 	familyShape,
@@ -19,6 +20,7 @@ import {
 	type FoldEntry,
 	foldEntry,
 	type FoldStatement,
+	formerRank,
 	isTree,
 	membersSelection,
 	Namings,
@@ -1247,21 +1249,30 @@ export class Normalizer {
 					"owner",
 					{ kind: "law", column: t.parentStart },
 					{ kind: "field", field: t.start },
+					formerRank(0),
 					law
 				)
 				entry.carry(
 					"owner",
 					{ kind: "field", field: t.root },
 					{ kind: "field", field: t.root },
+					formerRank(1),
 					law
 				)
 				entry.carry(
 					"predecessor",
 					{ kind: "field", field: t.start },
 					{ kind: "field", field: t.end },
+					formerRank(0),
 					law
 				)
-				entry.carry("last", { kind: "field", field: t.end }, { kind: "field", field: t.end }, law)
+				entry.carry(
+					"last",
+					{ kind: "field", field: t.end },
+					{ kind: "field", field: t.end },
+					formerRank(0),
+					law
+				)
 			}
 		)
 	}
@@ -1582,6 +1593,7 @@ export class Normalizer {
 						ride.axis,
 						{ kind: "field", field: p.from.column },
 						{ kind: "field", field: p.to.column },
+						carriedRank(p.from.column, p.to.column),
 						law
 					)
 					if (p.from.column.writing.kind === "accumulated" && fromRel.kind === "relation") {

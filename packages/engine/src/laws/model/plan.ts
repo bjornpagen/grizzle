@@ -2001,10 +2001,11 @@ class FamilyPlanner {
 	}
 
 	/**
-	 * The pairs `axis` carries beyond its key columns `base` → `targetBase`, each once, in the order of their target
-	 * columns, so two axes carrying one set reference one UNIQUE. A pair that repeats a key column is the key itself; a
-	 * target column carried twice, or a key column carried from another source, is refused: a reference names each
-	 * referenced column once.
+	 * The pairs `axis` carries beyond its key columns `base` → `targetBase`, each once, in their axis's order
+	 * (analysis/theory/families.ts PairRank), which reads their target columns' places alike on every axis, so two axes
+	 * carrying one set reference one UNIQUE, and no name, so a rename keeps it. A pair that repeats a key column is the
+	 * key itself; a target column carried twice, or a key column carried from another source, is refused: a reference
+	 * names each referenced column once.
 	 */
 	#carried(
 		axis: AxisKind,
@@ -2035,7 +2036,7 @@ class FamilyPlanner {
 			}
 			out.push({ from, to, fromKey, toKey, laws: p.laws })
 		}
-		return out.toSorted((a, b) => (a.toKey < b.toKey ? -1 : a.toKey > b.toKey ? 1 : 0))
+		return out
 	}
 
 	/**

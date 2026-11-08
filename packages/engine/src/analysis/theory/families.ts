@@ -595,7 +595,7 @@ export class FamilyEntry {
 	readonly #axes: {
 		readonly [A in AxisKind]: Map<
 			string,
-			{ from: NativeColumn; to: NativeColumn; laws: Array<LawId> }
+			{ from: NativeColumn; to: NativeColumn; rank: PairRank; laws: Array<LawId> }
 		>
 	} = {
 		owner: new Map(),
@@ -614,13 +614,14 @@ export class FamilyEntry {
 		return this.#folds
 	}
 
-	/** Carries `from` → `to` on `axis` for `law`: a pair two laws state is one pair stating both. */
-	carry(axis: AxisKind, from: NativeColumn, to: NativeColumn, law: LawId): void {
+	/** Carries `from` → `to` on `axis` for `law`, at its place `rank` among the axis's pairs (PairRank): a pair two laws
+	 * state is one pair stating both, at the place the first gave it. */
+	carry(axis: AxisKind, from: NativeColumn, to: NativeColumn, rank: PairRank, law: LawId): void {
 		const key = `${columnKey(from)}\u0001${columnKey(to)}`
 		const pairs = this.#axes[axis]
 		const known = pairs.get(key)
 		if (known === undefined) {
-			pairs.set(key, { from, to, laws: [law] })
+			pairs.set(key, { from, to, rank, laws: [law] })
 		} else if (!known.laws.includes(law)) {
 			known.laws.push(law)
 		}
@@ -629,17 +630,18 @@ export class FamilyEntry {
 	/** Adds a fold, kept as the law `law`, with its copies on the predecessor and last axes. Its number is its position. */
 	fold(entry: FoldEntry, law: LawId): void {
 		this.#folds.push(entry)
-		for (const p of entry.planes) {
-			this.carry("predecessor", p.before, p.after, law)
-			this.carry("last", { kind: "field", field: p.end }, p.after, law)
+		for (const [plane, p] of entry.planes.entries()) {
+			const rank = foldRank(p.end, plane)
+			this.carry("predecessor", p.before, p.after, rank, law)
+			this.carry("last", { kind: "field", field: p.end }, p.after, rank, law)
 		}
 	}
 
-	/** The pairs each axis carries, in the order they were first carried. */
+	/** The pairs each axis carries, in the order of their ranks (PairRank). */
 	axes(): Family["axes"] {
 		const frozen = (axis: AxisKind): ReadonlyArray<AxisPair> =>
 			Object.freeze(
-				[...this.#axes[axis].values()].map((p): AxisPair => {
+				[...this.#axes[axis].values()].toSorted(byRank).map((p): AxisPair => {
 					const [first, ...rest] = p.laws
 					if (first === undefined) {
 						throw defect("an axis pair states at least one law")
@@ -655,6 +657,32 @@ export class FamilyEntry {
 		})
 	}
 }
+
+/**
+ * A pair's place among its axis's pairs, which orders the columns of the axis's key and foreign key: its family's or
+ * tree's own pairs first, in their fixed order; then each fold's, by its plane's end field's place in its relation's
+ * declaration and the plane; then each pair a riding containment carries, by its target field's place and its source
+ * field's. Each reads its target the same way on every axis, so two axes carrying one set of target columns reference
+ * one UNIQUE; and a place reads no name, so a declared rename of a relation, a field or a handle keeps every axis's
+ * columns in their order, and the migration renames its key and foreign key rather than building them again.
+ */
+export type PairRank = readonly [0 | 1 | 2, number, number]
+
+/** The rank of a family's or tree's own `k`th pair on its axis. */
+export const formerRank = (k: number): PairRank => [0, k, 0]
+
+/** The rank of a fold's pair of plane `plane`, whose end is `end`. */
+const foldRank = (end: LawField, plane: number): PairRank => [1, end.position, plane]
+
+/** The rank of the pair a riding containment carries from `from` to `to`. */
+export const carriedRank = (from: LawField, to: LawField): PairRank => [
+	2,
+	to.position,
+	from.position
+]
+
+const byRank = (a: { readonly rank: PairRank }, b: { readonly rank: PairRank }): number =>
+	a.rank[0] - b.rank[0] || a.rank[1] - b.rank[1] || a.rank[2] - b.rank[2]
 
 /** The step side's terms after the group: the step value, then the accumulator pairs. */
 const afterGroup = (f: FamilyShape, step: SideDesc, loc: SourceLoc): ReadonlyArray<TermDesc> => {
