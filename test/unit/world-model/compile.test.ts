@@ -34,8 +34,8 @@ import { serialHead, writtenOf } from "#test/support/worlds/model/session/writes
 import { initialState, settle, step } from "#test/support/worlds/model/step.ts"
 import type {
 	Action,
-	ActionOutcome,
 	AdditionFeature,
+	Allowed,
 	DbSessionState,
 	InstallSpec,
 	ModelState,
@@ -111,7 +111,7 @@ const leavesOutSerials = (install: InstallSpec, role: RoleSpec): boolean =>
 const compiledAdditions = (
 	state: ModelState,
 	action: Action,
-	observation: ActionOutcome
+	{ observation }: Allowed
 ): ReadonlyArray<string> =>
 	action.kind === "apply" && observation.kind !== "compile-refused"
 		? additionsOf(state, action)

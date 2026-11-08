@@ -53,6 +53,7 @@ import type {
 	Action,
 	ActionKind,
 	ActionOutcome,
+	Allowed,
 	ContextFacts,
 	DirectStatement,
 	EntryOp,
@@ -1004,7 +1005,7 @@ const writing: ReadonlyArray<DirectStatement["kind"]> = [
 const leadRead = (
 	state: ModelState,
 	action: Action,
-	observation: ActionOutcome
+	{ observation }: Allowed
 ): ReadonlyArray<LeadFeature> => {
 	if (action.kind === "open-db") {
 		const role = roleOfRef(action.role)

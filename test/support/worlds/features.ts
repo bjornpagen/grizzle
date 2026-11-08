@@ -111,14 +111,44 @@ const roleEntry = (
 	relation: string
 ): Option.Option<EntrySpec> => Option.flatMap(roleIn(install, role), (r) => entryIn(r, relation))
 
-/** A role acting: through a Db, or a direct writer that took it on, reading `state` (a writer's transaction view). */
+/** An entry of a role, by its name, with how the installation's base classes it (host.ts classifyEntry). */
+interface ClassedEntry {
+	readonly name: string
+	readonly entry: EntrySpec
+	readonly classified: EntryClass
+}
+
+/**
+ * A role acting: through a Db, or a direct writer that took it on, reading `state` (a writer's transaction view), with
+ * its entries, each classed once for the action.
+ */
 interface RoleActor {
 	readonly kind: "role"
 	readonly writer: "db" | "direct-role"
 	readonly role: RoleSpec
+	readonly entries: ReadonlyArray<ClassedEntry>
 	readonly state: ModelState
 	readonly claims: Claims
 }
+
+/** A role acting, its entries classed against the installation's base. */
+const roleActor = (
+	writer: RoleActor["writer"],
+	role: RoleSpec,
+	state: ModelState,
+	claims: Claims
+): RoleActor => ({
+	kind: "role",
+	writer,
+	role,
+	entries: Arr.map(Record.toEntries(role.entries), ([name, entry]) => ({
+		name,
+		entry,
+		classified: classifyEntry(state.install.base, entry)
+	})),
+	state,
+	claims
+})
 
 /**
  * Who performs an action, read off the state before it: a role; a login acting as itself, which sees no fact; a call
@@ -167,13 +197,7 @@ const liveActor = (state: ModelState, session: ModelSession, wants: Wants): Acto
 				onSome: (role): Actor =>
 					wants === "direct"
 						? stale("db")
-						: {
-								kind: "role",
-								writer: "db",
-								role,
-								state,
-								claims: { kind: "facts", facts: session.facts }
-							}
+						: roleActor("db", role, state, { kind: "facts", facts: session.facts })
 			})
 		case "direct": {
 			const claims: Claims =
@@ -191,7 +215,7 @@ const liveActor = (state: ModelState, session: ModelSession, wants: Wants): Acto
 				onSome: (role): Actor =>
 					wants === "db"
 						? stale("direct-role")
-						: { kind: "role", writer: "direct-role", role, state: seenThrough(state, view), claims }
+						: roleActor("direct-role", role, seenThrough(state, view), claims)
 			})
 		}
 	}
@@ -478,19 +502,20 @@ const touchOf = (actor: RoleActor, action: Action): Touch => {
 
 /** Whether the role's entry holds a stored fact: a whole entry every fact of its relation, a query entry its members. */
 const entryHolds = (actor: RoleActor, name: string, stored: Stored): boolean =>
-	Option.exists(entryIn(actor.role, name), (entry) => holdsThrough(actor, name, entry, stored))
+	Option.exists(
+		Arr.findFirst(actor.entries, (e) => e.name === name),
+		(e) => holdsThrough(actor, e, stored)
+	)
 
-/** Whether the role's entry `name` holds a stored fact. */
+/** Whether one of the role's entries holds a stored fact. */
 const holdsThrough = (
 	actor: RoleActor,
-	name: string,
-	entry: EntrySpec,
+	{ name, entry, classified }: ClassedEntry,
 	stored: Stored
 ): boolean => {
 	if (entry.kind === "whole") {
 		return entry.relation === stored.relation
 	}
-	const classified = classifyEntry(actor.state.install.base, entry)
 	return (
 		classified.kind === "writable" &&
 		classified.target === stored.relation &&
@@ -513,7 +538,7 @@ const membershipOf = (actor: RoleActor, touch: Touch, stored: Stored): Membershi
 	if (Option.isSome(touch.entry) && entryHolds(actor, touch.entry.value, stored)) {
 		return "inside"
 	}
-	return Arr.some(Record.keys(actor.role.entries), (name) => entryHolds(actor, name, stored))
+	return Arr.some(actor.entries, (e) => holdsThrough(actor, e, stored))
 		? "outside-visible"
 		: "hidden"
 }

@@ -1163,7 +1163,7 @@ export const actionGen = (
 
 /** The features an action reaches in any of its branches from a state, by the run's reading of an outcome (Aims). */
 const reachedBy = (read: Aiming["read"], state: ModelState, action: Action): ReadonlySet<string> =>
-	new Set<string>(Arr.flatMap(step(state, action), (b) => read(state, action, b.observation)))
+	new Set<string>(Arr.flatMap(step(state, action), (outcome) => read(state, action, outcome)))
 
 /** Whether an action is within a role focus: an open of an own role names one the focus holds. */
 const focusedOn = (roles: RoleFocus, a: Action): boolean =>

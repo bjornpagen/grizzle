@@ -57,6 +57,7 @@ import type {
 	ClaimsSetting,
 	ContextFacts,
 	ContextSpec,
+	DirectSessionState,
 	DirectStart,
 	DirectStatement,
 	EntryOp,
@@ -1118,6 +1119,140 @@ const checkRefused = (domain: FieldDomain): Option.Option<HostValue> => {
 const heldAt = (view: ReadonlyArray<HostFact>, field: string): ReadonlyArray<HostValue> =>
 	distinctValues(Arr.flatMap(view, (fact) => Option.toArray(Option.fromUndefinedOr(fact[field]))))
 
+/**
+ * The reads of a direct writer's open transaction in the box: each role's views, unfiltered, and the first entry's
+ * view raising on a pool value; each table, unfiltered, and the first raising on a pool value (`listed`); and the reads
+ * that raise on a value the transaction's view holds, of the first heading field of each entry of the role it acts as
+ * and of each relation's first field, so a row hidden from that role holds it (`added`).
+ */
+const boxReads = (
+	state: ModelState,
+	s: DirectSessionState,
+	scope: SmallScope
+): {
+	readonly listed: ReadonlyArray<DirectStatement>
+	readonly added: ReadonlyArray<DirectStatement>
+} => {
+	const base = state.install.base
+	const current = s.current
+	const role =
+		current.kind === "role"
+			? Arr.findFirst(state.install.roles, (r) => r.name === current.role)
+			: Option.none()
+	const relations = base.relations
+	const viewOf = (relation: string): ReadonlyArray<HostFact> => nameableFacts(s.view, relation)
+	return {
+		listed: [
+			...Arr.flatMap(state.install.roles, (r) =>
+				Arr.map(Rec.keys(r.entries), (relation): DirectStatement => ({
+					kind: "select-view",
+					role: r.name,
+					relation,
+					filter: { kind: "none" }
+				}))
+			),
+			...Arr.flatMap(state.install.roles.slice(0, 1), (r) =>
+				Arr.flatMap(
+					Rec.toEntries(r.entries).slice(0, 1),
+					([relation, spec]): ReadonlyArray<DirectStatement> =>
+						Arr.map(headingOf(base, spec).slice(0, 1), (f) => ({
+							kind: "select-view",
+							role: r.name,
+							relation,
+							filter: {
+								kind: "raise-on",
+								field: f.name,
+								value: valuesFor(state, f.domain, scope)[0]
+							}
+						}))
+				)
+			),
+			...Arr.map(relations, (r): DirectStatement => ({
+				kind: "select-table",
+				relation: r.name,
+				filter: { kind: "none" }
+			})),
+			...Arr.flatMap(relations.slice(0, 1), (r) => {
+				const [f] = r.fields
+				return [
+					{
+						kind: "select-table" as const,
+						relation: r.name,
+						filter: {
+							kind: "raise-on" as const,
+							field: f.name,
+							value: valuesFor(state, f.domain, scope)[0]
+						}
+					}
+				]
+			})
+		],
+		added: [
+			...Option.match(role, {
+				onNone: (): ReadonlyArray<DirectStatement> => [],
+				onSome: (acting) =>
+					Arr.flatMap(Rec.toEntries(acting.entries), ([relation, spec]) =>
+						Arr.flatMap(headingOf(base, spec).slice(0, 1), (f) =>
+							Arr.map(
+								distinctValues(
+									Arr.flatMap(relations, (r) =>
+										Arr.flatMap(r.fields, (g) =>
+											sameDomain(g.domain, f.domain) ? heldAt(viewOf(r.name), g.name) : []
+										)
+									)
+								),
+								(value): DirectStatement => ({
+									kind: "select-view",
+									role: acting.name,
+									relation,
+									filter: { kind: "raise-on", field: f.name, value }
+								})
+							)
+						)
+					)
+			}),
+			...Arr.flatMap(relations, (r) =>
+				Arr.flatMap(r.fields.slice(0, 1), (f) =>
+					Arr.map(heldAt(viewOf(r.name), f.name), (value): DirectStatement => ({
+						kind: "select-table",
+						relation: r.name,
+						filter: { kind: "raise-on", field: f.name, value }
+					}))
+				)
+			)
+		]
+	}
+}
+
+/**
+ * The reads of a direct writer's open transaction the box offers (boxReads), each once, as enumerateKind offers its
+ * statements: what a read after the transaction's write may show, without building the rest of its statements.
+ */
+export const enumerateDirectReads = (
+	state: ModelState,
+	session: number,
+	scope: SmallScope
+): ReadonlyArray<Action> => {
+	const s = state.sessions[session]
+	if (s?.kind !== "direct" || !applicable(state, "direct")) {
+		return []
+	}
+	const { listed, added } = boxReads(state, s, scope)
+	return Arr.filter(
+		Arr.map(
+			[
+				...listed,
+				...Arr.filter(
+					Arr.dedupeWith(added, samePlain),
+					(x) => !Arr.some(listed, (y) => samePlain(x, y))
+				)
+			],
+			(statement): Action => ({ kind: "direct", session, statement })
+		),
+		(a) => namesOffered(state, a)
+	)
+}
+
 /** The statements of a direct writer's open transaction in the box, each write over a base relation. */
 const directStatements = (
 	state: ModelState,
@@ -1137,6 +1272,7 @@ const directStatements = (
 	const refs = directRoleRefs(state, s.login)
 	const relations = base.relations
 	const viewOf = (relation: string): ReadonlyArray<HostFact> => nameableFacts(s.view, relation)
+	const reads = boxReads(state, s, scope)
 	const listed: ReadonlyArray<DirectStatement> = [
 		...Arr.map(refs, (r): DirectStatement => ({ kind: "set-role", role: r })),
 		{ kind: "reset-role" },
@@ -1149,45 +1285,7 @@ const directStatements = (
 			kind: "set-claims",
 			setting
 		})),
-		...Arr.flatMap(state.install.roles, (r) =>
-			Arr.map(Rec.keys(r.entries), (relation): DirectStatement => ({
-				kind: "select-view",
-				role: r.name,
-				relation,
-				filter: { kind: "none" }
-			}))
-		),
-		...Arr.flatMap(state.install.roles.slice(0, 1), (r) =>
-			Arr.flatMap(
-				Rec.toEntries(r.entries).slice(0, 1),
-				([relation, spec]): ReadonlyArray<DirectStatement> =>
-					Arr.map(headingOf(base, spec).slice(0, 1), (f) => ({
-						kind: "select-view",
-						role: r.name,
-						relation,
-						filter: { kind: "raise-on", field: f.name, value: valuesFor(state, f.domain, scope)[0] }
-					}))
-			)
-		),
-		...Arr.map(relations, (r): DirectStatement => ({
-			kind: "select-table",
-			relation: r.name,
-			filter: { kind: "none" }
-		})),
-		...Arr.flatMap(relations.slice(0, 1), (r) => {
-			const [f] = r.fields
-			return [
-				{
-					kind: "select-table" as const,
-					relation: r.name,
-					filter: {
-						kind: "raise-on" as const,
-						field: f.name,
-						value: valuesFor(state, f.domain, scope)[0]
-					}
-				}
-			]
-		}),
+		...reads.listed,
 		...Arr.flatMap(relations, (r) => {
 			const [fact] = eachChoice(r.fields, (f) => valuesFor(state, f.domain, scope))
 			return fact === undefined
@@ -1303,38 +1401,7 @@ const directStatements = (
 	 * whatever the role sees of the fact at that key: each statement the list above does not already hold.
 	 */
 	const added: ReadonlyArray<DirectStatement> = [
-		...Option.match(role, {
-			onNone: (): ReadonlyArray<DirectStatement> => [],
-			onSome: (acting) =>
-				Arr.flatMap(Rec.toEntries(acting.entries), ([relation, spec]) =>
-					Arr.flatMap(headingOf(base, spec).slice(0, 1), (f) =>
-						Arr.map(
-							distinctValues(
-								Arr.flatMap(relations, (r) =>
-									Arr.flatMap(r.fields, (g) =>
-										sameDomain(g.domain, f.domain) ? heldAt(viewOf(r.name), g.name) : []
-									)
-								)
-							),
-							(value): DirectStatement => ({
-								kind: "select-view",
-								role: acting.name,
-								relation,
-								filter: { kind: "raise-on", field: f.name, value }
-							})
-						)
-					)
-				)
-		}),
-		...Arr.flatMap(relations, (r) =>
-			Arr.flatMap(r.fields.slice(0, 1), (f) =>
-				Arr.map(heldAt(viewOf(r.name), f.name), (value): DirectStatement => ({
-					kind: "select-table",
-					relation: r.name,
-					filter: { kind: "raise-on", field: f.name, value }
-				}))
-			)
-		),
+		...reads.added,
 		...Arr.flatMap(relations, (r) =>
 			Arr.flatMap(
 				Arr.findFirst(r.fields, (f) =>

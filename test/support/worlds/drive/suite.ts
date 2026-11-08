@@ -39,7 +39,11 @@ import {
 	withOpener
 } from "#test/support/worlds/generate/action.ts"
 import { knownNonEmpty, pool } from "#test/support/worlds/generate/domain.ts"
-import { defaultScope, enumerateKind } from "#test/support/worlds/generate/enumerate.ts"
+import {
+	defaultScope,
+	enumerateDirectReads,
+	enumerateKind
+} from "#test/support/worlds/generate/enumerate.ts"
 import { installGen } from "#test/support/worlds/generate/install.ts"
 import {
 	dictionaryNamed,
@@ -76,6 +80,7 @@ import { initialState, settle, step } from "#test/support/worlds/model/step.ts"
 import type {
 	Action,
 	ActionKind,
+	Allowed,
 	BaseSpec,
 	Branch,
 	HostFact,
@@ -93,11 +98,14 @@ import type {
 } from "#test/support/worlds/model/types.ts"
 
 /**
- * The model's branches of an action, a landing completed under the compiler's names for the installation it lands
+ * An outcome the model allows an action, a landing completed under the compiler's names for the installation it lands
  * (execute/names.ts installedNames): a lead reads the model alone, ahead of the real system.
  */
-const branchesOf = (state: ModelState, action: Action): Arr.NonEmptyReadonlyArray<Branch> =>
-	Arr.map(step(state, action), (s) => settle(s, installedNames))
+const settled = (outcome: Allowed): Branch => settle(outcome, installedNames)
+
+/** The features an outcome notes (drive/index.ts notedOf), as a lead's read of it. */
+const noted: Aiming["read"] = (state, action, outcome) =>
+	notedOf(state, action, outcome.observation)
 
 /**
  * The box an aimed draw takes its candidates from (Aiming.scope): the exhaustive box's, with two contexts, so the
@@ -189,9 +197,9 @@ const transactionEnded = "lead:the transaction ended" as const
 const endingRead = (
 	state: ModelState,
 	action: Action,
-	observation: ActionOutcome
+	outcome: Allowed
 ): ReadonlyArray<WorldFeature | typeof transactionEnded> => [
-	...notedOf(state, action, observation),
+	...notedOf(state, action, outcome.observation),
 	...(action.kind === "direct-end" && ofTheTransaction(action, state) ? [transactionEnded] : [])
 ]
 
@@ -220,26 +228,23 @@ const endingIt = (weights: Weights, features: ReadonlyArray<string>): Weights =>
  * the world each statement meets, which no draw after the BEGIN can change.
  */
 const afterBegin = (
-	state: ModelState,
+	_state: ModelState,
 	action: Action,
-	observation: ActionOutcome
+	outcome: Allowed
 ): ReadonlyArray<WorldFeature> => {
-	if (action.kind !== "direct-begin" || observation.kind !== "opened") {
+	const { observation: began, next } = settled(outcome)
+	if (action.kind !== "direct-begin" || began.kind !== "opened") {
 		return []
 	}
-	return Arr.flatMap(branchesOf(state, action), ({ observation: began, next }) =>
-		began.kind === "opened"
-			? Arr.flatMap(
-					[
-						...enumerateKind(next, "direct", defaultScope),
-						...enumerateKind(next, "direct-end", defaultScope)
-					],
-					(a) =>
-						(a.kind === "direct" || a.kind === "direct-end") && a.session === began.session
-							? Arr.flatMap(step(next, a), (b) => notedOf(next, a, b.observation))
-							: []
-				)
-			: []
+	return Arr.flatMap(
+		[
+			...enumerateKind(next, "direct", defaultScope),
+			...enumerateKind(next, "direct-end", defaultScope)
+		],
+		(a) =>
+			(a.kind === "direct" || a.kind === "direct-end") && a.session === began.session
+				? Arr.flatMap(step(next, a), (b) => notedOf(next, a, b.observation))
+				: []
 	)
 }
 
@@ -249,20 +254,17 @@ const afterBegin = (
  * predicts it. A role's entries read every context it reads, so a refusal one statement away is one view read away.
  */
 const afterHandSet = (
-	state: ModelState,
+	_state: ModelState,
 	action: Action,
-	observation: ActionOutcome
+	outcome: Allowed
 ): ReadonlyArray<WorldFeature> => {
-	if (action.kind !== "direct-begin" || observation.kind !== "opened") {
+	const { observation: began, next } = settled(outcome)
+	if (action.kind !== "direct-begin" || began.kind !== "opened") {
 		return []
 	}
-	return Arr.flatMap(branchesOf(state, action), ({ observation: began, next }) =>
-		began.kind === "opened"
-			? Arr.flatMap(enumerateKind(next, "direct", defaultScope), (a) =>
-					a.kind === "direct" && a.session === began.session && a.statement.kind === "select-view"
-						? Arr.flatMap(step(next, a), (b) => claimRefusalsOf(next, a, b.observation))
-						: []
-				)
+	return Arr.flatMap(enumerateDirectReads(next, began.session, defaultScope), (a) =>
+		a.kind === "direct" && a.statement.kind === "select-view"
+			? Arr.flatMap(step(next, a), (b) => claimRefusalsOf(next, a, b.observation))
 			: []
 	)
 }
@@ -325,7 +327,7 @@ const transactionLead =
 		if (first === undefined) {
 			return []
 		}
-		const statement = aimedStatement(weights, [first, ...rest], notedOf)
+		const statement = aimedStatement(weights, [first, ...rest], noted)
 		return whilePending([first, ...rest], at, () => [
 			aimedBegin(weights, [first, ...rest], begin),
 			statement,
@@ -383,20 +385,15 @@ const callThrough = (action: Action, session: number): boolean => {
  */
 const afterOpen =
 	(kinds: ReadonlyArray<"read" | "apply">, read: Aiming["read"]) =>
-	(state: ModelState, action: Action, observation: ActionOutcome): ReadonlyArray<string> => {
-		if (action.kind !== "open-db" || observation.kind !== "opened") {
+	(_state: ModelState, action: Action, outcome: Allowed): ReadonlyArray<string> => {
+		const { observation: opened, next } = settled(outcome)
+		if (action.kind !== "open-db" || opened.kind !== "opened") {
 			return []
 		}
-		return Arr.flatMap(branchesOf(state, action), ({ observation: opened, next }) =>
-			opened.kind === "opened"
-				? Arr.flatMap(kinds, (kind) =>
-						Arr.flatMap(enumerateKind(next, kind, defaultScope), (a) =>
-							callThrough(a, opened.session)
-								? Arr.flatMap(step(next, a), (b) => read(next, a, b.observation))
-								: []
-						)
-					)
-				: []
+		return Arr.flatMap(kinds, (kind) =>
+			Arr.flatMap(enumerateKind(next, kind, defaultScope), (a) =>
+				callThrough(a, opened.session) ? Arr.flatMap(step(next, a), (b) => read(next, a, b)) : []
+			)
 		)
 	}
 
@@ -418,7 +415,7 @@ const aimedOpen = (
 	kinds: ["open-db"],
 	actions: { ...zeroWeights.actions, "open-db": 1 },
 	validity: liveOnly,
-	aims: everyDraw(targets, afterOpen(calls, notedOf), (a) => a.kind === "open-db")
+	aims: everyDraw(targets, afterOpen(calls, noted), (a) => a.kind === "open-db")
 })
 
 /**
@@ -440,7 +437,7 @@ export const dbSession =
 			kinds: withOpener(kind),
 			actions: { ...zeroWeights.actions, [kind]: 1 },
 			validity: liveOnly,
-			aims: everyDraw([first, ...rest], notedOf, (a, s) => a.kind === kind && ofAnOpenDb(a, s))
+			aims: everyDraw([first, ...rest], noted, (a, s) => a.kind === kind && ofAnOpenDb(a, s))
 		})
 		const calls = Arr.filter(["apply", "read", "apply"] as const, (kind) =>
 			Arr.contains(weights.kinds, kind)
@@ -487,9 +484,13 @@ const refreshesWritten = (base: BaseSpec, role: RoleSpec): boolean => {
 const refreshesWrittenRead = (
 	state: ModelState,
 	action: Action,
-	observation: ActionOutcome
+	outcome: Allowed
 ): ReadonlyArray<typeof dbRefreshingWritten> => {
-	if (action.kind !== "open-db" || observation.kind !== "opened" || action.role.kind !== "own") {
+	if (
+		action.kind !== "open-db" ||
+		outcome.observation.kind !== "opened" ||
+		action.role.kind !== "own"
+	) {
 		return []
 	}
 	const opened = action.role.role
@@ -511,32 +512,31 @@ const afterApplyCalls: Arr.NonEmptyReadonlyArray<ActionKind> = ["read", "refresh
  * deletion feature is one call past.
  */
 const callsAfterApply = (
-	state: ModelState,
+	_state: ModelState,
 	action: Action,
-	observation: ActionOutcome
-): ReadonlyArray<WorldFeature> =>
-	action.kind === "apply"
-		? Arr.flatMap(branchesOf(state, action), ({ observation: applied, next }) =>
-				applied.kind === observation.kind
-					? Arr.flatMap(afterApplyCalls, (kind) =>
-							Arr.flatMap(enumerateKind(next, kind, defaultScope), (a) =>
-								(a.kind === "read" || a.kind === "refresh") && a.session === action.session
-									? Arr.flatMap(step(next, a), (b) => notedOf(next, a, b.observation))
-									: []
-							)
-						)
-					: []
-			)
-		: []
+	outcome: Allowed
+): ReadonlyArray<WorldFeature> => {
+	if (action.kind !== "apply") {
+		return []
+	}
+	const { next } = settled(outcome)
+	return Arr.flatMap(afterApplyCalls, (kind) =>
+		Arr.flatMap(enumerateKind(next, kind, defaultScope), (a) =>
+			(a.kind === "read" || a.kind === "refresh") && a.session === action.session
+				? Arr.flatMap(step(next, a), (b) => notedOf(next, a, b.observation))
+				: []
+		)
+	)
+}
 
 /** What an apply reaches, and then the calls through the same Db after it (callsAfterApply). */
 const afterApply = (
 	state: ModelState,
 	action: Action,
-	observation: ActionOutcome
+	outcome: Allowed
 ): ReadonlyArray<WorldFeature> =>
 	action.kind === "apply"
-		? [...notedOf(state, action, observation), ...callsAfterApply(state, action, observation)]
+		? [...notedOf(state, action, outcome.observation), ...callsAfterApply(state, action, outcome)]
 		: []
 
 /**
@@ -544,7 +544,8 @@ const afterApply = (
  * relation computed from one it writes (aimed on every draw), an apply aimed at the required features the read or
  * refresh after it reaches (afterApply), a read and a refresh each aimed at the required features the program has not
  * reached yet, and the Db's close. The derived relation keeps a deleted fact until a refresh, so the delete, the read
- * that still shows it and the refresh that drops it are three calls apart.
+ * that still shows it and the refresh that drops it are three calls apart. It runs while a feature it aims at is
+ * pending: the apply's look-ahead decides which of them the calls after it reach.
  */
 export const derivedLeftStale =
 	(required: ReadonlyArray<Reached<WorldFeature>>): Lead =>
@@ -553,10 +554,10 @@ export const derivedLeftStale =
 		if (first === undefined) {
 			return []
 		}
-		return whilePending(requiredFeatures(required, startingWith("deletion:derived-")), at, () => [
+		return whilePending([first, ...rest], at, () => [
 			...staleDerivedMoves(weights, [first, ...rest]),
-			dbCall(weights, "read", [first, ...rest], notedOf),
-			dbCall(weights, "refresh", [first, ...rest], notedOf),
+			dbCall(weights, "read", [first, ...rest], noted),
+			dbCall(weights, "refresh", [first, ...rest], noted),
 			{
 				...weights,
 				kinds: withOpener("close"),
@@ -612,26 +613,17 @@ const atCommitRefusals = (feature: WorldFeature): boolean =>
  * foreign key) that the statement breaks shows only there.
  */
 const commitAfter = (
-	state: ModelState,
+	_state: ModelState,
 	action: Action,
-	observation: ActionOutcome
+	outcome: Allowed
 ): ReadonlyArray<WorldFeature> => {
 	if (action.kind !== "direct") {
 		return []
 	}
+	const { next } = settled(outcome)
 	const commit: Action = { kind: "direct-end", session: action.session, end: "commit" }
-	return Arr.flatMap(branchesOf(state, action), (b) =>
-		b.observation.kind === observation.kind
-			? Arr.flatMap(step(b.next, commit), (c) => notedOf(b.next, commit, c.observation))
-			: []
-	)
+	return Arr.flatMap(step(next, commit), (c) => notedOf(next, commit, c.observation))
 }
-
-/** Whether an action is a read of a view or a table by the direct session at `session`. */
-const directReadAt = (action: Action, session: number): boolean =>
-	action.kind === "direct" &&
-	action.session === session &&
-	(action.statement.kind === "select-view" || action.statement.kind === "select-table")
 
 /**
  * What the reads after a direct writer's delete reach, read of the delete's outcome: the features of each read of a view
@@ -639,9 +631,9 @@ const directReadAt = (action: Action, session: number): boolean =>
  * longer shows a fact it deleted, which only a read after the delete can show.
  */
 const readsAfterDelete = (
-	state: ModelState,
+	_state: ModelState,
 	action: Action,
-	observation: ActionOutcome
+	outcome: Allowed
 ): ReadonlyArray<WorldFeature> => {
 	if (
 		action.kind !== "direct" ||
@@ -649,14 +641,9 @@ const readsAfterDelete = (
 	) {
 		return []
 	}
-	return Arr.flatMap(branchesOf(state, action), (b) =>
-		b.observation.kind === observation.kind
-			? Arr.flatMap(enumerateKind(b.next, "direct", defaultScope), (a) =>
-					directReadAt(a, action.session)
-						? Arr.flatMap(step(b.next, a), (c) => notedOf(b.next, a, c.observation))
-						: []
-				)
-			: []
+	const { next } = settled(outcome)
+	return Arr.flatMap(enumerateDirectReads(next, action.session, defaultScope), (a) =>
+		Arr.flatMap(step(next, a), (c) => notedOf(next, a, c.observation))
 	)
 }
 
@@ -667,10 +654,10 @@ const readsAfterDelete = (
 const afterWrite = (
 	state: ModelState,
 	action: Action,
-	observation: ActionOutcome
+	outcome: Allowed
 ): ReadonlyArray<WorldFeature> => [
-	...commitAfter(state, action, observation),
-	...readsAfterDelete(state, action, observation)
+	...commitAfter(state, action, outcome),
+	...readsAfterDelete(state, action, outcome)
 ]
 
 /**
@@ -681,17 +668,14 @@ const afterWrite = (
  */
 const afterAStatementOf =
 	(read: Aiming["read"]) =>
-	(state: ModelState, action: Action, observation: ActionOutcome): ReadonlyArray<string> => {
-		if (action.kind !== "direct-begin" || observation.kind !== "opened") {
+	(_state: ModelState, action: Action, outcome: Allowed): ReadonlyArray<string> => {
+		const { observation: began, next } = settled(outcome)
+		if (action.kind !== "direct-begin" || began.kind !== "opened") {
 			return []
 		}
-		return Arr.flatMap(branchesOf(state, action), ({ observation: began, next }) =>
-			began.kind === "opened"
-				? Arr.flatMap(enumerateKind(next, "direct", defaultScope), (a) =>
-						a.kind === "direct" && a.session === began.session
-							? Arr.flatMap(step(next, a), (b) => read(next, a, b.observation))
-							: []
-					)
+		return Arr.flatMap(enumerateKind(next, "direct", defaultScope), (a) =>
+			a.kind === "direct" && a.session === began.session
+				? Arr.flatMap(step(next, a), (b) => read(next, a, b))
 				: []
 		)
 	}
@@ -730,27 +714,26 @@ export const breakingAtCommit =
 		])
 	}
 
-/** A fact a direct writer's transaction deleted, gone from a read of the transaction: what a read past a delete reaches. */
-const goneFromItsWorld = (feature: WorldFeature): boolean => feature === "deletion:world-gone"
-
 /**
- * A lead for a suite requiring a fact a direct writer's transaction deleted, gone from what the transaction reads: a
- * BEGIN from which that is a delete and the read after it away, a delete after which a read of the transaction reaches
- * it (readsAfterDelete), that read, each aimed on every draw at it, and the transaction's end (endingIt). The read comes
+ * A lead for a suite requiring what a direct writer's reads show past its own delete, such as a fact the transaction
+ * deleted, gone from what it reads: a BEGIN from which a required feature still pending is a delete and the read after
+ * it away, a delete after which a read of the transaction reaches one (readsAfterDelete), that read, each aimed on every
+ * draw at the required features the program has not reached yet, and the transaction's end (endingIt). The read comes
  * two statements after the BEGIN that decides which facts the transaction's world holds and may delete, past the
- * one-statement reach of directTransaction's aims.
+ * one-statement reach of directTransaction's aims. It runs while a feature it aims at is pending: the BEGIN's
+ * look-ahead decides which of them a read past a delete reaches.
  */
 export const readPastADelete =
 	(required: ReadonlyArray<Reached<WorldFeature>>): Lead =>
 	(weights, _install, at) => {
-		const [first, ...rest] = requiredFeatures(required, goneFromItsWorld)
+		const [first, ...rest] = requiredFeatures(required, () => true)
 		if (first === undefined) {
 			return []
 		}
 		const targets: Arr.NonEmptyReadonlyArray<WorldFeature> = [first, ...rest]
 		return whilePending(targets, at, () => [
 			...oneStatementIn(weights, targets, readsAfterDelete),
-			aimedStatement(weights, targets, notedOf),
+			aimedStatement(weights, targets, noted),
 			endingIt(weights, targets)
 		])
 	}
@@ -761,19 +744,18 @@ export const readPastADelete =
  * so an open refused past its token needs the catalog changed first.
  */
 const opensAfter = (
-	state: ModelState,
+	_state: ModelState,
 	action: Action,
-	observation: ActionOutcome
-): ReadonlyArray<WorldFeature> =>
-	action.kind === "tamper"
-		? Arr.flatMap(branchesOf(state, action), (b) =>
-				b.observation.kind === observation.kind
-					? Arr.flatMap(enumerateKind(b.next, "open-db", aimScope), (a) =>
-							Arr.flatMap(step(b.next, a), (c) => notedOf(b.next, a, c.observation))
-						)
-					: []
-			)
-		: []
+	outcome: Allowed
+): ReadonlyArray<WorldFeature> => {
+	if (action.kind !== "tamper") {
+		return []
+	}
+	const { next } = settled(outcome)
+	return Arr.flatMap(enumerateKind(next, "open-db", aimScope), (a) =>
+		Arr.flatMap(step(next, a), (c) => notedOf(next, a, c.observation))
+	)
+}
 
 /**
  * A lead for a suite requiring the opens a catalog change refuses: while a required refused open is pending, a catalog
@@ -803,7 +785,7 @@ export const openPastATamper =
 				...weights,
 				kinds: ["open-db"],
 				actions: { ...zeroWeights.actions, "open-db": 1 },
-				aims: everyDraw(targets, notedOf, (a) => a.kind === "open-db")
+				aims: everyDraw(targets, noted, (a) => a.kind === "open-db")
 			}
 		])
 	}
@@ -814,21 +796,20 @@ export const openPastATamper =
  * a read refused by the snapshot guard needs a Db opened and the migration run first.
  */
 const readsAfterMigration = (
-	state: ModelState,
+	_state: ModelState,
 	action: Action,
-	observation: ActionOutcome
-): ReadonlyArray<WorldFeature> =>
-	action.kind === "migrate"
-		? Arr.flatMap(branchesOf(state, action), (b) =>
-				b.observation.kind === observation.kind
-					? Arr.flatMap(enumerateKind(b.next, "read", defaultScope), (a) =>
-							a.kind === "read" && b.next.sessions[a.session]?.kind === "db"
-								? Arr.flatMap(step(b.next, a), (c) => notedOf(b.next, a, c.observation))
-								: []
-						)
-					: []
-			)
-		: []
+	outcome: Allowed
+): ReadonlyArray<WorldFeature> => {
+	if (action.kind !== "migrate") {
+		return []
+	}
+	const { next } = settled(outcome)
+	return Arr.flatMap(enumerateKind(next, "read", defaultScope), (a) =>
+		a.kind === "read" && next.sessions[a.session]?.kind === "db"
+			? Arr.flatMap(step(next, a), (c) => notedOf(next, a, c.observation))
+			: []
+	)
+}
 
 /**
  * A lead for a suite requiring what a Db shows once a migration moved past its snapshot: while it is pending, a live
@@ -860,7 +841,7 @@ export const callPastAMigration =
 				actions: { ...zeroWeights.actions, migrate: 1 },
 				aims: everyDraw(targets, readsAfterMigration, (a) => a.kind === "migrate")
 			},
-			dbCall(weights, "read", targets, notedOf)
+			dbCall(weights, "read", targets, noted)
 		])
 	}
 
@@ -1160,8 +1141,10 @@ const applyAs =
 	}
 
 export const everyWriterWrites =
-	(aimed: (role: RoleSpec) => ReadonlyArray<string>, read: Aiming["read"]): Lead =>
+	(aimed: (role: RoleSpec) => ReadonlyArray<string>, reading: FeatureReading<string>): Lead =>
 	(weights, install, at) => {
+		const read: Aiming["read"] = (state, action, outcome) =>
+			reading(state, action, outcome.observation)
 		const writers = Arr.filter(install.roles, (r) => r.write.length > 0)
 		return Arr.flatMap(writers, (r): ReadonlyArray<Weights> => {
 			const open: Weights = {
@@ -1228,7 +1211,7 @@ export const aimsAt = <F extends string>(
 		: {
 				kind: "half",
 				features: [first, ...rest],
-				read,
+				read: (state, action, outcome) => read(state, action, outcome.observation),
 				worth: everyActionWorth,
 				scope: aimScope
 			}
@@ -1387,7 +1370,7 @@ const inductiveLeads: Arr.NonEmptyReadonlyArray<InductiveLead> = [
 	{
 		kind: "open-db",
 		worth: everyActionWorth,
-		read: afterOpen(["read", "apply"], notedOf),
+		read: afterOpen(["read", "apply"], noted),
 		after: () => []
 	}
 ]

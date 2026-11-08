@@ -6,8 +6,8 @@ import type {
 	Action,
 	ActionKind,
 	ActionWeights,
+	Allowed,
 	ModelState,
-	ActionOutcome,
 	SmallScope,
 	ValidityWeights
 } from "#test/support/worlds/model/types.ts"
@@ -68,17 +68,14 @@ export const everyRole: RoleFocus = { kind: "every" }
 
 /**
  * What an aimed draw reaches for: features a suite requires, or the move a lead constructs; `read`, the suite's feature
- * map of one outcome (features.ts featuresOf for the worlds suites); `worth`, which actions the box offers are worth
+ * map of one outcome the model allows the action (features.ts featuresOf for the worlds suites), the outcome itself
+ * handed over, so a read looking past it starts from its state and never steps the action again; `worth`, which actions the box offers are worth
  * the model's step at all, read of the action alone (every one, for a feature map that reads every outcome); and
  * `scope`, the box the candidates come from (generate/enumerate.ts enumerateKind).
  */
 export interface Aiming {
 	readonly features: Arr.NonEmptyReadonlyArray<string>
-	readonly read: (
-		state: ModelState,
-		action: Action,
-		observation: ActionOutcome
-	) => ReadonlyArray<string>
+	readonly read: (state: ModelState, action: Action, outcome: Allowed) => ReadonlyArray<string>
 	readonly worth: (action: Action, state: ModelState) => boolean
 	readonly scope: SmallScope
 }
