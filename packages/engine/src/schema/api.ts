@@ -81,6 +81,7 @@ import type {
 	Counted,
 	CountedMember,
 	CountFieldIn,
+	DerivedSource,
 	DiscriminatorsOf,
 	Fin,
 	FinShows,
@@ -339,7 +340,7 @@ export const check = <
  * the statement that reads it holds it to.
  */
 export const on = <
-	R extends AnyRelation | AnyClosed | Selection<AnyRelation | AnyClosed>,
+	R extends AnyRelation | AnyClosed | Selection<AnyRelation | AnyClosed> | DerivedSource,
 	const T extends readonly [TermOf<R> | Constant<unknown>, ...(TermOf<R> | Constant<unknown>)[]]
 >(
 	source: R,

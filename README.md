@@ -1776,7 +1776,9 @@ key, so two runs on one stage never share a night.
 A rule pairs its sides' terms in order. A side is `on(source, ...terms)`.
 
 - **A source** is a table, or `select(T, (t) => φ)`, the rows of T where φ holds, φ written as a row check's
-  condition. It is the one way to write a selection.
+  condition. It is the one way to write a selection. A derived relation is never a source, since its query alone
+  decides its rows: `on(Counts, "id")` is a type error, *a law side is never over a derived relation*, and a schema
+  stating a rule over one is refused from JavaScript as `LawOnDerived`.
 - **A term** is a field, or `pred(n)` of a `natural` field n: n − 1, defined only where n is above 0.
 - **Each term once.** A key, a family, a fold and a containment's target list each term once:
   `key(on(Ticket, "show", "show"))` is a type error, and refused from JavaScript when built. `"at"` and `pred("at")`

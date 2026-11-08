@@ -95,6 +95,15 @@ export interface Side<R, T extends ReadonlyArray<AnySourceTerm> = ReadonlyArray<
 export type AnySourceSide = Side<unknown, ReadonlyArray<AnySourceTerm>>
 
 /**
+ * A derived relation where on's source stands, which no value is: on's source is a relation, closed relation or
+ * selection, and a derived relation, which no law names (LawOnDerived), meets this arm by its kind, so on refuses it by
+ * name where its side is written.
+ */
+export type DerivedSource = Refusal<"a law side is never over a derived relation"> & {
+	readonly kind: "derived"
+}
+
+/**
  * select(R, predicate): the facts of R a row predicate over their own fields holds of. The predicate is the
  * selection's Description's, which no type reads: an alternatives arm's handle is read from the alternatives law
  * (types/evidence ArmProofOf).
@@ -164,9 +173,8 @@ export interface FinShows<out N, out C, out K> {
  * packages/engine/src/schema.
  *
  * Every statement type carries the types of what it names, so the schema's captured statement tuple can be read back.
- * Statement constructors accept only ordinary relations (and
- * closed relations where a law side may be one), never a derived relation, so a law over a derived relation does not
- * typecheck.
+ * Statement constructors accept only ordinary relations (and closed relations where a law side may be one), never a
+ * derived relation, so a law over a derived relation does not typecheck: on refuses one by name (DerivedSource).
  */
 export interface Containment<L = Side<unknown>, R = Side<unknown>> {
 	readonly kind: "contained"

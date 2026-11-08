@@ -558,12 +558,12 @@ const refusals: { readonly [F in SchemaFault]: Refusing } = {
 	keyOverDerived: {
 		engine: { tag: "LawOnDerived" },
 		code: "TS2345",
-		claim: prose("a key's side is never over a derived relation")
+		claim: named("a law side is never over a derived relation")
 	},
 	sideOverDerived: {
 		engine: { tag: "LawOnDerived" },
 		code: "TS2345",
-		claim: named("the sides' field types differ")
+		claim: named("a law side is never over a derived relation")
 	},
 	mutableDerived: {
 		engine: { tag: "LawOnDerived" },
@@ -1388,7 +1388,8 @@ const extraForm: { readonly [K in DerivedExtra["kind"]]: SchemaForm } = {
 }
 
 /** Where a law names the derived relation: its containment's left side, its right side, or a mirror. */
-type DerivedSide = "left" | "right" | "mirrors"
+const derivedSides = ["left", "right", "mirrors"] as const
+type DerivedSide = (typeof derivedSides)[number]
 
 /** The form each place a law names the derived relation is noted as. */
 const sideForm: { readonly [K in DerivedSide]: SchemaForm } = {
@@ -3774,7 +3775,6 @@ type DerivedFault = Extract<
 	| "derivedAtOwnLevel"
 	| "derivedInRoot"
 	| "keyOverDerived"
-	| "sideOverDerived"
 	| "checkOverDerived"
 	| "selectOverDerived"
 	| "finOverDerived"
@@ -3829,13 +3829,12 @@ const definitionSource = (
 
 /**
  * The derived relation's laws and levels: a definition reading a parameter, of no field, or of several heading groups;
- * a derived relation declared at the level its definition reads, or in a root schema; every law that names it, a
- * containment's left side, its right side or a mirror; fin over it; each a planted fault. The admitted forms: a further
- * derived relation over the extension, declared above it, whose schema's levels are its own, the extension's and the
- * root's; a definition matching a query that reads a parameter, bound at each group value; a definition of two arms of
- * one heading, apart only in the handle a discriminant holds; a projection of its relation's key fields and group
- * field, which keeps the keys it inherits. Each admitted definition's fact is the heading the engine
- * compiles it to.
+ * a derived relation declared at the level its definition reads, or in a root schema; a key, check or selection over
+ * it; fin over it; each a planted fault. The admitted forms: a further derived relation over the extension, declared
+ * above it, whose schema's levels are its own, the extension's and the root's; a definition matching a query that
+ * reads a parameter, bound at each group value; a definition of two arms of one heading, apart only in the handle a
+ * discriminant holds; a projection of its relation's key fields and group field, which keeps the keys it inherits. Each
+ * admitted definition's fact is the heading the engine compiles it to.
  */
 const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 	const spec = base.derived
@@ -3850,27 +3849,21 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 		"projection",
 		"skipsLevel"
 	])
-	const [fault, side] =
+	const fault =
 		d.upTo(3) === 0
-			? ([undefined, "left"] as const)
-			: d.from<readonly [DerivedFault, DerivedSide]>([
-					["parameterizedDefinition", "left"],
-					["derivedAtOwnLevel", "left"],
-					["derivedInRoot", "left"],
-					["keyOverDerived", "left"],
-					["sideOverDerived", "left"],
-					["sideOverDerived", "right"],
-					["sideOverDerived", "mirrors"],
-					["checkOverDerived", "left"],
-					["selectOverDerived", "left"],
-					["finOverDerived", "left"],
-					["emptyHead", "left"],
-					["headingGroups", "left"],
-					["derivedOverBase", "left"]
+			? undefined
+			: d.from<DerivedFault>([
+					"parameterizedDefinition",
+					"derivedAtOwnLevel",
+					"derivedInRoot",
+					"keyOverDerived",
+					"checkOverDerived",
+					"selectOverDerived",
+					"finOverDerived",
+					"emptyHead",
+					"headingGroups",
+					"derivedOverBase"
 				])
-	if (fault === "sideOverDerived") {
-		d.note(sideForm[side])
-	}
 	if (fault === undefined) {
 		d.note(validForm[valid])
 	}
@@ -3884,18 +3877,6 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 		`Sc.derived("Over", Q.query(${ids("Level")}).rule((r) => { const { ${spec.by}, total } = Q.v(${ids(spec.name)}, "counted"); return r.match(${ids(spec.name)}, { ${spec.by}, total }).find({ ${spec.by}, total }) }))`
 	const matched = (ids: Ids) =>
 		`const { ${Arr.join(bound, ", ")} } = Q.v(${ids(r.name)}, "fact"); return r.match(${ids(r.name)}, { ${Arr.join(bound, ", ")} })`
-	const sideText = (ids: Ids): string => {
-		const counted = `Sc.on(${ids(spec.name)}, ${jsonText(spec.by)})`
-		const own = `Sc.on(${ids(r.name)}, ${jsonText(spec.by)})`
-		switch (side) {
-			case "left":
-				return `Sc.contained(${counted}, ${own})`
-			case "right":
-				return `Sc.contained(${own}, ${counted})`
-			case "mirrors":
-				return `Sc.mirrors(${counted}, ${own})`
-		}
-	}
 	const keys = r.key
 	const admittedText = (ids: Ids, own: string, env: Env): ProbeText => {
 		const fact = (definition: QueryValue) =>
@@ -3969,8 +3950,6 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 				return oneLine(`Sc.schema("Root", { ${spec.name}: ${ids(spec.name)} }, [])`)
 			case "keyOverDerived":
 				return oneLine(`Sc.key(Sc.on(${ids(spec.name)}, ${jsonText(spec.by)}))`)
-			case "sideOverDerived":
-				return oneLine(sideText(ids))
 			case "checkOverDerived":
 				return oneLine(`Sc.check("Probe", ${ids(spec.name)}, (w) => w.and())`)
 			case "selectOverDerived":
@@ -4021,19 +4000,6 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 				)
 				.find(head(vars))
 		}
-	/** The law over the derived relation a sideOverDerived probe states, on the side it draws. */
-	const sideStatement = (env: Env): Statement => {
-		const counted = onBuilder(derivedOf(env), [spec.by])
-		const own = onBuilder(got(env.relations, r.name), [spec.by])
-		switch (side) {
-			case "left":
-				return containedBuilder(counted, own)
-			case "right":
-				return containedBuilder(own, counted)
-			case "mirrors":
-				return mirrorsBuilder(counted, own)
-		}
-	}
 	/** R's key fields where its group field is the parameter p: the query a bound import imports. */
 	const importedValue = (env: Env): QueryValue =>
 		queryOver(env.schema).rule((rule: RuleValue) => {
@@ -4139,8 +4105,6 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 				return building(() => admitSchema("Root", { [spec.name]: counts }, [], []))
 			case "keyOverDerived":
 				return extended(keyBuilder(onBuilder(counts, [spec.by])))
-			case "sideOverDerived":
-				return extended(sideStatement(env))
 			case "checkOverDerived":
 				return building(() => checkBuilder("Probe", counts, (w: typeof rowHelpers) => w.and()))
 			case "selectOverDerived":
@@ -4171,6 +4135,52 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 		refused: fault,
 		text,
 		judge
+	}
+}
+
+/**
+ * A law naming the derived relation on a drawn side, a containment's left side, its right side or a mirror, over its
+ * group field and its relation's: always a planted fault, which on refuses where the side is written, so every case
+ * with a derived relation states one on some side.
+ */
+const derivedSideProbe = (d: Drawing, base: Base): Probe | undefined => {
+	const spec = base.derived
+	if (spec === undefined) {
+		return undefined
+	}
+	const r = relationNamed(base.relations, spec.over)
+	const side = d.from(derivedSides)
+	d.note(sideForm[side])
+	const text = (ids: Ids): ProbeText => {
+		const counted = `Sc.on(${ids(spec.name)}, ${jsonText(spec.by)})`
+		const own = `Sc.on(${ids(r.name)}, ${jsonText(spec.by)})`
+		switch (side) {
+			case "left":
+				return oneLine(`Sc.contained(${counted}, ${own})`)
+			case "right":
+				return oneLine(`Sc.contained(${own}, ${counted})`)
+			case "mirrors":
+				return oneLine(`Sc.mirrors(${counted}, ${own})`)
+		}
+	}
+	const statement = (env: Env): Statement => {
+		const counted = onBuilder(derivedOf(env), [spec.by])
+		const own = onBuilder(got(env.relations, r.name), [spec.by])
+		switch (side) {
+			case "left":
+				return containedBuilder(counted, own)
+			case "right":
+				return containedBuilder(own, counted)
+			case "mirrors":
+				return mirrorsBuilder(counted, own)
+		}
+	}
+	return {
+		construct: "derivedProbe",
+		refused: "sideOverDerived",
+		text,
+		judge: (env) =>
+			compiling(() => schema.extend(env.schema, derivedRecord(env), [statement(env)], []))
 	}
 }
 
@@ -7563,7 +7573,8 @@ const probeMakers: ReadonlyArray<
 	["slotKeyProbe", (d) => slotKeyProbe(d)],
 	["slotSideProbe", slotSideProbe],
 	["slotContainmentProbe", slotContainmentProbe],
-	["sourceTermProbe", (d) => sourceTermProbe(d)]
+	["sourceTermProbe", (d) => sourceTermProbe(d)],
+	["derivedProbe", derivedSideProbe]
 ]
 
 /** A drawn case: its base, its probes, and the constructs its drawing reached. */

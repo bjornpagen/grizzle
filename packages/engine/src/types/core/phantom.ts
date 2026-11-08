@@ -895,6 +895,7 @@ export const typeRefusals = [
 	"a key gets its one row",
 	"a key lists each field once",
 	"a key lists no set: a set's bit string is too wide for an index entry",
+	"a law side is never over a derived relation",
 	"a login's roles share its base",
 	"a login's workload is over its base, a level of it, or one of its roles",
 	"a member fact is not a fact of the relation",
