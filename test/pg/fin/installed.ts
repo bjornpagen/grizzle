@@ -313,7 +313,8 @@ export const theConstraint = (
 /**
  * Re-creates a foreign key without some of its pairs, in the same deferral and update action, as the owner: a mutant of
  * the installed lowering, with a UNIQUE over the target's remaining columns where no key of the target is exactly
- * those, since a foreign key's target must be. Each statement runs in order; the suite never writes to the shared tree.
+ * those, since a foreign key's target must be, named by PostgreSQL, which picks a name no constraint holds. Each
+ * statement runs in order; the suite never writes to the shared tree.
  */
 export const droppedPairsSql = (
 	seat: Seat,
@@ -334,13 +335,12 @@ export const droppedPairsSql = (
 				Arr.map(pairs, ([, t]) => t)
 			)
 	)
-	const mutantKey = Str.slice(0, 63)(`${fk.name}_mutant_key`)
 	return [
 		`ALTER TABLE ${seat.table(fk.relation)} DROP CONSTRAINT ${quoteIdent(fk.name)}`,
 		...(keyed
 			? []
 			: [
-					`ALTER TABLE ${seat.table(target.relation)} ADD CONSTRAINT ${quoteIdent(mutantKey)} UNIQUE NULLS DISTINCT (${Arr.join(targets, ", ")})`
+					`ALTER TABLE ${seat.table(target.relation)} ADD UNIQUE NULLS DISTINCT (${Arr.join(targets, ", ")})`
 				]),
 		`ALTER TABLE ${seat.table(fk.relation)} ADD CONSTRAINT ${quoteIdent(fk.name)} FOREIGN KEY (${Arr.join(sources, ", ")}) REFERENCES ${seat.table(target.relation)} (${Arr.join(targets, ", ")}) MATCH SIMPLE${fk.cascades ? " ON UPDATE CASCADE" : ""}${fk.deferrable ? " DEFERRABLE INITIALLY DEFERRED" : " NOT DEFERRABLE"}`
 	]
