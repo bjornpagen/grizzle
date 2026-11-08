@@ -405,10 +405,6 @@ const afterOpen =
 		)
 	}
 
-/** What a Db's reads and applies note: their op features, the world objects and read paths they show. */
-const dbReach = (feature: WorldFeature): boolean =>
-	startingWith("op:read:", "op:apply:", "object:", "strata:", "readback:", "via:")(feature)
-
 /** Whether an action is a call through an open Db the state holds. */
 const ofAnOpenDb = (action: Action, state: ModelState): boolean =>
 	(action.kind === "read" || action.kind === "apply") &&
@@ -433,7 +429,9 @@ const aimedOpen = (
 /**
  * A lead for a suite requiring a Db's reads and applies: an open from which a required feature still pending is one
  * call away (aimedOpen), three calls through it, apply, read and apply, those of the suite's kinds, each aimed at the
- * required features the program has not reached yet, and the Db's close.
+ * required features the program has not reached yet, and the Db's close. It runs while a feature it aims at is pending:
+ * the open's look-ahead decides which of them a Db's calls reach, so every one a call carries has its lead, the invalid
+ * inputs of an apply and the law its refusal names included.
  */
 export const dbSession =
 	(required: ReadonlyArray<Reached<WorldFeature>>): Lead =>
@@ -452,7 +450,7 @@ export const dbSession =
 		const calls = Arr.filter(["apply", "read", "apply"] as const, (kind) =>
 			Arr.contains(weights.kinds, kind)
 		)
-		return whilePending(requiredFeatures(required, dbReach), at, () => [
+		return whilePending([first, ...rest], at, () => [
 			aimedOpen(weights, [first, ...rest], calls),
 			...Arr.map(calls, call),
 			{

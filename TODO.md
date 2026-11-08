@@ -42,7 +42,6 @@ with the next release.
 - **Failing at HEAD on 2026-11-07, none on a qti-pie path:**
   - test/types/schema/agreement.test.ts: about 15 cases where the types miss the "the sides' field types differ"
     refusal, and derivedMirrors is never reached;
-  - test/pg/world-model/laws.test.ts: `invalid:fact:filtered-serial-omitted` is never reached.
 - **bytes past 268,435,443 bytes:**
   - Why: pg 8.23's parser decodes every result cell as a UTF-8 string, so a binary read isn't possible. Every bytes
     value is read as hex text in one string.
