@@ -30,8 +30,8 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * bits are its handles' codes, and the installed CHECK holds a row exactly when the set algebra over its handles does.
  *
  * The box: every set over a roster of three handles, written as one row of R, whose checks hold its flags apart from
- * {a} and within {a, b}. The model restates both checks over plain Sets: a row is accepted exactly when its flags hold
- * both; otherwise the write is refused naming `every` check the flags break, each once, in the schema's canonical order
+ * {a}, within {a, b}, and within one side, {a, b} or {b, c}, so a and c together break all three. The model restates
+ * the checks over plain Sets: a row is accepted exactly when its flags hold every one; otherwise the write is refused naming `every` check the flags break, each once, in the schema's canonical order
  * of its laws, whichever CHECK PostgreSQL tried first, its witness the row's key. A query reads an accepted row back
  * through the same algebra against set values, whether its flags miss b and their union with {c}, which the model
  * computes over plain Sets.
@@ -44,16 +44,23 @@ type Handle = (typeof handles)[number]
 const Flag = closed("Flag", handles)
 const R = relation("R", { id: pg.integer, flags: bits(Flag) }, ["id"])
 
-/** The set value Apart holds R's flags apart from, and the one Within holds them within. */
+/** The set value Apart holds R's flags apart from, the one Within holds them within, and Split's other side. */
 const apartFrom: ReadonlyArray<Handle> = ["a"]
 const withinOf: ReadonlyArray<Handle> = ["a", "b"]
+const otherSide: ReadonlyArray<Handle> = ["b", "c"]
 const apart = check("Apart", R, (r) =>
 	r.eq(Compute.disjoint(r.flags, Bits.of(Flag, apartFrom)), true)
 )
 const within = check("Within", R, (r) =>
 	r.eq(Compute.subset(r.flags, Bits.of(Flag, withinOf)), true)
 )
-const Sets = schema("SetChecks", { Flag, R }, [apart, within])
+const split = check("Split", R, (r) =>
+	r.or(
+		r.eq(Compute.subset(r.flags, Bits.of(Flag, withinOf)), true),
+		r.eq(Compute.subset(r.flags, Bits.of(Flag, otherSide)), true)
+	)
+)
+const Sets = schema("SetChecks", { Flag, R }, [apart, within, split])
 
 /** Sets as installed under its schema's own name. */
 type SetsInstalled = Schema<
@@ -93,12 +100,19 @@ const restated = [
 		holds: (flags: ReadonlySet<Handle>) =>
 			Arr.every(Arr.fromIterable(flags), (h) => withinOf.includes(h)),
 		alone: "refused by Within"
+	},
+	{
+		statement: split,
+		holds: (flags: ReadonlySet<Handle>) =>
+			Arr.every(Arr.fromIterable(flags), (h) => withinOf.includes(h)) ||
+			Arr.every(Arr.fromIterable(flags), (h) => otherSide.includes(h)),
+		alone: "refused by Split"
 	}
 ] as const
 
 type Restated = (typeof restated)[number]
 
-type Situation = "accepted" | Restated["alone"] | "refused by Apart and Within"
+type Situation = "accepted" | Restated["alone"] | "refused by several checks"
 
 /** The situation of a row breaking `broken`, R's checks its flags break. */
 const situationOf = (broken: ReadonlyArray<Restated>): Situation => {
@@ -106,14 +120,14 @@ const situationOf = (broken: ReadonlyArray<Restated>): Situation => {
 	if (only === undefined) {
 		return "accepted"
 	}
-	return Arr.isReadonlyArrayEmpty(others) ? only.alone : "refused by Apart and Within"
+	return Arr.isReadonlyArrayEmpty(others) ? only.alone : "refused by several checks"
 }
 
 layer(Substrate.layer, { excludeTestServices: true })(
 	"a row check over a set and a set value",
 	(it) => {
 		it.effect(
-			"holds a row exactly when its flags are disjoint from and a subset of the set values, and a refusal names every check they break, for every set over the roster",
+			"holds a row exactly when its flags are disjoint from and a subset of the set values, and a refusal names every check they break, all three at once included, for every set over the roster",
 			(ctx) =>
 				searched(
 					ctx,
@@ -138,7 +152,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										"accepted",
 										"refused by Apart",
 										"refused by Within",
-										"refused by Apart and Within"
+										"refused by several checks"
 									]),
 									caseHang
 								},
