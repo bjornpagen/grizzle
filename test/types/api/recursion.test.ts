@@ -8,7 +8,7 @@ import {
 	recursionWitnesses
 } from "#test/support/agreement/recursion.ts"
 import { assert } from "#test/support/assert.ts"
-import { checked } from "#test/types/batch/groups.ts"
+import { checked } from "#test/types/batch/batch.ts"
 
 layer(NodeServices.layer, { excludeTestServices: true })("the recursion agreement", (it) => {
 	it.effect(

@@ -2,7 +2,7 @@ import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
 import { Effect } from "effect"
 import { assert } from "#test/support/assert.ts"
-import { checked } from "#test/types/batch/groups.ts"
+import { checked } from "#test/types/batch/batch.ts"
 
 layer(NodeServices.layer, { excludeTestServices: true })("the largest generated schema", (it) => {
 	it.effect(

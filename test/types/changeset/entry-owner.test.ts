@@ -3,7 +3,7 @@ import { layer } from "@effect/vitest"
 import { Array as Arr, Effect } from "effect"
 import { assert } from "#test/support/assert.ts"
 import { entryOwnerRefused } from "#test/support/families/entry-owner.ts"
-import { checked } from "#test/types/batch/groups.ts"
+import { checked } from "#test/types/batch/batch.ts"
 import { entryOwnerTyped } from "#test/types/changeset/entry-owner.ts"
 
 layer(NodeServices.layer, { excludeTestServices: true })(

@@ -4,7 +4,7 @@ import { unreachedOf } from "@grizzle/testing/features"
 import { Effect } from "effect"
 import { assert } from "#test/support/assert.ts"
 import { bytesProgram } from "#test/support/text/bytes.ts"
-import { checked } from "#test/types/batch/groups.ts"
+import { checked } from "#test/types/batch/batch.ts"
 import { typeRun } from "#test/types/batch/provided.ts"
 
 layer(NodeServices.layer, { excludeTestServices: true })("str.bytes types", (it) => {

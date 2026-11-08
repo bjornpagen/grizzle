@@ -5,7 +5,7 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { accepts } from "#test/support/fixtures/ir/scalar.ts"
-import { checked } from "#test/types/batch/groups.ts"
+import { checked } from "#test/types/batch/batch.ts"
 import {
 	regexSchemaRefusalCount,
 	regexPattern,

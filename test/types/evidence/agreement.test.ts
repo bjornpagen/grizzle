@@ -16,7 +16,7 @@ import {
 	reorderedVerdicts
 } from "#test/support/agreement/queries.ts"
 import { assert } from "#test/support/assert.ts"
-import { checked } from "#test/types/batch/groups.ts"
+import { checked } from "#test/types/batch/batch.ts"
 import { typeRun } from "#test/types/batch/provided.ts"
 
 /**

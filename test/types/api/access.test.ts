@@ -4,7 +4,7 @@ import { unreachedOf } from "@grizzle/testing/features"
 import { Effect } from "effect"
 import { accessCount, accessRequired, accessWitnesses } from "#test/support/agreement/access.ts"
 import { assert } from "#test/support/assert.ts"
-import { checked } from "#test/types/batch/groups.ts"
+import { checked } from "#test/types/batch/batch.ts"
 
 layer(NodeServices.layer, { excludeTestServices: true })("the access agreement", (it) => {
 	it.effect(

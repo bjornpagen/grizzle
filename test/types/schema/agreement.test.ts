@@ -4,7 +4,7 @@ import { unreachedOf } from "@grizzle/testing/features"
 import { Effect } from "effect"
 import { schemaRequired, schemaWitnesses } from "#test/support/agreement/schemas.ts"
 import { assert } from "#test/support/assert.ts"
-import { checked } from "#test/types/batch/groups.ts"
+import { checked } from "#test/types/batch/batch.ts"
 
 layer(NodeServices.layer, { excludeTestServices: true })("the schema agreement", (it) => {
 	it.effect(

@@ -8,6 +8,7 @@
 		"test/unit/deps/fixtures/**/*.ts",
 		"test/unit/deps/runtime-probe.ts",
 		"test/support/pg-global-setup.ts",
+		"test/types/batch/build.ts",
 		"test/types/batch/global-setup.ts",
 		"vitest.config.ts",
 		"vitest.network.config.ts",

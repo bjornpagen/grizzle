@@ -10,7 +10,7 @@ import {
 	transactionFaults
 } from "#test/support/agreement/attachments.ts"
 import { assert } from "#test/support/assert.ts"
-import { checked } from "#test/types/batch/groups.ts"
+import { checked } from "#test/types/batch/batch.ts"
 import { typeRun } from "#test/types/batch/provided.ts"
 
 /**

@@ -2,7 +2,17 @@ import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
 import { type Case, drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { array, boolean, element, type Gen, int } from "@grizzle/testing/gen"
+import {
+	array,
+	boolean,
+	constant,
+	element,
+	type Gen,
+	int,
+	oneOf,
+	string,
+	unicodeScalar
+} from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { boundedShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -19,13 +29,15 @@ import {
 	Record as Rec,
 	String as Str
 } from "effect"
-import { assert } from "#test/support/assert.ts"
+import { jsonText, trustedJson } from "#compiler/core/trusted.ts"
+import { assert, defined } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { scopedTempDir } from "#test/support/temp.ts"
-import { buildBatchAt, type UnitSpec } from "#test/types/batch/batch.ts"
+import { buildBatchAt, type UnitSpec, whenWritten } from "#test/types/batch/batch.ts"
 import { guardedRun } from "#test/types/batch/compiler.ts"
 import { diagnosticKey } from "#test/types/batch/directives.ts"
-import { typeRun } from "#test/types/batch/provided.ts"
+import { startBatch } from "#test/types/batch/global-setup.ts"
+import { type TypeRun, typeRun } from "#test/types/batch/provided.ts"
 
 /** The test file that reads these batches, which the runner's batch never holds. */
 const owner = "test/types/batch/batch.test.ts"
@@ -354,6 +366,248 @@ const plantedCheck: Gen<PlantedCheck> = (source) => ({
 	everyMillis: source.draw(int(50, 300))
 })
 
+/**
+ * What a planted builder does once it has read its request to the end: prints a batch of `units`, one output line each,
+ * whose unattributed lines are the request it read, whether it ran in a process of its own, and `padding` copies of
+ * `character`; or prints a partial line on stdout and `stderr`, then exits with `status`.
+ */
+type PlantedBuilder =
+	| Readonly<{ kind: "prints"; units: ReadonlyArray<number>; character: string; padding: number }>
+	| Readonly<{ kind: "fails"; stderr: string; status: number }>
+
+/** A test module's tier: a type test, which the batch is for, or a unit test, which it ignores. */
+type Tier = "types" | "unit"
+
+const TIERS = ["types", "unit"] as const satisfies ReadonlyArray<Tier>
+
+/**
+ * A planted run: its seed and the tier of each of its test modules, and, for a run with type tests, the builder its
+ * batch runs; a run without type tests starts none.
+ */
+type PlantedRun =
+	| Readonly<{ kind: "without type tests"; seed: number; modules: ReadonlyArray<"unit"> }>
+	| Readonly<{
+			kind: "with type tests"
+			seed: number
+			modules: ReadonlyArray<Tier>
+			builder: PlantedBuilder
+	  }>
+
+/** The most a pipe holds unread, 64 KiB on macOS and Linux: a longer output reaches its reader in several reads. */
+const PIPE_BUFFER_BYTES = 65_536
+
+const printing =
+	(padding: Gen<number>): Gen<PlantedBuilder> =>
+	(source) => ({
+		kind: "prints",
+		units: source.draw(array(int(0, 9), { min: 0, max: 3 })),
+		character: source.draw(unicodeScalar),
+		padding: source.draw(padding)
+	})
+
+const failing: Gen<PlantedBuilder> = (source) => ({
+	kind: "fails",
+	stderr: source.draw(string(unicodeScalar, { min: 1, max: 24 })),
+	status: source.draw(int(1, 255))
+})
+
+const withoutTypeTests: Gen<PlantedRun> = (source) => ({
+	kind: "without type tests",
+	seed: source.draw(int(0, 0xffff_ffff)),
+	modules: source.draw(array(constant<"unit">("unit"), { min: 0, max: 3 }))
+})
+
+/** A run with type tests: unit tests, then a type test, then tests of either tier, around a builder of `builder`'s. */
+const withTypeTests =
+	(builder: Gen<PlantedBuilder>): Gen<PlantedRun> =>
+	(source) => ({
+		kind: "with type tests",
+		seed: source.draw(int(0, 0xffff_ffff)),
+		modules: [
+			...source.draw(array(constant<Tier>("unit"), { min: 0, max: 2 })),
+			"types",
+			...source.draw(array(element(TIERS), { min: 0, max: 2 }))
+		],
+		builder: source.draw(builder)
+	})
+
+/** Each situation the search requires is an arm of its own, drawn as often as the others. */
+const plantedRun: Gen<PlantedRun> = oneOf<PlantedRun>([
+	withoutTypeTests,
+	withTypeTests(printing(int(0, 64))),
+	withTypeTests(printing(int(PIPE_BUFFER_BYTES + 1, 2 * PIPE_BUFFER_BYTES))),
+	withTypeTests(failing)
+])
+
+type RunFeature =
+	| "a run without type tests"
+	| "a builder that prints its batch"
+	| "an output past a pipe's buffer"
+	| "a builder that fails"
+
+/** A planted batch's units: one per drawn value, its one output line the value. */
+const unitsOf = (values: ReadonlyArray<number>) =>
+	Rec.fromEntries(
+		Arr.map(values, (value, at) => [
+			`u${at}`,
+			{ output: [String(value)], errors: [], directives: [], problems: [] }
+		])
+	)
+
+/** Where a planted builder says it ran when it ran in a process other than the run's. */
+const APART = "a process of its own"
+
+/** A planted builder as a Node program, which reads its request on stdin to the end before it acts. */
+const builderProgram = (builder: PlantedBuilder): string => {
+	const read = [
+		"const chunks = []",
+		"for await (const chunk of process.stdin) chunks.push(chunk)",
+		'const request = Buffer.concat(chunks).toString("utf8")'
+	]
+	switch (builder.kind) {
+		case "prints":
+			return Arr.join(
+				[
+					...read,
+					`const where = process.pid === ${process.pid} ? "the run's own process" : ${jsonText(APART)}`,
+					`const padded = ${jsonText(builder.character)}.repeat(${builder.padding})`,
+					`process.stdout.write(JSON.stringify({ units: ${jsonText(unitsOf(builder.units))}, unattributed: [request, where, padded] }))`,
+					""
+				],
+				"\n"
+			)
+		case "fails":
+			return Arr.join(
+				[
+					...read,
+					'process.stdout.write("partial")',
+					`process.stderr.write(${jsonText(builder.stderr)})`,
+					`process.exitCode = ${builder.status}`,
+					""
+				],
+				"\n"
+			)
+	}
+}
+
+/** The request a run sends its builder (BuildRequest), as a planted builder reads it back. */
+type SentRequest = Readonly<{ seed: number; files: ReadonlyArray<string> }>
+
+/** A planted test module's path, relative to the repository: its tier's directory, and its place in the run. */
+const moduleOf = (tier: Tier, at: number): string => `test/${tier}/m${at}.test.ts`
+
+/** What a run's batch file holds once its builder has run: what the builder printed, or its failure. */
+const heldBy = (
+	builder: PlantedBuilder,
+	result: Effect.Success<ReturnType<typeof whenWritten>>,
+	expected: SentRequest,
+	c: Case<RunFeature>
+): void => {
+	switch (builder.kind) {
+		case "prints": {
+			c.note("a builder that prints its batch")
+			const padded = Str.repeat(builder.padding)(builder.character)
+			if (new TextEncoder().encode(padded).length > PIPE_BUFFER_BYTES) {
+				c.note("an output past a pipe's buffer")
+			}
+			const [request, where, printed, ...rest] = result.unattributed
+			assert.deepEqual(
+				{
+					units: result.units,
+					request: Option.map(Option.fromUndefinedOr(request), (text) =>
+						trustedJson<SentRequest>(text)
+					),
+					where,
+					verbatim: printed === padded,
+					rest
+				},
+				{
+					units: unitsOf(builder.units),
+					request: Option.some(expected),
+					where: APART,
+					verbatim: true,
+					rest: []
+				}
+			)
+			return
+		}
+		case "fails": {
+			c.note("a builder that fails")
+			const { stderr, status } = builder
+			assert.deepEqual(
+				{
+					units: result.units,
+					named: Arr.map(
+						result.unattributed,
+						(line) => Str.includes(stderr)(line) && Str.includes(`status ${status}`)(line)
+					)
+				},
+				{ units: {}, named: [true] }
+			)
+		}
+	}
+}
+
+/**
+ * Starts a planted run as the type tier's global setup starts one, with a planted builder, and holds what it provides
+ * to the model: no batch for a run without type tests; otherwise the file the builder's result reaches, which holds
+ * what the builder printed, its request read in a process of its own, or, for a builder that fails, one line naming its
+ * status and what it printed on stderr.
+ */
+const delivered = (planted: PlantedRun, c: Case<RunFeature>) =>
+	Effect.scoped(
+		Effect.gen(function* () {
+			const fs = yield* FileSystem.FileSystem
+			const path = yield* Path.Path
+			const repository = yield* fs.realPath(path.resolve(import.meta.dirname, "../../.."))
+			const dir = yield* scopedTempDir(path.join(repository, plantedIn), ".builder-")
+			const builder = path.join(dir, "builder.mjs")
+			const provided: Array<TypeRun> = []
+			const start = (modules: ReadonlyArray<Tier>) =>
+				startBatch({
+					root: repository,
+					seed: planted.seed,
+					moduleIds: Arr.map(modules, (tier, at) => path.join(repository, moduleOf(tier, at))),
+					builder,
+					provide: (run) => {
+						provided.push(run)
+					}
+				})
+			switch (planted.kind) {
+				case "without type tests": {
+					c.note("a run without type tests")
+					yield* start(planted.modules)
+					assert.deepEqual(provided, [{ seed: planted.seed, batch: { kind: "none" } }])
+					return
+				}
+				case "with type tests": {
+					yield* fs.writeFileString(builder, builderProgram(planted.builder))
+					yield* start(planted.modules)
+					assert.deepEqual(
+						Arr.map(provided, (run) => ({ seed: run.seed, kind: run.batch.kind })),
+						[{ seed: planted.seed, kind: "batch" }]
+					)
+					const file = defined(
+						Arr.flatMap(provided, (run) => (run.batch.kind === "batch" ? [run.batch.file] : []))[0],
+						"the file of the run's batch"
+					)
+					const result = yield* whenWritten(file)
+					heldBy(
+						planted.builder,
+						result,
+						{
+							seed: planted.seed,
+							files: Arr.flatMap(planted.modules, (tier, at) =>
+								tier === "types" ? [moduleOf(tier, at)] : []
+							)
+						},
+						c
+					)
+				}
+			}
+		})
+	)
+
 layer(NodeServices.layer, { excludeTestServices: true })("the type-test batch", (it) => {
 	it.effect(
 		"attributes every diagnostic to the unit whose file it names, through any spelling of the root, and fails on one no unit owns",
@@ -471,6 +725,41 @@ layer(NodeServices.layer, { excludeTestServices: true })("the type-test batch", 
 								)
 							})
 						)
+				)
+			)
+	)
+
+	it.effect(
+		"builds a run's batch in a builder process of its own, delivers what it printed, and fails every check when it fails",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "type batch builder",
+						oracle: {
+							kind: "second-implementation",
+							name: "a model of the run's request, and of the batch each planted builder prints or the failure it ends with"
+						},
+						draw: drawn(plantedRun),
+						literal: Formatter.format,
+						coverage: required<RunFeature>(
+							[
+								"a run without type tests",
+								"a builder that prints its batch",
+								"an output past a pipe's buffer",
+								"a builder that fails"
+							],
+							{ cases: 24, sense: notesOnly }
+						),
+						kept: [],
+						runs: 4,
+						shrink: boundedShrink(8),
+						concurrency: 1,
+						steerEvery: 4,
+						caseHang
+					},
+					delivered
 				)
 			)
 	)

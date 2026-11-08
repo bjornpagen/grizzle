@@ -3,7 +3,7 @@ import { layer } from "@effect/vitest"
 import { Effect } from "effect"
 import { configSize } from "#test/support/agreement/dbconfig.ts"
 import { assert } from "#test/support/assert.ts"
-import { checked } from "#test/types/batch/groups.ts"
+import { checked } from "#test/types/batch/batch.ts"
 
 layer(NodeServices.layer, { excludeTestServices: true })("the DbConfig agreement", (it) => {
 	it.effect(

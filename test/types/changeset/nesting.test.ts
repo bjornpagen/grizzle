@@ -2,7 +2,7 @@ import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
 import { Array as Arr, Effect } from "effect"
 import { assert } from "#test/support/assert.ts"
-import { checked } from "#test/types/batch/groups.ts"
+import { checked } from "#test/types/batch/batch.ts"
 import { nestingCases, nestingRefused } from "#test/types/changeset/nesting.ts"
 
 layer(NodeServices.layer, { excludeTestServices: true })(

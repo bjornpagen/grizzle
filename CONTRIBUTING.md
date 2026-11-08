@@ -132,7 +132,9 @@ global setup (`test/support/pg-global-setup.ts`) runs the doctor's quick checks,
 clones the worker databases. Once every file has ended, its teardown sweeps again. Nothing drops a database while files
 run: DROP DATABASE holds its transaction id through the checkpoint it forces, which makes PostgreSQL summarize every
 other file's SERIALIZABLE transactions, and their writes then fail with 40001. The type tier's checks are one tsgo
-program, which its global setup builds while the files run (`test/types/batch/global-setup.ts`).
+program, which a builder process its global setup starts builds while the files run (`test/types/batch/global-setup.ts`,
+`build.ts`): drawing a program is one long synchronous computation, so the batch never draws one in Vitest's own
+process, whose timers start every test process.
 
 Every generated suite draws from one run seed, `TEST_SEED`. The run prints the seed first, and setting it reproduces
 a run; `TEST_REPLAY='<suite>:<steering>:<tape>'` replays one case as its failure printed it, under the steering it was drawn with. Each search runs, in order
@@ -259,7 +261,7 @@ suite's residual risk. A longer search is a fuzz run, `pnpm fuzz <suite>`.
   with its reason, are the README and SKILL mirror, the published-package gate, the performance gates and the testing
   library's engine bench, the type batch's population runners and its cost gates (`testCaseIsSearch.exempt`). A
   type-test file goes on the population runners' exemption only when its cases read a population the type batch
-  typechecks as one program (a group of `test/types/batch/groups.ts`, read through `checked`). The batch's global setup
+  typechecks as one program (a group of `test/types/batch/groups.ts`, read through `checked`). The batch's builder
   draws the population, by the testing library's generators or by exhausting a box of the source's own rosters, and
   typechecks it at once, so no case can run a search per program. Each case holds the population to the engine as
   oracle, or holds that its floor's witnesses reach every requirement. Every other file runs its search in its cases.

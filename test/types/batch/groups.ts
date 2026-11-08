@@ -11,7 +11,7 @@ import { schemaEntriesFrom, schemaModules } from "#test/support/agreement/schema
 import { workloadEntriesFrom, workloadModule } from "#test/support/agreement/workloads.ts"
 import { bytesProgram } from "#test/support/text/bytes.ts"
 import { surfaceEntriesFrom, surfaceModule } from "#test/types/api/surface.ts"
-import { checkUnit, type Group, type UnitSpec } from "#test/types/batch/batch.ts"
+import type { Group, UnitSpec } from "#test/types/batch/batch.ts"
 import { entryOwnerEntriesFrom, entryOwnerSource } from "#test/types/changeset/entry-owner.ts"
 import { nestingCases, nestingSource } from "#test/types/changeset/nesting.ts"
 import { doorEntriesFrom, doorModule } from "#test/types/harness/door.ts"
@@ -43,7 +43,7 @@ const fixtureUnits = (name: string): Readonly<Record<string, UnitSpec>> => ({
 	[`${name}/disarmed`]: { kind: "disarmed", dir: `test/types/${name}` }
 })
 
-export const typeGroups: ReadonlyArray<Group> = [
+const typeGroups: ReadonlyArray<Group> = [
 	{
 		owner: "test/types/api/access.test.ts",
 		units: {
@@ -357,11 +357,8 @@ export const typeGroups: ReadonlyArray<Group> = [
 ]
 
 /**
- * The groups the type tier's global setup builds for the type-test files a run runs, by their paths relative to the
- * repository (global-setup.ts).
+ * The groups the batch's builder (build.ts) builds for the type-test files a run runs, by their paths relative to the
+ * repository.
  */
 export const groupsFor = (files: ReadonlyArray<string>): ReadonlyArray<Group> =>
 	Arr.filter(typeGroups, (group) => files.includes(group.owner))
-
-/** The diagnostics of one unit of the batch, an Effect a type test runs. */
-export const checked = (unit: string) => checkUnit(typeGroups, unit)

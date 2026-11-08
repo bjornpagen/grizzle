@@ -10,7 +10,7 @@ import {
 	changeSetWitnesses
 } from "#test/support/agreement/changesets.ts"
 import { assert } from "#test/support/assert.ts"
-import { checked } from "#test/types/batch/groups.ts"
+import { checked } from "#test/types/batch/batch.ts"
 
 /**
  * The ChangeSet type/engine agreement (test/support/agreement/changesets.ts), one program the type batch checks

@@ -8,7 +8,7 @@ import {
 	workloadWitnesses
 } from "#test/support/agreement/workloads.ts"
 import { assert } from "#test/support/assert.ts"
-import { checked } from "#test/types/batch/groups.ts"
+import { checked } from "#test/types/batch/batch.ts"
 
 layer(NodeServices.layer, { excludeTestServices: true })("the workload agreement", (it) => {
 	it.effect(
