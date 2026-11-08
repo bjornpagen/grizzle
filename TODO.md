@@ -8,21 +8,6 @@ The one plan: only work still to do. A finished item is deleted, not ticked.
 post-beta swarm's fixes for the next release.
 
 ### Next
-- **A containment whose source is a semijoin, `within(...)`** (JOIN, deferred by the owner 2026-11-07). qti-pie keeps
-  copy fields for it (unwrittenType, the metadata `named` copies, HeldType's existence).
-  - Why it waits: no PostgreSQL constraint over R, S and T can state "every R row with a matching S row is in T". Two
-    lawful states, {r} and {s}, combine into an unlawful one that every single-table constraint and every null-guarded
-    foreign key still admits.
-  - The two ways, for the owner to choose between:
-    - T: one deferred constraint trigger per law, checking at COMMIT. It reverses README's "never a trigger" (lines
-      107, 918, 1611).
-    - N: a parent relation keyed by the join value, with hidden flag columns the writer fills. That means thousands of
-      lines in the write planner, and new write restrictions.
-  - The design, if T: `within(on(R, f…), on(S, g…))` read only as `contained`'s source, with
-    SourceSideDesc.within: WithinDesc[].
-    - The trigger function is SECURITY DEFINER, with EXECUTE revoked from PUBLIC.
-    - R, S and T events probe by their own keys.
-    - A violation raises 23503 naming the law's constraint, with no DETAIL.
 - **PostgreSQL:** repin to 19rc2 when it is released on 2026-11-12 (pin.env, rebuild, re-init, delete the 19rc1
   build; RC2 includes the recursive-UNION hash_mem fix, so that patch goes; confirm DROP DATABASE … WITH (FORCE)
   beside parallel autovacuum and the RI fast path with a cast). Repin to 19 GA on 2026-11-19; the relcache patch is
