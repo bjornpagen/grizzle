@@ -284,8 +284,6 @@ layer(Substrate.layer)("printed SQL on PostgreSQL 19", (it) => {
 				const s = yield* Substrate
 				const schema = yield* s.schema(freshSchema)
 				const q = quoteIdent(schema)
-				/** A role, a function and a type of each case's own, so no case meets another's defaults. */
-				let made = 0
 				return yield* exhaust(
 					{
 						suite: "pg/sql/default-privileges",
@@ -307,8 +305,9 @@ layer(Substrate.layer)("printed SQL on PostgreSQL 19", (it) => {
 					([scope, on], c) =>
 						Effect.scoped(
 							Effect.gen(function* () {
-								made += 1
-								const maker = yield* s.role(schema, `maker_${made}`)
+								/** A role, a function and a type of each case's own, named by its case, so no case meets another's defaults. */
+								const own = `${scope}_${Str.toLowerCase(on)}`
+								const maker = yield* s.role(schema, `maker_${own}`)
 								yield* s.admin.query(
 									`GRANT USAGE, CREATE ON SCHEMA ${q} TO ${quoteIdent(maker.role)}`,
 									[]
@@ -324,7 +323,7 @@ layer(Substrate.layer)("printed SQL on PostgreSQL 19", (it) => {
 										from: [{ kind: "PUBLIC" }]
 									}
 								])
-								const created = `__made_${made}`
+								const created = `__made_${own}`
 								yield* m.query(
 									sql(
 										on === "FUNCTIONS"
