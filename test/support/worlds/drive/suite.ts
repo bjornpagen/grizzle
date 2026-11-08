@@ -270,19 +270,6 @@ const setsClaimsByHand = (action: Action): boolean =>
 	action.start.claims.kind === "set" &&
 	action.start.claims.setting.kind === "malformed"
 
-/**
- * What a direct writer's statements and COMMIT note: their op features, the world objects they meet, and the SQLSTATE a
- * hand-set claim its field refuses meets where a statement reads it.
- */
-const directReach = (feature: WorldFeature): boolean =>
-	startingWith(
-		"op:direct:",
-		"op:direct-end:",
-		"object:",
-		"claim-refused:",
-		"claim-refused-read:"
-	)(feature)
-
 /** How a lead aims its BEGIN: at what `read` finds the BEGIN's outcome reaches, among the box's BEGINs `worth` admits. */
 interface BeginAim {
 	readonly read: Aiming["read"]
@@ -321,7 +308,9 @@ const aimedStatement = (
 /**
  * A lead's transaction: a BEGIN aimed as `begin` aims it, three statements of its transaction each aimed at the required
  * features the program has not reached yet, and its end, aimed likewise (endingIt), so the lead closes what it opened
- * and the program's own draws meet no transaction they did not begin.
+ * and the program's own draws meet no transaction they did not begin. It runs while a feature it aims at is pending:
+ * the BEGIN's look-ahead decides which of them the transaction's statements reach, so every one a statement carries has
+ * its lead, the invalid inputs of a statement and the law its refusal names included.
  */
 const transactionLead =
 	(required: ReadonlyArray<Reached<WorldFeature>>, begin: BeginAim): Lead =>
@@ -331,7 +320,7 @@ const transactionLead =
 			return []
 		}
 		const statement = aimedStatement(weights, [first, ...rest], notedOf)
-		return whilePending(requiredFeatures(required, directReach), at, () => [
+		return whilePending([first, ...rest], at, () => [
 			aimedBegin(weights, [first, ...rest], begin),
 			statement,
 			statement,
@@ -1381,10 +1370,26 @@ interface InductiveShape {
 }
 
 /**
+ * The features the inductive suite leads a begun transaction toward (inductiveLeads): a direct writer's op features, the
+ * world objects its statements meet, and the SQLSTATE a hand-set claim its field refuses meets where a statement reads
+ * it, but what only a Db's apply shows (appliedProbe). It splits the required features among the leads, each case's one
+ * action aimed at its lead's alone; it gates no lead's moves. A case whose planned state holds a direct writer aims its
+ * one action at every required feature, and so does a led case once no lead's target is pending.
+ */
+const begunTargets = (feature: WorldFeature): boolean =>
+	startingWith(
+		"op:direct:",
+		"op:direct-end:",
+		"object:",
+		"claim-refused:",
+		"claim-refused-read:"
+	)(feature) && !appliedProbe(feature)
+
+/**
  * The inductive suite's leads over `required`, each with a required feature to reach:
- * - a transaction begun one statement from a direct writer's feature (afterBegin), any but what only a Db's apply shows
- *   (appliedProbe): the role it took on and the claims it set, none, some or malformed, decide which facts lie inside,
- *   outside and hidden from its world and which world function it may call;
+ * - a transaction begun one statement from a direct writer's feature (afterBegin, begunTargets): the role it took on and
+ *   the claims it set, none, some or malformed, decide which facts lie inside, outside and hidden from its world and
+ *   which world function it may call;
  * - a transaction one statement in, aimed so that its COMMIT or, after a delete, a read of it reaches a feature
  *   (afterWrite): a law checked at COMMIT that the statement broke, or a fact
  *   the transaction deleted, gone from what it reads;
@@ -1401,7 +1406,7 @@ export const inductiveLeads = (
 ): ReadonlyArray<InductiveLead> => {
 	const shapes: ReadonlyArray<InductiveShape> = [
 		{
-			reaches: (f) => directReach(f) && !appliedProbe(f),
+			reaches: begunTargets,
 			moves: (weights, targets) => [
 				aimedBegin(weights, targets, { read: afterBegin, worth: everyBegin })
 			]
