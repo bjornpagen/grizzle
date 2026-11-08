@@ -82,12 +82,6 @@ export const fusedLayout = (
 	})
 })
 
-interface AttachmentChoice {
-	readonly form: AttachmentForm
-	/** A constant phrase naming why, for diagnostics. */
-	readonly why: string
-}
-
 /**
  * The R36 rule. `parents` says whether the parent's rows read an approximate search, the one case correctness fuses.
  *
@@ -122,19 +116,15 @@ interface AttachmentChoice {
 export const chooseAttachment = (
 	attach: NodeOf<"Attach">,
 	parents: "exact" | "approximate"
-): AttachmentChoice => {
-	const blocked = pipelinedOnly(attach.child)
-	if (blocked !== undefined) {
-		return { form: "pipelined", why: blocked }
+): AttachmentForm => {
+	if (pipelinedOnly(attach.child) !== undefined) {
+		return "pipelined"
 	}
 	switch (parents) {
 		case "approximate":
-			return {
-				form: "fused",
-				why: "a child over approximate candidates fuses, so the search runs once"
-			}
+			return "fused"
 		case "exact":
-			return { form: "pipelined", why: "an attachment is its own statement in the flight" }
+			return "pipelined"
 	}
 }
 

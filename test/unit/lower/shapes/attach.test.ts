@@ -120,7 +120,7 @@ describe("the attachment fusion rule", () => {
 						Effect.sync(() => {
 							const built = readingsBy(correlated, fields)
 							const expected = parents === "approximate" ? "fused" : "pipelined"
-							assert.equal(chooseAttachment(attachOf(built.dag.roots[0]), parents).form, expected)
+							assert.equal(chooseAttachment(attachOf(built.dag.roots[0]), parents), expected)
 							c.note(expected)
 						})
 				)

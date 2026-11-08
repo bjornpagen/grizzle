@@ -662,7 +662,7 @@ const fusedDescription = (
  * columns the parent row supplies included.
  */
 const fusible = (attach: NodeOf<"Attach">, searches: boolean): boolean =>
-	chooseAttachment(attach, searches ? "approximate" : "exact").form === "fused"
+	chooseAttachment(attach, searches ? "approximate" : "exact") === "fused"
 
 /** Whether computing the rows of `node` reads an approximate search: an attachment's rows are its parent's. */
 const rowsReadSearch = (node: RelNode): boolean => {
